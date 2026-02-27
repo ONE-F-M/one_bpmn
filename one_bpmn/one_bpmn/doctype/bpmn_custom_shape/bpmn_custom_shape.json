@@ -1,0 +1,106 @@
+{
+ "actions": [],
+ "allow_rename": 1,
+ "autoname": "format:{library}-{shape_name}",
+ "creation": "2026-01-29 09:00:00.000000",
+ "doctype": "DocType",
+ "engine": "InnoDB",
+ "field_order": [
+  "shape_name",
+  "library",
+  "shape_type",
+  "column_break_1",
+  "display_order",
+  "section_break_svg",
+  "svg_content",
+  "section_break_preview",
+  "thumbnail"
+ ],
+ "fields": [
+  {
+   "fieldname": "shape_name",
+   "fieldtype": "Data",
+   "in_list_view": 1,
+   "in_standard_filter": 1,
+   "label": "Shape Name",
+   "reqd": 1
+  },
+  {
+   "fieldname": "library",
+   "fieldtype": "Link",
+   "in_list_view": 1,
+   "in_standard_filter": 1,
+   "label": "Library",
+   "options": "BPMN Shape Library",
+   "reqd": 1
+  },
+  {
+   "default": "decorative",
+   "fieldname": "shape_type",
+   "fieldtype": "Select",
+   "in_list_view": 1,
+   "label": "Shape Type",
+   "options": "decorative\nbpmn_element",
+   "reqd": 1
+  },
+  {
+   "fieldname": "column_break_1",
+   "fieldtype": "Column Break"
+  },
+  {
+   "default": "0",
+   "fieldname": "display_order",
+   "fieldtype": "Int",
+   "label": "Display Order"
+  },
+  {
+   "fieldname": "section_break_svg",
+   "fieldtype": "Section Break",
+   "label": "SVG Content"
+  },
+  {
+   "description": "SVG markup (max 150KB)",
+   "fieldname": "svg_content",
+   "fieldtype": "Long Text",
+   "label": "SVG Content",
+   "reqd": 1
+  },
+  {
+   "collapsible": 1,
+   "fieldname": "section_break_preview",
+   "fieldtype": "Section Break",
+   "label": "Preview"
+  },
+  {
+   "fieldname": "thumbnail",
+   "fieldtype": "Attach Image",
+   "label": "Thumbnail"
+  }
+ ],
+ "index_web_pages_for_search": 0,
+ "links": [],
+ "modified": "2026-01-29 09:00:00.000000",
+ "modified_by": "Administrator",
+ "module": "One Bpmn",
+ "name": "BPMN Custom Shape",
+ "naming_rule": "Expression",
+ "owner": "Administrator",
+ "permissions": [
+  {
+   "create": 1,
+   "delete": 1,
+   "email": 1,
+   "export": 1,
+   "print": 1,
+   "read": 1,
+   "report": 1,
+   "role": "System Manager",
+   "share": 1,
+   "write": 1
+  }
+ ],
+ "sort_field": "display_order",
+ "sort_order": "ASC",
+ "states": [],
+ "track_changes": 1
+}

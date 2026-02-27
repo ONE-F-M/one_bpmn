@@ -1,0 +1,32 @@
+{
+	"name": "one-bpmn-spiff",
+	"private": true,
+	"version": "0.0.1",
+	"type": "module",
+	"scripts": {
+		"dev": "vite",
+		"build": "vite build"
+	},
+	"dependencies": {
+		"@bpmn-io/properties-panel": "^3.36.0",
+		"@iconify-json/lucide": "^1.2.87",
+		"@iconify/vue": "^5.0.0",
+		"@vitejs/plugin-vue": "^4.4.0",
+		"bpmn-js": "^17.11.1",
+		"bpmn-js-color-picker": "^0.7.2",
+		"bpmn-js-properties-panel": "^5.48.0",
+		"bpmn-js-spiffworkflow": "github:ks093/bpmn-js-spiffworkflow#develop",
+		"dayjs": "^1.11.7",
+		"diagram-js-minimap": "^5.2.0",
+		"frappe-ui": "0.1.192",
+		"unplugin-icons": "^23.0.1",
+		"vue": "^3.5.13",
+		"vue-router": "^4.5.0"
+	},
+	"devDependencies": {
+		"autoprefixer": "^10.4.20",
+		"postcss": "^8.5.1",
+		"tailwindcss": "^3.4.17",
+		"vite": "^4.4.9"
+	}
+}

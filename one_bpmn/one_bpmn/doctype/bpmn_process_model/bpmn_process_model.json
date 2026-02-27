@@ -1,0 +1,187 @@
+{
+ "actions": [],
+ "allow_rename": 1,
+ "autoname": "field:title",
+ "creation": "2026-01-26 09:30:00",
+ "doctype": "DocType",
+ "engine": "InnoDB",
+ "field_order": [
+  "section_process_info",
+  "title",
+  "process_name",
+  "process_id",
+  "column_break_info",
+  "category",
+  "is_active",
+  "section_description",
+  "description",
+  "section_bpmn_diagram",
+  "bpmn_xml",
+  "section_dmn_table",
+  "dmn_xml",
+  "section_engine_data",
+  "serialized_spec",
+  "subprocess_specs",
+  "column_break_engine",
+  "version",
+  "amended_from"
+ ],
+ "fields": [
+  {
+   "fieldname": "section_process_info",
+   "fieldtype": "Section Break",
+   "label": "Process Info"
+  },
+  {
+   "fieldname": "title",
+   "fieldtype": "Data",
+   "in_list_view": 1,
+   "in_standard_filter": 1,
+   "label": "Title",
+   "reqd": 1,
+   "unique": 1
+  },
+  {
+   "description": "BPMN process ID extracted from XML (e.g., Process_1). Must be unique.",
+   "fieldname": "process_id",
+   "fieldtype": "Data",
+   "in_list_view": 1,
+   "in_standard_filter": 1,
+   "label": "Process ID",
+   "reqd": 1,
+   "unique": 1
+  },
+  {
+   "fieldname": "column_break_info",
+   "fieldtype": "Column Break"
+  },
+  {
+   "fieldname": "category",
+   "fieldtype": "Data",
+   "label": "Category"
+  },
+  {
+   "default": "1",
+   "fieldname": "is_active",
+   "fieldtype": "Check",
+   "in_list_view": 1,
+   "label": "Active"
+  },
+  {
+   "fieldname": "section_description",
+   "fieldtype": "Section Break",
+   "label": "Description"
+  },
+  {
+   "fieldname": "description",
+   "fieldtype": "Small Text",
+   "label": "Description"
+  },
+  {
+   "fieldname": "section_bpmn_diagram",
+   "fieldtype": "Section Break",
+   "label": "BPMN Diagram"
+  },
+  {
+   "fieldname": "bpmn_xml",
+   "fieldtype": "Code",
+   "label": "BPMN XML",
+   "options": "XML"
+  },
+  {
+   "fieldname": "section_dmn_table",
+   "fieldtype": "Section Break",
+   "label": "DMN Table"
+  },
+  {
+   "fieldname": "dmn_xml",
+   "fieldtype": "Code",
+   "label": "DMN XML",
+   "options": "XML"
+  },
+  {
+   "collapsible": 1,
+   "fieldname": "section_engine_data",
+   "fieldtype": "Section Break",
+   "label": "Engine Data"
+  },
+  {
+   "fieldname": "serialized_spec",
+   "fieldtype": "JSON",
+   "label": "Serialized Spec"
+  },
+  {
+   "fieldname": "subprocess_specs",
+   "fieldtype": "JSON",
+   "label": "Subprocess Specs"
+  },
+  {
+   "fieldname": "column_break_engine",
+   "fieldtype": "Column Break"
+  },
+  {
+   "default": "1",
+   "fieldname": "version",
+   "fieldtype": "Int",
+   "in_list_view": 1,
+   "label": "Version",
+   "reqd": 1
+  },
+  {
+   "fieldname": "amended_from",
+   "fieldtype": "Link",
+   "label": "Amended From",
+   "options": "BPMN Process Model"
+  },
+  {
+   "fieldname": "process_name",
+   "fieldtype": "Link",
+   "label": "Process Name",
+   "options": "Process"
+  }
+ ],
+ "in_create": 1,
+ "index_web_pages_for_search": 1,
+ "links": [],
+ "modified": "2026-02-10 08:19:42.337171",
+ "modified_by": "Administrator",
+ "module": "ONE BPMN",
+ "name": "BPMN Process Model",
+ "naming_rule": "By fieldname",
+ "owner": "Administrator",
+ "permissions": [
+  {
+   "create": 1,
+   "delete": 1,
+   "email": 1,
+   "export": 1,
+   "print": 1,
+   "read": 1,
+   "report": 1,
+   "role": "System Manager",
+   "share": 1,
+   "write": 1
+  },
+  {
+   "create": 1,
+   "delete": 1,
+   "email": 1,
+   "export": 1,
+   "print": 1,
+   "read": 1,
+   "report": 1,
+   "role": "BPMN Admin",
+   "share": 1,
+   "write": 1
+  },
+  {
+   "read": 1,
+   "role": "All"
+  }
+ ],
+ "row_format": "Dynamic",
+ "sort_field": "creation",
+ "sort_order": "DESC",
+ "states": [],
+ "track_changes": 1
+}

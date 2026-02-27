@@ -1,41 +1,339 @@
-### ONE BPMN
+# ONE BPMN
 
-Spiffworkflow integration with Frappe
+A BPMN editor integration with Frappe Framework, powered by [bpmn-js](https://bpmn.io/toolkit/bpmn-js/) and [SpiffWorkflow](https://www.spiffworkflow.org/) extensions. The app provides a Vue.js-based BPMN process modeler accessible at `/spiff`, with support for multiple diagrams per process, a tabbed editing interface, a formatting toolbar, a custom shape library, and SpiffWorkflow properties panel integration.
 
-### Installation
+## Installation
 
-You can install this app using the [bench](https://github.com/frappe/bench) CLI:
+### Prerequisites
 
-```bash
-cd $PATH_TO_YOUR_BENCH
-bench get-app $URL_OF_THIS_REPO --branch develop
-bench install-app one_bpmn
-```
+- Frappe Bench setup
+- Node.js 20.x
+- Yarn package manager
 
-### Contributing
-
-This app uses `pre-commit` for code formatting and linting. Please [install pre-commit](https://pre-commit.com/#installation) and enable it for this repository:
+### Install the App
 
 ```bash
-cd apps/one_bpmn
-pre-commit install
+# Get the app
+bench get-app one_bpmn <repository-url>
+
+# Install on your site
+bench --site your-site.local install-app one_bpmn
+
+# Run database migrations
+bench --site your-site.local migrate
 ```
 
-Pre-commit is configured to use the following tools for checking and formatting your code:
+### Build Frontend Assets
 
-- ruff
-- eslint
-- prettier
-- pyupgrade
+```bash
+# Navigate to the Vue.js frontend directory
+cd apps/one_bpmn/spiff
 
-### CI
+# Install dependencies
+yarn install
 
-This app can use GitHub Actions for CI. The following workflows are configured:
+# Build for production
+yarn build
 
-- CI: Installs this app and runs unit tests on every push to `develop` branch.
-- Linters: Runs [Frappe Semgrep Rules](https://github.com/frappe/semgrep-rules) and [pip-audit](https://pypi.org/project/pip-audit/) on every pull request.
+# Copy assets to sites/assets
+cd ../../../
+bench build --app one_bpmn
 
+# Clear cache
+bench --site your-site.local clear-cache
+```
 
-### License
+### Development Mode
 
-mit
+```bash
+cd apps/one_bpmn/spiff
+yarn dev --host
+```
+
+Access at `http://localhost:8080/spiff` (dev server).
+
+---
+
+## Project Structure
+
+```
+one_bpmn/
+├── one_bpmn/                         # Frappe app module
+│   ├── api.py                        # Backend API endpoints (Process Models + Shape Library)
+│   ├── hooks.py                      # Frappe hooks configuration
+│   ├── one_bpmn/                     # DocTypes module
+│   │   └── doctype/
+│   │       ├── bpmn_process_model/   # BPMN Process Model DocType
+│   │       ├── bpmn_shape_library/   # Shape Library DocType
+│   │       └── bpmn_custom_shape/    # Custom Shape DocType
+│   ├── public/
+│   │   └── spiff/                    # Built Vue.js assets (generated)
+│   │       ├── assets/               # JS, CSS, fonts
+│   │       └── index.html
+│   └── www/
+│       └── spiff/                    # Frappe www route
+│           ├── index.html            # HTML template (Jinja)
+│           └── index.py              # Context provider
+│
+└── spiff/                            # Vue.js frontend source
+    ├── package.json
+    ├── vite.config.js
+    ├── tailwind.config.cjs
+    ├── postcss.config.cjs
+    ├── index.html                    # Dev entry point
+    └── src/
+        ├── main.js                   # App entry point
+        ├── main.css                  # Global styles (Tailwind)
+        ├── App.vue                   # Root component
+        ├── dayjs.js                  # DayJS configuration
+        ├── router/
+        │   └── index.js              # Vue Router configuration
+        ├── views/
+        │   ├── Home.vue              # Process list (table layout)
+        │   └── Editor.vue            # BPMN editor with tabbed interface
+        ├── components/
+        │   ├── BpmnEditor.vue        # bpmn-js modeler wrapper with SpiffWorkflow extensions
+        │   ├── EditorTabs.vue        # Bottom tab bar for open diagrams
+        │   ├── EditorSidebar.vue     # Left sidebar for diagram list
+        │   ├── FormattingToolbar.vue  # Font, size, color, and alignment controls
+        │   └── ShapeLibraryPanel.vue  # Custom shape library panel (drag-and-drop)
+        ├── bpmn/
+        │   ├── CustomShapeRenderer.js # Renders custom SVG shapes on canvas
+        │   └── index.js              # Custom shape module registration
+        ├── renderers/
+        │   ├── CustomTextStyleRenderer.js # Renders custom text styles (font, color, size)
+        │   └── index.js              # Text style module registration
+        ├── rules/
+        │   ├── CustomRules.js         # Custom modeling rules for shape connections
+        │   └── index.js              # Rules module registration
+        ├── moddle/
+        │   └── customTextStyleModdle.js # Moddle extension for text style XML attributes
+        ├── i18n/
+        │   ├── customTranslate.js    # Translation strings
+        │   └── index.js              # Translation module registration
+        └── utils/
+            └── textStyleUtils.js     # Text style calculation utilities
+```
+
+---
+
+## Backend API Endpoints
+
+Located in `one_bpmn/api.py`:
+
+### Process Model API
+
+| Method | Endpoint                            | Description                                          |
+| ------ | ----------------------------------- | ---------------------------------------------------- |
+| POST   | `one_bpmn.api.save_process_model`   | Save or update a BPMN diagram                        |
+| GET    | `one_bpmn.api.get_process_model`    | Get a diagram by name                                |
+| GET    | `one_bpmn.api.list_process_models`  | List all diagrams                                    |
+| GET    | `one_bpmn.api.list_processes`       | List Process records with per-process diagram counts |
+| GET    | `one_bpmn.api.get_process_diagrams` | Get all diagrams for a specific process              |
+| POST   | `one_bpmn.api.update_diagram_order` | No-op (kept for frontend compatibility)              |
+| DELETE | `one_bpmn.api.delete_diagram`       | Delete a diagram                                     |
+
+### Shape Library API
+
+| Method | Endpoint                            | Description                                |
+| ------ | ----------------------------------- | ------------------------------------------ |
+| GET    | `one_bpmn.api.get_shape_libraries`  | Get all shape libraries with nested shapes |
+| POST   | `one_bpmn.api.create_shape_library` | Create a new shape library                 |
+| DELETE | `one_bpmn.api.delete_shape_library` | Delete a library and all its shapes        |
+| POST   | `one_bpmn.api.upload_shape`         | Upload a custom SVG shape to a library     |
+| DELETE | `one_bpmn.api.delete_shape`         | Delete a custom shape                      |
+
+All endpoints require authentication and use `@frappe.whitelist()` decorator.
+
+---
+
+## DocTypes
+
+### BPMN Process Model
+
+Stores BPMN process definitions with SpiffWorkflow engine data. Named by `title` field.
+
+| Field              | Type                      | Description                                            |
+| ------------------ | ------------------------- | ------------------------------------------------------ |
+| `title`            | Data (unique, required)   | Diagram title (used as document name)                  |
+| `process_name`     | Link → Process            | Parent process record                                  |
+| `process_id`       | Data (unique, required)   | BPMN process ID extracted from XML (e.g., `Process_1`) |
+| `category`         | Data                      | Optional category for grouping                         |
+| `is_active`        | Check (default: 1)        | Whether the diagram is active                          |
+| `description`      | Small Text                | Optional description                                   |
+| `bpmn_xml`         | Code (XML)                | BPMN XML content                                       |
+| `dmn_xml`          | Code (XML)                | DMN decision table XML                                 |
+| `serialized_spec`  | JSON                      | SpiffWorkflow serialized process spec                  |
+| `subprocess_specs` | JSON                      | SpiffWorkflow subprocess specifications                |
+| `version`          | Int (default: 1)          | Auto-incrementing version number                       |
+| `amended_from`     | Link → BPMN Process Model | Reference to previous version                          |
+
+**Controller logic** (`bpmn_process_model.py`):
+
+- `validate()` — validates `process_id` format (alphanumeric, underscores, hyphens, dots) and auto-extracts it from BPMN XML if not set
+- `before_save()` — auto-increments `version` on each update
+
+**Permissions**: System Manager (full), BPMN Admin (full), All (read-only).
+
+### BPMN Shape Library
+
+Container for organizing custom shapes into libraries.
+
+### BPMN Custom Shape
+
+Stores individual custom SVG shapes linked to a parent library. Supports drag-and-drop onto the BPMN canvas.
+
+---
+
+## Frontend Routes
+
+| Route                                      | View       | Description                                 |
+| ------------------------------------------ | ---------- | ------------------------------------------- |
+| `/spiff`                                   | Home.vue   | List of Process records with diagram counts |
+| `/spiff/process/:process`                  | Editor.vue | Editor for a process (shows all diagrams)   |
+| `/spiff/process/:process/diagram/:diagram` | Editor.vue | Editor with specific diagram active         |
+
+---
+
+## Features
+
+### Home Page (`/spiff`)
+
+- Table listing Process records with per-process diagram counts
+- Columns: Title, Process Owner, Business Analyst, Status, Last Modified, Created
+- Status derived from the most recent diagram's `is_active` flag
+- Click a row to open the process editor
+
+### Editor Page (`/spiff/process/:process`)
+
+- Full-featured BPMN modeler powered by bpmn-js v17
+- **Tabbed interface** at bottom for switching between diagrams
+- **Left sidebar** for diagram list within the process
+- **Properties panel** (toggleable) with BPMN and SpiffWorkflow properties
+- **Formatting toolbar** with:
+  - Font family and size selection
+  - Bold, italic, underline text styling
+  - Text and fill color pickers
+  - Stroke color picker
+  - Text alignment (left, center, right)
+- Toolbar with Undo/Redo/Delete buttons
+- Keyboard shortcuts:
+  - `Ctrl+Z` — Undo
+  - `Ctrl+Y` / `Ctrl+Shift+Z` — Redo
+  - `Del` / `Backspace` — Delete selected elements
+- Zoom controls: zoom in/out, reset, fit-to-screen
+- Save persists to Frappe database
+- HTML entity decoding for stored XML
+
+### SpiffWorkflow Integration
+
+- SpiffWorkflow properties panel extensions via forked [`bpmn-js-spiffworkflow`](https://github.com/ks093/bpmn-js-spiffworkflow)
+- **Script editor** launch for Script Tasks, Pre/Post scripts
+- **Markdown editor** launch for User Task / Manual Task instructions
+- **Call Activity editor** launch for Call Activity elements
+- Event bus handlers for SpiffWorkflow data requests (service tasks, JSON schemas, DMN files, data stores, messages)
+- Loop data reference fix for multi-instance activities
+
+### Custom Shape Library
+
+- Create and manage shape libraries via the sidebar panel
+- Upload custom SVG shapes to libraries
+- Drag and drop custom shapes onto the BPMN canvas
+- Custom shapes render as BPMN Tasks with embedded SVG
+
+### Custom Text Styling
+
+- Per-element text formatting (font family, size, weight, style, decoration, alignment)
+- Custom moddle extension persists styles as XML attributes (`custom:fontFamily`, `custom:fontSize`, etc.)
+- Custom renderer applies styles during diagram rendering
+
+### i18n / Translation
+
+- Custom translate module for localizing BPMN palette, context pad, and properties panel labels
+
+### Create Diagram Dialog
+
+- Creates new diagram with empty start event
+- Links diagram to parent Process via `process_name`
+
+---
+
+## Key Dependencies
+
+| Package                     | Version  | Purpose                                            |
+| --------------------------- | -------- | -------------------------------------------------- |
+| `bpmn-js`                   | ^17.11.1 | BPMN modeler core                                  |
+| `bpmn-js-properties-panel`  | ^5.48.0  | Properties panel for BPMN elements                 |
+| `bpmn-js-spiffworkflow`     | forked   | SpiffWorkflow extensions (ESM build)               |
+| `@bpmn-io/properties-panel` | ^3.36.0  | Base properties panel framework                    |
+| `frappe-ui`                 | 0.1.192  | Frappe UI components (Tooltip, TextEditor, Dialog) |
+| `vue`                       | ^3.5.13  | Vue.js framework                                   |
+| `vue-router`                | ^4.5.0   | Client-side routing                                |
+| `dayjs`                     | ^1.11.7  | Date/time formatting                               |
+| `@iconify/vue`              | ^5.0.0   | Icon component (Lucide icons)                      |
+| `diagram-js-minimap`        | ^5.2.0   | Minimap module (currently disabled)                |
+| `bpmn-js-color-picker`      | ^0.7.2   | Color picker integration                           |
+| `tailwindcss`               | ^3.4.17  | Utility-first CSS (dev)                            |
+
+---
+
+## Development
+
+### After Making Changes
+
+```bash
+cd apps/one_bpmn/spiff
+yarn build
+cd ../../../
+bench build --app one_bpmn
+bench --site your-site.local clear-cache
+```
+
+### Adding New Features
+
+- **API endpoint**: Add to `one_bpmn/api.py` with `@frappe.whitelist()`
+- **Vue component**: Add to `spiff/src/components/`
+- **Page/view**: Add to `spiff/src/views/` and register in `router/index.js`
+- **bpmn-js module**: Add to `spiff/src/bpmn/`, `spiff/src/renderers/`, or `spiff/src/rules/` and register in `BpmnEditor.vue`'s `additionalModules`
+- **Moddle extension**: Add to `spiff/src/moddle/` and register in `BpmnEditor.vue`'s `moddleExtensions`
+
+---
+
+## Troubleshooting
+
+### White Screen on /spiff
+
+1. Run `bench build --app one_bpmn`
+2. Clear cache: `bench --site your-site.local clear-cache`
+3. Hard refresh browser (Ctrl+Shift+R)
+
+### API "Not Whitelisted" Error
+
+Restart the server after adding new API methods:
+
+```bash
+bench restart
+```
+
+### BPMN Modeler Not Loading
+
+Check browser console for errors. Common fixes:
+
+- Ensure bpmn-js CSS is imported
+- Verify container element has proper dimensions
+
+### XML Import Fails
+
+The app automatically decodes HTML entities in stored XML. If issues persist, check browser console for the decoded XML output.
+
+### SpiffWorkflow Extensions Not Showing
+
+- Verify `bpmn-js-spiffworkflow` is installed: `ls node_modules/bpmn-js-spiffworkflow/`
+- Ensure the `spiffworkflow` module and `spiffModdleExtension` are registered in `BpmnEditor.vue`
+- Check browser console for import errors
+
+---
+
+## License
+
+MIT
