@@ -1,6 +1,7 @@
 # Copyright (c) 2026, kartiksharma9319@gmail.com and contributors
 # For license information, please see license.txt
 
+import uuid
 import frappe
 from frappe import _
 
@@ -45,6 +46,7 @@ def save_process_model(
 		doc.bpmn_xml = xml_content
 		doc.description = description or ""
 		doc.version = 1
+		doc.process_id = str(uuid.uuid4())
 		doc.insert()
 
 	return {
