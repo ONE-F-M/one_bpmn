@@ -43,6 +43,7 @@ def save_process_model(
 		# Create new model
 		doc = frappe.new_doc("BPMN Process Model")
 		doc.title = model_name
+		doc.process_name = model_name
 		doc.bpmn_xml = xml_content
 		doc.description = description or ""
 		doc.version = 1
