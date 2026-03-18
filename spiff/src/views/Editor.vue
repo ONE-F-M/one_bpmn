@@ -258,12 +258,15 @@
 						</div>
 						<!-- Row 1: Name + Script Type -->
 						<div class="grid grid-cols-2 gap-4">
-							<FormControl
-								label="Script Name"
-								v-model="newScript.name"
-								:required="true"
-								placeholder="e.g. Validate Employee Shift"
-							/>
+							<div>
+								<label class="block text-xs font-medium text-gray-700 mb-1">Script Name <span class="text-red-500">*</span></label>
+								<input
+									v-model="newScript.name"
+									type="text"
+									placeholder="e.g. Validate Employee Shift"
+									class="w-full px-3 py-1.5 border border-gray-300 rounded-md text-sm bg-white text-gray-900 focus:outline-none focus:ring-2 focus:ring-blue-400"
+								/>
+							</div>
 							<div>
 								<label class="block text-xs font-medium text-gray-700 mb-1">Script Type <span class="text-red-500">*</span></label>
 								<select
@@ -316,11 +319,15 @@
 
 						<!-- Conditional: API fields -->
 						<div v-if="newScript.script_type === 'API'" class="grid grid-cols-2 gap-4">
-							<FormControl
-								label="API Method"
-								v-model="newScript.api_method"
-								placeholder="e.g. my_custom_api"
-							/>
+							<div>
+								<label class="block text-xs font-medium text-gray-700 mb-1">API Method</label>
+								<input
+									v-model="newScript.api_method"
+									type="text"
+									placeholder="e.g. my_custom_api"
+									class="w-full px-3 py-1.5 border border-gray-300 rounded-md text-sm bg-white text-gray-900 focus:outline-none focus:ring-2 focus:ring-blue-400"
+								/>
+							</div>
 							<div class="flex items-end">
 								<label class="flex items-center gap-2 text-sm text-gray-700 cursor-pointer">
 									<input type="checkbox" v-model="newScript.allow_guest" class="rounded border-gray-300" />
