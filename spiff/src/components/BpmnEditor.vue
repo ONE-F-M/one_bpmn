@@ -684,6 +684,8 @@ defineExpose({
 .properties-panel-container {
 	--properties-panel-header-background-color: #f9fafb;
 	--properties-panel-group-header-background-color: #f3f4f6;
+	/* Contain z-index values so they don't bleed through Dialog overlays */
+	isolation: isolate;
 }
 
 .properties-panel-container .bio-properties-panel {
