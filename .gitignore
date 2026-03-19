@@ -5,3 +5,5 @@
 tags
 node_modules
 __pycache__
+one_bpmn/public/spiff/assets/
+spiff/node_modules/
