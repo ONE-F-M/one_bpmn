@@ -26,7 +26,16 @@
   "version",
   "amended_from",
   "target_details_section",
-  "target_doctypes"
+  "target_doctypes",
+  "section_break_aige",
+  "trigger_type",
+  "trigger_doctype",
+  "trigger_event",
+  "column_break_nbjp",
+  "cron_expression",
+  "status",
+  "deployed_at",
+  "deployed_by"
  ],
  "fields": [
   {
@@ -152,12 +161,60 @@
    "fieldtype": "Table",
    "label": "Target Doctypes",
    "options": "BPMN Process DocType"
+  },
+  {
+   "fieldname": "trigger_type",
+   "fieldtype": "Select",
+   "label": "Trigger Type",
+   "options": "DocType Event\nScheduler Event\nAPI"
+  },
+  {
+   "fieldname": "trigger_doctype",
+   "fieldtype": "Link",
+   "label": "Trigger DocType",
+   "options": "DocType"
+  },
+  {
+   "fieldname": "trigger_event",
+   "fieldtype": "Select",
+   "label": "Trigger Event",
+   "options": "After Insert\nAfter Save\nAutoname\nBefore Validate\nValidate\nBefore Save\nBefore Submit\nBefore Cancel\nBefore Update After Submit\nDB Insert\nAfter Insert\nDB Update\nOn Update\nOn Submit\nOn Cancel\nOn Update After Submit\nOn Change"
+  },
+  {
+   "fieldname": "section_break_aige",
+   "fieldtype": "Section Break"
+  },
+  {
+   "fieldname": "column_break_nbjp",
+   "fieldtype": "Column Break"
+  },
+  {
+   "fieldname": "cron_expression",
+   "fieldtype": "Data",
+   "label": "Cron Expression"
+  },
+  {
+   "fieldname": "status",
+   "fieldtype": "Select",
+   "label": "Status",
+   "options": "Draft / Deployed / Retired"
+  },
+  {
+   "fieldname": "deployed_at",
+   "fieldtype": "Datetime",
+   "label": "Deployed At"
+  },
+  {
+   "fieldname": "deployed_by",
+   "fieldtype": "Link",
+   "label": "Deployed By",
+   "options": "User"
   }
  ],
  "in_create": 1,
  "index_web_pages_for_search": 1,
  "links": [],
- "modified": "2026-03-19 11:22:32.341002",
+ "modified": "2026-03-19 16:04:04.423253",
  "modified_by": "Administrator",
  "module": "ONE BPMN",
  "name": "BPMN Process Model",
