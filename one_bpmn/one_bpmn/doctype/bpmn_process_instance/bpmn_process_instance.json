@@ -4,7 +4,7 @@
  "creation": "2026-03-19 12:16:44.067162",
  "doctype": "DocType",
  "engine": "InnoDB",
-  "field_order": [
+ "field_order": [
   "process_model",
   "status",
   "initiated_by",
@@ -13,7 +13,7 @@
   "cb_context",
   "context_doctype",
   "context_docname",
-  "cb_tasks",
+  "section_break_uyli",
   "active_tasks",
   "section_break_a38t",
   "serialized_spec",
@@ -22,34 +22,34 @@
  "fields": [
   {
    "fieldname": "process_model",
-   "label": "Process Model",
    "fieldtype": "Link",
-   "options": "BPMN Process Model",
-   "in_list_view": 1
+   "in_list_view": 1,
+   "label": "Process Model",
+   "options": "BPMN Process Model"
   },
   {
-   "fieldname": "status",
-   "label": "Status",
-   "fieldtype": "Select",
-   "options": "Active\nCompleted\nErrored\nCancelled",
    "default": "Active",
-   "in_list_view": 1
+   "fieldname": "status",
+   "fieldtype": "Select",
+   "in_list_view": 1,
+   "label": "Status",
+   "options": "Active\nCompleted\nErrored\nCancelled"
   },
   {
    "fieldname": "initiated_by",
-   "label": "Initiated By",
    "fieldtype": "Link",
+   "label": "Initiated By",
    "options": "User"
   },
   {
    "fieldname": "started_at",
-   "label": "Started At",
-   "fieldtype": "Datetime"
+   "fieldtype": "Datetime",
+   "label": "Started At"
   },
   {
    "fieldname": "completed_at",
-   "label": "Completed At",
-   "fieldtype": "Datetime"
+   "fieldtype": "Datetime",
+   "label": "Completed At"
   },
   {
    "fieldname": "cb_context",
@@ -57,24 +57,20 @@
   },
   {
    "fieldname": "context_doctype",
-   "label": "Context DocType",
    "fieldtype": "Link",
+   "label": "Context DocType",
    "options": "DocType"
   },
   {
    "fieldname": "context_docname",
-   "label": "Context DocName",
    "fieldtype": "Dynamic Link",
+   "label": "Context DocName",
    "options": "context_doctype"
   },
   {
-   "fieldname": "cb_tasks",
-   "fieldtype": "Column Break"
-  },
-  {
    "fieldname": "active_tasks",
-   "label": "Active Tasks",
    "fieldtype": "Table",
+   "label": "Active Tasks",
    "options": "BPMN Active Task"
   },
   {
@@ -84,19 +80,23 @@
   },
   {
    "fieldname": "serialized_spec",
-   "label": "Serialized Spec",
-   "fieldtype": "JSON"
+   "fieldtype": "JSON",
+   "label": "Serialized Spec"
   },
   {
    "fieldname": "workflow_state",
-   "label": "Workflow State",
-   "fieldtype": "JSON"
+   "fieldtype": "JSON",
+   "label": "Workflow State"
+  },
+  {
+   "fieldname": "section_break_uyli",
+   "fieldtype": "Section Break"
   }
  ],
  "grid_page_length": 50,
  "index_web_pages_for_search": 1,
  "links": [],
- "modified": "2026-03-19 12:16:44.067162",
+ "modified": "2026-03-19 12:53:09.995334",
  "modified_by": "Administrator",
  "module": "ONE BPMN",
  "name": "BPMN Process Instance",
