@@ -1,5 +1,8 @@
 ---
-applyTo: "spiff/**/*.vue,spiff/**/*.js,spiff/**/*.ts"
+applyTo:
+  - "spiff/**/*.vue"
+  - "spiff/**/*.js"
+  - "spiff/**/*.ts"
 ---
 
 # Vue.js Frontend Review
@@ -16,7 +19,7 @@ Components are already large. Resist further bloat.
 ## Vue 3 Patterns
 
 - MUST use `<script setup>` (Composition API). Flag Options API.
-- Use `defineProps`/`defineEmits` with TypeScript types, not runtime validation.
+- In `<script setup lang="ts">`, use `defineProps`/`defineEmits` with TypeScript types instead of runtime validation; in JS components, runtime prop validation is acceptable until the codebase is migrated to TypeScript.
 - Prefer `computed()` over methods for derived state.
 - Prefer `watchEffect()` over `watch()` when dependencies are obvious.
 - Use `shallowRef` for large objects (bpmn-js modeler) to avoid deep reactivity.
@@ -24,7 +27,7 @@ Components are already large. Resist further bloat.
 
 ## frappe-ui
 
-- Use `createResource`/`createListResource` for API calls. Flag raw `fetch`/`axios`.
+- Prefer `frappeRequest` for API calls. Use `createResource`/`createListResource` when you need reactive frappe-ui resources. Flag new/raw `fetch`/`axios` usage unless there is a clear, documented reason.
 - Use frappe-ui components (Button, Dialog, TextInput) over custom implementations.
 - Reuse Lucide icons from `@iconify-json/lucide`. No new icon libraries.
 
