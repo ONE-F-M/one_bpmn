@@ -175,12 +175,34 @@
 					<div class="text-sm text-gray-500">
 						Edit the Python script for this element. Click Save to apply changes.
 					</div>
-					<textarea
-						v-model="scriptEditorContent"
-						class="w-full h-80 p-3 font-mono text-sm border border-gray-300 rounded-lg bg-gray-50 text-gray-900 focus:outline-none focus:ring-2 focus:ring-blue-400 focus:border-blue-400 resize-y"
-						placeholder="# Enter Python script here..."
-						spellcheck="false"
-					></textarea>
+					<div class="flex gap-4 h-[400px]">
+						<div class="flex-1 flex flex-col">
+							<textarea
+								ref="scriptTextarea"
+								v-model="scriptEditorContent"
+								class="flex-1 w-full p-3 font-mono text-sm border border-gray-300 rounded-lg bg-gray-50 text-gray-900 focus:outline-none focus:ring-2 focus:ring-blue-400 focus:border-blue-400 resize-none"
+								placeholder="# Enter Python script here..."
+								spellcheck="false"
+							></textarea>
+						</div>
+						
+						<!-- Frappe Reference Panel -->
+						<div class="w-64 border border-gray-200 rounded-lg bg-white overflow-y-auto p-3">
+							<h3 class="text-xs font-bold text-gray-400 uppercase tracking-wider mb-3">Frappe Reference</h3>
+							<div class="space-y-4">
+								<div v-for="method in safeMethods" :key="method.name" class="group">
+									<button 
+										@click="insertMethod(method.snippet)"
+										class="text-xs font-mono font-semibold text-blue-600 hover:text-blue-800 hover:underline block mb-1 text-left w-full"
+										title="Click to insert"
+									>
+										{{ method.name }}
+									</button>
+									<p class="text-[10px] text-gray-500 leading-tight">{{ method.description }}</p>
+								</div>
+							</div>
+						</div>
+					</div>
 				</div>
 			</template>
 			<template #actions>
@@ -274,7 +296,42 @@ const diagramDataCache = ref({});
 const showScriptEditorDialog = ref(false);
 const scriptEditorContent = ref("");
 const scriptEditorTitle = ref("Edit Script");
+const scriptTextarea = ref(null);
 let activeScriptEvent = null;
+
+// Safe Frappe Methods for Reference/Autocomplete
+const safeMethods = [
+	{ name: "frappe.get_doc", snippet: "frappe.get_doc('${1:DocType}', '${2:name}')", description: "Fetch a document by name." },
+	{ name: "frappe.get_list", snippet: "frappe.get_list('${1:DocType}', filters={${2:filters}})", description: "Query multiple records." },
+	{ name: "frappe.get_value", snippet: "frappe.get_value('${1:DocType}', '${2:name}', '${3:fieldname}')", description: "Get a single field value." },
+	{ name: "frappe.db.get_value", snippet: "frappe.db.get_value('${1:DocType}', {${2:filters}}, '${3:fieldname}')", description: "DB-level value fetch." },
+	{ name: "frappe.db.exists", snippet: "frappe.db.exists('${1:DocType}', '${2:name}')", description: "Check if record exists." },
+	{ name: "frappe.new_doc", snippet: "doc = frappe.new_doc('${1:DocType}')\ndoc.update({${2:data}})\ndoc.insert()", description: "Create a new record." },
+	{ name: "frappe.throw", snippet: "frappe.throw(_('${1:Error message}'))", description: "Stop execution with error." },
+	{ name: "frappe.msgprint", snippet: "frappe.msgprint(_('${1:Message}'))", description: "Display an info message." },
+];
+
+function insertMethod(snippet) {
+	// Simple insertion at cursor or end
+	const textarea = scriptTextarea.value;
+	if (!textarea) return;
+
+	// Basic placeholder expansion (removing ${1:...})
+	const cleanSnippet = snippet.replace(/\$\{\d+:([^\}]+)\}/g, '$1').replace(/\$\{\d+\}/g, '');
+	
+	const start = textarea.selectionStart;
+	const end = textarea.selectionEnd;
+	const text = scriptEditorContent.value;
+	
+	scriptEditorContent.value = text.substring(0, start) + cleanSnippet + text.substring(end);
+	
+	// Focus back and set cursor
+	setTimeout(() => {
+		textarea.focus();
+		const newPos = start + cleanSnippet.length;
+		textarea.setSelectionRange(newPos, newPos);
+	}, 0);
+}
 
 // Markdown Editor state
 const showMarkdownEditorDialog = ref(false);

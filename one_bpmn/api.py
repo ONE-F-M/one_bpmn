@@ -4,6 +4,7 @@
 import uuid
 import frappe
 from frappe import _
+from one_bpmn.one_bpmn.spiff_engine import get_script_engine
 
 
 @frappe.whitelist()
@@ -402,3 +403,43 @@ def delete_shape(name: str) -> dict:
 	doc.delete()
 
 	return {"success": True}
+
+
+@frappe.whitelist()
+def execute_script_task(script: str, data: dict = None) -> dict:
+	"""
+	Test endpoint to execute a Python script using the SpiffWorkflow script engine.
+	Verifies that the secure 'frappe' object is available.
+
+	Args:
+		script: Python code to execute
+		data: Initial task data (dict)
+
+	Returns:
+		dict with result data and any messages
+	"""
+	if not script:
+		frappe.throw(_("Script content is required"))
+
+	# Initialize script engine
+	engine = get_script_engine()
+	
+	# Mock a task for evaluation
+	# Note: In a real workflow, this would be a SpiffWorkflow Task object.
+	# For testing, we can use the engine's environment directly if needed, 
+	# but the engine's execute method usually expects a task context.
+	
+	try:
+		# For this test, we'll use a simple execution context
+		context = data or {}
+		engine.environment.execute(script, context)
+		return {
+			"success": True,
+			"result": context
+		}
+	except Exception as e:
+		frappe.log_error(frappe.get_traceback(), _("SpiffWorkflow Script Execution Error"))
+		return {
+			"success": False,
+			"error": str(e)
+		}
