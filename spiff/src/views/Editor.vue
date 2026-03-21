@@ -15,10 +15,10 @@
 					<Badge v-if="processStatus" :theme="getStatusTheme(processStatus)" :label="processStatus" />
 				</div>
 			</div>
-			<div v-if="activeDiagramName" class="flex items-center gap-2">
-				<Button variant="solid" class="p-2 hover:bg-gray-100 rounded-md transition-colors" @click="saveCurrentDiagram" :loading="saving">
-					Save
-				</Button>
+			<div v-if="activeDiagramName" class="flex items-center gap-4">
+				<div class="text-sm font-medium transition-colors" :class="saveStatusColor">
+					{{ saveStatusText }}
+				</div>
 				<!-- Shape Library Toggle - DISABLED (see DEVELOPMENT_CONTEXT.md)
 				<button
 					@click="showShapeLibrary = !showShapeLibrary"
@@ -220,7 +220,7 @@
 
 <script setup>
 import { ref, onMounted, onUnmounted, computed, watch } from "vue";
-import { useRouter, useRoute } from "vue-router";
+import { useRouter, useRoute, onBeforeRouteLeave } from "vue-router";
 import { frappeRequest, TextEditor } from "frappe-ui";
 import { Icon } from "@iconify/vue";
 import BpmnEditor from "@/components/BpmnEditor.vue";
@@ -253,6 +253,30 @@ const editorReady = ref(false);
 const hasUnsavedChanges = ref(false);
 const loading = ref(true);
 const showShapeLibrary = ref(false);
+
+// Auto-save state
+const saveState = ref('idle'); // idle, unsaved, saving, saved, error
+let saveTimeout = null;
+
+const saveStatusText = computed(() => {
+	switch (saveState.value) {
+		case 'unsaved': return 'Unsaved changes';
+		case 'saving': return 'Saving...';
+		case 'saved': return 'Saved';
+		case 'error': return 'Save Error';
+		default: return '';
+	}
+});
+
+const saveStatusColor = computed(() => {
+	switch (saveState.value) {
+		case 'unsaved': return 'text-orange-600';
+		case 'saving': return 'text-blue-600';
+		case 'saved': return 'text-green-600';
+		case 'error': return 'text-red-600';
+		default: return 'text-transparent';
+	}
+});
 
 // Notification state
 const notification = ref({
@@ -358,9 +382,31 @@ function handleKeyDown(event) {
 	}
 }
 
+function handleBeforeUnload(event) {
+	if (hasUnsavedChanges.value) {
+		event.preventDefault();
+		event.returnValue = "You have unsaved changes. Are you sure you want to leave?";
+	}
+}
+
+// Prevent accidental navigation
+onBeforeRouteLeave((to, from, next) => {
+	if (hasUnsavedChanges.value) {
+		const answer = window.confirm("You have unsaved changes. Are you sure you want to leave?");
+		if (answer) {
+			next();
+		} else {
+			next(false);
+		}
+	} else {
+		next();
+	}
+});
+
 onMounted(async () => {
 	// Add keyboard shortcut listener
 	window.addEventListener("keydown", handleKeyDown);
+	window.addEventListener("beforeunload", handleBeforeUnload);
 
 	try {
 		loading.value = true;
@@ -384,8 +430,10 @@ onMounted(async () => {
 });
 
 onUnmounted(() => {
-	// Remove keyboard shortcut listener
+	// Remove listeners
 	window.removeEventListener("keydown", handleKeyDown);
+	window.removeEventListener("beforeunload", handleBeforeUnload);
+	clearTimeout(saveTimeout);
 });
 
 async function loadProcess() {
@@ -409,9 +457,13 @@ async function loadProcess() {
 }
 
 async function selectDiagram(name) {
+	if (activeDiagramName.value === name) return;
+
 	// Save current diagram if there are unsaved changes
 	if (hasUnsavedChanges.value && activeDiagramName.value && editorRef.value) {
-		await saveDiagramToCache(activeDiagramName.value);
+		clearTimeout(saveTimeout);
+		saving.value = true;
+		await saveCurrentDiagram();
 	}
 
 	activeDiagramName.value = name;
@@ -443,6 +495,7 @@ async function onEditorReady() {
 	}
 
 	hasUnsavedChanges.value = false;
+	saveState.value = 'idle';
 }
 
 async function loadDiagramContent(name) {
@@ -478,13 +531,24 @@ async function saveDiagramToCache(name) {
 }
 
 function onDiagramChanged() {
+	if (!editorReady.value) return;
+
 	hasUnsavedChanges.value = true;
+	saveState.value = 'unsaved';
+
+	clearTimeout(saveTimeout);
+	saveTimeout = setTimeout(() => {
+		if (activeDiagramName.value) {
+			saveCurrentDiagram();
+		}
+	}, 1500);
 }
 
 async function saveCurrentDiagram() {
 	if (!activeDiagramName.value || !editorRef.value) return;
 
 	saving.value = true;
+	saveState.value = 'saving';
 	try {
 		const xml = await editorRef.value.getXML();
 		const diagram = diagrams.value.find((d) => d.name === activeDiagramName.value);
@@ -511,8 +575,14 @@ async function saveCurrentDiagram() {
 
 		hasUnsavedChanges.value = false;
 		diagramDataCache.value[activeDiagramName.value] = xml;
+		
+		saveState.value = 'saved';
+		setTimeout(() => {
+			if (saveState.value === 'saved') saveState.value = 'idle';
+		}, 3000);
 	} catch (error) {
 		console.error("Failed to save diagram:", error);
+		saveState.value = 'error';
 		showNotification("Error", "Failed to save: " + (error.message || error), "red");
 	} finally {
 		saving.value = false;
@@ -600,6 +670,12 @@ async function createDiagram() {
 }
 
 function closeTab(name) {
+	if (activeDiagramName.value === name && hasUnsavedChanges.value) {
+		if (!window.confirm("You have unsaved changes. Are you sure you want to close this diagram without saving?")) {
+			return;
+		}
+	}
+
 	const index = openTabs.value.findIndex((t) => t.name === name);
 	if (index > -1) {
 		openTabs.value.splice(index, 1);
