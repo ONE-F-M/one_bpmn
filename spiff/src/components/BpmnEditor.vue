@@ -2,7 +2,7 @@
 	<div class="bpmn-editor-wrapper h-full w-full flex flex-col">
 		<!-- Teleported Toolbar (renders in parent Editor.vue's header) -->
 		<Teleport to="#bpmn-editor-toolbar" v-if="isMounted">
-			<div class="flex items-center gap-1.5 w-full h-full text-gray-700 overflow-x-auto no-scrollbar">
+			<div class="flex items-center gap-1.5 w-full h-full text-gray-700">
 				<!-- Undo/Redo buttons -->
 				<Tooltip text="Undo (Ctrl+Z)">
 					<button
@@ -664,15 +664,6 @@ defineExpose({
 </script>
 
 <style>
-/* Hide scrollbar for teleported container */
-.no-scrollbar::-webkit-scrollbar {
-    display: none;
-}
-.no-scrollbar {
-    -ms-overflow-style: none;
-    scrollbar-width: none;
-}
-
 .bpmn-editor-wrapper {
 	background: #fff;
 }
