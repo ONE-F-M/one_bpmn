@@ -7,16 +7,16 @@
 					@click="toggleFillPicker"
 					:disabled="!hasSelection"
 					:class="[
-						'p-2 rounded transition-colors flex items-center gap-1',
+						'p-1.5 rounded transition-colors flex items-center gap-0.5 h-8',
 						hasSelection
-							? 'hover:bg-gray-200 text-gray-700'
+							? 'hover:bg-gray-100 text-gray-700'
 							: 'text-gray-300 cursor-not-allowed',
 					]"
 				>
 					<div class="flex flex-col items-center gap-0.5">
-						<Icon icon="lucide:paint-bucket" class="w-5 h-5" />
+						<Icon icon="lucide:paint-bucket" class="w-4 h-4" />
 						<div
-							class="w-5 h-1.5 rounded-sm border border-gray-300"
+							class="w-4 h-1 rounded-sm border border-gray-300"
 							:style="{ backgroundColor: selectedFillColor }"
 						></div>
 					</div>
@@ -58,16 +58,16 @@
 					@click="toggleStrokePicker"
 					:disabled="!hasSelection"
 					:class="[
-						'p-2 rounded transition-colors flex items-center gap-1',
+						'p-1.5 rounded transition-colors flex items-center gap-0.5 h-8',
 						hasSelection
-							? 'hover:bg-gray-200 text-gray-700'
+							? 'hover:bg-gray-100 text-gray-700'
 							: 'text-gray-300 cursor-not-allowed',
 					]"
 				>
 					<div class="flex flex-col items-center gap-0.5">
-						<Icon icon="lucide:pencil-line" class="w-5 h-5" />
+						<Icon icon="lucide:pencil-line" class="w-4 h-4" />
 						<div
-							class="w-5 h-1.5 rounded-sm border border-gray-300"
+							class="w-4 h-1 rounded-sm border border-gray-300"
 							:style="{ backgroundColor: selectedStrokeColor }"
 						></div>
 					</div>
@@ -104,7 +104,7 @@
 		</div>
 
 		<!-- Separator -->
-		<div class="w-px h-6 bg-gray-300 mx-1"></div>
+		<div class="w-px h-5 bg-gray-200 mx-1 shrink-0"></div>
 
 		<!-- Bold Toggle -->
 		<Tooltip text="Bold">
@@ -112,12 +112,12 @@
 				@click="toggleBold"
 				:disabled="!hasSelection"
 				:class="[
-					'p-2 rounded transition-colors font-bold',
+					'min-w-[28px] h-8 flex items-center justify-center rounded transition-colors font-bold text-sm',
 					!hasSelection
 						? 'text-gray-300 cursor-not-allowed'
 						: isBold
-							? 'bg-blue-100 text-blue-700'
-							: 'hover:bg-gray-200 text-gray-700',
+							? 'bg-blue-100 text-blue-700 shadow-[inset_0_1px_2px_rgba(0,0,0,0.1)]'
+							: 'hover:bg-gray-100 text-gray-700',
 				]"
 			>
 				B
@@ -130,12 +130,12 @@
 				@click="toggleItalic"
 				:disabled="!hasSelection"
 				:class="[
-					'p-2 rounded transition-colors italic',
+					'min-w-[28px] h-8 flex items-center justify-center rounded transition-colors italic text-sm font-serif',
 					!hasSelection
 						? 'text-gray-300 cursor-not-allowed'
 						: isItalic
-							? 'bg-blue-100 text-blue-700'
-							: 'hover:bg-gray-200 text-gray-700',
+							? 'bg-blue-100 text-blue-700 shadow-[inset_0_1px_2px_rgba(0,0,0,0.1)]'
+							: 'hover:bg-gray-100 text-gray-700',
 				]"
 			>
 				I
@@ -148,12 +148,12 @@
 				@click="toggleUnderline"
 				:disabled="!hasSelection"
 				:class="[
-					'p-2 rounded transition-colors underline',
+					'min-w-[28px] h-8 flex items-center justify-center rounded transition-colors underline text-sm',
 					!hasSelection
 						? 'text-gray-300 cursor-not-allowed'
 						: isUnderline
-							? 'bg-blue-100 text-blue-700'
-							: 'hover:bg-gray-200 text-gray-700',
+							? 'bg-blue-100 text-blue-700 shadow-[inset_0_1px_2px_rgba(0,0,0,0.1)]'
+							: 'hover:bg-gray-100 text-gray-700',
 				]"
 			>
 				U
@@ -167,10 +167,10 @@
 					@click="toggleFontFamilyPicker"
 					:disabled="!hasSelection"
 					:class="[
-						'px-2 py-1 rounded transition-colors flex items-center gap-1 text-sm min-w-[80px] justify-between',
+						'px-2 h-7 rounded transition-colors flex items-center gap-1 text-[13px] min-w-[80px] justify-between border',
 						hasSelection
-							? 'hover:bg-gray-200 text-gray-700 border border-gray-300'
-							: 'text-gray-300 cursor-not-allowed border border-gray-200',
+							? 'hover:bg-gray-50 text-gray-700 border-gray-200 bg-white'
+							: 'text-gray-300 cursor-not-allowed border-gray-100 bg-white',
 					]"
 				>
 					<span class="truncate">{{ selectedFontFamilyLabel }}</span>
@@ -204,10 +204,10 @@
 					@click="toggleFontSizePicker"
 					:disabled="!hasSelection"
 					:class="[
-						'px-2 py-1 rounded transition-colors flex items-center gap-1 text-sm min-w-[50px] justify-between',
+						'px-2 h-7 rounded transition-colors flex items-center gap-1 text-[13px] min-w-[50px] justify-between border',
 						hasSelection
-							? 'hover:bg-gray-200 text-gray-700 border border-gray-300'
-							: 'text-gray-300 cursor-not-allowed border border-gray-200',
+							? 'hover:bg-gray-50 text-gray-700 border-gray-200 bg-white'
+							: 'text-gray-300 cursor-not-allowed border-gray-100 bg-white',
 					]"
 				>
 					<span>{{ selectedFontSize }}</span>
@@ -234,7 +234,7 @@
 		</div>
 
 		<!-- Separator -->
-		<div class="w-px h-6 bg-gray-300 mx-1"></div>
+		<div class="w-px h-5 bg-gray-200 mx-1 shrink-0"></div>
 
 		<!-- Text Color Picker -->
 		<div class="relative" ref="textColorPickerRef">
@@ -243,16 +243,16 @@
 					@click="toggleTextColorPicker"
 					:disabled="!hasSelection"
 					:class="[
-						'p-2 rounded transition-colors flex items-center gap-1',
+						'p-1.5 rounded transition-colors flex items-center gap-0.5 h-8',
 						hasSelection
-							? 'hover:bg-gray-200 text-gray-700'
+							? 'hover:bg-gray-100 text-gray-700'
 							: 'text-gray-300 cursor-not-allowed',
 					]"
 				>
 					<div class="flex flex-col items-center gap-0.5">
-						<Icon icon="lucide:type" class="w-5 h-5" />
+						<Icon icon="lucide:type" class="w-4 h-4" />
 						<div
-							class="w-5 h-1.5 rounded-sm border border-gray-300"
+							class="w-4 h-1 rounded-sm border border-gray-300"
 							:style="{ backgroundColor: selectedTextColor }"
 						></div>
 					</div>

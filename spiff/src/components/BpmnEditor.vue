@@ -1,74 +1,111 @@
 <template>
 	<div class="bpmn-editor-wrapper h-full w-full flex flex-col">
-		<!-- Toolbar -->
-		<div class="bpmn-toolbar flex items-center gap-2 px-3 py-2 bg-gray-50 border-b">
-			<!-- Undo/Redo buttons -->
-			<Tooltip text="Undo (Ctrl+Z)">
-				<button
-					@click="undo"
-					:disabled="!canUndo"
-					:class="[
-						'p-2 rounded transition-colors',
-						canUndo
-							? 'hover:bg-gray-200 text-gray-700'
-							: 'text-gray-300 cursor-not-allowed',
-					]"
-				>
-					<Icon icon="lucide:undo-2" class="w-5 h-5" />
-				</button>
-			</Tooltip>
-			<Tooltip text="Redo (Ctrl+Y)">
-				<button
-					@click="redo"
-					:disabled="!canRedo"
-					:class="[
-						'p-2 rounded transition-colors',
-						canRedo
-							? 'hover:bg-gray-200 text-gray-700'
-							: 'text-gray-300 cursor-not-allowed',
-					]"
-				>
-					<Icon icon="lucide:redo-2" class="w-5 h-5" />
-				</button>
-			</Tooltip>
+		<!-- Teleported Toolbar (renders in parent Editor.vue's header) -->
+		<Teleport to="#bpmn-editor-toolbar" v-if="isMounted">
+			<div class="flex items-center gap-1.5 w-full h-full text-gray-700 overflow-x-auto no-scrollbar">
+				<!-- Undo/Redo buttons -->
+				<Tooltip text="Undo (Ctrl+Z)">
+					<button
+						@click="undo"
+						:disabled="!canUndo"
+						:class="[
+							'p-1.5 flex items-center justify-center rounded transition-colors',
+							canUndo
+								? 'hover:bg-gray-100 text-gray-700'
+								: 'text-gray-300 cursor-not-allowed',
+						]"
+					>
+						<Icon icon="lucide:undo-2" class="w-4 h-4" />
+					</button>
+				</Tooltip>
+				<Tooltip text="Redo (Ctrl+Y)">
+					<button
+						@click="redo"
+						:disabled="!canRedo"
+						:class="[
+							'p-1.5 flex items-center justify-center rounded transition-colors',
+							canRedo
+								? 'hover:bg-gray-100 text-gray-700'
+								: 'text-gray-300 cursor-not-allowed',
+						]"
+					>
+						<Icon icon="lucide:redo-2" class="w-4 h-4" />
+					</button>
+				</Tooltip>
 
-			<div class="w-px h-6 bg-gray-300 mx-1"></div>
+				<div class="w-px h-5 bg-gray-200 mx-1 shrink-0"></div>
 
-			<!-- Delete button -->
-			<Tooltip text="Delete (Del)">
-				<button
-					@click="deleteSelected"
-					class="p-2 rounded hover:bg-gray-200 text-gray-700 transition-colors"
-				>
-					<Icon icon="lucide:trash-2" class="w-5 h-5" />
-				</button>
-			</Tooltip>
+				<!-- Delete button -->
+				<Tooltip text="Delete (Del)">
+					<button
+						@click="deleteSelected"
+						class="p-1.5 flex items-center justify-center rounded hover:bg-gray-100 text-gray-700 transition-colors"
+					>
+						<Icon icon="lucide:trash-2" class="w-4 h-4" />
+					</button>
+				</Tooltip>
 
-			<div class="w-px h-6 bg-gray-300 mx-1"></div>
+				<div class="w-px h-5 bg-gray-200 mx-1 shrink-0"></div>
 
-			<!-- Formatting Toolbar -->
-			<FormattingToolbar
-				:selectedElements="selectedElements"
-				:modeler="modelerInstance"
-			/>
+				<!-- Formatting Toolbar -->
+				<FormattingToolbar
+					:selectedElements="selectedElements"
+					:modeler="modelerInstance"
+					class="shrink-0"
+				/>
 
-			<div class="flex-1"></div>
+				<div class="flex-1 min-w-4"></div>
 
-			<!-- Properties Panel Toggle -->
-			<Tooltip text="Toggle Properties Panel">
-				<button
-					@click="togglePropertiesPanel"
-					:class="[
-						'p-2 rounded transition-colors',
-						showPropertiesPanel
-							? 'bg-gray-200 text-gray-700'
-							: 'hover:bg-gray-200 text-gray-500',
-					]"
-				>
-					<Icon icon="lucide:panel-right" class="w-5 h-5" />
-				</button>
-			</Tooltip>
-		</div>
+				<!-- Zoom Controls -->
+				<div class="flex items-center gap-0.5 px-2 border-r border-gray-200 shrink-0">
+					<button
+						@click="zoomOut"
+						class="p-1.5 flex items-center justify-center rounded hover:bg-gray-100 text-gray-600 transition-colors"
+						title="Zoom Out (Ctrl+-)"
+					>
+						<Icon icon="lucide:minus" class="w-4 h-4" />
+					</button>
+					<button
+						@click="resetZoom"
+						class="px-2 py-1 rounded hover:bg-gray-100 text-gray-700 text-xs font-medium min-w-[48px] text-center transition-colors"
+						title="Reset Zoom"
+					>
+						{{ zoomLevel }}%
+					</button>
+					<button
+						@click="zoomIn"
+						class="p-1.5 flex items-center justify-center rounded hover:bg-gray-100 text-gray-600 transition-colors"
+						title="Zoom In (Ctrl++)"
+					>
+						<Icon icon="lucide:plus" class="w-4 h-4" />
+					</button>
+					<button
+						@click="fitToScreen"
+						class="p-1.5 flex items-center justify-center rounded hover:bg-gray-100 text-gray-600 transition-colors ml-0.5"
+						title="Fit to Screen"
+					>
+						<Icon icon="lucide:maximize-2" class="w-4 h-4" />
+					</button>
+				</div>
+
+				<!-- Properties Panel Toggle -->
+				<div class="shrink-0 pl-1">
+					<Tooltip text="Toggle Properties Panel">
+						<button
+							@click="togglePropertiesPanel"
+							:class="[
+								'p-1.5 flex items-center justify-center rounded transition-colors',
+								showPropertiesPanel
+									? 'bg-gray-200 text-gray-800 shadow-[inset_0_1px_2px_rgba(0,0,0,0.1)]'
+									: 'hover:bg-gray-100 text-gray-600',
+							]"
+						>
+							<Icon icon="lucide:panel-right" class="w-4 h-4" />
+						</button>
+					</Tooltip>
+				</div>
+			</div>
+		</Teleport>
 
 		<!-- Main Content Area -->
 		<div class="flex-1 flex overflow-hidden">
@@ -144,6 +181,7 @@ const canUndo = ref(false);
 const canRedo = ref(false);
 const zoomLevel = ref(100);
 const showPropertiesPanel = ref(true);
+const isMounted = ref(false);
 // const showMinimap = ref(true); // DISABLED
 const selectedElements = ref([]);
 const modelerInstance = ref(null);
@@ -186,6 +224,7 @@ function togglePropertiesPanel() {
 // }
 
 onMounted(async () => {
+	isMounted.value = true;
 	try {
 		// Initialize modeler with keyboard support, properties panel, and theming
 		modeler = new BpmnModeler({
@@ -625,6 +664,15 @@ defineExpose({
 </script>
 
 <style>
+/* Hide scrollbar for teleported container */
+.no-scrollbar::-webkit-scrollbar {
+    display: none;
+}
+.no-scrollbar {
+    -ms-overflow-style: none;
+    scrollbar-width: none;
+}
+
 .bpmn-editor-wrapper {
 	background: #fff;
 }

@@ -1,36 +1,32 @@
 <template>
 	<div class="h-full flex flex-col">
-		<!-- Header -->
-		<header class="bg-gray-200 border-b px-4 py-3 flex items-center justify-between">
-			<div class="flex items-center gap-4">
+		<!-- Unified Toolbar -->
+		<header class="bg-white border-b px-2 py-2 flex items-center gap-2 shadow-sm z-10">
+			<!-- Left: Back & Title -->
+			<div class="flex items-center gap-2 pr-3 border-r border-gray-200 shrink-0">
 				<button
 					@click="goBack"
-					class="p-2 hover:bg-gray-100 rounded-md transition-colors"
+					class="p-1.5 hover:bg-gray-100 rounded-md transition-colors text-gray-600"
 					title="Back to list"
 				>
 					<Icon icon="lucide:chevron-left" class="w-5 h-5" />
 				</button>
-				<div class="flex items-center gap-3">
-					<h1 class="text-lg font-semibold text-gray-900">{{ processName }}</h1>
-					<Badge v-if="processStatus" :theme="getStatusTheme(processStatus)" :label="processStatus" />
+				<div class="flex flex-col">
+					<div class="flex items-center gap-2">
+						<h1 class="text-sm font-semibold text-gray-800 truncate max-w-[200px]" :title="processName">{{ processName }}</h1>
+						<Badge v-if="processStatus" :theme="getStatusTheme(processStatus)" :label="processStatus" size="sm" />
+					</div>
 				</div>
 			</div>
-			<div v-if="activeDiagramName" class="flex items-center gap-2">
-				<Button variant="solid" class="p-2 hover:bg-gray-100 rounded-md transition-colors" @click="saveCurrentDiagram" :loading="saving">
+
+			<!-- Center: BPMN Tools (Teleport Target) -->
+			<div id="bpmn-editor-toolbar" class="flex-1 flex items-center h-8 min-w-0"></div>
+
+			<!-- Right: Save Action -->
+			<div v-if="activeDiagramName" class="flex items-center gap-2 pl-3 border-l border-gray-200 shrink-0">
+				<Button variant="solid" class="h-8 shadow-sm" @click="saveCurrentDiagram" :loading="saving">
 					Save
 				</Button>
-				<!-- Shape Library Toggle - DISABLED (see DEVELOPMENT_CONTEXT.md)
-				<button
-					@click="showShapeLibrary = !showShapeLibrary"
-					:class="[
-						'p-2 rounded-md transition-colors',
-						showShapeLibrary ? 'bg-gray-300 text-gray-800' : 'hover:bg-gray-300 text-gray-600'
-					]"
-					title="Toggle Shape Library"
-				>
-					<Icon icon="lucide:shapes" class="w-5 h-5" />
-				</button>
-				-->
 			</div>
 		</header>
 
@@ -99,8 +95,8 @@
 				</div>
 			</div>
 
-			<!-- Tab Bar with Zoom Controls -->
-			<div v-if="openTabs.length > 0" class="flex items-center bg-gray-200 border-t border-gray-300">
+			<!-- Tab Bar -->
+			<div v-if="openTabs.length > 0" class="flex items-center bg-gray-50 border-t border-gray-200">
 				<EditorTabs
 					:tabs="openTabs"
 					:activeTab="activeDiagramName"
@@ -108,37 +104,6 @@
 					@add-tab="showAddDiagramDialog"
 					class="flex-1"
 				/>
-				<!-- Zoom Controls -->
-				<div class="flex items-center gap-1 px-3 py-2 border-l border-gray-300">
-					<button
-						@click="handleZoomOut"
-						class="p-1.5 rounded hover:bg-gray-300 text-gray-600 transition-colors"
-						title="Zoom Out (Ctrl+-)"
-					>
-						<Icon icon="lucide:minus" class="w-4 h-4" />
-					</button>
-					<button
-						@click="handleResetZoom"
-						class="px-2 py-1 rounded hover:bg-gray-300 text-gray-700 text-sm font-medium min-w-[50px] text-center transition-colors"
-						title="Reset Zoom"
-					>
-						{{ zoomLevel }}%
-					</button>
-					<button
-						@click="handleZoomIn"
-						class="p-1.5 rounded hover:bg-gray-300 text-gray-600 transition-colors"
-						title="Zoom In (Ctrl++)"
-					>
-						<Icon icon="lucide:plus" class="w-4 h-4" />
-					</button>
-					<button
-						@click="handleFitToScreen"
-						class="p-1.5 rounded hover:bg-gray-300 text-gray-600 transition-colors ml-1"
-						title="Fit to Screen"
-					>
-						<Icon icon="lucide:maximize-2" class="w-4 h-4" />
-					</button>
-				</div>
 			</div>
 		</div>
 
