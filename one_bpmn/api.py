@@ -403,3 +403,59 @@ def delete_shape(name: str) -> dict:
 
 	return {"success": True}
 
+
+# ============================================
+# Server Script API — backward-compat stubs
+# NOTE: These exist only to support the currently committed frontend bundle.
+# The source code (Editor.vue) has been updated to call frappe.client.get_list
+# and frappe.client.insert directly. These stubs should be removed once the
+# next CI build deploys the updated bundle.
+# ============================================
+
+@frappe.whitelist()
+def list_server_scripts() -> list:
+	return frappe.get_list(
+		"Server Script",
+		fields=["name", "script_type", "reference_doctype", "disabled", "module", "modified"],
+		order_by="modified desc",
+		limit_page_length=0,
+	)
+
+
+@frappe.whitelist()
+def create_server_script(
+	script_name: str,
+	script_type: str,
+	script: str,
+	reference_doctype: str = None,
+	doctype_event: str = None,
+	api_method: str = None,
+	allow_guest: int = 0,
+	event_frequency: str = None,
+	cron_format: str = None,
+	module: str = None,
+) -> dict:
+	if not script_name or not script_type or not script:
+		frappe.throw(_("Script name, type, and content are required"))
+
+	doc = frappe.new_doc("Server Script")
+	doc.__newname = script_name
+	doc.script_type = script_type
+	doc.script = script
+	doc.disabled = 1  # disabled by default — must be manually enabled
+	if reference_doctype:
+		doc.reference_doctype = reference_doctype
+	if doctype_event:
+		doc.doctype_event = doctype_event
+	if api_method:
+		doc.api_method = api_method
+	if allow_guest:
+		doc.allow_guest = int(allow_guest)
+	if event_frequency:
+		doc.event_frequency = event_frequency
+	if cron_format:
+		doc.cron_format = cron_format
+	if module:
+		doc.module = module
+	doc.insert()
+	return {"name": doc.name, "script_type": doc.script_type}
