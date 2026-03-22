@@ -24,7 +24,9 @@
   "subprocess_specs",
   "column_break_engine",
   "version",
-  "amended_from"
+  "amended_from",
+  "target_details_section",
+  "target_doctypes"
  ],
  "fields": [
   {
@@ -138,12 +140,24 @@
    "fieldtype": "Link",
    "label": "Process Name",
    "options": "Process"
+  },
+  {
+   "collapsible": 1,
+   "fieldname": "target_details_section",
+   "fieldtype": "Section Break",
+   "label": "Target Details"
+  },
+  {
+   "fieldname": "target_doctypes",
+   "fieldtype": "Table",
+   "label": "Target Doctypes",
+   "options": "BPMN Process DocType"
   }
  ],
  "in_create": 1,
  "index_web_pages_for_search": 1,
  "links": [],
- "modified": "2026-02-10 08:19:42.337171",
+ "modified": "2026-03-19 11:22:32.341002",
  "modified_by": "Administrator",
  "module": "ONE BPMN",
  "name": "BPMN Process Model",
