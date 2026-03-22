@@ -20,6 +20,8 @@ export default defineConfig({
 	resolve: {
 		alias: {
 			"@": path.resolve(__dirname, "src"),
+			"preact/hooks": path.resolve(__dirname, "node_modules/preact/hooks"),
+			"preact": path.resolve(__dirname, "node_modules/preact"),
 		},
 	},
 	optimizeDeps: {
