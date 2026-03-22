@@ -122,6 +122,8 @@ import { customTextStyleModule } from "@/renderers";
 // Custom moddle extension for text style attributes
 import customTextStyleModdle from "@/moddle/customTextStyleModdle";
 
+import timerPropertiesProviderModule from "@/bpmn/timerPropertiesProvider";
+
 // Import bpmn-js CSS
 import "bpmn-js/dist/assets/diagram-js.css";
 import "bpmn-js/dist/assets/bpmn-font/css/bpmn.css";
@@ -187,6 +189,22 @@ function togglePropertiesPanel() {
 
 onMounted(async () => {
 	try {
+		// Extend spiff workflow moddle definitions to include our custom timer properties
+		if (spiffModdleExtension && Array.isArray(spiffModdleExtension.types)) {
+			// Check if we already added it (hot-reloading safety)
+			const hasTimerExt = spiffModdleExtension.types.find(t => t.name === "TimerEventDefinitionExtension");
+			if (!hasTimerExt) {
+				spiffModdleExtension.types.push({
+					name: "TimerEventDefinitionExtension",
+					extends: ["bpmn:TimerEventDefinition"],
+					properties: [
+						{ name: "schedulerFrequency", isAttr: true, type: "String" },
+						{ name: "cronExpression", isAttr: true, type: "String" }
+					]
+				});
+			}
+		}
+
 		// Initialize modeler with keyboard support, properties panel, and theming
 		modeler = new BpmnModeler({
 			container: container.value,
@@ -197,6 +215,7 @@ onMounted(async () => {
 				BpmnPropertiesPanelModule,
 				BpmnPropertiesProviderModule,
 				spiffworkflow, // SpiffWorkflow properties providers
+				timerPropertiesProviderModule,
 				// minimapModule, // DISABLED
 				translateModule,
 				customTextStyleModule,
