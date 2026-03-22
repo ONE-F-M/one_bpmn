@@ -951,9 +951,14 @@ async function onLaunchScriptEditor(event) {
 
 	try {
 		const response = await frappeRequest({
-			url: "/api/method/one_bpmn.api.list_server_scripts",
+			url: "/api/resource/Server Script",
+			params: {
+				fields: JSON.stringify(["name", "script_type", "reference_doctype", "disabled", "module", "modified"]),
+				limit_page_length: 0,
+				order_by: "modified desc",
+			},
 		});
-		serverScripts.value = response.message || response || [];
+		serverScripts.value = response.data || response || [];
 	} catch (error) {
 		console.error("Failed to load server scripts:", error);
 		serverScripts.value = [];
@@ -1008,26 +1013,27 @@ async function createAndLinkScript() {
 
 	creatingScript.value = true;
 	try {
-		const payload = {
-			script_name: newScript.value.name,
+		const docPayload = {
+			doctype: "Server Script",
+			__newname: newScript.value.name,
 			script_type: newScript.value.script_type,
 			script: newScript.value.script,
 		};
-		if (newScript.value.reference_doctype) payload.reference_doctype = newScript.value.reference_doctype;
-		if (newScript.value.doctype_event) payload.doctype_event = newScript.value.doctype_event;
-		if (newScript.value.api_method) payload.api_method = newScript.value.api_method;
-		if (newScript.value.allow_guest) payload.allow_guest = 1;
-		if (newScript.value.event_frequency) payload.event_frequency = newScript.value.event_frequency;
-		if (newScript.value.cron_format) payload.cron_format = newScript.value.cron_format;
-		if (newScript.value.module) payload.module = newScript.value.module;
+		if (newScript.value.reference_doctype) docPayload.reference_doctype = newScript.value.reference_doctype;
+		if (newScript.value.doctype_event) docPayload.doctype_event = newScript.value.doctype_event;
+		if (newScript.value.api_method) docPayload.api_method = newScript.value.api_method;
+		if (newScript.value.allow_guest) docPayload.allow_guest = 1;
+		if (newScript.value.event_frequency) docPayload.event_frequency = newScript.value.event_frequency;
+		if (newScript.value.cron_format) docPayload.cron_format = newScript.value.cron_format;
+		if (newScript.value.module) docPayload.module = newScript.value.module;
 
-		const response = await fetch("/api/method/one_bpmn.api.create_server_script", {
+		const response = await fetch("/api/resource/Server Script", {
 			method: "POST",
 			headers: {
 				"Content-Type": "application/json",
 				"X-Frappe-CSRF-Token": window.csrf_token || "",
 			},
-			body: JSON.stringify(payload),
+			body: JSON.stringify(docPayload),
 		});
 
 		const data = await response.json();
@@ -1035,7 +1041,7 @@ async function createAndLinkScript() {
 			throw new Error(data.exc);
 		}
 
-		const result = data.message || data;
+		const result = data.data || data;
 
 		// Write the new script's name back to the BPMN element
 		if (activeScriptEvent && activeScriptEvent.eventBus) {
