@@ -951,13 +951,7 @@ async function onLaunchScriptEditor(event) {
 
 	try {
 		const response = await frappeRequest({
-			url: "/api/method/frappe.client.get_list",
-			params: {
-				doctype: "Server Script",
-				fields: JSON.stringify(["name", "script_type", "reference_doctype", "disabled", "module", "modified"]),
-				limit_page_length: 0,
-				order_by: "modified desc",
-			},
+			url: "one_bpmn.api.list_server_scripts",
 		});
 		serverScripts.value = response || [];
 	} catch (error) {
@@ -1014,24 +1008,20 @@ async function createAndLinkScript() {
 
 	creatingScript.value = true;
 	try {
-		const doc = {
-			doctype: "Server Script",
-			__newname: newScript.value.name,
-			script_type: newScript.value.script_type,
-			script: newScript.value.script,
-			disabled: 1,
-		};
-		if (newScript.value.reference_doctype) doc.reference_doctype = newScript.value.reference_doctype;
-		if (newScript.value.doctype_event) doc.doctype_event = newScript.value.doctype_event;
-		if (newScript.value.api_method) doc.api_method = newScript.value.api_method;
-		if (newScript.value.allow_guest) doc.allow_guest = 1;
-		if (newScript.value.event_frequency) doc.event_frequency = newScript.value.event_frequency;
-		if (newScript.value.cron_format) doc.cron_format = newScript.value.cron_format;
-		if (newScript.value.module) doc.module = newScript.value.module;
-
 		const result = await frappeRequest({
-			url: "/api/method/frappe.client.insert",
-			params: { doc: JSON.stringify(doc) },
+			url: "one_bpmn.api.create_server_script",
+			params: {
+				script_name: newScript.value.name,
+				script_type: newScript.value.script_type,
+				script: newScript.value.script,
+				...(newScript.value.reference_doctype && { reference_doctype: newScript.value.reference_doctype }),
+				...(newScript.value.doctype_event && { doctype_event: newScript.value.doctype_event }),
+				...(newScript.value.api_method && { api_method: newScript.value.api_method }),
+				...(newScript.value.allow_guest && { allow_guest: 1 }),
+				...(newScript.value.event_frequency && { event_frequency: newScript.value.event_frequency }),
+				...(newScript.value.cron_format && { cron_format: newScript.value.cron_format }),
+				...(newScript.value.module && { module: newScript.value.module }),
+			},
 		});
 
 		// Write the new script's name back to the BPMN element

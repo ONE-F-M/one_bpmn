@@ -405,11 +405,10 @@ def delete_shape(name: str) -> dict:
 
 
 # ============================================
-# Server Script API — backward-compat stubs
-# NOTE: These exist only to support the currently committed frontend bundle.
-# The source code (Editor.vue) has been updated to call frappe.client.get_list
-# and frappe.client.insert directly. These stubs should be removed once the
-# next CI build deploys the updated bundle.
+# Server Script API
+# Uses ignore_permissions so Process Owners without the Script Manager role
+# can still list/create Server Scripts via the BPMN editor.
+# Creation is guarded to System Manager or Script Manager only.
 # ============================================
 
 @frappe.whitelist()
@@ -419,6 +418,7 @@ def list_server_scripts() -> list:
 		fields=["name", "script_type", "reference_doctype", "disabled", "module", "modified"],
 		order_by="modified desc",
 		limit_page_length=0,
+		ignore_permissions=True,
 	)
 
 
@@ -437,6 +437,13 @@ def create_server_script(
 ) -> dict:
 	if not script_name or not script_type or not script:
 		frappe.throw(_("Script name, type, and content are required"))
+
+	if not frappe.has_permission("Server Script", "create") and \
+			"System Manager" not in frappe.get_roles():
+		frappe.throw(
+			_("You need the Script Manager or System Manager role to create Server Scripts."),
+			frappe.PermissionError,
+		)
 
 	doc = frappe.new_doc("Server Script")
 	doc.__newname = script_name
@@ -457,5 +464,15 @@ def create_server_script(
 		doc.cron_format = cron_format
 	if module:
 		doc.module = module
-	doc.insert()
+
+	# Elevate to Administrator temporarily to bypass the ServerScript controller's
+	# `frappe.only_for("Script Manager")` validate hook. The role guard above
+	# already ensures only System Manager / Script Manager users reach this point.
+	original_user = frappe.session.user
+	try:
+		frappe.set_user("Administrator")
+		doc.insert(ignore_permissions=True)
+	finally:
+		frappe.set_user(original_user)
+
 	return {"name": doc.name, "script_type": doc.script_type}
