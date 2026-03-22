@@ -402,3 +402,113 @@ def delete_shape(name: str) -> dict:
 	doc.delete()
 
 	return {"success": True}
+
+
+@frappe.whitelist()
+def list_process_instances(filters=None, limit_start=0, limit_page_length=20, order_by="creation desc"):
+	"""
+	List BPMN process instances with their active tasks joined as 'current_step'.
+	"""
+	import json
+	
+	if isinstance(filters, str):
+		filters = json.loads(filters)
+
+	instances = frappe.get_list(
+		"BPMN Process Instance",
+		fields=["name", "process_model", "status", "context_doctype", "context_docname", "started_at", "initiated_by"],
+		filters=filters,
+		limit_start=limit_start,
+		limit_page_length=limit_page_length,
+		order_by=order_by
+	)
+
+	if instances:
+		instance_names = [d.name for d in instances]
+		tasks = frappe.get_all(
+			"BPMN Active Task",
+			filters={"parent": ["in", instance_names], "parenttype": "BPMN Process Instance"},
+			fields=["parent", "task_name", "status"]
+		)
+		
+		from collections import defaultdict
+		task_map = defaultdict(list)
+		for t in tasks:
+			if t.status == "Waiting" or not t.status:
+				task_map[t.parent].append(t.task_name)
+			
+		for d in instances:
+			d.current_step = ", ".join(task_map.get(d.name, []))
+
+	return instances
+
+
+@frappe.whitelist()
+def get_process_instance_details(instance_id: str) -> dict:
+	"""
+	Get details of a specific BPMN Process Instance.
+	"""
+	if not instance_id:
+		frappe.throw(_("Instance ID is required"))
+
+	instance = frappe.get_doc("BPMN Process Instance", instance_id)
+	instance.check_permission("read")
+
+	# Prepare instance data
+	data = {
+		"name": instance.name,
+		"process_model": instance.process_model,
+		"status": instance.status,
+		"initiated_by": instance.initiated_by,
+		"started_at": instance.started_at,
+		"completed_at": instance.completed_at,
+		"context_doctype": instance.context_doctype,
+		"context_docname": instance.context_docname,
+		"active_tasks": []
+	}
+
+	# Get active tasks
+	for task in instance.active_tasks:
+		if task.status and task.status != "Waiting":
+			continue
+			
+		data["active_tasks"].append({
+			"task_id": task.task_id,
+			"task_name": task.task_name,
+			"task_type": task.task_type,
+			"status": task.status,
+			"started_at": task.started_at,
+			"assigned_role": task.assigned_role,
+			"assigned_user": task.assigned_user,
+			"target_doctype": task.target_doctype,
+			"target_docname": task.target_docname,
+			"timer_duration": task.timer_duration
+		})
+
+	return data
+
+
+@frappe.whitelist()
+def get_activity_logs(instance_id: str, limit_start=0, limit_page_length=20) -> list:
+	"""
+	Get paginated activity logs for a BPMN Process Instance.
+	"""
+	if not instance_id:
+		frappe.throw(_("Instance ID is required"))
+		
+	import json
+	if isinstance(limit_start, str):
+		limit_start = int(limit_start)
+	if isinstance(limit_page_length, str):
+		limit_page_length = int(limit_page_length)
+
+	logs = frappe.get_list(
+		"BPMN Activity Log",
+		filters={"instance": instance_id},
+		fields=["name", "task_id", "task_name", "action", "timestamp", "user", "data"],
+		order_by="timestamp desc",
+		limit_start=limit_start,
+		limit_page_length=limit_page_length
+	)
+
+	return logs

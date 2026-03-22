@@ -1,8 +1,9 @@
 <template>
 	<div class="h-full flex flex-col bg-gray-50">
 		<!-- Header -->
-		<header class="bg-white border-b px-6 py-4">
+		<header class="bg-white border-b px-6 py-4 flex items-center justify-between">
 			<h1 class="text-xl font-semibold text-gray-900">Process</h1>
+			<Button @click="router.push('/spiff/instances')">View Instances</Button>
 		</header>
 
 		<!-- Content -->
