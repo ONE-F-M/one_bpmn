@@ -19,6 +19,13 @@
 				<Button variant="solid" class="p-2 hover:bg-gray-100 rounded-md transition-colors" @click="saveCurrentDiagram" :loading="saving">
 					Save
 				</Button>
+				<button
+					@click="exportCurrentDiagram"
+					class="p-2 hover:bg-gray-300 rounded-md transition-colors text-gray-600"
+					title="Export as .bpmn file"
+				>
+					<Icon icon="lucide:download" class="w-5 h-5" />
+				</button>
 				<!-- Shape Library Toggle - DISABLED (see DEVELOPMENT_CONTEXT.md)
 				<button
 					@click="showShapeLibrary = !showShapeLibrary"
@@ -618,6 +625,36 @@ function closeTab(name) {
 
 function goBack() {
 	router.push({ name: "Home" });
+}
+
+// Helper to sanitise a string for use as a filename
+function sanitiseFilename(name) {
+	return (name || "diagram").replace(/[\/\\:*?"<>|]/g, "_").trim() || "diagram";
+}
+
+async function exportCurrentDiagram() {
+	if (!activeDiagramName.value || !editorRef.value) return;
+
+	try {
+		const xml = await editorRef.value.getXML();
+		const diagram = diagrams.value.find((d) => d.name === activeDiagramName.value);
+		const filename = sanitiseFilename(diagram?.model_name || activeDiagramName.value) + ".bpmn";
+
+		const blob = new Blob([xml], { type: "application/xml" });
+		const url = URL.createObjectURL(blob);
+		const link = document.createElement("a");
+		link.href = url;
+		link.download = filename;
+		document.body.appendChild(link);
+		link.click();
+		document.body.removeChild(link);
+		URL.revokeObjectURL(url);
+
+		showNotification("Exported", `Downloaded as ${filename}`, "green");
+	} catch (error) {
+		console.error("Failed to export diagram:", error);
+		showNotification("Error", "Failed to export diagram", "red");
+	}
 }
 
 function getStatusTheme(status) {

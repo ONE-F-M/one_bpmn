@@ -5,6 +5,27 @@
 			<h1 class="text-xl font-semibold text-gray-900">Process</h1>
 		</header>
 
+		<!-- Export Diagram chooser dialog (multi-diagram processes) -->
+		<Dialog v-model="showExportDialog" :options="{ title: 'Export Diagram' }">
+			<template #body-content>
+				<div class="space-y-2">
+					<p class="text-sm text-gray-500 mb-3">Choose a diagram to download:</p>
+					<div
+						v-for="d in exportDialogDiagrams"
+						:key="d.name"
+						class="flex items-center justify-between px-3 py-2 rounded-lg hover:bg-gray-100 cursor-pointer"
+						@click="exportSingleDiagram(d)"
+					>
+						<span class="text-sm text-gray-800">{{ d.model_name || d.title }}</span>
+						<Icon icon="lucide:download" class="w-4 h-4 text-gray-500" />
+					</div>
+				</div>
+			</template>
+			<template #actions>
+				<Button variant="subtle" @click="showExportDialog = false">Cancel</Button>
+			</template>
+		</Dialog>
+
 		<!-- Content -->
 		<main class="flex-1 p-6 overflow-auto">
 			<!-- Loading State -->
@@ -78,6 +99,23 @@
 							<span class="text-sm text-gray-500">{{ formatDate(item) }}</span>
 						</template>
 
+						<!-- Export/actions column -->
+						<template v-else-if="column.key === 'actions'">
+							<button
+								v-if="row.diagram_count > 0"
+								@click.stop="exportProcess(row)"
+								:disabled="exportingProcess === row.name"
+								class="p-1.5 rounded hover:bg-gray-200 text-gray-500 transition-colors disabled:opacity-40"
+								title="Export diagram as .bpmn file"
+							>
+								<Icon
+									:icon="exportingProcess === row.name ? 'lucide:loader-2' : 'lucide:download'"
+									:class="['w-4 h-4', exportingProcess === row.name ? 'animate-spin' : '']"
+								/>
+							</button>
+							<span v-else class="text-xs text-gray-300">—</span>
+						</template>
+
 						<!-- Default -->
 						<template v-else>
 							<span class="text-sm text-gray-600">{{ item }}</span>
@@ -95,6 +133,11 @@ import { useRouter } from "vue-router"
 import { frappeRequest } from "frappe-ui"
 import { Icon } from "@iconify/vue"
 import { dayjs } from "@/dayjs"
+
+// Export dialog state
+const showExportDialog = ref(false)
+const exportDialogDiagrams = ref([])
+const exportingProcess = ref(null)
 
 const router = useRouter()
 const processes = ref([])
@@ -132,6 +175,11 @@ const columns = computed(() => [
 		key: "creation",
 		width: "120px",
 	},
+	{
+		label: "",
+		key: "actions",
+		width: "60px",
+	},
 ])
 
 onMounted(async () => {
@@ -164,6 +212,65 @@ async function loadProcesses() {
 
 function openProcess(name) {
 	router.push({ name: "ProcessEditor", params: { process: name } })
+}
+
+// ---- Export helpers ----
+
+function sanitiseFilename(name) {
+	return (name || "diagram").replace(/[\/\\:*?"<>|]/g, "_").trim() || "diagram"
+}
+
+function downloadBpmn(xml, title) {
+	const filename = sanitiseFilename(title) + ".bpmn"
+	const blob = new Blob([xml], { type: "application/xml" })
+	const url = URL.createObjectURL(blob)
+	const link = document.createElement("a")
+	link.href = url
+	link.download = filename
+	document.body.appendChild(link)
+	link.click()
+	document.body.removeChild(link)
+	URL.revokeObjectURL(url)
+}
+
+async function exportSingleDiagram(diagram) {
+	showExportDialog.value = false
+	try {
+		const response = await frappeRequest({
+			url: "/api/method/one_bpmn.api.get_process_model",
+			params: { name: diagram.name },
+		})
+		const data = response.message || response
+		if (data && data.bpmn_xml) {
+			downloadBpmn(data.bpmn_xml, data.title || diagram.model_name || diagram.name)
+		}
+	} catch (err) {
+		console.error("Failed to export diagram:", err)
+	}
+}
+
+async function exportProcess(process) {
+	if (!process.diagram_count) return
+	exportingProcess.value = process.name
+	try {
+		const response = await frappeRequest({
+			url: "/api/method/one_bpmn.api.get_process_diagrams",
+			params: { process: process.name },
+		})
+		const data = response.message || response
+		const diagrams = (data.diagrams || []).map((d) => ({ ...d, model_name: d.model_name || d.title }))
+
+		if (diagrams.length === 1) {
+			await exportSingleDiagram(diagrams[0])
+		} else if (diagrams.length > 1) {
+			exportDialogDiagrams.value = diagrams
+			showExportDialog.value = true
+		}
+	} catch (err) {
+		console.error("Failed to fetch diagrams for export:", err)
+	} finally {
+		exportingProcess.value = null
+	}
 }
 
 function getStatusTheme(status) {
