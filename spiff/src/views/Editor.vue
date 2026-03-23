@@ -233,6 +233,7 @@ import { Icon } from "@iconify/vue";
 import BpmnEditor from "@/components/BpmnEditor.vue";
 import EditorTabs from "@/components/EditorTabs.vue";
 import ShapeLibraryPanel from "@/components/ShapeLibraryPanel.vue";
+import { downloadBpmn } from "@/utils/downloadBpmn";
 
 const props = defineProps({
 	process: {
@@ -627,10 +628,6 @@ function goBack() {
 	router.push({ name: "Home" });
 }
 
-// Helper to sanitise a string for use as a filename
-function sanitiseFilename(name) {
-	return (name || "diagram").replace(/[\/\\:*?"<>|]/g, "_").trim() || "diagram";
-}
 
 async function exportCurrentDiagram() {
 	if (!activeDiagramName.value || !editorRef.value) return;
@@ -638,18 +635,8 @@ async function exportCurrentDiagram() {
 	try {
 		const xml = await editorRef.value.getXML();
 		const diagram = diagrams.value.find((d) => d.name === activeDiagramName.value);
-		const filename = sanitiseFilename(diagram?.model_name || activeDiagramName.value) + ".bpmn";
-
-		const blob = new Blob([xml], { type: "application/xml" });
-		const url = URL.createObjectURL(blob);
-		const link = document.createElement("a");
-		link.href = url;
-		link.download = filename;
-		document.body.appendChild(link);
-		link.click();
-		document.body.removeChild(link);
-		URL.revokeObjectURL(url);
-
+		const title = diagram?.model_name || activeDiagramName.value;
+		const filename = downloadBpmn(xml, title);
 		showNotification("Exported", `Downloaded as ${filename}`, "green");
 	} catch (error) {
 		console.error("Failed to export diagram:", error);

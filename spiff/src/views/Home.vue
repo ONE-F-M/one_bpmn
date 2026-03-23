@@ -13,8 +13,12 @@
 					<div
 						v-for="d in exportDialogDiagrams"
 						:key="d.name"
-						class="flex items-center justify-between px-3 py-2 rounded-lg hover:bg-gray-100 cursor-pointer"
+						role="button"
+						tabindex="0"
+						class="flex items-center justify-between px-3 py-2 rounded-lg hover:bg-gray-100 cursor-pointer focus:outline-none focus:ring-2 focus:ring-gray-400"
 						@click="exportSingleDiagram(d)"
+						@keydown.enter.prevent="exportSingleDiagram(d)"
+						@keydown.space.prevent="exportSingleDiagram(d)"
 					>
 						<span class="text-sm text-gray-800">{{ d.model_name || d.title }}</span>
 						<Icon icon="lucide:download" class="w-4 h-4 text-gray-500" />
@@ -104,13 +108,13 @@
 							<button
 								v-if="row.diagram_count > 0"
 								@click.stop="exportProcess(row)"
-								:disabled="exportingProcess === row.name"
+								:disabled="exportingProcesses.has(row.name)"
 								class="p-1.5 rounded hover:bg-gray-200 text-gray-500 transition-colors disabled:opacity-40"
 								title="Export diagram as .bpmn file"
 							>
 								<Icon
-									:icon="exportingProcess === row.name ? 'lucide:loader-2' : 'lucide:download'"
-									:class="['w-4 h-4', exportingProcess === row.name ? 'animate-spin' : '']"
+									:icon="exportingProcesses.has(row.name) ? 'lucide:loader-2' : 'lucide:download'"
+									:class="['w-4 h-4', exportingProcesses.has(row.name) ? 'animate-spin' : '']"
 								/>
 							</button>
 							<span v-else class="text-xs text-gray-300">—</span>
@@ -133,11 +137,13 @@ import { useRouter } from "vue-router"
 import { frappeRequest } from "frappe-ui"
 import { Icon } from "@iconify/vue"
 import { dayjs } from "@/dayjs"
+import { downloadBpmn } from "@/utils/downloadBpmn"
 
 // Export dialog state
 const showExportDialog = ref(false)
 const exportDialogDiagrams = ref([])
-const exportingProcess = ref(null)
+// Track in-flight exports per process so concurrent clicks work independently
+const exportingProcesses = ref(new Set())
 
 const router = useRouter()
 const processes = ref([])
@@ -216,23 +222,6 @@ function openProcess(name) {
 
 // ---- Export helpers ----
 
-function sanitiseFilename(name) {
-	return (name || "diagram").replace(/[\/\\:*?"<>|]/g, "_").trim() || "diagram"
-}
-
-function downloadBpmn(xml, title) {
-	const filename = sanitiseFilename(title) + ".bpmn"
-	const blob = new Blob([xml], { type: "application/xml" })
-	const url = URL.createObjectURL(blob)
-	const link = document.createElement("a")
-	link.href = url
-	link.download = filename
-	document.body.appendChild(link)
-	link.click()
-	document.body.removeChild(link)
-	URL.revokeObjectURL(url)
-}
-
 async function exportSingleDiagram(diagram) {
 	showExportDialog.value = false
 	try {
@@ -251,7 +240,7 @@ async function exportSingleDiagram(diagram) {
 
 async function exportProcess(process) {
 	if (!process.diagram_count) return
-	exportingProcess.value = process.name
+	exportingProcesses.value = new Set([...exportingProcesses.value, process.name])
 	try {
 		const response = await frappeRequest({
 			url: "/api/method/one_bpmn.api.get_process_diagrams",
@@ -269,7 +258,10 @@ async function exportProcess(process) {
 	} catch (err) {
 		console.error("Failed to fetch diagrams for export:", err)
 	} finally {
-		exportingProcess.value = null
+		// Remove this process from the in-flight set
+		const next = new Set(exportingProcesses.value)
+		next.delete(process.name)
+		exportingProcesses.value = next
 	}
 }
 
