@@ -123,6 +123,7 @@ import { customTextStyleModule } from "@/renderers";
 import customTextStyleModdle from "@/moddle/customTextStyleModdle";
 
 import timerPropertiesProviderModule from "@/bpmn/timerPropertiesProvider";
+import startEventPropertiesProviderModule from "@/bpmn/startEventPropertiesProvider";
 
 // Import bpmn-js CSS
 import "bpmn-js/dist/assets/diagram-js.css";
@@ -191,7 +192,7 @@ onMounted(async () => {
 	try {
 		// Extend spiff workflow moddle definitions to include our custom timer properties
 		if (spiffModdleExtension && Array.isArray(spiffModdleExtension.types)) {
-			// Check if we already added it (hot-reloading safety)
+			// Timer extension (hot-reloading safety)
 			const hasTimerExt = spiffModdleExtension.types.find(t => t.name === "TimerEventDefinitionExtension");
 			if (!hasTimerExt) {
 				spiffModdleExtension.types.push({
@@ -199,7 +200,22 @@ onMounted(async () => {
 					extends: ["bpmn:TimerEventDefinition"],
 					properties: [
 						{ name: "schedulerFrequency", isAttr: true, type: "String" },
-						{ name: "cronExpression", isAttr: true, type: "String" }
+						{ name: "cronExpression",       isAttr: true, type: "String" }
+					]
+				});
+			}
+
+			// Start Event trigger extension (hot-reloading safety)
+			const hasStartEventExt = spiffModdleExtension.types.find(t => t.name === "StartEventTriggerExtension");
+			if (!hasStartEventExt) {
+				spiffModdleExtension.types.push({
+					name: "StartEventTriggerExtension",
+					extends: ["bpmn:StartEvent"],
+					properties: [
+						{ name: "triggerDoctype",      isAttr: true, type: "String" },
+						{ name: "triggerType",         isAttr: true, type: "String" },
+						{ name: "triggerWorkflow",     isAttr: true, type: "String" },
+						{ name: "triggerWorkflowState",isAttr: true, type: "String" }
 					]
 				});
 			}
@@ -216,6 +232,7 @@ onMounted(async () => {
 				BpmnPropertiesProviderModule,
 				spiffworkflow, // SpiffWorkflow properties providers
 				timerPropertiesProviderModule,
+				startEventPropertiesProviderModule,
 				// minimapModule, // DISABLED
 				translateModule,
 				customTextStyleModule,
@@ -248,6 +265,36 @@ onMounted(async () => {
 		// Use eventBus for listening to command stack changes
 		const eventBus = modeler.get("eventBus");
 		eventBus.on("commandStack.changed", updateUndoRedoState);
+
+		// Clear custom trigger attributes if a StartEvent is converted into something else
+		// (e.g. Timer Start Event) so they don't persist in the XML
+		eventBus.on("commandStack.shape.replace.postExecute", (e) => {
+			const newShape = e.context.newShape;
+			const bo = newShape && newShape.businessObject;
+			if (!bo) return;
+			
+			let isPlainStartEvent = false;
+			if (bo.$type === "bpmn:StartEvent") {
+				const eventDefs = bo.get("eventDefinitions") || [];
+				isPlainStartEvent = eventDefs.length === 0;
+			}
+			
+			if (!isPlainStartEvent) {
+				const attrs = ["triggerDoctype", "triggerType", "triggerWorkflow", "triggerWorkflowState"];
+				attrs.forEach(attr => {
+					// 1. Standard Moddle setter
+					if (typeof bo.set === "function") {
+						bo.set(`spiffworkflow:${attr}`, undefined);
+					}
+					// 2. Direct property (schema name)
+					delete bo[attr];
+					// 3. Fallback attributes map
+					if (bo.$attrs) {
+						delete bo.$attrs[`spiffworkflow:${attr}`];
+					}
+				});
+			}
+		});
 
 		// Listen for selection changes for formatting toolbar
 		eventBus.on("selection.changed", (e) => {
