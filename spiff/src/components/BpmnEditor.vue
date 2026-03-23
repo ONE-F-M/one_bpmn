@@ -122,6 +122,8 @@ import { customTextStyleModule } from "@/renderers";
 // Custom moddle extension for text style attributes
 import customTextStyleModdle from "@/moddle/customTextStyleModdle";
 
+import intermediateEventPropertiesProviderModule from "@/bpmn/intermediateEventPropertiesProvider";
+
 // Import bpmn-js CSS
 import "bpmn-js/dist/assets/diagram-js.css";
 import "bpmn-js/dist/assets/bpmn-font/css/bpmn.css";
@@ -187,6 +189,26 @@ function togglePropertiesPanel() {
 
 onMounted(async () => {
 	try {
+
+		// Extend spiff workflow moddle definitions to include our custom timer properties
+		if (spiffModdleExtension && Array.isArray(spiffModdleExtension.types)) {
+
+			// Intermediate Event extension (hot-reloading safety)
+			const hasIntermediateEventExt = spiffModdleExtension.types.find(t => t.name === "IntermediateEventExtension");
+			if (!hasIntermediateEventExt) {
+				spiffModdleExtension.types.push({
+					name: "IntermediateEventExtension",
+					extends: ["bpmn:IntermediateCatchEvent", "bpmn:IntermediateThrowEvent"],
+					properties: [
+						{ name: "targetDoctype", isAttr: true, type: "String" },
+						{ name: "triggerWorkflow", isAttr: true, type: "String" },
+						{ name: "triggerWorkflowState", isAttr: true, type: "String" },
+						{ name: "assignmentRule", isAttr: true, type: "String" }
+					]
+				});
+			}
+		}
+
 		// Initialize modeler with keyboard support, properties panel, and theming
 		modeler = new BpmnModeler({
 			container: container.value,
@@ -197,6 +219,7 @@ onMounted(async () => {
 				BpmnPropertiesPanelModule,
 				BpmnPropertiesProviderModule,
 				spiffworkflow, // SpiffWorkflow properties providers
+				intermediateEventPropertiesProviderModule,
 				// minimapModule, // DISABLED
 				translateModule,
 				customTextStyleModule,
@@ -229,6 +252,36 @@ onMounted(async () => {
 		// Use eventBus for listening to command stack changes
 		const eventBus = modeler.get("eventBus");
 		eventBus.on("commandStack.changed", updateUndoRedoState);
+
+		// Clear custom trigger attributes if a StartEvent is converted into something else
+		// (e.g. Timer Start Event) so they don't persist in the XML
+		eventBus.on("commandStack.shape.replace.postExecute", (e) => {
+			const newShape = e.context.newShape;
+			const bo = newShape && newShape.businessObject;
+			if (!bo) return;
+			
+			let isPlainStartEvent = false;
+			if (bo.$type === "bpmn:StartEvent") {
+				const eventDefs = bo.get("eventDefinitions") || [];
+				isPlainStartEvent = eventDefs.length === 0;
+			}
+			
+			if (!isPlainStartEvent) {
+				const attrs = ["triggerDoctype", "triggerType", "triggerWorkflow", "triggerWorkflowState", "targetDoctype", "assignmentRule"];
+				attrs.forEach(attr => {
+					// 1. Standard Moddle setter
+					if (typeof bo.set === "function") {
+						bo.set(`spiffworkflow:${attr}`, undefined);
+					}
+					// 2. Direct property (schema name)
+					delete bo[attr];
+					// 3. Fallback attributes map
+					if (bo.$attrs) {
+						delete bo.$attrs[`spiffworkflow:${attr}`];
+					}
+				});
+			}
+		});
 
 		// Listen for selection changes for formatting toolbar
 		eventBus.on("selection.changed", (e) => {
