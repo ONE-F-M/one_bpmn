@@ -682,7 +682,43 @@ async function handleImportFile(event) {
 			}),
 		});
 
-		const data = await response.json();
+		let data;
+		if (response.ok) {
+			try {
+				data = await response.json();
+			} catch (_) {
+				throw new Error(
+					"Received an unexpected response from the server while importing the diagram."
+				);
+			}
+		} else {
+			// Try to extract a useful error message from the response body
+			let errorMessage = `Import failed with status ${response.status} ${response.statusText}`;
+			try {
+				const errorBody = await response.json();
+				if (errorBody) {
+					if (errorBody.message) {
+						errorMessage = errorBody.message;
+					} else if (errorBody.exc) {
+						errorMessage = errorBody.exc;
+					} else if (errorBody._server_messages) {
+						try {
+							const msgs = JSON.parse(errorBody._server_messages);
+							const parsed = JSON.parse(msgs[0]);
+							errorMessage = parsed.message || errorMessage;
+						} catch (_) {}
+					}
+				}
+			} catch (_) {
+				try {
+					const text = await response.text();
+					if (text) {
+						errorMessage = text;
+					}
+				} catch (_) {}
+			}
+			throw new Error(errorMessage);
+		}
 
 		// Frappe surfaces errors in data.exc or data._server_messages
 		if (data.exc) {
