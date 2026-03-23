@@ -15,8 +15,22 @@
 					<Badge v-if="processStatus" :theme="getStatusTheme(processStatus)" :label="processStatus" />
 				</div>
 			</div>
-			<div v-if="activeDiagramName" class="flex items-center gap-2">
-				<Button variant="solid" class="p-2 hover:bg-gray-100 rounded-md transition-colors" @click="saveCurrentDiagram" :loading="saving">
+			<div class="flex items-center gap-2">
+				<!-- Hidden file input for BPMN import -->
+				<input
+					ref="importFileInput"
+					type="file"
+					accept=".bpmn"
+					class="hidden"
+					@change="handleImportFile"
+				/>
+				<Button variant="solid" @click="triggerImport" :loading="importing" title="Import a .bpmn file">
+					<span class="flex items-center gap-1">
+						<Icon icon="lucide:upload" class="w-4 h-4" />
+						Import
+					</span>
+				</Button>
+				<Button v-if="activeDiagramName" variant="solid" class="p-2 hover:bg-gray-100 rounded-md transition-colors" @click="saveCurrentDiagram" :loading="saving">
 					Save
 				</Button>
 				<!-- Shape Library Toggle - DISABLED (see DEVELOPMENT_CONTEXT.md)
@@ -72,7 +86,6 @@
 					<BpmnEditor
 						v-else-if="activeDiagramName"
 						ref="editorRef"
-						:key="activeDiagramName"
 						class="absolute inset-0"
 						@ready="onEditorReady"
 						@changed="onDiagramChanged"
@@ -219,7 +232,7 @@
 </template>
 
 <script setup>
-import { ref, onMounted, onUnmounted, computed, watch } from "vue";
+import { ref, onMounted, onUnmounted, computed, watch, nextTick } from "vue";
 import { useRouter, useRoute } from "vue-router";
 import { frappeRequest, TextEditor } from "frappe-ui";
 import { Icon } from "@iconify/vue";
@@ -249,10 +262,14 @@ const openTabs = ref([]);
 const activeDiagramName = ref(null);
 const saving = ref(false);
 const creating = ref(false);
+const importing = ref(false);
 const editorReady = ref(false);
 const hasUnsavedChanges = ref(false);
 const loading = ref(true);
 const showShapeLibrary = ref(false);
+
+// Import file input ref
+const importFileInput = ref(null);
 
 // Notification state
 const notification = ref({
@@ -424,26 +441,34 @@ async function selectDiagram(name) {
 		}
 	}
 
-	// Load diagram data
-	editorReady.value = false;
-
 	// Update URL
 	router.replace({
 		name: "DiagramEditor",
 		params: { process: props.process, diagram: name },
 	});
+	// The watch(activeDiagramName) handles loading the new diagram XML.
 }
 
 async function onEditorReady() {
 	editorReady.value = true;
 
-	// Load diagram content
+	// Load the active diagram on first mount
 	if (activeDiagramName.value) {
 		await loadDiagramContent(activeDiagramName.value);
 	}
 
 	hasUnsavedChanges.value = false;
 }
+
+// Watch for diagram tab switches and load new XML without remounting the editor.
+// This is the KEY fix: BpmnEditor stays alive (no :key remount), and we just
+// call loadXML on it when the active diagram changes.
+watch(activeDiagramName, async (newName, oldName) => {
+	if (!newName || !editorReady.value) return; // Editor not ready yet; onEditorReady handles it
+	if (newName === oldName) return;
+	await loadDiagramContent(newName);
+	hasUnsavedChanges.value = false;
+});
 
 async function loadDiagramContent(name) {
 	// Check cache first
@@ -618,6 +643,107 @@ function closeTab(name) {
 
 function goBack() {
 	router.push({ name: "Home" });
+}
+
+function triggerImport() {
+	if (importFileInput.value) {
+		// Reset so the same file can be re-imported
+		importFileInput.value.value = "";
+		importFileInput.value.click();
+	}
+}
+
+async function handleImportFile(event) {
+	const file = event.target.files && event.target.files[0];
+	if (!file) return;
+
+	importing.value = true;
+	try {
+		// Read the file as text
+		const xmlContent = await new Promise((resolve, reject) => {
+			const reader = new FileReader();
+			reader.onload = (e) => resolve(e.target.result);
+			reader.onerror = () => reject(new Error("Failed to read file"));
+			reader.readAsText(file);
+		});
+
+		// Call the backend import endpoint
+		const response = await fetch("/api/method/one_bpmn.api.import_bpmn", {
+			method: "POST",
+			headers: {
+				"Content-Type": "application/json",
+				"X-Frappe-CSRF-Token": window.csrf_token || "",
+			},
+			body: JSON.stringify({
+				xml_content: xmlContent,
+				// Use the filename (minus .bpmn) as the human-readable title
+				title: file.name.replace(/\.bpmn$/i, ""),
+				process: props.process || null,
+			}),
+		});
+
+		const data = await response.json();
+
+		// Frappe surfaces errors in data.exc or data._server_messages
+		if (data.exc) {
+			let msg = data.exc;
+			// Try to extract a cleaner message from server messages
+			if (data._server_messages) {
+				try {
+					const msgs = JSON.parse(data._server_messages);
+					const parsed = JSON.parse(msgs[0]);
+					msg = parsed.message || msg;
+				} catch (_) {}
+			}
+			throw new Error(msg);
+		}
+
+		const result = data.message || data;
+		const action = result.action === "updated" ? "updated" : "imported";
+
+		// Pre-populate cache so the watch(activeDiagramName) handler
+		// gets an instant cache-hit and calls loadXML without a round-trip.
+		diagramDataCache.value[result.name] = xmlContent;
+
+		// Reload process diagrams to sync tabs
+		await loadProcess();
+		let diagramEntry = diagrams.value.find((d) => d.name === result.name);
+		if (!diagramEntry) {
+			// Not in the process-scoped list — add a synthetic entry so the tab appears
+			diagramEntry = {
+				name: result.name,
+				model_name: result.model_name,
+				title: result.model_name,
+				process_id: result.process_id,
+				status: "Active",
+			};
+			diagrams.value.push(diagramEntry);
+		}
+		openTabs.value = [...diagrams.value];
+
+		// Switch to the imported diagram via SPA (no page reload → no Preact crash)
+		// The watch(activeDiagramName) picks up the change and calls loadDiagramContent.
+		activeDiagramName.value = result.name;
+		router.replace({
+			name: "DiagramEditor",
+			params: { process: props.process, diagram: result.name },
+		});
+
+		showNotification(
+			"Import Successful",
+			`Diagram "${result.model_name}" ${action} successfully.`,
+			"green"
+		);
+	} catch (error) {
+		console.error("Import failed:", error);
+		showNotification(
+			"Import Failed",
+			error.message || "An unexpected error occurred while importing.",
+			"red"
+		);
+	} finally {
+		importing.value = false;
+	}
 }
 
 function getStatusTheme(status) {

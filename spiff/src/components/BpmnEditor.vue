@@ -186,6 +186,11 @@ function togglePropertiesPanel() {
 // }
 
 onMounted(async () => {
+	// Brief delay so any previously destroyed Preact component trees
+	// (from a prior BpmnEditor instance) can fully finalize cleanup
+	// before we start a new Preact properties panel.
+	await new Promise((resolve) => setTimeout(resolve, 50));
+
 	try {
 		// Initialize modeler with keyboard support, properties panel, and theming
 		modeler = new BpmnModeler({

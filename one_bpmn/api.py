@@ -2,8 +2,15 @@
 # For license information, please see license.txt
 
 import uuid
+import xml.etree.ElementTree as ET
 import frappe
 from frappe import _
+
+# BPMN namespace map used for XML parsing
+_BPMN_NAMESPACES = {
+	"bpmn": "http://www.omg.org/spec/BPMN/20100524/MODEL",
+	"bpmndi": "http://www.omg.org/spec/BPMN/20100524/DI",
+}
 
 
 @frappe.whitelist()
@@ -55,6 +62,107 @@ def save_process_model(
 		"model_name": doc.title,
 		"version": doc.version,
 		"is_active": doc.is_active
+	}
+
+
+@frappe.whitelist()
+def import_bpmn(
+	xml_content: str,
+	title: str = None,
+	process: str = None,
+) -> dict:
+	"""
+	Import a BPMN XML string as a new or updated BPMN Process Model.
+
+	The process_id is extracted from the first <bpmn:process id="…"> element in
+	the XML. If a BPMN Process Model with that process_id already exists it is
+	updated; otherwise a new record is created.
+
+	Args:
+		xml_content: Raw BPMN XML text (content of a .bpmn file)
+		title:       Optional human-readable title. Defaults to the process_id.
+		process:     Optional link to a Process DocType record.
+
+	Returns:
+		dict with name, model_name, process_id, and action ('created'|'updated')
+	"""
+	if not xml_content or not xml_content.strip():
+		frappe.throw(_("BPMN XML content is required"))
+
+	# --- Validate & parse XML ---
+	try:
+		root = ET.fromstring(xml_content.strip())
+	except ET.ParseError as exc:
+		frappe.throw(_("Invalid BPMN XML: {0}").format(str(exc)))
+
+	# Register namespaces so ElementTree can search them
+	bpmn_ns = "http://www.omg.org/spec/BPMN/20100524/MODEL"
+
+	# Accept both namespaced and bare <process> tags
+	process_el = root.find(f"{{{bpmn_ns}}}process")
+	if process_el is None:
+		# Fallback: look without namespace (some exporters omit it)
+		process_el = root.find("process")
+
+	if process_el is None:
+		frappe.throw(_(
+			"Invalid BPMN XML: no <bpmn:process> element found. "
+			"Please upload a valid BPMN 2.0 file."
+		))
+
+	extracted_process_id = process_el.get("id")
+	if not extracted_process_id:
+		frappe.throw(_("Invalid BPMN XML: <bpmn:process> element has no 'id' attribute"))
+
+	effective_title = title or process_el.get("name") or extracted_process_id
+
+	# --- Upsert logic: match by process_id (unique field) ---
+	existing_name = frappe.db.get_value(
+		"BPMN Process Model",
+		{"process_id": extracted_process_id},
+		"name"
+	)
+
+	if existing_name:
+		doc = frappe.get_doc("BPMN Process Model", existing_name)
+		doc.check_permission("write")
+		doc.bpmn_xml = xml_content
+		if process:
+			doc.process_name = process
+		doc.save()
+
+		# Rename the document if the human title has changed
+		# (autoname only runs on insert, so we must rename manually)
+		if effective_title and effective_title != doc.name:
+			try:
+				frappe.rename_doc(
+					"BPMN Process Model",
+					doc.name,
+					effective_title,
+					force=True,
+					merge=False,
+				)
+				doc = frappe.get_doc("BPMN Process Model", effective_title)
+			except Exception:
+				# If rename fails (e.g. duplicate title), keep existing name
+				pass
+
+		action = "updated"
+	else:
+		doc = frappe.new_doc("BPMN Process Model")
+		doc.title = effective_title
+		doc.process_id = extracted_process_id
+		doc.bpmn_xml = xml_content
+		doc.process_name = process or None
+		doc.version = 1
+		doc.insert()
+		action = "created"
+
+	return {
+		"name": doc.name,
+		"model_name": doc.title,
+		"process_id": doc.process_id,
+		"action": action,
 	}
 
 
