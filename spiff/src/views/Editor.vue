@@ -953,7 +953,8 @@ async function onLaunchScriptEditor(event) {
 		const response = await frappeRequest({
 			url: "one_bpmn.api.list_server_scripts",
 		});
-		serverScripts.value = response || [];
+		const data = response?.message || response;
+		serverScripts.value = Array.isArray(data) ? data : [];
 	} catch (error) {
 		console.error("Failed to load server scripts:", error);
 		serverScripts.value = [];
