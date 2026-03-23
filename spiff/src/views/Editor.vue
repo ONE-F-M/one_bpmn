@@ -69,9 +69,11 @@
 						</div>
 					</div>
 
-					<!-- Single long-lived modeler instance — shown/hidden via v-show to preserve clipboard state -->
+					<!-- Single long-lived modeler instance; mounts on first diagram selection.
+					     Clipboard state (globalClipboardData) lives at module scope so it
+					     survives unmount — v-if is safe here and defers the heavy init. -->
 					<BpmnEditor
-						v-show="activeDiagramName && !loading"
+						v-if="activeDiagramName"
 						ref="editorRef"
 						class="absolute inset-0"
 						@ready="onEditorReady"
@@ -414,9 +416,12 @@ async function loadProcess() {
 }
 
 async function selectDiagram(name) {
-	// Save current diagram XML to cache before switching
+	// Serialize current diagram to cache only when needed — skip if nothing
+	// changed and the cache is already populated (saveXML can be expensive).
 	if (activeDiagramName.value && editorRef.value) {
-		await saveDiagramToCache(activeDiagramName.value);
+		if (hasUnsavedChanges.value || !diagramDataCache.value[activeDiagramName.value]) {
+			await saveDiagramToCache(activeDiagramName.value);
+		}
 	}
 
 	activeDiagramName.value = name;

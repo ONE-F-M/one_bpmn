@@ -9,26 +9,26 @@
 let globalClipboardData = {};
 
 class CustomClipboard {
-  get() {
-    return globalClipboardData;
-  }
+	get() {
+		return globalClipboardData;
+	}
 
-  set(data) {
-    globalClipboardData = data || {};
-  }
+	set(data) {
+		globalClipboardData = data || {};
+	}
 
-  clear() {
-    globalClipboardData = {};
-  }
+	clear() {
+		globalClipboardData = {};
+	}
 
-  isEmpty() {
-    return !globalClipboardData || Object.keys(globalClipboardData).length === 0;
-  }
+	isEmpty() {
+		return !globalClipboardData || Object.keys(globalClipboardData).length === 0;
+	}
 }
 
 // bpmn-js module definition
 const clipboardModule = {
-  clipboard: ['type', CustomClipboard]
+	clipboard: ["type", CustomClipboard],
 };
 
 export default clipboardModule;

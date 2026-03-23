@@ -372,17 +372,17 @@ onMounted(async () => {
 
 			evt.preventDefault();
 
-			// Paste at the center of the currently visible viewport
+			// Paste at the center of the currently visible viewport using the
+			// public copyPaste.paste() API (avoids private _createElements/_paste)
 			const viewbox = canvasService.viewbox();
-			const centerX = viewbox.x + viewbox.width / 2;
-			const centerY = viewbox.y + viewbox.height / 2;
 			const root = canvasService.getRootElement();
-
-			// Reconstruct elements from clipboard tree and place them directly
-			const elements = copyPaste._createElements(clipboardService.get());
-			if (elements.length > 0) {
-				copyPaste._paste(elements, root, { x: centerX, y: centerY });
-			}
+			copyPaste.paste({
+				element: root,
+				point: {
+					x: viewbox.x + viewbox.width / 2,
+					y: viewbox.y + viewbox.height / 2,
+				},
+			});
 
 			return false; // Prevent default bpmn-js paste handler from also running
 		});
