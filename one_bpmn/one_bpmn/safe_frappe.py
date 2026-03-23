@@ -22,6 +22,8 @@ class SafeFrappe:
 		self.new_doc = frappe.new_doc
 		self.throw = frappe.throw
 		self.msgprint = frappe.msgprint
+		self._ = _
+		self.as_json = frappe.as_json
 		
 		# Expose db object but restricted
 		self.db = SafeDatabaseProxy()

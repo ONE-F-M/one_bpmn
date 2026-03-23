@@ -4,9 +4,38 @@
 import uuid
 import frappe
 from frappe import _
-from one_bpmn.one_bpmn.spiff_engine import get_script_engine
+from one_bpmn.one_bpmn.spiff_engine import get_script_engine, BpmnEngine
 
 
+@frappe.whitelist()
+def execute_workflow(model_name: str, data: dict = None) -> dict:
+	"""
+	Execute a BPMN workflow from a 'BPMN Process Model' record.
+
+	Args:
+		model_name: Name of the BPMN Process Model
+		data: Initial data for the workflow
+
+	Returns:
+		dict with final workflow data and status
+	"""
+	if not model_name:
+		frappe.throw(_("Process model name is required"))
+
+	engine = BpmnEngine()
+	instance = engine.get_workflow_from_doctype(model_name)
+	
+	if data:
+		instance.workflow.last_task.data.update(data)
+		instance.run_all()
+
+	return {
+		"success": True,
+		"wf_id": instance.wf_id,
+		"data": instance.get_data(),
+		"status": instance.workflow.last_task.state if instance.workflow.last_task else "Unknown"
+	}
+	
 @frappe.whitelist()
 def save_process_model(
 	model_name: str,
