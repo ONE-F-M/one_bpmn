@@ -350,8 +350,42 @@ onMounted(async () => {
 			});
 		});
 
+
+		// Override Ctrl+V paste to place elements at canvas center regardless of mouse position.
+		// The default bpmn-js paste uses the last mouse event position via create.start(), which
+		// silently fails when the mouse was on the tab bar (not the canvas) after switching tabs.
+		// Priority 2000 > default binding priority 1000, so this runs first.
+		const keyboard = modeler.get("keyboard");
+		const clipboardService = modeler.get("clipboard");
+		const copyPaste = modeler.get("copyPaste");
+		const canvasService = modeler.get("canvas");
+
 		// Expose modeler instance for child components
 		modelerInstance.value = modeler;
+
+		keyboard.addListener(2000, (context) => {
+			const evt = context.keyEvent;
+			const isMac = /mac/i.test(navigator.platform);
+			const isPaste = (isMac ? evt.metaKey : evt.ctrlKey) && evt.key === "v";
+			if (!isPaste) return;
+			if (clipboardService.isEmpty()) return;
+
+			evt.preventDefault();
+
+			// Paste at the center of the currently visible viewport
+			const viewbox = canvasService.viewbox();
+			const centerX = viewbox.x + viewbox.width / 2;
+			const centerY = viewbox.y + viewbox.height / 2;
+			const root = canvasService.getRootElement();
+
+			// Reconstruct elements from clipboard tree and place them directly
+			const elements = copyPaste._createElements(clipboardService.get());
+			if (elements.length > 0) {
+				copyPaste._paste(elements, root, { x: centerX, y: centerY });
+			}
+
+			return false; // Prevent default bpmn-js paste handler from also running
+		});
 
 		// Import empty diagram
 		await modeler.importXML(emptyDiagram);
