@@ -119,6 +119,9 @@ import customRulesModule from "@/rules";
 // Custom text styling module
 import { customTextStyleModule } from "@/renderers";
 
+// Shared clipboard for cross-diagram copy/paste
+import clipboardModule from "@/utils/clipboard";
+
 // Custom moddle extension for text style attributes
 import customTextStyleModdle from "@/moddle/customTextStyleModdle";
 
@@ -200,6 +203,7 @@ onMounted(async () => {
 				// minimapModule, // DISABLED
 				translateModule,
 				customTextStyleModule,
+				clipboardModule,
 			],
 			// Register custom moddle extension for text style namespace
 			moddleExtensions: {
