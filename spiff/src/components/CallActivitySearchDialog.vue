@@ -102,25 +102,15 @@
 
 		<template #actions>
 			<div class="flex items-center justify-end w-full gap-2">
-				<button
-					type="button"
-					@click="cancel"
-					class="px-3 py-1.5 rounded-md text-sm font-medium text-gray-700 bg-gray-100 hover:bg-gray-200 transition-colors"
-				>Cancel</button>
-				<button
-					type="button"
+				<Button variant="subtle" @click="cancel">Cancel</Button>
+				<Button
+					variant="solid"
 					:disabled="!selectedModel"
 					@click="confirm"
-					:class="[
-						'inline-flex items-center gap-1.5 px-3 py-1.5 rounded-md text-sm font-medium transition-colors',
-						selectedModel
-							? 'bg-gray-900 text-white hover:bg-gray-700 cursor-pointer'
-							: 'bg-gray-200 text-gray-400 cursor-not-allowed',
-					]"
 				>
-					<Icon icon="lucide:check" class="w-3.5 h-3.5 shrink-0" />
-					<span>Select Process</span>
-				</button>
+					<template #prefix><Icon icon="lucide:check" class="w-3.5 h-3.5" /></template>
+					Select Process
+				</Button>
 			</div>
 		</template>
 	</Dialog>
@@ -128,7 +118,7 @@
 
 <script setup>
 import { ref, computed, watch, nextTick } from "vue";
-import { frappeRequest } from "frappe-ui";
+import { frappeRequest, Button } from "frappe-ui";
 import { Icon } from "@iconify/vue";
 
 const props = defineProps({

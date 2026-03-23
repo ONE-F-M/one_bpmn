@@ -197,7 +197,7 @@
 			v-model="showCallActivitySearchDialog"
 			:search-event="callActivitySearchEvent"
 			@select="onCallActivitySelected"
-			@cancel="showCallActivitySearchDialog = false"
+			@cancel="onCancelCallActivitySearch"
 		/>
 
 		<!-- Markdown Editor Dialog -->
@@ -704,21 +704,22 @@ async function onLaunchCallActivityEditor(event) {
 		return;
 	}
 
-	// Find the process model with matching process_id
 	try {
+		// Use the dedicated resolve endpoint — returns one record without
+		// fetching the entire model list client-side.
 		const response = await frappeRequest({
-			url: "/api/method/one_bpmn.api.list_process_models",
+			url: "/api/method/one_bpmn.api.resolve_process_model_by_id",
+			params: { process_id: event.processId },
 		});
-		const models = response.message || response || [];
-		const linked = models.find((m) => m.process_id === event.processId);
-		if (linked && linked.process_name) {
-			// Navigate to the exact diagram in the editor
-			const url = `/spiff/process/${linked.process_name}/diagram/${linked.name}`;
-			window.open(url, "_blank");
-		} else if (linked) {
-			// Fallback: open process without a specific diagram
-			const url = `/spiff/process/${linked.name}`;
-			window.open(url, "_blank");
+		const linked = response.message || response;
+
+		if (linked && linked.name) {
+			// Build URL with encoded segments to handle spaces and reserved chars
+			const base = linked.process_name
+				? `/spiff/process/${encodeURIComponent(linked.process_name)}/diagram/${encodeURIComponent(linked.name)}`
+				: `/spiff/process/${encodeURIComponent(linked.name)}`;
+			// noopener,noreferrer prevents reverse-tabnabbing via window.opener
+			window.open(base, "_blank", "noopener,noreferrer");
 		} else {
 			showNotification(
 				"Call Activity",
@@ -755,6 +756,13 @@ function onCallActivitySelected(processId) {
 		});
 	}
 
+	showCallActivitySearchDialog.value = false;
+	callActivitySearchEvent = null;
+}
+
+function onCancelCallActivitySearch() {
+	// Mirror the select path: close dialog AND clear the stored event reference
+	// so we don't retain stale BPMN element/eventBus objects.
 	showCallActivitySearchDialog.value = false;
 	callActivitySearchEvent = null;
 }

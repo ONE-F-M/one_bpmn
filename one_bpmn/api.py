@@ -99,7 +99,9 @@ def list_process_models() -> list:
 	Returns:
 		list of process model summaries
 	"""
-	models = frappe.get_list(
+	# Use get_all (no default page-size cap) so the Call Activity search dialog
+	# and the process-id resolver never miss records beyond Frappe's default 20.
+	models = frappe.get_all(
 		"BPMN Process Model",
 		fields=["name", "title", "process_id", "description", "version", "is_active", "category", "modified", "owner", "process_name"],
 		order_by="modified desc"
@@ -110,6 +112,32 @@ def list_process_models() -> list:
 		m["model_name"] = m["title"]
 
 	return models
+
+
+@frappe.whitelist()
+def resolve_process_model_by_id(process_id: str) -> dict:
+	"""
+	Resolve a process_id to the BPMN Process Model that owns it.
+
+	Used by the Call Activity editor to navigate to the linked diagram
+	without requiring the frontend to fetch and filter the entire model list.
+
+	Args:
+		process_id: The BPMN process_id attribute (e.g. "Process_abc123")
+
+	Returns:
+		dict with name, title, process_name, process_id — or empty dict if not found
+	"""
+	if not process_id:
+		return {}
+
+	result = frappe.db.get_value(
+		"BPMN Process Model",
+		filters={"process_id": process_id},
+		fieldname=["name", "title", "process_name", "process_id"],
+		as_dict=True,
+	)
+	return result or {}
 
 
 @frappe.whitelist()
