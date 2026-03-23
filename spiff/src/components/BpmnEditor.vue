@@ -122,6 +122,8 @@ import { customTextStyleModule } from "@/renderers";
 // Custom moddle extension for text style attributes
 import customTextStyleModdle from "@/moddle/customTextStyleModdle";
 
+import userTaskPropertiesProviderModule from "@/bpmn/userTaskPropertiesProvider";
+
 // Import bpmn-js CSS
 import "bpmn-js/dist/assets/diagram-js.css";
 import "bpmn-js/dist/assets/bpmn-font/css/bpmn.css";
@@ -187,6 +189,25 @@ function togglePropertiesPanel() {
 
 onMounted(async () => {
 	try {
+		// Extend spiff workflow moddle definitions to include our custom timer properties
+		if (spiffModdleExtension && Array.isArray(spiffModdleExtension.types)) {
+
+			// User Task assignee extension
+			const hasUserTaskExt = spiffModdleExtension.types.find(t => t.name === "UserTaskAssigneeExtension");
+			if (!hasUserTaskExt) {
+				spiffModdleExtension.types.push({
+					name: "UserTaskAssigneeExtension",
+					extends: ["bpmn:UserTask"],
+					properties: [
+						{ name: "assigneeMode",        isAttr: true, type: "String" },
+						{ name: "targetDoctype",       isAttr: true, type: "String" },
+						{ name: "assigneeUser",        isAttr: true, type: "String" },
+						{ name: "assigneeDocfield",    isAttr: true, type: "String" }
+					]
+				});
+			}
+		}
+
 		// Initialize modeler with keyboard support, properties panel, and theming
 		modeler = new BpmnModeler({
 			container: container.value,
@@ -197,6 +218,7 @@ onMounted(async () => {
 				BpmnPropertiesPanelModule,
 				BpmnPropertiesProviderModule,
 				spiffworkflow, // SpiffWorkflow properties providers
+				userTaskPropertiesProviderModule,
 				// minimapModule, // DISABLED
 				translateModule,
 				customTextStyleModule,
