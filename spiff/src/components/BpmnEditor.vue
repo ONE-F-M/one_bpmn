@@ -93,11 +93,11 @@
 <script setup>
 import { ref, onMounted, onUnmounted } from "vue";
 import { Icon } from "@iconify/vue";
-import BpmnModeler from "bpmn-js/lib/Modeler";
 // Custom Shapes - DISABLED (see DEVELOPMENT_CONTEXT.md)
 // import CustomShapesModule, { customShapeSvgStore } from "@/bpmn";
 import { Tooltip } from "frappe-ui";
 import FormattingToolbar from "@/components/FormattingToolbar.vue";
+import { initModeler } from "@/composables/useModelerInit";
 // Properties panel
 import {
 	BpmnPropertiesPanelModule,
@@ -186,63 +186,36 @@ function togglePropertiesPanel() {
 // }
 
 onMounted(async () => {
-	// Attempt to initialize up to 3 times.
-	// The first attempt may fail with a Preact __H hook-state error when
-	// bpmn-js-spiffworkflow's bundled Preact conflicts with the properties
-	// panel's Preact.  modeler.destroy() forces Preact to clean up, so
-	// subsequent attempts usually succeed.
-	const MAX_ATTEMPTS = 3;
-	let lastErr;
-
-	for (let attempt = 0; attempt < MAX_ATTEMPTS; attempt++) {
-		if (attempt > 0) {
-			// Destroy any partially-initialized modeler so Preact can reset
-			if (modeler) {
-				try { modeler.destroy(); } catch (_) {}
-				modeler = null;
-				commandStack = null;
-				modelerInstance.value = null;
-			}
-			// Brief pause so the Preact unmount can complete
-			await new Promise((resolve) => setTimeout(resolve, 150 * attempt));
-		}
-
-		try {
-			// Initialize modeler with keyboard support, properties panel, and theming
-			modeler = new BpmnModeler({
-				container: container.value,
-				propertiesPanel: {
-					parent: propertiesContainer.value,
+	await initModeler({
+		container,
+		propertiesContainer,
+		modelerConfig: {
+			additionalModules: [
+				BpmnPropertiesPanelModule,
+				BpmnPropertiesProviderModule,
+				spiffworkflow,
+				// minimapModule, // DISABLED
+				translateModule,
+				customTextStyleModule,
+			],
+			moddleExtensions: {
+				custom: customTextStyleModdle,
+				spiffworkflow: spiffModdleExtension,
+			},
+			bpmnRenderer: {
+				defaultFillColor: "#ffffff",
+				defaultStrokeColor: "#1f2937",
+			},
+			textRenderer: {
+				defaultStyle: {
+					fontFamily: '"Inter", "Segoe UI", system-ui, sans-serif',
+					fontSize: "12px",
 				},
-				additionalModules: [
-					BpmnPropertiesPanelModule,
-					BpmnPropertiesProviderModule,
-					spiffworkflow, // SpiffWorkflow properties providers
-					// minimapModule, // DISABLED
-					translateModule,
-					customTextStyleModule,
-				],
-				// Register custom moddle extension for text style namespace
-				moddleExtensions: {
-					custom: customTextStyleModdle,
-					spiffworkflow: spiffModdleExtension, // SpiffWorkflow XML extensions
-				},
-				// Theming: Custom colors for BPMN elements
-				bpmnRenderer: {
-					defaultFillColor: "#ffffff",
-					defaultStrokeColor: "#1f2937", // gray-800
-				},
-				// Theming: Custom font for element labels
-				textRenderer: {
-					defaultStyle: {
-						fontFamily: '"Inter", "Segoe UI", system-ui, sans-serif',
-						fontSize: "12px",
-					},
-				},
-				keyboard: {
-					bindTo: document,
-				},
-			});
+			},
+			keyboard: { bindTo: document },
+		},
+		onReady: async (initializedModeler) => {
+			modeler = initializedModeler;
 
 			// Get command stack for undo/redo
 			commandStack = modeler.get("commandStack");
@@ -265,10 +238,6 @@ onMounted(async () => {
 			});
 
 			// --- SpiffWorkflow EventBus Integration ---
-			// These handlers are required for the spiffworkflow properties panel
-			// "Launch Editor" buttons and data-request dropdowns to function.
-
-			// Script editing (Script Tasks, Pre/Post scripts)
 			eventBus.on("spiff.script.edit", (event) => {
 				emit("launch-script-editor", {
 					element: event.element,
@@ -278,7 +247,6 @@ onMounted(async () => {
 				});
 			});
 
-			// Markdown / Instructions editing (User Tasks, Manual Tasks)
 			eventBus.on("spiff.markdown.edit", (event) => {
 				emit("launch-markdown-editor", {
 					element: event.element,
@@ -287,7 +255,6 @@ onMounted(async () => {
 				});
 			});
 
-			// Call Activity editing
 			eventBus.on("spiff.callactivity.edit", (event) => {
 				emit("launch-callactivity-editor", {
 					processId: event.processId,
@@ -295,23 +262,18 @@ onMounted(async () => {
 				});
 			});
 
-			// Call Activity search — return placeholder
 			eventBus.on("spiff.callactivity.search", (event) => {
 				console.log("Call Activity search requested for:", event.element?.id);
-				// TODO: Implement a search dialog to find call activities
 			});
 
-			// File editing
 			eventBus.on("spiff.file.edit", (event) => {
 				console.log("File edit requested:", event.value);
 			});
 
-			// DMN table editing
 			eventBus.on("spiff.dmn.edit", (event) => {
 				console.log("DMN edit requested:", event.value);
 			});
 
-			// Data request handlers — return empty options as placeholders
 			eventBus.on("spiff.service_tasks.requested", (event) => {
 				event.eventBus.fire("spiff.service_tasks.returned", {
 					serviceTaskOperators: [],
@@ -374,14 +336,11 @@ onMounted(async () => {
 			await modeler.importXML(emptyDiagram);
 
 			emit("ready");
-			return; // ← success, exit retry loop
-		} catch (err) {
-			lastErr = err;
-			console.warn(`BpmnModeler init attempt ${attempt + 1} failed: ${err.message}`);
-		}
-	}
-
-	console.error("Failed to initialize BPMN modeler after", MAX_ATTEMPTS, "attempts:", lastErr);
+		},
+		onError: (err) => {
+			console.error("Failed to initialize BPMN modeler:", err);
+		},
+	});
 });
 
 onUnmounted(() => {

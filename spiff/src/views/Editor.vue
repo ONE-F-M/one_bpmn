@@ -667,72 +667,18 @@ async function handleImportFile(event) {
 			reader.readAsText(file);
 		});
 
-		// Call the backend import endpoint
-		const response = await fetch("/api/method/one_bpmn.api.import_bpmn", {
+		// Call the backend import endpoint via frappeRequest for consistent
+		// CSRF handling, response parsing, and error surfacing.
+		const data = await frappeRequest({
+			url: "/api/method/one_bpmn.api.import_bpmn",
 			method: "POST",
-			headers: {
-				"Content-Type": "application/json",
-				"X-Frappe-CSRF-Token": window.csrf_token || "",
-			},
-			body: JSON.stringify({
+			body: {
 				xml_content: xmlContent,
 				// Use the filename (minus .bpmn) as the human-readable title
 				title: file.name.replace(/\.bpmn$/i, ""),
 				process: props.process || null,
-			}),
+			},
 		});
-
-		let data;
-		if (response.ok) {
-			try {
-				data = await response.json();
-			} catch (_) {
-				throw new Error(
-					"Received an unexpected response from the server while importing the diagram."
-				);
-			}
-		} else {
-			// Try to extract a useful error message from the response body
-			let errorMessage = `Import failed with status ${response.status} ${response.statusText}`;
-			try {
-				const errorBody = await response.json();
-				if (errorBody) {
-					if (errorBody.message) {
-						errorMessage = errorBody.message;
-					} else if (errorBody.exc) {
-						errorMessage = errorBody.exc;
-					} else if (errorBody._server_messages) {
-						try {
-							const msgs = JSON.parse(errorBody._server_messages);
-							const parsed = JSON.parse(msgs[0]);
-							errorMessage = parsed.message || errorMessage;
-						} catch (_) {}
-					}
-				}
-			} catch (_) {
-				try {
-					const text = await response.text();
-					if (text) {
-						errorMessage = text;
-					}
-				} catch (_) {}
-			}
-			throw new Error(errorMessage);
-		}
-
-		// Frappe surfaces errors in data.exc or data._server_messages
-		if (data.exc) {
-			let msg = data.exc;
-			// Try to extract a cleaner message from server messages
-			if (data._server_messages) {
-				try {
-					const msgs = JSON.parse(data._server_messages);
-					const parsed = JSON.parse(msgs[0]);
-					msg = parsed.message || msg;
-				} catch (_) {}
-			}
-			throw new Error(msg);
-		}
 
 		const result = data.message || data;
 		const action = result.action === "updated" ? "updated" : "imported";
@@ -741,7 +687,7 @@ async function handleImportFile(event) {
 		// gets an instant cache-hit and calls loadXML without a round-trip.
 		diagramDataCache.value[result.name] = xmlContent;
 
-		// Reload process diagrams to sync tabs
+		// Reload process diagrams to sync the diagrams list
 		await loadProcess();
 		let diagramEntry = diagrams.value.find((d) => d.name === result.name);
 		if (!diagramEntry) {
@@ -755,7 +701,11 @@ async function handleImportFile(event) {
 			};
 			diagrams.value.push(diagramEntry);
 		}
-		openTabs.value = [...diagrams.value];
+
+		// Preserve existing openTabs; only add the imported diagram tab if not already open
+		if (!openTabs.value.some((tab) => tab.name === diagramEntry.name)) {
+			openTabs.value = [...openTabs.value, diagramEntry];
+		}
 
 		// Switch to the imported diagram via SPA (no page reload → no Preact crash)
 		// The watch(activeDiagramName) picks up the change and calls loadDiagramContent.

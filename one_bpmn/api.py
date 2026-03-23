@@ -2,15 +2,9 @@
 # For license information, please see license.txt
 
 import uuid
-import xml.etree.ElementTree as ET
+import defusedxml.ElementTree as ET
 import frappe
 from frappe import _
-
-# BPMN namespace map used for XML parsing
-_BPMN_NAMESPACES = {
-	"bpmn": "http://www.omg.org/spec/BPMN/20100524/MODEL",
-	"bpmndi": "http://www.omg.org/spec/BPMN/20100524/DI",
-}
 
 
 @frappe.whitelist()
@@ -55,6 +49,7 @@ def save_process_model(
 		doc.description = description or ""
 		doc.version = 1
 		doc.process_id = str(uuid.uuid4())
+		doc.check_permission("create")
 		doc.insert()
 
 	return {
@@ -129,6 +124,9 @@ def import_bpmn(
 		doc.bpmn_xml = xml_content
 		if process:
 			doc.process_name = process
+		# Always sync the title field so the return value is accurate
+		if effective_title:
+			doc.title = effective_title
 		doc.save()
 
 		# Rename the document if the human title has changed
@@ -155,6 +153,7 @@ def import_bpmn(
 		doc.bpmn_xml = xml_content
 		doc.process_name = process or None
 		doc.version = 1
+		doc.check_permission("create")
 		doc.insert()
 		action = "created"
 
