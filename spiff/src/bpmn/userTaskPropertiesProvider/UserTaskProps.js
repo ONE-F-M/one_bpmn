@@ -78,20 +78,14 @@ function loadDocfields(doctype, onLoaded) {
 	if (_docfieldCache.has(doctype)) { onLoaded(_docfieldCache.get(doctype)); return; }
 	if (_docfieldFetching.has(doctype)) return;
 	_docfieldFetching.add(doctype);
-	const filters = encodeURIComponent(
-		JSON.stringify([
-			["parent", "=", doctype],
-			["fieldtype", "=", "Link"],
-			["options", "=", "User"],
-		])
-	);
+
 	fetch(
-		`/api/resource/DocField?fields=["fieldname","label"]&filters=${filters}&limit_page_length=500`,
+		`/api/method/one_bpmn.api.get_assignee_docfields?doctype=${encodeURIComponent(doctype)}`,
 		{ credentials: "include" }
 	)
 		.then((r) => r.json())
 		.then((json) => {
-			const data = json.data || json.message || [];
+			const data = json.message || [];
 			const options = [
 				{ label: "-- Select Docfield --", value: "" },
 				...data.map((d) => ({ label: `${d.label} (${d.fieldname})`, value: d.fieldname })),
