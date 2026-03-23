@@ -101,7 +101,7 @@ def list_process_models() -> list:
 	"""
 	models = frappe.get_list(
 		"BPMN Process Model",
-		fields=["name", "title", "process_id", "description", "version", "is_active", "category", "modified", "owner"],
+		fields=["name", "title", "process_id", "description", "version", "is_active", "category", "modified", "owner", "process_name"],
 		order_by="modified desc"
 	)
 
