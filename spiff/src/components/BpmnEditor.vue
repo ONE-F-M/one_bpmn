@@ -186,181 +186,202 @@ function togglePropertiesPanel() {
 // }
 
 onMounted(async () => {
-	// Brief delay so any previously destroyed Preact component trees
-	// (from a prior BpmnEditor instance) can fully finalize cleanup
-	// before we start a new Preact properties panel.
-	await new Promise((resolve) => setTimeout(resolve, 50));
+	// Attempt to initialize up to 3 times.
+	// The first attempt may fail with a Preact __H hook-state error when
+	// bpmn-js-spiffworkflow's bundled Preact conflicts with the properties
+	// panel's Preact.  modeler.destroy() forces Preact to clean up, so
+	// subsequent attempts usually succeed.
+	const MAX_ATTEMPTS = 3;
+	let lastErr;
 
-	try {
-		// Initialize modeler with keyboard support, properties panel, and theming
-		modeler = new BpmnModeler({
-			container: container.value,
-			propertiesPanel: {
-				parent: propertiesContainer.value,
-			},
-			additionalModules: [
-				BpmnPropertiesPanelModule,
-				BpmnPropertiesProviderModule,
-				spiffworkflow, // SpiffWorkflow properties providers
-				// minimapModule, // DISABLED
-				translateModule,
-				customTextStyleModule,
-			],
-			// Register custom moddle extension for text style namespace
-			moddleExtensions: {
-				custom: customTextStyleModdle,
-				spiffworkflow: spiffModdleExtension, // SpiffWorkflow XML extensions
-			},
-			// Theming: Custom colors for BPMN elements
-			bpmnRenderer: {
-				defaultFillColor: "#ffffff",
-				defaultStrokeColor: "#1f2937", // gray-800
-			},
-			// Theming: Custom font for element labels
-			textRenderer: {
-				defaultStyle: {
-					fontFamily: '"Inter", "Segoe UI", system-ui, sans-serif',
-					fontSize: "12px",
+	for (let attempt = 0; attempt < MAX_ATTEMPTS; attempt++) {
+		if (attempt > 0) {
+			// Destroy any partially-initialized modeler so Preact can reset
+			if (modeler) {
+				try { modeler.destroy(); } catch (_) {}
+				modeler = null;
+				commandStack = null;
+				modelerInstance.value = null;
+			}
+			// Brief pause so the Preact unmount can complete
+			await new Promise((resolve) => setTimeout(resolve, 150 * attempt));
+		}
+
+		try {
+			// Initialize modeler with keyboard support, properties panel, and theming
+			modeler = new BpmnModeler({
+				container: container.value,
+				propertiesPanel: {
+					parent: propertiesContainer.value,
 				},
-			},
-			keyboard: {
-				bindTo: document,
-			},
-		});
-
-		// Get command stack for undo/redo
-		commandStack = modeler.get("commandStack");
-
-		// Use eventBus for listening to command stack changes
-		const eventBus = modeler.get("eventBus");
-		eventBus.on("commandStack.changed", updateUndoRedoState);
-
-		// Listen for selection changes for formatting toolbar
-		eventBus.on("selection.changed", (e) => {
-			selectedElements.value = e.newSelection || [];
-		});
-
-		// Listen for zoom changes (Ctrl+scroll, programmatic zoom, etc.)
-		eventBus.on("canvas.viewbox.changed", () => {
-			const canvas = modeler.get("canvas");
-			const newZoom = Math.round(canvas.zoom() * 100);
-			zoomLevel.value = newZoom;
-			emit("zoom-changed", newZoom);
-		});
-
-		// --- SpiffWorkflow EventBus Integration ---
-		// These handlers are required for the spiffworkflow properties panel
-		// "Launch Editor" buttons and data-request dropdowns to function.
-
-		// Script editing (Script Tasks, Pre/Post scripts)
-		eventBus.on("spiff.script.edit", (event) => {
-			emit("launch-script-editor", {
-				element: event.element,
-				scriptType: event.scriptType,
-				script: event.script || "",
-				eventBus: event.eventBus,
+				additionalModules: [
+					BpmnPropertiesPanelModule,
+					BpmnPropertiesProviderModule,
+					spiffworkflow, // SpiffWorkflow properties providers
+					// minimapModule, // DISABLED
+					translateModule,
+					customTextStyleModule,
+				],
+				// Register custom moddle extension for text style namespace
+				moddleExtensions: {
+					custom: customTextStyleModdle,
+					spiffworkflow: spiffModdleExtension, // SpiffWorkflow XML extensions
+				},
+				// Theming: Custom colors for BPMN elements
+				bpmnRenderer: {
+					defaultFillColor: "#ffffff",
+					defaultStrokeColor: "#1f2937", // gray-800
+				},
+				// Theming: Custom font for element labels
+				textRenderer: {
+					defaultStyle: {
+						fontFamily: '"Inter", "Segoe UI", system-ui, sans-serif',
+						fontSize: "12px",
+					},
+				},
+				keyboard: {
+					bindTo: document,
+				},
 			});
-		});
 
-		// Markdown / Instructions editing (User Tasks, Manual Tasks)
-		eventBus.on("spiff.markdown.edit", (event) => {
-			emit("launch-markdown-editor", {
-				element: event.element,
-				value: event.value || "",
-				eventBus: event.eventBus,
+			// Get command stack for undo/redo
+			commandStack = modeler.get("commandStack");
+
+			// Use eventBus for listening to command stack changes
+			const eventBus = modeler.get("eventBus");
+			eventBus.on("commandStack.changed", updateUndoRedoState);
+
+			// Listen for selection changes for formatting toolbar
+			eventBus.on("selection.changed", (e) => {
+				selectedElements.value = e.newSelection || [];
 			});
-		});
 
-		// Call Activity editing
-		eventBus.on("spiff.callactivity.edit", (event) => {
-			emit("launch-callactivity-editor", {
-				processId: event.processId,
-				element: event.element,
+			// Listen for zoom changes (Ctrl+scroll, programmatic zoom, etc.)
+			eventBus.on("canvas.viewbox.changed", () => {
+				const canvas = modeler.get("canvas");
+				const newZoom = Math.round(canvas.zoom() * 100);
+				zoomLevel.value = newZoom;
+				emit("zoom-changed", newZoom);
 			});
-		});
 
-		// Call Activity search — return placeholder
-		eventBus.on("spiff.callactivity.search", (event) => {
-			console.log("Call Activity search requested for:", event.element?.id);
-			// TODO: Implement a search dialog to find call activities
-		});
+			// --- SpiffWorkflow EventBus Integration ---
+			// These handlers are required for the spiffworkflow properties panel
+			// "Launch Editor" buttons and data-request dropdowns to function.
 
-		// File editing
-		eventBus.on("spiff.file.edit", (event) => {
-			console.log("File edit requested:", event.value);
-		});
-
-		// DMN table editing
-		eventBus.on("spiff.dmn.edit", (event) => {
-			console.log("DMN edit requested:", event.value);
-		});
-
-		// Data request handlers — return empty options as placeholders
-		eventBus.on("spiff.service_tasks.requested", (event) => {
-			event.eventBus.fire("spiff.service_tasks.returned", {
-				serviceTaskOperators: [],
+			// Script editing (Script Tasks, Pre/Post scripts)
+			eventBus.on("spiff.script.edit", (event) => {
+				emit("launch-script-editor", {
+					element: event.element,
+					scriptType: event.scriptType,
+					script: event.script || "",
+					eventBus: event.eventBus,
+				});
 			});
-		});
 
-		eventBus.on("spiff.json_schema_files.requested", (event) => {
-			event.eventBus.fire("spiff.json_schema_files.returned", {
-				options: [],
+			// Markdown / Instructions editing (User Tasks, Manual Tasks)
+			eventBus.on("spiff.markdown.edit", (event) => {
+				emit("launch-markdown-editor", {
+					element: event.element,
+					value: event.value || "",
+					eventBus: event.eventBus,
+				});
 			});
-		});
 
-		eventBus.on("spiff.dmn_files.requested", (event) => {
-			event.eventBus.fire("spiff.dmn_files.returned", {
-				options: [],
+			// Call Activity editing
+			eventBus.on("spiff.callactivity.edit", (event) => {
+				emit("launch-callactivity-editor", {
+					processId: event.processId,
+					element: event.element,
+				});
 			});
-		});
 
-		eventBus.on("spiff.data_stores.requested", (event) => {
-			event.eventBus.fire("spiff.data_stores.returned", {
-				options: [],
+			// Call Activity search — return placeholder
+			eventBus.on("spiff.callactivity.search", (event) => {
+				console.log("Call Activity search requested for:", event.element?.id);
+				// TODO: Implement a search dialog to find call activities
 			});
-		});
 
-		eventBus.on("spiff.messages.requested", (event) => {
-			event.eventBus.fire("spiff.messages.returned", {
-				configuration: { messages: [] },
+			// File editing
+			eventBus.on("spiff.file.edit", (event) => {
+				console.log("File edit requested:", event.value);
 			});
-		});
 
-		eventBus.on("spiff.msg_json_schema_files.requested", (event) => {
-			console.log("Message JSON schema files requested");
-		});
-
-		// Fix unresolved loop data references (from upstream app.js)
-		modeler.on("import.parse.complete", (event) => {
-			const refs = event.references.filter(
-				(r) =>
-					r.property === "bpmn:loopDataInputRef" ||
-					r.property === "bpmn:loopDataOutputRef"
-			);
-			const desc = modeler._moddle.registry.getEffectiveDescriptor(
-				"bpmn:ItemAwareElement"
-			);
-			refs.forEach((ref) => {
-				const props = {
-					id: ref.id,
-					name: ref.id ? typeof ref.name === "undefined" : ref.name,
-				};
-				const elem = modeler._moddle.create(desc, props);
-				elem.$parent = ref.element;
-				ref.element.set(ref.property, elem);
+			// DMN table editing
+			eventBus.on("spiff.dmn.edit", (event) => {
+				console.log("DMN edit requested:", event.value);
 			});
-		});
 
-		// Expose modeler instance for child components
-		modelerInstance.value = modeler;
+			// Data request handlers — return empty options as placeholders
+			eventBus.on("spiff.service_tasks.requested", (event) => {
+				event.eventBus.fire("spiff.service_tasks.returned", {
+					serviceTaskOperators: [],
+				});
+			});
 
-		// Import empty diagram
-		await modeler.importXML(emptyDiagram);
+			eventBus.on("spiff.json_schema_files.requested", (event) => {
+				event.eventBus.fire("spiff.json_schema_files.returned", {
+					options: [],
+				});
+			});
 
-		emit("ready");
-	} catch (err) {
-		console.error("Failed to initialize BPMN modeler:", err);
+			eventBus.on("spiff.dmn_files.requested", (event) => {
+				event.eventBus.fire("spiff.dmn_files.returned", {
+					options: [],
+				});
+			});
+
+			eventBus.on("spiff.data_stores.requested", (event) => {
+				event.eventBus.fire("spiff.data_stores.returned", {
+					options: [],
+				});
+			});
+
+			eventBus.on("spiff.messages.requested", (event) => {
+				event.eventBus.fire("spiff.messages.returned", {
+					configuration: { messages: [] },
+				});
+			});
+
+			eventBus.on("spiff.msg_json_schema_files.requested", (event) => {
+				console.log("Message JSON schema files requested");
+			});
+
+			// Fix unresolved loop data references (from upstream app.js)
+			modeler.on("import.parse.complete", (event) => {
+				const refs = event.references.filter(
+					(r) =>
+						r.property === "bpmn:loopDataInputRef" ||
+						r.property === "bpmn:loopDataOutputRef"
+				);
+				const desc = modeler._moddle.registry.getEffectiveDescriptor(
+					"bpmn:ItemAwareElement"
+				);
+				refs.forEach((ref) => {
+					const props = {
+						id: ref.id,
+						name: ref.id ? typeof ref.name === "undefined" : ref.name,
+					};
+					const elem = modeler._moddle.create(desc, props);
+					elem.$parent = ref.element;
+					ref.element.set(ref.property, elem);
+				});
+			});
+
+			// Expose modeler instance for child components
+			modelerInstance.value = modeler;
+
+			// Import empty diagram
+			await modeler.importXML(emptyDiagram);
+
+			emit("ready");
+			return; // ← success, exit retry loop
+		} catch (err) {
+			lastErr = err;
+			console.warn(`BpmnModeler init attempt ${attempt + 1} failed: ${err.message}`);
+		}
 	}
+
+	console.error("Failed to initialize BPMN modeler after", MAX_ATTEMPTS, "attempts:", lastErr);
 });
 
 onUnmounted(() => {
