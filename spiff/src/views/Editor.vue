@@ -80,6 +80,7 @@
 						@launch-script-editor="onLaunchScriptEditor"
 						@launch-markdown-editor="onLaunchMarkdownEditor"
 						@launch-callactivity-editor="onLaunchCallActivityEditor"
+						@launch-callactivity-search="onLaunchCallActivitySearch"
 					/>
 					<div v-else class="flex items-center justify-center h-full bg-gray-100">
 						<div class="text-center">
@@ -191,6 +192,14 @@
 			</template>
 		</Dialog>
 
+		<!-- Call Activity Search Dialog -->
+		<CallActivitySearchDialog
+			v-model="showCallActivitySearchDialog"
+			:search-event="callActivitySearchEvent"
+			@select="onCallActivitySelected"
+			@cancel="showCallActivitySearchDialog = false"
+		/>
+
 		<!-- Markdown Editor Dialog -->
 		<Dialog v-model="showMarkdownEditorDialog" :options="{ title: 'Edit Instructions (Markdown)', size: '4xl' }">
 			<template #body-content>
@@ -226,6 +235,7 @@ import { Icon } from "@iconify/vue";
 import BpmnEditor from "@/components/BpmnEditor.vue";
 import EditorTabs from "@/components/EditorTabs.vue";
 import ShapeLibraryPanel from "@/components/ShapeLibraryPanel.vue";
+import CallActivitySearchDialog from "@/components/CallActivitySearchDialog.vue";
 
 const props = defineProps({
 	process: {
@@ -280,6 +290,12 @@ let activeScriptEvent = null;
 const showMarkdownEditorDialog = ref(false);
 const markdownEditorContent = ref("");
 let activeMarkdownEvent = null;
+
+// Call Activity Search state
+const showCallActivitySearchDialog = ref(false);
+let callActivitySearchEvent = null; // plain variable — NOT a ref, because bpmn-js
+// element objects have non-configurable/frozen properties (e.g. 'labels') that
+// conflict with Vue 3's Proxy-based reactivity and cause TypeErrors.
 
 // Zoom level (synced with BpmnEditor)
 const zoomLevel = computed(() => currentZoomLevel.value);
@@ -678,13 +694,69 @@ function saveMarkdown() {
 	activeMarkdownEvent = null;
 }
 
-function onLaunchCallActivityEditor(event) {
-	console.log("Call Activity editor requested for process:", event.processId);
-	showNotification(
-		"Call Activity",
-		`Process ID: ${event.processId}. Full editor integration coming soon.`,
-		"blue"
-	);
+async function onLaunchCallActivityEditor(event) {
+	if (!event.processId) {
+		showNotification(
+			"Call Activity",
+			"No process linked. Use the Search button to select a process first.",
+			"orange"
+		);
+		return;
+	}
+
+	// Find the process model with matching process_id
+	try {
+		const response = await frappeRequest({
+			url: "/api/method/one_bpmn.api.list_process_models",
+		});
+		const models = response.message || response || [];
+		const linked = models.find((m) => m.process_id === event.processId);
+		if (linked && linked.process_name) {
+			// Navigate to the exact diagram in the editor
+			const url = `/spiff/process/${linked.process_name}/diagram/${linked.name}`;
+			window.open(url, "_blank");
+		} else if (linked) {
+			// Fallback: open process without a specific diagram
+			const url = `/spiff/process/${linked.name}`;
+			window.open(url, "_blank");
+		} else {
+			showNotification(
+				"Call Activity",
+				`Linked process "${event.processId}" not found in this system.`,
+				"orange"
+			);
+		}
+	} catch (err) {
+		showNotification("Call Activity", "Failed to look up linked process.", "red");
+	}
+}
+
+function onLaunchCallActivitySearch(event) {
+	callActivitySearchEvent = event;
+	showCallActivitySearchDialog.value = true;
+}
+
+function onCallActivitySelected(processId) {
+	const event = callActivitySearchEvent;
+	if (!event) return;
+
+	// Primary: drive the update directly via the modeler's command stack.
+	// Reliable regardless of SpiffWorkflow's async once-listener state.
+	if (editorRef.value && typeof editorRef.value.updateCalledElement === "function") {
+		editorRef.value.updateCalledElement(event.element, processId);
+	}
+
+	// Secondary: also fire spiff.callactivity.update so the once-listener (if still
+	// active) can run its own commandStack path.
+	if (event.eventBus) {
+		event.eventBus.fire("spiff.callactivity.update", {
+			element: event.element,
+			value: processId,
+		});
+	}
+
+	showCallActivitySearchDialog.value = false;
+	callActivitySearchEvent = null;
 }
 </script>
 
