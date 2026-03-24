@@ -93,11 +93,11 @@
 <script setup>
 import { ref, onMounted, onUnmounted } from "vue";
 import { Icon } from "@iconify/vue";
-import BpmnModeler from "bpmn-js/lib/Modeler";
 // Custom Shapes - DISABLED (see DEVELOPMENT_CONTEXT.md)
 // import CustomShapesModule, { customShapeSvgStore } from "@/bpmn";
 import { Tooltip } from "frappe-ui";
 import FormattingToolbar from "@/components/FormattingToolbar.vue";
+import { initModeler } from "@/composables/useModelerInit";
 // Properties panel
 import {
 	BpmnPropertiesPanelModule,
@@ -190,214 +190,196 @@ function togglePropertiesPanel() {
 // }
 
 onMounted(async () => {
-	try {
-		// Initialize modeler with keyboard support, properties panel, and theming
-		modeler = new BpmnModeler({
-			container: container.value,
-			propertiesPanel: {
-				parent: propertiesContainer.value,
-			},
+	await initModeler({
+		container,
+		propertiesContainer,
+		modelerConfig: {
 			additionalModules: [
 				BpmnPropertiesPanelModule,
 				BpmnPropertiesProviderModule,
-				spiffworkflow, // SpiffWorkflow properties providers
+				spiffworkflow,
 				// minimapModule, // DISABLED
 				translateModule,
 				customTextStyleModule,
 				clipboardModule,
 			],
-			// Register custom moddle extension for text style namespace
 			moddleExtensions: {
 				custom: customTextStyleModdle,
-				spiffworkflow: spiffModdleExtension, // SpiffWorkflow XML extensions
+				spiffworkflow: spiffModdleExtension,
 			},
-			// Theming: Custom colors for BPMN elements
 			bpmnRenderer: {
 				defaultFillColor: "#ffffff",
-				defaultStrokeColor: "#1f2937", // gray-800
+				defaultStrokeColor: "#1f2937",
 			},
-			// Theming: Custom font for element labels
 			textRenderer: {
 				defaultStyle: {
 					fontFamily: '"Inter", "Segoe UI", system-ui, sans-serif',
 					fontSize: "12px",
 				},
 			},
-			keyboard: {
-				bindTo: document,
-			},
-		});
+			keyboard: { bindTo: document },
+		},
+		onReady: async (initializedModeler) => {
+			modeler = initializedModeler;
 
-		// Get command stack for undo/redo
-		commandStack = modeler.get("commandStack");
+			// Get command stack for undo/redo
+			commandStack = modeler.get("commandStack");
 
-		// Use eventBus for listening to command stack changes
-		const eventBus = modeler.get("eventBus");
-		eventBus.on("commandStack.changed", updateUndoRedoState);
+			// Use eventBus for listening to command stack changes
+			const eventBus = modeler.get("eventBus");
+			eventBus.on("commandStack.changed", updateUndoRedoState);
 
-		// Listen for selection changes for formatting toolbar
-		eventBus.on("selection.changed", (e) => {
-			selectedElements.value = e.newSelection || [];
-		});
-
-		// Listen for zoom changes (Ctrl+scroll, programmatic zoom, etc.)
-		eventBus.on("canvas.viewbox.changed", () => {
-			const canvas = modeler.get("canvas");
-			const newZoom = Math.round(canvas.zoom() * 100);
-			zoomLevel.value = newZoom;
-			emit("zoom-changed", newZoom);
-		});
-
-		// --- SpiffWorkflow EventBus Integration ---
-		// These handlers are required for the spiffworkflow properties panel
-		// "Launch Editor" buttons and data-request dropdowns to function.
-
-		// Script editing (Script Tasks, Pre/Post scripts)
-		eventBus.on("spiff.script.edit", (event) => {
-			emit("launch-script-editor", {
-				element: event.element,
-				scriptType: event.scriptType,
-				script: event.script || "",
-				eventBus: event.eventBus,
-			});
-		});
-
-		// Markdown / Instructions editing (User Tasks, Manual Tasks)
-		eventBus.on("spiff.markdown.edit", (event) => {
-			emit("launch-markdown-editor", {
-				element: event.element,
-				value: event.value || "",
-				eventBus: event.eventBus,
-			});
-		});
-
-		// Call Activity editing
-		eventBus.on("spiff.callactivity.edit", (event) => {
-			emit("launch-callactivity-editor", {
-				processId: event.processId,
-				element: event.element,
-			});
-		});
-
-		// Call Activity search — open the process picker dialog
-		eventBus.on("spiff.callactivity.search", (event) => {
-			emit("launch-callactivity-search", {
-				processId: event.processId,
-				eventBus: event.eventBus,
-				element: event.element,
-			});
-		});
-
-		// File editing
-		eventBus.on("spiff.file.edit", (event) => {
-			console.log("File edit requested:", event.value);
-		});
-
-		// DMN table editing
-		eventBus.on("spiff.dmn.edit", (event) => {
-			console.log("DMN edit requested:", event.value);
-		});
-
-		// Data request handlers — return empty options as placeholders
-		eventBus.on("spiff.service_tasks.requested", (event) => {
-			event.eventBus.fire("spiff.service_tasks.returned", {
-				serviceTaskOperators: [],
-			});
-		});
-
-		eventBus.on("spiff.json_schema_files.requested", (event) => {
-			event.eventBus.fire("spiff.json_schema_files.returned", {
-				options: [],
-			});
-		});
-
-		eventBus.on("spiff.dmn_files.requested", (event) => {
-			event.eventBus.fire("spiff.dmn_files.returned", {
-				options: [],
-			});
-		});
-
-		eventBus.on("spiff.data_stores.requested", (event) => {
-			event.eventBus.fire("spiff.data_stores.returned", {
-				options: [],
-			});
-		});
-
-		eventBus.on("spiff.messages.requested", (event) => {
-			event.eventBus.fire("spiff.messages.returned", {
-				configuration: { messages: [] },
-			});
-		});
-
-		eventBus.on("spiff.msg_json_schema_files.requested", (event) => {
-			console.log("Message JSON schema files requested");
-		});
-
-		// Fix unresolved loop data references (from upstream app.js)
-		modeler.on("import.parse.complete", (event) => {
-			const refs = event.references.filter(
-				(r) =>
-					r.property === "bpmn:loopDataInputRef" ||
-					r.property === "bpmn:loopDataOutputRef"
-			);
-			const desc = modeler._moddle.registry.getEffectiveDescriptor(
-				"bpmn:ItemAwareElement"
-			);
-			refs.forEach((ref) => {
-				const props = {
-					id: ref.id,
-					name: ref.id ? typeof ref.name === "undefined" : ref.name,
-				};
-				const elem = modeler._moddle.create(desc, props);
-				elem.$parent = ref.element;
-				ref.element.set(ref.property, elem);
-			});
-		});
-
-
-		// Override Ctrl+V paste to place elements at canvas center regardless of mouse position.
-		// The default bpmn-js paste uses the last mouse event position via create.start(), which
-		// silently fails when the mouse was on the tab bar (not the canvas) after switching tabs.
-		// Priority 2000 > default binding priority 1000, so this runs first.
-		const keyboard = modeler.get("keyboard");
-		const clipboardService = modeler.get("clipboard");
-		const copyPaste = modeler.get("copyPaste");
-		const canvasService = modeler.get("canvas");
-
-		// Expose modeler instance for child components
-		modelerInstance.value = modeler;
-
-		keyboard.addListener(2000, (context) => {
-			const evt = context.keyEvent;
-			const isMac = /mac/i.test(navigator.platform);
-			const isPaste = (isMac ? evt.metaKey : evt.ctrlKey) && evt.key === "v";
-			if (!isPaste) return;
-			if (clipboardService.isEmpty()) return;
-
-			evt.preventDefault();
-
-			// Paste at the center of the currently visible viewport using the
-			// public copyPaste.paste() API (avoids private _createElements/_paste)
-			const viewbox = canvasService.viewbox();
-			const root = canvasService.getRootElement();
-			copyPaste.paste({
-				element: root,
-				point: {
-					x: viewbox.x + viewbox.width / 2,
-					y: viewbox.y + viewbox.height / 2,
-				},
+			// Listen for selection changes for formatting toolbar
+			eventBus.on("selection.changed", (e) => {
+				selectedElements.value = e.newSelection || [];
 			});
 
-			return false; // Prevent default bpmn-js paste handler from also running
-		});
+			// Listen for zoom changes (Ctrl+scroll, programmatic zoom, etc.)
+			eventBus.on("canvas.viewbox.changed", () => {
+				const canvas = modeler.get("canvas");
+				const newZoom = Math.round(canvas.zoom() * 100);
+				zoomLevel.value = newZoom;
+				emit("zoom-changed", newZoom);
+			});
 
-		// Import empty diagram
-		await modeler.importXML(emptyDiagram);
+			// --- SpiffWorkflow EventBus Integration ---
+			eventBus.on("spiff.script.edit", (event) => {
+				emit("launch-script-editor", {
+					element: event.element,
+					scriptType: event.scriptType,
+					script: event.script || "",
+					eventBus: event.eventBus,
+				});
+			});
 
-		emit("ready");
-	} catch (err) {
-		console.error("Failed to initialize BPMN modeler:", err);
-	}
+			eventBus.on("spiff.markdown.edit", (event) => {
+				emit("launch-markdown-editor", {
+					element: event.element,
+					value: event.value || "",
+					eventBus: event.eventBus,
+				});
+			});
+
+
+			eventBus.on("spiff.callactivity.edit", (event) => {
+				emit("launch-callactivity-editor", {
+					processId: event.processId,
+					element: event.element,
+				});
+			});
+
+			eventBus.on("spiff.callactivity.search", (event) => {
+				console.log("Call Activity search requested for:", event.element?.id);
+			});
+
+			eventBus.on("spiff.file.edit", (event) => {
+				console.log("File edit requested:", event.value);
+			});
+
+			eventBus.on("spiff.dmn.edit", (event) => {
+				console.log("DMN edit requested:", event.value);
+			});
+
+			eventBus.on("spiff.service_tasks.requested", (event) => {
+				event.eventBus.fire("spiff.service_tasks.returned", {
+					serviceTaskOperators: [],
+				});
+			});
+
+			eventBus.on("spiff.json_schema_files.requested", (event) => {
+				event.eventBus.fire("spiff.json_schema_files.returned", {
+					options: [],
+				});
+			});
+
+			eventBus.on("spiff.dmn_files.requested", (event) => {
+				event.eventBus.fire("spiff.dmn_files.returned", {
+					options: [],
+				});
+			});
+
+			// Override Ctrl+V paste to place elements at canvas center regardless of mouse position.
+			// The default bpmn-js paste uses the last mouse event position via create.start(), which
+			// silently fails when the mouse was on the tab bar (not the canvas) after switching tabs.
+			// Priority 2000 > default binding priority 1000, so this runs first.
+			const keyboard = modeler.get("keyboard");
+			const clipboardService = modeler.get("clipboard");
+			const copyPaste = modeler.get("copyPaste");
+			const canvasService = modeler.get("canvas");
+
+			keyboard.addListener(2000, (context) => {
+				const evt = context.keyEvent;
+				const isMac = /mac/i.test(navigator.platform);
+				const isPaste = (isMac ? evt.metaKey : evt.ctrlKey) && evt.key === "v";
+				if (!isPaste) return;
+				if (clipboardService.isEmpty()) return;
+
+				evt.preventDefault();
+
+				// Paste at the center of the currently visible viewport
+				const viewbox = canvasService.viewbox();
+				const root = canvasService.getRootElement();
+				copyPaste.paste({
+					element: root,
+					point: {
+						x: viewbox.x + viewbox.width / 2,
+						y: viewbox.y + viewbox.height / 2,
+					},
+				});
+
+				return false; // Prevent default bpmn-js paste handler from also running
+			});
+
+
+			eventBus.on("spiff.data_stores.requested", (event) => {
+				event.eventBus.fire("spiff.data_stores.returned", {
+					options: [],
+				});
+			});
+
+			eventBus.on("spiff.messages.requested", (event) => {
+				event.eventBus.fire("spiff.messages.returned", {
+					configuration: { messages: [] },
+				});
+			});
+
+			eventBus.on("spiff.msg_json_schema_files.requested", (event) => {
+				console.log("Message JSON schema files requested");
+			});
+
+			// Fix unresolved loop data references (from upstream app.js)
+			modeler.on("import.parse.complete", (event) => {
+				const refs = event.references.filter(
+					(r) =>
+						r.property === "bpmn:loopDataInputRef" ||
+						r.property === "bpmn:loopDataOutputRef"
+				);
+				const desc = modeler._moddle.registry.getEffectiveDescriptor(
+					"bpmn:ItemAwareElement"
+				);
+				refs.forEach((ref) => {
+					const props = {
+						id: ref.id,
+						name: ref.id ? typeof ref.name === "undefined" : ref.name,
+					};
+					const elem = modeler._moddle.create(desc, props);
+					elem.$parent = ref.element;
+					ref.element.set(ref.property, elem);
+				});
+			});
+
+			// Expose modeler instance for child components
+			modelerInstance.value = modeler;
+
+			// Import empty diagram
+			await modeler.importXML(emptyDiagram);
+
+			emit("ready");
+		},
+		onError: (err) => {
+			console.error("Failed to initialize BPMN modeler:", err);
+		},
+	});
 });
 
 onUnmounted(() => {
