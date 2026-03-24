@@ -3,8 +3,6 @@
 		<!-- Header -->
 		<header class="bg-white border-b px-6 py-4 flex items-center justify-between">
 			<h1 class="text-xl font-semibold text-gray-900">Process Instances</h1>
-			<!-- Navigation link back to home if desired, though we'll also update Home.vue to link here -->
-			<Button variant="solid" @click="router.push('/spiff')">View Processes</Button>
 		</header>
 
 		<!-- Toolbar / Filters -->

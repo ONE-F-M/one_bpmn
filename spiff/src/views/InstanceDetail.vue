@@ -156,12 +156,20 @@ onMounted(async () => {
 async function loadDetails() {
 	try {
 		const res = await frappeRequest({
-			url: "/api/method/one_bpmn.api.get_process_instance_details",
+			url: "/api/method/frappe.client.get",
 			method: "POST",
-			params: { instance_id: instanceId.value }
+			params: { 
+				doctype: "BPMN Process Instance",
+				name: instanceId.value 
+			}
 		})
 		details.value = res
-		activeTasks.value = res.active_tasks || []
+		
+		if (res && res.active_tasks) {
+			activeTasks.value = res.active_tasks.filter(t => !t.status || t.status === "Waiting")
+		} else {
+			activeTasks.value = []
+		}
 	} catch (e) {
 		console.error("Failed to load instance details:", e)
 	}
@@ -172,10 +180,13 @@ async function loadLogs() {
 	logsLoading.value = true
 	try {
 		const res = await frappeRequest({
-			url: "/api/method/one_bpmn.api.get_activity_logs",
+			url: "/api/method/frappe.client.get_list",
 			method: "POST",
 			params: {
-				instance_id: instanceId.value,
+				doctype: "BPMN Activity Log",
+				fields: '["name", "task_id", "task_name", "action", "timestamp", "user", "data"]',
+				filters: JSON.stringify({ instance: instanceId.value }),
+				order_by: "timestamp desc",
 				limit_start: limitStart.value,
 				limit_page_length: limitPageLength
 			}

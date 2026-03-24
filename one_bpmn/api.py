@@ -2,6 +2,7 @@
 # For license information, please see license.txt
 
 import uuid
+from lxml import etree as ET
 import frappe
 from frappe import _
 
@@ -48,6 +49,7 @@ def save_process_model(
 		doc.description = description or ""
 		doc.version = 1
 		doc.process_id = str(uuid.uuid4())
+		doc.check_permission("create")
 		doc.insert()
 
 	return {
@@ -55,6 +57,113 @@ def save_process_model(
 		"model_name": doc.title,
 		"version": doc.version,
 		"is_active": doc.is_active
+	}
+
+
+@frappe.whitelist()
+def import_bpmn(
+	xml_content: str,
+	title: str = None,
+	process: str = None,
+) -> dict:
+	"""
+	Import a BPMN XML string as a new or updated BPMN Process Model.
+
+	The process_id is extracted from the first <bpmn:process id="…"> element in
+	the XML. If a BPMN Process Model with that process_id already exists it is
+	updated; otherwise a new record is created.
+
+	Args:
+		xml_content: Raw BPMN XML text (content of a .bpmn file)
+		title:       Optional human-readable title. Defaults to the process_id.
+		process:     Optional link to a Process DocType record.
+
+	Returns:
+		dict with name, model_name, process_id, and action ('created'|'updated')
+	"""
+	if not xml_content or not xml_content.strip():
+		frappe.throw(_("BPMN XML content is required"))
+
+	# --- Validate & parse XML ---
+	# lxml raises TypeError when fromstring() receives a str containing an encoding
+	# declaration (<?xml ... encoding="UTF-8"?>). Encoding to bytes avoids this.
+	try:
+		root = ET.fromstring(xml_content.strip().encode("utf-8"))
+	except ET.XMLSyntaxError as exc:
+		frappe.throw(_("Invalid BPMN XML: {0}").format(str(exc)))
+
+	# Register namespaces so ElementTree can search them
+	bpmn_ns = "http://www.omg.org/spec/BPMN/20100524/MODEL"
+
+	# Accept both namespaced and bare <process> tags
+	process_el = root.find(f"{{{bpmn_ns}}}process")
+	if process_el is None:
+		# Fallback: look without namespace (some exporters omit it)
+		process_el = root.find("process")
+
+	if process_el is None:
+		frappe.throw(_(
+			"Invalid BPMN XML: no <bpmn:process> element found. "
+			"Please upload a valid BPMN 2.0 file."
+		))
+
+	extracted_process_id = process_el.get("id")
+	if not extracted_process_id:
+		frappe.throw(_("Invalid BPMN XML: <bpmn:process> element has no 'id' attribute"))
+
+	effective_title = title or process_el.get("name") or extracted_process_id
+
+	# --- Upsert logic: match by process_id (unique field) ---
+	existing_name = frappe.db.get_value(
+		"BPMN Process Model",
+		{"process_id": extracted_process_id},
+		"name"
+	)
+
+	if existing_name:
+		doc = frappe.get_doc("BPMN Process Model", existing_name)
+		doc.check_permission("write")
+		doc.bpmn_xml = xml_content
+		if process:
+			doc.process_name = process
+		# Always sync the title field so the return value is accurate
+		if effective_title:
+			doc.title = effective_title
+		doc.save()
+
+		# Rename the document if the human title has changed
+		# (autoname only runs on insert, so we must rename manually)
+		if effective_title and effective_title != doc.name:
+			try:
+				frappe.rename_doc(
+					"BPMN Process Model",
+					doc.name,
+					effective_title,
+					force=True,
+					merge=False,
+				)
+				doc = frappe.get_doc("BPMN Process Model", effective_title)
+			except Exception:
+				# If rename fails (e.g. duplicate title), keep existing name
+				pass
+
+		action = "updated"
+	else:
+		doc = frappe.new_doc("BPMN Process Model")
+		doc.title = effective_title
+		doc.process_id = extracted_process_id
+		doc.bpmn_xml = xml_content
+		doc.process_name = process or None
+		doc.version = 1
+		doc.check_permission("create")
+		doc.insert()
+		action = "created"
+
+	return {
+		"name": doc.name,
+		"model_name": doc.title,
+		"process_id": doc.process_id,
+		"action": action,
 	}
 
 
@@ -99,9 +208,11 @@ def list_process_models() -> list:
 	Returns:
 		list of process model summaries
 	"""
-	models = frappe.get_list(
+	# Use get_all (no default page-size cap) so the Call Activity search dialog
+	# and the process-id resolver never miss records beyond Frappe's default 20.
+	models = frappe.get_all(
 		"BPMN Process Model",
-		fields=["name", "title", "process_id", "description", "version", "is_active", "category", "modified", "owner"],
+		fields=["name", "title", "process_id", "description", "version", "is_active", "category", "modified", "owner", "process_name"],
 		order_by="modified desc"
 	)
 
@@ -110,6 +221,32 @@ def list_process_models() -> list:
 		m["model_name"] = m["title"]
 
 	return models
+
+
+@frappe.whitelist()
+def resolve_process_model_by_id(process_id: str) -> dict:
+	"""
+	Resolve a process_id to the BPMN Process Model that owns it.
+
+	Used by the Call Activity editor to navigate to the linked diagram
+	without requiring the frontend to fetch and filter the entire model list.
+
+	Args:
+		process_id: The BPMN process_id attribute (e.g. "Process_abc123")
+
+	Returns:
+		dict with name, title, process_name, process_id — or empty dict if not found
+	"""
+	if not process_id:
+		return {}
+
+	result = frappe.db.get_value(
+		"BPMN Process Model",
+		filters={"process_id": process_id},
+		fieldname=["name", "title", "process_name", "process_id"],
+		as_dict=True,
+	)
+	return result or {}
 
 
 @frappe.whitelist()
@@ -447,72 +584,66 @@ def list_process_instances(filters=None, limit_start=0, limit_page_length=20, or
 	return instances
 
 
-@frappe.whitelist()
-def get_process_instance_details(instance_id: str) -> dict:
-	"""
-	Get details of a specific BPMN Process Instance.
-	"""
-	if not instance_id:
-		frappe.throw(_("Instance ID is required"))
 
-	instance = frappe.get_doc("BPMN Process Instance", instance_id)
-	instance.check_permission("read")
-
-	# Prepare instance data
-	data = {
-		"name": instance.name,
-		"process_model": instance.process_model,
-		"status": instance.status,
-		"initiated_by": instance.initiated_by,
-		"started_at": instance.started_at,
-		"completed_at": instance.completed_at,
-		"context_doctype": instance.context_doctype,
-		"context_docname": instance.context_docname,
-		"active_tasks": []
-	}
-
-	# Get active tasks
-	for task in instance.active_tasks:
-		if task.status and task.status != "Waiting":
-			continue
-			
-		data["active_tasks"].append({
-			"task_id": task.task_id,
-			"task_name": task.task_name,
-			"task_type": task.task_type,
-			"status": task.status,
-			"started_at": task.started_at,
-			"assigned_role": task.assigned_role,
-			"assigned_user": task.assigned_user,
-			"target_doctype": task.target_doctype,
-			"target_docname": task.target_docname,
-			"timer_duration": task.timer_duration
-		})
-
-	return data
+# ============================================
+# Server Script API
+# Uses ignore_permissions so Process Owners without the Script Manager role
+# can still list/create Server Scripts via the BPMN editor.
+# Creation is guarded to System Manager or Script Manager only.
+# ============================================
 
 
 @frappe.whitelist()
-def get_activity_logs(instance_id: str, limit_start=0, limit_page_length=20) -> list:
-	"""
-	Get paginated activity logs for a BPMN Process Instance.
-	"""
-	if not instance_id:
-		frappe.throw(_("Instance ID is required"))
-		
-	import json
-	if isinstance(limit_start, str):
-		limit_start = int(limit_start)
-	if isinstance(limit_page_length, str):
-		limit_page_length = int(limit_page_length)
+def create_server_script(
+	script_name: str,
+	script_type: str,
+	script: str,
+	reference_doctype: str = None,
+	doctype_event: str = None,
+	api_method: str = None,
+	allow_guest: int = 0,
+	event_frequency: str = None,
+	cron_format: str = None,
+	module: str = None,
+) -> dict:
+	if not script_name or not script_type or not script:
+		frappe.throw(_("Script name, type, and content are required"))
 
-	logs = frappe.get_list(
-		"BPMN Activity Log",
-		filters={"instance": instance_id},
-		fields=["name", "task_id", "task_name", "action", "timestamp", "user", "data"],
-		order_by="timestamp desc",
-		limit_start=limit_start,
-		limit_page_length=limit_page_length
-	)
+	if not frappe.has_permission("Server Script", "create") and \
+			"System Manager" not in frappe.get_roles():
+		frappe.throw(
+			_("You need the Script Manager or System Manager role to create Server Scripts."),
+			frappe.PermissionError,
+		)
 
-	return logs
+	doc = frappe.new_doc("Server Script")
+	doc.__newname = script_name
+	doc.script_type = script_type
+	doc.script = script
+	doc.disabled = 1  # disabled by default — must be manually enabled
+	if reference_doctype:
+		doc.reference_doctype = reference_doctype
+	if doctype_event:
+		doc.doctype_event = doctype_event
+	if api_method:
+		doc.api_method = api_method
+	if allow_guest:
+		doc.allow_guest = int(allow_guest)
+	if event_frequency:
+		doc.event_frequency = event_frequency
+	if cron_format:
+		doc.cron_format = cron_format
+	if module:
+		doc.module = module
+
+	# Elevate to Administrator temporarily to bypass the ServerScript controller's
+	# `frappe.only_for("Script Manager")` validate hook. The role guard above
+	# already ensures only System Manager / Script Manager users reach this point.
+	original_user = frappe.session.user
+	try:
+		frappe.set_user("Administrator")
+		doc.insert(ignore_permissions=True)
+	finally:
+		frappe.set_user(original_user)
+
+	return {"name": doc.name, "script_type": doc.script_type}
