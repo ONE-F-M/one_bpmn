@@ -19,7 +19,7 @@ export default class TimerPropertiesProvider {
 
         if (timerEventDefinition) {
           groups.push({
-            id: 'TimerConfiguration',
+            id: 'spiffworkflow-timer-configuration',
             label: this.translate('Timer Configuration'),
             entries: TimerProps({ element })
           });
