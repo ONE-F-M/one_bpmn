@@ -6,4 +6,4 @@ tags
 node_modules
 __pycache__
 one_bpmn/public/spiff/assets/
-spiff/node_modules/
+spiff/node_modules/spiff/package-lock.json
