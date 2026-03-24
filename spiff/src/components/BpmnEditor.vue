@@ -267,32 +267,28 @@ onMounted(async () => {
 		eventBus.on("commandStack.changed", updateUndoRedoState);
 
 		// Clear custom trigger attributes if a StartEvent is converted into something else
-		// (e.g. Timer Start Event) so they don't persist in the XML
+		// (e.g. Timer Start Event) so they don't persist in the XML.
+		// Use modeling.updateModdleProperties so the operation is tracked by the command
+		// stack and is properly undoable/redoable.
 		eventBus.on("commandStack.shape.replace.postExecute", (e) => {
 			const newShape = e.context.newShape;
 			const bo = newShape && newShape.businessObject;
 			if (!bo) return;
-			
+
 			let isPlainStartEvent = false;
 			if (bo.$type === "bpmn:StartEvent") {
 				const eventDefs = bo.get("eventDefinitions") || [];
 				isPlainStartEvent = eventDefs.length === 0;
 			}
-			
+
 			if (!isPlainStartEvent) {
+				const modeling = modeler.get("modeling");
 				const attrs = ["triggerDoctype", "triggerType", "triggerWorkflow", "triggerWorkflowState"];
+				const clearProps = {};
 				attrs.forEach(attr => {
-					// 1. Standard Moddle setter
-					if (typeof bo.set === "function") {
-						bo.set(`spiffworkflow:${attr}`, undefined);
-					}
-					// 2. Direct property (schema name)
-					delete bo[attr];
-					// 3. Fallback attributes map
-					if (bo.$attrs) {
-						delete bo.$attrs[`spiffworkflow:${attr}`];
-					}
+					clearProps[`spiffworkflow:${attr}`] = undefined;
 				});
+				modeling.updateModdleProperties(newShape, bo, clearProps);
 			}
 		});
 
