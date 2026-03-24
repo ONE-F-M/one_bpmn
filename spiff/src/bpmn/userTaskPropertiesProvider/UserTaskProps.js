@@ -5,6 +5,7 @@ import {
 import { useService } from "bpmn-js-properties-panel";
 import { getBusinessObject } from "bpmn-js/lib/util/ModelUtil";
 import { h } from "preact";
+import { frappeRequest } from "frappe-ui";
 
 let _doctypeCache = null;
 let _doctypeFetching = false;
@@ -19,11 +20,9 @@ function loadDoctypes(onLoaded) {
 	if (_doctypeCache) { onLoaded(_doctypeCache); return; }
 	if (_doctypeFetching) return;
 	_doctypeFetching = true;
-	fetch(
-		'/api/resource/DocType?fields=["name"]&limit_page_length=9999&order_by=name+asc',
-		{ credentials: "include" }
-	)
-		.then((r) => r.json())
+	frappeRequest({
+		url: '/api/resource/DocType?fields=["name"]&limit_page_length=9999&order_by=name+asc',
+	})
 		.then((json) => {
 			const data = json.data || json.message || [];
 			_doctypeCache = [
@@ -51,11 +50,9 @@ function loadUsers(onLoaded) {
 			["enabled", "=", 1],
 		])
 	);
-	fetch(
-		`/api/resource/User?fields=["name","full_name"]&filters=${filters}&limit_page_length=9999&order_by=full_name+asc`,
-		{ credentials: "include" }
-	)
-		.then((r) => r.json())
+	frappeRequest({
+		url: `/api/resource/User?fields=["name","full_name"]&filters=${filters}&limit_page_length=9999&order_by=full_name+asc`,
+	})
 		.then((json) => {
 			const data = json.data || json.message || [];
 			_userCache = [
@@ -79,11 +76,9 @@ function loadDocfields(doctype, onLoaded) {
 	if (_docfieldFetching.has(doctype)) return;
 	_docfieldFetching.add(doctype);
 
-	fetch(
-		`/api/method/one_bpmn.api.get_assignee_docfields?doctype=${encodeURIComponent(doctype)}`,
-		{ credentials: "include" }
-	)
-		.then((r) => r.json())
+	frappeRequest({
+		url: `/api/method/one_bpmn.api.get_assignee_docfields?doctype=${encodeURIComponent(doctype)}`,
+	})
 		.then((json) => {
 			const data = json.message || [];
 			const options = [
