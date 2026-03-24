@@ -15,17 +15,51 @@
 					<Badge v-if="processStatus" :theme="getStatusTheme(processStatus)" :label="processStatus" />
 				</div>
 			</div>
-			<div v-if="activeDiagramName" class="flex items-center gap-2">
-				<Button variant="solid" class="p-2 hover:bg-gray-100 rounded-md transition-colors" @click="saveCurrentDiagram" :loading="saving">
+			<div class="flex items-center gap-2">
+				<!-- Hidden file input for BPMN import -->
+				<input
+					ref="importFileInput"
+					type="file"
+					accept=".bpmn"
+					class="hidden"
+					@change="handleImportFile"
+				/>
+				<!-- File menu dropdown -->
+				<div class="relative">
+					<button
+						@click="showFileMenu = !showFileMenu"
+						class="p-2 hover:bg-gray-300 rounded-md transition-colors text-gray-600"
+						title="Import / Export"
+					>
+						<Icon icon="lucide:list" class="w-5 h-5" />
+					</button>
+					<div
+						v-if="showFileMenu"
+						v-click-outside="() => showFileMenu = false"
+						class="absolute right-0 mt-1 w-36 bg-white border border-gray-200 rounded-lg shadow-lg z-50 py-1"
+					>
+						<button
+							@click="triggerImport(); showFileMenu = false"
+							class="w-full flex items-center gap-2 px-3 py-2 text-sm text-gray-700 hover:bg-gray-50 transition-colors"
+						>
+							<Icon icon="lucide:upload" class="w-4 h-4" />
+							Import
+						</button>
+						<button
+							@click="exportCurrentDiagram(); showFileMenu = false"
+							class="w-full flex items-center gap-2 px-3 py-2 text-sm text-gray-700 hover:bg-gray-50 transition-colors"
+							:disabled="!activeDiagramName"
+							:class="{ 'opacity-40 cursor-not-allowed': !activeDiagramName }"
+						>
+							<Icon icon="lucide:download" class="w-4 h-4" />
+							Export
+						</button>
+					</div>
+				</div>
+
+				<Button v-if="activeDiagramName" variant="solid" class="p-2 hover:bg-gray-100 rounded-md transition-colors" @click="saveCurrentDiagram" :loading="saving">
 					Save
 				</Button>
-				<button
-					@click="exportCurrentDiagram"
-					class="p-2 hover:bg-gray-300 rounded-md transition-colors text-gray-600"
-					title="Export as .bpmn file"
-				>
-					<Icon icon="lucide:download" class="w-5 h-5" />
-				</button>
 				<!-- Shape Library Toggle - DISABLED (see DEVELOPMENT_CONTEXT.md)
 				<button
 					@click="showShapeLibrary = !showShapeLibrary"
@@ -76,10 +110,12 @@
 						</div>
 					</div>
 
+					<!-- Single long-lived modeler instance; mounts on first diagram selection.
+					     Clipboard state (globalClipboardData) lives at module scope so it
+					     survives unmount — v-if is safe here and defers the heavy init. -->
 					<BpmnEditor
-						v-else-if="activeDiagramName"
+						v-if="activeDiagramName"
 						ref="editorRef"
-						:key="activeDiagramName"
 						class="absolute inset-0"
 						@ready="onEditorReady"
 						@changed="onDiagramChanged"
@@ -87,8 +123,14 @@
 						@launch-script-editor="onLaunchScriptEditor"
 						@launch-markdown-editor="onLaunchMarkdownEditor"
 						@launch-callactivity-editor="onLaunchCallActivityEditor"
+						@launch-callactivity-search="onLaunchCallActivitySearch"
 					/>
-					<div v-else class="flex items-center justify-center h-full bg-gray-100">
+
+					<!-- No-diagram placeholder: only shown when not loading and no diagram is selected -->
+					<div
+						v-if="!loading && !activeDiagramName"
+						class="flex items-center justify-center h-full bg-gray-100"
+					>
 						<div class="text-center">
 							<div class="text-gray-400 mb-6">
 								<Icon icon="lucide:layout-grid" class="w-20 h-20 mx-auto" />
@@ -198,6 +240,14 @@
 			</template>
 		</Dialog>
 
+		<!-- Call Activity Search Dialog -->
+		<CallActivitySearchDialog
+			v-model="showCallActivitySearchDialog"
+			:search-event="callActivitySearchEvent"
+			@select="onCallActivitySelected"
+			@cancel="onCancelCallActivitySearch"
+		/>
+
 		<!-- Markdown Editor Dialog -->
 		<Dialog v-model="showMarkdownEditorDialog" :options="{ title: 'Edit Instructions (Markdown)', size: '4xl' }">
 			<template #body-content>
@@ -226,7 +276,7 @@
 </template>
 
 <script setup>
-import { ref, onMounted, onUnmounted, computed, watch } from "vue";
+import { ref, onMounted, onUnmounted, computed, watch, nextTick } from "vue";
 import { useRouter, useRoute } from "vue-router";
 import { frappeRequest, TextEditor } from "frappe-ui";
 import { Icon } from "@iconify/vue";
@@ -234,6 +284,7 @@ import BpmnEditor from "@/components/BpmnEditor.vue";
 import EditorTabs from "@/components/EditorTabs.vue";
 import ShapeLibraryPanel from "@/components/ShapeLibraryPanel.vue";
 import { downloadBpmn } from "@/utils/downloadBpmn";
+import CallActivitySearchDialog from "@/components/CallActivitySearchDialog.vue";
 
 const props = defineProps({
 	process: {
@@ -257,10 +308,16 @@ const openTabs = ref([]);
 const activeDiagramName = ref(null);
 const saving = ref(false);
 const creating = ref(false);
+const importing = ref(false);
 const editorReady = ref(false);
 const hasUnsavedChanges = ref(false);
 const loading = ref(true);
 const showShapeLibrary = ref(false);
+const showFileMenu = ref(false);
+
+
+// Import file input ref
+const importFileInput = ref(null);
 
 // Notification state
 const notification = ref({
@@ -288,6 +345,12 @@ let activeScriptEvent = null;
 const showMarkdownEditorDialog = ref(false);
 const markdownEditorContent = ref("");
 let activeMarkdownEvent = null;
+
+// Call Activity Search state
+const showCallActivitySearchDialog = ref(false);
+let callActivitySearchEvent = null; // plain variable — NOT a ref, because bpmn-js
+// element objects have non-configurable/frozen properties (e.g. 'labels') that
+// conflict with Vue 3's Proxy-based reactivity and cause TypeErrors.
 
 // Zoom level (synced with BpmnEditor)
 const zoomLevel = computed(() => currentZoomLevel.value);
@@ -417,9 +480,12 @@ async function loadProcess() {
 }
 
 async function selectDiagram(name) {
-	// Save current diagram if there are unsaved changes
-	if (hasUnsavedChanges.value && activeDiagramName.value && editorRef.value) {
-		await saveDiagramToCache(activeDiagramName.value);
+	// Serialize current diagram to cache only when needed — skip if nothing
+	// changed and the cache is already populated (saveXML can be expensive).
+	if (activeDiagramName.value && editorRef.value) {
+		if (hasUnsavedChanges.value || !diagramDataCache.value[activeDiagramName.value]) {
+			await saveDiagramToCache(activeDiagramName.value);
+		}
 	}
 
 	activeDiagramName.value = name;
@@ -432,26 +498,33 @@ async function selectDiagram(name) {
 		}
 	}
 
-	// Load diagram data
-	editorReady.value = false;
-
 	// Update URL
 	router.replace({
 		name: "DiagramEditor",
 		params: { process: props.process, diagram: name },
 	});
+	// The watch(activeDiagramName) handles loading the new diagram XML.
 }
 
 async function onEditorReady() {
 	editorReady.value = true;
 
-	// Load diagram content
+	// Load the initial diagram content (fires only once on first mount)
 	if (activeDiagramName.value) {
 		await loadDiagramContent(activeDiagramName.value);
+		hasUnsavedChanges.value = false;
 	}
-
-	hasUnsavedChanges.value = false;
 }
+
+// Watch for diagram tab switches and load new XML without remounting the editor.
+// BpmnEditor stays alive (no :key remount); we just call loadXML when the active diagram changes.
+watch(activeDiagramName, async (newName, oldName) => {
+	if (!editorReady.value || !newName || newName === oldName) return;
+	hasUnsavedChanges.value = false;
+	await nextTick();
+	await loadDiagramContent(newName);
+	hasUnsavedChanges.value = false;
+});
 
 async function loadDiagramContent(name) {
 	// Check cache first
@@ -628,7 +701,6 @@ function goBack() {
 	router.push({ name: "Home" });
 }
 
-
 async function exportCurrentDiagram() {
 	if (!activeDiagramName.value || !editorRef.value) return;
 
@@ -641,6 +713,92 @@ async function exportCurrentDiagram() {
 	} catch (error) {
 		console.error("Failed to export diagram:", error);
 		showNotification("Error", "Failed to export diagram", "red");
+	}
+}
+
+function triggerImport() {
+	if (importFileInput.value) {
+		// Reset so the same file can be re-imported
+		importFileInput.value.value = "";
+		importFileInput.value.click();
+	}
+}
+
+async function handleImportFile(event) {
+	const file = event.target.files && event.target.files[0];
+	if (!file) return;
+
+	importing.value = true;
+	try {
+		// Read the file as text
+		const xmlContent = await new Promise((resolve, reject) => {
+			const reader = new FileReader();
+			reader.onload = (e) => resolve(e.target.result);
+			reader.onerror = () => reject(new Error("Failed to read file"));
+			reader.readAsText(file);
+		});
+
+		// Call the backend import endpoint via frappeRequest for consistent
+		// CSRF handling, response parsing, and error surfacing.
+		const result = await frappeRequest({
+			url: "/api/method/one_bpmn.api.import_bpmn",
+			method: "POST",
+			params: {
+				xml_content: xmlContent,
+				// Use the filename (minus .bpmn) as the human-readable title
+				title: file.name.replace(/\.bpmn$/i, ""),
+				process: props.process || undefined,
+			},
+		});
+
+		const action = result.action === "updated" ? "updated" : "imported";
+
+		// Pre-populate cache so the watch(activeDiagramName) handler
+		// gets an instant cache-hit and calls loadXML without a round-trip.
+		diagramDataCache.value[result.name] = xmlContent;
+
+		// Reload process diagrams to sync the diagrams list
+		await loadProcess();
+		let diagramEntry = diagrams.value.find((d) => d.name === result.name);
+		if (!diagramEntry) {
+			// Not in the process-scoped list — add a synthetic entry so the tab appears
+			diagramEntry = {
+				name: result.name,
+				model_name: result.model_name,
+				title: result.model_name,
+				process_id: result.process_id,
+				status: "Active",
+			};
+			diagrams.value.push(diagramEntry);
+		}
+
+		// Preserve existing openTabs; only add the imported diagram tab if not already open
+		if (!openTabs.value.some((tab) => tab.name === diagramEntry.name)) {
+			openTabs.value = [...openTabs.value, diagramEntry];
+		}
+
+		// Switch to the imported diagram via SPA (no page reload → no Preact crash)
+		// The watch(activeDiagramName) picks up the change and calls loadDiagramContent.
+		activeDiagramName.value = result.name;
+		router.replace({
+			name: "DiagramEditor",
+			params: { process: props.process, diagram: result.name },
+		});
+
+		showNotification(
+			"Import Successful",
+			`Diagram "${result.model_name}" ${action} successfully.`,
+			"green"
+		);
+	} catch (error) {
+		console.error("Import failed:", error);
+		showNotification(
+			"Import Failed",
+			error.message || "An unexpected error occurred while importing.",
+			"red"
+		);
+	} finally {
+		importing.value = false;
 	}
 }
 
@@ -702,13 +860,77 @@ function saveMarkdown() {
 	activeMarkdownEvent = null;
 }
 
-function onLaunchCallActivityEditor(event) {
-	console.log("Call Activity editor requested for process:", event.processId);
-	showNotification(
-		"Call Activity",
-		`Process ID: ${event.processId}. Full editor integration coming soon.`,
-		"blue"
-	);
+async function onLaunchCallActivityEditor(event) {
+	if (!event.processId) {
+		showNotification(
+			"Call Activity",
+			"No process linked. Use the Search button to select a process first.",
+			"orange"
+		);
+		return;
+	}
+
+	try {
+		// Use the dedicated resolve endpoint — returns one record without
+		// fetching the entire model list client-side.
+		const response = await frappeRequest({
+			url: "/api/method/one_bpmn.api.resolve_process_model_by_id",
+			params: { process_id: event.processId },
+		});
+		const linked = response.message || response;
+
+		if (linked && linked.name) {
+			// Build URL with encoded segments to handle spaces and reserved chars
+			const base = linked.process_name
+				? `/spiff/process/${encodeURIComponent(linked.process_name)}/diagram/${encodeURIComponent(linked.name)}`
+				: `/spiff/process/${encodeURIComponent(linked.name)}`;
+			// noopener,noreferrer prevents reverse-tabnabbing via window.opener
+			window.open(base, "_blank", "noopener,noreferrer");
+		} else {
+			showNotification(
+				"Call Activity",
+				`Linked process "${event.processId}" not found in this system.`,
+				"orange"
+			);
+		}
+	} catch (err) {
+		showNotification("Call Activity", "Failed to look up linked process.", "red");
+	}
+}
+
+function onLaunchCallActivitySearch(event) {
+	callActivitySearchEvent = event;
+	showCallActivitySearchDialog.value = true;
+}
+
+function onCallActivitySelected(processId) {
+	const event = callActivitySearchEvent;
+	if (!event) return;
+
+	// Primary: drive the update directly via the modeler's command stack.
+	// Reliable regardless of SpiffWorkflow's async once-listener state.
+	if (editorRef.value && typeof editorRef.value.updateCalledElement === "function") {
+		editorRef.value.updateCalledElement(event.element, processId);
+	}
+
+	// Secondary: also fire spiff.callactivity.update so the once-listener (if still
+	// active) can run its own commandStack path.
+	if (event.eventBus) {
+		event.eventBus.fire("spiff.callactivity.update", {
+			element: event.element,
+			value: processId,
+		});
+	}
+
+	showCallActivitySearchDialog.value = false;
+	callActivitySearchEvent = null;
+}
+
+function onCancelCallActivitySearch() {
+	// Mirror the select path: close dialog AND clear the stored event reference
+	// so we don't retain stale BPMN element/eventBus objects.
+	showCallActivitySearchDialog.value = false;
+	callActivitySearchEvent = null;
 }
 </script>
 
