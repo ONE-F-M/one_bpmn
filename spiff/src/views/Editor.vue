@@ -72,7 +72,6 @@
 						class="absolute inset-0"
 						@ready="onEditorReady"
 						@changed="onDiagramChanged"
-						@zoom-changed="onZoomChanged"
 						@launch-script-editor="onLaunchScriptEditor"
 						@launch-markdown-editor="onLaunchMarkdownEditor"
 						@launch-callactivity-editor="onLaunchCallActivityEditor"
@@ -184,7 +183,7 @@
 </template>
 
 <script setup>
-import { ref, onMounted, onUnmounted, computed, watch } from "vue";
+import { ref, onMounted, onUnmounted } from "vue";
 import { useRouter, useRoute } from "vue-router";
 import { frappeRequest, TextEditor } from "frappe-ui";
 import { Icon } from "@iconify/vue";
@@ -246,49 +245,29 @@ const showMarkdownEditorDialog = ref(false);
 const markdownEditorContent = ref("");
 let activeMarkdownEvent = null;
 
-// Zoom level (synced with BpmnEditor)
-const zoomLevel = computed(() => currentZoomLevel.value);
-
 // Zoom handlers
-const currentZoomLevel = ref(100);
-
 function handleZoomIn() {
 	if (editorRef.value) {
 		editorRef.value.zoomIn();
-		updateZoomLevel();
 	}
 }
 
 function handleZoomOut() {
 	if (editorRef.value) {
 		editorRef.value.zoomOut();
-		updateZoomLevel();
 	}
 }
 
 function handleResetZoom() {
 	if (editorRef.value) {
 		editorRef.value.resetZoom();
-		updateZoomLevel();
 	}
 }
 
 function handleFitToScreen() {
 	if (editorRef.value) {
 		editorRef.value.fitToScreen();
-		// Wait for async zoom update
-		setTimeout(() => updateZoomLevel(), 10);
 	}
-}
-
-function updateZoomLevel() {
-	if (editorRef.value && typeof editorRef.value.getZoomLevel === 'function') {
-		currentZoomLevel.value = editorRef.value.getZoomLevel();
-	}
-}
-
-function onZoomChanged(newZoom) {
-	currentZoomLevel.value = newZoom;
 }
 
 // Shape library handler
