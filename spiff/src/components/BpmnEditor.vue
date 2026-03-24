@@ -269,7 +269,11 @@ onMounted(async () => {
 			});
 
 			eventBus.on("spiff.callactivity.search", (event) => {
-				console.log("Call Activity search requested for:", event.element?.id);
+				emit("launch-callactivity-search", {
+					processId: event.processId,
+					eventBus: event.eventBus,
+					element: event.element,
+				});
 			});
 
 			eventBus.on("spiff.file.edit", (event) => {
