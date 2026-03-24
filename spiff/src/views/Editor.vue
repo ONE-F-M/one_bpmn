@@ -42,7 +42,7 @@
 							@click="triggerImport(); showFileMenu = false"
 							class="w-full flex items-center gap-2 px-3 py-2 text-sm text-gray-700 hover:bg-gray-50 transition-colors"
 						>
-							<Icon icon="lucide:upload" class="w-4 h-4" />
+							<Icon icon="lucide:download" class="w-4 h-4" />
 							Import
 						</button>
 						<button
@@ -51,7 +51,7 @@
 							:disabled="!activeDiagramName"
 							:class="{ 'opacity-40 cursor-not-allowed': !activeDiagramName }"
 						>
-							<Icon icon="lucide:download" class="w-4 h-4" />
+							<Icon icon="lucide:upload" class="w-4 h-4" />
 							Export
 						</button>
 					</div>
