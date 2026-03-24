@@ -65,18 +65,26 @@
 						</div>
 					</div>
 
+					<!-- Single long-lived modeler instance; mounts on first diagram selection.
+					     Clipboard state (globalClipboardData) lives at module scope so it
+					     survives unmount — v-if is safe here and defers the heavy init. -->
 					<BpmnEditor
-						v-else-if="activeDiagramName"
+						v-if="activeDiagramName"
 						ref="editorRef"
-						:key="activeDiagramName"
 						class="absolute inset-0"
 						@ready="onEditorReady"
 						@changed="onDiagramChanged"
 						@launch-script-editor="onLaunchScriptEditor"
 						@launch-markdown-editor="onLaunchMarkdownEditor"
 						@launch-callactivity-editor="onLaunchCallActivityEditor"
+						@launch-callactivity-search="onLaunchCallActivitySearch"
 					/>
-					<div v-else class="flex items-center justify-center h-full bg-gray-100">
+
+					<!-- No-diagram placeholder: only shown when not loading and no diagram is selected -->
+					<div
+						v-if="!loading && !activeDiagramName"
+						class="flex items-center justify-center h-full bg-gray-100"
+					>
 						<div class="text-center">
 							<div class="text-gray-400 mb-6">
 								<Icon icon="lucide:layout-grid" class="w-20 h-20 mx-auto" />
@@ -155,6 +163,14 @@
 			</template>
 		</Dialog>
 
+		<!-- Call Activity Search Dialog -->
+		<CallActivitySearchDialog
+			v-model="showCallActivitySearchDialog"
+			:search-event="callActivitySearchEvent"
+			@select="onCallActivitySelected"
+			@cancel="onCancelCallActivitySearch"
+		/>
+
 		<!-- Markdown Editor Dialog -->
 		<Dialog v-model="showMarkdownEditorDialog" :options="{ title: 'Edit Instructions (Markdown)', size: '4xl' }">
 			<template #body-content>
@@ -183,13 +199,14 @@
 </template>
 
 <script setup>
-import { ref, onMounted, onUnmounted } from "vue";
+import { ref, onMounted, onUnmounted, watch, nextTick } from "vue";
 import { useRouter, useRoute } from "vue-router";
 import { frappeRequest, TextEditor } from "frappe-ui";
 import { Icon } from "@iconify/vue";
 import BpmnEditor from "@/components/BpmnEditor.vue";
 import EditorTabs from "@/components/EditorTabs.vue";
 import ShapeLibraryPanel from "@/components/ShapeLibraryPanel.vue";
+import CallActivitySearchDialog from "@/components/CallActivitySearchDialog.vue";
 
 const props = defineProps({
 	process: {
@@ -244,6 +261,13 @@ let activeScriptEvent = null;
 const showMarkdownEditorDialog = ref(false);
 const markdownEditorContent = ref("");
 let activeMarkdownEvent = null;
+
+// Call Activity Search state
+const showCallActivitySearchDialog = ref(false);
+let callActivitySearchEvent = null; // plain variable — NOT a ref, because bpmn-js
+// element objects have non-configurable/frozen properties (e.g. 'labels') that
+// conflict with Vue 3's Proxy-based reactivity and cause TypeErrors.
+
 
 // Zoom handlers
 function handleZoomIn() {
@@ -353,9 +377,12 @@ async function loadProcess() {
 }
 
 async function selectDiagram(name) {
-	// Save current diagram if there are unsaved changes
-	if (hasUnsavedChanges.value && activeDiagramName.value && editorRef.value) {
-		await saveDiagramToCache(activeDiagramName.value);
+	// Serialize current diagram to cache only when needed — skip if nothing
+	// changed and the cache is already populated (saveXML can be expensive).
+	if (activeDiagramName.value && editorRef.value) {
+		if (hasUnsavedChanges.value || !diagramDataCache.value[activeDiagramName.value]) {
+			await saveDiagramToCache(activeDiagramName.value);
+		}
 	}
 
 	activeDiagramName.value = name;
@@ -368,9 +395,6 @@ async function selectDiagram(name) {
 		}
 	}
 
-	// Load diagram data
-	editorReady.value = false;
-
 	// Update URL
 	router.replace({
 		name: "DiagramEditor",
@@ -381,13 +405,21 @@ async function selectDiagram(name) {
 async function onEditorReady() {
 	editorReady.value = true;
 
-	// Load diagram content
+	// Load the initial diagram content (fires only once on first mount)
 	if (activeDiagramName.value) {
 		await loadDiagramContent(activeDiagramName.value);
+		hasUnsavedChanges.value = false;
 	}
-
-	hasUnsavedChanges.value = false;
 }
+
+// Watch for tab changes — swap diagram XML without remounting the modeler
+watch(activeDiagramName, async (newName, oldName) => {
+	if (!editorReady.value || !newName || newName === oldName) return;
+	hasUnsavedChanges.value = false;
+	await nextTick();
+	await loadDiagramContent(newName);
+	hasUnsavedChanges.value = false;
+});
 
 async function loadDiagramContent(name) {
 	// Check cache first
@@ -622,13 +654,77 @@ function saveMarkdown() {
 	activeMarkdownEvent = null;
 }
 
-function onLaunchCallActivityEditor(event) {
-	console.log("Call Activity editor requested for process:", event.processId);
-	showNotification(
-		"Call Activity",
-		`Process ID: ${event.processId}. Full editor integration coming soon.`,
-		"blue"
-	);
+async function onLaunchCallActivityEditor(event) {
+	if (!event.processId) {
+		showNotification(
+			"Call Activity",
+			"No process linked. Use the Search button to select a process first.",
+			"orange"
+		);
+		return;
+	}
+
+	try {
+		// Use the dedicated resolve endpoint — returns one record without
+		// fetching the entire model list client-side.
+		const response = await frappeRequest({
+			url: "/api/method/one_bpmn.api.resolve_process_model_by_id",
+			params: { process_id: event.processId },
+		});
+		const linked = response.message || response;
+
+		if (linked && linked.name) {
+			// Build URL with encoded segments to handle spaces and reserved chars
+			const base = linked.process_name
+				? `/spiff/process/${encodeURIComponent(linked.process_name)}/diagram/${encodeURIComponent(linked.name)}`
+				: `/spiff/process/${encodeURIComponent(linked.name)}`;
+			// noopener,noreferrer prevents reverse-tabnabbing via window.opener
+			window.open(base, "_blank", "noopener,noreferrer");
+		} else {
+			showNotification(
+				"Call Activity",
+				`Linked process "${event.processId}" not found in this system.`,
+				"orange"
+			);
+		}
+	} catch (err) {
+		showNotification("Call Activity", "Failed to look up linked process.", "red");
+	}
+}
+
+function onLaunchCallActivitySearch(event) {
+	callActivitySearchEvent = event;
+	showCallActivitySearchDialog.value = true;
+}
+
+function onCallActivitySelected(processId) {
+	const event = callActivitySearchEvent;
+	if (!event) return;
+
+	// Primary: drive the update directly via the modeler's command stack.
+	// Reliable regardless of SpiffWorkflow's async once-listener state.
+	if (editorRef.value && typeof editorRef.value.updateCalledElement === "function") {
+		editorRef.value.updateCalledElement(event.element, processId);
+	}
+
+	// Secondary: also fire spiff.callactivity.update so the once-listener (if still
+	// active) can run its own commandStack path.
+	if (event.eventBus) {
+		event.eventBus.fire("spiff.callactivity.update", {
+			element: event.element,
+			value: processId,
+		});
+	}
+
+	showCallActivitySearchDialog.value = false;
+	callActivitySearchEvent = null;
+}
+
+function onCancelCallActivitySearch() {
+	// Mirror the select path: close dialog AND clear the stored event reference
+	// so we don't retain stale BPMN element/eventBus objects.
+	showCallActivitySearchDialog.value = false;
+	callActivitySearchEvent = null;
 }
 </script>
 
