@@ -24,12 +24,39 @@
 					class="hidden"
 					@change="handleImportFile"
 				/>
-				<Button variant="solid" @click="triggerImport" :loading="importing" title="Import a .bpmn file">
-					<span class="flex items-center gap-1">
-						<Icon icon="lucide:upload" class="w-4 h-4" />
-						Import
-					</span>
-				</Button>
+				<!-- File menu dropdown -->
+				<div class="relative">
+					<button
+						@click="showFileMenu = !showFileMenu"
+						class="p-2 hover:bg-gray-300 rounded-md transition-colors text-gray-600"
+						title="Import / Export"
+					>
+						<Icon icon="lucide:list" class="w-5 h-5" />
+					</button>
+					<div
+						v-if="showFileMenu"
+						v-click-outside="() => showFileMenu = false"
+						class="absolute right-0 mt-1 w-36 bg-white border border-gray-200 rounded-lg shadow-lg z-50 py-1"
+					>
+						<button
+							@click="triggerImport(); showFileMenu = false"
+							class="w-full flex items-center gap-2 px-3 py-2 text-sm text-gray-700 hover:bg-gray-50 transition-colors"
+						>
+							<Icon icon="lucide:download" class="w-4 h-4" />
+							Import
+						</button>
+						<button
+							@click="exportCurrentDiagram(); showFileMenu = false"
+							class="w-full flex items-center gap-2 px-3 py-2 text-sm text-gray-700 hover:bg-gray-50 transition-colors"
+							:disabled="!activeDiagramName"
+							:class="{ 'opacity-40 cursor-not-allowed': !activeDiagramName }"
+						>
+							<Icon icon="lucide:upload" class="w-4 h-4" />
+							Export
+						</button>
+					</div>
+				</div>
+
 				<Button v-if="activeDiagramName" variant="solid" class="p-2 hover:bg-gray-100 rounded-md transition-colors" @click="saveCurrentDiagram" :loading="saving">
 					Save
 				</Button>
@@ -256,6 +283,7 @@ import { Icon } from "@iconify/vue";
 import BpmnEditor from "@/components/BpmnEditor.vue";
 import EditorTabs from "@/components/EditorTabs.vue";
 import ShapeLibraryPanel from "@/components/ShapeLibraryPanel.vue";
+import { downloadBpmn } from "@/utils/downloadBpmn";
 import CallActivitySearchDialog from "@/components/CallActivitySearchDialog.vue";
 
 const props = defineProps({
@@ -285,6 +313,8 @@ const editorReady = ref(false);
 const hasUnsavedChanges = ref(false);
 const loading = ref(true);
 const showShapeLibrary = ref(false);
+const showFileMenu = ref(false);
+
 
 // Import file input ref
 const importFileInput = ref(null);
@@ -669,6 +699,21 @@ function closeTab(name) {
 
 function goBack() {
 	router.push({ name: "Home" });
+}
+
+async function exportCurrentDiagram() {
+	if (!activeDiagramName.value || !editorRef.value) return;
+
+	try {
+		const xml = await editorRef.value.getXML();
+		const diagram = diagrams.value.find((d) => d.name === activeDiagramName.value);
+		const title = diagram?.model_name || activeDiagramName.value;
+		const filename = downloadBpmn(xml, title);
+		showNotification("Exported", `Downloaded as ${filename}`, "green");
+	} catch (error) {
+		console.error("Failed to export diagram:", error);
+		showNotification("Error", "Failed to export diagram", "red");
+	}
 }
 
 function triggerImport() {
