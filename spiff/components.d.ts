@@ -9,6 +9,7 @@ export {}
 declare module 'vue' {
   export interface GlobalComponents {
     BpmnEditor: typeof import('./src/components/BpmnEditor.vue')['default']
+    CallActivitySearchDialog: typeof import('./src/components/CallActivitySearchDialog.vue')['default']
     EditorSidebar: typeof import('./src/components/EditorSidebar.vue')['default']
     EditorTabs: typeof import('./src/components/EditorTabs.vue')['default']
     FormattingToolbar: typeof import('./src/components/FormattingToolbar.vue')['default']

@@ -119,6 +119,9 @@ import customRulesModule from "@/rules";
 // Custom text styling module
 import { customTextStyleModule } from "@/renderers";
 
+// Shared clipboard for cross-diagram copy/paste
+import clipboardModule from "@/utils/clipboard";
+
 // Custom moddle extension for text style attributes
 import customTextStyleModdle from "@/moddle/customTextStyleModdle";
 
@@ -136,6 +139,7 @@ const emit = defineEmits([
 	"launch-script-editor",
 	"launch-markdown-editor",
 	"launch-callactivity-editor",
+	"launch-callactivity-search",
 ]);
 
 const container = ref(null);
@@ -197,6 +201,7 @@ onMounted(async () => {
 				// minimapModule, // DISABLED
 				translateModule,
 				customTextStyleModule,
+				clipboardModule,
 			],
 			moddleExtensions: {
 				custom: customTextStyleModdle,
@@ -255,6 +260,7 @@ onMounted(async () => {
 				});
 			});
 
+
 			eventBus.on("spiff.callactivity.edit", (event) => {
 				emit("launch-callactivity-editor", {
 					processId: event.processId,
@@ -291,6 +297,39 @@ onMounted(async () => {
 					options: [],
 				});
 			});
+
+			// Override Ctrl+V paste to place elements at canvas center regardless of mouse position.
+			// The default bpmn-js paste uses the last mouse event position via create.start(), which
+			// silently fails when the mouse was on the tab bar (not the canvas) after switching tabs.
+			// Priority 2000 > default binding priority 1000, so this runs first.
+			const keyboard = modeler.get("keyboard");
+			const clipboardService = modeler.get("clipboard");
+			const copyPaste = modeler.get("copyPaste");
+			const canvasService = modeler.get("canvas");
+
+			keyboard.addListener(2000, (context) => {
+				const evt = context.keyEvent;
+				const isMac = /mac/i.test(navigator.platform);
+				const isPaste = (isMac ? evt.metaKey : evt.ctrlKey) && evt.key === "v";
+				if (!isPaste) return;
+				if (clipboardService.isEmpty()) return;
+
+				evt.preventDefault();
+
+				// Paste at the center of the currently visible viewport
+				const viewbox = canvasService.viewbox();
+				const root = canvasService.getRootElement();
+				copyPaste.paste({
+					element: root,
+					point: {
+						x: viewbox.x + viewbox.width / 2,
+						y: viewbox.y + viewbox.height / 2,
+					},
+				});
+
+				return false; // Prevent default bpmn-js paste handler from also running
+			});
+
 
 			eventBus.on("spiff.data_stores.requested", (event) => {
 				event.eventBus.fire("spiff.data_stores.returned", {
@@ -585,6 +624,27 @@ function getSelectedElements() {
 	return selection.get();
 }
 
+// Directly update calledElement on a Call Activity via the command stack.
+// This is the reliable way to update the property regardless of SpiffWorkflow's
+// async once-listener state.
+function updateCalledElement(element, processId) {
+	if (!modeler || !element) return;
+	const cmdStack = modeler.get("commandStack");
+	cmdStack.execute("element.updateProperties", {
+		element,
+		moddleElement: element.businessObject,
+		properties: { calledElement: processId },
+	});
+	// Force the properties panel to re-initialize (and re-read getValue)
+	// by cycling the selection. Without this the Preact TextFieldEntry
+	// shows stale data until the page is refreshed.
+	const selection = modeler.get("selection");
+	selection.select(null);
+	setTimeout(() => {
+		selection.select(element);
+	}, 30);
+}
+
 defineExpose({
 	getXML,
 	loadXML,
@@ -606,6 +666,8 @@ defineExpose({
 	setElementColor,
 	clearElementColor,
 	getSelectedElements,
+	// Call Activity API
+	updateCalledElement,
 });
 </script>
 
@@ -669,6 +731,9 @@ defineExpose({
 .properties-panel-container {
 	--properties-panel-header-background-color: #f9fafb;
 	--properties-panel-group-header-background-color: #f3f4f6;
+	/* Contain any high z-index elements inside the panel so they don't
+	   bleed above frappe-ui Dialog backdrops */
+	isolation: isolate;
 }
 
 .properties-panel-container .bio-properties-panel {
