@@ -139,6 +139,7 @@ const emit = defineEmits([
 	"launch-script-editor",
 	"launch-markdown-editor",
 	"launch-callactivity-editor",
+	"launch-callactivity-search",
 ]);
 
 const container = ref(null);
@@ -278,10 +279,13 @@ onMounted(async () => {
 			});
 		});
 
-		// Call Activity search — return placeholder
+		// Call Activity search — open the process picker dialog
 		eventBus.on("spiff.callactivity.search", (event) => {
-			console.log("Call Activity search requested for:", event.element?.id);
-			// TODO: Implement a search dialog to find call activities
+			emit("launch-callactivity-search", {
+				processId: event.processId,
+				eventBus: event.eventBus,
+				element: event.element,
+			});
 		});
 
 		// File editing
@@ -638,6 +642,27 @@ function getSelectedElements() {
 	return selection.get();
 }
 
+// Directly update calledElement on a Call Activity via the command stack.
+// This is the reliable way to update the property regardless of SpiffWorkflow's
+// async once-listener state.
+function updateCalledElement(element, processId) {
+	if (!modeler || !element) return;
+	const cmdStack = modeler.get("commandStack");
+	cmdStack.execute("element.updateProperties", {
+		element,
+		moddleElement: element.businessObject,
+		properties: { calledElement: processId },
+	});
+	// Force the properties panel to re-initialize (and re-read getValue)
+	// by cycling the selection. Without this the Preact TextFieldEntry
+	// shows stale data until the page is refreshed.
+	const selection = modeler.get("selection");
+	selection.select(null);
+	setTimeout(() => {
+		selection.select(element);
+	}, 30);
+}
+
 defineExpose({
 	getXML,
 	loadXML,
@@ -659,6 +684,8 @@ defineExpose({
 	setElementColor,
 	clearElementColor,
 	getSelectedElements,
+	// Call Activity API
+	updateCalledElement,
 });
 </script>
 
@@ -722,6 +749,9 @@ defineExpose({
 .properties-panel-container {
 	--properties-panel-header-background-color: #f9fafb;
 	--properties-panel-group-header-background-color: #f3f4f6;
+	/* Contain any high z-index elements inside the panel so they don't
+	   bleed above frappe-ui Dialog backdrops */
+	isolation: isolate;
 }
 
 .properties-panel-container .bio-properties-panel {

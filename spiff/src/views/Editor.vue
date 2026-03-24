@@ -82,6 +82,7 @@
 						@launch-script-editor="onLaunchScriptEditor"
 						@launch-markdown-editor="onLaunchMarkdownEditor"
 						@launch-callactivity-editor="onLaunchCallActivityEditor"
+						@launch-callactivity-search="onLaunchCallActivitySearch"
 					/>
 
 					<!-- No-diagram placeholder: only shown when not loading and no diagram is selected -->
@@ -198,6 +199,14 @@
 			</template>
 		</Dialog>
 
+		<!-- Call Activity Search Dialog -->
+		<CallActivitySearchDialog
+			v-model="showCallActivitySearchDialog"
+			:search-event="callActivitySearchEvent"
+			@select="onCallActivitySelected"
+			@cancel="onCancelCallActivitySearch"
+		/>
+
 		<!-- Markdown Editor Dialog -->
 		<Dialog v-model="showMarkdownEditorDialog" :options="{ title: 'Edit Instructions (Markdown)', size: '4xl' }">
 			<template #body-content>
@@ -233,6 +242,7 @@ import { Icon } from "@iconify/vue";
 import BpmnEditor from "@/components/BpmnEditor.vue";
 import EditorTabs from "@/components/EditorTabs.vue";
 import ShapeLibraryPanel from "@/components/ShapeLibraryPanel.vue";
+import CallActivitySearchDialog from "@/components/CallActivitySearchDialog.vue";
 
 const props = defineProps({
 	process: {
@@ -287,6 +297,12 @@ let activeScriptEvent = null;
 const showMarkdownEditorDialog = ref(false);
 const markdownEditorContent = ref("");
 let activeMarkdownEvent = null;
+
+// Call Activity Search state
+const showCallActivitySearchDialog = ref(false);
+let callActivitySearchEvent = null; // plain variable — NOT a ref, because bpmn-js
+// element objects have non-configurable/frozen properties (e.g. 'labels') that
+// conflict with Vue 3's Proxy-based reactivity and cause TypeErrors.
 
 // Zoom level (synced with BpmnEditor)
 const zoomLevel = computed(() => currentZoomLevel.value);
@@ -693,13 +709,77 @@ function saveMarkdown() {
 	activeMarkdownEvent = null;
 }
 
-function onLaunchCallActivityEditor(event) {
-	console.log("Call Activity editor requested for process:", event.processId);
-	showNotification(
-		"Call Activity",
-		`Process ID: ${event.processId}. Full editor integration coming soon.`,
-		"blue"
-	);
+async function onLaunchCallActivityEditor(event) {
+	if (!event.processId) {
+		showNotification(
+			"Call Activity",
+			"No process linked. Use the Search button to select a process first.",
+			"orange"
+		);
+		return;
+	}
+
+	try {
+		// Use the dedicated resolve endpoint — returns one record without
+		// fetching the entire model list client-side.
+		const response = await frappeRequest({
+			url: "/api/method/one_bpmn.api.resolve_process_model_by_id",
+			params: { process_id: event.processId },
+		});
+		const linked = response.message || response;
+
+		if (linked && linked.name) {
+			// Build URL with encoded segments to handle spaces and reserved chars
+			const base = linked.process_name
+				? `/spiff/process/${encodeURIComponent(linked.process_name)}/diagram/${encodeURIComponent(linked.name)}`
+				: `/spiff/process/${encodeURIComponent(linked.name)}`;
+			// noopener,noreferrer prevents reverse-tabnabbing via window.opener
+			window.open(base, "_blank", "noopener,noreferrer");
+		} else {
+			showNotification(
+				"Call Activity",
+				`Linked process "${event.processId}" not found in this system.`,
+				"orange"
+			);
+		}
+	} catch (err) {
+		showNotification("Call Activity", "Failed to look up linked process.", "red");
+	}
+}
+
+function onLaunchCallActivitySearch(event) {
+	callActivitySearchEvent = event;
+	showCallActivitySearchDialog.value = true;
+}
+
+function onCallActivitySelected(processId) {
+	const event = callActivitySearchEvent;
+	if (!event) return;
+
+	// Primary: drive the update directly via the modeler's command stack.
+	// Reliable regardless of SpiffWorkflow's async once-listener state.
+	if (editorRef.value && typeof editorRef.value.updateCalledElement === "function") {
+		editorRef.value.updateCalledElement(event.element, processId);
+	}
+
+	// Secondary: also fire spiff.callactivity.update so the once-listener (if still
+	// active) can run its own commandStack path.
+	if (event.eventBus) {
+		event.eventBus.fire("spiff.callactivity.update", {
+			element: event.element,
+			value: processId,
+		});
+	}
+
+	showCallActivitySearchDialog.value = false;
+	callActivitySearchEvent = null;
+}
+
+function onCancelCallActivitySearch() {
+	// Mirror the select path: close dialog AND clear the stored event reference
+	// so we don't retain stale BPMN element/eventBus objects.
+	showCallActivitySearchDialog.value = false;
+	callActivitySearchEvent = null;
 }
 </script>
 
