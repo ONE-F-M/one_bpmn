@@ -119,6 +119,9 @@ import customRulesModule from "@/rules";
 // Custom text styling module
 import { customTextStyleModule } from "@/renderers";
 
+// Shared clipboard for cross-diagram copy/paste
+import clipboardModule from "@/utils/clipboard";
+
 // Custom moddle extension for text style attributes
 import customTextStyleModdle from "@/moddle/customTextStyleModdle";
 
@@ -200,6 +203,7 @@ onMounted(async () => {
 				// minimapModule, // DISABLED
 				translateModule,
 				customTextStyleModule,
+				clipboardModule,
 			],
 			// Register custom moddle extension for text style namespace
 			moddleExtensions: {
@@ -346,8 +350,42 @@ onMounted(async () => {
 			});
 		});
 
+
+		// Override Ctrl+V paste to place elements at canvas center regardless of mouse position.
+		// The default bpmn-js paste uses the last mouse event position via create.start(), which
+		// silently fails when the mouse was on the tab bar (not the canvas) after switching tabs.
+		// Priority 2000 > default binding priority 1000, so this runs first.
+		const keyboard = modeler.get("keyboard");
+		const clipboardService = modeler.get("clipboard");
+		const copyPaste = modeler.get("copyPaste");
+		const canvasService = modeler.get("canvas");
+
 		// Expose modeler instance for child components
 		modelerInstance.value = modeler;
+
+		keyboard.addListener(2000, (context) => {
+			const evt = context.keyEvent;
+			const isMac = /mac/i.test(navigator.platform);
+			const isPaste = (isMac ? evt.metaKey : evt.ctrlKey) && evt.key === "v";
+			if (!isPaste) return;
+			if (clipboardService.isEmpty()) return;
+
+			evt.preventDefault();
+
+			// Paste at the center of the currently visible viewport using the
+			// public copyPaste.paste() API (avoids private _createElements/_paste)
+			const viewbox = canvasService.viewbox();
+			const root = canvasService.getRootElement();
+			copyPaste.paste({
+				element: root,
+				point: {
+					x: viewbox.x + viewbox.width / 2,
+					y: viewbox.y + viewbox.height / 2,
+				},
+			});
+
+			return false; // Prevent default bpmn-js paste handler from also running
+		});
 
 		// Import empty diagram
 		await modeler.importXML(emptyDiagram);

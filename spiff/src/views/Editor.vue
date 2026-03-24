@@ -69,10 +69,12 @@
 						</div>
 					</div>
 
+					<!-- Single long-lived modeler instance; mounts on first diagram selection.
+					     Clipboard state (globalClipboardData) lives at module scope so it
+					     survives unmount — v-if is safe here and defers the heavy init. -->
 					<BpmnEditor
-						v-else-if="activeDiagramName"
+						v-if="activeDiagramName"
 						ref="editorRef"
-						:key="activeDiagramName"
 						class="absolute inset-0"
 						@ready="onEditorReady"
 						@changed="onDiagramChanged"
@@ -81,7 +83,12 @@
 						@launch-markdown-editor="onLaunchMarkdownEditor"
 						@launch-callactivity-editor="onLaunchCallActivityEditor"
 					/>
-					<div v-else class="flex items-center justify-center h-full bg-gray-100">
+
+					<!-- No-diagram placeholder: only shown when not loading and no diagram is selected -->
+					<div
+						v-if="!loading && !activeDiagramName"
+						class="flex items-center justify-center h-full bg-gray-100"
+					>
 						<div class="text-center">
 							<div class="text-gray-400 mb-6">
 								<Icon icon="lucide:layout-grid" class="w-20 h-20 mx-auto" />
@@ -219,7 +226,7 @@
 </template>
 
 <script setup>
-import { ref, onMounted, onUnmounted, computed, watch } from "vue";
+import { ref, onMounted, onUnmounted, computed, watch, nextTick } from "vue";
 import { useRouter, useRoute } from "vue-router";
 import { frappeRequest, TextEditor } from "frappe-ui";
 import { Icon } from "@iconify/vue";
@@ -409,9 +416,12 @@ async function loadProcess() {
 }
 
 async function selectDiagram(name) {
-	// Save current diagram if there are unsaved changes
-	if (hasUnsavedChanges.value && activeDiagramName.value && editorRef.value) {
-		await saveDiagramToCache(activeDiagramName.value);
+	// Serialize current diagram to cache only when needed — skip if nothing
+	// changed and the cache is already populated (saveXML can be expensive).
+	if (activeDiagramName.value && editorRef.value) {
+		if (hasUnsavedChanges.value || !diagramDataCache.value[activeDiagramName.value]) {
+			await saveDiagramToCache(activeDiagramName.value);
+		}
 	}
 
 	activeDiagramName.value = name;
@@ -424,9 +434,6 @@ async function selectDiagram(name) {
 		}
 	}
 
-	// Load diagram data
-	editorReady.value = false;
-
 	// Update URL
 	router.replace({
 		name: "DiagramEditor",
@@ -437,13 +444,21 @@ async function selectDiagram(name) {
 async function onEditorReady() {
 	editorReady.value = true;
 
-	// Load diagram content
+	// Load the initial diagram content (fires only once on first mount)
 	if (activeDiagramName.value) {
 		await loadDiagramContent(activeDiagramName.value);
+		hasUnsavedChanges.value = false;
 	}
-
-	hasUnsavedChanges.value = false;
 }
+
+// Watch for tab changes — swap diagram XML without remounting the modeler
+watch(activeDiagramName, async (newName, oldName) => {
+	if (!editorReady.value || !newName || newName === oldName) return;
+	hasUnsavedChanges.value = false;
+	await nextTick();
+	await loadDiagramContent(newName);
+	hasUnsavedChanges.value = false;
+});
 
 async function loadDiagramContent(name) {
 	// Check cache first
