@@ -26,7 +26,7 @@ export default class StartEventPropertiesProvider {
 			}
 
 			groups.push({
-				id: "TriggerConfiguration",
+				id: "spiffworkflow-trigger-configuration",
 				label: this.translate("Trigger Configuration"),
 				entries: StartEventProps({ element }),
 			});
