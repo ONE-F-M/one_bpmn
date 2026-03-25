@@ -404,6 +404,8 @@ onMounted(async () => {
 			console.error("Failed to initialize BPMN modeler:", err);
 		},
 	});
+	} catch (err) {
+		console.error("Failed to initialize BPMN modeler:", err);
 	}
 });
 
