@@ -1,146 +1,160 @@
-import {
-	SelectEntry,
-	isSelectEntryEdited,
-} from "@bpmn-io/properties-panel";
+import { SelectEntry, isSelectEntryEdited } from "@bpmn-io/properties-panel";
 import { useService } from "bpmn-js-properties-panel";
 import { getBusinessObject } from "bpmn-js/lib/util/ModelUtil";
-import { h } from "preact";
+import { h, Component } from "preact";
 
 // ---------------------------------------------------------------------------
-// Module-level async caches (survive across re-renders)
+// Shared REST helper — uses native fetch for /api/resource/* endpoints
 // ---------------------------------------------------------------------------
-let _doctypeCache = null; // null = not yet fetched
-let _doctypeFetching = false;
-const _workflowCache = new Map(); // doctype → array | undefined
-const _workflowFetching = new Set();
-const _workflowStateCache = new Map(); // workflow → array | undefined
-const _workflowStateFetching = new Set();
-const _assignmentCache = new Map(); // doctype → array | undefined
-const _assignmentFetching = new Set();
-
-function loadDoctypes(onLoaded) {
-	if (_doctypeCache) { onLoaded(_doctypeCache); return; }
-	if (_doctypeFetching) return;
-	_doctypeFetching = true;
-	fetch(
-		"/api/resource/DocType?fields=[\"name\"]&limit_page_length=9999&order_by=name+asc",
-		{ credentials: "include" }
-	)
+function frappeGet(path, params = {}) {
+	const qs = Object.entries(params)
+		.filter(([, v]) => v !== undefined && v !== null)
+		.map(([k, v]) => `${encodeURIComponent(k)}=${encodeURIComponent(v)}`)
+		.join("&");
+	const url = qs ? `${path}?${qs}` : path;
+	return fetch(url, { credentials: "include" })
 		.then((r) => r.json())
 		.then((json) => {
-			const data = json.data || json.message || [];
-			_doctypeCache = [
-				{ label: "-- Select DocType --", value: "" },
-				...data.map((d) => ({ label: d.name, value: d.name })),
-			];
-			_doctypeFetching = false;
-			onLoaded(_doctypeCache);
-		})
-		.catch((e) => {
-			console.error("[IntermediateEvent] fetch DocTypes:", e);
-			_doctypeCache = [{ label: "-- Error loading --", value: "" }];
-			_doctypeFetching = false;
-			onLoaded(_doctypeCache);
+			if (json.data !== undefined) return json.data;
+			if (json.message !== undefined) return json.message;
+			return json;
 		});
 }
 
-function loadWorkflows(doctype, onLoaded) {
-	if (!doctype) return;
-	if (_workflowCache.has(doctype)) { onLoaded(_workflowCache.get(doctype)); return; }
-	if (_workflowFetching.has(doctype)) return;
-	_workflowFetching.add(doctype);
-	const filters = encodeURIComponent(
-		JSON.stringify([
-			["document_type", "=", doctype],
-			["is_active", "=", 1],
-		])
-	);
-	fetch(
-		`/api/resource/Workflow?fields=["name"]&filters=${filters}&limit_page_length=100`,
-		{ credentials: "include" }
-	)
-		.then((r) => r.json())
-		.then((json) => {
-			const data = json.data || json.message || [];
-			const options = [
-				{ label: "-- Select Workflow --", value: "" },
-				...data.map((d) => ({ label: d.name, value: d.name })),
-			];
-			_workflowCache.set(doctype, options);
-			_workflowFetching.delete(doctype);
-			onLoaded(options);
-		})
-		.catch((e) => {
-			console.error("[IntermediateEvent] fetch Workflows:", e);
-			const err = [{ label: "-- Error loading --", value: "" }];
-			_workflowCache.set(doctype, err);
-			_workflowFetching.delete(doctype);
-			onLoaded(err);
-		});
-}
+// ---------------------------------------------------------------------------
+// Autocomplete Component
+// ---------------------------------------------------------------------------
+class FrappeAutocomplete extends Component {
+	constructor(props) {
+		super(props);
+		this.state = {
+			isOpen: false,
+			options: [],
+			loading: false,
+			searchTxt: props.value || "",
+		};
+		this.containerRef = null;
+		this.debounceTimer = null;
+		this.handleDocumentClick = this.handleDocumentClick.bind(this);
+	}
 
-function loadWorkflowStates(workflowName, onLoaded) {
-	if (!workflowName) return;
-	if (_workflowStateCache.has(workflowName)) { onLoaded(_workflowStateCache.get(workflowName)); return; }
-	if (_workflowStateFetching.has(workflowName)) return;
-	_workflowStateFetching.add(workflowName);
-	fetch(`/api/resource/Workflow/${encodeURIComponent(workflowName)}`, {
-		credentials: "include",
-	})
-		.then((r) => r.json())
-		.then((json) => {
-			const doc = json.data || json.message || {};
-			const states = doc.states || [];
-			const options = [
-				{ label: "-- Select State --", value: "" },
-				...states.map((s) => ({ label: s.state, value: s.state })),
-			];
-			_workflowStateCache.set(workflowName, options);
-			_workflowStateFetching.delete(workflowName);
-			onLoaded(options);
-		})
-		.catch((e) => {
-			console.error("[IntermediateEvent] fetch Workflow States:", e);
-			const err = [{ label: "-- Error loading --", value: "" }];
-			_workflowStateCache.set(workflowName, err);
-			_workflowStateFetching.delete(workflowName);
-			onLoaded(err);
-		});
-}
+	componentDidMount() {
+		document.addEventListener("mousedown", this.handleDocumentClick);
+	}
 
-function loadAssignmentRules(doctype, onLoaded) {
-	if (!doctype) return;
-	if (_assignmentCache.has(doctype)) { onLoaded(_assignmentCache.get(doctype)); return; }
-	if (_assignmentFetching.has(doctype)) return;
-	_assignmentFetching.add(doctype);
-	const filters = encodeURIComponent(
-		JSON.stringify([
-			["document_type", "=", doctype],
-			["disabled", "=", 0],
-		])
-	);
-	fetch(
-		`/api/resource/Assignment Rule?fields=["name"]&filters=${filters}&limit_page_length=100`,
-		{ credentials: "include" }
-	)
-		.then((r) => r.json())
-		.then((json) => {
-			const data = json.data || json.message || [];
-			const options = [
-				{ label: "-- Select Assignment Rule --", value: "" },
-				...data.map((d) => ({ label: d.name, value: d.name })),
-			];
-			_assignmentCache.set(doctype, options);
-			_assignmentFetching.delete(doctype);
-			onLoaded(options);
-		})
-		.catch((e) => {
-			console.error("[IntermediateEvent] fetch Assignment Rules:", e);
-			const err = [{ label: "-- Error loading --", value: "" }];
-			_assignmentCache.set(doctype, err);
-			_assignmentFetching.delete(doctype);
-			onLoaded(err);
-		});
+	componentWillUnmount() {
+		document.removeEventListener("mousedown", this.handleDocumentClick);
+		if (this.debounceTimer) clearTimeout(this.debounceTimer);
+	}
+
+	componentDidUpdate(prevProps) {
+		if (prevProps.value !== this.props.value && this.props.value !== this.state.searchTxt) {
+			this.setState({ searchTxt: this.props.value || "" });
+		}
+	}
+
+	handleDocumentClick(e) {
+		if (this.containerRef && !this.containerRef.contains(e.target)) {
+			this.setState({ isOpen: false });
+		}
+	}
+
+	fetchOptions(txt) {
+		this.setState({ loading: true });
+		if (this.props.fetchData) {
+			this.props.fetchData(txt)
+				.then((list) => {
+					this.setState({ options: list || [], loading: false, isOpen: true });
+				})
+				.catch((err) => {
+					console.error("Autocomplete error:", err);
+					this.setState({ loading: false });
+				});
+		} else {
+			this.setState({ loading: false });
+		}
+	}
+
+	onFocus() {
+		this.fetchOptions(this.state.searchTxt);
+	}
+
+	onInput(e) {
+		const val = e.target.value;
+		this.setState({ searchTxt: val, isOpen: true });
+
+		if (this.debounceTimer) clearTimeout(this.debounceTimer);
+		this.debounceTimer = setTimeout(() => {
+			this.fetchOptions(val);
+		}, 300);
+
+		this.props.onChange(val);
+	}
+
+	onSelect(val) {
+		this.setState({ searchTxt: val, isOpen: false });
+		this.props.onChange(val);
+	}
+
+	render() {
+		const { label, id } = this.props;
+		const { isOpen, options, loading, searchTxt } = this.state;
+
+		return h(
+			"div",
+			{ class: "bio-properties-panel-entry", "data-entry-id": id, ref: (c) => (this.containerRef = c) },
+			[
+				h("div", { class: "bio-properties-panel-textfield", style: "position: relative;" }, [
+					h("label", { for: id, class: "bio-properties-panel-label" }, label),
+					h("input", {
+						id: id,
+						type: "text",
+						class: "bio-properties-panel-input",
+						value: searchTxt,
+						onInput: (e) => this.onInput(e),
+						onFocus: () => this.onFocus(),
+						autoComplete: "off",
+						spellCheck: "false",
+					}),
+					isOpen &&
+						h(
+							"ul",
+							{
+								style: "position: absolute; z-index: 1000; background: white; border: 1px solid #ccc; width: 100%; max-height: 200px; overflow-y: auto; list-style: none; padding: 0; margin: 0; box-shadow: 0 2px 4px rgba(0,0,0,0.1);",
+							},
+							loading
+								? [
+										h(
+											"li",
+											{ style: "padding: 8px; color: #666;" },
+											"Loading..."
+										),
+								  ]
+								: options.length === 0
+								? [
+										h(
+											"li",
+											{ style: "padding: 8px; color: #666;" },
+											"No results found"
+										),
+								  ]
+								: options.map((opt) =>
+										h(
+											"li",
+											{
+												style: "padding: 8px; cursor: pointer; border-bottom: 1px solid #eee; background: white;",
+												onMouseDown: () => this.onSelect(opt.value || opt.name),
+												onMouseEnter: (e) => (e.target.style.background = "#f0f0f0"),
+												onMouseLeave: (e) => (e.target.style.background = "white"),
+											},
+											opt.label || opt.name
+										)
+								  )
+						),
+				]),
+			]
+		);
+	}
 }
 
 // ---------------------------------------------------------------------------
@@ -148,13 +162,6 @@ function loadAssignmentRules(doctype, onLoaded) {
 // ---------------------------------------------------------------------------
 function getAttr(bo, attr) {
 	return bo.get(`spiffworkflow:${attr}`) || "";
-}
-
-function touchElement(modeling, element, bo) {
-	const targetDoctype = bo.get("spiffworkflow:targetDoctype");
-	modeling.updateModdleProperties(element, bo, {
-		"spiffworkflow:targetDoctype": targetDoctype,
-	});
 }
 
 // ---------------------------------------------------------------------------
@@ -167,25 +174,25 @@ export function IntermediateEventProps(props) {
 		{
 			id: "spiffworkflow-targetDoctype",
 			element,
-			component: TargetDoctypeComponent,
+			component: TargetDoctypeAutocompleteComponent,
 			isEdited: isSelectEntryEdited,
 		},
 		{
 			id: "spiffworkflow-triggerWorkflow",
 			element,
-			component: TriggerWorkflowComponent,
+			component: WorkflowAutocompleteComponent,
 			isEdited: isSelectEntryEdited,
 		},
 		{
 			id: "spiffworkflow-triggerWorkflowState",
 			element,
-			component: TriggerWorkflowStateComponent,
+			component: WorkflowStateAutocompleteComponent,
 			isEdited: isSelectEntryEdited,
 		},
 		{
 			id: "spiffworkflow-assignmentRule",
 			element,
-			component: AssignmentRuleComponent,
+			component: AssignmentRuleAutocompleteComponent,
 			isEdited: isSelectEntryEdited,
 		},
 	];
@@ -196,159 +203,173 @@ export function IntermediateEventProps(props) {
 // ---------------------------------------------------------------------------
 // Component 1 — Target DocType
 // ---------------------------------------------------------------------------
-function TargetDoctypeComponent(props) {
+function TargetDoctypeAutocompleteComponent(props) {
 	const { element, id } = props;
 	const modeling = useService("modeling");
 	const translate = useService("translate");
 	const bo = getBusinessObject(element);
 
-	if (!_doctypeCache && !_doctypeFetching) {
-		loadDoctypes(() => touchElement(modeling, element, bo));
-	}
+	const value = getAttr(bo, "targetDoctype");
 
-	const getValue = () => getAttr(bo, "targetDoctype");
-
-	const setValue = (value) => {
+	const handleChange = (val) => {
 		modeling.updateModdleProperties(element, bo, {
-			"spiffworkflow:targetDoctype": value || undefined,
+			"spiffworkflow:targetDoctype": val || undefined,
 			"spiffworkflow:triggerWorkflow": undefined,
 			"spiffworkflow:triggerWorkflowState": undefined,
 			"spiffworkflow:assignmentRule": undefined,
 		});
-		if (value) {
-			loadWorkflows(value, () => touchElement(modeling, element, bo));
-			loadAssignmentRules(value, () => touchElement(modeling, element, bo));
-		}
 	};
 
-	const getOptions = () =>
-		_doctypeCache || [{ label: translate("Loading..."), value: "" }];
+	const fetchData = (txt) => {
+		const params = {
+			fields: '["name"]',
+			limit_page_length: 50,
+			order_by: "name asc",
+		};
+		if (txt) {
+			params.filters = JSON.stringify([["name", "like", `%${txt}%`]]);
+		}
+		return frappeGet("/api/resource/DocType", params).then(data => 
+			Array.isArray(data) ? data : []
+		);
+	};
 
-	return h(SelectEntry, {
-		element,
+	return h(FrappeAutocomplete, {
 		id,
 		label: translate("Target DocType"),
-		getValue,
-		setValue,
-		getOptions,
+		value,
+		onChange: handleChange,
+		fetchData,
 	});
 }
 
 // ---------------------------------------------------------------------------
 // Component 2 — Workflow
 // ---------------------------------------------------------------------------
-function TriggerWorkflowComponent(props) {
+function WorkflowAutocompleteComponent(props) {
 	const { element, id } = props;
 	const modeling = useService("modeling");
 	const translate = useService("translate");
 	const bo = getBusinessObject(element);
 
 	const doctype = getAttr(bo, "targetDoctype");
+	const value = getAttr(bo, "triggerWorkflow");
 
-	if (doctype && !_workflowCache.has(doctype) && !_workflowFetching.has(doctype)) {
-		loadWorkflows(doctype, () => touchElement(modeling, element, bo));
-	}
-
-	const getValue = () => getAttr(bo, "triggerWorkflow");
-
-	const setValue = (value) => {
+	const handleChange = (val) => {
 		modeling.updateModdleProperties(element, bo, {
-			"spiffworkflow:triggerWorkflow": value || undefined,
+			"spiffworkflow:triggerWorkflow": val || undefined,
 			"spiffworkflow:triggerWorkflowState": undefined,
 		});
-		if (value) {
-			loadWorkflowStates(value, () => touchElement(modeling, element, bo));
-		}
 	};
 
-	const getOptions = () =>
-		_workflowCache.get(doctype) ||
-		[{ label: doctype ? translate("Loading...") : translate("-- Select DocType first --"), value: "" }];
+	const fetchData = (txt) => {
+		if (!doctype) return Promise.resolve([]);
+		const filters = [
+			["document_type", "=", doctype],
+			["is_active", "=", 1],
+		];
+		if (txt) {
+			filters.push(["name", "like", `%${txt}%`]);
+		}
+		const params = {
+			fields: '["name"]',
+			limit_page_length: 50,
+			filters: JSON.stringify(filters)
+		};
+		return frappeGet("/api/resource/Workflow", params).then(data => 
+			Array.isArray(data) ? data : []
+		);
+	};
 
-	return h(SelectEntry, {
-		element,
+	return h(FrappeAutocomplete, {
 		id,
 		label: translate("Workflow"),
-		getValue,
-		setValue,
-		getOptions,
+		value,
+		onChange: handleChange,
+		fetchData,
 	});
 }
 
 // ---------------------------------------------------------------------------
 // Component 3 — Workflow State
 // ---------------------------------------------------------------------------
-function TriggerWorkflowStateComponent(props) {
+function WorkflowStateAutocompleteComponent(props) {
 	const { element, id } = props;
 	const modeling = useService("modeling");
 	const translate = useService("translate");
 	const bo = getBusinessObject(element);
 
 	const workflowName = getAttr(bo, "triggerWorkflow");
+	const value = getAttr(bo, "triggerWorkflowState");
 
-	if (
-		workflowName &&
-		!_workflowStateCache.has(workflowName) &&
-		!_workflowStateFetching.has(workflowName)
-	) {
-		loadWorkflowStates(workflowName, () => touchElement(modeling, element, bo));
-	}
-
-	const getValue = () => getAttr(bo, "triggerWorkflowState");
-
-	const setValue = (value) => {
+	const handleChange = (val) => {
 		modeling.updateModdleProperties(element, bo, {
-			"spiffworkflow:triggerWorkflowState": value || undefined,
+			"spiffworkflow:triggerWorkflowState": val || undefined,
 		});
 	};
 
-	const getOptions = () =>
-		_workflowStateCache.get(workflowName) ||
-		[{ label: workflowName ? translate("Loading...") : translate("-- Select Workflow first --"), value: "" }];
+	const fetchData = (txt) => {
+		if (!workflowName) return Promise.resolve([]);
+		return frappeGet(`/api/resource/Workflow/${encodeURIComponent(workflowName)}`).then(doc => {
+			const states = doc.states || [];
+			const txtLower = (txt || "").toLowerCase();
+			return states
+				.filter(s => s.state.toLowerCase().includes(txtLower))
+				.map(s => ({ name: s.state, label: s.state }));
+		});
+	};
 
-	return h(SelectEntry, {
-		element,
+	return h(FrappeAutocomplete, {
 		id,
 		label: translate("Workflow State"),
-		getValue,
-		setValue,
-		getOptions,
+		value,
+		onChange: handleChange,
+		fetchData,
 	});
 }
 
 // ---------------------------------------------------------------------------
 // Component 4 — Assignment Rule
 // ---------------------------------------------------------------------------
-function AssignmentRuleComponent(props) {
+function AssignmentRuleAutocompleteComponent(props) {
 	const { element, id } = props;
 	const modeling = useService("modeling");
 	const translate = useService("translate");
 	const bo = getBusinessObject(element);
 
 	const doctype = getAttr(bo, "targetDoctype");
+	const value = getAttr(bo, "assignmentRule");
 
-	if (doctype && !_assignmentCache.has(doctype) && !_assignmentFetching.has(doctype)) {
-		loadAssignmentRules(doctype, () => touchElement(modeling, element, bo));
-	}
-
-	const getValue = () => getAttr(bo, "assignmentRule");
-
-	const setValue = (value) => {
+	const handleChange = (val) => {
 		modeling.updateModdleProperties(element, bo, {
-			"spiffworkflow:assignmentRule": value || undefined,
+			"spiffworkflow:assignmentRule": val || undefined,
 		});
 	};
 
-	const getOptions = () =>
-		_assignmentCache.get(doctype) ||
-		[{ label: doctype ? translate("Loading...") : translate("-- Select DocType first --"), value: "" }];
+	const fetchData = (txt) => {
+		if (!doctype) return Promise.resolve([]);
+		const filters = [
+			["document_type", "=", doctype],
+			["disabled", "=", 0],
+		];
+		if (txt) {
+			filters.push(["name", "like", `%${txt}%`]);
+		}
+		const params = {
+			fields: '["name"]',
+			limit_page_length: 50,
+			filters: JSON.stringify(filters)
+		};
+		return frappeGet("/api/resource/Assignment Rule", params).then(data => 
+			Array.isArray(data) ? data : []
+		);
+	};
 
-	return h(SelectEntry, {
-		element,
+	return h(FrappeAutocomplete, {
 		id,
 		label: translate("Assignment Rule"),
-		getValue,
-		setValue,
-		getOptions,
+		value,
+		onChange: handleChange,
+		fetchData,
 	});
 }
