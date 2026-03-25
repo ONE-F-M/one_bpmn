@@ -92,6 +92,12 @@
 
 <script setup>
 import { ref, onMounted, onUnmounted } from "vue";
+import {
+	injectProcessNameField,
+	reinjectIfCalledElementChanged,
+	removeProcessNameField,
+	cancelPendingInjection,
+} from "@/composables/useCallActivityName";
 import { Icon } from "@iconify/vue";
 // Custom Shapes - DISABLED (see DEVELOPMENT_CONTEXT.md)
 // import CustomShapesModule, { customShapeSvgStore } from "@/bpmn";
@@ -236,20 +242,22 @@ onMounted(async () => {
 				// Inject Process Name field when a Call Activity is selected
 				const single = e.newSelection?.length === 1 ? e.newSelection[0] : null;
 				if (single?.type === "bpmn:CallActivity") {
-					injectProcessNameField(single);
+					injectProcessNameField(single, propertiesContainer);
 				} else {
-					removeProcessNameField();
+					// Cancel any in-flight resolve before removing the field
+					cancelPendingInjection();
+					removeProcessNameField(propertiesContainer);
 				}
 			});
 
-			// Re-inject after calledElement is updated via command stack
-			// (fires when Search dialog picks a new process)
+			// Re-inject only when calledElement actually changed — avoids DOM
+			// churn and repeated network requests on every command stack event.
 			eventBus.on("commandStack.changed", () => {
 				updateUndoRedoState();
 				const selection = modeler.get("selection");
 				const selected = selection.get();
 				if (selected?.length === 1 && selected[0]?.type === "bpmn:CallActivity") {
-					injectProcessNameField(selected[0]);
+					reinjectIfCalledElementChanged(selected[0], propertiesContainer);
 				}
 			});
 
@@ -406,6 +414,9 @@ onMounted(async () => {
 });
 
 onUnmounted(() => {
+	// Cancel any pending process-name injection to prevent memory-leaks
+	// and stale DOM updates after the component is torn down.
+	cancelPendingInjection();
 	if (modeler) {
 		modeler.destroy();
 	}
@@ -648,74 +659,9 @@ function getSelectedElements() {
 }
 
 // ── Process Name DOM injection ──────────────────────────────────────────────
-// The SpiffWorkflow properties panel (Preact) owns its subtree, but Preact 10+
-// does NOT remove nodes it didn't create. We therefore inject a vanilla DOM
-// element directly below the "Process ID" entry and update it asynchronously.
-
-function removeProcessNameField() {
-	propertiesContainer.value
-		?.querySelector('[data-custom="process-name"]')
-		?.remove();
-}
-
-function injectProcessNameField(element) {
-	// Wait for the Preact panel to (re-)render before querying the DOM
-	setTimeout(async () => {
-		// Remove stale injected field from a previous selection / re-render
-		removeProcessNameField();
-
-		if (!propertiesContainer.value) return;
-
-		// Find the 'Process ID' label — robust regardless of data-entry-id
-		const labels = propertiesContainer.value.querySelectorAll(
-			".bio-properties-panel-label"
-		);
-		const processIdLabel = Array.from(labels).find(
-			(el) => el.textContent.trim() === "Process ID"
-		);
-		const entryEl = processIdLabel?.closest(".bio-properties-panel-entry");
-		if (!entryEl) return;
-
-		const calledElement = element.businessObject?.calledElement;
-
-		// Build the injected element using the same classes as the panel uses
-		const wrapper = document.createElement("div");
-		wrapper.setAttribute("data-custom", "process-name");
-		wrapper.className = "bio-properties-panel-entry";
-		wrapper.innerHTML = `
-			<label class="bio-properties-panel-label" style="font-size:11px;font-weight:600;color:#6b7280;margin-bottom:3px;display:block;">Process Name</label>
-			<div style="
-				display:flex;align-items:center;min-height:28px;
-				padding:2px 8px;font-size:12px;color:#111827;
-				background:#f9fafb;border:1px solid #e5e7eb;
-				border-radius:4px;word-break:break-word;
-			" data-process-name>${calledElement ? "Resolving…" : "<span style='color:#9ca3af;font-style:italic;'>(none linked)</span>"}</div>
-		`;
-		entryEl.parentNode.insertBefore(wrapper, entryEl.nextSibling);
-
-		if (!calledElement) return;
-
-		// Resolve process name from Frappe asynchronously
-		try {
-			const resp = await fetch(
-				`/api/resource/BPMN Process Model?filters=[[%22process_id%22,%22=%22,${JSON.stringify(calledElement)}]]&fields=[%22title%22,%22name%22]&limit=1`,
-				{ headers: { "X-Frappe-CSRF-Token": window.csrf_token || "" } }
-			);
-			const json = await resp.json();
-			const record = Array.isArray(json.data) && json.data[0];
-			const name = record ? record.title || record.name : "(not found)";
-			const nameEl = propertiesContainer.value?.querySelector(
-				'[data-custom="process-name"] [data-process-name]'
-			);
-			if (nameEl) nameEl.textContent = name;
-		} catch (e) {
-			const nameEl = propertiesContainer.value?.querySelector(
-				'[data-custom="process-name"] [data-process-name]'
-			);
-			if (nameEl) nameEl.textContent = calledElement;
-		}
-	}, 150);
-}
+// Injection logic (stale-timer guard, frappeRequest, calledElement cache) has
+// been extracted to @/composables/useCallActivityName.js.
+// BpmnEditor only wires the eventBus events and passes the propertiesContainer ref.
 // ────────────────────────────────────────────────────────────────────────────
 
 // Directly update calledElement on a Call Activity via the command stack.
@@ -773,6 +719,31 @@ defineExpose({
 .bpmn-canvas {
 	background: #fafafa;
 }
+
+/* ── Injected Process Name field (no inline styles) ─── */
+.bpmn-process-name-value {
+	display: flex;
+	align-items: center;
+	min-height: 28px;
+	padding: 2px 8px;
+	font-size: 12px;
+	color: var(--gray-900, #111827);
+	background: var(--gray-50, #f9fafb);
+	border: 1px solid var(--gray-200, #e5e7eb);
+	border-radius: 4px;
+	word-break: break-word;
+}
+
+.bpmn-process-name-resolving {
+	color: var(--gray-400, #9ca3af);
+	font-style: italic;
+}
+
+.bpmn-process-name-empty {
+	color: var(--gray-400, #9ca3af);
+	font-style: italic;
+}
+/* ─────────────────────────────────────────────────── */
 
 /* Palette Styling */
 .bpmn-canvas .djs-palette {
