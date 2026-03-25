@@ -12,6 +12,31 @@
 			</a>
 		</header>
 
+		<!-- Export Diagram chooser dialog (multi-diagram processes) -->
+		<Dialog v-model="showExportDialog" :options="{ title: 'Export Diagram' }">
+			<template #body-content>
+				<div class="space-y-2">
+					<p class="text-sm text-gray-500 mb-3">Choose a diagram to download:</p>
+					<div
+						v-for="d in exportDialogDiagrams"
+						:key="d.name"
+						role="button"
+						tabindex="0"
+						class="flex items-center justify-between px-3 py-2 rounded-lg hover:bg-gray-100 cursor-pointer focus:outline-none focus:ring-2 focus:ring-gray-400"
+						@click="exportSingleDiagram(d)"
+						@keydown.enter.prevent="exportSingleDiagram(d)"
+						@keydown.space.prevent="exportSingleDiagram(d)"
+					>
+						<span class="text-sm text-gray-800">{{ d.model_name || d.title }}</span>
+						<Icon icon="lucide:download" class="w-4 h-4 text-gray-500" />
+					</div>
+				</div>
+			</template>
+			<template #actions>
+				<Button variant="subtle" @click="showExportDialog = false">Cancel</Button>
+			</template>
+		</Dialog>
+
 		<!-- Content -->
 		<main class="flex-1 p-6 overflow-auto">
 			<!-- Loading State -->
@@ -85,6 +110,23 @@
 							<span class="text-sm text-gray-500">{{ formatDate(item) }}</span>
 						</template>
 
+						<!-- Export/actions column -->
+						<template v-else-if="column.key === 'actions'">
+							<button
+								v-if="row.diagram_count > 0"
+								@click.stop="exportProcess(row)"
+								:disabled="exportingProcesses.has(row.name)"
+								class="p-1.5 rounded hover:bg-gray-200 text-gray-500 transition-colors disabled:opacity-40"
+								title="Export diagram as .bpmn file"
+							>
+								<Icon
+									:icon="exportingProcesses.has(row.name) ? 'lucide:loader-2' : 'lucide:download'"
+									:class="['w-4 h-4', exportingProcesses.has(row.name) ? 'animate-spin' : '']"
+								/>
+							</button>
+							<span v-else class="text-xs text-gray-300">—</span>
+						</template>
+
 						<!-- Default -->
 						<template v-else>
 							<span class="text-sm text-gray-600">{{ item }}</span>
@@ -102,6 +144,13 @@ import { useRouter } from "vue-router"
 import { frappeRequest } from "frappe-ui"
 import { Icon } from "@iconify/vue"
 import { dayjs } from "@/dayjs"
+import { downloadBpmn } from "@/utils/downloadBpmn"
+
+// Export dialog state
+const showExportDialog = ref(false)
+const exportDialogDiagrams = ref([])
+// Track in-flight exports per process so concurrent clicks work independently
+const exportingProcesses = ref(new Set())
 
 const router = useRouter()
 const processes = ref([])
@@ -139,6 +188,11 @@ const columns = computed(() => [
 		key: "creation",
 		width: "120px",
 	},
+	{
+		label: "",
+		key: "actions",
+		width: "60px",
+	},
 ])
 
 onMounted(async () => {
@@ -171,6 +225,51 @@ async function loadProcesses() {
 
 function openProcess(name) {
 	router.push({ name: "ProcessEditor", params: { process: name } })
+}
+
+// ---- Export helpers ----
+
+async function exportSingleDiagram(diagram) {
+	showExportDialog.value = false
+	try {
+		const response = await frappeRequest({
+			url: "/api/method/one_bpmn.api.get_process_model",
+			params: { name: diagram.name },
+		})
+		const data = response.message || response
+		if (data && data.bpmn_xml) {
+			downloadBpmn(data.bpmn_xml, data.title || diagram.model_name || diagram.name)
+		}
+	} catch (err) {
+		console.error("Failed to export diagram:", err)
+	}
+}
+
+async function exportProcess(process) {
+	if (!process.diagram_count) return
+	exportingProcesses.value = new Set([...exportingProcesses.value, process.name])
+	try {
+		const response = await frappeRequest({
+			url: "/api/method/one_bpmn.api.get_process_diagrams",
+			params: { process: process.name },
+		})
+		const data = response.message || response
+		const diagrams = (data.diagrams || []).map((d) => ({ ...d, model_name: d.model_name || d.title }))
+
+		if (diagrams.length === 1) {
+			await exportSingleDiagram(diagrams[0])
+		} else if (diagrams.length > 1) {
+			exportDialogDiagrams.value = diagrams
+			showExportDialog.value = true
+		}
+	} catch (err) {
+		console.error("Failed to fetch diagrams for export:", err)
+	} finally {
+		// Remove this process from the in-flight set
+		const next = new Set(exportingProcesses.value)
+		next.delete(process.name)
+		exportingProcesses.value = next
+	}
 }
 
 function getStatusTheme(status) {
