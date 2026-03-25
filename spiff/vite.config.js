@@ -20,6 +20,8 @@ export default defineConfig({
 	resolve: {
 		alias: {
 			"@": path.resolve(__dirname, "src"),
+			"preact/hooks": path.resolve(__dirname, "node_modules/preact/hooks"),
+			"preact": path.resolve(__dirname, "node_modules/preact"),
 		},
 		// Both bpmn-js-properties-panel and bpmn-js-spiffworkflow depend on
 		// @bpmn-io/properties-panel, which ships a bundled Preact copy that its

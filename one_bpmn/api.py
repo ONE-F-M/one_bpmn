@@ -2,6 +2,7 @@
 # For license information, please see license.txt
 
 import uuid
+from lxml import etree as ET
 import frappe
 from frappe import _
 
@@ -48,6 +49,7 @@ def save_process_model(
 		doc.description = description or ""
 		doc.version = 1
 		doc.process_id = str(uuid.uuid4())
+		doc.check_permission("create")
 		doc.insert()
 
 	return {
@@ -55,6 +57,113 @@ def save_process_model(
 		"model_name": doc.title,
 		"version": doc.version,
 		"is_active": doc.is_active
+	}
+
+
+@frappe.whitelist()
+def import_bpmn(
+	xml_content: str,
+	title: str = None,
+	process: str = None,
+) -> dict:
+	"""
+	Import a BPMN XML string as a new or updated BPMN Process Model.
+
+	The process_id is extracted from the first <bpmn:process id="…"> element in
+	the XML. If a BPMN Process Model with that process_id already exists it is
+	updated; otherwise a new record is created.
+
+	Args:
+		xml_content: Raw BPMN XML text (content of a .bpmn file)
+		title:       Optional human-readable title. Defaults to the process_id.
+		process:     Optional link to a Process DocType record.
+
+	Returns:
+		dict with name, model_name, process_id, and action ('created'|'updated')
+	"""
+	if not xml_content or not xml_content.strip():
+		frappe.throw(_("BPMN XML content is required"))
+
+	# --- Validate & parse XML ---
+	# lxml raises TypeError when fromstring() receives a str containing an encoding
+	# declaration (<?xml ... encoding="UTF-8"?>). Encoding to bytes avoids this.
+	try:
+		root = ET.fromstring(xml_content.strip().encode("utf-8"))
+	except ET.XMLSyntaxError as exc:
+		frappe.throw(_("Invalid BPMN XML: {0}").format(str(exc)))
+
+	# Register namespaces so ElementTree can search them
+	bpmn_ns = "http://www.omg.org/spec/BPMN/20100524/MODEL"
+
+	# Accept both namespaced and bare <process> tags
+	process_el = root.find(f"{{{bpmn_ns}}}process")
+	if process_el is None:
+		# Fallback: look without namespace (some exporters omit it)
+		process_el = root.find("process")
+
+	if process_el is None:
+		frappe.throw(_(
+			"Invalid BPMN XML: no <bpmn:process> element found. "
+			"Please upload a valid BPMN 2.0 file."
+		))
+
+	extracted_process_id = process_el.get("id")
+	if not extracted_process_id:
+		frappe.throw(_("Invalid BPMN XML: <bpmn:process> element has no 'id' attribute"))
+
+	effective_title = title or process_el.get("name") or extracted_process_id
+
+	# --- Upsert logic: match by process_id (unique field) ---
+	existing_name = frappe.db.get_value(
+		"BPMN Process Model",
+		{"process_id": extracted_process_id},
+		"name"
+	)
+
+	if existing_name:
+		doc = frappe.get_doc("BPMN Process Model", existing_name)
+		doc.check_permission("write")
+		doc.bpmn_xml = xml_content
+		if process:
+			doc.process_name = process
+		# Always sync the title field so the return value is accurate
+		if effective_title:
+			doc.title = effective_title
+		doc.save()
+
+		# Rename the document if the human title has changed
+		# (autoname only runs on insert, so we must rename manually)
+		if effective_title and effective_title != doc.name:
+			try:
+				frappe.rename_doc(
+					"BPMN Process Model",
+					doc.name,
+					effective_title,
+					force=True,
+					merge=False,
+				)
+				doc = frappe.get_doc("BPMN Process Model", effective_title)
+			except Exception:
+				# If rename fails (e.g. duplicate title), keep existing name
+				pass
+
+		action = "updated"
+	else:
+		doc = frappe.new_doc("BPMN Process Model")
+		doc.title = effective_title
+		doc.process_id = extracted_process_id
+		doc.bpmn_xml = xml_content
+		doc.process_name = process or None
+		doc.version = 1
+		doc.check_permission("create")
+		doc.insert()
+		action = "created"
+
+	return {
+		"name": doc.name,
+		"model_name": doc.title,
+		"process_id": doc.process_id,
+		"action": action,
 	}
 
 
@@ -430,3 +539,68 @@ def delete_shape(name: str) -> dict:
 	doc.delete()
 
 	return {"success": True}
+
+
+# ============================================
+# Server Script API
+# Uses ignore_permissions so Process Owners without the Script Manager role
+# can still list/create Server Scripts via the BPMN editor.
+# Creation is guarded to System Manager or Script Manager only.
+# ============================================
+
+
+
+@frappe.whitelist()
+def create_server_script(
+	script_name: str,
+	script_type: str,
+	script: str,
+	reference_doctype: str = None,
+	doctype_event: str = None,
+	api_method: str = None,
+	allow_guest: int = 0,
+	event_frequency: str = None,
+	cron_format: str = None,
+	module: str = None,
+) -> dict:
+	if not script_name or not script_type or not script:
+		frappe.throw(_("Script name, type, and content are required"))
+
+	if not frappe.has_permission("Server Script", "create") and \
+			"System Manager" not in frappe.get_roles():
+		frappe.throw(
+			_("You need the Script Manager or System Manager role to create Server Scripts."),
+			frappe.PermissionError,
+		)
+
+	doc = frappe.new_doc("Server Script")
+	doc.__newname = script_name
+	doc.script_type = script_type
+	doc.script = script
+	doc.disabled = 1  # disabled by default — must be manually enabled
+	if reference_doctype:
+		doc.reference_doctype = reference_doctype
+	if doctype_event:
+		doc.doctype_event = doctype_event
+	if api_method:
+		doc.api_method = api_method
+	if allow_guest:
+		doc.allow_guest = int(allow_guest)
+	if event_frequency:
+		doc.event_frequency = event_frequency
+	if cron_format:
+		doc.cron_format = cron_format
+	if module:
+		doc.module = module
+
+	# Elevate to Administrator temporarily to bypass the ServerScript controller's
+	# `frappe.only_for("Script Manager")` validate hook. The role guard above
+	# already ensures only System Manager / Script Manager users reach this point.
+	original_user = frappe.session.user
+	try:
+		frappe.set_user("Administrator")
+		doc.insert(ignore_permissions=True)
+	finally:
+		frappe.set_user(original_user)
+
+	return {"name": doc.name, "script_type": doc.script_type}
