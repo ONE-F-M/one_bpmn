@@ -570,13 +570,56 @@ def delete_shape(name: str) -> dict:
 	return {"success": True}
 
 
+@frappe.whitelist()
+def list_process_instances(filters=None, limit_start=0, limit_page_length=20, order_by="creation desc") -> list:
+	"""
+	List BPMN process instances with their active tasks joined as 'current_step'.
+	"""
+	import json
+	
+	if isinstance(filters, str):
+		filters = json.loads(filters)
+	
+	if isinstance(limit_start, str):
+		limit_start = int(limit_start)
+	if isinstance(limit_page_length, str):
+		limit_page_length = int(limit_page_length)
+
+	instances = frappe.get_list(
+		"BPMN Process Instance",
+		fields=["name", "process_model", "status", "context_doctype", "context_docname", "started_at", "initiated_by"],
+		filters=filters,
+		limit_start=limit_start,
+		limit_page_length=limit_page_length,
+		order_by=order_by
+	)
+
+	if instances:
+		instance_names = [d.name for d in instances]
+		tasks = frappe.get_all(
+			"BPMN Active Task",
+			filters={"parent": ["in", instance_names], "parenttype": "BPMN Process Instance", "status": ["in", ["Waiting", ""]]},
+			fields=["parent", "task_name", "status"]
+		)
+		
+		from collections import defaultdict
+		task_map = defaultdict(list)
+		for t in tasks:
+			task_map[t.parent].append(t.task_name)
+			
+		for d in instances:
+			d.current_step = ", ".join(task_map.get(d.name, []))
+
+	return instances
+
+
+
 # ============================================
 # Server Script API
 # Uses ignore_permissions so Process Owners without the Script Manager role
 # can still list/create Server Scripts via the BPMN editor.
 # Creation is guarded to System Manager or Script Manager only.
 # ============================================
-
 
 
 @frappe.whitelist()
