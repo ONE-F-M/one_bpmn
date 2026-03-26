@@ -1,6 +1,8 @@
 import { createRouter, createWebHistory } from "vue-router"
 import Home from "@/views/Home.vue"
 import Editor from "@/views/Editor.vue"
+import InstanceList from "@/views/InstanceList.vue"
+import InstanceDetail from "@/views/InstanceDetail.vue"
 
 const routes = [
 	{
@@ -19,6 +21,16 @@ const routes = [
 		name: "DiagramEditor",
 		component: Editor,
 		props: true,
+	},
+	{
+		path: "/spiff/instances",
+		name: "InstanceList",
+		component: InstanceList,
+	},
+	{
+		path: "/spiff/instances/:instance",
+		name: "InstanceDetail",
+		component: InstanceDetail,
 	},
 	{
 		path: "/:pathMatch(.*)*",

@@ -50,8 +50,13 @@
 				class="shrink-0"
 			/>
 
-			<!-- Properties Panel Toggle -->
-			<div class="flex-1 min-w-4"></div>
+			<!-- Save Status Indicator before Properties Panel Toggle -->
+			<div class="flex-1 min-w-4 flex items-center justify-end px-3">
+				<div v-if="saveStatusText" class="text-sm font-medium transition-colors mr-2" :class="saveStatusColor">
+					{{ saveStatusText }}
+				</div>
+			</div>
+			
 			<div class="shrink-0 pl-1 border-l border-gray-200">
 				<button
 					@click="togglePropertiesPanel"
@@ -124,12 +129,26 @@ import clipboardModule from "@/utils/clipboard";
 // Custom moddle extension for text style attributes
 import customTextStyleModdle from "@/moddle/customTextStyleModdle";
 
+import timerPropertiesProviderModule from "@/bpmn/timerPropertiesProvider";
+import startEventPropertiesProviderModule from "@/bpmn/startEventPropertiesProvider";
+
 // Import bpmn-js CSS
 import "bpmn-js/dist/assets/diagram-js.css";
 import "bpmn-js/dist/assets/bpmn-font/css/bpmn.css";
 
 // Import properties panel CSS
 import "@bpmn-io/properties-panel/dist/assets/properties-panel.css";
+
+const props = defineProps({
+	saveStatusText: {
+		type: String,
+		default: ""
+	},
+	saveStatusColor: {
+		type: String,
+		default: ""
+	}
+});
 
 const emit = defineEmits([
 	"ready",
@@ -149,6 +168,7 @@ const canRedo = ref(false);
 const zoomLevel = ref(100);
 const showPropertiesPanel = ref(true);
 const isMounted = ref(false);
+const isImporting = ref(false);
 // const showMinimap = ref(true); // DISABLED
 const selectedElements = shallowRef([]);
 const modelerInstance = shallowRef(null);
@@ -192,6 +212,39 @@ function togglePropertiesPanel() {
 
 onMounted(async () => {
 	isMounted.value = true;
+	try {
+		// Extend spiff workflow moddle definitions to include our custom timer properties
+		if (spiffModdleExtension && Array.isArray(spiffModdleExtension.types)) {
+			// Timer extension (hot-reloading safety)
+			const hasTimerExt = spiffModdleExtension.types.find(t => t.name === "TimerEventDefinitionExtension");
+			if (!hasTimerExt) {
+				spiffModdleExtension.types.push({
+					name: "TimerEventDefinitionExtension",
+					extends: ["bpmn:TimerEventDefinition"],
+					properties: [
+						{ name: "schedulerFrequency", isAttr: true, type: "String" },
+						{ name: "cronExpression",       isAttr: true, type: "String" }
+					]
+				});
+			}
+
+			// Start Event trigger extension (hot-reloading safety)
+			const hasStartEventExt = spiffModdleExtension.types.find(t => t.name === "StartEventTriggerExtension");
+			if (!hasStartEventExt) {
+				spiffModdleExtension.types.push({
+					name: "StartEventTriggerExtension",
+					extends: ["bpmn:StartEvent"],
+					properties: [
+						{ name: "triggerDoctype",      isAttr: true, type: "String" },
+						{ name: "triggerType",         isAttr: true, type: "String" },
+						{ name: "triggerWorkflow",     isAttr: true, type: "String" },
+						{ name: "triggerWorkflowState",isAttr: true, type: "String" }
+					]
+				});
+			}
+		}
+
+				
 	await initModeler({
 		container,
 		propertiesContainer,
@@ -200,6 +253,8 @@ onMounted(async () => {
 				BpmnPropertiesPanelModule,
 				BpmnPropertiesProviderModule,
 				spiffworkflow,
+				timerPropertiesProviderModule,
+				startEventPropertiesProviderModule,
 				// minimapModule, // DISABLED
 				translateModule,
 				customTextStyleModule,
@@ -231,28 +286,58 @@ onMounted(async () => {
 			const eventBus = modeler.get("eventBus");
 			eventBus.on("commandStack.changed", updateUndoRedoState);
 
-			// Listen for selection changes for formatting toolbar
-			eventBus.on("selection.changed", (e) => {
-				selectedElements.value = e.newSelection || [];
-			});
+		// Clear custom trigger attributes if a StartEvent is converted into something else
+		// (e.g. Timer Start Event) so they don't persist in the XML.
+		// Use modeling.updateModdleProperties so the operation is tracked by the command
+		// stack and is properly undoable/redoable.
+		eventBus.on("commandStack.shape.replace.postExecute", (e) => {
+			const newShape = e.context.newShape;
+			const bo = newShape && newShape.businessObject;
+			if (!bo) return;
 
-			// Listen for zoom changes (Ctrl+scroll, programmatic zoom, etc.)
-			eventBus.on("canvas.viewbox.changed", () => {
-				const canvas = modeler.get("canvas");
-				const newZoom = Math.round(canvas.zoom() * 100);
-				zoomLevel.value = newZoom;
-				emit("zoom-changed", newZoom);
-			});
+			let isPlainStartEvent = false;
+			if (bo.$type === "bpmn:StartEvent") {
+				const eventDefs = bo.get("eventDefinitions") || [];
+				isPlainStartEvent = eventDefs.length === 0;
+			}
 
-			// --- SpiffWorkflow EventBus Integration ---
-			eventBus.on("spiff.script.edit", (event) => {
-				emit("launch-script-editor", {
-					element: event.element,
-					scriptType: event.scriptType,
-					script: event.script || "",
-					eventBus: event.eventBus,
+			if (!isPlainStartEvent) {
+				const modeling = modeler.get("modeling");
+				const attrs = ["triggerDoctype", "triggerType", "triggerWorkflow", "triggerWorkflowState"];
+				const clearProps = {};
+				attrs.forEach(attr => {
+					clearProps[`spiffworkflow:${attr}`] = undefined;
 				});
+				modeling.updateModdleProperties(newShape, bo, clearProps);
+			}
+		});
+
+		// Listen for selection changes for formatting toolbar
+		eventBus.on("selection.changed", (e) => {
+			selectedElements.value = e.newSelection || [];
+		});
+
+		// Listen for zoom changes (Ctrl+scroll, programmatic zoom, etc.)
+		eventBus.on("canvas.viewbox.changed", () => {
+			const canvas = modeler.get("canvas");
+			const newZoom = Math.round(canvas.zoom() * 100);
+			zoomLevel.value = newZoom;
+			emit("zoom-changed", newZoom);
+		});
+
+		// --- SpiffWorkflow EventBus Integration ---
+		// These handlers are required for the spiffworkflow properties panel
+		// "Launch Editor" buttons and data-request dropdowns to function.
+
+		// Script editing (Script Tasks, Pre/Post scripts)
+		eventBus.on("spiff.script.edit", (event) => {
+			emit("launch-script-editor", {
+				element: event.element,
+				scriptType: event.scriptType,
+				script: event.script || "",
+				eventBus: event.eventBus,
 			});
+		});
 
 			eventBus.on("spiff.markdown.edit", (event) => {
 				emit("launch-markdown-editor", {
@@ -261,7 +346,6 @@ onMounted(async () => {
 					eventBus: event.eventBus,
 				});
 			});
-
 
 			eventBus.on("spiff.callactivity.edit", (event) => {
 				emit("launch-callactivity-editor", {
@@ -395,7 +479,11 @@ onMounted(async () => {
 		onError: (err) => {
 			console.error("Failed to initialize BPMN modeler:", err);
 		},
+		
 	});
+} catch (err) {
+		console.error("Failed to initialize BPMN modeler:", err);
+	}
 });
 
 onBeforeUnmount(() => {
@@ -417,7 +505,9 @@ function updateUndoRedoState() {
 		canUndo.value = commandStack.canUndo();
 		canRedo.value = commandStack.canRedo();
 	}
-	emit("changed");
+	if (!isImporting.value) {
+		emit("changed");
+	}
 }
 
 function undo() {
@@ -460,6 +550,7 @@ async function getXML() {
 
 async function loadXML(xml) {
 	if (!modeler) return;
+	isImporting.value = true;
 	try {
 		// Decode any HTML entities in the XML
 		const decodedXml = decodeHtmlEntities(xml);
@@ -477,6 +568,8 @@ async function loadXML(xml) {
 		}, 100);
 	} catch (err) {
 		console.error("Failed to import XML:", err);
+	} finally {
+		isImporting.value = false;
 	}
 }
 
