@@ -116,6 +116,7 @@
 						class="absolute inset-0"
 						@ready="onEditorReady"
 						@changed="onDiagramChanged"
+						@zoom-changed="onZoomChanged"
 						@launch-script-editor="onLaunchScriptEditor"
 						@launch-markdown-editor="onLaunchMarkdownEditor"
 						@launch-callactivity-editor="onLaunchCallActivityEditor"
@@ -154,8 +155,37 @@
 					class="flex-1 min-w-0"
 				/>
 				
-				<!-- Zoom Controls Native Container -->
-				<div id="bpmn-zoom-controls" class="flex items-center shrink-0 pr-2"></div>
+				<!-- Zoom Controls -->
+				<div class="flex items-center gap-1 px-3 py-2 border-l border-gray-300">
+					<button
+						@click="handleZoomOut"
+						class="p-1.5 rounded hover:bg-gray-300 text-gray-600 transition-colors"
+						title="Zoom Out (Ctrl+-)"
+					>
+						<Icon icon="lucide:minus" class="w-4 h-4" />
+					</button>
+					<button
+						@click="handleResetZoom"
+						class="px-2 py-1 rounded hover:bg-gray-300 text-gray-700 text-sm font-medium min-w-[50px] text-center transition-colors"
+						title="Reset Zoom"
+					>
+						{{ zoomLevel }}%
+					</button>
+					<button
+						@click="handleZoomIn"
+						class="p-1.5 rounded hover:bg-gray-300 text-gray-600 transition-colors"
+						title="Zoom In (Ctrl++)"
+					>
+						<Icon icon="lucide:plus" class="w-4 h-4" />
+					</button>
+					<button
+						@click="handleFitToScreen"
+						class="p-1.5 rounded hover:bg-gray-300 text-gray-600 transition-colors ml-1"
+						title="Fit to Screen"
+					>
+						<Icon icon="lucide:maximize-2" class="w-4 h-4" />
+					</button>
+				</div>
 			</div>
 		</div>
 
@@ -606,29 +636,49 @@ let callActivitySearchEvent = null; // plain variable — NOT a ref, because bpm
 // conflict with Vue 3's Proxy-based reactivity and cause TypeErrors.
 
 
+// Zoom level (synced with BpmnEditor)
+const zoomLevel = computed(() => currentZoomLevel.value);
+
 // Zoom handlers
+const currentZoomLevel = ref(100);
+
 function handleZoomIn() {
 	if (editorRef.value) {
 		editorRef.value.zoomIn();
+		updateZoomLevel();
 	}
 }
 
 function handleZoomOut() {
 	if (editorRef.value) {
 		editorRef.value.zoomOut();
+		updateZoomLevel();
 	}
 }
 
 function handleResetZoom() {
 	if (editorRef.value) {
 		editorRef.value.resetZoom();
+		updateZoomLevel();
 	}
 }
 
 function handleFitToScreen() {
 	if (editorRef.value) {
 		editorRef.value.fitToScreen();
+		// Wait for async zoom update
+		setTimeout(() => updateZoomLevel(), 10);
 	}
+}
+
+function updateZoomLevel() {
+	if (editorRef.value && typeof editorRef.value.getZoomLevel === 'function') {
+		currentZoomLevel.value = editorRef.value.getZoomLevel();
+	}
+}
+
+function onZoomChanged(newZoom) {
+	currentZoomLevel.value = newZoom;
 }
 
 // Shape library handler

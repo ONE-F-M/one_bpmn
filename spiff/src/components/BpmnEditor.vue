@@ -68,21 +68,7 @@
 			</div>
 		</div>
 
-		<!-- Zoom Controls (moved natively to parent Editor.vue's Tab Bar) -->
-		<div ref="zoomControlsEl" v-show="isMounted" class="flex items-center gap-0.5">
-			<button class="p-1.5 hover:bg-gray-200 text-gray-600 transition-colors rounded" title="Zoom Out (Ctrl+-)" @click="zoomOut">
-				<Icon icon="lucide:minus" class="w-4 h-4" />
-			</button>
-			<button class="px-2 py-1.5 hover:bg-gray-200 text-gray-700 text-xs font-medium min-w-[50px] text-center rounded" title="Reset Zoom" @click="resetZoom">
-				{{ zoomLevel }}%
-			</button>
-			<button class="p-1.5 hover:bg-gray-200 text-gray-600 transition-colors rounded" title="Zoom In (Ctrl++)" @click="zoomIn">
-				<Icon icon="lucide:plus" class="w-4 h-4" />
-			</button>
-			<button class="p-1.5 hover:bg-gray-200 text-gray-600 transition-colors rounded ml-1 border-l border-gray-300 pl-2" title="Fit to Screen" @click="fitToScreen">
-				<Icon icon="lucide:maximize-2" class="w-4 h-4" />
-			</button>
-		</div>
+
 
 		<!-- Main Content Area -->
 		<div class="flex-1 flex overflow-hidden relative">
@@ -158,7 +144,6 @@ const emit = defineEmits([
 const container = ref(null);
 const propertiesContainer = ref(null);
 const toolbarEl = ref(null);
-const zoomControlsEl = ref(null);
 const canUndo = ref(false);
 const canRedo = ref(false);
 const zoomLevel = ref(100);
@@ -403,12 +388,7 @@ onMounted(async () => {
 				targetToolbar.appendChild(toolbarEl.value);
 			}
 
-			// Append zoom controls natively to bottom Tab Bar
-			const targetZoom = document.getElementById("bpmn-zoom-controls");
-			if (targetZoom && zoomControlsEl.value) {
-				targetZoom.innerHTML = '';
-				targetZoom.appendChild(zoomControlsEl.value);
-			}
+
 
 			emit("ready");
 		},
@@ -423,9 +403,6 @@ onBeforeUnmount(() => {
 	// Safely clean up native DOM mounting
 	if (toolbarEl.value && toolbarEl.value.parentNode) {
 		toolbarEl.value.parentNode.removeChild(toolbarEl.value);
-	}
-	if (zoomControlsEl.value && zoomControlsEl.value.parentNode) {
-		zoomControlsEl.value.parentNode.removeChild(zoomControlsEl.value);
 	}
 });
 
