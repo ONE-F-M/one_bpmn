@@ -126,6 +126,8 @@ import clipboardModule from "@/utils/clipboard";
 import customTextStyleModdle from "@/moddle/customTextStyleModdle";
 
 import intermediateEventPropertiesProviderModule from "@/bpmn/intermediateEventPropertiesProvider";
+import timerPropertiesProviderModule from "@/bpmn/timerPropertiesProvider";
+import startEventPropertiesProviderModule from "@/bpmn/startEventPropertiesProvider";
 
 // Import bpmn-js CSS
 import "bpmn-js/dist/assets/diagram-js.css";
@@ -193,9 +195,35 @@ function togglePropertiesPanel() {
 
 onMounted(async () => {
 	try {
-
 		// Extend spiff workflow moddle definitions to include our custom timer properties
 		if (spiffModdleExtension && Array.isArray(spiffModdleExtension.types)) {
+			// Timer extension (hot-reloading safety)
+			const hasTimerExt = spiffModdleExtension.types.find(t => t.name === "TimerEventDefinitionExtension");
+			if (!hasTimerExt) {
+				spiffModdleExtension.types.push({
+					name: "TimerEventDefinitionExtension",
+					extends: ["bpmn:TimerEventDefinition"],
+					properties: [
+						{ name: "schedulerFrequency", isAttr: true, type: "String" },
+						{ name: "cronExpression",       isAttr: true, type: "String" }
+					]
+				});
+			}
+
+			// Start Event trigger extension (hot-reloading safety)
+			const hasStartEventExt = spiffModdleExtension.types.find(t => t.name === "StartEventTriggerExtension");
+			if (!hasStartEventExt) {
+				spiffModdleExtension.types.push({
+					name: "StartEventTriggerExtension",
+					extends: ["bpmn:StartEvent"],
+					properties: [
+						{ name: "triggerDoctype",      isAttr: true, type: "String" },
+						{ name: "triggerType",         isAttr: true, type: "String" },
+						{ name: "triggerWorkflow",     isAttr: true, type: "String" },
+						{ name: "triggerWorkflowState",isAttr: true, type: "String" }
+					]
+				});
+			}
 
 			// Intermediate Event extension (hot-reloading safety)
 			const hasIntermediateEventExt = spiffModdleExtension.types.find(t => t.name === "IntermediateEventExtension");
@@ -212,6 +240,7 @@ onMounted(async () => {
 				});
 			}
 		}
+
 				
 	await initModeler({
 		container,
@@ -222,6 +251,8 @@ onMounted(async () => {
 				BpmnPropertiesProviderModule,
 				spiffworkflow,
 				intermediateEventPropertiesProviderModule,
+				timerPropertiesProviderModule,
+				startEventPropertiesProviderModule,
 				// minimapModule, // DISABLED
 				translateModule,
 				customTextStyleModule,
@@ -254,32 +285,28 @@ onMounted(async () => {
 			eventBus.on("commandStack.changed", updateUndoRedoState);
 
 		// Clear custom trigger attributes if a StartEvent is converted into something else
-		// (e.g. Timer Start Event) so they don't persist in the XML
+		// (e.g. Timer Start Event) so they don't persist in the XML.
+		// Use modeling.updateModdleProperties so the operation is tracked by the command
+		// stack and is properly undoable/redoable.
 		eventBus.on("commandStack.shape.replace.postExecute", (e) => {
 			const newShape = e.context.newShape;
 			const bo = newShape && newShape.businessObject;
 			if (!bo) return;
-			
+
 			let isPlainStartEvent = false;
 			if (bo.$type === "bpmn:StartEvent") {
 				const eventDefs = bo.get("eventDefinitions") || [];
 				isPlainStartEvent = eventDefs.length === 0;
 			}
-			
+
 			if (!isPlainStartEvent) {
-				const attrs = ["triggerDoctype", "triggerType", "triggerWorkflow", "triggerWorkflowState", "targetDoctype", "assignmentRule"];
+				const modeling = modeler.get("modeling");
+				const attrs = ["triggerDoctype", "triggerType", "triggerWorkflow", "triggerWorkflowState"];
+				const clearProps = {};
 				attrs.forEach(attr => {
-					// 1. Standard Moddle setter
-					if (typeof bo.set === "function") {
-						bo.set(`spiffworkflow:${attr}`, undefined);
-					}
-					// 2. Direct property (schema name)
-					delete bo[attr];
-					// 3. Fallback attributes map
-					if (bo.$attrs) {
-						delete bo.$attrs[`spiffworkflow:${attr}`];
-					}
+					clearProps[`spiffworkflow:${attr}`] = undefined;
 				});
+				modeling.updateModdleProperties(newShape, bo, clearProps);
 			}
 		});
 
@@ -288,27 +315,27 @@ onMounted(async () => {
 			selectedElements.value = e.newSelection || [];
 		});
 
+		// Listen for zoom changes (Ctrl+scroll, programmatic zoom, etc.)
+		eventBus.on("canvas.viewbox.changed", () => {
+			const canvas = modeler.get("canvas");
+			const newZoom = Math.round(canvas.zoom() * 100);
+			zoomLevel.value = newZoom;
+			emit("zoom-changed", newZoom);
+		});
+
 		// --- SpiffWorkflow EventBus Integration ---
 		// These handlers are required for the spiffworkflow properties panel
 		// "Launch Editor" buttons and data-request dropdowns to function.
 
-			// Listen for zoom changes (Ctrl+scroll, programmatic zoom, etc.)
-			eventBus.on("canvas.viewbox.changed", () => {
-				const canvas = modeler.get("canvas");
-				const newZoom = Math.round(canvas.zoom() * 100);
-				zoomLevel.value = newZoom;
-				emit("zoom-changed", newZoom);
+		// Script editing (Script Tasks, Pre/Post scripts)
+		eventBus.on("spiff.script.edit", (event) => {
+			emit("launch-script-editor", {
+				element: event.element,
+				scriptType: event.scriptType,
+				script: event.script || "",
+				eventBus: event.eventBus,
 			});
-
-			// --- SpiffWorkflow EventBus Integration ---
-			eventBus.on("spiff.script.edit", (event) => {
-				emit("launch-script-editor", {
-					element: event.element,
-					scriptType: event.scriptType,
-					script: event.script || "",
-					eventBus: event.eventBus,
-				});
-			});
+		});
 
 			eventBus.on("spiff.markdown.edit", (event) => {
 				emit("launch-markdown-editor", {
@@ -317,7 +344,6 @@ onMounted(async () => {
 					eventBus: event.eventBus,
 				});
 			});
-
 
 			eventBus.on("spiff.callactivity.edit", (event) => {
 				emit("launch-callactivity-editor", {
@@ -441,6 +467,7 @@ onMounted(async () => {
 		onError: (err) => {
 			console.error("Failed to initialize BPMN modeler:", err);
 		},
+		
 	});
 	} catch (err) {
 		console.error("Error in onMounted initialized setup:", err);
