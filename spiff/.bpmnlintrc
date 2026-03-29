@@ -1,0 +1,12 @@
+{
+	"rules": {
+		"label-required": "warn",
+		"start-event-required": "error",
+		"end-event-required": "error",
+		"no-disconnected": "error",
+		"no-implicit-split": "warn",
+		"fake-join": "warn",
+		"single-blank-start-event": "error",
+		"no-duplicate-sequence-flows": "warn"
+	}
+}

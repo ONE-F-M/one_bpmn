@@ -50,6 +50,31 @@
 				class="shrink-0"
 			/>
 
+			<div class="w-px h-5 bg-gray-200 mx-1 shrink-0"></div>
+
+			<!-- Lint Toggle Button -->
+			<button
+				@click="toggleLinting"
+				:title="lintActive ? 'Disable diagram validation' : 'Enable diagram validation'"
+				:class="[
+					'p-1.5 flex items-center justify-center gap-1.5 rounded transition-colors text-sm font-medium',
+					lintActive
+						? (lintErrors > 0
+							? 'bg-red-50 text-red-600 hover:bg-red-100'
+							: lintWarnings > 0
+								? 'bg-amber-50 text-amber-600 hover:bg-amber-100'
+								: 'bg-green-50 text-green-600 hover:bg-green-100')
+						: 'hover:bg-gray-100 text-gray-400',
+				]"
+			>
+				<Icon icon="lucide:shield-check" class="w-4 h-4" />
+				<span v-if="lintActive && (lintErrors > 0 || lintWarnings > 0)" class="leading-none">
+					<span v-if="lintErrors > 0" class="text-red-600">{{ lintErrors }}</span>
+					<span v-if="lintErrors > 0 && lintWarnings > 0" class="text-gray-400 mx-0.5">/</span>
+					<span v-if="lintWarnings > 0" class="text-amber-600">{{ lintWarnings }}</span>
+				</span>
+			</button>
+
 			<!-- Save Status Indicator before Properties Panel Toggle -->
 			<div class="flex-1 min-w-4 flex items-center justify-end px-3">
 				<div v-if="saveStatusText" class="text-sm font-medium transition-colors mr-2" :class="saveStatusColor">
@@ -132,6 +157,11 @@ import customTextStyleModdle from "@/moddle/customTextStyleModdle";
 import timerPropertiesProviderModule from "@/bpmn/timerPropertiesProvider";
 import startEventPropertiesProviderModule from "@/bpmn/startEventPropertiesProvider";
 
+// bpmnlint — diagram validation
+import lintModule from 'bpmn-js-bpmnlint';
+import 'bpmn-js-bpmnlint/dist/assets/css/bpmn-js-bpmnlint.css';
+import bpmnlintConfig from '@/linting/bpmnlintrc.js';
+
 // Import bpmn-js CSS
 import "bpmn-js/dist/assets/diagram-js.css";
 import "bpmn-js/dist/assets/bpmn-font/css/bpmn.css";
@@ -172,6 +202,11 @@ const isImporting = ref(false);
 // const showMinimap = ref(true); // DISABLED
 const selectedElements = shallowRef([]);
 const modelerInstance = shallowRef(null);
+
+// Linting state
+const lintActive = ref(true); // ON by default
+const lintErrors = ref(0);
+const lintWarnings = ref(0);
 let modeler = null;
 let commandStack = null;
 
@@ -259,7 +294,12 @@ onMounted(async () => {
 				translateModule,
 				customTextStyleModule,
 				clipboardModule,
+				lintModule,
 			],
+			linting: {
+				active: true,
+				bpmnlint: bpmnlintConfig,
+			},
 			moddleExtensions: {
 				custom: customTextStyleModdle,
 				spiffworkflow: spiffModdleExtension,
@@ -285,6 +325,30 @@ onMounted(async () => {
 			// Use eventBus for listening to command stack changes
 			const eventBus = modeler.get("eventBus");
 			eventBus.on("commandStack.changed", updateUndoRedoState);
+
+			// Listen for lint completion to update badge counts
+			eventBus.on("linting.completed", (event) => {
+				let errors = 0;
+				let warnings = 0;
+				const issues = event.issues || {};
+				for (const id in issues) {
+					for (const issue of issues[id]) {
+						if (issue.category === "error") errors++;
+						else if (issue.category === "warn") warnings++;
+					}
+				}
+				lintErrors.value = errors;
+				lintWarnings.value = warnings;
+			});
+
+			// Sync initial linting state
+			eventBus.on("linting.toggle", (event) => {
+				lintActive.value = event.active;
+				if (!event.active) {
+					lintErrors.value = 0;
+					lintWarnings.value = 0;
+				}
+			});
 
 		// Clear custom trigger attributes if a StartEvent is converted into something else
 		// (e.g. Timer Start Event) so they don't persist in the XML.
@@ -766,6 +830,12 @@ function updateCalledElement(element, processId) {
 	}, 30);
 }
 
+function toggleLinting() {
+	if (!modeler) return;
+	const linting = modeler.get("linting");
+	linting.toggle();
+}
+
 defineExpose({
 	getXML,
 	loadXML,
@@ -789,6 +859,11 @@ defineExpose({
 	getSelectedElements,
 	// Call Activity API
 	updateCalledElement,
+	// Linting API
+	toggleLinting,
+	lintActive,
+	lintErrors,
+	lintWarnings,
 });
 </script>
 
@@ -927,5 +1002,107 @@ defineExpose({
 	border-radius: 10px;
 	font-size: 11px;
 	font-weight: 600;
+}
+
+/* ---- bpmn-js-bpmnlint overrides ---- */
+
+/* Hide the default floating pill button — we use our own toolbar button */
+.bpmn-canvas .bjsl-button {
+	display: none !important;
+}
+
+/* Overlay marker icons */
+.bjsl-overlay {
+	cursor: pointer;
+}
+
+.bjsl-overlay .bjsl-icon {
+	width: 20px;
+	height: 20px;
+	border-radius: 50%;
+}
+
+.bjsl-overlay .bjsl-icon-error {
+	color: #dc2626;
+}
+
+.bjsl-overlay .bjsl-icon-warning {
+	color: #d97706;
+}
+
+/* Dropdown panel styling */
+.bjsl-overlay .bjsl-dropdown {
+	z-index: 10;
+}
+
+.bjsl-overlay .bjsl-dropdown-content {
+	background: #ffffff;
+	border: 1px solid #e5e7eb;
+	border-radius: 8px;
+	box-shadow: 0 4px 12px rgba(0, 0, 0, 0.12);
+	padding: 8px 0;
+	min-width: 240px;
+	max-width: 360px;
+	max-height: 280px;
+	overflow-y: auto;
+}
+
+.bjsl-overlay .bjsl-issues ul {
+	list-style: none;
+	padding: 0;
+	margin: 0;
+}
+
+.bjsl-overlay .bjsl-issues li {
+	padding: 6px 12px;
+	font-size: 12px;
+	line-height: 1.4;
+	display: flex;
+	align-items: flex-start;
+	gap: 6px;
+	border-bottom: 1px solid #f3f4f6;
+}
+
+.bjsl-overlay .bjsl-issues li:last-child {
+	border-bottom: none;
+}
+
+.bjsl-overlay .bjsl-issues li .icon {
+	width: 14px;
+	height: 14px;
+	flex-shrink: 0;
+	margin-top: 1px;
+}
+
+.bjsl-overlay .bjsl-issues li.error .icon {
+	color: #dc2626;
+}
+
+.bjsl-overlay .bjsl-issues li.warning .icon {
+	color: #d97706;
+}
+
+.bjsl-overlay .bjsl-issues li .message {
+	color: #374151;
+}
+
+.bjsl-overlay .bjsl-issues li .rule {
+	color: #9ca3af;
+	font-size: 11px;
+}
+
+.bjsl-overlay .bjsl-issues li .rule a {
+	color: #6b7280;
+	text-decoration: underline;
+}
+
+.bjsl-overlay .bjsl-issue-heading {
+	display: block;
+	padding: 6px 12px 2px;
+	font-size: 11px;
+	font-weight: 600;
+	color: #6b7280;
+	text-transform: uppercase;
+	letter-spacing: 0.05em;
 }
 </style>
