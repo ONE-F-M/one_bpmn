@@ -158,9 +158,9 @@ import timerPropertiesProviderModule from "@/bpmn/timerPropertiesProvider";
 import startEventPropertiesProviderModule from "@/bpmn/startEventPropertiesProvider";
 
 // bpmnlint — diagram validation
-import lintModule from 'bpmn-js-bpmnlint';
-import 'bpmn-js-bpmnlint/dist/assets/css/bpmn-js-bpmnlint.css';
-import bpmnlintConfig from '@/linting/bpmnlintrc.js';
+import lintModule from "bpmn-js-bpmnlint";
+import "bpmn-js-bpmnlint/dist/assets/css/bpmn-js-bpmnlint.css";
+import bpmnlintConfig from "@/linting/bpmnlintrc.js";
 
 // Import bpmn-js CSS
 import "bpmn-js/dist/assets/diagram-js.css";
