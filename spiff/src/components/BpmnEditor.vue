@@ -390,11 +390,11 @@ onMounted(async () => {
 				});
 			});
 
-			// The nativeCopyPasteModule (priority 2050) owns the paste keyboard
-			// handler — it reads the system clipboard and pastes at canvas center.
-			// Log a warning if clipboard permissions are denied by the browser.
+			// nativeCopyPasteModule fires 'native-copy-paste:error' on any
+			// clipboard API failure (unavailable, permission denied, or parse
+			// error). Log it here so it surfaces in the browser console.
 			eventBus.on("native-copy-paste:error", ({ message, error }) => {
-				console.warn("[native-copy-paste] clipboard access denied:", message, error);
+				console.warn("[native-copy-paste]", message, error);
 			});
 
 

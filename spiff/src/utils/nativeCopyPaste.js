@@ -10,7 +10,7 @@
  *
  * COPY — hook `copyPaste.elementsCopied` (fires after internal clipboard is
  *        set) and ALSO write a JSON snapshot to navigator.clipboard so it
- *        survives across tabs. Keep internal clipboard populated too so
+ *        survives across tabs. Internal clipboard is kept intact so
  *        same-tab paste keeps working normally.
  *
  * PASTE — keyboard listener at priority 2050 owns Ctrl/Cmd+V:
@@ -19,7 +19,8 @@
  *         3. Deserialises JSON → proper moddle instances via moddle.create()
  *         4. Sets the internal clipboard (so isEmpty() → false)
  *         5. Calls copyPaste.paste() at canvas centre
- *         Falls back to same-tab internal clipboard if readText() fails.
+ *         Falls back to same-tab internal clipboard when readText() is
+ *         unavailable or fails.
  *
  * ## Serialisation / deserialisation
  *
@@ -36,6 +37,11 @@
 
 const PASTE_PRIORITY = 2050; // higher than default keyboard handler (1000)
 const PREFIX = 'bpmn-js-clip----';
+
+// ─── Clipboard API availability ───────────────────────────────────────────────
+const clipboardApi = typeof navigator !== 'undefined' ? navigator.clipboard : null;
+const canWrite = !!(clipboardApi?.writeText);
+const canRead  = !!(clipboardApi?.readText);
 
 // ─── Serialiser ───────────────────────────────────────────────────────────────
 
@@ -89,21 +95,28 @@ function createReviver(moddle) {
 class NativeCopyPaste {
 	constructor(eventBus, copyPaste, clipboard, moddle, keyboard, canvas) {
 
+		const fireError = (message, error) => {
+			console.warn('[native-copy-paste]', message, error);
+			eventBus.fire('native-copy-paste:error', { message, error });
+		};
+
 		// ── COPY ─────────────────────────────────────────────────────────────
 		// Fires after CopyPaste#copy() has already set the internal clipboard.
 		// Write to system clipboard too so the data survives a tab switch.
 		eventBus.on('copyPaste.elementsCopied', (context) => {
 			if (!context.tree) return;
+			if (!canWrite) return; // Clipboard API unavailable — silent skip
+
 			let json;
 			try {
 				json = serializeTree(context.tree);
 			} catch (err) {
-				console.warn('[native-copy-paste] serialise failed:', err);
+				fireError('serialise failed', err);
 				return;
 			}
-			navigator.clipboard
-				.writeText(PREFIX + json)
-				.catch((err) => console.warn('[native-copy-paste] writeText failed:', err));
+
+			clipboardApi.writeText(PREFIX + json)
+				.catch((err) => fireError('writeText failed', err));
 		});
 
 		// ── PASTE ─────────────────────────────────────────────────────────────
@@ -129,8 +142,13 @@ class NativeCopyPaste {
 				}
 			};
 
-			navigator.clipboard
-				.readText()
+			if (!canRead) {
+				// Clipboard API unavailable — fall back to same-tab clipboard.
+				doPaste();
+				return false;
+			}
+
+			clipboardApi.readText()
 				.then((text) => {
 					if (text?.startsWith(PREFIX)) {
 						// Cross-tab path: rebuild moddle instances then populate
@@ -139,16 +157,22 @@ class NativeCopyPaste {
 							const reviver = createReviver(moddle);
 							const tree = JSON.parse(text.substring(PREFIX.length), reviver);
 							clipboard.set(tree);
+							doPaste();
 						} catch (err) {
-							console.warn('[native-copy-paste] parse/revive failed:', err);
+							// Prefixed payload present but invalid — do NOT fall
+							// back to stale internal clipboard (that would paste
+							// the wrong elements). Report and bail.
+							fireError('parse/revive failed — paste skipped', err);
 						}
+					} else {
+						// No bpmn-js data in system clipboard — use same-tab clipboard.
+						doPaste();
 					}
-					doPaste();
 				})
 				.catch((err) => {
-					// Clipboard permission denied or API unavailable —
-					// fall back to whatever is in the same-tab clipboard.
-					console.warn('[native-copy-paste] readText failed (same-tab fallback):', err);
+					// Permission denied or API unavailable —
+					// fall back to same-tab internal clipboard.
+					fireError('readText failed (same-tab fallback)', err);
 					doPaste();
 				});
 
