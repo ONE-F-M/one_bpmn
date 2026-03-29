@@ -1,77 +1,82 @@
 <template>
 	<div class="bpmn-editor-wrapper h-full w-full flex flex-col">
-		<!-- Toolbar -->
-		<div class="bpmn-toolbar flex items-center gap-2 px-3 py-2 bg-gray-50 border-b">
+		<!-- Toolbar (moved natively to parent Editor.vue's header) -->
+		<div ref="toolbarEl" v-show="isMounted" class="flex items-center gap-1.5 w-full h-full text-gray-700">
 			<!-- Undo/Redo buttons -->
-			<Tooltip text="Undo (Ctrl+Z)">
-				<button
-					@click="undo"
-					:disabled="!canUndo"
-					:class="[
-						'p-2 rounded transition-colors',
-						canUndo
-							? 'hover:bg-gray-200 text-gray-700'
-							: 'text-gray-300 cursor-not-allowed',
-					]"
-				>
-					<Icon icon="lucide:undo-2" class="w-5 h-5" />
-				</button>
-			</Tooltip>
-			<Tooltip text="Redo (Ctrl+Y)">
-				<button
-					@click="redo"
-					:disabled="!canRedo"
-					:class="[
-						'p-2 rounded transition-colors',
-						canRedo
-							? 'hover:bg-gray-200 text-gray-700'
-							: 'text-gray-300 cursor-not-allowed',
-					]"
-				>
-					<Icon icon="lucide:redo-2" class="w-5 h-5" />
-				</button>
-			</Tooltip>
+			<button
+				@click="undo"
+				title="Undo (Ctrl+Z)"
+				:disabled="!canUndo"
+				:class="[
+					'p-1.5 flex items-center justify-center rounded transition-colors',
+					canUndo
+						? 'hover:bg-gray-100 text-gray-700'
+						: 'text-gray-300 cursor-not-allowed',
+				]"
+			>
+				<Icon icon="lucide:undo-2" class="w-4 h-4" />
+			</button>
+			<button
+				@click="redo"
+				title="Redo (Ctrl+Y)"
+				:disabled="!canRedo"
+				:class="[
+					'p-1.5 flex items-center justify-center rounded transition-colors',
+					canRedo
+						? 'hover:bg-gray-100 text-gray-700'
+						: 'text-gray-300 cursor-not-allowed',
+				]"
+			>
+				<Icon icon="lucide:redo-2" class="w-4 h-4" />
+			</button>
 
-			<div class="w-px h-6 bg-gray-300 mx-1"></div>
+			<div class="w-px h-5 bg-gray-200 mx-1 shrink-0"></div>
 
 			<!-- Delete button -->
-			<Tooltip text="Delete (Del)">
-				<button
-					@click="deleteSelected"
-					class="p-2 rounded hover:bg-gray-200 text-gray-700 transition-colors"
-				>
-					<Icon icon="lucide:trash-2" class="w-5 h-5" />
-				</button>
-			</Tooltip>
+			<button
+				@click="deleteSelected"
+				title="Delete (Del)"
+				class="p-1.5 flex items-center justify-center rounded hover:bg-gray-100 text-gray-700 transition-colors"
+			>
+				<Icon icon="lucide:trash-2" class="w-4 h-4" />
+			</button>
 
-			<div class="w-px h-6 bg-gray-300 mx-1"></div>
+			<div class="w-px h-5 bg-gray-200 mx-1 shrink-0"></div>
 
 			<!-- Formatting Toolbar -->
 			<FormattingToolbar
 				:selectedElements="selectedElements"
 				:modeler="modelerInstance"
+				class="shrink-0"
 			/>
 
-			<div class="flex-1"></div>
-
-			<!-- Properties Panel Toggle -->
-			<Tooltip text="Toggle Properties Panel">
+			<!-- Save Status Indicator before Properties Panel Toggle -->
+			<div class="flex-1 min-w-4 flex items-center justify-end px-3">
+				<div v-if="saveStatusText" class="text-sm font-medium transition-colors mr-2" :class="saveStatusColor">
+					{{ saveStatusText }}
+				</div>
+			</div>
+			
+			<div class="shrink-0 pl-1 border-l border-gray-200">
 				<button
 					@click="togglePropertiesPanel"
+					title="Toggle Properties Panel"
 					:class="[
-						'p-2 rounded transition-colors',
+						'p-1.5 flex items-center justify-center rounded transition-colors',
 						showPropertiesPanel
-							? 'bg-gray-200 text-gray-700'
-							: 'hover:bg-gray-200 text-gray-500',
+							? 'bg-gray-200 text-gray-800 shadow-[inset_0_1px_2px_rgba(0,0,0,0.1)]'
+							: 'hover:bg-gray-100 text-gray-600',
 					]"
 				>
-					<Icon icon="lucide:panel-right" class="w-5 h-5" />
+					<Icon icon="lucide:panel-right" class="w-4 h-4" />
 				</button>
-			</Tooltip>
+			</div>
 		</div>
 
+
+
 		<!-- Main Content Area -->
-		<div class="flex-1 flex overflow-hidden">
+		<div class="flex-1 flex overflow-hidden relative">
 			<!-- BPMN Canvas -->
 			<div
 				ref="container"
@@ -91,7 +96,7 @@
 </template>
 
 <script setup>
-import { ref, onMounted, onUnmounted } from "vue";
+import { ref, shallowRef, onMounted, onUnmounted, onBeforeUnmount } from "vue";
 import {
 	injectProcessNameField,
 	reinjectIfCalledElementChanged,
@@ -101,7 +106,6 @@ import {
 import { Icon } from "@iconify/vue";
 // Custom Shapes - DISABLED (see DEVELOPMENT_CONTEXT.md)
 // import CustomShapesModule, { customShapeSvgStore } from "@/bpmn";
-import { Tooltip } from "frappe-ui";
 import FormattingToolbar from "@/components/FormattingToolbar.vue";
 import { initModeler } from "@/composables/useModelerInit";
 // Properties panel
@@ -131,12 +135,26 @@ import clipboardModule from "@/utils/clipboard";
 // Custom moddle extension for text style attributes
 import customTextStyleModdle from "@/moddle/customTextStyleModdle";
 
+import timerPropertiesProviderModule from "@/bpmn/timerPropertiesProvider";
+import startEventPropertiesProviderModule from "@/bpmn/startEventPropertiesProvider";
+
 // Import bpmn-js CSS
 import "bpmn-js/dist/assets/diagram-js.css";
 import "bpmn-js/dist/assets/bpmn-font/css/bpmn.css";
 
 // Import properties panel CSS
 import "@bpmn-io/properties-panel/dist/assets/properties-panel.css";
+
+const props = defineProps({
+	saveStatusText: {
+		type: String,
+		default: ""
+	},
+	saveStatusColor: {
+		type: String,
+		default: ""
+	}
+});
 
 const emit = defineEmits([
 	"ready",
@@ -150,13 +168,16 @@ const emit = defineEmits([
 
 const container = ref(null);
 const propertiesContainer = ref(null);
+const toolbarEl = ref(null);
 const canUndo = ref(false);
 const canRedo = ref(false);
 const zoomLevel = ref(100);
 const showPropertiesPanel = ref(true);
+const isMounted = ref(false);
+const isImporting = ref(false);
 // const showMinimap = ref(true); // DISABLED
-const selectedElements = ref([]);
-const modelerInstance = ref(null);
+const selectedElements = shallowRef([]);
+const modelerInstance = shallowRef(null);
 let modeler = null;
 let commandStack = null;
 
@@ -196,6 +217,40 @@ function togglePropertiesPanel() {
 // }
 
 onMounted(async () => {
+	isMounted.value = true;
+	try {
+		// Extend spiff workflow moddle definitions to include our custom timer properties
+		if (spiffModdleExtension && Array.isArray(spiffModdleExtension.types)) {
+			// Timer extension (hot-reloading safety)
+			const hasTimerExt = spiffModdleExtension.types.find(t => t.name === "TimerEventDefinitionExtension");
+			if (!hasTimerExt) {
+				spiffModdleExtension.types.push({
+					name: "TimerEventDefinitionExtension",
+					extends: ["bpmn:TimerEventDefinition"],
+					properties: [
+						{ name: "schedulerFrequency", isAttr: true, type: "String" },
+						{ name: "cronExpression",       isAttr: true, type: "String" }
+					]
+				});
+			}
+
+			// Start Event trigger extension (hot-reloading safety)
+			const hasStartEventExt = spiffModdleExtension.types.find(t => t.name === "StartEventTriggerExtension");
+			if (!hasStartEventExt) {
+				spiffModdleExtension.types.push({
+					name: "StartEventTriggerExtension",
+					extends: ["bpmn:StartEvent"],
+					properties: [
+						{ name: "triggerDoctype",      isAttr: true, type: "String" },
+						{ name: "triggerType",         isAttr: true, type: "String" },
+						{ name: "triggerWorkflow",     isAttr: true, type: "String" },
+						{ name: "triggerWorkflowState",isAttr: true, type: "String" }
+					]
+				});
+			}
+		}
+
+				
 	await initModeler({
 		container,
 		propertiesContainer,
@@ -204,6 +259,8 @@ onMounted(async () => {
 				BpmnPropertiesPanelModule,
 				BpmnPropertiesProviderModule,
 				spiffworkflow,
+				timerPropertiesProviderModule,
+				startEventPropertiesProviderModule,
 				// minimapModule, // DISABLED
 				translateModule,
 				customTextStyleModule,
@@ -235,6 +292,33 @@ onMounted(async () => {
 			const eventBus = modeler.get("eventBus");
 
 
+			// Clear custom trigger attributes if a StartEvent is converted into something else
+			// (e.g. Timer Start Event) so they don't persist in the XML.
+			// Use modeling.updateModdleProperties so the operation is tracked by the command
+			// stack and is properly undoable/redoable.
+			eventBus.on("commandStack.shape.replace.postExecute", (e) => {
+				const newShape = e.context.newShape;
+				const bo = newShape && newShape.businessObject;
+				if (!bo) return;
+
+				let isPlainStartEvent = false;
+				if (bo.$type === "bpmn:StartEvent") {
+					const eventDefs = bo.get("eventDefinitions") || [];
+					isPlainStartEvent = eventDefs.length === 0;
+				}
+
+				if (!isPlainStartEvent) {
+					const modeling = modeler.get("modeling");
+					const attrs = ["triggerDoctype", "triggerType", "triggerWorkflow", "triggerWorkflowState"];
+					const clearProps = {};
+					attrs.forEach(attr => {
+						clearProps[`spiffworkflow:${attr}`] = undefined;
+					});
+					modeling.updateModdleProperties(newShape, bo, clearProps);
+				}
+			});
+
+
 			// Listen for selection changes for formatting toolbar
 			eventBus.on("selection.changed", (e) => {
 				selectedElements.value = e.newSelection || [];
@@ -261,23 +345,27 @@ onMounted(async () => {
 				}
 			});
 
-			// Listen for zoom changes (Ctrl+scroll, programmatic zoom, etc.)
-			eventBus.on("canvas.viewbox.changed", () => {
-				const canvas = modeler.get("canvas");
-				const newZoom = Math.round(canvas.zoom() * 100);
-				zoomLevel.value = newZoom;
-				emit("zoom-changed", newZoom);
-			});
+		// Listen for zoom changes (Ctrl+scroll, programmatic zoom, etc.)
+		eventBus.on("canvas.viewbox.changed", () => {
+			const canvas = modeler.get("canvas");
+			const newZoom = Math.round(canvas.zoom() * 100);
+			zoomLevel.value = newZoom;
+			emit("zoom-changed", newZoom);
+		});
 
-			// --- SpiffWorkflow EventBus Integration ---
-			eventBus.on("spiff.script.edit", (event) => {
-				emit("launch-script-editor", {
-					element: event.element,
-					scriptType: event.scriptType,
-					script: event.script || "",
-					eventBus: event.eventBus,
-				});
+		// --- SpiffWorkflow EventBus Integration ---
+		// These handlers are required for the spiffworkflow properties panel
+		// "Launch Editor" buttons and data-request dropdowns to function.
+
+		// Script editing (Script Tasks, Pre/Post scripts)
+		eventBus.on("spiff.script.edit", (event) => {
+			emit("launch-script-editor", {
+				element: event.element,
+				scriptType: event.scriptType,
+				script: event.script || "",
+				eventBus: event.eventBus,
 			});
+		});
 
 			eventBus.on("spiff.markdown.edit", (event) => {
 				emit("launch-markdown-editor", {
@@ -286,7 +374,6 @@ onMounted(async () => {
 					eventBus: event.eventBus,
 				});
 			});
-
 
 			eventBus.on("spiff.callactivity.edit", (event) => {
 				emit("launch-callactivity-editor", {
@@ -405,12 +492,34 @@ onMounted(async () => {
 			// Import empty diagram
 			await modeler.importXML(emptyDiagram);
 
+			// Append toolbar natively to top header
+			isMounted.value = true;
+			const targetToolbar = document.getElementById("bpmn-editor-toolbar");
+			if (targetToolbar && toolbarEl.value) {
+				targetToolbar.innerHTML = '';
+				targetToolbar.appendChild(toolbarEl.value);
+			}
+
+
+
 			emit("ready");
 		},
 		onError: (err) => {
 			console.error("Failed to initialize BPMN modeler:", err);
 		},
+		
 	});
+} catch (err) {
+		console.error("Failed to initialize BPMN modeler:", err);
+	}
+});
+
+onBeforeUnmount(() => {
+	isMounted.value = false;
+	// Safely clean up native DOM mounting
+	if (toolbarEl.value && toolbarEl.value.parentNode) {
+		toolbarEl.value.parentNode.removeChild(toolbarEl.value);
+	}
 });
 
 onUnmounted(() => {
@@ -427,7 +536,9 @@ function updateUndoRedoState() {
 		canUndo.value = commandStack.canUndo();
 		canRedo.value = commandStack.canRedo();
 	}
-	emit("changed");
+	if (!isImporting.value) {
+		emit("changed");
+	}
 }
 
 function undo() {
@@ -470,19 +581,26 @@ async function getXML() {
 
 async function loadXML(xml) {
 	if (!modeler) return;
+	isImporting.value = true;
 	try {
 		// Decode any HTML entities in the XML
 		const decodedXml = decodeHtmlEntities(xml);
 		await modeler.importXML(decodedXml);
 		updateUndoRedoState();
-		// Fit diagram to screen by default after loading
+		// Fit diagram to screen by default after loading, safely catching zero-dimension errors
 		setTimeout(() => {
-			const canvas = modeler.get("canvas");
-			canvas.zoom("fit-viewport");
-			zoomLevel.value = Math.round(canvas.zoom() * 100);
+			try {
+				const canvas = modeler.get("canvas");
+				canvas.zoom("fit-viewport");
+				zoomLevel.value = Math.round(canvas.zoom() * 100);
+			} catch (e) {
+				console.warn("Could not fit viewport automatically - container may be hidden:", e);
+			}
 		}, 100);
 	} catch (err) {
 		console.error("Failed to import XML:", err);
+	} finally {
+		isImporting.value = false;
 	}
 }
 

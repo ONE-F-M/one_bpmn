@@ -1,21 +1,30 @@
 <template>
 	<div class="h-full flex flex-col">
-		<!-- Header -->
-		<header class="bg-gray-200 border-b px-4 py-3 flex items-center justify-between">
-			<div class="flex items-center gap-4">
-				<button
-					@click="goBack"
-					class="p-2 hover:bg-gray-100 rounded-md transition-colors"
-					title="Back to list"
-				>
-					<Icon icon="lucide:chevron-left" class="w-5 h-5" />
-				</button>
-				<div class="flex items-center gap-3">
-					<h1 class="text-lg font-semibold text-gray-900">{{ processName }}</h1>
-					<Badge v-if="processStatus" :theme="getStatusTheme(processStatus)" :label="processStatus" />
+		<!-- Unified Toolbar -->
+		<header class="bg-white border-b px-2 py-2 flex items-center justify-between shadow-sm z-10 w-full min-h-[48px]">
+			
+			<div class="flex items-center gap-2 flex-1 min-w-0">
+				<!-- Left: Back & Title -->
+				<div class="flex items-center gap-2 pr-3 border-r border-gray-200 shrink-0">
+					<button
+						@click="goBack"
+						class="p-1.5 hover:bg-gray-100 rounded-md transition-colors text-gray-600"
+						title="Back to list"
+					>
+						<Icon icon="lucide:chevron-left" class="w-5 h-5" />
+					</button>
+					<div class="flex items-center gap-2">
+						<h1 class="text-sm font-semibold text-gray-800 truncate max-w-[200px]" :title="processName">{{ processName }}</h1>
+						<Badge v-if="processStatus" :theme="getStatusTheme(processStatus)" :label="processStatus" size="sm" />
+					</div>
 				</div>
+
+				<!-- CENTER: BPMN Tools Container (Mounted natively from BpmnEditor.vue) -->
+				<div id="bpmn-editor-toolbar" class="flex-1 flex items-center h-8 min-w-0"></div>
 			</div>
-			<div class="flex items-center gap-2">
+			
+			<div class="flex items-center gap-2 shrink-0 border-l border-gray-200 pl-3 ml-2">
+				
 				<!-- Hidden file input for BPMN import -->
 				<input
 					ref="importFileInput"
@@ -28,10 +37,10 @@
 				<div class="relative">
 					<button
 						@click="showFileMenu = !showFileMenu"
-						class="p-2 hover:bg-gray-300 rounded-md transition-colors text-gray-600"
+						class="w-8 h-8 flex items-center justify-center hover:bg-gray-100 rounded transition-colors text-gray-600"
 						title="Import / Export"
 					>
-						<Icon icon="lucide:list" class="w-5 h-5" />
+						<Icon icon="lucide:menu" class="w-4 h-4" />
 					</button>
 					<div
 						v-if="showFileMenu"
@@ -57,9 +66,6 @@
 					</div>
 				</div>
 
-				<Button v-if="activeDiagramName" variant="solid" class="p-2 hover:bg-gray-100 rounded-md transition-colors" @click="saveCurrentDiagram" :loading="saving">
-					Save
-				</Button>
 				<!-- Shape Library Toggle - DISABLED (see DEVELOPMENT_CONTEXT.md)
 				<button
 					@click="showShapeLibrary = !showShapeLibrary"
@@ -117,6 +123,8 @@
 						v-if="activeDiagramName"
 						ref="editorRef"
 						class="absolute inset-0"
+						:save-status-text="saveStatusText"
+						:save-status-color="saveStatusColor"
 						@ready="onEditorReady"
 						@changed="onDiagramChanged"
 						@zoom-changed="onZoomChanged"
@@ -148,15 +156,16 @@
 				</div>
 			</div>
 
-			<!-- Tab Bar with Zoom Controls -->
-			<div v-if="openTabs.length > 0" class="flex items-center bg-gray-200 border-t border-gray-300">
+			<!-- Tab Bar -->
+			<div v-if="openTabs.length > 0" class="flex items-center justify-between bg-gray-50 border-t border-gray-200 min-h-[40px]">
 				<EditorTabs
 					:tabs="openTabs"
 					:activeTab="activeDiagramName"
 					@select-tab="selectDiagram"
 					@add-tab="showAddDiagramDialog"
-					class="flex-1"
+					class="flex-1 min-w-0"
 				/>
+				
 				<!-- Zoom Controls -->
 				<div class="flex items-center gap-1 px-3 py-2 border-l border-gray-300">
 					<button
@@ -493,12 +502,27 @@
 				</div>
 			</template>
 		</Dialog>
+
+		<!-- Unsaved Navigation Warning Dialog -->
+		<Dialog v-model="showUnsavedNavigationWarning" :options="{ title: 'Unsaved Changes', size: 'sm' }">
+			<template #body-content>
+				<div class="text-base text-gray-700">
+					You have unsaved changes. Are you sure you want to leave? Your pending edits will be lost.
+				</div>
+			</template>
+			<template #actions>
+				<div class="flex gap-2 justify-end w-full">
+					<Button variant="subtle" @click="cancelNavigation">No, stay here</Button>
+					<Button variant="solid" theme="red" @click="confirmNavigation">Yes, leave</Button>
+				</div>
+			</template>
+		</Dialog>
 	</div>
 </template>
 
 <script setup>
 import { ref, onMounted, onUnmounted, computed, watch, nextTick } from "vue";
-import { useRouter, useRoute } from "vue-router";
+import { useRouter, useRoute, onBeforeRouteLeave } from "vue-router";
 import { frappeRequest, TextEditor } from "frappe-ui";
 import { Icon } from "@iconify/vue";
 import BpmnEditor from "@/components/BpmnEditor.vue";
@@ -540,6 +564,37 @@ const showFileMenu = ref(false);
 // Import file input ref
 const importFileInput = ref(null);
 
+// Auto-save state
+const saveState = ref("idle"); // idle, unsaved, saving, saved, error
+let saveTimeout = null;
+let hasPendingSave = false; // true while the 1.5s debounce timer is counting down
+
+// Returns true when there are edits that haven't reached the server yet
+// (the debounce timer is ticking, a save is in-flight, or a save failed).
+function isUnsavedOrInFlight() {
+	return hasPendingSave || hasUnsavedChanges.value || saving.value;
+}
+
+const saveStatusText = computed(() => {
+	switch (saveState.value) {
+		case "unsaved": return "Unsaved changes";
+		case "saving": return "Saving...";
+		case "saved": return "Saved";
+		case "error": return "Save Error";
+		default: return "";
+	}
+});
+
+const saveStatusColor = computed(() => {
+	switch (saveState.value) {
+		case "unsaved": return "text-orange-600";
+		case "saving": return "text-blue-600";
+		case "saved": return "text-green-600";
+		case "error": return "text-red-600";
+		default: return "text-transparent";
+	}
+});
+
 // Notification state
 const notification = ref({
 	show: false,
@@ -547,6 +602,10 @@ const notification = ref({
 	message: "",
 	theme: "green"
 });
+
+// Navigation Warning Dialog state
+const showUnsavedNavigationWarning = ref(false);
+let pendingNavigationNext = null;
 
 // New diagram dialog
 const showNewDiagramDialog = ref(false);
@@ -637,6 +696,7 @@ let callActivitySearchEvent = null; // plain variable — NOT a ref, because bpm
 // element objects have non-configurable/frozen properties (e.g. 'labels') that
 // conflict with Vue 3's Proxy-based reactivity and cause TypeErrors.
 
+
 // Zoom level (synced with BpmnEditor)
 const zoomLevel = computed(() => currentZoomLevel.value);
 
@@ -714,9 +774,46 @@ function handleKeyDown(event) {
 	}
 }
 
+function handleBeforeUnload(event) {
+	// Guard fires when: edits are pending (debounce ticking), a save is in-flight, OR
+	// a previous save failed and changes remain unsaved.
+	if (isUnsavedOrInFlight()) {
+		event.preventDefault();
+		// returnValue must be set for Firefox; modern Chrome ignores the string.
+		event.returnValue = "";
+	}
+}
+
+// Prevent accidental navigation (clicking Back / going to a different Vue route)
+onBeforeRouteLeave((to, from, next) => {
+	if (isUnsavedOrInFlight()) {
+		showUnsavedNavigationWarning.value = true;
+		pendingNavigationNext = next;
+	} else {
+		next();
+	}
+});
+
+function confirmNavigation() {
+	showUnsavedNavigationWarning.value = false;
+	if (pendingNavigationNext) {
+		pendingNavigationNext(); // allow the route change to proceed
+		pendingNavigationNext = null;
+	}
+}
+
+function cancelNavigation() {
+	showUnsavedNavigationWarning.value = false;
+	if (pendingNavigationNext) {
+		pendingNavigationNext(false); // block the route change
+		pendingNavigationNext = null;
+	}
+}
+
 onMounted(async () => {
 	// Add keyboard shortcut listener
 	window.addEventListener("keydown", handleKeyDown);
+	window.addEventListener("beforeunload", handleBeforeUnload);
 
 	try {
 		loading.value = true;
@@ -740,8 +837,10 @@ onMounted(async () => {
 });
 
 onUnmounted(() => {
-	// Remove keyboard shortcut listener
+	// Remove listeners
 	window.removeEventListener("keydown", handleKeyDown);
+	window.removeEventListener("beforeunload", handleBeforeUnload);
+	clearTimeout(saveTimeout);
 });
 
 async function loadProcess() {
@@ -765,12 +864,13 @@ async function loadProcess() {
 }
 
 async function selectDiagram(name) {
-	// Serialize current diagram to cache only when needed — skip if nothing
-	// changed and the cache is already populated (saveXML can be expensive).
-	if (activeDiagramName.value && editorRef.value) {
-		if (hasUnsavedChanges.value || !diagramDataCache.value[activeDiagramName.value]) {
-			await saveDiagramToCache(activeDiagramName.value);
-		}
+	if (activeDiagramName.value === name) return;
+
+	// Save current diagram if there are unsaved changes
+	if (hasUnsavedChanges.value && activeDiagramName.value && editorRef.value) {
+		clearTimeout(saveTimeout);
+		saving.value = true;
+		await saveCurrentDiagram();
 	}
 
 	activeDiagramName.value = name;
@@ -799,14 +899,16 @@ async function onEditorReady() {
 		await loadDiagramContent(activeDiagramName.value);
 		hasUnsavedChanges.value = false;
 	}
+
+	hasUnsavedChanges.value = false;
+	saveState.value = 'idle';
 }
 
 // Watch for diagram tab switches and load new XML without remounting the editor.
-// BpmnEditor stays alive (no :key remount); we just call loadXML when the active diagram changes.
-watch(activeDiagramName, async (newName, oldName) => {
-	if (!editorReady.value || !newName || newName === oldName) return;
+watch(activeDiagramName, async (newName) => {
+	if (!editorReady.value || !newName) return;
 	hasUnsavedChanges.value = false;
-	await nextTick();
+	saveState.value = 'idle';
 	await loadDiagramContent(newName);
 	hasUnsavedChanges.value = false;
 });
@@ -844,13 +946,26 @@ async function saveDiagramToCache(name) {
 }
 
 function onDiagramChanged() {
+	if (!editorReady.value) return;
+
 	hasUnsavedChanges.value = true;
+	saveState.value = 'unsaved';
+
+	clearTimeout(saveTimeout);
+	hasPendingSave = true;
+	saveTimeout = setTimeout(() => {
+		hasPendingSave = false;
+		if (activeDiagramName.value) {
+			saveCurrentDiagram();
+		}
+	}, 1500);
 }
 
 async function saveCurrentDiagram() {
 	if (!activeDiagramName.value || !editorRef.value) return;
 
 	saving.value = true;
+	saveState.value = 'saving';
 	try {
 		const xml = await editorRef.value.getXML();
 		const diagram = diagrams.value.find((d) => d.name === activeDiagramName.value);
@@ -877,8 +992,14 @@ async function saveCurrentDiagram() {
 
 		hasUnsavedChanges.value = false;
 		diagramDataCache.value[activeDiagramName.value] = xml;
+		
+		saveState.value = 'saved';
+		setTimeout(() => {
+			if (saveState.value === 'saved') saveState.value = 'idle';
+		}, 3000);
 	} catch (error) {
 		console.error("Failed to save diagram:", error);
+		saveState.value = 'error';
 		showNotification("Error", "Failed to save: " + (error.message || error), "red");
 	} finally {
 		saving.value = false;
@@ -965,7 +1086,14 @@ async function createDiagram() {
 	}
 }
 
-function closeTab(name) {
+async function closeTab(name) {
+	// If closing the active tab with pending changes, save silently first
+	if (activeDiagramName.value === name && isUnsavedOrInFlight()) {
+		clearTimeout(saveTimeout);
+		hasPendingSave = false;
+		await saveCurrentDiagram();
+	}
+
 	const index = openTabs.value.findIndex((t) => t.name === name);
 	if (index > -1) {
 		openTabs.value.splice(index, 1);
