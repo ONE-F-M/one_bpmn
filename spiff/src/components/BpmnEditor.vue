@@ -50,30 +50,6 @@
 				class="shrink-0"
 			/>
 
-			<div class="w-px h-5 bg-gray-200 mx-1 shrink-0"></div>
-
-			<!-- Lint Toggle Button -->
-			<button
-				@click="toggleLinting"
-				:title="lintActive ? 'Disable diagram validation' : 'Enable diagram validation'"
-				:class="[
-					'p-1.5 flex items-center justify-center gap-1.5 rounded transition-colors text-sm font-medium',
-					lintActive
-						? (lintErrors > 0
-							? 'bg-red-50 text-red-600 hover:bg-red-100'
-							: lintWarnings > 0
-								? 'bg-amber-50 text-amber-600 hover:bg-amber-100'
-								: 'bg-green-50 text-green-600 hover:bg-green-100')
-						: 'hover:bg-gray-100 text-gray-400',
-				]"
-			>
-				<Icon icon="lucide:shield-check" class="w-4 h-4" />
-				<span v-if="lintActive && (lintErrors > 0 || lintWarnings > 0)" class="leading-none">
-					<span v-if="lintErrors > 0" class="text-red-600">{{ lintErrors }}</span>
-					<span v-if="lintErrors > 0 && lintWarnings > 0" class="text-gray-400 mx-0.5">/</span>
-					<span v-if="lintWarnings > 0" class="text-amber-600">{{ lintWarnings }}</span>
-				</span>
-			</button>
 
 			<!-- Save Status Indicator before Properties Panel Toggle -->
 			<div class="flex-1 min-w-4 flex items-center justify-end px-3">
@@ -203,10 +179,6 @@ const isImporting = ref(false);
 const selectedElements = shallowRef([]);
 const modelerInstance = shallowRef(null);
 
-// Linting state
-const lintActive = ref(true); // ON by default
-const lintErrors = ref(0);
-const lintWarnings = ref(0);
 let modeler = null;
 let commandStack = null;
 
@@ -326,29 +298,6 @@ onMounted(async () => {
 			const eventBus = modeler.get("eventBus");
 			eventBus.on("commandStack.changed", updateUndoRedoState);
 
-			// Listen for lint completion to update badge counts
-			eventBus.on("linting.completed", (event) => {
-				let errors = 0;
-				let warnings = 0;
-				const issues = event.issues || {};
-				for (const id in issues) {
-					for (const issue of issues[id]) {
-						if (issue.category === "error") errors++;
-						else if (issue.category === "warn") warnings++;
-					}
-				}
-				lintErrors.value = errors;
-				lintWarnings.value = warnings;
-			});
-
-			// Sync initial linting state
-			eventBus.on("linting.toggle", (event) => {
-				lintActive.value = event.active;
-				if (!event.active) {
-					lintErrors.value = 0;
-					lintWarnings.value = 0;
-				}
-			});
 
 		// Clear custom trigger attributes if a StartEvent is converted into something else
 		// (e.g. Timer Start Event) so they don't persist in the XML.
@@ -830,11 +779,7 @@ function updateCalledElement(element, processId) {
 	}, 30);
 }
 
-function toggleLinting() {
-	if (!modeler) return;
-	const linting = modeler.get("linting");
-	linting.toggle();
-}
+
 
 defineExpose({
 	getXML,
@@ -859,11 +804,7 @@ defineExpose({
 	getSelectedElements,
 	// Call Activity API
 	updateCalledElement,
-	// Linting API
-	toggleLinting,
-	lintActive,
-	lintErrors,
-	lintWarnings,
+
 });
 </script>
 
@@ -1005,11 +946,6 @@ defineExpose({
 }
 
 /* ---- bpmn-js-bpmnlint overrides ---- */
-
-/* Hide the default floating pill button — we use our own toolbar button */
-.bpmn-canvas .bjsl-button {
-	display: none !important;
-}
 
 /* Overlay marker icons */
 .bjsl-overlay {
