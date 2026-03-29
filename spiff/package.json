@@ -10,6 +10,7 @@
 	"dependencies": {
 		"@bpmn-io/properties-panel": "^3.36.0",
 		"@iconify-json/lucide": "^1.2.87",
+		"@iconify/utils": "^2.2.1",
 		"@iconify/vue": "^5.0.0",
 		"@vitejs/plugin-vue": "^4.4.0",
 		"bpmn-js": "^17.11.1",
