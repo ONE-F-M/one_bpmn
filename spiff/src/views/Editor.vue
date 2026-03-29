@@ -1,28 +1,29 @@
 <template>
 	<div class="h-full flex flex-col">
-		<!-- Header -->
-		<header class="bg-gray-200 border-b px-4 py-3 flex items-center justify-between">
-			<div class="flex items-center gap-4">
-				<button
-					@click="goBack"
-					class="p-2 hover:bg-gray-100 rounded-md transition-colors"
-					title="Back to list"
-				>
-					<Icon icon="lucide:chevron-left" class="w-5 h-5" />
-				</button>
-				<div class="flex items-center gap-3">
-					<h1 class="text-lg font-semibold text-gray-900">{{ processName }}</h1>
-					<Badge v-if="processStatus" :theme="getStatusTheme(processStatus)" :label="processStatus" />
-				</div>
-			</div>
+		<!-- Unified Toolbar -->
+		<header class="bg-white border-b px-2 py-2 flex items-center justify-between shadow-sm z-10 w-full min-h-[48px]">
 			
-			<div class="flex items-center gap-2">
-
-				<div v-if="activeDiagramName" class="flex items-center gap-4">
-					<div class="text-sm font-medium transition-colors" :class="saveStatusColor">
-						{{ saveStatusText }}
+			<div class="flex items-center gap-2 flex-1 min-w-0">
+				<!-- Left: Back & Title -->
+				<div class="flex items-center gap-2 pr-3 border-r border-gray-200 shrink-0">
+					<button
+						@click="goBack"
+						class="p-1.5 hover:bg-gray-100 rounded-md transition-colors text-gray-600"
+						title="Back to list"
+					>
+						<Icon icon="lucide:chevron-left" class="w-5 h-5" />
+					</button>
+					<div class="flex items-center gap-2">
+						<h1 class="text-sm font-semibold text-gray-800 truncate max-w-[200px]" :title="processName">{{ processName }}</h1>
+						<Badge v-if="processStatus" :theme="getStatusTheme(processStatus)" :label="processStatus" size="sm" />
 					</div>
 				</div>
+
+				<!-- CENTER: BPMN Tools Container (Mounted natively from BpmnEditor.vue) -->
+				<div id="bpmn-editor-toolbar" class="flex-1 flex items-center h-8 min-w-0"></div>
+			</div>
+			
+			<div class="flex items-center gap-2 shrink-0 border-l border-gray-200 pl-3 ml-2">
 				
 				<!-- Hidden file input for BPMN import -->
 				<input
@@ -36,10 +37,10 @@
 				<div class="relative">
 					<button
 						@click="showFileMenu = !showFileMenu"
-						class="p-2 hover:bg-gray-300 rounded-md transition-colors text-gray-600"
+						class="w-8 h-8 flex items-center justify-center hover:bg-gray-100 rounded transition-colors text-gray-600"
 						title="Import / Export"
 					>
-						<Icon icon="lucide:list" class="w-5 h-5" />
+						<Icon icon="lucide:menu" class="w-4 h-4" />
 					</button>
 					<div
 						v-if="showFileMenu"
@@ -122,6 +123,8 @@
 						v-if="activeDiagramName"
 						ref="editorRef"
 						class="absolute inset-0"
+						:save-status-text="saveStatusText"
+						:save-status-color="saveStatusColor"
 						@ready="onEditorReady"
 						@changed="onDiagramChanged"
 						@zoom-changed="onZoomChanged"
@@ -153,15 +156,16 @@
 				</div>
 			</div>
 
-			<!-- Tab Bar with Zoom Controls -->
-			<div v-if="openTabs.length > 0" class="flex items-center bg-gray-200 border-t border-gray-300">
+			<!-- Tab Bar -->
+			<div v-if="openTabs.length > 0" class="flex items-center justify-between bg-gray-50 border-t border-gray-200 min-h-[40px]">
 				<EditorTabs
 					:tabs="openTabs"
 					:activeTab="activeDiagramName"
 					@select-tab="selectDiagram"
 					@add-tab="showAddDiagramDialog"
-					class="flex-1"
+					class="flex-1 min-w-0"
 				/>
+				
 				<!-- Zoom Controls -->
 				<div class="flex items-center gap-1 px-3 py-2 border-l border-gray-300">
 					<button
@@ -691,6 +695,7 @@ const showCallActivitySearchDialog = ref(false);
 let callActivitySearchEvent = null; // plain variable — NOT a ref, because bpmn-js
 // element objects have non-configurable/frozen properties (e.g. 'labels') that
 // conflict with Vue 3's Proxy-based reactivity and cause TypeErrors.
+
 
 // Zoom level (synced with BpmnEditor)
 const zoomLevel = computed(() => currentZoomLevel.value);
