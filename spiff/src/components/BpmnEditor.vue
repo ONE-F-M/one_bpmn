@@ -50,6 +50,7 @@
 				class="shrink-0"
 			/>
 
+
 			<!-- Save Status Indicator before Properties Panel Toggle -->
 			<div class="flex-1 min-w-4 flex items-center justify-end px-3">
 				<div v-if="saveStatusText" class="text-sm font-medium transition-colors mr-2" :class="saveStatusColor">
@@ -129,14 +130,21 @@ import customRulesModule from "@/rules";
 // Custom text styling module
 import { customTextStyleModule } from "@/renderers";
 
-// Shared clipboard for cross-diagram copy/paste
-import clipboardModule from "@/utils/clipboard";
+// Native system-clipboard module — enables copy/paste across browser tabs.
+// Inlined from https://github.com/nikku/bpmn-js-native-copy-paste (MIT)
+// because the npm package requires bpmn-js >= 18 (project uses 17).
+import nativeCopyPasteModule from "@/utils/nativeCopyPaste";
 
 // Custom moddle extension for text style attributes
 import customTextStyleModdle from "@/moddle/customTextStyleModdle";
 
 import timerPropertiesProviderModule from "@/bpmn/timerPropertiesProvider";
 import startEventPropertiesProviderModule from "@/bpmn/startEventPropertiesProvider";
+
+// bpmnlint — diagram validation
+import lintModule from "bpmn-js-bpmnlint";
+import "bpmn-js-bpmnlint/dist/assets/css/bpmn-js-bpmnlint.css";
+import bpmnlintConfig from "@/linting/bpmnlintrc.js";
 
 // Import bpmn-js CSS
 import "bpmn-js/dist/assets/diagram-js.css";
@@ -178,6 +186,7 @@ const isImporting = ref(false);
 // const showMinimap = ref(true); // DISABLED
 const selectedElements = shallowRef([]);
 const modelerInstance = shallowRef(null);
+
 let modeler = null;
 let commandStack = null;
 
@@ -265,7 +274,13 @@ onMounted(async () => {
 				translateModule,
 				customTextStyleModule,
 				clipboardModule,
+				lintModule,
+				nativeCopyPasteModule,
 			],
+			linting: {
+				active: true,
+				bpmnlint: bpmnlintConfig,
+			},
 			moddleExtensions: {
 				custom: customTextStyleModdle,
 				spiffworkflow: spiffModdleExtension,
@@ -290,6 +305,23 @@ onMounted(async () => {
 
 			// Use eventBus for listening to command stack changes
 			const eventBus = modeler.get("eventBus");
+			eventBus.on("commandStack.changed", updateUndoRedoState);
+
+
+		// Clear custom trigger attributes if a StartEvent is converted into something else
+		// (e.g. Timer Start Event) so they don't persist in the XML.
+		// Use modeling.updateModdleProperties so the operation is tracked by the command
+		// stack and is properly undoable/redoable.
+		eventBus.on("commandStack.shape.replace.postExecute", (e) => {
+			const newShape = e.context.newShape;
+			const bo = newShape && newShape.businessObject;
+			if (!bo) return;
+
+			let isPlainStartEvent = false;
+			if (bo.$type === "bpmn:StartEvent") {
+				const eventDefs = bo.get("eventDefinitions") || [];
+				isPlainStartEvent = eventDefs.length === 0;
+			}
 
 
 			// Clear custom trigger attributes if a StartEvent is converted into something else
@@ -416,36 +448,11 @@ onMounted(async () => {
 				});
 			});
 
-			// Override Ctrl+V paste to place elements at canvas center regardless of mouse position.
-			// The default bpmn-js paste uses the last mouse event position via create.start(), which
-			// silently fails when the mouse was on the tab bar (not the canvas) after switching tabs.
-			// Priority 2000 > default binding priority 1000, so this runs first.
-			const keyboard = modeler.get("keyboard");
-			const clipboardService = modeler.get("clipboard");
-			const copyPaste = modeler.get("copyPaste");
-			const canvasService = modeler.get("canvas");
-
-			keyboard.addListener(2000, (context) => {
-				const evt = context.keyEvent;
-				const isMac = /mac/i.test(navigator.platform);
-				const isPaste = (isMac ? evt.metaKey : evt.ctrlKey) && evt.key === "v";
-				if (!isPaste) return;
-				if (clipboardService.isEmpty()) return;
-
-				evt.preventDefault();
-
-				// Paste at the center of the currently visible viewport
-				const viewbox = canvasService.viewbox();
-				const root = canvasService.getRootElement();
-				copyPaste.paste({
-					element: root,
-					point: {
-						x: viewbox.x + viewbox.width / 2,
-						y: viewbox.y + viewbox.height / 2,
-					},
-				});
-
-				return false; // Prevent default bpmn-js paste handler from also running
+			// nativeCopyPasteModule fires 'native-copy-paste:error' on any
+			// clipboard API failure (unavailable, permission denied, or parse
+			// error). Log it here so it surfaces in the browser console.
+			eventBus.on("native-copy-paste:error", ({ message, error }) => {
+				console.warn("[native-copy-paste]", message, error);
 			});
 
 
@@ -803,6 +810,8 @@ function updateCalledElement(element, processId) {
 	}, 30);
 }
 
+
+
 defineExpose({
 	getXML,
 	loadXML,
@@ -826,6 +835,7 @@ defineExpose({
 	getSelectedElements,
 	// Call Activity API
 	updateCalledElement,
+
 });
 </script>
 
@@ -990,4 +1000,5 @@ defineExpose({
 	font-size: 11px;
 	font-weight: 600;
 }
+
 </style>
