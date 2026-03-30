@@ -50,6 +50,7 @@
 				class="shrink-0"
 			/>
 
+
 			<!-- Save Status Indicator before Properties Panel Toggle -->
 			<div class="flex-1 min-w-4 flex items-center justify-end px-3">
 				<div v-if="saveStatusText" class="text-sm font-medium transition-colors mr-2" :class="saveStatusColor">
@@ -134,6 +135,11 @@ import customTextStyleModdle from "@/moddle/customTextStyleModdle";
 import timerPropertiesProviderModule from "@/bpmn/timerPropertiesProvider";
 import startEventPropertiesProviderModule from "@/bpmn/startEventPropertiesProvider";
 
+// bpmnlint — diagram validation
+import lintModule from "bpmn-js-bpmnlint";
+import "bpmn-js-bpmnlint/dist/assets/css/bpmn-js-bpmnlint.css";
+import bpmnlintConfig from "@/linting/bpmnlintrc.js";
+
 // Import bpmn-js CSS
 import "bpmn-js/dist/assets/diagram-js.css";
 import "bpmn-js/dist/assets/bpmn-font/css/bpmn.css";
@@ -174,6 +180,7 @@ const isImporting = ref(false);
 // const showMinimap = ref(true); // DISABLED
 const selectedElements = shallowRef([]);
 const modelerInstance = shallowRef(null);
+
 let modeler = null;
 let commandStack = null;
 
@@ -260,8 +267,14 @@ onMounted(async () => {
 				// minimapModule, // DISABLED
 				translateModule,
 				customTextStyleModule,
+				clipboardModule,
+				lintModule,
 				nativeCopyPasteModule,
 			],
+			linting: {
+				active: true,
+				bpmnlint: bpmnlintConfig,
+			},
 			moddleExtensions: {
 				custom: customTextStyleModdle,
 				spiffworkflow: spiffModdleExtension,
@@ -287,6 +300,7 @@ onMounted(async () => {
 			// Use eventBus for listening to command stack changes
 			const eventBus = modeler.get("eventBus");
 			eventBus.on("commandStack.changed", updateUndoRedoState);
+
 
 		// Clear custom trigger attributes if a StartEvent is converted into something else
 		// (e.g. Timer Start Event) so they don't persist in the XML.
@@ -743,6 +757,8 @@ function updateCalledElement(element, processId) {
 	}, 30);
 }
 
+
+
 defineExpose({
 	getXML,
 	loadXML,
@@ -766,6 +782,7 @@ defineExpose({
 	getSelectedElements,
 	// Call Activity API
 	updateCalledElement,
+
 });
 </script>
 
@@ -905,4 +922,5 @@ defineExpose({
 	font-size: 11px;
 	font-weight: 600;
 }
+
 </style>
