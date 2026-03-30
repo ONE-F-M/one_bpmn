@@ -98,6 +98,12 @@
 
 <script setup>
 import { ref, shallowRef, onMounted, onUnmounted, onBeforeUnmount } from "vue";
+import {
+	injectProcessNameField,
+	reinjectIfCalledElementChanged,
+	removeProcessNameField,
+	cancelPendingInjection,
+} from "@/composables/useCallActivityName";
 import { Icon } from "@iconify/vue";
 // Custom Shapes - DISABLED (see DEVELOPMENT_CONTEXT.md)
 // import CustomShapesModule, { customShapeSvgStore } from "@/bpmn";
@@ -302,10 +308,6 @@ onMounted(async () => {
 			eventBus.on("commandStack.changed", updateUndoRedoState);
 
 
-		// Clear custom trigger attributes if a StartEvent is converted into something else
-		// (e.g. Timer Start Event) so they don't persist in the XML.
-		// Use modeling.updateModdleProperties so the operation is tracked by the command
-		// stack and is properly undoable/redoable.
 		eventBus.on("commandStack.shape.replace.postExecute", (e) => {
 			const newShape = e.context.newShape;
 			const bo = newShape && newShape.businessObject;
@@ -317,21 +319,55 @@ onMounted(async () => {
 				isPlainStartEvent = eventDefs.length === 0;
 			}
 
-			if (!isPlainStartEvent) {
-				const modeling = modeler.get("modeling");
-				const attrs = ["triggerDoctype", "triggerType", "triggerWorkflow", "triggerWorkflowState"];
-				const clearProps = {};
-				attrs.forEach(attr => {
-					clearProps[`spiffworkflow:${attr}`] = undefined;
-				});
-				modeling.updateModdleProperties(newShape, bo, clearProps);
-			}
-		});
 
-		// Listen for selection changes for formatting toolbar
-		eventBus.on("selection.changed", (e) => {
-			selectedElements.value = e.newSelection || [];
-		});
+			eventBus.on("commandStack.shape.replace.postExecute", (e) => {
+				const newShape = e.context.newShape;
+				const bo = newShape && newShape.businessObject;
+				if (!bo) return;
+
+				let isPlainStartEvent = false;
+				if (bo.$type === "bpmn:StartEvent") {
+					const eventDefs = bo.get("eventDefinitions") || [];
+					isPlainStartEvent = eventDefs.length === 0;
+				}
+
+				if (!isPlainStartEvent) {
+					const modeling = modeler.get("modeling");
+					const attrs = ["triggerDoctype", "triggerType", "triggerWorkflow", "triggerWorkflowState"];
+					const clearProps = {};
+					attrs.forEach(attr => {
+						clearProps[`spiffworkflow:${attr}`] = undefined;
+					});
+					modeling.updateModdleProperties(newShape, bo, clearProps);
+				}
+			});
+
+
+			// Listen for selection changes for formatting toolbar
+			eventBus.on("selection.changed", (e) => {
+				selectedElements.value = e.newSelection || [];
+
+				// Inject Process Name field when a Call Activity is selected
+				const single = e.newSelection?.length === 1 ? e.newSelection[0] : null;
+				if (single?.type === "bpmn:CallActivity") {
+					injectProcessNameField(single, propertiesContainer);
+				} else {
+					// Cancel any in-flight resolve before removing the field
+					cancelPendingInjection();
+					removeProcessNameField(propertiesContainer);
+				}
+			});
+
+			// Re-inject only when calledElement actually changed — avoids DOM
+			// churn and repeated network requests on every command stack event.
+			eventBus.on("commandStack.changed", () => {
+				updateUndoRedoState();
+				const selection = modeler.get("selection");
+				const selected = selection.get();
+				if (selected?.length === 1 && selected[0]?.type === "bpmn:CallActivity") {
+					reinjectIfCalledElementChanged(selected[0], propertiesContainer);
+				}
+			});
 
 		// Listen for zoom changes (Ctrl+scroll, programmatic zoom, etc.)
 		eventBus.on("canvas.viewbox.changed", () => {
@@ -486,6 +522,9 @@ onBeforeUnmount(() => {
 });
 
 onUnmounted(() => {
+	// Cancel any pending process-name injection to prevent memory-leaks
+	// and stale DOM updates after the component is torn down.
+	cancelPendingInjection();
 	if (modeler) {
 		modeler.destroy();
 	}
@@ -736,6 +775,7 @@ function getSelectedElements() {
 	return selection.get();
 }
 
+
 // Directly update calledElement on a Call Activity via the command stack.
 // This is the reliable way to update the property regardless of SpiffWorkflow's
 // async once-listener state.
@@ -794,6 +834,31 @@ defineExpose({
 .bpmn-canvas {
 	background: #fafafa;
 }
+
+/* ── Injected Process Name field (no inline styles) ─── */
+.bpmn-process-name-value {
+	display: flex;
+	align-items: center;
+	min-height: 28px;
+	padding: 2px 8px;
+	font-size: 12px;
+	color: var(--gray-900, #111827);
+	background: var(--gray-50, #f9fafb);
+	border: 1px solid var(--gray-200, #e5e7eb);
+	border-radius: 4px;
+	word-break: break-word;
+}
+
+.bpmn-process-name-resolving {
+	color: var(--gray-400, #9ca3af);
+	font-style: italic;
+}
+
+.bpmn-process-name-empty {
+	color: var(--gray-400, #9ca3af);
+	font-style: italic;
+}
+/* ─────────────────────────────────────────────────── */
 
 /* Palette Styling */
 .bpmn-canvas .djs-palette {
