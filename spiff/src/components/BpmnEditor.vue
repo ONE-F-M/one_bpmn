@@ -134,6 +134,7 @@ import { customTextStyleModule } from "@/renderers";
 // Inlined from https://github.com/nikku/bpmn-js-native-copy-paste (MIT)
 // because the npm package requires bpmn-js >= 18 (project uses 17).
 import nativeCopyPasteModule from "@/utils/nativeCopyPaste";
+import clipboardModule from "@/utils/clipboard";
 
 // Custom moddle extension for text style attributes
 import customTextStyleModdle from "@/moddle/customTextStyleModdle";
