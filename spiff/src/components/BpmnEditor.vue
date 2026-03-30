@@ -305,21 +305,12 @@ onMounted(async () => {
 
 			// Use eventBus for listening to command stack changes
 			const eventBus = modeler.get("eventBus");
-			eventBus.on("commandStack.changed", updateUndoRedoState);
 
 
-		eventBus.on("commandStack.shape.replace.postExecute", (e) => {
-			const newShape = e.context.newShape;
-			const bo = newShape && newShape.businessObject;
-			if (!bo) return;
-
-			let isPlainStartEvent = false;
-			if (bo.$type === "bpmn:StartEvent") {
-				const eventDefs = bo.get("eventDefinitions") || [];
-				isPlainStartEvent = eventDefs.length === 0;
-			}
-
-
+			// Clear custom trigger attributes if a StartEvent is converted into something else
+			// (e.g. Timer Start Event) so they don't persist in the XML.
+			// Use modeling.updateModdleProperties so the operation is tracked by the command
+			// stack and is properly undoable/redoable.
 			eventBus.on("commandStack.shape.replace.postExecute", (e) => {
 				const newShape = e.context.newShape;
 				const bo = newShape && newShape.businessObject;
