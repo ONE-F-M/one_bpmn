@@ -320,10 +320,6 @@ onMounted(async () => {
 			}
 
 
-			// Clear custom trigger attributes if a StartEvent is converted into something else
-			// (e.g. Timer Start Event) so they don't persist in the XML.
-			// Use modeling.updateModdleProperties so the operation is tracked by the command
-			// stack and is properly undoable/redoable.
 			eventBus.on("commandStack.shape.replace.postExecute", (e) => {
 				const newShape = e.context.newShape;
 				const bo = newShape && newShape.businessObject;
