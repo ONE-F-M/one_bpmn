@@ -23,7 +23,11 @@ jobs:
           username: ${{ secrets.USERNAME }}
           key: ${{ secrets.BA_KEY }}
           port: 22
+          script_stop: true
           script: |
+            export NVM_DIR="$HOME/.nvm"
+            [ -s "$NVM_DIR/nvm.sh" ] && . "$NVM_DIR/nvm.sh"
+            node -v
             cd /home/frappe/sandbox-bench/apps/one_bpmn
             git pull upstream staging
             cd /home/frappe/sandbox-bench
