@@ -308,10 +308,6 @@ onMounted(async () => {
 			eventBus.on("commandStack.changed", updateUndoRedoState);
 
 
-		// Clear custom trigger attributes if a StartEvent is converted into something else
-		// (e.g. Timer Start Event) so they don't persist in the XML.
-		// Use modeling.updateModdleProperties so the operation is tracked by the command
-		// stack and is properly undoable/redoable.
 		eventBus.on("commandStack.shape.replace.postExecute", (e) => {
 			const newShape = e.context.newShape;
 			const bo = newShape && newShape.businessObject;
@@ -783,11 +779,6 @@ function getSelectedElements() {
 	return selection.get();
 }
 
-// ── Process Name DOM injection ──────────────────────────────────────────────
-// Injection logic (stale-timer guard, frappeRequest, calledElement cache) has
-// been extracted to @/composables/useCallActivityName.js.
-// BpmnEditor only wires the eventBus events and passes the propertiesContainer ref.
-// ────────────────────────────────────────────────────────────────────────────
 
 // Directly update calledElement on a Call Activity via the command stack.
 // This is the reliable way to update the property regardless of SpiffWorkflow's
