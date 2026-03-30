@@ -123,8 +123,10 @@ import customRulesModule from "@/rules";
 // Custom text styling module
 import { customTextStyleModule } from "@/renderers";
 
-// Shared clipboard for cross-diagram copy/paste
-import clipboardModule from "@/utils/clipboard";
+// Native system-clipboard module — enables copy/paste across browser tabs.
+// Inlined from https://github.com/nikku/bpmn-js-native-copy-paste (MIT)
+// because the npm package requires bpmn-js >= 18 (project uses 17).
+import nativeCopyPasteModule from "@/utils/nativeCopyPaste";
 
 // Custom moddle extension for text style attributes
 import customTextStyleModdle from "@/moddle/customTextStyleModdle";
@@ -258,7 +260,7 @@ onMounted(async () => {
 				// minimapModule, // DISABLED
 				translateModule,
 				customTextStyleModule,
-				clipboardModule,
+				nativeCopyPasteModule,
 			],
 			moddleExtensions: {
 				custom: customTextStyleModdle,
@@ -388,36 +390,11 @@ onMounted(async () => {
 				});
 			});
 
-			// Override Ctrl+V paste to place elements at canvas center regardless of mouse position.
-			// The default bpmn-js paste uses the last mouse event position via create.start(), which
-			// silently fails when the mouse was on the tab bar (not the canvas) after switching tabs.
-			// Priority 2000 > default binding priority 1000, so this runs first.
-			const keyboard = modeler.get("keyboard");
-			const clipboardService = modeler.get("clipboard");
-			const copyPaste = modeler.get("copyPaste");
-			const canvasService = modeler.get("canvas");
-
-			keyboard.addListener(2000, (context) => {
-				const evt = context.keyEvent;
-				const isMac = /mac/i.test(navigator.platform);
-				const isPaste = (isMac ? evt.metaKey : evt.ctrlKey) && evt.key === "v";
-				if (!isPaste) return;
-				if (clipboardService.isEmpty()) return;
-
-				evt.preventDefault();
-
-				// Paste at the center of the currently visible viewport
-				const viewbox = canvasService.viewbox();
-				const root = canvasService.getRootElement();
-				copyPaste.paste({
-					element: root,
-					point: {
-						x: viewbox.x + viewbox.width / 2,
-						y: viewbox.y + viewbox.height / 2,
-					},
-				});
-
-				return false; // Prevent default bpmn-js paste handler from also running
+			// nativeCopyPasteModule fires 'native-copy-paste:error' on any
+			// clipboard API failure (unavailable, permission denied, or parse
+			// error). Log it here so it surfaces in the browser console.
+			eventBus.on("native-copy-paste:error", ({ message, error }) => {
+				console.warn("[native-copy-paste]", message, error);
 			});
 
 

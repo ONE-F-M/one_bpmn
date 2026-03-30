@@ -33,5 +33,8 @@
 	"resolutions": {
 		"@iconify/utils": "2.2.1",
 		"preact": "10.19.3"
+	},
+	"_comments": {
+		"resolutions/@iconify/utils": "Pinned to 2.2.1 — frappe-ui ships a nested @iconify/utils@3.x which uses node:util styleText (Node 20+ only). This pin forces v2 for Node 18 compatibility."
 	}
 }
