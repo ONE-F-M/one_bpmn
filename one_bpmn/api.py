@@ -367,6 +367,35 @@ def delete_diagram(name: str) -> dict:
 	return {"success": True}
 
 
+@frappe.whitelist()
+def get_assignee_docfields(doctype: str) -> list:
+	"""
+	Safe endpoint for the BPMN editor to get all Link fields pointing to User
+	for a specific Target DocType. Bypasses the strict DocField table permissions.
+
+	Args:
+		doctype: Target DocType name
+
+	Returns:
+		list of dicts with fieldname and label
+	"""
+	if not doctype:
+		return []
+
+	# Use frappe.get_meta to get fields safely without querying DocField directly
+	try:
+		meta = frappe.get_meta(doctype)
+	except frappe.DoesNotExistError:
+		return []
+
+	fields = meta.get("fields", {
+		"fieldtype": "Link",
+		"options": "User"
+	})
+
+	return [{"fieldname": f.fieldname, "label": f.label} for f in fields]
+
+
 # ============================================
 # Shape Library API
 # ============================================

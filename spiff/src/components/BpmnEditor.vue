@@ -139,6 +139,7 @@ import clipboardModule from "@/utils/clipboard";
 // Custom moddle extension for text style attributes
 import customTextStyleModdle from "@/moddle/customTextStyleModdle";
 
+import userTaskPropertiesProviderModule from "@/bpmn/userTaskPropertiesProvider";
 import intermediateEventPropertiesProviderModule from "@/bpmn/intermediateEventPropertiesProvider";
 import timerPropertiesProviderModule from "@/bpmn/timerPropertiesProvider";
 import startEventPropertiesProviderModule from "@/bpmn/startEventPropertiesProvider";
@@ -260,6 +261,21 @@ onMounted(async () => {
 				});
 			}
 
+			// User Task assignee extension
+			const hasUserTaskExt = spiffModdleExtension.types.find(t => t.name === "UserTaskAssigneeExtension");
+			if (!hasUserTaskExt) {
+				spiffModdleExtension.types.push({
+					name: "UserTaskAssigneeExtension",
+					extends: ["bpmn:UserTask"],
+					properties: [
+						{ name: "assigneeMode",        isAttr: true, type: "String" },
+						{ name: "targetDoctype",       isAttr: true, type: "String" },
+						{ name: "assigneeUser",        isAttr: true, type: "String" },
+						{ name: "assigneeDocfield",    isAttr: true, type: "String" }
+					]
+				});
+			}
+			
 			// Intermediate Event extension (hot-reloading safety)
 			const hasIntermediateEventExt = spiffModdleExtension.types.find(t => t.name === "IntermediateEventExtension");
 			if (!hasIntermediateEventExt) {
@@ -285,6 +301,7 @@ onMounted(async () => {
 				BpmnPropertiesPanelModule,
 				BpmnPropertiesProviderModule,
 				spiffworkflow,
+				userTaskPropertiesProviderModule,
 				intermediateEventPropertiesProviderModule,
 				timerPropertiesProviderModule,
 				startEventPropertiesProviderModule,
