@@ -139,6 +139,7 @@ import clipboardModule from "@/utils/clipboard";
 // Custom moddle extension for text style attributes
 import customTextStyleModdle from "@/moddle/customTextStyleModdle";
 
+import intermediateEventPropertiesProviderModule from "@/bpmn/intermediateEventPropertiesProvider";
 import timerPropertiesProviderModule from "@/bpmn/timerPropertiesProvider";
 import startEventPropertiesProviderModule from "@/bpmn/startEventPropertiesProvider";
 
@@ -258,6 +259,21 @@ onMounted(async () => {
 					]
 				});
 			}
+
+			// Intermediate Event extension (hot-reloading safety)
+			const hasIntermediateEventExt = spiffModdleExtension.types.find(t => t.name === "IntermediateEventExtension");
+			if (!hasIntermediateEventExt) {
+				spiffModdleExtension.types.push({
+					name: "IntermediateEventExtension",
+					extends: ["bpmn:IntermediateCatchEvent", "bpmn:IntermediateThrowEvent"],
+					properties: [
+						{ name: "targetDoctype", isAttr: true, type: "String" },
+						{ name: "triggerWorkflow", isAttr: true, type: "String" },
+						{ name: "triggerWorkflowState", isAttr: true, type: "String" },
+						{ name: "assignmentRule", isAttr: true, type: "String" }
+					]
+				});
+			}
 		}
 
 				
@@ -269,6 +285,7 @@ onMounted(async () => {
 				BpmnPropertiesPanelModule,
 				BpmnPropertiesProviderModule,
 				spiffworkflow,
+				intermediateEventPropertiesProviderModule,
 				timerPropertiesProviderModule,
 				startEventPropertiesProviderModule,
 				// minimapModule, // DISABLED
@@ -500,8 +517,8 @@ onMounted(async () => {
 		},
 		
 	});
-} catch (err) {
-		console.error("Failed to initialize BPMN modeler:", err);
+	} catch (err) {
+		console.error("Error in onMounted initialized setup:", err);
 	}
 });
 
