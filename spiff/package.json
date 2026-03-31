@@ -13,9 +13,11 @@
 		"@iconify/vue": "^5.0.0",
 		"@vitejs/plugin-vue": "^4.4.0",
 		"bpmn-js": "^17.11.1",
+		"bpmn-js-bpmnlint": "^0.24.0",
 		"bpmn-js-color-picker": "^0.7.2",
 		"bpmn-js-properties-panel": "^5.48.0",
 		"bpmn-js-spiffworkflow": "github:ks093/bpmn-js-spiffworkflow#develop",
+		"bpmnlint": "^11.12.0",
 		"dayjs": "^1.11.7",
 		"diagram-js-minimap": "^5.2.0",
 		"frappe-ui": "0.1.192",
@@ -33,5 +35,8 @@
 	"resolutions": {
 		"@iconify/utils": "2.2.1",
 		"preact": "10.19.3"
+	},
+	"_comments": {
+		"resolutions/@iconify/utils": "Pinned to 2.2.1 — frappe-ui ships a nested @iconify/utils@3.x which uses node:util styleText (Node 20+ only). This pin forces v2 for Node 18 compatibility."
 	}
 }

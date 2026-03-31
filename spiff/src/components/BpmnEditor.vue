@@ -1,77 +1,83 @@
 <template>
 	<div class="bpmn-editor-wrapper h-full w-full flex flex-col">
-		<!-- Toolbar -->
-		<div class="bpmn-toolbar flex items-center gap-2 px-3 py-2 bg-gray-50 border-b">
+		<!-- Toolbar (moved natively to parent Editor.vue's header) -->
+		<div ref="toolbarEl" v-show="isMounted" class="flex items-center gap-1.5 w-full h-full text-gray-700">
 			<!-- Undo/Redo buttons -->
-			<Tooltip text="Undo (Ctrl+Z)">
-				<button
-					@click="undo"
-					:disabled="!canUndo"
-					:class="[
-						'p-2 rounded transition-colors',
-						canUndo
-							? 'hover:bg-gray-200 text-gray-700'
-							: 'text-gray-300 cursor-not-allowed',
-					]"
-				>
-					<Icon icon="lucide:undo-2" class="w-5 h-5" />
-				</button>
-			</Tooltip>
-			<Tooltip text="Redo (Ctrl+Y)">
-				<button
-					@click="redo"
-					:disabled="!canRedo"
-					:class="[
-						'p-2 rounded transition-colors',
-						canRedo
-							? 'hover:bg-gray-200 text-gray-700'
-							: 'text-gray-300 cursor-not-allowed',
-					]"
-				>
-					<Icon icon="lucide:redo-2" class="w-5 h-5" />
-				</button>
-			</Tooltip>
+			<button
+				@click="undo"
+				title="Undo (Ctrl+Z)"
+				:disabled="!canUndo"
+				:class="[
+					'p-1.5 flex items-center justify-center rounded transition-colors',
+					canUndo
+						? 'hover:bg-gray-100 text-gray-700'
+						: 'text-gray-300 cursor-not-allowed',
+				]"
+			>
+				<Icon icon="lucide:undo-2" class="w-4 h-4" />
+			</button>
+			<button
+				@click="redo"
+				title="Redo (Ctrl+Y)"
+				:disabled="!canRedo"
+				:class="[
+					'p-1.5 flex items-center justify-center rounded transition-colors',
+					canRedo
+						? 'hover:bg-gray-100 text-gray-700'
+						: 'text-gray-300 cursor-not-allowed',
+				]"
+			>
+				<Icon icon="lucide:redo-2" class="w-4 h-4" />
+			</button>
 
-			<div class="w-px h-6 bg-gray-300 mx-1"></div>
+			<div class="w-px h-5 bg-gray-200 mx-1 shrink-0"></div>
 
 			<!-- Delete button -->
-			<Tooltip text="Delete (Del)">
-				<button
-					@click="deleteSelected"
-					class="p-2 rounded hover:bg-gray-200 text-gray-700 transition-colors"
-				>
-					<Icon icon="lucide:trash-2" class="w-5 h-5" />
-				</button>
-			</Tooltip>
+			<button
+				@click="deleteSelected"
+				title="Delete (Del)"
+				class="p-1.5 flex items-center justify-center rounded hover:bg-gray-100 text-gray-700 transition-colors"
+			>
+				<Icon icon="lucide:trash-2" class="w-4 h-4" />
+			</button>
 
-			<div class="w-px h-6 bg-gray-300 mx-1"></div>
+			<div class="w-px h-5 bg-gray-200 mx-1 shrink-0"></div>
 
 			<!-- Formatting Toolbar -->
 			<FormattingToolbar
 				:selectedElements="selectedElements"
 				:modeler="modelerInstance"
+				class="shrink-0"
 			/>
 
-			<div class="flex-1"></div>
 
-			<!-- Properties Panel Toggle -->
-			<Tooltip text="Toggle Properties Panel">
+			<!-- Save Status Indicator before Properties Panel Toggle -->
+			<div class="flex-1 min-w-4 flex items-center justify-end px-3">
+				<div v-if="saveStatusText" class="text-sm font-medium transition-colors mr-2" :class="saveStatusColor">
+					{{ saveStatusText }}
+				</div>
+			</div>
+			
+			<div class="shrink-0 pl-1 border-l border-gray-200">
 				<button
 					@click="togglePropertiesPanel"
+					title="Toggle Properties Panel"
 					:class="[
-						'p-2 rounded transition-colors',
+						'p-1.5 flex items-center justify-center rounded transition-colors',
 						showPropertiesPanel
-							? 'bg-gray-200 text-gray-700'
-							: 'hover:bg-gray-200 text-gray-500',
+							? 'bg-gray-200 text-gray-800 shadow-[inset_0_1px_2px_rgba(0,0,0,0.1)]'
+							: 'hover:bg-gray-100 text-gray-600',
 					]"
 				>
-					<Icon icon="lucide:panel-right" class="w-5 h-5" />
+					<Icon icon="lucide:panel-right" class="w-4 h-4" />
 				</button>
-			</Tooltip>
+			</div>
 		</div>
 
+
+
 		<!-- Main Content Area -->
-		<div class="flex-1 flex overflow-hidden">
+		<div class="flex-1 flex overflow-hidden relative">
 			<!-- BPMN Canvas -->
 			<div
 				ref="container"
@@ -91,11 +97,16 @@
 </template>
 
 <script setup>
-import { ref, onMounted, onUnmounted } from "vue";
+import { ref, shallowRef, onMounted, onUnmounted, onBeforeUnmount } from "vue";
+import {
+	injectProcessNameField,
+	reinjectIfCalledElementChanged,
+	removeProcessNameField,
+	cancelPendingInjection,
+} from "@/composables/useCallActivityName";
 import { Icon } from "@iconify/vue";
 // Custom Shapes - DISABLED (see DEVELOPMENT_CONTEXT.md)
 // import CustomShapesModule, { customShapeSvgStore } from "@/bpmn";
-import { Tooltip } from "frappe-ui";
 import FormattingToolbar from "@/components/FormattingToolbar.vue";
 import { initModeler } from "@/composables/useModelerInit";
 // Properties panel
@@ -119,15 +130,24 @@ import customRulesModule from "@/rules";
 // Custom text styling module
 import { customTextStyleModule } from "@/renderers";
 
-// Shared clipboard for cross-diagram copy/paste
+// Native system-clipboard module — enables copy/paste across browser tabs.
+// Inlined from https://github.com/nikku/bpmn-js-native-copy-paste (MIT)
+// because the npm package requires bpmn-js >= 18 (project uses 17).
+import nativeCopyPasteModule from "@/utils/nativeCopyPaste";
 import clipboardModule from "@/utils/clipboard";
 
 // Custom moddle extension for text style attributes
 import customTextStyleModdle from "@/moddle/customTextStyleModdle";
 
 import userTaskPropertiesProviderModule from "@/bpmn/userTaskPropertiesProvider";
+import intermediateEventPropertiesProviderModule from "@/bpmn/intermediateEventPropertiesProvider";
 import timerPropertiesProviderModule from "@/bpmn/timerPropertiesProvider";
 import startEventPropertiesProviderModule from "@/bpmn/startEventPropertiesProvider";
+
+// bpmnlint — diagram validation
+import lintModule from "bpmn-js-bpmnlint";
+import "bpmn-js-bpmnlint/dist/assets/css/bpmn-js-bpmnlint.css";
+import bpmnlintConfig from "@/linting/bpmnlintrc.js";
 
 // Import bpmn-js CSS
 import "bpmn-js/dist/assets/diagram-js.css";
@@ -135,6 +155,17 @@ import "bpmn-js/dist/assets/bpmn-font/css/bpmn.css";
 
 // Import properties panel CSS
 import "@bpmn-io/properties-panel/dist/assets/properties-panel.css";
+
+const props = defineProps({
+	saveStatusText: {
+		type: String,
+		default: ""
+	},
+	saveStatusColor: {
+		type: String,
+		default: ""
+	}
+});
 
 const emit = defineEmits([
 	"ready",
@@ -148,13 +179,17 @@ const emit = defineEmits([
 
 const container = ref(null);
 const propertiesContainer = ref(null);
+const toolbarEl = ref(null);
 const canUndo = ref(false);
 const canRedo = ref(false);
 const zoomLevel = ref(100);
 const showPropertiesPanel = ref(true);
+const isMounted = ref(false);
+const isImporting = ref(false);
 // const showMinimap = ref(true); // DISABLED
-const selectedElements = ref([]);
-const modelerInstance = ref(null);
+const selectedElements = shallowRef([]);
+const modelerInstance = shallowRef(null);
+
 let modeler = null;
 let commandStack = null;
 
@@ -194,6 +229,7 @@ function togglePropertiesPanel() {
 // }
 
 onMounted(async () => {
+	isMounted.value = true;
 	try {
 		// Extend spiff workflow moddle definitions to include our custom timer properties
 		if (spiffModdleExtension && Array.isArray(spiffModdleExtension.types)) {
@@ -239,6 +275,21 @@ onMounted(async () => {
 					]
 				});
 			}
+			
+			// Intermediate Event extension (hot-reloading safety)
+			const hasIntermediateEventExt = spiffModdleExtension.types.find(t => t.name === "IntermediateEventExtension");
+			if (!hasIntermediateEventExt) {
+				spiffModdleExtension.types.push({
+					name: "IntermediateEventExtension",
+					extends: ["bpmn:IntermediateCatchEvent", "bpmn:IntermediateThrowEvent"],
+					properties: [
+						{ name: "targetDoctype", isAttr: true, type: "String" },
+						{ name: "triggerWorkflow", isAttr: true, type: "String" },
+						{ name: "triggerWorkflowState", isAttr: true, type: "String" },
+						{ name: "assignmentRule", isAttr: true, type: "String" }
+					]
+				});
+			}
 		}
 
 				
@@ -251,13 +302,20 @@ onMounted(async () => {
 				BpmnPropertiesProviderModule,
 				spiffworkflow,
 				userTaskPropertiesProviderModule,
+				intermediateEventPropertiesProviderModule,
 				timerPropertiesProviderModule,
 				startEventPropertiesProviderModule,
 				// minimapModule, // DISABLED
 				translateModule,
 				customTextStyleModule,
 				clipboardModule,
+				lintModule,
+				nativeCopyPasteModule,
 			],
+			linting: {
+				active: true,
+				bpmnlint: bpmnlintConfig,
+			},
 			moddleExtensions: {
 				custom: customTextStyleModdle,
 				spiffworkflow: spiffModdleExtension,
@@ -282,38 +340,60 @@ onMounted(async () => {
 
 			// Use eventBus for listening to command stack changes
 			const eventBus = modeler.get("eventBus");
-			eventBus.on("commandStack.changed", updateUndoRedoState);
 
-		// Clear custom trigger attributes if a StartEvent is converted into something else
-		// (e.g. Timer Start Event) so they don't persist in the XML.
-		// Use modeling.updateModdleProperties so the operation is tracked by the command
-		// stack and is properly undoable/redoable.
-		eventBus.on("commandStack.shape.replace.postExecute", (e) => {
-			const newShape = e.context.newShape;
-			const bo = newShape && newShape.businessObject;
-			if (!bo) return;
 
-			let isPlainStartEvent = false;
-			if (bo.$type === "bpmn:StartEvent") {
-				const eventDefs = bo.get("eventDefinitions") || [];
-				isPlainStartEvent = eventDefs.length === 0;
-			}
+			// Clear custom trigger attributes if a StartEvent is converted into something else
+			// (e.g. Timer Start Event) so they don't persist in the XML.
+			// Use modeling.updateModdleProperties so the operation is tracked by the command
+			// stack and is properly undoable/redoable.
+			eventBus.on("commandStack.shape.replace.postExecute", (e) => {
+				const newShape = e.context.newShape;
+				const bo = newShape && newShape.businessObject;
+				if (!bo) return;
 
-			if (!isPlainStartEvent) {
-				const modeling = modeler.get("modeling");
-				const attrs = ["triggerDoctype", "triggerType", "triggerWorkflow", "triggerWorkflowState"];
-				const clearProps = {};
-				attrs.forEach(attr => {
-					clearProps[`spiffworkflow:${attr}`] = undefined;
-				});
-				modeling.updateModdleProperties(newShape, bo, clearProps);
-			}
-		});
+				let isPlainStartEvent = false;
+				if (bo.$type === "bpmn:StartEvent") {
+					const eventDefs = bo.get("eventDefinitions") || [];
+					isPlainStartEvent = eventDefs.length === 0;
+				}
 
-		// Listen for selection changes for formatting toolbar
-		eventBus.on("selection.changed", (e) => {
-			selectedElements.value = e.newSelection || [];
-		});
+				if (!isPlainStartEvent) {
+					const modeling = modeler.get("modeling");
+					const attrs = ["triggerDoctype", "triggerType", "triggerWorkflow", "triggerWorkflowState"];
+					const clearProps = {};
+					attrs.forEach(attr => {
+						clearProps[`spiffworkflow:${attr}`] = undefined;
+					});
+					modeling.updateModdleProperties(newShape, bo, clearProps);
+				}
+			});
+
+
+			// Listen for selection changes for formatting toolbar
+			eventBus.on("selection.changed", (e) => {
+				selectedElements.value = e.newSelection || [];
+
+				// Inject Process Name field when a Call Activity is selected
+				const single = e.newSelection?.length === 1 ? e.newSelection[0] : null;
+				if (single?.type === "bpmn:CallActivity") {
+					injectProcessNameField(single, propertiesContainer);
+				} else {
+					// Cancel any in-flight resolve before removing the field
+					cancelPendingInjection();
+					removeProcessNameField(propertiesContainer);
+				}
+			});
+
+			// Re-inject only when calledElement actually changed — avoids DOM
+			// churn and repeated network requests on every command stack event.
+			eventBus.on("commandStack.changed", () => {
+				updateUndoRedoState();
+				const selection = modeler.get("selection");
+				const selected = selection.get();
+				if (selected?.length === 1 && selected[0]?.type === "bpmn:CallActivity") {
+					reinjectIfCalledElementChanged(selected[0], propertiesContainer);
+				}
+			});
 
 		// Listen for zoom changes (Ctrl+scroll, programmatic zoom, etc.)
 		eventBus.on("canvas.viewbox.changed", () => {
@@ -386,36 +466,11 @@ onMounted(async () => {
 				});
 			});
 
-			// Override Ctrl+V paste to place elements at canvas center regardless of mouse position.
-			// The default bpmn-js paste uses the last mouse event position via create.start(), which
-			// silently fails when the mouse was on the tab bar (not the canvas) after switching tabs.
-			// Priority 2000 > default binding priority 1000, so this runs first.
-			const keyboard = modeler.get("keyboard");
-			const clipboardService = modeler.get("clipboard");
-			const copyPaste = modeler.get("copyPaste");
-			const canvasService = modeler.get("canvas");
-
-			keyboard.addListener(2000, (context) => {
-				const evt = context.keyEvent;
-				const isMac = /mac/i.test(navigator.platform);
-				const isPaste = (isMac ? evt.metaKey : evt.ctrlKey) && evt.key === "v";
-				if (!isPaste) return;
-				if (clipboardService.isEmpty()) return;
-
-				evt.preventDefault();
-
-				// Paste at the center of the currently visible viewport
-				const viewbox = canvasService.viewbox();
-				const root = canvasService.getRootElement();
-				copyPaste.paste({
-					element: root,
-					point: {
-						x: viewbox.x + viewbox.width / 2,
-						y: viewbox.y + viewbox.height / 2,
-					},
-				});
-
-				return false; // Prevent default bpmn-js paste handler from also running
+			// nativeCopyPasteModule fires 'native-copy-paste:error' on any
+			// clipboard API failure (unavailable, permission denied, or parse
+			// error). Log it here so it surfaces in the browser console.
+			eventBus.on("native-copy-paste:error", ({ message, error }) => {
+				console.warn("[native-copy-paste]", message, error);
 			});
 
 
@@ -462,6 +517,16 @@ onMounted(async () => {
 			// Import empty diagram
 			await modeler.importXML(emptyDiagram);
 
+			// Append toolbar natively to top header
+			isMounted.value = true;
+			const targetToolbar = document.getElementById("bpmn-editor-toolbar");
+			if (targetToolbar && toolbarEl.value) {
+				targetToolbar.innerHTML = '';
+				targetToolbar.appendChild(toolbarEl.value);
+			}
+
+
+
 			emit("ready");
 		},
 		onError: (err) => {
@@ -470,11 +535,22 @@ onMounted(async () => {
 		
 	});
 	} catch (err) {
-		console.error("Failed to initialize BPMN modeler:", err);
+		console.error("Error in onMounted initialized setup:", err);
+	}
+});
+
+onBeforeUnmount(() => {
+	isMounted.value = false;
+	// Safely clean up native DOM mounting
+	if (toolbarEl.value && toolbarEl.value.parentNode) {
+		toolbarEl.value.parentNode.removeChild(toolbarEl.value);
 	}
 });
 
 onUnmounted(() => {
+	// Cancel any pending process-name injection to prevent memory-leaks
+	// and stale DOM updates after the component is torn down.
+	cancelPendingInjection();
 	if (modeler) {
 		modeler.destroy();
 	}
@@ -485,7 +561,9 @@ function updateUndoRedoState() {
 		canUndo.value = commandStack.canUndo();
 		canRedo.value = commandStack.canRedo();
 	}
-	emit("changed");
+	if (!isImporting.value) {
+		emit("changed");
+	}
 }
 
 function undo() {
@@ -528,19 +606,26 @@ async function getXML() {
 
 async function loadXML(xml) {
 	if (!modeler) return;
+	isImporting.value = true;
 	try {
 		// Decode any HTML entities in the XML
 		const decodedXml = decodeHtmlEntities(xml);
 		await modeler.importXML(decodedXml);
 		updateUndoRedoState();
-		// Fit diagram to screen by default after loading
+		// Fit diagram to screen by default after loading, safely catching zero-dimension errors
 		setTimeout(() => {
-			const canvas = modeler.get("canvas");
-			canvas.zoom("fit-viewport");
-			zoomLevel.value = Math.round(canvas.zoom() * 100);
+			try {
+				const canvas = modeler.get("canvas");
+				canvas.zoom("fit-viewport");
+				zoomLevel.value = Math.round(canvas.zoom() * 100);
+			} catch (e) {
+				console.warn("Could not fit viewport automatically - container may be hidden:", e);
+			}
 		}, 100);
 	} catch (err) {
 		console.error("Failed to import XML:", err);
+	} finally {
+		isImporting.value = false;
 	}
 }
 
@@ -716,6 +801,7 @@ function getSelectedElements() {
 	return selection.get();
 }
 
+
 // Directly update calledElement on a Call Activity via the command stack.
 // This is the reliable way to update the property regardless of SpiffWorkflow's
 // async once-listener state.
@@ -736,6 +822,8 @@ function updateCalledElement(element, processId) {
 		selection.select(element);
 	}, 30);
 }
+
+
 
 defineExpose({
 	getXML,
@@ -760,6 +848,7 @@ defineExpose({
 	getSelectedElements,
 	// Call Activity API
 	updateCalledElement,
+
 });
 </script>
 
@@ -771,6 +860,31 @@ defineExpose({
 .bpmn-canvas {
 	background: #fafafa;
 }
+
+/* ── Injected Process Name field (no inline styles) ─── */
+.bpmn-process-name-value {
+	display: flex;
+	align-items: center;
+	min-height: 28px;
+	padding: 2px 8px;
+	font-size: 12px;
+	color: var(--gray-900, #111827);
+	background: var(--gray-50, #f9fafb);
+	border: 1px solid var(--gray-200, #e5e7eb);
+	border-radius: 4px;
+	word-break: break-word;
+}
+
+.bpmn-process-name-resolving {
+	color: var(--gray-400, #9ca3af);
+	font-style: italic;
+}
+
+.bpmn-process-name-empty {
+	color: var(--gray-400, #9ca3af);
+	font-style: italic;
+}
+/* ─────────────────────────────────────────────────── */
 
 /* Palette Styling */
 .bpmn-canvas .djs-palette {
@@ -899,4 +1013,5 @@ defineExpose({
 	font-size: 11px;
 	font-weight: 600;
 }
+
 </style>
