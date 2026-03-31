@@ -253,7 +253,7 @@
 </template>
 
 <script setup>
-import { ref, shallowRef, onMounted, computed, watch, onUnmounted, nextTick } from "vue"
+import { ref, shallowRef, onMounted, computed, watch, onUnmounted } from "vue"
 import { useRoute, useRouter } from "vue-router"
 import { frappeRequest, Badge, Button } from "frappe-ui"
 import { dayjs } from "@/dayjs"
