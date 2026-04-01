@@ -1395,8 +1395,8 @@ async function onLaunchCallActivityEditor(event) {
 		if (linked && linked.name) {
 			// Build URL with encoded segments to handle spaces and reserved chars
 			const base = linked.process_name
-				? `/spiff/process/${encodeURIComponent(linked.process_name)}/diagram/${encodeURIComponent(linked.name)}`
-				: `/spiff/process/${encodeURIComponent(linked.name)}`;
+				? `/processa/process/${encodeURIComponent(linked.process_name)}/diagram/${encodeURIComponent(linked.name)}`
+				: `/processa/process/${encodeURIComponent(linked.name)}`;
 			// noopener,noreferrer prevents reverse-tabnabbing via window.opener
 			window.open(base, "_blank", "noopener,noreferrer");
 		} else {

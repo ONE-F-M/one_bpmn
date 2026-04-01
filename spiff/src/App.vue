@@ -8,18 +8,18 @@
 			<nav class="flex-1 p-4 space-y-1">
 				<a
 					href="javascript:void(0)"
-					@click="router.push('/spiff')"
+					@click="router.push('/processa')"
 					class="flex items-center gap-3 px-3 py-2 text-sm font-medium rounded-md transition-colors"
-					:class="[$route.path === '/spiff' ? 'bg-gray-100 text-gray-900' : 'text-gray-600 hover:bg-gray-50 hover:text-gray-900']"
+					:class="[$route.path === '/processa' ? 'bg-gray-100 text-gray-900' : 'text-gray-600 hover:bg-gray-50 hover:text-gray-900']"
 				>
 					<Icon icon="lucide:layout-grid" class="w-5 h-5 flex-shrink-0" />
 					Processes
 				</a>
 				<a
 					href="javascript:void(0)"
-					@click="router.push('/spiff/instances')"
+					@click="router.push('/processa/instances')"
 					class="flex items-center gap-3 px-3 py-2 text-sm font-medium rounded-md transition-colors"
-					:class="[$route.path === '/spiff/instances' ? 'bg-gray-100 text-gray-900' : 'text-gray-600 hover:bg-gray-50 hover:text-gray-900']"
+					:class="[$route.path === '/processa/instances' ? 'bg-gray-100 text-gray-900' : 'text-gray-600 hover:bg-gray-50 hover:text-gray-900']"
 				>
 					<Icon icon="lucide:list-todo" class="w-5 h-5 flex-shrink-0" />
 					Instances

@@ -2,7 +2,7 @@
 	<div class="h-full flex flex-col bg-gray-50">
 		<header class="bg-white border-b px-6 py-4 flex items-center justify-between z-10 shrink-0 shadow-sm">
 			<div class="flex items-center gap-4">
-				<Button icon-left="arrow-left" variant="ghost" @click="router.push('/spiff/instances')">Back</Button>
+				<Button icon-left="arrow-left" variant="ghost" @click="router.push('/processa/instances')">Back</Button>
 				<h1 class="text-xl font-semibold text-gray-900">Instance Details</h1>
 			</div>
 			<div v-if="details">
