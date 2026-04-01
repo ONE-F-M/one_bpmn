@@ -22,9 +22,8 @@
 
 			<!-- Navigation -->
 			<nav class="flex-1 space-y-1" :class="collapsed ? 'p-2' : 'p-4'">
-				<a
-					href="javascript:void(0)"
-					@click="router.push('/spiff')"
+				<router-link
+					to="/spiff"
 					class="flex items-center rounded-md transition-colors"
 					:class="[
 						collapsed ? 'justify-center px-2 py-2' : 'gap-3 px-3 py-2',
@@ -39,10 +38,9 @@
 					>
 						Processes
 					</span>
-				</a>
-				<a
-					href="javascript:void(0)"
-					@click="router.push('/spiff/instances')"
+				</router-link>
+				<router-link
+					to="/spiff/instances"
 					class="flex items-center rounded-md transition-colors"
 					:class="[
 						collapsed ? 'justify-center px-2 py-2' : 'gap-3 px-3 py-2',
@@ -57,12 +55,13 @@
 					>
 						Instances
 					</span>
-				</a>
+				</router-link>
 			</nav>
 
 			<!-- Collapse Toggle -->
 			<div class="border-t" :class="collapsed ? 'p-2' : 'p-4'">
 				<button
+					type="button"
 					@click="toggleCollapse"
 					class="flex items-center w-full rounded-md text-gray-500 hover:bg-gray-50 hover:text-gray-700 transition-colors"
 					:class="collapsed ? 'justify-center px-2 py-2' : 'gap-3 px-3 py-2'"
@@ -92,9 +91,7 @@
 <script setup>
 import { ref, onMounted } from "vue"
 import { Icon } from "@iconify/vue"
-import { useRouter } from "vue-router"
 
-const router = useRouter()
 
 const collapsed = ref(false)
 
@@ -107,6 +104,6 @@ onMounted(() => {
 
 function toggleCollapse() {
 	collapsed.value = !collapsed.value
-	localStorage.setItem("one_bpmn_sidebar_collapsed", collapsed.value)
+	localStorage.setItem("one_bpmn_sidebar_collapsed", String(collapsed.value))
 }
 </script>
