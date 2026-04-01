@@ -7,8 +7,8 @@ app_license = "mit"
 
 # Website route rules for Vue.js frontend
 website_route_rules = [
-	{"from_route": "/spiff/<path:app_path>", "to_route": "spiff"},
-	{"from_route": "/spiff", "to_route": "spiff"},
+	{"from_route": "/processa/<path:app_path>", "to_route": "processa"},
+	{"from_route": "/processa", "to_route": "processa"},
 ]
 
 # Apps
