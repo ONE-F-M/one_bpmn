@@ -143,6 +143,7 @@ import userTaskPropertiesProviderModule from "@/bpmn/userTaskPropertiesProvider"
 import intermediateEventPropertiesProviderModule from "@/bpmn/intermediateEventPropertiesProvider";
 import timerPropertiesProviderModule from "@/bpmn/timerPropertiesProvider";
 import startEventPropertiesProviderModule from "@/bpmn/startEventPropertiesProvider";
+import propertiesPanelFilterModule from "@/bpmn/propertiesPanelFilter";
 
 // bpmnlint — diagram validation
 import lintModule from "bpmn-js-bpmnlint";
@@ -311,6 +312,7 @@ onMounted(async () => {
 				clipboardModule,
 				lintModule,
 				nativeCopyPasteModule,
+				propertiesPanelFilterModule,
 			],
 			linting: {
 				active: true,
