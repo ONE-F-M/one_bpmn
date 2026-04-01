@@ -368,6 +368,63 @@ def delete_diagram(name: str) -> dict:
 
 
 @frappe.whitelist()
+def rename_process_model(name: str, new_title: str) -> dict:
+	"""
+	Rename a BPMN Process Model.
+
+	Updates the title field and renames the document (since autoname is based
+	on title).
+
+	Args:
+		name: Current document name of the BPMN Process Model
+		new_title: New human-readable title / name
+
+	Returns:
+		dict with new name and model_name
+	"""
+	if not name or not new_title:
+		frappe.throw(_("Current name and new title are required"))
+
+	new_title = new_title.strip()
+	if not new_title:
+		frappe.throw(_("New title cannot be empty"))
+
+	doc = frappe.get_doc("BPMN Process Model", name)
+	doc.check_permission("write")
+
+	# Update the title field
+	doc.title = new_title
+	doc.save()
+
+	# Rename the document if the title (which drives the autoname) changed
+	new_name = doc.name
+	if new_title != doc.name:
+		try:
+			frappe.rename_doc(
+				"BPMN Process Model",
+				doc.name,
+				new_title,
+				force=True,
+				merge=False,
+			)
+			new_name = new_title
+		except frappe.ValidationError:
+			# If rename fails (e.g. duplicate), keep the existing name
+			frappe.log_error(
+				title="BPMN Process Model rename failed",
+				message=f"Could not rename '{doc.name}' to '{new_title}'"
+			)
+			frappe.throw(
+				_("A process model with the name '{0}' already exists").format(new_title)
+			)
+
+	return {
+		"name": new_name,
+		"model_name": new_title,
+	}
+
+
+@frappe.whitelist()
 def get_assignee_docfields(doctype: str) -> list:
 	"""
 	Safe endpoint for the BPMN editor to get all Link fields pointing to User

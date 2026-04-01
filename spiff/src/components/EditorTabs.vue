@@ -11,8 +11,23 @@
 				: 'bg-gray-500 text-gray-100 hover:bg-gray-600'
 		]"
 		@click="$emit('select-tab', tab.name)"
+		@dblclick.stop="startEditing(tab)"
 		>
-			<span class="truncate max-w-40">{{ tab.model_name }}</span>
+			<!-- Display mode -->
+			<span v-if="editingTabName !== tab.name" class="truncate max-w-40">{{ tab.model_name }}</span>
+
+			<!-- Edit mode -->
+			<input
+				v-else
+				ref="editInputRefs"
+				type="text"
+				v-model="editValue"
+				class="bg-transparent border-b border-white/60 outline-none text-inherit font-inherit text-base w-40 px-0 py-0"
+				@click.stop
+				@keydown.enter.prevent="commitEdit(tab)"
+				@keydown.escape.prevent="cancelEdit"
+				@blur="commitEdit(tab)"
+			/>
 		</div>
 
 		<!-- Add tab button -->
@@ -27,7 +42,9 @@
 </template>
 
 <script setup>
+import { ref, nextTick } from "vue"
 import { Icon } from "@iconify/vue"
+
 defineProps({
 	tabs: {
 		type: Array,
@@ -39,5 +56,40 @@ defineProps({
 	}
 })
 
-defineEmits(["select-tab", "add-tab"])
+const emit = defineEmits(["select-tab", "add-tab", "rename-tab"])
+
+const editingTabName = ref(null)
+const editValue = ref("")
+const editInputRefs = ref([])
+
+function startEditing(tab) {
+	editingTabName.value = tab.name
+	editValue.value = tab.model_name
+	nextTick(() => {
+		// editInputRefs is an array due to v-for; grab the first (only visible) input
+		const input = editInputRefs.value?.[0]
+		if (input) {
+			input.focus()
+			input.select()
+		}
+	})
+}
+
+function commitEdit(tab) {
+	const newName = editValue.value.trim()
+	const oldName = tab.model_name
+
+	// Reset editing state first
+	editingTabName.value = null
+
+	if (!newName || newName === oldName) {
+		return // no change
+	}
+
+	emit("rename-tab", { tabName: tab.name, oldModelName: oldName, newModelName: newName })
+}
+
+function cancelEdit() {
+	editingTabName.value = null
+}
 </script>

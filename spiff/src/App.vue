@@ -43,3 +43,13 @@ import { useRouter } from "vue-router"
 
 const router = useRouter()
 </script>
+
+<style>
+#app {
+	isolation: isolate;
+	position: relative;
+}
+.dialog-overlay {
+	z-index: 50 !important;
+}
+</style>

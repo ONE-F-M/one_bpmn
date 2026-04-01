@@ -1,7 +1,7 @@
 <template>
 	<div class="h-full flex flex-col">
 		<!-- Unified Toolbar -->
-		<header class="bg-white border-b px-2 py-2 flex items-center justify-between shadow-sm z-10 w-full min-h-[48px]">
+		<header class="bg-white border-b px-2 py-2 flex items-center justify-between shadow-sm w-full min-h-[48px]">
 			
 			<div class="flex items-center gap-2 flex-1 min-w-0">
 				<!-- Left: Back & Title -->
@@ -163,6 +163,7 @@
 					:activeTab="activeDiagramName"
 					@select-tab="selectDiagram"
 					@add-tab="showAddDiagramDialog"
+					@rename-tab="renameProcessModel"
 					class="flex-1 min-w-0"
 				/>
 				
@@ -330,12 +331,18 @@
 								<select
 									v-model="newScript.script_type"
 									class="w-full px-3 py-1.5 border border-gray-300 rounded-md text-sm bg-white text-gray-900 focus:outline-none focus:ring-2 focus:ring-blue-400"
+									:disabled="isScriptTaskElement"
 								>
-									<option value="">Select type...</option>
-									<option value="DocType Event">DocType Event</option>
-									<option value="Scheduler Event">Scheduler Event</option>
-									<option value="Permission Query">Permission Query</option>
-									<option value="API">API</option>
+									<template v-if="isScriptTaskElement">
+										<option value="API">API</option>
+									</template>
+									<template v-else>
+										<option value="">Select type...</option>
+										<option value="DocType Event">DocType Event</option>
+										<option value="Scheduler Event">Scheduler Event</option>
+										<option value="Permission Query">Permission Query</option>
+										<option value="API">API</option>
+									</template>
 								</select>
 							</div>
 						</div>
@@ -631,6 +638,7 @@ const moduleSearch = ref("");
 const showDoctypeDropdown = ref(false);
 const showModuleDropdown = ref(false);
 let activeScriptEvent = null;
+const isScriptTaskElement = ref(false);
 
 // New Script form state
 const newScript = ref({
@@ -659,11 +667,16 @@ const eventFrequencies = [
 	"Hourly Long", "Daily Long", "Weekly Long", "Monthly Long", "Cron",
 ];
 
-// Computed: filtered scripts based on search
+// Computed: filtered scripts based on search (restricted to API for Script Tasks)
 const filteredServerScripts = computed(() => {
-	if (!serverScriptSearch.value) return serverScripts.value;
+	let list = serverScripts.value;
+	// Script Task elements can only use API-type server scripts
+	if (isScriptTaskElement.value) {
+		list = list.filter((s) => s.script_type === "API");
+	}
+	if (!serverScriptSearch.value) return list;
 	const q = serverScriptSearch.value.toLowerCase();
-	return serverScripts.value.filter(
+	return list.filter(
 		(s) =>
 			s.name.toLowerCase().includes(q) ||
 			(s.script_type && s.script_type.toLowerCase().includes(q)) ||
@@ -1110,6 +1123,75 @@ async function closeTab(name) {
 	}
 }
 
+async function renameProcessModel({ tabName, oldModelName, newModelName }) {
+	// --- Optimistic update: show new name instantly ---
+	const diagramEntry = diagrams.value.find((d) => d.name === tabName);
+	const tabEntry = openTabs.value.find((t) => t.name === tabName);
+	if (diagramEntry) {
+		diagramEntry.model_name = newModelName;
+		diagramEntry.title = newModelName;
+	}
+	if (tabEntry) {
+		tabEntry.model_name = newModelName;
+		tabEntry.title = newModelName;
+	}
+
+	try {
+		const response = await frappeRequest({
+			url: "/api/method/one_bpmn.api.rename_process_model",
+			params: {
+				name: tabName,
+				new_title: newModelName,
+			},
+		});
+
+		const result = response.message || response;
+		const newName = result.name;
+
+		// Transfer cached XML to new key
+		if (diagramDataCache.value[tabName]) {
+			diagramDataCache.value[newName] = diagramDataCache.value[tabName];
+			if (newName !== tabName) {
+				delete diagramDataCache.value[tabName];
+			}
+		}
+
+		// Update the document name (may differ from title due to autoname)
+		if (diagramEntry) diagramEntry.name = newName;
+		if (tabEntry) tabEntry.name = newName;
+
+		// Update active diagram ref and URL if the renamed tab is active
+		if (activeDiagramName.value === tabName) {
+			activeDiagramName.value = newName;
+			router.replace({
+				name: "DiagramEditor",
+				params: { process: props.process, diagram: newName },
+			});
+		}
+
+		showNotification("Renamed", `Diagram renamed to "${newModelName}"`, "green");
+	} catch (error) {
+		// --- Revert optimistic update on failure ---
+		if (diagramEntry) {
+			diagramEntry.name = tabName;
+			diagramEntry.model_name = oldModelName;
+			diagramEntry.title = oldModelName;
+		}
+		if (tabEntry) {
+			tabEntry.name = tabName;
+			tabEntry.model_name = oldModelName;
+			tabEntry.title = oldModelName;
+		}
+
+		console.error("Failed to rename process model:", error);
+		showNotification(
+			"Rename Failed",
+			error.message || error._server_messages || "An error occurred while renaming.",
+			"red"
+		);
+	}
+}
+
 function goBack() {
 	router.push({ name: "Home" });
 }
@@ -1249,8 +1331,11 @@ async function onLaunchScriptEditor(event) {
 	moduleSearch.value = "";
 	showDoctypeDropdown.value = false;
 	showModuleDropdown.value = false;
+	// Set reactive flag for Script Task restriction
+	const isScriptTask = event.element && event.element.type === "bpmn:ScriptTask";
+	isScriptTaskElement.value = isScriptTask;
 	newScript.value = {
-		name: "", script_type: "", script: "", reference_doctype: "",
+		name: "", script_type: isScriptTask ? "API" : "", script: "", reference_doctype: "",
 		doctype_event: "", api_method: "", allow_guest: false,
 		event_frequency: "", cron_format: "", module: "",
 	};
