@@ -7,7 +7,7 @@
  * during rendering). If the rendered text overflows the shape, it
  * expands the shape height (and optionally width) just enough to fit.
  *
- * Applies to: bpmn:Task, bpmn:CallActivity, bpmn:SubProcess (collapsed)
+ * Applies to: bpmn:Task, bpmn:CallActivity, bpmn:SubProcess
  */
 
 const LABEL_PADDING = 7;  // matches BpmnRenderer's renderEmbeddedLabel padding
@@ -113,7 +113,7 @@ export default function LabelAutoResize(eventBus, modeling, textRenderer, elemen
 		// by checking the widest tspan against available width
 		var widestLineWidth = 0;
 		// Temporarily attach SVG element to DOM to measure
-		var helperSvg = document.getElementById('helper-svg');
+		var helperSvg = document.getElementById('helper-svg-resize');
 		if (!helperSvg) {
 			helperSvg = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
 			helperSvg.id = 'helper-svg-resize';
