@@ -1,4 +1,4 @@
-import { is, isAny } from "bpmn-js/lib/util/ModelUtil";
+import { is } from "bpmn-js/lib/util/ModelUtil";
 
 /**
  * A properties panel provider that runs at the lowest priority to filter out
