@@ -217,6 +217,17 @@
 						v-model="newDiagramDescription"
 						placeholder="Optional description"
 					/>
+					<label
+						v-if="activeDiagramName"
+						class="flex items-center gap-2 text-sm text-gray-700 cursor-pointer select-none"
+					>
+						<input
+							type="checkbox"
+							v-model="newDiagramMakeCopy"
+							class="rounded border-gray-300 text-blue-600 focus:ring-blue-500"
+						/>
+						Make a Copy
+					</label>
 				</div>
 			</template>
 			<template #actions>
@@ -618,6 +629,7 @@ let pendingNavigationNext = null;
 const showNewDiagramDialog = ref(false);
 const newDiagramName = ref("");
 const newDiagramDescription = ref("");
+const newDiagramMakeCopy = ref(false);
 
 // Track loaded diagram data
 const diagramDataCache = ref({});
@@ -1032,6 +1044,7 @@ function showNotification(title, message, theme = "green") {
 function showAddDiagramDialog() {
 	newDiagramName.value = "";
 	newDiagramDescription.value = "";
+	newDiagramMakeCopy.value = false;
 	showNewDiagramDialog.value = true;
 }
 
@@ -1043,8 +1056,12 @@ async function createDiagram() {
 
 	creating.value = true;
 	try {
-		// Create with empty diagram
-		const emptyXml = `<?xml version="1.0" encoding="UTF-8"?>
+		// Determine XML: copy current diagram or use empty template
+		let xmlContent;
+		if (newDiagramMakeCopy.value && activeDiagramName.value && editorRef.value) {
+			xmlContent = await editorRef.value.getXML();
+		} else {
+			xmlContent = `<?xml version="1.0" encoding="UTF-8"?>
 <bpmn:definitions xmlns:bpmn="http://www.omg.org/spec/BPMN/20100524/MODEL"
                   xmlns:bpmndi="http://www.omg.org/spec/BPMN/20100524/DI"
                   xmlns:dc="http://www.omg.org/spec/DD/20100524/DC"
@@ -1061,6 +1078,7 @@ async function createDiagram() {
     </bpmndi:BPMNPlane>
   </bpmndi:BPMNDiagram>
 </bpmn:definitions>`;
+		}
 
 		// Use JSON body for Frappe API
 		const response = await fetch("/api/method/one_bpmn.api.save_process_model", {
@@ -1072,7 +1090,7 @@ async function createDiagram() {
 			body: JSON.stringify({
 				process: props.process,
 				model_name: newDiagramName.value,
-				xml_content: emptyXml,
+				xml_content: xmlContent,
 				description: newDiagramDescription.value || "",
 			}),
 		});
