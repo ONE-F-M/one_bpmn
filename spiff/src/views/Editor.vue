@@ -554,7 +554,6 @@ const route = useRoute();
 
 const editorRef = ref(null);
 const processName = ref("");
-const processStatus = ref("");
 const diagrams = ref([]);
 const openTabs = ref([]);
 const activeDiagramName = ref(null);
@@ -581,6 +580,13 @@ let hasPendingSave = false; // true while the 1.5s debounce timer is counting do
 function isUnsavedOrInFlight() {
 	return hasPendingSave || hasUnsavedChanges.value || saving.value;
 }
+
+// Derive status from the currently selected diagram tab
+const processStatus = computed(() => {
+	if (!activeDiagramName.value) return "";
+	const d = diagrams.value.find((d) => d.name === activeDiagramName.value);
+	return d ? d.status : "";
+});
 
 const saveStatusText = computed(() => {
 	switch (saveState.value) {
@@ -841,8 +847,11 @@ onMounted(async () => {
 		if (props.diagram) {
 			activeDiagramName.value = props.diagram;
 		} else if (diagrams.value.length > 0) {
-			// Select first diagram by default
-			activeDiagramName.value = diagrams.value[0].name;
+			// Default to the active model; fallback to first (most recently modified)
+			const activeDiagram = diagrams.value.find((d) => d.is_active);
+			activeDiagramName.value = activeDiagram
+				? activeDiagram.name
+				: diagrams.value[0].name;
 		}
 	} finally {
 		loading.value = false;
@@ -860,17 +869,12 @@ async function loadProcess() {
 	try {
 		const response = await frappeRequest({
 			url: "/api/method/one_bpmn.api.get_process_diagrams",
-			params: { process: props.process },
+			params: { process: props.process, _t: Date.now() },
 		});
 
 		const data = response.message || response;
 		processName.value = data.process_name;
 		diagrams.value = data.diagrams || [];
-
-		// Derive status from most recent diagram
-		if (diagrams.value.length > 0) {
-			processStatus.value = diagrams.value[0].status;
-		}
 	} catch (error) {
 		console.error("Failed to load process:", error);
 	}
@@ -1297,12 +1301,10 @@ async function handleImportFile(event) {
 
 function getStatusTheme(status) {
 	switch (status) {
-		case "Published":
+		case "Active":
 			return "green";
-		case "In Development":
+		case "Inactive":
 			return "orange";
-		case "Draft":
-			return "blue";
 		default:
 			return "gray";
 	}
