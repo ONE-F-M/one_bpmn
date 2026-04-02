@@ -158,14 +158,13 @@ function CronExpressionComponent(props) {
     });
   };
 
-  const cronAsciiHelp = `*    *    *    *    *
-┬    ┬    ┬    ┬    ┬
-│    │    │    │    │
-│    │    │    │    └ day of week (0 - 6) (0 is Sunday)
-│    │    │    └───── month (1 - 12)
-│    │    └────────── day of month (1 - 31)
-│    └─────────────── hour (0 - 23)
-└──────────────────── minute (0 - 59)
+  const cronAsciiHelp = `*  *  *  *  *
+┬  ┬  ┬  ┬  ┬
+│  │  │  │  └ day of week (0-6, 0=Sun)
+│  │  │  └─── month (1-12)
+│  │  └────── day of month (1-31)
+│  └───────── hour (0-23)
+└──────────── minute (0-59)
 
 ---
 
@@ -182,7 +181,7 @@ function CronExpressionComponent(props) {
       }, 'crontab.guru')
     ]),
     h('pre', {
-      style: 'font-family: monospace; font-size: 11px; color: #6b7280; white-space: pre; background: #f3f4f6; padding: 8px; border-radius: 4px; overflow-x: auto; line-height: 1.4; margin: 0;'
+      style: 'font-family: monospace; font-size: 11px; color: #6b7280; white-space: pre; background: #f3f4f6; padding: 8px; border-radius: 4px; line-height: 1.4; margin: 0;'
     }, cronAsciiHelp)
   ]);
 
