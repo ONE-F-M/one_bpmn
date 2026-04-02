@@ -3,6 +3,45 @@ import { useService } from 'bpmn-js-properties-panel';
 import { getBusinessObject } from 'bpmn-js/lib/util/ModelUtil';
 import { h } from 'preact';
 
+const FREQUENCY_EXPLANATIONS = {
+  All: {
+    title: 'All (Every 60 seconds)',
+    description: 'Triggers every 60 seconds (1 minute) as long as the scheduler is running.',
+    example: 'If the scheduler starts at 10:00:00, the next runs will be at 10:01:00, 10:02:00, 10:03:00, and so on.',
+    note: 'Use with caution — this is the most frequent option and may cause high load.'
+  },
+  Hourly: {
+    title: 'Hourly',
+    description: 'Triggers once every hour, at the start of the hour (minute 0).',
+    example: 'Runs at 01:00, 02:00, 03:00, … , 23:00, 00:00 every day.',
+    note: 'Equivalent to the cron expression: 0 * * * *'
+  },
+  Daily: {
+    title: 'Daily',
+    description: 'Triggers once every day at midnight (00:00).',
+    example: 'Runs at 00:00 on Monday, 00:00 on Tuesday, etc.',
+    note: 'Equivalent to the cron expression: 0 0 * * *'
+  },
+  Weekly: {
+    title: 'Weekly',
+    description: 'Triggers once every week on Sunday at midnight (00:00).',
+    example: 'Runs at 00:00 every Sunday.',
+    note: 'Equivalent to the cron expression: 0 0 * * 0'
+  },
+  Monthly: {
+    title: 'Monthly',
+    description: 'Triggers once a month on the 1st day of the month at midnight (00:00).',
+    example: 'Runs at 00:00 on January 1st, February 1st, March 1st, etc.',
+    note: 'Equivalent to the cron expression: 0 0 1 * *'
+  },
+  Yearly: {
+    title: 'Yearly',
+    description: 'Triggers once a year on January 1st at midnight (00:00).',
+    example: 'Runs at 00:00 on January 1st every year.',
+    note: 'Equivalent to the cron expression: 0 0 1 1 *'
+  }
+};
+
 export function TimerProps(props) {
   const { element } = props;
 
@@ -33,6 +72,13 @@ export function TimerProps(props) {
       element,
       component: CronExpressionComponent,
       isEdited: isTextFieldEntryEdited
+    });
+  } else if (currentFrequency && FREQUENCY_EXPLANATIONS[currentFrequency]) {
+    entries.push({
+      id: 'spiffworkflow-frequencyExplanation',
+      element,
+      component: FrequencyExplanationComponent,
+      frequency: currentFrequency
     });
   }
 
@@ -112,14 +158,13 @@ function CronExpressionComponent(props) {
     });
   };
 
-  const cronAsciiHelp = `*    *    *    *    *
-┬    ┬    ┬    ┬    ┬
-│    │    │    │    │
-│    │    │    │    └ day of week (0 - 6) (0 is Sunday)
-│    │    │    └───── month (1 - 12)
-│    │    └────────── day of month (1 - 31)
-│    └─────────────── hour (0 - 23)
-└──────────────────── minute (0 - 59)
+  const cronAsciiHelp = `*  *  *  *  *
+┬  ┬  ┬  ┬  ┬
+│  │  │  │  └ day of week (0-6, 0=Sun)
+│  │  │  └─── month (1-12)
+│  │  └────── day of month (1-31)
+│  └───────── hour (0-23)
+└──────────── minute (0-59)
 
 ---
 
@@ -136,7 +181,7 @@ function CronExpressionComponent(props) {
       }, 'crontab.guru')
     ]),
     h('pre', {
-      style: 'font-family: monospace; font-size: 11px; color: #6b7280; white-space: pre; background: #f3f4f6; padding: 8px; border-radius: 4px; overflow-x: auto; line-height: 1.4; margin: 0;'
+      style: 'font-family: monospace; font-size: 11px; color: #6b7280; white-space: pre; background: #f3f4f6; padding: 8px; border-radius: 4px; line-height: 1.4; margin: 0;'
     }, cronAsciiHelp)
   ]);
 
@@ -149,4 +194,30 @@ function CronExpressionComponent(props) {
     label: translate('Cron Expression'),
     description: descriptionNode
   });
+}
+
+function FrequencyExplanationComponent(props) {
+  const { id, frequency } = props;
+  const translate = useService('translate');
+
+  const info = FREQUENCY_EXPLANATIONS[frequency];
+  if (!info) return null;
+
+  return h('div', {
+    class: 'bio-properties-panel-entry',
+    'data-entry-id': id
+  }, [
+    h('div', { class: 'frequency-explanation' }, [
+      h('div', { class: 'frequency-explanation__card' }, [
+        h('div', { class: 'frequency-explanation__title' }, translate(info.title)),
+        h('div', { class: 'frequency-explanation__desc' }, translate(info.description)),
+        h('div', { class: 'frequency-explanation__desc' }, [
+          h('span', { class: 'frequency-explanation__label' }, translate('Example:')),
+          ' ',
+          translate(info.example)
+        ]),
+        h('div', { class: 'frequency-explanation__note' }, translate(info.note))
+      ])
+    ])
+  ]);
 }
