@@ -879,8 +879,20 @@ def create_notification(
 		doc.send_to_all_assignees = 1
 
 	if recipients:
-		rows = _json.loads(recipients) if isinstance(recipients, str) else recipients
+		if isinstance(recipients, str):
+			try:
+				rows = _json.loads(recipients)
+			except (ValueError, _json.JSONDecodeError):
+				frappe.throw("Recipients must be a valid JSON array of objects.", frappe.ValidationError)
+		else:
+			rows = recipients
+
+		if not isinstance(rows, list):
+			frappe.throw("Recipients must be a list of objects.", frappe.ValidationError)
+
 		for row in rows:
+			if not isinstance(row, dict):
+				frappe.throw("Each recipient entry must be an object.", frappe.ValidationError)
 			doc.append("recipients", {
 				"receiver_by_document_field": row.get("receiver_by_document_field", ""),
 				"receiver_by_role": row.get("receiver_by_role", ""),

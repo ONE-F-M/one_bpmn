@@ -107,8 +107,11 @@ class NotificationAutocomplete extends Component {
 			this.fetchOptions(val);
 		}, 300);
 
-		// Clear value if user types (they need to actually select)
-		this.props.onChange(val);
+		// Clear the model value while typing — only onSelect writes a valid name
+		// (Review Comment #3: prevents partially-typed names from persisting)
+		if (this.props.value) {
+			this.props.onChange("");
+		}
 	}
 
 	onSelect(val) {
