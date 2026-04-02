@@ -23,11 +23,11 @@
 			<!-- Navigation -->
 			<nav class="flex-1 space-y-1" :class="collapsed ? 'p-2' : 'p-4'">
 				<router-link
-					to="/spiff"
+					to="/processa"
 					class="flex items-center rounded-md transition-colors"
 					:class="[
 						collapsed ? 'justify-center px-2 py-2' : 'gap-3 px-3 py-2',
-						$route.path === '/spiff' ? 'bg-gray-100 text-gray-900' : 'text-gray-600 hover:bg-gray-50 hover:text-gray-900'
+						$route.path === '/processa' ? 'bg-gray-100 text-gray-900' : 'text-gray-600 hover:bg-gray-50 hover:text-gray-900'
 					]"
 					:title="collapsed ? 'Processes' : ''"
 				>
@@ -40,11 +40,11 @@
 					</span>
 				</router-link>
 				<router-link
-					to="/spiff/instances"
+					to="/processa/instances"
 					class="flex items-center rounded-md transition-colors"
 					:class="[
 						collapsed ? 'justify-center px-2 py-2' : 'gap-3 px-3 py-2',
-						$route.path === '/spiff/instances' ? 'bg-gray-100 text-gray-900' : 'text-gray-600 hover:bg-gray-50 hover:text-gray-900'
+						$route.path === '/processa/instances' ? 'bg-gray-100 text-gray-900' : 'text-gray-600 hover:bg-gray-50 hover:text-gray-900'
 					]"
 					:title="collapsed ? 'Instances' : ''"
 				>

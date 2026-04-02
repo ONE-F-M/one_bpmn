@@ -6,35 +6,35 @@ import InstanceDetail from "@/views/InstanceDetail.vue"
 
 const routes = [
 	{
-		path: "/spiff",
+		path: "/processa",
 		name: "Home",
 		component: Home,
 	},
 	{
-		path: "/spiff/process/:process",
+		path: "/processa/process/:process",
 		name: "ProcessEditor",
 		component: Editor,
 		props: true,
 	},
 	{
-		path: "/spiff/process/:process/diagram/:diagram",
+		path: "/processa/process/:process/diagram/:diagram",
 		name: "DiagramEditor",
 		component: Editor,
 		props: true,
 	},
 	{
-		path: "/spiff/instances",
+		path: "/processa/instances",
 		name: "InstanceList",
 		component: InstanceList,
 	},
 	{
-		path: "/spiff/instances/:instance",
+		path: "/processa/instances/:instance",
 		name: "InstanceDetail",
 		component: InstanceDetail,
 	},
 	{
 		path: "/:pathMatch(.*)*",
-		redirect: "/spiff",
+		redirect: "/processa",
 	},
 ]
 

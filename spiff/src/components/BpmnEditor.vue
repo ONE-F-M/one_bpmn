@@ -139,6 +139,9 @@ import clipboardModule from "@/utils/clipboard";
 // Custom moddle extension for text style attributes
 import customTextStyleModdle from "@/moddle/customTextStyleModdle";
 
+// Task resize + auto-label-fit module
+import resizeModule from "@/resize";
+
 import userTaskPropertiesProviderModule from "@/bpmn/userTaskPropertiesProvider";
 import intermediateEventPropertiesProviderModule from "@/bpmn/intermediateEventPropertiesProvider";
 import timerPropertiesProviderModule from "@/bpmn/timerPropertiesProvider";
@@ -309,11 +312,13 @@ onMounted(async () => {
 				// minimapModule, // DISABLED
 				translateModule,
 				customTextStyleModule,
+				resizeModule,
 				clipboardModule,
 				lintModule,
 				nativeCopyPasteModule,
 				propertiesPanelFilterModule,
 			],
+			taskResizingEnabled: true,
 			linting: {
 				active: true,
 				bpmnlint: bpmnlintConfig,
