@@ -13,6 +13,7 @@ declare module 'vue' {
     EditorSidebar: typeof import('./src/components/EditorSidebar.vue')['default']
     EditorTabs: typeof import('./src/components/EditorTabs.vue')['default']
     FormattingToolbar: typeof import('./src/components/FormattingToolbar.vue')['default']
+    NotificationLinkDialog: typeof import('./src/components/NotificationLinkDialog.vue')['default']
     RouterLink: typeof import('vue-router')['RouterLink']
     RouterView: typeof import('vue-router')['RouterView']
     ShapeLibraryPanel: typeof import('./src/components/ShapeLibraryPanel.vue')['default']
