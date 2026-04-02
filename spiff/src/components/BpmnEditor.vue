@@ -888,6 +888,35 @@ defineExpose({
 }
 /* ─────────────────────────────────────────────────── */
 
+/* Launch Editor Button Styling */
+.properties-panel-container .spiffworkflow-properties-panel-button {
+	display: inline-flex;
+	align-items: center;
+	gap: 6px;
+	padding: 6px 14px;
+	margin: 4px 8px 8px;
+	font-size: 12px;
+	font-weight: 500;
+	color: #374151;
+	background: #ffffff;
+	border: 1px solid #d1d5db;
+	border-radius: 6px;
+	cursor: pointer;
+	transition: all 0.15s ease;
+	box-shadow: 0 1px 2px rgba(0, 0, 0, 0.05);
+}
+
+.properties-panel-container .spiffworkflow-properties-panel-button:hover {
+	background: #f3f4f6;
+	border-color: #9ca3af;
+	box-shadow: 0 1px 3px rgba(0, 0, 0, 0.1);
+}
+
+.properties-panel-container .spiffworkflow-properties-panel-button:active {
+	background: #e5e7eb;
+	box-shadow: inset 0 1px 2px rgba(0, 0, 0, 0.1);
+}
+
 /* Palette Styling */
 .bpmn-canvas .djs-palette {
 	background: #f8f9fa;

@@ -107,3 +107,13 @@ function toggleCollapse() {
 	localStorage.setItem("one_bpmn_sidebar_collapsed", String(collapsed.value))
 }
 </script>
+
+<style>
+#app {
+	isolation: isolate;
+	position: relative;
+}
+.dialog-overlay {
+	z-index: 50 !important;
+}
+</style>
