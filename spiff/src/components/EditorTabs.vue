@@ -22,7 +22,7 @@
 				ref="editInputRefs"
 				type="text"
 				v-model="editValue"
-				class="bg-transparent border-b border-white/60 outline-none text-inherit font-inherit text-base w-40 px-0 py-0"
+				class="bg-transparent border-0 border-b border-white/60 outline-none ring-0 shadow-none focus:ring-0 focus:outline-none focus:shadow-none text-inherit font-inherit text-base w-40 px-0 py-0"
 				@click.stop
 				@keydown.enter.prevent="commitEdit(tab)"
 				@keydown.escape.prevent="cancelEdit"

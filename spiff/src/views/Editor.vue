@@ -1536,8 +1536,8 @@ function onCancelCallActivitySearch() {
 /* Fix dark background on form inputs in dialog */
 :deep(.dialog-form input),
 :deep(.dialog-form textarea),
-:deep(input[type="text"]),
-:deep(textarea) {
+:deep(.dialog-body input[type="text"]),
+:deep(.dialog-body textarea) {
 	background-color: white !important;
 	color: #1f2937 !important;
 }
