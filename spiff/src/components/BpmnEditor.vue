@@ -146,6 +146,7 @@ import userTaskPropertiesProviderModule from "@/bpmn/userTaskPropertiesProvider"
 import intermediateEventPropertiesProviderModule from "@/bpmn/intermediateEventPropertiesProvider";
 import timerPropertiesProviderModule from "@/bpmn/timerPropertiesProvider";
 import startEventPropertiesProviderModule from "@/bpmn/startEventPropertiesProvider";
+import conditionalStartEventPropertiesProviderModule from "@/bpmn/conditionalStartEventPropertiesProvider";
 import propertiesPanelFilterModule from "@/bpmn/propertiesPanelFilter";
 
 // bpmnlint — diagram validation
@@ -265,6 +266,21 @@ onMounted(async () => {
 				});
 			}
 
+			// Conditional Start Event trigger extension (hot-reloading safety)
+			const hasCondStartEventExt = spiffModdleExtension.types.find(t => t.name === "ConditionalEventTriggerExtension");
+			if (!hasCondStartEventExt) {
+				spiffModdleExtension.types.push({
+					name: "ConditionalEventTriggerExtension",
+					extends: ["bpmn:ConditionalEventDefinition"],
+					properties: [
+						{ name: "triggerDoctype",       isAttr: true, type: "String" },
+						{ name: "triggerType",          isAttr: true, type: "String" },
+						{ name: "triggerWorkflow",      isAttr: true, type: "String" },
+						{ name: "triggerWorkflowState", isAttr: true, type: "String" }
+					]
+				});
+			}
+
 			// User Task assignee extension
 			const hasUserTaskExt = spiffModdleExtension.types.find(t => t.name === "UserTaskAssigneeExtension");
 			if (!hasUserTaskExt) {
@@ -309,6 +325,7 @@ onMounted(async () => {
 				intermediateEventPropertiesProviderModule,
 				timerPropertiesProviderModule,
 				startEventPropertiesProviderModule,
+				conditionalStartEventPropertiesProviderModule,
 				// minimapModule, // DISABLED
 				translateModule,
 				customTextStyleModule,
@@ -358,19 +375,39 @@ onMounted(async () => {
 				const bo = newShape && newShape.businessObject;
 				if (!bo) return;
 
-				let isPlainStartEvent = false;
+				const modeling = modeler.get("modeling");
+				const triggerAttrs = ["triggerDoctype", "triggerType", "triggerWorkflow", "triggerWorkflowState"];
+				const clearProps = {};
+				triggerAttrs.forEach(attr => {
+					clearProps[`spiffworkflow:${attr}`] = undefined;
+				});
+
 				if (bo.$type === "bpmn:StartEvent") {
 					const eventDefs = bo.get("eventDefinitions") || [];
-					isPlainStartEvent = eventDefs.length === 0;
-				}
+					const isPlainStartEvent = eventDefs.length === 0;
+					const hasConditionalDef = eventDefs.some(d => d.$type === "bpmn:ConditionalEventDefinition");
 
-				if (!isPlainStartEvent) {
-					const modeling = modeler.get("modeling");
-					const attrs = ["triggerDoctype", "triggerType", "triggerWorkflow", "triggerWorkflowState"];
-					const clearProps = {};
-					attrs.forEach(attr => {
-						clearProps[`spiffworkflow:${attr}`] = undefined;
-					});
+					// Clear trigger attrs from the StartEvent BO if it's no longer plain
+					if (!isPlainStartEvent) {
+						modeling.updateModdleProperties(newShape, bo, clearProps);
+					}
+
+					// Clear trigger attrs from ConditionalEventDefinition if the shape
+					// was converted away from a Conditional Start Event
+					if (!hasConditionalDef) {
+						// Check the old shape's event defs for stale conditional data
+						const oldShape = e.context.oldShape;
+						const oldBo = oldShape && oldShape.businessObject;
+						if (oldBo) {
+							const oldDefs = oldBo.get("eventDefinitions") || [];
+							const oldCondDef = oldDefs.find(d => d.$type === "bpmn:ConditionalEventDefinition");
+							if (oldCondDef) {
+								modeling.updateModdleProperties(newShape, oldCondDef, clearProps);
+							}
+						}
+					}
+				} else {
+					// Not a StartEvent at all — clear any lingering trigger attrs
 					modeling.updateModdleProperties(newShape, bo, clearProps);
 				}
 			});
