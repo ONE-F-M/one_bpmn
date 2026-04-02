@@ -218,7 +218,7 @@
 						placeholder="Optional description"
 					/>
 					<label
-						v-if="activeDiagramName"
+						v-if="canCopyActiveDiagram"
 						class="flex items-center gap-2 text-sm text-gray-700 cursor-pointer select-none"
 					>
 						<input
@@ -630,6 +630,11 @@ const showNewDiagramDialog = ref(false);
 const newDiagramName = ref("");
 const newDiagramDescription = ref("");
 const newDiagramMakeCopy = ref(false);
+
+// Only show "Make a Copy" when editor is ready and diagram XML is available
+const canCopyActiveDiagram = computed(() => {
+	return activeDiagramName.value && editorReady.value && !!diagramDataCache.value[activeDiagramName.value];
+});
 
 // Track loaded diagram data
 const diagramDataCache = ref({});
@@ -1058,8 +1063,21 @@ async function createDiagram() {
 	try {
 		// Determine XML: copy current diagram or use empty template
 		let xmlContent;
-		if (newDiagramMakeCopy.value && activeDiagramName.value && editorRef.value) {
-			xmlContent = await editorRef.value.getXML();
+		if (newDiagramMakeCopy.value && activeDiagramName.value) {
+			// Try live editor first, fall back to cache
+			if (editorReady.value && editorRef.value) {
+				xmlContent = await editorRef.value.getXML();
+			}
+			// Fall back to cached XML if getXML() returned empty or editor wasn't ready
+			if (!xmlContent) {
+				xmlContent = diagramDataCache.value[activeDiagramName.value];
+			}
+			// If still no XML, block creation
+			if (!xmlContent) {
+				showNotification('Copy Failed', 'The current diagram has not finished loading. Please wait and try again.', 'red');
+				creating.value = false;
+				return;
+			}
 		} else {
 			xmlContent = `<?xml version="1.0" encoding="UTF-8"?>
 <bpmn:definitions xmlns:bpmn="http://www.omg.org/spec/BPMN/20100524/MODEL"
