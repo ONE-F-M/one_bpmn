@@ -1123,17 +1123,26 @@ async function closeTab(name) {
 	}
 }
 
+/**
+ * Apply field updates to matching entries in both diagrams and openTabs.
+ * Keeps the update/revert logic in one place (Review #2).
+ */
+function applyTabDiagramFields(matchName, fields) {
+	const diagramEntry = diagrams.value.find((d) => d.name === matchName);
+	const tabEntry = openTabs.value.find((t) => t.name === matchName);
+	if (diagramEntry) Object.assign(diagramEntry, fields);
+	if (tabEntry) Object.assign(tabEntry, fields);
+}
+
 async function renameProcessModel({ tabName, oldModelName, newModelName }) {
-	// --- Optimistic update: show new name instantly ---
-	const diagramEntry = diagrams.value.find((d) => d.name === tabName);
-	const tabEntry = openTabs.value.find((t) => t.name === tabName);
-	if (diagramEntry) {
-		diagramEntry.model_name = newModelName;
-		diagramEntry.title = newModelName;
-	}
-	if (tabEntry) {
-		tabEntry.model_name = newModelName;
-		tabEntry.title = newModelName;
+	// --- Review #1: Flush pending autosave before renaming ---
+	// Cancel the debounce timer so autosave can't fire with a stale model_name.
+	clearTimeout(saveTimeout);
+	hasPendingSave = false;
+
+	// If there are unsaved diagram changes, flush them under the OLD name first.
+	if (hasUnsavedChanges.value && activeDiagramName.value === tabName && editorRef.value) {
+		await saveCurrentDiagram();
 	}
 
 	try {
@@ -1147,6 +1156,7 @@ async function renameProcessModel({ tabName, oldModelName, newModelName }) {
 
 		const result = response.message || response;
 		const newName = result.name;
+		const actualModelName = result.model_name;
 
 		// Transfer cached XML to new key
 		if (diagramDataCache.value[tabName]) {
@@ -1156,9 +1166,12 @@ async function renameProcessModel({ tabName, oldModelName, newModelName }) {
 			}
 		}
 
-		// Update the document name (may differ from title due to autoname)
-		if (diagramEntry) diagramEntry.name = newName;
-		if (tabEntry) tabEntry.name = newName;
+		// Apply name + display fields after API success (avoids autosave race)
+		applyTabDiagramFields(tabName, {
+			name: newName,
+			model_name: actualModelName,
+			title: actualModelName,
+		});
 
 		// Update active diagram ref and URL if the renamed tab is active
 		if (activeDiagramName.value === tabName) {
@@ -1169,20 +1182,8 @@ async function renameProcessModel({ tabName, oldModelName, newModelName }) {
 			});
 		}
 
-		showNotification("Renamed", `Diagram renamed to "${newModelName}"`, "green");
+		showNotification("Renamed", `Diagram renamed to "${actualModelName}"`, "green");
 	} catch (error) {
-		// --- Revert optimistic update on failure ---
-		if (diagramEntry) {
-			diagramEntry.name = tabName;
-			diagramEntry.model_name = oldModelName;
-			diagramEntry.title = oldModelName;
-		}
-		if (tabEntry) {
-			tabEntry.name = tabName;
-			tabEntry.model_name = oldModelName;
-			tabEntry.title = oldModelName;
-		}
-
 		console.error("Failed to rename process model:", error);
 		showNotification(
 			"Rename Failed",

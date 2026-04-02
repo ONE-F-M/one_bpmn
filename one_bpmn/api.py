@@ -400,14 +400,14 @@ def rename_process_model(name: str, new_title: str) -> dict:
 	new_name = doc.name
 	if new_title != doc.name:
 		try:
-			frappe.rename_doc(
+			actual_new_name = frappe.rename_doc(
 				"BPMN Process Model",
 				doc.name,
 				new_title,
 				force=True,
 				merge=False,
 			)
-			new_name = new_title
+			new_name = actual_new_name or new_title
 		except frappe.ValidationError:
 			# If rename fails (e.g. duplicate), keep the existing name
 			frappe.log_error(
@@ -420,7 +420,7 @@ def rename_process_model(name: str, new_title: str) -> dict:
 
 	return {
 		"name": new_name,
-		"model_name": new_title,
+		"model_name": frappe.db.get_value("BPMN Process Model", new_name, "title") or new_title,
 	}
 
 
