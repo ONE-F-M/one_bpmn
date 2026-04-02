@@ -901,14 +901,14 @@ async function onEditorReady() {
 	}
 
 	hasUnsavedChanges.value = false;
-	saveState.value = 'idle';
+	saveState.value = 'saved';
 }
 
 // Watch for diagram tab switches and load new XML without remounting the editor.
 watch(activeDiagramName, async (newName) => {
 	if (!editorReady.value || !newName) return;
 	hasUnsavedChanges.value = false;
-	saveState.value = 'idle';
+	saveState.value = 'saved';
 	await loadDiagramContent(newName);
 	hasUnsavedChanges.value = false;
 });
@@ -994,9 +994,6 @@ async function saveCurrentDiagram() {
 		diagramDataCache.value[activeDiagramName.value] = xml;
 		
 		saveState.value = 'saved';
-		setTimeout(() => {
-			if (saveState.value === 'saved') saveState.value = 'idle';
-		}, 3000);
 	} catch (error) {
 		console.error("Failed to save diagram:", error);
 		saveState.value = 'error';
