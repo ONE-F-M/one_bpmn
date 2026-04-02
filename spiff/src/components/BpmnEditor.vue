@@ -90,7 +90,7 @@
 			<div
 				v-show="showPropertiesPanel"
 				ref="propertiesContainer"
-				class="properties-panel-container w-80 border-l border-gray-200 bg-white overflow-auto"
+				class="properties-panel-container w-96 border-l border-gray-200 bg-white overflow-auto"
 			></div>
 		</div>
 	</div>
