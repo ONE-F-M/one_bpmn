@@ -198,45 +198,26 @@ function CronExpressionComponent(props) {
 }
 
 function FrequencyExplanationComponent(props) {
-  const { element, id } = props;
+  const { id, frequency } = props;
   const translate = useService('translate');
 
-  const bo = getBusinessObject(element);
-  const timerDef = (bo.eventDefinitions || []).find(e => e.$type === 'bpmn:TimerEventDefinition');
-  const frequency = timerDef ? timerDef.get('spiffworkflow:schedulerFrequency') : null;
-
-  const info = frequency ? FREQUENCY_EXPLANATIONS[frequency] : null;
+  const info = FREQUENCY_EXPLANATIONS[frequency];
   if (!info) return null;
 
   return h('div', {
     class: 'bio-properties-panel-entry',
     'data-entry-id': id
   }, [
-    h('div', {
-      style: 'padding: 6px 10px;'
-    }, [
-      h('div', {
-        style: 'background: #f3f4f6; border-radius: 6px; padding: 12px; font-size: 12.5px; line-height: 1.6; color: #374151;'
-      }, [
-        // Title
-        h('div', {
-          style: 'font-weight: 600; font-size: 13px; margin-bottom: 8px; color: #111827;'
-        }, translate(info.title)),
-        // Description
-        h('div', {
-          style: 'margin-bottom: 8px;'
-        }, translate(info.description)),
-        // Example
-        h('div', {
-          style: 'margin-bottom: 8px;'
-        }, [
-          h('span', { style: 'font-weight: 600; color: #111827;' }, translate('Example') + ': '),
+    h('div', { class: 'frequency-explanation' }, [
+      h('div', { class: 'frequency-explanation__card' }, [
+        h('div', { class: 'frequency-explanation__title' }, translate(info.title)),
+        h('div', { class: 'frequency-explanation__desc' }, translate(info.description)),
+        h('div', { class: 'frequency-explanation__desc' }, [
+          h('span', { class: 'frequency-explanation__label' }, translate('Example:')),
+          ' ',
           translate(info.example)
         ]),
-        // Note
-        h('div', {
-          style: 'font-size: 11.5px; color: #6b7280; font-style: italic;'
-        }, translate(info.note))
+        h('div', { class: 'frequency-explanation__note' }, translate(info.note))
       ])
     ])
   ]);

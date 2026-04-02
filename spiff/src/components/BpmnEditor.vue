@@ -955,6 +955,42 @@ defineExpose({
 	background-color: #f3f4f6;
 }
 
+/* Frequency Explanation Card (Timer Start Event) */
+.properties-panel-container .frequency-explanation {
+	padding: 6px 10px;
+}
+
+.properties-panel-container .frequency-explanation__card {
+	background: var(--properties-panel-group-header-background-color, #f3f4f6);
+	border-radius: 6px;
+	padding: 12px;
+	font-size: 12.5px;
+	line-height: 1.6;
+	color: #374151;
+}
+
+.properties-panel-container .frequency-explanation__title {
+	font-weight: 600;
+	font-size: 13px;
+	margin-bottom: 8px;
+	color: #111827;
+}
+
+.properties-panel-container .frequency-explanation__desc {
+	margin-bottom: 8px;
+}
+
+.properties-panel-container .frequency-explanation__label {
+	font-weight: 600;
+	color: #111827;
+}
+
+.properties-panel-container .frequency-explanation__note {
+	font-size: 11.5px;
+	color: #6b7280;
+	font-style: italic;
+}
+
 /* Minimap Styling */
 .djs-minimap {
 	background: #ffffff;
