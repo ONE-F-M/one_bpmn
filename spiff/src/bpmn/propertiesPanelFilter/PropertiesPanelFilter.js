@@ -22,6 +22,7 @@ const HIDDEN_GROUPS = {
 	"bpmn:UserTask": new Set([
 		"spiff_pre_post_scripts",
 		"user_task_properties",
+		"instructions",
 		"allow_guest_user",
 		"ioProperties",
 	]),
@@ -54,6 +55,7 @@ const HIDDEN_GROUPS = {
 
 	// 6) Script Task: hide I/O Management
 	"bpmn:ScriptTask": new Set([
+		"instructions",
 		"ioProperties",
 	]),
 };
