@@ -11,16 +11,30 @@
 				: 'bg-gray-500 text-gray-100 hover:bg-gray-600'
 		]"
 		@click="$emit('select-tab', tab.name)"
+		@dblclick.stop="startEditing(tab)"
 		>
 			<!-- Status dot: green = Active, orange = Inactive -->
 			<span
 				:class="[
 					'inline-block w-2 h-2 rounded-full shrink-0',
-					tab.is_active ? 'bg-green-400' : 'bg-orange-400'
+					(tab.is_active || tab.status === 'Active') ? 'bg-green-400' : 'bg-orange-400'
 				]"
-				:title="tab.is_active ? 'Active' : 'Inactive'"
+				:title="(tab.is_active || tab.status === 'Active') ? 'Active' : 'Inactive'"
 			></span>
-			<span class="truncate max-w-40">{{ tab.model_name }}</span>
+
+			<!-- Inline rename input (shown on double-click) -->
+			<input
+				v-if="editingTab === tab.name"
+				ref="renameInputRef"
+				v-model="editingName"
+				type="text"
+				class="bg-transparent border-b border-white/60 text-inherit text-base outline-none px-0 py-0 w-40"
+				@blur="finishEditing(tab)"
+				@keydown.enter.prevent="finishEditing(tab)"
+				@keydown.escape.prevent="cancelEditing"
+				@click.stop
+			/>
+			<span v-else class="truncate max-w-40">{{ tab.model_name }}</span>
 		</div>
 
 		<!-- Add tab button -->
@@ -35,8 +49,10 @@
 </template>
 
 <script setup>
+import { ref, nextTick } from "vue"
 import { Icon } from "@iconify/vue"
-defineProps({
+
+const props = defineProps({
 	tabs: {
 		type: Array,
 		default: () => []
@@ -47,5 +63,42 @@ defineProps({
 	}
 })
 
-defineEmits(["select-tab", "add-tab"])
+const emit = defineEmits(["select-tab", "add-tab", "rename-tab"])
+
+const editingTab = ref(null)
+const editingName = ref("")
+const renameInputRef = ref(null)
+
+function startEditing(tab) {
+	editingTab.value = tab.name
+	editingName.value = tab.model_name
+	nextTick(() => {
+		const input = renameInputRef.value
+		// renameInputRef may be an array when inside v-for
+		const el = Array.isArray(input) ? input[0] : input
+		if (el) {
+			el.focus()
+			el.select()
+		}
+	})
+}
+
+function finishEditing(tab) {
+	const newName = editingName.value.trim()
+	const oldName = tab.model_name
+	editingTab.value = null
+
+	if (newName && newName !== oldName) {
+		emit("rename-tab", {
+			tabName: tab.name,
+			oldModelName: oldName,
+			newModelName: newName,
+		})
+	}
+}
+
+function cancelEditing() {
+	editingTab.value = null
+	editingName.value = ""
+}
 </script>

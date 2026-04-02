@@ -848,7 +848,7 @@ onMounted(async () => {
 			activeDiagramName.value = props.diagram;
 		} else if (diagrams.value.length > 0) {
 			// Default to the active model; fallback to first (most recently modified)
-			const activeDiagram = diagrams.value.find((d) => d.is_active);
+			const activeDiagram = diagrams.value.find((d) => d.is_active || d.status === 'Active');
 			activeDiagramName.value = activeDiagram
 				? activeDiagram.name
 				: diagrams.value[0].name;
@@ -867,12 +867,12 @@ onUnmounted(() => {
 
 async function loadProcess() {
 	try {
-		const response = await frappeRequest({
-			url: "/api/method/one_bpmn.api.get_process_diagrams",
-			params: { process: props.process, _t: Date.now() },
-		});
-
-		const data = response.message || response;
+		const response = await fetch(
+			`/api/method/one_bpmn.api.get_process_diagrams?process=${encodeURIComponent(props.process)}`,
+			{ headers: { "X-Frappe-CSRF-Token": window.csrf_token || "" } }
+		);
+		const json = await response.json();
+		const data = json.message || json;
 		processName.value = data.process_name;
 		diagrams.value = data.diagrams || [];
 	} catch (error) {
@@ -1264,7 +1264,8 @@ async function handleImportFile(event) {
 				model_name: result.model_name,
 				title: result.model_name,
 				process_id: result.process_id,
-				status: "Active",
+				is_active: 0,
+				status: "Inactive",
 			};
 			diagrams.value.push(diagramEntry);
 		}
