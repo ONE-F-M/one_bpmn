@@ -10,6 +10,28 @@ import re
 class BPMNProcessModel(Document):
 	def validate(self):
 		self.extract_process_id_from_xml()
+		self.enforce_single_active()
+
+	def enforce_single_active(self):
+		"""Ensure only one process model is active per process.
+
+		When this model is being activated, deactivate all other models
+		that belong to the same process_name.
+		"""
+		if not self.is_active or not self.process_name:
+			return
+
+		frappe.db.set_value(
+			"BPMN Process Model",
+			{
+				"process_name": self.process_name,
+				"is_active": 1,
+				"name": ("!=", self.name),
+			},
+			"is_active",
+			0,
+			update_modified=False,
+		)
 
 	def before_save(self):
 		if not self.is_new():
