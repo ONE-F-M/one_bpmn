@@ -11,7 +11,7 @@
 				: 'bg-gray-500 text-gray-100 hover:bg-gray-600'
 		]"
 		@click="$emit('select-tab', tab.name)"
-		@dblclick.stop="startEditing(tab)"
+		@dblclick.stop="!readonly && startEditing(tab)"
 		>
 			<!-- Display mode -->
 			<span v-if="editingTabName !== tab.name" class="truncate max-w-40">{{ tab.model_name }}</span>
@@ -30,8 +30,9 @@
 			/>
 		</div>
 
-		<!-- Add tab button -->
+		<!-- Add tab button (hidden in read-only mode) -->
 		<button
+			v-if="!readonly"
 			@click="$emit('add-tab')"
 			class="p-2 rounded hover:bg-gray-300 text-gray-600 shrink-0"
 			title="Add new diagram"
@@ -53,6 +54,10 @@ defineProps({
 	activeTab: {
 		type: String,
 		default: null
+	},
+	readonly: {
+		type: Boolean,
+		default: false
 	}
 })
 

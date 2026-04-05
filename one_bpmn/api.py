@@ -758,15 +758,50 @@ def _is_production_site() -> bool:
 	return site_url == production_url
 
 
+def _is_local_dev_mode() -> bool:
+	"""Return True when production API credentials are NOT configured.
+
+	In local dev the one_fm app (with Pathfinder Log) lives on the same
+	bench, so we can call its API directly without HTTP.
+	"""
+	production_url = frappe.conf.get("production_url")
+	api_key = frappe.conf.get("production_api_key")
+	api_secret = frappe.conf.get("production_api_secret")
+	return not (production_url and api_key and api_secret)
+
+
+def _call_local_pathfinder_api(method_path: str, params: dict) -> dict:
+	"""Call a pathfinder API method directly (same bench, no HTTP).
+
+	Used as a fallback in local dev when production credentials are not
+	configured.
+	"""
+	from frappe.handler import call as frappe_call
+	import importlib
+
+	# method_path looks like "one_fm.one_fm.doctype.pathfinder_log.pathfinder_api.is_process_editable"
+	module_path, func_name = method_path.rsplit(".", 1)
+	module = importlib.import_module(module_path)
+	func = getattr(module, func_name)
+	return func(**params)
+
+
 def _call_production_api(method: str, params: dict) -> dict:
 	"""
 	Call a whitelisted method on the Production site using API key auth.
 
 	Reads `production_url`, `production_api_key`, and
 	`production_api_secret` from the current site's site_config.json.
+
+	Falls back to a direct local call when credentials are not configured
+	(local development mode).
 	"""
 	import json
 	import requests
+
+	# Local dev fallback — call directly on the same bench
+	if _is_local_dev_mode():
+		return _call_local_pathfinder_api(method, params)
 
 	production_url = (frappe.conf.get("production_url") or "").rstrip("/")
 	api_key = frappe.conf.get("production_api_key")
@@ -799,7 +834,7 @@ def _call_production_api(method: str, params: dict) -> dict:
 			title="Production API call failed",
 			message=f"Method: {method}\nParams: {json.dumps(params)}\nError: {str(e)}"
 		)
-		frappe.throw(_("Failed to check process editability: {0}").format(str(e)))
+		frappe.throw(_("Failed to check process editability. Please try again or contact support."))
 
 
 @frappe.whitelist()
@@ -855,12 +890,20 @@ def bulk_check_processes_editable(process_names: str) -> dict:
 	Returns:
 		dict mapping process name → editability info
 	"""
-	import json
+	# Safe JSON parsing with validation
+	try:
+		if isinstance(process_names, str):
+			process_names_list = frappe.parse_json(process_names)
+		else:
+			process_names_list = process_names
+	except Exception:
+		frappe.throw(
+			_("Invalid process_names: expected a JSON-encoded list of strings."),
+			title=_("Validation Error"),
+		)
 
-	if isinstance(process_names, str):
-		process_names_list = json.loads(process_names)
-	else:
-		process_names_list = process_names
+	if not isinstance(process_names_list, list):
+		frappe.throw(_("process_names must be a list"))
 
 	if _is_production_site():
 		return {

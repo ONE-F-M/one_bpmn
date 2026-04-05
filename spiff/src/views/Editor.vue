@@ -195,6 +195,7 @@
 				<EditorTabs
 					:tabs="openTabs"
 					:activeTab="activeDiagramName"
+					:readonly="!isEditable"
 					@select-tab="selectDiagram"
 					@add-tab="showAddDiagramDialog"
 					@rename-tab="renameProcessModel"
@@ -1051,6 +1052,7 @@ function onDiagramChanged() {
 
 async function saveCurrentDiagram() {
 	if (!activeDiagramName.value || !editorRef.value) return;
+	if (!isEditable.value) return; // Guard: process is locked
 
 	saving.value = true;
 	saveState.value = 'saving';
@@ -1105,12 +1107,14 @@ function showNotification(title, message, theme = "green") {
 }
 
 function showAddDiagramDialog() {
+	if (!isEditable.value) return; // Guard: process is locked
 	newDiagramName.value = "";
 	newDiagramDescription.value = "";
 	showNewDiagramDialog.value = true;
 }
 
 async function createDiagram() {
+	if (!isEditable.value) return; // Guard: process is locked
 	if (!newDiagramName.value.trim()) {
 		alert("Please enter a diagram name");
 		return;
@@ -1207,6 +1211,7 @@ function applyTabDiagramFields(matchName, fields) {
 }
 
 async function renameProcessModel({ tabName, oldModelName, newModelName }) {
+	if (!isEditable.value) return; // Guard: process is locked
 	// --- Review #1: Flush pending autosave before renaming ---
 	// Cancel the debounce timer so autosave can't fire with a stale model_name.
 	clearTimeout(saveTimeout);
@@ -1285,6 +1290,7 @@ async function exportCurrentDiagram() {
 }
 
 function triggerImport() {
+	if (!isEditable.value) return; // Guard: process is locked
 	if (importFileInput.value) {
 		// Reset so the same file can be re-imported
 		importFileInput.value.value = "";
@@ -1293,6 +1299,7 @@ function triggerImport() {
 }
 
 async function handleImportFile(event) {
+	if (!isEditable.value) return; // Guard: process is locked
 	const file = event.target.files && event.target.files[0];
 	if (!file) return;
 

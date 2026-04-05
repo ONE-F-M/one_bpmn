@@ -349,7 +349,9 @@ onMounted(async () => {
 					fontSize: "12px",
 				},
 			},
-			keyboard: { bindTo: document },
+			// Disable keyboard bindings in readonly mode to prevent
+			// delete/move/copy keyboard shortcuts from modifying the diagram
+			keyboard: props.readonly ? false : { bindTo: document },
 		},
 		onReady: async (initializedModeler) => {
 			modeler = initializedModeler;
@@ -545,6 +547,41 @@ onMounted(async () => {
 			}
 
 
+
+			// In readonly mode, disable all modeler-level editing interactions
+			// so users cannot move, delete, or modify elements locally.
+			if (props.readonly) {
+				// Intercept commandStack to prevent any model mutations
+				const originalExecute = commandStack.execute.bind(commandStack);
+				commandStack.execute = (command, context) => {
+					// Allow canvas operations (zoom, scroll) but block element mutations
+					const allowedCommands = ['canvas.updateRootElement'];
+					if (allowedCommands.includes(command)) {
+						return originalExecute(command, context);
+					}
+					// Silently ignore all other commands
+					return;
+				};
+
+				// Disable direct editing (double-click labels)
+				try {
+					const directEditing = modeler.get('directEditing');
+					if (directEditing) {
+						directEditing.cancel();
+						const origActivate = directEditing.activate;
+						directEditing.activate = () => false;
+					}
+				} catch (_) { /* module may not exist */ }
+
+				// Disable dragging
+				try {
+					const dragging = modeler.get('dragging');
+					if (dragging) {
+						const origInit = dragging.init;
+						dragging.init = () => {};
+					}
+				} catch (_) { /* module may not exist */ }
+			}
 
 			emit("ready");
 		},
