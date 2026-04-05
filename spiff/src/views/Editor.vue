@@ -33,6 +33,17 @@
 					class="hidden"
 					@change="handleImportFile"
 				/>
+				<!-- Compare Versions Button -->
+				<button
+					@click="openVersionPicker"
+					class="w-8 h-8 flex items-center justify-center hover:bg-gray-100 rounded transition-colors text-gray-600"
+					title="Compare Versions"
+					:disabled="!activeDiagramName"
+					:class="{ 'opacity-40 cursor-not-allowed': !activeDiagramName }"
+				>
+					<Icon icon="lucide:git-compare" class="w-4 h-4" />
+				</button>
+
 				<!-- File menu dropdown -->
 				<div class="relative">
 					<button
@@ -559,6 +570,13 @@
 				</div>
 			</template>
 		</Dialog>
+
+		<!-- Version Comparison Dialogs (extracted component) -->
+		<VersionDiffDialog
+			ref="versionDiffRef"
+			:diagramName="activeDiagramName"
+			@error="(e) => showNotification(e.title, e.message, e.theme)"
+		/>
 	</div>
 </template>
 
@@ -570,6 +588,7 @@ import { Icon } from "@iconify/vue";
 import BpmnEditor from "@/components/BpmnEditor.vue";
 import EditorTabs from "@/components/EditorTabs.vue";
 import ShapeLibraryPanel from "@/components/ShapeLibraryPanel.vue";
+import VersionDiffDialog from "@/components/VersionDiffDialog.vue";
 import { downloadBpmn } from "@/utils/downloadBpmn";
 import CallActivitySearchDialog from "@/components/CallActivitySearchDialog.vue";
 
@@ -601,6 +620,9 @@ const hasUnsavedChanges = ref(false);
 const loading = ref(true);
 const showShapeLibrary = ref(false);
 const showFileMenu = ref(false);
+
+// Version diff dialog ref
+const versionDiffRef = ref(null);
 
 // Pathfinder Log editability state
 const isEditable = ref(false);  // locked by default until API confirms
@@ -896,6 +918,7 @@ onMounted(async () => {
 });
 
 async function checkEditability() {
+
 	try {
 		const response = await frappeRequest({
 			url: "/api/method/one_bpmn.api.check_process_editable",
@@ -1272,6 +1295,20 @@ async function renameProcessModel({ tabName, oldModelName, newModelName }) {
 
 function goBack() {
 	router.push({ name: "Home" });
+}
+
+// ── Version Comparison (Diff) ──
+
+function openVersionPicker() {
+	if (!versionDiffRef.value) return;
+
+	versionDiffRef.value.open(async () => {
+		// Getter for the current diagram XML
+		if (editorRef.value) {
+			return await editorRef.value.getXML();
+		}
+		return diagramDataCache.value[activeDiagramName.value] || null;
+	});
 }
 
 async function exportCurrentDiagram() {
