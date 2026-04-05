@@ -733,3 +733,298 @@ def create_server_script(
 		frappe.set_user(original_user)
 
 	return {"name": doc.name, "script_type": doc.script_type}
+
+
+# ============================================
+# Pathfinder Log — Process Editability Check
+# ============================================
+# The Processa BPMN editor is deployed on two sites:
+#   Production (one-fm.com)        — always read-only
+#   BA site (business-analyst...)  — editable only when an active Pathfinder Log exists
+#
+# The Pathfinder Log doctype lives in the one_fm app on Production.
+# These proxy endpoints let the BA site frontend check editability
+# without making cross-origin requests directly.
+
+
+def _is_production_site() -> bool:
+	"""Return True if the current Frappe site IS the Production instance."""
+	production_url = (frappe.conf.get("production_url") or "").rstrip("/")
+	if not production_url:
+		# If production_url is not configured, assume we are NOT production
+		# (safe default: allow the editability check to proceed).
+		return False
+	site_url = frappe.utils.get_url().rstrip("/")
+	return site_url == production_url
+
+
+def _is_local_dev_mode() -> bool:
+	"""Return True when production API credentials are NOT configured.
+
+	In local dev the one_fm app (with Pathfinder Log) lives on the same
+	bench, so we can call its API directly without HTTP.
+	"""
+	production_url = frappe.conf.get("production_url")
+	api_key = frappe.conf.get("production_api_key")
+	api_secret = frappe.conf.get("production_api_secret")
+	return not (production_url and api_key and api_secret)
+
+
+def _call_local_pathfinder_api(method_path: str, params: dict) -> dict:
+	"""Call a pathfinder API method directly (same bench, no HTTP).
+
+	Used as a fallback in local dev when production credentials are not
+	configured.
+	"""
+	from frappe.handler import call as frappe_call
+	import importlib
+
+	# method_path looks like "one_fm.one_fm.doctype.pathfinder_log.pathfinder_api.is_process_editable"
+	module_path, func_name = method_path.rsplit(".", 1)
+	module = importlib.import_module(module_path)
+	func = getattr(module, func_name)
+	return func(**params)
+
+
+def _call_production_api(method: str, params: dict) -> dict:
+	"""
+	Call a whitelisted method on the Production site using API key auth.
+
+	Reads `production_url`, `production_api_key`, and
+	`production_api_secret` from the current site's site_config.json.
+
+	Falls back to a direct local call when credentials are not configured
+	(local development mode).
+	"""
+	import json
+	import requests
+
+	# Local dev fallback — call directly on the same bench
+	if _is_local_dev_mode():
+		return _call_local_pathfinder_api(method, params)
+
+	production_url = (frappe.conf.get("production_url") or "").rstrip("/")
+	api_key = frappe.conf.get("production_api_key")
+	api_secret = frappe.conf.get("production_api_secret")
+
+	if not production_url or not api_key or not api_secret:
+		frappe.throw(_(
+			"Production API credentials are not configured. "
+			"Please set production_url, production_api_key, and "
+			"production_api_secret in site_config.json."
+		))
+
+	url = f"{production_url}/api/method/{method}"
+	headers = {
+		"Authorization": f"token {api_key}:{api_secret}",
+		"Content-Type": "application/json",
+	}
+
+	try:
+		resp = requests.get(url, params=params, headers=headers, timeout=10)
+		resp.raise_for_status()
+		data = resp.json()
+		return data.get("message", data)
+	except requests.exceptions.Timeout:
+		frappe.throw(_("Production API request timed out. Please try again."))
+	except requests.exceptions.ConnectionError:
+		frappe.throw(_("Cannot reach Production site. Please check connectivity."))
+	except Exception as e:
+		frappe.log_error(
+			title="Production API call failed",
+			message=f"Method: {method}\nParams: {json.dumps(params)}\nError: {str(e)}"
+		)
+		frappe.throw(_("Failed to check process editability. Please try again or contact support."))
+
+
+@frappe.whitelist()
+def check_process_editable(process_name: str) -> dict:
+	"""
+	Check if a single process is editable (has an active Pathfinder Log).
+
+	On Production: always returns editable=False.
+	On BA site: proxies the call to Production's API.
+
+	Args:
+		process_name: Name of the Process record.
+
+	Returns:
+		dict with editable, pathfinder_log, workflow_state, reason
+	"""
+	if not process_name:
+		frappe.throw(_("Process name is required"))
+
+	if _is_production_site():
+		return {
+			"editable": False,
+			"pathfinder_log": None,
+			"workflow_state": None,
+			"reason": "Production site is always read-only.",
+		}
+
+	result = _call_production_api(
+		"one_fm.one_fm.doctype.pathfinder_log.pathfinder_api.is_process_editable",
+		{"process_name": process_name},
+	)
+
+	# Add a human-readable reason for the frontend
+	if result.get("editable"):
+		result["reason"] = f"Active Pathfinder Log: {result.get('pathfinder_log')}"
+	else:
+		result["reason"] = "No active Pathfinder Log. Create one to enable editing."
+
+	return result
+
+
+@frappe.whitelist()
+def bulk_check_processes_editable(process_names: str) -> dict:
+	"""
+	Batch check editability for multiple processes.
+
+	On Production: returns all as non-editable.
+	On BA site: proxies to Production's bulk API.
+
+	Args:
+		process_names: JSON-encoded list of process name strings.
+
+	Returns:
+		dict mapping process name → editability info
+	"""
+	# Safe JSON parsing with validation
+	try:
+		if isinstance(process_names, str):
+			process_names_list = frappe.parse_json(process_names)
+		else:
+			process_names_list = process_names
+	except Exception:
+		frappe.throw(
+			_("Invalid process_names: expected a JSON-encoded list of strings."),
+			title=_("Validation Error"),
+		)
+
+	if not isinstance(process_names_list, list):
+		frappe.throw(_("process_names must be a list"))
+
+	if _is_production_site():
+		return {
+			pname: {
+				"editable": False,
+				"pathfinder_log": None,
+				"workflow_state": None,
+			}
+			for pname in process_names_list
+		}
+
+	return _call_production_api(
+		"one_fm.one_fm.doctype.pathfinder_log.pathfinder_api.bulk_check_process_editable",
+		{"process_names": json.dumps(process_names_list)},
+	)
+
+
+# ============================================
+# Diagram Version History (for visual diffing)
+# ============================================
+
+@frappe.whitelist()
+def get_diagram_versions(name: str) -> list:
+	"""
+	Get version history for a BPMN Process Model.
+
+	Reads from Frappe's Version table (populated automatically because
+	track_changes=1 on BPMN Process Model). Filters to only include
+	versions where bpmn_xml actually changed.
+
+	Args:
+		name: Document name of the BPMN Process Model
+
+	Returns:
+		list of version entries with timestamp, user, and version_name
+	"""
+	if not name:
+		frappe.throw(_("Diagram name is required"))
+
+	doc = frappe.get_doc("BPMN Process Model", name)
+	doc.check_permission("read")
+
+	versions = frappe.get_all(
+		"Version",
+		filters={"ref_doctype": "BPMN Process Model", "docname": name},
+		fields=["name", "owner", "creation", "data"],
+		order_by="creation desc",
+		limit_page_length=50,
+	)
+
+	import json as json_mod
+
+	result = []
+	for v in versions:
+		# Only include versions where bpmn_xml was changed
+		try:
+			data = json_mod.loads(v.data)
+			has_xml_change = any(
+				change[0] == "bpmn_xml" for change in data.get("changed", [])
+			)
+			if not has_xml_change:
+				continue
+		except (json_mod.JSONDecodeError, KeyError, TypeError):
+			continue
+
+		result.append({
+			"version_name": v.name,
+			"user": frappe.utils.get_fullname(v.owner),
+			"user_email": v.owner,
+			"timestamp": v.creation,
+		})
+
+	return result
+
+
+@frappe.whitelist()
+def get_diagram_version_xml(name: str, version_name: str) -> dict:
+	"""
+	Get the bpmn_xml content at a specific version point.
+
+	Extracts the bpmn_xml value from the Version record's stored diff data.
+	Uses change[2] (new value) which is the state of the XML AT that version.
+
+	Args:
+		name: Document name of the BPMN Process Model
+		version_name: Name of the Version record
+
+	Returns:
+		dict with xml_content, version_name, timestamp, user
+	"""
+	if not name or not version_name:
+		frappe.throw(_("Diagram name and version name are required"))
+
+	doc = frappe.get_doc("BPMN Process Model", name)
+	doc.check_permission("read")
+
+	version_doc = frappe.get_doc("Version", version_name)
+
+	import json as json_mod
+
+	try:
+		data = json_mod.loads(version_doc.data)
+	except (json_mod.JSONDecodeError, TypeError):
+		frappe.throw(
+			_("Version data is corrupted or unavailable for '{0}'").format(version_name)
+		)
+
+	# Extract the bpmn_xml change — changed is [[fieldname, old_value, new_value], ...]
+	# change[2] = new value = the XML state AT this version point
+	xml_content = None
+	for change in data.get("changed", []):
+		if change[0] == "bpmn_xml" and len(change) >= 3:
+			xml_content = change[2]
+			break
+
+	if not xml_content:
+		frappe.throw(_("No BPMN XML change found in this version"))
+
+	return {
+		"xml_content": xml_content,
+		"version_name": version_name,
+		"timestamp": version_doc.creation,
+		"user": frappe.utils.get_fullname(version_doc.owner),
+	}
