@@ -919,3 +919,106 @@ def bulk_check_processes_editable(process_names: str) -> dict:
 		"one_fm.one_fm.doctype.pathfinder_log.pathfinder_api.bulk_check_process_editable",
 		{"process_names": json.dumps(process_names_list)},
 	)
+
+
+# ============================================
+# Diagram Version History (for visual diffing)
+# ============================================
+
+@frappe.whitelist()
+def get_diagram_versions(name: str) -> list:
+	"""
+	Get version history for a BPMN Process Model.
+
+	Reads from Frappe's Version table (populated automatically because
+	track_changes=1 on BPMN Process Model). Filters to only include
+	versions where bpmn_xml actually changed.
+
+	Args:
+		name: Document name of the BPMN Process Model
+
+	Returns:
+		list of version entries with timestamp, user, and version_name
+	"""
+	if not name:
+		frappe.throw(_("Diagram name is required"))
+
+	doc = frappe.get_doc("BPMN Process Model", name)
+	doc.check_permission("read")
+
+	versions = frappe.get_all(
+		"Version",
+		filters={"ref_doctype": "BPMN Process Model", "docname": name},
+		fields=["name", "owner", "creation", "data"],
+		order_by="creation desc",
+		limit_page_length=50,
+	)
+
+	import json as json_mod
+
+	result = []
+	for v in versions:
+		# Only include versions where bpmn_xml was changed
+		try:
+			data = json_mod.loads(v.data)
+			has_xml_change = any(
+				change[0] == "bpmn_xml" for change in data.get("changed", [])
+			)
+			if not has_xml_change:
+				continue
+		except (json_mod.JSONDecodeError, KeyError, TypeError):
+			continue
+
+		result.append({
+			"version_name": v.name,
+			"user": frappe.utils.get_fullname(v.owner),
+			"user_email": v.owner,
+			"timestamp": v.creation,
+		})
+
+	return result
+
+
+@frappe.whitelist()
+def get_diagram_version_xml(name: str, version_name: str) -> dict:
+	"""
+	Get the bpmn_xml content at a specific version point.
+
+	Extracts the old bpmn_xml value from the Version record's
+	stored diff data.
+
+	Args:
+		name: Document name of the BPMN Process Model
+		version_name: Name of the Version record
+
+	Returns:
+		dict with xml_content, version_name, timestamp, user
+	"""
+	if not name or not version_name:
+		frappe.throw(_("Diagram name and version name are required"))
+
+	doc = frappe.get_doc("BPMN Process Model", name)
+	doc.check_permission("read")
+
+	version_doc = frappe.get_doc("Version", version_name)
+
+	import json as json_mod
+	data = json_mod.loads(version_doc.data)
+
+	# Extract the bpmn_xml change — changed is [[fieldname, old_value, new_value], ...]
+	xml_content = None
+	for change in data.get("changed", []):
+		if change[0] == "bpmn_xml":
+			# change[1] = old value (what was there BEFORE this version)
+			xml_content = change[1]
+			break
+
+	if not xml_content:
+		frappe.throw(_("No BPMN XML change found in this version"))
+
+	return {
+		"xml_content": xml_content,
+		"version_name": version_name,
+		"timestamp": version_doc.creation,
+		"user": frappe.utils.get_fullname(version_doc.owner),
+	}

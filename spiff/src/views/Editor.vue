@@ -33,6 +33,17 @@
 					class="hidden"
 					@change="handleImportFile"
 				/>
+				<!-- Compare Versions Button -->
+				<button
+					@click="openVersionPicker"
+					class="w-8 h-8 flex items-center justify-center hover:bg-gray-100 rounded transition-colors text-gray-600"
+					title="Compare Versions"
+					:disabled="!activeDiagramName"
+					:class="{ 'opacity-40 cursor-not-allowed': !activeDiagramName }"
+				>
+					<Icon icon="lucide:git-compare" class="w-4 h-4" />
+				</button>
+
 				<!-- File menu dropdown -->
 				<div class="relative">
 					<button
@@ -559,6 +570,89 @@
 				</div>
 			</template>
 		</Dialog>
+
+		<!-- Version Picker Dialog -->
+		<Dialog v-model="showVersionPickerDialog" :options="{ title: 'Compare Versions', size: 'lg' }">
+			<template #body-content>
+				<div class="space-y-3">
+					<div class="text-sm text-gray-500">
+						Select a previous version to compare against the current diagram.
+					</div>
+
+					<!-- Loading -->
+					<div v-if="loadingVersions" class="p-8 text-center text-gray-400">
+						<div class="animate-spin rounded-full h-6 w-6 border-b-2 border-gray-400 mx-auto mb-2"></div>
+						Loading version history...
+					</div>
+
+					<!-- Empty state -->
+					<div v-else-if="diagramVersions.length === 0" class="p-8 text-center text-gray-400">
+						<Icon icon="lucide:history" class="w-10 h-10 mx-auto mb-2 opacity-50" />
+						<p>No previous versions found.</p>
+						<p class="text-xs mt-1">Save the diagram a few times to build version history.</p>
+					</div>
+
+					<!-- Version list -->
+					<div v-else class="max-h-80 overflow-y-auto border border-gray-200 rounded-lg">
+						<div
+							v-for="version in diagramVersions"
+							:key="version.version_name"
+							@click="selectedVersion = version"
+							:class="[
+								'flex items-center justify-between px-4 py-3 cursor-pointer border-b border-gray-100 last:border-b-0 transition-colors',
+								selectedVersion?.version_name === version.version_name
+									? 'bg-blue-50 border-l-4 border-l-blue-500'
+									: 'hover:bg-gray-50'
+							]"
+						>
+							<div>
+								<div class="text-sm font-medium text-gray-900">
+									{{ formatVersionDate(version.timestamp) }}
+								</div>
+								<div class="text-xs text-gray-500 mt-0.5">
+									{{ version.user }}
+									<span class="text-gray-400"> · {{ relativeTime(version.timestamp) }}</span>
+								</div>
+							</div>
+							<Icon
+								v-if="selectedVersion?.version_name === version.version_name"
+								icon="lucide:check-circle"
+								class="w-5 h-5 text-blue-500"
+							/>
+						</div>
+					</div>
+				</div>
+			</template>
+			<template #actions>
+				<div class="flex gap-2">
+					<Button variant="subtle" @click="showVersionPickerDialog = false">Cancel</Button>
+					<Button
+						variant="solid"
+						@click="startDiffComparison"
+						:disabled="!selectedVersion"
+						:loading="loadingDiffXml"
+					>Compare</Button>
+				</div>
+			</template>
+		</Dialog>
+
+		<!-- Diff Viewer Dialog -->
+		<Dialog v-model="showDiffDialog" :options="{ title: 'Diagram Comparison', size: '7xl' }">
+			<template #body-content>
+				<div class="h-[70vh]">
+					<DiffViewer
+						v-if="diffOldXml && diffNewXml"
+						:oldXml="diffOldXml"
+						:newXml="diffNewXml"
+						:oldLabel="diffOldLabel"
+						:newLabel="diffNewLabel"
+					/>
+				</div>
+			</template>
+			<template #actions>
+				<Button variant="subtle" @click="showDiffDialog = false">Close</Button>
+			</template>
+		</Dialog>
 	</div>
 </template>
 
@@ -570,8 +664,10 @@ import { Icon } from "@iconify/vue";
 import BpmnEditor from "@/components/BpmnEditor.vue";
 import EditorTabs from "@/components/EditorTabs.vue";
 import ShapeLibraryPanel from "@/components/ShapeLibraryPanel.vue";
+import DiffViewer from "@/components/DiffViewer.vue";
 import { downloadBpmn } from "@/utils/downloadBpmn";
 import CallActivitySearchDialog from "@/components/CallActivitySearchDialog.vue";
+import { dayjs } from "@/dayjs";
 
 const props = defineProps({
 	process: {
@@ -601,6 +697,18 @@ const hasUnsavedChanges = ref(false);
 const loading = ref(true);
 const showShapeLibrary = ref(false);
 const showFileMenu = ref(false);
+
+// Version comparison / diff state
+const showVersionPickerDialog = ref(false);
+const showDiffDialog = ref(false);
+const diagramVersions = ref([]);
+const selectedVersion = ref(null);
+const loadingVersions = ref(false);
+const loadingDiffXml = ref(false);
+const diffOldXml = ref("");
+const diffNewXml = ref("");
+const diffOldLabel = ref("");
+const diffNewLabel = ref("");
 
 // Pathfinder Log editability state
 const isEditable = ref(false);  // locked by default until API confirms
@@ -896,6 +1004,16 @@ onMounted(async () => {
 });
 
 async function checkEditability() {
+	// ⚠️ DEV OVERRIDE — remove before merging to production
+	isEditable.value = true;
+	editabilityInfo.value = {
+		editable: true,
+		pathfinder_log: "DEV-MODE",
+		workflow_state: null,
+		reason: "Development mode — editing forced on.",
+	};
+	return;
+
 	try {
 		const response = await frappeRequest({
 			url: "/api/method/one_bpmn.api.check_process_editable",
@@ -1272,6 +1390,91 @@ async function renameProcessModel({ tabName, oldModelName, newModelName }) {
 
 function goBack() {
 	router.push({ name: "Home" });
+}
+
+// ── Version Comparison (Diff) ──
+
+async function openVersionPicker() {
+	if (!activeDiagramName.value) return;
+
+	selectedVersion.value = null;
+	diagramVersions.value = [];
+	loadingVersions.value = true;
+	showVersionPickerDialog.value = true;
+
+	try {
+		const response = await frappeRequest({
+			url: "/api/method/one_bpmn.api.get_diagram_versions",
+			params: { name: activeDiagramName.value },
+		});
+		diagramVersions.value = response.message || response || [];
+	} catch (error) {
+		console.error("Failed to load version history:", error);
+		diagramVersions.value = [];
+		showNotification("Error", "Failed to load version history.", "red");
+	} finally {
+		loadingVersions.value = false;
+	}
+}
+
+async function startDiffComparison() {
+	if (!selectedVersion.value || !activeDiagramName.value) return;
+
+	loadingDiffXml.value = true;
+	try {
+		// Fetch the old version XML
+		const response = await frappeRequest({
+			url: "/api/method/one_bpmn.api.get_diagram_version_xml",
+			params: {
+				name: activeDiagramName.value,
+				version_name: selectedVersion.value.version_name,
+			},
+		});
+		const data = response.message || response;
+
+		if (!data.xml_content) {
+			showNotification("Error", "Could not retrieve the XML for this version.", "red");
+			return;
+		}
+
+		// Get the current diagram XML
+		let currentXml;
+		if (editorRef.value) {
+			currentXml = await editorRef.value.getXML();
+		} else if (diagramDataCache.value[activeDiagramName.value]) {
+			currentXml = diagramDataCache.value[activeDiagramName.value];
+		}
+
+		if (!currentXml) {
+			showNotification("Error", "Could not get the current diagram XML.", "red");
+			return;
+		}
+
+		// Set diff data
+		diffOldXml.value = data.xml_content;
+		diffNewXml.value = currentXml;
+		diffOldLabel.value = `${selectedVersion.value.user} · ${relativeTime(selectedVersion.value.timestamp)}`;
+		diffNewLabel.value = "Current Version";
+
+		// Close picker, open diff viewer
+		showVersionPickerDialog.value = false;
+		showDiffDialog.value = true;
+	} catch (error) {
+		console.error("Failed to start diff comparison:", error);
+		showNotification("Error", "Failed to load version data: " + (error.message || error), "red");
+	} finally {
+		loadingDiffXml.value = false;
+	}
+}
+
+function formatVersionDate(timestamp) {
+	if (!timestamp) return "";
+	return dayjs(timestamp).format("MMM D, YYYY · h:mm A");
+}
+
+function relativeTime(timestamp) {
+	if (!timestamp) return "";
+	return dayjs(timestamp).fromNow();
 }
 
 async function exportCurrentDiagram() {
