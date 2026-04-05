@@ -69,10 +69,24 @@
 					<template #cell="{ item, row, column }">
 						<!-- Title column -->
 						<template v-if="column.key === 'process_name'">
-							<div>
-								<div class="text-sm font-medium text-gray-900">{{ item }}</div>
-								<div v-if="row.diagram_count" class="text-xs text-gray-400">
-									{{ row.diagram_count }} diagram{{ row.diagram_count !== 1 ? 's' : '' }}
+							<div class="flex items-center gap-2">
+								<Icon
+									v-if="editabilityMap[row.name]"
+									icon="lucide:pencil"
+									class="w-3.5 h-3.5 text-green-500 shrink-0"
+									title="Editable — Active Pathfinder Log"
+								/>
+								<Icon
+									v-else
+									icon="lucide:lock"
+									class="w-3.5 h-3.5 text-gray-300 shrink-0"
+									title="Locked — No active Pathfinder Log"
+								/>
+								<div>
+									<div class="text-sm font-medium text-gray-900">{{ item }}</div>
+									<div v-if="row.diagram_count" class="text-xs text-gray-400">
+										{{ row.diagram_count }} diagram{{ row.diagram_count !== 1 ? 's' : '' }}
+									</div>
 								</div>
 							</div>
 						</template>
@@ -156,6 +170,9 @@ const router = useRouter()
 const processes = ref([])
 const loading = ref(true)
 
+// Pathfinder Log editability map: { processName: true/false }
+const editabilityMap = ref({})
+
 // Column definitions for ListView
 const columns = computed(() => [
 	{
@@ -216,10 +233,38 @@ async function loadProcesses() {
 		} else {
 			processes.value = []
 		}
+
+		// Bulk check editability for all processes
+		await checkAllEditability()
 	} catch (error) {
 		console.error("Failed to load processes:", error)
 	} finally {
 		loading.value = false
+	}
+}
+
+async function checkAllEditability() {
+	if (processes.value.length === 0) return
+
+	try {
+		const processNames = processes.value.map(p => p.name)
+		const response = await frappeRequest({
+			url: "/api/method/one_bpmn.api.bulk_check_processes_editable",
+			params: { process_names: JSON.stringify(processNames) },
+		})
+
+		const data = response.message || response
+		const map = {}
+		for (const [name, info] of Object.entries(data)) {
+			map[name] = !!info.editable
+		}
+		editabilityMap.value = map
+	} catch (error) {
+		console.error("Failed to check process editability:", error)
+		// Default to all locked on error
+		const map = {}
+		processes.value.forEach(p => { map[p.name] = false })
+		editabilityMap.value = map
 	}
 }
 

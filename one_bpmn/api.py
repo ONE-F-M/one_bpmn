@@ -733,3 +733,146 @@ def create_server_script(
 		frappe.set_user(original_user)
 
 	return {"name": doc.name, "script_type": doc.script_type}
+
+
+# ============================================
+# Pathfinder Log — Process Editability Check
+# ============================================
+# The Processa BPMN editor is deployed on two sites:
+#   Production (one-fm.com)        — always read-only
+#   BA site (business-analyst...)  — editable only when an active Pathfinder Log exists
+#
+# The Pathfinder Log doctype lives in the one_fm app on Production.
+# These proxy endpoints let the BA site frontend check editability
+# without making cross-origin requests directly.
+
+
+def _is_production_site() -> bool:
+	"""Return True if the current Frappe site IS the Production instance."""
+	production_url = (frappe.conf.get("production_url") or "").rstrip("/")
+	if not production_url:
+		# If production_url is not configured, assume we are NOT production
+		# (safe default: allow the editability check to proceed).
+		return False
+	site_url = frappe.utils.get_url().rstrip("/")
+	return site_url == production_url
+
+
+def _call_production_api(method: str, params: dict) -> dict:
+	"""
+	Call a whitelisted method on the Production site using API key auth.
+
+	Reads `production_url`, `production_api_key`, and
+	`production_api_secret` from the current site's site_config.json.
+	"""
+	import json
+	import requests
+
+	production_url = (frappe.conf.get("production_url") or "").rstrip("/")
+	api_key = frappe.conf.get("production_api_key")
+	api_secret = frappe.conf.get("production_api_secret")
+
+	if not production_url or not api_key or not api_secret:
+		frappe.throw(_(
+			"Production API credentials are not configured. "
+			"Please set production_url, production_api_key, and "
+			"production_api_secret in site_config.json."
+		))
+
+	url = f"{production_url}/api/method/{method}"
+	headers = {
+		"Authorization": f"token {api_key}:{api_secret}",
+		"Content-Type": "application/json",
+	}
+
+	try:
+		resp = requests.get(url, params=params, headers=headers, timeout=10)
+		resp.raise_for_status()
+		data = resp.json()
+		return data.get("message", data)
+	except requests.exceptions.Timeout:
+		frappe.throw(_("Production API request timed out. Please try again."))
+	except requests.exceptions.ConnectionError:
+		frappe.throw(_("Cannot reach Production site. Please check connectivity."))
+	except Exception as e:
+		frappe.log_error(
+			title="Production API call failed",
+			message=f"Method: {method}\nParams: {json.dumps(params)}\nError: {str(e)}"
+		)
+		frappe.throw(_("Failed to check process editability: {0}").format(str(e)))
+
+
+@frappe.whitelist()
+def check_process_editable(process_name: str) -> dict:
+	"""
+	Check if a single process is editable (has an active Pathfinder Log).
+
+	On Production: always returns editable=False.
+	On BA site: proxies the call to Production's API.
+
+	Args:
+		process_name: Name of the Process record.
+
+	Returns:
+		dict with editable, pathfinder_log, workflow_state, reason
+	"""
+	if not process_name:
+		frappe.throw(_("Process name is required"))
+
+	if _is_production_site():
+		return {
+			"editable": False,
+			"pathfinder_log": None,
+			"workflow_state": None,
+			"reason": "Production site is always read-only.",
+		}
+
+	result = _call_production_api(
+		"one_fm.one_fm.doctype.pathfinder_log.pathfinder_api.is_process_editable",
+		{"process_name": process_name},
+	)
+
+	# Add a human-readable reason for the frontend
+	if result.get("editable"):
+		result["reason"] = f"Active Pathfinder Log: {result.get('pathfinder_log')}"
+	else:
+		result["reason"] = "No active Pathfinder Log. Create one to enable editing."
+
+	return result
+
+
+@frappe.whitelist()
+def bulk_check_processes_editable(process_names: str) -> dict:
+	"""
+	Batch check editability for multiple processes.
+
+	On Production: returns all as non-editable.
+	On BA site: proxies to Production's bulk API.
+
+	Args:
+		process_names: JSON-encoded list of process name strings.
+
+	Returns:
+		dict mapping process name → editability info
+	"""
+	import json
+
+	if isinstance(process_names, str):
+		process_names_list = json.loads(process_names)
+	else:
+		process_names_list = process_names
+
+	if _is_production_site():
+		return {
+			pname: {
+				"editable": False,
+				"pathfinder_log": None,
+				"workflow_state": None,
+			}
+			for pname in process_names_list
+		}
+
+	return _call_production_api(
+		"one_fm.one_fm.doctype.pathfinder_log.pathfinder_api.bulk_check_process_editable",
+		{"process_names": json.dumps(process_names_list)},
+	)

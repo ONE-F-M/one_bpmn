@@ -2,58 +2,66 @@
 	<div class="bpmn-editor-wrapper h-full w-full flex flex-col">
 		<!-- Toolbar (moved natively to parent Editor.vue's header) -->
 		<div ref="toolbarEl" v-show="isMounted" class="flex items-center gap-1.5 w-full h-full text-gray-700">
-			<!-- Undo/Redo buttons -->
-			<button
-				@click="undo"
-				title="Undo (Ctrl+Z)"
-				:disabled="!canUndo"
-				:class="[
-					'p-1.5 flex items-center justify-center rounded transition-colors',
-					canUndo
-						? 'hover:bg-gray-100 text-gray-700'
-						: 'text-gray-300 cursor-not-allowed',
-				]"
-			>
-				<Icon icon="lucide:undo-2" class="w-4 h-4" />
-			</button>
-			<button
-				@click="redo"
-				title="Redo (Ctrl+Y)"
-				:disabled="!canRedo"
-				:class="[
-					'p-1.5 flex items-center justify-center rounded transition-colors',
-					canRedo
-						? 'hover:bg-gray-100 text-gray-700'
-						: 'text-gray-300 cursor-not-allowed',
-				]"
-			>
-				<Icon icon="lucide:redo-2" class="w-4 h-4" />
-			</button>
+			<template v-if="!readonly">
+				<!-- Undo/Redo buttons -->
+				<button
+					@click="undo"
+					title="Undo (Ctrl+Z)"
+					:disabled="!canUndo"
+					:class="[
+						'p-1.5 flex items-center justify-center rounded transition-colors',
+						canUndo
+							? 'hover:bg-gray-100 text-gray-700'
+							: 'text-gray-300 cursor-not-allowed',
+					]"
+				>
+					<Icon icon="lucide:undo-2" class="w-4 h-4" />
+				</button>
+				<button
+					@click="redo"
+					title="Redo (Ctrl+Y)"
+					:disabled="!canRedo"
+					:class="[
+						'p-1.5 flex items-center justify-center rounded transition-colors',
+						canRedo
+							? 'hover:bg-gray-100 text-gray-700'
+							: 'text-gray-300 cursor-not-allowed',
+					]"
+				>
+					<Icon icon="lucide:redo-2" class="w-4 h-4" />
+				</button>
 
-			<div class="w-px h-5 bg-gray-200 mx-1 shrink-0"></div>
+				<div class="w-px h-5 bg-gray-200 mx-1 shrink-0"></div>
 
-			<!-- Delete button -->
-			<button
-				@click="deleteSelected"
-				title="Delete (Del)"
-				class="p-1.5 flex items-center justify-center rounded hover:bg-gray-100 text-gray-700 transition-colors"
-			>
-				<Icon icon="lucide:trash-2" class="w-4 h-4" />
-			</button>
+				<!-- Delete button -->
+				<button
+					@click="deleteSelected"
+					title="Delete (Del)"
+					class="p-1.5 flex items-center justify-center rounded hover:bg-gray-100 text-gray-700 transition-colors"
+				>
+					<Icon icon="lucide:trash-2" class="w-4 h-4" />
+				</button>
 
-			<div class="w-px h-5 bg-gray-200 mx-1 shrink-0"></div>
+				<div class="w-px h-5 bg-gray-200 mx-1 shrink-0"></div>
 
-			<!-- Formatting Toolbar -->
-			<FormattingToolbar
-				:selectedElements="selectedElements"
-				:modeler="modelerInstance"
-				class="shrink-0"
-			/>
+				<!-- Formatting Toolbar -->
+				<FormattingToolbar
+					:selectedElements="selectedElements"
+					:modeler="modelerInstance"
+					class="shrink-0"
+				/>
+			</template>
+
+			<!-- Read-only indicator -->
+			<div v-if="readonly" class="flex items-center gap-1.5 text-gray-400 text-sm">
+				<Icon icon="lucide:lock" class="w-4 h-4" />
+				<span>View Only</span>
+			</div>
 
 
 			<!-- Save Status Indicator before Properties Panel Toggle -->
 			<div class="flex-1 min-w-4 flex items-center justify-end px-3">
-				<div v-if="saveStatusText" class="text-sm font-medium transition-colors mr-2" :class="saveStatusColor">
+				<div v-if="saveStatusText && !readonly" class="text-sm font-medium transition-colors mr-2" :class="saveStatusColor">
 					{{ saveStatusText }}
 				</div>
 			</div>
@@ -81,16 +89,16 @@
 			<!-- BPMN Canvas -->
 			<div
 				ref="container"
-				class="bpmn-canvas flex-1"
-				@dragover.prevent="handleDragOver"
-				@drop.prevent="handleDrop"
+				:class="['bpmn-canvas flex-1', { 'bpmn-canvas--readonly': readonly }]"
+				@dragover.prevent="!readonly && handleDragOver($event)"
+				@drop.prevent="!readonly && handleDrop($event)"
 			></div>
 
 			<!-- Properties Panel -->
 			<div
 				v-show="showPropertiesPanel"
 				ref="propertiesContainer"
-				class="properties-panel-container w-96 border-l border-gray-200 bg-white overflow-auto"
+				:class="['properties-panel-container w-96 border-l border-gray-200 bg-white overflow-auto', { 'properties-panel--readonly': readonly }]"
 			></div>
 		</div>
 	</div>
@@ -168,6 +176,10 @@ const props = defineProps({
 	saveStatusColor: {
 		type: String,
 		default: ""
+	},
+	readonly: {
+		type: Boolean,
+		default: false
 	}
 });
 
@@ -568,7 +580,8 @@ function updateUndoRedoState() {
 		canUndo.value = commandStack.canUndo();
 		canRedo.value = commandStack.canRedo();
 	}
-	if (!isImporting.value) {
+	// Suppress change events in readonly mode so auto-save doesn't fire
+	if (!isImporting.value && !props.readonly) {
 		emit("changed");
 	}
 }
@@ -1085,5 +1098,55 @@ defineExpose({
 	font-size: 11px;
 	font-weight: 600;
 }
+
+/* ── Read-Only Mode ─────────────────────────────── */
+
+/* Hide palette and context pad in read-only mode */
+.bpmn-canvas--readonly .djs-palette,
+.bpmn-canvas--readonly .djs-context-pad,
+.bpmn-canvas--readonly .djs-popup,
+.bpmn-canvas--readonly .djs-direct-editing-parent {
+	display: none !important;
+}
+
+/* Disable drag/move cursor on elements in read-only mode */
+.bpmn-canvas--readonly .djs-element {
+	cursor: default !important;
+}
+
+/* Semi-transparent overlay to visually indicate read-only */
+.bpmn-canvas--readonly {
+	position: relative;
+}
+
+.bpmn-canvas--readonly::after {
+	content: '';
+	position: absolute;
+	inset: 0;
+	background: rgba(248, 250, 252, 0.15);
+	pointer-events: none;
+	z-index: 1;
+}
+
+/* Make properties panel inputs read-only */
+.properties-panel--readonly input,
+.properties-panel--readonly textarea,
+.properties-panel--readonly select,
+.properties-panel--readonly button {
+	pointer-events: none !important;
+	opacity: 0.7;
+}
+
+/* But keep the panel header and group headers interactive for collapsing */
+.properties-panel--readonly .bio-properties-panel-group-header {
+	pointer-events: auto !important;
+	opacity: 1;
+}
+
+.properties-panel--readonly .bio-properties-panel-header {
+	pointer-events: auto !important;
+	opacity: 1;
+}
+/* ─────────────────────────────────────────────────── */
 
 </style>
