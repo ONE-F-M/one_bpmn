@@ -1004,15 +1004,6 @@ onMounted(async () => {
 });
 
 async function checkEditability() {
-	// ⚠️ DEV OVERRIDE — remove before merging to production
-	isEditable.value = true;
-	editabilityInfo.value = {
-		editable: true,
-		pathfinder_log: "DEV-MODE",
-		workflow_state: null,
-		reason: "Development mode — editing forced on.",
-	};
-	return;
 
 	try {
 		const response = await frappeRequest({
