@@ -15,6 +15,7 @@
 		"bpmn-js": "^17.11.1",
 		"bpmn-js-bpmnlint": "^0.24.0",
 		"bpmn-js-color-picker": "^0.7.2",
+		"bpmn-js-differ": "^3.2.0",
 		"bpmn-js-properties-panel": "^5.48.0",
 		"bpmn-js-spiffworkflow": "github:ks093/bpmn-js-spiffworkflow#develop",
 		"bpmnlint": "^11.12.0",

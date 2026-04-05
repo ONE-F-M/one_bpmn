@@ -33,6 +33,17 @@
 					class="hidden"
 					@change="handleImportFile"
 				/>
+				<!-- Compare Versions Button -->
+				<button
+					@click="openVersionPicker"
+					class="w-8 h-8 flex items-center justify-center hover:bg-gray-100 rounded transition-colors text-gray-600"
+					title="Compare Versions"
+					:disabled="!activeDiagramName"
+					:class="{ 'opacity-40 cursor-not-allowed': !activeDiagramName }"
+				>
+					<Icon icon="lucide:git-compare" class="w-4 h-4" />
+				</button>
+
 				<!-- File menu dropdown -->
 				<div class="relative">
 					<button
@@ -50,6 +61,8 @@
 						<button
 							@click="triggerImport(); showFileMenu = false"
 							class="w-full flex items-center gap-2 px-3 py-2 text-sm text-gray-700 hover:bg-gray-50 transition-colors"
+							:disabled="!isEditable"
+							:class="{ 'opacity-40 cursor-not-allowed': !isEditable }"
 						>
 							<Icon icon="lucide:download" class="w-4 h-4" />
 							Import
@@ -80,6 +93,32 @@
 				-->
 			</div>
 		</header>
+
+		<!-- Lock Banner -->
+		<div v-if="!isEditable && !loading" class="px-4 pt-3">
+			<div class="flex items-center gap-3 px-4 py-3 bg-amber-50 border border-amber-200 rounded-lg">
+				<Icon icon="lucide:lock" class="w-5 h-5 text-amber-600 shrink-0" />
+				<div class="flex-1">
+					<p class="text-sm font-medium text-amber-800">
+						Process Locked — Read Only
+					</p>
+					<p class="text-xs text-amber-600 mt-0.5">
+						{{ editabilityInfo.reason || 'No active Pathfinder Log. Create one on Production to enable editing.' }}
+					</p>
+				</div>
+			</div>
+		</div>
+
+		<!-- Active Pathfinder Log Indicator -->
+		<div v-if="isEditable && editabilityInfo.pathfinder_log && !loading" class="px-4 pt-3">
+			<div class="flex items-center gap-3 px-4 py-2 bg-green-50 border border-green-200 rounded-lg">
+				<Icon icon="lucide:pencil" class="w-4 h-4 text-green-600 shrink-0" />
+				<p class="text-xs text-green-700">
+					Editing enabled — Pathfinder Log: <strong>{{ editabilityInfo.pathfinder_log }}</strong>
+					<span v-if="editabilityInfo.workflow_state" class="text-green-500"> ({{ editabilityInfo.workflow_state }})</span>
+				</p>
+			</div>
+		</div>
 
 		<!-- Notification Alert -->
 		<div v-if="notification.show" class="px-4 py-2">
@@ -125,6 +164,7 @@
 						class="absolute inset-0"
 						:save-status-text="saveStatusText"
 						:save-status-color="saveStatusColor"
+						:readonly="!isEditable"
 						@ready="onEditorReady"
 						@changed="onDiagramChanged"
 						@zoom-changed="onZoomChanged"
@@ -146,12 +186,17 @@
 							</div>
 							<p class="text-gray-500 text-lg mb-6">No diagram selected</p>
 							<button
+								v-if="isEditable"
 								@click="showAddDiagramDialog"
 								class="inline-flex items-center gap-2 px-5 py-3 bg-gray-700 hover:bg-gray-800 text-white rounded-lg transition-colors font-medium"
 							>
 								<Icon icon="lucide:plus" class="w-5 h-5" />
 								Add Process Diagram
 							</button>
+							<p v-else class="text-sm text-gray-400">
+								<Icon icon="lucide:lock" class="w-4 h-4 inline mr-1" />
+								Process is locked. Create a Pathfinder Log to enable editing.
+							</p>
 						</div>
 					</div>
 				</div>
@@ -162,6 +207,7 @@
 				<EditorTabs
 					:tabs="openTabs"
 					:activeTab="activeDiagramName"
+					:readonly="!isEditable"
 					@select-tab="selectDiagram"
 					@add-tab="showAddDiagramDialog"
 					@rename-tab="renameProcessModel"
@@ -526,6 +572,13 @@
 				</div>
 			</template>
 		</Dialog>
+
+		<!-- Version Comparison Dialogs (extracted component) -->
+		<VersionDiffDialog
+			ref="versionDiffRef"
+			:diagramName="activeDiagramName"
+			@error="(e) => showNotification(e.title, e.message, e.theme)"
+		/>
 	</div>
 </template>
 
@@ -537,6 +590,7 @@ import { Icon } from "@iconify/vue";
 import BpmnEditor from "@/components/BpmnEditor.vue";
 import EditorTabs from "@/components/EditorTabs.vue";
 import ShapeLibraryPanel from "@/components/ShapeLibraryPanel.vue";
+import VersionDiffDialog from "@/components/VersionDiffDialog.vue";
 import { downloadBpmn } from "@/utils/downloadBpmn";
 import CallActivitySearchDialog from "@/components/CallActivitySearchDialog.vue";
 import NotificationLinkDialog from "@/components/NotificationLinkDialog.vue";
@@ -571,6 +625,17 @@ const loading = ref(true);
 const showShapeLibrary = ref(false);
 const showFileMenu = ref(false);
 
+// Version diff dialog ref
+const versionDiffRef = ref(null);
+
+// Pathfinder Log editability state
+const isEditable = ref(false);  // locked by default until API confirms
+const editabilityInfo = ref({
+	editable: false,
+	pathfinder_log: null,
+	workflow_state: null,
+	reason: null,
+});
 
 // Import file input ref
 const importFileInput = ref(null);
@@ -771,10 +836,10 @@ function onShapeDragStart(shape) {
 
 // Keyboard shortcut handler
 function handleKeyDown(event) {
-	// Ctrl+S or Cmd+S to save
+	// Ctrl+S or Cmd+S to save (only when editable)
 	if ((event.ctrlKey || event.metaKey) && event.key === "s") {
 		event.preventDefault();
-		if (activeDiagramName.value && !saving.value) {
+		if (isEditable.value && activeDiagramName.value && !saving.value) {
 			saveCurrentDiagram();
 		}
 	}
@@ -840,6 +905,9 @@ onMounted(async () => {
 		loading.value = true;
 		await loadProcess();
 
+		// Check editability (Pathfinder Log status) from Production
+		await checkEditability();
+
 		// Add all diagrams to open tabs
 		if (diagrams.value.length > 0) {
 			openTabs.value = [...diagrams.value];
@@ -856,6 +924,35 @@ onMounted(async () => {
 		loading.value = false;
 	}
 });
+
+async function checkEditability() {
+
+	try {
+		const response = await frappeRequest({
+			url: "/api/method/one_bpmn.api.check_process_editable",
+			params: { process_name: props.process },
+		});
+
+		const data = response.message || response;
+		isEditable.value = !!data.editable;
+		editabilityInfo.value = {
+			editable: !!data.editable,
+			pathfinder_log: data.pathfinder_log || null,
+			workflow_state: data.workflow_state || null,
+			reason: data.reason || null,
+		};
+	} catch (error) {
+		console.error("Failed to check process editability:", error);
+		// On error, default to locked for safety
+		isEditable.value = false;
+		editabilityInfo.value = {
+			editable: false,
+			pathfinder_log: null,
+			workflow_state: null,
+			reason: "Unable to check editability. Process is locked for safety.",
+		};
+	}
+}
 
 onUnmounted(() => {
 	// Remove listeners
@@ -968,6 +1065,8 @@ async function saveDiagramToCache(name) {
 
 function onDiagramChanged() {
 	if (!editorReady.value) return;
+	// Do not trigger auto-save when the process is locked
+	if (!isEditable.value) return;
 
 	hasUnsavedChanges.value = true;
 	saveState.value = 'unsaved';
@@ -984,6 +1083,7 @@ function onDiagramChanged() {
 
 async function saveCurrentDiagram() {
 	if (!activeDiagramName.value || !editorRef.value) return;
+	if (!isEditable.value) return; // Guard: process is locked
 
 	saving.value = true;
 	saveState.value = 'saving';
@@ -1038,12 +1138,14 @@ function showNotification(title, message, theme = "green") {
 }
 
 function showAddDiagramDialog() {
+	if (!isEditable.value) return; // Guard: process is locked
 	newDiagramName.value = "";
 	newDiagramDescription.value = "";
 	showNewDiagramDialog.value = true;
 }
 
 async function createDiagram() {
+	if (!isEditable.value) return; // Guard: process is locked
 	if (!newDiagramName.value.trim()) {
 		alert("Please enter a diagram name");
 		return;
@@ -1140,6 +1242,7 @@ function applyTabDiagramFields(matchName, fields) {
 }
 
 async function renameProcessModel({ tabName, oldModelName, newModelName }) {
+	if (!isEditable.value) return; // Guard: process is locked
 	// --- Review #1: Flush pending autosave before renaming ---
 	// Cancel the debounce timer so autosave can't fire with a stale model_name.
 	clearTimeout(saveTimeout);
@@ -1202,6 +1305,20 @@ function goBack() {
 	router.push({ name: "Home" });
 }
 
+// ── Version Comparison (Diff) ──
+
+function openVersionPicker() {
+	if (!versionDiffRef.value) return;
+
+	versionDiffRef.value.open(async () => {
+		// Getter for the current diagram XML
+		if (editorRef.value) {
+			return await editorRef.value.getXML();
+		}
+		return diagramDataCache.value[activeDiagramName.value] || null;
+	});
+}
+
 async function exportCurrentDiagram() {
 	if (!activeDiagramName.value || !editorRef.value) return;
 
@@ -1218,6 +1335,7 @@ async function exportCurrentDiagram() {
 }
 
 function triggerImport() {
+	if (!isEditable.value) return; // Guard: process is locked
 	if (importFileInput.value) {
 		// Reset so the same file can be re-imported
 		importFileInput.value.value = "";
@@ -1226,6 +1344,7 @@ function triggerImport() {
 }
 
 async function handleImportFile(event) {
+	if (!isEditable.value) return; // Guard: process is locked
 	const file = event.target.files && event.target.files[0];
 	if (!file) return;
 
