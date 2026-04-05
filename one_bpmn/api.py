@@ -984,8 +984,8 @@ def get_diagram_version_xml(name: str, version_name: str) -> dict:
 	"""
 	Get the bpmn_xml content at a specific version point.
 
-	Extracts the old bpmn_xml value from the Version record's
-	stored diff data.
+	Extracts the bpmn_xml value from the Version record's stored diff data.
+	Uses change[2] (new value) which is the state of the XML AT that version.
 
 	Args:
 		name: Document name of the BPMN Process Model
@@ -1003,14 +1003,20 @@ def get_diagram_version_xml(name: str, version_name: str) -> dict:
 	version_doc = frappe.get_doc("Version", version_name)
 
 	import json as json_mod
-	data = json_mod.loads(version_doc.data)
+
+	try:
+		data = json_mod.loads(version_doc.data)
+	except (json_mod.JSONDecodeError, TypeError):
+		frappe.throw(
+			_("Version data is corrupted or unavailable for '{0}'").format(version_name)
+		)
 
 	# Extract the bpmn_xml change — changed is [[fieldname, old_value, new_value], ...]
+	# change[2] = new value = the XML state AT this version point
 	xml_content = None
 	for change in data.get("changed", []):
-		if change[0] == "bpmn_xml":
-			# change[1] = old value (what was there BEFORE this version)
-			xml_content = change[1]
+		if change[0] == "bpmn_xml" and len(change) >= 3:
+			xml_content = change[2]
 			break
 
 	if not xml_content:
