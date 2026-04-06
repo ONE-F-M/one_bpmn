@@ -48,6 +48,7 @@ def save_process_model(
 		doc.bpmn_xml = xml_content
 		doc.description = description or ""
 		doc.version = 1
+		doc.is_active = 0
 		doc.process_id = str(uuid.uuid4())
 		doc.check_permission("create")
 		doc.insert()
@@ -275,16 +276,30 @@ def list_processes() -> list:
 	for proc in processes:
 		proc["diagram_count"] = count_map.get(proc["name"], 0)
 
-		# Get most recent diagram status and modified time for this process
-		latest_diagram = frappe.db.get_value(
+		# Get the active model (if any) for this process
+		active_model = frappe.db.get_value(
 			"BPMN Process Model",
-			filters={"process_name": proc["name"]},
-			fieldname=["is_active", "modified"],
-			order_by="modified desc",
+			filters={"process_name": proc["name"], "is_active": 1},
+			fieldname=["name", "modified"],
 			as_dict=True
 		)
-		proc["status"] = "Active" if (latest_diagram and latest_diagram.get("is_active")) else "No Diagrams"
-		proc["last_modified"] = latest_diagram.get("modified") if latest_diagram else proc["modified"]
+
+		if active_model:
+			proc["status"] = "Active"
+			proc["last_modified"] = active_model["modified"]
+		elif proc["diagram_count"] > 0:
+			# Models exist but none is active
+			latest = frappe.db.get_value(
+				"BPMN Process Model",
+				filters={"process_name": proc["name"]},
+				fieldname="modified",
+				order_by="modified desc",
+			)
+			proc["status"] = "Inactive"
+			proc["last_modified"] = latest or proc["modified"]
+		else:
+			proc["status"] = "No Diagrams"
+			proc["last_modified"] = proc["modified"]
 
 	return processes
 
@@ -312,7 +327,7 @@ def get_process_diagrams(process: str) -> dict:
 		"BPMN Process Model",
 		filters={"process_name": process},
 		fields=["name", "title", "process_id", "description", "version", "is_active", "modified"],
-		order_by="modified desc"
+		order_by="is_active desc, modified desc"
 	)
 
 	# Add model_name alias for frontend compat

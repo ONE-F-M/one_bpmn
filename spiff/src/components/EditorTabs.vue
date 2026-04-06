@@ -13,21 +13,28 @@
 		@click="$emit('select-tab', tab.name)"
 		@dblclick.stop="!readonly && startEditing(tab)"
 		>
-			<!-- Display mode -->
-			<span v-if="editingTabName !== tab.name" class="truncate max-w-40">{{ tab.model_name }}</span>
+			<!-- Status dot: green = Active, orange = Inactive -->
+			<span
+				:class="[
+					'inline-block w-2 h-2 rounded-full shrink-0',
+					(tab.is_active || tab.status === 'Active') ? 'bg-green-400' : 'bg-orange-400'
+				]"
+				:title="(tab.is_active || tab.status === 'Active') ? 'Active' : 'Inactive'"
+			></span>
 
-			<!-- Edit mode -->
+			<!-- Inline rename input (shown on double-click) -->
 			<input
-				v-else
-				ref="editInputRefs"
+				v-if="editingTab === tab.name"
+				ref="renameInputRef"
+				v-model="editingName"
 				type="text"
-				v-model="editValue"
-				class="bg-transparent border-0 border-b border-white/60 outline-none ring-0 shadow-none focus:ring-0 focus:outline-none focus:shadow-none text-inherit font-inherit text-base w-40 px-0 py-0"
+				class="bg-transparent border-b border-white/60 text-inherit text-base outline-none px-0 py-0 w-40"
+				@blur="finishEditing(tab)"
+				@keydown.enter.prevent="finishEditing(tab)"
+				@keydown.escape.prevent="cancelEditing"
 				@click.stop
-				@keydown.enter.prevent="commitEdit(tab)"
-				@keydown.escape.prevent="cancelEdit"
-				@blur="commitEdit(tab)"
 			/>
+			<span v-else class="truncate max-w-40">{{ tab.model_name }}</span>
 		</div>
 
 		<!-- Add tab button (hidden in read-only mode) -->
@@ -46,7 +53,7 @@
 import { ref, nextTick } from "vue"
 import { Icon } from "@iconify/vue"
 
-defineProps({
+const props = defineProps({
 	tabs: {
 		type: Array,
 		default: () => []
@@ -63,38 +70,40 @@ defineProps({
 
 const emit = defineEmits(["select-tab", "add-tab", "rename-tab"])
 
-const editingTabName = ref(null)
-const editValue = ref("")
-const editInputRefs = ref([])
+const editingTab = ref(null)
+const editingName = ref("")
+const renameInputRef = ref(null)
 
 function startEditing(tab) {
-	editingTabName.value = tab.name
-	editValue.value = tab.model_name
+	editingTab.value = tab.name
+	editingName.value = tab.model_name
 	nextTick(() => {
-		// editInputRefs is an array due to v-for; grab the first (only visible) input
-		const input = editInputRefs.value?.[0]
-		if (input) {
-			input.focus()
-			input.select()
+		const input = renameInputRef.value
+		// renameInputRef may be an array when inside v-for
+		const el = Array.isArray(input) ? input[0] : input
+		if (el) {
+			el.focus()
+			el.select()
 		}
 	})
 }
 
-function commitEdit(tab) {
-	const newName = editValue.value.trim()
+function finishEditing(tab) {
+	const newName = editingName.value.trim()
 	const oldName = tab.model_name
+	editingTab.value = null
 
-	// Reset editing state first
-	editingTabName.value = null
-
-	if (!newName || newName === oldName) {
-		return // no change
+	if (newName && newName !== oldName) {
+		emit("rename-tab", {
+			tabName: tab.name,
+			oldModelName: oldName,
+			newModelName: newName,
+		})
 	}
-
-	emit("rename-tab", { tabName: tab.name, oldModelName: oldName, newModelName: newName })
 }
 
-function cancelEdit() {
-	editingTabName.value = null
+function cancelEditing() {
+	editingTab.value = null
+	editingName.value = ""
 }
 </script>

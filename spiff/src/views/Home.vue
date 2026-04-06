@@ -319,12 +319,10 @@ async function exportProcess(process) {
 
 function getStatusTheme(status) {
 	switch (status) {
-		case "Published":
+		case "Active":
 			return "green"
-		case "In Development":
+		case "Inactive":
 			return "orange"
-		case "Draft":
-			return "blue"
 		default:
 			return "gray"
 	}
