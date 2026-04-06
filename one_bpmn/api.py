@@ -633,7 +633,6 @@ def list_process_instances(filters=None, limit_start=0, limit_page_length=20, or
 	"""
 	List BPMN process instances with their active tasks joined as 'current_step'.
 	"""
-	import json
 	
 	if isinstance(filters, str):
 		filters = json.loads(filters)
