@@ -1,7 +1,15 @@
 /**
- * StartEventProps.js
+ * ConditionalStartEventProps.js
  *
- * Trigger Configuration entries for plain Start Events.
+ * Trigger Configuration entries for Conditional Start Events.
+ * Fields:
+ *   1. Trigger DocType — searchable autocomplete (Frappe REST API)
+ *   2. Trigger Type — "After Insert" or "Workflow State"
+ *   3. Workflow — filtered by selected DocType (visible when type = "Workflow State")
+ *   4. Workflow State — filtered by selected Workflow (visible when type = "Workflow State")
+ *
+ * All values are persisted as spiffworkflow: extension attributes on the
+ * bpmn:ConditionalEventDefinition element so they survive XML round-trips.
  */
 
 import { SelectEntry, isSelectEntryEdited } from "@bpmn-io/properties-panel";
@@ -12,36 +20,50 @@ import { FrappeAutocomplete } from "../shared/FrappeAutocomplete";
 import { workflowCache, workflowStateCache, loadWorkflows, loadWorkflowStates } from "../shared/workflowCache";
 
 // ---------------------------------------------------------------------------
-// Helpers
+// Helpers — read/write on the ConditionalEventDefinition element
 // ---------------------------------------------------------------------------
-function getAttr(bo, attr) {
-	return bo.get(`spiffworkflow:${attr}`) || "";
+function getConditionalDef(element) {
+	const bo = getBusinessObject(element);
+	const eventDefs = bo.eventDefinitions || [];
+	return eventDefs.find((e) => e.$type === "bpmn:ConditionalEventDefinition");
 }
 
-function touchElement(modeling, element, bo) {
-	const triggerType = bo.get("spiffworkflow:triggerType");
-	modeling.updateModdleProperties(element, bo, {
-		"spiffworkflow:triggerType": triggerType,
-	});
+function getAttr(condDef, attr) {
+	if (!condDef) return "";
+	return condDef.get(`spiffworkflow:${attr}`) || "";
+}
+
+function touchElement(modeling, element) {
+	// Force a re-render of the properties panel by doing a no-op property
+	// update on the business object. This makes cached async data visible.
+	const condDef = getConditionalDef(element);
+	if (condDef) {
+		const triggerType = condDef.get("spiffworkflow:triggerType");
+		modeling.updateModdleProperties(element, condDef, {
+			"spiffworkflow:triggerType": triggerType,
+		});
+	}
 }
 
 // ---------------------------------------------------------------------------
 // Public entry factory
 // ---------------------------------------------------------------------------
-export function StartEventProps(props) {
+export function ConditionalStartEventProps(props) {
 	const { element } = props;
-	const bo = getBusinessObject(element);
-	const triggerType = getAttr(bo, "triggerType");
+	const condDef = getConditionalDef(element);
+	if (!condDef) return [];
+
+	const triggerType = getAttr(condDef, "triggerType");
 
 	const entries = [
 		{
-			id: "spiffworkflow-triggerDoctype",
+			id: "spiffworkflow-cond-triggerDoctype",
 			element,
 			component: TriggerDoctypeAutocompleteComponent,
 			isEdited: isSelectEntryEdited,
 		},
 		{
-			id: "spiffworkflow-triggerType",
+			id: "spiffworkflow-cond-triggerType",
 			element,
 			component: TriggerTypeComponent,
 			isEdited: isSelectEntryEdited,
@@ -50,13 +72,13 @@ export function StartEventProps(props) {
 
 	if (triggerType === "Workflow State") {
 		entries.push({
-			id: "spiffworkflow-triggerWorkflow",
+			id: "spiffworkflow-cond-triggerWorkflow",
 			element,
 			component: TriggerWorkflowComponent,
 			isEdited: isSelectEntryEdited,
 		});
 		entries.push({
-			id: "spiffworkflow-triggerWorkflowState",
+			id: "spiffworkflow-cond-triggerWorkflowState",
 			element,
 			component: TriggerWorkflowStateComponent,
 			isEdited: isSelectEntryEdited,
@@ -73,19 +95,23 @@ function TriggerDoctypeAutocompleteComponent(props) {
 	const { element, id } = props;
 	const modeling = useService("modeling");
 	const translate = useService("translate");
-	const bo = getBusinessObject(element);
+	const condDef = getConditionalDef(element);
 
-	const value = getAttr(bo, "triggerDoctype");
+	if (!condDef) return null;
+
+	const value = getAttr(condDef, "triggerDoctype");
 
 	const handleChange = (val) => {
-		modeling.updateModdleProperties(element, bo, {
+		// Clear dependent fields when doctype changes
+		modeling.updateModdleProperties(element, condDef, {
 			"spiffworkflow:triggerDoctype": val || undefined,
 			"spiffworkflow:triggerWorkflow": undefined,
 			"spiffworkflow:triggerWorkflowState": undefined,
 		});
 
+		// Pre-load workflows for the new doctype
 		if (val) {
-			loadWorkflows(val, () => touchElement(modeling, element, bo));
+			loadWorkflows(val, () => touchElement(modeling, element));
 		}
 	};
 
@@ -105,12 +131,14 @@ function TriggerTypeComponent(props) {
 	const { element, id } = props;
 	const modeling = useService("modeling");
 	const translate = useService("translate");
-	const bo = getBusinessObject(element);
+	const condDef = getConditionalDef(element);
 
-	const getValue = () => getAttr(bo, "triggerType");
+	if (!condDef) return null;
+
+	const getValue = () => getAttr(condDef, "triggerType");
 
 	const setValue = (value) => {
-		modeling.updateModdleProperties(element, bo, {
+		modeling.updateModdleProperties(element, condDef, {
 			"spiffworkflow:triggerType": value || undefined,
 			"spiffworkflow:triggerWorkflow": undefined,
 			"spiffworkflow:triggerWorkflowState": undefined,
@@ -134,29 +162,31 @@ function TriggerTypeComponent(props) {
 }
 
 // ---------------------------------------------------------------------------
-// Component 3 — Workflow
+// Component 3 — Workflow (filtered by doctype)
 // ---------------------------------------------------------------------------
 function TriggerWorkflowComponent(props) {
 	const { element, id } = props;
 	const modeling = useService("modeling");
 	const translate = useService("translate");
-	const bo = getBusinessObject(element);
+	const condDef = getConditionalDef(element);
 
-	const doctype = getAttr(bo, "triggerDoctype");
+	if (!condDef) return null;
+
+	const doctype = getAttr(condDef, "triggerDoctype");
 
 	if (doctype && !workflowCache.has(doctype)) {
-		loadWorkflows(doctype, () => touchElement(modeling, element, bo));
+		loadWorkflows(doctype, () => touchElement(modeling, element));
 	}
 
-	const getValue = () => getAttr(bo, "triggerWorkflow");
+	const getValue = () => getAttr(condDef, "triggerWorkflow");
 
 	const setValue = (value) => {
-		modeling.updateModdleProperties(element, bo, {
+		modeling.updateModdleProperties(element, condDef, {
 			"spiffworkflow:triggerWorkflow": value || undefined,
 			"spiffworkflow:triggerWorkflowState": undefined,
 		});
 		if (value) {
-			loadWorkflowStates(value, () => touchElement(modeling, element, bo));
+			loadWorkflowStates(value, () => touchElement(modeling, element));
 		}
 	};
 
@@ -179,27 +209,26 @@ function TriggerWorkflowComponent(props) {
 }
 
 // ---------------------------------------------------------------------------
-// Component 4 — Workflow State
+// Component 4 — Workflow State (filtered by workflow)
 // ---------------------------------------------------------------------------
 function TriggerWorkflowStateComponent(props) {
 	const { element, id } = props;
 	const modeling = useService("modeling");
 	const translate = useService("translate");
-	const bo = getBusinessObject(element);
+	const condDef = getConditionalDef(element);
 
-	const workflowName = getAttr(bo, "triggerWorkflow");
+	if (!condDef) return null;
 
-	if (
-		workflowName &&
-		!workflowStateCache.has(workflowName)
-	) {
-		loadWorkflowStates(workflowName, () => touchElement(modeling, element, bo));
+	const workflowName = getAttr(condDef, "triggerWorkflow");
+
+	if (workflowName && !workflowStateCache.has(workflowName)) {
+		loadWorkflowStates(workflowName, () => touchElement(modeling, element));
 	}
 
-	const getValue = () => getAttr(bo, "triggerWorkflowState");
+	const getValue = () => getAttr(condDef, "triggerWorkflowState");
 
 	const setValue = (value) => {
-		modeling.updateModdleProperties(element, bo, {
+		modeling.updateModdleProperties(element, condDef, {
 			"spiffworkflow:triggerWorkflowState": value || undefined,
 		});
 	};
