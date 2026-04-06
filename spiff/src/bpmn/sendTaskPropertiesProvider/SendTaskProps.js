@@ -215,7 +215,6 @@ function NotificationEditorButtonComponent(props) {
 				class: "spiffworkflow-properties-panel-button",
 				onClick: handleClick,
 				type: "button",
-				style: "width: calc(100% - 16px);",
 			},
 			translate("Configure Notification")
 		)

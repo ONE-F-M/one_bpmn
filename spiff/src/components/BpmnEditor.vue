@@ -988,7 +988,7 @@ defineExpose({
 	font-size: 12px;
 	font-weight: 500;
 	color: #374151;
-	background: #ffffff;
+	background: #f3f4f6;
 	border: 1px solid #d1d5db;
 	border-radius: 6px;
 	cursor: pointer;
@@ -997,13 +997,13 @@ defineExpose({
 }
 
 .properties-panel-container .spiffworkflow-properties-panel-button:hover {
-	background: #f3f4f6;
+	background: #e5e7eb;
 	border-color: #9ca3af;
 	box-shadow: 0 1px 3px rgba(0, 0, 0, 0.1);
 }
 
 .properties-panel-container .spiffworkflow-properties-panel-button:active {
-	background: #e5e7eb;
+	background: #d1d5db;
 	box-shadow: inset 0 1px 2px rgba(0, 0, 0, 0.1);
 }
 
