@@ -263,6 +263,17 @@
 						v-model="newDiagramDescription"
 						placeholder="Optional description"
 					/>
+					<label
+						v-if="canCopyActiveDiagram"
+						class="flex items-center gap-2 text-sm text-gray-700 cursor-pointer select-none"
+					>
+						<input
+							type="checkbox"
+							v-model="newDiagramMakeCopy"
+							class="rounded border-gray-300 text-blue-600 focus:ring-blue-500"
+						/>
+						Make a Copy
+					</label>
 				</div>
 			</template>
 			<template #actions>
@@ -683,6 +694,12 @@ let pendingNavigationNext = null;
 const showNewDiagramDialog = ref(false);
 const newDiagramName = ref("");
 const newDiagramDescription = ref("");
+const newDiagramMakeCopy = ref(false);
+
+// Only show "Make a Copy" when editor is ready and diagram XML is available
+const canCopyActiveDiagram = computed(() => {
+	return activeDiagramName.value && editorReady.value && !!diagramDataCache.value[activeDiagramName.value];
+});
 
 // Track loaded diagram data
 const diagramDataCache = ref({});
@@ -1133,6 +1150,7 @@ function showAddDiagramDialog() {
 	if (!isEditable.value) return; // Guard: process is locked
 	newDiagramName.value = "";
 	newDiagramDescription.value = "";
+	newDiagramMakeCopy.value = false;
 	showNewDiagramDialog.value = true;
 }
 
@@ -1145,8 +1163,25 @@ async function createDiagram() {
 
 	creating.value = true;
 	try {
-		// Create with empty diagram
-		const emptyXml = `<?xml version="1.0" encoding="UTF-8"?>
+		// Determine XML: copy current diagram or use empty template
+		let xmlContent;
+		if (newDiagramMakeCopy.value && activeDiagramName.value) {
+			// Try live editor first, fall back to cache
+			if (editorReady.value && editorRef.value) {
+				xmlContent = await editorRef.value.getXML();
+			}
+			// Fall back to cached XML if getXML() returned empty or editor wasn't ready
+			if (!xmlContent) {
+				xmlContent = diagramDataCache.value[activeDiagramName.value];
+			}
+			// If still no XML, block creation
+			if (!xmlContent) {
+				showNotification('Copy Failed', 'The current diagram has not finished loading. Please wait and try again.', 'red');
+				creating.value = false;
+				return;
+			}
+		} else {
+			xmlContent = `<?xml version="1.0" encoding="UTF-8"?>
 <bpmn:definitions xmlns:bpmn="http://www.omg.org/spec/BPMN/20100524/MODEL"
                   xmlns:bpmndi="http://www.omg.org/spec/BPMN/20100524/DI"
                   xmlns:dc="http://www.omg.org/spec/DD/20100524/DC"
@@ -1163,6 +1198,7 @@ async function createDiagram() {
     </bpmndi:BPMNPlane>
   </bpmndi:BPMNDiagram>
 </bpmn:definitions>`;
+		}
 
 		// Use JSON body for Frappe API
 		const response = await fetch("/api/method/one_bpmn.api.save_process_model", {
@@ -1174,7 +1210,7 @@ async function createDiagram() {
 			body: JSON.stringify({
 				process: props.process,
 				model_name: newDiagramName.value,
-				xml_content: emptyXml,
+				xml_content: xmlContent,
 				description: newDiagramDescription.value || "",
 			}),
 		});
