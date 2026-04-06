@@ -867,12 +867,11 @@ onUnmounted(() => {
 
 async function loadProcess() {
 	try {
-		const response = await fetch(
-			`/api/method/one_bpmn.api.get_process_diagrams?process=${encodeURIComponent(props.process)}`,
-			{ headers: { "X-Frappe-CSRF-Token": window.csrf_token || "" } }
-		);
-		const json = await response.json();
-		const data = json.message || json;
+		const response = await frappeRequest({
+			url: "/api/method/one_bpmn.api.get_process_diagrams",
+			params: { process: props.process },
+		});
+		const data = response.message || response;
 		processName.value = data.process_name;
 		diagrams.value = data.diagrams || [];
 	} catch (error) {
@@ -987,25 +986,15 @@ async function saveCurrentDiagram() {
 		const xml = await editorRef.value.getXML();
 		const diagram = diagrams.value.find((d) => d.name === activeDiagramName.value);
 
-		// Use JSON body for Frappe API
-		const response = await fetch("/api/method/one_bpmn.api.save_process_model", {
-			method: "POST",
-			headers: {
-				"Content-Type": "application/json",
-				"X-Frappe-CSRF-Token": window.csrf_token || "",
-			},
-			body: JSON.stringify({
+		const data = await frappeRequest({
+			url: "/api/method/one_bpmn.api.save_process_model",
+			params: {
 				process: props.process,
 				model_name: diagram.model_name,
 				xml_content: xml,
 				description: diagram.description || "",
-			}),
+			},
 		});
-
-		const data = await response.json();
-		if (data.exc) {
-			throw new Error(data.exc);
-		}
 
 		hasUnsavedChanges.value = false;
 		diagramDataCache.value[activeDiagramName.value] = xml;
@@ -1066,27 +1055,17 @@ async function createDiagram() {
   </bpmndi:BPMNDiagram>
 </bpmn:definitions>`;
 
-		// Use JSON body for Frappe API
-		const response = await fetch("/api/method/one_bpmn.api.save_process_model", {
-			method: "POST",
-			headers: {
-				"Content-Type": "application/json",
-				"X-Frappe-CSRF-Token": window.csrf_token || "",
-			},
-			body: JSON.stringify({
+		const response = await frappeRequest({
+			url: "/api/method/one_bpmn.api.save_process_model",
+			params: {
 				process: props.process,
 				model_name: newDiagramName.value,
 				xml_content: emptyXml,
 				description: newDiagramDescription.value || "",
-			}),
+			},
 		});
 
-		const data = await response.json();
-		if (data.exc) {
-			throw new Error(data.exc);
-		}
-
-		const result = data.message || data;
+		const result = response.message || response;
 		showNewDiagramDialog.value = false;
 
 		// Reload process and open new diagram
@@ -1346,12 +1325,17 @@ async function onLaunchScriptEditor(event) {
 	showScriptEditorDialog.value = true;
 
 	try {
-		const response = await fetch(
-			"/api/resource/Server Script?fields=[\"name\",\"script_type\",\"reference_doctype\",\"disabled\",\"module\",\"modified\"]&limit_page_length=0&order_by=modified%20desc",
-			{ headers: { "X-Frappe-CSRF-Token": window.csrf_token || "" } }
-		);
-		const json = await response.json();
-		serverScripts.value = Array.isArray(json.data) ? json.data : [];
+		const response = await frappeRequest({
+			url: "/api/method/frappe.client.get_list",
+			params: {
+				doctype: "Server Script",
+				fields: ["name", "script_type", "reference_doctype", "disabled", "module", "modified"],
+				limit_page_length: 0,
+				order_by: "modified desc",
+			},
+		});
+		const data = response.message || response;
+		serverScripts.value = Array.isArray(data) ? data : [];
 	} catch (error) {
 		console.error("Failed to load server scripts:", error);
 		serverScripts.value = [];
