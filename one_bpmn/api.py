@@ -1,6 +1,7 @@
 # Copyright (c) 2026, kartiksharma9319@gmail.com and contributors
 # For license information, please see license.txt
 
+import json
 import uuid
 from lxml import etree as ET
 import frappe
@@ -647,7 +648,6 @@ def list_process_instances(filters=None, limit_start=0, limit_page_length=20, or
 	"""
 	List BPMN process instances with their active tasks joined as 'current_step'.
 	"""
-	import json
 	
 	if isinstance(filters, str):
 		filters = json.loads(filters)
@@ -989,7 +989,6 @@ def _call_production_api(method: str, params: dict) -> dict:
 	Falls back to a direct local call when credentials are not configured
 	(local development mode).
 	"""
-	import json
 	import requests
 
 	# Local dev fallback — call directly on the same bench
