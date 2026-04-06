@@ -164,6 +164,7 @@ import bpmnlintConfig from "@/linting/bpmnlintrc.js";
 
 // Import bpmn-js CSS
 import "bpmn-js/dist/assets/diagram-js.css";
+import "bpmn-js/dist/assets/bpmn-js.css";
 import "bpmn-js/dist/assets/bpmn-font/css/bpmn.css";
 
 // Import properties panel CSS
@@ -1173,6 +1174,29 @@ defineExpose({
 	font-weight: 600;
 }
 
+/* ── Breadcrumb Navigation (collapsed subprocess drilldown) ── */
+.bpmn-canvas .bjs-breadcrumbs {
+	font-family: 'Inter', 'Segoe UI', system-ui, sans-serif;
+	font-size: 14px;
+	z-index: 10;
+}
+
+.bpmn-canvas .bjs-breadcrumbs li a {
+	color: #3b82f6;
+	text-decoration: none;
+	transition: color 0.15s ease;
+}
+
+.bpmn-canvas .bjs-breadcrumbs li a:hover {
+	color: #2563eb;
+	text-decoration: underline;
+}
+
+.bpmn-canvas .bjs-breadcrumbs li:last-of-type a {
+	color: #374151;
+	font-weight: 500;
+}
+
 /* ── Read-Only Mode ─────────────────────────────── */
 
 /* Hide palette and context pad in read-only mode */
@@ -1222,5 +1246,4 @@ defineExpose({
 	opacity: 1;
 }
 /* ─────────────────────────────────────────────────── */
-
 </style>
