@@ -1,6 +1,7 @@
 # Copyright (c) 2026, kartiksharma9319@gmail.com and contributors
 # For license information, please see license.txt
 
+import json
 import uuid
 from lxml import etree as ET
 import frappe
@@ -796,7 +797,6 @@ def _call_production_api(method: str, params: dict) -> dict:
 	Falls back to a direct local call when credentials are not configured
 	(local development mode).
 	"""
-	import json
 	import requests
 
 	# Local dev fallback — call directly on the same bench
