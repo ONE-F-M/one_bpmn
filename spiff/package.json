@@ -5,7 +5,7 @@
 	"type": "module",
 	"scripts": {
 		"dev": "vite",
-		"build": "NODE_OPTIONS='--max-old-space-size=4096' vite build"
+		"build": "node --max-old-space-size=4096 ./node_modules/.bin/vite build"
 	},
 	"dependencies": {
 		"@bpmn-io/properties-panel": "^3.36.0",
