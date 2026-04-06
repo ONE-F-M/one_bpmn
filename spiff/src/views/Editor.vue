@@ -172,6 +172,7 @@
 						@launch-markdown-editor="onLaunchMarkdownEditor"
 						@launch-callactivity-editor="onLaunchCallActivityEditor"
 						@launch-callactivity-search="onLaunchCallActivitySearch"
+						@launch-notification-editor="onLaunchNotificationEditor"
 					/>
 
 					<!-- No-diagram placeholder: only shown when not loading and no diagram is selected -->
@@ -567,7 +568,8 @@
 			</template>
 		</Dialog>
 
-		<!-- Unsaved Navigation Warning Dialog -->
+		<!-- Notification Selector/Creator Dialog (Send Task) -->
+		<NotificationLinkDialog />
 		<Dialog v-model="showUnsavedNavigationWarning" :options="{ title: 'Unsaved Changes', size: 'sm' }">
 			<template #body-content>
 				<div class="text-base text-gray-700">
@@ -592,7 +594,7 @@
 </template>
 
 <script setup>
-import { ref, onMounted, onUnmounted, computed, watch, nextTick } from "vue";
+import { ref, onMounted, onUnmounted, computed, watch, nextTick, provide } from "vue";
 import { useRouter, useRoute, onBeforeRouteLeave } from "vue-router";
 import { frappeRequest, TextEditor } from "frappe-ui";
 import { Icon } from "@iconify/vue";
@@ -602,6 +604,8 @@ import ShapeLibraryPanel from "@/components/ShapeLibraryPanel.vue";
 import VersionDiffDialog from "@/components/VersionDiffDialog.vue";
 import { downloadBpmn } from "@/utils/downloadBpmn";
 import CallActivitySearchDialog from "@/components/CallActivitySearchDialog.vue";
+import NotificationLinkDialog from "@/components/NotificationLinkDialog.vue";
+import { useNotificationDialog } from "@/composables/useNotificationDialog";
 
 const props = defineProps({
 	process: {
@@ -796,6 +800,10 @@ const showCallActivitySearchDialog = ref(false);
 let callActivitySearchEvent = null; // plain variable — NOT a ref, because bpmn-js
 // element objects have non-configurable/frozen properties (e.g. 'labels') that
 // conflict with Vue 3's Proxy-based reactivity and cause TypeErrors.
+
+// Notification Dialog (Send Task) — extracted into composable (Review Comment #1)
+const notifDialog = useNotificationDialog(doctypeOptions, moduleOptions, showNotification);
+provide("notifDialog", notifDialog);
 
 
 // Zoom level (synced with BpmnEditor)
@@ -1579,6 +1587,13 @@ async function createAndLinkScript() {
 	} finally {
 		creatingScript.value = false;
 	}
+}
+
+// --- Notification Dialog Handlers (Send Task) ---
+
+// Notification editor launch handler delegates to composable
+function onLaunchNotificationEditor(event) {
+	notifDialog.openDialog(event);
 }
 
 function onLaunchMarkdownEditor(event) {

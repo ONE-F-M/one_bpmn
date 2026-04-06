@@ -151,6 +151,7 @@ import customTextStyleModdle from "@/moddle/customTextStyleModdle";
 import resizeModule from "@/resize";
 
 import userTaskPropertiesProviderModule from "@/bpmn/userTaskPropertiesProvider";
+import sendTaskPropertiesProviderModule from "@/bpmn/sendTaskPropertiesProvider";
 import intermediateEventPropertiesProviderModule from "@/bpmn/intermediateEventPropertiesProvider";
 import timerPropertiesProviderModule from "@/bpmn/timerPropertiesProvider";
 import startEventPropertiesProviderModule from "@/bpmn/startEventPropertiesProvider";
@@ -193,6 +194,7 @@ const emit = defineEmits([
 	"launch-markdown-editor",
 	"launch-callactivity-editor",
 	"launch-callactivity-search",
+	"launch-notification-editor",
 ]);
 
 const container = ref(null);
@@ -323,6 +325,18 @@ onMounted(async () => {
 					]
 				});
 			}
+
+			// Send Task notification extension
+			const hasSendTaskExt = spiffModdleExtension.types.find(t => t.name === "SendTaskNotificationExtension");
+			if (!hasSendTaskExt) {
+				spiffModdleExtension.types.push({
+					name: "SendTaskNotificationExtension",
+					extends: ["bpmn:SendTask"],
+					properties: [
+						{ name: "notificationName", isAttr: true, type: "String" }
+					]
+				});
+			}
 		}
 
 				
@@ -335,6 +349,7 @@ onMounted(async () => {
 				BpmnPropertiesProviderModule,
 				spiffworkflow,
 				userTaskPropertiesProviderModule,
+				sendTaskPropertiesProviderModule,
 				intermediateEventPropertiesProviderModule,
 				timerPropertiesProviderModule,
 				startEventPropertiesProviderModule,
@@ -505,6 +520,26 @@ onMounted(async () => {
 
 			eventBus.on("spiff.dmn.edit", (event) => {
 				console.log("DMN edit requested:", event.value);
+			});
+
+			// Notification editing (Send Tasks)
+			eventBus.on("spiff.notification.edit", (event) => {
+				emit("launch-notification-editor", {
+					element: event.element,
+					notificationName: event.notificationName || "",
+					eventBus: event.eventBus,
+				});
+			});
+
+			// Write notification name back to BPMN element when dialog resolves
+			eventBus.on("spiff.notification.update", (event) => {
+				if (event.element && event.notificationName) {
+					const modeling = modeler.get("modeling");
+					const bo = event.element.businessObject || event.element;
+					modeling.updateModdleProperties(event.element, bo, {
+						"spiffworkflow:notificationName": event.notificationName,
+					});
+				}
 			});
 
 			eventBus.on("spiff.service_tasks.requested", (event) => {
@@ -991,7 +1026,7 @@ defineExpose({
 	font-size: 12px;
 	font-weight: 500;
 	color: #374151;
-	background: #ffffff;
+	background: #f3f4f6;
 	border: 1px solid #d1d5db;
 	border-radius: 6px;
 	cursor: pointer;
@@ -1000,13 +1035,13 @@ defineExpose({
 }
 
 .properties-panel-container .spiffworkflow-properties-panel-button:hover {
-	background: #f3f4f6;
+	background: #e5e7eb;
 	border-color: #9ca3af;
 	box-shadow: 0 1px 3px rgba(0, 0, 0, 0.1);
 }
 
 .properties-panel-container .spiffworkflow-properties-panel-button:active {
-	background: #e5e7eb;
+	background: #d1d5db;
 	box-shadow: inset 0 1px 2px rgba(0, 0, 0, 0.1);
 }
 

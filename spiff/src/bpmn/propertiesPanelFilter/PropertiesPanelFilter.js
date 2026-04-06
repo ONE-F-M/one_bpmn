@@ -58,6 +58,13 @@ const HIDDEN_GROUPS = {
 		"instructions",
 		"ioProperties",
 	]),
+
+	// 7) Send Task: hide Pre/Post Scripts, Instructions, I/O Management
+	"bpmn:SendTask": new Set([
+		"spiff_pre_post_scripts",
+		"instructions",
+		"ioProperties",
+	]),
 };
 
 export default function PropertiesPanelFilter(propertiesPanel) {
@@ -71,6 +78,7 @@ export default function PropertiesPanelFilter(propertiesPanel) {
 				"bpmn:ManualTask",
 				"bpmn:CallActivity",
 				"bpmn:ScriptTask",
+				"bpmn:SendTask",
 				"bpmn:Task",
 			];
 
