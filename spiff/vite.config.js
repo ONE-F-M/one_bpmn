@@ -45,5 +45,9 @@ export default defineConfig({
 			"bpmnlint-utils",
 		],
 	},
+	build: {
+		sourcemap: false,
+		chunkSizeWarningLimit: 1500,
+	},
 })
 
