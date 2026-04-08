@@ -44,6 +44,17 @@
 
 				<div class="w-px h-5 bg-gray-200 mx-1 shrink-0"></div>
 
+				<!-- Sticky Note button -->
+				<button
+					@click="addStickyNote"
+					title="Add Sticky Note"
+					class="p-1.5 flex items-center justify-center rounded hover:bg-gray-100 text-gray-700 transition-colors"
+				>
+					<Icon icon="lucide:sticky-note" class="w-4 h-4" />
+				</button>
+
+				<div class="w-px h-5 bg-gray-200 mx-1 shrink-0"></div>
+
 				<!-- Formatting Toolbar -->
 				<FormattingToolbar
 					:selectedElements="selectedElements"
@@ -136,7 +147,7 @@ import translateModule from "@/i18n";
 import customRulesModule from "@/rules";
 
 // Custom text styling module
-import { customTextStyleModule } from "@/renderers";
+import { customTextStyleModule, stickyNoteModule } from "@/renderers";
 
 // Native system-clipboard module — enables copy/paste across browser tabs.
 // Inlined from https://github.com/nikku/bpmn-js-native-copy-paste (MIT)
@@ -337,6 +348,19 @@ onMounted(async () => {
 					]
 				});
 			}
+
+			// Sticky Note extension
+			const hasStickyNoteExt = spiffModdleExtension.types.find(t => t.name === "StickyNoteExtension");
+			if (!hasStickyNoteExt) {
+				spiffModdleExtension.types.push({
+					name: "StickyNoteExtension",
+					extends: ["bpmn:TextAnnotation"],
+					properties: [
+						{ name: "isStickyNote", isAttr: true, type: "Boolean" },
+						{ name: "color", isAttr: true, type: "String" }
+					]
+				});
+			}
 		}
 
 				
@@ -358,6 +382,7 @@ onMounted(async () => {
 				translateModule,
 				customTextStyleModule,
 				resizeModule,
+				stickyNoteModule,
 				clipboardModule,
 				lintModule,
 				nativeCopyPasteModule,
@@ -709,8 +734,9 @@ function redo() {
 }
 
 function deleteSelected() {
-	if (!modeler) return;
+	if (!modelerInstance.value) return;
 
+	const modeler = modelerInstance.value;
 	const selection = modeler.get("selection");
 	const modeling = modeler.get("modeling");
 	const selected = selection.get();
@@ -718,6 +744,53 @@ function deleteSelected() {
 	if (selected && selected.length > 0) {
 		modeling.removeElements(selected);
 	}
+}
+
+function addStickyNote() {
+	if (!modelerInstance.value) return;
+
+	const modeler = modelerInstance.value;
+	const modeling = modeler.get("modeling");
+	const canvas = modeler.get("canvas");
+	const bpmnFactory = modeler.get("bpmnFactory");
+	const elementFactory = modeler.get("elementFactory");
+
+	const rootElement = canvas.getRootElement();
+
+	// Create TextAnnotation business object
+	const textAnnotationBo = bpmnFactory.create("bpmn:TextAnnotation", {
+		text: "New Note",
+	});
+
+	// Set the custom attribute within the spiffworkflow namespace
+	textAnnotationBo.set("spiffworkflow:isStickyNote", true);
+	textAnnotationBo.set("spiffworkflow:color", "#fff9c4"); // Default pastel yellow
+
+	// Get viewport center
+	const viewbox = canvas.viewbox();
+	const x = viewbox.x + viewbox.width / 2;
+	const y = viewbox.y + viewbox.height / 2;
+
+	const shape = elementFactory.createShape({
+		type: "bpmn:TextAnnotation",
+		businessObject: textAnnotationBo,
+		width: 150,
+		height: 120,
+	});
+
+	modeling.createShape(shape, { x, y }, rootElement);
+	
+	// Select the new shape and activate direct editing
+	const selection = modeler.get("selection");
+	selection.select(shape);
+	
+	const directEditing = modeler.get("directEditing");
+	// Small delay to ensure the SVG is rendered before activating editor
+	setTimeout(() => {
+		if (directEditing.canActivate(shape)) {
+			directEditing.activate(shape);
+		}
+	}, 100);
 }
 
 // Decode HTML entities that may have been encoded during storage/retrieval
@@ -1281,4 +1354,29 @@ defineExpose({
 	opacity: 1;
 }
 /* ─────────────────────────────────────────────────── */
+
+/* Sticky Note Direct Editing Fix:
+   These styles apply to the bpmn-js direct editing text box.
+   We force the background and text color to match the sticky note
+   aesthetics during the active edit phase. */
+.bpmn-canvas .djs-direct-editing-parent {
+	background-color: #fff9c4 !important; /* Pastel yellow */
+	border: 1px solid #eab308 !important;   /* yellow-500 border */
+	border-radius: 2px;
+	padding: 4px;
+	box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+}
+
+.bpmn-canvas .djs-direct-editing-content {
+	color: #000000 !important;             /* Black text */
+	font-family: 'Inter', 'Segoe UI', system-ui, sans-serif !important;
+	font-size: 13px !important;
+	line-height: 1.2 !important;
+	outline: none !important;
+}
+
+/* Ensure placeholder/empty state is legible */
+.bpmn-canvas .djs-direct-editing-content:empty:before {
+	color: rgba(0,0,0,0.3);
+}
 </style>
