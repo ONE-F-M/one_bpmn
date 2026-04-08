@@ -621,6 +621,9 @@ const props = defineProps({
 const router = useRouter();
 const route = useRoute();
 
+let heartbeatInterval = null;
+const otherEditors = ref([]);
+
 const editorRef = ref(null);
 const processName = ref("");
 const diagrams = ref([]);
@@ -985,7 +988,58 @@ onUnmounted(() => {
 	window.removeEventListener("keydown", handleKeyDown);
 	window.removeEventListener("beforeunload", handleBeforeUnload);
 	clearTimeout(saveTimeout);
+	stopHeartbeat();
 });
+
+function startHeartbeat(modelName) {
+	stopHeartbeat();
+	if (!modelName) return;
+
+	// Initial check
+	performHeartbeat(modelName);
+
+	// Periodic check every 30 seconds
+	heartbeatInterval = setInterval(() => {
+		performHeartbeat(modelName);
+	}, 30000);
+}
+
+function stopHeartbeat() {
+	if (heartbeatInterval) {
+		clearInterval(heartbeatInterval);
+		heartbeatInterval = null;
+	}
+	otherEditors.value = [];
+}
+
+async function performHeartbeat(modelName) {
+	try {
+		const response = await frappeRequest({
+			url: "one_bpmn.one_bpmn.api.check_and_update_editor_lock",
+			params: { model_name: modelName },
+		});
+
+		const otherUsers = response.message || response;
+		
+		if (otherUsers && otherUsers.length > 0) {
+			otherEditors.value = otherUsers;
+			showNotification(
+				"Multi-User Editing", 
+				`Warning: ${otherUsers.join(", ")} is also editing this diagram.`, 
+				"orange",
+				true // stay until dismissed or next heartbeat
+			);
+		} else {
+			// If we previously had other editors and now don't, hide the warning if it's the multi-user one
+			if (otherEditors.value.length > 0 && notification.value.title === "Multi-User Editing") {
+				notification.value.show = false;
+			}
+			otherEditors.value = [];
+		}
+	} catch (err) {
+		console.error("Heartbeat error:", err);
+	}
+}
 
 async function loadProcess() {
 	try {
@@ -1044,7 +1098,14 @@ async function onEditorReady() {
 
 // Watch for diagram tab switches and load new XML without remounting the editor.
 watch(activeDiagramName, async (newName) => {
-	if (!editorReady.value || !newName) return;
+	if (!newName) {
+		stopHeartbeat();
+		return;
+	}
+
+	startHeartbeat(newName);
+
+	if (!editorReady.value) return;
 	hasUnsavedChanges.value = false;
 	saveState.value = 'saved';
 	await loadDiagramContent(newName);
@@ -1134,17 +1195,21 @@ async function saveCurrentDiagram() {
 	}
 }
 
-function showNotification(title, message, theme = "green") {
+function showNotification(title, message, theme = "green", stay = false) {
 	notification.value = {
 		show: true,
 		title,
 		message,
 		theme
 	};
-	// Auto-hide after 3 seconds
-	setTimeout(() => {
-		notification.value.show = false;
-	}, 3000);
+	if (!stay) {
+		// Auto-hide after 3 seconds
+		setTimeout(() => {
+			if (notification.value.title === title) {
+				notification.value.show = false;
+			}
+		}, 3000);
+	}
 }
 
 function showAddDiagramDialog() {

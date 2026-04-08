@@ -962,24 +962,70 @@ def _is_local_dev_mode() -> bool:
 	api_secret = frappe.conf.get("production_api_secret")
 	return not (production_url and api_key and api_secret)
 	
+# def _call_local_pathfinder_api(method_path: str, params: dict) -> dict:
+# 	func = frappe.get_attr(method_path)
+# 	return func(**params)
+
 def _call_local_pathfinder_api(method_path: str, params: dict) -> dict:
-	func = frappe.get_attr(method_path)
+	"""Call a pathfinder API method directly (same bench, no HTTP).
+
+	Used as a fallback in local dev when production credentials are not
+	configured.
+	"""
+	from frappe.handler import call as frappe_call
+	import importlib
+
+	# method_path looks like "one_fm.one_fm.doctype.pathfinder_log.pathfinder_api.is_process_editable"
+	module_path, func_name = method_path.rsplit(".", 1)
+	module = importlib.import_module(module_path)
+	func = getattr(module, func_name)
 	return func(**params)
 
-# def _call_local_pathfinder_api(method_path: str, params: dict) -> dict:
-# 	"""Call a pathfinder API method directly (same bench, no HTTP).
 
-# 	Used as a fallback in local dev when production credentials are not
-# 	configured.
-# 	"""
-# 	from frappe.handler import call as frappe_call
-# 	import importlib
+@frappe.whitelist()
+def check_and_update_editor_lock(model_name: str) -> list:
+	"""
+	Track active editors for a BPMN Process Model using Frappe cache.
+	Returns a list of other active users' full names.
+	"""
+	if not model_name:
+		return []
 
-# 	# method_path looks like "one_fm.one_fm.doctype.pathfinder_log.pathfinder_api.is_process_editable"
-# 	module_path, func_name = method_path.rsplit(".", 1)
-# 	module = importlib.import_module(module_path)
-# 	func = getattr(module, func_name)
-# 	return func(**params)
+	current_user = frappe.session.user
+	if current_user == "Guest":
+		return []
+
+	cache_key = f"bpmn_editor_lock:{model_name}"
+	active_editors = frappe.cache.get_value(cache_key) or {}
+	
+	import time
+	now = time.time()
+	
+	# Clean up expired heartbeats (> 45s) and identify others
+	other_editors = []
+	updated_editors = {}
+	
+	for user, timestamp in active_editors.items():
+		if now - timestamp < 45:
+			if user != current_user:
+				other_editors.append(user)
+				updated_editors[user] = timestamp
+	
+	# Add current user
+	updated_editors[current_user] = now
+	
+	# Save back to cache (60s TTL)
+	frappe.cache.set_value(cache_key, updated_editors, expires_in_sec=60)
+	
+	# Return full names of other editors for better UX
+	if other_editors:
+		return frappe.get_all("User", 
+			filters={"name": ["in", other_editors]}, 
+			fields=["full_name"], 
+			pluck="full_name"
+		)
+	
+	return []
 
 
 def _call_production_api(method: str, params: dict) -> dict:
