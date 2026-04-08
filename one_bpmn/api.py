@@ -961,22 +961,25 @@ def _is_local_dev_mode() -> bool:
 	api_key = frappe.conf.get("production_api_key")
 	api_secret = frappe.conf.get("production_api_secret")
 	return not (production_url and api_key and api_secret)
-
-
+	
 def _call_local_pathfinder_api(method_path: str, params: dict) -> dict:
-	"""Call a pathfinder API method directly (same bench, no HTTP).
-
-	Used as a fallback in local dev when production credentials are not
-	configured.
-	"""
-	from frappe.handler import call as frappe_call
-	import importlib
-
-	# method_path looks like "one_fm.one_fm.doctype.pathfinder_log.pathfinder_api.is_process_editable"
-	module_path, func_name = method_path.rsplit(".", 1)
-	module = importlib.import_module(module_path)
-	func = getattr(module, func_name)
+	func = frappe.get_attr(method_path)
 	return func(**params)
+
+# def _call_local_pathfinder_api(method_path: str, params: dict) -> dict:
+# 	"""Call a pathfinder API method directly (same bench, no HTTP).
+
+# 	Used as a fallback in local dev when production credentials are not
+# 	configured.
+# 	"""
+# 	from frappe.handler import call as frappe_call
+# 	import importlib
+
+# 	# method_path looks like "one_fm.one_fm.doctype.pathfinder_log.pathfinder_api.is_process_editable"
+# 	module_path, func_name = method_path.rsplit(".", 1)
+# 	module = importlib.import_module(module_path)
+# 	func = getattr(module, func_name)
+# 	return func(**params)
 
 
 def _call_production_api(method: str, params: dict) -> dict:
