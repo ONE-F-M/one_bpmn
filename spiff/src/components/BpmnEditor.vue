@@ -586,7 +586,7 @@ onMounted(async () => {
 
 			// Fix unresolved loop data references (from upstream app.js)
 			modeler.on("import.parse.complete", (event) => {
-				const refs = event.references.filter(
+				const refs = (event.references || []).filter(
 					(r) =>
 						r.property === "bpmn:loopDataInputRef" ||
 						r.property === "bpmn:loopDataOutputRef"
