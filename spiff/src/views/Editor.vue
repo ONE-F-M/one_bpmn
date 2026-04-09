@@ -1056,13 +1056,8 @@ async function performHeartbeat(modelName) {
 		
 		if (otherUsers && otherUsers.length > 0) {
 			otherEditors.value = otherUsers;
-			// No longer showing the intrusive Alert notification for multi-user editing
-			// as it is now reflected by avatars in the header.
+			// Multi-user editing is reflected by avatars in the header.
 		} else {
-			// If we previously had other editors and now don't, hide the warning if it's the multi-user one
-			if (otherEditors.value.length > 0 && notification.value.title === "Multi-User Editing") {
-				notification.value.show = false;
-			}
 			otherEditors.value = [];
 		}
 	} catch (err) {
