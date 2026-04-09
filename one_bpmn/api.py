@@ -979,6 +979,8 @@ def check_and_update_editor_lock(model_name: str) -> list[dict[str, str | None]]
 	if current_user == "Guest":
 		return []
 
+	doc = frappe.get_doc("BPMN Process Model", model_name)
+	doc.check_permission("read")
 	cache_key = f"bpmn_editor_lock:{model_name}"
 	active_editors = frappe.cache.get_value(cache_key) or {}
 	
