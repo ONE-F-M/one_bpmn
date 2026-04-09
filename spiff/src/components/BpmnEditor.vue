@@ -1169,8 +1169,6 @@ defineExpose({
 .properties-panel-container {
 	--properties-panel-header-background-color: #f9fafb;
 	--properties-panel-group-header-background-color: #f3f4f6;
-	background-color: #ffffff;
-	border-left: 1px solid #e5e7eb;
 	font-family: 'Inter', system-ui, sans-serif;
 	isolation: isolate;
 }
