@@ -203,7 +203,7 @@
 			</div>
 
 			<!-- Tab Bar -->
-			<div v-if="openTabs.length > 0" class="flex items-center justify-between bg-gray-50 border-t border-gray-200 min-h-[40px]">
+			<div v-if="openTabs.length > 0" class="relative z-10 flex items-center justify-between bg-gray-50 border-t border-gray-200 min-h-[40px]">
 				<EditorTabs
 					:tabs="openTabs"
 					:activeTab="activeDiagramName"
@@ -211,6 +211,8 @@
 					@select-tab="selectDiagram"
 					@add-tab="showAddDiagramDialog"
 					@rename-tab="renameProcessModel"
+					@duplicate-tab="handleDuplicateTab"
+					@delete-tab="handleDeleteTab"
 					class="flex-1 min-w-0"
 				/>
 				
@@ -1222,6 +1224,87 @@ async function createDiagram() {
 		alert("Failed to create: " + (error.message || error));
 	} finally {
 		creating.value = false;
+	}
+}
+
+async function handleDuplicateTab(tab) {
+	if (!isEditable.value) return;
+	
+	const newName = `Copy of ${tab.model_name}`;
+	
+	// Get XML content (from editor if active, otherwise from cache)
+	let xmlContent;
+	if (activeDiagramName.value === tab.name && editorRef.value) {
+		xmlContent = await editorRef.value.getXML();
+	} else {
+		// Ensure XML is loaded in cache
+		if (!diagramDataCache.value[tab.name]) {
+			await loadDiagramContent(tab.name);
+		}
+		xmlContent = diagramDataCache.value[tab.name];
+	}
+
+	if (!xmlContent) {
+		showNotification("Error", "Could not read diagram content for duplication", "red");
+		return;
+	}
+
+	creating.value = true;
+	try {
+		const response = await frappeRequest({
+			url: "/api/method/one_bpmn.api.save_process_model",
+			params: {
+				process: props.process,
+				model_name: newName,
+				xml_content: xmlContent,
+				description: tab.description || "",
+			},
+		});
+
+		const result = response.message || response;
+		await loadProcess();
+		selectDiagram(result.name);
+		showNotification("Success", `Diagram duplicated as "${newName}"`, "green");
+	} catch (error) {
+		console.error("Duplication failed:", error);
+		showNotification("Error", "Failed to duplicate diagram: " + (error.message || error), "red");
+	} finally {
+		creating.value = false;
+	}
+}
+
+async function handleDeleteTab(tab) {
+	if (!isEditable.value) return;
+	if (!confirm(`Are you sure you want to delete "${tab.model_name}"? This action cannot be undone.`)) return;
+
+	try {
+		await frappeRequest({
+			url: "/api/method/one_bpmn.api.delete_diagram",
+			params: { name: tab.name },
+		});
+
+		await loadProcess();
+		
+		// If the deleted tab was active, or if it was in open tabs, handle it
+		const tabIndex = openTabs.value.findIndex(t => t.name === tab.name);
+		if (tabIndex > -1) {
+			openTabs.value.splice(tabIndex, 1);
+		}
+
+		if (activeDiagramName.value === tab.name) {
+			if (openTabs.value.length > 0) {
+				selectDiagram(openTabs.value[0].name);
+			} else if (diagrams.value.length > 0) {
+				selectDiagram(diagrams.value[0].name);
+			} else {
+				activeDiagramName.value = null;
+			}
+		}
+
+		showNotification("Deleted", `Diagram "${tab.model_name}" has been deleted`, "green");
+	} catch (error) {
+		console.error("Deletion failed:", error);
+		showNotification("Error", "Failed to delete diagram: " + (error.message || error), "red");
 	}
 }
 
