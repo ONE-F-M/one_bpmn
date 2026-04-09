@@ -1,6 +1,6 @@
 {
  "charts": [],
- "content": "[{\"type\":\"header\",\"data\":{\"text\":\"<span class=\\\"h3\\\" style=\\\"\\\"><a href=\\\"/processa\\\">Visit Processa</a></span>\",\"col\":12}},{\"type\":\"spacer\",\"data\":{\"col\":12}},{\"type\":\"paragraph\",\"data\":{\"text\":\"<span class=\\\"h4\\\">BPMN Configuration<br></span>\",\"col\":12}},{\"type\":\"card\",\"data\":{\"card_name\":\"BPMN\",\"col\":4}}]",
+ "content": "[{\"type\":\"header\",\"data\":{\"text\":\"<span class=\\\"h3\\\" style=\\\"\\\"><a href=\\\"/processa/process\\\">Visit Processa</a></span>\",\"col\":12}},{\"type\":\"spacer\",\"data\":{\"col\":12}},{\"type\":\"paragraph\",\"data\":{\"text\":\"<span class=\\\"h4\\\">BPMN Configuration<br></span>\",\"col\":12}},{\"type\":\"card\",\"data\":{\"card_name\":\"BPMN\",\"col\":4}}]",
  "creation": "2026-03-23 09:50:00",
  "custom_blocks": [],
  "docstatus": 0,
