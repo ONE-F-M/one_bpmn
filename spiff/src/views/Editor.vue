@@ -1227,21 +1227,39 @@ async function createDiagram() {
 	}
 }
 
+async function ensureDiagramContentCached(diagramName) {
+	if (diagramDataCache.value[diagramName]) {
+		return diagramDataCache.value[diagramName];
+	}
+
+	const response = await frappeRequest({
+		url: "/api/method/one_bpmn.api.get_process_model",
+		params: {
+			name: diagramName,
+		},
+	});
+
+	const result = response.message || response;
+	const xmlContent = result?.xml_content || "";
+
+	if (xmlContent) {
+		diagramDataCache.value[diagramName] = xmlContent;
+	}
+
+	return xmlContent;
+}
+
 async function handleDuplicateTab(tab) {
 	if (!isEditable.value) return;
 	
 	const newName = `Copy of ${tab.model_name}`;
 	
-	// Get XML content (from editor if active, otherwise from cache)
+	// Get XML content (from editor if active, otherwise from cache/backend)
 	let xmlContent;
 	if (activeDiagramName.value === tab.name && editorRef.value) {
 		xmlContent = await editorRef.value.getXML();
 	} else {
-		// Ensure XML is loaded in cache
-		if (!diagramDataCache.value[tab.name]) {
-			await loadDiagramContent(tab.name);
-		}
-		xmlContent = diagramDataCache.value[tab.name];
+		xmlContent = await ensureDiagramContentCached(tab.name);
 	}
 
 	if (!xmlContent) {
