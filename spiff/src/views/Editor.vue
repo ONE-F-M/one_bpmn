@@ -13,8 +13,54 @@
 					>
 						<Icon icon="lucide:chevron-left" class="w-5 h-5" />
 					</button>
-					<div class="flex items-center gap-2">
+					<div class="flex items-center gap-2 relative">
 						<h1 class="text-sm font-semibold text-gray-800 truncate max-w-[200px]" :title="processName">{{ processName }}</h1>
+						
+						<!-- Status Icon -->
+						<button 
+							@click="showStatusPopup = !showStatusPopup"
+							class="p-1 rounded transition-colors"
+							:class="isEditable ? 'text-blue-500 hover:bg-blue-50' : 'text-amber-500 hover:bg-amber-50'"
+						>
+							<Icon :icon="isEditable ? 'lucide:pencil' : 'lucide:lock'" class="w-4 h-4" />
+						</button>
+
+						<!-- Status Popup -->
+						<div 
+							v-if="showStatusPopup"
+							v-click-outside="() => showStatusPopup = false"
+							class="absolute top-full left-0 mt-2 w-72 bg-white border border-gray-200 rounded-lg shadow-xl z-[60] overflow-hidden"
+						>
+							<div class="p-4 space-y-3">
+								<div class="flex items-start gap-3">
+									<div 
+										class="p-2 rounded-lg shrink-0"
+										:class="isEditable ? 'bg-blue-50 text-blue-600' : 'bg-amber-50 text-amber-600'"
+									>
+										<Icon :icon="isEditable ? 'lucide:pencil' : 'lucide:lock'" class="w-5 h-5" />
+									</div>
+									<div class="space-y-1">
+										<h3 class="text-sm font-bold text-gray-900 leading-none">
+											{{ isEditable ? 'Active Editing Session' : 'Document is Locked' }}
+										</h3>
+										<p class="text-xs text-gray-500 leading-relaxed">
+											{{ isEditable ? 'This document is live and available for editing. Your changes are automatically saved and synchronized with the server.' : editabilityInfo.reason || 'No active Pathfinder Log. Create one on Production to enable editing.' }}
+										</p>
+									</div>
+								</div>
+
+								<div class="flex justify-end pt-2">
+									<Button 
+										variant="solid" 
+										size="sm" 
+										@click="showStatusPopup = false"
+									>
+										OK
+									</Button>
+								</div>
+							</div>
+						</div>
+
 						<Badge v-if="processStatus" :theme="getStatusTheme(processStatus)" :label="processStatus" size="sm" />
 					</div>
 				</div>
@@ -636,6 +682,7 @@ const hasUnsavedChanges = ref(false);
 const loading = ref(true);
 const showShapeLibrary = ref(false);
 const showFileMenu = ref(false);
+const showStatusPopup = ref(false);
 
 // Version diff dialog ref
 const versionDiffRef = ref(null);
