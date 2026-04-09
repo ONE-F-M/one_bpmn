@@ -94,7 +94,7 @@
 		<!-- Single Tab Dropdown (positioned dynamically to avoid clipping) -->
 		<div
 			v-if="activeMenu && activeMenuTab"
-			v-click-outside="() => activeMenu = null"
+			v-click-outside="() => { activeMenu = null; activeMenuTab = null }"
 			:style="menuStyle"
 			class="fixed w-32 bg-white border border-gray-200 rounded-lg shadow-lg z-[100] py-1"
 		>
