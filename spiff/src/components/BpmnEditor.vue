@@ -55,6 +55,22 @@
 
 				<div class="w-px h-5 bg-gray-200 mx-1 shrink-0"></div>
 
+				<!-- Comment Tool button -->
+				<button
+					@click="toggleCommentMode"
+					title="Comment Tool"
+					:class="[
+						'p-1.5 flex items-center justify-center rounded transition-colors',
+						isCommentMode
+							? 'bg-blue-100 text-blue-700 shadow-sm'
+							: 'hover:bg-gray-100 text-gray-700'
+					]"
+				>
+					<Icon icon="lucide:message-square" class="w-4 h-4" />
+				</button>
+
+				<div class="w-px h-5 bg-gray-200 mx-1 shrink-0"></div>
+
 				<!-- Formatting Toolbar -->
 				<FormattingToolbar
 					:selectedElements="selectedElements"
@@ -112,11 +128,115 @@
 				:class="['properties-panel-container w-96 border-l border-gray-200 bg-white overflow-auto', { 'properties-panel--readonly': readonly }]"
 			></div>
 		</div>
+		
+		<!-- Comment Dialog -->
+		<Dialog v-model="showCommentDialog" :options="{ title: 'Add Comment' }">
+			<template #body-content>
+				<div class="space-y-4">
+					<div v-if="activeCommentElement" class="text-xs text-gray-500 bg-gray-50 p-2 rounded border border-gray-100 italic">
+						Attaching to: {{ activeCommentElement.businessObject?.name || activeCommentElement.id }}
+					</div>
+					
+					<FormControl
+						label="Comment"
+						type="textarea"
+						v-model="commentFormData.text"
+						:required="true"
+						placeholder="What's on your mind?"
+					/>
+					
+					<div class="flex items-center gap-4">
+						<div class="flex-1">
+							<FormControl
+								label="Assign To"
+								type="select"
+								v-model="commentFormData.assigned_to"
+								:options="userOptions"
+								placeholder="Select user"
+							/>
+						</div>
+						<div class="pt-6">
+							<label class="flex items-center gap-2 cursor-pointer select-none text-sm text-gray-700">
+								<input
+									type="checkbox"
+									v-model="commentFormData.is_task"
+									class="rounded border-gray-300 text-blue-600 focus:ring-blue-500"
+								/>
+								Actionable Task
+							</label>
+						</div>
+					</div>
+				</div>
+			</template>
+			<template #actions>
+				<div class="flex gap-2">
+					<Button variant="subtle" @click="showCommentDialog = false">Cancel</Button>
+					<Button variant="solid" @click="submitComment" :disabled="!commentFormData.text">Post Comment</Button>
+				</div>
+			</template>
+		</Dialog>
+		<!-- View Comments Dialog -->
+		<Dialog v-model="showViewCommentsDialog" :options="{ title: 'Comments', size: 'md' }">
+			<template #body-content>
+				<div class="space-y-4 max-h-[60vh] overflow-y-auto pr-2 pb-2">
+					<div 
+						v-for="comment in selectedElementComments" 
+						:key="comment.name"
+						class="p-3 bg-white border border-gray-100 rounded-lg shadow-sm space-y-2"
+					>
+						<div class="flex items-center justify-between">
+							<div class="flex items-center gap-2">
+								<Avatar :label="comment.author" size="sm" />
+								<span class="text-xs font-semibold text-gray-700">{{ comment.author }}</span>
+							</div>
+							<span class="text-[10px] text-gray-400 italic">
+								{{ new Date(comment.creation).toLocaleString() }}
+							</span>
+						</div>
+						
+						<p class="text-sm text-gray-800 leading-relaxed whitespace-pre-wrap">{{ comment.comment }}</p>
+						
+						<div v-if="comment.is_task" class="flex items-center justify-between pt-2 border-t border-gray-50 mt-2">
+							<div class="flex items-center gap-2">
+								<Badge 
+									:theme="comment.status === 'Resolved' ? 'green' : 'orange'" 
+									:label="comment.status" 
+									size="sm" 
+								/>
+								<span v-if="comment.assigned_to" class="text-[10px] text-gray-500">
+									Assigned to: {{ comment.assigned_to }}
+								</span>
+							</div>
+							
+							<Button 
+								v-if="comment.status === 'Open'" 
+								variant="subtle" 
+								size="sm" 
+								@click="resolveComment(comment)"
+								class="text-green-600 hover:bg-green-50"
+							>
+								Resolve
+							</Button>
+						</div>
+					</div>
+					
+					<div v-if="selectedElementComments.length === 0" class="text-center py-8 text-gray-400 italic text-sm">
+						No comments yet.
+					</div>
+				</div>
+			</template>
+			<template #actions>
+				<div class="flex justify-end">
+					<Button variant="subtle" @click="showViewCommentsDialog = false">Close</Button>
+				</div>
+			</template>
+		</Dialog>
 	</div>
 </template>
 
 <script setup>
-import { ref, shallowRef, onMounted, onUnmounted, onBeforeUnmount } from "vue";
+import { ref, shallowRef, onMounted, onUnmounted, onBeforeUnmount, nextTick, watch, computed } from "vue";
+import { frappeRequest } from "frappe-ui";
 import {
 	injectProcessNameField,
 	reinjectIfCalledElementChanged,
@@ -194,6 +314,10 @@ const props = defineProps({
 	readonly: {
 		type: Boolean,
 		default: false
+	},
+	modelName: {
+		type: String,
+		default: ""
 	}
 });
 
@@ -207,6 +331,27 @@ const emit = defineEmits([
 	"launch-callactivity-search",
 	"launch-notification-editor",
 ]);
+
+// Commenting state
+const comments = ref([]);
+const isCommentMode = ref(false);
+const showCommentDialog = ref(false);
+const showViewCommentsDialog = ref(false);
+const activeCommentElement = ref(null);
+const selectedElementComments = ref([]);
+const commentFormData = ref({
+	text: "",
+	assigned_to: "",
+	is_task: false
+});
+const users = ref([]);
+
+const userOptions = computed(() => {
+	return users.value.map(u => ({
+		label: u.full_name,
+		value: u.name
+	}));
+});
 
 const container = ref(null);
 const propertiesContainer = ref(null);
@@ -407,12 +552,20 @@ onMounted(async () => {
 					fontSize: "12px",
 				},
 			},
-			// Disable keyboard bindings in readonly mode to prevent
-			// delete/move/copy keyboard shortcuts from modifying the diagram
+			// Disable keyboard bindings in readonly mode
 			keyboard: props.readonly ? false : { bindTo: document },
 		},
 		onReady: async (initializedModeler) => {
 			modeler = initializedModeler;
+			modelerInstance.value = modeler;
+
+			// Fetch users for assignment
+			fetchUsers();
+
+			// Initial fetch of comments
+			if (props.modelName) {
+				fetchComments();
+			}
 
 			// Get command stack for undo/redo
 			commandStack = modeler.get("commandStack");
@@ -483,7 +636,17 @@ onMounted(async () => {
 				}
 			});
 
-			// Re-inject only when calledElement actually changed — avoids DOM
+			// Canvas/Element click listener for commenting
+			eventBus.on("element.click", (e) => {
+				if (isCommentMode.value) {
+					e.originalEvent.preventDefault();
+					e.originalEvent.stopPropagation();
+					selectCommentElement(e.element);
+					return false;
+				}
+			});
+
+			// Re-inject only when calledElement actually changed
 			// churn and repeated network requests on every command stack event.
 			eventBus.on("commandStack.changed", () => {
 				updateUndoRedoState();
@@ -793,7 +956,161 @@ function addStickyNote() {
 	}, 100);
 }
 
-// Decode HTML entities that may have been encoded during storage/retrieval
+// --- Commenting Methods ---
+
+function toggleCommentMode() {
+	isCommentMode.value = !isCommentMode.value;
+	if (!isCommentMode.value) {
+		activeCommentElement.value = null;
+		showCommentDialog.value = false;
+	}
+}
+
+function selectCommentElement(element) {
+	activeCommentElement.value = element;
+	commentFormData.value = {
+		text: "",
+		assigned_to: "",
+		is_task: false
+	};
+	showCommentDialog.value = true;
+}
+
+async function fetchUsers() {
+	if (users.value.length > 0) return; // Already fetched
+	try {
+		const response = await frappeRequest({
+			url: "/api/method/frappe.client.get_list",
+			params: {
+				doctype: "User",
+				filters: { enabled: 1, user_type: "System User" },
+				fields: ["name", "full_name"],
+				order_by: "full_name asc",
+				page_length: 1000 
+			}
+		});
+		users.value = (response.message || response || []).filter(u => u.full_name);
+	} catch (err) {
+		console.error("Failed to fetch users:", err);
+	}
+}
+
+async function fetchComments() {
+	if (!props.modelName) return;
+	try {
+		const response = await frappeRequest({
+			url: "/api/method/one_bpmn.api.get_canvas_comments",
+			params: { model_name: props.modelName }
+		});
+		comments.value = response.message || response || [];
+		renderComments();
+	} catch (err) {
+		console.error("Failed to fetch comments:", err);
+	}
+}
+
+function renderComments() {
+	if (!modeler) return;
+	const overlays = modeler.get("overlays");
+	
+	// Clear existing overlays of type 'processa-comment'
+	overlays.remove({ type: "processa-comment" });
+
+	// Group comments by element_id
+	const grouped = comments.value.reduce((acc, c) => {
+		const id = c.element_id || "process";
+		if (!acc[id]) acc[id] = [];
+		acc[id].push(c);
+		return acc;
+	}, {});
+
+	Object.keys(grouped).forEach(elementId => {
+		const elementComments = grouped[elementId];
+		const hasOpenTask = elementComments.some(c => c.is_task && c.status === "Open");
+		
+		// Create overlay HTML
+		const html = document.createElement("div");
+		html.className = `p-1 rounded-full shadow-md cursor-pointer border border-white transition-transform hover:scale-110 ${hasOpenTask ? 'bg-orange-500 text-white' : 'bg-blue-500 text-white'}`;
+		html.style.width = "20px";
+		html.style.height = "20px";
+		html.style.display = "flex";
+		html.style.alignItems = "center";
+		html.style.justifyContent = "center";
+		html.title = `${elementComments.length} comment(s)`;
+		
+		const icon = document.createElement("span");
+		icon.innerHTML = `<svg xmlns="http://www.w3.org/2000/svg" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"></path></svg>`;
+		html.appendChild(icon);
+
+		html.onclick = (e) => {
+			e.stopPropagation();
+			selectedElementComments.value = elementComments;
+			showViewCommentsDialog.value = true;
+		};
+
+		overlays.add(elementId, "processa-comment", {
+			position: {
+				bottom: 0,
+				right: 0
+			},
+			html: html
+		});
+	});
+}
+
+async function submitComment() {
+	if (!commentFormData.value.text || !props.modelName) return;
+
+	try {
+		await frappeRequest({
+			url: "/api/method/one_bpmn.api.post_canvas_comment",
+			params: {
+				model_name: props.modelName,
+				element_id: activeCommentElement.value?.id || "process",
+				comment: commentFormData.value.text,
+				assigned_to: commentFormData.value.assigned_to,
+				is_task: commentFormData.value.is_task ? 1 : 0
+			}
+		});
+
+		showCommentDialog.value = false;
+		isCommentMode.value = false;
+		fetchComments();
+	} catch (err) {
+		console.error("Failed to post comment:", err);
+	}
+}
+
+async function resolveComment(comment) {
+	try {
+		await frappeRequest({
+			url: "/api/method/one_bpmn.api.update_comment_status",
+			params: {
+				name: comment.name,
+				status: "Resolved"
+			}
+		});
+		fetchComments();
+		// Update the local list if dialog is open
+		const idx = selectedElementComments.value.findIndex(c => c.name === comment.name);
+		if (idx > -1) {
+			selectedElementComments.value[idx].status = "Resolved";
+		}
+	} catch (err) {
+		console.error("Failed to resolve comment:", err);
+	}
+}
+
+// Watch for model name changes to refetch comments
+watch(() => props.modelName, (newVal) => {
+	if (newVal) {
+		fetchComments();
+	}
+});
+
+// --- End Commenting Methods ---
+
+// Decode HTML entities
 function decodeHtmlEntities(text) {
 	const textarea = document.createElement("textarea");
 	textarea.innerHTML = text;

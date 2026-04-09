@@ -1223,3 +1223,66 @@ def get_diagram_version_xml(name: str, version_name: str) -> dict:
 		"timestamp": version_doc.creation,
 		"user": frappe.utils.get_fullname(version_doc.owner),
 	}
+
+@frappe.whitelist()
+def get_canvas_comments(model_name: str) -> list:
+	"""
+	Fetch all comments for a specific BPMN Process Model.
+	"""
+	if not model_name:
+		return []
+		
+	return frappe.get_list("Processa Comment",
+		filters={"model": model_name},
+		fields=["name", "model", "element_id", "comment", "assigned_to", "status", "author", "is_task", "creation"],
+		order_by="creation desc"
+	)
+
+@frappe.whitelist()
+def post_canvas_comment(model_name: str, element_id: str, comment: str, assigned_to: str = None, is_task: int = 0) -> dict:
+	"""
+	Create a new comment on the BPMN canvas.
+	"""
+	print("\n\n\n\n\n\n\n\n\n")
+	if not model_name or not comment:
+		frappe.throw(_("Model name and comment are required"))
+
+	doc = frappe.get_doc({
+		"doctype": "Processa Comment",
+		"model": model_name,
+		"element_id": element_id,
+		"comment": comment,
+		"assigned_to": assigned_to,
+		"is_task": is_task,
+		"status": "Open"
+	})
+	doc.insert(ignore_permissions=True)
+	
+	# If assigned to someone, create a ToDo (optional, depends on if 'actionable' means standard Frappe ToDo)
+	if is_task and assigned_to:
+		frappe.get_doc({
+			"doctype": "ToDo",
+			"owner": assigned_to,
+			"description": _("BPMN Task: {0}").format(comment),
+			"reference_type": "Processa Comment",
+			"reference_name": doc.name
+		}).insert(ignore_permissions=True)
+
+	return doc.as_dict()
+
+@frappe.whitelist()
+def update_comment_status(name: str, status: str) -> dict:
+	"""
+	Update the status of a canvas comment.
+	"""
+	if not name or not status:
+		frappe.throw(_("Comment name and status are required"))
+		
+	doc = frappe.get_doc("Processa Comment", name)
+	doc.status = status
+	doc.save(ignore_permissions=True)
+	
+	# If this was linked to a ToDo, update it? 
+	# (Logic omitted for brevity unless explicitly requested)
+	
+	return doc.as_dict()
