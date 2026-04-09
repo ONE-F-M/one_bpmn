@@ -965,10 +965,12 @@ def _is_local_dev_mode() -> bool:
 
 
 @frappe.whitelist()
-def check_and_update_editor_lock(model_name: str) -> list:
+def check_and_update_editor_lock(model_name: str) -> list[dict[str, str | None]]:
 	"""
 	Track active editors for a BPMN Process Model using Frappe cache.
-	Returns a list of other active users' full names.
+
+	Returns a list of dictionaries for other active users, where each
+	dictionary contains ``name``, ``full_name``, and ``user_image``.
 	"""
 	if not model_name:
 		return []
