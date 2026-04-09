@@ -1317,6 +1317,7 @@ async function handleDeleteTab(tab) {
 				selectDiagram(diagrams.value[0].name);
 			} else {
 				activeDiagramName.value = null;
+				await router.replace({ name: "ProcessEditor", params: { process: props.process } });
 			}
 		}
 
