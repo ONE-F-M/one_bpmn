@@ -1301,6 +1301,7 @@ async function handleDeleteTab(tab) {
 			params: { name: tab.name },
 		});
 
+		delete diagramDataCache.value[tab.name];
 		await loadProcess();
 		
 		// If the deleted tab was active, or if it was in open tabs, handle it
