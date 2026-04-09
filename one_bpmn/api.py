@@ -999,12 +999,11 @@ def check_and_update_editor_lock(model_name: str) -> list:
 	# Save back to cache (60s TTL)
 	frappe.cache.set_value(cache_key, updated_editors, expires_in_sec=60)
 	
-	# Return full names of other editors for better UX
+	# Return detailed user info for other editors for better UX (avatars)
 	if other_editors:
 		return frappe.get_all("User", 
 			filters={"name": ["in", other_editors]}, 
-			fields=["full_name"], 
-			pluck="full_name"
+			fields=["name", "full_name", "user_image"]
 		)
 	
 	return []

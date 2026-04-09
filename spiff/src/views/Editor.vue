@@ -21,6 +21,39 @@
 
 				<!-- CENTER: BPMN Tools Container (Mounted natively from BpmnEditor.vue) -->
 				<div id="bpmn-editor-toolbar" class="flex-1 flex items-center h-8 min-w-0"></div>
+
+				<!-- Other Active Editors Avatars -->
+				<div v-if="otherEditors.length > 0" class="flex items-center -space-x-2 ml-4">
+					<div
+						v-for="user in otherEditors"
+						:key="user.name"
+						class="relative group"
+					>
+						<img
+							v-if="user.user_image"
+							:src="user.user_image"
+							:alt="user.full_name"
+							class="w-7 h-7 rounded-full border-2 border-white object-cover"
+						/>
+						<div
+							v-else
+							:class="[
+								'w-7 h-7 rounded-full border-2 border-white flex items-center justify-center text-[10px] font-bold text-white uppercase',
+								getAvatarColor(user.name)
+							]"
+						>
+							{{ getInitials(user.full_name) }}
+						</div>
+						
+						<!-- Hover Tooltip -->
+						<div class="absolute top-full left-1/2 -translate-x-1/2 mt-2 hidden group-hover:block z-[60]">
+							<div class="bg-gray-800 text-white text-[11px] py-1 px-2 rounded shadow-lg whitespace-nowrap">
+								{{ user.full_name }} is editing
+							</div>
+							<div class="w-2 h-2 bg-gray-800 rotate-45 absolute -top-1 left-1/2 -translate-x-1/2"></div>
+						</div>
+					</div>
+				</div>
 			</div>
 			
 			<div class="flex items-center gap-2 shrink-0 border-l border-gray-200 pl-3 ml-2">
@@ -1015,7 +1048,7 @@ function stopHeartbeat() {
 async function performHeartbeat(modelName) {
 	try {
 		const response = await frappeRequest({
-			url: "one_bpmn.one_bpmn.api.check_and_update_editor_lock",
+			url: "one_bpmn.api.check_and_update_editor_lock",
 			params: { model_name: modelName },
 		});
 
@@ -1023,12 +1056,8 @@ async function performHeartbeat(modelName) {
 		
 		if (otherUsers && otherUsers.length > 0) {
 			otherEditors.value = otherUsers;
-			showNotification(
-				"Multi-User Editing", 
-				`Warning: ${otherUsers.join(", ")} is also editing this diagram.`, 
-				"orange",
-				true // stay until dismissed or next heartbeat
-			);
+			// No longer showing the intrusive Alert notification for multi-user editing
+			// as it is now reflected by avatars in the header.
 		} else {
 			// If we previously had other editors and now don't, hide the warning if it's the multi-user one
 			if (otherEditors.value.length > 0 && notification.value.title === "Multi-User Editing") {
@@ -1516,6 +1545,32 @@ function getStatusTheme(status) {
 		default:
 			return "gray";
 	}
+}
+
+// Avatar Helpers
+function getInitials(fullName) {
+	if (!fullName) return "U";
+	const names = fullName.trim().split(/\s+/);
+	if (names.length === 1) return names[0].charAt(0).toUpperCase();
+	return (names[0].charAt(0) + names[names.length - 1].charAt(0)).toUpperCase();
+}
+
+const AVATAR_COLORS = [
+	"bg-red-500", "bg-orange-500", "bg-amber-500", "bg-yellow-500",
+	"bg-lime-500", "bg-green-500", "bg-emerald-500", "bg-teal-500",
+	"bg-cyan-500", "bg-sky-500", "bg-blue-500", "bg-indigo-500",
+	"bg-violet-500", "bg-purple-500", "bg-fuchsia-500", "bg-pink-500",
+	"bg-rose-500",
+];
+
+function getAvatarColor(userName) {
+	if (!userName) return "bg-gray-400";
+	let hash = 0;
+	for (let i = 0; i < userName.length; i++) {
+		hash = userName.charCodeAt(i) + ((hash << 5) - hash);
+	}
+	const colorIndex = Math.abs(hash) % AVATAR_COLORS.length;
+	return AVATAR_COLORS[colorIndex];
 }
 
 // --- SpiffWorkflow Editor Handlers ---
