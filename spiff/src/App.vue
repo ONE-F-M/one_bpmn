@@ -3,13 +3,13 @@
 		<!-- Global Sidebar -->
 		<aside
 			class="bg-white border-r flex flex-col transition-all duration-300 ease-in-out"
-			:class="collapsed ? 'w-[60px]' : 'w-64'"
+			:class="collapsed ? 'w-14' : 'w-52'"
 		>
 			<!-- Header -->
-			<div class="border-b flex items-center overflow-hidden" :class="collapsed ? 'p-4 justify-center' : 'p-6'">
+			<div class="border-b flex items-center overflow-hidden h-[48px]" :class="collapsed ? 'p-3 justify-center' : 'pl-3 pr-6'">
 				<h2
-					class="text-sm font-bold text-gray-500 uppercase tracking-wider whitespace-nowrap transition-opacity duration-200"
-					:class="collapsed ? 'opacity-0 w-0 overflow-hidden' : 'opacity-100'"
+					class="text-[11px] font-bold text-gray-400 font-sans uppercase tracking-widest whitespace-nowrap transition-opacity duration-200"
+					:class="collapsed ? 'opacity-0 w-0' : 'opacity-100'"
 				>
 					ONE BPMN
 				</h2>
@@ -21,7 +21,7 @@
 			</div>
 
 			<!-- Navigation -->
-			<nav class="flex-1 space-y-1" :class="collapsed ? 'p-2' : 'p-4'">
+			<nav class="flex-1 space-y-0.5" :class="collapsed ? 'p-1.5' : 'pl-3 pr-6 pt-3 pb-3'">
 				<router-link
 					to="/processa"
 					class="flex items-center rounded-md transition-colors"
@@ -59,7 +59,7 @@
 			</nav>
 
 			<!-- Collapse Toggle -->
-			<div class="border-t" :class="collapsed ? 'p-2' : 'p-4'">
+			<div class="border-t" :class="collapsed ? 'p-1.5' : 'pl-3 pr-6 pt-2 pb-2'">
 				<button
 					type="button"
 					@click="toggleCollapse"

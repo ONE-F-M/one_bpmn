@@ -1165,12 +1165,13 @@ defineExpose({
 	outline: none;
 }
 
-/* Properties Panel Styling */
+/* Properties Panel Styling (Frappe UI Skin) */
 .properties-panel-container {
 	--properties-panel-header-background-color: #f9fafb;
 	--properties-panel-group-header-background-color: #f3f4f6;
-	/* Contain any high z-index elements inside the panel so they don't
-	   bleed above frappe-ui Dialog backdrops */
+	background-color: #ffffff;
+	border-left: 1px solid #e5e7eb;
+	font-family: 'Inter', system-ui, sans-serif;
 	isolation: isolate;
 }
 
@@ -1181,10 +1182,88 @@ defineExpose({
 .properties-panel-container .bio-properties-panel-header {
 	background-color: #f9fafb;
 	border-bottom: 1px solid #e5e7eb;
+	padding: 12px 16px;
+}
+
+.properties-panel-container .bio-properties-panel-header-title {
+	font-size: 14px;
+	font-weight: 700;
+	color: #1f2937;
 }
 
 .properties-panel-container .bio-properties-panel-group-header {
 	background-color: #f3f4f6;
+	border-bottom: 1px solid #e5e7eb;
+	padding: 8px 16px;
+	transition: background-color 0.2s ease;
+}
+
+.properties-panel-container .bio-properties-panel-group-header:hover {
+	background-color: #e5e7eb;
+}
+
+.properties-panel-container .bio-properties-panel-group-header-title {
+	font-size: 11px;
+	font-weight: 700;
+	color: #4b5563;
+	text-transform: uppercase;
+	letter-spacing: 0.05em;
+}
+
+/* Form Controls */
+.properties-panel-container .bio-properties-panel-label {
+	display: block;
+	font-size: 12px;
+	font-weight: 500;
+	color: #4b5563;
+	margin-bottom: 6px;
+	margin-top: 12px;
+}
+
+.properties-panel-container .bio-properties-panel-input,
+.properties-panel-container .bio-properties-panel-select,
+.properties-panel-container .bio-properties-panel-textarea {
+	width: 100%;
+	background-color: #f9fafb;
+	border: 1px solid #d1d5db;
+	border-radius: 6px;
+	padding: 6px 10px;
+	font-size: 13px;
+	color: #1f2937;
+	transition: all 0.2s ease;
+	box-shadow: 0 1px 2px rgba(0, 0, 0, 0.05);
+}
+
+.properties-panel-container .bio-properties-panel-input:focus,
+.properties-panel-container .bio-properties-panel-select:focus,
+.properties-panel-container .bio-properties-panel-textarea:focus {
+	outline: none;
+	background-color: #ffffff;
+	border-color: #3b82f6;
+	box-shadow: 0 0 0 2px rgba(59, 130, 246, 0.1);
+}
+
+.properties-panel-container .bio-properties-panel-input::placeholder {
+	color: #9ca3af;
+}
+
+/* Checkbox Styling */
+.properties-panel-container .bio-properties-panel-checkbox {
+	width: 16px;
+	height: 16px;
+	border-radius: 4px;
+	border: 1px solid #d1d5db;
+	cursor: pointer;
+}
+
+/* Group Entries */
+.properties-panel-container .bio-properties-panel-entry {
+	padding: 8px 16px;
+}
+
+.properties-panel-container .bio-properties-panel-group-entries {
+	border-bottom: 1px solid #f3f4f6;
+	padding-bottom: 8px;
 }
 
 /* Frequency Explanation Card (Timer Start Event) */
