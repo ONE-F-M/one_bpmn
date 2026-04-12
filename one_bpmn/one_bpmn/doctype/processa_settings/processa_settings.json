@@ -35,7 +35,7 @@
     {
       "depends_on": "eval:doc.enabled==1",
       "fieldname": "production_api_key",
-      "fieldtype": "Data",
+      "fieldtype": "Password",
       "label": "Production API Key",
       "mandatory_depends_on": "eval:doc.enabled==1"
     },
