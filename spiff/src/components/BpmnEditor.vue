@@ -714,18 +714,27 @@ onMounted(async () => {
 			});
 
 			// Canvas/Element click listener for commenting
-			eventBus.on("element.click", (e) => {
-				if (isCommentMode.value) {
-					// Guard against missing originalEvent
-					if (e.originalEvent) {
-						e.originalEvent.preventDefault();
-						e.originalEvent.stopPropagation();
-					}
-					selectCommentElement(e.element);
-					return false;
+			const handleCommentClick = (element, originalEvent) => {
+				if (!isCommentMode.value || !element) return;
+
+				// Guard against missing originalEvent
+				if (originalEvent) {
+					originalEvent.preventDefault();
+					originalEvent.stopPropagation();
 				}
+
+				selectCommentElement(element);
+				return false;
+			};
+
+			eventBus.on("element.click", (e) => {
+				return handleCommentClick(e.element, e.originalEvent);
 			});
 
+			eventBus.on("canvas.click", (e) => {
+				const canvas = modeler.get("canvas");
+				return handleCommentClick(canvas?.getRootElement(), e.originalEvent);
+			});
 			// Re-inject only when calledElement actually changed
 			// churn and repeated network requests on every command stack event.
 			eventBus.on("commandStack.changed", () => {
