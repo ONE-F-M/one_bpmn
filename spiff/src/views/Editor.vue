@@ -254,6 +254,7 @@
 						:save-status-text="saveStatusText"
 						:save-status-color="saveStatusColor"
 						:readonly="!isEditable"
+						:model-name="activeDiagramName"
 						@ready="onEditorReady"
 						@changed="onDiagramChanged"
 						@zoom-changed="onZoomChanged"

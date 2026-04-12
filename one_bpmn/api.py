@@ -1292,7 +1292,6 @@ def post_canvas_comment(model_name: str, element_id: str, comment: str, assigned
 	"""
 	Create a new comment on the BPMN canvas.
 	"""
-	print("\n\n\n\n\n\n\n\n\n")
 	if not model_name or not comment:
 		frappe.throw(_("Model name and comment are required"))
 
@@ -1311,8 +1310,8 @@ def post_canvas_comment(model_name: str, element_id: str, comment: str, assigned
 	if is_task and assigned_to:
 		frappe.get_doc({
 			"doctype": "ToDo",
-			"owner": assigned_to,
-			"description": _("BPMN Task: {0}").format(comment),
+			"allocated_to": assigned_to,
+			"description": _("BPMN Task for {0}: {1}").format(model_name, comment),
 			"reference_type": "Processa Comment",
 			"reference_name": doc.name
 		}).insert(ignore_permissions=True)
@@ -1335,3 +1334,28 @@ def update_comment_status(name: str, status: str) -> dict:
 	# (Logic omitted for brevity unless explicitly requested)
 	
 	return doc.as_dict()
+	
+@frappe.whitelist()
+def get_users_by_role(role: str) -> list:
+	"""
+	Fetch all users who have a specific role.
+	"""
+	if not role:
+		return []
+		
+	# Get users who have the specified role
+	user_list = frappe.get_all("Has Role", 
+		filters={"role": role}, 
+		fields=["parent as name"]
+	)
+	
+	user_names = list(set([u.name for u in user_list]))
+	
+	if not user_names:
+		return []
+		
+	return frappe.get_list("User",
+		filters={"name": ["in", user_names], "enabled": 1, "user_type": "System User"},
+		fields=["name", "full_name"],
+		order_by="full_name asc"
+	)

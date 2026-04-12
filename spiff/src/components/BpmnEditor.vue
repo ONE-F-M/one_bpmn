@@ -100,7 +100,7 @@
 			<!-- BPMN Canvas -->
 			<div
 				ref="container"
-				:class="['bpmn-canvas flex-1', { 'bpmn-canvas--readonly': readonly }]"
+				:class="['bpmn-canvas flex-1', { 'bpmn-canvas--readonly': readonly, 'comment-mode-active': isCommentMode }]"
 				@dragover.prevent="!readonly && handleDragOver($event)"
 				@drop.prevent="!readonly && handleDrop($event)"
 			></div>
@@ -148,6 +148,23 @@
 					</div>
 				</div>
 			</transition>
+
+			<!-- Comment Mode Instruction Banner -->
+			<transition name="fade">
+				<div 
+					v-if="isCommentMode && !showCommentDialog"
+					class="absolute top-4 left-1/2 -translate-x-1/2 z-[100] bg-blue-600 text-white px-4 py-2 rounded-full shadow-lg flex items-center gap-3"
+				>
+					<Icon icon="lucide:info" class="w-4 h-4" />
+					<span class="text-sm font-medium">Click on any shape or the canvas to add a comment</span>
+					<button 
+						@click="toggleCommentMode"
+						class="ml-2 p-1 hover:bg-blue-500/20 rounded-full"
+					>
+						<Icon icon="lucide:x" class="w-4 h-4" />
+					</button>
+				</div>
+			</transition>
 		</div>
 		
 		<!-- Comment Dialog -->
@@ -168,13 +185,37 @@
 					
 					<div class="flex items-center gap-4">
 						<div class="flex-1">
-							<FormControl
-								label="Assign To"
-								type="select"
-								v-model="commentFormData.assigned_to"
-								:options="userOptions"
-								placeholder="Select user"
-							/>
+							<div class="space-y-1">
+								<label class="block text-xs font-medium text-gray-700">Assign To (Process Owner)</label>
+								<div class="relative">
+									<Icon icon="lucide:search" class="absolute left-3 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-gray-400" />
+									<input
+										v-model="userSearchQuery"
+										type="text"
+										placeholder="Search process owners..."
+										class="w-full pl-9 pr-3 py-1.5 border border-gray-300 rounded-md text-sm bg-white text-gray-900 focus:outline-none focus:ring-2 focus:ring-blue-400"
+										@focus="showUserDropdown = true"
+									/>
+									<div 
+										v-if="showUserDropdown && filteredUsers.length > 0" 
+										v-click-outside="() => showUserDropdown = false"
+										class="absolute z-[110] w-full mt-1 max-h-48 overflow-y-auto bg-white border border-gray-200 rounded-md shadow-lg py-1"
+									>
+										<div
+											v-for="u in filteredUsers"
+											:key="u.value"
+											@click="commentFormData.assigned_to = u.value; userSearchQuery = u.label; showUserDropdown = false"
+											class="px-3 py-1.5 text-sm cursor-pointer hover:bg-blue-50 text-gray-900 flex items-center justify-between"
+										>
+											<span>{{ u.label }}</span>
+											<Icon v-if="commentFormData.assigned_to === u.value" icon="lucide:check" class="w-3.5 h-3.5 text-blue-600" />
+										</div>
+									</div>
+									<div v-else-if="showUserDropdown && userSearchQuery && filteredUsers.length === 0" class="absolute z-[110] w-full mt-1 bg-white border border-gray-200 rounded-md shadow-lg p-3 text-xs text-gray-400 italic">
+										No process owners found
+									</div>
+								</div>
+							</div>
 						</div>
 						<div class="pt-6">
 							<label class="flex items-center gap-2 cursor-pointer select-none text-sm text-gray-700">
@@ -367,11 +408,17 @@ const commentFormData = ref({
 });
 const users = ref([]);
 
-const userOptions = computed(() => {
-	return users.value.map(u => ({
+const userSearchQuery = ref("");
+const showUserDropdown = ref(false);
+
+const filteredUsers = computed(() => {
+	const q = (userSearchQuery.value || "").toLowerCase();
+	const options = users.value.map(u => ({
 		label: u.full_name,
 		value: u.name
 	}));
+	if (!q) return options;
+	return options.filter(u => u.label.toLowerCase().includes(q) || u.value.toLowerCase().includes(q));
 });
 
 const container = ref(null);
@@ -669,8 +716,11 @@ onMounted(async () => {
 			// Canvas/Element click listener for commenting
 			eventBus.on("element.click", (e) => {
 				if (isCommentMode.value) {
-					e.originalEvent.preventDefault();
-					e.originalEvent.stopPropagation();
+					// Guard against missing originalEvent
+					if (e.originalEvent) {
+						e.originalEvent.preventDefault();
+						e.originalEvent.stopPropagation();
+					}
 					selectCommentElement(e.element);
 					return false;
 				}
@@ -984,8 +1034,17 @@ function addStickyNote() {
 // --- Commenting Methods ---
 
 function toggleCommentMode() {
-	isCommentMode.value = !isCommentMode.value;
 	if (!isCommentMode.value) {
+		// If an element is already selected, open the dialog immediately for it
+		const selection = modeler?.get("selection");
+		const selected = selection?.get();
+		if (selected && selected.length === 1) {
+			selectCommentElement(selected[0]);
+			return; // Don't enter mode if we immediately opened the dialog
+		}
+		isCommentMode.value = true;
+	} else {
+		isCommentMode.value = false;
 		activeCommentElement.value = null;
 		showCommentDialog.value = false;
 	}
@@ -1005,13 +1064,9 @@ async function fetchUsers() {
 	if (users.value.length > 0) return; // Already fetched
 	try {
 		const response = await frappeRequest({
-			url: "/api/method/frappe.client.get_list",
+			url: "/api/method/one_bpmn.api.get_users_by_role",
 			params: {
-				doctype: "User",
-				filters: { enabled: 1, user_type: "System User" },
-				fields: ["name", "full_name"],
-				order_by: "full_name asc",
-				page_length: 1000 
+				role: "Process Owner"
 			}
 		});
 		users.value = (response.message || response || []).filter(u => u.full_name);
@@ -1405,6 +1460,10 @@ defineExpose({
 
 .bpmn-canvas {
 	background: #fafafa;
+}
+
+.bpmn-canvas.comment-mode-active .djs-container {
+	cursor: crosshair !important;
 }
 
 /* ── Injected Process Name field (no inline styles) ─── */
