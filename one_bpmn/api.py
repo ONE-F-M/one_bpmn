@@ -1062,7 +1062,7 @@ def _call_production_api(method: str, params: dict) -> dict:
 		frappe.throw(_(
 			"Production API credentials are not configured. "
 			"Please go to Processa Settings to configure the "
-			"Integration URL, API Key, and API Secret."
+			"Production URL, API Key, and API Secret."
 		))
 
 	url = f"{production_url}/api/method/{method}"
