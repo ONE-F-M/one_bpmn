@@ -297,7 +297,7 @@
 </template>
 
 <script setup>
-import { ref, shallowRef, onMounted, onUnmounted, onBeforeUnmount, nextTick, watch, computed } from "vue";
+import { ref, shallowRef, onMounted, onBeforeUnmount, watch, computed } from "vue";
 import { frappeRequest } from "frappe-ui";
 import {
 	injectProcessNameField,
