@@ -1325,16 +1325,28 @@ def update_comment_status(name: str, status: str) -> dict:
 	"""
 	if not name or not status:
 		frappe.throw(_("Comment name and status are required"))
-		
+
+	allowed_statuses = {"Open", "Resolved", "Closed"}
+	normalized_status = status.strip()
+	if normalized_status not in allowed_statuses:
+		frappe.throw(_("Status must be one of: Open, Resolved, Closed"))
+
 	doc = frappe.get_doc("Processa Comment", name)
-	doc.status = status
-	doc.save(ignore_permissions=True)
-	
-	# If this was linked to a ToDo, update it? 
+	doc.check_permission("write")
+
+	current_user = frappe.session.user
+	is_system_manager = "System Manager" in frappe.get_roles(current_user)
+	allowed_users = {doc.owner, getattr(doc, "assigned_to", None), "Administrator"}
+	if current_user not in allowed_users and not is_system_manager:
+		frappe.throw(_("You are not permitted to update this comment status"))
+
+	doc.status = normalized_status
+	doc.save()
+
+	# If this was linked to a ToDo, update it?
 	# (Logic omitted for brevity unless explicitly requested)
-	
+
 	return doc.as_dict()
-	
 @frappe.whitelist()
 def get_users_by_role(role: str) -> list:
 	"""
