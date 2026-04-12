@@ -1,7 +1,7 @@
 <template>
 	<div class="bpmn-editor-wrapper h-full w-full flex flex-col">
 		<!-- Toolbar (moved natively to parent Editor.vue's header) -->
-		<div ref="toolbarEl" v-show="isMounted" class="flex items-center gap-1.5 w-full h-full text-gray-700">
+		<div ref="toolbarEl" v-show="isMounted" class="flex items-center gap-1.5 w-full h-full text-gray-700 overflow-x-auto scrollbar-hide flex-nowrap min-w-0 pr-2">
 			<template v-if="!readonly">
 				<!-- Undo/Redo buttons -->
 				<button
@@ -77,7 +77,17 @@
 				</div>
 			</div>
 			
-			<div class="shrink-0 pl-1 border-l border-gray-200">
+			<div class="shrink-0 pl-1 border-l border-gray-200 flex items-center gap-1">
+				<!-- Collapse toggle handle (Only visible when panel is open) -->
+				<button
+					v-if="showPropertiesPanel"
+					@click="togglePropertiesCollapse"
+					:title="propertiesCollapsed ? 'Expand Panel' : 'Collapse Panel'"
+					class="p-1.5 flex items-center justify-center rounded hover:bg-gray-100 text-gray-500 transition-colors"
+				>
+					<Icon :icon="propertiesCollapsed ? 'lucide:chevrons-left' : 'lucide:chevrons-right'" class="w-4 h-4" />
+				</button>
+
 				<button
 					@click="togglePropertiesPanel"
 					title="Toggle Properties Panel"
@@ -105,12 +115,49 @@
 				@drop.prevent="!readonly && handleDrop($event)"
 			></div>
 
-			<!-- Properties Panel -->
-			<div
-				v-show="showPropertiesPanel"
-				ref="propertiesContainer"
-				:class="['properties-panel-container w-96 border-l border-gray-200 bg-white overflow-auto', { 'properties-panel--readonly': readonly }]"
-			></div>
+			<!-- Properties Panel with Transition and Handle -->
+			<transition name="slide-right">
+				<div
+					v-show="showPropertiesPanel"
+					:class="[
+						'properties-panel-container border-gray-200 bg-white z-[60] transition-all duration-300 ease-in-out',
+						'absolute inset-y-0 right-0 border-l md:relative flex flex-col',
+						// Responsive width & collapse behavior
+						propertiesCollapsed 
+							? 'w-[48px] overflow-hidden' 
+							: 'w-full md:w-96 overflow-auto',
+						{ 'properties-panel--readonly': readonly }
+					]"
+				>
+					<!-- Inner container to handle content visibility during collapse -->
+					<div 
+						ref="propertiesContainer"
+						class="flex-1 flex flex-col min-w-0 transition-opacity duration-200"
+						:class="propertiesCollapsed ? 'opacity-0 pointer-events-none' : 'opacity-100'"
+					>
+						<!-- Content is injected here by bpmn-js-properties-panel -->
+					</div>
+
+					<!-- Floating Collapse/Expand Handle (Visible on the left edge of the panel) -->
+					<button
+						@click="togglePropertiesCollapse"
+						class="absolute left-0 top-1/2 -translate-x-1/2 -translate-y-1/2 w-6 h-12 bg-white border border-gray-200 rounded-l-lg shadow-md flex items-center justify-center text-gray-500 hover:text-gray-900 transition-all z-[70] md:hidden"
+						:title="propertiesCollapsed ? 'Expand' : 'Collapse'"
+					>
+						<Icon :icon="propertiesCollapsed ? 'lucide:chevron-left' : 'lucide:chevron-right'" class="w-4 h-4" />
+					</button>
+					
+					<!-- Desktop/Sidebar-style collapse handle (Visible when panel is NOT w-full) -->
+					<div 
+						v-if="propertiesCollapsed"
+						class="absolute inset-0 flex flex-col items-center pt-4 bg-gray-50 cursor-pointer hover:bg-gray-100 transition-colors"
+						@click="togglePropertiesCollapse"
+					>
+						<Icon icon="lucide:settings" class="w-5 h-5 text-gray-400 mb-4 animate-pulse" />
+						<div class="w-px h-full bg-gray-200"></div>
+					</div>
+				</div>
+			</transition>
 		</div>
 	</div>
 </template>
@@ -215,6 +262,7 @@ const canUndo = ref(false);
 const canRedo = ref(false);
 const zoomLevel = ref(100);
 const showPropertiesPanel = ref(true);
+const propertiesCollapsed = ref(false);
 const isMounted = ref(false);
 const isImporting = ref(false);
 // const showMinimap = ref(true); // DISABLED
@@ -245,6 +293,14 @@ const emptyDiagram = `<?xml version="1.0" encoding="UTF-8"?>
 
 function togglePropertiesPanel() {
 	showPropertiesPanel.value = !showPropertiesPanel.value;
+	// If opening the panel, ensure it's not collapsed by default
+	if (showPropertiesPanel.value) {
+		propertiesCollapsed.value = false;
+	}
+}
+
+function togglePropertiesCollapse() {
+	propertiesCollapsed.value = !propertiesCollapsed.value;
 }
 
 // toggleMinimap - DISABLED
@@ -1378,5 +1434,27 @@ defineExpose({
 /* Ensure placeholder/empty state is legible */
 .bpmn-canvas .djs-direct-editing-content:empty:before {
 	color: rgba(0,0,0,0.3);
+}
+/* ── Properties Panel Transitions ── */
+.slide-right-enter-active, .slide-right-leave-active {
+	transition: transform 0.3s ease, opacity 0.3s ease;
+}
+.slide-right-enter-from, .slide-right-leave-to {
+	transform: translateX(100%);
+	opacity: 0;
+}
+
+/* Ensure the properties panel content doesn't break when width is narrow */
+.properties-panel-container .bio-properties-panel {
+	min-width: 320px; /* Standard properties panel width target */
+}
+
+/* Custom scrollbar-hide utility if not already global */
+.scrollbar-hide::-webkit-scrollbar {
+	display: none;
+}
+.scrollbar-hide {
+	-ms-overflow-style: none;
+	scrollbar-width: none;
 }
 </style>

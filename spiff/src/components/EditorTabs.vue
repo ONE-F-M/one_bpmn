@@ -1,11 +1,11 @@
 <template>
-	<div class="h-12 flex items-center px-3 gap-2 overflow-x-auto">
+	<div class="h-12 flex items-center px-3 gap-2 overflow-x-auto scrollbar-hide">
 		<!-- Tabs -->
 		<div
 		v-for="tab in tabs"
 		:key="tab.name"
 		:class="[
-			'flex items-center gap-2 px-4 py-2 rounded text-base cursor-pointer transition-colors shrink-0',
+			'flex items-center gap-2 px-3 py-1.5 md:px-4 md:py-2 rounded text-sm md:text-base cursor-pointer transition-colors shrink-0',
 			activeTab === tab.name
 				? 'bg-gray-700 text-white shadow-sm'
 				: 'bg-gray-500 text-gray-100 hover:bg-gray-600'

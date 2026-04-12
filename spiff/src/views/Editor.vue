@@ -1,5 +1,5 @@
 <template>
-	<div class="h-full flex flex-col">
+	<div class="h-full flex flex-col min-w-0 overflow-hidden">
 		<!-- Unified Toolbar -->
 		<header class="bg-white border-b px-2 py-2 flex items-center justify-between shadow-sm w-full min-h-[48px]">
 			
@@ -14,7 +14,7 @@
 						<Icon icon="lucide:chevron-left" class="w-5 h-5" />
 					</button>
 					<div class="flex items-center gap-2">
-						<h1 class="text-sm font-semibold text-gray-800 truncate max-w-[200px]" :title="processName">{{ processName }}</h1>
+						<h1 class="text-sm font-semibold text-gray-800 truncate max-w-[100px] sm:max-w-[200px]" :title="processName">{{ processName }}</h1>
 						<Badge v-if="processStatus" :theme="getStatusTheme(processStatus)" :label="processStatus" size="sm" />
 					</div>
 				</div>
@@ -215,7 +215,7 @@
 				/>
 				
 				<!-- Zoom Controls -->
-				<div class="flex items-center gap-1 px-3 py-2 border-l border-gray-300">
+				<div class="hidden sm:flex items-center gap-1 px-3 py-2 border-l border-gray-300">
 					<button
 						@click="handleZoomOut"
 						class="p-1.5 rounded hover:bg-gray-300 text-gray-600 transition-colors"
@@ -1706,5 +1706,13 @@ function onCancelCallActivitySearch() {
 :deep(.tiptap) {
 	max-width: 100% !important;
 	width: 100% !important;
+}
+
+.scrollbar-hide::-webkit-scrollbar {
+	display: none;
+}
+.scrollbar-hide {
+	-ms-overflow-style: none;
+	scrollbar-width: none;
 }
 </style>
