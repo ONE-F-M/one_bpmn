@@ -962,12 +962,17 @@ def _is_local_dev_mode() -> bool:
 	bench, so we can call its API directly without HTTP.
 	"""
 	settings = frappe.get_single("Processa Settings")
-	if not settings.enabled:
-		return True
+	if settings.enabled:
+		production_url = settings.production_url
+		api_key = settings.get_password("production_api_key")
+		api_secret = settings.get_password("production_api_secret")
+		if production_url and api_key and api_secret:
+			return False
 
-	production_url = settings.production_url
-	api_key = settings.production_api_key
-	api_secret = settings.get_password("production_api_secret")
+	# Fallback to site_config.json (frappe.conf)
+	production_url = frappe.conf.get("production_url")
+	api_key = frappe.conf.get("production_api_key")
+	api_secret = frappe.conf.get("production_api_secret")
 	return not (production_url and api_key and api_secret)
 
 
@@ -1027,7 +1032,6 @@ def _call_local_pathfinder_api(method_path: str, params: dict) -> dict:
    Used as a fallback in local dev when production credentials are not
    configured.
    """
-   from frappe.handler import call as frappe_call
    import importlib
 
    # method_path looks like "one_fm.one_fm.doctype.pathfinder_log.pathfinder_api.is_process_editable"
@@ -1054,9 +1058,20 @@ def _call_production_api(method: str, params: dict) -> dict:
 		return _call_local_pathfinder_api(method, params)
 
 	settings = frappe.get_single("Processa Settings")
-	production_url = (settings.production_url or "").rstrip("/")
-	api_key = settings.production_api_key
-	api_secret = settings.get_password("production_api_secret")
+	production_url = None
+	api_key = None
+	api_secret = None
+ 
+	if settings.enabled:
+		production_url = (settings.production_url or "").rstrip("/")
+		api_key = settings.get_password("production_api_key")
+		api_secret = settings.get_password("production_api_secret")
+ 
+	# Fallback to site_config.json if settings are disabled or incomplete
+	if not (production_url and api_key and api_secret):
+		production_url = (frappe.conf.get("production_url") or "").rstrip("/")
+		api_key = frappe.conf.get("production_api_key")
+		api_secret = frappe.conf.get("production_api_secret")
 
 	if not production_url or not api_key or not api_secret:
 		frappe.throw(_(
