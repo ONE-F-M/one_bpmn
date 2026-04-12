@@ -1,5 +1,5 @@
 <template>
-	<div class="h-full flex flex-col">
+	<div class="h-full flex flex-col min-w-0 overflow-hidden">
 		<!-- Unified Toolbar -->
 		<header class="bg-white border-b px-2 py-2 flex items-center justify-between shadow-sm w-full min-h-[48px]">
 			
@@ -14,7 +14,7 @@
 						<Icon icon="lucide:chevron-left" class="w-5 h-5" />
 					</button>
 					<div class="flex items-center gap-2 relative">
-						<h1 class="text-sm font-semibold text-gray-800 truncate max-w-[200px]" :title="processName">{{ processName }}</h1>
+						<h1 class="text-sm font-semibold text-gray-800 truncate max-w-[100px] sm:max-w-[200px]" :title="processName">{{ processName }}</h1>
 						
 						<!-- Status Icon -->
 						<button 
@@ -121,6 +121,16 @@
 					:class="{ 'opacity-40 cursor-not-allowed': !activeDiagramName }"
 				>
 					<Icon icon="lucide:git-compare" class="w-4 h-4" />
+				</button>
+
+				<!-- Toggle Properties Panel -->
+				<button
+					@click="togglePropertiesPanel"
+					class="w-8 h-8 flex items-center justify-center hover:bg-gray-100 rounded transition-colors text-gray-600"
+					title="Toggle Properties Panel"
+					:disabled="!activeDiagramName"
+				>
+					<Icon icon="lucide:settings" class="w-4 h-4" />
 				</button>
 
 				<!-- File menu dropdown -->
@@ -296,7 +306,7 @@
 				/>
 				
 				<!-- Zoom Controls -->
-				<div class="flex items-center gap-1 px-3 py-2 border-l border-gray-300">
+				<div class="hidden sm:flex items-center gap-1 px-3 py-2 border-l border-gray-300">
 					<button
 						@click="handleZoomOut"
 						class="p-1.5 rounded hover:bg-gray-300 text-gray-600 transition-colors"
@@ -1944,6 +1954,12 @@ function onCallActivitySelected(processId) {
 	callActivitySearchEvent = null;
 }
 
+function togglePropertiesPanel() {
+	if (editorRef.value) {
+		editorRef.value.togglePropertiesPanel();
+	}
+}
+
 function onCancelCallActivitySearch() {
 	// Mirror the select path: close dialog AND clear the stored event reference
 	// so we don't retain stale BPMN element/eventBus objects.
@@ -1971,5 +1987,13 @@ function onCancelCallActivitySearch() {
 :deep(.tiptap) {
 	max-width: 100% !important;
 	width: 100% !important;
+}
+
+.scrollbar-hide::-webkit-scrollbar {
+	display: none;
+}
+.scrollbar-hide {
+	-ms-overflow-style: none;
+	scrollbar-width: none;
 }
 </style>
