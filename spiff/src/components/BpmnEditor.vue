@@ -252,7 +252,7 @@
 								<span class="text-xs font-semibold text-gray-700">{{ comment.author }}</span>
 							</div>
 							<span class="text-[10px] text-gray-400 italic">
-								{{ new Date(comment.creation).toLocaleString() }}
+								{{ new Date(comment.creation.replace(" ", "T").replace(/(\.\d{3})\d+$/, "$1")).toLocaleString() }}
 							</span>
 						</div>
 						
