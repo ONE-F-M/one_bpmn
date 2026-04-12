@@ -1,0 +1,74 @@
+{
+  "actions": [],
+  "allow_copy": 0,
+  "allow_import": 0,
+  "allow_rename": 0,
+  "creation": "2025-01-01 00:00:00.000000",
+  "doctype": "DocType",
+  "engine": "InnoDB",
+  "field_order": [
+    "enabled",
+    "section_break_1",
+    "production_url",
+    "production_api_key",
+    "production_api_secret"
+  ],
+  "fields": [
+    {
+      "default": "1",
+      "fieldname": "enabled",
+      "fieldtype": "Check",
+      "label": "Enabled"
+    },
+    {
+      "fieldname": "section_break_1",
+      "fieldtype": "Section Break"
+    },
+    {
+      "depends_on": "eval:doc.enabled==1",
+      "fieldname": "production_url",
+      "fieldtype": "Data",
+      "label": "Production URL",
+      "mandatory_depends_on": "eval:doc.enabled==1",
+      "description": "Ex: https://one-fm.com"
+    },
+    {
+      "depends_on": "eval:doc.enabled==1",
+      "fieldname": "production_api_key",
+      "fieldtype": "Data",
+      "label": "Production API Key",
+      "mandatory_depends_on": "eval:doc.enabled==1"
+    },
+    {
+      "depends_on": "eval:doc.enabled==1",
+      "fieldname": "production_api_secret",
+      "fieldtype": "Password",
+      "label": "Production API Secret",
+      "mandatory_depends_on": "eval:doc.enabled==1"
+    }
+  ],
+  "index_web_pages_for_search": 0,
+  "issingle": 1,
+  "istable": 0,
+  "links": [],
+  "modified": "2025-01-01 00:00:00.000000",
+  "modified_by": "Administrator",
+  "module": "One BPMN",
+  "name": "Processa Settings",
+  "owner": "Administrator",
+  "permissions": [
+    {
+      "create": 1,
+      "delete": 1,
+      "email": 1,
+      "read": 1,
+      "role": "System Manager",
+      "share": 1,
+      "write": 1
+    }
+  ],
+  "sort_field": "creation",
+  "sort_order": "DESC",
+  "states": [],
+  "track_changes": 1
+}
