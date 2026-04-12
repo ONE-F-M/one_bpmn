@@ -30,37 +30,37 @@
 			:class="[
 				'bg-white border-r flex flex-col transition-all duration-300 ease-in-out',
 				// Desktop logic (Persistent on lg screens)
-				collapsed ? 'lg:w-[60px]' : 'lg:w-64',
+				collapsed ? 'lg:w-14' : 'lg:w-52',
 				// Mobile logic (Drawer on < lg screens)
 				!isMobileMenuOpen ? '-translate-x-full lg:translate-x-0' : 'translate-x-0',
 				'fixed inset-y-0 left-0 z-[120] lg:static lg:flex h-full shrink-0'
 			]"
 		>
-			<!-- Header (Hidden on Mobile as we have the mobile header) -->
-			<div class="border-b hidden lg:flex items-center overflow-hidden h-14 px-4" :class="collapsed ? 'justify-center' : ''">
-				<div class="flex items-center gap-3 min-w-0">
-					<div class="w-8 h-8 rounded bg-gray-900 flex items-center justify-center shrink-0">
-						<Icon icon="lucide:workflow" class="w-5 h-5 text-white" />
-					</div>
-					<h2
-						class="text-sm font-bold text-gray-900 uppercase tracking-tight whitespace-nowrap transition-opacity duration-200 overflow-hidden"
-						:class="collapsed ? 'opacity-0 w-0' : 'opacity-100 w-auto'"
-					>
-						ONE BPMN
-					</h2>
-				</div>
+			<!-- Header -->
+			<div class="border-b hidden lg:flex items-center overflow-hidden h-[48px]" :class="collapsed ? 'p-3 justify-center' : 'pl-3 pr-6'">
+				<h2
+					class="text-[11px] font-bold text-gray-400 font-sans uppercase tracking-widest whitespace-nowrap transition-opacity duration-200"
+					:class="collapsed ? 'opacity-0 w-0' : 'opacity-100'"
+				>
+					ONE BPMN
+				</h2>
+				<Icon
+					v-if="collapsed"
+					icon="lucide:workflow"
+					class="w-5 h-5 text-gray-500 flex-shrink-0"
+				/>
 			</div>
 
 			<!-- Mobile Sidebar Header (Only visible in mobile drawer) -->
 			<div class="lg:hidden p-6 border-b flex items-center gap-3">
-				<div class="w-10 h-10 rounded-lg bg-gray-900 flex items-center justify-center shadow-lg">
-					<Icon icon="lucide:workflow" class="w-6 h-6 text-white" />
+				<div class="w-10 h-10 rounded-lg bg-gray-900 flex items-center justify-center shadow-lg text-white">
+					<Icon icon="lucide:workflow" class="w-6 h-6" />
 				</div>
 				<span class="font-extrabold text-gray-900 text-lg uppercase tracking-wider">ONE BPMN</span>
 			</div>
 
 			<!-- Navigation -->
-			<nav class="flex-1 overflow-y-auto pt-4" :class="collapsed ? 'px-2' : 'px-4'">
+			<nav class="flex-1 overflow-y-auto pt-4" :class="collapsed ? 'px-1.5' : 'px-4'">
 				<router-link
 					to="/processa"
 					class="flex items-center rounded-lg transition-all duration-200 mb-1"
@@ -99,8 +99,9 @@
 				</router-link>
 			</nav>
 
-			<!-- Collapse Toggle (Only Desktop) -->
-			<div class="border-t p-4 hidden lg:block">
+			<!-- Collapse Toggle -->
+			<div class="border-t p-4" :class="collapsed ? 'flex justify-center' : ''">
+
 				<button
 					type="button"
 					@click="toggleCollapse"

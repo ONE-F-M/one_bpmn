@@ -70,36 +70,10 @@
 			</div>
 
 
-			<!-- Save Status Indicator before Properties Panel Toggle -->
 			<div class="flex-1 min-w-4 flex items-center justify-end px-3">
 				<div v-if="saveStatusText && !readonly" class="text-sm font-medium transition-colors mr-2" :class="saveStatusColor">
 					{{ saveStatusText }}
 				</div>
-			</div>
-			
-			<div class="shrink-0 pl-1 border-l border-gray-200 flex items-center gap-1">
-				<!-- Collapse toggle handle (Only visible when panel is open) -->
-				<button
-					v-if="showPropertiesPanel"
-					@click="togglePropertiesCollapse"
-					:title="propertiesCollapsed ? 'Expand Panel' : 'Collapse Panel'"
-					class="p-1.5 flex items-center justify-center rounded hover:bg-gray-100 text-gray-500 transition-colors"
-				>
-					<Icon :icon="propertiesCollapsed ? 'lucide:chevrons-left' : 'lucide:chevrons-right'" class="w-4 h-4" />
-				</button>
-
-				<button
-					@click="togglePropertiesPanel"
-					title="Toggle Properties Panel"
-					:class="[
-						'p-1.5 flex items-center justify-center rounded transition-colors',
-						showPropertiesPanel
-							? 'bg-gray-200 text-gray-800 shadow-[inset_0_1px_2px_rgba(0,0,0,0.1)]'
-							: 'hover:bg-gray-100 text-gray-600',
-					]"
-				>
-					<Icon icon="lucide:panel-right" class="w-4 h-4" />
-				</button>
 			</div>
 		</div>
 
@@ -261,7 +235,7 @@ const toolbarEl = ref(null);
 const canUndo = ref(false);
 const canRedo = ref(false);
 const zoomLevel = ref(100);
-const showPropertiesPanel = ref(true);
+const showPropertiesPanel = ref(false);
 const propertiesCollapsed = ref(false);
 const isMounted = ref(false);
 const isImporting = ref(false);
@@ -755,9 +729,6 @@ onBeforeUnmount(() => {
 	if (toolbarEl.value && toolbarEl.value.parentNode) {
 		toolbarEl.value.parentNode.removeChild(toolbarEl.value);
 	}
-});
-
-onUnmounted(() => {
 	// Cancel any pending process-name injection to prevent memory-leaks
 	// and stale DOM updates after the component is torn down.
 	cancelPendingInjection();
@@ -790,9 +761,8 @@ function redo() {
 }
 
 function deleteSelected() {
-	if (!modelerInstance.value) return;
+	if (!modeler) return;
 
-	const modeler = modelerInstance.value;
 	const selection = modeler.get("selection");
 	const modeling = modeler.get("modeling");
 	const selected = selection.get();
@@ -803,9 +773,8 @@ function deleteSelected() {
 }
 
 function addStickyNote() {
-	if (!modelerInstance.value) return;
+	if (!modeler) return;
 
-	const modeler = modelerInstance.value;
 	const modeling = modeler.get("modeling");
 	const canvas = modeler.get("canvas");
 	const bpmnFactory = modeler.get("bpmnFactory");
@@ -1082,19 +1051,18 @@ function updateCalledElement(element, processId) {
 	}, 30);
 }
 
-
-
 defineExpose({
 	getXML,
 	loadXML,
 	undo,
 	redo,
+	deleteSelected,
+	addStickyNote,
 	zoomIn,
 	zoomOut,
 	resetZoom,
 	fitToScreen,
 	getZoomLevel,
-	zoomLevel,
 	addCustomShape,
 	// Overlay API
 	addOverlay,
@@ -1107,7 +1075,9 @@ defineExpose({
 	getSelectedElements,
 	// Call Activity API
 	updateCalledElement,
-
+	// Properties Panel API
+	togglePropertiesPanel,
+	togglePropertiesCollapse,
 });
 </script>
 
@@ -1221,12 +1191,11 @@ defineExpose({
 	outline: none;
 }
 
-/* Properties Panel Styling */
+/* Properties Panel Styling (Frappe UI Skin) */
 .properties-panel-container {
 	--properties-panel-header-background-color: #f9fafb;
 	--properties-panel-group-header-background-color: #f3f4f6;
-	/* Contain any high z-index elements inside the panel so they don't
-	   bleed above frappe-ui Dialog backdrops */
+	font-family: 'Inter', system-ui, sans-serif;
 	isolation: isolate;
 }
 
@@ -1237,10 +1206,88 @@ defineExpose({
 .properties-panel-container .bio-properties-panel-header {
 	background-color: #f9fafb;
 	border-bottom: 1px solid #e5e7eb;
+	padding: 12px 16px;
+}
+
+.properties-panel-container .bio-properties-panel-header-title {
+	font-size: 14px;
+	font-weight: 700;
+	color: #1f2937;
 }
 
 .properties-panel-container .bio-properties-panel-group-header {
 	background-color: #f3f4f6;
+	border-bottom: 1px solid #e5e7eb;
+	padding: 8px 16px;
+	transition: background-color 0.2s ease;
+}
+
+.properties-panel-container .bio-properties-panel-group-header:hover {
+	background-color: #e5e7eb;
+}
+
+.properties-panel-container .bio-properties-panel-group-header-title {
+	font-size: 11px;
+	font-weight: 700;
+	color: #4b5563;
+	text-transform: uppercase;
+	letter-spacing: 0.05em;
+}
+
+/* Form Controls */
+.properties-panel-container .bio-properties-panel-label {
+	display: block;
+	font-size: 12px;
+	font-weight: 500;
+	color: #4b5563;
+	margin-bottom: 6px;
+	margin-top: 12px;
+}
+
+.properties-panel-container .bio-properties-panel-input,
+.properties-panel-container .bio-properties-panel-select,
+.properties-panel-container .bio-properties-panel-textarea {
+	width: 100%;
+	background-color: #f9fafb;
+	border: 1px solid #d1d5db;
+	border-radius: 6px;
+	padding: 6px 10px;
+	font-size: 13px;
+	color: #1f2937;
+	transition: all 0.2s ease;
+	box-shadow: 0 1px 2px rgba(0, 0, 0, 0.05);
+}
+
+.properties-panel-container .bio-properties-panel-input:focus,
+.properties-panel-container .bio-properties-panel-select:focus,
+.properties-panel-container .bio-properties-panel-textarea:focus {
+	outline: none;
+	background-color: #ffffff;
+	border-color: #3b82f6;
+	box-shadow: 0 0 0 2px rgba(59, 130, 246, 0.1);
+}
+
+.properties-panel-container .bio-properties-panel-input::placeholder {
+	color: #9ca3af;
+}
+
+/* Checkbox Styling */
+.properties-panel-container .bio-properties-panel-checkbox {
+	width: 16px;
+	height: 16px;
+	border-radius: 4px;
+	border: 1px solid #d1d5db;
+	cursor: pointer;
+}
+
+/* Group Entries */
+.properties-panel-container .bio-properties-panel-entry {
+	padding: 8px 16px;
+}
+
+.properties-panel-container .bio-properties-panel-group-entries {
+	border-bottom: 1px solid #f3f4f6;
+	padding-bottom: 8px;
 }
 
 /* Frequency Explanation Card (Timer Start Event) */
