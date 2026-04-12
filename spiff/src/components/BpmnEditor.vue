@@ -1,7 +1,7 @@
 <template>
 	<div class="bpmn-editor-wrapper h-full w-full flex flex-col">
 		<!-- Toolbar (moved natively to parent Editor.vue's header) -->
-		<div ref="toolbarEl" v-show="isMounted" class="flex items-center gap-1.5 w-full h-full text-gray-700">
+		<div ref="toolbarEl" v-show="isMounted" class="flex items-center gap-1.5 w-full h-full text-gray-700 overflow-x-auto scrollbar-hide flex-nowrap min-w-0 pr-2">
 			<template v-if="!readonly">
 				<!-- Undo/Redo buttons -->
 				<button
@@ -86,26 +86,10 @@
 			</div>
 
 
-			<!-- Save Status Indicator before Properties Panel Toggle -->
 			<div class="flex-1 min-w-4 flex items-center justify-end px-3">
 				<div v-if="saveStatusText && !readonly" class="text-sm font-medium transition-colors mr-2" :class="saveStatusColor">
 					{{ saveStatusText }}
 				</div>
-			</div>
-			
-			<div class="shrink-0 pl-1 border-l border-gray-200">
-				<button
-					@click="togglePropertiesPanel"
-					title="Toggle Properties Panel"
-					:class="[
-						'p-1.5 flex items-center justify-center rounded transition-colors',
-						showPropertiesPanel
-							? 'bg-gray-200 text-gray-800 shadow-[inset_0_1px_2px_rgba(0,0,0,0.1)]'
-							: 'hover:bg-gray-100 text-gray-600',
-					]"
-				>
-					<Icon icon="lucide:panel-right" class="w-4 h-4" />
-				</button>
 			</div>
 		</div>
 
@@ -121,12 +105,49 @@
 				@drop.prevent="!readonly && handleDrop($event)"
 			></div>
 
-			<!-- Properties Panel -->
-			<div
-				v-show="showPropertiesPanel"
-				ref="propertiesContainer"
-				:class="['properties-panel-container w-96 border-l border-gray-200 bg-white overflow-auto', { 'properties-panel--readonly': readonly }]"
-			></div>
+			<!-- Properties Panel with Transition and Handle -->
+			<transition name="slide-right">
+				<div
+					v-show="showPropertiesPanel"
+					:class="[
+						'properties-panel-container border-gray-200 bg-white z-[60] transition-all duration-300 ease-in-out',
+						'absolute inset-y-0 right-0 border-l md:relative flex flex-col',
+						// Responsive width & collapse behavior
+						propertiesCollapsed 
+							? 'w-[48px] overflow-hidden' 
+							: 'w-full md:w-96 overflow-auto',
+						{ 'properties-panel--readonly': readonly }
+					]"
+				>
+					<!-- Inner container to handle content visibility during collapse -->
+					<div 
+						ref="propertiesContainer"
+						class="flex-1 flex flex-col min-w-0 transition-opacity duration-200"
+						:class="propertiesCollapsed ? 'opacity-0 pointer-events-none' : 'opacity-100'"
+					>
+						<!-- Content is injected here by bpmn-js-properties-panel -->
+					</div>
+
+					<!-- Floating Collapse/Expand Handle (Visible on the left edge of the panel) -->
+					<button
+						@click="togglePropertiesCollapse"
+						class="absolute left-0 top-1/2 -translate-x-1/2 -translate-y-1/2 w-6 h-12 bg-white border border-gray-200 rounded-l-lg shadow-md flex items-center justify-center text-gray-500 hover:text-gray-900 transition-all z-[70] md:hidden"
+						:title="propertiesCollapsed ? 'Expand' : 'Collapse'"
+					>
+						<Icon :icon="propertiesCollapsed ? 'lucide:chevron-left' : 'lucide:chevron-right'" class="w-4 h-4" />
+					</button>
+					
+					<!-- Desktop/Sidebar-style collapse handle (Visible when panel is NOT w-full) -->
+					<div 
+						v-if="propertiesCollapsed"
+						class="absolute inset-0 flex flex-col items-center pt-4 bg-gray-50 cursor-pointer hover:bg-gray-100 transition-colors"
+						@click="togglePropertiesCollapse"
+					>
+						<Icon icon="lucide:settings" class="w-5 h-5 text-gray-400 mb-4 animate-pulse" />
+						<div class="w-px h-full bg-gray-200"></div>
+					</div>
+				</div>
+			</transition>
 		</div>
 		
 		<!-- Comment Dialog -->
@@ -359,7 +380,8 @@ const toolbarEl = ref(null);
 const canUndo = ref(false);
 const canRedo = ref(false);
 const zoomLevel = ref(100);
-const showPropertiesPanel = ref(true);
+const showPropertiesPanel = ref(false);
+const propertiesCollapsed = ref(false);
 const isMounted = ref(false);
 const isImporting = ref(false);
 // const showMinimap = ref(true); // DISABLED
@@ -390,6 +412,14 @@ const emptyDiagram = `<?xml version="1.0" encoding="UTF-8"?>
 
 function togglePropertiesPanel() {
 	showPropertiesPanel.value = !showPropertiesPanel.value;
+	// If opening the panel, ensure it's not collapsed by default
+	if (showPropertiesPanel.value) {
+		propertiesCollapsed.value = false;
+	}
+}
+
+function togglePropertiesCollapse() {
+	propertiesCollapsed.value = !propertiesCollapsed.value;
 }
 
 // toggleMinimap - DISABLED
@@ -862,9 +892,6 @@ onBeforeUnmount(() => {
 	if (toolbarEl.value && toolbarEl.value.parentNode) {
 		toolbarEl.value.parentNode.removeChild(toolbarEl.value);
 	}
-});
-
-onUnmounted(() => {
 	// Cancel any pending process-name injection to prevent memory-leaks
 	// and stale DOM updates after the component is torn down.
 	cancelPendingInjection();
@@ -897,9 +924,8 @@ function redo() {
 }
 
 function deleteSelected() {
-	if (!modelerInstance.value) return;
+	if (!modeler) return;
 
-	const modeler = modelerInstance.value;
 	const selection = modeler.get("selection");
 	const modeling = modeler.get("modeling");
 	const selected = selection.get();
@@ -910,9 +936,8 @@ function deleteSelected() {
 }
 
 function addStickyNote() {
-	if (!modelerInstance.value) return;
+	if (!modeler) return;
 
-	const modeler = modelerInstance.value;
 	const modeling = modeler.get("modeling");
 	const canvas = modeler.get("canvas");
 	const bpmnFactory = modeler.get("bpmnFactory");
@@ -1343,19 +1368,18 @@ function updateCalledElement(element, processId) {
 	}, 30);
 }
 
-
-
 defineExpose({
 	getXML,
 	loadXML,
 	undo,
 	redo,
+	deleteSelected,
+	addStickyNote,
 	zoomIn,
 	zoomOut,
 	resetZoom,
 	fitToScreen,
 	getZoomLevel,
-	zoomLevel,
 	addCustomShape,
 	// Overlay API
 	addOverlay,
@@ -1368,7 +1392,9 @@ defineExpose({
 	getSelectedElements,
 	// Call Activity API
 	updateCalledElement,
-
+	// Properties Panel API
+	togglePropertiesPanel,
+	togglePropertiesCollapse,
 });
 </script>
 
@@ -1482,12 +1508,11 @@ defineExpose({
 	outline: none;
 }
 
-/* Properties Panel Styling */
+/* Properties Panel Styling (Frappe UI Skin) */
 .properties-panel-container {
 	--properties-panel-header-background-color: #f9fafb;
 	--properties-panel-group-header-background-color: #f3f4f6;
-	/* Contain any high z-index elements inside the panel so they don't
-	   bleed above frappe-ui Dialog backdrops */
+	font-family: 'Inter', system-ui, sans-serif;
 	isolation: isolate;
 }
 
@@ -1498,10 +1523,88 @@ defineExpose({
 .properties-panel-container .bio-properties-panel-header {
 	background-color: #f9fafb;
 	border-bottom: 1px solid #e5e7eb;
+	padding: 12px 16px;
+}
+
+.properties-panel-container .bio-properties-panel-header-title {
+	font-size: 14px;
+	font-weight: 700;
+	color: #1f2937;
 }
 
 .properties-panel-container .bio-properties-panel-group-header {
 	background-color: #f3f4f6;
+	border-bottom: 1px solid #e5e7eb;
+	padding: 8px 16px;
+	transition: background-color 0.2s ease;
+}
+
+.properties-panel-container .bio-properties-panel-group-header:hover {
+	background-color: #e5e7eb;
+}
+
+.properties-panel-container .bio-properties-panel-group-header-title {
+	font-size: 11px;
+	font-weight: 700;
+	color: #4b5563;
+	text-transform: uppercase;
+	letter-spacing: 0.05em;
+}
+
+/* Form Controls */
+.properties-panel-container .bio-properties-panel-label {
+	display: block;
+	font-size: 12px;
+	font-weight: 500;
+	color: #4b5563;
+	margin-bottom: 6px;
+	margin-top: 12px;
+}
+
+.properties-panel-container .bio-properties-panel-input,
+.properties-panel-container .bio-properties-panel-select,
+.properties-panel-container .bio-properties-panel-textarea {
+	width: 100%;
+	background-color: #f9fafb;
+	border: 1px solid #d1d5db;
+	border-radius: 6px;
+	padding: 6px 10px;
+	font-size: 13px;
+	color: #1f2937;
+	transition: all 0.2s ease;
+	box-shadow: 0 1px 2px rgba(0, 0, 0, 0.05);
+}
+
+.properties-panel-container .bio-properties-panel-input:focus,
+.properties-panel-container .bio-properties-panel-select:focus,
+.properties-panel-container .bio-properties-panel-textarea:focus {
+	outline: none;
+	background-color: #ffffff;
+	border-color: #3b82f6;
+	box-shadow: 0 0 0 2px rgba(59, 130, 246, 0.1);
+}
+
+.properties-panel-container .bio-properties-panel-input::placeholder {
+	color: #9ca3af;
+}
+
+/* Checkbox Styling */
+.properties-panel-container .bio-properties-panel-checkbox {
+	width: 16px;
+	height: 16px;
+	border-radius: 4px;
+	border: 1px solid #d1d5db;
+	cursor: pointer;
+}
+
+/* Group Entries */
+.properties-panel-container .bio-properties-panel-entry {
+	padding: 8px 16px;
+}
+
+.properties-panel-container .bio-properties-panel-group-entries {
+	border-bottom: 1px solid #f3f4f6;
+	padding-bottom: 8px;
 }
 
 /* Frequency Explanation Card (Timer Start Event) */
@@ -1695,5 +1798,27 @@ defineExpose({
 /* Ensure placeholder/empty state is legible */
 .bpmn-canvas .djs-direct-editing-content:empty:before {
 	color: rgba(0,0,0,0.3);
+}
+/* ── Properties Panel Transitions ── */
+.slide-right-enter-active, .slide-right-leave-active {
+	transition: transform 0.3s ease, opacity 0.3s ease;
+}
+.slide-right-enter-from, .slide-right-leave-to {
+	transform: translateX(100%);
+	opacity: 0;
+}
+
+/* Ensure the properties panel content doesn't break when width is narrow */
+.properties-panel-container .bio-properties-panel {
+	min-width: 320px; /* Standard properties panel width target */
+}
+
+/* Custom scrollbar-hide utility if not already global */
+.scrollbar-hide::-webkit-scrollbar {
+	display: none;
+}
+.scrollbar-hide {
+	-ms-overflow-style: none;
+	scrollbar-width: none;
 }
 </style>

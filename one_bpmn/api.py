@@ -961,7 +961,56 @@ def _is_local_dev_mode() -> bool:
 	api_key = frappe.conf.get("production_api_key")
 	api_secret = frappe.conf.get("production_api_secret")
 	return not (production_url and api_key and api_secret)
+
+
+
+@frappe.whitelist()
+def check_and_update_editor_lock(model_name: str) -> list[dict[str, str | None]]:
+	"""
+	Track active editors for a BPMN Process Model using Frappe cache.
+
+	Returns a list of dictionaries for other active users, where each
+	dictionary contains ``name``, ``full_name``, and ``user_image``.
+	"""
+	if not model_name:
+		return []
+
+	current_user = frappe.session.user
+	if current_user == "Guest":
+		return []
+
+	doc = frappe.get_doc("BPMN Process Model", model_name)
+	doc.check_permission("read")
+	cache_key = f"bpmn_editor_lock:{model_name}"
+	active_editors = frappe.cache.get_value(cache_key) or {}
 	
+	import time
+	now = time.time()
+	
+	# Clean up expired heartbeats (> 45s) and identify others
+	other_editors = []
+	updated_editors = {}
+	
+	for user, timestamp in active_editors.items():
+		if now - timestamp < 45:
+			if user != current_user:
+				other_editors.append(user)
+				updated_editors[user] = timestamp
+	
+	# Add current user
+	updated_editors[current_user] = now
+	
+	# Save back to cache (60s TTL)
+	frappe.cache.set_value(cache_key, updated_editors, expires_in_sec=60)
+	
+	# Return detailed user info for other editors for better UX (avatars)
+	if other_editors:
+		return frappe.get_all("User", 
+			filters={"name": ["in", other_editors]}, 
+			fields=["name", "full_name", "user_image"]
+		)
+	
+	return []
 
 
 def _call_local_pathfinder_api(method_path: str, params: dict) -> dict:

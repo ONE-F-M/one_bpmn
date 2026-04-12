@@ -1,5 +1,5 @@
 <template>
-	<div class="h-full flex flex-col">
+	<div class="h-full flex flex-col min-w-0 overflow-hidden">
 		<!-- Unified Toolbar -->
 		<header class="bg-white border-b px-2 py-2 flex items-center justify-between shadow-sm w-full min-h-[48px]">
 			
@@ -13,14 +13,93 @@
 					>
 						<Icon icon="lucide:chevron-left" class="w-5 h-5" />
 					</button>
-					<div class="flex items-center gap-2">
-						<h1 class="text-sm font-semibold text-gray-800 truncate max-w-[200px]" :title="processName">{{ processName }}</h1>
+					<div class="flex items-center gap-2 relative">
+						<h1 class="text-sm font-semibold text-gray-800 truncate max-w-[100px] sm:max-w-[200px]" :title="processName">{{ processName }}</h1>
+						
+						<!-- Status Icon -->
+						<button 
+							@click="showStatusPopup = !showStatusPopup"
+							class="p-1 rounded transition-colors"
+							:class="isEditable ? 'text-blue-500 hover:bg-blue-50' : 'text-amber-500 hover:bg-amber-50'"
+						>
+							<Icon :icon="isEditable ? 'lucide:pencil' : 'lucide:lock'" class="w-4 h-4" />
+						</button>
+
+						<!-- Status Popup -->
+						<div 
+							v-if="showStatusPopup"
+							v-click-outside="() => showStatusPopup = false"
+							class="absolute top-full left-0 mt-2 w-72 bg-white border border-gray-200 rounded-lg shadow-xl z-[60] overflow-hidden"
+						>
+							<div class="p-4 space-y-3">
+								<div class="flex items-start gap-3">
+									<div 
+										class="p-2 rounded-lg shrink-0"
+										:class="isEditable ? 'bg-blue-50 text-blue-600' : 'bg-amber-50 text-amber-600'"
+									>
+										<Icon :icon="isEditable ? 'lucide:pencil' : 'lucide:lock'" class="w-5 h-5" />
+									</div>
+									<div class="space-y-1">
+										<h3 class="text-sm font-bold text-gray-900 leading-none">
+											{{ isEditable ? 'Active Editing Session' : 'Document is Locked' }}
+										</h3>
+										<p class="text-xs text-gray-500 leading-relaxed">
+											{{ isEditable ? 'This document is live and available for editing. Your changes are automatically saved and synchronized with the server.' : editabilityInfo.reason || 'No active Pathfinder Log. Create one on Production to enable editing.' }}
+										</p>
+									</div>
+								</div>
+
+								<div class="flex justify-end pt-2">
+									<Button 
+										variant="solid" 
+										size="sm" 
+										@click="showStatusPopup = false"
+									>
+										OK
+									</Button>
+								</div>
+							</div>
+						</div>
+
 						<Badge v-if="processStatus" :theme="getStatusTheme(processStatus)" :label="processStatus" size="sm" />
 					</div>
 				</div>
 
 				<!-- CENTER: BPMN Tools Container (Mounted natively from BpmnEditor.vue) -->
 				<div id="bpmn-editor-toolbar" class="flex-1 flex items-center h-8 min-w-0"></div>
+
+				<!-- Other Active Editors Avatars -->
+				<div v-if="otherEditors.length > 0" class="flex items-center -space-x-2 ml-4">
+					<div
+						v-for="user in otherEditors"
+						:key="user.name"
+						class="relative group"
+					>
+						<img
+							v-if="user.user_image"
+							:src="user.user_image"
+							:alt="user.full_name"
+							class="w-7 h-7 rounded-full border-2 border-white object-cover"
+						/>
+						<div
+							v-else
+							:class="[
+								'w-7 h-7 rounded-full border-2 border-white flex items-center justify-center text-[10px] font-bold text-white uppercase',
+								getAvatarColor(user.name)
+							]"
+						>
+							{{ getInitials(user.full_name) }}
+						</div>
+						
+						<!-- Hover Tooltip -->
+						<div class="absolute top-full left-1/2 -translate-x-1/2 mt-2 hidden group-hover:block z-[60]">
+							<div class="bg-gray-800 text-white text-[11px] py-1 px-2 rounded shadow-lg whitespace-nowrap">
+								{{ user.full_name }} is editing
+							</div>
+							<div class="w-2 h-2 bg-gray-800 rotate-45 absolute -top-1 left-1/2 -translate-x-1/2"></div>
+						</div>
+					</div>
+				</div>
 			</div>
 			
 			<div class="flex items-center gap-2 shrink-0 border-l border-gray-200 pl-3 ml-2">
@@ -42,6 +121,16 @@
 					:class="{ 'opacity-40 cursor-not-allowed': !activeDiagramName }"
 				>
 					<Icon icon="lucide:git-compare" class="w-4 h-4" />
+				</button>
+
+				<!-- Toggle Properties Panel -->
+				<button
+					@click="togglePropertiesPanel"
+					class="w-8 h-8 flex items-center justify-center hover:bg-gray-100 rounded transition-colors text-gray-600"
+					title="Toggle Properties Panel"
+					:disabled="!activeDiagramName"
+				>
+					<Icon icon="lucide:settings" class="w-4 h-4" />
 				</button>
 
 				<!-- File menu dropdown -->
@@ -203,7 +292,7 @@
 			</div>
 
 			<!-- Tab Bar -->
-			<div v-if="openTabs.length > 0" class="flex items-center justify-between bg-gray-50 border-t border-gray-200 min-h-[40px]">
+			<div v-if="openTabs.length > 0" class="relative z-10 flex items-center justify-between bg-gray-50 border-t border-gray-200 min-h-[40px]">
 				<EditorTabs
 					:tabs="openTabs"
 					:activeTab="activeDiagramName"
@@ -211,11 +300,13 @@
 					@select-tab="selectDiagram"
 					@add-tab="showAddDiagramDialog"
 					@rename-tab="renameProcessModel"
+					@duplicate-tab="handleDuplicateTab"
+					@delete-tab="handleDeleteTab"
 					class="flex-1 min-w-0"
 				/>
 				
 				<!-- Zoom Controls -->
-				<div class="flex items-center gap-1 px-3 py-2 border-l border-gray-300">
+				<div class="hidden sm:flex items-center gap-1 px-3 py-2 border-l border-gray-300">
 					<button
 						@click="handleZoomOut"
 						class="p-1.5 rounded hover:bg-gray-300 text-gray-600 transition-colors"
@@ -621,6 +712,9 @@ const props = defineProps({
 const router = useRouter();
 const route = useRoute();
 
+let heartbeatInterval = null;
+const otherEditors = ref([]);
+
 const editorRef = ref(null);
 const processName = ref("");
 const diagrams = ref([]);
@@ -634,6 +728,7 @@ const hasUnsavedChanges = ref(false);
 const loading = ref(true);
 const showShapeLibrary = ref(false);
 const showFileMenu = ref(false);
+const showStatusPopup = ref(false);
 
 // Version diff dialog ref
 const versionDiffRef = ref(null);
@@ -985,7 +1080,49 @@ onUnmounted(() => {
 	window.removeEventListener("keydown", handleKeyDown);
 	window.removeEventListener("beforeunload", handleBeforeUnload);
 	clearTimeout(saveTimeout);
+	stopHeartbeat();
 });
+
+function startHeartbeat(modelName) {
+	stopHeartbeat();
+	if (!modelName) return;
+
+	// Initial check
+	performHeartbeat(modelName);
+
+	// Periodic check every 30 seconds
+	heartbeatInterval = setInterval(() => {
+		performHeartbeat(modelName);
+	}, 30000);
+}
+
+function stopHeartbeat() {
+	if (heartbeatInterval) {
+		clearInterval(heartbeatInterval);
+		heartbeatInterval = null;
+	}
+	otherEditors.value = [];
+}
+
+async function performHeartbeat(modelName) {
+	try {
+		const response = await frappeRequest({
+			url: "one_bpmn.api.check_and_update_editor_lock",
+			params: { model_name: modelName },
+		});
+
+		const otherUsers = response.message || response;
+		
+		if (otherUsers && otherUsers.length > 0) {
+			otherEditors.value = otherUsers;
+			// Multi-user editing is reflected by avatars in the header.
+		} else {
+			otherEditors.value = [];
+		}
+	} catch (err) {
+		console.error("Heartbeat error:", err);
+	}
+}
 
 async function loadProcess() {
 	try {
@@ -1044,7 +1181,14 @@ async function onEditorReady() {
 
 // Watch for diagram tab switches and load new XML without remounting the editor.
 watch(activeDiagramName, async (newName) => {
-	if (!editorReady.value || !newName) return;
+	if (!newName) {
+		stopHeartbeat();
+		return;
+	}
+
+	startHeartbeat(newName);
+
+	if (!editorReady.value) return;
 	hasUnsavedChanges.value = false;
 	saveState.value = 'saved';
 	await loadDiagramContent(newName);
@@ -1134,17 +1278,21 @@ async function saveCurrentDiagram() {
 	}
 }
 
-function showNotification(title, message, theme = "green") {
+function showNotification(title, message, theme = "green", stay = false) {
 	notification.value = {
 		show: true,
 		title,
 		message,
 		theme
 	};
-	// Auto-hide after 3 seconds
-	setTimeout(() => {
-		notification.value.show = false;
-	}, 3000);
+	if (!stay) {
+		// Auto-hide after 3 seconds
+		setTimeout(() => {
+			if (notification.value.title === title) {
+				notification.value.show = false;
+			}
+		}, 3000);
+	}
 }
 
 function showAddDiagramDialog() {
@@ -1222,6 +1370,107 @@ async function createDiagram() {
 		alert("Failed to create: " + (error.message || error));
 	} finally {
 		creating.value = false;
+	}
+}
+
+async function ensureDiagramContentCached(diagramName) {
+	if (diagramDataCache.value[diagramName]) {
+		return diagramDataCache.value[diagramName];
+	}
+
+	const response = await frappeRequest({
+		url: "/api/method/one_bpmn.api.get_process_model",
+		params: {
+			name: diagramName,
+		},
+	});
+
+	const result = response.message || response;
+	const xmlContent = result?.xml_content || "";
+
+	if (xmlContent) {
+		diagramDataCache.value[diagramName] = xmlContent;
+	}
+
+	return xmlContent;
+}
+
+async function handleDuplicateTab(tab) {
+	if (!isEditable.value) return;
+	
+	const newName = `Copy of ${tab.model_name}`;
+	
+	// Get XML content (from editor if active, otherwise from cache/backend)
+	let xmlContent;
+	if (activeDiagramName.value === tab.name && editorRef.value) {
+		xmlContent = await editorRef.value.getXML();
+	} else {
+		xmlContent = await ensureDiagramContentCached(tab.name);
+	}
+
+	if (!xmlContent) {
+		showNotification("Error", "Could not read diagram content for duplication", "red");
+		return;
+	}
+
+	creating.value = true;
+	try {
+		const response = await frappeRequest({
+			url: "/api/method/one_bpmn.api.save_process_model",
+			params: {
+				process: props.process,
+				model_name: newName,
+				xml_content: xmlContent,
+				description: tab.description || "",
+			},
+		});
+
+		const result = response.message || response;
+		await loadProcess();
+		selectDiagram(result.name);
+		showNotification("Success", `Diagram duplicated as "${newName}"`, "green");
+	} catch (error) {
+		console.error("Duplication failed:", error);
+		showNotification("Error", "Failed to duplicate diagram: " + (error.message || error), "red");
+	} finally {
+		creating.value = false;
+	}
+}
+
+async function handleDeleteTab(tab) {
+	if (!isEditable.value) return;
+	if (!confirm(`Are you sure you want to delete "${tab.model_name}"? This action cannot be undone.`)) return;
+
+	try {
+		await frappeRequest({
+			url: "/api/method/one_bpmn.api.delete_diagram",
+			params: { name: tab.name },
+		});
+
+		delete diagramDataCache.value[tab.name];
+		await loadProcess();
+		
+		// If the deleted tab was active, or if it was in open tabs, handle it
+		const tabIndex = openTabs.value.findIndex(t => t.name === tab.name);
+		if (tabIndex > -1) {
+			openTabs.value.splice(tabIndex, 1);
+		}
+
+		if (activeDiagramName.value === tab.name) {
+			if (openTabs.value.length > 0) {
+				selectDiagram(openTabs.value[0].name);
+			} else if (diagrams.value.length > 0) {
+				selectDiagram(diagrams.value[0].name);
+			} else {
+				activeDiagramName.value = null;
+				await router.replace({ name: "ProcessEditor", params: { process: props.process } });
+			}
+		}
+
+		showNotification("Deleted", `Diagram "${tab.model_name}" has been deleted`, "green");
+	} catch (error) {
+		console.error("Deletion failed:", error);
+		showNotification("Error", "Failed to delete diagram: " + (error.message || error), "red");
 	}
 }
 
@@ -1453,6 +1702,32 @@ function getStatusTheme(status) {
 	}
 }
 
+// Avatar Helpers
+function getInitials(fullName) {
+	if (!fullName) return "U";
+	const names = fullName.trim().split(/\s+/);
+	if (names.length === 1) return names[0].charAt(0).toUpperCase();
+	return (names[0].charAt(0) + names[names.length - 1].charAt(0)).toUpperCase();
+}
+
+const AVATAR_COLORS = [
+	"bg-red-500", "bg-orange-500", "bg-amber-500", "bg-yellow-500",
+	"bg-lime-500", "bg-green-500", "bg-emerald-500", "bg-teal-500",
+	"bg-cyan-500", "bg-sky-500", "bg-blue-500", "bg-indigo-500",
+	"bg-violet-500", "bg-purple-500", "bg-fuchsia-500", "bg-pink-500",
+	"bg-rose-500",
+];
+
+function getAvatarColor(userName) {
+	if (!userName) return "bg-gray-400";
+	let hash = 0;
+	for (let i = 0; i < userName.length; i++) {
+		hash = userName.charCodeAt(i) + ((hash << 5) - hash);
+	}
+	const colorIndex = Math.abs(hash) % AVATAR_COLORS.length;
+	return AVATAR_COLORS[colorIndex];
+}
+
 // --- SpiffWorkflow Editor Handlers ---
 
 async function onLaunchScriptEditor(event) {
@@ -1679,6 +1954,12 @@ function onCallActivitySelected(processId) {
 	callActivitySearchEvent = null;
 }
 
+function togglePropertiesPanel() {
+	if (editorRef.value) {
+		editorRef.value.togglePropertiesPanel();
+	}
+}
+
 function onCancelCallActivitySearch() {
 	// Mirror the select path: close dialog AND clear the stored event reference
 	// so we don't retain stale BPMN element/eventBus objects.
@@ -1706,5 +1987,13 @@ function onCancelCallActivitySearch() {
 :deep(.tiptap) {
 	max-width: 100% !important;
 	width: 100% !important;
+}
+
+.scrollbar-hide::-webkit-scrollbar {
+	display: none;
+}
+.scrollbar-hide {
+	-ms-overflow-style: none;
+	scrollbar-width: none;
 }
 </style>
