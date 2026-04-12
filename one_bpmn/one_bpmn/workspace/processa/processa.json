@@ -16,7 +16,7 @@
    "hidden": 0,
    "is_query_report": 0,
    "label": "BPMN",
-   "link_count": 3,
+   "link_count": 4,
    "onboard": 0,
    "type": "Card Break"
   },
@@ -49,6 +49,17 @@
    "label": "BPMN Activity Log",
    "link_count": 0,
    "link_to": "BPMN Activity Log",
+   "link_type": "DocType",
+   "onboard": 0,
+   "type": "Link"
+  },
+  {
+   "dependencies": "",
+   "hidden": 0,
+   "is_query_report": 0,
+   "label": "Processa Settings",
+   "link_count": 0,
+   "link_to": "Processa Settings",
    "link_type": "DocType",
    "onboard": 0,
    "type": "Link"

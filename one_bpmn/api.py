@@ -942,7 +942,11 @@ def create_notification(
 
 def _is_production_site() -> bool:
 	"""Return True if the current Frappe site IS the Production instance."""
-	production_url = (frappe.conf.get("production_url") or "").rstrip("/")
+	settings = frappe.get_single("Processa Settings")
+	if not settings.enabled:
+		return False
+
+	production_url = (settings.production_url or "").rstrip("/")
 	if not production_url:
 		# If production_url is not configured, assume we are NOT production
 		# (safe default: allow the editability check to proceed).
@@ -957,9 +961,13 @@ def _is_local_dev_mode() -> bool:
 	In local dev the one_fm app (with Pathfinder Log) lives on the same
 	bench, so we can call its API directly without HTTP.
 	"""
-	production_url = frappe.conf.get("production_url")
-	api_key = frappe.conf.get("production_api_key")
-	api_secret = frappe.conf.get("production_api_secret")
+	settings = frappe.get_single("Processa Settings")
+	if not settings.enabled:
+		return True
+
+	production_url = settings.production_url
+	api_key = settings.production_api_key
+	api_secret = settings.get_password("production_api_secret")
 	return not (production_url and api_key and api_secret)
 
 
@@ -1034,7 +1042,7 @@ def _call_production_api(method: str, params: dict) -> dict:
 	Call a whitelisted method on the Production site using API key auth.
 
 	Reads `production_url`, `production_api_key`, and
-	`production_api_secret` from the current site's site_config.json.
+	`production_api_secret` from Processa Settings DocType.
 
 	Falls back to a direct local call when credentials are not configured
 	(local development mode).
@@ -1045,15 +1053,16 @@ def _call_production_api(method: str, params: dict) -> dict:
 	if _is_local_dev_mode():
 		return _call_local_pathfinder_api(method, params)
 
-	production_url = (frappe.conf.get("production_url") or "").rstrip("/")
-	api_key = frappe.conf.get("production_api_key")
-	api_secret = frappe.conf.get("production_api_secret")
+	settings = frappe.get_single("Processa Settings")
+	production_url = (settings.production_url or "").rstrip("/")
+	api_key = settings.production_api_key
+	api_secret = settings.get_password("production_api_secret")
 
 	if not production_url or not api_key or not api_secret:
 		frappe.throw(_(
 			"Production API credentials are not configured. "
-			"Please set production_url, production_api_key, and "
-			"production_api_secret in site_config.json."
+			"Please go to Processa Settings to configure the "
+			"Production URL, API Key, and API Secret."
 		))
 
 	url = f"{production_url}/api/method/{method}"
