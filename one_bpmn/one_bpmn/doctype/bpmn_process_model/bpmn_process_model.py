@@ -28,7 +28,7 @@ class BPMNProcessModel(Document):
 		if not editability_info.get("editable"):
 			reason = editability_info.get("reason", "No active Pathfinder Log.")
 			frappe.throw(
-				_(f"Cannot edit BPMN Process Model: {reason}"), 
+				_("Cannot edit BPMN Process Model: {0}").format(reason),
 				exc=frappe.ValidationError,
 				title=_("Process Locked")
 			)
