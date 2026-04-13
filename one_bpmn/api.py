@@ -1395,3 +1395,15 @@ def get_users_by_role(role: str) -> list:
 		fields=["name", "full_name"],
 		order_by="full_name asc"
 	)
+
+
+@frappe.whitelist()
+def get_system_users() -> list:
+	"""
+	Fetch all active system users.
+	"""
+	return frappe.get_list("User",
+		filters={"enabled": 1, "user_type": "System User"},
+		fields=["name", "full_name"],
+		order_by="full_name asc"
+	)
