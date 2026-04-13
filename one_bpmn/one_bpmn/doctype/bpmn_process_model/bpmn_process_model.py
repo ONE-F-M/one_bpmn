@@ -9,8 +9,29 @@ import re
 
 class BPMNProcessModel(Document):
 	def validate(self):
+		self.validate_is_editable()
 		self.extract_process_id_from_xml()
 		self.enforce_single_active()
+
+	def validate_is_editable(self):
+		"""Ensure that the process is editable on the backend level before saving it"""
+		if not self.process_name:
+			return
+		
+		# Allow Frappe Administrator to bypass if necessary
+		if frappe.session.user == "Administrator":
+			return
+		
+		from one_bpmn.api import check_process_editable
+		
+		editability_info = check_process_editable(self.process_name)
+		if not editability_info.get("editable"):
+			reason = editability_info.get("reason", "No active Pathfinder Log.")
+			frappe.throw(
+				_(f"Cannot edit BPMN Process Model: {reason}"), 
+				exc=frappe.ValidationError,
+				title=_("Process Locked")
+			)
 
 	def enforce_single_active(self):
 		"""Ensure only one process model is active per process.
