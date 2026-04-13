@@ -1395,3 +1395,38 @@ def get_users_by_role(role: str) -> list:
 		fields=["name", "full_name"],
 		order_by="full_name asc"
 	)
+
+
+@frappe.whitelist()
+def get_system_users(query: str = "", limit: int = 20) -> list:
+	"""
+	Fetch active system users matching a search query for authorized callers.
+	"""
+	current_user = frappe.session.user
+	if "System Manager" not in frappe.get_roles(current_user):
+		frappe.throw(_("You are not permitted to access system users"))
+
+	normalized_query = (query or "").strip()
+	if not normalized_query:
+		return []
+
+	try:
+		page_length = int(limit)
+	except (TypeError, ValueError):
+		frappe.throw(_("Limit must be a valid integer"))
+
+	page_length = max(1, min(page_length, 50))
+
+	return frappe.get_list("User",
+		filters={
+			"enabled": 1,
+			"user_type": "System User",
+			"full_name": ["like", f"%{normalized_query}%"]
+		},
+		or_filters={
+			"name": ["like", f"%{normalized_query}%"]
+		},
+		fields=["name", "full_name"],
+		order_by="full_name asc",
+		limit_page_length=page_length
+	)
