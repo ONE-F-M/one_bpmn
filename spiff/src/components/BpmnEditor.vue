@@ -651,6 +651,64 @@ onMounted(async () => {
 			const eventBus = modeler.get("eventBus");
 
 
+			const linting = modeler.get("linting");
+			if (linting) {
+				const originalFormatIssues = linting._formatIssues;
+				linting._formatIssues = function (issues) {
+					let formattedIssues = originalFormatIssues.call(this, issues);
+					const canvas = modeler.get("canvas");
+					const rootElement = canvas.getRootElement();
+
+					// Helper to collect all element IDs strictly contained within the given moddle object
+					const getModdleDescendants = (bo, descendants = new Set(), visited = new Set()) => {
+						if (!bo || typeof bo !== "object") return descendants;
+						if (visited.has(bo)) return descendants;
+						visited.add(bo);
+
+						if (bo.id) descendants.add(bo.id);
+
+						const containmentKeys = [
+							"flowElements", "laneSets", "artifacts", "eventDefinitions",
+							"participants", "messageFlows", "processRef", "rootElements"
+						];
+
+						for (const key of containmentKeys) {
+							const val = bo[key];
+							if (Array.isArray(val)) {
+								val.forEach(child => getModdleDescendants(child, descendants, visited));
+							} else if (val && typeof val === "object") {
+								getModdleDescendants(val, descendants, visited);
+							}
+						}
+						return descendants;
+					};
+
+					const validIds = getModdleDescendants(rootElement.businessObject);
+
+					for (const elementId in formattedIssues) {
+						const issueGroup = formattedIssues[elementId];
+						// Filter reports to ensure their actual element is a descendant
+						const filteredGroup = issueGroup.filter(report => {
+							const actualId = report.actualElementId || report.id;
+							return validIds.has(actualId);
+						});
+
+						if (filteredGroup.length === 0) {
+							delete formattedIssues[elementId];
+						} else {
+							formattedIssues[elementId] = filteredGroup;
+						}
+					}
+
+					return formattedIssues;
+				};
+
+				// Rerun linting when drilling down/up so the panel stays relevant to current plane
+				eventBus.on("root.set", () => {
+					linting.update();
+				});
+			}
+
 			// Clear custom trigger attributes if a StartEvent is converted into something else
 			// (e.g. Timer Start Event) so they don't persist in the XML.
 			// Use modeling.updateModdleProperties so the operation is tracked by the command
