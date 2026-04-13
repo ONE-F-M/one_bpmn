@@ -990,7 +990,11 @@ def create_notification(
 
 def _is_production_site() -> bool:
 	"""Return True if the current Frappe site IS the Production instance."""
-	production_url = (frappe.conf.get("production_url") or "").rstrip("/")
+	settings = frappe.get_single("Processa Settings")
+	if not settings.enabled:
+		return False
+
+	production_url = (settings.production_url or "").rstrip("/")
 	if not production_url:
 		# If production_url is not configured, assume we are NOT production
 		# (safe default: allow the editability check to proceed).
@@ -1005,11 +1009,69 @@ def _is_local_dev_mode() -> bool:
 	In local dev the one_fm app (with Pathfinder Log) lives on the same
 	bench, so we can call its API directly without HTTP.
 	"""
+	settings = frappe.get_single("Processa Settings")
+	if settings.enabled:
+		production_url = settings.production_url
+		api_key = settings.get_password("production_api_key")
+		api_secret = settings.get_password("production_api_secret")
+		if production_url and api_key and api_secret:
+			return False
+
+	# Fallback to site_config.json (frappe.conf)
 	production_url = frappe.conf.get("production_url")
 	api_key = frappe.conf.get("production_api_key")
 	api_secret = frappe.conf.get("production_api_secret")
 	return not (production_url and api_key and api_secret)
+
+
+
+@frappe.whitelist()
+def check_and_update_editor_lock(model_name: str) -> list[dict[str, str | None]]:
+	"""
+	Track active editors for a BPMN Process Model using Frappe cache.
+
+	Returns a list of dictionaries for other active users, where each
+	dictionary contains ``name``, ``full_name``, and ``user_image``.
+	"""
+	if not model_name:
+		return []
+
+	current_user = frappe.session.user
+	if current_user == "Guest":
+		return []
+
+	doc = frappe.get_doc("BPMN Process Model", model_name)
+	doc.check_permission("read")
+	cache_key = f"bpmn_editor_lock:{model_name}"
+	active_editors = frappe.cache.get_value(cache_key) or {}
 	
+	import time
+	now = time.time()
+	
+	# Clean up expired heartbeats (> 45s) and identify others
+	other_editors = []
+	updated_editors = {}
+	
+	for user, timestamp in active_editors.items():
+		if now - timestamp < 45:
+			if user != current_user:
+				other_editors.append(user)
+				updated_editors[user] = timestamp
+	
+	# Add current user
+	updated_editors[current_user] = now
+	
+	# Save back to cache (60s TTL)
+	frappe.cache.set_value(cache_key, updated_editors, expires_in_sec=60)
+	
+	# Return detailed user info for other editors for better UX (avatars)
+	if other_editors:
+		return frappe.get_all("User", 
+			filters={"name": ["in", other_editors]}, 
+			fields=["name", "full_name", "user_image"]
+		)
+	
+	return []
 
 
 def _call_local_pathfinder_api(method_path: str, params: dict) -> dict:
@@ -1018,7 +1080,6 @@ def _call_local_pathfinder_api(method_path: str, params: dict) -> dict:
    Used as a fallback in local dev when production credentials are not
    configured.
    """
-   from frappe.handler import call as frappe_call
    import importlib
 
    # method_path looks like "one_fm.one_fm.doctype.pathfinder_log.pathfinder_api.is_process_editable"
@@ -1033,7 +1094,7 @@ def _call_production_api(method: str, params: dict) -> dict:
 	Call a whitelisted method on the Production site using API key auth.
 
 	Reads `production_url`, `production_api_key`, and
-	`production_api_secret` from the current site's site_config.json.
+	`production_api_secret` from Processa Settings DocType.
 
 	Falls back to a direct local call when credentials are not configured
 	(local development mode).
@@ -1044,15 +1105,27 @@ def _call_production_api(method: str, params: dict) -> dict:
 	if _is_local_dev_mode():
 		return _call_local_pathfinder_api(method, params)
 
-	production_url = (frappe.conf.get("production_url") or "").rstrip("/")
-	api_key = frappe.conf.get("production_api_key")
-	api_secret = frappe.conf.get("production_api_secret")
+	settings = frappe.get_single("Processa Settings")
+	production_url = None
+	api_key = None
+	api_secret = None
+ 
+	if settings.enabled:
+		production_url = (settings.production_url or "").rstrip("/")
+		api_key = settings.get_password("production_api_key")
+		api_secret = settings.get_password("production_api_secret")
+ 
+	# Fallback to site_config.json if settings are disabled or incomplete
+	if not (production_url and api_key and api_secret):
+		production_url = (frappe.conf.get("production_url") or "").rstrip("/")
+		api_key = frappe.conf.get("production_api_key")
+		api_secret = frappe.conf.get("production_api_secret")
 
 	if not production_url or not api_key or not api_secret:
 		frappe.throw(_(
 			"Production API credentials are not configured. "
-			"Please set production_url, production_api_key, and "
-			"production_api_secret in site_config.json."
+			"Please go to Processa Settings to configure the "
+			"Production URL, API Key, and API Secret."
 		))
 
 	url = f"{production_url}/api/method/{method}"
@@ -1125,7 +1198,7 @@ def check_process_editable(process_name: str) -> dict:
 	if result.get("editable"):
 		result["reason"] = f"Active Pathfinder Log: {result.get('pathfinder_log')}"
 	else:
-		result["reason"] = "No active Pathfinder Log. Create one to enable editing."
+		result["reason"] = "No active Pathfinder Log. Create or activate one to enable editing."
 
 	return result
 
@@ -2259,3 +2332,107 @@ def get_active_bpmn_tasks(doctype: str, docname: str) -> list:
 			)
 
 	return result
+
+
+# ============================================================================
+# Processa Canvas Comment API
+# ============================================================================
+
+@frappe.whitelist()
+def get_canvas_comments(model_name: str) -> list:
+	"""
+	Fetch all comments for a specific BPMN Process Model.
+	"""
+	if not model_name:
+		return []
+		
+	return frappe.get_list("Processa Comment",
+		filters={"model": model_name},
+		fields=["name", "model", "element_id", "comment", "assigned_to", "status", "author", "is_task", "creation"],
+		order_by="creation desc"
+	)
+
+@frappe.whitelist()
+def post_canvas_comment(model_name: str, element_id: str, comment: str, assigned_to: str = None, is_task: int = 0) -> dict:
+	"""
+	Create a new comment on the BPMN canvas.
+	"""
+	if not model_name or not comment:
+		frappe.throw(_("Model name and comment are required"))
+
+	doc = frappe.get_doc({
+		"doctype": "Processa Comment",
+		"model": model_name,
+		"element_id": element_id,
+		"comment": comment,
+		"assigned_to": assigned_to,
+		"is_task": is_task,
+		"status": "Open"
+	})
+	doc.insert(ignore_permissions=True)
+	
+	# If assigned to someone, create a ToDo (optional, depends on if 'actionable' means standard Frappe ToDo)
+	if is_task and assigned_to:
+		frappe.get_doc({
+			"doctype": "ToDo",
+			"allocated_to": assigned_to,
+			"description": _("BPMN Task for {0}: {1}").format(model_name, comment),
+			"reference_type": "Processa Comment",
+			"reference_name": doc.name
+		}).insert(ignore_permissions=True)
+
+	return doc.as_dict()
+
+@frappe.whitelist()
+def update_comment_status(name: str, status: str) -> dict:
+	"""
+	Update the status of a canvas comment.
+	"""
+	if not name or not status:
+		frappe.throw(_("Comment name and status are required"))
+
+	allowed_statuses = {"Open", "Resolved", "Closed"}
+	normalized_status = status.strip()
+	if normalized_status not in allowed_statuses:
+		frappe.throw(_("Status must be one of: Open, Resolved, Closed"))
+
+	doc = frappe.get_doc("Processa Comment", name)
+	doc.check_permission("write")
+
+	current_user = frappe.session.user
+	is_system_manager = "System Manager" in frappe.get_roles(current_user)
+	allowed_users = {doc.owner, getattr(doc, "assigned_to", None), "Administrator"}
+	if current_user not in allowed_users and not is_system_manager:
+		frappe.throw(_("You are not permitted to update this comment status"))
+
+	doc.status = normalized_status
+	doc.save()
+
+	# If this was linked to a ToDo, update it?
+	# (Logic omitted for brevity unless explicitly requested)
+
+	return doc.as_dict()
+@frappe.whitelist()
+def get_users_by_role(role: str) -> list:
+	"""
+	Fetch all users who have a specific role.
+	"""
+	if not role:
+		return []
+		
+	# Get users who have the specified role
+	user_list = frappe.get_all("Has Role", 
+		filters={"role": role}, 
+		fields=["parent as name"]
+	)
+	
+	user_names = list(set([u.name for u in user_list]))
+	
+	if not user_names:
+		return []
+		
+	return frappe.get_list("User",
+		filters={"name": ["in", user_names], "enabled": 1, "user_type": "System User"},
+		fields=["name", "full_name"],
+		order_by="full_name asc"
+	)

@@ -1,0 +1,7 @@
+# Copyright (c) 2025, One BPMN and contributors
+# For license information, please see license.txt
+
+from frappe.model.document import Document
+
+class ProcessaSettings(Document):
+	pass
