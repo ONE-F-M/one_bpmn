@@ -32,7 +32,7 @@ website_route_rules = [
 
 # include js, css files in header of desk.html
 # app_include_css = "/assets/one_bpmn/css/one_bpmn.css"
-# app_include_js = "/assets/one_bpmn/js/one_bpmn.js"
+app_include_js = "/assets/one_bpmn/js/bpmn_form_actions.js"
 
 # include js, css files in header of web template
 # web_include_css = "/assets/one_bpmn/css/one_bpmn.css"
@@ -141,15 +141,34 @@ website_route_rules = [
 
 # Document Events
 # ---------------
-# Hook on document methods and events
+# Universal BPMN trigger — fires for every DocType.
+# trigger.py checks internally whether a matching active BPMN Process
+# Model is configured for that doctype + event before doing anything.
+# Internal BPMN doctypes are skipped to prevent recursion.
 
-# doc_events = {
-# 	"*": {
-# 		"on_update": "method",
-# 		"on_cancel": "method",
-# 		"on_trash": "method"
-# 	}
-# }
+_BPMN_TRIGGER = "one_bpmn.one_bpmn.trigger.on_doc_event"
+
+# Guard: blocks native Frappe submit/cancel/workflow-action when a BPMN
+# process instance is actively controlling the document.
+# Documents with NO active BPMN instance are completely unaffected.
+_BPMN_GUARD   = "one_bpmn.one_bpmn.trigger.guard_bpmn_document"
+
+doc_events = {
+	"*": {
+		# Start new BPMN instances / bidirectional sync
+		"after_insert":           _BPMN_TRIGGER,
+		"on_update":              _BPMN_TRIGGER,
+		"after_save":             _BPMN_TRIGGER,
+		"on_submit":              _BPMN_TRIGGER,
+		"on_cancel":              _BPMN_TRIGGER,
+		"on_update_after_submit": _BPMN_TRIGGER,
+
+		# Gate: block native actions when BPMN is controlling the doc
+		"before_submit":          _BPMN_GUARD,
+		"before_cancel":          _BPMN_GUARD,
+		"before_workflow_action": _BPMN_GUARD,
+	}
+}
 
 # Scheduled Tasks
 # ---------------

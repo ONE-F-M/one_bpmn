@@ -93,6 +93,36 @@
 										<Icon icon="lucide:alert-triangle" class="w-3 h-3" />
 										UNASSIGNED
 									</div>
+
+									<!-- Decision Action Buttons -->
+									<div v-if="getTaskActions(task).length" class="mt-3 flex flex-wrap gap-2">
+										<button
+											v-for="action in getTaskActions(task)"
+											:key="action"
+											@click="completeTask(task, action)"
+											:disabled="completingTask === task.task_id"
+											class="px-3 py-1.5 text-[11px] font-semibold rounded border transition-colors"
+											:class="getActionButtonClass(action)"
+										>
+											<span v-if="completingTask === task.task_id && completingAction === action" class="flex items-center gap-1">
+												<Icon icon="lucide:loader" class="w-3 h-3 animate-spin" /> Processing…
+											</span>
+											<span v-else>{{ action }}</span>
+										</button>
+									</div>
+									<!-- Plain complete button when no actions configured -->
+									<div v-else class="mt-3">
+										<button
+											@click="completeTask(task, null)"
+											:disabled="completingTask === task.task_id"
+											class="px-3 py-1.5 text-[11px] font-semibold rounded border bg-gray-100 hover:bg-gray-200 text-gray-700 border-gray-300 transition-colors disabled:opacity-50"
+										>
+											<span v-if="completingTask === task.task_id" class="flex items-center gap-1">
+												<Icon icon="lucide:loader" class="w-3 h-3 animate-spin" /> Processing…
+											</span>
+											<span v-else class="flex items-center gap-1"><Icon icon="lucide:check" class="w-3 h-3" /> Complete</span>
+										</button>
+									</div>
 								</div>
 							</div>
 							<div v-else class="h-full flex flex-col items-center justify-center text-center text-gray-400 text-sm p-6">
@@ -270,7 +300,9 @@ const instanceId = computed(() => route.params.instance)
 const loading = ref(true)
 const details = ref(null)
 
-const activeTasks = ref([])
+const activeTasks     = ref([])
+const completingTask  = ref(null)   // task_id currently being completed
+const completingAction = ref(null)  // action label being submitted
 const logs = ref([])
 
 const processVariables = computed(() => {
@@ -605,6 +637,57 @@ function onElementClick(e) {
 			position: { bottom: 0, left: 0 },
 			html: html
 		});
+	}
+}
+
+// ── Task Decision Helpers ───────────────────────────────────────────────────
+
+/** Parse comma-separated task_actions string into trimmed labels */
+function getTaskActions(task) {
+	const raw = task.task_actions || ''
+	return raw.split(',').map(a => a.trim()).filter(Boolean)
+}
+
+/** Colour-code common action verbs */
+function getActionButtonClass(action) {
+	const lower = action.toLowerCase()
+	if (['approve', 'approved', 'accept', 'yes', 'confirm'].some(k => lower.includes(k)))
+		return 'bg-green-50 hover:bg-green-100 text-green-800 border-green-300 disabled:opacity-50'
+	if (['reject', 'rejected', 'decline', 'no', 'deny', 'refuse'].some(k => lower.includes(k)))
+		return 'bg-red-50 hover:bg-red-100 text-red-800 border-red-300 disabled:opacity-50'
+	return 'bg-blue-50 hover:bg-blue-100 text-blue-800 border-blue-300 disabled:opacity-50'
+}
+
+/**
+ * Complete a User Task, submitting the chosen action label as the "decision"
+ * workflow variable.  Gateway conditions can then check: decision == "Approve"
+ */
+async function completeTask(task, action) {
+	if (completingTask.value) return   // prevent double-click during loading
+	completingTask.value   = task.task_id
+	completingAction.value = action
+	try {
+		const data = action ? JSON.stringify({ decision: action }) : '{}'
+		await frappeRequest({
+			url:    '/api/method/one_bpmn.api.complete_task',
+			method: 'POST',
+			params: {
+				instance_name: instanceId.value,
+				task_id:       task.task_id,
+				data,
+			},
+		})
+		// Refresh everything — new active tasks, updated diagram highlights, history
+		logs.value       = []
+		limitStart.value  = 0
+		hasMoreLogs.value = true
+		await loadDetails()
+		await loadLogs()
+	} catch (err) {
+		console.error('Failed to complete task:', err)
+	} finally {
+		completingTask.value   = null
+		completingAction.value = null
 	}
 }
 

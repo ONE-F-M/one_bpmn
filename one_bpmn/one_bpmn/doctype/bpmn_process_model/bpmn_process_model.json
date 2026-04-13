@@ -22,6 +22,7 @@
   "section_engine_data",
   "serialized_spec",
   "subprocess_specs",
+  "round_robin_state",
   "column_break_engine",
   "version",
   "amended_from",
@@ -125,6 +126,13 @@
    "fieldname": "subprocess_specs",
    "fieldtype": "JSON",
    "label": "Subprocess Specs"
+  },
+  {
+   "description": "Tracks round-robin assignment state per User Task. JSON: {\"task_bpmn_id\": {\"next_idx\": 0, \"last_user\": \"user@example.com\"}}",
+   "fieldname": "round_robin_state",
+   "fieldtype": "JSON",
+   "hidden": 1,
+   "label": "Round Robin State"
   },
   {
    "fieldname": "column_break_engine",

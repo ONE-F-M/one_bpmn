@@ -113,9 +113,9 @@ export class FrappeAutocomplete extends Component {
 		this.props.onChange(val);
 	}
 
-	onSelect(val) {
+	onSelect(val, opt) {
 		this.setState({ searchTxt: val, isOpen: false });
-		this.props.onChange(val);
+		this.props.onChange(val, opt);
 	}
 
 	// -----------------------------------------------------------------
@@ -170,7 +170,7 @@ export class FrappeAutocomplete extends Component {
 												style: "padding: 8px; font-size: 13px; cursor: pointer; border-bottom: 1px solid #eee;",
 												onMouseDown: (e) => {
 													e.preventDefault();
-													this.onSelect(getVal(opt));
+													this.onSelect(getVal(opt), opt);
 												},
 												onMouseEnter: (e) => (e.target.style.background = "#f3f4f6"),
 												onMouseLeave: (e) => (e.target.style.background = "white"),

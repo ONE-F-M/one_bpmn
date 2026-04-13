@@ -11,6 +11,8 @@
   "column_break_zcvz",
   "task_type",
   "started_at",
+  "task_actions",
+  "task_action_mode",
   "section_break_1fzk",
   "target_doctype",
   "target_docname",
@@ -51,6 +53,20 @@
    "fieldname": "started_at",
    "fieldtype": "Datetime",
    "label": "Started At"
+  },
+  {
+   "description": "Comma-separated action labels configured on this User Task (e.g. 'Approve,Reject'). The selected action is submitted as the 'decision' variable and drives gateway routing.",
+   "fieldname": "task_actions",
+   "fieldtype": "Data",
+   "label": "Task Actions"
+  },
+  {
+   "default": "manual",
+   "description": "'manual' = designer-typed actions. 'frappe_workflow' = transitions fetched live from the context doc's Frappe Workflow.",
+   "fieldname": "task_action_mode",
+   "fieldtype": "Select",
+   "label": "Task Action Mode",
+   "options": "manual\nfrappe_workflow"
   },
   {
    "fieldname": "section_break_1fzk",
