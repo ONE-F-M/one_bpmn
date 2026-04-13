@@ -175,24 +175,45 @@
 						Attaching to: {{ activeCommentElement.businessObject?.name || activeCommentElement.id }}
 					</div>
 					
-					<FormControl
-						label="Comment"
-						type="textarea"
-						v-model="commentFormData.text"
-						:required="true"
-						placeholder="What's on your mind?"
-					/>
+					<div class="relative">
+						<FormControl
+							label="Comment"
+							type="textarea"
+							v-model="commentFormData.text"
+							@keyup="handleCommentInput"
+							@click="handleCommentInput"
+							:required="true"
+							placeholder="What's on your mind?"
+						/>
+						<div
+							v-if="showMentionDropdown"
+							v-click-outside="() => { showMentionDropdown = false; }"
+							class="absolute z-[120] w-full max-h-48 overflow-y-auto bg-white border border-gray-200 rounded-md shadow-lg py-1 left-0 top-full mt-1"
+						>
+							<div
+								v-for="u in mentionSuggestions"
+								:key="u.value"
+								@click="selectMention(u)"
+								class="px-3 py-1.5 text-sm cursor-pointer hover:bg-blue-50 text-gray-900 flex items-center justify-between"
+							>
+								<span>{{ u.label }}</span>
+							</div>
+							<div v-if="mentionSuggestions.length === 0" class="px-3 py-1.5 text-xs text-gray-400 italic">
+								No users found
+							</div>
+						</div>
+					</div>
 					
 					<div class="flex items-center gap-4">
 						<div class="flex-1">
 							<div class="space-y-1">
-								<label class="block text-xs font-medium text-gray-700">Assign To (Process Owner)</label>
+								<label class="block text-xs font-medium text-gray-700">Assign To</label>
 								<div class="relative">
 									<Icon icon="lucide:search" class="absolute left-3 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-gray-400" />
 									<input
 										v-model="userSearchQuery"
 										type="text"
-										placeholder="Search process owners..."
+										placeholder="Search users..."
 										class="w-full pl-9 pr-3 py-1.5 border border-gray-300 rounded-md text-sm bg-white text-gray-900 focus:outline-none focus:ring-2 focus:ring-blue-400"
 										@focus="showUserDropdown = true"
 									/>
@@ -212,7 +233,7 @@
 										</div>
 									</div>
 									<div v-else-if="showUserDropdown && userSearchQuery && filteredUsers.length === 0" class="absolute z-[110] w-full mt-1 bg-white border border-gray-200 rounded-md shadow-lg p-3 text-xs text-gray-400 italic">
-										No process owners found
+										No users found
 									</div>
 								</div>
 							</div>
@@ -412,9 +433,26 @@ const users = ref([]);
 const userSearchQuery = ref("");
 const showUserDropdown = ref(false);
 
+const showMentionDropdown = ref(false);
+const mentionSearchQuery = ref("");
+const mentionStartIndex = ref(-1);
+
+const mentionSuggestions = computed(() => {
+	const q = (mentionSearchQuery.value || "").trim().toLowerCase();
+	if (!q) return [];
+
+	return users.value
+		.map(u => ({ label: u.full_name, value: u.name }))
+		.filter(u => u.label.toLowerCase().includes(q) || u.value.toLowerCase().includes(q))
+		.slice(0, 10);
+});
+
 const filteredUsers = computed(() => {
 	const q = (userSearchQuery.value || "").toLowerCase();
-	const options = users.value.map(u => ({
+	const text = commentFormData.value.text || "";
+	const mentionedUsers = users.value.filter(u => text.includes('@' + u.full_name));
+	
+	const options = mentionedUsers.map(u => ({
 		label: u.full_name,
 		value: u.name
 	}));
@@ -1111,16 +1149,44 @@ function selectCommentElement(element) {
 		is_task: false
 	};
 	showCommentDialog.value = true;
+	showMentionDropdown.value = false;
+}
+
+function handleCommentInput(e) {
+	if (!e || !e.target || typeof e.target.selectionStart !== 'number') return;
+	
+	const text = commentFormData.value.text || "";
+	const cursorPosition = e.target.selectionStart;
+	
+	// Check text leading up to cursor for an active mention
+	const textBeforeCursor = text.substring(0, cursorPosition);
+	// Match `@` followed by any non-whitespace characters until the end
+	const match = textBeforeCursor.match(/@([^\s]{0,30})$/);
+	
+	if (match) {
+		showMentionDropdown.value = true;
+		mentionSearchQuery.value = match[1];
+		mentionStartIndex.value = cursorPosition - match[0].length;
+	} else {
+		showMentionDropdown.value = false;
+	}
+}
+
+function selectMention(user) {
+	const text = commentFormData.value.text || "";
+	// Insert "@First Last " replacing the "@SearchTerm"
+	const before = text.substring(0, mentionStartIndex.value);
+	const after = text.substring(mentionStartIndex.value + mentionSearchQuery.value.length + 1);
+	
+	commentFormData.value.text = before + '@' + user.label + ' ' + after;
+	showMentionDropdown.value = false;
 }
 
 async function fetchUsers() {
 	if (users.value.length > 0) return; // Already fetched
 	try {
 		const response = await frappeRequest({
-			url: "/api/method/one_bpmn.api.get_users_by_role",
-			params: {
-				role: "Process Owner"
-			}
+			url: "/api/method/one_bpmn.api.get_system_users",
 		});
 		users.value = (response.message || response || []).filter(u => u.full_name);
 	} catch (err) {
