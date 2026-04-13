@@ -436,10 +436,13 @@ const mentionSearchQuery = ref("");
 const mentionStartIndex = ref(-1);
 
 const mentionSuggestions = computed(() => {
-	const q = mentionSearchQuery.value.toLowerCase();
-	const options = users.value.map(u => ({ label: u.full_name, value: u.name }));
-	if (!q) return options;
-	return options.filter(u => u.label.toLowerCase().includes(q) || u.value.toLowerCase().includes(q));
+	const q = (mentionSearchQuery.value || "").trim().toLowerCase();
+	if (!q) return [];
+
+	return users.value
+		.map(u => ({ label: u.full_name, value: u.name }))
+		.filter(u => u.label.toLowerCase().includes(q) || u.value.toLowerCase().includes(q))
+		.slice(0, 10);
 });
 
 const filteredUsers = computed(() => {
