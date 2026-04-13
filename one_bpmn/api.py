@@ -1173,7 +1173,6 @@ def bulk_check_processes_editable(process_names: str) -> dict:
 	if not isinstance(process_names_list, list):
 		frappe.throw(_("process_names must be a list"))
 
-
 	if _is_production_site():
 		return {
 			pname: {
