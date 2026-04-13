@@ -453,7 +453,78 @@ class BPMNProcessInstance(Document):
                     message=frappe.get_traceback(),
                 )
 
+        elif service_type == 'update_field':
+            self._dispatch_update_field(task, task_cfg, bpmn_id)
+
         return True  # default: complete the task
+
+
+    def _dispatch_update_field(self, task, task_cfg: dict, bpmn_id: str) -> None:
+        """
+        Update a specific field on a document.
+
+        Service task configuration keys (from BPMN XML):
+            updateFieldDoctype  — DocType to update (falls back to context_doctype)
+            updateFieldName     — Field name to set (e.g. 'status', 'workflow_state')
+            updateFieldValue    — Value to set. Supports Jinja2 templates:
+                                  e.g. "Approved", "{{ doc.employee }}"
+
+        The update uses frappe.db.set_value for efficiency and sets the
+        bpmn_engine_action flag to bypass BPMN document guards.
+        """
+        doctype   = task_cfg.get('updateFieldDoctype') or self.context_doctype
+        docname   = self.context_docname
+        fieldname = task_cfg.get('updateFieldName', '')
+        raw_value = task_cfg.get('updateFieldValue', '')
+
+        if not (doctype and docname and fieldname):
+            frappe.log_error(
+                title=f'BPMN ServiceTask: update_field misconfigured ({bpmn_id})',
+                message=(
+                    f'Task {bpmn_id} is missing required config: '
+                    f'doctype={doctype!r}, docname={docname!r}, '
+                    f'fieldname={fieldname!r}'
+                ),
+            )
+            return
+
+        # ── Render Jinja2 in the value ──────────────────────────────────────
+        rendered_value = raw_value
+        if '{{' in raw_value or '{%' in raw_value:
+            try:
+                doc = frappe.get_doc(doctype, docname)
+                rendered_value = frappe.render_template(raw_value, {
+                    'doc': doc,
+                    'instance': self,
+                    'frappe': frappe,
+                })
+            except Exception:
+                frappe.log_error(
+                    title=f'BPMN ServiceTask: update_field Jinja render failed ({bpmn_id})',
+                    message=frappe.get_traceback(),
+                )
+                # Fall back to raw value
+                rendered_value = raw_value
+
+        # ── Apply the field update ──────────────────────────────────────────
+        try:
+            old_flag = getattr(frappe.flags, 'bpmn_engine_action', False)
+            frappe.flags.bpmn_engine_action = True
+            try:
+                frappe.db.set_value(doctype, docname, fieldname, rendered_value)
+            finally:
+                frappe.flags.bpmn_engine_action = old_flag
+
+            frappe.logger('one_bpmn').info(
+                f'BPMN update_field: {doctype}/{docname}.{fieldname} = {rendered_value!r} '
+                f'(task={bpmn_id}, instance={self.name})'
+            )
+        except Exception:
+            frappe.log_error(
+                title=f'BPMN ServiceTask: update_field failed ({bpmn_id})',
+                message=frappe.get_traceback(),
+            )
+            raise  # bubble up so the instance can be marked Errored
 
 
     def _dispatch_email_notification(self, task, task_cfg: dict) -> None:

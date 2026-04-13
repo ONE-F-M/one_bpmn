@@ -13,18 +13,18 @@ frappe.ui.form.on("BPMN Process Model", {
 			);
 		});
 
-		// ── Compile ──
-		frm.add_custom_button(__("Compile"), function () {
+		// ── Deploy ──
+		frm.add_custom_button(__("Deploy"), function () {
 			frappe.call({
 				method: "one_bpmn.api.compile_process_model",
 				args: { model_name: frm.doc.name },
 				freeze: true,
-				freeze_message: __("Compiling BPMN…"),
+				freeze_message: __("Deploying BPMN…"),
 				callback(r) {
 					if (r.message && r.message.success) {
 						frappe.show_alert({
 							message: __(
-								"Compiled successfully — version {0}, {1} subprocess(es)",
+								"Deployed successfully — version {0}, {1} subprocess(es)",
 								[r.message.version, r.message.subprocess_count]
 							),
 							indicator: "green",

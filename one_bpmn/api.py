@@ -1568,6 +1568,99 @@ def _extract_user_task_config(bpmn_xml: str) -> dict:
 	return config
 
 
+def _populate_start_events(model, bpmn_xml: str) -> None:
+	"""
+	Parse the BPMN XML and populate the ``start_events`` child table on the
+	Process Model with one row per ``<bpmn:startEvent>`` element.
+
+	Detects event type from child definitions:
+	  - ``<bpmn:conditionalEventDefinition>`` → Conditional
+	  - ``<bpmn:timerEventDefinition>``       → Timer
+	  - ``<bpmn:signalEventDefinition>``      → Signal
+	  - No definition element                 → None (plain start)
+
+	Extracts configuration from ``spiffworkflow:*`` attributes:
+	  - triggerWorkflowState → workflow_state_condition
+	  - triggerDoctype       → trigger_doctype
+	  - cronExpression       → cron_expression (on timer definitions)
+
+	Also maps the model-level trigger_event to each row for visibility.
+	"""
+	import xml.etree.ElementTree as _ET
+
+	BPMN_NS  = "http://www.omg.org/spec/BPMN/20100524/MODEL"
+	SPIFF_NS = "http://spiffworkflow.org/bpmn/schema/1.0/core"
+
+	# Clear existing rows
+	model.start_events = []
+
+	if not bpmn_xml or not bpmn_xml.strip():
+		model.save(ignore_permissions=True)
+		return
+
+	try:
+		root = _ET.fromstring(
+			bpmn_xml.strip().encode("utf-8")
+			if isinstance(bpmn_xml, str) else bpmn_xml
+		)
+	except Exception:
+		frappe.log_error(
+			title="BPMN: Failed to parse XML for start events",
+			message=frappe.get_traceback(),
+		)
+		model.save(ignore_permissions=True)
+		return
+
+	for start_event in root.iter(f"{{{BPMN_NS}}}startEvent"):
+		bpmn_id = start_event.get("id", "")
+
+		# ── Detect event type from child definition elements ───────────
+		event_type = "None"
+		cron_expr  = ""
+
+		cond_def  = start_event.find(f"{{{BPMN_NS}}}conditionalEventDefinition")
+		timer_def = start_event.find(f"{{{BPMN_NS}}}timerEventDefinition")
+		signal_def = start_event.find(f"{{{BPMN_NS}}}signalEventDefinition")
+
+		if cond_def is not None:
+			event_type = "Conditional"
+		elif timer_def is not None:
+			event_type = "Timer"
+			# Extract cron from timer definition's spiffworkflow:cronExpression
+			cron_expr = timer_def.get(f"{{{SPIFF_NS}}}cronExpression", "")
+			# Also check for timeCycle/timeDuration child elements
+			if not cron_expr:
+				cycle = timer_def.find(f"{{{BPMN_NS}}}timeCycle")
+				if cycle is not None and cycle.text:
+					cron_expr = cycle.text.strip()
+		elif signal_def is not None:
+			event_type = "Signal"
+
+		# ── Extract spiffworkflow:* attributes from the start event ────
+		workflow_state = start_event.get(f"{{{SPIFF_NS}}}triggerWorkflowState", "")
+		trigger_doctype = start_event.get(f"{{{SPIFF_NS}}}triggerDoctype", "")
+
+		# Also check conditional definition for nested attributes
+		if cond_def is not None and not workflow_state:
+			workflow_state = cond_def.get(f"{{{SPIFF_NS}}}triggerWorkflowState", "")
+		if cond_def is not None and not trigger_doctype:
+			trigger_doctype = cond_def.get(f"{{{SPIFF_NS}}}triggerDoctype", "")
+
+		# ── Map model-level trigger_event for display ──────────────────
+		trigger_event = model.trigger_event or ""
+
+		model.append("start_events", {
+			"event_type":               event_type,
+			"bpmn_element_id":          bpmn_id,
+			"trigger_doctype":          trigger_doctype or (model.trigger_doctype or ""),
+			"trigger_event":            trigger_event,
+			"workflow_state_condition":  workflow_state,
+			"cron_expression":          cron_expr or (model.cron_expression or ""),
+		})
+
+	model.save(ignore_permissions=True)
+
+
 def _update_round_robin_in_model(model_name: str, task_bpmn_id: str, last_user: str) -> None:
 	"""
 	Update the round-robin tracking state on the BPMN Process Model:
@@ -1782,6 +1875,11 @@ def compile_process_model(model_name: str) -> dict:
 		model.serialized_spec = json.dumps(spec_data)
 		model.save(ignore_permissions=True)
 
+	# ── Extract and populate Start Events child table ─────────────────────────
+	# Parse all <bpmn:startEvent> elements from the XML and capture their type
+	# (None, Conditional, Timer, Signal) and configuration into the child table.
+	_populate_start_events(model, sanitized_xml)
+
 	return {
 		"success": True,
 		"model": model_name,
@@ -1872,14 +1970,24 @@ def _apply_docstatus_directly(doc, target_state: str, doc_status_hint: str) -> N
 	  "0"  → save as draft (no state change if already submitted)
 	  "1"  → submit the document
 	  "2"  → cancel the document
-	  ""   → save; also set ``workflow_state`` field if it exists
+	  ""   → save; also set ``workflow_state`` or ``status`` field if it exists
 
-	``target_state`` is set into the ``workflow_state`` field only if that
-	field is present on the document.
+	``target_state`` is set into the first available field from:
+	  1. ``workflow_state`` (standard Frappe workflow field)
+	  2. ``status`` (common status field on many DocTypes)
 	"""
-	# Optionally update workflow_state field if it exists
-	if hasattr(doc, 'workflow_state') and target_state:
-		doc.workflow_state = target_state
+	# ── Determine which field holds the state ─────────────────────────────
+	state_field = None
+	if target_state:
+		meta = frappe.get_meta(doc.doctype)
+		if meta.has_field('workflow_state'):
+			state_field = 'workflow_state'
+		elif meta.has_field('status'):
+			state_field = 'status'
+
+	# Set the state field
+	if state_field and target_state:
+		doc.set(state_field, target_state)
 
 	ds = str(doc_status_hint).strip()
 
@@ -1898,6 +2006,10 @@ def _apply_docstatus_directly(doc, target_state: str, doc_status_hint: str) -> N
 		elif doc.docstatus == 1:
 			# Submitted doc — just save (amend notes etc.)
 			doc.save(ignore_permissions=True)
+
+	# ── Audit trail: add a workflow comment like Frappe does ──────────────
+	if target_state:
+		doc.add_comment("Workflow", _(target_state))
 
 
 def _apply_bpmn_workflow_state(
@@ -2124,6 +2236,13 @@ def complete_task(
 	"""
 	Complete a User Task in a running process instance and advance the workflow.
 
+	Performs the same permission and validation checks as Frappe's native
+	workflow before allowing the action:
+	  1. User assignment check — is the current user assigned to this task?
+	  2. Action validation     — is the submitted action in the allowed list?
+	  3. Document permission   — does the user have write access to the doc?
+	  4. Role check            — does the user have the required role (if any)?
+
 	Args:
 	    instance_name: Name of the BPMN Process Instance
 	    task_id:       The SpiffWorkflow task UUID (from active_tasks.task_id)
@@ -2142,21 +2261,85 @@ def complete_task(
 	if data:
 		parsed_data = frappe.parse_json(data) if isinstance(data, str) else data
 
-	# ── Frappe Workflow Action ───────────────────────────────────────────────
-	# If the task is configured with taskActionMode = "frappe_workflow", we
-	# must apply the Frappe workflow transition BEFORE advancing the BPMN task.
-	# This mirrors Frappe's native action button exactly:
-	#   - validates the transition for the current user (role + self-approval)
-	#   - updates the document's workflow_state_field
-	#   - handles docstatus (save / submit / cancel)
-	#   - adds a Workflow comment to the document timeline
-	task_action_mode = ''
+	# ── Find the active task row ─────────────────────────────────────────────
 	active_row = next(
 		(r for r in instance.active_tasks if r.task_id == task_id),
 		None,
 	)
-	if active_row:
-		task_action_mode = getattr(active_row, 'task_action_mode', '') or ''
+	if not active_row:
+		frappe.throw(_("Task '{0}' not found in the active tasks of this instance.").format(task_id))
+
+	if active_row.status != 'Waiting':
+		frappe.throw(_("Task '{0}' is not in Waiting status.").format(active_row.task_name or task_id))
+
+
+
+	current_user = frappe.session.user
+
+	# ── 1. USER ASSIGNMENT CHECK ─────────────────────────────────────────────
+	# Same as Frappe's "allow_edit" on workflow states — only the assigned
+	# user (or Administrator) can complete the task.
+	assigned_user = active_row.assigned_user or ''
+	assigned_role = active_row.assigned_role or ''
+
+	if assigned_user and assigned_user != current_user and current_user != 'Administrator':
+		# Also allow the document owner (they initiated the process)
+		is_doc_owner = False
+		if instance.context_doctype and instance.context_docname:
+			doc_owner = frappe.db.get_value(
+				instance.context_doctype, instance.context_docname, 'owner'
+			)
+			is_doc_owner = (doc_owner == current_user)
+
+		if not is_doc_owner:
+			frappe.throw(
+				_("You are not authorized to complete this task. It is assigned to {0}.").format(
+					frappe.utils.get_fullname(assigned_user) or assigned_user
+				),
+				frappe.PermissionError,
+			)
+
+	if assigned_role and current_user != 'Administrator':
+		user_roles = frappe.get_roles(current_user)
+		if assigned_role not in user_roles:
+			frappe.throw(
+				_("Only users with the role '{0}' can complete this task.").format(assigned_role),
+				frappe.PermissionError,
+			)
+
+	# ── 2. ACTION VALIDATION ─────────────────────────────────────────────────
+	# Same as Frappe's workflow transition validation — the submitted action
+	# must be one of the allowed actions configured on the User Task.
+	submitted_action = parsed_data.get('action', '')
+	allowed_actions_str = active_row.task_actions or ''
+	allowed_actions = [a.strip() for a in allowed_actions_str.split(',') if a.strip()]
+
+	if allowed_actions and submitted_action:
+		if submitted_action not in allowed_actions:
+			frappe.throw(
+				_("Action '{0}' is not allowed. Valid actions: {1}").format(
+					submitted_action, ', '.join(allowed_actions)
+				),
+				frappe.ValidationError,
+			)
+
+	# ── 3. DOCUMENT PERMISSION CHECK ─────────────────────────────────────────
+	# Same as Frappe's doc.check_permission("write") before workflow action.
+	if instance.context_doctype and instance.context_docname:
+		if not frappe.has_permission(
+			instance.context_doctype, 'write', instance.context_docname, user=current_user
+		):
+			frappe.throw(
+				_("You do not have write permission on {0} {1}.").format(
+					instance.context_doctype, instance.context_docname
+				),
+				frappe.PermissionError,
+			)
+
+	# ── Frappe Workflow Action (if configured) ───────────────────────────────
+	# If the task is configured with taskActionMode = "frappe_workflow", we
+	# must apply the Frappe workflow transition BEFORE advancing the BPMN task.
+	task_action_mode = getattr(active_row, 'task_action_mode', '') or ''
 
 	if task_action_mode == 'frappe_workflow' and parsed_data.get('decision'):
 		try:
@@ -2183,6 +2366,34 @@ def complete_task(
 			message=frappe.get_traceback(),
 		)
 		frappe.throw(_("Failed to complete task: {0}").format(str(exc)))
+
+	# ── Publish realtime events for auto-refresh ────────────────────────────
+	# 1. Notify the Process Instance page (Processa frontend) — broadcast
+	#    to all users since anyone viewing the instance detail should refresh.
+	frappe.publish_realtime(
+		'bpmn_instance_updated',
+		{
+			'instance_name': instance_name,
+			'status': instance.status,
+		},
+		after_commit=True,
+	)
+
+	# 2. Notify the Frappe form of the context document so it auto-refreshes.
+	#    Use doc_update (Frappe's native form update event) which the form
+	#    framework already listens for when a form is open.
+	if instance.context_doctype and instance.context_docname:
+		frappe.publish_realtime(
+			'doc_update',
+			{
+				'modified': str(frappe.utils.now_datetime()),
+				'doctype': instance.context_doctype,
+				'name': instance.context_docname,
+			},
+			doctype=instance.context_doctype,
+			docname=instance.context_docname,
+			after_commit=True,
+		)
 
 	return {
 		"instance": instance_name,
@@ -2313,8 +2524,6 @@ def get_active_bpmn_tasks(doctype: str, docname: str) -> list:
 
 				# Resolve actions — handles both manual and frappe_workflow modes
 				actions_str = instance._resolve_task_actions(row)
-				if not actions_str:
-					continue
 
 				result.append({
 					'instance_name': instance_name,

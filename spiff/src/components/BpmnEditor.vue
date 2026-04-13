@@ -606,7 +606,10 @@ onMounted(async () => {
 						{ name: "emailToRoles",         isAttr: true, type: "String" },
 						{ name: "emailCc",              isAttr: true, type: "String" },
 						{ name: "emailBcc",             isAttr: true, type: "String" },
-						{ name: "emailBody",            isAttr: true, type: "String" }
+						{ name: "emailBody",            isAttr: true, type: "String" },
+						{ name: "updateFieldDoctype",   isAttr: true, type: "String" },
+						{ name: "updateFieldName",      isAttr: true, type: "String" },
+						{ name: "updateFieldValue",     isAttr: true, type: "String" }
 					]
 				});
 			}

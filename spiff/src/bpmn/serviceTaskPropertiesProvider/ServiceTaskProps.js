@@ -105,6 +105,15 @@ export function ServiceTaskProps(props) {
 		);
 	}
 
+	// ── Update Field entries ───────────────────────────────────────────────
+	if (serviceType === "update_field") {
+		entries.push(
+			{ id: "spiffworkflow-updateFieldDoctype",  element, component: UpdateFieldDoctypeComponent },
+			{ id: "spiffworkflow-updateFieldName",     element, component: UpdateFieldNameComponent },
+			{ id: "spiffworkflow-updateFieldValue",    element, component: UpdateFieldValueComponent },
+		);
+	}
+
 	return entries;
 }
 
@@ -120,9 +129,9 @@ function ServiceTypeComponent(props) {
 	const getValue = () => getAttr(bo, "serviceType");
 
 	const clearAll = (keepServiceType) => {
-		// Clear apply_workflow attrs
 		const patch = {
 			"spiffworkflow:serviceType":          keepServiceType || undefined,
+			// Clear apply_workflow attrs
 			"spiffworkflow:serviceTargetDoctype": undefined,
 			"spiffworkflow:workflowState":        undefined,
 			"spiffworkflow:docStatus":            undefined,
@@ -139,6 +148,10 @@ function ServiceTypeComponent(props) {
 			"spiffworkflow:emailCc":              undefined,
 			"spiffworkflow:emailBcc":             undefined,
 			"spiffworkflow:emailBody":            undefined,
+			// Clear update_field attrs
+			"spiffworkflow:updateFieldDoctype":   undefined,
+			"spiffworkflow:updateFieldName":      undefined,
+			"spiffworkflow:updateFieldValue":     undefined,
 		};
 		modeling.updateModdleProperties(element, bo, patch);
 	};
@@ -149,6 +162,7 @@ function ServiceTypeComponent(props) {
 		{ label: translate("-- Select Service Type --"), value: "" },
 		{ label: translate("Apply Workflow"),            value: "apply_workflow" },
 		{ label: translate("Email Notification"),        value: "send_email" },
+		{ label: translate("Update Field"),              value: "update_field" },
 	];
 
 	return h(SelectEntry, {
@@ -324,28 +338,41 @@ function ConfirmTransitionComponent(props) {
 	return h(
 		"div",
 		{ class: "bio-properties-panel-entry", "data-entry-id": id },
-		h(
-			"div",
-			{ style: "display:flex;align-items:center;gap:8px;padding:6px 0;" },
-			[
-				h("input", {
-					type: "checkbox",
-					id,
-					checked,
-					onChange: handleChange,
-					style: "width:16px;height:16px;cursor:pointer;margin:0;flex-shrink:0;",
-				}),
-				h(
-					"label",
-					{
-						for: id,
-						class: "bio-properties-panel-label",
-						style: "margin:0;cursor:pointer;user-select:none;",
-					},
-					translate("Confirm Transition?")
-				),
-			]
-		)
+		[
+			h(
+				"div",
+				{ style: "display:flex;align-items:center;gap:8px;padding:6px 0;" },
+				[
+					h("input", {
+						type: "checkbox",
+						id,
+						checked,
+						onChange: handleChange,
+						style: "width:16px;height:16px;cursor:pointer;margin:0;flex-shrink:0;",
+					}),
+					h(
+						"label",
+						{
+							for: id,
+							class: "bio-properties-panel-label",
+							style: "margin:0;cursor:pointer;user-select:none;",
+						},
+						translate("Confirm Transition?")
+					),
+				]
+			),
+			h(
+				"div",
+				{
+					style: "font-size:11px;color:#888;line-height:1.4;padding:0 0 4px 24px;",
+				},
+				translate(
+					"When enabled, the user will see a confirmation dialog before the workflow state change is applied. " +
+					"This adds a safety step to prevent accidental submissions, cancellations, or state transitions. " +
+					"If unchecked, the state change is applied immediately without user confirmation."
+				)
+			),
+		]
 	);
 }
 
@@ -543,7 +570,7 @@ function EmailToComponent(props) {
 	});
 }
 
-// ── E6: Document Fields (comma-separated field names that hold email) ─────
+// ── E6: Document Fields (multi-select from DocType fields) ────────────────
 function EmailToDocFieldsComponent(props) {
 	const { element, id } = props;
 	const modeling  = useService("modeling");
@@ -551,15 +578,59 @@ function EmailToDocFieldsComponent(props) {
 	const bo        = getBusinessObject(element);
 	const value     = getAttr(bo, "emailToDocFields");
 
-	return h(TextEntry, {
+	// Determine which DocType to fetch fields from:
+	// 1. emailDoctype (if "Based on Doctype" is checked)
+	// 2. serviceTargetDoctype (if set on this task)
+	// 3. Otherwise — we can't dynamically fetch fields
+	const sourceDoctype =
+		getAttr(bo, "emailDoctype") ||
+		getAttr(bo, "serviceTargetDoctype") ||
+		"";
+
+	// If no source DocType is known, fall back to plain text input
+	if (!sourceDoctype) {
+		return h(TextEntry, {
+			id,
+			label: translate("Document Field"),
+			value,
+			onInput: (e) => modeling.updateModdleProperties(element, bo, {
+				"spiffworkflow:emailToDocFields": e.target.value || undefined,
+			}),
+			placeholder: translate("e.g. employee_email, manager_email"),
+			hint: translate("Set a DocType above to get a field picker. Otherwise, enter comma-separated field names."),
+		});
+	}
+
+	// Fetch fields from the source DocType that can contain email addresses
+	const fetchDocFields = (txt) => {
+		const filters = [
+			["parent", "=", sourceDoctype],
+			["parenttype", "=", "DocType"],
+			["fieldtype", "in", ["Data", "Link", "Small Text", "Read Only"]],
+		];
+		if (txt) {
+			filters.push(["fieldname", "like", `%${txt}%`]);
+		}
+		const params = {
+			fields: '["fieldname","label","fieldtype","options"]',
+			filters: JSON.stringify(filters),
+			limit_page_length: 50,
+			order_by: "idx asc",
+		};
+		return frappeGet("/api/resource/DocField", params);
+	};
+
+	return h(FrappeMultiSelect, {
 		id,
 		label: translate("Document Field"),
 		value,
-		onInput: (e) => modeling.updateModdleProperties(element, bo, {
-			"spiffworkflow:emailToDocFields": e.target.value || undefined,
+		onChange: (val) => modeling.updateModdleProperties(element, bo, {
+			"spiffworkflow:emailToDocFields": val || undefined,
 		}),
-		placeholder: translate("e.g. employee_email, manager_email"),
-		hint: translate("Comma-separated field names from the context document that contain email addresses."),
+		fetchApi: fetchDocFields,
+		valueField: "fieldname",
+		renderOption: (opt) => `${opt.label || opt.fieldname} (${opt.fieldname})`,
+		placeholder: translate("Select fields that contain email addresses"),
 	});
 }
 
@@ -652,3 +723,111 @@ function EmailBodyComponent(props) {
 		),
 	});
 }
+
+// ===========================================================================
+// UPDATE FIELD COMPONENTS
+// ===========================================================================
+
+// ── UF1: DocType ──────────────────────────────────────────────────────────
+function UpdateFieldDoctypeComponent(props) {
+	const { element, id } = props;
+	const modeling  = useService("modeling");
+	const translate = useService("translate");
+	const bo        = getBusinessObject(element);
+	const value     = getAttr(bo, "updateFieldDoctype");
+
+	const fetchDoctypes = (txt) => {
+		const params = { fields: '["name"]', limit_page_length: 50, order_by: "name asc" };
+		if (txt) params.filters = JSON.stringify([["name", "like", `%${txt}%`]]);
+		return frappeGet("/api/resource/DocType", params);
+	};
+
+	return h(FrappeAutocomplete, {
+		id,
+		label: translate("DocType"),
+		value,
+		onChange: (val) => modeling.updateModdleProperties(element, bo, {
+			"spiffworkflow:updateFieldDoctype": val || undefined,
+			"spiffworkflow:updateFieldName":    undefined,  // clear field when doctype changes
+		}),
+		fetchApi: fetchDoctypes,
+		valueField: "name",
+		renderOption: (opt) => opt.name,
+	});
+}
+
+// ── UF2: Field Name (dynamic from selected DocType) ──────────────────────
+function UpdateFieldNameComponent(props) {
+	const { element, id } = props;
+	const modeling  = useService("modeling");
+	const translate = useService("translate");
+	const bo        = getBusinessObject(element);
+	const value     = getAttr(bo, "updateFieldName");
+	const doctype   = getAttr(bo, "updateFieldDoctype");
+
+	if (!doctype) {
+		return h(TextEntry, {
+			id,
+			label: translate("Field"),
+			value,
+			onInput: (e) => modeling.updateModdleProperties(element, bo, {
+				"spiffworkflow:updateFieldName": e.target.value || undefined,
+			}),
+			placeholder: translate("Select a DocType above first"),
+			hint: translate("Select a DocType to get a field picker."),
+		});
+	}
+
+	const fetchFields = (txt) => {
+		const filters = [
+			["parent", "=", doctype],
+			["parenttype", "=", "DocType"],
+			["fieldtype", "not in", ["Section Break", "Column Break", "Tab Break", "Table"]],
+		];
+		if (txt) {
+			filters.push(["fieldname", "like", `%${txt}%`]);
+		}
+		return frappeGet("/api/resource/DocField", {
+			fields: '["fieldname","label","fieldtype"]',
+			filters: JSON.stringify(filters),
+			limit_page_length: 100,
+			order_by: "idx asc",
+		});
+	};
+
+	return h(FrappeAutocomplete, {
+		id,
+		label: translate("Field"),
+		value,
+		onChange: (val) => modeling.updateModdleProperties(element, bo, {
+			"spiffworkflow:updateFieldName": val || undefined,
+		}),
+		fetchApi: fetchFields,
+		valueField: "fieldname",
+		renderOption: (opt) => `${opt.label || opt.fieldname} (${opt.fieldname}) [${opt.fieldtype}]`,
+	});
+}
+
+// ── UF3: Value ────────────────────────────────────────────────────────────
+function UpdateFieldValueComponent(props) {
+	const { element, id } = props;
+	const modeling  = useService("modeling");
+	const translate = useService("translate");
+	const bo        = getBusinessObject(element);
+	const value     = getAttr(bo, "updateFieldValue");
+
+	return h(TextEntry, {
+		id,
+		label: translate("Value"),
+		value,
+		onInput: (e) => modeling.updateModdleProperties(element, bo, {
+			"spiffworkflow:updateFieldValue": e.target.value || undefined,
+		}),
+		placeholder: translate("e.g. Approved, 1, {{ doc.employee }}"),
+		hint: translate(
+			"The value to set. Supports Jinja2 templates — use {{ doc.field_name }} " +
+			"for dynamic values from the context document."
+		),
+	});
+}
+

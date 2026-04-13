@@ -2,14 +2,14 @@
  * BPMN Form Actions Injector
  * ─────────────────────────────────────────────────────────────────────────────
  * Automatically injects BPMN User Task action buttons into any Frappe form
- * that has an active BPMN Process Instance.  The buttons appear in the
- * standard "Actions" dropdown — the same place as Frappe's native workflow
- * action buttons — so users get a seamless, consistent experience.
+ * that has an active BPMN Process Instance.
+ *
+ * KEY STRATEGY for hiding Submit/Cancel/Amend:
+ *   We override Toolbar.prototype.can_submit at the CLASS level, not the
+ *   instance level. This means ANY toolbar instance checks our flag first,
+ *   then delegates to the original logic. This avoids all timing issues.
  *
  * Loaded globally via app_include_js in hooks.py.
- *
- * IMPORTANT: Uses $(document).on("form-refresh") which Frappe emits at the
- * correct point in the form lifecycle (frappe/public/js/frappe/form/form.js).
  * ─────────────────────────────────────────────────────────────────────────────
  */
 
@@ -32,13 +32,63 @@ frappe.provide('one_bpmn');
 	/* ── Marker attribute to identify our injected <li> items ── */
 	const BPMN_ACTION_MARKER = '__bpmn_action__';
 
+	/* ── Track which doctypes+docnames have an active BPMN process ── */
+	const _bpmn_controlled_forms = new Set();
+
+	/* ─────────────────────────────────────────────────────────────────────────
+	 * STEP 1: Override Toolbar PROTOTYPE methods.
+	 *
+	 * By wrapping the prototype methods, we intercept EVERY call to
+	 * can_submit / can_cancel / can_amend — no matter when Frappe calls them.
+	 * This is far more reliable than patching individual instances.
+	 * ───────────────────────────────────────────────────────────────────────── */
+
+	const ToolbarProto = frappe.ui.form.Toolbar.prototype;
+
+	const _orig_can_submit = ToolbarProto.can_submit;
+	const _orig_can_cancel = ToolbarProto.can_cancel;
+	const _orig_can_amend  = ToolbarProto.can_amend;
+
+	ToolbarProto.can_submit = function () {
+		if (this.frm && _bpmn_controlled_forms.has(_form_key_from_frm(this.frm))) {
+			return false;
+		}
+		return _orig_can_submit.call(this);
+	};
+
+	ToolbarProto.can_cancel = function () {
+		if (this.frm && _bpmn_controlled_forms.has(_form_key_from_frm(this.frm))) {
+			return false;
+		}
+		return _orig_can_cancel.call(this);
+	};
+
+	ToolbarProto.can_amend = function () {
+		if (this.frm && _bpmn_controlled_forms.has(_form_key_from_frm(this.frm))) {
+			return false;
+		}
+		return _orig_can_amend.call(this);
+	};
+
 	/**
-	 * Load and inject BPMN task actions for the given form.
-	 * Called on every form-refresh document event.
+	 * Generate a unique key for tracking BPMN-controlled forms.
 	 */
+	function _form_key_from_frm(frm) {
+		return frm.doctype + ':' + frm.docname;
+	}
+
+	/* ─────────────────────────────────────────────────────────────────────────
+	 * STEP 2: load_bpmn_actions — fires on every form-refresh
+	 * ───────────────────────────────────────────────────────────────────────── */
+
 	async function load_bpmn_actions(frm) {
-		if (!frm || frm.is_new()) return;
+		if (!frm || frm.is_new()) {
+			console.log('[one_bpmn] Skipping — frm is new or null');
+			return;
+		}
 		if (BPMN_INTERNAL_DOCTYPES.has(frm.doctype)) return;
+
+		console.log('[one_bpmn] load_bpmn_actions called for:', frm.doctype, frm.docname);
 
 		// Always clear previously injected items first
 		_clear_bpmn_actions(frm);
@@ -54,82 +104,131 @@ frappe.provide('one_bpmn');
 			});
 
 			const tasks = (response && response.message) ? response.message : [];
+			console.log('[one_bpmn] API returned tasks:', tasks.length, tasks);
 
-			if (!tasks || tasks.length === 0) return;
+			if (!tasks || tasks.length === 0) {
+				// No BPMN process — unmark and let native buttons work
+				_bpmn_controlled_forms.delete(_form_key_from_frm(frm));
+				// Re-evaluate toolbar so native buttons come back
+				if (frm.toolbar) {
+					frm.toolbar.set_primary_action();
+				}
+				return;
+			}
 
 			let injected = 0;
+			let pending_assignee = null;
+
+			// Mark this form as BPMN-controlled
+			_bpmn_controlled_forms.add(_form_key_from_frm(frm));
+
+			// Force toolbar to re-evaluate — now can_submit returns false
+			if (frm.toolbar) {
+				frm.toolbar.set_primary_action();
+			}
+
+			// Hide the "Submit this document to confirm" banner
+			_hide_native_frappe_ui(frm);
 
 			tasks.forEach(function (task) {
-				// Only show actions for the assigned user (or for all if no user assigned)
 				const is_for_me = (
 					!task.assigned_user ||
-					task.assigned_user === frappe.session.user
+					task.assigned_user === frappe.session.user ||
+					frm.doc.owner === frappe.session.user
 				);
-				if (!is_for_me) return;
+
+				if (!is_for_me) {
+					pending_assignee = task.assigned_user;
+					return;
+				}
 
 				const actions = (task.task_actions || '')
 					.split(',')
 					.map(a => a.trim())
 					.filter(Boolean);
 
-				actions.forEach(function (action) {
-					// add_action_item adds to the Actions dropdown — same as native workflow
+				if (actions.length > 0) {
+					actions.forEach(function (action) {
+						const $item = frm.page.add_action_item(
+							__(action),
+							function () {
+								_confirm_and_apply(frm, task, action);
+							}
+						);
+
+						if ($item && $item.length) {
+							$item.closest('li').attr('data-bpmn-action', BPMN_ACTION_MARKER);
+						}
+
+						injected++;
+					});
+				} else {
+					// No actions configured — show a generic "Complete" button
 					const $item = frm.page.add_action_item(
-						__(action),
+						__(task.task_name || 'Complete Task'),
 						function () {
-							_confirm_and_apply(frm, task, action);
+							_confirm_and_apply(frm, task, null);
 						}
 					);
 
-					// Tag the parent <li> so we can remove it on the next refresh
 					if ($item && $item.length) {
 						$item.closest('li').attr('data-bpmn-action', BPMN_ACTION_MARKER);
 					}
 
 					injected++;
-				});
+				}
 			});
 
 			if (injected > 0) {
-				// Reveal the Actions dropdown button (hidden by default)
+				console.log('[one_bpmn] Injected', injected, 'BPMN actions, showing menu');
 				frm.page.show_actions_menu();
-
-				// ── Hide native Frappe buttons so BPMN is the only path ──────────
-				// The server-side guard already blocks direct submit/cancel on the
-				// backend; hiding the buttons here keeps the UX consistent.
-				_hide_native_frappe_buttons(frm);
+			} else if (pending_assignee) {
+				frm.dashboard.add_comment(
+					__('This document is controlled by a BPMN process. Pending action from: <b>{0}</b>',
+						[pending_assignee]),
+					'blue', true
+				);
 			}
 
 		} catch (err) {
-			// Non-fatal — log but don't break the form
 			console.warn('[one_bpmn] Failed to load BPMN form actions:', err);
 		}
 	}
 
 	/**
-	 * Hide Frappe's native Submit / Cancel / Amend buttons and any native
-	 * workflow action buttons when BPMN is controlling this document.
-	 * This makes it clear that the only valid path is through the Actions menu.
+	 * Hide all native Frappe UI elements that conflict with BPMN control:
+	 *  - "Submit this document to confirm" blue banner
+	 *  - Frappe Workflow action buttons (.workflow-button-area)
+	 *  - Workflow state indicator bar (.like-disabled-workflow)
 	 */
-	function _hide_native_frappe_buttons(frm) {
-		if (!frm || !frm.page) return;
+	function _hide_native_frappe_ui(frm) {
+		if (!frm) return;
 
-		// Hide Submit / Cancel / Amend primary/secondary action buttons
-		frm.page.btn_primary && frm.page.btn_primary.addClass('hide');
-		frm.page.btn_secondary && frm.page.btn_secondary.addClass('hide');
+		// 1. Hide the "Submit this document to confirm" dashboard comment
+		if (frm.dashboard && frm.dashboard.wrapper) {
+			$(frm.dashboard.wrapper).find('.comment-box .alert, .form-message').each(function () {
+				let text = $(this).text() || '';
+				if (text.includes('Submit this document to confirm')) {
+					$(this).remove();
+				}
+			});
+		}
 
-		// Hide any native workflow action items from the standard Actions menu
-		// (Frappe adds these as <li> items with class "workflow-action-item" or
-		//  with data-label matching known workflow transitions)
-		frm.page.actions && frm.page.actions
-			.find('li:not([data-bpmn-action])')
-			.addClass('bpmn-hidden-native')
-			.hide();
+		// 2. Hide Frappe Workflow action buttons
+		if (frm.$wrapper) {
+			frm.$wrapper
+				.find('.workflow-button-area, .form-workflow, .like-disabled-workflow')
+				.hide();
+		}
+
+		// 3. Hide workflow action buttons from the page header
+		if (frm.page && frm.page.wrapper) {
+			$(frm.page.wrapper).find('.btn-workflow').hide();
+		}
 	}
 
 	/**
 	 * Remove all BPMN-injected action items from the page Actions menu.
-	 * Only removes items we tagged — other items are untouched.
 	 */
 	function _clear_bpmn_actions(frm) {
 		if (!frm || !frm.page || !frm.page.actions) return;
@@ -142,11 +241,11 @@ frappe.provide('one_bpmn');
 	 * Show a confirmation dialog before calling the BPMN engine.
 	 */
 	function _confirm_and_apply(frm, task, action) {
+		const msg = action
+			? __('Apply BPMN action <b>{0}</b> on this document?', [action])
+			: __('Complete task <b>{0}</b>?', [task.task_name || 'Task']);
 		frappe.confirm(
-			__(
-				'Apply BPMN action <b>{0}</b> on this document?',
-				[action]
-			),
+			msg,
 			function () {
 				_apply_bpmn_action(frm, task, action);
 			}
@@ -164,19 +263,27 @@ frappe.provide('one_bpmn');
 			args: {
 				instance_name: task.instance_name,
 				task_id:       task.task_id,
-				// The engine evaluates: data.get('action') == 'Submit' / 'Reject'
-				data: JSON.stringify({ action: action }),
+				data: action ? JSON.stringify({ action: action }) : '{}',
 			},
 			callback: function (r) {
-				frappe.dom.unfreeze();
-
 				if (r && !r.exc) {
+					// Immediately clear BPMN action buttons
+					_clear_bpmn_actions(frm);
+					if (frm.page) {
+						frm.page.hide_actions_menu();
+					}
+
+					frappe.dom.unfreeze();
+
 					frappe.show_alert({
 						message: __('{0} action applied successfully', [action]),
 						indicator: 'green',
 					}, 4);
 
+					// Reload to get fresh data from server
 					frm.reload_doc();
+				} else {
+					frappe.dom.unfreeze();
 				}
 			},
 			error: function () {
@@ -186,22 +293,50 @@ frappe.provide('one_bpmn');
 	}
 
 	/* ─────────────────────────────────────────────────────────────────────────
-	 * Hook into Frappe's document-level "form-refresh" event.
+	 * Hook into Frappe form lifecycle.
 	 *
-	 * Frappe emits $(document).trigger("form-refresh", [frm]) inside
-	 * Form.trigger_onload() in frappe/public/js/frappe/form/form.js.
-	 * This fires after every form load, navigation, save, submit, and cancel.
-	 * It's the official, stable way to hook all form refreshes globally.
+	 * We use BOTH frappe.ui.form.on('*', 'refresh') which is the most
+	 * reliable way to hook into every form, AND the jQuery fallback.
 	 * ───────────────────────────────────────────────────────────────────────── */
+
+	// Primary hook — uses Frappe's own form event system on ALL doctypes
+	frappe.ui.form.on('*', {
+		refresh: function (frm) {
+			console.log('[one_bpmn] form refresh fired for:', frm.doctype, frm.docname);
+			load_bpmn_actions(frm);
+		},
+		onload: function (frm) {
+			console.log('[one_bpmn] form onload fired for:', frm.doctype, frm.docname);
+			load_bpmn_actions(frm);
+		}
+	});
+
+	// Fallback — jQuery document event
 	$(document).on('form-refresh', function (e, frm) {
+		if (_bpmn_controlled_forms.has(_form_key_from_frm(frm))) {
+			if (frm.toolbar) {
+				frm.toolbar.set_primary_action();
+			}
+			_hide_native_frappe_ui(frm);
+		}
 		load_bpmn_actions(frm);
 	});
 
-	/* Expose for debugging in the browser console:
-	 *   one_bpmn.load_form_actions(cur_frm)
-	 */
-	one_bpmn.load_form_actions = load_bpmn_actions;
+	// ── Realtime listener: auto-refresh the Frappe form when a BPMN task
+	//    completes (from Processa Instance or another user's action) ──────
+	if (frappe.realtime) {
+		frappe.realtime.on('bpmn_instance_updated', function (data) {
+			console.log('[one_bpmn] Realtime bpmn_instance_updated received:', data);
+			if (cur_frm && !cur_frm.is_new()) {
+				cur_frm.reload_doc();
+			}
+		});
+	}
 
-	console.log('[one_bpmn] BPMN form actions injector loaded ✓');
+	/* Expose for debugging in the browser console */
+	one_bpmn.load_form_actions = load_bpmn_actions;
+	one_bpmn.bpmn_controlled_forms = _bpmn_controlled_forms;
+
+	console.log('[one_bpmn] BPMN form actions injector loaded (prototype override) ✓');
 
 })();

@@ -439,42 +439,52 @@ function TaskActionsComponent(props) {
 
 	const value = getAttr(bo, "taskActions");
 
-	const handleInput = (e) => {
+	const handleChange = (val) => {
 		modeling.updateModdleProperties(element, bo, {
-			"spiffworkflow:taskActions": e.target.value || undefined,
+			"spiffworkflow:taskActions": val || undefined,
 		});
+	};
+
+	const fetchActions = (txt) => {
+		const params = {
+			fields: '["name"]',
+			limit_page_length: 50,
+			order_by: "name asc",
+		};
+		if (txt) {
+			params.filters = JSON.stringify([["name", "like", `%${txt}%`]]);
+		}
+		return frappeGet("/api/resource/Workflow Action Master", params);
 	};
 
 	return h(
 		"div",
-		{ class: "bio-properties-panel-entry", "data-entry-id": id },
-		h(
-			"div",
-			{ class: "bio-properties-panel-textfield" },
-			[
-				h("label", { class: "bio-properties-panel-label" }, translate("Task Actions")),
-				h("input", {
-					type: "text",
-					id,
-					class: "bio-properties-panel-input",
-					value,
-					onInput: handleInput,
-					placeholder: translate("e.g. Approve, Reject, Send Back"),
-					title: translate("Comma-separated list of decision labels shown as buttons on the pending task"),
-				}),
-				h(
-					"div",
-					{ style: "font-size:11px;color:#888;margin-top:3px;line-height:1.4;" },
-					translate(
-						"Comma-separated. Each label becomes an action button. " +
-						"Clicking one submits decision=\"<label>\" — use this in " +
-						"Exclusive Gateway conditions (e.g. decision == \"Approve\")."
-					)
-				),
-			]
-		)
+		{},
+		[
+			h(FrappeMultiSelect, {
+				id,
+				label: translate("Task Actions"),
+				value,
+				onChange: handleChange,
+				fetchApi: fetchActions,
+				valueField: "name",
+				renderOption: (opt) => opt.name,
+				placeholder: translate("Search workflow actions…"),
+			}),
+			h(
+				"div",
+				{ style: "font-size:11px;color:#888;margin-top:3px;line-height:1.4;" },
+				translate(
+					"Select actions from Workflow Action Master. " +
+					"Each action becomes a button in the Actions menu. " +
+					"The selected action is passed as the 'action' variable — " +
+					"use it in Exclusive Gateway conditions (e.g. action == \"Approve\")."
+				)
+			),
+		]
 	);
 }
+
 
 // ---------------------------------------------------------------------------
 // Task Action Mode — selects the source of decision buttons for this task.

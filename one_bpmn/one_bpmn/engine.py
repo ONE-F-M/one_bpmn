@@ -383,8 +383,8 @@ def get_task_display_name(task) -> str:
     Falls back to task_spec.name (which is the BPMN id, e.g. 'Activity_0abc').
     """
     return (
-        getattr(task.task_spec, 'description', None)
-        or getattr(task.task_spec, 'bpmn_name', None)
+        getattr(task.task_spec, 'bpmn_name', None)
+        or getattr(task.task_spec, 'description', None)
         or task.task_spec.name
     )
 
