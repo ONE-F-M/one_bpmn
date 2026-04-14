@@ -1,0 +1,90 @@
+/* ─────────────────────────────────────────────────────────────────
+ * Timer Properties Provider — description card & validation styles
+ * ───────────────────────────────────────────────────────────────── */
+
+.bpmn-timer-description-entry {
+  padding: 0 10px 6px 10px;
+}
+
+/* Validation error banner */
+.bpmn-timer-validation-error {
+  background: #fef2f2;
+  border: 1px solid #fca5a5;
+  border-radius: 5px;
+  padding: 10px;
+  margin-bottom: 8px;
+  font-size: 12px;
+  color: #991b1b;
+  display: flex;
+  align-items: flex-start;
+  gap: 6px;
+}
+
+.bpmn-timer-validation-icon {
+  flex-shrink: 0;
+  font-size: 14px;
+}
+
+.bpmn-timer-validation-text {
+  font-weight: 500;
+}
+
+/* Info card container */
+.bpmn-timer-info-card {
+  background: #f0f9ff;
+  border: 1px solid #bae6fd;
+  border-radius: 5px;
+  padding: 10px;
+  font-size: 12px;
+  line-height: 1.5;
+}
+
+.bpmn-timer-info-title {
+  font-weight: 600;
+  color: #0369a1;
+  margin-bottom: 4px;
+  font-size: 12px;
+}
+
+.bpmn-timer-info-desc {
+  color: #334155;
+  margin-bottom: 6px;
+}
+
+.bpmn-timer-info-examples {
+  color: #475569;
+}
+
+.bpmn-timer-info-example {
+  margin-bottom: 3px;
+}
+
+.bpmn-timer-info-code {
+  font-family: monospace;
+  font-size: 11px;
+  background: #e0f2fe;
+  padding: 1px 4px;
+  border-radius: 3px;
+  color: #0c4a6e;
+}
+
+.bpmn-timer-info-label {
+  color: #64748b;
+  margin-left: 6px;
+}
+
+/* Warning note */
+.bpmn-timer-info-note {
+  margin-top: 8px;
+  padding-top: 6px;
+  border-top: 1px solid #bae6fd;
+  color: #b45309;
+  font-size: 11px;
+  display: flex;
+  align-items: flex-start;
+  gap: 4px;
+}
+
+.bpmn-timer-info-note-icon {
+  flex-shrink: 0;
+}

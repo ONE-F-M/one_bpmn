@@ -14,7 +14,8 @@
  *   - id          {string}
  *   - label       {string}
  *   - value       {string}
- *   - onChange     {function(string)}
+ *   - onChange     {function(string, object=)}  — called with (value) on input,
+ *                                                  or (value, option) on selection
  *   - fetchApi     {function(string): Promise<Array>}  — preferred
  *   - valueField   {string}   — key in option objects (default "name")
  *   - renderOption  {function(object): string}  — display renderer
@@ -23,6 +24,7 @@
 
 import { h, Component } from "preact";
 import { frappeGet } from "./frappeResource";
+import "./bpmn-panel.css";
 
 export class FrappeAutocomplete extends Component {
 	constructor(props) {
@@ -113,9 +115,9 @@ export class FrappeAutocomplete extends Component {
 		this.props.onChange(val);
 	}
 
-	onSelect(val) {
+	onSelect(val, opt) {
 		this.setState({ searchTxt: val, isOpen: false });
-		this.props.onChange(val);
+		this.props.onChange(val, opt);
 	}
 
 	// -----------------------------------------------------------------
@@ -132,7 +134,7 @@ export class FrappeAutocomplete extends Component {
 			"div",
 			{ class: "bio-properties-panel-entry", "data-entry-id": id, ref: (c) => (this.containerRef = c) },
 			[
-				h("div", { class: "bio-properties-panel-textfield", style: "position: relative;" }, [
+				h("div", { class: "bio-properties-panel-textfield bpmn-dropdown-wrap" }, [
 					h("label", { for: id, class: "bio-properties-panel-label" }, label),
 					h("input", {
 						id: id,
@@ -147,33 +149,23 @@ export class FrappeAutocomplete extends Component {
 					isOpen &&
 						h(
 							"ul",
-							{
-								class: "bio-properties-panel-dropdown",
-								style:
-									"position: absolute; top: calc(100% + 4px); left: 0; right: 0; max-height: 200px; overflow-y: auto; background: white; border: 1px solid #ccc; border-radius: 4px; box-shadow: 0 4px 6px rgba(0,0,0,0.1); z-index: 1000; margin: 0; padding: 0; list-style: none;",
-							},
+							{ class: "bpmn-dropdown-list" },
 							[
-								loading && h("li", { style: "padding: 8px; color: #666; font-size: 13px;" }, "Loading..."),
+								loading && h("li", { class: "bpmn-dropdown-loading" }, "Loading..."),
 								!loading &&
 									options.length === 0 &&
-									h(
-										"li",
-										{ style: "padding: 8px; color: #666; font-size: 13px;" },
-										noResultsText || "No results found"
-									),
+									h("li", { class: "bpmn-dropdown-empty" }, noResultsText || "No results found"),
 								!loading &&
 									options.map((opt) =>
 										h(
 											"li",
 											{
 												key: getVal(opt),
-												style: "padding: 8px; font-size: 13px; cursor: pointer; border-bottom: 1px solid #eee;",
+												class: "bpmn-dropdown-item",
 												onMouseDown: (e) => {
 													e.preventDefault();
-													this.onSelect(getVal(opt));
+													this.onSelect(getVal(opt), opt);
 												},
-												onMouseEnter: (e) => (e.target.style.background = "#f3f4f6"),
-												onMouseLeave: (e) => (e.target.style.background = "white"),
 											},
 											getLabel(opt)
 										)

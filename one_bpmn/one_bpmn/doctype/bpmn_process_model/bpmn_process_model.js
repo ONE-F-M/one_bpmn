@@ -3,11 +3,36 @@
 
 frappe.ui.form.on("BPMN Process Model", {
 	refresh(frm) {
-		// Add "Open in Editor" button
-		if (!frm.is_new()) {
-			frm.add_custom_button(__("Open in Editor"), function () {
-				frappe.set_route("spiff", "process", frm.doc.process, "diagram", frm.doc.name);
+		if (frm.is_new()) return;
+
+		// ── Open in Editor ──
+		frm.add_custom_button(__("Open in Editor"), function () {
+			window.open(
+				`/processa/process/${encodeURIComponent(frm.doc.process_name)}/diagram/${encodeURIComponent(frm.doc.name)}`,
+				"_blank"
+			);
+		});
+
+		// ── Deploy ──
+		frm.add_custom_button(__("Deploy"), function () {
+			frappe.call({
+				method: "one_bpmn.api.compile_process_model",
+				args: { model_name: frm.doc.name },
+				freeze: true,
+				freeze_message: __("Deploying BPMN…"),
+				callback(r) {
+					if (r.message && r.message.success) {
+						frappe.show_alert({
+							message: __(
+								"Deployed successfully — version {0}, {1} subprocess(es)",
+								[r.message.version, r.message.subprocess_count]
+							),
+							indicator: "green",
+						});
+						frm.reload_doc();
+					}
+				},
 			});
-		}
+		}, __("Actions"));
 	},
 });

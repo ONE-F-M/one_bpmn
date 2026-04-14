@@ -1,3 +1,4 @@
+import './timer-properties.css';
 import TimerPropertiesProvider from './TimerPropertiesProvider';
 
 export default {

@@ -112,6 +112,18 @@
 					class="hidden"
 					@change="handleImportFile"
 				/>
+				<!-- Deploy Button -->
+				<button
+					@click="deployModel"
+					class="h-7 flex items-center gap-1 px-2.5 bg-blue-600 hover:bg-blue-700 text-white rounded transition-colors text-xs font-medium leading-none"
+					title="Deploy process model"
+					:disabled="!activeDiagramName || deploying"
+					:class="{ 'opacity-50 cursor-not-allowed': !activeDiagramName || deploying }"
+				>
+					<Icon :icon="deploying ? 'lucide:loader-2' : 'lucide:rocket'" class="w-3.5 h-3.5" :class="{ 'animate-spin': deploying }" />
+					{{ deploying ? 'Deploying…' : 'Deploy' }}
+				</button>
+
 				<!-- Compare Versions Button -->
 				<button
 					@click="openVersionPicker"
@@ -730,6 +742,7 @@ const loading = ref(true);
 const showShapeLibrary = ref(false);
 const showFileMenu = ref(false);
 const showStatusPopup = ref(false);
+const deploying = ref(false);
 
 // Version diff dialog ref
 const versionDiffRef = ref(null);
@@ -951,6 +964,39 @@ function onZoomChanged(newZoom) {
 function onShapeDragStart(shape) {
 	console.log("Shape drag started:", shape.shape_name);
 	// The actual drop handling will be done by bpmn-js canvas
+}
+
+// Deploy (compile) the process model
+async function deployModel() {
+	if (!activeDiagramName.value || deploying.value) return;
+
+	deploying.value = true;
+	try {
+		const response = await frappeRequest({
+			url: "/api/method/one_bpmn.api.compile_process_model",
+			method: "POST",
+			params: { model_name: activeDiagramName.value },
+		});
+
+		if (response && response.success) {
+			showNotification(
+				"Deployed",
+				`Deployed successfully — version ${response.version}, ${response.subprocess_count} subprocess(es)`,
+				"green"
+			);
+		} else {
+			showNotification("Deploy", "Deployment completed", "green");
+		}
+	} catch (err) {
+		showNotification(
+			"Deploy Failed",
+			err.message || "An error occurred while deploying the process model.",
+			"red",
+			true
+		);
+	} finally {
+		deploying.value = false;
+	}
 }
 
 // Keyboard shortcut handler

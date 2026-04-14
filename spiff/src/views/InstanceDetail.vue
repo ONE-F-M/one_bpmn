@@ -93,6 +93,36 @@
 										<Icon icon="lucide:alert-triangle" class="w-3 h-3" />
 										UNASSIGNED
 									</div>
+
+									<!-- Decision Action Buttons -->
+									<div v-if="getTaskActions(task).length" class="mt-3 flex flex-wrap gap-2">
+										<button
+											v-for="action in getTaskActions(task)"
+											:key="action"
+											@click="completeTask(task, action)"
+											:disabled="completingTask === task.task_id"
+											class="px-3 py-1.5 text-[11px] font-semibold rounded border transition-colors"
+											:class="getActionButtonClass(action)"
+										>
+											<span v-if="completingTask === task.task_id && completingAction === action" class="flex items-center gap-1">
+												<Icon icon="lucide:loader" class="w-3 h-3 animate-spin" /> Processing…
+											</span>
+											<span v-else>{{ action }}</span>
+										</button>
+									</div>
+									<!-- Plain complete button when no actions configured -->
+									<div v-else class="mt-3">
+										<button
+											@click="completeTask(task, null)"
+											:disabled="completingTask === task.task_id"
+											class="px-3 py-1.5 text-[11px] font-semibold rounded border bg-gray-100 hover:bg-gray-200 text-gray-700 border-gray-300 transition-colors disabled:opacity-50"
+										>
+											<span v-if="completingTask === task.task_id" class="flex items-center gap-1">
+												<Icon icon="lucide:loader" class="w-3 h-3 animate-spin" /> Processing…
+											</span>
+											<span v-else class="flex items-center gap-1"><Icon icon="lucide:check" class="w-3 h-3" /> Complete</span>
+										</button>
+									</div>
 								</div>
 							</div>
 							<div v-else class="h-full flex flex-col items-center justify-center text-center text-gray-400 text-sm p-6">
@@ -270,7 +300,9 @@ const instanceId = computed(() => route.params.instance)
 const loading = ref(true)
 const details = ref(null)
 
-const activeTasks = ref([])
+const activeTasks     = ref([])
+const completingTask  = ref(null)   // task_id currently being completed
+const completingAction = ref(null)  // action label being submitted
 const logs = ref([])
 
 const processVariables = computed(() => {
@@ -312,7 +344,21 @@ onMounted(async () => {
 	await loadDetails()
 	await loadLogs()
 	loading.value = false
+
+	// Listen for realtime updates from the backend
+	if (window.frappe && window.frappe.realtime) {
+		window.frappe.realtime.on('bpmn_instance_updated', handleRealtimeUpdate)
+	}
 })
+
+async function handleRealtimeUpdate(data) {
+	// Only refresh if this event is for our instance
+	if (data && data.instance_name && data.instance_name !== instanceId.value) return
+
+	// Re-fetch all data
+	await loadDetails()
+	await loadLogs()
+}
 
 function injectStyles() {
 	if (!document.getElementById("bpmn-marker-styles")) {
@@ -405,6 +451,9 @@ onUnmounted(() => {
 	if (viewer.value) {
 		viewer.value.destroy()
 		viewer.value = null
+	}
+	if (window.frappe && window.frappe.realtime) {
+		window.frappe.realtime.off('bpmn_instance_updated', handleRealtimeUpdate)
 	}
 })
 
@@ -507,43 +556,104 @@ function applyHighlights() {
 	try {
 		const canvas = viewer.value.get("canvas");
 		const elementRegistry = viewer.value.get("elementRegistry");
-		
-		const doneTasks = new Set(logs.value.filter(l => l.action === "Completed").map(l => l.task_id))
-		doneTasks.forEach(taskId => {
-			try {
-				canvas.addMarker(taskId, "highlight-done")
-			} catch(e) {}
-		})
-		
-		const currentActiveTasks = new Set(activeTasks.value.map(t => t.task_id))
-		currentActiveTasks.forEach(taskId => {
-			try {
-				canvas.addMarker(taskId, "highlight-active")
-			} catch(e) {}
-		})
 
-		// Sequence Flow + StartEvent Highlights
+		// Build UUID → BPMN element ID mapping from workflow_state
+		// The workflow_state JSON has:
+		//   tasks: { "uuid": { task_spec: "Activity_097ls3l", state: 64, ... } }
+		// SpiffWorkflow state codes:
+		//   1 = FUTURE, 2 = LIKELY, 4 = MAYBE, 8 = WAITING,
+		//   16 = READY, 32 = STARTED, 64 = COMPLETED, 128 = ERROR
+		let bpmnIdFromUuid = {};   // uuid → bpmn_id
+		let completedBpmnIds = new Set();
+		let activeBpmnIds = new Set();
+
+		if (details.value && details.value.workflow_state) {
+			try {
+				const wfState = typeof details.value.workflow_state === 'string'
+					? JSON.parse(details.value.workflow_state)
+					: details.value.workflow_state;
+
+				const tasks = wfState.tasks || {};
+				for (const [uuid, taskData] of Object.entries(tasks)) {
+					const taskSpec = taskData.task_spec || '';
+					if (!taskSpec || taskSpec === 'Start' || taskSpec === 'End' || taskSpec.endsWith('.EndJoin')) continue;
+
+					bpmnIdFromUuid[uuid] = taskSpec;
+					const state = taskData.state || 0;
+
+					if (state === 64) completedBpmnIds.add(taskSpec);
+					else if (state === 16 || state === 32 || state === 8) activeBpmnIds.add(taskSpec);
+				}
+			} catch (e) {
+				console.warn('Failed to parse workflow_state for highlights:', e);
+			}
+		}
+
+		// Use logs as a fallback for completed tasks — map task_ids through bpmnIdFromUuid
+		logs.value
+			.filter(l => l.action === "Completed")
+			.forEach(l => {
+				const bpmnId = bpmnIdFromUuid[l.task_id];
+				if (bpmnId) completedBpmnIds.add(bpmnId);
+			});
+
+		// Map active tasks from the child table
+		activeTasks.value.forEach(t => {
+			const bpmnId = bpmnIdFromUuid[t.task_id];
+			if (bpmnId) activeBpmnIds.add(bpmnId);
+		});
+
+		activeBpmnIds.forEach(id => completedBpmnIds.delete(id));
+
+
+		// Apply markers to BPMN elements
+		completedBpmnIds.forEach(bpmnId => {
+			try { canvas.addMarker(bpmnId, "highlight-done"); } catch(e) { console.warn('[BPMN] addMarker failed for', bpmnId, e); }
+		});
+
+		activeBpmnIds.forEach(bpmnId => {
+			try { canvas.addMarker(bpmnId, "highlight-active"); } catch(e) { console.warn('[BPMN] addMarker failed for', bpmnId, e); }
+		});
+
+		// Sequence Flow & StartEvent Highlights
+		const allReachedIds = new Set([...completedBpmnIds, ...activeBpmnIds]);
+
 		if (elementRegistry) {
-			elementRegistry.filter(e => e.type === "bpmn:SequenceFlow" || e.type === "bpmn:StartEvent").forEach(element => {
+			elementRegistry.filter(e => 
+				e.type === "bpmn:SequenceFlow" || e.type === "bpmn:StartEvent"
+			).forEach(element => {
 				try {
 					if (element.type === "bpmn:StartEvent") {
-						// Highlight the StartEvent circle green unconditionally since instance is active/done
 						canvas.addMarker(element.id, "highlight-done");
 					} else {
-						// It's a Sequence Flow
 						const flow = element;
 						const sourceId = flow.source && flow.source.id;
 						const targetId = flow.target && flow.target.id;
-						
-						const sourceDone = doneTasks.has(sourceId) || (flow.source && flow.source.type === "bpmn:StartEvent");
-						const targetReached = doneTasks.has(targetId) || currentActiveTasks.has(targetId);
-						
+
+						const sourceDone = completedBpmnIds.has(sourceId) || 
+							(flow.source && flow.source.type === "bpmn:StartEvent");
+						const targetReached = allReachedIds.has(targetId);
+
 						if (targetReached || (sourceDone && flow.target && flow.target.type.includes("EndEvent"))) {
 							canvas.addMarker(flow.id, "highlight-flow-done");
 						}
 					}
 				} catch(e) {}
-			})
+			});
+
+			// Also highlight gateways that have been passed through
+			elementRegistry.filter(e => 
+				e.type && e.type.includes("Gateway")
+			).forEach(gateway => {
+				try {
+					// A gateway is "done" if it appears in completed tasks
+					if (completedBpmnIds.has(gateway.id)) {
+						canvas.addMarker(gateway.id, "highlight-done");
+					} else if (activeBpmnIds.has(gateway.id)) {
+						canvas.addMarker(gateway.id, "highlight-active");
+					}
+				} catch(e) {}
+			});
 		}
 	} catch(err) {
 		console.warn("Could not apply highlights:", err);
@@ -551,9 +661,27 @@ function applyHighlights() {
 }
 
 function onElementClick(e) {
-	const elementId = e.element.id;
-	const activeTask = activeTasks.value.find(t => t.task_id === elementId);
-	const doneLogs = logs.value.filter(l => l.task_id === elementId && l.action === "Completed");
+	const elementId = e.element.id;  // This is the BPMN element ID (e.g. Activity_097ls3l)
+	
+	if (!viewer.value || !details.value) return;
+
+	let matchedUuids = [];
+	if (details.value.workflow_state) {
+		try {
+			const wfState = typeof details.value.workflow_state === 'string'
+				? JSON.parse(details.value.workflow_state)
+				: details.value.workflow_state;
+			const tasks = wfState.tasks || {};
+			for (const [uuid, taskData] of Object.entries(tasks)) {
+				if (taskData.task_spec === elementId) {
+					matchedUuids.push(uuid);
+				}
+			}
+		} catch(e) {}
+	}
+
+	const activeTask = activeTasks.value.find(t => matchedUuids.includes(t.task_id));
+	const doneLogs = logs.value.filter(l => matchedUuids.includes(l.task_id) && l.action === "Completed");
 	
 	if (!viewer.value) return;
 	
@@ -605,6 +733,63 @@ function onElementClick(e) {
 			position: { bottom: 0, left: 0 },
 			html: html
 		});
+	}
+}
+
+// Task Decision Helpers
+/** Parse comma-separated task_actions string into trimmed labels */
+function getTaskActions(task) {
+	const raw = task.task_actions || ''
+	return raw.split(',').map(a => a.trim()).filter(Boolean)
+}
+
+/** Colour-code common action verbs */
+function getActionButtonClass(action) {
+	const lower = action.toLowerCase()
+	if (['approve', 'approved', 'accept', 'yes', 'confirm'].some(k => lower.includes(k)))
+		return 'bg-green-50 hover:bg-green-100 text-green-800 border-green-300 disabled:opacity-50'
+	if (['reject', 'rejected', 'decline', 'no', 'deny', 'refuse'].some(k => lower.includes(k)))
+		return 'bg-red-50 hover:bg-red-100 text-red-800 border-red-300 disabled:opacity-50'
+	return 'bg-blue-50 hover:bg-blue-100 text-blue-800 border-blue-300 disabled:opacity-50'
+}
+
+/**
+ * Complete a User Task, submitting the chosen action label as the "action"
+ * workflow variable.  Gateway conditions can then check: action == "Approve"
+ */
+async function completeTask(task, action) {
+	if (completingTask.value) return   // prevent double-click during loading
+	completingTask.value   = task.task_id
+	completingAction.value = action
+	try {
+		const data = action ? JSON.stringify({ action: action }) : '{}'
+		await frappeRequest({
+			url:    '/api/method/one_bpmn.api.complete_task',
+			method: 'POST',
+			params: {
+				instance_name: instanceId.value,
+				task_id:       task.task_id,
+				data,
+			},
+		})
+		// Refresh everything — new active tasks, updated diagram highlights, history
+		logs.value       = []
+		limitStart.value  = 0
+		hasMoreLogs.value = true
+		await loadDetails()
+		await loadLogs()
+	} catch (err) {
+		console.error('Failed to complete task:', err)
+		// Show error to user
+		if (window.frappe) {
+			window.frappe.show_alert({
+				message: err.message || 'Failed to complete task',
+				indicator: 'red',
+			}, 5)
+		}
+	} finally {
+		completingTask.value   = null
+		completingAction.value = null
 	}
 }
 
