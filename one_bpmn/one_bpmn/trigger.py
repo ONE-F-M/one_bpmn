@@ -8,7 +8,7 @@
 #   1. Skips internal/system doctypes to prevent recursion
 #   2. Maps the Frappe hook method name to the trigger_event label stored on the model
 #   3. Finds all active BPMN Process Models configured to fire on this doctype + event
-#   4. Optionally checks a workflow_state condition embedded in the BPMN XML start event
+#   4. Checks a workflow_state condition embedded in the BPMN XML start event
 #   5. Skips models that already have a running instance for this document
 #   6. Creates and starts a new BPMN Process Instance for each matching model
 
@@ -17,10 +17,8 @@ import io
 import frappe
 from frappe.utils import now_datetime
 
-# ─────────────────────────────────────────────────────────────────────────────
 # Doctypes that belong to one_bpmn itself — never trigger workflows on these
 # to avoid infinite recursion.
-# ─────────────────────────────────────────────────────────────────────────────
 _INTERNAL_DOCTYPES = frozenset(
 	{
 		"BPMN Process Model",
@@ -33,10 +31,8 @@ _INTERNAL_DOCTYPES = frozenset(
 	}
 )
 
-# ─────────────────────────────────────────────────────────────────────────────
 # Maps Frappe hook method names  →  the label stored in
 # BPMN Process Model.trigger_event (Select field).
-# ─────────────────────────────────────────────────────────────────────────────
 _FRAPPE_TO_TRIGGER_EVENT = {
 	"after_insert": "After Insert",
 	"on_update": "On Update",
@@ -50,12 +46,10 @@ _FRAPPE_TO_TRIGGER_EVENT = {
 	"before_cancel": "Before Cancel",
 }
 
-# ─────────────────────────────────────────────────────────────────────────────
 # Maps Frappe document events  →  the BPMN User Task action they represent.
 # Used by the bidirectional sync: when a document changes outside of the BPMN
 # engine (e.g. user submits the EDA directly from the Frappe form), any active
 # process instance waiting for the corresponding User Task action is advanced.
-# ─────────────────────────────────────────────────────────────────────────────
 _FRAPPE_EVENT_TO_TASK_ACTION = {
 	"on_submit": "Submit",
 	"on_cancel": "Cancel",
@@ -66,9 +60,7 @@ _SPIFF_NS = "http://spiffworkflow.org/bpmn/schema/1.0/core"
 _BPMN_NS = "http://www.omg.org/spec/BPMN/20100524/MODEL"
 
 
-# ─────────────────────────────────────────────────────────────────────────────
 # Entry point — called by every doc_event hook
-# ─────────────────────────────────────────────────────────────────────────────
 
 
 def on_doc_event(doc, method: str):
@@ -101,7 +93,6 @@ def on_doc_event(doc, method: str):
 		try:
 			_maybe_start_instance(doc, model_name)
 		except Exception:
-			# Log but never crash the main document save
 			frappe.log_error(
 				title=f"BPMN trigger failed for {doc.doctype} / {model_name}",
 				message=frappe.get_traceback(),
@@ -115,9 +106,7 @@ def on_doc_event(doc, method: str):
 		_maybe_advance_instances(doc, task_action)
 
 
-# ─────────────────────────────────────────────────────────────────────────────
 # Internal helpers
-# ─────────────────────────────────────────────────────────────────────────────
 
 
 def _find_matching_models(doctype: str, trigger_event: str) -> list:
@@ -142,7 +131,6 @@ def _find_matching_models(doctype: str, trigger_event: str) -> list:
 	)
 
 	# Child table match — models that list this doctype in target_doctypes
-	# Step 1: Find parent model names from the child table
 	child_parents = frappe.get_all(
 		"BPMN Process DocType",
 		filters={
@@ -154,7 +142,6 @@ def _find_matching_models(doctype: str, trigger_event: str) -> list:
 	)
 	candidate_parents = [r.parent for r in child_parents if r.parent]
 
-	# Step 2: Filter those parents by is_active + trigger_type + trigger_event
 	via_child_names = []
 	if candidate_parents:
 		via_child_names = frappe.get_all(
@@ -189,7 +176,6 @@ def _maybe_start_instance(doc, model_name: str):
 	if not model.serialized_spec:
 		return
 
-	# Check workflow_state condition from BPMN start event (if any).
 	# The BPMN attribute spiffworkflow:triggerWorkflowState is compared against
 	# both doc.workflow_state (Frappe native workflow) and doc.status (custom
 	# status fields like Work Item.status) so either convention works.
@@ -237,9 +223,7 @@ def _maybe_start_instance(doc, model_name: str):
 	)
 
 
-# ─────────────────────────────────────────────────────────────────────────────
 # Bidirectional sync — advance existing instances on doc events
-# ─────────────────────────────────────────────────────────────────────────────
 
 
 def _maybe_advance_instances(doc, task_action: str):
@@ -290,7 +274,7 @@ def _advance_instance_on_doc_event(instance_name: str, task_action: str):
 	"""
 	instance = frappe.get_doc("BPMN Process Instance", instance_name)
 
-	# Find the first Waiting task row whose task_actions includes this action
+	# find the matching task row
 	matching_row = None
 	for row in instance.active_tasks:
 		if row.status != "Waiting":
@@ -348,9 +332,7 @@ def _get_trigger_workflow_state(bpmn_xml: str):
 	return None
 
 
-# ─────────────────────────────────────────────────────────────────────────────
 # BPMN Document Guard
-# ─────────────────────────────────────────────────────────────────────────────
 
 
 def guard_bpmn_document(doc, method: str):

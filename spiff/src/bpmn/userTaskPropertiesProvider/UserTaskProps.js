@@ -6,16 +6,12 @@ import { frappeGet } from "../shared/frappeResource";
 import { FrappeAutocomplete } from "../shared/FrappeAutocomplete";
 import { FrappeMultiSelect } from "../shared/FrappeMultiSelect";
 
-// ---------------------------------------------------------------------------
 // Helpers
-// ---------------------------------------------------------------------------
 function getAttr(bo, attr) {
 	return bo.get(`spiffworkflow:${attr}`) || "";
 }
 
-// ---------------------------------------------------------------------------
 // Main entry — Assignment Configuration group
-// ---------------------------------------------------------------------------
 export function UserTaskProps(props) {
 	const { element } = props;
 	const bo           = getBusinessObject(element);
@@ -86,11 +82,9 @@ export function UserTaskProps(props) {
 	return entries;
 }
 
-// ---------------------------------------------------------------------------
 // Component 1 — DocType (always visible)
 // Used by DocField mode (which doctype to look up the user field)
 // and by Load Balancing (doctype to count open tasks)
-// ---------------------------------------------------------------------------
 function TargetDoctypeComponent(props) {
 	const { element, id } = props;
 	const modeling  = useService("modeling");
@@ -130,10 +124,8 @@ function TargetDoctypeComponent(props) {
 	});
 }
 
-// ---------------------------------------------------------------------------
 // Component 2 — Assignment Mode (renamed from Assignee Mode)
 // Options: User | DocField | Round Robin | Load Balancing
-// ---------------------------------------------------------------------------
 function AssignmentModeComponent(props) {
 	const { element, id } = props;
 	const modeling  = useService("modeling");
@@ -170,9 +162,7 @@ function AssignmentModeComponent(props) {
 	});
 }
 
-// ---------------------------------------------------------------------------
 // Component 3 — User (single user autocomplete, for "User" mode)
-// ---------------------------------------------------------------------------
 function AssigneeUserComponent(props) {
 	const { element, id } = props;
 	const modeling  = useService("modeling");
@@ -214,10 +204,8 @@ function AssigneeUserComponent(props) {
 	});
 }
 
-// ---------------------------------------------------------------------------
 // Component 4 — DocField (user-linked field autocomplete, for "DocField" mode)
 // Requires a DocType to be selected above.
-// ---------------------------------------------------------------------------
 function AssigneeDocfieldComponent(props) {
 	const { element, id } = props;
 	const modeling  = useService("modeling");
@@ -269,9 +257,7 @@ function AssigneeDocfieldComponent(props) {
 	});
 }
 
-// ---------------------------------------------------------------------------
 // Shared helper — fetch users for multi-select
-// ---------------------------------------------------------------------------
 function fetchSystemUsers(txt) {
 	const filters = [
 		["user_type", "=", "System User"],
@@ -288,14 +274,12 @@ function fetchSystemUsers(txt) {
 	});
 }
 
-// ---------------------------------------------------------------------------
 // Component 5 — Round Robin Users (multi-select + read-only Last Assigned)
 // Stores as comma-separated user names in spiffworkflow:assigneeUsers.
 // At runtime the engine cycles through the list in order (same as Frappe's
 // Assignment Rule "Round Robin" — each new task goes to the next user).
 // After each assignment the engine writes spiffworkflow:roundRobinLastUser
 // back into the BPMN XML, making it visible here as a read-only field.
-// ---------------------------------------------------------------------------
 function RoundRobinUsersComponent(props) {
 	const { element, id } = props;
 	const modeling  = useService("modeling");
@@ -369,12 +353,10 @@ function RoundRobinUsersComponent(props) {
 }
 
 
-// ---------------------------------------------------------------------------
 // Component 6 — Load Balancing Users (multi-select)
 // Stores as comma-separated user names in spiffworkflow:assigneeUsers.
 // At runtime the engine assigns to the user with the fewest open tasks
 // (same as Frappe's Assignment Rule "Load Balancing"; ties go to first user).
-// ---------------------------------------------------------------------------
 function LoadBalancingUsersComponent(props) {
 	const { element, id } = props;
 	const modeling  = useService("modeling");
@@ -415,12 +397,10 @@ function LoadBalancingUsersComponent(props) {
 	);
 }
 
-// ---------------------------------------------------------------------------
 // Task Actions — define action buttons (e.g. "Approve,Reject,Send Back")
 // The chosen label is submitted as {action: "<label>"} when the user clicks
 // an action button on the pending task in the instance detail view.
 // Exclusive Gateways downstream can route on: action == "Approve"
-// ---------------------------------------------------------------------------
 function TaskActionsComponent(props) {
 	const { element, id } = props;
 	const modeling  = useService("modeling");
@@ -476,7 +456,6 @@ function TaskActionsComponent(props) {
 }
 
 
-// ---------------------------------------------------------------------------
 // Task Action Mode — selects the source of action buttons for this task.
 //
 //   manual          → designer types comma-separated actions (e.g. "Approve,Reject")
@@ -485,7 +464,6 @@ function TaskActionsComponent(props) {
 //                     Only transitions the CURRENT USER is allowed to take
 //                     (based on role, current state, conditions) are shown —
 //                     identical to Frappe's native workflow action panel.
-// ---------------------------------------------------------------------------
 function TaskActionModeComponent(props) {
 	const { element, id } = props;
 	const modeling  = useService("modeling");

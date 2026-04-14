@@ -9,9 +9,7 @@ from frappe import _
 from frappe.utils import now_datetime
 
 
-# ─────────────────────────────────────────────────────────────────────────────
 # 1. Timer Start Events — create new instances on schedule
-# ─────────────────────────────────────────────────────────────────────────────
 
 
 def process_timer_start_events():
@@ -35,7 +33,6 @@ def process_timer_start_events():
 
 	now = now_datetime()
 
-	# Step 1: Find Timer start event configs with cron expressions
 	timer_configs_raw = frappe.get_all(
 		"BPMN Start Event Config",
 		filters={
@@ -49,7 +46,6 @@ def process_timer_start_events():
 	if not timer_configs_raw:
 		return
 
-	# Step 2: Filter to only those whose parent model is active
 	parent_names = list({cfg.parent for cfg in timer_configs_raw})
 	active_models = set(
 		frappe.get_all(
@@ -79,7 +75,6 @@ def process_timer_start_events():
 			if not cron_expr:
 				continue
 
-			# Check if this minute matches the cron expression.
 			# croniter.match() checks if the given datetime matches the pattern.
 			if not croniter.match(cron_expr, now):
 				continue
@@ -128,8 +123,7 @@ def _start_timer_instance(model_name: str):
 	instance.initiated_by = "Administrator"
 	instance.started_at = now_datetime()
 
-	# If the model has a trigger_doctype, we could optionally create a
-	# context document here. For now, timer starts don't have context docs.
+	# no context doc for timer-start instances
 	if model.trigger_doctype:
 		instance.context_doctype = model.trigger_doctype
 
@@ -148,9 +142,7 @@ def _start_timer_instance(model_name: str):
 	frappe.db.commit()
 
 
-# ─────────────────────────────────────────────────────────────────────────────
 # 2. Timer Catch Events — resume waiting instances after timer elapses
-# ─────────────────────────────────────────────────────────────────────────────
 
 
 def process_timer_catch_events():
@@ -211,13 +203,11 @@ def _refresh_timer_tasks(instance_name: str):
 		script_task_extensions=spec_data.get("script_task_extensions"),
 	)
 
-	# Count WAITING tasks before refresh
 	waiting_before = len(wf.get_tasks(state=TaskState.WAITING))
 
 	# Refresh — this updates timer events that have elapsed
 	wf.refresh_waiting_tasks()
 
-	# Count WAITING tasks after refresh
 	waiting_after = len(wf.get_tasks(state=TaskState.WAITING))
 
 	# If any tasks transitioned, run the engine forward
@@ -230,7 +220,6 @@ def _refresh_timer_tasks(instance_name: str):
 			if not task.task_spec.manual:
 				task.run()
 
-		# Run the engine until it settles
 		wf.do_engine_steps()
 
 		# Serialize and save
@@ -249,7 +238,6 @@ def _refresh_timer_tasks(instance_name: str):
 
 		instance.serialized_spec = json.dumps(serialized)
 
-		# Update active tasks and check completion
 		instance._sync_active_tasks(wf)
 		instance._check_completion(wf)
 

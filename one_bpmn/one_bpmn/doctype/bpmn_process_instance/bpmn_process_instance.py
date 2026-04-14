@@ -36,9 +36,7 @@ class BPMNProcessInstance(Document):
 	    context_docname   → The specific record this instance is attached to
 	"""
 
-	# ─────────────────────────────────────────────────────────
 	# Public API
-	# ─────────────────────────────────────────────────────────
 
 	def start(self, initial_data: dict = None):
 		"""
@@ -110,7 +108,6 @@ class BPMNProcessInstance(Document):
 		self._user_task_extensions = spec.get("user_task_extensions", {})
 		self._script_task_extensions = spec.get("script_task_extensions", {})
 
-		# Create the workflow, passing script_task_extensions to the FrappeScriptEngine
 		# so Script Tasks can call the configured Frappe Server Script at runtime.
 		wf = bpmn_engine.create_workflow(
 			serialized_spec=spec,
@@ -121,7 +118,6 @@ class BPMNProcessInstance(Document):
 			script_task_extensions=self._script_task_extensions,
 		)
 
-		# Run all automated steps — flag tells the BPMN guard to allow these
 		frappe.flags.bpmn_engine_action = True
 		try:
 			self._run_engine(wf)
@@ -168,7 +164,6 @@ class BPMNProcessInstance(Document):
 			frappe.throw(_("Workflow state is missing. The instance may be corrupted."))
 
 		# Restore the workflow from DB state
-		# Load ALL task extensions from the instance's serialized_spec snapshot.
 		# These are needed by _dispatch_service_task (service) and the ScriptEngine (script).
 		# Without this restore, self._service_task_extensions is an empty dict and
 		# ALL ServiceTask dispatches silently do nothing (service_type == '').
@@ -188,7 +183,7 @@ class BPMNProcessInstance(Document):
 		if self.context_doctype and self.context_docname:
 			bpmn_engine.refresh_context_doc(wf, self.context_doctype, self.context_docname)
 
-		# Find the task — SpiffWorkflow uses uuid.UUID objects as keys
+		# SpiffWorkflow uses uuid.UUID objects as task keys
 		try:
 			task = wf.get_task_from_id(uuid.UUID(task_id))
 		except Exception:
@@ -211,7 +206,6 @@ class BPMNProcessInstance(Document):
 			if row.task_id == task_id:
 				row.status = "Completed"
 
-		# Log this completion
 		self._log_task(
 			task_id=task_id,
 			task_name=bpmn_engine.get_task_display_name(task),
@@ -219,7 +213,6 @@ class BPMNProcessInstance(Document):
 			data=data,
 		)
 
-		# Run all automated steps — flag tells the BPMN guard to allow these
 		frappe.flags.bpmn_engine_action = True
 		try:
 			task.run()
@@ -235,7 +228,6 @@ class BPMNProcessInstance(Document):
 		# Rebuild active tasks
 		self._sync_active_tasks(wf)
 
-		# Check if done
 		self._check_completion(wf)
 
 		self.save(ignore_permissions=True)
@@ -267,9 +259,7 @@ class BPMNProcessInstance(Document):
 			if row.status == "Waiting"
 		]
 
-	# ─────────────────────────────────────────────────────────
 	# Internal execution helpers
-	# ─────────────────────────────────────────────────────────
 
 	def _resolve_task_actions(self, row) -> str:
 		"""
@@ -694,7 +684,6 @@ class BPMNProcessInstance(Document):
 				},
 			)
 
-			# Log that this user task has become active
 			self._log_task(
 				task_id=tid,
 				task_name=task_name,
@@ -758,7 +747,6 @@ class BPMNProcessInstance(Document):
 				return ""
 
 			try:
-				# Read the shared round-robin state from the Process Model
 				model = frappe.get_doc("BPMN Process Model", self.process_model)
 				rr_state = frappe.parse_json(model.round_robin_state or "{}")
 				task_state = rr_state.get(bpmn_id, {"next_idx": 0, "last_user": ""})
@@ -878,9 +866,7 @@ class BPMNProcessInstance(Document):
 				message=frappe.get_traceback(),
 			)
 
-	# ─────────────────────────────────────────────────────────
 	# Utilities
-	# ─────────────────────────────────────────────────────────
 
 	@staticmethod
 	def _load_json(value):

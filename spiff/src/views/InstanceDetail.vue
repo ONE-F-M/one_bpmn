@@ -452,7 +452,6 @@ onUnmounted(() => {
 		viewer.value.destroy()
 		viewer.value = null
 	}
-	// Remove realtime listener
 	if (window.frappe && window.frappe.realtime) {
 		window.frappe.realtime.off('bpmn_instance_updated', handleRealtimeUpdate)
 	}
@@ -558,7 +557,7 @@ function applyHighlights() {
 		const canvas = viewer.value.get("canvas");
 		const elementRegistry = viewer.value.get("elementRegistry");
 
-		// ── Build UUID → BPMN element ID mapping from workflow_state ────────
+		// Build UUID → BPMN element ID mapping from workflow_state
 		// The workflow_state JSON has:
 		//   tasks: { "uuid": { task_spec: "Activity_097ls3l", state: 64, ... } }
 		// SpiffWorkflow state codes:
@@ -590,8 +589,7 @@ function applyHighlights() {
 			}
 		}
 
-		// ── Also use logs as a fallback for completed tasks ──────────────────
-		// Map log task_ids through bpmnIdFromUuid
+		// Use logs as a fallback for completed tasks — map task_ids through bpmnIdFromUuid
 		logs.value
 			.filter(l => l.action === "Completed")
 			.forEach(l => {
@@ -599,17 +597,16 @@ function applyHighlights() {
 				if (bpmnId) completedBpmnIds.add(bpmnId);
 			});
 
-		// ── Also map active tasks from the child table ───────────────────────
+		// Map active tasks from the child table
 		activeTasks.value.forEach(t => {
 			const bpmnId = bpmnIdFromUuid[t.task_id];
 			if (bpmnId) activeBpmnIds.add(bpmnId);
 		});
 
-		// Remove active from completed set (can't be both)
 		activeBpmnIds.forEach(id => completedBpmnIds.delete(id));
 
 
-		// ── Apply markers to BPMN elements ──────────────────────────────────
+		// Apply markers to BPMN elements
 		completedBpmnIds.forEach(bpmnId => {
 			try { canvas.addMarker(bpmnId, "highlight-done"); } catch(e) { console.warn('[BPMN] addMarker failed for', bpmnId, e); }
 		});
@@ -618,7 +615,7 @@ function applyHighlights() {
 			try { canvas.addMarker(bpmnId, "highlight-active"); } catch(e) { console.warn('[BPMN] addMarker failed for', bpmnId, e); }
 		});
 
-		// ── Sequence Flow & StartEvent Highlights ────────────────────────────
+		// Sequence Flow & StartEvent Highlights
 		const allReachedIds = new Set([...completedBpmnIds, ...activeBpmnIds]);
 
 		if (elementRegistry) {
@@ -668,7 +665,6 @@ function onElementClick(e) {
 	
 	if (!viewer.value || !details.value) return;
 
-	// Build reverse mapping: find tasks by their BPMN spec name
 	let matchedUuids = [];
 	if (details.value.workflow_state) {
 		try {
@@ -684,7 +680,6 @@ function onElementClick(e) {
 		} catch(e) {}
 	}
 
-	// Find related active tasks and logs using the matched UUIDs
 	const activeTask = activeTasks.value.find(t => matchedUuids.includes(t.task_id));
 	const doneLogs = logs.value.filter(l => matchedUuids.includes(l.task_id) && l.action === "Completed");
 	
@@ -741,8 +736,7 @@ function onElementClick(e) {
 	}
 }
 
-// ── Task Decision Helpers ───────────────────────────────────────────────────
-
+// Task Decision Helpers
 /** Parse comma-separated task_actions string into trimmed labels */
 function getTaskActions(task) {
 	const raw = task.task_actions || ''
