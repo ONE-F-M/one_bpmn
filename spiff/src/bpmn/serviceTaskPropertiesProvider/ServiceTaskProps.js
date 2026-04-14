@@ -341,21 +341,21 @@ function ConfirmTransitionComponent(props) {
 		[
 			h(
 				"div",
-				{ style: "display:flex;align-items:center;gap:8px;padding:6px 0;" },
+				{ class: "bpmn-checkbox-row" },
 				[
 					h("input", {
 						type: "checkbox",
 						id,
 						checked,
 						onChange: handleChange,
-						style: "width:16px;height:16px;cursor:pointer;margin:0;flex-shrink:0;",
+						class: "bpmn-checkbox",
 					}),
 					h(
 						"label",
 						{
 							for: id,
 							class: "bio-properties-panel-label",
-							style: "margin:0;cursor:pointer;user-select:none;",
+							class: "bpmn-checkbox-label",
 						},
 						translate("Confirm Transition?")
 					),
@@ -364,7 +364,7 @@ function ConfirmTransitionComponent(props) {
 			h(
 				"div",
 				{
-					style: "font-size:11px;color:#888;line-height:1.4;padding:0 0 4px 24px;",
+					class: "bpmn-checkbox-description",
 				},
 				translate(
 					"When enabled, the user will see a confirmation dialog before the workflow state change is applied. " +
@@ -385,16 +385,7 @@ function SectionDivider({ label }) {
 	return h(
 		"div",
 		{
-			style: [
-				"font-size:10px",
-				"font-weight:700",
-				"color:#888",
-				"text-transform:uppercase",
-				"letter-spacing:0.06em",
-				"padding:10px 0 4px 0",
-				"border-top:1px solid #e0e0e0",
-				"margin-top:6px",
-			].join(";"),
+			class: "bpmn-section-divider",
 		},
 		label
 	);
@@ -418,7 +409,7 @@ function TextEntry({ id, label, value, onInput, placeholder, multiline, hint }) 
 						onInput,
 						placeholder,
 						rows: 5,
-						style: "font-family:monospace;font-size:12px;resize:vertical;",
+						class: "bpmn-code-textarea",
 					})
 					: h("input", {
 						type: "text",
@@ -428,7 +419,7 @@ function TextEntry({ id, label, value, onInput, placeholder, multiline, hint }) 
 						onInput,
 						placeholder,
 					}),
-				hint && h("div", { style: "font-size:11px;color:#888;margin-top:3px;line-height:1.4;" }, hint),
+				hint && h("div", { class: "bio-properties-panel-description" }, hint),
 			]
 		)
 	);
@@ -472,7 +463,7 @@ function EmailUseDoctypeComponent(props) {
 	return h(
 		"div",
 		{ class: "bio-properties-panel-entry", "data-entry-id": id },
-		h("div", { style: "display:flex;align-items:center;gap:8px;padding:8px 0 4px 0;" }, [
+		h("div", { class: "bpmn-checkbox-row" }, [
 			h("input", {
 				type: "checkbox",
 				id,
@@ -481,12 +472,12 @@ function EmailUseDoctypeComponent(props) {
 					"spiffworkflow:emailUseDoctype": e.target.checked ? "true" : undefined,
 					"spiffworkflow:emailDoctype":    undefined,
 				}),
-				style: "width:16px;height:16px;cursor:pointer;margin:0;flex-shrink:0;",
+				class: "bpmn-checkbox",
 			}),
 			h("label", {
 				for: id,
 				class: "bio-properties-panel-label",
-				style: "margin:0;cursor:pointer;user-select:none;font-size:12px;",
+				class: "bpmn-checkbox-label-sm",
 			}, translate("Based on a Specific Doctype Record")),
 		])
 	);

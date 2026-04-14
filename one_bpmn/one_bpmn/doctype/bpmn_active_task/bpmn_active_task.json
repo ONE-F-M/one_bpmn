@@ -55,7 +55,7 @@
    "label": "Started At"
   },
   {
-   "description": "Comma-separated action labels configured on this User Task (e.g. 'Approve,Reject'). The selected action is submitted as the 'decision' variable and drives gateway routing.",
+   "description": "Comma-separated action labels configured on this User Task (e.g. 'Approve,Reject'). The selected action is submitted as the 'action' variable and drives gateway routing.",
    "fieldname": "task_actions",
    "fieldtype": "Data",
    "label": "Task Actions"

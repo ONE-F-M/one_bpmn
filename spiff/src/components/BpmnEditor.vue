@@ -874,12 +874,12 @@ onMounted(async () => {
 				});
 			});
 
-			eventBus.on("spiff.file.edit", (event) => {
-				console.log("File edit requested:", event.value);
+			eventBus.on("spiff.file.edit", (_event) => {
+				// Not implemented — file editing is handled externally
 			});
 
-			eventBus.on("spiff.dmn.edit", (event) => {
-				console.log("DMN edit requested:", event.value);
+			eventBus.on("spiff.dmn.edit", (_event) => {
+				// Not implemented — DMN editing is handled externally
 			});
 
 			// Notification editing (Send Tasks)
@@ -941,7 +941,7 @@ onMounted(async () => {
 			});
 
 			eventBus.on("spiff.msg_json_schema_files.requested", (event) => {
-				console.log("Message JSON schema files requested");
+				event.eventBus.fire("spiff.msg_json_schema_files.returned", { options: [] });
 			});
 
 			// Fix unresolved loop data references (from upstream app.js)

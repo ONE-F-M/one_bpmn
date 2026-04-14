@@ -1,0 +1,16 @@
+/* ─────────────────────────────────────────────────────────────────
+ * User Task Properties Provider — panel utility classes
+ * Replaces all inline style attributes in UserTaskProps.js
+ * ───────────────────────────────────────────────────────────────── */
+
+/* Margin top for stacked entries */
+.bpmn-mt-6 {
+	margin-top: 6px;
+}
+
+/* Read-only / disabled input state */
+.bpmn-input-readonly {
+	background: #f5f5f5;
+	color: #666;
+	cursor: default;
+}

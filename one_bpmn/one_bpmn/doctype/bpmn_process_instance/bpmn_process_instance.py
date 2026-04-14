@@ -257,8 +257,8 @@ class BPMNProcessInstance(Document):
 				"assigned_role": row.assigned_role,
 				"started_at": str(row.started_at) if row.started_at else None,
 				# Comma-separated action labels (e.g. "Approve,Reject").
-				# Frontend renders these as decision buttons; chosen action goes
-				# into workflow data as {"decision": "<label>"} for gateway routing.
+				# Frontend renders these as action buttons; chosen action goes
+				# into workflow data as {"action": "<label>"} for gateway routing.
 				# Dynamic: for frappe_workflow mode fetched live from Frappe get_transitions()
 				"task_actions": self._resolve_task_actions(row),
 				"task_action_mode": getattr(row, "task_action_mode", None) or "manual",
@@ -673,7 +673,7 @@ class BPMNProcessInstance(Document):
 			if async_user:
 				assigned_user = async_user
 
-			# Resolve task actions (decision buttons) from user_task_extensions --
+			# Resolve task actions (action buttons) from user_task_extensions --
 			bpmn_id_key = getattr(task.task_spec, "bpmn_id", None) or ""
 			task_cfg = getattr(self, "_user_task_extensions", {}).get(bpmn_id_key, {})
 			task_actions = task_cfg.get("taskActions", "")

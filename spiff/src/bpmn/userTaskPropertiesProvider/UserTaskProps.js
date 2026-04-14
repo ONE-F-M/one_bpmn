@@ -331,7 +331,7 @@ function RoundRobinUsersComponent(props) {
 				{
 					class: "bio-properties-panel-entry",
 					"data-entry-id": `${id}-last-user`,
-					style: "margin-top: 6px;",
+					class: "bio-properties-panel-entry bpmn-mt-6",
 				},
 				h(
 					"div",
@@ -348,7 +348,7 @@ function RoundRobinUsersComponent(props) {
 							value: lastUser || translate("Not assigned yet"),
 							readOnly: true,
 							disabled: true,
-							style: "background:#f5f5f5;color:#666;cursor:default;",
+							class: "bio-properties-panel-input bpmn-input-readonly",
 						}),
 					]
 				)
@@ -358,12 +358,7 @@ function RoundRobinUsersComponent(props) {
 			h(
 				"div",
 				{
-					style: [
-						"font-size: 11px",
-						"color: #666",
-						"padding: 4px 0 0 0",
-						"line-height: 1.4",
-					].join(";"),
+					class: "bio-properties-panel-description",
 				},
 				translate(
 					"Tasks are assigned to each user in turn, cycling through the list. Last Assigned User is updated automatically by the engine after each assignment."
@@ -410,12 +405,7 @@ function LoadBalancingUsersComponent(props) {
 			h(
 				"div",
 				{
-					style: [
-						"font-size: 11px",
-						"color: #666",
-						"padding: 4px 0 0 0",
-						"line-height: 1.4",
-					].join(";"),
+					class: "bio-properties-panel-description",
 				},
 				translate(
 					"Assigns to the user with fewest open tasks. On a tie, the first user in the list is chosen (same as Frappe Assignment Rule — Load Balancing)."
@@ -426,10 +416,10 @@ function LoadBalancingUsersComponent(props) {
 }
 
 // ---------------------------------------------------------------------------
-// Task Actions — define decision buttons (e.g. "Approve,Reject,Send Back")
-// The chosen label is submitted as {decision: "<label>"} when the user clicks
+// Task Actions — define action buttons (e.g. "Approve,Reject,Send Back")
+// The chosen label is submitted as {action: "<label>"} when the user clicks
 // an action button on the pending task in the instance detail view.
-// Exclusive Gateways downstream can route on: decision == "Approve"
+// Exclusive Gateways downstream can route on: action == "Approve"
 // ---------------------------------------------------------------------------
 function TaskActionsComponent(props) {
 	const { element, id } = props;
@@ -473,7 +463,7 @@ function TaskActionsComponent(props) {
 			}),
 			h(
 				"div",
-				{ style: "font-size:11px;color:#888;margin-top:3px;line-height:1.4;" },
+				{ class: "bio-properties-panel-description" },
 				translate(
 					"Select actions from Workflow Action Master. " +
 					"Each action becomes a button in the Actions menu. " +
@@ -487,7 +477,7 @@ function TaskActionsComponent(props) {
 
 
 // ---------------------------------------------------------------------------
-// Task Action Mode — selects the source of decision buttons for this task.
+// Task Action Mode — selects the source of action buttons for this task.
 //
 //   manual          → designer types comma-separated actions (e.g. "Approve,Reject")
 //   frappe_workflow → actions are fetched LIVE at runtime from the context
@@ -533,7 +523,7 @@ function TaskActionModeComponent(props) {
 				),
 				h(
 					"div",
-					{ style: "font-size:11px;color:#888;margin-top:3px;line-height:1.4;" },
+					{ class: "bio-properties-panel-description" },
 					value === "frappe_workflow"
 						? translate(
 							"Actions fetched live from the context document's Frappe Workflow. " +

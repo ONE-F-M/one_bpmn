@@ -16,6 +16,7 @@
  */
 
 import { h, Component } from "preact";
+import "./bpmn-panel.css";
 
 export class FrappeMultiSelect extends Component {
 	constructor(props) {
@@ -131,18 +132,7 @@ export class FrappeMultiSelect extends Component {
 					h(
 						"div",
 						{
-							style: [
-								"border: 1px solid #ccc",
-								"border-radius: 4px",
-								"padding: 4px 6px",
-								"min-height: 38px",
-								"display: flex",
-								"flex-wrap: wrap",
-								"align-items: center",
-								"gap: 4px",
-								"cursor: text",
-								"background: #fff",
-							].join(";"),
+					class: "bpmn-tag-input-wrap",
 							onClick: () => this.inputRef && this.inputRef.focus(),
 						},
 						[
@@ -152,20 +142,10 @@ export class FrappeMultiSelect extends Component {
 									"span",
 									{
 										key: val,
-										style: [
-											"display: inline-flex",
-											"align-items: center",
-											"gap: 3px",
-											"background: #e8f4fd",
-											"border: 1px solid #b8d8f0",
-											"border-radius: 3px",
-											"padding: 2px 6px",
-											"font-size: 12px",
-											"line-height: 16px",
-										].join(";"),
+								class: "bpmn-tag",
 									},
 									[
-										h("span", { style: "max-width:150px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;" }, val),
+										h("span", { class: "bpmn-tag-text" }, val),
 										h(
 											"button",
 											{
@@ -175,16 +155,7 @@ export class FrappeMultiSelect extends Component {
 													e.preventDefault();
 													this.remove(val);
 												},
-												style: [
-													"background: none",
-													"border: none",
-													"cursor: pointer",
-													"padding: 0 0 0 2px",
-													"line-height: 1",
-													"font-size: 14px",
-													"color: #666",
-													"font-weight: bold",
-												].join(";"),
+										class: "bpmn-tag-remove",
 											},
 											"×"
 										),
@@ -195,7 +166,7 @@ export class FrappeMultiSelect extends Component {
 							// Input for searching + adding
 							h(
 								"div",
-								{ style: "position: relative; flex: 1; min-width: 80px;" },
+								{ class: "bpmn-tag-input-field-wrap" },
 								[
 									h("input", {
 										type: "text",
@@ -207,14 +178,7 @@ export class FrappeMultiSelect extends Component {
 										autoComplete: "off",
 										spellCheck: "false",
 										ref: (c) => (this.inputRef = c),
-										style: [
-											"border: none",
-											"outline: none",
-											"width: 100%",
-											"font-size: 13px",
-											"background: transparent",
-											"padding: 2px 0",
-										].join(";"),
+								class: "bpmn-tag-input-field",
 									}),
 
 									// Dropdown
@@ -222,35 +186,20 @@ export class FrappeMultiSelect extends Component {
 										h(
 											"ul",
 											{
-												style: [
-													"position: absolute",
-													"top: calc(100% + 2px)",
-													"left: 0",
-													"min-width: 220px",
-													"max-height: 200px",
-													"overflow-y: auto",
-													"background: white",
-													"border: 1px solid #ccc",
-													"border-radius: 4px",
-													"box-shadow: 0 4px 8px rgba(0,0,0,0.12)",
-													"z-index: 1000",
-													"margin: 0",
-													"padding: 0",
-													"list-style: none",
-												].join(";"),
+										class: "bpmn-dropdown-list",
 											},
 											[
 												loading &&
 													h(
 														"li",
-														{ style: "padding: 8px; color: #666; font-size: 13px;" },
+														{ class: "bpmn-dropdown-loading" },
 														"Loading…"
 													),
 												!loading &&
 													options.length === 0 &&
 													h(
 														"li",
-														{ style: "padding: 8px; color: #999; font-size: 13px;" },
+														{ class: "bpmn-dropdown-empty" },
 														"No results found"
 													),
 												!loading &&
@@ -259,20 +208,11 @@ export class FrappeMultiSelect extends Component {
 															"li",
 															{
 																key: getVal(opt),
-																style: [
-																	"padding: 8px 10px",
-																	"font-size: 13px",
-																	"cursor: pointer",
-																	"border-bottom: 1px solid #f0f0f0",
-																].join(";"),
+																class: "bpmn-dropdown-item",
 																onMouseDown: (e) => {
 																	e.preventDefault();
 																	this.add(getVal(opt));
 																},
-																onMouseEnter: (e) =>
-																	(e.currentTarget.style.background = "#f3f6fa"),
-																onMouseLeave: (e) =>
-																	(e.currentTarget.style.background = "white"),
 															},
 															getLabel(opt)
 														)
@@ -288,7 +228,7 @@ export class FrappeMultiSelect extends Component {
 					selected.length > 0 &&
 						h(
 							"div",
-							{ style: "font-size: 11px; color: #888; margin-top: 3px;" },
+							{ class: "bio-properties-panel-description" },
 							`${selected.length} user${selected.length > 1 ? "s" : ""} selected`
 						),
 				]

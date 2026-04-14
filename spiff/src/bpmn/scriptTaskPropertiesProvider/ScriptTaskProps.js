@@ -56,7 +56,7 @@ function ServerScriptComponent(props) {
 			}),
 			h(
 				"div",
-				{ style: "font-size:11px;color:#666;padding:4px 0 0;line-height:1.4;" },
+				{ class: "bio-properties-panel-description" },
 				translate(
 					"Select an API-type Server Script. Receives: frappe, doc, context_doctype, " +
 					"context_docname, instance. Set result={...} for gateway routing."

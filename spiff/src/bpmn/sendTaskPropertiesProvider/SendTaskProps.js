@@ -127,7 +127,7 @@ class NotificationAutocomplete extends Component {
 			"div",
 			{ class: "bio-properties-panel-entry", "data-entry-id": id, ref: (c) => (this.containerRef = c) },
 			[
-				h("div", { class: "bio-properties-panel-textfield", style: "position: relative;" }, [
+				h("div", { class: "bio-properties-panel-textfield bpmn-dropdown-wrap" }, [
 					h("label", { for: id, class: "bio-properties-panel-label" }, label),
 					h("input", {
 						id: id,
@@ -145,21 +145,20 @@ class NotificationAutocomplete extends Component {
 							"ul",
 							{
 								class: "bio-properties-panel-dropdown",
-								style:
-									"position: absolute; top: calc(100% + 4px); left: 0; right: 0; max-height: 200px; overflow-y: auto; background: white; border: 1px solid #ccc; border-radius: 4px; box-shadow: 0 4px 6px rgba(0,0,0,0.1); z-index: 1000; margin: 0; padding: 0; list-style: none;",
+								class: "bpmn-dropdown-list",
 							},
 							[
-								loading && h("li", { style: "padding: 8px; color: #666; font-size: 13px;" }, "Loading..."),
+								loading && h("li", { class: "bpmn-dropdown-loading" }, "Loading..."),
 								!loading &&
 									options.length === 0 &&
-									h("li", { style: "padding: 8px; color: #666; font-size: 13px;" }, "No notifications found"),
+									h("li", { class: "bpmn-dropdown-loading" }, "No notifications found"),
 								!loading &&
 									options.map((opt) =>
 										h(
 											"li",
 											{
 												key: opt.name,
-												style: "padding: 8px; font-size: 13px; cursor: pointer; border-bottom: 1px solid #eee;",
+												class: "bpmn-dropdown-item",
 												onMouseDown: (e) => {
 													e.preventDefault();
 													this.onSelect(opt.name);
@@ -168,11 +167,11 @@ class NotificationAutocomplete extends Component {
 												onMouseLeave: (e) => (e.target.style.background = "white"),
 											},
 											[
-												h("div", { style: "font-weight: 500;" }, [
-													h("span", { style: "margin-right: 6px;" }, CHANNEL_ICONS[opt.channel] || "📋"),
+												h("div", { class: "bpmn-notif-item-title" }, [
+													h("span", { class: "bpmn-notif-item-icon" }, CHANNEL_ICONS[opt.channel] || "📋"),
 													opt.name,
 												]),
-												h("div", { style: "font-size: 11px; color: #6b7280; margin-top: 2px;" }, [
+												h("div", { class: "bpmn-notif-item-meta" }, [
 													opt.channel,
 													opt.document_type ? ` · ${opt.document_type}` : "",
 													opt.enabled ? "" : " · Disabled",
