@@ -22,6 +22,7 @@
   "section_engine_data",
   "serialized_spec",
   "subprocess_specs",
+  "round_robin_state",
   "column_break_engine",
   "version",
   "amended_from",
@@ -35,7 +36,9 @@
   "cron_expression",
   "status",
   "deployed_at",
-  "deployed_by"
+  "deployed_by",
+  "section_start_events",
+  "start_events"
  ],
  "fields": [
   {
@@ -127,6 +130,13 @@
    "label": "Subprocess Specs"
   },
   {
+   "description": "Tracks round-robin assignment state per User Task. JSON: {\"task_bpmn_id\": {\"next_idx\": 0, \"last_user\": \"user@example.com\"}}",
+   "fieldname": "round_robin_state",
+   "fieldtype": "JSON",
+   "hidden": 1,
+   "label": "Round Robin State"
+  },
+  {
    "fieldname": "column_break_engine",
    "fieldtype": "Column Break"
   },
@@ -209,6 +219,19 @@
    "fieldtype": "Link",
    "label": "Deployed By",
    "options": "User"
+  },
+  {
+   "collapsible": 1,
+   "fieldname": "section_start_events",
+   "fieldtype": "Section Break",
+   "label": "Start Events"
+  },
+  {
+   "fieldname": "start_events",
+   "fieldtype": "Table",
+   "label": "Start Events",
+   "options": "BPMN Start Event Config",
+   "read_only": 1
   }
  ],
  "in_create": 1,

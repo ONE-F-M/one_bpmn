@@ -366,6 +366,8 @@ import resizeModule from "@/resize";
 
 import userTaskPropertiesProviderModule from "@/bpmn/userTaskPropertiesProvider";
 import sendTaskPropertiesProviderModule from "@/bpmn/sendTaskPropertiesProvider";
+import serviceTaskPropertiesProviderModule from "@/bpmn/serviceTaskPropertiesProvider";
+import scriptTaskPropertiesProviderModule from "@/bpmn/scriptTaskPropertiesProvider";
 import intermediateEventPropertiesProviderModule from "@/bpmn/intermediateEventPropertiesProvider";
 import timerPropertiesProviderModule from "@/bpmn/timerPropertiesProvider";
 import startEventPropertiesProviderModule from "@/bpmn/startEventPropertiesProvider";
@@ -530,8 +532,9 @@ onMounted(async () => {
 					name: "TimerEventDefinitionExtension",
 					extends: ["bpmn:TimerEventDefinition"],
 					properties: [
-						{ name: "schedulerFrequency", isAttr: true, type: "String" },
-						{ name: "cronExpression",       isAttr: true, type: "String" }
+						{ name: "cronExpression", isAttr: true, type: "String" },
+						// Kept for backward compat — existing XML may contain this.
+						{ name: "schedulerFrequency", isAttr: true, type: "String" }
 					]
 				});
 			}
@@ -573,10 +576,22 @@ onMounted(async () => {
 					name: "UserTaskAssigneeExtension",
 					extends: ["bpmn:UserTask"],
 					properties: [
-						{ name: "assigneeMode",        isAttr: true, type: "String" },
-						{ name: "targetDoctype",       isAttr: true, type: "String" },
-						{ name: "assigneeUser",        isAttr: true, type: "String" },
-						{ name: "assigneeDocfield",    isAttr: true, type: "String" }
+						{ name: "assigneeMode",         isAttr: true, type: "String" },
+						{ name: "targetDoctype",         isAttr: true, type: "String" },
+						{ name: "assigneeUser",          isAttr: true, type: "String" },
+						{ name: "assigneeDocfield",      isAttr: true, type: "String" },
+						{ name: "assigneeUsers",         isAttr: true, type: "String" },
+						{ name: "roundRobinLastUser",    isAttr: true, type: "String" },
+						{ name: "taskActions",           isAttr: true, type: "String" },
+						{ name: "taskActionMode",        isAttr: true, type: "String" }
+					]
+				});
+
+				spiffModdleExtension.types.push({
+					name: "ScriptTaskServerScriptExtension",
+					extends: ["bpmn:ScriptTask"],
+					properties: [
+						{ name: "serverScript", isAttr: true, type: "String" }
 					]
 				});
 			}
@@ -608,6 +623,36 @@ onMounted(async () => {
 				});
 			}
 
+			// Service Task "Apply Workflow" extension
+			const hasServiceTaskExt = spiffModdleExtension.types.find(t => t.name === "ServiceTaskApplyWorkflowExtension");
+			if (!hasServiceTaskExt) {
+				spiffModdleExtension.types.push({
+					name: "ServiceTaskApplyWorkflowExtension",
+					extends: ["bpmn:ServiceTask"],
+					properties: [
+						{ name: "serviceType",          isAttr: true, type: "String" },
+						{ name: "serviceTargetDoctype", isAttr: true, type: "String" },
+						{ name: "workflowState",        isAttr: true, type: "String" },
+						{ name: "docStatus",            isAttr: true, type: "String" },
+						{ name: "onlyAllowEdit",        isAttr: true, type: "String" },
+						{ name: "confirmTransition",    isAttr: true, type: "String" },
+						{ name: "emailAccount",         isAttr: true, type: "String" },
+						{ name: "emailUseDoctype",      isAttr: true, type: "String" },
+						{ name: "emailDoctype",         isAttr: true, type: "String" },
+						{ name: "emailSubject",         isAttr: true, type: "String" },
+						{ name: "emailTo",              isAttr: true, type: "String" },
+						{ name: "emailToDocFields",     isAttr: true, type: "String" },
+						{ name: "emailToRoles",         isAttr: true, type: "String" },
+						{ name: "emailCc",              isAttr: true, type: "String" },
+						{ name: "emailBcc",             isAttr: true, type: "String" },
+						{ name: "emailBody",            isAttr: true, type: "String" },
+						{ name: "updateFieldDoctype",   isAttr: true, type: "String" },
+						{ name: "updateFieldName",      isAttr: true, type: "String" },
+						{ name: "updateFieldValue",     isAttr: true, type: "String" }
+					]
+				});
+			}
+
 			// Sticky Note extension
 			const hasStickyNoteExt = spiffModdleExtension.types.find(t => t.name === "StickyNoteExtension");
 			if (!hasStickyNoteExt) {
@@ -633,6 +678,8 @@ onMounted(async () => {
 				spiffworkflow,
 				userTaskPropertiesProviderModule,
 				sendTaskPropertiesProviderModule,
+				serviceTaskPropertiesProviderModule,
+				scriptTaskPropertiesProviderModule,
 				intermediateEventPropertiesProviderModule,
 				timerPropertiesProviderModule,
 				startEventPropertiesProviderModule,
@@ -890,12 +937,12 @@ onMounted(async () => {
 				});
 			});
 
-			eventBus.on("spiff.file.edit", (event) => {
-				console.log("File edit requested:", event.value);
+			eventBus.on("spiff.file.edit", (_event) => {
+				// Not implemented — file editing is handled externally
 			});
 
-			eventBus.on("spiff.dmn.edit", (event) => {
-				console.log("DMN edit requested:", event.value);
+			eventBus.on("spiff.dmn.edit", (_event) => {
+				// Not implemented — DMN editing is handled externally
 			});
 
 			// Notification editing (Send Tasks)
@@ -957,7 +1004,7 @@ onMounted(async () => {
 			});
 
 			eventBus.on("spiff.msg_json_schema_files.requested", (event) => {
-				console.log("Message JSON schema files requested");
+				event.eventBus.fire("spiff.msg_json_schema_files.returned", { options: [] });
 			});
 
 			// Fix unresolved loop data references (from upstream app.js)
