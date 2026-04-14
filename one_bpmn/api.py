@@ -10,10 +10,7 @@ from frappe import _
 
 @frappe.whitelist()
 def save_process_model(
-	model_name: str,
-	xml_content: str,
-	process: str = None,
-	description: str = None
+	model_name: str, xml_content: str, process: str = None, description: str = None
 ) -> dict:
 	"""
 	Save or update a BPMN process model.
@@ -54,12 +51,7 @@ def save_process_model(
 		doc.check_permission("create")
 		doc.insert()
 
-	return {
-		"name": doc.name,
-		"model_name": doc.title,
-		"version": doc.version,
-		"is_active": doc.is_active
-	}
+	return {"name": doc.name, "model_name": doc.title, "version": doc.version, "is_active": doc.is_active}
 
 
 @frappe.whitelist()
@@ -104,10 +96,9 @@ def import_bpmn(
 		process_el = root.find("process")
 
 	if process_el is None:
-		frappe.throw(_(
-			"Invalid BPMN XML: no <bpmn:process> element found. "
-			"Please upload a valid BPMN 2.0 file."
-		))
+		frappe.throw(
+			_("Invalid BPMN XML: no <bpmn:process> element found. Please upload a valid BPMN 2.0 file.")
+		)
 
 	extracted_process_id = process_el.get("id")
 	if not extracted_process_id:
@@ -116,11 +107,7 @@ def import_bpmn(
 	effective_title = title or process_el.get("name") or extracted_process_id
 
 	# --- Upsert logic: match by process_id (unique field) ---
-	existing_name = frappe.db.get_value(
-		"BPMN Process Model",
-		{"process_id": extracted_process_id},
-		"name"
-	)
+	existing_name = frappe.db.get_value("BPMN Process Model", {"process_id": extracted_process_id}, "name")
 
 	if existing_name:
 		doc = frappe.get_doc("BPMN Process Model", existing_name)
@@ -198,7 +185,7 @@ def get_process_model(name: str) -> dict:
 		"is_active": doc.is_active,
 		"category": doc.category,
 		"modified": doc.modified,
-		"owner": doc.owner
+		"owner": doc.owner,
 	}
 
 
@@ -214,8 +201,19 @@ def list_process_models() -> list:
 	# and the process-id resolver never miss records beyond Frappe's default 20.
 	models = frappe.get_all(
 		"BPMN Process Model",
-		fields=["name", "title", "process_id", "description", "version", "is_active", "category", "modified", "owner", "process_name"],
-		order_by="modified desc"
+		fields=[
+			"name",
+			"title",
+			"process_id",
+			"description",
+			"version",
+			"is_active",
+			"category",
+			"modified",
+			"owner",
+			"process_name",
+		],
+		order_by="modified desc",
 	)
 
 	# Add model_name alias for frontend compat
@@ -262,15 +260,23 @@ def list_processes() -> list:
 	# Get all processes with their diagram counts
 	processes = frappe.get_list(
 		"Process",
-		fields=["name", "process_name", "process_owner", "process_owner_name", "business_analyst", "business_analyst_name", "description", "modified", "creation"],
-		order_by="modified desc"
+		fields=[
+			"name",
+			"process_name",
+			"process_owner",
+			"process_owner_name",
+			"business_analyst",
+			"business_analyst_name",
+			"description",
+			"modified",
+			"creation",
+		],
+		order_by="modified desc",
 	)
 
 	# Get diagram counts per process
 	diagram_counts = frappe.get_all(
-		"BPMN Process Model",
-		fields=["process_name", "count(*) as count"],
-		group_by="process_name"
+		"BPMN Process Model", fields=["process_name", "count(*) as count"], group_by="process_name"
 	)
 	count_map = {d["process_name"]: d["count"] for d in diagram_counts}
 
@@ -282,7 +288,7 @@ def list_processes() -> list:
 			"BPMN Process Model",
 			filters={"process_name": proc["name"], "is_active": 1},
 			fieldname=["name", "modified"],
-			as_dict=True
+			as_dict=True,
 		)
 
 		if active_model:
@@ -328,7 +334,7 @@ def get_process_diagrams(process: str) -> dict:
 		"BPMN Process Model",
 		filters={"process_name": process},
 		fields=["name", "title", "process_id", "description", "version", "is_active", "modified"],
-		order_by="is_active desc, modified desc"
+		order_by="is_active desc, modified desc",
 	)
 
 	# Add model_name alias for frontend compat
@@ -342,7 +348,7 @@ def get_process_diagrams(process: str) -> dict:
 		"process_owner": proc.process_owner,
 		"process_owner_name": proc.process_owner_name,
 		"description": proc.description,
-		"diagrams": diagrams
+		"diagrams": diagrams,
 	}
 
 
@@ -428,11 +434,9 @@ def rename_process_model(name: str, new_title: str) -> dict:
 			# If rename fails (e.g. duplicate), keep the existing name
 			frappe.log_error(
 				title="BPMN Process Model rename failed",
-				message=f"Could not rename '{doc.name}' to '{new_title}'"
+				message=f"Could not rename '{doc.name}' to '{new_title}'",
 			)
-			frappe.throw(
-				_("A process model with the name '{0}' already exists").format(new_title)
-			)
+			frappe.throw(_("A process model with the name '{0}' already exists").format(new_title))
 
 	return {
 		"name": new_name,
@@ -461,10 +465,7 @@ def get_assignee_docfields(doctype: str) -> list:
 	except frappe.DoesNotExistError:
 		return []
 
-	fields = meta.get("fields", {
-		"fieldtype": "Link",
-		"options": "User"
-	})
+	fields = meta.get("fields", {"fieldtype": "Link", "options": "User"})
 
 	return [{"fieldname": f.fieldname, "label": f.label} for f in fields]
 
@@ -508,8 +509,8 @@ def get_workflow_states_for_doctype(doctype: str) -> list:
 
 	return [
 		{
-			"state":      s.get("state", ""),
-			"style":      s.get("style", ""),
+			"state": s.get("state", ""),
+			"style": s.get("style", ""),
 			"doc_status": s.get("doc_status", ""),
 			"allow_edit": s.get("allow_edit", ""),
 		}
@@ -520,6 +521,7 @@ def get_workflow_states_for_doctype(doctype: str) -> list:
 # ============================================
 # Shape Library API
 # ============================================
+
 
 @frappe.whitelist()
 def get_shape_libraries() -> list:
@@ -532,7 +534,7 @@ def get_shape_libraries() -> list:
 	libraries = frappe.get_list(
 		"BPMN Shape Library",
 		fields=["name", "library_name", "description", "icon", "display_order"],
-		order_by="display_order asc"
+		order_by="display_order asc",
 	)
 
 	# Get shapes for each library
@@ -541,7 +543,7 @@ def get_shape_libraries() -> list:
 			"BPMN Custom Shape",
 			filters={"library": lib["name"]},
 			fields=["name", "shape_name", "shape_type", "svg_content", "display_order"],
-			order_by="display_order asc"
+			order_by="display_order asc",
 		)
 
 	return libraries
@@ -568,11 +570,10 @@ def create_shape_library(library_name: str, description: str = None, icon: str =
 		frappe.throw(_("Library '{0}' already exists").format(library_name))
 
 	# Get next display order
-	max_order = frappe.db.get_value(
-		"BPMN Shape Library",
-		fieldname="display_order",
-		order_by="display_order desc"
-	) or 0
+	max_order = (
+		frappe.db.get_value("BPMN Shape Library", fieldname="display_order", order_by="display_order desc")
+		or 0
+	)
 
 	doc = frappe.new_doc("BPMN Shape Library")
 	doc.library_name = library_name
@@ -585,7 +586,7 @@ def create_shape_library(library_name: str, description: str = None, icon: str =
 		"name": doc.name,
 		"library_name": doc.library_name,
 		"description": doc.description,
-		"icon": doc.icon
+		"icon": doc.icon,
 	}
 
 
@@ -617,12 +618,7 @@ def delete_shape_library(name: str) -> dict:
 
 
 @frappe.whitelist()
-def upload_shape(
-	library: str,
-	shape_name: str,
-	svg_content: str,
-	shape_type: str = "decorative"
-) -> dict:
+def upload_shape(library: str, shape_name: str, svg_content: str, shape_type: str = "decorative") -> dict:
 	"""
 	Upload a new custom shape.
 
@@ -647,12 +643,15 @@ def upload_shape(
 		frappe.throw(_("Shape type must be 'decorative' or 'bpmn_element'"))
 
 	# Get next display order within library
-	max_order = frappe.db.get_value(
-		"BPMN Custom Shape",
-		filters={"library": library},
-		fieldname="display_order",
-		order_by="display_order desc"
-	) or 0
+	max_order = (
+		frappe.db.get_value(
+			"BPMN Custom Shape",
+			filters={"library": library},
+			fieldname="display_order",
+			order_by="display_order desc",
+		)
+		or 0
+	)
 
 	doc = frappe.new_doc("BPMN Custom Shape")
 	doc.library = library
@@ -666,7 +665,7 @@ def upload_shape(
 		"name": doc.name,
 		"shape_name": doc.shape_name,
 		"library": doc.library,
-		"shape_type": doc.shape_type
+		"shape_type": doc.shape_type,
 	}
 
 
@@ -692,14 +691,16 @@ def delete_shape(name: str) -> dict:
 
 
 @frappe.whitelist()
-def list_process_instances(filters=None, limit_start=0, limit_page_length=20, order_by="creation desc") -> list:
+def list_process_instances(
+	filters=None, limit_start=0, limit_page_length=20, order_by="creation desc"
+) -> list:
 	"""
 	List BPMN process instances with their active tasks joined as 'current_step'.
 	"""
-	
+
 	if isinstance(filters, str):
 		filters = json.loads(filters)
-	
+
 	if isinstance(limit_start, str):
 		limit_start = int(limit_start)
 	if isinstance(limit_page_length, str):
@@ -707,31 +708,43 @@ def list_process_instances(filters=None, limit_start=0, limit_page_length=20, or
 
 	instances = frappe.get_list(
 		"BPMN Process Instance",
-		fields=["name", "process_model", "status", "context_doctype", "context_docname", "started_at", "initiated_by"],
+		fields=[
+			"name",
+			"process_model",
+			"status",
+			"context_doctype",
+			"context_docname",
+			"started_at",
+			"initiated_by",
+		],
 		filters=filters,
 		limit_start=limit_start,
 		limit_page_length=limit_page_length,
-		order_by=order_by
+		order_by=order_by,
 	)
 
 	if instances:
 		instance_names = [d.name for d in instances]
 		tasks = frappe.get_all(
 			"BPMN Active Task",
-			filters={"parent": ["in", instance_names], "parenttype": "BPMN Process Instance", "status": ["in", ["Waiting", ""]]},
-			fields=["parent", "task_name", "status"]
+			filters={
+				"parent": ["in", instance_names],
+				"parenttype": "BPMN Process Instance",
+				"status": ["in", ["Waiting", ""]],
+			},
+			fields=["parent", "task_name", "status"],
 		)
-		
+
 		from collections import defaultdict
+
 		task_map = defaultdict(list)
 		for t in tasks:
 			task_map[t.parent].append(t.task_name)
-			
+
 		for d in instances:
 			d.current_step = ", ".join(task_map.get(d.name, []))
 
 	return instances
-
 
 
 # ============================================
@@ -758,8 +771,7 @@ def create_server_script(
 	if not script_name or not script_type or not script:
 		frappe.throw(_("Script name, type, and content are required"))
 
-	if not frappe.has_permission("Server Script", "create") and \
-			"System Manager" not in frappe.get_roles():
+	if not frappe.has_permission("Server Script", "create") and "System Manager" not in frappe.get_roles():
 		frappe.throw(
 			_("You need the Script Manager or System Manager role to create Server Scripts."),
 			frappe.PermissionError,
@@ -878,8 +890,7 @@ def create_notification(
 	if not notification_name or not channel or not document_type:
 		frappe.throw(_("Notification name, channel, and document type are required"))
 
-	if not frappe.has_permission("Notification", "create") and \
-			"System Manager" not in frappe.get_roles():
+	if not frappe.has_permission("Notification", "create") and "System Manager" not in frappe.get_roles():
 		frappe.throw(
 			_("You need the System Manager role to create Notifications."),
 			frappe.PermissionError,
@@ -956,13 +967,16 @@ def create_notification(
 		for row in rows:
 			if not isinstance(row, dict):
 				frappe.throw("Each recipient entry must be an object.", frappe.ValidationError)
-			doc.append("recipients", {
-				"receiver_by_document_field": row.get("receiver_by_document_field", ""),
-				"receiver_by_role": row.get("receiver_by_role", ""),
-				"cc": row.get("cc", ""),
-				"bcc": row.get("bcc", ""),
-				"condition": row.get("condition", ""),
-			})
+			doc.append(
+				"recipients",
+				{
+					"receiver_by_document_field": row.get("receiver_by_document_field", ""),
+					"receiver_by_role": row.get("receiver_by_role", ""),
+					"cc": row.get("cc", ""),
+					"bcc": row.get("bcc", ""),
+					"condition": row.get("condition", ""),
+				},
+			)
 
 	# Elevate to bypass permission checks in the Notification controller.
 	# The role guard above already ensures only authorised users reach here.
@@ -1024,7 +1038,6 @@ def _is_local_dev_mode() -> bool:
 	return not (production_url and api_key and api_secret)
 
 
-
 @frappe.whitelist()
 def check_and_update_editor_lock(model_name: str) -> list[dict[str, str | None]]:
 	"""
@@ -1044,50 +1057,50 @@ def check_and_update_editor_lock(model_name: str) -> list[dict[str, str | None]]
 	doc.check_permission("read")
 	cache_key = f"bpmn_editor_lock:{model_name}"
 	active_editors = frappe.cache.get_value(cache_key) or {}
-	
+
 	import time
+
 	now = time.time()
-	
+
 	# Clean up expired heartbeats (> 45s) and identify others
 	other_editors = []
 	updated_editors = {}
-	
+
 	for user, timestamp in active_editors.items():
 		if now - timestamp < 45:
 			if user != current_user:
 				other_editors.append(user)
 				updated_editors[user] = timestamp
-	
+
 	# Add current user
 	updated_editors[current_user] = now
-	
+
 	# Save back to cache (60s TTL)
 	frappe.cache.set_value(cache_key, updated_editors, expires_in_sec=60)
-	
+
 	# Return detailed user info for other editors for better UX (avatars)
 	if other_editors:
-		return frappe.get_all("User", 
-			filters={"name": ["in", other_editors]}, 
-			fields=["name", "full_name", "user_image"]
+		return frappe.get_all(
+			"User", filters={"name": ["in", other_editors]}, fields=["name", "full_name", "user_image"]
 		)
-	
+
 	return []
 
 
 def _call_local_pathfinder_api(method_path: str, params: dict) -> dict:
-   """Call a pathfinder API method directly (same bench, no HTTP).
+	"""Call a pathfinder API method directly (same bench, no HTTP).
 
-   Used as a fallback in local dev when production credentials are not
-   configured.
-   """
-   import importlib
+	Used as a fallback in local dev when production credentials are not
+	configured.
+	"""
+	import importlib
 
-   # method_path looks like "one_fm.one_fm.doctype.pathfinder_log.pathfinder_api.is_process_editable"
-   module_path, func_name = method_path.rsplit(".", 1)
-   module = importlib.import_module(module_path)
-   func = getattr(module, func_name)
-   return func(**params)
-   
+	# method_path looks like "one_fm.one_fm.doctype.pathfinder_log.pathfinder_api.is_process_editable"
+	module_path, func_name = method_path.rsplit(".", 1)
+	module = importlib.import_module(module_path)
+	func = getattr(module, func_name)
+	return func(**params)
+
 
 def _call_production_api(method: str, params: dict) -> dict:
 	"""
@@ -1109,12 +1122,12 @@ def _call_production_api(method: str, params: dict) -> dict:
 	production_url = None
 	api_key = None
 	api_secret = None
- 
+
 	if settings.enabled:
 		production_url = (settings.production_url or "").rstrip("/")
 		api_key = settings.get_password("production_api_key")
 		api_secret = settings.get_password("production_api_secret")
- 
+
 	# Fallback to site_config.json if settings are disabled or incomplete
 	if not (production_url and api_key and api_secret):
 		production_url = (frappe.conf.get("production_url") or "").rstrip("/")
@@ -1122,11 +1135,13 @@ def _call_production_api(method: str, params: dict) -> dict:
 		api_secret = frappe.conf.get("production_api_secret")
 
 	if not production_url or not api_key or not api_secret:
-		frappe.throw(_(
-			"Production API credentials are not configured. "
-			"Please go to Processa Settings to configure the "
-			"Production URL, API Key, and API Secret."
-		))
+		frappe.throw(
+			_(
+				"Production API credentials are not configured. "
+				"Please go to Processa Settings to configure the "
+				"Production URL, API Key, and API Secret."
+			)
+		)
 
 	url = f"{production_url}/api/method/{method}"
 	headers = {
@@ -1146,7 +1161,7 @@ def _call_production_api(method: str, params: dict) -> dict:
 	except Exception as e:
 		frappe.log_error(
 			title="Production API call failed",
-			message=f"Method: {method}\nParams: {json.dumps(params)}\nError: {str(e)}"
+			message=f"Method: {method}\nParams: {json.dumps(params)}\nError: {str(e)}",
 		)
 		frappe.throw(_("Failed to check process editability. Please try again or contact support."))
 
@@ -1266,6 +1281,7 @@ def bulk_check_processes_editable(process_names: str) -> dict:
 # Diagram Version History (for visual diffing)
 # ============================================
 
+
 @frappe.whitelist()
 def get_diagram_versions(name: str) -> list:
 	"""
@@ -1302,20 +1318,20 @@ def get_diagram_versions(name: str) -> list:
 		# Only include versions where bpmn_xml was changed
 		try:
 			data = json_mod.loads(v.data)
-			has_xml_change = any(
-				change[0] == "bpmn_xml" for change in data.get("changed", [])
-			)
+			has_xml_change = any(change[0] == "bpmn_xml" for change in data.get("changed", []))
 			if not has_xml_change:
 				continue
 		except (json_mod.JSONDecodeError, KeyError, TypeError):
 			continue
 
-		result.append({
-			"version_name": v.name,
-			"user": frappe.utils.get_fullname(v.owner),
-			"user_email": v.owner,
-			"timestamp": v.creation,
-		})
+		result.append(
+			{
+				"version_name": v.name,
+				"user": frappe.utils.get_fullname(v.owner),
+				"user_email": v.owner,
+				"timestamp": v.creation,
+			}
+		)
 
 	return result
 
@@ -1348,9 +1364,7 @@ def get_diagram_version_xml(name: str, version_name: str) -> dict:
 	try:
 		data = json_mod.loads(version_doc.data)
 	except (json_mod.JSONDecodeError, TypeError):
-		frappe.throw(
-			_("Version data is corrupted or unavailable for '{0}'").format(version_name)
-		)
+		frappe.throw(_("Version data is corrupted or unavailable for '{0}'").format(version_name))
 
 	# Extract the bpmn_xml change — changed is [[fieldname, old_value, new_value], ...]
 	# change[2] = new value = the XML state AT this version point
@@ -1391,7 +1405,8 @@ def _sanitize_bpmn_xml(bpmn_xml: str) -> str:
 	"""
 	try:
 		from lxml import etree
-		BPMN   = "http://www.omg.org/spec/BPMN/20100524/MODEL"
+
+		BPMN = "http://www.omg.org/spec/BPMN/20100524/MODEL"
 		BPMNDI = "http://www.omg.org/spec/BPMN/20100524/DI"
 
 		root = etree.fromstring(bpmn_xml.strip().encode("utf-8"))
@@ -1407,7 +1422,8 @@ def _sanitize_bpmn_xml(bpmn_xml: str) -> str:
 		# 2. Strip orphaned <bpmn:flowNodeRef> entries inside lanes
 		for lane in root.iter(f"{{{BPMN}}}lane"):
 			to_remove = [
-				fnr for fnr in lane.findall(f"{{{BPMN}}}flowNodeRef")
+				fnr
+				for fnr in lane.findall(f"{{{BPMN}}}flowNodeRef")
 				if (fnr.text or "").strip() not in defined_ids
 			]
 			for fnr in to_remove:
@@ -1416,9 +1432,9 @@ def _sanitize_bpmn_xml(bpmn_xml: str) -> str:
 		# 3. Strip sequence flows whose source or target no longer exists
 		for process in root.iter(f"{{{BPMN}}}process"):
 			to_remove = [
-				sf for sf in process.findall(f"{{{BPMN}}}sequenceFlow")
-				if sf.get("sourceRef", "") not in defined_ids
-				or sf.get("targetRef", "") not in defined_ids
+				sf
+				for sf in process.findall(f"{{{BPMN}}}sequenceFlow")
+				if sf.get("sourceRef", "") not in defined_ids or sf.get("targetRef", "") not in defined_ids
 			]
 			for sf in to_remove:
 				process.remove(sf)
@@ -1426,31 +1442,26 @@ def _sanitize_bpmn_xml(bpmn_xml: str) -> str:
 		# 4. Strip associations whose source AND target are both gone
 		for collab in root.iter(f"{{{BPMN}}}collaboration"):
 			to_remove = [
-				a for a in collab.findall(f"{{{BPMN}}}association")
-				if a.get("sourceRef", "") not in defined_ids
-				and a.get("targetRef", "") not in defined_ids
+				a
+				for a in collab.findall(f"{{{BPMN}}}association")
+				if a.get("sourceRef", "") not in defined_ids and a.get("targetRef", "") not in defined_ids
 			]
 			for a in to_remove:
 				collab.remove(a)
 
 		# 5. Strip BPMNShape entries whose bpmnElement no longer exists
+		#    Only remove shapes for process-flow elements — not lane/participant
+		#    shapes which are legitimately defined outside <bpmn:process>.
 		for plane in root.iter(f"{{{BPMNDI}}}BPMNPlane"):
-			to_remove = [
-				shape for shape in plane.findall(f"{{{BPMNDI}}}BPMNShape")
-				if shape.get("bpmnElement", "") in
-				   # Only remove if the ref is a process-flow element (not participant/lane)
-				   (shape.get("bpmnElement", "")
-				    for _ in [None]   # generator trick — evaluated below
-				   )
-			]
-			# Simpler: remove shape if bpmnElement is not in defined_ids
-			# AND not a lane/participant (those are legitimately outside process)
 			lane_participant_ids = {
-				el.get("id") for el in root.iter()
-				if el.get("id") and el.tag.split("}")[-1] in ("lane", "participant", "laneSet", "collaboration")
+				el.get("id")
+				for el in root.iter()
+				if el.get("id")
+				and el.tag.split("}")[-1] in ("lane", "participant", "laneSet", "collaboration")
 			}
 			to_remove = [
-				shape for shape in plane.findall(f"{{{BPMNDI}}}BPMNShape")
+				shape
+				for shape in plane.findall(f"{{{BPMNDI}}}BPMNShape")
 				if shape.get("bpmnElement", "") not in defined_ids
 				and shape.get("bpmnElement", "") not in lane_participant_ids
 			]
@@ -1490,14 +1501,11 @@ def _extract_service_task_config(bpmn_xml: str) -> dict:
 	"""
 	import xml.etree.ElementTree as _ET
 
-	BPMN_NS  = "http://www.omg.org/spec/BPMN/20100524/MODEL"
+	BPMN_NS = "http://www.omg.org/spec/BPMN/20100524/MODEL"
 	SPIFF_NS = "http://spiffworkflow.org/bpmn/schema/1.0/core"
 
 	try:
-		root = _ET.fromstring(
-			bpmn_xml.strip().encode("utf-8")
-			if isinstance(bpmn_xml, str) else bpmn_xml
-		)
+		root = _ET.fromstring(bpmn_xml.strip().encode("utf-8") if isinstance(bpmn_xml, str) else bpmn_xml)
 	except Exception:
 		return {}
 
@@ -1510,7 +1518,7 @@ def _extract_service_task_config(bpmn_xml: str) -> dict:
 		task_cfg = {}
 		for attr_name, attr_value in service_task.attrib.items():
 			if attr_name.startswith(f"{{{SPIFF_NS}}}"):
-				key = attr_name[len(f"{{{SPIFF_NS}}}"):]
+				key = attr_name[len(f"{{{SPIFF_NS}}}") :]
 				task_cfg[key] = attr_value
 
 		if task_cfg:
@@ -1531,7 +1539,7 @@ def _extract_user_task_config(bpmn_xml: str) -> dict:
 
 	        {
 	            "Activity_1abc": {
-	                "assigneeMode":  "Round Robin",
+	                "assigneeMode": "Round Robin",
 	                "assigneeUsers": "admin@example.com,hr@example.com",
 	                "targetDoctype": "Employee",
 	            },
@@ -1539,14 +1547,11 @@ def _extract_user_task_config(bpmn_xml: str) -> dict:
 	"""
 	import xml.etree.ElementTree as _ET
 
-	BPMN_NS  = "http://www.omg.org/spec/BPMN/20100524/MODEL"
+	BPMN_NS = "http://www.omg.org/spec/BPMN/20100524/MODEL"
 	SPIFF_NS = "http://spiffworkflow.org/bpmn/schema/1.0/core"
 
 	try:
-		root = _ET.fromstring(
-			bpmn_xml.strip().encode("utf-8")
-			if isinstance(bpmn_xml, str) else bpmn_xml
-		)
+		root = _ET.fromstring(bpmn_xml.strip().encode("utf-8") if isinstance(bpmn_xml, str) else bpmn_xml)
 	except Exception:
 		return {}
 
@@ -1559,7 +1564,7 @@ def _extract_user_task_config(bpmn_xml: str) -> dict:
 		task_cfg = {}
 		for attr_name, attr_value in user_task.attrib.items():
 			if attr_name.startswith(f"{{{SPIFF_NS}}}"):
-				key = attr_name[len(f"{{{SPIFF_NS}}}"):]
+				key = attr_name[len(f"{{{SPIFF_NS}}}") :]
 				task_cfg[key] = attr_value
 
 		if task_cfg:
@@ -1590,10 +1595,7 @@ def _validate_timer_granularity(bpmn_xml: str) -> None:
 		return
 
 	try:
-		root = _ET.fromstring(
-			bpmn_xml.strip().encode("utf-8")
-			if isinstance(bpmn_xml, str) else bpmn_xml
-		)
+		root = _ET.fromstring(bpmn_xml.strip().encode("utf-8") if isinstance(bpmn_xml, str) else bpmn_xml)
 	except Exception:
 		return  # XML errors are caught elsewhere
 
@@ -1616,19 +1618,21 @@ def _validate_timer_granularity(bpmn_xml: str) -> None:
 			val = duration_el.text.strip()
 			# Match durations with only seconds: PT15S, PT30S, etc.
 			# Also match mixed with seconds: PT1M30S
-			if re.search(r'\d+S\s*$', val, re.IGNORECASE):
-				if not re.search(r'[DHMY]\d*M', val, re.IGNORECASE) and not re.search(r'\d+M\d+S', val, re.IGNORECASE):
+			if re.search(r"\d+S\s*$", val, re.IGNORECASE):
+				if not re.search(r"[DHMY]\d*M", val, re.IGNORECASE) and not re.search(
+					r"\d+M\d+S", val, re.IGNORECASE
+				):
 					# Pure seconds like PT15S
 					errors.append(
 						f'Timer "{label}": Duration "{val}" uses seconds. '
-						f'Minimum supported duration is 1 minute (PT1M).'
+						f"Minimum supported duration is 1 minute (PT1M)."
 					)
 				else:
 					# Mixed with seconds like PT1M30S — warn
 					errors.append(
 						f'Timer "{label}": Duration "{val}" includes a seconds component. '
-						f'Frappe scheduler runs at minute intervals — seconds will be ignored. '
-						f'Use whole minutes instead.'
+						f"Frappe scheduler runs at minute intervals — seconds will be ignored. "
+						f"Use whole minutes instead."
 					)
 
 		# Check timeCycle
@@ -1636,16 +1640,18 @@ def _validate_timer_granularity(bpmn_xml: str) -> None:
 		if cycle_el is not None and cycle_el.text:
 			val = cycle_el.text.strip()
 			# ISO 8601 repeating with seconds: R5/PT10S, R/PT30S
-			if re.search(r'/PT\d+S\s*$', val, re.IGNORECASE):
+			if re.search(r"/PT\d+S\s*$", val, re.IGNORECASE):
 				errors.append(
 					f'Timer "{label}": Cycle "{val}" uses second-level intervals. '
-					f'Minimum cycle interval is 1 minute. Use cron expressions or PT1M.'
+					f"Minimum cycle interval is 1 minute. Use cron expressions or PT1M."
 				)
 
 	if errors:
 		frappe.throw(
-			_("Timer validation failed — Frappe scheduler only supports minute-level precision:<br><br>"
-			  + "<br>".join(f"• {e}" for e in errors)),
+			_(
+				"Timer validation failed — Frappe scheduler only supports minute-level precision:<br><br>"
+				+ "<br>".join(f"• {e}" for e in errors)
+			),
 			title=_("Invalid Timer Configuration"),
 		)
 
@@ -1670,7 +1676,7 @@ def _populate_start_events(model, bpmn_xml: str) -> None:
 	"""
 	import xml.etree.ElementTree as _ET
 
-	BPMN_NS  = "http://www.omg.org/spec/BPMN/20100524/MODEL"
+	BPMN_NS = "http://www.omg.org/spec/BPMN/20100524/MODEL"
 	SPIFF_NS = "http://spiffworkflow.org/bpmn/schema/1.0/core"
 
 	# Clear existing rows
@@ -1681,10 +1687,7 @@ def _populate_start_events(model, bpmn_xml: str) -> None:
 		return
 
 	try:
-		root = _ET.fromstring(
-			bpmn_xml.strip().encode("utf-8")
-			if isinstance(bpmn_xml, str) else bpmn_xml
-		)
+		root = _ET.fromstring(bpmn_xml.strip().encode("utf-8") if isinstance(bpmn_xml, str) else bpmn_xml)
 	except Exception:
 		frappe.log_error(
 			title="BPMN: Failed to parse XML for start events",
@@ -1698,9 +1701,9 @@ def _populate_start_events(model, bpmn_xml: str) -> None:
 
 		# ── Detect event type from child definition elements ───────────
 		event_type = "None"
-		cron_expr  = ""
+		cron_expr = ""
 
-		cond_def  = start_event.find(f"{{{BPMN_NS}}}conditionalEventDefinition")
+		cond_def = start_event.find(f"{{{BPMN_NS}}}conditionalEventDefinition")
 		timer_def = start_event.find(f"{{{BPMN_NS}}}timerEventDefinition")
 		signal_def = start_event.find(f"{{{BPMN_NS}}}signalEventDefinition")
 
@@ -1731,14 +1734,17 @@ def _populate_start_events(model, bpmn_xml: str) -> None:
 		# ── Map model-level trigger_event for display ──────────────────
 		trigger_event = model.trigger_event or ""
 
-		model.append("start_events", {
-			"event_type":               event_type,
-			"bpmn_element_id":          bpmn_id,
-			"trigger_doctype":          trigger_doctype or (model.trigger_doctype or ""),
-			"trigger_event":            trigger_event,
-			"workflow_state_condition":  workflow_state,
-			"cron_expression":          cron_expr or (model.cron_expression or ""),
-		})
+		model.append(
+			"start_events",
+			{
+				"event_type": event_type,
+				"bpmn_element_id": bpmn_id,
+				"trigger_doctype": trigger_doctype or (model.trigger_doctype or ""),
+				"trigger_event": trigger_event,
+				"workflow_state_condition": workflow_state,
+				"cron_expression": cron_expr or (model.cron_expression or ""),
+			},
+		)
 
 	model.save(ignore_permissions=True)
 
@@ -1754,7 +1760,7 @@ def _update_round_robin_in_model(model_name: str, task_bpmn_id: str, last_user: 
 	"""
 	import xml.etree.ElementTree as _ET
 
-	BPMN_NS  = "http://www.omg.org/spec/BPMN/20100524/MODEL"
+	BPMN_NS = "http://www.omg.org/spec/BPMN/20100524/MODEL"
 	SPIFF_NS = "http://spiffworkflow.org/bpmn/schema/1.0/core"
 
 	try:
@@ -1776,9 +1782,7 @@ def _update_round_robin_in_model(model_name: str, task_bpmn_id: str, last_user: 
 					if el.get("id") == task_bpmn_id:
 						el.set(attr_key, last_user)
 						break
-				model.bpmn_xml = _ET.tostring(
-					root, encoding="unicode", xml_declaration=False
-				)
+				model.bpmn_xml = _ET.tostring(root, encoding="unicode", xml_declaration=False)
 			except Exception:
 				pass  # XML patch failure is non-fatal — state field is the truth
 
@@ -1797,7 +1801,7 @@ def _ensure_script_task_inline_scripts(bpmn_xml: str) -> str:
 
 	SpiffWorkflow's parser asserts exactly one ``<bpmn:script>`` element per
 	Script Task.  When a designer uses ONLY the Server Script picker (our
-	custom behaviour) and does not write any inline script, bpmn-js omits the	
+	custom behaviour) and does not write any inline script, bpmn-js omits the
 	``<bpmn:script>`` tag entirely.  Without this function the compile step
 	would fail with:
 
@@ -1812,10 +1816,10 @@ def _ensure_script_task_inline_scripts(bpmn_xml: str) -> str:
 
 	try:
 		# Register namespace to avoid ns0 prefix noise in output
-		_ET.register_namespace("bpmn",  BPMN_NS)
+		_ET.register_namespace("bpmn", BPMN_NS)
 		_ET.register_namespace("bpmndi", "http://www.omg.org/spec/BPMN/20100524/DI")
-		_ET.register_namespace("dc",     "http://www.omg.org/spec/DD/20100524/DC")
-		_ET.register_namespace("di",     "http://www.omg.org/spec/DD/20100524/DI")
+		_ET.register_namespace("dc", "http://www.omg.org/spec/DD/20100524/DC")
+		_ET.register_namespace("di", "http://www.omg.org/spec/DD/20100524/DI")
 		_ET.register_namespace("spiffworkflow", "http://spiffworkflow.org/bpmn/schema/1.0/core")
 
 		encoded = bpmn_xml.strip().encode("utf-8")
@@ -1850,7 +1854,6 @@ def _ensure_script_task_inline_scripts(bpmn_xml: str) -> str:
 
 @frappe.whitelist()
 def compile_process_model(model_name: str) -> dict:
-
 	"""
 	Parse the BPMN XML in a Process Model and store the compiled spec.
 
@@ -1879,13 +1882,11 @@ def compile_process_model(model_name: str) -> dict:
 	# time, while the BPMN diagram itself uses a different id (e.g. 'Process_1').
 	# SpiffWorkflow will fail if the two don't match, so we re-sync here.
 	import xml.etree.ElementTree as _ET
+
 	_bpmn_ns = "http://www.omg.org/spec/BPMN/20100524/MODEL"
 	try:
 		_root = _ET.fromstring(model.bpmn_xml.strip().encode("utf-8"))
-		_process_el = (
-			_root.find(f"{{{_bpmn_ns}}}process")
-			or _root.find("process")
-		)
+		_process_el = _root.find(f"{{{_bpmn_ns}}}process") or _root.find("process")
 		if _process_el is not None:
 			xml_process_id = _process_el.get("id", "").strip()
 			if xml_process_id and xml_process_id != model.process_id:
@@ -1895,7 +1896,9 @@ def compile_process_model(model_name: str) -> dict:
 		pass  # XML parse errors will surface properly in parse_bpmn() below
 
 	if not model.process_id:
-		frappe.throw(_("No process_id found in the BPMN XML for '{0}'. Save the diagram first.").format(model_name))
+		frappe.throw(
+			_("No process_id found in the BPMN XML for '{0}'. Save the diagram first.").format(model_name)
+		)
 
 	from one_bpmn.one_bpmn import engine as bpmn_engine
 
@@ -2002,15 +2005,15 @@ def _extract_script_task_config(bpmn_xml: str) -> dict:
 	import keyword as _kw
 	import xml.etree.ElementTree as _ET
 
-	BPMN_NS  = 'http://www.omg.org/spec/BPMN/20100524/MODEL'
-	SPIFF_NS = 'http://spiffworkflow.org/bpmn/schema/1.0/core'
+	BPMN_NS = "http://www.omg.org/spec/BPMN/20100524/MODEL"
+	SPIFF_NS = "http://spiffworkflow.org/bpmn/schema/1.0/core"
 
 	def _looks_like_python(text: str) -> bool:
 		"""Return True if the text is likely inline Python (not a record name)."""
 		if not text:
 			return False
 		# Heuristics: contains Python-ish characters or keywords
-		py_chars = ('=', '(', ')', '{', '}', ':', '\n', '.', 'import', 'def ', 'class ', 'return')
+		py_chars = ("=", "(", ")", "{", "}", ":", "\n", ".", "import", "def ", "class ", "return")
 		lower = text.strip().lower()
 		if any(c in lower for c in py_chars):
 			return True
@@ -2020,32 +2023,31 @@ def _extract_script_task_config(bpmn_xml: str) -> dict:
 		return False
 
 	try:
-		root = _ET.fromstring(bpmn_xml.strip().encode('utf-8'))
+		root = _ET.fromstring(bpmn_xml.strip().encode("utf-8"))
 	except Exception:
 		return {}
 
 	extensions = {}
-	for elem in root.iter(f'{{{BPMN_NS}}}scriptTask'):
-		bpmn_id = elem.get('id', '')
+	for elem in root.iter(f"{{{BPMN_NS}}}scriptTask"):
+		bpmn_id = elem.get("id", "")
 		if not bpmn_id:
 			continue
 
 		# ── Primary: spiffworkflow:serverScript attribute ──────────────────────
-		server_script = elem.get(f'{{{SPIFF_NS}}}serverScript', '').strip()
+		server_script = elem.get(f"{{{SPIFF_NS}}}serverScript", "").strip()
 
 		# ── Fallback: inline <bpmn:script> content that is a record name ──────
 		if not server_script:
-			script_elem = elem.find(f'{{{BPMN_NS}}}script')
+			script_elem = elem.find(f"{{{BPMN_NS}}}script")
 			if script_elem is not None and script_elem.text:
 				inline = script_elem.text.strip()
 				if inline and not _looks_like_python(inline):
 					server_script = inline  # treat as Server Script name
 
 		if server_script:
-			extensions[bpmn_id] = {'serverScript': server_script}
+			extensions[bpmn_id] = {"serverScript": server_script}
 
 	return extensions
-
 
 
 def _apply_docstatus_directly(doc, target_state: str, doc_status_hint: str) -> None:
@@ -2067,10 +2069,10 @@ def _apply_docstatus_directly(doc, target_state: str, doc_status_hint: str) -> N
 	state_field = None
 	if target_state:
 		meta = frappe.get_meta(doc.doctype)
-		if meta.has_field('workflow_state'):
-			state_field = 'workflow_state'
-		elif meta.has_field('status'):
-			state_field = 'status'
+		if meta.has_field("workflow_state"):
+			state_field = "workflow_state"
+		elif meta.has_field("status"):
+			state_field = "status"
 
 	# Set the state field
 	if state_field and target_state:
@@ -2148,9 +2150,7 @@ def _apply_bpmn_workflow_state(
 		user_roles = frappe.get_roles(actor)
 		if only_allow_role not in user_roles and actor != "Administrator":
 			frappe.throw(
-				_("Only users with the role '{0}' can perform this workflow action.").format(
-					only_allow_role
-				),
+				_("Only users with the role '{0}' can perform this workflow action.").format(only_allow_role),
 				frappe.PermissionError,
 			)
 
@@ -2178,14 +2178,10 @@ def _apply_bpmn_workflow_state(
 		return
 
 	# ── 4. State validation ───────────────────────────────────────────────────
-	next_state_row = next(
-		(s for s in workflow.states if s.state == target_state), None
-	)
+	next_state_row = next((s for s in workflow.states if s.state == target_state), None)
 	if not next_state_row:
 		frappe.throw(
-			_("Workflow state '{0}' not found in Workflow '{1}'.").format(
-				target_state, workflow.name
-			)
+			_("Workflow state '{0}' not found in Workflow '{1}'.").format(target_state, workflow.name)
 		)
 
 	# ── 5. Transition lookup ──────────────────────────────────────────────────
@@ -2200,10 +2196,9 @@ def _apply_bpmn_workflow_state(
 	# we cannot move there.
 	if transition is None and current_state != target_state:
 		frappe.throw(
-			_(
-				"No valid Workflow transition from '{0}' to '{1}' "
-				"exists in Workflow '{2}'."
-			).format(current_state, target_state, workflow.name),
+			_("No valid Workflow transition from '{0}' to '{1}' exists in Workflow '{2}'.").format(
+				current_state, target_state, workflow.name
+			),
 			frappe.ValidationError,
 		)
 
@@ -2248,7 +2243,6 @@ def _apply_bpmn_workflow_state(
 
 	# ── 8. Workflow comment (same as Frappe's apply_workflow) ─────────────────
 	doc.add_comment("Workflow", _(target_state))
-
 
 
 @frappe.whitelist()
@@ -2356,27 +2350,23 @@ def complete_task(
 	if not active_row:
 		frappe.throw(_("Task '{0}' not found in the active tasks of this instance.").format(task_id))
 
-	if active_row.status != 'Waiting':
+	if active_row.status != "Waiting":
 		frappe.throw(_("Task '{0}' is not in Waiting status.").format(active_row.task_name or task_id))
-
-
 
 	current_user = frappe.session.user
 
 	# ── 1. USER ASSIGNMENT CHECK ─────────────────────────────────────────────
 	# Same as Frappe's "allow_edit" on workflow states — only the assigned
 	# user (or Administrator) can complete the task.
-	assigned_user = active_row.assigned_user or ''
-	assigned_role = active_row.assigned_role or ''
+	assigned_user = active_row.assigned_user or ""
+	assigned_role = active_row.assigned_role or ""
 
-	if assigned_user and assigned_user != current_user and current_user != 'Administrator':
+	if assigned_user and assigned_user != current_user and current_user != "Administrator":
 		# Also allow the document owner (they initiated the process)
 		is_doc_owner = False
 		if instance.context_doctype and instance.context_docname:
-			doc_owner = frappe.db.get_value(
-				instance.context_doctype, instance.context_docname, 'owner'
-			)
-			is_doc_owner = (doc_owner == current_user)
+			doc_owner = frappe.db.get_value(instance.context_doctype, instance.context_docname, "owner")
+			is_doc_owner = doc_owner == current_user
 
 		if not is_doc_owner:
 			frappe.throw(
@@ -2386,7 +2376,7 @@ def complete_task(
 				frappe.PermissionError,
 			)
 
-	if assigned_role and current_user != 'Administrator':
+	if assigned_role and current_user != "Administrator":
 		user_roles = frappe.get_roles(current_user)
 		if assigned_role not in user_roles:
 			frappe.throw(
@@ -2397,15 +2387,20 @@ def complete_task(
 	# ── 2. ACTION VALIDATION ─────────────────────────────────────────────────
 	# Same as Frappe's workflow transition validation — the submitted action
 	# must be one of the allowed actions configured on the User Task.
-	submitted_action = parsed_data.get('action', '')
-	allowed_actions_str = active_row.task_actions or ''
-	allowed_actions = [a.strip() for a in allowed_actions_str.split(',') if a.strip()]
+	submitted_action = parsed_data.get("action", "")
+	allowed_actions_str = active_row.task_actions or ""
+	allowed_actions = [a.strip() for a in allowed_actions_str.split(",") if a.strip()]
 
-	if allowed_actions and submitted_action:
+	if allowed_actions:
+		if not submitted_action:
+			frappe.throw(
+				_("An action is required. Valid actions: {0}").format(", ".join(allowed_actions)),
+				frappe.ValidationError,
+			)
 		if submitted_action not in allowed_actions:
 			frappe.throw(
 				_("Action '{0}' is not allowed. Valid actions: {1}").format(
-					submitted_action, ', '.join(allowed_actions)
+					submitted_action, ", ".join(allowed_actions)
 				),
 				frappe.ValidationError,
 			)
@@ -2414,7 +2409,7 @@ def complete_task(
 	# Same as Frappe's doc.check_permission("write") before workflow action.
 	if instance.context_doctype and instance.context_docname:
 		if not frappe.has_permission(
-			instance.context_doctype, 'write', instance.context_docname, user=current_user
+			instance.context_doctype, "write", instance.context_docname, user=current_user
 		):
 			frappe.throw(
 				_("You do not have write permission on {0} {1}.").format(
@@ -2426,21 +2421,21 @@ def complete_task(
 	# ── Frappe Workflow Action (if configured) ───────────────────────────────
 	# If the task is configured with taskActionMode = "frappe_workflow", we
 	# must apply the Frappe workflow transition BEFORE advancing the BPMN task.
-	task_action_mode = getattr(active_row, 'task_action_mode', '') or ''
+	task_action_mode = getattr(active_row, "task_action_mode", "") or ""
 
-	if task_action_mode == 'frappe_workflow' and parsed_data.get('decision'):
+	if task_action_mode == "frappe_workflow" and parsed_data.get("action"):
 		try:
-			instance._apply_frappe_workflow_action(parsed_data['decision'])
+			instance._apply_frappe_workflow_action(parsed_data["action"])
 		except frappe.ValidationError:
 			raise
 		except Exception as exc:
 			frappe.log_error(
-				title='BPMN: Apply Frappe Workflow Action failed',
+				title="BPMN: Apply Frappe Workflow Action failed",
 				message=frappe.get_traceback(),
 			)
-			frappe.throw(_('Failed to apply workflow action "{0}": {1}').format(
-				parsed_data['decision'], str(exc)
-			))
+			frappe.throw(
+				_('Failed to apply workflow action "{0}": {1}').format(parsed_data["action"], str(exc))
+			)
 
 	try:
 		active_tasks = instance.advance(task_id=task_id, data=parsed_data)
@@ -2458,10 +2453,12 @@ def complete_task(
 	# 1. Notify the Process Instance page (Processa frontend) — broadcast
 	#    to all users since anyone viewing the instance detail should refresh.
 	frappe.publish_realtime(
-		'bpmn_instance_updated',
+		"bpmn_instance_updated",
 		{
-			'instance_name': instance_name,
-			'status': instance.status,
+			"instance_name": instance_name,
+			"status": instance.status,
+			"context_doctype": instance.context_doctype or "",
+			"context_docname": instance.context_docname or "",
 		},
 		after_commit=True,
 	)
@@ -2471,11 +2468,11 @@ def complete_task(
 	#    framework already listens for when a form is open.
 	if instance.context_doctype and instance.context_docname:
 		frappe.publish_realtime(
-			'doc_update',
+			"doc_update",
 			{
-				'modified': str(frappe.utils.now_datetime()),
-				'doctype': instance.context_doctype,
-				'name': instance.context_docname,
+				"modified": str(frappe.utils.now_datetime()),
+				"doctype": instance.context_doctype,
+				"name": instance.context_docname,
 			},
 			doctype=instance.context_doctype,
 			docname=instance.context_docname,
@@ -2507,15 +2504,15 @@ def get_instance_tasks(instance_name: str) -> dict:
 	instance.check_permission("read")
 
 	return {
-		"instance":        instance_name,
-		"status":          instance.status,
-		"process_model":   instance.process_model,
+		"instance": instance_name,
+		"status": instance.status,
+		"process_model": instance.process_model,
 		"context_doctype": instance.context_doctype,
 		"context_docname": instance.context_docname,
-		"initiated_by":    instance.initiated_by,
-		"started_at":      str(instance.started_at) if instance.started_at else None,
-		"completed_at":    str(instance.completed_at) if instance.completed_at else None,
-		"active_tasks":    instance.get_active_tasks_summary(),
+		"initiated_by": instance.initiated_by,
+		"started_at": str(instance.started_at) if instance.started_at else None,
+		"completed_at": str(instance.completed_at) if instance.completed_at else None,
+		"active_tasks": instance.get_active_tasks_summary(),
 	}
 
 
@@ -2539,8 +2536,12 @@ def get_instances_for_document(doctype: str, docname: str) -> list:
 		"BPMN Process Instance",
 		filters={"context_doctype": doctype, "context_docname": docname},
 		fields=[
-			"name", "process_model", "status",
-			"initiated_by", "started_at", "completed_at",
+			"name",
+			"process_model",
+			"status",
+			"initiated_by",
+			"started_at",
+			"completed_at",
 		],
 		order_by="creation desc",
 	)
@@ -2565,6 +2566,7 @@ def get_instances_for_document(doctype: str, docname: str) -> list:
 # BPMN Form Actions API — used by the global bpmn_form_actions.js injector
 # ============================================================================
 
+
 @frappe.whitelist()
 def get_active_bpmn_tasks(doctype: str, docname: str) -> list:
 	"""
@@ -2587,13 +2589,13 @@ def get_active_bpmn_tasks(doctype: str, docname: str) -> list:
 		return []
 
 	instance_names = frappe.get_all(
-		'BPMN Process Instance',
+		"BPMN Process Instance",
 		filters={
-			'context_doctype': doctype,
-			'context_docname': docname,
-			'status': 'Active',
+			"context_doctype": doctype,
+			"context_docname": docname,
+			"status": "Active",
 		},
-		pluck='name',
+		pluck="name",
 	)
 
 	if not instance_names:
@@ -2603,27 +2605,29 @@ def get_active_bpmn_tasks(doctype: str, docname: str) -> list:
 
 	for instance_name in instance_names:
 		try:
-			instance = frappe.get_doc('BPMN Process Instance', instance_name)
+			instance = frappe.get_doc("BPMN Process Instance", instance_name)
 
 			for row in instance.active_tasks:
-				if row.status != 'Waiting':
+				if row.status != "Waiting":
 					continue
 
 				# Resolve actions — handles both manual and frappe_workflow modes
 				actions_str = instance._resolve_task_actions(row)
 
-				result.append({
-					'instance_name': instance_name,
-					'task_id':       row.task_id,
-					'task_name':     row.task_name or '',
-					'task_actions':  actions_str,
-					'assigned_user': row.assigned_user or '',
-					'assigned_role': row.assigned_role or '',
-				})
+				result.append(
+					{
+						"instance_name": instance_name,
+						"task_id": row.task_id,
+						"task_name": row.task_name or "",
+						"task_actions": actions_str,
+						"assigned_user": row.assigned_user or "",
+						"assigned_role": row.assigned_role or "",
+					}
+				)
 
 		except Exception:
 			frappe.log_error(
-				title=f'get_active_bpmn_tasks failed for instance {instance_name}',
+				title=f"get_active_bpmn_tasks failed for instance {instance_name}",
 				message=frappe.get_traceback(),
 			)
 
@@ -2634,6 +2638,7 @@ def get_active_bpmn_tasks(doctype: str, docname: str) -> list:
 # Processa Canvas Comment API
 # ============================================================================
 
+
 @frappe.whitelist()
 def get_canvas_comments(model_name: str) -> list:
 	"""
@@ -2641,43 +2646,62 @@ def get_canvas_comments(model_name: str) -> list:
 	"""
 	if not model_name:
 		return []
-		
-	return frappe.get_list("Processa Comment",
+
+	return frappe.get_list(
+		"Processa Comment",
 		filters={"model": model_name},
-		fields=["name", "model", "element_id", "comment", "assigned_to", "status", "author", "is_task", "creation"],
-		order_by="creation desc"
+		fields=[
+			"name",
+			"model",
+			"element_id",
+			"comment",
+			"assigned_to",
+			"status",
+			"author",
+			"is_task",
+			"creation",
+		],
+		order_by="creation desc",
 	)
 
+
 @frappe.whitelist()
-def post_canvas_comment(model_name: str, element_id: str, comment: str, assigned_to: str = None, is_task: int = 0) -> dict:
+def post_canvas_comment(
+	model_name: str, element_id: str, comment: str, assigned_to: str = None, is_task: int = 0
+) -> dict:
 	"""
 	Create a new comment on the BPMN canvas.
 	"""
 	if not model_name or not comment:
 		frappe.throw(_("Model name and comment are required"))
 
-	doc = frappe.get_doc({
-		"doctype": "Processa Comment",
-		"model": model_name,
-		"element_id": element_id,
-		"comment": comment,
-		"assigned_to": assigned_to,
-		"is_task": is_task,
-		"status": "Open"
-	})
+	doc = frappe.get_doc(
+		{
+			"doctype": "Processa Comment",
+			"model": model_name,
+			"element_id": element_id,
+			"comment": comment,
+			"assigned_to": assigned_to,
+			"is_task": is_task,
+			"status": "Open",
+		}
+	)
 	doc.insert(ignore_permissions=True)
-	
+
 	# If assigned to someone, create a ToDo (optional, depends on if 'actionable' means standard Frappe ToDo)
 	if is_task and assigned_to:
-		frappe.get_doc({
-			"doctype": "ToDo",
-			"allocated_to": assigned_to,
-			"description": _("BPMN Task for {0}: {1}").format(model_name, comment),
-			"reference_type": "Processa Comment",
-			"reference_name": doc.name
-		}).insert(ignore_permissions=True)
+		frappe.get_doc(
+			{
+				"doctype": "ToDo",
+				"allocated_to": assigned_to,
+				"description": _("BPMN Task for {0}: {1}").format(model_name, comment),
+				"reference_type": "Processa Comment",
+				"reference_name": doc.name,
+			}
+		).insert(ignore_permissions=True)
 
 	return doc.as_dict()
+
 
 @frappe.whitelist()
 def update_comment_status(name: str, status: str) -> dict:
@@ -2708,6 +2732,8 @@ def update_comment_status(name: str, status: str) -> dict:
 	# (Logic omitted for brevity unless explicitly requested)
 
 	return doc.as_dict()
+
+
 @frappe.whitelist()
 def get_users_by_role(role: str) -> list:
 	"""
@@ -2715,22 +2741,20 @@ def get_users_by_role(role: str) -> list:
 	"""
 	if not role:
 		return []
-		
+
 	# Get users who have the specified role
-	user_list = frappe.get_all("Has Role", 
-		filters={"role": role}, 
-		fields=["parent as name"]
-	)
-	
+	user_list = frappe.get_all("Has Role", filters={"role": role}, fields=["parent as name"])
+
 	user_names = list(set([u.name for u in user_list]))
-	
+
 	if not user_names:
 		return []
-		
-	return frappe.get_list("User",
+
+	return frappe.get_list(
+		"User",
 		filters={"name": ["in", user_names], "enabled": 1, "user_type": "System User"},
 		fields=["name", "full_name"],
-		order_by="full_name asc"
+		order_by="full_name asc",
 	)
 
 
@@ -2754,16 +2778,11 @@ def get_system_users(query: str = "", limit: int = 20) -> list:
 
 	page_length = max(1, min(page_length, 50))
 
-	return frappe.get_list("User",
-		filters={
-			"enabled": 1,
-			"user_type": "System User",
-			"full_name": ["like", f"%{normalized_query}%"]
-		},
-		or_filters={
-			"name": ["like", f"%{normalized_query}%"]
-		},
+	return frappe.get_list(
+		"User",
+		filters={"enabled": 1, "user_type": "System User", "full_name": ["like", f"%{normalized_query}%"]},
+		or_filters={"name": ["like", f"%{normalized_query}%"]},
 		fields=["name", "full_name"],
 		order_by="full_name asc",
-		limit_page_length=page_length
+		limit_page_length=page_length,
 	)

@@ -14,7 +14,8 @@
  *   - id          {string}
  *   - label       {string}
  *   - value       {string}
- *   - onChange     {function(string)}
+ *   - onChange     {function(string, object=)}  — called with (value) on input,
+ *                                                  or (value, option) on selection
  *   - fetchApi     {function(string): Promise<Array>}  — preferred
  *   - valueField   {string}   — key in option objects (default "name")
  *   - renderOption  {function(object): string}  — display renderer

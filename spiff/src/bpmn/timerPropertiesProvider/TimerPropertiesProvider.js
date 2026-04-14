@@ -87,21 +87,20 @@ function validateNoSeconds(type, value) {
   const v = value.trim();
 
   if (type === 'timeDuration') {
-    // ISO 8601 duration with seconds: PT15S, PT1M30S, etc.
-    if (/\d+S\s*$/i.test(v) && !/\d+M/i.test(v)) {
-      // Pure seconds like PT15S or PT30S
+    // Pure seconds only: PT15S, PT30S — no other time components
+    if (/^P(T\d+S)$/i.test(v)) {
       return `"${v}" uses seconds. Minimum supported duration is 1 minute (PT1M). Frappe scheduler only runs at minute intervals.`;
     }
+    // Any duration that ends with seconds component: PT1M30S, PT1H30S, P1DT30S
     if (/\d+S\s*$/i.test(v)) {
-      // Has seconds component like PT1M30S
-      return `"${v}" includes seconds which will be ignored. Use whole minutes instead (e.g. PT2M).`;
+      return `"${v}" includes a seconds component which will be ignored. Use whole minutes instead (e.g. PT2M).`;
     }
   }
 
   if (type === 'timeCycle') {
     // ISO 8601 repeating with seconds: R5/PT10S, R/PT30S
     if (/\/PT\d+S\s*$/i.test(v)) {
-      return `"${v}" uses second-level intervals. Minimum cycle interval is 1 minute. Use PT1M or a cron expression.`;
+      return `"${v}" uses second-level intervals. Minimum cycle interval is 1 minute. Use cron expressions or PT1M.`;
     }
   }
 
@@ -140,42 +139,36 @@ function TimerTypeDescription(props) {
   if (!info) return null;
 
   const validationError = validateNoSeconds(selectedType, currentValue);
-  const codeStyle = 'font-family: monospace; font-size: 11px; background: #e0f2fe; padding: 1px 4px; border-radius: 3px; color: #0c4a6e;';
 
   return h('div', {
-    class: 'bio-properties-panel-entry',
-    'data-entry-id': 'timer-type-description',
-    style: 'padding: 0 10px 6px 10px;'
+    class: 'bio-properties-panel-entry bpmn-timer-description-entry',
   }, [
     // Validation error banner
     validationError ? h('div', {
-      style: 'background: #fef2f2; border: 1px solid #fca5a5; border-radius: 5px; padding: 10px; margin-bottom: 8px; font-size: 12px; color: #991b1b; display: flex; align-items: flex-start; gap: 6px;'
+      class: 'bpmn-timer-validation-error',
     }, [
-      h('span', { style: 'flex-shrink: 0; font-size: 14px;' }, '❌'),
-      h('span', { style: 'font-weight: 500;' }, validationError),
+      h('span', { class: 'bpmn-timer-validation-icon' }, '❌'),
+      h('span', { class: 'bpmn-timer-validation-text' }, validationError),
     ]) : null,
 
     // Description card
-    h('div', {
-      style: 'background: #f0f9ff; border: 1px solid #bae6fd; border-radius: 5px; padding: 10px; font-size: 12px; line-height: 1.5;'
-    }, [
-      h('div', { style: 'font-weight: 600; color: #0369a1; margin-bottom: 4px; font-size: 12px;' },
+    h('div', { class: 'bpmn-timer-info-card' }, [
+      h('div', { class: 'bpmn-timer-info-title' },
         `${info.icon} ${info.title}`
       ),
-      h('div', { style: 'color: #334155; margin-bottom: 6px;' }, info.desc),
-      h('div', { style: 'color: #475569;' },
+      h('div', { class: 'bpmn-timer-info-desc' }, info.desc),
+      h('div', { class: 'bpmn-timer-info-examples' },
         info.examples.map(ex =>
-          h('div', { style: 'margin-bottom: 3px;', key: ex.code }, [
-            h('code', { style: codeStyle }, ex.code),
-            h('span', { style: 'color: #64748b; margin-left: 6px;' }, `— ${ex.label}`),
+          h('div', { class: 'bpmn-timer-info-example', key: ex.code }, [
+            h('code', { class: 'bpmn-timer-info-code' }, ex.code),
+            h('span', { class: 'bpmn-timer-info-label' }, `— ${ex.label}`),
           ])
         )
       ),
-      h('div', {
-        style: 'margin-top: 8px; padding-top: 6px; border-top: 1px solid #bae6fd; color: #b45309; font-size: 11px; display: flex; align-items: flex-start; gap: 4px;'
-      }, [
-        h('span', { style: 'flex-shrink: 0;' }, '⚠️'),
-        h('span', {}, info.note),
+      // Frappe scheduler note
+      h('div', { class: 'bpmn-timer-info-note' }, [
+        h('span', { class: 'bpmn-timer-info-note-icon' }, '⚠️'),
+        h('span', null, info.note),
       ]),
     ])
   ]);

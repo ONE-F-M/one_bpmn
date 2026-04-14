@@ -565,12 +565,10 @@ function applyHighlights() {
 		//   1 = FUTURE, 2 = LIKELY, 4 = MAYBE, 8 = WAITING,
 		//   16 = READY, 32 = STARTED, 64 = COMPLETED, 128 = ERROR
 		let bpmnIdFromUuid = {};   // uuid → bpmn_id
-		let stateFromBpmnId = {};  // bpmn_id → state code
 		let completedBpmnIds = new Set();
 		let activeBpmnIds = new Set();
 
 		if (details.value && details.value.workflow_state) {
-			console.log('[BPMN Highlights] workflow_state present, type:', typeof details.value.workflow_state);
 			try {
 				const wfState = typeof details.value.workflow_state === 'string'
 					? JSON.parse(details.value.workflow_state)
@@ -583,12 +581,6 @@ function applyHighlights() {
 
 					bpmnIdFromUuid[uuid] = taskSpec;
 					const state = taskData.state || 0;
-
-					// Track the highest state for each bpmn_id
-					// (a task_spec can appear multiple times due to loops)
-					if (!stateFromBpmnId[taskSpec] || state > stateFromBpmnId[taskSpec]) {
-						stateFromBpmnId[taskSpec] = state;
-					}
 
 					if (state === 64) completedBpmnIds.add(taskSpec);
 					else if (state === 16 || state === 32 || state === 8) activeBpmnIds.add(taskSpec);
@@ -616,20 +608,6 @@ function applyHighlights() {
 		// Remove active from completed set (can't be both)
 		activeBpmnIds.forEach(id => completedBpmnIds.delete(id));
 
-		console.log('[BPMN Highlights] completed:', [...completedBpmnIds]);
-		console.log('[BPMN Highlights] active:', [...activeBpmnIds]);
-
-		// Check if elementRegistry can find these IDs
-		if (elementRegistry) {
-			completedBpmnIds.forEach(bpmnId => {
-				const el = elementRegistry.get(bpmnId);
-				console.log(`[BPMN Highlights] elementRegistry.get('${bpmnId}'):`, el ? 'FOUND' : 'NOT FOUND');
-			});
-			activeBpmnIds.forEach(bpmnId => {
-				const el = elementRegistry.get(bpmnId);
-				console.log(`[BPMN Highlights] elementRegistry.get('${bpmnId}'):`, el ? 'FOUND' : 'NOT FOUND');
-			});
-		}
 
 		// ── Apply markers to BPMN elements ──────────────────────────────────
 		completedBpmnIds.forEach(bpmnId => {
@@ -782,8 +760,8 @@ function getActionButtonClass(action) {
 }
 
 /**
- * Complete a User Task, submitting the chosen action label as the "decision"
- * workflow variable.  Gateway conditions can then check: decision == "Approve"
+ * Complete a User Task, submitting the chosen action label as the "action"
+ * workflow variable.  Gateway conditions can then check: action == "Approve"
  */
 async function completeTask(task, action) {
 	if (completingTask.value) return   // prevent double-click during loading

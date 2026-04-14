@@ -83,12 +83,11 @@ frappe.provide('one_bpmn');
 
 	async function load_bpmn_actions(frm) {
 		if (!frm || frm.is_new()) {
-			console.log('[one_bpmn] Skipping — frm is new or null');
 			return;
 		}
 		if (BPMN_INTERNAL_DOCTYPES.has(frm.doctype)) return;
 
-		console.log('[one_bpmn] load_bpmn_actions called for:', frm.doctype, frm.docname);
+
 
 		// Always clear previously injected items first
 		_clear_bpmn_actions(frm);
@@ -104,7 +103,6 @@ frappe.provide('one_bpmn');
 			});
 
 			const tasks = (response && response.message) ? response.message : [];
-			console.log('[one_bpmn] API returned tasks:', tasks.length, tasks);
 
 			if (!tasks || tasks.length === 0) {
 				// No BPMN process — unmark and let native buttons work
@@ -180,7 +178,6 @@ frappe.provide('one_bpmn');
 			});
 
 			if (injected > 0) {
-				console.log('[one_bpmn] Injected', injected, 'BPMN actions, showing menu');
 				frm.page.show_actions_menu();
 			} else if (pending_assignee) {
 				frm.dashboard.add_comment(
@@ -302,11 +299,9 @@ frappe.provide('one_bpmn');
 	// Primary hook — uses Frappe's own form event system on ALL doctypes
 	frappe.ui.form.on('*', {
 		refresh: function (frm) {
-			console.log('[one_bpmn] form refresh fired for:', frm.doctype, frm.docname);
 			load_bpmn_actions(frm);
 		},
 		onload: function (frm) {
-			console.log('[one_bpmn] form onload fired for:', frm.doctype, frm.docname);
 			load_bpmn_actions(frm);
 		}
 	});
@@ -324,19 +319,22 @@ frappe.provide('one_bpmn');
 
 	// ── Realtime listener: auto-refresh the Frappe form when a BPMN task
 	//    completes (from Processa Instance or another user's action) ──────
+	//    Only reload if the event is for the currently open document.
 	if (frappe.realtime) {
 		frappe.realtime.on('bpmn_instance_updated', function (data) {
-			console.log('[one_bpmn] Realtime bpmn_instance_updated received:', data);
-			if (cur_frm && !cur_frm.is_new()) {
-				cur_frm.reload_doc();
+			if (!cur_frm || cur_frm.is_new()) return;
+			// Only reload if this event is for the current form's document
+			if (data.context_doctype && data.context_docname) {
+				if (data.context_doctype !== cur_frm.doctype || data.context_docname !== cur_frm.docname) {
+					return;
+				}
 			}
+			cur_frm.reload_doc();
 		});
 	}
 
 	/* Expose for debugging in the browser console */
 	one_bpmn.load_form_actions = load_bpmn_actions;
 	one_bpmn.bpmn_controlled_forms = _bpmn_controlled_forms;
-
-	console.log('[one_bpmn] BPMN form actions injector loaded (prototype override) ✓');
 
 })();
