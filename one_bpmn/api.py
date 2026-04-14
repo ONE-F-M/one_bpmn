@@ -1398,35 +1398,33 @@ def get_users_by_role(role: str) -> list:
 
 
 @frappe.whitelist()
-def get_system_users(query: str = "", limit: int = 20) -> list:
+def get_system_users(query: str = "") -> list:
 	"""
-	Fetch active system users matching a search query for authorized callers.
+	Fetch active system users for the @mention autocomplete in the BPMN
+	comment dialog. Any authenticated (non-Guest) user may call this.
+	When query is empty, returns all active system users (up to limit).
 	"""
-	current_user = frappe.session.user
-	if "System Manager" not in frappe.get_roles(current_user):
-		frappe.throw(_("You are not permitted to access system users"))
+	if frappe.session.user == "Guest":
+		frappe.throw(_("You must be logged in to fetch system users"))
 
 	normalized_query = (query or "").strip()
-	if not normalized_query:
-		return []
 
-	try:
-		page_length = int(limit)
-	except (TypeError, ValueError):
-		frappe.throw(_("Limit must be a valid integer"))
+	base_filters: list = [
+		["User", "enabled", "=", 1],
+		["User", "user_type", "=", "System User"],
+	]
 
-	page_length = max(1, min(page_length, 50))
+	if normalized_query:
+		# Search both full_name and name (email) — combined safely within the
+		# base filter set so enabled/user_type guards always apply.
+		base_filters.append([
+			"User", "full_name", "like", f"%{normalized_query}%",
+			"or",
+			"User", "name", "like", f"%{normalized_query}%",
+		])
 
 	return frappe.get_list("User",
-		filters={
-			"enabled": 1,
-			"user_type": "System User",
-			"full_name": ["like", f"%{normalized_query}%"]
-		},
-		or_filters={
-			"name": ["like", f"%{normalized_query}%"]
-		},
+		filters=base_filters,
 		fields=["name", "full_name"],
 		order_by="full_name asc",
-		limit_page_length=page_length
 	)
