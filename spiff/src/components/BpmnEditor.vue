@@ -895,6 +895,11 @@ onMounted(async () => {
 			emit("zoom-changed", newZoom);
 		});
 
+		// Ensure comments are rendered after any diagram import finishes
+		eventBus.on("import.done", () => {
+			renderComments();
+		});
+
 		// --- SpiffWorkflow EventBus Integration ---
 		// These handlers are required for the spiffworkflow properties panel
 		// "Launch Editor" buttons and data-request dropdowns to function.
@@ -1306,13 +1311,25 @@ function renderComments() {
 			showViewCommentsDialog.value = true;
 		};
 
-		overlays.add(elementId, "processa-comment", {
-			position: {
-				bottom: 0,
-				right: 0
-			},
-			html: html
-		});
+		const elementRegistry = modeler.get("elementRegistry");
+		const targetElement = elementRegistry.get(elementId);
+		
+		if (!targetElement) {
+			console.warn(`Element ${elementId} not found in registry, skipping comment overlay`);
+			return;
+		}
+
+		try {
+			overlays.add(elementId, "processa-comment", {
+				position: {
+					bottom: 0,
+					right: 0
+				},
+				html: html
+			});
+		} catch (err) {
+			console.error(`Failed to add overlay for element ${elementId}:`, err);
+		}
 	});
 }
 
@@ -1390,6 +1407,7 @@ async function loadXML(xml) {
 		const decodedXml = decodeHtmlEntities(xml);
 		await modeler.importXML(decodedXml);
 		updateUndoRedoState();
+		renderComments();
 		// Fit diagram to screen by default after loading, safely catching zero-dimension errors
 		setTimeout(() => {
 			try {
