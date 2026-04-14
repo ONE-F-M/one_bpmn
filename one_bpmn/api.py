@@ -1568,6 +1568,88 @@ def _extract_user_task_config(bpmn_xml: str) -> dict:
 	return config
 
 
+def _validate_timer_granularity(bpmn_xml: str) -> None:
+	"""
+	Validate that no timer event uses second-level precision.
+
+	Frappe's scheduler runs at minute intervals only — values like
+	``PT15S`` (15 seconds) or ``R5/PT10S`` (every 10 seconds, 5 times)
+	will never fire correctly. This validation rejects such values at
+	deploy time with a clear error message.
+
+	Checks all ``<bpmn:timerEventDefinition>`` elements in the XML:
+	  - ``<bpmn:timeDuration>`` values ending with digits + 'S' (e.g. PT15S)
+	  - ``<bpmn:timeCycle>`` values with second-level ISO intervals (e.g. R5/PT10S)
+	"""
+	import re
+	import xml.etree.ElementTree as _ET
+
+	BPMN_NS = "http://www.omg.org/spec/BPMN/20100524/MODEL"
+
+	if not bpmn_xml or not bpmn_xml.strip():
+		return
+
+	try:
+		root = _ET.fromstring(
+			bpmn_xml.strip().encode("utf-8")
+			if isinstance(bpmn_xml, str) else bpmn_xml
+		)
+	except Exception:
+		return  # XML errors are caught elsewhere
+
+	errors = []
+
+	for timer_def in root.iter(f"{{{BPMN_NS}}}timerEventDefinition"):
+		# Find the parent element name for a better error message
+		parent = None
+		for elem in root.iter():
+			if timer_def in list(elem):
+				parent = elem
+				break
+		parent_id = parent.get("id", "unknown") if parent is not None else "unknown"
+		parent_name = parent.get("name", "") if parent is not None else ""
+		label = parent_name or parent_id
+
+		# Check timeDuration
+		duration_el = timer_def.find(f"{{{BPMN_NS}}}timeDuration")
+		if duration_el is not None and duration_el.text:
+			val = duration_el.text.strip()
+			# Match durations with only seconds: PT15S, PT30S, etc.
+			# Also match mixed with seconds: PT1M30S
+			if re.search(r'\d+S\s*$', val, re.IGNORECASE):
+				if not re.search(r'[DHMY]\d*M', val, re.IGNORECASE) and not re.search(r'\d+M\d+S', val, re.IGNORECASE):
+					# Pure seconds like PT15S
+					errors.append(
+						f'Timer "{label}": Duration "{val}" uses seconds. '
+						f'Minimum supported duration is 1 minute (PT1M).'
+					)
+				else:
+					# Mixed with seconds like PT1M30S — warn
+					errors.append(
+						f'Timer "{label}": Duration "{val}" includes a seconds component. '
+						f'Frappe scheduler runs at minute intervals — seconds will be ignored. '
+						f'Use whole minutes instead.'
+					)
+
+		# Check timeCycle
+		cycle_el = timer_def.find(f"{{{BPMN_NS}}}timeCycle")
+		if cycle_el is not None and cycle_el.text:
+			val = cycle_el.text.strip()
+			# ISO 8601 repeating with seconds: R5/PT10S, R/PT30S
+			if re.search(r'/PT\d+S\s*$', val, re.IGNORECASE):
+				errors.append(
+					f'Timer "{label}": Cycle "{val}" uses second-level intervals. '
+					f'Minimum cycle interval is 1 minute. Use cron expressions or PT1M.'
+				)
+
+	if errors:
+		frappe.throw(
+			_("Timer validation failed — Frappe scheduler only supports minute-level precision:<br><br>"
+			  + "<br>".join(f"• {e}" for e in errors)),
+			title=_("Invalid Timer Configuration"),
+		)
+
+
 def _populate_start_events(model, bpmn_xml: str) -> None:
 	"""
 	Parse the BPMN XML and populate the ``start_events`` child table on the
@@ -1874,6 +1956,11 @@ def compile_process_model(model_name: str) -> dict:
 		spec_data["user_task_extensions"] = user_extensions
 		model.serialized_spec = json.dumps(spec_data)
 		model.save(ignore_permissions=True)
+
+	# ── Validate timer events (enforce minute-level granularity) ──────────────
+	# Frappe scheduler only runs at minute intervals — reject any timer value
+	# that uses seconds (e.g. PT15S, R5/PT10S).
+	_validate_timer_granularity(sanitized_xml)
 
 	# ── Extract and populate Start Events child table ─────────────────────────
 	# Parse all <bpmn:startEvent> elements from the XML and capture their type

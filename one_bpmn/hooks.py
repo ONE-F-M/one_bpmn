@@ -172,24 +172,18 @@ doc_events = {
 
 # Scheduled Tasks
 # ---------------
+# BPMN Timer events run every minute:
+# - Timer Start Events: check cron expressions, start new instances
+# - Timer Catch Events: resume waiting instances whose timers elapsed
 
-# scheduler_events = {
-# 	"all": [
-# 		"one_bpmn.tasks.all"
-# 	],
-# 	"daily": [
-# 		"one_bpmn.tasks.daily"
-# 	],
-# 	"hourly": [
-# 		"one_bpmn.tasks.hourly"
-# 	],
-# 	"weekly": [
-# 		"one_bpmn.tasks.weekly"
-# 	],
-# 	"monthly": [
-# 		"one_bpmn.tasks.monthly"
-# 	],
-# }
+scheduler_events = {
+	"cron": {
+		"* * * * *": [
+			"one_bpmn.tasks.process_timer_start_events",
+			"one_bpmn.tasks.process_timer_catch_events",
+		]
+	}
+}
 
 # Testing
 # -------

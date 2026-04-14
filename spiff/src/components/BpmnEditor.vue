@@ -532,8 +532,7 @@ onMounted(async () => {
 					name: "TimerEventDefinitionExtension",
 					extends: ["bpmn:TimerEventDefinition"],
 					properties: [
-						{ name: "schedulerFrequency", isAttr: true, type: "String" },
-						{ name: "cronExpression",       isAttr: true, type: "String" }
+						{ name: "cronExpression", isAttr: true, type: "String" }
 					]
 				});
 			}
