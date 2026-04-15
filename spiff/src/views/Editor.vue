@@ -1488,35 +1488,44 @@ async function handleDeleteTab(tab) {
 	if (!isEditable.value) return;
 	if (!confirm(`Are you sure you want to delete "${tab.model_name}"? This action cannot be undone.`)) return;
 
+	// ── Optimistic: remove from UI immediately ───────────────────────
+	const tabIndex = openTabs.value.findIndex(t => t.name === tab.name);
+	const diagramIndex = diagrams.value.findIndex(d => d.name === tab.name);
+	const removedTab = tabIndex > -1 ? openTabs.value.splice(tabIndex, 1)[0] : null;
+	const removedDiagram = diagramIndex > -1 ? diagrams.value.splice(diagramIndex, 1)[0] : null;
+	delete diagramDataCache.value[tab.name];
+
+	// Switch active tab if the deleted tab was active
+	const wasActive = activeDiagramName.value === tab.name;
+	if (wasActive) {
+		// Clear unsaved state so selectDiagram doesn't try to save the deleted diagram
+		clearTimeout(saveTimeout);
+		hasPendingSave = false;
+		hasUnsavedChanges.value = false;
+		saveState.value = "idle";
+
+		if (openTabs.value.length > 0) {
+			selectDiagram(openTabs.value[Math.min(tabIndex, openTabs.value.length - 1)].name);
+		} else if (diagrams.value.length > 0) {
+			selectDiagram(diagrams.value[0].name);
+		} else {
+			activeDiagramName.value = null;
+			router.replace({ name: "ProcessEditor", params: { process: props.process } });
+		}
+	}
+
+	// ── Server call (no loadProcess round-trip) ──────────────────────
 	try {
 		await frappeRequest({
 			url: "/api/method/one_bpmn.api.delete_diagram",
 			params: { name: tab.name },
 		});
-
-		delete diagramDataCache.value[tab.name];
-		await loadProcess();
-		
-		// If the deleted tab was active, or if it was in open tabs, handle it
-		const tabIndex = openTabs.value.findIndex(t => t.name === tab.name);
-		if (tabIndex > -1) {
-			openTabs.value.splice(tabIndex, 1);
-		}
-
-		if (activeDiagramName.value === tab.name) {
-			if (openTabs.value.length > 0) {
-				selectDiagram(openTabs.value[0].name);
-			} else if (diagrams.value.length > 0) {
-				selectDiagram(diagrams.value[0].name);
-			} else {
-				activeDiagramName.value = null;
-				await router.replace({ name: "ProcessEditor", params: { process: props.process } });
-			}
-		}
-
 		showNotification("Deleted", `Diagram "${tab.model_name}" has been deleted`, "green");
 	} catch (error) {
+		// ── Rollback on failure ─────────────────────────────────────
 		console.error("Deletion failed:", error);
+		if (removedDiagram) diagrams.value.splice(diagramIndex, 0, removedDiagram);
+		if (removedTab) openTabs.value.splice(tabIndex, 0, removedTab);
 		showNotification("Error", "Failed to delete diagram: " + (error.message || error), "red");
 	}
 }
@@ -1558,7 +1567,6 @@ function applyTabDiagramFields(matchName, fields) {
 
 async function renameProcessModel({ tabName, oldModelName, newModelName }) {
 	if (!isEditable.value) return; // Guard: process is locked
-	// --- Review #1: Flush pending autosave before renaming ---
 	// Cancel the debounce timer so autosave can't fire with a stale model_name.
 	clearTimeout(saveTimeout);
 	hasPendingSave = false;
@@ -1567,6 +1575,9 @@ async function renameProcessModel({ tabName, oldModelName, newModelName }) {
 	if (hasUnsavedChanges.value && activeDiagramName.value === tabName && editorRef.value) {
 		await saveCurrentDiagram();
 	}
+
+	// ── Optimistic: show new name immediately ────────────────────────
+	applyTabDiagramFields(tabName, { model_name: newModelName, title: newModelName });
 
 	try {
 		const response = await frappeRequest({
@@ -1581,7 +1592,7 @@ async function renameProcessModel({ tabName, oldModelName, newModelName }) {
 		const newName = result.name;
 		const actualModelName = result.model_name;
 
-		// Transfer cached XML to new key
+		// Transfer cached XML to new key (name changes because autoname = field:title)
 		if (diagramDataCache.value[tabName]) {
 			diagramDataCache.value[newName] = diagramDataCache.value[tabName];
 			if (newName !== tabName) {
@@ -1589,7 +1600,7 @@ async function renameProcessModel({ tabName, oldModelName, newModelName }) {
 			}
 		}
 
-		// Apply name + display fields after API success (avoids autosave race)
+		// Confirm server-side name + display fields
 		applyTabDiagramFields(tabName, {
 			name: newName,
 			model_name: actualModelName,
@@ -1607,7 +1618,9 @@ async function renameProcessModel({ tabName, oldModelName, newModelName }) {
 
 		showNotification("Renamed", `Diagram renamed to "${actualModelName}"`, "green");
 	} catch (error) {
+		// ── Rollback on failure ─────────────────────────────────────
 		console.error("Failed to rename process model:", error);
+		applyTabDiagramFields(tabName, { model_name: oldModelName, title: oldModelName });
 		showNotification(
 			"Rename Failed",
 			error.message || error._server_messages || "An error occurred while renaming.",
