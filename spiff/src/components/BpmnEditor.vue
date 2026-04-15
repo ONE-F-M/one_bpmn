@@ -734,6 +734,64 @@ onMounted(async () => {
 			const eventBus = modeler.get("eventBus");
 
 
+			const linting = modeler.get("linting");
+			if (linting) {
+				const originalFormatIssues = linting._formatIssues;
+				linting._formatIssues = function (issues) {
+					let formattedIssues = originalFormatIssues.call(this, issues);
+					const canvas = modeler.get("canvas");
+					const rootElement = canvas.getRootElement();
+
+					// Helper to collect all element IDs strictly contained within the given moddle object
+					const getModdleDescendants = (bo, descendants = new Set(), visited = new Set()) => {
+						if (!bo || typeof bo !== "object") return descendants;
+						if (visited.has(bo)) return descendants;
+						visited.add(bo);
+
+						if (bo.id) descendants.add(bo.id);
+
+						const containmentKeys = [
+							"flowElements", "laneSets", "artifacts", "eventDefinitions",
+							"participants", "messageFlows", "processRef", "rootElements"
+						];
+
+						for (const key of containmentKeys) {
+							const val = bo[key];
+							if (Array.isArray(val)) {
+								val.forEach(child => getModdleDescendants(child, descendants, visited));
+							} else if (val && typeof val === "object") {
+								getModdleDescendants(val, descendants, visited);
+							}
+						}
+						return descendants;
+					};
+
+					const validIds = getModdleDescendants(rootElement.businessObject);
+
+					for (const elementId in formattedIssues) {
+						const issueGroup = formattedIssues[elementId];
+						// Filter reports to ensure their actual element is a descendant
+						const filteredGroup = issueGroup.filter(report => {
+							const actualId = report.actualElementId || report.id;
+							return validIds.has(actualId);
+						});
+
+						if (filteredGroup.length === 0) {
+							delete formattedIssues[elementId];
+						} else {
+							formattedIssues[elementId] = filteredGroup;
+						}
+					}
+
+					return formattedIssues;
+				};
+
+				// Rerun linting when drilling down/up so the panel stays relevant to current plane
+				eventBus.on("root.set", () => {
+					linting.update();
+				});
+			}
+
 			// Clear custom trigger attributes if a StartEvent is converted into something else
 			// (e.g. Timer Start Event) so they don't persist in the XML.
 			// Use modeling.updateModdleProperties so the operation is tracked by the command
@@ -835,6 +893,11 @@ onMounted(async () => {
 			const newZoom = Math.round(canvas.zoom() * 100);
 			zoomLevel.value = newZoom;
 			emit("zoom-changed", newZoom);
+		});
+
+		// Ensure comments are rendered after any diagram import finishes
+		eventBus.on("import.done", () => {
+			renderComments();
 		});
 
 		// --- SpiffWorkflow EventBus Integration ---
@@ -1248,13 +1311,25 @@ function renderComments() {
 			showViewCommentsDialog.value = true;
 		};
 
-		overlays.add(elementId, "processa-comment", {
-			position: {
-				bottom: 0,
-				right: 0
-			},
-			html: html
-		});
+		const elementRegistry = modeler.get("elementRegistry");
+		const targetElement = elementRegistry.get(elementId);
+		
+		if (!targetElement) {
+			console.warn(`Element ${elementId} not found in registry, skipping comment overlay`);
+			return;
+		}
+
+		try {
+			overlays.add(elementId, "processa-comment", {
+				position: {
+					bottom: 0,
+					right: 0
+				},
+				html: html
+			});
+		} catch (err) {
+			console.error(`Failed to add overlay for element ${elementId}:`, err);
+		}
 	});
 }
 
@@ -1332,6 +1407,7 @@ async function loadXML(xml) {
 		const decodedXml = decodeHtmlEntities(xml);
 		await modeler.importXML(decodedXml);
 		updateUndoRedoState();
+		renderComments();
 		// Fit diagram to screen by default after loading, safely catching zero-dimension errors
 		setTimeout(() => {
 			try {
