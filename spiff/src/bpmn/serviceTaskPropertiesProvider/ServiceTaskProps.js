@@ -109,9 +109,22 @@ export function ServiceTaskProps(props) {
 	if (serviceType === "update_field") {
 		entries.push(
 			{ id: "spiffworkflow-updateFieldDoctype",  element, component: UpdateFieldDoctypeComponent },
-			{ id: "spiffworkflow-updateFieldName",     element, component: UpdateFieldNameComponent },
-			{ id: "spiffworkflow-updateFieldValue",    element, component: UpdateFieldValueComponent },
+			{ id: "spiffworkflow-updateFieldRows",     element, component: UpdateFieldRowsComponent },
 		);
+	}
+
+	// ── Google Chat entries ────────────────────────────────────────────────
+	if (serviceType === "google_chat") {
+		entries.push(
+			{ id: "spiffworkflow-gchatType",    element, component: GchatTypeComponent },
+		);
+		const gchatType = getAttr(bo, "gchatType");
+		if (gchatType === "individual") {
+			entries.push({ id: "spiffworkflow-gchatEmail",   element, component: GchatEmailComponent });
+		} else if (gchatType === "space") {
+			entries.push({ id: "spiffworkflow-gchatSpaceId", element, component: GchatSpaceIdComponent });
+		}
+		entries.push({ id: "spiffworkflow-gchatMessage", element, component: GchatMessageComponent });
 	}
 
 	return entries;
@@ -150,8 +163,14 @@ function ServiceTypeComponent(props) {
 			"spiffworkflow:emailBody":            undefined,
 			// Clear update_field attrs
 			"spiffworkflow:updateFieldDoctype":   undefined,
+			"spiffworkflow:updateFieldRows":      undefined,
 			"spiffworkflow:updateFieldName":      undefined,
 			"spiffworkflow:updateFieldValue":     undefined,
+			// Clear google_chat attrs
+			"spiffworkflow:gchatType":            undefined,
+			"spiffworkflow:gchatEmail":           undefined,
+			"spiffworkflow:gchatSpaceId":         undefined,
+			"spiffworkflow:gchatMessage":         undefined,
 		};
 		modeling.updateModdleProperties(element, bo, patch);
 	};
@@ -163,6 +182,7 @@ function ServiceTypeComponent(props) {
 		{ label: translate("Apply Workflow"),            value: "apply_workflow" },
 		{ label: translate("Email Notification"),        value: "send_email" },
 		{ label: translate("Update Field"),              value: "update_field" },
+		{ label: translate("Google Chat"),               value: "google_chat" },
 	];
 
 	return h(SelectEntry, {
@@ -622,6 +642,7 @@ function EmailToDocFieldsComponent(props) {
 		valueField: "fieldname",
 		renderOption: (opt) => `${opt.label || opt.fieldname} (${opt.fieldname})`,
 		placeholder: translate("Select fields that contain email addresses"),
+		itemLabel: "field",
 	});
 }
 
@@ -650,6 +671,7 @@ function EmailToRolesComponent(props) {
 		valueField: "name",
 		renderOption: (opt) => opt.name,
 		placeholder: translate("Select roles — all users in these roles will receive the email"),
+		itemLabel: "role",
 	});
 }
 
@@ -822,3 +844,185 @@ function UpdateFieldValueComponent(props) {
 	});
 }
 
+
+// ===========================================================================
+// UPDATE FIELD ROWS COMPONENT
+// ===========================================================================
+
+// ── UFR: Multi-row field editor ───────────────────────────────────────────
+function UpdateFieldRowsComponent(props) {
+	const { element, id } = props;
+	const modeling  = useService("modeling");
+	const translate = useService("translate");
+	const bo        = getBusinessObject(element);
+	const doctype   = getAttr(bo, "updateFieldDoctype");
+
+	// Parse stored JSON rows (or migrate legacy single-field)
+	let rows = [];
+	const stored = getAttr(bo, "updateFieldRows");
+	if (stored) {
+		try { rows = JSON.parse(stored); } catch(e) { rows = []; }
+	} else {
+		const legacyField = getAttr(bo, "updateFieldName");
+		const legacyValue = getAttr(bo, "updateFieldValue");
+		if (legacyField) rows = [{ field: legacyField, value: legacyValue }];
+	}
+
+	const save = (newRows) => {
+		modeling.updateModdleProperties(element, bo, {
+			"spiffworkflow:updateFieldRows": newRows.length ? JSON.stringify(newRows) : undefined,
+			"spiffworkflow:updateFieldName":  undefined,
+			"spiffworkflow:updateFieldValue": undefined,
+		});
+	};
+
+	const addRow    = ()        => save([...rows, { field: "", value: "" }]);
+	const removeRow = (idx)     => save(rows.filter((_, i) => i !== idx));
+	const setField  = (idx, v)  => { const r = [...rows]; r[idx] = { ...r[idx], field: v  }; save(r); };
+	const setValue  = (idx, v)  => { const r = [...rows]; r[idx] = { ...r[idx], value: v  }; save(r); };
+
+	const fetchFields = (txt) => {
+		if (!doctype) return Promise.resolve({ data: [] });
+		const filters = [
+			["parent", "=", doctype],
+			["parenttype", "=", "DocType"],
+			["fieldtype", "not in", ["Section Break", "Column Break", "Tab Break", "Table"]],
+		];
+		if (txt) filters.push(["fieldname", "like", `%${txt}%`]);
+		return frappeGet("/api/resource/DocField", {
+			fields: '["fieldname","label","fieldtype"]',
+			filters: JSON.stringify(filters),
+			limit_page_length: 100,
+			order_by: "idx asc",
+		});
+	};
+
+	return h(
+		"div",
+		{ class: "bio-properties-panel-entry", "data-entry-id": id },
+		[
+			h("label", { class: "bio-properties-panel-label" }, translate("Field Updates")),
+			h(
+				"div",
+				{ class: "bpmn-field-rows" },
+				[
+					...rows.map((row, idx) =>
+						h("div", { key: idx, class: "bpmn-field-row" }, [
+							h(FrappeAutocomplete, {
+								id: `${id}-field-${idx}`,
+								label: "",
+								value: row.field,
+								onChange: (v) => setField(idx, v),
+								fetchApi: fetchFields,
+								valueField: "fieldname",
+								renderOption: (opt) => `${opt.label || opt.fieldname} (${opt.fieldname})`,
+								placeholder: translate("Field name"),
+							}),
+							h("input", {
+								type: "text",
+								class: "bio-properties-panel-input bpmn-field-row-value",
+								value: row.value,
+								placeholder: translate("Value or {{ doc.field }}"),
+								onInput: (e) => setValue(idx, e.target.value),
+							}),
+							h("button", {
+								type: "button",
+								class: "bpmn-tag-remove",
+								title: translate("Remove row"),
+								onClick: () => removeRow(idx),
+							}, "×"),
+						])
+					),
+					h("button", {
+						type: "button",
+						class: "bpmn-add-row-btn",
+						onClick: addRow,
+					}, `+ ${translate("Add Field")}`),
+				]
+			),
+			h("div", { class: "bio-properties-panel-description" },
+				translate("Each row sets one field. Supports Jinja2 in values.")
+			),
+		]
+	);
+}
+
+// ===========================================================================
+// GOOGLE CHAT COMPONENTS
+// ===========================================================================
+
+function GchatTypeComponent(props) {
+	const { element, id } = props;
+	const modeling  = useService("modeling");
+	const translate = useService("translate");
+	const bo        = getBusinessObject(element);
+
+	const getValue  = () => getAttr(bo, "gchatType");
+	const setValue  = (v) => modeling.updateModdleProperties(element, bo, {
+		"spiffworkflow:gchatType":    v || undefined,
+		"spiffworkflow:gchatEmail":   undefined,
+		"spiffworkflow:gchatSpaceId": undefined,
+	});
+	const getOptions = () => [
+		{ label: translate("-- Select --"),  value: "" },
+		{ label: translate("Individual (DM)"), value: "individual" },
+		{ label: translate("Space"),           value: "space" },
+	];
+
+	return h(SelectEntry, { element, id, label: translate("Destination Type"), getValue, setValue, getOptions });
+}
+
+function GchatEmailComponent(props) {
+	const { element, id } = props;
+	const modeling  = useService("modeling");
+	const translate = useService("translate");
+	const bo        = getBusinessObject(element);
+
+	return h(TextEntry, {
+		id,
+		label: translate("Recipient Email"),
+		value: getAttr(bo, "gchatEmail"),
+		onInput: (e) => modeling.updateModdleProperties(element, bo, {
+			"spiffworkflow:gchatEmail": e.target.value || undefined,
+		}),
+		placeholder: translate("e.g. john.doe@example.com"),
+		hint: translate("Google Workspace email of the DM recipient."),
+	});
+}
+
+function GchatSpaceIdComponent(props) {
+	const { element, id } = props;
+	const modeling  = useService("modeling");
+	const translate = useService("translate");
+	const bo        = getBusinessObject(element);
+
+	return h(TextEntry, {
+		id,
+		label: translate("Space ID"),
+		value: getAttr(bo, "gchatSpaceId"),
+		onInput: (e) => modeling.updateModdleProperties(element, bo, {
+			"spiffworkflow:gchatSpaceId": e.target.value || undefined,
+		}),
+		placeholder: translate("e.g. spaces/AAABBBCCC"),
+		hint: translate("Copy from the Google Chat space URL."),
+	});
+}
+
+function GchatMessageComponent(props) {
+	const { element, id } = props;
+	const modeling  = useService("modeling");
+	const translate = useService("translate");
+	const bo        = getBusinessObject(element);
+
+	return h(TextEntry, {
+		id,
+		label: translate("Message"),
+		value: getAttr(bo, "gchatMessage"),
+		multiline: true,
+		onInput: (e) => modeling.updateModdleProperties(element, bo, {
+			"spiffworkflow:gchatMessage": e.target.value || undefined,
+		}),
+		placeholder: translate("e.g. Action required on {{ doc.name }} by {{ doc.owner }}"),
+		hint: translate("Supports Jinja2. Variables: doc, instance, frappe."),
+	});
+}

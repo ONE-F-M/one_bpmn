@@ -307,6 +307,7 @@ function RoundRobinUsersComponent(props) {
 				fetchApi: fetchSystemUsers,
 				valueField: "name",
 				renderOption: (opt) => `${opt.full_name} (${opt.name})`,
+				itemLabel: "user",
 			}),
 
 			// ── Read-only: Last Assigned User ─────────────────────────────────
@@ -383,6 +384,7 @@ function LoadBalancingUsersComponent(props) {
 				fetchApi: fetchSystemUsers,
 				valueField: "name",
 				renderOption: (opt) => `${opt.full_name} (${opt.name})`,
+				itemLabel: "user",
 			}),
 			h(
 				"div",
@@ -440,6 +442,7 @@ function TaskActionsComponent(props) {
 				valueField: "name",
 				renderOption: (opt) => opt.name,
 				placeholder: translate("Search workflow actions…"),
+				itemLabel: "action",
 			}),
 			h(
 				"div",

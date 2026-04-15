@@ -10,6 +10,8 @@ dynamic = ["version"]
 dependencies = [
     # "frappe~=15.0.0" # Installed and managed by bench.
     "spiffworkflow",
+    "google-auth>=2.0.0",
+    "google-auth-httplib2>=0.1.0",
 ]
 
 [build-system]

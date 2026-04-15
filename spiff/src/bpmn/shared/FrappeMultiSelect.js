@@ -107,6 +107,7 @@ export class FrappeMultiSelect extends Component {
 			label,
 			valueField   = "name",
 			renderOption,
+			itemLabel    = "item",
 		} = this.props;
 
 		const { inputText, options, isOpen, loading } = this.state;
@@ -229,7 +230,7 @@ export class FrappeMultiSelect extends Component {
 						h(
 							"div",
 							{ class: "bio-properties-panel-description" },
-							`${selected.length} user${selected.length > 1 ? "s" : ""} selected`
+							`${selected.length} ${itemLabel}${selected.length !== 1 ? "s" : ""} selected`
 						),
 				]
 			)

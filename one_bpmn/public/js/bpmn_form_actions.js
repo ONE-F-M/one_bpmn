@@ -33,12 +33,9 @@ frappe.provide('one_bpmn');
 	/* ── Track which doctypes+docnames have an active BPMN process ── */
 	const _bpmn_controlled_forms = new Set();
 
-	 * STEP 1: Override Toolbar PROTOTYPE methods.
-	 *
-	 * By wrapping the prototype methods, we intercept EVERY call to
-	 * can_submit / can_cancel / can_amend — no matter when Frappe calls them.
-	 * This is far more reliable than patching individual instances.
-
+	// Override Toolbar PROTOTYPE methods.
+	// By wrapping prototype methods we intercept every can_submit / can_cancel / can_amend call,
+	// regardless of when Frappe invokes them — far more reliable than patching individual instances.
 	const ToolbarProto = frappe.ui.form.Toolbar.prototype;
 
 	const _orig_can_submit = ToolbarProto.can_submit;
@@ -73,8 +70,7 @@ frappe.provide('one_bpmn');
 		return frm.doctype + ':' + frm.docname;
 	}
 
-	 * STEP 2: load_bpmn_actions — fires on every form-refresh
-
+	// load_bpmn_actions — fires on every form-refresh
 	async function load_bpmn_actions(frm) {
 		if (!frm || frm.is_new()) {
 			return;
@@ -283,10 +279,7 @@ frappe.provide('one_bpmn');
 		});
 	}
 
-	 * Hook into Frappe form lifecycle.
-	 *
-	 * We use BOTH frappe.ui.form.on('*', 'refresh') which is the most
-	 * reliable way to hook into every form, AND the jQuery fallback.
+	// Hook into Frappe form lifecycle via both the native form event system and jQuery fallback.
 
 	// Primary hook — uses Frappe's own form event system on ALL doctypes
 	frappe.ui.form.on('*', {
@@ -309,8 +302,8 @@ frappe.provide('one_bpmn');
 		load_bpmn_actions(frm);
 	});
 
-	// Realtime listener: auto-refresh the Frappe form when a BPMN task	//    completes (from Processa Instance or another user's action) ──────
-	//    Only reload if the event is for the currently open document.
+	// Realtime: auto-refresh this form when a BPMN task completes (from Processa or another user).
+	// Only reload if the event targets the currently open document.
 	if (frappe.realtime) {
 		frappe.realtime.on('bpmn_instance_updated', function (data) {
 			if (!cur_frm || cur_frm.is_new()) return;

@@ -204,3 +204,51 @@
 	color: #6b7280;
 	margin-top: 2px;
 }
+
+/* ── Multi-field update row editor ──────────────────────────────────── */
+.bpmn-field-rows {
+	display: flex;
+	flex-direction: column;
+	gap: 6px;
+	margin-top: 4px;
+}
+
+.bpmn-field-row {
+	display: flex;
+	align-items: center;
+	gap: 6px;
+}
+
+.bpmn-field-row > .bio-properties-panel-textfield {
+	flex: 1;
+	min-width: 0;
+}
+
+.bpmn-field-row-value {
+	flex: 1;
+	min-width: 0;
+	font-size: 12px;
+	padding: 4px 6px;
+	border: 1px solid #ccc;
+	border-radius: 3px;
+	background: #fff;
+}
+
+.bpmn-add-row-btn {
+	margin-top: 4px;
+	font-size: 12px;
+	padding: 4px 10px;
+	border: 1px dashed #aaa;
+	border-radius: 4px;
+	background: none;
+	cursor: pointer;
+	color: #555;
+	width: 100%;
+	text-align: center;
+}
+
+.bpmn-add-row-btn:hover {
+	background: #f3f6fa;
+	border-color: #4c72f5;
+	color: #4c72f5;
+}
