@@ -101,6 +101,7 @@
 			<div
 				ref="container"
 				:class="['bpmn-canvas flex-1', { 'bpmn-canvas--readonly': readonly, 'comment-mode-active': isCommentMode }]"
+				@contextmenu.prevent
 				@dragover.prevent="!readonly && handleDragOver($event)"
 				@drop.prevent="!readonly && handleDrop($event)"
 			></div>
@@ -396,6 +397,31 @@
 				</div>
 			</template>
 		</Dialog>
+
+		<!-- Right-Click Context Menu -->
+		<div
+			v-if="showContextMenu"
+			v-click-outside="() => showContextMenu = false"
+			class="fixed z-[200] bg-white border border-gray-200 rounded-lg shadow-xl py-1 min-w-[180px]"
+			:style="{ left: contextMenuPosition.x + 'px', top: contextMenuPosition.y + 'px' }"
+		>
+			<button
+				v-if="canAddComment"
+				@click="addCommentFromContextMenu"
+				class="w-full flex items-center gap-2 px-3 py-2 text-sm text-gray-700 hover:bg-blue-50 transition-colors"
+			>
+				<Icon icon="lucide:message-square-plus" class="w-4 h-4" />
+				Add Comment
+			</button>
+			<button
+				v-if="contextMenuElementCommentCount > 0"
+				@click="viewCommentsFromContextMenu"
+				class="w-full flex items-center gap-2 px-3 py-2 text-sm text-gray-700 hover:bg-blue-50 transition-colors"
+			>
+				<Icon icon="lucide:messages-square" class="w-4 h-4" />
+				View Comments ({{ contextMenuElementCommentCount }})
+			</button>
+		</div>
 	</div>
 </template>
 
@@ -415,6 +441,7 @@ import { useBottomSheet } from "@/composables/useBottomSheet";
 // import CustomShapesModule, { customShapeSvgStore } from "@/bpmn";
 import FormattingToolbar from "@/components/FormattingToolbar.vue";
 import { initModeler } from "@/composables/useModelerInit";
+import { useBpmnContextMenu } from "@/composables/useBpmnContextMenu";
 // Properties panel
 import {
 	BpmnPropertiesPanelModule,
@@ -513,6 +540,27 @@ const commentFormData = ref({
 	is_task: false
 });
 const users = ref([]);
+
+// Right-click context menu (composable)
+const {
+	showContextMenu,
+	contextMenuPosition,
+	contextMenuElementCommentCount,
+	canAddComment,
+	addCommentFromContextMenu,
+	viewCommentsFromContextMenu,
+	registerEventListeners: registerContextMenuListeners,
+} = useBpmnContextMenu({
+	readonly: computed(() => props.readonly),
+	comments,
+	selectCommentElement,
+	openViewCommentsDialog: (elementId) => {
+		selectedElementComments.value = comments.value.filter(
+			(c) => c.element_id === elementId
+		);
+		showViewCommentsDialog.value = true;
+	},
+});
 
 const userSearchQuery = ref("");
 const showUserDropdown = ref(false);
@@ -989,6 +1037,10 @@ onMounted(async () => {
 				const canvas = modeler.get("canvas");
 				return handleCommentClick(canvas?.getRootElement(), e.originalEvent);
 			});
+
+			// Right-click context menu — delegates to composable
+			registerContextMenuListeners(eventBus);
+
 			// Re-inject only when calledElement actually changed
 			// churn and repeated network requests on every command stack event.
 			eventBus.on("commandStack.changed", () => {
