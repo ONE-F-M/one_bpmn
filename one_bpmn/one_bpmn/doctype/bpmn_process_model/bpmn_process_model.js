@@ -3,9 +3,8 @@
 
 frappe.ui.form.on("BPMN Process Model", {
 	refresh(frm) {
-		// ── Pretty-print JSON fields for readability ──
-		prettify_json_field(frm, "serialized_spec");
-		prettify_json_field(frm, "subprocess_specs");
+		// ── Pretty-print JSON fields for readability (display-only) ──
+		one_bpmn.prettify_json_fields(frm, ["serialized_spec", "subprocess_specs"]);
 
 		if (frm.is_new()) return;
 
@@ -40,24 +39,3 @@ frappe.ui.form.on("BPMN Process Model", {
 		}, __("Actions"));
 	},
 });
-
-/**
- * Parse and pretty-print a JSON field value with 2-space indentation.
- * Silently skips empty values or invalid JSON.
- */
-function prettify_json_field(frm, fieldname) {
-	let raw = frm.doc[fieldname];
-	if (!raw) return;
-
-	try {
-		let parsed = JSON.parse(raw);
-		let formatted = JSON.stringify(parsed, null, 2);
-		// Only update the control display if the value actually changed
-		if (formatted !== raw) {
-			frm.doc[fieldname] = formatted;
-			frm.fields_dict[fieldname].refresh_input();
-		}
-	} catch (e) {
-		// Not valid JSON — leave as-is
-	}
-}

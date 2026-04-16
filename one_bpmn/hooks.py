@@ -32,7 +32,10 @@ website_route_rules = [
 
 # include js, css files in header of desk.html
 # app_include_css = "/assets/one_bpmn/css/one_bpmn.css"
-app_include_js = "/assets/one_bpmn/js/bpmn_form_actions.js"
+app_include_js = [
+	"/assets/one_bpmn/js/bpmn_json_prettify.js",
+	"/assets/one_bpmn/js/bpmn_form_actions.js",
+]
 
 # include js, css files in header of web template
 # web_include_css = "/assets/one_bpmn/css/one_bpmn.css"
