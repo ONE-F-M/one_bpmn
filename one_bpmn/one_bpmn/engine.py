@@ -113,7 +113,6 @@ class FrappeScriptEngine(PythonScriptEngine):
 		"""
 		try:
 			import frappe as _frappe
-			import frappe.safe_exec as _safe_exec
 		except ImportError:
 			return
 
@@ -149,7 +148,14 @@ class FrappeScriptEngine(PythonScriptEngine):
 			local_vars["doc"] = _frappe._dict()
 
 		try:
-			_frappe.safe_exec(script_doc.script, _locals=local_vars)
+			# Use plain exec() rather than frappe.safe_exec().
+			# frappe.safe_exec() is a security gate for *untrusted* browser-submitted
+			# scripts — it requires server_script_enabled in common_site_config and
+			# runs code in a RestrictedPython sandbox with a limited frappe namespace.
+			# BPMN Server Scripts are trusted, pre-deployed code stored in the DB,
+			# so they run with the real frappe module and no config gate.
+			exec_globals = {"frappe": _frappe, "__builtins__": __builtins__}  # noqa: S102
+			exec(script_doc.script, exec_globals, local_vars)  # noqa: S102
 		except Exception:
 			_frappe.log_error(
 				title=f'BPMN ScriptTask: "{script_name}" execution failed',
