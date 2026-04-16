@@ -230,7 +230,12 @@ class BPMNProcessInstance(Document):
 
 		self._check_completion(wf)
 
-		self.save(ignore_permissions=True)
+		# ignore_version=True prevents TimestampMismatchError when a concurrent
+		# doc_update event (e.g. from the realtime broadcast causing the Frappe
+		# form to reload) updates the DB timestamp between get_doc() and save().
+		# advance() is the authoritative writer of workflow state so bypassing
+		# the optimistic-lock check is correct here.
+		self.save(ignore_permissions=True, ignore_version=True)
 
 		return self.get_active_tasks_summary()
 
