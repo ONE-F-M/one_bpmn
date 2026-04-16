@@ -433,6 +433,19 @@ const users = ref([]);
 const userSearchQuery = ref("");
 const showUserDropdown = ref(false);
 
+// Clear assigned_to when the user edits the search text away from the selected label.
+// This prevents a stale assignment if the user modifies the input after selecting someone.
+watch(userSearchQuery, (newQuery) => {
+	const assignedUser = commentFormData.value.assigned_to;
+	if (!assignedUser) return;
+
+	// Find the label (full_name) of the currently assigned user
+	const match = users.value.find(u => u.name === assignedUser);
+	if (match && newQuery !== match.full_name) {
+		commentFormData.value.assigned_to = "";
+	}
+});
+
 const showMentionDropdown = ref(false);
 const mentionSearchQuery = ref("");
 const mentionStartIndex = ref(-1);
@@ -449,10 +462,7 @@ const mentionSuggestions = computed(() => {
 
 const filteredUsers = computed(() => {
 	const q = (userSearchQuery.value || "").toLowerCase();
-	const text = commentFormData.value.text || "";
-	const mentionedUsers = users.value.filter(u => text.includes('@' + u.full_name));
-	
-	const options = mentionedUsers.map(u => ({
+	const options = users.value.map(u => ({
 		label: u.full_name,
 		value: u.name
 	}));
@@ -1212,6 +1222,8 @@ function selectCommentElement(element) {
 		assigned_to: "",
 		is_task: false
 	};
+	userSearchQuery.value = "";
+	showUserDropdown.value = false;
 	showCommentDialog.value = true;
 	showMentionDropdown.value = false;
 }
