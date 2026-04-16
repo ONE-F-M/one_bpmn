@@ -203,10 +203,13 @@
    "label": "Cron Expression"
   },
   {
+   "default": "Draft",
    "fieldname": "status",
    "fieldtype": "Select",
+   "in_list_view": 1,
    "label": "Status",
-   "options": "Draft / Deployed / Retired"
+   "options": "Draft\nDeployed\nRetired",
+   "read_only": 1
   },
   {
    "fieldname": "deployed_at",
