@@ -657,6 +657,7 @@ onMounted(async () => {
 						{ name: "gchatSpaceId",         isAttr: true, type: "String" },
 						{ name: "gchatMessage",         isAttr: true, type: "String" },
 						// Push Notification attrs
+						{ name: "pushDoctype",          isAttr: true, type: "String" },
 						{ name: "pushTitle",            isAttr: true, type: "String" },
 						{ name: "pushMessage",          isAttr: true, type: "String" },
 						{ name: "pushToUsers",          isAttr: true, type: "String" },

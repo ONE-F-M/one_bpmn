@@ -130,6 +130,7 @@ export function ServiceTaskProps(props) {
 	// ── Push Notification entries ──────────────────────────────────────────
 	if (serviceType === "push_notification") {
 		entries.push(
+			{ id: "spiffworkflow-pushDoctype",             element, component: PushDoctypeComponent },
 			{ id: "spiffworkflow-pushTitle",               element, component: PushTitleComponent },
 			{ id: "spiffworkflow-push-recipients-header",  element, component: PushRecipientsHeaderComponent },
 			{ id: "spiffworkflow-pushToUsers",             element, component: PushToUsersComponent },
@@ -184,6 +185,7 @@ function ServiceTypeComponent(props) {
 			"spiffworkflow:gchatSpaceId":         undefined,
 			"spiffworkflow:gchatMessage":         undefined,
 			// Clear push_notification attrs
+			"spiffworkflow:pushDoctype":          undefined,
 			"spiffworkflow:pushTitle":            undefined,
 			"spiffworkflow:pushMessage":          undefined,
 			"spiffworkflow:pushToUsers":          undefined,
@@ -1106,6 +1108,35 @@ function PushTitleComponent(props) {
 	});
 }
 
+// ── PN0: Reference DocType ────────────────────────────────────────────────
+function PushDoctypeComponent(props) {
+	const { element, id } = props;
+	const modeling  = useService("modeling");
+	const translate = useService("translate");
+	const bo        = getBusinessObject(element);
+	const value     = getAttr(bo, "pushDoctype");
+
+	const fetchDoctypes = (txt) => {
+		const params = { fields: '["name"]', limit_page_length: 50, order_by: "name asc" };
+		if (txt) params.filters = JSON.stringify([["name", "like", `%${txt}%`]]);
+		return frappeGet("/api/resource/DocType", params);
+	};
+
+	return h(FrappeAutocomplete, {
+		id,
+		label: translate("Reference DocType"),
+		value,
+		onChange: (val) => modeling.updateModdleProperties(element, bo, {
+			"spiffworkflow:pushDoctype": val || undefined,
+			// Clear doc fields selection when DocType changes
+			"spiffworkflow:pushToDocFields": undefined,
+		}),
+		fetchApi: fetchDoctypes,
+		valueField: "name",
+		renderOption: (opt) => opt.name,
+	});
+}
+
 // ── PN Recipients divider ─────────────────────────────────────────────────
 function PushRecipientsHeaderComponent(props) {
 	const { id } = props;
@@ -1154,7 +1185,7 @@ function PushToUsersComponent(props) {
 	});
 }
 
-// ── PN3: Document Fields (multi-select from DocType fields) ───────────────
+// ── PN3: Document Fields (multi-select from Reference DocType) ────────────
 function PushToDocFieldsComponent(props) {
 	const { element, id } = props;
 	const modeling  = useService("modeling");
@@ -1162,13 +1193,10 @@ function PushToDocFieldsComponent(props) {
 	const bo        = getBusinessObject(element);
 	const value     = getAttr(bo, "pushToDocFields");
 
-	// Use emailDoctype or serviceTargetDoctype as source
-	const sourceDoctype =
-		getAttr(bo, "emailDoctype") ||
-		getAttr(bo, "serviceTargetDoctype") ||
-		"";
+	// Use the dedicated push notification Reference DocType
+	const sourceDoctype = getAttr(bo, "pushDoctype");
 
-	// If no source DocType is known, fall back to plain text input
+	// If no Reference DocType is set, fall back to plain text input
 	if (!sourceDoctype) {
 		return h(TextEntry, {
 			id,
@@ -1178,16 +1206,17 @@ function PushToDocFieldsComponent(props) {
 				"spiffworkflow:pushToDocFields": e.target.value || undefined,
 			}),
 			placeholder: translate("e.g. owner, custom_manager_user"),
-			hint: translate("Comma-separated field names containing User IDs. No DocType context available for field picker."),
+			hint: translate("Set a Reference DocType above to get a field picker."),
 		});
 	}
 
-	// Fetch fields from the source DocType that can contain User IDs
+	// Fetch user-type fields from the Reference DocType + synthetic Owner entry
 	const fetchDocFields = (txt) => {
+		// Fetch Link→User fields and Data/Read Only fields that may hold user IDs
 		const filters = [
 			["parent", "=", sourceDoctype],
 			["parenttype", "=", "DocType"],
-			["fieldtype", "in", ["Data", "Link", "Small Text", "Read Only"]],
+			["fieldtype", "in", ["Link", "Data", "Read Only"]],
 		];
 		if (txt) {
 			filters.push(["fieldname", "like", `%${txt}%`]);
@@ -1195,10 +1224,26 @@ function PushToDocFieldsComponent(props) {
 		const params = {
 			fields: '["fieldname","label","fieldtype","options"]',
 			filters: JSON.stringify(filters),
-			limit_page_length: 50,
+			limit_page_length: 100,
 			order_by: "idx asc",
 		};
-		return frappeGet("/api/resource/DocField", params);
+		return frappeGet("/api/resource/DocField", params).then((resp) => {
+			// Filter to only fields that are Link→User or Data/ReadOnly
+			// (Link fields must have options === "User")
+			let fields = (resp.data || []).filter((f) => {
+				if (f.fieldtype === "Link") return f.options === "User";
+				return true; // Data, Read Only — could hold user IDs
+			});
+
+			// Prepend synthetic "Owner" field (built-in, not in DocField)
+			const ownerEntry = { fieldname: "owner", label: "Owner", fieldtype: "Link", options: "User" };
+			const ownerMatch = !txt || "owner".includes(txt.toLowerCase());
+			if (ownerMatch) {
+				fields = [ownerEntry, ...fields];
+			}
+
+			return { data: fields };
+		});
 	};
 
 	return h(FrappeMultiSelect, {
