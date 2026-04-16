@@ -101,6 +101,7 @@
 			<div
 				ref="container"
 				:class="['bpmn-canvas flex-1', { 'bpmn-canvas--readonly': readonly, 'comment-mode-active': isCommentMode }]"
+				@contextmenu.prevent
 				@dragover.prevent="!readonly && handleDragOver($event)"
 				@drop.prevent="!readonly && handleDrop($event)"
 			></div>
@@ -314,6 +315,30 @@
 				</div>
 			</template>
 		</Dialog>
+
+		<!-- Right-Click Context Menu -->
+		<div
+			v-if="showContextMenu"
+			v-click-outside="() => showContextMenu = false"
+			class="fixed z-[200] bg-white border border-gray-200 rounded-lg shadow-xl py-1 min-w-[180px]"
+			:style="{ left: contextMenuPosition.x + 'px', top: contextMenuPosition.y + 'px' }"
+		>
+			<button
+				@click="addCommentFromContextMenu"
+				class="w-full flex items-center gap-2 px-3 py-2 text-sm text-gray-700 hover:bg-blue-50 transition-colors"
+			>
+				<Icon icon="lucide:message-square-plus" class="w-4 h-4" />
+				Add Comment
+			</button>
+			<button
+				v-if="contextMenuElementCommentCount > 0"
+				@click="viewCommentsFromContextMenu"
+				class="w-full flex items-center gap-2 px-3 py-2 text-sm text-gray-700 hover:bg-blue-50 transition-colors"
+			>
+				<Icon icon="lucide:messages-square" class="w-4 h-4" />
+				View Comments ({{ contextMenuElementCommentCount }})
+			</button>
+		</div>
 	</div>
 </template>
 
@@ -429,6 +454,16 @@ const commentFormData = ref({
 	is_task: false
 });
 const users = ref([]);
+
+// Context menu state
+const showContextMenu = ref(false);
+const contextMenuPosition = ref({ x: 0, y: 0 });
+const contextMenuElement = ref(null);
+const contextMenuElementCommentCount = computed(() => {
+	if (!contextMenuElement.value) return 0;
+	const elementId = contextMenuElement.value.id || "process";
+	return comments.value.filter(c => c.element_id === elementId).length;
+});
 
 const userSearchQuery = ref("");
 const showUserDropdown = ref(false);
@@ -876,6 +911,19 @@ onMounted(async () => {
 				const canvas = modeler.get("canvas");
 				return handleCommentClick(canvas?.getRootElement(), e.originalEvent);
 			});
+
+			// Right-click context menu handler
+			eventBus.on("element.contextmenu", (e) => {
+				if (e.originalEvent) {
+					e.originalEvent.preventDefault();
+					e.originalEvent.stopPropagation();
+				}
+				openContextMenu(e.element, e.originalEvent);
+			});
+
+			// Escape key to dismiss context menu
+			document.addEventListener("keydown", handleContextMenuKeydown);
+
 			// Re-inject only when calledElement actually changed
 			// churn and repeated network requests on every command stack event.
 			eventBus.on("commandStack.changed", () => {
@@ -1100,6 +1148,8 @@ onBeforeUnmount(() => {
 	// Cancel any pending process-name injection to prevent memory-leaks
 	// and stale DOM updates after the component is torn down.
 	cancelPendingInjection();
+	// Remove context menu keyboard listener
+	document.removeEventListener("keydown", handleContextMenuKeydown);
 	if (modeler) {
 		modeler.destroy();
 	}
@@ -1215,6 +1265,43 @@ function selectCommentElement(element) {
 	showCommentDialog.value = true;
 	showMentionDropdown.value = false;
 }
+
+// --- Context Menu Methods ---
+
+function handleContextMenuKeydown(e) {
+	if (e.key === "Escape" && showContextMenu.value) {
+		showContextMenu.value = false;
+	}
+}
+
+function openContextMenu(element, originalEvent) {
+	if (!originalEvent) return;
+	contextMenuElement.value = element;
+	contextMenuPosition.value = {
+		x: originalEvent.clientX,
+		y: originalEvent.clientY,
+	};
+	showContextMenu.value = true;
+}
+
+function addCommentFromContextMenu() {
+	showContextMenu.value = false;
+	if (contextMenuElement.value) {
+		selectCommentElement(contextMenuElement.value);
+	}
+}
+
+function viewCommentsFromContextMenu() {
+	showContextMenu.value = false;
+	if (!contextMenuElement.value) return;
+	const elementId = contextMenuElement.value.id || "process";
+	selectedElementComments.value = comments.value.filter(
+		(c) => c.element_id === elementId
+	);
+	showViewCommentsDialog.value = true;
+}
+
+// --- End Context Menu Methods ---
 
 function handleCommentInput(e) {
 	if (!e || !e.target || typeof e.target.selectionStart !== 'number') return;
