@@ -809,8 +809,22 @@ onMounted(async () => {
 						{ name: "emailBody",            isAttr: true, type: "String" },
 						{ name: "updateFieldDoctype",   isAttr: true, type: "String" },
 						{ name: "updateFieldName",      isAttr: true, type: "String" },
-						{ name: "updateFieldValue",     isAttr: true, type: "String" }
-					]
+						{ name: "updateFieldValue",     isAttr: true, type: "String" },
+						// Multi-row field update (JSON array of {field, value})
+						{ name: "updateFieldRows",      isAttr: true, type: "String" },
+						// Google Chat attrs
+						{ name: "gchatType",            isAttr: true, type: "String" },
+						{ name: "gchatEmail",           isAttr: true, type: "String" },
+						{ name: "gchatSpaceId",         isAttr: true, type: "String" },
+						{ name: "gchatMessage",         isAttr: true, type: "String" },
+						// Push Notification attrs
+						{ name: "pushDoctype",          isAttr: true, type: "String" },
+						{ name: "pushTitle",            isAttr: true, type: "String" },
+						{ name: "pushMessage",          isAttr: true, type: "String" },
+						{ name: "pushToUsers",          isAttr: true, type: "String" },
+						{ name: "pushToDocFields",      isAttr: true, type: "String" },
+						{ name: "pushToRoles",          isAttr: true, type: "String" }
+						]
 				});
 			}
 

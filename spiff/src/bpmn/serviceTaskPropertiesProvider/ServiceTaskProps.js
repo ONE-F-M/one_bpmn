@@ -109,8 +109,34 @@ export function ServiceTaskProps(props) {
 	if (serviceType === "update_field") {
 		entries.push(
 			{ id: "spiffworkflow-updateFieldDoctype",  element, component: UpdateFieldDoctypeComponent },
-			{ id: "spiffworkflow-updateFieldName",     element, component: UpdateFieldNameComponent },
-			{ id: "spiffworkflow-updateFieldValue",    element, component: UpdateFieldValueComponent },
+			{ id: "spiffworkflow-updateFieldRows",     element, component: UpdateFieldRowsComponent },
+		);
+	}
+
+	// ── Google Chat entries ────────────────────────────────────────────────
+	if (serviceType === "google_chat") {
+		entries.push(
+			{ id: "spiffworkflow-gchatType",    element, component: GchatTypeComponent },
+		);
+		const gchatType = getAttr(bo, "gchatType");
+		if (gchatType === "individual") {
+			entries.push({ id: "spiffworkflow-gchatEmail",   element, component: GchatEmailComponent });
+		} else if (gchatType === "space") {
+			entries.push({ id: "spiffworkflow-gchatSpaceId", element, component: GchatSpaceIdComponent });
+		}
+		entries.push({ id: "spiffworkflow-gchatMessage", element, component: GchatMessageComponent });
+	}
+
+	// ── Push Notification entries ──────────────────────────────────────────
+	if (serviceType === "push_notification") {
+		entries.push(
+			{ id: "spiffworkflow-pushDoctype",             element, component: PushDoctypeComponent },
+			{ id: "spiffworkflow-pushTitle",               element, component: PushTitleComponent },
+			{ id: "spiffworkflow-push-recipients-header",  element, component: PushRecipientsHeaderComponent },
+			{ id: "spiffworkflow-pushToUsers",             element, component: PushToUsersComponent },
+			{ id: "spiffworkflow-pushToDocFields",         element, component: PushToDocFieldsComponent },
+			{ id: "spiffworkflow-pushToRoles",             element, component: PushToRolesComponent },
+			{ id: "spiffworkflow-pushMessage",             element, component: PushMessageComponent },
 		);
 	}
 
@@ -150,8 +176,21 @@ function ServiceTypeComponent(props) {
 			"spiffworkflow:emailBody":            undefined,
 			// Clear update_field attrs
 			"spiffworkflow:updateFieldDoctype":   undefined,
+			"spiffworkflow:updateFieldRows":      undefined,
 			"spiffworkflow:updateFieldName":      undefined,
 			"spiffworkflow:updateFieldValue":     undefined,
+			// Clear google_chat attrs
+			"spiffworkflow:gchatType":            undefined,
+			"spiffworkflow:gchatEmail":           undefined,
+			"spiffworkflow:gchatSpaceId":         undefined,
+			"spiffworkflow:gchatMessage":         undefined,
+			// Clear push_notification attrs
+			"spiffworkflow:pushDoctype":          undefined,
+			"spiffworkflow:pushTitle":            undefined,
+			"spiffworkflow:pushMessage":          undefined,
+			"spiffworkflow:pushToUsers":          undefined,
+			"spiffworkflow:pushToDocFields":      undefined,
+			"spiffworkflow:pushToRoles":          undefined,
 		};
 		modeling.updateModdleProperties(element, bo, patch);
 	};
@@ -163,6 +202,8 @@ function ServiceTypeComponent(props) {
 		{ label: translate("Apply Workflow"),            value: "apply_workflow" },
 		{ label: translate("Email Notification"),        value: "send_email" },
 		{ label: translate("Update Field"),              value: "update_field" },
+		{ label: translate("Google Chat"),               value: "google_chat" },
+		{ label: translate("Push Notification"),         value: "push_notification" },
 	];
 
 	return h(SelectEntry, {
@@ -622,6 +663,7 @@ function EmailToDocFieldsComponent(props) {
 		valueField: "fieldname",
 		renderOption: (opt) => `${opt.label || opt.fieldname} (${opt.fieldname})`,
 		placeholder: translate("Select fields that contain email addresses"),
+		itemLabel: "field",
 	});
 }
 
@@ -650,6 +692,7 @@ function EmailToRolesComponent(props) {
 		valueField: "name",
 		renderOption: (opt) => opt.name,
 		placeholder: translate("Select roles — all users in these roles will receive the email"),
+		itemLabel: "role",
 	});
 }
 
@@ -822,3 +865,451 @@ function UpdateFieldValueComponent(props) {
 	});
 }
 
+
+// ===========================================================================
+// UPDATE FIELD ROWS COMPONENT
+// ===========================================================================
+
+// ── UFR: Multi-row field editor ───────────────────────────────────────────
+
+// Generate a short stable ID for each row (survives re-renders)
+let _rowIdCounter = 0;
+function makeRowId() {
+	if (typeof crypto !== "undefined" && crypto.randomUUID) {
+		return crypto.randomUUID();
+	}
+	return `row-${Date.now()}-${++_rowIdCounter}`;
+}
+
+// Normalize a raw parsed value into { id, field, value }
+function normalizeRow(item) {
+	if (item && typeof item === "object" && !Array.isArray(item)) {
+		return {
+			id: item.id || makeRowId(),
+			field: item.field || "",
+			value: item.value || "",
+		};
+	}
+	// Skip non-object items (numbers, strings, nulls, nested arrays)
+	return null;
+}
+
+// Strip internal `id` before persisting to BPMN XML
+function serializableRows(rows) {
+	return rows.map(({ field, value }) => ({ field, value }));
+}
+
+function UpdateFieldRowsComponent(props) {
+	const { element, id } = props;
+	const modeling  = useService("modeling");
+	const translate = useService("translate");
+	const bo        = getBusinessObject(element);
+	const doctype   = getAttr(bo, "updateFieldDoctype");
+
+	// Parse stored JSON rows (or migrate legacy single-field)
+	let rows = [];
+	const stored = getAttr(bo, "updateFieldRows");
+	if (stored) {
+		try {
+			const parsed = JSON.parse(stored);
+			if (Array.isArray(parsed)) {
+				rows = parsed.map(normalizeRow).filter(Boolean);
+			}
+			// non-array JSON values are silently ignored (empty rows)
+		} catch(e) {
+			rows = [];
+		}
+	} else {
+		const legacyField = getAttr(bo, "updateFieldName");
+		const legacyValue = getAttr(bo, "updateFieldValue");
+		if (legacyField) rows = [{ id: makeRowId(), field: legacyField, value: legacyValue }];
+	}
+
+	const save = (newRows) => {
+		modeling.updateModdleProperties(element, bo, {
+			"spiffworkflow:updateFieldRows": newRows.length ? JSON.stringify(serializableRows(newRows)) : undefined,
+			"spiffworkflow:updateFieldName":  undefined,
+			"spiffworkflow:updateFieldValue": undefined,
+		});
+	};
+
+	const addRow    = ()        => save([...rows, { id: makeRowId(), field: "", value: "" }]);
+	const removeRow = (idx)     => save(rows.filter((_, i) => i !== idx));
+	const setField  = (idx, v)  => { const r = [...rows]; r[idx] = { ...r[idx], field: v  }; save(r); };
+	const setValue  = (idx, v)  => { const r = [...rows]; r[idx] = { ...r[idx], value: v  }; save(r); };
+
+	const fetchFields = (txt) => {
+		if (!doctype) return Promise.resolve({ data: [] });
+		const filters = [
+			["parent", "=", doctype],
+			["parenttype", "=", "DocType"],
+			["fieldtype", "not in", ["Section Break", "Column Break", "Tab Break", "Table"]],
+		];
+		if (txt) filters.push(["fieldname", "like", `%${txt}%`]);
+		return frappeGet("/api/resource/DocField", {
+			fields: '["fieldname","label","fieldtype"]',
+			filters: JSON.stringify(filters),
+			limit_page_length: 100,
+			order_by: "idx asc",
+		});
+	};
+
+	return h(
+		"div",
+		{ class: "bio-properties-panel-entry", "data-entry-id": id },
+		[
+			h("label", { class: "bio-properties-panel-label" }, translate("Field Updates")),
+			h(
+				"div",
+				{ class: "bpmn-field-rows" },
+				[
+					...rows.map((row, idx) =>
+						h("div", { key: row.id, class: "bpmn-field-row" }, [
+							h(FrappeAutocomplete, {
+								id: `${id}-field-${row.id}`,
+								label: "",
+								value: row.field,
+								onChange: (v) => setField(idx, v),
+								fetchApi: fetchFields,
+								valueField: "fieldname",
+								renderOption: (opt) => `${opt.label || opt.fieldname} (${opt.fieldname})`,
+								placeholder: translate("Field name"),
+							}),
+							h("input", {
+								type: "text",
+								class: "bio-properties-panel-input bpmn-field-row-value",
+								value: row.value,
+								placeholder: translate("Value or {{ doc.field }}"),
+								onInput: (e) => setValue(idx, e.target.value),
+							}),
+							h("button", {
+								type: "button",
+								class: "bpmn-tag-remove",
+								title: translate("Remove row"),
+								onClick: () => removeRow(idx),
+							}, "×"),
+						])
+					),
+					h("button", {
+						type: "button",
+						class: "bpmn-add-row-btn",
+						onClick: addRow,
+					}, `+ ${translate("Add Field")}`),
+				]
+			),
+			h("div", { class: "bio-properties-panel-description" },
+				translate("Each row sets one field. Supports Jinja2 in values.")
+			),
+		]
+	);
+}
+
+// ===========================================================================
+// GOOGLE CHAT COMPONENTS
+// ===========================================================================
+
+function GchatTypeComponent(props) {
+	const { element, id } = props;
+	const modeling  = useService("modeling");
+	const translate = useService("translate");
+	const bo        = getBusinessObject(element);
+
+	const getValue  = () => getAttr(bo, "gchatType");
+	const setValue  = (v) => modeling.updateModdleProperties(element, bo, {
+		"spiffworkflow:gchatType":    v || undefined,
+		"spiffworkflow:gchatEmail":   undefined,
+		"spiffworkflow:gchatSpaceId": undefined,
+	});
+	const getOptions = () => [
+		{ label: translate("-- Select --"),  value: "" },
+		{ label: translate("Individual (DM)"), value: "individual" },
+		{ label: translate("Space"),           value: "space" },
+	];
+
+	return h(SelectEntry, { element, id, label: translate("Destination Type"), getValue, setValue, getOptions });
+}
+
+function GchatEmailComponent(props) {
+	const { element, id } = props;
+	const modeling  = useService("modeling");
+	const translate = useService("translate");
+	const bo        = getBusinessObject(element);
+
+	return h(TextEntry, {
+		id,
+		label: translate("Recipient Email"),
+		value: getAttr(bo, "gchatEmail"),
+		onInput: (e) => modeling.updateModdleProperties(element, bo, {
+			"spiffworkflow:gchatEmail": e.target.value || undefined,
+		}),
+		placeholder: translate("e.g. john.doe@example.com"),
+		hint: translate("Google Workspace email of the DM recipient."),
+	});
+}
+
+function GchatSpaceIdComponent(props) {
+	const { element, id } = props;
+	const modeling  = useService("modeling");
+	const translate = useService("translate");
+	const bo        = getBusinessObject(element);
+
+	return h(TextEntry, {
+		id,
+		label: translate("Space ID"),
+		value: getAttr(bo, "gchatSpaceId"),
+		onInput: (e) => modeling.updateModdleProperties(element, bo, {
+			"spiffworkflow:gchatSpaceId": e.target.value || undefined,
+		}),
+		placeholder: translate("e.g. spaces/AAABBBCCC"),
+		hint: translate("Copy from the Google Chat space URL."),
+	});
+}
+
+function GchatMessageComponent(props) {
+	const { element, id } = props;
+	const modeling  = useService("modeling");
+	const translate = useService("translate");
+	const bo        = getBusinessObject(element);
+
+	return h(TextEntry, {
+		id,
+		label: translate("Message"),
+		value: getAttr(bo, "gchatMessage"),
+		multiline: true,
+		onInput: (e) => modeling.updateModdleProperties(element, bo, {
+			"spiffworkflow:gchatMessage": e.target.value || undefined,
+		}),
+		placeholder: translate("e.g. Action required on {{ doc.name }} by {{ doc.owner }}"),
+		hint: translate("Supports Jinja2. Variables: doc, instance, frappe."),
+	});
+}
+
+// ===========================================================================
+// PUSH NOTIFICATION COMPONENTS
+// ===========================================================================
+
+// ── PN1: Title ────────────────────────────────────────────────────────────
+function PushTitleComponent(props) {
+	const { element, id } = props;
+	const modeling  = useService("modeling");
+	const translate = useService("translate");
+	const bo        = getBusinessObject(element);
+	const value     = getAttr(bo, "pushTitle");
+
+	return h(TextEntry, {
+		id,
+		label: translate("Notification Title"),
+		value,
+		onInput: (e) => modeling.updateModdleProperties(element, bo, {
+			"spiffworkflow:pushTitle": e.target.value || undefined,
+		}),
+		placeholder: translate("e.g. Action Required: {{ doc.name }}"),
+		hint: translate("Supports Jinja2 — use {{ doc.field_name }} for document values."),
+	});
+}
+
+// ── PN0: Reference DocType ────────────────────────────────────────────────
+function PushDoctypeComponent(props) {
+	const { element, id } = props;
+	const modeling  = useService("modeling");
+	const translate = useService("translate");
+	const bo        = getBusinessObject(element);
+	const value     = getAttr(bo, "pushDoctype");
+
+	const fetchDoctypes = (txt) => {
+		const params = { fields: '["name"]', limit_page_length: 50, order_by: "name asc" };
+		if (txt) params.filters = JSON.stringify([["name", "like", `%${txt}%`]]);
+		return frappeGet("/api/resource/DocType", params);
+	};
+
+	return h(FrappeAutocomplete, {
+		id,
+		label: translate("Reference DocType"),
+		value,
+		onChange: (val) => modeling.updateModdleProperties(element, bo, {
+			"spiffworkflow:pushDoctype": val || undefined,
+			// Clear doc fields selection when DocType changes
+			"spiffworkflow:pushToDocFields": undefined,
+		}),
+		fetchApi: fetchDoctypes,
+		valueField: "name",
+		renderOption: (opt) => opt.name,
+	});
+}
+
+// ── PN Recipients divider ─────────────────────────────────────────────────
+function PushRecipientsHeaderComponent(props) {
+	const { id } = props;
+	const translate = useService("translate");
+	return h(
+		"div",
+		{ class: "bio-properties-panel-entry", "data-entry-id": id },
+		h(SectionDivider, { label: translate("Recipients") })
+	);
+}
+
+// ── PN2: Users (multi-select from User doctype) ───────────────────────────
+function PushToUsersComponent(props) {
+	const { element, id } = props;
+	const modeling  = useService("modeling");
+	const translate = useService("translate");
+	const bo        = getBusinessObject(element);
+	const value     = getAttr(bo, "pushToUsers");
+
+	const fetchUsers = (txt) => {
+		const params = {
+			fields: '["name","full_name"]',
+			limit_page_length: 50,
+			order_by: "full_name asc",
+			filters: JSON.stringify([
+				["enabled", "=", 1],
+				["user_type", "=", "System User"],
+				...(txt ? [["full_name", "like", `%${txt}%`]] : []),
+			]),
+		};
+		return frappeGet("/api/resource/User", params);
+	};
+
+	return h(FrappeMultiSelect, {
+		id,
+		label: translate("Users"),
+		value,
+		onChange: (val) => modeling.updateModdleProperties(element, bo, {
+			"spiffworkflow:pushToUsers": val || undefined,
+		}),
+		fetchApi: fetchUsers,
+		valueField: "name",
+		renderOption: (opt) => `${opt.full_name || opt.name} (${opt.name})`,
+		placeholder: translate("Select users to receive push notification"),
+		itemLabel: "user",
+	});
+}
+
+// ── PN3: Document Fields (multi-select from Reference DocType) ────────────
+function PushToDocFieldsComponent(props) {
+	const { element, id } = props;
+	const modeling  = useService("modeling");
+	const translate = useService("translate");
+	const bo        = getBusinessObject(element);
+	const value     = getAttr(bo, "pushToDocFields");
+
+	// Use the dedicated push notification Reference DocType
+	const sourceDoctype = getAttr(bo, "pushDoctype");
+
+	// If no Reference DocType is set, fall back to plain text input
+	if (!sourceDoctype) {
+		return h(TextEntry, {
+			id,
+			label: translate("Document Field"),
+			value,
+			onInput: (e) => modeling.updateModdleProperties(element, bo, {
+				"spiffworkflow:pushToDocFields": e.target.value || undefined,
+			}),
+			placeholder: translate("e.g. owner, custom_manager_user"),
+			hint: translate("Set a Reference DocType above to get a field picker."),
+		});
+	}
+
+	// Fetch user-type fields from the Reference DocType + synthetic Owner entry
+	const fetchDocFields = (txt) => {
+		// Fetch Link→User fields and Data/Read Only fields that may hold user IDs
+		const filters = [
+			["parent", "=", sourceDoctype],
+			["parenttype", "=", "DocType"],
+			["fieldtype", "in", ["Link", "Data", "Read Only"]],
+		];
+		if (txt) {
+			filters.push(["fieldname", "like", `%${txt}%`]);
+		}
+		const params = {
+			fields: '["fieldname","label","fieldtype","options"]',
+			filters: JSON.stringify(filters),
+			limit_page_length: 100,
+			order_by: "idx asc",
+		};
+		return frappeGet("/api/resource/DocField", params).then((resp) => {
+			// Filter to only fields that are Link→User or Data/ReadOnly
+			// (Link fields must have options === "User")
+			let fields = (resp.data || []).filter((f) => {
+				if (f.fieldtype === "Link") return f.options === "User";
+				return true; // Data, Read Only — could hold user IDs
+			});
+
+			// Prepend synthetic "Owner" field (built-in, not in DocField)
+			const ownerEntry = { fieldname: "owner", label: "Owner", fieldtype: "Link", options: "User" };
+			const ownerMatch = !txt || "owner".includes(txt.toLowerCase());
+			if (ownerMatch) {
+				fields = [ownerEntry, ...fields];
+			}
+
+			return { data: fields };
+		});
+	};
+
+	return h(FrappeMultiSelect, {
+		id,
+		label: translate("Document Field"),
+		value,
+		onChange: (val) => modeling.updateModdleProperties(element, bo, {
+			"spiffworkflow:pushToDocFields": val || undefined,
+		}),
+		fetchApi: fetchDocFields,
+		valueField: "fieldname",
+		renderOption: (opt) => `${opt.label || opt.fieldname} (${opt.fieldname})`,
+		placeholder: translate("Select fields that contain User IDs"),
+		itemLabel: "field",
+	});
+}
+
+// ── PN4: Roles (multi-select from Role doctype) ──────────────────────────
+function PushToRolesComponent(props) {
+	const { element, id } = props;
+	const modeling  = useService("modeling");
+	const translate = useService("translate");
+	const bo        = getBusinessObject(element);
+	const value     = getAttr(bo, "pushToRoles");
+
+	const fetchRoles = (txt) => {
+		const params = { fields: '["name"]', limit_page_length: 50, order_by: "name asc" };
+		if (txt) params.filters = JSON.stringify([["name", "like", `%${txt}%`]]);
+		return frappeGet("/api/resource/Role", params);
+	};
+
+	return h(FrappeMultiSelect, {
+		id,
+		label: translate("Role"),
+		value,
+		onChange: (val) => modeling.updateModdleProperties(element, bo, {
+			"spiffworkflow:pushToRoles": val || undefined,
+		}),
+		fetchApi: fetchRoles,
+		valueField: "name",
+		renderOption: (opt) => opt.name,
+		placeholder: translate("Select roles — all users in these roles will receive the notification"),
+		itemLabel: "role",
+	});
+}
+
+// ── PN5: Message (multiline, Jinja-aware, HTML) ──────────────────────────
+function PushMessageComponent(props) {
+	const { element, id } = props;
+	const modeling  = useService("modeling");
+	const translate = useService("translate");
+	const bo        = getBusinessObject(element);
+	const value     = getAttr(bo, "pushMessage");
+
+	return h(TextEntry, {
+		id,
+		label: translate("Message Body"),
+		value,
+		multiline: true,
+		onInput: (e) => modeling.updateModdleProperties(element, bo, {
+			"spiffworkflow:pushMessage": e.target.value || undefined,
+		}),
+		placeholder: translate("Supports Jinja2 — use {{ doc.field_name }}, {{ instance.name }}, etc."),
+		hint: translate(
+			"HTML or plain text. Available variables: doc (context document), " +
+			"instance (BPMN instance), frappe session."
+		),
+	});
+}

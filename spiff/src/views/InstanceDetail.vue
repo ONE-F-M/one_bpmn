@@ -95,19 +95,22 @@
 									</div>
 
 									<!-- Decision Action Buttons -->
-									<div v-if="getTaskActions(task).length" class="mt-3 flex flex-wrap gap-2">
+									<div v-if="getTaskActionDetails(task).length" class="mt-3 flex flex-wrap gap-2">
 										<button
-											v-for="action in getTaskActions(task)"
-											:key="action"
-											@click="completeTask(task, action)"
+											v-for="detail in getTaskActionDetails(task)"
+											:key="detail.action"
+											@click="completeTask(task, detail)"
 											:disabled="completingTask === task.task_id"
 											class="px-3 py-1.5 text-[11px] font-semibold rounded border transition-colors"
-											:class="getActionButtonClass(action)"
+											:class="getActionButtonClass(detail.action)"
 										>
-											<span v-if="completingTask === task.task_id && completingAction === action" class="flex items-center gap-1">
+											<span v-if="completingTask === task.task_id && completingAction === detail.action" class="flex items-center gap-1">
 												<Icon icon="lucide:loader" class="w-3 h-3 animate-spin" /> Processing…
 											</span>
-											<span v-else>{{ action }}</span>
+											<span v-else class="flex items-center gap-1">
+												{{ detail.action }}
+												<Icon v-if="detail.requireDigitalSignature === 'true'" icon="lucide:pen-line" class="w-3 h-3 opacity-60" title="Digital signature required" />
+											</span>
 										</button>
 									</div>
 									<!-- Plain complete button when no actions configured -->
@@ -737,10 +740,18 @@ function onElementClick(e) {
 }
 
 // Task Decision Helpers
-/** Parse comma-separated task_actions string into trimmed labels */
-function getTaskActions(task) {
+
+/**
+ * Return structured action detail objects for a task.
+ * Prefers task_actions_detail (array of {action, confirmTransition, requireDigitalSignature}).
+ * Falls back to parsing the comma-separated task_actions string.
+ */
+function getTaskActionDetails(task) {
+	if (task.task_actions_detail && Array.isArray(task.task_actions_detail) && task.task_actions_detail.length > 0) {
+		return task.task_actions_detail.filter(d => d && d.action)
+	}
 	const raw = task.task_actions || ''
-	return raw.split(',').map(a => a.trim()).filter(Boolean)
+	return raw.split(',').map(a => a.trim()).filter(Boolean).map(a => ({ action: a }))
 }
 
 /** Colour-code common action verbs */
@@ -754,42 +765,77 @@ function getActionButtonClass(action) {
 }
 
 /**
- * Complete a User Task, submitting the chosen action label as the "action"
- * workflow variable.  Gateway conditions can then check: action == "Approve"
+ * Complete a User Task, respecting per-action flags:
+ *   - confirmTransition: show confirmation dialog before completing
+ *   - requireDigitalSignature: show authorization dialog before completing
+ *
+ * @param {Object} task - active task object
+ * @param {Object|null} detail - action detail object ({action, confirmTransition, requireDigitalSignature}) or null for generic "Complete"
  */
-async function completeTask(task, action) {
+async function completeTask(task, detail) {
 	if (completingTask.value) return   // prevent double-click during loading
-	completingTask.value   = task.task_id
-	completingAction.value = action
-	try {
-		const data = action ? JSON.stringify({ action: action }) : '{}'
-		await frappeRequest({
-			url:    '/api/method/one_bpmn.api.complete_task',
-			method: 'POST',
-			params: {
-				instance_name: instanceId.value,
-				task_id:       task.task_id,
-				data,
-			},
-		})
-		// Refresh everything — new active tasks, updated diagram highlights, history
-		logs.value       = []
-		limitStart.value  = 0
-		hasMoreLogs.value = true
-		await loadDetails()
-		await loadLogs()
-	} catch (err) {
-		console.error('Failed to complete task:', err)
-		// Show error to user
-		if (window.frappe) {
-			window.frappe.show_alert({
-				message: err.message || 'Failed to complete task',
-				indicator: 'red',
-			}, 5)
+
+	const actionName = detail ? detail.action : null
+	const needsConfirm = detail ? (detail.confirmTransition === 'true') : false
+	const needsSignature = detail ? (detail.requireDigitalSignature === 'true') : false
+
+	const doComplete = async () => {
+		completingTask.value   = task.task_id
+		completingAction.value = actionName
+		try {
+			const data = actionName ? JSON.stringify({ action: actionName }) : '{}'
+			await frappeRequest({
+				url:    '/api/method/one_bpmn.api.complete_task',
+				method: 'POST',
+				params: {
+					instance_name: instanceId.value,
+					task_id:       task.task_id,
+					data,
+				},
+			})
+			// Refresh everything — new active tasks, updated diagram highlights, history
+			logs.value       = []
+			limitStart.value  = 0
+			hasMoreLogs.value = true
+			await loadDetails()
+			await loadLogs()
+		} catch (err) {
+			console.error('Failed to complete task:', err)
+			// Show error to user
+			if (window.frappe) {
+				window.frappe.show_alert({
+					message: err.message || 'Failed to complete task',
+					indicator: 'red',
+				}, 5)
+			}
+		} finally {
+			completingTask.value   = null
+			completingAction.value = null
 		}
-	} finally {
-		completingTask.value   = null
-		completingAction.value = null
+	}
+
+	// Digital signature check (placeholder — actual capture UI is a follow-up)
+	const doSignatureCheck = () => {
+		if (needsSignature && window.frappe) {
+			window.frappe.confirm(
+				'<b>Digital Signature Required</b><br><br>' +
+				'This action requires a digital signature to proceed. ' +
+				'By clicking "Proceed", you acknowledge and authorize this action with your identity.',
+				() => doComplete()
+			)
+		} else {
+			doComplete()
+		}
+	}
+
+	// Confirmation dialog
+	if (needsConfirm && window.frappe) {
+		const msg = actionName
+			? `Apply action <b>${actionName}</b>?`
+			: `Complete task <b>${task.task_name || 'Task'}</b>?`
+		window.frappe.confirm(msg, () => doSignatureCheck())
+	} else {
+		doSignatureCheck()
 	}
 }
 

@@ -1,7 +1,7 @@
 import { SelectEntry, isSelectEntryEdited } from "@bpmn-io/properties-panel";
 import { useService } from "bpmn-js-properties-panel";
 import { getBusinessObject } from "bpmn-js/lib/util/ModelUtil";
-import { h } from "preact";
+import { h, Component } from "preact";
 import { frappeGet } from "../shared/frappeResource";
 import { FrappeAutocomplete } from "../shared/FrappeAutocomplete";
 import { FrappeMultiSelect } from "../shared/FrappeMultiSelect";
@@ -76,7 +76,7 @@ export function UserTaskProps(props) {
 		entries.push({
 			id: "spiffworkflow-taskActions",
 			element,
-			component: TaskActionsComponent,
+			component: TaskActionsTableComponent,
 			isEdited: isSelectEntryEdited,
 		});
 	}
@@ -309,6 +309,7 @@ function RoundRobinUsersComponent(props) {
 				fetchApi: fetchSystemUsers,
 				valueField: "name",
 				renderOption: (opt) => `${opt.full_name} (${opt.name})`,
+				itemLabel: "user",
 			}),
 
 			// ── Read-only: Last Assigned User ─────────────────────────────────
@@ -385,6 +386,7 @@ function LoadBalancingUsersComponent(props) {
 				fetchApi: fetchSystemUsers,
 				valueField: "name",
 				renderOption: (opt) => `${opt.full_name} (${opt.name})`,
+				itemLabel: "user",
 			}),
 			h(
 				"div",
@@ -399,25 +401,189 @@ function LoadBalancingUsersComponent(props) {
 	);
 }
 
-// Task Actions — define action buttons (e.g. "Approve,Reject,Send Back")
-// The chosen label is submitted as {action: "<label>"} when the user clicks
-// an action button on the pending task in the instance detail view.
-// Exclusive Gateways downstream can route on: action == "Approve"
-function TaskActionsComponent(props) {
+// ─────────────────────────────────────────────────────────────────────────
+// Task Actions Child Table — each action is a row with:
+//   - Action Name (autocomplete from Workflow Action Master)
+//   - Confirm Transition? (checkbox)
+//   - Require Digital Signature? (checkbox)
+//
+// Stored as JSON in spiffworkflow:taskActions:
+//   [{"action":"Approve","confirmTransition":"true","requireDigitalSignature":"true"},
+//    {"action":"Reject","confirmTransition":"true"}]
+//
+// Backward-compatible: if the stored value is a plain comma-separated string
+// (no leading "["), it is parsed as [{action: "X"}, {action: "Y"}].
+// ─────────────────────────────────────────────────────────────────────────
+
+/**
+ * Parse the stored taskActions value.
+ * Handles both new JSON format and legacy comma-separated strings.
+ */
+function parseTaskActions(raw) {
+	if (!raw) return [];
+	const trimmed = raw.trim();
+	if (trimmed.startsWith("[")) {
+		try {
+			const parsed = JSON.parse(trimmed);
+			return Array.isArray(parsed) ? parsed : [];
+		} catch (_) {
+			return [];
+		}
+	}
+	// Legacy: comma-separated action names
+	return trimmed
+		.split(",")
+		.map((a) => a.trim())
+		.filter(Boolean)
+		.map((action) => ({ action }));
+}
+
+/** Serialize actions array back to JSON string for the XML attribute. */
+function serializeTaskActions(actions) {
+	if (!actions || actions.length === 0) return undefined;
+	return JSON.stringify(actions);
+}
+
+function TaskActionsTableComponent(props) {
 	const { element, id } = props;
 	const modeling  = useService("modeling");
 	const translate = useService("translate");
 	const bo        = getBusinessObject(element);
 
-	const value = getAttr(bo, "taskActions");
+	const raw     = getAttr(bo, "taskActions");
+	const actions = parseTaskActions(raw);
 
-	const handleChange = (val) => {
+	// ── Mutate helpers ────────────────────────────────────────────
+	const commit = (nextActions) => {
 		modeling.updateModdleProperties(element, bo, {
-			"spiffworkflow:taskActions": val || undefined,
+			"spiffworkflow:taskActions": serializeTaskActions(nextActions),
 		});
 	};
 
-	const fetchActions = (txt) => {
+	const updateRow = (idx, key, value) => {
+		const next = actions.map((a, i) =>
+			i === idx ? { ...a, [key]: value } : { ...a }
+		);
+		commit(next);
+	};
+
+	const removeRow = (idx) => {
+		commit(actions.filter((_, i) => i !== idx));
+	};
+
+	const addRow = () => {
+		commit([...actions, { action: "" }]);
+	};
+
+	return h(
+		"div",
+		{ class: "bio-properties-panel-entry", "data-entry-id": id },
+		h(
+			"div",
+			{ class: "bio-properties-panel-textfield" },
+			[
+				h("label", { class: "bio-properties-panel-label" }, translate("Task Actions")),
+
+				h("div", { class: "bpmn-actions-table" }, [
+					// ── Column headers ──────────────────────────────
+					actions.length > 0 &&
+						h("div", { class: "bpmn-actions-table-header" }, [
+							h("div", { class: "bpmn-actions-table-header-cell" }, translate("Action")),
+							h("div", { class: "bpmn-actions-table-header-cell" }, translate("Confirm")),
+							h("div", { class: "bpmn-actions-table-header-cell" }, translate("Sign")),
+							h("div", { class: "bpmn-actions-table-header-cell" }),  // remove col
+						]),
+
+					// ── Action rows ─────────────────────────────────
+					...actions.map((row, idx) =>
+						h(ActionRowComponent, {
+							key: `action-row-${idx}`,
+							row,
+							idx,
+							element,
+							translate,
+							onUpdate: updateRow,
+							onRemove: removeRow,
+						})
+					),
+
+					// ── Add button ──────────────────────────────────
+					h(
+						"button",
+						{
+							type: "button",
+							class: "bpmn-action-add-btn",
+							onClick: addRow,
+						},
+						[
+							h("span", {}, "+"),
+							h("span", {}, translate("Add Action")),
+						]
+					),
+				]),
+
+				// Description
+				h(
+					"div",
+					{ class: "bio-properties-panel-description" },
+					translate(
+						"Each action becomes a button visible to the user. " +
+						"'Confirm' shows a confirmation dialog before completing. " +
+						"'Sign' requires a digital signature before completing. " +
+						"The selected action is passed as the 'action' variable — " +
+						"use it in Exclusive Gateway conditions (e.g. action == \"Approve\")."
+					)
+				),
+			]
+		)
+	);
+}
+
+/**
+ * A single action row with:
+ *   - Action name input with autocomplete dropdown
+ *   - Confirm Transition checkbox
+ *   - Require Digital Signature checkbox
+ *   - Remove button
+ */
+class ActionRowComponent extends Component {
+	constructor(props) {
+		super(props);
+		this.state = {
+			inputText: props.row.action || "",
+			options: [],
+			isOpen: false,
+			loading: false,
+		};
+		this.containerRef  = null;
+		this.debounceTimer = null;
+		this.handleDocClick = this.handleDocClick.bind(this);
+	}
+
+	componentDidMount() {
+		document.addEventListener("mousedown", this.handleDocClick);
+	}
+
+	componentWillUnmount() {
+		document.removeEventListener("mousedown", this.handleDocClick);
+		if (this.debounceTimer) clearTimeout(this.debounceTimer);
+	}
+
+	handleDocClick(e) {
+		if (this.containerRef && !this.containerRef.contains(e.target)) {
+			this.setState({ isOpen: false });
+		}
+	}
+
+	componentDidUpdate(prevProps) {
+		// Sync input text when the action name changes externally (undo/redo)
+		if (prevProps.row.action !== this.props.row.action) {
+			this.setState({ inputText: this.props.row.action || "" });
+		}
+	}
+
+	fetchOptions(txt) {
+		this.setState({ loading: true });
 		const params = {
 			fields: '["name"]',
 			limit_page_length: 50,
@@ -426,35 +592,131 @@ function TaskActionsComponent(props) {
 		if (txt) {
 			params.filters = JSON.stringify([["name", "like", `%${txt}%`]]);
 		}
-		return frappeGet("/api/resource/Workflow Action Master", params);
-	};
+		frappeGet("/api/resource/Workflow Action Master", params)
+			.then((list) => {
+				this.setState({ options: list || [], loading: false, isOpen: true });
+			})
+			.catch(() => this.setState({ loading: false }));
+	}
 
-	return h(
-		"div",
-		{},
-		[
-			h(FrappeMultiSelect, {
-				id,
-				label: translate("Task Actions"),
-				value,
-				onChange: handleChange,
-				fetchApi: fetchActions,
-				valueField: "name",
-				renderOption: (opt) => opt.name,
-				placeholder: translate("Search workflow actions…"),
-			}),
-			h(
-				"div",
-				{ class: "bio-properties-panel-description" },
-				translate(
-					"Select actions from Workflow Action Master. " +
-					"Each action becomes a button in the Actions menu. " +
-					"The selected action is passed as the 'action' variable — " +
-					"use it in Exclusive Gateway conditions (e.g. action == \"Approve\")."
-				)
-			),
-		]
-	);
+	onInput(e) {
+		const val = e.target.value;
+		this.setState({ inputText: val });
+		if (this.debounceTimer) clearTimeout(this.debounceTimer);
+		this.debounceTimer = setTimeout(() => this.fetchOptions(val), 300);
+	}
+
+	onFocus() {
+		this.fetchOptions(this.state.inputText);
+	}
+
+	selectOption(name) {
+		this.setState({ inputText: name, isOpen: false });
+		this.props.onUpdate(this.props.idx, "action", name);
+	}
+
+	onBlur() {
+		// If the user typed a manual value, commit it on blur
+		setTimeout(() => {
+			const { inputText } = this.state;
+			if (inputText !== this.props.row.action) {
+				this.props.onUpdate(this.props.idx, "action", inputText);
+			}
+		}, 200);  // delay to allow dropdown click to register first
+	}
+
+	render() {
+		const { row, idx, translate, onUpdate, onRemove } = this.props;
+		const { inputText, options, isOpen, loading } = this.state;
+
+		return h(
+			"div",
+			{
+				class: "bpmn-action-row",
+				ref: (c) => (this.containerRef = c),
+			},
+			[
+				// ── Action Name cell ────────────────────────────
+				h("div", { class: "bpmn-action-name" }, [
+					h("input", {
+						type: "text",
+						class: "bpmn-action-name-input",
+						value: inputText,
+						placeholder: translate("Type action…"),
+						onInput: (e) => this.onInput(e),
+						onFocus: () => this.onFocus(),
+						onBlur: () => this.onBlur(),
+						autoComplete: "off",
+						spellCheck: "false",
+					}),
+					// Dropdown
+					isOpen &&
+						h(
+							"ul",
+							{ class: "bpmn-action-dropdown" },
+							[
+								loading &&
+									h("li", { class: "bpmn-action-dropdown-loading" }, "Loading…"),
+								!loading && options.length === 0 &&
+									h("li", { class: "bpmn-action-dropdown-empty" }, "No results"),
+								!loading &&
+									options.map((opt) =>
+										h(
+											"li",
+											{
+												key: opt.name,
+												onMouseDown: (e) => {
+													e.preventDefault();
+													this.selectOption(opt.name);
+												},
+											},
+											opt.name
+										)
+									),
+							]
+						),
+				]),
+
+				// ── Confirm Transition checkbox ─────────────────
+				h(
+					"div",
+					{ class: "bpmn-action-checkbox-cell" },
+					h("input", {
+						type: "checkbox",
+						checked: row.confirmTransition === "true",
+						title: translate("Confirm Transition"),
+						onChange: (e) =>
+							onUpdate(idx, "confirmTransition", e.target.checked ? "true" : undefined),
+					})
+				),
+
+				// ── Require Digital Signature checkbox ───────────
+				h(
+					"div",
+					{ class: "bpmn-action-checkbox-cell" },
+					h("input", {
+						type: "checkbox",
+						checked: row.requireDigitalSignature === "true",
+						title: translate("Require Digital Signature"),
+						onChange: (e) =>
+							onUpdate(idx, "requireDigitalSignature", e.target.checked ? "true" : undefined),
+					})
+				),
+
+				// ── Remove button ───────────────────────────────
+				h(
+					"button",
+					{
+						type: "button",
+						class: "bpmn-action-remove-btn",
+						title: translate("Remove action"),
+						onClick: () => onRemove(idx),
+					},
+					"×"
+				),
+			]
+		);
+	}
 }
 
 

@@ -14,3 +14,173 @@
 	color: #666;
 	cursor: default;
 }
+
+/* ─────────────────────────────────────────────────────────────────
+ * Task Actions Child Table
+ * ───────────────────────────────────────────────────────────────── */
+
+/* Container for the entire actions table */
+.bpmn-actions-table {
+	margin-top: 4px;
+}
+
+/* Column header row */
+.bpmn-actions-table-header {
+	display: grid;
+	grid-template-columns: 1fr 60px 60px 28px;
+	gap: 4px;
+	padding: 4px 0;
+	border-bottom: 1px solid #ddd;
+	margin-bottom: 2px;
+}
+
+.bpmn-actions-table-header-cell {
+	font-size: 10px;
+	font-weight: 600;
+	color: #666;
+	text-transform: uppercase;
+	letter-spacing: 0.03em;
+	line-height: 1.4;
+	text-align: center;
+	padding: 0 2px;
+}
+
+.bpmn-actions-table-header-cell:first-child {
+	text-align: left;
+}
+
+/* Single action row */
+.bpmn-action-row {
+	display: grid;
+	grid-template-columns: 1fr 60px 60px 28px;
+	gap: 4px;
+	align-items: center;
+	padding: 4px 0;
+	border-bottom: 1px solid #f0f0f0;
+}
+
+.bpmn-action-row:last-child {
+	border-bottom: none;
+}
+
+/* Action name cell — wraps the autocomplete mini-input */
+.bpmn-action-row .bpmn-action-name {
+	min-width: 0;
+	position: relative;
+}
+
+.bpmn-action-name-input {
+	width: 100%;
+	padding: 3px 6px;
+	font-size: 12px;
+	border: 1px solid #ccc;
+	border-radius: 3px;
+	background: #fff;
+	outline: none;
+	box-sizing: border-box;
+}
+
+.bpmn-action-name-input:focus {
+	border-color: #4d90fe;
+	box-shadow: 0 0 0 1px rgba(77, 144, 254, 0.3);
+}
+
+/* Checkbox cells — centered */
+.bpmn-action-checkbox-cell {
+	display: flex;
+	align-items: center;
+	justify-content: center;
+}
+
+.bpmn-action-checkbox-cell input[type="checkbox"] {
+	width: 14px;
+	height: 14px;
+	cursor: pointer;
+	accent-color: #4d90fe;
+}
+
+/* Remove button */
+.bpmn-action-remove-btn {
+	display: flex;
+	align-items: center;
+	justify-content: center;
+	width: 22px;
+	height: 22px;
+	border: none;
+	border-radius: 3px;
+	background: transparent;
+	color: #999;
+	font-size: 16px;
+	line-height: 1;
+	cursor: pointer;
+	padding: 0;
+	transition: background 0.15s, color 0.15s;
+}
+
+.bpmn-action-remove-btn:hover {
+	background: #fee2e2;
+	color: #dc2626;
+}
+
+/* Add row button */
+.bpmn-action-add-btn {
+	display: flex;
+	align-items: center;
+	gap: 4px;
+	margin-top: 6px;
+	padding: 4px 8px;
+	font-size: 11px;
+	font-weight: 500;
+	color: #4d90fe;
+	background: #f0f7ff;
+	border: 1px dashed #b3d4fc;
+	border-radius: 4px;
+	cursor: pointer;
+	transition: background 0.15s, border-color 0.15s;
+}
+
+.bpmn-action-add-btn:hover {
+	background: #e0efff;
+	border-color: #4d90fe;
+}
+
+/* Mini dropdown for action name autocomplete */
+.bpmn-action-dropdown {
+	position: absolute;
+	top: 100%;
+	left: 0;
+	right: 0;
+	max-height: 150px;
+	overflow-y: auto;
+	background: #fff;
+	border: 1px solid #ccc;
+	border-radius: 0 0 3px 3px;
+	box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15);
+	z-index: 100;
+	margin: 0;
+	padding: 0;
+	list-style: none;
+}
+
+.bpmn-action-dropdown li {
+	padding: 5px 8px;
+	font-size: 12px;
+	cursor: pointer;
+	border-bottom: 1px solid #f5f5f5;
+}
+
+.bpmn-action-dropdown li:last-child {
+	border-bottom: none;
+}
+
+.bpmn-action-dropdown li:hover {
+	background: #e8f0fe;
+}
+
+.bpmn-action-dropdown-empty,
+.bpmn-action-dropdown-loading {
+	padding: 6px 8px;
+	font-size: 11px;
+	color: #999;
+	font-style: italic;
+}
