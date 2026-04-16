@@ -230,15 +230,21 @@ class BPMNProcessInstance(Document):
 
 		self._check_completion(wf)
 
-		# Set ignore_version flag BEFORE save to bypass Frappe's optimistic-lock
-		# check (check_if_latest). In Frappe v15, this is a document flag, not a
-		# save() kwarg. Without it, concurrent doc_update events (from the realtime
-		# broadcast causing the Frappe form to reload) bump the DB timestamp between
-		# get_doc() and save() here, causing TimestampMismatchError.
-		# advance() is the authoritative writer of workflow state so skipping the
-		# version check is correct.
-		self.flags.ignore_version = True
-		self.save(ignore_permissions=True)
+		# Persist state directly via db_update to bypass Frappe's check_if_latest
+		# (optimistic-lock check). This Frappe version has no ignore_version flag
+		# on Document.save(). Using save() races with the realtime doc_update
+		# broadcast we publish (and with Frappe's own notify_update() which also
+		# fires on save), causing TimestampMismatchError.
+		#
+		# db_update() writes only the parent-level scalar fields. Child tables
+		# (active_tasks) are updated separately via update_children().
+		# run_method("on_update") fires any custom on_update hooks without
+		# going through the full save/validate pipeline.
+		self.modified = frappe.utils.now()
+		self.modified_by = frappe.session.user
+		self.db_update()
+		self.update_children()
+		self.run_method("on_update")
 
 		return self.get_active_tasks_summary()
 
