@@ -497,13 +497,9 @@ class BPMNProcessInstance(Document):
 			self._dispatch_update_field(task, task_cfg, bpmn_id)
 
 		elif service_type == "google_chat":
-			try:
-				self._dispatch_google_chat(task, task_cfg, bpmn_id)
-			except Exception:
-				frappe.log_error(
-					title=f"BPMN ServiceTask: google_chat failed for task {bpmn_id}",
-					message=frappe.get_traceback(),
-				)
+			# Error handling is fully inside _dispatch_google_chat;
+			# failures are non-fatal and logged there.
+			self._dispatch_google_chat(task, task_cfg, bpmn_id)
 
 		elif service_type == "push_notification":
 			try:
@@ -551,7 +547,14 @@ class BPMNProcessInstance(Document):
 			try:
 				rows = _json.loads(rows_json)
 				if not isinstance(rows, list):
-					rows = []
+					frappe.log_error(
+						title=f"BPMN ServiceTask: update_field misconfigured ({bpmn_id})",
+						message=(
+							f"updateFieldRows decoded to {type(rows).__name__}, expected list. "
+							f"Raw value: {rows_json!r}"
+						),
+					)
+					return
 			except Exception:
 				frappe.log_error(
 					title=f"BPMN ServiceTask: update_field invalid JSON ({bpmn_id})",
@@ -583,6 +586,12 @@ class BPMNProcessInstance(Document):
 
 		updates = {}
 		for row in rows:
+			if not isinstance(row, dict):
+				frappe.logger("one_bpmn").warning(
+					f"BPMN update_field: skipping non-dict row {row!r} "
+					f"(task={bpmn_id}, instance={self.name})"
+				)
+				continue
 			fieldname = (row.get("field") or "").strip()
 			raw_value = row.get("value", "")
 			if not fieldname:
@@ -647,6 +656,17 @@ class BPMNProcessInstance(Document):
 		gchat_email = (task_cfg.get("gchatEmail") or "").strip()
 		gchat_space_id = (task_cfg.get("gchatSpaceId") or "").strip()
 		raw_message = (task_cfg.get("gchatMessage") or "").strip()
+
+		# Validate gchatType is one of the supported values
+		if gchat_type not in ("individual", "space"):
+			frappe.log_error(
+				title=f"BPMN ServiceTask: google_chat misconfigured ({bpmn_id})",
+				message=(
+					f"gchatType={gchat_type!r} is not a valid destination type. "
+					f"Expected 'individual' or 'space'."
+				),
+			)
+			return
 
 		if not raw_message:
 			frappe.log_error(
@@ -753,7 +773,6 @@ class BPMNProcessInstance(Document):
 				title=f"BPMN ServiceTask: google_chat API call failed ({bpmn_id})",
 				message=frappe.get_traceback(),
 			)
-			raise
 
 	def _dispatch_push_notification(self, task, task_cfg: dict, bpmn_id: str) -> None:
 		"""

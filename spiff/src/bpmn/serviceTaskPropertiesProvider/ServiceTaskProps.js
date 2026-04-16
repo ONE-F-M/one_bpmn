@@ -869,6 +869,34 @@ function UpdateFieldValueComponent(props) {
 // ===========================================================================
 
 // ── UFR: Multi-row field editor ───────────────────────────────────────────
+
+// Generate a short stable ID for each row (survives re-renders)
+let _rowIdCounter = 0;
+function makeRowId() {
+	if (typeof crypto !== "undefined" && crypto.randomUUID) {
+		return crypto.randomUUID();
+	}
+	return `row-${Date.now()}-${++_rowIdCounter}`;
+}
+
+// Normalize a raw parsed value into { id, field, value }
+function normalizeRow(item) {
+	if (item && typeof item === "object" && !Array.isArray(item)) {
+		return {
+			id: item.id || makeRowId(),
+			field: item.field || "",
+			value: item.value || "",
+		};
+	}
+	// Skip non-object items (numbers, strings, nulls, nested arrays)
+	return null;
+}
+
+// Strip internal `id` before persisting to BPMN XML
+function serializableRows(rows) {
+	return rows.map(({ field, value }) => ({ field, value }));
+}
+
 function UpdateFieldRowsComponent(props) {
 	const { element, id } = props;
 	const modeling  = useService("modeling");
@@ -880,22 +908,30 @@ function UpdateFieldRowsComponent(props) {
 	let rows = [];
 	const stored = getAttr(bo, "updateFieldRows");
 	if (stored) {
-		try { rows = JSON.parse(stored); } catch(e) { rows = []; }
+		try {
+			const parsed = JSON.parse(stored);
+			if (Array.isArray(parsed)) {
+				rows = parsed.map(normalizeRow).filter(Boolean);
+			}
+			// non-array JSON values are silently ignored (empty rows)
+		} catch(e) {
+			rows = [];
+		}
 	} else {
 		const legacyField = getAttr(bo, "updateFieldName");
 		const legacyValue = getAttr(bo, "updateFieldValue");
-		if (legacyField) rows = [{ field: legacyField, value: legacyValue }];
+		if (legacyField) rows = [{ id: makeRowId(), field: legacyField, value: legacyValue }];
 	}
 
 	const save = (newRows) => {
 		modeling.updateModdleProperties(element, bo, {
-			"spiffworkflow:updateFieldRows": newRows.length ? JSON.stringify(newRows) : undefined,
+			"spiffworkflow:updateFieldRows": newRows.length ? JSON.stringify(serializableRows(newRows)) : undefined,
 			"spiffworkflow:updateFieldName":  undefined,
 			"spiffworkflow:updateFieldValue": undefined,
 		});
 	};
 
-	const addRow    = ()        => save([...rows, { field: "", value: "" }]);
+	const addRow    = ()        => save([...rows, { id: makeRowId(), field: "", value: "" }]);
 	const removeRow = (idx)     => save(rows.filter((_, i) => i !== idx));
 	const setField  = (idx, v)  => { const r = [...rows]; r[idx] = { ...r[idx], field: v  }; save(r); };
 	const setValue  = (idx, v)  => { const r = [...rows]; r[idx] = { ...r[idx], value: v  }; save(r); };
@@ -926,9 +962,9 @@ function UpdateFieldRowsComponent(props) {
 				{ class: "bpmn-field-rows" },
 				[
 					...rows.map((row, idx) =>
-						h("div", { key: idx, class: "bpmn-field-row" }, [
+						h("div", { key: row.id, class: "bpmn-field-row" }, [
 							h(FrappeAutocomplete, {
-								id: `${id}-field-${idx}`,
+								id: `${id}-field-${row.id}`,
 								label: "",
 								value: row.field,
 								onChange: (v) => setField(idx, v),
