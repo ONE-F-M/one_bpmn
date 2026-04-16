@@ -371,11 +371,11 @@ def update_diagram_order(process: str, order: list) -> dict:
 @frappe.whitelist()
 def delete_diagram(name: str) -> dict:
 	"""
-	Delete a BPMN process model diagram — fast path.
+	Delete a BPMN process model diagram.
 
-	Uses direct DB operations instead of frappe.delete_doc() to avoid
-	loading the full document (with 50-200KB bpmn_xml) into memory.
-	Safe because BPMNProcessModel has no on_trash/after_delete hooks.
+	Uses frappe.delete_doc() to ensure proper link checks, cascade
+	cleanup (attachments, shares, todos, tags), and doc-level
+	permission enforcement.
 
 	Args:
 		name: Name of the diagram to delete
@@ -386,39 +386,9 @@ def delete_diagram(name: str) -> dict:
 	if not name:
 		frappe.throw(_("Diagram name is required"))
 
-	# Lightweight existence check (avoids loading the full doc with large bpmn_xml)
-	if not frappe.db.exists("BPMN Process Model", name):
-		frappe.throw(
-			_("BPMN Process Model '{0}' does not exist").format(name),
-			frappe.DoesNotExistError,
-		)
-
-	# DocType-level permission check (does NOT load the document)
-	if not frappe.has_permission("BPMN Process Model", "delete"):
-		frappe.throw(_("Not permitted to delete BPMN Process Models"), frappe.PermissionError)
-
-	# --- Direct DB delete (never loads the large bpmn_xml into memory) ---
-	# 1. Delete child table rows
-	frappe.db.delete("BPMN Start Event Config", {
-		"parent": name, "parenttype": "BPMN Process Model",
-	})
-	frappe.db.delete("BPMN Process DocType", {
-		"parent": name, "parenttype": "BPMN Process Model",
-	})
-
-	# 2. Delete the document itself
-	frappe.db.delete("BPMN Process Model", {"name": name})
-
-	# 3. Clean up related meta records (versions, comments)
-	frappe.db.delete("Version", {
-		"ref_doctype": "BPMN Process Model", "docname": name,
-	})
-	frappe.db.delete("Comment", {
-		"reference_doctype": "BPMN Process Model", "reference_name": name,
-	})
-
-	# 4. Clear cache for this DocType
-	frappe.clear_cache(doctype="BPMN Process Model")
+	# frappe.delete_doc handles: existence check, doc-level permissions,
+	# link validation, child table cleanup, Version/Comment/File/DocShare/ToDo removal
+	frappe.delete_doc("BPMN Process Model", name)
 
 	return {"success": True}
 
@@ -431,6 +401,9 @@ def rename_process_model(name: str, new_title: str) -> dict:
 	Skips doc.save() entirely since only the title/name is changing.
 	This avoids the expensive validate hooks (cross-site editability
 	check, XML parsing, version tracking with large XML diffing).
+
+	Doc-level permission is enforced via frappe.get_doc().check_permission()
+	to respect user-permission restrictions on specific records.
 
 	Args:
 		name: Current document name of the BPMN Process Model
@@ -446,33 +419,29 @@ def rename_process_model(name: str, new_title: str) -> dict:
 	if not new_title:
 		frappe.throw(_("New title cannot be empty"))
 
-	# DocType-level permission check (does NOT load the full document)
-	if not frappe.has_permission("BPMN Process Model", "write"):
-		frappe.throw(_("Not permitted to modify BPMN Process Models"), frappe.PermissionError)
+	# Doc-level permission check (respects user-permission restrictions)
+	doc = frappe.get_doc("BPMN Process Model", name)
+	doc.check_permission("write")
 
-	# If the title hasn't actually changed, no-op
-	if new_title == name:
-		return {"name": name, "model_name": new_title}
+	# Compare against the current title field (not the document name,
+	# since allow_rename=1 means name and title can diverge)
+	current_title = doc.title
+	if new_title == current_title:
+		return {"name": name, "model_name": current_title}
 
-	# Lightweight existence check (avoids loading the full doc with large bpmn_xml)
-	if not frappe.db.exists("BPMN Process Model", name):
+	# Global uniqueness check — title has unique=1 in the DocType schema.
+	# Catch this before db.set_value to give a user-friendly error instead
+	# of a raw IntegrityError.
+	global_duplicate = frappe.db.get_value(
+		"BPMN Process Model",
+		{"title": new_title, "name": ("!=", name)},
+		"name",
+	)
+	if global_duplicate:
 		frappe.throw(
-			_("BPMN Process Model '{0}' does not exist").format(name),
-			frappe.DoesNotExistError,
+			_("A BPMN Process Model with the title '{0}' already exists").format(new_title),
+			frappe.ValidationError,
 		)
-
-	# Fetch process_name for duplicate-title check (single-field query, no XML)
-	process_name = frappe.db.get_value("BPMN Process Model", name, "process_name")
-	if process_name:
-		duplicate = frappe.db.get_value(
-			"BPMN Process Model",
-			{"title": new_title, "process_name": process_name, "name": ("!=", name)},
-			"name",
-		)
-		if duplicate:
-			frappe.throw(
-				_("A diagram named '{0}' already exists in this process").format(new_title)
-			)
 
 	# Update title field directly — bypasses validate hooks
 	# (no editability HTTP call, no XML parsing, no version bump, no track_changes diff)

@@ -27,8 +27,14 @@ class BPMNProcessModel(Document):
 		if frappe.session.user == "Administrator":
 			return
 
-		# Skip the expensive cross-site check for non-XML changes
-		if not self.is_new() and not self.has_value_changed("bpmn_xml"):
+		# Skip the expensive cross-site check only when neither the XML
+		# content nor the process assignment has changed. Changing
+		# process_name could move the model to a locked process.
+		if (
+			not self.is_new()
+			and not self.has_value_changed("bpmn_xml")
+			and not self.has_value_changed("process_name")
+		):
 			return
 
 		from one_bpmn.api import check_process_editable
