@@ -208,8 +208,7 @@
    "fieldtype": "Select",
    "in_list_view": 1,
    "label": "Status",
-   "options": "Draft\nDeployed\nRetired",
-   "read_only": 1
+   "options": "Draft\nDeployed\nRetired"
   },
   {
    "fieldname": "deployed_at",
