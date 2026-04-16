@@ -81,6 +81,8 @@
 						@click.stop="exportProcess(process)"
 						:disabled="exportingProcesses.has(process.name)"
 						class="p-1.5 rounded hover:bg-gray-200 text-gray-500 transition-colors disabled:opacity-40 shrink-0"
+						title="Export BPMN"
+						aria-label="Export BPMN"
 					>
 						<Icon
 							:icon="exportingProcesses.has(process.name) ? 'lucide:loader-2' : 'lucide:download'"

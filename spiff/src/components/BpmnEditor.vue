@@ -559,7 +559,7 @@ const selectedElements = shallowRef([]);
 const modelerInstance = shallowRef(null);
 
 // Mobile responsiveness
-const { isMobile, isTablet } = useWindowSize();
+const { isMobile } = useWindowSize();
 const showMobileFormatPopover = ref(false);
 const dragHandleRef = ref(null);
 const { dragOffset, isDragging, attach: attachBottomSheet } = useBottomSheet();

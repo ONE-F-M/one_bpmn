@@ -35,11 +35,6 @@
 		width: 100% !important;
 		border-left: none;
 	}
-
-	.properties-panel-container .bio-properties-panel {
-		min-width: unset;
-		width: 100%;
-	}
 }
 
 /* iOS safe area support */
