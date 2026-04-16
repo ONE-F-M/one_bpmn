@@ -1584,9 +1584,12 @@ async function loadXML(xml) {
 	if (!modeler) return;
 	isImporting.value = true;
 	try {
-		// Decode any HTML entities in the XML
-		const decodedXml = decodeHtmlEntities(xml);
-		await modeler.importXML(decodedXml);
+		// Pass XML directly to bpmn-js — its own parser handles XML entities
+		// such as &#34; correctly. Pre-decoding with decodeHtmlEntities would
+		// corrupt attribute values that contain JSON (e.g. taskActions stores
+		// [{...}] with &#34; for the quotes), turning valid XML into malformed
+		// XML where " inside a quoted attribute breaks the parser.
+		await modeler.importXML(xml);
 		updateUndoRedoState();
 		renderComments();
 		// Fit diagram to screen by default after loading, safely catching zero-dimension errors
