@@ -1322,8 +1322,8 @@ function renderComments() {
 		try {
 			overlays.add(elementId, "processa-comment", {
 				position: {
-					bottom: 0,
-					right: 0
+					top: -10,
+					left: -10
 				},
 				html: html
 			});
