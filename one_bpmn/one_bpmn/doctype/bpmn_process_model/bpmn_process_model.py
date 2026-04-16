@@ -14,16 +14,31 @@ class BPMNProcessModel(Document):
 		self.enforce_single_active()
 
 	def validate_is_editable(self):
-		"""Ensure that the process is editable on the backend level before saving it"""
+		"""Ensure that the process is editable on the backend level before saving it.
+
+		The cross-site Pathfinder Log check is expensive (~0.5-2s HTTP round-trip).
+		Skip it for metadata-only changes (title, description, is_active, etc.)
+		where the actual BPMN XML content has not been modified.
+		"""
 		if not self.process_name:
 			return
-		
+
 		# Allow Frappe Administrator to bypass if necessary
 		if frappe.session.user == "Administrator":
 			return
-		
+
+		# Skip the expensive cross-site check only when neither the XML
+		# content nor the process assignment has changed. Changing
+		# process_name could move the model to a locked process.
+		if (
+			not self.is_new()
+			and not self.has_value_changed("bpmn_xml")
+			and not self.has_value_changed("process_name")
+		):
+			return
+
 		from one_bpmn.api import check_process_editable
-		
+
 		editability_info = check_process_editable(self.process_name)
 		if not editability_info.get("editable"):
 			reason = editability_info.get("reason", "No active Pathfinder Log.")

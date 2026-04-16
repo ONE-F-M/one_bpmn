@@ -1,11 +1,11 @@
 <template>
 	<div class="h-full flex flex-col min-w-0 overflow-hidden">
 		<!-- Unified Toolbar -->
-		<header class="bg-white border-b px-2 py-2 flex items-center justify-between shadow-sm w-full min-h-[48px]">
+		<header class="bg-white border-b px-2 py-2 flex items-center justify-between shadow-sm w-full min-h-[44px] sm:min-h-[48px]">
 			
 			<div class="flex items-center gap-2 flex-1 min-w-0">
 				<!-- Left: Back & Title -->
-				<div class="flex items-center gap-2 pr-3 border-r border-gray-200 shrink-0">
+				<div class="flex items-center gap-2 pr-3 sm:border-r sm:border-gray-200 shrink-0">
 					<button
 						@click="goBack"
 						class="p-1.5 hover:bg-gray-100 rounded-md transition-colors text-gray-600"
@@ -14,7 +14,7 @@
 						<Icon icon="lucide:chevron-left" class="w-5 h-5" />
 					</button>
 					<div class="flex items-center gap-2 relative">
-						<h1 class="text-sm font-semibold text-gray-800 truncate max-w-[100px] sm:max-w-[200px]" :title="processName">{{ processName }}</h1>
+						<h1 class="text-sm font-semibold text-gray-800 truncate max-w-[160px] sm:max-w-[200px]" :title="processName">{{ processName }}</h1>
 						
 						<!-- Status Icon -->
 						<button 
@@ -65,11 +65,11 @@
 					</div>
 				</div>
 
-				<!-- CENTER: BPMN Tools Container (Mounted natively from BpmnEditor.vue) -->
-				<div id="bpmn-editor-toolbar" class="flex-1 flex items-center h-8 min-w-0"></div>
+				<!-- CENTER: BPMN Tools Container (Mounted natively from BpmnEditor.vue, hidden on mobile) -->
+				<div id="bpmn-editor-toolbar" class="hidden sm:flex flex-1 items-center h-8 min-w-0"></div>
 
-				<!-- Other Active Editors Avatars -->
-				<div v-if="otherEditors.length > 0" class="flex items-center -space-x-2 ml-4">
+				<!-- Other Active Editors Avatars (hidden on mobile) -->
+				<div v-if="otherEditors.length > 0" class="hidden sm:flex items-center -space-x-2 ml-4">
 					<div
 						v-for="user in otherEditors"
 						:key="user.name"
@@ -112,30 +112,8 @@
 					class="hidden"
 					@change="handleImportFile"
 				/>
-				<!-- Deploy Button -->
-				<button
-					@click="deployModel"
-					class="h-7 flex items-center gap-1 px-2.5 bg-blue-600 hover:bg-blue-700 text-white rounded transition-colors text-xs font-medium leading-none"
-					title="Deploy process model"
-					:disabled="!activeDiagramName || deploying"
-					:class="{ 'opacity-50 cursor-not-allowed': !activeDiagramName || deploying }"
-				>
-					<Icon :icon="deploying ? 'lucide:loader-2' : 'lucide:rocket'" class="w-3.5 h-3.5" :class="{ 'animate-spin': deploying }" />
-					{{ deploying ? 'Deploying…' : 'Deploy' }}
-				</button>
 
-				<!-- Compare Versions Button -->
-				<button
-					@click="openVersionPicker"
-					class="w-8 h-8 flex items-center justify-center hover:bg-gray-100 rounded transition-colors text-gray-600"
-					title="Compare Versions"
-					:disabled="!activeDiagramName"
-					:class="{ 'opacity-40 cursor-not-allowed': !activeDiagramName }"
-				>
-					<Icon icon="lucide:git-compare" class="w-4 h-4" />
-				</button>
-
-				<!-- Toggle Properties Panel -->
+				<!-- Toggle Properties Panel (always visible) -->
 				<button
 					@click="togglePropertiesPanel"
 					class="w-8 h-8 flex items-center justify-center hover:bg-gray-100 rounded transition-colors text-gray-600"
@@ -145,23 +123,103 @@
 					<Icon icon="lucide:settings" class="w-4 h-4" />
 				</button>
 
-				<!-- File menu dropdown -->
-				<div class="relative">
+				<!-- Desktop: Individual action buttons -->
+				<template v-if="!isMobile">
+					<!-- Deploy Button -->
 					<button
-						@click="showFileMenu = !showFileMenu"
-						class="w-8 h-8 flex items-center justify-center hover:bg-gray-100 rounded transition-colors text-gray-600"
-						title="Import / Export"
+						@click="deployModel"
+						class="h-7 flex items-center gap-1 px-2.5 bg-blue-600 hover:bg-blue-700 text-white rounded transition-colors text-xs font-medium leading-none"
+						title="Deploy process model"
+						:disabled="!activeDiagramName || deploying"
+						:class="{ 'opacity-50 cursor-not-allowed': !activeDiagramName || deploying }"
 					>
-						<Icon icon="lucide:menu" class="w-4 h-4" />
+						<Icon :icon="deploying ? 'lucide:loader-2' : 'lucide:rocket'" class="w-3.5 h-3.5" :class="{ 'animate-spin': deploying }" />
+						{{ deploying ? 'Deploying…' : 'Deploy' }}
+					</button>
+
+					<!-- Compare Versions Button -->
+					<button
+						@click="openVersionPicker"
+						class="w-8 h-8 flex items-center justify-center hover:bg-gray-100 rounded transition-colors text-gray-600"
+						title="Compare Versions"
+						:disabled="!activeDiagramName"
+						:class="{ 'opacity-40 cursor-not-allowed': !activeDiagramName }"
+					>
+						<Icon icon="lucide:git-compare" class="w-4 h-4" />
+					</button>
+
+					<!-- File menu dropdown -->
+					<div class="relative">
+						<button
+							@click="showFileMenu = !showFileMenu"
+							class="w-8 h-8 flex items-center justify-center hover:bg-gray-100 rounded transition-colors text-gray-600"
+							title="Import / Export"
+						>
+							<Icon icon="lucide:menu" class="w-4 h-4" />
+						</button>
+						<div
+							v-if="showFileMenu"
+							v-click-outside="() => showFileMenu = false"
+							class="absolute right-0 mt-1 w-36 bg-white border border-gray-200 rounded-lg shadow-lg z-50 py-1"
+						>
+							<button
+								@click="triggerImport(); showFileMenu = false"
+								class="w-full flex items-center gap-2 px-3 py-2 text-sm text-gray-700 hover:bg-gray-50 transition-colors"
+								:disabled="!isEditable"
+								:class="{ 'opacity-40 cursor-not-allowed': !isEditable }"
+							>
+								<Icon icon="lucide:download" class="w-4 h-4" />
+								Import
+							</button>
+							<button
+								@click="exportCurrentDiagram(); showFileMenu = false"
+								class="w-full flex items-center gap-2 px-3 py-2 text-sm text-gray-700 hover:bg-gray-50 transition-colors"
+								:disabled="!activeDiagramName"
+								:class="{ 'opacity-40 cursor-not-allowed': !activeDiagramName }"
+							>
+								<Icon icon="lucide:upload" class="w-4 h-4" />
+								Export
+							</button>
+						</div>
+					</div>
+				</template>
+
+				<!-- Mobile: "More" overflow dropdown -->
+				<div v-if="isMobile" class="relative">
+					<button
+						@click="showMobileMoreMenu = !showMobileMoreMenu"
+						class="w-8 h-8 flex items-center justify-center hover:bg-gray-100 rounded transition-colors text-gray-600"
+						title="More actions"
+					>
+						<Icon icon="lucide:more-vertical" class="w-4 h-4" />
 					</button>
 					<div
-						v-if="showFileMenu"
-						v-click-outside="() => showFileMenu = false"
-						class="absolute right-0 mt-1 w-36 bg-white border border-gray-200 rounded-lg shadow-lg z-50 py-1"
+						v-if="showMobileMoreMenu"
+						v-click-outside="() => showMobileMoreMenu = false"
+						class="absolute right-0 mt-1 w-44 bg-white border border-gray-200 rounded-lg shadow-lg z-50 py-1"
 					>
 						<button
-							@click="triggerImport(); showFileMenu = false"
-							class="w-full flex items-center gap-2 px-3 py-2 text-sm text-gray-700 hover:bg-gray-50 transition-colors"
+							@click="deployModel(); showMobileMoreMenu = false"
+							class="w-full flex items-center gap-2 px-3 py-2.5 text-sm text-gray-700 hover:bg-gray-50 transition-colors"
+							:disabled="!activeDiagramName || deploying"
+							:class="{ 'opacity-40 cursor-not-allowed': !activeDiagramName || deploying }"
+						>
+							<Icon :icon="deploying ? 'lucide:loader-2' : 'lucide:rocket'" class="w-4 h-4" />
+							{{ deploying ? 'Deploying…' : 'Deploy' }}
+						</button>
+						<button
+							@click="openVersionPicker(); showMobileMoreMenu = false"
+							class="w-full flex items-center gap-2 px-3 py-2.5 text-sm text-gray-700 hover:bg-gray-50 transition-colors"
+							:disabled="!activeDiagramName"
+							:class="{ 'opacity-40 cursor-not-allowed': !activeDiagramName }"
+						>
+							<Icon icon="lucide:git-compare" class="w-4 h-4" />
+							Compare Versions
+						</button>
+						<div class="border-t border-gray-100 my-1"></div>
+						<button
+							@click="triggerImport(); showMobileMoreMenu = false"
+							class="w-full flex items-center gap-2 px-3 py-2.5 text-sm text-gray-700 hover:bg-gray-50 transition-colors"
 							:disabled="!isEditable"
 							:class="{ 'opacity-40 cursor-not-allowed': !isEditable }"
 						>
@@ -169,8 +227,8 @@
 							Import
 						</button>
 						<button
-							@click="exportCurrentDiagram(); showFileMenu = false"
-							class="w-full flex items-center gap-2 px-3 py-2 text-sm text-gray-700 hover:bg-gray-50 transition-colors"
+							@click="exportCurrentDiagram(); showMobileMoreMenu = false"
+							class="w-full flex items-center gap-2 px-3 py-2.5 text-sm text-gray-700 hover:bg-gray-50 transition-colors"
 							:disabled="!activeDiagramName"
 							:class="{ 'opacity-40 cursor-not-allowed': !activeDiagramName }"
 						>
@@ -208,9 +266,9 @@
 		</div>
 
 		<!-- Main Content -->
-		<div class="flex-1 flex flex-col overflow-hidden">
+		<div :class="['flex-1 flex flex-col', isMobile ? '' : 'overflow-hidden']">
 			<!-- Canvas Area with Shape Library -->
-			<div class="flex-1 flex overflow-hidden">
+			<div :class="['flex-1 flex', isMobile ? '' : 'overflow-hidden']">
 				<!-- Shape Library Panel - DISABLED (see DEVELOPMENT_CONTEXT.md)
 				<ShapeLibraryPanel
 					v-if="showShapeLibrary"
@@ -685,6 +743,9 @@ import { downloadBpmn } from "@/utils/downloadBpmn";
 import CallActivitySearchDialog from "@/components/CallActivitySearchDialog.vue";
 import NotificationLinkDialog from "@/components/NotificationLinkDialog.vue";
 import { useNotificationDialog } from "@/composables/useNotificationDialog";
+import { useWindowSize } from "@/composables/useWindowSize";
+
+const { isMobile } = useWindowSize();
 
 const props = defineProps({
 	process: {
@@ -717,6 +778,7 @@ const loading = ref(true);
 const showShapeLibrary = ref(false);
 const showFileMenu = ref(false);
 const showStatusPopup = ref(false);
+const showMobileMoreMenu = ref(false);
 const deploying = ref(false);
 
 // Version diff dialog ref
@@ -1463,35 +1525,44 @@ async function handleDeleteTab(tab) {
 	if (!isEditable.value) return;
 	if (!confirm(`Are you sure you want to delete "${tab.model_name}"? This action cannot be undone.`)) return;
 
+	// ── Optimistic: remove from UI immediately ───────────────────────
+	const tabIndex = openTabs.value.findIndex(t => t.name === tab.name);
+	const diagramIndex = diagrams.value.findIndex(d => d.name === tab.name);
+	const removedTab = tabIndex > -1 ? openTabs.value.splice(tabIndex, 1)[0] : null;
+	const removedDiagram = diagramIndex > -1 ? diagrams.value.splice(diagramIndex, 1)[0] : null;
+	delete diagramDataCache.value[tab.name];
+
+	// Switch active tab if the deleted tab was active
+	const wasActive = activeDiagramName.value === tab.name;
+	if (wasActive) {
+		// Clear unsaved state so selectDiagram doesn't try to save the deleted diagram
+		clearTimeout(saveTimeout);
+		hasPendingSave = false;
+		hasUnsavedChanges.value = false;
+		saveState.value = "idle";
+
+		if (openTabs.value.length > 0) {
+			selectDiagram(openTabs.value[Math.min(tabIndex, openTabs.value.length - 1)].name);
+		} else if (diagrams.value.length > 0) {
+			selectDiagram(diagrams.value[0].name);
+		} else {
+			activeDiagramName.value = null;
+			router.replace({ name: "ProcessEditor", params: { process: props.process } });
+		}
+	}
+
+	// ── Server call (no loadProcess round-trip) ──────────────────────
 	try {
 		await frappeRequest({
 			url: "/api/method/one_bpmn.api.delete_diagram",
 			params: { name: tab.name },
 		});
-
-		delete diagramDataCache.value[tab.name];
-		await loadProcess();
-		
-		// If the deleted tab was active, or if it was in open tabs, handle it
-		const tabIndex = openTabs.value.findIndex(t => t.name === tab.name);
-		if (tabIndex > -1) {
-			openTabs.value.splice(tabIndex, 1);
-		}
-
-		if (activeDiagramName.value === tab.name) {
-			if (openTabs.value.length > 0) {
-				selectDiagram(openTabs.value[0].name);
-			} else if (diagrams.value.length > 0) {
-				selectDiagram(diagrams.value[0].name);
-			} else {
-				activeDiagramName.value = null;
-				await router.replace({ name: "ProcessEditor", params: { process: props.process } });
-			}
-		}
-
 		showNotification("Deleted", `Diagram "${tab.model_name}" has been deleted`, "green");
 	} catch (error) {
+		// ── Rollback on failure ─────────────────────────────────────
 		console.error("Deletion failed:", error);
+		if (removedDiagram) diagrams.value.splice(diagramIndex, 0, removedDiagram);
+		if (removedTab) openTabs.value.splice(tabIndex, 0, removedTab);
 		showNotification("Error", "Failed to delete diagram: " + (error.message || error), "red");
 	}
 }
@@ -1533,7 +1604,6 @@ function applyTabDiagramFields(matchName, fields) {
 
 async function renameProcessModel({ tabName, oldModelName, newModelName }) {
 	if (!isEditable.value) return; // Guard: process is locked
-	// --- Review #1: Flush pending autosave before renaming ---
 	// Cancel the debounce timer so autosave can't fire with a stale model_name.
 	clearTimeout(saveTimeout);
 	hasPendingSave = false;
@@ -1542,6 +1612,9 @@ async function renameProcessModel({ tabName, oldModelName, newModelName }) {
 	if (hasUnsavedChanges.value && activeDiagramName.value === tabName && editorRef.value) {
 		await saveCurrentDiagram();
 	}
+
+	// ── Optimistic: show new name immediately ────────────────────────
+	applyTabDiagramFields(tabName, { model_name: newModelName, title: newModelName });
 
 	try {
 		const response = await frappeRequest({
@@ -1556,7 +1629,7 @@ async function renameProcessModel({ tabName, oldModelName, newModelName }) {
 		const newName = result.name;
 		const actualModelName = result.model_name;
 
-		// Transfer cached XML to new key
+		// Transfer cached XML to new key (name changes because autoname = field:title)
 		if (diagramDataCache.value[tabName]) {
 			diagramDataCache.value[newName] = diagramDataCache.value[tabName];
 			if (newName !== tabName) {
@@ -1564,7 +1637,7 @@ async function renameProcessModel({ tabName, oldModelName, newModelName }) {
 			}
 		}
 
-		// Apply name + display fields after API success (avoids autosave race)
+		// Confirm server-side name + display fields
 		applyTabDiagramFields(tabName, {
 			name: newName,
 			model_name: actualModelName,
@@ -1582,7 +1655,9 @@ async function renameProcessModel({ tabName, oldModelName, newModelName }) {
 
 		showNotification("Renamed", `Diagram renamed to "${actualModelName}"`, "green");
 	} catch (error) {
+		// ── Rollback on failure ─────────────────────────────────────
 		console.error("Failed to rename process model:", error);
+		applyTabDiagramFields(tabName, { model_name: oldModelName, title: oldModelName });
 		showNotification(
 			"Rename Failed",
 			error.message || error._server_messages || "An error occurred while renaming.",
