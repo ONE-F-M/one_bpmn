@@ -324,6 +324,7 @@
 			:style="{ left: contextMenuPosition.x + 'px', top: contextMenuPosition.y + 'px' }"
 		>
 			<button
+				v-if="canAddComment"
 				@click="addCommentFromContextMenu"
 				class="w-full flex items-center gap-2 px-3 py-2 text-sm text-gray-700 hover:bg-blue-50 transition-colors"
 			>
@@ -356,6 +357,7 @@ import { Icon } from "@iconify/vue";
 // import CustomShapesModule, { customShapeSvgStore } from "@/bpmn";
 import FormattingToolbar from "@/components/FormattingToolbar.vue";
 import { initModeler } from "@/composables/useModelerInit";
+import { useBpmnContextMenu } from "@/composables/useBpmnContextMenu";
 // Properties panel
 import {
 	BpmnPropertiesPanelModule,
@@ -455,14 +457,25 @@ const commentFormData = ref({
 });
 const users = ref([]);
 
-// Context menu state
-const showContextMenu = ref(false);
-const contextMenuPosition = ref({ x: 0, y: 0 });
-const contextMenuElement = ref(null);
-const contextMenuElementCommentCount = computed(() => {
-	if (!contextMenuElement.value) return 0;
-	const elementId = contextMenuElement.value.id || "process";
-	return comments.value.filter(c => c.element_id === elementId).length;
+// Right-click context menu (composable)
+const {
+	showContextMenu,
+	contextMenuPosition,
+	contextMenuElementCommentCount,
+	canAddComment,
+	addCommentFromContextMenu,
+	viewCommentsFromContextMenu,
+	registerEventListeners: registerContextMenuListeners,
+} = useBpmnContextMenu({
+	readonly: computed(() => props.readonly),
+	comments,
+	selectCommentElement,
+	openViewCommentsDialog: (elementId) => {
+		selectedElementComments.value = comments.value.filter(
+			(c) => c.element_id === elementId
+		);
+		showViewCommentsDialog.value = true;
+	},
 });
 
 const userSearchQuery = ref("");
@@ -912,17 +925,8 @@ onMounted(async () => {
 				return handleCommentClick(canvas?.getRootElement(), e.originalEvent);
 			});
 
-			// Right-click context menu handler
-			eventBus.on("element.contextmenu", (e) => {
-				if (e.originalEvent) {
-					e.originalEvent.preventDefault();
-					e.originalEvent.stopPropagation();
-				}
-				openContextMenu(e.element, e.originalEvent);
-			});
-
-			// Escape key to dismiss context menu
-			document.addEventListener("keydown", handleContextMenuKeydown);
+			// Right-click context menu — delegates to composable
+			registerContextMenuListeners(eventBus);
 
 			// Re-inject only when calledElement actually changed
 			// churn and repeated network requests on every command stack event.
@@ -1148,8 +1152,6 @@ onBeforeUnmount(() => {
 	// Cancel any pending process-name injection to prevent memory-leaks
 	// and stale DOM updates after the component is torn down.
 	cancelPendingInjection();
-	// Remove context menu keyboard listener
-	document.removeEventListener("keydown", handleContextMenuKeydown);
 	if (modeler) {
 		modeler.destroy();
 	}
@@ -1265,43 +1267,6 @@ function selectCommentElement(element) {
 	showCommentDialog.value = true;
 	showMentionDropdown.value = false;
 }
-
-// --- Context Menu Methods ---
-
-function handleContextMenuKeydown(e) {
-	if (e.key === "Escape" && showContextMenu.value) {
-		showContextMenu.value = false;
-	}
-}
-
-function openContextMenu(element, originalEvent) {
-	if (!originalEvent) return;
-	contextMenuElement.value = element;
-	contextMenuPosition.value = {
-		x: originalEvent.clientX,
-		y: originalEvent.clientY,
-	};
-	showContextMenu.value = true;
-}
-
-function addCommentFromContextMenu() {
-	showContextMenu.value = false;
-	if (contextMenuElement.value) {
-		selectCommentElement(contextMenuElement.value);
-	}
-}
-
-function viewCommentsFromContextMenu() {
-	showContextMenu.value = false;
-	if (!contextMenuElement.value) return;
-	const elementId = contextMenuElement.value.id || "process";
-	selectedElementComments.value = comments.value.filter(
-		(c) => c.element_id === elementId
-	);
-	showViewCommentsDialog.value = true;
-}
-
-// --- End Context Menu Methods ---
 
 function handleCommentInput(e) {
 	if (!e || !e.target || typeof e.target.selectionStart !== 'number') return;
