@@ -221,15 +221,36 @@
 			</div>
 		</div>
 
-		<!-- Notification Alert -->
+		<!-- Notification Banner -->
 		<div v-if="notification.show" class="px-4 py-2">
-			<Alert
-				:title="notification.title"
-				:theme="notification.theme"
-				:description="notification.message"
-				closable
-				v-model="notification.show"
-			/>
+			<div
+				class="flex items-start gap-3 rounded-lg px-4 py-3 text-sm shadow-sm border"
+				:class="{
+					'bg-green-50 border-green-200 text-green-800': notification.theme === 'green',
+					'bg-red-50 border-red-200 text-red-800': notification.theme === 'red',
+					'bg-yellow-50 border-yellow-200 text-yellow-800': notification.theme === 'yellow',
+					'bg-blue-50 border-blue-200 text-blue-800': !notification.theme || notification.theme === 'blue',
+				}"
+			>
+				<!-- Icon -->
+				<Icon
+					:icon="notification.theme === 'green' ? 'lucide:check-circle-2' : notification.theme === 'red' ? 'lucide:alert-circle' : 'lucide:info'"
+					class="w-5 h-5 mt-0.5 flex-shrink-0"
+				/>
+				<!-- Content -->
+				<div class="flex-1 min-w-0">
+					<p class="font-semibold">{{ notification.title }}</p>
+					<p v-if="notification.message" class="mt-0.5 whitespace-pre-line break-words">{{ notification.message }}</p>
+				</div>
+				<!-- Close button -->
+				<button
+					@click="notification.show = false"
+					class="flex-shrink-0 p-0.5 rounded hover:bg-black/10 transition-colors"
+					aria-label="Dismiss notification"
+				>
+					<Icon icon="lucide:x" class="w-4 h-4" />
+				</button>
+			</div>
 		</div>
 
 		<!-- Main Content -->
@@ -988,9 +1009,15 @@ async function deployModel() {
 			showNotification("Deploy", "Deployment completed", "green");
 		}
 	} catch (err) {
+		// frappeRequest puts the human-readable frappe.throw() messages in
+		// err.messages[] — err.message is a generic URL+exc_type string.
+		const serverMessage =
+			(err.messages && err.messages.length > 0)
+				? err.messages.join("\n")
+				: err.message || "An error occurred while deploying the process model.";
 		showNotification(
 			"Deploy Failed",
-			err.message || "An error occurred while deploying the process model.",
+			serverMessage,
 			"red",
 			true
 		);
