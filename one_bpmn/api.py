@@ -2523,8 +2523,10 @@ def complete_task(
 		frappe.throw(_("Failed to complete task: {0}").format(str(exc)))
 
 	# ── Publish realtime events for auto-refresh ────────────────────────────
-	# 1. Notify the Process Instance page (Processa frontend) — broadcast
-	#    to ALL users since anyone viewing the instance detail should refresh.
+	# 1. Notify the Processa frontend — broadcast to ALL users so anyone
+	#    viewing the instance detail page auto-refreshes.
+	#    Note: doc_update for the BPMN Process Instance itself is already
+	#    published by Frappe's notify_update() inside run_method("on_update").
 	frappe.publish_realtime(
 		"bpmn_instance_updated",
 		{
@@ -2537,23 +2539,8 @@ def complete_task(
 		user="all",
 	)
 
-	# 2. Notify the Frappe form of the BPMN Process Instance so it
-	#    auto-reloads when viewed in the desk.
-	frappe.publish_realtime(
-		"doc_update",
-		{
-			"modified": str(frappe.utils.now_datetime()),
-			"doctype": "BPMN Process Instance",
-			"name": instance_name,
-		},
-		doctype="BPMN Process Instance",
-		docname=instance_name,
-		after_commit=True,
-	)
-
-	# 3. Notify the Frappe form of the context document so it auto-refreshes.
-	#    Use doc_update (Frappe's native form update event) which the form
-	#    framework already listens for when a form is open.
+	# 2. Notify the Frappe form of the context document (e.g. Employee Daily
+	#    Action) so it auto-refreshes when open in the desk.
 	if instance.context_doctype and instance.context_docname:
 		frappe.publish_realtime(
 			"doc_update",
