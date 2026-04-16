@@ -53,7 +53,44 @@
 				<p class="text-gray-500 mb-4">Create a Process in the system to start building BPMN diagrams.</p>
 			</div>
 
-			<!-- List View -->
+			<!-- Mobile Card Layout -->
+			<div v-else-if="isMobile" class="space-y-2">
+				<div
+					v-for="process in processes"
+					:key="process.name"
+					@click="openProcess(process.name)"
+					class="bg-white rounded-lg shadow-sm p-4 flex items-center gap-3 active:bg-gray-50 transition-colors cursor-pointer"
+				>
+					<Icon
+						v-if="editabilityMap[process.name]"
+						icon="lucide:pencil"
+						class="w-4 h-4 text-green-500 shrink-0"
+					/>
+					<Icon
+						v-else
+						icon="lucide:lock"
+						class="w-4 h-4 text-gray-300 shrink-0"
+					/>
+					<div class="flex-1 min-w-0">
+						<div class="text-sm font-medium text-gray-900 truncate">{{ process.process_name }}</div>
+						<div class="text-xs text-gray-400 mt-0.5">{{ process.diagram_count || 0 }} diagram{{ process.diagram_count !== 1 ? 's' : '' }}</div>
+					</div>
+					<Badge :theme="getStatusTheme(process.status)" :label="process.status" size="sm" />
+					<button
+						v-if="process.diagram_count > 0"
+						@click.stop="exportProcess(process)"
+						:disabled="exportingProcesses.has(process.name)"
+						class="p-1.5 rounded hover:bg-gray-200 text-gray-500 transition-colors disabled:opacity-40 shrink-0"
+					>
+						<Icon
+							:icon="exportingProcesses.has(process.name) ? 'lucide:loader-2' : 'lucide:download'"
+							:class="['w-4 h-4', exportingProcesses.has(process.name) ? 'animate-spin' : '']"
+						/>
+					</button>
+				</div>
+			</div>
+
+			<!-- Desktop List View -->
 			<div v-else class="bg-white rounded-lg shadow-sm">
 				<ListView
 					:columns="columns"
@@ -159,6 +196,9 @@ import { frappeRequest } from "frappe-ui"
 import { Icon } from "@iconify/vue"
 import { dayjs } from "@/dayjs"
 import { downloadBpmn } from "@/utils/downloadBpmn"
+import { useWindowSize } from "@/composables/useWindowSize"
+
+const { isMobile } = useWindowSize()
 
 // Export dialog state
 const showExportDialog = ref(false)
