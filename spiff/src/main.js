@@ -30,11 +30,14 @@ app.config.globalProperties.$socket = socket
 
 // Expose socket as window.frappe.realtime so components can use
 // window.frappe.realtime.on/off for custom event listeners.
-if (!window.frappe) window.frappe = {}
-window.frappe.realtime = {
-	on: (event, fn) => socket.on(event, fn),
-	off: (event, fn) => socket.off(event, fn),
-	emit: (event, ...args) => socket.emit(event, ...args),
+// Only polyfill when missing — don't overwrite if Frappe desk already provides it.
+if (!window.frappe) window.frappe = { _is_bpmn_polyfill: true }
+if (!window.frappe.realtime) {
+	window.frappe.realtime = {
+		on: (event, fn) => socket.on(event, fn),
+		off: (event, fn) => socket.off(event, fn),
+		emit: (event, ...args) => socket.emit(event, ...args),
+	}
 }
 
 // Register global components

@@ -1784,20 +1784,17 @@ def _populate_start_events(model, bpmn_xml: str) -> None:
 	# Strategy: the first start event with meaningful config wins.  The spec
 	# is authoritative — it OVERRIDES whatever was previously on the model.
 	for row in model.start_events:
-		# Sync trigger_doctype from the spec
+		# Sync trigger_doctype from the spec (always override — spec is authoritative)
 		if row.trigger_doctype:
 			model.trigger_doctype = row.trigger_doctype
-			# Ensure trigger_type is set if not already
-			if not model.trigger_type:
-				model.trigger_type = "DocType Event"
+			model.trigger_type = "DocType Event"
 			break  # first match wins
 
 	for row in model.start_events:
-		# Sync cron_expression from the spec
+		# Sync cron_expression from the spec (always override — spec is authoritative)
 		if row.cron_expression:
 			model.cron_expression = row.cron_expression
-			if not model.trigger_type:
-				model.trigger_type = "Scheduler Event"
+			model.trigger_type = "Scheduler Event"
 			break
 
 	model.save(ignore_permissions=True)
@@ -2457,7 +2454,13 @@ def complete_task(
 				if isinstance(a, dict) and a.get("action", "").strip()
 			]
 		except (TypeError, ValueError):
-			allowed_actions = []
+			# Invalid JSON — fall back to legacy CSV parsing rather than
+			# silently bypassing validation with an empty list.
+			frappe.log_error(
+				title="BPMN complete_task: malformed task_actions JSON",
+				message=f"task_actions={_trimmed!r} on instance {instance_name}",
+			)
+			allowed_actions = [a.strip() for a in _trimmed.split(",") if a.strip()]
 	else:
 		allowed_actions = [a.strip() for a in _trimmed.split(",") if a.strip()]
 

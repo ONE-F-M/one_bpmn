@@ -321,7 +321,13 @@ def _advance_instance_on_doc_event(instance_name: str, task_action: str):
 					if isinstance(a, dict) and a.get("action", "").strip()
 				]
 			except (TypeError, ValueError):
-				actions = []
+				# Invalid JSON — fall back to legacy CSV parsing rather than
+				# silently producing an empty list that can never match.
+				frappe.log_error(
+					title="BPMN trigger: malformed task_actions JSON",
+					message=f"task_actions={raw!r} on instance {instance_name}",
+				)
+				actions = [a.strip() for a in raw.split(",") if a.strip()]
 		else:
 			actions = [a.strip() for a in raw.split(",") if a.strip()]
 		if task_action in actions:

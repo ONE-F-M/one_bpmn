@@ -812,12 +812,16 @@ async function completeTask(task, detail) {
 			await loadLogs()
 		} catch (err) {
 			console.error('Failed to complete task:', err)
-			// Show error to user
-			if (window.frappe) {
+			// Show error to user — use optional chaining since window.frappe
+			// may be a polyfill without show_alert.
+			const errMsg = err.message || 'Failed to complete task'
+			if (window.frappe?.show_alert) {
 				window.frappe.show_alert({
-					message: err.message || 'Failed to complete task',
+					message: errMsg,
 					indicator: 'red',
 				}, 5)
+			} else {
+				window.alert(errMsg)
 			}
 		} finally {
 			completingTask.value   = null

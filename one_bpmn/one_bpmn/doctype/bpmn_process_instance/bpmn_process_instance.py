@@ -1035,22 +1035,37 @@ class BPMNProcessInstance(Document):
 		body = render(task_cfg.get("emailBody", "") or subject)
 		cc = task_cfg.get("emailCc", "") or None
 
-		# ── Send via one_fm.processor.sendemail ───────────────────────
+		# ── Send via one_fm.processor.sendemail if available ─────────
 		# Uses the same branded template and notification preference
 		# checks as the rest of the one_fm app (checks if user has
 		# notifications enabled, email notifications enabled, and
 		# preferred company email).
-		from one_fm.processor import sendemail as onefm_sendemail
+		# Falls back to frappe.sendmail if one_fm isn't installed.
+		try:
+			from one_fm.processor import sendemail as onefm_sendemail
 
-		onefm_sendemail(
-			recipients=recipients,
-			subject=subject,
-			header=[subject],
-			message=body,
-			cc=cc,
-			reference_doctype=self.context_doctype or self.doctype,
-			reference_name=self.context_docname or self.name,
-		)
+			onefm_sendemail(
+				recipients=recipients,
+				subject=subject,
+				header=[subject],
+				message=body,
+				cc=cc,
+				reference_doctype=self.context_doctype or self.doctype,
+				reference_name=self.context_docname or self.name,
+			)
+		except ImportError:
+			frappe.logger("one_bpmn").warning(
+				"one_fm.processor not available — falling back to frappe.sendmail"
+			)
+			frappe.sendmail(
+				recipients=recipients,
+				subject=subject,
+				message=body,
+				cc=cc.split(",") if cc else [],
+				reference_doctype=self.context_doctype or self.doctype,
+				reference_name=self.context_docname or self.name,
+				now=False,
+			)
 
 	def _sync_active_tasks(self, wf):
 		"""
