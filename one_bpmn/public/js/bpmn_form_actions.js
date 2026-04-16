@@ -130,17 +130,16 @@ frappe.provide('one_bpmn');
 					return;
 				}
 
-				const actions = (task.task_actions || '')
-					.split(',')
-					.map(a => a.trim())
-					.filter(Boolean);
+				// Use task_actions_detail (structured) if available, else
+				// fall back to parsing the comma-separated task_actions string.
+				const action_details = _get_action_details(task);
 
-				if (actions.length > 0) {
-					actions.forEach(function (action) {
+				if (action_details.length > 0) {
+					action_details.forEach(function (detail) {
 						const $item = frm.page.add_action_item(
-							__(action),
+							__(detail.action),
 							function () {
-								_confirm_and_apply(frm, task, action);
+								_handle_action(frm, task, detail);
 							}
 						);
 
@@ -155,7 +154,7 @@ frappe.provide('one_bpmn');
 					const $item = frm.page.add_action_item(
 						__(task.task_name || 'Complete Task'),
 						function () {
-							_confirm_and_apply(frm, task, null);
+							_handle_action(frm, task, null);
 						}
 					);
 
@@ -225,18 +224,68 @@ frappe.provide('one_bpmn');
 	}
 
 	/**
-	 * Show a confirmation dialog before calling the BPMN engine.
+	 * Extract structured action detail objects from a task.
+	 *
+	 * Prefers task_actions_detail (array of {action, confirmTransition, requireDigitalSignature}).
+	 * Falls back to parsing the comma-separated task_actions string.
+	 *
+	 * @returns {Array<{action: string, confirmTransition?: string, requireDigitalSignature?: string}>}
 	 */
-	function _confirm_and_apply(frm, task, action) {
-		const msg = action
-			? __('Apply BPMN action <b>{0}</b> on this document?', [action])
-			: __('Complete task <b>{0}</b>?', [task.task_name || 'Task']);
-		frappe.confirm(
-			msg,
-			function () {
-				_apply_bpmn_action(frm, task, action);
+	function _get_action_details(task) {
+		// Structured format from API
+		if (task.task_actions_detail && Array.isArray(task.task_actions_detail) && task.task_actions_detail.length > 0) {
+			return task.task_actions_detail.filter(d => d && d.action);
+		}
+		// Fallback: parse comma-separated string
+		const raw = task.task_actions || '';
+		return raw.split(',').map(a => a.trim()).filter(Boolean).map(a => ({ action: a }));
+	}
+
+	/**
+	 * Handle a BPMN action click, respecting per-action flags:
+	 *   - confirmTransition: show confirmation dialog before applying
+	 *   - requireDigitalSignature: show placeholder notification (future: signature capture)
+	 *
+	 * @param {Object} frm - Frappe form instance
+	 * @param {Object} task - task object from the API
+	 * @param {Object|null} detail - action detail object (null for generic "Complete")
+	 */
+	function _handle_action(frm, task, detail) {
+		const action = detail ? detail.action : null;
+		const needsConfirm = detail ? (detail.confirmTransition === 'true') : true;
+		const needsSignature = detail ? (detail.requireDigitalSignature === 'true') : false;
+
+		const doApply = function () {
+			_apply_bpmn_action(frm, task, action);
+		};
+
+		// Digital signature check (placeholder — actual capture UI is a follow-up)
+		const doSignatureCheck = function () {
+			if (needsSignature) {
+				frappe.confirm(
+					__('<b>Digital Signature Required</b><br><br>' +
+						'This action requires a digital signature to proceed. ' +
+						'By clicking "Proceed", you acknowledge and authorize this action with your identity.'),
+					function () {
+						doApply();
+					}
+				);
+			} else {
+				doApply();
 			}
-		);
+		};
+
+		// Confirmation dialog
+		if (needsConfirm) {
+			const msg = action
+				? __('Apply BPMN action <b>{0}</b> on this document?', [action])
+				: __('Complete task <b>{0}</b>?', [task.task_name || 'Task']);
+			frappe.confirm(msg, function () {
+				doSignatureCheck();
+			});
+		} else {
+			doSignatureCheck();
+		}
 	}
 
 	/**

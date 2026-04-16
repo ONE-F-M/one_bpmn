@@ -127,6 +127,18 @@ export function ServiceTaskProps(props) {
 		entries.push({ id: "spiffworkflow-gchatMessage", element, component: GchatMessageComponent });
 	}
 
+	// ── Push Notification entries ──────────────────────────────────────────
+	if (serviceType === "push_notification") {
+		entries.push(
+			{ id: "spiffworkflow-pushTitle",               element, component: PushTitleComponent },
+			{ id: "spiffworkflow-push-recipients-header",  element, component: PushRecipientsHeaderComponent },
+			{ id: "spiffworkflow-pushToUsers",             element, component: PushToUsersComponent },
+			{ id: "spiffworkflow-pushToDocFields",         element, component: PushToDocFieldsComponent },
+			{ id: "spiffworkflow-pushToRoles",             element, component: PushToRolesComponent },
+			{ id: "spiffworkflow-pushMessage",             element, component: PushMessageComponent },
+		);
+	}
+
 	return entries;
 }
 
@@ -171,6 +183,12 @@ function ServiceTypeComponent(props) {
 			"spiffworkflow:gchatEmail":           undefined,
 			"spiffworkflow:gchatSpaceId":         undefined,
 			"spiffworkflow:gchatMessage":         undefined,
+			// Clear push_notification attrs
+			"spiffworkflow:pushTitle":            undefined,
+			"spiffworkflow:pushMessage":          undefined,
+			"spiffworkflow:pushToUsers":          undefined,
+			"spiffworkflow:pushToDocFields":      undefined,
+			"spiffworkflow:pushToRoles":          undefined,
 		};
 		modeling.updateModdleProperties(element, bo, patch);
 	};
@@ -183,6 +201,7 @@ function ServiceTypeComponent(props) {
 		{ label: translate("Email Notification"),        value: "send_email" },
 		{ label: translate("Update Field"),              value: "update_field" },
 		{ label: translate("Google Chat"),               value: "google_chat" },
+		{ label: translate("Push Notification"),         value: "push_notification" },
 	];
 
 	return h(SelectEntry, {
@@ -1024,5 +1043,192 @@ function GchatMessageComponent(props) {
 		}),
 		placeholder: translate("e.g. Action required on {{ doc.name }} by {{ doc.owner }}"),
 		hint: translate("Supports Jinja2. Variables: doc, instance, frappe."),
+	});
+}
+
+// ===========================================================================
+// PUSH NOTIFICATION COMPONENTS
+// ===========================================================================
+
+// ── PN1: Title ────────────────────────────────────────────────────────────
+function PushTitleComponent(props) {
+	const { element, id } = props;
+	const modeling  = useService("modeling");
+	const translate = useService("translate");
+	const bo        = getBusinessObject(element);
+	const value     = getAttr(bo, "pushTitle");
+
+	return h(TextEntry, {
+		id,
+		label: translate("Notification Title"),
+		value,
+		onInput: (e) => modeling.updateModdleProperties(element, bo, {
+			"spiffworkflow:pushTitle": e.target.value || undefined,
+		}),
+		placeholder: translate("e.g. Action Required: {{ doc.name }}"),
+		hint: translate("Supports Jinja2 — use {{ doc.field_name }} for document values."),
+	});
+}
+
+// ── PN Recipients divider ─────────────────────────────────────────────────
+function PushRecipientsHeaderComponent(props) {
+	const { id } = props;
+	const translate = useService("translate");
+	return h(
+		"div",
+		{ class: "bio-properties-panel-entry", "data-entry-id": id },
+		h(SectionDivider, { label: translate("Recipients") })
+	);
+}
+
+// ── PN2: Users (multi-select from User doctype) ───────────────────────────
+function PushToUsersComponent(props) {
+	const { element, id } = props;
+	const modeling  = useService("modeling");
+	const translate = useService("translate");
+	const bo        = getBusinessObject(element);
+	const value     = getAttr(bo, "pushToUsers");
+
+	const fetchUsers = (txt) => {
+		const params = {
+			fields: '["name","full_name"]',
+			limit_page_length: 50,
+			order_by: "full_name asc",
+			filters: JSON.stringify([
+				["enabled", "=", 1],
+				["user_type", "=", "System User"],
+				...(txt ? [["full_name", "like", `%${txt}%`]] : []),
+			]),
+		};
+		return frappeGet("/api/resource/User", params);
+	};
+
+	return h(FrappeMultiSelect, {
+		id,
+		label: translate("Users"),
+		value,
+		onChange: (val) => modeling.updateModdleProperties(element, bo, {
+			"spiffworkflow:pushToUsers": val || undefined,
+		}),
+		fetchApi: fetchUsers,
+		valueField: "name",
+		renderOption: (opt) => `${opt.full_name || opt.name} (${opt.name})`,
+		placeholder: translate("Select users to receive push notification"),
+		itemLabel: "user",
+	});
+}
+
+// ── PN3: Document Fields (multi-select from DocType fields) ───────────────
+function PushToDocFieldsComponent(props) {
+	const { element, id } = props;
+	const modeling  = useService("modeling");
+	const translate = useService("translate");
+	const bo        = getBusinessObject(element);
+	const value     = getAttr(bo, "pushToDocFields");
+
+	// Use emailDoctype or serviceTargetDoctype as source
+	const sourceDoctype =
+		getAttr(bo, "emailDoctype") ||
+		getAttr(bo, "serviceTargetDoctype") ||
+		"";
+
+	// If no source DocType is known, fall back to plain text input
+	if (!sourceDoctype) {
+		return h(TextEntry, {
+			id,
+			label: translate("Document Field"),
+			value,
+			onInput: (e) => modeling.updateModdleProperties(element, bo, {
+				"spiffworkflow:pushToDocFields": e.target.value || undefined,
+			}),
+			placeholder: translate("e.g. owner, custom_manager_user"),
+			hint: translate("Comma-separated field names containing User IDs. No DocType context available for field picker."),
+		});
+	}
+
+	// Fetch fields from the source DocType that can contain User IDs
+	const fetchDocFields = (txt) => {
+		const filters = [
+			["parent", "=", sourceDoctype],
+			["parenttype", "=", "DocType"],
+			["fieldtype", "in", ["Data", "Link", "Small Text", "Read Only"]],
+		];
+		if (txt) {
+			filters.push(["fieldname", "like", `%${txt}%`]);
+		}
+		const params = {
+			fields: '["fieldname","label","fieldtype","options"]',
+			filters: JSON.stringify(filters),
+			limit_page_length: 50,
+			order_by: "idx asc",
+		};
+		return frappeGet("/api/resource/DocField", params);
+	};
+
+	return h(FrappeMultiSelect, {
+		id,
+		label: translate("Document Field"),
+		value,
+		onChange: (val) => modeling.updateModdleProperties(element, bo, {
+			"spiffworkflow:pushToDocFields": val || undefined,
+		}),
+		fetchApi: fetchDocFields,
+		valueField: "fieldname",
+		renderOption: (opt) => `${opt.label || opt.fieldname} (${opt.fieldname})`,
+		placeholder: translate("Select fields that contain User IDs"),
+		itemLabel: "field",
+	});
+}
+
+// ── PN4: Roles (multi-select from Role doctype) ──────────────────────────
+function PushToRolesComponent(props) {
+	const { element, id } = props;
+	const modeling  = useService("modeling");
+	const translate = useService("translate");
+	const bo        = getBusinessObject(element);
+	const value     = getAttr(bo, "pushToRoles");
+
+	const fetchRoles = (txt) => {
+		const params = { fields: '["name"]', limit_page_length: 50, order_by: "name asc" };
+		if (txt) params.filters = JSON.stringify([["name", "like", `%${txt}%`]]);
+		return frappeGet("/api/resource/Role", params);
+	};
+
+	return h(FrappeMultiSelect, {
+		id,
+		label: translate("Role"),
+		value,
+		onChange: (val) => modeling.updateModdleProperties(element, bo, {
+			"spiffworkflow:pushToRoles": val || undefined,
+		}),
+		fetchApi: fetchRoles,
+		valueField: "name",
+		renderOption: (opt) => opt.name,
+		placeholder: translate("Select roles — all users in these roles will receive the notification"),
+		itemLabel: "role",
+	});
+}
+
+// ── PN5: Message (multiline, Jinja-aware, HTML) ──────────────────────────
+function PushMessageComponent(props) {
+	const { element, id } = props;
+	const modeling  = useService("modeling");
+	const translate = useService("translate");
+	const bo        = getBusinessObject(element);
+	const value     = getAttr(bo, "pushMessage");
+
+	return h(TextEntry, {
+		id,
+		label: translate("Message Body"),
+		value,
+		multiline: true,
+		onInput: (e) => modeling.updateModdleProperties(element, bo, {
+			"spiffworkflow:pushMessage": e.target.value || undefined,
+		}),
+		placeholder: translate("Supports Jinja2 — use {{ doc.field_name }}, {{ instance.name }}, etc."),
+		hint: translate(
+			"HTML or plain text. Available variables: doc (context document), " +
+			"instance (BPMN instance), frappe session."
+		),
 	});
 }

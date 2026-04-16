@@ -249,10 +249,11 @@ class BPMNProcessInstance(Document):
 				"assigned_role": row.assigned_role,
 				"started_at": str(row.started_at) if row.started_at else None,
 				# Comma-separated action labels (e.g. "Approve,Reject").
-				# Frontend renders these as action buttons; chosen action goes
-				# into workflow data as {"action": "<label>"} for gateway routing.
-				# Dynamic: for frappe_workflow mode fetched live from Frappe get_transitions()
+				# Maintained for backward compat with older frontends.
 				"task_actions": self._resolve_task_actions(row),
+				# Structured array of action objects with per-action flags:
+				# [{"action":"Approve","confirmTransition":"true","requireDigitalSignature":"true"}, ...]
+				"task_actions_detail": self._resolve_task_actions_detail(row),
 				"task_action_mode": getattr(row, "task_action_mode", None) or "manual",
 			}
 			for row in self.active_tasks
@@ -260,6 +261,33 @@ class BPMNProcessInstance(Document):
 		]
 
 	# Internal execution helpers
+
+	@staticmethod
+	def _parse_task_actions_json(raw: str) -> list:
+		"""
+		Parse task_actions from either JSON array format or legacy CSV.
+
+		New format (JSON array):
+		    [{"action":"Approve","confirmTransition":"true"},{"action":"Reject"}]
+
+		Legacy format (comma-separated):
+		    "Approve,Reject,Send Back"
+
+		Returns a list of dicts with at least an "action" key.
+		"""
+		if not raw:
+			return []
+		trimmed = raw.strip()
+		if trimmed.startswith("["):
+			try:
+				parsed = json.loads(trimmed)
+				return parsed if isinstance(parsed, list) else []
+			except (TypeError, ValueError):
+				return []
+		# Legacy CSV
+		return [
+			{"action": a.strip()} for a in trimmed.split(",") if a.strip()
+		]
 
 	def _resolve_task_actions(self, row) -> str:
 		"""
@@ -270,7 +298,8 @@ class BPMNProcessInstance(Document):
 		role, current workflow state, and Python conditions on the transition)
 		are shown — identical to Frappe's native workflow action panel.
 
-		For 'manual' mode: returns the stored task_actions string unchanged.
+		For 'manual' mode: parses the stored task_actions (JSON or CSV)
+		and returns comma-separated action names.
 		"""
 		mode = getattr(row, "task_action_mode", None) or "manual"
 		if mode == "frappe_workflow":
@@ -285,7 +314,36 @@ class BPMNProcessInstance(Document):
 			except Exception:
 				pass
 			return ""
-		return getattr(row, "task_actions", "") or ""
+		# Manual mode — extract just the action names
+		raw = getattr(row, "task_actions", "") or ""
+		actions = self._parse_task_actions_json(raw)
+		return ",".join(a.get("action", "") for a in actions if a.get("action"))
+
+	def _resolve_task_actions_detail(self, row) -> list:
+		"""
+		Return the full structured action list with per-action flags.
+
+		For 'frappe_workflow' mode: returns actions from Frappe transitions
+		(no per-action flags since they come from the Frappe Workflow).
+
+		For 'manual' mode: returns the parsed JSON/CSV list of action dicts
+		with all per-action metadata (confirmTransition, requireDigitalSignature).
+		"""
+		mode = getattr(row, "task_action_mode", None) or "manual"
+		if mode == "frappe_workflow":
+			if not (self.context_doctype and self.context_docname):
+				return []
+			try:
+				from frappe.model.workflow import get_transitions
+
+				doc = frappe.get_doc(self.context_doctype, self.context_docname)
+				transitions = get_transitions(doc)
+				return [{"action": str(t["action"])} for t in transitions]
+			except Exception:
+				pass
+			return []
+		raw = getattr(row, "task_actions", "") or ""
+		return self._parse_task_actions_json(raw)
 
 	def _apply_frappe_workflow_action(self, action: str) -> None:
 		"""
@@ -444,6 +502,15 @@ class BPMNProcessInstance(Document):
 			except Exception:
 				frappe.log_error(
 					title=f"BPMN ServiceTask: google_chat failed for task {bpmn_id}",
+					message=frappe.get_traceback(),
+				)
+
+		elif service_type == "push_notification":
+			try:
+				self._dispatch_push_notification(task, task_cfg, bpmn_id)
+			except Exception:
+				frappe.log_error(
+					title=f"BPMN ServiceTask: push_notification failed for task {bpmn_id}",
 					message=frappe.get_traceback(),
 				)
 
@@ -687,6 +754,154 @@ class BPMNProcessInstance(Document):
 				message=frappe.get_traceback(),
 			)
 			raise
+
+	def _dispatch_push_notification(self, task, task_cfg: dict, bpmn_id: str) -> None:
+		"""
+		Send push notifications from a Service Task with serviceType='push_notification'.
+
+		Recipient resolution (union of all three sources):
+		  - pushToUsers      : comma-separated Frappe User IDs (email)
+		  - pushToDocFields  : field names on the context doc that hold User IDs
+		  - pushToRoles      : roles — all users holding those roles receive the push
+
+		Title and Message support Jinja2 via frappe.render_template():
+		  {{ doc.field_name }}    — context document fields
+		  {{ instance.name }}     — BPMN instance name
+
+		Uses one_fm.utils.send_push_notification() which sends via Firebase Cloud
+		Messaging.  Falls back gracefully if one_fm is not installed.
+
+		Failures are non-fatal: the workflow continues and the error is logged.
+		"""
+
+		# ── Resolve the template context document ─────────────────────────
+		doc = frappe._dict()
+		if self.context_doctype and self.context_docname:
+			try:
+				doc = frappe.get_doc(self.context_doctype, self.context_docname)
+			except Exception:
+				pass
+
+		# ── Jinja helper ──────────────────────────────────────────────────
+		jinja_ctx = {
+			"doc": doc,
+			"instance": self,
+			"frappe": frappe,
+		}
+
+		def render(text):
+			if not text:
+				return ""
+			try:
+				return frappe.render_template(text, jinja_ctx)
+			except Exception:
+				return text  # return raw on template error
+
+		# ── Build recipient user list ─────────────────────────────────────
+		recipient_users = []
+
+		# 1. Direct user IDs (comma-separated Frappe User emails)
+		raw_users = task_cfg.get("pushToUsers", "")
+		if raw_users:
+			recipient_users += [u.strip() for u in raw_users.split(",") if u.strip()]
+
+		# 2. Document field values (fields on doc that hold User IDs)
+		raw_fields = task_cfg.get("pushToDocFields", "")
+		if raw_fields and doc:
+			for field_name in raw_fields.split(","):
+				field_name = field_name.strip()
+				if not field_name:
+					continue
+				val = doc.get(field_name, "")
+				if val:
+					recipient_users.append(str(val).strip())
+
+		# 3. Role members — fetch all users with the configured roles
+		raw_roles = task_cfg.get("pushToRoles", "")
+		if raw_roles:
+			for role_name in raw_roles.split(","):
+				role_name = role_name.strip()
+				if not role_name:
+					continue
+				user_roles = frappe.get_all(
+					"Has Role",
+					filters={"role": role_name, "parenttype": "User"},
+					fields=["parent"],
+				)
+				for ur in user_roles:
+					if ur.parent:
+						recipient_users.append(ur.parent)
+
+		# De-duplicate preserving order
+		seen = set()
+		recipient_users = [u for u in recipient_users if u not in seen and not seen.add(u)]
+
+		if not recipient_users:
+			frappe.log_error(
+				title=f"BPMN push_notification: No recipients resolved ({bpmn_id})",
+				message=(
+					f"Service Task {task_cfg} on instance {self.name} produced "
+					f"no recipient users. Push notification will not be sent."
+				),
+			)
+			return
+
+		# ── Resolve User → Employee mapping ───────────────────────────────
+		# one_fm's send_push_notification requires an Employee ID, not a User email.
+		employee_map = {}
+		for user_id in recipient_users:
+			emp_id = frappe.db.get_value("Employee", {"user_id": user_id, "status": "Active"}, "name")
+			if emp_id:
+				employee_map[user_id] = emp_id
+			else:
+				frappe.logger("one_bpmn").warning(
+					f"BPMN push_notification: no active Employee found for user "
+					f"{user_id!r} — skipping (task={bpmn_id}, instance={self.name})"
+				)
+
+		if not employee_map:
+			frappe.log_error(
+				title=f"BPMN push_notification: No employees resolved ({bpmn_id})",
+				message=(
+					f"None of the {len(recipient_users)} recipient users have "
+					f"linked active Employee records. Push notification will not be sent."
+				),
+			)
+			return
+
+		# ── Render title + message ────────────────────────────────────────
+		title = render(task_cfg.get("pushTitle", "")) or f"Notification from {self.name}"
+		message = render(task_cfg.get("pushMessage", "")) or title
+
+		# ── Import push notification sender ───────────────────────────────
+		try:
+			from one_fm.utils import send_push_notification
+		except ImportError:
+			frappe.log_error(
+				title=f"BPMN push_notification: one_fm not installed ({bpmn_id})",
+				message=(
+					"Cannot send push notifications — one_fm app is not installed. "
+					"The send_push_notification function is required."
+				),
+			)
+			return
+
+		# ── Send to each employee ─────────────────────────────────────────
+		sent_count = 0
+		for user_id, emp_id in employee_map.items():
+			try:
+				send_push_notification(emp_id, title, message)
+				sent_count += 1
+			except Exception:
+				frappe.log_error(
+					title=f"BPMN push_notification: send failed for {emp_id} ({bpmn_id})",
+					message=frappe.get_traceback(),
+				)
+
+		frappe.logger("one_bpmn").info(
+			f"BPMN push_notification: sent {sent_count}/{len(employee_map)} "
+			f"notifications (task={bpmn_id}, instance={self.name})"
+		)
 
 	def _dispatch_email_notification(self, task, task_cfg: dict) -> None:
 		"""

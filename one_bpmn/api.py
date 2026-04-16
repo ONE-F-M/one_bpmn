@@ -2613,6 +2613,7 @@ def get_active_bpmn_tasks(doctype: str, docname: str) -> list:
 
 				# Resolve actions — handles both manual and frappe_workflow modes
 				actions_str = instance._resolve_task_actions(row)
+				actions_detail = instance._resolve_task_actions_detail(row)
 
 				result.append(
 					{
@@ -2620,6 +2621,7 @@ def get_active_bpmn_tasks(doctype: str, docname: str) -> list:
 						"task_id": row.task_id,
 						"task_name": row.task_name or "",
 						"task_actions": actions_str,
+						"task_actions_detail": actions_detail,
 						"assigned_user": row.assigned_user or "",
 						"assigned_role": row.assigned_role or "",
 					}
