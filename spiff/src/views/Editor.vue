@@ -20,7 +20,7 @@
 						<button 
 							@click="showStatusPopup = !showStatusPopup"
 							class="p-1 rounded transition-colors"
-							:class="isEditable ? 'text-blue-500 hover:bg-blue-50' : 'text-amber-500 hover:bg-amber-50'"
+							:class="isEditable ? 'text-green-500 hover:bg-green-50' : 'text-amber-500 hover:bg-amber-50'"
 						>
 							<Icon :icon="isEditable ? 'lucide:pencil' : 'lucide:lock'" class="w-4 h-4" />
 						</button>
@@ -35,7 +35,7 @@
 								<div class="flex items-start gap-3">
 									<div 
 										class="p-2 rounded-lg shrink-0"
-										:class="isEditable ? 'bg-blue-50 text-blue-600' : 'bg-amber-50 text-amber-600'"
+										:class="isEditable ? 'bg-green-50 text-green-600' : 'bg-amber-50 text-amber-600'"
 									>
 										<Icon :icon="isEditable ? 'lucide:pencil' : 'lucide:lock'" class="w-5 h-5" />
 									</div>
@@ -195,31 +195,6 @@
 			</div>
 		</header>
 
-		<!-- Lock Banner -->
-		<div v-if="!isEditable && !loading" class="px-4 pt-3">
-			<div class="flex items-center gap-3 px-4 py-3 bg-amber-50 border border-amber-200 rounded-lg">
-				<Icon icon="lucide:lock" class="w-5 h-5 text-amber-600 shrink-0" />
-				<div class="flex-1">
-					<p class="text-sm font-medium text-amber-800">
-						Process Locked — Read Only
-					</p>
-					<p class="text-xs text-amber-600 mt-0.5">
-						{{ editabilityInfo.reason || 'No active Pathfinder Log. Create one on Production to enable editing.' }}
-					</p>
-				</div>
-			</div>
-		</div>
-
-		<!-- Active Pathfinder Log Indicator -->
-		<div v-if="isEditable && editabilityInfo.pathfinder_log && !loading" class="px-4 pt-3">
-			<div class="flex items-center gap-3 px-4 py-2 bg-green-50 border border-green-200 rounded-lg">
-				<Icon icon="lucide:pencil" class="w-4 h-4 text-green-600 shrink-0" />
-				<p class="text-xs text-green-700">
-					Editing enabled — Pathfinder Log: <strong>{{ editabilityInfo.pathfinder_log }}</strong>
-					<span v-if="editabilityInfo.workflow_state" class="text-green-500"> ({{ editabilityInfo.workflow_state }})</span>
-				</p>
-			</div>
-		</div>
 
 		<!-- Notification Alert -->
 		<div v-if="notification.show" class="px-4 py-2">
