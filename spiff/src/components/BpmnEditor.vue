@@ -449,10 +449,7 @@ const mentionSuggestions = computed(() => {
 
 const filteredUsers = computed(() => {
 	const q = (userSearchQuery.value || "").toLowerCase();
-	const text = commentFormData.value.text || "";
-	const mentionedUsers = users.value.filter(u => text.includes('@' + u.full_name));
-	
-	const options = mentionedUsers.map(u => ({
+	const options = users.value.map(u => ({
 		label: u.full_name,
 		value: u.name
 	}));
@@ -1212,6 +1209,8 @@ function selectCommentElement(element) {
 		assigned_to: "",
 		is_task: false
 	};
+	userSearchQuery.value = "";
+	showUserDropdown.value = false;
 	showCommentDialog.value = true;
 	showMentionDropdown.value = false;
 }
