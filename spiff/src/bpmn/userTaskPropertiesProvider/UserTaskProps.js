@@ -31,12 +31,6 @@ export function UserTaskProps(props) {
 			component: AssignmentModeComponent,
 			isEdited: isSelectEntryEdited,
 		},
-		{
-			id: "spiffworkflow-taskActionMode",
-			element,
-			component: TaskActionModeComponent,
-			isEdited: isSelectEntryEdited,
-		},
 	];
 
 	if (assigneeMode === "User") {
@@ -66,6 +60,14 @@ export function UserTaskProps(props) {
 			component: LoadBalancingUsersComponent,
 		});
 	}
+
+	// Task Action Mode — always shown, just above Task Actions
+	entries.push({
+		id: "spiffworkflow-taskActionMode",
+		element,
+		component: TaskActionModeComponent,
+		isEdited: isSelectEntryEdited,
+	});
 
 	// Task Actions only shown for 'manual' mode
 	// (for 'frappe_workflow' mode the actions come live from the context doc)
