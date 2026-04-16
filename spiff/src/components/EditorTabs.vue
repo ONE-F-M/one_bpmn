@@ -1,5 +1,5 @@
 <template>
-	<div class="h-12 flex items-center px-3 gap-1 relative">
+	<div class="h-10 sm:h-12 flex items-center px-3 gap-1 relative">
 		<!-- Add tab button (hidden in read-only mode) -->
 		<button
 			v-if="!readonly"
@@ -43,11 +43,13 @@
 		</div>
 
 		<!-- Scrollable Tab Container -->
-		<div class="flex-1 flex items-center gap-1 overflow-x-auto no-scrollbar py-2">
+		<div ref="scrollContainerRef" class="flex-1 flex items-center gap-1 overflow-x-auto no-scrollbar py-2 tab-scroll-fade" style="-webkit-overflow-scrolling: touch; scroll-snap-type: x proximity;">
 			<!-- Tabs -->
 			<div
 				v-for="tab in tabs"
 				:key="tab.name"
+				:data-tab-active="activeTab === tab.name ? 'true' : undefined"
+				style="scroll-snap-align: center;"
 				:class="[
 					'flex items-center gap-2 pl-4 pr-1 py-1.5 rounded text-sm cursor-pointer transition-colors shrink-0 group',
 					activeTab === tab.name
@@ -124,7 +126,7 @@
 </template>
 
 <script setup>
-import { ref, nextTick, computed, onMounted, onUnmounted } from "vue"
+import { ref, nextTick, computed, onMounted, onUnmounted, watch } from "vue"
 import { Icon } from "@iconify/vue"
 
 const props = defineProps({
@@ -151,6 +153,18 @@ const activeMenu = ref(null) // Stores tab name
 const activeMenuTab = ref(null) // Stores tab object
 const menuPosition = ref({ top: 0, left: 0 })
 const showAllTabsMenu = ref(false)
+const scrollContainerRef = ref(null)
+
+// Auto-scroll active tab into view when it changes
+watch(() => props.activeTab, () => {
+	nextTick(() => {
+		if (!scrollContainerRef.value) return
+		const activeEl = scrollContainerRef.value.querySelector('[data-tab-active="true"]')
+		if (activeEl) {
+			activeEl.scrollIntoView({ behavior: "smooth", inline: "center", block: "nearest" })
+		}
+	})
+})
 
 const menuStyle = computed(() => ({
 	top: `${menuPosition.value.top}px`,
@@ -235,3 +249,23 @@ function cancelEditing() {
 	editingName.value = ""
 }
 </script>
+
+<style scoped>
+/* Fade hints on left/right edges of scrollable tab container */
+.tab-scroll-fade {
+	mask-image: linear-gradient(
+		to right,
+		transparent 0,
+		black 12px,
+		black calc(100% - 12px),
+		transparent 100%
+	);
+	-webkit-mask-image: linear-gradient(
+		to right,
+		transparent 0,
+		black 12px,
+		black calc(100% - 12px),
+		transparent 100%
+	);
+}
+</style>

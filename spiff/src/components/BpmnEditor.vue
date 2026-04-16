@@ -96,50 +96,133 @@
 
 
 		<!-- Main Content Area -->
-		<div class="flex-1 flex overflow-hidden relative">
+		<div :class="['flex-1 flex relative', isMobile ? 'overflow-visible' : 'overflow-hidden']">
 			<!-- BPMN Canvas -->
 			<div
 				ref="container"
 				:class="['bpmn-canvas flex-1', { 'bpmn-canvas--readonly': readonly, 'comment-mode-active': isCommentMode }]"
+				@contextmenu.prevent
 				@dragover.prevent="!readonly && handleDragOver($event)"
 				@drop.prevent="!readonly && handleDrop($event)"
 			></div>
 
-			<!-- Properties Panel with Transition and Handle -->
-			<transition name="slide-right">
+			<!-- ── Mobile Floating Toolbar (Undo/Redo/Delete/Format) ── -->
+			<transition name="fade">
+				<div
+					v-if="isMobile && !readonly && isMounted"
+					class="fixed bottom-14 left-1/2 -translate-x-1/2 z-[45] bg-white/95 backdrop-blur rounded-full shadow-lg border border-gray-200 flex items-center gap-1 px-2 py-1.5"
+				>
+					<button
+						@click="undo"
+						:disabled="!canUndo"
+						:class="['min-w-[44px] min-h-[44px] flex items-center justify-center rounded-full transition-colors', canUndo ? 'text-gray-700 active:bg-gray-100' : 'text-gray-300']"
+					>
+						<Icon icon="lucide:undo-2" class="w-5 h-5" />
+					</button>
+					<button
+						@click="redo"
+						:disabled="!canRedo"
+						:class="['min-w-[44px] min-h-[44px] flex items-center justify-center rounded-full transition-colors', canRedo ? 'text-gray-700 active:bg-gray-100' : 'text-gray-300']"
+					>
+						<Icon icon="lucide:redo-2" class="w-5 h-5" />
+					</button>
+					<div class="w-px h-6 bg-gray-200 mx-0.5"></div>
+					<button
+						@click="deleteSelected"
+						class="min-w-[44px] min-h-[44px] flex items-center justify-center rounded-full text-gray-700 active:bg-gray-100 transition-colors"
+					>
+						<Icon icon="lucide:trash-2" class="w-5 h-5" />
+					</button>
+					<div class="w-px h-6 bg-gray-200 mx-0.5"></div>
+					<!-- Format button — opens formatting popover -->
+					<div class="relative">
+						<button
+							@click="showMobileFormatPopover = !showMobileFormatPopover"
+							:class="['min-w-[44px] min-h-[44px] flex items-center justify-center rounded-full transition-colors', showMobileFormatPopover ? 'bg-blue-100 text-blue-700' : 'text-gray-700 active:bg-gray-100']"
+						>
+							<Icon icon="lucide:palette" class="w-5 h-5" />
+						</button>
+						<!-- Format popover -->
+						<transition name="fade">
+							<div
+								v-if="showMobileFormatPopover"
+								v-click-outside="() => showMobileFormatPopover = false"
+								class="absolute bottom-full right-0 mb-2 bg-white border border-gray-200 rounded-xl shadow-xl p-2 z-[100] min-w-[280px]"
+							>
+								<FormattingToolbar
+									:selectedElements="selectedElements"
+									:modeler="modelerInstance"
+								/>
+							</div>
+						</transition>
+					</div>
+				</div>
+			</transition>
+
+			<!-- ── Properties Panel ── -->
+			<!-- Mobile: backdrop overlay -->
+			<transition name="fade">
+				<div
+					v-if="showPropertiesPanel && isMobile"
+					class="fixed inset-0 bg-black/30 z-[58] backdrop-blur-sm"
+					@click="showPropertiesPanel = false"
+				></div>
+			</transition>
+
+			<transition :name="isMobile ? 'slide-up' : 'slide-right'">
 				<div
 					v-show="showPropertiesPanel"
 					:class="[
-						'properties-panel-container border-gray-200 bg-white z-[60] transition-all duration-300 ease-in-out',
-						'absolute inset-y-0 right-0 border-l md:relative flex flex-col',
-						// Responsive width & collapse behavior
-						propertiesCollapsed 
+						'properties-panel-container bg-white z-[60] transition-all duration-300 ease-in-out flex flex-col',
+						// Mobile: bottom sheet
+						isMobile
+							? 'fixed inset-x-0 bottom-0 rounded-t-2xl shadow-2xl border-t border-gray-200 max-h-[85vh] overflow-hidden'
+							: 'absolute inset-y-0 right-0 border-l border-gray-200 md:relative',
+						// Desktop: collapse behavior
+						!isMobile && propertiesCollapsed 
 							? 'w-[48px] overflow-hidden' 
-							: 'w-full md:w-96 overflow-auto',
+							: !isMobile ? 'w-full md:w-96 overflow-auto' : '',
 						{ 'properties-panel--readonly': readonly }
 					]"
+					:style="isDragging ? { transform: `translateY(${dragOffset}px)`, transition: 'none', willChange: 'transform' } : {}"
 				>
-					<!-- Inner container to handle content visibility during collapse -->
+					<!-- Mobile: Drag handle + close button -->
+					<div v-if="isMobile" class="flex items-center justify-between px-4 pt-3 pb-2 shrink-0">
+						<div class="flex-1 flex justify-center">
+							<div ref="dragHandleRef" class="w-10 h-1 bg-gray-300 rounded-full cursor-grab active:cursor-grabbing"></div>
+						</div>
+						<button
+							@click="showPropertiesPanel = false"
+							class="p-1.5 -mr-1 rounded-full hover:bg-gray-100 text-gray-500 transition-colors"
+						>
+							<Icon icon="lucide:x" class="w-5 h-5" />
+						</button>
+					</div>
+
+					<!-- Inner container -->
 					<div 
 						ref="propertiesContainer"
-						class="flex-1 flex flex-col min-w-0 transition-opacity duration-200"
-						:class="propertiesCollapsed ? 'opacity-0 pointer-events-none' : 'opacity-100'"
+						:class="[
+							'flex-1 flex flex-col min-w-0 transition-opacity duration-200 overflow-y-auto mobile-safe-area-bottom',
+							!isMobile && propertiesCollapsed ? 'opacity-0 pointer-events-none' : 'opacity-100'
+						]"
 					>
 						<!-- Content is injected here by bpmn-js-properties-panel -->
 					</div>
 
-					<!-- Floating Collapse/Expand Handle (Visible on the left edge of the panel) -->
+					<!-- Desktop: Floating Collapse/Expand Handle -->
 					<button
+						v-if="!isMobile"
 						@click="togglePropertiesCollapse"
-						class="absolute left-0 top-1/2 -translate-x-1/2 -translate-y-1/2 w-6 h-12 bg-white border border-gray-200 rounded-l-lg shadow-md flex items-center justify-center text-gray-500 hover:text-gray-900 transition-all z-[70] md:hidden"
+						class="absolute left-0 top-1/2 -translate-x-1/2 -translate-y-1/2 w-6 h-12 bg-white border border-gray-200 rounded-l-lg shadow-md flex items-center justify-center text-gray-500 hover:text-gray-900 transition-all z-[70] hidden md:flex"
 						:title="propertiesCollapsed ? 'Expand' : 'Collapse'"
 					>
 						<Icon :icon="propertiesCollapsed ? 'lucide:chevron-left' : 'lucide:chevron-right'" class="w-4 h-4" />
 					</button>
 					
-					<!-- Desktop/Sidebar-style collapse handle (Visible when panel is NOT w-full) -->
+					<!-- Desktop: Sidebar-style collapse placeholder -->
 					<div 
-						v-if="propertiesCollapsed"
+						v-if="!isMobile && propertiesCollapsed"
 						class="absolute inset-0 flex flex-col items-center pt-4 bg-gray-50 cursor-pointer hover:bg-gray-100 transition-colors"
 						@click="togglePropertiesCollapse"
 					>
@@ -314,11 +397,36 @@
 				</div>
 			</template>
 		</Dialog>
+
+		<!-- Right-Click Context Menu -->
+		<div
+			v-if="showContextMenu"
+			v-click-outside="() => showContextMenu = false"
+			class="fixed z-[200] bg-white border border-gray-200 rounded-lg shadow-xl py-1 min-w-[180px]"
+			:style="{ left: contextMenuPosition.x + 'px', top: contextMenuPosition.y + 'px' }"
+		>
+			<button
+				v-if="canAddComment"
+				@click="addCommentFromContextMenu"
+				class="w-full flex items-center gap-2 px-3 py-2 text-sm text-gray-700 hover:bg-blue-50 transition-colors"
+			>
+				<Icon icon="lucide:message-square-plus" class="w-4 h-4" />
+				Add Comment
+			</button>
+			<button
+				v-if="contextMenuElementCommentCount > 0"
+				@click="viewCommentsFromContextMenu"
+				class="w-full flex items-center gap-2 px-3 py-2 text-sm text-gray-700 hover:bg-blue-50 transition-colors"
+			>
+				<Icon icon="lucide:messages-square" class="w-4 h-4" />
+				View Comments ({{ contextMenuElementCommentCount }})
+			</button>
+		</div>
 	</div>
 </template>
 
 <script setup>
-import { ref, shallowRef, onMounted, onBeforeUnmount, watch, computed } from "vue";
+import { ref, shallowRef, onMounted, onBeforeUnmount, watch, computed, nextTick } from "vue";
 import { frappeRequest } from "frappe-ui";
 import {
 	injectProcessNameField,
@@ -327,10 +435,13 @@ import {
 	cancelPendingInjection,
 } from "@/composables/useCallActivityName";
 import { Icon } from "@iconify/vue";
+import { useWindowSize } from "@/composables/useWindowSize";
+import { useBottomSheet } from "@/composables/useBottomSheet";
 // Custom Shapes - DISABLED (see DEVELOPMENT_CONTEXT.md)
 // import CustomShapesModule, { customShapeSvgStore } from "@/bpmn";
 import FormattingToolbar from "@/components/FormattingToolbar.vue";
 import { initModeler } from "@/composables/useModelerInit";
+import { useBpmnContextMenu } from "@/composables/useBpmnContextMenu";
 // Properties panel
 import {
 	BpmnPropertiesPanelModule,
@@ -430,8 +541,42 @@ const commentFormData = ref({
 });
 const users = ref([]);
 
+// Right-click context menu (composable)
+const {
+	showContextMenu,
+	contextMenuPosition,
+	contextMenuElementCommentCount,
+	canAddComment,
+	addCommentFromContextMenu,
+	viewCommentsFromContextMenu,
+	registerEventListeners: registerContextMenuListeners,
+} = useBpmnContextMenu({
+	readonly: computed(() => props.readonly),
+	comments,
+	selectCommentElement,
+	openViewCommentsDialog: (elementId) => {
+		selectedElementComments.value = comments.value.filter(
+			(c) => c.element_id === elementId
+		);
+		showViewCommentsDialog.value = true;
+	},
+});
+
 const userSearchQuery = ref("");
 const showUserDropdown = ref(false);
+
+// Clear assigned_to when the user edits the search text away from the selected label.
+// This prevents a stale assignment if the user modifies the input after selecting someone.
+watch(userSearchQuery, (newQuery) => {
+	const assignedUser = commentFormData.value.assigned_to;
+	if (!assignedUser) return;
+
+	// Find the label (full_name) of the currently assigned user
+	const match = users.value.find(u => u.name === assignedUser);
+	if (match && newQuery !== match.full_name) {
+		commentFormData.value.assigned_to = "";
+	}
+});
 
 const showMentionDropdown = ref(false);
 const mentionSearchQuery = ref("");
@@ -449,10 +594,7 @@ const mentionSuggestions = computed(() => {
 
 const filteredUsers = computed(() => {
 	const q = (userSearchQuery.value || "").toLowerCase();
-	const text = commentFormData.value.text || "";
-	const mentionedUsers = users.value.filter(u => text.includes('@' + u.full_name));
-	
-	const options = mentionedUsers.map(u => ({
+	const options = users.value.map(u => ({
 		label: u.full_name,
 		value: u.name
 	}));
@@ -473,6 +615,25 @@ const isImporting = ref(false);
 // const showMinimap = ref(true); // DISABLED
 const selectedElements = shallowRef([]);
 const modelerInstance = shallowRef(null);
+
+// Mobile responsiveness
+const { isMobile } = useWindowSize();
+const showMobileFormatPopover = ref(false);
+const dragHandleRef = ref(null);
+const { dragOffset, isDragging, attach: attachBottomSheet } = useBottomSheet();
+
+// Attach swipe-to-dismiss when the properties panel opens on mobile
+watch([showPropertiesPanel, isMobile], () => {
+	if (showPropertiesPanel.value && isMobile.value) {
+		nextTick(() => {
+			if (dragHandleRef.value) {
+				attachBottomSheet(dragHandleRef.value, () => {
+					showPropertiesPanel.value = false;
+				});
+			}
+		});
+	}
+});
 
 let modeler = null;
 let commandStack = null;
@@ -890,6 +1051,10 @@ onMounted(async () => {
 				const canvas = modeler.get("canvas");
 				return handleCommentClick(canvas?.getRootElement(), e.originalEvent);
 			});
+
+			// Right-click context menu — delegates to composable
+			registerContextMenuListeners(eventBus);
+
 			// Re-inject only when calledElement actually changed
 			// churn and repeated network requests on every command stack event.
 			eventBus.on("commandStack.changed", () => {
@@ -1226,6 +1391,8 @@ function selectCommentElement(element) {
 		assigned_to: "",
 		is_task: false
 	};
+	userSearchQuery.value = "";
+	showUserDropdown.value = false;
 	showCommentDialog.value = true;
 	showMentionDropdown.value = false;
 }
@@ -1336,8 +1503,8 @@ function renderComments() {
 		try {
 			overlays.add(elementId, "processa-comment", {
 				position: {
-					bottom: 0,
-					right: 0
+					top: -10,
+					left: -10
 				},
 				html: html
 			});
@@ -2082,6 +2249,13 @@ defineExpose({
 	min-width: 320px; /* Standard properties panel width target */
 }
 
+@media (max-width: 767px) {
+	.properties-panel-container .bio-properties-panel {
+		min-width: unset;
+		width: 100%;
+	}
+}
+
 /* Custom scrollbar-hide utility if not already global */
 .scrollbar-hide::-webkit-scrollbar {
 	display: none;
@@ -2089,5 +2263,48 @@ defineExpose({
 .scrollbar-hide {
 	-ms-overflow-style: none;
 	scrollbar-width: none;
+}
+
+/* ── Mobile: touch-friendly BPMN elements ── */
+@media (max-width: 639px) {
+	/* Make palette slightly transparent so canvas is visible behind it */
+	.bpmn-canvas .djs-palette {
+		background-color: rgba(255, 255, 255, 0.95);
+		box-shadow: 2px 0 8px rgba(0, 0, 0, 0.08);
+	}
+
+	/* Ensure context pad sits above everything */
+	.djs-context-pad {
+		z-index: 200 !important;
+	}
+
+	/* Touch-friendly context pad entries */
+	.djs-context-pad .entry {
+		width: 36px;
+		height: 36px;
+		touch-action: manipulation;
+	}
+
+	/* The popup menu (element type selection) must be fully visible and scrollable */
+	.djs-popup {
+		z-index: 300 !important;
+		max-height: 50vh;
+		overflow-y: auto !important;
+		-webkit-overflow-scrolling: touch;
+	}
+
+	/* Thicker selection outline for touch targets */
+	.djs-element.selected .djs-outline {
+		stroke-width: 3px !important;
+	}
+}
+
+/* ── Slide-up transition for mobile bottom sheet ── */
+.slide-up-enter-active, .slide-up-leave-active {
+	transition: transform 0.3s ease, opacity 0.3s ease;
+}
+.slide-up-enter-from, .slide-up-leave-to {
+	transform: translateY(100%);
+	opacity: 0;
 }
 </style>

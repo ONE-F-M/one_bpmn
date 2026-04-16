@@ -1,7 +1,7 @@
 <template>
 	<div class="h-screen flex bg-gray-100 overflow-hidden relative">
-		<!-- Mobile Header Toggle (Only visible on small screens) -->
-		<div class="lg:hidden fixed top-0 left-0 right-0 h-14 bg-white border-b flex items-center justify-between px-4 z-[100] shadow-sm">
+		<!-- Mobile Header Toggle (Only visible on small screens, hidden on Editor routes) -->
+		<div v-if="!isEditorRoute" class="lg:hidden fixed top-0 left-0 right-0 h-14 bg-white border-b flex items-center justify-between px-4 z-[100] shadow-sm">
 			<div class="flex items-center gap-3">
 				<div class="w-8 h-8 rounded bg-gray-900 flex items-center justify-center">
 					<Icon icon="lucide:workflow" class="w-5 h-5 text-white" />
@@ -124,18 +124,25 @@
 		</aside>
 
 		<!-- Main Content -->
-		<div class="flex-1 flex flex-col overflow-hidden pt-14 lg:pt-0">
+		<div class="flex-1 flex flex-col overflow-hidden lg:pt-0" :class="isEditorRoute ? 'pt-0' : 'pt-14'">
 			<router-view />
 		</div>
 	</div>
 </template>
 
 <script setup>
-import { ref, onMounted } from "vue"
+import { ref, computed, onMounted } from "vue"
+import { useRoute } from "vue-router"
 import { Icon } from "@iconify/vue"
 
+const route = useRoute()
 const collapsed = ref(false)
 const isMobileMenuOpen = ref(false)
+
+// Hide the App-level mobile header on Editor routes to recover 56px of vertical space
+const isEditorRoute = computed(() => {
+	return route.name === "ProcessEditor" || route.name === "DiagramEditor"
+})
 
 onMounted(() => {
 	const saved = localStorage.getItem("one_bpmn_sidebar_collapsed")

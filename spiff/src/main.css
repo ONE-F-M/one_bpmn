@@ -20,3 +20,26 @@
 	border-left: 1px solid #e5e7eb;
 	background: #f9fafb;
 }
+
+/* ── Mobile Responsive ────────────────────────────── */
+
+/* Prevent pull-to-refresh on the BPMN canvas */
+.bpmn-canvas {
+	overscroll-behavior: contain;
+	-webkit-overflow-scrolling: touch;
+}
+
+/* Properties panel: remove fixed width on mobile */
+@media (max-width: 767px) {
+	.bpmn-properties-panel {
+		width: 100% !important;
+		border-left: none;
+	}
+}
+
+/* iOS safe area support */
+@supports (padding-bottom: env(safe-area-inset-bottom)) {
+	.mobile-safe-area-bottom {
+		padding-bottom: env(safe-area-inset-bottom, 16px);
+	}
+}
