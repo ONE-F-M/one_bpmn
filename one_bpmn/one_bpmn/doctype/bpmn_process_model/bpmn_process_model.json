@@ -56,14 +56,13 @@
    "unique": 1
   },
   {
-   "description": "BPMN process ID extracted from XML (e.g., Process_1). Must be unique.",
+   "description": "BPMN process ID extracted from XML (e.g., Process_1). Used internally by SpiffWorkflow.",
    "fieldname": "process_id",
    "fieldtype": "Data",
    "in_list_view": 1,
    "in_standard_filter": 1,
    "label": "Process ID",
-   "reqd": 1,
-   "unique": 1
+   "reqd": 1
   },
   {
    "fieldname": "column_break_info",
