@@ -750,7 +750,18 @@ function getTaskActionDetails(task) {
 	if (task.task_actions_detail && Array.isArray(task.task_actions_detail) && task.task_actions_detail.length > 0) {
 		return task.task_actions_detail.filter(d => d && d.action)
 	}
-	const raw = task.task_actions || ''
+	const raw = (task.task_actions || '').trim()
+	if (!raw) return []
+	// New format: JSON array — [{"action":"Accept"},{"action":"Reject","confirmTransition":"true"}]
+	if (raw.startsWith('[')) {
+		try {
+			const parsed = JSON.parse(raw)
+			if (Array.isArray(parsed)) {
+				return parsed.filter(d => d && d.action)
+			}
+		} catch (_) { /* fall through to CSV */ }
+	}
+	// Legacy: comma-separated action names
 	return raw.split(',').map(a => a.trim()).filter(Boolean).map(a => ({ action: a }))
 }
 
@@ -801,12 +812,16 @@ async function completeTask(task, detail) {
 			await loadLogs()
 		} catch (err) {
 			console.error('Failed to complete task:', err)
-			// Show error to user
-			if (window.frappe) {
+			// Show error to user — use optional chaining since window.frappe
+			// may be a polyfill without show_alert.
+			const errMsg = err.message || 'Failed to complete task'
+			if (window.frappe?.show_alert) {
 				window.frappe.show_alert({
-					message: err.message || 'Failed to complete task',
+					message: errMsg,
 					indicator: 'red',
 				}, 5)
+			} else {
+				window.alert(errMsg)
 			}
 		} finally {
 			completingTask.value   = null
@@ -816,24 +831,25 @@ async function completeTask(task, detail) {
 
 	// Digital signature check (placeholder — actual capture UI is a follow-up)
 	const doSignatureCheck = () => {
-		if (needsSignature && window.frappe) {
-			window.frappe.confirm(
-				'<b>Digital Signature Required</b><br><br>' +
+		if (needsSignature) {
+			const ok = window.confirm(
+				'Digital Signature Required\n\n' +
 				'This action requires a digital signature to proceed. ' +
-				'By clicking "Proceed", you acknowledge and authorize this action with your identity.',
-				() => doComplete()
+				'By clicking "OK", you acknowledge and authorize this action with your identity.'
 			)
+			if (ok) doComplete()
 		} else {
 			doComplete()
 		}
 	}
 
 	// Confirmation dialog
-	if (needsConfirm && window.frappe) {
+	if (needsConfirm) {
 		const msg = actionName
-			? `Apply action <b>${actionName}</b>?`
-			: `Complete task <b>${task.task_name || 'Task'}</b>?`
-		window.frappe.confirm(msg, () => doSignatureCheck())
+			? `Apply action "${actionName}"?`
+			: `Complete task "${task.task_name || 'Task'}"?`
+		const ok = window.confirm(msg)
+		if (ok) doSignatureCheck()
 	} else {
 		doSignatureCheck()
 	}

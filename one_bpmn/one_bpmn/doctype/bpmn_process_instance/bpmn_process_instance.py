@@ -405,7 +405,18 @@ class BPMNProcessInstance(Document):
 		"""
 		Callback fired by do_engine_steps() after each automated task.
 		Logs the completion to BPMN Activity Log.
+
+		Skips internal SpiffWorkflow tasks (Start, End, EndJoin) that have
+		no bpmn_id — they're engine internals not visible on the BPMN diagram.
 		"""
+		task_spec = task.task_spec
+		bpmn_id = getattr(task_spec, "bpmn_id", None)
+		spec_name = getattr(task_spec, "name", "") or ""
+
+		# Skip engine-internal tasks that don't correspond to BPMN elements
+		if not bpmn_id and (spec_name in ("Start", "End") or spec_name.endswith(".EndJoin")):
+			return
+
 		self._log_task(
 			task_id=str(task.id),
 			task_name=bpmn_engine.get_task_display_name(task),
@@ -1023,21 +1034,38 @@ class BPMNProcessInstance(Document):
 		subject = render(task_cfg.get("emailSubject", "") or f"Notification from {self.name}")
 		body = render(task_cfg.get("emailBody", "") or subject)
 		cc = task_cfg.get("emailCc", "") or None
-		bcc = task_cfg.get("emailBcc", "") or None
-		email_account = task_cfg.get("emailAccount", "") or None
 
-		# ── Send ─────────────────────────────────────────────────────────
-		frappe.sendmail(
-			recipients=recipients,
-			subject=subject,
-			message=body,
-			cc=cc.split(",") if cc else [],
-			bcc=bcc.split(",") if bcc else [],
-			**({"email_account": email_account} if email_account else {}),
-			reference_doctype=self.doctype,
-			reference_name=self.name,
-			now=True,  # send immediately, not via queue
-		)
+		# ── Send via one_fm.processor.sendemail if available ─────────
+		# Uses the same branded template and notification preference
+		# checks as the rest of the one_fm app (checks if user has
+		# notifications enabled, email notifications enabled, and
+		# preferred company email).
+		# Falls back to frappe.sendmail if one_fm isn't installed.
+		try:
+			from one_fm.processor import sendemail as onefm_sendemail
+
+			onefm_sendemail(
+				recipients=recipients,
+				subject=subject,
+				header=[subject],
+				message=body,
+				cc=cc,
+				reference_doctype=self.context_doctype or self.doctype,
+				reference_name=self.context_docname or self.name,
+			)
+		except ImportError:
+			frappe.logger("one_bpmn").warning(
+				"one_fm.processor not available — falling back to frappe.sendmail"
+			)
+			frappe.sendmail(
+				recipients=recipients,
+				subject=subject,
+				message=body,
+				cc=cc.split(",") if cc else [],
+				reference_doctype=self.context_doctype or self.doctype,
+				reference_name=self.context_docname or self.name,
+				now=False,
+			)
 
 	def _sync_active_tasks(self, wf):
 		"""
@@ -1259,9 +1287,20 @@ class BPMNProcessInstance(Document):
 	def _log_task(self, task_id: str, task_name: str, action: str, data: dict = None):
 		"""
 		Write a row to BPMN Activity Log.
+		Deduplicates by checking if the same task_id + action already exists.
 		Failures are silently logged — they should never break the main flow.
 		"""
 		try:
+			# Guard against duplicate log entries (can happen when
+			# do_engine_steps callback and the STARTED loop both fire
+			# for the same service task completion).
+			if frappe.db.exists("BPMN Activity Log", {
+				"instance": self.name,
+				"task_id": task_id,
+				"action": action,
+			}):
+				return
+
 			log = frappe.new_doc("BPMN Activity Log")
 			log.instance = self.name
 			log.task_id = task_id

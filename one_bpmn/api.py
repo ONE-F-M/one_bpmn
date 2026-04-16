@@ -1774,6 +1774,29 @@ def _populate_start_events(model, bpmn_xml: str) -> None:
 			},
 		)
 
+	# ── Sync spec → model-level trigger fields ──────────────────────────────
+	# The trigger system (trigger.py → _find_matching_models) queries the
+	# model-level DB fields (trigger_type, trigger_doctype, trigger_event,
+	# cron_expression) — NOT the start_events child table.  If the BPMN XML
+	# specifies triggerDoctype / cronExpression on a StartEvent, we must
+	# propagate those values to the model-level fields so triggers fire.
+	#
+	# Strategy: the first start event with meaningful config wins.  The spec
+	# is authoritative — it OVERRIDES whatever was previously on the model.
+	for row in model.start_events:
+		# Sync trigger_doctype from the spec (always override — spec is authoritative)
+		if row.trigger_doctype:
+			model.trigger_doctype = row.trigger_doctype
+			model.trigger_type = "DocType Event"
+			break  # first match wins
+
+	for row in model.start_events:
+		# Sync cron_expression from the spec (always override — spec is authoritative)
+		if row.cron_expression:
+			model.cron_expression = row.cron_expression
+			model.trigger_type = "Scheduler Event"
+			break
+
 	model.save(ignore_permissions=True)
 
 
@@ -2417,7 +2440,29 @@ def complete_task(
 	# must be one of the allowed actions configured on the User Task.
 	submitted_action = parsed_data.get("action", "")
 	allowed_actions_str = active_row.task_actions or ""
-	allowed_actions = [a.strip() for a in allowed_actions_str.split(",") if a.strip()]
+
+	# Parse actions from either JSON array or legacy comma-separated format.
+	# New format: [{"action":"Approve","confirmTransition":"true"},{"action":"Reject"}]
+	# Legacy format: "Approve,Reject,Send Back"
+	_trimmed = allowed_actions_str.strip()
+	if _trimmed.startswith("["):
+		try:
+			_parsed_actions = json.loads(_trimmed)
+			allowed_actions = [
+				a.get("action", "").strip()
+				for a in (_parsed_actions if isinstance(_parsed_actions, list) else [])
+				if isinstance(a, dict) and a.get("action", "").strip()
+			]
+		except (TypeError, ValueError):
+			# Invalid JSON — fall back to legacy CSV parsing rather than
+			# silently bypassing validation with an empty list.
+			frappe.log_error(
+				title="BPMN complete_task: malformed task_actions JSON",
+				message=f"task_actions={_trimmed!r} on instance {instance_name}",
+			)
+			allowed_actions = [a.strip() for a in _trimmed.split(",") if a.strip()]
+	else:
+		allowed_actions = [a.strip() for a in _trimmed.split(",") if a.strip()]
 
 	if allowed_actions:
 		if not submitted_action:
@@ -2479,7 +2524,7 @@ def complete_task(
 
 	# ── Publish realtime events for auto-refresh ────────────────────────────
 	# 1. Notify the Process Instance page (Processa frontend) — broadcast
-	#    to all users since anyone viewing the instance detail should refresh.
+	#    to ALL users since anyone viewing the instance detail should refresh.
 	frappe.publish_realtime(
 		"bpmn_instance_updated",
 		{
@@ -2489,9 +2534,24 @@ def complete_task(
 			"context_docname": instance.context_docname or "",
 		},
 		after_commit=True,
+		user="all",
 	)
 
-	# 2. Notify the Frappe form of the context document so it auto-refreshes.
+	# 2. Notify the Frappe form of the BPMN Process Instance so it
+	#    auto-reloads when viewed in the desk.
+	frappe.publish_realtime(
+		"doc_update",
+		{
+			"modified": str(frappe.utils.now_datetime()),
+			"doctype": "BPMN Process Instance",
+			"name": instance_name,
+		},
+		doctype="BPMN Process Instance",
+		docname=instance_name,
+		after_commit=True,
+	)
+
+	# 3. Notify the Frappe form of the context document so it auto-refreshes.
 	#    Use doc_update (Frappe's native form update event) which the form
 	#    framework already listens for when a form is open.
 	if instance.context_doctype and instance.context_docname:
