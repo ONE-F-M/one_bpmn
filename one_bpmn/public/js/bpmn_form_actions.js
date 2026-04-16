@@ -236,8 +236,19 @@ frappe.provide('one_bpmn');
 		if (task.task_actions_detail && Array.isArray(task.task_actions_detail) && task.task_actions_detail.length > 0) {
 			return task.task_actions_detail.filter(d => d && d.action);
 		}
-		// Fallback: parse comma-separated string
-		const raw = task.task_actions || '';
+		// Fallback: parse from task_actions string (JSON or legacy CSV)
+		const raw = (task.task_actions || '').trim();
+		if (!raw) return [];
+		// New format: JSON array — [{"action":"Accept"},{"action":"Reject","confirmTransition":"true"}]
+		if (raw.startsWith('[')) {
+			try {
+				const parsed = JSON.parse(raw);
+				if (Array.isArray(parsed)) {
+					return parsed.filter(d => d && d.action);
+				}
+			} catch (_) { /* fall through to CSV */ }
+		}
+		// Legacy: comma-separated action names
 		return raw.split(',').map(a => a.trim()).filter(Boolean).map(a => ({ action: a }));
 	}
 

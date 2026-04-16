@@ -114,11 +114,12 @@ def _find_matching_models(doctype: str, trigger_event: str) -> list:
 	Return names of all active BPMN Process Models whose trigger matches
 	the given doctype + event combination.
 
-	Checks both:
-	- BPMN Process Model.trigger_doctype  (single-doctype direct link)
-	- BPMN Process DocType child table    (multi-doctype list)
+	Checks three sources (in order):
+	1. BPMN Process Model.trigger_doctype  (single-doctype direct link)
+	2. BPMN Process DocType child table    (multi-doctype list)
+	3. BPMN Start Event Config child table (trigger_doctype from BPMN XML spec)
 	"""
-	# Direct trigger_doctype match
+	# 1. Direct trigger_doctype match on model-level fields
 	direct = frappe.get_all(
 		"BPMN Process Model",
 		filters={
@@ -130,7 +131,7 @@ def _find_matching_models(doctype: str, trigger_event: str) -> list:
 		pluck="name",
 	)
 
-	# Child table match — models that list this doctype in target_doctypes
+	# 2. Child table match — models that list this doctype in target_doctypes
 	child_parents = frappe.get_all(
 		"BPMN Process DocType",
 		filters={
@@ -155,10 +156,38 @@ def _find_matching_models(doctype: str, trigger_event: str) -> list:
 			pluck="name",
 		)
 
+	# 3. Start Event Config — trigger_doctype set in BPMN XML spec
+	# This catches models where the BA configured triggerDoctype on the
+	# start event in the BPMN diagram but the model-level trigger_doctype
+	# field was not yet synced (e.g. model compiled before this fix).
+	spec_parents = frappe.get_all(
+		"BPMN Start Event Config",
+		filters={
+			"trigger_doctype": doctype,
+			"parenttype": "BPMN Process Model",
+		},
+		fields=["parent"],
+		distinct=True,
+	)
+	spec_candidate_parents = [r.parent for r in spec_parents if r.parent]
+
+	via_spec_names = []
+	if spec_candidate_parents:
+		via_spec_names = frappe.get_all(
+			"BPMN Process Model",
+			filters={
+				"name": ["in", spec_candidate_parents],
+				"is_active": 1,
+				"trigger_type": "DocType Event",
+				"trigger_event": trigger_event,
+			},
+			pluck="name",
+		)
+
 	# Merge and deduplicate, preserving order
 	seen = set()
 	result = []
-	for name in direct + via_child_names:
+	for name in direct + via_child_names + via_spec_names:
 		if name not in seen:
 			seen.add(name)
 			result.append(name)
@@ -270,7 +299,9 @@ def _advance_instance_on_doc_event(instance_name: str, task_action: str):
 	task_action, and call advance() to complete it and run the engine forward.
 
 	task_action is a single action string, e.g. "Submit" or "Cancel".
-	task_actions on the row is a comma-separated list, e.g. "Submit,Save".
+	task_actions on the row is either:
+	  - JSON array: [{"action":"Submit"},{"action":"Save"}]
+	  - Legacy CSV:  "Submit,Save"
 	"""
 	instance = frappe.get_doc("BPMN Process Instance", instance_name)
 
@@ -279,7 +310,20 @@ def _advance_instance_on_doc_event(instance_name: str, task_action: str):
 	for row in instance.active_tasks:
 		if row.status != "Waiting":
 			continue
-		actions = [a.strip() for a in (row.task_actions or "").split(",") if a.strip()]
+		raw = (row.task_actions or "").strip()
+		if raw.startswith("["):
+			import json as _json
+			try:
+				parsed = _json.loads(raw)
+				actions = [
+					a.get("action", "").strip()
+					for a in (parsed if isinstance(parsed, list) else [])
+					if isinstance(a, dict) and a.get("action", "").strip()
+				]
+			except (TypeError, ValueError):
+				actions = []
+		else:
+			actions = [a.strip() for a in raw.split(",") if a.strip()]
 		if task_action in actions:
 			matching_row = row
 			break
