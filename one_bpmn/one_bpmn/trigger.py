@@ -69,15 +69,22 @@ def on_doc_event(doc, method: str):
 
 	Handles two separate concerns:
 	  A) Start a new BPMN Process Instance when a matching model is configured
-	     to trigger on this doctype + event (e.g. After Insert).
+		 to trigger on this doctype + event (e.g. After Insert).
 	  B) Advance an existing active BPMN Process Instance when the document
-	     changes outside of the BPMN engine — bidirectional sync (e.g. the
-	     user submits the EDA directly from the Frappe form).
+		 changes outside of the BPMN engine — bidirectional sync (e.g. the
+		 user submits the EDA directly from the Frappe form).
 
 	Args:
-	    doc:    The Frappe Document that just changed
-	    method: The hook method name, e.g. 'after_insert', 'on_update'
+		doc:    The Frappe Document that just changed
+		method: The hook method name, e.g. 'after_insert', 'on_update'
 	"""
+	# 0. Never fire during migrations, installs, or patch execution
+	if getattr(frappe.flags, "in_migrate", False) \
+	   or getattr(frappe.flags, "in_install", False) \
+	   or getattr(frappe.flags, "in_patch", False) \
+	   or getattr(frappe.flags, "in_setup_wizard", False):
+		return
+		
 	# 1. Never trigger on internal BPMN doctypes
 	if doc.doctype in _INTERNAL_DOCTYPES:
 		return
@@ -264,10 +271,10 @@ def _maybe_advance_instances(doc, task_action: str):
 
 	Design notes:
 	  - Only advances tasks in READY state (state=16) — never touches completed
-	    or future tasks.
+		or future tasks.
 	  - The advance() call will dispatch the downstream service tasks (e.g.
-	    "Set to Submitted") which gracefully no-op if the doc is already in
-	    the target state, preventing recursion and duplicate submissions.
+		"Set to Submitted") which gracefully no-op if the doc is already in
+		the target state, preventing recursion and duplicate submissions.
 	  - Any failure is logged but never crashes the original document save.
 	"""
 	try:
@@ -362,7 +369,7 @@ def _get_trigger_workflow_state(bpmn_xml: str):
 	spiffworkflow:triggerWorkflowState on the start event, if set.
 
 	Example BPMN attribute:
-	    <bpmn:startEvent spiffworkflow:triggerWorkflowState="Open" ...>
+		<bpmn:startEvent spiffworkflow:triggerWorkflowState="Open" ...>
 
 	Returns None if no condition is set or if parsing fails.
 	"""
@@ -391,16 +398,16 @@ def guard_bpmn_document(doc, method: str):
 	Process Instance is actively controlling this document.
 
 	Wired via hooks.py:
-	    doc_events = { "*": { "before_submit": _BPMN_GUARD, ... } }
+		doc_events = { "*": { "before_submit": _BPMN_GUARD, ... } }
 
 	Decision logic:
 	  1. Skip internal BPMN doctypes (prevent recursion).
 	  2. If frappe.flags.bpmn_engine_action is True, this call originates from
-	     the BPMN engine itself (service task) — allow it through.
+		 the BPMN engine itself (service task) — allow it through.
 	  3. Query for an Active BPMN Process Instance on this document.
-	     - No instance → Frappe workflow rules apply normally. Allow.
-	     - Active instance found → Block with a user-friendly error asking
-	       the user to use the Actions menu instead.
+		 - No instance → Frappe workflow rules apply normally. Allow.
+		 - Active instance found → Block with a user-friendly error asking
+		   the user to use the Actions menu instead.
 	"""
 	# 1. Never guard internal BPMN doctypes
 	if doc.doctype in _INTERNAL_DOCTYPES:
