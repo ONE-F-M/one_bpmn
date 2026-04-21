@@ -79,27 +79,35 @@ def on_doc_event(doc, method: str):
 		method: The hook method name, e.g. 'after_insert', 'on_update'
 	"""
 	# 0. Never fire during migrations, installs, or patch execution
-	if getattr(frappe.flags, "in_migrate", False) \
-	   or getattr(frappe.flags, "in_install", False) \
-	   or getattr(frappe.flags, "in_patch", False) \
-	   or getattr(frappe.flags, "in_setup_wizard", False):
-		return
-		
+	# if getattr(frappe.flags, "in_migrate", False) \
+	#    or getattr(frappe.flags, "in_install", False) \
+	#    or getattr(frappe.flags, "in_patch", False) \
+	#    or getattr(frappe.flags, "in_setup_wizard", False):
+	# 	return
+
+	print(f"[BPMN DEBUG] on_doc_event called: doctype={doc.doctype}, name={doc.name}, method={method}")
+
 	# 1. Never trigger on internal BPMN doctypes
 	if doc.doctype in _INTERNAL_DOCTYPES:
+		print(f"[BPMN DEBUG] SKIPPED: {doc.doctype} is an internal BPMN doctype")
 		return
 
 	# 2. Map the Frappe hook name to the trigger_event label
 	trigger_event = _FRAPPE_TO_TRIGGER_EVENT.get(method)
+	print(f"[BPMN DEBUG] method={method} -> trigger_event={trigger_event}")
 	if not trigger_event:
+		print(f"[BPMN DEBUG] SKIPPED: no trigger_event mapping for method={method}")
 		return  # Event type we don't handle (e.g. autoname, db_insert)
 
 	# ── A) Start new instances ────────────────────────────────────────────────
 	models = _find_matching_models(doc.doctype, trigger_event)
+	print(f"[BPMN DEBUG] _find_matching_models({doc.doctype}, {trigger_event}) returned: {models}")
 	for model_name in models:
 		try:
+			print(f"[BPMN DEBUG] Calling _maybe_start_instance for model={model_name}")
 			_maybe_start_instance(doc, model_name)
 		except Exception:
+			print(f"[BPMN DEBUG] EXCEPTION in _maybe_start_instance: {frappe.get_traceback()}")
 			frappe.log_error(
 				title=f"BPMN trigger failed for {doc.doctype} / {model_name}",
 				message=frappe.get_traceback(),
@@ -109,6 +117,7 @@ def on_doc_event(doc, method: str):
 	# If this event maps to a User Task action (Submit → on_submit, etc.),
 	# auto-complete any waiting task in an existing active instance.
 	task_action = _FRAPPE_EVENT_TO_TASK_ACTION.get(method)
+	print(f"[BPMN DEBUG] task_action for method={method}: {task_action}")
 	if task_action:
 		_maybe_advance_instances(doc, task_action)
 
