@@ -210,16 +210,6 @@
 						<!-- Content is injected here by bpmn-js-properties-panel -->
 					</div>
 
-					<!-- Desktop: Floating Collapse/Expand Handle -->
-					<button
-						v-if="!isMobile"
-						@click="togglePropertiesCollapse"
-						class="absolute left-0 top-1/2 -translate-x-1/2 -translate-y-1/2 w-6 h-12 bg-white border border-gray-200 rounded-l-lg shadow-md flex items-center justify-center text-gray-500 hover:text-gray-900 transition-all z-[70] hidden md:flex"
-						:title="propertiesCollapsed ? 'Expand' : 'Collapse'"
-					>
-						<Icon :icon="propertiesCollapsed ? 'lucide:chevron-left' : 'lucide:chevron-right'" class="w-4 h-4" />
-					</button>
-					
 					<!-- Desktop: Sidebar-style collapse placeholder -->
 					<div 
 						v-if="!isMobile && propertiesCollapsed"
@@ -231,6 +221,19 @@
 					</div>
 				</div>
 			</transition>
+
+			<!-- Desktop: Floating Properties Panel Toggle Handle
+			     Placed OUTSIDE the panel container to avoid overflow-hidden clipping.
+			     Positioned at the panel's left edge using a dynamic right offset. -->
+			<button
+				v-if="!isMobile && showPropertiesPanel"
+				@click="togglePropertiesCollapse"
+				class="absolute top-1/2 -translate-y-1/2 w-6 h-12 bg-white border border-gray-200 rounded-l-lg shadow-md hidden md:flex items-center justify-center text-gray-500 hover:text-gray-900 transition-all duration-300 z-[65]"
+				:style="{ right: (propertiesCollapsed ? 48 : 384) + 'px' }"
+				:title="propertiesCollapsed ? 'Expand Properties Panel' : 'Collapse Properties Panel'"
+			>
+				<Icon :icon="propertiesCollapsed ? 'lucide:chevron-left' : 'lucide:chevron-right'" class="w-4 h-4" />
+			</button>
 
 			<!-- Comment Mode Instruction Banner -->
 			<transition name="fade">
@@ -608,7 +611,7 @@ const toolbarEl = ref(null);
 const canUndo = ref(false);
 const canRedo = ref(false);
 const zoomLevel = ref(100);
-const showPropertiesPanel = ref(false);
+const showPropertiesPanel = ref(true);
 const propertiesCollapsed = ref(false);
 const isMounted = ref(false);
 const isImporting = ref(false);
@@ -657,13 +660,7 @@ const emptyDiagram = `<?xml version="1.0" encoding="UTF-8"?>
   </bpmndi:BPMNDiagram>
 </bpmn:definitions>`;
 
-function togglePropertiesPanel() {
-	showPropertiesPanel.value = !showPropertiesPanel.value;
-	// If opening the panel, ensure it's not collapsed by default
-	if (showPropertiesPanel.value) {
-		propertiesCollapsed.value = false;
-	}
-}
+
 
 function togglePropertiesCollapse() {
 	propertiesCollapsed.value = !propertiesCollapsed.value;
@@ -1828,7 +1825,6 @@ defineExpose({
 	// Call Activity API
 	updateCalledElement,
 	// Properties Panel API
-	togglePropertiesPanel,
 	togglePropertiesCollapse,
 });
 </script>
