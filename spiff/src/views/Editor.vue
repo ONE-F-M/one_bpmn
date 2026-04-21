@@ -113,30 +113,10 @@
 					@change="handleImportFile"
 				/>
 
-				<!-- Toggle Properties Panel (always visible) -->
-				<button
-					@click="togglePropertiesPanel"
-					class="w-8 h-8 flex items-center justify-center hover:bg-gray-100 rounded transition-colors text-gray-600"
-					title="Toggle Properties Panel"
-					:disabled="!activeDiagramName"
-				>
-					<Icon icon="lucide:settings" class="w-4 h-4" />
-				</button>
+
 
 				<!-- Desktop: Individual action buttons -->
 				<template v-if="!isMobile">
-					<!-- Deploy Button -->
-					<button
-						@click="deployModel"
-						class="h-7 flex items-center gap-1 px-2.5 bg-blue-600 hover:bg-blue-700 text-white rounded transition-colors text-xs font-medium leading-none"
-						title="Deploy process model"
-						:disabled="!activeDiagramName || deploying"
-						:class="{ 'opacity-50 cursor-not-allowed': !activeDiagramName || deploying }"
-					>
-						<Icon :icon="deploying ? 'lucide:loader-2' : 'lucide:rocket'" class="w-3.5 h-3.5" :class="{ 'animate-spin': deploying }" />
-						{{ deploying ? 'Deploying…' : 'Deploy' }}
-					</button>
-
 					<!-- Compare Versions Button -->
 					<button
 						@click="openVersionPicker"
@@ -148,14 +128,14 @@
 						<Icon icon="lucide:git-compare" class="w-4 h-4" />
 					</button>
 
-					<!-- File menu dropdown -->
+					<!-- File menu dropdown (Import / Export) -->
 					<div class="relative">
 						<button
 							@click="showFileMenu = !showFileMenu"
 							class="w-8 h-8 flex items-center justify-center hover:bg-gray-100 rounded transition-colors text-gray-600"
 							title="Import / Export"
 						>
-							<Icon icon="lucide:menu" class="w-4 h-4" />
+							<Icon icon="lucide:arrow-down-up" class="w-4 h-4" />
 						</button>
 						<div
 							v-if="showFileMenu"
@@ -182,6 +162,18 @@
 							</button>
 						</div>
 					</div>
+
+					<!-- Deploy Button (last — primary action) -->
+					<button
+						@click="deployModel"
+						class="h-7 flex items-center gap-1 px-2.5 bg-blue-600 hover:bg-blue-700 text-white rounded transition-colors text-xs font-medium leading-none"
+						title="Deploy process model"
+						:disabled="!activeDiagramName || deploying"
+						:class="{ 'opacity-50 cursor-not-allowed': !activeDiagramName || deploying }"
+					>
+						<Icon :icon="deploying ? 'lucide:loader-2' : 'lucide:rocket'" class="w-3.5 h-3.5" :class="{ 'animate-spin': deploying }" />
+						{{ deploying ? 'Deploying…' : 'Deploy' }}
+					</button>
 				</template>
 
 				<!-- Mobile: "More" overflow dropdown -->
@@ -422,17 +414,7 @@
 						v-model="newDiagramDescription"
 						placeholder="Optional description"
 					/>
-					<label
-						v-if="canCopyActiveDiagram"
-						class="flex items-center gap-2 text-sm text-gray-700 cursor-pointer select-none"
-					>
-						<input
-							type="checkbox"
-							v-model="newDiagramMakeCopy"
-							class="rounded border-gray-300 text-blue-600 focus:ring-blue-500"
-						/>
-						Make a Copy
-					</label>
+
 				</div>
 			</template>
 			<template #actions>
@@ -871,12 +853,7 @@ let pendingNavigationNext = null;
 const showNewDiagramDialog = ref(false);
 const newDiagramName = ref("");
 const newDiagramDescription = ref("");
-const newDiagramMakeCopy = ref(false);
 
-// Only show "Make a Copy" when editor is ready and diagram XML is available
-const canCopyActiveDiagram = computed(() => {
-	return activeDiagramName.value && editorReady.value && !!diagramDataCache.value[activeDiagramName.value];
-});
 
 // Track loaded diagram data
 const diagramDataCache = ref({});
@@ -1410,7 +1387,6 @@ function showAddDiagramDialog() {
 	if (!isEditable.value) return; // Guard: process is locked
 	newDiagramName.value = "";
 	newDiagramDescription.value = "";
-	newDiagramMakeCopy.value = false;
 	showNewDiagramDialog.value = true;
 }
 
@@ -1423,25 +1399,7 @@ async function createDiagram() {
 
 	creating.value = true;
 	try {
-		// Determine XML: copy current diagram or use empty template
-		let xmlContent;
-		if (newDiagramMakeCopy.value && activeDiagramName.value) {
-			// Try live editor first, fall back to cache
-			if (editorReady.value && editorRef.value) {
-				xmlContent = await editorRef.value.getXML();
-			}
-			// Fall back to cached XML if getXML() returned empty or editor wasn't ready
-			if (!xmlContent) {
-				xmlContent = diagramDataCache.value[activeDiagramName.value];
-			}
-			// If still no XML, block creation
-			if (!xmlContent) {
-				showNotification('Copy Failed', 'The current diagram has not finished loading. Please wait and try again.', 'red');
-				creating.value = false;
-				return;
-			}
-		} else {
-			xmlContent = `<?xml version="1.0" encoding="UTF-8"?>
+		const xmlContent = `<?xml version="1.0" encoding="UTF-8"?>
 <bpmn:definitions xmlns:bpmn="http://www.omg.org/spec/BPMN/20100524/MODEL"
                   xmlns:bpmndi="http://www.omg.org/spec/BPMN/20100524/DI"
                   xmlns:dc="http://www.omg.org/spec/DD/20100524/DC"
@@ -1458,7 +1416,6 @@ async function createDiagram() {
     </bpmndi:BPMNPlane>
   </bpmndi:BPMNDiagram>
 </bpmn:definitions>`;
-		}
 
 		const response = await frappeRequest({
 			url: "/api/method/one_bpmn.api.save_process_model",
@@ -2078,11 +2035,7 @@ function onCallActivitySelected(processId) {
 	callActivitySearchEvent = null;
 }
 
-function togglePropertiesPanel() {
-	if (editorRef.value) {
-		editorRef.value.togglePropertiesPanel();
-	}
-}
+
 
 function onCancelCallActivitySearch() {
 	// Mirror the select path: close dialog AND clear the stored event reference
