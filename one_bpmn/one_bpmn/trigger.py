@@ -79,11 +79,11 @@ def on_doc_event(doc, method: str):
 		method: The hook method name, e.g. 'after_insert', 'on_update'
 	"""
 	# 0. Never fire during migrations, installs, or patch execution
-	# if getattr(frappe.flags, "in_migrate", False) \
-	#    or getattr(frappe.flags, "in_install", False) \
-	#    or getattr(frappe.flags, "in_patch", False) \
-	#    or getattr(frappe.flags, "in_setup_wizard", False):
-	# 	return
+	if getattr(frappe.flags, "in_migrate", False) \
+	   or getattr(frappe.flags, "in_install", False) \
+	   or getattr(frappe.flags, "in_patch", False) \
+	   or getattr(frappe.flags, "in_setup_wizard", False):
+		return
 
 	print(f"[BPMN DEBUG] on_doc_event called: doctype={doc.doctype}, name={doc.name}, method={method}")
 
