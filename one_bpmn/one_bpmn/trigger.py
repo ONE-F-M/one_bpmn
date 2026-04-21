@@ -84,7 +84,7 @@ def on_doc_event(doc, method: str):
 	   or getattr(frappe.flags, "in_patch", False) \
 	   or getattr(frappe.flags, "in_setup_wizard", False):
 		return
-		
+
 	# 1. Never trigger on internal BPMN doctypes
 	if doc.doctype in _INTERNAL_DOCTYPES:
 		return

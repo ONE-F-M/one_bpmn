@@ -1698,9 +1698,14 @@ def _populate_start_events(model, bpmn_xml: str) -> None:
 	Extracts configuration from ``spiffworkflow:*`` attributes:
 	  - triggerWorkflowState → workflow_state_condition
 	  - triggerDoctype       → trigger_doctype
+	  - triggerType          → trigger_event (e.g. "After Insert")
 	  - cronExpression       → cron_expression (on timer definitions)
 
-	Also maps the model-level trigger_event to each row for visibility.
+	Also syncs model-level trigger fields (trigger_type, trigger_doctype,
+	trigger_event) so that trigger.py can fire process instances.
+
+	Note: This function modifies the model in-memory only — the caller is
+	responsible for calling model.save().
 	"""
 	import xml.etree.ElementTree as _ET
 
@@ -1711,7 +1716,6 @@ def _populate_start_events(model, bpmn_xml: str) -> None:
 	model.start_events = []
 
 	if not bpmn_xml or not bpmn_xml.strip():
-		model.save(ignore_permissions=True)
 		return
 
 	try:
@@ -1721,7 +1725,6 @@ def _populate_start_events(model, bpmn_xml: str) -> None:
 			title="BPMN: Failed to parse XML for start events",
 			message=frappe.get_traceback(),
 		)
-		model.save(ignore_permissions=True)
 		return
 
 	for start_event in root.iter(f"{{{BPMN_NS}}}startEvent"):
@@ -1752,15 +1755,18 @@ def _populate_start_events(model, bpmn_xml: str) -> None:
 		# ── Extract spiffworkflow:* attributes from the start event ────
 		workflow_state = start_event.get(f"{{{SPIFF_NS}}}triggerWorkflowState", "")
 		trigger_doctype = start_event.get(f"{{{SPIFF_NS}}}triggerDoctype", "")
+		trigger_type_attr = start_event.get(f"{{{SPIFF_NS}}}triggerType", "")
 
 		# Also check conditional definition for nested attributes
 		if cond_def is not None and not workflow_state:
 			workflow_state = cond_def.get(f"{{{SPIFF_NS}}}triggerWorkflowState", "")
 		if cond_def is not None and not trigger_doctype:
 			trigger_doctype = cond_def.get(f"{{{SPIFF_NS}}}triggerDoctype", "")
+		if cond_def is not None and not trigger_type_attr:
+			trigger_type_attr = cond_def.get(f"{{{SPIFF_NS}}}triggerType", "")
 
-		# ── Map model-level trigger_event for display ──────────────────
-		trigger_event = model.trigger_event or ""
+		# ── Resolve trigger_event from XML or fall back to model field ──
+		trigger_event = trigger_type_attr or model.trigger_event or ""
 
 		model.append(
 			"start_events",
@@ -1770,7 +1776,7 @@ def _populate_start_events(model, bpmn_xml: str) -> None:
 				"trigger_doctype": trigger_doctype or (model.trigger_doctype or ""),
 				"trigger_event": trigger_event,
 				"workflow_state_condition": workflow_state,
-				"cron_expression": cron_expr or (model.cron_expression or ""),
+				"cron_expression": cron_expr,
 			},
 		)
 
@@ -1783,21 +1789,105 @@ def _populate_start_events(model, bpmn_xml: str) -> None:
 	#
 	# Strategy: the first start event with meaningful config wins.  The spec
 	# is authoritative — it OVERRIDES whatever was previously on the model.
+	# DocType Event and Scheduler Event are mutually exclusive — whichever
+	# is found first in the start events takes precedence.
 	for row in model.start_events:
-		# Sync trigger_doctype from the spec (always override — spec is authoritative)
 		if row.trigger_doctype:
 			model.trigger_doctype = row.trigger_doctype
 			model.trigger_type = "DocType Event"
+			if row.trigger_event:
+				model.trigger_event = row.trigger_event
 			break  # first match wins
-
-	for row in model.start_events:
-		# Sync cron_expression from the spec (always override — spec is authoritative)
 		if row.cron_expression:
 			model.cron_expression = row.cron_expression
 			model.trigger_type = "Scheduler Event"
 			break
 
-	model.save(ignore_permissions=True)
+
+def _get_linked_server_scripts(spec_json: str) -> set:
+	"""
+	Extract the set of Server Script names referenced by Script Tasks
+	in a BPMN Process Model's serialized spec.
+
+	Args:
+	    spec_json: JSON string from BPMN Process Model.serialized_spec
+
+	Returns:
+	    set of Server Script names (may be empty)
+	"""
+	if not spec_json:
+		return set()
+	try:
+		spec_data = json.loads(spec_json)
+	except (json.JSONDecodeError, TypeError):
+		return set()
+
+	scripts = set()
+	for cfg in spec_data.get("script_task_extensions", {}).values():
+		name = cfg.get("serverScript", "")
+		if name:
+			scripts.add(name)
+	return scripts
+
+
+def _activate_deployed_model(model, script_extensions: dict) -> None:
+	"""
+	Handle the deployment lifecycle for a BPMN Process Model:
+
+	1. Mark the model as active (``is_active = 1``)
+	2. Deactivate sibling models with the same ``process_name``
+	3. Enable Server Scripts linked to the deployed model
+	4. Disable Server Scripts linked to deactivated siblings
+	   (unless shared with the active model)
+
+	Modifies the model in-memory — the caller is responsible for
+	calling ``model.save()``.
+
+	Args:
+	    model:             BPMN Process Model document (in-memory)
+	    script_extensions: dict from ``_extract_script_task_config()``
+	"""
+	model.is_active = 1
+
+	# Server scripts referenced by the deployed model
+	active_scripts = set()
+	for cfg in (script_extensions or {}).values():
+		if cfg.get("serverScript"):
+			active_scripts.add(cfg["serverScript"])
+
+	# Deactivate sibling models and their exclusive server scripts
+	if model.process_name:
+		sibling_names = frappe.get_all(
+			"BPMN Process Model",
+			filters={
+				"process_name": model.process_name,
+				"is_active": 1,
+				"name": ["!=", model.name],
+			},
+			pluck="name",
+		)
+
+		# Collect scripts from siblings before deactivating them
+		sibling_scripts = set()
+		for sname in sibling_names:
+			sibling_spec = frappe.db.get_value(
+				"BPMN Process Model", sname, "serialized_spec"
+			)
+			sibling_scripts |= _get_linked_server_scripts(sibling_spec)
+
+		# Deactivate sibling models
+		for sname in sibling_names:
+			frappe.db.set_value("BPMN Process Model", sname, "is_active", 0)
+
+		# Disable scripts exclusive to deactivated siblings
+		for script_name in (sibling_scripts - active_scripts):
+			if frappe.db.exists("Server Script", script_name):
+				frappe.db.set_value("Server Script", script_name, "disabled", 1)
+
+	# Enable server scripts linked to the deployed model
+	for script_name in active_scripts:
+		if frappe.db.exists("Server Script", script_name):
+			frappe.db.set_value("Server Script", script_name, "disabled", 0)
 
 
 def _update_round_robin_in_model(model_name: str, task_bpmn_id: str, last_user: str) -> None:
@@ -1976,50 +2066,46 @@ def compile_process_model(model_name: str) -> dict:
 
 	model.serialized_spec = json.dumps(spec_dict)
 	model.subprocess_specs = json.dumps(sp_dict)
-	# ── Embed service task extensions into the serialized spec ────────────────
+
+	# ── Embed all task extensions into the serialized spec in one pass ─────
 	# SpiffWorkflow's Python parser ignores custom spiffworkflow:* XML attributes,
 	# so we extract them from the BPMN XML now and store them alongside the spec.
-	# At runtime, bpmn_process_instance.py reads service_task_extensions to know
-	# what each ServiceTask should actually do (e.g. apply a Frappe workflow state).
+	# At runtime, bpmn_process_instance.py reads these to know what each task
+	# should actually do (e.g. apply a Frappe workflow state, call a Server Script,
+	# resolve user assignments).
+	spec_data = json.loads(model.serialized_spec)
+
 	service_extensions = _extract_service_task_config(sanitized_xml)
 	if service_extensions:
-		# Merge into the existing spec dict and re-serialize
-		spec_data = json.loads(model.serialized_spec)
 		spec_data["service_task_extensions"] = service_extensions
-		model.serialized_spec = json.dumps(spec_data)
 
-	model.save(ignore_permissions=True)
-
-	# ── Embed script task extensions into the serialized spec ─────────────────
-	# FrappeScriptEngine uses these at runtime to call the correct Server Script
-	# for each Script Task instead of running inline <bpmn:script> content.
 	script_extensions = _extract_script_task_config(sanitized_xml)
 	if script_extensions:
-		spec_data = json.loads(model.serialized_spec)
 		spec_data["script_task_extensions"] = script_extensions
-		model.serialized_spec = json.dumps(spec_data)
-		model.save(ignore_permissions=True)
 
-	# ── Embed user task extensions into the serialized spec ────────────────────
-	# SpiffWorkflow's Python parser ignores custom spiffworkflow:* XML attributes
-	# on UserTask elements, so we extract them now (assignment mode, users, etc.)
-	# and embed them in the serialized spec alongside the service task extensions.
 	user_extensions = _extract_user_task_config(sanitized_xml)
 	if user_extensions:
-		spec_data = json.loads(model.serialized_spec)
 		spec_data["user_task_extensions"] = user_extensions
-		model.serialized_spec = json.dumps(spec_data)
-		model.save(ignore_permissions=True)
 
-	# ── Validate timer events (enforce minute-level granularity) ──────────────
+	model.serialized_spec = json.dumps(spec_data)
+
+	# ── Validate timer events (enforce minute-level granularity) ──────────
 	# Frappe scheduler only runs at minute intervals — reject any timer value
 	# that uses seconds (e.g. PT15S, R5/PT10S).
 	_validate_timer_granularity(sanitized_xml)
 
-	# ── Extract and populate Start Events child table ─────────────────────────
+	# ── Extract and populate Start Events child table ─────────────────────
 	# Parse all <bpmn:startEvent> elements from the XML and capture their type
 	# (None, Conditional, Timer, Signal) and configuration into the child table.
+	# Also syncs model-level trigger fields (trigger_type, trigger_doctype,
+	# trigger_event) from the BPMN XML so trigger.py can fire instances.
 	_populate_start_events(model, sanitized_xml)
+
+	# ── Activate this model and manage deployment lifecycle ───────────────
+	_activate_deployed_model(model, script_extensions)
+
+	# ── Single save ──────────────────────────────────────────────────────
+	model.save(ignore_permissions=True)
 
 	return {
 		"success": True,

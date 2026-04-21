@@ -31,8 +31,8 @@ share/python-wheels/
 *.egg
 
 # Frontend build output (equivalent to helpdesk's public/frontend)
-one_bpmn/public/spiff
-one_bpmn/www/spiff/index.html
+one_bpmn/public/processa
+one_bpmn/www/processa/index.html
 
 # Auto-generated type declarations
 spiff/components.d.ts

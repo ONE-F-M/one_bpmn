@@ -169,7 +169,6 @@ watch(() => props.activeTab, () => {
 const menuStyle = computed(() => ({
 	top: `${menuPosition.value.top}px`,
 	left: `${menuPosition.value.left}px`,
-	transform: "translateX(-100%) translateY(-100%)" // Position above the button, anchored to right
 }))
 
 function toggleTabMenu(tab, event) {
@@ -181,8 +180,8 @@ function toggleTabMenu(tab, event) {
 
 	const rect = event.currentTarget.getBoundingClientRect()
 	menuPosition.value = {
-		top: rect.top - 4, // 4px margin
-		left: rect.right
+		top: rect.top, // Align top of menu with top of button
+		left: rect.right + 4 // 4px gap to the right of the button
 	}
 	activeMenuTab.value = tab
 	activeMenu.value = tab.name

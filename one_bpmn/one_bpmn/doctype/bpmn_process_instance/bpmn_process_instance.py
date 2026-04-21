@@ -197,7 +197,18 @@ class BPMNProcessInstance(Document):
 				)
 			)
 
-		# Inject user data into task
+		# Push refreshed doc fields into the completing task's data.
+		# SpiffWorkflow copies task.data into child tasks on completion,
+		# so downstream gateways will see the latest doc values.
+		# We do this BEFORE user data injection so user-submitted values
+		# take precedence over doc field values.
+		if self.context_doctype and self.context_docname:
+			task.data.update({
+				k: v for k, v in wf.task_tree.data.items()
+				if k not in ("doc",)  # skip non-serializable keys
+			})
+
+		# Inject user data into task (highest priority — overrides doc fields)
 		if data:
 			task.data.update(data)
 
