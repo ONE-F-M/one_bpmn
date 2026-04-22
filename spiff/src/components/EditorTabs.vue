@@ -169,6 +169,7 @@ watch(() => props.activeTab, () => {
 const menuStyle = computed(() => ({
 	top: `${menuPosition.value.top}px`,
 	left: `${menuPosition.value.left}px`,
+	transform: 'translateY(-100%)',
 }))
 
 function toggleTabMenu(tab, event) {
@@ -180,8 +181,8 @@ function toggleTabMenu(tab, event) {
 
 	const rect = event.currentTarget.getBoundingClientRect()
 	menuPosition.value = {
-		top: rect.top, // Align top of menu with top of button
-		left: rect.right + 4 // 4px gap to the right of the button
+		top: rect.top - 4, // Menu grows upward from here (translateY(-100%))
+		left: rect.left     // Align left edge with the button
 	}
 	activeMenuTab.value = tab
 	activeMenu.value = tab.name

@@ -108,11 +108,21 @@ export function useBpmnContextMenu({
 		});
 
 		document.addEventListener("keydown", handleContextMenuKeydown);
+		document.addEventListener("mousedown", handleDocumentClick, true);
+	}
+
+	function handleDocumentClick(e) {
+		if (!showContextMenu.value) return;
+		// If the click is inside the context menu itself, ignore
+		const menu = document.querySelector("[data-context-menu]");
+		if (menu && menu.contains(e.target)) return;
+		showContextMenu.value = false;
 	}
 
 	// ── Cleanup ──────────────────────────────────────────────────────────
 	onBeforeUnmount(() => {
 		document.removeEventListener("keydown", handleContextMenuKeydown);
+		document.removeEventListener("mousedown", handleDocumentClick, true);
 	});
 
 	return {
