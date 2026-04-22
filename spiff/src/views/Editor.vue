@@ -1971,6 +1971,7 @@ function saveScript() {
 async function createAndLinkScript() {
 	// "Create New" mode — create Server Script then link it
 	if (!newScript.value.name || !newScript.value.script_type || !newScript.value.script) {
+		showNotification("Validation", "Script name, type, and content are required.", "red");
 		return;
 	}
 
@@ -2000,11 +2001,12 @@ async function createAndLinkScript() {
 				script: result.name,
 			});
 		}
-
+		showNotification("Success", `Server Script "${result.name}" created and linked.`, "green");
 		showScriptEditorDialog.value = false;
 		activeScriptEvent = null;
 	} catch (error) {
 		console.error("Failed to create server script:", error);
+		showNotification("Error", "Failed to create: " + (error.message || error), "red");
 	} finally {
 		creatingScript.value = false;
 	}
