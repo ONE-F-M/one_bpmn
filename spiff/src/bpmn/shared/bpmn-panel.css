@@ -219,9 +219,19 @@
 	gap: 6px;
 }
 
-.bpmn-field-row > .bio-properties-panel-textfield {
+.bpmn-field-row > .bio-properties-panel-entry {
 	flex: 1;
 	min-width: 0;
+	padding: 0;
+	margin: 0;
+}
+
+.bpmn-field-row > .bio-properties-panel-entry .bio-properties-panel-label:empty {
+	display: none;
+}
+
+.bpmn-field-row > .bio-properties-panel-entry .bio-properties-panel-label {
+	margin-top: 0;
 }
 
 .bpmn-field-row-value {

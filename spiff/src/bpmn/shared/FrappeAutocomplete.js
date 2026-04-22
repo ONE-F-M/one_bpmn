@@ -135,7 +135,7 @@ export class FrappeAutocomplete extends Component {
 			{ class: "bio-properties-panel-entry", "data-entry-id": id, ref: (c) => (this.containerRef = c) },
 			[
 				h("div", { class: "bio-properties-panel-textfield bpmn-dropdown-wrap" }, [
-					h("label", { for: id, class: "bio-properties-panel-label" }, label),
+					label && h("label", { for: id, class: "bio-properties-panel-label" }, label),
 					h("input", {
 						id: id,
 						type: "text",

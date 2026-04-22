@@ -404,7 +404,7 @@
 		<!-- Right-Click Context Menu -->
 		<div
 			v-if="showContextMenu"
-			v-click-outside="() => showContextMenu = false"
+			data-context-menu
 			class="fixed z-[200] bg-white border border-gray-200 rounded-lg shadow-xl py-1 min-w-[180px]"
 			:style="{ left: contextMenuPosition.x + 'px', top: contextMenuPosition.y + 'px' }"
 		>
@@ -612,7 +612,7 @@ const canUndo = ref(false);
 const canRedo = ref(false);
 const zoomLevel = ref(100);
 const showPropertiesPanel = ref(true);
-const propertiesCollapsed = ref(false);
+const propertiesCollapsed = ref(true);
 const isMounted = ref(false);
 const isImporting = ref(false);
 // const showMinimap = ref(true); // DISABLED
@@ -1500,7 +1500,7 @@ function renderComments() {
 		try {
 			overlays.add(elementId, "processa-comment", {
 				position: {
-					top: -10,
+					bottom: 10,
 					left: -10
 				},
 				html: html
@@ -1872,8 +1872,8 @@ defineExpose({
 	display: inline-flex;
 	align-items: center;
 	gap: 6px;
-	padding: 6px 14px;
-	margin: 4px 8px 8px;
+	padding: 6px 6px;
+	margin: 2px 8px;
 	font-size: 12px;
 	font-weight: 500;
 	color: #374151;
@@ -1992,8 +1992,8 @@ defineExpose({
 	font-size: 12px;
 	font-weight: 500;
 	color: #4b5563;
-	margin-bottom: 6px;
-	margin-top: 12px;
+	margin-bottom: 4px;
+	margin-top: 8px;
 }
 
 .properties-panel-container .bio-properties-panel-input,
@@ -2034,12 +2034,13 @@ defineExpose({
 
 /* Group Entries */
 .properties-panel-container .bio-properties-panel-entry {
-	padding: 8px 16px;
+	padding: 4px 4px;
+	margin: 0px 8px;
 }
 
 .properties-panel-container .bio-properties-panel-group-entries {
 	border-bottom: 1px solid #f3f4f6;
-	padding-bottom: 8px;
+	padding-bottom: 4px;
 }
 
 /* Frequency Explanation Card (Timer Start Event) */
