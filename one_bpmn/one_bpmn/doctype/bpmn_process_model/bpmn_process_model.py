@@ -69,10 +69,6 @@ class BPMNProcessModel(Document):
 			update_modified=False,
 		)
 
-	def before_save(self):
-		if not self.is_new():
-			self.version = (self.version or 0) + 1
-
 	def extract_process_id_from_xml(self):
 		"""Auto-extract process_id from BPMN XML if not manually set."""
 		if self.bpmn_xml and not self.process_id:

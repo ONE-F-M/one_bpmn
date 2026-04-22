@@ -623,10 +623,6 @@ class BPMNProcessInstance(Document):
 		updates = {}
 		for row in rows:
 			if not isinstance(row, dict):
-				frappe.logger("one_bpmn").warning(
-					f"BPMN update_field: skipping non-dict row {row!r} "
-					f"(task={bpmn_id}, instance={self.name})"
-				)
 				continue
 			fieldname = (row.get("field") or "").strip()
 			raw_value = row.get("value", "")
@@ -656,10 +652,6 @@ class BPMNProcessInstance(Document):
 			finally:
 				frappe.flags.bpmn_engine_action = old_flag
 
-			frappe.logger("one_bpmn").info(
-				f"BPMN update_field: {doctype}/{docname} fields={list(updates.keys())} "
-				f"(task={bpmn_id}, instance={self.name})"
-			)
 		except Exception:
 			frappe.log_error(
 				title=f"BPMN ServiceTask: update_field failed ({bpmn_id})",
@@ -799,11 +791,6 @@ class BPMNProcessInstance(Document):
 			resp = requests.post(msg_url, headers=headers, json=payload, timeout=10)
 			resp.raise_for_status()
 
-			frappe.logger("one_bpmn").info(
-				f"BPMN google_chat: message sent to {gchat_type}={gchat_email or gchat_space_id} "
-				f"(task={bpmn_id}, instance={self.name})"
-			)
-
 		except Exception:
 			frappe.log_error(
 				title=f"BPMN ServiceTask: google_chat API call failed ({bpmn_id})",
@@ -908,11 +895,6 @@ class BPMNProcessInstance(Document):
 			emp_id = frappe.db.get_value("Employee", {"user_id": user_id, "status": "Active"}, "name")
 			if emp_id:
 				employee_map[user_id] = emp_id
-			else:
-				frappe.logger("one_bpmn").warning(
-					f"BPMN push_notification: no active Employee found for user "
-					f"{user_id!r} — skipping (task={bpmn_id}, instance={self.name})"
-				)
 
 		if not employee_map:
 			frappe.log_error(
@@ -953,10 +935,6 @@ class BPMNProcessInstance(Document):
 					message=frappe.get_traceback(),
 				)
 
-		frappe.logger("one_bpmn").info(
-			f"BPMN push_notification: sent {sent_count}/{len(employee_map)} "
-			f"notifications (task={bpmn_id}, instance={self.name})"
-		)
 
 	def _dispatch_email_notification(self, task, task_cfg: dict) -> None:
 		"""
@@ -1079,9 +1057,6 @@ class BPMNProcessInstance(Document):
 				reference_name=self.context_docname or self.name,
 			)
 		except ImportError:
-			frappe.logger("one_bpmn").warning(
-				"one_fm.processor not available — falling back to frappe.sendmail"
-			)
 			frappe.sendmail(
 				recipients=recipients,
 				subject=subject,

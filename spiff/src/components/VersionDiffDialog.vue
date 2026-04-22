@@ -4,27 +4,27 @@
 		<template #body-content>
 			<div class="space-y-3">
 				<div class="text-sm text-gray-500">
-					Select a previous version to compare against the current diagram.
+					Select a deployed version to compare against the current diagram.
 				</div>
 
 				<!-- Loading -->
 				<div v-if="loadingVersions" class="p-8 text-center text-gray-400">
 					<div class="animate-spin rounded-full h-6 w-6 border-b-2 border-gray-400 mx-auto mb-2"></div>
-					Loading version history...
+					Loading deployed versions...
 				</div>
 
 				<!-- Empty state -->
 				<div v-else-if="versions.length === 0" class="p-8 text-center text-gray-400">
 					<Icon icon="lucide:history" class="w-10 h-10 mx-auto mb-2 opacity-50" />
-					<p>No previous versions found.</p>
-					<p class="text-xs mt-1">Save the diagram a few times to build version history.</p>
+					<p>No other deployed versions found.</p>
+					<p class="text-xs mt-1">Deploy this diagram to different models to build version history.</p>
 				</div>
 
 				<!-- Version list -->
 				<div v-else class="max-h-80 overflow-y-auto border border-gray-200 rounded-lg">
 					<div
 						v-for="version in versions"
-						:key="version.version_name"
+						:key="version.model_name"
 						role="button"
 						tabindex="0"
 						@click="selectedVersion = version"
@@ -32,22 +32,35 @@
 						@keydown.space.prevent="selectedVersion = version"
 						:class="[
 							'flex items-center justify-between px-4 py-3 cursor-pointer border-b border-gray-100 last:border-b-0 transition-colors',
-							selectedVersion?.version_name === version.version_name
+							selectedVersion?.model_name === version.model_name
 								? 'bg-blue-50 border-l-4 border-l-blue-500'
 								: 'hover:bg-gray-50'
 						]"
 					>
 						<div>
-							<div class="text-sm font-medium text-gray-900">
-								{{ formatVersionDate(version.timestamp) }}
+							<div class="flex items-center gap-2">
+								<span class="text-sm font-medium text-gray-900">
+									Version {{ version.version }}
+								</span>
+								<span
+									v-if="version.is_active"
+									class="px-1.5 py-0.5 bg-green-100 text-green-700 text-xs rounded-full font-medium"
+								>
+									Active
+								</span>
 							</div>
 							<div class="text-xs text-gray-500 mt-0.5">
-								{{ version.user }}
-								<span class="text-gray-400"> · {{ relativeTime(version.timestamp) }}</span>
+								{{ version.title }}
+								<template v-if="version.deployed_by">
+									<span class="text-gray-400"> · Deployed by {{ version.deployed_by }}</span>
+								</template>
+								<template v-if="version.deployed_at">
+									<span class="text-gray-400"> · {{ relativeTime(version.deployed_at) }}</span>
+								</template>
 							</div>
 						</div>
 						<Icon
-							v-if="selectedVersion?.version_name === version.version_name"
+							v-if="selectedVersion?.model_name === version.model_name"
 							icon="lucide:check-circle"
 							class="w-5 h-5 text-blue-500"
 						/>
@@ -115,7 +128,7 @@ const diffOldXml = ref("");
 const diffNewXml = ref("");
 const diffOldLabel = ref("");
 const diffNewLabel = ref("");
-const diffKey = ref(0); // Incremented to force DiffViewer remount
+const diffKey = ref(0);
 
 // Current XML getter — set by the parent before opening
 let getCurrentXml = null;
@@ -153,12 +166,11 @@ async function startComparison() {
 
 	loadingDiffXml.value = true;
 	try {
-		// Fetch the version XML
 		const response = await frappeRequest({
 			url: "/api/method/one_bpmn.api.get_diagram_version_xml",
 			params: {
 				name: props.diagramName,
-				version_name: selectedVersion.value.version_name,
+				model_name: selectedVersion.value.model_name,
 			},
 		});
 		const data = response.message || response;
@@ -179,11 +191,11 @@ async function startComparison() {
 			return;
 		}
 
-		// Set diff data and increment key to force DiffViewer remount
+		// Set diff data
 		diffOldXml.value = data.xml_content;
 		diffNewXml.value = currentXml;
-		diffOldLabel.value = `${selectedVersion.value.user} · ${relativeTime(selectedVersion.value.timestamp)}`;
-		diffNewLabel.value = "Current Version";
+		diffOldLabel.value = `Version ${selectedVersion.value.version} — ${selectedVersion.value.title}`;
+		diffNewLabel.value = "Current Diagram";
 		diffKey.value++;
 
 		// Close picker, open diff viewer
@@ -195,11 +207,6 @@ async function startComparison() {
 	} finally {
 		loadingDiffXml.value = false;
 	}
-}
-
-function formatVersionDate(timestamp) {
-	if (!timestamp) return "";
-	return dayjs(timestamp).format("MMM D, YYYY · h:mm A");
 }
 
 function relativeTime(timestamp) {

@@ -254,9 +254,6 @@ def _maybe_start_instance(doc, model_name: str):
 		}
 	)
 
-	frappe.logger("one_bpmn").info(
-		f"BPMN instance {instance.name} started for {doc.doctype}/{doc.name} via model {model_name}"
-	)
 
 
 # Bidirectional sync — advance existing instances on doc events
@@ -343,12 +340,6 @@ def _advance_instance_on_doc_event(instance_name: str, task_action: str):
 
 	if not matching_row:
 		return  # No waiting task matches — nothing to advance
-
-	frappe.logger("one_bpmn").info(
-		f"BPMN auto-advance: instance={instance_name} "
-		f"task_id={matching_row.task_id} action={task_action!r} "
-		f"(triggered by doc event)"
-	)
 
 	# advance() will:
 	#  1. Complete the User Task

@@ -117,15 +117,15 @@
 
 				<!-- Desktop: Individual action buttons -->
 				<template v-if="!isMobile">
-					<!-- Compare Versions Button -->
+					<!-- Version History Button -->
 					<button
 						@click="openVersionPicker"
 						class="w-8 h-8 flex items-center justify-center hover:bg-gray-100 rounded transition-colors text-gray-600"
-						title="Compare Versions"
+						:title="lastEditTooltip"
 						:disabled="!activeDiagramName"
 						:class="{ 'opacity-40 cursor-not-allowed': !activeDiagramName }"
 					>
-						<Icon icon="lucide:git-compare" class="w-4 h-4" />
+						<Icon icon="lucide:history" class="w-4 h-4" />
 					</button>
 
 					<!-- File menu dropdown (Import / Export) -->
@@ -140,7 +140,7 @@
 						<div
 							v-if="showFileMenu"
 							v-click-outside="() => showFileMenu = false"
-							class="absolute right-0 mt-1 w-36 bg-white border border-gray-200 rounded-lg shadow-lg z-50 py-1"
+							class="absolute right-0 mt-1 w-36 bg-white border border-gray-200 rounded-lg shadow-lg z-[70] py-1"
 						>
 							<button
 								@click="triggerImport(); showFileMenu = false"
@@ -837,6 +837,29 @@ const saveStatusColor = computed(() => {
 	}
 });
 
+const lastEditTooltip = computed(() => {
+	if (!activeDiagramName.value) return "Version History";
+	const d = diagrams.value.find((d) => d.name === activeDiagramName.value);
+	if (!d || !d.modified) return "Version History";
+
+	const modified = new Date(d.modified);
+	const now = new Date();
+	const diffMs = now - modified;
+	const diffMins = Math.floor(diffMs / 60000);
+	const diffHours = Math.floor(diffMs / 3600000);
+	const diffDays = Math.floor(diffMs / 86400000);
+
+	let timeStr;
+	if (diffMins < 1) timeStr = "just now";
+	else if (diffMins < 60) timeStr = `${diffMins} minute${diffMins > 1 ? "s" : ""} ago`;
+	else if (diffHours < 24) timeStr = `${diffHours} hour${diffHours > 1 ? "s" : ""} ago`;
+	else if (diffDays === 1) timeStr = `yesterday at ${modified.toLocaleTimeString([], { hour: "numeric", minute: "2-digit" })}`;
+	else timeStr = `on ${modified.toLocaleDateString()} at ${modified.toLocaleTimeString([], { hour: "numeric", minute: "2-digit" })}`;
+
+	const user = d.modified_by_name || "";
+	return user ? `Last edit was made ${timeStr} by ${user}` : `Last edit was made ${timeStr}`;
+});
+
 // Notification state
 const notification = ref({
 	show: false,
@@ -1019,6 +1042,18 @@ async function deployModel() {
 				`Deployed successfully — version ${response.version}, ${response.subprocess_count} subprocess(es)`,
 				"green"
 			);
+
+			// Update local state: mark this diagram as active, deactivate siblings
+			for (const d of diagrams.value) {
+				if (d.name === activeDiagramName.value) {
+					d.is_active = 1;
+					d.status = "Active";
+					d.version = response.version;
+				} else {
+					d.is_active = 0;
+					d.status = "Inactive";
+				}
+			}
 		} else {
 			showNotification("Deploy", "Deployment completed", "green");
 		}
