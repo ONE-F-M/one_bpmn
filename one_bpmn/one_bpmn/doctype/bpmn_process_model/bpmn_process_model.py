@@ -82,3 +82,4 @@ class BPMNProcessModel(Document):
 					self.process_id = process.get("id", "")
 			except Exception:
 				pass  # XML parsing failures are non-fatal here
+
