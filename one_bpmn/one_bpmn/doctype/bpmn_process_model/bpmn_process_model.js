@@ -15,27 +15,5 @@ frappe.ui.form.on("BPMN Process Model", {
 				"_blank"
 			);
 		});
-
-		// ── Deploy ──
-		frm.add_custom_button(__("Deploy"), function () {
-			frappe.call({
-				method: "one_bpmn.api.compile_process_model",
-				args: { model_name: frm.doc.name },
-				freeze: true,
-				freeze_message: __("Deploying BPMN…"),
-				callback(r) {
-					if (r.message && r.message.success) {
-						frappe.show_alert({
-							message: __(
-								"Deployed successfully — version {0}, {1} subprocess(es)",
-								[r.message.version, r.message.subprocess_count]
-							),
-							indicator: "green",
-						});
-						frm.reload_doc();
-					}
-				},
-			});
-		}, __("Actions"));
 	},
 });

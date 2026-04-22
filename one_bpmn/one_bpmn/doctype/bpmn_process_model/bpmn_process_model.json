@@ -10,9 +10,9 @@
   "title",
   "process_name",
   "process_id",
-  "column_break_info",
-  "category",
+  "column_break_pbtg",
   "is_active",
+  "version",
   "section_description",
   "description",
   "section_bpmn_diagram",
@@ -23,9 +23,6 @@
   "serialized_spec",
   "subprocess_specs",
   "round_robin_state",
-  "column_break_engine",
-  "version",
-  "amended_from",
   "target_details_section",
   "target_doctypes",
   "section_break_aige",
@@ -63,15 +60,6 @@
    "in_standard_filter": 1,
    "label": "Process ID",
    "reqd": 1
-  },
-  {
-   "fieldname": "column_break_info",
-   "fieldtype": "Column Break"
-  },
-  {
-   "fieldname": "category",
-   "fieldtype": "Data",
-   "label": "Category"
   },
   {
    "default": "0",
@@ -136,22 +124,12 @@
    "label": "Round Robin State"
   },
   {
-   "fieldname": "column_break_engine",
-   "fieldtype": "Column Break"
-  },
-  {
-   "default": "1",
+   "default": "0",
    "fieldname": "version",
    "fieldtype": "Int",
    "in_list_view": 1,
    "label": "Version",
    "reqd": 1
-  },
-  {
-   "fieldname": "amended_from",
-   "fieldtype": "Link",
-   "label": "Amended From",
-   "options": "BPMN Process Model"
   },
   {
    "fieldname": "process_name",
@@ -233,13 +211,17 @@
    "label": "Start Events",
    "options": "BPMN Start Event Config",
    "read_only": 1
+  },
+  {
+   "fieldname": "column_break_pbtg",
+   "fieldtype": "Column Break"
   }
  ],
  "in_create": 1,
  "index_web_pages_for_search": 1,
  "links": [],
- "modified": "2026-03-19 16:04:04.423253",
- "modified_by": "Administrator",
+ "modified": "2026-04-22 07:03:16.081601",
+ "modified_by": "k.sharma@one-fm.com",
  "module": "ONE BPMN",
  "name": "BPMN Process Model",
  "naming_rule": "By fieldname",

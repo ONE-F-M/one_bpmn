@@ -84,7 +84,6 @@
 								</div>
 								<div class="mt-0.5 flex items-center gap-2 flex-wrap">
 									<code class="text-xs text-gray-400 font-mono truncate">{{ model.process_id }}</code>
-									<span v-if="model.category" class="text-xs text-gray-400">· {{ model.category }}</span>
 								</div>
 							</div>
 
