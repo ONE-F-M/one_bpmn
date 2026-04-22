@@ -10,9 +10,9 @@ export default defineConfig({
 			lucideIcons: true,
 			jinjaBootData: true,
 			buildConfig: {
-				outDir: `../one_bpmn/public/spiff`,
+				outDir: `../one_bpmn/public/processa`,
 				emptyOutDir: true,
-				indexHtmlPath: "../one_bpmn/www/spiff/index.html",
+				indexHtmlPath: "../one_bpmn/www/processa/index.html",
 			},
 		}),
 		vue(),
@@ -44,6 +44,10 @@ export default defineConfig({
 			"bpmnlint",
 			"bpmnlint-utils",
 		],
+	},
+	build: {
+		sourcemap: false,
+		chunkSizeWarningLimit: 1500,
 	},
 })
 

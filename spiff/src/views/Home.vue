@@ -53,7 +53,46 @@
 				<p class="text-gray-500 mb-4">Create a Process in the system to start building BPMN diagrams.</p>
 			</div>
 
-			<!-- List View -->
+			<!-- Mobile Card Layout -->
+			<div v-else-if="isMobile" class="space-y-2">
+				<div
+					v-for="process in processes"
+					:key="process.name"
+					@click="openProcess(process.name)"
+					class="bg-white rounded-lg shadow-sm p-4 flex items-center gap-3 active:bg-gray-50 transition-colors cursor-pointer"
+				>
+					<Icon
+						v-if="editabilityMap[process.name]"
+						icon="lucide:pencil"
+						class="w-4 h-4 text-green-500 shrink-0"
+					/>
+					<Icon
+						v-else
+						icon="lucide:lock"
+						class="w-4 h-4 text-gray-300 shrink-0"
+					/>
+					<div class="flex-1 min-w-0">
+						<div class="text-sm font-medium text-gray-900 truncate">{{ process.process_name }}</div>
+						<div class="text-xs text-gray-400 mt-0.5">{{ process.diagram_count || 0 }} diagram{{ process.diagram_count !== 1 ? 's' : '' }}</div>
+					</div>
+					<Badge :theme="getStatusTheme(process.status)" :label="process.status" size="sm" />
+					<button
+						v-if="process.diagram_count > 0"
+						@click.stop="exportProcess(process)"
+						:disabled="exportingProcesses.has(process.name)"
+						class="p-1.5 rounded hover:bg-gray-200 text-gray-500 transition-colors disabled:opacity-40 shrink-0"
+						title="Export BPMN"
+						aria-label="Export BPMN"
+					>
+						<Icon
+							:icon="exportingProcesses.has(process.name) ? 'lucide:loader-2' : 'lucide:download'"
+							:class="['w-4 h-4', exportingProcesses.has(process.name) ? 'animate-spin' : '']"
+						/>
+					</button>
+				</div>
+			</div>
+
+			<!-- Desktop List View -->
 			<div v-else class="bg-white rounded-lg shadow-sm">
 				<ListView
 					:columns="columns"
@@ -69,10 +108,24 @@
 					<template #cell="{ item, row, column }">
 						<!-- Title column -->
 						<template v-if="column.key === 'process_name'">
-							<div>
-								<div class="text-sm font-medium text-gray-900">{{ item }}</div>
-								<div v-if="row.diagram_count" class="text-xs text-gray-400">
-									{{ row.diagram_count }} diagram{{ row.diagram_count !== 1 ? 's' : '' }}
+							<div class="flex items-center gap-2">
+								<Icon
+									v-if="editabilityMap[row.name]"
+									icon="lucide:pencil"
+									class="w-3.5 h-3.5 text-green-500 shrink-0"
+									title="Editable — Active Pathfinder Log"
+								/>
+								<Icon
+									v-else
+									icon="lucide:lock"
+									class="w-3.5 h-3.5 text-gray-300 shrink-0"
+									title="Locked — No active Pathfinder Log"
+								/>
+								<div>
+									<div class="text-sm font-medium text-gray-900">{{ item }}</div>
+									<div v-if="row.diagram_count" class="text-xs text-gray-400">
+										{{ row.diagram_count }} diagram{{ row.diagram_count !== 1 ? 's' : '' }}
+									</div>
 								</div>
 							</div>
 						</template>
@@ -145,6 +198,9 @@ import { frappeRequest } from "frappe-ui"
 import { Icon } from "@iconify/vue"
 import { dayjs } from "@/dayjs"
 import { downloadBpmn } from "@/utils/downloadBpmn"
+import { useWindowSize } from "@/composables/useWindowSize"
+
+const { isMobile } = useWindowSize()
 
 // Export dialog state
 const showExportDialog = ref(false)
@@ -155,6 +211,9 @@ const exportingProcesses = ref(new Set())
 const router = useRouter()
 const processes = ref([])
 const loading = ref(true)
+
+// Pathfinder Log editability map: { processName: true/false }
+const editabilityMap = ref({})
 
 // Column definitions for ListView
 const columns = computed(() => [
@@ -216,10 +275,38 @@ async function loadProcesses() {
 		} else {
 			processes.value = []
 		}
+
+		// Bulk check editability for all processes
+		await checkAllEditability()
 	} catch (error) {
 		console.error("Failed to load processes:", error)
 	} finally {
 		loading.value = false
+	}
+}
+
+async function checkAllEditability() {
+	if (processes.value.length === 0) return
+
+	try {
+		const processNames = processes.value.map(p => p.name)
+		const response = await frappeRequest({
+			url: "/api/method/one_bpmn.api.bulk_check_processes_editable",
+			params: { process_names: JSON.stringify(processNames) },
+		})
+
+		const data = response.message || response
+		const map = {}
+		for (const [name, info] of Object.entries(data)) {
+			map[name] = !!info.editable
+		}
+		editabilityMap.value = map
+	} catch (error) {
+		console.error("Failed to check process editability:", error)
+		// Default to all locked on error
+		const map = {}
+		processes.value.forEach(p => { map[p.name] = false })
+		editabilityMap.value = map
 	}
 }
 
@@ -274,12 +361,10 @@ async function exportProcess(process) {
 
 function getStatusTheme(status) {
 	switch (status) {
-		case "Published":
+		case "Active":
 			return "green"
-		case "In Development":
+		case "Inactive":
 			return "orange"
-		case "Draft":
-			return "blue"
 		default:
 			return "gray"
 	}

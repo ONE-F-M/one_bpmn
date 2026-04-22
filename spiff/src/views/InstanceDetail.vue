@@ -2,7 +2,7 @@
 	<div class="h-full flex flex-col bg-gray-50">
 		<header class="bg-white border-b px-6 py-4 flex items-center justify-between z-10 shrink-0 shadow-sm">
 			<div class="flex items-center gap-4">
-				<Button icon-left="arrow-left" variant="ghost" @click="router.push('/spiff/instances')">Back</Button>
+				<Button icon-left="arrow-left" variant="ghost" @click="router.push('/processa/instances')">Back</Button>
 				<h1 class="text-xl font-semibold text-gray-900">Instance Details</h1>
 			</div>
 			<div v-if="details">
@@ -92,6 +92,39 @@
 									<div v-else class="text-[10px] text-orange-600 italic flex items-center gap-1 mt-1 bg-orange-50 px-1.5 py-0.5 rounded w-max border border-orange-100 font-bold tracking-wide">
 										<Icon icon="lucide:alert-triangle" class="w-3 h-3" />
 										UNASSIGNED
+									</div>
+
+									<!-- Decision Action Buttons -->
+									<div v-if="getTaskActionDetails(task).length" class="mt-3 flex flex-wrap gap-2">
+										<button
+											v-for="detail in getTaskActionDetails(task)"
+											:key="detail.action"
+											@click="completeTask(task, detail)"
+											:disabled="completingTask === task.task_id"
+											class="px-3 py-1.5 text-[11px] font-semibold rounded border transition-colors"
+											:class="getActionButtonClass(detail.action)"
+										>
+											<span v-if="completingTask === task.task_id && completingAction === detail.action" class="flex items-center gap-1">
+												<Icon icon="lucide:loader" class="w-3 h-3 animate-spin" /> Processing…
+											</span>
+											<span v-else class="flex items-center gap-1">
+												{{ detail.action }}
+												<Icon v-if="detail.requireDigitalSignature === 'true'" icon="lucide:pen-line" class="w-3 h-3 opacity-60" title="Digital signature required" />
+											</span>
+										</button>
+									</div>
+									<!-- Plain complete button when no actions configured -->
+									<div v-else class="mt-3">
+										<button
+											@click="completeTask(task, null)"
+											:disabled="completingTask === task.task_id"
+											class="px-3 py-1.5 text-[11px] font-semibold rounded border bg-gray-100 hover:bg-gray-200 text-gray-700 border-gray-300 transition-colors disabled:opacity-50"
+										>
+											<span v-if="completingTask === task.task_id" class="flex items-center gap-1">
+												<Icon icon="lucide:loader" class="w-3 h-3 animate-spin" /> Processing…
+											</span>
+											<span v-else class="flex items-center gap-1"><Icon icon="lucide:check" class="w-3 h-3" /> Complete</span>
+										</button>
 									</div>
 								</div>
 							</div>
@@ -270,7 +303,9 @@ const instanceId = computed(() => route.params.instance)
 const loading = ref(true)
 const details = ref(null)
 
-const activeTasks = ref([])
+const activeTasks     = ref([])
+const completingTask  = ref(null)   // task_id currently being completed
+const completingAction = ref(null)  // action label being submitted
 const logs = ref([])
 
 const processVariables = computed(() => {
@@ -312,7 +347,21 @@ onMounted(async () => {
 	await loadDetails()
 	await loadLogs()
 	loading.value = false
+
+	// Listen for realtime updates from the backend
+	if (window.frappe && window.frappe.realtime) {
+		window.frappe.realtime.on('bpmn_instance_updated', handleRealtimeUpdate)
+	}
 })
+
+async function handleRealtimeUpdate(data) {
+	// Only refresh if this event is for our instance
+	if (data && data.instance_name && data.instance_name !== instanceId.value) return
+
+	// Re-fetch all data
+	await loadDetails()
+	await loadLogs()
+}
 
 function injectStyles() {
 	if (!document.getElementById("bpmn-marker-styles")) {
@@ -405,6 +454,9 @@ onUnmounted(() => {
 	if (viewer.value) {
 		viewer.value.destroy()
 		viewer.value = null
+	}
+	if (window.frappe && window.frappe.realtime) {
+		window.frappe.realtime.off('bpmn_instance_updated', handleRealtimeUpdate)
 	}
 })
 
@@ -507,43 +559,104 @@ function applyHighlights() {
 	try {
 		const canvas = viewer.value.get("canvas");
 		const elementRegistry = viewer.value.get("elementRegistry");
-		
-		const doneTasks = new Set(logs.value.filter(l => l.action === "Completed").map(l => l.task_id))
-		doneTasks.forEach(taskId => {
-			try {
-				canvas.addMarker(taskId, "highlight-done")
-			} catch(e) {}
-		})
-		
-		const currentActiveTasks = new Set(activeTasks.value.map(t => t.task_id))
-		currentActiveTasks.forEach(taskId => {
-			try {
-				canvas.addMarker(taskId, "highlight-active")
-			} catch(e) {}
-		})
 
-		// Sequence Flow + StartEvent Highlights
+		// Build UUID → BPMN element ID mapping from workflow_state
+		// The workflow_state JSON has:
+		//   tasks: { "uuid": { task_spec: "Activity_097ls3l", state: 64, ... } }
+		// SpiffWorkflow state codes:
+		//   1 = FUTURE, 2 = LIKELY, 4 = MAYBE, 8 = WAITING,
+		//   16 = READY, 32 = STARTED, 64 = COMPLETED, 128 = ERROR
+		let bpmnIdFromUuid = {};   // uuid → bpmn_id
+		let completedBpmnIds = new Set();
+		let activeBpmnIds = new Set();
+
+		if (details.value && details.value.workflow_state) {
+			try {
+				const wfState = typeof details.value.workflow_state === 'string'
+					? JSON.parse(details.value.workflow_state)
+					: details.value.workflow_state;
+
+				const tasks = wfState.tasks || {};
+				for (const [uuid, taskData] of Object.entries(tasks)) {
+					const taskSpec = taskData.task_spec || '';
+					if (!taskSpec || taskSpec === 'Start' || taskSpec === 'End' || taskSpec.endsWith('.EndJoin')) continue;
+
+					bpmnIdFromUuid[uuid] = taskSpec;
+					const state = taskData.state || 0;
+
+					if (state === 64) completedBpmnIds.add(taskSpec);
+					else if (state === 16 || state === 32 || state === 8) activeBpmnIds.add(taskSpec);
+				}
+			} catch (e) {
+				console.warn('Failed to parse workflow_state for highlights:', e);
+			}
+		}
+
+		// Use logs as a fallback for completed tasks — map task_ids through bpmnIdFromUuid
+		logs.value
+			.filter(l => l.action === "Completed")
+			.forEach(l => {
+				const bpmnId = bpmnIdFromUuid[l.task_id];
+				if (bpmnId) completedBpmnIds.add(bpmnId);
+			});
+
+		// Map active tasks from the child table
+		activeTasks.value.forEach(t => {
+			const bpmnId = bpmnIdFromUuid[t.task_id];
+			if (bpmnId) activeBpmnIds.add(bpmnId);
+		});
+
+		activeBpmnIds.forEach(id => completedBpmnIds.delete(id));
+
+
+		// Apply markers to BPMN elements
+		completedBpmnIds.forEach(bpmnId => {
+			try { canvas.addMarker(bpmnId, "highlight-done"); } catch(e) { console.warn('[BPMN] addMarker failed for', bpmnId, e); }
+		});
+
+		activeBpmnIds.forEach(bpmnId => {
+			try { canvas.addMarker(bpmnId, "highlight-active"); } catch(e) { console.warn('[BPMN] addMarker failed for', bpmnId, e); }
+		});
+
+		// Sequence Flow & StartEvent Highlights
+		const allReachedIds = new Set([...completedBpmnIds, ...activeBpmnIds]);
+
 		if (elementRegistry) {
-			elementRegistry.filter(e => e.type === "bpmn:SequenceFlow" || e.type === "bpmn:StartEvent").forEach(element => {
+			elementRegistry.filter(e => 
+				e.type === "bpmn:SequenceFlow" || e.type === "bpmn:StartEvent"
+			).forEach(element => {
 				try {
 					if (element.type === "bpmn:StartEvent") {
-						// Highlight the StartEvent circle green unconditionally since instance is active/done
 						canvas.addMarker(element.id, "highlight-done");
 					} else {
-						// It's a Sequence Flow
 						const flow = element;
 						const sourceId = flow.source && flow.source.id;
 						const targetId = flow.target && flow.target.id;
-						
-						const sourceDone = doneTasks.has(sourceId) || (flow.source && flow.source.type === "bpmn:StartEvent");
-						const targetReached = doneTasks.has(targetId) || currentActiveTasks.has(targetId);
-						
+
+						const sourceDone = completedBpmnIds.has(sourceId) || 
+							(flow.source && flow.source.type === "bpmn:StartEvent");
+						const targetReached = allReachedIds.has(targetId);
+
 						if (targetReached || (sourceDone && flow.target && flow.target.type.includes("EndEvent"))) {
 							canvas.addMarker(flow.id, "highlight-flow-done");
 						}
 					}
 				} catch(e) {}
-			})
+			});
+
+			// Also highlight gateways that have been passed through
+			elementRegistry.filter(e => 
+				e.type && e.type.includes("Gateway")
+			).forEach(gateway => {
+				try {
+					// A gateway is "done" if it appears in completed tasks
+					if (completedBpmnIds.has(gateway.id)) {
+						canvas.addMarker(gateway.id, "highlight-done");
+					} else if (activeBpmnIds.has(gateway.id)) {
+						canvas.addMarker(gateway.id, "highlight-active");
+					}
+				} catch(e) {}
+			});
 		}
 	} catch(err) {
 		console.warn("Could not apply highlights:", err);
@@ -551,9 +664,27 @@ function applyHighlights() {
 }
 
 function onElementClick(e) {
-	const elementId = e.element.id;
-	const activeTask = activeTasks.value.find(t => t.task_id === elementId);
-	const doneLogs = logs.value.filter(l => l.task_id === elementId && l.action === "Completed");
+	const elementId = e.element.id;  // This is the BPMN element ID (e.g. Activity_097ls3l)
+	
+	if (!viewer.value || !details.value) return;
+
+	let matchedUuids = [];
+	if (details.value.workflow_state) {
+		try {
+			const wfState = typeof details.value.workflow_state === 'string'
+				? JSON.parse(details.value.workflow_state)
+				: details.value.workflow_state;
+			const tasks = wfState.tasks || {};
+			for (const [uuid, taskData] of Object.entries(tasks)) {
+				if (taskData.task_spec === elementId) {
+					matchedUuids.push(uuid);
+				}
+			}
+		} catch(e) {}
+	}
+
+	const activeTask = activeTasks.value.find(t => matchedUuids.includes(t.task_id));
+	const doneLogs = logs.value.filter(l => matchedUuids.includes(l.task_id) && l.action === "Completed");
 	
 	if (!viewer.value) return;
 	
@@ -605,6 +736,122 @@ function onElementClick(e) {
 			position: { bottom: 0, left: 0 },
 			html: html
 		});
+	}
+}
+
+// Task Decision Helpers
+
+/**
+ * Return structured action detail objects for a task.
+ * Prefers task_actions_detail (array of {action, confirmTransition, requireDigitalSignature}).
+ * Falls back to parsing the comma-separated task_actions string.
+ */
+function getTaskActionDetails(task) {
+	if (task.task_actions_detail && Array.isArray(task.task_actions_detail) && task.task_actions_detail.length > 0) {
+		return task.task_actions_detail.filter(d => d && d.action)
+	}
+	const raw = (task.task_actions || '').trim()
+	if (!raw) return []
+	// New format: JSON array — [{"action":"Accept"},{"action":"Reject","confirmTransition":"true"}]
+	if (raw.startsWith('[')) {
+		try {
+			const parsed = JSON.parse(raw)
+			if (Array.isArray(parsed)) {
+				return parsed.filter(d => d && d.action)
+			}
+		} catch (_) { /* fall through to CSV */ }
+	}
+	// Legacy: comma-separated action names
+	return raw.split(',').map(a => a.trim()).filter(Boolean).map(a => ({ action: a }))
+}
+
+/** Colour-code common action verbs */
+function getActionButtonClass(action) {
+	const lower = action.toLowerCase()
+	if (['approve', 'approved', 'accept', 'yes', 'confirm'].some(k => lower.includes(k)))
+		return 'bg-green-50 hover:bg-green-100 text-green-800 border-green-300 disabled:opacity-50'
+	if (['reject', 'rejected', 'decline', 'no', 'deny', 'refuse'].some(k => lower.includes(k)))
+		return 'bg-red-50 hover:bg-red-100 text-red-800 border-red-300 disabled:opacity-50'
+	return 'bg-blue-50 hover:bg-blue-100 text-blue-800 border-blue-300 disabled:opacity-50'
+}
+
+/**
+ * Complete a User Task, respecting per-action flags:
+ *   - confirmTransition: show confirmation dialog before completing
+ *   - requireDigitalSignature: show authorization dialog before completing
+ *
+ * @param {Object} task - active task object
+ * @param {Object|null} detail - action detail object ({action, confirmTransition, requireDigitalSignature}) or null for generic "Complete"
+ */
+async function completeTask(task, detail) {
+	if (completingTask.value) return   // prevent double-click during loading
+
+	const actionName = detail ? detail.action : null
+	const needsConfirm = detail ? (detail.confirmTransition === 'true') : false
+	const needsSignature = detail ? (detail.requireDigitalSignature === 'true') : false
+
+	const doComplete = async () => {
+		completingTask.value   = task.task_id
+		completingAction.value = actionName
+		try {
+			const data = actionName ? JSON.stringify({ action: actionName }) : '{}'
+			await frappeRequest({
+				url:    '/api/method/one_bpmn.api.complete_task',
+				method: 'POST',
+				params: {
+					instance_name: instanceId.value,
+					task_id:       task.task_id,
+					data,
+				},
+			})
+			// Refresh everything — new active tasks, updated diagram highlights, history
+			logs.value       = []
+			limitStart.value  = 0
+			hasMoreLogs.value = true
+			await loadDetails()
+			await loadLogs()
+		} catch (err) {
+			console.error('Failed to complete task:', err)
+			// Show error to user — use optional chaining since window.frappe
+			// may be a polyfill without show_alert.
+			const errMsg = err.message || 'Failed to complete task'
+			if (window.frappe?.show_alert) {
+				window.frappe.show_alert({
+					message: errMsg,
+					indicator: 'red',
+				}, 5)
+			} else {
+				window.alert(errMsg)
+			}
+		} finally {
+			completingTask.value   = null
+			completingAction.value = null
+		}
+	}
+
+	// Digital signature check (placeholder — actual capture UI is a follow-up)
+	const doSignatureCheck = () => {
+		if (needsSignature) {
+			const ok = window.confirm(
+				'Digital Signature Required\n\n' +
+				'This action requires a digital signature to proceed. ' +
+				'By clicking "OK", you acknowledge and authorize this action with your identity.'
+			)
+			if (ok) doComplete()
+		} else {
+			doComplete()
+		}
+	}
+
+	// Confirmation dialog
+	if (needsConfirm) {
+		const msg = actionName
+			? `Apply action "${actionName}"?`
+			: `Complete task "${task.task_name || 'Task'}"?`
+		const ok = window.confirm(msg)
+		if (ok) doSignatureCheck()
+	} else {
+		doSignatureCheck()
 	}
 }
 

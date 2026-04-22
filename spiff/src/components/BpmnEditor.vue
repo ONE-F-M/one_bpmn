@@ -1,103 +1,436 @@
 <template>
 	<div class="bpmn-editor-wrapper h-full w-full flex flex-col">
 		<!-- Toolbar (moved natively to parent Editor.vue's header) -->
-		<div ref="toolbarEl" v-show="isMounted" class="flex items-center gap-1.5 w-full h-full text-gray-700">
-			<!-- Undo/Redo buttons -->
-			<button
-				@click="undo"
-				title="Undo (Ctrl+Z)"
-				:disabled="!canUndo"
-				:class="[
-					'p-1.5 flex items-center justify-center rounded transition-colors',
-					canUndo
-						? 'hover:bg-gray-100 text-gray-700'
-						: 'text-gray-300 cursor-not-allowed',
-				]"
-			>
-				<Icon icon="lucide:undo-2" class="w-4 h-4" />
-			</button>
-			<button
-				@click="redo"
-				title="Redo (Ctrl+Y)"
-				:disabled="!canRedo"
-				:class="[
-					'p-1.5 flex items-center justify-center rounded transition-colors',
-					canRedo
-						? 'hover:bg-gray-100 text-gray-700'
-						: 'text-gray-300 cursor-not-allowed',
-				]"
-			>
-				<Icon icon="lucide:redo-2" class="w-4 h-4" />
-			</button>
-
-			<div class="w-px h-5 bg-gray-200 mx-1 shrink-0"></div>
-
-			<!-- Delete button -->
-			<button
-				@click="deleteSelected"
-				title="Delete (Del)"
-				class="p-1.5 flex items-center justify-center rounded hover:bg-gray-100 text-gray-700 transition-colors"
-			>
-				<Icon icon="lucide:trash-2" class="w-4 h-4" />
-			</button>
-
-			<div class="w-px h-5 bg-gray-200 mx-1 shrink-0"></div>
-
-			<!-- Formatting Toolbar -->
-			<FormattingToolbar
-				:selectedElements="selectedElements"
-				:modeler="modelerInstance"
-				class="shrink-0"
-			/>
-
-
-			<!-- Save Status Indicator before Properties Panel Toggle -->
-			<div class="flex-1 min-w-4 flex items-center justify-end px-3">
-				<div v-if="saveStatusText" class="text-sm font-medium transition-colors mr-2" :class="saveStatusColor">
-					{{ saveStatusText }}
-				</div>
-			</div>
-			
-			<div class="shrink-0 pl-1 border-l border-gray-200">
+		<div ref="toolbarEl" v-show="isMounted" class="flex items-center gap-1.5 w-full h-full text-gray-700 overflow-x-auto scrollbar-hide flex-nowrap min-w-0 pr-2">
+			<template v-if="!readonly">
+				<!-- Undo/Redo buttons -->
 				<button
-					@click="togglePropertiesPanel"
-					title="Toggle Properties Panel"
+					@click="undo"
+					title="Undo (Ctrl+Z)"
+					:disabled="!canUndo"
 					:class="[
 						'p-1.5 flex items-center justify-center rounded transition-colors',
-						showPropertiesPanel
-							? 'bg-gray-200 text-gray-800 shadow-[inset_0_1px_2px_rgba(0,0,0,0.1)]'
-							: 'hover:bg-gray-100 text-gray-600',
+						canUndo
+							? 'hover:bg-gray-100 text-gray-700'
+							: 'text-gray-300 cursor-not-allowed',
 					]"
 				>
-					<Icon icon="lucide:panel-right" class="w-4 h-4" />
+					<Icon icon="lucide:undo-2" class="w-4 h-4" />
 				</button>
+				<button
+					@click="redo"
+					title="Redo (Ctrl+Y)"
+					:disabled="!canRedo"
+					:class="[
+						'p-1.5 flex items-center justify-center rounded transition-colors',
+						canRedo
+							? 'hover:bg-gray-100 text-gray-700'
+							: 'text-gray-300 cursor-not-allowed',
+					]"
+				>
+					<Icon icon="lucide:redo-2" class="w-4 h-4" />
+				</button>
+
+				<div class="w-px h-5 bg-gray-200 mx-1 shrink-0"></div>
+
+				<!-- Delete button -->
+				<button
+					@click="deleteSelected"
+					title="Delete (Del)"
+					class="p-1.5 flex items-center justify-center rounded hover:bg-gray-100 text-gray-700 transition-colors"
+				>
+					<Icon icon="lucide:trash-2" class="w-4 h-4" />
+				</button>
+
+				<div class="w-px h-5 bg-gray-200 mx-1 shrink-0"></div>
+
+				<!-- Sticky Note button -->
+				<button
+					@click="addStickyNote"
+					title="Add Sticky Note"
+					class="p-1.5 flex items-center justify-center rounded hover:bg-gray-100 text-gray-700 transition-colors"
+				>
+					<Icon icon="lucide:sticky-note" class="w-4 h-4" />
+				</button>
+
+				<div class="w-px h-5 bg-gray-200 mx-1 shrink-0"></div>
+
+				<!-- Comment Tool button -->
+				<button
+					@click="toggleCommentMode"
+					title="Comment Tool"
+					:class="[
+						'p-1.5 flex items-center justify-center rounded transition-colors',
+						isCommentMode
+							? 'bg-blue-100 text-blue-700 shadow-sm'
+							: 'hover:bg-gray-100 text-gray-700'
+					]"
+				>
+					<Icon icon="lucide:message-square" class="w-4 h-4" />
+				</button>
+
+				<div class="w-px h-5 bg-gray-200 mx-1 shrink-0"></div>
+
+				<!-- Formatting Toolbar -->
+				<FormattingToolbar
+					:selectedElements="selectedElements"
+					:modeler="modelerInstance"
+					class="shrink-0"
+				/>
+			</template>
+
+			<!-- Read-only indicator -->
+			<div v-if="readonly" class="flex items-center gap-1.5 text-gray-400 text-sm">
+				<Icon icon="lucide:lock" class="w-4 h-4" />
+				<span>View Only</span>
+			</div>
+
+
+			<div class="flex-1 min-w-4 flex items-center justify-end px-3">
+				<div v-if="saveStatusText && !readonly" class="text-sm font-medium transition-colors mr-2" :class="saveStatusColor">
+					{{ saveStatusText }}
+				</div>
 			</div>
 		</div>
 
 
 
 		<!-- Main Content Area -->
-		<div class="flex-1 flex overflow-hidden relative">
+		<div :class="['flex-1 flex relative', isMobile ? 'overflow-visible' : 'overflow-hidden']">
 			<!-- BPMN Canvas -->
 			<div
 				ref="container"
-				class="bpmn-canvas flex-1"
-				@dragover.prevent="handleDragOver"
-				@drop.prevent="handleDrop"
+				:class="['bpmn-canvas flex-1', { 'bpmn-canvas--readonly': readonly, 'comment-mode-active': isCommentMode }]"
+				@contextmenu.prevent
+				@dragover.prevent="!readonly && handleDragOver($event)"
+				@drop.prevent="!readonly && handleDrop($event)"
 			></div>
 
-			<!-- Properties Panel -->
-			<div
-				v-show="showPropertiesPanel"
-				ref="propertiesContainer"
-				class="properties-panel-container w-80 border-l border-gray-200 bg-white overflow-auto"
-			></div>
+			<!-- ── Mobile Floating Toolbar (Undo/Redo/Delete/Format) ── -->
+			<transition name="fade">
+				<div
+					v-if="isMobile && !readonly && isMounted"
+					class="fixed bottom-14 left-1/2 -translate-x-1/2 z-[45] bg-white/95 backdrop-blur rounded-full shadow-lg border border-gray-200 flex items-center gap-1 px-2 py-1.5"
+				>
+					<button
+						@click="undo"
+						:disabled="!canUndo"
+						:class="['min-w-[44px] min-h-[44px] flex items-center justify-center rounded-full transition-colors', canUndo ? 'text-gray-700 active:bg-gray-100' : 'text-gray-300']"
+					>
+						<Icon icon="lucide:undo-2" class="w-5 h-5" />
+					</button>
+					<button
+						@click="redo"
+						:disabled="!canRedo"
+						:class="['min-w-[44px] min-h-[44px] flex items-center justify-center rounded-full transition-colors', canRedo ? 'text-gray-700 active:bg-gray-100' : 'text-gray-300']"
+					>
+						<Icon icon="lucide:redo-2" class="w-5 h-5" />
+					</button>
+					<div class="w-px h-6 bg-gray-200 mx-0.5"></div>
+					<button
+						@click="deleteSelected"
+						class="min-w-[44px] min-h-[44px] flex items-center justify-center rounded-full text-gray-700 active:bg-gray-100 transition-colors"
+					>
+						<Icon icon="lucide:trash-2" class="w-5 h-5" />
+					</button>
+					<div class="w-px h-6 bg-gray-200 mx-0.5"></div>
+					<!-- Format button — opens formatting popover -->
+					<div class="relative">
+						<button
+							@click="showMobileFormatPopover = !showMobileFormatPopover"
+							:class="['min-w-[44px] min-h-[44px] flex items-center justify-center rounded-full transition-colors', showMobileFormatPopover ? 'bg-blue-100 text-blue-700' : 'text-gray-700 active:bg-gray-100']"
+						>
+							<Icon icon="lucide:palette" class="w-5 h-5" />
+						</button>
+						<!-- Format popover -->
+						<transition name="fade">
+							<div
+								v-if="showMobileFormatPopover"
+								v-click-outside="() => showMobileFormatPopover = false"
+								class="absolute bottom-full right-0 mb-2 bg-white border border-gray-200 rounded-xl shadow-xl p-2 z-[100] min-w-[280px]"
+							>
+								<FormattingToolbar
+									:selectedElements="selectedElements"
+									:modeler="modelerInstance"
+								/>
+							</div>
+						</transition>
+					</div>
+				</div>
+			</transition>
+
+			<!-- ── Properties Panel ── -->
+			<!-- Mobile: backdrop overlay -->
+			<transition name="fade">
+				<div
+					v-if="showPropertiesPanel && isMobile"
+					class="fixed inset-0 bg-black/30 z-[58] backdrop-blur-sm"
+					@click="showPropertiesPanel = false"
+				></div>
+			</transition>
+
+			<transition :name="isMobile ? 'slide-up' : 'slide-right'">
+				<div
+					v-show="showPropertiesPanel"
+					:class="[
+						'properties-panel-container bg-white z-[60] transition-all duration-300 ease-in-out flex flex-col',
+						// Mobile: bottom sheet
+						isMobile
+							? 'fixed inset-x-0 bottom-0 rounded-t-2xl shadow-2xl border-t border-gray-200 max-h-[85vh] overflow-hidden'
+							: 'absolute inset-y-0 right-0 border-l border-gray-200 md:relative',
+						// Desktop: collapse behavior
+						!isMobile && propertiesCollapsed 
+							? 'w-[48px] overflow-hidden' 
+							: !isMobile ? 'w-full md:w-96 overflow-auto' : '',
+						{ 'properties-panel--readonly': readonly }
+					]"
+					:style="isDragging ? { transform: `translateY(${dragOffset}px)`, transition: 'none', willChange: 'transform' } : {}"
+				>
+					<!-- Mobile: Drag handle + close button -->
+					<div v-if="isMobile" class="flex items-center justify-between px-4 pt-3 pb-2 shrink-0">
+						<div class="flex-1 flex justify-center">
+							<div ref="dragHandleRef" class="w-10 h-1 bg-gray-300 rounded-full cursor-grab active:cursor-grabbing"></div>
+						</div>
+						<button
+							@click="showPropertiesPanel = false"
+							class="p-1.5 -mr-1 rounded-full hover:bg-gray-100 text-gray-500 transition-colors"
+						>
+							<Icon icon="lucide:x" class="w-5 h-5" />
+						</button>
+					</div>
+
+					<!-- Inner container -->
+					<div 
+						ref="propertiesContainer"
+						:class="[
+							'flex-1 flex flex-col min-w-0 transition-opacity duration-200 overflow-y-auto mobile-safe-area-bottom',
+							!isMobile && propertiesCollapsed ? 'opacity-0 pointer-events-none' : 'opacity-100'
+						]"
+					>
+						<!-- Content is injected here by bpmn-js-properties-panel -->
+					</div>
+
+					<!-- Desktop: Sidebar-style collapse placeholder -->
+					<div 
+						v-if="!isMobile && propertiesCollapsed"
+						class="absolute inset-0 flex flex-col items-center pt-4 bg-gray-50 cursor-pointer hover:bg-gray-100 transition-colors"
+						@click="togglePropertiesCollapse"
+					>
+						<Icon icon="lucide:settings" class="w-5 h-5 text-gray-400 mb-4 animate-pulse" />
+						<div class="w-px h-full bg-gray-200"></div>
+					</div>
+				</div>
+			</transition>
+
+			<!-- Desktop: Floating Properties Panel Toggle Handle
+			     Placed OUTSIDE the panel container to avoid overflow-hidden clipping.
+			     Positioned at the panel's left edge using a dynamic right offset. -->
+			<button
+				v-if="!isMobile && showPropertiesPanel"
+				@click="togglePropertiesCollapse"
+				class="absolute top-1/2 -translate-y-1/2 w-6 h-12 bg-white border border-gray-200 rounded-l-lg shadow-md hidden md:flex items-center justify-center text-gray-500 hover:text-gray-900 transition-all duration-300 z-[65]"
+				:style="{ right: (propertiesCollapsed ? 48 : 384) + 'px' }"
+				:title="propertiesCollapsed ? 'Expand Properties Panel' : 'Collapse Properties Panel'"
+			>
+				<Icon :icon="propertiesCollapsed ? 'lucide:chevron-left' : 'lucide:chevron-right'" class="w-4 h-4" />
+			</button>
+
+			<!-- Comment Mode Instruction Banner -->
+			<transition name="fade">
+				<div 
+					v-if="isCommentMode && !showCommentDialog"
+					class="absolute top-4 left-1/2 -translate-x-1/2 z-[100] bg-blue-600 text-white px-4 py-2 rounded-full shadow-lg flex items-center gap-3"
+				>
+					<Icon icon="lucide:info" class="w-4 h-4" />
+					<span class="text-sm font-medium">Click on any shape or the canvas to add a comment</span>
+					<button 
+						@click="toggleCommentMode"
+						class="ml-2 p-1 hover:bg-blue-500/20 rounded-full"
+					>
+						<Icon icon="lucide:x" class="w-4 h-4" />
+					</button>
+				</div>
+			</transition>
+		</div>
+		
+		<!-- Comment Dialog -->
+		<Dialog v-model="showCommentDialog" :options="{ title: 'Add Comment' }">
+			<template #body-content>
+				<div class="space-y-4">
+					<div v-if="activeCommentElement" class="text-xs text-gray-500 bg-gray-50 p-2 rounded border border-gray-100 italic">
+						Attaching to: {{ activeCommentElement.businessObject?.name || activeCommentElement.id }}
+					</div>
+					
+					<div class="relative">
+						<FormControl
+							label="Comment"
+							type="textarea"
+							v-model="commentFormData.text"
+							@keyup="handleCommentInput"
+							@click="handleCommentInput"
+							:required="true"
+							placeholder="What's on your mind?"
+						/>
+						<div
+							v-if="showMentionDropdown"
+							v-click-outside="() => { showMentionDropdown = false; }"
+							class="absolute z-[120] w-full max-h-48 overflow-y-auto bg-white border border-gray-200 rounded-md shadow-lg py-1 left-0 top-full mt-1"
+						>
+							<div
+								v-for="u in mentionSuggestions"
+								:key="u.value"
+								@click="selectMention(u)"
+								class="px-3 py-1.5 text-sm cursor-pointer hover:bg-blue-50 text-gray-900 flex items-center justify-between"
+							>
+								<span>{{ u.label }}</span>
+							</div>
+							<div v-if="mentionSuggestions.length === 0" class="px-3 py-1.5 text-xs text-gray-400 italic">
+								No users found
+							</div>
+						</div>
+					</div>
+					
+					<div class="flex items-center gap-4">
+						<div class="flex-1">
+							<div class="space-y-1">
+								<label class="block text-xs font-medium text-gray-700">Assign To</label>
+								<div class="relative">
+									<Icon icon="lucide:search" class="absolute left-3 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-gray-400" />
+									<input
+										v-model="userSearchQuery"
+										type="text"
+										placeholder="Search users..."
+										class="w-full pl-9 pr-3 py-1.5 border border-gray-300 rounded-md text-sm bg-white text-gray-900 focus:outline-none focus:ring-2 focus:ring-blue-400"
+										@focus="showUserDropdown = true"
+									/>
+									<div 
+										v-if="showUserDropdown && filteredUsers.length > 0" 
+										v-click-outside="() => showUserDropdown = false"
+										class="absolute z-[110] w-full mt-1 max-h-48 overflow-y-auto bg-white border border-gray-200 rounded-md shadow-lg py-1"
+									>
+										<div
+											v-for="u in filteredUsers"
+											:key="u.value"
+											@click="commentFormData.assigned_to = u.value; userSearchQuery = u.label; showUserDropdown = false"
+											class="px-3 py-1.5 text-sm cursor-pointer hover:bg-blue-50 text-gray-900 flex items-center justify-between"
+										>
+											<span>{{ u.label }}</span>
+											<Icon v-if="commentFormData.assigned_to === u.value" icon="lucide:check" class="w-3.5 h-3.5 text-blue-600" />
+										</div>
+									</div>
+									<div v-else-if="showUserDropdown && userSearchQuery && filteredUsers.length === 0" class="absolute z-[110] w-full mt-1 bg-white border border-gray-200 rounded-md shadow-lg p-3 text-xs text-gray-400 italic">
+										No users found
+									</div>
+								</div>
+							</div>
+						</div>
+						<div class="pt-6">
+							<label class="flex items-center gap-2 cursor-pointer select-none text-sm text-gray-700">
+								<input
+									type="checkbox"
+									v-model="commentFormData.is_task"
+									class="rounded border-gray-300 text-blue-600 focus:ring-blue-500"
+								/>
+								Actionable Task
+							</label>
+						</div>
+					</div>
+				</div>
+			</template>
+			<template #actions>
+				<div class="flex gap-2">
+					<Button variant="subtle" @click="showCommentDialog = false">Cancel</Button>
+					<Button variant="solid" @click="submitComment" :disabled="!commentFormData.text">Post Comment</Button>
+				</div>
+			</template>
+		</Dialog>
+		<!-- View Comments Dialog -->
+		<Dialog v-model="showViewCommentsDialog" :options="{ title: 'Comments', size: 'md' }">
+			<template #body-content>
+				<div class="space-y-4 max-h-[60vh] overflow-y-auto pr-2 pb-2">
+					<div 
+						v-for="comment in selectedElementComments" 
+						:key="comment.name"
+						class="p-3 bg-white border border-gray-100 rounded-lg shadow-sm space-y-2"
+					>
+						<div class="flex items-center justify-between">
+							<div class="flex items-center gap-2">
+								<Avatar :label="comment.author" size="sm" />
+								<span class="text-xs font-semibold text-gray-700">{{ comment.author }}</span>
+							</div>
+							<span class="text-[10px] text-gray-400 italic">
+								{{ new Date(comment.creation.replace(" ", "T").replace(/(\.\d{3})\d+$/, "$1")).toLocaleString() }}
+							</span>
+						</div>
+						
+						<p class="text-sm text-gray-800 leading-relaxed whitespace-pre-wrap">{{ comment.comment }}</p>
+						
+						<div v-if="comment.is_task" class="flex items-center justify-between pt-2 border-t border-gray-50 mt-2">
+							<div class="flex items-center gap-2">
+								<Badge 
+									:theme="comment.status === 'Resolved' ? 'green' : 'orange'" 
+									:label="comment.status" 
+									size="sm" 
+								/>
+								<span v-if="comment.assigned_to" class="text-[10px] text-gray-500">
+									Assigned to: {{ comment.assigned_to }}
+								</span>
+							</div>
+							
+							<Button 
+								v-if="comment.status === 'Open'" 
+								variant="subtle" 
+								size="sm" 
+								@click="resolveComment(comment)"
+								class="text-green-600 hover:bg-green-50"
+							>
+								Resolve
+							</Button>
+						</div>
+					</div>
+					
+					<div v-if="selectedElementComments.length === 0" class="text-center py-8 text-gray-400 italic text-sm">
+						No comments yet.
+					</div>
+				</div>
+			</template>
+			<template #actions>
+				<div class="flex justify-end">
+					<Button variant="subtle" @click="showViewCommentsDialog = false">Close</Button>
+				</div>
+			</template>
+		</Dialog>
+
+		<!-- Right-Click Context Menu -->
+		<div
+			v-if="showContextMenu"
+			data-context-menu
+			class="fixed z-[200] bg-white border border-gray-200 rounded-lg shadow-xl py-1 min-w-[180px]"
+			:style="{ left: contextMenuPosition.x + 'px', top: contextMenuPosition.y + 'px' }"
+		>
+			<button
+				v-if="canAddComment"
+				@click="addCommentFromContextMenu"
+				class="w-full flex items-center gap-2 px-3 py-2 text-sm text-gray-700 hover:bg-blue-50 transition-colors"
+			>
+				<Icon icon="lucide:message-square-plus" class="w-4 h-4" />
+				Add Comment
+			</button>
+			<button
+				v-if="contextMenuElementCommentCount > 0"
+				@click="viewCommentsFromContextMenu"
+				class="w-full flex items-center gap-2 px-3 py-2 text-sm text-gray-700 hover:bg-blue-50 transition-colors"
+			>
+				<Icon icon="lucide:messages-square" class="w-4 h-4" />
+				View Comments ({{ contextMenuElementCommentCount }})
+			</button>
 		</div>
 	</div>
 </template>
 
 <script setup>
-import { ref, shallowRef, onMounted, onUnmounted, onBeforeUnmount } from "vue";
+import { ref, shallowRef, onMounted, onBeforeUnmount, watch, computed, nextTick } from "vue";
+import { frappeRequest } from "frappe-ui";
 import {
 	injectProcessNameField,
 	reinjectIfCalledElementChanged,
@@ -105,10 +438,13 @@ import {
 	cancelPendingInjection,
 } from "@/composables/useCallActivityName";
 import { Icon } from "@iconify/vue";
+import { useWindowSize } from "@/composables/useWindowSize";
+import { useBottomSheet } from "@/composables/useBottomSheet";
 // Custom Shapes - DISABLED (see DEVELOPMENT_CONTEXT.md)
 // import CustomShapesModule, { customShapeSvgStore } from "@/bpmn";
 import FormattingToolbar from "@/components/FormattingToolbar.vue";
 import { initModeler } from "@/composables/useModelerInit";
+import { useBpmnContextMenu } from "@/composables/useBpmnContextMenu";
 // Properties panel
 import {
 	BpmnPropertiesPanelModule,
@@ -128,7 +464,7 @@ import translateModule from "@/i18n";
 import customRulesModule from "@/rules";
 
 // Custom text styling module
-import { customTextStyleModule } from "@/renderers";
+import { customTextStyleModule, stickyNoteModule } from "@/renderers";
 
 // Native system-clipboard module — enables copy/paste across browser tabs.
 // Inlined from https://github.com/nikku/bpmn-js-native-copy-paste (MIT)
@@ -139,10 +475,17 @@ import clipboardModule from "@/utils/clipboard";
 // Custom moddle extension for text style attributes
 import customTextStyleModdle from "@/moddle/customTextStyleModdle";
 
+// Task resize + auto-label-fit module
+import resizeModule from "@/resize";
+
 import userTaskPropertiesProviderModule from "@/bpmn/userTaskPropertiesProvider";
+import sendTaskPropertiesProviderModule from "@/bpmn/sendTaskPropertiesProvider";
+import serviceTaskPropertiesProviderModule from "@/bpmn/serviceTaskPropertiesProvider";
+import scriptTaskPropertiesProviderModule from "@/bpmn/scriptTaskPropertiesProvider";
 import intermediateEventPropertiesProviderModule from "@/bpmn/intermediateEventPropertiesProvider";
 import timerPropertiesProviderModule from "@/bpmn/timerPropertiesProvider";
 import startEventPropertiesProviderModule from "@/bpmn/startEventPropertiesProvider";
+import conditionalStartEventPropertiesProviderModule from "@/bpmn/conditionalStartEventPropertiesProvider";
 
 // bpmnlint — diagram validation
 import lintModule from "bpmn-js-bpmnlint";
@@ -151,6 +494,7 @@ import bpmnlintConfig from "@/linting/bpmnlintrc.js";
 
 // Import bpmn-js CSS
 import "bpmn-js/dist/assets/diagram-js.css";
+import "bpmn-js/dist/assets/bpmn-js.css";
 import "bpmn-js/dist/assets/bpmn-font/css/bpmn.css";
 
 // Import properties panel CSS
@@ -164,6 +508,14 @@ const props = defineProps({
 	saveStatusColor: {
 		type: String,
 		default: ""
+	},
+	readonly: {
+		type: Boolean,
+		default: false
+	},
+	modelName: {
+		type: String,
+		default: ""
 	}
 });
 
@@ -175,7 +527,83 @@ const emit = defineEmits([
 	"launch-markdown-editor",
 	"launch-callactivity-editor",
 	"launch-callactivity-search",
+	"launch-notification-editor",
 ]);
+
+// Commenting state
+const comments = ref([]);
+const isCommentMode = ref(false);
+const showCommentDialog = ref(false);
+const showViewCommentsDialog = ref(false);
+const activeCommentElement = ref(null);
+const selectedElementComments = ref([]);
+const commentFormData = ref({
+	text: "",
+	assigned_to: "",
+	is_task: false
+});
+const users = ref([]);
+
+// Right-click context menu (composable)
+const {
+	showContextMenu,
+	contextMenuPosition,
+	contextMenuElementCommentCount,
+	canAddComment,
+	addCommentFromContextMenu,
+	viewCommentsFromContextMenu,
+	registerEventListeners: registerContextMenuListeners,
+} = useBpmnContextMenu({
+	readonly: computed(() => props.readonly),
+	comments,
+	selectCommentElement,
+	openViewCommentsDialog: (elementId) => {
+		selectedElementComments.value = comments.value.filter(
+			(c) => c.element_id === elementId
+		);
+		showViewCommentsDialog.value = true;
+	},
+});
+
+const userSearchQuery = ref("");
+const showUserDropdown = ref(false);
+
+// Clear assigned_to when the user edits the search text away from the selected label.
+// This prevents a stale assignment if the user modifies the input after selecting someone.
+watch(userSearchQuery, (newQuery) => {
+	const assignedUser = commentFormData.value.assigned_to;
+	if (!assignedUser) return;
+
+	// Find the label (full_name) of the currently assigned user
+	const match = users.value.find(u => u.name === assignedUser);
+	if (match && newQuery !== match.full_name) {
+		commentFormData.value.assigned_to = "";
+	}
+});
+
+const showMentionDropdown = ref(false);
+const mentionSearchQuery = ref("");
+const mentionStartIndex = ref(-1);
+
+const mentionSuggestions = computed(() => {
+	const q = (mentionSearchQuery.value || "").trim().toLowerCase();
+	if (!q) return [];
+
+	return users.value
+		.map(u => ({ label: u.full_name, value: u.name }))
+		.filter(u => u.label.toLowerCase().includes(q) || u.value.toLowerCase().includes(q))
+		.slice(0, 10);
+});
+
+const filteredUsers = computed(() => {
+	const q = (userSearchQuery.value || "").toLowerCase();
+	const options = users.value.map(u => ({
+		label: u.full_name,
+		value: u.name
+	}));
+	if (!q) return options;
+	return options.filter(u => u.label.toLowerCase().includes(q) || u.value.toLowerCase().includes(q));
+});
 
 const container = ref(null);
 const propertiesContainer = ref(null);
@@ -184,11 +612,31 @@ const canUndo = ref(false);
 const canRedo = ref(false);
 const zoomLevel = ref(100);
 const showPropertiesPanel = ref(true);
+const propertiesCollapsed = ref(true);
 const isMounted = ref(false);
 const isImporting = ref(false);
 // const showMinimap = ref(true); // DISABLED
 const selectedElements = shallowRef([]);
 const modelerInstance = shallowRef(null);
+
+// Mobile responsiveness
+const { isMobile } = useWindowSize();
+const showMobileFormatPopover = ref(false);
+const dragHandleRef = ref(null);
+const { dragOffset, isDragging, attach: attachBottomSheet } = useBottomSheet();
+
+// Attach swipe-to-dismiss when the properties panel opens on mobile
+watch([showPropertiesPanel, isMobile], () => {
+	if (showPropertiesPanel.value && isMobile.value) {
+		nextTick(() => {
+			if (dragHandleRef.value) {
+				attachBottomSheet(dragHandleRef.value, () => {
+					showPropertiesPanel.value = false;
+				});
+			}
+		});
+	}
+});
 
 let modeler = null;
 let commandStack = null;
@@ -212,8 +660,10 @@ const emptyDiagram = `<?xml version="1.0" encoding="UTF-8"?>
   </bpmndi:BPMNDiagram>
 </bpmn:definitions>`;
 
-function togglePropertiesPanel() {
-	showPropertiesPanel.value = !showPropertiesPanel.value;
+
+
+function togglePropertiesCollapse() {
+	propertiesCollapsed.value = !propertiesCollapsed.value;
 }
 
 // toggleMinimap - DISABLED
@@ -240,8 +690,9 @@ onMounted(async () => {
 					name: "TimerEventDefinitionExtension",
 					extends: ["bpmn:TimerEventDefinition"],
 					properties: [
-						{ name: "schedulerFrequency", isAttr: true, type: "String" },
-						{ name: "cronExpression",       isAttr: true, type: "String" }
+						{ name: "cronExpression", isAttr: true, type: "String" },
+						// Kept for backward compat — existing XML may contain this.
+						{ name: "schedulerFrequency", isAttr: true, type: "String" }
 					]
 				});
 			}
@@ -261,6 +712,21 @@ onMounted(async () => {
 				});
 			}
 
+			// Conditional Start Event trigger extension (hot-reloading safety)
+			const hasCondStartEventExt = spiffModdleExtension.types.find(t => t.name === "ConditionalEventTriggerExtension");
+			if (!hasCondStartEventExt) {
+				spiffModdleExtension.types.push({
+					name: "ConditionalEventTriggerExtension",
+					extends: ["bpmn:ConditionalEventDefinition"],
+					properties: [
+						{ name: "triggerDoctype",       isAttr: true, type: "String" },
+						{ name: "triggerType",          isAttr: true, type: "String" },
+						{ name: "triggerWorkflow",      isAttr: true, type: "String" },
+						{ name: "triggerWorkflowState", isAttr: true, type: "String" }
+					]
+				});
+			}
+
 			// User Task assignee extension
 			const hasUserTaskExt = spiffModdleExtension.types.find(t => t.name === "UserTaskAssigneeExtension");
 			if (!hasUserTaskExt) {
@@ -268,10 +734,22 @@ onMounted(async () => {
 					name: "UserTaskAssigneeExtension",
 					extends: ["bpmn:UserTask"],
 					properties: [
-						{ name: "assigneeMode",        isAttr: true, type: "String" },
-						{ name: "targetDoctype",       isAttr: true, type: "String" },
-						{ name: "assigneeUser",        isAttr: true, type: "String" },
-						{ name: "assigneeDocfield",    isAttr: true, type: "String" }
+						{ name: "assigneeMode",         isAttr: true, type: "String" },
+						{ name: "targetDoctype",         isAttr: true, type: "String" },
+						{ name: "assigneeUser",          isAttr: true, type: "String" },
+						{ name: "assigneeDocfield",      isAttr: true, type: "String" },
+						{ name: "assigneeUsers",         isAttr: true, type: "String" },
+						{ name: "roundRobinLastUser",    isAttr: true, type: "String" },
+						{ name: "taskActions",           isAttr: true, type: "String" },
+						{ name: "taskActionMode",        isAttr: true, type: "String" }
+					]
+				});
+
+				spiffModdleExtension.types.push({
+					name: "ScriptTaskServerScriptExtension",
+					extends: ["bpmn:ScriptTask"],
+					properties: [
+						{ name: "serverScript", isAttr: true, type: "String" }
 					]
 				});
 			}
@@ -290,6 +768,75 @@ onMounted(async () => {
 					]
 				});
 			}
+
+			// Send Task notification extension
+			const hasSendTaskExt = spiffModdleExtension.types.find(t => t.name === "SendTaskNotificationExtension");
+			if (!hasSendTaskExt) {
+				spiffModdleExtension.types.push({
+					name: "SendTaskNotificationExtension",
+					extends: ["bpmn:SendTask"],
+					properties: [
+						{ name: "notificationName", isAttr: true, type: "String" }
+					]
+				});
+			}
+
+			// Service Task "Apply Workflow" extension
+			const hasServiceTaskExt = spiffModdleExtension.types.find(t => t.name === "ServiceTaskApplyWorkflowExtension");
+			if (!hasServiceTaskExt) {
+				spiffModdleExtension.types.push({
+					name: "ServiceTaskApplyWorkflowExtension",
+					extends: ["bpmn:ServiceTask"],
+					properties: [
+						{ name: "serviceType",          isAttr: true, type: "String" },
+						{ name: "serviceTargetDoctype", isAttr: true, type: "String" },
+						{ name: "workflowState",        isAttr: true, type: "String" },
+						{ name: "docStatus",            isAttr: true, type: "String" },
+						{ name: "onlyAllowEdit",        isAttr: true, type: "String" },
+						{ name: "confirmTransition",    isAttr: true, type: "String" },
+						{ name: "emailAccount",         isAttr: true, type: "String" },
+						{ name: "emailUseDoctype",      isAttr: true, type: "String" },
+						{ name: "emailDoctype",         isAttr: true, type: "String" },
+						{ name: "emailSubject",         isAttr: true, type: "String" },
+						{ name: "emailTo",              isAttr: true, type: "String" },
+						{ name: "emailToDocFields",     isAttr: true, type: "String" },
+						{ name: "emailToRoles",         isAttr: true, type: "String" },
+						{ name: "emailCc",              isAttr: true, type: "String" },
+						{ name: "emailBcc",             isAttr: true, type: "String" },
+						{ name: "emailBody",            isAttr: true, type: "String" },
+						{ name: "updateFieldDoctype",   isAttr: true, type: "String" },
+						{ name: "updateFieldName",      isAttr: true, type: "String" },
+						{ name: "updateFieldValue",     isAttr: true, type: "String" },
+						// Multi-row field update (JSON array of {field, value})
+						{ name: "updateFieldRows",      isAttr: true, type: "String" },
+						// Google Chat attrs
+						{ name: "gchatType",            isAttr: true, type: "String" },
+						{ name: "gchatEmail",           isAttr: true, type: "String" },
+						{ name: "gchatSpaceId",         isAttr: true, type: "String" },
+						{ name: "gchatMessage",         isAttr: true, type: "String" },
+						// Push Notification attrs
+						{ name: "pushDoctype",          isAttr: true, type: "String" },
+						{ name: "pushTitle",            isAttr: true, type: "String" },
+						{ name: "pushMessage",          isAttr: true, type: "String" },
+						{ name: "pushToUsers",          isAttr: true, type: "String" },
+						{ name: "pushToDocFields",      isAttr: true, type: "String" },
+						{ name: "pushToRoles",          isAttr: true, type: "String" }
+						]
+				});
+			}
+
+			// Sticky Note extension
+			const hasStickyNoteExt = spiffModdleExtension.types.find(t => t.name === "StickyNoteExtension");
+			if (!hasStickyNoteExt) {
+				spiffModdleExtension.types.push({
+					name: "StickyNoteExtension",
+					extends: ["bpmn:TextAnnotation"],
+					properties: [
+						{ name: "isStickyNote", isAttr: true, type: "Boolean" },
+						{ name: "color", isAttr: true, type: "String" }
+					]
+				});
+			}
 		}
 
 				
@@ -302,16 +849,23 @@ onMounted(async () => {
 				BpmnPropertiesProviderModule,
 				spiffworkflow,
 				userTaskPropertiesProviderModule,
+				sendTaskPropertiesProviderModule,
+				serviceTaskPropertiesProviderModule,
+				scriptTaskPropertiesProviderModule,
 				intermediateEventPropertiesProviderModule,
 				timerPropertiesProviderModule,
 				startEventPropertiesProviderModule,
+				conditionalStartEventPropertiesProviderModule,
 				// minimapModule, // DISABLED
 				translateModule,
 				customTextStyleModule,
+				resizeModule,
+				stickyNoteModule,
 				clipboardModule,
 				lintModule,
 				nativeCopyPasteModule,
 			],
+			taskResizingEnabled: true,
 			linting: {
 				active: true,
 				bpmnlint: bpmnlintConfig,
@@ -330,10 +884,20 @@ onMounted(async () => {
 					fontSize: "12px",
 				},
 			},
-			keyboard: { bindTo: document },
+			// Disable keyboard bindings in readonly mode
+			keyboard: props.readonly ? false : { bindTo: document },
 		},
 		onReady: async (initializedModeler) => {
 			modeler = initializedModeler;
+			modelerInstance.value = modeler;
+
+			// Fetch users for assignment
+			fetchUsers();
+
+			// Initial fetch of comments
+			if (props.modelName) {
+				fetchComments();
+			}
 
 			// Get command stack for undo/redo
 			commandStack = modeler.get("commandStack");
@@ -341,6 +905,64 @@ onMounted(async () => {
 			// Use eventBus for listening to command stack changes
 			const eventBus = modeler.get("eventBus");
 
+
+			const linting = modeler.get("linting");
+			if (linting) {
+				const originalFormatIssues = linting._formatIssues;
+				linting._formatIssues = function (issues) {
+					let formattedIssues = originalFormatIssues.call(this, issues);
+					const canvas = modeler.get("canvas");
+					const rootElement = canvas.getRootElement();
+
+					// Helper to collect all element IDs strictly contained within the given moddle object
+					const getModdleDescendants = (bo, descendants = new Set(), visited = new Set()) => {
+						if (!bo || typeof bo !== "object") return descendants;
+						if (visited.has(bo)) return descendants;
+						visited.add(bo);
+
+						if (bo.id) descendants.add(bo.id);
+
+						const containmentKeys = [
+							"flowElements", "laneSets", "artifacts", "eventDefinitions",
+							"participants", "messageFlows", "processRef", "rootElements"
+						];
+
+						for (const key of containmentKeys) {
+							const val = bo[key];
+							if (Array.isArray(val)) {
+								val.forEach(child => getModdleDescendants(child, descendants, visited));
+							} else if (val && typeof val === "object") {
+								getModdleDescendants(val, descendants, visited);
+							}
+						}
+						return descendants;
+					};
+
+					const validIds = getModdleDescendants(rootElement.businessObject);
+
+					for (const elementId in formattedIssues) {
+						const issueGroup = formattedIssues[elementId];
+						// Filter reports to ensure their actual element is a descendant
+						const filteredGroup = issueGroup.filter(report => {
+							const actualId = report.actualElementId || report.id;
+							return validIds.has(actualId);
+						});
+
+						if (filteredGroup.length === 0) {
+							delete formattedIssues[elementId];
+						} else {
+							formattedIssues[elementId] = filteredGroup;
+						}
+					}
+
+					return formattedIssues;
+				};
+
+				// Rerun linting when drilling down/up so the panel stays relevant to current plane
+				eventBus.on("root.set", () => {
+					linting.update();
+				});
+			}
 
 			// Clear custom trigger attributes if a StartEvent is converted into something else
 			// (e.g. Timer Start Event) so they don't persist in the XML.
@@ -351,19 +973,39 @@ onMounted(async () => {
 				const bo = newShape && newShape.businessObject;
 				if (!bo) return;
 
-				let isPlainStartEvent = false;
+				const modeling = modeler.get("modeling");
+				const triggerAttrs = ["triggerDoctype", "triggerType", "triggerWorkflow", "triggerWorkflowState"];
+				const clearProps = {};
+				triggerAttrs.forEach(attr => {
+					clearProps[`spiffworkflow:${attr}`] = undefined;
+				});
+
 				if (bo.$type === "bpmn:StartEvent") {
 					const eventDefs = bo.get("eventDefinitions") || [];
-					isPlainStartEvent = eventDefs.length === 0;
-				}
+					const isPlainStartEvent = eventDefs.length === 0;
+					const hasConditionalDef = eventDefs.some(d => d.$type === "bpmn:ConditionalEventDefinition");
 
-				if (!isPlainStartEvent) {
-					const modeling = modeler.get("modeling");
-					const attrs = ["triggerDoctype", "triggerType", "triggerWorkflow", "triggerWorkflowState"];
-					const clearProps = {};
-					attrs.forEach(attr => {
-						clearProps[`spiffworkflow:${attr}`] = undefined;
-					});
+					// Clear trigger attrs from the StartEvent BO if it's no longer plain
+					if (!isPlainStartEvent) {
+						modeling.updateModdleProperties(newShape, bo, clearProps);
+					}
+
+					// Clear trigger attrs from ConditionalEventDefinition if the shape
+					// was converted away from a Conditional Start Event
+					if (!hasConditionalDef) {
+						// Check the old shape's event defs for stale conditional data
+						const oldShape = e.context.oldShape;
+						const oldBo = oldShape && oldShape.businessObject;
+						if (oldBo) {
+							const oldDefs = oldBo.get("eventDefinitions") || [];
+							const oldCondDef = oldDefs.find(d => d.$type === "bpmn:ConditionalEventDefinition");
+							if (oldCondDef) {
+								modeling.updateModdleProperties(newShape, oldCondDef, clearProps);
+							}
+						}
+					}
+				} else {
+					// Not a StartEvent at all — clear any lingering trigger attrs
 					modeling.updateModdleProperties(newShape, bo, clearProps);
 				}
 			});
@@ -384,7 +1026,33 @@ onMounted(async () => {
 				}
 			});
 
-			// Re-inject only when calledElement actually changed — avoids DOM
+			// Canvas/Element click listener for commenting
+			const handleCommentClick = (element, originalEvent) => {
+				if (!isCommentMode.value || !element) return;
+
+				// Guard against missing originalEvent
+				if (originalEvent) {
+					originalEvent.preventDefault();
+					originalEvent.stopPropagation();
+				}
+
+				selectCommentElement(element);
+				return false;
+			};
+
+			eventBus.on("element.click", (e) => {
+				return handleCommentClick(e.element, e.originalEvent);
+			});
+
+			eventBus.on("canvas.click", (e) => {
+				const canvas = modeler.get("canvas");
+				return handleCommentClick(canvas?.getRootElement(), e.originalEvent);
+			});
+
+			// Right-click context menu — delegates to composable
+			registerContextMenuListeners(eventBus);
+
+			// Re-inject only when calledElement actually changed
 			// churn and repeated network requests on every command stack event.
 			eventBus.on("commandStack.changed", () => {
 				updateUndoRedoState();
@@ -401,6 +1069,11 @@ onMounted(async () => {
 			const newZoom = Math.round(canvas.zoom() * 100);
 			zoomLevel.value = newZoom;
 			emit("zoom-changed", newZoom);
+		});
+
+		// Ensure comments are rendered after any diagram import finishes
+		eventBus.on("import.done", () => {
+			renderComments();
 		});
 
 		// --- SpiffWorkflow EventBus Integration ---
@@ -440,12 +1113,32 @@ onMounted(async () => {
 				});
 			});
 
-			eventBus.on("spiff.file.edit", (event) => {
-				console.log("File edit requested:", event.value);
+			eventBus.on("spiff.file.edit", (_event) => {
+				// Not implemented — file editing is handled externally
 			});
 
-			eventBus.on("spiff.dmn.edit", (event) => {
-				console.log("DMN edit requested:", event.value);
+			eventBus.on("spiff.dmn.edit", (_event) => {
+				// Not implemented — DMN editing is handled externally
+			});
+
+			// Notification editing (Send Tasks)
+			eventBus.on("spiff.notification.edit", (event) => {
+				emit("launch-notification-editor", {
+					element: event.element,
+					notificationName: event.notificationName || "",
+					eventBus: event.eventBus,
+				});
+			});
+
+			// Write notification name back to BPMN element when dialog resolves
+			eventBus.on("spiff.notification.update", (event) => {
+				if (event.element && event.notificationName) {
+					const modeling = modeler.get("modeling");
+					const bo = event.element.businessObject || event.element;
+					modeling.updateModdleProperties(event.element, bo, {
+						"spiffworkflow:notificationName": event.notificationName,
+					});
+				}
 			});
 
 			eventBus.on("spiff.service_tasks.requested", (event) => {
@@ -487,12 +1180,12 @@ onMounted(async () => {
 			});
 
 			eventBus.on("spiff.msg_json_schema_files.requested", (event) => {
-				console.log("Message JSON schema files requested");
+				event.eventBus.fire("spiff.msg_json_schema_files.returned", { options: [] });
 			});
 
 			// Fix unresolved loop data references (from upstream app.js)
 			modeler.on("import.parse.complete", (event) => {
-				const refs = event.references.filter(
+				const refs = (event.references || []).filter(
 					(r) =>
 						r.property === "bpmn:loopDataInputRef" ||
 						r.property === "bpmn:loopDataOutputRef"
@@ -527,6 +1220,41 @@ onMounted(async () => {
 
 
 
+			// In readonly mode, disable all modeler-level editing interactions
+			// so users cannot move, delete, or modify elements locally.
+			if (props.readonly) {
+				// Intercept commandStack to prevent any model mutations
+				const originalExecute = commandStack.execute.bind(commandStack);
+				commandStack.execute = (command, context) => {
+					// Allow canvas operations (zoom, scroll) but block element mutations
+					const allowedCommands = ['canvas.updateRootElement'];
+					if (allowedCommands.includes(command)) {
+						return originalExecute(command, context);
+					}
+					// Silently ignore all other commands
+					return;
+				};
+
+				// Disable direct editing (double-click labels)
+				try {
+					const directEditing = modeler.get('directEditing');
+					if (directEditing) {
+						directEditing.cancel();
+						const origActivate = directEditing.activate;
+						directEditing.activate = () => false;
+					}
+				} catch (_) { /* module may not exist */ }
+
+				// Disable dragging
+				try {
+					const dragging = modeler.get('dragging');
+					if (dragging) {
+						const origInit = dragging.init;
+						dragging.init = () => {};
+					}
+				} catch (_) { /* module may not exist */ }
+			}
+
 			emit("ready");
 		},
 		onError: (err) => {
@@ -545,9 +1273,6 @@ onBeforeUnmount(() => {
 	if (toolbarEl.value && toolbarEl.value.parentNode) {
 		toolbarEl.value.parentNode.removeChild(toolbarEl.value);
 	}
-});
-
-onUnmounted(() => {
 	// Cancel any pending process-name injection to prevent memory-leaks
 	// and stale DOM updates after the component is torn down.
 	cancelPendingInjection();
@@ -561,7 +1286,8 @@ function updateUndoRedoState() {
 		canUndo.value = commandStack.canUndo();
 		canRedo.value = commandStack.canRedo();
 	}
-	if (!isImporting.value) {
+	// Suppress change events in readonly mode so auto-save doesn't fire
+	if (!isImporting.value && !props.readonly) {
 		emit("changed");
 	}
 }
@@ -590,7 +1316,254 @@ function deleteSelected() {
 	}
 }
 
-// Decode HTML entities that may have been encoded during storage/retrieval
+function addStickyNote() {
+	if (!modeler) return;
+
+	const modeling = modeler.get("modeling");
+	const canvas = modeler.get("canvas");
+	const bpmnFactory = modeler.get("bpmnFactory");
+	const elementFactory = modeler.get("elementFactory");
+
+	const rootElement = canvas.getRootElement();
+
+	// Create TextAnnotation business object
+	const textAnnotationBo = bpmnFactory.create("bpmn:TextAnnotation", {
+		text: "New Note",
+	});
+
+	// Set the custom attribute within the spiffworkflow namespace
+	textAnnotationBo.set("spiffworkflow:isStickyNote", true);
+	textAnnotationBo.set("spiffworkflow:color", "#fff9c4"); // Default pastel yellow
+
+	// Get viewport center
+	const viewbox = canvas.viewbox();
+	const x = viewbox.x + viewbox.width / 2;
+	const y = viewbox.y + viewbox.height / 2;
+
+	const shape = elementFactory.createShape({
+		type: "bpmn:TextAnnotation",
+		businessObject: textAnnotationBo,
+		width: 150,
+		height: 120,
+	});
+
+	modeling.createShape(shape, { x, y }, rootElement);
+	
+	// Select the new shape and activate direct editing
+	const selection = modeler.get("selection");
+	selection.select(shape);
+	
+	const directEditing = modeler.get("directEditing");
+	// Small delay to ensure the SVG is rendered before activating editor
+	setTimeout(() => {
+		if (directEditing.canActivate(shape)) {
+			directEditing.activate(shape);
+		}
+	}, 100);
+}
+
+// --- Commenting Methods ---
+
+function toggleCommentMode() {
+	if (!isCommentMode.value) {
+		// If an element is already selected, open the dialog immediately for it
+		const selection = modeler?.get("selection");
+		const selected = selection?.get();
+		if (selected && selected.length === 1) {
+			selectCommentElement(selected[0]);
+			return; // Don't enter mode if we immediately opened the dialog
+		}
+		isCommentMode.value = true;
+	} else {
+		isCommentMode.value = false;
+		activeCommentElement.value = null;
+		showCommentDialog.value = false;
+	}
+}
+
+function selectCommentElement(element) {
+	activeCommentElement.value = element;
+	commentFormData.value = {
+		text: "",
+		assigned_to: "",
+		is_task: false
+	};
+	userSearchQuery.value = "";
+	showUserDropdown.value = false;
+	showCommentDialog.value = true;
+	showMentionDropdown.value = false;
+}
+
+function handleCommentInput(e) {
+	if (!e || !e.target || typeof e.target.selectionStart !== 'number') return;
+	
+	const text = commentFormData.value.text || "";
+	const cursorPosition = e.target.selectionStart;
+	
+	// Check text leading up to cursor for an active mention
+	const textBeforeCursor = text.substring(0, cursorPosition);
+	// Match `@` followed by any non-whitespace characters until the end
+	const match = textBeforeCursor.match(/@([^\s]{0,30})$/);
+	
+	if (match) {
+		showMentionDropdown.value = true;
+		mentionSearchQuery.value = match[1];
+		mentionStartIndex.value = cursorPosition - match[0].length;
+	} else {
+		showMentionDropdown.value = false;
+	}
+}
+
+function selectMention(user) {
+	const text = commentFormData.value.text || "";
+	// Insert "@First Last " replacing the "@SearchTerm"
+	const before = text.substring(0, mentionStartIndex.value);
+	const after = text.substring(mentionStartIndex.value + mentionSearchQuery.value.length + 1);
+	
+	commentFormData.value.text = before + '@' + user.label + ' ' + after;
+	showMentionDropdown.value = false;
+}
+
+async function fetchUsers() {
+	if (users.value.length > 0) return; // Already fetched
+	try {
+		const response = await frappeRequest({
+			url: "/api/method/one_bpmn.api.get_system_users",
+		});
+		users.value = (response.message || response || []).filter(u => u.full_name);
+	} catch (err) {
+		console.error("Failed to fetch users:", err);
+	}
+}
+
+async function fetchComments() {
+	if (!props.modelName) return;
+	try {
+		const response = await frappeRequest({
+			url: "/api/method/one_bpmn.api.get_canvas_comments",
+			params: { model_name: props.modelName }
+		});
+		comments.value = response.message || response || [];
+		renderComments();
+	} catch (err) {
+		console.error("Failed to fetch comments:", err);
+	}
+}
+
+function renderComments() {
+	if (!modeler) return;
+	const overlays = modeler.get("overlays");
+	
+	// Clear existing overlays of type 'processa-comment'
+	overlays.remove({ type: "processa-comment" });
+
+	// Group comments by element_id
+	const grouped = comments.value.reduce((acc, c) => {
+		const id = c.element_id || "process";
+		if (!acc[id]) acc[id] = [];
+		acc[id].push(c);
+		return acc;
+	}, {});
+
+	Object.keys(grouped).forEach(elementId => {
+		const elementComments = grouped[elementId];
+		const hasOpenTask = elementComments.some(c => c.is_task && c.status === "Open");
+		
+		// Create overlay HTML
+		const html = document.createElement("div");
+		html.className = `p-1 rounded-full shadow-md cursor-pointer border border-white transition-transform hover:scale-110 ${hasOpenTask ? 'bg-orange-500 text-white' : 'bg-blue-500 text-white'}`;
+		html.style.width = "20px";
+		html.style.height = "20px";
+		html.style.display = "flex";
+		html.style.alignItems = "center";
+		html.style.justifyContent = "center";
+		html.title = `${elementComments.length} comment(s)`;
+		
+		const icon = document.createElement("span");
+		icon.innerHTML = `<svg xmlns="http://www.w3.org/2000/svg" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"></path></svg>`;
+		html.appendChild(icon);
+
+		html.onclick = (e) => {
+			e.stopPropagation();
+			selectedElementComments.value = elementComments;
+			showViewCommentsDialog.value = true;
+		};
+
+		const elementRegistry = modeler.get("elementRegistry");
+		const targetElement = elementRegistry.get(elementId);
+		
+		if (!targetElement) {
+			console.warn(`Element ${elementId} not found in registry, skipping comment overlay`);
+			return;
+		}
+
+		try {
+			overlays.add(elementId, "processa-comment", {
+				position: {
+					bottom: 10,
+					left: -10
+				},
+				html: html
+			});
+		} catch (err) {
+			console.error(`Failed to add overlay for element ${elementId}:`, err);
+		}
+	});
+}
+
+async function submitComment() {
+	if (!commentFormData.value.text || !props.modelName) return;
+
+	try {
+		await frappeRequest({
+			url: "/api/method/one_bpmn.api.post_canvas_comment",
+			params: {
+				model_name: props.modelName,
+				element_id: activeCommentElement.value?.id || "process",
+				comment: commentFormData.value.text,
+				assigned_to: commentFormData.value.assigned_to,
+				is_task: commentFormData.value.is_task ? 1 : 0
+			}
+		});
+
+		showCommentDialog.value = false;
+		isCommentMode.value = false;
+		fetchComments();
+	} catch (err) {
+		console.error("Failed to post comment:", err);
+	}
+}
+
+async function resolveComment(comment) {
+	try {
+		await frappeRequest({
+			url: "/api/method/one_bpmn.api.update_comment_status",
+			params: {
+				name: comment.name,
+				status: "Resolved"
+			}
+		});
+		fetchComments();
+		// Update the local list if dialog is open
+		const idx = selectedElementComments.value.findIndex(c => c.name === comment.name);
+		if (idx > -1) {
+			selectedElementComments.value[idx].status = "Resolved";
+		}
+	} catch (err) {
+		console.error("Failed to resolve comment:", err);
+	}
+}
+
+// Watch for model name changes to refetch comments
+watch(() => props.modelName, (newVal) => {
+	if (newVal) {
+		fetchComments();
+	}
+});
+
+// --- End Commenting Methods ---
+
+// Decode HTML entities
 function decodeHtmlEntities(text) {
 	const textarea = document.createElement("textarea");
 	textarea.innerHTML = text;
@@ -608,10 +1581,14 @@ async function loadXML(xml) {
 	if (!modeler) return;
 	isImporting.value = true;
 	try {
-		// Decode any HTML entities in the XML
-		const decodedXml = decodeHtmlEntities(xml);
-		await modeler.importXML(decodedXml);
+		// Pass XML directly to bpmn-js — its own parser handles XML entities
+		// such as &#34; correctly. Pre-decoding with decodeHtmlEntities would
+		// corrupt attribute values that contain JSON (e.g. taskActions stores
+		// [{...}] with &#34; for the quotes), turning valid XML into malformed
+		// XML where " inside a quoted attribute breaks the parser.
+		await modeler.importXML(xml);
 		updateUndoRedoState();
+		renderComments();
 		// Fit diagram to screen by default after loading, safely catching zero-dimension errors
 		setTimeout(() => {
 			try {
@@ -823,19 +1800,18 @@ function updateCalledElement(element, processId) {
 	}, 30);
 }
 
-
-
 defineExpose({
 	getXML,
 	loadXML,
 	undo,
 	redo,
+	deleteSelected,
+	addStickyNote,
 	zoomIn,
 	zoomOut,
 	resetZoom,
 	fitToScreen,
 	getZoomLevel,
-	zoomLevel,
 	addCustomShape,
 	// Overlay API
 	addOverlay,
@@ -848,7 +1824,8 @@ defineExpose({
 	getSelectedElements,
 	// Call Activity API
 	updateCalledElement,
-
+	// Properties Panel API
+	togglePropertiesCollapse,
 });
 </script>
 
@@ -859,6 +1836,10 @@ defineExpose({
 
 .bpmn-canvas {
 	background: #fafafa;
+}
+
+.bpmn-canvas.comment-mode-active .djs-container {
+	cursor: crosshair !important;
 }
 
 /* ── Injected Process Name field (no inline styles) ─── */
@@ -885,6 +1866,35 @@ defineExpose({
 	font-style: italic;
 }
 /* ─────────────────────────────────────────────────── */
+
+/* Launch Editor Button Styling */
+.properties-panel-container .spiffworkflow-properties-panel-button {
+	display: inline-flex;
+	align-items: center;
+	gap: 6px;
+	padding: 6px 6px;
+	margin: 2px 8px;
+	font-size: 12px;
+	font-weight: 500;
+	color: #374151;
+	background: #f3f4f6;
+	border: 1px solid #d1d5db;
+	border-radius: 6px;
+	cursor: pointer;
+	transition: all 0.15s ease;
+	box-shadow: 0 1px 2px rgba(0, 0, 0, 0.05);
+}
+
+.properties-panel-container .spiffworkflow-properties-panel-button:hover {
+	background: #e5e7eb;
+	border-color: #9ca3af;
+	box-shadow: 0 1px 3px rgba(0, 0, 0, 0.1);
+}
+
+.properties-panel-container .spiffworkflow-properties-panel-button:active {
+	background: #d1d5db;
+	box-shadow: inset 0 1px 2px rgba(0, 0, 0, 0.1);
+}
 
 /* Palette Styling */
 .bpmn-canvas .djs-palette {
@@ -933,12 +1943,11 @@ defineExpose({
 	outline: none;
 }
 
-/* Properties Panel Styling */
+/* Properties Panel Styling (Frappe UI Skin) */
 .properties-panel-container {
 	--properties-panel-header-background-color: #f9fafb;
 	--properties-panel-group-header-background-color: #f3f4f6;
-	/* Contain any high z-index elements inside the panel so they don't
-	   bleed above frappe-ui Dialog backdrops */
+	font-family: 'Inter', system-ui, sans-serif;
 	isolation: isolate;
 }
 
@@ -949,10 +1958,125 @@ defineExpose({
 .properties-panel-container .bio-properties-panel-header {
 	background-color: #f9fafb;
 	border-bottom: 1px solid #e5e7eb;
+	padding: 12px 16px;
+}
+
+.properties-panel-container .bio-properties-panel-header-title {
+	font-size: 14px;
+	font-weight: 700;
+	color: #1f2937;
 }
 
 .properties-panel-container .bio-properties-panel-group-header {
 	background-color: #f3f4f6;
+	border-bottom: 1px solid #e5e7eb;
+	padding: 8px 16px;
+	transition: background-color 0.2s ease;
+}
+
+.properties-panel-container .bio-properties-panel-group-header:hover {
+	background-color: #e5e7eb;
+}
+
+.properties-panel-container .bio-properties-panel-group-header-title {
+	font-size: 11px;
+	font-weight: 700;
+	color: #4b5563;
+	text-transform: uppercase;
+	letter-spacing: 0.05em;
+}
+
+/* Form Controls */
+.properties-panel-container .bio-properties-panel-label {
+	display: block;
+	font-size: 12px;
+	font-weight: 500;
+	color: #4b5563;
+	margin-bottom: 4px;
+	margin-top: 8px;
+}
+
+.properties-panel-container .bio-properties-panel-input,
+.properties-panel-container .bio-properties-panel-select,
+.properties-panel-container .bio-properties-panel-textarea {
+	width: 100%;
+	background-color: #f9fafb;
+	border: 1px solid #d1d5db;
+	border-radius: 6px;
+	padding: 6px 10px;
+	font-size: 13px;
+	color: #1f2937;
+	transition: all 0.2s ease;
+	box-shadow: 0 1px 2px rgba(0, 0, 0, 0.05);
+}
+
+.properties-panel-container .bio-properties-panel-input:focus,
+.properties-panel-container .bio-properties-panel-select:focus,
+.properties-panel-container .bio-properties-panel-textarea:focus {
+	outline: none;
+	background-color: #ffffff;
+	border-color: #3b82f6;
+	box-shadow: 0 0 0 2px rgba(59, 130, 246, 0.1);
+}
+
+.properties-panel-container .bio-properties-panel-input::placeholder {
+	color: #9ca3af;
+}
+
+/* Checkbox Styling */
+.properties-panel-container .bio-properties-panel-checkbox {
+	width: 16px;
+	height: 16px;
+	border-radius: 4px;
+	border: 1px solid #d1d5db;
+	cursor: pointer;
+}
+
+/* Group Entries */
+.properties-panel-container .bio-properties-panel-entry {
+	padding: 4px 4px;
+	margin: 0px 8px;
+}
+
+.properties-panel-container .bio-properties-panel-group-entries {
+	border-bottom: 1px solid #f3f4f6;
+	padding-bottom: 4px;
+}
+
+/* Frequency Explanation Card (Timer Start Event) */
+.properties-panel-container .frequency-explanation {
+	padding: 6px 10px;
+}
+
+.properties-panel-container .frequency-explanation__card {
+	background: var(--properties-panel-group-header-background-color, #f3f4f6);
+	border-radius: 6px;
+	padding: 12px;
+	font-size: 12.5px;
+	line-height: 1.6;
+	color: #374151;
+}
+
+.properties-panel-container .frequency-explanation__title {
+	font-weight: 600;
+	font-size: 13px;
+	margin-bottom: 8px;
+	color: #111827;
+}
+
+.properties-panel-container .frequency-explanation__desc {
+	margin-bottom: 8px;
+}
+
+.properties-panel-container .frequency-explanation__label {
+	font-weight: 600;
+	color: #111827;
+}
+
+.properties-panel-container .frequency-explanation__note {
+	font-size: 11.5px;
+	color: #6b7280;
+	font-style: italic;
 }
 
 /* Minimap Styling */
@@ -1014,4 +2138,173 @@ defineExpose({
 	font-weight: 600;
 }
 
+/* ── Breadcrumb Navigation (collapsed subprocess drilldown) ── */
+.bpmn-canvas .bjs-breadcrumbs {
+	font-family: 'Inter', 'Segoe UI', system-ui, sans-serif;
+	font-size: 14px;
+	z-index: 10;
+}
+
+.bpmn-canvas .bjs-breadcrumbs li a {
+	color: #3b82f6;
+	text-decoration: none;
+	transition: color 0.15s ease;
+}
+
+.bpmn-canvas .bjs-breadcrumbs li a:hover {
+	color: #2563eb;
+	text-decoration: underline;
+}
+
+.bpmn-canvas .bjs-breadcrumbs li:last-of-type a {
+	color: #374151;
+	font-weight: 500;
+}
+
+/* ── Read-Only Mode ─────────────────────────────── */
+
+/* Hide palette and context pad in read-only mode */
+.bpmn-canvas--readonly .djs-palette,
+.bpmn-canvas--readonly .djs-context-pad,
+.bpmn-canvas--readonly .djs-popup,
+.bpmn-canvas--readonly .djs-direct-editing-parent {
+	display: none !important;
+}
+
+/* Disable drag/move cursor on elements in read-only mode */
+.bpmn-canvas--readonly .djs-element {
+	cursor: default !important;
+}
+
+/* Semi-transparent overlay to visually indicate read-only */
+.bpmn-canvas--readonly {
+	position: relative;
+}
+
+.bpmn-canvas--readonly::after {
+	content: '';
+	position: absolute;
+	inset: 0;
+	background: rgba(248, 250, 252, 0.15);
+	pointer-events: none;
+	z-index: 1;
+}
+
+/* Make properties panel inputs read-only */
+.properties-panel--readonly input,
+.properties-panel--readonly textarea,
+.properties-panel--readonly select,
+.properties-panel--readonly button {
+	pointer-events: none !important;
+	opacity: 0.7;
+}
+
+/* But keep the panel header and group headers interactive for collapsing */
+.properties-panel--readonly .bio-properties-panel-group-header {
+	pointer-events: auto !important;
+	opacity: 1;
+}
+
+.properties-panel--readonly .bio-properties-panel-header {
+	pointer-events: auto !important;
+	opacity: 1;
+}
+/* ─────────────────────────────────────────────────── */
+
+/* Sticky Note Direct Editing Fix:
+   These styles apply to the bpmn-js direct editing text box.
+   We force the background and text color to match the sticky note
+   aesthetics during the active edit phase. */
+.bpmn-canvas .djs-direct-editing-parent {
+	background-color: #fff9c4 !important; /* Pastel yellow */
+	border: 1px solid #eab308 !important;   /* yellow-500 border */
+	border-radius: 2px;
+	padding: 4px;
+	box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+}
+
+.bpmn-canvas .djs-direct-editing-content {
+	color: #000000 !important;             /* Black text */
+	font-family: 'Inter', 'Segoe UI', system-ui, sans-serif !important;
+	font-size: 13px !important;
+	line-height: 1.2 !important;
+	outline: none !important;
+}
+
+/* Ensure placeholder/empty state is legible */
+.bpmn-canvas .djs-direct-editing-content:empty:before {
+	color: rgba(0,0,0,0.3);
+}
+/* ── Properties Panel Transitions ── */
+.slide-right-enter-active, .slide-right-leave-active {
+	transition: transform 0.3s ease, opacity 0.3s ease;
+}
+.slide-right-enter-from, .slide-right-leave-to {
+	transform: translateX(100%);
+	opacity: 0;
+}
+
+/* Ensure the properties panel content doesn't break when width is narrow */
+.properties-panel-container .bio-properties-panel {
+	min-width: 320px; /* Standard properties panel width target */
+}
+
+@media (max-width: 767px) {
+	.properties-panel-container .bio-properties-panel {
+		min-width: unset;
+		width: 100%;
+	}
+}
+
+/* Custom scrollbar-hide utility if not already global */
+.scrollbar-hide::-webkit-scrollbar {
+	display: none;
+}
+.scrollbar-hide {
+	-ms-overflow-style: none;
+	scrollbar-width: none;
+}
+
+/* ── Mobile: touch-friendly BPMN elements ── */
+@media (max-width: 639px) {
+	/* Make palette slightly transparent so canvas is visible behind it */
+	.bpmn-canvas .djs-palette {
+		background-color: rgba(255, 255, 255, 0.95);
+		box-shadow: 2px 0 8px rgba(0, 0, 0, 0.08);
+	}
+
+	/* Ensure context pad sits above everything */
+	.djs-context-pad {
+		z-index: 200 !important;
+	}
+
+	/* Touch-friendly context pad entries */
+	.djs-context-pad .entry {
+		width: 36px;
+		height: 36px;
+		touch-action: manipulation;
+	}
+
+	/* The popup menu (element type selection) must be fully visible and scrollable */
+	.djs-popup {
+		z-index: 300 !important;
+		max-height: 50vh;
+		overflow-y: auto !important;
+		-webkit-overflow-scrolling: touch;
+	}
+
+	/* Thicker selection outline for touch targets */
+	.djs-element.selected .djs-outline {
+		stroke-width: 3px !important;
+	}
+}
+
+/* ── Slide-up transition for mobile bottom sheet ── */
+.slide-up-enter-active, .slide-up-leave-active {
+	transition: transform 0.3s ease, opacity 0.3s ease;
+}
+.slide-up-enter-from, .slide-up-leave-to {
+	transform: translateY(100%);
+	opacity: 0;
+}
 </style>

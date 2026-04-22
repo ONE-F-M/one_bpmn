@@ -1,11 +1,11 @@
 <template>
-	<div class="h-full flex flex-col">
+	<div class="h-full flex flex-col min-w-0 overflow-hidden">
 		<!-- Unified Toolbar -->
-		<header class="bg-white border-b px-2 py-2 flex items-center justify-between shadow-sm z-10 w-full min-h-[48px]">
+		<header class="bg-white border-b px-2 py-2 flex items-center justify-between shadow-sm w-full min-h-[44px] sm:min-h-[48px]">
 			
 			<div class="flex items-center gap-2 flex-1 min-w-0">
 				<!-- Left: Back & Title -->
-				<div class="flex items-center gap-2 pr-3 border-r border-gray-200 shrink-0">
+				<div class="flex items-center gap-2 pr-3 sm:border-r sm:border-gray-200 shrink-0">
 					<button
 						@click="goBack"
 						class="p-1.5 hover:bg-gray-100 rounded-md transition-colors text-gray-600"
@@ -13,14 +13,93 @@
 					>
 						<Icon icon="lucide:chevron-left" class="w-5 h-5" />
 					</button>
-					<div class="flex items-center gap-2">
-						<h1 class="text-sm font-semibold text-gray-800 truncate max-w-[200px]" :title="processName">{{ processName }}</h1>
+					<div class="flex items-center gap-2 relative">
+						<h1 class="text-sm font-semibold text-gray-800 truncate max-w-[160px] sm:max-w-[200px]" :title="processName">{{ processName }}</h1>
+						
+						<!-- Status Icon -->
+						<button 
+							@click="showStatusPopup = !showStatusPopup"
+							class="p-1 rounded transition-colors"
+							:class="isEditable ? 'text-green-500 hover:bg-green-50' : 'text-amber-500 hover:bg-amber-50'"
+						>
+							<Icon :icon="isEditable ? 'lucide:pencil' : 'lucide:lock'" class="w-4 h-4" />
+						</button>
+
+						<!-- Status Popup -->
+						<div 
+							v-if="showStatusPopup"
+							v-click-outside="() => showStatusPopup = false"
+							class="absolute top-full left-0 mt-2 w-72 bg-white border border-gray-200 rounded-lg shadow-xl z-[60] overflow-hidden"
+						>
+							<div class="p-4 space-y-3">
+								<div class="flex items-start gap-3">
+									<div 
+										class="p-2 rounded-lg shrink-0"
+										:class="isEditable ? 'bg-green-50 text-green-600' : 'bg-amber-50 text-amber-600'"
+									>
+										<Icon :icon="isEditable ? 'lucide:pencil' : 'lucide:lock'" class="w-5 h-5" />
+									</div>
+									<div class="space-y-1">
+										<h3 class="text-sm font-bold text-gray-900 leading-none">
+											{{ isEditable ? 'Active Editing Session' : 'Document is Locked' }}
+										</h3>
+										<p class="text-xs text-gray-500 leading-relaxed">
+											{{ isEditable ? 'This document is live and available for editing. Your changes are automatically saved and synchronized with the server.' : editabilityInfo.reason || 'No active Pathfinder Log. Create one on Production to enable editing.' }}
+										</p>
+									</div>
+								</div>
+
+								<div class="flex justify-end pt-2">
+									<Button 
+										variant="solid" 
+										size="sm" 
+										@click="showStatusPopup = false"
+									>
+										OK
+									</Button>
+								</div>
+							</div>
+						</div>
+
 						<Badge v-if="processStatus" :theme="getStatusTheme(processStatus)" :label="processStatus" size="sm" />
 					</div>
 				</div>
 
-				<!-- CENTER: BPMN Tools Container (Mounted natively from BpmnEditor.vue) -->
-				<div id="bpmn-editor-toolbar" class="flex-1 flex items-center h-8 min-w-0"></div>
+				<!-- CENTER: BPMN Tools Container (Mounted natively from BpmnEditor.vue, hidden on mobile) -->
+				<div id="bpmn-editor-toolbar" class="hidden sm:flex flex-1 items-center h-8 min-w-0"></div>
+
+				<!-- Other Active Editors Avatars (hidden on mobile) -->
+				<div v-if="otherEditors.length > 0" class="hidden sm:flex items-center -space-x-2 ml-4">
+					<div
+						v-for="user in otherEditors"
+						:key="user.name"
+						class="relative group"
+					>
+						<img
+							v-if="user.user_image"
+							:src="user.user_image"
+							:alt="user.full_name"
+							class="w-7 h-7 rounded-full border-2 border-white object-cover"
+						/>
+						<div
+							v-else
+							:class="[
+								'w-7 h-7 rounded-full border-2 border-white flex items-center justify-center text-[10px] font-bold text-white uppercase',
+								getAvatarColor(user.name)
+							]"
+						>
+							{{ getInitials(user.full_name) }}
+						</div>
+						
+						<!-- Hover Tooltip -->
+						<div class="absolute top-full left-1/2 -translate-x-1/2 mt-2 hidden group-hover:block z-[60]">
+							<div class="bg-gray-800 text-white text-[11px] py-1 px-2 rounded shadow-lg whitespace-nowrap">
+								{{ user.full_name }} is editing
+							</div>
+							<div class="w-2 h-2 bg-gray-800 rotate-45 absolute -top-1 left-1/2 -translate-x-1/2"></div>
+						</div>
+					</div>
+				</div>
 			</div>
 			
 			<div class="flex items-center gap-2 shrink-0 border-l border-gray-200 pl-3 ml-2">
@@ -33,30 +112,115 @@
 					class="hidden"
 					@change="handleImportFile"
 				/>
-				<!-- File menu dropdown -->
-				<div class="relative">
+
+
+
+				<!-- Desktop: Individual action buttons -->
+				<template v-if="!isMobile">
+					<!-- Version History Button -->
 					<button
-						@click="showFileMenu = !showFileMenu"
+						@click="openVersionPicker"
 						class="w-8 h-8 flex items-center justify-center hover:bg-gray-100 rounded transition-colors text-gray-600"
-						title="Import / Export"
+						:title="lastEditTooltip"
+						:disabled="!activeDiagramName"
+						:class="{ 'opacity-40 cursor-not-allowed': !activeDiagramName }"
 					>
-						<Icon icon="lucide:menu" class="w-4 h-4" />
+						<Icon icon="lucide:history" class="w-4 h-4" />
+					</button>
+
+					<!-- File menu dropdown (Import / Export) -->
+					<div class="relative">
+						<button
+							@click="showFileMenu = !showFileMenu"
+							class="w-8 h-8 flex items-center justify-center hover:bg-gray-100 rounded transition-colors text-gray-600"
+							title="Import / Export"
+						>
+							<Icon icon="lucide:arrow-down-up" class="w-4 h-4" />
+						</button>
+						<div
+							v-if="showFileMenu"
+							v-click-outside="() => showFileMenu = false"
+							class="absolute right-0 mt-1 w-36 bg-white border border-gray-200 rounded-lg shadow-lg z-[70] py-1"
+						>
+							<button
+								@click="triggerImport(); showFileMenu = false"
+								class="w-full flex items-center gap-2 px-3 py-2 text-sm text-gray-700 hover:bg-gray-50 transition-colors"
+								:disabled="!isEditable"
+								:class="{ 'opacity-40 cursor-not-allowed': !isEditable }"
+							>
+								<Icon icon="lucide:download" class="w-4 h-4" />
+								Import
+							</button>
+							<button
+								@click="exportCurrentDiagram(); showFileMenu = false"
+								class="w-full flex items-center gap-2 px-3 py-2 text-sm text-gray-700 hover:bg-gray-50 transition-colors"
+								:disabled="!activeDiagramName"
+								:class="{ 'opacity-40 cursor-not-allowed': !activeDiagramName }"
+							>
+								<Icon icon="lucide:upload" class="w-4 h-4" />
+								Export
+							</button>
+						</div>
+					</div>
+
+					<!-- Deploy Button (last — primary action) -->
+					<button
+						@click="deployModel"
+						class="h-7 flex items-center gap-1 px-2.5 bg-blue-600 hover:bg-blue-700 text-white rounded transition-colors text-xs font-medium leading-none"
+						title="Deploy process model"
+						:disabled="!activeDiagramName || deploying"
+						:class="{ 'opacity-50 cursor-not-allowed': !activeDiagramName || deploying }"
+					>
+						<Icon :icon="deploying ? 'lucide:loader-2' : 'lucide:rocket'" class="w-3.5 h-3.5" :class="{ 'animate-spin': deploying }" />
+						{{ deploying ? 'Deploying…' : 'Deploy' }}
+					</button>
+				</template>
+
+				<!-- Mobile: "More" overflow dropdown -->
+				<div v-if="isMobile" class="relative">
+					<button
+						@click="showMobileMoreMenu = !showMobileMoreMenu"
+						class="w-8 h-8 flex items-center justify-center hover:bg-gray-100 rounded transition-colors text-gray-600"
+						title="More actions"
+					>
+						<Icon icon="lucide:more-vertical" class="w-4 h-4" />
 					</button>
 					<div
-						v-if="showFileMenu"
-						v-click-outside="() => showFileMenu = false"
-						class="absolute right-0 mt-1 w-36 bg-white border border-gray-200 rounded-lg shadow-lg z-50 py-1"
+						v-if="showMobileMoreMenu"
+						v-click-outside="() => showMobileMoreMenu = false"
+						class="absolute right-0 mt-1 w-44 bg-white border border-gray-200 rounded-lg shadow-lg z-50 py-1"
 					>
 						<button
-							@click="triggerImport(); showFileMenu = false"
-							class="w-full flex items-center gap-2 px-3 py-2 text-sm text-gray-700 hover:bg-gray-50 transition-colors"
+							@click="deployModel(); showMobileMoreMenu = false"
+							class="w-full flex items-center gap-2 px-3 py-2.5 text-sm text-gray-700 hover:bg-gray-50 transition-colors"
+							:disabled="!activeDiagramName || deploying"
+							:class="{ 'opacity-40 cursor-not-allowed': !activeDiagramName || deploying }"
+						>
+							<Icon :icon="deploying ? 'lucide:loader-2' : 'lucide:rocket'" class="w-4 h-4" />
+							{{ deploying ? 'Deploying…' : 'Deploy' }}
+						</button>
+						<button
+							@click="openVersionPicker(); showMobileMoreMenu = false"
+							class="w-full flex items-center gap-2 px-3 py-2.5 text-sm text-gray-700 hover:bg-gray-50 transition-colors"
+							:disabled="!activeDiagramName"
+							:class="{ 'opacity-40 cursor-not-allowed': !activeDiagramName }"
+						>
+							<Icon icon="lucide:git-compare" class="w-4 h-4" />
+							Compare Versions
+						</button>
+						<div class="border-t border-gray-100 my-1"></div>
+						<button
+							@click="triggerImport(); showMobileMoreMenu = false"
+							class="w-full flex items-center gap-2 px-3 py-2.5 text-sm text-gray-700 hover:bg-gray-50 transition-colors"
+							:disabled="!isEditable"
+							:class="{ 'opacity-40 cursor-not-allowed': !isEditable }"
 						>
 							<Icon icon="lucide:download" class="w-4 h-4" />
 							Import
 						</button>
 						<button
-							@click="exportCurrentDiagram(); showFileMenu = false"
-							class="w-full flex items-center gap-2 px-3 py-2 text-sm text-gray-700 hover:bg-gray-50 transition-colors"
+							@click="exportCurrentDiagram(); showMobileMoreMenu = false"
+							class="w-full flex items-center gap-2 px-3 py-2.5 text-sm text-gray-700 hover:bg-gray-50 transition-colors"
 							:disabled="!activeDiagramName"
 							:class="{ 'opacity-40 cursor-not-allowed': !activeDiagramName }"
 						>
@@ -81,21 +245,43 @@
 			</div>
 		</header>
 
-		<!-- Notification Alert -->
+
+		<!-- Notification Banner -->
 		<div v-if="notification.show" class="px-4 py-2">
-			<Alert
-				:title="notification.title"
-				:theme="notification.theme"
-				:description="notification.message"
-				closable
-				v-model="notification.show"
-			/>
+			<div
+				class="flex items-start gap-3 rounded-lg px-4 py-3 text-sm shadow-sm border"
+				:class="{
+					'bg-green-50 border-green-200 text-green-800': notification.theme === 'green',
+					'bg-red-50 border-red-200 text-red-800': notification.theme === 'red',
+					'bg-yellow-50 border-yellow-200 text-yellow-800': notification.theme === 'yellow',
+					'bg-blue-50 border-blue-200 text-blue-800': !notification.theme || notification.theme === 'blue',
+				}"
+			>
+				<!-- Icon -->
+				<Icon
+					:icon="notification.theme === 'green' ? 'lucide:check-circle-2' : notification.theme === 'red' ? 'lucide:alert-circle' : 'lucide:info'"
+					class="w-5 h-5 mt-0.5 flex-shrink-0"
+				/>
+				<!-- Content -->
+				<div class="flex-1 min-w-0">
+					<p class="font-semibold">{{ notification.title }}</p>
+					<p v-if="notification.message" class="mt-0.5 whitespace-pre-line break-words">{{ notification.message }}</p>
+				</div>
+				<!-- Close button -->
+				<button
+					@click="notification.show = false"
+					class="flex-shrink-0 p-0.5 rounded hover:bg-black/10 transition-colors"
+					aria-label="Dismiss notification"
+				>
+					<Icon icon="lucide:x" class="w-4 h-4" />
+				</button>
+			</div>
 		</div>
 
 		<!-- Main Content -->
-		<div class="flex-1 flex flex-col overflow-hidden">
+		<div :class="['flex-1 flex flex-col', isMobile ? '' : 'overflow-hidden']">
 			<!-- Canvas Area with Shape Library -->
-			<div class="flex-1 flex overflow-hidden">
+			<div :class="['flex-1 flex', isMobile ? '' : 'overflow-hidden']">
 				<!-- Shape Library Panel - DISABLED (see DEVELOPMENT_CONTEXT.md)
 				<ShapeLibraryPanel
 					v-if="showShapeLibrary"
@@ -125,6 +311,8 @@
 						class="absolute inset-0"
 						:save-status-text="saveStatusText"
 						:save-status-color="saveStatusColor"
+						:readonly="!isEditable"
+						:model-name="activeDiagramName"
 						@ready="onEditorReady"
 						@changed="onDiagramChanged"
 						@zoom-changed="onZoomChanged"
@@ -132,6 +320,7 @@
 						@launch-markdown-editor="onLaunchMarkdownEditor"
 						@launch-callactivity-editor="onLaunchCallActivityEditor"
 						@launch-callactivity-search="onLaunchCallActivitySearch"
+						@launch-notification-editor="onLaunchNotificationEditor"
 					/>
 
 					<!-- No-diagram placeholder: only shown when not loading and no diagram is selected -->
@@ -145,29 +334,38 @@
 							</div>
 							<p class="text-gray-500 text-lg mb-6">No diagram selected</p>
 							<button
+								v-if="isEditable"
 								@click="showAddDiagramDialog"
 								class="inline-flex items-center gap-2 px-5 py-3 bg-gray-700 hover:bg-gray-800 text-white rounded-lg transition-colors font-medium"
 							>
 								<Icon icon="lucide:plus" class="w-5 h-5" />
 								Add Process Diagram
 							</button>
+							<p v-else class="text-sm text-gray-400">
+								<Icon icon="lucide:lock" class="w-4 h-4 inline mr-1" />
+								Process is locked. Create a Pathfinder Log to enable editing.
+							</p>
 						</div>
 					</div>
 				</div>
 			</div>
 
 			<!-- Tab Bar -->
-			<div v-if="openTabs.length > 0" class="flex items-center justify-between bg-gray-50 border-t border-gray-200 min-h-[40px]">
+			<div v-if="openTabs.length > 0" class="relative z-10 flex items-center justify-between bg-gray-50 border-t border-gray-200 min-h-[40px]">
 				<EditorTabs
 					:tabs="openTabs"
 					:activeTab="activeDiagramName"
+					:readonly="!isEditable"
 					@select-tab="selectDiagram"
 					@add-tab="showAddDiagramDialog"
+					@rename-tab="renameProcessModel"
+					@duplicate-tab="handleDuplicateTab"
+					@delete-tab="handleDeleteTab"
 					class="flex-1 min-w-0"
 				/>
 				
 				<!-- Zoom Controls -->
-				<div class="flex items-center gap-1 px-3 py-2 border-l border-gray-300">
+				<div class="hidden sm:flex items-center gap-1 px-3 py-2 border-l border-gray-300">
 					<button
 						@click="handleZoomOut"
 						class="p-1.5 rounded hover:bg-gray-300 text-gray-600 transition-colors"
@@ -216,6 +414,7 @@
 						v-model="newDiagramDescription"
 						placeholder="Optional description"
 					/>
+
 				</div>
 			</template>
 			<template #actions>
@@ -330,12 +529,18 @@
 								<select
 									v-model="newScript.script_type"
 									class="w-full px-3 py-1.5 border border-gray-300 rounded-md text-sm bg-white text-gray-900 focus:outline-none focus:ring-2 focus:ring-blue-400"
+									:disabled="isScriptTaskElement"
 								>
-									<option value="">Select type...</option>
-									<option value="DocType Event">DocType Event</option>
-									<option value="Scheduler Event">Scheduler Event</option>
-									<option value="Permission Query">Permission Query</option>
-									<option value="API">API</option>
+									<template v-if="isScriptTaskElement">
+										<option value="API">API</option>
+									</template>
+									<template v-else>
+										<option value="">Select type...</option>
+										<option value="DocType Event">DocType Event</option>
+										<option value="Scheduler Event">Scheduler Event</option>
+										<option value="Permission Query">Permission Query</option>
+										<option value="API">API</option>
+									</template>
 								</select>
 							</div>
 						</div>
@@ -503,7 +708,8 @@
 			</template>
 		</Dialog>
 
-		<!-- Unsaved Navigation Warning Dialog -->
+		<!-- Notification Selector/Creator Dialog (Send Task) -->
+		<NotificationLinkDialog />
 		<Dialog v-model="showUnsavedNavigationWarning" :options="{ title: 'Unsaved Changes', size: 'sm' }">
 			<template #body-content>
 				<div class="text-base text-gray-700">
@@ -517,19 +723,32 @@
 				</div>
 			</template>
 		</Dialog>
+
+		<!-- Version Comparison Dialogs (extracted component) -->
+		<VersionDiffDialog
+			ref="versionDiffRef"
+			:diagramName="activeDiagramName"
+			@error="(e) => showNotification(e.title, e.message, e.theme)"
+		/>
 	</div>
 </template>
 
 <script setup>
-import { ref, onMounted, onUnmounted, computed, watch, nextTick } from "vue";
+import { ref, onMounted, onUnmounted, computed, watch, nextTick, provide } from "vue";
 import { useRouter, useRoute, onBeforeRouteLeave } from "vue-router";
 import { frappeRequest, TextEditor } from "frappe-ui";
 import { Icon } from "@iconify/vue";
 import BpmnEditor from "@/components/BpmnEditor.vue";
 import EditorTabs from "@/components/EditorTabs.vue";
 import ShapeLibraryPanel from "@/components/ShapeLibraryPanel.vue";
+import VersionDiffDialog from "@/components/VersionDiffDialog.vue";
 import { downloadBpmn } from "@/utils/downloadBpmn";
 import CallActivitySearchDialog from "@/components/CallActivitySearchDialog.vue";
+import NotificationLinkDialog from "@/components/NotificationLinkDialog.vue";
+import { useNotificationDialog } from "@/composables/useNotificationDialog";
+import { useWindowSize } from "@/composables/useWindowSize";
+
+const { isMobile } = useWindowSize();
 
 const props = defineProps({
 	process: {
@@ -545,9 +764,11 @@ const props = defineProps({
 const router = useRouter();
 const route = useRoute();
 
+let heartbeatInterval = null;
+const otherEditors = ref([]);
+
 const editorRef = ref(null);
 const processName = ref("");
-const processStatus = ref("");
 const diagrams = ref([]);
 const openTabs = ref([]);
 const activeDiagramName = ref(null);
@@ -559,7 +780,21 @@ const hasUnsavedChanges = ref(false);
 const loading = ref(true);
 const showShapeLibrary = ref(false);
 const showFileMenu = ref(false);
+const showStatusPopup = ref(false);
+const showMobileMoreMenu = ref(false);
+const deploying = ref(false);
 
+// Version diff dialog ref
+const versionDiffRef = ref(null);
+
+// Pathfinder Log editability state
+const isEditable = ref(false);  // locked by default until API confirms
+const editabilityInfo = ref({
+	editable: false,
+	pathfinder_log: null,
+	workflow_state: null,
+	reason: null,
+});
 
 // Import file input ref
 const importFileInput = ref(null);
@@ -574,6 +809,13 @@ let hasPendingSave = false; // true while the 1.5s debounce timer is counting do
 function isUnsavedOrInFlight() {
 	return hasPendingSave || hasUnsavedChanges.value || saving.value;
 }
+
+// Derive status from the currently selected diagram tab
+const processStatus = computed(() => {
+	if (!activeDiagramName.value) return "";
+	const d = diagrams.value.find((d) => d.name === activeDiagramName.value);
+	return d ? d.status : "";
+});
 
 const saveStatusText = computed(() => {
 	switch (saveState.value) {
@@ -595,6 +837,29 @@ const saveStatusColor = computed(() => {
 	}
 });
 
+const lastEditTooltip = computed(() => {
+	if (!activeDiagramName.value) return "Version History";
+	const d = diagrams.value.find((d) => d.name === activeDiagramName.value);
+	if (!d || !d.modified) return "Version History";
+
+	const modified = new Date(d.modified);
+	const now = new Date();
+	const diffMs = now - modified;
+	const diffMins = Math.floor(diffMs / 60000);
+	const diffHours = Math.floor(diffMs / 3600000);
+	const diffDays = Math.floor(diffMs / 86400000);
+
+	let timeStr;
+	if (diffMins < 1) timeStr = "just now";
+	else if (diffMins < 60) timeStr = `${diffMins} minute${diffMins > 1 ? "s" : ""} ago`;
+	else if (diffHours < 24) timeStr = `${diffHours} hour${diffHours > 1 ? "s" : ""} ago`;
+	else if (diffDays === 1) timeStr = `yesterday at ${modified.toLocaleTimeString([], { hour: "numeric", minute: "2-digit" })}`;
+	else timeStr = `on ${modified.toLocaleDateString()} at ${modified.toLocaleTimeString([], { hour: "numeric", minute: "2-digit" })}`;
+
+	const user = d.modified_by_name || "";
+	return user ? `Last edit was made ${timeStr} by ${user}` : `Last edit was made ${timeStr}`;
+});
+
 // Notification state
 const notification = ref({
 	show: false,
@@ -611,6 +876,7 @@ let pendingNavigationNext = null;
 const showNewDiagramDialog = ref(false);
 const newDiagramName = ref("");
 const newDiagramDescription = ref("");
+
 
 // Track loaded diagram data
 const diagramDataCache = ref({});
@@ -631,6 +897,7 @@ const moduleSearch = ref("");
 const showDoctypeDropdown = ref(false);
 const showModuleDropdown = ref(false);
 let activeScriptEvent = null;
+const isScriptTaskElement = ref(false);
 
 // New Script form state
 const newScript = ref({
@@ -659,11 +926,16 @@ const eventFrequencies = [
 	"Hourly Long", "Daily Long", "Weekly Long", "Monthly Long", "Cron",
 ];
 
-// Computed: filtered scripts based on search
+// Computed: filtered scripts based on search (restricted to API for Script Tasks)
 const filteredServerScripts = computed(() => {
-	if (!serverScriptSearch.value) return serverScripts.value;
+	let list = serverScripts.value;
+	// Script Task elements can only use API-type server scripts
+	if (isScriptTaskElement.value) {
+		list = list.filter((s) => s.script_type === "API");
+	}
+	if (!serverScriptSearch.value) return list;
 	const q = serverScriptSearch.value.toLowerCase();
-	return serverScripts.value.filter(
+	return list.filter(
 		(s) =>
 			s.name.toLowerCase().includes(q) ||
 			(s.script_type && s.script_type.toLowerCase().includes(q)) ||
@@ -695,6 +967,10 @@ const showCallActivitySearchDialog = ref(false);
 let callActivitySearchEvent = null; // plain variable — NOT a ref, because bpmn-js
 // element objects have non-configurable/frozen properties (e.g. 'labels') that
 // conflict with Vue 3's Proxy-based reactivity and cause TypeErrors.
+
+// Notification Dialog (Send Task) — extracted into composable (Review Comment #1)
+const notifDialog = useNotificationDialog(doctypeOptions, moduleOptions, showNotification);
+provide("notifDialog", notifDialog);
 
 
 // Zoom level (synced with BpmnEditor)
@@ -748,12 +1024,63 @@ function onShapeDragStart(shape) {
 	// The actual drop handling will be done by bpmn-js canvas
 }
 
+// Deploy (compile) the process model
+async function deployModel() {
+	if (!activeDiagramName.value || deploying.value) return;
+
+	deploying.value = true;
+	try {
+		const response = await frappeRequest({
+			url: "/api/method/one_bpmn.api.compile_process_model",
+			method: "POST",
+			params: { model_name: activeDiagramName.value },
+		});
+
+		if (response && response.success) {
+			showNotification(
+				"Deployed",
+				`Deployed successfully — version ${response.version}, ${response.subprocess_count} subprocess(es)`,
+				"green"
+			);
+
+			// Update local state: mark this diagram as active, deactivate siblings
+			for (const d of diagrams.value) {
+				if (d.name === activeDiagramName.value) {
+					d.is_active = 1;
+					d.status = "Active";
+					d.version = response.version;
+				} else {
+					d.is_active = 0;
+					d.status = "Inactive";
+				}
+			}
+		} else {
+			showNotification("Deploy", "Deployment completed", "green");
+		}
+	} catch (err) {
+		// frappeRequest puts the human-readable frappe.throw() messages in
+		// err.messages[] — err.message is a generic URL+exc_type string.
+		const serverMessage =
+			(err.messages && err.messages.length > 0)
+				? err.messages.join("\n")
+				: err.message || "An error occurred while deploying the process model.";
+		showNotification(
+			"Deploy Failed",
+			serverMessage,
+			"red",
+			true
+		);
+	} finally {
+		deploying.value = false;
+	}
+}
+
 // Keyboard shortcut handler
 function handleKeyDown(event) {
-	// Ctrl+S or Cmd+S to save
+	// Ctrl+S or Cmd+S to save (only when editable)
 	if ((event.ctrlKey || event.metaKey) && event.key === "s") {
 		event.preventDefault();
-		if (activeDiagramName.value && !saving.value) {
+		if (isEditable.value && activeDiagramName.value && !saving.value) {
 			saveCurrentDiagram();
 		}
 	}
@@ -819,6 +1146,9 @@ onMounted(async () => {
 		loading.value = true;
 		await loadProcess();
 
+		// Check editability (Pathfinder Log status) from Production
+		await checkEditability();
+
 		// Add all diagrams to open tabs
 		if (diagrams.value.length > 0) {
 			openTabs.value = [...diagrams.value];
@@ -828,20 +1158,94 @@ onMounted(async () => {
 		if (props.diagram) {
 			activeDiagramName.value = props.diagram;
 		} else if (diagrams.value.length > 0) {
-			// Select first diagram by default
-			activeDiagramName.value = diagrams.value[0].name;
+			// Default to the active model; fallback to first (most recently modified)
+			const activeDiagram = diagrams.value.find((d) => d.is_active || d.status === 'Active');
+			activeDiagramName.value = activeDiagram
+				? activeDiagram.name
+				: diagrams.value[0].name;
 		}
 	} finally {
 		loading.value = false;
 	}
 });
 
+async function checkEditability() {
+
+	try {
+		const response = await frappeRequest({
+			url: "/api/method/one_bpmn.api.check_process_editable",
+			params: { process_name: props.process },
+		});
+
+		const data = response.message || response;
+		isEditable.value = !!data.editable;
+		editabilityInfo.value = {
+			editable: !!data.editable,
+			pathfinder_log: data.pathfinder_log || null,
+			workflow_state: data.workflow_state || null,
+			reason: data.reason || null,
+		};
+	} catch (error) {
+		console.error("Failed to check process editability:", error);
+		// On error, default to locked for safety
+		isEditable.value = false;
+		editabilityInfo.value = {
+			editable: false,
+			pathfinder_log: null,
+			workflow_state: null,
+			reason: "Unable to check editability. Process is locked for safety.",
+		};
+	}
+}
+
 onUnmounted(() => {
 	// Remove listeners
 	window.removeEventListener("keydown", handleKeyDown);
 	window.removeEventListener("beforeunload", handleBeforeUnload);
 	clearTimeout(saveTimeout);
+	stopHeartbeat();
 });
+
+function startHeartbeat(modelName) {
+	stopHeartbeat();
+	if (!modelName) return;
+
+	// Initial check
+	performHeartbeat(modelName);
+
+	// Periodic check every 30 seconds
+	heartbeatInterval = setInterval(() => {
+		performHeartbeat(modelName);
+	}, 30000);
+}
+
+function stopHeartbeat() {
+	if (heartbeatInterval) {
+		clearInterval(heartbeatInterval);
+		heartbeatInterval = null;
+	}
+	otherEditors.value = [];
+}
+
+async function performHeartbeat(modelName) {
+	try {
+		const response = await frappeRequest({
+			url: "one_bpmn.api.check_and_update_editor_lock",
+			params: { model_name: modelName },
+		});
+
+		const otherUsers = response.message || response;
+		
+		if (otherUsers && otherUsers.length > 0) {
+			otherEditors.value = otherUsers;
+			// Multi-user editing is reflected by avatars in the header.
+		} else {
+			otherEditors.value = [];
+		}
+	} catch (err) {
+		console.error("Heartbeat error:", err);
+	}
+}
 
 async function loadProcess() {
 	try {
@@ -849,15 +1253,9 @@ async function loadProcess() {
 			url: "/api/method/one_bpmn.api.get_process_diagrams",
 			params: { process: props.process },
 		});
-
 		const data = response.message || response;
 		processName.value = data.process_name;
 		diagrams.value = data.diagrams || [];
-
-		// Derive status from most recent diagram
-		if (diagrams.value.length > 0) {
-			processStatus.value = diagrams.value[0].status;
-		}
 	} catch (error) {
 		console.error("Failed to load process:", error);
 	}
@@ -901,14 +1299,21 @@ async function onEditorReady() {
 	}
 
 	hasUnsavedChanges.value = false;
-	saveState.value = 'idle';
+	saveState.value = 'saved';
 }
 
 // Watch for diagram tab switches and load new XML without remounting the editor.
 watch(activeDiagramName, async (newName) => {
-	if (!editorReady.value || !newName) return;
+	if (!newName) {
+		stopHeartbeat();
+		return;
+	}
+
+	startHeartbeat(newName);
+
+	if (!editorReady.value) return;
 	hasUnsavedChanges.value = false;
-	saveState.value = 'idle';
+	saveState.value = 'saved';
 	await loadDiagramContent(newName);
 	hasUnsavedChanges.value = false;
 });
@@ -947,6 +1352,8 @@ async function saveDiagramToCache(name) {
 
 function onDiagramChanged() {
 	if (!editorReady.value) return;
+	// Do not trigger auto-save when the process is locked
+	if (!isEditable.value) return;
 
 	hasUnsavedChanges.value = true;
 	saveState.value = 'unsaved';
@@ -963,6 +1370,7 @@ function onDiagramChanged() {
 
 async function saveCurrentDiagram() {
 	if (!activeDiagramName.value || !editorRef.value) return;
+	if (!isEditable.value) return; // Guard: process is locked
 
 	saving.value = true;
 	saveState.value = 'saving';
@@ -970,33 +1378,20 @@ async function saveCurrentDiagram() {
 		const xml = await editorRef.value.getXML();
 		const diagram = diagrams.value.find((d) => d.name === activeDiagramName.value);
 
-		// Use JSON body for Frappe API
-		const response = await fetch("/api/method/one_bpmn.api.save_process_model", {
-			method: "POST",
-			headers: {
-				"Content-Type": "application/json",
-				"X-Frappe-CSRF-Token": window.csrf_token || "",
-			},
-			body: JSON.stringify({
+		const data = await frappeRequest({
+			url: "/api/method/one_bpmn.api.save_process_model",
+			params: {
 				process: props.process,
 				model_name: diagram.model_name,
 				xml_content: xml,
 				description: diagram.description || "",
-			}),
+			},
 		});
-
-		const data = await response.json();
-		if (data.exc) {
-			throw new Error(data.exc);
-		}
 
 		hasUnsavedChanges.value = false;
 		diagramDataCache.value[activeDiagramName.value] = xml;
 		
 		saveState.value = 'saved';
-		setTimeout(() => {
-			if (saveState.value === 'saved') saveState.value = 'idle';
-		}, 3000);
 	} catch (error) {
 		console.error("Failed to save diagram:", error);
 		saveState.value = 'error';
@@ -1006,26 +1401,32 @@ async function saveCurrentDiagram() {
 	}
 }
 
-function showNotification(title, message, theme = "green") {
+function showNotification(title, message, theme = "green", stay = false) {
 	notification.value = {
 		show: true,
 		title,
 		message,
 		theme
 	};
-	// Auto-hide after 3 seconds
-	setTimeout(() => {
-		notification.value.show = false;
-	}, 3000);
+	if (!stay) {
+		// Auto-hide after 3 seconds
+		setTimeout(() => {
+			if (notification.value.title === title) {
+				notification.value.show = false;
+			}
+		}, 3000);
+	}
 }
 
 function showAddDiagramDialog() {
+	if (!isEditable.value) return; // Guard: process is locked
 	newDiagramName.value = "";
 	newDiagramDescription.value = "";
 	showNewDiagramDialog.value = true;
 }
 
 async function createDiagram() {
+	if (!isEditable.value) return; // Guard: process is locked
 	if (!newDiagramName.value.trim()) {
 		alert("Please enter a diagram name");
 		return;
@@ -1033,8 +1434,7 @@ async function createDiagram() {
 
 	creating.value = true;
 	try {
-		// Create with empty diagram
-		const emptyXml = `<?xml version="1.0" encoding="UTF-8"?>
+		const xmlContent = `<?xml version="1.0" encoding="UTF-8"?>
 <bpmn:definitions xmlns:bpmn="http://www.omg.org/spec/BPMN/20100524/MODEL"
                   xmlns:bpmndi="http://www.omg.org/spec/BPMN/20100524/DI"
                   xmlns:dc="http://www.omg.org/spec/DD/20100524/DC"
@@ -1052,27 +1452,17 @@ async function createDiagram() {
   </bpmndi:BPMNDiagram>
 </bpmn:definitions>`;
 
-		// Use JSON body for Frappe API
-		const response = await fetch("/api/method/one_bpmn.api.save_process_model", {
-			method: "POST",
-			headers: {
-				"Content-Type": "application/json",
-				"X-Frappe-CSRF-Token": window.csrf_token || "",
-			},
-			body: JSON.stringify({
+		const response = await frappeRequest({
+			url: "/api/method/one_bpmn.api.save_process_model",
+			params: {
 				process: props.process,
 				model_name: newDiagramName.value,
-				xml_content: emptyXml,
+				xml_content: xmlContent,
 				description: newDiagramDescription.value || "",
-			}),
+			},
 		});
 
-		const data = await response.json();
-		if (data.exc) {
-			throw new Error(data.exc);
-		}
-
-		const result = data.message || data;
+		const result = response.message || response;
 		showNewDiagramDialog.value = false;
 
 		// Reload process and open new diagram
@@ -1083,6 +1473,116 @@ async function createDiagram() {
 		alert("Failed to create: " + (error.message || error));
 	} finally {
 		creating.value = false;
+	}
+}
+
+async function ensureDiagramContentCached(diagramName) {
+	if (diagramDataCache.value[diagramName]) {
+		return diagramDataCache.value[diagramName];
+	}
+
+	const response = await frappeRequest({
+		url: "/api/method/one_bpmn.api.get_process_model",
+		params: {
+			name: diagramName,
+		},
+	});
+
+	const result = response.message || response;
+	const xmlContent = result?.xml_content || "";
+
+	if (xmlContent) {
+		diagramDataCache.value[diagramName] = xmlContent;
+	}
+
+	return xmlContent;
+}
+
+async function handleDuplicateTab(tab) {
+	if (!isEditable.value) return;
+	
+	const newName = `Copy of ${tab.model_name}`;
+	
+	// Get XML content (from editor if active, otherwise from cache/backend)
+	let xmlContent;
+	if (activeDiagramName.value === tab.name && editorRef.value) {
+		xmlContent = await editorRef.value.getXML();
+	} else {
+		xmlContent = await ensureDiagramContentCached(tab.name);
+	}
+
+	if (!xmlContent) {
+		showNotification("Error", "Could not read diagram content for duplication", "red");
+		return;
+	}
+
+	creating.value = true;
+	try {
+		const response = await frappeRequest({
+			url: "/api/method/one_bpmn.api.save_process_model",
+			params: {
+				process: props.process,
+				model_name: newName,
+				xml_content: xmlContent,
+				description: tab.description || "",
+			},
+		});
+
+		const result = response.message || response;
+		await loadProcess();
+		selectDiagram(result.name);
+		showNotification("Success", `Diagram duplicated as "${newName}"`, "green");
+	} catch (error) {
+		console.error("Duplication failed:", error);
+		showNotification("Error", "Failed to duplicate diagram: " + (error.message || error), "red");
+	} finally {
+		creating.value = false;
+	}
+}
+
+async function handleDeleteTab(tab) {
+	if (!isEditable.value) return;
+	if (!confirm(`Are you sure you want to delete "${tab.model_name}"? This action cannot be undone.`)) return;
+
+	// ── Optimistic: remove from UI immediately ───────────────────────
+	const tabIndex = openTabs.value.findIndex(t => t.name === tab.name);
+	const diagramIndex = diagrams.value.findIndex(d => d.name === tab.name);
+	const removedTab = tabIndex > -1 ? openTabs.value.splice(tabIndex, 1)[0] : null;
+	const removedDiagram = diagramIndex > -1 ? diagrams.value.splice(diagramIndex, 1)[0] : null;
+	delete diagramDataCache.value[tab.name];
+
+	// Switch active tab if the deleted tab was active
+	const wasActive = activeDiagramName.value === tab.name;
+	if (wasActive) {
+		// Clear unsaved state so selectDiagram doesn't try to save the deleted diagram
+		clearTimeout(saveTimeout);
+		hasPendingSave = false;
+		hasUnsavedChanges.value = false;
+		saveState.value = "idle";
+
+		if (openTabs.value.length > 0) {
+			selectDiagram(openTabs.value[Math.min(tabIndex, openTabs.value.length - 1)].name);
+		} else if (diagrams.value.length > 0) {
+			selectDiagram(diagrams.value[0].name);
+		} else {
+			activeDiagramName.value = null;
+			router.replace({ name: "ProcessEditor", params: { process: props.process } });
+		}
+	}
+
+	// ── Server call (no loadProcess round-trip) ──────────────────────
+	try {
+		await frappeRequest({
+			url: "/api/method/one_bpmn.api.delete_diagram",
+			params: { name: tab.name },
+		});
+		showNotification("Deleted", `Diagram "${tab.model_name}" has been deleted`, "green");
+	} catch (error) {
+		// ── Rollback on failure ─────────────────────────────────────
+		console.error("Deletion failed:", error);
+		if (removedDiagram) diagrams.value.splice(diagramIndex, 0, removedDiagram);
+		if (removedTab) openTabs.value.splice(tabIndex, 0, removedTab);
+		showNotification("Error", "Failed to delete diagram: " + (error.message || error), "red");
 	}
 }
 
@@ -1110,8 +1610,97 @@ async function closeTab(name) {
 	}
 }
 
+/**
+ * Apply field updates to matching entries in both diagrams and openTabs.
+ * Keeps the update/revert logic in one place (Review #2).
+ */
+function applyTabDiagramFields(matchName, fields) {
+	const diagramEntry = diagrams.value.find((d) => d.name === matchName);
+	const tabEntry = openTabs.value.find((t) => t.name === matchName);
+	if (diagramEntry) Object.assign(diagramEntry, fields);
+	if (tabEntry) Object.assign(tabEntry, fields);
+}
+
+async function renameProcessModel({ tabName, oldModelName, newModelName }) {
+	if (!isEditable.value) return; // Guard: process is locked
+	// Cancel the debounce timer so autosave can't fire with a stale model_name.
+	clearTimeout(saveTimeout);
+	hasPendingSave = false;
+
+	// If there are unsaved diagram changes, flush them under the OLD name first.
+	if (hasUnsavedChanges.value && activeDiagramName.value === tabName && editorRef.value) {
+		await saveCurrentDiagram();
+	}
+
+	// ── Optimistic: show new name immediately ────────────────────────
+	applyTabDiagramFields(tabName, { model_name: newModelName, title: newModelName });
+
+	try {
+		const response = await frappeRequest({
+			url: "/api/method/one_bpmn.api.rename_process_model",
+			params: {
+				name: tabName,
+				new_title: newModelName,
+			},
+		});
+
+		const result = response.message || response;
+		const newName = result.name;
+		const actualModelName = result.model_name;
+
+		// Transfer cached XML to new key (name changes because autoname = field:title)
+		if (diagramDataCache.value[tabName]) {
+			diagramDataCache.value[newName] = diagramDataCache.value[tabName];
+			if (newName !== tabName) {
+				delete diagramDataCache.value[tabName];
+			}
+		}
+
+		// Confirm server-side name + display fields
+		applyTabDiagramFields(tabName, {
+			name: newName,
+			model_name: actualModelName,
+			title: actualModelName,
+		});
+
+		// Update active diagram ref and URL if the renamed tab is active
+		if (activeDiagramName.value === tabName) {
+			activeDiagramName.value = newName;
+			router.replace({
+				name: "DiagramEditor",
+				params: { process: props.process, diagram: newName },
+			});
+		}
+
+		showNotification("Renamed", `Diagram renamed to "${actualModelName}"`, "green");
+	} catch (error) {
+		// ── Rollback on failure ─────────────────────────────────────
+		console.error("Failed to rename process model:", error);
+		applyTabDiagramFields(tabName, { model_name: oldModelName, title: oldModelName });
+		showNotification(
+			"Rename Failed",
+			error.message || error._server_messages || "An error occurred while renaming.",
+			"red"
+		);
+	}
+}
+
 function goBack() {
 	router.push({ name: "Home" });
+}
+
+// ── Version Comparison (Diff) ──
+
+function openVersionPicker() {
+	if (!versionDiffRef.value) return;
+
+	versionDiffRef.value.open(async () => {
+		// Getter for the current diagram XML
+		if (editorRef.value) {
+			return await editorRef.value.getXML();
+		}
+		return diagramDataCache.value[activeDiagramName.value] || null;
+	});
 }
 
 async function exportCurrentDiagram() {
@@ -1130,6 +1719,7 @@ async function exportCurrentDiagram() {
 }
 
 function triggerImport() {
+	if (!isEditable.value) return; // Guard: process is locked
 	if (importFileInput.value) {
 		// Reset so the same file can be re-imported
 		importFileInput.value.value = "";
@@ -1138,6 +1728,7 @@ function triggerImport() {
 }
 
 async function handleImportFile(event) {
+	if (!isEditable.value) return; // Guard: process is locked
 	const file = event.target.files && event.target.files[0];
 	if (!file) return;
 
@@ -1180,7 +1771,8 @@ async function handleImportFile(event) {
 				model_name: result.model_name,
 				title: result.model_name,
 				process_id: result.process_id,
-				status: "Active",
+				is_active: 0,
+				status: "Inactive",
 			};
 			diagrams.value.push(diagramEntry);
 		}
@@ -1217,15 +1809,39 @@ async function handleImportFile(event) {
 
 function getStatusTheme(status) {
 	switch (status) {
-		case "Published":
+		case "Active":
 			return "green";
-		case "In Development":
+		case "Inactive":
 			return "orange";
-		case "Draft":
-			return "blue";
 		default:
 			return "gray";
 	}
+}
+
+// Avatar Helpers
+function getInitials(fullName) {
+	if (!fullName) return "U";
+	const names = fullName.trim().split(/\s+/);
+	if (names.length === 1) return names[0].charAt(0).toUpperCase();
+	return (names[0].charAt(0) + names[names.length - 1].charAt(0)).toUpperCase();
+}
+
+const AVATAR_COLORS = [
+	"bg-red-500", "bg-orange-500", "bg-amber-500", "bg-yellow-500",
+	"bg-lime-500", "bg-green-500", "bg-emerald-500", "bg-teal-500",
+	"bg-cyan-500", "bg-sky-500", "bg-blue-500", "bg-indigo-500",
+	"bg-violet-500", "bg-purple-500", "bg-fuchsia-500", "bg-pink-500",
+	"bg-rose-500",
+];
+
+function getAvatarColor(userName) {
+	if (!userName) return "bg-gray-400";
+	let hash = 0;
+	for (let i = 0; i < userName.length; i++) {
+		hash = userName.charCodeAt(i) + ((hash << 5) - hash);
+	}
+	const colorIndex = Math.abs(hash) % AVATAR_COLORS.length;
+	return AVATAR_COLORS[colorIndex];
 }
 
 // --- SpiffWorkflow Editor Handlers ---
@@ -1249,8 +1865,11 @@ async function onLaunchScriptEditor(event) {
 	moduleSearch.value = "";
 	showDoctypeDropdown.value = false;
 	showModuleDropdown.value = false;
+	// Set reactive flag for Script Task restriction
+	const isScriptTask = event.element && event.element.type === "bpmn:ScriptTask";
+	isScriptTaskElement.value = isScriptTask;
 	newScript.value = {
-		name: "", script_type: "", script: "", reference_doctype: "",
+		name: "", script_type: isScriptTask ? "API" : "", script: "", reference_doctype: "",
 		doctype_event: "", api_method: "", allow_guest: false,
 		event_frequency: "", cron_format: "", module: "",
 	};
@@ -1260,12 +1879,17 @@ async function onLaunchScriptEditor(event) {
 	showScriptEditorDialog.value = true;
 
 	try {
-		const response = await fetch(
-			"/api/resource/Server Script?fields=[\"name\",\"script_type\",\"reference_doctype\",\"disabled\",\"module\",\"modified\"]&limit_page_length=0&order_by=modified%20desc",
-			{ headers: { "X-Frappe-CSRF-Token": window.csrf_token || "" } }
-		);
-		const json = await response.json();
-		serverScripts.value = Array.isArray(json.data) ? json.data : [];
+		const response = await frappeRequest({
+			url: "/api/method/frappe.client.get_list",
+			params: {
+				doctype: "Server Script",
+				fields: ["name", "script_type", "reference_doctype", "disabled", "module", "modified"],
+				limit_page_length: 0,
+				order_by: "modified desc",
+			},
+		});
+		const data = response.message || response;
+		serverScripts.value = Array.isArray(data) ? data : [];
 	} catch (error) {
 		console.error("Failed to load server scripts:", error);
 		serverScripts.value = [];
@@ -1356,6 +1980,13 @@ async function createAndLinkScript() {
 	}
 }
 
+// --- Notification Dialog Handlers (Send Task) ---
+
+// Notification editor launch handler delegates to composable
+function onLaunchNotificationEditor(event) {
+	notifDialog.openDialog(event);
+}
+
 function onLaunchMarkdownEditor(event) {
 	activeMarkdownEvent = event;
 	markdownEditorContent.value = event.value || "";
@@ -1395,8 +2026,8 @@ async function onLaunchCallActivityEditor(event) {
 		if (linked && linked.name) {
 			// Build URL with encoded segments to handle spaces and reserved chars
 			const base = linked.process_name
-				? `/spiff/process/${encodeURIComponent(linked.process_name)}/diagram/${encodeURIComponent(linked.name)}`
-				: `/spiff/process/${encodeURIComponent(linked.name)}`;
+				? `/processa/process/${encodeURIComponent(linked.process_name)}/diagram/${encodeURIComponent(linked.name)}`
+				: `/processa/process/${encodeURIComponent(linked.name)}`;
 			// noopener,noreferrer prevents reverse-tabnabbing via window.opener
 			window.open(base, "_blank", "noopener,noreferrer");
 		} else {
@@ -1439,6 +2070,8 @@ function onCallActivitySelected(processId) {
 	callActivitySearchEvent = null;
 }
 
+
+
 function onCancelCallActivitySearch() {
 	// Mirror the select path: close dialog AND clear the stored event reference
 	// so we don't retain stale BPMN element/eventBus objects.
@@ -1451,8 +2084,8 @@ function onCancelCallActivitySearch() {
 /* Fix dark background on form inputs in dialog */
 :deep(.dialog-form input),
 :deep(.dialog-form textarea),
-:deep(input[type="text"]),
-:deep(textarea) {
+:deep(.dialog-body input[type="text"]),
+:deep(.dialog-body textarea) {
 	background-color: white !important;
 	color: #1f2937 !important;
 }
@@ -1466,5 +2099,13 @@ function onCancelCallActivitySearch() {
 :deep(.tiptap) {
 	max-width: 100% !important;
 	width: 100% !important;
+}
+
+.scrollbar-hide::-webkit-scrollbar {
+	display: none;
+}
+.scrollbar-hide {
+	-ms-overflow-style: none;
+	scrollbar-width: none;
 }
 </style>

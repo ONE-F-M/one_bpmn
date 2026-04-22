@@ -14,6 +14,7 @@ import {
 	Avatar,
 	ListView,
 	Alert,
+	initSocket,
 } from "frappe-ui"
 
 import "./main.css"
@@ -22,6 +23,22 @@ const app = createApp(App)
 
 setConfig("resourceFetcher", frappeRequest)
 app.use(resourcesPlugin)
+
+// Initialize Socket.IO for realtime updates
+const socket = initSocket()
+app.config.globalProperties.$socket = socket
+
+// Expose socket as window.frappe.realtime so components can use
+// window.frappe.realtime.on/off for custom event listeners.
+// Only polyfill when missing — don't overwrite if Frappe desk already provides it.
+if (!window.frappe) window.frappe = { _is_bpmn_polyfill: true }
+if (!window.frappe.realtime) {
+	window.frappe.realtime = {
+		on: (event, fn) => socket.on(event, fn),
+		off: (event, fn) => socket.off(event, fn),
+		emit: (event, ...args) => socket.emit(event, ...args),
+	}
+}
 
 // Register global components
 app.component("Button", Button)

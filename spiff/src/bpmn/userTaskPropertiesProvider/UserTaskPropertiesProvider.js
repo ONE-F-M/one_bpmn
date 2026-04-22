@@ -17,7 +17,7 @@ export default class UserTaskPropertiesProvider {
 
 			groups.push({
 				id: "AssigneeConfiguration",
-				label: this.translate("Assignee Configuration"),
+				label: this.translate("Assignment Configuration"),
 				entries: UserTaskProps({ element }),
 			});
 
