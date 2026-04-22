@@ -332,14 +332,14 @@
 							<div class="text-gray-400 mb-6">
 								<Icon icon="lucide:layout-grid" class="w-20 h-20 mx-auto" />
 							</div>
-							<p class="text-gray-500 text-lg mb-6">No diagram selected</p>
+							<p class="text-gray-500 text-lg mb-6">No Process Map selected</p>
 							<button
 								v-if="isEditable"
 								@click="showAddDiagramDialog"
 								class="inline-flex items-center gap-2 px-5 py-3 bg-gray-700 hover:bg-gray-800 text-white rounded-lg transition-colors font-medium"
 							>
 								<Icon icon="lucide:plus" class="w-5 h-5" />
-								Add Process Diagram
+								Add Process Map
 							</button>
 							<p v-else class="text-sm text-gray-400">
 								<Icon icon="lucide:lock" class="w-4 h-4 inline mr-1" />
@@ -398,15 +398,15 @@
 			</div>
 		</div>
 
-		<!-- Add Diagram Dialog -->
-		<Dialog v-model="showNewDiagramDialog" :options="{ title: 'New Diagram' }">
+		<!-- Add Process Map Dialog -->
+		<Dialog v-model="showNewDiagramDialog" :options="{ title: 'New Process Map' }">
 			<template #body-content>
 				<div class="space-y-4">
 					<FormControl
-						label="Diagram Name"
+						label="Process Map Name"
 						v-model="newDiagramName"
 						:required="true"
-						placeholder="Enter diagram name"
+						placeholder="Enter Process Map name"
 					/>
 					<FormControl
 						label="Description"

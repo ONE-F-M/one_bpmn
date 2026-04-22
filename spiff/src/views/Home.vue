@@ -12,11 +12,11 @@
 			</a>
 		</header>
 
-		<!-- Export Diagram chooser dialog (multi-diagram processes) -->
-		<Dialog v-model="showExportDialog" :options="{ title: 'Export Diagram' }">
+		<!-- Export Process Map chooser dialog (multi-diagram processes) -->
+		<Dialog v-model="showExportDialog" :options="{ title: 'Export Process Map' }">
 			<template #body-content>
 				<div class="space-y-2">
-					<p class="text-sm text-gray-500 mb-3">Choose a diagram to download:</p>
+					<p class="text-sm text-gray-500 mb-3">Choose a Process Map to download:</p>
 					<div
 						v-for="d in exportDialogDiagrams"
 						:key="d.name"
@@ -50,7 +50,7 @@
 					<Icon icon="lucide:layout-grid" class="w-16 h-16 mx-auto" />
 				</div>
 				<h3 class="text-lg font-medium text-gray-900 mb-1">No Processes Found</h3>
-				<p class="text-gray-500 mb-4">Create a Process in the system to start building BPMN diagrams.</p>
+				<p class="text-gray-500 mb-4">Create a Process in the system to start building BPMN Process Maps.</p>
 			</div>
 
 			<!-- Mobile Card Layout -->
@@ -73,7 +73,7 @@
 					/>
 					<div class="flex-1 min-w-0">
 						<div class="text-sm font-medium text-gray-900 truncate">{{ process.process_name }}</div>
-						<div class="text-xs text-gray-400 mt-0.5">{{ process.diagram_count || 0 }} diagram{{ process.diagram_count !== 1 ? 's' : '' }}</div>
+						<div class="text-xs text-gray-400 mt-0.5">{{ process.diagram_count || 0 }} Process Map{{ process.diagram_count !== 1 ? 's' : '' }}</div>
 					</div>
 					<Badge :theme="getStatusTheme(process.status)" :label="process.status" size="sm" />
 					<button
@@ -124,7 +124,7 @@
 								<div>
 									<div class="text-sm font-medium text-gray-900">{{ item }}</div>
 									<div v-if="row.diagram_count" class="text-xs text-gray-400">
-										{{ row.diagram_count }} diagram{{ row.diagram_count !== 1 ? 's' : '' }}
+										{{ row.diagram_count }} Process Map{{ row.diagram_count !== 1 ? 's' : '' }}
 									</div>
 								</div>
 							</div>
@@ -170,7 +170,7 @@
 								@click.stop="exportProcess(row)"
 								:disabled="exportingProcesses.has(row.name)"
 								class="p-1.5 rounded hover:bg-gray-200 text-gray-500 transition-colors disabled:opacity-40"
-								title="Export diagram as .bpmn file"
+								title="Export Process Map as .bpmn file"
 							>
 								<Icon
 									:icon="exportingProcesses.has(row.name) ? 'lucide:loader-2' : 'lucide:download'"
