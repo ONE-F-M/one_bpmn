@@ -740,8 +740,7 @@ onMounted(async () => {
 						{ name: "assigneeDocfield",      isAttr: true, type: "String" },
 						{ name: "assigneeUsers",         isAttr: true, type: "String" },
 						{ name: "roundRobinLastUser",    isAttr: true, type: "String" },
-						{ name: "taskActions",           isAttr: true, type: "String" },
-						{ name: "taskActionMode",        isAttr: true, type: "String" }
+						{ name: "taskActions",           isAttr: true, type: "String" }
 					]
 				});
 

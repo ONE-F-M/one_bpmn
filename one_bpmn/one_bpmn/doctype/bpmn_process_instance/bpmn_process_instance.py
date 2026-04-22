@@ -279,7 +279,6 @@ class BPMNProcessInstance(Document):
 				# Structured array of action objects with per-action flags:
 				# [{"action":"Approve","confirmTransition":"true","requireDigitalSignature":"true"}, ...]
 				"task_actions_detail": self._resolve_task_actions_detail(row),
-				"task_action_mode": getattr(row, "task_action_mode", None) or "manual",
 			}
 			for row in self.active_tasks
 			if row.status == "Waiting"
@@ -326,19 +325,7 @@ class BPMNProcessInstance(Document):
 		For 'manual' mode: parses the stored task_actions (JSON or CSV)
 		and returns comma-separated action names.
 		"""
-		mode = getattr(row, "task_action_mode", None) or "manual"
-		if mode == "frappe_workflow":
-			if not (self.context_doctype and self.context_docname):
-				return ""
-			try:
-				from frappe.model.workflow import get_transitions
-
-				doc = frappe.get_doc(self.context_doctype, self.context_docname)
-				transitions = get_transitions(doc)
-				return ",".join(str(t["action"]) for t in transitions)
-			except Exception:
-				pass
-			return ""
+		return ""
 		# Manual mode — extract just the action names
 		raw = getattr(row, "task_actions", "") or ""
 		actions = self._parse_task_actions_json(raw)
@@ -354,41 +341,9 @@ class BPMNProcessInstance(Document):
 		For 'manual' mode: returns the parsed JSON/CSV list of action dicts
 		with all per-action metadata (confirmTransition, requireDigitalSignature).
 		"""
-		mode = getattr(row, "task_action_mode", None) or "manual"
-		if mode == "frappe_workflow":
-			if not (self.context_doctype and self.context_docname):
-				return []
-			try:
-				from frappe.model.workflow import get_transitions
-
-				doc = frappe.get_doc(self.context_doctype, self.context_docname)
-				transitions = get_transitions(doc)
-				return [{"action": str(t["action"])} for t in transitions]
-			except Exception:
-				pass
-			return []
+		return []
 		raw = getattr(row, "task_actions", "") or ""
 		return self._parse_task_actions_json(raw)
-
-	def _apply_frappe_workflow_action(self, action: str) -> None:
-		"""
-		Apply a Frappe workflow action on the context document.
-
-		Mirrors exactly what happens when a user clicks an action button
-		in Frappe's native form view:
-		  1. apply_workflow() validates the transition (role + self-approval).
-		  2. Updates workflow_state_field on the document.
-		  3. Handles docstatus changes (draft→submit, submitted→cancel, etc.).
-		  4. Adds a Workflow comment to the document's timeline.
-
-		Raises frappe.ValidationError / WorkflowTransitionError on failure.
-		"""
-		if not (self.context_doctype and self.context_docname):
-			frappe.throw(_("Cannot apply Frappe workflow: no context document linked to this instance."))
-		from frappe.model.workflow import apply_workflow as frappe_apply_workflow
-
-		doc = frappe.get_doc(self.context_doctype, self.context_docname)
-		frappe_apply_workflow(doc, action)
 
 	def _run_engine(self, wf):
 		"""
@@ -1107,7 +1062,6 @@ class BPMNProcessInstance(Document):
 			bpmn_id_key = getattr(task.task_spec, "bpmn_id", None) or ""
 			task_cfg = getattr(self, "_user_task_extensions", {}).get(bpmn_id_key, {})
 			task_actions = task_cfg.get("taskActions", "")
-			task_action_mode = task_cfg.get("taskActionMode", "manual")
 
 			self.append(
 				"active_tasks",
@@ -1120,7 +1074,6 @@ class BPMNProcessInstance(Document):
 					"assigned_user": assigned_user,
 					"assigned_role": assigned_role,
 					"task_actions": task_actions,
-					"task_action_mode": task_action_mode,
 				},
 			)
 
