@@ -12,7 +12,7 @@
 			</a>
 		</header>
 
-		<!-- Export Process Map chooser dialog (multi-diagram processes) -->
+		<!-- Export Process Map chooser dialog (processes with multiple process maps) -->
 		<Dialog v-model="showExportDialog" :options="{ title: 'Export Process Map' }">
 			<template #body-content>
 				<div class="space-y-2">
