@@ -45,7 +45,7 @@ def save_process_model(
 		doc.process_name = process
 		doc.bpmn_xml = xml_content
 		doc.description = description or ""
-		doc.version = 1
+		doc.version = 0
 		doc.is_active = 0
 		doc.process_id = str(uuid.uuid4())
 		doc.check_permission("create")
@@ -143,7 +143,7 @@ def import_bpmn(
 		doc.process_id = extracted_process_id
 		doc.bpmn_xml = xml_content
 		doc.process_name = process or None
-		doc.version = 1
+		doc.version = 0
 		doc.check_permission("create")
 		doc.insert()
 		action = "created"
@@ -183,7 +183,6 @@ def get_process_model(name: str) -> dict:
 		"bpmn_xml": doc.bpmn_xml,
 		"version": doc.version,
 		"is_active": doc.is_active,
-		"category": doc.category,
 		"modified": doc.modified,
 		"owner": doc.owner,
 	}
@@ -208,7 +207,6 @@ def list_process_models() -> list:
 			"description",
 			"version",
 			"is_active",
-			"category",
 			"modified",
 			"owner",
 			"process_name",
@@ -333,14 +331,22 @@ def get_process_diagrams(process: str) -> dict:
 	diagrams = frappe.get_list(
 		"BPMN Process Model",
 		filters={"process_name": process},
-		fields=["name", "title", "process_id", "description", "version", "is_active", "modified"],
+		fields=["name", "title", "process_id", "description", "version", "is_active", "modified", "modified_by"],
 		order_by="is_active desc, modified desc",
 	)
+
+	# Resolve user emails to full names for frontend display
+	user_emails = list({d["modified_by"] for d in diagrams if d.get("modified_by")})
+	user_names = {}
+	if user_emails:
+		for row in frappe.get_all("User", filters={"name": ["in", user_emails]}, fields=["name", "full_name"]):
+			user_names[row["name"]] = row["full_name"]
 
 	# Add model_name alias for frontend compat
 	for d in diagrams:
 		d["model_name"] = d["title"]
 		d["status"] = "Active" if d["is_active"] else "Inactive"
+		d["modified_by_name"] = user_names.get(d.get("modified_by"), d.get("modified_by", ""))
 
 	return {
 		"name": proc.name,
@@ -1313,17 +1319,17 @@ def bulk_check_processes_editable(process_names: str) -> dict:
 @frappe.whitelist()
 def get_diagram_versions(name: str) -> list:
 	"""
-	Get version history for a BPMN Process Model.
+	Get deployed version history for a BPMN Process Model.
 
-	Reads from Frappe's Version table (populated automatically because
-	track_changes=1 on BPMN Process Model). Filters to only include
-	versions where bpmn_xml actually changed.
+	Returns all sibling models (same process_name) that have been deployed
+	(version > 0), ordered by version descending. Excludes the current model
+	so the user can pick a different version to compare against.
 
 	Args:
 		name: Document name of the BPMN Process Model
 
 	Returns:
-		list of version entries with timestamp, user, and version_name
+		list of version entries with model_name, version, title, deployed info
 	"""
 	if not name:
 		frappe.throw(_("Diagram name is required"))
@@ -1331,85 +1337,68 @@ def get_diagram_versions(name: str) -> list:
 	doc = frappe.get_doc("BPMN Process Model", name)
 	doc.check_permission("read")
 
-	versions = frappe.get_all(
-		"Version",
-		filters={"ref_doctype": "BPMN Process Model", "docname": name},
-		fields=["name", "owner", "creation", "data"],
-		order_by="creation desc",
-		limit_page_length=50,
+	if not doc.process_name:
+		return []
+
+	siblings = frappe.get_all(
+		"BPMN Process Model",
+		filters={
+			"process_name": doc.process_name,
+			"version": [">", 0],
+			"name": ["!=", name],
+		},
+		fields=["name", "title", "version", "is_active", "deployed_at", "deployed_by", "modified"],
+		order_by="version desc",
 	)
 
-	import json as json_mod
-
 	result = []
-	for v in versions:
-		# Only include versions where bpmn_xml was changed
-		try:
-			data = json_mod.loads(v.data)
-			has_xml_change = any(change[0] == "bpmn_xml" for change in data.get("changed", []))
-			if not has_xml_change:
-				continue
-		except (json_mod.JSONDecodeError, KeyError, TypeError):
-			continue
-
-		result.append(
-			{
-				"version_name": v.name,
-				"user": frappe.utils.get_fullname(v.owner),
-				"user_email": v.owner,
-				"timestamp": v.creation,
-			}
-		)
+	for s in siblings:
+		result.append({
+			"model_name": s.name,
+			"title": s.title,
+			"version": s.version,
+			"is_active": s.is_active,
+			"deployed_at": s.deployed_at,
+			"deployed_by": frappe.utils.get_fullname(s.deployed_by) if s.deployed_by else "",
+			"modified": s.modified,
+		})
 
 	return result
 
 
 @frappe.whitelist()
-def get_diagram_version_xml(name: str, version_name: str) -> dict:
+def get_diagram_version_xml(name: str, model_name: str) -> dict:
 	"""
-	Get the bpmn_xml content at a specific version point.
+	Get the bpmn_xml content from a specific BPMN Process Model version.
 
-	Extracts the bpmn_xml value from the Version record's stored diff data.
-	Uses change[2] (new value) which is the state of the XML AT that version.
+	Reads the bpmn_xml directly from the sibling model document.
 
 	Args:
-		name: Document name of the BPMN Process Model
-		version_name: Name of the Version record
+		name: Document name of the current BPMN Process Model (for permission check)
+		model_name: Document name of the version to retrieve XML from
 
 	Returns:
-		dict with xml_content, version_name, timestamp, user
+		dict with xml_content, model_name, version, title
 	"""
-	if not name or not version_name:
-		frappe.throw(_("Diagram name and version name are required"))
+	if not name or not model_name:
+		frappe.throw(_("Diagram name and model name are required"))
 
 	doc = frappe.get_doc("BPMN Process Model", name)
 	doc.check_permission("read")
 
-	version_doc = frappe.get_doc("Version", version_name)
+	version_doc = frappe.get_doc("BPMN Process Model", model_name)
+	version_doc.check_permission("read")
 
-	import json as json_mod
-
-	try:
-		data = json_mod.loads(version_doc.data)
-	except (json_mod.JSONDecodeError, TypeError):
-		frappe.throw(_("Version data is corrupted or unavailable for '{0}'").format(version_name))
-
-	# Extract the bpmn_xml change — changed is [[fieldname, old_value, new_value], ...]
-	# change[2] = new value = the XML state AT this version point
-	xml_content = None
-	for change in data.get("changed", []):
-		if change[0] == "bpmn_xml" and len(change) >= 3:
-			xml_content = change[2]
-			break
-
-	if not xml_content:
-		frappe.throw(_("No BPMN XML change found in this version"))
+	if not version_doc.bpmn_xml:
+		frappe.throw(_("No BPMN XML found in version '{0}'").format(model_name))
 
 	return {
-		"xml_content": xml_content,
-		"version_name": version_name,
-		"timestamp": version_doc.creation,
-		"user": frappe.utils.get_fullname(version_doc.owner),
+		"xml_content": version_doc.bpmn_xml,
+		"model_name": model_name,
+		"version": version_doc.version,
+		"title": version_doc.title,
+		"deployed_by": frappe.utils.get_fullname(version_doc.deployed_by) if version_doc.deployed_by else "",
+		"deployed_at": version_doc.deployed_at,
 	}
 
 
@@ -1847,7 +1836,10 @@ def _activate_deployed_model(model, script_extensions: dict) -> None:
 	    model:             BPMN Process Model document (in-memory)
 	    script_extensions: dict from ``_extract_script_task_config()``
 	"""
+
 	model.is_active = 1
+	model.deployed_at = frappe.utils.now()
+	model.deployed_by = frappe.session.user
 
 	# Server scripts referenced by the deployed model
 	active_scripts = set()
@@ -1855,29 +1847,29 @@ def _activate_deployed_model(model, script_extensions: dict) -> None:
 		if cfg.get("serverScript"):
 			active_scripts.add(cfg["serverScript"])
 
-	# Deactivate sibling models and their exclusive server scripts
+	# Fetch active siblings once — used for both version calculation and deactivation
+	siblings = []
 	if model.process_name:
-		sibling_names = frappe.get_all(
+		siblings = frappe.get_all(
 			"BPMN Process Model",
 			filters={
 				"process_name": model.process_name,
 				"is_active": 1,
 				"name": ["!=", model.name],
 			},
-			pluck="name",
+			fields=["name", "version", "serialized_spec"],
 		)
 
-		# Collect scripts from siblings before deactivating them
-		sibling_scripts = set()
-		for sname in sibling_names:
-			sibling_spec = frappe.db.get_value(
-				"BPMN Process Model", sname, "serialized_spec"
-			)
-			sibling_scripts |= _get_linked_server_scripts(sibling_spec)
+	# Version: max sibling version + 1, or 1 if no siblings
+	max_sibling_version = max((s.version or 0 for s in siblings), default=0)
+	model.version = max_sibling_version + 1
 
-		# Deactivate sibling models
-		for sname in sibling_names:
-			frappe.db.set_value("BPMN Process Model", sname, "is_active", 0)
+	# Deactivate sibling models and their exclusive server scripts
+	if siblings:
+		sibling_scripts = set()
+		for s in siblings:
+			sibling_scripts |= _get_linked_server_scripts(s.serialized_spec)
+			frappe.db.set_value("BPMN Process Model", s.name, "is_active", 0)
 
 		# Disable scripts exclusive to deactivated siblings
 		for script_name in (sibling_scripts - active_scripts):
@@ -2952,3 +2944,59 @@ def get_system_users(query: str = "") -> list:
 		fields=["name", "full_name"],
 		order_by="full_name asc",
 	)
+
+
+@frappe.whitelist()
+def get_doctype_fields(
+	doctype: str,
+	search_text: str = "",
+	fieldtype_in: str = "",
+	fieldtype_not_in: str = "",
+	include_options: bool = False,
+) -> list:
+	"""Return fields for a given DocType.
+
+	Used by the BPMN properties panel to populate field autocompletes.
+	Bypasses the parent-permission restriction on the DocField REST API.
+
+	Args:
+		doctype: The DocType to fetch fields from.
+		search_text: Optional search filter on fieldname.
+		fieldtype_in: JSON array of fieldtypes to include (e.g. '["Data","Link"]').
+		fieldtype_not_in: JSON array of fieldtypes to exclude.
+		include_options: If true, also return the ``options`` column.
+	"""
+	from frappe.query_builder import DocType as QBDocType
+
+	DocField = QBDocType("DocField")
+
+	select_cols = [DocField.fieldname, DocField.label, DocField.fieldtype]
+	if include_options:
+		select_cols.append(DocField.options)
+
+	query = (
+		frappe.qb.from_(DocField)
+		.select(*select_cols)
+		.where(DocField.parent == doctype)
+		.where(DocField.parenttype == "DocType")
+		.orderby(DocField.idx)
+		.limit(100)
+	)
+
+	if fieldtype_in:
+		query = query.where(DocField.fieldtype.isin(json.loads(fieldtype_in)))
+	elif fieldtype_not_in:
+		query = query.where(DocField.fieldtype.notin(json.loads(fieldtype_not_in)))
+	else:
+		# Default: exclude layout fields
+		query = query.where(
+			DocField.fieldtype.notin(
+				("Section Break", "Column Break", "Tab Break", "Table")
+			)
+		)
+
+	if search_text:
+		query = query.where(DocField.fieldname.like(f"%{search_text}%"))
+
+	return query.run(as_dict=True)
+
