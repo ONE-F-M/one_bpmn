@@ -332,7 +332,7 @@
 							<div class="text-gray-400 mb-6">
 								<Icon icon="lucide:layout-grid" class="w-20 h-20 mx-auto" />
 							</div>
-							<p class="text-gray-500 text-lg mb-6">No Process Map selected</p>
+							<p class="text-gray-500 text-lg mb-6">No process map selected</p>
 							<button
 								v-if="isEditable"
 								@click="showAddDiagramDialog"
