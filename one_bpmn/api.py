@@ -303,7 +303,7 @@ def list_processes() -> list:
 			proc["status"] = "Inactive"
 			proc["last_modified"] = latest or proc["modified"]
 		else:
-			proc["status"] = "No Diagrams"
+			proc["status"] = "No Process Maps"
 			proc["last_modified"] = proc["modified"]
 
 	return processes
@@ -389,9 +389,12 @@ def delete_diagram(name: str) -> dict:
 	Returns:
 		dict with success status
 	"""
-	# cleanup comments and todos synchronously to avoid LinkExistsError
-	# and ensure a clean deletion flow.
-	cleanup_process_model_assets(name)
+
+	
+	if not name:
+		frappe.throw(_("Process Map name is required"))
+    
+  cleanup_process_model_assets(name)
 
 	# frappe.delete_doc handles: existence check, doc-level permissions,
 	# link validation, child table cleanup, Version/Comment/File/DocShare/ToDo removal
@@ -1333,7 +1336,7 @@ def get_diagram_versions(name: str) -> list:
 		list of version entries with model_name, version, title, deployed info
 	"""
 	if not name:
-		frappe.throw(_("Diagram name is required"))
+		frappe.throw(_("Process Map name is required"))
 
 	doc = frappe.get_doc("BPMN Process Model", name)
 	doc.check_permission("read")
@@ -1382,7 +1385,7 @@ def get_diagram_version_xml(name: str, model_name: str) -> dict:
 		dict with xml_content, model_name, version, title
 	"""
 	if not name or not model_name:
-		frappe.throw(_("Diagram name and model name are required"))
+		frappe.throw(_("Process Map name and model name are required"))
 
 	doc = frappe.get_doc("BPMN Process Model", name)
 	doc.check_permission("read")
@@ -2031,7 +2034,7 @@ def compile_process_model(model_name: str) -> dict:
 
 	if not model.process_id:
 		frappe.throw(
-			_("No process_id found in the BPMN XML for '{0}'. Save the diagram first.").format(model_name)
+			_("No process_id found in the BPMN XML for '{0}'. Save the Process Map first.").format(model_name)
 		)
 
 	from one_bpmn.one_bpmn import engine as bpmn_engine
