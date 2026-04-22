@@ -10,9 +10,9 @@
   "title",
   "process_name",
   "process_id",
-  "column_break_info",
-  "category",
+  "column_break_pbtg",
   "is_active",
+  "version",
   "section_description",
   "description",
   "section_bpmn_diagram",
@@ -22,9 +22,20 @@
   "section_engine_data",
   "serialized_spec",
   "subprocess_specs",
-  "column_break_engine",
-  "version",
-  "amended_from"
+  "round_robin_state",
+  "target_details_section",
+  "target_doctypes",
+  "section_break_aige",
+  "trigger_type",
+  "trigger_doctype",
+  "trigger_event",
+  "column_break_nbjp",
+  "cron_expression",
+  "status",
+  "deployed_at",
+  "deployed_by",
+  "section_start_events",
+  "start_events"
  ],
  "fields": [
   {
@@ -42,26 +53,16 @@
    "unique": 1
   },
   {
-   "description": "BPMN process ID extracted from XML (e.g., Process_1). Must be unique.",
+   "description": "BPMN process ID extracted from XML (e.g., Process_1). Used internally by SpiffWorkflow.",
    "fieldname": "process_id",
    "fieldtype": "Data",
    "in_list_view": 1,
    "in_standard_filter": 1,
    "label": "Process ID",
-   "reqd": 1,
-   "unique": 1
+   "reqd": 1
   },
   {
-   "fieldname": "column_break_info",
-   "fieldtype": "Column Break"
-  },
-  {
-   "fieldname": "category",
-   "fieldtype": "Data",
-   "label": "Category"
-  },
-  {
-   "default": "1",
+   "default": "0",
    "fieldname": "is_active",
    "fieldtype": "Check",
    "in_list_view": 1,
@@ -116,11 +117,14 @@
    "label": "Subprocess Specs"
   },
   {
-   "fieldname": "column_break_engine",
-   "fieldtype": "Column Break"
+   "description": "Tracks round-robin assignment state per User Task. JSON: {\"task_bpmn_id\": {\"next_idx\": 0, \"last_user\": \"user@example.com\"}}",
+   "fieldname": "round_robin_state",
+   "fieldtype": "JSON",
+   "hidden": 1,
+   "label": "Round Robin State"
   },
   {
-   "default": "1",
+   "default": "0",
    "fieldname": "version",
    "fieldtype": "Int",
    "in_list_view": 1,
@@ -128,23 +132,96 @@
    "reqd": 1
   },
   {
-   "fieldname": "amended_from",
-   "fieldtype": "Link",
-   "label": "Amended From",
-   "options": "BPMN Process Model"
-  },
-  {
    "fieldname": "process_name",
    "fieldtype": "Link",
    "label": "Process Name",
    "options": "Process"
+  },
+  {
+   "collapsible": 1,
+   "fieldname": "target_details_section",
+   "fieldtype": "Section Break",
+   "label": "Target Details"
+  },
+  {
+   "fieldname": "target_doctypes",
+   "fieldtype": "Table",
+   "label": "Target Doctypes",
+   "options": "BPMN Process DocType"
+  },
+  {
+   "fieldname": "trigger_type",
+   "fieldtype": "Select",
+   "label": "Trigger Type",
+   "options": "DocType Event\nScheduler Event\nAPI"
+  },
+  {
+   "fieldname": "trigger_doctype",
+   "fieldtype": "Link",
+   "label": "Trigger DocType",
+   "options": "DocType"
+  },
+  {
+   "fieldname": "trigger_event",
+   "fieldtype": "Select",
+   "label": "Trigger Event",
+   "options": "After Insert\nAfter Save\nAutoname\nBefore Validate\nValidate\nBefore Save\nBefore Submit\nBefore Cancel\nBefore Update After Submit\nDB Insert\nAfter Insert\nDB Update\nOn Update\nOn Submit\nOn Cancel\nOn Update After Submit\nOn Change"
+  },
+  {
+   "fieldname": "section_break_aige",
+   "fieldtype": "Section Break"
+  },
+  {
+   "fieldname": "column_break_nbjp",
+   "fieldtype": "Column Break"
+  },
+  {
+   "fieldname": "cron_expression",
+   "fieldtype": "Data",
+   "label": "Cron Expression"
+  },
+  {
+   "default": "Draft",
+   "fieldname": "status",
+   "fieldtype": "Select",
+   "in_list_view": 1,
+   "label": "Status",
+   "options": "Draft\nDeployed\nRetired"
+  },
+  {
+   "fieldname": "deployed_at",
+   "fieldtype": "Datetime",
+   "label": "Deployed At"
+  },
+  {
+   "fieldname": "deployed_by",
+   "fieldtype": "Link",
+   "label": "Deployed By",
+   "options": "User"
+  },
+  {
+   "collapsible": 1,
+   "fieldname": "section_start_events",
+   "fieldtype": "Section Break",
+   "label": "Start Events"
+  },
+  {
+   "fieldname": "start_events",
+   "fieldtype": "Table",
+   "label": "Start Events",
+   "options": "BPMN Start Event Config",
+   "read_only": 1
+  },
+  {
+   "fieldname": "column_break_pbtg",
+   "fieldtype": "Column Break"
   }
  ],
  "in_create": 1,
  "index_web_pages_for_search": 1,
  "links": [],
- "modified": "2026-02-10 08:19:42.337171",
- "modified_by": "Administrator",
+ "modified": "2026-04-22 07:03:16.081601",
+ "modified_by": "k.sharma@one-fm.com",
  "module": "ONE BPMN",
  "name": "BPMN Process Model",
  "naming_rule": "By fieldname",
@@ -170,7 +247,7 @@
    "print": 1,
    "read": 1,
    "report": 1,
-   "role": "BPMN Admin",
+   "role": "Process Owner",
    "share": 1,
    "write": 1
   },

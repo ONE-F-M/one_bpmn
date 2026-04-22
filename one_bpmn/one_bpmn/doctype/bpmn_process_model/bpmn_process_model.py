@@ -9,11 +9,65 @@ import re
 
 class BPMNProcessModel(Document):
 	def validate(self):
+		self.validate_is_editable()
 		self.extract_process_id_from_xml()
+		self.enforce_single_active()
 
-	def before_save(self):
-		if not self.is_new():
-			self.version = (self.version or 0) + 1
+	def validate_is_editable(self):
+		"""Ensure that the process is editable on the backend level before saving it.
+
+		The cross-site Pathfinder Log check is expensive (~0.5-2s HTTP round-trip).
+		Skip it for metadata-only changes (title, description, is_active, etc.)
+		where the actual BPMN XML content has not been modified.
+		"""
+		if not self.process_name:
+			return
+
+		# Allow Frappe Administrator to bypass if necessary
+		if frappe.session.user == "Administrator":
+			return
+
+		# Skip the expensive cross-site check only when neither the XML
+		# content nor the process assignment has changed. Changing
+		# process_name could move the model to a locked process.
+		if (
+			not self.is_new()
+			and not self.has_value_changed("bpmn_xml")
+			and not self.has_value_changed("process_name")
+		):
+			return
+
+		from one_bpmn.api import check_process_editable
+
+		editability_info = check_process_editable(self.process_name)
+		if not editability_info.get("editable"):
+			reason = editability_info.get("reason", "No active Pathfinder Log.")
+			frappe.throw(
+				_("Cannot edit BPMN Process Model: {0}").format(reason),
+				exc=frappe.ValidationError,
+				title=_("Process Locked")
+			)
+
+	def enforce_single_active(self):
+		"""Ensure only one process model is active per process.
+
+		When this model is being activated, deactivate all other models
+		that belong to the same process_name.
+		"""
+		if not self.is_active or not self.process_name:
+			return
+
+		frappe.db.set_value(
+			"BPMN Process Model",
+			{
+				"process_name": self.process_name,
+				"is_active": 1,
+				"name": ("!=", self.name),
+			},
+			"is_active",
+			0,
+			update_modified=False,
+		)
 
 	def extract_process_id_from_xml(self):
 		"""Auto-extract process_id from BPMN XML if not manually set."""

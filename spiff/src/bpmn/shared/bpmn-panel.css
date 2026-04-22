@@ -1,0 +1,264 @@
+/* ─────────────────────────────────────────────────────────────────
+ * BPMN Properties Panel — Shared Utility CSS
+ * Replaces all inline style attributes across provider components.
+ * ───────────────────────────────────────────────────────────────── */
+
+/* ── Dropdown / Autocomplete ─────────────────────────────────── */
+.bpmn-dropdown-wrap {
+	position: relative;
+}
+
+.bpmn-dropdown-list {
+	position: absolute;
+	top: calc(100% + 4px);
+	left: 0;
+	right: 0;
+	max-height: 200px;
+	overflow-y: auto;
+	background: white;
+	border: 1px solid #ccc;
+	border-radius: 4px;
+	box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
+	z-index: 1000;
+	margin: 0;
+	padding: 0;
+	list-style: none;
+}
+
+.bpmn-dropdown-item {
+	padding: 8px;
+	font-size: 13px;
+	cursor: pointer;
+	border-bottom: 1px solid #eee;
+}
+
+.bpmn-dropdown-item:hover {
+	background: #f5f5f5;
+}
+
+.bpmn-dropdown-empty {
+	padding: 8px;
+	color: #666;
+	font-size: 13px;
+}
+
+.bpmn-dropdown-loading {
+	padding: 8px;
+	color: #999;
+	font-size: 13px;
+}
+
+/* ── Multi-select Tag Input ──────────────────────────────────── */
+.bpmn-tag-input-wrap {
+	display: flex;
+	flex-wrap: wrap;
+	align-items: center;
+	gap: 4px;
+	min-height: 32px;
+	padding: 4px 6px;
+	border: 1px solid #ccc;
+	border-radius: 4px;
+	background: white;
+	cursor: text;
+	position: relative;
+}
+
+.bpmn-tag-input-wrap:focus-within {
+	border-color: #2196f3;
+	box-shadow: 0 0 0 2px rgba(33, 150, 243, 0.15);
+}
+
+.bpmn-tag {
+	display: inline-flex;
+	align-items: center;
+	gap: 4px;
+	background: #e3f2fd;
+	color: #1565c0;
+	border-radius: 3px;
+	padding: 2px 6px;
+	font-size: 12px;
+	max-width: 180px;
+}
+
+.bpmn-tag-text {
+	max-width: 150px;
+	overflow: hidden;
+	text-overflow: ellipsis;
+	white-space: nowrap;
+}
+
+.bpmn-tag-remove {
+	background: none;
+	border: none;
+	cursor: pointer;
+	color: #1565c0;
+	font-size: 14px;
+	line-height: 1;
+	padding: 0;
+	display: flex;
+	align-items: center;
+}
+
+.bpmn-tag-remove:hover {
+	color: #b71c1c;
+}
+
+.bpmn-tag-input-field-wrap {
+	position: relative;
+	flex: 1;
+	min-width: 80px;
+}
+
+.bpmn-tag-input-field {
+	border: none;
+	outline: none;
+	font-size: 13px;
+	width: 100%;
+	min-width: 60px;
+	padding: 2px 0;
+	background: transparent;
+}
+
+/* ── Service Task / Script Task textarea ─────────────────────── */
+.bpmn-config-section {
+	display: flex;
+	gap: 8px;
+	align-items: flex-start;
+	padding: 6px 0;
+	border-top: 1px solid #eee;
+	flex-direction: column;
+}
+
+.bpmn-checkbox-row {
+	display: flex;
+	align-items: center;
+	gap: 8px;
+	padding: 6px 0;
+}
+
+.bpmn-checkbox {
+	width: 16px;
+	height: 16px;
+	cursor: pointer;
+	margin: 0;
+	flex-shrink: 0;
+}
+
+.bpmn-checkbox-label {
+	margin: 0;
+	cursor: pointer;
+	user-select: none;
+}
+
+.bpmn-checkbox-label-sm {
+	margin: 0;
+	cursor: pointer;
+	user-select: none;
+	font-size: 12px;
+}
+
+.bpmn-checkbox-description {
+	font-size: 11px;
+	color: #888;
+	line-height: 1.4;
+	padding: 0 0 4px 24px;
+}
+
+.bpmn-code-textarea {
+	font-family: monospace;
+	font-size: 12px;
+	resize: vertical;
+}
+
+.bpmn-config-area {
+	border: 1px solid #ddd;
+	border-radius: 4px;
+	padding: 8px;
+	background: #fafafa;
+	font-size: 12px;
+}
+
+/* ── Send Task notification item ─────────────────────────────── */
+.bpmn-notif-item-title {
+	font-weight: 500;
+}
+
+.bpmn-notif-item-icon {
+	margin-right: 6px;
+}
+
+/* ── Section divider label ───────────────────────────────────────── */
+.bpmn-section-divider {
+	font-size: 10px;
+	font-weight: 700;
+	color: #888;
+	text-transform: uppercase;
+	letter-spacing: 0.06em;
+	padding: 10px 0 4px 0;
+	border-top: 1px solid #e0e0e0;
+	margin-top: 6px;
+}
+
+.bpmn-notif-item-meta {
+	font-size: 11px;
+	color: #6b7280;
+	margin-top: 2px;
+}
+
+/* ── Multi-field update row editor ──────────────────────────────────── */
+.bpmn-field-rows {
+	display: flex;
+	flex-direction: column;
+	gap: 6px;
+	margin-top: 4px;
+}
+
+.bpmn-field-row {
+	display: flex;
+	align-items: center;
+	gap: 6px;
+}
+
+.bpmn-field-row > .bio-properties-panel-entry {
+	flex: 1;
+	min-width: 0;
+	padding: 0;
+	margin: 0;
+}
+
+.bpmn-field-row > .bio-properties-panel-entry .bio-properties-panel-label:empty {
+	display: none;
+}
+
+.bpmn-field-row > .bio-properties-panel-entry .bio-properties-panel-label {
+	margin-top: 0;
+}
+
+.bpmn-field-row-value {
+	flex: 1;
+	min-width: 0;
+	font-size: 12px;
+	padding: 4px 6px;
+	border: 1px solid #ccc;
+	border-radius: 3px;
+	background: #fff;
+}
+
+.bpmn-add-row-btn {
+	margin-top: 4px;
+	font-size: 12px;
+	padding: 4px 10px;
+	border: 1px dashed #aaa;
+	border-radius: 4px;
+	background: none;
+	cursor: pointer;
+	color: #555;
+	width: 100%;
+	text-align: center;
+}
+
+.bpmn-add-row-btn:hover {
+	background: #f3f6fa;
+	border-color: #4c72f5;
+	color: #4c72f5;
+}

@@ -3,11 +3,17 @@
 
 frappe.ui.form.on("BPMN Process Model", {
 	refresh(frm) {
-		// Add "Open in Editor" button
-		if (!frm.is_new()) {
-			frm.add_custom_button(__("Open in Editor"), function () {
-				frappe.set_route("spiff", "process", frm.doc.process, "diagram", frm.doc.name);
-			});
-		}
+		// ── Pretty-print JSON fields for readability (display-only) ──
+		one_bpmn.prettify_json_fields(frm, ["serialized_spec", "subprocess_specs"]);
+
+		if (frm.is_new()) return;
+
+		// ── Open in Editor ──
+		frm.add_custom_button(__("Open in Editor"), function () {
+			window.open(
+				`/processa/process/${encodeURIComponent(frm.doc.process_name)}/diagram/${encodeURIComponent(frm.doc.name)}`,
+				"_blank"
+			);
+		});
 	},
 });

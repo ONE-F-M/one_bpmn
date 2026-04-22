@@ -1,0 +1,128 @@
+{
+ "actions": [],
+ "allow_rename": 1,
+ "creation": "2026-03-19 11:46:10.801328",
+ "doctype": "DocType",
+ "editable_grid": 1,
+ "engine": "InnoDB",
+ "field_order": [
+  "task_id",
+  "task_name",
+  "column_break_zcvz",
+  "task_type",
+  "started_at",
+  "task_actions",
+  "task_action_mode",
+  "section_break_1fzk",
+  "target_doctype",
+  "target_docname",
+  "timer_duration",
+  "column_break_bnpt",
+  "assigned_role",
+  "assigned_user",
+  "status"
+ ],
+ "fields": [
+  {
+   "fieldname": "task_id",
+   "fieldtype": "Data",
+   "in_list_view": 1,
+   "label": "Task ID"
+  },
+  {
+   "fieldname": "task_name",
+   "fieldtype": "Data",
+   "in_list_view": 1,
+   "label": "Task Name"
+  },
+  {
+   "fieldname": "task_type",
+   "fieldtype": "Select",
+   "in_list_view": 1,
+   "label": "Task Type",
+   "options": "User Task\nScript Task\nService Task\nSend Task\nManual Task"
+  },
+  {
+   "fieldname": "status",
+   "fieldtype": "Select",
+   "in_list_view": 1,
+   "label": "Status",
+   "options": "Waiting\nCompleted\nErrored\nCancelled"
+  },
+  {
+   "fieldname": "started_at",
+   "fieldtype": "Datetime",
+   "label": "Started At"
+  },
+  {
+   "description": "Comma-separated action labels configured on this User Task (e.g. 'Approve,Reject'). The selected action is submitted as the 'action' variable and drives gateway routing.",
+   "fieldname": "task_actions",
+   "fieldtype": "Data",
+   "label": "Task Actions"
+  },
+  {
+   "default": "manual",
+   "description": "'manual' = designer-typed actions. 'frappe_workflow' = transitions fetched live from the context doc's Frappe Workflow.",
+   "fieldname": "task_action_mode",
+   "fieldtype": "Select",
+   "label": "Task Action Mode",
+   "options": "manual\nfrappe_workflow"
+  },
+  {
+   "fieldname": "section_break_1fzk",
+   "fieldtype": "Section Break"
+  },
+  {
+   "fieldname": "target_doctype",
+   "fieldtype": "Link",
+   "label": "Target DocType",
+   "options": "DocType"
+  },
+  {
+   "fieldname": "target_docname",
+   "fieldtype": "Dynamic Link",
+   "label": "Target DocName",
+   "options": "target_doctype"
+  },
+  {
+   "fieldname": "assigned_role",
+   "fieldtype": "Link",
+   "label": "Assigned Role",
+   "options": "Role"
+  },
+  {
+   "fieldname": "assigned_user",
+   "fieldtype": "Link",
+   "label": "Assigned User",
+   "options": "User"
+  },
+  {
+   "fieldname": "timer_duration",
+   "fieldtype": "Data",
+   "label": "Timer Duration"
+  },
+  {
+   "fieldname": "column_break_zcvz",
+   "fieldtype": "Column Break"
+  },
+  {
+   "fieldname": "column_break_bnpt",
+   "fieldtype": "Column Break"
+  }
+ ],
+ "grid_page_length": 50,
+ "index_web_pages_for_search": 1,
+ "istable": 1,
+ "links": [],
+ "modified": "2026-03-19 12:08:01.318435",
+ "modified_by": "Administrator",
+ "module": "ONE BPMN",
+ "name": "BPMN Active Task",
+ "owner": "Administrator",
+ "permissions": [],
+ "row_format": "Dynamic",
+ "rows_threshold_for_grid_search": 20,
+ "sort_field": "modified",
+ "sort_order": "DESC",
+ "states": []
+}

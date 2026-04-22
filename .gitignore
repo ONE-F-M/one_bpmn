@@ -1,7 +1,41 @@
+# Byte-compiled / optimized / DLL files
+__pycache__/
+
 .DS_Store
 *.pyc
 *.egg-info
 *.swp
+*.log
 tags
 node_modules
-__pycache__
+.vscode
+
+# Distribution / packaging
+.Python
+build/
+develop-eggs/
+dist/
+downloads/
+eggs/
+.eggs/
+lib/
+lib64/
+parts/
+sdist/
+var/
+wheels/
+pip-wheel-metadata/
+share/python-wheels/
+*.egg-info/
+.installed.cfg
+*.egg
+
+# Frontend build output (equivalent to helpdesk's public/frontend)
+one_bpmn/public/processa
+one_bpmn/www/processa/index.html
+
+# Auto-generated type declarations
+spiff/components.d.ts
+spiff/auto-imports.d.ts
+spiff/stats.html
+one_bpmn/public/processa/assets/

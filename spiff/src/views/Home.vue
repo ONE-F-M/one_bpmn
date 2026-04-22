@@ -1,9 +1,41 @@
 <template>
 	<div class="h-full flex flex-col bg-gray-50">
 		<!-- Header -->
-		<header class="bg-white border-b px-6 py-4">
-			<h1 class="text-xl font-semibold text-gray-900">Process</h1>
+		<header class="bg-white border-b px-6 py-4 flex items-center justify-between">
+			<h1 class="text-xl font-semibold text-gray-900">Processes</h1>
+			<a
+				href="/app/processa"
+				class="flex items-center gap-2 px-3 py-1.5 text-sm font-medium text-gray-700 bg-white border border-gray-300 rounded-md hover:bg-gray-50 transition-colors"
+			>
+				Go to Desk
+				<Icon icon="lucide:external-link" class="w-4 h-4" />
+			</a>
 		</header>
+
+		<!-- Export Diagram chooser dialog (multi-diagram processes) -->
+		<Dialog v-model="showExportDialog" :options="{ title: 'Export Diagram' }">
+			<template #body-content>
+				<div class="space-y-2">
+					<p class="text-sm text-gray-500 mb-3">Choose a diagram to download:</p>
+					<div
+						v-for="d in exportDialogDiagrams"
+						:key="d.name"
+						role="button"
+						tabindex="0"
+						class="flex items-center justify-between px-3 py-2 rounded-lg hover:bg-gray-100 cursor-pointer focus:outline-none focus:ring-2 focus:ring-gray-400"
+						@click="exportSingleDiagram(d)"
+						@keydown.enter.prevent="exportSingleDiagram(d)"
+						@keydown.space.prevent="exportSingleDiagram(d)"
+					>
+						<span class="text-sm text-gray-800">{{ d.model_name || d.title }}</span>
+						<Icon icon="lucide:download" class="w-4 h-4 text-gray-500" />
+					</div>
+				</div>
+			</template>
+			<template #actions>
+				<Button variant="subtle" @click="showExportDialog = false">Cancel</Button>
+			</template>
+		</Dialog>
 
 		<!-- Content -->
 		<main class="flex-1 p-6 overflow-auto">
@@ -21,7 +53,46 @@
 				<p class="text-gray-500 mb-4">Create a Process in the system to start building BPMN diagrams.</p>
 			</div>
 
-			<!-- List View -->
+			<!-- Mobile Card Layout -->
+			<div v-else-if="isMobile" class="space-y-2">
+				<div
+					v-for="process in processes"
+					:key="process.name"
+					@click="openProcess(process.name)"
+					class="bg-white rounded-lg shadow-sm p-4 flex items-center gap-3 active:bg-gray-50 transition-colors cursor-pointer"
+				>
+					<Icon
+						v-if="editabilityMap[process.name]"
+						icon="lucide:pencil"
+						class="w-4 h-4 text-green-500 shrink-0"
+					/>
+					<Icon
+						v-else
+						icon="lucide:lock"
+						class="w-4 h-4 text-gray-300 shrink-0"
+					/>
+					<div class="flex-1 min-w-0">
+						<div class="text-sm font-medium text-gray-900 truncate">{{ process.process_name }}</div>
+						<div class="text-xs text-gray-400 mt-0.5">{{ process.diagram_count || 0 }} diagram{{ process.diagram_count !== 1 ? 's' : '' }}</div>
+					</div>
+					<Badge :theme="getStatusTheme(process.status)" :label="process.status" size="sm" />
+					<button
+						v-if="process.diagram_count > 0"
+						@click.stop="exportProcess(process)"
+						:disabled="exportingProcesses.has(process.name)"
+						class="p-1.5 rounded hover:bg-gray-200 text-gray-500 transition-colors disabled:opacity-40 shrink-0"
+						title="Export BPMN"
+						aria-label="Export BPMN"
+					>
+						<Icon
+							:icon="exportingProcesses.has(process.name) ? 'lucide:loader-2' : 'lucide:download'"
+							:class="['w-4 h-4', exportingProcesses.has(process.name) ? 'animate-spin' : '']"
+						/>
+					</button>
+				</div>
+			</div>
+
+			<!-- Desktop List View -->
 			<div v-else class="bg-white rounded-lg shadow-sm">
 				<ListView
 					:columns="columns"
@@ -37,10 +108,24 @@
 					<template #cell="{ item, row, column }">
 						<!-- Title column -->
 						<template v-if="column.key === 'process_name'">
-							<div>
-								<div class="text-sm font-medium text-gray-900">{{ item }}</div>
-								<div v-if="row.diagram_count" class="text-xs text-gray-400">
-									{{ row.diagram_count }} diagram{{ row.diagram_count !== 1 ? 's' : '' }}
+							<div class="flex items-center gap-2">
+								<Icon
+									v-if="editabilityMap[row.name]"
+									icon="lucide:pencil"
+									class="w-3.5 h-3.5 text-green-500 shrink-0"
+									title="Editable — Active Pathfinder Log"
+								/>
+								<Icon
+									v-else
+									icon="lucide:lock"
+									class="w-3.5 h-3.5 text-gray-300 shrink-0"
+									title="Locked — No active Pathfinder Log"
+								/>
+								<div>
+									<div class="text-sm font-medium text-gray-900">{{ item }}</div>
+									<div v-if="row.diagram_count" class="text-xs text-gray-400">
+										{{ row.diagram_count }} diagram{{ row.diagram_count !== 1 ? 's' : '' }}
+									</div>
 								</div>
 							</div>
 						</template>
@@ -78,6 +163,23 @@
 							<span class="text-sm text-gray-500">{{ formatDate(item) }}</span>
 						</template>
 
+						<!-- Export/actions column -->
+						<template v-else-if="column.key === 'actions'">
+							<button
+								v-if="row.diagram_count > 0"
+								@click.stop="exportProcess(row)"
+								:disabled="exportingProcesses.has(row.name)"
+								class="p-1.5 rounded hover:bg-gray-200 text-gray-500 transition-colors disabled:opacity-40"
+								title="Export diagram as .bpmn file"
+							>
+								<Icon
+									:icon="exportingProcesses.has(row.name) ? 'lucide:loader-2' : 'lucide:download'"
+									:class="['w-4 h-4', exportingProcesses.has(row.name) ? 'animate-spin' : '']"
+								/>
+							</button>
+							<span v-else class="text-xs text-gray-300">—</span>
+						</template>
+
 						<!-- Default -->
 						<template v-else>
 							<span class="text-sm text-gray-600">{{ item }}</span>
@@ -95,10 +197,23 @@ import { useRouter } from "vue-router"
 import { frappeRequest } from "frappe-ui"
 import { Icon } from "@iconify/vue"
 import { dayjs } from "@/dayjs"
+import { downloadBpmn } from "@/utils/downloadBpmn"
+import { useWindowSize } from "@/composables/useWindowSize"
+
+const { isMobile } = useWindowSize()
+
+// Export dialog state
+const showExportDialog = ref(false)
+const exportDialogDiagrams = ref([])
+// Track in-flight exports per process so concurrent clicks work independently
+const exportingProcesses = ref(new Set())
 
 const router = useRouter()
 const processes = ref([])
 const loading = ref(true)
+
+// Pathfinder Log editability map: { processName: true/false }
+const editabilityMap = ref({})
 
 // Column definitions for ListView
 const columns = computed(() => [
@@ -132,6 +247,11 @@ const columns = computed(() => [
 		key: "creation",
 		width: "120px",
 	},
+	{
+		label: "",
+		key: "actions",
+		width: "60px",
+	},
 ])
 
 onMounted(async () => {
@@ -155,6 +275,9 @@ async function loadProcesses() {
 		} else {
 			processes.value = []
 		}
+
+		// Bulk check editability for all processes
+		await checkAllEditability()
 	} catch (error) {
 		console.error("Failed to load processes:", error)
 	} finally {
@@ -162,18 +285,86 @@ async function loadProcesses() {
 	}
 }
 
+async function checkAllEditability() {
+	if (processes.value.length === 0) return
+
+	try {
+		const processNames = processes.value.map(p => p.name)
+		const response = await frappeRequest({
+			url: "/api/method/one_bpmn.api.bulk_check_processes_editable",
+			params: { process_names: JSON.stringify(processNames) },
+		})
+
+		const data = response.message || response
+		const map = {}
+		for (const [name, info] of Object.entries(data)) {
+			map[name] = !!info.editable
+		}
+		editabilityMap.value = map
+	} catch (error) {
+		console.error("Failed to check process editability:", error)
+		// Default to all locked on error
+		const map = {}
+		processes.value.forEach(p => { map[p.name] = false })
+		editabilityMap.value = map
+	}
+}
+
 function openProcess(name) {
 	router.push({ name: "ProcessEditor", params: { process: name } })
 }
 
+// ---- Export helpers ----
+
+async function exportSingleDiagram(diagram) {
+	showExportDialog.value = false
+	try {
+		const response = await frappeRequest({
+			url: "/api/method/one_bpmn.api.get_process_model",
+			params: { name: diagram.name },
+		})
+		const data = response.message || response
+		if (data && data.bpmn_xml) {
+			downloadBpmn(data.bpmn_xml, data.title || diagram.model_name || diagram.name)
+		}
+	} catch (err) {
+		console.error("Failed to export diagram:", err)
+	}
+}
+
+async function exportProcess(process) {
+	if (!process.diagram_count) return
+	exportingProcesses.value = new Set([...exportingProcesses.value, process.name])
+	try {
+		const response = await frappeRequest({
+			url: "/api/method/one_bpmn.api.get_process_diagrams",
+			params: { process: process.name },
+		})
+		const data = response.message || response
+		const diagrams = (data.diagrams || []).map((d) => ({ ...d, model_name: d.model_name || d.title }))
+
+		if (diagrams.length === 1) {
+			await exportSingleDiagram(diagrams[0])
+		} else if (diagrams.length > 1) {
+			exportDialogDiagrams.value = diagrams
+			showExportDialog.value = true
+		}
+	} catch (err) {
+		console.error("Failed to fetch diagrams for export:", err)
+	} finally {
+		// Remove this process from the in-flight set
+		const next = new Set(exportingProcesses.value)
+		next.delete(process.name)
+		exportingProcesses.value = next
+	}
+}
+
 function getStatusTheme(status) {
 	switch (status) {
-		case "Published":
+		case "Active":
 			return "green"
-		case "In Development":
+		case "Inactive":
 			return "orange"
-		case "Draft":
-			return "blue"
 		default:
 			return "gray"
 	}

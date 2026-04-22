@@ -9,11 +9,15 @@ export {}
 declare module 'vue' {
   export interface GlobalComponents {
     BpmnEditor: typeof import('./src/components/BpmnEditor.vue')['default']
+    CallActivitySearchDialog: typeof import('./src/components/CallActivitySearchDialog.vue')['default']
+    DiffViewer: typeof import('./src/components/DiffViewer.vue')['default']
     EditorSidebar: typeof import('./src/components/EditorSidebar.vue')['default']
     EditorTabs: typeof import('./src/components/EditorTabs.vue')['default']
     FormattingToolbar: typeof import('./src/components/FormattingToolbar.vue')['default']
+    NotificationLinkDialog: typeof import('./src/components/NotificationLinkDialog.vue')['default']
     RouterLink: typeof import('vue-router')['RouterLink']
     RouterView: typeof import('vue-router')['RouterView']
     ShapeLibraryPanel: typeof import('./src/components/ShapeLibraryPanel.vue')['default']
+    VersionDiffDialog: typeof import('./src/components/VersionDiffDialog.vue')['default']
   }
 }

@@ -2,27 +2,26 @@
 	<div class="formatting-toolbar flex items-center gap-2">
 		<!-- Fill Color Picker -->
 		<div class="relative" ref="fillPickerRef">
-			<Tooltip text="Fill Color">
-				<button
-					@click="toggleFillPicker"
-					:disabled="!hasSelection"
-					:class="[
-						'p-2 rounded transition-colors flex items-center gap-1',
-						hasSelection
-							? 'hover:bg-gray-200 text-gray-700'
-							: 'text-gray-300 cursor-not-allowed',
-					]"
-				>
-					<div class="flex flex-col items-center gap-0.5">
-						<Icon icon="lucide:paint-bucket" class="w-5 h-5" />
-						<div
-							class="w-5 h-1.5 rounded-sm border border-gray-300"
-							:style="{ backgroundColor: selectedFillColor }"
-						></div>
-					</div>
-					<Icon icon="lucide:chevron-down" class="w-3 h-3" />
-				</button>
-			</Tooltip>
+			<button
+				@click="toggleFillPicker"
+				title="Fill Color"
+				:disabled="!hasSelection"
+				:class="[
+					'p-1.5 rounded transition-colors flex items-center gap-0.5 h-8',
+					hasSelection
+						? 'hover:bg-gray-100 text-gray-700'
+						: 'text-gray-300 cursor-not-allowed',
+				]"
+			>
+				<div class="flex flex-col items-center gap-0.5">
+					<Icon icon="lucide:paint-bucket" class="w-4 h-4" />
+					<div
+						class="w-4 h-1 rounded-sm border border-gray-300"
+						:style="{ backgroundColor: selectedFillColor }"
+					></div>
+				</div>
+				<Icon icon="lucide:chevron-down" class="w-3 h-3" />
+			</button>
 			<div
 				v-if="showFillPicker"
 				class="absolute top-full left-0 mt-1 bg-white border border-gray-200 rounded-lg shadow-lg p-3 z-[1000]"
@@ -53,27 +52,26 @@
 
 		<!-- Stroke Color Picker -->
 		<div class="relative" ref="strokePickerRef">
-			<Tooltip text="Line Color">
-				<button
-					@click="toggleStrokePicker"
-					:disabled="!hasSelection"
-					:class="[
-						'p-2 rounded transition-colors flex items-center gap-1',
-						hasSelection
-							? 'hover:bg-gray-200 text-gray-700'
-							: 'text-gray-300 cursor-not-allowed',
-					]"
-				>
-					<div class="flex flex-col items-center gap-0.5">
-						<Icon icon="lucide:pencil-line" class="w-5 h-5" />
-						<div
-							class="w-5 h-1.5 rounded-sm border border-gray-300"
-							:style="{ backgroundColor: selectedStrokeColor }"
-						></div>
-					</div>
-					<Icon icon="lucide:chevron-down" class="w-3 h-3" />
-				</button>
-			</Tooltip>
+			<button
+				@click="toggleStrokePicker"
+				title="Line Color"
+				:disabled="!hasSelection"
+				:class="[
+					'p-1.5 rounded transition-colors flex items-center gap-0.5 h-8',
+					hasSelection
+						? 'hover:bg-gray-100 text-gray-700'
+						: 'text-gray-300 cursor-not-allowed',
+				]"
+			>
+				<div class="flex flex-col items-center gap-0.5">
+					<Icon icon="lucide:pencil-line" class="w-4 h-4" />
+					<div
+						class="w-4 h-1 rounded-sm border border-gray-300"
+						:style="{ backgroundColor: selectedStrokeColor }"
+					></div>
+				</div>
+				<Icon icon="lucide:chevron-down" class="w-3 h-3" />
+			</button>
 			<div
 				v-if="showStrokePicker"
 				class="absolute top-full left-0 mt-1 bg-white border border-gray-200 rounded-lg shadow-lg p-3 z-[1000]"
@@ -104,79 +102,75 @@
 		</div>
 
 		<!-- Separator -->
-		<div class="w-px h-6 bg-gray-300 mx-1"></div>
+		<div class="w-px h-5 bg-gray-200 mx-1 shrink-0"></div>
 
 		<!-- Bold Toggle -->
-		<Tooltip text="Bold">
-			<button
-				@click="toggleBold"
-				:disabled="!hasSelection"
-				:class="[
-					'p-2 rounded transition-colors font-bold',
-					!hasSelection
-						? 'text-gray-300 cursor-not-allowed'
-						: isBold
-							? 'bg-blue-100 text-blue-700'
-							: 'hover:bg-gray-200 text-gray-700',
-				]"
-			>
-				B
-			</button>
-		</Tooltip>
+		<button
+			@click="toggleBold"
+			title="Bold"
+			:disabled="!hasSelection"
+			:class="[
+				'min-w-[28px] h-8 flex items-center justify-center rounded transition-colors font-bold text-sm',
+				!hasSelection
+					? 'text-gray-300 cursor-not-allowed'
+					: isBold
+						? 'bg-blue-100 text-blue-700 shadow-[inset_0_1px_2px_rgba(0,0,0,0.1)]'
+						: 'hover:bg-gray-100 text-gray-700',
+			]"
+		>
+			B
+		</button>
 
 		<!-- Italic Toggle -->
-		<Tooltip text="Italic">
-			<button
-				@click="toggleItalic"
-				:disabled="!hasSelection"
-				:class="[
-					'p-2 rounded transition-colors italic',
-					!hasSelection
-						? 'text-gray-300 cursor-not-allowed'
-						: isItalic
-							? 'bg-blue-100 text-blue-700'
-							: 'hover:bg-gray-200 text-gray-700',
-				]"
-			>
-				I
-			</button>
-		</Tooltip>
+		<button
+			@click="toggleItalic"
+			title="Italic"
+			:disabled="!hasSelection"
+			:class="[
+				'min-w-[28px] h-8 flex items-center justify-center rounded transition-colors italic text-sm font-serif',
+				!hasSelection
+					? 'text-gray-300 cursor-not-allowed'
+					: isItalic
+						? 'bg-blue-100 text-blue-700 shadow-[inset_0_1px_2px_rgba(0,0,0,0.1)]'
+						: 'hover:bg-gray-100 text-gray-700',
+			]"
+		>
+			I
+		</button>
 
 		<!-- Underline Toggle -->
-		<Tooltip text="Underline">
-			<button
-				@click="toggleUnderline"
-				:disabled="!hasSelection"
-				:class="[
-					'p-2 rounded transition-colors underline',
-					!hasSelection
-						? 'text-gray-300 cursor-not-allowed'
-						: isUnderline
-							? 'bg-blue-100 text-blue-700'
-							: 'hover:bg-gray-200 text-gray-700',
-				]"
-			>
-				U
-			</button>
-		</Tooltip>
+		<button
+			@click="toggleUnderline"
+			title="Underline"
+			:disabled="!hasSelection"
+			:class="[
+				'min-w-[28px] h-8 flex items-center justify-center rounded transition-colors underline text-sm',
+				!hasSelection
+					? 'text-gray-300 cursor-not-allowed'
+					: isUnderline
+						? 'bg-blue-100 text-blue-700 shadow-[inset_0_1px_2px_rgba(0,0,0,0.1)]'
+						: 'hover:bg-gray-100 text-gray-700',
+			]"
+		>
+			U
+		</button>
 
 		<!-- Font Family Dropdown -->
 		<div class="relative" ref="fontFamilyPickerRef">
-			<Tooltip text="Font Family">
-				<button
-					@click="toggleFontFamilyPicker"
-					:disabled="!hasSelection"
-					:class="[
-						'px-2 py-1 rounded transition-colors flex items-center gap-1 text-sm min-w-[80px] justify-between',
-						hasSelection
-							? 'hover:bg-gray-200 text-gray-700 border border-gray-300'
-							: 'text-gray-300 cursor-not-allowed border border-gray-200',
-					]"
-				>
-					<span class="truncate">{{ selectedFontFamilyLabel }}</span>
-					<Icon icon="lucide:chevron-down" class="w-3 h-3 flex-shrink-0" />
-				</button>
-			</Tooltip>
+			<button
+				@click="toggleFontFamilyPicker"
+				title="Font Family"
+				:disabled="!hasSelection"
+				:class="[
+					'px-2 h-7 rounded transition-colors flex items-center gap-1 text-[13px] min-w-[80px] justify-between border',
+					hasSelection
+						? 'hover:bg-gray-50 text-gray-700 border-gray-200 bg-white'
+						: 'text-gray-300 cursor-not-allowed border-gray-100 bg-white',
+				]"
+			>
+				<span class="truncate">{{ selectedFontFamilyLabel }}</span>
+				<Icon icon="lucide:chevron-down" class="w-3 h-3 flex-shrink-0" />
+			</button>
 			<div
 				v-if="showFontFamilyPicker"
 				class="absolute top-full left-0 mt-1 bg-white border border-gray-200 rounded-lg shadow-lg py-1 z-[1000]"
@@ -199,21 +193,20 @@
 
 		<!-- Font Size Dropdown -->
 		<div class="relative" ref="fontSizePickerRef">
-			<Tooltip text="Font Size">
-				<button
-					@click="toggleFontSizePicker"
-					:disabled="!hasSelection"
-					:class="[
-						'px-2 py-1 rounded transition-colors flex items-center gap-1 text-sm min-w-[50px] justify-between',
-						hasSelection
-							? 'hover:bg-gray-200 text-gray-700 border border-gray-300'
-							: 'text-gray-300 cursor-not-allowed border border-gray-200',
-					]"
-				>
-					<span>{{ selectedFontSize }}</span>
-					<Icon icon="lucide:chevron-down" class="w-3 h-3" />
-				</button>
-			</Tooltip>
+			<button
+				@click="toggleFontSizePicker"
+				title="Font Size"
+				:disabled="!hasSelection"
+				:class="[
+					'px-2 h-7 rounded transition-colors flex items-center gap-1 text-[13px] min-w-[50px] justify-between border',
+					hasSelection
+						? 'hover:bg-gray-50 text-gray-700 border-gray-200 bg-white'
+						: 'text-gray-300 cursor-not-allowed border-gray-100 bg-white',
+				]"
+			>
+				<span>{{ selectedFontSize }}</span>
+				<Icon icon="lucide:chevron-down" class="w-3 h-3" />
+			</button>
 			<div
 				v-if="showFontSizePicker"
 				class="absolute top-full left-0 mt-1 bg-white border border-gray-200 rounded-lg shadow-lg py-1 z-[1000]"
@@ -234,31 +227,30 @@
 		</div>
 
 		<!-- Separator -->
-		<div class="w-px h-6 bg-gray-300 mx-1"></div>
+		<div class="w-px h-5 bg-gray-200 mx-1 shrink-0"></div>
 
 		<!-- Text Color Picker -->
 		<div class="relative" ref="textColorPickerRef">
-			<Tooltip text="Text Color">
-				<button
-					@click="toggleTextColorPicker"
-					:disabled="!hasSelection"
-					:class="[
-						'p-2 rounded transition-colors flex items-center gap-1',
-						hasSelection
-							? 'hover:bg-gray-200 text-gray-700'
-							: 'text-gray-300 cursor-not-allowed',
-					]"
-				>
-					<div class="flex flex-col items-center gap-0.5">
-						<Icon icon="lucide:type" class="w-5 h-5" />
-						<div
-							class="w-5 h-1.5 rounded-sm border border-gray-300"
-							:style="{ backgroundColor: selectedTextColor }"
-						></div>
-					</div>
-					<Icon icon="lucide:chevron-down" class="w-3 h-3" />
-				</button>
-			</Tooltip>
+			<button
+				@click="toggleTextColorPicker"
+				title="Text Color"
+				:disabled="!hasSelection"
+				:class="[
+					'p-1.5 rounded transition-colors flex items-center gap-0.5 h-8',
+					hasSelection
+						? 'hover:bg-gray-100 text-gray-700'
+						: 'text-gray-300 cursor-not-allowed',
+				]"
+			>
+				<div class="flex flex-col items-center gap-0.5">
+					<Icon icon="lucide:type" class="w-4 h-4" />
+					<div
+						class="w-4 h-1 rounded-sm border border-gray-300"
+						:style="{ backgroundColor: selectedTextColor }"
+					></div>
+				</div>
+				<Icon icon="lucide:chevron-down" class="w-3 h-3" />
+			</button>
 			<div
 				v-if="showTextColorPicker"
 				class="absolute top-full left-0 mt-1 bg-white border border-gray-200 rounded-lg shadow-lg p-3 z-[1000]"
@@ -291,7 +283,6 @@
 
 <script setup>
 import { ref, computed, onMounted, onUnmounted, watch, toRaw } from "vue";
-import { Tooltip } from "frappe-ui";
 import { Icon } from "@iconify/vue";
 import { getTextStyle, setTextStyle, DEFAULT_TEXT_STYLE } from "@/utils/textStyleUtils";
 

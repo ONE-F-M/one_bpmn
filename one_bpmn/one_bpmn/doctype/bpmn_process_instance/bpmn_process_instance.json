@@ -1,0 +1,148 @@
+{
+ "actions": [],
+ "allow_rename": 1,
+ "creation": "2026-03-19 12:16:44.067162",
+ "doctype": "DocType",
+ "engine": "InnoDB",
+ "field_order": [
+  "process_model",
+  "status",
+  "initiated_by",
+  "started_at",
+  "completed_at",
+  "cb_context",
+  "context_doctype",
+  "context_docname",
+  "section_break_uyli",
+  "active_tasks",
+  "section_break_a38t",
+  "serialized_spec",
+  "workflow_state"
+ ],
+ "fields": [
+  {
+   "fieldname": "process_model",
+   "fieldtype": "Link",
+   "in_list_view": 1,
+   "label": "Process Model",
+   "options": "BPMN Process Model"
+  },
+  {
+   "default": "Active",
+   "fieldname": "status",
+   "fieldtype": "Select",
+   "in_list_view": 1,
+   "label": "Status",
+   "options": "Active\nCompleted\nErrored\nCancelled"
+  },
+  {
+   "fieldname": "initiated_by",
+   "fieldtype": "Link",
+   "label": "Initiated By",
+   "options": "User"
+  },
+  {
+   "fieldname": "started_at",
+   "fieldtype": "Datetime",
+   "label": "Started At"
+  },
+  {
+   "fieldname": "completed_at",
+   "fieldtype": "Datetime",
+   "label": "Completed At"
+  },
+  {
+   "fieldname": "cb_context",
+   "fieldtype": "Column Break"
+  },
+  {
+   "fieldname": "context_doctype",
+   "fieldtype": "Link",
+   "label": "Context DocType",
+   "options": "DocType"
+  },
+  {
+   "fieldname": "context_docname",
+   "fieldtype": "Dynamic Link",
+   "label": "Context DocName",
+   "options": "context_doctype"
+  },
+  {
+   "fieldname": "active_tasks",
+   "fieldtype": "Table",
+   "label": "Active Tasks",
+   "options": "BPMN Active Task"
+  },
+  {
+   "fieldname": "section_break_a38t",
+   "fieldtype": "Section Break",
+   "label": "State Data"
+  },
+  {
+   "fieldname": "serialized_spec",
+   "fieldtype": "JSON",
+   "label": "Serialized Spec"
+  },
+  {
+   "fieldname": "workflow_state",
+   "fieldtype": "JSON",
+   "label": "Workflow State"
+  },
+  {
+   "fieldname": "section_break_uyli",
+   "fieldtype": "Section Break"
+  }
+ ],
+ "grid_page_length": 50,
+ "in_create": 1,
+ "index_web_pages_for_search": 1,
+ "links": [],
+ "modified": "2026-04-21 15:46:20.383269",
+ "modified_by": "k.sharma@one-fm.com",
+ "module": "ONE BPMN",
+ "name": "BPMN Process Instance",
+ "owner": "Administrator",
+ "permissions": [
+  {
+   "create": 1,
+   "delete": 1,
+   "email": 1,
+   "export": 1,
+   "print": 1,
+   "read": 1,
+   "report": 1,
+   "role": "System Manager",
+   "share": 1,
+   "write": 1
+  },
+  {
+   "create": 1,
+   "delete": 1,
+   "email": 1,
+   "export": 1,
+   "print": 1,
+   "read": 1,
+   "report": 1,
+   "role": "Process Owner",
+   "share": 1,
+   "write": 1
+  },
+  {
+   "create": 1,
+   "delete": 1,
+   "email": 1,
+   "export": 1,
+   "print": 1,
+   "read": 1,
+   "report": 1,
+   "role": "Employee",
+   "share": 1,
+   "write": 1
+  }
+ ],
+ "row_format": "Dynamic",
+ "rows_threshold_for_grid_search": 20,
+ "sort_field": "modified",
+ "sort_order": "DESC",
+ "states": []
+}
