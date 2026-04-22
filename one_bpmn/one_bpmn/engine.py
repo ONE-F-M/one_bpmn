@@ -148,14 +148,33 @@ class FrappeScriptEngine(PythonScriptEngine):
 			local_vars["doc"] = _frappe._dict()
 
 		try:
-			# Use plain exec() rather than frappe.safe_exec().
-			# frappe.safe_exec() is a security gate for *untrusted* browser-submitted
-			# scripts — it requires server_script_enabled in common_site_config and
-			# runs code in a RestrictedPython sandbox with a limited frappe namespace.
-			# BPMN Server Scripts are trusted, pre-deployed code stored in the DB,
-			# so they run with the real frappe module and no config gate.
-			exec_globals = {"frappe": _frappe, "__builtins__": __builtins__}  # noqa: S102
-			exec(script_doc.script, exec_globals, local_vars)  # noqa: S102
+			# Use RestrictedPython sandbox (same as frappe.safe_exec) but skip
+			# the is_safe_exec_enabled() config gate.  That gate exists to prevent
+			# untrusted browser-submitted code from running; BPMN Server Scripts
+			# are pre-deployed, DB-stored code authored by developers, so the gate
+			# is unnecessary here.  The sandbox itself (RestrictedPython + limited
+			# frappe namespace) is still applied — no raw __builtins__, no unchecked
+			# imports, no dunder attribute access.
+			from RestrictedPython import compile_restricted
+			from frappe.utils.safe_exec import (
+				FrappeTransformer,
+				SERVER_SCRIPT_FILE_PREFIX,
+				get_safe_globals,
+				patched_qb,
+				safe_exec_flags,
+			)
+
+			exec_globals = get_safe_globals()
+			with safe_exec_flags(), patched_qb():
+				exec(  # noqa: S102
+					compile_restricted(
+						script_doc.script,
+						filename=f"{SERVER_SCRIPT_FILE_PREFIX}: {script_name}",
+						policy=FrappeTransformer,
+					),
+					exec_globals,
+					local_vars,
+				)
 		except Exception:
 			_frappe.log_error(
 				title=f'BPMN ScriptTask: "{script_name}" execution failed',
