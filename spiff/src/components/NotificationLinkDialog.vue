@@ -1,6 +1,39 @@
 <template>
 	<Dialog v-model="ctx.showNotificationDialog.value" :options="{ title: 'Link Notification', size: '5xl' }">
 		<template #body-content>
+			<!-- Inline Notification -->
+			<div v-if="notification.show" class="mb-4">
+				<div
+					class="flex items-start gap-3 rounded-lg px-4 py-3 text-sm shadow-sm border transition-all"
+					:class="{
+						'bg-green-50 border-green-200 text-green-800': notification.theme === 'green',
+						'bg-red-50 border-red-200 text-red-800': notification.theme === 'red',
+						'bg-yellow-50 border-yellow-200 text-yellow-800': notification.theme === 'yellow',
+						'bg-blue-50 border-blue-200 text-blue-800': !notification.theme || notification.theme === 'blue',
+					}"
+				>
+					<Icon
+						:icon="
+							notification.theme === 'green'
+								? 'lucide:check-circle'
+								: notification.theme === 'red'
+								? 'lucide:alert-circle'
+								: notification.theme === 'yellow'
+								? 'lucide:alert-triangle'
+								: 'lucide:info'
+						"
+						class="w-5 h-5 shrink-0 mt-0.5"
+					/>
+					<div class="flex-1">
+						<div class="font-semibold">{{ notification.title }}</div>
+						<div class="mt-0.5 opacity-90">{{ notification.message }}</div>
+					</div>
+					<button @click="notification.show = false" class="text-current opacity-50 hover:opacity-100">
+						<Icon icon="lucide:x" class="w-4 h-4" />
+					</button>
+				</div>
+			</div>
+
 			<div class="space-y-4">
 				<!-- Mode Tabs -->
 				<div class="flex border-b border-gray-200">
@@ -331,4 +364,5 @@ import { Icon } from "@iconify/vue";
 
 // Inject the composable instance provided by Editor.vue
 const ctx = inject("notifDialog");
+const notification = inject("notification");
 </script>

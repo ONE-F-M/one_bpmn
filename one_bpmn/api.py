@@ -844,6 +844,34 @@ def create_server_script(
 	return {"name": doc.name, "script_type": doc.script_type}
 
 
+@frappe.whitelist()
+def toggle_server_script(script_name: str, disabled: int) -> dict:
+	"""Toggle the disabled status of a Server Script record."""
+	if not script_name:
+		frappe.throw(_("Script name is required"))
+
+	# Permission check: Script Manager or System Manager
+	if not frappe.has_permission("Server Script", "write") and "System Manager" not in frappe.get_roles():
+		frappe.throw(
+			_("You need the Script Manager or System Manager role to toggle Server Scripts."),
+			frappe.PermissionError,
+		)
+
+	# Use set_value to bypass ServerScript validation logic which checks for
+	# exactly the 'Script Manager' role. The has_permission check above
+	# already proves the current user is authorized (e.g. System Manager).
+	frappe.db.set_value(
+		"Server Script",
+		script_name,
+		"disabled",
+		int(disabled),
+		update_modified=True
+	)
+
+	return {"name": script_name, "disabled": int(disabled)}
+
+
+
 # ============================================
 # Notification API
 # Creates Notification documents from the BPMN Send Task dialog.

@@ -102,7 +102,7 @@
 </template>
 
 <script setup>
-import { ref } from "vue";
+import { ref, computed } from "vue";
 import { frappeRequest } from "frappe-ui";
 import { Icon } from "@iconify/vue";
 import { dayjs } from "@/dayjs";
@@ -214,5 +214,7 @@ function relativeTime(timestamp) {
 	return dayjs(timestamp).fromNow();
 }
 
-defineExpose({ open });
+const isAnyDialogOpen = computed(() => showPickerDialog.value || showDiffDialog.value);
+
+defineExpose({ open, isAnyDialogOpen });
 </script>
