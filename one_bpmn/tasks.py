@@ -114,7 +114,6 @@ def _start_timer_instance(model_name: str):
 	model = frappe.get_doc("BPMN Process Model", model_name)
 
 	if not model.serialized_spec:
-		frappe.logger("one_bpmn").warning(f"Timer Start: model {model_name} has no compiled spec — skipping")
 		return
 
 	instance = frappe.new_doc("BPMN Process Instance")
@@ -136,9 +135,6 @@ def _start_timer_instance(model_name: str):
 		}
 	)
 
-	frappe.logger("one_bpmn").info(
-		f"BPMN Timer Start: created instance {instance.name} for model {model_name}"
-	)
 	frappe.db.commit()
 
 
@@ -243,11 +239,6 @@ def _refresh_timer_tasks(instance_name: str):
 
 		instance.save(ignore_permissions=True)
 		frappe.db.commit()
-
-		frappe.logger("one_bpmn").info(
-			f"BPMN Timer Catch: refreshed instance {instance_name} — "
-			f"{waiting_before - waiting_after} timer(s) fired"
-		)
 
 		# Publish realtime for auto-refresh
 		frappe.publish_realtime(
