@@ -16,7 +16,7 @@
 		<Dialog v-model="showExportDialog" :options="{ title: 'Export Process Map' }">
 			<template #body-content>
 				<div class="space-y-2">
-					<p class="text-sm text-gray-500 mb-3">Choose a Process Map to download:</p>
+					<p class="text-sm text-gray-500 mb-3">Choose a process map to download:</p>
 					<div
 						v-for="d in exportDialogDiagrams"
 						:key="d.name"
