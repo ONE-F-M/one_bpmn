@@ -212,7 +212,17 @@ class BPMNProcessInstance(Document):
 		if data:
 			task.data.update(data)
 
+		# Capture current assignments BEFORE marking task completed,
+		# so the diff in _sync_active_tasks knows who was previously assigned.
+		prev_assigned = {
+			row.assigned_user
+			for row in self.active_tasks
+			if row.status == "Waiting" and row.assigned_user
+		}
+
 		# Mark the active_tasks row as Completed
+		# (Frappe assignment cleanup is handled by _sync_active_tasks
+		# via a before/after diff to avoid close+recreate for the same user)
 		for row in self.active_tasks:
 			if row.task_id == task_id:
 				row.status = "Completed"
@@ -237,7 +247,7 @@ class BPMNProcessInstance(Document):
 		self.workflow_state = json.dumps(bpmn_engine.serialize_workflow(wf))
 
 		# Rebuild active tasks
-		self._sync_active_tasks(wf)
+		self._sync_active_tasks(wf, prev_assigned=prev_assigned)
 
 		self._check_completion(wf)
 
@@ -1022,7 +1032,7 @@ class BPMNProcessInstance(Document):
 				now=False,
 			)
 
-	def _sync_active_tasks(self, wf):
+	def _sync_active_tasks(self, wf, prev_assigned=None):
 		"""
 		Rebuild the active_tasks child table to reflect the current
 		set of READY User Tasks in the workflow.
@@ -1030,9 +1040,26 @@ class BPMNProcessInstance(Document):
 		- Keeps rows that are already Completed (for audit visibility)
 		- Adds new rows for newly READY user tasks
 		- Removes rows for tasks that are no longer READY
+		- Manages Frappe assignments (ToDo) via before/after diff:
+		  same user keeps existing ToDo; changed user gets old closed, new created
+
+		Args:
+		    prev_assigned: set of user emails that had Open assignments before
+		                   this sync. Passed from advance() which captures the
+		                   snapshot before marking the task row Completed.
+		                   When None (e.g. called from start()), computed from
+		                   current Waiting rows.
 		"""
 		ready_user_tasks = bpmn_engine.get_ready_user_tasks(wf)
 		new_ready_ids = {str(t.id) for t in ready_user_tasks}
+
+		# Snapshot: which users have Open assignments before this rebuild
+		if prev_assigned is None:
+			prev_assigned = {
+				row.assigned_user
+				for row in self.active_tasks
+				if row.status == "Waiting" and row.assigned_user
+			}
 
 		# Keep completed rows + rows still waiting that are still ready
 		self.active_tasks = [
@@ -1082,6 +1109,22 @@ class BPMNProcessInstance(Document):
 				task_name=task_name,
 				action="Started",
 			)
+
+		# Diff: which users are now assigned across all Waiting tasks
+		curr_assigned = {
+			row.assigned_user: row.task_name
+			for row in self.active_tasks
+			if row.status == "Waiting" and row.assigned_user
+		}
+
+		# Close ToDos for users who were assigned but no longer are
+		for user in prev_assigned - set(curr_assigned.keys()):
+			self._remove_frappe_assignment(user)
+
+		# Create ToDos for users who are newly assigned
+		for user, task_name in curr_assigned.items():
+			if user not in prev_assigned:
+				self._add_frappe_assignment(user, task_name)
 
 	def _resolve_assignment(self, task) -> str:
 		"""
@@ -1214,6 +1257,82 @@ class BPMNProcessInstance(Document):
 				return users[0] if users else ""
 
 		return ""
+
+	def _add_frappe_assignment(self, user: str, task_name: str = "") -> None:
+		"""
+		Create a Frappe Assignment (ToDo) on the context document for the
+		resolved user.  This makes the assignment visible in Frappe's sidebar,
+		notifications, and the user's ToDo list.
+
+		Silently skips if no context document is linked or if the user is
+		already assigned.  Failures are logged but never break the workflow.
+		"""
+		if not (self.context_doctype and self.context_docname and user):
+			return
+
+		try:
+			from frappe.desk.form.assign_to import add as assign_add
+
+			# Check if already assigned to avoid duplicates
+			existing = frappe.db.exists(
+				"ToDo",
+				{
+					"reference_type": self.context_doctype,
+					"reference_name": self.context_docname,
+					"allocated_to": user,
+					"status": "Open",
+				},
+			)
+			if existing:
+				return
+
+			description = _('BPMN Task: "{0}" on instance {1}').format(
+				task_name or "User Task", self.name
+			)
+
+			assign_add({
+				"doctype": self.context_doctype,
+				"name": self.context_docname,
+				"assign_to": [user],
+				"description": description,
+				"notify": 1,
+			}, ignore_permissions=True)
+		except Exception:
+			frappe.log_error(
+				title=f"BPMN: Failed to assign {self.context_doctype} to {user}",
+				message=frappe.get_traceback(),
+			)
+
+	def _remove_frappe_assignment(self, user: str) -> None:
+		"""
+		Close the Frappe Assignment (ToDo) on the context document when
+		the User Task is completed.
+
+		Sets the ToDo status to "Closed" (task finished) — not "Cancelled"
+		(task removed).  Uses ``set_status`` directly instead of ``close()``
+		because ``close()`` asserts ``session.user == assignee``, which fails
+		when the engine runs under a different user context.
+
+		Failures are logged but never break the workflow.
+		"""
+		if not (self.context_doctype and self.context_docname and user):
+			return
+
+		try:
+			from frappe.desk.form.assign_to import set_status
+
+			set_status(
+				self.context_doctype,
+				self.context_docname,
+				assign_to=user,
+				status="Closed",
+				ignore_permissions=True,
+			)
+		except Exception:
+			frappe.log_error(
+				title=f"BPMN: Failed to close assignment on {self.context_doctype} for {user}",
+				message=frappe.get_traceback(),
+			)
 
 	def _check_completion(self, wf):
 		"""

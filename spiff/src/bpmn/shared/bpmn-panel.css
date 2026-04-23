@@ -164,10 +164,37 @@
 	padding: 0 0 4px 24px;
 }
 
-.bpmn-code-textarea {
-	font-family: monospace;
-	font-size: 12px;
+.bpmn-frappe-textarea {
+	width: 100%;
+	box-sizing: border-box;
+	font-family: 'Inter', -apple-system, BlinkMacSystemFont, sans-serif;
+	font-size: 13px;
+	line-height: 1.5;
+	padding: 8px 10px;
+	border: 1px solid #d1d5db;
+	border-radius: 6px;
+	background: #fff;
+	color: #1f2937;
 	resize: vertical;
+	outline: none;
+	transition: border-color 0.15s ease, box-shadow 0.15s ease;
+}
+
+.bpmn-frappe-textarea:focus {
+	border-color: #2490ef;
+	box-shadow: 0 0 0 2px rgba(36, 144, 239, 0.15);
+}
+
+.bpmn-frappe-textarea::placeholder {
+	color: #9ca3af;
+	font-size: 12px;
+}
+
+.bpmn-frappe-hint {
+	font-size: 11px;
+	color: #6b7280;
+	line-height: 1.4;
+	margin-top: 4px;
 }
 
 .bpmn-config-area {
