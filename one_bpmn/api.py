@@ -393,9 +393,8 @@ def delete_diagram(name: str) -> dict:
 	
 	if not name:
 		frappe.throw(_("Process Map name is required"))
-    
+	
 	cleanup_process_model_assets(name)
-
 	# frappe.delete_doc handles: existence check, doc-level permissions,
 	# link validation, child table cleanup, Version/Comment/File/DocShare/ToDo removal
 	frappe.delete_doc("BPMN Process Model", name)
@@ -525,11 +524,11 @@ def get_workflow_states_for_doctype(doctype: str) -> list:
 	properties panel to populate the Workflow State autocomplete.
 
 	Args:
-	    doctype: The Frappe DocType name (e.g. 'Employee Daily Action')
+		doctype: The Frappe DocType name (e.g. 'Employee Daily Action')
 
 	Returns:
-	    list of dicts: [{"state": "Draft", "style": "Danger"}, ...]
-	    Empty list if no active workflow is configured for the DocType.
+		list of dicts: [{"state": "Draft", "style": "Danger"}, ...]
+		Empty list if no active workflow is configured for the DocType.
 	"""
 	if not doctype:
 		return []
@@ -1547,15 +1546,15 @@ def _extract_service_task_config(bpmn_xml: str) -> dict:
 	the correct handler when the task executes.
 
 	Returns:
-	    dict keyed by BPMN element ID::
+		dict keyed by BPMN element ID::
 
-	        {
-	            "Activity_097ls3l": {
-	                "serviceType": "apply_workflow",
-	                "workflowState": "Draft",
-	                "onlyAllowEdit": "Employee",
-	            },
-	        }
+			{
+				"Activity_097ls3l": {
+					"serviceType": "apply_workflow",
+					"workflowState": "Draft",
+					"onlyAllowEdit": "Employee",
+				},
+			}
 	"""
 	import xml.etree.ElementTree as _ET
 
@@ -1593,15 +1592,15 @@ def _extract_user_task_config(bpmn_xml: str) -> dict:
 	Mirors ``_extract_service_task_config`` but for UserTasks.
 
 	Returns:
-	    dict keyed by BPMN element ID::
+		dict keyed by BPMN element ID::
 
-	        {
-	            "Activity_1abc": {
-	                "assigneeMode": "Round Robin",
-	                "assigneeUsers": "admin@example.com,hr@example.com",
-	                "targetDoctype": "Employee",
-	            },
-	        }
+			{
+				"Activity_1abc": {
+					"assigneeMode": "Round Robin",
+					"assigneeUsers": "admin@example.com,hr@example.com",
+					"targetDoctype": "Employee",
+				},
+			}
 	"""
 	import xml.etree.ElementTree as _ET
 
@@ -1840,10 +1839,10 @@ def _get_linked_server_scripts(spec_json: str) -> set:
 	in a BPMN Process Model's serialized spec.
 
 	Args:
-	    spec_json: JSON string from BPMN Process Model.serialized_spec
+		spec_json: JSON string from BPMN Process Model.serialized_spec
 
 	Returns:
-	    set of Server Script names (may be empty)
+		set of Server Script names (may be empty)
 	"""
 	if not spec_json:
 		return set()
@@ -1874,8 +1873,8 @@ def _activate_deployed_model(model, script_extensions: dict) -> None:
 	calling ``model.save()``.
 
 	Args:
-	    model:             BPMN Process Model document (in-memory)
-	    script_extensions: dict from ``_extract_script_task_config()``
+		model:             BPMN Process Model document (in-memory)
+		script_extensions: dict from ``_extract_script_task_config()``
 	"""
 
 	model.is_active = 1
@@ -1929,7 +1928,7 @@ def _update_round_robin_in_model(model_name: str, task_bpmn_id: str, last_user: 
 
 	  1. Reads/increments ``next_idx`` in ``round_robin_state`` JSON field.
 	  2. Updates ``spiffworkflow:roundRobinLastUser`` attribute in the stored
-	     BPMN XML so the editor reflects the last-assigned user.
+		 BPMN XML so the editor reflects the last-assigned user.
 	  3. Saves the model with ``ignore_permissions=True`` (called from engine).
 	"""
 	import xml.etree.ElementTree as _ET
@@ -1979,7 +1978,7 @@ def _ensure_script_task_inline_scripts(bpmn_xml: str) -> str:
 	``<bpmn:script>`` tag entirely.  Without this function the compile step
 	would fail with:
 
-	    AssertionError: Expected 1 result. Received 0 results.
+		AssertionError: Expected 1 result. Received 0 results.
 
 	At runtime FrappeScriptEngine ignores the inline "pass" script when a
 	Server Script is configured and calls the Server Script directly instead.
@@ -2033,14 +2032,14 @@ def compile_process_model(model_name: str) -> dict:
 
 	Must be called after saving/importing a diagram before any instance
 	can be started.  Stores the result in:
-	    BPMN Process Model.serialized_spec  (main process spec)
-	    BPMN Process Model.subprocess_specs (call activities / sub-processes)
+		BPMN Process Model.serialized_spec  (main process spec)
+		BPMN Process Model.subprocess_specs (call activities / sub-processes)
 
 	Args:
-	    model_name: Name of the BPMN Process Model
+		model_name: Name of the BPMN Process Model
 
 	Returns:
-	    dict with success, version, subprocess_count
+		dict with success, version, subprocess_count
 	"""
 	if not model_name:
 		frappe.throw(_("Model name is required"))
@@ -2158,10 +2157,10 @@ def _extract_script_task_config(bpmn_xml: str) -> dict:
 	The attribute is written by the BPMN editor as a direct XML attribute on
 	the ``<bpmn:scriptTask>`` element, e.g.:
 
-	    <bpmn:scriptTask id="Task_1"
-	        spiffworkflow:serverScript="My Server Script">
-	      <bpmn:script>pass</bpmn:script>
-	    </bpmn:scriptTask>
+		<bpmn:scriptTask id="Task_1"
+			spiffworkflow:serverScript="My Server Script">
+		  <bpmn:script>pass</bpmn:script>
+		</bpmn:scriptTask>
 
 	Fallback: if no ``spiffworkflow:serverScript`` attribute is set, but the
 	inline ``<bpmn:script>`` content looks like a Frappe record name (i.e. it
@@ -2296,19 +2295,19 @@ def _apply_bpmn_workflow_state(
 	8. Workflow comment  — adds a "Workflow" type comment (same as Frappe)
 
 	Args:
-	    doctype:         The Frappe DocType (e.g. ``Employee Daily Action``)
-	    docname:         The document name
-	    target_state:    The workflow state to move to (e.g. ``Submitted``)
-	    only_allow_role: If non-empty, only users with this role may perform
-	                     the action (mirrors the Frappe workflow state's
-	                     ``allow_edit`` field)
-	    triggered_by:    The user who triggered the BPMN instance
-	                     (used in place of frappe.session.user when the engine
-	                     runs in a background worker context)
+		doctype:         The Frappe DocType (e.g. ``Employee Daily Action``)
+		docname:         The document name
+		target_state:    The workflow state to move to (e.g. ``Submitted``)
+		only_allow_role: If non-empty, only users with this role may perform
+						 the action (mirrors the Frappe workflow state's
+						 ``allow_edit`` field)
+		triggered_by:    The user who triggered the BPMN instance
+						 (used in place of frappe.session.user when the engine
+						 runs in a background worker context)
 
 	Raises:
-	    frappe.PermissionError  — role check failed
-	    frappe.ValidationError  — invalid state or illegal docstatus transition
+		frappe.PermissionError  — role check failed
+		frappe.ValidationError  — invalid state or illegal docstatus transition
 	"""
 	from frappe.model.workflow import get_workflow_name, get_workflow, has_approval_access
 	from frappe.model.docstatus import DocStatus
@@ -2429,13 +2428,13 @@ def start_process(
 	gateways, etc.) and pause at the first User Task(s).
 
 	Args:
-	    model_name:       Name of the BPMN Process Model to run
-	    context_doctype:  Optional linked Frappe DocType (e.g. 'Work Item')
-	    context_docname:  Optional linked document name
-	    initial_data:     Optional JSON string of initial workflow data
+		model_name:       Name of the BPMN Process Model to run
+		context_doctype:  Optional linked Frappe DocType (e.g. 'Work Item')
+		context_docname:  Optional linked document name
+		initial_data:     Optional JSON string of initial workflow data
 
 	Returns:
-	    dict with instance name, status, and first active tasks
+		dict with instance name, status, and first active tasks
 	"""
 	if not model_name:
 		frappe.throw(_("model_name is required"))
@@ -2495,12 +2494,12 @@ def complete_task(
 	  4. Role check            — does the user have the required role (if any)?
 
 	Args:
-	    instance_name: Name of the BPMN Process Instance
-	    task_id:       The SpiffWorkflow task UUID (from active_tasks.task_id)
-	    data:          Optional JSON string of form data submitted by the user
+		instance_name: Name of the BPMN Process Instance
+		task_id:       The SpiffWorkflow task UUID (from active_tasks.task_id)
+		data:          Optional JSON string of form data submitted by the user
 
 	Returns:
-	    dict with updated status and next active tasks
+		dict with updated status and next active tasks
 	"""
 	if not instance_name or not task_id:
 		frappe.throw(_("instance_name and task_id are required"))
@@ -2667,10 +2666,10 @@ def get_instance_tasks(instance_name: str) -> dict:
 	Get the current active tasks and status for a process instance.
 
 	Args:
-	    instance_name: Name of the BPMN Process Instance
+		instance_name: Name of the BPMN Process Instance
 
 	Returns:
-	    dict with instance details and waiting tasks
+		dict with instance details and waiting tasks
 	"""
 	if not instance_name:
 		frappe.throw(_("instance_name is required"))
@@ -2698,11 +2697,11 @@ def get_instances_for_document(doctype: str, docname: str) -> list:
 	Useful for showing workflow history on a Work Item or any other DocType.
 
 	Args:
-	    doctype: e.g. 'Work Item'
-	    docname: the document name
+		doctype: e.g. 'Work Item'
+		docname: the document name
 
 	Returns:
-	    list of instance summaries, most recent first
+		list of instance summaries, most recent first
 	"""
 	if not doctype or not docname:
 		frappe.throw(_("doctype and docname are required"))
