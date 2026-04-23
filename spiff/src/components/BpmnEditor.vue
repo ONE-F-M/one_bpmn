@@ -496,6 +496,9 @@ import "bpmn-js/dist/assets/diagram-js.css";
 import "bpmn-js/dist/assets/bpmn-js.css";
 import "bpmn-js/dist/assets/bpmn-font/css/bpmn.css";
 
+// Touch interaction support for mobile devices
+import touchInteractionModule from "bpmn-js-touch-interaction";
+
 // Import properties panel CSS
 import "@bpmn-io/properties-panel/dist/assets/properties-panel.css";
 
@@ -610,7 +613,8 @@ const toolbarEl = ref(null);
 const canUndo = ref(false);
 const canRedo = ref(false);
 const zoomLevel = ref(100);
-const showPropertiesPanel = ref(true);
+// Desktop: start visible (collapsed sidebar); Mobile: start hidden (no bottom sheet on load)
+const showPropertiesPanel = ref(window.innerWidth >= 640);
 const propertiesCollapsed = ref(true);
 const isMounted = ref(false);
 const isImporting = ref(false);
@@ -846,6 +850,7 @@ onMounted(async () => {
 				clipboardModule,
 				lintModule,
 				nativeCopyPasteModule,
+				touchInteractionModule,
 			],
 			taskResizingEnabled: true,
 			linting: {
@@ -866,8 +871,9 @@ onMounted(async () => {
 					fontSize: "12px",
 				},
 			},
-			// Disable keyboard bindings in readonly mode
-			keyboard: props.readonly ? false : { bindTo: document },
+			// In bpmn-js v18+, keyboard binds to the canvas automatically.
+			// Disable keyboard entirely in readonly mode.
+			keyboard: props.readonly ? false : {},
 		},
 		onReady: async (initializedModeler) => {
 			modeler = initializedModeler;
@@ -997,6 +1003,14 @@ onMounted(async () => {
 			eventBus.on("selection.changed", (e) => {
 				selectedElements.value = e.newSelection || [];
 
+				// Auto-open the properties panel when an element is selected
+				if (e.newSelection?.length > 0) {
+					showPropertiesPanel.value = true;
+					if (!isMobile.value) {
+						propertiesCollapsed.value = false;
+					}
+				}
+
 				// Inject Process Name field when a Call Activity is selected
 				const single = e.newSelection?.length === 1 ? e.newSelection[0] : null;
 				if (single?.type === "bpmn:CallActivity") {
@@ -1058,6 +1072,7 @@ onMounted(async () => {
 		eventBus.on("import.done", () => {
 			renderComments();
 		});
+
 
 		// --- SpiffWorkflow EventBus Integration ---
 		// These handlers are required for the spiffworkflow properties panel
@@ -1928,9 +1943,19 @@ defineExpose({
 	isolation: isolate;
 }
 
-/* Canvas Focus */
-.bpmn-canvas:focus {
-	outline: none;
+/* Canvas Focus — suppress browser default outline on all focusable children.
+   bpmn-js adds tabindex="0" on its root SVG, which triggers a visible
+   outline (color/style/width/offset) on focus in Chromium.
+   Reset all four sub-properties individually to override the UA stylesheet. */
+.bpmn-canvas:focus,
+.bpmn-canvas *:focus,
+.bpmn-canvas svg[tabindex]:focus,
+.bpmn-canvas svg[tabindex="0"]:focus {
+	outline: none !important;
+	outline-color: transparent !important;
+	outline-style: none !important;
+	outline-width: 0 !important;
+	outline-offset: 0 !important;
 }
 
 /* Properties Panel Styling (Frappe UI Skin) */
