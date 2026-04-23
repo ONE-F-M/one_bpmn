@@ -481,8 +481,8 @@ def rename_process_model(name: str, new_title: str) -> dict:
 @frappe.whitelist()
 def get_assignee_docfields(doctype: str) -> list:
 	"""
-	Safe endpoint for the BPMN editor to get all Link fields pointing to User
-	for a specific Target DocType. Bypasses the strict DocField table permissions.
+	Safe endpoint for the BPMN editor to get all User-linked fields
+	for a specific Target DocType. Includes standard fields like 'owner'.
 
 	Args:
 		doctype: Target DocType name
@@ -499,9 +499,18 @@ def get_assignee_docfields(doctype: str) -> list:
 	except frappe.DoesNotExistError:
 		return []
 
-	fields = meta.get("fields", {"fieldtype": "Link", "options": "User"})
+	# Start with standard User fields available on all DocTypes
+	res = [
+		{"fieldname": "owner", "label": _("Owner")},
+		{"fieldname": "modified_by", "label": _("Modified By")},
+	]
 
-	return [{"fieldname": f.fieldname, "label": f.label} for f in fields]
+	# Add all Link fields pointing to User
+	for f in meta.get("fields"):
+		if f.fieldtype == "Link" and f.options == "User":
+			res.append({"fieldname": f.fieldname, "label": f.label})
+
+	return res
 
 
 @frappe.whitelist()
