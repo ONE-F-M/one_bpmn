@@ -1,5 +1,5 @@
 <template>
-	<div class="formatting-toolbar flex items-center gap-2">
+	<div class="formatting-toolbar flex items-center gap-2 min-w-0 overflow-hidden flex-nowrap">
 		<!-- Fill Color Picker -->
 		<div class="relative" ref="fillPickerRef">
 			<button

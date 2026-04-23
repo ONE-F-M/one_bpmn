@@ -54,7 +54,7 @@
 					'flex items-center gap-2 pl-4 pr-1 py-1.5 rounded text-sm cursor-pointer transition-colors shrink-0 group',
 					activeTab === tab.name
 						? 'bg-gray-700 text-white shadow-sm'
-						: 'bg-gray-500 text-gray-100 hover:bg-gray-600'
+						: 'bg-transparent text-gray-600 hover:bg-gray-200'
 				]"
 				@click="$emit('select-tab', tab.name)"
 				@dblclick.stop="!readonly && startEditing(tab)"
@@ -85,7 +85,7 @@
 				<div v-if="editingTab !== tab.name && !readonly" class="relative">
 					<button
 						@click.stop="toggleTabMenu(tab, $event)"
-						class="p-1 rounded hover:bg-white/20 text-white/60 hover:text-white transition-colors tab-menu-trigger"
+						class="p-1 rounded opacity-50 hover:opacity-100 hover:bg-black/10 transition-all tab-menu-trigger"
 					>
 						<Icon icon="lucide:more-vertical" class="w-4 h-4" />
 					</button>
@@ -251,19 +251,17 @@ function cancelEditing() {
 </script>
 
 <style scoped>
-/* Fade hints on left/right edges of scrollable tab container */
+/* Fade hint on right edge of scrollable tab container */
 .tab-scroll-fade {
 	mask-image: linear-gradient(
 		to right,
-		transparent 0,
-		black 12px,
+		black 0,
 		black calc(100% - 12px),
 		transparent 100%
 	);
 	-webkit-mask-image: linear-gradient(
 		to right,
-		transparent 0,
-		black 12px,
+		black 0,
 		black calc(100% - 12px),
 		transparent 100%
 	);
