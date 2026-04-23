@@ -482,7 +482,6 @@ import userTaskPropertiesProviderModule from "@/bpmn/userTaskPropertiesProvider"
 import sendTaskPropertiesProviderModule from "@/bpmn/sendTaskPropertiesProvider";
 import serviceTaskPropertiesProviderModule from "@/bpmn/serviceTaskPropertiesProvider";
 import scriptTaskPropertiesProviderModule from "@/bpmn/scriptTaskPropertiesProvider";
-import intermediateEventPropertiesProviderModule from "@/bpmn/intermediateEventPropertiesProvider";
 import timerPropertiesProviderModule from "@/bpmn/timerPropertiesProvider";
 import startEventPropertiesProviderModule from "@/bpmn/startEventPropertiesProvider";
 import conditionalStartEventPropertiesProviderModule from "@/bpmn/conditionalStartEventPropertiesProvider";
@@ -754,21 +753,6 @@ onMounted(async () => {
 				});
 			}
 			
-			// Intermediate Event extension (hot-reloading safety)
-			const hasIntermediateEventExt = spiffModdleExtension.types.find(t => t.name === "IntermediateEventExtension");
-			if (!hasIntermediateEventExt) {
-				spiffModdleExtension.types.push({
-					name: "IntermediateEventExtension",
-					extends: ["bpmn:IntermediateCatchEvent", "bpmn:IntermediateThrowEvent"],
-					properties: [
-						{ name: "targetDoctype", isAttr: true, type: "String" },
-						{ name: "triggerWorkflow", isAttr: true, type: "String" },
-						{ name: "triggerWorkflowState", isAttr: true, type: "String" },
-						{ name: "assignmentRule", isAttr: true, type: "String" }
-					]
-				});
-			}
-
 			// Send Task notification extension
 			const hasSendTaskExt = spiffModdleExtension.types.find(t => t.name === "SendTaskNotificationExtension");
 			if (!hasSendTaskExt) {
@@ -852,7 +836,6 @@ onMounted(async () => {
 				sendTaskPropertiesProviderModule,
 				serviceTaskPropertiesProviderModule,
 				scriptTaskPropertiesProviderModule,
-				intermediateEventPropertiesProviderModule,
 				timerPropertiesProviderModule,
 				startEventPropertiesProviderModule,
 				conditionalStartEventPropertiesProviderModule,
