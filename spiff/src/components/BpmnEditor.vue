@@ -180,7 +180,7 @@
 							: 'absolute inset-y-0 right-0 border-l border-gray-200 md:relative',
 						// Desktop: collapse behavior
 						!isMobile && propertiesCollapsed 
-							? 'w-[48px] overflow-hidden' 
+							? 'w-0 overflow-hidden' 
 							: !isMobile ? 'w-full md:w-96 overflow-auto' : '',
 						{ 'properties-panel--readonly': readonly }
 					]"
@@ -210,15 +210,7 @@
 						<!-- Content is injected here by bpmn-js-properties-panel -->
 					</div>
 
-					<!-- Desktop: Sidebar-style collapse placeholder -->
-					<div 
-						v-if="!isMobile && propertiesCollapsed"
-						class="absolute inset-0 flex flex-col items-center pt-4 bg-gray-50 cursor-pointer hover:bg-gray-100 transition-colors"
-						@click="togglePropertiesCollapse"
-					>
-						<Icon icon="lucide:settings" class="w-5 h-5 text-gray-400 mb-4 animate-pulse" />
-						<div class="w-px h-full bg-gray-200"></div>
-					</div>
+	
 				</div>
 			</transition>
 
@@ -229,7 +221,7 @@
 				v-if="!isMobile && showPropertiesPanel"
 				@click="togglePropertiesCollapse"
 				class="absolute top-1/2 -translate-y-1/2 w-6 h-12 bg-white border border-gray-200 rounded-l-lg shadow-md hidden md:flex items-center justify-center text-gray-500 hover:text-gray-900 transition-all duration-300 z-[65]"
-				:style="{ right: (propertiesCollapsed ? 48 : 384) + 'px' }"
+				:style="{ right: (propertiesCollapsed ? 0 : 384) + 'px' }"
 				:title="propertiesCollapsed ? 'Expand Properties Panel' : 'Collapse Properties Panel'"
 			>
 				<Icon :icon="propertiesCollapsed ? 'lucide:chevron-left' : 'lucide:chevron-right'" class="w-4 h-4" />
@@ -612,7 +604,7 @@ const canUndo = ref(false);
 const canRedo = ref(false);
 const zoomLevel = ref(100);
 const showPropertiesPanel = ref(true);
-const propertiesCollapsed = ref(true);
+const propertiesCollapsed = ref(false);
 const isMounted = ref(false);
 const isImporting = ref(false);
 // const showMinimap = ref(true); // DISABLED
