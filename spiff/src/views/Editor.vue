@@ -5,16 +5,16 @@
 			
 			<div class="flex items-center gap-2 flex-1 min-w-0">
 				<!-- Left: Back & Title -->
-				<div class="flex items-center gap-2 pr-3 sm:border-r sm:border-gray-200 shrink-0">
+				<div class="flex items-center gap-2 pr-3 sm:border-r sm:border-gray-200 min-w-0 shrink">
 					<button
 						@click="goBack"
-						class="p-1.5 hover:bg-gray-100 rounded-md transition-colors text-gray-600"
+						class="p-1.5 hover:bg-gray-100 rounded-md transition-colors text-gray-600 shrink-0"
 						title="Back to list"
 					>
 						<Icon icon="lucide:chevron-left" class="w-5 h-5" />
 					</button>
-					<div class="flex items-center gap-2 relative">
-						<h1 class="text-sm font-semibold text-gray-800 truncate max-w-[160px] sm:max-w-[200px]" :title="processName">{{ processName }}</h1>
+					<div class="flex items-center gap-2 relative min-w-0">
+						<h1 class="text-sm font-semibold text-gray-800 truncate max-w-[120px] sm:max-w-[180px] lg:max-w-[260px]" :title="processName">{{ processName }}</h1>
 						
 						<!-- Status Icon -->
 						<button 
@@ -66,7 +66,7 @@
 				</div>
 
 				<!-- CENTER: BPMN Tools Container (Mounted natively from BpmnEditor.vue, hidden on mobile) -->
-				<div id="bpmn-editor-toolbar" class="hidden sm:flex flex-1 items-center h-8 min-w-0"></div>
+				<div id="bpmn-editor-toolbar" class="hidden sm:flex flex-1 items-center h-8 min-w-0 overflow-hidden"></div>
 
 				<!-- Other Active Editors Avatars (hidden on mobile) -->
 				<div v-if="otherEditors.length > 0" class="hidden sm:flex items-center -space-x-2 ml-4">
@@ -126,6 +126,17 @@
 						:class="{ 'opacity-40 cursor-not-allowed': !activeDiagramName }"
 					>
 						<Icon icon="lucide:history" class="w-4 h-4" />
+					</button>
+
+					<!-- Toggle Properties Panel -->
+					<button
+						@click="togglePropertiesPanel"
+						class="w-8 h-8 flex items-center justify-center hover:bg-gray-100 rounded transition-colors text-gray-600"
+						title="Toggle Properties Panel"
+						:disabled="!activeDiagramName"
+						:class="{ 'opacity-40 cursor-not-allowed': !activeDiagramName }"
+					>
+						<Icon icon="lucide:settings" class="w-4 h-4" />
 					</button>
 
 					<!-- File menu dropdown (Import / Export) -->
@@ -351,7 +362,7 @@
 			</div>
 
 			<!-- Tab Bar -->
-			<div v-if="openTabs.length > 0" class="relative z-10 flex items-center justify-between bg-gray-50 border-t border-gray-200 min-h-[40px]">
+			<div v-if="openTabs.length > 0" class="relative z-10 flex items-center justify-between bg-white border-t border-gray-200 min-h-[40px]">
 				<EditorTabs
 					:tabs="openTabs"
 					:activeTab="activeDiagramName"
@@ -1734,6 +1745,12 @@ function openVersionPicker() {
 		}
 		return diagramDataCache.value[activeDiagramName.value] || null;
 	});
+}
+
+function togglePropertiesPanel() {
+	if (editorRef.value) {
+		editorRef.value.togglePropertiesCollapse();
+	}
 }
 
 async function exportCurrentDiagram() {
