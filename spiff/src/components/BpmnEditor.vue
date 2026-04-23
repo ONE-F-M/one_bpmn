@@ -242,7 +242,7 @@
 					class="absolute top-4 left-1/2 -translate-x-1/2 z-[100] bg-blue-600 text-white px-4 py-2 rounded-full shadow-lg flex items-center gap-3"
 				>
 					<Icon icon="lucide:info" class="w-4 h-4" />
-					<span class="text-sm font-medium">Click on any shape or the canvas to add a comment</span>
+					<span class="text-sm font-medium">Click on any shape to add a comment</span>
 					<button 
 						@click="toggleCommentMode"
 						class="ml-2 p-1 hover:bg-blue-500/20 rounded-full"
@@ -1030,6 +1030,9 @@ onMounted(async () => {
 			const handleCommentClick = (element, originalEvent) => {
 				if (!isCommentMode.value || !element) return;
 
+				// Only allow comments on actual shapes — skip the root process element
+				if (!element.parent) return;
+
 				// Guard against missing originalEvent
 				if (originalEvent) {
 					originalEvent.preventDefault();
@@ -1044,10 +1047,8 @@ onMounted(async () => {
 				return handleCommentClick(e.element, e.originalEvent);
 			});
 
-			eventBus.on("canvas.click", (e) => {
-				const canvas = modeler.get("canvas");
-				return handleCommentClick(canvas?.getRootElement(), e.originalEvent);
-			});
+			// Canvas clicks (empty area) — intentionally ignored for commenting.
+			// Comments must be associated with a shape, not the canvas.
 
 			// Right-click context menu — delegates to composable
 			registerContextMenuListeners(eventBus);
@@ -1500,8 +1501,8 @@ function renderComments() {
 		try {
 			overlays.add(elementId, "processa-comment", {
 				position: {
-					bottom: 10,
-					left: -10
+					bottom: 2,
+					left: -6
 				},
 				html: html
 			});
@@ -1514,12 +1515,19 @@ function renderComments() {
 async function submitComment() {
 	if (!commentFormData.value.text || !props.modelName) return;
 
+	// Comments must be associated with a specific element — reject root/process
+	const elementId = activeCommentElement.value?.id;
+	if (!elementId || !activeCommentElement.value?.parent) {
+		console.warn("Cannot add comment: no shape selected");
+		return;
+	}
+
 	try {
 		await frappeRequest({
 			url: "/api/method/one_bpmn.api.post_canvas_comment",
 			params: {
 				model_name: props.modelName,
-				element_id: activeCommentElement.value?.id || "process",
+				element_id: elementId,
 				comment: commentFormData.value.text,
 				assigned_to: commentFormData.value.assigned_to,
 				is_task: commentFormData.value.is_task ? 1 : 0

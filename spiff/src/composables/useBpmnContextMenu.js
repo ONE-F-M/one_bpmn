@@ -33,8 +33,14 @@ export function useBpmnContextMenu({
 		return comments.value.filter((c) => c.element_id === elementId).length;
 	});
 
-	// Whether the "Add Comment" action should be shown
-	const canAddComment = computed(() => !readonly.value);
+	// Whether the "Add Comment" action should be shown.
+	// Only allowed on real shapes — not on the root process element.
+	const canAddComment = computed(() => {
+		if (readonly.value) return false;
+		const el = contextMenuElement.value;
+		if (!el || !el.parent) return false; // root element has no parent
+		return true;
+	});
 
 	// ── Viewport-clamped positioning ─────────────────────────────────────
 	// Estimated dimensions for the context menu (matches the CSS min-w-[180px])
@@ -59,9 +65,14 @@ export function useBpmnContextMenu({
 	function openContextMenu(element, originalEvent) {
 		if (!originalEvent) return;
 
-		// Nothing to show if readonly AND no comments exist for this element
+		// Skip the root/process element — comments are only allowed on shapes
+		const isRootElement = !element?.parent;
 		const elementId = element?.id || "process";
 		const hasComments = comments.value.some((c) => c.element_id === elementId);
+
+		// Nothing to show if: (a) it's the root element and there are no comments,
+		// or (b) readonly mode and no comments on this element.
+		if (isRootElement && !hasComments) return;
 		if (readonly.value && !hasComments) return;
 
 		contextMenuElement.value = element;
