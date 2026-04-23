@@ -246,8 +246,8 @@
 		</header>
 
 
-		<!-- Notification Banner -->
-		<div v-if="notification.show" class="px-4 py-2">
+		<!-- Notification Banner (Background) -->
+		<div v-if="notification.show && !isAnyDialogOpen" class="px-4 py-2">
 			<div
 				class="flex items-start gap-3 rounded-lg px-4 py-3 text-sm shadow-sm border"
 				:class="{
@@ -428,6 +428,7 @@
 		<!-- Server Script Selector/Creator Dialog -->
 		<Dialog v-model="showScriptEditorDialog" :options="{ title: scriptEditorTitle, size: '5xl' }">
 			<template #body-content>
+
 				<div class="space-y-4">
 					<!-- Mode Tabs -->
 					<div class="flex border-b border-gray-200">
@@ -500,8 +501,24 @@
 										<span v-if="script.reference_doctype"> · {{ script.reference_doctype }}</span>
 									</div>
 								</div>
-								<div class="flex items-center gap-2">
-									<span v-if="script.disabled" class="text-xs bg-red-100 text-red-700 px-2 py-0.5 rounded-full">Disabled</span>
+								<div class="flex items-center gap-3">
+									<!-- Enable/Disable Toggle -->
+									<div class="flex items-center gap-1.5" @click.stop>
+										<span :class="['text-[10px] font-medium uppercase tracking-wider', script.disabled ? 'text-gray-400' : 'text-blue-600']">
+											{{ script.disabled ? 'Disabled' : 'Enabled' }}
+										</span>
+										<div 
+											class="relative inline-flex h-5 w-9 shrink-0 cursor-pointer items-center rounded-full transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-400 focus-visible:ring-offset-2"
+											:class="script.disabled ? 'bg-gray-200' : 'bg-blue-600'"
+											@click="toggleScriptStatus(script)"
+										>
+											<span
+												class="pointer-events-none block h-4 w-4 rounded-full bg-white shadow-lg ring-0 transition-transform"
+												:class="script.disabled ? 'translate-x-0.5' : 'translate-x-4.5'"
+											></span>
+										</div>
+									</div>
+
 									<Icon v-if="selectedServerScript === script.name" icon="lucide:check-circle" class="w-5 h-5 text-blue-500" />
 								</div>
 							</div>
@@ -686,6 +703,7 @@
 		<!-- Markdown Editor Dialog -->
 		<Dialog v-model="showMarkdownEditorDialog" :options="{ title: 'Edit Instructions (Markdown)', size: '4xl' }">
 			<template #body-content>
+
 				<div class="space-y-3">
 					<div class="text-sm text-gray-500">
 						Edit the markdown content for this element's instructions.
@@ -734,7 +752,7 @@
 </template>
 
 <script setup>
-import { ref, onMounted, onUnmounted, computed, watch, nextTick, provide } from "vue";
+import { ref, onMounted, onUnmounted, computed, watch, nextTick, provide, inject } from "vue";
 import { useRouter, useRoute, onBeforeRouteLeave } from "vue-router";
 import { frappeRequest, TextEditor } from "frappe-ui";
 import { Icon } from "@iconify/vue";
@@ -771,7 +789,21 @@ const editorRef = ref(null);
 const processName = ref("");
 const diagrams = ref([]);
 const openTabs = ref([]);
-const activeDiagramName = ref(null);
+const activeDiagramName = ref("");
+
+const isAnyDialogOpen = computed(() => {
+	return (
+		showScriptEditorDialog.value ||
+		showMarkdownEditorDialog.value ||
+		showNewDiagramDialog.value ||
+		showUnsavedNavigationWarning.value ||
+		showCallActivitySearchDialog.value ||
+		notifDialog.showNotificationDialog.value ||
+		versionDiffRef.value?.isAnyDialogOpen
+	);
+});
+
+// --- Lifecycle ---
 const saving = ref(false);
 const creating = ref(false);
 const importing = ref(false);
@@ -971,6 +1003,7 @@ let callActivitySearchEvent = null; // plain variable — NOT a ref, because bpm
 // Notification Dialog (Send Task) — extracted into composable (Review Comment #1)
 const notifDialog = useNotificationDialog(doctypeOptions, moduleOptions, showNotification);
 provide("notifDialog", notifDialog);
+provide("notification", notification);
 
 
 // Zoom level (synced with BpmnEditor)
@@ -1968,7 +2001,6 @@ async function createAndLinkScript() {
 				script: result.name,
 			});
 		}
-
 		showNotification("Success", `Server Script "${result.name}" created and linked.`, "green");
 		showScriptEditorDialog.value = false;
 		activeScriptEvent = null;
@@ -1977,6 +2009,25 @@ async function createAndLinkScript() {
 		showNotification("Error", "Failed to create: " + (error.message || error), "red");
 	} finally {
 		creatingScript.value = false;
+	}
+}
+
+async function toggleScriptStatus(script) {
+	const newDisabledStatus = script.disabled ? 0 : 1;
+	try {
+		await frappeRequest({
+			url: "one_bpmn.api.toggle_server_script",
+			params: {
+				script_name: script.name,
+				disabled: newDisabledStatus,
+			},
+		});
+
+		// Update local state reactively
+		script.disabled = newDisabledStatus;
+
+	} catch (error) {
+		console.error("Failed to toggle server script status:", error);
 	}
 }
 
