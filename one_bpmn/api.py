@@ -815,7 +815,7 @@ def create_server_script(
 	doc.__newname = script_name
 	doc.script_type = script_type
 	doc.script = script
-	doc.disabled = 0  # enabled by default — must be manually disabled
+	doc.disabled = 0  # enabled by default
 	if reference_doctype:
 		doc.reference_doctype = reference_doctype
 	if doctype_event:
