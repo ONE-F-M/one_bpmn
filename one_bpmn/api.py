@@ -3033,4 +3033,3 @@ def cleanup_process_model_assets(model_name: str):
 		# Delete the comment
 		frappe.delete_doc("Processa Comment", comment.name, ignore_permissions=True)
 
-	frappe.logger().info(f"Cleaned up {len(comments)} comments/todos for deleted model {model_name}")
