@@ -394,7 +394,7 @@ def delete_diagram(name: str) -> dict:
 	if not name:
 		frappe.throw(_("Process Map name is required"))
     
-  cleanup_process_model_assets(name)
+	cleanup_process_model_assets(name)
 
 	# frappe.delete_doc handles: existence check, doc-level permissions,
 	# link validation, child table cleanup, Version/Comment/File/DocShare/ToDo removal
