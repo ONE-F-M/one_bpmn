@@ -445,12 +445,11 @@ function TextEntry({ id, label, value, onInput, placeholder, multiline, hint }) 
 				multiline
 					? h("textarea", {
 						id,
-						class: "bio-properties-panel-input",
+						class: "bpmn-frappe-textarea",
 						value,
 						onInput,
 						placeholder,
 						rows: 5,
-						class: "bpmn-code-textarea",
 					})
 					: h("input", {
 						type: "text",
@@ -460,7 +459,7 @@ function TextEntry({ id, label, value, onInput, placeholder, multiline, hint }) 
 						onInput,
 						placeholder,
 					}),
-				hint && h("div", { class: "bio-properties-panel-description" }, hint),
+				hint && h("div", { class: "bpmn-frappe-hint" }, hint),
 			]
 		)
 	);
