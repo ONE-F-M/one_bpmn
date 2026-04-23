@@ -2597,25 +2597,6 @@ def complete_task(
 				frappe.PermissionError,
 			)
 
-	# ── Frappe Workflow Action (if configured) ───────────────────────────────
-	# If the task is configured with taskActionMode = "frappe_workflow", we
-	# must apply the Frappe workflow transition BEFORE advancing the BPMN task.
-	task_action_mode = getattr(active_row, "task_action_mode", "") or ""
-
-	if task_action_mode == "frappe_workflow" and parsed_data.get("action"):
-		try:
-			instance._apply_frappe_workflow_action(parsed_data["action"])
-		except frappe.ValidationError:
-			raise
-		except Exception as exc:
-			frappe.log_error(
-				title="BPMN: Apply Frappe Workflow Action failed",
-				message=frappe.get_traceback(),
-			)
-			frappe.throw(
-				_('Failed to apply workflow action "{0}": {1}').format(parsed_data["action"], str(exc))
-			)
-
 	try:
 		active_tasks = instance.advance(task_id=task_id, data=parsed_data)
 	except frappe.ValidationError:
