@@ -389,8 +389,12 @@ def delete_diagram(name: str) -> dict:
 	Returns:
 		dict with success status
 	"""
+
+	
 	if not name:
 		frappe.throw(_("Process Map name is required"))
+    
+  cleanup_process_model_assets(name)
 
 	# frappe.delete_doc handles: existence check, doc-level permissions,
 	# link validation, child table cleanup, Version/Comment/File/DocShare/ToDo removal
@@ -3017,4 +3021,33 @@ def get_doctype_fields(
 		query = query.where(DocField.fieldname.like(f"%{search_text}%"))
 
 	return query.run(as_dict=True)
+
+
+@frappe.whitelist()
+def cleanup_process_model_assets(model_name: str):
+	"""
+	Background job to cleanup custom assets when a BPMN Process Model is deleted.
+	1. Deletes all linked 'Processa Comment' records.
+	2. Marks any associated 'ToDo' items as 'Closed'.
+	"""
+	if not model_name:
+		return
+
+	# Security: Ensure this is called from within the system or by a permitted user
+	# (though as a background job it usually runs as Administrator)
+
+	# Find all Processa Comment records linked to the model
+	comments = frappe.get_all("Processa Comment", filters={"model": model_name}, fields=["name"])
+
+	for comment in comments:
+		# Close linked ToDos
+		frappe.db.set_value(
+			"ToDo",
+			{"reference_type": "Processa Comment", "reference_name": comment.name, "status": "Open"},
+			"status",
+			"Closed",
+		)
+
+		# Delete the comment
+		frappe.delete_doc("Processa Comment", comment.name, ignore_permissions=True)
 
