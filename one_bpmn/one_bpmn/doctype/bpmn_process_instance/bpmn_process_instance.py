@@ -327,16 +327,9 @@ class BPMNProcessInstance(Document):
 		"""
 		Return comma-separated action labels for a pending active task row.
 
-		For 'frappe_workflow' mode: calls Frappe's get_transitions(doc) so
-		only transitions the CURRENT USER is allowed to take (filtered by
-		role, current workflow state, and Python conditions on the transition)
-		are shown — identical to Frappe's native workflow action panel.
-
-		For 'manual' mode: parses the stored task_actions (JSON or CSV)
+		Parses the stored task_actions (JSON or CSV)
 		and returns comma-separated action names.
 		"""
-		return ""
-		# Manual mode — extract just the action names
 		raw = getattr(row, "task_actions", "") or ""
 		actions = self._parse_task_actions_json(raw)
 		return ",".join(a.get("action", "") for a in actions if a.get("action"))
@@ -345,13 +338,9 @@ class BPMNProcessInstance(Document):
 		"""
 		Return the full structured action list with per-action flags.
 
-		For 'frappe_workflow' mode: returns actions from Frappe transitions
-		(no per-action flags since they come from the Frappe Workflow).
-
-		For 'manual' mode: returns the parsed JSON/CSV list of action dicts
+		Parses the stored JSON/CSV list of action dicts
 		with all per-action metadata (confirmTransition, requireDigitalSignature).
 		"""
-		return []
 		raw = getattr(row, "task_actions", "") or ""
 		return self._parse_task_actions_json(raw)
 

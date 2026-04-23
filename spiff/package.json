@@ -31,12 +31,17 @@
 		"autoprefixer": "^10.4.20",
 		"postcss": "^8.5.1",
 		"tailwindcss": "^3.4.17",
-		"vite": "^4.4.9"
+		"vite": "^5.4.21"
 	},
 	"packageManager": "yarn@1.22.22+sha512.a6b2f7906b721bba3d67d4aff083df04dad64c399707841b7acf00f6b133b7ac24255f2652fa22ae3534329dc6180534e98d17432037ff6fd140556e2bb3137e",
 	"resolutions": {
 		"@iconify/utils": "2.2.1",
-		"preact": "10.19.3"
+		"preact": "10.19.3",
+		"dompurify": ">=3.4.0",
+		"defu": ">=6.1.5",
+		"socket.io-parser": ">=4.2.6",
+		"markdown-it": ">=14.1.1",
+		"picomatch": ">=2.3.2"
 	},
 	"_comments": {
 		"resolutions/@iconify/utils": "Pinned to 2.2.1 — frappe-ui ships a nested @iconify/utils@3.x which uses node:util styleText (Node 20+ only). This pin forces v2 for Node 18 compatibility."
