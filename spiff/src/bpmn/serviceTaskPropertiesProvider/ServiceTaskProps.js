@@ -909,12 +909,6 @@ function UpdateFieldRowsComponent(props) {
 				"div",
 				{ class: "bpmn-field-rows" },
 				[
-					// Column headers — only shown when rows exist
-					rows.length > 0 && h("div", { class: "bpmn-field-row bpmn-field-row-header" }, [
-						h("span", { class: "bpmn-field-row-header-label bpmn-field-row-col" }, translate("Field")),
-						h("span", { class: "bpmn-field-row-header-label bpmn-field-row-col" }, translate("Value")),
-						h("span", { class: "bpmn-field-row-remove-spacer" }),
-					]),
 					...rows.map((row, idx) =>
 						h("div", { key: idx, class: "bpmn-field-row" }, [
 							h(FrappeAutocomplete, {
@@ -929,11 +923,10 @@ function UpdateFieldRowsComponent(props) {
 							}),
 							h("input", {
 								type: "text",
-								key: `${id}-val-${idx}-${row.value}`,
 								class: "bio-properties-panel-input bpmn-field-row-value",
-								defaultValue: row.value,
+								value: row.value,
 								placeholder: translate("Value or {{ doc.field }}"),
-								onBlur: (e) => setValue(idx, e.target.value),
+								onInput: (e) => setValue(idx, e.target.value),
 							}),
 							h("button", {
 								type: "button",
