@@ -126,13 +126,26 @@ function AssignmentModeComponent(props) {
 	const getValue = () => getAttr(bo, "assigneeMode");
 
 	const setValue = (value) => {
-		modeling.updateModdleProperties(element, bo, {
-			"spiffworkflow:assigneeMode":     value || undefined,
-			// Clear mode-specific fields when mode changes
-			"spiffworkflow:assigneeUser":     undefined,
-			"spiffworkflow:assigneeDocfield": undefined,
-			"spiffworkflow:assigneeUsers":    undefined,
-		});
+		const updates = {
+			"spiffworkflow:assigneeMode": value || undefined,
+		};
+
+		if (value === "User") {
+			updates["spiffworkflow:assigneeDocfield"] = undefined;
+			updates["spiffworkflow:assigneeUsers"] = undefined;
+		} else if (value === "DocField") {
+			updates["spiffworkflow:assigneeUser"] = undefined;
+			updates["spiffworkflow:assigneeUsers"] = undefined;
+		} else if (value === "Round Robin" || value === "Load Balancing") {
+			updates["spiffworkflow:assigneeUser"] = undefined;
+			updates["spiffworkflow:assigneeDocfield"] = undefined;
+		} else {
+			updates["spiffworkflow:assigneeUser"] = undefined;
+			updates["spiffworkflow:assigneeDocfield"] = undefined;
+			updates["spiffworkflow:assigneeUsers"] = undefined;
+		}
+
+		modeling.updateModdleProperties(element, bo, updates);
 	};
 
 	const getOptions = () => [
