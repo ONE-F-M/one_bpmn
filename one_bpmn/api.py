@@ -2609,8 +2609,25 @@ def complete_task(
 				frappe.PermissionError,
 			)
 
+	# ── 4. ROUTE: happy path (first action) vs. alternative path (signal) ───────
+	# The first defined action is the "Happy Path" — complete the task normally.
+	# Any other action is an alternative path; throw it as a BPMN signal so a
+	# Signal Boundary Event modelled on the User Task can catch and re-route it.
+	# If no boundary event exists the signal falls back to normal completion.
+	first_action = allowed_actions[0] if allowed_actions else ""
+	is_alternative_action = bool(
+		allowed_actions and submitted_action and submitted_action != first_action
+	)
+
 	try:
-		active_tasks = instance.advance(task_id=task_id, data=parsed_data)
+		if is_alternative_action:
+			active_tasks = instance.throw_signal(
+				task_id=task_id,
+				signal_name=submitted_action,
+				data=parsed_data,
+			)
+		else:
+			active_tasks = instance.advance(task_id=task_id, data=parsed_data)
 	except frappe.ValidationError:
 		raise
 	except Exception as exc:
