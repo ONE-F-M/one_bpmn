@@ -929,8 +929,9 @@ function UpdateFieldRowsComponent(props) {
 							}),
 							h("input", {
 								type: "text",
+								key: `${id}-val-${idx}-${row.value}`,
 								class: "bio-properties-panel-input bpmn-field-row-value",
-								value: row.value,
+								defaultValue: row.value,
 								placeholder: translate("Value or {{ doc.field }}"),
 								onBlur: (e) => setValue(idx, e.target.value),
 							}),
