@@ -13,6 +13,7 @@
   "column_break_pbtg",
   "is_active",
   "version",
+  "pathfinder_log",
   "section_description",
   "description",
   "section_bpmn_diagram",
@@ -215,13 +216,20 @@
   {
    "fieldname": "column_break_pbtg",
    "fieldtype": "Column Break"
+  },
+  {
+   "fieldname": "pathfinder_log",
+   "fieldtype": "Link",
+   "label": "Pathfinder Log",
+   "options": "Pathfinder Log",
+   "read_only": 1
   }
  ],
  "in_create": 1,
  "index_web_pages_for_search": 1,
  "links": [],
- "modified": "2026-04-22 07:03:16.081601",
- "modified_by": "k.sharma@one-fm.com",
+ "modified": "2026-04-26 10:23:19.377759",
+ "modified_by": "Administrator",
  "module": "ONE BPMN",
  "name": "BPMN Process Model",
  "naming_rule": "By fieldname",
