@@ -879,15 +879,34 @@ class BPMNProcessInstance(Document):
 
 		# ── Send to each employee ─────────────────────────────────────────
 		sent_count = 0
+		failed = []  # (emp_id, reason)
 		for user_id, emp_id in employee_map.items():
 			try:
-				send_push_notification(emp_id, title, message)
-				sent_count += 1
+				result = send_push_notification(emp_id, title, message)
+				if result:
+					sent_count += 1
+				else:
+					failed.append((emp_id, "returned False"))
 			except Exception:
+				failed.append((emp_id, "exception"))
 				frappe.log_error(
-					title=f"BPMN push_notification: send failed for {emp_id} ({bpmn_id})",
+					title=f"BPMN push_notification: exception for {emp_id} ({bpmn_id})",
 					message=frappe.get_traceback(),
 				)
+
+		# ── Single summary log when there are failures ────────────────────
+		if failed:
+			fail_details = ", ".join(f"{eid} ({reason})" for eid, reason in failed)
+			frappe.log_error(
+				title=f"BPMN push_notification: {len(failed)} failed, {sent_count} sent ({bpmn_id})",
+				message=(
+					f"Push notification summary for task {bpmn_id}:\n"
+					f"  Sent: {sent_count}, Failed: {len(failed)}\n"
+					f"  Failed employees: {fail_details}\n\n"
+					f"For 'returned False' failures, check earlier Error Log entries "
+					f"from send_push_notification for the specific reason."
+				),
+			)
 
 
 	def _dispatch_email_notification(self, task, task_cfg: dict) -> None:
