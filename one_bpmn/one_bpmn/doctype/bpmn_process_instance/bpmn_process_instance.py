@@ -881,8 +881,20 @@ class BPMNProcessInstance(Document):
 		sent_count = 0
 		for user_id, emp_id in employee_map.items():
 			try:
-				send_push_notification(emp_id, title, message)
-				sent_count += 1
+				result = send_push_notification(emp_id, title, message)
+				if result:
+					sent_count += 1
+				else:
+					# send_push_notification already logged the specific reason
+					# (missing employee, no FCM token, Firebase error, etc.)
+					frappe.log_error(
+						title=f"BPMN push_notification: send returned False for {emp_id} ({bpmn_id})",
+						message=(
+							f"send_push_notification('{emp_id}', ...) returned False. "
+							f"Check earlier Error Log entries titled 'Push Notification: ...' "
+							f"for the specific failure reason (missing FCM token, employee not found, etc.)."
+						),
+					)
 			except Exception:
 				frappe.log_error(
 					title=f"BPMN push_notification: send failed for {emp_id} ({bpmn_id})",
