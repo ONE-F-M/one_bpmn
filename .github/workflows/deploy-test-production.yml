@@ -1,0 +1,43 @@
+name: Deploy CI/CD to Test Production site
+
+on:
+  workflow_dispatch:
+  push: # tells github to run this on any push to the repository
+    branches:
+      - test-production
+
+# A workflow run is made up of one or more jobs that can run sequentially or in parallel
+jobs:
+  # This workflow contains a single job called "build"
+  build:
+    # The type of runner that the job will run on
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+
+    # Steps represent a sequence of tasks that will be executed as part of the job
+    steps:
+      - name: Deploy to Test Production site
+        uses: appleboy/ssh-action@master
+        with:
+          host: ${{ secrets.STAGING_HOST }}
+          username: ${{ secrets.USERNAME }}
+          key: ${{ secrets.STAGING_KEY }}
+          port: 22
+          script_stop: true
+          script: |
+            export NVM_DIR="$HOME/.nvm"
+            [ -s "$NVM_DIR/nvm.sh" ] && . "$NVM_DIR/nvm.sh"
+            node -v
+            cd /home/frappe/test-production/apps/one_bpmn
+            git pull upstream test-production
+            cd /home/frappe/test-production
+            bench setup requirements one_bpmn
+            cd /home/frappe/test-production/apps/one_bpmn/spiff
+            yarn install
+            export NODE_OPTIONS="--max-old-space-size=4096"
+            yarn build
+            cd /home/frappe/test-production
+            bench --site staging.one-fm.com migrate --skip-failing
+            bench --site staging.one-fm.com build --app one_bpmn
+            bench --site staging.one-fm.com clear-cache
+            bench restart
