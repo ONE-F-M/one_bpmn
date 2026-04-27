@@ -34,7 +34,7 @@
 					<span
 						:class="[
 							'w-2 h-2 rounded-full shrink-0',
-							(tab.is_active || tab.status === 'Active') ? 'bg-green-500' : 'bg-orange-500'
+							tab.is_active ? 'bg-green-500' : 'bg-orange-500'
 						]"
 					></span>
 					<span class="truncate">{{ tab.model_name }}</span>
@@ -63,7 +63,7 @@
 				<span
 					:class="[
 						'inline-block w-2 h-2 rounded-full shrink-0',
-						(tab.is_active || tab.status === 'Active') ? 'bg-green-400' : 'bg-orange-400'
+						tab.is_active ? 'bg-green-400' : 'bg-orange-400'
 					]"
 				></span>
 

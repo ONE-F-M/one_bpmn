@@ -345,7 +345,6 @@ def get_process_diagrams(process: str) -> dict:
 	# Add model_name alias for frontend compat
 	for d in diagrams:
 		d["model_name"] = d["title"]
-		d["status"] = "Active" if d["is_active"] else "Inactive"
 		d["modified_by_name"] = user_names.get(d.get("modified_by"), d.get("modified_by", ""))
 
 	return {
