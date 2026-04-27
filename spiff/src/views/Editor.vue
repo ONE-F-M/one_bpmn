@@ -1614,13 +1614,15 @@ async function handleDeleteTab(tab) {
 		}
 	}
 
+	// ── Show notification immediately (optimistic) ──────────────────
+	showNotification("Deleted", `Diagram "${tab.model_name}" has been deleted`, "green");
+
 	// ── Server call (no loadProcess round-trip) ──────────────────────
 	try {
 		await frappeRequest({
 			url: "/api/method/one_bpmn.api.delete_diagram",
 			params: { name: tab.name },
 		});
-		showNotification("Deleted", `Diagram "${tab.model_name}" has been deleted`, "green");
 	} catch (error) {
 		// ── Rollback on failure ─────────────────────────────────────
 		console.error("Deletion failed:", error);
@@ -1676,8 +1678,9 @@ async function renameProcessModel({ tabName, oldModelName, newModelName }) {
 		await saveCurrentDiagram();
 	}
 
-	// ── Optimistic: show new name immediately ────────────────────────
+	// ── Optimistic: show new name + notification immediately ─────────
 	applyTabDiagramFields(tabName, { model_name: newModelName, title: newModelName });
+	showNotification("Renamed", `Diagram renamed to "${newModelName}"`, "green");
 
 	try {
 		const response = await frappeRequest({
@@ -1715,8 +1718,6 @@ async function renameProcessModel({ tabName, oldModelName, newModelName }) {
 				params: { process: props.process, diagram: newName },
 			});
 		}
-
-		showNotification("Renamed", `Diagram renamed to "${actualModelName}"`, "green");
 	} catch (error) {
 		// ── Rollback on failure ─────────────────────────────────────
 		console.error("Failed to rename process model:", error);
