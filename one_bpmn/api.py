@@ -2025,6 +2025,73 @@ def _ensure_script_task_inline_scripts(bpmn_xml: str) -> str:
 		return bpmn_xml
 
 
+def _validate_workflow_state_field(model, service_extensions: dict) -> None:
+	"""
+	At deploy time, verify that every doctype referenced in the process model
+	has a ``workflow_state`` field when the process depends on workflow state —
+	either via a workflow-state start-event trigger or an ``apply_workflow``
+	service task.
+
+	Raises ``frappe.ValidationError`` for each doctype missing the field.
+	Skips entirely when neither condition is present in the model.
+	"""
+	has_workflow_state_trigger = any(
+		row.workflow_state_condition for row in (model.start_events or [])
+	)
+	has_apply_workflow_task = any(
+		cfg.get("serviceType") == "apply_workflow"
+		for cfg in service_extensions.values()
+	)
+
+	if not has_workflow_state_trigger and not has_apply_workflow_task:
+		return
+
+	# Collect only doctypes involved in workflow operations
+	doctypes_to_check = set()
+
+	# Start events that trigger on a specific workflow state
+	if has_workflow_state_trigger:
+		for row in (model.start_events or []):
+			if not row.workflow_state_condition:
+				continue
+			dt = row.trigger_doctype or model.trigger_doctype
+			if dt:
+				doctypes_to_check.add(dt)
+
+	# Apply Workflow service tasks — use explicit override or fall back to all context doctypes
+	if has_apply_workflow_task:
+		for cfg in service_extensions.values():
+			if cfg.get("serviceType") != "apply_workflow":
+				continue
+			target = cfg.get("serviceTargetDoctype")
+			if target:
+				doctypes_to_check.add(target)
+			else:
+				if model.trigger_doctype:
+					doctypes_to_check.add(model.trigger_doctype)
+				for row in (model.target_doctypes or []):
+					if row.doctype_name:
+						doctypes_to_check.add(row.doctype_name)
+
+	missing = []
+	for doctype in sorted(doctypes_to_check):
+		try:
+			meta = frappe.get_meta(doctype)
+		except Exception:
+			continue  # unknown doctype — let other validations surface it
+		if not meta.get_field("workflow_state"):
+			missing.append(doctype)
+
+	if not missing:
+		return
+
+	error_lines = [_("Workflow State field is missing on: {0}").format(dt) for dt in missing]
+	frappe.throw(
+		"<br>".join(f"• {line}" for line in error_lines),
+		title=_("Missing Workflow State Field"),
+	)
+
+
 @frappe.whitelist()
 def compile_process_model(model_name: str) -> dict:
 	"""
@@ -2132,6 +2199,11 @@ def compile_process_model(model_name: str) -> dict:
 	# Also syncs model-level trigger fields (trigger_type, trigger_doctype,
 	# trigger_event) from the BPMN XML so trigger.py can fire instances.
 	_populate_start_events(model, sanitized_xml)
+
+	# ── Ensure workflow_state field exists on all reference doctypes ──────
+	# When the process uses a workflow-state trigger or apply_workflow service
+	# task, every referenced doctype must have the field — create it if absent.
+	_validate_workflow_state_field(model, service_extensions)
 
 	# ── Activate this model and manage deployment lifecycle ───────────────
 	_activate_deployed_model(model, script_extensions)
@@ -2609,8 +2681,25 @@ def complete_task(
 				frappe.PermissionError,
 			)
 
+	# ── 4. ROUTE: happy path (first action) vs. alternative path (signal) ───────
+	# The first defined action is the "Happy Path" — complete the task normally.
+	# Any other action is an alternative path; throw it as a BPMN signal so a
+	# Signal Boundary Event modelled on the User Task can catch and re-route it.
+	# If no boundary event exists the signal falls back to normal completion.
+	first_action = allowed_actions[0] if allowed_actions else ""
+	is_alternative_action = bool(
+		allowed_actions and submitted_action and submitted_action != first_action
+	)
+
 	try:
-		active_tasks = instance.advance(task_id=task_id, data=parsed_data)
+		if is_alternative_action:
+			active_tasks = instance.throw_signal(
+				task_id=task_id,
+				signal_name=submitted_action,
+				data=parsed_data,
+			)
+		else:
+			active_tasks = instance.advance(task_id=task_id, data=parsed_data)
 	except frappe.ValidationError:
 		raise
 	except Exception as exc:

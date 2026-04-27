@@ -105,6 +105,7 @@ frappe.provide('one_bpmn');
 			}
 
 			let injected = 0;
+			let has_primary = false;
 			let pending_assignee = null;
 
 			// Mark this form as BPMN-controlled
@@ -135,19 +136,28 @@ frappe.provide('one_bpmn');
 				const action_details = _get_action_details(task);
 
 				if (action_details.length > 0) {
-					action_details.forEach(function (detail) {
-						const $item = frm.page.add_action_item(
-							__(detail.action),
-							function () {
+					action_details.forEach(function (detail, detailIdx) {
+						if (detailIdx === 0 && !has_primary) {
+							// First action = Happy Path = primary button
+							frm.page.set_primary_action(__(detail.action), function () {
 								_handle_action(frm, task, detail);
+							});
+							frm.__bpmn_primary_action = true;
+							has_primary = true;
+						} else {
+							const $item = frm.page.add_action_item(
+								__(detail.action),
+								function () {
+									_handle_action(frm, task, detail);
+								}
+							);
+
+							if ($item && $item.length) {
+								$item.closest('li').attr('data-bpmn-action', BPMN_ACTION_MARKER);
 							}
-						);
 
-						if ($item && $item.length) {
-							$item.closest('li').attr('data-bpmn-action', BPMN_ACTION_MARKER);
+							injected++;
 						}
-
-						injected++;
 					});
 				} else {
 					// No actions configured — show a generic "Complete" button
@@ -168,7 +178,7 @@ frappe.provide('one_bpmn');
 
 			if (injected > 0) {
 				frm.page.show_actions_menu();
-			} else if (pending_assignee) {
+			} else if (!has_primary && pending_assignee) {
 				frm.dashboard.add_comment(
 					__('This document is controlled by a BPMN process. Pending action from: <b>{0}</b>',
 						[pending_assignee]),
@@ -214,13 +224,20 @@ frappe.provide('one_bpmn');
 	}
 
 	/**
-	 * Remove all BPMN-injected action items from the page Actions menu.
+	 * Remove all BPMN-injected action items from the page Actions menu and
+	 * reset the primary button if BPMN set it to a task action.
 	 */
 	function _clear_bpmn_actions(frm) {
 		if (!frm || !frm.page || !frm.page.actions) return;
 		frm.page.actions
 			.find(`li[data-bpmn-action="${BPMN_ACTION_MARKER}"]`)
 			.remove();
+		if (frm.__bpmn_primary_action) {
+			frm.__bpmn_primary_action = false;
+			if (frm.toolbar) {
+				frm.toolbar.set_primary_action();
+			}
+		}
 	}
 
 	/**
@@ -352,7 +369,7 @@ frappe.provide('one_bpmn');
 	});
 
 	// Fallback — jQuery document event
-	$(document).on('form-refresh', function (e, frm) {
+	$(document).on('form-refresh', function (_e, frm) {
 		if (_bpmn_controlled_forms.has(_form_key_from_frm(frm))) {
 			if (frm.toolbar) {
 				frm.toolbar.set_primary_action();

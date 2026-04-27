@@ -474,6 +474,44 @@ def refresh_context_doc(wf: BpmnWorkflow, context_doctype: str, context_docname:
 		pass
 
 
+def throw_signal(wf: BpmnWorkflow, signal_name: str) -> bool:
+	"""
+	Throw a named BPMN signal into the workflow so that a Signal Boundary Event
+	attached to the active User Task can catch it and route to an alternative path.
+
+	Uses SpiffWorkflow's wf.catch() which looks for any NOT_FINISHED task that
+	matches the signal (e.g. a boundary event in WAITING state).  If a match is
+	found the boundary event transitions to READY and wf.refresh_waiting_tasks()
+	fires; the caller must then call _run_engine() to advance the boundary flow.
+
+	Returns:
+	    True  — signal was caught by at least one boundary/catch event
+	    False — nothing caught the signal (no matching boundary event modelled);
+	            the event is removed from the unhandled queue so state stays clean
+	"""
+	from SpiffWorkflow.bpmn.specs.event_definitions import SignalEventDefinition
+	from SpiffWorkflow.bpmn.util.event import BpmnEvent
+
+	sig_def = SignalEventDefinition(signal_name)
+	event = BpmnEvent(sig_def)
+
+	events_before = len(wf.bpmn_events)
+	wf.catch(event)
+	caught = len(wf.bpmn_events) == events_before
+
+	if not caught:
+		# Remove the unhandled entry so it does not pollute the serialised state.
+		wf.bpmn_events = [
+			e for e in wf.bpmn_events
+			if not (
+				isinstance(e.event_definition, SignalEventDefinition)
+				and e.event_definition.name == signal_name
+			)
+		]
+
+	return caught
+
+
 def clean_doc_from_wf_data(wf: BpmnWorkflow) -> None:
 	"""
 	Remove any non-JSON-serializable 'doc' key from all task data dicts

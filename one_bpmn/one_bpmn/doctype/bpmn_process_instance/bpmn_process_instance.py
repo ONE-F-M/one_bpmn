@@ -269,6 +269,113 @@ class BPMNProcessInstance(Document):
 
 		return self.get_active_tasks_summary()
 
+	def throw_signal(self, task_id: str, signal_name: str, data: dict = None) -> list:
+		"""
+		Throw a named BPMN signal so that a Signal Boundary Event attached to
+		the User Task can catch it and route the flow to an alternative path.
+
+		If the BA has not modelled a Signal Boundary Event for this action the
+		signal is not caught; the method falls back to completing the task
+		normally (same as advance()) so the action value still reaches any
+		downstream gateway.
+
+		Args:
+		    task_id:     SpiffWorkflow task UUID (from active_tasks.task_id)
+		    signal_name: BPMN signal name to throw — must match the Signal
+		                 element name on the modelled boundary event
+		    data:        Optional dict of form data submitted by the user
+
+		Returns:
+		    list of dicts describing the next active tasks
+		"""
+		if self.status in ("Completed", "Cancelled"):
+			frappe.throw(
+				_('Instance "{0}" is already {1} and cannot be advanced.').format(self.name, self.status)
+			)
+
+		if not self.workflow_state:
+			frappe.throw(_("Workflow state is missing. The instance may be corrupted."))
+
+		_spec_snap = self._load_json(self.serialized_spec or "{}") or {}
+		_script_exts = _spec_snap.get("script_task_extensions", {})
+		self._service_task_extensions = _spec_snap.get("service_task_extensions", {})
+		self._user_task_extensions = _spec_snap.get("user_task_extensions", {})
+
+		wf = bpmn_engine.restore_workflow(
+			workflow_state=self._load_json(self.workflow_state),
+			context_doctype=self.context_doctype,
+			context_docname=self.context_docname,
+			script_task_extensions=_script_exts,
+		)
+
+		if self.context_doctype and self.context_docname:
+			bpmn_engine.refresh_context_doc(wf, self.context_doctype, self.context_docname)
+
+		try:
+			task = wf.get_task_from_id(uuid.UUID(task_id))
+		except Exception:
+			frappe.throw(_('Task "{0}" not found in this workflow instance.').format(task_id))
+
+		if task.state != TaskState.READY:
+			frappe.throw(
+				_('Task "{0}" is not in READY state (current state: {1}).').format(
+					bpmn_engine.get_task_display_name(task),
+					TaskState.get_name(task.state),
+				)
+			)
+
+		if self.context_doctype and self.context_docname:
+			task.data.update({
+				k: v for k, v in wf.task_tree.data.items()
+				if k not in ("doc",)
+			})
+
+		if data:
+			task.data.update(data)
+
+		prev_assigned = {
+			row.assigned_user
+			for row in self.active_tasks
+			if row.status == "Waiting" and row.assigned_user
+		}
+
+		task_display_name = bpmn_engine.get_task_display_name(task)
+
+		for row in self.active_tasks:
+			if row.task_id == task_id:
+				row.status = "Completed"
+
+		self._log_task(
+			task_id=task_id,
+			task_name=task_display_name,
+			action=signal_name,
+			data=data,
+		)
+
+		frappe.flags.bpmn_engine_action = True
+		try:
+			caught = bpmn_engine.throw_signal(wf, signal_name)
+			if not caught:
+				# No Signal Boundary Event matched — complete the task normally
+				# so the action value still reaches downstream gateways.
+				task.run()
+			self._run_engine(wf)
+		finally:
+			frappe.flags.bpmn_engine_action = False
+
+		bpmn_engine.clean_doc_from_wf_data(wf)
+		self.workflow_state = json.dumps(bpmn_engine.serialize_workflow(wf))
+		self._sync_active_tasks(wf, prev_assigned=prev_assigned)
+		self._check_completion(wf)
+
+		self.modified = frappe.utils.now()
+		self.modified_by = frappe.session.user
+		self.db_update()
+		self.update_children()
+		self.run_method("on_update")
+
+		return self.get_active_tasks_summary()
+
 	def get_active_tasks_summary(self) -> list:
 		"""
 		Return the current waiting User Tasks as a list of dicts.
@@ -879,15 +986,34 @@ class BPMNProcessInstance(Document):
 
 		# ── Send to each employee ─────────────────────────────────────────
 		sent_count = 0
+		failed = []  # (emp_id, reason)
 		for user_id, emp_id in employee_map.items():
 			try:
-				send_push_notification(emp_id, title, message)
-				sent_count += 1
+				result = send_push_notification(emp_id, title, message)
+				if result:
+					sent_count += 1
+				else:
+					failed.append((emp_id, "returned False"))
 			except Exception:
+				failed.append((emp_id, "exception"))
 				frappe.log_error(
-					title=f"BPMN push_notification: send failed for {emp_id} ({bpmn_id})",
+					title=f"BPMN push_notification: exception for {emp_id} ({bpmn_id})",
 					message=frappe.get_traceback(),
 				)
+
+		# ── Single summary log when there are failures ────────────────────
+		if failed:
+			fail_details = ", ".join(f"{eid} ({reason})" for eid, reason in failed)
+			frappe.log_error(
+				title=f"BPMN push_notification: {len(failed)} failed, {sent_count} sent ({bpmn_id})",
+				message=(
+					f"Push notification summary for task {bpmn_id}:\n"
+					f"  Sent: {sent_count}, Failed: {len(failed)}\n"
+					f"  Failed employees: {fail_details}\n\n"
+					f"For 'returned False' failures, check earlier Error Log entries "
+					f"from send_push_notification for the specific reason."
+				),
+			)
 
 
 	def _dispatch_email_notification(self, task, task_cfg: dict) -> None:
