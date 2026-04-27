@@ -34,13 +34,13 @@
 				<!-- Diagram name -->
 				<span class="flex-1 truncate">{{ diagram.model_name }}</span>
 
-				<!-- Status indicator -->
+				<!-- Active indicator -->
 				<span
 					:class="[
 						'w-2 h-2 rounded-full flex-shrink-0',
-						getStatusColor(diagram.status)
+						diagram.is_active ? 'bg-green-500' : 'bg-gray-300'
 					]"
-					:title="diagram.status"
+					:title="diagram.is_active ? 'Active' : 'Inactive'"
 				></span>
 			</div>
 
@@ -68,16 +68,4 @@ defineProps({
 
 defineEmits(["select-diagram", "add-diagram"])
 
-function getStatusColor(status) {
-	switch (status) {
-		case "Published":
-			return "bg-green-500"
-		case "In Development":
-			return "bg-yellow-500"
-		case "Draft":
-			return "bg-blue-500"
-		default:
-			return "bg-gray-300"
-	}
-}
 </script>

@@ -32,7 +32,6 @@
   "trigger_event",
   "column_break_nbjp",
   "cron_expression",
-  "status",
   "deployed_at",
   "deployed_by",
   "section_start_events",
@@ -180,14 +179,6 @@
    "fieldname": "cron_expression",
    "fieldtype": "Data",
    "label": "Cron Expression"
-  },
-  {
-   "default": "Draft",
-   "fieldname": "status",
-   "fieldtype": "Select",
-   "in_list_view": 1,
-   "label": "Status",
-   "options": "Draft\nDeployed\nRetired"
   },
   {
    "fieldname": "deployed_at",
