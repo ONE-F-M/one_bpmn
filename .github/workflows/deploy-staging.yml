@@ -37,7 +37,7 @@ jobs:
             export NODE_OPTIONS="--max-old-space-size=4096"
             yarn build
             cd /home/frappe/frappe-bench
-            bench --site staging.one-fm.com migrate --skip-failing
+            bench --site staging.one-fm.com migrate
             bench --site staging.one-fm.com build --app one_bpmn
             bench --site staging.one-fm.com clear-cache
             bench restart
