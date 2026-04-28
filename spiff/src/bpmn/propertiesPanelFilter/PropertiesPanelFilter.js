@@ -53,8 +53,10 @@ const HIDDEN_GROUPS = {
 		"spiff_pre_post_scripts",
 	]),
 
-	// 6) Script Task: hide I/O Management
+	// 6) Script Task: hide default script textarea, pre/post scripts, I/O Management
 	"bpmn:ScriptTask": new Set([
+		"spiff_script",
+		"spiff_pre_post_scripts",
 		"instructions",
 		"ioProperties",
 	]),

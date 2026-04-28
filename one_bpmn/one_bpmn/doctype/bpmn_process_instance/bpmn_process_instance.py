@@ -1118,6 +1118,12 @@ class BPMNProcessInstance(Document):
 		body = render(task_cfg.get("emailBody", "") or subject)
 		cc = task_cfg.get("emailCc", "") or None
 
+		# ── Resolve sender from configured Email Account ──────────────
+		sender = None
+		email_account = task_cfg.get("emailAccount", "")
+		if email_account:
+			sender = frappe.db.get_value("Email Account", email_account, "email_id")
+
 		# ── Send via one_fm.processor.sendemail if available ─────────
 		# Uses the same branded template and notification preference
 		# checks as the rest of the one_fm app (checks if user has
@@ -1130,6 +1136,7 @@ class BPMNProcessInstance(Document):
 			onefm_sendemail(
 				recipients=recipients,
 				subject=subject,
+				sender=sender,
 				header=[subject],
 				message=body,
 				cc=cc,
@@ -1139,6 +1146,7 @@ class BPMNProcessInstance(Document):
 		except ImportError:
 			frappe.sendmail(
 				recipients=recipients,
+				sender=sender,
 				subject=subject,
 				message=body,
 				cc=cc.split(",") if cc else [],
@@ -1496,7 +1504,7 @@ class BPMNProcessInstance(Document):
 			log.timestamp = now_datetime()
 			log.user = frappe.session.user
 			if data:
-				log.data = json.dumps(data, default=str)
+				log.data = json.dumps(data, default=str, indent=2)
 			log.insert(ignore_permissions=True)
 		except Exception:
 			frappe.log_error(
