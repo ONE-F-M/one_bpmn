@@ -441,6 +441,45 @@
 			<template #body-content>
 
 				<div class="space-y-4">
+					<!-- Context info -->
+					<details class="bg-blue-50 border border-blue-200 rounded-lg text-xs text-blue-800">
+						<summary class="px-4 py-2.5 cursor-pointer font-semibold select-none hover:bg-blue-100 rounded-lg transition-colors">
+							ℹ️ Script Reference — Available Variables &amp; Usage
+						</summary>
+						<div class="px-4 pb-3 space-y-2.5 border-t border-blue-200 pt-2.5">
+							<!-- Variables table -->
+							<table class="w-full text-left">
+								<thead>
+									<tr class="border-b border-blue-200">
+										<th class="py-1 pr-3 font-semibold">Variable</th>
+										<th class="py-1 font-semibold">Description</th>
+									</tr>
+								</thead>
+								<tbody>
+									<tr><td class="py-0.5 pr-3"><code class="px-1 py-0.5 bg-blue-100 rounded text-blue-900">frappe</code></td><td>Full Frappe module (DB, utils, etc.)</td></tr>
+									<tr><td class="py-0.5 pr-3"><code class="px-1 py-0.5 bg-blue-100 rounded text-blue-900">doc</code></td><td>The context document (e.g., Work Item, Employee)</td></tr>
+									<tr><td class="py-0.5 pr-3"><code class="px-1 py-0.5 bg-blue-100 rounded text-blue-900">context_doctype</code></td><td>DocType name of the context document</td></tr>
+									<tr><td class="py-0.5 pr-3"><code class="px-1 py-0.5 bg-blue-100 rounded text-blue-900">context_docname</code></td><td>Name (ID) of the context document</td></tr>
+									<tr><td class="py-0.5 pr-3"><code class="px-1 py-0.5 bg-blue-100 rounded text-blue-900">result</code></td><td>Dict to pass output to downstream gateways (see below)</td></tr>
+									<tr><td class="py-0.5 pr-3 text-blue-600 italic">+ all doc fields</td><td>e.g., <code class="px-1 py-0.5 bg-blue-100 rounded">workflow_state</code>, <code class="px-1 py-0.5 bg-blue-100 rounded">docstatus</code>, etc.</td></tr>
+								</tbody>
+							</table>
+							<!-- Example -->
+							<div>
+								<div class="font-semibold mb-1">Example — passing data to a gateway:</div>
+								<pre class="bg-blue-100 rounded px-3 py-2 text-blue-900 overflow-x-auto"><code># In your Server Script:
+									if doc.pr_link:
+										result["has_pr"] = True
+									else:
+										result["has_pr"] = False
+
+									# Then in a downstream Gateway condition:
+									#   has_pr == True  →  Approved branch
+									#   has_pr == False →  Rejected branch</code>
+								</pre>
+							</div>
+						</div>
+					</details>
 					<!-- Mode Tabs -->
 					<div class="flex border-b border-gray-200">
 						<button
@@ -466,6 +505,19 @@
 						>
 							<Icon icon="lucide:plus" class="w-4 h-4 inline mr-1.5" />
 							Create New
+						</button>
+						<button
+							v-if="linkedScriptName"
+							@click="scriptDialogMode = 'edit'"
+							:class="[
+								'px-4 py-2 text-sm font-medium border-b-2 transition-colors -mb-px',
+								scriptDialogMode === 'edit'
+									? 'border-blue-500 text-blue-600'
+									: 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300'
+							]"
+						>
+							<Icon icon="lucide:pencil" class="w-4 h-4 inline mr-1.5" />
+							Edit
 						</button>
 					</div>
 
@@ -493,46 +545,57 @@
 							<div v-else-if="filteredServerScripts.length === 0" class="p-6 text-center text-gray-400">
 								No server scripts found.
 							</div>
-							<div
+							<template
 								v-else
 								v-for="script in filteredServerScripts"
 								:key="script.name"
-								@click="selectedServerScript = script.name"
-								:class="[
-									'flex items-center justify-between px-4 py-3 cursor-pointer border-b border-gray-100 last:border-b-0 transition-colors',
-									selectedServerScript === script.name
-										? 'bg-blue-50 border-l-4 border-l-blue-500'
-										: 'hover:bg-gray-50'
-								]"
 							>
-								<div>
-									<div class="text-sm font-medium text-gray-900">{{ script.name }}</div>
-									<div class="text-xs text-gray-500 mt-0.5">
-										{{ script.script_type }}
-										<span v-if="script.reference_doctype"> · {{ script.reference_doctype }}</span>
-									</div>
-								</div>
-								<div class="flex items-center gap-3">
-									<!-- Enable/Disable Toggle -->
-									<div class="flex items-center gap-1.5" @click.stop>
-										<span :class="['text-[10px] font-medium uppercase tracking-wider', script.disabled ? 'text-gray-400' : 'text-blue-600']">
-											{{ script.disabled ? 'Disabled' : 'Enabled' }}
-										</span>
-										<div 
-											class="relative inline-flex h-5 w-9 shrink-0 cursor-pointer items-center rounded-full transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-400 focus-visible:ring-offset-2"
-											:class="script.disabled ? 'bg-gray-200' : 'bg-blue-600'"
-											@click="toggleScriptStatus(script)"
-										>
-											<span
-												class="pointer-events-none block h-4 w-4 rounded-full bg-white shadow-lg ring-0 transition-transform"
-												:class="script.disabled ? 'translate-x-0.5' : 'translate-x-4.5'"
-											></span>
+								<div
+									@click="selectedServerScript = script.name"
+									:class="[
+										'flex items-center justify-between px-4 py-3 cursor-pointer border-b border-gray-100 last:border-b-0 transition-colors',
+										selectedServerScript === script.name
+											? 'bg-blue-50 border-l-4 border-l-blue-500'
+											: 'hover:bg-gray-50'
+									]"
+								>
+									<div>
+										<div class="text-sm font-medium text-gray-900">{{ script.name }}</div>
+										<div class="text-xs text-gray-500 mt-0.5">
+											{{ script.script_type }}
+											<span v-if="script.reference_doctype"> · {{ script.reference_doctype }}</span>
 										</div>
 									</div>
+									<div class="flex items-center gap-3">
+										<!-- Enable/Disable Toggle -->
+										<div class="flex items-center gap-1.5" @click.stop>
+											<span :class="['text-[10px] font-medium uppercase tracking-wider', script.disabled ? 'text-gray-400' : 'text-blue-600']">
+												{{ script.disabled ? 'Disabled' : 'Enabled' }}
+											</span>
+											<div 
+												class="relative inline-flex h-5 w-9 shrink-0 cursor-pointer items-center rounded-full transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-400 focus-visible:ring-offset-2"
+												:class="script.disabled ? 'bg-gray-200' : 'bg-blue-600'"
+												@click="toggleScriptStatus(script)"
+											>
+												<span
+													class="pointer-events-none block h-4 w-4 rounded-full bg-white shadow-lg ring-0 transition-transform"
+													:class="script.disabled ? 'translate-x-0.5' : 'translate-x-4.5'"
+												></span>
+											</div>
+										</div>
 
-									<Icon v-if="selectedServerScript === script.name" icon="lucide:check-circle" class="w-5 h-5 text-blue-500" />
+										<Icon v-if="selectedServerScript === script.name" icon="lucide:check-circle" class="w-5 h-5 text-blue-500" />
+									</div>
 								</div>
-							</div>
+								<!-- Inline Script Preview (below selected row) -->
+								<div v-if="selectedServerScript === script.name && previewScriptContent !== null" class="border-b border-gray-100 bg-gray-50/50">
+									<div v-if="loadingPreview" class="px-4 py-3 text-center text-gray-400 text-sm">
+										<div class="animate-spin rounded-full h-5 w-5 border-b-2 border-gray-400 mx-auto mb-1"></div>
+										Loading...
+									</div>
+									<pre v-else class="px-4 py-3 text-[13px] font-mono text-gray-700 overflow-x-auto max-h-48 whitespace-pre-wrap">{{ previewScriptContent }}</pre>
+								</div>
+							</template>
 						</div>
 					</div>
 
@@ -681,6 +744,31 @@
 							></textarea>
 						</div>
 					</div>
+
+					<!-- Edit Mode -->
+					<div v-else-if="scriptDialogMode === 'edit'" class="space-y-4">
+						<div class="flex items-center gap-3">
+							<div class="flex-1">
+								<div class="text-sm font-semibold text-gray-900">{{ linkedScriptName }}</div>
+								<div v-if="editScriptMeta.script_type" class="text-xs text-gray-500 mt-0.5">
+									{{ editScriptMeta.script_type }}
+									<span v-if="editScriptMeta.reference_doctype"> · {{ editScriptMeta.reference_doctype }}</span>
+								</div>
+							</div>
+						</div>
+						<div v-if="loadingEditScript" class="flex items-center justify-center py-12 text-gray-400">
+							<div class="animate-spin rounded-full h-6 w-6 border-b-2 border-gray-400 mr-2"></div>
+							Loading script...
+						</div>
+						<div v-else>
+							<label class="block text-xs font-medium text-gray-700 mb-1">Script</label>
+							<textarea
+								v-model="editScriptContent"
+								class="w-full h-72 p-3 font-mono text-sm border border-gray-300 rounded-lg bg-gray-50 text-gray-900 focus:outline-none focus:ring-2 focus:ring-blue-400 focus:border-blue-400 resize-y"
+								spellcheck="false"
+							></textarea>
+						</div>
+					</div>
 				</div>
 			</template>
 			<template #actions>
@@ -693,12 +781,19 @@
 						:disabled="!selectedServerScript"
 					>Link Script</Button>
 					<Button
-						v-else
+						v-else-if="scriptDialogMode === 'create'"
 						variant="solid"
 						@click="createAndLinkScript"
 						:loading="creatingScript"
 						:disabled="!newScript.name || !newScript.script_type || !newScript.script"
 					>Create & Link</Button>
+					<Button
+						v-else-if="scriptDialogMode === 'edit'"
+						variant="solid"
+						@click="saveEditedScript"
+						:loading="savingEditScript"
+						:disabled="!editScriptContent || loadingEditScript"
+					>Save Changes</Button>
 				</div>
 			</template>
 		</Dialog>
@@ -927,7 +1022,7 @@ const diagramDataCache = ref({});
 // Script Editor state
 const showScriptEditorDialog = ref(false);
 const scriptEditorTitle = ref("Link Server Script");
-const scriptDialogMode = ref("select"); // 'select' or 'create'
+const scriptDialogMode = ref("select"); // 'select', 'create', or 'edit'
 const serverScripts = ref([]);
 const serverScriptSearch = ref("");
 const selectedServerScript = ref(null);
@@ -941,6 +1036,18 @@ const showDoctypeDropdown = ref(false);
 const showModuleDropdown = ref(false);
 let activeScriptEvent = null;
 const isScriptTaskElement = ref(false);
+
+// Script preview state (Select Existing tab)
+const previewScriptContent = ref(null);
+const loadingPreview = ref(false);
+const showPreview = ref(true);
+
+// Edit tab state
+const linkedScriptName = ref("");
+const editScriptContent = ref("");
+const editScriptMeta = ref({ script_type: "", reference_doctype: "" });
+const loadingEditScript = ref(false);
+const savingEditScript = ref(false);
 
 // New Script form state
 const newScript = ref({
@@ -1909,7 +2016,15 @@ async function onLaunchScriptEditor(event) {
 	scriptEditorTitle.value = typeLabels[event.scriptType] || "Link Server Script";
 
 	// Reset dialog state
-	scriptDialogMode.value = "select";
+	linkedScriptName.value = event.script || "";
+	previewScriptContent.value = null;
+	loadingPreview.value = false;
+	showPreview.value = true;
+	editScriptContent.value = "";
+	editScriptMeta.value = { script_type: "", reference_doctype: "" };
+
+	// Default to edit mode if a script is already linked, otherwise select
+	scriptDialogMode.value = event.script ? "edit" : "select";
 	serverScriptSearch.value = "";
 	selectedServerScript.value = event.script || null; // Pre-select if already linked
 	doctypeSearch.value = "";
@@ -1924,6 +2039,11 @@ async function onLaunchScriptEditor(event) {
 		doctype_event: "", api_method: "", allow_guest: false,
 		event_frequency: "", cron_format: "", module: "",
 	};
+
+	// If a script is linked, load it for the edit tab
+	if (event.script) {
+		loadScriptContent(event.script, "edit");
+	}
 
 	// Fetch server scripts
 	loadingScripts.value = true;
@@ -2048,6 +2168,82 @@ async function toggleScriptStatus(script) {
 		console.error("Failed to toggle server script status:", error);
 	}
 }
+
+// --- Script Preview & Edit Helpers ---
+
+async function loadScriptContent(scriptName, target) {
+	// target: 'preview' or 'edit'
+	if (!scriptName) return;
+	if (target === "preview") {
+		loadingPreview.value = true;
+		previewScriptContent.value = null;
+	} else {
+		loadingEditScript.value = true;
+	}
+	try {
+		const response = await frappeRequest({
+			url: "/api/method/frappe.client.get",
+			params: {
+				doctype: "Server Script",
+				name: scriptName,
+			},
+		});
+		const doc = response.message || response;
+		if (target === "preview") {
+			previewScriptContent.value = doc.script || "# (empty script)";
+		} else {
+			editScriptContent.value = doc.script || "";
+			editScriptMeta.value = {
+				script_type: doc.script_type || "",
+				reference_doctype: doc.reference_doctype || "",
+			};
+		}
+	} catch (error) {
+		console.error(`Failed to load script "${scriptName}":`, error);
+		if (target === "preview") {
+			previewScriptContent.value = "# Failed to load script content";
+		}
+	} finally {
+		if (target === "preview") {
+			loadingPreview.value = false;
+		} else {
+			loadingEditScript.value = false;
+		}
+	}
+}
+
+async function saveEditedScript() {
+	if (!linkedScriptName.value || !editScriptContent.value) return;
+	savingEditScript.value = true;
+	try {
+		await frappeRequest({
+			url: "/api/method/frappe.client.set_value",
+			params: {
+				doctype: "Server Script",
+				name: linkedScriptName.value,
+				fieldname: "script",
+				value: editScriptContent.value,
+			},
+		});
+		showNotification("Success", `Script "${linkedScriptName.value}" updated.`, "green");
+		showScriptEditorDialog.value = false;
+		activeScriptEvent = null;
+	} catch (error) {
+		console.error("Failed to save script:", error);
+		showNotification("Error", "Failed to save: " + (error.message || error), "red");
+	} finally {
+		savingEditScript.value = false;
+	}
+}
+
+// Auto-load preview when a script is selected in "Select Existing" tab
+watch(selectedServerScript, (newVal) => {
+	if (newVal && scriptDialogMode.value === "select") {
+		loadScriptContent(newVal, "preview");
+	} else {
+		previewScriptContent.value = null;
+	}
+});
 
 // --- Notification Dialog Handlers (Send Task) ---
 
