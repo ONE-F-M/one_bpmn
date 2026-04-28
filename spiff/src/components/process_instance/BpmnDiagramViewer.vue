@@ -197,6 +197,22 @@ function applyHighlights() {
 		const overlays = viewer.value.get("overlays")
 		overlays.remove({ type: "heatmap-badge" })
 
+		// Clear stale highlight markers before re-applying
+		const staticHighlightMarkers = new Set(["highlight-done", "highlight-active"])
+		const dynamicHighlightPrefixes = ["heatmap-", "highlight-flow-"]
+		for (const element of elementRegistry.getAll()) {
+			const gfx = elementRegistry.getGraphics(element)
+			if (!gfx?.classList) continue
+			for (const marker of Array.from(gfx.classList)) {
+				if (
+					staticHighlightMarkers.has(marker) ||
+					dynamicHighlightPrefixes.some(prefix => marker.startsWith(prefix))
+				) {
+					canvas.removeMarker(element, marker)
+				}
+			}
+		}
+
 		const completedBpmnIds = new Set()
 		const activeBpmnIds = new Set()
 		const frequencyMap = {}
@@ -223,17 +239,6 @@ function applyHighlights() {
 				// ignore parse errors
 			}
 		}
-
-		// Supplement from logs
-		props.logs
-			.filter((l) => l.action === "Completed")
-			.forEach((l) => {
-				if (l.bpmn_id) completedBpmnIds.add(l.bpmn_id)
-			})
-
-		props.activeTasks.forEach((t) => {
-			if (t.bpmn_id) activeBpmnIds.add(t.bpmn_id)
-		})
 
 		// Active tasks override completed
 		activeBpmnIds.forEach((id) => completedBpmnIds.delete(id))

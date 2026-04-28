@@ -43,7 +43,7 @@
 
 <script setup>
 import { ref, computed, onMounted, onUnmounted } from "vue"
-import { useRoute, useRouter } from "vue-router"
+import { useRoute } from "vue-router"
 import { frappeRequest } from "frappe-ui"
 import { Icon } from "@iconify/vue"
 
@@ -55,7 +55,6 @@ import ElementInspector from "@/components/process_instance/ElementInspector.vue
 import PendingActions from "@/components/process_instance/PendingActions.vue"
 
 const route = useRoute()
-const router = useRouter()
 const instanceId = computed(() => route.params.instance)
 
 // ── State ──
@@ -290,6 +289,9 @@ async function completeTask(task, detail) {
 async function handleRealtimeUpdate(data) {
 	if (data?.instance_name && data.instance_name !== instanceId.value) return
 	await loadDetails()
+	logs.value = []
+	limitStart.value = 0
+	hasMoreLogs.value = true
 	await loadLogs()
 }
 

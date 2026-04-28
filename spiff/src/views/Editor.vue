@@ -545,8 +545,8 @@
 							<div v-else-if="filteredServerScripts.length === 0" class="p-6 text-center text-gray-400">
 								No server scripts found.
 							</div>
+							<div v-else>
 							<template
-								v-else
 								v-for="script in filteredServerScripts"
 								:key="script.name"
 							>
@@ -596,6 +596,7 @@
 									<pre v-else class="px-4 py-3 text-[13px] font-mono text-gray-700 overflow-x-auto max-h-48 whitespace-pre-wrap">{{ previewScriptContent }}</pre>
 								</div>
 							</template>
+							</div>
 						</div>
 					</div>
 
@@ -1040,7 +1041,7 @@ const isScriptTaskElement = ref(false);
 // Script preview state (Select Existing tab)
 const previewScriptContent = ref(null);
 const loadingPreview = ref(false);
-const showPreview = ref(true);
+
 
 // Edit tab state
 const linkedScriptName = ref("");
@@ -2019,7 +2020,6 @@ async function onLaunchScriptEditor(event) {
 	linkedScriptName.value = event.script || "";
 	previewScriptContent.value = null;
 	loadingPreview.value = false;
-	showPreview.value = true;
 	editScriptContent.value = "";
 	editScriptMeta.value = { script_type: "", reference_doctype: "" };
 
