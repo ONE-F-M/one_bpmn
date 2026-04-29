@@ -2911,22 +2911,28 @@ def get_canvas_comments(model_name: str) -> list:
 	if not model_name:
 		return []
 
-	return frappe.get_list(
-		"Processa Comment",
-		filters={"model": model_name},
+	comments = frappe.get_list(
+		"Comment",
+		filters={
+			"reference_doctype": "BPMN Process Model",
+			"reference_name": model_name,
+			"comment_type": "Comment",
+			"is_processa_comment": 1
+		},
 		fields=[
 			"name",
-			"model",
-			"element_id",
-			"comment",
-			"assigned_to",
-			"status",
-			"author",
-			"is_task",
+			"reference_name as model",
+			"custom_element_id as element_id",
+			"content as comment",
+			"custom_assigned_to as assigned_to",
+			"custom_status as status",
+			"owner as author",
+			"custom_is_task as is_task",
 			"creation",
 		],
 		order_by="creation desc",
 	)
+	return comments
 
 
 @frappe.whitelist()
@@ -2934,37 +2940,50 @@ def post_canvas_comment(
 	model_name: str, element_id: str, comment: str, assigned_to: str = None, is_task: int = 0
 ) -> dict:
 	"""
-	Create a new comment on the BPMN canvas.
+	Create a new comment on the BPMN canvas using standard Comment DocType.
 	"""
 	if not model_name or not comment:
 		frappe.throw(_("Model name and comment are required"))
 
 	doc = frappe.get_doc(
 		{
-			"doctype": "Processa Comment",
-			"model": model_name,
-			"element_id": element_id,
-			"comment": comment,
-			"assigned_to": assigned_to,
-			"is_task": is_task,
-			"status": "Open",
+			"doctype": "Comment",
+			"comment_type": "Comment",
+			"reference_doctype": "BPMN Process Model",
+			"reference_name": model_name,
+			"content": comment,
+			"is_processa_comment": 1,
+			"custom_element_id": element_id,
+			"custom_assigned_to": assigned_to,
+			"custom_is_task": is_task,
+			"custom_status": "Open",
 		}
 	)
 	doc.insert(ignore_permissions=True)
 
-	# If assigned to someone, create a ToDo (optional, depends on if 'actionable' means standard Frappe ToDo)
+	# If assigned to someone, create a ToDo
 	if is_task and assigned_to:
 		frappe.get_doc(
 			{
 				"doctype": "ToDo",
 				"allocated_to": assigned_to,
 				"description": _("BPMN Task for {0}: {1}").format(model_name, comment),
-				"reference_type": "Processa Comment",
+				"reference_type": "Comment",
 				"reference_name": doc.name,
 			}
 		).insert(ignore_permissions=True)
 
-	return doc.as_dict()
+	# Map fields back for frontend compatibility
+	res = doc.as_dict()
+	res.model = doc.reference_name
+	res.element_id = doc.custom_element_id
+	res.comment = doc.content
+	res.assigned_to = doc.custom_assigned_to
+	res.is_task = doc.custom_is_task
+	res.status = doc.custom_status
+	res.author = doc.owner
+	
+	return res
 
 
 @frappe.whitelist()
@@ -2980,22 +2999,25 @@ def update_comment_status(name: str, status: str) -> dict:
 	if normalized_status not in allowed_statuses:
 		frappe.throw(_("Status must be one of: Open, Resolved, Closed"))
 
-	doc = frappe.get_doc("Processa Comment", name)
+	doc = frappe.get_doc("Comment", name)
 	doc.check_permission("write")
 
 	current_user = frappe.session.user
 	is_system_manager = "System Manager" in frappe.get_roles(current_user)
-	allowed_users = {doc.owner, getattr(doc, "assigned_to", None), "Administrator"}
+	
+	# custom_assigned_to is our new field in Comment
+	allowed_users = {doc.owner, getattr(doc, "custom_assigned_to", None), "Administrator"}
+	
 	if current_user not in allowed_users and not is_system_manager:
 		frappe.throw(_("You are not permitted to update this comment status"))
 
-	doc.status = normalized_status
-	doc.save()
+	doc.custom_status = normalized_status
+	doc.save(ignore_permissions=True)
 
-	# If this was linked to a ToDo, update it?
-	# (Logic omitted for brevity unless explicitly requested)
-
-	return doc.as_dict()
+	# Map back for frontend compatibility
+	res = doc.as_dict()
+	res.status = doc.custom_status
+	return res
 
 
 @frappe.whitelist()
