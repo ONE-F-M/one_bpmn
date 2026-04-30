@@ -19,9 +19,11 @@ from SpiffWorkflow.bpmn.specs.defaults import (
 	ServiceTask,
 	ManualTask,
 	SendTask,
+	ReceiveTask,
 	ExclusiveGateway,
 	ParallelGateway,
 	InclusiveGateway,
+	EventBasedGateway,
 )
 
 # ─────────────────────────────────────────────────────────────
@@ -474,44 +476,6 @@ def refresh_context_doc(wf: BpmnWorkflow, context_doctype: str, context_docname:
 		pass
 
 
-def throw_signal(wf: BpmnWorkflow, signal_name: str) -> bool:
-	"""
-	Throw a named BPMN signal into the workflow so that a Signal Boundary Event
-	attached to the active User Task can catch it and route to an alternative path.
-
-	Uses SpiffWorkflow's wf.catch() which looks for any NOT_FINISHED task that
-	matches the signal (e.g. a boundary event in WAITING state).  If a match is
-	found the boundary event transitions to READY and wf.refresh_waiting_tasks()
-	fires; the caller must then call _run_engine() to advance the boundary flow.
-
-	Returns:
-	    True  — signal was caught by at least one boundary/catch event
-	    False — nothing caught the signal (no matching boundary event modelled);
-	            the event is removed from the unhandled queue so state stays clean
-	"""
-	from SpiffWorkflow.bpmn.specs.event_definitions import SignalEventDefinition
-	from SpiffWorkflow.bpmn.util.event import BpmnEvent
-
-	sig_def = SignalEventDefinition(signal_name)
-	event = BpmnEvent(sig_def)
-
-	events_before = len(wf.bpmn_events)
-	wf.catch(event)
-	caught = len(wf.bpmn_events) == events_before
-
-	if not caught:
-		# Remove the unhandled entry so it does not pollute the serialised state.
-		wf.bpmn_events = [
-			e for e in wf.bpmn_events
-			if not (
-				isinstance(e.event_definition, SignalEventDefinition)
-				and e.event_definition.name == signal_name
-			)
-		]
-
-	return caught
-
-
 def clean_doc_from_wf_data(wf: BpmnWorkflow) -> None:
 	"""
 	Remove any non-JSON-serializable 'doc' key from all task data dicts
@@ -523,3 +487,40 @@ def clean_doc_from_wf_data(wf: BpmnWorkflow) -> None:
 	for task in wf.get_tasks():
 		if hasattr(task, "data") and isinstance(task.data, dict):
 			task.data.pop("doc", None)
+
+
+def send_message(wf: BpmnWorkflow, message_name: str, payload: dict = None) -> bool:
+	"""
+	Deliver an external message to a running workflow instance.
+
+	Uses SpiffWorkflow's native send_event() which:
+	  1. Finds WAITING tasks that catch this message name
+	     (IntermediateCatchEvent, ReceiveTask, or EventBasedGateway children)
+	  2. Checks message correlation if correlation properties are defined
+	  3. Delivers the payload into the matching task's data
+	  4. Calls refresh_waiting_tasks() to advance the flow
+
+	Args:
+	    wf:           The running BpmnWorkflow
+	    message_name: BPMN message name — must match <bpmn:message name="...">
+	    payload:      Optional dict of data to deliver with the message.
+	                  Merged into task.data via set_data(**payload), so
+	                  each key becomes a task variable usable in gateway
+	                  conditions and downstream expressions.
+
+	Returns:
+	    True  — message was caught by a waiting task
+	    False — no task is waiting for this message
+	"""
+	from SpiffWorkflow.bpmn.specs.event_definitions import MessageEventDefinition
+	from SpiffWorkflow.bpmn.util.event import BpmnEvent
+
+	msg_def = MessageEventDefinition(message_name)
+	event = BpmnEvent(msg_def, payload=payload or {})
+
+	try:
+		wf.send_event(event)
+		return True
+	except Exception:
+		# send_event raises WorkflowException if no task is waiting
+		return False
