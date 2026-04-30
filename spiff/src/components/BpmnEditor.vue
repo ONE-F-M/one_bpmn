@@ -105,6 +105,87 @@
 				@dragover.prevent="!readonly && handleDragOver($event)"
 				@drop.prevent="!readonly && handleDrop($event)"
 			></div>
+			
+			<!-- Inline Comment Popover (Teleported to bpmn-js overlay) -->
+			<Teleport v-if="showInlineCommentPopover && inlineCommentOverlayTarget" :to="inlineCommentOverlayTarget">
+				<div 
+					ref="inlineCommentPopoverEl"
+					class="bg-white border border-gray-200 rounded-lg shadow-xl p-3 w-72 space-y-3 z-[150]"
+				>
+					<div class="space-y-1 relative">
+						<textarea
+							v-model="inlineCommentFormData.text"
+							@input="handleInlineCommentInput"
+							@keydown.enter.meta.prevent="submitInlineComment"
+							@keydown.enter.ctrl.prevent="submitInlineComment"
+							placeholder="Add a comment..."
+							class="inline-comment-textarea w-full px-3 py-2 text-sm border border-gray-300 rounded-md focus:ring-2 focus:ring-blue-400 focus:outline-none min-h-[80px]"
+						></textarea>
+						
+						<!-- Mentions Dropdown -->
+						<div
+							v-if="showMentionDropdown && inlineCommentElement?._isInlineMention"
+							class="mentions-container absolute z-[160] w-full max-h-48 overflow-y-auto bg-white border border-gray-200 rounded-md shadow-lg py-1 left-0 top-full mt-1"
+						>
+							<div
+								v-for="u in mentionSuggestions"
+								:key="u.value"
+								@click="selectMention(u)"
+								class="px-3 py-1.5 text-sm cursor-pointer hover:bg-blue-50 text-gray-900 flex items-center justify-between"
+							>
+								<span>{{ u.label }}</span>
+							</div>
+						</div>
+					</div>
+
+					<div class="flex items-center gap-2">
+						<div class="user-search-container relative flex-1">
+							<Icon icon="lucide:user" class="absolute left-2.5 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-gray-400" />
+							<input
+								v-model="userSearchQuery"
+								type="text"
+								placeholder="Assign to..."
+								class="w-full pl-8 pr-2 py-1.5 border border-gray-300 rounded-md text-xs bg-white focus:outline-none focus:ring-2 focus:ring-blue-400"
+								@focus="showUserDropdown = true"
+							/>
+							<div 
+								v-if="showUserDropdown && filteredUsers.length > 0" 
+								class="absolute z-[160] w-full top-full mt-1 max-h-40 overflow-y-auto bg-white border border-gray-200 rounded-md shadow-lg py-1"
+							>
+								<div
+									v-for="u in filteredUsers"
+									:key="u.value"
+									@click="inlineCommentFormData.assigned_to = u.value; userSearchQuery = u.label; showUserDropdown = false"
+									class="px-2 py-1.5 text-xs cursor-pointer hover:bg-blue-50 text-gray-900 flex items-center justify-between"
+								>
+									<span>{{ u.label }}</span>
+									<Icon v-if="inlineCommentFormData.assigned_to === u.value" icon="lucide:check" class="w-3 h-3 text-blue-600" />
+								</div>
+							</div>
+						</div>
+					</div>
+
+					<div class="flex justify-end gap-2 pt-1">
+						<Button 
+							size="sm" 
+							variant="subtle" 
+							@click="closeInlineComment(true)"
+							class="text-xs py-1"
+						>
+							Cancel
+						</Button>
+						<Button 
+							size="sm" 
+							variant="solid" 
+							@click="submitInlineComment"
+							:disabled="!inlineCommentFormData.text"
+							class="text-xs py-1"
+						>
+							Post Comment
+						</Button>
+					</div>
+				</div>
+			</Teleport>
 
 			<!-- ── Mobile Floating Toolbar (Undo/Redo/Delete/Format) ── -->
 			<transition name="fade">
@@ -186,33 +267,236 @@
 					]"
 					:style="isDragging ? { transform: `translateY(${dragOffset}px)`, transition: 'none', willChange: 'transform' } : {}"
 				>
-					<!-- Mobile: Drag handle + close button -->
-					<div v-if="isMobile" class="flex items-center justify-between px-4 pt-3 pb-2 shrink-0">
-						<div class="flex-1 flex justify-center">
-							<div ref="dragHandleRef" class="w-10 h-1 bg-gray-300 rounded-full cursor-grab active:cursor-grabbing"></div>
+					<!-- Header (Desktop & Mobile) -->
+					<div class="flex items-center justify-between px-4 py-3 border-b border-gray-200 bg-gray-50/50 shrink-0">
+						<h3 class="text-sm font-semibold text-gray-900 flex items-center gap-2">
+							<Icon icon="lucide:settings" class="w-4 h-4 text-gray-500" />
+							Properties
+						</h3>
+						<div class="flex items-center gap-1">
+							<button
+								@click="showTimeline = !showTimeline"
+								class="p-1.5 rounded-md transition-colors relative"
+								:class="showTimeline ? 'bg-blue-50 text-blue-600' : 'hover:bg-gray-100 text-gray-500'"
+								title="View Comments"
+							>
+								<Icon icon="lucide:message-square" class="w-4.5 h-4.5" />
+								<span v-if="currentElementComments.length > 0" class="absolute -top-0.5 -right-0.5 w-4 h-4 bg-blue-600 text-white text-[9px] font-bold rounded-full flex items-center justify-center border-2 border-white">
+									{{ currentElementComments.length }}
+								</span>
+							</button>
+							<button
+								v-if="isMobile"
+								@click="showPropertiesPanel = false"
+								class="p-1.5 rounded-full hover:bg-gray-100 text-gray-500 transition-colors ml-1"
+							>
+								<Icon icon="lucide:x" class="w-5 h-5" />
+							</button>
 						</div>
-						<button
-							@click="showPropertiesPanel = false"
-							class="p-1.5 -mr-1 rounded-full hover:bg-gray-100 text-gray-500 transition-colors"
+					</div>
+
+					<!-- Mobile: Drag handle -->
+					<div v-if="isMobile" class="flex-none flex justify-center py-2 border-b border-gray-100">
+						<div ref="dragHandleRef" class="w-10 h-1 bg-gray-300 rounded-full cursor-grab active:cursor-grabbing"></div>
+					</div>
+
+					<!-- Properties Content (Scrollable) -->
+					<div class="flex-1 overflow-y-auto flex flex-col min-h-0">
+						<div 
+							ref="propertiesContainer"
+							:class="[
+								'flex-none min-w-0 transition-opacity duration-200',
+								!isMobile && propertiesCollapsed ? 'opacity-0 pointer-events-none' : 'opacity-100'
+							]"
 						>
-							<Icon icon="lucide:x" class="w-5 h-5" />
-						</button>
-					</div>
+							<!-- Content is injected here by bpmn-js-properties-panel -->
+						</div>
 
-					<!-- Inner container -->
-					<div 
-						ref="propertiesContainer"
-						:class="[
-							'flex-1 flex flex-col min-w-0 transition-opacity duration-200 overflow-y-auto mobile-safe-area-bottom',
-							!isMobile && propertiesCollapsed ? 'opacity-0 pointer-events-none' : 'opacity-100'
-						]"
-					>
-						<!-- Content is injected here by bpmn-js-properties-panel -->
-					</div>
+						<!-- Comment Timeline Bar (Show if explicitly toggled) -->
+						<div v-if="showTimeline" class="flex-1 flex flex-col border-t border-gray-200 bg-white">
+							<div 
+								@click="timelineCollapsed = !timelineCollapsed"
+								class="px-4 py-2.5 bg-gray-50 border-b border-gray-200 flex items-center justify-between sticky top-0 z-10 cursor-pointer hover:bg-gray-100 transition-colors"
+							>
+								<h3 class="text-[11px] font-bold text-gray-700 uppercase tracking-wider flex items-center gap-1.5">
+									COMMENTS
+								</h3>
+								
+								<div class="flex items-center gap-2">
+									<!-- Timeline Filters: only when expanded -->
+									<div v-if="!timelineCollapsed" class="flex items-center gap-1 bg-white border border-gray-200 p-0.5 rounded-md shadow-sm" @click.stop>
+										<button 
+											@click="timelineTaskFilter = !timelineTaskFilter; if (timelineTaskFilter) timelineAssignedFilter = false;"
+											class="flex items-center gap-1 px-2 py-0.5 rounded transition-all text-[9px] font-bold uppercase tracking-tight"
+											:class="timelineTaskFilter ? 'bg-orange-100 text-orange-700' : 'text-gray-400 hover:text-gray-600'"
+										>
+											<Icon :icon="timelineTaskFilter ? 'lucide:check-circle' : 'lucide:circle'" class="w-3 h-3" />
+											Tasks
+										</button>
+										<button 
+											@click="timelineAssignedFilter = !timelineAssignedFilter; if (timelineAssignedFilter) timelineTaskFilter = false;"
+											class="flex items-center gap-1 px-2 py-0.5 rounded transition-all text-[9px] font-bold uppercase tracking-tight"
+											:class="timelineAssignedFilter ? 'bg-blue-100 text-blue-700' : 'text-gray-400 hover:text-gray-600'"
+										>
+											<Icon icon="lucide:user" class="w-3 h-3" />
+											Mine
+										</button>
+									</div>
+									<Icon :icon="timelineCollapsed ? 'lucide:chevron-right' : 'lucide:chevron-down'" class="w-3.5 h-3.5 text-gray-500" />
+								</div>
+							</div>
 
-	
+							<div v-if="!timelineCollapsed" class="flex flex-col flex-1">
+								<div class="px-4 py-1.5 bg-white border-b border-gray-100 flex items-center justify-between">
+									<button 
+										v-if="timelineFilterMode === 'all'"
+										@click="timelineFilterMode = 'element'"
+										class="text-[10px] text-blue-600 hover:underline font-medium"
+									>
+										Show selected only
+									</button>
+									<button 
+										v-else
+										@click="timelineFilterMode = 'all'"
+										class="text-[10px] text-blue-600 hover:underline font-medium"
+									>
+										Show all comments
+									</button>
+									<span class="text-[10px] text-gray-400 font-medium tracking-tight">{{ currentElementComments.length }} comments</span>
+								</div>
+
+							<!-- Timeline Input -->
+							<div class="p-3 border-b border-gray-100 bg-white sticky top-[41px] z-10 shadow-sm">
+								<div class="relative">
+									<textarea
+										v-model="timelineText"
+										@input="handleTimelineCommentInput"
+										placeholder="Add a quick comment..."
+										class="timeline-textarea w-full px-3 py-2 text-xs border border-gray-200 rounded-lg focus:ring-2 focus:ring-blue-400 focus:outline-none min-h-[60px] resize-none pr-10 bg-gray-50/30"
+										@keydown.enter.meta.prevent="submitTimelineComment"
+										@keydown.enter.ctrl.prevent="submitTimelineComment"
+									></textarea>
+									
+									<!-- Timeline Mentions Dropdown -->
+									<div
+										v-if="showMentionDropdown && inlineCommentElement?._isTimelineMention"
+										class="mentions-container absolute z-[160] w-full max-h-48 overflow-y-auto bg-white border border-gray-200 rounded-md shadow-lg py-1 left-0 top-full mt-1"
+									>
+										<div
+											v-for="u in mentionSuggestions"
+											:key="u.value"
+											@click="selectMention(u)"
+											class="px-3 py-1.5 text-sm cursor-pointer hover:bg-blue-50 text-gray-900 flex items-center justify-between"
+										>
+											<span>{{ u.label }}</span>
+										</div>
+									</div>
+									
+									<!-- Quick Comment Actions -->
+									<div class="absolute right-2 bottom-2 flex items-center gap-1.5">
+										<button 
+											@click="timelineIsTask = !timelineIsTask"
+											class="p-1 rounded-md transition-colors"
+											:class="timelineIsTask ? 'bg-orange-100 text-orange-600' : 'text-gray-400 hover:bg-gray-100'"
+											title="Mark as Task"
+										>
+											<Icon :icon="timelineIsTask ? 'lucide:check-square' : 'lucide:square'" class="w-4 h-4" />
+										</button>
+										<button 
+											@click="submitTimelineComment"
+											:disabled="!timelineText.trim()"
+											class="p-1 rounded-md text-blue-600 hover:bg-blue-50 disabled:opacity-30 disabled:hover:bg-transparent transition-colors"
+										>
+											<Icon icon="lucide:send" class="w-4.5 h-4.5" />
+										</button>
+									</div>
+
+									<!-- Assignment Indicator -->
+									<div 
+										v-if="timelineAssignedTo" 
+										class="absolute left-2.5 bottom-2.5 flex items-center gap-1 px-1.5 py-0.5 rounded-full bg-blue-50 border border-blue-100 text-[10px] text-blue-700 shadow-sm"
+									>
+										<Icon icon="lucide:user" class="w-3 h-3" />
+										<span class="max-w-[100px] truncate">{{ users.find(u => u.name === timelineAssignedTo)?.full_name || timelineAssignedTo }}</span>
+										<button @click="timelineAssignedTo = ''" class="hover:text-blue-900 ml-0.5">
+											<Icon icon="lucide:x" class="w-2.5 h-2.5" />
+										</button>
+									</div>
+								</div>
+								<div class="mt-1 flex items-center justify-between px-1">
+									<span class="text-[9px] text-gray-400 flex items-center gap-1">
+										<Icon icon="lucide:command" class="w-2.5 h-2.5" />
+										+ Enter to post
+									</span>
+									<span v-if="timelineIsTask" class="text-[9px] font-bold text-orange-500 uppercase tracking-tighter">Creating Task</span>
+								</div>
+							</div>
+
+							<!-- Timeline Items -->
+							<div class="flex-1 overflow-y-auto p-4 space-y-6">
+								<div v-if="currentElementComments.length === 0" class="flex flex-col items-center justify-center py-10 text-gray-400">
+									<Icon icon="lucide:message-square" class="w-8 h-8 opacity-20 mb-2" />
+									<p class="text-xs">No comments yet</p>
+								</div>
+
+								<div 
+									v-for="(c, idx) in sortedTimelineComments" 
+									:key="c.name"
+									@click="navigateToElementComments(c.element_id)"
+									class="relative pl-8 group transition-colors rounded-md p-1.5 -mx-1.5"
+									:class="c.element_id && c.element_id !== 'process' ? 'cursor-pointer hover:bg-gray-50' : ''"
+								>
+									<!-- Timeline Vertical Line -->
+									<div 
+										v-if="idx < sortedTimelineComments.length - 1"
+										class="absolute left-[5px] top-[14px] bottom-[-24px] w-0.5 bg-gray-100"
+									></div>
+									
+									<!-- Timeline Avatar -->
+									<div class="absolute left-0 top-[6px] w-6.5 h-6.5 rounded-full border-2 border-white shadow-sm z-10 flex items-center justify-center overflow-hidden -translate-x-1">
+										<img 
+											v-if="c.owner_image" 
+											:src="c.owner_image" 
+											class="w-full h-full object-cover"
+										/>
+										<div 
+											v-else 
+											:class="['w-full h-full flex items-center justify-center text-[8px] font-bold text-white', getAvatarColor(c.owner)]"
+										>
+											{{ getInitials(c.owner_full_name || c.owner || c.author) }}
+										</div>
+									</div>
+
+									<div class="space-y-1.5">
+										<div class="flex items-center justify-between">
+											<div class="flex items-center gap-2">
+												<span class="text-xs font-bold text-gray-900">{{ c.owner_full_name || c.owner || c.author }}</span>
+												<span v-if="c.is_task" class="px-1.5 py-0.5 rounded bg-orange-100 text-orange-700 text-[9px] font-bold uppercase">Task</span>
+												<!-- Element tag for global view -->
+												<span v-if="timelineFilterMode === 'all' && c.element_id && c.element_id !== 'process'" class="px-1 py-0.5 rounded bg-gray-100 text-gray-500 text-[8px] font-medium">@{{ c.element_id }}</span>
+											</div>
+											<span class="text-[10px] text-gray-400 font-medium">{{ formatCommentDate(c.creation) }}</span>
+										</div>
+										<p class="text-xs text-gray-600 leading-relaxed whitespace-pre-wrap">{{ c.comment }}</p>
+										
+										<!-- Status Badge for Tasks -->
+										<div v-if="c.is_task" class="flex items-center gap-2 pt-1">
+											<Badge 
+												:label="c.status" 
+												:theme="c.status === 'Open' ? 'orange' : 'green'" 
+												size="sm" 
+												class="!text-[9px] !px-1.5"
+											/>
+											<span v-if="c.assigned_to" class="text-[10px] text-gray-500">assigned to {{ c.assigned_to_full_name || c.assigned_to }}</span>
+										</div>
+									</div>
+								</div>
+							</div>
+						</div>
+					</div>
 				</div>
-			</transition>
+			</div>
+		</transition>
 
 			<!-- Desktop: Floating Properties Panel Toggle Handle
 			     Placed OUTSIDE the panel container to avoid overflow-hidden clipping.
@@ -258,8 +542,9 @@
 							label="Comment"
 							type="textarea"
 							v-model="commentFormData.text"
-							@keyup="handleCommentInput"
-							@click="handleCommentInput"
+							@input="handleCommentInput"
+							@keydown.enter.meta.prevent="submitComment"
+							@keydown.enter.ctrl.prevent="submitComment"
 							:required="true"
 							placeholder="What's on your mind?"
 						/>
@@ -421,7 +706,7 @@
 </template>
 
 <script setup>
-import { ref, shallowRef, onMounted, onBeforeUnmount, watch, computed, nextTick } from "vue";
+import { ref, shallowRef, onMounted, onBeforeUnmount, onUnmounted, watch, computed, nextTick } from "vue";
 import { frappeRequest } from "frappe-ui";
 import {
 	injectProcessNameField,
@@ -478,6 +763,7 @@ import timerPropertiesProviderModule from "@/bpmn/timerPropertiesProvider";
 import startEventPropertiesProviderModule from "@/bpmn/startEventPropertiesProvider";
 import conditionalStartEventPropertiesProviderModule from "@/bpmn/conditionalStartEventPropertiesProvider";
 import propertiesPanelFilterModule from "@/bpmn/propertiesPanelFilter";
+import commentContextPadModule from "@/bpmn/commentContextPad";
 
 // bpmnlint — diagram validation
 import lintModule from "bpmn-js-bpmnlint";
@@ -527,7 +813,12 @@ const emit = defineEmits([
 
 // Commenting state
 const comments = ref([]);
-const isCommentMode = ref(false);
+const timelineText = ref("");
+const showTimeline = ref(false);
+const timelineFilterMode = ref("element"); // 'element' or 'all'
+const timelineTaskFilter = ref(false);
+const timelineAssignedFilter = ref(false);
+const timelineCollapsed = ref(false);
 const showCommentDialog = ref(false);
 const showViewCommentsDialog = ref(false);
 const activeCommentElement = ref(null);
@@ -538,6 +829,53 @@ const commentFormData = ref({
 	is_task: false
 });
 const users = ref([]);
+
+// Inline Comment Popover state
+const showInlineCommentPopover = ref(false);
+const inlineCommentPopoverEl = ref(null);
+const inlineCommentFormData = ref({
+	text: "",
+	assigned_to: "",
+	is_task: false
+});
+const inlineCommentElement = ref(null);
+const inlineCommentOverlayTarget = ref(null);
+
+function toggleTimeline(mode = "all") {
+	if (showTimeline.value && timelineFilterMode.value === mode) {
+		showTimeline.value = false;
+		return;
+	}
+	showPropertiesPanel.value = true;
+	propertiesCollapsed.value = false;
+	showTimeline.value = true;
+	timelineFilterMode.value = mode;
+	if (mode === "all" && modelerInstance.value) {
+		modelerInstance.value.get("selection").select([]);
+	}
+}
+
+function navigateToElementComments(elementId) {
+	if (!elementId || elementId === "process" || !modelerInstance.value) return;
+	
+	const elementRegistry = modelerInstance.value.get("elementRegistry");
+	const element = elementRegistry.get(elementId);
+	
+	if (element) {
+		const selection = modelerInstance.value.get("selection");
+		selection.select(element);
+		
+		// The selection.changed listener will automatically set timelineFilterMode to 'element'
+		// but we ensure it here as well for immediate feedback.
+		timelineFilterMode.value = "element";
+		showPropertiesPanel.value = true;
+		propertiesCollapsed.value = false;
+		
+		// Scroll to the element
+		const canvas = modelerInstance.value.get("canvas");
+		canvas.scrollToElement(element);
+	}
+}
 
 // Right-click context menu (composable)
 const {
@@ -558,7 +896,94 @@ const {
 		);
 		showViewCommentsDialog.value = true;
 	},
+	toggleTimeline
 });
+
+const currentElementComments = computed(() => {
+	let filtered = [];
+	if (timelineFilterMode.value === "all") {
+		filtered = comments.value;
+	} else {
+		const element = selectedElements.value[0];
+		const id = element?.id || "process";
+		filtered = comments.value.filter(c => (c.element_id || "process") === id);
+	}
+	
+	if (timelineTaskFilter.value) {
+		filtered = filtered.filter(c => c.is_task && c.status === "Open");
+	}
+	
+	if (timelineAssignedFilter.value) {
+		const currentUser = window.frappe?.session?.user;
+		filtered = filtered.filter(c => c.is_task && c.status === "Open" && c.assigned_to === currentUser);
+	}
+	
+	return filtered;
+});
+
+const sortedTimelineComments = computed(() => {
+	return [...currentElementComments.value].sort((a, b) => new Date(b.creation) - new Date(a.creation));
+});
+
+function formatCommentDate(dateStr) {
+	if (!dateStr) return "";
+	const d = new Date(dateStr);
+	const day = String(d.getDate()).padStart(2, '0');
+	const month = String(d.getMonth() + 1).padStart(2, '0');
+	const year = d.getFullYear();
+	const hours = String(d.getHours()).padStart(2, '0');
+	const minutes = String(d.getMinutes()).padStart(2, '0');
+	const seconds = String(d.getSeconds()).padStart(2, '0');
+	return `${day}/${month}/${year}, ${hours}:${minutes}:${seconds}`;
+}
+
+async function submitTimelineComment() {
+	if (!timelineText.value.trim() || !props.modelName) return;
+	
+	const element = selectedElements.value[0];
+	const elementId = element?.id || "process";
+	
+	try {
+		await frappeRequest({
+			url: "/api/method/one_bpmn.api.post_canvas_comment",
+			params: {
+				model_name: props.modelName,
+				element_id: elementId,
+				comment: timelineText.value.trim(),
+				assigned_to: timelineAssignedTo.value,
+				is_task: timelineIsTask.value ? 1 : 0
+			}
+		});
+		timelineText.value = "";
+		timelineAssignedTo.value = "";
+		timelineIsTask.value = false;
+		fetchComments();
+	} catch (err) {
+		console.error("Failed to post timeline comment:", err);
+	}
+}
+
+function handleTimelineCommentInput(e) {
+	if (!e || !e.target || typeof e.target.selectionStart !== 'number') return;
+	
+	const text = timelineText.value || "";
+	const cursorPosition = e.target.selectionStart;
+	const textBeforeCursor = text.substring(0, cursorPosition);
+	const match = textBeforeCursor.match(/@([^\s]{0,30})$/);
+	
+	if (match) {
+		showMentionDropdown.value = true;
+		mentionSearchQuery.value = match[1];
+		mentionStartIndex.value = cursorPosition - match[1].length - 1;
+		// Flag to indicate we're mentioning in the timeline
+		inlineCommentElement.value = { ...inlineCommentElement.value, _isTimelineMention: true };
+	} else {
+		showMentionDropdown.value = false;
+	}
+}
+
+const timelineAssignedTo = ref("");
+const timelineIsTask = ref(false);
 
 const userSearchQuery = ref("");
 const showUserDropdown = ref(false);
@@ -845,6 +1270,7 @@ onMounted(async () => {
 				nativeCopyPasteModule,
 				touchInteractionModule,
 				propertiesPanelFilterModule,
+				commentContextPadModule,
 			],
 			taskResizingEnabled: true,
 			linting: {
@@ -1000,6 +1426,8 @@ onMounted(async () => {
 				// Auto-open the properties panel when an element is selected
 				if (e.newSelection?.length > 0) {
 					showPropertiesPanel.value = true;
+					showTimeline.value = true;
+					timelineFilterMode.value = "element";
 					if (!isMobile.value) {
 						propertiesCollapsed.value = false;
 					}
@@ -1042,6 +1470,43 @@ onMounted(async () => {
 
 			// Right-click context menu — delegates to composable
 			registerContextMenuListeners(eventBus);
+
+			// Listen for inline comment request from context pad
+			eventBus.on("commentContextPad.addComment", ({ element }) => {
+				openInlineComment(element);
+			});
+
+			// Global click listener for closing inline popover/dropdowns
+			const handleGlobalClick = (e) => {
+				if (!showInlineCommentPopover.value) return;
+
+				const target = e.target;
+				const popover = inlineCommentPopoverEl.value;
+				const isInsidePopover = popover?.contains(target);
+
+				// Close user dropdown if click is outside the assignment input area
+				const isInsideUserSearch = target.closest('.user-search-container');
+				if (!isInsideUserSearch) {
+					showUserDropdown.value = false;
+				}
+
+				// Close mention dropdown if click is outside the textarea area
+				const isInsideTextArea = target.closest('textarea');
+				const isInsideMentions = target.closest('.mentions-container');
+				if (!isInsideTextArea && !isInsideMentions) {
+					showMentionDropdown.value = false;
+				}
+
+				// Close popover if clicked outside and empty
+				if (!isInsidePopover && !inlineCommentFormData.value.text) {
+					closeInlineComment(true);
+				}
+			};
+			document.addEventListener("mousedown", handleGlobalClick);
+
+			onUnmounted(() => {
+				document.removeEventListener("mousedown", handleGlobalClick);
+			});
 
 			// Re-inject only when calledElement actually changed
 			// churn and repeated network requests on every command stack event.
@@ -1400,20 +1865,145 @@ function handleCommentInput(e) {
 	if (match) {
 		showMentionDropdown.value = true;
 		mentionSearchQuery.value = match[1];
-		mentionStartIndex.value = cursorPosition - match[0].length;
+		mentionStartIndex.value = cursorPosition - match[1].length - 1;
+	} else {
+		showMentionDropdown.value = false;
+	}
+}
+
+// --- Inline Comment Handlers ---
+
+function openInlineComment(element) {
+	if (props.readonly) return;
+	
+	activeCommentElement.value = element;
+	inlineCommentElement.value = element;
+	inlineCommentFormData.value = {
+		text: "",
+		assigned_to: "",
+		is_task: false
+	};
+	userSearchQuery.value = "";
+	showInlineCommentPopover.value = true;
+	
+	const overlays = modeler.get("overlays");
+	// Remove any existing inline popover
+	overlays.remove({ type: "inline-comment" });
+	
+	nextTick(() => {
+		// Create a stable DOM target for the Teleport
+		const target = document.createElement("div");
+		target.className = "inline-comment-overlay-wrapper";
+		
+		overlays.add(element.id, "inline-comment", {
+			position: {
+				bottom: -20,
+				right: -20
+			},
+			html: target
+		});
+		
+		inlineCommentOverlayTarget.value = target;
+		
+		// Focus textarea
+		setTimeout(() => {
+			if (inlineCommentPopoverEl.value) {
+				const textarea = inlineCommentPopoverEl.value.querySelector("textarea");
+				if (textarea) textarea.focus();
+			}
+		}, 50);
+	});
+}
+
+function closeInlineComment(force = false) {
+	if (!force && inlineCommentFormData.value.text) return;
+
+	showInlineCommentPopover.value = false;
+	inlineCommentElement.value = null;
+	inlineCommentOverlayTarget.value = null; // Unmounts the Teleport content
+	
+	const overlays = modeler.get("overlays");
+	overlays.remove({ type: "inline-comment" });
+}
+
+async function submitInlineComment() {
+	if (!inlineCommentFormData.value.text || !props.modelName || !inlineCommentElement.value) return;
+
+	try {
+		await frappeRequest({
+			url: "/api/method/one_bpmn.api.post_canvas_comment",
+			params: {
+				model_name: props.modelName,
+				element_id: inlineCommentElement.value.id,
+				comment: inlineCommentFormData.value.text,
+				assigned_to: inlineCommentFormData.value.assigned_to,
+				is_task: inlineCommentFormData.value.assigned_to ? 1 : 0
+			}
+		});
+
+		closeInlineComment(true);
+		fetchComments();
+		
+		// To fix unresponsiveness, re-select the element after a short delay
+		// which forces the context pad to refresh and ensures interaction is restored.
+		setTimeout(() => {
+			if (inlineCommentElement.value) {
+				const selection = modeler.get("selection");
+				selection.select(inlineCommentElement.value);
+			}
+		}, 100);
+	} catch (err) {
+		console.error("Failed to post inline comment:", err);
+	}
+}
+
+function handleInlineCommentInput(e) {
+	// Reusing mention logic for inline popover
+	if (!e || !e.target || typeof e.target.selectionStart !== 'number') return;
+	
+	const text = inlineCommentFormData.value.text || "";
+	const cursorPosition = e.target.selectionStart;
+	const textBeforeCursor = text.substring(0, cursorPosition);
+	const match = textBeforeCursor.match(/@([^\s]{0,30})$/);
+	
+	if (match) {
+		showMentionDropdown.value = true;
+		mentionSearchQuery.value = match[1];
+		mentionStartIndex.value = cursorPosition - match[1].length - 1;
+		// Mark that we are in inline mode for the mention selection
+		inlineCommentElement.value._isInlineMention = true;
 	} else {
 		showMentionDropdown.value = false;
 	}
 }
 
 function selectMention(user) {
-	const text = commentFormData.value.text || "";
-	// Insert "@First Last " replacing the "@SearchTerm"
+	const isTimeline = inlineCommentElement.value?._isTimelineMention;
+	const isInline = inlineCommentElement.value?._isInlineMention;
+	const targetData = isTimeline ? timelineText : (isInline ? inlineCommentFormData : commentFormData);
+	
+	const text = isTimeline ? targetData.value : targetData.value.text;
 	const before = text.substring(0, mentionStartIndex.value);
 	const after = text.substring(mentionStartIndex.value + mentionSearchQuery.value.length + 1);
+	const newText = before + "@" + user.label + " " + after;
 	
-	commentFormData.value.text = before + '@' + user.label + ' ' + after;
+	if (isTimeline) {
+		timelineText.value = newText;
+		timelineAssignedTo.value = user.value;
+		// Auto-enable task mode if we mention someone in the timeline
+		timelineIsTask.value = true;
+	} else {
+		targetData.value.text = newText;
+	}
+	
 	showMentionDropdown.value = false;
+	
+	// Refocus textarea
+	nextTick(() => {
+		const selector = isTimeline ? ".timeline-textarea" : (isInline ? ".inline-comment-textarea" : ".main-comment-textarea");
+		const textarea = document.querySelector(selector);
+		if (textarea) textarea.focus();
+	});
 }
 
 async function fetchUsers() {
@@ -1459,41 +2049,38 @@ function renderComments() {
 
 	Object.keys(grouped).forEach(elementId => {
 		const elementComments = grouped[elementId];
-		const hasOpenTask = elementComments.some(c => c.is_task && c.status === "Open");
+		const openTasks = elementComments.filter(c => c.is_task && c.status === "Open");
 		
-		// Create overlay HTML
+		if (openTasks.length === 0) return;
+
+		// Create numeric badge HTML
 		const html = document.createElement("div");
-		html.className = `p-1 rounded-full shadow-md cursor-pointer border border-white transition-transform hover:scale-110 ${hasOpenTask ? 'bg-orange-500 text-white' : 'bg-blue-500 text-white'}`;
-		html.style.width = "20px";
-		html.style.height = "20px";
-		html.style.display = "flex";
-		html.style.alignItems = "center";
-		html.style.justifyContent = "center";
-		html.title = `${elementComments.length} comment(s)`;
-		
-		const icon = document.createElement("span");
-		icon.innerHTML = `<svg xmlns="http://www.w3.org/2000/svg" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"></path></svg>`;
-		html.appendChild(icon);
+		html.className = "flex items-center justify-center bg-orange-500 text-white rounded-full text-[10px] font-extrabold shadow-sm border border-white cursor-pointer hover:scale-110 transition-transform";
+		html.style.width = "18px";
+		html.style.height = "18px";
+		html.innerText = openTasks.length;
+		html.title = `${openTasks.length} open task(s)`;
 
 		html.onclick = (e) => {
 			e.stopPropagation();
-			selectedElementComments.value = elementComments;
-			showViewCommentsDialog.value = true;
+			// Select the element
+			navigateToElementComments(elementId);
+			// Open timeline and filter to open tasks
+			showTimeline.value = true;
+			timelineFilterMode.value = "element";
+			timelineTaskFilter.value = true;
 		};
 
 		const elementRegistry = modeler.get("elementRegistry");
 		const targetElement = elementRegistry.get(elementId);
 		
-		if (!targetElement) {
-			console.warn(`Element ${elementId} not found in registry, skipping comment overlay`);
-			return;
-		}
+		if (!targetElement) return;
 
 		try {
 			overlays.add(elementId, "processa-comment", {
 				position: {
-					bottom: 2,
-					left: -6
+					bottom: -2,
+					left: -2
 				},
 				html: html
 			});
@@ -1825,7 +2412,31 @@ defineExpose({
 	updateCalledElement,
 	// Properties Panel API
 	togglePropertiesCollapse,
+	toggleTimeline,
 });
+
+function getInitials(fullName) {
+	if (!fullName) return "??";
+	return fullName
+		.split(" ")
+		.map((n) => n[0])
+		.join("")
+		.toUpperCase()
+		.substring(0, 2);
+}
+
+function getAvatarColor(userName) {
+	const colors = [
+		"bg-red-500", "bg-blue-500", "bg-green-500", "bg-yellow-500",
+		"bg-purple-500", "bg-pink-500", "bg-indigo-500", "bg-teal-500",
+		"bg-orange-500", "bg-cyan-500"
+	];
+	let hash = 0;
+	for (let i = 0; i < (userName || "").length; i++) {
+		hash = (userName || "").charCodeAt(i) + ((hash << 5) - hash);
+	}
+	return colors[Math.abs(hash) % colors.length];
+}
 </script>
 
 <style>

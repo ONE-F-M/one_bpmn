@@ -2926,12 +2926,28 @@ def get_canvas_comments(model_name: str) -> list:
 			"content as comment",
 			"custom_assigned_to as assigned_to",
 			"custom_status as status",
-			"owner as author",
+			"owner",
 			"custom_is_task as is_task",
 			"creation",
 		],
 		order_by="creation desc",
 	)
+
+	if comments:
+		user_ids = list(set([c.owner for c in comments] + [c.assigned_to for c in comments if c.assigned_to]))
+		user_info = frappe.get_all("User", filters={"name": ["in", user_ids]}, fields=["name", "full_name", "user_image"])
+		user_map = {u.name: u for u in user_info}
+
+		for c in comments:
+			c.author = c.owner  # Legacy alias
+			u_info = user_map.get(c.owner, {})
+			c.owner_full_name = u_info.get("full_name", c.owner)
+			c.owner_image = u_info.get("user_image")
+			
+			if c.assigned_to:
+				a_info = user_map.get(c.assigned_to, {})
+				c.assigned_to_full_name = a_info.get("full_name", c.assigned_to)
+
 	return comments
 
 
