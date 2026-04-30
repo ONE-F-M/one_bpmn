@@ -1,5 +1,5 @@
 /**
- * Native Copy-Paste module for bpmn-js v17 (cross-tab / cross-window)
+ * Native Copy-Paste module for bpmn-js v17+ (cross-tab / cross-window)
  *
  * ## Why the original hook-on-pasteElements approach fails in v17
  *
@@ -14,13 +14,30 @@
  *        same-tab paste keeps working normally.
  *
  * PASTE — keyboard listener at priority 2050 owns Ctrl/Cmd+V:
- *         1. Synchronously returns false (stops all lower-priority handlers)
- *         2. Reads navigator.clipboard async
- *         3. Deserialises JSON → proper moddle instances via moddle.create()
- *         4. Sets the internal clipboard (so isEmpty() → false)
- *         5. Calls copyPaste.paste() at canvas centre
- *         Falls back to same-tab internal clipboard when readText() is
- *         unavailable or fails.
+ *         1. Reads navigator.clipboard async
+ *         2. If prefixed bpmn-js data found → deserialise JSON, set internal
+ *            clipboard, and call copyPaste.paste() in create mode (elements
+ *            follow cursor until user clicks to place)
+ *         3. If no prefixed data → returns undefined (does NOT return false)
+ *            so the default bpmn-js keyboard handler fires at priority 1000
+ *            and handles same-tab paste normally.
+ *
+ *         When the Clipboard API is not available (HTTP, permission denied),
+ *         the listener is not registered at all — same-tab paste falls
+ *         through to the built-in handler automatically.
+ *
+ * ## Why we do NOT pass { element, point } to copyPaste.paste()
+ *
+ * Passing `{ element: root, point: center }` triggers _direct paste_ into
+ * `canvas.getRootElement()`. In collaboration diagrams (pools/lanes), the
+ * root is a `bpmn:Collaboration` which does NOT have `flowElements` — only
+ * `bpmn:Process` does. This causes `updateSemanticParent` to crash with
+ * "Cannot read properties of undefined (reading 'push')".
+ *
+ * Calling `copyPaste.paste()` without arguments enters "create mode" where
+ * elements follow the cursor until the user clicks to place them. This lets
+ * bpmn-js determine the correct parent (lane, subprocess, etc.) from the
+ * drop target, avoiding the crash entirely.
  *
  * ## Serialisation / deserialisation
  *
@@ -93,7 +110,7 @@ function createReviver(moddle) {
 
 // ─── NativeCopyPaste class ────────────────────────────────────────────────────
 class NativeCopyPaste {
-	constructor(eventBus, copyPaste, clipboard, moddle, keyboard, canvas) {
+	constructor(eventBus, copyPaste, clipboard, moddle, keyboard) {
 
 		const fireError = (message, error) => {
 			console.warn('[native-copy-paste]', message, error);
@@ -103,81 +120,77 @@ class NativeCopyPaste {
 		// ── COPY ─────────────────────────────────────────────────────────────
 		// Fires after CopyPaste#copy() has already set the internal clipboard.
 		// Write to system clipboard too so the data survives a tab switch.
-		eventBus.on('copyPaste.elementsCopied', (context) => {
-			if (!context.tree) return;
-			if (!canWrite) return; // Clipboard API unavailable — silent skip
+		if (canWrite) {
+			eventBus.on('copyPaste.elementsCopied', (context) => {
+				if (!context.tree) return;
 
-			let json;
-			try {
-				json = serializeTree(context.tree);
-			} catch (err) {
-				fireError('serialise failed', err);
-				return;
-			}
+				let json;
+				try {
+					json = serializeTree(context.tree);
+				} catch (err) {
+					fireError('serialise failed', err);
+					return;
+				}
 
-			clipboardApi.writeText(PREFIX + json)
-				.catch((err) => fireError('writeText failed', err));
-		});
+				clipboardApi.writeText(PREFIX + json)
+					.catch((err) => fireError('writeText failed', err));
+			});
+		}
 
 		// ── PASTE ─────────────────────────────────────────────────────────────
-		// High-priority keyboard intercept for Ctrl/Cmd+V.
-		keyboard.addListener(PASTE_PRIORITY, (context) => {
-			const evt    = context.keyEvent;
-			const isMac  = /mac/i.test(navigator.platform);
-			const isPaste = (isMac ? evt.metaKey : evt.ctrlKey) && evt.key === 'v';
-			if (!isPaste) return; // not our key — propagate
+		// Only register the high-priority Ctrl+V intercept when the Clipboard
+		// API is available (HTTPS contexts). On HTTP, skip entirely and let
+		// the built-in bpmn-js keyboard handler (priority 1000) manage
+		// same-tab paste without any interference.
+		if (canRead) {
+			keyboard.addListener(PASTE_PRIORITY, (context) => {
+				const evt    = context.keyEvent;
+				const isMac  = /mac/i.test(navigator.platform);
+				const isPaste = (isMac ? evt.metaKey : evt.ctrlKey) && evt.key === 'v';
+				if (!isPaste) return; // not our key — propagate
 
-			evt.preventDefault();
+				evt.preventDefault();
 
-			const viewbox = canvas.viewbox();
-			const root    = canvas.getRootElement();
-			const center  = {
-				x: viewbox.x + viewbox.width  / 2,
-				y: viewbox.y + viewbox.height / 2,
-			};
-
-			const doPaste = () => {
-				if (!clipboard.isEmpty()) {
-					copyPaste.paste({ element: root, point: center });
-				}
-			};
-
-			if (!canRead) {
-				// Clipboard API unavailable — fall back to same-tab clipboard.
-				doPaste();
-				return false;
-			}
-
-			clipboardApi.readText()
-				.then((text) => {
-					if (text?.startsWith(PREFIX)) {
-						// Cross-tab path: rebuild moddle instances then populate
-						// the internal clipboard so isEmpty() returns false.
-						try {
-							const reviver = createReviver(moddle);
-							const tree = JSON.parse(text.substring(PREFIX.length), reviver);
-							clipboard.set(tree);
-							doPaste();
-						} catch (err) {
-							// Prefixed payload present but invalid — do NOT fall
-							// back to stale internal clipboard (that would paste
-							// the wrong elements). Report and bail.
-							fireError('parse/revive failed — paste skipped', err);
+				// Read system clipboard asynchronously.
+				// We return false synchronously to stop the default handler,
+				// then perform the actual paste in the .then() callback.
+				clipboardApi.readText()
+					.then((text) => {
+						if (text?.startsWith(PREFIX)) {
+							// Cross-tab path: rebuild moddle instances then populate
+							// the internal clipboard so isEmpty() returns false.
+							try {
+								const reviver = createReviver(moddle);
+								const tree = JSON.parse(text.substring(PREFIX.length), reviver);
+								clipboard.set(tree);
+								// Use create mode (no element/point) — elements follow
+								// cursor until user clicks to place. This avoids the
+								// Collaboration vs Process parent mismatch that crashes
+								// updateSemanticParent in pool/lane diagrams.
+								copyPaste.paste();
+							} catch (err) {
+								fireError('parse/revive failed — paste skipped', err);
+							}
+						} else {
+							// No bpmn-js data in system clipboard — use same-tab
+							// internal clipboard via create mode.
+							if (!clipboard.isEmpty()) {
+								copyPaste.paste();
+							}
 						}
-					} else {
-						// No bpmn-js data in system clipboard — use same-tab clipboard.
-						doPaste();
-					}
-				})
-				.catch((err) => {
-					// Permission denied or API unavailable —
-					// fall back to same-tab internal clipboard.
-					fireError('readText failed (same-tab fallback)', err);
-					doPaste();
-				});
+					})
+					.catch((err) => {
+						// Permission denied or API unavailable —
+						// fall back to same-tab internal clipboard.
+						fireError('readText failed (same-tab fallback)', err);
+						if (!clipboard.isEmpty()) {
+							copyPaste.paste();
+						}
+					});
 
-			return false; // synchronously stop all lower-priority handlers
-		});
+				return false; // synchronously stop all lower-priority handlers
+			});
+		}
 	}
 }
 
@@ -187,7 +200,6 @@ NativeCopyPaste.$inject = [
 	'clipboard',
 	'moddle',
 	'keyboard',
-	'canvas',
 ];
 
 // ─── bpmn-js module export ────────────────────────────────────────────────────
