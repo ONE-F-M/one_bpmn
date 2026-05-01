@@ -514,6 +514,7 @@ def send_message(wf: BpmnWorkflow, message_name: str, payload: dict = None) -> b
 	"""
 	from SpiffWorkflow.bpmn.specs.event_definitions import MessageEventDefinition
 	from SpiffWorkflow.bpmn.util.event import BpmnEvent
+	from SpiffWorkflow.exceptions import WorkflowException
 
 	msg_def = MessageEventDefinition(message_name)
 	event = BpmnEvent(msg_def, payload=payload or {})
@@ -521,6 +522,12 @@ def send_message(wf: BpmnWorkflow, message_name: str, payload: dict = None) -> b
 	try:
 		wf.send_event(event)
 		return True
-	except Exception:
-		# send_event raises WorkflowException if no task is waiting
+	except WorkflowException:
+		# No task is currently waiting for this message
 		return False
+	except Exception:
+		frappe.log_error(
+			title="BPMN send_message error",
+			message=frappe.get_traceback(),
+		)
+		raise

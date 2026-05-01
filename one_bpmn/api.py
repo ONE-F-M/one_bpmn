@@ -162,13 +162,14 @@ def validate_bpmn_readiness(xml_content: str) -> dict:
 	Parse BPMN XML and check all prerequisites against the database.
 
 	Shared validation used by both import (informational) and deploy (blocking).
-	Checks 6 categories:
-	  1. DocTypes        — referenced doctypes must exist
-	  2. Fields          — referenced fields must exist on their doctypes
+	Checks 7 categories:
+	  1. DocTypes         — referenced doctypes must exist
+	  2. Fields           — referenced fields must exist on their doctypes
 	  3. Workflow States  — referenced states must exist as Workflow State records
 	  4. Workflow Actions — user task action labels must exist as Workflow Action Master records
-	  5. Frappe Workflows — active workflows are flagged as conflict warnings
-	  6. Assignment Rules — active rules are flagged as conflict warnings
+	  5. Server Scripts   — script task references must exist
+	  6. Frappe Workflows — active workflows are flagged as conflict warnings
+	  7. Assignment Rules — active rules are flagged as conflict warnings
 
 	Args:
 		xml_content: Raw BPMN XML text
@@ -3247,7 +3248,7 @@ def send_message(
 
 	The message_name must match a ``<bpmn:message name="...">`` defined in
 	the process diagram. If no task is waiting for this message, an error
-	is returned (not thrown) so webhook callers get a clean JSON response.
+	is raised.
 
 	Convention: message names follow ``{System}: {Event}`` format,
 	e.g. ``GitHub: PR Merged``, ``GitHub: PR Changes Requested``.

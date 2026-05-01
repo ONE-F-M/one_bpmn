@@ -1211,11 +1211,22 @@ async function runReadinessCheck(xmlContent, mode) {
 	} catch (err) {
 		console.error("Readiness check failed:", err);
 		readinessChecklist.value = {
-			categories: [],
-			total_checked: 0,
-			total_missing: 0,
+			categories: [
+				{
+					label: "Readiness Check Error",
+					items: [
+						{
+							label: "Unable to validate BPMN readiness",
+							status: "missing",
+							message: "The readiness check failed. Please retry before importing or deploying.",
+						},
+					],
+				},
+			],
+			total_checked: 1,
+			total_missing: 1,
 			total_warnings: 0,
-			all_ready: true,
+			all_ready: false,
 		};
 	} finally {
 		readinessLoading.value = false;

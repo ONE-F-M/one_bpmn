@@ -18,9 +18,10 @@
  *         2. If prefixed bpmn-js data found → deserialise JSON, set internal
  *            clipboard, and call copyPaste.paste() in create mode (elements
  *            follow cursor until user clicks to place)
- *         3. If no prefixed data → returns undefined (does NOT return false)
- *            so the default bpmn-js keyboard handler fires at priority 1000
- *            and handles same-tab paste normally.
+ *         3. If no prefixed data → falls back to same-tab internal
+ *            clipboard and calls copyPaste.paste() in create mode.
+ *            Returns false to prevent the default handler from
+ *            double-firing.
  *
  *         When the Clipboard API is not available (HTTP, permission denied),
  *         the listener is not registered at all — same-tab paste falls

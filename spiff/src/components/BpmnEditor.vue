@@ -441,7 +441,7 @@
 						<input
 							v-model="messageDialog.name"
 							type="text"
-							placeholder="e.g. github:pull_request:merged"
+							placeholder="e.g. GitHub: PR Merged"
 							class="w-full rounded-md border border-gray-300 px-3 py-2 text-sm focus:border-blue-500 focus:ring-1 focus:ring-blue-500 outline-none"
 							@keydown.enter="messageDialog.name?.trim() && onMessageDialogSave(() => messageDialog.show = false)"
 						/>
