@@ -95,12 +95,11 @@ frappe.provide('one_bpmn');
 			const tasks = (response && response.message) ? response.message : [];
 
 			if (!tasks || tasks.length === 0) {
-				// No BPMN process — unmark and let native buttons work
+				// No BPMN process — unmark and let native buttons work.
+				// Do NOT call frm.toolbar.set_primary_action() here —
+				// that resets custom primary actions set by other doctypes
+				// (e.g. "Update", "Get Items", "Reconcile") back to "Save".
 				_bpmn_controlled_forms.delete(_form_key_from_frm(frm));
-				// Re-evaluate toolbar so native buttons come back
-				if (frm.toolbar) {
-					frm.toolbar.set_primary_action();
-				}
 				return;
 			}
 
