@@ -131,10 +131,13 @@
 					<!-- Comments Sidebar Toggle -->
 					<button
 						@click="toggleComments"
-						class="w-8 h-8 flex items-center justify-center hover:bg-gray-100 rounded transition-colors text-gray-600 relative"
-						title="View Comments"
+						class="w-8 h-8 flex items-center justify-center rounded transition-colors relative"
+						:class="[
+							editorRef?.showTimeline ? 'bg-blue-100 text-blue-700' : 'hover:bg-gray-100 text-gray-600',
+							{ 'opacity-40 cursor-not-allowed': !activeDiagramName }
+						]"
+						title="Toggle Comments Panel"
 						:disabled="!activeDiagramName"
-						:class="{ 'opacity-40 cursor-not-allowed': !activeDiagramName }"
 					>
 						<Icon icon="lucide:message-square" class="w-4 h-4" />
 						<span v-if="totalCommentCount > 0" class="absolute top-1 right-1 w-3 h-3 bg-blue-600 text-white text-[8px] font-bold rounded-full flex items-center justify-center border border-white">
@@ -145,10 +148,13 @@
 					<!-- Toggle Properties Panel -->
 					<button
 						@click="togglePropertiesPanel"
-						class="w-8 h-8 flex items-center justify-center hover:bg-gray-100 rounded transition-colors text-gray-600"
+						class="w-8 h-8 flex items-center justify-center rounded transition-colors relative"
+						:class="[
+							(editorRef?.showPropertiesPanel && !editorRef?.propertiesCollapsed) ? 'bg-blue-100 text-blue-700' : 'hover:bg-gray-100 text-gray-600',
+							{ 'opacity-40 cursor-not-allowed': !activeDiagramName }
+						]"
 						title="Toggle Properties Panel"
 						:disabled="!activeDiagramName"
-						:class="{ 'opacity-40 cursor-not-allowed': !activeDiagramName }"
 					>
 						<Icon icon="lucide:settings" class="w-4 h-4" />
 					</button>
@@ -2364,9 +2370,7 @@ function toggleComments() {
 }
 
 const totalCommentCount = computed(() => {
-	// This would ideally come from the editor state, but we'll approximate 
-	// or add a way to sync it. For now, we'll keep it simple.
-	return 0; // Will be updated if we can easily fetch it here
+	return editorRef.value?.comments?.length || 0;
 });
 </script>
 
