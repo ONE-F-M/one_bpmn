@@ -61,25 +61,14 @@ export function UserTaskProps(props) {
 		});
 	}
 
-	// Task Action Mode — always shown, just above Task Actions
+
+	// Task Actions — always shown
 	entries.push({
-		id: "spiffworkflow-taskActionMode",
+		id: "spiffworkflow-taskActions",
 		element,
-		component: TaskActionModeComponent,
+		component: TaskActionsTableComponent,
 		isEdited: isSelectEntryEdited,
 	});
-
-	// Task Actions only shown for 'manual' mode
-	// (for 'frappe_workflow' mode the actions come live from the context doc)
-	const taskActionMode = getAttr(getBusinessObject(element), "taskActionMode") || "manual";
-	if (taskActionMode === "manual") {
-		entries.push({
-			id: "spiffworkflow-taskActions",
-			element,
-			component: TaskActionsTableComponent,
-			isEdited: isSelectEntryEdited,
-		});
-	}
 
 	return entries;
 }
@@ -137,13 +126,26 @@ function AssignmentModeComponent(props) {
 	const getValue = () => getAttr(bo, "assigneeMode");
 
 	const setValue = (value) => {
-		modeling.updateModdleProperties(element, bo, {
-			"spiffworkflow:assigneeMode":     value || undefined,
-			// Clear mode-specific fields when mode changes
-			"spiffworkflow:assigneeUser":     undefined,
-			"spiffworkflow:assigneeDocfield": undefined,
-			"spiffworkflow:assigneeUsers":    undefined,
-		});
+		const updates = {
+			"spiffworkflow:assigneeMode": value || undefined,
+		};
+
+		if (value === "User") {
+			updates["spiffworkflow:assigneeDocfield"] = undefined;
+			updates["spiffworkflow:assigneeUsers"] = undefined;
+		} else if (value === "DocField") {
+			updates["spiffworkflow:assigneeUser"] = undefined;
+			updates["spiffworkflow:assigneeUsers"] = undefined;
+		} else if (value === "Round Robin" || value === "Load Balancing") {
+			updates["spiffworkflow:assigneeUser"] = undefined;
+			updates["spiffworkflow:assigneeDocfield"] = undefined;
+		} else {
+			updates["spiffworkflow:assigneeUser"] = undefined;
+			updates["spiffworkflow:assigneeDocfield"] = undefined;
+			updates["spiffworkflow:assigneeUsers"] = undefined;
+		}
+
+		modeling.updateModdleProperties(element, bo, updates);
 	};
 
 	const getOptions = () => [
@@ -717,63 +719,4 @@ class ActionRowComponent extends Component {
 			]
 		);
 	}
-}
-
-
-// Task Action Mode — selects the source of action buttons for this task.
-//
-//   manual          → designer types comma-separated actions (e.g. "Approve,Reject")
-//   frappe_workflow → actions are fetched LIVE at runtime from the context
-//                     document's Frappe Workflow transitions rules.
-//                     Only transitions the CURRENT USER is allowed to take
-//                     (based on role, current state, conditions) are shown —
-//                     identical to Frappe's native workflow action panel.
-function TaskActionModeComponent(props) {
-	const { element, id } = props;
-	const modeling  = useService("modeling");
-	const translate = useService("translate");
-	const bo        = getBusinessObject(element);
-
-	const value = getAttr(bo, "taskActionMode") || "manual";
-
-	const handleChange = (e) => {
-		modeling.updateModdleProperties(element, bo, {
-			"spiffworkflow:taskActionMode": e.target.value || "manual",
-		});
-	};
-
-	return h(
-		"div",
-		{ class: "bio-properties-panel-entry", "data-entry-id": id },
-		h(
-			"div",
-			{ class: "bio-properties-panel-select" },
-			[
-				h("label", { class: "bio-properties-panel-label" }, translate("Task Action Mode")),
-				h(
-					"select",
-					{
-						id,
-						class: "bio-properties-panel-input",
-						value,
-						onChange: handleChange,
-					},
-					[
-						h("option", { value: "manual" },   translate("Manual (type actions below)")),
-						h("option", { value: "frappe_workflow" }, translate("Frappe Workflow (live from document transitions)")),
-					]
-				),
-				h(
-					"div",
-					{ class: "bio-properties-panel-description" },
-					value === "frappe_workflow"
-						? translate(
-							"Actions fetched live from the context document's Frappe Workflow. " +
-							"Only transitions valid for the current user's role and document state are shown."
-						)
-						: translate("Type action labels manually below (comma-separated).")
-				),
-			]
-		)
-	);
 }
