@@ -282,9 +282,11 @@ function applyHighlights() {
 						} else {
 							const sourceId = element.source?.id
 							const targetId = element.target?.id
-							const sourceDone = completedBpmnIds.has(sourceId) || element.source?.type === "bpmn:StartEvent"
+							const sourceReached = allReachedIds.has(sourceId) || element.source?.type === "bpmn:StartEvent"
 							const targetReached = allReachedIds.has(targetId)
-							if (targetReached || (sourceDone && element.target?.type?.includes("EndEvent"))) {
+							// Color a flow only when BOTH source and target were reached,
+							// preventing false-positive coloring of untouched merge-gateway inflows.
+							if ((sourceReached && targetReached) || (sourceReached && element.target?.type?.includes("EndEvent"))) {
 								const srcFreq = frequencyMap[sourceId] || 0
 								const tgtFreq = frequencyMap[targetId] || 0
 								canvas.addMarker(element.id, srcFreq > 1 && tgtFreq > 1 ? "highlight-flow-hot" : "highlight-flow-done")

@@ -849,6 +849,17 @@
 			</template>
 		</Dialog>
 
+		<!-- Readiness Checklist Dialog (import & deploy) -->
+		<ReadinessChecklistDialog
+			v-model="showReadinessDialog"
+			:checklist="readinessChecklist"
+			:mode="readinessMode"
+			:loading="readinessLoading"
+			@close="onReadinessClose"
+			@cancel="onReadinessCancel"
+			@deploy="onReadinessDeploy"
+		/>
+
 		<!-- Version Comparison Dialogs (extracted component) -->
 		<VersionDiffDialog
 			ref="versionDiffRef"
@@ -870,6 +881,7 @@ import VersionDiffDialog from "@/components/VersionDiffDialog.vue";
 import { downloadBpmn } from "@/utils/downloadBpmn";
 import CallActivitySearchDialog from "@/components/CallActivitySearchDialog.vue";
 import NotificationLinkDialog from "@/components/NotificationLinkDialog.vue";
+import ReadinessChecklistDialog from "@/components/ReadinessChecklistDialog.vue";
 import { useNotificationDialog } from "@/composables/useNotificationDialog";
 import { useWindowSize } from "@/composables/useWindowSize";
 
@@ -905,6 +917,7 @@ const isAnyDialogOpen = computed(() => {
 		showNewDiagramDialog.value ||
 		showUnsavedNavigationWarning.value ||
 		showCallActivitySearchDialog.value ||
+		showReadinessDialog.value ||
 		notifDialog.showNotificationDialog.value ||
 		versionDiffRef.value?.isAnyDialogOpen
 	);
@@ -922,6 +935,12 @@ const showFileMenu = ref(false);
 const showStatusPopup = ref(false);
 const showMobileMoreMenu = ref(false);
 const deploying = ref(false);
+
+// Readiness checklist state
+const showReadinessDialog = ref(false);
+const readinessChecklist = ref(null);
+const readinessMode = ref("import"); // "import" or "deploy"
+const readinessLoading = ref(false);
 
 // Version diff dialog ref
 const versionDiffRef = ref(null);
@@ -1176,8 +1195,77 @@ function onShapeDragStart(shape) {
 	// The actual drop handling will be done by bpmn-js canvas
 }
 
+// ── Readiness check (shared by import & deploy) ─────────────────────────
+async function runReadinessCheck(xmlContent, mode) {
+	readinessMode.value = mode;
+	readinessChecklist.value = null;
+	readinessLoading.value = true;
+	showReadinessDialog.value = true;
+
+	try {
+		const response = await frappeRequest({
+			url: "/api/method/one_bpmn.api.validate_bpmn_readiness",
+			params: { xml_content: xmlContent },
+		});
+		readinessChecklist.value = response.message || response;
+	} catch (err) {
+		console.error("Readiness check failed:", err);
+		readinessChecklist.value = {
+			categories: [
+				{
+					label: "Readiness Check Error",
+					items: [
+						{
+							label: "Unable to validate BPMN readiness",
+							status: "missing",
+							message: "The readiness check failed. Please retry before importing or deploying.",
+						},
+					],
+				},
+			],
+			total_checked: 1,
+			total_missing: 1,
+			total_warnings: 0,
+			all_ready: false,
+		};
+	} finally {
+		readinessLoading.value = false;
+	}
+}
+
+function onReadinessClose() {
+	showReadinessDialog.value = false;
+}
+
+function onReadinessCancel() {
+	showReadinessDialog.value = false;
+}
+
+async function onReadinessDeploy() {
+	showReadinessDialog.value = false;
+	await executeDeployment();
+}
+
 // Deploy (compile) the process model
 async function deployModel() {
+	if (!activeDiagramName.value || deploying.value) return;
+
+	// Get current XML for readiness check
+	let xml = "";
+	if (editorRef.value) {
+		xml = await editorRef.value.getXML();
+	}
+	if (!xml) {
+		showNotification("Deploy", "No diagram XML found.", "red");
+		return;
+	}
+
+	// Run readiness check — dialog handles the rest
+	await runReadinessCheck(xml, "deploy");
+}
+
+// Actual deployment (called after readiness check passes)
+async function executeDeployment() {
 	if (!activeDiagramName.value || deploying.value) return;
 
 	deploying.value = true;
@@ -1210,8 +1298,6 @@ async function deployModel() {
 			showNotification("Deploy", "Deployment completed", "green");
 		}
 	} catch (err) {
-		// frappeRequest puts the human-readable frappe.throw() messages in
-		// err.messages[] — err.message is a generic URL+exc_type string.
 		const serverMessage =
 			(err.messages && err.messages.length > 0)
 				? err.messages.join("\n")
@@ -1954,6 +2040,9 @@ async function handleImportFile(event) {
 			`Diagram "${result.model_name}" ${action} successfully.`,
 			"green"
 		);
+
+		// Run readiness check (informational — does not block)
+		await runReadinessCheck(xmlContent, "import");
 	} catch (error) {
 		console.error("Import failed:", error);
 		showNotification(

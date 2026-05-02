@@ -20,6 +20,7 @@ declare module 'vue' {
     InstanceHistory: typeof import('./src/components/process_instance/InstanceHistory.vue')['default']
     NotificationLinkDialog: typeof import('./src/components/NotificationLinkDialog.vue')['default']
     PendingActions: typeof import('./src/components/process_instance/PendingActions.vue')['default']
+    ReadinessChecklistDialog: typeof import('./src/components/ReadinessChecklistDialog.vue')['default']
     RouterLink: typeof import('vue-router')['RouterLink']
     RouterView: typeof import('vue-router')['RouterView']
     ShapeLibraryPanel: typeof import('./src/components/ShapeLibraryPanel.vue')['default']

@@ -157,6 +157,346 @@ def import_bpmn(
 
 
 @frappe.whitelist()
+def validate_bpmn_readiness(xml_content: str) -> dict:
+	"""
+	Parse BPMN XML and check all prerequisites against the database.
+
+	Shared validation used by both import (informational) and deploy (blocking).
+	Checks 7 categories:
+	  1. DocTypes         — referenced doctypes must exist
+	  2. Fields           — referenced fields must exist on their doctypes
+	  3. Workflow States  — referenced states must exist as Workflow State records
+	  4. Workflow Actions — user task action labels must exist as Workflow Action Master records
+	  5. Server Scripts   — script task references must exist
+	  6. Frappe Workflows — active workflows are flagged as conflict warnings
+	  7. Assignment Rules — active rules are flagged as conflict warnings
+
+	Args:
+		xml_content: Raw BPMN XML text
+
+	Returns:
+		dict with categories, total_checked, total_missing, total_warnings, all_ready
+	"""
+	if not xml_content or not xml_content.strip():
+		frappe.throw(_("BPMN XML content is required"))
+
+	import xml.etree.ElementTree as _ET
+
+	BPMN_NS = "http://www.omg.org/spec/BPMN/20100524/MODEL"
+	SPIFF_NS = "http://spiffworkflow.org/bpmn/schema/1.0/core"
+
+	try:
+		root = _ET.fromstring(xml_content.strip().encode("utf-8"))
+	except Exception as exc:
+		frappe.throw(_("Invalid BPMN XML: {0}").format(str(exc)))
+
+	# ── Extract all references from the XML ──────────────────────────────
+
+	# DocTypes: collected from all sources
+	referenced_doctypes = set()
+
+	# Fields: list of (doctype, fieldname) tuples
+	referenced_fields = []
+
+	# Workflow States
+	referenced_states = set()
+
+	# Workflow Action Master labels (from user task actions)
+	referenced_actions = set()
+
+	# DocTypes that use apply_workflow (need workflow_state field)
+	apply_workflow_doctypes = set()
+
+	# Server Script names (from script tasks)
+	referenced_scripts = set()
+
+	# ── Parse Start Events ────────────────────────────────────────────────
+	for start_event in root.iter(f"{{{BPMN_NS}}}startEvent"):
+		dt = start_event.get(f"{{{SPIFF_NS}}}triggerDoctype", "")
+		if dt:
+			referenced_doctypes.add(dt)
+
+		ws = start_event.get(f"{{{SPIFF_NS}}}triggerWorkflowState", "")
+		if ws:
+			referenced_states.add(ws)
+
+		# Also check conditional definition children
+		cond_def = start_event.find(f"{{{BPMN_NS}}}conditionalEventDefinition")
+		if cond_def is not None:
+			dt2 = cond_def.get(f"{{{SPIFF_NS}}}triggerDoctype", "")
+			if dt2:
+				referenced_doctypes.add(dt2)
+			ws2 = cond_def.get(f"{{{SPIFF_NS}}}triggerWorkflowState", "")
+			if ws2:
+				referenced_states.add(ws2)
+
+	# ── Parse Service Tasks ───────────────────────────────────────────────
+	for service_task in root.iter(f"{{{BPMN_NS}}}serviceTask"):
+		# Extract spiffworkflow:* attributes
+		attrs = {}
+		for attr_name, attr_value in service_task.attrib.items():
+			if attr_name.startswith(f"{{{SPIFF_NS}}}"):
+				key = attr_name[len(f"{{{SPIFF_NS}}}"):]
+				attrs[key] = attr_value
+
+		service_type = attrs.get("serviceType", "")
+
+		if service_type == "apply_workflow":
+			target_dt = attrs.get("serviceTargetDoctype", "")
+			if target_dt:
+				referenced_doctypes.add(target_dt)
+				apply_workflow_doctypes.add(target_dt)
+
+			state = attrs.get("workflowState", "")
+			if state:
+				referenced_states.add(state)
+
+		elif service_type == "update_field":
+			target_dt = attrs.get("updateFieldDoctype", "")
+			if target_dt:
+				referenced_doctypes.add(target_dt)
+
+			# Multi-field rows (new format)
+			rows_json = attrs.get("updateFieldRows", "")
+			if rows_json:
+				try:
+					rows = json.loads(rows_json)
+					for row in rows:
+						field = row.get("field", "")
+						if field and target_dt:
+							referenced_fields.append((target_dt, field))
+				except (json.JSONDecodeError, ValueError):
+					pass
+
+			# Legacy single-field format
+			legacy_field = attrs.get("updateFieldName", "")
+			if legacy_field and target_dt:
+				referenced_fields.append((target_dt, legacy_field))
+
+		else:
+			# Other service types may reference a doctype
+			target_dt = attrs.get("serviceTargetDoctype", "")
+			if target_dt:
+				referenced_doctypes.add(target_dt)
+
+	# ── Parse User Tasks ──────────────────────────────────────────────────
+	for user_task in root.iter(f"{{{BPMN_NS}}}userTask"):
+		attrs = {}
+		for attr_name, attr_value in user_task.attrib.items():
+			if attr_name.startswith(f"{{{SPIFF_NS}}}"):
+				key = attr_name[len(f"{{{SPIFF_NS}}}"):]
+				attrs[key] = attr_value
+
+		target_dt = attrs.get("targetDoctype", "")
+		if target_dt:
+			referenced_doctypes.add(target_dt)
+
+		# Assignee field → must exist on target doctype
+		assignee_field = attrs.get("assigneeDocfield", "")
+		if assignee_field and target_dt:
+			referenced_fields.append((target_dt, assignee_field))
+
+		# Task actions → Workflow Action Master
+		actions_json = attrs.get("taskActions", "")
+		if actions_json:
+			try:
+				actions = json.loads(actions_json)
+				for action in actions:
+					label = action.get("action", "")
+					if label:
+						referenced_actions.add(label)
+			except (json.JSONDecodeError, ValueError):
+				pass
+
+	# ── Parse Script Tasks ────────────────────────────────────────────────
+	for script_task in root.iter(f"{{{BPMN_NS}}}scriptTask"):
+		script_name = script_task.get(f"{{{SPIFF_NS}}}serverScript", "")
+		if script_name:
+			referenced_scripts.add(script_name)
+
+	# ── Extract email doc-fields from send_email service tasks ────────────
+	for service_task in root.iter(f"{{{BPMN_NS}}}serviceTask"):
+		attrs = {}
+		for attr_name, attr_value in service_task.attrib.items():
+			if attr_name.startswith(f"{{{SPIFF_NS}}}"):
+				key = attr_name[len(f"{{{SPIFF_NS}}}"):]
+				attrs[key] = attr_value
+
+		if attrs.get("serviceType") == "send_email":
+			email_dt = attrs.get("emailDoctype", "")
+			if email_dt:
+				# emailToDocFields may contain comma-separated field names
+				to_fields = attrs.get("emailToDocFields", "")
+				for field in to_fields.split(","):
+					field = field.strip()
+					if field:
+						referenced_fields.append((email_dt, field))
+
+				cc_fields = attrs.get("emailCcDocFields", "")
+				for field in cc_fields.split(","):
+					field = field.strip()
+					if field:
+						referenced_fields.append((email_dt, field))
+
+	# ── workflow_state field check for apply_workflow doctypes ─────────────
+	for dt in apply_workflow_doctypes:
+		referenced_fields.append((dt, "workflow_state"))
+
+	# ── Now run all checks ───────────────────────────────────────────────
+
+	categories = []
+
+	# 1. DocTypes
+	doctype_items = []
+	for dt in sorted(referenced_doctypes):
+		exists = frappe.db.exists("DocType", dt)
+		doctype_items.append({"name": dt, "exists": bool(exists), "type": "check"})
+	if doctype_items:
+		categories.append({
+			"label": "DocTypes",
+			"icon": "layout-template",
+			"items": doctype_items,
+		})
+
+	# 2. Fields (only check if the parent DocType exists)
+	field_items = []
+	seen_fields = set()
+	for dt, fieldname in referenced_fields:
+		key = f"{fieldname} on {dt}"
+		if key in seen_fields:
+			continue
+		seen_fields.add(key)
+
+		if not frappe.db.exists("DocType", dt):
+			# DocType doesn't exist — field check is moot, already flagged above
+			field_items.append({"name": key, "exists": False, "type": "check"})
+			continue
+
+		try:
+			meta = frappe.get_meta(dt)
+			exists = bool(meta.has_field(fieldname))
+		except Exception:
+			exists = False
+		field_items.append({"name": key, "exists": exists, "type": "check"})
+
+	if field_items:
+		categories.append({
+			"label": "Fields",
+			"icon": "columns-3",
+			"items": field_items,
+		})
+
+	# 3. Workflow States
+	state_items = []
+	for state in sorted(referenced_states):
+		exists = frappe.db.exists("Workflow State", state)
+		state_items.append({"name": state, "exists": bool(exists), "type": "check"})
+	if state_items:
+		categories.append({
+			"label": "Workflow States",
+			"icon": "git-branch",
+			"items": state_items,
+		})
+
+	# 4. Workflow Action Master
+	action_items = []
+	for action_label in sorted(referenced_actions):
+		exists = frappe.db.exists(
+			"Workflow Action Master",
+			{"workflow_action_name": action_label},
+		)
+		action_items.append({"name": action_label, "exists": bool(exists), "type": "check"})
+	if action_items:
+		categories.append({
+			"label": "Workflow Actions",
+			"icon": "zap",
+			"items": action_items,
+		})
+
+	# 5. Server Scripts
+	script_items = []
+	for script_name in sorted(referenced_scripts):
+		exists = frappe.db.exists("Server Script", script_name)
+		script_items.append({"name": script_name, "exists": bool(exists), "type": "check"})
+	if script_items:
+		categories.append({
+			"label": "Server Scripts",
+			"icon": "file-code",
+			"items": script_items,
+		})
+
+	# 6. Frappe Workflows (conflict warning — active = should disable)
+	from frappe.model.workflow import get_workflow_name
+
+	workflow_items = []
+	for dt in sorted(referenced_doctypes):
+		if not frappe.db.exists("DocType", dt):
+			continue
+		wf_name = get_workflow_name(dt)
+		if wf_name:
+			workflow_items.append({
+				"name": f"{wf_name} on {dt}",
+				"exists": True,
+				"type": "warning",
+				"detail": _("Active Frappe Workflow — consider disabling to prevent conflicts with BPMN"),
+			})
+	if workflow_items:
+		categories.append({
+			"label": "Frappe Workflows",
+			"icon": "workflow",
+			"items": workflow_items,
+		})
+
+	# 6. Assignment Rules (conflict warning — active = should disable)
+	assignment_items = []
+	for dt in sorted(referenced_doctypes):
+		if not frappe.db.exists("DocType", dt):
+			continue
+		active_rules = frappe.get_all(
+			"Assignment Rule",
+			filters={"document_type": dt, "disabled": 0},
+			fields=["name"],
+			limit=10,
+		)
+		for rule in active_rules:
+			assignment_items.append({
+				"name": f"{rule.name} on {dt}",
+				"exists": True,
+				"type": "warning",
+				"detail": _("Active Assignment Rule — consider disabling to prevent conflicts with BPMN task assignment"),
+			})
+	if assignment_items:
+		categories.append({
+			"label": "Assignment Rules",
+			"icon": "user-check",
+			"items": assignment_items,
+		})
+
+	# ── Compute summary ──────────────────────────────────────────────────
+	total_checked = 0
+	total_missing = 0
+	total_warnings = 0
+
+	for cat in categories:
+		for item in cat["items"]:
+			total_checked += 1
+			if item["type"] == "check" and not item["exists"]:
+				total_missing += 1
+			elif item["type"] == "warning":
+				total_warnings += 1
+
+	return {
+		"categories": categories,
+		"total_checked": total_checked,
+		"total_missing": total_missing,
+		"total_warnings": total_warnings,
+		"all_ready": total_missing == 0,
+	}
+
+
+
+
+@frappe.whitelist()
 def get_process_model(name: str) -> dict:
 	"""
 	Get a process model by name.
@@ -2680,25 +3020,8 @@ def complete_task(
 				frappe.PermissionError,
 			)
 
-	# ── 4. ROUTE: happy path (first action) vs. alternative path (signal) ───────
-	# The first defined action is the "Happy Path" — complete the task normally.
-	# Any other action is an alternative path; throw it as a BPMN signal so a
-	# Signal Boundary Event modelled on the User Task can catch and re-route it.
-	# If no boundary event exists the signal falls back to normal completion.
-	first_action = allowed_actions[0] if allowed_actions else ""
-	is_alternative_action = bool(
-		allowed_actions and submitted_action and submitted_action != first_action
-	)
-
 	try:
-		if is_alternative_action:
-			active_tasks = instance.throw_signal(
-				task_id=task_id,
-				signal_name=submitted_action,
-				data=parsed_data,
-			)
-		else:
-			active_tasks = instance.advance(task_id=task_id, data=parsed_data)
+		active_tasks = instance.advance(task_id=task_id, data=parsed_data)
 	except frappe.ValidationError:
 		raise
 	except Exception as exc:
@@ -2896,6 +3219,133 @@ def get_active_bpmn_tasks(doctype: str, docname: str) -> list:
 			)
 
 	return result
+
+
+# ============================================================================
+# BPMN Message Event API
+# ============================================================================
+
+
+@frappe.whitelist()
+def send_message(
+	message_name: str,
+	context_doctype: str = None,
+	context_docname: str = None,
+	instance_name: str = None,
+	payload: str = None,
+) -> dict:
+	"""
+	Deliver a BPMN message to a running process instance.
+
+	This is the public API for external systems (webhooks, scheduled jobs,
+	Server Scripts) to communicate with BPMN processes using the standard
+	Message Event pattern.
+
+	Instance lookup:
+	    - If ``instance_name`` is provided, deliver directly to that instance.
+	    - Otherwise, look up the single active instance for the given
+	      ``context_doctype`` + ``context_docname`` pair.
+
+	The message_name must match a ``<bpmn:message name="...">`` defined in
+	the process diagram. If no task is waiting for this message, an error
+	is raised.
+
+	Convention: message names follow ``{System}: {Event}`` format,
+	e.g. ``GitHub: PR Merged``, ``GitHub: PR Changes Requested``.
+
+	Args:
+	    message_name:     BPMN message name (required)
+	    context_doctype:  DocType of the linked document (e.g. "Work Item")
+	    context_docname:  Name of the linked document
+	    instance_name:    Direct instance name (overrides context lookup)
+	    payload:          JSON string of data to merge into task.data
+
+	Returns:
+	    dict with instance status and active tasks
+	"""
+	if not message_name:
+		frappe.throw(_("message_name is required"))
+
+	# ── Resolve the target instance ──────────────────────────────────────
+	if not instance_name:
+		if not context_doctype or not context_docname:
+			frappe.throw(
+				_("Either instance_name or both context_doctype and context_docname are required")
+			)
+
+		instances = frappe.get_all(
+			"BPMN Process Instance",
+			filters={
+				"context_doctype": context_doctype,
+				"context_docname": context_docname,
+				"status": "Active",
+			},
+			pluck="name",
+			limit=1,
+		)
+		if not instances:
+			frappe.throw(
+				_('No active BPMN instance found for {0} "{1}"').format(
+					context_doctype, context_docname
+				)
+			)
+		instance_name = instances[0]
+
+	instance = frappe.get_doc("BPMN Process Instance", instance_name)
+	instance.check_permission("write")
+
+	# ── Parse payload ────────────────────────────────────────────────────
+	parsed_payload = {}
+	if payload:
+		parsed_payload = frappe.parse_json(payload) if isinstance(payload, str) else payload
+
+	# ── Deliver message ──────────────────────────────────────────────────
+	try:
+		active_tasks = instance.receive_message(
+			message_name=message_name,
+			payload=parsed_payload,
+		)
+	except frappe.ValidationError:
+		raise
+	except Exception as exc:
+		frappe.db.set_value("BPMN Process Instance", instance_name, "status", "Errored")
+		frappe.log_error(
+			title="BPMN send_message failed",
+			message=frappe.get_traceback(),
+		)
+		frappe.throw(_("Failed to deliver message: {0}").format(str(exc)))
+
+	# ── Publish realtime events ──────────────────────────────────────────
+	frappe.publish_realtime(
+		"bpmn_instance_updated",
+		{
+			"instance_name": instance_name,
+			"status": instance.status,
+			"context_doctype": instance.context_doctype or "",
+			"context_docname": instance.context_docname or "",
+		},
+		after_commit=True,
+		user="all",
+	)
+
+	if instance.context_doctype and instance.context_docname:
+		frappe.publish_realtime(
+			"doc_update",
+			{
+				"modified": str(frappe.utils.now_datetime()),
+				"doctype": instance.context_doctype,
+				"name": instance.context_docname,
+			},
+			doctype=instance.context_doctype,
+			docname=instance.context_docname,
+			after_commit=True,
+		)
+
+	return {
+		"instance": instance_name,
+		"status": instance.status,
+		"active_tasks": active_tasks,
+	}
 
 
 # ============================================================================
