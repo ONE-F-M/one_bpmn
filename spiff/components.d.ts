@@ -8,13 +8,19 @@ export {}
 /* prettier-ignore */
 declare module 'vue' {
   export interface GlobalComponents {
+    BpmnDiagramViewer: typeof import('./src/components/process_instance/BpmnDiagramViewer.vue')['default']
     BpmnEditor: typeof import('./src/components/BpmnEditor.vue')['default']
     CallActivitySearchDialog: typeof import('./src/components/CallActivitySearchDialog.vue')['default']
     DiffViewer: typeof import('./src/components/DiffViewer.vue')['default']
     EditorSidebar: typeof import('./src/components/EditorSidebar.vue')['default']
     EditorTabs: typeof import('./src/components/EditorTabs.vue')['default']
+    ElementInspector: typeof import('./src/components/process_instance/ElementInspector.vue')['default']
     FormattingToolbar: typeof import('./src/components/FormattingToolbar.vue')['default']
+    InstanceHeader: typeof import('./src/components/process_instance/InstanceHeader.vue')['default']
+    InstanceHistory: typeof import('./src/components/process_instance/InstanceHistory.vue')['default']
     NotificationLinkDialog: typeof import('./src/components/NotificationLinkDialog.vue')['default']
+    PendingActions: typeof import('./src/components/process_instance/PendingActions.vue')['default']
+    ReadinessChecklistDialog: typeof import('./src/components/ReadinessChecklistDialog.vue')['default']
     RouterLink: typeof import('vue-router')['RouterLink']
     RouterView: typeof import('vue-router')['RouterView']
     ShapeLibraryPanel: typeof import('./src/components/ShapeLibraryPanel.vue')['default']

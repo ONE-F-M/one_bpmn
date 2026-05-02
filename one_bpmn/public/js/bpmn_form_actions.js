@@ -95,12 +95,11 @@ frappe.provide('one_bpmn');
 			const tasks = (response && response.message) ? response.message : [];
 
 			if (!tasks || tasks.length === 0) {
-				// No BPMN process — unmark and let native buttons work
+				// No BPMN process — unmark and let native buttons work.
+				// Do NOT call frm.toolbar.set_primary_action() here —
+				// that resets custom primary actions set by other doctypes
+				// (e.g. "Update", "Get Items", "Reconcile") back to "Save".
 				_bpmn_controlled_forms.delete(_form_key_from_frm(frm));
-				// Re-evaluate toolbar so native buttons come back
-				if (frm.toolbar) {
-					frm.toolbar.set_primary_action();
-				}
 				return;
 			}
 
@@ -168,6 +167,10 @@ frappe.provide('one_bpmn');
 
 			if (injected > 0) {
 				frm.page.show_actions_menu();
+				// Doc is saved → show Actions, hide Save
+				if (!frm.is_dirty()) {
+					frm.page.btn_primary.addClass('hide');
+				}
 			} else if (pending_assignee) {
 				frm.dashboard.add_comment(
 					__('This document is controlled by a BPMN process. Pending action from: <b>{0}</b>',
@@ -354,12 +357,26 @@ frappe.provide('one_bpmn');
 	// Fallback — jQuery document event
 	$(document).on('form-refresh', function (e, frm) {
 		if (_bpmn_controlled_forms.has(_form_key_from_frm(frm))) {
-			if (frm.toolbar) {
-				frm.toolbar.set_primary_action();
-			}
 			_hide_native_frappe_ui(frm);
 		}
 		load_bpmn_actions(frm);
+	});
+
+	// When a BPMN-controlled form becomes dirty: show Save, hide Actions.
+	// After save → form refreshes → load_bpmn_actions re-runs → shows Actions, hides Save.
+	// Frappe triggers $(frm.wrapper).trigger('dirty') — we catch it via delegation.
+	$(document).on('dirty', function () {
+		if (!cur_frm) return;
+		if (!_bpmn_controlled_forms.has(_form_key_from_frm(cur_frm))) return;
+		if (!cur_frm.is_dirty()) return;
+		// Show Save button
+		if (cur_frm.page && cur_frm.page.btn_primary) {
+			cur_frm.page.btn_primary.removeClass('hide');
+		}
+		// Hide BPMN Actions dropdown
+		if (cur_frm.page && cur_frm.page.actions_btn_group) {
+			cur_frm.page.actions_btn_group.addClass('hide');
+		}
 	});
 
 	// Realtime: auto-refresh this form when a BPMN task completes (from Processa or another user).

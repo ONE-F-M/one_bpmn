@@ -19,9 +19,11 @@ from SpiffWorkflow.bpmn.specs.defaults import (
 	ServiceTask,
 	ManualTask,
 	SendTask,
+	ReceiveTask,
 	ExclusiveGateway,
 	ParallelGateway,
 	InclusiveGateway,
+	EventBasedGateway,
 )
 
 # ─────────────────────────────────────────────────────────────
@@ -148,33 +150,14 @@ class FrappeScriptEngine(PythonScriptEngine):
 			local_vars["doc"] = _frappe._dict()
 
 		try:
-			# Use RestrictedPython sandbox (same as frappe.safe_exec) but skip
-			# the is_safe_exec_enabled() config gate.  That gate exists to prevent
-			# untrusted browser-submitted code from running; BPMN Server Scripts
-			# are pre-deployed, DB-stored code authored by developers, so the gate
-			# is unnecessary here.  The sandbox itself (RestrictedPython + limited
-			# frappe namespace) is still applied — no raw __builtins__, no unchecked
-			# imports, no dunder attribute access.
-			from RestrictedPython import compile_restricted
-			from frappe.utils.safe_exec import (
-				FrappeTransformer,
-				SERVER_SCRIPT_FILE_PREFIX,
-				get_safe_globals,
-				patched_qb,
-				safe_exec_flags,
-			)
-
-			exec_globals = get_safe_globals()
-			with safe_exec_flags(), patched_qb():
-				exec(  # noqa: S102
-					compile_restricted(
-						script_doc.script,
-						filename=f"{SERVER_SCRIPT_FILE_PREFIX}: {script_name}",
-						policy=FrappeTransformer,
-					),
-					exec_globals,
-					local_vars,
-				)
+			# Use plain exec() rather than frappe.safe_exec().
+			# frappe.safe_exec() is a security gate for *untrusted* browser-submitted
+			# scripts — it requires server_script_enabled in common_site_config and
+			# runs code in a RestrictedPython sandbox with a limited frappe namespace.
+			# BPMN Server Scripts are trusted, pre-deployed code stored in the DB,
+			# so they run with the real frappe module and no config gate.
+			exec_globals = {"frappe": _frappe, "__builtins__": __builtins__}  # noqa: S102
+			exec(script_doc.script, exec_globals, local_vars)  # noqa: S102
 		except Exception:
 			_frappe.log_error(
 				title=f'BPMN ScriptTask: "{script_name}" execution failed',
@@ -504,3 +487,47 @@ def clean_doc_from_wf_data(wf: BpmnWorkflow) -> None:
 	for task in wf.get_tasks():
 		if hasattr(task, "data") and isinstance(task.data, dict):
 			task.data.pop("doc", None)
+
+
+def send_message(wf: BpmnWorkflow, message_name: str, payload: dict = None) -> bool:
+	"""
+	Deliver an external message to a running workflow instance.
+
+	Uses SpiffWorkflow's native send_event() which:
+	  1. Finds WAITING tasks that catch this message name
+	     (IntermediateCatchEvent, ReceiveTask, or EventBasedGateway children)
+	  2. Checks message correlation if correlation properties are defined
+	  3. Delivers the payload into the matching task's data
+	  4. Calls refresh_waiting_tasks() to advance the flow
+
+	Args:
+	    wf:           The running BpmnWorkflow
+	    message_name: BPMN message name — must match <bpmn:message name="...">
+	    payload:      Optional dict of data to deliver with the message.
+	                  Merged into task.data via set_data(**payload), so
+	                  each key becomes a task variable usable in gateway
+	                  conditions and downstream expressions.
+
+	Returns:
+	    True  — message was caught by a waiting task
+	    False — no task is waiting for this message
+	"""
+	from SpiffWorkflow.bpmn.specs.event_definitions import MessageEventDefinition
+	from SpiffWorkflow.bpmn.util.event import BpmnEvent
+	from SpiffWorkflow.exceptions import WorkflowException
+
+	msg_def = MessageEventDefinition(message_name)
+	event = BpmnEvent(msg_def, payload=payload or {})
+
+	try:
+		wf.send_event(event)
+		return True
+	except WorkflowException:
+		# No task is currently waiting for this message
+		return False
+	except Exception:
+		frappe.log_error(
+			title="BPMN send_message error",
+			message=frappe.get_traceback(),
+		)
+		raise

@@ -1,4 +1,4 @@
-name: Deploy CI/CD to BA site
+name: Deploy CI/CD to Staging site
 
 on:
   workflow_dispatch:
@@ -16,28 +16,28 @@ jobs:
 
     # Steps represent a sequence of tasks that will be executed as part of the job
     steps:
-      - name: Deploy to BA site
+      - name: Deploy to Staging site
         uses: appleboy/ssh-action@master
         with:
-          host: ${{ secrets.BA_HOST }}
+          host: ${{ secrets.STAGING_HOST }}
           username: ${{ secrets.USERNAME }}
-          key: ${{ secrets.BA_KEY }}
+          key: ${{ secrets.STAGING_KEY }}
           port: 22
           script_stop: true
           script: |
             export NVM_DIR="$HOME/.nvm"
             [ -s "$NVM_DIR/nvm.sh" ] && . "$NVM_DIR/nvm.sh"
             node -v
-            cd /home/frappe/sandbox-bench/apps/one_bpmn
+            cd /home/frappe/frappe-bench/apps/one_bpmn
             git pull upstream staging
-            cd /home/frappe/sandbox-bench
+            cd /home/frappe/frappe-bench
             bench setup requirements one_bpmn
-            cd /home/frappe/sandbox-bench/apps/one_bpmn/spiff
+            cd /home/frappe/frappe-bench/apps/one_bpmn/spiff
             yarn install
             export NODE_OPTIONS="--max-old-space-size=4096"
             yarn build
-            cd /home/frappe/sandbox-bench
-            bench --site business-analyst.one-fm.com migrate
-            bench --site business-analyst.one-fm.com build --app one_bpmn
-            bench --site business-analyst.one-fm.com clear-cache
+            cd /home/frappe/frappe-bench
+            bench --site staging.one-fm.com migrate
+            bench --site staging.one-fm.com build --app one_bpmn
+            bench --site staging.one-fm.com clear-cache
             bench restart

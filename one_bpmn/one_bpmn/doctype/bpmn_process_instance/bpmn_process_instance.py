@@ -212,7 +212,17 @@ class BPMNProcessInstance(Document):
 		if data:
 			task.data.update(data)
 
+		# Capture current assignments BEFORE marking task completed,
+		# so the diff in _sync_active_tasks knows who was previously assigned.
+		prev_assigned = {
+			row.assigned_user
+			for row in self.active_tasks
+			if row.status == "Waiting" and row.assigned_user
+		}
+
 		# Mark the active_tasks row as Completed
+		# (Frappe assignment cleanup is handled by _sync_active_tasks
+		# via a before/after diff to avoid close+recreate for the same user)
 		for row in self.active_tasks:
 			if row.task_id == task_id:
 				row.status = "Completed"
@@ -237,7 +247,7 @@ class BPMNProcessInstance(Document):
 		self.workflow_state = json.dumps(bpmn_engine.serialize_workflow(wf))
 
 		# Rebuild active tasks
-		self._sync_active_tasks(wf)
+		self._sync_active_tasks(wf, prev_assigned=prev_assigned)
 
 		self._check_completion(wf)
 
@@ -251,6 +261,114 @@ class BPMNProcessInstance(Document):
 		# (active_tasks) are updated separately via update_children().
 		# run_method("on_update") fires any custom on_update hooks without
 		# going through the full save/validate pipeline.
+		self.modified = frappe.utils.now()
+		self.modified_by = frappe.session.user
+		self.db_update()
+		self.update_children()
+		self.run_method("on_update")
+
+		return self.get_active_tasks_summary()
+
+	def receive_message(self, message_name: str, payload: dict = None) -> list:
+		"""
+		Deliver an external BPMN message to this process instance.
+
+		This is the BPMN-standard mechanism for external systems (webhooks,
+		scheduled jobs, other processes) to interact with a running process.
+		The message is delivered to a waiting IntermediateCatchEvent,
+		ReceiveTask, or EventBasedGateway child that matches the message name.
+
+		When an EventBasedGateway is waiting, delivering a message will:
+		  1. Fire the matching Message Catch Event
+		  2. Cancel all other waiting paths (User Task, other catch events)
+		  3. Continue the flow down the matched path
+
+		The message payload is merged into task.data, making its keys
+		available as variables in downstream gateway conditions and
+		script task expressions.
+
+		Convention: message names follow ``{System}: {Event}`` format,
+		e.g. ``GitHub: PR Merged``, ``GitHub: PR Changes Requested``.
+
+		Args:
+		    message_name: BPMN message name — must match <bpmn:message name="...">
+		    payload:      Optional dict merged into task.data. Each key becomes
+		                  a task variable usable in gateway conditions.
+
+		Returns:
+		    list of dicts describing the next active tasks
+
+		Raises:
+		    frappe.ValidationError: if instance is not Active or message not caught
+		"""
+		if self.status in ("Completed", "Cancelled"):
+			frappe.throw(
+				_('Instance "{0}" is already {1} and cannot receive messages.').format(
+					self.name, self.status
+				)
+			)
+
+		if not self.workflow_state:
+			frappe.throw(_("Workflow state is missing. The instance may be corrupted."))
+
+		if not message_name:
+			frappe.throw(_("message_name is required."))
+
+		# ── Restore workflow (same as advance) ───────────────────────────────
+		_spec_snap = self._load_json(self.serialized_spec or "{}") or {}
+		_script_exts = _spec_snap.get("script_task_extensions", {})
+		self._service_task_extensions = _spec_snap.get("service_task_extensions", {})
+		self._user_task_extensions = _spec_snap.get("user_task_extensions", {})
+
+		wf = bpmn_engine.restore_workflow(
+			workflow_state=self._load_json(self.workflow_state),
+			context_doctype=self.context_doctype,
+			context_docname=self.context_docname,
+			script_task_extensions=_script_exts,
+		)
+
+		# Refresh context doc so downstream conditions see latest data
+		if self.context_doctype and self.context_docname:
+			bpmn_engine.refresh_context_doc(wf, self.context_doctype, self.context_docname)
+
+		# Capture current assignments BEFORE message delivery
+		prev_assigned = {
+			row.assigned_user
+			for row in self.active_tasks
+			if row.status == "Waiting" and row.assigned_user
+		}
+
+		# ── Deliver the message ──────────────────────────────────────────────
+		caught = bpmn_engine.send_message(wf, message_name, payload=payload)
+
+		if not caught:
+			frappe.throw(
+				_('No task in instance "{0}" is waiting for message "{1}".').format(
+					self.name, message_name
+				)
+			)
+
+		self._log_task(
+			task_id="",
+			task_name=f"Message: {message_name}",
+			action="Message Received",
+			data=payload,
+		)
+
+		# ── Run engine to process tasks that became READY ────────────────────
+		frappe.flags.bpmn_engine_action = True
+		try:
+			self._run_engine(wf)
+		finally:
+			frappe.flags.bpmn_engine_action = False
+
+		# ── Persist (same as advance) ────────────────────────────────────────
+		bpmn_engine.clean_doc_from_wf_data(wf)
+		self.workflow_state = json.dumps(bpmn_engine.serialize_workflow(wf))
+
+		self._sync_active_tasks(wf, prev_assigned=prev_assigned)
+		self._check_completion(wf)
+
 		self.modified = frappe.utils.now()
 		self.modified_by = frappe.session.user
 		self.db_update()
@@ -279,7 +397,6 @@ class BPMNProcessInstance(Document):
 				# Structured array of action objects with per-action flags:
 				# [{"action":"Approve","confirmTransition":"true","requireDigitalSignature":"true"}, ...]
 				"task_actions_detail": self._resolve_task_actions_detail(row),
-				"task_action_mode": getattr(row, "task_action_mode", None) or "manual",
 			}
 			for row in self.active_tasks
 			if row.status == "Waiting"
@@ -318,28 +435,9 @@ class BPMNProcessInstance(Document):
 		"""
 		Return comma-separated action labels for a pending active task row.
 
-		For 'frappe_workflow' mode: calls Frappe's get_transitions(doc) so
-		only transitions the CURRENT USER is allowed to take (filtered by
-		role, current workflow state, and Python conditions on the transition)
-		are shown — identical to Frappe's native workflow action panel.
-
-		For 'manual' mode: parses the stored task_actions (JSON or CSV)
+		Parses the stored task_actions (JSON or CSV)
 		and returns comma-separated action names.
 		"""
-		mode = getattr(row, "task_action_mode", None) or "manual"
-		if mode == "frappe_workflow":
-			if not (self.context_doctype and self.context_docname):
-				return ""
-			try:
-				from frappe.model.workflow import get_transitions
-
-				doc = frappe.get_doc(self.context_doctype, self.context_docname)
-				transitions = get_transitions(doc)
-				return ",".join(str(t["action"]) for t in transitions)
-			except Exception:
-				pass
-			return ""
-		# Manual mode — extract just the action names
 		raw = getattr(row, "task_actions", "") or ""
 		actions = self._parse_task_actions_json(raw)
 		return ",".join(a.get("action", "") for a in actions if a.get("action"))
@@ -348,47 +446,11 @@ class BPMNProcessInstance(Document):
 		"""
 		Return the full structured action list with per-action flags.
 
-		For 'frappe_workflow' mode: returns actions from Frappe transitions
-		(no per-action flags since they come from the Frappe Workflow).
-
-		For 'manual' mode: returns the parsed JSON/CSV list of action dicts
+		Parses the stored JSON/CSV list of action dicts
 		with all per-action metadata (confirmTransition, requireDigitalSignature).
 		"""
-		mode = getattr(row, "task_action_mode", None) or "manual"
-		if mode == "frappe_workflow":
-			if not (self.context_doctype and self.context_docname):
-				return []
-			try:
-				from frappe.model.workflow import get_transitions
-
-				doc = frappe.get_doc(self.context_doctype, self.context_docname)
-				transitions = get_transitions(doc)
-				return [{"action": str(t["action"])} for t in transitions]
-			except Exception:
-				pass
-			return []
 		raw = getattr(row, "task_actions", "") or ""
 		return self._parse_task_actions_json(raw)
-
-	def _apply_frappe_workflow_action(self, action: str) -> None:
-		"""
-		Apply a Frappe workflow action on the context document.
-
-		Mirrors exactly what happens when a user clicks an action button
-		in Frappe's native form view:
-		  1. apply_workflow() validates the transition (role + self-approval).
-		  2. Updates workflow_state_field on the document.
-		  3. Handles docstatus changes (draft→submit, submitted→cancel, etc.).
-		  4. Adds a Workflow comment to the document's timeline.
-
-		Raises frappe.ValidationError / WorkflowTransitionError on failure.
-		"""
-		if not (self.context_doctype and self.context_docname):
-			frappe.throw(_("Cannot apply Frappe workflow: no context document linked to this instance."))
-		from frappe.model.workflow import apply_workflow as frappe_apply_workflow
-
-		doc = frappe.get_doc(self.context_doctype, self.context_docname)
-		frappe_apply_workflow(doc, action)
 
 	def _run_engine(self, wf):
 		"""
@@ -925,15 +987,34 @@ class BPMNProcessInstance(Document):
 
 		# ── Send to each employee ─────────────────────────────────────────
 		sent_count = 0
+		failed = []  # (emp_id, reason)
 		for user_id, emp_id in employee_map.items():
 			try:
-				send_push_notification(emp_id, title, message)
-				sent_count += 1
+				result = send_push_notification(emp_id, title, message)
+				if result:
+					sent_count += 1
+				else:
+					failed.append((emp_id, "returned False"))
 			except Exception:
+				failed.append((emp_id, "exception"))
 				frappe.log_error(
-					title=f"BPMN push_notification: send failed for {emp_id} ({bpmn_id})",
+					title=f"BPMN push_notification: exception for {emp_id} ({bpmn_id})",
 					message=frappe.get_traceback(),
 				)
+
+		# ── Single summary log when there are failures ────────────────────
+		if failed:
+			fail_details = ", ".join(f"{eid} ({reason})" for eid, reason in failed)
+			frappe.log_error(
+				title=f"BPMN push_notification: {len(failed)} failed, {sent_count} sent ({bpmn_id})",
+				message=(
+					f"Push notification summary for task {bpmn_id}:\n"
+					f"  Sent: {sent_count}, Failed: {len(failed)}\n"
+					f"  Failed employees: {fail_details}\n\n"
+					f"For 'returned False' failures, check earlier Error Log entries "
+					f"from send_push_notification for the specific reason."
+				),
+			)
 
 
 	def _dispatch_email_notification(self, task, task_cfg: dict) -> None:
@@ -1038,6 +1119,12 @@ class BPMNProcessInstance(Document):
 		body = render(task_cfg.get("emailBody", "") or subject)
 		cc = task_cfg.get("emailCc", "") or None
 
+		# ── Resolve sender from configured Email Account ──────────────
+		sender = None
+		email_account = task_cfg.get("emailAccount", "")
+		if email_account:
+			sender = frappe.db.get_value("Email Account", email_account, "email_id")
+
 		# ── Send via one_fm.processor.sendemail if available ─────────
 		# Uses the same branded template and notification preference
 		# checks as the rest of the one_fm app (checks if user has
@@ -1050,6 +1137,7 @@ class BPMNProcessInstance(Document):
 			onefm_sendemail(
 				recipients=recipients,
 				subject=subject,
+				sender=sender,
 				header=[subject],
 				message=body,
 				cc=cc,
@@ -1059,6 +1147,7 @@ class BPMNProcessInstance(Document):
 		except ImportError:
 			frappe.sendmail(
 				recipients=recipients,
+				sender=sender,
 				subject=subject,
 				message=body,
 				cc=cc.split(",") if cc else [],
@@ -1067,7 +1156,7 @@ class BPMNProcessInstance(Document):
 				now=False,
 			)
 
-	def _sync_active_tasks(self, wf):
+	def _sync_active_tasks(self, wf, prev_assigned=None):
 		"""
 		Rebuild the active_tasks child table to reflect the current
 		set of READY User Tasks in the workflow.
@@ -1075,9 +1164,26 @@ class BPMNProcessInstance(Document):
 		- Keeps rows that are already Completed (for audit visibility)
 		- Adds new rows for newly READY user tasks
 		- Removes rows for tasks that are no longer READY
+		- Manages Frappe assignments (ToDo) via before/after diff:
+		  same user keeps existing ToDo; changed user gets old closed, new created
+
+		Args:
+		    prev_assigned: set of user emails that had Open assignments before
+		                   this sync. Passed from advance() which captures the
+		                   snapshot before marking the task row Completed.
+		                   When None (e.g. called from start()), computed from
+		                   current Waiting rows.
 		"""
 		ready_user_tasks = bpmn_engine.get_ready_user_tasks(wf)
 		new_ready_ids = {str(t.id) for t in ready_user_tasks}
+
+		# Snapshot: which users have Open assignments before this rebuild
+		if prev_assigned is None:
+			prev_assigned = {
+				row.assigned_user
+				for row in self.active_tasks
+				if row.status == "Waiting" and row.assigned_user
+			}
 
 		# Keep completed rows + rows still waiting that are still ready
 		self.active_tasks = [
@@ -1107,7 +1213,6 @@ class BPMNProcessInstance(Document):
 			bpmn_id_key = getattr(task.task_spec, "bpmn_id", None) or ""
 			task_cfg = getattr(self, "_user_task_extensions", {}).get(bpmn_id_key, {})
 			task_actions = task_cfg.get("taskActions", "")
-			task_action_mode = task_cfg.get("taskActionMode", "manual")
 
 			self.append(
 				"active_tasks",
@@ -1120,7 +1225,6 @@ class BPMNProcessInstance(Document):
 					"assigned_user": assigned_user,
 					"assigned_role": assigned_role,
 					"task_actions": task_actions,
-					"task_action_mode": task_action_mode,
 				},
 			)
 
@@ -1129,6 +1233,22 @@ class BPMNProcessInstance(Document):
 				task_name=task_name,
 				action="Started",
 			)
+
+		# Diff: which users are now assigned across all Waiting tasks
+		curr_assigned = {
+			row.assigned_user: row.task_name
+			for row in self.active_tasks
+			if row.status == "Waiting" and row.assigned_user
+		}
+
+		# Close ToDos for users who were assigned but no longer are
+		for user in prev_assigned - set(curr_assigned.keys()):
+			self._remove_frappe_assignment(user)
+
+		# Create ToDos for users who are newly assigned
+		for user, task_name in curr_assigned.items():
+			if user not in prev_assigned:
+				self._add_frappe_assignment(user, task_name)
 
 	def _resolve_assignment(self, task) -> str:
 		"""
@@ -1262,6 +1382,82 @@ class BPMNProcessInstance(Document):
 
 		return ""
 
+	def _add_frappe_assignment(self, user: str, task_name: str = "") -> None:
+		"""
+		Create a Frappe Assignment (ToDo) on the context document for the
+		resolved user.  This makes the assignment visible in Frappe's sidebar,
+		notifications, and the user's ToDo list.
+
+		Silently skips if no context document is linked or if the user is
+		already assigned.  Failures are logged but never break the workflow.
+		"""
+		if not (self.context_doctype and self.context_docname and user):
+			return
+
+		try:
+			from frappe.desk.form.assign_to import add as assign_add
+
+			# Check if already assigned to avoid duplicates
+			existing = frappe.db.exists(
+				"ToDo",
+				{
+					"reference_type": self.context_doctype,
+					"reference_name": self.context_docname,
+					"allocated_to": user,
+					"status": "Open",
+				},
+			)
+			if existing:
+				return
+
+			description = _('BPMN Task: "{0}" on instance {1}').format(
+				task_name or "User Task", self.name
+			)
+
+			assign_add({
+				"doctype": self.context_doctype,
+				"name": self.context_docname,
+				"assign_to": [user],
+				"description": description,
+				"notify": 1,
+			}, ignore_permissions=True)
+		except Exception:
+			frappe.log_error(
+				title=f"BPMN: Failed to assign {self.context_doctype} to {user}",
+				message=frappe.get_traceback(),
+			)
+
+	def _remove_frappe_assignment(self, user: str) -> None:
+		"""
+		Close the Frappe Assignment (ToDo) on the context document when
+		the User Task is completed.
+
+		Sets the ToDo status to "Closed" (task finished) — not "Cancelled"
+		(task removed).  Uses ``set_status`` directly instead of ``close()``
+		because ``close()`` asserts ``session.user == assignee``, which fails
+		when the engine runs under a different user context.
+
+		Failures are logged but never break the workflow.
+		"""
+		if not (self.context_doctype and self.context_docname and user):
+			return
+
+		try:
+			from frappe.desk.form.assign_to import set_status
+
+			set_status(
+				self.context_doctype,
+				self.context_docname,
+				assign_to=user,
+				status="Closed",
+				ignore_permissions=True,
+			)
+		except Exception:
+			frappe.log_error(
+				title=f"BPMN: Failed to close assignment on {self.context_doctype} for {user}",
+				message=frappe.get_traceback(),
+			)
+
 	def _check_completion(self, wf):
 		"""
 		Mark the instance Completed when the workflow has no more
@@ -1309,7 +1505,7 @@ class BPMNProcessInstance(Document):
 			log.timestamp = now_datetime()
 			log.user = frappe.session.user
 			if data:
-				log.data = json.dumps(data, default=str)
+				log.data = json.dumps(data, default=str, indent=2)
 			log.insert(ignore_permissions=True)
 		except Exception:
 			frappe.log_error(

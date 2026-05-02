@@ -180,7 +180,7 @@
 							: 'absolute inset-y-0 right-0 border-l border-gray-200 md:relative',
 						// Desktop: collapse behavior
 						!isMobile && propertiesCollapsed 
-							? 'w-[48px] overflow-hidden' 
+							? 'w-0 overflow-hidden' 
 							: !isMobile ? 'w-full md:w-96 overflow-auto' : '',
 						{ 'properties-panel--readonly': readonly }
 					]"
@@ -210,15 +210,7 @@
 						<!-- Content is injected here by bpmn-js-properties-panel -->
 					</div>
 
-					<!-- Desktop: Sidebar-style collapse placeholder -->
-					<div 
-						v-if="!isMobile && propertiesCollapsed"
-						class="absolute inset-0 flex flex-col items-center pt-4 bg-gray-50 cursor-pointer hover:bg-gray-100 transition-colors"
-						@click="togglePropertiesCollapse"
-					>
-						<Icon icon="lucide:settings" class="w-5 h-5 text-gray-400 mb-4 animate-pulse" />
-						<div class="w-px h-full bg-gray-200"></div>
-					</div>
+	
 				</div>
 			</transition>
 
@@ -229,7 +221,7 @@
 				v-if="!isMobile && showPropertiesPanel"
 				@click="togglePropertiesCollapse"
 				class="absolute top-1/2 -translate-y-1/2 w-6 h-12 bg-white border border-gray-200 rounded-l-lg shadow-md hidden md:flex items-center justify-center text-gray-500 hover:text-gray-900 transition-all duration-300 z-[65]"
-				:style="{ right: (propertiesCollapsed ? 48 : 384) + 'px' }"
+				:style="{ right: (propertiesCollapsed ? 0 : 384) + 'px' }"
 				:title="propertiesCollapsed ? 'Expand Properties Panel' : 'Collapse Properties Panel'"
 			>
 				<Icon :icon="propertiesCollapsed ? 'lucide:chevron-left' : 'lucide:chevron-right'" class="w-4 h-4" />
@@ -242,7 +234,7 @@
 					class="absolute top-4 left-1/2 -translate-x-1/2 z-[100] bg-blue-600 text-white px-4 py-2 rounded-full shadow-lg flex items-center gap-3"
 				>
 					<Icon icon="lucide:info" class="w-4 h-4" />
-					<span class="text-sm font-medium">Click on any shape or the canvas to add a comment</span>
+					<span class="text-sm font-medium">Click on any shape to add a comment</span>
 					<button 
 						@click="toggleCommentMode"
 						class="ml-2 p-1 hover:bg-blue-500/20 rounded-full"
@@ -425,12 +417,45 @@
 				View Comments ({{ contextMenuElementCommentCount }})
 			</button>
 		</div>
+
+		<!-- Message name dialog -->
+		<Dialog
+			v-model="messageDialog.show"
+			:options="{
+				title: messageDialog.isEdit ? 'Edit Message' : 'New Message',
+				size: 'sm',
+				actions: [
+					{
+						label: messageDialog.isEdit ? 'Save' : 'Create',
+						variant: 'solid',
+						disabled: !messageDialog.name?.trim(),
+						onClick: ({ close }) => onMessageDialogSave(close),
+					},
+				],
+			}"
+		>
+			<template #body-content>
+				<div class="space-y-4">
+					<div>
+						<label class="block text-sm font-medium text-gray-700 mb-1">Message Name</label>
+						<input
+							v-model="messageDialog.name"
+							type="text"
+							placeholder="e.g. GitHub: PR Merged"
+							class="w-full rounded-md border border-gray-300 px-3 py-2 text-sm focus:border-blue-500 focus:ring-1 focus:ring-blue-500 outline-none"
+							@keydown.enter="messageDialog.name?.trim() && onMessageDialogSave(() => messageDialog.show = false)"
+						/>
+						<p class="mt-1 text-xs text-gray-500">The name must match what the external system sends.</p>
+					</div>
+				</div>
+			</template>
+		</Dialog>
 	</div>
 </template>
 
 <script setup>
 import { ref, shallowRef, onMounted, onBeforeUnmount, watch, computed, nextTick } from "vue";
-import { frappeRequest } from "frappe-ui";
+import { frappeRequest, Dialog } from "frappe-ui";
 import {
 	injectProcessNameField,
 	reinjectIfCalledElementChanged,
@@ -482,10 +507,10 @@ import userTaskPropertiesProviderModule from "@/bpmn/userTaskPropertiesProvider"
 import sendTaskPropertiesProviderModule from "@/bpmn/sendTaskPropertiesProvider";
 import serviceTaskPropertiesProviderModule from "@/bpmn/serviceTaskPropertiesProvider";
 import scriptTaskPropertiesProviderModule from "@/bpmn/scriptTaskPropertiesProvider";
-import intermediateEventPropertiesProviderModule from "@/bpmn/intermediateEventPropertiesProvider";
 import timerPropertiesProviderModule from "@/bpmn/timerPropertiesProvider";
 import startEventPropertiesProviderModule from "@/bpmn/startEventPropertiesProvider";
 import conditionalStartEventPropertiesProviderModule from "@/bpmn/conditionalStartEventPropertiesProvider";
+import propertiesPanelFilterModule from "@/bpmn/propertiesPanelFilter";
 
 // bpmnlint — diagram validation
 import lintModule from "bpmn-js-bpmnlint";
@@ -496,6 +521,9 @@ import bpmnlintConfig from "@/linting/bpmnlintrc.js";
 import "bpmn-js/dist/assets/diagram-js.css";
 import "bpmn-js/dist/assets/bpmn-js.css";
 import "bpmn-js/dist/assets/bpmn-font/css/bpmn.css";
+
+// Touch interaction support for mobile devices
+import touchInteractionModule from "bpmn-js-touch-interaction";
 
 // Import properties panel CSS
 import "@bpmn-io/properties-panel/dist/assets/properties-panel.css";
@@ -543,6 +571,30 @@ const commentFormData = ref({
 	is_task: false
 });
 const users = ref([]);
+
+// Message editor dialog state
+const messageDialog = ref({
+	show: false,
+	isEdit: false,
+	name: "",
+	elementId: "",
+	_eventBus: null,
+});
+
+function onMessageDialogSave(close) {
+	const name = messageDialog.value.name?.trim();
+	if (!name) return;
+
+	const eb = messageDialog.value._eventBus;
+	if (eb) {
+		eb.fire("spiff.add_message.returned", {
+			name: name,
+			elementId: messageDialog.value.elementId,
+			correlation_properties: {},
+		});
+	}
+	close();
+}
 
 // Right-click context menu (composable)
 const {
@@ -611,7 +663,8 @@ const toolbarEl = ref(null);
 const canUndo = ref(false);
 const canRedo = ref(false);
 const zoomLevel = ref(100);
-const showPropertiesPanel = ref(true);
+// Desktop: start visible (collapsed sidebar); Mobile: start hidden (no bottom sheet on load)
+const showPropertiesPanel = ref(window.innerWidth >= 640);
 const propertiesCollapsed = ref(true);
 const isMounted = ref(false);
 const isImporting = ref(false);
@@ -740,8 +793,7 @@ onMounted(async () => {
 						{ name: "assigneeDocfield",      isAttr: true, type: "String" },
 						{ name: "assigneeUsers",         isAttr: true, type: "String" },
 						{ name: "roundRobinLastUser",    isAttr: true, type: "String" },
-						{ name: "taskActions",           isAttr: true, type: "String" },
-						{ name: "taskActionMode",        isAttr: true, type: "String" }
+						{ name: "taskActions",           isAttr: true, type: "String" }
 					]
 				});
 
@@ -754,21 +806,6 @@ onMounted(async () => {
 				});
 			}
 			
-			// Intermediate Event extension (hot-reloading safety)
-			const hasIntermediateEventExt = spiffModdleExtension.types.find(t => t.name === "IntermediateEventExtension");
-			if (!hasIntermediateEventExt) {
-				spiffModdleExtension.types.push({
-					name: "IntermediateEventExtension",
-					extends: ["bpmn:IntermediateCatchEvent", "bpmn:IntermediateThrowEvent"],
-					properties: [
-						{ name: "targetDoctype", isAttr: true, type: "String" },
-						{ name: "triggerWorkflow", isAttr: true, type: "String" },
-						{ name: "triggerWorkflowState", isAttr: true, type: "String" },
-						{ name: "assignmentRule", isAttr: true, type: "String" }
-					]
-				});
-			}
-
 			// Send Task notification extension
 			const hasSendTaskExt = spiffModdleExtension.types.find(t => t.name === "SendTaskNotificationExtension");
 			if (!hasSendTaskExt) {
@@ -852,7 +889,6 @@ onMounted(async () => {
 				sendTaskPropertiesProviderModule,
 				serviceTaskPropertiesProviderModule,
 				scriptTaskPropertiesProviderModule,
-				intermediateEventPropertiesProviderModule,
 				timerPropertiesProviderModule,
 				startEventPropertiesProviderModule,
 				conditionalStartEventPropertiesProviderModule,
@@ -864,6 +900,8 @@ onMounted(async () => {
 				clipboardModule,
 				lintModule,
 				nativeCopyPasteModule,
+				touchInteractionModule,
+				propertiesPanelFilterModule,
 			],
 			taskResizingEnabled: true,
 			linting: {
@@ -884,8 +922,9 @@ onMounted(async () => {
 					fontSize: "12px",
 				},
 			},
-			// Disable keyboard bindings in readonly mode
-			keyboard: props.readonly ? false : { bindTo: document },
+			// In bpmn-js v18+, keyboard binds to the canvas automatically.
+			// Disable keyboard entirely in readonly mode.
+			keyboard: props.readonly ? false : {},
 		},
 		onReady: async (initializedModeler) => {
 			modeler = initializedModeler;
@@ -1015,6 +1054,14 @@ onMounted(async () => {
 			eventBus.on("selection.changed", (e) => {
 				selectedElements.value = e.newSelection || [];
 
+				// Auto-open the properties panel when an element is selected
+				if (e.newSelection?.length > 0) {
+					showPropertiesPanel.value = true;
+					if (!isMobile.value) {
+						propertiesCollapsed.value = false;
+					}
+				}
+
 				// Inject Process Name field when a Call Activity is selected
 				const single = e.newSelection?.length === 1 ? e.newSelection[0] : null;
 				if (single?.type === "bpmn:CallActivity") {
@@ -1030,6 +1077,9 @@ onMounted(async () => {
 			const handleCommentClick = (element, originalEvent) => {
 				if (!isCommentMode.value || !element) return;
 
+				// Only allow comments on actual shapes — skip the root process element
+				if (!element.parent) return;
+
 				// Guard against missing originalEvent
 				if (originalEvent) {
 					originalEvent.preventDefault();
@@ -1044,10 +1094,8 @@ onMounted(async () => {
 				return handleCommentClick(e.element, e.originalEvent);
 			});
 
-			eventBus.on("canvas.click", (e) => {
-				const canvas = modeler.get("canvas");
-				return handleCommentClick(canvas?.getRootElement(), e.originalEvent);
-			});
+			// Canvas clicks (empty area) — intentionally ignored for commenting.
+			// Comments must be associated with a shape, not the canvas.
 
 			// Right-click context menu — delegates to composable
 			registerContextMenuListeners(eventBus);
@@ -1075,6 +1123,7 @@ onMounted(async () => {
 		eventBus.on("import.done", () => {
 			renderComments();
 		});
+
 
 		// --- SpiffWorkflow EventBus Integration ---
 		// These handlers are required for the spiffworkflow properties panel
@@ -1177,6 +1226,28 @@ onMounted(async () => {
 				event.eventBus.fire("spiff.messages.returned", {
 					configuration: { messages: [] },
 				});
+			});
+
+			// ── Message editing (IntermediateCatchEvent, ReceiveTask) ────────
+			// When the BA clicks "Open message editor" on a catch event,
+			// show a frappe-ui Dialog to type/edit the message name.
+			// On save, fire spiff.add_message.returned which creates the
+			// <bpmn:Message> element and wires it to the catch event.
+			eventBus.on("spiff.message.edit", (event) => {
+				messageDialog.value.isEdit = true;
+				messageDialog.value.name = event.value?.messageId || "";
+				messageDialog.value.elementId = event.value?.elementId || "";
+				messageDialog.value._eventBus = event.eventBus;
+				messageDialog.value.show = true;
+			});
+
+			// Handle "add new message" from the MessageSelect dropdown
+			eventBus.on("spiff.add_message.requested", (event) => {
+				messageDialog.value.isEdit = false;
+				messageDialog.value.name = "";
+				messageDialog.value.elementId = "";
+				messageDialog.value._eventBus = event.eventBus;
+				messageDialog.value.show = true;
 			});
 
 			eventBus.on("spiff.msg_json_schema_files.requested", (event) => {
@@ -1500,8 +1571,8 @@ function renderComments() {
 		try {
 			overlays.add(elementId, "processa-comment", {
 				position: {
-					bottom: 10,
-					left: -10
+					bottom: 2,
+					left: -6
 				},
 				html: html
 			});
@@ -1514,12 +1585,19 @@ function renderComments() {
 async function submitComment() {
 	if (!commentFormData.value.text || !props.modelName) return;
 
+	// Comments must be associated with a specific element — reject root/process
+	const elementId = activeCommentElement.value?.id;
+	if (!elementId || !activeCommentElement.value?.parent) {
+		console.warn("Cannot add comment: no shape selected");
+		return;
+	}
+
 	try {
 		await frappeRequest({
 			url: "/api/method/one_bpmn.api.post_canvas_comment",
 			params: {
 				model_name: props.modelName,
-				element_id: activeCommentElement.value?.id || "process",
+				element_id: elementId,
 				comment: commentFormData.value.text,
 				assigned_to: commentFormData.value.assigned_to,
 				is_task: commentFormData.value.is_task ? 1 : 0
@@ -1938,9 +2016,19 @@ defineExpose({
 	isolation: isolate;
 }
 
-/* Canvas Focus */
-.bpmn-canvas:focus {
-	outline: none;
+/* Canvas Focus — suppress browser default outline on all focusable children.
+   bpmn-js adds tabindex="0" on its root SVG, which triggers a visible
+   outline (color/style/width/offset) on focus in Chromium.
+   Reset all four sub-properties individually to override the UA stylesheet. */
+.bpmn-canvas:focus,
+.bpmn-canvas *:focus,
+.bpmn-canvas svg[tabindex]:focus,
+.bpmn-canvas svg[tabindex="0"]:focus {
+	outline: none !important;
+	outline-color: transparent !important;
+	outline-style: none !important;
+	outline-width: 0 !important;
+	outline-offset: 0 !important;
 }
 
 /* Properties Panel Styling (Frappe UI Skin) */
@@ -2025,8 +2113,16 @@ defineExpose({
 
 /* Checkbox Styling */
 .properties-panel-container .bio-properties-panel-checkbox {
+	display: flex;
+	align-items: center;
+	gap: 6px;
+	cursor: pointer;
+}
+
+.properties-panel-container .bio-properties-panel-checkbox input[type="checkbox"] {
 	width: 16px;
 	height: 16px;
+	min-width: 16px;
 	border-radius: 4px;
 	border: 1px solid #d1d5db;
 	cursor: pointer;
@@ -2036,6 +2132,30 @@ defineExpose({
 .properties-panel-container .bio-properties-panel-entry {
 	padding: 4px 4px;
 	margin: 0px 8px;
+}
+
+/* Description text in properties panel entries */
+.properties-panel-container .bio-properties-panel-description {
+	word-wrap: break-word;
+	max-width: 350px;
+	font-size: 11px;
+	color: #6b7280;
+	line-height: 1.4;
+	margin-top: 2px;
+	padding: 0 4px;
+}
+
+.properties-panel-container .bio-properties-panel-group-entries > .bio-properties-panel-description {
+	padding-inline: 15px;
+	padding-block: 5px;
+}
+
+/* Nested group entries (e.g. Correlation Properties) */
+.properties-panel-container .bio-properties-panel-group-entries.open > .bio-properties-panel-group {
+	margin-inline: 15px;
+	border: 1px solid #e5e7eb;
+	border-radius: 8px;
+	margin-bottom: 5px;
 }
 
 .properties-panel-container .bio-properties-panel-group-entries {
