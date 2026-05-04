@@ -1018,6 +1018,13 @@ const showCommentDialog = ref(false);
 const showViewCommentsDialog = ref(false);
 const activeCommentElement = ref(null);
 const selectedElementComments = ref([]);
+const messageDialog = ref({
+	show: false,
+	isEdit: false,
+	name: "",
+	elementId: "",
+	_eventBus: null,
+});
 const isCommentMode = ref(false);
 const commentFormData = ref({
 	text: "",
@@ -1945,6 +1952,19 @@ onMounted(async () => {
 				});
 			});
 
+			function onMessageDialogSave(close) {
+				const { name, elementId, _eventBus } = messageDialog.value;
+				if (!name || !_eventBus) return;
+
+				_eventBus.fire("spiff.add_message.returned", {
+					value: {
+						elementId: elementId,
+						messageId: name,
+					},
+				});
+				close();
+			}
+
 			// Expose modeler instance for child components
 			modelerInstance.value = modeler;
 
@@ -2727,6 +2747,7 @@ function updateCalledElement(element, processId) {
 defineExpose({
 	getXML,
 	loadXML,
+	setProcessName,
 	undo,
 	redo,
 	deleteSelected,
