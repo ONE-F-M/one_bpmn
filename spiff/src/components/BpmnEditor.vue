@@ -694,24 +694,28 @@ watch([showPropertiesPanel, isMobile], () => {
 let modeler = null;
 let commandStack = null;
 
-// Empty BPMN diagram template
-const emptyDiagram = `<?xml version="1.0" encoding="UTF-8"?>
+// Empty BPMN diagram template — generates a unique process ID each time
+function makeEmptyDiagram() {
+	const hex = Array.from(crypto.getRandomValues(new Uint8Array(4)), b => b.toString(16).padStart(2, "0")).join("");
+	const processId = `Process_${hex}`;
+	return `<?xml version="1.0" encoding="UTF-8"?>
 <bpmn:definitions xmlns:bpmn="http://www.omg.org/spec/BPMN/20100524/MODEL"
                   xmlns:bpmndi="http://www.omg.org/spec/BPMN/20100524/DI"
                   xmlns:dc="http://www.omg.org/spec/DD/20100524/DC"
                   id="Definitions_1"
                   targetNamespace="http://bpmn.io/schema/bpmn">
-  <bpmn:process id="Process_1" isExecutable="true">
+  <bpmn:process id="${processId}" isExecutable="false">
     <bpmn:startEvent id="StartEvent_1" />
   </bpmn:process>
   <bpmndi:BPMNDiagram id="BPMNDiagram_1">
-    <bpmndi:BPMNPlane id="BPMNPlane_1" bpmnElement="Process_1">
+    <bpmndi:BPMNPlane id="BPMNPlane_1" bpmnElement="${processId}">
       <bpmndi:BPMNShape id="_BPMNShape_StartEvent_1" bpmnElement="StartEvent_1">
         <dc:Bounds x="173" y="102" width="36" height="36" />
       </bpmndi:BPMNShape>
     </bpmndi:BPMNPlane>
   </bpmndi:BPMNDiagram>
 </bpmn:definitions>`;
+}
 
 
 
@@ -1279,7 +1283,7 @@ onMounted(async () => {
 			modelerInstance.value = modeler;
 
 			// Import empty diagram
-			await modeler.importXML(emptyDiagram);
+			await modeler.importXML(makeEmptyDiagram());
 
 			// Append toolbar natively to top header
 			isMounted.value = true;
@@ -1684,6 +1688,30 @@ async function loadXML(xml) {
 	}
 }
 
+/**
+ * Set the `name` attribute on the first <bpmn:process> element.
+ * Uses the modeler's modeling API so the change is reflected
+ * immediately in the properties panel and serialised into XML on save.
+ */
+function setProcessName(name) {
+	if (!modeler || !name) return;
+	try {
+		const elementRegistry = modeler.get("elementRegistry");
+		const modeling = modeler.get("modeling");
+		// Find the root process element(s)
+		const processElements = elementRegistry.filter(
+			(el) => el.type === "bpmn:Process"
+		);
+		for (const processEl of processElements) {
+			if (!processEl.businessObject.name) {
+				modeling.updateProperties(processEl, { name });
+			}
+		}
+	} catch (e) {
+		console.warn("Could not set process name:", e);
+	}
+}
+
 function zoomIn() {
 	if (!modeler) return;
 	const canvas = modeler.get("canvas");
@@ -1904,6 +1932,7 @@ defineExpose({
 	updateCalledElement,
 	// Properties Panel API
 	togglePropertiesCollapse,
+	setProcessName,
 });
 </script>
 
@@ -2126,6 +2155,12 @@ defineExpose({
 	border-radius: 4px;
 	border: 1px solid #d1d5db;
 	cursor: pointer;
+	accent-color: #2490ef;
+}
+
+.properties-panel-container .bio-properties-panel-checkbox input[type="checkbox"]:checked {
+	background-color: #2490ef;
+	border-color: #2490ef;
 }
 
 /* Group Entries */

@@ -19,7 +19,14 @@ class BPMNProcessModel(Document):
 		The cross-site Pathfinder Log check is expensive (~0.5-2s HTTP round-trip).
 		Skip it for metadata-only changes (title, description, is_active, etc.)
 		where the actual BPMN XML content has not been modified.
+
+		Trusted callers (import_bpmn, compile_process_model) set
+		``doc.flags.skip_editability_check = True`` to bypass this gate
+		because those operations are permitted even on Production.
 		"""
+		if self.flags.get("skip_editability_check"):
+			return
+
 		if not self.process_name:
 			return
 
@@ -70,16 +77,24 @@ class BPMNProcessModel(Document):
 		)
 
 	def extract_process_id_from_xml(self):
-		"""Auto-extract process_id from BPMN XML if not manually set."""
-		if self.bpmn_xml and not self.process_id:
-			try:
-				import xml.etree.ElementTree as ET
+		"""Always extract process_id from the BPMN XML (source of truth).
 
-				root = ET.fromstring(self.bpmn_xml)
-				ns = {"bpmn": "http://www.omg.org/spec/BPMN/20100524/MODEL"}
-				process = root.find(".//bpmn:process", ns)
-				if process is not None:
-					self.process_id = process.get("id", "")
-			except Exception:
-				pass  # XML parsing failures are non-fatal here
+		The XML's <bpmn:process id="…"> is the canonical process_id.
+		This keeps the field in sync whenever the diagram is saved.
+		"""
+		if not self.bpmn_xml:
+			return
+
+		try:
+			import xml.etree.ElementTree as ET
+
+			root = ET.fromstring(self.bpmn_xml)
+			ns = {"bpmn": "http://www.omg.org/spec/BPMN/20100524/MODEL"}
+			process = root.find(".//bpmn:process", ns)
+			if process is not None:
+				extracted = process.get("id", "")
+				if extracted:
+					self.process_id = extracted
+		except Exception:
+			pass  # XML parsing failures are non-fatal here
 

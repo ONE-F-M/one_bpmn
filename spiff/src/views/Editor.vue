@@ -128,17 +128,6 @@
 						<Icon icon="lucide:history" class="w-4 h-4" />
 					</button>
 
-					<!-- Toggle Properties Panel -->
-					<button
-						@click="togglePropertiesPanel"
-						class="w-8 h-8 flex items-center justify-center hover:bg-gray-100 rounded transition-colors text-gray-600"
-						title="Toggle Properties Panel"
-						:disabled="!activeDiagramName"
-						:class="{ 'opacity-40 cursor-not-allowed': !activeDiagramName }"
-					>
-						<Icon icon="lucide:settings" class="w-4 h-4" />
-					</button>
-
 					<!-- File menu dropdown (Import / Export) -->
 					<div class="relative">
 						<button
@@ -156,8 +145,8 @@
 							<button
 								@click="triggerImport(); showFileMenu = false"
 								class="w-full flex items-center gap-2 px-3 py-2 text-sm text-gray-700 hover:bg-gray-50 transition-colors"
-								:disabled="!isEditable"
-								:class="{ 'opacity-40 cursor-not-allowed': !isEditable }"
+								:disabled="!activeDiagramName"
+								:class="{ 'opacity-40 cursor-not-allowed': !activeDiagramName }"
 							>
 								<Icon icon="lucide:download" class="w-4 h-4" />
 								Import
@@ -223,8 +212,8 @@
 						<button
 							@click="triggerImport(); showMobileMoreMenu = false"
 							class="w-full flex items-center gap-2 px-3 py-2.5 text-sm text-gray-700 hover:bg-gray-50 transition-colors"
-							:disabled="!isEditable"
-							:class="{ 'opacity-40 cursor-not-allowed': !isEditable }"
+							:disabled="!activeDiagramName"
+							:class="{ 'opacity-40 cursor-not-allowed': !activeDiagramName }"
 						>
 							<Icon icon="lucide:download" class="w-4 h-4" />
 							Import
@@ -1561,6 +1550,7 @@ async function loadDiagramContent(name) {
 	if (diagramDataCache.value[name]) {
 		if (editorRef.value) {
 			await editorRef.value.loadXML(diagramDataCache.value[name]);
+			if (processName.value) editorRef.value.setProcessName(processName.value);
 		}
 		return;
 	}
@@ -1575,6 +1565,7 @@ async function loadDiagramContent(name) {
 		if (data && data.xml_content && editorRef.value) {
 			diagramDataCache.value[name] = data.xml_content;
 			await editorRef.value.loadXML(data.xml_content);
+			if (processName.value) editorRef.value.setProcessName(processName.value);
 		}
 	} catch (error) {
 		console.error("Failed to load diagram:", error);
@@ -1672,17 +1663,20 @@ async function createDiagram() {
 
 	creating.value = true;
 	try {
+		const slug = (props.process || "process").trim().toLowerCase().replace(/[^a-z0-9]+/g, "_").replace(/^_|_$/g, "") || "process";
+		const hex = Array.from(crypto.getRandomValues(new Uint8Array(4)), b => b.toString(16).padStart(2, "0")).join("");
+		const processId = `${slug}_${hex}`;
 		const xmlContent = `<?xml version="1.0" encoding="UTF-8"?>
 <bpmn:definitions xmlns:bpmn="http://www.omg.org/spec/BPMN/20100524/MODEL"
                   xmlns:bpmndi="http://www.omg.org/spec/BPMN/20100524/DI"
                   xmlns:dc="http://www.omg.org/spec/DD/20100524/DC"
                   id="Definitions_1"
                   targetNamespace="http://bpmn.io/schema/bpmn">
-  <bpmn:process id="Process_1" isExecutable="true">
+  <bpmn:process id="${processId}" isExecutable="false">
     <bpmn:startEvent id="StartEvent_1" />
   </bpmn:process>
   <bpmndi:BPMNDiagram id="BPMNDiagram_1">
-    <bpmndi:BPMNPlane id="BPMNPlane_1" bpmnElement="Process_1">
+    <bpmndi:BPMNPlane id="BPMNPlane_1" bpmnElement="${processId}">
       <bpmndi:BPMNShape id="_BPMNShape_StartEvent_1" bpmnElement="StartEvent_1">
         <dc:Bounds x="173" y="102" width="36" height="36" />
       </bpmndi:BPMNShape>
@@ -1942,12 +1936,6 @@ function openVersionPicker() {
 	});
 }
 
-function togglePropertiesPanel() {
-	if (editorRef.value) {
-		editorRef.value.togglePropertiesCollapse();
-	}
-}
-
 async function exportCurrentDiagram() {
 	if (!activeDiagramName.value || !editorRef.value) return;
 
@@ -1964,7 +1952,7 @@ async function exportCurrentDiagram() {
 }
 
 function triggerImport() {
-	if (!isEditable.value) return; // Guard: process is locked
+	if (!activeDiagramName.value) return; // Need an active diagram context
 	if (importFileInput.value) {
 		// Reset so the same file can be re-imported
 		importFileInput.value.value = "";
@@ -1973,7 +1961,6 @@ function triggerImport() {
 }
 
 async function handleImportFile(event) {
-	if (!isEditable.value) return; // Guard: process is locked
 	const file = event.target.files && event.target.files[0];
 	if (!file) return;
 
