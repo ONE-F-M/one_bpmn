@@ -6,7 +6,6 @@ def execute():
 	# 1. Add custom fields to Comment DocType
 	print("ABOUT TO CREATE CUSTOM FIELDS FOR COMMENT DOCTYPE")
 	create_custom_fields(get_comment_custom_fields())
-	frappe.db.commit() # Ensure ALTER TABLE is finished
 
 	# 2. Migrate data from Processa Comment to Comment
 	if frappe.db.table_exists("Processa Comment"):
