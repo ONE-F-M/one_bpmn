@@ -269,33 +269,52 @@ class BPMNProcessInstance(Document):
 
 		return self.get_active_tasks_summary()
 
-	def throw_signal(self, task_id: str, signal_name: str, data: dict = None) -> list:
+	def receive_message(self, message_name: str, payload: dict = None) -> list:
 		"""
-		Throw a named BPMN signal so that a Signal Boundary Event attached to
-		the User Task can catch it and route the flow to an alternative path.
+		Deliver an external BPMN message to this process instance.
 
-		If the BA has not modelled a Signal Boundary Event for this action the
-		signal is not caught; the method falls back to completing the task
-		normally (same as advance()) so the action value still reaches any
-		downstream gateway.
+		This is the BPMN-standard mechanism for external systems (webhooks,
+		scheduled jobs, other processes) to interact with a running process.
+		The message is delivered to a waiting IntermediateCatchEvent,
+		ReceiveTask, or EventBasedGateway child that matches the message name.
+
+		When an EventBasedGateway is waiting, delivering a message will:
+		  1. Fire the matching Message Catch Event
+		  2. Cancel all other waiting paths (User Task, other catch events)
+		  3. Continue the flow down the matched path
+
+		The message payload is merged into task.data, making its keys
+		available as variables in downstream gateway conditions and
+		script task expressions.
+
+		Convention: message names follow ``{System}: {Event}`` format,
+		e.g. ``GitHub: PR Merged``, ``GitHub: PR Changes Requested``.
 
 		Args:
-		    task_id:     SpiffWorkflow task UUID (from active_tasks.task_id)
-		    signal_name: BPMN signal name to throw — must match the Signal
-		                 element name on the modelled boundary event
-		    data:        Optional dict of form data submitted by the user
+		    message_name: BPMN message name — must match <bpmn:message name="...">
+		    payload:      Optional dict merged into task.data. Each key becomes
+		                  a task variable usable in gateway conditions.
 
 		Returns:
 		    list of dicts describing the next active tasks
+
+		Raises:
+		    frappe.ValidationError: if instance is not Active or message not caught
 		"""
 		if self.status in ("Completed", "Cancelled"):
 			frappe.throw(
-				_('Instance "{0}" is already {1} and cannot be advanced.').format(self.name, self.status)
+				_('Instance "{0}" is already {1} and cannot receive messages.').format(
+					self.name, self.status
+				)
 			)
 
 		if not self.workflow_state:
 			frappe.throw(_("Workflow state is missing. The instance may be corrupted."))
 
+		if not message_name:
+			frappe.throw(_("message_name is required."))
+
+		# ── Restore workflow (same as advance) ───────────────────────────────
 		_spec_snap = self._load_json(self.serialized_spec or "{}") or {}
 		_script_exts = _spec_snap.get("script_task_extensions", {})
 		self._service_task_extensions = _spec_snap.get("service_task_extensions", {})
@@ -308,63 +327,45 @@ class BPMNProcessInstance(Document):
 			script_task_extensions=_script_exts,
 		)
 
+		# Refresh context doc so downstream conditions see latest data
 		if self.context_doctype and self.context_docname:
 			bpmn_engine.refresh_context_doc(wf, self.context_doctype, self.context_docname)
 
-		try:
-			task = wf.get_task_from_id(uuid.UUID(task_id))
-		except Exception:
-			frappe.throw(_('Task "{0}" not found in this workflow instance.').format(task_id))
-
-		if task.state != TaskState.READY:
-			frappe.throw(
-				_('Task "{0}" is not in READY state (current state: {1}).').format(
-					bpmn_engine.get_task_display_name(task),
-					TaskState.get_name(task.state),
-				)
-			)
-
-		if self.context_doctype and self.context_docname:
-			task.data.update({
-				k: v for k, v in wf.task_tree.data.items()
-				if k not in ("doc",)
-			})
-
-		if data:
-			task.data.update(data)
-
+		# Capture current assignments BEFORE message delivery
 		prev_assigned = {
 			row.assigned_user
 			for row in self.active_tasks
 			if row.status == "Waiting" and row.assigned_user
 		}
 
-		task_display_name = bpmn_engine.get_task_display_name(task)
+		# ── Deliver the message ──────────────────────────────────────────────
+		caught = bpmn_engine.send_message(wf, message_name, payload=payload)
 
-		for row in self.active_tasks:
-			if row.task_id == task_id:
-				row.status = "Completed"
+		if not caught:
+			frappe.throw(
+				_('No task in instance "{0}" is waiting for message "{1}".').format(
+					self.name, message_name
+				)
+			)
 
 		self._log_task(
-			task_id=task_id,
-			task_name=task_display_name,
-			action=signal_name,
-			data=data,
+			task_id="",
+			task_name=f"Message: {message_name}",
+			action="Message Received",
+			data=payload,
 		)
 
+		# ── Run engine to process tasks that became READY ────────────────────
 		frappe.flags.bpmn_engine_action = True
 		try:
-			caught = bpmn_engine.throw_signal(wf, signal_name)
-			if not caught:
-				# No Signal Boundary Event matched — complete the task normally
-				# so the action value still reaches downstream gateways.
-				task.run()
 			self._run_engine(wf)
 		finally:
 			frappe.flags.bpmn_engine_action = False
 
+		# ── Persist (same as advance) ────────────────────────────────────────
 		bpmn_engine.clean_doc_from_wf_data(wf)
 		self.workflow_state = json.dumps(bpmn_engine.serialize_workflow(wf))
+
 		self._sync_active_tasks(wf, prev_assigned=prev_assigned)
 		self._check_completion(wf)
 

@@ -864,6 +864,39 @@
 				View Comments ({{ contextMenuElementCommentCount }})
 			</button>
 		</div>
+
+		<!-- Message name dialog -->
+		<Dialog
+			v-model="messageDialog.show"
+			:options="{
+				title: messageDialog.isEdit ? 'Edit Message' : 'New Message',
+				size: 'sm',
+				actions: [
+					{
+						label: messageDialog.isEdit ? 'Save' : 'Create',
+						variant: 'solid',
+						disabled: !messageDialog.name?.trim(),
+						onClick: ({ close }) => onMessageDialogSave(close),
+					},
+				],
+			}"
+		>
+			<template #body-content>
+				<div class="space-y-4">
+					<div>
+						<label class="block text-sm font-medium text-gray-700 mb-1">Message Name</label>
+						<input
+							v-model="messageDialog.name"
+							type="text"
+							placeholder="e.g. GitHub: PR Merged"
+							class="w-full rounded-md border border-gray-300 px-3 py-2 text-sm focus:border-blue-500 focus:ring-1 focus:ring-blue-500 outline-none"
+							@keydown.enter="messageDialog.name?.trim() && onMessageDialogSave(() => messageDialog.show = false)"
+						/>
+						<p class="mt-1 text-xs text-gray-500">The name must match what the external system sends.</p>
+					</div>
+				</div>
+			</template>
+		</Dialog>
 	</div>
 </template>
 
@@ -1859,6 +1892,28 @@ onMounted(async () => {
 				event.eventBus.fire("spiff.messages.returned", {
 					configuration: { messages: [] },
 				});
+			});
+
+			// ── Message editing (IntermediateCatchEvent, ReceiveTask) ────────
+			// When the BA clicks "Open message editor" on a catch event,
+			// show a frappe-ui Dialog to type/edit the message name.
+			// On save, fire spiff.add_message.returned which creates the
+			// <bpmn:Message> element and wires it to the catch event.
+			eventBus.on("spiff.message.edit", (event) => {
+				messageDialog.value.isEdit = true;
+				messageDialog.value.name = event.value?.messageId || "";
+				messageDialog.value.elementId = event.value?.elementId || "";
+				messageDialog.value._eventBus = event.eventBus;
+				messageDialog.value.show = true;
+			});
+
+			// Handle "add new message" from the MessageSelect dropdown
+			eventBus.on("spiff.add_message.requested", (event) => {
+				messageDialog.value.isEdit = false;
+				messageDialog.value.name = "";
+				messageDialog.value.elementId = "";
+				messageDialog.value._eventBus = event.eventBus;
+				messageDialog.value.show = true;
 			});
 
 			eventBus.on("spiff.msg_json_schema_files.requested", (event) => {
@@ -2905,8 +2960,16 @@ function getAvatarColor(userName) {
 
 /* Checkbox Styling */
 .properties-panel-container .bio-properties-panel-checkbox {
+	display: flex;
+	align-items: center;
+	gap: 6px;
+	cursor: pointer;
+}
+
+.properties-panel-container .bio-properties-panel-checkbox input[type="checkbox"] {
 	width: 16px;
 	height: 16px;
+	min-width: 16px;
 	border-radius: 4px;
 	border: 1px solid #d1d5db;
 	cursor: pointer;
@@ -2916,6 +2979,30 @@ function getAvatarColor(userName) {
 .properties-panel-container .bio-properties-panel-entry {
 	padding: 4px 4px;
 	margin: 0px 8px;
+}
+
+/* Description text in properties panel entries */
+.properties-panel-container .bio-properties-panel-description {
+	word-wrap: break-word;
+	max-width: 350px;
+	font-size: 11px;
+	color: #6b7280;
+	line-height: 1.4;
+	margin-top: 2px;
+	padding: 0 4px;
+}
+
+.properties-panel-container .bio-properties-panel-group-entries > .bio-properties-panel-description {
+	padding-inline: 15px;
+	padding-block: 5px;
+}
+
+/* Nested group entries (e.g. Correlation Properties) */
+.properties-panel-container .bio-properties-panel-group-entries.open > .bio-properties-panel-group {
+	margin-inline: 15px;
+	border: 1px solid #e5e7eb;
+	border-radius: 8px;
+	margin-bottom: 5px;
 }
 
 .properties-panel-container .bio-properties-panel-group-entries {
