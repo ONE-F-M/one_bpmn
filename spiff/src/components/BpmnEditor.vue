@@ -124,7 +124,7 @@
 						
 						<!-- Mentions Dropdown -->
 						<div
-							v-if="showMentionDropdown && inlineCommentElement?._isInlineMention"
+							v-if="showMentionDropdown && activeMentionContext === 'inline'"
 							class="mentions-container absolute z-[160] w-full max-h-48 overflow-y-auto bg-white border border-gray-200 rounded-md shadow-lg py-1 left-0 top-full mt-1"
 						>
 							<div
@@ -138,31 +138,24 @@
 						</div>
 					</div>
 
-					<div class="flex items-center gap-2">
-						<div class="user-search-container relative flex-1">
-							<Icon icon="lucide:user" class="absolute left-2.5 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-gray-400" />
+					<div v-if="inlineMentionedUsers.length > 0" class="flex items-center gap-2 pt-1 border-t border-gray-100 mt-2">
+						<label class="flex items-center gap-2 cursor-pointer select-none text-xs text-gray-700">
 							<input
-								v-model="userSearchQuery"
-								type="text"
-								placeholder="Assign to..."
-								class="w-full pl-8 pr-2 py-1.5 border border-gray-300 rounded-md text-xs bg-white focus:outline-none focus:ring-2 focus:ring-blue-400"
-								@focus="showUserDropdown = true"
+								type="checkbox"
+								v-model="inlineCommentFormData.is_task"
+								class="rounded border-gray-300 text-blue-600 focus:ring-blue-500 w-3.5 h-3.5"
 							/>
-							<div 
-								v-if="showUserDropdown && filteredUsers.length > 0" 
-								class="absolute z-[160] w-full top-full mt-1 max-h-40 overflow-y-auto bg-white border border-gray-200 rounded-md shadow-lg py-1"
+							<span>Assign to</span>
+							
+							<select 
+								v-if="inlineMentionedUsers.length > 1"
+								v-model="inlineCommentFormData.assigned_to"
+								class="text-xs border border-gray-200 rounded px-1 py-0.5 ml-1 bg-gray-50 focus:outline-none focus:ring-1 focus:ring-blue-400"
 							>
-								<div
-									v-for="u in filteredUsers"
-									:key="u.value"
-									@click="inlineCommentFormData.assigned_to = u.value; userSearchQuery = u.label; showUserDropdown = false"
-									class="px-2 py-1.5 text-xs cursor-pointer hover:bg-blue-50 text-gray-900 flex items-center justify-between"
-								>
-									<span>{{ u.label }}</span>
-									<Icon v-if="inlineCommentFormData.assigned_to === u.value" icon="lucide:check" class="w-3 h-3 text-blue-600" />
-								</div>
-							</div>
-						</div>
+								<option v-for="u in inlineMentionedUsers" :key="u.value" :value="u.value">{{ u.label }}</option>
+							</select>
+							<span v-else class="font-medium ml-1 text-blue-700">{{ inlineMentionedUsers[0]?.label }}</span>
+						</label>
 					</div>
 
 					<div class="flex justify-end gap-2 pt-1">
@@ -322,7 +315,7 @@
 										Tasks
 									</button>
 									<button
-										@click="timelineAssignedFilter = !timelineAssignedFilter; if (timelineAssignedFilter) timelineTaskFilter = false;"
+										@click="timelineAssignedFilter = !timelineAssignedFilter; if (timelineAssignedFilter) { timelineTaskFilter = false; timelineFilterMode = 'all'; }"
 										class="flex items-center gap-1 px-2 py-0.5 rounded transition-colors text-[9px] font-bold uppercase tracking-tight"
 										:class="timelineAssignedFilter ? 'bg-blue-100 text-blue-700' : 'text-gray-400 hover:text-gray-600'"
 										title="Show only assigned to me"
@@ -371,6 +364,40 @@
 											<Icon icon="lucide:send" class="w-3.5 h-3.5" />
 										</button>
 									</div>
+
+									<!-- Timeline Mentions Dropdown -->
+									<div
+										v-if="showMentionDropdown && activeMentionContext === 'timeline'"
+										class="mentions-container absolute z-[160] w-full max-h-48 overflow-y-auto bg-white border border-gray-200 rounded-md shadow-lg py-1 left-0 top-full mt-1"
+									>
+										<div
+											v-for="u in mentionSuggestions"
+											:key="u.value"
+											@click="selectMention(u)"
+											class="px-3 py-1.5 text-sm cursor-pointer hover:bg-blue-50 text-gray-900 flex items-center justify-between"
+										>
+											<span>{{ u.label }}</span>
+										</div>
+									</div>
+
+									<!-- Assignment Indicator -->
+									<div
+										v-if="timelineMentionedUsers.length > 0"
+										class="absolute left-2.5 bottom-2.5 flex items-center gap-1 px-1.5 py-0.5 rounded-full bg-blue-50 border border-blue-100 text-[10px] text-blue-700 shadow-sm pr-1"
+									>
+										<Icon icon="lucide:user" class="w-3 h-3" />
+										<select 
+											v-if="timelineMentionedUsers.length > 1"
+											v-model="timelineAssignedTo"
+											class="text-[10px] bg-transparent border-none p-0 focus:ring-0 text-blue-700 font-medium cursor-pointer"
+										>
+											<option v-for="u in timelineMentionedUsers" :key="u.value" :value="u.value">{{ u.label }}</option>
+										</select>
+										<span v-else class="max-w-[100px] truncate pr-2">{{ timelineMentionedUsers[0]?.label }}</span>
+										<button @click="timelineAssignedTo = ''; timelineMentionedUsers = []" class="ml-0.5 p-0.5 hover:bg-blue-100 rounded-full text-blue-400 hover:text-blue-600">
+											<Icon icon="lucide:x" class="w-2.5 h-2.5" />
+										</button>
+									</div>
 								</div>
 							</div>
 
@@ -404,9 +431,18 @@
 											<span class="text-[9px] text-gray-400">{{ formatCommentDate(c.creation) }}</span>
 										</div>
 										<p class="text-[11px] text-gray-600 leading-relaxed whitespace-pre-wrap">{{ c.comment }}</p>
-										<div v-if="c.is_task" class="flex items-center gap-1.5 pt-0.5">
-											<Badge :label="c.status" :theme="c.status === 'Open' ? 'orange' : 'green'" size="sm" class="!text-[8px] !px-1" />
-											<span v-if="c.assigned_to" class="text-[9px] text-gray-500">assigned to {{ c.assigned_to_full_name || c.assigned_to }}</span>
+										<div v-if="c.is_task && c.status" class="flex items-center justify-between pt-0.5">
+											<div class="flex items-center gap-1.5">
+												<Badge :label="c.status" :theme="c.status === 'Open' ? 'orange' : 'green'" size="sm" class="!text-[8px] !px-1" />
+												<span v-if="c.assigned_to" class="text-[9px] text-gray-500">assigned to {{ c.assigned_to_full_name || c.assigned_to }}</span>
+											</div>
+											<button 
+												v-if="c.status === 'Open'" 
+												@click.stop="resolveComment(c)"
+												class="text-[9px] font-medium text-green-600 hover:bg-green-50 px-1.5 py-0.5 rounded transition-colors"
+											>
+												Resolve
+											</button>
 										</div>
 									</div>
 								</div>
@@ -448,7 +484,7 @@
 									Tasks
 								</button>
 								<button
-									@click="timelineAssignedFilter = !timelineAssignedFilter; if (timelineAssignedFilter) timelineTaskFilter = false;"
+									@click="timelineAssignedFilter = !timelineAssignedFilter; if (timelineAssignedFilter) { timelineTaskFilter = false; timelineFilterMode = 'all'; }"
 									class="flex items-center gap-1 px-2 py-0.5 rounded transition-all text-[9px] font-bold uppercase tracking-tight"
 									:class="timelineAssignedFilter ? 'bg-blue-100 text-blue-700' : 'text-gray-400 hover:text-gray-600'"
 									title="Show only assigned to me"
@@ -493,7 +529,7 @@
 
 							<!-- Timeline Mentions Dropdown -->
 							<div
-								v-if="showMentionDropdown && inlineCommentElement?._isTimelineMention"
+								v-if="showMentionDropdown && activeMentionContext === 'timeline'"
 								class="mentions-container absolute z-[160] w-full max-h-48 overflow-y-auto bg-white border border-gray-200 rounded-md shadow-lg py-1 left-0 top-full mt-1"
 							>
 								<div
@@ -527,12 +563,19 @@
 
 							<!-- Assignment Indicator -->
 							<div
-								v-if="timelineAssignedTo"
-								class="absolute left-2.5 bottom-2.5 flex items-center gap-1 px-1.5 py-0.5 rounded-full bg-blue-50 border border-blue-100 text-[10px] text-blue-700 shadow-sm"
+								v-if="timelineMentionedUsers.length > 0"
+								class="absolute left-2.5 bottom-2.5 flex items-center gap-1 px-1.5 py-0.5 rounded-full bg-blue-50 border border-blue-100 text-[10px] text-blue-700 shadow-sm pr-1"
 							>
 								<Icon icon="lucide:user" class="w-3 h-3" />
-								<span class="max-w-[100px] truncate">{{ users.find(u => u.name === timelineAssignedTo)?.full_name || timelineAssignedTo }}</span>
-								<button @click="timelineAssignedTo = ''" class="hover:text-blue-900 ml-0.5">
+								<select 
+									v-if="timelineMentionedUsers.length > 1"
+									v-model="timelineAssignedTo"
+									class="text-[10px] bg-transparent border-none p-0 focus:ring-0 text-blue-700 font-medium cursor-pointer"
+								>
+									<option v-for="u in timelineMentionedUsers" :key="u.value" :value="u.value">{{ u.label }}</option>
+								</select>
+								<span v-else class="max-w-[100px] truncate pr-2">{{ timelineMentionedUsers[0]?.label }}</span>
+								<button @click="timelineAssignedTo = ''; timelineMentionedUsers = []" class="ml-0.5 p-0.5 hover:bg-blue-100 rounded-full text-blue-400 hover:text-blue-600">
 									<Icon icon="lucide:x" class="w-2.5 h-2.5" />
 								</button>
 							</div>
@@ -593,14 +636,23 @@
 								<p class="text-xs text-gray-600 leading-relaxed whitespace-pre-wrap">{{ c.comment }}</p>
 
 								<!-- Task status -->
-								<div v-if="c.is_task" class="flex items-center gap-2 pt-1">
-									<Badge
-										:label="c.status"
-										:theme="c.status === 'Open' ? 'orange' : 'green'"
-										size="sm"
-										class="!text-[9px] !px-1.5"
-									/>
-									<span v-if="c.assigned_to" class="text-[10px] text-gray-500">assigned to {{ c.assigned_to_full_name || c.assigned_to }}</span>
+								<div v-if="c.is_task && c.status" class="flex items-center justify-between pt-1">
+									<div class="flex items-center gap-2">
+										<Badge
+											:label="c.status"
+											:theme="c.status === 'Open' ? 'orange' : 'green'"
+											size="sm"
+											class="!text-[9px] !px-1.5"
+										/>
+										<span v-if="c.assigned_to" class="text-[10px] text-gray-500">assigned to {{ c.assigned_to_full_name || c.assigned_to }}</span>
+									</div>
+									<button 
+										v-if="c.status === 'Open'" 
+										@click.stop="resolveComment(c)"
+										class="text-[10px] font-medium text-green-600 hover:bg-green-50 px-2 py-0.5 rounded transition-colors"
+									>
+										Resolve
+									</button>
 								</div>
 							</div>
 						</div>
@@ -659,7 +711,7 @@
 							placeholder="What's on your mind?"
 						/>
 						<div
-							v-if="showMentionDropdown"
+							v-if="showMentionDropdown && activeMentionContext === 'dialog'"
 							v-click-outside="() => { showMentionDropdown = false; }"
 							class="absolute z-[120] w-full max-h-48 overflow-y-auto bg-white border border-gray-200 rounded-md shadow-lg py-1 left-0 top-full mt-1"
 						>
@@ -752,7 +804,7 @@
 						
 						<p class="text-sm text-gray-800 leading-relaxed whitespace-pre-wrap">{{ comment.comment }}</p>
 						
-						<div v-if="comment.is_task" class="flex items-center justify-between pt-2 border-t border-gray-50 mt-2">
+						<div v-if="comment.is_task && comment.status" class="flex items-center justify-between pt-2 border-t border-gray-50 mt-2">
 							<div class="flex items-center gap-2">
 								<Badge 
 									:theme="comment.status === 'Resolved' ? 'green' : 'orange'" 
@@ -933,6 +985,7 @@ const showCommentDialog = ref(false);
 const showViewCommentsDialog = ref(false);
 const activeCommentElement = ref(null);
 const selectedElementComments = ref([]);
+const isCommentMode = ref(false);
 const commentFormData = ref({
 	text: "",
 	assigned_to: "",
@@ -948,6 +1001,7 @@ const inlineCommentFormData = ref({
 	assigned_to: "",
 	is_task: false
 });
+const inlineMentionedUsers = ref([]);
 const inlineCommentElement = ref(null);
 const inlineCommentOverlayTarget = ref(null);
 
@@ -1019,8 +1073,35 @@ const currentElementComments = computed(() => {
 	}
 	
 	if (timelineAssignedFilter.value) {
-		const currentUser = window.frappe?.session?.user;
-		filtered = filtered.filter(c => c.is_task && c.status === "Open" && c.assigned_to === currentUser);
+		const currentUser = window.frappe?.boot?.session_user || window.frappe?.session?.user || window.frappe?.boot?.user?.name || window.frappe?.user_name || window.frappe?.user?.name;
+		filtered = filtered.filter(c => {
+			// Basic guards
+			if (!c.is_task || !currentUser) return false;
+			
+			// Case-insensitive status check
+			const status = String(c.status || "").toLowerCase().trim();
+			if (status !== "open") return false;
+			
+			// Normalize all available identity strings
+			const assigneeId = String(c.assigned_to || "").toLowerCase().trim();
+			const assigneeName = String(c.assigned_to_full_name || "").toLowerCase().trim();
+			const currentUserId = String(currentUser || "").toLowerCase().trim();
+			const currentUserFull = String(window.frappe?.boot?.user?.full_name || "").toLowerCase().trim();
+			
+			// 1. Direct ID match (c.akeru@one-fm.com === c.akeru@one-fm.com)
+			if (assigneeId === currentUserId) return true;
+			
+			// 2. Name to Name match (Chukwuebuka Akeru === Chukwuebuka Akeru)
+			if (assigneeName && currentUserFull && assigneeName === currentUserFull) return true;
+			
+			// 3. ID to Name cross-match (Chukwuebuka Akeru === Chukwuebuka Akeru, when one is used as ID)
+			if (assigneeId && currentUserFull && assigneeId === currentUserFull) return true;
+			
+			// 4. Name to ID cross-match (Chukwuebuka Akeru === Chukwuebuka Akeru, when other is used as ID)
+			if (assigneeName && currentUserId && assigneeName === currentUserId) return true;
+			
+			return false;
+		});
 	}
 	
 	return filtered;
@@ -1062,6 +1143,7 @@ async function submitTimelineComment() {
 		timelineText.value = "";
 		timelineAssignedTo.value = "";
 		timelineIsTask.value = false;
+		timelineMentionedUsers.value = [];
 		fetchComments();
 	} catch (err) {
 		console.error("Failed to post timeline comment:", err);
@@ -1072,6 +1154,25 @@ function handleTimelineCommentInput(e) {
 	if (!e || !e.target || typeof e.target.selectionStart !== 'number') return;
 	
 	const text = timelineText.value || "";
+	
+	// Sync mentioned users
+	if (!text) {
+		timelineMentionedUsers.value = [];
+		timelineAssignedTo.value = "";
+		timelineIsTask.value = false;
+	} else {
+		const currentUsers = timelineMentionedUsers.value.filter(u => text.includes("@" + u.label));
+		if (currentUsers.length !== timelineMentionedUsers.value.length) {
+			timelineMentionedUsers.value = currentUsers;
+			if (!currentUsers.some(u => u.value === timelineAssignedTo.value)) {
+				timelineAssignedTo.value = currentUsers.length > 0 ? currentUsers[0].value : "";
+				if (currentUsers.length === 0) {
+					timelineIsTask.value = false;
+				}
+			}
+		}
+	}
+	
 	const cursorPosition = e.target.selectionStart;
 	const textBeforeCursor = text.substring(0, cursorPosition);
 	const match = textBeforeCursor.match(/@([^\s]{0,30})$/);
@@ -1080,8 +1181,7 @@ function handleTimelineCommentInput(e) {
 		showMentionDropdown.value = true;
 		mentionSearchQuery.value = match[1];
 		mentionStartIndex.value = cursorPosition - match[1].length - 1;
-		// Flag to indicate we're mentioning in the timeline
-		inlineCommentElement.value = { ...inlineCommentElement.value, _isTimelineMention: true };
+		activeMentionContext.value = "timeline";
 	} else {
 		showMentionDropdown.value = false;
 	}
@@ -1089,6 +1189,7 @@ function handleTimelineCommentInput(e) {
 
 const timelineAssignedTo = ref("");
 const timelineIsTask = ref(false);
+const timelineMentionedUsers = ref([]);
 
 const userSearchQuery = ref("");
 const showUserDropdown = ref(false);
@@ -1107,6 +1208,7 @@ watch(userSearchQuery, (newQuery) => {
 });
 
 const showMentionDropdown = ref(false);
+const activeMentionContext = ref("");
 const mentionSearchQuery = ref("");
 const mentionStartIndex = ref(-1);
 
@@ -1521,6 +1623,25 @@ onMounted(async () => {
 					// Not a StartEvent at all — clear any lingering trigger attrs
 					modeling.updateModdleProperties(newShape, bo, clearProps);
 				}
+			});
+
+			// Cleanup comments and ToDos when an element is deleted
+			eventBus.on("commandStack.elements.delete.postExecute", (e) => {
+				const elements = e.context.elements || [];
+				elements.forEach(element => {
+					if (element.id && props.modelName) {
+						frappeRequest({
+							url: "/api/method/one_bpmn.api.delete_canvas_element_assets",
+							params: {
+								model_name: props.modelName,
+								element_id: element.id
+							}
+						}).then(() => {
+							// Refresh comments to reflect deletion
+							fetchComments();
+						});
+					}
+				});
 			});
 
 
@@ -1970,6 +2091,7 @@ function handleCommentInput(e) {
 		showMentionDropdown.value = true;
 		mentionSearchQuery.value = match[1];
 		mentionStartIndex.value = cursorPosition - match[1].length - 1;
+		activeMentionContext.value = "dialog";
 	} else {
 		showMentionDropdown.value = false;
 	}
@@ -1987,6 +2109,7 @@ function openInlineComment(element) {
 		assigned_to: "",
 		is_task: false
 	};
+	inlineMentionedUsers.value = [];
 	userSearchQuery.value = "";
 	showInlineCommentPopover.value = true;
 	
@@ -2066,6 +2189,25 @@ function handleInlineCommentInput(e) {
 	if (!e || !e.target || typeof e.target.selectionStart !== 'number') return;
 	
 	const text = inlineCommentFormData.value.text || "";
+	
+	// Sync mentioned users (checking if @user.label is still in text)
+	if (!text) {
+		inlineMentionedUsers.value = [];
+		inlineCommentFormData.value.assigned_to = "";
+		inlineCommentFormData.value.is_task = false;
+	} else {
+		const currentUsers = inlineMentionedUsers.value.filter(u => text.includes("@" + u.label));
+		if (currentUsers.length !== inlineMentionedUsers.value.length) {
+			inlineMentionedUsers.value = currentUsers;
+			if (!currentUsers.some(u => u.value === inlineCommentFormData.value.assigned_to)) {
+				inlineCommentFormData.value.assigned_to = currentUsers.length > 0 ? currentUsers[0].value : "";
+				if (currentUsers.length === 0) {
+					inlineCommentFormData.value.is_task = false;
+				}
+			}
+		}
+	}
+	
 	const cursorPosition = e.target.selectionStart;
 	const textBeforeCursor = text.substring(0, cursorPosition);
 	const match = textBeforeCursor.match(/@([^\s]{0,30})$/);
@@ -2074,16 +2216,15 @@ function handleInlineCommentInput(e) {
 		showMentionDropdown.value = true;
 		mentionSearchQuery.value = match[1];
 		mentionStartIndex.value = cursorPosition - match[1].length - 1;
-		// Mark that we are in inline mode for the mention selection
-		inlineCommentElement.value._isInlineMention = true;
+		activeMentionContext.value = "inline";
 	} else {
 		showMentionDropdown.value = false;
 	}
 }
 
 function selectMention(user) {
-	const isTimeline = inlineCommentElement.value?._isTimelineMention;
-	const isInline = inlineCommentElement.value?._isInlineMention;
+	const isTimeline = activeMentionContext.value === "timeline";
+	const isInline = activeMentionContext.value === "inline";
 	const targetData = isTimeline ? timelineText : (isInline ? inlineCommentFormData : commentFormData);
 	
 	const text = isTimeline ? targetData.value : targetData.value.text;
@@ -2093,11 +2234,21 @@ function selectMention(user) {
 	
 	if (isTimeline) {
 		timelineText.value = newText;
+		if (!timelineMentionedUsers.value.some(u => u.value === user.value)) {
+			timelineMentionedUsers.value.push(user);
+		}
 		timelineAssignedTo.value = user.value;
 		// Auto-enable task mode if we mention someone in the timeline
 		timelineIsTask.value = true;
+	} else if (isInline) {
+		inlineCommentFormData.value.text = newText;
+		if (!inlineMentionedUsers.value.some(u => u.value === user.value)) {
+			inlineMentionedUsers.value.push(user);
+		}
+		inlineCommentFormData.value.assigned_to = user.value;
+		inlineCommentFormData.value.is_task = true;
 	} else {
-		targetData.value.text = newText;
+		commentFormData.value.text = newText;
 	}
 	
 	showMentionDropdown.value = false;
@@ -2966,12 +3117,27 @@ function getAvatarColor(userName) {
 }
 /* ── Properties Panel Transitions ── */
 .slide-right-enter-active, .slide-right-leave-active {
-	transition: transform 0.3s ease, opacity 0.3s ease;
+	transition: transform 0.3s ease, opacity 0.3s ease, width 0.3s ease;
 }
 .slide-right-enter-from, .slide-right-leave-to {
 	transform: translateX(100%);
 	opacity: 0;
 }
+
+/* Ensure the leaving panel doesn't occupy space in the flex flow during transition,
+   preventing jerky layout shifts when switching between panels. */
+.slide-right-enter-active,
+.comment-panel-container.slide-right-leave-active,
+.properties-panel-container.slide-right-leave-active {
+	width: 0 !important;
+	min-width: 0 !important;
+	overflow: hidden !important;
+	z-index: 50;
+}
+
+
+
+
 
 /* Ensure the properties panel content doesn't break when width is narrow */
 .properties-panel-container .bio-properties-panel {
