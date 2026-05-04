@@ -2590,7 +2590,9 @@ def disable_process_model(model_name: str) -> dict:
 
 	This is the inverse of ``compile_process_model`` (Deploy).  It:
 	1. Sets ``is_active = 0`` — trigger.py will stop creating new instances.
-	2. Disables all Server Scripts linked to this model's script tasks.
+	2. Clears ``serialized_spec`` and ``subprocess_specs`` to prevent
+	   stale instantiation.
+	3. Disables all Server Scripts linked to this model's script tasks.
 
 	Running instances are NOT affected — they continue to completion with
 	their own ``workflow_state``.
@@ -2599,7 +2601,8 @@ def disable_process_model(model_name: str) -> dict:
 		model_name: Name of the BPMN Process Model to disable.
 
 	Returns:
-		dict with success flag and model name.
+		dict with keys ``success`` (bool), ``model`` (str), and
+		``running_instances`` (int) — the count of in-flight instances.
 	"""
 	if not model_name:
 		frappe.throw(_("Model name is required"))
