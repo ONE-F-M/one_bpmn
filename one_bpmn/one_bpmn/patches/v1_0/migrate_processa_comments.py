@@ -3,8 +3,10 @@ from frappe.custom.doctype.custom_field.custom_field import create_custom_fields
 from one_bpmn.one_bpmn.custom.custom_field.comment import get_comment_custom_fields
 
 def execute():
+	logger = frappe.logger("migrate_processa_comments")
+
 	# 1. Add custom fields to Comment DocType
-	print("ABOUT TO CREATE CUSTOM FIELDS FOR COMMENT DOCTYPE")
+	logger.info("Creating custom fields for Comment DocType")
 	create_custom_fields(get_comment_custom_fields())
 
 	# 2. Migrate data from Processa Comment to Comment
@@ -16,7 +18,7 @@ def execute():
 				"status", "assigned_to", "author", "creation", "owner"
 			]
 		)
-		print(processa_comments)
+		logger.info(f"Found {len(processa_comments)} Processa Comment records to migrate")
 
 		for pc in processa_comments:
 			# Check if already migrated to avoid duplicates
@@ -45,13 +47,11 @@ def execute():
 				# Use db_insert to preserve creation timestamp and skip controller logic
 				try:
 					new_comment.db_insert()
-					print(new_comment.name)
+					logger.info(f"Migrated Processa Comment {pc.name} -> Comment {new_comment.name}")
 				except frappe.db.InternalError as e:
 					if "Unknown column 'is_processa_comment'" in str(e):
-						print("Column is_processa_comment missing. Running bench migrate might be needed.")
-						raise e
-					else:
-						raise e
+						logger.warning("Column is_processa_comment missing. Running bench migrate might be needed.")
+						raise
 
 				# Also migrate any associated ToDos if it was a task
 				if pc.is_task:
@@ -60,7 +60,6 @@ def execute():
 						{"reference_type": "Comment", "reference_name": new_comment.name}
 					)
 			else:
-				print("Already migrated: ", pc.name)
 				equivalent_record = frappe.get_value("Comment", {
 					"comment_type": "Comment",
 					"reference_doctype": "BPMN Process Model",
@@ -69,6 +68,6 @@ def execute():
 					"custom_element_id": pc.element_id,
 					"creation": pc.creation
 				}, "name")
-				print("Equivalent record: ", equivalent_record)
+				logger.info(f"Processa Comment {pc.name} already migrated as Comment {equivalent_record}")
 	else:
-		print("No Processa Comment table found")
+		logger.info("No Processa Comment table found; skipping migration")
