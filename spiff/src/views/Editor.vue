@@ -1663,7 +1663,7 @@ async function createDiagram() {
 
 	creating.value = true;
 	try {
-		const slug = (props.process || "process").trim().toLowerCase().replace(/[^a-z0-9]+/g, "_").replace(/^_|_$/g, "");
+		const slug = (props.process || "process").trim().toLowerCase().replace(/[^a-z0-9]+/g, "_").replace(/^_|_$/g, "") || "process";
 		const hex = Array.from(crypto.getRandomValues(new Uint8Array(4)), b => b.toString(16).padStart(2, "0")).join("");
 		const processId = `${slug}_${hex}`;
 		const xmlContent = `<?xml version="1.0" encoding="UTF-8"?>

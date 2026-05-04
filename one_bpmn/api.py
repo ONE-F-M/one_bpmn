@@ -347,7 +347,7 @@ def validate_bpmn_readiness(xml_content: str) -> dict:
 		referenced_fields.append((dt, "workflow_state"))
 
 	# ── Extract process-level attributes ─────────────────────────────────
-	_process_el = root.find(f"{{{BPMN_NS}}}process")
+	_process_el = root.find(f"{{{BPMN_NS}}}process") or root.find("process")
 	is_executable = False
 	if _process_el is not None:
 		is_executable = _process_el.get("isExecutable", "false").strip().lower() == "true"
