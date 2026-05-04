@@ -2583,6 +2583,70 @@ def compile_process_model(model_name: str) -> dict:
 	}
 
 
+@frappe.whitelist()
+def disable_process_model(model_name: str) -> dict:
+	"""
+	Disable a deployed BPMN Process Model.
+
+	This is the inverse of ``compile_process_model`` (Deploy).  It:
+	1. Sets ``is_active = 0`` — trigger.py will stop creating new instances.
+	2. Disables all Server Scripts linked to this model's script tasks.
+
+	Running instances are NOT affected — they continue to completion with
+	their own ``workflow_state``.
+
+	Args:
+		model_name: Name of the BPMN Process Model to disable.
+
+	Returns:
+		dict with success flag and model name.
+	"""
+	if not model_name:
+		frappe.throw(_("Model name is required"))
+
+	model = frappe.get_doc("BPMN Process Model", model_name)
+	model.check_permission("write")
+
+	if not model.is_active:
+		frappe.throw(
+			_("Process map '{0}' is already inactive.").format(model_name),
+			title=_("Already Disabled"),
+		)
+
+	# ── Deactivate the model ──────────────────────────────────────────────
+	model.is_active = 0
+
+	# ── Clear compiled specs (prevents stale instantiation) ───────────────
+	# Extract linked scripts BEFORE clearing the spec.
+	linked_scripts = _get_linked_server_scripts(model.serialized_spec)
+	model.serialized_spec = None
+	model.subprocess_specs = None
+
+	# ── Disable linked Server Scripts ─────────────────────────────────────
+	for script_name in linked_scripts:
+		if frappe.db.exists("Server Script", script_name):
+			frappe.db.set_value("Server Script", script_name, "disabled", 1)
+
+	# ── Count running instances (informational) ──────────────────────────
+	running_count = frappe.db.count(
+		"BPMN Process Instance",
+		filters={
+			"process_model": model_name,
+			"status": ["in", ["Running", "Waiting"]],
+		},
+	)
+
+	# ── Save — bypass editability gate (same as deploy) ──────────────────
+	model.flags.skip_editability_check = True
+	model.save(ignore_permissions=True)
+
+	return {
+		"success": True,
+		"model": model_name,
+		"running_instances": running_count,
+	}
+
+
 def _extract_script_task_config(bpmn_xml: str) -> dict:
 	"""
 	Extract Script Task configuration from BPMN XML at compile time.
