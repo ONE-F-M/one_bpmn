@@ -2,7 +2,7 @@
 # For license information, please see license.txt
 
 import json
-import uuid
+
 from lxml import etree as ET
 import frappe
 from frappe import _
@@ -47,7 +47,7 @@ def save_process_model(
 		doc.description = description or ""
 		doc.version = 0
 		doc.is_active = 0
-		doc.process_id = str(uuid.uuid4())
+
 		doc.check_permission("create")
 		doc.insert()
 
@@ -118,6 +118,8 @@ def import_bpmn(
 		# Always sync the title field so the return value is accurate
 		if effective_title:
 			doc.title = effective_title
+		# Import is allowed even on Production — bypass editability gate
+		doc.flags.skip_editability_check = True
 		doc.save()
 
 		# Rename the document if the human title has changed
@@ -145,6 +147,8 @@ def import_bpmn(
 		doc.process_name = process or None
 		doc.version = 0
 		doc.check_permission("create")
+		# Import is allowed even on Production — bypass editability gate
+		doc.flags.skip_editability_check = True
 		doc.insert()
 		action = "created"
 
@@ -342,6 +346,12 @@ def validate_bpmn_readiness(xml_content: str) -> dict:
 	for dt in apply_workflow_doctypes:
 		referenced_fields.append((dt, "workflow_state"))
 
+	# ── Extract process-level attributes ─────────────────────────────────
+	_process_el = root.find(f"{{{BPMN_NS}}}process")
+	is_executable = False
+	if _process_el is not None:
+		is_executable = _process_el.get("isExecutable", "false").strip().lower() == "true"
+
 	# ── Now run all checks ───────────────────────────────────────────────
 
 	categories = []
@@ -490,7 +500,8 @@ def validate_bpmn_readiness(xml_content: str) -> dict:
 		"total_checked": total_checked,
 		"total_missing": total_missing,
 		"total_warnings": total_warnings,
-		"all_ready": total_missing == 0,
+		"is_executable": is_executable,
+		"all_ready": total_missing == 0 and is_executable,
 	}
 
 
@@ -2471,6 +2482,18 @@ def compile_process_model(model_name: str) -> dict:
 			if xml_process_id and xml_process_id != model.process_id:
 				# Sync the field so it always reflects the XML truth
 				model.process_id = xml_process_id
+
+			# Block deploy if process is not marked executable in the diagram
+			is_executable = _process_el.get("isExecutable", "false").strip().lower()
+			if is_executable != "true":
+				frappe.throw(
+					_("Cannot deploy '{0}': the process is not marked as Executable. "
+					  "Open the diagram, select the process (click the pool header or empty canvas), "
+					  "and enable the 'Executable' checkbox in the properties panel.").format(model_name),
+					title=_("Process Not Executable"),
+				)
+	except frappe.ValidationError:
+		raise  # Re-raise our own validation errors
 	except Exception:
 		pass  # XML parse errors will surface properly in parse_bpmn() below
 
@@ -2548,6 +2571,8 @@ def compile_process_model(model_name: str) -> dict:
 	_activate_deployed_model(model, script_extensions)
 
 	# ── Single save ──────────────────────────────────────────────────────
+	# Deploy is allowed even on Production — bypass editability gate
+	model.flags.skip_editability_check = True
 	model.save(ignore_permissions=True)
 
 	return {
