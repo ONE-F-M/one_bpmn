@@ -49,9 +49,7 @@ def execute():
 				except frappe.db.InternalError as e:
 					if "Unknown column 'is_processa_comment'" in str(e):
 						print("Column is_processa_comment missing. Running bench migrate might be needed.")
-						raise e
-					else:
-						raise e
+					raise
 
 				# Also migrate any associated ToDos if it was a task
 				if pc.is_task:
