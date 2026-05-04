@@ -18,6 +18,10 @@
 					<div class="flex-1">
 						<div class="font-semibold">{{ summaryTitle }}</div>
 						<div class="mt-0.5 opacity-90">{{ summaryDetail }}</div>
+						<div v-if="checklist?.is_executable === false" class="mt-1 opacity-80 text-xs">
+							To fix: click the pool header (or empty canvas if there is no pool),
+							then enable the "Executable" checkbox in the properties panel on the right.
+						</div>
 					</div>
 				</div>
 
@@ -97,7 +101,7 @@
 						v-if="mode === 'deploy'"
 						variant="subtle"
 						@click="$emit('cancel')"
-					>Cancel</Button>
+					>Dismiss</Button>
 					<Button
 						v-if="mode === 'deploy'"
 						variant="solid"
@@ -149,6 +153,7 @@ const dialogTitle = computed(() =>
 const summaryClass = computed(() => {
 	if (props.loading) return "bg-blue-50 border-blue-200 text-blue-800";
 	if (!props.checklist) return "bg-gray-50 border-gray-200 text-gray-600";
+	if (props.checklist.is_executable === false) return "bg-amber-50 border-amber-200 text-amber-800";
 	if (props.checklist.total_missing > 0) return "bg-red-50 border-red-200 text-red-800";
 	if (props.checklist.total_warnings > 0) return "bg-amber-50 border-amber-200 text-amber-800";
 	return "bg-green-50 border-green-200 text-green-800";
@@ -157,6 +162,7 @@ const summaryClass = computed(() => {
 const summaryIcon = computed(() => {
 	if (props.loading) return "lucide:loader-2";
 	if (!props.checklist) return "lucide:info";
+	if (props.checklist.is_executable === false) return "lucide:alert-triangle";
 	if (props.checklist.total_missing > 0) return "lucide:alert-circle";
 	if (props.checklist.total_warnings > 0) return "lucide:alert-triangle";
 	return "lucide:check-circle-2";
@@ -165,6 +171,7 @@ const summaryIcon = computed(() => {
 const summaryTitle = computed(() => {
 	if (props.loading) return "Checking…";
 	if (!props.checklist) return "No data";
+	if (props.checklist.is_executable === false) return "Process Not Executable";
 	if (props.checklist.total_missing > 0) return "Missing Prerequisites";
 	if (props.checklist.total_warnings > 0) return "Ready with Warnings";
 	return "All Checks Passed";
@@ -174,6 +181,9 @@ const summaryDetail = computed(() => {
 	if (props.loading) return "Validating BPMN prerequisites against the database…";
 	if (!props.checklist) return "";
 	const c = props.checklist;
+	if (c.is_executable === false) {
+		return `This process is not marked as executable and cannot trigger process instances.`;
+	}
 	if (c.total_missing > 0) {
 		const parts = [`${c.total_missing} item${c.total_missing > 1 ? "s" : ""} missing`];
 		if (c.total_warnings > 0) parts.push(`${c.total_warnings} warning${c.total_warnings > 1 ? "s" : ""}`);
