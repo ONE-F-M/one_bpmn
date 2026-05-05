@@ -214,7 +214,8 @@ function applyHighlights() {
 		}
 
 		const completedBpmnIds = new Set()
-		const activeBpmnIds = new Set()
+		const activeBpmnIds = new Set()   // READY (16) or STARTED (32) — truly executing
+		const waitingBpmnIds = new Set()  // WAITING (8) — passively listening (boundary events, timers)
 		const frequencyMap = {}
 
 		// Parse workflow_state for task states
@@ -231,7 +232,12 @@ function applyHighlights() {
 					if (state === 64) {
 						completedBpmnIds.add(taskSpec)
 						frequencyMap[taskSpec] = (frequencyMap[taskSpec] || 0) + 1
-					} else if (state === 8 || state === 16 || state === 32) {
+					} else if (state === 8) {
+						// WAITING — boundary events/timers that are listening but
+						// haven't fired. Show as active on the element but do NOT
+						// include in flow-coloring (their outgoing paths are untouched).
+						waitingBpmnIds.add(taskSpec)
+					} else if (state === 16 || state === 32) {
 						activeBpmnIds.add(taskSpec)
 					}
 				}
@@ -242,6 +248,7 @@ function applyHighlights() {
 
 		// Active tasks override completed
 		activeBpmnIds.forEach((id) => completedBpmnIds.delete(id))
+		waitingBpmnIds.forEach((id) => completedBpmnIds.delete(id))
 
 		const maxFreq = Math.max(1, ...Object.values(frequencyMap))
 
@@ -265,12 +272,18 @@ function applyHighlights() {
 			}
 		})
 
-		// Active markers
+		// Active markers (READY / STARTED)
 		activeBpmnIds.forEach((bpmnId) => {
+			try { canvas.addMarker(bpmnId, "highlight-active") } catch (e) {}
+		})
+		// Waiting markers (boundary events / timers listening — show as active on element only)
+		waitingBpmnIds.forEach((bpmnId) => {
 			try { canvas.addMarker(bpmnId, "highlight-active") } catch (e) {}
 		})
 
 		// Sequence flows, start events, and gateways
+		// NOTE: waitingBpmnIds are deliberately excluded — a WAITING boundary
+		// event is passively listening and has not traversed its outgoing flow.
 		const allReachedIds = new Set([...completedBpmnIds, ...activeBpmnIds])
 		if (elementRegistry) {
 			elementRegistry

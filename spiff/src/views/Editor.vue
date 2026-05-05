@@ -176,8 +176,6 @@
 							<button
 								@click="triggerImport(); showFileMenu = false"
 								class="w-full flex items-center gap-2 px-3 py-2 text-sm text-gray-700 hover:bg-gray-50 transition-colors"
-								:disabled="!activeDiagramName"
-								:class="{ 'opacity-40 cursor-not-allowed': !activeDiagramName }"
 							>
 								<Icon icon="lucide:download" class="w-4 h-4" />
 								Import
@@ -194,8 +192,20 @@
 						</div>
 					</div>
 
-					<!-- Deploy Button (last — primary action) -->
+					<!-- Deploy / Disable Button (last — primary action) -->
 					<button
+						v-if="isActiveModel"
+						@click="disableModel"
+						class="h-7 flex items-center gap-1 px-2.5 bg-red-600 hover:bg-red-700 text-white rounded transition-colors text-xs font-medium leading-none"
+						title="Disable process map — stops new instances"
+						:disabled="!activeDiagramName || disabling"
+						:class="{ 'opacity-50 cursor-not-allowed': !activeDiagramName || disabling }"
+					>
+						<Icon :icon="disabling ? 'lucide:loader-2' : 'lucide:power-off'" class="w-3.5 h-3.5" :class="{ 'animate-spin': disabling }" />
+						{{ disabling ? 'Disabling…' : 'Disable' }}
+					</button>
+					<button
+						v-else
 						@click="deployModel"
 						class="h-7 flex items-center gap-1 px-2.5 bg-blue-600 hover:bg-blue-700 text-white rounded transition-colors text-xs font-medium leading-none"
 						title="Deploy process model"
@@ -222,6 +232,17 @@
 						class="absolute right-0 mt-1 w-44 bg-white border border-gray-200 rounded-lg shadow-lg z-50 py-1"
 					>
 						<button
+							v-if="isActiveModel"
+							@click="disableModel(); showMobileMoreMenu = false"
+							class="w-full flex items-center gap-2 px-3 py-2.5 text-sm text-red-600 hover:bg-red-50 transition-colors"
+							:disabled="!activeDiagramName || disabling"
+							:class="{ 'opacity-40 cursor-not-allowed': !activeDiagramName || disabling }"
+						>
+							<Icon :icon="disabling ? 'lucide:loader-2' : 'lucide:power-off'" class="w-4 h-4" />
+							{{ disabling ? 'Disabling…' : 'Disable' }}
+						</button>
+						<button
+							v-else
 							@click="deployModel(); showMobileMoreMenu = false"
 							class="w-full flex items-center gap-2 px-3 py-2.5 text-sm text-gray-700 hover:bg-gray-50 transition-colors"
 							:disabled="!activeDiagramName || deploying"
@@ -243,8 +264,6 @@
 						<button
 							@click="triggerImport(); showMobileMoreMenu = false"
 							class="w-full flex items-center gap-2 px-3 py-2.5 text-sm text-gray-700 hover:bg-gray-50 transition-colors"
-							:disabled="!activeDiagramName"
-							:class="{ 'opacity-40 cursor-not-allowed': !activeDiagramName }"
 						>
 							<Icon icon="lucide:download" class="w-4 h-4" />
 							Import
@@ -880,6 +899,31 @@
 			@deploy="onReadinessDeploy"
 		/>
 
+		<!-- Disable Process Confirmation Dialog -->
+		<Dialog v-model="showDisableDialog" :options="{ title: 'Disable Process Map', size: 'sm' }">
+			<template #body-content>
+				<div class="space-y-3">
+					<div class="flex items-start gap-3 rounded-lg px-4 py-3 text-sm border border-orange-200 bg-orange-50 text-orange-800">
+						<Icon icon="lucide:alert-triangle" class="w-5 h-5 shrink-0 mt-0.5" />
+						<div>
+							<div class="font-semibold">This will stop all new instances from being created.</div>
+							<div class="mt-1 opacity-90">Linked server scripts will be disabled. You can re-deploy at any time to reactivate.</div>
+						</div>
+					</div>
+					<div v-if="disableRunningCount > 0" class="flex items-center gap-2 rounded-lg px-4 py-2.5 text-sm border border-blue-200 bg-blue-50 text-blue-800">
+						<Icon icon="lucide:info" class="w-4 h-4 shrink-0" />
+						<span><strong>{{ disableRunningCount }}</strong> running instance(s) will continue to completion.</span>
+					</div>
+				</div>
+			</template>
+			<template #actions>
+				<div class="flex gap-2 justify-end w-full">
+					<Button variant="subtle" @click="showDisableDialog = false">Cancel</Button>
+					<Button variant="solid" theme="red" :loading="disabling" @click="executeDisable">Disable</Button>
+				</div>
+			</template>
+		</Dialog>
+
 		<!-- Version Comparison Dialogs (extracted component) -->
 		<VersionDiffDialog
 			ref="versionDiffRef"
@@ -938,6 +982,7 @@ const isAnyDialogOpen = computed(() => {
 		showUnsavedNavigationWarning.value ||
 		showCallActivitySearchDialog.value ||
 		showReadinessDialog.value ||
+		showDisableDialog.value ||
 		notifDialog.showNotificationDialog.value ||
 		versionDiffRef.value?.isAnyDialogOpen
 	);
@@ -955,6 +1000,16 @@ const showFileMenu = ref(false);
 const showStatusPopup = ref(false);
 const showMobileMoreMenu = ref(false);
 const deploying = ref(false);
+const disabling = ref(false);
+const showDisableDialog = ref(false);
+const disableRunningCount = ref(0);
+
+// True when the currently selected diagram is deployed (is_active === 1)
+const isActiveModel = computed(() => {
+	if (!activeDiagramName.value) return false;
+	const d = diagrams.value.find((d) => d.name === activeDiagramName.value);
+	return d ? !!d.is_active : false;
+});
 
 // Readiness checklist state
 const showReadinessDialog = ref(false);
@@ -1330,6 +1385,81 @@ async function executeDeployment() {
 		);
 	} finally {
 		deploying.value = false;
+	}
+}
+
+// Disable a deployed process model (inverse of deploy)
+async function disableModel() {
+	if (!activeDiagramName.value || disabling.value) return;
+
+	// Fetch running instance count for the confirmation dialog
+	disableRunningCount.value = 0;
+	try {
+		const countResp = await frappeRequest({
+			url: "/api/method/frappe.client.get_count",
+			method: "GET",
+			params: {
+				doctype: "BPMN Process Instance",
+				filters: JSON.stringify({
+					process_model: activeDiagramName.value,
+					status: ["in", ["Running", "Waiting"]],
+				}),
+			},
+		});
+		disableRunningCount.value = countResp || 0;
+	} catch (e) {
+		// Non-fatal — dialog will simply not show the count
+	}
+
+	showDisableDialog.value = true;
+}
+
+// Actual disable execution (called from confirmation dialog)
+async function executeDisable() {
+	if (!activeDiagramName.value || disabling.value) return;
+
+	disabling.value = true;
+	try {
+		const response = await frappeRequest({
+			url: "/api/method/one_bpmn.api.disable_process_model",
+			method: "POST",
+			params: { model_name: activeDiagramName.value },
+		});
+
+		showDisableDialog.value = false;
+
+		if (response && response.success) {
+			const runningMsg = response.running_instances
+				? ` ${response.running_instances} running instance(s) will continue.`
+				: "";
+			showNotification(
+				"Disabled",
+				`Process map disabled successfully.${runningMsg}`,
+				"orange"
+			);
+
+			// Update local state
+			for (const d of diagrams.value) {
+				if (d.name === activeDiagramName.value) {
+					d.is_active = 0;
+					d.status = "Inactive";
+				}
+			}
+		}
+	} catch (err) {
+		showDisableDialog.value = false;
+		const serverMessage =
+			(err.messages && err.messages.length > 0)
+				? err.messages.join("\n")
+				: err.message || "An error occurred while disabling the process map.";
+		showNotification(
+			"Disable Failed",
+			serverMessage,
+			"red",
+			true
+		);
+	} finally {
+		disabling.value = false;
 	}
 }
 
@@ -1983,7 +2113,6 @@ async function exportCurrentDiagram() {
 }
 
 function triggerImport() {
-	if (!activeDiagramName.value) return; // Need an active diagram context
 	if (importFileInput.value) {
 		// Reset so the same file can be re-imported
 		importFileInput.value.value = "";
