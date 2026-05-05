@@ -2262,7 +2262,7 @@ async function submitInlineComment() {
 				element_id: inlineCommentElement.value.id,
 				comment: inlineCommentFormData.value.text,
 				assigned_to: inlineCommentFormData.value.assigned_to,
-				is_task: inlineCommentFormData.value.assigned_to ? 1 : 0
+				is_task: inlineCommentFormData.value.is_task ? 1 : 0
 			}
 		});
 
