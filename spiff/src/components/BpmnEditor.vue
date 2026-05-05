@@ -119,7 +119,8 @@
 							@keydown.enter.meta.prevent="submitInlineComment"
 							@keydown.enter.ctrl.prevent="submitInlineComment"
 							placeholder="Add a comment..."
-							class="inline-comment-textarea w-full px-3 py-2 text-sm border border-gray-300 rounded-md focus:ring-2 focus:ring-blue-400 focus:outline-none min-h-[80px]"
+							class="inline-comment-textarea w-full px-3 py-2 text-sm border border-gray-200 rounded-md focus:ring-2 focus:ring-blue-400 focus:outline-none min-h-[60px] resize-none overflow-hidden leading-relaxed"
+							:class="{ 'pb-10': inlineMentionedUsers.length > 0 }"
 						></textarea>
 						
 						<!-- Mentions Dropdown -->
@@ -343,7 +344,8 @@
 										v-model="timelineText"
 										@input="handleTimelineCommentInput"
 										placeholder="Add a comment..."
-										class="timeline-textarea w-full px-3 py-2 text-xs border border-gray-200 rounded-lg focus:ring-2 focus:ring-blue-400 focus:outline-none min-h-[52px] resize-none pr-10 bg-gray-50/30"
+										class="timeline-textarea w-full px-3 py-2 text-xs border border-gray-200 rounded-lg focus:ring-2 focus:ring-blue-400 focus:outline-none min-h-[52px] resize-none overflow-hidden pr-10 bg-gray-50/30 leading-relaxed"
+										:class="{ 'pb-10': timelineMentionedUsers.length > 0 }"
 										@keydown.enter.meta.prevent="submitTimelineComment"
 										@keydown.enter.ctrl.prevent="submitTimelineComment"
 									></textarea>
@@ -522,7 +524,8 @@
 								v-model="timelineText"
 								@input="handleTimelineCommentInput"
 								placeholder="Add a comment..."
-								class="timeline-textarea w-full px-3 py-2 text-xs border border-gray-200 rounded-lg focus:ring-2 focus:ring-blue-400 focus:outline-none min-h-[60px] resize-none pr-10 bg-gray-50/30"
+								class="timeline-textarea w-full px-3 py-2 text-xs border border-gray-200 rounded-lg focus:ring-2 focus:ring-blue-400 focus:outline-none min-h-[60px] resize-none overflow-hidden pr-10 bg-gray-50/30 leading-relaxed"
+								:class="{ 'pb-10': timelineMentionedUsers.length > 0 }"
 								@keydown.enter.meta.prevent="submitTimelineComment"
 								@keydown.enter.ctrl.prevent="submitTimelineComment"
 							></textarea>
@@ -709,6 +712,7 @@
 							@keydown.enter.ctrl.prevent="submitComment"
 							:required="true"
 							placeholder="What's on your mind?"
+							class="main-comment-textarea"
 						/>
 						<div
 							v-if="showMentionDropdown && activeMentionContext === 'dialog'"
@@ -1018,6 +1022,13 @@ const showCommentDialog = ref(false);
 const showViewCommentsDialog = ref(false);
 const activeCommentElement = ref(null);
 const selectedElementComments = ref([]);
+const messageDialog = ref({
+	show: false,
+	isEdit: false,
+	name: "",
+	elementId: "",
+	_eventBus: null,
+});
 const isCommentMode = ref(false);
 const commentFormData = ref({
 	text: "",
@@ -1183,6 +1194,12 @@ async function submitTimelineComment() {
 	}
 }
 
+function autoResizeTextarea(el) {
+	if (!el) return;
+	el.style.height = 'auto';
+	el.style.height = (el.scrollHeight) + 'px';
+}
+
 function handleTimelineCommentInput(e) {
 	if (!e || !e.target || typeof e.target.selectionStart !== 'number') return;
 	
@@ -1218,6 +1235,9 @@ function handleTimelineCommentInput(e) {
 	} else {
 		showMentionDropdown.value = false;
 	}
+
+	// Auto-resize textarea
+	nextTick(() => autoResizeTextarea(e.target));
 }
 
 const timelineAssignedTo = ref("");
@@ -1951,6 +1971,7 @@ onMounted(async () => {
 				});
 			});
 
+
 			// Expose modeler instance for child components
 			modelerInstance.value = modeler;
 
@@ -2027,6 +2048,20 @@ onBeforeUnmount(() => {
 		modeler.destroy();
 	}
 });
+
+function onMessageDialogSave(close) {
+	const { name, elementId, _eventBus } = messageDialog.value;
+	const trimmedName = name?.trim();
+	if (!trimmedName || !_eventBus) return;
+
+	_eventBus.fire("spiff.add_message.returned", {
+		value: {
+			elementId: elementId,
+			messageId: trimmedName,
+		},
+	});
+	close();
+}
 
 function updateUndoRedoState() {
 	if (commandStack) {
@@ -2160,6 +2195,9 @@ function handleCommentInput(e) {
 	} else {
 		showMentionDropdown.value = false;
 	}
+
+	// Auto-resize textarea
+	nextTick(() => autoResizeTextarea(e.target));
 }
 
 // --- Inline Comment Handlers ---
@@ -2192,7 +2230,8 @@ function openInlineComment(element) {
 				bottom: -20,
 				right: -20
 			},
-			html: target
+			html: target,
+			scale: false
 		});
 		
 		inlineCommentOverlayTarget.value = target;
@@ -2229,7 +2268,7 @@ async function submitInlineComment() {
 				element_id: inlineCommentElement.value.id,
 				comment: inlineCommentFormData.value.text,
 				assigned_to: inlineCommentFormData.value.assigned_to,
-				is_task: inlineCommentFormData.value.assigned_to ? 1 : 0
+				is_task: inlineCommentFormData.value.is_task ? 1 : 0
 			}
 		});
 
@@ -2285,6 +2324,9 @@ function handleInlineCommentInput(e) {
 	} else {
 		showMentionDropdown.value = false;
 	}
+
+	// Auto-resize textarea
+	nextTick(() => autoResizeTextarea(e.target));
 }
 
 function selectMention(user) {
@@ -2402,7 +2444,8 @@ function renderComments() {
 					bottom: -2,
 					left: -2
 				},
-				html: html
+				html: html,
+				scale: false
 			});
 		} catch (err) {
 			console.error(`Failed to add overlay for element ${elementId}:`, err);
@@ -2733,6 +2776,7 @@ function updateCalledElement(element, processId) {
 defineExpose({
 	getXML,
 	loadXML,
+	setProcessName,
 	undo,
 	redo,
 	deleteSelected,
@@ -2986,6 +3030,19 @@ function getAvatarColor(userName) {
 	background-color: #ffffff;
 	border-color: #3b82f6;
 	box-shadow: 0 0 0 2px rgba(59, 130, 246, 0.1);
+}
+
+/* Comment Textarea Improvements */
+.timeline-textarea,
+.inline-comment-textarea,
+.main-comment-textarea textarea {
+	line-height: 1.625 !important; /* leading-relaxed */
+	transition: padding-bottom 0.2s ease, height 0.1s ease;
+}
+
+.timeline-textarea::placeholder,
+.inline-comment-textarea::placeholder {
+	color: #9ca3af;
 }
 
 .properties-panel-container .bio-properties-panel-input::placeholder {
