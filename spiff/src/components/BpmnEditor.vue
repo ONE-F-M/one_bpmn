@@ -1227,8 +1227,14 @@ onMounted(async () => {
 			});
 
 			eventBus.on("spiff.messages.requested", (event) => {
+				// Read existing <bpmn:message> elements from the definitions
+				const definitions = modeler.getDefinitions();
+				const rootElements = definitions?.rootElements || [];
+				const messages = rootElements
+					.filter((el) => el.$type === "bpmn:Message")
+					.map((msg) => ({ identifier: msg.name, name: msg.name }));
 				event.eventBus.fire("spiff.messages.returned", {
-					configuration: { messages: [] },
+					configuration: { messages },
 				});
 			});
 
