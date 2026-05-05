@@ -1965,18 +1965,6 @@ onMounted(async () => {
 				});
 			});
 
-			function onMessageDialogSave(close) {
-				const { name, elementId, _eventBus } = messageDialog.value;
-				if (!name || !_eventBus) return;
-
-				_eventBus.fire("spiff.add_message.returned", {
-					value: {
-						elementId: elementId,
-						messageId: name,
-					},
-				});
-				close();
-			}
 
 			// Expose modeler instance for child components
 			modelerInstance.value = modeler;
@@ -2054,6 +2042,20 @@ onBeforeUnmount(() => {
 		modeler.destroy();
 	}
 });
+
+function onMessageDialogSave(close) {
+	const { name, elementId, _eventBus } = messageDialog.value;
+	const trimmedName = name?.trim();
+	if (!trimmedName || !_eventBus) return;
+
+	_eventBus.fire("spiff.add_message.returned", {
+		value: {
+			elementId: elementId,
+			messageId: trimmedName,
+		},
+	});
+	close();
+}
 
 function updateUndoRedoState() {
 	if (commandStack) {
