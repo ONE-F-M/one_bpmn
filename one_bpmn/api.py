@@ -3492,6 +3492,44 @@ def post_canvas_comment(
 			}
 		).insert(ignore_permissions=True)
 
+	# --- Notification Logic ---
+	recipients = set()
+	if assigned_to:
+		recipients.add(assigned_to)
+
+	# Extract plain text mentions (@Full Name or @Email)
+	# BPMN Editor currently sends mentions as plain text formatted by BpmnEditor.vue
+	if "@" in comment:
+		active_users = frappe.get_all("User", filters={"enabled": 1, "user_type": "System User"}, fields=["name", "full_name"])
+		for u in active_users:
+			if (u.full_name and f"@{u.full_name}" in comment) or f"@{u.name}" in comment:
+				recipients.add(u.name)
+
+	# Exclude author from notifications
+	recipients.discard(frappe.session.user)
+
+	if recipients:
+		from frappe.desk.doctype.notification_log.notification_log import enqueue_create_notification
+
+		# Set type: if it's assigned to someone in the recipients list, use Assignment, else Mention
+		notification_type = "Assignment" if assigned_to and assigned_to in recipients else "Mention"
+		
+		sender_name = frappe.utils.get_fullname(frappe.session.user)
+		subject = _("{0} mentioned you on {1}").format(sender_name, model_name)
+		if notification_type == "Assignment":
+			subject = _("{0} assigned a task to you on {1}").format(sender_name, model_name)
+		process_name = frappe.get_value("BPMN Process Model", model_name, "process_name")
+		notification_doc = {
+			"type": notification_type,
+			"document_type": "BPMN Process Model",
+			"document_name": model_name,
+			"subject": subject,
+			"from_user": frappe.session.user,
+			"email_content": comment,
+			"link": f"/processa/process/{process_name}"
+		}
+		enqueue_create_notification(list(recipients), notification_doc)
+
 	# Map fields back for frontend compatibility
 	res = doc.as_dict()
 	res.model = doc.reference_name
