@@ -21,6 +21,68 @@
 				class="w-48"
 				@change="applyFilters"
 			/>
+
+			<!-- Unified Context Filter -->
+			<Popover>
+				<template #target="{ togglePopover }">
+					<Button
+						variant="ghost"
+						class="w-72 justify-between bg-gray-100 hover:bg-gray-200 border-none"
+						@click="togglePopover"
+					>
+						<template #prefix>
+							<FeatherIcon name="database" class="w-4 h-4 text-gray-500 mr-1" />
+						</template>
+						<span class="truncate text-gray-700 font-normal">{{ contextPlaceholder }}</span>
+						<template #suffix>
+							<div class="flex items-center gap-1">
+								<div 
+									v-if="activeContext.doctype || activeContext.docname" 
+									class="p-1 hover:bg-gray-300 rounded-full transition-colors"
+									@click.stop="resetContext"
+								>
+									<FeatherIcon name="x-circle" class="w-3 h-3 text-gray-500" />
+								</div>
+								<FeatherIcon name="chevron-down" class="w-4 h-4 text-gray-400" />
+							</div>
+						</template>
+					</Button>
+				</template>
+				<template #body="{ togglePopover }">
+					<div class="p-2 w-72 bg-white shadow-2xl border border-gray-200 rounded-lg mt-1 z-50">
+						<div v-if="activeContext.doctype" class="mb-2 px-2 py-1.5 bg-blue-50 text-blue-700 text-xs font-semibold rounded flex items-center justify-between">
+							<span class="truncate">{{ activeContext.doctype.label }}</span>
+							<FeatherIcon name="arrow-right" class="w-3 h-3 mx-1 opacity-50" />
+							<span class="text-gray-500 font-normal">Select Document</span>
+						</div>
+						<TextInput
+							v-model="contextQuery"
+							:placeholder="activeContext.doctype ? 'Search document...' : 'Search DocType...'"
+							class="mb-2"
+							@input="debouncedFetch"
+						>
+							<template #prefix>
+								<FeatherIcon name="search" class="w-4 h-4 text-gray-400" />
+							</template>
+						</TextInput>
+						<div class="max-h-64 overflow-y-auto custom-scrollbar">
+							<div
+								v-for="opt in contextOptions"
+								:key="opt.value"
+								class="px-3 py-2 hover:bg-gray-100 cursor-pointer rounded text-sm text-gray-700 flex items-center justify-between group"
+								@click="onContextSelect(opt, togglePopover)"
+							>
+								<span class="truncate">{{ opt.label }}</span>
+								<FeatherIcon v-if="(activeContext.docname?.value === opt.value) || (!activeContext.docname && activeContext.doctype?.value === opt.value)" name="check" class="w-3 h-3 text-blue-500" />
+							</div>
+							<div v-if="contextOptions.length === 0" class="p-4 text-center text-gray-400 text-sm italic">
+								No results found
+							</div>
+						</div>
+					</div>
+				</template>
+			</Popover>
+
 			<!-- Configurable page size -->
 			<div class="flex items-center gap-2 ml-auto">
 				<span class="text-sm text-gray-600">Page Size:</span>
@@ -143,7 +205,17 @@
 <script setup>
 import { ref, onMounted, computed, watch } from "vue"
 import { useRouter } from "vue-router"
-import { frappeRequest } from "frappe-ui"
+import { 
+	frappeRequest, 
+	Button, 
+	TextInput,
+	Popover,
+	FormControl,
+	Badge,
+	Avatar,
+	ListView,
+	FeatherIcon
+} from "frappe-ui"
 import { Icon } from "@iconify/vue"
 import { dayjs } from "@/dayjs"
 
@@ -160,6 +232,18 @@ const filters = ref({
 	process_model: "",
 	status: "",
 })
+
+// Unified Context State
+const activeContext = ref({ doctype: null, docname: null })
+const contextOptions = ref([])
+const contextQuery = ref("")
+
+const contextPlaceholder = computed(() => {
+	if (!activeContext.value.doctype) return "Filter by Context..."
+	if (!activeContext.value.docname) return `${activeContext.value.doctype.label}...`
+	return `${activeContext.value.doctype.label}: ${activeContext.value.docname.label}`
+})
+
 
 const statusOptions = [
 	{ label: "All Statuses", value: "" },
@@ -181,9 +265,11 @@ const columns = computed(() => [
 
 onMounted(async () => {
 	await loadInstances()
+	fetchContextOptions()
 })
 
 const debounceFilter = ref(null)
+const fetchTimeout = ref(null)
 
 function applyFilters() {
 	if (debounceFilter.value) clearTimeout(debounceFilter.value)
@@ -192,6 +278,62 @@ function applyFilters() {
 		loadInstances()
 	}, 300)
 }
+
+function debouncedFetch() {
+	if (fetchTimeout.value) clearTimeout(fetchTimeout.value)
+	fetchTimeout.value = setTimeout(() => {
+		fetchContextOptions(contextQuery.value)
+	}, 300)
+}
+
+async function fetchContextOptions(query = "") {
+	try {
+		if (!activeContext.value.doctype) {
+			const response = await frappeRequest({
+				url: "/api/method/one_bpmn.api.get_context_doctypes",
+				params: { query }
+			})
+			contextOptions.value = response || []
+		} else {
+			const response = await frappeRequest({
+				url: "/api/method/one_bpmn.api.get_context_documents",
+				params: { 
+					doctype: activeContext.value.doctype.value,
+					query 
+				}
+			})
+			contextOptions.value = response || []
+		}
+	} catch (error) {
+		console.error("Failed to fetch context options:", error)
+	}
+}
+
+function onContextSelect(option, togglePopover) {
+	if (!option || !option.value) return
+
+	if (!activeContext.value.doctype) {
+		// Level 1 selection: DocType
+		activeContext.value.doctype = option
+		contextQuery.value = "" // Clear search for next level
+		fetchContextOptions() // Load documents
+		applyFilters() // Filter by DocType
+		// We do NOT call togglePopover() here to keep it open
+	} else {
+		// Level 2 selection: Document
+		activeContext.value.docname = option
+		applyFilters() // Filter by specific document
+		togglePopover() // Close the popover on final selection
+	}
+}
+
+function resetContext() {
+	activeContext.value = { doctype: null, docname: null }
+	contextQuery.value = ""
+	fetchContextOptions()
+	applyFilters()
+}
+
 
 function changePageSize() {
 	limitStart.value = 0
@@ -223,6 +365,14 @@ async function loadInstances() {
 		if (filters.value.status) {
 			apiFilters.status = filters.value.status
 		}
+		
+		// Apply context filters from unified state
+		if (activeContext.value.doctype) {
+			apiFilters.context_doctype = activeContext.value.doctype.value
+		}
+		if (activeContext.value.docname) {
+			apiFilters.context_docname = activeContext.value.docname.value
+		}
 
 		// Use custom endpoint to fetch joined current_step data
 		const response = await frappeRequest({
@@ -239,7 +389,6 @@ async function loadInstances() {
 		instances.value = response || []
 	} catch (error) {
 		console.error("Failed to load instances:", error)
-		// Provide an empty array on fail (such as Doctype not existing yet)
 		instances.value = []
 	} finally {
 		loading.value = false
@@ -251,7 +400,6 @@ function openInstance(name) {
 }
 
 function getContextDocumentLink(row) {
-	// Constructing a link back to ERPNext desk for now.
 	if (row.context_doctype && row.context_docname) {
 		return `/app/${row.context_doctype.toLowerCase().replace(/ /g, '-')}/${row.context_docname}`
 	}
@@ -273,3 +421,20 @@ function formatDateTime(dateStr) {
 	return dayjs(dateStr).format("DD-MM-YYYY hh:mm A")
 }
 </script>
+
+<style scoped>
+.custom-scrollbar::-webkit-scrollbar {
+	width: 4px;
+}
+.custom-scrollbar::-webkit-scrollbar-track {
+	background: #f1f1f1;
+}
+.custom-scrollbar::-webkit-scrollbar-thumb {
+	background: #ddd;
+	border-radius: 10px;
+}
+.custom-scrollbar::-webkit-scrollbar-thumb:hover {
+	background: #ccc;
+}
+</style>
+

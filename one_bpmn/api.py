@@ -3784,3 +3784,48 @@ def cleanup_process_model_assets(model_name: str):
 		# Delete the comment
 		frappe.delete_doc("Comment", comment.name, ignore_permissions=True)
 
+
+@frappe.whitelist()
+def get_context_doctypes(query: str = None) -> list:
+	"""
+	Get unique DocTypes used as context in Process Instances, filtered by query.
+	Used by the InstanceList filter autocomplete.
+	"""
+	filters = {}
+	if query:
+		filters["context_doctype"] = ["like", f"%{query}%"]
+
+	results = frappe.get_all(
+		"BPMN Process Instance",
+		filters=filters,
+		fields=["context_doctype"],
+		distinct=True,
+		order_by="context_doctype",
+		limit=50
+	)
+	return [{"label": r.context_doctype, "value": r.context_doctype} for r in results if r.context_doctype]
+
+
+@frappe.whitelist()
+def get_context_documents(doctype: str, query: str = None) -> list:
+	"""
+	Get documents for a specific DocType, filtered by query.
+	Used by the InstanceList filter autocomplete.
+	"""
+	if not doctype:
+		return []
+
+	# Use Search Criteria if available, otherwise fallback to name-based filtering
+	# get_list respects permissions automatically
+	filters = {}
+	if query:
+		filters["name"] = ["like", f"%{query}%"]
+
+	results = frappe.get_list(
+		doctype,
+		filters=filters,
+		fields=["name"],
+		limit=50,
+		order_by="modified desc",
+	)
+	return [{"label": r.name, "value": r.name} for r in results]
