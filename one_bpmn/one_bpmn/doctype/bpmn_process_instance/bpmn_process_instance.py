@@ -711,6 +711,19 @@ class BPMNProcessInstance(Document):
 			frappe.flags.bpmn_engine_action = True
 			try:
 				frappe.db.set_value(doctype, docname, updates)
+
+				# ── Publish realtime for auto-refresh ────────────────────────────
+				frappe.publish_realtime(
+					"doc_update",
+					{
+						"modified": str(frappe.utils.now_datetime()),
+						"doctype": doctype,
+						"name": docname,
+					},
+					doctype=doctype,
+					docname=docname,
+					after_commit=True,
+				)
 			finally:
 				frappe.flags.bpmn_engine_action = old_flag
 

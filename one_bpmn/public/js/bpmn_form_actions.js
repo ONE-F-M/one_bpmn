@@ -392,6 +392,17 @@ frappe.provide('one_bpmn');
 			}
 			cur_frm.reload_doc();
 		});
+
+		// Auto-refresh when the document itself is updated (e.g. via update_field Service Task)
+		frappe.realtime.on('doc_update', function (data) {
+			if (!cur_frm || cur_frm.is_new() || cur_frm.is_dirty()) return;
+			if (data.doctype === cur_frm.doctype && data.name === cur_frm.docname) {
+				// Only auto-reload if this form is currently controlled by a BPMN process
+				if (_bpmn_controlled_forms.has(_form_key_from_frm(cur_frm))) {
+					cur_frm.reload_doc();
+				}
+			}
+		});
 	}
 
 	/* Expose for debugging in the browser console */

@@ -246,6 +246,8 @@ def _refresh_timer_tasks(instance_name: str):
 			{
 				"instance_name": instance_name,
 				"status": instance.status,
+				"context_doctype": instance.context_doctype or "",
+				"context_docname": instance.context_docname or "",
 			},
 			after_commit=True,
 			user="all",
