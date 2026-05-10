@@ -152,20 +152,23 @@
   {
    "fieldname": "trigger_type",
    "fieldtype": "Select",
+   "hidden": 1,
    "label": "Trigger Type",
-   "options": "DocType Event\nScheduler Event\nAPI"
+   "options": "\nDocType Event\nScheduler Event\nAPI"
   },
   {
    "fieldname": "trigger_doctype",
    "fieldtype": "Link",
+   "hidden": 1,
    "label": "Trigger DocType",
    "options": "DocType"
   },
   {
    "fieldname": "trigger_event",
    "fieldtype": "Select",
+   "hidden": 1,
    "label": "Trigger Event",
-   "options": "After Insert\nAfter Save\nAutoname\nBefore Validate\nValidate\nBefore Save\nBefore Submit\nBefore Cancel\nBefore Update After Submit\nDB Insert\nAfter Insert\nDB Update\nOn Update\nOn Submit\nOn Cancel\nOn Update After Submit\nOn Change"
+   "options": "\nAfter Insert\nAfter Save\nAutoname\nBefore Validate\nValidate\nBefore Save\nBefore Submit\nBefore Cancel\nBefore Update After Submit\nDB Insert\nAfter Insert\nDB Update\nOn Update\nOn Submit\nOn Cancel\nOn Update After Submit\nOn Change"
   },
   {
    "fieldname": "section_break_aige",
@@ -201,8 +204,7 @@
    "fieldname": "start_events",
    "fieldtype": "Table",
    "label": "Start Events",
-   "options": "BPMN Start Event Config",
-   "read_only": 1
+   "options": "BPMN Start Event Config"
   },
   {
    "fieldname": "column_break_pbtg",
@@ -219,8 +221,8 @@
  "in_create": 1,
  "index_web_pages_for_search": 1,
  "links": [],
- "modified": "2026-04-26 10:23:19.377759",
- "modified_by": "Administrator",
+ "modified": "2026-05-10 20:33:32.442190",
+ "modified_by": "c.akeru@one-fm.com",
  "module": "ONE BPMN",
  "name": "BPMN Process Model",
  "naming_rule": "By fieldname",

@@ -36,7 +36,7 @@ def process_timer_start_events():
 	timer_configs_raw = frappe.get_all(
 		"BPMN Start Event Config",
 		filters={
-			"event_type": "Timer",
+			"trigger_type": "Scheduler Event",
 			"parenttype": "BPMN Process Model",
 			"cron_expression": ["!=", ""],
 		},
@@ -121,10 +121,6 @@ def _start_timer_instance(model_name: str):
 	instance.status = "Active"
 	instance.initiated_by = "Administrator"
 	instance.started_at = now_datetime()
-
-	# no context doc for timer-start instances
-	if model.trigger_doctype:
-		instance.context_doctype = model.trigger_doctype
 
 	instance.insert(ignore_permissions=True)
 
