@@ -438,3 +438,42 @@ def guard_bpmn_document(doc, method: str):
 		).format(action_verb, doc.doctype, doc.name, active_instance),
 		title=frappe._("Action Blocked — BPMN Process Active"),
 	)
+
+
+def delete_linked_bpmn_instances(doc, method: str):
+	"""
+	Automatically delete any BPMN Process Instance linked to a document
+	when that document is deleted (on_trash).
+
+	This ensures that orphaned process instances don't clutter the database
+	when their parent documents are removed.
+	"""
+	# 1. Never clean up internal BPMN doctypes (standard safety check)
+	if doc.doctype in _INTERNAL_DOCTYPES:
+		return
+
+	# 2. Find all instances (Active or otherwise) linked to this document
+	instances = frappe.get_all(
+		"BPMN Process Instance",
+		filters={
+			"context_doctype": doc.doctype,
+			"context_docname": doc.name,
+		},
+		pluck="name",
+	)
+
+	if not instances:
+		return
+
+	# 3. Delete the instances permanently
+	# We use ignore_permissions=True to ensure cleanup happens regardless
+	# of the current user's delete permissions on BPMN Process Instance.
+	for instance_name in instances:
+		try:
+			frappe.delete_doc("BPMN Process Instance", instance_name, ignore_permissions=True, force=True)
+		except Exception:
+			frappe.log_error(
+				title=f"Failed to delete BPMN instance {instance_name} linked to deleted {doc.doctype} {doc.name}",
+				message=frappe.get_traceback(),
+			)
+
