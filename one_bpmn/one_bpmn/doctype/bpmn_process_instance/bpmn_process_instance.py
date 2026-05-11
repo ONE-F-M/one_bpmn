@@ -710,7 +710,7 @@ class BPMNProcessInstance(Document):
 			old_flag = getattr(frappe.flags, "bpmn_engine_action", False)
 			frappe.flags.bpmn_engine_action = True
 			try:
-				frappe.db.set_value(doctype, docname, updates)
+				frappe.db.set_value(doctype, docname, updates, update_modified=False)
 			finally:
 				frappe.flags.bpmn_engine_action = old_flag
 

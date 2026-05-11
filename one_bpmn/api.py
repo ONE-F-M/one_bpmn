@@ -2752,6 +2752,7 @@ def _apply_docstatus_directly(doc, target_state: str, doc_status_hint: str) -> N
 
 	ds = str(doc_status_hint).strip()
 
+	original_modified = doc.modified
 	if ds == "1":
 		if doc.docstatus == 0:
 			doc.submit()
@@ -2767,6 +2768,11 @@ def _apply_docstatus_directly(doc, target_state: str, doc_status_hint: str) -> N
 		elif doc.docstatus == 1:
 			# Submitted doc — just save (amend notes etc.)
 			doc.save(ignore_permissions=True)
+
+	# ── Sync timestamp back for engine actions to prevent mismatch ───────
+	if getattr(frappe.flags, "bpmn_engine_action", False) and original_modified:
+		frappe.db.set_value(doc.doctype, doc.name, "modified", original_modified, update_modified=False)
+		doc.modified = original_modified
 
 	# ── Audit trail: add a workflow comment like Frappe does ──────────────
 	if target_state:
@@ -2890,6 +2896,7 @@ def _apply_bpmn_workflow_state(
 	if doc_status_hint in ("0", "1", "2"):
 		new_docstatus = DocStatus(cint(doc_status_hint))
 
+	original_modified = doc.modified
 	if doc.docstatus.is_draft() and new_docstatus.is_draft():
 		doc.save(ignore_permissions=True)
 	elif doc.docstatus.is_draft() and new_docstatus.is_submitted():
@@ -2912,6 +2919,11 @@ def _apply_bpmn_workflow_state(
 			_("Illegal document status transition to state '{0}'.").format(target_state),
 			frappe.ValidationError,
 		)
+
+	# ── Sync timestamp back for engine actions to prevent mismatch ───────
+	if getattr(frappe.flags, "bpmn_engine_action", False) and original_modified:
+		frappe.db.set_value(doc.doctype, doc.name, "modified", original_modified, update_modified=False)
+		doc.modified = original_modified
 
 	# ── 8. Workflow comment (same as Frappe's apply_workflow) ─────────────────
 	doc.add_comment("Workflow", _(target_state))
