@@ -204,7 +204,8 @@
    "fieldname": "start_events",
    "fieldtype": "Table",
    "label": "Start Events",
-   "options": "BPMN Start Event Config"
+   "options": "BPMN Start Event Config",
+   "read_only": 1
   },
   {
    "fieldname": "column_break_pbtg",
@@ -221,7 +222,7 @@
  "in_create": 1,
  "index_web_pages_for_search": 1,
  "links": [],
- "modified": "2026-05-10 20:33:32.442190",
+ "modified": "2026-05-11 18:24:21.630850",
  "modified_by": "c.akeru@one-fm.com",
  "module": "ONE BPMN",
  "name": "BPMN Process Model",
