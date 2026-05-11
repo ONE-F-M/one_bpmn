@@ -128,13 +128,33 @@
 						<Icon icon="lucide:history" class="w-4 h-4" />
 					</button>
 
+					<!-- Comments Sidebar Toggle -->
+					<button
+						@click="toggleComments"
+						class="w-8 h-8 flex items-center justify-center rounded transition-colors relative"
+						:class="[
+							editorRef?.showTimeline ? 'bg-blue-100 text-blue-700' : 'hover:bg-gray-100 text-gray-600',
+							{ 'opacity-40 cursor-not-allowed': !activeDiagramName }
+						]"
+						title="Toggle Comments Panel"
+						:disabled="!activeDiagramName"
+					>
+						<Icon icon="lucide:message-square" class="w-4 h-4" />
+						<span v-if="totalCommentCount > 0" class="absolute top-1 right-1 w-3 h-3 bg-blue-600 text-white text-[8px] font-bold rounded-full flex items-center justify-center border border-white">
+							{{ totalCommentCount }}
+						</span>
+					</button>
+
 					<!-- Toggle Properties Panel -->
 					<button
 						@click="togglePropertiesPanel"
-						class="w-8 h-8 flex items-center justify-center hover:bg-gray-100 rounded transition-colors text-gray-600"
+						class="w-8 h-8 flex items-center justify-center rounded transition-colors relative"
+						:class="[
+							(editorRef?.showPropertiesPanel && !editorRef?.propertiesCollapsed) ? 'bg-blue-100 text-blue-700' : 'hover:bg-gray-100 text-gray-600',
+							{ 'opacity-40 cursor-not-allowed': !activeDiagramName }
+						]"
 						title="Toggle Properties Panel"
 						:disabled="!activeDiagramName"
-						:class="{ 'opacity-40 cursor-not-allowed': !activeDiagramName }"
 					>
 						<Icon icon="lucide:settings" class="w-4 h-4" />
 					</button>
@@ -156,8 +176,6 @@
 							<button
 								@click="triggerImport(); showFileMenu = false"
 								class="w-full flex items-center gap-2 px-3 py-2 text-sm text-gray-700 hover:bg-gray-50 transition-colors"
-								:disabled="!isEditable"
-								:class="{ 'opacity-40 cursor-not-allowed': !isEditable }"
 							>
 								<Icon icon="lucide:download" class="w-4 h-4" />
 								Import
@@ -174,8 +192,20 @@
 						</div>
 					</div>
 
-					<!-- Deploy Button (last — primary action) -->
+					<!-- Deploy / Disable Button (last — primary action) -->
 					<button
+						v-if="isActiveModel"
+						@click="disableModel"
+						class="h-7 flex items-center gap-1 px-2.5 bg-red-600 hover:bg-red-700 text-white rounded transition-colors text-xs font-medium leading-none"
+						title="Disable process map — stops new instances"
+						:disabled="!activeDiagramName || disabling"
+						:class="{ 'opacity-50 cursor-not-allowed': !activeDiagramName || disabling }"
+					>
+						<Icon :icon="disabling ? 'lucide:loader-2' : 'lucide:power-off'" class="w-3.5 h-3.5" :class="{ 'animate-spin': disabling }" />
+						{{ disabling ? 'Disabling…' : 'Disable' }}
+					</button>
+					<button
+						v-else
 						@click="deployModel"
 						class="h-7 flex items-center gap-1 px-2.5 bg-blue-600 hover:bg-blue-700 text-white rounded transition-colors text-xs font-medium leading-none"
 						title="Deploy process model"
@@ -202,6 +232,17 @@
 						class="absolute right-0 mt-1 w-44 bg-white border border-gray-200 rounded-lg shadow-lg z-50 py-1"
 					>
 						<button
+							v-if="isActiveModel"
+							@click="disableModel(); showMobileMoreMenu = false"
+							class="w-full flex items-center gap-2 px-3 py-2.5 text-sm text-red-600 hover:bg-red-50 transition-colors"
+							:disabled="!activeDiagramName || disabling"
+							:class="{ 'opacity-40 cursor-not-allowed': !activeDiagramName || disabling }"
+						>
+							<Icon :icon="disabling ? 'lucide:loader-2' : 'lucide:power-off'" class="w-4 h-4" />
+							{{ disabling ? 'Disabling…' : 'Disable' }}
+						</button>
+						<button
+							v-else
 							@click="deployModel(); showMobileMoreMenu = false"
 							class="w-full flex items-center gap-2 px-3 py-2.5 text-sm text-gray-700 hover:bg-gray-50 transition-colors"
 							:disabled="!activeDiagramName || deploying"
@@ -223,8 +264,6 @@
 						<button
 							@click="triggerImport(); showMobileMoreMenu = false"
 							class="w-full flex items-center gap-2 px-3 py-2.5 text-sm text-gray-700 hover:bg-gray-50 transition-colors"
-							:disabled="!isEditable"
-							:class="{ 'opacity-40 cursor-not-allowed': !isEditable }"
 						>
 							<Icon icon="lucide:download" class="w-4 h-4" />
 							Import
@@ -860,6 +899,31 @@
 			@deploy="onReadinessDeploy"
 		/>
 
+		<!-- Disable Process Confirmation Dialog -->
+		<Dialog v-model="showDisableDialog" :options="{ title: 'Disable Process Map', size: 'sm' }">
+			<template #body-content>
+				<div class="space-y-3">
+					<div class="flex items-start gap-3 rounded-lg px-4 py-3 text-sm border border-orange-200 bg-orange-50 text-orange-800">
+						<Icon icon="lucide:alert-triangle" class="w-5 h-5 shrink-0 mt-0.5" />
+						<div>
+							<div class="font-semibold">This will stop all new instances from being created.</div>
+							<div class="mt-1 opacity-90">Linked server scripts will be disabled. You can re-deploy at any time to reactivate.</div>
+						</div>
+					</div>
+					<div v-if="disableRunningCount > 0" class="flex items-center gap-2 rounded-lg px-4 py-2.5 text-sm border border-blue-200 bg-blue-50 text-blue-800">
+						<Icon icon="lucide:info" class="w-4 h-4 shrink-0" />
+						<span><strong>{{ disableRunningCount }}</strong> running instance(s) will continue to completion.</span>
+					</div>
+				</div>
+			</template>
+			<template #actions>
+				<div class="flex gap-2 justify-end w-full">
+					<Button variant="subtle" @click="showDisableDialog = false">Cancel</Button>
+					<Button variant="solid" theme="red" :loading="disabling" @click="executeDisable">Disable</Button>
+				</div>
+			</template>
+		</Dialog>
+
 		<!-- Version Comparison Dialogs (extracted component) -->
 		<VersionDiffDialog
 			ref="versionDiffRef"
@@ -918,6 +982,7 @@ const isAnyDialogOpen = computed(() => {
 		showUnsavedNavigationWarning.value ||
 		showCallActivitySearchDialog.value ||
 		showReadinessDialog.value ||
+		showDisableDialog.value ||
 		notifDialog.showNotificationDialog.value ||
 		versionDiffRef.value?.isAnyDialogOpen
 	);
@@ -935,6 +1000,16 @@ const showFileMenu = ref(false);
 const showStatusPopup = ref(false);
 const showMobileMoreMenu = ref(false);
 const deploying = ref(false);
+const disabling = ref(false);
+const showDisableDialog = ref(false);
+const disableRunningCount = ref(0);
+
+// True when the currently selected diagram is deployed (is_active === 1)
+const isActiveModel = computed(() => {
+	if (!activeDiagramName.value) return false;
+	const d = diagrams.value.find((d) => d.name === activeDiagramName.value);
+	return d ? !!d.is_active : false;
+});
 
 // Readiness checklist state
 const showReadinessDialog = ref(false);
@@ -1313,6 +1388,81 @@ async function executeDeployment() {
 	}
 }
 
+// Disable a deployed process model (inverse of deploy)
+async function disableModel() {
+	if (!activeDiagramName.value || disabling.value) return;
+
+	// Fetch running instance count for the confirmation dialog
+	disableRunningCount.value = 0;
+	try {
+		const countResp = await frappeRequest({
+			url: "/api/method/frappe.client.get_count",
+			method: "GET",
+			params: {
+				doctype: "BPMN Process Instance",
+				filters: JSON.stringify({
+					process_model: activeDiagramName.value,
+					status: ["in", ["Running", "Waiting"]],
+				}),
+			},
+		});
+		disableRunningCount.value = countResp || 0;
+	} catch (e) {
+		// Non-fatal — dialog will simply not show the count
+	}
+
+	showDisableDialog.value = true;
+}
+
+// Actual disable execution (called from confirmation dialog)
+async function executeDisable() {
+	if (!activeDiagramName.value || disabling.value) return;
+
+	disabling.value = true;
+	try {
+		const response = await frappeRequest({
+			url: "/api/method/one_bpmn.api.disable_process_model",
+			method: "POST",
+			params: { model_name: activeDiagramName.value },
+		});
+
+		showDisableDialog.value = false;
+
+		if (response && response.success) {
+			const runningMsg = response.running_instances
+				? ` ${response.running_instances} running instance(s) will continue.`
+				: "";
+			showNotification(
+				"Disabled",
+				`Process map disabled successfully.${runningMsg}`,
+				"orange"
+			);
+
+			// Update local state
+			for (const d of diagrams.value) {
+				if (d.name === activeDiagramName.value) {
+					d.is_active = 0;
+					d.status = "Inactive";
+				}
+			}
+		}
+	} catch (err) {
+		showDisableDialog.value = false;
+		const serverMessage =
+			(err.messages && err.messages.length > 0)
+				? err.messages.join("\n")
+				: err.message || "An error occurred while disabling the process map.";
+		showNotification(
+			"Disable Failed",
+			serverMessage,
+			"red",
+			true
+		);
+	} finally {
+		disabling.value = false;
+	}
+}
+
 // Keyboard shortcut handler
 function handleKeyDown(event) {
 	// Ctrl+S or Cmd+S to save (only when editable)
@@ -1561,6 +1711,7 @@ async function loadDiagramContent(name) {
 	if (diagramDataCache.value[name]) {
 		if (editorRef.value) {
 			await editorRef.value.loadXML(diagramDataCache.value[name]);
+			if (processName.value) editorRef.value.setProcessName(processName.value);
 		}
 		return;
 	}
@@ -1575,6 +1726,7 @@ async function loadDiagramContent(name) {
 		if (data && data.xml_content && editorRef.value) {
 			diagramDataCache.value[name] = data.xml_content;
 			await editorRef.value.loadXML(data.xml_content);
+			if (processName.value) editorRef.value.setProcessName(processName.value);
 		}
 	} catch (error) {
 		console.error("Failed to load diagram:", error);
@@ -1672,17 +1824,20 @@ async function createDiagram() {
 
 	creating.value = true;
 	try {
+		const slug = (props.process || "process").trim().toLowerCase().replace(/[^a-z0-9]+/g, "_").replace(/^_|_$/g, "") || "process";
+		const hex = Array.from(crypto.getRandomValues(new Uint8Array(4)), b => b.toString(16).padStart(2, "0")).join("");
+		const processId = `${slug}_${hex}`;
 		const xmlContent = `<?xml version="1.0" encoding="UTF-8"?>
 <bpmn:definitions xmlns:bpmn="http://www.omg.org/spec/BPMN/20100524/MODEL"
                   xmlns:bpmndi="http://www.omg.org/spec/BPMN/20100524/DI"
                   xmlns:dc="http://www.omg.org/spec/DD/20100524/DC"
                   id="Definitions_1"
                   targetNamespace="http://bpmn.io/schema/bpmn">
-  <bpmn:process id="Process_1" isExecutable="true">
+  <bpmn:process id="${processId}" isExecutable="false">
     <bpmn:startEvent id="StartEvent_1" />
   </bpmn:process>
   <bpmndi:BPMNDiagram id="BPMNDiagram_1">
-    <bpmndi:BPMNPlane id="BPMNPlane_1" bpmnElement="Process_1">
+    <bpmndi:BPMNPlane id="BPMNPlane_1" bpmnElement="${processId}">
       <bpmndi:BPMNShape id="_BPMNShape_StartEvent_1" bpmnElement="StartEvent_1">
         <dc:Bounds x="173" y="102" width="36" height="36" />
       </bpmndi:BPMNShape>
@@ -1942,12 +2097,6 @@ function openVersionPicker() {
 	});
 }
 
-function togglePropertiesPanel() {
-	if (editorRef.value) {
-		editorRef.value.togglePropertiesCollapse();
-	}
-}
-
 async function exportCurrentDiagram() {
 	if (!activeDiagramName.value || !editorRef.value) return;
 
@@ -1964,7 +2113,6 @@ async function exportCurrentDiagram() {
 }
 
 function triggerImport() {
-	if (!isEditable.value) return; // Guard: process is locked
 	if (importFileInput.value) {
 		// Reset so the same file can be re-imported
 		importFileInput.value.value = "";
@@ -1973,7 +2121,6 @@ function triggerImport() {
 }
 
 async function handleImportFile(event) {
-	if (!isEditable.value) return; // Guard: process is locked
 	const file = event.target.files && event.target.files[0];
 	if (!file) return;
 
@@ -2432,6 +2579,15 @@ function onCancelCallActivitySearch() {
 	showCallActivitySearchDialog.value = false;
 	callActivitySearchEvent = null;
 }
+function toggleComments() {
+	if (editorRef.value?.toggleTimeline) {
+		editorRef.value.toggleTimeline();
+	}
+}
+
+const totalCommentCount = computed(() => {
+	return editorRef.value?.comments?.length || 0;
+});
 </script>
 
 <style scoped>
