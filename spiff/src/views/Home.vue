@@ -216,7 +216,7 @@ const loading = ref(true)
 const editabilityMap = ref({})
 
 const sortedProcesses = computed(() => {
-	if (!processes.value) return []
+	if (!Array.isArray(processes.value)) return []
 	return [...processes.value].sort((a, b) => {
 		const dateA = dayjs(a.last_modified)
 		const dateB = dayjs(b.last_modified)
