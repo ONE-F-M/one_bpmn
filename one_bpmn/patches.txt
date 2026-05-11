@@ -6,3 +6,4 @@ one_bpmn.one_bpmn.patches.v1_0.drop_process_id_unique_index
 [post_model_sync]
 one_bpmn.one_bpmn.patches.v1_0.create_process_owner_role
 one_bpmn.one_bpmn.patches.v1_0.set_existing_models_inactive
+one_bpmn.one_bpmn.patches.v1_0.migrate_processa_comments

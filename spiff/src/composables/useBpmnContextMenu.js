@@ -110,16 +110,7 @@ export function useBpmnContextMenu({
 	 * passing the bpmn-js eventBus instance.
 	 */
 	function registerEventListeners(eventBus) {
-		eventBus.on("element.contextmenu", (e) => {
-			if (e.originalEvent) {
-				e.originalEvent.preventDefault();
-				e.originalEvent.stopPropagation();
-			}
-			openContextMenu(e.element, e.originalEvent);
-		});
-
-		document.addEventListener("keydown", handleContextMenuKeydown);
-		document.addEventListener("mousedown", handleDocumentClick, true);
+		// Context menu for comments is disabled in favor of the unified timeline
 	}
 
 	function handleDocumentClick(e) {

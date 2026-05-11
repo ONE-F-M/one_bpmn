@@ -128,6 +128,37 @@
 						<Icon icon="lucide:history" class="w-4 h-4" />
 					</button>
 
+					<!-- Comments Sidebar Toggle -->
+					<button
+						@click="toggleComments"
+						class="w-8 h-8 flex items-center justify-center rounded transition-colors relative"
+						:class="[
+							editorRef?.showTimeline ? 'bg-blue-100 text-blue-700' : 'hover:bg-gray-100 text-gray-600',
+							{ 'opacity-40 cursor-not-allowed': !activeDiagramName }
+						]"
+						title="Toggle Comments Panel"
+						:disabled="!activeDiagramName"
+					>
+						<Icon icon="lucide:message-square" class="w-4 h-4" />
+						<span v-if="totalCommentCount > 0" class="absolute top-1 right-1 w-3 h-3 bg-blue-600 text-white text-[8px] font-bold rounded-full flex items-center justify-center border border-white">
+							{{ totalCommentCount }}
+						</span>
+					</button>
+
+					<!-- Toggle Properties Panel -->
+					<button
+						@click="togglePropertiesPanel"
+						class="w-8 h-8 flex items-center justify-center rounded transition-colors relative"
+						:class="[
+							(editorRef?.showPropertiesPanel && !editorRef?.propertiesCollapsed) ? 'bg-blue-100 text-blue-700' : 'hover:bg-gray-100 text-gray-600',
+							{ 'opacity-40 cursor-not-allowed': !activeDiagramName }
+						]"
+						title="Toggle Properties Panel"
+						:disabled="!activeDiagramName"
+					>
+						<Icon icon="lucide:settings" class="w-4 h-4" />
+					</button>
+
 					<!-- File menu dropdown (Import / Export) -->
 					<div class="relative">
 						<button
@@ -2548,6 +2579,15 @@ function onCancelCallActivitySearch() {
 	showCallActivitySearchDialog.value = false;
 	callActivitySearchEvent = null;
 }
+function toggleComments() {
+	if (editorRef.value?.toggleTimeline) {
+		editorRef.value.toggleTimeline();
+	}
+}
+
+const totalCommentCount = computed(() => {
+	return editorRef.value?.comments?.length || 0;
+});
 </script>
 
 <style scoped>
