@@ -30,9 +30,7 @@
 						class="w-72 justify-between bg-gray-100 hover:bg-gray-200 border-none"
 						@click="togglePopover"
 					>
-						<template #prefix>
-							<FeatherIcon name="database" class="w-4 h-4 text-gray-500 mr-1" />
-						</template>
+
 						<span class="truncate text-gray-700 font-normal">{{ contextPlaceholder }}</span>
 						<template #suffix>
 							<div class="flex items-center gap-1">
