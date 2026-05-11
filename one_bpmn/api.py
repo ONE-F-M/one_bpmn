@@ -2918,7 +2918,6 @@ def _apply_bpmn_workflow_state(
 		frappe.throw(
 			_("Illegal document status transition to state '{0}'.").format(target_state),
 			frappe.ValidationError,
-			INDICATOR="red",
 		)
 
 	# ── Sync timestamp back for engine actions to prevent mismatch ───────
