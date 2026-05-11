@@ -465,15 +465,27 @@ def delete_linked_bpmn_instances(doc, method: str):
 	if not instances:
 		return
 
-	# 3. Delete the instances permanently
+	# 3. Clean up dependent Activity Logs first
+	# This avoids orphaned records and allows us to delete the instance without force=True
+	frappe.db.delete("BPMN Activity Log", {"instance": ["in", instances]})
+
+	# 4. Delete the instances permanently
 	# We use ignore_permissions=True to ensure cleanup happens regardless
 	# of the current user's delete permissions on BPMN Process Instance.
 	for instance_name in instances:
 		try:
-			frappe.delete_doc("BPMN Process Instance", instance_name, ignore_permissions=True, force=True)
+			# Try standard deletion first (cleaner)
+			frappe.delete_doc("BPMN Process Instance", instance_name, ignore_permissions=True)
 		except Exception:
-			frappe.log_error(
-				title=f"Failed to delete BPMN instance {instance_name} linked to deleted {doc.doctype} {doc.name}",
-				message=frappe.get_traceback(),
-			)
+			# Fallback to force delete if normal deletion fails (e.g. due to other unknown links)
+			# to ensure we don't block the parent document from being deleted.
+			try:
+				frappe.delete_doc(
+					"BPMN Process Instance", instance_name, ignore_permissions=True, force=True
+				)
+			except Exception:
+				frappe.log_error(
+					title=f"Failed to delete BPMN instance {instance_name} linked to deleted {doc.doctype} {doc.name}",
+					message=frappe.get_traceback(),
+				)
 
