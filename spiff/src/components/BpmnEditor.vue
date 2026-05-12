@@ -463,7 +463,7 @@
 						'comment-panel-container bg-white z-[59] transition-[width,transform] duration-300 ease-in-out flex flex-col',
 						isMobile
 							? 'fixed inset-x-0 bottom-0 rounded-t-2xl shadow-2xl border-t border-gray-200 max-h-[85vh] overflow-hidden'
-							: 'absolute inset-y-0 right-0 border-l border-gray-200 md:relative w-full md:w-80 overflow-hidden',
+							: 'absolute inset-y-0 right-0 border-l border-gray-200 md:relative w-full md:w-96 overflow-hidden',
 					]"
 				>
 					<!-- Comment Panel Header -->
