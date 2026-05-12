@@ -33,7 +33,8 @@ def process_timer_start_events():
 
 	now = now_datetime()
 
-	timer_configs_raw = frappe.get_all(
+	# New-style rows: trigger_type explicitly set to "Scheduler Event".
+	new_style = frappe.get_all(
 		"BPMN Start Event Config",
 		filters={
 			"trigger_type": "Scheduler Event",
@@ -42,6 +43,26 @@ def process_timer_start_events():
 		},
 		fields=["name", "parent", "cron_expression", "bpmn_element_id"],
 	)
+	# Legacy rows: created before trigger_type was introduced — event_type is
+	# "Timer" but trigger_type has not been backfilled yet.  We omit the
+	# trigger_type filter here so we reliably catch both NULL and empty-string
+	# values without relying on MySQL IN-NULL semantics.
+	legacy = frappe.get_all(
+		"BPMN Start Event Config",
+		filters={
+			"event_type": "Timer",
+			"parenttype": "BPMN Process Model",
+			"cron_expression": ["!=", ""],
+		},
+		fields=["name", "parent", "cron_expression", "bpmn_element_id"],
+	)
+	# Merge and deduplicate by child-row name.
+	seen = set()
+	timer_configs_raw = []
+	for cfg in new_style + legacy:
+		if cfg.name not in seen:
+			seen.add(cfg.name)
+			timer_configs_raw.append(cfg)
 
 	if not timer_configs_raw:
 		return
