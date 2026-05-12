@@ -48,7 +48,7 @@
    "fieldtype": "Select",
    "in_list_view": 1,
    "label": "Trigger Event",
-   "options": "After Insert\nAfter Save\nAutoname\nBefore Validate\nValidate\nBefore Save\nBefore Submit\nBefore Cancel\nBefore Update After Submit\nDB Insert\nAfter Insert\nDB Update\nOn Update\nOn Submit\nOn Cancel\nOn Update After Submit\nOn Change"
+   "options": "After Insert\nValidate\nBefore Save\nOn Update\nBefore Submit\nOn Submit\nBefore Cancel\nOn Cancel\nBefore Update After Submit\nOn Update After Submit"
   },
   {
    "fieldname": "column_break_2",
