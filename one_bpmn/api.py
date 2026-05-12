@@ -2147,40 +2147,31 @@ def _populate_start_events(model, bpmn_xml: str) -> None:
 		# ── Resolve trigger_event from XML or fall back to model field ──
 		trigger_event = trigger_type_attr or model.trigger_event or ""
 
+		# ── Determine trigger_type for this specific start event ──
+		trigger_type = "API"  # Default
+		if trigger_doctype:
+			trigger_type = "DocType Event"
+		elif cron_expr:
+			trigger_type = "Scheduler Event"
+
 		model.append(
 			"start_events",
 			{
 				"event_type": event_type,
 				"bpmn_element_id": bpmn_id,
-				"trigger_doctype": trigger_doctype or (model.trigger_doctype or ""),
+				"trigger_type": trigger_type,
+				"trigger_doctype": trigger_doctype,
 				"trigger_event": trigger_event,
 				"workflow_state_condition": workflow_state,
 				"cron_expression": cron_expr,
 			},
 		)
 
-	# ── Sync spec → model-level trigger fields ──────────────────────────────
-	# The trigger system (trigger.py → _find_matching_models) queries the
-	# model-level DB fields (trigger_type, trigger_doctype, trigger_event,
-	# cron_expression) — NOT the start_events child table.  If the BPMN XML
-	# specifies triggerDoctype / cronExpression on a StartEvent, we must
-	# propagate those values to the model-level fields so triggers fire.
-	#
-	# Strategy: the first start event with meaningful config wins.  The spec
-	# is authoritative — it OVERRIDES whatever was previously on the model.
-	# DocType Event and Scheduler Event are mutually exclusive — whichever
-	# is found first in the start events takes precedence.
-	for row in model.start_events:
-		if row.trigger_doctype:
-			model.trigger_doctype = row.trigger_doctype
-			model.trigger_type = "DocType Event"
-			if row.trigger_event:
-				model.trigger_event = row.trigger_event
-			break  # first match wins
-		if row.cron_expression:
-			model.cron_expression = row.cron_expression
-			model.trigger_type = "Scheduler Event"
-			break
+	# ── Sync spec → model-level trigger fields (DECOMMISSIONED) ────────────────
+	# Note: Model-level trigger fields are now kept for backward compatibility
+	# but are no longer updated. trigger.py and tasks.py now look at the
+	# start_events child table directly to support multiple start triggers.
+	pass
 
 
 def _get_linked_server_scripts(spec_json: str) -> set:
