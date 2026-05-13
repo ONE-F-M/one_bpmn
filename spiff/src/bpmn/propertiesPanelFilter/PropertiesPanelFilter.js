@@ -67,6 +67,9 @@ const HIDDEN_GROUPS = {
 		"instructions",
 		"ioProperties",
 	]),
+
+	// 8) Lane: replace the plain Name text input with the role dropdown
+	"bpmn:Lane": new Set(["general"]),
 };
 
 export default function PropertiesPanelFilter(propertiesPanel) {
@@ -81,6 +84,7 @@ export default function PropertiesPanelFilter(propertiesPanel) {
 				"bpmn:CallActivity",
 				"bpmn:ScriptTask",
 				"bpmn:SendTask",
+				"bpmn:Lane",
 				"bpmn:Task",
 			];
 
