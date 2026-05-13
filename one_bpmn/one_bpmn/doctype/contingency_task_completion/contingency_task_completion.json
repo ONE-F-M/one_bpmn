@@ -1,0 +1,223 @@
+{
+ "actions": [],
+ "allow_rename": 1,
+ "autoname": "naming_series:",
+ "creation": "2026-05-13 23:27:59.725446",
+ "doctype": "DocType",
+ "engine": "InnoDB",
+ "field_order": [
+  "process_and_task_information_section",
+  "process_name",
+  "column_break_jbhi",
+  "context_doctype",
+  "context_docname",
+  "column_break_xfgy",
+  "company",
+  "date",
+  "request_and_approval_details_section",
+  "process_owner",
+  "process_owner_name",
+  "process_owner_user",
+  "column_break_hxyb",
+  "reason",
+  "column_break_ohrc",
+  "reports_to",
+  "reports_to_name",
+  "reports_to_user",
+  "section_break_z2y3",
+  "status",
+  "column_break_bint",
+  "naming_series",
+  "column_break_dukq",
+  "amended_from"
+ ],
+ "fields": [
+  {
+   "fieldname": "section_break_z2y3",
+   "fieldtype": "Section Break",
+   "label": "Other Information"
+  },
+  {
+   "fieldname": "amended_from",
+   "fieldtype": "Link",
+   "label": "Amended From",
+   "no_copy": 1,
+   "options": "Contingency Task Completion",
+   "print_hide": 1,
+   "read_only": 1,
+   "search_index": 1
+  },
+  {
+   "fieldname": "process_and_task_information_section",
+   "fieldtype": "Section Break",
+   "label": "Process and Task Information"
+  },
+  {
+   "description": "You can only select processes for which you are the Process Owner.",
+   "fieldname": "process_name",
+   "fieldtype": "Link",
+   "in_list_view": 1,
+   "label": "Process Name",
+   "options": "Process",
+   "reqd": 1
+  },
+  {
+   "fieldname": "column_break_jbhi",
+   "fieldtype": "Column Break"
+  },
+  {
+   "fieldname": "context_doctype",
+   "fieldtype": "Link",
+   "in_list_view": 1,
+   "in_standard_filter": 1,
+   "label": "Context Doctype",
+   "options": "DocType",
+   "reqd": 1
+  },
+  {
+   "fieldname": "context_docname",
+   "fieldtype": "Dynamic Link",
+   "in_standard_filter": 1,
+   "label": "Context DocName",
+   "options": "context_doctype",
+   "reqd": 1
+  },
+  {
+   "fieldname": "column_break_xfgy",
+   "fieldtype": "Column Break"
+  },
+  {
+   "fieldname": "company",
+   "fieldtype": "Link",
+   "label": "Company",
+   "options": "Company",
+   "reqd": 1
+  },
+  {
+   "fieldname": "date",
+   "fieldtype": "Date",
+   "label": "Date",
+   "reqd": 1
+  },
+  {
+   "fieldname": "request_and_approval_details_section",
+   "fieldtype": "Section Break",
+   "label": "Request and Approval Details"
+  },
+  {
+   "fieldname": "process_owner",
+   "fieldtype": "Link",
+   "in_standard_filter": 1,
+   "label": "Process Owner",
+   "options": "Employee",
+   "read_only": 1
+  },
+  {
+   "fetch_from": "process_owner.employee_name",
+   "fieldname": "process_owner_name",
+   "fieldtype": "Data",
+   "label": "Process Owner Name",
+   "read_only": 1
+  },
+  {
+   "fetch_from": "process_owner.user_id",
+   "fieldname": "process_owner_user",
+   "fieldtype": "Link",
+   "label": "Process Owner User",
+   "options": "User",
+   "read_only": 1
+  },
+  {
+   "fieldname": "column_break_hxyb",
+   "fieldtype": "Column Break"
+  },
+  {
+   "fieldname": "reason",
+   "fieldtype": "Small Text",
+   "in_list_view": 1,
+   "label": "Reason",
+   "reqd": 1
+  },
+  {
+   "fieldname": "column_break_ohrc",
+   "fieldtype": "Column Break"
+  },
+  {
+   "fetch_from": "process_owner.reports_to",
+   "fieldname": "reports_to",
+   "fieldtype": "Link",
+   "ignore_user_permissions": 1,
+   "in_list_view": 1,
+   "label": "Reports To",
+   "options": "Employee",
+   "read_only": 1,
+   "reqd": 1
+  },
+  {
+   "fetch_from": "reports_to.employee_name",
+   "fieldname": "reports_to_name",
+   "fieldtype": "Data",
+   "label": "Reports To Name",
+   "read_only": 1
+  },
+  {
+   "fetch_from": "process_owner.user_id",
+   "fieldname": "reports_to_user",
+   "fieldtype": "Link",
+   "label": "Reports To User",
+   "options": "User",
+   "read_only": 1
+  },
+  {
+   "fieldname": "status",
+   "fieldtype": "Select",
+   "label": "Status",
+   "options": "Pending\nApproved\nExpired",
+   "read_only": 1
+  },
+  {
+   "fieldname": "column_break_bint",
+   "fieldtype": "Column Break"
+  },
+  {
+   "default": "PBR-CTC-.YYYY.-.MM.-.####",
+   "fieldname": "naming_series",
+   "fieldtype": "Select",
+   "label": "Naming Series",
+   "options": "PBR-CTC-.YYYY.-.MM.-.####",
+   "read_only": 1
+  },
+  {
+   "fieldname": "column_break_dukq",
+   "fieldtype": "Column Break"
+  }
+ ],
+ "grid_page_length": 50,
+ "index_web_pages_for_search": 1,
+ "is_submittable": 1,
+ "links": [],
+ "modified": "2026-05-13 23:41:03.244042",
+ "modified_by": "Administrator",
+ "module": "ONE BPMN",
+ "name": "Contingency Task Completion",
+ "owner": "Administrator",
+ "permissions": [
+  {
+   "create": 1,
+   "delete": 1,
+   "email": 1,
+   "export": 1,
+   "print": 1,
+   "read": 1,
+   "report": 1,
+   "role": "System Manager",
+   "share": 1,
+   "submit": 1,
+   "write": 1
+  }
+ ],
+ "row_format": "Dynamic",
+ "sort_field": "modified",
+ "sort_order": "DESC",
+ "states": []
+}
