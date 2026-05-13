@@ -178,29 +178,31 @@
 						</div>
 					</div>
 
-					<!-- Deploy / Disable Button (last — primary action) -->
-					<button
-						v-if="isActiveModel"
-						@click="disableModel"
-						class="h-7 flex items-center gap-1 px-2.5 bg-red-600 hover:bg-red-700 text-white rounded transition-colors text-xs font-medium leading-none"
-						title="Disable process map — stops new instances"
-						:disabled="!activeDiagramName || disabling"
-						:class="{ 'opacity-50 cursor-not-allowed': !activeDiagramName || disabling }"
-					>
-						<Icon :icon="disabling ? 'lucide:loader-2' : 'lucide:power-off'" class="w-3.5 h-3.5" :class="{ 'animate-spin': disabling }" />
-						{{ disabling ? 'Disabling…' : 'Disable' }}
-					</button>
-					<button
-						v-else
-						@click="deployModel"
-						class="h-7 flex items-center gap-1 px-2.5 bg-blue-600 hover:bg-blue-700 text-white rounded transition-colors text-xs font-medium leading-none"
-						title="Deploy process model"
-						:disabled="!activeDiagramName || deploying"
-						:class="{ 'opacity-50 cursor-not-allowed': !activeDiagramName || deploying }"
-					>
-						<Icon :icon="deploying ? 'lucide:loader-2' : 'lucide:rocket'" class="w-3.5 h-3.5" :class="{ 'animate-spin': deploying }" />
-						{{ deploying ? 'Deploying…' : 'Deploy' }}
-					</button>
+					<!-- Deploy / Disable Button (last — primary action, only for executable processes) -->
+					<template v-if="isExecutable">
+						<button
+							v-if="isActiveModel"
+							@click="disableModel"
+							class="h-7 flex items-center gap-1 px-2.5 bg-red-600 hover:bg-red-700 text-white rounded transition-colors text-xs font-medium leading-none"
+							title="Disable process map — stops new instances"
+							:disabled="!activeDiagramName || disabling"
+							:class="{ 'opacity-50 cursor-not-allowed': !activeDiagramName || disabling }"
+						>
+							<Icon :icon="disabling ? 'lucide:loader-2' : 'lucide:power-off'" class="w-3.5 h-3.5" :class="{ 'animate-spin': disabling }" />
+							{{ disabling ? 'Disabling…' : 'Disable' }}
+						</button>
+						<button
+							v-else
+							@click="deployModel"
+							class="h-7 flex items-center gap-1 px-2.5 bg-blue-600 hover:bg-blue-700 text-white rounded transition-colors text-xs font-medium leading-none"
+							title="Deploy process model"
+							:disabled="!activeDiagramName || deploying"
+							:class="{ 'opacity-50 cursor-not-allowed': !activeDiagramName || deploying }"
+						>
+							<Icon :icon="deploying ? 'lucide:loader-2' : 'lucide:rocket'" class="w-3.5 h-3.5" :class="{ 'animate-spin': deploying }" />
+							{{ deploying ? 'Deploying…' : 'Deploy' }}
+						</button>
+					</template>
 				</template>
 
 				<!-- Mobile: "More" overflow dropdown -->
@@ -217,26 +219,28 @@
 						v-click-outside="() => showMobileMoreMenu = false"
 						class="absolute right-0 mt-1 w-44 bg-white border border-gray-200 rounded-lg shadow-lg z-50 py-1"
 					>
-						<button
-							v-if="isActiveModel"
-							@click="disableModel(); showMobileMoreMenu = false"
-							class="w-full flex items-center gap-2 px-3 py-2.5 text-sm text-red-600 hover:bg-red-50 transition-colors"
-							:disabled="!activeDiagramName || disabling"
-							:class="{ 'opacity-40 cursor-not-allowed': !activeDiagramName || disabling }"
-						>
-							<Icon :icon="disabling ? 'lucide:loader-2' : 'lucide:power-off'" class="w-4 h-4" />
-							{{ disabling ? 'Disabling…' : 'Disable' }}
-						</button>
-						<button
-							v-else
-							@click="deployModel(); showMobileMoreMenu = false"
-							class="w-full flex items-center gap-2 px-3 py-2.5 text-sm text-gray-700 hover:bg-gray-50 transition-colors"
-							:disabled="!activeDiagramName || deploying"
-							:class="{ 'opacity-40 cursor-not-allowed': !activeDiagramName || deploying }"
-						>
-							<Icon :icon="deploying ? 'lucide:loader-2' : 'lucide:rocket'" class="w-4 h-4" />
-							{{ deploying ? 'Deploying…' : 'Deploy' }}
-						</button>
+						<template v-if="isExecutable">
+							<button
+								v-if="isActiveModel"
+								@click="disableModel(); showMobileMoreMenu = false"
+								class="w-full flex items-center gap-2 px-3 py-2.5 text-sm text-red-600 hover:bg-red-50 transition-colors"
+								:disabled="!activeDiagramName || disabling"
+								:class="{ 'opacity-40 cursor-not-allowed': !activeDiagramName || disabling }"
+							>
+								<Icon :icon="disabling ? 'lucide:loader-2' : 'lucide:power-off'" class="w-4 h-4" />
+								{{ disabling ? 'Disabling…' : 'Disable' }}
+							</button>
+							<button
+								v-else
+								@click="deployModel(); showMobileMoreMenu = false"
+								class="w-full flex items-center gap-2 px-3 py-2.5 text-sm text-gray-700 hover:bg-gray-50 transition-colors"
+								:disabled="!activeDiagramName || deploying"
+								:class="{ 'opacity-40 cursor-not-allowed': !activeDiagramName || deploying }"
+							>
+								<Icon :icon="deploying ? 'lucide:loader-2' : 'lucide:rocket'" class="w-4 h-4" />
+								{{ deploying ? 'Deploying…' : 'Deploy' }}
+							</button>
+						</template>
 						<button
 							@click="openVersionPicker(); showMobileMoreMenu = false"
 							class="w-full flex items-center gap-2 px-3 py-2.5 text-sm text-gray-700 hover:bg-gray-50 transition-colors"
@@ -997,6 +1001,25 @@ const isActiveModel = computed(() => {
 	return d ? !!d.is_active : false;
 });
 
+// True when the current diagram's BPMN process is marked as executable
+const isExecutable = ref(false);
+
+function extractIsExecutable(xml) {
+	try {
+		const doc = new DOMParser().parseFromString(xml, "text/xml");
+		const processes = doc.getElementsByTagNameNS(
+			"http://www.omg.org/spec/BPMN/20100524/MODEL",
+			"process"
+		);
+		for (let i = 0; i < processes.length; i++) {
+			if (processes[i].getAttribute("isExecutable") === "true") return true;
+		}
+		return false;
+	} catch {
+		return false;
+	}
+}
+
 // Readiness checklist state
 const showReadinessDialog = ref(false);
 const readinessChecklist = ref(null);
@@ -1680,6 +1703,7 @@ async function onEditorReady() {
 watch(activeDiagramName, async (newName) => {
 	if (!newName) {
 		stopHeartbeat();
+		isExecutable.value = false;
 		return;
 	}
 
@@ -1698,6 +1722,7 @@ async function loadDiagramContent(name) {
 		if (editorRef.value) {
 			await editorRef.value.loadXML(diagramDataCache.value[name]);
 			if (processName.value) editorRef.value.setProcessName(processName.value);
+			isExecutable.value = extractIsExecutable(diagramDataCache.value[name]);
 		}
 		return;
 	}
@@ -1713,6 +1738,7 @@ async function loadDiagramContent(name) {
 			diagramDataCache.value[name] = data.xml_content;
 			await editorRef.value.loadXML(data.xml_content);
 			if (processName.value) editorRef.value.setProcessName(processName.value);
+			isExecutable.value = extractIsExecutable(data.xml_content);
 		}
 	} catch (error) {
 		console.error("Failed to load diagram:", error);
@@ -1752,6 +1778,7 @@ async function saveCurrentDiagram() {
 	saveState.value = 'saving';
 	try {
 		const xml = await editorRef.value.getXML();
+		isExecutable.value = extractIsExecutable(xml);
 		const diagram = diagrams.value.find((d) => d.name === activeDiagramName.value);
 
 		const data = await frappeRequest({
