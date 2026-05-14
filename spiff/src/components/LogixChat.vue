@@ -191,6 +191,16 @@
 <script setup>
 import { ref, computed, watch, nextTick } from "vue";
 
+function getCsrfToken() {
+	return (
+		window.frappe?.csrf_token ||
+		window.frappe?.boot?.csrf_token ||
+		window.csrf_token ||
+		document.cookie.split("; ").find(r => r.startsWith("csrf_token="))?.split("=")[1] ||
+		""
+	);
+}
+
 const props = defineProps({
 	modelValue:    { type: Boolean, default: false },
 	element:       { type: Object,  default: null },
@@ -285,7 +295,7 @@ async function initGreeting() {
 		try {
 			const resp = await fetch(
 				`/api/method/one_bpmn.api.check_server_script_exists?script_name=${encodeURIComponent(label)}`,
-				{ headers: { "X-Frappe-CSRF-Token": window.frappe?.csrf_token || "" } },
+				{ headers: { "X-Frappe-CSRF-Token": getCsrfToken() } },
 			);
 			if (resp.ok) {
 				const data = await resp.json();
@@ -357,7 +367,7 @@ async function handleMessageAction(handler, msgId, value = "") {
 		try {
 			const res = await fetch("/api/method/one_bpmn.api.create_server_script", {
 				method: "POST",
-				headers: { "Content-Type": "application/json", "X-Frappe-CSRF-Token": window.frappe?.csrf_token || "" },
+				headers: { "Content-Type": "application/json", "X-Frappe-CSRF-Token": getCsrfToken() },
 				body: JSON.stringify({ script_name: name, script_type: "API", script: code }),
 			});
 			if (!res.ok) throw new Error(`HTTP ${res.status}`);
@@ -394,7 +404,7 @@ async function handleMessageAction(handler, msgId, value = "") {
 		try {
 			const res = await fetch("/api/method/one_bpmn.api.update_server_script", {
 				method: "POST",
-				headers: { "Content-Type": "application/json", "X-Frappe-CSRF-Token": window.frappe?.csrf_token || "" },
+				headers: { "Content-Type": "application/json", "X-Frappe-CSRF-Token": getCsrfToken() },
 				body: JSON.stringify({ script_name: scriptName, script: code }),
 			});
 			if (!res.ok) throw new Error(`HTTP ${res.status}`);
@@ -478,7 +488,7 @@ async function sendMessage() {
 			method:  "POST",
 			headers: {
 				"Content-Type":       "application/json",
-				"X-Frappe-CSRF-Token": (window.frappe?.csrf_token) || "",
+				"X-Frappe-CSRF-Token": getCsrfToken(),
 			},
 			body: JSON.stringify({
 				message:        text,
@@ -614,7 +624,7 @@ async function applyScript() {
 			method:  "POST",
 			headers: {
 				"Content-Type":       "application/json",
-				"X-Frappe-CSRF-Token": (window.frappe?.csrf_token) || "",
+				"X-Frappe-CSRF-Token": getCsrfToken(),
 			},
 			body: JSON.stringify({
 				script_name:  name,

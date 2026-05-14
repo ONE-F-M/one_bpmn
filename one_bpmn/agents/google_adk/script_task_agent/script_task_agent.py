@@ -25,8 +25,8 @@ from google.adk.sessions import InMemorySessionService
 from google.genai import types
 
 from onefm_mcp.onefm_mcp.doctype.ai_agent_configuration.ai_agent_configuration import get_agent_config
-from one_bpmn.one_bpmn.security.script_validator import validate_script
-from one_bpmn.one_bpmn.tools.tool_for_server_scripts import (
+from one_bpmn.security.script_validator import validate_script
+from one_bpmn.tools.tool_for_server_scripts import (
 	get_doctype_fields,
 	get_server_script_content,
 	get_server_script_meta,
@@ -137,12 +137,12 @@ class ScriptTaskAgent:
 		self.setup_agents()
 
 	def setup_credentials(self):
+		os.environ.pop("GOOGLE_GENAI_USE_VERTEXAI", None)
 		try:
 			settings_doc = frappe.get_doc("AI Chat Settings")
 			vertex_api_key = settings_doc.get_password("google_vertex_ai_api_key")
 			if vertex_api_key and vertex_api_key.strip():
 				os.environ["GOOGLE_API_KEY"] = vertex_api_key.strip()
-				os.environ["GOOGLE_GENAI_USE_VERTEXAI"] = "TRUE"
 			else:
 				frappe.log_error(
 					title="Logix Agent - Missing API Key",

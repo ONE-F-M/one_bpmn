@@ -1329,7 +1329,7 @@ def process_logix_message(
 			except Exception:
 				pass
 
-		from one_bpmn.one_bpmn.agents.google_adk.script_task_agent.script_task_agent import (
+		from one_bpmn.agents.google_adk.script_task_agent.script_task_agent import (
 			run_logix_message,
 		)
 
