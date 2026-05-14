@@ -155,6 +155,7 @@ _BPMN_TRIGGER = "one_bpmn.one_bpmn.trigger.on_doc_event"
 # process instance is actively controlling the document.
 # Documents with NO active BPMN instance are completely unaffected.
 _BPMN_GUARD   = "one_bpmn.one_bpmn.trigger.guard_bpmn_document"
+_BPMN_DELETE  = "one_bpmn.one_bpmn.trigger.delete_linked_bpmn_instances"
 
 doc_events = {
 	"*": {
@@ -170,6 +171,7 @@ doc_events = {
 		"before_submit":          _BPMN_GUARD,
 		"before_cancel":          _BPMN_GUARD,
 		"before_workflow_action": _BPMN_GUARD,
+		"on_trash":               _BPMN_DELETE,
 	}
 }
 

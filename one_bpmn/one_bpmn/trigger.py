@@ -121,84 +121,51 @@ def _find_matching_models(doctype: str, trigger_event: str) -> list:
 	Return names of all active BPMN Process Models whose trigger matches
 	the given doctype + event combination.
 
-	Checks three sources (in order):
-	1. BPMN Process Model.trigger_doctype  (single-doctype direct link)
-	2. BPMN Process DocType child table    (multi-doctype list)
-	3. BPMN Start Event Config child table (trigger_doctype from BPMN XML spec)
+	Triggers are now primarily defined in the ``BPMN Start Event Config``
+	child table, allowing multiple start events per model.
 	"""
-	# 1. Direct trigger_doctype match on model-level fields
-	direct = frappe.get_all(
-		"BPMN Process Model",
+	# 1. Search BPMN Start Event Config (Source of Truth)
+	# This catches models where triggerDoctype/triggerEvent are configured
+	# on start events in the BPMN diagram.
+	child_matches = frappe.get_all(
+		"BPMN Start Event Config",
 		filters={
-			"is_active": 1,
 			"trigger_type": "DocType Event",
 			"trigger_doctype": doctype,
 			"trigger_event": trigger_event,
+			"parenttype": "BPMN Process Model",
 		},
-		pluck="name",
+		fields=["parent"],
 	)
+	candidate_names = [r.parent for r in child_matches if r.parent]
 
-	# 2. Child table match — models that list this doctype in target_doctypes
-	child_parents = frappe.get_all(
+	# 2. Check BPMN Process DocType (Multi-DocType support)
+	# This is a separate child table used for models that apply to a list
+	# of doctypes with the same start event logic.
+	multi_doc_matches = frappe.get_all(
 		"BPMN Process DocType",
 		filters={
 			"doctype_name": doctype,
 			"parenttype": "BPMN Process Model",
 		},
 		fields=["parent"],
-		distinct=True,
 	)
-	candidate_parents = [r.parent for r in child_parents if r.parent]
+	candidate_names.extend([r.parent for r in multi_doc_matches if r.parent])
 
-	via_child_names = []
-	if candidate_parents:
-		via_child_names = frappe.get_all(
-			"BPMN Process Model",
-			filters={
-				"name": ["in", candidate_parents],
-				"is_active": 1,
-				"trigger_type": "DocType Event",
-				"trigger_event": trigger_event,
-			},
-			pluck="name",
-		)
+	if not candidate_names:
+		return []
 
-	# 3. Start Event Config — trigger_doctype set in BPMN XML spec
-	# This catches models where the BA configured triggerDoctype on the
-	# start event in the BPMN diagram but the model-level trigger_doctype
-	# field was not yet synced (e.g. model compiled before this fix).
-	spec_parents = frappe.get_all(
-		"BPMN Start Event Config",
+	# Final filter for active models and deduplication
+	active_models = frappe.get_all(
+		"BPMN Process Model",
 		filters={
-			"trigger_doctype": doctype,
-			"parenttype": "BPMN Process Model",
+			"name": ["in", list(set(candidate_names))],
+			"is_active": 1,
 		},
-		fields=["parent"],
-		distinct=True,
+		pluck="name",
 	)
-	spec_candidate_parents = [r.parent for r in spec_parents if r.parent]
 
-	via_spec_names = []
-	if spec_candidate_parents:
-		via_spec_names = frappe.get_all(
-			"BPMN Process Model",
-			filters={
-				"name": ["in", spec_candidate_parents],
-				"is_active": 1,
-				"trigger_type": "DocType Event",
-				"trigger_event": trigger_event,
-			},
-			pluck="name",
-		)
-
-	# Merge and deduplicate, preserving order
-	seen = set()
-	result = []
-	for name in direct + via_child_names + via_spec_names:
-		if name not in seen:
-			seen.add(name)
-			result.append(name)
-	return result
+	return active_models
 
 
 def _maybe_start_instance(doc, model_name: str):
@@ -438,3 +405,54 @@ def guard_bpmn_document(doc, method: str):
 		).format(action_verb, doc.doctype, doc.name, active_instance),
 		title=frappe._("Action Blocked — BPMN Process Active"),
 	)
+
+
+def delete_linked_bpmn_instances(doc, method: str):
+	"""
+	Automatically delete any BPMN Process Instance linked to a document
+	when that document is deleted (on_trash).
+
+	This ensures that orphaned process instances don't clutter the database
+	when their parent documents are removed.
+	"""
+	# 1. Never clean up internal BPMN doctypes (standard safety check)
+	if doc.doctype in _INTERNAL_DOCTYPES:
+		return
+
+	# 2. Find all instances (Active or otherwise) linked to this document
+	instances = frappe.get_all(
+		"BPMN Process Instance",
+		filters={
+			"context_doctype": doc.doctype,
+			"context_docname": doc.name,
+		},
+		pluck="name",
+	)
+
+	if not instances:
+		return
+
+	# 3. Clean up dependent Activity Logs first
+	# This avoids orphaned records and allows us to delete the instance without force=True
+	frappe.db.delete("BPMN Activity Log", {"instance": ["in", instances]})
+
+	# 4. Delete the instances permanently
+	# We use ignore_permissions=True to ensure cleanup happens regardless
+	# of the current user's delete permissions on BPMN Process Instance.
+	for instance_name in instances:
+		try:
+			# Try standard deletion first (cleaner)
+			frappe.delete_doc("BPMN Process Instance", instance_name, ignore_permissions=True)
+		except Exception:
+			# Fallback to force delete if normal deletion fails (e.g. due to other unknown links)
+			# to ensure we don't block the parent document from being deleted.
+			try:
+				frappe.delete_doc(
+					"BPMN Process Instance", instance_name, ignore_permissions=True, force=True
+				)
+			except Exception:
+				frappe.log_error(
+					title=f"Failed to delete BPMN instance {instance_name} linked to deleted {doc.doctype} {doc.name}",
+					message=frappe.get_traceback(),
+				)
+

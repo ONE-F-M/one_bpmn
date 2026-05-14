@@ -2147,40 +2147,31 @@ def _populate_start_events(model, bpmn_xml: str) -> None:
 		# ── Resolve trigger_event from XML or fall back to model field ──
 		trigger_event = trigger_type_attr or model.trigger_event or ""
 
+		# ── Determine trigger_type for this specific start event ──
+		trigger_type = "API"  # Default
+		if trigger_doctype:
+			trigger_type = "DocType Event"
+		elif cron_expr:
+			trigger_type = "Scheduler Event"
+
 		model.append(
 			"start_events",
 			{
 				"event_type": event_type,
 				"bpmn_element_id": bpmn_id,
-				"trigger_doctype": trigger_doctype or (model.trigger_doctype or ""),
+				"trigger_type": trigger_type,
+				"trigger_doctype": trigger_doctype,
 				"trigger_event": trigger_event,
 				"workflow_state_condition": workflow_state,
 				"cron_expression": cron_expr,
 			},
 		)
 
-	# ── Sync spec → model-level trigger fields ──────────────────────────────
-	# The trigger system (trigger.py → _find_matching_models) queries the
-	# model-level DB fields (trigger_type, trigger_doctype, trigger_event,
-	# cron_expression) — NOT the start_events child table.  If the BPMN XML
-	# specifies triggerDoctype / cronExpression on a StartEvent, we must
-	# propagate those values to the model-level fields so triggers fire.
-	#
-	# Strategy: the first start event with meaningful config wins.  The spec
-	# is authoritative — it OVERRIDES whatever was previously on the model.
-	# DocType Event and Scheduler Event are mutually exclusive — whichever
-	# is found first in the start events takes precedence.
-	for row in model.start_events:
-		if row.trigger_doctype:
-			model.trigger_doctype = row.trigger_doctype
-			model.trigger_type = "DocType Event"
-			if row.trigger_event:
-				model.trigger_event = row.trigger_event
-			break  # first match wins
-		if row.cron_expression:
-			model.cron_expression = row.cron_expression
-			model.trigger_type = "Scheduler Event"
-			break
+	# ── Sync spec → model-level trigger fields (DECOMMISSIONED) ────────────────
+	# Note: Model-level trigger fields are now kept for backward compatibility
+	# but are no longer updated. trigger.py and tasks.py now look at the
+	# start_events child table directly to support multiple start triggers.
+	pass
 
 
 def _get_linked_server_scripts(spec_json: str) -> set:
@@ -2752,6 +2743,7 @@ def _apply_docstatus_directly(doc, target_state: str, doc_status_hint: str) -> N
 
 	ds = str(doc_status_hint).strip()
 
+	original_modified = doc.modified
 	if ds == "1":
 		if doc.docstatus == 0:
 			doc.submit()
@@ -2767,6 +2759,11 @@ def _apply_docstatus_directly(doc, target_state: str, doc_status_hint: str) -> N
 		elif doc.docstatus == 1:
 			# Submitted doc — just save (amend notes etc.)
 			doc.save(ignore_permissions=True)
+
+	# ── Sync timestamp back for engine actions to prevent mismatch ───────
+	if getattr(frappe.flags, "bpmn_engine_action", False) and original_modified:
+		frappe.db.set_value(doc.doctype, doc.name, "modified", original_modified, update_modified=False)
+		doc.modified = original_modified
 
 	# ── Audit trail: add a workflow comment like Frappe does ──────────────
 	if target_state:
@@ -2890,6 +2887,7 @@ def _apply_bpmn_workflow_state(
 	if doc_status_hint in ("0", "1", "2"):
 		new_docstatus = DocStatus(cint(doc_status_hint))
 
+	original_modified = doc.modified
 	if doc.docstatus.is_draft() and new_docstatus.is_draft():
 		doc.save(ignore_permissions=True)
 	elif doc.docstatus.is_draft() and new_docstatus.is_submitted():
@@ -2912,6 +2910,11 @@ def _apply_bpmn_workflow_state(
 			_("Illegal document status transition to state '{0}'.").format(target_state),
 			frappe.ValidationError,
 		)
+
+	# ── Sync timestamp back for engine actions to prevent mismatch ───────
+	if getattr(frappe.flags, "bpmn_engine_action", False) and original_modified:
+		frappe.db.set_value(doc.doctype, doc.name, "modified", original_modified, update_modified=False)
+		doc.modified = original_modified
 
 	# ── 8. Workflow comment (same as Frappe's apply_workflow) ─────────────────
 	doc.add_comment("Workflow", _(target_state))
@@ -3559,6 +3562,44 @@ def post_canvas_comment(
 			}
 		).insert(ignore_permissions=True)
 
+	# --- Notification Logic ---
+	recipients = set()
+	if assigned_to:
+		recipients.add(assigned_to)
+
+	# Extract plain text mentions (@Full Name or @Email)
+	# BPMN Editor currently sends mentions as plain text formatted by BpmnEditor.vue
+	if "@" in comment:
+		active_users = frappe.get_all("User", filters={"enabled": 1, "user_type": "System User"}, fields=["name", "full_name"])
+		for u in active_users:
+			if (u.full_name and f"@{u.full_name}" in comment) or f"@{u.name}" in comment:
+				recipients.add(u.name)
+
+	# Exclude author from notifications
+	recipients.discard(frappe.session.user)
+
+	if recipients:
+		from frappe.desk.doctype.notification_log.notification_log import enqueue_create_notification
+
+		# Set type: if it's assigned to someone in the recipients list, use Assignment, else Mention
+		notification_type = "Assignment" if assigned_to and assigned_to in recipients else "Mention"
+		
+		sender_name = frappe.utils.get_fullname(frappe.session.user)
+		subject = _("{0} mentioned you on {1}").format(sender_name, model_name)
+		if notification_type == "Assignment":
+			subject = _("{0} assigned a task to you on {1}").format(sender_name, model_name)
+		process_name = frappe.get_value("BPMN Process Model", model_name, "process_name")
+		notification_doc = {
+			"type": notification_type,
+			"document_type": "BPMN Process Model",
+			"document_name": model_name,
+			"subject": subject,
+			"from_user": frappe.session.user,
+			"email_content": comment,
+			"link": f"/processa/process/{process_name}"
+		}
+		enqueue_create_notification(list(recipients), notification_doc)
+
 	# Map fields back for frontend compatibility
 	res = doc.as_dict()
 	res.model = doc.reference_name
@@ -3784,3 +3825,48 @@ def cleanup_process_model_assets(model_name: str):
 		# Delete the comment
 		frappe.delete_doc("Comment", comment.name, ignore_permissions=True)
 
+
+@frappe.whitelist()
+def get_context_doctypes(query: str = None) -> list:
+	"""
+	Get unique DocTypes used as context in Process Instances, filtered by query.
+	Used by the InstanceList filter autocomplete.
+	"""
+	filters = {}
+	if query:
+		filters["context_doctype"] = ["like", f"%{query}%"]
+
+	results = frappe.get_all(
+		"BPMN Process Instance",
+		filters=filters,
+		fields=["context_doctype"],
+		distinct=True,
+		order_by="context_doctype",
+		limit=50
+	)
+	return [{"label": r.context_doctype, "value": r.context_doctype} for r in results if r.context_doctype]
+
+
+@frappe.whitelist()
+def get_context_documents(doctype: str, query: str = None) -> list:
+	"""
+	Get documents for a specific DocType, filtered by query.
+	Used by the InstanceList filter autocomplete.
+	"""
+	if not doctype:
+		return []
+
+	# Use Search Criteria if available, otherwise fallback to name-based filtering
+	# get_list respects permissions automatically
+	filters = {}
+	if query:
+		filters["name"] = ["like", f"%{query}%"]
+
+	results = frappe.get_list(
+		doctype,
+		filters=filters,
+		fields=["name"],
+		limit=50,
+		order_by="modified desc",
+	)
+	return [{"label": r.name, "value": r.name} for r in results]
