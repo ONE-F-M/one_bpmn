@@ -61,29 +61,62 @@ def get_process_doctypes(
 
 
 @frappe.whitelist()
-def get_active_task_documents(doctype, txt, searchfield, start, page_len, filters):
-	"""Return document names that have an active (Waiting) task in a BPMN Process Instance."""
-	if isinstance(filters, str):
-		filters = frappe.parse_json(filters)
+def get_active_task_documents(
+	doctype: str,
+	txt: str,
+	searchfield: str,
+	start: int,
+	page_len: int,
+	filters: dict | str | None = None,
+):
+	"""Return readable document names with waiting tasks for the selected process and context DocType."""
+	filters = frappe.parse_json(filters) if isinstance(filters, str) else filters or {}
 
+	process_name = filters.get("process_name")
 	context_doctype = filters.get("context_doctype")
-	if not context_doctype:
+	if not process_name or not context_doctype:
 		return []
 
-	return frappe.db.sql(
-		"""
-		SELECT DISTINCT bat.target_docname
-		FROM `tabBPMN Active Task` bat
-		INNER JOIN `tabBPMN Process Instance` bpi ON bpi.name = bat.parent
-		WHERE bat.target_doctype = %(context_doctype)s
-			AND bat.parenttype = 'BPMN Process Instance'
-			AND bat.status = 'Waiting'
-			AND bpi.status = 'Active'
-			AND bat.target_docname LIKE %(txt)s
-		LIMIT {start}, {page_len}
-		""".format(start=int(start), page_len=int(page_len)),
-		{
-			"context_doctype": context_doctype,
-			"txt": f"%{txt or ''}%",
-		},
+	process_models = frappe.get_all(
+		"BPMN Process Model",
+		filters={"process_name": process_name},
+		pluck="name",
+		limit_page_length=0,
 	)
+	if not process_models:
+		return []
+
+	active_instances = frappe.get_all(
+		"BPMN Process Instance",
+		filters={
+			"status": "Active",
+			"process_model": ["in", process_models],
+		},
+		pluck="name",
+		limit_page_length=0,
+	)
+	if not active_instances:
+		return []
+
+	task_rows = frappe.get_all(
+		"BPMN Active Task",
+		filters={
+			"parent": ["in", active_instances],
+			"parenttype": "BPMN Process Instance",
+			"status": "Waiting",
+			"target_doctype": context_doctype,
+			"target_docname": ["like", f"%{txt or ''}%"],
+		},
+		fields=["target_docname"],
+		group_by="target_docname",
+		order_by="target_docname asc",
+		limit_page_length=0,
+	)
+
+	readable_docnames = [
+		row.target_docname
+		for row in task_rows
+		if frappe.has_permission(context_doctype, ptype="read", doc=row.target_docname)
+	]
+
+	return readable_docnames[int(start) : int(start) + int(page_len)]
