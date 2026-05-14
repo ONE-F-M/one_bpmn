@@ -53,6 +53,7 @@ _FRAPPE_TO_TRIGGER_EVENT = {
 _FRAPPE_EVENT_TO_TASK_ACTION = {
 	"on_submit": "Submit",
 	"on_cancel": "Cancel",
+	"on_update": "Update"
 }
 
 # SpiffWorkflow BPMN extension namespace
@@ -84,6 +85,7 @@ def on_doc_event(doc, method: str):
 	   or getattr(frappe.flags, "in_patch", False) \
 	   or getattr(frappe.flags, "in_setup_wizard", False):
 		return
+	
 
 	# 1. Never trigger on internal BPMN doctypes
 	if doc.doctype in _INTERNAL_DOCTYPES:
@@ -104,6 +106,7 @@ def on_doc_event(doc, method: str):
 				title=f"BPMN trigger failed for {doc.doctype} / {model_name}",
 				message=frappe.get_traceback(),
 			)
+
 
 	# ── B) Advance existing instances (bidirectional sync) ────────────────────
 	# If this event maps to a User Task action (Submit → on_submit, etc.),
