@@ -1219,7 +1219,7 @@ class BPMNProcessInstance(Document):
 			bpmn_id_key = getattr(task.task_spec, "bpmn_id", None) or ""
 			task_cfg = getattr(self, "_user_task_extensions", {}).get(bpmn_id_key, {})
 			task_actions = task_cfg.get("taskActions", "")
-			target_doctype = task_cfg.get("targetDoctype") or self.context_doctype
+			target_doctype = self.context_doctype
 			target_docname = self.context_docname
 
 			self.append(
