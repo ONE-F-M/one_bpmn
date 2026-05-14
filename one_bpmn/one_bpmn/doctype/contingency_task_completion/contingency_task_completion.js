@@ -63,7 +63,10 @@ function set_context_docname_filter(frm) {
 	frm.set_query("context_docname", function () {
 		return {
 			query: "one_bpmn.one_bpmn.doctype.contingency_task_completion.contingency_task_completion.get_active_task_documents",
-			filters: { context_doctype: frm.doc.context_doctype }
+			filters: {
+				process_name: frm.doc.process_name,
+				context_doctype: frm.doc.context_doctype
+			}
 		};
 	});
 }
