@@ -14,33 +14,49 @@ class ContingencyTaskCompletion(Document):
 
 
 @frappe.whitelist()
-def get_process_doctypes(doctype, txt, searchfield, start, page_len, filters):
+def get_process_doctypes(
+	doctype: str,
+	txt: str,
+	searchfield: str,
+	start: int,
+	page_len: int,
+	filters: dict | str | None,
+) -> list[str]:
 	"""Return DocTypes listed in the selected Process's process_doctypes child table."""
 	if isinstance(filters, str):
 		filters = frappe.parse_json(filters)
 
+	filters = filters or {}
 	process_name = filters.get("process_name")
 	if not process_name:
 		return []
+
+	if not frappe.db.exists("Process", process_name):
+		return []
+
+	frappe.get_doc("Process", process_name).check_permission("read")
 
 	names = frappe.get_all(
 		"Process Doctype",
 		filters={"parent": process_name, "parenttype": "Process"},
 		fields=["document_type"],
 		limit=0,
-		pluck="document_type"
+		pluck="document_type",
 	)
 
 	if not names:
 		return []
 
-	return frappe.db.sql(
-		"""
-		SELECT `name` FROM `tabDocType`
-		WHERE `name` IN %(names)s AND `name` LIKE %(txt)s
-		LIMIT {start}, {page_len}
-		""".format(start=int(start), page_len=int(page_len)),
-		{"names": names, "txt": f"%{txt or ''}%"},
+	return frappe.get_all(
+		"DocType",
+		filters=[
+			["name", "in", names],
+			["name", "like", f"%{txt or ''}%"],
+		],
+		fields=["name"],
+		start=int(start),
+		page_length=int(page_len),
+		pluck="name",
 	)
 
 
