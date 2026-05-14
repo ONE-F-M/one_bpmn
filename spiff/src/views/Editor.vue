@@ -145,20 +145,6 @@
 						</span>
 					</button>
 
-					<!-- Toggle Properties Panel -->
-					<button
-						@click="togglePropertiesPanel"
-						class="w-8 h-8 flex items-center justify-center rounded transition-colors relative"
-						:class="[
-							(editorRef?.showPropertiesPanel && !editorRef?.propertiesCollapsed) ? 'bg-blue-100 text-blue-700' : 'hover:bg-gray-100 text-gray-600',
-							{ 'opacity-40 cursor-not-allowed': !activeDiagramName }
-						]"
-						title="Toggle Properties Panel"
-						:disabled="!activeDiagramName"
-					>
-						<Icon icon="lucide:settings" class="w-4 h-4" />
-					</button>
-
 					<!-- File menu dropdown (Import / Export) -->
 					<div class="relative">
 						<button

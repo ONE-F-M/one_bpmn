@@ -45,7 +45,7 @@
 			</div>
 
 			<!-- Empty State -->
-			<div v-else-if="processes.length === 0" class="flex flex-col items-center justify-center h-64 text-center">
+			<div v-else-if="sortedProcesses.length === 0" class="flex flex-col items-center justify-center h-64 text-center">
 				<div class="text-gray-400 mb-4">
 					<Icon icon="lucide:layout-grid" class="w-16 h-16 mx-auto" />
 				</div>
@@ -56,7 +56,7 @@
 			<!-- Mobile Card Layout -->
 			<div v-else-if="isMobile" class="space-y-2">
 				<div
-					v-for="process in processes"
+					v-for="process in sortedProcesses"
 					:key="process.name"
 					@click="openProcess(process.name)"
 					class="bg-white rounded-lg shadow-sm p-4 flex items-center gap-3 active:bg-gray-50 transition-colors cursor-pointer"
@@ -96,7 +96,7 @@
 			<div v-else class="bg-white rounded-lg shadow-sm">
 				<ListView
 					:columns="columns"
-					:rows="processes"
+					:rows="sortedProcesses"
 					:options="{
 						onRowClick: (row) => openProcess(row.name),
 						selectable: false,
@@ -214,6 +214,15 @@ const loading = ref(true)
 
 // Pathfinder Log editability map: { processName: true/false }
 const editabilityMap = ref({})
+
+const sortedProcesses = computed(() => {
+	if (!Array.isArray(processes.value)) return []
+	return [...processes.value].sort((a, b) => {
+		const dateA = dayjs(a.last_modified)
+		const dateB = dayjs(b.last_modified)
+		return dateB.isAfter(dateA) ? 1 : -1
+	})
+})
 
 // Column definitions for ListView
 const columns = computed(() => [
