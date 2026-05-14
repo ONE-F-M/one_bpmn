@@ -3055,7 +3055,7 @@ def complete_task(
 						"context_docname": instance.context_docname,
 						"process_owner_user": current_user,
 						"status": "Approved",
-						"docstatus": ["!=", 2],
+						"docstatus": 1,
 					},
 					"name",
 				)
