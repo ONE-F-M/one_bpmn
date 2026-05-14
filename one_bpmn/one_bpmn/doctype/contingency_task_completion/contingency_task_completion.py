@@ -38,9 +38,9 @@ def get_process_doctypes(doctype, txt, searchfield, start, page_len, filters):
 		"""
 		SELECT `name` FROM `tabDocType`
 		WHERE `name` IN %(names)s AND `name` LIKE %(txt)s
-		LIMIT %(start)s, %(page_len)s
-		""",
-		{"names": names, "txt": f"%{txt}%", "start": start, "page_len": page_len},
+		LIMIT {start}, {page_len}
+		""".format(start=int(start), page_len=int(page_len)),
+		{"names": names, "txt": f"%{txt or ''}%"},
 	)
 
 
@@ -60,15 +60,14 @@ def get_active_task_documents(doctype, txt, searchfield, start, page_len, filter
 		FROM `tabBPMN Active Task` bat
 		INNER JOIN `tabBPMN Process Instance` bpi ON bpi.name = bat.parent
 		WHERE bat.target_doctype = %(context_doctype)s
+			AND bat.parenttype = 'BPMN Process Instance'
 			AND bat.status = 'Waiting'
 			AND bpi.status = 'Active'
 			AND bat.target_docname LIKE %(txt)s
-		LIMIT %(start)s, %(page_len)s
-		""",
+		LIMIT {start}, {page_len}
+		""".format(start=int(start), page_len=int(page_len)),
 		{
 			"context_doctype": context_doctype,
-			"txt": f"%{txt}%",
-			"start": start,
-			"page_len": page_len,
+			"txt": f"%{txt or ''}%",
 		},
 	)
