@@ -11,6 +11,7 @@
   "column_break_zcvz",
   "task_type",
   "started_at",
+  "end_time",
   "task_actions",
   "section_break_1fzk",
   "target_doctype",
@@ -54,6 +55,11 @@
    "label": "Started At"
   },
   {
+   "fieldname": "end_time",
+   "fieldtype": "Datetime",
+   "label": "End Time"
+  },
+  {
    "description": "Comma-separated action labels configured on this User Task (e.g. 'Approve,Reject'). The selected action is submitted as the 'action' variable and drives gateway routing.",
    "fieldname": "task_actions",
    "fieldtype": "Data",
@@ -89,7 +95,7 @@
   },
   {
    "fieldname": "timer_duration",
-   "fieldtype": "Data",
+   "fieldtype": "Duration",
    "label": "Timer Duration"
   },
   {

@@ -6,7 +6,7 @@ import json
 from lxml import etree as ET
 import frappe
 from frappe import _
-
+from frappe.utils import cint
 
 @frappe.whitelist()
 def save_process_model(

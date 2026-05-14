@@ -220,12 +220,18 @@ class BPMNProcessInstance(Document):
 			if row.status == "Waiting" and row.assigned_user
 		}
 
-		# Mark the active_tasks row as Completed
+		# Mark the active_tasks row as Completed and record timing
 		# (Frappe assignment cleanup is handled by _sync_active_tasks
 		# via a before/after diff to avoid close+recreate for the same user)
+		_completed_at = now_datetime()
 		for row in self.active_tasks:
 			if row.task_id == task_id:
 				row.status = "Completed"
+				row.end_time = _completed_at
+				if row.started_at:
+					row.timer_duration = int(
+						frappe.utils.time_diff_in_seconds(_completed_at, row.started_at)
+					)
 
 		self._log_task(
 			task_id=task_id,
@@ -1213,6 +1219,8 @@ class BPMNProcessInstance(Document):
 			bpmn_id_key = getattr(task.task_spec, "bpmn_id", None) or ""
 			task_cfg = getattr(self, "_user_task_extensions", {}).get(bpmn_id_key, {})
 			task_actions = task_cfg.get("taskActions", "")
+			target_doctype = self.context_doctype
+			target_docname = self.context_docname
 
 			self.append(
 				"active_tasks",
@@ -1225,6 +1233,8 @@ class BPMNProcessInstance(Document):
 					"assigned_user": assigned_user,
 					"assigned_role": assigned_role,
 					"task_actions": task_actions,
+					"target_doctype": target_doctype,
+					"target_docname": target_docname,
 				},
 			)
 
