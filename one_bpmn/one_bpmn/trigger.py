@@ -52,8 +52,7 @@ _FRAPPE_TO_TRIGGER_EVENT = {
 # process instance waiting for the corresponding User Task action is advanced.
 _FRAPPE_EVENT_TO_TASK_ACTION = {
 	"on_submit": "Submit",
-	"on_cancel": "Cancel",
-	"on_update": "Update"
+	"on_cancel": "Cancel"
 }
 
 # SpiffWorkflow BPMN extension namespace
