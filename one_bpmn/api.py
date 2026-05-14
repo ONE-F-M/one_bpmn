@@ -3029,6 +3029,7 @@ def complete_task(
 		frappe.throw(_("Task '{0}' is not in Waiting status.").format(active_row.task_name or task_id))
 
 	current_user = frappe.session.user
+	approved_ctc_name = None
 
 	# ── 1. USER ASSIGNMENT CHECK ─────────────────────────────────────────────
 	# Same as Frappe's "allow_edit" on workflow states — only the assigned
@@ -3044,12 +3045,28 @@ def complete_task(
 			is_doc_owner = doc_owner == current_user
 
 		if not is_doc_owner:
-			frappe.throw(
-				_("You are not authorized to complete this task. It is assigned to {0}.").format(
-					frappe.utils.get_fullname(assigned_user) or assigned_user
-				),
-				frappe.PermissionError,
-			)
+			# Allow if this specific user has an approved Contingency Task Completion
+			# for this context document.  Any other user's CTC does not grant access.
+			if instance.context_doctype and instance.context_docname:
+				approved_ctc_name = frappe.db.get_value(
+					"Contingency Task Completion",
+					{
+						"context_doctype": instance.context_doctype,
+						"context_docname": instance.context_docname,
+						"process_owner_user": current_user,
+						"status": "Approved",
+						"docstatus": 1,
+					},
+					"name",
+				)
+
+			if not approved_ctc_name:
+				frappe.throw(
+					_("You are not authorized to complete this task. It is assigned to {0}.").format(
+						frappe.utils.get_fullname(assigned_user) or assigned_user
+					),
+					frappe.PermissionError,
+				)
 
 	if assigned_role and current_user != "Administrator":
 		user_roles = frappe.get_roles(current_user)
@@ -3126,6 +3143,10 @@ def complete_task(
 			message=frappe.get_traceback(),
 		)
 		frappe.throw(_("Failed to complete task: {0}").format(str(exc)))
+
+	# ── Expire the CTC that authorised this action ───────────────────────────
+	if approved_ctc_name:
+		frappe.db.set_value("Contingency Task Completion", approved_ctc_name, "status", "Expired")
 
 	# ── Publish realtime events for auto-refresh ────────────────────────────
 	# 1. Notify the Processa frontend — broadcast to ALL users so anyone
