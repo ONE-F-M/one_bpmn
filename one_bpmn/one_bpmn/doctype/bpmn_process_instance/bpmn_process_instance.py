@@ -1259,7 +1259,7 @@ class BPMNProcessInstance(Document):
 		"""
 		if not user:
 			return user
-		
+
 		try:
 			today = frappe.utils.today()
 			employee = frappe.db.get_value(
