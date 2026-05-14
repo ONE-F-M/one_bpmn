@@ -166,14 +166,15 @@ def validate_bpmn_readiness(xml_content: str) -> dict:
 	Parse BPMN XML and check all prerequisites against the database.
 
 	Shared validation used by both import (informational) and deploy (blocking).
-	Checks 7 categories:
+	Checks 8 categories:
 	  1. DocTypes         — referenced doctypes must exist
 	  2. Fields           — referenced fields must exist on their doctypes
 	  3. Workflow States  — referenced states must exist as Workflow State records
 	  4. Workflow Actions — user task action labels must exist as Workflow Action Master records
 	  5. Server Scripts   — script task references must exist
-	  6. Frappe Workflows — active workflows are flagged as conflict warnings
-	  7. Assignment Rules — active rules are flagged as conflict warnings
+	  6. Lane Roles       — roles assigned to lanes must exist and be active
+	  7. Frappe Workflows — active workflows are flagged as conflict warnings
+	  8. Assignment Rules — active rules are flagged as conflict warnings
 
 	Args:
 		xml_content: Raw BPMN XML text
@@ -213,6 +214,9 @@ def validate_bpmn_readiness(xml_content: str) -> dict:
 
 	# Server Script names (from script tasks)
 	referenced_scripts = set()
+
+	# Lane roles (from lane name attributes)
+	referenced_lane_roles = set()
 
 	# ── Parse Start Events ────────────────────────────────────────────────
 	for start_event in root.iter(f"{{{BPMN_NS}}}startEvent"):
@@ -317,6 +321,12 @@ def validate_bpmn_readiness(xml_content: str) -> dict:
 		script_name = script_task.get(f"{{{SPIFF_NS}}}serverScript", "")
 		if script_name:
 			referenced_scripts.add(script_name)
+
+	# ── Parse Lane Roles ──────────────────────────────────────────────────
+	for lane in root.iter(f"{{{BPMN_NS}}}lane"):
+		role_name = lane.get("name", "").strip()
+		if role_name:
+			referenced_lane_roles.add(role_name)
 
 	# ── Extract email doc-fields from send_email service tasks ────────────
 	for service_task in root.iter(f"{{{BPMN_NS}}}serviceTask"):
@@ -435,7 +445,29 @@ def validate_bpmn_readiness(xml_content: str) -> dict:
 			"items": script_items,
 		})
 
-	# 6. Frappe Workflows (conflict warning — active = should disable)
+	# 6. Lane Roles
+	role_items = []
+	for role_name in sorted(referenced_lane_roles):
+		role = frappe.db.get_value("Role", role_name, ["name", "disabled"], as_dict=True)
+		if not role:
+			role_items.append({"name": role_name, "exists": False, "type": "check"})
+		elif role.disabled:
+			role_items.append({
+				"name": role_name,
+				"exists": False,
+				"type": "check",
+				"detail": _("Role exists but is disabled"),
+			})
+		else:
+			role_items.append({"name": role_name, "exists": True, "type": "check"})
+	if role_items:
+		categories.append({
+			"label": "Lane Roles",
+			"icon": "users",
+			"items": role_items,
+		})
+
+	# 7. Frappe Workflows (conflict warning — active = should disable)
 	from frappe.model.workflow import get_workflow_name
 
 	workflow_items = []
@@ -457,7 +489,7 @@ def validate_bpmn_readiness(xml_content: str) -> dict:
 			"items": workflow_items,
 		})
 
-	# 6. Assignment Rules (conflict warning — active = should disable)
+	# 8. Assignment Rules (conflict warning — active = should disable)
 	assignment_items = []
 	for dt in sorted(referenced_doctypes):
 		if not frappe.db.exists("DocType", dt):
