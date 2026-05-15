@@ -120,12 +120,6 @@
 					</div>
 				</div>
 
-				<!-- ── Context bar ────────────────────────────────────────── -->
-				<div class="lx-vars-bar">
-					<span class="lx-vars-label">Context vars:</span>
-					<span v-for="v in contextVars" :key="v" class="lx-var-chip">{{ v }}</span>
-				</div>
-
 				<!-- ── Input ──────────────────────────────────────────────── -->
 				<div class="lx-input-row">
 					<textarea
@@ -230,8 +224,6 @@ const copiedIndex      = ref(null);
 const pendingScriptName = ref("");
 
 // ── Computed helpers ──────────────────────────────────────────────────
-const contextVars = ["frappe.form_dict", "frappe.response[\"message\"]", "frappe.db", "frappe.get_doc"];
-
 const elementLabel = computed(() => {
 	if (!props.element) return "";
 	const bo = props.element.businessObject;
@@ -996,35 +988,6 @@ function handleClose() {
 	40%            { transform: scale(1);    opacity: 1;   }
 }
 
-/* ── Context vars bar ───────────────────────────────────────────────── */
-.lx-vars-bar {
-	display: flex;
-	align-items: center;
-	flex-wrap: wrap;
-	gap: 6px;
-	padding: 8px 20px;
-	background: #fffbfe;
-	border-top: 1px solid #e6e1e5;
-	flex-shrink: 0;
-}
-
-.lx-vars-label {
-	font-size: 11px;
-	font-weight: 600;
-	color: #79747e;
-	text-transform: uppercase;
-	letter-spacing: .5px;
-}
-
-.lx-var-chip {
-	background: #eaddff;
-	color: #21005d;
-	border-radius: 8px;
-	padding: 2px 9px;
-	font-size: 11.5px;
-	font-weight: 500;
-	font-family: "JetBrains Mono", monospace;
-}
 
 /* ── Input area ─────────────────────────────────────────────────────── */
 .lx-input-row {
