@@ -211,8 +211,29 @@ async function sendMessage(opts = {}) {
 			diagram_name: props.diagramName || "",
 		};
 		if (confirmedAction) body.confirmed_action = confirmedAction;
-		if (confirmedAction === "MODIFY_EXISTING" && props.getCanvasXml) {
-			body.current_xml = (await props.getCanvasXml()) || "";
+		if (confirmedAction === "MODIFY_EXISTING") {
+			if (!props.getCanvasXml) {
+				messages.value.push({
+					id:      makeId(),
+					role:    "assistant",
+					content: "I can't modify the existing diagram because the current canvas could not be loaded. Please reload the diagram and try again.",
+					time:    formatTime(new Date()),
+				});
+				return;
+			}
+
+			const currentXml = ((await props.getCanvasXml()) || "").trim();
+			if (!currentXml) {
+				messages.value.push({
+					id:      makeId(),
+					role:    "assistant",
+					content: "I can't modify the existing diagram because the current canvas is empty. Please reload the diagram and try again.",
+					time:    formatTime(new Date()),
+				});
+				return;
+			}
+
+			body.current_xml = currentXml;
 		}
 
 		const response = await fetch("/api/method/one_bpmn.api.prosally_chat", {
