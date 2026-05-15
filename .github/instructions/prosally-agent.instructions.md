@@ -7,51 +7,12 @@ applyTo:
 
 # ProsAlly AI Assistant
 
-ProsAlly is an AI assistant embedded in the Processa BPMN editor. It lets users generate, overwrite, and modify BPMN process models using natural language. It is powered by Google ADK (`LlmAgent`, `Runner`, `InMemorySessionService`) and uses `gemini-2.0-flash` by default.
+This file is intentionally a pointer, not a second full copy of the instructions.
 
-## Architecture: 5-Agent Pipeline
+**Canonical source of truth:** `one_bpmn/agents/google_adk/prosally_agent/prosally-agent.instructions.md`
 
-```
-User message
-  └─► IntentClassifier  →  GENERATE_NEW | OVERWRITE_EXISTING | MODIFY_EXISTING
-      │                     AMBIGUOUS | INCOMPLETE | IRRELEVANT
-      │
-      ├─ IRRELEVANT       → polite redirect (no agent invoked)
-      ├─ AMBIGUOUS /
-      │  INCOMPLETE       → Clarifier   (asks ONE focused question, returns options array)
-      │
-      └─ Action intent    → Confirmer   (summarises what ProsAlly will do, asks "Shall I proceed?")
-                               │
-                       User confirms ("Yes, proceed")
-                               │
-                   ┌───────────┴──────────────┐
-          GENERATE_NEW /               MODIFY_EXISTING
-          OVERWRITE_EXISTING           (+ canvas XML present)
-                   │                          │
-           ProcessGenerator            ProcessModifier
-                   │                          │
-           BPMN_GENERATED              BPMN_MODIFIED
-                   └──────────┬───────────────┘
-                        layoutBpmnXml()    ← pure-JS DOM layout (bpmnLayout.js)
-                        BpmnEditor.loadXML()
-```
-
-Every agent is a separate `LlmAgent` instance. They do NOT share session state across pipeline steps — each step calls `_run_agent()` with the same `session_id` but a fresh prompt.
-
-## Intent Taxonomy
-
-| Intent | Meaning |
-|---|---|
-| `GENERATE_NEW` | Draw a brand-new process on an empty canvas |
-| `OVERWRITE_EXISTING` | Completely replace the existing model from scratch |
-| `MODIFY_EXISTING` | Add, remove, or change a specific element; rest of model untouched |
-| `AMBIGUOUS` | Multiple plausible interpretations; cannot determine action |
-| `INCOMPLETE` | Action is clear but critical detail is missing (name, steps, actors) |
-| `IRRELEVANT` | Request is not about process modelling |
-
-Classification rules:
-- `GENERATE_NEW` when user says "draw / create / build / design" a new process with no existing model.
-- `OVERWRITE_EXISTING` when user says "redo / redraw / replace / start over" for the whole model.
+Do not update architecture, intent taxonomy, return-shape keys, layout rules, or prompt guidance here.
+Make all instruction changes in the canonical in-tree file above so `.github/instructions` cannot drift from the agent implementation docs.
 - `MODIFY_EXISTING` when user names a specific step, task, gateway, lane, or section to add/remove/change.
 - Prefer `INCOMPLETE` over `AMBIGUOUS` when uncertain between the two.
 
