@@ -18,6 +18,7 @@ declare module 'vue' {
     FormattingToolbar: typeof import('./src/components/FormattingToolbar.vue')['default']
     InstanceHeader: typeof import('./src/components/process_instance/InstanceHeader.vue')['default']
     InstanceHistory: typeof import('./src/components/process_instance/InstanceHistory.vue')['default']
+    LogixCanvas: typeof import('./src/components/LogixCanvas.vue')['default']
     LogixChat: typeof import('./src/components/LogixChat.vue')['default']
     NotificationLinkDialog: typeof import('./src/components/NotificationLinkDialog.vue')['default']
     PendingActions: typeof import('./src/components/process_instance/PendingActions.vue')['default']

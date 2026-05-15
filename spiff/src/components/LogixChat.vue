@@ -34,12 +34,19 @@
 
 				<!-- ── Messages ───────────────────────────────────────────── -->
 				<div class="lx-messages" ref="messagesEl">
+
+					<!-- Welcome state (shown before first message) -->
+					<div v-if="messages.length === 0" class="lx-welcome">
+						<div class="lx-welcome-title">Hello, I am Logix</div>
+						<div class="lx-welcome-sub">Your AI assistant for server scripts</div>
+					</div>
+
 					<div
 						v-for="msg in messages"
 						:key="msg.id"
-						:class="['lx-msg', msg.role]"
+						:class="['lx-msg-row', msg.role]"
 					>
-						<!-- Avatar for assistant -->
+						<!-- Avatar for assistant messages -->
 						<div v-if="msg.role === 'assistant'" class="lx-avatar">
 							<svg viewBox="0 0 24 24" fill="currentColor">
 								<path d="M13 2L3 14h9l-1 8 10-12h-9l1-8z"/>
@@ -47,15 +54,15 @@
 						</div>
 
 						<div class="lx-msg-body">
-							<div class="lx-bubble">
-								<!-- Render each parsed part -->
+							<div :class="msg.role === 'user' ? 'lx-bubble-user' : 'lx-bubble-bot'">
+								<!-- Render parsed parts -->
 								<template v-for="(part, pi) in parseMessage(msg.content)" :key="pi">
-									<p v-if="part.type === 'text'" v-html="formatText(part.content)" class="lx-text-part"></p>
+									<div v-if="part.type === 'text'" v-html="renderMarkdown(part.content)" class="lx-text-part"></div>
 									<div v-else-if="part.type === 'code'" class="lx-code-block">
 										<div class="lx-code-header">
 											<span class="lx-code-lang">{{ part.lang || 'python' }}</span>
 											<div class="lx-code-actions">
-												<button class="lx-copy-btn" @click="copyCode(part.content)" title="Copy">
+												<button class="lx-copy-btn" @click="copyCode(part.content, `${msg.id}-${pi}`)" title="Copy">
 													<svg viewBox="0 0 24 24" fill="currentColor" width="14" height="14">
 														<path d="M16 1H4c-1.1 0-2 .9-2 2v14h2V3h12V1zm3 4H8c-1.1 0-2 .9-2 2v14c0 1.1.9 2 2 2h11c1.1 0 2-.9 2-2V7c0-1.1-.9-2-2-2zm0 16H8V7h11v14z"/>
 													</svg>
@@ -76,9 +83,19 @@
 										<pre class="lx-code-pre"><code>{{ part.content }}</code></pre>
 									</div>
 								</template>
+								<!-- Copy button on assistant messages (shows on hover) -->
+								<div v-if="msg.role === 'assistant'" class="lx-message-actions">
+									<button class="lx-copy-msg-btn" @click="copyMessage(msg.content)" title="Copy message">
+										<svg xmlns="http://www.w3.org/2000/svg" width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+											<rect width="14" height="14" x="8" y="8" rx="2" ry="2"/>
+											<path d="M4 16c-1.1 0-2-.9-2-2V4c0-1.1.9-2 2-2h10c1.1 0 2 .9 2 2"/>
+										</svg>
+									</button>
+								</div>
 							</div>
-							<div class="lx-msg-time">{{ msg.time }}</div>
+							<div class="lx-msg-time" :class="msg.role === 'user' ? 'lx-time-right' : 'lx-time-left'">{{ msg.time }}</div>
 						</div>
+
 						<!-- Split diff view for MODIFY intent -->
 						<div v-if="msg.diffRows?.length" class="lx-split-diff">
 							<div class="lx-split-header">
@@ -92,7 +109,8 @@
 								</div>
 							</div>
 						</div>
-						<!-- Inline action buttons (link / create-new / clarify / approve / reject) -->
+
+						<!-- Inline action buttons -->
 						<div v-if="msg.actions?.length" class="lx-msg-actions">
 							<button
 								v-for="action in msg.actions"
@@ -104,14 +122,14 @@
 					</div>
 
 					<!-- Typing indicator -->
-					<div v-if="isTyping" class="lx-msg assistant">
+					<div v-if="isTyping" class="lx-msg-row assistant">
 						<div class="lx-avatar">
 							<svg viewBox="0 0 24 24" fill="currentColor">
 								<path d="M13 2L3 14h9l-1 8 10-12h-9l1-8z"/>
 							</svg>
 						</div>
 						<div class="lx-msg-body">
-							<div class="lx-bubble lx-typing-bubble">
+							<div class="lx-bubble-bot lx-typing-bubble">
 								<div class="lx-typing">
 									<span></span><span></span><span></span>
 								</div>
@@ -120,26 +138,44 @@
 					</div>
 				</div>
 
-				<!-- ── Input ──────────────────────────────────────────────── -->
-				<div class="lx-input-row">
-					<textarea
-						ref="inputEl"
-						v-model="inputText"
-						@keydown="handleKeydown"
-						placeholder="Describe the script you need… (Enter to send, Shift+Enter for new line)"
-						class="lx-textarea"
-						rows="2"
-					></textarea>
-					<button
-						class="lx-send-btn"
-						@click="sendMessage"
-						:disabled="!inputText.trim() || isTyping"
-						title="Send"
-					>
-						<svg viewBox="0 0 24 24" fill="currentColor" width="20" height="20">
-							<path d="M2.01 21L23 12 2.01 3 2 10l15 2-15 2z"/>
-						</svg>
-					</button>
+				<!-- ── Input area (Lumina style) ──────────────────────────── -->
+				<div class="lx-input-area">
+					<div class="lx-toolbar-row">
+						<div class="lx-toolbar">
+							<button class="lx-toolbar-btn" @mousedown.prevent="execCmd('bold')" title="Bold"><b>B</b></button>
+							<button class="lx-toolbar-btn" @mousedown.prevent="execCmd('italic')" title="Italic"><i>I</i></button>
+							<button class="lx-toolbar-btn" @mousedown.prevent="execCmd('underline')" title="Underline"><u>U</u></button>
+							<button class="lx-toolbar-btn" @mousedown.prevent="insertLink" title="Link">
+								<svg viewBox="0 0 24 24" fill="currentColor" width="14" height="14"><path d="M3.9 12c0-1.71 1.39-3.1 3.1-3.1h4V7H7c-2.76 0-5 2.24-5 5s2.24 5 5 5h4v-1.9H7c-1.71 0-3.1-1.39-3.1-3.1zM8 13h8v-2H8v2zm9-6h-4v1.9h4c1.71 0 3.1 1.39 3.1 3.1s-1.39 3.1-3.1 3.1h-4V17h4c2.76 0 5-2.24 5-5s-2.24-5-5-5z"/></svg>
+							</button>
+							<button class="lx-toolbar-btn" @mousedown.prevent="execCmd('insertUnorderedList')" title="Bulleted list">
+								<svg viewBox="0 0 24 24" fill="currentColor" width="14" height="14"><path d="M4 10.5c-.83 0-1.5.67-1.5 1.5s.67 1.5 1.5 1.5 1.5-.67 1.5-1.5-.67-1.5-1.5-1.5zm0-6c-.83 0-1.5.67-1.5 1.5S3.17 7.5 4 7.5 5.5 6.83 5.5 6 4.83 4.5 4 4.5zm0 12c-.83 0-1.5.68-1.5 1.5s.68 1.5 1.5 1.5 1.5-.68 1.5-1.5-.67-1.5-1.5-1.5zM7 19h14v-2H7v2zm0-6h14v-2H7v2zm0-8v2h14V5H7z"/></svg>
+							</button>
+							<button class="lx-toolbar-btn" @mousedown.prevent="execCmd('insertOrderedList')" title="Numbered list">
+								<svg viewBox="0 0 24 24" fill="currentColor" width="14" height="14"><path d="M2 17h2v.5H3v1h1v.5H2v1h3v-4H2v1zm1-9h1V4H2v1h1v3zm-1 3h1.8L2 13.1v.9h3v-1H3.2L5 10.9V10H2v1zm5-6v2h14V5H7zm0 14h14v-2H7v2zm0-6h14v-2H7v2z"/></svg>
+							</button>
+						</div>
+					</div>
+					<div class="lx-editor-row">
+						<div
+							ref="inputEl"
+							class="lx-editor"
+							contenteditable="true"
+							data-placeholder="Describe the script you need… (Enter to send, Shift+Enter for new line)"
+							@keydown="handleKeydown"
+							@input="onEditorInput"
+						></div>
+						<button
+							class="lx-send-btn"
+							@click="sendMessage"
+							:disabled="!editorHasContent || isTyping"
+							title="Send"
+						>
+							<svg viewBox="0 0 24 24" fill="currentColor" width="20" height="20">
+								<path d="M2.01 21L23 12 2.01 3 2 10l15 2-15 2z"/>
+							</svg>
+						</button>
+					</div>
 				</div>
 			</div>
 		</div>
@@ -184,6 +220,10 @@
 
 <script setup>
 import { ref, computed, watch, nextTick } from "vue";
+import DOMPurify from "dompurify";
+import { marked } from "marked";
+
+marked.setOptions({ gfm: true, breaks: true });
 
 function getCsrfToken() {
 	return (
@@ -206,12 +246,12 @@ const props = defineProps({
 const emit = defineEmits(["update:modelValue"]);
 
 // ── State ─────────────────────────────────────────────────────────────
-const messages      = ref([]);
-const inputText     = ref("");
-const isTyping      = ref(false);
-const sessionId     = ref(generateSessionId());
-const messagesEl    = ref(null);
-const inputEl       = ref(null);
+const messages         = ref([]);
+const editorHasContent = ref(false);
+const isTyping         = ref(false);
+const sessionId        = ref(generateSessionId());
+const messagesEl       = ref(null);
+const inputEl          = ref(null);
 
 const showApplyDialog = ref(false);
 const applyScriptName = ref("");
@@ -220,7 +260,7 @@ const applyError      = ref("");
 const applyLoading    = ref(false);
 const applyNameInput  = ref(null);
 
-const copiedIndex      = ref(null);
+const copiedIndex       = ref(null);
 const pendingScriptName = ref("");
 
 // ── Computed helpers ──────────────────────────────────────────────────
@@ -238,7 +278,6 @@ watch(() => props.modelValue, (open) => {
 	}
 });
 
-// Reset conversation whenever the user switches to a different Script Task
 watch(
 	() => [props.element?.id, props.currentScript],
 	([newId], [oldId]) => {
@@ -270,10 +309,50 @@ function scrollBottom() {
 	});
 }
 
+// ── Editor helpers ────────────────────────────────────────────────────
+function onEditorInput() {
+	editorHasContent.value = !!(inputEl.value?.innerText?.trim());
+}
+
+function getEditorText() {
+	return (inputEl.value?.innerText || inputEl.value?.textContent || "").trim();
+}
+
+function clearEditor() {
+	if (inputEl.value) {
+		inputEl.value.innerHTML = "";
+		editorHasContent.value = false;
+	}
+}
+
+function execCmd(cmd) {
+	document.execCommand(cmd, false, null);
+	inputEl.value?.focus();
+}
+
+function insertLink() {
+	const url = prompt("Enter URL:");
+	if (url) document.execCommand("createLink", false, url);
+	inputEl.value?.focus();
+}
+
+// ── Markdown rendering ────────────────────────────────────────────────
+function renderMarkdown(text) {
+	if (!text) return "";
+	const html = marked.parse(text);
+	return DOMPurify.sanitize(html, {
+		ALLOWED_TAGS: ["b","i","u","s","strong","em","strike","del","a","p","br","div","span",
+			"ul","ol","li","h1","h2","h3","h4","h5","h6","code","pre","blockquote","hr",
+			"table","thead","tbody","tr","th","td"],
+		ALLOWED_ATTR: ["href","title","target","rel","src","alt","width","height","class","align"],
+		ALLOWED_URI_REGEXP: /^(?:(?:https?|mailto):)/i,
+	});
+}
+
+// ── Greeting ──────────────────────────────────────────────────────────
 async function initGreeting() {
 	const label = elementLabel.value;
 
-	// Case 1: Script already linked to this task
 	if (props.currentScript) {
 		messages.value = [{
 			id: makeId(), role: "assistant", time: formatTime(new Date()),
@@ -282,7 +361,6 @@ async function initGreeting() {
 		return;
 	}
 
-	// Case 2: No script linked — check if one with the same name as the task already exists
 	if (label) {
 		try {
 			const resp = await fetch(
@@ -303,9 +381,8 @@ async function initGreeting() {
 					return;
 				}
 			}
-		} catch (_) { /* fall through to default */ }
+		} catch (_) { /* fall through */ }
 
-		// No matching script found — offer to define a new one
 		messages.value = [{
 			id: makeId(), role: "assistant", time: formatTime(new Date()),
 			content: `Hello, I am Logix.\nHappy to help with the server scripts\nHow would you like me to assist in defining the **${label}** server script?`,
@@ -313,18 +390,17 @@ async function initGreeting() {
 		return;
 	}
 
-	// Case 3: No script, no label (rare edge case)
 	messages.value = [{
 		id: makeId(), role: "assistant", time: formatTime(new Date()),
 		content: `Hello, I am Logix.\nHappy to help with the server scripts\nDescribe what you'd like the new server script to do and I'll write it for you.`,
 	}];
 }
 
+// ── Message actions ───────────────────────────────────────────────────
 async function handleMessageAction(handler, msgId, value = "") {
 	const label = elementLabel.value;
 	const msg   = messages.value.find(m => m.id === msgId);
 
-	// ── Greeting-level actions ────────────────────────────────────────
 	if (handler === "link_existing") {
 		if (props.eventBus) {
 			props.eventBus.fire("spiff.script.update", {
@@ -346,10 +422,12 @@ async function handleMessageAction(handler, msgId, value = "") {
 
 	} else if (handler === "clarify") {
 		if (msg) msg.actions = null;
-		inputText.value = value;
+		if (inputEl.value) {
+			inputEl.value.innerText = value;
+			editorHasContent.value = true;
+		}
 		sendMessage();
 
-	// ── CREATE intent ─────────────────────────────────────────────────
 	} else if (handler === "approve_create") {
 		const name = pendingScriptName.value || label;
 		const code = msg?.modified_script || "";
@@ -386,7 +464,6 @@ async function handleMessageAction(handler, msgId, value = "") {
 			scrollBottom();
 		}
 
-	// ── MODIFY intent ─────────────────────────────────────────────────
 	} else if (handler === "approve_modify") {
 		const scriptName = props.currentScript;
 		const code       = msg?.modified_script || "";
@@ -443,17 +520,6 @@ function parseMessage(content) {
 	return parts;
 }
 
-function formatText(text) {
-	return text
-		.replace(/&/g,  "&amp;")
-		.replace(/</g,  "&lt;")
-		.replace(/>/g,  "&gt;")
-		.replace(/\*\*(.+?)\*\*/g, "<strong>$1</strong>")
-		.replace(/\*(.+?)\*/g,     "<em>$1</em>")
-		.replace(/`([^`]+)`/g,     "<code class=\"lx-inline-code\">$1</code>")
-		.replace(/\n/g, "<br>");
-}
-
 // ── Send / receive ────────────────────────────────────────────────────
 function handleKeydown(e) {
 	if (e.key === "Enter" && !e.shiftKey) {
@@ -463,10 +529,10 @@ function handleKeydown(e) {
 }
 
 async function sendMessage() {
-	const text = inputText.value.trim();
+	const text = getEditorText();
 	if (!text || isTyping.value) return;
 
-	inputText.value = "";
+	clearEditor();
 	messages.value.push({ id: makeId(), role: "user", content: text, time: formatTime(new Date()) });
 	scrollBottom();
 	isTyping.value = true;
@@ -492,12 +558,12 @@ async function sendMessage() {
 		});
 
 		if (!response.ok) throw new Error(`HTTP ${response.status}`);
-		const data       = await response.json();
-		const result     = data?.message;                                          // {intent, response, diff, options, suggested_name}
-		const reply      = result?.response || result?.message || "Sorry, I couldn't process that.";
-		const intent     = result?.intent;
-		const diff       = result?.diff   || null;
-		const options    = result?.options || null;
+		const data   = await response.json();
+		const result = data?.message;
+		const reply  = result?.response || result?.message || "Sorry, I couldn't process that.";
+		const intent = result?.intent;
+		const diff   = result?.diff   || null;
+		const options = result?.options || null;
 
 		if (intent === "CREATE" && result?.suggested_name) {
 			pendingScriptName.value = result.suggested_name;
@@ -507,7 +573,6 @@ async function sendMessage() {
 
 		if (intent === "DISAMBIGUATE" && options?.length) {
 			msg.actions = options.map(o => ({ label: o, handler: "clarify", value: o }));
-
 		} else if (intent === "MODIFY") {
 			msg.modified_script = result?.modified_script || extractCode(reply);
 			if (diff) msg.diffRows = parseSplitDiff(diff);
@@ -515,7 +580,6 @@ async function sendMessage() {
 				{ label: "Approve & Save", handler: "approve_modify" },
 				{ label: "Reject",         handler: "reject_modify"  },
 			];
-
 		} else if (intent === "CREATE") {
 			msg.modified_script = result?.modified_script || extractCode(reply);
 			msg.actions = [{ label: "Approve", handler: "approve_create" }];
@@ -547,7 +611,6 @@ function parseSplitDiff(unifiedDiff) {
 	const rows  = [];
 	const lines = (unifiedDiff || "").split("\n");
 	let i = 0;
-	// skip file headers
 	while (i < lines.length && (lines[i].startsWith("---") || lines[i].startsWith("+++"))) i++;
 	while (i < lines.length) {
 		const line = lines[i];
@@ -580,19 +643,23 @@ function parseSplitDiff(unifiedDiff) {
 function splitCellClass(row, side) {
 	if (row.type === "hunk")      return "lx-sdiff-hunk";
 	if (row.type === "unchanged") return "";
-	if (row.type === "deleted")   return side === "left"  ? "lx-sdiff-del"   : "lx-sdiff-empty";
-	if (row.type === "added")     return side === "right" ? "lx-sdiff-add"   : "lx-sdiff-empty";
-	if (row.type === "changed")   return side === "left"  ? "lx-sdiff-del"   : "lx-sdiff-add";
+	if (row.type === "deleted")   return side === "left"  ? "lx-sdiff-del"  : "lx-sdiff-empty";
+	if (row.type === "added")     return side === "right" ? "lx-sdiff-add"  : "lx-sdiff-empty";
+	if (row.type === "changed")   return side === "left"  ? "lx-sdiff-del"  : "lx-sdiff-add";
 	return "";
 }
 
-// ── Copy code ─────────────────────────────────────────────────────────
-async function copyCode(code) {
+// ── Copy helpers ──────────────────────────────────────────────────────
+async function copyCode(code, index) {
 	try {
 		await navigator.clipboard.writeText(code);
-	} catch {
-		/* fallback */
-	}
+		copiedIndex.value = index;
+		setTimeout(() => { copiedIndex.value = null; }, 2000);
+	} catch { /* fallback */ }
+}
+
+async function copyMessage(content) {
+	try { await navigator.clipboard.writeText(content); } catch { /* fallback */ }
 }
 
 // ── Apply script ──────────────────────────────────────────────────────
@@ -618,11 +685,7 @@ async function applyScript() {
 				"Content-Type":       "application/json",
 				"X-Frappe-CSRF-Token": getCsrfToken(),
 			},
-			body: JSON.stringify({
-				script_name:  name,
-				script_type:  "API",
-				script:       applyScriptCode.value,
-			}),
+			body: JSON.stringify({ script_name: name, script_type: "API", script: applyScriptCode.value }),
 		});
 
 		if (!res.ok) {
@@ -631,10 +694,9 @@ async function applyScript() {
 		}
 
 		const data       = await res.json();
-		const scriptName = data?.message?.name     || name;
-		const apiUrl     = data?.message?.api_url  || "";
+		const scriptName = data?.message?.name    || name;
+		const apiUrl     = data?.message?.api_url || "";
 
-		// Fire back to BPMN editor
 		if (props.eventBus) {
 			props.eventBus.fire("spiff.script.update", {
 				element:    props.element,
@@ -654,8 +716,6 @@ async function applyScript() {
 			time:    formatTime(new Date()),
 		});
 		scrollBottom();
-
-		// Close chat after a short delay
 		setTimeout(() => handleClose(), 1400);
 	} catch (err) {
 		applyError.value = err.message || "Failed to create script. Please try again.";
@@ -668,6 +728,7 @@ async function applyScript() {
 function resetConversation() {
 	sessionId.value = generateSessionId();
 	messages.value  = [];
+	clearEditor();
 	initGreeting();
 }
 
@@ -677,11 +738,11 @@ function handleClose() {
 </script>
 
 <style scoped>
-/* ── MD3 design tokens ──────────────────────────────────────────────── */
+/* ── Scrim ──────────────────────────────────────────────────────────── */
 .lx-scrim {
 	position: fixed;
 	inset: 0;
-	background: rgba(0, 0, 0, 0.50);
+	background: rgba(0, 0, 0, 0.45);
 	display: flex;
 	align-items: center;
 	justify-content: center;
@@ -695,9 +756,9 @@ function handleClose() {
 	flex-direction: column;
 	width: min(780px, 92vw);
 	height: min(680px, 90vh);
-	background: #fffbfe;
-	border-radius: 28px;
-	box-shadow: 0 4px 8px 3px rgba(0,0,0,.15), 0 1px 3px rgba(0,0,0,.30);
+	background: #fff;
+	border-radius: 12px;
+	box-shadow: 0 8px 32px rgba(0,0,0,.18), 0 2px 8px rgba(0,0,0,.10);
 	overflow: hidden;
 	font-family: "Google Sans", Roboto, "Segoe UI", system-ui, sans-serif;
 }
@@ -707,9 +768,8 @@ function handleClose() {
 	display: flex;
 	align-items: center;
 	justify-content: space-between;
-	padding: 14px 20px;
-	background: #6750a4;
-	color: #fff;
+	padding: 12px 16px;
+	background: linear-gradient(135deg, #6c3fe0 0%, #9b59b6 100%);
 	flex-shrink: 0;
 }
 
@@ -724,33 +784,35 @@ function handleClose() {
 	display: flex;
 	align-items: center;
 	justify-content: center;
-	width: 32px;
-	height: 32px;
+	width: 30px;
+	height: 30px;
 	border-radius: 50%;
-	background: rgba(255,255,255,.20);
+	background: rgba(255,255,255,0.2);
 	flex-shrink: 0;
+	color: #fff;
 }
 
 .lx-logo-icon svg {
-	width: 18px;
-	height: 18px;
-	fill: #fff;
+	width: 16px;
+	height: 16px;
 }
 
 .lx-title {
-	font-size: 18px;
+	font-size: 16px;
 	font-weight: 600;
-	letter-spacing: .25px;
+	color: #fff;
+	letter-spacing: .1px;
 	flex-shrink: 0;
 }
 
 .lx-context-chip {
-	background: rgba(255,255,255,.18);
-	border: 1px solid rgba(255,255,255,.30);
-	border-radius: 8px;
+	background: rgba(255,255,255,0.2);
+	border: 1px solid rgba(255,255,255,0.3);
+	border-radius: 6px;
 	padding: 2px 10px;
 	font-size: 12px;
 	font-weight: 500;
+	color: rgba(255,255,255,0.9);
 	max-width: 200px;
 	overflow: hidden;
 	text-overflow: ellipsis;
@@ -767,64 +829,82 @@ function handleClose() {
 	display: flex;
 	align-items: center;
 	justify-content: center;
-	width: 36px;
-	height: 36px;
+	width: 32px;
+	height: 32px;
 	border: none;
 	border-radius: 50%;
-	background: transparent;
+	background: rgba(255,255,255,0.15);
 	color: #fff;
 	cursor: pointer;
-	transition: background 0.2s;
+	transition: background 0.18s;
 	flex-shrink: 0;
 }
 
-.lx-icon-btn:hover {
-	background: rgba(255,255,255,.12);
-}
-
+.lx-icon-btn:hover { background: rgba(255,255,255,0.28); }
 .lx-icon-btn svg { display: block; }
 
 /* ── Messages area ──────────────────────────────────────────────────── */
 .lx-messages {
 	flex: 1;
 	overflow-y: auto;
-	padding: 20px 20px 8px;
-	background: #f3edf7;
+	padding: 24px;
+	background: #fff;
 	display: flex;
 	flex-direction: column;
-	gap: 12px;
+	gap: 18px;
 }
 
 .lx-messages::-webkit-scrollbar { width: 6px; }
 .lx-messages::-webkit-scrollbar-track { background: transparent; }
-.lx-messages::-webkit-scrollbar-thumb { background: #cac4d0; border-radius: 3px; }
+.lx-messages::-webkit-scrollbar-thumb { background: #ddd; border-radius: 3px; }
 
-/* ── Individual message ─────────────────────────────────────────────── */
-.lx-msg {
+/* ── Welcome state ──────────────────────────────────────────────────── */
+.lx-welcome {
 	display: flex;
+	flex-direction: column;
+	align-items: center;
+	justify-content: center;
+	flex: 1;
+	text-align: center;
+	padding-top: 60px;
+}
+
+.lx-welcome-title {
+	font-size: 1.4em;
+	color: #444;
+	font-weight: 500;
+	margin-bottom: 8px;
+}
+
+.lx-welcome-sub {
+	font-size: 1em;
+	color: #888;
+}
+
+/* ── Individual message row ─────────────────────────────────────────── */
+.lx-msg-row {
+	display: flex;
+	flex-direction: row;
 	gap: 10px;
-	max-width: 88%;
+	align-items: flex-start;
+	width: 100%;
 }
 
-.lx-msg.user {
-	align-self: flex-end;
-	flex-direction: row-reverse;
-}
+.lx-msg-row.user      { flex-direction: row-reverse; }
+.lx-msg-row.assistant { /* full width by default */ }
 
-.lx-msg.assistant {
-	align-self: flex-start;
-}
-
+/* ── Avatar ─────────────────────────────────────────────────────────── */
 .lx-avatar {
 	width: 32px;
 	height: 32px;
 	border-radius: 50%;
-	background: #6750a4;
+	background: linear-gradient(135deg, #6c3fe0 0%, #9b59b6 100%);
 	display: flex;
 	align-items: center;
 	justify-content: center;
 	flex-shrink: 0;
 	margin-top: 2px;
+	color: #fff;
 }
 
 .lx-avatar svg {
@@ -836,63 +916,110 @@ function handleClose() {
 .lx-msg-body {
 	display: flex;
 	flex-direction: column;
-	gap: 3px;
+	gap: 4px;
 	min-width: 0;
 }
 
-.lx-bubble {
-	padding: 12px 16px;
-	border-radius: 18px;
-	font-size: 14px;
-	line-height: 1.55;
-	word-break: break-word;
-}
+.lx-msg-row.user .lx-msg-body      { align-items: flex-end; max-width: 75%; }
+.lx-msg-row.assistant .lx-msg-body { align-items: flex-start; max-width: calc(100% - 44px); }
 
-.lx-msg.user .lx-bubble {
-	background: #6750a4;
+/* ── Bubbles (Lumina style) ─────────────────────────────────────────── */
+.lx-bubble-user {
+	background: linear-gradient(135deg, #6c3fe0 0%, #9b59b6 100%);
 	color: #fff;
-	border-bottom-right-radius: 4px;
+	padding: 12px 18px;
+	border-radius: 18px 18px 4px 18px;
+	font-size: 1em;
+	box-shadow: 0 2px 8px rgba(108, 63, 224, 0.25);
+	overflow-wrap: break-word;
+	word-break: break-word;
+	position: relative;
 }
 
-.lx-msg.assistant .lx-bubble {
-	background: #fffbfe;
-	color: #1c1b1f;
-	border: 1px solid #e6e1e5;
-	border-bottom-left-radius: 4px;
+.lx-bubble-bot {
+	background: #f7f7fa;
+	color: #000;
+	padding: 12px 18px;
+	border-radius: 18px 18px 18px 4px;
+	font-size: 1em;
+	box-shadow: 0 2px 8px rgba(0, 0, 0, 0.04);
+	overflow-wrap: break-word;
+	word-break: break-word;
+	position: relative;
+	display: flex;
+	flex-direction: column;
 }
-
-.lx-msg-time {
-	font-size: 11px;
-	color: #79747e;
-	padding: 0 4px;
-}
-
-.lx-msg.user .lx-msg-time { text-align: right; }
 
 /* ── Text parts ─────────────────────────────────────────────────────── */
 .lx-text-part {
 	margin: 0;
-	white-space: pre-wrap;
+	line-height: 1.55;
 }
 
-.lx-text-part + .lx-text-part { margin-top: 6px; }
+.lx-text-part :deep(p) { margin: 0 0 6px; }
+.lx-text-part :deep(p:last-child) { margin-bottom: 0; }
+.lx-text-part :deep(ul), .lx-text-part :deep(ol) { margin: 4px 0 4px 1.2em; }
+.lx-text-part :deep(code) {
+	background: #f0f0f0;
+	border-radius: 3px;
+	padding: 1px 4px;
+	font-family: monospace;
+	font-size: 0.9em;
+}
+
+/* ── Timestamp ──────────────────────────────────────────────────────── */
+.lx-msg-time {
+	font-size: 0.82em;
+	color: #888;
+	margin-top: 3px;
+}
+
+.lx-time-right { text-align: right; }
+.lx-time-left  { text-align: left; }
+
+/* ── Message copy button (appears on hover) ─────────────────────────── */
+.lx-message-actions {
+	margin-top: 8px;
+	display: flex;
+	gap: 8px;
+	opacity: 0.5;
+	transition: opacity 0.2s;
+}
+
+.lx-bubble-bot:hover .lx-message-actions { opacity: 1; }
+
+.lx-copy-msg-btn {
+	background: transparent;
+	border: none;
+	padding: 3px;
+	cursor: pointer;
+	color: #777;
+	display: flex;
+	align-items: center;
+	border-radius: 4px;
+	transition: background 0.18s, color 0.18s;
+}
+
+.lx-copy-msg-btn:hover {
+	background: rgba(0, 0, 0, 0.08);
+	color: #333;
+}
 
 /* ── Inline code ────────────────────────────────────────────────────── */
 :deep(.lx-inline-code) {
-	background: #ece6f0;
+	background: #f0f0f0;
 	border-radius: 4px;
 	padding: 1px 5px;
-	font-family: "JetBrains Mono", "Cascadia Code", monospace;
-	font-size: 12px;
-	color: #21005d;
+	font-family: monospace;
+	font-size: 0.9em;
 }
 
 /* ── Code block ─────────────────────────────────────────────────────── */
 .lx-code-block {
 	margin: 8px -4px 4px;
-	border-radius: 12px;
+	border-radius: 8px;
 	overflow: hidden;
-	border: 1px solid #e6e1e5;
+	border: 1px solid #e0e0e0;
 }
 
 .lx-code-header {
@@ -900,13 +1027,13 @@ function handleClose() {
 	align-items: center;
 	justify-content: space-between;
 	padding: 6px 12px;
-	background: #ece6f0;
+	background: #f5f5f5;
 }
 
 .lx-code-lang {
 	font-size: 11px;
 	font-weight: 600;
-	color: #49454f;
+	color: #555;
 	text-transform: uppercase;
 	letter-spacing: .5px;
 	font-family: monospace;
@@ -924,29 +1051,28 @@ function handleClose() {
 	align-items: center;
 	gap: 4px;
 	border: none;
-	border-radius: 8px;
+	border-radius: 6px;
 	padding: 4px 10px;
 	font-size: 12px;
 	font-weight: 500;
 	cursor: pointer;
-	transition: background 0.2s, opacity 0.2s;
+	transition: background 0.18s;
 	font-family: inherit;
 }
 
 .lx-copy-btn {
-	background: rgba(103,80,164,.08);
-	color: #6750a4;
+	background: rgba(0,0,0,.06);
+	color: #444;
 }
 
-.lx-copy-btn:hover { background: rgba(103,80,164,.16); }
+.lx-copy-btn:hover { background: rgba(0,0,0,.12); }
 
 .lx-apply-btn {
-	background: #6750a4;
+	background: linear-gradient(135deg, #6c3fe0 0%, #9b59b6 100%);
 	color: #fff;
 }
 
-.lx-apply-btn:hover { background: #7965af; }
-.lx-apply-btn:active { background: #5b4398; }
+.lx-apply-btn:hover { opacity: 0.88; }
 
 .lx-code-pre {
 	margin: 0;
@@ -976,7 +1102,7 @@ function handleClose() {
 	width: 7px;
 	height: 7px;
 	border-radius: 50%;
-	background: #6750a4;
+	background: #aaa;
 	animation: lx-bounce 1.4s infinite ease-in-out;
 }
 
@@ -988,47 +1114,88 @@ function handleClose() {
 	40%            { transform: scale(1);    opacity: 1;   }
 }
 
-
 /* ── Input area ─────────────────────────────────────────────────────── */
-.lx-input-row {
-	display: flex;
-	align-items: flex-end;
-	gap: 10px;
-	padding: 12px 16px;
-	background: #fffbfe;
-	border-top: 1px solid #e6e1e5;
+.lx-input-area {
+	background: #fff;
+	border-top: 1px solid #eee;
 	flex-shrink: 0;
+	padding: 8px 16px 12px;
 }
 
-.lx-textarea {
+.lx-toolbar-row {
+	margin-bottom: 6px;
+}
+
+.lx-toolbar {
+	display: flex;
+	align-items: center;
+	gap: 2px;
+}
+
+.lx-toolbar-btn {
+	background: transparent;
+	border: 1px solid transparent;
+	border-radius: 4px;
+	padding: 3px 7px;
+	font-size: 13px;
+	color: #444;
+	cursor: pointer;
+	line-height: 1;
+	display: flex;
+	align-items: center;
+	justify-content: center;
+	min-width: 28px;
+	min-height: 26px;
+	transition: background 0.15s, border-color 0.15s;
+}
+
+.lx-toolbar-btn:hover {
+	background: #f0f0f0;
+	border-color: #ddd;
+}
+
+.lx-editor-row {
+	display: flex;
+	align-items: flex-start;
+	gap: 10px;
+	padding-bottom: 4px;
+}
+
+.lx-editor {
 	flex: 1;
-	border: 1.5px solid #79747e;
-	border-radius: 12px;
-	padding: 10px 14px;
+	border: 1px solid #d1d8dd;
+	border-radius: 6px;
+	padding: 8px 12px;
 	font-size: 14px;
 	font-family: inherit;
-	resize: none;
+	min-height: 40px;
+	max-height: 120px;
+	overflow-y: auto;
 	outline: none;
-	max-height: 96px;
-	min-height: 44px;
 	line-height: 1.5;
-	background: #fffbfe;
 	color: #1c1b1f;
-	transition: border-color 0.2s;
+	background: #fff;
+	transition: border-color 0.15s, box-shadow 0.15s;
+	word-break: break-word;
 }
 
-.lx-textarea:focus {
-	border-color: #6750a4;
-	box-shadow: 0 0 0 2px rgba(103,80,164,.15);
+.lx-editor:focus {
+	border-color: #80bdff;
+	box-shadow: 0 0 0 0.2rem rgba(0, 123, 255, 0.2);
 }
 
-.lx-textarea::placeholder { color: #aca9b4; }
+.lx-editor:empty::before {
+	content: attr(data-placeholder);
+	color: #6c757d;
+	pointer-events: none;
+	display: block;
+}
 
 .lx-send-btn {
-	width: 48px;
-	height: 48px;
-	border-radius: 16px;
-	background: #6750a4;
+	width: 40px;
+	height: 40px;
+	border-radius: 50%;
+	background: linear-gradient(135deg, #6c3fe0 0%, #9b59b6 100%);
 	border: none;
 	color: #fff;
 	display: flex;
@@ -1036,85 +1203,62 @@ function handleClose() {
 	justify-content: center;
 	cursor: pointer;
 	flex-shrink: 0;
-	transition: background 0.2s, transform 0.15s;
+	transition: opacity 0.18s, transform 0.12s;
 }
 
-.lx-send-btn:hover:not(:disabled) { background: #7965af; transform: scale(1.05); }
-.lx-send-btn:active:not(:disabled) { background: #5b4398; transform: scale(.97); }
-.lx-send-btn:disabled { background: #cac4d0; cursor: not-allowed; }
+.lx-send-btn:hover:not(:disabled) { opacity: 0.88; transform: scale(1.06); }
+.lx-send-btn:active:not(:disabled) { opacity: 0.75; transform: scale(.97); }
+.lx-send-btn:disabled { background: #ccc; cursor: not-allowed; }
 
 /* ── Apply dialog ───────────────────────────────────────────────────── */
 .lx-apply-scrim { z-index: 10000; }
 
 .lx-apply-window {
-	background: #fffbfe;
-	border-radius: 28px;
+	background: #fff;
+	border-radius: 12px;
 	width: min(440px, 90vw);
 	overflow: hidden;
-	box-shadow: 0 4px 8px 3px rgba(0,0,0,.15), 0 1px 3px rgba(0,0,0,.30);
+	box-shadow: 0 8px 32px rgba(0,0,0,.18);
 	font-family: "Google Sans", Roboto, system-ui, sans-serif;
 }
 
-.lx-apply-header {
-	padding: 24px 24px 0;
-}
-
-.lx-apply-title {
-	font-size: 18px;
-	font-weight: 600;
-	color: #1c1b1f;
-}
+.lx-apply-header { padding: 20px 24px 0; }
+.lx-apply-title { font-size: 17px; font-weight: 600; color: #1c1b1f; }
 
 .lx-apply-body {
-	padding: 16px 24px;
+	padding: 14px 24px;
 	display: flex;
 	flex-direction: column;
 	gap: 12px;
 }
 
-.lx-apply-hint {
-	margin: 0;
-	font-size: 14px;
-	color: #49454f;
-	line-height: 1.5;
-}
-
-.lx-apply-field {
-	display: flex;
-	flex-direction: column;
-	gap: 6px;
-}
-
-.lx-apply-label {
-	font-size: 12px;
-	font-weight: 600;
-	color: #49454f;
-}
-
-.lx-required { color: #b3261e; }
+.lx-apply-hint { margin: 0; font-size: 14px; color: #555; line-height: 1.5; }
+.lx-apply-field { display: flex; flex-direction: column; gap: 6px; }
+.lx-apply-label { font-size: 12px; font-weight: 600; color: #555; }
+.lx-required { color: #c00; }
 
 .lx-apply-input {
-	border: 1.5px solid #79747e;
-	border-radius: 12px;
-	padding: 10px 14px;
+	border: 1px solid #ccc;
+	border-radius: 6px;
+	padding: 8px 12px;
 	font-size: 14px;
 	font-family: inherit;
 	outline: none;
-	background: #fffbfe;
+	background: #fff;
 	color: #1c1b1f;
-	transition: border-color 0.2s;
+	transition: border-color 0.15s;
 }
 
 .lx-apply-input:focus {
-	border-color: #6750a4;
-	box-shadow: 0 0 0 2px rgba(103,80,164,.15);
+	border-color: #6c3fe0;
+	box-shadow: 0 0 0 2px rgba(108,63,224,.15);
 }
 
 .lx-apply-error {
 	font-size: 12px;
-	color: #b3261e;
-	background: #fef2f2;
-	border-radius: 8px;
+	color: #c00;
+	background: #fff5f5;
+	border-radius: 6px;
 	padding: 8px 12px;
 }
 
@@ -1122,47 +1266,47 @@ function handleClose() {
 	display: flex;
 	justify-content: flex-end;
 	gap: 8px;
-	padding: 12px 24px 20px;
+	padding: 10px 24px 18px;
 }
 
 .lx-btn-text {
 	border: none;
 	background: transparent;
-	color: #6750a4;
+	color: #6c3fe0;
 	font-size: 14px;
-	font-weight: 600;
+	font-weight: 500;
 	font-family: inherit;
-	padding: 10px 20px;
-	border-radius: 100px;
+	padding: 8px 16px;
+	border-radius: 6px;
 	cursor: pointer;
-	transition: background 0.2s;
+	transition: background 0.15s;
 }
 
-.lx-btn-text:hover { background: rgba(103,80,164,.08); }
+.lx-btn-text:hover { background: rgba(108,63,224,.08); }
 
 .lx-btn-filled {
 	display: flex;
 	align-items: center;
 	gap: 6px;
 	border: none;
-	background: #6750a4;
+	background: linear-gradient(135deg, #6c3fe0 0%, #9b59b6 100%);
 	color: #fff;
 	font-size: 14px;
-	font-weight: 600;
+	font-weight: 500;
 	font-family: inherit;
-	padding: 10px 24px;
-	border-radius: 100px;
+	padding: 8px 20px;
+	border-radius: 6px;
 	cursor: pointer;
-	transition: background 0.2s;
+	transition: opacity 0.15s;
 }
 
-.lx-btn-filled:hover:not(:disabled) { background: #7965af; }
-.lx-btn-filled:disabled { background: #cac4d0; cursor: not-allowed; }
+.lx-btn-filled:hover:not(:disabled) { opacity: 0.88; }
+.lx-btn-filled:disabled { background: #ccc; cursor: not-allowed; }
 
 /* ── Spinner ────────────────────────────────────────────────────────── */
 .lx-spinner {
-	width: 14px;
-	height: 14px;
+	width: 13px;
+	height: 13px;
 	border: 2px solid rgba(255,255,255,.4);
 	border-top-color: #fff;
 	border-radius: 50%;
@@ -1170,9 +1314,7 @@ function handleClose() {
 	display: inline-block;
 }
 
-@keyframes lx-spin {
-	to { transform: rotate(360deg); }
-}
+@keyframes lx-spin { to { transform: rotate(360deg); } }
 
 /* ── Inline message action buttons ───────────────────────────────── */
 .lx-msg-actions {
@@ -1181,53 +1323,63 @@ function handleClose() {
 	margin-top: 8px;
 	flex-wrap: wrap;
 }
+
 .lx-action-btn {
-	padding: 6px 16px;
+	padding: 5px 14px;
 	border-radius: 20px;
-	border: 1.5px solid #6750A4;
+	border: 1.5px solid #6c3fe0;
 	background: transparent;
-	color: #6750A4;
+	color: #6c3fe0;
 	font-size: 13px;
 	font-weight: 500;
 	cursor: pointer;
-	transition: background 0.15s, color 0.15s;
+	transition: background 0.15s, color 0.15s, border-color 0.15s;
 }
+
 .lx-action-btn:hover {
-	background: #6750A4;
+	background: linear-gradient(135deg, #6c3fe0 0%, #9b59b6 100%);
 	color: #fff;
+	border-color: transparent;
 }
 
 /* ── Split diff view (MODIFY intent) ──────────────────────────────── */
 .lx-split-diff {
 	margin-top: 10px;
-	border: 1px solid #CAC4D0;
+	border: 1px solid #e0e0e0;
 	border-radius: 8px;
 	overflow: hidden;
+	max-width: 100%;
 }
+
 .lx-split-header {
 	display: flex;
-	background: #F3EDF7;
-	border-bottom: 1px solid #CAC4D0;
+	background: #f5f5f5;
+	border-bottom: 1px solid #e0e0e0;
 }
+
 .lx-split-col-label {
 	flex: 1;
 	padding: 4px 12px;
 	font-weight: 600;
 	font-size: 11px;
-	color: #49454F;
+	color: #555;
 	letter-spacing: 0.03em;
 }
-.lx-split-col-label:first-child { border-right: 1px solid #CAC4D0; }
+
+.lx-split-col-label:first-child { border-right: 1px solid #e0e0e0; }
+
 .lx-split-body {
-	background: #1C1B1F;
+	background: #1c1b1f;
 	max-height: 420px;
 	overflow-y: auto;
 }
+
 .lx-split-row {
 	display: flex;
 	border-bottom: 1px solid rgba(255,255,255,0.04);
 	min-height: 20px;
 }
+
 .lx-split-cell {
 	flex: 1;
 	margin: 0;
@@ -1235,15 +1387,16 @@ function handleClose() {
 	font-family: "JetBrains Mono", "Fira Code", monospace;
 	font-size: 12px;
 	line-height: 1.5;
-	color: #E6E1E5;
+	color: #e6e1e5;
 	white-space: pre;
 	overflow: hidden;
 	min-width: 0;
 	border-right: 1px solid rgba(255,255,255,0.08);
 }
+
 .lx-split-cell:last-child { border-right: none; }
-.lx-sdiff-del   { background: rgba(240,80,80,0.2);   color: #FF8A8A; }
-.lx-sdiff-add   { background: rgba(100,220,100,0.18); color: #6EE68E; }
-.lx-sdiff-hunk  { background: rgba(144,202,249,0.08); color: #90CAF9; font-style: italic; }
+.lx-sdiff-del   { background: rgba(240,80,80,0.2);   color: #ff8a8a; }
+.lx-sdiff-add   { background: rgba(100,220,100,0.18); color: #6ee68e; }
+.lx-sdiff-hunk  { background: rgba(144,202,249,0.08); color: #90caf9; font-style: italic; }
 .lx-sdiff-empty { background: rgba(255,255,255,0.03); color: transparent; }
 </style>
