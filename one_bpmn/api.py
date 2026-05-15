@@ -1345,7 +1345,7 @@ def process_logix_message(
 
 	except Exception:
 		frappe.log_error(title="Logix Agent error", message=frappe.get_traceback())
-		return {"message": "An unexpected error occurred. Please try again."}
+		return {"intent": "ERROR", "response": "An unexpected error occurred. Please try again."}
 
 
 @frappe.whitelist()
