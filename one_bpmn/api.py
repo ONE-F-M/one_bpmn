@@ -1349,6 +1349,45 @@ def process_logix_message(
 
 
 @frappe.whitelist()
+def prosally_chat(
+	message: str,
+	session_id: str,
+	chat_history: str = None,
+	process_name: str = "",
+	diagram_name: str = "",
+	confirmed_action: str = "",
+	current_xml: str = "",
+) -> dict:
+	"""Process a ProsAlly chat message via the ProsAlly Agent (Google ADK)."""
+	if frappe.session.user == "Guest":
+		frappe.throw(_("Authentication required"))
+
+	try:
+		history = []
+		if chat_history:
+			if isinstance(chat_history, str):
+				history = json.loads(chat_history)
+			else:
+				history = chat_history
+
+		from one_bpmn.agents.google_adk.prosally_agent.prosally_agent import run_prosally_message
+
+		result = run_prosally_message(
+			message=message,
+			chat_history=history,
+			process_name=process_name or "",
+			diagram_name=diagram_name or "",
+			confirmed_action=confirmed_action or "",
+			current_xml=current_xml or "",
+		)
+		return result
+
+	except Exception:
+		frappe.log_error(title="ProsAlly Agent error", message=frappe.get_traceback())
+		return {"intent": "ERROR", "response": "An unexpected error occurred. Please try again."}
+
+
+@frappe.whitelist()
 def toggle_server_script(script_name: str, disabled: int) -> dict:
 	"""Toggle the disabled status of a Server Script record."""
 	if not script_name:

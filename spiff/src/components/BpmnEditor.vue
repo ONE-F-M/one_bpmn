@@ -86,10 +86,25 @@
 			</div>
 
 
-			<div class="flex-1 min-w-4 flex items-center justify-end px-3">
-				<div v-if="saveStatusText && !readonly" class="text-sm font-medium transition-colors mr-2" :class="saveStatusColor">
+			<div class="flex-1 min-w-4 flex items-center justify-end gap-2 px-3">
+				<div v-if="saveStatusText && !readonly" class="text-sm font-medium transition-colors" :class="saveStatusColor">
 					{{ saveStatusText }}
 				</div>
+
+				<!-- ProsAlly Toggle Button -->
+				<button
+					@click="showProsAllyPanel = !showProsAllyPanel"
+					title="ProsAlly AI Assistant"
+					:class="[
+						'flex items-center gap-1.5 px-2.5 py-1 rounded-md transition-colors text-xs font-semibold shrink-0',
+						showProsAllyPanel
+							? 'bg-violet-100 text-violet-700 shadow-sm'
+							: 'hover:bg-gray-100 text-gray-600 border border-gray-200',
+					]"
+				>
+					<Icon icon="lucide:sparkles" class="w-3.5 h-3.5" />
+					<span class="hidden sm:inline">ProsAlly</span>
+				</button>
 			</div>
 		</div>
 
@@ -100,11 +115,45 @@
 			<!-- BPMN Canvas -->
 			<div
 				ref="container"
-				:class="['bpmn-canvas flex-1', { 'bpmn-canvas--readonly': readonly, 'comment-mode-active': isCommentMode }]"
+				:class="['bpmn-canvas flex-1 min-w-0', { 'bpmn-canvas--readonly': readonly, 'comment-mode-active': isCommentMode }]"
 				@contextmenu.prevent
 				@dragover.prevent="!readonly && handleDragOver($event)"
 				@drop.prevent="!readonly && handleDrop($event)"
 			></div>
+
+			<!-- ProsAlly Panel — flex sibling so canvas shrinks instead of being covered -->
+			<transition name="prosally-slide">
+				<div
+					v-if="showProsAllyPanel && !isMobile"
+					class="prosally-panel-container w-80 shrink-0 border-l border-gray-200 flex flex-col z-[50]"
+				>
+					<ProsAllyPanel
+						:process-name="processNameForPanel"
+						:get-canvas-xml="getCanvasXml"
+						@close="showProsAllyPanel = false"
+						@bpmn-generated="onProsAllyBpmnGenerated"
+					/>
+				</div>
+			</transition>
+
+			<!-- Mobile: ProsAlly as bottom sheet -->
+			<transition name="slide-up">
+				<div
+					v-if="showProsAllyPanel && isMobile"
+					class="fixed inset-x-0 bottom-0 rounded-t-2xl shadow-2xl border-t border-gray-200 bg-white z-[65] flex flex-col"
+					style="height: 70vh;"
+				>
+					<div class="flex justify-center py-2 border-b border-gray-100 shrink-0">
+						<div class="w-10 h-1 bg-gray-300 rounded-full"></div>
+					</div>
+					<ProsAllyPanel
+						:process-name="processNameForPanel"
+						:get-canvas-xml="getCanvasXml"
+						@close="showProsAllyPanel = false"
+						@bpmn-generated="onProsAllyBpmnGenerated"
+					/>
+				</div>
+			</transition>
 			
 			<!-- Inline Comment Popover (Teleported to bpmn-js overlay) -->
 			<Teleport v-if="showInlineCommentPopover && inlineCommentOverlayTarget" :to="inlineCommentOverlayTarget">
@@ -919,6 +968,8 @@ import { useBottomSheet } from "@/composables/useBottomSheet";
 // Custom Shapes - DISABLED (see DEVELOPMENT_CONTEXT.md)
 // import CustomShapesModule, { customShapeSvgStore } from "@/bpmn";
 import FormattingToolbar from "@/components/FormattingToolbar.vue";
+import ProsAllyPanel from "@/components/ProsAllyPanel.vue";
+import { layoutBpmnXml } from "@/utils/bpmnLayout.js";
 import { initModeler } from "@/composables/useModelerInit";
 import { useBpmnContextMenu } from "@/composables/useBpmnContextMenu";
 // Properties panel
@@ -1102,6 +1153,10 @@ const {
 	},
 	toggleTimeline
 });
+
+const processNameForPanel = computed(() =>
+	internalProcessName.value || props.modelName || ""
+);
 
 const currentElementComments = computed(() => {
 	let filtered = [];
@@ -1304,6 +1359,8 @@ const modelerInstance = shallowRef(null);
 // Mobile responsiveness
 const { isMobile } = useWindowSize();
 const showMobileFormatPopover = ref(false);
+const showProsAllyPanel = ref(false);
+const internalProcessName = ref("");
 const dragHandleRef = ref(null);
 const { dragOffset, isDragging, attach: attachBottomSheet } = useBottomSheet();
 
@@ -2557,12 +2614,29 @@ async function loadXML(xml) {
 	}
 }
 
+async function getCanvasXml() {
+	if (!modeler) return "";
+	try {
+		const { xml } = await modeler.saveXML({ format: false });
+		return xml || "";
+	} catch {
+		return "";
+	}
+}
+
+async function onProsAllyBpmnGenerated(xml) {
+	if (!xml) return;
+	await loadXML(layoutBpmnXml(xml));
+	emit("changed");
+}
+
 /**
  * Set the `name` attribute on the first <bpmn:process> element.
  * Uses the modeler's modeling API so the change is reflected
  * immediately in the properties panel and serialised into XML on save.
  */
 function setProcessName(name) {
+	if (name) internalProcessName.value = name;
 	if (!modeler || !name) return;
 	try {
 		const elementRegistry = modeler.get("elementRegistry");
@@ -2808,6 +2882,7 @@ defineExpose({
 	showPropertiesPanel,
 	propertiesCollapsed,
 	comments,
+	showProsAllyPanel,
 });
 
 function getInitials(fullName) {
@@ -3387,5 +3462,27 @@ function getAvatarColor(userName) {
 .slide-up-enter-from, .slide-up-leave-to {
 	transform: translateY(100%);
 	opacity: 0;
+}
+
+/* ── ProsAlly Panel slide transition ────────────────────────────────── */
+.prosally-slide-enter-active,
+.prosally-slide-leave-active {
+	transition: width 0.3s ease, opacity 0.2s ease;
+	overflow: hidden;
+}
+.prosally-slide-enter-from,
+.prosally-slide-leave-to {
+	width: 0 !important;
+	opacity: 0;
+}
+.prosally-slide-enter-to,
+.prosally-slide-leave-from {
+	width: 20rem; /* w-80 */
+	opacity: 1;
+}
+
+.prosally-panel-container {
+	min-width: 0;
+	overflow: hidden;
 }
 </style>

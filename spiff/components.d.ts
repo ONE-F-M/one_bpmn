@@ -21,6 +21,7 @@ declare module 'vue' {
     LogixChat: typeof import('./src/components/LogixChat.vue')['default']
     NotificationLinkDialog: typeof import('./src/components/NotificationLinkDialog.vue')['default']
     PendingActions: typeof import('./src/components/process_instance/PendingActions.vue')['default']
+    ProsAllyPanel: typeof import('./src/components/ProsAllyPanel.vue')['default']
     ReadinessChecklistDialog: typeof import('./src/components/ReadinessChecklistDialog.vue')['default']
     RouterLink: typeof import('vue-router')['RouterLink']
     RouterView: typeof import('vue-router')['RouterView']
