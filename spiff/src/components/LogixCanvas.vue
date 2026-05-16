@@ -179,6 +179,17 @@
 					</button>
 					<button
 						class="lc-file-btn"
+						:class="{ 'lc-file-btn--active': showScriptSettings }"
+						@click="showScriptSettings = !showScriptSettings; if(showScriptSettings){ loadDoctypeOptions(); loadModuleOptions(); }"
+						title="Script Settings"
+					>
+						<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" width="14" height="14">
+							<circle cx="12" cy="12" r="3"/><path stroke-linecap="round" d="M19.4 15a1.65 1.65 0 00.33 1.82l.06.06a2 2 0 010 2.83 2 2 0 01-2.83 0l-.06-.06a1.65 1.65 0 00-1.82-.33 1.65 1.65 0 00-1 1.51V21a2 2 0 01-4 0v-.09A1.65 1.65 0 009 19.4a1.65 1.65 0 00-1.82.33l-.06.06a2 2 0 01-2.83-2.83l.06-.06A1.65 1.65 0 004.68 15a1.65 1.65 0 00-1.51-1H3a2 2 0 010-4h.09A1.65 1.65 0 004.6 9a1.65 1.65 0 00-.33-1.82l-.06-.06a2 2 0 012.83-2.83l.06.06A1.65 1.65 0 009 4.68a1.65 1.65 0 001-1.51V3a2 2 0 014 0v.09a1.65 1.65 0 001 1.51 1.65 1.65 0 001.82-.33l.06-.06a2 2 0 012.83 2.83l-.06.06A1.65 1.65 0 0019.4 9a1.65 1.65 0 001.51 1H21a2 2 0 010 4h-.09a1.65 1.65 0 00-1.51 1z"/>
+						</svg>
+						Settings
+					</button>
+					<button
+						class="lc-file-btn"
 						:class="{ 'lc-file-btn--active': showVersionHistory }"
 						@click="showVersionHistory = !showVersionHistory"
 						title="Version History"
@@ -190,6 +201,97 @@
 					</button>
 				</div>
 			</div>
+
+			<!-- Backdrop to close dropdowns when clicking outside -->
+			<div v-if="showDoctypeDropdown || showModuleDropdown" class="lc-dropdown-backdrop" @click="showDoctypeDropdown = false; showModuleDropdown = false"></div>
+
+			<!-- Script Settings Panel -->
+			<Transition name="lc-settings-slide">
+				<div v-if="showScriptSettings" class="lc-settings-panel">
+					<div class="lc-settings-grid">
+						<!-- Script Type -->
+						<div class="lc-settings-field">
+							<label class="lc-settings-label">Script Type</label>
+							<select v-model="scriptMeta.script_type" class="lc-settings-select" :disabled="props.element?.type === 'bpmn:ScriptTask'">
+								<option value="API">API</option>
+								<option value="DocType Event">DocType Event</option>
+								<option value="Scheduler Event">Scheduler Event</option>
+								<option value="Permission Query">Permission Query</option>
+							</select>
+						</div>
+
+						<!-- Module -->
+						<div class="lc-settings-field">
+							<label class="lc-settings-label">Module</label>
+							<div class="lc-settings-dropdown-wrap">
+								<input
+									v-model="moduleSearch"
+									type="text"
+									:placeholder="scriptMeta.module || 'Search Module...'"
+									class="lc-settings-input"
+									@focus="showModuleDropdown = true; showDoctypeDropdown = false; moduleSearch = ''"
+								/>
+								<div v-if="showModuleDropdown && filteredModuleOptions.length > 0" class="lc-settings-dropdown">
+									<div v-for="m in filteredModuleOptions" :key="m" @mousedown.prevent="scriptMeta.module = m; moduleSearch = m; showModuleDropdown = false" class="lc-settings-dropdown-item">{{ m }}</div>
+								</div>
+							</div>
+						</div>
+
+						<!-- DocType (for DocType Event / Permission Query) -->
+						<template v-if="['DocType Event', 'Permission Query'].includes(scriptMeta.script_type)">
+							<div class="lc-settings-field">
+								<label class="lc-settings-label">Reference DocType</label>
+								<div class="lc-settings-dropdown-wrap">
+									<input
+										v-model="doctypeSearch"
+										type="text"
+										:placeholder="scriptMeta.reference_doctype || 'Search DocType...'"
+										class="lc-settings-input"
+										@focus="showDoctypeDropdown = true; showModuleDropdown = false; doctypeSearch = ''"
+									/>
+									<div v-if="showDoctypeDropdown && filteredDoctypeOptions.length > 0" class="lc-settings-dropdown">
+										<div v-for="dt in filteredDoctypeOptions" :key="dt" @mousedown.prevent="scriptMeta.reference_doctype = dt; doctypeSearch = dt; showDoctypeDropdown = false" class="lc-settings-dropdown-item">{{ dt }}</div>
+									</div>
+								</div>
+							</div>
+							<div v-if="scriptMeta.script_type === 'DocType Event'" class="lc-settings-field">
+								<label class="lc-settings-label">DocType Event</label>
+								<select v-model="scriptMeta.doctype_event" class="lc-settings-select">
+									<option value="">Select event...</option>
+									<option v-for="e in DOCTYPE_EVENTS" :key="e" :value="e">{{ e }}</option>
+								</select>
+							</div>
+						</template>
+
+						<!-- API fields -->
+						<template v-if="scriptMeta.script_type === 'API'">
+							<div class="lc-settings-field">
+								<label class="lc-settings-label">API Method</label>
+								<input v-model="scriptMeta.api_method" type="text" placeholder="e.g. my_api" class="lc-settings-input" />
+							</div>
+							<div class="lc-settings-field lc-settings-field--inline">
+								<label class="lc-settings-label">Allow Guest</label>
+								<input type="checkbox" v-model="scriptMeta.allow_guest" class="lc-settings-checkbox" />
+							</div>
+						</template>
+
+						<!-- Scheduler Event fields -->
+						<template v-if="scriptMeta.script_type === 'Scheduler Event'">
+							<div class="lc-settings-field">
+								<label class="lc-settings-label">Event Frequency</label>
+								<select v-model="scriptMeta.event_frequency" class="lc-settings-select">
+									<option value="">Select frequency...</option>
+									<option v-for="f in EVENT_FREQUENCIES" :key="f" :value="f">{{ f }}</option>
+								</select>
+							</div>
+							<div v-if="scriptMeta.event_frequency === 'Cron'" class="lc-settings-field">
+								<label class="lc-settings-label">Cron Format</label>
+								<input v-model="scriptMeta.cron_format" type="text" placeholder="*/5 * * * *" class="lc-settings-input" />
+							</div>
+						</template>
+					</div>
+				</div>
+			</Transition>
 
 			<!-- Code area with line numbers -->
 			<div class="lc-code-area" ref="codeAreaEl">
@@ -331,6 +433,62 @@ const isSaving         = ref(false);
 const isSaved          = ref(false);
 const isLoadingScript  = ref(false);
 
+// ── Script metadata ───────────────────────────────────────────────────
+const showScriptSettings = ref(false);
+const scriptMeta = ref({
+	script_type: "API",
+	reference_doctype: "",
+	doctype_event: "",
+	api_method: "",
+	allow_guest: false,
+	event_frequency: "",
+	cron_format: "",
+	module: "",
+});
+const doctypeOptions = ref([]);
+const moduleOptions  = ref([]);
+const showDoctypeDropdown = ref(false);
+const showModuleDropdown  = ref(false);
+const doctypeSearch  = ref("");
+const moduleSearch   = ref("");
+const filteredDoctypeOptions = computed(() => {
+	const q = doctypeSearch.value.toLowerCase();
+	return q ? doctypeOptions.value.filter((d) => d.toLowerCase().includes(q)) : doctypeOptions.value;
+});
+const filteredModuleOptions = computed(() => {
+	const q = moduleSearch.value.toLowerCase();
+	return q ? moduleOptions.value.filter((m) => m.toLowerCase().includes(q)) : moduleOptions.value;
+});
+
+const DOCTYPE_EVENTS = [
+	"Before Insert", "Before Validate", "Before Save", "After Insert",
+	"After Save", "Before Rename", "After Rename", "Before Submit",
+	"After Submit", "Before Cancel", "After Cancel", "Before Delete",
+	"After Delete", "Before Save (Submitted Document)",
+	"After Save (Submitted Document)", "Before Print", "On Payment Authorization",
+];
+const EVENT_FREQUENCIES = [
+	"All", "Hourly", "Daily", "Weekly", "Monthly", "Yearly",
+	"Hourly Long", "Daily Long", "Weekly Long", "Monthly Long", "Cron",
+];
+
+async function loadDoctypeOptions() {
+	if (doctypeOptions.value.length) return;
+	try {
+		const r = await fetch("/api/method/frappe.client.get_list?doctype=DocType&fields=[%22name%22]&limit_page_length=0&order_by=name+asc", { headers: { "X-Frappe-CSRF-Token": getCsrfToken() } });
+		const d = await r.json();
+		doctypeOptions.value = (d?.message || []).map((x) => x.name);
+	} catch (e) { console.error("Failed to load DocTypes", e); }
+}
+async function loadModuleOptions() {
+	if (moduleOptions.value.length) return;
+	try {
+		const r = await fetch("/api/method/frappe.client.get_list?doctype=Module+Def&fields=[%22name%22]&limit_page_length=0&order_by=name+asc", { headers: { "X-Frappe-CSRF-Token": getCsrfToken() } });
+		const d = await r.json();
+		moduleOptions.value = (d?.message || []).map((x) => x.name);
+	} catch (e) { console.error("Failed to load Modules", e); }
+}
+
 // ── Version history ───────────────────────────────────────────────────
 const showVersionHistory = ref(false);
 const versions           = ref([]);
@@ -380,7 +538,18 @@ async function initCanvas() {
 				{ headers: { "X-Frappe-CSRF-Token": getCsrfToken() } },
 			);
 			const data = await resp.json();
-			canvasCode.value = data?.message?.script || "";
+			const msg = data?.message || {};
+			canvasCode.value = msg.script || "";
+			scriptMeta.value = {
+				script_type:       msg.script_type || "API",
+				reference_doctype: msg.reference_doctype || "",
+				doctype_event:     msg.doctype_event || "",
+				api_method:        msg.api_method || "",
+				allow_guest:       !!msg.allow_guest,
+				event_frequency:   msg.event_frequency || "",
+				cron_format:       msg.cron_format || "",
+				module:            msg.module || "",
+			};
 		} catch (e) {
 			console.error("Failed to load script:", e);
 		} finally {
@@ -388,8 +557,12 @@ async function initCanvas() {
 		}
 		await fetchVersionHistory();
 	} else {
-		canvasScriptName.value = elementLabel.value || "";
+		canvasScriptName.value = "";
 		canvasCode.value = "";
+		// Default to API for Script Tasks
+		if (props.element?.type === "bpmn:ScriptTask") {
+			scriptMeta.value.script_type = "API";
+		}
 	}
 }
 
@@ -822,19 +995,43 @@ async function saveScript() {
 
 		if (props.currentScript) {
 			// Update existing
+			const meta = scriptMeta.value;
 			const res = await fetch("/api/method/one_bpmn.api.update_server_script", {
 				method:  "POST",
 				headers: { "Content-Type": "application/json", "X-Frappe-CSRF-Token": getCsrfToken() },
-				body:    JSON.stringify({ script_name: props.currentScript, script: canvasCode.value }),
+				body:    JSON.stringify({
+					script_name:       props.currentScript,
+					script:            canvasCode.value,
+					script_type:       meta.script_type || undefined,
+					reference_doctype: meta.reference_doctype || undefined,
+					doctype_event:     meta.doctype_event || undefined,
+					api_method:        meta.api_method || undefined,
+					allow_guest:       meta.allow_guest ? 1 : 0,
+					event_frequency:   meta.event_frequency || undefined,
+					cron_format:       meta.cron_format || undefined,
+					module:            meta.module || undefined,
+				}),
 			});
 			if (!res.ok) throw new Error(`HTTP ${res.status}`);
 			scriptName = props.currentScript;
 		} else {
 			// Create new
+			const meta = scriptMeta.value;
 			const res = await fetch("/api/method/one_bpmn.api.create_server_script", {
 				method:  "POST",
 				headers: { "Content-Type": "application/json", "X-Frappe-CSRF-Token": getCsrfToken() },
-				body:    JSON.stringify({ script_name: name, script_type: "API", script: canvasCode.value }),
+				body:    JSON.stringify({
+					script_name:       name,
+					script_type:       meta.script_type || "API",
+					script:            canvasCode.value,
+					reference_doctype: meta.reference_doctype || undefined,
+					doctype_event:     meta.doctype_event || undefined,
+					api_method:        meta.api_method || undefined,
+					allow_guest:       meta.allow_guest ? 1 : 0,
+					event_frequency:   meta.event_frequency || undefined,
+					cron_format:       meta.cron_format || undefined,
+					module:            meta.module || undefined,
+				}),
 			});
 			if (!res.ok) throw new Error(`HTTP ${res.status}`);
 			const data = await res.json();
@@ -1406,6 +1603,89 @@ function resetChat() {
 
 .lc-file-btn:hover { background: #f5f5f5; border-color: #ccc; }
 .lc-file-btn--active { background: #f0ebff; border-color: #6c3fe0; color: #6c3fe0; }
+
+/* ── Script Settings Panel ──────────────────────────────────────── */
+.lc-settings-panel {
+	background: #fafafa;
+	border-bottom: 1px solid #e8e8e8;
+	padding: 10px 14px;
+	flex-shrink: 0;
+}
+.lc-settings-grid {
+	display: flex;
+	flex-wrap: wrap;
+	gap: 10px 16px;
+	align-items: flex-end;
+}
+.lc-settings-field {
+	display: flex;
+	flex-direction: column;
+	gap: 3px;
+	min-width: 140px;
+	flex: 1 1 140px;
+	max-width: 220px;
+}
+.lc-settings-field--inline {
+	flex-direction: row;
+	align-items: center;
+	gap: 8px;
+	min-width: auto;
+	flex: 0 0 auto;
+}
+.lc-settings-label {
+	font-size: 10px;
+	font-weight: 600;
+	color: #666;
+	text-transform: uppercase;
+	letter-spacing: 0.04em;
+}
+.lc-settings-input,
+.lc-settings-select {
+	height: 28px;
+	padding: 0 8px;
+	font-size: 12px;
+	border: 1px solid #ddd;
+	border-radius: 6px;
+	background: #fff;
+	color: #1c1b1f;
+	outline: none;
+	width: 100%;
+}
+.lc-settings-input:focus,
+.lc-settings-select:focus { border-color: #6c3fe0; box-shadow: 0 0 0 2px rgba(108,63,224,.1); }
+.lc-dropdown-backdrop {
+	position: fixed;
+	inset: 0;
+	z-index: 199;
+}
+.lc-settings-dropdown-wrap { position: relative; }
+.lc-settings-dropdown {
+	position: absolute;
+	z-index: 200;
+	top: 100%;
+	left: 0;
+	right: 0;
+	max-height: 160px;
+	overflow-y: auto;
+	background: #fff;
+	border: 1px solid #ddd;
+	border-radius: 6px;
+	box-shadow: 0 4px 12px rgba(0,0,0,.1);
+	margin-top: 2px;
+}
+.lc-settings-dropdown-item {
+	padding: 5px 10px;
+	font-size: 12px;
+	cursor: pointer;
+	color: #1c1b1f;
+}
+.lc-settings-dropdown-item:hover { background: #f0ebff; color: #6c3fe0; }
+.lc-settings-checkbox { width: 14px; height: 14px; accent-color: #6c3fe0; cursor: pointer; }
+
+.lc-settings-slide-enter-active,
+.lc-settings-slide-leave-active { transition: max-height 0.2s ease, opacity 0.2s ease; max-height: 200px; overflow: hidden; }
+.lc-settings-slide-enter-from,
+.lc-settings-slide-leave-to { max-height: 0; opacity: 0; }
 
 /* ── Code area ──────────────────────────────────────────────────── */
 .lc-code-area {

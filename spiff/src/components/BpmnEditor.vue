@@ -1056,6 +1056,7 @@ const emit = defineEmits([
 	"changed",
 	"zoom-changed",
 	"launch-script-editor",
+	"confirm-script-delete",
 	"launch-markdown-editor",
 	"launch-callactivity-editor",
 	"launch-callactivity-search",
@@ -1636,6 +1637,30 @@ onMounted(async () => {
 			// Use eventBus for listening to command stack changes
 			const eventBus = modeler.get("eventBus");
 
+			// Intercept modeling.removeElements so ALL deletion paths trigger the
+			// script-delete confirmation (context pad, keyboard, toolbar).
+			if (!props.readonly) {
+				const modeling = modeler.get("modeling");
+				const origRemoveElements = modeling.removeElements.bind(modeling);
+				modeling.removeElements = function(elements) {
+					if (!Array.isArray(elements) || elements.length === 0) {
+						return origRemoveElements(elements);
+					}
+					const scriptNames = getLinkedScriptNames(elements);
+					if (scriptNames.length > 0) {
+						const usageMap = countScriptUsageAcrossCanvas(scriptNames);
+						emit("confirm-script-delete", {
+							elements,
+							scriptNames,
+							usageMap,
+							doDelete: origRemoveElements,
+						});
+						return;
+					}
+					return origRemoveElements(elements);
+				};
+			}
+
 
 			const linting = modeler.get("linting");
 			if (linting) {
@@ -2145,15 +2170,55 @@ function redo() {
 	}
 }
 
+function getLinkedScriptNames(elements) {
+	const names = new Set();
+	for (const el of elements) {
+		const bo = el.businessObject;
+		if (!bo) continue;
+		// bpmn:ScriptTask stores the server script name in `script` field
+		if (bo.$type === "bpmn:ScriptTask" && bo.script && bo.script.trim()) {
+			names.add(bo.script.trim());
+		}
+		// Pre/PostScript stored in extensionElements
+		const exts = bo.extensionElements?.get("values") || [];
+		for (const ext of exts) {
+			const tag = ext.$type || "";
+			if ((tag === "spiffworkflow:PreScript" || tag === "spiffworkflow:PostScript") && ext.value?.trim()) {
+				names.add(ext.value.trim());
+			}
+		}
+	}
+	return [...names];
+}
+
+function countScriptUsageAcrossCanvas(scriptNames) {
+	if (!modeler || !scriptNames.length) return {};
+	const registry = modeler.get("elementRegistry");
+	const counts = Object.fromEntries(scriptNames.map((n) => [n, 0]));
+	registry.forEach((el) => {
+		const bo = el.businessObject;
+		if (!bo) return;
+		if (bo.$type === "bpmn:ScriptTask" && bo.script?.trim()) {
+			if (counts[bo.script.trim()] !== undefined) counts[bo.script.trim()]++;
+		}
+		const exts = bo.extensionElements?.get("values") || [];
+		for (const ext of exts) {
+			const tag = ext.$type || "";
+			if ((tag === "spiffworkflow:PreScript" || tag === "spiffworkflow:PostScript") && ext.value?.trim()) {
+				if (counts[ext.value.trim()] !== undefined) counts[ext.value.trim()]++;
+			}
+		}
+	});
+	return counts;
+}
+
 function deleteSelected() {
 	if (!modeler) return;
-
 	const selection = modeler.get("selection");
 	const modeling = modeler.get("modeling");
 	const selected = selection.get();
-
 	if (selected && selected.length > 0) {
-		modeling.removeElements(selected);
+		modeling.removeElements(selected); // goes through the intercept in onReady
 	}
 }
 

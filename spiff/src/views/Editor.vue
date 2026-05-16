@@ -357,6 +357,7 @@
 						@changed="onDiagramChanged"
 						@zoom-changed="onZoomChanged"
 						@launch-script-editor="onLaunchScriptEditor"
+						@confirm-script-delete="onConfirmScriptDelete"
 						@launch-markdown-editor="onLaunchMarkdownEditor"
 						@launch-callactivity-editor="onLaunchCallActivityEditor"
 						@launch-callactivity-search="onLaunchCallActivitySearch"
@@ -469,160 +470,64 @@
 		<Dialog v-model="showScriptEditorDialog" :options="{ title: scriptEditorTitle, size: '5xl' }">
 			<template #body-content>
 				<div class="space-y-4">
-					<!-- Context info -->
-					<details class="bg-blue-50 border border-blue-200 rounded-lg text-xs text-blue-800">
-						<summary class="px-4 py-2.5 cursor-pointer font-semibold select-none hover:bg-blue-100 rounded-lg transition-colors">
-							ℹ️ Script Reference — Available Variables &amp; Usage
-						</summary>
-						<div class="px-4 pb-3 space-y-2.5 border-t border-blue-200 pt-2.5">
-							<table class="w-full text-left">
-								<thead>
-									<tr class="border-b border-blue-200">
-										<th class="py-1 pr-3 font-semibold">Variable</th>
-										<th class="py-1 font-semibold">Description</th>
-									</tr>
-								</thead>
-								<tbody>
-									<tr><td class="py-0.5 pr-3"><code class="px-1 py-0.5 bg-blue-100 rounded text-blue-900">frappe</code></td><td>Full Frappe module (DB, utils, etc.)</td></tr>
-									<tr><td class="py-0.5 pr-3"><code class="px-1 py-0.5 bg-blue-100 rounded text-blue-900">doc</code></td><td>The context document (e.g., Work Item, Employee)</td></tr>
-									<tr><td class="py-0.5 pr-3"><code class="px-1 py-0.5 bg-blue-100 rounded text-blue-900">context_doctype</code></td><td>DocType name of the context document</td></tr>
-									<tr><td class="py-0.5 pr-3"><code class="px-1 py-0.5 bg-blue-100 rounded text-blue-900">context_docname</code></td><td>Name (ID) of the context document</td></tr>
-									<tr><td class="py-0.5 pr-3"><code class="px-1 py-0.5 bg-blue-100 rounded text-blue-900">result</code></td><td>Dict to pass output to downstream gateways (see below)</td></tr>
-									<tr><td class="py-0.5 pr-3 text-blue-600 italic">+ all doc fields</td><td>e.g., <code class="px-1 py-0.5 bg-blue-100 rounded">workflow_state</code>, <code class="px-1 py-0.5 bg-blue-100 rounded">docstatus</code>, etc.</td></tr>
-								</tbody>
-							</table>
-							<div>
-								<div class="font-semibold mb-1">Example — passing data to a gateway:</div>
-								<pre class="bg-blue-100 rounded px-3 py-2 text-blue-900 overflow-x-auto"><code># In your Server Script:
-								if doc.pr_link:
-									result["has_pr"] = True
-								else:
-									result["has_pr"] = False
-
-								# Then in a downstream Gateway condition:
-								#   has_pr == True  →  Approved branch
-								#   has_pr == False →  Rejected branch</code>
-								</pre>
-							</div>
-						</div>
-					</details>
 					<!-- Mode Tabs -->
 					<div class="flex border-b border-gray-200">
 						<button
 							@click="scriptDialogMode = 'select'"
-							:class="[
-								'px-4 py-2 text-sm font-medium border-b-2 transition-colors -mb-px',
-								scriptDialogMode === 'select'
-									? 'border-blue-500 text-blue-600'
-									: 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300'
-							]"
+							:class="['px-4 py-2 text-sm font-medium border-b-2 transition-colors -mb-px', scriptDialogMode === 'select' ? 'border-blue-500 text-blue-600' : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300']"
 						>
-							<Icon icon="lucide:search" class="w-4 h-4 inline mr-1.5" />
-							Select Existing
+							<Icon icon="lucide:search" class="w-4 h-4 inline mr-1.5" />Select Existing
 						</button>
 						<button
 							@click="scriptDialogMode = 'create'"
-							:class="[
-								'px-4 py-2 text-sm font-medium border-b-2 transition-colors -mb-px',
-								scriptDialogMode === 'create'
-									? 'border-blue-500 text-blue-600'
-									: 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300'
-							]"
+							:class="['px-4 py-2 text-sm font-medium border-b-2 transition-colors -mb-px', scriptDialogMode === 'create' ? 'border-blue-500 text-blue-600' : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300']"
 						>
-							<Icon icon="lucide:plus" class="w-4 h-4 inline mr-1.5" />
-							Create New
+							<Icon icon="lucide:plus" class="w-4 h-4 inline mr-1.5" />Create New
 						</button>
 						<button
 							v-if="linkedScriptName"
 							@click="scriptDialogMode = 'edit'"
-							:class="[
-								'px-4 py-2 text-sm font-medium border-b-2 transition-colors -mb-px',
-								scriptDialogMode === 'edit'
-									? 'border-blue-500 text-blue-600'
-									: 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300'
-							]"
+							:class="['px-4 py-2 text-sm font-medium border-b-2 transition-colors -mb-px', scriptDialogMode === 'edit' ? 'border-blue-500 text-blue-600' : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300']"
 						>
-							<Icon icon="lucide:pencil" class="w-4 h-4 inline mr-1.5" />
-							Edit
+							<Icon icon="lucide:pencil" class="w-4 h-4 inline mr-1.5" />Edit
 						</button>
 						<button
 							@click="openLogixCanvas"
-							:class="[
-								'px-4 py-2 text-sm font-medium border-b-2 transition-colors -mb-px',
-								scriptDialogMode === 'logix'
-									? 'border-blue-500 text-blue-600'
-									: 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300'
-							]"
+							:class="['px-4 py-2 text-sm font-medium border-b-2 transition-colors -mb-px border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300']"
 						>
-							<Icon icon="lucide:bot" class="w-4 h-4 inline mr-1.5" />
-							Logix Chat
+							<Icon icon="lucide:bot" class="w-4 h-4 inline mr-1.5" />Logix Chat
 						</button>
 					</div>
 
 					<!-- Select Existing Mode -->
 					<div v-if="scriptDialogMode === 'select'" class="space-y-3">
-						<div class="text-sm text-gray-500">
-							Search and select an existing Server Script to link.
-						</div>
+						<div class="text-sm text-gray-500">Search and select an existing Server Script to link.</div>
 						<div class="relative">
 							<Icon icon="lucide:search" class="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400" />
-							<input
-								v-model="serverScriptSearch"
-								type="text"
-								placeholder="Search server scripts..."
-								class="w-full pl-10 pr-3 py-2 border border-gray-300 rounded-lg text-sm bg-white text-gray-900 focus:outline-none focus:ring-2 focus:ring-blue-400 focus:border-blue-400"
-							/>
+							<input v-model="serverScriptSearch" type="text" placeholder="Search server scripts..." class="w-full pl-10 pr-3 py-2 border border-gray-300 rounded-lg text-sm bg-white text-gray-900 focus:outline-none focus:ring-2 focus:ring-blue-400 focus:border-blue-400" />
 						</div>
 						<div class="max-h-72 overflow-y-auto border border-gray-200 rounded-lg">
 							<div v-if="loadingScripts" class="p-6 text-center text-gray-400">
-								<div class="animate-spin rounded-full h-6 w-6 border-b-2 border-gray-400 mx-auto mb-2"></div>
-								Loading scripts...
+								<div class="animate-spin rounded-full h-6 w-6 border-b-2 border-gray-400 mx-auto mb-2"></div>Loading scripts...
 							</div>
-							<div v-else-if="filteredServerScripts.length === 0" class="p-6 text-center text-gray-400">
-								No server scripts found.
-							</div>
+							<div v-else-if="filteredServerScripts.length === 0" class="p-6 text-center text-gray-400">No server scripts found.</div>
 							<div v-else>
 								<template v-for="script in filteredServerScripts" :key="script.name">
 									<div
 										@click="selectedServerScript = script.name"
-										:class="[
-											'flex items-center justify-between px-4 py-3 cursor-pointer border-b border-gray-100 last:border-b-0 transition-colors',
-											selectedServerScript === script.name
-												? 'bg-blue-50 border-l-4 border-l-blue-500'
-												: 'hover:bg-gray-50'
-										]"
+										:class="['flex items-center justify-between px-4 py-3 cursor-pointer border-b border-gray-100 last:border-b-0 transition-colors', selectedServerScript === script.name ? 'bg-blue-50 border-l-4 border-l-blue-500' : 'hover:bg-gray-50']"
 									>
 										<div>
 											<div class="text-sm font-medium text-gray-900">{{ script.name }}</div>
-											<div class="text-xs text-gray-500 mt-0.5">
-												{{ script.script_type }}
-												<span v-if="script.reference_doctype"> · {{ script.reference_doctype }}</span>
-											</div>
+											<div class="text-xs text-gray-500 mt-0.5">{{ script.script_type }}<span v-if="script.reference_doctype"> · {{ script.reference_doctype }}</span></div>
 										</div>
-										<div class="flex items-center gap-3">
-											<div class="flex items-center gap-1.5" @click.stop>
-												<span :class="['text-[10px] font-medium uppercase tracking-wider', script.disabled ? 'text-gray-400' : 'text-blue-600']">
-													{{ script.disabled ? 'Disabled' : 'Enabled' }}
-												</span>
-												<div
-													class="relative inline-flex h-5 w-9 shrink-0 cursor-pointer items-center rounded-full transition-colors"
-													:class="script.disabled ? 'bg-gray-200' : 'bg-blue-600'"
-													@click="toggleScriptStatus(script)"
-												>
-													<span
-														class="pointer-events-none block h-4 w-4 rounded-full bg-white shadow-lg ring-0 transition-transform"
-														:class="script.disabled ? 'translate-x-0.5' : 'translate-x-4.5'"
-													></span>
-												</div>
-											</div>
+										<div class="flex items-center">
 											<Icon v-if="selectedServerScript === script.name" icon="lucide:check-circle" class="w-5 h-5 text-blue-500" />
 										</div>
 									</div>
-									<!-- Inline Script Preview -->
 									<div v-if="selectedServerScript === script.name && previewScriptContent !== null" class="border-b border-gray-100 bg-gray-50/50">
 										<div v-if="loadingPreview" class="px-4 py-3 text-center text-gray-400 text-sm">
-											<div class="animate-spin rounded-full h-5 w-5 border-b-2 border-gray-400 mx-auto mb-1"></div>
-											Loading...
+											<div class="animate-spin rounded-full h-5 w-5 border-b-2 border-gray-400 mx-auto mb-1"></div>Loading...
 										</div>
 										<pre v-else class="px-4 py-3 text-[13px] font-mono text-gray-700 overflow-x-auto max-h-48 whitespace-pre-wrap">{{ previewScriptContent }}</pre>
 									</div>
@@ -633,29 +538,16 @@
 
 					<!-- Create New Mode -->
 					<div v-else-if="scriptDialogMode === 'create'" class="space-y-4">
-						<div class="text-sm text-gray-500">
-							Create a new Server Script and link it to this element.
-						</div>
+						<div class="text-sm text-gray-500">Create a new Server Script and link it to this element.</div>
 						<div class="grid grid-cols-2 gap-4">
 							<div>
 								<label class="block text-xs font-medium text-gray-700 mb-1">Script Name <span class="text-red-500">*</span></label>
-								<input
-									v-model="newScript.name"
-									type="text"
-									placeholder="e.g. Validate Employee Shift"
-									class="w-full px-3 py-1.5 border border-gray-300 rounded-md text-sm bg-white text-gray-900 focus:outline-none focus:ring-2 focus:ring-blue-400"
-								/>
+								<input v-model="newScript.name" type="text" placeholder="e.g. Validate Employee Shift" class="w-full px-3 py-1.5 border border-gray-300 rounded-md text-sm bg-white text-gray-900 focus:outline-none focus:ring-2 focus:ring-blue-400" />
 							</div>
 							<div>
 								<label class="block text-xs font-medium text-gray-700 mb-1">Script Type <span class="text-red-500">*</span></label>
-								<select
-									v-model="newScript.script_type"
-									class="w-full px-3 py-1.5 border border-gray-300 rounded-md text-sm bg-white text-gray-900 focus:outline-none focus:ring-2 focus:ring-blue-400"
-									:disabled="isScriptTaskElement"
-								>
-									<template v-if="isScriptTaskElement">
-										<option value="API">API</option>
-									</template>
+								<select v-model="newScript.script_type" class="w-full px-3 py-1.5 border border-gray-300 rounded-md text-sm bg-white text-gray-900 focus:outline-none focus:ring-2 focus:ring-blue-400" :disabled="isScriptTaskElement">
+									<template v-if="isScriptTaskElement"><option value="API">API</option></template>
 									<template v-else>
 										<option value="">Select type...</option>
 										<option value="DocType Event">DocType Event</option>
@@ -666,108 +558,57 @@
 								</select>
 							</div>
 						</div>
-
 						<div v-if="['DocType Event', 'Permission Query'].includes(newScript.script_type)" class="grid grid-cols-2 gap-4">
 							<div>
 								<label class="block text-xs font-medium text-gray-700 mb-1">Reference DocType</label>
 								<div class="relative">
-									<input
-										v-model="doctypeSearch"
-										type="text"
-										:placeholder="newScript.reference_doctype || 'Search DocType...'"
-										class="w-full px-3 py-1.5 border border-gray-300 rounded-md text-sm bg-white text-gray-900 focus:outline-none focus:ring-2 focus:ring-blue-400"
-										@focus="showDoctypeDropdown = true; showModuleDropdown = false; doctypeSearch = ''"
-										@blur="setTimeout(() => showDoctypeDropdown = false, 200)"
-									/>
+									<input v-model="doctypeSearch" type="text" :placeholder="newScript.reference_doctype || 'Search DocType...'" class="w-full px-3 py-1.5 border border-gray-300 rounded-md text-sm bg-white text-gray-900 focus:outline-none focus:ring-2 focus:ring-blue-400" @focus="showDoctypeDropdown = true; showModuleDropdown = false; doctypeSearch = ''" @blur="setTimeout(() => showDoctypeDropdown = false, 200)" />
 									<div v-if="showDoctypeDropdown && filteredDoctypeOptions.length > 0" class="absolute z-50 w-full mt-1 max-h-48 overflow-y-auto bg-white border border-gray-200 rounded-md shadow-lg">
-										<div
-											v-for="dt in filteredDoctypeOptions"
-											:key="dt"
-											@mousedown.prevent="newScript.reference_doctype = dt; doctypeSearch = dt; showDoctypeDropdown = false"
-											class="px-3 py-1.5 text-sm cursor-pointer hover:bg-blue-50 text-gray-900"
-										>{{ dt }}</div>
+										<div v-for="dt in filteredDoctypeOptions" :key="dt" @mousedown.prevent="newScript.reference_doctype = dt; doctypeSearch = dt; showDoctypeDropdown = false" class="px-3 py-1.5 text-sm cursor-pointer hover:bg-blue-50 text-gray-900">{{ dt }}</div>
 									</div>
 								</div>
 							</div>
 							<div v-if="newScript.script_type === 'DocType Event'">
 								<label class="block text-xs font-medium text-gray-700 mb-1">DocType Event</label>
-								<select
-									v-model="newScript.doctype_event"
-									class="w-full px-3 py-1.5 border border-gray-300 rounded-md text-sm bg-white text-gray-900 focus:outline-none focus:ring-2 focus:ring-blue-400"
-								>
+								<select v-model="newScript.doctype_event" class="w-full px-3 py-1.5 border border-gray-300 rounded-md text-sm bg-white text-gray-900 focus:outline-none focus:ring-2 focus:ring-blue-400">
 									<option value="">Select event...</option>
 									<option v-for="evt in doctypeEvents" :key="evt" :value="evt">{{ evt }}</option>
 								</select>
 							</div>
 						</div>
-
 						<div v-if="newScript.script_type === 'API'" class="grid grid-cols-2 gap-4">
 							<div>
 								<label class="block text-xs font-medium text-gray-700 mb-1">API Method</label>
-								<input
-									v-model="newScript.api_method"
-									type="text"
-									placeholder="e.g. my_custom_api"
-									class="w-full px-3 py-1.5 border border-gray-300 rounded-md text-sm bg-white text-gray-900 focus:outline-none focus:ring-2 focus:ring-blue-400"
-								/>
+								<input v-model="newScript.api_method" type="text" placeholder="e.g. my_custom_api" class="w-full px-3 py-1.5 border border-gray-300 rounded-md text-sm bg-white text-gray-900 focus:outline-none focus:ring-2 focus:ring-blue-400" />
 							</div>
 							<div class="flex items-end">
 								<label class="flex items-center gap-2 text-sm text-gray-700 cursor-pointer">
-									<input type="checkbox" v-model="newScript.allow_guest" class="rounded border-gray-300" />
-									Allow Guest
+									<input type="checkbox" v-model="newScript.allow_guest" class="rounded border-gray-300" />Allow Guest
 								</label>
 							</div>
 						</div>
-
 						<div v-if="newScript.script_type === 'Scheduler Event'" class="grid grid-cols-2 gap-4">
 							<div>
 								<label class="block text-xs font-medium text-gray-700 mb-1">Event Frequency</label>
-								<select
-									v-model="newScript.event_frequency"
-									class="w-full px-3 py-1.5 border border-gray-300 rounded-md text-sm bg-white text-gray-900 focus:outline-none focus:ring-2 focus:ring-blue-400"
-								>
+								<select v-model="newScript.event_frequency" class="w-full px-3 py-1.5 border border-gray-300 rounded-md text-sm bg-white text-gray-900 focus:outline-none focus:ring-2 focus:ring-blue-400">
 									<option value="">Select frequency...</option>
 									<option v-for="freq in eventFrequencies" :key="freq" :value="freq">{{ freq }}</option>
 								</select>
 							</div>
-							<FormControl
-								v-if="newScript.event_frequency === 'Cron'"
-								label="Cron Format"
-								v-model="newScript.cron_format"
-								placeholder="*/5 * * * *"
-							/>
+							<FormControl v-if="newScript.event_frequency === 'Cron'" label="Cron Format" v-model="newScript.cron_format" placeholder="*/5 * * * *" />
 						</div>
-
 						<div>
 							<label class="block text-xs font-medium text-gray-700 mb-1">Module (for export)</label>
 							<div class="relative">
-								<input
-									v-model="moduleSearch"
-									type="text"
-									:placeholder="newScript.module || 'Search Module...'"
-									class="w-full px-3 py-1.5 border border-gray-300 rounded-md text-sm bg-white text-gray-900 focus:outline-none focus:ring-2 focus:ring-blue-400"
-									@focus="showModuleDropdown = true; showDoctypeDropdown = false; moduleSearch = ''"
-									@blur="setTimeout(() => showModuleDropdown = false, 200)"
-								/>
+								<input v-model="moduleSearch" type="text" :placeholder="newScript.module || 'Search Module...'" class="w-full px-3 py-1.5 border border-gray-300 rounded-md text-sm bg-white text-gray-900 focus:outline-none focus:ring-2 focus:ring-blue-400" @focus="showModuleDropdown = true; showDoctypeDropdown = false; moduleSearch = ''" @blur="setTimeout(() => showModuleDropdown = false, 200)" />
 								<div v-if="showModuleDropdown && filteredModuleOptions.length > 0" class="absolute z-50 w-full mt-1 max-h-48 overflow-y-auto bg-white border border-gray-200 rounded-md shadow-lg">
-									<div
-										v-for="mod in filteredModuleOptions"
-										:key="mod"
-										@mousedown.prevent="newScript.module = mod; moduleSearch = mod; showModuleDropdown = false"
-										class="px-3 py-1.5 text-sm cursor-pointer hover:bg-blue-50 text-gray-900"
-									>{{ mod }}</div>
+									<div v-for="mod in filteredModuleOptions" :key="mod" @mousedown.prevent="newScript.module = mod; moduleSearch = mod; showModuleDropdown = false" class="px-3 py-1.5 text-sm cursor-pointer hover:bg-blue-50 text-gray-900">{{ mod }}</div>
 								</div>
 							</div>
 						</div>
-
 						<div>
 							<label class="block text-xs font-medium text-gray-700 mb-1">Script <span class="text-red-500">*</span></label>
-							<textarea
-								v-model="newScript.script"
-								class="w-full h-48 p-3 font-mono text-sm border border-gray-300 rounded-lg bg-gray-50 text-gray-900 focus:outline-none focus:ring-2 focus:ring-blue-400 focus:border-blue-400 resize-y"
-								placeholder="# Enter Python script here..."
-								spellcheck="false"
-							></textarea>
+							<textarea v-model="newScript.script" class="w-full h-48 p-3 font-mono text-sm border border-gray-300 rounded-lg bg-gray-50 text-gray-900 focus:outline-none focus:ring-2 focus:ring-blue-400 focus:border-blue-400 resize-y" placeholder="# Enter Python script here..." spellcheck="false"></textarea>
 						</div>
 					</div>
 
@@ -776,23 +617,15 @@
 						<div class="flex items-center gap-3">
 							<div class="flex-1">
 								<div class="text-sm font-semibold text-gray-900">{{ linkedScriptName }}</div>
-								<div v-if="editScriptMeta.script_type" class="text-xs text-gray-500 mt-0.5">
-									{{ editScriptMeta.script_type }}
-									<span v-if="editScriptMeta.reference_doctype"> · {{ editScriptMeta.reference_doctype }}</span>
-								</div>
+								<div v-if="editScriptMeta.script_type" class="text-xs text-gray-500 mt-0.5">{{ editScriptMeta.script_type }}<span v-if="editScriptMeta.reference_doctype"> · {{ editScriptMeta.reference_doctype }}</span></div>
 							</div>
 						</div>
 						<div v-if="loadingEditScript" class="flex items-center justify-center py-12 text-gray-400">
-							<div class="animate-spin rounded-full h-6 w-6 border-b-2 border-gray-400 mr-2"></div>
-							Loading script...
+							<div class="animate-spin rounded-full h-6 w-6 border-b-2 border-gray-400 mr-2"></div>Loading script...
 						</div>
 						<div v-else>
 							<label class="block text-xs font-medium text-gray-700 mb-1">Script</label>
-							<textarea
-								v-model="editScriptContent"
-								class="w-full h-72 p-3 font-mono text-sm border border-gray-300 rounded-lg bg-gray-50 text-gray-900 focus:outline-none focus:ring-2 focus:ring-blue-400 focus:border-blue-400 resize-y"
-								spellcheck="false"
-							></textarea>
+							<textarea v-model="editScriptContent" class="w-full h-72 p-3 font-mono text-sm border border-gray-300 rounded-lg bg-gray-50 text-gray-900 focus:outline-none focus:ring-2 focus:ring-blue-400 focus:border-blue-400 resize-y" spellcheck="false"></textarea>
 						</div>
 					</div>
 				</div>
@@ -800,26 +633,34 @@
 			<template #actions>
 				<div class="flex gap-2">
 					<Button variant="subtle" @click="showScriptEditorDialog = false">Cancel</Button>
-					<Button
-						v-if="scriptDialogMode === 'select'"
-						variant="solid"
-						@click="saveScript"
-						:disabled="!selectedServerScript"
-					>Link Script</Button>
-					<Button
-						v-else-if="scriptDialogMode === 'create'"
-						variant="solid"
-						@click="createAndLinkScript"
-						:loading="creatingScript"
-						:disabled="!newScript.name || !newScript.script_type || !newScript.script"
-					>Create &amp; Link</Button>
-					<Button
-						v-else-if="scriptDialogMode === 'edit'"
-						variant="solid"
-						@click="saveEditedScript"
-						:loading="savingEditScript"
-						:disabled="!editScriptContent || loadingEditScript"
-					>Save Changes</Button>
+					<Button v-if="scriptDialogMode === 'select'" variant="solid" @click="saveScript" :disabled="!selectedServerScript">Link Script</Button>
+					<Button v-else-if="scriptDialogMode === 'create'" variant="solid" @click="createAndLinkScript" :loading="creatingScript" :disabled="!newScript.name || !newScript.script_type || !newScript.script">Create &amp; Link</Button>
+					<Button v-else-if="scriptDialogMode === 'edit'" variant="solid" @click="saveEditedScript" :loading="savingEditScript" :disabled="!editScriptContent || loadingEditScript">Save Changes</Button>
+				</div>
+			</template>
+		</Dialog>
+
+		<!-- Delete Script Confirmation Dialog -->
+		<Dialog v-model="showDeleteScriptConfirm" :options="{ title: 'Delete Element', size: 'lg' }">
+			<template #body-content>
+				<div class="space-y-3 text-sm text-gray-700">
+					<p>This element has a linked Server Script:</p>
+					<ul class="list-disc pl-5 space-y-1">
+						<li v-for="name in deleteScriptConfirmData.scriptNames" :key="name" class="font-medium text-gray-900">
+							{{ name }}
+							<span v-if="deleteScriptConfirmData.usageMap[name] > 1" class="ml-2 text-xs font-normal text-amber-600">
+								(also used by {{ deleteScriptConfirmData.usageMap[name] - 1 }} other element{{ deleteScriptConfirmData.usageMap[name] > 2 ? 's' : '' }})
+							</span>
+						</li>
+					</ul>
+					<p class="text-gray-500 text-xs pt-1">Should the Server Script(s) be deleted as well?</p>
+				</div>
+			</template>
+			<template #actions>
+				<div class="flex gap-2">
+					<Button variant="subtle" @click="showDeleteScriptConfirm = false">Cancel</Button>
+					<Button variant="ghost" @click="confirmDeleteElement(false)">Delete Element Only</Button>
+					<Button variant="solid" theme="red" @click="confirmDeleteElement(true)">Delete Element &amp; Script</Button>
 				</div>
 			</template>
 		</Dialog>
@@ -980,6 +821,7 @@ const isAnyDialogOpen = computed(() => {
 	return (
 		showScriptEditorDialog.value ||
 		showLogixCanvas.value ||
+		showDeleteScriptConfirm.value ||
 		showMarkdownEditorDialog.value ||
 		showNewDiagramDialog.value ||
 		showUnsavedNavigationWarning.value ||
@@ -1139,7 +981,7 @@ const diagramDataCache = ref({});
 // Script Editor state
 const showScriptEditorDialog = ref(false);
 const scriptEditorTitle = ref("Link Server Script");
-const scriptDialogMode = ref("select"); // 'select', 'create', 'edit', or 'logix'
+const scriptDialogMode = ref("select");
 const serverScripts = ref([]);
 const serverScriptSearch = ref("");
 const selectedServerScript = ref(null);
@@ -1210,6 +1052,12 @@ const logixElement = ref(null);
 const logixScriptType = ref("bpmn:script");
 const logixCurrentScript = ref("");
 const logixEventBus = ref(null);
+
+// Delete-with-script confirmation state
+const showDeleteScriptConfirm = ref(false);
+const deleteScriptConfirmData = ref({ elements: [], scriptNames: [], usageMap: {} });
+let pendingDeleteElements = null;
+let pendingDeleteModeling = null;
 
 // Shared DocType/Module options (used by notification dialog composable)
 const doctypeOptions = ref([]);
@@ -2274,51 +2122,42 @@ function getAvatarColor(userName) {
 
 // --- SpiffWorkflow Editor Handlers ---
 
-async function onLaunchScriptEditor(event) {
+function onLaunchScriptEditor(event) {
 	activeScriptEvent = event;
 
-	// Store element info for LogixCanvas
 	logixElement.value = event.element;
 	logixScriptType.value = event.scriptType || "bpmn:script";
 	logixCurrentScript.value = event.script || "";
 	logixEventBus.value = event.eventBus;
 
+	// Prep dialog state so it's ready if the user goes back from Logix
 	const typeLabels = {
 		"bpmn:script": "Link Server Script",
 		"spiffworkflow:PreScript": "Link Pre-Script to Server Script",
 		"spiffworkflow:PostScript": "Link Post-Script to Server Script",
 	};
 	scriptEditorTitle.value = typeLabels[event.scriptType] || "Link Server Script";
-
 	linkedScriptName.value = event.script || "";
 	previewScriptContent.value = null;
 	loadingPreview.value = false;
 	editScriptContent.value = "";
 	editScriptMeta.value = { script_type: "", reference_doctype: "" };
-
 	scriptDialogMode.value = event.script ? "edit" : "select";
 	serverScriptSearch.value = "";
 	selectedServerScript.value = event.script || null;
-	doctypeSearch.value = "";
-	moduleSearch.value = "";
-	showDoctypeDropdown.value = false;
-	showModuleDropdown.value = false;
+	isScriptTaskElement.value = !!(event.element?.type === "bpmn:ScriptTask");
+	if (event.script) loadScriptContent(event.script, "edit");
 
-	const isScriptTask = event.element && event.element.type === "bpmn:ScriptTask";
-	isScriptTaskElement.value = isScriptTask;
-	newScript.value = {
-		name: "", script_type: isScriptTask ? "API" : "", script: "", reference_doctype: "",
-		doctype_event: "", api_method: "", allow_guest: false,
-		event_frequency: "", cron_format: "", module: "",
-	};
+	// Go straight to Logix canvas — skip the script selector dialog
+	showLogixCanvas.value = true;
 
-	if (event.script) {
-		loadScriptContent(event.script, "edit");
-	}
+	// Load server scripts in the background so the dialog is ready if user clicks back
+	loadServerScriptsInBackground();
+}
 
+async function loadServerScriptsInBackground() {
+	if (serverScripts.value.length) return;
 	loadingScripts.value = true;
-	showScriptEditorDialog.value = true;
-
 	try {
 		const response = await frappeRequest({
 			url: "/api/method/frappe.client.get_list",
@@ -2331,34 +2170,10 @@ async function onLaunchScriptEditor(event) {
 		});
 		const data = response.message || response;
 		serverScripts.value = Array.isArray(data) ? data : [];
-	} catch (error) {
-		console.error("Failed to load server scripts:", error);
-		serverScripts.value = [];
+	} catch (e) {
+		console.error("Failed to load server scripts:", e);
 	} finally {
 		loadingScripts.value = false;
-	}
-
-	if (doctypeOptions.value.length === 0) {
-		try {
-			const dtResp = await frappeRequest({
-				url: "/api/method/frappe.client.get_list",
-				params: { doctype: "DocType", fields: ["name"], limit_page_length: 0, order_by: "name asc" },
-			});
-			doctypeOptions.value = (dtResp.message || dtResp || []).map((d) => d.name);
-		} catch (e) {
-			console.error("Failed to load DocTypes:", e);
-		}
-	}
-	if (moduleOptions.value.length === 0) {
-		try {
-			const modResp = await frappeRequest({
-				url: "/api/method/frappe.client.get_list",
-				params: { doctype: "Module Def", fields: ["name"], limit_page_length: 0, order_by: "name asc" },
-			});
-			moduleOptions.value = (modResp.message || modResp || []).map((m) => m.name);
-		} catch (e) {
-			console.error("Failed to load Modules:", e);
-		}
 	}
 }
 
@@ -2523,6 +2338,42 @@ watch(selectedServerScript, (newVal) => {
 		previewScriptContent.value = null;
 	}
 });
+
+// --- Delete with Script Confirmation ---
+
+function onConfirmScriptDelete(payload) {
+	// payload: { elements, scriptNames, usageMap, doDelete }
+	pendingDeleteElements = payload.elements;
+	pendingDeleteModeling = payload.doDelete; // the original removeElements fn
+	deleteScriptConfirmData.value = {
+		elements: payload.elements,
+		scriptNames: payload.scriptNames,
+		usageMap: payload.usageMap,
+	};
+	showDeleteScriptConfirm.value = true;
+}
+
+async function confirmDeleteElement(alsoDeleteScript) {
+	showDeleteScriptConfirm.value = false;
+	if (alsoDeleteScript) {
+		for (const scriptName of deleteScriptConfirmData.value.scriptNames) {
+			try {
+				await frappeRequest({
+					url: "frappe.client.delete",
+					params: { doctype: "Server Script", name: scriptName },
+				});
+			} catch (e) {
+				console.error("Failed to delete script:", scriptName, e);
+			}
+		}
+	}
+	// Call the original (pre-intercept) removeElements directly
+	if (pendingDeleteModeling && pendingDeleteElements) {
+		pendingDeleteModeling(pendingDeleteElements);
+	}
+	pendingDeleteElements = null;
+	pendingDeleteModeling = null;
+}
 
 // --- Notification Dialog Handlers (Send Task) ---
 
