@@ -116,6 +116,7 @@ class BPMNProcessInstance(Document):
 			context_doctype=self.context_doctype,
 			context_docname=self.context_docname,
 			script_task_extensions=self._script_task_extensions,
+			initiated_by=self.initiated_by or frappe.session.user,
 		)
 
 		frappe.flags.bpmn_engine_action = True
@@ -177,6 +178,7 @@ class BPMNProcessInstance(Document):
 			context_doctype=self.context_doctype,
 			context_docname=self.context_docname,
 			script_task_extensions=_script_exts,
+			initiated_by=self.initiated_by or "Administrator",
 		)
 
 		# Always refresh the context doc so conditional events see latest data
@@ -331,6 +333,7 @@ class BPMNProcessInstance(Document):
 			context_doctype=self.context_doctype,
 			context_docname=self.context_docname,
 			script_task_extensions=_script_exts,
+			initiated_by=self.initiated_by or "Administrator",
 		)
 
 		# Refresh context doc so downstream conditions see latest data
@@ -549,7 +552,7 @@ class BPMNProcessInstance(Document):
 			target_state = task_cfg.get("workflowState", "")
 			doc_status = task_cfg.get("docStatus", "")  # override hint
 			only_role = task_cfg.get("onlyAllowEdit", "")
-			triggered_by = self.initiated_by or frappe.session.user
+			triggered_by = frappe.session.user or self.initiated_by or "Administrator"
 
 			if not (doctype and docname):
 				frappe.log_error(
@@ -712,11 +715,16 @@ class BPMNProcessInstance(Document):
 		if not updates:
 			return
 
+		actor = frappe.session.user or self.initiated_by or "Administrator"
+		# Include modified_by in the single DB write so the audit trail
+		# attributes the change to the user whose action triggered this task.
+		update_payload = {**updates, "modified_by": actor}
+
 		try:
 			old_flag = getattr(frappe.flags, "bpmn_engine_action", False)
 			frappe.flags.bpmn_engine_action = True
 			try:
-				frappe.db.set_value(doctype, docname, updates, update_modified=False)
+				frappe.db.set_value(doctype, docname, update_payload, update_modified=False)
 			finally:
 				frappe.flags.bpmn_engine_action = old_flag
 
@@ -726,6 +734,14 @@ class BPMNProcessInstance(Document):
 				message=frappe.get_traceback(),
 			)
 			raise
+
+		frappe.publish_realtime(
+			"doc_update",
+			{"modified": str(frappe.utils.now_datetime()), "modified_by": actor},
+			doctype=doctype,
+			docname=docname,
+			after_commit=True,
+		)
 
 	def _dispatch_google_chat(self, task, task_cfg: dict, bpmn_id: str) -> None:
 		"""
