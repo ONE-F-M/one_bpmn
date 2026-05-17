@@ -8,6 +8,20 @@ import frappe
 from frappe import _
 from frappe.utils import cint
 
+def _is_bpmn_super_user(user: str = None) -> bool:
+	"""Return True if *user* holds the Super User Role defined in OneFM General Setting."""
+	user = user or frappe.session.user
+	if user == "Administrator":
+		return True
+	try:
+		super_user_role = frappe.db.get_single_value("OneFM General Setting", "super_user_role")
+	except Exception:
+		return False
+	if not super_user_role:
+		return False
+	return super_user_role in frappe.get_roles(user)
+
+
 @frappe.whitelist()
 def save_process_model(
 	model_name: str, xml_content: str, process: str = None, description: str = None
@@ -2921,7 +2935,49 @@ def _extract_script_task_config(bpmn_xml: str) -> dict:
 	return extensions
 
 
-def _apply_docstatus_directly(doc, target_state: str, doc_status_hint: str) -> None:
+def _audit_and_notify(doc, actor: str, original_modified=None) -> None:
+	"""
+	Record the triggering user as modified_by and broadcast a doc_update event.
+
+	Called by service task handlers after every document save, submit, or cancel
+	so that:
+	  - The ERPNext audit trail (modified_by) shows the user whose action caused
+	    the automated change, not "Administrator" or the raw session user.
+	  - Any open Frappe desk form for the document auto-reloads via WebSocket.
+
+	When running inside a bpmn_engine_action context the modified timestamp is
+	also reverted to original_modified to prevent optimistic-lock conflicts on
+	the user's open form (same timestamp-sync workaround as before).
+	"""
+	if not doc or not doc.doctype or not doc.name:
+		return
+
+	actor = actor or frappe.session.user
+
+	if getattr(frappe.flags, "bpmn_engine_action", False) and original_modified:
+		# Revert modified timestamp AND record the actor in one DB write
+		frappe.db.set_value(
+			doc.doctype, doc.name,
+			{"modified": original_modified, "modified_by": actor},
+			update_modified=False,
+		)
+		doc.modified = original_modified
+		doc.modified_by = actor
+	else:
+		# Not an engine action — just stamp the actor without touching modified
+		frappe.db.set_value(doc.doctype, doc.name, "modified_by", actor, update_modified=False)
+		doc.modified_by = actor
+
+	frappe.publish_realtime(
+		"doc_update",
+		{"modified": str(doc.modified), "modified_by": doc.modified_by},
+		doctype=doc.doctype,
+		docname=doc.name,
+		after_commit=True,
+	)
+
+
+def _apply_docstatus_directly(doc, target_state: str, doc_status_hint: str, actor: str = None) -> None:
 	"""
 	Fallback used by ``_apply_bpmn_workflow_state`` when the DocType has no
 	active Frappe Workflow.
@@ -2968,12 +3024,8 @@ def _apply_docstatus_directly(doc, target_state: str, doc_status_hint: str) -> N
 			# Submitted doc — just save (amend notes etc.)
 			doc.save(ignore_permissions=True)
 
-	# ── Sync timestamp back for engine actions to prevent mismatch ───────
-	if getattr(frappe.flags, "bpmn_engine_action", False) and original_modified:
-		frappe.db.set_value(doc.doctype, doc.name, "modified", original_modified, update_modified=False)
-		doc.modified = original_modified
+	_audit_and_notify(doc, actor or frappe.session.user, original_modified)
 
-	# ── Audit trail: add a workflow comment like Frappe does ──────────────
 	if target_state:
 		doc.add_comment("Workflow", _(target_state))
 
@@ -3023,9 +3075,9 @@ def _apply_bpmn_workflow_state(
 	actor = triggered_by or frappe.session.user
 
 	# ── 1. Role guard ─────────────────────────────────────────────────────────
-	if only_allow_role:
+	if only_allow_role and not _is_bpmn_super_user(actor):
 		user_roles = frappe.get_roles(actor)
-		if only_allow_role not in user_roles and actor != "Administrator":
+		if only_allow_role not in user_roles:
 			frappe.throw(
 				_("Only users with the role '{0}' can perform this workflow action.").format(only_allow_role),
 				frappe.PermissionError,
@@ -3051,7 +3103,7 @@ def _apply_bpmn_workflow_state(
 		# ── FALLBACK: No Frappe Workflow configured on this DocType ────────────
 		# Apply docstatus transition directly (Draft → Submit → Cancel) and
 		# optionally set workflow_state / workflow_field if they exist on the doc.
-		_apply_docstatus_directly(doc, target_state, doc_status_hint)
+		_apply_docstatus_directly(doc, target_state, doc_status_hint, actor=actor)
 		return
 
 	# ── 4. State validation ───────────────────────────────────────────────────
@@ -3119,10 +3171,7 @@ def _apply_bpmn_workflow_state(
 			frappe.ValidationError,
 		)
 
-	# ── Sync timestamp back for engine actions to prevent mismatch ───────
-	if getattr(frappe.flags, "bpmn_engine_action", False) and original_modified:
-		frappe.db.set_value(doc.doctype, doc.name, "modified", original_modified, update_modified=False)
-		doc.modified = original_modified
+	_audit_and_notify(doc, actor, original_modified)
 
 	# ── 8. Workflow comment (same as Frappe's apply_workflow) ─────────────────
 	doc.add_comment("Workflow", _(target_state))
@@ -3245,7 +3294,7 @@ def complete_task(
 	assigned_user = active_row.assigned_user or ""
 	assigned_role = active_row.assigned_role or ""
 
-	if assigned_user and assigned_user != current_user and current_user != "Administrator":
+	if assigned_user and assigned_user != current_user and not _is_bpmn_super_user(current_user):
 		# Also allow the document owner (they initiated the process)
 		is_doc_owner = False
 		if instance.context_doctype and instance.context_docname:
@@ -3276,7 +3325,7 @@ def complete_task(
 					frappe.PermissionError,
 				)
 
-	if assigned_role and current_user != "Administrator":
+	if assigned_role and not _is_bpmn_super_user(current_user):
 		user_roles = frappe.get_roles(current_user)
 		if assigned_role not in user_roles:
 			frappe.throw(
