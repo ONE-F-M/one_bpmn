@@ -2759,7 +2759,49 @@ def _extract_script_task_config(bpmn_xml: str) -> dict:
 	return extensions
 
 
-def _apply_docstatus_directly(doc, target_state: str, doc_status_hint: str) -> None:
+def _audit_and_notify(doc, actor: str, original_modified=None) -> None:
+	"""
+	Record the triggering user as modified_by and broadcast a doc_update event.
+
+	Called by service task handlers after every document save, submit, or cancel
+	so that:
+	  - The ERPNext audit trail (modified_by) shows the user whose action caused
+	    the automated change, not "Administrator" or the raw session user.
+	  - Any open Frappe desk form for the document auto-reloads via WebSocket.
+
+	When running inside a bpmn_engine_action context the modified timestamp is
+	also reverted to original_modified to prevent optimistic-lock conflicts on
+	the user's open form (same timestamp-sync workaround as before).
+	"""
+	if not doc or not doc.doctype or not doc.name:
+		return
+
+	actor = actor or frappe.session.user
+
+	if getattr(frappe.flags, "bpmn_engine_action", False) and original_modified:
+		# Revert modified timestamp AND record the actor in one DB write
+		frappe.db.set_value(
+			doc.doctype, doc.name,
+			{"modified": original_modified, "modified_by": actor},
+			update_modified=False,
+		)
+		doc.modified = original_modified
+		doc.modified_by = actor
+	else:
+		# Not an engine action — just stamp the actor without touching modified
+		frappe.db.set_value(doc.doctype, doc.name, "modified_by", actor, update_modified=False)
+		doc.modified_by = actor
+
+	frappe.publish_realtime(
+		"doc_update",
+		{"modified": str(doc.modified), "modified_by": doc.modified_by},
+		doctype=doc.doctype,
+		docname=doc.name,
+		after_commit=True,
+	)
+
+
+def _apply_docstatus_directly(doc, target_state: str, doc_status_hint: str, actor: str = None) -> None:
 	"""
 	Fallback used by ``_apply_bpmn_workflow_state`` when the DocType has no
 	active Frappe Workflow.
@@ -2806,12 +2848,8 @@ def _apply_docstatus_directly(doc, target_state: str, doc_status_hint: str) -> N
 			# Submitted doc — just save (amend notes etc.)
 			doc.save(ignore_permissions=True)
 
-	# ── Sync timestamp back for engine actions to prevent mismatch ───────
-	if getattr(frappe.flags, "bpmn_engine_action", False) and original_modified:
-		frappe.db.set_value(doc.doctype, doc.name, "modified", original_modified, update_modified=False)
-		doc.modified = original_modified
+	_audit_and_notify(doc, actor or frappe.session.user, original_modified)
 
-	# ── Audit trail: add a workflow comment like Frappe does ──────────────
 	if target_state:
 		doc.add_comment("Workflow", _(target_state))
 
@@ -2889,7 +2927,7 @@ def _apply_bpmn_workflow_state(
 		# ── FALLBACK: No Frappe Workflow configured on this DocType ────────────
 		# Apply docstatus transition directly (Draft → Submit → Cancel) and
 		# optionally set workflow_state / workflow_field if they exist on the doc.
-		_apply_docstatus_directly(doc, target_state, doc_status_hint)
+		_apply_docstatus_directly(doc, target_state, doc_status_hint, actor=actor)
 		return
 
 	# ── 4. State validation ───────────────────────────────────────────────────
@@ -2957,10 +2995,7 @@ def _apply_bpmn_workflow_state(
 			frappe.ValidationError,
 		)
 
-	# ── Sync timestamp back for engine actions to prevent mismatch ───────
-	if getattr(frappe.flags, "bpmn_engine_action", False) and original_modified:
-		frappe.db.set_value(doc.doctype, doc.name, "modified", original_modified, update_modified=False)
-		doc.modified = original_modified
+	_audit_and_notify(doc, actor, original_modified)
 
 	# ── 8. Workflow comment (same as Frappe's apply_workflow) ─────────────────
 	doc.add_comment("Workflow", _(target_state))
