@@ -1259,8 +1259,19 @@ def create_server_script(
 
 
 @frappe.whitelist()
-def update_server_script(script_name: str, script: str) -> dict:
-	"""Replace the script body of an existing API Server Script."""
+def update_server_script(
+	script_name: str,
+	script: str,
+	script_type: str = None,
+	reference_doctype: str = None,
+	doctype_event: str = None,
+	api_method: str = None,
+	allow_guest: int = None,
+	event_frequency: str = None,
+	cron_format: str = None,
+	module: str = None,
+) -> dict:
+	"""Replace the script body (and optionally metadata) of an existing Server Script."""
 	if frappe.session.user == "Guest":
 		frappe.throw(_("Authentication required"))
 
@@ -1273,6 +1284,22 @@ def update_server_script(script_name: str, script: str) -> dict:
 	try:
 		doc = frappe.get_doc("Server Script", script_name)
 		doc.script = script
+		if script_type:
+			doc.script_type = script_type
+		if reference_doctype is not None:
+			doc.reference_doctype = reference_doctype
+		if doctype_event is not None:
+			doc.doctype_event = doctype_event
+		if api_method is not None:
+			doc.api_method = api_method
+		if allow_guest is not None:
+			doc.allow_guest = int(allow_guest)
+		if event_frequency is not None:
+			doc.event_frequency = event_frequency
+		if cron_format is not None:
+			doc.cron_format = cron_format
+		if module is not None:
+			doc.module = module
 		original_user = frappe.session.user
 		try:
 			frappe.set_user("Administrator")
