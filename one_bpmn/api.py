@@ -1253,13 +1253,35 @@ def create_server_script(
 	if module:
 		doc.module = module
 
-	# Elevate to Administrator temporarily to bypass the ServerScript controller's
-	# `frappe.only_for("Script Manager")` validate hook. The role guard above
-	# already ensures only System Manager / Script Manager users reach this point.
 	original_user = frappe.session.user
 	try:
 		frappe.set_user("Administrator")
-		doc.insert(ignore_permissions=True)
+		if frappe.db.exists("Server Script", script_name):
+			# Script already exists — update in place instead of re-inserting
+			doc = frappe.get_doc("Server Script", script_name)
+			doc.script_type = script_type
+			doc.script = script
+			doc.disabled = 0
+			if reference_doctype is not None:
+				doc.reference_doctype = reference_doctype
+			if doctype_event is not None:
+				doc.doctype_event = doctype_event
+			if script_type == "API":
+				resolved_method = api_method or _derive_api_method(script_name)
+				doc.api_method = resolved_method
+			elif api_method is not None:
+				doc.api_method = api_method
+			if allow_guest is not None:
+				doc.allow_guest = int(allow_guest)
+			if event_frequency is not None:
+				doc.event_frequency = event_frequency
+			if cron_format is not None:
+				doc.cron_format = cron_format
+			if module is not None:
+				doc.module = module
+			doc.save(ignore_permissions=True)
+		else:
+			doc.insert(ignore_permissions=True)
 	finally:
 		frappe.set_user(original_user)
 
@@ -1273,8 +1295,19 @@ def create_server_script(
 
 
 @frappe.whitelist()
-def update_server_script(script_name: str, script: str) -> dict:
-	"""Replace the script body of an existing API Server Script."""
+def update_server_script(
+	script_name: str,
+	script: str,
+	script_type: str = None,
+	reference_doctype: str = None,
+	doctype_event: str = None,
+	api_method: str = None,
+	allow_guest: int = None,
+	event_frequency: str = None,
+	cron_format: str = None,
+	module: str = None,
+) -> dict:
+	"""Replace the script body (and optionally metadata) of an existing Server Script."""
 	if frappe.session.user == "Guest":
 		frappe.throw(_("Authentication required"))
 
@@ -1287,6 +1320,22 @@ def update_server_script(script_name: str, script: str) -> dict:
 	try:
 		doc = frappe.get_doc("Server Script", script_name)
 		doc.script = script
+		if script_type:
+			doc.script_type = script_type
+		if reference_doctype is not None:
+			doc.reference_doctype = reference_doctype
+		if doctype_event is not None:
+			doc.doctype_event = doctype_event
+		if api_method is not None:
+			doc.api_method = api_method
+		if allow_guest is not None:
+			doc.allow_guest = int(allow_guest)
+		if event_frequency is not None:
+			doc.event_frequency = event_frequency
+		if cron_format is not None:
+			doc.cron_format = cron_format
+		if module is not None:
+			doc.module = module
 		original_user = frappe.session.user
 		try:
 			frappe.set_user("Administrator")
@@ -1359,6 +1408,45 @@ def process_logix_message(
 
 	except Exception:
 		frappe.log_error(title="Logix Agent error", message=frappe.get_traceback())
+		return {"intent": "ERROR", "response": "An unexpected error occurred. Please try again."}
+
+
+@frappe.whitelist()
+def prosally_chat(
+	message: str,
+	session_id: str,
+	chat_history: str = None,
+	process_name: str = "",
+	diagram_name: str = "",
+	confirmed_action: str = "",
+	current_xml: str = "",
+) -> dict:
+	"""Process a ProsAlly chat message via the ProsAlly Agent (Google ADK)."""
+	if frappe.session.user == "Guest":
+		frappe.throw(_("Authentication required"))
+
+	try:
+		history = []
+		if chat_history:
+			if isinstance(chat_history, str):
+				history = json.loads(chat_history)
+			else:
+				history = chat_history
+
+		from one_bpmn.agents.google_adk.prosally_agent.prosally_agent import run_prosally_message
+
+		result = run_prosally_message(
+			message=message,
+			chat_history=history,
+			process_name=process_name or "",
+			diagram_name=diagram_name or "",
+			confirmed_action=confirmed_action or "",
+			current_xml=current_xml or "",
+		)
+		return result
+
+	except Exception:
+		frappe.log_error(title="ProsAlly Agent error", message=frappe.get_traceback())
 		return {"intent": "ERROR", "response": "An unexpected error occurred. Please try again."}
 
 
@@ -4082,3 +4170,108 @@ def get_context_documents(doctype: str, query: str = None) -> list:
 		order_by="modified desc",
 	)
 	return [{"label": r.name, "value": r.name} for r in results]
+
+
+# Server Script Version History
+# ============================================
+
+
+@frappe.whitelist()
+def get_script_version_history(script_name: str) -> list:
+	"""
+	Get version history for a Server Script using Frappe's built-in Version tracking.
+	Returns a list of versions ordered newest-first.
+	"""
+	if not script_name:
+		return []
+
+	if not frappe.db.exists("Server Script", script_name):
+		return []
+
+	frappe.get_doc("Server Script", script_name).check_permission("read")
+
+	current = frappe.db.get_value(
+		"Server Script", script_name,
+		["modified", "modified_by", "script"],
+		as_dict=True
+	)
+
+	# Pull version records from Frappe's Version doctype
+	version_records = frappe.get_all(
+		"Version",
+		filters={"ref_doctype": "Server Script", "docname": script_name},
+		fields=["name", "creation", "owner", "data"],
+		order_by="creation desc",
+		limit=100,
+	)
+
+	result = []
+
+	# Current (latest) state is always version 1 in the panel
+	result.append({
+		"version_name": "current",
+		"is_current": True,
+		"creation": str(current.modified),
+		"author": frappe.utils.get_fullname(current.modified_by),
+		"description": "Current version",
+		"script": current.script or "",
+	})
+
+	for record in version_records:
+		try:
+			data = frappe.parse_json(record.data or "{}")
+			changed = data.get("changed", [])
+			script_change = next((c for c in changed if c[0] == "script"), None)
+			if not script_change:
+				continue
+			result.append({
+				"version_name": record.name,
+				"is_current": False,
+				"creation": str(record.creation),
+				"author": frappe.utils.get_fullname(record.owner),
+				"description": "Script updated",
+				"script": script_change[1],  # old value before this change
+			})
+		except Exception:
+			pass
+
+	return result
+
+
+@frappe.whitelist()
+def get_script_at_version(version_name: str) -> dict:
+	"""
+	Get script content at a specific Version record.
+	"""
+	if version_name == "current":
+		return {}
+
+	if not frappe.db.exists("Version", version_name):
+		frappe.throw(_("Version record not found."))
+
+	version_doc = frappe.get_doc("Version", version_name)
+	data = frappe.parse_json(version_doc.data or "{}")
+	changed = data.get("changed", [])
+	script_change = next((c for c in changed if c[0] == "script"), None)
+
+	if not script_change:
+		return {"script": "# No script changes tracked in this version"}
+
+	return {"script": script_change[1]}
+
+
+@frappe.whitelist()
+def restore_script_version(script_name: str, version_name: str) -> dict:
+	"""
+	Restore a Server Script to the content stored in a Version record.
+	"""
+	if not frappe.has_permission("Server Script", "write") and "System Manager" not in frappe.get_roles():
+		frappe.throw(
+			_("You need the Script Manager or System Manager role to restore Server Scripts."),
+			frappe.PermissionError,
+		)
+
+	version_data = get_script_at_version(version_name)
+	script_content = version_data.get("script", "")
+
+	return update_server_script(script_name, script_content)
