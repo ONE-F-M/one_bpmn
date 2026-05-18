@@ -1253,13 +1253,35 @@ def create_server_script(
 	if module:
 		doc.module = module
 
-	# Elevate to Administrator temporarily to bypass the ServerScript controller's
-	# `frappe.only_for("Script Manager")` validate hook. The role guard above
-	# already ensures only System Manager / Script Manager users reach this point.
 	original_user = frappe.session.user
 	try:
 		frappe.set_user("Administrator")
-		doc.insert(ignore_permissions=True)
+		if frappe.db.exists("Server Script", script_name):
+			# Script already exists — update in place instead of re-inserting
+			doc = frappe.get_doc("Server Script", script_name)
+			doc.script_type = script_type
+			doc.script = script
+			doc.disabled = 0
+			if reference_doctype is not None:
+				doc.reference_doctype = reference_doctype
+			if doctype_event is not None:
+				doc.doctype_event = doctype_event
+			if script_type == "API":
+				resolved_method = api_method or _derive_api_method(script_name)
+				doc.api_method = resolved_method
+			elif api_method is not None:
+				doc.api_method = api_method
+			if allow_guest is not None:
+				doc.allow_guest = int(allow_guest)
+			if event_frequency is not None:
+				doc.event_frequency = event_frequency
+			if cron_format is not None:
+				doc.cron_format = cron_format
+			if module is not None:
+				doc.module = module
+			doc.save(ignore_permissions=True)
+		else:
+			doc.insert(ignore_permissions=True)
 	finally:
 		frappe.set_user(original_user)
 

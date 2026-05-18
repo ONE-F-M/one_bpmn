@@ -179,17 +179,6 @@
 					</button>
 					<button
 						class="lc-file-btn"
-						:class="{ 'lc-file-btn--active': showScriptSettings }"
-						@click="showScriptSettings = !showScriptSettings; if(showScriptSettings){ loadDoctypeOptions(); loadModuleOptions(); }"
-						title="Script Settings"
-					>
-						<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" width="14" height="14">
-							<circle cx="12" cy="12" r="3"/><path stroke-linecap="round" d="M19.4 15a1.65 1.65 0 00.33 1.82l.06.06a2 2 0 010 2.83 2 2 0 01-2.83 0l-.06-.06a1.65 1.65 0 00-1.82-.33 1.65 1.65 0 00-1 1.51V21a2 2 0 01-4 0v-.09A1.65 1.65 0 009 19.4a1.65 1.65 0 00-1.82.33l-.06.06a2 2 0 01-2.83-2.83l.06-.06A1.65 1.65 0 004.68 15a1.65 1.65 0 00-1.51-1H3a2 2 0 010-4h.09A1.65 1.65 0 004.6 9a1.65 1.65 0 00-.33-1.82l-.06-.06a2 2 0 012.83-2.83l.06.06A1.65 1.65 0 009 4.68a1.65 1.65 0 001-1.51V3a2 2 0 014 0v.09a1.65 1.65 0 001 1.51 1.65 1.65 0 001.82-.33l.06-.06a2 2 0 012.83 2.83l-.06.06A1.65 1.65 0 0019.4 9a1.65 1.65 0 001.51 1H21a2 2 0 010 4h-.09a1.65 1.65 0 00-1.51 1z"/>
-						</svg>
-						Settings
-					</button>
-					<button
-						class="lc-file-btn"
 						:class="{ 'lc-file-btn--active': showVersionHistory }"
 						@click="showVersionHistory = !showVersionHistory"
 						title="Version History"
@@ -206,8 +195,7 @@
 			<div v-if="showDoctypeDropdown || showModuleDropdown" class="lc-dropdown-backdrop" @click="showDoctypeDropdown = false; showModuleDropdown = false"></div>
 
 			<!-- Script Settings Panel -->
-			<Transition name="lc-settings-slide">
-				<div v-if="showScriptSettings" class="lc-settings-panel">
+			<div class="lc-settings-panel">
 					<div class="lc-settings-grid">
 						<!-- Script Type -->
 						<div class="lc-settings-field">
@@ -290,8 +278,7 @@
 							</div>
 						</template>
 					</div>
-				</div>
-			</Transition>
+			</div>
 
 			<!-- Code area with line numbers -->
 			<div class="lc-code-area" ref="codeAreaEl">
@@ -312,19 +299,14 @@
 			<!-- Editor footer -->
 			<div class="lc-editor-footer">
 				<div class="lc-footer-status">
-					<span v-if="isDirty && !isSaved" class="lc-unsaved">● Unsaved changes</span>
-					<span v-if="isSaved" class="lc-saved">✓ Saved</span>
+					<span v-if="isSaving" class="lc-autosaving">
+						<span class="lc-spinner-sm"></span> Saving…
+					</span>
+					<span v-else-if="isDirty && !isSaved" class="lc-unsaved">● Unsaved changes</span>
+					<span v-else-if="isSaved" class="lc-saved">✓ Saved</span>
 				</div>
 				<div class="lc-footer-actions">
-					<button class="lc-btn-cancel" @click="$emit('close')">Cancel</button>
-					<button
-						class="lc-btn-save"
-						@click="saveScript"
-						:disabled="isSaving || !canvasScriptName.trim()"
-					>
-						<span v-if="isSaving" class="lc-spinner-sm lc-spinner-white"></span>
-						{{ isSaving ? 'Saving…' : 'Save Changes' }}
-					</button>
+					<button class="lc-btn-cancel" @click="$emit('close')">Close</button>
 				</div>
 			</div>
 		</div>
@@ -394,7 +376,7 @@
 </template>
 
 <script setup>
-import { ref, computed, nextTick, onMounted } from "vue";
+import { ref, computed, nextTick, onMounted, watch } from "vue";
 import DOMPurify from "dompurify";
 import { marked } from "marked";
 
@@ -425,6 +407,7 @@ const emit = defineEmits(["close", "script-saved", "back"]);
 
 // ── Canvas state ──────────────────────────────────────────────────────
 const canvasScriptName = ref(props.currentScript || "");
+const savedScriptName  = ref(props.currentScript || ""); // tracks the name currently in the DB
 const canvasCode       = ref("");
 const isEditingName    = ref(false);
 const nameInputEl      = ref(null);
@@ -433,8 +416,11 @@ const isSaving         = ref(false);
 const isSaved          = ref(false);
 const isLoadingScript  = ref(false);
 
+// ── Auto-save ─────────────────────────────────────────────────────────
+let autoSaveTimer = null;
+let isInitializing = false;
+
 // ── Script metadata ───────────────────────────────────────────────────
-const showScriptSettings = ref(false);
 const scriptMeta = ref({
 	script_type: "API",
 	reference_doctype: "",
@@ -523,46 +509,56 @@ const elementLabel = computed(() => {
 
 // ── Lifecycle ─────────────────────────────────────────────────────────
 onMounted(async () => {
+	loadDoctypeOptions();
+	loadModuleOptions();
 	await initCanvas();
 	initGreeting();
 	nextTick(() => inputEl.value?.focus());
 });
 
 async function initCanvas() {
-	if (props.currentScript) {
-		canvasScriptName.value = props.currentScript;
-		isLoadingScript.value  = true;
-		try {
-			const resp = await fetch(
-				`/api/method/frappe.client.get?doctype=Server%20Script&name=${encodeURIComponent(props.currentScript)}`,
-				{ headers: { "X-Frappe-CSRF-Token": getCsrfToken() } },
-			);
-			const data = await resp.json();
-			const msg = data?.message || {};
-			canvasCode.value = msg.script || "";
-			scriptMeta.value = {
-				script_type:       msg.script_type || "API",
-				reference_doctype: msg.reference_doctype || "",
-				doctype_event:     msg.doctype_event || "",
-				api_method:        msg.api_method || "",
-				allow_guest:       !!msg.allow_guest,
-				event_frequency:   msg.event_frequency || "",
-				cron_format:       msg.cron_format || "",
-				module:            msg.module || "",
-			};
-		} catch (e) {
-			console.error("Failed to load script:", e);
-		} finally {
-			isLoadingScript.value = false;
+	isInitializing = true;
+	try {
+		if (props.currentScript) {
+			canvasScriptName.value = props.currentScript;
+			savedScriptName.value  = props.currentScript;
+			isLoadingScript.value  = true;
+			try {
+				const resp = await fetch(
+					`/api/method/frappe.client.get?doctype=Server%20Script&name=${encodeURIComponent(props.currentScript)}`,
+					{ headers: { "X-Frappe-CSRF-Token": getCsrfToken() } },
+				);
+				const data = await resp.json();
+				const msg = data?.message || {};
+				canvasCode.value = msg.script || "";
+				scriptMeta.value = {
+					script_type:       msg.script_type || "API",
+					reference_doctype: msg.reference_doctype || "",
+					doctype_event:     msg.doctype_event || "",
+					api_method:        msg.api_method || "",
+					allow_guest:       !!msg.allow_guest,
+					event_frequency:   msg.event_frequency || "",
+					cron_format:       msg.cron_format || "",
+					module:            msg.module || "",
+				};
+			} catch (e) {
+				console.error("Failed to load script:", e);
+			} finally {
+				isLoadingScript.value = false;
+			}
+			await fetchVersionHistory();
+		} else {
+			// Auto-set display name from the BPMN element label; savedScriptName stays ""
+			// until the first successful auto-save confirms it exists in the DB.
+			canvasScriptName.value = elementLabel.value || "";
+			savedScriptName.value  = "";
+			canvasCode.value = "";
+			if (props.element?.type === "bpmn:ScriptTask") {
+				scriptMeta.value.script_type = "API";
+			}
 		}
-		await fetchVersionHistory();
-	} else {
-		canvasScriptName.value = "";
-		canvasCode.value = "";
-		// Default to API for Script Tasks
-		if (props.element?.type === "bpmn:ScriptTask") {
-			scriptMeta.value.script_type = "API";
-		}
+	} finally {
+		isInitializing = false;
 	}
 }
 
@@ -677,6 +673,7 @@ function insertLink() {
 function onCodeInput() {
 	isDirty.value = true;
 	isSaved.value = false;
+	scheduleAutoSave();
 }
 
 function syncScroll() {
@@ -692,8 +689,14 @@ function startEditName() {
 	});
 }
 
-function stopEditName() {
+async function stopEditName() {
 	isEditingName.value = false;
+	const newName = canvasScriptName.value.trim();
+	if (newName && newName !== savedScriptName.value) {
+		// New name — ensure it doesn't collide with an unrelated existing script
+		await ensureUniqueName();
+	}
+	scheduleAutoSave();
 }
 
 async function copyCanvas() {
@@ -745,7 +748,7 @@ async function handleAction(action, msgId) {
 		}
 		messages.value.push({
 			id: makeId(), role: "assistant", time: formatTime(new Date()),
-			content: "Script applied to the canvas ✓\nReview the code on the right, edit if needed, then click **Save Changes**.",
+			content: "Script applied to the canvas ✓\nReview the code on the right and edit if needed — it will auto-save shortly.",
 		});
 		scrollBottom();
 	}
@@ -972,72 +975,85 @@ async function restoreVersion(version) {
 	pendingLogixDescription = `Restored to V${versionNum}`;
 	messages.value.push({
 		id: makeId(), role: "assistant", time: formatTime(new Date()),
-		content: `Restored canvas to V${versionNum}. Click **Save Changes** to persist.`,
+		content: `Restored canvas to V${versionNum}. Auto-saving…`,
 	});
+	scheduleAutoSave();
 	scrollBottom();
+}
+
+// ── Auto-save scheduler ───────────────────────────────────────────────
+function scheduleAutoSave() {
+	if (isInitializing) return;
+	if (autoSaveTimer) clearTimeout(autoSaveTimer);
+	autoSaveTimer = setTimeout(() => { saveScript(); }, 1500);
+}
+
+// Watch metadata changes and auto-save
+watch(scriptMeta, () => { scheduleAutoSave(); }, { deep: true });
+
+// ── Unique name helper ────────────────────────────────────────────────
+async function ensureUniqueName() {
+	const base = canvasScriptName.value.trim();
+	if (!base) return;
+	let name = base;
+	let counter = 1;
+	while (true) {
+		try {
+			// A name that matches the currently saved script is always fine (it's ours)
+			if (name === savedScriptName.value) break;
+			const r = await fetch(
+				`/api/method/one_bpmn.api.check_server_script_exists?script_name=${encodeURIComponent(name)}`,
+				{ headers: { "X-Frappe-CSRF-Token": getCsrfToken() } },
+			);
+			const d = await r.json();
+			if (!d?.message?.exists) break;
+			name = `${base} ${counter++}`;
+		} catch { break; }
+	}
+	canvasScriptName.value = name;
 }
 
 // ── Save script ───────────────────────────────────────────────────────
 async function saveScript() {
 	const name = canvasScriptName.value.trim();
-	if (!name) {
-		messages.value.push({
-			id: makeId(), role: "assistant", time: formatTime(new Date()),
-			content: "Please give the script a name before saving (double-click the filename to edit).",
-		});
-		scrollBottom();
-		return;
-	}
+	if (!name) return; // silently wait — user hasn't named the script yet
 
 	isSaving.value = true;
 	try {
-		let scriptName;
-
-		if (props.currentScript) {
-			// Update existing
-			const meta = scriptMeta.value;
-			const res = await fetch("/api/method/one_bpmn.api.update_server_script", {
+		// If the script was previously saved under a different name, rename it first
+		if (savedScriptName.value && savedScriptName.value !== name) {
+			const renameRes = await fetch("/api/method/frappe.client.rename_doc", {
 				method:  "POST",
 				headers: { "Content-Type": "application/json", "X-Frappe-CSRF-Token": getCsrfToken() },
-				body:    JSON.stringify({
-					script_name:       props.currentScript,
-					script:            canvasCode.value,
-					script_type:       meta.script_type || undefined,
-					reference_doctype: meta.reference_doctype || undefined,
-					doctype_event:     meta.doctype_event || undefined,
-					api_method:        meta.api_method || undefined,
-					allow_guest:       meta.allow_guest ? 1 : 0,
-					event_frequency:   meta.event_frequency || undefined,
-					cron_format:       meta.cron_format || undefined,
-					module:            meta.module || undefined,
-				}),
+				body:    JSON.stringify({ doctype: "Server Script", name: savedScriptName.value, new_name: name }),
 			});
-			if (!res.ok) throw new Error(`HTTP ${res.status}`);
-			scriptName = props.currentScript;
-		} else {
-			// Create new
-			const meta = scriptMeta.value;
-			const res = await fetch("/api/method/one_bpmn.api.create_server_script", {
-				method:  "POST",
-				headers: { "Content-Type": "application/json", "X-Frappe-CSRF-Token": getCsrfToken() },
-				body:    JSON.stringify({
-					script_name:       name,
-					script_type:       meta.script_type || "API",
-					script:            canvasCode.value,
-					reference_doctype: meta.reference_doctype || undefined,
-					doctype_event:     meta.doctype_event || undefined,
-					api_method:        meta.api_method || undefined,
-					allow_guest:       meta.allow_guest ? 1 : 0,
-					event_frequency:   meta.event_frequency || undefined,
-					cron_format:       meta.cron_format || undefined,
-					module:            meta.module || undefined,
-				}),
-			});
-			if (!res.ok) throw new Error(`HTTP ${res.status}`);
-			const data = await res.json();
-			scriptName = data?.message?.name || name;
-			canvasScriptName.value = scriptName;
+			if (!renameRes.ok) throw new Error(`Rename failed: HTTP ${renameRes.status}`);
+			savedScriptName.value = name;
 		}
+
+		// Upsert with the (possibly renamed) name
+		const meta = scriptMeta.value;
+		const res = await fetch("/api/method/one_bpmn.api.create_server_script", {
+			method:  "POST",
+			headers: { "Content-Type": "application/json", "X-Frappe-CSRF-Token": getCsrfToken() },
+			body:    JSON.stringify({
+				script_name:       name,
+				script_type:       meta.script_type || "API",
+				script:            canvasCode.value,
+				reference_doctype: meta.reference_doctype || undefined,
+				doctype_event:     meta.doctype_event || undefined,
+				api_method:        meta.api_method || undefined,
+				allow_guest:       meta.allow_guest ? 1 : 0,
+				event_frequency:   meta.event_frequency || undefined,
+				cron_format:       meta.cron_format || undefined,
+				module:            meta.module || undefined,
+			}),
+		});
+		if (!res.ok) throw new Error(`HTTP ${res.status}`);
+		const data = await res.json();
+		const scriptName = data?.message?.name || name;
+		canvasScriptName.value = scriptName;
+		savedScriptName.value  = scriptName;
 
 		// Fire BPMN event to link the script to the element
 		if (props.eventBus && props.element) {
@@ -1057,12 +1073,8 @@ async function saveScript() {
 
 		emit("script-saved", scriptName);
 	} catch (err) {
-		console.error("Save failed:", err);
-		messages.value.push({
-			id: makeId(), role: "assistant", time: formatTime(new Date()),
-			content: `Failed to save: ${err.message}. Please try again.`,
-		});
-		scrollBottom();
+		console.error("Auto-save failed:", err);
+		// Don't push to chat on auto-save errors to avoid spamming the user
 	} finally {
 		isSaving.value = false;
 	}
@@ -1745,9 +1757,10 @@ function resetChat() {
 	flex-shrink: 0;
 }
 
-.lc-footer-status { font-size: 12px; }
-.lc-unsaved { color: #e65100; }
-.lc-saved   { color: #2e7d32; }
+.lc-footer-status { font-size: 12px; display: flex; align-items: center; gap: 6px; }
+.lc-unsaved   { color: #e65100; }
+.lc-saved     { color: #2e7d32; }
+.lc-autosaving { color: #888; display: flex; align-items: center; gap: 6px; }
 
 .lc-footer-actions { display: flex; gap: 8px; }
 
