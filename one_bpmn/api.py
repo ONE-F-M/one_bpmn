@@ -1197,6 +1197,16 @@ def list_process_instances(
 # ============================================
 
 
+def _derive_api_method(script_name: str) -> str:
+	"""Convert a script name to a valid Frappe API method identifier."""
+	import re
+	method = script_name.lower()
+	method = re.sub(r"[^a-z0-9\s_]", "", method)
+	method = re.sub(r"\s+", "_", method)
+	method = re.sub(r"_+", "_", method).strip("_")
+	return method or "script"
+
+
 @frappe.whitelist()
 def create_server_script(
 	script_name: str,
@@ -1228,7 +1238,11 @@ def create_server_script(
 		doc.reference_doctype = reference_doctype
 	if doctype_event:
 		doc.doctype_event = doctype_event
-	if api_method:
+	# For API scripts, always set an api_method so Processa can reach it via REST
+	if script_type == "API":
+		resolved_method = api_method or _derive_api_method(script_name)
+		doc.api_method = resolved_method
+	elif api_method:
 		doc.api_method = api_method
 	if allow_guest:
 		doc.allow_guest = int(allow_guest)
@@ -1249,7 +1263,103 @@ def create_server_script(
 	finally:
 		frappe.set_user(original_user)
 
-	return {"name": doc.name, "script_type": doc.script_type}
+	method = getattr(doc, "api_method", None) or ""
+	return {
+		"name":        doc.name,
+		"script_type": doc.script_type,
+		"api_method":  method,
+		"api_url":     f"/api/method/{method}" if method else "",
+	}
+
+
+@frappe.whitelist()
+def update_server_script(script_name: str, script: str) -> dict:
+	"""Replace the script body of an existing API Server Script."""
+	if frappe.session.user == "Guest":
+		frappe.throw(_("Authentication required"))
+
+	if not frappe.has_permission("Server Script", "write") and "System Manager" not in frappe.get_roles():
+		frappe.throw(
+			_("You need the Script Manager or System Manager role to update Server Scripts."),
+			frappe.PermissionError,
+		)
+
+	try:
+		doc = frappe.get_doc("Server Script", script_name)
+		doc.script = script
+		original_user = frappe.session.user
+		try:
+			frappe.set_user("Administrator")
+			doc.save(ignore_permissions=True)
+		finally:
+			frappe.set_user(original_user)
+		method = doc.api_method or ""
+		return {
+			"name":        doc.name,
+			"script_type": doc.script_type,
+			"api_method":  method,
+			"api_url":     f"/api/method/{method}" if method else "",
+		}
+	except frappe.DoesNotExistError:
+		frappe.throw(_("Server Script '{0}' not found.").format(script_name))
+	except Exception:
+		frappe.log_error(title="Update Server Script Error", message=frappe.get_traceback())
+		frappe.throw(_("Failed to update Server Script."))
+
+
+@frappe.whitelist()
+def check_server_script_exists(script_name: str) -> dict:
+	"""Check if a Server Script document with the given name exists."""
+	if frappe.session.user == "Guest":
+		frappe.throw(_("Authentication required"))
+	return {"exists": bool(frappe.db.exists("Server Script", script_name))}
+
+
+@frappe.whitelist()
+def process_logix_message(
+	message: str,
+	session_id: str,
+	chat_history: str = None,
+	element_name: str = None,
+	current_script: str = None,
+) -> dict:
+	"""Process a Logix AI chat message via the ScriptTaskAgent (Google ADK)."""
+	if frappe.session.user == "Guest":
+		frappe.throw(_("Authentication required"))
+
+	try:
+		history = []
+		if chat_history:
+			if isinstance(chat_history, str):
+				history = json.loads(chat_history)
+			else:
+				history = chat_history
+
+		# Fetch the original script body so the agent can compute a diff for MODIFY intent
+		original_content = ""
+		if current_script:
+			try:
+				original_content = frappe.get_doc("Server Script", current_script).script or ""
+			except Exception:
+				pass
+
+		from one_bpmn.agents.google_adk.script_task_agent.script_task_agent import (
+			run_logix_message,
+		)
+
+		result = run_logix_message(
+			message=message,
+			chat_history=history,
+			element_name=element_name or "",
+			current_script=current_script or "",
+			original_script_content=original_content,
+		)
+		# result is already a dict: {intent, response, diff, options, suggested_name}
+		return result
+
+	except Exception:
+		frappe.log_error(title="Logix Agent error", message=frappe.get_traceback())
+		return {"intent": "ERROR", "response": "An unexpected error occurred. Please try again."}
 
 
 @frappe.whitelist()
