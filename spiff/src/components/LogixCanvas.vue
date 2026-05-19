@@ -569,7 +569,7 @@ async function initGreeting() {
 	if (props.currentScript) {
 		messages.value = [{
 			id: makeId(), role: "assistant", time: formatTime(new Date()),
-			content: `Hello, I am Logix.\nI've loaded **${props.currentScript}** in the canvas. What changes would you like to make?`,
+			content: `Hello, I am Logix.\nHappy to help with the server scripts.\nHow would you like me to assist in redefining the **${props.currentScript}** server script?`,
 		}];
 		return;
 	}
