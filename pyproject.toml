@@ -68,7 +68,7 @@ files = [
     "one_bpmn/api.py",
     "one_bpmn/tasks.py",
 ]
-exclude = "^one_bpmn/one_bpmn/patches|/test_.*\.py$"
+exclude = '^one_bpmn/one_bpmn/patches|/test_.*\.py$'
 
 [[tool.mypy.overrides]]
 module = [
