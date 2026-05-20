@@ -29,7 +29,7 @@ from one_bpmn.tools.tool_for_server_scripts import (
     list_api_server_scripts,
 )
 
-AGENT_ID = "logix_script_agent"
+AGENT_ID = "logix_agent"
 
 # ── Tool specs ─────────────────────────────────────────────────────────────────
 
@@ -348,16 +348,18 @@ class ScriptTaskAgent:
                 final = candidate
                 break
 
+            is_last = attempt == _MAX_RETRIES
             frappe.log_error(
-                title="Logix Security Validator",
+                title="Logix Security Validator — " + ("Max retries reached" if is_last else "Auto-regenerating"),
                 message=(
                     f"Attempt {attempt + 1}/{_MAX_RETRIES + 1} blocked.\n"
-                    f"Violations: {validation['violations']}\n\n"
+                    f"Violations: {validation['violations']}\n"
+                    f"Action: {'Returning error to user' if is_last else 'Regenerating with safe Frappe ORM prompt'}\n\n"
                     f"Flagged code:\n{modified_code}"
                 ),
             )
 
-            if attempt == _MAX_RETRIES:
+            if is_last:
                 return {
                     "intent":          intent,
                     "response":        (

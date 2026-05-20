@@ -81,7 +81,7 @@
 							<button
 								v-for="action in msg.actions"
 								:key="action.handler + action.label"
-								class="lc-action-btn"
+								:class="['lc-action-btn', action.handler === 'reject_modify' ? 'lc-action-btn--reject' : '']"
 								@click="handleAction(action, msg.id)"
 							>{{ action.label }}</button>
 						</div>
@@ -257,7 +257,7 @@
 						<!-- Script Type -->
 						<div class="lc-settings-field">
 							<label class="lc-settings-label">Script Type</label>
-							<select v-model="scriptMeta.script_type" class="lc-settings-select" :disabled="props.element?.type === 'bpmn:ScriptTask'">
+							<select v-model="scriptMeta.script_type" class="lc-settings-select">
 								<option value="API">API</option>
 								<option value="DocType Event">DocType Event</option>
 								<option value="Scheduler Event">Scheduler Event</option>
@@ -871,6 +871,49 @@ async function handleAction(action, msgId) {
 		}
 		sendMessage();
 
+	} else if (action.handler === "approve_modify") {
+		if (msg) msg.actions = null;
+		const code = msg?.pendingCode || "";
+		if (code) {
+			canvasCode.value = code;
+			isDirty.value = true;
+			isSaved.value = false;
+			pendingLogixDescription = msg?.pendingDescription || "Modified by Logix";
+			scheduleAutoSave();
+		}
+		messages.value.push({
+			id: makeId(), role: "assistant", time: formatTime(new Date()),
+			content: "Changes approved ✓ Saving to canvas...",
+		});
+		scrollBottom();
+
+	} else if (action.handler === "reject_modify") {
+		if (msg) msg.actions = null;
+		messages.value.push({
+			id: makeId(), role: "assistant", time: formatTime(new Date()),
+			content: "Changes rejected. The existing script is unchanged. Let me know how you'd like to adjust the modification.",
+		});
+		scrollBottom();
+
+	} else if (action.handler === "approve_create") {
+		if (msg) msg.actions = null;
+		const code = msg?.pendingCode || "";
+		if (code) {
+			canvasCode.value = code;
+			isDirty.value = true;
+			isSaved.value = false;
+			pendingLogixDescription = msg?.pendingDescription || "Created by Logix";
+			if (msg?.pendingName && !props.currentScript) {
+				canvasScriptName.value = msg.pendingName;
+			}
+			scheduleAutoSave();
+		}
+		messages.value.push({
+			id: makeId(), role: "assistant", time: formatTime(new Date()),
+			content: "Script approved ✓ Saving and linking to this script task...",
+		});
+		scrollBottom();
+
 	} else if (action.handler === "apply_to_canvas") {
 		if (msg) msg.actions = null;
 		const code = msg?.pendingCode || "";
@@ -955,7 +998,10 @@ async function sendMessage() {
 			msg.pendingCode = proposedCode;
 			msg.pendingDescription = "Modified by Logix";
 			if (/```python[\s\S]*?```/.test(reply)) {
-				msg.actions = [{ label: "Apply to Canvas", handler: "apply_to_canvas" }];
+				msg.actions = [
+					{ label: "Approve & Save", handler: "approve_modify" },
+					{ label: "Reject",         handler: "reject_modify"  },
+				];
 			}
 
 		} else if (intent === "CREATE") {
@@ -964,7 +1010,7 @@ async function sendMessage() {
 			msg.pendingName = result?.suggested_name || "";
 			msg.pendingDescription = `Created by Logix${result?.suggested_name ? ': ' + result.suggested_name : ''}`;
 			if (/```python[\s\S]*?```/.test(reply)) {
-				msg.actions = [{ label: "Apply to Canvas", handler: "apply_to_canvas" }];
+				msg.actions = [{ label: "Approve", handler: "approve_create" }];
 			}
 		}
 
@@ -1577,6 +1623,9 @@ function resetChat() {
 }
 
 .lc-action-btn:hover { background: linear-gradient(135deg, #6c3fe0 0%, #9b59b6 100%); color: #fff; border-color: transparent; }
+
+.lc-action-btn--reject { border-color: #c62828; color: #c62828; }
+.lc-action-btn--reject:hover { background: #c62828; color: #fff; border-color: transparent; }
 
 /* ── Input area ─────────────────────────────────────────────────── */
 .lc-input-area {
