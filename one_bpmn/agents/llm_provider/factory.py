@@ -2,9 +2,10 @@
 LLM adapter factory.
 
 Provider resolution order (highest priority first):
-  1. agent_config["llm_provider_override"]   (per-agent override in AI Agent Configuration)
-  2. AI Chat Settings → llm_provider          (global default)
-  3. "gemini"                                 (fallback)
+  1. agent_config["llm_provider_override"]       (per-agent override in AI Agent Configuration)
+  2. AI Chat Settings → processa_llm_provider    (global default for BPMN agents: Logix, ProsAlly)
+  3. AI Chat Settings → llm_provider             (chatbot default, used as fallback)
+  4. "gemini"                                    (hard fallback)
 
 Model resolution order:
   1. agent_config["model_override"]
@@ -59,7 +60,12 @@ def get_llm_adapter_from_settings(agent_config: dict | None = None) -> BaseLLMAd
     if override and override != "Use Global":
         provider = override.lower()
     elif settings:
-        provider = (settings.llm_provider or "gemini").lower()
+        # processa_llm_provider is for BPMN agents; fall back to llm_provider (chatbot) if unset
+        provider = (
+            getattr(settings, "processa_llm_provider", None)
+            or settings.llm_provider
+            or "gemini"
+        ).lower()
     else:
         provider = "gemini"
 

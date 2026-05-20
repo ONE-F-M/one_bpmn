@@ -63,14 +63,16 @@
 						</div>
 						<!-- Diff view for MODIFY -->
 						<div v-if="msg.diffRows?.length" class="lc-split-diff">
-							<div class="lc-split-header">
-								<div class="lc-split-col-label">Original</div>
-								<div class="lc-split-col-label">Proposed</div>
-							</div>
-							<div class="lc-split-body">
-								<div v-for="(row, ri) in msg.diffRows" :key="ri" class="lc-split-row">
-									<pre :class="['lc-split-cell', splitCellClass(row, 'left')]">{{ row.left ?? '' }}</pre>
-									<pre :class="['lc-split-cell', splitCellClass(row, 'right')]">{{ row.right ?? '' }}</pre>
+							<div class="lc-split-scroll">
+								<div class="lc-split-header">
+									<div class="lc-split-col-label">Original</div>
+									<div class="lc-split-col-label">Proposed</div>
+								</div>
+								<div class="lc-split-body">
+									<div v-for="(row, ri) in msg.diffRows" :key="ri" class="lc-split-row">
+										<pre :class="['lc-split-cell', splitCellClass(row, 'left')]">{{ row.left ?? '' }}</pre>
+										<pre :class="['lc-split-cell', splitCellClass(row, 'right')]">{{ row.right ?? '' }}</pre>
+									</div>
 								</div>
 							</div>
 						</div>
@@ -880,6 +882,7 @@ async function handleAction(action, msgId) {
 			if (msg?.pendingName && !props.currentScript) {
 				canvasScriptName.value = msg.pendingName;
 			}
+			scheduleAutoSave();
 		}
 		messages.value.push({
 			id: makeId(), role: "assistant", time: formatTime(new Date()),
@@ -1539,12 +1542,13 @@ function resetChat() {
 	width: 100%;
 }
 
-.lc-split-header { display: flex; background: #f5f5f5; border-bottom: 1px solid #e0e0e0; }
-.lc-split-col-label { flex: 1; padding: 3px 8px; font-weight: 600; font-size: 10px; color: #666; letter-spacing: .03em; }
+.lc-split-scroll { overflow-x: auto; }
+.lc-split-header { display: flex; background: #f5f5f5; border-bottom: 1px solid #e0e0e0; min-width: max-content; width: 100%; }
+.lc-split-col-label { flex: 0 0 50%; min-width: 220px; padding: 3px 8px; font-weight: 600; font-size: 10px; color: #666; letter-spacing: .03em; }
 .lc-split-col-label:first-child { border-right: 1px solid #e0e0e0; }
-.lc-split-body { background: #1c1b1f; max-height: 200px; overflow-y: auto; }
-.lc-split-row { display: flex; border-bottom: 1px solid rgba(255,255,255,.04); min-height: 18px; }
-.lc-split-cell { flex: 1; margin: 0; padding: 1px 8px; font-family: monospace; font-size: 11px; line-height: 1.5; color: #e6e1e5; white-space: pre; overflow: hidden; min-width: 0; border-right: 1px solid rgba(255,255,255,.08); }
+.lc-split-body { background: #1c1b1f; max-height: 220px; overflow-y: auto; overflow-x: visible; }
+.lc-split-row { display: flex; border-bottom: 1px solid rgba(255,255,255,.04); min-height: 18px; min-width: max-content; width: 100%; }
+.lc-split-cell { flex: 0 0 50%; min-width: 220px; margin: 0; padding: 1px 8px; font-family: monospace; font-size: 11px; line-height: 1.5; color: #e6e1e5; white-space: pre; overflow: visible; border-right: 1px solid rgba(255,255,255,.08); }
 .lc-split-cell:last-child { border-right: none; }
 .lc-sdiff-del   { background: rgba(240,80,80,.2);   color: #ff8a8a; }
 .lc-sdiff-add   { background: rgba(100,220,100,.18); color: #6ee68e; }

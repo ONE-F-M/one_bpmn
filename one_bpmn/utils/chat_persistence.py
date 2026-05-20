@@ -35,6 +35,12 @@ def close_conversation(conversation_name: str) -> None:
 
 # ── Message persistence ────────────────────────────────────────────────────────
 
+def _agent_name(conversation_name: str) -> str:
+    """Return the agent display name for a conversation (e.g. 'Logix', 'ProsAlly')."""
+    mode = frappe.db.get_value("Chat Conversation", conversation_name, "agent_mode") or "Lumina"
+    return mode
+
+
 def save_user_message(conversation_name: str, text: str) -> str:
     """Persist a user message and update conversation metadata."""
     return _save_message(
@@ -42,7 +48,7 @@ def save_user_message(conversation_name: str, text: str) -> str:
         message_type="User",
         text=text,
         sender=frappe.session.user,
-        receiver="Lumina",
+        receiver=_agent_name(conversation_name),
     )
 
 
@@ -52,7 +58,7 @@ def save_bot_message(conversation_name: str, text: str, metadata: dict | None = 
         conversation_name=conversation_name,
         message_type="Bot",
         text=text,
-        sender="Administrator",
+        sender=_agent_name(conversation_name),
         receiver="User",
         metadata=metadata,
     )
