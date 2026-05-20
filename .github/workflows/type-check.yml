@@ -3,11 +3,6 @@ name: Type Check
 on:
   pull_request:
     branches: [staging, test-production, version-15]
-    paths:
-      - "one_bpmn/__init__.py"
-      - "one_bpmn/api.py"
-      - "one_bpmn/tasks.py"
-      - "pyproject.toml"
   workflow_dispatch:
 
 permissions:
@@ -31,6 +26,41 @@ jobs:
       - name: Install checker
         run: |
           pip install basedmypy~=2.0.0 types-requests
-      - name: Run mypy on typed files only
+      - name: Read typed files from pyproject.toml
+        id: typed-files
         run: |
-          mypy one_bpmn/__init__.py one_bpmn/api.py one_bpmn/tasks.py --ignore-missing-imports
+          python - <<'PY' >> "$GITHUB_OUTPUT"
+          import shlex
+          import tomllib
+
+          with open("pyproject.toml", "rb") as pyproject:
+              files = tomllib.load(pyproject).get("tool", {}).get("mypy", {}).get("files", [])
+
+          quoted_files = " ".join(shlex.quote(path) for path in files)
+          print(f"files={quoted_files}")
+          PY
+      - name: Check whether typed files changed
+        id: changed
+        if: github.event_name == 'pull_request'
+        run: |
+          git fetch --no-tags --depth=1 origin "${{ github.base_ref }}"
+          python - <<'PY' >> "$GITHUB_OUTPUT"
+          import subprocess
+          import tomllib
+
+          with open("pyproject.toml", "rb") as pyproject:
+              typed_files = set(tomllib.load(pyproject).get("tool", {}).get("mypy", {}).get("files", []))
+
+          changed_files = set(
+              subprocess.check_output(
+                  ["git", "diff", "--name-only", f"origin/${{ github.base_ref }}...HEAD"],
+                  text=True,
+              ).splitlines()
+          )
+          should_run = "true" if "pyproject.toml" in changed_files or typed_files.intersection(changed_files) else "false"
+          print(f"run={should_run}")
+          PY
+      - name: Run mypy on typed files only
+        if: github.event_name != 'pull_request' || steps.changed.outputs.run == 'true'
+        run: |
+          mypy ${{ steps.typed-files.outputs.files }} --ignore-missing-imports
