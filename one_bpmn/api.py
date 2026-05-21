@@ -1368,36 +1368,23 @@ def check_server_script_exists(script_name: str) -> dict:
 def process_logix_message(
 	message: str,
 	session_id: str,
-	conversation_name: str = None,
 	chat_history: str = None,
 	element_name: str = None,
 	current_script: str = None,
 ) -> dict:
-	"""Process a Logix AI chat message, persisting history in Chat Conversation."""
+	"""Process a Logix AI chat message via the ScriptTaskAgent (Google ADK)."""
 	if frappe.session.user == "Guest":
 		frappe.throw(_("Authentication required"))
 
 	try:
-		from one_bpmn.utils.chat_persistence import (
-			create_conversation, save_user_message, save_bot_message, load_history,
-		)
+		history = []
+		if chat_history:
+			if isinstance(chat_history, str):
+				history = json.loads(chat_history)
+			else:
+				history = chat_history
 
-		# Create a new conversation on the first message
-		if not conversation_name:
-			label = element_name or "Script Task"
-			conversation_name = create_conversation(
-				agent_mode="Logix",
-				title=f"Logix: {label}",
-				user=frappe.session.user,
-			)
-
-		# Persist the user message
-		save_user_message(conversation_name, message)
-
-		# Load full history from DB (ignores the frontend-supplied chat_history)
-		history = load_history(conversation_name)
-
-		# Fetch the original script body for diff computation on MODIFY
+		# Fetch the original script body so the agent can compute a diff for MODIFY intent
 		original_content = ""
 		if current_script:
 			try:
@@ -1405,7 +1392,9 @@ def process_logix_message(
 			except Exception:
 				pass
 
-		from one_bpmn.agents.google_adk.script_task_agent.script_task_agent import run_logix_message
+		from one_bpmn.agents.google_adk.script_task_agent.script_task_agent import (
+			run_logix_message,
+		)
 
 		result = run_logix_message(
 			message=message,
@@ -1414,15 +1403,7 @@ def process_logix_message(
 			current_script=current_script or "",
 			original_script_content=original_content,
 		)
-
-		# Persist the bot response
-		save_bot_message(
-			conversation_name,
-			result.get("response", ""),
-			metadata={"intent": result.get("intent")},
-		)
-
-		result["conversation_name"] = conversation_name
+		# result is already a dict: {intent, response, diff, options, suggested_name}
 		return result
 
 	except Exception:
@@ -1434,36 +1415,23 @@ def process_logix_message(
 def prosally_chat(
 	message: str,
 	session_id: str,
-	conversation_name: str = None,
 	chat_history: str = None,
 	process_name: str = "",
 	diagram_name: str = "",
 	confirmed_action: str = "",
 	current_xml: str = "",
 ) -> dict:
-	"""Process a ProsAlly chat message, persisting history in Chat Conversation."""
+	"""Process a ProsAlly chat message via the ProsAlly Agent (Google ADK)."""
 	if frappe.session.user == "Guest":
 		frappe.throw(_("Authentication required"))
 
 	try:
-		from one_bpmn.utils.chat_persistence import (
-			create_conversation, save_user_message, save_bot_message, load_history,
-		)
-
-		# Create a new conversation on the first message
-		if not conversation_name:
-			label = process_name or diagram_name or "Process"
-			conversation_name = create_conversation(
-				agent_mode="ProsAlly",
-				title=f"ProsAlly: {label}",
-				user=frappe.session.user,
-			)
-
-		# Persist the user message
-		save_user_message(conversation_name, message)
-
-		# Load full history from DB
-		history = load_history(conversation_name)
+		history = []
+		if chat_history:
+			if isinstance(chat_history, str):
+				history = json.loads(chat_history)
+			else:
+				history = chat_history
 
 		from one_bpmn.agents.google_adk.prosally_agent.prosally_agent import run_prosally_message
 
@@ -1475,15 +1443,6 @@ def prosally_chat(
 			confirmed_action=confirmed_action or "",
 			current_xml=current_xml or "",
 		)
-
-		# Persist the bot response
-		save_bot_message(
-			conversation_name,
-			result.get("response", ""),
-			metadata={"intent": result.get("intent"), "action_intent": result.get("action_intent")},
-		)
-
-		result["conversation_name"] = conversation_name
 		return result
 
 	except Exception:
