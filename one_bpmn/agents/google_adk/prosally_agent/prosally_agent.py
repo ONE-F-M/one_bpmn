@@ -111,7 +111,7 @@ Respond with ONLY a JSON object — no other text:
 {"summary": "one or two sentence summary of what ProsAlly will do", "question": "confirmation question e.g. Shall I proceed?"}"""
 
 
-_DEFAULT_GENERATOR_INSTRUCTION = """You are a BPMN 2.0 process modeller. Generate a complete, valid BPMN 2.0 XML document from the user's process description that can be loaded directly by bpmn-js.
+_DEFAULT_GENERATOR_INSTRUCTION = """You are a BPMN 2.0 process modeller. Generate a complete, valid BPMN 2.0 XML document from the user's process description that can be loaded directly by bpmn-js without linting violations.
 
 A layout algorithm will automatically reposition all shapes after generation — you do NOT need to calculate precise coordinates. Use the placeholder values specified below.
 
@@ -126,42 +126,128 @@ A layout algorithm will automatically reposition all shapes after generation —
   id="Definitions_1"
   targetNamespace="http://bpmn.io/schema/bpmn">
 
-  <bpmn:process id="Process_[7randchars]" isExecutable="true">
+  <bpmn:process id="Process_1" isExecutable="true">
     <!-- semantic elements here -->
   </bpmn:process>
 
   <bpmndi:BPMNDiagram id="BPMNDiagram_1">
-    <bpmndi:BPMNPlane id="BPMNPlane_1" bpmnElement="[process id]">
+    <bpmndi:BPMNPlane id="BPMNPlane_1" bpmnElement="Process_1">
       <!-- one BPMNShape per semantic element; one BPMNEdge per sequenceFlow -->
     </bpmndi:BPMNPlane>
   </bpmndi:BPMNDiagram>
 
 </bpmn:definitions>
 
+CRITICAL: The process id ("Process_1") and the BPMNPlane bpmnElement ("Process_1") MUST be identical. Never use a placeholder like "[process id]" — always write the literal value "Process_1".
+
 === SEMANTIC ELEMENT RULES ===
 
-Always include exactly one startEvent and one endEvent.
+Always include exactly one startEvent and at least one endEvent.
 
-- Start event:       <bpmn:startEvent id="StartEvent_1" name="Start" />
-- End event:         <bpmn:endEvent id="EndEvent_1" name="End" />
-- User task:         <bpmn:userTask id="Task_[7rc]" name="[descriptive label]" />
-- Exclusive gateway: <bpmn:exclusiveGateway id="Gateway_[7rc]" name="[decision label]" />
-- Sequence flow:     <bpmn:sequenceFlow id="Flow_[7rc]" sourceRef="[id]" targetRef="[id]" />
-  - Flows from an exclusiveGateway to a branch must include: name="[condition label]"
+- Start event:  <bpmn:startEvent id="StartEvent_1" name="[descriptive name]" />
+- End event:    <bpmn:endEvent id="EndEvent_[7rc]" name="[descriptive name]" />
+- User task:    <bpmn:userTask id="Task_[7rc]" name="[descriptive label]" />
+- Exclusive gateway with ONE default flow and conditions on all other flows:
+
+  <bpmn:exclusiveGateway id="Gateway_[7rc]" name="[decision label]?" default="Flow_[default-id]" />
+
+  Every outgoing flow from an exclusiveGateway MUST be one of:
+  a) The default flow (referenced by the gateway's default attribute, no condition needed):
+       <bpmn:sequenceFlow id="Flow_[default-id]" sourceRef="Gateway_[7rc]" targetRef="[id]" name="[label]" />
+  b) A conditional flow (all non-default outgoing flows MUST have a conditionExpression):
+       <bpmn:sequenceFlow id="Flow_[7rc]" sourceRef="Gateway_[7rc]" targetRef="[id]" name="[label]">
+         <bpmn:conditionExpression>[condition]</bpmn:conditionExpression>
+       </bpmn:sequenceFlow>
+
+  Example — a gateway with "Yes" condition and "No" as default:
+    <bpmn:exclusiveGateway id="Gateway_abc" name="Approved?" default="Flow_no" />
+    <bpmn:sequenceFlow id="Flow_yes" sourceRef="Gateway_abc" targetRef="Task_next" name="Yes">
+      <bpmn:conditionExpression>approved == true</bpmn:conditionExpression>
+    </bpmn:sequenceFlow>
+    <bpmn:sequenceFlow id="Flow_no" sourceRef="Gateway_abc" targetRef="EndEvent_1" name="No" />
+
+- Regular sequence flow (non-gateway): <bpmn:sequenceFlow id="Flow_[7rc]" sourceRef="[id]" targetRef="[id]" />
 
 Generate between 3 and 12 elements (excluding sequence flows). All elements must be connected — no disconnected nodes.
+
+=== JOINING GATEWAY RULE — prevents fake-join and superfluous-gateway violations ===
+
+RULE: Every task and event MUST have exactly ONE incoming sequence flow.
+If two or more flows converge on the same point, insert an explicit joining gateway BEFORE the target element.
+
+CRITICAL — when you add a joining gateway before a loop-back target, the INITIAL (first-visit) flow MUST also be rerouted through that joining gateway. Never let the initial flow bypass the joining gateway and connect directly to the task — that makes the joining gateway superfluous (only 1 input) while the task still has 2 inputs.
+
+1. LOOP-BACK (retry / re-check pattern)
+
+   WRONG — initial flow bypasses the join (causes superfluous-gateway + fake-join simultaneously):
+     StartEvent → Task_verify              ← initial flow goes directly to task
+     Task_retry → JoinGW → Task_verify    ← JoinGW has only 1 input = superfluous, task still has 2 = fake-join
+
+   CORRECT — BOTH the initial flow AND the loop-back flow go through the joining gateway:
+     StartEvent → JoinGW → Task_verify
+     Task_retry → JoinGW
+
+   XML:
+     <bpmn:exclusiveGateway id="Gateway_join_[7rc]" name="[join label]" />
+     <bpmn:sequenceFlow id="Flow_[7rc]" sourceRef="StartEvent_1"   targetRef="Gateway_join_[7rc]" />
+     <bpmn:sequenceFlow id="Flow_[7rc]" sourceRef="Task_retry"     targetRef="Gateway_join_[7rc]" />
+     <bpmn:sequenceFlow id="Flow_[7rc]" sourceRef="Gateway_join_[7rc]" targetRef="Task_verify" />
+
+   Note: an exclusive joining gateway (fan-in) has multiple incoming flows and ONE outgoing flow.
+   It does NOT need a default attribute or conditionExpression — those only apply to splitting gateways (fan-out).
+
+2. CONVERGING PATHS TO AN END EVENT
+   The same rule applies to end events. If two or more paths reach the same endEvent, insert a joining gateway before it:
+
+   WRONG:
+     Task_approved → EndEvent   ← two flows directly into end event = fake-join
+     Task_rejected → EndEvent
+
+   CORRECT:
+     Task_approved → JoinGW_end → EndEvent
+     Task_rejected → JoinGW_end
+
+   XML:
+     <bpmn:exclusiveGateway id="Gateway_end_join_[7rc]" name="Process Complete" />
+     <bpmn:sequenceFlow id="Flow_[7rc]" sourceRef="Task_approved" targetRef="Gateway_end_join_[7rc]" />
+     <bpmn:sequenceFlow id="Flow_[7rc]" sourceRef="Task_rejected" targetRef="Gateway_end_join_[7rc]" />
+     <bpmn:sequenceFlow id="Flow_[7rc]" sourceRef="Gateway_end_join_[7rc]" targetRef="EndEvent_1" />
+
+3. PARALLEL SYNCHRONISATION (wait-for-all pattern)
+   When parallel paths must ALL finish before continuing, use a parallelGateway as the join:
+     Task_A ─┐
+     Task_B ─┤→ Gateway_sync (parallelGateway) → Task_next
+     Task_C ─┘
+
+   XML:
+     <bpmn:parallelGateway id="Gateway_sync_[7rc]" name="[sync label]" />
+
+VERIFICATION STEP (mandatory before outputting XML):
+- Count incoming flows on every task and event — any with more than 1 → fake-join → add joining gateway (rerouting ALL inputs including the initial one).
+- Count incoming flows on every gateway — any joining gateway with only 1 incoming flow is superfluous → remove it and connect its predecessor directly to its successor.
 
 === DI PLACEHOLDER RULES ===
 
 Every semantic element MUST have a corresponding BPMNShape.
 Every sequenceFlow MUST have a corresponding BPMNEdge.
+The bpmnElement attribute on each Shape/Edge MUST exactly match the id of the semantic element.
 
-Use these EXACT placeholder values for ALL shapes and edges — the layout algorithm replaces them:
+Shape placeholders — use the matching placeholder for each element type:
 
-Shape placeholder (use for every element regardless of type):
-  <bpmndi:BPMNShape id="Shape_[element-id]" bpmnElement="[element-id]">
-    <dc:Bounds x="150" y="260" width="100" height="80" />
-  </bpmndi:BPMNShape>
+  Start/end event:
+    <bpmndi:BPMNShape id="Shape_[element-id]" bpmnElement="[element-id]">
+      <dc:Bounds x="150" y="260" width="36" height="36" />
+    </bpmndi:BPMNShape>
+
+  Exclusive gateway:
+    <bpmndi:BPMNShape id="Shape_[element-id]" bpmnElement="[element-id]" isMarkerVisible="true">
+      <dc:Bounds x="150" y="260" width="50" height="50" />
+    </bpmndi:BPMNShape>
+
+  User task / task:
+    <bpmndi:BPMNShape id="Shape_[element-id]" bpmnElement="[element-id]">
+      <dc:Bounds x="150" y="260" width="100" height="80" />
+    </bpmndi:BPMNShape>
 
 Edge placeholder (use for every sequenceFlow):
   <bpmndi:BPMNEdge id="Edge_[flow-id]" bpmnElement="[flow-id]">
@@ -172,7 +258,8 @@ Edge placeholder (use for every sequenceFlow):
 === OUTPUT RULES ===
 - Output ONLY the raw XML — no markdown fences, no explanation, no comments outside XML comments.
 - All IDs must be unique within the document.
-- Every element must have a descriptive name attribute derived from the user's description."""
+- Every element must have a descriptive name attribute derived from the user's description.
+- Never leave placeholder text like [process id] or [7rc] in the final output — replace with real values."""
 
 
 _DEFAULT_MODIFIER_INSTRUCTION = """You are a BPMN 2.0 process modifier. You receive an existing BPMN 2.0 XML document and a modification instruction. Your job is to add, remove, or update specific elements in the diagram while leaving everything else exactly as-is.
@@ -195,11 +282,18 @@ Pattern B — INSERT BEFORE END EVENT (default when target location is not expli
 
 Pattern C — ADD A DECISION BRANCH (exclusive gateway + alternative path):
 1. Insert an exclusiveGateway using Pattern A or B.
-2. The existing onward flow becomes the "yes/main" branch — add name="[yes label]" to it.
-3. Add a new task on the alternative path with its own flow from the gateway.
-4. Add name="[no label]" to the alternative flow.
-5. Connect the alternative task back to a downstream join point or to the end event.
-All flows from exclusiveGateway MUST have a name attribute.
+2. Add a default="[default-flow-id]" attribute to the gateway to designate the default path.
+3. The default path flow needs NO conditionExpression. All other outgoing flows MUST have a conditionExpression child element.
+4. Connect the alternative task back to a downstream join point or to the end event.
+
+Gateway conditionExpression rules (prevents linting warnings):
+- Set the "no/else" path as the gateway default: <bpmn:exclusiveGateway ... default="Flow_[no-id]" />
+- Add <bpmn:conditionExpression> to every non-default outgoing flow:
+    <bpmn:sequenceFlow id="Flow_yes" sourceRef="..." targetRef="..." name="Yes">
+      <bpmn:conditionExpression>approved == true</bpmn:conditionExpression>
+    </bpmn:sequenceFlow>
+    <bpmn:sequenceFlow id="Flow_no" sourceRef="..." targetRef="..." name="No" />  ← default, no condition
+- Add isMarkerVisible="true" to the BPMNShape of every exclusiveGateway.
 
 Pattern D — REMOVE ELEMENT and bridge its predecessors to its successors:
 
@@ -229,6 +323,23 @@ If the user requests removal of a startEvent or endEvent, output the XML unchang
 
 MULTI-PREDECESSOR / MULTI-SUCCESSOR: create all (predecessor, successor) combinations as bridging flows.
 
+=== JOINING GATEWAY RULE — prevents fake-join violations ===
+
+Every task and event MUST have exactly ONE incoming sequence flow.
+If a modification causes two or more flows to converge on a task or event, insert an explicit joining gateway before that element.
+
+Loop-back join (exclusive gateway, no default/conditions needed on the join side):
+  <bpmn:exclusiveGateway id="Gateway_join_[7rc]" name="[join label]" />
+  Flow_A → Gateway_join → Task_target
+  Flow_B → Gateway_join
+
+Parallel synchronisation (parallel gateway):
+  <bpmn:parallelGateway id="Gateway_sync_[7rc]" name="[sync label]" />
+  Task_A → Gateway_sync → Task_next
+  Task_B → Gateway_sync
+
+Before outputting, count incoming flows on every task/event. Any with more than one incoming flow is a fake-join — fix it with a joining gateway.
+
 === STRICT RULES ===
 - Generate globally unique IDs for all new elements (append 7 random alphanumeric chars).
 - Do NOT rename, change the id of, or alter any existing element not mentioned in the instruction.
@@ -239,10 +350,22 @@ MULTI-PREDECESSOR / MULTI-SUCCESSOR: create all (predecessor, successor) combina
 
 === DI PLACEHOLDER VALUES ===
 
-Use for every new BPMNShape:
-  <bpmndi:BPMNShape id="Shape_[element-id]" bpmnElement="[element-id]">
-    <dc:Bounds x="150" y="260" width="100" height="80" />
-  </bpmndi:BPMNShape>
+Use the correct placeholder for each element type — the layout algorithm fixes coordinates but NOT attributes:
+
+  Start/end event:
+    <bpmndi:BPMNShape id="Shape_[element-id]" bpmnElement="[element-id]">
+      <dc:Bounds x="150" y="260" width="36" height="36" />
+    </bpmndi:BPMNShape>
+
+  Exclusive gateway (isMarkerVisible REQUIRED):
+    <bpmndi:BPMNShape id="Shape_[element-id]" bpmnElement="[element-id]" isMarkerVisible="true">
+      <dc:Bounds x="150" y="260" width="50" height="50" />
+    </bpmndi:BPMNShape>
+
+  User task / task:
+    <bpmndi:BPMNShape id="Shape_[element-id]" bpmnElement="[element-id]">
+      <dc:Bounds x="150" y="260" width="100" height="80" />
+    </bpmndi:BPMNShape>
 
 Use for every new BPMNEdge and reset any modified existing BPMNEdge:
   <bpmndi:BPMNEdge id="Edge_[flow-id]" bpmnElement="[flow-id]">

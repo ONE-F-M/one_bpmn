@@ -1,15 +1,31 @@
 /**
  * Auto-layout for ProsAlly-generated BPMN XML.
  *
- * Parses the XML, builds a directed graph from sequenceFlows, assigns
- * left-to-right column positions via BFS + join-relaxation, then rewrites
- * every BPMNShape bound and BPMNEdge waypoint. Any semantic element that
- * has no DI counterpart gets one created automatically (satisfies no-bpmndi).
+ * Two problems this function must solve:
  *
- * Nothing outside this file touches bpmn-js internals — pure DOM + serialiser.
+ * 1. CONNECTIVITY (no-disconnected / no-implicit-start / no-implicit-end)
+ *    bpmn-js moddle populates FlowNode.incoming / .outgoing from
+ *    <bpmn:incoming> / <bpmn:outgoing> child elements, NOT from
+ *    sequenceFlow sourceRef/targetRef. The LLM never emits those child
+ *    elements, so every node looks disconnected to bpmnlint even though
+ *    arrows render correctly. Fix: inject the child elements via DOM after
+ *    parsing, then serialise only the <bpmn:process> element.
+ *
+ * 2. DI NAMESPACE (no-bpmndi)
+ *    XMLSerializer can reassign namespace prefixes on newly-created elements,
+ *    breaking bpmn-moddle reference resolution. Fix: build the entire
+ *    <bpmndi:BPMNDiagram> section as a plain string with hard-coded prefixes —
+ *    XMLSerializer never touches it.
+ *
+ * Output strategy
+ *   [xml decl from original] +
+ *   [<bpmn:definitions …> opening tag from original] +
+ *   [XMLSerializer(<bpmn:process> with injected incoming/outgoing)] +
+ *   [string-built DI section] +
+ *   [</bpmn:definitions>]
  */
 
-// ── Dimensions per BPMN element type ──────────────────────────────────────────
+// ── Element dimensions ────────────────────────────────────────────────────────
 const DIMS = {
 	startEvent:             { w: 36,  h: 36  },
 	endEvent:               { w: 36,  h: 36  },
@@ -31,45 +47,34 @@ const DIMS = {
 };
 const DEFAULT_DIMS = { w: 100, h: 80 };
 
-// ── Layout constants ─────────────────────────────────────────────────────────
-const H_STEP   = 160;   // horizontal centre-to-centre between columns
-const V_STEP   = 120;   // vertical centre-to-centre between rows in a column
-const MARGIN_X = 150;   // x-centre of column 0
-const CENTER_Y = 300;   // primary vertical midpoint
+// ── Layout constants ──────────────────────────────────────────────────────────
+const H_STEP   = 160;
+const V_STEP   = 120;
+const MARGIN_X = 150;
+const CENTER_Y = 300;
 
-// ── XML namespace URIs ────────────────────────────────────────────────────────
-const BPMN_NS   = "http://www.omg.org/spec/BPMN/20100524/MODEL";
-const BPMNDI_NS = "http://www.omg.org/spec/BPMN/20100524/DI";
-const DC_NS     = "http://www.omg.org/spec/DD/20100524/DC";
-const DI_NS     = "http://www.omg.org/spec/DD/20100524/DI";
+const BPMN_NS = "http://www.omg.org/spec/BPMN/20100524/MODEL";
 
 function localName(tag) {
 	return tag.includes(":") ? tag.split(":")[1] : tag;
 }
 
-/**
- * Apply a clean left-to-right layout to a BPMN 2.0 XML string.
- * Returns the relaid-out XML string, or the original string unchanged if
- * the input cannot be parsed.
- *
- * @param {string} xmlString - Raw BPMN 2.0 XML
- * @returns {string} Relaid-out BPMN 2.0 XML
- */
 export function layoutBpmnXml(xmlString) {
+	// ── 1. Parse (read + write for semantic section) ──────────────────────────
 	const parser = new DOMParser();
-	const doc = parser.parseFromString(xmlString, "application/xml");
+	const doc    = parser.parseFromString(xmlString, "application/xml");
 	if (doc.querySelector("parsererror")) return xmlString;
 
 	const processEl = doc.getElementsByTagNameNS(BPMN_NS, "process")[0];
 	if (!processEl) return xmlString;
 
-	const planeEl = doc.getElementsByTagNameNS(BPMNDI_NS, "BPMNPlane")[0];
-	if (!planeEl) return xmlString;
+	const processId = processEl.getAttribute("id") || "Process_1";
 
-	// ── 1. Collect semantic elements ─────────────────────────────────────────
-	const nodes    = {};   // id → { type: string }
-	const flows    = {};   // flowId → { source, target }
-	const outgoing = {};   // nodeId → [targetId, ...]
+	// ── 2. Collect nodes, flows, and DOM element references ───────────────────
+	const nodes        = {};   // id → { type }
+	const nodeElements = {};   // id → DOM element  (for incoming/outgoing injection)
+	const flows        = {};   // flowId → { source, target }
+	const outgoing     = {};   // nodeId → [targetId, ...]
 
 	for (const child of processEl.children) {
 		const type = localName(child.tagName);
@@ -84,18 +89,36 @@ export function layoutBpmnXml(xmlString) {
 				(outgoing[source] = outgoing[source] || []).push(target);
 			}
 		} else {
-			nodes[id] = { type };
+			nodes[id]        = { type };
+			nodeElements[id] = child;
 		}
 	}
 
 	if (!Object.keys(nodes).length) return xmlString;
 
-	// ── 2. BFS from start event to seed column assignments ───────────────────
+	// ── 3. Inject <bpmn:incoming> / <bpmn:outgoing> child elements ───────────
+	// bpmn-moddle populates FlowNode.incoming/.outgoing from these child
+	// elements, not from sequenceFlow sourceRef/targetRef. Without them,
+	// no-disconnected / no-implicit-start / no-implicit-end all fire.
+	for (const [flowId, { source, target }] of Object.entries(flows)) {
+		if (nodeElements[source]) {
+			const el = doc.createElementNS(BPMN_NS, "bpmn:outgoing");
+			el.textContent = flowId;
+			nodeElements[source].appendChild(el);
+		}
+		if (nodeElements[target]) {
+			const el = doc.createElementNS(BPMN_NS, "bpmn:incoming");
+			el.textContent = flowId;
+			nodeElements[target].appendChild(el);
+		}
+	}
+
+	// ── 4. BFS from start event ───────────────────────────────────────────────
 	const startId =
 		Object.entries(nodes).find(([, n]) => n.type === "startEvent")?.[0] ||
 		Object.keys(nodes)[0];
 
-	const column = { [startId]: 0 };
+	const column   = { [startId]: 0 };
 	const bfsQueue = [startId];
 	const bfsSeen  = new Set([startId]);
 
@@ -110,88 +133,94 @@ export function layoutBpmnXml(xmlString) {
 		}
 	}
 
-	// ── 3. Relax join nodes to the max incoming column + 1 ───────────────────
-	// Skips back-edges (source column >= target column) to stay cycle-safe.
+	// ── 5. Relax join nodes ───────────────────────────────────────────────────
 	const nodeCount = Object.keys(nodes).length;
 	for (let pass = 0; pass < nodeCount; pass++) {
 		let changed = false;
 		for (const { source, target } of Object.values(flows)) {
 			const sc = column[source] ?? 0;
 			const tc = column[target] ?? 0;
-			if (sc >= tc) continue;          // back-edge — skip
-			if (sc + 1 > tc) {
-				column[target] = sc + 1;
-				changed = true;
-			}
+			if (sc >= tc) continue;
+			if (sc + 1 > tc) { column[target] = sc + 1; changed = true; }
 		}
 		if (!changed) break;
 	}
 
-	// Assign column 0 to any node not reached by BFS (disconnected islands)
 	for (const id of Object.keys(nodes)) {
 		if (column[id] === undefined) column[id] = 0;
 	}
 
-	// ── 4. Group by column, assign centre positions ───────────────────────────
+	// ── 6. Assign positions ───────────────────────────────────────────────────
 	const byColumn = {};
 	for (const [id, col] of Object.entries(column)) {
 		if (!nodes[id]) continue;
 		(byColumn[col] = byColumn[col] || []).push(id);
 	}
 
-	const positions = {};   // id → { cx, cy }
+	const positions = {};
 	for (const [col, ids] of Object.entries(byColumn)) {
 		const cx          = MARGIN_X + parseInt(col) * H_STEP;
 		const totalHeight = (ids.length - 1) * V_STEP;
 		const startY      = CENTER_Y - totalHeight / 2;
-		ids.forEach((id, i) => {
-			positions[id] = { cx, cy: startY + i * V_STEP };
-		});
+		ids.forEach((id, i) => { positions[id] = { cx, cy: startY + i * V_STEP }; });
 	}
 
-	// ── 5. Helpers ────────────────────────────────────────────────────────────
+	// ── 7. Geometry helpers ───────────────────────────────────────────────────
 	function getBounds(id) {
-		const pos       = positions[id] || { cx: MARGIN_X, cy: CENTER_Y };
-		const { w, h }  = DIMS[nodes[id]?.type] || DEFAULT_DIMS;
-		return {
-			x: Math.round(pos.cx - w / 2),
-			y: Math.round(pos.cy - h / 2),
-			w,
-			h,
-		};
+		const pos      = positions[id] || { cx: MARGIN_X, cy: CENTER_Y };
+		const { w, h } = DIMS[nodes[id]?.type] || DEFAULT_DIMS;
+		return { x: Math.round(pos.cx - w / 2), y: Math.round(pos.cy - h / 2), w, h };
+	}
+
+	// outgoingIndex: which outgoing slot this flow occupies from its source
+	// (used to stagger parallel flows so they don't draw on top of each other)
+	const sourceFlowIndex = {};
+	for (const [flowId, { source }] of Object.entries(flows)) {
+		sourceFlowIndex[flowId] = (sourceFlowIndex[source] = (sourceFlowIndex[source] ?? -1) + 1,
+			sourceFlowIndex[source]);
+	}
+	// Rebuild cleanly
+	const _slotCounter = {};
+	for (const flowId of Object.keys(flows)) {
+		const src = flows[flowId].source;
+		_slotCounter[src] = (_slotCounter[src] ?? 0);
+		sourceFlowIndex[flowId] = _slotCounter[src]++;
 	}
 
 	function getWaypoints(flowId) {
 		const { source, target } = flows[flowId];
-		const sb = getBounds(source);
-		const tb = getBounds(target);
-		const sx = sb.x + sb.w;
-		const sy = sb.y + Math.round(sb.h / 2);
-		const tx = tb.x;
-		const ty = tb.y + Math.round(tb.h / 2);
+		const sb  = getBounds(source);
+		const tb  = getBounds(target);
+		const sx  = sb.x + sb.w;
+		const sy  = sb.y + Math.round(sb.h / 2);
+		const tx  = tb.x;
+		const ty  = tb.y + Math.round(tb.h / 2);
+		const idx = sourceFlowIndex[flowId] ?? 0;
 
-		// Back-edge (loop-back): arc above both shapes
 		const srcCx = positions[source]?.cx ?? 0;
 		const tgtCx = positions[target]?.cx ?? 0;
+
+		// Back-edge: arc above, staggered by flow index to avoid overlap
 		if (tgtCx <= srcCx) {
-			const topY  = Math.min(sb.y, tb.y) - 50;
+			const topY  = Math.min(sb.y, tb.y) - 50 - idx * 24;
 			const sMidX = sb.x + Math.round(sb.w / 2);
 			const tMidX = tb.x + Math.round(tb.w / 2);
 			return [
-				{ x: sMidX, y: sb.y },
-				{ x: sMidX, y: topY },
-				{ x: tMidX, y: topY },
-				{ x: tMidX, y: tb.y },
+				{ x: sMidX, y: sb.y  },
+				{ x: sMidX, y: topY  },
+				{ x: tMidX, y: topY  },
+				{ x: tMidX, y: tb.y  },
 			];
 		}
 
 		// Same row — straight connector
-		if (Math.abs(sy - ty) <= 2) {
-			return [{ x: sx, y: sy }, { x: tx, y: ty }];
-		}
+		if (Math.abs(sy - ty) <= 2) return [{ x: sx, y: sy }, { x: tx, y: ty }];
 
-		// Different rows — Manhattan L-routing
-		const midX = Math.round((sx + tx) / 2);
+		// Different rows — Manhattan L-routing.
+		// Stagger the vertical turn point by flow index so parallel outgoing flows
+		// from the same source don't draw on the same horizontal segment.
+		const stagger = idx * 14;
+		const midX    = Math.round((sx + tx) / 2) + stagger;
 		return [
 			{ x: sx,   y: sy },
 			{ x: midX, y: sy },
@@ -200,71 +229,61 @@ export function layoutBpmnXml(xmlString) {
 		];
 	}
 
-	// ── 6. Update existing BPMNShape bounds ──────────────────────────────────
-	const updatedShapes = new Set();
-	for (const shape of doc.getElementsByTagNameNS(BPMNDI_NS, "BPMNShape")) {
-		const id = shape.getAttribute("bpmnElement");
-		if (!id || !positions[id]) continue;
-		updatedShapes.add(id);
-		const b = getBounds(id);
-		let boundsEl = shape.getElementsByTagNameNS(DC_NS, "Bounds")[0];
-		if (!boundsEl) {
-			boundsEl = doc.createElementNS(DC_NS, "dc:Bounds");
-			shape.appendChild(boundsEl);
-		}
-		boundsEl.setAttribute("x", b.x);
-		boundsEl.setAttribute("y", b.y);
-		boundsEl.setAttribute("width", b.w);
-		boundsEl.setAttribute("height", b.h);
-	}
+	// ── 8. Build DI section as a plain string (no XMLSerializer) ─────────────
+	const shapeLines = Object.keys(nodes).map((id) => {
+		const b      = getBounds(id);
+		const marker = nodes[id]?.type === "exclusiveGateway" ? ' isMarkerVisible="true"' : "";
+		return (
+			`    <bpmndi:BPMNShape id="Shape_${id}" bpmnElement="${id}"${marker}>\n` +
+			`      <dc:Bounds x="${b.x}" y="${b.y}" width="${b.w}" height="${b.h}" />\n` +
+			`    </bpmndi:BPMNShape>`
+		);
+	});
 
-	// ── 7. Create BPMNShape for any node that had none ────────────────────────
-	for (const id of Object.keys(nodes)) {
-		if (updatedShapes.has(id)) continue;
-		const b     = getBounds(id);
-		const shape = doc.createElementNS(BPMNDI_NS, "bpmndi:BPMNShape");
-		shape.setAttribute("id",          `Shape_${id}`);
-		shape.setAttribute("bpmnElement", id);
-		const boundsEl = doc.createElementNS(DC_NS, "dc:Bounds");
-		boundsEl.setAttribute("x",      b.x);
-		boundsEl.setAttribute("y",      b.y);
-		boundsEl.setAttribute("width",  b.w);
-		boundsEl.setAttribute("height", b.h);
-		shape.appendChild(boundsEl);
-		planeEl.appendChild(shape);
-	}
+	const edgeLines = Object.keys(flows).map((flowId) => {
+		const wps = getWaypoints(flowId)
+			.map(pt => `      <di:waypoint x="${pt.x}" y="${pt.y}" />`)
+			.join("\n");
+		return (
+			`    <bpmndi:BPMNEdge id="Edge_${flowId}" bpmnElement="${flowId}">\n` +
+			`${wps}\n` +
+			`    </bpmndi:BPMNEdge>`
+		);
+	});
 
-	// ── 8. Update existing BPMNEdge waypoints ────────────────────────────────
-	const updatedEdges = new Set();
-	for (const edge of doc.getElementsByTagNameNS(BPMNDI_NS, "BPMNEdge")) {
-		const flowId = edge.getAttribute("bpmnElement");
-		if (!flowId || !flows[flowId]) continue;
-		updatedEdges.add(flowId);
-		for (const wp of [...edge.getElementsByTagNameNS(DI_NS, "waypoint")]) {
-			wp.remove();
-		}
-		for (const pt of getWaypoints(flowId)) {
-			const wp = doc.createElementNS(DI_NS, "di:waypoint");
-			wp.setAttribute("x", pt.x);
-			wp.setAttribute("y", pt.y);
-			edge.appendChild(wp);
-		}
-	}
+	const diSection =
+		`  <bpmndi:BPMNDiagram id="BPMNDiagram_1"\n` +
+		`    xmlns:bpmndi="http://www.omg.org/spec/BPMN/20100524/DI">\n` +
+		`    <bpmndi:BPMNPlane id="BPMNPlane_1" bpmnElement="${processId}">\n` +
+		shapeLines.join("\n") + "\n" +
+		edgeLines.join("\n") + "\n" +
+		`    </bpmndi:BPMNPlane>\n` +
+		`  </bpmndi:BPMNDiagram>`;
 
-	// ── 9. Create BPMNEdge for any flow that had none ─────────────────────────
-	for (const flowId of Object.keys(flows)) {
-		if (updatedEdges.has(flowId)) continue;
-		const edge = doc.createElementNS(BPMNDI_NS, "bpmndi:BPMNEdge");
-		edge.setAttribute("id",          `Edge_${flowId}`);
-		edge.setAttribute("bpmnElement", flowId);
-		for (const pt of getWaypoints(flowId)) {
-			const wp = doc.createElementNS(DI_NS, "di:waypoint");
-			wp.setAttribute("x", pt.x);
-			wp.setAttribute("y", pt.y);
-			edge.appendChild(wp);
-		}
-		planeEl.appendChild(edge);
-	}
+	// ── 9. Assemble final XML ─────────────────────────────────────────────────
+	// Keep the original XML declaration and <bpmn:definitions ...> opening tag
+	// verbatim (preserves all namespace declarations). Replace only the process
+	// body (now with injected incoming/outgoing) and the DI section.
 
-	return new XMLSerializer().serializeToString(doc);
+	const xmlDeclMatch = xmlString.match(/^<\?xml[^?]*\?>/);
+	const xmlDecl      = xmlDeclMatch ? xmlDeclMatch[0] + "\n" : "";
+
+	const defOpenMatch = xmlString.match(/<[a-zA-Z0-9]*:?definitions[^>]*>/);
+	const defOpen      = defOpenMatch
+		? defOpenMatch[0]
+		: `<bpmn:definitions xmlns:bpmn="http://www.omg.org/spec/BPMN/20100524/MODEL" ` +
+		  `xmlns:bpmndi="http://www.omg.org/spec/BPMN/20100524/DI" ` +
+		  `xmlns:dc="http://www.omg.org/spec/DD/20100524/DC" ` +
+		  `xmlns:di="http://www.omg.org/spec/DD/20100524/DI" ` +
+		  `id="Definitions_1" targetNamespace="http://bpmn.io/schema/bpmn">`;
+
+	const defCloseMatch = xmlString.match(/<\/[a-zA-Z0-9]*:?definitions\s*>/);
+	const defClose      = defCloseMatch ? defCloseMatch[0] : "</bpmn:definitions>";
+
+	// Serialise only the modified <bpmn:process> element.
+	// XMLSerializer may add a redundant xmlns:bpmn on the process tag — that is
+	// valid XML and bpmn-moddle handles it correctly via namespace-URI lookup.
+	const processXml = new XMLSerializer().serializeToString(processEl);
+
+	return `${xmlDecl}${defOpen}\n${processXml}\n${diSection}\n${defClose}`;
 }
