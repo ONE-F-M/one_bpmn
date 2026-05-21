@@ -323,6 +323,33 @@ class ProsAllyAgent:
             return stripped
         return raw or ""
 
+    @staticmethod
+    def _parse_json_response(raw: str) -> dict:
+        """Extract and parse the first JSON object from an LLM response.
+
+        Handles: plain JSON, code-fenced JSON, JSON embedded in prose, trailing text.
+        """
+        import re
+        text = (raw or "").strip()
+
+        # 1. Try code-fenced block first
+        fence_match = re.search(r"```(?:json)?\s*\n?([\s\S]*?)```", text)
+        if fence_match:
+            return json.loads(fence_match.group(1).strip())
+
+        # 2. Try the whole string as-is
+        try:
+            return json.loads(text)
+        except (json.JSONDecodeError, ValueError):
+            pass
+
+        # 3. Extract the first {...} block (handles prose wrapping the JSON)
+        brace_match = re.search(r"\{[\s\S]*\}", text)
+        if brace_match:
+            return json.loads(brace_match.group(0))
+
+        raise ValueError(f"No JSON object found in LLM response: {text[:200]}")
+
     def _build_generator_prompt(self, process_name: str, action_intent: str, chat_history: list) -> str:
         parts = []
         if action_intent == "OVERWRITE_EXISTING":
@@ -434,10 +461,10 @@ class ProsAllyAgent:
         intent        = "INCOMPLETE"
         intent_reason = ""
         try:
-            intent_data   = json.loads((intent_raw or "").strip())
+            intent_data   = self._parse_json_response(intent_raw)
             intent        = intent_data.get("intent", "INCOMPLETE").upper()
             intent_reason = intent_data.get("reason", "")
-        except (json.JSONDecodeError, TypeError):
+        except (json.JSONDecodeError, TypeError, ValueError):
             pass
 
         if intent not in (_ACTION_INTENTS | _NEEDS_CLARIFICATION | {"IRRELEVANT"}):
@@ -461,18 +488,18 @@ class ProsAllyAgent:
             )
             clarify_raw = await self._run("clarifier", clarifier_prompt)
             try:
-                clarify_data = json.loads((clarify_raw or "").strip())
+                clarify_data = self._parse_json_response(clarify_raw)
                 return {
                     "intent":        "CLARIFY",
                     "action_intent": None,
-                    "response":      clarify_data.get("question", clarify_raw or "Could you tell me more about the process?"),
+                    "response":      clarify_data.get("question", "Could you tell me more about the process?"),
                     "options":       clarify_data.get("options", []),
                 }
-            except (json.JSONDecodeError, TypeError):
+            except (json.JSONDecodeError, TypeError, ValueError):
                 return {
                     "intent":        "CLARIFY",
                     "action_intent": None,
-                    "response":      clarify_raw or "Could you tell me more about the process you'd like to model?",
+                    "response":      "Could you tell me more about the process you'd like to model?",
                     "options":       [],
                 }
 
@@ -482,11 +509,11 @@ class ProsAllyAgent:
             self._build_confirmer_prompt(message, process_name, intent, chat_history),
         )
         try:
-            confirm_data  = json.loads((confirm_raw or "").strip())
+            confirm_data  = self._parse_json_response(confirm_raw)
             summary       = confirm_data.get("summary", "")
             question      = confirm_data.get("question", "Shall I proceed?")
             response_text = f"{summary}\n{question}" if summary else question
-        except (json.JSONDecodeError, TypeError):
+        except (json.JSONDecodeError, TypeError, ValueError):
             response_text = confirm_raw or "Shall I proceed with this?"
 
         return {
