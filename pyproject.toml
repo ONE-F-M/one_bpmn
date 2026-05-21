@@ -20,6 +20,8 @@ build-backend = "flit_core.buildapi"
 # These dependencies are only installed when developer mode is enabled
 [tool.bench.dev-dependencies]
 pytest-cov = "~=5.0.0"
+basedmypy = "~=2.0.0"
+types-requests = "~=2.31.0"
 
 [tool.ruff]
 line-length = 110
@@ -74,3 +76,23 @@ fail_under = 30
 show_missing = true
 skip_covered = false
 
+[tool.mypy]
+strict = false
+pretty = true
+incremental = true
+sqlite_cache = true
+files = [
+    "one_bpmn/__init__.py",
+    "one_bpmn/api.py",
+    "one_bpmn/tasks.py",
+]
+exclude = '^one_bpmn/one_bpmn/patches|/test_.*\.py$'
+
+[[tool.mypy.overrides]]
+module = [
+    "frappe",
+    "frappe.*",
+    "erpnext.*",
+    "SpiffWorkflow.*",
+]
+ignore_missing_imports = true

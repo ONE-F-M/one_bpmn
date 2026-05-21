@@ -303,6 +303,38 @@ frappe.provide('one_bpmn');
 	}
 
 	/**
+	 * Extract the human-readable server message from a failed frappe.call and
+	 * display it in a styled msgprint dialog instead of a raw browser alert.
+	 */
+	function _show_task_error(r, xhr) {
+		let message = __('An error occurred while completing the task. Please try again.');
+
+		try {
+			// Try to pull the message from _server_messages (set by frappe.throw)
+			const raw = (r && r._server_messages) || (xhr && JSON.parse(xhr.responseText || '{}')._server_messages);
+			if (raw) {
+				const msgs = JSON.parse(raw);
+				if (msgs && msgs.length) {
+					const parsed = JSON.parse(msgs[0]);
+					if (parsed.message) message = parsed.message;
+				}
+			} else if (xhr) {
+				// Fallback: pull message from the exception string
+				const data = JSON.parse(xhr.responseText || '{}');
+				const exc = data.exception || '';
+				const match = exc.match(/PermissionError:\s*(.+)/);
+				if (match) message = match[1].trim();
+			}
+		} catch (e) { /* keep default */ }
+
+		frappe.msgprint({
+			title: __('Task Not Completed'),
+			message: message,
+			indicator: 'red',
+		});
+	}
+
+	/**
 	 * Call the BPMN engine's complete_task API, then reload the form.
 	 */
 	function _apply_bpmn_action(frm, task, action) {
@@ -334,10 +366,12 @@ frappe.provide('one_bpmn');
 					frm.reload_doc();
 				} else {
 					frappe.dom.unfreeze();
+					_show_task_error(r);
 				}
 			},
-			error: function () {
+			error: function (xhr) {
 				frappe.dom.unfreeze();
+				_show_task_error(null, xhr);
 			},
 		});
 	}

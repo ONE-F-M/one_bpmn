@@ -1276,6 +1276,44 @@ class BPMNProcessInstance(Document):
 			if user not in prev_assigned:
 				self._add_frappe_assignment(user, task_name)
 
+	@staticmethod
+	def _get_reliever_if_on_leave(user: str) -> str:
+		"""
+		If *user* is on approved leave today, return the reliever's User ID
+		from the Leave Application (``reliever_user_id``).  Falls back to the
+		original *user* when no active approved leave exists or no reliever is set.
+		"""
+		if not user:
+			return user
+
+		try:
+			today = frappe.utils.today()
+			employee = frappe.db.get_value(
+				"Employee",
+				{"user_id": user, "status": ["in", ["Active", "Vacation", "Not Returned from Leave"]]},
+				"name",
+			)
+			if not employee:
+				return user
+			reliever_user = frappe.db.get_value(
+				"Leave Application",
+				{
+					"employee": employee,
+					"status": "Approved",
+					"from_date": ["<=", today],
+					"to_date": [">=", today],
+					"reliever_user_id": ["is", "set"],
+				},
+				"reliever_user_id",
+			)
+			return reliever_user if reliever_user else user
+		except Exception:
+			frappe.log_error(
+				title="BPMN: Leave reliever lookup failed",
+				message=frappe.get_traceback(),
+			)
+			return user
+
 	def _resolve_assignment(self, task) -> str:
 		"""
 		Determine which user should be assigned to a UserTask based on the
@@ -1301,6 +1339,9 @@ class BPMNProcessInstance(Document):
 		        Assigns to the user in ``assigneeUsers`` with the fewest open
 		        BPMN Process Instance active tasks.  Ties are broken by list order.
 
+		For all modes, if the resolved assignee is on approved leave today the
+		task is redirected to the reliever named in their Leave Application.
+
 		Returns the resolved user email/name, or empty string if unresolvable.
 		"""
 		extensions = getattr(self, "_user_task_extensions", {})
@@ -1311,7 +1352,7 @@ class BPMNProcessInstance(Document):
 
 		# ── User ──────────────────────────────────────────────────────────────
 		if mode == "User":
-			return task_cfg.get("assigneeUser", "")
+			return self._get_reliever_if_on_leave(task_cfg.get("assigneeUser", ""))
 
 		# ── DocField ──────────────────────────────────────────────────────────
 		if mode == "DocField":
@@ -1320,7 +1361,7 @@ class BPMNProcessInstance(Document):
 			if doctype and docfield and self.context_docname:
 				try:
 					user = frappe.db.get_value(doctype, self.context_docname, docfield)
-					return user or ""
+					return self._get_reliever_if_on_leave(user or "")
 				except Exception:
 					return ""
 			return ""
@@ -1356,13 +1397,13 @@ class BPMNProcessInstance(Document):
 				except Exception:
 					pass
 
-				return assignee
+				return self._get_reliever_if_on_leave(assignee)
 			except Exception:
 				frappe.log_error(
 					title="BPMN: Round Robin assignment failed",
 					message=frappe.get_traceback(),
 				)
-				return users[0] if users else ""
+				return self._get_reliever_if_on_leave(users[0]) if users else ""
 
 		# ── Load Balancing ─────────────────────────────────────────────────────
 		# Correct logic (per spec):
@@ -1397,14 +1438,14 @@ class BPMNProcessInstance(Document):
 				# User with fewest active assignments wins; ties → first in list
 				minimum = min(loads.values())
 				assignee = next(u for u in users if loads[u] == minimum)
-				return assignee
+				return self._get_reliever_if_on_leave(assignee)
 
 			except Exception:
 				frappe.log_error(
 					title="BPMN: Load Balancing assignment failed",
 					message=frappe.get_traceback(),
 				)
-				return users[0] if users else ""
+				return self._get_reliever_if_on_leave(users[0]) if users else ""
 
 		return ""
 

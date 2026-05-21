@@ -165,12 +165,13 @@ const props = defineProps({
 
 const emit = defineEmits(["close", "bpmn-generated"]);
 
-const messages       = ref([]);
-const editorHasContent = ref(false);
-const isTyping       = ref(false);
-const messagesEl     = ref(null);
-const inputEl        = ref(null);
-const sessionId      = ref(generateSessionId());
+const messages          = ref([]);
+const editorHasContent  = ref(false);
+const isTyping          = ref(false);
+const messagesEl        = ref(null);
+const inputEl           = ref(null);
+const sessionId         = ref(generateSessionId());
+const conversationName  = ref(null);   // persisted Chat Conversation name
 
 function generateSessionId() {
 	return "prosally_" + Date.now() + "_" + Math.random().toString(36).slice(2, 9);
@@ -277,11 +278,11 @@ async function sendMessage(opts = {}) {
 			.map(m => ({ role: m.role, content: m.content }));
 
 		const body = {
-			message:      text,
-			session_id:   sessionId.value,
-			chat_history: JSON.stringify(history),
-			process_name: props.processName || "",
-			diagram_name: props.diagramName || "",
+			message:           text,
+			session_id:        sessionId.value,
+			conversation_name: conversationName.value || null,
+			process_name:      props.processName || "",
+			diagram_name:      props.diagramName || "",
 		};
 		if (confirmedAction) body.confirmed_action = confirmedAction;
 		if (confirmedAction === "MODIFY_EXISTING") {
@@ -321,6 +322,10 @@ async function sendMessage(opts = {}) {
 		if (!response.ok) throw new Error(`HTTP ${response.status}`);
 		const data   = await response.json();
 		const result = data?.message || {};
+
+		// Capture the conversation name returned by the backend
+		if (result?.conversation_name) conversationName.value = result.conversation_name;
+
 		const reply  = result.response || "I received your message. How can I assist further?";
 		const intent = result.intent || null;
 		const options = (result.options && result.options.length) ? result.options : [];
@@ -370,8 +375,9 @@ function selectOption(option, msgId) {
 }
 
 function resetConversation() {
-	sessionId.value = generateSessionId();
-	messages.value  = [];
+	sessionId.value        = generateSessionId();
+	conversationName.value = null;
+	messages.value         = [];
 	clearEditor();
 	initGreeting();
 	nextTick(() => inputEl.value?.focus());
