@@ -2184,6 +2184,7 @@ function openLogixCanvas() {
 
 function onLogixBack() {
 	showLogixCanvas.value = false;
+	showScriptEditorDialog.value = true;
 }
 
 function onLogixScriptSaved(scriptName) {

@@ -7,6 +7,11 @@
 			<!-- Chat header -->
 			<div class="lc-chat-header">
 				<div class="lc-chat-header-left">
+					<button class="lc-back-btn" @click="$emit('back')" title="Back to script selector">
+						<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" width="15" height="15">
+							<path stroke-linecap="round" stroke-linejoin="round" d="M15 19l-7-7 7-7"/>
+						</svg>
+					</button>
 					<span class="lc-header-avatar">
 						<svg viewBox="0 0 24 24" fill="currentColor" width="16" height="16">
 							<path d="M13 2L3 14h9l-1 8 10-12h-9l1-8z"/>
@@ -162,70 +167,10 @@
 					/>
 				</div>
 				<div class="lc-file-actions">
-					<!-- Save status -->
-					<span v-if="isSaving" class="lc-save-status lc-autosaving">
-						<span class="lc-spinner-sm"></span> Saving…
-					</span>
-					<span v-else-if="isDirty && !isSaved" class="lc-save-status lc-unsaved">● Unsaved</span>
-					<span v-else-if="isSaved" class="lc-save-status lc-saved">✓ Saved</span>
-
 					<div v-if="isLoadingScript" class="lc-loading-indicator">
 						<div class="lc-spinner-sm"></div>
 						Loading...
 					</div>
-
-					<!-- Folder / Script Browser button -->
-					<div class="lc-script-browser-wrap">
-						<button
-							class="lc-file-btn"
-							:class="{ 'lc-file-btn--active': showScriptBrowser }"
-							@click="toggleScriptBrowser"
-							title="Browse server scripts"
-						>
-							<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" width="14" height="14">
-								<path stroke-linecap="round" stroke-linejoin="round" d="M3 7a2 2 0 012-2h3.5L10 7h9a2 2 0 012 2v8a2 2 0 01-2 2H5a2 2 0 01-2-2V7z"/>
-							</svg>
-						</button>
-						<!-- Script browser dropdown -->
-						<div v-if="showScriptBrowser" class="lc-script-dropdown">
-							<div class="lc-script-dropdown-header">
-								<span>Server Scripts</span>
-								<div v-if="loadingScriptBrowser" class="lc-spinner-sm"></div>
-							</div>
-							<div class="lc-script-dropdown-search">
-								<input
-									v-model="scriptBrowserSearch"
-									type="text"
-									placeholder="Search scripts..."
-									class="lc-script-search-input"
-									@click.stop
-								/>
-							</div>
-							<div class="lc-script-dropdown-list">
-								<div v-if="loadingScriptBrowser && !filteredScriptBrowserList.length" class="lc-script-dropdown-empty">Loading…</div>
-								<div v-else-if="filteredScriptBrowserList.length === 0" class="lc-script-dropdown-empty">No scripts found</div>
-								<div
-									v-for="s in filteredScriptBrowserList"
-									:key="s.name"
-									class="lc-script-dropdown-item"
-									:class="{ 'lc-script-dropdown-item--active': s.name === canvasScriptName }"
-									@click="linkExistingScript(s.name)"
-								>
-									<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" width="12" height="12" class="lc-script-item-icon">
-										<path stroke-linecap="round" stroke-linejoin="round" d="M19.5 14.25v-2.625a3.375 3.375 0 00-3.375-3.375h-1.5A1.125 1.125 0 0113.5 7.125v-1.5a3.375 3.375 0 00-3.375-3.375H8.25m0 12.75h7.5m-7.5 3H12M10.5 2.25H5.625c-.621 0-1.125.504-1.125 1.125v17.25c0 .621.504 1.125 1.125 1.125h12.75c.621 0 1.125-.504 1.125-1.125V11.25a9 9 0 00-9-9z"/>
-									</svg>
-									<div class="lc-script-item-info">
-										<div class="lc-script-item-name">{{ s.name }}</div>
-										<div class="lc-script-item-type">{{ s.script_type }}</div>
-									</div>
-									<svg v-if="s.name === canvasScriptName" viewBox="0 0 24 24" fill="currentColor" width="12" height="12" class="lc-script-item-check">
-										<path d="M9 16.17L4.83 12l-1.42 1.41L9 19 21 7l-1.41-1.41z"/>
-									</svg>
-								</div>
-							</div>
-						</div>
-					</div>
-
 					<button class="lc-file-btn" @click="copyCanvas" title="Copy script">
 						<svg viewBox="0 0 24 24" fill="currentColor" width="14" height="14">
 							<path d="M16 1H4c-1.1 0-2 .9-2 2v14h2V3h12V1zm3 4H8c-1.1 0-2 .9-2 2v14c0 1.1.9 2 2 2h11c1.1 0 2-.9 2-2V7c0-1.1-.9-2-2-2zm0 16H8V7h11v14z"/>
@@ -247,7 +192,7 @@
 			</div>
 
 			<!-- Backdrop to close dropdowns when clicking outside -->
-			<div v-if="showDoctypeDropdown || showModuleDropdown || showScriptBrowser" class="lc-dropdown-backdrop" @click="showDoctypeDropdown = false; showModuleDropdown = false; showScriptBrowser = false"></div>
+			<div v-if="showDoctypeDropdown || showModuleDropdown" class="lc-dropdown-backdrop" @click="showDoctypeDropdown = false; showModuleDropdown = false"></div>
 
 			<!-- Script Settings Panel -->
 			<div class="lc-settings-panel">
@@ -351,6 +296,19 @@
 				></textarea>
 			</div>
 
+			<!-- Editor footer -->
+			<div class="lc-editor-footer">
+				<div class="lc-footer-status">
+					<span v-if="isSaving" class="lc-autosaving">
+						<span class="lc-spinner-sm"></span> Saving…
+					</span>
+					<span v-else-if="isDirty && !isSaved" class="lc-unsaved">● Unsaved changes</span>
+					<span v-else-if="isSaved" class="lc-saved">✓ Saved</span>
+				</div>
+				<div class="lc-footer-actions">
+					<button class="lc-btn-cancel" @click="$emit('close')">Close</button>
+				</div>
+			</div>
 		</div>
 
 		<!-- ── RIGHT: Version History Panel ──────────────────── -->
@@ -523,87 +481,6 @@ const versions           = ref([]);
 const loadingVersions    = ref(false);
 const diffVersion        = ref(null);
 const versionDiffRows    = ref([]);
-
-// ── Script browser ────────────────────────────────────────────────────
-const showScriptBrowser    = ref(false);
-const scriptBrowserList    = ref([]);
-const loadingScriptBrowser = ref(false);
-const scriptBrowserSearch  = ref("");
-
-const filteredScriptBrowserList = computed(() => {
-	const q = scriptBrowserSearch.value.toLowerCase();
-	return q ? scriptBrowserList.value.filter(s => s.name.toLowerCase().includes(q) || (s.script_type || "").toLowerCase().includes(q)) : scriptBrowserList.value;
-});
-
-async function toggleScriptBrowser() {
-	showScriptBrowser.value = !showScriptBrowser.value;
-	if (showScriptBrowser.value && !scriptBrowserList.value.length) {
-		await fetchScriptBrowserList();
-	}
-}
-
-async function fetchScriptBrowserList() {
-	loadingScriptBrowser.value = true;
-	try {
-		const r = await fetch(
-			"/api/method/frappe.client.get_list?doctype=Server%20Script&fields=[%22name%22,%22script_type%22]&limit_page_length=0&order_by=modified+desc",
-			{ headers: { "X-Frappe-CSRF-Token": getCsrfToken() } },
-		);
-		const d = await r.json();
-		scriptBrowserList.value = d?.message || [];
-	} catch (e) {
-		console.error("Failed to load script list:", e);
-	} finally {
-		loadingScriptBrowser.value = false;
-	}
-}
-
-async function linkExistingScript(name) {
-	showScriptBrowser.value = false;
-	isInitializing = true;
-	try {
-		canvasScriptName.value = name;
-		savedScriptName.value  = name;
-		isLoadingScript.value  = true;
-		const resp = await fetch(
-			`/api/method/frappe.client.get?doctype=Server%20Script&name=${encodeURIComponent(name)}`,
-			{ headers: { "X-Frappe-CSRF-Token": getCsrfToken() } },
-		);
-		const data = await resp.json();
-		const msg = data?.message || {};
-		canvasCode.value = msg.script || "";
-		scriptMeta.value = {
-			script_type:       msg.script_type || "API",
-			reference_doctype: msg.reference_doctype || "",
-			doctype_event:     msg.doctype_event || "",
-			api_method:        msg.api_method || "",
-			allow_guest:       !!msg.allow_guest,
-			event_frequency:   msg.event_frequency || "",
-			cron_format:       msg.cron_format || "",
-			module:            msg.module || "",
-		};
-		if (props.eventBus && props.element) {
-			props.eventBus.fire("spiff.script.update", {
-				element:    props.element,
-				scriptType: props.scriptType,
-				script:     name,
-			});
-		}
-		isDirty.value = false;
-		isSaved.value = false;
-		await fetchVersionHistory();
-		messages.value.push({
-			id: makeId(), role: "assistant", time: formatTime(new Date()),
-			content: `Loaded **${name}** into the canvas. What changes would you like to make?`,
-		});
-		scrollBottom();
-	} catch (e) {
-		console.error("Failed to link script:", e);
-	} finally {
-		isLoadingScript.value = false;
-		isInitializing = false;
-	}
-}
 
 // ── Chat state ────────────────────────────────────────────────────────
 const messages        = ref([]);
@@ -1253,6 +1130,22 @@ function resetChat() {
 	min-width: 0;
 }
 
+.lc-back-btn {
+	width: 26px;
+	height: 26px;
+	border: none;
+	border-radius: 50%;
+	background: rgba(255,255,255,0.15);
+	color: #fff;
+	cursor: pointer;
+	display: flex;
+	align-items: center;
+	justify-content: center;
+	flex-shrink: 0;
+	transition: background 0.15s;
+}
+
+.lc-back-btn:hover { background: rgba(255,255,255,0.28); }
 
 .lc-header-avatar {
 	width: 26px;
@@ -1587,7 +1480,6 @@ function resetChat() {
 
 .lc-toolbar-btn:hover { background: #f0f0f0; border-color: #ddd; }
 
-
 .lc-editor-row {
 	display: flex;
 	align-items: flex-start;
@@ -1724,120 +1616,6 @@ function resetChat() {
 .lc-file-btn:hover { background: #f5f5f5; border-color: #ccc; }
 .lc-file-btn--active { background: #f0ebff; border-color: #6c3fe0; color: #6c3fe0; }
 
-/* ── Save status in file bar ────────────────────────────────────────── */
-.lc-save-status {
-	font-size: 11px;
-	display: flex;
-	align-items: center;
-	gap: 4px;
-	white-space: nowrap;
-}
-.lc-unsaved   { color: #e65100; }
-.lc-saved     { color: #2e7d32; }
-.lc-autosaving { color: #888; }
-
-/* ── Script browser ─────────────────────────────────────────────────── */
-.lc-script-browser-wrap {
-	position: relative;
-}
-
-.lc-script-dropdown {
-	position: absolute;
-	right: 0;
-	top: calc(100% + 6px);
-	z-index: 250;
-	width: 260px;
-	background: #fff;
-	border: 1px solid #ddd;
-	border-radius: 8px;
-	box-shadow: 0 6px 20px rgba(0,0,0,.12);
-	display: flex;
-	flex-direction: column;
-	overflow: hidden;
-}
-
-.lc-script-dropdown-header {
-	display: flex;
-	align-items: center;
-	justify-content: space-between;
-	padding: 8px 12px;
-	font-size: 11px;
-	font-weight: 700;
-	color: #555;
-	text-transform: uppercase;
-	letter-spacing: 0.04em;
-	border-bottom: 1px solid #eee;
-	background: #fafafa;
-}
-
-.lc-script-dropdown-search {
-	padding: 6px 8px;
-	border-bottom: 1px solid #eee;
-}
-
-.lc-script-search-input {
-	width: 100%;
-	border: 1px solid #ddd;
-	border-radius: 5px;
-	padding: 4px 8px;
-	font-size: 12px;
-	outline: none;
-	color: #1c1b1f;
-	background: #fff;
-	box-sizing: border-box;
-}
-
-.lc-script-search-input:focus { border-color: #6c3fe0; box-shadow: 0 0 0 2px rgba(108,63,224,.1); }
-
-.lc-script-dropdown-list {
-	max-height: 220px;
-	overflow-y: auto;
-}
-
-.lc-script-dropdown-empty {
-	padding: 16px 12px;
-	text-align: center;
-	font-size: 12px;
-	color: #aaa;
-}
-
-.lc-script-dropdown-item {
-	display: flex;
-	align-items: center;
-	gap: 8px;
-	padding: 7px 12px;
-	cursor: pointer;
-	transition: background 0.12s;
-	border-bottom: 1px solid #f5f5f5;
-}
-
-.lc-script-dropdown-item:last-child { border-bottom: none; }
-.lc-script-dropdown-item:hover { background: #f5f0ff; }
-.lc-script-dropdown-item--active { background: #f0ebff; }
-
-.lc-script-item-icon { flex-shrink: 0; color: #888; }
-.lc-script-item-check { flex-shrink: 0; color: #6c3fe0; margin-left: auto; }
-
-.lc-script-item-info {
-	flex: 1;
-	min-width: 0;
-}
-
-.lc-script-item-name {
-	font-size: 12px;
-	font-weight: 500;
-	color: #1c1b1f;
-	white-space: nowrap;
-	overflow: hidden;
-	text-overflow: ellipsis;
-}
-
-.lc-script-item-type {
-	font-size: 10px;
-	color: #888;
-	margin-top: 1px;
-}
-
 /* ── Script Settings Panel ──────────────────────────────────────── */
 .lc-settings-panel {
 	background: #fafafa;
@@ -1968,6 +1746,56 @@ function resetChat() {
 
 .lc-code-textarea::placeholder { color: #bbb; }
 
+/* ── Editor footer ──────────────────────────────────────────────── */
+.lc-editor-footer {
+	display: flex;
+	align-items: center;
+	justify-content: space-between;
+	padding: 10px 14px;
+	background: #fff;
+	border-top: 1px solid #eee;
+	flex-shrink: 0;
+}
+
+.lc-footer-status { font-size: 12px; display: flex; align-items: center; gap: 6px; }
+.lc-unsaved   { color: #e65100; }
+.lc-saved     { color: #2e7d32; }
+.lc-autosaving { color: #888; display: flex; align-items: center; gap: 6px; }
+
+.lc-footer-actions { display: flex; gap: 8px; }
+
+.lc-btn-cancel {
+	padding: 7px 16px;
+	border: 1px solid #e0e0e0;
+	border-radius: 6px;
+	background: #fff;
+	color: #555;
+	font-size: 13px;
+	font-family: inherit;
+	cursor: pointer;
+	transition: background 0.15s;
+}
+
+.lc-btn-cancel:hover { background: #f5f5f5; }
+
+.lc-btn-save {
+	display: flex;
+	align-items: center;
+	gap: 6px;
+	padding: 7px 18px;
+	border: none;
+	border-radius: 6px;
+	background: linear-gradient(135deg, #6c3fe0 0%, #9b59b6 100%);
+	color: #fff;
+	font-size: 13px;
+	font-weight: 500;
+	font-family: inherit;
+	cursor: pointer;
+	transition: opacity 0.15s;
+}
+
+.lc-btn-save:hover:not(:disabled) { opacity: 0.88; }
+.lc-btn-save:disabled { background: #ccc; cursor: not-allowed; }
 
 /* ── Spinners ───────────────────────────────────────────────────── */
 .lc-spinner-sm {
