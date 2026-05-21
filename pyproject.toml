@@ -19,6 +19,7 @@ build-backend = "flit_core.buildapi"
 
 # These dependencies are only installed when developer mode is enabled
 [tool.bench.dev-dependencies]
+pytest-cov = "~=5.0.0"
 basedmypy = "~=2.0.0"
 types-requests = "~=2.31.0"
 
@@ -57,6 +58,23 @@ typing-modules = ["frappe.types.DF"]
 quote-style = "double"
 indent-style = "tab"
 docstring-code-format = true
+
+[tool.pytest.ini_options]
+addopts = "--cov=one_bpmn --cov-report=term-missing --cov-fail-under=30"
+
+[tool.coverage.run]
+source = ["one_bpmn"]
+omit = [
+    "*/tests/*",
+    "*/test_*.py",
+    "*/patches/*",
+    "*/hooks.py",
+]
+
+[tool.coverage.report]
+fail_under = 30
+show_missing = true
+skip_covered = false
 
 [tool.mypy]
 strict = false

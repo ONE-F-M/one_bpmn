@@ -1,3 +1,5 @@
+![Coverage](https://img.shields.io/badge/coverage-30%25%2B-brightgreen)
+
 # ONE BPMN
 
 A BPMN editor integration with Frappe Framework, powered by [bpmn-js](https://bpmn.io/toolkit/bpmn-js/) and [SpiffWorkflow](https://www.spiffworkflow.org/) extensions. The app provides a Vue.js-based BPMN process modeler accessible at `/spiff`, with support for multiple diagrams per process, a tabbed editing interface, a formatting toolbar, a custom shape library, and SpiffWorkflow properties panel integration.
