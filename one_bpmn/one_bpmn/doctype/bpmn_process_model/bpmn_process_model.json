@@ -31,6 +31,7 @@
         "trigger_doctype",
         "trigger_event",
         "column_break_nbjp",
+        "cron_expression",
         "deployed_at",
         "deployed_by",
         "section_start_events",
@@ -176,6 +177,11 @@
         {
             "fieldname": "column_break_nbjp",
             "fieldtype": "Column Break"
+        },
+        {
+            "fieldname": "cron_expression",
+            "fieldtype": "Data",
+            "label": "Cron Expression"
         },
         {
             "fieldname": "deployed_at",
