@@ -2504,6 +2504,12 @@ const totalCommentCount = computed(() => {
 	width: 100% !important;
 }
 
+/* Logix AI Assistant — wider than the standard 7xl cap */
+:deep(.dialog-content:has(.lc-root)) {
+	max-width: min(92vw, 1520px) !important;
+	width: min(92vw, 1520px) !important;
+}
+
 .scrollbar-hide::-webkit-scrollbar {
 	display: none;
 }

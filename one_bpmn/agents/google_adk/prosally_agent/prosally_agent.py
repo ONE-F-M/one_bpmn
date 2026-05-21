@@ -24,21 +24,13 @@ Pipeline:
 
 import asyncio
 import json
-import os
-
-import frappe
-from google.adk.agents import LlmAgent
-from google.adk.runners import Runner
-from google.adk.sessions import InMemorySessionService
-from google.genai import types
 
 from onefm_mcp.onefm_mcp.doctype.ai_agent_configuration.ai_agent_configuration import get_agent_config
+from one_bpmn.agents.llm_provider import get_llm_adapter_from_settings
 
-APP_NAME = "prosally_agent"
-USER_ID  = "prosally_agent"
 AGENT_ID = "prosally_agent"
 
-# ── Default instructions ───────────────────────────────────────────────────
+# ── Default instructions ───────────────────────────────────────────────────────
 
 _DEFAULT_INTENT_CLASSIFIER_INSTRUCTION = """You are an intent classifier for ProsAlly, an AI assistant that helps users model BPMN processes on Processa.
 
@@ -273,75 +265,31 @@ class ProsAllyAgent:
     """Orchestrates intent classification and clarification for process modelling requests."""
 
     def __init__(self):
-        self.gemini_model = None
-        self.setup_credentials()
         self._config = get_agent_config(AGENT_ID)
-        self.setup_agents()
+        self._llm    = get_llm_adapter_from_settings(self._config)
+        self._instructions = self._load_instructions()
 
-    def setup_credentials(self):
-        os.environ.pop("GOOGLE_GENAI_USE_VERTEXAI", None)
-        try:
-            settings_doc = frappe.get_doc("AI Chat Settings")
-            api_key = settings_doc.get_password("google_vertex_ai_api_key")
-            if api_key and api_key.strip():
-                os.environ["GOOGLE_API_KEY"] = api_key.strip()
-            else:
-                frappe.log_error(
-                    title="ProsAlly Agent - Missing API Key",
-                    message="google_vertex_ai_api_key not found in AI Chat Settings",
-                )
-            self.gemini_model = settings_doc.gemini_model or "gemini-2.0-flash"
-        except Exception:
-            frappe.log_error(title="ProsAlly Agent - Credential Setup", message=frappe.get_traceback())
-            self.gemini_model = "gemini-2.0-flash"
-
-    def setup_agents(self):
+    def _load_instructions(self) -> dict:
         sub_prompts = (self._config or {}).get("sub_prompts", {})
 
-        def _instruction(key, default):
+        def _get(key, default):
             return sub_prompts.get(key, {}).get("prompt", default)
 
-        self.intent_classifier = LlmAgent(
-            name="IntentClassifier",
-            model=self.gemini_model,
-            instruction=_instruction("intent_classifier", _DEFAULT_INTENT_CLASSIFIER_INSTRUCTION),
-            output_key="intent",
-        )
-        self.clarifier = LlmAgent(
-            name="Clarifier",
-            model=self.gemini_model,
-            instruction=_instruction("clarifier", _DEFAULT_CLARIFIER_INSTRUCTION),
-            output_key="clarification",
-        )
-        self.confirmer = LlmAgent(
-            name="Confirmer",
-            model=self.gemini_model,
-            instruction=_instruction("confirmer", _DEFAULT_CONFIRMER_INSTRUCTION),
-            output_key="confirmation",
-        )
-        self.process_generator = LlmAgent(
-            name="ProcessGenerator",
-            model=self.gemini_model,
-            instruction=_instruction("process_generator", _DEFAULT_GENERATOR_INSTRUCTION),
-            output_key="bpmn_xml",
-        )
-        self.modifier = LlmAgent(
-            name="ProcessModifier",
-            model=self.gemini_model,
-            instruction=_instruction("modifier", _DEFAULT_MODIFIER_INSTRUCTION),
-            output_key="bpmn_xml",
-        )
+        return {
+            "intent_classifier": _get("intent_classifier", _DEFAULT_INTENT_CLASSIFIER_INSTRUCTION),
+            "clarifier":         _get("clarifier",         _DEFAULT_CLARIFIER_INSTRUCTION),
+            "confirmer":         _get("confirmer",         _DEFAULT_CONFIRMER_INSTRUCTION),
+            "process_generator": _get("process_generator", _DEFAULT_GENERATOR_INSTRUCTION),
+            "modifier":          _get("modifier",          _DEFAULT_MODIFIER_INSTRUCTION),
+        }
 
-    # ── Helpers ────────────────────────────────────────────────────────────
+    # ── Helpers ────────────────────────────────────────────────────────────────
 
-    async def _run_agent(self, agent: LlmAgent, prompt: str, session_service, session_id: str) -> str | None:
-        """Run a single LlmAgent and return its final text response."""
-        runner = Runner(agent=agent, app_name=APP_NAME, session_service=session_service)
-        content = types.Content(role="user", parts=[types.Part(text=prompt)])
-        async for event in runner.run_async(user_id=USER_ID, session_id=session_id, new_message=content):
-            if event.is_final_response() and event.content:
-                return event.content.parts[0].text
-        return None
+    async def _run(self, role: str, prompt: str) -> str | None:
+        return await self._llm.complete(
+            system=self._instructions[role],
+            user=prompt,
+        )
 
     def _format_history(self, chat_history: list) -> str:
         if not chat_history:
@@ -366,13 +314,10 @@ class ProsAllyAgent:
 
     @staticmethod
     def _extract_bpmn_xml(raw: str) -> str:
-        """Strip markdown fences and return clean BPMN XML."""
         import re
-        # Remove ```xml ... ``` or ``` ... ``` wrappers
         match = re.search(r"```(?:xml)?\s*\n?([\s\S]*?)```", raw or "")
         if match:
             return match.group(1).strip()
-        # If the output starts with <?xml or <bpmn: treat it as raw XML
         stripped = (raw or "").strip()
         if stripped.startswith("<?xml") or stripped.startswith("<bpmn:"):
             return stripped
@@ -430,7 +375,7 @@ class ProsAllyAgent:
         parts.append(f"User message: {message}")
         return "\n\n".join(parts)
 
-    # ── Main pipeline ──────────────────────────────────────────────────────
+    # ── Main pipeline ──────────────────────────────────────────────────────────
 
     async def process_message(
         self,
@@ -455,130 +400,101 @@ class ProsAllyAgent:
         _GENERATE_INTENTS    = {"GENERATE_NEW", "OVERWRITE_EXISTING"}
         _NEEDS_CLARIFICATION = {"AMBIGUOUS", "INCOMPLETE"}
 
-        session_service = InMemorySessionService()
-        session_id = f"prosally_{frappe.utils.now_datetime().strftime('%Y%m%d%H%M%S%f')}"
-        await session_service.create_session(
-            app_name=APP_NAME, user_id=USER_ID, session_id=session_id, state={}
-        )
+        # STEP 0 — User confirmed an action: skip classification and act immediately
+        if confirmed_action in _ACTION_INTENTS:
+            name_label = process_name or "process"
 
-        try:
-            # STEP 0 — User confirmed an action: skip classification and act immediately
-            if confirmed_action in _ACTION_INTENTS:
-                name_label = process_name or "process"
-
-                # MODIFY_EXISTING: patch the current canvas XML
-                if confirmed_action == "MODIFY_EXISTING" and current_xml.strip():
-                    modifier_prompt = self._build_modifier_prompt(process_name, chat_history, current_xml)
-                    xml_raw = await self._run_agent(
-                        self.modifier, modifier_prompt, session_service, session_id
-                    )
-                    bpmn_xml = self._extract_bpmn_xml(xml_raw or "")
-                    return {
-                        "intent":        "BPMN_MODIFIED",
-                        "action_intent": "MODIFY_EXISTING",
-                        "bpmn_xml":      bpmn_xml,
-                        "response":      f"I've updated the {name_label} process. Review the changes on the canvas.",
-                        "options":       [],
-                    }
-
-                # GENERATE_NEW / OVERWRITE_EXISTING (or MODIFY_EXISTING with no canvas XML):
-                # generate a fresh model from scratch
-                generator_prompt = self._build_generator_prompt(process_name, confirmed_action, chat_history)
-                xml_raw = await self._run_agent(
-                    self.process_generator, generator_prompt, session_service, session_id
-                )
+            if confirmed_action == "MODIFY_EXISTING" and current_xml.strip():
+                modifier_prompt = self._build_modifier_prompt(process_name, chat_history, current_xml)
+                xml_raw  = await self._run("modifier", modifier_prompt)
                 bpmn_xml = self._extract_bpmn_xml(xml_raw or "")
                 return {
-                    "intent":        "BPMN_GENERATED",
-                    "action_intent": confirmed_action,
+                    "intent":        "BPMN_MODIFIED",
+                    "action_intent": "MODIFY_EXISTING",
                     "bpmn_xml":      bpmn_xml,
-                    "response":      f"I've generated the {name_label} process model. Review it on the canvas.",
+                    "response":      f"I've updated the {name_label} process. Review the changes on the canvas.",
                     "options":       [],
                 }
 
-            # STEP 1 — Classify intent
-            intent_prompt = self._build_intent_prompt(message, process_name, chat_history)
-            intent_raw    = await self._run_agent(
-                self.intent_classifier, intent_prompt, session_service, session_id
-            )
-
-            intent        = "INCOMPLETE"
-            intent_reason = ""
-            try:
-                intent_data   = json.loads((intent_raw or "").strip())
-                intent        = intent_data.get("intent", "INCOMPLETE").upper()
-                intent_reason = intent_data.get("reason", "")
-            except (json.JSONDecodeError, TypeError):
-                pass
-
-            if intent not in (_ACTION_INTENTS | _NEEDS_CLARIFICATION | {"IRRELEVANT"}):
-                intent = "INCOMPLETE"
-
-            # STEP 2a — IRRELEVANT: polite redirect, no further processing
-            if intent == "IRRELEVANT":
-                sub_prompts  = (self._config or {}).get("sub_prompts", {})
-                redirect_msg = sub_prompts.get("redirect", {}).get("prompt", _DEFAULT_REDIRECT_MESSAGE)
-                return {
-                    "intent":        "IRRELEVANT",
-                    "action_intent": None,
-                    "response":      redirect_msg,
-                    "options":       [],
-                }
-
-            # STEP 2b — AMBIGUOUS / INCOMPLETE: run Clarifier
-            if intent in _NEEDS_CLARIFICATION:
-                clarifier_prompt = self._build_clarifier_prompt(
-                    message, process_name, intent_reason, chat_history
-                )
-                clarify_raw = await self._run_agent(
-                    self.clarifier, clarifier_prompt, session_service, session_id
-                )
-                try:
-                    clarify_data = json.loads((clarify_raw or "").strip())
-                    return {
-                        "intent":        "CLARIFY",
-                        "action_intent": None,
-                        "response":      clarify_data.get("question", clarify_raw or "Could you tell me more about the process?"),
-                        "options":       clarify_data.get("options", []),
-                    }
-                except (json.JSONDecodeError, TypeError):
-                    return {
-                        "intent":        "CLARIFY",
-                        "action_intent": None,
-                        "response":      clarify_raw or "Could you tell me more about the process you'd like to model?",
-                        "options":       [],
-                    }
-
-            # STEP 2c — GENERATE_NEW / OVERWRITE_EXISTING / MODIFY_EXISTING:
-            #           run Confirmer to summarise the specific action and ask for confirmation
-            confirm_raw = await self._run_agent(
-                self.confirmer,
-                self._build_confirmer_prompt(message, process_name, intent, chat_history),
-                session_service,
-                session_id,
-            )
-            try:
-                confirm_data  = json.loads((confirm_raw or "").strip())
-                summary       = confirm_data.get("summary", "")
-                question      = confirm_data.get("question", "Shall I proceed?")
-                response_text = f"{summary}\n{question}" if summary else question
-            except (json.JSONDecodeError, TypeError):
-                response_text = confirm_raw or "Shall I proceed with this?"
-
+            generator_prompt = self._build_generator_prompt(process_name, confirmed_action, chat_history)
+            xml_raw  = await self._run("process_generator", generator_prompt)
+            bpmn_xml = self._extract_bpmn_xml(xml_raw or "")
             return {
-                "intent":        "CONFIRM",
-                "action_intent": intent,
-                "response":      response_text,
-                "options":       ["Yes, proceed", "No, let me adjust"],
+                "intent":        "BPMN_GENERATED",
+                "action_intent": confirmed_action,
+                "bpmn_xml":      bpmn_xml,
+                "response":      f"I've generated the {name_label} process model. Review it on the canvas.",
+                "options":       [],
             }
 
-        finally:
+        # STEP 1 — Classify intent
+        intent_prompt = self._build_intent_prompt(message, process_name, chat_history)
+        intent_raw    = await self._run("intent_classifier", intent_prompt)
+
+        intent        = "INCOMPLETE"
+        intent_reason = ""
+        try:
+            intent_data   = json.loads((intent_raw or "").strip())
+            intent        = intent_data.get("intent", "INCOMPLETE").upper()
+            intent_reason = intent_data.get("reason", "")
+        except (json.JSONDecodeError, TypeError):
+            pass
+
+        if intent not in (_ACTION_INTENTS | _NEEDS_CLARIFICATION | {"IRRELEVANT"}):
+            intent = "INCOMPLETE"
+
+        # STEP 2a — IRRELEVANT
+        if intent == "IRRELEVANT":
+            sub_prompts  = (self._config or {}).get("sub_prompts", {})
+            redirect_msg = sub_prompts.get("redirect", {}).get("prompt", _DEFAULT_REDIRECT_MESSAGE)
+            return {
+                "intent":        "IRRELEVANT",
+                "action_intent": None,
+                "response":      redirect_msg,
+                "options":       [],
+            }
+
+        # STEP 2b — AMBIGUOUS / INCOMPLETE
+        if intent in _NEEDS_CLARIFICATION:
+            clarifier_prompt = self._build_clarifier_prompt(
+                message, process_name, intent_reason, chat_history
+            )
+            clarify_raw = await self._run("clarifier", clarifier_prompt)
             try:
-                await session_service.delete_session(
-                    app_name=APP_NAME, user_id=USER_ID, session_id=session_id
-                )
-            except Exception:
-                pass
+                clarify_data = json.loads((clarify_raw or "").strip())
+                return {
+                    "intent":        "CLARIFY",
+                    "action_intent": None,
+                    "response":      clarify_data.get("question", clarify_raw or "Could you tell me more about the process?"),
+                    "options":       clarify_data.get("options", []),
+                }
+            except (json.JSONDecodeError, TypeError):
+                return {
+                    "intent":        "CLARIFY",
+                    "action_intent": None,
+                    "response":      clarify_raw or "Could you tell me more about the process you'd like to model?",
+                    "options":       [],
+                }
+
+        # STEP 2c — GENERATE_NEW / OVERWRITE_EXISTING / MODIFY_EXISTING → confirm
+        confirm_raw = await self._run(
+            "confirmer",
+            self._build_confirmer_prompt(message, process_name, intent, chat_history),
+        )
+        try:
+            confirm_data  = json.loads((confirm_raw or "").strip())
+            summary       = confirm_data.get("summary", "")
+            question      = confirm_data.get("question", "Shall I proceed?")
+            response_text = f"{summary}\n{question}" if summary else question
+        except (json.JSONDecodeError, TypeError):
+            response_text = confirm_raw or "Shall I proceed with this?"
+
+        return {
+            "intent":        "CONFIRM",
+            "action_intent": intent,
+            "response":      response_text,
+            "options":       ["Yes, proceed", "No, let me adjust"],
+        }
 
 
 def run_prosally_message(
