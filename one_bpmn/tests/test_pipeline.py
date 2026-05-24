@@ -25,8 +25,18 @@ PIPELINE_PATH = os.path.normpath(os.path.join(
 ))
 
 
+def _find_node() -> str | None:
+    """Prefer nvm Node 18+ to avoid system Node 12 ESM compatibility issues."""
+    home = os.path.expanduser("~")
+    for ver in ("v20.19.4", "v20.19.2", "v18.19.0"):
+        candidate = os.path.join(home, ".nvm", "versions", "node", ver, "bin", "node")
+        if os.path.isfile(candidate) and os.access(candidate, os.X_OK):
+            return candidate
+    return shutil.which("node")
+
+
 def _run_pipeline(ir_dict: dict) -> dict:
-    node = shutil.which("node")
+    node = _find_node()
     if not node:
         pytest.skip("node not found in PATH — skipping pipeline test")
     result = subprocess.run(
