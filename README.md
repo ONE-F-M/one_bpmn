@@ -1,3 +1,5 @@
+![Coverage](https://img.shields.io/badge/coverage-30%25%2B-brightgreen)
+
 # ONE BPMN
 
 A BPMN editor integration with Frappe Framework, powered by [bpmn-js](https://bpmn.io/toolkit/bpmn-js/) and [SpiffWorkflow](https://www.spiffworkflow.org/) extensions. The app provides a Vue.js-based BPMN process modeler accessible at `/spiff`, with support for multiple diagrams per process, a tabbed editing interface, a formatting toolbar, a custom shape library, and SpiffWorkflow properties panel integration.
@@ -337,3 +339,35 @@ The app automatically decodes HTML entities in stored XML. If issues persist, ch
 ## License
 
 MIT
+
+
+## Running Tests
+
+Run the full app test suite from bench:
+
+```bash
+bench --site <site> run-tests --app one_bpmn --failfast
+```
+
+## Contributing
+
+1. Branch from `staging`
+2. Keep changes scoped to the work item
+3. Open PRs back to `staging`
+4. Prefer small, reviewable changes
+
+## Architecture Overview
+
+- `one_bpmn/api.py` exposes backend endpoints for BPMN model management
+- `one_bpmn/tasks.py` handles scheduled timer-related processing
+- `one_bpmn/one_bpmn/doctype/` contains BPMN doctypes and server logic
+- `spiff/` contains the frontend BPMN editor
+
+## BPMN Data Model
+
+Primary concepts:
+- Process Model
+- Process Instance
+- Activity Log
+- Shape Library
+- Custom Shape

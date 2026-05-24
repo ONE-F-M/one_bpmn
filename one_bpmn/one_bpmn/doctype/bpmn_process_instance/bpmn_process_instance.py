@@ -116,6 +116,7 @@ class BPMNProcessInstance(Document):
 			context_doctype=self.context_doctype,
 			context_docname=self.context_docname,
 			script_task_extensions=self._script_task_extensions,
+			initiated_by=self.initiated_by or frappe.session.user,
 		)
 
 		frappe.flags.bpmn_engine_action = True
@@ -177,6 +178,7 @@ class BPMNProcessInstance(Document):
 			context_doctype=self.context_doctype,
 			context_docname=self.context_docname,
 			script_task_extensions=_script_exts,
+			initiated_by=self.initiated_by or "Administrator",
 		)
 
 		# Always refresh the context doc so conditional events see latest data
@@ -220,12 +222,18 @@ class BPMNProcessInstance(Document):
 			if row.status == "Waiting" and row.assigned_user
 		}
 
-		# Mark the active_tasks row as Completed
+		# Mark the active_tasks row as Completed and record timing
 		# (Frappe assignment cleanup is handled by _sync_active_tasks
 		# via a before/after diff to avoid close+recreate for the same user)
+		_completed_at = now_datetime()
 		for row in self.active_tasks:
 			if row.task_id == task_id:
 				row.status = "Completed"
+				row.end_time = _completed_at
+				if row.started_at:
+					row.timer_duration = int(
+						frappe.utils.time_diff_in_seconds(_completed_at, row.started_at)
+					)
 
 		self._log_task(
 			task_id=task_id,
@@ -325,6 +333,7 @@ class BPMNProcessInstance(Document):
 			context_doctype=self.context_doctype,
 			context_docname=self.context_docname,
 			script_task_extensions=_script_exts,
+			initiated_by=self.initiated_by or "Administrator",
 		)
 
 		# Refresh context doc so downstream conditions see latest data
@@ -543,7 +552,7 @@ class BPMNProcessInstance(Document):
 			target_state = task_cfg.get("workflowState", "")
 			doc_status = task_cfg.get("docStatus", "")  # override hint
 			only_role = task_cfg.get("onlyAllowEdit", "")
-			triggered_by = self.initiated_by or frappe.session.user
+			triggered_by = frappe.session.user or self.initiated_by or "Administrator"
 
 			if not (doctype and docname):
 				frappe.log_error(
@@ -706,11 +715,16 @@ class BPMNProcessInstance(Document):
 		if not updates:
 			return
 
+		actor = frappe.session.user or self.initiated_by or "Administrator"
+		# Include modified_by in the single DB write so the audit trail
+		# attributes the change to the user whose action triggered this task.
+		update_payload = {**updates, "modified_by": actor}
+
 		try:
 			old_flag = getattr(frappe.flags, "bpmn_engine_action", False)
 			frappe.flags.bpmn_engine_action = True
 			try:
-				frappe.db.set_value(doctype, docname, updates, update_modified=False)
+				frappe.db.set_value(doctype, docname, update_payload, update_modified=False)
 			finally:
 				frappe.flags.bpmn_engine_action = old_flag
 
@@ -720,6 +734,14 @@ class BPMNProcessInstance(Document):
 				message=frappe.get_traceback(),
 			)
 			raise
+
+		frappe.publish_realtime(
+			"doc_update",
+			{"modified": str(frappe.utils.now_datetime()), "modified_by": actor},
+			doctype=doctype,
+			docname=docname,
+			after_commit=True,
+		)
 
 	def _dispatch_google_chat(self, task, task_cfg: dict, bpmn_id: str) -> None:
 		"""
@@ -1213,6 +1235,8 @@ class BPMNProcessInstance(Document):
 			bpmn_id_key = getattr(task.task_spec, "bpmn_id", None) or ""
 			task_cfg = getattr(self, "_user_task_extensions", {}).get(bpmn_id_key, {})
 			task_actions = task_cfg.get("taskActions", "")
+			target_doctype = self.context_doctype
+			target_docname = self.context_docname
 
 			self.append(
 				"active_tasks",
@@ -1225,6 +1249,8 @@ class BPMNProcessInstance(Document):
 					"assigned_user": assigned_user,
 					"assigned_role": assigned_role,
 					"task_actions": task_actions,
+					"target_doctype": target_doctype,
+					"target_docname": target_docname,
 				},
 			)
 
@@ -1249,6 +1275,44 @@ class BPMNProcessInstance(Document):
 		for user, task_name in curr_assigned.items():
 			if user not in prev_assigned:
 				self._add_frappe_assignment(user, task_name)
+
+	@staticmethod
+	def _get_reliever_if_on_leave(user: str) -> str:
+		"""
+		If *user* is on approved leave today, return the reliever's User ID
+		from the Leave Application (``reliever_user_id``).  Falls back to the
+		original *user* when no active approved leave exists or no reliever is set.
+		"""
+		if not user:
+			return user
+
+		try:
+			today = frappe.utils.today()
+			employee = frappe.db.get_value(
+				"Employee",
+				{"user_id": user, "status": ["in", ["Active", "Vacation", "Not Returned from Leave"]]},
+				"name",
+			)
+			if not employee:
+				return user
+			reliever_user = frappe.db.get_value(
+				"Leave Application",
+				{
+					"employee": employee,
+					"status": "Approved",
+					"from_date": ["<=", today],
+					"to_date": [">=", today],
+					"reliever_user_id": ["is", "set"],
+				},
+				"reliever_user_id",
+			)
+			return reliever_user if reliever_user else user
+		except Exception:
+			frappe.log_error(
+				title="BPMN: Leave reliever lookup failed",
+				message=frappe.get_traceback(),
+			)
+			return user
 
 	def _resolve_assignment(self, task) -> str:
 		"""
@@ -1275,6 +1339,9 @@ class BPMNProcessInstance(Document):
 		        Assigns to the user in ``assigneeUsers`` with the fewest open
 		        BPMN Process Instance active tasks.  Ties are broken by list order.
 
+		For all modes, if the resolved assignee is on approved leave today the
+		task is redirected to the reliever named in their Leave Application.
+
 		Returns the resolved user email/name, or empty string if unresolvable.
 		"""
 		extensions = getattr(self, "_user_task_extensions", {})
@@ -1285,7 +1352,7 @@ class BPMNProcessInstance(Document):
 
 		# ── User ──────────────────────────────────────────────────────────────
 		if mode == "User":
-			return task_cfg.get("assigneeUser", "")
+			return self._get_reliever_if_on_leave(task_cfg.get("assigneeUser", ""))
 
 		# ── DocField ──────────────────────────────────────────────────────────
 		if mode == "DocField":
@@ -1294,7 +1361,7 @@ class BPMNProcessInstance(Document):
 			if doctype and docfield and self.context_docname:
 				try:
 					user = frappe.db.get_value(doctype, self.context_docname, docfield)
-					return user or ""
+					return self._get_reliever_if_on_leave(user or "")
 				except Exception:
 					return ""
 			return ""
@@ -1330,13 +1397,13 @@ class BPMNProcessInstance(Document):
 				except Exception:
 					pass
 
-				return assignee
+				return self._get_reliever_if_on_leave(assignee)
 			except Exception:
 				frappe.log_error(
 					title="BPMN: Round Robin assignment failed",
 					message=frappe.get_traceback(),
 				)
-				return users[0] if users else ""
+				return self._get_reliever_if_on_leave(users[0]) if users else ""
 
 		# ── Load Balancing ─────────────────────────────────────────────────────
 		# Correct logic (per spec):
@@ -1371,14 +1438,14 @@ class BPMNProcessInstance(Document):
 				# User with fewest active assignments wins; ties → first in list
 				minimum = min(loads.values())
 				assignee = next(u for u in users if loads[u] == minimum)
-				return assignee
+				return self._get_reliever_if_on_leave(assignee)
 
 			except Exception:
 				frappe.log_error(
 					title="BPMN: Load Balancing assignment failed",
 					message=frappe.get_traceback(),
 				)
-				return users[0] if users else ""
+				return self._get_reliever_if_on_leave(users[0]) if users else ""
 
 		return ""
 

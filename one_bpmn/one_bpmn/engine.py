@@ -50,6 +50,35 @@ def get_serializer() -> BpmnWorkflowSerializer:
 
 
 # ─────────────────────────────────────────────────────────────
+# Permission guard — patterns scripts must never contain
+# ─────────────────────────────────────────────────────────────
+
+_FORBIDDEN_SCRIPT_PATTERNS = (
+	"frappe.set_user",
+	"frappe.flags.ignore_permissions",
+)
+
+
+def _check_script_permissions(script_text: str, label: str) -> None:
+	"""
+	Reject scripts that attempt to bypass Frappe permission controls.
+
+	Called before exec() for both Server Script tasks and inline <bpmn:script>
+	tasks.  Raises frappe.ValidationError if a forbidden pattern is found.
+	"""
+	try:
+		import frappe as _f
+	except ImportError:
+		return
+	for pattern in _FORBIDDEN_SCRIPT_PATTERNS:
+		if pattern in (script_text or ""):
+			_f.throw(
+				f'BPMN Script "{label}": scripts may not use `{pattern}`. '
+				f"Tasks must run under the user's permission context."
+			)
+
+
+# ─────────────────────────────────────────────────────────────
 # FrappeScriptEngine — custom ScriptEngine with Server Script support
 # ─────────────────────────────────────────────────────────────
 
@@ -84,26 +113,52 @@ class FrappeScriptEngine(PythonScriptEngine):
 	        result["action"] = "Approve"
 	"""
 
-	def __init__(self, environment, script_task_extensions=None, context_doctype=None, context_docname=None):
+	def __init__(self, environment, script_task_extensions=None, context_doctype=None, context_docname=None, initiated_by=None):
 		super().__init__(environment)
 		self._script_task_extensions = script_task_extensions or {}
 		self._context_doctype = context_doctype
 		self._context_docname = context_docname
+		self._initiated_by = initiated_by or "Administrator"
 
 	def execute(self, task, script, **kwargs):
 		"""
-		Override: run a Frappe Server Script for this task if one is
-		configured; otherwise fall back to inline PythonScriptEngine execution.
+		Override: enforce user permission context for all script execution.
+
+		Before running any script (Server Script or inline), this method:
+		  1. Validates the script content for forbidden permission-bypass patterns
+		  2. Switches frappe.session.user to self._initiated_by so the script
+		     runs with that user's permission context (ignore_permissions=False)
+		  3. Restores the original session user after execution
+
+		For timer-triggered instances _initiated_by is "Administrator".
+		For user-triggered instances it is the user who started the process.
 		"""
+		try:
+			import frappe as _frappe
+		except ImportError:
+			super().execute(task, script, **kwargs)
+			return
+
 		bpmn_id = getattr(task.task_spec, "bpmn_id", None) or ""
 		task_cfg = self._script_task_extensions.get(bpmn_id, {})
 		server_script_name = task_cfg.get("serverScript", "")
 
-		if server_script_name:
-			self._run_frappe_server_script(server_script_name, task)
-		else:
-			# No server script configured — run inline <bpmn:script> normally
-			super().execute(task, script, **kwargs)
+		# Validate inline scripts before switching users (fail fast)
+		if not server_script_name:
+			_check_script_permissions(script, f"bpmn:{bpmn_id}")
+
+		original_user = _frappe.session.user
+		try:
+			_frappe.set_user(self._initiated_by)
+			_frappe.flags.ignore_permissions = False
+
+			if server_script_name:
+				self._run_frappe_server_script(server_script_name, task)
+			else:
+				super().execute(task, script, **kwargs)
+		finally:
+			_frappe.set_user(original_user)
+			_frappe.flags.ignore_permissions = False
 
 	def _run_frappe_server_script(self, script_name: str, task) -> None:
 		"""
@@ -129,6 +184,9 @@ class FrappeScriptEngine(PythonScriptEngine):
 				),
 			)
 			return
+
+		# Reject scripts that attempt to bypass permission controls
+		_check_script_permissions(script_doc.script, script_name)
 
 		# Build locals: workflow variables + framework context
 		local_vars = dict(task.data)
@@ -174,6 +232,7 @@ def _make_script_engine(
 	context_doctype=None,
 	context_docname=None,
 	script_task_extensions=None,
+	initiated_by=None,
 ) -> FrappeScriptEngine:
 	"""
 	Build a FrappeScriptEngine with Frappe, datetime, and doc injected.
@@ -212,6 +271,7 @@ def _make_script_engine(
 		script_task_extensions=script_task_extensions,
 		context_doctype=context_doctype,
 		context_docname=context_docname,
+		initiated_by=initiated_by,
 	)
 
 
@@ -289,6 +349,7 @@ def create_workflow(
 	context_doctype: str = None,
 	context_docname: str = None,
 	script_task_extensions: dict = None,
+	initiated_by: str = None,
 ) -> BpmnWorkflow:
 	"""
 	Create a brand-new BpmnWorkflow from a stored serialised spec.
@@ -327,6 +388,7 @@ def create_workflow(
 		context_doctype=context_doctype,
 		context_docname=context_docname,
 		script_task_extensions=script_task_extensions,
+		initiated_by=initiated_by,
 	)
 
 	if initial_data:
@@ -345,6 +407,7 @@ def restore_workflow(
 	context_doctype: str = None,
 	context_docname: str = None,
 	script_task_extensions: dict = None,
+	initiated_by: str = None,
 ) -> BpmnWorkflow:
 	"""
 	Restore a mid-flight workflow from its serialised state (stored in DB).
@@ -368,6 +431,7 @@ def restore_workflow(
 		context_doctype=context_doctype,
 		context_docname=context_docname,
 		script_task_extensions=script_task_extensions,
+		initiated_by=initiated_by,
 	)
 
 	return wf

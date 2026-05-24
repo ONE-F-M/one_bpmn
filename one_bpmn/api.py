@@ -6,6 +6,20 @@ import json
 from lxml import etree as ET
 import frappe
 from frappe import _
+from frappe.utils import cint
+
+def _is_bpmn_super_user(user: str = None) -> bool:
+	"""Return True if *user* holds the Super User Role defined in OneFM General Setting."""
+	user = user or frappe.session.user
+	if user == "Administrator":
+		return True
+	try:
+		super_user_role = frappe.db.get_single_value("OneFM General Setting", "super_user_role")
+	except Exception:
+		return False
+	if not super_user_role:
+		return False
+	return super_user_role in frappe.get_roles(user)
 
 
 @frappe.whitelist()
@@ -166,14 +180,15 @@ def validate_bpmn_readiness(xml_content: str) -> dict:
 	Parse BPMN XML and check all prerequisites against the database.
 
 	Shared validation used by both import (informational) and deploy (blocking).
-	Checks 7 categories:
+	Checks 8 categories:
 	  1. DocTypes         — referenced doctypes must exist
 	  2. Fields           — referenced fields must exist on their doctypes
 	  3. Workflow States  — referenced states must exist as Workflow State records
 	  4. Workflow Actions — user task action labels must exist as Workflow Action Master records
 	  5. Server Scripts   — script task references must exist
-	  6. Frappe Workflows — active workflows are flagged as conflict warnings
-	  7. Assignment Rules — active rules are flagged as conflict warnings
+	  6. Lane Roles       — roles assigned to lanes must exist and be active
+	  7. Frappe Workflows — active workflows are flagged as conflict warnings
+	  8. Assignment Rules — active rules are flagged as conflict warnings
 
 	Args:
 		xml_content: Raw BPMN XML text
@@ -213,6 +228,9 @@ def validate_bpmn_readiness(xml_content: str) -> dict:
 
 	# Server Script names (from script tasks)
 	referenced_scripts = set()
+
+	# Lane roles (from lane name attributes)
+	referenced_lane_roles = set()
 
 	# ── Parse Start Events ────────────────────────────────────────────────
 	for start_event in root.iter(f"{{{BPMN_NS}}}startEvent"):
@@ -317,6 +335,12 @@ def validate_bpmn_readiness(xml_content: str) -> dict:
 		script_name = script_task.get(f"{{{SPIFF_NS}}}serverScript", "")
 		if script_name:
 			referenced_scripts.add(script_name)
+
+	# ── Parse Lane Roles ──────────────────────────────────────────────────
+	for lane in root.iter(f"{{{BPMN_NS}}}lane"):
+		role_name = lane.get("name", "").strip()
+		if role_name:
+			referenced_lane_roles.add(role_name)
 
 	# ── Extract email doc-fields from send_email service tasks ────────────
 	for service_task in root.iter(f"{{{BPMN_NS}}}serviceTask"):
@@ -435,7 +459,29 @@ def validate_bpmn_readiness(xml_content: str) -> dict:
 			"items": script_items,
 		})
 
-	# 6. Frappe Workflows (conflict warning — active = should disable)
+	# 6. Lane Roles
+	role_items = []
+	for role_name in sorted(referenced_lane_roles):
+		role = frappe.db.get_value("Role", role_name, ["name", "disabled"], as_dict=True)
+		if not role:
+			role_items.append({"name": role_name, "exists": False, "type": "check"})
+		elif role.disabled:
+			role_items.append({
+				"name": role_name,
+				"exists": False,
+				"type": "check",
+				"detail": _("Role exists but is disabled"),
+			})
+		else:
+			role_items.append({"name": role_name, "exists": True, "type": "check"})
+	if role_items:
+		categories.append({
+			"label": "Lane Roles",
+			"icon": "users",
+			"items": role_items,
+		})
+
+	# 7. Frappe Workflows (conflict warning — active = should disable)
 	from frappe.model.workflow import get_workflow_name
 
 	workflow_items = []
@@ -457,7 +503,7 @@ def validate_bpmn_readiness(xml_content: str) -> dict:
 			"items": workflow_items,
 		})
 
-	# 6. Assignment Rules (conflict warning — active = should disable)
+	# 8. Assignment Rules (conflict warning — active = should disable)
 	assignment_items = []
 	for dt in sorted(referenced_doctypes):
 		if not frappe.db.exists("DocType", dt):
@@ -1151,6 +1197,16 @@ def list_process_instances(
 # ============================================
 
 
+def _derive_api_method(script_name: str) -> str:
+	"""Convert a script name to a valid Frappe API method identifier."""
+	import re
+	method = script_name.lower()
+	method = re.sub(r"[^a-z0-9\s_]", "", method)
+	method = re.sub(r"\s+", "_", method)
+	method = re.sub(r"_+", "_", method).strip("_")
+	return method or "script"
+
+
 @frappe.whitelist()
 def create_server_script(
 	script_name: str,
@@ -1182,7 +1238,11 @@ def create_server_script(
 		doc.reference_doctype = reference_doctype
 	if doctype_event:
 		doc.doctype_event = doctype_event
-	if api_method:
+	# For API scripts, always set an api_method so Processa can reach it via REST
+	if script_type == "API":
+		resolved_method = api_method or _derive_api_method(script_name)
+		doc.api_method = resolved_method
+	elif api_method:
 		doc.api_method = api_method
 	if allow_guest:
 		doc.allow_guest = int(allow_guest)
@@ -1193,17 +1253,201 @@ def create_server_script(
 	if module:
 		doc.module = module
 
-	# Elevate to Administrator temporarily to bypass the ServerScript controller's
-	# `frappe.only_for("Script Manager")` validate hook. The role guard above
-	# already ensures only System Manager / Script Manager users reach this point.
 	original_user = frappe.session.user
 	try:
 		frappe.set_user("Administrator")
-		doc.insert(ignore_permissions=True)
+		if frappe.db.exists("Server Script", script_name):
+			# Script already exists — update in place instead of re-inserting
+			doc = frappe.get_doc("Server Script", script_name)
+			doc.script_type = script_type
+			doc.script = script
+			doc.disabled = 0
+			if reference_doctype is not None:
+				doc.reference_doctype = reference_doctype
+			if doctype_event is not None:
+				doc.doctype_event = doctype_event
+			if script_type == "API":
+				resolved_method = api_method or _derive_api_method(script_name)
+				doc.api_method = resolved_method
+			elif api_method is not None:
+				doc.api_method = api_method
+			if allow_guest is not None:
+				doc.allow_guest = int(allow_guest)
+			if event_frequency is not None:
+				doc.event_frequency = event_frequency
+			if cron_format is not None:
+				doc.cron_format = cron_format
+			if module is not None:
+				doc.module = module
+			doc.save(ignore_permissions=True)
+		else:
+			doc.insert(ignore_permissions=True)
 	finally:
 		frappe.set_user(original_user)
 
-	return {"name": doc.name, "script_type": doc.script_type}
+	method = getattr(doc, "api_method", None) or ""
+	return {
+		"name":        doc.name,
+		"script_type": doc.script_type,
+		"api_method":  method,
+		"api_url":     f"/api/method/{method}" if method else "",
+	}
+
+
+@frappe.whitelist()
+def update_server_script(
+	script_name: str,
+	script: str,
+	script_type: str = None,
+	reference_doctype: str = None,
+	doctype_event: str = None,
+	api_method: str = None,
+	allow_guest: int = None,
+	event_frequency: str = None,
+	cron_format: str = None,
+	module: str = None,
+) -> dict:
+	"""Replace the script body (and optionally metadata) of an existing Server Script."""
+	if frappe.session.user == "Guest":
+		frappe.throw(_("Authentication required"))
+
+	if not frappe.has_permission("Server Script", "write") and "System Manager" not in frappe.get_roles():
+		frappe.throw(
+			_("You need the Script Manager or System Manager role to update Server Scripts."),
+			frappe.PermissionError,
+		)
+
+	try:
+		doc = frappe.get_doc("Server Script", script_name)
+		doc.script = script
+		if script_type:
+			doc.script_type = script_type
+		if reference_doctype is not None:
+			doc.reference_doctype = reference_doctype
+		if doctype_event is not None:
+			doc.doctype_event = doctype_event
+		if api_method is not None:
+			doc.api_method = api_method
+		if allow_guest is not None:
+			doc.allow_guest = int(allow_guest)
+		if event_frequency is not None:
+			doc.event_frequency = event_frequency
+		if cron_format is not None:
+			doc.cron_format = cron_format
+		if module is not None:
+			doc.module = module
+		original_user = frappe.session.user
+		try:
+			frappe.set_user("Administrator")
+			doc.save(ignore_permissions=True)
+		finally:
+			frappe.set_user(original_user)
+		method = doc.api_method or ""
+		return {
+			"name":        doc.name,
+			"script_type": doc.script_type,
+			"api_method":  method,
+			"api_url":     f"/api/method/{method}" if method else "",
+		}
+	except frappe.DoesNotExistError:
+		frappe.throw(_("Server Script '{0}' not found.").format(script_name))
+	except Exception:
+		frappe.log_error(title="Update Server Script Error", message=frappe.get_traceback())
+		frappe.throw(_("Failed to update Server Script."))
+
+
+@frappe.whitelist()
+def check_server_script_exists(script_name: str) -> dict:
+	"""Check if a Server Script document with the given name exists."""
+	if frappe.session.user == "Guest":
+		frappe.throw(_("Authentication required"))
+	return {"exists": bool(frappe.db.exists("Server Script", script_name))}
+
+
+@frappe.whitelist()
+def process_logix_message(
+	message: str,
+	session_id: str,
+	chat_history: str = None,
+	element_name: str = None,
+	current_script: str = None,
+) -> dict:
+	"""Process a Logix AI chat message via the ScriptTaskAgent (Google ADK)."""
+	if frappe.session.user == "Guest":
+		frappe.throw(_("Authentication required"))
+
+	try:
+		history = []
+		if chat_history:
+			if isinstance(chat_history, str):
+				history = json.loads(chat_history)
+			else:
+				history = chat_history
+
+		# Fetch the original script body so the agent can compute a diff for MODIFY intent
+		original_content = ""
+		if current_script:
+			try:
+				original_content = frappe.get_doc("Server Script", current_script).script or ""
+			except Exception:
+				pass
+
+		from one_bpmn.agents.google_adk.script_task_agent.script_task_agent import (
+			run_logix_message,
+		)
+
+		result = run_logix_message(
+			message=message,
+			chat_history=history,
+			element_name=element_name or "",
+			current_script=current_script or "",
+			original_script_content=original_content,
+		)
+		# result is already a dict: {intent, response, diff, options, suggested_name}
+		return result
+
+	except Exception:
+		frappe.log_error(title="Logix Agent error", message=frappe.get_traceback())
+		return {"intent": "ERROR", "response": "An unexpected error occurred. Please try again."}
+
+
+@frappe.whitelist()
+def prosally_chat(
+	message: str,
+	session_id: str,
+	chat_history: str = None,
+	process_name: str = "",
+	diagram_name: str = "",
+	confirmed_action: str = "",
+	current_xml: str = "",
+) -> dict:
+	"""Process a ProsAlly chat message via the ProsAlly Agent (Google ADK)."""
+	if frappe.session.user == "Guest":
+		frappe.throw(_("Authentication required"))
+
+	try:
+		history = []
+		if chat_history:
+			if isinstance(chat_history, str):
+				history = json.loads(chat_history)
+			else:
+				history = chat_history
+
+		from one_bpmn.agents.google_adk.prosally_agent.prosally_agent import run_prosally_message
+
+		result = run_prosally_message(
+			message=message,
+			chat_history=history,
+			process_name=process_name or "",
+			diagram_name=diagram_name or "",
+			confirmed_action=confirmed_action or "",
+			current_xml=current_xml or "",
+		)
+		return result
+
+	except Exception:
+		frappe.log_error(title="ProsAlly Agent error", message=frappe.get_traceback())
+		return {"intent": "ERROR", "response": "An unexpected error occurred. Please try again."}
 
 
 @frappe.whitelist()
@@ -2713,7 +2957,49 @@ def _extract_script_task_config(bpmn_xml: str) -> dict:
 	return extensions
 
 
-def _apply_docstatus_directly(doc, target_state: str, doc_status_hint: str) -> None:
+def _audit_and_notify(doc, actor: str, original_modified=None) -> None:
+	"""
+	Record the triggering user as modified_by and broadcast a doc_update event.
+
+	Called by service task handlers after every document save, submit, or cancel
+	so that:
+	  - The ERPNext audit trail (modified_by) shows the user whose action caused
+	    the automated change, not "Administrator" or the raw session user.
+	  - Any open Frappe desk form for the document auto-reloads via WebSocket.
+
+	When running inside a bpmn_engine_action context the modified timestamp is
+	also reverted to original_modified to prevent optimistic-lock conflicts on
+	the user's open form (same timestamp-sync workaround as before).
+	"""
+	if not doc or not doc.doctype or not doc.name:
+		return
+
+	actor = actor or frappe.session.user
+
+	if getattr(frappe.flags, "bpmn_engine_action", False) and original_modified:
+		# Revert modified timestamp AND record the actor in one DB write
+		frappe.db.set_value(
+			doc.doctype, doc.name,
+			{"modified": original_modified, "modified_by": actor},
+			update_modified=False,
+		)
+		doc.modified = original_modified
+		doc.modified_by = actor
+	else:
+		# Not an engine action — just stamp the actor without touching modified
+		frappe.db.set_value(doc.doctype, doc.name, "modified_by", actor, update_modified=False)
+		doc.modified_by = actor
+
+	frappe.publish_realtime(
+		"doc_update",
+		{"modified": str(doc.modified), "modified_by": doc.modified_by},
+		doctype=doc.doctype,
+		docname=doc.name,
+		after_commit=True,
+	)
+
+
+def _apply_docstatus_directly(doc, target_state: str, doc_status_hint: str, actor: str = None) -> None:
 	"""
 	Fallback used by ``_apply_bpmn_workflow_state`` when the DocType has no
 	active Frappe Workflow.
@@ -2760,12 +3046,8 @@ def _apply_docstatus_directly(doc, target_state: str, doc_status_hint: str) -> N
 			# Submitted doc — just save (amend notes etc.)
 			doc.save(ignore_permissions=True)
 
-	# ── Sync timestamp back for engine actions to prevent mismatch ───────
-	if getattr(frappe.flags, "bpmn_engine_action", False) and original_modified:
-		frappe.db.set_value(doc.doctype, doc.name, "modified", original_modified, update_modified=False)
-		doc.modified = original_modified
+	_audit_and_notify(doc, actor or frappe.session.user, original_modified)
 
-	# ── Audit trail: add a workflow comment like Frappe does ──────────────
 	if target_state:
 		doc.add_comment("Workflow", _(target_state))
 
@@ -2815,9 +3097,9 @@ def _apply_bpmn_workflow_state(
 	actor = triggered_by or frappe.session.user
 
 	# ── 1. Role guard ─────────────────────────────────────────────────────────
-	if only_allow_role:
+	if only_allow_role and not _is_bpmn_super_user(actor):
 		user_roles = frappe.get_roles(actor)
-		if only_allow_role not in user_roles and actor != "Administrator":
+		if only_allow_role not in user_roles:
 			frappe.throw(
 				_("Only users with the role '{0}' can perform this workflow action.").format(only_allow_role),
 				frappe.PermissionError,
@@ -2843,7 +3125,7 @@ def _apply_bpmn_workflow_state(
 		# ── FALLBACK: No Frappe Workflow configured on this DocType ────────────
 		# Apply docstatus transition directly (Draft → Submit → Cancel) and
 		# optionally set workflow_state / workflow_field if they exist on the doc.
-		_apply_docstatus_directly(doc, target_state, doc_status_hint)
+		_apply_docstatus_directly(doc, target_state, doc_status_hint, actor=actor)
 		return
 
 	# ── 4. State validation ───────────────────────────────────────────────────
@@ -2911,10 +3193,7 @@ def _apply_bpmn_workflow_state(
 			frappe.ValidationError,
 		)
 
-	# ── Sync timestamp back for engine actions to prevent mismatch ───────
-	if getattr(frappe.flags, "bpmn_engine_action", False) and original_modified:
-		frappe.db.set_value(doc.doctype, doc.name, "modified", original_modified, update_modified=False)
-		doc.modified = original_modified
+	_audit_and_notify(doc, actor, original_modified)
 
 	# ── 8. Workflow comment (same as Frappe's apply_workflow) ─────────────────
 	doc.add_comment("Workflow", _(target_state))
@@ -3029,6 +3308,7 @@ def complete_task(
 		frappe.throw(_("Task '{0}' is not in Waiting status.").format(active_row.task_name or task_id))
 
 	current_user = frappe.session.user
+	approved_ctc_name = None
 
 	# ── 1. USER ASSIGNMENT CHECK ─────────────────────────────────────────────
 	# Same as Frappe's "allow_edit" on workflow states — only the assigned
@@ -3036,7 +3316,7 @@ def complete_task(
 	assigned_user = active_row.assigned_user or ""
 	assigned_role = active_row.assigned_role or ""
 
-	if assigned_user and assigned_user != current_user and current_user != "Administrator":
+	if assigned_user and assigned_user != current_user and not _is_bpmn_super_user(current_user):
 		# Also allow the document owner (they initiated the process)
 		is_doc_owner = False
 		if instance.context_doctype and instance.context_docname:
@@ -3044,14 +3324,30 @@ def complete_task(
 			is_doc_owner = doc_owner == current_user
 
 		if not is_doc_owner:
-			frappe.throw(
-				_("You are not authorized to complete this task. It is assigned to {0}.").format(
-					frappe.utils.get_fullname(assigned_user) or assigned_user
-				),
-				frappe.PermissionError,
-			)
+			# Allow if this specific user has an approved Contingency Task Completion
+			# for this context document.  Any other user's CTC does not grant access.
+			if instance.context_doctype and instance.context_docname:
+				approved_ctc_name = frappe.db.get_value(
+					"Contingency Task Completion",
+					{
+						"context_doctype": instance.context_doctype,
+						"context_docname": instance.context_docname,
+						"process_owner_user": current_user,
+						"status": "Approved",
+						"docstatus": 1,
+					},
+					"name",
+				)
 
-	if assigned_role and current_user != "Administrator":
+			if not approved_ctc_name:
+				frappe.throw(
+					_("You are not authorized to complete this task. It is assigned to {0}.").format(
+						frappe.utils.get_fullname(assigned_user) or assigned_user
+					),
+					frappe.PermissionError,
+				)
+
+	if assigned_role and not _is_bpmn_super_user(current_user):
 		user_roles = frappe.get_roles(current_user)
 		if assigned_role not in user_roles:
 			frappe.throw(
@@ -3126,6 +3422,10 @@ def complete_task(
 			message=frappe.get_traceback(),
 		)
 		frappe.throw(_("Failed to complete task: {0}").format(str(exc)))
+
+	# ── Expire the CTC that authorised this action ───────────────────────────
+	if approved_ctc_name:
+		frappe.db.set_value("Contingency Task Completion", approved_ctc_name, "status", "Expired")
 
 	# ── Publish realtime events for auto-refresh ────────────────────────────
 	# 1. Notify the Processa frontend — broadcast to ALL users so anyone
@@ -3870,3 +4170,108 @@ def get_context_documents(doctype: str, query: str = None) -> list:
 		order_by="modified desc",
 	)
 	return [{"label": r.name, "value": r.name} for r in results]
+
+
+# Server Script Version History
+# ============================================
+
+
+@frappe.whitelist()
+def get_script_version_history(script_name: str) -> list:
+	"""
+	Get version history for a Server Script using Frappe's built-in Version tracking.
+	Returns a list of versions ordered newest-first.
+	"""
+	if not script_name:
+		return []
+
+	if not frappe.db.exists("Server Script", script_name):
+		return []
+
+	frappe.get_doc("Server Script", script_name).check_permission("read")
+
+	current = frappe.db.get_value(
+		"Server Script", script_name,
+		["modified", "modified_by", "script"],
+		as_dict=True
+	)
+
+	# Pull version records from Frappe's Version doctype
+	version_records = frappe.get_all(
+		"Version",
+		filters={"ref_doctype": "Server Script", "docname": script_name},
+		fields=["name", "creation", "owner", "data"],
+		order_by="creation desc",
+		limit=100,
+	)
+
+	result = []
+
+	# Current (latest) state is always version 1 in the panel
+	result.append({
+		"version_name": "current",
+		"is_current": True,
+		"creation": str(current.modified),
+		"author": frappe.utils.get_fullname(current.modified_by),
+		"description": "Current version",
+		"script": current.script or "",
+	})
+
+	for record in version_records:
+		try:
+			data = frappe.parse_json(record.data or "{}")
+			changed = data.get("changed", [])
+			script_change = next((c for c in changed if c[0] == "script"), None)
+			if not script_change:
+				continue
+			result.append({
+				"version_name": record.name,
+				"is_current": False,
+				"creation": str(record.creation),
+				"author": frappe.utils.get_fullname(record.owner),
+				"description": "Script updated",
+				"script": script_change[1],  # old value before this change
+			})
+		except Exception:
+			pass
+
+	return result
+
+
+@frappe.whitelist()
+def get_script_at_version(version_name: str) -> dict:
+	"""
+	Get script content at a specific Version record.
+	"""
+	if version_name == "current":
+		return {}
+
+	if not frappe.db.exists("Version", version_name):
+		frappe.throw(_("Version record not found."))
+
+	version_doc = frappe.get_doc("Version", version_name)
+	data = frappe.parse_json(version_doc.data or "{}")
+	changed = data.get("changed", [])
+	script_change = next((c for c in changed if c[0] == "script"), None)
+
+	if not script_change:
+		return {"script": "# No script changes tracked in this version"}
+
+	return {"script": script_change[1]}
+
+
+@frappe.whitelist()
+def restore_script_version(script_name: str, version_name: str) -> dict:
+	"""
+	Restore a Server Script to the content stored in a Version record.
+	"""
+	if not frappe.has_permission("Server Script", "write") and "System Manager" not in frappe.get_roles():
+		frappe.throw(
+			_("You need the Script Manager or System Manager role to restore Server Scripts."),
+			frappe.PermissionError,
+		)
+
+	version_data = get_script_at_version(version_name)
+	script_content = version_data.get("script", "")
+
+	return update_server_script(script_name, script_content)

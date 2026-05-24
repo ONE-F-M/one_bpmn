@@ -1,0 +1,15 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<definitions xmlns="http://www.omg.org/spec/BPMN/20100524/MODEL" id="Defs_2" targetNamespace="http://bpmn.io/schema/bpmn">
+  <process id="Process_Gateway" isExecutable="true">
+    <startEvent id="StartEvent_1" />
+    <exclusiveGateway id="Gateway_1" />
+    <task id="Task_Path_A" name="Path A" />
+    <task id="Task_Path_B" name="Path B" />
+    <endEvent id="EndEvent_1" />
+    <sequenceFlow id="Flow_1" sourceRef="StartEvent_1" targetRef="Gateway_1" />
+    <sequenceFlow id="Flow_2" sourceRef="Gateway_1" targetRef="Task_Path_A" />
+    <sequenceFlow id="Flow_3" sourceRef="Gateway_1" targetRef="Task_Path_B" />
+    <sequenceFlow id="Flow_4" sourceRef="Task_Path_A" targetRef="EndEvent_1" />
+    <sequenceFlow id="Flow_5" sourceRef="Task_Path_B" targetRef="EndEvent_1" />
+  </process>
+</definitions>
