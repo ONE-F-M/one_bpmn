@@ -185,12 +185,17 @@ subProcess       — a group of steps collapsed into one box (named, not expande
 Every node must be reachable from startEvent and lead to endEvent.
 Do not leave any node disconnected.
 
-For exclusiveGateway SPLIT (1 incoming, N outgoing):
-  • Mark exactly one outgoing flow as the default (else/fallback) path: "default": true
-  • Add "condition" to EVERY non-default outgoing flow
-  • Example:
-      {"from": "GW_decision", "to": "Task_approve", "name": "Approved", "condition": "approved == true"},
-      {"from": "GW_decision", "to": "Task_reject", "name": "Rejected", "default": true}
+CRITICAL — exclusiveGateway SPLIT (1 incoming, N outgoing):
+  Every exclusiveGateway with multiple outgoing flows MUST have ALL of the following or the diagram will be rejected:
+  • Exactly one outgoing flow marked "default": true  (the else/fallback path — taken when no condition matches)
+  • A "condition" field on EVERY other outgoing flow  (never omit this — a flow without a condition and without "default": true is invalid)
+  Example — two-branch decision:
+      {"from": "gw_decision", "to": "task_approve",  "name": "Approved",  "condition": "approved == true"},
+      {"from": "gw_decision", "to": "task_reject",   "name": "Rejected",  "default": true}
+  Example — three-branch decision:
+      {"from": "gw_check",   "to": "task_high",    "name": "High",    "condition": "score > 80"},
+      {"from": "gw_check",   "to": "task_medium",  "name": "Medium",  "condition": "score > 50"},
+      {"from": "gw_check",   "to": "task_low",     "name": "Low",     "default": true}
 
 For exclusiveGateway JOIN (N incoming, 1 outgoing):
   • No conditions — just list all incoming flows
@@ -304,9 +309,13 @@ FORBIDDEN: type "task" — never use this. Always pick the typed node:
 
 === FLOW RULES ===
 
-For exclusiveGateway SPLIT (1 incoming, N outgoing):
-  • Mark one outgoing flow with "default": true (the else/fallback path)
-  • Add "condition" to every non-default outgoing flow
+CRITICAL — exclusiveGateway SPLIT (1 incoming, N outgoing):
+  Every exclusiveGateway with multiple outgoing flows MUST have ALL of the following or the diagram will be rejected:
+  • Exactly one outgoing flow marked "default": true  (the else/fallback path)
+  • A "condition" field on EVERY other outgoing flow  (never omit this)
+  Example:
+      {"from": "gw_decision", "to": "task_approve", "name": "Approved", "condition": "approved == true"},
+      {"from": "gw_decision", "to": "task_reject",  "name": "Rejected", "default": true}
 
 RE-CHECK LOOP: always use two gateways — a pure JOIN (N→1) then a pure FORK (1→N).
 
@@ -604,9 +613,19 @@ class ProsAllyAgent:
     @staticmethod
     def _build_ir_repair_prompt(ir_dict: dict, hints: list[str]) -> str:
         numbered = "\n".join(f"  {i + 1}. {h}" for i, h in enumerate(hints))
+        has_inferred = any(n.get("inferred") for n in (ir_dict.get("nodes") or []))
+        inferred_note = (
+            "\nNOTE: Some nodes are tagged \"inferred\": true — these were automatically "
+            "inserted by the compiler to fix implicit splits/joins. Keep them in your output "
+            "(or remove them and re-model the structure explicitly). Do NOT add conditions to "
+            "inferred parallelGateway nodes. DO add conditions/default to any inferred "
+            "exclusiveGateway node that has multiple outgoing flows.\n"
+            if has_inferred else ""
+        )
         return (
             f"The process IR has {len(hints)} problem(s) that must be fixed.\n\n"
-            f"PROBLEMS:\n{numbered}\n\n"
+            f"PROBLEMS:\n{numbered}\n"
+            f"{inferred_note}\n"
             "Fix every problem listed above, then output the complete corrected IR JSON.\n\n"
             f"Current IR:\n{json.dumps(ir_dict, indent=2)}"
         )
@@ -644,9 +663,16 @@ class ProsAllyAgent:
                 continue
 
             # Step 1: normalise + compile + layout (pipeline.mjs)
-            result   = await self._call_pipeline(ir_dict)
-            xml      = result.get("xml") or ""
+            result     = await self._call_pipeline(ir_dict)
+            xml        = result.get("xml") or ""
             pipe_probs = result.get("problems") or []
+
+            # Switch to the normalized IR for any subsequent repair pass so the LLM
+            # sees the full structure — including compiler-inferred join/split gateways —
+            # and can add conditions/defaults to every gateway that needs them.
+            norm_ir = result.get("normalizedIR")
+            if norm_ir:
+                ir_dict = norm_ir
 
             if xml:
                 best_xml = xml
