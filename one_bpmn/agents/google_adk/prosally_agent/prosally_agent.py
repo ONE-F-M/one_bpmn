@@ -20,10 +20,16 @@ Pipeline:
       → Confirmer → summarises the action and asks for confirmation
   2b. AMBIGUOUS / INCOMPLETE → Clarifier → focused question with options
   2c. IRRELEVANT             → polite redirect, no modelling attempted
+
+IR pipeline (after confirmation):
+  LLM → IR JSON → pipeline.mjs (normalise → compile → lint) → BPMN XML
+  On lint failure → translate problems to IR hints → LLM repairs IR → repeat (≤3 repairs)
 """
 
 import asyncio
 import json
+import os
+import subprocess
 
 from onefm_mcp.onefm_mcp.doctype.ai_agent_configuration.ai_agent_configuration import get_agent_config
 from one_bpmn.agents.llm_provider import get_llm_adapter_from_settings
@@ -60,321 +66,333 @@ Respond with ONLY a JSON object — no other text:
 {"intent": "GENERATE_NEW|OVERWRITE_EXISTING|MODIFY_EXISTING|AMBIGUOUS|INCOMPLETE|IRRELEVANT", "reason": "one short sentence"}"""
 
 
-_DEFAULT_CLARIFIER_INSTRUCTION = """You are a clarification assistant for ProsAlly, an AI process modelling assistant on Processa.
+_DEFAULT_CLARIFIER_INSTRUCTION = """You are a helpful assistant for ProsAlly, an AI process drawing tool on Processa.
 
-The user's process modelling request is unclear or missing critical details. Your job is to ask ONE precise clarifying question that will give ProsAlly enough information to proceed.
+IMPORTANT: The person you are talking to is NOT a technical person. They do not know what BPMN is, they do not know what "flow elements" or "start events" are, and they should never have to. Speak to them the way you would explain something to a colleague who is good at their job but has never used a process drawing tool.
 
-The process being worked on: {process_name}
+The user's description of their process is unclear or incomplete. Ask ONE simple question to get the missing piece you need.
 
-What to ask about when INCOMPLETE:
-- What is the process called? (if not named)
-- Who are the actors/participants? (if not mentioned)
-- What are the main steps or decision points? (if too vague)
-- What triggers the process (start event)? (if not clear)
-- What is the outcome/end state? (if not described)
+What to ask about when something is missing:
+- What is this process called? (if they haven't named it)
+- Who starts the process, and what triggers it? (if not clear)
+- What are the main steps people or the system take? (if too vague)
+- What does it look like when the process is done? (if the end result is unclear)
 
-What to ask about when AMBIGUOUS:
-- Does the user want to draw a new process, or modify the existing one?
-- Which specific part of the process should be changed?
-- Which of the plausible interpretations is correct?
+What to ask when there is more than one interpretation:
+- Do they want to draw a brand-new process, or change part of an existing one?
+- Which specific part of the process do they want to change?
 
 Rules:
-- Ask exactly ONE question.
-- Prefer a multiple-choice question (2–4 options) when specific alternatives exist.
-- Use a Yes/No question only when there are exactly two clear choices.
-- Keep the question short, direct, and framed around process modelling.
-- Never write BPMN XML or attempt to model anything — only ask a question.
+- One question only — never ask multiple things at once.
+- Give 2–4 simple options to choose from whenever possible — it is easier than a blank text box.
+- Do NOT use words like BPMN, flow, element, event, gateway, modelling, or XML.
+- Keep everything in plain everyday English.
+- Never draw or attempt to create a process — only ask your question.
 
 Respond with ONLY a JSON object — no other text:
-{"question": "your clarifying question here", "options": ["option 1", "option 2", ...]}"""
+{"question": "your plain-English question here", "options": ["option 1", "option 2", ...]}"""
 
 
-_DEFAULT_CONFIRMER_INSTRUCTION = """You are a confirmation assistant for ProsAlly, an AI process modelling assistant on Processa.
+_DEFAULT_CONFIRMER_INSTRUCTION = """You are a helpful assistant for ProsAlly, an AI process drawing tool on Processa.
 
-The user's request has been classified into one of three actions. You will be told which action was detected.
+IMPORTANT: The person you are talking to is NOT a technical person. They are a process owner or business user who knows their work well but has no knowledge of technical tools, diagrams, or software terminology. Always speak to them in plain, friendly, everyday English — as if you are a helpful colleague confirming what you are about to do for them.
 
-Your job is to write a short confirmation message that:
-1. States clearly which action ProsAlly is about to take:
-   - GENERATE_NEW: "I'll draw a new [process name] process from scratch..."
-   - OVERWRITE_EXISTING: "I'll completely replace the existing [process name] model..."
-   - MODIFY_EXISTING: "I'll modify [the specific part] of the [process name] process..."
-2. Lists the key details understood from the user's description (steps, actors, decisions if mentioned).
-3. Asks for confirmation before any changes are made.
+You have understood what the user wants. Now write a short, friendly message that:
+1. Tells them clearly what you are about to do in plain language:
+   - Drawing a new process: "I'll draw the [process name] process for you from scratch..."
+   - Replacing an existing process: "I'll redraw the [process name] process completely..."
+   - Changing part of a process: "I'll update [the specific part] of the [process name] process..."
+2. Lists the main steps or decisions you understood from their description — in plain language, like a short bullet list.
+3. Asks for their go-ahead before doing anything.
 
 Rules:
-- Be specific — name the process, the action type, and the key steps or parts mentioned.
-- Do NOT begin modelling or write BPMN — only confirm intent.
-- Keep the message concise (2–4 sentences max).
-- End with a clear confirmation question.
+- Do NOT use technical words like BPMN, XML, flow, element, gateway, node, or modelling.
+- Mention the process name and the key things you understood.
+- Keep it short — 2 to 4 sentences plus a brief list.
+- End with a simple yes/no question like "Shall I go ahead?"
 
 Respond with ONLY a JSON object — no other text:
-{"summary": "one or two sentence summary of what ProsAlly will do", "question": "confirmation question e.g. Shall I proceed?"}"""
+{"summary": "plain-English summary of what you will do and what you understood", "question": "Shall I go ahead?"}"""
+
+
+_DEFAULT_GENERATOR_INSTRUCTION = """You are a BPMN process modeller. Your output is an Intermediate Representation (IR) JSON document — NOT XML.
+
+A deterministic compiler converts your IR into BPMN XML automatically, including layout. You never write XML.
+
+=== IR SCHEMA ===
 
-
-_DEFAULT_GENERATOR_INSTRUCTION = """You are a BPMN 2.0 process modeller. Generate a complete, valid BPMN 2.0 XML document from the user's process description that can be loaded directly by bpmn-js without linting violations.
-
-A layout algorithm will automatically reposition all shapes after generation — you do NOT need to calculate precise coordinates. Use the placeholder values specified below.
-
-=== REQUIRED XML STRUCTURE ===
-
-<?xml version="1.0" encoding="UTF-8"?>
-<bpmn:definitions
-  xmlns:bpmn="http://www.omg.org/spec/BPMN/20100524/MODEL"
-  xmlns:bpmndi="http://www.omg.org/spec/BPMN/20100524/DI"
-  xmlns:dc="http://www.omg.org/spec/DD/20100524/DC"
-  xmlns:di="http://www.omg.org/spec/DD/20100524/DI"
-  id="Definitions_1"
-  targetNamespace="http://bpmn.io/schema/bpmn">
-
-  <bpmn:process id="Process_1" isExecutable="true">
-    <!-- semantic elements here -->
-  </bpmn:process>
-
-  <bpmndi:BPMNDiagram id="BPMNDiagram_1">
-    <bpmndi:BPMNPlane id="BPMNPlane_1" bpmnElement="Process_1">
-      <!-- one BPMNShape per semantic element; one BPMNEdge per sequenceFlow -->
-    </bpmndi:BPMNPlane>
-  </bpmndi:BPMNDiagram>
-
-</bpmn:definitions>
-
-CRITICAL: The process id ("Process_1") and the BPMNPlane bpmnElement ("Process_1") MUST be identical. Never use a placeholder like "[process id]" — always write the literal value "Process_1".
-
-=== SEMANTIC ELEMENT RULES ===
-
-Always include exactly one startEvent and at least one endEvent.
-
-- Start event:  <bpmn:startEvent id="StartEvent_1" name="[descriptive name]" />
-- End event:    <bpmn:endEvent id="EndEvent_[7rc]" name="[descriptive name]" />
-- User task:    <bpmn:userTask id="Task_[7rc]" name="[descriptive label]" />
-- Exclusive gateway with ONE default flow and conditions on all other flows:
-
-  <bpmn:exclusiveGateway id="Gateway_[7rc]" name="[decision label]?" default="Flow_[default-id]" />
-
-  Every outgoing flow from an exclusiveGateway MUST be one of:
-  a) The default flow (referenced by the gateway's default attribute, no condition needed):
-       <bpmn:sequenceFlow id="Flow_[default-id]" sourceRef="Gateway_[7rc]" targetRef="[id]" name="[label]" />
-  b) A conditional flow (all non-default outgoing flows MUST have a conditionExpression):
-       <bpmn:sequenceFlow id="Flow_[7rc]" sourceRef="Gateway_[7rc]" targetRef="[id]" name="[label]">
-         <bpmn:conditionExpression>[condition]</bpmn:conditionExpression>
-       </bpmn:sequenceFlow>
-
-  Example — a gateway with "Yes" condition and "No" as default:
-    <bpmn:exclusiveGateway id="Gateway_abc" name="Approved?" default="Flow_no" />
-    <bpmn:sequenceFlow id="Flow_yes" sourceRef="Gateway_abc" targetRef="Task_next" name="Yes">
-      <bpmn:conditionExpression>approved == true</bpmn:conditionExpression>
-    </bpmn:sequenceFlow>
-    <bpmn:sequenceFlow id="Flow_no" sourceRef="Gateway_abc" targetRef="EndEvent_1" name="No" />
-
-- Regular sequence flow (non-gateway): <bpmn:sequenceFlow id="Flow_[7rc]" sourceRef="[id]" targetRef="[id]" />
-
-Generate between 3 and 12 elements (excluding sequence flows). All elements must be connected — no disconnected nodes.
-
-=== JOINING GATEWAY RULE — prevents fake-join and superfluous-gateway violations ===
-
-RULE: Every task and event MUST have exactly ONE incoming sequence flow.
-If two or more flows converge on the same point, insert an explicit joining gateway BEFORE the target element.
-
-CRITICAL — when you add a joining gateway before a loop-back target, the INITIAL (first-visit) flow MUST also be rerouted through that joining gateway. Never let the initial flow bypass the joining gateway and connect directly to the task — that makes the joining gateway superfluous (only 1 input) while the task still has 2 inputs.
-
-1. LOOP-BACK (retry / re-check pattern)
-
-   WRONG — initial flow bypasses the join (causes superfluous-gateway + fake-join simultaneously):
-     StartEvent → Task_verify              ← initial flow goes directly to task
-     Task_retry → JoinGW → Task_verify    ← JoinGW has only 1 input = superfluous, task still has 2 = fake-join
-
-   CORRECT — BOTH the initial flow AND the loop-back flow go through the joining gateway:
-     StartEvent → JoinGW → Task_verify
-     Task_retry → JoinGW
-
-   XML:
-     <bpmn:exclusiveGateway id="Gateway_join_[7rc]" name="[join label]" />
-     <bpmn:sequenceFlow id="Flow_[7rc]" sourceRef="StartEvent_1"   targetRef="Gateway_join_[7rc]" />
-     <bpmn:sequenceFlow id="Flow_[7rc]" sourceRef="Task_retry"     targetRef="Gateway_join_[7rc]" />
-     <bpmn:sequenceFlow id="Flow_[7rc]" sourceRef="Gateway_join_[7rc]" targetRef="Task_verify" />
-
-   Note: an exclusive joining gateway (fan-in) has multiple incoming flows and ONE outgoing flow.
-   It does NOT need a default attribute or conditionExpression — those only apply to splitting gateways (fan-out).
-
-2. CONVERGING PATHS TO AN END EVENT
-   The same rule applies to end events. If two or more paths reach the same endEvent, insert a joining gateway before it:
-
-   WRONG:
-     Task_approved → EndEvent   ← two flows directly into end event = fake-join
-     Task_rejected → EndEvent
-
-   CORRECT:
-     Task_approved → JoinGW_end → EndEvent
-     Task_rejected → JoinGW_end
-
-   XML:
-     <bpmn:exclusiveGateway id="Gateway_end_join_[7rc]" name="Process Complete" />
-     <bpmn:sequenceFlow id="Flow_[7rc]" sourceRef="Task_approved" targetRef="Gateway_end_join_[7rc]" />
-     <bpmn:sequenceFlow id="Flow_[7rc]" sourceRef="Task_rejected" targetRef="Gateway_end_join_[7rc]" />
-     <bpmn:sequenceFlow id="Flow_[7rc]" sourceRef="Gateway_end_join_[7rc]" targetRef="EndEvent_1" />
-
-3. PARALLEL SYNCHRONISATION (wait-for-all pattern)
-   When parallel paths must ALL finish before continuing, use a parallelGateway as the join:
-     Task_A ─┐
-     Task_B ─┤→ Gateway_sync (parallelGateway) → Task_next
-     Task_C ─┘
-
-   XML:
-     <bpmn:parallelGateway id="Gateway_sync_[7rc]" name="[sync label]" />
-
-VERIFICATION STEP (mandatory before outputting XML):
-- Count incoming flows on every task and event — any with more than 1 → fake-join → add joining gateway (rerouting ALL inputs including the initial one).
-- Count incoming flows on every gateway — any joining gateway with only 1 incoming flow is superfluous → remove it and connect its predecessor directly to its successor.
-
-=== DI PLACEHOLDER RULES ===
-
-Every semantic element MUST have a corresponding BPMNShape.
-Every sequenceFlow MUST have a corresponding BPMNEdge.
-The bpmnElement attribute on each Shape/Edge MUST exactly match the id of the semantic element.
-
-Shape placeholders — use the matching placeholder for each element type:
-
-  Start/end event:
-    <bpmndi:BPMNShape id="Shape_[element-id]" bpmnElement="[element-id]">
-      <dc:Bounds x="150" y="260" width="36" height="36" />
-    </bpmndi:BPMNShape>
-
-  Exclusive gateway:
-    <bpmndi:BPMNShape id="Shape_[element-id]" bpmnElement="[element-id]" isMarkerVisible="true">
-      <dc:Bounds x="150" y="260" width="50" height="50" />
-    </bpmndi:BPMNShape>
-
-  User task / task:
-    <bpmndi:BPMNShape id="Shape_[element-id]" bpmnElement="[element-id]">
-      <dc:Bounds x="150" y="260" width="100" height="80" />
-    </bpmndi:BPMNShape>
-
-Edge placeholder (use for every sequenceFlow):
-  <bpmndi:BPMNEdge id="Edge_[flow-id]" bpmnElement="[flow-id]">
-    <di:waypoint x="0" y="0" />
-    <di:waypoint x="0" y="0" />
-  </bpmndi:BPMNEdge>
-
-=== OUTPUT RULES ===
-- Output ONLY the raw XML — no markdown fences, no explanation, no comments outside XML comments.
-- All IDs must be unique within the document.
-- Every element must have a descriptive name attribute derived from the user's description.
-- Never leave placeholder text like [process id] or [7rc] in the final output — replace with real values."""
-
-
-_DEFAULT_MODIFIER_INSTRUCTION = """You are a BPMN 2.0 process modifier. You receive an existing BPMN 2.0 XML document and a modification instruction. Your job is to add, remove, or update specific elements in the diagram while leaving everything else exactly as-is.
-
-A layout algorithm will automatically reposition all shapes after modification — use placeholder coordinates for ALL shapes and edges (new or touched).
-
-=== MODIFICATION PATTERNS ===
-
-Pattern A — INSERT ELEMENT BETWEEN two existing nodes (A → C becomes A → B → C):
-1. Find <bpmn:sequenceFlow ... sourceRef="A" targetRef="C" />, change its targetRef to the new element id.
-2. Add <bpmn:sequenceFlow id="Flow_[7rc]" sourceRef="[new-id]" targetRef="C" />.
-3. Add the new element's semantic tag.
-4. Add a BPMNShape placeholder for the new element.
-5. Add a BPMNEdge placeholder for the new flow.
-6. Reset the modified edge's waypoints to placeholders.
-
-Pattern B — INSERT BEFORE END EVENT (default when target location is not explicit):
-1. Find the sequenceFlow whose targetRef is the end event id.
-2. Apply Pattern A: redirect it through the new element then on to the end event.
-
-Pattern C — ADD A DECISION BRANCH (exclusive gateway + alternative path):
-1. Insert an exclusiveGateway using Pattern A or B.
-2. Add a default="[default-flow-id]" attribute to the gateway to designate the default path.
-3. The default path flow needs NO conditionExpression. All other outgoing flows MUST have a conditionExpression child element.
-4. Connect the alternative task back to a downstream join point or to the end event.
-
-Gateway conditionExpression rules (prevents linting warnings):
-- Set the "no/else" path as the gateway default: <bpmn:exclusiveGateway ... default="Flow_[no-id]" />
-- Add <bpmn:conditionExpression> to every non-default outgoing flow:
-    <bpmn:sequenceFlow id="Flow_yes" sourceRef="..." targetRef="..." name="Yes">
-      <bpmn:conditionExpression>approved == true</bpmn:conditionExpression>
-    </bpmn:sequenceFlow>
-    <bpmn:sequenceFlow id="Flow_no" sourceRef="..." targetRef="..." name="No" />  ← default, no condition
-- Add isMarkerVisible="true" to the BPMNShape of every exclusiveGateway.
-
-Pattern D — REMOVE ELEMENT and bridge its predecessors to its successors:
-
-Step-by-step for removing element B (example: A → B → C becomes A → C):
-1. Locate element B by matching its name attribute to the user's instruction.
-2. Collect INCOMING flows: every <bpmn:sequenceFlow targetRef="[B_id]" />.
-   Record the sourceRef of each incoming flow (predecessors).
-3. Collect OUTGOING flows: every <bpmn:sequenceFlow sourceRef="[B_id]" />.
-   Record the targetRef of each outgoing flow (successors).
-4. For every (predecessor X, successor Y) pair, add a new bridging flow:
-   <bpmn:sequenceFlow id="Flow_[7rc]" sourceRef="X" targetRef="Y" />
-   Also add a BPMNEdge placeholder for each new bridging flow.
-5. Delete from bpmn:process:
-   - The semantic tag for B (e.g. <bpmn:userTask id="B_id" .../>)
-   - All incoming sequenceFlow tags (targetRef = B_id)
-   - All outgoing sequenceFlow tags (sourceRef = B_id)
-6. Delete from bpmndi:BPMNPlane:
-   - The BPMNShape whose bpmnElement = B_id
-   - The BPMNEdge for every deleted incoming flow
-   - The BPMNEdge for every deleted outgoing flow
-
-REMOVAL GUARDS — never apply Pattern D to:
-- startEvent elements (required by start-event-required linting rule)
-- endEvent elements (required by end-event-required linting rule)
-If the user requests removal of a startEvent or endEvent, output the XML unchanged and append this XML comment before </bpmn:definitions>:
-<!-- ProsAlly: cannot remove [element type] — required by BPMN linting rules -->
-
-MULTI-PREDECESSOR / MULTI-SUCCESSOR: create all (predecessor, successor) combinations as bridging flows.
-
-=== JOINING GATEWAY RULE — prevents fake-join violations ===
-
-Every task and event MUST have exactly ONE incoming sequence flow.
-If a modification causes two or more flows to converge on a task or event, insert an explicit joining gateway before that element.
-
-Loop-back join (exclusive gateway, no default/conditions needed on the join side):
-  <bpmn:exclusiveGateway id="Gateway_join_[7rc]" name="[join label]" />
-  Flow_A → Gateway_join → Task_target
-  Flow_B → Gateway_join
-
-Parallel synchronisation (parallel gateway):
-  <bpmn:parallelGateway id="Gateway_sync_[7rc]" name="[sync label]" />
-  Task_A → Gateway_sync → Task_next
-  Task_B → Gateway_sync
-
-Before outputting, count incoming flows on every task/event. Any with more than one incoming flow is a fake-join — fix it with a joining gateway.
-
-=== STRICT RULES ===
-- Generate globally unique IDs for all new elements (append 7 random alphanumeric chars).
-- Do NOT rename, change the id of, or alter any existing element not mentioned in the instruction.
-- Do NOT re-sequence or renumber existing IDs.
-- All new elements need descriptive name attributes.
-- Preserve all existing XML attributes (isExecutable, targetNamespace, etc.).
-- Output the COMPLETE updated document.
-
-=== DI PLACEHOLDER VALUES ===
-
-Use the correct placeholder for each element type — the layout algorithm fixes coordinates but NOT attributes:
-
-  Start/end event:
-    <bpmndi:BPMNShape id="Shape_[element-id]" bpmnElement="[element-id]">
-      <dc:Bounds x="150" y="260" width="36" height="36" />
-    </bpmndi:BPMNShape>
-
-  Exclusive gateway (isMarkerVisible REQUIRED):
-    <bpmndi:BPMNShape id="Shape_[element-id]" bpmnElement="[element-id]" isMarkerVisible="true">
-      <dc:Bounds x="150" y="260" width="50" height="50" />
-    </bpmndi:BPMNShape>
-
-  User task / task:
-    <bpmndi:BPMNShape id="Shape_[element-id]" bpmnElement="[element-id]">
-      <dc:Bounds x="150" y="260" width="100" height="80" />
-    </bpmndi:BPMNShape>
-
-Use for every new BPMNEdge and reset any modified existing BPMNEdge:
-  <bpmndi:BPMNEdge id="Edge_[flow-id]" bpmnElement="[flow-id]">
-    <di:waypoint x="0" y="0" />
-    <di:waypoint x="0" y="0" />
-  </bpmndi:BPMNEdge>
+Output exactly this JSON structure:
+
+{
+  "name": "Human-readable process name",
+  "nodes": [
+    {
+      "id": "unique_snake_case_id",
+      "type": "startEvent | endEvent | userTask | scriptTask | serviceTask | manualTask | exclusiveGateway | parallelGateway | subProcess",
+      "name": "Descriptive display name",
+      "lane": "Lane Name (only when using swim lanes)"
+    }
+  ],
+  "flows": [
+    {
+      "from": "source_node_id",
+      "to": "target_node_id",
+      "name": "Optional label on the arrow",
+      "condition": "expression (exclusiveGateway non-default outgoing only)",
+      "default": true
+    }
+  ],
+  "lanes": ["Lane Name 1", "Lane Name 2"]
+}
+
+=== NODE TYPES — WHO DOES THE WORK? ===
+
+FORBIDDEN: type "task" — never use this. Every task must have a specific type.
+
+startEvent      — exactly one required; no incoming flows; triggers the process
+endEvent        — at least one required; no outgoing flows; process is done
+
+userTask        — a PERSON acts on a screen (the process waits for them)
+  Business situations: fill a form, review a document, approve/reject, make a decision,
+  assign/select/choose something, sign off on work
+  Examples: "Employee submits leave request", "Manager approves invoice", "HR reviews application"
+
+scriptTask      — the SYSTEM runs automatically (no person involved, no waiting)
+  Business situations: check validity (does stock exist? is balance enough?),
+  calculate a value (total, tax, score), create/update/read a database record,
+  send email or notification, run business rules or validation
+  Examples: "System checks leave balance", "Calculate order total", "Send approval email"
+
+serviceTask     — the system calls an OUTSIDE service (another company's system or platform)
+  Business situations: payment processor, SMS gateway, government/regulatory system,
+  external ERP, CRM, or third-party API
+  Examples: "Process payment via Stripe", "Send OTP via SMS gateway"
+
+manualTask      — a PHYSICAL real-world action (no computer tracks completion)
+  Business situations: print a document, physically pack/assemble, hand-deliver, physically sign paper
+  Examples: "Print and sign the contract", "Pack items in warehouse"
+
+exclusiveGateway — decision point: exactly ONE outgoing path is taken
+  Use for: if/else branches, approval decisions, re-check loops
+
+parallelGateway  — ALL outgoing paths run simultaneously (split), or wait for ALL to finish (join)
+  Use for: steps that happen in parallel at the same time
+
+subProcess       — a group of steps collapsed into one box (named, not expanded)
+
+=== FLOW RULES ===
+
+Every node must be reachable from startEvent and lead to endEvent.
+Do not leave any node disconnected.
+
+For exclusiveGateway SPLIT (1 incoming, N outgoing):
+  • Mark exactly one outgoing flow as the default (else/fallback) path: "default": true
+  • Add "condition" to EVERY non-default outgoing flow
+  • Example:
+      {"from": "GW_decision", "to": "Task_approve", "name": "Approved", "condition": "approved == true"},
+      {"from": "GW_decision", "to": "Task_reject", "name": "Rejected", "default": true}
+
+For exclusiveGateway JOIN (N incoming, 1 outgoing):
+  • No conditions — just list all incoming flows
+
+For parallelGateway split/join: no conditions needed.
+
+RE-CHECK LOOP PATTERN (retry / re-submit / repeat-until-pass):
+Always use TWO separate gateways:
+  1. joinGW  — pure JOIN (N in, 1 out) — merges first-visit path and retry path
+  2. decisionGW — pure FORK (1 in, N out) — branches to pass or fail
+Example nodes: PreviousStep → joinGW → CheckTask → decisionGW → (PassPath | RetryTask → joinGW)
+
+=== SWIM LANES (USE ONLY WHEN THE USER ASKS FOR THEM) ===
+
+Add lanes ONLY when the user explicitly asks to group steps by role, department, or "who does what".
+Words like "separate lanes", "show who does what", "sections for each team", "divide by role".
+
+When using lanes:
+  • Add "lanes": [...] listing all lane names in order at top level
+  • Add "lane": "Lane Name" to every single node (no node may be without a lane)
+  • Assign based on who performs the work:
+      userTask   → the person's lane (Employee, Manager, HR, Customer...)
+      scriptTask / serviceTask → "System (Automatic)" lane
+      startEvent → lane of whoever triggers the process
+      endEvent   → lane of the last meaningful step before it
+      gateway    → same lane as the element immediately before it
+
+=== MANDATORY CHECKS BEFORE OUTPUT ===
+
+Verify your IR satisfies these before outputting:
+  ✓ Exactly one startEvent node
+  ✓ At least one endEvent node
+  ✓ Every node has a unique id and a non-empty name
+  ✓ Every node is connected (has at least one flow to/from it)
+  ✓ No node type is "task"
+  ✓ Every exclusiveGateway split has exactly one "default": true flow and "condition" on all others
+  ✓ No node has both multiple incoming AND multiple outgoing flows (except after normalisation)
+  ✓ When lanes are used: every node has a "lane" field and all lane names are in the "lanes" array
 
 === OUTPUT ===
-Output the COMPLETE modified BPMN 2.0 XML only — no markdown fences, no explanation, no commentary."""
+
+Output ONLY a valid JSON object matching the IR schema above.
+No markdown fences, no explanation, no XML, no prose.
+All node IDs must be unique snake_case strings (underscores, no spaces)."""
+
+
+_DEFAULT_MODIFIER_INSTRUCTION = """You are a BPMN process modifier. You receive either:
+  (a) An existing BPMN XML document + a modification request — analyse the XML, apply the change, output IR JSON for the complete modified process.
+  (b) An IR JSON document + a list of problems — fix every problem, output corrected IR JSON.
+
+The pipeline converts your IR into BPMN XML automatically. Never output XML.
+
+=== IR SCHEMA ===
+
+Output exactly this JSON structure:
+
+{
+  "name": "Human-readable process name",
+  "nodes": [
+    {
+      "id": "unique_snake_case_id",
+      "type": "startEvent | endEvent | userTask | scriptTask | serviceTask | manualTask | exclusiveGateway | parallelGateway | subProcess",
+      "name": "Descriptive display name",
+      "lane": "Lane Name (only when using swim lanes)"
+    }
+  ],
+  "flows": [
+    {
+      "from": "source_node_id",
+      "to": "target_node_id",
+      "name": "Optional label on the arrow",
+      "condition": "expression (exclusiveGateway non-default outgoing only)",
+      "default": true
+    }
+  ],
+  "lanes": ["Lane Name 1", "Lane Name 2"]
+}
+
+=== HOW TO CONVERT CURRENT XML TO IR (case a) ===
+
+Read the XML and map elements to IR nodes:
+  bpmn:startEvent        → type: startEvent
+  bpmn:endEvent          → type: endEvent
+  bpmn:userTask          → type: userTask
+  bpmn:scriptTask        → type: scriptTask
+  bpmn:serviceTask       → type: serviceTask
+  bpmn:manualTask        → type: manualTask
+  bpmn:exclusiveGateway  → type: exclusiveGateway
+  bpmn:parallelGateway   → type: parallelGateway
+  bpmn:subProcess        → type: subProcess
+
+For each bpmn:sequenceFlow, create a flow: {from: sourceRef, to: targetRef, name: name attribute}.
+  • If the flow has a bpmn:conditionExpression child, add "condition": (its text content).
+  • If the flow's id matches the gateway's default="" attribute, add "default": true.
+
+If a bpmn:laneSet exists: extract lane names and each node's lane assignment.
+
+Apply the requested modification to the extracted IR, then output the complete updated IR.
+
+Do NOT include gateways that only existed because a task had multiple flows — the pipeline inserts those automatically. Preserve explicit decision gateways (those with meaningful names and conditions).
+
+=== NODE TYPES — WHAT EACH TYPE MEANS ===
+
+FORBIDDEN: type "task" — never use this. Always pick the typed node:
+  userTask        — a person acts on a screen (fill, review, approve, submit, sign)
+  scriptTask      — system runs automatically (check, calculate, validate, send email, update record)
+  serviceTask     — calls an external service (payment gateway, SMS provider, outside API)
+  manualTask      — physical real-world action (print, pack, hand-deliver, physically sign)
+  exclusiveGateway — decision point; one path taken
+  parallelGateway  — all paths taken simultaneously
+
+=== FLOW RULES ===
+
+For exclusiveGateway SPLIT (1 incoming, N outgoing):
+  • Mark one outgoing flow with "default": true (the else/fallback path)
+  • Add "condition" to every non-default outgoing flow
+
+RE-CHECK LOOP: always use two gateways — a pure JOIN (N→1) then a pure FORK (1→N).
+
+=== SWIM LANES ===
+
+Add lanes only when the user asks. When using lanes: every node must have a "lane" field
+and all lane names must appear in the "lanes" array.
+Assign: userTask → person's lane; scriptTask/serviceTask → "System (Automatic)"; gateway → same lane as predecessor.
+
+=== MANDATORY CHECKS BEFORE OUTPUT ===
+
+  ✓ Exactly one startEvent
+  ✓ At least one endEvent
+  ✓ Every node has a unique id and a non-empty name
+  ✓ Every node is connected (at least one flow)
+  ✓ No node type is "task"
+  ✓ Every exclusiveGateway split has one "default" flow and "condition" on all others
+  ✓ When lanes are used: every node has a "lane" and all lanes are in the "lanes" array
+
+=== OUTPUT ===
+
+Output ONLY a valid JSON object matching the IR schema.
+No markdown fences, no explanation, no XML, no prose.
+All node IDs must be unique snake_case strings."""
+
+
+# ── IR repair hints (rule name → IR-level fix description) ───────────────────
+
+_RULE_HINTS: dict[str, str] = {
+    "task-type": (
+        "Change the node's 'type' field. 'task' is forbidden. "
+        "Use: 'userTask' (person acts on screen), 'scriptTask' (system runs automatically), "
+        "'serviceTask' (external API/service), 'manualTask' (physical real-world action)."
+    ),
+    "start-event-required": (
+        "Add a node with type='startEvent'. The process must have exactly one."
+    ),
+    "end-event-required": (
+        "Add a node with type='endEvent'. The process must have at least one."
+    ),
+    "single-blank-start-event": (
+        "Remove extra startEvent nodes — keep exactly one startEvent in the entire process."
+    ),
+    "no-disconnected": (
+        "This node has no flows at all. Add incoming and/or outgoing flows connecting it "
+        "to the rest of the process, or remove the node entirely."
+    ),
+    "no-implicit-start": (
+        "This node has no incoming flow but is not a startEvent. "
+        "Add a flow leading into it from a predecessor node."
+    ),
+    "no-implicit-end": (
+        "This node has no outgoing flow but is not an endEvent. "
+        "Add a flow leading out of it to a successor node."
+    ),
+    "no-gateway-join-fork": (
+        "A gateway cannot both join (multiple incoming) AND fork (multiple outgoing) at the same time. "
+        "Replace it with TWO separate gateways: a join gateway (N→1) immediately followed by a fork gateway (1→N)."
+    ),
+    "superfluous-gateway": (
+        "This gateway has exactly 1 incoming and 1 outgoing flow — it serves no purpose. "
+        "Remove it and connect its predecessor directly to its successor."
+    ),
+    "conditional-flows": (
+        "For every exclusiveGateway split: mark exactly one outgoing flow with 'default': true "
+        "(the else/fallback path), and add a 'condition' field to every other outgoing flow."
+    ),
+    "label-required": (
+        "Add a descriptive 'name' field to this node or flow. Every element must have a non-empty name."
+    ),
+    "no-bpmndi": (
+        "DI shapes are added by the compiler — no IR change needed for this rule."
+    ),
+    "no-complex-gateway": (
+        "Remove the complexGateway node. Replace it with an exclusiveGateway or parallelGateway."
+    ),
+    "no-inclusive-gateway": (
+        "Remove the inclusiveGateway node. Replace it with an exclusiveGateway or parallelGateway."
+    ),
+    "no-duplicate-sequence-flows": (
+        "Two flows connect the same pair of nodes. Remove one of the duplicate flows."
+    ),
+}
+
+# Rules whose problems are fixed by the compiler, not by LLM IR changes
+_IR_IGNORABLE_RULES: frozenset[str] = frozenset({"no-bpmndi"})
 
 
 _DEFAULT_REDIRECT_MESSAGE = (
@@ -436,37 +454,20 @@ class ProsAllyAgent:
         return "\n\n".join(parts)
 
     @staticmethod
-    def _extract_bpmn_xml(raw: str) -> str:
-        import re
-        match = re.search(r"```(?:xml)?\s*\n?([\s\S]*?)```", raw or "")
-        if match:
-            return match.group(1).strip()
-        stripped = (raw or "").strip()
-        if stripped.startswith("<?xml") or stripped.startswith("<bpmn:"):
-            return stripped
-        return raw or ""
-
-    @staticmethod
     def _parse_json_response(raw: str) -> dict:
-        """Extract and parse the first JSON object from an LLM response.
-
-        Handles: plain JSON, code-fenced JSON, JSON embedded in prose, trailing text.
-        """
+        """Extract and parse the first JSON object from an LLM response."""
         import re
         text = (raw or "").strip()
 
-        # 1. Try code-fenced block first
         fence_match = re.search(r"```(?:json)?\s*\n?([\s\S]*?)```", text)
         if fence_match:
             return json.loads(fence_match.group(1).strip())
 
-        # 2. Try the whole string as-is
         try:
             return json.loads(text)
         except (json.JSONDecodeError, ValueError):
             pass
 
-        # 3. Extract the first {...} block (handles prose wrapping the JSON)
         brace_match = re.search(r"\{[\s\S]*\}", text)
         if brace_match:
             return json.loads(brace_match.group(0))
@@ -476,28 +477,215 @@ class ProsAllyAgent:
     def _build_generator_prompt(self, process_name: str, action_intent: str, chat_history: list) -> str:
         parts = []
         if action_intent == "OVERWRITE_EXISTING":
-            parts.append("Action: OVERWRITE_EXISTING — generate a completely new model to replace the current one.")
+            parts.append("Action: OVERWRITE_EXISTING — generate a completely new IR to replace the current process.")
         else:
-            parts.append("Action: GENERATE_NEW — generate a new process model on an empty canvas.")
+            parts.append("Action: GENERATE_NEW — generate an IR for a new process on an empty canvas.")
         if process_name:
             parts.append(f"Process name: {process_name}")
         history = self._format_history(chat_history)
         if history:
             parts.append(f"Conversation and process description:\n{history}")
-        parts.append("Generate the complete BPMN 2.0 XML now.")
+        parts.append("Output the IR JSON now.")
         return "\n\n".join(parts)
 
     def _build_modifier_prompt(self, process_name: str, chat_history: list, current_xml: str) -> str:
-        parts = ["Action: MODIFY_EXISTING — update the existing process model as described (add, remove, or change specific elements)."]
+        parts = ["Action: MODIFY_EXISTING — update the existing process as described, output the complete IR JSON for the result."]
         if process_name:
             parts.append(f"Process name: {process_name}")
         history = self._format_history(chat_history)
         if history:
             parts.append(f"Modification request from conversation:\n{history}")
         if current_xml.strip():
-            parts.append(f"Current BPMN XML to modify:\n{current_xml.strip()}")
-        parts.append("Generate the complete modified BPMN 2.0 XML now.")
+            parts.append(f"Current BPMN XML to analyse and modify:\n{current_xml.strip()}")
+        parts.append("Output the complete IR JSON for the modified process now.")
         return "\n\n".join(parts)
+
+    # ── IR pipeline ────────────────────────────────────────────────────────────
+
+    @staticmethod
+    def _find_node() -> str | None:
+        """Return the path to a Node.js ≥ 18 binary, falling back to whatever is in PATH."""
+        import shutil
+        # Prefer nvm-managed Node 18+ (avoids system Node 12)
+        home = os.path.expanduser("~")
+        for ver in ("v20.19.4", "v20.19.2", "v18.19.0"):
+            candidate = os.path.join(home, ".nvm", "versions", "node", ver, "bin", "node")
+            if os.path.isfile(candidate) and os.access(candidate, os.X_OK):
+                return candidate
+        return shutil.which("node")
+
+    @staticmethod
+    def _run_pipeline_sync(ir_dict: dict, pipeline_path: str) -> dict:
+        """Synchronous subprocess call to pipeline.mjs. Returns {ok, xml, problems}."""
+        node = ProsAllyAgent._find_node()
+        if not node:
+            return {
+                "ok": False, "xml": "",
+                "problems": [{"kind": "fatal", "message": "node not found in PATH"}],
+            }
+        try:
+            result = subprocess.run(
+                [node, pipeline_path],
+                input=json.dumps(ir_dict),
+                capture_output=True,
+                text=True,
+                timeout=30,
+            )
+            stdout = result.stdout.strip()
+            if not stdout:
+                stderr = result.stderr.strip() or "pipeline produced no output"
+                return {"ok": False, "xml": "", "problems": [{"kind": "fatal", "message": stderr}]}
+            return json.loads(stdout)
+        except subprocess.TimeoutExpired:
+            return {"ok": False, "xml": "", "problems": [{"kind": "fatal", "message": "pipeline timed out after 30 s"}]}
+        except Exception as exc:
+            return {"ok": False, "xml": "", "problems": [{"kind": "fatal", "message": str(exc)}]}
+
+    async def _call_pipeline(self, ir_dict: dict) -> dict:
+        """Async wrapper — runs _run_pipeline_sync in a thread executor."""
+        pipeline_path = os.path.normpath(os.path.join(
+            os.path.dirname(__file__),
+            "..", "..", "..", "..",
+            "spiff", "pipeline.mjs",
+        ))
+        loop = asyncio.get_event_loop()
+        return await loop.run_in_executor(
+            None,
+            self._run_pipeline_sync,
+            ir_dict,
+            pipeline_path,
+        )
+
+    @staticmethod
+    def _translate_problems(problems: list) -> list[str]:
+        """Convert pipeline problem dicts into IR-level fix hints (deduped, ignorable rules removed)."""
+        hints: list[str] = []
+        seen: set[tuple] = set()
+        for p in problems:
+            rule = p.get("rule") or ""
+            kind = p.get("kind") or ""
+            eid  = p.get("elementId") or ""
+            msg  = p.get("message") or str(p)
+
+            if rule in _IR_IGNORABLE_RULES:
+                continue
+
+            key = (rule or kind, eid)
+            if key in seen:
+                continue
+            seen.add(key)
+
+            hint_body = _RULE_HINTS.get(rule, msg)
+            label     = rule or kind or "problem"
+            if eid:
+                hints.append(f"[{label}] Element '{eid}': {hint_body}")
+            else:
+                hints.append(f"[{label}] {hint_body}")
+        return hints
+
+    @staticmethod
+    def _translate_violations(violations: list[str]) -> list[str]:
+        """Convert Python bpmn_validator violation strings to IR-level fix hints (deduped)."""
+        import re
+        hints: list[str] = []
+        seen: set[str] = set()
+        for v in violations:
+            rule_match = re.match(r'\[([^\]]+)\]', v)
+            rule = rule_match.group(1) if rule_match else ""
+            if rule in _IR_IGNORABLE_RULES:
+                continue
+            if rule in seen:
+                continue
+            seen.add(rule or v[:60])
+            hint = _RULE_HINTS.get(rule, v)
+            hints.append(f"[{rule}] {hint}" if rule else hint)
+        return hints
+
+    @staticmethod
+    def _build_ir_repair_prompt(ir_dict: dict, hints: list[str]) -> str:
+        numbered = "\n".join(f"  {i + 1}. {h}" for i, h in enumerate(hints))
+        return (
+            f"The process IR has {len(hints)} problem(s) that must be fixed.\n\n"
+            f"PROBLEMS:\n{numbered}\n\n"
+            "Fix every problem listed above, then output the complete corrected IR JSON.\n\n"
+            f"Current IR:\n{json.dumps(ir_dict, indent=2)}"
+        )
+
+    async def _generate_and_validate(self, role: str, initial_prompt: str) -> tuple[str, list[str]]:
+        """
+        LLM → IR JSON → pipeline.mjs (normalise → compile → layout)
+             → Python bpmn_validator (semantic lint).
+        On failure: translate to IR hints → LLM repairs IR.
+        Bounded to _MAX_FIX_PASSES repair attempts (4 total LLM calls).
+        Returns (best_xml, remaining_violation_messages).
+        """
+        import frappe
+        from one_bpmn.security.bpmn_validator import validate_bpmn_xml
+
+        _MAX_FIX_PASSES = 3
+        best_xml     = ""
+        remaining    : list[str] = []
+        ir_dict      : dict | None = None
+        repair_hints : list[str] = []
+
+        for attempt in range(_MAX_FIX_PASSES + 1):
+            prompt = initial_prompt if attempt == 0 else self._build_ir_repair_prompt(ir_dict, repair_hints)
+            raw    = await self._run(role, prompt)
+
+            # Parse IR JSON from LLM response
+            try:
+                ir_dict = self._parse_json_response(raw or "")
+            except (json.JSONDecodeError, ValueError) as exc:
+                repair_hints = [f"Your last response was not valid JSON: {exc}. Output ONLY a JSON object matching the IR schema."]
+                remaining    = [str(exc)]
+                frappe.log_error(title=f"ProsAlly IR parse — attempt {attempt + 1}", message=str(exc))
+                if attempt == _MAX_FIX_PASSES:
+                    break
+                continue
+
+            # Step 1: normalise + compile + layout (pipeline.mjs)
+            result   = await self._call_pipeline(ir_dict)
+            xml      = result.get("xml") or ""
+            pipe_probs = result.get("problems") or []
+
+            if xml:
+                best_xml = xml
+
+            if not result.get("ok"):
+                # Pipeline hard failure (pairing mismatch or compile error)
+                repair_hints = self._translate_problems(pipe_probs)
+                remaining    = [p.get("message") or str(p) for p in pipe_probs]
+                frappe.log_error(
+                    title=f"ProsAlly pipeline hard fail — attempt {attempt + 1}",
+                    message="\n".join(f"  [{p.get('kind','?')}] {p.get('message','')}" for p in pipe_probs),
+                )
+                if attempt == _MAX_FIX_PASSES:
+                    break
+                continue
+
+            # Step 2: semantic validation (Python validator)
+            val = validate_bpmn_xml(xml)
+            if val["valid"]:
+                remaining = []
+                break
+
+            violations = val["violations"]
+            repair_hints = self._translate_violations(violations)
+            remaining    = violations
+
+            frappe.log_error(
+                title=f"ProsAlly validator — attempt {attempt + 1}/{_MAX_FIX_PASSES + 1}",
+                message=(
+                    f"{'Max retries reached — returning best effort' if attempt == _MAX_FIX_PASSES else 'Repairing IR'}\n"
+                    f"Violations ({len(violations)}):\n" +
+                    "\n".join(f"  {v}" for v in violations)
+                ),
+            )
+
+            if attempt == _MAX_FIX_PASSES:
+                break
+
+        return best_xml, remaining
 
     def _build_confirmer_prompt(self, message: str, process_name: str, action_intent: str, chat_history: list) -> str:
         _action_labels = {
@@ -556,24 +744,30 @@ class ProsAllyAgent:
 
             if confirmed_action == "MODIFY_EXISTING" and current_xml.strip():
                 modifier_prompt = self._build_modifier_prompt(process_name, chat_history, current_xml)
-                xml_raw  = await self._run("modifier", modifier_prompt)
-                bpmn_xml = self._extract_bpmn_xml(xml_raw or "")
+                bpmn_xml, problems = await self._generate_and_validate("modifier", modifier_prompt)
+                note = (
+                    f" ({len(problems)} issue(s) remain — review the canvas.)"
+                    if problems else ""
+                )
                 return {
                     "intent":        "BPMN_MODIFIED",
                     "action_intent": "MODIFY_EXISTING",
                     "bpmn_xml":      bpmn_xml,
-                    "response":      f"I've updated the {name_label} process. Review the changes on the canvas.",
+                    "response":      f"I've updated the {name_label} process.{note} Review the changes on the canvas.",
                     "options":       [],
                 }
 
             generator_prompt = self._build_generator_prompt(process_name, confirmed_action, chat_history)
-            xml_raw  = await self._run("process_generator", generator_prompt)
-            bpmn_xml = self._extract_bpmn_xml(xml_raw or "")
+            bpmn_xml, problems = await self._generate_and_validate("process_generator", generator_prompt)
+            note = (
+                f" ({len(problems)} issue(s) remain — review the canvas.)"
+                if problems else ""
+            )
             return {
                 "intent":        "BPMN_GENERATED",
                 "action_intent": confirmed_action,
                 "bpmn_xml":      bpmn_xml,
-                "response":      f"I've generated the {name_label} process model. Review it on the canvas.",
+                "response":      f"I've generated the {name_label} process model.{note} Review it on the canvas.",
                 "options":       [],
             }
 

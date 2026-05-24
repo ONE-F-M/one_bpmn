@@ -673,6 +673,7 @@
 					:script-type="logixScriptType"
 					:current-script="logixCurrentScript"
 					:event-bus="logixEventBus"
+					:process-context="logixProcessContext"
 					@close="showLogixCanvas = false"
 					@script-saved="onLogixScriptSaved"
 					@back="onLogixBack"
@@ -1052,6 +1053,27 @@ const logixElement = ref(null);
 const logixScriptType = ref("bpmn:script");
 const logixCurrentScript = ref("");
 const logixEventBus = ref(null);
+const logixProcessContext = ref(null);
+
+function extractProcessContext(element) {
+	if (!element?.businessObject) return null;
+	const bo = element.businessObject;
+	const mapNode = (ref) => ref ? {
+		id:   ref.id,
+		name: ref.name || ref.id,
+		type: (ref.$type || "").replace("bpmn:", ""),
+	} : null;
+	const incoming = (bo.incoming || []).map(f => mapNode(f.sourceRef)).filter(Boolean);
+	const outgoing  = (bo.outgoing  || []).map(f => mapNode(f.targetRef)).filter(Boolean);
+	const process   = bo.$parent;
+	return {
+		element_id:   bo.id,
+		element_name: bo.name || bo.id,
+		process_name: process?.name || process?.id || "",
+		incoming,
+		outgoing,
+	};
+}
 
 // Delete-with-script confirmation state
 const showDeleteScriptConfirm = ref(false);
@@ -2129,6 +2151,7 @@ function onLaunchScriptEditor(event) {
 	logixScriptType.value = event.scriptType || "bpmn:script";
 	logixCurrentScript.value = event.script || "";
 	logixEventBus.value = event.eventBus;
+	logixProcessContext.value = extractProcessContext(event.element);
 
 	// Prep dialog state so it's ready if the user goes back from Logix
 	const typeLabels = {
