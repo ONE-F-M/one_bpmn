@@ -278,14 +278,18 @@ async function compileIRtoBpmn(ir) {
   const elementById  = new Map();
 
   // 1. Semantic nodes
+  // Do NOT pass incoming/outgoing arrays — bpmn-moddle auto-wires them through the
+  // sourceRef/targetRef inverse associations when it processes the Process flowElements.
+  // Passing them AND manually pushing causes each flow to appear twice in the output.
   for (const n of ir.nodes) {
     const bpmnType = BPMN_TYPE_MAP[n.type] || 'bpmn:ScriptTask';
-    const el = moddle.create(bpmnType, { id: n.id, name: n.name, incoming: [], outgoing: [] });
+    const el = moddle.create(bpmnType, { id: n.id, name: n.name });
     elementById.set(n.id, el);
     flowElements.push(el);
   }
 
-  // 2. Sequence flows
+  // 2. Sequence flows — setting sourceRef/targetRef is sufficient; moddle wires
+  // the inverse incoming/outgoing references automatically via its type descriptors.
   const seqMeta = [];
   for (let i = 0; i < ir.flows.length; i++) {
     const f   = ir.flows[i];
@@ -304,8 +308,6 @@ async function compileIRtoBpmn(ir) {
       sf.conditionExpression = moddle.create('bpmn:FormalExpression', { body: f.condition });
     }
 
-    src.outgoing.push(sf);
-    tgt.incoming.push(sf);
     flowElements.push(sf);
     seqMeta.push({ sf, f });
   }
@@ -318,15 +320,15 @@ async function compileIRtoBpmn(ir) {
     }
   }
 
-  // 4. Lane set (optional)
+  // 4. Lane set (optional) — lanes is [{ id, name, role? }]
   let laneSets;
   if (ir.lanes && ir.lanes.length) {
-    const laneEls = ir.lanes.map((laneName, idx) => {
+    const laneEls = ir.lanes.map(lane => {
       const flowNodeRef = (ir.nodes || [])
-        .filter(n => n.lane === laneName)
+        .filter(n => n.lane === lane.id)
         .map(n => elementById.get(n.id))
         .filter(Boolean);
-      return moddle.create('bpmn:Lane', { id: `lane_${idx}`, name: laneName, flowNodeRef });
+      return moddle.create('bpmn:Lane', { id: lane.id, name: lane.name, flowNodeRef });
     });
     laneSets = [moddle.create('bpmn:LaneSet', { id: 'LaneSet_1', lanes: laneEls })];
   }
@@ -378,13 +380,13 @@ async function compileIRtoBpmn(ir) {
 //   4. Emit BPMNDiagram XML: participant → lanes → node shapes → edge waypoints
 
 function buildManualLaneDI(ir) {
-  const lanes = ir.lanes || [];
+  const lanes = ir.lanes || [];   // [{ id, name, role? }]
   if (!lanes.length) return '';
 
-  const laneIndex = new Map(lanes.map((name, i) => [name, i]));
-  const nodeMap   = new Map(ir.nodes.map(n => [n.id, n]));
+  const laneIndexById = new Map(lanes.map((l, i) => [l.id, i]));
+  const nodeMap       = new Map(ir.nodes.map(n => [n.id, n]));
 
-  // Build neighbour lists for lane propagation and column assignment
+  // Build adjacency for lane propagation and column assignment
   const adjOut = new Map(ir.nodes.map(n => [n.id, []]));
   const adjInn = new Map(ir.nodes.map(n => [n.id, []]));
   for (const f of ir.flows) {
@@ -392,23 +394,21 @@ function buildManualLaneDI(ir) {
     if (adjInn.has(f.to))   adjInn.get(f.to).push(f.from);
   }
 
-  // Propagate lane to inferred gateways (tagged inferred:true, no lane field)
+  // Propagate lane id to inferred gateways (no explicit lane field).
   // Iterates until stable so multi-hop chains resolve correctly.
-  const nodeLane = new Map();
+  const nodeLaneId = new Map();
   for (const n of ir.nodes) {
-    if (n.lane) nodeLane.set(n.id, n.lane);
+    if (n.lane) nodeLaneId.set(n.id, n.lane);
   }
   let changed = true;
   while (changed) {
     changed = false;
     for (const n of ir.nodes) {
-      if (nodeLane.has(n.id)) continue;
-      const preds = adjInn.get(n.id) || [];
-      const succs = adjOut.get(n.id) || [];
-      const neighbours = preds.concat(succs);
-      for (let ni = 0; ni < neighbours.length; ni++) {
-        if (nodeLane.has(neighbours[ni])) {
-          nodeLane.set(n.id, nodeLane.get(neighbours[ni]));
+      if (nodeLaneId.has(n.id)) continue;
+      const neighbours = (adjInn.get(n.id) || []).concat(adjOut.get(n.id) || []);
+      for (const nb of neighbours) {
+        if (nodeLaneId.has(nb)) {
+          nodeLaneId.set(n.id, nodeLaneId.get(nb));
           changed = true;
           break;
         }
@@ -417,12 +417,10 @@ function buildManualLaneDI(ir) {
   }
   // Final fallback: unresolved nodes go to first lane
   for (const n of ir.nodes) {
-    if (!nodeLane.has(n.id) && lanes.length) nodeLane.set(n.id, lanes[0]);
+    if (!nodeLaneId.has(n.id) && lanes.length) nodeLaneId.set(n.id, lanes[0].id);
   }
 
-  // Column assignment: longest-path DP via Kahn's topological order.
-  // col[node] = max(col[pred] + 1) across all predecessors, so elements
-  // that depend on more prior steps land further right.
+  // Column assignment: longest-path DP via Kahn's topological order
   const inDeg = new Map(ir.nodes.map(n => [n.id, 0]));
   for (const f of ir.flows) {
     if (inDeg.has(f.to)) inDeg.set(f.to, (inDeg.get(f.to) || 0) + 1);
@@ -430,62 +428,70 @@ function buildManualLaneDI(ir) {
   const col   = new Map();
   const queue = [];
   for (const n of ir.nodes) {
-    if (inDeg.get(n.id) === 0) {
-      queue.push(n.id);
-      col.set(n.id, 0);
-    }
+    if (inDeg.get(n.id) === 0) { queue.push(n.id); col.set(n.id, 0); }
   }
   let qi = 0;
   while (qi < queue.length) {
     const id = queue[qi++];
     const c  = col.get(id) || 0;
-    const succs = adjOut.get(id) || [];
-    for (let si = 0; si < succs.length; si++) {
-      const succId = succs[si];
-      const newC   = c + 1;
+    for (const succId of (adjOut.get(id) || [])) {
+      const newC = c + 1;
       if (!col.has(succId) || col.get(succId) < newC) col.set(succId, newC);
       const deg = (inDeg.get(succId) || 1) - 1;
       inDeg.set(succId, deg);
       if (deg === 0) queue.push(succId);
     }
   }
-  // Nodes in cycles or islands default to column 0
-  for (const n of ir.nodes) {
-    if (!col.has(n.id)) col.set(n.id, 0);
-  }
+  for (const n of ir.nodes) { if (!col.has(n.id)) col.set(n.id, 0); }
 
-  const maxCol = ir.nodes.reduce(function(m, n) {
-    return Math.max(m, col.get(n.id) || 0);
-  }, 0);
+  const maxCol = ir.nodes.reduce((m, n) => Math.max(m, col.get(n.id) || 0), 0);
 
-  // Participant (pool) outer dimensions
-  const contentW     = MARGIN_COL_LEFT + maxCol * COL_STEP + MARGIN_COL_RIGHT;
-  const participantW = POOL_HEADER_W + LANE_HEADER_W + contentW;
-  const participantH = lanes.length * LANE_HEIGHT;
-
-  // Group nodes by (laneIdx, col) cell so we can stack them vertically
+  // Group nodes by (laneIdx, col) cell for vertical stacking
   const groups = new Map();  // key "li:c" → { li, c, nodeIds[] }
   for (const n of ir.nodes) {
-    const laneName = nodeLane.get(n.id) || lanes[0];
-    const li = laneIndex.has(laneName) ? laneIndex.get(laneName) : 0;
-    const c  = col.get(n.id) || 0;
-    const k  = li + ':' + c;
-    if (!groups.has(k)) groups.set(k, { li: li, c: c, nodeIds: [] });
+    const lid = nodeLaneId.get(n.id) || lanes[0].id;
+    const li  = laneIndexById.has(lid) ? laneIndexById.get(lid) : 0;
+    const c   = col.get(n.id) || 0;
+    const k   = li + ':' + c;
+    if (!groups.has(k)) groups.set(k, { li, c, nodeIds: [] });
     groups.get(k).nodeIds.push(n.id);
   }
+
+  // Busiest-column height per lane: tallest cell drives the band height.
+  // Minimum height is LANE_HEIGHT (default for empty or uncrowded lanes).
+  const ROW_H = 100;  // height allocated per node within a band column
+  const laneH = lanes.map((_, li) => {
+    let maxStack = 0;
+    for (const grp of groups.values()) {
+      if (grp.li === li) maxStack = Math.max(maxStack, grp.nodeIds.length);
+    }
+    return Math.max(LANE_HEIGHT, maxStack * ROW_H);
+  });
+
+  // Cumulative Y offsets for each lane band (bands tile contiguously)
+  const laneTopY = [];
+  let yOff = PARTICIPANT_Y;
+  for (let i = 0; i < lanes.length; i++) {
+    laneTopY.push(yOff);
+    yOff += laneH[i];
+  }
+  const totalH = yOff - PARTICIPANT_Y;
+
+  const contentW     = MARGIN_COL_LEFT + maxCol * COL_STEP + MARGIN_COL_RIGHT;
+  const participantW = POOL_HEADER_W + LANE_HEADER_W + contentW;
 
   // Compute pixel-precise position for every node
   const nodePos = new Map();  // nodeId → { x, y, w, h }
   for (const grp of groups.values()) {
-    const centerX  = PARTICIPANT_X + POOL_HEADER_W + LANE_HEADER_W + MARGIN_COL_LEFT + grp.c * COL_STEP;
-    const laneTopY = PARTICIPANT_Y + grp.li * LANE_HEIGHT;
-    const slotH    = LANE_HEIGHT / grp.nodeIds.length;
-
+    const centerX = PARTICIPANT_X + POOL_HEADER_W + LANE_HEADER_W + MARGIN_COL_LEFT + grp.c * COL_STEP;
+    const bandTop = laneTopY[grp.li];
+    const bandH   = laneH[grp.li];
+    const slotH   = bandH / grp.nodeIds.length;
     for (let i = 0; i < grp.nodeIds.length; i++) {
-      const nid    = grp.nodeIds[i];
-      const n      = nodeMap.get(nid);
-      const d      = nodeDims(n.type);
-      const slotCY = laneTopY + slotH * i + slotH / 2;
+      const nid = grp.nodeIds[i];
+      const n   = nodeMap.get(nid);
+      const d   = nodeDims(n.type);
+      const slotCY = bandTop + slotH * i + slotH / 2;
       nodePos.set(nid, {
         x: Math.round(centerX - d.w / 2),
         y: Math.round(slotCY  - d.h / 2),
@@ -495,25 +501,25 @@ function buildManualLaneDI(ir) {
     }
   }
 
-  // ── Serialise BPMNDI XML ──
+  // ── Serialise BPMNDI XML ──────────────────────────────────────────────────────
   const lines = [];
   lines.push('  <bpmndi:BPMNDiagram id="BPMNDiagram_1">');
   lines.push('    <bpmndi:BPMNPlane id="BPMNPlane_1" bpmnElement="Collaboration_1">');
 
-  // Participant (pool) shape — wraps all lanes
+  // Participant (pool) shape
   lines.push('      <bpmndi:BPMNShape id="Participant_1_di" bpmnElement="Participant_1" isHorizontal="true">');
   lines.push('        <dc:Bounds x="' + PARTICIPANT_X + '" y="' + PARTICIPANT_Y +
-             '" width="' + participantW + '" height="' + participantH + '" />');
+             '" width="' + participantW + '" height="' + totalH + '" />');
   lines.push('      </bpmndi:BPMNShape>');
 
-  // Lane shapes — each occupies a horizontal row inside the pool
+  // Lane shapes — bands tile exactly (heights sum to pool inner height)
   for (let i = 0; i < lanes.length; i++) {
+    const lane = lanes[i];
     const laneX = PARTICIPANT_X + POOL_HEADER_W;
-    const laneY = PARTICIPANT_Y + i * LANE_HEIGHT;
     const laneW = participantW - POOL_HEADER_W;
-    lines.push('      <bpmndi:BPMNShape id="lane_' + i + '_di" bpmnElement="lane_' + i + '" isHorizontal="true">');
-    lines.push('        <dc:Bounds x="' + laneX + '" y="' + laneY +
-               '" width="' + laneW + '" height="' + LANE_HEIGHT + '" />');
+    lines.push('      <bpmndi:BPMNShape id="' + lane.id + '_di" bpmnElement="' + lane.id + '" isHorizontal="true">');
+    lines.push('        <dc:Bounds x="' + laneX + '" y="' + laneTopY[i] +
+               '" width="' + laneW + '" height="' + laneH[i] + '" />');
     lines.push('      </bpmndi:BPMNShape>');
   }
 
@@ -526,7 +532,6 @@ function buildManualLaneDI(ir) {
     lines.push('        <dc:Bounds x="' + pos.x + '" y="' + pos.y +
                '" width="' + pos.w + '" height="' + pos.h + '" />');
     if (isCompact) {
-      // Events and gateways are small; put label below the shape
       const lblX = Math.round(pos.x + pos.w / 2 - 25);
       const lblY = pos.y + pos.h + 2;
       lines.push('        <bpmndi:BPMNLabel>');
@@ -536,26 +541,21 @@ function buildManualLaneDI(ir) {
     lines.push('      </bpmndi:BPMNShape>');
   }
 
-  // Sequence flow edges — two waypoints: right-centre of source → left-centre of target
+  // Sequence flow edges — right-centre of source → left-centre of target
   for (let i = 0; i < ir.flows.length; i++) {
     const f   = ir.flows[i];
     const src = nodePos.get(f.from);
     const tgt = nodePos.get(f.to);
     if (!src || !tgt) continue;
     const flowId = 'flow_' + f.from + '_' + f.to + '_' + i;
-    const wx1 = src.x + src.w;
-    const wy1 = Math.round(src.y + src.h / 2);
-    const wx2 = tgt.x;
-    const wy2 = Math.round(tgt.y + tgt.h / 2);
     lines.push('      <bpmndi:BPMNEdge id="' + flowId + '_di" bpmnElement="' + flowId + '">');
-    lines.push('        <di:waypoint x="' + wx1 + '" y="' + wy1 + '" />');
-    lines.push('        <di:waypoint x="' + wx2 + '" y="' + wy2 + '" />');
+    lines.push('        <di:waypoint x="' + (src.x + src.w) + '" y="' + Math.round(src.y + src.h / 2) + '" />');
+    lines.push('        <di:waypoint x="' + tgt.x            + '" y="' + Math.round(tgt.y + tgt.h / 2) + '" />');
     lines.push('      </bpmndi:BPMNEdge>');
   }
 
   lines.push('    </bpmndi:BPMNPlane>');
   lines.push('  </bpmndi:BPMNDiagram>');
-
   return lines.join('\n');
 }
 

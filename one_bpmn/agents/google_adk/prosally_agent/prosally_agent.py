@@ -130,7 +130,7 @@ Output exactly this JSON structure:
       "id": "unique_snake_case_id",
       "type": "startEvent | endEvent | userTask | scriptTask | serviceTask | manualTask | exclusiveGateway | parallelGateway | subProcess",
       "name": "Descriptive display name",
-      "lane": "Lane Name (only when using swim lanes)"
+      "lane": "lane_id (only when using swim lanes — must match a lane id in the lanes array)"
     }
   ],
   "flows": [
@@ -142,7 +142,9 @@ Output exactly this JSON structure:
       "default": true
     }
   ],
-  "lanes": ["Lane Name 1", "Lane Name 2"]
+  "lanes": [
+    { "id": "lane_snake_case_id", "name": "Display Name", "role": "optional role string" }
+  ]
 }
 
 === NODE TYPES — WHO DOES THE WORK? ===
@@ -214,14 +216,21 @@ Add lanes ONLY when the user explicitly asks to group steps by role, department,
 Words like "separate lanes", "show who does what", "sections for each team", "divide by role".
 
 When using lanes:
-  • Add "lanes": [...] listing all lane names in order at top level
-  • Add "lane": "Lane Name" to every single node (no node may be without a lane)
+  • Add "lanes": [...] at top level — each entry is { "id": "snake_case", "name": "Display Name" }
+    Lane ids must be unique snake_case strings. Example:
+      "lanes": [
+        { "id": "employee", "name": "Employee" },
+        { "id": "manager",  "name": "Manager" },
+        { "id": "system",   "name": "System (Automatic)" }
+      ]
+  • Add "lane": "<lane_id>" to EVERY single node — value is the lane's id, not its name.
+    No node may be without a lane when lanes are in use.
   • Assign based on who performs the work:
-      userTask   → the person's lane (Employee, Manager, HR, Customer...)
-      scriptTask / serviceTask → "System (Automatic)" lane
-      startEvent → lane of whoever triggers the process
-      endEvent   → lane of the last meaningful step before it
-      gateway    → same lane as the element immediately before it
+      userTask   → the person's lane id (employee, manager, hr, customer...)
+      scriptTask / serviceTask → the system lane id
+      startEvent → lane id of whoever triggers the process
+      endEvent   → lane id of the last meaningful step before it
+      gateway    → same lane id as the element immediately before it
 
 === MANDATORY CHECKS BEFORE OUTPUT ===
 
@@ -233,7 +242,7 @@ Verify your IR satisfies these before outputting:
   ✓ No node type is "task"
   ✓ Every exclusiveGateway split has exactly one "default": true flow and "condition" on all others
   ✓ No node has both multiple incoming AND multiple outgoing flows (except after normalisation)
-  ✓ When lanes are used: every node has a "lane" field and all lane names are in the "lanes" array
+  ✓ When lanes are used: every node has a "lane" field (a lane id) and all lane ids are in the "lanes" array
 
 === OUTPUT ===
 
@@ -259,7 +268,7 @@ Output exactly this JSON structure:
       "id": "unique_snake_case_id",
       "type": "startEvent | endEvent | userTask | scriptTask | serviceTask | manualTask | exclusiveGateway | parallelGateway | subProcess",
       "name": "Descriptive display name",
-      "lane": "Lane Name (only when using swim lanes)"
+      "lane": "lane_id (only when using swim lanes — must match a lane id in the lanes array)"
     }
   ],
   "flows": [
@@ -271,7 +280,9 @@ Output exactly this JSON structure:
       "default": true
     }
   ],
-  "lanes": ["Lane Name 1", "Lane Name 2"]
+  "lanes": [
+    { "id": "lane_snake_case_id", "name": "Display Name", "role": "optional role string" }
+  ]
 }
 
 === HOW TO CONVERT CURRENT XML TO IR (case a) ===
@@ -291,7 +302,7 @@ For each bpmn:sequenceFlow, create a flow: {from: sourceRef, to: targetRef, name
   • If the flow has a bpmn:conditionExpression child, add "condition": (its text content).
   • If the flow's id matches the gateway's default="" attribute, add "default": true.
 
-If a bpmn:laneSet exists: extract lane names and each node's lane assignment.
+If a bpmn:laneSet exists: extract lane ids, names, and each node's lane assignment (node.lane = lane id).
 
 Apply the requested modification to the extracted IR, then output the complete updated IR.
 
@@ -321,9 +332,9 @@ RE-CHECK LOOP: always use two gateways — a pure JOIN (N→1) then a pure FORK 
 
 === SWIM LANES ===
 
-Add lanes only when the user asks. When using lanes: every node must have a "lane" field
-and all lane names must appear in the "lanes" array.
-Assign: userTask → person's lane; scriptTask/serviceTask → "System (Automatic)"; gateway → same lane as predecessor.
+Add lanes only when the user asks. Each lane entry is { "id": "snake_case", "name": "Display Name" }.
+Every node must have a "lane" field set to a lane's id (not its name). All lane ids must appear in "lanes".
+Assign: userTask → person's lane id; scriptTask/serviceTask → system lane id; gateway → same lane id as predecessor.
 
 === MANDATORY CHECKS BEFORE OUTPUT ===
 
@@ -333,7 +344,7 @@ Assign: userTask → person's lane; scriptTask/serviceTask → "System (Automati
   ✓ Every node is connected (at least one flow)
   ✓ No node type is "task"
   ✓ Every exclusiveGateway split has one "default" flow and "condition" on all others
-  ✓ When lanes are used: every node has a "lane" and all lanes are in the "lanes" array
+  ✓ When lanes are used: every node has a "lane" (a lane id) and all lane ids are in the "lanes" array
 
 === OUTPUT ===
 

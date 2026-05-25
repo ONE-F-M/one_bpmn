@@ -6,6 +6,12 @@ Covers:
   2. Task with fan-out (>1 outgoing) compiles clean — normalizeGateways auto-inserts split
   3. Parallel split paired with exclusive join rejected by assertGatewayPairing
   4. IR with deliberate fake-join (>1 incoming to a task) compiles clean — normalizeGateways auto-inserts join
+  5. Swimlane IR: BPMNPlane references the collaboration id, not the process id
+  6. Swimlane IR: lane bands tile exactly (heights sum to pool inner height, no gaps)
+  7. Swimlane IR: every node's DI shape sits within its lane's band
+  8. No-lane IR: output is identical whether or not lanes field is omitted
+  9. Swimlane IR: a lane with zero members still emits a lane element and a DI shape
+ 10. Gateway regression: multi-incoming pure-join and multi-outgoing pure-fork both pass
 
 Each test calls pipeline.mjs directly via subprocess so no LLM or Frappe context is needed.
 """
@@ -185,3 +191,241 @@ def test_fake_join_normalised_to_clean():
         f"Problems: {result.get('problems')}"
     )
     assert result["xml"].strip().startswith("<?xml"), "Expected XML in 'xml' field"
+
+
+# ── Helpers shared by swimlane tests ─────────────────────────────────────────
+
+def _parse_bpmndi(xml: str):
+    """Return a dict with parsed DI information from the XML string."""
+    import xml.etree.ElementTree as ET
+    BPMNDI = "http://www.omg.org/spec/BPMN/20100524/DI"
+    DC      = "http://www.omg.org/spec/DD/20100524/DC"
+
+    root    = ET.fromstring(xml.strip())
+    diagram = root.find(f"{{{BPMNDI}}}BPMNDiagram")
+    plane   = diagram.find(f"{{{BPMNDI}}}BPMNPlane") if diagram is not None else None
+
+    shapes = {}
+    if plane is not None:
+        for s in plane.findall(f"{{{BPMNDI}}}BPMNShape"):
+            elem = s.get("bpmnElement")
+            b = s.find(f"{{{DC}}}Bounds")
+            if b is not None:
+                shapes[elem] = {
+                    "x": float(b.get("x", 0)),
+                    "y": float(b.get("y", 0)),
+                    "w": float(b.get("width",  0)),
+                    "h": float(b.get("height", 0)),
+                }
+
+    return {
+        "plane_bpmn_element": plane.get("bpmnElement") if plane is not None else None,
+        "shapes": shapes,
+    }
+
+
+def _swimlane_ir():
+    """Three-lane leave-request IR (Employee / Manager / System)."""
+    return {
+        "name": "Leave Request with Lanes",
+        "nodes": [
+            {"id": "start",           "type": "startEvent",       "name": "Request Received",   "lane": "employee"},
+            {"id": "task_fill",       "type": "userTask",         "name": "Fill Leave Form",    "lane": "employee"},
+            {"id": "gw_decision",     "type": "exclusiveGateway", "name": "Approved?",          "lane": "manager"},
+            {"id": "task_notify_ok",  "type": "scriptTask",       "name": "Send Approval Email","lane": "system"},
+            {"id": "task_notify_rej", "type": "scriptTask",       "name": "Send Rejection Email","lane": "system"},
+            {"id": "end_ok",          "type": "endEvent",         "name": "Leave Approved",     "lane": "employee"},
+            {"id": "end_rejected",    "type": "endEvent",         "name": "Leave Rejected",     "lane": "employee"},
+        ],
+        "flows": [
+            {"from": "start",           "to": "task_fill",       "name": "Begin"},
+            {"from": "task_fill",       "to": "gw_decision",     "name": "Submitted"},
+            {"from": "gw_decision",     "to": "task_notify_ok",  "name": "Yes", "condition": "approved == true"},
+            {"from": "gw_decision",     "to": "task_notify_rej", "name": "No",  "default": True},
+            {"from": "task_notify_ok",  "to": "end_ok",          "name": "Done"},
+            {"from": "task_notify_rej", "to": "end_rejected",    "name": "Done"},
+        ],
+        "lanes": [
+            {"id": "employee", "name": "Employee"},
+            {"id": "manager",  "name": "Manager"},
+            {"id": "system",   "name": "System (Automatic)"},
+        ],
+    }
+
+
+# ── Test 5: BPMNPlane references collaboration id ─────────────────────────────
+
+def test_swimlane_plane_references_collaboration():
+    result = _run_pipeline(_swimlane_ir())
+    assert result["ok"] is True, f"Pipeline failed: {result.get('problems')}"
+    di = _parse_bpmndi(result["xml"])
+    assert di["plane_bpmn_element"] == "Collaboration_1", (
+        f"BPMNPlane bpmnElement should be 'Collaboration_1', got '{di['plane_bpmn_element']}'"
+    )
+
+
+# ── Test 6: Lane bands tile exactly ───────────────────────────────────────────
+
+def test_swimlane_bands_tile_exactly():
+    ir = _swimlane_ir()
+    result = _run_pipeline(ir)
+    assert result["ok"] is True, f"Pipeline failed: {result.get('problems')}"
+    di = _parse_bpmndi(result["xml"])
+    shapes = di["shapes"]
+
+    participant = shapes.get("Participant_1")
+    assert participant is not None, "Participant_1 DI shape missing"
+
+    pool_inner_h = participant["h"]
+    pool_top     = participant["y"]
+
+    lane_ids      = [l["id"] for l in ir["lanes"]]
+    total_band_h  = sum(shapes[lid]["h"] for lid in lane_ids if lid in shapes)
+
+    assert abs(total_band_h - pool_inner_h) < 1, (
+        f"Lane band heights ({total_band_h}) do not sum to pool inner height ({pool_inner_h})"
+    )
+
+    sorted_bands = sorted((shapes[lid] for lid in lane_ids if lid in shapes), key=lambda s: s["y"])
+    expected_y = pool_top
+    for band in sorted_bands:
+        assert abs(band["y"] - expected_y) < 1, (
+            f"Lane band gap: expected y={expected_y}, got y={band['y']}"
+        )
+        expected_y += band["h"]
+
+
+# ── Test 7: Every node sits within its lane band ───────────────────────────────
+
+def test_swimlane_nodes_inside_bands():
+    ir = _swimlane_ir()
+    result = _run_pipeline(ir)
+    assert result["ok"] is True, f"Pipeline failed: {result.get('problems')}"
+    di = _parse_bpmndi(result["xml"])
+    shapes = di["shapes"]
+
+    lane_bands = {l["id"]: shapes[l["id"]] for l in ir["lanes"] if l["id"] in shapes}
+
+    for node in ir["nodes"]:
+        nid  = node["id"]
+        lid  = node.get("lane")
+        pos  = shapes.get(nid)
+        band = lane_bands.get(lid) if lid else None
+        if pos is None or band is None:
+            continue
+        node_top    = pos["y"]
+        node_bottom = pos["y"] + pos["h"]
+        band_top    = band["y"]
+        band_bottom = band["y"] + band["h"]
+        assert node_top >= band_top - 1 and node_bottom <= band_bottom + 1, (
+            f"Node '{nid}' (y={node_top}–{node_bottom}) is outside its lane band "
+            f"'{lid}' (y={band_top}–{band_bottom})"
+        )
+
+
+# ── Test 8: No-lane output identical whether lanes absent or empty ─────────────
+
+def test_no_lane_output_unaffected():
+    base = {
+        "name": "Simple",
+        "nodes": [
+            {"id": "start", "type": "startEvent", "name": "Start"},
+            {"id": "task",  "type": "userTask",   "name": "Do Work"},
+            {"id": "end",   "type": "endEvent",   "name": "Done"},
+        ],
+        "flows": [
+            {"from": "start", "to": "task", "name": "Begin"},
+            {"from": "task",  "to": "end",  "name": "Finish"},
+        ],
+    }
+    r1 = _run_pipeline(base)
+    r2 = _run_pipeline({**base, "lanes": []})
+
+    assert r1["ok"] is True, f"No-lane IR failed: {r1.get('problems')}"
+    assert r2["ok"] is True, f"Empty-lanes IR failed: {r2.get('problems')}"
+    assert r1["xml"] == r2["xml"], (
+        "Output must be identical when lanes is absent vs. empty list"
+    )
+
+
+# ── Test 9: Empty lane still emits lane element and DI shape ──────────────────
+
+def test_empty_lane_still_emitted():
+    ir = {
+        "name": "One Empty Lane",
+        "nodes": [
+            {"id": "start", "type": "startEvent", "name": "Start",   "lane": "actor"},
+            {"id": "task",  "type": "userTask",   "name": "Do Work", "lane": "actor"},
+            {"id": "end",   "type": "endEvent",   "name": "Done",    "lane": "actor"},
+        ],
+        "flows": [
+            {"from": "start", "to": "task", "name": "Begin"},
+            {"from": "task",  "to": "end",  "name": "Finish"},
+        ],
+        "lanes": [
+            {"id": "actor",  "name": "Actor"},
+            {"id": "unused", "name": "Unused Lane"},
+        ],
+    }
+    result = _run_pipeline(ir)
+    assert result["ok"] is True, f"Pipeline failed: {result.get('problems')}"
+
+    di = _parse_bpmndi(result["xml"])
+    assert "unused" in di["shapes"], "Empty lane must have a DI shape"
+    assert 'bpmnElement="unused"' in result["xml"], (
+        "Empty lane must appear as bpmnElement reference in the XML"
+    )
+
+
+# ── Test 10: Pure join / pure fork gateway regression ─────────────────────────
+
+def test_no_duplicate_incoming_outgoing_in_swimlane_xml():
+    """bpmn-moddle auto-wires incoming/outgoing via sourceRef/targetRef inverse
+    associations; manual pushes used to cause every flow to appear twice.
+    This test catches that regression in the swimlane (no-auto-layout) path."""
+    import xml.etree.ElementTree as ET
+    BPMN = "http://www.omg.org/spec/BPMN/20100524/MODEL"
+
+    result = _run_pipeline(_swimlane_ir())
+    assert result["ok"] is True, f"Pipeline failed: {result.get('problems')}"
+
+    root = ET.fromstring(result["xml"].strip())
+    process = root.find(f"{{{BPMN}}}process")
+    assert process is not None
+
+    for el in process.iter():
+        inc_ids = [c.text for c in el if c.tag == f"{{{BPMN}}}incoming"]
+        out_ids = [c.text for c in el if c.tag == f"{{{BPMN}}}outgoing"]
+        assert len(inc_ids) == len(set(inc_ids)), (
+            f"Element '{el.get('id')}' has duplicate <bpmn:incoming>: {inc_ids}"
+        )
+        assert len(out_ids) == len(set(out_ids)), (
+            f"Element '{el.get('id')}' has duplicate <bpmn:outgoing>: {out_ids}"
+        )
+
+
+def test_pure_join_and_pure_fork_gateways_pass():
+    ir = {
+        "name": "Parallel Work",
+        "nodes": [
+            {"id": "start",    "type": "startEvent",      "name": "Start"},
+            {"id": "gw_split", "type": "parallelGateway", "name": "Split Work"},
+            {"id": "task_a",   "type": "scriptTask",      "name": "Task A"},
+            {"id": "task_b",   "type": "scriptTask",      "name": "Task B"},
+            {"id": "gw_join",  "type": "parallelGateway", "name": "Merge Work"},
+            {"id": "end",      "type": "endEvent",        "name": "Done"},
+        ],
+        "flows": [
+            {"from": "start",    "to": "gw_split", "name": "Begin"},
+            {"from": "gw_split", "to": "task_a",   "name": "A"},
+            {"from": "gw_split", "to": "task_b",   "name": "B"},
+            {"from": "task_a",   "to": "gw_join",  "name": "A Done"},
+            {"from": "task_b",   "to": "gw_join",  "name": "B Done"},
+            {"from": "gw_join",  "to": "end",      "name": "Finish"},
+        ],
+    }
+    result = _run_pipeline(ir)
+    assert result["ok"] is True, (
+        f"Pure join + pure fork must pass without no-gateway-join-fork.\n"
+        f"Problems: {result.get('problems')}"
+    )
