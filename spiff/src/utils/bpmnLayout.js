@@ -88,7 +88,7 @@ export function layoutBpmnXml(xmlString) {
 				flows[id] = { source, target };
 				(outgoing[source] = outgoing[source] || []).push(target);
 			}
-		} else {
+		} else if (type !== "laneSet" && type !== "lane" && type !== "flowNodeRef") {
 			nodes[id]        = { type };
 			nodeElements[id] = child;
 		}
@@ -111,6 +111,43 @@ export function layoutBpmnXml(xmlString) {
 			el.textContent = flowId;
 			nodeElements[target].appendChild(el);
 		}
+	}
+
+	// ── 3b. Swimlane early-exit ───────────────────────────────────────────────
+	// When the pipeline generates a collaboration (pool + lanes), it also builds
+	// the full BPMNDI with pool/lane/node shapes and correct Y-band positions.
+	// Rebuilding a flat DI here would strip the collaboration and all lane structure.
+	// Instead: inject incoming/outgoing (done above), then reassemble the XML
+	// keeping the original collaboration element and the pipeline's BPMNDI intact.
+	const collaborationEl = doc.getElementsByTagNameNS(BPMN_NS, "collaboration")[0];
+	if (collaborationEl) {
+		const xmlDeclMatch  = xmlString.match(/^<\?xml[^?]*\?>/);
+		const xmlDecl       = xmlDeclMatch ? xmlDeclMatch[0] + "\n" : "";
+
+		const defOpenMatch  = xmlString.match(/<[a-zA-Z0-9]*:?definitions[^>]*>/);
+		const defOpen       = defOpenMatch
+			? defOpenMatch[0]
+			: `<bpmn:definitions xmlns:bpmn="http://www.omg.org/spec/BPMN/20100524/MODEL" ` +
+			  `xmlns:bpmndi="http://www.omg.org/spec/BPMN/20100524/DI" ` +
+			  `xmlns:dc="http://www.omg.org/spec/DD/20100524/DC" ` +
+			  `xmlns:di="http://www.omg.org/spec/DD/20100524/DI" ` +
+			  `id="Definitions_1" targetNamespace="http://bpmn.io/schema/bpmn">`;
+
+		const defCloseMatch = xmlString.match(/<\/[a-zA-Z0-9]*:?definitions\s*>/);
+		const defClose      = defCloseMatch ? defCloseMatch[0] : "</bpmn:definitions>";
+
+		// Extract the pipeline-generated BPMNDI section verbatim — it contains
+		// pool shape, lane band shapes, node shapes, and edge waypoints.
+		const diMatch    = xmlString.match(/<bpmndi:BPMNDiagram[\s\S]*<\/bpmndi:BPMNDiagram>/);
+		const existingDI = diMatch ? diMatch[0] : "";
+
+		// Serialise the collaboration and the modified process (now has incoming/outgoing).
+		// XMLSerializer may add redundant xmlns on the top element — that is valid XML
+		// and bpmn-moddle resolves by namespace URI, not prefix.
+		const collabXml  = new XMLSerializer().serializeToString(collaborationEl);
+		const processXml = new XMLSerializer().serializeToString(processEl);
+
+		return `${xmlDecl}${defOpen}\n${collabXml}\n${processXml}\n${existingDI}\n${defClose}`;
 	}
 
 	// ── 4. BFS from start event ───────────────────────────────────────────────

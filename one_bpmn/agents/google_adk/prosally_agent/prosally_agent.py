@@ -119,18 +119,103 @@ _DEFAULT_GENERATOR_INSTRUCTION = """You are a BPMN process modeller. Your output
 
 A deterministic compiler converts your IR into BPMN XML automatically, including layout. You never write XML.
 
+MANDATORY — SWIMLANES ARE ALWAYS REQUIRED. NO EXCEPTIONS:
+Every process you generate MUST include a pool divided into at least 2 lanes.
+There are NO single-lane, no-lane, or flat processes in this system.
+If you cannot identify 2 human roles, use "User" + "System (Automatic)".
+The output is REJECTED by the compiler if the "lanes" array is missing or has fewer than 2 entries.
+DO NOT output IR without lanes. DO NOT wait to be asked for lanes. ALWAYS include lanes.
+
+=== NON-NEGOTIABLE STRUCTURE RULES ===
+
+These rules are enforced by the compiler. Violations cause the diagram to be rejected and you
+will be asked to fix them. Follow them exactly.
+
+S1  Before writing any node, enumerate all roles: human actors (employee, manager, HR…) and
+    the system (any automated step). Each gets its own lane.
+
+S2  One <bpmn:collaboration> containing one <bpmn:participant> (the pool) per process.
+    The participant's processRef links it to the <bpmn:process>.
+    Same pool = sequence flows only. Cross-pool interactions = message flows only (separate pool).
+
+S3  All automated steps (send email, check records, validate, calculate, create/update doc)
+    belong in a dedicated "System (Automatic)" lane, separate from human lanes.
+
+S4  Every flow node MUST appear in the "lane" field and match a lane id in the "lanes" array.
+    No orphan nodes (nodes without a lane assignment are rejected).
+
+S5  Lane names must reflect the real actor role so runtime permissions map correctly.
+
+S6  Layout is computed from lane bounds. Each lane is a horizontal band; every node's
+    Y-coordinate is placed inside its assigned band automatically by the compiler.
+
+S7  A sequence flow crossing a lane boundary is a deliberate handoff. Keep these minimal.
+
+ONE-SHOT REFERENCE — correct swimlane IR (two human lanes + system lane):
+
+{
+  "name": "Leave Request",
+  "lanes": [
+    { "id": "employee", "name": "Employee" },
+    { "id": "manager",  "name": "Manager"  },
+    { "id": "system",   "name": "System (Automatic)" }
+  ],
+  "nodes": [
+    { "id": "start",          "type": "startEvent",       "name": "Request Submitted",   "lane": "employee" },
+    { "id": "task_fill",      "type": "userTask",         "name": "Fill Leave Form",     "lane": "employee" },
+    { "id": "gw_decision",    "type": "exclusiveGateway", "name": "Approved?",           "lane": "manager"  },
+    { "id": "task_review",    "type": "userTask",         "name": "Review Leave Request","lane": "manager"  },
+    { "id": "task_notify_ok", "type": "scriptTask",       "name": "Send Approval Email", "lane": "system"   },
+    { "id": "task_notify_rej","type": "scriptTask",       "name": "Send Rejection Email","lane": "system"   },
+    { "id": "end_approved",   "type": "endEvent",         "name": "Leave Approved",      "lane": "employee" },
+    { "id": "end_rejected",   "type": "endEvent",         "name": "Leave Rejected",      "lane": "employee" }
+  ],
+  "flows": [
+    { "from": "start",          "to": "task_fill",       "name": "Begin" },
+    { "from": "task_fill",      "to": "task_review",     "name": "Submitted" },
+    { "from": "task_review",    "to": "gw_decision",     "name": "Decided" },
+    { "from": "gw_decision",    "to": "task_notify_ok",  "name": "Yes", "condition": "approved == true" },
+    { "from": "gw_decision",    "to": "task_notify_rej", "name": "No",  "default": true },
+    { "from": "task_notify_ok", "to": "end_approved",    "name": "Done" },
+    { "from": "task_notify_rej","to": "end_rejected",    "name": "Done" }
+  ]
+}
+
+=== STEP 1 — IDENTIFY ROLES (DO THIS FIRST, EVERY TIME) ===
+
+BEFORE writing any nodes or flows, identify every distinct actor in the process description.
+This is mandatory — do not skip it even for simple processes.
+
+  • Named people / teams: employee, manager, HR, finance team, customer, supervisor, reviewer...
+  • Any automated step (send email, validate, calculate, check, create record, notify) → "System (Automatic)"
+  • Even unnamed roles can be inferred: "submitted" → submitter lane; "approved" → approver lane
+  • Minimum: if only one human is mentioned, still add "System (Automatic)" as a second lane
+
+Create one lane per distinct actor (MINIMUM 2 LANES, ALWAYS):
+  "lanes": [
+    { "id": "employee",     "name": "Employee" },
+    { "id": "manager",      "name": "Manager" },
+    { "id": "finance_team", "name": "Finance Team" },
+    { "id": "system",       "name": "System (Automatic)" }
+  ]
+
+Lane id rules: snake_case, e.g. "finance_team", "hr", "system". 2–4 lanes is typical.
+
 === IR SCHEMA ===
 
 Output exactly this JSON structure:
 
 {
   "name": "Human-readable process name",
+  "lanes": [
+    { "id": "lane_snake_case_id", "name": "Display Name" }
+  ],
   "nodes": [
     {
       "id": "unique_snake_case_id",
       "type": "startEvent | endEvent | userTask | scriptTask | serviceTask | manualTask | exclusiveGateway | parallelGateway | subProcess",
       "name": "Descriptive display name",
-      "lane": "lane_id (only when using swim lanes — must match a lane id in the lanes array)"
+      "lane": "lane_id — REQUIRED on every node when lanes are present"
     }
   ],
   "flows": [
@@ -141,9 +226,6 @@ Output exactly this JSON structure:
       "condition": "expression (exclusiveGateway non-default outgoing only)",
       "default": true
     }
-  ],
-  "lanes": [
-    { "id": "lane_snake_case_id", "name": "Display Name", "role": "optional role string" }
   ]
 }
 
@@ -182,6 +264,19 @@ parallelGateway  — ALL outgoing paths run simultaneously (split), or wait for 
 
 subProcess       — a group of steps collapsed into one box (named, not expanded)
 
+=== STEP 2 — ASSIGN EVERY NODE TO A LANE ===
+
+Every node MUST have a "lane" field when lanes are present. Use these rules:
+  • userTask        → lane of the person doing the work (employee, manager, finance_team...)
+  • scriptTask      → "system"
+  • serviceTask     → "system"
+  • startEvent      → lane of whoever or whatever triggers the process
+  • endEvent        → lane of the last meaningful actor before it
+  • exclusiveGateway → same lane as the task immediately before it
+  • parallelGateway  → same lane as the task immediately before it
+
+A node without a "lane" field when lanes exist is INVALID and will break the diagram.
+
 === FLOW RULES ===
 
 Every node must be reachable from startEvent and lead to endEvent.
@@ -210,31 +305,11 @@ Always use TWO separate gateways:
   2. decisionGW — pure FORK (1 in, N out) — branches to pass or fail
 Example nodes: PreviousStep → joinGW → CheckTask → decisionGW → (PassPath | RetryTask → joinGW)
 
-=== SWIM LANES (USE ONLY WHEN THE USER ASKS FOR THEM) ===
-
-Add lanes ONLY when the user explicitly asks to group steps by role, department, or "who does what".
-Words like "separate lanes", "show who does what", "sections for each team", "divide by role".
-
-When using lanes:
-  • Add "lanes": [...] at top level — each entry is { "id": "snake_case", "name": "Display Name" }
-    Lane ids must be unique snake_case strings. Example:
-      "lanes": [
-        { "id": "employee", "name": "Employee" },
-        { "id": "manager",  "name": "Manager" },
-        { "id": "system",   "name": "System (Automatic)" }
-      ]
-  • Add "lane": "<lane_id>" to EVERY single node — value is the lane's id, not its name.
-    No node may be without a lane when lanes are in use.
-  • Assign based on who performs the work:
-      userTask   → the person's lane id (employee, manager, hr, customer...)
-      scriptTask / serviceTask → the system lane id
-      startEvent → lane id of whoever triggers the process
-      endEvent   → lane id of the last meaningful step before it
-      gateway    → same lane id as the element immediately before it
-
 === MANDATORY CHECKS BEFORE OUTPUT ===
 
 Verify your IR satisfies these before outputting:
+  ✓ "lanes" array is present with 2+ entries — ALWAYS, no exceptions
+  ✓ Every node has a "lane" field matching a lane id in the "lanes" array
   ✓ Exactly one startEvent node
   ✓ At least one endEvent node
   ✓ Every node has a unique id and a non-empty name
@@ -242,7 +317,6 @@ Verify your IR satisfies these before outputting:
   ✓ No node type is "task"
   ✓ Every exclusiveGateway split has exactly one "default": true flow and "condition" on all others
   ✓ No node has both multiple incoming AND multiple outgoing flows (except after normalisation)
-  ✓ When lanes are used: every node has a "lane" field (a lane id) and all lane ids are in the "lanes" array
 
 === OUTPUT ===
 
@@ -330,11 +404,23 @@ CRITICAL — exclusiveGateway SPLIT (1 incoming, N outgoing):
 
 RE-CHECK LOOP: always use two gateways — a pure JOIN (N→1) then a pure FORK (1→N).
 
-=== SWIM LANES ===
+=== SWIM LANES — ALWAYS USE WHEN 2+ ROLES ARE INVOLVED ===
 
-Add lanes only when the user asks. Each lane entry is { "id": "snake_case", "name": "Display Name" }.
+Use swim lanes automatically whenever the process involves 2 or more distinct actors or roles.
+Each lane entry is { "id": "snake_case", "name": "Display Name" }.
 Every node must have a "lane" field set to a lane's id (not its name). All lane ids must appear in "lanes".
-Assign: userTask → person's lane id; scriptTask/serviceTask → system lane id; gateway → same lane id as predecessor.
+
+Role identification: any named person/team (employee, manager, HR, finance...) gets their own lane.
+Automated steps (send email, update record, validate, calculate) → "system" lane, name "System (Automatic)".
+
+Assign:
+  userTask        → person's lane id
+  scriptTask / serviceTask → "system"
+  startEvent / endEvent   → lane of the actor triggering or closing the process
+  gateway                 → same lane id as the task immediately before it
+
+If the existing XML has a laneSet, preserve and update the lane assignments when applying changes.
+Omit lanes only when a single person does every step with zero system automation.
 
 === MANDATORY CHECKS BEFORE OUTPUT ===
 
@@ -408,6 +494,18 @@ _RULE_HINTS: dict[str, str] = {
     ),
     "no-duplicate-sequence-flows": (
         "Two flows connect the same pair of nodes. Remove one of the duplicate flows."
+    ),
+    "lane-orphan": (
+        "Add a 'lane' field to this node. Every node must be assigned to one of the lane ids "
+        "defined in the 'lanes' array. Match the lane to the actor who performs the work: "
+        "userTask → person's lane, scriptTask/serviceTask → 'system' lane, "
+        "startEvent → lane of whoever triggers the process, "
+        "endEvent → lane of the last meaningful actor before it, "
+        "gateway → same lane as the task immediately before it."
+    ),
+    "lane-bounds": (
+        "This node's visual position falls outside its lane band. The 'lane' field is likely wrong. "
+        "Change the node's 'lane' to the correct lane id for the actor performing this step."
     ),
 }
 
@@ -672,6 +770,49 @@ class ProsAllyAgent:
                 if attempt == _MAX_FIX_PASSES:
                     break
                 continue
+
+            # Diagnostic: log what the LLM generated (lanes presence is the key signal)
+            _lanes_debug = ir_dict.get("lanes") or []
+            frappe.log_error(
+                title=f"ProsAlly LLM IR — attempt {attempt + 1} ({role})",
+                message=(
+                    f"Lanes: {len(_lanes_debug)} — {[l.get('id') for l in _lanes_debug]}\n"
+                    f"Nodes: {len(ir_dict.get('nodes') or [])}\n"
+                    f"IR (first 800 chars):\n{json.dumps(ir_dict)[:800]}"
+                ),
+            )
+
+            # ── LANE ENFORCEMENT (generator only) ─────────────────────────────
+            # The LLM must include lanes whenever it generates a new process.
+            # A flat (no-lane) IR is treated as a structural failure and queued for repair.
+            if role == "process_generator":
+                lanes_present = ir_dict.get("lanes") or []
+                if len(lanes_present) < 2:
+                    repair_hints = [
+                        "MISSING SWIMLANES — your IR has no lane structure. This is required. "
+                        "EVERY business process must be drawn inside a pool divided into lanes, "
+                        "one lane per actor role.\n"
+                        "Step 1: identify EVERY distinct actor in the process description "
+                        "(human roles such as Employee, Manager, HR, Finance; "
+                        "plus 'System (Automatic)' for every automated step).\n"
+                        "Step 2: add a 'lanes' array with one entry per actor:\n"
+                        "  \"lanes\": [{\"id\": \"employee\", \"name\": \"Employee\"}, "
+                        "{\"id\": \"manager\", \"name\": \"Manager\"}, "
+                        "{\"id\": \"system\", \"name\": \"System (Automatic)\"}]\n"
+                        "Step 3: add a \"lane\" field to EVERY node pointing to its actor's lane id.\n"
+                        "Output the complete corrected IR JSON now."
+                    ]
+                    remaining = ["IR missing required swimlane lanes array (< 2 lanes)"]
+                    frappe.log_error(
+                        title=f"ProsAlly no-lanes rejected — attempt {attempt + 1}",
+                        message=(
+                            f"LLM returned {len(lanes_present)} lane(s). Forcing repair.\n"
+                            f"Nodes in IR: {len(ir_dict.get('nodes') or [])}"
+                        ),
+                    )
+                    if attempt == _MAX_FIX_PASSES:
+                        break
+                    continue
 
             # Step 1: normalise + compile + layout (pipeline.mjs)
             result     = await self._call_pipeline(ir_dict)

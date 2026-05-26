@@ -234,6 +234,40 @@ function assertNoImplicitSplitOrJoin(ir) {
   return problems;
 }
 
+// ── Lane-assignment structural check ─────────────────────────────────────────
+//
+// When ir.lanes is present, every non-inferred node MUST declare a "lane" field
+// whose value is a valid lane id.  Inferred gateways (inserted by normalizeGateways)
+// are exempt — their lane is resolved later by propagation in buildManualLaneDI.
+//
+// Also checks that no sequence flow crosses pool boundaries (only relevant once
+// multi-pool diagrams are supported; currently always satisfied, checked defensively).
+
+function assertLaneAssignment(ir) {
+  if (!ir.lanes || !ir.lanes.length) return [];
+  const laneIds = new Set(ir.lanes.map(l => l.id));
+  const problems = [];
+
+  for (const n of ir.nodes) {
+    if (n.inferred) continue;       // compiler-generated; lane set via propagation
+    if (!n.lane) {
+      problems.push({
+        kind: 'structure', rule: 'lane-orphan', elementId: n.id,
+        message: `Node "${n.id}" (${n.type}: "${n.name}") has no "lane" field. ` +
+          `Every node must be assigned to a lane when lanes are defined. ` +
+          `Valid lane ids: ${[...laneIds].join(', ')}.`,
+      });
+    } else if (!laneIds.has(n.lane)) {
+      problems.push({
+        kind: 'structure', rule: 'lane-orphan', elementId: n.id,
+        message: `Node "${n.id}" (${n.type}: "${n.name}") references unknown lane "${n.lane}". ` +
+          `Valid lane ids: ${[...laneIds].join(', ')}.`,
+      });
+    }
+  }
+  return problems;
+}
+
 // ── Pass 2: assertGatewayPairing ──────────────────────────────────────────────
 //
 // A node with `closes: "<splitId>"` declares it is the join counterpart of that
@@ -420,9 +454,45 @@ function buildManualLaneDI(ir) {
     if (!nodeLaneId.has(n.id) && lanes.length) nodeLaneId.set(n.id, lanes[0].id);
   }
 
-  // Column assignment: longest-path DP via Kahn's topological order
+  // ── Back-edge detection via iterative DFS from start ─────────────────────
+  // Kahn's topological sort fails on cyclic flows (loops, re-check paths).
+  // We detect back edges first so the column assignment treats the process as a
+  // DAG, placing nodes in a proper left-to-right sequence.  Back edges are still
+  // drawn as arrows; they just arc back to an earlier column.
+  const startNodeId = (ir.nodes.find(n => n.type === 'startEvent') || ir.nodes[0] || {}).id;
+  const backEdges   = new Set();  // "from:to" key strings
+
+  if (startNodeId) {
+    const dfsVisited = new Set([startNodeId]);
+    const dfsInStack = new Set([startNodeId]);
+    // Each frame: [nodeId, nextChildIndex]
+    const dfsStack   = [[startNodeId, 0]];
+
+    while (dfsStack.length) {
+      const frame    = dfsStack[dfsStack.length - 1];
+      const nodeId   = frame[0];
+      const children = adjOut.get(nodeId) || [];
+
+      if (frame[1] >= children.length) {
+        dfsInStack.delete(nodeId);
+        dfsStack.pop();
+      } else {
+        const nextId = children[frame[1]++];
+        if (dfsInStack.has(nextId)) {
+          backEdges.add(nodeId + ':' + nextId);   // cycle → back edge
+        } else if (!dfsVisited.has(nextId)) {
+          dfsVisited.add(nextId);
+          dfsInStack.add(nextId);
+          dfsStack.push([nextId, 0]);
+        }
+      }
+    }
+  }
+
+  // ── Column assignment: longest-path DP on DAG (back edges excluded) ──────
   const inDeg = new Map(ir.nodes.map(n => [n.id, 0]));
   for (const f of ir.flows) {
+    if (backEdges.has(f.from + ':' + f.to)) continue;   // skip back edges
     if (inDeg.has(f.to)) inDeg.set(f.to, (inDeg.get(f.to) || 0) + 1);
   }
   const col   = new Map();
@@ -435,6 +505,7 @@ function buildManualLaneDI(ir) {
     const id = queue[qi++];
     const c  = col.get(id) || 0;
     for (const succId of (adjOut.get(id) || [])) {
+      if (backEdges.has(id + ':' + succId)) continue;   // skip back edges
       const newC = c + 1;
       if (!col.has(succId) || col.get(succId) < newC) col.set(succId, newC);
       const deg = (inDeg.get(succId) || 1) - 1;
@@ -501,6 +572,29 @@ function buildManualLaneDI(ir) {
     }
   }
 
+  // ── Y-bounds validation ───────────────────────────────────────────────────────
+  // Every node's rendered shape must fall inside its assigned lane band.
+  // By construction our layout algorithm guarantees this; the check acts as a
+  // safety net that catches wrong lane assignments or future layout-algorithm bugs.
+  const boundProblems = [];
+  for (const n of ir.nodes) {
+    const pos = nodePos.get(n.id);
+    if (!pos) continue;
+    const lid = nodeLaneId.get(n.id) || (lanes.length ? lanes[0].id : '');
+    const li  = laneIndexById.has(lid) ? laneIndexById.get(lid) : 0;
+    const bandTop    = laneTopY[li];
+    const bandBottom = bandTop + laneH[li];
+    if (pos.y < bandTop - 1 || pos.y + pos.h > bandBottom + 1) {
+      boundProblems.push({
+        kind: 'structure', rule: 'lane-bounds', elementId: n.id,
+        message: `Node "${n.id}" Y-bounds [${pos.y}–${pos.y + pos.h}] fall outside ` +
+          `lane "${lid}" band [${bandTop}–${bandBottom}]. ` +
+          `Change this node's "lane" field to the correct lane id.`,
+      });
+    }
+  }
+  if (boundProblems.length) return { diSection: '', problems: boundProblems };
+
   // ── Serialise BPMNDI XML ──────────────────────────────────────────────────────
   const lines = [];
   lines.push('  <bpmndi:BPMNDiagram id="BPMNDiagram_1">');
@@ -556,7 +650,7 @@ function buildManualLaneDI(ir) {
 
   lines.push('    </bpmndi:BPMNPlane>');
   lines.push('  </bpmndi:BPMNDiagram>');
-  return lines.join('\n');
+  return { diSection: lines.join('\n'), problems: [] };
 }
 
 // Inject BPMNDI section + required namespace declarations into moddle-generated XML.
@@ -625,13 +719,28 @@ async function main() {
     return;
   }
 
+  // Lane structural checks — must pass before compilation so the repair loop
+  // can ask the LLM to fix missing or invalid lane assignments.
+  if (normIR.lanes && normIR.lanes.length) {
+    const laneProblems = assertLaneAssignment(normIR);
+    if (laneProblems.length) {
+      process.stdout.write(JSON.stringify({ ok: false, xml: '', problems: laneProblems, normalizedIR: normIR }));
+      return;
+    }
+  }
+
   // Pass 3 — compile to BPMN XML + add layout DI
   let xml;
   try {
     xml = await compileIRtoBpmn(normIR);
     if (normIR.lanes && normIR.lanes.length) {
-      // bpmn-auto-layout does not support Pools; generate DI manually
-      const diSection = buildManualLaneDI(normIR);
+      // bpmn-auto-layout does not support Pools; generate DI manually.
+      // buildManualLaneDI also validates Y-bounds and returns problems on failure.
+      const { diSection, problems: diProblems } = buildManualLaneDI(normIR);
+      if (diProblems.length) {
+        process.stdout.write(JSON.stringify({ ok: false, xml: '', problems: diProblems, normalizedIR: normIR }));
+        return;
+      }
       xml = injectLaneDI(xml, diSection);
     } else {
       xml = await addAutoLayout(xml);

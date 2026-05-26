@@ -404,6 +404,49 @@ def test_no_duplicate_incoming_outgoing_in_swimlane_xml():
         )
 
 
+def test_lane_orphan_node_rejected():
+    """A non-inferred node without a 'lane' field must be rejected with kind='structure'."""
+    ir = {
+        "name": "Orphan Node",
+        "nodes": [
+            {"id": "start",  "type": "startEvent", "name": "Start",   "lane": "actor"},
+            {"id": "task",   "type": "userTask",   "name": "Do Work"},   # ← no lane
+            {"id": "end",    "type": "endEvent",   "name": "Done",    "lane": "actor"},
+        ],
+        "flows": [
+            {"from": "start", "to": "task", "name": "Begin"},
+            {"from": "task",  "to": "end",  "name": "Finish"},
+        ],
+        "lanes": [{"id": "actor", "name": "Actor"}],
+    }
+    result = _run_pipeline(ir)
+    assert result["ok"] is False, "Orphan node (no lane field) must be rejected"
+    struct = [p for p in result.get("problems", []) if p.get("rule") == "lane-orphan"]
+    assert struct, f"Expected 'lane-orphan' problem, got: {result.get('problems')}"
+    assert "task" in struct[0]["message"], "Problem should identify the orphan node id"
+
+
+def test_lane_invalid_reference_rejected():
+    """A node referencing a lane id that doesn't exist must be rejected."""
+    ir = {
+        "name": "Bad Lane Ref",
+        "nodes": [
+            {"id": "start", "type": "startEvent", "name": "Start", "lane": "actor"},
+            {"id": "task",  "type": "userTask",   "name": "Work",  "lane": "nonexistent_lane"},
+            {"id": "end",   "type": "endEvent",   "name": "Done",  "lane": "actor"},
+        ],
+        "flows": [
+            {"from": "start", "to": "task", "name": "Begin"},
+            {"from": "task",  "to": "end",  "name": "Finish"},
+        ],
+        "lanes": [{"id": "actor", "name": "Actor"}],
+    }
+    result = _run_pipeline(ir)
+    assert result["ok"] is False, "Invalid lane reference must be rejected"
+    struct = [p for p in result.get("problems", []) if p.get("rule") == "lane-orphan"]
+    assert struct, f"Expected 'lane-orphan' problem, got: {result.get('problems')}"
+
+
 def test_pure_join_and_pure_fork_gateways_pass():
     ir = {
         "name": "Parallel Work",
