@@ -333,8 +333,8 @@ class ScriptTaskAgent:
             parts.append(ctx_str)
         parts.append(f"**Script code to test:**\n```python\n{script_code}\n```")
         parts.append(
-            "Generate a plain-English test checklist and Python integration test code for this script. "
-            "The test code should call the Frappe API endpoint via HTTP POST."
+            "Generate a plain-English test checklist for this script. "
+            "Return ONLY the JSON object as described in your instructions — no extra text, no code fences."
         )
         return "\n\n".join(parts)
 
@@ -523,13 +523,28 @@ class ScriptTaskAgent:
         # STEP 3 (CREATE only) — generate plain-English verification checklist
         tests_checklist = []
         if modified_code:
+            test_raw = None
             try:
                 test_prompt = self._build_test_prompt(modified_code, element_name, process_context)
                 test_raw    = await self._run("test_writer", test_prompt)
-                test_data   = json.loads((test_raw or "").strip())
+                # Strip markdown fences that LLMs often wrap JSON in
+                raw_stripped = (test_raw or "").strip()
+                if raw_stripped.startswith("```"):
+                    # Remove opening fence (```json or ```) and closing fence (```)
+                    raw_stripped = raw_stripped.split("\n", 1)[-1]
+                    if raw_stripped.endswith("```"):
+                        raw_stripped = raw_stripped[: raw_stripped.rfind("```")].strip()
+                test_data = json.loads(raw_stripped)
                 tests_checklist = test_data.get("checklist", [])
-            except Exception:
-                pass  # tests are bonus — don't fail the whole response
+            except Exception as exc:
+                # Tests are bonus — don't fail the whole response, but log for visibility
+                frappe.log_error(
+                    title="Logix test_writer parse error",
+                    message=(
+                        f"Error: {exc}\n"
+                        f"Raw output (first 500 chars):\n{(test_raw or '')[:500]}"
+                    ),
+                )
 
         return {
             "intent":           "CREATE",
