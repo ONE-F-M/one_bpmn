@@ -1714,7 +1714,7 @@ def create_notification(
 def _is_production_site() -> bool:
 	"""Return True if the current Frappe site IS the Production instance."""
 	settings = frappe.get_single("Processa Settings")
-	if not settings.enabled:
+	if not settings.connect_to_production:
 		return False
 
 	production_url = (settings.production_url or "").rstrip("/")
@@ -1733,7 +1733,7 @@ def _is_local_dev_mode() -> bool:
 	bench, so we can call its API directly without HTTP.
 	"""
 	settings = frappe.get_single("Processa Settings")
-	if settings.enabled:
+	if settings.connect_to_production:
 		production_url = settings.production_url
 		api_key = settings.get_password("production_api_key")
 		api_secret = settings.get_password("production_api_secret")
@@ -1832,7 +1832,7 @@ def _call_production_api(method: str, params: dict) -> dict:
 	api_key = None
 	api_secret = None
 
-	if settings.enabled:
+	if settings.connect_to_production:
 		production_url = (settings.production_url or "").rstrip("/")
 		api_key = settings.get_password("production_api_key")
 		api_secret = settings.get_password("production_api_secret")
