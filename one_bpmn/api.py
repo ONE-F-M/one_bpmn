@@ -1804,7 +1804,7 @@ def _call_local_pathfinder_api(method_path: str, params: dict) -> dict:
 	"""
 	import importlib
 
-	# method_path looks like "one_fm.one_fm.doctype.pathfinder_log.pathfinder_api.is_process_editable"
+	# method_path looks like "one_bpmn.one_bpmn.doctype.pathfinder_log.pathfinder_api.is_process_editable"
 	module_path, func_name = method_path.rsplit(".", 1)
 	module = importlib.import_module(module_path)
 	func = getattr(module, func_name)
@@ -1914,7 +1914,7 @@ def check_process_editable(process_name: str) -> dict:
 		}
 
 	result = _call_production_api(
-		"one_fm.one_fm.doctype.pathfinder_log.pathfinder_api.is_process_editable",
+		"one_bpmn.one_bpmn.doctype.pathfinder_log.pathfinder_api.is_process_editable",
 		{"process_name": process_name},
 	)
 
@@ -1981,7 +1981,7 @@ def bulk_check_processes_editable(process_names: str) -> dict:
 		}
 
 	return _call_production_api(
-		"one_fm.one_fm.doctype.pathfinder_log.pathfinder_api.bulk_check_process_editable",
+		"one_bpmn.one_bpmn.doctype.pathfinder_log.pathfinder_api.bulk_check_process_editable",
 		{"process_names": json.dumps(process_names_list)},
 	)
 
