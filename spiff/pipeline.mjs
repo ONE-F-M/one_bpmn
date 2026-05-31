@@ -635,29 +635,94 @@ function buildManualLaneDI(ir) {
     lines.push('      </bpmndi:BPMNShape>');
   }
 
-  // Sequence flow edges — beautifully routed orthogonally (Manhattan)
+  // Pre-calculate outgoing and incoming flow maps
+  const outgoingFlows = new Map();
+  const incomingFlows = new Map();
+  for (const f of ir.flows) {
+    if (!outgoingFlows.has(f.from)) outgoingFlows.set(f.from, []);
+    outgoingFlows.get(f.from).push(f);
+
+    if (!incomingFlows.has(f.to)) incomingFlows.set(f.to, []);
+    incomingFlows.get(f.to).push(f);
+  }
+
+  // Sequence flow edges — beautifully routed orthogonally (Manhattan) and port-aware for gateways
   for (let i = 0; i < ir.flows.length; i++) {
     const f   = ir.flows[i];
     const src = nodePos.get(f.from);
     const tgt = nodePos.get(f.to);
     if (!src || !tgt) continue;
 
-    const sx = src.x + src.w;
-    const sy = Math.round(src.y + src.h / 2);
-    const tx = tgt.x;
-    const ty = Math.round(tgt.y + tgt.h / 2);
+    const fromNode = nodeMap.get(f.from);
+    const toNode   = nodeMap.get(f.to);
+    const isFromGateway = fromNode && GATEWAY_TYPES.has(fromNode.type);
+    const isToGateway   = toNode && GATEWAY_TYPES.has(toNode.type);
+
+    // Determine connection ports for source (exit)
+    let sx = src.x + src.w;
+    let sy = Math.round(src.y + src.h / 2);
+    let sourcePort = 'right';
+
+    if (isFromGateway) {
+      const flows = outgoingFlows.get(f.from) || [];
+      if (flows.length > 1) {
+        const tPos = nodePos.get(f.to);
+        if (tPos) {
+          const targetMidY = tPos.y + tPos.h / 2;
+          const gatewayMidY = src.y + src.h / 2;
+          
+          if (targetMidY < gatewayMidY - 30) {
+            sx = Math.round(src.x + src.w / 2);
+            sy = src.y;
+            sourcePort = 'top';
+          } else if (targetMidY > gatewayMidY + 30) {
+            sx = Math.round(src.x + src.w / 2);
+            sy = src.y + src.h;
+            sourcePort = 'bottom';
+          } else {
+            sx = src.x + src.w;
+            sy = Math.round(src.y + src.h / 2);
+            sourcePort = 'right';
+          }
+        }
+      }
+    }
+
+    // Determine connection ports for target (entry)
+    let tx = tgt.x;
+    let ty = Math.round(tgt.y + tgt.h / 2);
+    let targetPort = 'left';
+
+    if (isToGateway) {
+      const flows = incomingFlows.get(f.to) || [];
+      if (flows.length > 1) {
+        const sPos = nodePos.get(f.from);
+        if (sPos) {
+          const sourceMidY = sPos.y + sPos.h / 2;
+          const gatewayMidY = tgt.y + tgt.h / 2;
+
+          if (sourceMidY < gatewayMidY - 30) {
+            tx = Math.round(tgt.x + tgt.w / 2);
+            ty = tgt.y;
+            targetPort = 'top';
+          } else if (sourceMidY > gatewayMidY + 30) {
+            tx = Math.round(tgt.x + tgt.w / 2);
+            ty = tgt.y + tgt.h;
+            targetPort = 'bottom';
+          } else {
+            tx = tgt.x;
+            ty = Math.round(tgt.y + tgt.h / 2);
+            targetPort = 'left';
+          }
+        }
+      }
+    }
 
     const flowId = 'flow_' + f.from + '_' + f.to + '_' + i;
     lines.push('      <bpmndi:BPMNEdge id="' + flowId + '_di" bpmnElement="' + flowId + '">');
 
-    // 1. Horizontal sequential flow (same row/lane level)
-    if (sx < tx && Math.abs(sy - ty) < 5) {
-      lines.push('        <di:waypoint x="' + sx + '" y="' + sy + '" />');
-      lines.push('        <di:waypoint x="' + tx + '" y="' + ty + '" />');
-    }
-    // 2. Back-edge or loopback (right-to-left flow)
-    else if (sx >= tx) {
-      // Loop over the top or under the bottom depending on relative position
+    // 1. Back-edge or loopback (right-to-left flow) -> always route as safe outer U-loop
+    if (sx >= tx) {
       const goTop = sy > ty;
       const srcX  = Math.round(src.x + src.w / 2);
       const tgtX  = Math.round(tgt.x + tgt.w / 2);
@@ -678,9 +743,33 @@ function buildManualLaneDI(ir) {
       lines.push('        <di:waypoint x="' + tgtX + '" y="' + loopY + '" />');
       lines.push('        <di:waypoint x="' + tgtX + '" y="' + tgtY + '" />');
     }
-    // 3. Different levels / cross-lane sequential flow
+    // 2. Horizontal sequential flow (same row/lane level, standard ports)
+    else if (sourcePort === 'right' && targetPort === 'left' && Math.abs(sy - ty) < 5) {
+      lines.push('        <di:waypoint x="' + sx + '" y="' + sy + '" />');
+      lines.push('        <di:waypoint x="' + tx + '" y="' + ty + '" />');
+    }
+    // 3. Vertical exit from top/bottom of source, entering left of target (left-to-right)
+    else if ((sourcePort === 'top' || sourcePort === 'bottom') && targetPort === 'left') {
+      lines.push('        <di:waypoint x="' + sx + '" y="' + sy + '" />');
+      lines.push('        <di:waypoint x="' + sx + '" y="' + ty + '" />');
+      lines.push('        <di:waypoint x="' + tx + '" y="' + ty + '" />');
+    }
+    // 4. Horizontal exit from right of source, entering top/bottom of target (left-to-right)
+    else if (sourcePort === 'right' && (targetPort === 'top' || targetPort === 'bottom')) {
+      lines.push('        <di:waypoint x="' + sx + '" y="' + sy + '" />');
+      lines.push('        <di:waypoint x="' + tx + '" y="' + sy + '" />');
+      lines.push('        <di:waypoint x="' + tx + '" y="' + ty + '" />');
+    }
+    // 5. Vertical exit from top/bottom of source, entering top/bottom of target (left-to-right)
+    else if ((sourcePort === 'top' || sourcePort === 'bottom') && (targetPort === 'top' || targetPort === 'bottom')) {
+      const midY = Math.round((sy + ty) / 2);
+      lines.push('        <di:waypoint x="' + sx + '" y="' + sy + '" />');
+      lines.push('        <di:waypoint x="' + sx + '" y="' + midY + '" />');
+      lines.push('        <di:waypoint x="' + tx + '" y="' + midY + '" />');
+      lines.push('        <di:waypoint x="' + tx + '" y="' + ty + '" />');
+    }
+    // 6. Default staggered Manhattan L-routing (fallback)
     else {
-      // Manhattan L-routing with staggered vertical turning to prevent overlaps
       const stagger = (i % 4) * 12 - 18;
       const midX    = Math.round((sx + tx) / 2) + stagger;
 
