@@ -663,7 +663,7 @@ def list_processes() -> list:
 			"business_analyst",
 			"business_analyst_name",
 			"description",
-			"modified", 
+			"modified",
 			"creation",
 		],
 		order_by="modified desc",
