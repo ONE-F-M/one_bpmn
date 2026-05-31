@@ -635,16 +635,60 @@ function buildManualLaneDI(ir) {
     lines.push('      </bpmndi:BPMNShape>');
   }
 
-  // Sequence flow edges — right-centre of source → left-centre of target
+  // Sequence flow edges — beautifully routed orthogonally (Manhattan)
   for (let i = 0; i < ir.flows.length; i++) {
     const f   = ir.flows[i];
     const src = nodePos.get(f.from);
     const tgt = nodePos.get(f.to);
     if (!src || !tgt) continue;
+
+    const sx = src.x + src.w;
+    const sy = Math.round(src.y + src.h / 2);
+    const tx = tgt.x;
+    const ty = Math.round(tgt.y + tgt.h / 2);
+
     const flowId = 'flow_' + f.from + '_' + f.to + '_' + i;
     lines.push('      <bpmndi:BPMNEdge id="' + flowId + '_di" bpmnElement="' + flowId + '">');
-    lines.push('        <di:waypoint x="' + (src.x + src.w) + '" y="' + Math.round(src.y + src.h / 2) + '" />');
-    lines.push('        <di:waypoint x="' + tgt.x            + '" y="' + Math.round(tgt.y + tgt.h / 2) + '" />');
+
+    // 1. Horizontal sequential flow (same row/lane level)
+    if (sx < tx && Math.abs(sy - ty) < 5) {
+      lines.push('        <di:waypoint x="' + sx + '" y="' + sy + '" />');
+      lines.push('        <di:waypoint x="' + tx + '" y="' + ty + '" />');
+    }
+    // 2. Back-edge or loopback (right-to-left flow)
+    else if (sx >= tx) {
+      // Loop over the top or under the bottom depending on relative position
+      const goTop = sy > ty;
+      const srcX  = Math.round(src.x + src.w / 2);
+      const tgtX  = Math.round(tgt.x + tgt.w / 2);
+      
+      let srcY, tgtY, loopY;
+      if (goTop) {
+        srcY  = src.y;
+        tgtY  = tgt.y;
+        loopY = Math.min(src.y, tgt.y) - 40 - (i % 3) * 10;
+      } else {
+        srcY  = src.y + src.h;
+        tgtY  = tgt.y + tgt.h;
+        loopY = Math.max(src.y + src.h, tgt.y + tgt.h) + 40 + (i % 3) * 10;
+      }
+
+      lines.push('        <di:waypoint x="' + srcX + '" y="' + srcY + '" />');
+      lines.push('        <di:waypoint x="' + srcX + '" y="' + loopY + '" />');
+      lines.push('        <di:waypoint x="' + tgtX + '" y="' + loopY + '" />');
+      lines.push('        <di:waypoint x="' + tgtX + '" y="' + tgtY + '" />');
+    }
+    // 3. Different levels / cross-lane sequential flow
+    else {
+      // Manhattan L-routing with staggered vertical turning to prevent overlaps
+      const stagger = (i % 4) * 12 - 18;
+      const midX    = Math.round((sx + tx) / 2) + stagger;
+
+      lines.push('        <di:waypoint x="' + sx + '" y="' + sy + '" />');
+      lines.push('        <di:waypoint x="' + midX + '" y="' + sy + '" />');
+      lines.push('        <di:waypoint x="' + midX + '" y="' + ty + '" />');
+      lines.push('        <di:waypoint x="' + tx + '" y="' + ty + '" />');
+    }
     lines.push('      </bpmndi:BPMNEdge>');
   }
 
