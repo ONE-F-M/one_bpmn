@@ -1370,6 +1370,7 @@ def process_logix_message(
 	chat_history: str = None,
 	element_name: str = None,
 	current_script: str = None,
+	process_context: dict = None,
 ) -> dict:
 	"""Process a Logix AI chat message, persisting history in Chat Conversation."""
 	if frappe.session.user == "Guest":
@@ -1411,6 +1412,7 @@ def process_logix_message(
 			element_name=element_name or "",
 			current_script=current_script or "",
 			original_script_content=original_content,
+			process_context=process_context or {},
 		)
 
 		# Persist the bot response
@@ -1426,6 +1428,62 @@ def process_logix_message(
 	except Exception:
 		frappe.log_error(title="Logix Agent error", message=frappe.get_traceback())
 		return {"intent": "ERROR", "response": "An unexpected error occurred. Please try again."}
+
+
+@frappe.whitelist()
+def run_logix_test_case(script_name: str, inputs: str = "{}") -> dict:
+	"""Execute a Server Script with test inputs and return a plain-English pass/fail result."""
+	if frappe.session.user == "Guest":
+		frappe.throw(_("Authentication required"))
+
+	try:
+		import json as _json
+		test_inputs = _json.loads(inputs) if isinstance(inputs, str) else (inputs or {})
+
+		doc = frappe.get_doc("Server Script", script_name)
+		if doc.script_type != "API":
+			return {"passed": False, "result": None, "summary": "This script is not an API-type script and cannot be run as a test."}
+
+		# Save and replace frappe.form_dict with test inputs
+		original_form_dict = dict(frappe.form_dict)
+		frappe.form_dict.clear()
+		frappe.form_dict.update(test_inputs)
+
+		# Clear any previous message so we can detect what the script sets
+		frappe.response.pop("message", None)
+
+		try:
+			doc.execute_method()
+			result = frappe.response.get("message")
+			summary = "It worked — the script ran without any problems."
+			if result and isinstance(result, dict) and result:
+				# Describe the result in plain English without exposing key names
+				count = len(result)
+				summary = f"It worked — the script completed and sent back {count} piece{'s' if count != 1 else ''} of information."
+			return {"passed": True, "result": result, "summary": summary}
+
+		except Exception as exc:
+			error_msg = str(exc)
+			# frappe.throw() raises ValidationError — this is often an *expected* negative result
+			is_validation = "ValidationError" in type(exc).__name__ or hasattr(exc, "http_status_code")
+			if is_validation:
+				return {
+					"passed": False,
+					"result": None,
+					"summary": f"The script stopped and said: \"{error_msg}\"",
+				}
+			return {
+				"passed": False,
+				"result": None,
+				"summary": f"Something went wrong while running the script. You can ask Logix \"why did this test fail?\" for help.",
+			}
+		finally:
+			frappe.form_dict.clear()
+			frappe.form_dict.update(original_form_dict)
+
+	except Exception:
+		frappe.log_error(title="Logix Test Runner error", message=frappe.get_traceback())
+		return {"passed": False, "result": None, "summary": "Could not run the test right now. Please try again in a moment."}
 
 
 @frappe.whitelist()

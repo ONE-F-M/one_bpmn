@@ -125,7 +125,7 @@
 			<transition name="prosally-slide">
 				<div
 					v-if="showProsAllyPanel && !isMobile"
-					class="prosally-panel-container w-80 shrink-0 border-l border-gray-200 flex flex-col z-[50]"
+					class="prosally-panel-container w-[420px] shrink-0 border-l border-gray-200 flex flex-col z-[50]"
 				>
 					<ProsAllyPanel
 						:process-name="processNameForPanel"
@@ -2653,12 +2653,34 @@ async function loadXML(xml) {
 	if (!modeler) return;
 	isImporting.value = true;
 	try {
-		// Pass XML directly to bpmn-js — its own parser handles XML entities
-		// such as &#34; correctly. Pre-decoding with decodeHtmlEntities would
-		// corrupt attribute values that contain JSON (e.g. taskActions stores
-		// [{...}] with &#34; for the quotes), turning valid XML into malformed
-		// XML where " inside a quoted attribute breaks the parser.
 		await modeler.importXML(xml);
+
+		// Proactively auto-layout connecting lines (edges) using bpmn-js's native layout engine.
+		// This translates straight-line connectors or missing edge DI elements into standard
+		// orthogonal Manhattan routing paths that avoid node overlapping.
+		try {
+			const elementRegistry = modeler.get("elementRegistry");
+			const modeling = modeler.get("modeling");
+			const connections = elementRegistry.filter(
+				(el) => el.type === "bpmn:SequenceFlow" || (el.waypoints && el.source && el.target)
+			);
+			if (connections.length > 0) {
+				connections.forEach((conn) => {
+					// If the connection is diagonal and has only 2 waypoints, clear them
+					// to force the bpmn-js layouter to calculate a perfect Manhattan route from scratch.
+					if (conn.waypoints && conn.waypoints.length <= 2) {
+						const pts = conn.waypoints;
+						if (pts.length === 2 && Math.abs(pts[0].y - pts[1].y) > 5) {
+							conn.waypoints = [];
+						}
+					}
+					modeling.layoutConnection(conn);
+				});
+			}
+		} catch (layoutErr) {
+			console.warn("Auto-layout connections failed:", layoutErr);
+		}
+
 		updateUndoRedoState();
 		renderComments();
 		// Fit diagram to screen by default after loading, safely catching zero-dimension errors

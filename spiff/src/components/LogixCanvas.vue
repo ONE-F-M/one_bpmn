@@ -63,19 +63,53 @@
 						</div>
 						<!-- Diff view for MODIFY -->
 						<div v-if="msg.diffRows?.length" class="lc-split-diff">
-							<div class="lc-split-scroll">
-								<div class="lc-split-header">
-									<div class="lc-split-col-label">Original</div>
-									<div class="lc-split-col-label">Proposed</div>
+							<div class="lc-split-header">
+								<div class="lc-split-col-label">Original</div>
+								<div class="lc-split-divider-head"></div>
+								<div class="lc-split-col-label">Proposed</div>
+							</div>
+							<div class="lc-split-body">
+								<div v-for="(row, ri) in msg.diffRows" :key="ri" class="lc-split-row">
+									<pre :class="['lc-split-cell', splitCellClass(row, 'left')]">{{ row.left ?? '' }}</pre>
+									<div class="lc-split-divider"></div>
+									<pre :class="['lc-split-cell', splitCellClass(row, 'right')]">{{ row.right ?? '' }}</pre>
 								</div>
-								<div class="lc-split-body">
-									<div v-for="(row, ri) in msg.diffRows" :key="ri" class="lc-split-row">
-										<pre :class="['lc-split-cell', splitCellClass(row, 'left')]">{{ row.left ?? '' }}</pre>
-										<pre :class="['lc-split-cell', splitCellClass(row, 'right')]">{{ row.right ?? '' }}</pre>
+							</div>
+						</div>
+
+						<!-- Tests panel for CREATE -->
+						<div v-if="msg.testsChecklist?.length" class="lc-tests-panel">
+							<div class="lc-tests-header">
+								<svg viewBox="0 0 24 24" fill="currentColor" width="13" height="13"><path d="M9 16.17L4.83 12l-1.42 1.41L9 19 21 7l-1.41-1.41z"/></svg>
+								Let's verify it works
+							</div>
+							<div class="lc-tests-intro">Click "Try this" on each scenario to confirm the script does what you expect.</div>
+							<div class="lc-tests-checklist">
+								<div v-for="(t, ti) in msg.testsChecklist" :key="ti" class="lc-test-item">
+									<div class="lc-test-scenario">{{ t.scenario }}</div>
+									<div class="lc-test-row"><span class="lc-test-label">When</span><span>{{ t.when }}</span></div>
+									<div class="lc-test-row"><span class="lc-test-label">Expect</span><span>{{ t.expect }}</span></div>
+									<div class="lc-test-actions">
+										<button
+											v-if="t.inputs && savedScriptName"
+											class="lc-run-test-btn"
+											:disabled="testRunResults[`${msg.id}-${ti}`]?.loading"
+											@click="runTest(msg.id, ti, t.inputs)"
+										>
+											<span v-if="testRunResults[`${msg.id}-${ti}`]?.loading" class="lc-test-spinner"></span>
+											<span v-else>▶ Try this</span>
+										</button>
+										<div v-if="testRunResults[`${msg.id}-${ti}`] && !testRunResults[`${msg.id}-${ti}`].loading" class="lc-test-result">
+											<span :class="testRunResults[`${msg.id}-${ti}`].passed ? 'lc-test-pass' : 'lc-test-fail'">
+												{{ testRunResults[`${msg.id}-${ti}`].passed ? '✓' : '✗' }}
+												{{ testRunResults[`${msg.id}-${ti}`].summary }}
+											</span>
+										</div>
 									</div>
 								</div>
 							</div>
 						</div>
+
 						<!-- Action buttons -->
 						<div v-if="msg.actions?.length" class="lc-msg-actions">
 							<button
@@ -420,7 +454,7 @@
 </template>
 
 <script setup>
-import { ref, computed, nextTick, onMounted, watch } from "vue";
+import { ref, reactive, computed, nextTick, onMounted, watch } from "vue";
 import DOMPurify from "dompurify";
 import { marked } from "marked";
 
@@ -441,10 +475,11 @@ function getCurrentUser() {
 }
 
 const props = defineProps({
-	element:       { type: Object,  default: null },
-	scriptType:    { type: String,  default: "bpmn:script" },
-	currentScript: { type: String,  default: "" },
-	eventBus:      { type: Object,  default: null },
+	element:        { type: Object,  default: null },
+	scriptType:     { type: String,  default: "bpmn:script" },
+	currentScript:  { type: String,  default: "" },
+	eventBus:       { type: Object,  default: null },
+	processContext: { type: Object,  default: null },
 });
 
 const emit = defineEmits(["close", "script-saved", "back"]);
@@ -616,6 +651,7 @@ const conversationName  = ref(null);   // persisted Chat Conversation name
 const messagesEl        = ref(null);
 const inputEl           = ref(null);
 const copiedIndex       = ref(null);
+const testRunResults    = reactive({});  // key: `${msgId}-${ti}` → { loading, passed, summary }
 let   pendingLogixDescription = "";
 let   pendingScriptName       = "";
 
@@ -689,14 +725,31 @@ async function initCanvas() {
 }
 
 // ── Greeting ──────────────────────────────────────────────────────────
+function buildContextSentence() {
+	const ctx = props.processContext;
+	if (!ctx) return "";
+	const parts = [];
+	if (ctx.incoming?.length) {
+		const names = ctx.incoming.map(n => `**${n.name}**`).join(" and ");
+		parts.push(`runs after ${names}`);
+	}
+	if (ctx.outgoing?.length) {
+		const names = ctx.outgoing.map(n => `**${n.name}**`).join(" and ");
+		parts.push(`leads to ${names}`);
+	}
+	if (!parts.length) return "";
+	return " I can see this task " + parts.join(", and ") + ".";
+}
+
 async function initGreeting() {
-	const label = canvasScriptName.value || elementLabel.value;
+	const label   = canvasScriptName.value || elementLabel.value;
+	const ctxLine = buildContextSentence();
 
 	// Already linked to a known script — offer to help modify it
 	if (props.currentScript) {
 		messages.value = [{
 			id: makeId(), role: "assistant", time: formatTime(new Date()),
-			content: `Hello, I am Logix.\nHappy to help with the server scripts.\nHow would you like me to assist in defining the **${props.currentScript}** server script?`,
+			content: `Hello, I am Logix — your process automation assistant.${ctxLine}\n\nI can see **${props.currentScript}** is already linked here. How would you like to change it? Just describe what you need in plain language.`,
 		}];
 		return;
 	}
@@ -713,7 +766,7 @@ async function initGreeting() {
 				if (data?.message?.exists) {
 					messages.value = [{
 						id: makeId(), role: "assistant", time: formatTime(new Date()),
-						content: `Hello, I am Logix.\nHappy to help with the server scripts.\nI found an existing server script named **${label}**. Would you like to link it to this script task, or create a new one?`,
+						content: `Hello, I am Logix — your process automation assistant.${ctxLine}\n\nI found an existing script named **${label}**. Would you like to link it here, or start fresh with a new one?`,
 						actions: [
 							{ label: "Link to script task", handler: "link_existing" },
 							{ label: "Create new",           handler: "start_fresh"  },
@@ -724,16 +777,19 @@ async function initGreeting() {
 			}
 		} catch (_) { /* fall through */ }
 
+		const contextHint = ctxLine
+			? `\n\nTell me in plain language what should happen at this step — for example, what data needs to be checked, what approval is needed, or what records should be updated.`
+			: `\n\nDescribe what you'd like the script to do and I'll write it for you.`;
 		messages.value = [{
 			id: makeId(), role: "assistant", time: formatTime(new Date()),
-			content: `Hello, I am Logix.\nHappy to help with the server scripts.\nHow would you like me to assist in defining the **${label}** server script?`,
+			content: `Hello, I am Logix — your process automation assistant.${ctxLine}${contextHint}`,
 		}];
 		return;
 	}
 
 	messages.value = [{
 		id: makeId(), role: "assistant", time: formatTime(new Date()),
-		content: "Hello, I am Logix.\nHappy to help with the server scripts.\nDescribe what you'd like the script to do and I'll write it for you.",
+		content: "Hello, I am Logix — your process automation assistant.\n\nDescribe what you'd like the script to do and I'll write it for you. You don't need to know any code — just tell me what the business logic should be.",
 	}];
 }
 
@@ -879,12 +935,24 @@ async function handleAction(action, msgId) {
 			isDirty.value = true;
 			isSaved.value = false;
 			pendingLogixDescription = msg?.pendingDescription || "Modified by Logix";
-			scheduleAutoSave();
+			const saveResult = await saveScript();
+			if (isDirty.value) {
+				messages.value.push({
+					id: makeId(), role: "assistant", time: formatTime(new Date()),
+					content: "Changes applied but save failed — check the script name and try again.",
+				});
+			} else {
+				messages.value.push({
+					id: makeId(), role: "assistant", time: formatTime(new Date()),
+					content: "Changes approved and saved ✓",
+				});
+			}
+		} else {
+			messages.value.push({
+				id: makeId(), role: "assistant", time: formatTime(new Date()),
+				content: "Changes approved ✓",
+			});
 		}
-		messages.value.push({
-			id: makeId(), role: "assistant", time: formatTime(new Date()),
-			content: "Changes approved ✓ Saving to canvas...",
-		});
 		scrollBottom();
 
 	} else if (action.handler === "reject_modify") {
@@ -906,12 +974,25 @@ async function handleAction(action, msgId) {
 			if (msg?.pendingName && !props.currentScript) {
 				canvasScriptName.value = msg.pendingName;
 			}
-			scheduleAutoSave();
+			await saveScript();
 		}
+		const savedOk = !isDirty.value;
 		messages.value.push({
 			id: makeId(), role: "assistant", time: formatTime(new Date()),
-			content: "Script approved ✓ Saving and linking to this script task...",
+			content: savedOk
+				? "Your automation is saved and ready ✓\n\nHere are a few quick checks you can run to make sure it does exactly what you need — no coding required."
+				: "Script applied but save failed — check the script name and try again.",
 		});
+
+		// Show tests panel if we have them
+		const checklist = msg?.testsChecklist || [];
+		if (savedOk && checklist.length) {
+			messages.value.push({
+				id: makeId(), role: "assistant", time: formatTime(new Date()),
+				content: "",
+				testsChecklist: checklist,
+			});
+		}
 		scrollBottom();
 
 	} else if (action.handler === "apply_to_canvas") {
@@ -969,6 +1050,7 @@ async function sendMessage() {
 				conversation_name: conversationName.value || null,
 				element_name:      elementLabel.value || canvasScriptName.value || "",
 				current_script:    props.currentScript || "",
+				process_context:   props.processContext || null,
 			}),
 		});
 
@@ -1009,8 +1091,9 @@ async function sendMessage() {
 			msg.pendingCode = proposedCode;
 			msg.pendingName = result?.suggested_name || "";
 			msg.pendingDescription = `Created by Logix${result?.suggested_name ? ': ' + result.suggested_name : ''}`;
+			msg.testsChecklist = result?.tests_checklist || [];
 			if (/```python[\s\S]*?```/.test(reply)) {
-				msg.actions = [{ label: "Approve", handler: "approve_create" }];
+				msg.actions = [{ label: "Approve & Save", handler: "approve_create" }];
 			}
 		}
 
@@ -1061,6 +1144,34 @@ async function copyCode(code, index) {
 
 async function copyMsg(content) {
 	try { await navigator.clipboard.writeText(content); } catch { /* fallback */ }
+}
+
+// ── Test runner ───────────────────────────────────────────────────────
+async function runTest(msgId, ti, inputs) {
+	const key = `${msgId}-${ti}`;
+	testRunResults[key] = { loading: true, passed: null, summary: "" };
+	try {
+		const response = await fetch("/api/method/one_bpmn.api.run_logix_test_case", {
+			method: "POST",
+			headers: {
+				"Content-Type":        "application/json",
+				"X-Frappe-CSRF-Token": getCsrfToken(),
+			},
+			body: JSON.stringify({
+				script_name: savedScriptName.value,
+				inputs:      JSON.stringify(inputs || {}),
+			}),
+		});
+		const data   = await response.json();
+		const result = data?.message;
+		testRunResults[key] = {
+			loading: false,
+			passed:  result?.passed ?? false,
+			summary: result?.summary || (result?.passed ? "Test passed." : "Test failed."),
+		};
+	} catch (err) {
+		testRunResults[key] = { loading: false, passed: false, summary: "Could not run the test — network error." };
+	}
 }
 
 // ── Diff helpers ──────────────────────────────────────────────────────
@@ -1256,17 +1367,15 @@ async function saveScript() {
 			});
 		}
 
-		pendingLogixDescription = "";
-		await fetchVersionHistory();
-
 		isDirty.value = false;
 		isSaved.value = true;
 		setTimeout(() => { isSaved.value = false; }, 3000);
 
+		pendingLogixDescription = "";
 		emit("script-saved", scriptName);
+		await fetchVersionHistory();
 	} catch (err) {
 		console.error("Auto-save failed:", err);
-		// Don't push to chat on auto-save errors to avoid spamming the user
 	} finally {
 		isSaving.value = false;
 	}
@@ -1579,7 +1688,7 @@ function resetChat() {
 	40%            { transform: scale(1);    opacity: 1;   }
 }
 
-/* ── Split diff in messages ─────────────────────────────────────── */
+/* ── Diff viewer ─────────────────────────────────────────────────────── */
 .lc-split-diff {
 	margin-top: 8px;
 	border: 1px solid #e0e0e0;
@@ -1587,19 +1696,110 @@ function resetChat() {
 	overflow: hidden;
 	width: 100%;
 }
-
-.lc-split-scroll { overflow-x: auto; }
-.lc-split-header { display: flex; background: #f5f5f5; border-bottom: 1px solid #e0e0e0; min-width: max-content; width: 100%; }
-.lc-split-col-label { flex: 0 0 50%; min-width: 220px; padding: 3px 8px; font-weight: 600; font-size: 10px; color: #666; letter-spacing: .03em; }
-.lc-split-col-label:first-child { border-right: 1px solid #e0e0e0; }
-.lc-split-body { background: #1c1b1f; max-height: 220px; overflow-y: auto; overflow-x: visible; }
-.lc-split-row { display: flex; border-bottom: 1px solid rgba(255,255,255,.04); min-height: 18px; min-width: max-content; width: 100%; }
-.lc-split-cell { flex: 0 0 50%; min-width: 220px; margin: 0; padding: 1px 8px; font-family: monospace; font-size: 11px; line-height: 1.5; color: #e6e1e5; white-space: pre; overflow: visible; border-right: 1px solid rgba(255,255,255,.08); }
-.lc-split-cell:last-child { border-right: none; }
-.lc-sdiff-del   { background: rgba(240,80,80,.2);   color: #ff8a8a; }
+.lc-split-header {
+	display: grid;
+	grid-template-columns: minmax(0, 1fr) 2px minmax(0, 1fr);
+	background: #f5f5f5;
+	border-bottom: 1px solid #d0d0d0;
+}
+.lc-split-col-label { padding: 4px 10px; font-weight: 600; font-size: 10px; color: #555; letter-spacing: .04em; text-transform: uppercase; min-width: 0; }
+.lc-split-divider-head { background: #d0d0d0; }
+.lc-split-body { background: #1c1b1f; max-height: 260px; overflow-y: auto; overflow-x: hidden; }
+.lc-split-row {
+	display: grid;
+	grid-template-columns: minmax(0, 1fr) 2px minmax(0, 1fr);
+	border-bottom: 1px solid rgba(255,255,255,.04);
+	min-height: 20px;
+}
+.lc-split-divider { background: #444; }
+.lc-split-cell { margin: 0; padding: 2px 10px; font-family: "JetBrains Mono", "Fira Code", monospace; font-size: 11px; line-height: 1.6; color: #e6e1e5; white-space: pre; overflow: hidden; min-width: 0; }
+.lc-sdiff-del   { background: rgba(240,80,80,.2);    color: #ff8a8a; }
 .lc-sdiff-add   { background: rgba(100,220,100,.18); color: #6ee68e; }
 .lc-sdiff-hunk  { background: rgba(144,202,249,.08); color: #90caf9; font-style: italic; }
-.lc-sdiff-empty { background: rgba(255,255,255,.03); color: transparent; }
+.lc-sdiff-empty { background: rgba(255,255,255,.03); }
+
+/* ── Tests panel ─────────────────────────────────────────────────────── */
+.lc-tests-panel {
+	margin-top: 10px;
+	border: 1px solid #c8e6c9;
+	border-radius: 10px;
+	overflow: hidden;
+	font-size: 12.5px;
+	background: #fff;
+}
+.lc-tests-header {
+	background: #e8f5e9;
+	border-bottom: 1px solid #c8e6c9;
+	padding: 8px 14px;
+	font-weight: 700;
+	font-size: 11.5px;
+	color: #1b5e20;
+	letter-spacing: .02em;
+	display: flex;
+	align-items: center;
+	gap: 6px;
+}
+.lc-tests-intro {
+	padding: 8px 14px 4px;
+	font-size: 11.5px;
+	color: #666;
+	border-bottom: 1px solid #f0f0f0;
+}
+.lc-tests-checklist { padding: 10px 12px; display: flex; flex-direction: column; gap: 10px; }
+.lc-test-item {
+	background: #fafafa;
+	border: 1px solid #e8e8e8;
+	border-radius: 8px;
+	padding: 10px 12px;
+}
+.lc-test-scenario { font-weight: 700; color: #222; margin-bottom: 6px; font-size: 12.5px; }
+.lc-test-row { display: flex; gap: 8px; color: #555; margin-top: 3px; line-height: 1.45; }
+.lc-test-label {
+	flex-shrink: 0;
+	font-weight: 700;
+	font-size: 10px;
+	text-transform: uppercase;
+	letter-spacing: .05em;
+	color: #4caf50;
+	padding-top: 2px;
+	min-width: 40px;
+}
+.lc-test-actions {
+	display: flex;
+	align-items: center;
+	gap: 8px;
+	margin-top: 8px;
+	flex-wrap: wrap;
+}
+.lc-run-test-btn {
+	padding: 3px 10px;
+	font-size: 11px;
+	font-weight: 600;
+	border: 1px solid #4caf50;
+	border-radius: 12px;
+	background: #f0faf0;
+	color: #2d6a2d;
+	cursor: pointer;
+	display: flex;
+	align-items: center;
+	gap: 5px;
+	transition: background .15s, opacity .15s;
+}
+.lc-run-test-btn:hover:not(:disabled) { background: #e0f5e0; }
+.lc-run-test-btn:disabled { opacity: .55; cursor: default; }
+.lc-test-spinner {
+	display: inline-block;
+	width: 10px; height: 10px;
+	border: 2px solid #4caf50;
+	border-top-color: transparent;
+	border-radius: 50%;
+	animation: lc-spin .7s linear infinite;
+}
+@keyframes lc-spin { to { transform: rotate(360deg); } }
+.lc-test-result { font-size: 11.5px; line-height: 1.4; flex: 1; min-width: 0; }
+.lc-test-pass { color: #2d6a2d; }
+.lc-test-fail { color: #b33; }
+
 
 /* ── Action buttons (Apply to Canvas, Clarify) ──────────────────── */
 .lc-msg-actions {
