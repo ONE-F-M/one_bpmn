@@ -139,14 +139,6 @@
 							<span v-else class="text-sm text-gray-400">-</span>
 						</template>
 
-						<!-- Business Analyst column -->
-						<template v-else-if="column.key === 'business_analyst_name'">
-							<div v-if="item" class="flex items-center gap-2">
-								<Avatar :label="item" size="sm" />
-								<span class="text-sm text-gray-600">{{ truncate(item, 15) }}</span>
-							</div>
-							<span v-else class="text-sm text-gray-400">-</span>
-						</template>
 
 						<!-- Status column -->
 						<template v-else-if="column.key === 'status'">
@@ -234,11 +226,6 @@ const columns = computed(() => [
 	{
 		label: "Process Owner",
 		key: "process_owner_name",
-		width: "180px",
-	},
-	{
-		label: "Business Analyst",
-		key: "business_analyst_name",
 		width: "180px",
 	},
 	{

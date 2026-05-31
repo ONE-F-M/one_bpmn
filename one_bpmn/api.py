@@ -660,8 +660,6 @@ def list_processes() -> list:
 			"process_name",
 			"process_owner",
 			"process_owner_name",
-			"business_analyst",
-			"business_analyst_name",
 			"description",
 			"modified",
 			"creation",
