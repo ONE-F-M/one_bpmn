@@ -669,7 +669,6 @@ def list_processes() -> list:
 		order_by="modified desc",
 	)
 
-	
 	# Get diagram counts per process
 	diagram_counts = frappe.get_all(
 		"BPMN Process Model", fields=["process_name", "count(*) as count"], group_by="process_name"
