@@ -2139,10 +2139,9 @@ function onMessageDialogSave(close) {
 	if (!trimmedName || !_eventBus) return;
 
 	_eventBus.fire("spiff.add_message.returned", {
-		value: {
-			elementId: elementId,
-			messageId: trimmedName,
-		},
+		name: trimmedName,
+		elementId: elementId,
+		correlation_properties: {},
 	});
 	close();
 }

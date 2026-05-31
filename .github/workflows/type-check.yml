@@ -1,0 +1,68 @@
+name: Type Check
+
+on:
+  pull_request:
+    branches: [staging, test-production, version-15]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: typecheck-one_bpmn-${{ github.event_name }}-${{ github.event.number || github.run_id }}
+  cancel-in-progress: true
+
+jobs:
+  typecheck:
+    name: Type Check with basedmypy
+    runs-on: ubuntu-latest
+    continue-on-error: true
+
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Install checker
+        run: |
+          pip install basedmypy~=2.0.0 types-requests
+      - name: Read typed files from pyproject.toml
+        id: typed-files
+        run: |
+          python - <<'PY' >> "$GITHUB_OUTPUT"
+          import shlex
+          import tomllib
+
+          with open("pyproject.toml", "rb") as pyproject:
+              files = tomllib.load(pyproject).get("tool", {}).get("mypy", {}).get("files", [])
+
+          quoted_files = " ".join(shlex.quote(path) for path in files)
+          print(f"files={quoted_files}")
+          PY
+      - name: Check whether typed files changed
+        id: changed
+        if: github.event_name == 'pull_request'
+        run: |
+          git fetch --no-tags --depth=1 origin "${{ github.base_ref }}"
+          python - <<'PY' >> "$GITHUB_OUTPUT"
+          import subprocess
+          import tomllib
+
+          with open("pyproject.toml", "rb") as pyproject:
+              typed_files = set(tomllib.load(pyproject).get("tool", {}).get("mypy", {}).get("files", []))
+
+          changed_files = set(
+              subprocess.check_output(
+                  ["git", "diff", "--name-only", f"origin/${{ github.base_ref }}...HEAD"],
+                  text=True,
+              ).splitlines()
+          )
+          should_run = "true" if "pyproject.toml" in changed_files or typed_files.intersection(changed_files) else "false"
+          print(f"run={should_run}")
+          PY
+      - name: Run mypy on typed files only
+        if: github.event_name != 'pull_request' || steps.changed.outputs.run == 'true'
+        run: |
+          mypy ${{ steps.typed-files.outputs.files }} --ignore-missing-imports
