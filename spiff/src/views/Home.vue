@@ -39,18 +39,40 @@
 
 		<!-- Content -->
 		<main class="flex-1 p-6 overflow-auto">
+			<!-- Search Filter (Only show when there are processes or if searching) -->
+			<div v-if="processes.length > 0 || filterKeyword" class="mb-4 flex items-center justify-between">
+				<TextInput
+					v-model="filterKeyword"
+					placeholder="Search processes..."
+					class="w-64"
+				>
+					<template #prefix>
+						<Icon icon="lucide:search" class="w-4 h-4 text-gray-400" />
+					</template>
+				</TextInput>
+			</div>
+
 			<!-- Loading State -->
 			<div v-if="loading" class="flex items-center justify-center h-64">
 				<div class="text-gray-500">Loading...</div>
 			</div>
 
-			<!-- Empty State -->
-			<div v-else-if="sortedProcesses.length === 0" class="flex flex-col items-center justify-center h-64 text-center">
+			<!-- Empty State (No processes at all in system) -->
+			<div v-else-if="processes.length === 0" class="flex flex-col items-center justify-center h-64 text-center">
 				<div class="text-gray-400 mb-4">
 					<Icon icon="lucide:layout-grid" class="w-16 h-16 mx-auto" />
 				</div>
 				<h3 class="text-lg font-medium text-gray-900 mb-1">No Processes Found</h3>
 				<p class="text-gray-500 mb-4">Create a Process in the system to start building BPMN Process Maps.</p>
+			</div>
+
+			<!-- No Matching Processes State -->
+			<div v-else-if="sortedProcesses.length === 0" class="flex flex-col items-center justify-center h-64 text-center">
+				<div class="text-gray-400 mb-4">
+					<Icon icon="lucide:search" class="w-16 h-16 mx-auto text-gray-300" />
+				</div>
+				<h3 class="text-lg font-medium text-gray-900 mb-1">No Matching Processes</h3>
+				<p class="text-gray-500 mb-4">Try adjusting your search query.</p>
 			</div>
 
 			<!-- Mobile Card Layout -->
@@ -186,7 +208,7 @@
 <script setup>
 import { ref, onMounted, computed } from "vue"
 import { useRouter } from "vue-router"
-import { frappeRequest } from "frappe-ui"
+import { frappeRequest, TextInput } from "frappe-ui"
 import { Icon } from "@iconify/vue"
 import { dayjs } from "@/dayjs"
 import { downloadBpmn } from "@/utils/downloadBpmn"
@@ -203,13 +225,26 @@ const exportingProcesses = ref(new Set())
 const router = useRouter()
 const processes = ref([])
 const loading = ref(true)
+const filterKeyword = ref("")
 
 // Pathfinder Log editability map: { processName: true/false }
 const editabilityMap = ref({})
 
-const sortedProcesses = computed(() => {
+const filteredProcesses = computed(() => {
 	if (!Array.isArray(processes.value)) return []
-	return [...processes.value].sort((a, b) => {
+	let list = processes.value
+	if (filterKeyword.value) {
+		const query = filterKeyword.value.toLowerCase().trim()
+		list = list.filter(p => 
+			(p.process_name && p.process_name.toLowerCase().includes(query)) ||
+			(p.name && p.name.toLowerCase().includes(query))
+		)
+	}
+	return list
+})
+
+const sortedProcesses = computed(() => {
+	return [...filteredProcesses.value].sort((a, b) => {
 		const dateA = dayjs(a.last_modified)
 		const dateB = dayjs(b.last_modified)
 		return dateB.isAfter(dateA) ? 1 : -1
