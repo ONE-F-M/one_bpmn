@@ -64,6 +64,13 @@
 				</div>
 				<h3 class="text-lg font-medium text-gray-900 mb-1">No Processes Found</h3>
 				<p class="text-gray-500 mb-4">Create a Process in the system to start building BPMN Process Maps.</p>
+				<a
+					href="/app/process"
+					class="inline-flex items-center gap-2 px-4 py-2 text-sm font-medium text-white bg-gray-900 rounded-md hover:bg-gray-800 transition-all hover:scale-[1.02] shadow-md focus:outline-none focus:ring-2 focus:ring-gray-900 focus:ring-offset-2 mt-2"
+				>
+					Go to Process List
+					<Icon icon="lucide:plus" class="w-4 h-4" />
+				</a>
 			</div>
 
 			<!-- No Matching Processes State -->
