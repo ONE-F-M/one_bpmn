@@ -86,7 +86,7 @@ def _find_agent_row(settings, agent_id: str):
     if not agent_id or not settings:
         return None
     for row in (getattr(settings, "processa_agent_configs", None) or []):
-        if (row.agent_id or "").strip() == agent_id.strip():
+        if (row.agent_id or "").strip().lower() == agent_id.strip().lower():
             return row
     return None
 
