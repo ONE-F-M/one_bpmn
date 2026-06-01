@@ -32,11 +32,62 @@ class AnthropicAdapter(BaseLLMAdapter):
         user: str,
         tools: list[ToolSpec] | None = None,
     ) -> str:
-        messages = [{"role": "user", "content": user}]
+        import re
+
         tool_defs = [_build_tool_def(t) for t in tools] if tools else []
         tool_map = {t.name: t for t in tools} if tools else {}
 
-        kwargs: dict = {"model": self._model, "system": system, "max_tokens": 8192, "messages": messages}
+        # ── Optimize & Cache Tool Definitions ─────────────────────────────────
+        if tool_defs:
+            # Set cache control on the last tool to cache the whole tools prefix
+            tool_defs[-1]["cache_control"] = {"type": "ephemeral"}
+
+        # ── Optimize & Cache System Prompts ───────────────────────────────────
+        system_blocks = [
+            {
+                "type": "text",
+                "text": system,
+                "cache_control": {"type": "ephemeral"}
+            }
+        ]
+
+        # ── Optimize & Cache Conversation History & Context ───────────────────
+        user_blocks = []
+        split_match = re.search(
+            r"(\n+(?:User message|User request|User prompt|Request):\s*)(.*)$",
+            user,
+            re.IGNORECASE | re.DOTALL
+        )
+        if split_match:
+            prefix_text = user[:split_match.start()].strip()
+            suffix_text = (split_match.group(1) + split_match.group(2)).strip()
+            if prefix_text:
+                user_blocks.append({
+                    "type": "text",
+                    "text": prefix_text,
+                    "cache_control": {"type": "ephemeral"}
+                })
+            user_blocks.append({
+                "type": "text",
+                "text": suffix_text
+            })
+        else:
+            user_blocks.append({
+                "type": "text",
+                "text": user
+            })
+
+        messages = [{"role": "user", "content": user_blocks}]
+
+        kwargs: dict = {
+            "model": self._model,
+            "system": system_blocks,
+            "max_tokens": 8192,
+            "messages": messages,
+            "extra_headers": {
+                "anthropic-beta": "prompt-caching-2024-07-31"
+            }
+        }
         if tool_defs:
             kwargs["tools"] = tool_defs
 
