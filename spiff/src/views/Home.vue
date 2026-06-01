@@ -163,7 +163,7 @@
 						<template v-else-if="column.key === 'process_owner_name'">
 							<div v-if="item" class="flex items-center gap-2">
 								<Avatar :label="item" size="sm" />
-								<span class="text-sm text-gray-600">{{ truncate(item, 15) }}</span>
+								<span class="text-sm text-gray-600">{{ truncate(item, 35) }}</span>
 							</div>
 							<span v-else class="text-sm text-gray-400">-</span>
 						</template>
@@ -263,12 +263,12 @@ const columns = computed(() => [
 	{
 		label: "Title",
 		key: "process_name",
-		width: 2,
+		width: 3,
 	},
 	{
 		label: "Process Owner",
 		key: "process_owner_name",
-		width: "180px",
+		width: 1,
 	},
 	{
 		label: "Status",
