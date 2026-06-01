@@ -105,7 +105,6 @@ def get_llm_adapter_from_settings(agent_config: dict | None = None) -> BaseLLMAd
     cfg        = agent_config or {}
     agent_id   = cfg.get("agent_id", "")
     agent_row  = _find_agent_row(settings, agent_id)
-    print(cfg, agent_id, agent_row, "-----------------config", "\n\n\n\n\n\n")
 
     # ── Provider ──────────────────────────────────────────────────────────────
     dev_override = cfg.get("llm_provider_override", "Use Global")
