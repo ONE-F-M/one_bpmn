@@ -86,7 +86,7 @@ def _find_agent_row(settings, agent_id: str):
     if not agent_id or not settings:
         return None
     for row in (getattr(settings, "processa_agent_configs", None) or []):
-        if (row.agent_id or "").strip() == agent_id.strip():
+        if (row.agent_id or "").strip().lower() == agent_id.strip().lower():
             return row
     return None
 
@@ -105,6 +105,7 @@ def get_llm_adapter_from_settings(agent_config: dict | None = None) -> BaseLLMAd
     cfg        = agent_config or {}
     agent_id   = cfg.get("agent_id", "")
     agent_row  = _find_agent_row(settings, agent_id)
+    print(cfg, agent_id, agent_row, "-----------------config", "\n\n\n\n\n\n")
 
     # ── Provider ──────────────────────────────────────────────────────────────
     dev_override = cfg.get("llm_provider_override", "Use Global")

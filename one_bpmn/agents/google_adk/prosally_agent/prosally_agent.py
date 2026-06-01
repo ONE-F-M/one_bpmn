@@ -524,7 +524,8 @@ class ProsAllyAgent:
     """Orchestrates intent classification and clarification for process modelling requests."""
 
     def __init__(self):
-        self._config = get_agent_config(AGENT_ID)
+        self._config = dict(get_agent_config(AGENT_ID) or {})
+        self._config.setdefault("agent_id", AGENT_ID)
         self._llm    = get_llm_adapter_from_settings(self._config)
         self._instructions = self._load_instructions()
 
