@@ -12,7 +12,7 @@ dependencies = [
     "spiffworkflow",
     "google-auth>=2.0.0",
     "anthropic",
-    "openai",
+    "openai>=1.0.0",
     "google-genai",
 ]
 
