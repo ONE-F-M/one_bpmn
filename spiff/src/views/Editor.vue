@@ -1670,14 +1670,16 @@ async function saveCurrentDiagram() {
 		const xml = await editorRef.value.getXML();
 		isExecutable.value = extractIsExecutable(xml);
 		const diagram = diagrams.value.find((d) => d.name === activeDiagramName.value);
+		const modelName = diagram?.model_name || activeDiagramName.value;
+		const description = diagram?.description || "";
 
 		const data = await frappeRequest({
 			url: "/api/method/one_bpmn.api.save_process_model",
 			params: {
 				process: props.process,
-				model_name: diagram.model_name,
+				model_name: modelName,
 				xml_content: xml,
-				description: diagram.description || "",
+				description: description,
 			},
 		});
 
