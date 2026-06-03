@@ -66,7 +66,7 @@
 				</div>
 
 				<!-- CENTER: BPMN Tools Container (Mounted natively from BpmnEditor.vue, hidden on mobile) -->
-				<div id="bpmn-editor-toolbar" class="hidden sm:flex flex-1 items-center h-8 min-w-0 overflow-hidden"></div>
+				<div id="bpmn-editor-toolbar" class="hidden sm:flex flex-1 items-center h-8 min-w-0"></div>
 
 				<!-- Other Active Editors Avatars (hidden on mobile) -->
 				<div v-if="otherEditors.length > 0" class="hidden sm:flex items-center -space-x-2 ml-4">
