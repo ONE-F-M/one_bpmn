@@ -1883,6 +1883,12 @@ onMounted(async () => {
 				if (selected?.length === 1 && selected[0]?.type === "bpmn:CallActivity") {
 					reinjectIfCalledElementChanged(selected[0], propertiesContainer);
 				}
+				// Force properties panel to refresh and update dynamic properties (like Service Task fields)
+				try {
+					eventBus.fire("propertiesPanel.providersChanged");
+				} catch (e) {
+					console.warn("Failed to fire propertiesPanel.providersChanged:", e);
+				}
 			});
 
 		// Listen for zoom changes (Ctrl+scroll, programmatic zoom, etc.)
@@ -2645,9 +2651,26 @@ function decodeHtmlEntities(text) {
 // Expose methods for parent component
 async function getXML() {
 	if (!modeler) return "";
+
+	// Flush active properties panel text inputs to commit debounced values
+	if (document.activeElement && typeof document.activeElement.blur === "function") {
+		document.activeElement.blur();
+	}
+
+	// Commit any active direct editing on the canvas
+	try {
+		const directEditing = modeler.get("directEditing");
+		if (directEditing && directEditing.isActive()) {
+			directEditing.complete();
+		}
+	} catch (e) {
+		console.warn("Could not complete active direct editing:", e);
+	}
+
 	const { xml } = await modeler.saveXML({ format: true });
 	return xml;
 }
+
 
 async function loadXML(xml) {
 	if (!modeler) return;
@@ -2664,18 +2687,24 @@ async function loadXML(xml) {
 			const connections = elementRegistry.filter(
 				(el) => el.type === "bpmn:SequenceFlow" || (el.waypoints && el.source && el.target)
 			);
-			if (connections.length > 0) {
-				connections.forEach((conn) => {
-					// If the connection is diagonal and has only 2 waypoints, clear them
-					// to force the bpmn-js layouter to calculate a perfect Manhattan route from scratch.
-					if (conn.waypoints && conn.waypoints.length <= 2) {
-						const pts = conn.waypoints;
-						if (pts.length === 2 && Math.abs(pts[0].y - pts[1].y) > 5) {
-							conn.waypoints = [];
-						}
+			for (const conn of connections) {
+				try {
+					// Only re-layout connections that look like diagonal straight lines
+					// (2 waypoints where the Y coordinates differ significantly).
+					// Do NOT mutate conn.waypoints directly — that corrupts bpmn-js
+					// internal state and causes "Cannot read properties of undefined
+					// (reading 'segmentIndex')" errors.
+					if (
+						conn.waypoints &&
+						conn.waypoints.length === 2 &&
+						Math.abs(conn.waypoints[0].y - conn.waypoints[1].y) > 5
+					) {
+						modeling.layoutConnection(conn);
 					}
-					modeling.layoutConnection(conn);
-				});
+				} catch (singleLayoutErr) {
+					// Swallow per-connection errors so one bad edge doesn't break the rest
+					console.warn("Auto-layout skipped for connection", conn.id, singleLayoutErr);
+				}
 			}
 		} catch (layoutErr) {
 			console.warn("Auto-layout connections failed:", layoutErr);
