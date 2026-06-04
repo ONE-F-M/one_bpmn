@@ -27,7 +27,8 @@ def _sanitize_bpmn_xml(bpmn_xml: str) -> str:
 		BPMN = "http://www.omg.org/spec/BPMN/20100524/MODEL"
 		BPMNDI = "http://www.omg.org/spec/BPMN/20100524/DI"
 
-		root = etree.fromstring(bpmn_xml.strip().encode("utf-8"))
+		parser = etree.XMLParser(resolve_entities=False, no_network=True)
+		root = etree.fromstring(bpmn_xml.strip().encode("utf-8"), parser=parser)
 
 		# 1. Collect IDs of elements actually defined inside <bpmn:process>
 		defined_ids = set()

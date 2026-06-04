@@ -87,8 +87,10 @@ def import_bpmn(
 	# --- Validate & parse XML ---
 	# lxml raises TypeError when fromstring() receives a str containing an encoding
 	# declaration (<?xml ... encoding="UTF-8"?>). Encoding to bytes avoids this.
+	# Use a hardened parser to prevent XXE / entity-expansion attacks.
 	try:
-		root = ET.fromstring(xml_content.strip().encode("utf-8"))
+		parser = ET.XMLParser(resolve_entities=False, no_network=True)
+		root = ET.fromstring(xml_content.strip().encode("utf-8"), parser=parser)
 	except ET.XMLSyntaxError as exc:
 		frappe.throw(_("Invalid BPMN XML: {0}").format(str(exc)))
 
