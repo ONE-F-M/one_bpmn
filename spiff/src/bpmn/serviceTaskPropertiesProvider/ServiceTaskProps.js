@@ -634,7 +634,7 @@ function EmailToDocFieldsComponent(props) {
 
 	// Fetch fields from the source DocType that can contain email addresses
 	const fetchDocFields = (txt) => {
-		return frappeGet("/api/method/one_bpmn.api.get_doctype_fields", {
+		return frappeGet("/api/method/one_bpmn.api.utils.get_doctype_fields", {
 			doctype: sourceDoctype,
 			search_text: txt || "",
 			fieldtype_in: JSON.stringify(["Data", "Link", "Small Text", "Read Only"]),
@@ -803,7 +803,7 @@ function UpdateFieldNameComponent(props) {
 	}
 
 	const fetchFields = (txt) => {
-		return frappeGet("/api/method/one_bpmn.api.get_doctype_fields", {
+		return frappeGet("/api/method/one_bpmn.api.utils.get_doctype_fields", {
 			doctype,
 			search_text: txt || "",
 		});
@@ -894,7 +894,7 @@ function UpdateFieldRowsComponent(props) {
 
 	const fetchFields = (txt) => {
 		if (!doctype) return Promise.resolve([]);
-		return frappeGet("/api/method/one_bpmn.api.get_doctype_fields", {
+		return frappeGet("/api/method/one_bpmn.api.utils.get_doctype_fields", {
 			doctype,
 			search_text: txt || "",
 		});
@@ -1163,7 +1163,7 @@ function PushToDocFieldsComponent(props) {
 
 	// Fetch user-type fields from the Reference DocType + synthetic Owner entry
 	const fetchDocFields = (txt) => {
-		return frappeGet("/api/method/one_bpmn.api.get_doctype_fields", {
+		return frappeGet("/api/method/one_bpmn.api.utils.get_doctype_fields", {
 			doctype: sourceDoctype,
 			search_text: txt || "",
 			fieldtype_in: JSON.stringify(["Link", "Data", "Read Only"]),

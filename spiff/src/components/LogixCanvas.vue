@@ -758,7 +758,7 @@ async function initGreeting() {
 		// Check whether a Server Script with the same name already exists
 		try {
 			const resp = await fetch(
-				`/api/method/one_bpmn.api.check_server_script_exists?script_name=${encodeURIComponent(label)}`,
+				`/api/method/one_bpmn.api.server_script_api.check_server_script_exists?script_name=${encodeURIComponent(label)}`,
 				{ headers: { "X-Frappe-CSRF-Token": getCsrfToken() } },
 			);
 			if (resp.ok) {
@@ -1038,7 +1038,7 @@ async function sendMessage() {
 			.slice(-10)
 			.map(m => ({ type: m.role, content: m.content }));
 
-		const response = await fetch("/api/method/one_bpmn.api.process_logix_message", {
+		const response = await fetch("/api/method/one_bpmn.api.server_script_api.process_logix_message", {
 			method: "POST",
 			headers: {
 				"Content-Type":       "application/json",
@@ -1151,7 +1151,7 @@ async function runTest(msgId, ti, inputs) {
 	const key = `${msgId}-${ti}`;
 	testRunResults[key] = { loading: true, passed: null, summary: "" };
 	try {
-		const response = await fetch("/api/method/one_bpmn.api.run_logix_test_case", {
+		const response = await fetch("/api/method/one_bpmn.api.server_script_api.run_logix_test_case", {
 			method: "POST",
 			headers: {
 				"Content-Type":        "application/json",
@@ -1215,7 +1215,7 @@ async function fetchVersionHistory() {
 	loadingVersions.value = true;
 	try {
 		const res = await fetch(
-			`/api/method/one_bpmn.api.get_script_version_history?script_name=${encodeURIComponent(canvasScriptName.value)}`,
+			`/api/method/one_bpmn.api.script_version_history.get_script_version_history?script_name=${encodeURIComponent(canvasScriptName.value)}`,
 			{ headers: { "X-Frappe-CSRF-Token": getCsrfToken() } }
 		);
 		const data = await res.json();
@@ -1305,7 +1305,7 @@ async function ensureUniqueName() {
 			// A name that matches the currently saved script is always fine (it's ours)
 			if (name === savedScriptName.value) break;
 			const r = await fetch(
-				`/api/method/one_bpmn.api.check_server_script_exists?script_name=${encodeURIComponent(name)}`,
+				`/api/method/one_bpmn.api.server_script_api.check_server_script_exists?script_name=${encodeURIComponent(name)}`,
 				{ headers: { "X-Frappe-CSRF-Token": getCsrfToken() } },
 			);
 			const d = await r.json();
@@ -1336,7 +1336,7 @@ async function saveScript() {
 
 		// Upsert with the (possibly renamed) name
 		const meta = scriptMeta.value;
-		const res = await fetch("/api/method/one_bpmn.api.create_server_script", {
+		const res = await fetch("/api/method/one_bpmn.api.server_script_api.create_server_script", {
 			method:  "POST",
 			headers: { "Content-Type": "application/json", "X-Frappe-CSRF-Token": getCsrfToken() },
 			body:    JSON.stringify({

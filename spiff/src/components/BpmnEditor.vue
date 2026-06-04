@@ -1232,7 +1232,7 @@ async function submitTimelineComment() {
 	
 	try {
 		await frappeRequest({
-			url: "/api/method/one_bpmn.api.post_canvas_comment",
+			url: "/api/method/one_bpmn.api.canvas_comments.post_canvas_comment",
 			params: {
 				model_name: props.modelName,
 				element_id: elementId,
@@ -1388,18 +1388,11 @@ function makeEmptyDiagram() {
 	return `<?xml version="1.0" encoding="UTF-8"?>
 <bpmn:definitions xmlns:bpmn="http://www.omg.org/spec/BPMN/20100524/MODEL"
                   xmlns:bpmndi="http://www.omg.org/spec/BPMN/20100524/DI"
-                  xmlns:dc="http://www.omg.org/spec/DD/20100524/DC"
                   id="Definitions_1"
                   targetNamespace="http://bpmn.io/schema/bpmn">
-  <bpmn:process id="${processId}" isExecutable="false">
-    <bpmn:startEvent id="StartEvent_1" />
-  </bpmn:process>
+  <bpmn:process id="${processId}" isExecutable="false" />
   <bpmndi:BPMNDiagram id="BPMNDiagram_1">
-    <bpmndi:BPMNPlane id="BPMNPlane_1" bpmnElement="${processId}">
-      <bpmndi:BPMNShape id="_BPMNShape_StartEvent_1" bpmnElement="StartEvent_1">
-        <dc:Bounds x="173" y="102" width="36" height="36" />
-      </bpmndi:BPMNShape>
-    </bpmndi:BPMNPlane>
+    <bpmndi:BPMNPlane id="BPMNPlane_1" bpmnElement="${processId}" />
   </bpmndi:BPMNDiagram>
 </bpmn:definitions>`;
 }
@@ -1772,7 +1765,7 @@ onMounted(async () => {
 				elements.forEach(element => {
 					if (element.id && props.modelName) {
 						frappeRequest({
-							url: "/api/method/one_bpmn.api.delete_canvas_element_assets",
+							url: "/api/method/one_bpmn.api.canvas_comments.delete_canvas_element_assets",
 							params: {
 								model_name: props.modelName,
 								element_id: element.id
@@ -2391,7 +2384,7 @@ async function submitInlineComment() {
 
 	try {
 		await frappeRequest({
-			url: "/api/method/one_bpmn.api.post_canvas_comment",
+			url: "/api/method/one_bpmn.api.canvas_comments.post_canvas_comment",
 			params: {
 				model_name: props.modelName,
 				element_id: inlineCommentElement.value.id,
@@ -2501,7 +2494,7 @@ async function fetchUsers() {
 	if (users.value.length > 0) return; // Already fetched
 	try {
 		const response = await frappeRequest({
-			url: "/api/method/one_bpmn.api.get_system_users",
+			url: "/api/method/one_bpmn.api.utils.get_system_users",
 		});
 		users.value = (response.message || response || []).filter(u => u.full_name);
 	} catch (err) {
@@ -2513,7 +2506,7 @@ async function fetchComments() {
 	if (!props.modelName) return;
 	try {
 		const response = await frappeRequest({
-			url: "/api/method/one_bpmn.api.get_canvas_comments",
+			url: "/api/method/one_bpmn.api.canvas_comments.get_canvas_comments",
 			params: { model_name: props.modelName }
 		});
 		comments.value = response.message || response || [];
@@ -2594,7 +2587,7 @@ async function submitComment() {
 
 	try {
 		await frappeRequest({
-			url: "/api/method/one_bpmn.api.post_canvas_comment",
+			url: "/api/method/one_bpmn.api.canvas_comments.post_canvas_comment",
 			params: {
 				model_name: props.modelName,
 				element_id: elementId,
@@ -2615,7 +2608,7 @@ async function submitComment() {
 async function resolveComment(comment) {
 	try {
 		await frappeRequest({
-			url: "/api/method/one_bpmn.api.update_comment_status",
+			url: "/api/method/one_bpmn.api.canvas_comments.update_comment_status",
 			params: {
 				name: comment.name,
 				status: "Resolved"

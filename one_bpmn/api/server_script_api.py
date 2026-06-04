@@ -1,0 +1,393 @@
+# Copyright (c) 2026, kartiksharma9319@gmail.com and contributors
+# For license information, please see license.txt
+
+import re
+
+import frappe
+from frappe import _
+
+
+# ============================================
+# Server Script API
+# Uses ignore_permissions so Process Owners without the Script Manager role
+# can still list/create Server Scripts via the BPMN editor.
+# Creation is guarded to System Manager or Script Manager only.
+# ============================================
+
+
+def _derive_api_method(script_name: str) -> str:
+	"""Convert a script name to a valid Frappe API method identifier."""
+	method = script_name.lower()
+	method = re.sub(r"[^a-z0-9\s_]", "", method)
+	method = re.sub(r"\s+", "_", method)
+	method = re.sub(r"_+", "_", method).strip("_")
+	return method or "script"
+
+
+@frappe.whitelist()
+def create_server_script(
+	script_name: str,
+	script_type: str,
+	script: str,
+	reference_doctype: str = None,
+	doctype_event: str = None,
+	api_method: str = None,
+	allow_guest: int = 0,
+	event_frequency: str = None,
+	cron_format: str = None,
+	module: str = None,
+) -> dict:
+	if not script_name or not script_type or not script:
+		frappe.throw(_("Script name, type, and content are required"))
+
+	if not frappe.has_permission("Server Script", "create") and "System Manager" not in frappe.get_roles():
+		frappe.throw(
+			_("You need the Script Manager or System Manager role to create Server Scripts."),
+			frappe.PermissionError,
+		)
+
+	doc = frappe.new_doc("Server Script")
+	doc.__newname = script_name
+	doc.script_type = script_type
+	doc.script = script
+	doc.disabled = 0  # enabled by default
+	if reference_doctype:
+		doc.reference_doctype = reference_doctype
+	if doctype_event:
+		doc.doctype_event = doctype_event
+	# For API scripts, always set an api_method so Processa can reach it via REST
+	if script_type == "API":
+		resolved_method = api_method or _derive_api_method(script_name)
+		doc.api_method = resolved_method
+	elif api_method:
+		doc.api_method = api_method
+	if allow_guest:
+		doc.allow_guest = int(allow_guest)
+	if event_frequency:
+		doc.event_frequency = event_frequency
+	if cron_format:
+		doc.cron_format = cron_format
+	if module:
+		doc.module = module
+
+	original_user = frappe.session.user
+	try:
+		frappe.set_user("Administrator")
+		if frappe.db.exists("Server Script", script_name):
+			# Script already exists — update in place instead of re-inserting
+			doc = frappe.get_doc("Server Script", script_name)
+			doc.script_type = script_type
+			doc.script = script
+			doc.disabled = 0
+			if reference_doctype is not None:
+				doc.reference_doctype = reference_doctype
+			if doctype_event is not None:
+				doc.doctype_event = doctype_event
+			if script_type == "API":
+				resolved_method = api_method or _derive_api_method(script_name)
+				doc.api_method = resolved_method
+			elif api_method is not None:
+				doc.api_method = api_method
+			if allow_guest is not None:
+				doc.allow_guest = int(allow_guest)
+			if event_frequency is not None:
+				doc.event_frequency = event_frequency
+			if cron_format is not None:
+				doc.cron_format = cron_format
+			if module is not None:
+				doc.module = module
+			doc.save(ignore_permissions=True)
+		else:
+			doc.insert(ignore_permissions=True)
+	finally:
+		frappe.set_user(original_user)
+
+	method = getattr(doc, "api_method", None) or ""
+	return {
+		"name":        doc.name,
+		"script_type": doc.script_type,
+		"api_method":  method,
+		"api_url":     f"/api/method/{method}" if method else "",
+	}
+
+
+@frappe.whitelist()
+def update_server_script(
+	script_name: str,
+	script: str,
+	script_type: str = None,
+	reference_doctype: str = None,
+	doctype_event: str = None,
+	api_method: str = None,
+	allow_guest: int = None,
+	event_frequency: str = None,
+	cron_format: str = None,
+	module: str = None,
+) -> dict:
+	"""Replace the script body (and optionally metadata) of an existing Server Script."""
+	if frappe.session.user == "Guest":
+		frappe.throw(_("Authentication required"))
+
+	if not frappe.has_permission("Server Script", "write") and "System Manager" not in frappe.get_roles():
+		frappe.throw(
+			_("You need the Script Manager or System Manager role to update Server Scripts."),
+			frappe.PermissionError,
+		)
+
+	try:
+		doc = frappe.get_doc("Server Script", script_name)
+		doc.script = script
+		if script_type:
+			doc.script_type = script_type
+		if reference_doctype is not None:
+			doc.reference_doctype = reference_doctype
+		if doctype_event is not None:
+			doc.doctype_event = doctype_event
+		if api_method is not None:
+			doc.api_method = api_method
+		if allow_guest is not None:
+			doc.allow_guest = int(allow_guest)
+		if event_frequency is not None:
+			doc.event_frequency = event_frequency
+		if cron_format is not None:
+			doc.cron_format = cron_format
+		if module is not None:
+			doc.module = module
+		original_user = frappe.session.user
+		try:
+			frappe.set_user("Administrator")
+			doc.save(ignore_permissions=True)
+		finally:
+			frappe.set_user(original_user)
+		method = doc.api_method or ""
+		return {
+			"name":        doc.name,
+			"script_type": doc.script_type,
+			"api_method":  method,
+			"api_url":     f"/api/method/{method}" if method else "",
+		}
+	except frappe.DoesNotExistError:
+		frappe.throw(_("Server Script '{0}' not found.").format(script_name))
+	except Exception:
+		frappe.log_error(title="Update Server Script Error", message=frappe.get_traceback())
+		frappe.throw(_("Failed to update Server Script."))
+
+
+@frappe.whitelist()
+def check_server_script_exists(script_name: str) -> dict:
+	"""Check if a Server Script document with the given name exists."""
+	if frappe.session.user == "Guest":
+		frappe.throw(_("Authentication required"))
+	return {"exists": bool(frappe.db.exists("Server Script", script_name))}
+
+
+@frappe.whitelist()
+def process_logix_message(
+	message: str,
+	session_id: str,
+	conversation_name: str = None,
+	chat_history: str = None,
+	element_name: str = None,
+	current_script: str = None,
+	process_context: dict = None,
+) -> dict:
+	"""Process a Logix AI chat message, persisting history in Chat Conversation."""
+	if frappe.session.user == "Guest":
+		frappe.throw(_("Authentication required"))
+
+	try:
+		from one_bpmn.utils.chat_persistence import (
+			create_conversation, save_user_message, save_bot_message, load_history,
+		)
+
+		# Create a new conversation on the first message
+		if not conversation_name:
+			label = element_name or "Script Task"
+			conversation_name = create_conversation(
+				agent_mode="Logix",
+				title=f"Logix: {label}",
+				user=frappe.session.user,
+			)
+
+		# Persist the user message
+		save_user_message(conversation_name, message)
+
+		# Load full history from DB (ignores the frontend-supplied chat_history)
+		history = load_history(conversation_name)
+
+		# Fetch the original script body for diff computation on MODIFY
+		original_content = ""
+		if current_script:
+			try:
+				original_content = frappe.get_doc("Server Script", current_script).script or ""
+			except Exception:
+				pass
+
+		from one_bpmn.agents.google_adk.script_task_agent.script_task_agent import run_logix_message
+
+		result = run_logix_message(
+			message=message,
+			chat_history=history,
+			element_name=element_name or "",
+			current_script=current_script or "",
+			original_script_content=original_content,
+			process_context=process_context or {},
+		)
+
+		# Persist the bot response
+		save_bot_message(
+			conversation_name,
+			result.get("response", ""),
+			metadata={"intent": result.get("intent")},
+		)
+
+		result["conversation_name"] = conversation_name
+		return result
+
+	except Exception:
+		frappe.log_error(title="Logix Agent error", message=frappe.get_traceback())
+		return {"intent": "ERROR", "response": "An unexpected error occurred. Please try again."}
+
+
+@frappe.whitelist()
+def run_logix_test_case(script_name: str, inputs: str = "{}") -> dict:
+	"""Execute a Server Script with test inputs and return a plain-English pass/fail result."""
+	if frappe.session.user == "Guest":
+		frappe.throw(_("Authentication required"))
+
+	try:
+		import json as _json
+		test_inputs = _json.loads(inputs) if isinstance(inputs, str) else (inputs or {})
+
+		doc = frappe.get_doc("Server Script", script_name)
+		if doc.script_type != "API":
+			return {"passed": False, "result": None, "summary": "This script is not an API-type script and cannot be run as a test."}
+
+		# Save and replace frappe.form_dict with test inputs
+		original_form_dict = dict(frappe.form_dict)
+		frappe.form_dict.clear()
+		frappe.form_dict.update(test_inputs)
+
+		# Clear any previous message so we can detect what the script sets
+		frappe.response.pop("message", None)
+
+		try:
+			doc.execute_method()
+			result = frappe.response.get("message")
+			summary = "It worked — the script ran without any problems."
+			if result and isinstance(result, dict) and result:
+				# Describe the result in plain English without exposing key names
+				count = len(result)
+				summary = f"It worked — the script completed and sent back {count} piece{'s' if count != 1 else ''} of information."
+			return {"passed": True, "result": result, "summary": summary}
+
+		except Exception as exc:
+			error_msg = str(exc)
+			# frappe.throw() raises ValidationError — this is often an *expected* negative result
+			is_validation = "ValidationError" in type(exc).__name__ or hasattr(exc, "http_status_code")
+			if is_validation:
+				return {
+					"passed": False,
+					"result": None,
+					"summary": f"The script stopped and said: \"{error_msg}\"",
+				}
+			return {
+				"passed": False,
+				"result": None,
+				"summary": "Something went wrong while running the script. You can ask Logix \"why did this test fail?\" for help.",
+			}
+		finally:
+			frappe.form_dict.clear()
+			frappe.form_dict.update(original_form_dict)
+
+	except Exception:
+		frappe.log_error(title="Logix Test Runner error", message=frappe.get_traceback())
+		return {"passed": False, "result": None, "summary": "Could not run the test right now. Please try again in a moment."}
+
+
+@frappe.whitelist()
+def prosally_chat(
+	message: str,
+	session_id: str,
+	conversation_name: str = None,
+	chat_history: str = None,
+	process_name: str = "",
+	diagram_name: str = "",
+	confirmed_action: str = "",
+	current_xml: str = "",
+) -> dict:
+	"""Process a ProsAlly chat message, persisting history in Chat Conversation."""
+	if frappe.session.user == "Guest":
+		frappe.throw(_("Authentication required"))
+
+	try:
+		from one_bpmn.utils.chat_persistence import (
+			create_conversation, save_user_message, save_bot_message, load_history,
+		)
+
+		# Create a new conversation on the first message
+		if not conversation_name:
+			label = process_name or diagram_name or "Process"
+			conversation_name = create_conversation(
+				agent_mode="ProsAlly",
+				title=f"ProsAlly: {label}",
+				user=frappe.session.user,
+			)
+
+		# Persist the user message
+		save_user_message(conversation_name, message)
+
+		# Load full history from DB
+		history = load_history(conversation_name)
+
+		from one_bpmn.agents.google_adk.prosally_agent.prosally_agent import run_prosally_message
+
+		result = run_prosally_message(
+			message=message,
+			chat_history=history,
+			process_name=process_name or "",
+			diagram_name=diagram_name or "",
+			confirmed_action=confirmed_action or "",
+			current_xml=current_xml or "",
+		)
+
+		# Persist the bot response
+		save_bot_message(
+			conversation_name,
+			result.get("response", ""),
+			metadata={"intent": result.get("intent"), "action_intent": result.get("action_intent")},
+		)
+
+		result["conversation_name"] = conversation_name
+		return result
+
+	except Exception:
+		frappe.log_error(title="ProsAlly Agent error", message=frappe.get_traceback())
+		return {"intent": "ERROR", "response": "An unexpected error occurred. Please try again."}
+
+
+@frappe.whitelist()
+def toggle_server_script(script_name: str, disabled: int) -> dict:
+	"""Toggle the disabled status of a Server Script record."""
+	if not script_name:
+		frappe.throw(_("Script name is required"))
+
+	# Permission check: Script Manager or System Manager
+	if not frappe.has_permission("Server Script", "write") and "System Manager" not in frappe.get_roles():
+		frappe.throw(
+			_("You need the Script Manager or System Manager role to toggle Server Scripts."),
+			frappe.PermissionError,
+		)
+
+	# Use set_value to bypass ServerScript validation logic which checks for
+	# exactly the 'Script Manager' role. The has_permission check above
+	# already proves the current user is authorized (e.g. System Manager).
+	frappe.db.set_value(
+		"Server Script",
+		script_name,
+		"disabled",
+		int(disabled),
+		update_modified=True
+	)
+
+	return {"name": script_name, "disabled": int(disabled)}
