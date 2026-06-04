@@ -910,7 +910,7 @@ def disable_process_model(model_name: str) -> dict:
 		"BPMN Process Instance",
 		filters={
 			"process_model": model_name,
-			"status": ["in", ["Running", "Waiting"]],
+			"status": ["in", ["Active"]],
 		},
 	)
 

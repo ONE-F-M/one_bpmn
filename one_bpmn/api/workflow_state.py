@@ -209,6 +209,11 @@ def _apply_bpmn_workflow_state(
 		frappe.throw(_("Self approval is not allowed"))
 
 	# ── 7. Apply state + docstatus ────────────────────────────────────────────
+	# Check idempotency FIRST - if already in the target state and docstatus
+	# matches, skip all transitions to avoid side effects on re-run.
+	if current_state == target_state:
+		return
+
 	doc.set(workflow.workflow_state_field, target_state)
 
 	if next_state_row.update_field:
@@ -235,9 +240,6 @@ def _apply_bpmn_workflow_state(
 		doc.save(ignore_permissions=True)
 	elif doc.docstatus.is_submitted() and new_docstatus.is_cancelled():
 		doc.cancel()
-	elif current_state == target_state:
-		# Already in the right state — nothing to do
-		return
 	else:
 		frappe.throw(
 			_("Illegal document status transition to state '{0}'.").format(target_state),

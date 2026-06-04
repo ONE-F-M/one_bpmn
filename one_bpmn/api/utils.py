@@ -140,22 +140,21 @@ def get_system_users(query: str = "") -> list:
 
 	normalized_query = (query or "").strip()
 
-	base_filters: list = [
-		["User", "enabled", "=", 1],
-		["User", "user_type", "=", "System User"],
-	]
+	filters = {
+		"enabled": 1,
+		"user_type": "System User",
+	}
 
+	or_filters = None
 	if normalized_query:
-		# Search both full_name and name (email) — combined safely within the
-		# base filter set so enabled/user_type guards always apply.
-		base_filters.append([
-			"User", "full_name", "like", f"%{normalized_query}%",
-			"or",
-			"User", "name", "like", f"%{normalized_query}%",
-		])
+		or_filters = {
+			"full_name": ["like", f"%{normalized_query}%"],
+			"name": ["like", f"%{normalized_query}%"],
+		}
 
 	return frappe.get_list("User",
-		filters=base_filters,
+		filters=filters,
+		or_filters=or_filters,
 		fields=["name", "full_name"],
 		order_by="full_name asc",
 	)
@@ -199,9 +198,17 @@ def get_doctype_fields(
 	)
 
 	if fieldtype_in:
-		query = query.where(DocField.fieldtype.isin(json.loads(fieldtype_in)))
+		try:
+			parsed = json.loads(fieldtype_in)
+		except (json.JSONDecodeError, TypeError, ValueError):
+			frappe.throw(_("Invalid JSON for fieldtype_in filter"))
+		query = query.where(DocField.fieldtype.isin(parsed))
 	elif fieldtype_not_in:
-		query = query.where(DocField.fieldtype.notin(json.loads(fieldtype_not_in)))
+		try:
+			parsed = json.loads(fieldtype_not_in)
+		except (json.JSONDecodeError, TypeError, ValueError):
+			frappe.throw(_("Invalid JSON for fieldtype_not_in filter"))
+		query = query.where(DocField.fieldtype.notin(parsed))
 	else:
 		# Default: exclude layout fields
 		query = query.where(
