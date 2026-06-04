@@ -1061,6 +1061,7 @@ const emit = defineEmits([
 	"launch-callactivity-editor",
 	"launch-callactivity-search",
 	"launch-notification-editor",
+	"launch-dmn-editor",
 ]);
 
 // Commenting state
@@ -1939,8 +1940,12 @@ onMounted(async () => {
 				// Not implemented — file editing is handled externally
 			});
 
-			eventBus.on("spiff.dmn.edit", (_event) => {
-				// Not implemented — DMN editing is handled externally
+			eventBus.on("spiff.dmn.edit", (event) => {
+				emit("launch-dmn-editor", {
+					element: event.element,
+					value: event.value || "",
+					eventBus: event.eventBus,
+				});
 			});
 
 			// Notification editing (Send Tasks)
@@ -1975,10 +1980,25 @@ onMounted(async () => {
 				});
 			});
 
-			eventBus.on("spiff.dmn_files.requested", (event) => {
-				event.eventBus.fire("spiff.dmn_files.returned", {
-					options: [],
-				});
+			eventBus.on("spiff.dmn_files.requested", async (event) => {
+				let options = [];
+				if (props.modelName) {
+					try {
+						const resp = await window.frappe?.call({
+							method: "one_bpmn.api.dmn_api.get_decision_list",
+							args: { process_model: props.modelName },
+							async: true,
+						});
+						const decisions = resp?.message || [];
+						options = decisions.map((d) => ({
+							label: d.decision_name || d.decision_id,
+							value: d.decision_id,
+						}));
+					} catch (err) {
+						console.warn("[BpmnEditor] Failed to fetch DMN files:", err);
+					}
+				}
+				event.eventBus.fire("spiff.dmn_files.returned", { options });
 			});
 
 			// nativeCopyPasteModule fires 'native-copy-paste:error' on any

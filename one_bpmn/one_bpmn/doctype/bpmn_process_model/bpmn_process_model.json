@@ -19,7 +19,7 @@
         "section_bpmn_diagram",
         "bpmn_xml",
         "section_dmn_table",
-        "dmn_xml",
+        "decision_tables",
         "section_engine_data",
         "serialized_spec",
         "subprocess_specs",
@@ -89,15 +89,16 @@
             "options": "XML"
         },
         {
+            "collapsible": 1,
             "fieldname": "section_dmn_table",
             "fieldtype": "Section Break",
-            "label": "DMN Table"
+            "label": "Decision Tables"
         },
         {
-            "fieldname": "dmn_xml",
-            "fieldtype": "Code",
-            "label": "DMN XML",
-            "options": "XML"
+            "fieldname": "decision_tables",
+            "fieldtype": "Table",
+            "label": "Decision Tables",
+            "options": "Workflow Decision Table"
         },
         {
             "collapsible": 1,

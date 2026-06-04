@@ -578,6 +578,85 @@ def _ensure_script_task_inline_scripts(bpmn_xml: str) -> str:
 		return bpmn_xml
 
 
+def _extract_business_rule_task_decisions(bpmn_xml: str) -> list:
+	"""
+	Parse the BPMN XML and extract the ``calledDecisionId`` values from all
+	``<bpmn:businessRuleTask>`` elements.
+
+	The calledDecisionId is stored by bpmn-js-spiffworkflow as a spiffworkflow
+	extension element::
+
+	    <bpmn:businessRuleTask id="Activity_1abc" name="Check Eligibility">
+	      <bpmn:extensionElements>
+	        <spiffworkflow:calledDecisionId>my_decision</spiffworkflow:calledDecisionId>
+	      </bpmn:extensionElements>
+	    </bpmn:businessRuleTask>
+
+	The returned list of decision IDs must each match a ``<decision id="...">``
+	attribute inside a DMN XML document.
+
+	Returns:
+		List of calledDecisionId strings (may be empty).
+	"""
+	import xml.etree.ElementTree as _ET
+
+	BPMN_NS = "http://www.omg.org/spec/BPMN/20100524/MODEL"
+	SPIFF_NS = "http://spiffworkflow.org/bpmn/schema/1.0/core"
+
+	if not bpmn_xml or not bpmn_xml.strip():
+		return []
+
+	try:
+		root = _ET.fromstring(
+			bpmn_xml.strip().encode("utf-8") if isinstance(bpmn_xml, str) else bpmn_xml
+		)
+	except Exception:
+		return []
+
+	decision_ids = []
+	for brt in root.iter(f"{{{BPMN_NS}}}businessRuleTask"):
+		# Look for <spiffworkflow:calledDecisionId> inside extensionElements
+		ext_els = brt.find(f"{{{BPMN_NS}}}extensionElements")
+		if ext_els is None:
+			continue
+		called = ext_els.find(f"{{{SPIFF_NS}}}calledDecisionId")
+		if called is not None and called.text and called.text.strip():
+			decision_ids.append(called.text.strip())
+
+	return decision_ids
+
+
+def _extract_dmn_decision_id(dmn_xml: str) -> str:
+	"""
+	Extract the ``<decision id="...">`` value from a DMN XML string.
+
+	The DMN parser registers each document by this ID, which must match
+	the ``calledDecisionId`` in the BPMN XML.
+
+	Returns:
+		The decision ID string, or empty string if not found.
+	"""
+	import xml.etree.ElementTree as _ET
+
+	if not dmn_xml or not dmn_xml.strip():
+		return ""
+
+	try:
+		root = _ET.fromstring(
+			dmn_xml.strip().encode("utf-8") if isinstance(dmn_xml, str) else dmn_xml
+		)
+	except Exception:
+		return ""
+
+	# DMN namespace varies by version; find any <decision> element
+	for child in root:
+		tag_local = child.tag.split("}")[-1] if "}" in child.tag else child.tag
+		if tag_local == "decision":
+			return child.get("id", "")
+
+	return ""
+
+
 def _validate_workflow_state_field(model, service_extensions: dict) -> None:
 	"""
 	At deploy time, verify that every doctype referenced in the process model
@@ -790,11 +869,50 @@ def compile_process_model(model_name: str) -> dict:
 	# and the FrappeScriptEngine will replace it with the configured Server Script.
 	sanitized_xml = _ensure_script_task_inline_scripts(sanitized_xml)
 
+	# ── Scan for Business Rule Tasks and collect DMN XML ─────────────────
+	# Business Rule Tasks reference a calledDecisionId in the spiffworkflow
+	# extension elements.  Each referenced decision must have a corresponding
+	# DMN XML stored in the model's decision_tables child table.
+	brt_decision_ids = _extract_business_rule_task_decisions(sanitized_xml)
+	dmn_xml_list = []
+
+	if brt_decision_ids:
+		# Build a lookup: DMN decision ID → DMN XML string
+		# The child table stores rows keyed by BPMN element ID (decision_id),
+		# but the DMN parser indexes by the <decision id="..."> attribute
+		# INSIDE the DMN XML.  So we parse each DMN XML to extract its internal
+		# decision ID and match it against the calledDecisionId list.
+		available_dmn = {}  # dmn_decision_id → dmn_xml string
+		for row in model.decision_tables or []:
+			if row.dmn_xml and row.dmn_xml.strip():
+				dmn_id = _extract_dmn_decision_id(row.dmn_xml)
+				if dmn_id:
+					available_dmn[dmn_id] = row.dmn_xml
+
+		# Collect the DMN XML strings that match the BPMN's calledDecisionIds
+		for decision_id in brt_decision_ids:
+			if decision_id in available_dmn:
+				dmn_xml_list.append(available_dmn[decision_id])
+
+		# Validate: every calledDecisionId must have a matching DMN XML
+		found_ids = set(available_dmn.keys())
+		missing = set(brt_decision_ids) - found_ids
+		if missing:
+			frappe.throw(
+				_(
+					"Cannot deploy: Business Rule Tasks reference decisions "
+					"that have no DMN XML in the Decision Tables: {0}.<br><br>"
+					"Open each Business Rule Task in the diagram and create a "
+					"Decision Table using the DMN modeler."
+				).format(", ".join(sorted(missing))),
+				title=_("Missing Decision Tables"),
+			)
+
 	try:
 		spec_dict, sp_dict = bpmn_engine.parse_bpmn(
 			bpmn_xml=sanitized_xml,
 			process_id=model.process_id,
-			dmn_xml=model.get("dmn_xml"),
+			dmn_xml_list=dmn_xml_list,
 		)
 	except Exception as exc:
 		frappe.log_error(title="BPMN compile failed", message=frappe.get_traceback())

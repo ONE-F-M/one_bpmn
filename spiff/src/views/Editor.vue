@@ -362,6 +362,7 @@
 						@launch-callactivity-editor="onLaunchCallActivityEditor"
 						@launch-callactivity-search="onLaunchCallActivitySearch"
 						@launch-notification-editor="onLaunchNotificationEditor"
+						@launch-dmn-editor="onLaunchDmnEditor"
 					/>
 
 					<!-- No-diagram placeholder: only shown when not loading and no diagram is selected -->
@@ -681,6 +682,27 @@
 			</template>
 		</Dialog>
 
+		<!-- DMN Editor Dialog (Business Rule Task) -->
+		<Dialog v-model="showDmnEditorDialog" :options="{ title: dmnEditorTitle, size: '7xl' }">
+			<template #body-content>
+				<div class="dmn-dialog-body">
+					<DmnEditor
+						v-if="showDmnEditorDialog"
+						ref="dmnEditorRef"
+						:initial-xml="dmnEditorXml"
+						:readonly="!isEditable"
+						@xml-changed="onDmnXmlChanged"
+					/>
+				</div>
+			</template>
+			<template #actions>
+				<div class="flex gap-2">
+					<Button variant="subtle" @click="closeDmnEditor" :disabled="dmnSaving">Cancel</Button>
+					<Button variant="solid" @click="saveDmnAndClose" :loading="dmnSaving">Save &amp; Close</Button>
+				</div>
+			</template>
+		</Dialog>
+
 		<!-- Call Activity Search Dialog -->
 		<CallActivitySearchDialog
 			v-model="showCallActivitySearchDialog"
@@ -788,6 +810,7 @@ import VersionDiffDialog from "@/components/VersionDiffDialog.vue";
 import { downloadBpmn } from "@/utils/downloadBpmn";
 import CallActivitySearchDialog from "@/components/CallActivitySearchDialog.vue";
 import LogixCanvas from "@/components/LogixCanvas.vue";
+import DmnEditor from "@/components/DmnEditor.vue";
 import NotificationLinkDialog from "@/components/NotificationLinkDialog.vue";
 import ReadinessChecklistDialog from "@/components/ReadinessChecklistDialog.vue";
 import { useNotificationDialog } from "@/composables/useNotificationDialog";
@@ -829,6 +852,7 @@ const isAnyDialogOpen = computed(() => {
 		showCallActivitySearchDialog.value ||
 		showReadinessDialog.value ||
 		showDisableDialog.value ||
+		showDmnEditorDialog.value ||
 		notifDialog.showNotificationDialog.value ||
 		versionDiffRef.value?.isAnyDialogOpen
 	);
@@ -849,6 +873,15 @@ const deploying = ref(false);
 const disabling = ref(false);
 const showDisableDialog = ref(false);
 const disableRunningCount = ref(0);
+
+// --- DMN Editor State ---
+const showDmnEditorDialog = ref(false);
+const dmnEditorRef = ref(null);
+const dmnEditorTitle = ref("Edit Decision Model");
+const dmnEditorXml = ref("");
+const dmnSaving = ref(false);
+let activeDmnElement = null;
+let activeDmnEventBus = null;
 
 // True when the currently selected diagram is deployed (is_active === 1)
 const isActiveModel = computed(() => {
@@ -2137,6 +2170,98 @@ function getAvatarColor(userName) {
 	return AVATAR_COLORS[colorIndex];
 }
 
+// --- DMN Editor Handlers ---
+
+async function onLaunchDmnEditor(event) {
+	const elementId = event.element?.id || "unknown";
+	const elementName = event.element?.businessObject?.name || event.element?.id || "Decision Model";
+
+	activeDmnElement = event.element;
+	activeDmnEventBus = event.eventBus;
+	dmnEditorTitle.value = `Edit Decision Model — ${elementName}`;
+
+	// Load stored XML from backend
+	let storedXml = "";
+	if (activeDiagramName.value) {
+		try {
+			const resp = await frappeRequest({
+				url: "/api/method/one_bpmn.api.dmn_api.get_dmn_xml",
+				params: {
+					process_model: activeDiagramName.value,
+					decision_id: elementId,
+				},
+			});
+			storedXml = resp.message || "";
+		} catch (err) {
+			console.warn("[DMN] Could not load stored XML:", err);
+		}
+	}
+
+	dmnEditorXml.value = storedXml;
+	showDmnEditorDialog.value = true;
+}
+
+function onDmnXmlChanged(_xml) {
+	// Autosave happens inside DmnEditor via debounced emit.
+	// We don't need to do anything here for now — the real save
+	// happens on "Save & Close". This handler is available for
+	// future use (e.g., live-saving drafts).
+}
+
+async function saveDmnAndClose() {
+	if (!dmnEditorRef.value || !activeDmnElement) {
+		closeDmnEditor();
+		return;
+	}
+
+	const xml = await dmnEditorRef.value.getXml();
+	if (!xml) {
+		closeDmnEditor();
+		return;
+	}
+
+	const elementId = activeDmnElement.id;
+	const elementName = activeDmnElement.businessObject?.name || elementId;
+
+	// Save to backend
+	if (activeDiagramName.value) {
+		dmnSaving.value = true;
+		try {
+			await frappeRequest({
+				url: "/api/method/one_bpmn.api.dmn_api.save_dmn_xml",
+				params: {
+					process_model: activeDiagramName.value,
+					decision_id: elementId,
+					decision_name: elementName,
+					dmn_xml: xml,
+				},
+			});
+		} catch (err) {
+			console.error("[DMN] Save failed:", err);
+			// Don't close on error — let user retry
+			dmnSaving.value = false;
+			return;
+		}
+		dmnSaving.value = false;
+	}
+
+	// Write DMN reference back to the BPMN element if eventBus is available
+	if (activeDmnEventBus && activeDmnElement) {
+		activeDmnEventBus.fire("spiff.dmn.edit.update", {
+			element: activeDmnElement,
+			value: elementId,
+		});
+	}
+
+	closeDmnEditor();
+}
+
+function closeDmnEditor() {
+	showDmnEditorDialog.value = false;
+	activeDmnElement = null;
+	activeDmnEventBus = null;
+}
+
 // --- SpiffWorkflow Editor Handlers ---
 
 function onLaunchScriptEditor(event) {
@@ -2526,6 +2651,21 @@ const totalCommentCount = computed(() => {
 :deep(.dialog-content:has(.lc-root)) {
 	max-width: min(92vw, 1520px) !important;
 	width: min(92vw, 1520px) !important;
+}
+
+/* DMN Editor Dialog — near-full-screen experience */
+:deep(.dialog-content:has(.dmn-dialog-body)) {
+	max-width: min(92vw, 1520px) !important;
+	width: min(92vw, 1520px) !important;
+}
+
+.dmn-dialog-body {
+	height: 70vh;
+	min-height: 500px;
+	display: flex;
+	flex-direction: column;
+	padding: 0 !important;
+	overflow: hidden;
 }
 
 .scrollbar-hide::-webkit-scrollbar {
