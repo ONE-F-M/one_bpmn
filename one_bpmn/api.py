@@ -528,6 +528,29 @@ def validate_bpmn_readiness(xml_content: str) -> dict:
 			"items": assignment_items,
 		})
 
+	# 9. Prohibited Shapes (shapes that must not appear in an executable process)
+	prohibited_items = []
+	if PROHIBITED_SHAPES:
+		for child in _process_el or []:
+			local_tag = child.tag.split("}")[-1] if "}" in child.tag else child.tag
+			if local_tag in PROHIBITED_SHAPES:
+				shape_info = PROHIBITED_SHAPES[local_tag]
+				el_name = child.get("name", "").strip()
+				el_id = child.get("id", "?")
+				display_name = f'{shape_info["label"]}: "{el_name}"' if el_name else f'{shape_info["label"]} ({el_id})'
+				prohibited_items.append({
+					"name": display_name,
+					"exists": False,
+					"type": "check",
+					"detail": shape_info.get("suggestion", ""),
+				})
+	if prohibited_items:
+		categories.append({
+			"label": "Prohibited Shapes",
+			"icon": "ban",
+			"items": prohibited_items,
+		})
+
 	# ── Compute summary ──────────────────────────────────────────────────
 	total_checked = 0
 	total_missing = 0
@@ -2321,6 +2344,78 @@ def _extract_user_task_config(bpmn_xml: str) -> dict:
 	return config
 
 
+# ── Prohibited shapes — shapes that must NOT appear in executable processes ──
+# Each key is a BPMN element local name (the tag after the namespace).
+# Values provide a human-readable label and a suggested replacement.
+# Populate this dict with the shapes OneFM wants to prohibit.
+PROHIBITED_SHAPES: dict[str, dict[str, str]] = {
+	"manualTask": {
+		"label": "Manual Task",
+		"suggestion": "Use a User Task instead",
+	},
+	"task": {
+		"label": "None-type Task",
+		"suggestion": "Use a User Task instead",
+	},
+}
+
+
+def _validate_prohibited_shapes(bpmn_xml: str) -> None:
+	"""
+	Validate that no prohibited BPMN shapes appear in the process.
+
+	Scans all elements under ``<bpmn:process>`` and rejects any whose local
+	tag name is listed in :data:`PROHIBITED_SHAPES`.  Called at deploy time
+	to block deployment of processes containing unsupported shapes.
+
+	Raises:
+		frappe.ValidationError: If one or more prohibited shapes are found.
+	"""
+	if not PROHIBITED_SHAPES:
+		return  # Nothing to check — no shapes are currently prohibited
+
+	import xml.etree.ElementTree as _ET
+
+	BPMN_NS = "http://www.omg.org/spec/BPMN/20100524/MODEL"
+
+	if not bpmn_xml or not bpmn_xml.strip():
+		return
+
+	try:
+		root = _ET.fromstring(bpmn_xml.strip().encode("utf-8") if isinstance(bpmn_xml, str) else bpmn_xml)
+	except Exception:
+		return  # XML errors are caught elsewhere
+
+	process_el = root.find(f"{{{BPMN_NS}}}process") or root.find("process")
+	if process_el is None:
+		return
+
+	errors = []
+
+	for child in process_el:
+		local_tag = child.tag.split("}")[-1] if "}" in child.tag else child.tag
+		if local_tag in PROHIBITED_SHAPES:
+			shape_info = PROHIBITED_SHAPES[local_tag]
+			el_name = child.get("name", "").strip()
+			el_id = child.get("id", "unknown")
+			label = f'"{el_name}" ({el_id})' if el_name else f"({el_id})"
+			suggestion = shape_info.get("suggestion", "")
+			msg = f'{shape_info["label"]} {label} is not allowed in executable processes.'
+			if suggestion:
+				msg += f" {suggestion}."
+			errors.append(msg)
+
+	if errors:
+		frappe.throw(
+			_(
+				"Prohibited shapes found — the following BPMN elements are not allowed "
+				"in executable processes:<br><br>"
+				+ "<br>".join(f"• {e}" for e in errors)
+			),
+			title=_("Prohibited Shapes Detected"),
+		)
+
+
 def _validate_timer_granularity(bpmn_xml: str) -> None:
 	"""
 	Validate that no timer event uses second-level precision.
@@ -2886,6 +2981,11 @@ def compile_process_model(model_name: str) -> dict:
 	# Frappe scheduler only runs at minute intervals — reject any timer value
 	# that uses seconds (e.g. PT15S, R5/PT10S).
 	_validate_timer_granularity(sanitized_xml)
+
+	# ── Validate prohibited shapes (block unsupported elements) ──────────
+	# Reject any BPMN element type that OneFM has marked as prohibited for
+	# executable processes (e.g. complex gateways, ad-hoc sub-processes).
+	_validate_prohibited_shapes(sanitized_xml)
 
 	# ── Extract and populate Start Events child table ─────────────────────
 	# Parse all <bpmn:startEvent> elements from the XML and capture their type
