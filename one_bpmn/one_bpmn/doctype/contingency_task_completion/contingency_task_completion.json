@@ -20,6 +20,7 @@
   "process_owner_user",
   "column_break_hxyb",
   "reason",
+  "requires_approval",
   "column_break_ohrc",
   "reports_to",
   "reports_to_name",
@@ -190,16 +191,25 @@
   {
    "fieldname": "column_break_dukq",
    "fieldtype": "Column Break"
+  },
+  {
+   "default": "0",
+   "fetch_from": "process_name.ctc_requires_approval",
+   "fieldname": "requires_approval",
+   "fieldtype": "Check",
+   "label": "Requires Approval",
+   "read_only": 1
   }
  ],
  "grid_page_length": 50,
  "index_web_pages_for_search": 1,
  "is_submittable": 1,
  "links": [],
- "modified": "2026-05-14 11:02:03.105693",
+ "modified": "2026-06-04 22:09:04.938126",
  "modified_by": "Administrator",
  "module": "ONE BPMN",
  "name": "Contingency Task Completion",
+ "naming_rule": "By \"Naming Series\" field",
  "owner": "Administrator",
  "permissions": [
   {
