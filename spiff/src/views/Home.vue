@@ -300,7 +300,7 @@ async function loadProcesses() {
 	loading.value = true
 	try {
 		const response = await frappeRequest({
-			url: "/api/method/one_bpmn.api.list_processes",
+			url: "/api/method/one_bpmn.api.process_map_api.list_processes",
 		})
 		
 		// Handle different response formats
@@ -329,7 +329,7 @@ async function checkAllEditability() {
 	try {
 		const processNames = processes.value.map(p => p.name)
 		const response = await frappeRequest({
-			url: "/api/method/one_bpmn.api.bulk_check_processes_editable",
+			url: "/api/method/one_bpmn.api.editability.bulk_check_processes_editable",
 			params: { process_names: JSON.stringify(processNames) },
 		})
 
@@ -358,7 +358,7 @@ async function exportSingleDiagram(diagram) {
 	showExportDialog.value = false
 	try {
 		const response = await frappeRequest({
-			url: "/api/method/one_bpmn.api.get_process_model",
+			url: "/api/method/one_bpmn.api.process_map_api.get_process_model",
 			params: { name: diagram.name },
 		})
 		const data = response.message || response
@@ -375,7 +375,7 @@ async function exportProcess(process) {
 	exportingProcesses.value = new Set([...exportingProcesses.value, process.name])
 	try {
 		const response = await frappeRequest({
-			url: "/api/method/one_bpmn.api.get_process_diagrams",
+			url: "/api/method/one_bpmn.api.process_map_api.get_process_diagrams",
 			params: { process: process.name },
 		})
 		const data = response.message || response

@@ -231,7 +231,7 @@ function AssigneeDocfieldComponent(props) {
 				{ fieldname: "", label: "— Select a DocType first —" },
 			]);
 		}
-		return frappeGet("/api/method/one_bpmn.api.get_assignee_docfields", { doctype })
+		return frappeGet("/api/method/one_bpmn.api.utils.get_assignee_docfields", { doctype })
 			.then((fields) => {
 				const list = Array.isArray(fields) ? fields : [];
 				if (!txt) return list;
