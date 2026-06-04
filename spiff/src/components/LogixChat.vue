@@ -367,7 +367,7 @@ async function initGreeting() {
 	if (label) {
 		try {
 			const resp = await fetch(
-				`/api/method/one_bpmn.api.check_server_script_exists?script_name=${encodeURIComponent(label)}`,
+				`/api/method/one_bpmn.api.server_script_api.check_server_script_exists?script_name=${encodeURIComponent(label)}`,
 				{ headers: { "X-Frappe-CSRF-Token": getCsrfToken() } },
 			);
 			if (resp.ok) {
@@ -438,7 +438,7 @@ async function handleMessageAction(handler, msgId, value = "") {
 		if (msg) msg.actions = null;
 
 		try {
-			const res = await fetch("/api/method/one_bpmn.api.create_server_script", {
+			const res = await fetch("/api/method/one_bpmn.api.server_script_api.create_server_script", {
 				method: "POST",
 				headers: { "Content-Type": "application/json", "X-Frappe-CSRF-Token": getCsrfToken() },
 				body: JSON.stringify({ script_name: name, script_type: "API", script: code }),
@@ -475,7 +475,7 @@ async function handleMessageAction(handler, msgId, value = "") {
 		if (msg) msg.actions = null;
 
 		try {
-			const res = await fetch("/api/method/one_bpmn.api.update_server_script", {
+			const res = await fetch("/api/method/one_bpmn.api.server_script_api.update_server_script", {
 				method: "POST",
 				headers: { "Content-Type": "application/json", "X-Frappe-CSRF-Token": getCsrfToken() },
 				body: JSON.stringify({ script_name: scriptName, script: code }),
@@ -546,7 +546,7 @@ async function sendMessage() {
 			.slice(-10)
 			.map(m => ({ type: m.role, content: m.content }));
 
-		const response = await fetch("/api/method/one_bpmn.api.process_logix_message", {
+		const response = await fetch("/api/method/one_bpmn.api.server_script_api.process_logix_message", {
 			method:  "POST",
 			headers: {
 				"Content-Type":       "application/json",
@@ -683,7 +683,7 @@ async function applyScript() {
 	applyLoading.value = true;
 
 	try {
-		const res = await fetch("/api/method/one_bpmn.api.create_server_script", {
+		const res = await fetch("/api/method/one_bpmn.api.server_script_api.create_server_script", {
 			method:  "POST",
 			headers: {
 				"Content-Type":       "application/json",

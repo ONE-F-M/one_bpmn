@@ -189,7 +189,7 @@ const uploadingShape = ref(false);
 async function loadLibraries() {
 	loading.value = true;
 	try {
-		const result = await call("one_bpmn.api.get_shape_libraries");
+		const result = await call("one_bpmn.api.shape_library.get_shape_libraries");
 		libraries.value = result || [];
 	} catch (error) {
 		console.error("Failed to load shape libraries:", error);
@@ -211,7 +211,7 @@ async function createLibrary() {
 
 	creatingLibrary.value = true;
 	try {
-		await call("one_bpmn.api.create_shape_library", {
+		await call("one_bpmn.api.shape_library.create_shape_library", {
 			library_name: newLibraryName.value,
 			icon: newLibraryIcon.value || "folder",
 		});
@@ -251,7 +251,7 @@ async function uploadShape() {
 
 	uploadingShape.value = true;
 	try {
-		await call("one_bpmn.api.upload_shape", {
+		await call("one_bpmn.api.shape_library.upload_shape", {
 			library: importShapeLibrary.value,
 			shape_name: importShapeName.value,
 			svg_content: importSvgContent.value,

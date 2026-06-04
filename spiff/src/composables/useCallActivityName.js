@@ -81,7 +81,7 @@ export function injectProcessNameField(element, propertiesContainer, { delay = 1
 
 		try {
 			const response = await frappeRequest({
-				url: "/api/method/one_bpmn.api.resolve_process_model_by_id",
+				url: "/api/method/one_bpmn.api.process_map_api.resolve_process_model_by_id",
 				params: { process_id: calledElement },
 			});
 

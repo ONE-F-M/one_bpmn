@@ -575,7 +575,7 @@ class BPMNProcessInstance(Document):
 				return True  # skip but still complete to avoid stuck workflow
 
 			try:
-				from one_bpmn.api import _apply_bpmn_workflow_state
+				from one_bpmn.api.workflow_state import _apply_bpmn_workflow_state
 
 				_apply_bpmn_workflow_state(
 					doctype=doctype,
@@ -1391,7 +1391,7 @@ class BPMNProcessInstance(Document):
 
 				# Best-effort: patch the BPMN XML attribute for editor visibility
 				try:
-					from one_bpmn.api import _update_round_robin_in_model
+					from one_bpmn.api.compilation import _update_round_robin_in_model
 
 					_update_round_robin_in_model(self.process_model, bpmn_id, assignee)
 				except Exception:

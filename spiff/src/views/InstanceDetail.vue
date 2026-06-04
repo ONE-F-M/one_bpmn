@@ -193,7 +193,7 @@ async function loadDetails() {
 async function loadProcessModelXml(modelName) {
 	try {
 		const res = await frappeRequest({
-			url: "/api/method/one_bpmn.api.get_process_model",
+			url: "/api/method/one_bpmn.api.process_map_api.get_process_model",
 			params: { name: modelName },
 		})
 		const data = res.message || res
@@ -260,7 +260,7 @@ async function completeTask(task, detail) {
 				|| decodeURIComponent(document.cookie.split("; ").find(r => r.startsWith("csrf_token="))?.split("=")[1] || "")
 				|| ""
 
-			const resp = await fetch("/api/method/one_bpmn.api.complete_task", {
+			const resp = await fetch("/api/method/one_bpmn.api.instance_api.complete_task", {
 				method: "POST",
 				headers: {
 					"Content-Type": "application/json",
