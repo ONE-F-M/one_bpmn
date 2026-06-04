@@ -84,7 +84,7 @@ frappe.provide('one_bpmn');
 
 		try {
 			const response = await frappe.call({
-				method: 'one_bpmn.api.get_active_bpmn_tasks',
+				method: 'one_bpmn.api.instance_api.get_active_bpmn_tasks',
 				args: {
 					doctype: frm.doctype,
 					docname: frm.docname,
@@ -341,7 +341,7 @@ frappe.provide('one_bpmn');
 		frappe.dom.freeze(__('Applying action…'));
 
 		frappe.call({
-			method: 'one_bpmn.api.complete_task',
+			method: 'one_bpmn.api.instance_api.complete_task',
 			args: {
 				instance_name: task.instance_name,
 				task_id:       task.task_id,
