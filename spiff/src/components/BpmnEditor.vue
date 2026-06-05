@@ -117,8 +117,6 @@
 				ref="container"
 				:class="['bpmn-canvas flex-1 min-w-0', { 'bpmn-canvas--readonly': readonly, 'comment-mode-active': isCommentMode }]"
 				@contextmenu.prevent
-				@dragover.prevent="!readonly && handleDragOver($event)"
-				@drop.prevent="!readonly && handleDrop($event)"
 			></div>
 
 			<!-- ProsAlly Panel — flex sibling so canvas shrinks instead of being covered -->

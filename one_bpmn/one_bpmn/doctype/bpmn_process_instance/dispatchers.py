@@ -447,16 +447,14 @@ def dispatch_email(instance, task, task_cfg: dict) -> None:
 	  {{ instance.name }}     — BPMN instance name
 	  {{ frappe.session }}    — session info
 
-	If emailUseDoctype is true AND emailDoctype is set, an alternate doc
-	is loaded from that doctype (using context_docname) for the template
-	context.  Defaults to the main context document.
+	If emailDoctype is set, an alternate doc is loaded from that doctype
+	(using context_docname) for the template context.  Defaults to the
+	main context document.
 	"""
-	import frappe.utils.jinja as jinja_utils
 
 	# ── Resolve the template context document ─────────────────────────
 	ctx_doctype = task_cfg.get("emailDoctype") or instance.context_doctype
 	ctx_docname = instance.context_docname
-	use_doctype = task_cfg.get("emailUseDoctype", "") == "true"
 
 	doc = frappe._dict()
 	if ctx_doctype and ctx_docname:
