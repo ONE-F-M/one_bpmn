@@ -9,7 +9,6 @@
 #   server_script_api  — server script CRUD, Logix/ProSally integration
 #   canvas_comments    — canvas comment and element asset management
 #   notification_api   — in-app notification creation
-#   shape_library      — custom shape library CRUD
 #   script_version_history — server script version history and restore
 #   version_history    — diagram XML version history
 #   utils              — shared helpers (role checks, field lookups)
