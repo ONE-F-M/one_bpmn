@@ -2,7 +2,7 @@
 
 # ONE BPMN
 
-A BPMN editor integration with Frappe Framework, powered by [bpmn-js](https://bpmn.io/toolkit/bpmn-js/) and [SpiffWorkflow](https://www.spiffworkflow.org/) extensions. The app provides a Vue.js-based BPMN process modeler accessible at `/spiff`, with support for multiple diagrams per process, a tabbed editing interface, a formatting toolbar, a custom shape library, and SpiffWorkflow properties panel integration.
+A BPMN editor integration with Frappe Framework, powered by [bpmn-js](https://bpmn.io/toolkit/bpmn-js/) and [SpiffWorkflow](https://www.spiffworkflow.org/) extensions. The app provides a Vue.js-based BPMN process modeler accessible at `/spiff`, with support for multiple diagrams per process, a tabbed editing interface, a formatting toolbar, and SpiffWorkflow properties panel integration.
 
 ## Installation
 
@@ -61,13 +61,24 @@ Access at `http://localhost:8080/spiff` (dev server).
 ```
 one_bpmn/
 ├── one_bpmn/                         # Frappe app module
-│   ├── api.py                        # Backend API endpoints (Process Models + Shape Library)
+│   ├── api/                          # Backend API submodules
+│   │   ├── __init__.py               # Package docstring with module index
+│   │   ├── process_map_api.py        # CRUD for Process Models and Process records
+│   │   ├── compilation.py            # Compile, deploy, disable process models
+│   │   ├── workflow_state.py         # Apply workflow states (BPMN service tasks)
+│   │   ├── instance_api.py           # Process instance lifecycle
+│   │   ├── editability.py            # Cross-site editability checks
+│   │   ├── server_script_api.py      # Server script CRUD and AI integration
+│   │   ├── canvas_comments.py        # Canvas comments and element assets
+│   │   ├── notification_api.py       # In-app notification creation
+│   │   ├── version_history.py        # Diagram XML version history
+│   │   ├── script_version_history.py # Server script version history
+│   │   └── utils.py                  # Shared helpers (role checks, field lookups)
 │   ├── hooks.py                      # Frappe hooks configuration
+│   ├── tasks.py                      # Scheduled/background task helpers
 │   ├── one_bpmn/                     # DocTypes module
 │   │   └── doctype/
-│   │       ├── bpmn_process_model/   # BPMN Process Model DocType
-│   │       ├── bpmn_shape_library/   # Shape Library DocType
-│   │       └── bpmn_custom_shape/    # Custom Shape DocType
+│   │       └── bpmn_process_model/   # BPMN Process Model DocType
 │   ├── public/
 │   │   └── spiff/                    # Built Vue.js assets (generated)
 │   │       ├── assets/               # JS, CSS, fonts
@@ -97,11 +108,7 @@ one_bpmn/
         │   ├── BpmnEditor.vue        # bpmn-js modeler wrapper with SpiffWorkflow extensions
         │   ├── EditorTabs.vue        # Bottom tab bar for open diagrams
         │   ├── EditorSidebar.vue     # Left sidebar for diagram list
-        │   ├── FormattingToolbar.vue  # Font, size, color, and alignment controls
-        │   └── ShapeLibraryPanel.vue  # Custom shape library panel (drag-and-drop)
-        ├── bpmn/
-        │   ├── CustomShapeRenderer.js # Renders custom SVG shapes on canvas
-        │   └── index.js              # Custom shape module registration
+        │   └── FormattingToolbar.vue  # Font, size, color, and alignment controls
         ├── renderers/
         │   ├── CustomTextStyleRenderer.js # Renders custom text styles (font, color, size)
         │   └── index.js              # Text style module registration
@@ -121,29 +128,29 @@ one_bpmn/
 
 ## Backend API Endpoints
 
-Located in `one_bpmn/api.py`:
+Organized into submodules under `one_bpmn/api/`:
 
-### Process Model API
+### Process Model CRUD (`process_map_api`)
 
-| Method | Endpoint                            | Description                                          |
-| ------ | ----------------------------------- | ---------------------------------------------------- |
-| POST   | `one_bpmn.api.save_process_model`   | Save or update a BPMN diagram                        |
-| GET    | `one_bpmn.api.get_process_model`    | Get a diagram by name                                |
-| GET    | `one_bpmn.api.list_process_models`  | List all diagrams                                    |
-| GET    | `one_bpmn.api.list_processes`       | List Process records with per-process diagram counts |
-| GET    | `one_bpmn.api.get_process_diagrams` | Get all diagrams for a specific process              |
-| POST   | `one_bpmn.api.update_diagram_order` | No-op (kept for frontend compatibility)              |
-| DELETE | `one_bpmn.api.delete_diagram`       | Delete a diagram                                     |
+| Method | Endpoint | Description |
+| ------ | -------- | ----------- |
+| POST | `one_bpmn.api.process_map_api.save_process_model` | Save or update a BPMN diagram |
+| POST | `one_bpmn.api.process_map_api.import_bpmn` | Import a .bpmn file (upsert by process_id) |
+| GET | `one_bpmn.api.process_map_api.get_process_model` | Get a diagram by name |
+| GET | `one_bpmn.api.process_map_api.list_process_models` | List all diagrams |
+| GET | `one_bpmn.api.process_map_api.list_processes` | List Process records with diagram counts |
+| GET | `one_bpmn.api.process_map_api.get_process_diagrams` | Get all diagrams for a process |
+| GET | `one_bpmn.api.process_map_api.resolve_process_model_by_id` | Resolve process_id to model |
+| GET | `one_bpmn.api.process_map_api.validate_bpmn_readiness` | Check deploy prerequisites |
+| POST | `one_bpmn.api.process_map_api.rename_process_model` | Rename a diagram (fast path) |
+| DELETE | `one_bpmn.api.process_map_api.delete_diagram` | Delete a diagram |
 
-### Shape Library API
+### Compilation & Deployment (`compilation`)
 
-| Method | Endpoint                            | Description                                |
-| ------ | ----------------------------------- | ------------------------------------------ |
-| GET    | `one_bpmn.api.get_shape_libraries`  | Get all shape libraries with nested shapes |
-| POST   | `one_bpmn.api.create_shape_library` | Create a new shape library                 |
-| DELETE | `one_bpmn.api.delete_shape_library` | Delete a library and all its shapes        |
-| POST   | `one_bpmn.api.upload_shape`         | Upload a custom SVG shape to a library     |
-| DELETE | `one_bpmn.api.delete_shape`         | Delete a custom shape                      |
+| Method | Endpoint | Description |
+| ------ | -------- | ----------- |
+| POST | `one_bpmn.api.compilation.compile_process_model` | Compile and deploy a process model |
+| POST | `one_bpmn.api.compilation.disable_process_model` | Disable a deployed model |
 
 All endpoints require authentication and use `@frappe.whitelist()` decorator.
 
@@ -177,15 +184,7 @@ Stores BPMN process definitions with SpiffWorkflow engine data. Named by `title`
 
 **Permissions**: System Manager (full), BPMN Admin (full), All (read-only).
 
-### BPMN Shape Library
 
-Container for organizing custom shapes into libraries.
-
-### BPMN Custom Shape
-
-Stores individual custom SVG shapes linked to a parent library. Supports drag-and-drop onto the BPMN canvas.
-
----
 
 ## Frontend Routes
 
@@ -236,13 +235,6 @@ Stores individual custom SVG shapes linked to a parent library. Supports drag-an
 - Event bus handlers for SpiffWorkflow data requests (service tasks, JSON schemas, DMN files, data stores, messages)
 - Loop data reference fix for multi-instance activities
 
-### Custom Shape Library
-
-- Create and manage shape libraries via the sidebar panel
-- Upload custom SVG shapes to libraries
-- Drag and drop custom shapes onto the BPMN canvas
-- Custom shapes render as BPMN Tasks with embedded SVG
-
 ### Custom Text Styling
 
 - Per-element text formatting (font family, size, weight, style, decoration, alignment)
@@ -255,7 +247,8 @@ Stores individual custom SVG shapes linked to a parent library. Supports drag-an
 
 ### Create Diagram Dialog
 
-- Creates new diagram with empty start event
+- Creates new diagram as a blank canvas (no pre-placed elements)
+- Process is set to `isExecutable="false"` by default
 - Links diagram to parent Process via `process_name`
 
 ---
@@ -293,7 +286,7 @@ bench --site your-site.local clear-cache
 
 ### Adding New Features
 
-- **API endpoint**: Add to `one_bpmn/api.py` with `@frappe.whitelist()`
+- **API endpoint**: Add to the appropriate submodule in `one_bpmn/api/` with `@frappe.whitelist()` (e.g. process CRUD in `process_map_api.py`, instance logic in `instance_api.py`)
 - **Vue component**: Add to `spiff/src/components/`
 - **Page/view**: Add to `spiff/src/views/` and register in `router/index.js`
 - **bpmn-js module**: Add to `spiff/src/bpmn/`, `spiff/src/renderers/`, or `spiff/src/rules/` and register in `BpmnEditor.vue`'s `additionalModules`
@@ -385,7 +378,8 @@ Intent Classifier
 | `spiff/src/components/BpmnEditor.vue` | Panel integration, toggle button, mobile bottom-sheet |
 | `spiff/src/utils/bpmnLayout.js` | Auto-layout algorithm — positions generated BPMN elements left-to-right |
 | `spiff/src/linting/bpmnlintrc.js` | bpmnlint rule configuration (errors vs. warnings) |
-| `one_bpmn/api.py` → `prosally_chat` | Frappe API endpoint — orchestrates the agent pipeline |
+| `one_bpmn/api/process_map_api.py` | Frappe API endpoints for process model CRUD |
+| `one_bpmn/api/compilation.py` | Compile/deploy/disable process models |
 | `one_bpmn/agents/google_adk/prosally_agent/prosally_agent.py` | LLM agent — intent classification, clarification, generation, modification |
 | `one_bpmn/utils/chat_persistence.py` | Persists conversation history in `Chat Conversation` DocType |
 
@@ -480,7 +474,9 @@ bench --site <site> run-tests --app one_bpmn --failfast
 
 ## Architecture Overview
 
-- `one_bpmn/api.py` exposes backend endpoints for BPMN model management
+- `one_bpmn/api/` exposes backend endpoints organized into domain-specific submodules
+- `one_bpmn/api/process_map_api.py` handles diagram CRUD, import/export, and process listing
+- `one_bpmn/api/compilation.py` handles compile, deploy, and disable operations
 - `one_bpmn/tasks.py` handles scheduled timer-related processing
 - `one_bpmn/one_bpmn/doctype/` contains BPMN doctypes and server logic
 - `spiff/` contains the frontend BPMN editor
@@ -491,5 +487,3 @@ Primary concepts:
 - Process Model
 - Process Instance
 - Activity Log
-- Shape Library
-- Custom Shape
