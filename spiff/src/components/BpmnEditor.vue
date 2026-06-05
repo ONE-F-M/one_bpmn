@@ -965,8 +965,7 @@ import {
 import { Icon } from "@iconify/vue";
 import { useWindowSize } from "@/composables/useWindowSize";
 import { useBottomSheet } from "@/composables/useBottomSheet";
-// Custom Shapes - DISABLED (see DEVELOPMENT_CONTEXT.md)
-// import CustomShapesModule, { customShapeSvgStore } from "@/bpmn";
+
 import FormattingToolbar from "@/components/FormattingToolbar.vue";
 import ProsAllyPanel from "@/components/ProsAllyPanel.vue";
 import { layoutBpmnXml } from "@/utils/bpmnLayout.js";
@@ -2799,66 +2798,7 @@ function getZoomLevel() {
 	return zoomLevel.value;
 }
 
-// Handle drag over for custom shapes
-function handleDragOver(event) {
-	event.dataTransfer.dropEffect = "copy";
-}
 
-// Handle drop of custom shape onto canvas
-function handleDrop(event) {
-	const dataStr = event.dataTransfer.getData("application/json");
-	if (!dataStr) return;
-
-	try {
-		const shapeData = JSON.parse(dataStr);
-		if (shapeData && shapeData.svg_content) {
-			// Get drop position relative to canvas
-			const canvas = modeler.get("canvas");
-			const viewbox = canvas.viewbox();
-			const containerRect = container.value.getBoundingClientRect();
-
-			// Calculate position in diagram coordinates
-			const x = viewbox.x + (event.clientX - containerRect.left) / viewbox.scale;
-			const y = viewbox.y + (event.clientY - containerRect.top) / viewbox.scale;
-
-			addCustomShape(shapeData.svg_content, x, y, shapeData.shape_name);
-		}
-	} catch (e) {
-		console.error("Failed to parse dropped shape data:", e);
-	}
-}
-
-// Add a custom shape at the specified position
-function addCustomShape(svgContent, x, y, name = "Custom Shape") {
-	if (!modeler) return;
-
-	const modeling = modeler.get("modeling");
-	const elementFactory = modeler.get("elementFactory");
-	const canvas = modeler.get("canvas");
-	const bpmnFactory = modeler.get("bpmnFactory");
-
-	// Get the root element (process)
-	const rootElement = canvas.getRootElement();
-
-	// Create a Task business object
-	const taskBo = bpmnFactory.create("bpmn:Task", {
-		name: name,
-	});
-
-	// Create the shape element
-	const shape = elementFactory.createShape({
-		type: "bpmn:Task",
-		businessObject: taskBo,
-		width: 100,
-		height: 80,
-	});
-
-	// Store SVG content in the global map BEFORE adding to canvas
-	customShapeSvgStore.set(shape.id, svgContent);
-
-	// Add to canvas (this triggers the renderer)
-	modeling.createShape(shape, { x, y }, rootElement);
-}
 
 // Overlay API functions
 function getOverlays() {
@@ -2970,7 +2910,6 @@ defineExpose({
 	resetZoom,
 	fitToScreen,
 	getZoomLevel,
-	addCustomShape,
 	// Overlay API
 	addOverlay,
 	removeOverlay,
