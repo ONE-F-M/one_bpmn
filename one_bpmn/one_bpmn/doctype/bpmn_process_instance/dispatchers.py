@@ -1,0 +1,573 @@
+# Copyright (c) 2026, one-fm and contributors
+# BPMN Process Instance — service task dispatch handlers
+#
+# These are standalone functions extracted from the BPMNProcessInstance
+# controller.  Each receives the controller document as ``instance`` and reads
+# only simple attributes from it (context_doctype, context_docname, name,
+# initiated_by, doctype).  They are invoked from the controller's
+# ``_dispatch_service_task`` router.
+
+import frappe
+import frappe.utils
+
+
+def dispatch_update_field(instance, task, task_cfg: dict, bpmn_id: str) -> None:
+	"""
+	Update one or more fields on a document in a single service task.
+
+	Reads ``updateFieldRows`` — a JSON array of ``{field, value}`` objects —
+	and applies them in a single ``frappe.db.set_value`` call.  Every value
+	is Jinja2-rendered before being written.
+
+	Backward-compatible: if ``updateFieldRows`` is absent, falls back to the
+	legacy single-field ``updateFieldName`` / ``updateFieldValue`` keys so
+	existing diagrams continue to work unchanged.
+
+	Service task configuration keys (from BPMN XML):
+	    updateFieldDoctype  — DocType to update (falls back to context_doctype)
+	    updateFieldRows     — JSON: [{"field": "status", "value": "Approved"}, ...]
+	    updateFieldName     — (legacy) single field name
+	    updateFieldValue    — (legacy) single field value
+	"""
+	import json as _json
+
+	doctype = task_cfg.get("updateFieldDoctype") or instance.context_doctype
+	docname = instance.context_docname
+
+	if not (doctype and docname):
+		frappe.log_error(
+			title=f"BPMN ServiceTask: update_field misconfigured ({bpmn_id})",
+			message=f"Task {bpmn_id} is missing doctype={doctype!r} or docname={docname!r}.",
+		)
+		return
+
+	rows_json = task_cfg.get("updateFieldRows", "")
+	if rows_json:
+		try:
+			rows = _json.loads(rows_json)
+			if not isinstance(rows, list):
+				frappe.log_error(
+					title=f"BPMN ServiceTask: update_field misconfigured ({bpmn_id})",
+					message=(
+						f"updateFieldRows decoded to {type(rows).__name__}, expected list. "
+						f"Raw value: {rows_json!r}"
+					),
+				)
+				return
+		except Exception:
+			frappe.log_error(
+				title=f"BPMN ServiceTask: update_field invalid JSON ({bpmn_id})",
+				message=f"updateFieldRows is not valid JSON: {rows_json!r}",
+			)
+			return
+	else:
+		legacy_field = task_cfg.get("updateFieldName", "")
+		legacy_value = task_cfg.get("updateFieldValue", "")
+		if not legacy_field:
+			frappe.log_error(
+				title=f"BPMN ServiceTask: update_field misconfigured ({bpmn_id})",
+				message=f"Task {bpmn_id} has no updateFieldRows and no updateFieldName.",
+			)
+			return
+		rows = [{"field": legacy_field, "value": legacy_value}]
+
+	if not rows:
+		return
+
+	try:
+		doc = frappe.get_doc(doctype, docname)
+	except Exception:
+		frappe.log_error(
+			title=f"BPMN ServiceTask: update_field doc load failed ({bpmn_id})",
+			message=frappe.get_traceback(),
+		)
+		return
+
+	updates = {}
+	for row in rows:
+		if not isinstance(row, dict):
+			continue
+		fieldname = (row.get("field") or "").strip()
+		raw_value = row.get("value", "")
+		if not fieldname:
+			continue
+		if "{{" in str(raw_value) or "{%" in str(raw_value):
+			try:
+				raw_value = frappe.render_template(
+					raw_value,
+					{"doc": doc, "instance": instance, "frappe": frappe},
+				)
+			except Exception:
+				frappe.log_error(
+					title=f"BPMN ServiceTask: update_field Jinja render failed ({bpmn_id})",
+					message=frappe.get_traceback(),
+				)
+		updates[fieldname] = raw_value
+
+	if not updates:
+		return
+
+	actor = frappe.session.user or instance.initiated_by or "Administrator"
+	# Include modified_by in the single DB write so the audit trail
+	# attributes the change to the user whose action triggered this task.
+	update_payload = {**updates, "modified_by": actor}
+
+	try:
+		old_flag = getattr(frappe.flags, "bpmn_engine_action", False)
+		frappe.flags.bpmn_engine_action = True
+		try:
+			frappe.db.set_value(doctype, docname, update_payload, update_modified=False)
+		finally:
+			frappe.flags.bpmn_engine_action = old_flag
+
+	except Exception:
+		frappe.log_error(
+			title=f"BPMN ServiceTask: update_field failed ({bpmn_id})",
+			message=frappe.get_traceback(),
+		)
+		raise
+
+	frappe.publish_realtime(
+		"doc_update",
+		{"modified": str(frappe.utils.now_datetime()), "modified_by": actor},
+		doctype=doctype,
+		docname=docname,
+		after_commit=True,
+	)
+
+
+def dispatch_google_chat(instance, task, task_cfg: dict, bpmn_id: str) -> None:
+	"""
+	Send a Google Chat message from a Service Task with serviceType='google_chat'.
+
+	Supports two delivery targets:
+	    individual — send a direct message to a user by email address
+	    space      — post a message to a Google Chat space by space ID
+
+	Configuration keys (from BPMN XML):
+	    gchatType    — "individual" or "space"
+	    gchatEmail   — recipient email (individual mode)
+	    gchatSpaceId — space ID e.g. "spaces/XXXXXXX" (space mode)
+	    gchatMessage — message body; Jinja2 supported
+
+	Credentials: the site must have a Google service account JSON key stored in
+	site_config.json under "google_chat_service_account_json" (the full JSON content
+	as a string or dict).  The service account must have the Google Chat API scope
+	https://www.googleapis.com/auth/chat.bot and be a member of the target space.
+
+	Failures are non-fatal: the workflow continues and the error is logged.
+	"""
+	gchat_type = task_cfg.get("gchatType", "").strip()
+	gchat_email = (task_cfg.get("gchatEmail") or "").strip()
+	gchat_space_id = (task_cfg.get("gchatSpaceId") or "").strip()
+	raw_message = (task_cfg.get("gchatMessage") or "").strip()
+
+	# Validate gchatType is one of the supported values
+	if gchat_type not in ("individual", "space"):
+		frappe.log_error(
+			title=f"BPMN ServiceTask: google_chat misconfigured ({bpmn_id})",
+			message=(
+				f"gchatType={gchat_type!r} is not a valid destination type. "
+				f"Expected 'individual' or 'space'."
+			),
+		)
+		return
+
+	if not raw_message:
+		frappe.log_error(
+			title=f"BPMN ServiceTask: google_chat misconfigured ({bpmn_id})",
+			message="gchatMessage is empty.",
+		)
+		return
+
+	if gchat_type == "individual" and not gchat_email:
+		frappe.log_error(
+			title=f"BPMN ServiceTask: google_chat misconfigured ({bpmn_id})",
+			message="gchatType=individual but gchatEmail is empty.",
+		)
+		return
+
+	if gchat_type == "space" and not gchat_space_id:
+		frappe.log_error(
+			title=f"BPMN ServiceTask: google_chat misconfigured ({bpmn_id})",
+			message="gchatType=space but gchatSpaceId is empty.",
+		)
+		return
+
+	# Render Jinja2 in the message body
+	if "{{" in raw_message or "{%" in raw_message:
+		try:
+			doc = (
+				frappe.get_doc(instance.context_doctype, instance.context_docname)
+				if (instance.context_doctype and instance.context_docname)
+				else frappe._dict()
+			)
+			raw_message = frappe.render_template(
+				raw_message,
+				{"doc": doc, "instance": instance, "frappe": frappe},
+			)
+		except Exception:
+			frappe.log_error(
+				title=f"BPMN ServiceTask: google_chat Jinja render failed ({bpmn_id})",
+				message=frappe.get_traceback(),
+			)
+
+	# Load service account credentials from site config
+	sa_json = frappe.conf.get("google_chat_service_account_json")
+	if not sa_json:
+		frappe.log_error(
+			title=f"BPMN ServiceTask: google_chat credentials missing ({bpmn_id})",
+			message="'google_chat_service_account_json' not found in site_config.json.",
+		)
+		return
+
+	try:
+		import json as _json
+		import requests
+		from google.oauth2 import service_account
+		from google.auth.transport.requests import Request as GoogleRequest
+
+		SCOPES = ["https://www.googleapis.com/auth/chat.bot"]
+		sa_info = sa_json if isinstance(sa_json, dict) else _json.loads(sa_json)
+		credentials = service_account.Credentials.from_service_account_info(sa_info, scopes=SCOPES)
+		credentials.refresh(GoogleRequest())
+		access_token = credentials.token
+
+		headers = {
+			"Authorization": f"Bearer {access_token}",
+			"Content-Type": "application/json",
+		}
+		payload = {"text": raw_message}
+
+		if gchat_type == "individual":
+			# Create or find a DM space with the user, then post
+			dm_url = "https://chat.googleapis.com/v1/spaces:findDirectMessage"
+			params = {"name": f"users/{gchat_email}"}
+			dm_resp = requests.get(dm_url, headers=headers, params=params, timeout=10)
+			if dm_resp.status_code == 200:
+				space_name = dm_resp.json().get("name", "")
+			else:
+				# Fall back to setup DM space
+				setup_resp = requests.post(
+					"https://chat.googleapis.com/v1/spaces:setup",
+					headers=headers,
+					json={
+						"space": {"spaceType": "DIRECT_MESSAGE"},
+						"memberships": [{"member": {"name": f"users/{gchat_email}", "type": "HUMAN"}}],
+					},
+					timeout=10,
+				)
+				setup_resp.raise_for_status()
+				space_name = setup_resp.json().get("name", "")
+
+			msg_url = f"https://chat.googleapis.com/v1/{space_name}/messages"
+		else:
+			space_name = gchat_space_id.strip().rstrip("/")
+			msg_url = f"https://chat.googleapis.com/v1/{space_name}/messages"
+
+		resp = requests.post(msg_url, headers=headers, json=payload, timeout=10)
+		resp.raise_for_status()
+
+	except Exception:
+		frappe.log_error(
+			title=f"BPMN ServiceTask: google_chat API call failed ({bpmn_id})",
+			message=frappe.get_traceback(),
+		)
+
+
+def dispatch_push_notification(instance, task, task_cfg: dict, bpmn_id: str) -> None:
+	"""
+	Send push notifications from a Service Task with serviceType='push_notification'.
+
+	Recipient resolution (union of all three sources):
+	  - pushToUsers      : comma-separated Frappe User IDs (email)
+	  - pushToDocFields  : field names on the context doc that hold User IDs
+	  - pushToRoles      : roles — all users holding those roles receive the push
+
+	Title and Message support Jinja2 via frappe.render_template():
+	  {{ doc.field_name }}    — context document fields
+	  {{ instance.name }}     — BPMN instance name
+
+	Uses one_fm.utils.send_push_notification() which sends via Firebase Cloud
+	Messaging.  Falls back gracefully if one_fm is not installed.
+
+	Failures are non-fatal: the workflow continues and the error is logged.
+	"""
+
+	# ── Resolve the template context document ─────────────────────────
+	doc = frappe._dict()
+	if instance.context_doctype and instance.context_docname:
+		try:
+			doc = frappe.get_doc(instance.context_doctype, instance.context_docname)
+		except Exception:
+			pass
+
+	# ── Jinja helper ──────────────────────────────────────────────────
+	jinja_ctx = {
+		"doc": doc,
+		"instance": instance,
+		"frappe": frappe,
+	}
+
+	def render(text):
+		if not text:
+			return ""
+		try:
+			return frappe.render_template(text, jinja_ctx)
+		except Exception:
+			return text  # return raw on template error
+
+	# ── Build recipient user list ─────────────────────────────────────
+	recipient_users = []
+
+	# 1. Direct user IDs (comma-separated Frappe User emails)
+	raw_users = task_cfg.get("pushToUsers", "")
+	if raw_users:
+		recipient_users += [u.strip() for u in raw_users.split(",") if u.strip()]
+
+	# 2. Document field values (fields on doc that hold User IDs)
+	raw_fields = task_cfg.get("pushToDocFields", "")
+	if raw_fields and doc:
+		for field_name in raw_fields.split(","):
+			field_name = field_name.strip()
+			if not field_name:
+				continue
+			val = doc.get(field_name, "")
+			if val:
+				recipient_users.append(str(val).strip())
+
+	# 3. Role members — fetch all users with the configured roles
+	raw_roles = task_cfg.get("pushToRoles", "")
+	if raw_roles:
+		for role_name in raw_roles.split(","):
+			role_name = role_name.strip()
+			if not role_name:
+				continue
+			user_roles = frappe.get_all(
+				"Has Role",
+				filters={"role": role_name, "parenttype": "User"},
+				fields=["parent"],
+			)
+			for ur in user_roles:
+				if ur.parent:
+					recipient_users.append(ur.parent)
+
+	# De-duplicate preserving order
+	seen = set()
+	recipient_users = [u for u in recipient_users if u not in seen and not seen.add(u)]
+
+	if not recipient_users:
+		frappe.log_error(
+			title=f"BPMN push_notification: No recipients resolved ({bpmn_id})",
+			message=(
+				f"Service Task {task_cfg} on instance {instance.name} produced "
+				f"no recipient users. Push notification will not be sent."
+			),
+		)
+		return
+
+	# ── Resolve User → Employee mapping ───────────────────────────────
+	# one_fm's send_push_notification requires an Employee ID, not a User email.
+	employee_map = {}
+	for user_id in recipient_users:
+		emp_id = frappe.db.get_value("Employee", {"user_id": user_id, "status": "Active"}, "name")
+		if emp_id:
+			employee_map[user_id] = emp_id
+
+	if not employee_map:
+		frappe.log_error(
+			title=f"BPMN push_notification: No employees resolved ({bpmn_id})",
+			message=(
+				f"None of the {len(recipient_users)} recipient users have "
+				f"linked active Employee records. Push notification will not be sent."
+			),
+		)
+		return
+
+	# ── Render title + message ────────────────────────────────────────
+	title = render(task_cfg.get("pushTitle", "")) or f"Notification from {instance.name}"
+	message = render(task_cfg.get("pushMessage", "")) or title
+
+	# ── Import push notification sender ───────────────────────────────
+	try:
+		from one_fm.utils import send_push_notification
+	except ImportError:
+		frappe.log_error(
+			title=f"BPMN push_notification: one_fm not installed ({bpmn_id})",
+			message=(
+				"Cannot send push notifications — one_fm app is not installed. "
+				"The send_push_notification function is required."
+			),
+		)
+		return
+
+	# ── Send to each employee ─────────────────────────────────────────
+	sent_count = 0
+	failed = []  # (emp_id, reason)
+	for user_id, emp_id in employee_map.items():
+		try:
+			result = send_push_notification(emp_id, title, message)
+			if result:
+				sent_count += 1
+			else:
+				failed.append((emp_id, "returned False"))
+		except Exception:
+			failed.append((emp_id, "exception"))
+			frappe.log_error(
+				title=f"BPMN push_notification: exception for {emp_id} ({bpmn_id})",
+				message=frappe.get_traceback(),
+			)
+
+	# ── Single summary log when there are failures ────────────────────
+	if failed:
+		fail_details = ", ".join(f"{eid} ({reason})" for eid, reason in failed)
+		frappe.log_error(
+			title=f"BPMN push_notification: {len(failed)} failed, {sent_count} sent ({bpmn_id})",
+			message=(
+				f"Push notification summary for task {bpmn_id}:\n"
+				f"  Sent: {sent_count}, Failed: {len(failed)}\n"
+				f"  Failed employees: {fail_details}\n\n"
+				f"For 'returned False' failures, check earlier Error Log entries "
+				f"from send_push_notification for the specific reason."
+			),
+		)
+
+
+def dispatch_email(instance, task, task_cfg: dict) -> None:
+	"""
+	Send an email notification from a Service Task with serviceType='send_email'.
+
+	Recipient resolution (union of all three sources):
+	  - emailTo          : direct comma-separated email addresses
+	  - emailToDocFields : field names on the context doc that hold email addresses
+	  - emailToRoles     : roles — all users holding those roles receive the email
+
+	Subject and Body support Jinja2 via frappe.render_template():
+	  {{ doc.field_name }}    — context document fields
+	  {{ instance.name }}     — BPMN instance name
+	  {{ frappe.session }}    — session info
+
+	If emailUseDoctype is true AND emailDoctype is set, an alternate doc
+	is loaded from that doctype (using context_docname) for the template
+	context.  Defaults to the main context document.
+	"""
+	import frappe.utils.jinja as jinja_utils
+
+	# ── Resolve the template context document ─────────────────────────
+	ctx_doctype = task_cfg.get("emailDoctype") or instance.context_doctype
+	ctx_docname = instance.context_docname
+	use_doctype = task_cfg.get("emailUseDoctype", "") == "true"
+
+	doc = frappe._dict()
+	if ctx_doctype and ctx_docname:
+		try:
+			doc = frappe.get_doc(ctx_doctype, ctx_docname)
+		except Exception:
+			pass
+
+	# ── Jinja helper ──────────────────────────────────────────────────
+	jinja_ctx = {
+		"doc": doc,
+		"instance": instance,
+		"frappe": frappe,
+	}
+
+	def render(text):
+		if not text:
+			return ""
+		try:
+			return frappe.render_template(text, jinja_ctx)
+		except Exception:
+			return text  # return raw on template error
+
+	# ── Build recipient list ──────────────────────────────────────────
+	recipients = []
+
+	# 1. Direct email addresses
+	raw_to = task_cfg.get("emailTo", "")
+	if raw_to:
+		recipients += [e.strip() for e in raw_to.split(",") if e.strip()]
+
+	# 2. Document field values (fields on doc that contain email addresses)
+	raw_fields = task_cfg.get("emailToDocFields", "")
+	if raw_fields and doc:
+		for field_name in raw_fields.split(","):
+			field_name = field_name.strip()
+			if not field_name:
+				continue
+			val = doc.get(field_name, "")
+			if val and "@" in str(val):
+				recipients.append(str(val).strip())
+
+	# 3. Role members — fetch all users with the configured roles
+	raw_roles = task_cfg.get("emailToRoles", "")
+	if raw_roles:
+		for role_name in raw_roles.split(","):
+			role_name = role_name.strip()
+			if not role_name:
+				continue
+			user_roles = frappe.get_all(
+				"Has Role",
+				filters={"role": role_name, "parenttype": "User"},
+				fields=["parent"],
+			)
+			for ur in user_roles:
+				user_email = frappe.db.get_value("User", ur.parent, "email")
+				if user_email and "@" in user_email:
+					recipients.append(user_email)
+
+	# De-duplicate preserving order
+	seen = set()
+	recipients = [r for r in recipients if r not in seen and not seen.add(r)]
+
+	if not recipients:
+		frappe.log_error(
+			title="BPMN send_email: No recipients resolved",
+			message=(
+				f"Service Task {task_cfg} on instance {instance.name} produced "
+				f"no recipient email addresses. Email will not be sent."
+			),
+		)
+		return
+
+	# ── Render subject + body ─────────────────────────────────────────
+	subject = render(task_cfg.get("emailSubject", "") or f"Notification from {instance.name}")
+	body = render(task_cfg.get("emailBody", "") or subject)
+	cc = task_cfg.get("emailCc", "") or None
+
+	# ── Resolve sender from configured Email Account ──────────────
+	sender = None
+	email_account = task_cfg.get("emailAccount", "")
+	if email_account:
+		sender = frappe.db.get_value("Email Account", email_account, "email_id")
+
+	# ── Send via one_fm.processor.sendemail if available ─────────
+	# Uses the same branded template and notification preference
+	# checks as the rest of the one_fm app (checks if user has
+	# notifications enabled, email notifications enabled, and
+	# preferred company email).
+	# Falls back to frappe.sendmail if one_fm isn't installed.
+	try:
+		from one_fm.processor import sendemail as onefm_sendemail
+
+		onefm_sendemail(
+			recipients=recipients,
+			subject=subject,
+			sender=sender,
+			header=[subject],
+			message=body,
+			cc=cc,
+			reference_doctype=instance.context_doctype or instance.doctype,
+			reference_name=instance.context_docname or instance.name,
+		)
+	except ImportError:
+		frappe.sendmail(
+			recipients=recipients,
+			sender=sender,
+			subject=subject,
+			message=body,
+			cc=cc.split(",") if cc else [],
+			reference_doctype=instance.context_doctype or instance.doctype,
+			reference_name=instance.context_docname or instance.name,
+			now=False,
+		)
