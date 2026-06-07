@@ -36,6 +36,9 @@ def save_dmn_xml(process_model: str, decision_id: str,
 	If a row with the given decision_id already exists, it is updated.
 	Otherwise, a new row is appended.
 
+	Uses direct child-row operations to avoid Frappe's HTML sanitiser
+	stripping XML content from Code fields during full doc.save().
+
 	Args:
 		process_model: Name of the BPMN Process Model document.
 		decision_id: BPMN element ID of the Business Rule Task.
@@ -51,7 +54,7 @@ def save_dmn_xml(process_model: str, decision_id: str,
 	if not dmn_xml or not dmn_xml.strip():
 		frappe.throw(_("DMN XML cannot be empty"))
 
-	# Find existing row or create new one
+	# Find existing row
 	existing_row = None
 	for row in doc.decision_tables or []:
 		if row.decision_id == decision_id:
@@ -59,17 +62,23 @@ def save_dmn_xml(process_model: str, decision_id: str,
 			break
 
 	if existing_row:
-		existing_row.decision_name = decision_name
-		existing_row.dmn_xml = dmn_xml
+		# Direct db_set on the child row — bypasses parent doc validation
+		frappe.db.set_value("Workflow Decision Table", existing_row.name, {
+			"decision_name": decision_name,
+			"dmn_xml": dmn_xml,
+		})
 	else:
-		doc.append("decision_tables", {
+		# Append new row via the parent doc, but skip HTML sanitisation
+		doc.flags.skip_editability_check = True
+		row = doc.append("decision_tables", {
 			"decision_id": decision_id,
 			"decision_name": decision_name,
 			"dmn_xml": dmn_xml,
 		})
-
-	doc.flags.skip_editability_check = True
-	doc.save(ignore_permissions=False)
+		# Save only the new child row directly
+		row.db_insert()
+		# Update the parent's modified timestamp so version tracking picks it up
+		doc.db_set("modified", frappe.utils.now())
 
 	return {"success": True, "decision_id": decision_id}
 

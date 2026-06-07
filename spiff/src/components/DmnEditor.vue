@@ -45,7 +45,7 @@
 </template>
 
 <script setup>
-import { ref, onMounted, onBeforeUnmount, watch, nextTick } from "vue";
+import { ref, onMounted, onBeforeUnmount } from "vue";
 
 // dmn-js CSS — must be imported for proper rendering
 import "dmn-js/dist/assets/diagram-js.css";
@@ -93,17 +93,31 @@ const VIEW_CONFIG = {
 };
 
 // ── Lifecycle ───────────────────────────────────────────────────────
-onMounted(async () => {
+let isDestroyed = false;
+
+onMounted(() => {
+	// dmn-js requires a container with non-zero dimensions. When the
+	// DmnEditor lives inside a frappe-ui Dialog that uses CSS transitions,
+	// the container may still have zero height at the instant onMounted
+	// fires. Deferring initialisation by one animation frame + a small
+	// safety margin ensures the Dialog layout has settled.
+	requestAnimationFrame(() => {
+		setTimeout(() => initModeler(), 50);
+	});
+});
+
+async function initModeler() {
+	if (isDestroyed || !containerEl.value) return;
+
 	// Dynamically import DmnJS Modeler to avoid SSR issues
 	const { default: DmnJS } = await import("dmn-js/lib/Modeler");
 
+	if (isDestroyed || !containerEl.value) return; // guard after async gap
+
+	// dmn-js v17: keyboard.bindTo was removed — keyboard binding is now
+	// implicit via the container. Do NOT pass common.keyboard.bindTo.
 	modeler = new DmnJS({
 		container: containerEl.value,
-		common: {
-			keyboard: {
-				bindTo: containerEl.value,
-			},
-		},
 	});
 
 	// Listen for view changes (DRD <-> Decision Table)
@@ -113,22 +127,56 @@ onMounted(async () => {
 		activeViewLabel.value = config.label;
 		activeViewClass.value = config.className;
 		emit("view-changed", viewId);
-
-		// Attach change listener to the new active viewer
-		attachChangeListener();
 	});
+
+	// ── Change listener ────────────────────────────────────────────
+	// The Manager's eventBus does NOT proxy commandStack.changed from
+	// child viewers. We hook in two places for reliability:
+	// 1. viewer.created — fires once when each viewer type is first created
+	// 2. views.changed — fires on every view switch, lets us re-attach
+	const attachedViewers = new Set();
+
+	function attachToViewer(viewer, label) {
+		if (!viewer || attachedViewers.has(viewer)) return;
+		try {
+			const viewerEventBus = viewer.get("eventBus");
+			viewerEventBus.on("commandStack.changed", onCommandStackChanged);
+			attachedViewers.add(viewer);
+			console.log(`[DmnEditor] ✅ Attached commandStack.changed to ${label}`);
+		} catch (e) {
+			console.warn(`[DmnEditor] ⚠ Failed to attach to ${label}:`, e);
+		}
+	}
+
+	if (!props.readonly) {
+		// Hook 1: when a viewer is first created
+		modeler.on("viewer.created", ({ type, viewer }) => {
+			console.log(`[DmnEditor] viewer.created: ${type}`);
+			attachToViewer(viewer, `viewer.created:${type}`);
+		});
+
+		// Hook 2: on every view switch, try the active viewer
+		modeler.on("views.changed", ({ activeView }) => {
+			if (!activeView) return;
+			const viewer = modeler.getActiveViewer();
+			if (viewer) {
+				attachToViewer(viewer, `views.changed:${activeView.type}`);
+			}
+		});
+	}
 
 	// Import the initial XML
 	const xmlToLoad = props.initialXml || getDefaultDmnXml();
 	try {
 		await modeler.importXML(xmlToLoad);
-		attachChangeListener();
+		console.log("[DmnEditor] importXML complete");
 	} catch (err) {
 		console.error("[DmnEditor] Failed to import DMN XML:", err);
 	}
-});
+}
 
 onBeforeUnmount(() => {
+	isDestroyed = true;
 	if (autosaveTimer) clearTimeout(autosaveTimer);
 	if (modeler) {
 		modeler.destroy();
@@ -136,59 +184,34 @@ onBeforeUnmount(() => {
 	}
 });
 
-// ── Change listener (attached per-view) ─────────────────────────────
-let currentCommandStack = null;
-let changeHandler = null;
+// ── Debounced autosave handler ──────────────────────────────────────
+function onCommandStackChanged() {
+	console.log("[DmnEditor] 🔥 commandStack.changed fired!");
+	if (autosaveTimer) clearTimeout(autosaveTimer);
+	saveStatusText.value = "Unsaved changes";
+	saveStatusClass.value = "text-amber-500";
 
-function attachChangeListener() {
-	if (props.readonly || !modeler) return;
+	autosaveTimer = setTimeout(async () => {
+		try {
+			saveStatusText.value = "Saving...";
+			saveStatusClass.value = "text-amber-600";
+			const xml = await getXml();
+			emit("xml-changed", xml);
+			saveStatusText.value = "Saved";
+			saveStatusClass.value = "text-green-600";
 
-	const activeViewer = modeler.getActiveViewer();
-	if (!activeViewer) return;
-
-	// Clean up previous listener
-	if (currentCommandStack && changeHandler) {
-		currentCommandStack.off("commandStack.changed", changeHandler);
-	}
-
-	try {
-		currentCommandStack = activeViewer.get("commandStack");
-	} catch {
-		// Some views (like simple viewers) may not have a commandStack
-		currentCommandStack = null;
-		return;
-	}
-
-	changeHandler = () => {
-		// Debounced autosave
-		if (autosaveTimer) clearTimeout(autosaveTimer);
-		saveStatusText.value = "Unsaved changes";
-		saveStatusClass.value = "text-amber-500";
-
-		autosaveTimer = setTimeout(async () => {
-			try {
-				saveStatusText.value = "Saving...";
-				saveStatusClass.value = "text-amber-600";
-				const xml = await getXml();
-				emit("xml-changed", xml);
-				saveStatusText.value = "Saved";
-				saveStatusClass.value = "text-green-600";
-
-				// Clear status after 3 seconds
-				setTimeout(() => {
-					if (saveStatusText.value === "Saved") {
-						saveStatusText.value = "";
-					}
-				}, 3000);
-			} catch (err) {
-				console.error("[DmnEditor] Autosave failed:", err);
-				saveStatusText.value = "Save failed";
-				saveStatusClass.value = "text-red-500";
-			}
-		}, 2000);
-	};
-
-	currentCommandStack.on("commandStack.changed", changeHandler);
+			// Clear status after 3 seconds
+			setTimeout(() => {
+				if (saveStatusText.value === "Saved") {
+					saveStatusText.value = "";
+				}
+			}, 3000);
+		} catch (err) {
+			console.error("[DmnEditor] Autosave failed:", err);
+			saveStatusText.value = "Save failed";
+			saveStatusClass.value = "text-red-500";
+		}
+	}, 2000);
 }
 
 // ── Public Methods ──────────────────────────────────────────────────
@@ -207,7 +230,6 @@ async function importXml(xml) {
 	if (!modeler) return;
 	try {
 		await modeler.importXML(xml);
-		attachChangeListener();
 	} catch (err) {
 		console.error("[DmnEditor] importXML failed:", err);
 	}

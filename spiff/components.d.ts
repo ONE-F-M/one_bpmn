@@ -27,7 +27,6 @@ declare module 'vue' {
     ReadinessChecklistDialog: typeof import('./src/components/ReadinessChecklistDialog.vue')['default']
     RouterLink: typeof import('vue-router')['RouterLink']
     RouterView: typeof import('vue-router')['RouterView']
-    ShapeLibraryPanel: typeof import('./src/components/ShapeLibraryPanel.vue')['default']
     VersionDiffDialog: typeof import('./src/components/VersionDiffDialog.vue')['default']
   }
 }

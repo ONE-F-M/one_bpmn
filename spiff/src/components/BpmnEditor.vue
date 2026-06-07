@@ -1938,8 +1938,13 @@ onMounted(async () => {
 			});
 
 			eventBus.on("spiff.dmn.edit", (event) => {
+				// SpiffExtensionLaunchButton fires { value, eventBus } — it does NOT
+				// include the element. Resolve it from the modeler's selection.
+				const selection = modeler.get("selection");
+				const selected = selection.get();
+				const element = selected?.length === 1 ? selected[0] : null;
 				emit("launch-dmn-editor", {
-					element: event.element,
+					element,
 					value: event.value || "",
 					eventBus: event.eventBus,
 				});
@@ -1981,12 +1986,12 @@ onMounted(async () => {
 				let options = [];
 				if (props.modelName) {
 					try {
-						const resp = await window.frappe?.call({
-							method: "one_bpmn.api.dmn_api.get_decision_list",
-							args: { process_model: props.modelName },
-							async: true,
+						const resp = await frappeRequest({
+							url: "/api/method/one_bpmn.api.dmn_api.get_decision_list",
+							params: { process_model: props.modelName },
 						});
-						const decisions = resp?.message || [];
+						// frappeRequest auto-unwraps "message"; resp is the list directly
+						const decisions = Array.isArray(resp) ? resp : (resp?.message || []);
 						options = decisions.map((d) => ({
 							label: d.decision_name || d.decision_id,
 							value: d.decision_id,

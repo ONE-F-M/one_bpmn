@@ -665,23 +665,18 @@
 			</template>
 		</Dialog>
 
-		<!-- DMN Editor Dialog (Business Rule Task) -->
+		<!-- DMN Editor Dialog (Business Rule Task) — autosaves on every change -->
 		<Dialog v-model="showDmnEditorDialog" :options="{ title: dmnEditorTitle, size: '7xl' }">
 			<template #body-content>
 				<div class="dmn-dialog-body">
 					<DmnEditor
 						v-if="showDmnEditorDialog"
+						:key="dmnEditorKey"
 						ref="dmnEditorRef"
 						:initial-xml="dmnEditorXml"
 						:readonly="!isEditable"
 						@xml-changed="onDmnXmlChanged"
 					/>
-				</div>
-			</template>
-			<template #actions>
-				<div class="flex gap-2">
-					<Button variant="subtle" @click="closeDmnEditor" :disabled="dmnSaving">Cancel</Button>
-					<Button variant="solid" @click="saveDmnAndClose" :loading="dmnSaving">Save &amp; Close</Button>
 				</div>
 			</template>
 		</Dialog>
@@ -862,9 +857,19 @@ const showDmnEditorDialog = ref(false);
 const dmnEditorRef = ref(null);
 const dmnEditorTitle = ref("Edit Decision Model");
 const dmnEditorXml = ref("");
-const dmnSaving = ref(false);
+const dmnEditorKey = ref(0); // Incremented on each open to force full recreation
 let activeDmnElement = null;
 let activeDmnEventBus = null;
+
+// Clean up DMN state when the dialog is closed (X button, click-outside, etc.)
+watch(showDmnEditorDialog, (isOpen) => {
+	if (!isOpen) {
+		activeDmnElement = null;
+		activeDmnEventBus = null;
+		// Reset XML so the next open doesn't flash stale content
+		dmnEditorXml.value = "";
+	}
+});
 
 // True when the currently selected diagram is deployed (is_active === 1)
 const isActiveModel = computed(() => {
@@ -2152,12 +2157,20 @@ function getAvatarColor(userName) {
 // --- DMN Editor Handlers ---
 
 async function onLaunchDmnEditor(event) {
-	const elementId = event.element?.id || "unknown";
-	const elementName = event.element?.businessObject?.name || event.element?.id || "Decision Model";
+	const element = event.element;
+	if (!element) {
+		console.error("[DMN] No element found for DMN editor launch — is a Business Rule Task selected?");
+		return;
+	}
 
-	activeDmnElement = event.element;
+	const elementId = element.id;
+	const elementName = element.businessObject?.name || elementId || "Decision Model";
+
+	activeDmnElement = element;
 	activeDmnEventBus = event.eventBus;
 	dmnEditorTitle.value = `Edit Decision Model — ${elementName}`;
+
+	console.log(`[DMN] Launching editor for element: ${elementId} (${elementName}), model: ${activeDiagramName.value}`);
 
 	// Load stored XML from backend
 	let storedXml = "";
@@ -2170,69 +2183,67 @@ async function onLaunchDmnEditor(event) {
 					decision_id: elementId,
 				},
 			});
-			storedXml = resp.message || "";
+			// frappeRequest unwraps the "message" key automatically.
+			// get_dmn_xml returns a plain string; handle both wrapped and raw.
+			if (typeof resp === "string") {
+				storedXml = resp;
+			} else if (resp && typeof resp.message === "string") {
+				storedXml = resp.message;
+			}
+			console.log(`[DMN] Loaded stored XML: ${storedXml ? storedXml.length + " chars" : "(empty)"}`);
 		} catch (err) {
 			console.warn("[DMN] Could not load stored XML:", err);
 		}
 	}
 
 	dmnEditorXml.value = storedXml;
+	dmnEditorKey.value++;          // Force a fresh DmnEditor instance
 	showDmnEditorDialog.value = true;
 }
 
-function onDmnXmlChanged(_xml) {
-	// Autosave happens inside DmnEditor via debounced emit.
-	// We don't need to do anything here for now — the real save
-	// happens on "Save & Close". This handler is available for
-	// future use (e.g., live-saving drafts).
-}
-
-async function saveDmnAndClose() {
-	if (!dmnEditorRef.value || !activeDmnElement) {
-		closeDmnEditor();
+async function onDmnXmlChanged(xml) {
+	// Autosave: persist every debounced change to the backend
+	if (!xml) {
+		console.warn("[DMN] onDmnXmlChanged called with empty XML — skipping save");
 		return;
 	}
-
-	const xml = await dmnEditorRef.value.getXml();
-	if (!xml) {
-		closeDmnEditor();
+	if (!activeDmnElement) {
+		console.warn("[DMN] onDmnXmlChanged: no activeDmnElement — skipping save");
+		return;
+	}
+	if (!activeDiagramName.value) {
+		console.warn("[DMN] onDmnXmlChanged: no activeDiagramName — skipping save");
 		return;
 	}
 
 	const elementId = activeDmnElement.id;
 	const elementName = activeDmnElement.businessObject?.name || elementId;
 
-	// Save to backend
-	if (activeDiagramName.value) {
-		dmnSaving.value = true;
-		try {
-			await frappeRequest({
-				url: "/api/method/one_bpmn.api.dmn_api.save_dmn_xml",
-				params: {
-					process_model: activeDiagramName.value,
-					decision_id: elementId,
-					decision_name: elementName,
-					dmn_xml: xml,
-				},
-			});
-		} catch (err) {
-			console.error("[DMN] Save failed:", err);
-			// Don't close on error — let user retry
-			dmnSaving.value = false;
-			return;
-		}
-		dmnSaving.value = false;
+	console.log(`[DMN] Saving DMN XML for element: ${elementId}, model: ${activeDiagramName.value}, xml length: ${xml.length}`);
+
+	try {
+		await frappeRequest({
+			url: "/api/method/one_bpmn.api.dmn_api.save_dmn_xml",
+			method: "POST",
+			params: {
+				process_model: activeDiagramName.value,
+				decision_id: elementId,
+				decision_name: elementName,
+				dmn_xml: xml,
+			},
+		});
+		console.log("[DMN] ✅ Save successful");
+	} catch (err) {
+		console.error("[DMN] Autosave failed:", err);
 	}
 
-	// Write DMN reference back to the BPMN element if eventBus is available
+	// Write DMN reference back to the BPMN element
 	if (activeDmnEventBus && activeDmnElement) {
 		activeDmnEventBus.fire("spiff.dmn.edit.update", {
 			element: activeDmnElement,
 			value: elementId,
 		});
 	}
-
-	closeDmnEditor();
 }
 
 function closeDmnEditor() {
