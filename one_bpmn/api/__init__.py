@@ -12,6 +12,12 @@
 #   script_version_history — server script version history and restore
 #   version_history    — diagram XML version history
 #   utils              — shared helpers (role checks, field lookups)
+
+# Backward-compatible re-exports so that both the short path
+# (one_bpmn.api.get_active_bpmn_tasks) and the full path
+# (one_bpmn.api.instance_api.get_active_bpmn_tasks) resolve correctly.
+# This covers Client Scripts, Server Scripts, or cached JS bundles on
+# other sites that may still reference the short path.
 from one_bpmn.api.instance_api import complete_task, get_active_bpmn_tasks, send_message
 
 __all__ = ["get_active_bpmn_tasks", "complete_task", "send_message"]
