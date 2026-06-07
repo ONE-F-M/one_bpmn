@@ -66,7 +66,7 @@
 				</div>
 
 				<!-- CENTER: BPMN Tools Container (Mounted natively from BpmnEditor.vue, hidden on mobile) -->
-				<div id="bpmn-editor-toolbar" class="hidden sm:flex flex-1 items-center h-8 min-w-0 overflow-hidden"></div>
+				<div id="bpmn-editor-toolbar" class="hidden sm:flex flex-1 items-center h-8 min-w-0"></div>
 
 				<!-- Other Active Editors Avatars (hidden on mobile) -->
 				<div v-if="otherEditors.length > 0" class="hidden sm:flex items-center -space-x-2 ml-4">
@@ -673,6 +673,7 @@
 					:script-type="logixScriptType"
 					:current-script="logixCurrentScript"
 					:event-bus="logixEventBus"
+					:process-context="logixProcessContext"
 					@close="showLogixCanvas = false"
 					@script-saved="onLogixScriptSaved"
 					@back="onLogixBack"
@@ -1052,6 +1053,27 @@ const logixElement = ref(null);
 const logixScriptType = ref("bpmn:script");
 const logixCurrentScript = ref("");
 const logixEventBus = ref(null);
+const logixProcessContext = ref(null);
+
+function extractProcessContext(element) {
+	if (!element?.businessObject) return null;
+	const bo = element.businessObject;
+	const mapNode = (ref) => ref ? {
+		id:   ref.id,
+		name: ref.name || ref.id,
+		type: (ref.$type || "").replace("bpmn:", ""),
+	} : null;
+	const incoming = (bo.incoming || []).map(f => mapNode(f.sourceRef)).filter(Boolean);
+	const outgoing  = (bo.outgoing  || []).map(f => mapNode(f.targetRef)).filter(Boolean);
+	const process   = bo.$parent;
+	return {
+		element_id:   bo.id,
+		element_name: bo.name || bo.id,
+		process_name: process?.name || process?.id || "",
+		incoming,
+		outgoing,
+	};
+}
 
 // Delete-with-script confirmation state
 const showDeleteScriptConfirm = ref(false);
@@ -1156,7 +1178,7 @@ async function runReadinessCheck(xmlContent, mode) {
 
 	try {
 		const response = await frappeRequest({
-			url: "/api/method/one_bpmn.api.validate_bpmn_readiness",
+			url: "/api/method/one_bpmn.api.process_map_api.validate_bpmn_readiness",
 			params: { xml_content: xmlContent },
 		});
 		readinessChecklist.value = response.message || response;
@@ -1223,7 +1245,7 @@ async function executeDeployment() {
 	deploying.value = true;
 	try {
 		const response = await frappeRequest({
-			url: "/api/method/one_bpmn.api.compile_process_model",
+			url: "/api/method/one_bpmn.api.compilation.compile_process_model",
 			method: "POST",
 			params: { model_name: activeDiagramName.value },
 		});
@@ -1298,7 +1320,7 @@ async function executeDisable() {
 	disabling.value = true;
 	try {
 		const response = await frappeRequest({
-			url: "/api/method/one_bpmn.api.disable_process_model",
+			url: "/api/method/one_bpmn.api.compilation.disable_process_model",
 			method: "POST",
 			params: { model_name: activeDiagramName.value },
 		});
@@ -1438,7 +1460,7 @@ async function checkEditability() {
 
 	try {
 		const response = await frappeRequest({
-			url: "/api/method/one_bpmn.api.check_process_editable",
+			url: "/api/method/one_bpmn.api.editability.check_process_editable",
 			params: { process_name: props.process },
 		});
 
@@ -1495,7 +1517,7 @@ function stopHeartbeat() {
 async function performHeartbeat(modelName) {
 	try {
 		const response = await frappeRequest({
-			url: "one_bpmn.api.check_and_update_editor_lock",
+			url: "one_bpmn.api.editability.check_and_update_editor_lock",
 			params: { model_name: modelName },
 		});
 
@@ -1515,7 +1537,7 @@ async function performHeartbeat(modelName) {
 async function loadProcess() {
 	try {
 		const response = await frappeRequest({
-			url: "/api/method/one_bpmn.api.get_process_diagrams",
+			url: "/api/method/one_bpmn.api.process_map_api.get_process_diagrams",
 			params: { process: props.process },
 		});
 		const data = response.message || response;
@@ -1597,7 +1619,7 @@ async function loadDiagramContent(name) {
 
 	try {
 		const response = await frappeRequest({
-			url: "/api/method/one_bpmn.api.get_process_model",
+			url: "/api/method/one_bpmn.api.process_map_api.get_process_model",
 			params: { name },
 		});
 
@@ -1648,14 +1670,16 @@ async function saveCurrentDiagram() {
 		const xml = await editorRef.value.getXML();
 		isExecutable.value = extractIsExecutable(xml);
 		const diagram = diagrams.value.find((d) => d.name === activeDiagramName.value);
+		const modelName = diagram?.model_name || activeDiagramName.value;
+		const description = diagram?.description || "";
 
 		const data = await frappeRequest({
-			url: "/api/method/one_bpmn.api.save_process_model",
+			url: "/api/method/one_bpmn.api.process_map_api.save_process_model",
 			params: {
 				process: props.process,
-				model_name: diagram.model_name,
+				model_name: modelName,
 				xml_content: xml,
-				description: diagram.description || "",
+				description: description,
 			},
 		});
 
@@ -1711,23 +1735,16 @@ async function createDiagram() {
 		const xmlContent = `<?xml version="1.0" encoding="UTF-8"?>
 <bpmn:definitions xmlns:bpmn="http://www.omg.org/spec/BPMN/20100524/MODEL"
                   xmlns:bpmndi="http://www.omg.org/spec/BPMN/20100524/DI"
-                  xmlns:dc="http://www.omg.org/spec/DD/20100524/DC"
                   id="Definitions_1"
                   targetNamespace="http://bpmn.io/schema/bpmn">
-  <bpmn:process id="${processId}" isExecutable="false">
-    <bpmn:startEvent id="StartEvent_1" />
-  </bpmn:process>
+  <bpmn:process id="${processId}" isExecutable="false" />
   <bpmndi:BPMNDiagram id="BPMNDiagram_1">
-    <bpmndi:BPMNPlane id="BPMNPlane_1" bpmnElement="${processId}">
-      <bpmndi:BPMNShape id="_BPMNShape_StartEvent_1" bpmnElement="StartEvent_1">
-        <dc:Bounds x="173" y="102" width="36" height="36" />
-      </bpmndi:BPMNShape>
-    </bpmndi:BPMNPlane>
+    <bpmndi:BPMNPlane id="BPMNPlane_1" bpmnElement="${processId}" />
   </bpmndi:BPMNDiagram>
 </bpmn:definitions>`;
 
 		const response = await frappeRequest({
-			url: "/api/method/one_bpmn.api.save_process_model",
+			url: "/api/method/one_bpmn.api.process_map_api.save_process_model",
 			params: {
 				process: props.process,
 				model_name: newDiagramName.value,
@@ -1756,7 +1773,7 @@ async function ensureDiagramContentCached(diagramName) {
 	}
 
 	const response = await frappeRequest({
-		url: "/api/method/one_bpmn.api.get_process_model",
+		url: "/api/method/one_bpmn.api.process_map_api.get_process_model",
 		params: {
 			name: diagramName,
 		},
@@ -1793,7 +1810,7 @@ async function handleDuplicateTab(tab) {
 	creating.value = true;
 	try {
 		const response = await frappeRequest({
-			url: "/api/method/one_bpmn.api.save_process_model",
+			url: "/api/method/one_bpmn.api.process_map_api.save_process_model",
 			params: {
 				process: props.process,
 				model_name: newName,
@@ -1850,7 +1867,7 @@ async function handleDeleteTab(tab) {
 	// ── Server call (no loadProcess round-trip) ──────────────────────
 	try {
 		await frappeRequest({
-			url: "/api/method/one_bpmn.api.delete_diagram",
+			url: "/api/method/one_bpmn.api.process_map_api.delete_diagram",
 			params: { name: tab.name },
 		});
 	} catch (error) {
@@ -1914,7 +1931,7 @@ async function renameProcessModel({ tabName, oldModelName, newModelName }) {
 
 	try {
 		const response = await frappeRequest({
-			url: "/api/method/one_bpmn.api.rename_process_model",
+			url: "/api/method/one_bpmn.api.process_map_api.rename_process_model",
 			params: {
 				name: tabName,
 				new_title: newModelName,
@@ -2018,7 +2035,7 @@ async function handleImportFile(event) {
 		// Call the backend import endpoint via frappeRequest for consistent
 		// CSRF handling, response parsing, and error surfacing.
 		const result = await frappeRequest({
-			url: "/api/method/one_bpmn.api.import_bpmn",
+			url: "/api/method/one_bpmn.api.process_map_api.import_bpmn",
 			method: "POST",
 			params: {
 				xml_content: xmlContent,
@@ -2129,6 +2146,7 @@ function onLaunchScriptEditor(event) {
 	logixScriptType.value = event.scriptType || "bpmn:script";
 	logixCurrentScript.value = event.script || "";
 	logixEventBus.value = event.eventBus;
+	logixProcessContext.value = extractProcessContext(event.element);
 
 	// Prep dialog state so it's ready if the user goes back from Logix
 	const typeLabels = {
@@ -2218,7 +2236,7 @@ async function createAndLinkScript() {
 	creatingScript.value = true;
 	try {
 		const result = await frappeRequest({
-			url: "one_bpmn.api.create_server_script",
+			url: "one_bpmn.api.server_script_api.create_server_script",
 			params: {
 				script_name: newScript.value.name,
 				script_type: newScript.value.script_type,
@@ -2255,7 +2273,7 @@ async function toggleScriptStatus(script) {
 	const newDisabledStatus = script.disabled ? 0 : 1;
 	try {
 		await frappeRequest({
-			url: "one_bpmn.api.toggle_server_script",
+			url: "one_bpmn.api.server_script_api.toggle_server_script",
 			params: {
 				script_name: script.name,
 				disabled: newDisabledStatus,
@@ -2413,7 +2431,7 @@ async function onLaunchCallActivityEditor(event) {
 		// Use the dedicated resolve endpoint — returns one record without
 		// fetching the entire model list client-side.
 		const response = await frappeRequest({
-			url: "/api/method/one_bpmn.api.resolve_process_model_by_id",
+			url: "/api/method/one_bpmn.api.process_map_api.resolve_process_model_by_id",
 			params: { process_id: event.processId },
 		});
 		const linked = response.message || response;

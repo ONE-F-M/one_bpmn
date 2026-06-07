@@ -309,7 +309,7 @@ async function sendMessage(opts = {}) {
 			body.current_xml = currentXml;
 		}
 
-		const response = await fetch("/api/method/one_bpmn.api.prosally_chat", {
+		const response = await fetch("/api/method/one_bpmn.api.server_script_api.prosally_chat", {
 			method: "POST",
 			headers: {
 				"Content-Type": "application/json",

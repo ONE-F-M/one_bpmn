@@ -20,6 +20,20 @@
 					@clear-selection="clearSelection"
 				/>
 
+				<!-- Task error banner -->
+				<div v-if="taskError" class="flex items-start gap-3 bg-red-50 border border-red-200 text-red-800 text-sm px-4 py-3 mx-4 mt-2 rounded-lg">
+					<svg class="w-4 h-4 mt-0.5 flex-shrink-0 text-red-500" viewBox="0 0 24 24" fill="currentColor">
+						<path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm1 15h-2v-2h2v2zm0-4h-2V7h2v6z"/>
+					</svg>
+					<div class="flex-1">
+						<p class="font-semibold">Task Not Completed</p>
+						<p class="mt-0.5">{{ taskError }}</p>
+					</div>
+					<button class="text-red-400 hover:text-red-600" @click="taskError = null">
+						<svg class="w-4 h-4" viewBox="0 0 24 24" fill="currentColor"><path d="M19 6.41L17.59 5 12 10.59 6.41 5 5 6.41 10.59 12 5 17.59 6.41 19 12 13.41 17.59 19 19 17.59 13.41 12z"/></svg>
+					</button>
+				</div>
+
 				<!-- Three-column bottom panel (40%) -->
 				<div class="flex overflow-hidden border-t" style="height: 40%; min-height: 200px;">
 					<InstanceHistory
@@ -64,6 +78,7 @@ const details = ref(null)
 const activeTasks = ref([])
 const completingTask = ref(null)
 const completingAction = ref(null)
+const taskError = ref(null)
 const logs = ref([])
 const bpmnXml = ref(null)
 const limitStart = ref(0)
@@ -178,7 +193,7 @@ async function loadDetails() {
 async function loadProcessModelXml(modelName) {
 	try {
 		const res = await frappeRequest({
-			url: "/api/method/one_bpmn.api.get_process_model",
+			url: "/api/method/one_bpmn.api.process_map_api.get_process_model",
 			params: { name: modelName },
 		})
 		const data = res.message || res
@@ -235,31 +250,55 @@ async function completeTask(task, detail) {
 	const needsSignature = detail?.requireDigitalSignature === "true"
 
 	const doComplete = async () => {
+		taskError.value = null
 		completingTask.value = task.task_id
 		completingAction.value = actionName
 		try {
-			await frappeRequest({
-				url: "/api/method/one_bpmn.api.complete_task",
+			const csrfToken = window.csrf_token
+				|| window.frappe?.csrf_token
+				|| window.frappe?.boot?.csrf_token
+				|| decodeURIComponent(document.cookie.split("; ").find(r => r.startsWith("csrf_token="))?.split("=")[1] || "")
+				|| ""
+
+			const resp = await fetch("/api/method/one_bpmn.api.instance_api.complete_task", {
 				method: "POST",
-				params: {
+				headers: {
+					"Content-Type": "application/json",
+					"X-Frappe-CSRF-Token": csrfToken,
+				},
+				body: JSON.stringify({
 					instance_name: instanceId.value,
 					task_id: task.task_id,
 					data: actionName ? JSON.stringify({ action: actionName }) : "{}",
-				},
+				}),
 			})
-			// Refresh data
+
+			const payload = await resp.json().catch(() => ({}))
+
+			if (!resp.ok) {
+				// Extract the human-readable message from _server_messages
+				let errMsg = "Failed to complete task. Please try again."
+				try {
+					const smsgs = JSON.parse(payload._server_messages || "[]")
+					if (smsgs.length) {
+						errMsg = JSON.parse(smsgs[0]).message || errMsg
+					} else if (payload.exception) {
+						const m = payload.exception.match(/(?:PermissionError|ValidationError):\s*(.+)/)
+						if (m) errMsg = m[1].trim()
+					}
+				} catch (_) { /* keep default */ }
+				taskError.value = errMsg
+				return
+			}
+
+			// Success — refresh data
 			logs.value = []
 			limitStart.value = 0
 			hasMoreLogs.value = true
 			await loadDetails()
 			await loadLogs()
 		} catch (err) {
-			const errMsg = err.message || "Failed to complete task"
-			if (window.frappe?.show_alert) {
-				window.frappe.show_alert({ message: errMsg, indicator: "red" }, 5)
-			} else {
-				window.alert(errMsg)
-			}
+			taskError.value = "An unexpected error occurred. Please try again."
 		} finally {
 			completingTask.value = null
 			completingAction.value = null

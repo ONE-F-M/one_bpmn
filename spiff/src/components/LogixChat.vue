@@ -100,11 +100,13 @@
 						<div v-if="msg.diffRows?.length" class="lx-split-diff">
 							<div class="lx-split-header">
 								<div class="lx-split-col-label">Original</div>
+								<div class="lx-split-header-divider"></div>
 								<div class="lx-split-col-label">Proposed</div>
 							</div>
 							<div class="lx-split-body">
 								<div v-for="(row, ri) in msg.diffRows" :key="ri" class="lx-split-row">
 									<pre :class="['lx-split-cell', splitCellClass(row, 'left')]">{{ row.left ?? '' }}</pre>
+									<div class="lx-split-divider"></div>
 									<pre :class="['lx-split-cell', splitCellClass(row, 'right')]">{{ row.right ?? '' }}</pre>
 								</div>
 							</div>
@@ -260,8 +262,9 @@ const applyError      = ref("");
 const applyLoading    = ref(false);
 const applyNameInput  = ref(null);
 
-const copiedIndex       = ref(null);
-const pendingScriptName = ref("");
+const copiedIndex        = ref(null);
+const pendingScriptName  = ref("");
+const localCurrentScript = ref("");
 
 // ── Computed helpers ──────────────────────────────────────────────────
 const elementLabel = computed(() => {
@@ -364,7 +367,7 @@ async function initGreeting() {
 	if (label) {
 		try {
 			const resp = await fetch(
-				`/api/method/one_bpmn.api.check_server_script_exists?script_name=${encodeURIComponent(label)}`,
+				`/api/method/one_bpmn.api.server_script_api.check_server_script_exists?script_name=${encodeURIComponent(label)}`,
 				{ headers: { "X-Frappe-CSRF-Token": getCsrfToken() } },
 			);
 			if (resp.ok) {
@@ -435,7 +438,7 @@ async function handleMessageAction(handler, msgId, value = "") {
 		if (msg) msg.actions = null;
 
 		try {
-			const res = await fetch("/api/method/one_bpmn.api.create_server_script", {
+			const res = await fetch("/api/method/one_bpmn.api.server_script_api.create_server_script", {
 				method: "POST",
 				headers: { "Content-Type": "application/json", "X-Frappe-CSRF-Token": getCsrfToken() },
 				body: JSON.stringify({ script_name: name, script_type: "API", script: code }),
@@ -450,11 +453,12 @@ async function handleMessageAction(handler, msgId, value = "") {
 					element: props.element, scriptType: props.scriptType, script: scriptName,
 				});
 			}
-			pendingScriptName.value = "";
+			pendingScriptName.value  = "";
+			localCurrentScript.value = scriptName;
 			const urlNote = apiUrl ? `\nReachable at \`${apiUrl}\`` : "";
 			messages.value.push({
 				id: makeId(), role: "assistant", time: formatTime(new Date()),
-				content: `Script **${scriptName}** has been created and linked to this task.${urlNote}`,
+				content: `Script **${scriptName}** has been created and linked to this task.${urlNote}\n\nYou can now ask me to modify it and I'll show you the changes before saving.`,
 			});
 			scrollBottom();
 			setTimeout(() => handleClose(), 1400);
@@ -471,7 +475,7 @@ async function handleMessageAction(handler, msgId, value = "") {
 		if (msg) msg.actions = null;
 
 		try {
-			const res = await fetch("/api/method/one_bpmn.api.update_server_script", {
+			const res = await fetch("/api/method/one_bpmn.api.server_script_api.update_server_script", {
 				method: "POST",
 				headers: { "Content-Type": "application/json", "X-Frappe-CSRF-Token": getCsrfToken() },
 				body: JSON.stringify({ script_name: scriptName, script: code }),
@@ -542,7 +546,7 @@ async function sendMessage() {
 			.slice(-10)
 			.map(m => ({ type: m.role, content: m.content }));
 
-		const response = await fetch("/api/method/one_bpmn.api.process_logix_message", {
+		const response = await fetch("/api/method/one_bpmn.api.server_script_api.process_logix_message", {
 			method:  "POST",
 			headers: {
 				"Content-Type":       "application/json",
@@ -553,7 +557,7 @@ async function sendMessage() {
 				session_id:     sessionId.value,
 				chat_history:   JSON.stringify(history),
 				element_name:   elementLabel.value || "",
-				current_script: props.currentScript || "",
+				current_script: localCurrentScript.value || props.currentScript || "",
 			}),
 		});
 
@@ -679,7 +683,7 @@ async function applyScript() {
 	applyLoading.value = true;
 
 	try {
-		const res = await fetch("/api/method/one_bpmn.api.create_server_script", {
+		const res = await fetch("/api/method/one_bpmn.api.server_script_api.create_server_script", {
 			method:  "POST",
 			headers: {
 				"Content-Type":       "application/json",
@@ -726,8 +730,9 @@ async function applyScript() {
 
 // ── Reset / close ─────────────────────────────────────────────────────
 function resetConversation() {
-	sessionId.value = generateSessionId();
-	messages.value  = [];
+	sessionId.value        = generateSessionId();
+	messages.value         = [];
+	localCurrentScript.value = "";
 	clearEditor();
 	initGreeting();
 }
@@ -1348,55 +1353,65 @@ function handleClose() {
 	border: 1px solid #e0e0e0;
 	border-radius: 8px;
 	overflow: hidden;
-	max-width: 100%;
+	width: 100%;
 }
 
 .lx-split-header {
-	display: flex;
+	display: grid;
+	grid-template-columns: minmax(0, 1fr) 2px minmax(0, 1fr);
 	background: #f5f5f5;
-	border-bottom: 1px solid #e0e0e0;
+	border-bottom: 1px solid #d0d0d0;
 }
 
 .lx-split-col-label {
-	flex: 1;
-	padding: 4px 12px;
+	padding: 6px 12px;
 	font-weight: 600;
 	font-size: 11px;
 	color: #555;
-	letter-spacing: 0.03em;
+	letter-spacing: 0.05em;
+	text-transform: uppercase;
 }
 
-.lx-split-col-label:first-child { border-right: 1px solid #e0e0e0; }
+.lx-split-header-divider {
+	background: #d0d0d0;
+	width: 2px;
+}
 
 .lx-split-body {
 	background: #1c1b1f;
 	max-height: 420px;
 	overflow-y: auto;
+	overflow-x: hidden;
 }
 
 .lx-split-row {
-	display: flex;
+	display: grid;
+	grid-template-columns: minmax(0, 1fr) 2px minmax(0, 1fr);
 	border-bottom: 1px solid rgba(255,255,255,0.04);
-	min-height: 20px;
+	min-height: 22px;
+}
+
+.lx-split-divider {
+	background: #444;
+	width: 2px;
+	flex-shrink: 0;
 }
 
 .lx-split-cell {
-	flex: 1;
 	margin: 0;
-	padding: 1px 12px;
+	padding: 2px 12px;
 	font-family: "JetBrains Mono", "Fira Code", monospace;
 	font-size: 12px;
-	line-height: 1.5;
+	line-height: 1.6;
 	color: #e6e1e5;
 	white-space: pre;
 	overflow: hidden;
+	text-overflow: ellipsis;
 	min-width: 0;
-	border-right: 1px solid rgba(255,255,255,0.08);
 }
 
-.lx-split-cell:last-child { border-right: none; }
-.lx-sdiff-del   { background: rgba(240,80,80,0.2);   color: #ff8a8a; }
-.lx-sdiff-add   { background: rgba(100,220,100,0.18); color: #6ee68e; }
-.lx-sdiff-hunk  { background: rgba(144,202,249,0.08); color: #90caf9; font-style: italic; }
-.lx-sdiff-empty { background: rgba(255,255,255,0.03); color: transparent; }
+.lx-sdiff-del   { background: rgba(240,80,80,0.22);   color: #ff9a9a; }
+.lx-sdiff-add   { background: rgba(80,200,80,0.18);   color: #7ee89e; }
+.lx-sdiff-hunk  { background: rgba(144,202,249,0.10); color: #90caf9; font-style: italic; }
+.lx-sdiff-empty { background: rgba(255,255,255,0.02); }
 </style>

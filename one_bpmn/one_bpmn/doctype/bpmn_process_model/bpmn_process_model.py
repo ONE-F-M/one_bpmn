@@ -44,7 +44,7 @@ class BPMNProcessModel(Document):
 		):
 			return
 
-		from one_bpmn.api import check_process_editable
+		from one_bpmn.api.editability import check_process_editable
 
 		editability_info = check_process_editable(self.process_name)
 		if not editability_info.get("editable"):

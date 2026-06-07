@@ -336,6 +336,128 @@ The app automatically decodes HTML entities in stored XML. If issues persist, ch
 
 ---
 
+## ProsAlly — AI Process Modelling Assistant
+
+ProsAlly is an AI-powered chat assistant embedded in the BPMN editor that helps users create, overwrite, and modify process diagrams through natural language prompts.
+
+### Overview
+
+ProsAlly lives as a collapsible side panel (420 px wide on desktop, full-height bottom sheet on mobile) inside the BPMN editor. It runs a multi-step agent pipeline:
+
+```
+User prompt
+    │
+    ▼
+Intent Classifier
+    │
+    ├─ GENERATE_NEW / OVERWRITE_EXISTING / MODIFY_EXISTING
+    │       │
+    │       ▼
+    │   Confirmer  ──► "I'll draw … Shall I proceed?" + [Yes / No, let me adjust]
+    │       │  (confirmed)
+    │       ▼
+    │   Generator / Modifier  ──► BPMN 2.0 XML ──► canvas
+    │
+    ├─ AMBIGUOUS / INCOMPLETE
+    │       │
+    │       ▼
+    │   Clarifier  ──► focused question + option buttons
+    │
+    └─ IRRELEVANT  ──► polite redirect
+```
+
+### Intent Classification
+
+| Intent | Trigger | ProsAlly response |
+|---|---|---|
+| `GENERATE_NEW` | User wants a brand-new process on an empty canvas | Confirms, then generates BPMN |
+| `OVERWRITE_EXISTING` | User wants to replace the existing model entirely | Confirms, then regenerates |
+| `MODIFY_EXISTING` | User wants to add/remove/change a specific part | Confirms, then patches XML |
+| `AMBIGUOUS` | Multiple valid interpretations | Asks a clarifying question with options |
+| `INCOMPLETE` | Clear intent but missing details | Asks for the missing information |
+| `IRRELEVANT` | Nothing to do with process modelling | Redirects politely |
+
+### Key Files
+
+| File | Purpose |
+|---|---|
+| `spiff/src/components/ProsAllyPanel.vue` | Chat UI — messages, option buttons, rich-text input |
+| `spiff/src/components/BpmnEditor.vue` | Panel integration, toggle button, mobile bottom-sheet |
+| `spiff/src/utils/bpmnLayout.js` | Auto-layout algorithm — positions generated BPMN elements left-to-right |
+| `spiff/src/linting/bpmnlintrc.js` | bpmnlint rule configuration (errors vs. warnings) |
+| `one_bpmn/api.py` → `prosally_chat` | Frappe API endpoint — orchestrates the agent pipeline |
+| `one_bpmn/agents/google_adk/prosally_agent/prosally_agent.py` | LLM agent — intent classification, clarification, generation, modification |
+| `one_bpmn/utils/chat_persistence.py` | Persists conversation history in `Chat Conversation` DocType |
+
+### Agent Pipeline (Python)
+
+The `ProsAllyAgent` class in `prosally_agent.py` runs fully async:
+
+1. **IntentClassifier** — calls the LLM with a structured prompt, expects `{"intent": "...", "reason": "..."}`.
+2. **Clarifier** — for `AMBIGUOUS`/`INCOMPLETE`, returns `{"question": "...", "options": [...]}`.
+3. **Confirmer** — for actionable intents, returns `{"summary": "...", "question": "..."}`.
+4. **Generator** — produces complete BPMN 2.0 XML from scratch.
+5. **Modifier** — receives existing canvas XML and a patch instruction, returns updated XML.
+
+All LLM responses are parsed via `_parse_json_response()` which strips markdown code fences before calling `json.loads`, with a fallback that extracts the first `{...}` block from the raw response.
+
+### Auto-Layout (`bpmnLayout.js`)
+
+When ProsAlly generates or modifies a diagram, the raw XML uses placeholder coordinates. The layout function:
+
+- Uses `DOMParser` **read-only** to extract element types, IDs, and sequence flow connections.
+- Runs a BFS + join-relaxation algorithm to assign left-to-right column positions.
+- Builds the entire `<bpmndi:BPMNDiagram>` section as a **plain string** with hardcoded namespace prefixes — never using `XMLSerializer` — to prevent namespace prefix mangling that causes bpmn-moddle reference resolution failures.
+- Reads the actual `<bpmn:process id="...">` value and uses it as `BPMNPlane bpmnElement`, ensuring it always matches.
+- Assigns correct element dimensions: events 36×36, gateways 50×50, tasks 100×80.
+- Adds `isMarkerVisible="true"` on exclusive gateway shapes.
+- Routes edges with straight connectors (same row), Manhattan L-routing (different rows), and top-arc routing (back-edges / loop-backs).
+
+### BPMN Generator Rules
+
+The generator LLM is instructed to produce BPMN 2.0 that satisfies all active bpmnlint rules:
+
+- Fixed `id="Process_1"` on `<bpmn:process>` and matching `bpmnElement="Process_1"` on `<bpmndi:BPMNPlane>` — eliminates `no-bpmndi` errors from ID mismatch.
+- Exclusive gateways use a `default="Flow_..."` attribute on the gateway and `<bpmn:conditionExpression>` on every non-default outgoing flow — eliminates `conditional-flows` warnings.
+- Separate DI placeholder dimensions per element type match the layout algorithm's `DIMS` table.
+
+### LLM Configuration
+
+ProsAlly's LLM provider, model, and API key are configured per-agent in the **Processa Agent LLM Config** child table of the **AI Agent Configuration** DocType. The `agent_id` must match `"prosally_agent"`. Supported providers: `anthropic`, `gemini`, `openai`.
+
+### Conversation Persistence
+
+Each chat session is stored as a `Chat Conversation` record with `agent_mode="ProsAlly"`. The last 30 messages are loaded as context on each turn. The `conversation_name` is returned from the backend and stored in the frontend session, enabling multi-turn coherent conversations.
+
+### Active Linting Rules
+
+| Rule | Severity | Description |
+|---|---|---|
+| `start-event-required` | Error | Process must have a start event |
+| `end-event-required` | Error | Process must have an end event |
+| `no-disconnected` | Error | All elements must have at least one connection |
+| `single-blank-start-event` | Error | Exactly one blank (untyped) start event |
+| `no-bpmndi` | Error | Every semantic element must have DI (BPMNShape/BPMNEdge) |
+| `conditional-flows` | Warning | Gateway outgoing flows must have conditions or a default |
+| `no-overlapping-elements` | Warning | Shapes must not overlap |
+| `label-required` | Warning | Elements should have names |
+| `no-implicit-split` | Warning | Tasks should not have multiple outgoing flows |
+| `superfluous-gateway` | Warning | Gateways with only one path |
+| `no-gateway-join-fork` | Warning | Gateways should not both join and fork |
+
+### Example Prompts
+
+**Generate new process:**
+> "Create a leave request approval process. It starts when an employee submits a leave request. A line manager reviews it and either approves or rejects it. If approved, HR updates the records and the process ends. If rejected, the employee is notified and the process ends."
+
+**Modify existing process (canvas must have a diagram loaded):**
+> "Add a 'Send Confirmation Email' task after the 'Approve Request' step."
+
+**Overwrite existing:**
+> "Scrap the current model and redraw the entire process from scratch based on the new SOP."
+
+---
+
 ## License
 
 MIT

@@ -148,7 +148,7 @@ async function open(xmlGetter) {
 
 	try {
 		const response = await frappeRequest({
-			url: "/api/method/one_bpmn.api.get_diagram_versions",
+			url: "/api/method/one_bpmn.api.version_history.get_diagram_versions",
 			params: { name: props.diagramName },
 		});
 		versions.value = response.message || response || [];
@@ -167,7 +167,7 @@ async function startComparison() {
 	loadingDiffXml.value = true;
 	try {
 		const response = await frappeRequest({
-			url: "/api/method/one_bpmn.api.get_diagram_version_xml",
+			url: "/api/method/one_bpmn.api.version_history.get_diagram_version_xml",
 			params: {
 				name: props.diagramName,
 				model_name: selectedVersion.value.model_name,

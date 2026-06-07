@@ -1,5 +1,5 @@
 <template>
-	<div class="formatting-toolbar flex items-center gap-2 min-w-0 overflow-hidden flex-nowrap">
+	<div class="formatting-toolbar flex items-center gap-2 min-w-0 flex-nowrap">
 		<!-- Fill Color Picker -->
 		<div class="relative" ref="fillPickerRef">
 			<button
@@ -452,8 +452,8 @@ watch(
 	() => props.selectedElements,
 	(newSelection) => {
 		if (newSelection && newSelection.length > 0) {
-			// Get colors from the first selected element
-			const element = newSelection[0];
+			// Get colors from the first selected element (unwrap Vue proxy using toRaw)
+			const element = toRaw(newSelection[0]);
 			const di = element.di;
 			if (di) {
 				// Read colors from BPMN DI (diagram interchange)

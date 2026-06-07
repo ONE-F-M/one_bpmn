@@ -7,11 +7,6 @@
 			<!-- Chat header -->
 			<div class="lc-chat-header">
 				<div class="lc-chat-header-left">
-					<button class="lc-back-btn" @click="$emit('back')" title="Back to script selector">
-						<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" width="15" height="15">
-							<path stroke-linecap="round" stroke-linejoin="round" d="M15 19l-7-7 7-7"/>
-						</svg>
-					</button>
 					<span class="lc-header-avatar">
 						<svg viewBox="0 0 24 24" fill="currentColor" width="16" height="16">
 							<path d="M13 2L3 14h9l-1 8 10-12h-9l1-8z"/>
@@ -66,29 +61,65 @@
 								</button>
 							</div>
 						</div>
-						<div class="lc-msg-time" :class="msg.role === 'user' ? 'lc-time-right' : 'lc-time-left'">{{ msg.time }}</div>
-					</div>
-					<!-- Diff view for MODIFY -->
-					<div v-if="msg.diffRows?.length" class="lc-split-diff">
-						<div class="lc-split-header">
-							<div class="lc-split-col-label">Original</div>
-							<div class="lc-split-col-label">Proposed</div>
-						</div>
-						<div class="lc-split-body">
-							<div v-for="(row, ri) in msg.diffRows" :key="ri" class="lc-split-row">
-								<pre :class="['lc-split-cell', splitCellClass(row, 'left')]">{{ row.left ?? '' }}</pre>
-								<pre :class="['lc-split-cell', splitCellClass(row, 'right')]">{{ row.right ?? '' }}</pre>
+						<!-- Diff view for MODIFY -->
+						<div v-if="msg.diffRows?.length" class="lc-split-diff">
+							<div class="lc-split-header">
+								<div class="lc-split-col-label">Original</div>
+								<div class="lc-split-divider-head"></div>
+								<div class="lc-split-col-label">Proposed</div>
+							</div>
+							<div class="lc-split-body">
+								<div v-for="(row, ri) in msg.diffRows" :key="ri" class="lc-split-row">
+									<pre :class="['lc-split-cell', splitCellClass(row, 'left')]">{{ row.left ?? '' }}</pre>
+									<div class="lc-split-divider"></div>
+									<pre :class="['lc-split-cell', splitCellClass(row, 'right')]">{{ row.right ?? '' }}</pre>
+								</div>
 							</div>
 						</div>
-					</div>
-					<!-- Action buttons -->
-					<div v-if="msg.actions?.length" class="lc-msg-actions">
-						<button
-							v-for="action in msg.actions"
-							:key="action.handler + action.label"
-							class="lc-action-btn"
-							@click="handleAction(action, msg.id)"
-						>{{ action.label }}</button>
+
+						<!-- Tests panel for CREATE -->
+						<div v-if="msg.testsChecklist?.length" class="lc-tests-panel">
+							<div class="lc-tests-header">
+								<svg viewBox="0 0 24 24" fill="currentColor" width="13" height="13"><path d="M9 16.17L4.83 12l-1.42 1.41L9 19 21 7l-1.41-1.41z"/></svg>
+								Let's verify it works
+							</div>
+							<div class="lc-tests-intro">Click "Try this" on each scenario to confirm the script does what you expect.</div>
+							<div class="lc-tests-checklist">
+								<div v-for="(t, ti) in msg.testsChecklist" :key="ti" class="lc-test-item">
+									<div class="lc-test-scenario">{{ t.scenario }}</div>
+									<div class="lc-test-row"><span class="lc-test-label">When</span><span>{{ t.when }}</span></div>
+									<div class="lc-test-row"><span class="lc-test-label">Expect</span><span>{{ t.expect }}</span></div>
+									<div class="lc-test-actions">
+										<button
+											v-if="t.inputs && savedScriptName"
+											class="lc-run-test-btn"
+											:disabled="testRunResults[`${msg.id}-${ti}`]?.loading"
+											@click="runTest(msg.id, ti, t.inputs)"
+										>
+											<span v-if="testRunResults[`${msg.id}-${ti}`]?.loading" class="lc-test-spinner"></span>
+											<span v-else>▶ Try this</span>
+										</button>
+										<div v-if="testRunResults[`${msg.id}-${ti}`] && !testRunResults[`${msg.id}-${ti}`].loading" class="lc-test-result">
+											<span :class="testRunResults[`${msg.id}-${ti}`].passed ? 'lc-test-pass' : 'lc-test-fail'">
+												{{ testRunResults[`${msg.id}-${ti}`].passed ? '✓' : '✗' }}
+												{{ testRunResults[`${msg.id}-${ti}`].summary }}
+											</span>
+										</div>
+									</div>
+								</div>
+							</div>
+						</div>
+
+						<!-- Action buttons -->
+						<div v-if="msg.actions?.length" class="lc-msg-actions">
+							<button
+								v-for="action in msg.actions"
+								:key="action.handler + action.label"
+								:class="['lc-action-btn', action.handler === 'reject_modify' ? 'lc-action-btn--reject' : '']"
+								@click="handleAction(action, msg.id)"
+							>{{ action.label }}</button>
+						</div>
+						<div class="lc-msg-time" :class="msg.role === 'user' ? 'lc-time-right' : 'lc-time-left'">{{ msg.time }}</div>
 					</div>
 				</div>
 
@@ -167,10 +198,70 @@
 					/>
 				</div>
 				<div class="lc-file-actions">
+					<!-- Save status -->
+					<span v-if="isSaving" class="lc-save-status lc-autosaving">
+						<span class="lc-spinner-sm"></span> Saving…
+					</span>
+					<span v-else-if="isDirty && !isSaved" class="lc-save-status lc-unsaved">● Unsaved</span>
+					<span v-else-if="isSaved" class="lc-save-status lc-saved">✓ Saved</span>
+
 					<div v-if="isLoadingScript" class="lc-loading-indicator">
 						<div class="lc-spinner-sm"></div>
 						Loading...
 					</div>
+
+					<!-- Folder / Script Browser button -->
+					<div class="lc-script-browser-wrap">
+						<button
+							class="lc-file-btn"
+							:class="{ 'lc-file-btn--active': showScriptBrowser }"
+							@click="toggleScriptBrowser"
+							title="Browse server scripts"
+						>
+							<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" width="14" height="14">
+								<path stroke-linecap="round" stroke-linejoin="round" d="M3 7a2 2 0 012-2h3.5L10 7h9a2 2 0 012 2v8a2 2 0 01-2 2H5a2 2 0 01-2-2V7z"/>
+							</svg>
+						</button>
+						<!-- Script browser dropdown -->
+						<div v-if="showScriptBrowser" class="lc-script-dropdown">
+							<div class="lc-script-dropdown-header">
+								<span>Server Scripts</span>
+								<div v-if="loadingScriptBrowser" class="lc-spinner-sm"></div>
+							</div>
+							<div class="lc-script-dropdown-search">
+								<input
+									v-model="scriptBrowserSearch"
+									type="text"
+									placeholder="Search scripts..."
+									class="lc-script-search-input"
+									@click.stop
+								/>
+							</div>
+							<div class="lc-script-dropdown-list">
+								<div v-if="loadingScriptBrowser && !filteredScriptBrowserList.length" class="lc-script-dropdown-empty">Loading…</div>
+								<div v-else-if="filteredScriptBrowserList.length === 0" class="lc-script-dropdown-empty">No scripts found</div>
+								<div
+									v-for="s in filteredScriptBrowserList"
+									:key="s.name"
+									class="lc-script-dropdown-item"
+									:class="{ 'lc-script-dropdown-item--active': s.name === canvasScriptName }"
+									@click="linkExistingScript(s.name)"
+								>
+									<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" width="12" height="12" class="lc-script-item-icon">
+										<path stroke-linecap="round" stroke-linejoin="round" d="M19.5 14.25v-2.625a3.375 3.375 0 00-3.375-3.375h-1.5A1.125 1.125 0 0113.5 7.125v-1.5a3.375 3.375 0 00-3.375-3.375H8.25m0 12.75h7.5m-7.5 3H12M10.5 2.25H5.625c-.621 0-1.125.504-1.125 1.125v17.25c0 .621.504 1.125 1.125 1.125h12.75c.621 0 1.125-.504 1.125-1.125V11.25a9 9 0 00-9-9z"/>
+									</svg>
+									<div class="lc-script-item-info">
+										<div class="lc-script-item-name">{{ s.name }}</div>
+										<div class="lc-script-item-type">{{ s.script_type }}</div>
+									</div>
+									<svg v-if="s.name === canvasScriptName" viewBox="0 0 24 24" fill="currentColor" width="12" height="12" class="lc-script-item-check">
+										<path d="M9 16.17L4.83 12l-1.42 1.41L9 19 21 7l-1.41-1.41z"/>
+									</svg>
+								</div>
+							</div>
+						</div>
+					</div>
+
 					<button class="lc-file-btn" @click="copyCanvas" title="Copy script">
 						<svg viewBox="0 0 24 24" fill="currentColor" width="14" height="14">
 							<path d="M16 1H4c-1.1 0-2 .9-2 2v14h2V3h12V1zm3 4H8c-1.1 0-2 .9-2 2v14c0 1.1.9 2 2 2h11c1.1 0 2-.9 2-2V7c0-1.1-.9-2-2-2zm0 16H8V7h11v14z"/>
@@ -192,7 +283,7 @@
 			</div>
 
 			<!-- Backdrop to close dropdowns when clicking outside -->
-			<div v-if="showDoctypeDropdown || showModuleDropdown" class="lc-dropdown-backdrop" @click="showDoctypeDropdown = false; showModuleDropdown = false"></div>
+			<div v-if="showDoctypeDropdown || showModuleDropdown || showScriptBrowser" class="lc-dropdown-backdrop" @click="showDoctypeDropdown = false; showModuleDropdown = false; showScriptBrowser = false"></div>
 
 			<!-- Script Settings Panel -->
 			<div class="lc-settings-panel">
@@ -200,7 +291,7 @@
 						<!-- Script Type -->
 						<div class="lc-settings-field">
 							<label class="lc-settings-label">Script Type</label>
-							<select v-model="scriptMeta.script_type" class="lc-settings-select" :disabled="props.element?.type === 'bpmn:ScriptTask'">
+							<select v-model="scriptMeta.script_type" class="lc-settings-select">
 								<option value="API">API</option>
 								<option value="DocType Event">DocType Event</option>
 								<option value="Scheduler Event">Scheduler Event</option>
@@ -296,19 +387,6 @@
 				></textarea>
 			</div>
 
-			<!-- Editor footer -->
-			<div class="lc-editor-footer">
-				<div class="lc-footer-status">
-					<span v-if="isSaving" class="lc-autosaving">
-						<span class="lc-spinner-sm"></span> Saving…
-					</span>
-					<span v-else-if="isDirty && !isSaved" class="lc-unsaved">● Unsaved changes</span>
-					<span v-else-if="isSaved" class="lc-saved">✓ Saved</span>
-				</div>
-				<div class="lc-footer-actions">
-					<button class="lc-btn-cancel" @click="$emit('close')">Close</button>
-				</div>
-			</div>
 		</div>
 
 		<!-- ── RIGHT: Version History Panel ──────────────────── -->
@@ -376,7 +454,7 @@
 </template>
 
 <script setup>
-import { ref, computed, nextTick, onMounted, watch } from "vue";
+import { ref, reactive, computed, nextTick, onMounted, watch } from "vue";
 import DOMPurify from "dompurify";
 import { marked } from "marked";
 
@@ -397,10 +475,11 @@ function getCurrentUser() {
 }
 
 const props = defineProps({
-	element:       { type: Object,  default: null },
-	scriptType:    { type: String,  default: "bpmn:script" },
-	currentScript: { type: String,  default: "" },
-	eventBus:      { type: Object,  default: null },
+	element:        { type: Object,  default: null },
+	scriptType:     { type: String,  default: "bpmn:script" },
+	currentScript:  { type: String,  default: "" },
+	eventBus:       { type: Object,  default: null },
+	processContext: { type: Object,  default: null },
 });
 
 const emit = defineEmits(["close", "script-saved", "back"]);
@@ -482,14 +561,97 @@ const loadingVersions    = ref(false);
 const diffVersion        = ref(null);
 const versionDiffRows    = ref([]);
 
+// ── Script browser ────────────────────────────────────────────────────
+const showScriptBrowser    = ref(false);
+const scriptBrowserList    = ref([]);
+const loadingScriptBrowser = ref(false);
+const scriptBrowserSearch  = ref("");
+
+const filteredScriptBrowserList = computed(() => {
+	const q = scriptBrowserSearch.value.toLowerCase();
+	return q ? scriptBrowserList.value.filter(s => s.name.toLowerCase().includes(q) || (s.script_type || "").toLowerCase().includes(q)) : scriptBrowserList.value;
+});
+
+async function toggleScriptBrowser() {
+	showScriptBrowser.value = !showScriptBrowser.value;
+	if (showScriptBrowser.value && !scriptBrowserList.value.length) {
+		await fetchScriptBrowserList();
+	}
+}
+
+async function fetchScriptBrowserList() {
+	loadingScriptBrowser.value = true;
+	try {
+		const r = await fetch(
+			"/api/method/frappe.client.get_list?doctype=Server%20Script&fields=[%22name%22,%22script_type%22]&limit_page_length=0&order_by=modified+desc",
+			{ headers: { "X-Frappe-CSRF-Token": getCsrfToken() } },
+		);
+		const d = await r.json();
+		scriptBrowserList.value = d?.message || [];
+	} catch (e) {
+		console.error("Failed to load script list:", e);
+	} finally {
+		loadingScriptBrowser.value = false;
+	}
+}
+
+async function linkExistingScript(name) {
+	showScriptBrowser.value = false;
+	isInitializing = true;
+	try {
+		canvasScriptName.value = name;
+		savedScriptName.value  = name;
+		isLoadingScript.value  = true;
+		const resp = await fetch(
+			`/api/method/frappe.client.get?doctype=Server%20Script&name=${encodeURIComponent(name)}`,
+			{ headers: { "X-Frappe-CSRF-Token": getCsrfToken() } },
+		);
+		const data = await resp.json();
+		const msg = data?.message || {};
+		canvasCode.value = msg.script || "";
+		scriptMeta.value = {
+			script_type:       msg.script_type || "API",
+			reference_doctype: msg.reference_doctype || "",
+			doctype_event:     msg.doctype_event || "",
+			api_method:        msg.api_method || "",
+			allow_guest:       !!msg.allow_guest,
+			event_frequency:   msg.event_frequency || "",
+			cron_format:       msg.cron_format || "",
+			module:            msg.module || "",
+		};
+		if (props.eventBus && props.element) {
+			props.eventBus.fire("spiff.script.update", {
+				element:    props.element,
+				scriptType: props.scriptType,
+				script:     name,
+			});
+		}
+		isDirty.value = false;
+		isSaved.value = false;
+		await fetchVersionHistory();
+		messages.value.push({
+			id: makeId(), role: "assistant", time: formatTime(new Date()),
+			content: `Loaded **${name}** into the canvas. What changes would you like to make?`,
+		});
+		scrollBottom();
+	} catch (e) {
+		console.error("Failed to link script:", e);
+	} finally {
+		isLoadingScript.value = false;
+		isInitializing = false;
+	}
+}
+
 // ── Chat state ────────────────────────────────────────────────────────
-const messages        = ref([]);
-const editorHasContent = ref(false);
-const isTyping        = ref(false);
-const sessionId       = ref(generateSessionId());
-const messagesEl      = ref(null);
-const inputEl         = ref(null);
-const copiedIndex     = ref(null);
+const messages          = ref([]);
+const editorHasContent  = ref(false);
+const isTyping          = ref(false);
+const sessionId         = ref(generateSessionId());
+const conversationName  = ref(null);   // persisted Chat Conversation name
+const messagesEl        = ref(null);
+const inputEl           = ref(null);
+const copiedIndex       = ref(null);
+const testRunResults    = reactive({});  // key: `${msgId}-${ti}` → { loading, passed, summary }
 let   pendingLogixDescription = "";
 let   pendingScriptName       = "";
 
@@ -563,21 +725,40 @@ async function initCanvas() {
 }
 
 // ── Greeting ──────────────────────────────────────────────────────────
-async function initGreeting() {
-	const label = canvasScriptName.value || elementLabel.value;
+function buildContextSentence() {
+	const ctx = props.processContext;
+	if (!ctx) return "";
+	const parts = [];
+	if (ctx.incoming?.length) {
+		const names = ctx.incoming.map(n => `**${n.name}**`).join(" and ");
+		parts.push(`runs after ${names}`);
+	}
+	if (ctx.outgoing?.length) {
+		const names = ctx.outgoing.map(n => `**${n.name}**`).join(" and ");
+		parts.push(`leads to ${names}`);
+	}
+	if (!parts.length) return "";
+	return " I can see this task " + parts.join(", and ") + ".";
+}
 
+async function initGreeting() {
+	const label   = canvasScriptName.value || elementLabel.value;
+	const ctxLine = buildContextSentence();
+
+	// Already linked to a known script — offer to help modify it
 	if (props.currentScript) {
 		messages.value = [{
 			id: makeId(), role: "assistant", time: formatTime(new Date()),
-			content: `Hello, I am Logix.\nI've loaded **${props.currentScript}** in the canvas. What changes would you like to make?`,
+			content: `Hello, I am Logix — your process automation assistant.${ctxLine}\n\nI can see **${props.currentScript}** is already linked here. How would you like to change it? Just describe what you need in plain language.`,
 		}];
 		return;
 	}
 
 	if (label) {
+		// Check whether a Server Script with the same name already exists
 		try {
 			const resp = await fetch(
-				`/api/method/one_bpmn.api.check_server_script_exists?script_name=${encodeURIComponent(label)}`,
+				`/api/method/one_bpmn.api.server_script_api.check_server_script_exists?script_name=${encodeURIComponent(label)}`,
 				{ headers: { "X-Frappe-CSRF-Token": getCsrfToken() } },
 			);
 			if (resp.ok) {
@@ -585,10 +766,10 @@ async function initGreeting() {
 				if (data?.message?.exists) {
 					messages.value = [{
 						id: makeId(), role: "assistant", time: formatTime(new Date()),
-						content: `Hello, I am Logix.\nI found an existing script named **${label}**. Would you like me to load it or define a new one?`,
+						content: `Hello, I am Logix — your process automation assistant.${ctxLine}\n\nI found an existing script named **${label}**. Would you like to link it here, or start fresh with a new one?`,
 						actions: [
-							{ label: "Load existing", handler: "load_existing" },
-							{ label: "Start fresh",   handler: "start_fresh"  },
+							{ label: "Link to script task", handler: "link_existing" },
+							{ label: "Create new",           handler: "start_fresh"  },
 						],
 					}];
 					return;
@@ -596,16 +777,19 @@ async function initGreeting() {
 			}
 		} catch (_) { /* fall through */ }
 
+		const contextHint = ctxLine
+			? `\n\nTell me in plain language what should happen at this step — for example, what data needs to be checked, what approval is needed, or what records should be updated.`
+			: `\n\nDescribe what you'd like the script to do and I'll write it for you.`;
 		messages.value = [{
 			id: makeId(), role: "assistant", time: formatTime(new Date()),
-			content: `Hello, I am Logix.\nI've set up the canvas for **${label}**. Describe what the script should do and I'll write it for you.`,
+			content: `Hello, I am Logix — your process automation assistant.${ctxLine}${contextHint}`,
 		}];
 		return;
 	}
 
 	messages.value = [{
 		id: makeId(), role: "assistant", time: formatTime(new Date()),
-		content: "Hello, I am Logix.\nDescribe what you'd like the script to do and I'll write it for you.",
+		content: "Hello, I am Logix — your process automation assistant.\n\nDescribe what you'd like the script to do and I'll write it for you. You don't need to know any code — just tell me what the business logic should be.",
 	}];
 }
 
@@ -707,12 +891,21 @@ async function copyCanvas() {
 async function handleAction(action, msgId) {
 	const msg = messages.value.find(m => m.id === msgId);
 
-	if (action.handler === "load_existing") {
+	if (action.handler === "link_existing") {
 		if (msg) msg.actions = null;
+		// Load the script content into the canvas
 		await initCanvas();
+		// Fire the BPMN event to link the existing script to the element
+		if (props.eventBus && props.element) {
+			props.eventBus.fire("spiff.script.update", {
+				element:    props.element,
+				scriptType: props.scriptType,
+				script:     canvasScriptName.value,
+			});
+		}
 		messages.value.push({
 			id: makeId(), role: "assistant", time: formatTime(new Date()),
-			content: `Loaded **${canvasScriptName.value}** in the canvas. What changes would you like to make?`,
+			content: `**${canvasScriptName.value}** has been linked to this script task. What changes would you like to make?`,
 		});
 		scrollBottom();
 
@@ -734,6 +927,74 @@ async function handleAction(action, msgId) {
 		}
 		sendMessage();
 
+	} else if (action.handler === "approve_modify") {
+		if (msg) msg.actions = null;
+		const code = msg?.pendingCode || "";
+		if (code) {
+			canvasCode.value = code;
+			isDirty.value = true;
+			isSaved.value = false;
+			pendingLogixDescription = msg?.pendingDescription || "Modified by Logix";
+			const saveResult = await saveScript();
+			if (isDirty.value) {
+				messages.value.push({
+					id: makeId(), role: "assistant", time: formatTime(new Date()),
+					content: "Changes applied but save failed — check the script name and try again.",
+				});
+			} else {
+				messages.value.push({
+					id: makeId(), role: "assistant", time: formatTime(new Date()),
+					content: "Changes approved and saved ✓",
+				});
+			}
+		} else {
+			messages.value.push({
+				id: makeId(), role: "assistant", time: formatTime(new Date()),
+				content: "Changes approved ✓",
+			});
+		}
+		scrollBottom();
+
+	} else if (action.handler === "reject_modify") {
+		if (msg) msg.actions = null;
+		messages.value.push({
+			id: makeId(), role: "assistant", time: formatTime(new Date()),
+			content: "Changes rejected. The existing script is unchanged. Let me know how you'd like to adjust the modification.",
+		});
+		scrollBottom();
+
+	} else if (action.handler === "approve_create") {
+		if (msg) msg.actions = null;
+		const code = msg?.pendingCode || "";
+		if (code) {
+			canvasCode.value = code;
+			isDirty.value = true;
+			isSaved.value = false;
+			pendingLogixDescription = msg?.pendingDescription || "Created by Logix";
+			if (msg?.pendingName && !props.currentScript) {
+				canvasScriptName.value = msg.pendingName;
+			}
+			await saveScript();
+		}
+		const savedOk = !isDirty.value;
+		messages.value.push({
+			id: makeId(), role: "assistant", time: formatTime(new Date()),
+			content: savedOk
+				? "Your automation is saved and ready ✓\n\nHere are a few quick checks you can run to make sure it does exactly what you need — no coding required."
+				: "Script applied but save failed — check the script name and try again.",
+		});
+
+		// Show tests panel if we have them
+		const checklist = msg?.testsChecklist || [];
+		if (savedOk && checklist.length) {
+			messages.value.push({
+				id: makeId(), role: "assistant", time: formatTime(new Date()),
+				content: "",
+				testsChecklist: checklist,
+			});
+		}
+		scrollBottom();
+
 	} else if (action.handler === "apply_to_canvas") {
 		if (msg) msg.actions = null;
 		const code = msg?.pendingCode || "";
@@ -745,6 +1006,7 @@ async function handleAction(action, msgId) {
 			if (msg?.pendingName && !props.currentScript) {
 				canvasScriptName.value = msg.pendingName;
 			}
+			scheduleAutoSave();
 		}
 		messages.value.push({
 			id: makeId(), role: "assistant", time: formatTime(new Date()),
@@ -776,24 +1038,29 @@ async function sendMessage() {
 			.slice(-10)
 			.map(m => ({ type: m.role, content: m.content }));
 
-		const response = await fetch("/api/method/one_bpmn.api.process_logix_message", {
+		const response = await fetch("/api/method/one_bpmn.api.server_script_api.process_logix_message", {
 			method: "POST",
 			headers: {
 				"Content-Type":       "application/json",
 				"X-Frappe-CSRF-Token": getCsrfToken(),
 			},
 			body: JSON.stringify({
-				message:        text,
-				session_id:     sessionId.value,
-				chat_history:   JSON.stringify(history),
-				element_name:   elementLabel.value || canvasScriptName.value || "",
-				current_script: props.currentScript || "",
+				message:           text,
+				session_id:        sessionId.value,
+				conversation_name: conversationName.value || null,
+				element_name:      elementLabel.value || canvasScriptName.value || "",
+				current_script:    props.currentScript || "",
+				process_context:   props.processContext || null,
 			}),
 		});
 
 		if (!response.ok) throw new Error(`HTTP ${response.status}`);
 		const data   = await response.json();
 		const result = data?.message;
+
+		// Capture the conversation name returned by the backend
+		if (result?.conversation_name) conversationName.value = result.conversation_name;
+
 		const reply  = result?.response || result?.message || "Sorry, I couldn't process that.";
 		const intent = result?.intent;
 		const diff   = result?.diff || null;
@@ -812,14 +1079,22 @@ async function sendMessage() {
 			if (diff) msg.diffRows = parseSplitDiff(diff);
 			msg.pendingCode = proposedCode;
 			msg.pendingDescription = "Modified by Logix";
-			msg.actions = [{ label: "Apply to Canvas", handler: "apply_to_canvas" }];
+			if (/```python[\s\S]*?```/.test(reply)) {
+				msg.actions = [
+					{ label: "Approve & Save", handler: "approve_modify" },
+					{ label: "Reject",         handler: "reject_modify"  },
+				];
+			}
 
 		} else if (intent === "CREATE") {
 			const proposedCode = result?.modified_script || extractCode(reply);
 			msg.pendingCode = proposedCode;
 			msg.pendingName = result?.suggested_name || "";
 			msg.pendingDescription = `Created by Logix${result?.suggested_name ? ': ' + result.suggested_name : ''}`;
-			msg.actions = [{ label: "Apply to Canvas", handler: "apply_to_canvas" }];
+			msg.testsChecklist = result?.tests_checklist || [];
+			if (/```python[\s\S]*?```/.test(reply)) {
+				msg.actions = [{ label: "Approve & Save", handler: "approve_create" }];
+			}
 		}
 
 		messages.value.push(msg);
@@ -871,6 +1146,34 @@ async function copyMsg(content) {
 	try { await navigator.clipboard.writeText(content); } catch { /* fallback */ }
 }
 
+// ── Test runner ───────────────────────────────────────────────────────
+async function runTest(msgId, ti, inputs) {
+	const key = `${msgId}-${ti}`;
+	testRunResults[key] = { loading: true, passed: null, summary: "" };
+	try {
+		const response = await fetch("/api/method/one_bpmn.api.server_script_api.run_logix_test_case", {
+			method: "POST",
+			headers: {
+				"Content-Type":        "application/json",
+				"X-Frappe-CSRF-Token": getCsrfToken(),
+			},
+			body: JSON.stringify({
+				script_name: savedScriptName.value,
+				inputs:      JSON.stringify(inputs || {}),
+			}),
+		});
+		const data   = await response.json();
+		const result = data?.message;
+		testRunResults[key] = {
+			loading: false,
+			passed:  result?.passed ?? false,
+			summary: result?.summary || (result?.passed ? "Test passed." : "Test failed."),
+		};
+	} catch (err) {
+		testRunResults[key] = { loading: false, passed: false, summary: "Could not run the test — network error." };
+	}
+}
+
 // ── Diff helpers ──────────────────────────────────────────────────────
 function parseSplitDiff(unifiedDiff) {
 	const rows  = [];
@@ -912,7 +1215,7 @@ async function fetchVersionHistory() {
 	loadingVersions.value = true;
 	try {
 		const res = await fetch(
-			`/api/method/one_bpmn.api.get_script_version_history?script_name=${encodeURIComponent(canvasScriptName.value)}`,
+			`/api/method/one_bpmn.api.script_version_history.get_script_version_history?script_name=${encodeURIComponent(canvasScriptName.value)}`,
 			{ headers: { "X-Frappe-CSRF-Token": getCsrfToken() } }
 		);
 		const data = await res.json();
@@ -1002,7 +1305,7 @@ async function ensureUniqueName() {
 			// A name that matches the currently saved script is always fine (it's ours)
 			if (name === savedScriptName.value) break;
 			const r = await fetch(
-				`/api/method/one_bpmn.api.check_server_script_exists?script_name=${encodeURIComponent(name)}`,
+				`/api/method/one_bpmn.api.server_script_api.check_server_script_exists?script_name=${encodeURIComponent(name)}`,
 				{ headers: { "X-Frappe-CSRF-Token": getCsrfToken() } },
 			);
 			const d = await r.json();
@@ -1033,7 +1336,7 @@ async function saveScript() {
 
 		// Upsert with the (possibly renamed) name
 		const meta = scriptMeta.value;
-		const res = await fetch("/api/method/one_bpmn.api.create_server_script", {
+		const res = await fetch("/api/method/one_bpmn.api.server_script_api.create_server_script", {
 			method:  "POST",
 			headers: { "Content-Type": "application/json", "X-Frappe-CSRF-Token": getCsrfToken() },
 			body:    JSON.stringify({
@@ -1064,17 +1367,15 @@ async function saveScript() {
 			});
 		}
 
-		pendingLogixDescription = "";
-		await fetchVersionHistory();
-
 		isDirty.value = false;
 		isSaved.value = true;
 		setTimeout(() => { isSaved.value = false; }, 3000);
 
+		pendingLogixDescription = "";
 		emit("script-saved", scriptName);
+		await fetchVersionHistory();
 	} catch (err) {
 		console.error("Auto-save failed:", err);
-		// Don't push to chat on auto-save errors to avoid spamming the user
 	} finally {
 		isSaving.value = false;
 	}
@@ -1082,8 +1383,9 @@ async function saveScript() {
 
 // ── Reset chat ────────────────────────────────────────────────────────
 function resetChat() {
-	sessionId.value = generateSessionId();
-	messages.value  = [];
+	sessionId.value        = generateSessionId();
+	conversationName.value = null;
+	messages.value         = [];
 	initGreeting();
 }
 </script>
@@ -1093,8 +1395,8 @@ function resetChat() {
 .lc-root {
 	display: flex;
 	flex-direction: row;
-	height: 70vh;
-	min-height: 500px;
+	height: 84vh;
+	min-height: 560px;
 	overflow: hidden;
 	font-family: "Google Sans", Roboto, "Segoe UI", system-ui, sans-serif;
 	background: #fff;
@@ -1104,7 +1406,7 @@ function resetChat() {
    CHAT PANEL (left)
 ══════════════════════════════════════════════════════════════════ */
 .lc-chat-panel {
-	width: 420px;
+	width: 580px;
 	flex-shrink: 0;
 	display: flex;
 	flex-direction: column;
@@ -1130,22 +1432,6 @@ function resetChat() {
 	min-width: 0;
 }
 
-.lc-back-btn {
-	width: 26px;
-	height: 26px;
-	border: none;
-	border-radius: 50%;
-	background: rgba(255,255,255,0.15);
-	color: #fff;
-	cursor: pointer;
-	display: flex;
-	align-items: center;
-	justify-content: center;
-	flex-shrink: 0;
-	transition: background 0.15s;
-}
-
-.lc-back-btn:hover { background: rgba(255,255,255,0.28); }
 
 .lc-header-avatar {
 	width: 26px;
@@ -1402,7 +1688,7 @@ function resetChat() {
 	40%            { transform: scale(1);    opacity: 1;   }
 }
 
-/* ── Split diff in messages ─────────────────────────────────────── */
+/* ── Diff viewer ─────────────────────────────────────────────────────── */
 .lc-split-diff {
 	margin-top: 8px;
 	border: 1px solid #e0e0e0;
@@ -1410,18 +1696,110 @@ function resetChat() {
 	overflow: hidden;
 	width: 100%;
 }
-
-.lc-split-header { display: flex; background: #f5f5f5; border-bottom: 1px solid #e0e0e0; }
-.lc-split-col-label { flex: 1; padding: 3px 8px; font-weight: 600; font-size: 10px; color: #666; letter-spacing: .03em; }
-.lc-split-col-label:first-child { border-right: 1px solid #e0e0e0; }
-.lc-split-body { background: #1c1b1f; max-height: 200px; overflow-y: auto; }
-.lc-split-row { display: flex; border-bottom: 1px solid rgba(255,255,255,.04); min-height: 18px; }
-.lc-split-cell { flex: 1; margin: 0; padding: 1px 8px; font-family: monospace; font-size: 11px; line-height: 1.5; color: #e6e1e5; white-space: pre; overflow: hidden; min-width: 0; border-right: 1px solid rgba(255,255,255,.08); }
-.lc-split-cell:last-child { border-right: none; }
-.lc-sdiff-del   { background: rgba(240,80,80,.2);   color: #ff8a8a; }
+.lc-split-header {
+	display: grid;
+	grid-template-columns: minmax(0, 1fr) 2px minmax(0, 1fr);
+	background: #f5f5f5;
+	border-bottom: 1px solid #d0d0d0;
+}
+.lc-split-col-label { padding: 4px 10px; font-weight: 600; font-size: 10px; color: #555; letter-spacing: .04em; text-transform: uppercase; min-width: 0; }
+.lc-split-divider-head { background: #d0d0d0; }
+.lc-split-body { background: #1c1b1f; max-height: 260px; overflow-y: auto; overflow-x: hidden; }
+.lc-split-row {
+	display: grid;
+	grid-template-columns: minmax(0, 1fr) 2px minmax(0, 1fr);
+	border-bottom: 1px solid rgba(255,255,255,.04);
+	min-height: 20px;
+}
+.lc-split-divider { background: #444; }
+.lc-split-cell { margin: 0; padding: 2px 10px; font-family: "JetBrains Mono", "Fira Code", monospace; font-size: 11px; line-height: 1.6; color: #e6e1e5; white-space: pre; overflow: hidden; min-width: 0; }
+.lc-sdiff-del   { background: rgba(240,80,80,.2);    color: #ff8a8a; }
 .lc-sdiff-add   { background: rgba(100,220,100,.18); color: #6ee68e; }
 .lc-sdiff-hunk  { background: rgba(144,202,249,.08); color: #90caf9; font-style: italic; }
-.lc-sdiff-empty { background: rgba(255,255,255,.03); color: transparent; }
+.lc-sdiff-empty { background: rgba(255,255,255,.03); }
+
+/* ── Tests panel ─────────────────────────────────────────────────────── */
+.lc-tests-panel {
+	margin-top: 10px;
+	border: 1px solid #c8e6c9;
+	border-radius: 10px;
+	overflow: hidden;
+	font-size: 12.5px;
+	background: #fff;
+}
+.lc-tests-header {
+	background: #e8f5e9;
+	border-bottom: 1px solid #c8e6c9;
+	padding: 8px 14px;
+	font-weight: 700;
+	font-size: 11.5px;
+	color: #1b5e20;
+	letter-spacing: .02em;
+	display: flex;
+	align-items: center;
+	gap: 6px;
+}
+.lc-tests-intro {
+	padding: 8px 14px 4px;
+	font-size: 11.5px;
+	color: #666;
+	border-bottom: 1px solid #f0f0f0;
+}
+.lc-tests-checklist { padding: 10px 12px; display: flex; flex-direction: column; gap: 10px; }
+.lc-test-item {
+	background: #fafafa;
+	border: 1px solid #e8e8e8;
+	border-radius: 8px;
+	padding: 10px 12px;
+}
+.lc-test-scenario { font-weight: 700; color: #222; margin-bottom: 6px; font-size: 12.5px; }
+.lc-test-row { display: flex; gap: 8px; color: #555; margin-top: 3px; line-height: 1.45; }
+.lc-test-label {
+	flex-shrink: 0;
+	font-weight: 700;
+	font-size: 10px;
+	text-transform: uppercase;
+	letter-spacing: .05em;
+	color: #4caf50;
+	padding-top: 2px;
+	min-width: 40px;
+}
+.lc-test-actions {
+	display: flex;
+	align-items: center;
+	gap: 8px;
+	margin-top: 8px;
+	flex-wrap: wrap;
+}
+.lc-run-test-btn {
+	padding: 3px 10px;
+	font-size: 11px;
+	font-weight: 600;
+	border: 1px solid #4caf50;
+	border-radius: 12px;
+	background: #f0faf0;
+	color: #2d6a2d;
+	cursor: pointer;
+	display: flex;
+	align-items: center;
+	gap: 5px;
+	transition: background .15s, opacity .15s;
+}
+.lc-run-test-btn:hover:not(:disabled) { background: #e0f5e0; }
+.lc-run-test-btn:disabled { opacity: .55; cursor: default; }
+.lc-test-spinner {
+	display: inline-block;
+	width: 10px; height: 10px;
+	border: 2px solid #4caf50;
+	border-top-color: transparent;
+	border-radius: 50%;
+	animation: lc-spin .7s linear infinite;
+}
+@keyframes lc-spin { to { transform: rotate(360deg); } }
+.lc-test-result { font-size: 11.5px; line-height: 1.4; flex: 1; min-width: 0; }
+.lc-test-pass { color: #2d6a2d; }
+.lc-test-fail { color: #b33; }
+
 
 /* ── Action buttons (Apply to Canvas, Clarify) ──────────────────── */
 .lc-msg-actions {
@@ -1445,6 +1823,9 @@ function resetChat() {
 }
 
 .lc-action-btn:hover { background: linear-gradient(135deg, #6c3fe0 0%, #9b59b6 100%); color: #fff; border-color: transparent; }
+
+.lc-action-btn--reject { border-color: #c62828; color: #c62828; }
+.lc-action-btn--reject:hover { background: #c62828; color: #fff; border-color: transparent; }
 
 /* ── Input area ─────────────────────────────────────────────────── */
 .lc-input-area {
@@ -1479,6 +1860,7 @@ function resetChat() {
 }
 
 .lc-toolbar-btn:hover { background: #f0f0f0; border-color: #ddd; }
+
 
 .lc-editor-row {
 	display: flex;
@@ -1616,6 +1998,120 @@ function resetChat() {
 .lc-file-btn:hover { background: #f5f5f5; border-color: #ccc; }
 .lc-file-btn--active { background: #f0ebff; border-color: #6c3fe0; color: #6c3fe0; }
 
+/* ── Save status in file bar ────────────────────────────────────────── */
+.lc-save-status {
+	font-size: 11px;
+	display: flex;
+	align-items: center;
+	gap: 4px;
+	white-space: nowrap;
+}
+.lc-unsaved   { color: #e65100; }
+.lc-saved     { color: #2e7d32; }
+.lc-autosaving { color: #888; }
+
+/* ── Script browser ─────────────────────────────────────────────────── */
+.lc-script-browser-wrap {
+	position: relative;
+}
+
+.lc-script-dropdown {
+	position: absolute;
+	right: 0;
+	top: calc(100% + 6px);
+	z-index: 250;
+	width: 260px;
+	background: #fff;
+	border: 1px solid #ddd;
+	border-radius: 8px;
+	box-shadow: 0 6px 20px rgba(0,0,0,.12);
+	display: flex;
+	flex-direction: column;
+	overflow: hidden;
+}
+
+.lc-script-dropdown-header {
+	display: flex;
+	align-items: center;
+	justify-content: space-between;
+	padding: 8px 12px;
+	font-size: 11px;
+	font-weight: 700;
+	color: #555;
+	text-transform: uppercase;
+	letter-spacing: 0.04em;
+	border-bottom: 1px solid #eee;
+	background: #fafafa;
+}
+
+.lc-script-dropdown-search {
+	padding: 6px 8px;
+	border-bottom: 1px solid #eee;
+}
+
+.lc-script-search-input {
+	width: 100%;
+	border: 1px solid #ddd;
+	border-radius: 5px;
+	padding: 4px 8px;
+	font-size: 12px;
+	outline: none;
+	color: #1c1b1f;
+	background: #fff;
+	box-sizing: border-box;
+}
+
+.lc-script-search-input:focus { border-color: #6c3fe0; box-shadow: 0 0 0 2px rgba(108,63,224,.1); }
+
+.lc-script-dropdown-list {
+	max-height: 220px;
+	overflow-y: auto;
+}
+
+.lc-script-dropdown-empty {
+	padding: 16px 12px;
+	text-align: center;
+	font-size: 12px;
+	color: #aaa;
+}
+
+.lc-script-dropdown-item {
+	display: flex;
+	align-items: center;
+	gap: 8px;
+	padding: 7px 12px;
+	cursor: pointer;
+	transition: background 0.12s;
+	border-bottom: 1px solid #f5f5f5;
+}
+
+.lc-script-dropdown-item:last-child { border-bottom: none; }
+.lc-script-dropdown-item:hover { background: #f5f0ff; }
+.lc-script-dropdown-item--active { background: #f0ebff; }
+
+.lc-script-item-icon { flex-shrink: 0; color: #888; }
+.lc-script-item-check { flex-shrink: 0; color: #6c3fe0; margin-left: auto; }
+
+.lc-script-item-info {
+	flex: 1;
+	min-width: 0;
+}
+
+.lc-script-item-name {
+	font-size: 12px;
+	font-weight: 500;
+	color: #1c1b1f;
+	white-space: nowrap;
+	overflow: hidden;
+	text-overflow: ellipsis;
+}
+
+.lc-script-item-type {
+	font-size: 10px;
+	color: #888;
+	margin-top: 1px;
+}
+
 /* ── Script Settings Panel ──────────────────────────────────────── */
 .lc-settings-panel {
 	background: #fafafa;
@@ -1746,56 +2242,6 @@ function resetChat() {
 
 .lc-code-textarea::placeholder { color: #bbb; }
 
-/* ── Editor footer ──────────────────────────────────────────────── */
-.lc-editor-footer {
-	display: flex;
-	align-items: center;
-	justify-content: space-between;
-	padding: 10px 14px;
-	background: #fff;
-	border-top: 1px solid #eee;
-	flex-shrink: 0;
-}
-
-.lc-footer-status { font-size: 12px; display: flex; align-items: center; gap: 6px; }
-.lc-unsaved   { color: #e65100; }
-.lc-saved     { color: #2e7d32; }
-.lc-autosaving { color: #888; display: flex; align-items: center; gap: 6px; }
-
-.lc-footer-actions { display: flex; gap: 8px; }
-
-.lc-btn-cancel {
-	padding: 7px 16px;
-	border: 1px solid #e0e0e0;
-	border-radius: 6px;
-	background: #fff;
-	color: #555;
-	font-size: 13px;
-	font-family: inherit;
-	cursor: pointer;
-	transition: background 0.15s;
-}
-
-.lc-btn-cancel:hover { background: #f5f5f5; }
-
-.lc-btn-save {
-	display: flex;
-	align-items: center;
-	gap: 6px;
-	padding: 7px 18px;
-	border: none;
-	border-radius: 6px;
-	background: linear-gradient(135deg, #6c3fe0 0%, #9b59b6 100%);
-	color: #fff;
-	font-size: 13px;
-	font-weight: 500;
-	font-family: inherit;
-	cursor: pointer;
-	transition: opacity 0.15s;
-}
-
-.lc-btn-save:hover:not(:disabled) { opacity: 0.88; }
-.lc-btn-save:disabled { background: #ccc; cursor: not-allowed; }
 
 /* ── Spinners ───────────────────────────────────────────────────── */
 .lc-spinner-sm {

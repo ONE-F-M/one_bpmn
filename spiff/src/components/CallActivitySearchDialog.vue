@@ -161,7 +161,7 @@ async function fetchModels() {
 	error.value = null;
 	try {
 		const response = await frappeRequest({
-			url: "/api/method/one_bpmn.api.list_process_models",
+			url: "/api/method/one_bpmn.api.process_map_api.list_process_models",
 		});
 		allModels.value = response.message || response || [];
 	} catch (err) {

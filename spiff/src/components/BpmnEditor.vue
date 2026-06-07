@@ -1,7 +1,7 @@
 <template>
 	<div class="bpmn-editor-wrapper h-full w-full flex flex-col">
 		<!-- Toolbar (moved natively to parent Editor.vue's header) -->
-		<div ref="toolbarEl" v-show="isMounted" class="flex items-center gap-1.5 w-full h-full text-gray-700 overflow-x-auto scrollbar-hide flex-nowrap min-w-0 pr-2">
+		<div ref="toolbarEl" v-show="isMounted" class="flex items-center gap-1.5 w-full h-full text-gray-700 flex-nowrap min-w-0 pr-2">
 			<template v-if="!readonly">
 				<!-- Undo/Redo buttons -->
 				<button
@@ -125,7 +125,7 @@
 			<transition name="prosally-slide">
 				<div
 					v-if="showProsAllyPanel && !isMobile"
-					class="prosally-panel-container w-80 shrink-0 border-l border-gray-200 flex flex-col z-[50]"
+					class="prosally-panel-container w-[420px] shrink-0 border-l border-gray-200 flex flex-col z-[50]"
 				>
 					<ProsAllyPanel
 						:process-name="processNameForPanel"
@@ -1232,7 +1232,7 @@ async function submitTimelineComment() {
 	
 	try {
 		await frappeRequest({
-			url: "/api/method/one_bpmn.api.post_canvas_comment",
+			url: "/api/method/one_bpmn.api.canvas_comments.post_canvas_comment",
 			params: {
 				model_name: props.modelName,
 				element_id: elementId,
@@ -1388,18 +1388,11 @@ function makeEmptyDiagram() {
 	return `<?xml version="1.0" encoding="UTF-8"?>
 <bpmn:definitions xmlns:bpmn="http://www.omg.org/spec/BPMN/20100524/MODEL"
                   xmlns:bpmndi="http://www.omg.org/spec/BPMN/20100524/DI"
-                  xmlns:dc="http://www.omg.org/spec/DD/20100524/DC"
                   id="Definitions_1"
                   targetNamespace="http://bpmn.io/schema/bpmn">
-  <bpmn:process id="${processId}" isExecutable="false">
-    <bpmn:startEvent id="StartEvent_1" />
-  </bpmn:process>
+  <bpmn:process id="${processId}" isExecutable="false" />
   <bpmndi:BPMNDiagram id="BPMNDiagram_1">
-    <bpmndi:BPMNPlane id="BPMNPlane_1" bpmnElement="${processId}">
-      <bpmndi:BPMNShape id="_BPMNShape_StartEvent_1" bpmnElement="StartEvent_1">
-        <dc:Bounds x="173" y="102" width="36" height="36" />
-      </bpmndi:BPMNShape>
-    </bpmndi:BPMNPlane>
+    <bpmndi:BPMNPlane id="BPMNPlane_1" bpmnElement="${processId}" />
   </bpmndi:BPMNDiagram>
 </bpmn:definitions>`;
 }
@@ -1772,7 +1765,7 @@ onMounted(async () => {
 				elements.forEach(element => {
 					if (element.id && props.modelName) {
 						frappeRequest({
-							url: "/api/method/one_bpmn.api.delete_canvas_element_assets",
+							url: "/api/method/one_bpmn.api.canvas_comments.delete_canvas_element_assets",
 							params: {
 								model_name: props.modelName,
 								element_id: element.id
@@ -1882,6 +1875,12 @@ onMounted(async () => {
 				const selected = selection.get();
 				if (selected?.length === 1 && selected[0]?.type === "bpmn:CallActivity") {
 					reinjectIfCalledElementChanged(selected[0], propertiesContainer);
+				}
+				// Force properties panel to refresh and update dynamic properties (like Service Task fields)
+				try {
+					eventBus.fire("propertiesPanel.providersChanged");
+				} catch (e) {
+					console.warn("Failed to fire propertiesPanel.providersChanged:", e);
 				}
 			});
 
@@ -2139,10 +2138,9 @@ function onMessageDialogSave(close) {
 	if (!trimmedName || !_eventBus) return;
 
 	_eventBus.fire("spiff.add_message.returned", {
-		value: {
-			elementId: elementId,
-			messageId: trimmedName,
-		},
+		name: trimmedName,
+		elementId: elementId,
+		correlation_properties: {},
 	});
 	close();
 }
@@ -2386,7 +2384,7 @@ async function submitInlineComment() {
 
 	try {
 		await frappeRequest({
-			url: "/api/method/one_bpmn.api.post_canvas_comment",
+			url: "/api/method/one_bpmn.api.canvas_comments.post_canvas_comment",
 			params: {
 				model_name: props.modelName,
 				element_id: inlineCommentElement.value.id,
@@ -2496,7 +2494,7 @@ async function fetchUsers() {
 	if (users.value.length > 0) return; // Already fetched
 	try {
 		const response = await frappeRequest({
-			url: "/api/method/one_bpmn.api.get_system_users",
+			url: "/api/method/one_bpmn.api.utils.get_system_users",
 		});
 		users.value = (response.message || response || []).filter(u => u.full_name);
 	} catch (err) {
@@ -2508,7 +2506,7 @@ async function fetchComments() {
 	if (!props.modelName) return;
 	try {
 		const response = await frappeRequest({
-			url: "/api/method/one_bpmn.api.get_canvas_comments",
+			url: "/api/method/one_bpmn.api.canvas_comments.get_canvas_comments",
 			params: { model_name: props.modelName }
 		});
 		comments.value = response.message || response || [];
@@ -2589,7 +2587,7 @@ async function submitComment() {
 
 	try {
 		await frappeRequest({
-			url: "/api/method/one_bpmn.api.post_canvas_comment",
+			url: "/api/method/one_bpmn.api.canvas_comments.post_canvas_comment",
 			params: {
 				model_name: props.modelName,
 				element_id: elementId,
@@ -2610,7 +2608,7 @@ async function submitComment() {
 async function resolveComment(comment) {
 	try {
 		await frappeRequest({
-			url: "/api/method/one_bpmn.api.update_comment_status",
+			url: "/api/method/one_bpmn.api.canvas_comments.update_comment_status",
 			params: {
 				name: comment.name,
 				status: "Resolved"
@@ -2646,20 +2644,65 @@ function decodeHtmlEntities(text) {
 // Expose methods for parent component
 async function getXML() {
 	if (!modeler) return "";
+
+	// Flush active properties panel text inputs to commit debounced values
+	if (document.activeElement && typeof document.activeElement.blur === "function") {
+		document.activeElement.blur();
+	}
+
+	// Commit any active direct editing on the canvas
+	try {
+		const directEditing = modeler.get("directEditing");
+		if (directEditing && directEditing.isActive()) {
+			directEditing.complete();
+		}
+	} catch (e) {
+		console.warn("Could not complete active direct editing:", e);
+	}
+
 	const { xml } = await modeler.saveXML({ format: true });
 	return xml;
 }
+
 
 async function loadXML(xml) {
 	if (!modeler) return;
 	isImporting.value = true;
 	try {
-		// Pass XML directly to bpmn-js — its own parser handles XML entities
-		// such as &#34; correctly. Pre-decoding with decodeHtmlEntities would
-		// corrupt attribute values that contain JSON (e.g. taskActions stores
-		// [{...}] with &#34; for the quotes), turning valid XML into malformed
-		// XML where " inside a quoted attribute breaks the parser.
 		await modeler.importXML(xml);
+
+		// Proactively auto-layout connecting lines (edges) using bpmn-js's native layout engine.
+		// This translates straight-line connectors or missing edge DI elements into standard
+		// orthogonal Manhattan routing paths that avoid node overlapping.
+		try {
+			const elementRegistry = modeler.get("elementRegistry");
+			const modeling = modeler.get("modeling");
+			const connections = elementRegistry.filter(
+				(el) => el.type === "bpmn:SequenceFlow" || (el.waypoints && el.source && el.target)
+			);
+			for (const conn of connections) {
+				try {
+					// Only re-layout connections that look like diagonal straight lines
+					// (2 waypoints where the Y coordinates differ significantly).
+					// Do NOT mutate conn.waypoints directly — that corrupts bpmn-js
+					// internal state and causes "Cannot read properties of undefined
+					// (reading 'segmentIndex')" errors.
+					if (
+						conn.waypoints &&
+						conn.waypoints.length === 2 &&
+						Math.abs(conn.waypoints[0].y - conn.waypoints[1].y) > 5
+					) {
+						modeling.layoutConnection(conn);
+					}
+				} catch (singleLayoutErr) {
+					// Swallow per-connection errors so one bad edge doesn't break the rest
+					console.warn("Auto-layout skipped for connection", conn.id, singleLayoutErr);
+				}
+			}
+		} catch (layoutErr) {
+			console.warn("Auto-layout connections failed:", layoutErr);
+		}
+
 		updateUndoRedoState();
 		renderComments();
 		// Fit diagram to screen by default after loading, safely catching zero-dimension errors
