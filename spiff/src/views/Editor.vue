@@ -2202,6 +2202,7 @@ function openLogixCanvas() {
 
 function onLogixBack() {
 	showLogixCanvas.value = false;
+	showScriptEditorDialog.value = true;
 }
 
 function onLogixScriptSaved(scriptName) {
@@ -2520,12 +2521,6 @@ const totalCommentCount = computed(() => {
 :deep(.tiptap) {
 	max-width: 100% !important;
 	width: 100% !important;
-}
-
-/* Logix AI Assistant — wider than the standard 7xl cap */
-:deep(.dialog-content:has(.lc-root)) {
-	max-width: min(92vw, 1520px) !important;
-	width: min(92vw, 1520px) !important;
 }
 
 .scrollbar-hide::-webkit-scrollbar {
