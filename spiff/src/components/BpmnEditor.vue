@@ -1058,6 +1058,7 @@ const emit = defineEmits([
 	"launch-callactivity-editor",
 	"launch-callactivity-search",
 	"launch-notification-editor",
+	"launch-dmn-editor",
 ]);
 
 // Commenting state
@@ -1936,8 +1937,17 @@ onMounted(async () => {
 				// Not implemented — file editing is handled externally
 			});
 
-			eventBus.on("spiff.dmn.edit", (_event) => {
-				// Not implemented — DMN editing is handled externally
+			eventBus.on("spiff.dmn.edit", (event) => {
+				// SpiffExtensionLaunchButton fires { value, eventBus } — it does NOT
+				// include the element. Resolve it from the modeler's selection.
+				const selection = modeler.get("selection");
+				const selected = selection.get();
+				const element = selected?.length === 1 ? selected[0] : null;
+				emit("launch-dmn-editor", {
+					element,
+					value: event.value || "",
+					eventBus: event.eventBus,
+				});
 			});
 
 			// Notification editing (Send Tasks)
@@ -1972,10 +1982,25 @@ onMounted(async () => {
 				});
 			});
 
-			eventBus.on("spiff.dmn_files.requested", (event) => {
-				event.eventBus.fire("spiff.dmn_files.returned", {
-					options: [],
-				});
+			eventBus.on("spiff.dmn_files.requested", async (event) => {
+				let options = [];
+				if (props.modelName) {
+					try {
+						const resp = await frappeRequest({
+							url: "/api/method/one_bpmn.api.dmn_api.get_decision_list",
+							params: { process_model: props.modelName },
+						});
+						// frappeRequest auto-unwraps "message"; resp is the list directly
+						const decisions = Array.isArray(resp) ? resp : (resp?.message || []);
+						options = decisions.map((d) => ({
+							label: d.decision_name || d.decision_id,
+							value: d.decision_id,
+						}));
+					} catch (err) {
+						console.warn("[BpmnEditor] Failed to fetch DMN files:", err);
+					}
+				}
+				event.eventBus.fire("spiff.dmn_files.returned", { options });
 			});
 
 			// nativeCopyPasteModule fires 'native-copy-paste:error' on any
