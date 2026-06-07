@@ -1,7 +1,7 @@
 <template>
 	<div class="bpmn-editor-wrapper h-full w-full flex flex-col">
 		<!-- Toolbar (moved natively to parent Editor.vue's header) -->
-		<div ref="toolbarEl" v-show="isMounted" class="flex items-center gap-1.5 w-full h-full text-gray-700 overflow-x-auto scrollbar-hide flex-nowrap min-w-0 pr-2">
+		<div ref="toolbarEl" v-show="isMounted" class="flex items-center gap-1.5 w-full h-full text-gray-700 flex-nowrap min-w-0 pr-2">
 			<template v-if="!readonly">
 				<!-- Undo/Redo buttons -->
 				<button
@@ -86,10 +86,25 @@
 			</div>
 
 
-			<div class="flex-1 min-w-4 flex items-center justify-end px-3">
-				<div v-if="saveStatusText && !readonly" class="text-sm font-medium transition-colors mr-2" :class="saveStatusColor">
+			<div class="flex-1 min-w-4 flex items-center justify-end gap-2 px-3">
+				<div v-if="saveStatusText && !readonly" class="text-sm font-medium transition-colors" :class="saveStatusColor">
 					{{ saveStatusText }}
 				</div>
+
+				<!-- ProsAlly Toggle Button -->
+				<button
+					@click="showProsAllyPanel = !showProsAllyPanel"
+					title="ProsAlly AI Assistant"
+					:class="[
+						'flex items-center gap-1.5 px-2.5 py-1 rounded-md transition-colors text-xs font-semibold shrink-0',
+						showProsAllyPanel
+							? 'bg-violet-100 text-violet-700 shadow-sm'
+							: 'hover:bg-gray-100 text-gray-600 border border-gray-200',
+					]"
+				>
+					<Icon icon="lucide:sparkles" class="w-3.5 h-3.5" />
+					<span class="hidden sm:inline">ProsAlly</span>
+				</button>
 			</div>
 		</div>
 
@@ -100,11 +115,45 @@
 			<!-- BPMN Canvas -->
 			<div
 				ref="container"
-				:class="['bpmn-canvas flex-1', { 'bpmn-canvas--readonly': readonly, 'comment-mode-active': isCommentMode }]"
+				:class="['bpmn-canvas flex-1 min-w-0', { 'bpmn-canvas--readonly': readonly, 'comment-mode-active': isCommentMode }]"
 				@contextmenu.prevent
 				@dragover.prevent="!readonly && handleDragOver($event)"
 				@drop.prevent="!readonly && handleDrop($event)"
 			></div>
+
+			<!-- ProsAlly Panel — flex sibling so canvas shrinks instead of being covered -->
+			<transition name="prosally-slide">
+				<div
+					v-if="showProsAllyPanel && !isMobile"
+					class="prosally-panel-container w-[420px] shrink-0 border-l border-gray-200 flex flex-col z-[50]"
+				>
+					<ProsAllyPanel
+						:process-name="processNameForPanel"
+						:get-canvas-xml="getCanvasXml"
+						@close="showProsAllyPanel = false"
+						@bpmn-generated="onProsAllyBpmnGenerated"
+					/>
+				</div>
+			</transition>
+
+			<!-- Mobile: ProsAlly as bottom sheet -->
+			<transition name="slide-up">
+				<div
+					v-if="showProsAllyPanel && isMobile"
+					class="fixed inset-x-0 bottom-0 rounded-t-2xl shadow-2xl border-t border-gray-200 bg-white z-[65] flex flex-col"
+					style="height: 70vh;"
+				>
+					<div class="flex justify-center py-2 border-b border-gray-100 shrink-0">
+						<div class="w-10 h-1 bg-gray-300 rounded-full"></div>
+					</div>
+					<ProsAllyPanel
+						:process-name="processNameForPanel"
+						:get-canvas-xml="getCanvasXml"
+						@close="showProsAllyPanel = false"
+						@bpmn-generated="onProsAllyBpmnGenerated"
+					/>
+				</div>
+			</transition>
 			
 			<!-- Inline Comment Popover (Teleported to bpmn-js overlay) -->
 			<Teleport v-if="showInlineCommentPopover && inlineCommentOverlayTarget" :to="inlineCommentOverlayTarget">
@@ -919,6 +968,8 @@ import { useBottomSheet } from "@/composables/useBottomSheet";
 // Custom Shapes - DISABLED (see DEVELOPMENT_CONTEXT.md)
 // import CustomShapesModule, { customShapeSvgStore } from "@/bpmn";
 import FormattingToolbar from "@/components/FormattingToolbar.vue";
+import ProsAllyPanel from "@/components/ProsAllyPanel.vue";
+import { layoutBpmnXml } from "@/utils/bpmnLayout.js";
 import { initModeler } from "@/composables/useModelerInit";
 import { useBpmnContextMenu } from "@/composables/useBpmnContextMenu";
 // Properties panel
@@ -961,6 +1012,7 @@ import scriptTaskPropertiesProviderModule from "@/bpmn/scriptTaskPropertiesProvi
 import timerPropertiesProviderModule from "@/bpmn/timerPropertiesProvider";
 import startEventPropertiesProviderModule from "@/bpmn/startEventPropertiesProvider";
 import conditionalStartEventPropertiesProviderModule from "@/bpmn/conditionalStartEventPropertiesProvider";
+import lanePropertiesProviderModule from "@/bpmn/lanePropertiesProvider";
 import propertiesPanelFilterModule from "@/bpmn/propertiesPanelFilter";
 import commentContextPadModule from "@/bpmn/commentContextPad";
 
@@ -1004,6 +1056,7 @@ const emit = defineEmits([
 	"changed",
 	"zoom-changed",
 	"launch-script-editor",
+	"confirm-script-delete",
 	"launch-markdown-editor",
 	"launch-callactivity-editor",
 	"launch-callactivity-search",
@@ -1102,6 +1155,10 @@ const {
 	toggleTimeline
 });
 
+const processNameForPanel = computed(() =>
+	internalProcessName.value || props.modelName || ""
+);
+
 const currentElementComments = computed(() => {
 	let filtered = [];
 	if (timelineFilterMode.value === "all") {
@@ -1175,7 +1232,7 @@ async function submitTimelineComment() {
 	
 	try {
 		await frappeRequest({
-			url: "/api/method/one_bpmn.api.post_canvas_comment",
+			url: "/api/method/one_bpmn.api.canvas_comments.post_canvas_comment",
 			params: {
 				model_name: props.modelName,
 				element_id: elementId,
@@ -1303,6 +1360,8 @@ const modelerInstance = shallowRef(null);
 // Mobile responsiveness
 const { isMobile } = useWindowSize();
 const showMobileFormatPopover = ref(false);
+const showProsAllyPanel = ref(false);
+const internalProcessName = ref("");
 const dragHandleRef = ref(null);
 const { dragOffset, isDragging, attach: attachBottomSheet } = useBottomSheet();
 
@@ -1329,18 +1388,11 @@ function makeEmptyDiagram() {
 	return `<?xml version="1.0" encoding="UTF-8"?>
 <bpmn:definitions xmlns:bpmn="http://www.omg.org/spec/BPMN/20100524/MODEL"
                   xmlns:bpmndi="http://www.omg.org/spec/BPMN/20100524/DI"
-                  xmlns:dc="http://www.omg.org/spec/DD/20100524/DC"
                   id="Definitions_1"
                   targetNamespace="http://bpmn.io/schema/bpmn">
-  <bpmn:process id="${processId}" isExecutable="false">
-    <bpmn:startEvent id="StartEvent_1" />
-  </bpmn:process>
+  <bpmn:process id="${processId}" isExecutable="false" />
   <bpmndi:BPMNDiagram id="BPMNDiagram_1">
-    <bpmndi:BPMNPlane id="BPMNPlane_1" bpmnElement="${processId}">
-      <bpmndi:BPMNShape id="_BPMNShape_StartEvent_1" bpmnElement="StartEvent_1">
-        <dc:Bounds x="173" y="102" width="36" height="36" />
-      </bpmndi:BPMNShape>
-    </bpmndi:BPMNPlane>
+    <bpmndi:BPMNPlane id="BPMNPlane_1" bpmnElement="${processId}" />
   </bpmndi:BPMNDiagram>
 </bpmn:definitions>`;
 }
@@ -1524,6 +1576,7 @@ onMounted(async () => {
 				timerPropertiesProviderModule,
 				startEventPropertiesProviderModule,
 				conditionalStartEventPropertiesProviderModule,
+				lanePropertiesProviderModule,
 				// minimapModule, // DISABLED
 				translateModule,
 				customTextStyleModule,
@@ -1576,6 +1629,30 @@ onMounted(async () => {
 
 			// Use eventBus for listening to command stack changes
 			const eventBus = modeler.get("eventBus");
+
+			// Intercept modeling.removeElements so ALL deletion paths trigger the
+			// script-delete confirmation (context pad, keyboard, toolbar).
+			if (!props.readonly) {
+				const modeling = modeler.get("modeling");
+				const origRemoveElements = modeling.removeElements.bind(modeling);
+				modeling.removeElements = function(elements) {
+					if (!Array.isArray(elements) || elements.length === 0) {
+						return origRemoveElements(elements);
+					}
+					const scriptNames = getLinkedScriptNames(elements);
+					if (scriptNames.length > 0) {
+						const usageMap = countScriptUsageAcrossCanvas(scriptNames);
+						emit("confirm-script-delete", {
+							elements,
+							scriptNames,
+							usageMap,
+							doDelete: origRemoveElements,
+						});
+						return;
+					}
+					return origRemoveElements(elements);
+				};
+			}
 
 
 			const linting = modeler.get("linting");
@@ -1688,7 +1765,7 @@ onMounted(async () => {
 				elements.forEach(element => {
 					if (element.id && props.modelName) {
 						frappeRequest({
-							url: "/api/method/one_bpmn.api.delete_canvas_element_assets",
+							url: "/api/method/one_bpmn.api.canvas_comments.delete_canvas_element_assets",
 							params: {
 								model_name: props.modelName,
 								element_id: element.id
@@ -1798,6 +1875,12 @@ onMounted(async () => {
 				const selected = selection.get();
 				if (selected?.length === 1 && selected[0]?.type === "bpmn:CallActivity") {
 					reinjectIfCalledElementChanged(selected[0], propertiesContainer);
+				}
+				// Force properties panel to refresh and update dynamic properties (like Service Task fields)
+				try {
+					eventBus.fire("propertiesPanel.providersChanged");
+				} catch (e) {
+					console.warn("Failed to fire propertiesPanel.providersChanged:", e);
 				}
 			});
 
@@ -2055,10 +2138,9 @@ function onMessageDialogSave(close) {
 	if (!trimmedName || !_eventBus) return;
 
 	_eventBus.fire("spiff.add_message.returned", {
-		value: {
-			elementId: elementId,
-			messageId: trimmedName,
-		},
+		name: trimmedName,
+		elementId: elementId,
+		correlation_properties: {},
 	});
 	close();
 }
@@ -2086,15 +2168,55 @@ function redo() {
 	}
 }
 
+function getLinkedScriptNames(elements) {
+	const names = new Set();
+	for (const el of elements) {
+		const bo = el.businessObject;
+		if (!bo) continue;
+		// bpmn:ScriptTask stores the server script name in `script` field
+		if (bo.$type === "bpmn:ScriptTask" && bo.script && bo.script.trim()) {
+			names.add(bo.script.trim());
+		}
+		// Pre/PostScript stored in extensionElements
+		const exts = bo.extensionElements?.get("values") || [];
+		for (const ext of exts) {
+			const tag = ext.$type || "";
+			if ((tag === "spiffworkflow:PreScript" || tag === "spiffworkflow:PostScript") && ext.value?.trim()) {
+				names.add(ext.value.trim());
+			}
+		}
+	}
+	return [...names];
+}
+
+function countScriptUsageAcrossCanvas(scriptNames) {
+	if (!modeler || !scriptNames.length) return {};
+	const registry = modeler.get("elementRegistry");
+	const counts = Object.fromEntries(scriptNames.map((n) => [n, 0]));
+	registry.forEach((el) => {
+		const bo = el.businessObject;
+		if (!bo) return;
+		if (bo.$type === "bpmn:ScriptTask" && bo.script?.trim()) {
+			if (counts[bo.script.trim()] !== undefined) counts[bo.script.trim()]++;
+		}
+		const exts = bo.extensionElements?.get("values") || [];
+		for (const ext of exts) {
+			const tag = ext.$type || "";
+			if ((tag === "spiffworkflow:PreScript" || tag === "spiffworkflow:PostScript") && ext.value?.trim()) {
+				if (counts[ext.value.trim()] !== undefined) counts[ext.value.trim()]++;
+			}
+		}
+	});
+	return counts;
+}
+
 function deleteSelected() {
 	if (!modeler) return;
-
 	const selection = modeler.get("selection");
 	const modeling = modeler.get("modeling");
 	const selected = selection.get();
-
 	if (selected && selected.length > 0) {
-		modeling.removeElements(selected);
+		modeling.removeElements(selected); // goes through the intercept in onReady
 	}
 }
 
@@ -2262,7 +2384,7 @@ async function submitInlineComment() {
 
 	try {
 		await frappeRequest({
-			url: "/api/method/one_bpmn.api.post_canvas_comment",
+			url: "/api/method/one_bpmn.api.canvas_comments.post_canvas_comment",
 			params: {
 				model_name: props.modelName,
 				element_id: inlineCommentElement.value.id,
@@ -2372,7 +2494,7 @@ async function fetchUsers() {
 	if (users.value.length > 0) return; // Already fetched
 	try {
 		const response = await frappeRequest({
-			url: "/api/method/one_bpmn.api.get_system_users",
+			url: "/api/method/one_bpmn.api.utils.get_system_users",
 		});
 		users.value = (response.message || response || []).filter(u => u.full_name);
 	} catch (err) {
@@ -2384,7 +2506,7 @@ async function fetchComments() {
 	if (!props.modelName) return;
 	try {
 		const response = await frappeRequest({
-			url: "/api/method/one_bpmn.api.get_canvas_comments",
+			url: "/api/method/one_bpmn.api.canvas_comments.get_canvas_comments",
 			params: { model_name: props.modelName }
 		});
 		comments.value = response.message || response || [];
@@ -2465,7 +2587,7 @@ async function submitComment() {
 
 	try {
 		await frappeRequest({
-			url: "/api/method/one_bpmn.api.post_canvas_comment",
+			url: "/api/method/one_bpmn.api.canvas_comments.post_canvas_comment",
 			params: {
 				model_name: props.modelName,
 				element_id: elementId,
@@ -2486,7 +2608,7 @@ async function submitComment() {
 async function resolveComment(comment) {
 	try {
 		await frappeRequest({
-			url: "/api/method/one_bpmn.api.update_comment_status",
+			url: "/api/method/one_bpmn.api.canvas_comments.update_comment_status",
 			params: {
 				name: comment.name,
 				status: "Resolved"
@@ -2522,20 +2644,65 @@ function decodeHtmlEntities(text) {
 // Expose methods for parent component
 async function getXML() {
 	if (!modeler) return "";
+
+	// Flush active properties panel text inputs to commit debounced values
+	if (document.activeElement && typeof document.activeElement.blur === "function") {
+		document.activeElement.blur();
+	}
+
+	// Commit any active direct editing on the canvas
+	try {
+		const directEditing = modeler.get("directEditing");
+		if (directEditing && directEditing.isActive()) {
+			directEditing.complete();
+		}
+	} catch (e) {
+		console.warn("Could not complete active direct editing:", e);
+	}
+
 	const { xml } = await modeler.saveXML({ format: true });
 	return xml;
 }
+
 
 async function loadXML(xml) {
 	if (!modeler) return;
 	isImporting.value = true;
 	try {
-		// Pass XML directly to bpmn-js — its own parser handles XML entities
-		// such as &#34; correctly. Pre-decoding with decodeHtmlEntities would
-		// corrupt attribute values that contain JSON (e.g. taskActions stores
-		// [{...}] with &#34; for the quotes), turning valid XML into malformed
-		// XML where " inside a quoted attribute breaks the parser.
 		await modeler.importXML(xml);
+
+		// Proactively auto-layout connecting lines (edges) using bpmn-js's native layout engine.
+		// This translates straight-line connectors or missing edge DI elements into standard
+		// orthogonal Manhattan routing paths that avoid node overlapping.
+		try {
+			const elementRegistry = modeler.get("elementRegistry");
+			const modeling = modeler.get("modeling");
+			const connections = elementRegistry.filter(
+				(el) => el.type === "bpmn:SequenceFlow" || (el.waypoints && el.source && el.target)
+			);
+			for (const conn of connections) {
+				try {
+					// Only re-layout connections that look like diagonal straight lines
+					// (2 waypoints where the Y coordinates differ significantly).
+					// Do NOT mutate conn.waypoints directly — that corrupts bpmn-js
+					// internal state and causes "Cannot read properties of undefined
+					// (reading 'segmentIndex')" errors.
+					if (
+						conn.waypoints &&
+						conn.waypoints.length === 2 &&
+						Math.abs(conn.waypoints[0].y - conn.waypoints[1].y) > 5
+					) {
+						modeling.layoutConnection(conn);
+					}
+				} catch (singleLayoutErr) {
+					// Swallow per-connection errors so one bad edge doesn't break the rest
+					console.warn("Auto-layout skipped for connection", conn.id, singleLayoutErr);
+				}
+			}
+		} catch (layoutErr) {
+			console.warn("Auto-layout connections failed:", layoutErr);
+		}
+
 		updateUndoRedoState();
 		renderComments();
 		// Fit diagram to screen by default after loading, safely catching zero-dimension errors
@@ -2555,12 +2722,29 @@ async function loadXML(xml) {
 	}
 }
 
+async function getCanvasXml() {
+	if (!modeler) return "";
+	try {
+		const { xml } = await modeler.saveXML({ format: false });
+		return xml || "";
+	} catch {
+		return "";
+	}
+}
+
+async function onProsAllyBpmnGenerated(xml) {
+	if (!xml) return;
+	await loadXML(layoutBpmnXml(xml));
+	emit("changed");
+}
+
 /**
  * Set the `name` attribute on the first <bpmn:process> element.
  * Uses the modeler's modeling API so the change is reflected
  * immediately in the properties panel and serialised into XML on save.
  */
 function setProcessName(name) {
+	if (name) internalProcessName.value = name;
 	if (!modeler || !name) return;
 	try {
 		const elementRegistry = modeler.get("elementRegistry");
@@ -2806,6 +2990,7 @@ defineExpose({
 	showPropertiesPanel,
 	propertiesCollapsed,
 	comments,
+	showProsAllyPanel,
 });
 
 function getInitials(fullName) {
@@ -3385,5 +3570,27 @@ function getAvatarColor(userName) {
 .slide-up-enter-from, .slide-up-leave-to {
 	transform: translateY(100%);
 	opacity: 0;
+}
+
+/* ── ProsAlly Panel slide transition ────────────────────────────────── */
+.prosally-slide-enter-active,
+.prosally-slide-leave-active {
+	transition: width 0.3s ease, opacity 0.2s ease;
+	overflow: hidden;
+}
+.prosally-slide-enter-from,
+.prosally-slide-leave-to {
+	width: 0 !important;
+	opacity: 0;
+}
+.prosally-slide-enter-to,
+.prosally-slide-leave-from {
+	width: 20rem; /* w-80 */
+	opacity: 1;
+}
+
+.prosally-panel-container {
+	min-width: 0;
+	overflow: hidden;
 }
 </style>

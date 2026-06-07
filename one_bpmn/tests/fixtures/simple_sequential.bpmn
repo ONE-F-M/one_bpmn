@@ -1,0 +1,12 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<definitions xmlns="http://www.omg.org/spec/BPMN/20100524/MODEL" id="Defs_1" targetNamespace="http://bpmn.io/schema/bpmn">
+  <process id="Process_Sequential" isExecutable="true">
+    <startEvent id="StartEvent_1" />
+    <task id="Task_A" name="Task A" />
+    <task id="Task_B" name="Task B" />
+    <endEvent id="EndEvent_1" />
+    <sequenceFlow id="Flow_1" sourceRef="StartEvent_1" targetRef="Task_A" />
+    <sequenceFlow id="Flow_2" sourceRef="Task_A" targetRef="Task_B" />
+    <sequenceFlow id="Flow_3" sourceRef="Task_B" targetRef="EndEvent_1" />
+  </process>
+</definitions>

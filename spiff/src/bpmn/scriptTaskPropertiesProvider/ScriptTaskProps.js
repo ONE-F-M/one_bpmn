@@ -97,6 +97,6 @@ function LaunchEditorButton(props) {
 				});
 			});
 		},
-		children: translate("Launch Editor"),
+		children: translate("Launch Logix"),
 	});
 }

@@ -29,6 +29,13 @@ export default function CustomTextStyleModule(eventBus, elementRegistry) {
 		if (gfx) {
 			applyTextStyle(element, gfx);
 		}
+		// If this element has an external label, update it too to enable real-time styling of external labels
+		if (element.label) {
+			const labelGfx = elementRegistry.getGraphics(element.label);
+			if (labelGfx) {
+				applyTextStyle(element.label, labelGfx);
+			}
+		}
 	});
 }
 

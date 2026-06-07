@@ -295,13 +295,13 @@ async function fetchContextOptions(query = "") {
 	try {
 		if (!activeContext.value.doctype) {
 			const response = await frappeRequest({
-				url: "/api/method/one_bpmn.api.get_context_doctypes",
+				url: "/api/method/one_bpmn.api.utils.get_context_doctypes",
 				params: { query }
 			})
 			contextOptions.value = response || []
 		} else {
 			const response = await frappeRequest({
-				url: "/api/method/one_bpmn.api.get_context_documents",
+				url: "/api/method/one_bpmn.api.utils.get_context_documents",
 				params: { 
 					doctype: activeContext.value.doctype.value,
 					query 
@@ -381,7 +381,7 @@ async function loadInstances() {
 
 		// Use custom endpoint to fetch joined current_step data
 		const response = await frappeRequest({
-			url: "/api/method/one_bpmn.api.list_process_instances",
+			url: "/api/method/one_bpmn.api.instance_api.list_process_instances",
 			method: "POST",
 			params: {
 				filters: JSON.stringify(apiFilters),

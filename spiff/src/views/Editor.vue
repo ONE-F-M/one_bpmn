@@ -66,7 +66,7 @@
 				</div>
 
 				<!-- CENTER: BPMN Tools Container (Mounted natively from BpmnEditor.vue, hidden on mobile) -->
-				<div id="bpmn-editor-toolbar" class="hidden sm:flex flex-1 items-center h-8 min-w-0 overflow-hidden"></div>
+				<div id="bpmn-editor-toolbar" class="hidden sm:flex flex-1 items-center h-8 min-w-0"></div>
 
 				<!-- Other Active Editors Avatars (hidden on mobile) -->
 				<div v-if="otherEditors.length > 0" class="hidden sm:flex items-center -space-x-2 ml-4">
@@ -178,29 +178,31 @@
 						</div>
 					</div>
 
-					<!-- Deploy / Disable Button (last — primary action) -->
-					<button
-						v-if="isActiveModel"
-						@click="disableModel"
-						class="h-7 flex items-center gap-1 px-2.5 bg-red-600 hover:bg-red-700 text-white rounded transition-colors text-xs font-medium leading-none"
-						title="Disable process map — stops new instances"
-						:disabled="!activeDiagramName || disabling"
-						:class="{ 'opacity-50 cursor-not-allowed': !activeDiagramName || disabling }"
-					>
-						<Icon :icon="disabling ? 'lucide:loader-2' : 'lucide:power-off'" class="w-3.5 h-3.5" :class="{ 'animate-spin': disabling }" />
-						{{ disabling ? 'Disabling…' : 'Disable' }}
-					</button>
-					<button
-						v-else
-						@click="deployModel"
-						class="h-7 flex items-center gap-1 px-2.5 bg-blue-600 hover:bg-blue-700 text-white rounded transition-colors text-xs font-medium leading-none"
-						title="Deploy process model"
-						:disabled="!activeDiagramName || deploying"
-						:class="{ 'opacity-50 cursor-not-allowed': !activeDiagramName || deploying }"
-					>
-						<Icon :icon="deploying ? 'lucide:loader-2' : 'lucide:rocket'" class="w-3.5 h-3.5" :class="{ 'animate-spin': deploying }" />
-						{{ deploying ? 'Deploying…' : 'Deploy' }}
-					</button>
+					<!-- Deploy / Disable Button (last — primary action, only for executable processes) -->
+					<template v-if="isExecutable">
+						<button
+							v-if="isActiveModel"
+							@click="disableModel"
+							class="h-7 flex items-center gap-1 px-2.5 bg-red-600 hover:bg-red-700 text-white rounded transition-colors text-xs font-medium leading-none"
+							title="Disable process map — stops new instances"
+							:disabled="!activeDiagramName || disabling"
+							:class="{ 'opacity-50 cursor-not-allowed': !activeDiagramName || disabling }"
+						>
+							<Icon :icon="disabling ? 'lucide:loader-2' : 'lucide:power-off'" class="w-3.5 h-3.5" :class="{ 'animate-spin': disabling }" />
+							{{ disabling ? 'Disabling…' : 'Disable' }}
+						</button>
+						<button
+							v-else
+							@click="deployModel"
+							class="h-7 flex items-center gap-1 px-2.5 bg-blue-600 hover:bg-blue-700 text-white rounded transition-colors text-xs font-medium leading-none"
+							title="Deploy process model"
+							:disabled="!activeDiagramName || deploying"
+							:class="{ 'opacity-50 cursor-not-allowed': !activeDiagramName || deploying }"
+						>
+							<Icon :icon="deploying ? 'lucide:loader-2' : 'lucide:rocket'" class="w-3.5 h-3.5" :class="{ 'animate-spin': deploying }" />
+							{{ deploying ? 'Deploying…' : 'Deploy' }}
+						</button>
+					</template>
 				</template>
 
 				<!-- Mobile: "More" overflow dropdown -->
@@ -217,26 +219,28 @@
 						v-click-outside="() => showMobileMoreMenu = false"
 						class="absolute right-0 mt-1 w-44 bg-white border border-gray-200 rounded-lg shadow-lg z-50 py-1"
 					>
-						<button
-							v-if="isActiveModel"
-							@click="disableModel(); showMobileMoreMenu = false"
-							class="w-full flex items-center gap-2 px-3 py-2.5 text-sm text-red-600 hover:bg-red-50 transition-colors"
-							:disabled="!activeDiagramName || disabling"
-							:class="{ 'opacity-40 cursor-not-allowed': !activeDiagramName || disabling }"
-						>
-							<Icon :icon="disabling ? 'lucide:loader-2' : 'lucide:power-off'" class="w-4 h-4" />
-							{{ disabling ? 'Disabling…' : 'Disable' }}
-						</button>
-						<button
-							v-else
-							@click="deployModel(); showMobileMoreMenu = false"
-							class="w-full flex items-center gap-2 px-3 py-2.5 text-sm text-gray-700 hover:bg-gray-50 transition-colors"
-							:disabled="!activeDiagramName || deploying"
-							:class="{ 'opacity-40 cursor-not-allowed': !activeDiagramName || deploying }"
-						>
-							<Icon :icon="deploying ? 'lucide:loader-2' : 'lucide:rocket'" class="w-4 h-4" />
-							{{ deploying ? 'Deploying…' : 'Deploy' }}
-						</button>
+						<template v-if="isExecutable">
+							<button
+								v-if="isActiveModel"
+								@click="disableModel(); showMobileMoreMenu = false"
+								class="w-full flex items-center gap-2 px-3 py-2.5 text-sm text-red-600 hover:bg-red-50 transition-colors"
+								:disabled="!activeDiagramName || disabling"
+								:class="{ 'opacity-40 cursor-not-allowed': !activeDiagramName || disabling }"
+							>
+								<Icon :icon="disabling ? 'lucide:loader-2' : 'lucide:power-off'" class="w-4 h-4" />
+								{{ disabling ? 'Disabling…' : 'Disable' }}
+							</button>
+							<button
+								v-else
+								@click="deployModel(); showMobileMoreMenu = false"
+								class="w-full flex items-center gap-2 px-3 py-2.5 text-sm text-gray-700 hover:bg-gray-50 transition-colors"
+								:disabled="!activeDiagramName || deploying"
+								:class="{ 'opacity-40 cursor-not-allowed': !activeDiagramName || deploying }"
+							>
+								<Icon :icon="deploying ? 'lucide:loader-2' : 'lucide:rocket'" class="w-4 h-4" />
+								{{ deploying ? 'Deploying…' : 'Deploy' }}
+							</button>
+						</template>
 						<button
 							@click="openVersionPicker(); showMobileMoreMenu = false"
 							class="w-full flex items-center gap-2 px-3 py-2.5 text-sm text-gray-700 hover:bg-gray-50 transition-colors"
@@ -353,6 +357,7 @@
 						@changed="onDiagramChanged"
 						@zoom-changed="onZoomChanged"
 						@launch-script-editor="onLaunchScriptEditor"
+						@confirm-script-delete="onConfirmScriptDelete"
 						@launch-markdown-editor="onLaunchMarkdownEditor"
 						@launch-callactivity-editor="onLaunchCallActivityEditor"
 						@launch-callactivity-search="onLaunchCallActivitySearch"
@@ -464,193 +469,85 @@
 		<!-- Server Script Selector/Creator Dialog -->
 		<Dialog v-model="showScriptEditorDialog" :options="{ title: scriptEditorTitle, size: '5xl' }">
 			<template #body-content>
-
 				<div class="space-y-4">
-					<!-- Context info -->
-					<details class="bg-blue-50 border border-blue-200 rounded-lg text-xs text-blue-800">
-						<summary class="px-4 py-2.5 cursor-pointer font-semibold select-none hover:bg-blue-100 rounded-lg transition-colors">
-							ℹ️ Script Reference — Available Variables &amp; Usage
-						</summary>
-						<div class="px-4 pb-3 space-y-2.5 border-t border-blue-200 pt-2.5">
-							<!-- Variables table -->
-							<table class="w-full text-left">
-								<thead>
-									<tr class="border-b border-blue-200">
-										<th class="py-1 pr-3 font-semibold">Variable</th>
-										<th class="py-1 font-semibold">Description</th>
-									</tr>
-								</thead>
-								<tbody>
-									<tr><td class="py-0.5 pr-3"><code class="px-1 py-0.5 bg-blue-100 rounded text-blue-900">frappe</code></td><td>Full Frappe module (DB, utils, etc.)</td></tr>
-									<tr><td class="py-0.5 pr-3"><code class="px-1 py-0.5 bg-blue-100 rounded text-blue-900">doc</code></td><td>The context document (e.g., Work Item, Employee)</td></tr>
-									<tr><td class="py-0.5 pr-3"><code class="px-1 py-0.5 bg-blue-100 rounded text-blue-900">context_doctype</code></td><td>DocType name of the context document</td></tr>
-									<tr><td class="py-0.5 pr-3"><code class="px-1 py-0.5 bg-blue-100 rounded text-blue-900">context_docname</code></td><td>Name (ID) of the context document</td></tr>
-									<tr><td class="py-0.5 pr-3"><code class="px-1 py-0.5 bg-blue-100 rounded text-blue-900">result</code></td><td>Dict to pass output to downstream gateways (see below)</td></tr>
-									<tr><td class="py-0.5 pr-3 text-blue-600 italic">+ all doc fields</td><td>e.g., <code class="px-1 py-0.5 bg-blue-100 rounded">workflow_state</code>, <code class="px-1 py-0.5 bg-blue-100 rounded">docstatus</code>, etc.</td></tr>
-								</tbody>
-							</table>
-							<!-- Example -->
-							<div>
-								<div class="font-semibold mb-1">Example — passing data to a gateway:</div>
-								<pre class="bg-blue-100 rounded px-3 py-2 text-blue-900 overflow-x-auto"><code># In your Server Script:
-									if doc.pr_link:
-										result["has_pr"] = True
-									else:
-										result["has_pr"] = False
-
-									# Then in a downstream Gateway condition:
-									#   has_pr == True  →  Approved branch
-									#   has_pr == False →  Rejected branch</code>
-								</pre>
-							</div>
-						</div>
-					</details>
 					<!-- Mode Tabs -->
 					<div class="flex border-b border-gray-200">
 						<button
 							@click="scriptDialogMode = 'select'"
-							:class="[
-								'px-4 py-2 text-sm font-medium border-b-2 transition-colors -mb-px',
-								scriptDialogMode === 'select'
-									? 'border-blue-500 text-blue-600'
-									: 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300'
-							]"
+							:class="['px-4 py-2 text-sm font-medium border-b-2 transition-colors -mb-px', scriptDialogMode === 'select' ? 'border-blue-500 text-blue-600' : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300']"
 						>
-							<Icon icon="lucide:search" class="w-4 h-4 inline mr-1.5" />
-							Select Existing
+							<Icon icon="lucide:search" class="w-4 h-4 inline mr-1.5" />Select Existing
 						</button>
 						<button
 							@click="scriptDialogMode = 'create'"
-							:class="[
-								'px-4 py-2 text-sm font-medium border-b-2 transition-colors -mb-px',
-								scriptDialogMode === 'create'
-									? 'border-blue-500 text-blue-600'
-									: 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300'
-							]"
+							:class="['px-4 py-2 text-sm font-medium border-b-2 transition-colors -mb-px', scriptDialogMode === 'create' ? 'border-blue-500 text-blue-600' : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300']"
 						>
-							<Icon icon="lucide:plus" class="w-4 h-4 inline mr-1.5" />
-							Create New
+							<Icon icon="lucide:plus" class="w-4 h-4 inline mr-1.5" />Create New
 						</button>
 						<button
 							v-if="linkedScriptName"
 							@click="scriptDialogMode = 'edit'"
-							:class="[
-								'px-4 py-2 text-sm font-medium border-b-2 transition-colors -mb-px',
-								scriptDialogMode === 'edit'
-									? 'border-blue-500 text-blue-600'
-									: 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300'
-							]"
+							:class="['px-4 py-2 text-sm font-medium border-b-2 transition-colors -mb-px', scriptDialogMode === 'edit' ? 'border-blue-500 text-blue-600' : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300']"
 						>
-							<Icon icon="lucide:pencil" class="w-4 h-4 inline mr-1.5" />
-							Edit
+							<Icon icon="lucide:pencil" class="w-4 h-4 inline mr-1.5" />Edit
+						</button>
+						<button
+							@click="openLogixCanvas"
+							:class="['px-4 py-2 text-sm font-medium border-b-2 transition-colors -mb-px border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300']"
+						>
+							<Icon icon="lucide:bot" class="w-4 h-4 inline mr-1.5" />Logix Chat
 						</button>
 					</div>
 
 					<!-- Select Existing Mode -->
 					<div v-if="scriptDialogMode === 'select'" class="space-y-3">
-						<div class="text-sm text-gray-500">
-							Search and select an existing Server Script to link.
-						</div>
-						<!-- Search input -->
+						<div class="text-sm text-gray-500">Search and select an existing Server Script to link.</div>
 						<div class="relative">
 							<Icon icon="lucide:search" class="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400" />
-							<input
-								v-model="serverScriptSearch"
-								type="text"
-								placeholder="Search server scripts..."
-								class="w-full pl-10 pr-3 py-2 border border-gray-300 rounded-lg text-sm bg-white text-gray-900 focus:outline-none focus:ring-2 focus:ring-blue-400 focus:border-blue-400"
-							/>
+							<input v-model="serverScriptSearch" type="text" placeholder="Search server scripts..." class="w-full pl-10 pr-3 py-2 border border-gray-300 rounded-lg text-sm bg-white text-gray-900 focus:outline-none focus:ring-2 focus:ring-blue-400 focus:border-blue-400" />
 						</div>
-						<!-- Script list -->
 						<div class="max-h-72 overflow-y-auto border border-gray-200 rounded-lg">
 							<div v-if="loadingScripts" class="p-6 text-center text-gray-400">
-								<div class="animate-spin rounded-full h-6 w-6 border-b-2 border-gray-400 mx-auto mb-2"></div>
-								Loading scripts...
+								<div class="animate-spin rounded-full h-6 w-6 border-b-2 border-gray-400 mx-auto mb-2"></div>Loading scripts...
 							</div>
-							<div v-else-if="filteredServerScripts.length === 0" class="p-6 text-center text-gray-400">
-								No server scripts found.
-							</div>
+							<div v-else-if="filteredServerScripts.length === 0" class="p-6 text-center text-gray-400">No server scripts found.</div>
 							<div v-else>
-							<template
-								v-for="script in filteredServerScripts"
-								:key="script.name"
-							>
-								<div
-									@click="selectedServerScript = script.name"
-									:class="[
-										'flex items-center justify-between px-4 py-3 cursor-pointer border-b border-gray-100 last:border-b-0 transition-colors',
-										selectedServerScript === script.name
-											? 'bg-blue-50 border-l-4 border-l-blue-500'
-											: 'hover:bg-gray-50'
-									]"
-								>
-									<div>
-										<div class="text-sm font-medium text-gray-900">{{ script.name }}</div>
-										<div class="text-xs text-gray-500 mt-0.5">
-											{{ script.script_type }}
-											<span v-if="script.reference_doctype"> · {{ script.reference_doctype }}</span>
+								<template v-for="script in filteredServerScripts" :key="script.name">
+									<div
+										@click="selectedServerScript = script.name"
+										:class="['flex items-center justify-between px-4 py-3 cursor-pointer border-b border-gray-100 last:border-b-0 transition-colors', selectedServerScript === script.name ? 'bg-blue-50 border-l-4 border-l-blue-500' : 'hover:bg-gray-50']"
+									>
+										<div>
+											<div class="text-sm font-medium text-gray-900">{{ script.name }}</div>
+											<div class="text-xs text-gray-500 mt-0.5">{{ script.script_type }}<span v-if="script.reference_doctype"> · {{ script.reference_doctype }}</span></div>
+										</div>
+										<div class="flex items-center">
+											<Icon v-if="selectedServerScript === script.name" icon="lucide:check-circle" class="w-5 h-5 text-blue-500" />
 										</div>
 									</div>
-									<div class="flex items-center gap-3">
-										<!-- Enable/Disable Toggle -->
-										<div class="flex items-center gap-1.5" @click.stop>
-											<span :class="['text-[10px] font-medium uppercase tracking-wider', script.disabled ? 'text-gray-400' : 'text-blue-600']">
-												{{ script.disabled ? 'Disabled' : 'Enabled' }}
-											</span>
-											<div 
-												class="relative inline-flex h-5 w-9 shrink-0 cursor-pointer items-center rounded-full transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-400 focus-visible:ring-offset-2"
-												:class="script.disabled ? 'bg-gray-200' : 'bg-blue-600'"
-												@click="toggleScriptStatus(script)"
-											>
-												<span
-													class="pointer-events-none block h-4 w-4 rounded-full bg-white shadow-lg ring-0 transition-transform"
-													:class="script.disabled ? 'translate-x-0.5' : 'translate-x-4.5'"
-												></span>
-											</div>
+									<div v-if="selectedServerScript === script.name && previewScriptContent !== null" class="border-b border-gray-100 bg-gray-50/50">
+										<div v-if="loadingPreview" class="px-4 py-3 text-center text-gray-400 text-sm">
+											<div class="animate-spin rounded-full h-5 w-5 border-b-2 border-gray-400 mx-auto mb-1"></div>Loading...
 										</div>
-
-										<Icon v-if="selectedServerScript === script.name" icon="lucide:check-circle" class="w-5 h-5 text-blue-500" />
+										<pre v-else class="px-4 py-3 text-[13px] font-mono text-gray-700 overflow-x-auto max-h-48 whitespace-pre-wrap">{{ previewScriptContent }}</pre>
 									</div>
-								</div>
-								<!-- Inline Script Preview (below selected row) -->
-								<div v-if="selectedServerScript === script.name && previewScriptContent !== null" class="border-b border-gray-100 bg-gray-50/50">
-									<div v-if="loadingPreview" class="px-4 py-3 text-center text-gray-400 text-sm">
-										<div class="animate-spin rounded-full h-5 w-5 border-b-2 border-gray-400 mx-auto mb-1"></div>
-										Loading...
-									</div>
-									<pre v-else class="px-4 py-3 text-[13px] font-mono text-gray-700 overflow-x-auto max-h-48 whitespace-pre-wrap">{{ previewScriptContent }}</pre>
-								</div>
-							</template>
+								</template>
 							</div>
 						</div>
 					</div>
 
 					<!-- Create New Mode -->
 					<div v-else-if="scriptDialogMode === 'create'" class="space-y-4">
-						<div class="text-sm text-gray-500">
-							Create a new Server Script and link it to this element.
-						</div>
-						<!-- Row 1: Name + Script Type -->
+						<div class="text-sm text-gray-500">Create a new Server Script and link it to this element.</div>
 						<div class="grid grid-cols-2 gap-4">
 							<div>
 								<label class="block text-xs font-medium text-gray-700 mb-1">Script Name <span class="text-red-500">*</span></label>
-								<input
-									v-model="newScript.name"
-									type="text"
-									placeholder="e.g. Validate Employee Shift"
-									class="w-full px-3 py-1.5 border border-gray-300 rounded-md text-sm bg-white text-gray-900 focus:outline-none focus:ring-2 focus:ring-blue-400"
-								/>
+								<input v-model="newScript.name" type="text" placeholder="e.g. Validate Employee Shift" class="w-full px-3 py-1.5 border border-gray-300 rounded-md text-sm bg-white text-gray-900 focus:outline-none focus:ring-2 focus:ring-blue-400" />
 							</div>
 							<div>
 								<label class="block text-xs font-medium text-gray-700 mb-1">Script Type <span class="text-red-500">*</span></label>
-								<select
-									v-model="newScript.script_type"
-									class="w-full px-3 py-1.5 border border-gray-300 rounded-md text-sm bg-white text-gray-900 focus:outline-none focus:ring-2 focus:ring-blue-400"
-									:disabled="isScriptTaskElement"
-								>
-									<template v-if="isScriptTaskElement">
-										<option value="API">API</option>
-									</template>
+								<select v-model="newScript.script_type" class="w-full px-3 py-1.5 border border-gray-300 rounded-md text-sm bg-white text-gray-900 focus:outline-none focus:ring-2 focus:ring-blue-400" :disabled="isScriptTaskElement">
+									<template v-if="isScriptTaskElement"><option value="API">API</option></template>
 									<template v-else>
 										<option value="">Select type...</option>
 										<option value="DocType Event">DocType Event</option>
@@ -661,113 +558,57 @@
 								</select>
 							</div>
 						</div>
-
-						<!-- Conditional Row 2: DocType Event fields -->
 						<div v-if="['DocType Event', 'Permission Query'].includes(newScript.script_type)" class="grid grid-cols-2 gap-4">
 							<div>
 								<label class="block text-xs font-medium text-gray-700 mb-1">Reference DocType</label>
 								<div class="relative">
-									<input
-										v-model="doctypeSearch"
-										type="text"
-										:placeholder="newScript.reference_doctype || 'Search DocType...'"
-										class="w-full px-3 py-1.5 border border-gray-300 rounded-md text-sm bg-white text-gray-900 focus:outline-none focus:ring-2 focus:ring-blue-400"
-										@focus="showDoctypeDropdown = true; showModuleDropdown = false; doctypeSearch = ''"
-										@blur="setTimeout(() => showDoctypeDropdown = false, 200)"
-									/>
+									<input v-model="doctypeSearch" type="text" :placeholder="newScript.reference_doctype || 'Search DocType...'" class="w-full px-3 py-1.5 border border-gray-300 rounded-md text-sm bg-white text-gray-900 focus:outline-none focus:ring-2 focus:ring-blue-400" @focus="showDoctypeDropdown = true; showModuleDropdown = false; doctypeSearch = ''" @blur="setTimeout(() => showDoctypeDropdown = false, 200)" />
 									<div v-if="showDoctypeDropdown && filteredDoctypeOptions.length > 0" class="absolute z-50 w-full mt-1 max-h-48 overflow-y-auto bg-white border border-gray-200 rounded-md shadow-lg">
-										<div
-											v-for="dt in filteredDoctypeOptions"
-											:key="dt"
-											@mousedown.prevent="newScript.reference_doctype = dt; doctypeSearch = dt; showDoctypeDropdown = false"
-											class="px-3 py-1.5 text-sm cursor-pointer hover:bg-blue-50 text-gray-900"
-										>{{ dt }}</div>
+										<div v-for="dt in filteredDoctypeOptions" :key="dt" @mousedown.prevent="newScript.reference_doctype = dt; doctypeSearch = dt; showDoctypeDropdown = false" class="px-3 py-1.5 text-sm cursor-pointer hover:bg-blue-50 text-gray-900">{{ dt }}</div>
 									</div>
 								</div>
 							</div>
 							<div v-if="newScript.script_type === 'DocType Event'">
 								<label class="block text-xs font-medium text-gray-700 mb-1">DocType Event</label>
-								<select
-									v-model="newScript.doctype_event"
-									class="w-full px-3 py-1.5 border border-gray-300 rounded-md text-sm bg-white text-gray-900 focus:outline-none focus:ring-2 focus:ring-blue-400"
-								>
+								<select v-model="newScript.doctype_event" class="w-full px-3 py-1.5 border border-gray-300 rounded-md text-sm bg-white text-gray-900 focus:outline-none focus:ring-2 focus:ring-blue-400">
 									<option value="">Select event...</option>
 									<option v-for="evt in doctypeEvents" :key="evt" :value="evt">{{ evt }}</option>
 								</select>
 							</div>
 						</div>
-
-						<!-- Conditional: API fields -->
 						<div v-if="newScript.script_type === 'API'" class="grid grid-cols-2 gap-4">
 							<div>
 								<label class="block text-xs font-medium text-gray-700 mb-1">API Method</label>
-								<input
-									v-model="newScript.api_method"
-									type="text"
-									placeholder="e.g. my_custom_api"
-									class="w-full px-3 py-1.5 border border-gray-300 rounded-md text-sm bg-white text-gray-900 focus:outline-none focus:ring-2 focus:ring-blue-400"
-								/>
+								<input v-model="newScript.api_method" type="text" placeholder="e.g. my_custom_api" class="w-full px-3 py-1.5 border border-gray-300 rounded-md text-sm bg-white text-gray-900 focus:outline-none focus:ring-2 focus:ring-blue-400" />
 							</div>
 							<div class="flex items-end">
 								<label class="flex items-center gap-2 text-sm text-gray-700 cursor-pointer">
-									<input type="checkbox" v-model="newScript.allow_guest" class="rounded border-gray-300" />
-									Allow Guest
+									<input type="checkbox" v-model="newScript.allow_guest" class="rounded border-gray-300" />Allow Guest
 								</label>
 							</div>
 						</div>
-
-						<!-- Conditional: Scheduler Event fields -->
 						<div v-if="newScript.script_type === 'Scheduler Event'" class="grid grid-cols-2 gap-4">
 							<div>
 								<label class="block text-xs font-medium text-gray-700 mb-1">Event Frequency</label>
-								<select
-									v-model="newScript.event_frequency"
-									class="w-full px-3 py-1.5 border border-gray-300 rounded-md text-sm bg-white text-gray-900 focus:outline-none focus:ring-2 focus:ring-blue-400"
-								>
+								<select v-model="newScript.event_frequency" class="w-full px-3 py-1.5 border border-gray-300 rounded-md text-sm bg-white text-gray-900 focus:outline-none focus:ring-2 focus:ring-blue-400">
 									<option value="">Select frequency...</option>
 									<option v-for="freq in eventFrequencies" :key="freq" :value="freq">{{ freq }}</option>
 								</select>
 							</div>
-							<FormControl
-								v-if="newScript.event_frequency === 'Cron'"
-								label="Cron Format"
-								v-model="newScript.cron_format"
-								placeholder="*/5 * * * *"
-							/>
+							<FormControl v-if="newScript.event_frequency === 'Cron'" label="Cron Format" v-model="newScript.cron_format" placeholder="*/5 * * * *" />
 						</div>
-
-						<!-- Module -->
 						<div>
 							<label class="block text-xs font-medium text-gray-700 mb-1">Module (for export)</label>
 							<div class="relative">
-								<input
-									v-model="moduleSearch"
-									type="text"
-									:placeholder="newScript.module || 'Search Module...'"
-									class="w-full px-3 py-1.5 border border-gray-300 rounded-md text-sm bg-white text-gray-900 focus:outline-none focus:ring-2 focus:ring-blue-400"
-									@focus="showModuleDropdown = true; showDoctypeDropdown = false; moduleSearch = ''"
-									@blur="setTimeout(() => showModuleDropdown = false, 200)"
-								/>
+								<input v-model="moduleSearch" type="text" :placeholder="newScript.module || 'Search Module...'" class="w-full px-3 py-1.5 border border-gray-300 rounded-md text-sm bg-white text-gray-900 focus:outline-none focus:ring-2 focus:ring-blue-400" @focus="showModuleDropdown = true; showDoctypeDropdown = false; moduleSearch = ''" @blur="setTimeout(() => showModuleDropdown = false, 200)" />
 								<div v-if="showModuleDropdown && filteredModuleOptions.length > 0" class="absolute z-50 w-full mt-1 max-h-48 overflow-y-auto bg-white border border-gray-200 rounded-md shadow-lg">
-									<div
-										v-for="mod in filteredModuleOptions"
-										:key="mod"
-										@mousedown.prevent="newScript.module = mod; moduleSearch = mod; showModuleDropdown = false"
-										class="px-3 py-1.5 text-sm cursor-pointer hover:bg-blue-50 text-gray-900"
-									>{{ mod }}</div>
+									<div v-for="mod in filteredModuleOptions" :key="mod" @mousedown.prevent="newScript.module = mod; moduleSearch = mod; showModuleDropdown = false" class="px-3 py-1.5 text-sm cursor-pointer hover:bg-blue-50 text-gray-900">{{ mod }}</div>
 								</div>
 							</div>
 						</div>
-
-						<!-- Script content -->
 						<div>
 							<label class="block text-xs font-medium text-gray-700 mb-1">Script <span class="text-red-500">*</span></label>
-							<textarea
-								v-model="newScript.script"
-								class="w-full h-48 p-3 font-mono text-sm border border-gray-300 rounded-lg bg-gray-50 text-gray-900 focus:outline-none focus:ring-2 focus:ring-blue-400 focus:border-blue-400 resize-y"
-								placeholder="# Enter Python script here..."
-								spellcheck="false"
-							></textarea>
+							<textarea v-model="newScript.script" class="w-full h-48 p-3 font-mono text-sm border border-gray-300 rounded-lg bg-gray-50 text-gray-900 focus:outline-none focus:ring-2 focus:ring-blue-400 focus:border-blue-400 resize-y" placeholder="# Enter Python script here..." spellcheck="false"></textarea>
 						</div>
 					</div>
 
@@ -776,23 +617,15 @@
 						<div class="flex items-center gap-3">
 							<div class="flex-1">
 								<div class="text-sm font-semibold text-gray-900">{{ linkedScriptName }}</div>
-								<div v-if="editScriptMeta.script_type" class="text-xs text-gray-500 mt-0.5">
-									{{ editScriptMeta.script_type }}
-									<span v-if="editScriptMeta.reference_doctype"> · {{ editScriptMeta.reference_doctype }}</span>
-								</div>
+								<div v-if="editScriptMeta.script_type" class="text-xs text-gray-500 mt-0.5">{{ editScriptMeta.script_type }}<span v-if="editScriptMeta.reference_doctype"> · {{ editScriptMeta.reference_doctype }}</span></div>
 							</div>
 						</div>
 						<div v-if="loadingEditScript" class="flex items-center justify-center py-12 text-gray-400">
-							<div class="animate-spin rounded-full h-6 w-6 border-b-2 border-gray-400 mr-2"></div>
-							Loading script...
+							<div class="animate-spin rounded-full h-6 w-6 border-b-2 border-gray-400 mr-2"></div>Loading script...
 						</div>
 						<div v-else>
 							<label class="block text-xs font-medium text-gray-700 mb-1">Script</label>
-							<textarea
-								v-model="editScriptContent"
-								class="w-full h-72 p-3 font-mono text-sm border border-gray-300 rounded-lg bg-gray-50 text-gray-900 focus:outline-none focus:ring-2 focus:ring-blue-400 focus:border-blue-400 resize-y"
-								spellcheck="false"
-							></textarea>
+							<textarea v-model="editScriptContent" class="w-full h-72 p-3 font-mono text-sm border border-gray-300 rounded-lg bg-gray-50 text-gray-900 focus:outline-none focus:ring-2 focus:ring-blue-400 focus:border-blue-400 resize-y" spellcheck="false"></textarea>
 						</div>
 					</div>
 				</div>
@@ -800,27 +633,51 @@
 			<template #actions>
 				<div class="flex gap-2">
 					<Button variant="subtle" @click="showScriptEditorDialog = false">Cancel</Button>
-					<Button
-						v-if="scriptDialogMode === 'select'"
-						variant="solid"
-						@click="saveScript"
-						:disabled="!selectedServerScript"
-					>Link Script</Button>
-					<Button
-						v-else-if="scriptDialogMode === 'create'"
-						variant="solid"
-						@click="createAndLinkScript"
-						:loading="creatingScript"
-						:disabled="!newScript.name || !newScript.script_type || !newScript.script"
-					>Create & Link</Button>
-					<Button
-						v-else-if="scriptDialogMode === 'edit'"
-						variant="solid"
-						@click="saveEditedScript"
-						:loading="savingEditScript"
-						:disabled="!editScriptContent || loadingEditScript"
-					>Save Changes</Button>
+					<Button v-if="scriptDialogMode === 'select'" variant="solid" @click="saveScript" :disabled="!selectedServerScript">Link Script</Button>
+					<Button v-else-if="scriptDialogMode === 'create'" variant="solid" @click="createAndLinkScript" :loading="creatingScript" :disabled="!newScript.name || !newScript.script_type || !newScript.script">Create &amp; Link</Button>
+					<Button v-else-if="scriptDialogMode === 'edit'" variant="solid" @click="saveEditedScript" :loading="savingEditScript" :disabled="!editScriptContent || loadingEditScript">Save Changes</Button>
 				</div>
+			</template>
+		</Dialog>
+
+		<!-- Delete Script Confirmation Dialog -->
+		<Dialog v-model="showDeleteScriptConfirm" :options="{ title: 'Delete Element', size: 'lg' }">
+			<template #body-content>
+				<div class="space-y-3 text-sm text-gray-700">
+					<p>This element has a linked Server Script:</p>
+					<ul class="list-disc pl-5 space-y-1">
+						<li v-for="name in deleteScriptConfirmData.scriptNames" :key="name" class="font-medium text-gray-900">
+							{{ name }}
+							<span v-if="deleteScriptConfirmData.usageMap[name] > 1" class="ml-2 text-xs font-normal text-amber-600">
+								(also used by {{ deleteScriptConfirmData.usageMap[name] - 1 }} other element{{ deleteScriptConfirmData.usageMap[name] > 2 ? 's' : '' }})
+							</span>
+						</li>
+					</ul>
+					<p class="text-gray-500 text-xs pt-1">Should the Server Script(s) be deleted as well?</p>
+				</div>
+			</template>
+			<template #actions>
+				<div class="flex gap-2">
+					<Button variant="subtle" @click="showDeleteScriptConfirm = false">Cancel</Button>
+					<Button variant="ghost" @click="confirmDeleteElement(false)">Delete Element Only</Button>
+					<Button variant="solid" theme="red" @click="confirmDeleteElement(true)">Delete Element &amp; Script</Button>
+				</div>
+			</template>
+		</Dialog>
+
+		<!-- Logix Canvas (AI Script Editor) -->
+		<Dialog v-model="showLogixCanvas" :options="{ title: 'Logix AI Assistant', size: '7xl' }">
+			<template #body-content>
+				<LogixCanvas
+					:element="logixElement"
+					:script-type="logixScriptType"
+					:current-script="logixCurrentScript"
+					:event-bus="logixEventBus"
+					:process-context="logixProcessContext"
+					@close="showLogixCanvas = false"
+					@script-saved="onLogixScriptSaved"
+					@back="onLogixBack"
+				/>
 			</template>
 		</Dialog>
 
@@ -930,6 +787,7 @@ import ShapeLibraryPanel from "@/components/ShapeLibraryPanel.vue";
 import VersionDiffDialog from "@/components/VersionDiffDialog.vue";
 import { downloadBpmn } from "@/utils/downloadBpmn";
 import CallActivitySearchDialog from "@/components/CallActivitySearchDialog.vue";
+import LogixCanvas from "@/components/LogixCanvas.vue";
 import NotificationLinkDialog from "@/components/NotificationLinkDialog.vue";
 import ReadinessChecklistDialog from "@/components/ReadinessChecklistDialog.vue";
 import { useNotificationDialog } from "@/composables/useNotificationDialog";
@@ -963,6 +821,8 @@ const activeDiagramName = ref("");
 const isAnyDialogOpen = computed(() => {
 	return (
 		showScriptEditorDialog.value ||
+		showLogixCanvas.value ||
+		showDeleteScriptConfirm.value ||
 		showMarkdownEditorDialog.value ||
 		showNewDiagramDialog.value ||
 		showUnsavedNavigationWarning.value ||
@@ -996,6 +856,25 @@ const isActiveModel = computed(() => {
 	const d = diagrams.value.find((d) => d.name === activeDiagramName.value);
 	return d ? !!d.is_active : false;
 });
+
+// True when the current diagram's BPMN process is marked as executable
+const isExecutable = ref(false);
+
+function extractIsExecutable(xml) {
+	try {
+		const doc = new DOMParser().parseFromString(xml, "text/xml");
+		const processes = doc.getElementsByTagNameNS(
+			"http://www.omg.org/spec/BPMN/20100524/MODEL",
+			"process"
+		);
+		for (let i = 0; i < processes.length; i++) {
+			if (processes[i].getAttribute("isExecutable") === "true") return true;
+		}
+		return false;
+	} catch {
+		return false;
+	}
+}
 
 // Readiness checklist state
 const showReadinessDialog = ref(false);
@@ -1103,16 +982,12 @@ const diagramDataCache = ref({});
 // Script Editor state
 const showScriptEditorDialog = ref(false);
 const scriptEditorTitle = ref("Link Server Script");
-const scriptDialogMode = ref("select"); // 'select', 'create', or 'edit'
+const scriptDialogMode = ref("select");
 const serverScripts = ref([]);
 const serverScriptSearch = ref("");
 const selectedServerScript = ref(null);
 const loadingScripts = ref(false);
 const creatingScript = ref(false);
-const doctypeOptions = ref([]);
-const moduleOptions = ref([]);
-const doctypeSearch = ref("");
-const moduleSearch = ref("");
 const showDoctypeDropdown = ref(false);
 const showModuleDropdown = ref(false);
 let activeScriptEvent = null;
@@ -1121,7 +996,6 @@ const isScriptTaskElement = ref(false);
 // Script preview state (Select Existing tab)
 const previewScriptContent = ref(null);
 const loadingPreview = ref(false);
-
 
 // Edit tab state
 const linkedScriptName = ref("");
@@ -1160,7 +1034,6 @@ const eventFrequencies = [
 // Computed: filtered scripts based on search (restricted to API for Script Tasks)
 const filteredServerScripts = computed(() => {
 	let list = serverScripts.value;
-	// Script Task elements can only use API-type server scripts
 	if (isScriptTaskElement.value) {
 		list = list.filter((s) => s.script_type === "API");
 	}
@@ -1173,6 +1046,46 @@ const filteredServerScripts = computed(() => {
 			(s.reference_doctype && s.reference_doctype.toLowerCase().includes(q))
 	);
 });
+
+// Logix Canvas state
+const showLogixCanvas = ref(false);
+const logixElement = ref(null);
+const logixScriptType = ref("bpmn:script");
+const logixCurrentScript = ref("");
+const logixEventBus = ref(null);
+const logixProcessContext = ref(null);
+
+function extractProcessContext(element) {
+	if (!element?.businessObject) return null;
+	const bo = element.businessObject;
+	const mapNode = (ref) => ref ? {
+		id:   ref.id,
+		name: ref.name || ref.id,
+		type: (ref.$type || "").replace("bpmn:", ""),
+	} : null;
+	const incoming = (bo.incoming || []).map(f => mapNode(f.sourceRef)).filter(Boolean);
+	const outgoing  = (bo.outgoing  || []).map(f => mapNode(f.targetRef)).filter(Boolean);
+	const process   = bo.$parent;
+	return {
+		element_id:   bo.id,
+		element_name: bo.name || bo.id,
+		process_name: process?.name || process?.id || "",
+		incoming,
+		outgoing,
+	};
+}
+
+// Delete-with-script confirmation state
+const showDeleteScriptConfirm = ref(false);
+const deleteScriptConfirmData = ref({ elements: [], scriptNames: [], usageMap: {} });
+let pendingDeleteElements = null;
+let pendingDeleteModeling = null;
+
+// Shared DocType/Module options (used by notification dialog composable)
+const doctypeOptions = ref([]);
+const moduleOptions = ref([]);
+const doctypeSearch = ref("");
+const moduleSearch = ref("");
 
 // Computed: filtered DocType options based on search
 const filteredDoctypeOptions = computed(() => {
@@ -1265,7 +1178,7 @@ async function runReadinessCheck(xmlContent, mode) {
 
 	try {
 		const response = await frappeRequest({
-			url: "/api/method/one_bpmn.api.validate_bpmn_readiness",
+			url: "/api/method/one_bpmn.api.process_map_api.validate_bpmn_readiness",
 			params: { xml_content: xmlContent },
 		});
 		readinessChecklist.value = response.message || response;
@@ -1332,7 +1245,7 @@ async function executeDeployment() {
 	deploying.value = true;
 	try {
 		const response = await frappeRequest({
-			url: "/api/method/one_bpmn.api.compile_process_model",
+			url: "/api/method/one_bpmn.api.compilation.compile_process_model",
 			method: "POST",
 			params: { model_name: activeDiagramName.value },
 		});
@@ -1407,7 +1320,7 @@ async function executeDisable() {
 	disabling.value = true;
 	try {
 		const response = await frappeRequest({
-			url: "/api/method/one_bpmn.api.disable_process_model",
+			url: "/api/method/one_bpmn.api.compilation.disable_process_model",
 			method: "POST",
 			params: { model_name: activeDiagramName.value },
 		});
@@ -1547,7 +1460,7 @@ async function checkEditability() {
 
 	try {
 		const response = await frappeRequest({
-			url: "/api/method/one_bpmn.api.check_process_editable",
+			url: "/api/method/one_bpmn.api.editability.check_process_editable",
 			params: { process_name: props.process },
 		});
 
@@ -1604,7 +1517,7 @@ function stopHeartbeat() {
 async function performHeartbeat(modelName) {
 	try {
 		const response = await frappeRequest({
-			url: "one_bpmn.api.check_and_update_editor_lock",
+			url: "one_bpmn.api.editability.check_and_update_editor_lock",
 			params: { model_name: modelName },
 		});
 
@@ -1624,7 +1537,7 @@ async function performHeartbeat(modelName) {
 async function loadProcess() {
 	try {
 		const response = await frappeRequest({
-			url: "/api/method/one_bpmn.api.get_process_diagrams",
+			url: "/api/method/one_bpmn.api.process_map_api.get_process_diagrams",
 			params: { process: props.process },
 		});
 		const data = response.message || response;
@@ -1680,6 +1593,7 @@ async function onEditorReady() {
 watch(activeDiagramName, async (newName) => {
 	if (!newName) {
 		stopHeartbeat();
+		isExecutable.value = false;
 		return;
 	}
 
@@ -1698,13 +1612,14 @@ async function loadDiagramContent(name) {
 		if (editorRef.value) {
 			await editorRef.value.loadXML(diagramDataCache.value[name]);
 			if (processName.value) editorRef.value.setProcessName(processName.value);
+			isExecutable.value = extractIsExecutable(diagramDataCache.value[name]);
 		}
 		return;
 	}
 
 	try {
 		const response = await frappeRequest({
-			url: "/api/method/one_bpmn.api.get_process_model",
+			url: "/api/method/one_bpmn.api.process_map_api.get_process_model",
 			params: { name },
 		});
 
@@ -1713,6 +1628,7 @@ async function loadDiagramContent(name) {
 			diagramDataCache.value[name] = data.xml_content;
 			await editorRef.value.loadXML(data.xml_content);
 			if (processName.value) editorRef.value.setProcessName(processName.value);
+			isExecutable.value = extractIsExecutable(data.xml_content);
 		}
 	} catch (error) {
 		console.error("Failed to load diagram:", error);
@@ -1752,15 +1668,18 @@ async function saveCurrentDiagram() {
 	saveState.value = 'saving';
 	try {
 		const xml = await editorRef.value.getXML();
+		isExecutable.value = extractIsExecutable(xml);
 		const diagram = diagrams.value.find((d) => d.name === activeDiagramName.value);
+		const modelName = diagram?.model_name || activeDiagramName.value;
+		const description = diagram?.description || "";
 
 		const data = await frappeRequest({
-			url: "/api/method/one_bpmn.api.save_process_model",
+			url: "/api/method/one_bpmn.api.process_map_api.save_process_model",
 			params: {
 				process: props.process,
-				model_name: diagram.model_name,
+				model_name: modelName,
 				xml_content: xml,
-				description: diagram.description || "",
+				description: description,
 			},
 		});
 
@@ -1816,23 +1735,16 @@ async function createDiagram() {
 		const xmlContent = `<?xml version="1.0" encoding="UTF-8"?>
 <bpmn:definitions xmlns:bpmn="http://www.omg.org/spec/BPMN/20100524/MODEL"
                   xmlns:bpmndi="http://www.omg.org/spec/BPMN/20100524/DI"
-                  xmlns:dc="http://www.omg.org/spec/DD/20100524/DC"
                   id="Definitions_1"
                   targetNamespace="http://bpmn.io/schema/bpmn">
-  <bpmn:process id="${processId}" isExecutable="false">
-    <bpmn:startEvent id="StartEvent_1" />
-  </bpmn:process>
+  <bpmn:process id="${processId}" isExecutable="false" />
   <bpmndi:BPMNDiagram id="BPMNDiagram_1">
-    <bpmndi:BPMNPlane id="BPMNPlane_1" bpmnElement="${processId}">
-      <bpmndi:BPMNShape id="_BPMNShape_StartEvent_1" bpmnElement="StartEvent_1">
-        <dc:Bounds x="173" y="102" width="36" height="36" />
-      </bpmndi:BPMNShape>
-    </bpmndi:BPMNPlane>
+    <bpmndi:BPMNPlane id="BPMNPlane_1" bpmnElement="${processId}" />
   </bpmndi:BPMNDiagram>
 </bpmn:definitions>`;
 
 		const response = await frappeRequest({
-			url: "/api/method/one_bpmn.api.save_process_model",
+			url: "/api/method/one_bpmn.api.process_map_api.save_process_model",
 			params: {
 				process: props.process,
 				model_name: newDiagramName.value,
@@ -1861,7 +1773,7 @@ async function ensureDiagramContentCached(diagramName) {
 	}
 
 	const response = await frappeRequest({
-		url: "/api/method/one_bpmn.api.get_process_model",
+		url: "/api/method/one_bpmn.api.process_map_api.get_process_model",
 		params: {
 			name: diagramName,
 		},
@@ -1898,7 +1810,7 @@ async function handleDuplicateTab(tab) {
 	creating.value = true;
 	try {
 		const response = await frappeRequest({
-			url: "/api/method/one_bpmn.api.save_process_model",
+			url: "/api/method/one_bpmn.api.process_map_api.save_process_model",
 			params: {
 				process: props.process,
 				model_name: newName,
@@ -1955,7 +1867,7 @@ async function handleDeleteTab(tab) {
 	// ── Server call (no loadProcess round-trip) ──────────────────────
 	try {
 		await frappeRequest({
-			url: "/api/method/one_bpmn.api.delete_diagram",
+			url: "/api/method/one_bpmn.api.process_map_api.delete_diagram",
 			params: { name: tab.name },
 		});
 	} catch (error) {
@@ -2019,7 +1931,7 @@ async function renameProcessModel({ tabName, oldModelName, newModelName }) {
 
 	try {
 		const response = await frappeRequest({
-			url: "/api/method/one_bpmn.api.rename_process_model",
+			url: "/api/method/one_bpmn.api.process_map_api.rename_process_model",
 			params: {
 				name: tabName,
 				new_title: newModelName,
@@ -2123,7 +2035,7 @@ async function handleImportFile(event) {
 		// Call the backend import endpoint via frappeRequest for consistent
 		// CSRF handling, response parsing, and error surfacing.
 		const result = await frappeRequest({
-			url: "/api/method/one_bpmn.api.import_bpmn",
+			url: "/api/method/one_bpmn.api.process_map_api.import_bpmn",
 			method: "POST",
 			params: {
 				xml_content: xmlContent,
@@ -2227,50 +2139,43 @@ function getAvatarColor(userName) {
 
 // --- SpiffWorkflow Editor Handlers ---
 
-async function onLaunchScriptEditor(event) {
+function onLaunchScriptEditor(event) {
 	activeScriptEvent = event;
 
-	// Determine title based on script type
+	logixElement.value = event.element;
+	logixScriptType.value = event.scriptType || "bpmn:script";
+	logixCurrentScript.value = event.script || "";
+	logixEventBus.value = event.eventBus;
+	logixProcessContext.value = extractProcessContext(event.element);
+
+	// Prep dialog state so it's ready if the user goes back from Logix
 	const typeLabels = {
 		"bpmn:script": "Link Server Script",
 		"spiffworkflow:PreScript": "Link Pre-Script to Server Script",
 		"spiffworkflow:PostScript": "Link Post-Script to Server Script",
 	};
 	scriptEditorTitle.value = typeLabels[event.scriptType] || "Link Server Script";
-
-	// Reset dialog state
 	linkedScriptName.value = event.script || "";
 	previewScriptContent.value = null;
 	loadingPreview.value = false;
 	editScriptContent.value = "";
 	editScriptMeta.value = { script_type: "", reference_doctype: "" };
-
-	// Default to edit mode if a script is already linked, otherwise select
 	scriptDialogMode.value = event.script ? "edit" : "select";
 	serverScriptSearch.value = "";
-	selectedServerScript.value = event.script || null; // Pre-select if already linked
-	doctypeSearch.value = "";
-	moduleSearch.value = "";
-	showDoctypeDropdown.value = false;
-	showModuleDropdown.value = false;
-	// Set reactive flag for Script Task restriction
-	const isScriptTask = event.element && event.element.type === "bpmn:ScriptTask";
-	isScriptTaskElement.value = isScriptTask;
-	newScript.value = {
-		name: "", script_type: isScriptTask ? "API" : "", script: "", reference_doctype: "",
-		doctype_event: "", api_method: "", allow_guest: false,
-		event_frequency: "", cron_format: "", module: "",
-	};
+	selectedServerScript.value = event.script || null;
+	isScriptTaskElement.value = !!(event.element?.type === "bpmn:ScriptTask");
+	if (event.script) loadScriptContent(event.script, "edit");
 
-	// If a script is linked, load it for the edit tab
-	if (event.script) {
-		loadScriptContent(event.script, "edit");
-	}
+	// Go straight to Logix canvas — skip the script selector dialog
+	showLogixCanvas.value = true;
 
-	// Fetch server scripts
+	// Load server scripts in the background so the dialog is ready if user clicks back
+	loadServerScriptsInBackground();
+}
+
+async function loadServerScriptsInBackground() {
+	if (serverScripts.value.length) return;
 	loadingScripts.value = true;
-	showScriptEditorDialog.value = true;
-
 	try {
 		const response = await frappeRequest({
 			url: "/api/method/frappe.client.get_list",
@@ -2283,40 +2188,34 @@ async function onLaunchScriptEditor(event) {
 		});
 		const data = response.message || response;
 		serverScripts.value = Array.isArray(data) ? data : [];
-	} catch (error) {
-		console.error("Failed to load server scripts:", error);
-		serverScripts.value = [];
+	} catch (e) {
+		console.error("Failed to load server scripts:", e);
 	} finally {
 		loadingScripts.value = false;
 	}
+}
 
-	// Fetch DocTypes and Modules for create form dropdowns
-	if (doctypeOptions.value.length === 0) {
-		try {
-			const dtResp = await frappeRequest({
-				url: "/api/method/frappe.client.get_list",
-				params: { doctype: "DocType", fields: ["name"], limit_page_length: 0, order_by: "name asc" },
-			});
-			doctypeOptions.value = (dtResp.message || dtResp || []).map((d) => d.name);
-		} catch (e) {
-			console.error("Failed to load DocTypes:", e);
-		}
-	}
-	if (moduleOptions.value.length === 0) {
-		try {
-			const modResp = await frappeRequest({
-				url: "/api/method/frappe.client.get_list",
-				params: { doctype: "Module Def", fields: ["name"], limit_page_length: 0, order_by: "name asc" },
-			});
-			moduleOptions.value = (modResp.message || modResp || []).map((m) => m.name);
-		} catch (e) {
-			console.error("Failed to load Modules:", e);
-		}
+function openLogixCanvas() {
+	showScriptEditorDialog.value = false;
+	showLogixCanvas.value = true;
+}
+
+function onLogixBack() {
+	showLogixCanvas.value = false;
+	showScriptEditorDialog.value = true;
+}
+
+function onLogixScriptSaved(scriptName) {
+	if (activeScriptEvent && activeScriptEvent.eventBus && scriptName) {
+		activeScriptEvent.eventBus.fire("spiff.script.update", {
+			element: activeScriptEvent.element,
+			scriptType: activeScriptEvent.scriptType,
+			script: scriptName,
+		});
 	}
 }
 
 function saveScript() {
-	// "Select Existing" mode — write the selected Server Script name
 	if (activeScriptEvent && activeScriptEvent.eventBus && selectedServerScript.value) {
 		activeScriptEvent.eventBus.fire("spiff.script.update", {
 			element: activeScriptEvent.element,
@@ -2329,7 +2228,6 @@ function saveScript() {
 }
 
 async function createAndLinkScript() {
-	// "Create New" mode — create Server Script then link it
 	if (!newScript.value.name || !newScript.value.script_type || !newScript.value.script) {
 		showNotification("Validation", "Script name, type, and content are required.", "red");
 		return;
@@ -2338,7 +2236,7 @@ async function createAndLinkScript() {
 	creatingScript.value = true;
 	try {
 		const result = await frappeRequest({
-			url: "one_bpmn.api.create_server_script",
+			url: "one_bpmn.api.server_script_api.create_server_script",
 			params: {
 				script_name: newScript.value.name,
 				script_type: newScript.value.script_type,
@@ -2353,7 +2251,6 @@ async function createAndLinkScript() {
 			},
 		});
 
-		// Write the new script's name back to the BPMN element
 		if (activeScriptEvent && activeScriptEvent.eventBus) {
 			activeScriptEvent.eventBus.fire("spiff.script.update", {
 				element: activeScriptEvent.element,
@@ -2376,25 +2273,19 @@ async function toggleScriptStatus(script) {
 	const newDisabledStatus = script.disabled ? 0 : 1;
 	try {
 		await frappeRequest({
-			url: "one_bpmn.api.toggle_server_script",
+			url: "one_bpmn.api.server_script_api.toggle_server_script",
 			params: {
 				script_name: script.name,
 				disabled: newDisabledStatus,
 			},
 		});
-
-		// Update local state reactively
 		script.disabled = newDisabledStatus;
-
 	} catch (error) {
 		console.error("Failed to toggle server script status:", error);
 	}
 }
 
-// --- Script Preview & Edit Helpers ---
-
 async function loadScriptContent(scriptName, target) {
-	// target: 'preview' or 'edit'
 	if (!scriptName) return;
 	if (target === "preview") {
 		loadingPreview.value = true;
@@ -2458,7 +2349,6 @@ async function saveEditedScript() {
 	}
 }
 
-// Auto-load preview when a script is selected in "Select Existing" tab
 watch(selectedServerScript, (newVal) => {
 	if (newVal && scriptDialogMode.value === "select") {
 		loadScriptContent(newVal, "preview");
@@ -2466,6 +2356,42 @@ watch(selectedServerScript, (newVal) => {
 		previewScriptContent.value = null;
 	}
 });
+
+// --- Delete with Script Confirmation ---
+
+function onConfirmScriptDelete(payload) {
+	// payload: { elements, scriptNames, usageMap, doDelete }
+	pendingDeleteElements = payload.elements;
+	pendingDeleteModeling = payload.doDelete; // the original removeElements fn
+	deleteScriptConfirmData.value = {
+		elements: payload.elements,
+		scriptNames: payload.scriptNames,
+		usageMap: payload.usageMap,
+	};
+	showDeleteScriptConfirm.value = true;
+}
+
+async function confirmDeleteElement(alsoDeleteScript) {
+	showDeleteScriptConfirm.value = false;
+	if (alsoDeleteScript) {
+		for (const scriptName of deleteScriptConfirmData.value.scriptNames) {
+			try {
+				await frappeRequest({
+					url: "frappe.client.delete",
+					params: { doctype: "Server Script", name: scriptName },
+				});
+			} catch (e) {
+				console.error("Failed to delete script:", scriptName, e);
+			}
+		}
+	}
+	// Call the original (pre-intercept) removeElements directly
+	if (pendingDeleteModeling && pendingDeleteElements) {
+		pendingDeleteModeling(pendingDeleteElements);
+	}
+	pendingDeleteElements = null;
+	pendingDeleteModeling = null;
+}
 
 // --- Notification Dialog Handlers (Send Task) ---
 
@@ -2505,7 +2431,7 @@ async function onLaunchCallActivityEditor(event) {
 		// Use the dedicated resolve endpoint — returns one record without
 		// fetching the entire model list client-side.
 		const response = await frappeRequest({
-			url: "/api/method/one_bpmn.api.resolve_process_model_by_id",
+			url: "/api/method/one_bpmn.api.process_map_api.resolve_process_model_by_id",
 			params: { process_id: event.processId },
 		});
 		const linked = response.message || response;

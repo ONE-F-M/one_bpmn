@@ -39,18 +39,47 @@
 
 		<!-- Content -->
 		<main class="flex-1 p-6 overflow-auto">
+			<!-- Search Filter (Only show when there are processes or if searching) -->
+			<div v-if="processes.length > 0 || filterKeyword" class="mb-4 flex items-center justify-between">
+				<TextInput
+					v-model="filterKeyword"
+					placeholder="Search processes..."
+					class="w-64"
+				>
+					<template #prefix>
+						<Icon icon="lucide:search" class="w-4 h-4 text-gray-400" />
+					</template>
+				</TextInput>
+			</div>
+
 			<!-- Loading State -->
 			<div v-if="loading" class="flex items-center justify-center h-64">
 				<div class="text-gray-500">Loading...</div>
 			</div>
 
-			<!-- Empty State -->
-			<div v-else-if="sortedProcesses.length === 0" class="flex flex-col items-center justify-center h-64 text-center">
+			<!-- Empty State (No processes at all in system) -->
+			<div v-else-if="processes.length === 0" class="flex flex-col items-center justify-center h-64 text-center">
 				<div class="text-gray-400 mb-4">
 					<Icon icon="lucide:layout-grid" class="w-16 h-16 mx-auto" />
 				</div>
 				<h3 class="text-lg font-medium text-gray-900 mb-1">No Processes Found</h3>
 				<p class="text-gray-500 mb-4">Create a Process in the system to start building BPMN Process Maps.</p>
+				<a
+					href="/app/process"
+					class="inline-flex items-center gap-2 px-4 py-2 text-sm font-medium text-white bg-gray-900 rounded-md hover:bg-gray-800 transition-all hover:scale-[1.02] shadow-md focus:outline-none focus:ring-2 focus:ring-gray-900 focus:ring-offset-2 mt-2"
+				>
+					Go to Process List
+					<Icon icon="lucide:plus" class="w-4 h-4" />
+				</a>
+			</div>
+
+			<!-- No Matching Processes State -->
+			<div v-else-if="sortedProcesses.length === 0" class="flex flex-col items-center justify-center h-64 text-center">
+				<div class="text-gray-400 mb-4">
+					<Icon icon="lucide:search" class="w-16 h-16 mx-auto text-gray-300" />
+				</div>
+				<h3 class="text-lg font-medium text-gray-900 mb-1">No Matching Processes</h3>
+				<p class="text-gray-500 mb-4">Try adjusting your search query.</p>
 			</div>
 
 			<!-- Mobile Card Layout -->
@@ -134,19 +163,11 @@
 						<template v-else-if="column.key === 'process_owner_name'">
 							<div v-if="item" class="flex items-center gap-2">
 								<Avatar :label="item" size="sm" />
-								<span class="text-sm text-gray-600">{{ truncate(item, 15) }}</span>
+								<span class="text-sm text-gray-600">{{ truncate(item, 35) }}</span>
 							</div>
 							<span v-else class="text-sm text-gray-400">-</span>
 						</template>
 
-						<!-- Business Analyst column -->
-						<template v-else-if="column.key === 'business_analyst_name'">
-							<div v-if="item" class="flex items-center gap-2">
-								<Avatar :label="item" size="sm" />
-								<span class="text-sm text-gray-600">{{ truncate(item, 15) }}</span>
-							</div>
-							<span v-else class="text-sm text-gray-400">-</span>
-						</template>
 
 						<!-- Status column -->
 						<template v-else-if="column.key === 'status'">
@@ -194,7 +215,7 @@
 <script setup>
 import { ref, onMounted, computed } from "vue"
 import { useRouter } from "vue-router"
-import { frappeRequest } from "frappe-ui"
+import { frappeRequest, TextInput } from "frappe-ui"
 import { Icon } from "@iconify/vue"
 import { dayjs } from "@/dayjs"
 import { downloadBpmn } from "@/utils/downloadBpmn"
@@ -211,13 +232,26 @@ const exportingProcesses = ref(new Set())
 const router = useRouter()
 const processes = ref([])
 const loading = ref(true)
+const filterKeyword = ref("")
 
 // Pathfinder Log editability map: { processName: true/false }
 const editabilityMap = ref({})
 
-const sortedProcesses = computed(() => {
+const filteredProcesses = computed(() => {
 	if (!Array.isArray(processes.value)) return []
-	return [...processes.value].sort((a, b) => {
+	let list = processes.value
+	if (filterKeyword.value) {
+		const query = filterKeyword.value.toLowerCase().trim()
+		list = list.filter(p => 
+			(p.process_name && p.process_name.toLowerCase().includes(query)) ||
+			(p.name && p.name.toLowerCase().includes(query))
+		)
+	}
+	return list
+})
+
+const sortedProcesses = computed(() => {
+	return [...filteredProcesses.value].sort((a, b) => {
 		const dateA = dayjs(a.last_modified)
 		const dateB = dayjs(b.last_modified)
 		return dateB.isAfter(dateA) ? 1 : -1
@@ -229,17 +263,12 @@ const columns = computed(() => [
 	{
 		label: "Title",
 		key: "process_name",
-		width: 2,
+		width: 3,
 	},
 	{
 		label: "Process Owner",
 		key: "process_owner_name",
-		width: "180px",
-	},
-	{
-		label: "Business Analyst",
-		key: "business_analyst_name",
-		width: "180px",
+		width: 1,
 	},
 	{
 		label: "Status",
@@ -271,7 +300,7 @@ async function loadProcesses() {
 	loading.value = true
 	try {
 		const response = await frappeRequest({
-			url: "/api/method/one_bpmn.api.list_processes",
+			url: "/api/method/one_bpmn.api.process_map_api.list_processes",
 		})
 		
 		// Handle different response formats
@@ -300,7 +329,7 @@ async function checkAllEditability() {
 	try {
 		const processNames = processes.value.map(p => p.name)
 		const response = await frappeRequest({
-			url: "/api/method/one_bpmn.api.bulk_check_processes_editable",
+			url: "/api/method/one_bpmn.api.editability.bulk_check_processes_editable",
 			params: { process_names: JSON.stringify(processNames) },
 		})
 
@@ -329,7 +358,7 @@ async function exportSingleDiagram(diagram) {
 	showExportDialog.value = false
 	try {
 		const response = await frappeRequest({
-			url: "/api/method/one_bpmn.api.get_process_model",
+			url: "/api/method/one_bpmn.api.process_map_api.get_process_model",
 			params: { name: diagram.name },
 		})
 		const data = response.message || response
@@ -346,7 +375,7 @@ async function exportProcess(process) {
 	exportingProcesses.value = new Set([...exportingProcesses.value, process.name])
 	try {
 		const response = await frappeRequest({
-			url: "/api/method/one_bpmn.api.get_process_diagrams",
+			url: "/api/method/one_bpmn.api.process_map_api.get_process_diagrams",
 			params: { process: process.name },
 		})
 		const data = response.message || response
