@@ -270,18 +270,7 @@
 					</div>
 				</div>
 
-				<!-- Shape Library Toggle - DISABLED (see DEVELOPMENT_CONTEXT.md)
-				<button
-					@click="showShapeLibrary = !showShapeLibrary"
-					:class="[
-						'p-2 rounded-md transition-colors',
-						showShapeLibrary ? 'bg-gray-300 text-gray-800' : 'hover:bg-gray-300 text-gray-600'
-					]"
-					title="Toggle Shape Library"
-				>
-					<Icon icon="lucide:shapes" class="w-5 h-5" />
-				</button>
-				-->
+
 			</div>
 		</header>
 
@@ -320,14 +309,8 @@
 
 		<!-- Main Content -->
 		<div :class="['flex-1 flex flex-col', isMobile ? '' : 'overflow-hidden']">
-			<!-- Canvas Area with Shape Library -->
+			<!-- Canvas Area -->
 			<div :class="['flex-1 flex', isMobile ? '' : 'overflow-hidden']">
-				<!-- Shape Library Panel - DISABLED (see DEVELOPMENT_CONTEXT.md)
-				<ShapeLibraryPanel
-					v-if="showShapeLibrary"
-					@shape-drag-start="onShapeDragStart"
-				/>
-				-->
 
 				<!-- Canvas -->
 
@@ -805,7 +788,7 @@ import { frappeRequest, TextEditor } from "frappe-ui";
 import { Icon } from "@iconify/vue";
 import BpmnEditor from "@/components/BpmnEditor.vue";
 import EditorTabs from "@/components/EditorTabs.vue";
-import ShapeLibraryPanel from "@/components/ShapeLibraryPanel.vue";
+
 import VersionDiffDialog from "@/components/VersionDiffDialog.vue";
 import { downloadBpmn } from "@/utils/downloadBpmn";
 import CallActivitySearchDialog from "@/components/CallActivitySearchDialog.vue";
@@ -865,7 +848,7 @@ const importing = ref(false);
 const editorReady = ref(false);
 const hasUnsavedChanges = ref(false);
 const loading = ref(true);
-const showShapeLibrary = ref(false);
+
 const showFileMenu = ref(false);
 const showStatusPopup = ref(false);
 const showMobileMoreMenu = ref(false);
@@ -1196,11 +1179,7 @@ function onZoomChanged(newZoom) {
 	currentZoomLevel.value = newZoom;
 }
 
-// Shape library handler
-function onShapeDragStart(shape) {
-	console.log("Shape drag started:", shape.shape_name);
-	// The actual drop handling will be done by bpmn-js canvas
-}
+
 
 // ── Readiness check (shared by import & deploy) ─────────────────────────
 async function runReadinessCheck(xmlContent, mode) {
