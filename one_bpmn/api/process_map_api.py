@@ -522,6 +522,31 @@ def validate_bpmn_readiness(xml_content: str) -> dict:
 			"items": assignment_items,
 		})
 
+	# 9. Prohibited Shapes (shapes that must not appear in an executable process)
+	from one_bpmn.api.compilation import PROHIBITED_SHAPES
+
+	prohibited_items = []
+	if PROHIBITED_SHAPES:
+		for child in _process_el or []:
+			local_tag = child.tag.split("}")[-1] if "}" in child.tag else child.tag
+			if local_tag in PROHIBITED_SHAPES:
+				shape_info = PROHIBITED_SHAPES[local_tag]
+				el_name = child.get("name", "").strip()
+				el_id = child.get("id", "?")
+				display_name = f'{shape_info["label"]}: "{el_name}"' if el_name else f'{shape_info["label"]} ({el_id})'
+				prohibited_items.append({
+					"name": display_name,
+					"exists": False,
+					"type": "check",
+					"detail": shape_info.get("suggestion", ""),
+				})
+	if prohibited_items:
+		categories.append({
+			"label": "Prohibited Shapes",
+			"icon": "ban",
+			"items": prohibited_items,
+		})
+
 	# ── Compute summary ──────────────────────────────────────────────────
 	total_checked = 0
 	total_missing = 0
