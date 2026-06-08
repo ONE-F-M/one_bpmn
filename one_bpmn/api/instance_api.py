@@ -628,7 +628,7 @@ def _broadcast_ctc_expiry_message(
 	Send a BPMN message to all active process instances whose context
 	document is the given Contingency Task Completion.
 
-	The message ``Frappe: User Task Completed`` signals that the pending
+	The message ``Active Task is Completed`` signals that the pending
 	User Task on the *original* context document has been actioned.  A
 	Processa event sub-process listening for this message should then
 	mark the CTC as Expired via a Service Task — keeping the expiration
@@ -670,7 +670,7 @@ def _broadcast_ctc_expiry_message(
 		try:
 			instance = frappe.get_doc("BPMN Process Instance", instance_name)
 			instance.receive_message(
-				message_name="Frappe: User Task Completed",
+				message_name="Active Task is Completed",
 				payload=payload,
 			)
 		except Exception:

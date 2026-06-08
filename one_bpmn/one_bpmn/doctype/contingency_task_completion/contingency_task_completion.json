@@ -27,6 +27,7 @@
   "reports_to_user",
   "section_break_z2y3",
   "status",
+  "workflow_state",
   "column_break_bint",
   "naming_series",
   "column_break_dukq",
@@ -173,7 +174,7 @@
    "fieldname": "status",
    "fieldtype": "Select",
    "label": "Status",
-   "options": "Pending\nApproved\nExpired",
+   "options": "Pending\nApproved\nRejected\nExpired",
    "read_only": 1
   },
   {
@@ -199,13 +200,19 @@
    "fieldtype": "Check",
    "label": "Requires Approval",
    "read_only": 1
+  },
+  {
+   "fieldname": "workflow_state",
+   "fieldtype": "Link",
+   "label": "workflow state",
+   "options": "Workflow State"
   }
  ],
  "grid_page_length": 50,
  "index_web_pages_for_search": 1,
  "is_submittable": 1,
  "links": [],
- "modified": "2026-06-04 22:09:04.938126",
+ "modified": "2026-06-08 09:28:54.850720",
  "modified_by": "Administrator",
  "module": "ONE BPMN",
  "name": "Contingency Task Completion",
