@@ -20,12 +20,14 @@
   "process_owner_user",
   "column_break_hxyb",
   "reason",
+  "requires_approval",
   "column_break_ohrc",
   "reports_to",
   "reports_to_name",
   "reports_to_user",
   "section_break_z2y3",
   "status",
+  "workflow_state",
   "column_break_bint",
   "naming_series",
   "column_break_dukq",
@@ -172,7 +174,7 @@
    "fieldname": "status",
    "fieldtype": "Select",
    "label": "Status",
-   "options": "Pending\nApproved\nExpired",
+   "options": "Pending\nApproved\nRejected\nExpired",
    "read_only": 1
   },
   {
@@ -190,16 +192,32 @@
   {
    "fieldname": "column_break_dukq",
    "fieldtype": "Column Break"
+  },
+  {
+   "default": "0",
+   "fetch_from": "process_name.ctc_requires_approval",
+   "fieldname": "requires_approval",
+   "fieldtype": "Check",
+   "label": "Requires Approval",
+   "read_only": 1
+  },
+  {
+   "fieldname": "workflow_state",
+   "fieldtype": "Link",
+   "hidden": 1,
+   "label": "Workflow State",
+   "options": "Workflow State"
   }
  ],
  "grid_page_length": 50,
  "index_web_pages_for_search": 1,
  "is_submittable": 1,
  "links": [],
- "modified": "2026-05-14 11:02:03.105693",
+ "modified": "2026-06-08 09:49:49.436026",
  "modified_by": "Administrator",
  "module": "ONE BPMN",
  "name": "Contingency Task Completion",
+ "naming_rule": "By \"Naming Series\" field",
  "owner": "Administrator",
  "permissions": [
   {

@@ -193,18 +193,26 @@ def complete_task(
 		if not is_doc_owner:
 			# Allow if this specific user has an approved Contingency Task Completion
 			# for this context document.  Any other user's CTC does not grant access.
+			# Check workflow_state OR status since the BPMN process sets
+			# workflow_state via apply_workflow and status via update_field.
 			if instance.context_doctype and instance.context_docname:
-				approved_ctc_name = frappe.db.get_value(
-					"Contingency Task Completion",
-					{
-						"context_doctype": instance.context_doctype,
-						"context_docname": instance.context_docname,
-						"process_owner_user": current_user,
-						"status": "Approved",
-						"docstatus": 1,
-					},
-					"name",
-				)
+				from frappe.query_builder import DocType
+
+				CTC = DocType("Contingency Task Completion")
+				ctc_result = (
+					frappe.qb.from_(CTC)
+					.select(CTC.name)
+					.where(CTC.context_doctype == instance.context_doctype)
+					.where(CTC.context_docname == instance.context_docname)
+					.where(CTC.process_owner_user == current_user)
+					.where(
+						(CTC.workflow_state == "Approved") | (CTC.status == "Approved")
+					)
+					.where(CTC.status != "Expired")
+					.where(CTC.docstatus == 1)
+					.limit(1)
+				).run()
+				approved_ctc_name = ctc_result[0][0] if ctc_result else None
 
 			if not approved_ctc_name:
 				frappe.throw(
@@ -290,9 +298,13 @@ def complete_task(
 		)
 		frappe.throw(_("Failed to complete task: {0}").format(str(exc)))
 
-	# ── Expire the CTC that authorised this action ───────────────────────────
+	# ── Broadcast message so a Processa event subprocess can expire the CTC ──
 	if approved_ctc_name:
-		frappe.db.set_value("Contingency Task Completion", approved_ctc_name, "status", "Expired")
+		_broadcast_ctc_expiry_message(
+			ctc_name=approved_ctc_name,
+			context_doctype=instance.context_doctype,
+			context_docname=instance.context_docname,
+		)
 
 	# ── Publish realtime events for auto-refresh ────────────────────────────
 	# 1. Notify the Processa frontend — broadcast to ALL users so anyone
@@ -608,3 +620,74 @@ def send_message(
 		"status": instance.status,
 		"active_tasks": active_tasks,
 	}
+
+
+# ============================================================================
+# Internal helpers
+# ============================================================================
+
+
+def _broadcast_ctc_expiry_message(
+	ctc_name: str,
+	context_doctype: str = "",
+	context_docname: str = "",
+) -> None:
+	"""
+	Send a BPMN message to all active process instances whose context
+	document is the given Contingency Task Completion.
+
+	The message ``Active Task is Completed`` signals that the pending
+	User Task on the *original* context document has been actioned.  A
+	Processa event sub-process listening for this message should then
+	mark the CTC as Expired via a Service Task — keeping the expiration
+	logic in the BPMN diagram rather than hard-coded in Python.
+
+	If no active BPMN instance is found for the CTC, a warning is logged
+	but the request is not blocked (non-fatal).
+	"""
+	instances = frappe.get_all(
+		"BPMN Process Instance",
+		filters={
+			"context_doctype": "Contingency Task Completion",
+			"context_docname": ctc_name,
+			"status": "Active",
+		},
+		pluck="name",
+	)
+
+	if not instances:
+		# The CTC's BPMN process has already completed (reached End after
+		# approval), so the event subprocess can no longer receive messages.
+		# Fall back to directly marking the CTC as expired.
+		try:
+			frappe.db.set_value(
+				"Contingency Task Completion", ctc_name,
+				{"status": "Expired"},
+				update_modified=False,
+			)
+		except Exception:
+			frappe.log_error(
+				title="BPMN CTC expiry: fallback update failed",
+				message=frappe.get_traceback(),
+			)
+		return
+
+	payload = {
+		"ctc_name": ctc_name,
+		"actioned_doctype": context_doctype,
+		"actioned_docname": context_docname,
+		"actioned_by": frappe.session.user,
+	}
+
+	for instance_name in instances:
+		try:
+			instance = frappe.get_doc("BPMN Process Instance", instance_name)
+			instance.receive_message(
+				message_name="Active Task is Completed",
+				payload=payload,
+			)
+		except Exception:
+			frappe.log_error(
+				title=f"BPMN CTC expiry message failed for instance {instance_name}",
+				message=frappe.get_traceback(),
+			)
