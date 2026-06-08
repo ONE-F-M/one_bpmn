@@ -129,19 +129,27 @@ def _extract_service_task_config(bpmn_xml: str) -> dict:
 		return {}
 
 	config = {}
-	for service_task in root.iter(f"{{{BPMN_NS}}}serviceTask"):
-		bpmn_id = service_task.get("id")
-		if not bpmn_id:
-			continue
+	# Process serviceTask, subProcess, and adHocSubProcess elements
+	for tag in ("serviceTask", "subProcess", "adHocSubProcess"):
+		for task in root.iter(f"{{{BPMN_NS}}}{tag}"):
+			bpmn_id = task.get("id")
+			if not bpmn_id:
+				continue
 
-		task_cfg = {}
-		for attr_name, attr_value in service_task.attrib.items():
-			if attr_name.startswith(f"{{{SPIFF_NS}}}"):
-				key = attr_name[len(f"{{{SPIFF_NS}}}") :]
-				task_cfg[key] = attr_value
+			task_cfg = {}
+			for attr_name, attr_value in task.attrib.items():
+				if attr_name.startswith(f"{{{SPIFF_NS}}}"):
+					key = attr_name[len(f"{{{SPIFF_NS}}}") :]
+					task_cfg[key] = attr_value
 
-		if task_cfg:
-			config[bpmn_id] = task_cfg
+			# Extract completion condition for subprocesses if present
+			if tag in ("subProcess", "adHocSubProcess"):
+				comp_cond = task.find(f"{{{BPMN_NS}}}completionCondition")
+				if comp_cond is not None and comp_cond.text:
+					task_cfg["completionCondition"] = comp_cond.text.strip()
+
+			if task_cfg:
+				config[bpmn_id] = task_cfg
 
 	return config
 

@@ -398,6 +398,17 @@ class BPMNProcessInstance(Document):
 
 		return self.get_active_tasks_summary()
 
+	def get_variable(self, name: str):
+		"""Get a variable value from the active workflow state."""
+		if hasattr(self, "_active_wf") and self._active_wf:
+			return self._active_wf.task_tree.data.get(name)
+		return None
+
+	def set_variable(self, name: str, value):
+		"""Set a variable value in the active workflow state."""
+		if hasattr(self, "_active_wf") and self._active_wf:
+			self._active_wf.task_tree.data[name] = value
+
 	def get_active_tasks_summary(self) -> list:
 		"""
 		Return the current waiting User Tasks as a list of dicts.
@@ -473,6 +484,48 @@ class BPMNProcessInstance(Document):
 		raw = getattr(row, "task_actions", "") or ""
 		return self._parse_task_actions_json(raw)
 
+	def _intercept_ai_agent_child_tasks(self, wf):
+		extensions = getattr(self, "_service_task_extensions", {})
+		for task in wf.get_tasks(state=TaskState.READY):
+			parent = task.parent
+			if parent and parent.state == TaskState.STARTED:
+				parent_id = getattr(parent.task_spec, "bpmn_id", None) or parent.task_spec.name
+				parent_cfg = extensions.get(parent_id, {})
+				if parent_cfg.get("serviceType") == "ai_agent":
+					task._set_state(TaskState.WAITING)
+
+	def _run_active_ai_agents(self, wf):
+		from SpiffWorkflow.util.task import TaskState
+		extensions = getattr(self, "_service_task_extensions", {})
+		
+		if not hasattr(self, "_executed_agents"):
+			self._executed_agents = set()
+
+		for task in wf.get_tasks(state=TaskState.STARTED):
+			task_id = str(task.id)
+			bpmn_id = getattr(task.task_spec, "bpmn_id", None) or task.task_spec.name
+			task_cfg = extensions.get(bpmn_id, {})
+			print("ACTIVE AGENT CHECK:", bpmn_id, "CONFIG:", task_cfg)
+			
+			if task_cfg.get("serviceType") == "ai_agent" and task_id not in self._executed_agents:
+				self._executed_agents.add(task_id)
+				self._dispatch_ai_agent(task, task_cfg, bpmn_id)
+				
+				# Evaluate completionCondition if defined
+				completion_cond = task_cfg.get("completionCondition")
+				should_complete = True
+				if completion_cond:
+					try:
+						cond_result = wf.script_engine.evaluate(task, completion_cond)
+						should_complete = bool(cond_result)
+					except Exception:
+						frappe.log_error(title=f"AI Agent completionCondition evaluation failed ({bpmn_id})", message=frappe.get_traceback())
+						should_complete = True
+				
+				if should_complete:
+					self._on_engine_task_complete(task)
+					task.complete()
+
 	def _run_engine(self, wf):
 		"""
 		Run all automated engine tasks until only User Tasks or
@@ -483,31 +536,38 @@ class BPMNProcessInstance(Document):
 		  We then dispatch the real-world side effect and call task.complete()
 		  to advance STARTED → COMPLETED, then loop again.
 		"""
-		wf.refresh_waiting_tasks()
+		prev_wf = getattr(self, "_active_wf", None)
+		self._active_wf = wf
+		try:
+			wf.refresh_waiting_tasks()
+			self._intercept_ai_agent_child_tasks(wf)
 
-		for _ in range(20):  # safety cap — no real workflow needs > 20 passes
-			wf.do_engine_steps(
-				did_complete_task=self._on_engine_task_complete,
-			)
+			for _ in range(20):  # safety cap — no real workflow needs > 20 passes
+				self._run_active_ai_agents(wf)
+				wf.do_engine_steps(
+					did_complete_task=self._on_engine_task_complete,
+				)
 
-			# Find non-manual tasks left in STARTED state.  These are
-			# ServiceTasks waiting for us to dispatch their action and
-			# explicitly call task.complete().
-			started_tasks = [
-				t for t in wf.get_tasks(state=TaskState.STARTED) if not getattr(t.task_spec, "manual", False)
-			]
-			if not started_tasks:
-				break  # nothing left to advance — we're done
+				# Find non-manual tasks left in STARTED state.  These are
+				# ServiceTasks waiting for us to dispatch their action and
+				# explicitly call task.complete().
+				started_tasks = [
+					t for t in wf.get_tasks(state=TaskState.STARTED) if not getattr(t.task_spec, "manual", False)
+				]
+				if not started_tasks:
+					break  # nothing left to advance — we're done
 
-			for task in started_tasks:
-				self._dispatch_service_task(task)
-				self._on_engine_task_complete(task)
-				task.complete()
+				for task in started_tasks:
+					self._dispatch_service_task(task)
+					self._on_engine_task_complete(task)
+					task.complete()
 
-		# Final refresh catches conditional events that became true after
-		# the engine steps ran (e.g. script task updated a doc field that
-		# a downstream catch event now matches).
-		wf.refresh_waiting_tasks()
+			# Final refresh catches conditional events that became true after
+			# the engine steps ran (e.g. script task updated a doc field that
+			# a downstream catch event now matches).
+			wf.refresh_waiting_tasks()
+		finally:
+			self._active_wf = prev_wf
 
 	def _on_engine_task_complete(self, task):
 		"""
@@ -628,6 +688,9 @@ class BPMNProcessInstance(Document):
 					title=f"BPMN ServiceTask: push_notification failed for task {bpmn_id}",
 					message=frappe.get_traceback(),
 				)
+
+		elif service_type == "ai_agent":
+			self._dispatch_ai_agent(task, task_cfg, bpmn_id)
 
 		return True  # default: complete the task
 
@@ -783,6 +846,157 @@ class BPMNProcessInstance(Document):
 				title="BPMN Activity Log write failed",
 				message=frappe.get_traceback(),
 			)
+
+	def _dispatch_ai_agent(self, parent_task, task_cfg, bpmn_id):
+		import frappe
+		from one_bpmn.ai_executor import DirectApiAgentExecutor, AntigravityAgentExecutor
+
+		# 1. Resolve execution mode (direct_api vs. antigravity_sdk)
+		mode = task_cfg.get("aiExecutionMode") or "direct_api"
+		
+		# 2. Resolve user prompt (aiUserMessage)
+		prompt_tmpl = task_cfg.get("aiUserMessage") or ""
+		if "{{" in prompt_tmpl or "{%" in prompt_tmpl:
+			try:
+				doc = frappe.get_doc(self.context_doctype, self.context_docname) if (self.context_doctype and self.context_docname) else frappe._dict()
+				user_prompt = frappe.render_template(prompt_tmpl, {"doc": doc, "instance": self, "frappe": frappe})
+			except Exception:
+				frappe.log_error(title=f"AI Agent Jinja prompt render failed ({bpmn_id})", message=frappe.get_traceback())
+				user_prompt = prompt_tmpl
+		else:
+			user_prompt = prompt_tmpl
+
+		# 3. Resolve enabled tools from AI Tool DocType
+		tools_str = task_cfg.get("aiEnabledTools") or ""
+		tools_list = [t.strip() for t in tools_str.split(",") if t.strip()]
+
+		# 4. Instantiate and execute the corresponding agent executor
+		prev_wf = getattr(self, "_active_wf", None)
+		prev_parent = getattr(self, "_active_parent_task", None)
+		
+		self._active_wf = parent_task.workflow
+		self._active_parent_task = parent_task
+		
+		try:
+			if mode == "antigravity_sdk":
+				executor = AntigravityAgentExecutor(
+					task_config=task_cfg,
+					user_prompt=user_prompt,
+					tools_list=tools_list,
+					bpmn_task_runner=self
+				)
+			else:
+				executor = DirectApiAgentExecutor(
+					task_config=task_cfg,
+					user_prompt=user_prompt,
+					tools_list=tools_list,
+					bpmn_task_runner=self
+				)
+
+			# Run executor
+			result = executor.execute()
+			
+			# Save final output response to process variables
+			output_var = task_cfg.get("aiContextVariable") or f"{bpmn_id}_output"
+			final_content = result.get("content") if isinstance(result, dict) else str(result)
+			self._active_wf.task_tree.data[output_var] = final_content
+			
+			if self.context_doctype and self.context_docname:
+				doc = frappe.get_doc(self.context_doctype, self.context_docname)
+				if doc.meta.get_field(output_var):
+					doc.db_set(output_var, final_content)
+
+		except Exception as e:
+			frappe.log_error(title=f"AI Agent execution failed ({bpmn_id})", message=frappe.get_traceback())
+			raise e
+		finally:
+			self._active_wf = prev_wf
+			self._active_parent_task = prev_parent
+
+	def get_adhoc_tools(self) -> list:
+		if not hasattr(self, "_active_parent_task") or not self._active_parent_task:
+			return []
+		
+		tools = []
+		parent_task = self._active_parent_task
+		for child in parent_task.children:
+			spec = child.task_spec
+			bpmn_id = getattr(spec, "bpmn_id", None) or spec.name
+			description = getattr(spec, "description", None) or spec.name
+			
+			parameters = {}
+			for target_var, expression in getattr(spec, "input_mappings", {}).items():
+				if "fromAi" in expression:
+					param_name, desc, ptype = self._parse_from_ai_expression(expression)
+					parameters[param_name] = {
+						"type": ptype,
+						"description": desc
+					}
+			
+			tools.append({
+				"id": bpmn_id,
+				"description": description,
+				"parameters": {
+					"type": "object",
+					"properties": parameters,
+					"required": list(parameters.keys())
+				}
+			})
+		return tools
+
+	def run_bpmn_tool(self, tool_name, args) -> str:
+		if not hasattr(self, "_active_parent_task") or not self._active_parent_task:
+			raise Exception("No active parent task context found.")
+		
+		wf = self._active_wf
+		parent_task = self._active_parent_task
+		
+		tool_task = None
+		for child in parent_task.children:
+			if getattr(child.task_spec, "bpmn_id", None) == tool_name or child.task_spec.name == tool_name:
+				tool_task = child
+				break
+		
+		if not tool_task:
+			raise Exception(f"BPMN Tool '{tool_name}' not found in subprocess children.")
+		
+		import frappe
+		frappe.flags.current_bpmn_tool_args = args
+		
+		try:
+			from SpiffWorkflow.util.task import TaskState
+			tool_task._set_state(TaskState.READY)
+			tool_task.run()
+			
+			wf.do_engine_steps(did_complete_task=self._on_engine_task_complete)
+			
+			result = tool_task.data.get("toolCallResult")
+			if result is None:
+				result = wf.task_tree.data.get("toolCallResult")
+			
+			if result is None:
+				result = {"status": "Success", "message": f"BPMN Tool '{tool_name}' executed successfully."}
+			
+			import json
+			if isinstance(result, (dict, list)):
+				return json.dumps(result, default=str)
+			return str(result)
+			
+		finally:
+			frappe.flags.current_bpmn_tool_args = None
+
+	def _parse_from_ai_expression(self, expr: str) -> tuple:
+		import re
+		match = re.search(r'fromAi\(\s*["\'](.*?)["\']\s*,\s*["\'](.*?)["\']\s*,\s*["\'](.*?)["\']\s*\)', expr)
+		if match:
+			return match.group(1), match.group(2), match.group(3)
+		match = re.search(r'fromAi\(\s*["\'](.*?)["\']\s*,\s*["\'](.*?)["\']\s*\)', expr)
+		if match:
+			return match.group(1), match.group(2), "string"
+		match = re.search(r'fromAi\(\s*["\'](.*?)["\']\s*\)', expr)
+		if match:
+			return match.group(1), "AI input parameter", "string"
+		return "param", "AI input parameter", "string"
 
 	# Utilities
 

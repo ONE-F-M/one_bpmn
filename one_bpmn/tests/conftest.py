@@ -5,6 +5,14 @@ from unittest.mock import MagicMock
 
 import pytest
 
+try:
+    import frappe
+    frappe.init(site="development.local", sites_path="sites")
+    frappe.connect()
+except Exception:
+    pass
+
+
 
 @pytest.fixture
 def fixtures_path() -> Path:

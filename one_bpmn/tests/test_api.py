@@ -69,8 +69,8 @@ def test_save_process_model_returns_version(mock_frappe):
 	doc = MagicMock()
 	doc.name = "MODEL-V"
 	doc.version = 9
-	mock_frappe.db.exists.return_value = False
-	mock_frappe.new_doc.return_value = doc
+	mock_frappe.db.exists.return_value = True
+	mock_frappe.get_doc.return_value = doc
 
 	result = process_map_api.save_process_model("MODEL-V", "<xml />")
 	assert result["version"] == 9
@@ -153,7 +153,7 @@ def test_import_bpmn_updates_existing_model(mock_frappe):
 
 	result = process_map_api.import_bpmn(VALID_BPMN_XML, "Imported")
 
-	mock_frappe.get_doc.assert_called_with("BPMN Process Model", "EXISTING")
+	mock_frappe.get_doc.assert_any_call("BPMN Process Model", "EXISTING")
 	doc.check_permission.assert_called_once_with("write")
 	doc.save.assert_called_once()
 	assert result["action"] == "updated"

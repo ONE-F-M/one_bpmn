@@ -1005,6 +1005,7 @@ import resizeModule from "@/resize";
 import userTaskPropertiesProviderModule from "@/bpmn/userTaskPropertiesProvider";
 import sendTaskPropertiesProviderModule from "@/bpmn/sendTaskPropertiesProvider";
 import serviceTaskPropertiesProviderModule from "@/bpmn/serviceTaskPropertiesProvider";
+import adHocSubProcessPropertiesProviderModule from "@/bpmn/adHocSubProcessPropertiesProvider";
 import scriptTaskPropertiesProviderModule from "@/bpmn/scriptTaskPropertiesProvider";
 import timerPropertiesProviderModule from "@/bpmn/timerPropertiesProvider";
 import startEventPropertiesProviderModule from "@/bpmn/startEventPropertiesProvider";
@@ -1539,8 +1540,67 @@ onMounted(async () => {
 						{ name: "pushMessage",          isAttr: true, type: "String" },
 						{ name: "pushToUsers",          isAttr: true, type: "String" },
 						{ name: "pushToDocFields",      isAttr: true, type: "String" },
-						{ name: "pushToRoles",          isAttr: true, type: "String" }
+						{ name: "pushToRoles",          isAttr: true, type: "String" },
+						// AI Task attributes
+						{ name: "aiExecutionMode",      isAttr: true, type: "String" },
+						{ name: "aiLlmProvider",        isAttr: true, type: "String" },
+						{ name: "aiModelId",            isAttr: true, type: "String" },
+						{ name: "aiApiEndpoint",        isAttr: true, type: "String" },
+						{ name: "aiApiKeySecret",       isAttr: true, type: "String" },
+						{ name: "aiTemperature",        isAttr: true, type: "String" },
+						{ name: "aiTopP",               isAttr: true, type: "String" },
+						{ name: "aiMaxTokens",          isAttr: true, type: "String" },
+						{ name: "aiTimeout",            isAttr: true, type: "String" },
+						{ name: "aiJobWorkerType",      isAttr: true, type: "String" },
+						{ name: "aiSystemInstructions", isAttr: true, type: "String" },
+						{ name: "aiUserMessage",        isAttr: true, type: "String" },
+						{ name: "aiContextVariable",    isAttr: true, type: "String" },
+						{ name: "aiMaxMessages",        isAttr: true, type: "String" },
+						{ name: "aiDocumentStorageTtl", isAttr: true, type: "String" },
+						{ name: "aiDocumentReferences", isAttr: true, type: "String" },
+						{ name: "aiEventHandlingBehavior", isAttr: true, type: "String" },
+						{ name: "aiEnableSubagents",    isAttr: true, type: "String" },
+						{ name: "aiEnableCodeExecution", isAttr: true, type: "String" },
+						{ name: "aiEnabledTools",        isAttr: true, type: "String" },
+						{ name: "aiMcpServers",          isAttr: true, type: "String" },
+						{ name: "aiWorkspaceBoundary",   isAttr: true, type: "String" },
+						{ name: "aiHitlApprovals",       isAttr: true, type: "String" }
 						]
+				});
+			}
+
+			// Subprocess / Ad-Hoc Subprocess "AI Agent" extensions
+			const hasSubProcessExt = spiffModdleExtension.types.find(t => t.name === "SubProcessAiAgentExtension");
+			if (!hasSubProcessExt) {
+				spiffModdleExtension.types.push({
+					name: "SubProcessAiAgentExtension",
+					extends: ["bpmn:SubProcess", "bpmn:AdHocSubProcess"],
+					properties: [
+						{ name: "serviceType",          isAttr: true, type: "String" },
+						{ name: "aiExecutionMode",      isAttr: true, type: "String" },
+						{ name: "aiLlmProvider",        isAttr: true, type: "String" },
+						{ name: "aiModelId",            isAttr: true, type: "String" },
+						{ name: "aiApiEndpoint",        isAttr: true, type: "String" },
+						{ name: "aiApiKeySecret",       isAttr: true, type: "String" },
+						{ name: "aiTemperature",        isAttr: true, type: "String" },
+						{ name: "aiTopP",               isAttr: true, type: "String" },
+						{ name: "aiMaxTokens",          isAttr: true, type: "String" },
+						{ name: "aiTimeout",            isAttr: true, type: "String" },
+						{ name: "aiJobWorkerType",      isAttr: true, type: "String" },
+						{ name: "aiSystemInstructions", isAttr: true, type: "String" },
+						{ name: "aiUserMessage",        isAttr: true, type: "String" },
+						{ name: "aiContextVariable",    isAttr: true, type: "String" },
+						{ name: "aiMaxMessages",        isAttr: true, type: "String" },
+						{ name: "aiDocumentStorageTtl", isAttr: true, type: "String" },
+						{ name: "aiDocumentReferences", isAttr: true, type: "String" },
+						{ name: "aiEventHandlingBehavior", isAttr: true, type: "String" },
+						{ name: "aiEnableSubagents",    isAttr: true, type: "String" },
+						{ name: "aiEnableCodeExecution", isAttr: true, type: "String" },
+						{ name: "aiEnabledTools",        isAttr: true, type: "String" },
+						{ name: "aiMcpServers",          isAttr: true, type: "String" },
+						{ name: "aiWorkspaceBoundary",   isAttr: true, type: "String" },
+						{ name: "aiHitlApprovals",       isAttr: true, type: "String" }
+					]
 				});
 			}
 
@@ -1570,6 +1630,7 @@ onMounted(async () => {
 				userTaskPropertiesProviderModule,
 				sendTaskPropertiesProviderModule,
 				serviceTaskPropertiesProviderModule,
+				adHocSubProcessPropertiesProviderModule,
 				scriptTaskPropertiesProviderModule,
 				timerPropertiesProviderModule,
 				startEventPropertiesProviderModule,
