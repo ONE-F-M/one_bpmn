@@ -8,6 +8,7 @@ import io
 from datetime import datetime
 
 from SpiffWorkflow.dmn.parser import BpmnDmnParser
+from SpiffWorkflow.bpmn.parser.BpmnParser import BpmnParser
 from SpiffWorkflow.bpmn.parser.ValidationException import ValidationException
 from SpiffWorkflow.bpmn.serializer.workflow import BpmnWorkflowSerializer
 from SpiffWorkflow.bpmn.script_engine import TaskDataEnvironment, PythonScriptEngine
@@ -25,6 +26,12 @@ from SpiffWorkflow.bpmn.specs.defaults import (
 	InclusiveGateway,
 	EventBasedGateway,
 )
+from SpiffWorkflow.bpmn.parser.util import full_tag
+from SpiffWorkflow.bpmn.parser.task_parsers import SubWorkflowParser
+from SpiffWorkflow.bpmn.specs.defaults import SubWorkflowTask
+
+# Register adHocSubProcess to be parsed as a sub-process (SubWorkflowTask)
+BpmnParser.PARSER_CLASSES[full_tag("adHocSubProcess")] = (SubWorkflowParser, SubWorkflowTask)
 
 # ── DMN (Business Rule Task) support ─────────────────────────
 # bpmn-js-spiffworkflow writes <spiffworkflow:calledDecisionId> so we
@@ -272,9 +279,15 @@ def _make_script_engine(
 	except ImportError:
 		_frappe = None
 
+	def fromAi(param_name, description=None, type_str=None):
+		import frappe
+		args = frappe.flags.current_bpmn_tool_args or {}
+		return args.get(param_name)
+
 	extra = {
 		"datetime": datetime,
 		"frappe": _frappe,
+		"fromAi": fromAi,
 	}
 
 	if _frappe and context_doctype and context_docname:

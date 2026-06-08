@@ -18,7 +18,7 @@ export default class ServiceTaskPropertiesProvider {
 			groups.push({
 				id: "ServiceConfiguration",
 				label: this.translate("Service Configuration"),
-				entries: ServiceTaskProps({ element }),
+				entries: ServiceTaskProps({ element, translate: this.translate }),
 			});
 
 			return groups;
