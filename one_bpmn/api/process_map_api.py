@@ -41,6 +41,11 @@ def save_process_model(
 		doc = frappe.get_doc("BPMN Process Model", model_name)
 		doc.check_permission("write")
 		doc.bpmn_xml = xml_content
+
+		# Clean up orphaned decision table rows whose Business Rule Task
+		# element no longer exists in the updated BPMN XML.
+		_remove_orphaned_decision_rows(doc, xml_content)
+
 		if description is not None:
 			doc.description = description
 		doc.save()
@@ -59,6 +64,39 @@ def save_process_model(
 
 	return {"name": doc.name, "model_name": doc.title, "version": doc.version, "is_active": doc.is_active}
 
+
+def _remove_orphaned_decision_rows(doc, xml_content: str):
+	"""Remove child rows in decision_tables whose element no longer exists.
+
+	When a Business Rule Task is replaced with another element type in the
+	BPMN modeler, the element ID disappears from the XML but the DMN child
+	row persists in the database.  This helper scans the BPMN XML for all
+	element IDs and drops any child rows that are no longer referenced.
+
+	Operates on the in-memory doc before save — no direct DB mutations.
+	"""
+	if not doc.decision_tables:
+		return
+
+	# Collect all element IDs present in the BPMN XML.
+	# We do a broad search for id="..." attributes so that we catch any
+	# element type (not only businessRuleTask) — this is intentional to
+	# avoid false positives if the ID is reused on a different element.
+	import re
+
+	element_ids = set(re.findall(r'\bid="([^"]+)"', xml_content))
+
+	rows_to_keep = []
+	for row in doc.decision_tables:
+		if row.decision_id in element_ids:
+			rows_to_keep.append(row)
+		else:
+			# Remove from database directly since the row was inserted
+			# via db_insert and may not be tracked by the ORM properly.
+			if row.name:
+				frappe.db.delete("Workflow Decision Table", {"name": row.name})
+
+	doc.decision_tables = rows_to_keep
 
 @frappe.whitelist()
 def import_bpmn(
