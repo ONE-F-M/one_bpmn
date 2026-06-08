@@ -36,13 +36,13 @@
    "fieldtype": "Code",
    "label": "DMN XML",
    "options": "XML",
-   "reqd": 1
+   "reqd": 0
   }
  ],
  "index_web_pages_for_search": 0,
  "istable": 1,
  "links": [],
- "modified": "2026-06-04 18:00:00.000000",
+ "modified": "2026-06-08 14:10:00.000000",
  "modified_by": "Administrator",
  "module": "ONE BPMN",
  "name": "Workflow Decision Table",
