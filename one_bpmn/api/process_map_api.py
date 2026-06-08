@@ -84,19 +84,10 @@ def _remove_orphaned_decision_rows(doc, xml_content: str):
 	# avoid false positives if the ID is reused on a different element.
 	import re
 
-	element_ids = set(re.findall(r'\bid="([^"]+)"', xml_content))
+	id_matches = re.findall(r"""\bid=(?:\"([^\"]+)\"|'([^']+)')""", xml_content)
+	element_ids = {m[0] or m[1] for m in id_matches}
 
-	rows_to_keep = []
-	for row in doc.decision_tables:
-		if row.decision_id in element_ids:
-			rows_to_keep.append(row)
-		else:
-			# Remove from database directly since the row was inserted
-			# via db_insert and may not be tracked by the ORM properly.
-			if row.name:
-				frappe.db.delete("Workflow Decision Table", {"name": row.name})
-
-	doc.decision_tables = rows_to_keep
+	doc.decision_tables = [row for row in doc.decision_tables if row.decision_id in element_ids]
 
 @frappe.whitelist()
 def import_bpmn(
