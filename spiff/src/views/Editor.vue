@@ -860,12 +860,14 @@ const dmnEditorXml = ref("");
 const dmnEditorKey = ref(0); // Incremented on each open to force full recreation
 let activeDmnElement = null;
 let activeDmnEventBus = null;
+let activeDmnDecisionId = null; // The decision_id to load/save — may differ from element.id
 
 // Clean up DMN state when the dialog is closed (X button, click-outside, etc.)
 watch(showDmnEditorDialog, (isOpen) => {
 	if (!isOpen) {
 		activeDmnElement = null;
 		activeDmnEventBus = null;
+		activeDmnDecisionId = null;
 		// Reset XML so the next open doesn't flash stale content
 		dmnEditorXml.value = "";
 	}
@@ -2163,14 +2165,21 @@ async function onLaunchDmnEditor(event) {
 		return;
 	}
 
-	const elementId = element.id;
-	const elementName = element.businessObject?.name || elementId || "Decision Model";
+	// Resolve which decision to load:
+	// 1. calledDecisionId from the element's extension attribute (set by dropdown picker)
+	// 2. event.value passed from the properties panel
+	// 3. Fall back to the element's own ID
+	const bo = element.businessObject;
+	const calledDecisionId = (bo && bo.get("spiffworkflow:calledDecisionId")) || event.value || "";
+	const decisionId = calledDecisionId || element.id;
+	const elementName = bo?.name || decisionId || "Decision Model";
 
 	activeDmnElement = element;
 	activeDmnEventBus = event.eventBus;
+	activeDmnDecisionId = decisionId;
 	dmnEditorTitle.value = `Edit Decision Model — ${elementName}`;
 
-	console.log(`[DMN] Launching editor for element: ${elementId} (${elementName}), model: ${activeDiagramName.value}`);
+	console.log(`[DMN] Launching editor for element: ${element.id}, decision: ${decisionId}, model: ${activeDiagramName.value}`);
 
 	// Load stored XML from backend
 	let storedXml = "";
@@ -2180,7 +2189,7 @@ async function onLaunchDmnEditor(event) {
 				url: "/api/method/one_bpmn.api.dmn_api.get_dmn_xml",
 				params: {
 					process_model: activeDiagramName.value,
-					decision_id: elementId,
+					decision_id: decisionId,
 				},
 			});
 			// frappeRequest unwraps the "message" key automatically.
@@ -2216,10 +2225,10 @@ async function onDmnXmlChanged(xml) {
 		return;
 	}
 
-	const elementId = activeDmnElement.id;
-	const elementName = activeDmnElement.businessObject?.name || elementId;
+	const decisionId = activeDmnDecisionId || activeDmnElement.id;
+	const elementName = activeDmnElement.businessObject?.name || decisionId;
 
-	console.log(`[DMN] Saving DMN XML for element: ${elementId}, model: ${activeDiagramName.value}, xml length: ${xml.length}`);
+	console.log(`[DMN] Saving DMN XML for decision: ${decisionId}, model: ${activeDiagramName.value}, xml length: ${xml.length}`);
 
 	try {
 		await frappeRequest({
@@ -2227,7 +2236,7 @@ async function onDmnXmlChanged(xml) {
 			method: "POST",
 			params: {
 				process_model: activeDiagramName.value,
-				decision_id: elementId,
+				decision_id: decisionId,
 				decision_name: elementName,
 				dmn_xml: xml,
 			},

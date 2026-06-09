@@ -46,6 +46,10 @@ def save_process_model(
 		# element no longer exists in the updated BPMN XML.
 		_remove_orphaned_decision_rows(doc, xml_content)
 
+		# Sync decision_name from BPMN element names so that renaming
+		# a task after DMN XML was saved updates the child row.
+		_sync_decision_names(doc, xml_content)
+
 		if description is not None:
 			doc.description = description
 		doc.save()
@@ -88,6 +92,52 @@ def _remove_orphaned_decision_rows(doc, xml_content: str):
 	element_ids = {m[0] or m[1] for m in id_matches}
 
 	doc.decision_tables = [row for row in doc.decision_tables if row.decision_id in element_ids]
+
+
+def _sync_decision_names(doc, xml_content: str):
+	"""Sync decision_name fields from Business Rule Task element names.
+
+	When a user renames a Business Rule Task in the BPMN modeler after
+	its DMN XML has already been saved, the decision_name in the child
+	table becomes stale.  This helper extracts all businessRuleTask
+	element names from the BPMN XML and updates matching child rows.
+
+	Operates on the in-memory doc before save — no direct DB mutations.
+	"""
+	if not doc.decision_tables:
+		return
+
+	# Parse the BPMN XML to extract businessRuleTask elements.
+	# Use a namespace-aware approach to handle both prefixed and bare tags.
+	import re
+
+	# Match <bpmn:businessRuleTask ...> or <businessRuleTask ...>
+	# Capture the full attributes block so we can extract id and name.
+	pattern = re.compile(
+		r'<(?:[\w-]+:)?businessRuleTask\s+([^>]*?)(?:/>|>)',
+		re.IGNORECASE | re.DOTALL
+	)
+
+	# Build a map of element_id → element_name from the XML
+	element_names = {}
+	for match in pattern.finditer(xml_content):
+		attrs = match.group(1)
+		# Extract id attribute
+		id_match = re.search(r'\bid=["\']([^"\']+)["\']', attrs)
+		if not id_match:
+			continue
+		element_id = id_match.group(1)
+		# Extract name attribute (may not exist)
+		name_match = re.search(r'\bname=["\']([^"\']*)["\']', attrs)
+		element_name = name_match.group(1) if name_match else element_id
+		element_names[element_id] = element_name
+
+	# Update child rows where the name has changed
+	for row in doc.decision_tables:
+		new_name = element_names.get(row.decision_id)
+		if new_name and new_name != row.decision_name:
+			row.decision_name = new_name
+
 
 @frappe.whitelist()
 def import_bpmn(

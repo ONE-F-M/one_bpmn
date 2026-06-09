@@ -84,7 +84,7 @@ def save_dmn_xml(process_model: str, decision_id: str,
 
 
 @frappe.whitelist()
-def get_decision_list(process_model: str) -> list:
+def get_decision_list(process_model: str, search_term: str = None) -> list:
 	"""Get a list of all decisions stored for a process model.
 
 	Returns a lightweight list (without full XML) for populating
@@ -92,6 +92,8 @@ def get_decision_list(process_model: str) -> list:
 
 	Args:
 		process_model: Name of the BPMN Process Model document.
+		search_term: Optional search string to filter by decision_id
+		             or decision_name (case-insensitive LIKE match).
 
 	Returns:
 		List of dicts with decision_id and decision_name.
@@ -99,10 +101,48 @@ def get_decision_list(process_model: str) -> list:
 	doc = frappe.get_doc("BPMN Process Model", process_model)
 	doc.check_permission("read")
 
-	return [
-		{
+	results = []
+	for row in doc.decision_tables or []:
+		if search_term:
+			term = search_term.lower()
+			id_match = term in (row.decision_id or "").lower()
+			name_match = term in (row.decision_name or "").lower()
+			if not id_match and not name_match:
+				continue
+		results.append({
 			"decision_id": row.decision_id,
 			"decision_name": row.decision_name,
-		}
-		for row in doc.decision_tables or []
-	]
+		})
+
+	return results
+
+
+@frappe.whitelist(methods=["POST"])
+def update_decision_name(process_model: str, decision_id: str,
+                         decision_name: str) -> dict:
+	"""Update only the decision_name for an existing decision table row.
+
+	Used when a Business Rule Task is renamed after its DMN XML has
+	already been saved. Syncs the human-readable name without touching
+	the DMN XML content.
+
+	Args:
+		process_model: Name of the BPMN Process Model document.
+		decision_id: BPMN element ID of the Business Rule Task.
+		decision_name: New human-readable name for the decision.
+
+	Returns:
+		Dict with success status.
+	"""
+	doc = frappe.get_doc("BPMN Process Model", process_model)
+	doc.check_permission("write")
+
+	for row in doc.decision_tables or []:
+		if row.decision_id == decision_id:
+			if row.decision_name != decision_name:
+				frappe.db.set_value("Workflow Decision Table", row.name, {
+					"decision_name": decision_name,
+				})
+			return {"success": True, "decision_id": decision_id}
+
+	return {"success": False, "message": _("Decision row not found")}
