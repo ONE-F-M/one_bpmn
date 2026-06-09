@@ -68,7 +68,15 @@ const HIDDEN_GROUPS = {
 		"ioProperties",
 	]),
 
-	// 8) Lane: replace the plain Name text input with the role dropdown
+	// 8) Business Rule Task: hide SpiffWorkflow DMN defaults, Pre/Post Scripts, I/O
+	"bpmn:BusinessRuleTask": new Set([
+		"business_rule_properties",
+		"spiff_pre_post_scripts",
+		"instructions",
+		"ioProperties",
+	]),
+
+	// 9) Lane: replace the plain Name text input with the role dropdown
 	"bpmn:Lane": new Set(["general"]),
 };
 
@@ -83,6 +91,7 @@ export default function PropertiesPanelFilter(propertiesPanel) {
 				"bpmn:ManualTask",
 				"bpmn:CallActivity",
 				"bpmn:ScriptTask",
+				"bpmn:BusinessRuleTask",
 				"bpmn:SendTask",
 				"bpmn:Lane",
 				"bpmn:Task",

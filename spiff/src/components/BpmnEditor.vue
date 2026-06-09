@@ -1006,6 +1006,7 @@ import userTaskPropertiesProviderModule from "@/bpmn/userTaskPropertiesProvider"
 import sendTaskPropertiesProviderModule from "@/bpmn/sendTaskPropertiesProvider";
 import serviceTaskPropertiesProviderModule from "@/bpmn/serviceTaskPropertiesProvider";
 import scriptTaskPropertiesProviderModule from "@/bpmn/scriptTaskPropertiesProvider";
+import businessRuleTaskPropertiesProviderModule from "@/bpmn/businessRuleTaskPropertiesProvider";
 import timerPropertiesProviderModule from "@/bpmn/timerPropertiesProvider";
 import startEventPropertiesProviderModule from "@/bpmn/startEventPropertiesProvider";
 import conditionalStartEventPropertiesProviderModule from "@/bpmn/conditionalStartEventPropertiesProvider";
@@ -1544,6 +1545,18 @@ onMounted(async () => {
 				});
 			}
 
+			// Business Rule Task decision reference extension
+			const hasBusinessRuleTaskExt = spiffModdleExtension.types.find(t => t.name === "BusinessRuleTaskDecisionExtension");
+			if (!hasBusinessRuleTaskExt) {
+				spiffModdleExtension.types.push({
+					name: "BusinessRuleTaskDecisionExtension",
+					extends: ["bpmn:BusinessRuleTask"],
+					properties: [
+						{ name: "calledDecisionId", isAttr: true, type: "String" }
+					]
+				});
+			}
+
 			// Sticky Note extension
 			const hasStickyNoteExt = spiffModdleExtension.types.find(t => t.name === "StickyNoteExtension");
 			if (!hasStickyNoteExt) {
@@ -1571,6 +1584,7 @@ onMounted(async () => {
 				sendTaskPropertiesProviderModule,
 				serviceTaskPropertiesProviderModule,
 				scriptTaskPropertiesProviderModule,
+				businessRuleTaskPropertiesProviderModule,
 				timerPropertiesProviderModule,
 				startEventPropertiesProviderModule,
 				conditionalStartEventPropertiesProviderModule,
