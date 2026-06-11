@@ -64,6 +64,9 @@ def save_process_model(
 		doc.is_active = 0
 
 		doc.check_permission("create")
+		# The caller (Processa editor or handleDuplicateTab) already
+		# embeds a unique process_id in the XML — skip re-generation.
+		doc.flags.skip_process_id_regeneration = True
 		doc.insert()
 
 	return {"name": doc.name, "model_name": doc.title, "version": doc.version, "is_active": doc.is_active}
@@ -236,6 +239,8 @@ def import_bpmn(
 		doc.check_permission("create")
 		# Import is allowed even on Production — bypass editability gate
 		doc.flags.skip_editability_check = True
+		# Preserve the original process_id from the imported file
+		doc.flags.skip_process_id_regeneration = True
 		doc.insert()
 		action = "created"
 

@@ -1826,6 +1826,21 @@ async function handleDuplicateTab(tab) {
 		return;
 	}
 
+	// Generate a new unique process ID so the duplicate doesn't share the
+	// original's identity (critical for import/deploy disambiguation).
+	const slug = (props.process || "process").trim().toLowerCase().replace(/[^a-z0-9]+/g, "_").replace(/^_|_$/g, "") || "process";
+	const hex = Array.from(crypto.getRandomValues(new Uint8Array(4)), b => b.toString(16).padStart(2, "0")).join("");
+	const newProcessId = `${slug}_${hex}`;
+
+	// Replace the old process id in the XML:
+	//   <bpmn:process id="OLD_ID" ...>  →  <bpmn:process id="NEW_ID" ...>
+	//   bpmnElement="OLD_ID"            →  bpmnElement="NEW_ID"
+	const processIdMatch = xmlContent.match(/<bpmn:process\s[^>]*id=["']([^"']+)["']/);
+	if (processIdMatch) {
+		const oldId = processIdMatch[1];
+		xmlContent = xmlContent.replaceAll(oldId, newProcessId);
+	}
+
 	creating.value = true;
 	try {
 		const response = await frappeRequest({

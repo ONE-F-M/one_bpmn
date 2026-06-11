@@ -5,9 +5,13 @@ import frappe
 from frappe import _
 from frappe.model.document import Document
 import re
+import uuid
 
 
 class BPMNProcessModel(Document):
+	def before_insert(self):
+		self.regenerate_process_id_on_duplicate()
+
 	def validate(self):
 		self.validate_is_editable()
 		self.extract_process_id_from_xml()
@@ -97,4 +101,42 @@ class BPMNProcessModel(Document):
 					self.process_id = extracted
 		except Exception:
 			pass  # XML parsing failures are non-fatal here
+
+	def regenerate_process_id_on_duplicate(self):
+		"""Generate a new unique process_id when duplicating a process model.
+
+		When a BPMN Process Model is duplicated (via Frappe desk Menu > Duplicate
+		or ``frappe.copy_doc()``), the XML still contains the original process_id.
+		This would cause identity collisions during import and deploy.
+
+		Detection: this is a new document (``before_insert``) that already carries
+		XML content with a ``<bpmn:process id="…">`` element — i.e. it was created
+		from an existing model rather than from scratch.
+
+		Trusted callers (e.g. ``import_bpmn``) set
+		``doc.flags.skip_process_id_regeneration = True`` to preserve the original
+		process_id from the imported file.
+
+		The new process_id uses the format ``Process_<8-hex-chars>`` matching the
+		pattern used by the Processa Vue editor.
+		"""
+		if self.flags.get("skip_process_id_regeneration"):
+			return
+
+		if not self.bpmn_xml:
+			return
+
+		# Only act when the XML already contains a process id
+		old_match = re.search(r'<bpmn:process\s[^>]*id=["\']([^"\']+)["\']', self.bpmn_xml)
+		if not old_match:
+			return
+
+		old_id = old_match.group(1)
+		new_id = "Process_" + uuid.uuid4().hex[:8]
+
+		# Replace all occurrences of the old process id in the XML
+		# (covers <bpmn:process id="…"> and bpmnElement="…" references)
+		self.bpmn_xml = self.bpmn_xml.replace(old_id, new_id)
+		self.process_id = new_id
+
 
