@@ -1,11 +1,24 @@
 <template>
 	<div class="h-full flex flex-col bg-gray-50">
 		<!-- Header -->
-		<header class="bg-white border-b px-6 py-4 flex items-center justify-between">
-			<h1 class="text-xl font-semibold text-gray-900">Processes</h1>
+		<header class="bg-white border-b px-6 py-4 flex items-center justify-between gap-4">
+			<h1 class="text-xl font-semibold text-gray-900 shrink-0">Processes</h1>
+			<div class="flex items-center gap-2 rounded-md border border-blue-200 bg-blue-50 px-3 py-1.5 min-w-0">
+				<Icon icon="lucide:info" class="w-4 h-4 text-blue-500 shrink-0" />
+				<p class="text-xs text-blue-800 leading-snug">
+					Existing processes are shown here, and a new process cannot be added from this page.
+					To add a new process, please do so through the
+					<a
+						href="/app/process"
+						target="_blank"
+						rel="noopener noreferrer"
+						class="font-semibold underline hover:text-blue-900 transition-colors"
+					>desk page</a>.
+				</p>
+			</div>
 			<a
 				href="/app/processa"
-				class="flex items-center gap-2 px-3 py-1.5 text-sm font-medium text-gray-700 bg-white border border-gray-300 rounded-md hover:bg-gray-50 transition-colors"
+				class="flex items-center gap-2 px-3 py-1.5 text-sm font-medium text-gray-700 bg-white border border-gray-300 rounded-md hover:bg-gray-50 transition-colors shrink-0"
 			>
 				Go to Desk
 				<Icon icon="lucide:external-link" class="w-4 h-4" />
@@ -36,6 +49,7 @@
 				<Button variant="subtle" @click="showExportDialog = false">Cancel</Button>
 			</template>
 		</Dialog>
+
 
 		<!-- Content -->
 		<main class="flex-1 p-6 overflow-auto">
