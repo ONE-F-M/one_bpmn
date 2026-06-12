@@ -17,15 +17,14 @@ website_route_rules = [
 # required_apps = []
 
 # Each item in the list will be shown as an app in the apps page
-# add_to_apps_screen = [
-# 	{
-# 		"name": "one_bpmn",
-# 		"logo": "/assets/one_bpmn/logo.png",
-# 		"title": "ONE BPMN",
-# 		"route": "/one_bpmn",
-# 		"has_permission": "one_bpmn.api.permission.has_app_permission"
-# 	}
-# ]
+add_to_apps_screen = [
+	{
+		"name": "one_bpmn",
+		"logo": "/assets/one_bpmn/logo.png",
+		"title": "ONE BPMN",
+		"route": "/processa",
+	}
+]
 
 # Includes in <head>
 # ------------------

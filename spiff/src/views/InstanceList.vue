@@ -4,7 +4,7 @@
 		<header class="bg-white border-b px-6 py-4 flex items-center justify-between">
 			<h1 class="text-xl font-semibold text-gray-900">Process Instances</h1>
 			<a
-				href="/app/processa"
+				href="/desk/processa"
 				class="flex items-center gap-2 px-3 py-1.5 text-sm font-medium text-gray-700 bg-white border border-gray-300 rounded-md hover:bg-gray-50 transition-colors"
 			>
 				Go to Desk
@@ -406,7 +406,7 @@ function openInstance(name) {
 
 function getContextDocumentLink(row) {
 	if (row.context_doctype && row.context_docname) {
-		return `/app/${row.context_doctype.toLowerCase().replace(/ /g, '-')}/${row.context_docname}`
+		return `/desk/${row.context_doctype.toLowerCase().replace(/ /g, '-')}/${row.context_docname}`
 	}
 	return "#"
 }

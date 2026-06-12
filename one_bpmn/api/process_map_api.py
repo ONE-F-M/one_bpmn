@@ -684,10 +684,16 @@ def list_processes() -> list:
 		order_by="modified desc",
 	)
 
-	# Get diagram counts per process
-	diagram_counts = frappe.get_all(
-		"BPMN Process Model", fields=["process_name", "count(*) as count"], group_by="process_name"
-	)
+	# Get diagram counts per process (v16 rejects raw SQL in fields — use Query Builder)
+	from frappe.query_builder import DocType
+	from frappe.query_builder.functions import Count
+
+	BPM = DocType("BPMN Process Model")
+	diagram_counts = (
+		frappe.qb.from_(BPM)
+		.select(BPM.process_name, Count("*").as_("count"))
+		.groupby(BPM.process_name)
+	).run(as_dict=True)
 	count_map = {d["process_name"]: d["count"] for d in diagram_counts}
 
 	for proc in processes:

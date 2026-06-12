@@ -59,7 +59,7 @@ const statusTheme = computed(() => STATUS_THEMES[props.details?.status] || "gray
 const contextLink = computed(() => {
 	const d = props.details
 	if (d?.context_doctype && d?.context_docname) {
-		return `/app/${d.context_doctype.toLowerCase().replace(/ /g, "-")}/${d.context_docname}`
+		return `/desk/${d.context_doctype.toLowerCase().replace(/ /g, "-")}/${d.context_docname}`
 	}
 	return "#"
 })
