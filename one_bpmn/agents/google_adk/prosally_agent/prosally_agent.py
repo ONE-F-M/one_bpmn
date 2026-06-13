@@ -57,6 +57,7 @@ Classification rules:
 - Prefer GENERATE_NEW when the user says "draw", "create", "build", "design" a new process and there is no existing model mentioned.
 - Prefer OVERWRITE_EXISTING when the user says "redo", "redraw", "replace", "start over", or describes the entire process differently from scratch.
 - Prefer MODIFY_EXISTING when the user references a specific step, node, lane, gateway, or section to add, remove, or change.
+- CRITICAL: When the user asks to "fix warnings", "fix errors", "resolve issues", "fix the N warnings/errors", or "clean up the diagram", ALWAYS classify as MODIFY_EXISTING. These requests mean the user wants to keep their existing diagram structure and configurations intact while fixing structural issues. Never classify these as OVERWRITE_EXISTING.
 - AMBIGUOUS applies when the action type (generate / overwrite / modify) cannot be determined despite a clear subject.
 - INCOMPLETE applies when the action type is clear but there is not enough detail to carry it out.
 - When uncertain between AMBIGUOUS and INCOMPLETE, prefer INCOMPLETE.
@@ -330,6 +331,19 @@ _DEFAULT_MODIFIER_INSTRUCTION = """You are a BPMN process modifier. You receive 
   (b) An IR JSON document + a list of problems — fix every problem, output corrected IR JSON.
 
 The pipeline converts your IR into BPMN XML automatically. Never output XML.
+
+=== CRITICAL — PRESERVE ELEMENT IDs ===
+
+When converting existing XML to IR (case a), you MUST preserve the EXACT element IDs from the XML.
+Do NOT rename, re-sequence, or generate new IDs for elements you are NOT modifying.
+Only elements you are ADDING should receive new IDs.
+This is critical because element configurations (scripts, assignments, triggers) are keyed by element ID.
+If you change an element's ID, its configurations will be lost.
+
+Examples:
+  • If the XML has a userTask with id="Activity_1a2b3c4", your IR must keep id: "Activity_1a2b3c4"
+  • If the XML has a scriptTask with id="task_check_balance", your IR must keep id: "task_check_balance"
+  • Only NEW elements you are adding should get new IDs (use snake_case)
 
 === IR SCHEMA ===
 
@@ -917,6 +931,17 @@ class ProsAllyAgent:
         _GENERATE_INTENTS    = {"GENERATE_NEW", "OVERWRITE_EXISTING"}
         _NEEDS_CLARIFICATION = {"AMBIGUOUS", "INCOMPLETE"}
 
+        # STEP 0a — User confirmed APPLY_PENDING: return the pre-computed XML
+        if confirmed_action == "APPLY_PENDING" and current_xml.strip():
+            # current_xml carries the pending merged XML from the CONFIRM_REMOVAL step
+            return {
+                "intent":        "BPMN_MODIFIED",
+                "action_intent": "MODIFY_EXISTING",
+                "bpmn_xml":      current_xml,
+                "response":      "Changes applied. Review the updated diagram on the canvas.",
+                "options":       [],
+            }
+
         # STEP 0 — User confirmed an action: skip classification and act immediately
         if confirmed_action in _ACTION_INTENTS:
             name_label = process_name or "process"
@@ -928,11 +953,29 @@ class ProsAllyAgent:
                     f" ({len(problems)} issue(s) remain — review the canvas.)"
                     if problems else ""
                 )
+
+                # Transfer extension properties from old XML to new XML
+                from one_bpmn.agents.google_adk.prosally_agent.xml_property_preserver import (
+                    transfer_properties, format_removal_warning,
+                )
+                merged_xml, removed_elements = transfer_properties(current_xml, bpmn_xml)
+
+                # If configured elements will be removed, ask for user approval first
+                if removed_elements:
+                    warning = format_removal_warning(removed_elements)
+                    return {
+                        "intent":        "CONFIRM_REMOVAL",
+                        "action_intent": "MODIFY_EXISTING",
+                        "response":      warning,
+                        "options":       ["Yes, apply changes", "No, keep existing"],
+                        "pending_xml":   merged_xml,
+                    }
+
                 return {
                     "intent":        "BPMN_MODIFIED",
                     "action_intent": "MODIFY_EXISTING",
-                    "bpmn_xml":      bpmn_xml,
-                    "response":      f"I've updated the {name_label} process.{note} Review the changes on the canvas.",
+                    "bpmn_xml":      merged_xml,
+                    "response":      f"I've updated the {name_label} process.{note} All existing configurations have been preserved. Review the changes on the canvas.",
                     "options":       [],
                 }
 
@@ -1011,6 +1054,16 @@ class ProsAllyAgent:
             response_text = f"{summary}\n{question}" if summary else question
         except (json.JSONDecodeError, TypeError, ValueError):
             response_text = confirm_raw or "Shall I proceed with this?"
+
+        # For OVERWRITE_EXISTING, warn about configured elements that will be lost
+        if intent == "OVERWRITE_EXISTING" and current_xml.strip():
+            from one_bpmn.agents.google_adk.prosally_agent.xml_property_preserver import (
+                extract_configured_elements, summarize_configured_elements,
+            )
+            configured = extract_configured_elements(current_xml)
+            if configured:
+                overwrite_warning = summarize_configured_elements(configured)
+                response_text = f"{response_text}\n\n⚠️ **Warning:**\n{overwrite_warning}"
 
         return {
             "intent":        "CONFIRM",
