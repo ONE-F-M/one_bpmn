@@ -13,7 +13,7 @@ from frappe.utils import get_datetime
 _EXCLUDE_FIELDS = {"_user_tags", "_comments", "_assign", "_liked_by"}
 
 
-def _get_records(doctype: str, since: str | None, fields: list[str] | None = None) -> list[dict]:
+def _get_records(doctype: str, since: str | None) -> list[dict]:
 	"""Fetch records from a given DocType, optionally filtered by modification time.
 
 	Args:
