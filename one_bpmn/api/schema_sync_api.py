@@ -88,7 +88,7 @@ def get_schema_delta(since: str | None = None) -> dict:
 		"custom_doctypes": _get_records("Custom DocType", since),
 		"custom_fields": _get_records("Custom Field", since),
 		"property_setters": _get_records("Property Setter", since),
-		"sync_timestamp": frappe.utils.now_datetime().isoformat(),
+		"sync_timestamp": frappe.utils.now(),
 	}
 
 	return result
