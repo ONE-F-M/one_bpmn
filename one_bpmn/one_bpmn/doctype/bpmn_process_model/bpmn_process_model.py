@@ -125,7 +125,7 @@ class BPMNProcessModel(Document):
 			return
 
 		# Only act when the XML already contains a process id
-		old_match = re.search(r'<bpmn:process\s[^>]*id=["\']([^"\']+)["\']', self.bpmn_xml)
+		old_match = re.search(r'<(?:[\w-]+:)?process\s[^>]*\bid=["\']([^"\']+)["\']', self.bpmn_xml)
 		if not old_match:
 			return
 
