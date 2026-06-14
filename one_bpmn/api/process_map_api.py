@@ -481,7 +481,16 @@ def validate_bpmn_readiness(xml_content: str) -> dict:
 
 		try:
 			meta = frappe.get_meta(dt)
-			exists = bool(meta.has_field(fieldname))
+			# has_field() only checks DocType-defined fields; system
+			# metadata columns (owner, modified_by, creation, …) are
+			# real DB columns on every table but absent from meta.fields.
+			from frappe.model import default_fields, optional_fields
+
+			exists = bool(
+				meta.has_field(fieldname)
+				or fieldname in default_fields
+				or fieldname in optional_fields
+			)
 		except Exception:
 			exists = False
 		field_items.append({"name": key, "exists": exists, "type": "check"})
