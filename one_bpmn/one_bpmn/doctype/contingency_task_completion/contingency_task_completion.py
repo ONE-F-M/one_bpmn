@@ -49,7 +49,7 @@ def get_process_doctypes(
 	if not names:
 		return []
 
-	rows = frappe.get_all(
+	return frappe.get_all(
 		"DocType",
 		filters=[
 			["name", "in", names],
@@ -58,8 +58,8 @@ def get_process_doctypes(
 		fields=["name"],
 		start=int(start),
 		page_length=int(page_len),
+		pluck="name",
 	)
-	return [(r.name,) for r in rows]
 
 
 @frappe.whitelist()
@@ -121,5 +121,4 @@ def get_active_task_documents(
 		if frappe.has_permission(context_doctype, ptype="read", doc=row.target_docname)
 	]
 
-	page = readable_docnames[int(start) : int(start) + int(page_len)]
-	return [(name,) for name in page]
+	return readable_docnames[int(start) : int(start) + int(page_len)]
