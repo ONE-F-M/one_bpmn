@@ -113,6 +113,15 @@
 					@change="handleImportFile"
 				/>
 
+				<!-- Hidden file input for config JSON import -->
+				<input
+					ref="importConfigFileInput"
+					type="file"
+					accept=".json"
+					class="hidden"
+					@change="handleImportConfigFile"
+				/>
+
 
 
 				<!-- Desktop: Individual action buttons -->
@@ -157,15 +166,23 @@
 						<div
 							v-if="showFileMenu"
 							v-click-outside="() => showFileMenu = false"
-							class="absolute right-0 mt-1 w-36 bg-white border border-gray-200 rounded-lg shadow-lg z-[70] py-1"
+							class="absolute right-0 mt-1 w-44 bg-white border border-gray-200 rounded-lg shadow-lg z-[70] py-1"
 						>
 							<button
 								@click="triggerImport(); showFileMenu = false"
 								class="w-full flex items-center gap-2 px-3 py-2 text-sm text-gray-700 hover:bg-gray-50 transition-colors"
 							>
 								<Icon icon="lucide:download" class="w-4 h-4" />
-								Import
+								Import BPMN
 							</button>
+							<button
+								@click="triggerImportConfig(); showFileMenu = false"
+								class="w-full flex items-center gap-2 px-3 py-2 text-sm text-gray-700 hover:bg-gray-50 transition-colors"
+							>
+								<Icon icon="lucide:file-json" class="w-4 h-4" />
+								Import Config
+							</button>
+							<div class="border-t border-gray-100 my-1"></div>
 							<button
 								@click="exportCurrentDiagram(); showFileMenu = false"
 								class="w-full flex items-center gap-2 px-3 py-2 text-sm text-gray-700 hover:bg-gray-50 transition-colors"
@@ -256,7 +273,14 @@
 							class="w-full flex items-center gap-2 px-3 py-2.5 text-sm text-gray-700 hover:bg-gray-50 transition-colors"
 						>
 							<Icon icon="lucide:download" class="w-4 h-4" />
-							Import
+							Import BPMN
+						</button>
+						<button
+							@click="triggerImportConfig(); showMobileMoreMenu = false"
+							class="w-full flex items-center gap-2 px-3 py-2.5 text-sm text-gray-700 hover:bg-gray-50 transition-colors"
+						>
+							<Icon icon="lucide:file-json" class="w-4 h-4" />
+							Import Config
 						</button>
 						<button
 							@click="exportCurrentDiagram(); showMobileMoreMenu = false"
@@ -740,6 +764,24 @@
 			@close="onReadinessClose"
 			@cancel="onReadinessCancel"
 			@deploy="onReadinessDeploy"
+			@upload-config="onReadinessUploadConfig"
+			@recheck="onReadinessRecheck"
+		/>
+
+		<!-- Export Config Dialog -->
+		<ExportConfigDialog
+			v-model="showExportConfigDialog"
+			:counts="exportConfigCounts"
+			@export-bpmn-only="doExportBpmnOnly"
+			@export-with-config="doExportWithConfig"
+		/>
+
+		<!-- Config Import Results Dialog -->
+		<ConfigImportResultsDialog
+			v-model="showConfigImportResults"
+			:results="configImportResults"
+			:importing="configImporting"
+			@done="onConfigImportDone"
 		/>
 
 		<!-- Disable Process Confirmation Dialog -->
@@ -791,6 +833,9 @@ import LogixCanvas from "@/components/LogixCanvas.vue";
 import DmnEditor from "@/components/DmnEditor.vue";
 import NotificationLinkDialog from "@/components/NotificationLinkDialog.vue";
 import ReadinessChecklistDialog from "@/components/ReadinessChecklistDialog.vue";
+import ExportConfigDialog from "@/components/ExportConfigDialog.vue";
+import ConfigImportResultsDialog from "@/components/ConfigImportResultsDialog.vue";
+import { sanitiseFilename } from "@/utils/downloadBpmn";
 import { useNotificationDialog } from "@/composables/useNotificationDialog";
 import { useWindowSize } from "@/composables/useWindowSize";
 
@@ -831,6 +876,8 @@ const isAnyDialogOpen = computed(() => {
 		showReadinessDialog.value ||
 		showDisableDialog.value ||
 		showDmnEditorDialog.value ||
+		showExportConfigDialog.value ||
+		showConfigImportResults.value ||
 		notifDialog.showNotificationDialog.value ||
 		versionDiffRef.value?.isAnyDialogOpen
 	);
@@ -904,6 +951,21 @@ const showReadinessDialog = ref(false);
 const readinessChecklist = ref(null);
 const readinessMode = ref("import"); // "import" or "deploy"
 const readinessLoading = ref(false);
+let lastReadinessXml = ""; // XML used for the most recent readiness check (for recheck)
+
+// Export config dialog state
+const showExportConfigDialog = ref(false);
+const exportConfigCounts = ref({ server_scripts: 0, workflow_states: 0, workflow_action_masters: 0 });
+let pendingExportXml = ""; // XML to export after config dialog decision
+let pendingExportTitle = ""; // Title for the BPMN download
+
+// Config import results dialog state
+const showConfigImportResults = ref(false);
+const configImportResults = ref({ created: [], skipped: [], needs_confirmation: [] });
+const configImporting = ref(false);
+
+// Config import file input ref
+const importConfigFileInput = ref(null);
 
 // Version diff dialog ref
 const versionDiffRef = ref(null);
@@ -1194,6 +1256,7 @@ async function runReadinessCheck(xmlContent, mode) {
 	readinessChecklist.value = null;
 	readinessLoading.value = true;
 	showReadinessDialog.value = true;
+	lastReadinessXml = xmlContent; // Store for recheck after config import
 
 	try {
 		const response = await frappeRequest({
@@ -1237,6 +1300,29 @@ function onReadinessCancel() {
 async function onReadinessDeploy() {
 	showReadinessDialog.value = false;
 	await executeDeployment();
+}
+
+// Upload config from readiness dialog (opens file picker)
+function onReadinessUploadConfig() {
+	if (importConfigFileInput.value) {
+		importConfigFileInput.value.value = "";
+		importConfigFileInput.value.click();
+	}
+}
+
+// Recheck readiness after config import
+async function onReadinessRecheck() {
+	if (lastReadinessXml) {
+		await runReadinessCheck(lastReadinessXml, readinessMode.value);
+	}
+}
+
+// Called when ConfigImportResultsDialog is done (all decisions applied)
+async function onConfigImportDone() {
+	// If readiness dialog is still open, recheck automatically
+	if (showReadinessDialog.value && lastReadinessXml) {
+		await runReadinessCheck(lastReadinessXml, readinessMode.value);
+	}
 }
 
 // Deploy (compile) the process model
@@ -2021,6 +2107,31 @@ async function exportCurrentDiagram() {
 		const xml = await editorRef.value.getXML();
 		const diagram = diagrams.value.find((d) => d.name === activeDiagramName.value);
 		const title = diagram?.model_name || activeDiagramName.value;
+
+		// Check if diagram references any config records
+		try {
+			const resp = await frappeRequest({
+				url: "/api/method/one_bpmn.api.config_export_import.export_bpmn_config",
+				params: { xml_content: xml },
+			});
+			const data = resp.message || resp;
+			const counts = data.counts || {};
+			const total = (counts.server_scripts || 0) + (counts.workflow_states || 0) + (counts.workflow_action_masters || 0);
+
+			if (total > 0) {
+				// Has config records → show popup
+				pendingExportXml = xml;
+				pendingExportTitle = title;
+				exportConfigCounts.value = counts;
+				showExportConfigDialog.value = true;
+				return;
+			}
+		} catch (e) {
+			// If config check fails, just export BPMN only
+			console.warn("Config export check failed, exporting BPMN only:", e);
+		}
+
+		// No config records or check failed — export BPMN directly
 		const filename = downloadBpmn(xml, title);
 		showNotification("Exported", `Downloaded as ${filename}`, "green");
 	} catch (error) {
@@ -2029,11 +2140,113 @@ async function exportCurrentDiagram() {
 	}
 }
 
+// Export BPMN only (from ExportConfigDialog)
+function doExportBpmnOnly() {
+	if (pendingExportXml) {
+		const filename = downloadBpmn(pendingExportXml, pendingExportTitle);
+		showNotification("Exported", `Downloaded as ${filename}`, "green");
+		pendingExportXml = "";
+		pendingExportTitle = "";
+	}
+}
+
+// Export BPMN + Config JSON (from ExportConfigDialog)
+async function doExportWithConfig(selected) {
+	if (!pendingExportXml) return;
+
+	// 1. Download BPMN
+	const bpmnFilename = downloadBpmn(pendingExportXml, pendingExportTitle);
+
+	// 2. Fetch full config data and download as JSON
+	try {
+		const resp = await frappeRequest({
+			url: "/api/method/one_bpmn.api.config_export_import.export_bpmn_config",
+			params: { xml_content: pendingExportXml },
+		});
+		const data = resp.message || resp;
+
+		// Filter by user selection
+		const filteredData = {
+			export_metadata: data.export_metadata,
+			server_scripts: selected.server_scripts ? data.server_scripts : [],
+			workflow_states: selected.workflow_states ? data.workflow_states : [],
+			workflow_action_masters: selected.workflow_action_masters ? data.workflow_action_masters : [],
+		};
+
+		const jsonStr = JSON.stringify(filteredData, null, 2);
+		const jsonFilename = sanitiseFilename(pendingExportTitle) + "-config.json";
+		const blob = new Blob([jsonStr], { type: "application/json" });
+		const url = URL.createObjectURL(blob);
+		const link = document.createElement("a");
+		link.href = url;
+		link.download = jsonFilename;
+		document.body.appendChild(link);
+		link.click();
+		document.body.removeChild(link);
+		URL.revokeObjectURL(url);
+
+		showNotification(
+			"Exported",
+			`Downloaded ${bpmnFilename} and ${jsonFilename}`,
+			"green"
+		);
+	} catch (error) {
+		console.error("Failed to export config:", error);
+		showNotification("Export", `Downloaded ${bpmnFilename} but config export failed`, "yellow");
+	}
+
+	pendingExportXml = "";
+	pendingExportTitle = "";
+}
+
 function triggerImport() {
 	if (importFileInput.value) {
 		// Reset so the same file can be re-imported
 		importFileInput.value.value = "";
 		importFileInput.value.click();
+	}
+}
+
+function triggerImportConfig() {
+	if (importConfigFileInput.value) {
+		importConfigFileInput.value.value = "";
+		importConfigFileInput.value.click();
+	}
+}
+
+async function handleImportConfigFile(event) {
+	const file = event.target.files && event.target.files[0];
+	if (!file) return;
+
+	configImporting.value = true;
+	showConfigImportResults.value = true;
+	configImportResults.value = { created: [], skipped: [], needs_confirmation: [] };
+
+	try {
+		const jsonText = await new Promise((resolve, reject) => {
+			const reader = new FileReader();
+			reader.onload = (e) => resolve(e.target.result);
+			reader.onerror = () => reject(new Error("Failed to read file"));
+			reader.readAsText(file);
+		});
+
+		const resp = await frappeRequest({
+			url: "/api/method/one_bpmn.api.config_export_import.import_bpmn_config",
+			method: "POST",
+			params: { config_json: jsonText },
+		});
+
+		configImportResults.value = resp.message || resp;
+	} catch (error) {
+		console.error("Config import failed:", error);
+		showConfigImportResults.value = false;
+		showNotification(
+			"Import Failed",
+			error.message || "An unexpected error occurred while importing config.",
+			"red"
+		);
+	} finally {
+		configImporting.value = false;
 	}
 }
 

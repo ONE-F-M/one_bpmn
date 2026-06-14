@@ -247,31 +247,20 @@ def import_bpmn(
 	}
 
 
-@frappe.whitelist()
-def validate_bpmn_readiness(xml_content: str) -> dict:
+def _extract_bpmn_references(xml_content: str) -> dict:
 	"""
-	Parse BPMN XML and check all prerequisites against the database.
+	Parse BPMN XML and extract all external references.
 
-	Shared validation used by both import (informational) and deploy (blocking).
-	Checks 8 categories:
-	  1. DocTypes         — referenced doctypes must exist
-	  2. Fields           — referenced fields must exist on their doctypes
-	  3. Workflow States  — referenced states must exist as Workflow State records
-	  4. Workflow Actions — user task action labels must exist as Workflow Action Master records
-	  5. Server Scripts   — script task references must exist
-	  6. Lane Roles       — roles assigned to lanes must exist and be active
-	  7. Frappe Workflows — active workflows are flagged as conflict warnings
-	  8. Assignment Rules — active rules are flagged as conflict warnings
+	Shared helper used by both ``validate_bpmn_readiness()`` and
+	``config_export_import.export_bpmn_config()``.
 
 	Args:
-		xml_content: Raw BPMN XML text
+		xml_content: Raw BPMN XML text (must be non-empty, already validated)
 
 	Returns:
-		dict with categories, total_checked, total_missing, total_warnings, all_ready
+		dict with keys: doctypes, fields, workflow_states, workflow_actions,
+		server_scripts, lane_roles, apply_workflow_doctypes, root, process_el
 	"""
-	if not xml_content or not xml_content.strip():
-		frappe.throw(_("BPMN XML content is required"))
-
 	import xml.etree.ElementTree as _ET
 
 	BPMN_NS = "http://www.omg.org/spec/BPMN/20100524/MODEL"
@@ -281,8 +270,6 @@ def validate_bpmn_readiness(xml_content: str) -> dict:
 		root = _ET.fromstring(xml_content.strip().encode("utf-8"))
 	except Exception as exc:
 		frappe.throw(_("Invalid BPMN XML: {0}").format(str(exc)))
-
-	# ── Extract all references from the XML ──────────────────────────────
 
 	# DocTypes: collected from all sources
 	referenced_doctypes = set()
@@ -327,7 +314,6 @@ def validate_bpmn_readiness(xml_content: str) -> dict:
 
 	# ── Parse Service Tasks ───────────────────────────────────────────────
 	for service_task in root.iter(f"{{{BPMN_NS}}}serviceTask"):
-		# Extract spiffworkflow:* attributes
 		attrs = {}
 		for attr_name, attr_value in service_task.attrib.items():
 			if attr_name.startswith(f"{{{SPIFF_NS}}}"):
@@ -351,7 +337,6 @@ def validate_bpmn_readiness(xml_content: str) -> dict:
 			if target_dt:
 				referenced_doctypes.add(target_dt)
 
-			# Multi-field rows (new format)
 			rows_json = attrs.get("updateFieldRows", "")
 			if rows_json:
 				try:
@@ -363,13 +348,11 @@ def validate_bpmn_readiness(xml_content: str) -> dict:
 				except (json.JSONDecodeError, ValueError):
 					pass
 
-			# Legacy single-field format
 			legacy_field = attrs.get("updateFieldName", "")
 			if legacy_field and target_dt:
 				referenced_fields.append((target_dt, legacy_field))
 
 		else:
-			# Other service types may reference a doctype
 			target_dt = attrs.get("serviceTargetDoctype", "")
 			if target_dt:
 				referenced_doctypes.add(target_dt)
@@ -386,12 +369,10 @@ def validate_bpmn_readiness(xml_content: str) -> dict:
 		if target_dt:
 			referenced_doctypes.add(target_dt)
 
-		# Assignee field → must exist on target doctype
 		assignee_field = attrs.get("assigneeDocfield", "")
 		if assignee_field and target_dt:
 			referenced_fields.append((target_dt, assignee_field))
 
-		# Task actions → Workflow Action Master
 		actions_json = attrs.get("taskActions", "")
 		if actions_json:
 			try:
@@ -426,7 +407,6 @@ def validate_bpmn_readiness(xml_content: str) -> dict:
 		if attrs.get("serviceType") == "send_email":
 			email_dt = attrs.get("emailDoctype", "")
 			if email_dt:
-				# emailToDocFields may contain comma-separated field names
 				to_fields = attrs.get("emailToDocFields", "")
 				for field in to_fields.split(","):
 					field = field.strip()
@@ -445,6 +425,54 @@ def validate_bpmn_readiness(xml_content: str) -> dict:
 
 	# ── Extract process-level attributes ─────────────────────────────────
 	_process_el = root.find(f"{{{BPMN_NS}}}process") or root.find("process")
+
+	return {
+		"doctypes": referenced_doctypes,
+		"fields": referenced_fields,
+		"workflow_states": referenced_states,
+		"workflow_actions": referenced_actions,
+		"server_scripts": referenced_scripts,
+		"lane_roles": referenced_lane_roles,
+		"apply_workflow_doctypes": apply_workflow_doctypes,
+		"root": root,
+		"process_el": _process_el,
+	}
+
+
+@frappe.whitelist()
+def validate_bpmn_readiness(xml_content: str) -> dict:
+	"""
+	Parse BPMN XML and check all prerequisites against the database.
+
+	Shared validation used by both import (informational) and deploy (blocking).
+	Checks 8 categories:
+	  1. DocTypes         — referenced doctypes must exist
+	  2. Fields           — referenced fields must exist on their doctypes
+	  3. Workflow States  — referenced states must exist as Workflow State records
+	  4. Workflow Actions — user task action labels must exist as Workflow Action Master records
+	  5. Server Scripts   — script task references must exist
+	  6. Lane Roles       — roles assigned to lanes must exist and be active
+	  7. Frappe Workflows — active workflows are flagged as conflict warnings
+	  8. Assignment Rules — active rules are flagged as conflict warnings
+
+	Args:
+		xml_content: Raw BPMN XML text
+
+	Returns:
+		dict with categories, total_checked, total_missing, total_warnings, all_ready
+	"""
+	if not xml_content or not xml_content.strip():
+		frappe.throw(_("BPMN XML content is required"))
+
+	refs = _extract_bpmn_references(xml_content)
+	referenced_doctypes = refs["doctypes"]
+	referenced_fields = refs["fields"]
+	referenced_states = refs["workflow_states"]
+	referenced_actions = refs["workflow_actions"]
+	referenced_scripts = refs["server_scripts"]
+	referenced_lane_roles = refs["lane_roles"]
+	apply_workflow_doctypes = refs["apply_workflow_doctypes"]
+	_process_el = refs["process_el"]
 	is_executable = False
 	if _process_el is not None:
 		is_executable = _process_el.get("isExecutable", "false").strip().lower() == "true"

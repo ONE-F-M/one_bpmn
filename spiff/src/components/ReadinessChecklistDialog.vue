@@ -95,8 +95,28 @@
 						</span>
 					</template>
 				</div>
-				<!-- Right: action buttons -->
-				<div class="flex gap-2">
+				<!-- Right: action buttons (MD3 hierarchy) -->
+				<div class="flex items-center gap-2">
+					<!-- Upload Config — MD3 Tonal -->
+					<button
+						v-if="hasMissing && !loading"
+						class="md3-btn md3-btn--tonal"
+						@click="$emit('upload-config')"
+					>
+						<Icon icon="lucide:upload" class="md3-btn-icon" />
+						Upload Config
+					</button>
+
+					<!-- Recheck — MD3 Text -->
+					<button
+						v-if="hasMissing && !loading"
+						class="md3-btn md3-btn--text"
+						@click="$emit('recheck')"
+					>
+						<Icon icon="lucide:refresh-cw" class="md3-btn-icon" />
+						Recheck
+					</button>
+
 					<Button
 						v-if="mode === 'deploy'"
 						variant="subtle"
@@ -142,7 +162,11 @@ const props = defineProps({
 
 const showDialog = defineModel({ type: Boolean, default: false });
 
-defineEmits(["close", "cancel", "deploy"]);
+defineEmits(["close", "cancel", "deploy", "upload-config", "recheck"]);
+
+const hasMissing = computed(() =>
+	props.checklist && props.checklist.total_missing > 0
+);
 
 const dialogTitle = computed(() =>
 	props.mode === "deploy" ? "Deploy Readiness" : "Import Readiness"
@@ -225,3 +249,85 @@ function categoryStatus(category) {
 	return `${passed}/${passed} passed`;
 }
 </script>
+
+<style scoped>
+/* ═══════════════════════════════════════════════════════════════════════
+   MD3 Buttons — Upload Config (Tonal) & Recheck (Text)
+   ═══════════════════════════════════════════════════════════════════════ */
+
+.md3-btn {
+	display: inline-flex;
+	align-items: center;
+	justify-content: center;
+	gap: 6px;
+	height: 36px;
+	padding: 0 20px;
+	border-radius: 100px;
+	font-size: 13px;
+	font-weight: 500;
+	letter-spacing: 0.02em;
+	border: none;
+	cursor: pointer;
+	transition: all 0.15s cubic-bezier(0.4, 0, 0.2, 1);
+	white-space: nowrap;
+	outline: none;
+	position: relative;
+	overflow: hidden;
+	font-family: inherit;
+}
+
+/* State layer overlay */
+.md3-btn::after {
+	content: "";
+	position: absolute;
+	inset: 0;
+	border-radius: inherit;
+	opacity: 0;
+	transition: opacity 0.15s ease;
+	pointer-events: none;
+}
+
+.md3-btn:hover::after {
+	opacity: 1;
+}
+
+.md3-btn:active {
+	transform: scale(0.97);
+}
+
+.md3-btn-icon {
+	width: 16px;
+	height: 16px;
+	flex-shrink: 0;
+}
+
+/* ── Tonal (Upload Config) ───────────────────────────────────────────── */
+.md3-btn--tonal {
+	background: #d3e3fd;
+	color: #041e49;
+}
+
+.md3-btn--tonal::after {
+	background: #041e49;
+}
+
+.md3-btn--tonal:hover::after {
+	opacity: 0.08;
+}
+
+/* ── Text (Recheck) ──────────────────────────────────────────────────── */
+.md3-btn--text {
+	background: transparent;
+	color: #1a73e8;
+	padding: 0 12px;
+}
+
+.md3-btn--text::after {
+	background: #1a73e8;
+}
+
+.md3-btn--text:hover::after {
+	opacity: 0.08;
+}
+</style>
+
