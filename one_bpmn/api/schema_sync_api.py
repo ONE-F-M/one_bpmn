@@ -49,7 +49,7 @@ def _get_records(doctype: str, since: str | None) -> list[dict]:
 
 
 @frappe.whitelist(methods=["GET"])
-def get_schema_delta(since: str = None) -> dict:
+def get_schema_delta(since: str | None = None) -> dict:
 	"""Return Custom DocTypes, Custom Fields, and Property Setters delta.
 
 	Called by the Production site to pull records that were created or
