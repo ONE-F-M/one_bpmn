@@ -4,7 +4,6 @@
 # Production-side sync engine: pulls delta records from the BA site,
 # applies them to Production ("BA wins" overwrite), then runs bench migrate.
 
-import json
 import subprocess
 
 import frappe
