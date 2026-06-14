@@ -121,10 +121,21 @@ const config = {
 
 const resolver = {
 	resolveRule(pkg, name) {
-		// bpmnlint resolves rules as resolveRule('bpmnlint', 'rule-name')
-		// Custom rules use the 'custom' package prefix.
+		// bpmnlint resolves standard rules as resolveRule('bpmnlint', 'rule-name').
+		// For custom rules, bpmnlint's parseRuleName converts "custom/rule-name"
+		// to pkg = "bpmnlint-plugin-custom", so we must also try the un-prefixed
+		// package name when looking up in ruleMapping.
 		const key = pkg + "/" + name;
-		return ruleMapping[key] || null;
+		if (ruleMapping[key]) return ruleMapping[key];
+
+		// Strip "bpmnlint-plugin-" prefix to match our shorthand keys
+		if (pkg.startsWith("bpmnlint-plugin-")) {
+			const shortPkg = pkg.slice("bpmnlint-plugin-".length);
+			const shortKey = shortPkg + "/" + name;
+			if (ruleMapping[shortKey]) return ruleMapping[shortKey];
+		}
+
+		return null;
 	},
 };
 
