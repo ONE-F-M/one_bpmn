@@ -20,7 +20,6 @@ def _get_records(doctype: str, since: str | None) -> list[dict]:
 		doctype: The DocType to query (e.g., "Custom Field").
 		since: ISO datetime string. If provided, only records modified on or after
 			this timestamp are returned. If None, all records are returned.
-		fields: Optional list of fields to fetch. If None, fetches all via get_doc.
 
 	Returns:
 		List of document dicts with all field values.
