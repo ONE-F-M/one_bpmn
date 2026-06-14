@@ -132,8 +132,9 @@ class BPMNProcessModel(Document):
 			return
 
 		old_id = old_match.group(1)
+		if not frappe.db.exists("BPMN Process Model", {"process_id": old_id}):
+			return
 		new_id = "Process_" + uuid.uuid4().hex[:8]
-
 		# Replace all occurrences of the old process id in the XML
 		# (covers <bpmn:process id="…"> and bpmnElement="…" references)
 		self.bpmn_xml = self.bpmn_xml.replace(old_id, new_id)
