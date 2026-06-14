@@ -446,7 +446,10 @@ class ProcessaLegacyMigration(Document):
 				log.data = json.dumps({"migrated": True, "migration": self.name})
 				log.insert(ignore_permissions=True)
 			except Exception:
-				pass
+				frappe.log_error(
+					title="Legacy Migration: Activity Log write failed",
+					message=frappe.get_traceback(),
+				)
 
 	def _get_state_field(self) -> str:
 		"""
