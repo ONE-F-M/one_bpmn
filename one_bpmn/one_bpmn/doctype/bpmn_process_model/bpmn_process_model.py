@@ -117,9 +117,7 @@ class BPMNProcessModel(Document):
 		``doc.flags.skip_process_id_regeneration = True`` to preserve the original
 		process_id from the imported file.
 
-		The new process_id uses the format ``Process_<8-hex-chars>`` matching the
-		pattern used by the Processa Vue editor.
-		"""
+		The new process_id uses the format ``Process_<8-hex-chars>``.
 		if self.flags.get("skip_process_id_regeneration"):
 			return
 
