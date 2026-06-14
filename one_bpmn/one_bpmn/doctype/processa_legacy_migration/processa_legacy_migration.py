@@ -116,9 +116,12 @@ class ProcessaLegacyMigration(Document):
 				migrated += 1
 			except Exception:
 				failed += 1
-				self._log_row_error(doc_name, frappe.get_traceback(with_context=False))
-				# Rollback only the failed record's transaction
+				error_tb = frappe.get_traceback(with_context=False)
+				# Rollback the failed record's partial changes FIRST
 				frappe.db.rollback()
+				# THEN log the error (after rollback so it isn't wiped)
+				self._log_row_error(doc_name, error_tb)
+				frappe.db.commit()
 
 			# Batch commit + progress update
 			if (idx + 1) % batch_size == 0:
@@ -263,7 +266,7 @@ class ProcessaLegacyMigration(Document):
 		activity_log_entries = []
 		max_iterations = 100
 
-		for _ in range(max_iterations):
+		for _iter in range(max_iterations):
 			wf.refresh_waiting_tasks()
 			wf.do_engine_steps()
 
@@ -461,6 +464,7 @@ class ProcessaLegacyMigration(Document):
 				"parent": self.name,
 				"parenttype": "Processa Legacy Migration",
 				"parentfield": "error_logs",
+				"document_doctype": self.target_doctype,
 				"document_name": doc_name,
 				"error_message": (error_message or "")[:65535],
 				"timestamp": now_datetime(),
@@ -547,7 +551,6 @@ def enqueue_migration(migration_name: str) -> dict:
 
 	# Reset counts for re-run
 	doc.db_set({
-		"status": "Queued",
 		"migrated_count": 0,
 		"failed_count": 0,
 		"total_records": 0,
@@ -559,15 +562,43 @@ def enqueue_migration(migration_name: str) -> dict:
 	frappe.db.delete("Legacy Migration Error Log", {"parent": migration_name})
 	frappe.db.commit()
 
-	frappe.enqueue(
-		method="one_bpmn.one_bpmn.doctype.processa_legacy_migration.processa_legacy_migration._run_migration_job",
-		queue="long",
-		timeout=3600,
-		migration_name=migration_name,
-		user=frappe.session.user,
-	)
+	# Count matching records to decide sync vs async
+	state_field = doc._get_state_field()
+	record_count = 0
+	if state_field:
+		record_count = frappe.db.count(doc.target_doctype, {state_field: doc.old_status})
 
-	return {"status": "Queued", "message": _("Migration has been queued for background execution.")}
+	ASYNC_THRESHOLD = 25
+
+	if record_count > ASYNC_THRESHOLD:
+		doc.db_set("status", "Queued")
+		frappe.db.commit()
+
+		frappe.enqueue(
+			method="one_bpmn.one_bpmn.doctype.processa_legacy_migration.processa_legacy_migration._run_migration_job",
+			queue="long",
+			timeout=3600,
+			migration_name=migration_name,
+			user=frappe.session.user,
+		)
+
+		return {
+			"status": "Queued",
+			"message": _("{0} records found. Migration has been queued for background execution.").format(
+				record_count
+			),
+		}
+	else:
+		# Run synchronously for small batches
+		doc.run_migration()
+		doc.reload()
+
+		return {
+			"status": doc.status,
+			"message": _("Migration completed. Migrated: {0}, Failed: {1}").format(
+				doc.migrated_count, doc.failed_count
+			),
+		}
 
 
 @frappe.whitelist()

@@ -1,7 +1,7 @@
 {
  "actions": [],
  "allow_rename": 0,
- "autoname": "format:PLM-{####}",
+ "autoname": "PLM-.####",
  "creation": "2026-06-13 20:00:00.000000",
  "doctype": "DocType",
  "engine": "InnoDB",
@@ -186,11 +186,11 @@
  ],
  "index_web_pages_for_search": 0,
  "links": [],
- "modified": "2026-06-13 20:00:00.000000",
+ "modified": "2026-06-14 09:25:00.000000",
  "modified_by": "Administrator",
  "module": "ONE BPMN",
  "name": "Processa Legacy Migration",
- "naming_rule": "Expression",
+ "naming_rule": "By \"Naming Series\" field",
  "owner": "Administrator",
  "permissions": [
   {
