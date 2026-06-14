@@ -476,6 +476,10 @@ def trigger_manual_sync() -> dict:
 	"""
 	frappe.only_for("System Manager")
 
+	settings = frappe.get_single("Processa Settings")
+	if not settings.enable_ba_sync:
+		frappe.throw(_("BA Sync is not enabled in Processa Settings."))
+
 	frappe.enqueue(
 		method="one_bpmn.api.schema_sync.run_schema_sync",
 		queue="long",
