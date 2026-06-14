@@ -70,7 +70,7 @@ class ProcessaLegacyMigration(Document):
 		  2. Optionally creates a BPMN Process Instance (fast-forwarded)
 		  3. Logs any per-row failures to the error_logs child table
 
-		Commits in batches of 50 to avoid long transactions.
+		Commits after each record, and updates progress every 50 records.
 		"""
 		self.db_set({
 			"status": "Running",
