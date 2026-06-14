@@ -1,261 +1,282 @@
 {
-    "actions": [],
-    "allow_rename": 1,
-    "autoname": "field:title",
-    "creation": "2026-01-26 09:30:00",
-    "doctype": "DocType",
-    "engine": "InnoDB",
-    "field_order": [
-        "section_process_info",
-        "title",
-        "process_name",
-        "process_id",
-        "column_break_pbtg",
-        "is_active",
-        "version",
-        "pathfinder_log",
-        "section_description",
-        "description",
-        "section_bpmn_diagram",
-        "bpmn_xml",
-        "section_dmn_table",
-        "decision_tables",
-        "section_engine_data",
-        "serialized_spec",
-        "subprocess_specs",
-        "round_robin_state",
-        "target_details_section",
-        "target_doctypes",
-        "section_break_aige",
-        "trigger_type",
-        "trigger_doctype",
-        "trigger_event",
-        "column_break_nbjp",
-        "deployed_at",
-        "deployed_by",
-        "section_start_events",
-        "start_events"
-    ],
-    "fields": [
-        {
-            "fieldname": "section_process_info",
-            "fieldtype": "Section Break",
-            "label": "Process Info"
-        },
-        {
-            "fieldname": "title",
-            "fieldtype": "Data",
-            "in_list_view": 1,
-            "in_standard_filter": 1,
-            "label": "Title",
-            "reqd": 1,
-            "unique": 1
-        },
-        {
-            "description": "BPMN process ID extracted from XML (e.g., Process_1). Used internally by SpiffWorkflow.",
-            "fieldname": "process_id",
-            "fieldtype": "Data",
-            "in_list_view": 1,
-            "in_standard_filter": 1,
-            "label": "Process ID",
-            "reqd": 1
-        },
-        {
-            "default": "0",
-            "fieldname": "is_active",
-            "fieldtype": "Check",
-            "in_list_view": 1,
-            "label": "Active"
-        },
-        {
-            "fieldname": "section_description",
-            "fieldtype": "Section Break",
-            "label": "Description"
-        },
-        {
-            "fieldname": "description",
-            "fieldtype": "Small Text",
-            "label": "Description"
-        },
-        {
-            "fieldname": "section_bpmn_diagram",
-            "fieldtype": "Section Break",
-            "label": "BPMN Diagram"
-        },
-        {
-            "fieldname": "bpmn_xml",
-            "fieldtype": "Code",
-            "label": "BPMN XML",
-            "options": "XML"
-        },
-        {
-            "collapsible": 1,
-            "fieldname": "section_dmn_table",
-            "fieldtype": "Section Break",
-            "label": "Decision Tables"
-        },
-        {
-            "fieldname": "decision_tables",
-            "fieldtype": "Table",
-            "label": "Decision Tables",
-            "options": "Workflow Decision Table"
-        },
-        {
-            "collapsible": 1,
-            "fieldname": "section_engine_data",
-            "fieldtype": "Section Break",
-            "label": "Engine Data"
-        },
-        {
-            "fieldname": "serialized_spec",
-            "fieldtype": "JSON",
-            "label": "Serialized Spec"
-        },
-        {
-            "fieldname": "subprocess_specs",
-            "fieldtype": "JSON",
-            "label": "Subprocess Specs"
-        },
-        {
-            "description": "Tracks round-robin assignment state per User Task. JSON: {\"task_bpmn_id\": {\"next_idx\": 0, \"last_user\": \"user@example.com\"}}",
-            "fieldname": "round_robin_state",
-            "fieldtype": "JSON",
-            "hidden": 1,
-            "label": "Round Robin State"
-        },
-        {
-            "default": "0",
-            "fieldname": "version",
-            "fieldtype": "Int",
-            "in_list_view": 1,
-            "label": "Version",
-            "reqd": 1
-        },
-        {
-            "fieldname": "process_name",
-            "fieldtype": "Link",
-            "label": "Process Name",
-            "options": "Process"
-        },
-        {
-            "collapsible": 1,
-            "fieldname": "target_details_section",
-            "fieldtype": "Section Break",
-            "label": "Target Details"
-        },
-        {
-            "fieldname": "target_doctypes",
-            "fieldtype": "Table",
-            "label": "Target Doctypes",
-            "options": "BPMN Process DocType"
-        },
-        {
-            "fieldname": "trigger_type",
-            "fieldtype": "Select",
-            "hidden": 1,
-            "label": "Trigger Type",
-            "options": "\nDocType Event\nScheduler Event\nAPI"
-        },
-        {
-            "fieldname": "trigger_doctype",
-            "fieldtype": "Link",
-            "hidden": 1,
-            "label": "Trigger DocType",
-            "options": "DocType"
-        },
-        {
-            "fieldname": "trigger_event",
-            "fieldtype": "Select",
-            "hidden": 1,
-            "label": "Trigger Event",
-            "options": "\nAfter Insert\nAfter Save\nAutoname\nBefore Validate\nValidate\nBefore Save\nBefore Submit\nBefore Cancel\nBefore Update After Submit\nDB Insert\nAfter Insert\nDB Update\nOn Update\nOn Submit\nOn Cancel\nOn Update After Submit\nOn Change"
-        },
-        {
-            "fieldname": "section_break_aige",
-            "fieldtype": "Section Break"
-        },
-        {
-            "fieldname": "column_break_nbjp",
-            "fieldtype": "Column Break"
-        },
-        {
-            "fieldname": "deployed_at",
-            "fieldtype": "Datetime",
-            "label": "Deployed At"
-        },
-        {
-            "fieldname": "deployed_by",
-            "fieldtype": "Link",
-            "label": "Deployed By",
-            "options": "User"
-        },
-        {
-            "collapsible": 1,
-            "fieldname": "section_start_events",
-            "fieldtype": "Section Break",
-            "label": "Start Events"
-        },
-        {
-            "fieldname": "start_events",
-            "fieldtype": "Table",
-            "label": "Start Events",
-            "options": "BPMN Start Event Config",
-            "read_only": 1
-        },
-        {
-            "fieldname": "column_break_pbtg",
-            "fieldtype": "Column Break"
-        },
-        {
-            "fieldname": "pathfinder_log",
-            "fieldtype": "Link",
-            "label": "Pathfinder Log",
-            "options": "Pathfinder Log",
-            "read_only": 1
-        }
-    ],
-    "in_create": 1,
-    "index_web_pages_for_search": 1,
-    "links": [],
-    "modified": "2026-05-12 17:19:11.181214",
-    "modified_by": "Administrator",
-    "module": "ONE BPMN",
-    "name": "BPMN Process Model",
-    "naming_rule": "By fieldname",
-    "owner": "Administrator",
-    "permissions": [
-        {
-            "create": 1,
-            "delete": 1,
-            "email": 1,
-            "export": 1,
-            "print": 1,
-            "read": 1,
-            "report": 1,
-            "role": "System Manager",
-            "share": 1,
-            "write": 1
-        },
-        {
-            "create": 1,
-            "delete": 1,
-            "email": 1,
-            "export": 1,
-            "print": 1,
-            "read": 1,
-            "report": 1,
-            "role": "Process Owner",
-            "share": 1,
-            "write": 1
-        },
-        {
-            "read": 1,
-            "role": "All"
-        }
-    ],
-    "row_format": "Dynamic",
-    "sort_field": "creation",
-    "sort_order": "DESC",
-    "states": [],
-    "track_changes": 1
+ "actions": [],
+ "allow_rename": 1,
+ "autoname": "field:title",
+ "creation": "2026-01-26 09:30:00",
+ "doctype": "DocType",
+ "engine": "InnoDB",
+ "field_order": [
+  "section_process_info",
+  "title",
+  "process_name",
+  "process_id",
+  "column_break_pbtg",
+  "is_active",
+  "version",
+  "pathfinder_log",
+  "section_description",
+  "description",
+  "section_bpmn_diagram",
+  "bpmn_xml",
+  "section_dmn_table",
+  "decision_tables",
+  "section_engine_data",
+  "serialized_spec",
+  "subprocess_specs",
+  "round_robin_state",
+  "target_details_section",
+  "target_doctypes",
+  "section_break_aige",
+  "trigger_type",
+  "trigger_doctype",
+  "trigger_event",
+  "column_break_nbjp",
+  "deployed_at",
+  "deployed_by",
+  "section_start_events",
+  "start_events",
+  "section_deployment_checklist",
+  "backend_code_removal_status",
+  "backend_code_removal_notes"
+ ],
+ "fields": [
+  {
+   "fieldname": "section_process_info",
+   "fieldtype": "Section Break",
+   "label": "Process Info"
+  },
+  {
+   "fieldname": "title",
+   "fieldtype": "Data",
+   "in_list_view": 1,
+   "in_standard_filter": 1,
+   "label": "Title",
+   "reqd": 1,
+   "unique": 1
+  },
+  {
+   "description": "BPMN process ID extracted from XML (e.g., Process_1). Used internally by SpiffWorkflow.",
+   "fieldname": "process_id",
+   "fieldtype": "Data",
+   "in_list_view": 1,
+   "in_standard_filter": 1,
+   "label": "Process ID",
+   "reqd": 1
+  },
+  {
+   "default": "0",
+   "fieldname": "is_active",
+   "fieldtype": "Check",
+   "in_list_view": 1,
+   "label": "Active"
+  },
+  {
+   "fieldname": "section_description",
+   "fieldtype": "Section Break",
+   "label": "Description"
+  },
+  {
+   "fieldname": "description",
+   "fieldtype": "Small Text",
+   "label": "Description"
+  },
+  {
+   "fieldname": "section_bpmn_diagram",
+   "fieldtype": "Section Break",
+   "label": "BPMN Diagram"
+  },
+  {
+   "fieldname": "bpmn_xml",
+   "fieldtype": "Code",
+   "label": "BPMN XML",
+   "options": "XML"
+  },
+  {
+   "collapsible": 1,
+   "fieldname": "section_dmn_table",
+   "fieldtype": "Section Break",
+   "label": "Decision Tables"
+  },
+  {
+   "fieldname": "decision_tables",
+   "fieldtype": "Table",
+   "label": "Decision Tables",
+   "options": "Workflow Decision Table"
+  },
+  {
+   "collapsible": 1,
+   "fieldname": "section_engine_data",
+   "fieldtype": "Section Break",
+   "label": "Engine Data"
+  },
+  {
+   "fieldname": "serialized_spec",
+   "fieldtype": "JSON",
+   "label": "Serialized Spec"
+  },
+  {
+   "fieldname": "subprocess_specs",
+   "fieldtype": "JSON",
+   "label": "Subprocess Specs"
+  },
+  {
+   "description": "Tracks round-robin assignment state per User Task. JSON: {\"task_bpmn_id\": {\"next_idx\": 0, \"last_user\": \"user@example.com\"}}",
+   "fieldname": "round_robin_state",
+   "fieldtype": "JSON",
+   "hidden": 1,
+   "label": "Round Robin State"
+  },
+  {
+   "default": "0",
+   "fieldname": "version",
+   "fieldtype": "Int",
+   "in_list_view": 1,
+   "label": "Version",
+   "reqd": 1
+  },
+  {
+   "fieldname": "process_name",
+   "fieldtype": "Link",
+   "label": "Process Name",
+   "options": "Process"
+  },
+  {
+   "collapsible": 1,
+   "fieldname": "target_details_section",
+   "fieldtype": "Section Break",
+   "label": "Target Details"
+  },
+  {
+   "fieldname": "target_doctypes",
+   "fieldtype": "Table",
+   "label": "Target Doctypes",
+   "options": "BPMN Process DocType"
+  },
+  {
+   "fieldname": "trigger_type",
+   "fieldtype": "Select",
+   "hidden": 1,
+   "label": "Trigger Type",
+   "options": "\nDocType Event\nScheduler Event\nAPI"
+  },
+  {
+   "fieldname": "trigger_doctype",
+   "fieldtype": "Link",
+   "hidden": 1,
+   "label": "Trigger DocType",
+   "options": "DocType"
+  },
+  {
+   "fieldname": "trigger_event",
+   "fieldtype": "Select",
+   "hidden": 1,
+   "label": "Trigger Event",
+   "options": "\nAfter Insert\nAfter Save\nAutoname\nBefore Validate\nValidate\nBefore Save\nBefore Submit\nBefore Cancel\nBefore Update After Submit\nDB Insert\nAfter Insert\nDB Update\nOn Update\nOn Submit\nOn Cancel\nOn Update After Submit\nOn Change"
+  },
+  {
+   "fieldname": "section_break_aige",
+   "fieldtype": "Section Break"
+  },
+  {
+   "fieldname": "column_break_nbjp",
+   "fieldtype": "Column Break"
+  },
+  {
+   "fieldname": "deployed_at",
+   "fieldtype": "Datetime",
+   "label": "Deployed At"
+  },
+  {
+   "fieldname": "deployed_by",
+   "fieldtype": "Link",
+   "label": "Deployed By",
+   "options": "User"
+  },
+  {
+   "collapsible": 1,
+   "fieldname": "section_start_events",
+   "fieldtype": "Section Break",
+   "label": "Start Events"
+  },
+  {
+   "fieldname": "start_events",
+   "fieldtype": "Table",
+   "label": "Start Events",
+   "options": "BPMN Start Event Config",
+   "read_only": 1
+  },
+  {
+   "collapsible": 1,
+   "fieldname": "section_deployment_checklist",
+   "fieldtype": "Section Break",
+   "label": "Deployment Checklist"
+  },
+  {
+   "default": "Not Started",
+   "fieldname": "backend_code_removal_status",
+   "fieldtype": "Select",
+   "label": "Backend Code Removal Status",
+   "options": "Not Started\nRemoved on BA\nRemoved on Production\nMigrated"
+  },
+  {
+   "fieldname": "backend_code_removal_notes",
+   "fieldtype": "Small Text",
+   "label": "Backend Code Removal Notes"
+  },
+  {
+   "fieldname": "column_break_pbtg",
+   "fieldtype": "Column Break"
+  },
+  {
+   "fieldname": "pathfinder_log",
+   "fieldtype": "Link",
+   "label": "Pathfinder Log",
+   "options": "Pathfinder Log",
+   "read_only": 1
+  }
+ ],
+ "in_create": 1,
+ "index_web_pages_for_search": 1,
+ "links": [],
+ "modified": "2026-06-14 12:22:54.454592",
+ "modified_by": "Administrator",
+ "module": "ONE BPMN",
+ "name": "BPMN Process Model",
+ "naming_rule": "By fieldname",
+ "owner": "Administrator",
+ "permissions": [
+  {
+   "create": 1,
+   "delete": 1,
+   "email": 1,
+   "export": 1,
+   "print": 1,
+   "read": 1,
+   "report": 1,
+   "role": "System Manager",
+   "share": 1,
+   "write": 1
+  },
+  {
+   "create": 1,
+   "delete": 1,
+   "email": 1,
+   "export": 1,
+   "print": 1,
+   "read": 1,
+   "report": 1,
+   "role": "Process Owner",
+   "share": 1,
+   "write": 1
+  },
+  {
+   "read": 1,
+   "role": "All"
+  }
+ ],
+ "row_format": "Dynamic",
+ "sort_field": "creation",
+ "sort_order": "DESC",
+ "states": [],
+ "track_changes": 1
 }
