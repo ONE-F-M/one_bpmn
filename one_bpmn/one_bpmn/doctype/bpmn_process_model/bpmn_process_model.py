@@ -118,6 +118,7 @@ class BPMNProcessModel(Document):
 		process_id from the imported file.
 
 		The new process_id uses the format ``Process_<8-hex-chars>``.
+		"""
 		if self.flags.get("skip_process_id_regeneration"):
 			return
 
