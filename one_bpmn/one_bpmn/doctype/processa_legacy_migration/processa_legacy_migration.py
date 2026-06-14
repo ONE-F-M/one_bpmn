@@ -29,7 +29,10 @@ class MigrationScriptEngine(FrappeScriptEngine):
 		try:
 			super().execute(task, script, **kwargs)
 		except Exception:
-			pass  # Suppress — migration doesn't need script results
+			frappe.log_error(
+				title="Legacy Migration: script task execution failed",
+				message=frappe.get_traceback(with_context=False),
+			)
 
 
 class ProcessaLegacyMigration(Document):
