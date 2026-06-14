@@ -1672,48 +1672,53 @@ onMounted(async () => {
 				const originalFormatIssues = linting._formatIssues;
 				linting._formatIssues = function (issues) {
 					let formattedIssues = originalFormatIssues.call(this, issues);
-					const canvas = modeler.get("canvas");
-					const rootElement = canvas.getRootElement();
 
-					// Helper to collect all element IDs strictly contained within the given moddle object
-					const getModdleDescendants = (bo, descendants = new Set(), visited = new Set()) => {
-						if (!bo || typeof bo !== "object") return descendants;
-						if (visited.has(bo)) return descendants;
-						visited.add(bo);
+					try {
+						const canvas = modeler.get("canvas");
+						const rootElement = canvas.getRootElement();
 
-						if (bo.id) descendants.add(bo.id);
+						// Helper to collect all element IDs strictly contained within the given moddle object
+						const getModdleDescendants = (bo, descendants = new Set(), visited = new Set()) => {
+							if (!bo || typeof bo !== "object") return descendants;
+							if (visited.has(bo)) return descendants;
+							visited.add(bo);
 
-						const containmentKeys = [
-							"flowElements", "laneSets", "artifacts", "eventDefinitions",
-							"participants", "messageFlows", "processRef", "rootElements"
-						];
+							if (bo.id) descendants.add(bo.id);
 
-						for (const key of containmentKeys) {
-							const val = bo[key];
-							if (Array.isArray(val)) {
-								val.forEach(child => getModdleDescendants(child, descendants, visited));
-							} else if (val && typeof val === "object") {
-								getModdleDescendants(val, descendants, visited);
+							const containmentKeys = [
+								"flowElements", "laneSets", "lanes", "artifacts", "eventDefinitions",
+								"participants", "messageFlows", "processRef", "rootElements"
+							];
+
+							for (const key of containmentKeys) {
+								const val = bo[key];
+								if (Array.isArray(val)) {
+									val.forEach(child => getModdleDescendants(child, descendants, visited));
+								} else if (val && typeof val === "object") {
+									getModdleDescendants(val, descendants, visited);
+								}
+							}
+							return descendants;
+						};
+
+						const validIds = getModdleDescendants(rootElement.businessObject);
+
+						for (const elementId in formattedIssues) {
+							const issueGroup = formattedIssues[elementId];
+							// Filter reports to ensure their actual element is a descendant
+							const filteredGroup = issueGroup.filter(report => {
+								const actualId = report.actualElementId || report.id;
+								return validIds.has(actualId);
+							});
+
+							if (filteredGroup.length === 0) {
+								delete formattedIssues[elementId];
+							} else {
+								formattedIssues[elementId] = filteredGroup;
 							}
 						}
-						return descendants;
-					};
-
-					const validIds = getModdleDescendants(rootElement.businessObject);
-
-					for (const elementId in formattedIssues) {
-						const issueGroup = formattedIssues[elementId];
-						// Filter reports to ensure their actual element is a descendant
-						const filteredGroup = issueGroup.filter(report => {
-							const actualId = report.actualElementId || report.id;
-							return validIds.has(actualId);
-						});
-
-						if (filteredGroup.length === 0) {
-							delete formattedIssues[elementId];
-						} else {
-							formattedIssues[elementId] = filteredGroup;
-						}
+					} catch (err) {
+						console.warn("[bpmnlint] _formatIssues filter failed, returning unfiltered issues:", err);
 					}
 
 					return formattedIssues;
