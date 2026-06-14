@@ -51,7 +51,7 @@ def _get_records(doctype: str, since: str | None, fields: list[str] | None = Non
 
 @frappe.whitelist(methods=["GET"])
 def get_schema_delta(since: str = None) -> dict:
-	"""Return Custom DocTypes, Custom Fields, and Property Setters delta.
+	"""Return Custom Fields and Property Setters delta.
 
 	Called by the Production site to pull records that were created or
 	modified since the given timestamp.
@@ -62,7 +62,6 @@ def get_schema_delta(since: str = None) -> dict:
 
 	Returns:
 		dict with keys:
-			- custom_doctypes: list of Custom DocType dicts
 			- custom_fields: list of Custom Field dicts
 			- property_setters: list of Property Setter dicts
 			- sync_timestamp: server timestamp at the time of extraction
@@ -86,7 +85,6 @@ def get_schema_delta(since: str = None) -> dict:
 			)
 
 	result = {
-		"custom_doctypes": _get_records("Custom DocType", since),
 		"custom_fields": _get_records("Custom Field", since),
 		"property_setters": _get_records("Property Setter", since),
 		"sync_timestamp": frappe.utils.now_datetime().isoformat(),

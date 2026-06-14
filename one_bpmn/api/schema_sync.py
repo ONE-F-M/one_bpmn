@@ -83,41 +83,6 @@ def _call_ba_api(ba_url: str, api_key: str, api_secret: str, since: str | None) 
 		frappe.throw(_("Failed to fetch schema delta from BA site: {0}").format(str(e)))
 
 
-def _apply_custom_doctype(record: dict, log_doc) -> str:
-	"""Apply a single Custom DocType record. Returns action taken."""
-	name = record.get("name")
-	if not name:
-		return "Skipped"
-
-	try:
-		if frappe.db.exists("Custom DocType", name):
-			existing = frappe.get_doc("Custom DocType", name)
-			# Overwrite all fields from BA ("BA wins")
-			for key, value in record.items():
-				if key in ("doctype", "name", "creation", "owner"):
-					continue
-				existing.set(key, value)
-			existing.flags.ignore_permissions = True
-			existing.flags.ignore_validate = True
-			existing.save(ignore_permissions=True)
-			return "Updated"
-		else:
-			new_doc = frappe.get_doc(record)
-			new_doc.flags.ignore_permissions = True
-			new_doc.flags.ignore_validate = True
-			new_doc.insert(ignore_permissions=True)
-			return "Created"
-	except Exception as e:
-		_add_detail_row(
-			log_doc,
-			record_type="Custom DocType",
-			record_name=name,
-			target_doctype=name,
-			action="Failed",
-			error_message=str(e),
-			ba_modified=record.get("modified"),
-		)
-		raise
 
 
 def _apply_custom_field(record: dict, log_doc) -> str:
@@ -223,7 +188,7 @@ def _apply_records(log_doc, records: dict) -> tuple[int, int]:
 
 	Args:
 		log_doc: The Schema Sync Log document to append details to.
-		records: Dict with keys custom_doctypes, custom_fields, property_setters.
+		records: Dict with keys custom_fields, property_setters.
 
 	Returns:
 		Tuple of (applied_count, failed_count).
@@ -232,24 +197,7 @@ def _apply_records(log_doc, records: dict) -> tuple[int, int]:
 	applied = 0
 	failed = 0
 
-	# 1. Custom DocTypes
-	if settings.sync_custom_doctypes:
-		for record in records.get("custom_doctypes", []):
-			try:
-				action = _apply_custom_doctype(record, log_doc)
-				_add_detail_row(
-					log_doc,
-					record_type="Custom DocType",
-					record_name=record.get("name", ""),
-					target_doctype=record.get("name", ""),
-					action=action,
-					ba_modified=record.get("modified", ""),
-				)
-				applied += 1
-			except Exception:
-				failed += 1
-
-	# 2. Custom Fields
+	# 1. Custom Fields
 	if settings.sync_custom_fields:
 		for record in records.get("custom_fields", []):
 			try:
@@ -381,8 +329,7 @@ def run_schema_sync(sync_type: str = "Scheduled") -> str:
 		records = _call_ba_api(ba_url, api_key, api_secret, since_str)
 
 		total_pulled = (
-			len(records.get("custom_doctypes", []))
-			+ len(records.get("custom_fields", []))
+			len(records.get("custom_fields", []))
 			+ len(records.get("property_setters", []))
 		)
 		log_doc.total_records_pulled = total_pulled
