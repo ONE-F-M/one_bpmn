@@ -34,9 +34,11 @@
    "fieldtype": "Select",
    "label": "Naming Series",
    "options": "SSL-.YYYY.-.#####",
+   "default": "SSL-.YYYY.-.#####",
    "reqd": 1,
    "set_only_once": 1,
    "no_copy": 1,
+   "read_only": 1,
    "hidden": 1
   },
   {
