@@ -25,8 +25,6 @@ _INTERNAL_DOCTYPES = frozenset(
 		"BPMN Process Instance",
 		"BPMN Active Task",
 		"BPMN Activity Log",
-		"BPMN Custom Shape",
-		"BPMN Shape Library",
 		"BPMN Process DocType",
 	}
 )

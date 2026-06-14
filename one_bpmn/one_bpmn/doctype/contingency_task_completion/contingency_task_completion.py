@@ -13,6 +13,8 @@ class ContingencyTaskCompletion(Document):
 				self.process_owner = employee
 
 
+
+
 @frappe.whitelist()
 def get_process_doctypes(
 	doctype: str,
