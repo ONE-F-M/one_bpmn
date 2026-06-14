@@ -282,7 +282,8 @@ def _apply_records(log_doc, records: dict) -> tuple[int, int]:
 					action=action,
 					ba_modified=record.get("modified", ""),
 				)
-				applied += 1
+				if action != "Skipped":
+					applied += 1
 			except Exception:
 				failed += 1
 
