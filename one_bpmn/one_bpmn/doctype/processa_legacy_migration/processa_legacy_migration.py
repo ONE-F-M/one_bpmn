@@ -177,13 +177,14 @@ class ProcessaLegacyMigration(Document):
 		# ── 1. Update document state ──────────────────────────────────────
 		# Set bpmn_engine_action flag to bypass the BPMN guard that blocks
 		# direct state changes on BPMN-controlled documents.
+		old_flag = getattr(frappe.flags, "bpmn_engine_action", False)
 		frappe.flags.bpmn_engine_action = True
 		try:
 			doc = frappe.get_doc(self.target_doctype, doc_name)
 			doc.set(state_field, self.target_status)
 			doc.save(ignore_permissions=True)
 		finally:
-			frappe.flags.bpmn_engine_action = False
+			frappe.flags.bpmn_engine_action = old_flag
 
 		# ── 2. Create BPMN Process Instance ───────────────────────────────
 		if self.create_process_instance:
