@@ -113,15 +113,15 @@ export function layoutBpmnXml(xmlString) {
 		}
 	}
 
-	// ── 3b. Early-exit if DI already exists or Collaboration exists ───────────
-	// When the pipeline generates a collaboration (pool + lanes) or a flat process
-	// that already has a BPMNDI layout (e.g. from bpmn-auto-layout), we keep the
-	// original DI section intact instead of throwing it away and rebuilding it.
-	// This preserves the high-quality layout positions from the backend, and
-	// front-end connection layouting will route the sequence flows beautifully.
+	// ── 3b. Early-exit if Collaboration (pool + lanes) exists ────────────────
+	// When the pipeline generates a collaboration (pool + lanes), we keep the
+	// pipeline-generated DI section intact — buildManualLaneDI produces
+	// carefully positioned lane bands with both shapes AND edges that the
+	// frontend layout algorithm cannot replicate.
+	// For flat processes (no lanes), the frontend layout produces superior
+	// horizontal layouts with complete edge routing, so we always regenerate.
 	const collaborationEl = doc.getElementsByTagNameNS(BPMN_NS, "collaboration")[0];
-	const hasDI = xmlString.includes("<bpmndi:BPMNDiagram") || xmlString.includes("<BPMNDiagram");
-	if (collaborationEl || hasDI) {
+	if (collaborationEl) {
 		const xmlDeclMatch  = xmlString.match(/^<\?xml[^?]*\?>/);
 		const xmlDecl       = xmlDeclMatch ? xmlDeclMatch[0] + "\n" : "";
 
@@ -139,7 +139,75 @@ export function layoutBpmnXml(xmlString) {
 
 		// Extract the pipeline-generated BPMNDI section verbatim
 		const diMatch    = xmlString.match(/<bpmndi:BPMNDiagram[\s\S]*<\/bpmndi:BPMNDiagram>/);
-		const existingDI = diMatch ? diMatch[0] : "";
+		let   existingDI = diMatch ? diMatch[0] : "";
+
+		// Check if any BPMNEdge elements exist in the DI section.
+		// bpmn-auto-layout sometimes generates shapes but omits edges, causing
+		// no-bpmndi lint errors for every sequence flow. If edges are missing,
+		// generate them from the existing shape positions and inject them.
+		const hasEdges = existingDI.includes("<bpmndi:BPMNEdge");
+		if (!hasEdges && Object.keys(flows).length > 0 && existingDI) {
+			// Parse shape positions from existing DI for edge routing
+			const shapePositions = {};
+			const shapeRegex = /bpmnElement="([^"]+)"[\s\S]*?<dc:Bounds\s+x="([^"]+)"\s+y="([^"]+)"\s+width="([^"]+)"\s+height="([^"]+)"/g;
+			let m;
+			while ((m = shapeRegex.exec(existingDI)) !== null) {
+				shapePositions[m[1]] = {
+					x: parseFloat(m[2]), y: parseFloat(m[3]),
+					w: parseFloat(m[4]), h: parseFloat(m[5]),
+				};
+			}
+
+			// Build edge XML for each flow using Manhattan routing
+			const edgeXmlLines = [];
+			for (const [flowId, { source, target }] of Object.entries(flows)) {
+				const sb = shapePositions[source];
+				const tb = shapePositions[target];
+				if (!sb || !tb) continue;
+
+				const sx = Math.round(sb.x + sb.w);
+				const sy = Math.round(sb.y + sb.h / 2);
+				const tx = Math.round(tb.x);
+				const ty = Math.round(tb.y + tb.h / 2);
+
+				let waypoints;
+				if (tx <= sx) {
+					// Back-edge: arc above
+					const sMidX = Math.round(sb.x + sb.w / 2);
+					const tMidX = Math.round(tb.x + tb.w / 2);
+					const topY  = Math.min(sb.y, tb.y) - 50;
+					waypoints = [
+						{ x: sMidX, y: sb.y }, { x: sMidX, y: topY },
+						{ x: tMidX, y: topY }, { x: tMidX, y: tb.y },
+					];
+				} else if (Math.abs(sy - ty) <= 2) {
+					waypoints = [{ x: sx, y: sy }, { x: tx, y: ty }];
+				} else {
+					const midX = Math.round((sx + tx) / 2);
+					waypoints = [
+						{ x: sx, y: sy }, { x: midX, y: sy },
+						{ x: midX, y: ty }, { x: tx, y: ty },
+					];
+				}
+
+				const wps = waypoints
+					.map(pt => `        <di:waypoint x="${pt.x}" y="${pt.y}" />`)
+					.join("\n");
+				edgeXmlLines.push(
+					`      <bpmndi:BPMNEdge id="Edge_${flowId}" bpmnElement="${flowId}">\n` +
+					`${wps}\n` +
+					`      </bpmndi:BPMNEdge>`
+				);
+			}
+
+			// Inject edges before closing </bpmndi:BPMNPlane>
+			if (edgeXmlLines.length) {
+				existingDI = existingDI.replace(
+					/(\s*<\/bpmndi:BPMNPlane>)/,
+					"\n" + edgeXmlLines.join("\n") + "$1"
+				);
+			}
+		}
 
 		// Serialise the collaboration (if present) and the modified process (now has incoming/outgoing).
 		// XMLSerializer may add redundant xmlns on the top element — that is valid XML

@@ -1,12 +1,13 @@
 """
 XML Property Preserver
 
-Transfers SpiffWorkflow extension attributes and custom text-style attributes
-from an existing (old) BPMN XML document to a newly generated BPMN XML document
-by matching element IDs.
+Transfers extension attributes, documentation elements, and other user-configured
+properties from an existing (old) BPMN XML document to a newly generated BPMN XML
+document by matching element IDs.
 
 This preserves user-configured shape properties (scripts, assignments, triggers,
-service task configs, text styling) that the IR-to-XML pipeline does not carry.
+service task configs, text styling, documentation) that the IR-to-XML pipeline
+does not carry.
 
 The module also reports which configured elements were removed so ProsAlly can
 warn the user before applying destructive changes.
@@ -25,22 +26,21 @@ NS = {
 	"di":           "http://www.omg.org/spec/DD/20100524/DI",
 	"spiffworkflow": "http://spiffworkflow.org/bpmn/schema/1.0/core",
 	"custom":       "http://custom/text-style",
+	"camunda":      "http://camunda.org/schema/1.0/bpmn",
 }
 
-# Extension namespace prefixes whose attributes we want to preserve
-_EXTENSION_PREFIXES = ("spiffworkflow:", "custom:")
-
-# Full namespace URIs for attribute matching in parsed XML
+# Full namespace URIs for attribute matching in parsed XML (Clark notation)
 _EXTENSION_NS_URIS = (
 	"{http://spiffworkflow.org/bpmn/schema/1.0/core}",
 	"{http://custom/text-style}",
+	"{http://camunda.org/schema/1.0/bpmn}",
 )
 
 # Human-readable labels for extension attribute families
 _ATTR_FAMILY_LABELS = {
+	# SpiffWorkflow attributes
 	"serverScript":         "Server Script",
 	"assignmentMode":       "Assignment Mode",
-	"assignee":             "Assignee",
 	"assigneeDocField":     "Assignee (Doc Field)",
 	"roundRobinRole":       "Round Robin Role",
 	"loadBalancingRole":    "Load Balancing Role",
@@ -64,12 +64,23 @@ _ATTR_FAMILY_LABELS = {
 	"updateFieldValue":     "Update Field Value",
 	"calledDecisionId":     "Decision Table",
 	"notificationName":     "Notification",
+	# Custom text-style attributes
 	"fontFamily":           "Font Family",
 	"fontSize":             "Font Size",
 	"fontWeight":           "Font Weight",
 	"fontStyle":            "Font Style",
 	"textColor":            "Text Color",
 	"textDecoration":       "Text Decoration",
+	# Camunda attributes
+	"assignee":             "Assignee",
+	"candidateGroups":      "Candidate Groups",
+	"candidateUsers":       "Candidate Users",
+	"formKey":              "Form Key",
+	"dueDate":              "Due Date",
+	"followUpDate":         "Follow-Up Date",
+	"priority":             "Priority",
+	"asyncBefore":          "Async Before",
+	"asyncAfter":           "Async After",
 }
 
 
@@ -93,6 +104,12 @@ def _short_attr_name(attr_name: str) -> str:
 	return attr_name
 
 
+def _attr_label(clark_name: str) -> str:
+	"""Get a human-readable label for an extension attribute in Clark notation."""
+	local = _short_attr_name(clark_name)
+	return _ATTR_FAMILY_LABELS.get(local, local)
+
+
 def _element_type_label(tag: str) -> str:
 	"""Convert a BPMN tag to a human-readable type label."""
 	local = tag.split("}", 1)[-1] if "}" in tag else tag
@@ -101,9 +118,36 @@ def _element_type_label(tag: str) -> str:
 	return label.title()
 
 
+def _get_documentation_text(elem: ET.Element) -> str | None:
+	"""Extract the text content of a <bpmn:documentation> child, if present."""
+	doc_el = elem.find(f"{{{NS['bpmn']}}}documentation")
+	if doc_el is not None and doc_el.text:
+		return doc_el.text.strip()
+	return None
+
+
+def _set_documentation(elem: ET.Element, text: str):
+	"""Set or create a <bpmn:documentation> child on the given element.
+
+	Inserts the documentation element as the first child to match standard
+	BPMN XML ordering conventions.
+	"""
+	doc_tag = f"{{{NS['bpmn']}}}documentation"
+	doc_el = elem.find(doc_tag)
+	if doc_el is not None:
+		# Already exists — only overwrite if currently empty
+		if not (doc_el.text or "").strip():
+			doc_el.text = text
+	else:
+		doc_el = ET.Element(doc_tag)
+		doc_el.text = text
+		elem.insert(0, doc_el)
+
+
 def extract_configured_elements(xml: str) -> dict:
 	"""
-	Parse BPMN XML and return a dict of elements that have extension attributes.
+	Parse BPMN XML and return a dict of elements that have extension attributes,
+	documentation, or other preservable configurations.
 
 	Returns:
 		{element_id: {
@@ -111,6 +155,7 @@ def extract_configured_elements(xml: str) -> dict:
 			"type": str,
 			"attrs": {attr_local_name: value, ...},
 			"extension_elements_xml": str or None,
+			"documentation": str or None,
 		}}
 	"""
 	if not xml or not xml.strip():
@@ -136,12 +181,11 @@ def extract_configured_elements(xml: str) -> dict:
 		if not elem_id:
 			continue
 
-		# Collect extension attributes
+		# Collect extension attributes (keyed by full Clark notation to preserve namespace)
 		ext_attrs = {}
 		for attr_name, attr_value in elem.attrib.items():
 			if _is_extension_attr(attr_name):
-				local_name = _short_attr_name(attr_name)
-				ext_attrs[local_name] = attr_value
+				ext_attrs[attr_name] = attr_value
 
 		# Collect extensionElements child
 		ext_elements_xml = None
@@ -149,12 +193,16 @@ def extract_configured_elements(xml: str) -> dict:
 		if ext_el is not None and len(ext_el) > 0:
 			ext_elements_xml = ET.tostring(ext_el, encoding="unicode")
 
-		if ext_attrs or ext_elements_xml:
+		# Collect documentation
+		documentation = _get_documentation_text(elem)
+
+		if ext_attrs or ext_elements_xml or documentation:
 			configured[elem_id] = {
 				"name": elem.get("name", elem_id),
 				"type": _element_type_label(tag),
 				"attrs": ext_attrs,
 				"extension_elements_xml": ext_elements_xml,
+				"documentation": documentation,
 			}
 
 	return configured
@@ -162,7 +210,8 @@ def extract_configured_elements(xml: str) -> dict:
 
 def transfer_properties(old_xml: str, new_xml: str) -> tuple:
 	"""
-	Transfer extension attributes and extensionElements from old_xml to new_xml.
+	Transfer extension attributes, extensionElements, and documentation
+	from old_xml to new_xml.
 
 	Matches elements by ID. Only transfers to elements that exist in both.
 
@@ -197,34 +246,15 @@ def transfer_properties(old_xml: str, new_xml: str) -> tuple:
 
 	for elem_id, old_data in old_configured.items():
 		if elem_id in new_elements_by_id:
-			# Element survived — transfer its extension attributes
+			# Element survived — transfer its properties
 			new_elem = new_elements_by_id[elem_id]
 
-			for local_name, value in old_data["attrs"].items():
-				# Determine the correct namespace URI for this attribute
-				ns_uri = None
-				for prefix_str, uri in NS.items():
-					if prefix_str in ("spiffworkflow", "custom"):
-						# Check if this local_name belongs to this namespace
-						# spiffworkflow attrs are the majority; custom are the styling ones
-						if local_name in (
-							"fontFamily", "fontSize", "fontWeight",
-							"fontStyle", "textColor", "textDecoration"
-						):
-							if prefix_str == "custom":
-								ns_uri = uri
-								break
-						elif prefix_str == "spiffworkflow":
-							ns_uri = uri
-							break
+			# 1. Transfer extension attributes (keys are already in Clark notation)
+			for clark_name, value in old_data["attrs"].items():
+				new_elem.set(clark_name, value)
 
-				if ns_uri:
-					clark_name = f"{{{ns_uri}}}{local_name}"
-					new_elem.set(clark_name, value)
-
-			# Transfer extensionElements children
+			# 2. Transfer extensionElements children
 			if old_data["extension_elements_xml"]:
-				# Parse the old extensionElements
 				try:
 					old_ext_el = ET.fromstring(old_data["extension_elements_xml"])
 					# Find or create extensionElements in new element
@@ -238,15 +268,26 @@ def transfer_properties(old_xml: str, new_xml: str) -> tuple:
 						new_ext_el.append(child)
 				except ET.ParseError:
 					pass
+
+			# 3. Transfer documentation
+			if old_data.get("documentation"):
+				_set_documentation(new_elem, old_data["documentation"])
 		else:
 			# Element was removed — collect info about what was configured
 			configs = []
-			for local_name, value in old_data["attrs"].items():
-				label = _ATTR_FAMILY_LABELS.get(local_name, local_name)
+			for clark_name, value in old_data["attrs"].items():
+				label = _attr_label(clark_name)
 				configs.append(f"{label}: {value}")
 
 			if old_data["extension_elements_xml"]:
 				configs.append("Extension Elements (pre/post scripts or other)")
+
+			if old_data.get("documentation"):
+				# Truncate long documentation for the warning message
+				doc_preview = old_data["documentation"][:80]
+				if len(old_data["documentation"]) > 80:
+					doc_preview += "…"
+				configs.append(f"Documentation: {doc_preview}")
 
 			removed_elements.append({
 				"id": elem_id,
@@ -300,7 +341,7 @@ def format_removal_warning(removed_elements: list) -> str:
 		lines.append(line)
 
 	lines.append(
-		"\nThese configurations (scripts, assignments, triggers, etc.) "
+		"\nThese configurations (scripts, assignments, triggers, documentation, etc.) "
 		"cannot be recovered after applying the changes."
 		"\n\nShall I apply the changes anyway?"
 	)
@@ -329,13 +370,16 @@ def summarize_configured_elements(configured: dict) -> str:
 		attrs = data.get("attrs", {})
 
 		config_labels = []
-		for local_name in attrs:
-			label = _ATTR_FAMILY_LABELS.get(local_name, local_name)
+		for clark_name in attrs:
+			label = _attr_label(clark_name)
 			if label not in config_labels:
 				config_labels.append(label)
 
 		if data.get("extension_elements_xml"):
 			config_labels.append("Extension Elements")
+
+		if data.get("documentation"):
+			config_labels.append("Documentation")
 
 		line = f"• **{name}** ({elem_type})"
 		if config_labels:
