@@ -94,7 +94,7 @@ def _apply_custom_field(record: dict, log_doc) -> str:
 		if frappe.db.exists("Custom Field", name):
 			existing = frappe.get_doc("Custom Field", name)
 			for key, value in record.items():
-				if key in ("doctype", "name", "creation", "modified", "owner"):
+				if key in ("doctype", "name", "creation", "modified", "modified_by", "owner"):
 					continue
 				existing.set(key, value)
 			existing.flags.ignore_permissions = True
