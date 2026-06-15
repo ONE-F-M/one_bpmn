@@ -7,7 +7,7 @@ frappe.ui.form.on("Processa Settings", {
 		if (frm.doc.enable_ba_sync) {
 			frm.add_custom_button(__("Sync Now"), function () {
 				frappe.confirm(
-					__("This will pull Custom DocTypes, Custom Fields, and Property Setters from the BA site and apply them to this site. Continue?"),
+					__("This will pull Custom Fields and Property Setters from the BA site and apply them to this site. Continue?"),
 					function () {
 						frappe.call({
 							method: "one_bpmn.api.schema_sync.trigger_manual_sync",

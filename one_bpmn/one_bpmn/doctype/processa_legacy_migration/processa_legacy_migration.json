@@ -1,0 +1,213 @@
+{
+ "actions": [],
+ "allow_rename": 0,
+ "autoname": "PLM-.####",
+ "creation": "2026-06-13 20:00:00.000000",
+ "doctype": "DocType",
+ "engine": "InnoDB",
+ "field_order": [
+  "section_config",
+  "process_model",
+  "target_doctype",
+  "column_break_cfg",
+  "old_status",
+  "target_status",
+  "section_options",
+  "create_process_instance",
+  "column_break_opts",
+  "target_task_id",
+  "target_task_name",
+  "section_progress",
+  "status",
+  "total_records",
+  "column_break_prog",
+  "migrated_count",
+  "failed_count",
+  "section_timing",
+  "started_at",
+  "run_by",
+  "column_break_time",
+  "completed_at",
+  "section_errors",
+  "error_logs"
+ ],
+ "fields": [
+  {
+   "fieldname": "section_config",
+   "fieldtype": "Section Break",
+   "label": "Migration Configuration"
+  },
+  {
+   "fieldname": "process_model",
+   "fieldtype": "Link",
+   "in_list_view": 1,
+   "label": "Process Model",
+   "options": "BPMN Process Model",
+   "reqd": 1
+  },
+  {
+   "fieldname": "target_doctype",
+   "fieldtype": "Link",
+   "in_list_view": 1,
+   "label": "Target DocType",
+   "options": "DocType",
+   "reqd": 1
+  },
+  {
+   "fieldname": "column_break_cfg",
+   "fieldtype": "Column Break"
+  },
+  {
+   "description": "The current workflow_state or status value to filter records by.",
+   "fieldname": "old_status",
+   "fieldtype": "Data",
+   "in_list_view": 1,
+   "label": "Old Status",
+   "reqd": 1
+  },
+  {
+   "description": "The new workflow_state or status value to set on each record.",
+   "fieldname": "target_status",
+   "fieldtype": "Data",
+   "in_list_view": 1,
+   "label": "Target Status",
+   "reqd": 1
+  },
+  {
+   "fieldname": "section_options",
+   "fieldtype": "Section Break",
+   "label": "BPMN Instance Options"
+  },
+  {
+   "default": "1",
+   "description": "If checked, a BPMN Process Instance will be created for each migrated record, with the workflow fast-forwarded to the target state.",
+   "fieldname": "create_process_instance",
+   "fieldtype": "Check",
+   "label": "Create Process Instance"
+  },
+  {
+   "fieldname": "column_break_opts",
+   "fieldtype": "Column Break"
+  },
+  {
+   "depends_on": "eval:doc.create_process_instance",
+   "description": "BPMN element ID of the service task that applies the target state (e.g. Activity_1wk27fv). Leave blank to auto-detect from target_status.",
+   "fieldname": "target_task_id",
+   "fieldtype": "Data",
+   "label": "Target Task ID"
+  },
+  {
+   "depends_on": "eval:doc.target_task_id",
+   "fieldname": "target_task_name",
+   "fieldtype": "Data",
+   "label": "Target Task Name",
+   "read_only": 1
+  },
+  {
+   "fieldname": "section_progress",
+   "fieldtype": "Section Break",
+   "label": "Progress"
+  },
+  {
+   "default": "Draft",
+   "fieldname": "status",
+   "fieldtype": "Select",
+   "in_list_view": 1,
+   "label": "Status",
+   "options": "Draft\nQueued\nRunning\nCompleted\nFailed",
+   "read_only": 1
+  },
+  {
+   "default": "0",
+   "fieldname": "total_records",
+   "fieldtype": "Int",
+   "label": "Total Records",
+   "read_only": 1
+  },
+  {
+   "fieldname": "column_break_prog",
+   "fieldtype": "Column Break"
+  },
+  {
+   "default": "0",
+   "fieldname": "migrated_count",
+   "fieldtype": "Int",
+   "label": "Migrated",
+   "read_only": 1
+  },
+  {
+   "default": "0",
+   "fieldname": "failed_count",
+   "fieldtype": "Int",
+   "label": "Failed",
+   "read_only": 1
+  },
+  {
+   "fieldname": "section_timing",
+   "fieldtype": "Section Break",
+   "label": "Execution"
+  },
+  {
+   "fieldname": "started_at",
+   "fieldtype": "Datetime",
+   "label": "Started At",
+   "read_only": 1
+  },
+  {
+   "fieldname": "run_by",
+   "fieldtype": "Link",
+   "label": "Run By",
+   "options": "User",
+   "read_only": 1
+  },
+  {
+   "fieldname": "column_break_time",
+   "fieldtype": "Column Break"
+  },
+  {
+   "fieldname": "completed_at",
+   "fieldtype": "Datetime",
+   "label": "Completed At",
+   "read_only": 1
+  },
+  {
+   "collapsible": 1,
+   "fieldname": "section_errors",
+   "fieldtype": "Section Break",
+   "label": "Error Logs"
+  },
+  {
+   "fieldname": "error_logs",
+   "fieldtype": "Table",
+   "label": "Error Logs",
+   "options": "Legacy Migration Error Log",
+   "read_only": 1
+  }
+ ],
+ "index_web_pages_for_search": 0,
+ "links": [],
+ "modified": "2026-06-14 09:25:00.000000",
+ "modified_by": "Administrator",
+ "module": "ONE BPMN",
+ "name": "Processa Legacy Migration",
+ "naming_rule": "By \"Naming Series\" field",
+ "owner": "Administrator",
+ "permissions": [
+  {
+   "create": 1,
+   "delete": 1,
+   "email": 1,
+   "export": 1,
+   "print": 1,
+   "read": 1,
+   "report": 1,
+   "role": "System Manager",
+   "share": 1,
+   "write": 1
+  }
+ ],
+ "sort_field": "creation",
+ "sort_order": "DESC",
+ "states": [],
+ "track_changes": 1
+}
