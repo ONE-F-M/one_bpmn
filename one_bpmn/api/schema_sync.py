@@ -94,7 +94,7 @@ def _apply_custom_field(record: dict, log_doc) -> str:
 		if frappe.db.exists("Custom Field", name):
 			existing = frappe.get_doc("Custom Field", name)
 			for key, value in record.items():
-				if key in ("doctype", "name", "creation", "owner"):
+				if key in ("doctype", "name", "creation", "modified", "modified_by", "owner"):
 					continue
 				existing.set(key, value)
 			existing.flags.ignore_permissions = True
@@ -131,7 +131,7 @@ def _apply_property_setter(record: dict, log_doc) -> str:
 		if frappe.db.exists("Property Setter", name):
 			existing = frappe.get_doc("Property Setter", name)
 			for key, value in record.items():
-				if key in ("doctype", "name", "creation", "owner"):
+				if key in ("doctype", "name", "creation", "modified", "modified_by", "owner"):
 					continue
 				existing.set(key, value)
 			existing.flags.ignore_permissions = True
@@ -354,6 +354,8 @@ def run_schema_sync(sync_type: str = "Scheduled") -> str:
 		# Step 3: Run bench migrate
 		if applied > 0:
 			migrate_ok = _run_bench_migrate(log_doc)
+			# Reload to pick up the modified timestamp that _run_bench_migrate saved
+			log_doc.reload()
 		else:
 			log_doc.migration_status = "Skipped"
 			log_doc.migration_output = "No records were applied — migration skipped."
@@ -372,6 +374,8 @@ def run_schema_sync(sync_type: str = "Scheduled") -> str:
 
 		# Update last_sync_time on success
 		if log_doc.status in ("Completed", "Completed with Errors"):
+			# Reload settings to avoid stale modified timestamp
+			settings.reload()
 			sync_timestamp = records.get("sync_timestamp")
 			if sync_timestamp:
 				settings.last_sync_time = sync_timestamp
@@ -383,6 +387,11 @@ def run_schema_sync(sync_type: str = "Scheduled") -> str:
 		return log_doc.name
 
 	except Exception:
+		# Reload to avoid stale modified timestamp if a mid-flow save occurred
+		try:
+			log_doc.reload()
+		except Exception:
+			pass
 		log_doc.status = "Failed"
 		log_doc.completed_at = now_datetime()
 		log_doc.error_traceback = frappe.get_traceback()
