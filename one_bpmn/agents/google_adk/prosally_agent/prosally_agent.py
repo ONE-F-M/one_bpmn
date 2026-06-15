@@ -418,23 +418,25 @@ CRITICAL — exclusiveGateway SPLIT (1 incoming, N outgoing):
 
 RE-CHECK LOOP: always use two gateways — a pure JOIN (N→1) then a pure FORK (1→N).
 
-=== SWIM LANES — ALWAYS USE WHEN 2+ ROLES ARE INVOLVED ===
+=== SWIM LANES — PRESERVE THE ORIGINAL STRUCTURE ===
 
-Use swim lanes automatically whenever the process involves 2 or more distinct actors or roles.
-Each lane entry is { "id": "snake_case", "name": "Display Name" }.
-Every node must have a "lane" field set to a lane's id (not its name). All lane ids must appear in "lanes".
+CRITICAL: Whether or not the output has lanes depends on the ORIGINAL XML:
+  • If the current XML has a <bpmn:laneSet>, PRESERVE the lanes. Add new elements to the appropriate lane.
+  • If the current XML does NOT have a <bpmn:laneSet>, do NOT add lanes. Output IR without a "lanes" array.
+    The user deliberately chose a flat (no-pool, no-lane) layout. Do not restructure their diagram.
 
-Role identification: any named person/team (employee, manager, HR, finance...) gets their own lane.
-Automated steps (send email, update record, validate, calculate) → "system" lane, name "System (Automatic)".
+The prompt will explicitly tell you: "LANE STATUS: HAS_LANES" or "LANE STATUS: NO_LANES".
+When LANE STATUS is NO_LANES: omit the "lanes" key entirely from the IR output. Do not add "lane" fields to nodes.
+When LANE STATUS is HAS_LANES: include the "lanes" array and "lane" field on every node.
 
-Assign:
-  userTask        → person's lane id
-  scriptTask / serviceTask → "system"
-  startEvent / endEvent   → lane of the actor triggering or closing the process
-  gateway                 → same lane id as the task immediately before it
-
-If the existing XML has a laneSet, preserve and update the lane assignments when applying changes.
-Omit lanes only when a single person does every step with zero system automation.
+When lanes ARE present:
+  Each lane entry is { "id": "snake_case", "name": "Display Name" }.
+  Every node must have a "lane" field set to a lane's id (not its name). All lane ids must appear in "lanes".
+  Role identification: any named person/team gets their own lane.
+  Automated steps → "system" lane, name "System (Automatic)".
+  Assign: userTask → person's lane id; scriptTask/serviceTask → "system";
+  startEvent/endEvent → lane of the actor triggering or closing the process;
+  gateway → same lane id as the task immediately before it.
 
 === MANDATORY CHECKS BEFORE OUTPUT ===
 
@@ -450,8 +452,8 @@ Omit lanes only when a single person does every step with zero system automation
 
 Output ONLY a valid JSON object matching the IR schema.
 No markdown fences, no explanation, no XML, no prose.
-All node IDs must be unique snake_case strings."""
-
+For EXISTING elements: keep their EXACT original IDs from the XML (e.g. \"Activity_1ibqc3i\", \"Gateway_0dtm1cb\").
+For NEW elements only: use unique snake_case IDs."""
 
 # ── IR repair hints (rule name → IR-level fix description) ───────────────────
 
@@ -629,9 +631,62 @@ class ProsAllyAgent:
         if history:
             parts.append(f"Modification request from conversation:\n{history}")
         if current_xml.strip():
+            # Detect whether the original XML uses lanes so the LLM preserves the structure
+            has_lanes = "laneSet" in current_xml or "bpmn:laneSet" in current_xml
+            lane_status = "HAS_LANES" if has_lanes else "NO_LANES"
+            parts.append(f"LANE STATUS: {lane_status}")
+            if not has_lanes:
+                parts.append(
+                    "IMPORTANT: This diagram has NO lanes/pools. "
+                    "Do NOT add lanes to the output IR. Omit the \"lanes\" key entirely. "
+                    "Do NOT add \"lane\" fields to any nodes. "
+                    "Preserve the flat process structure."
+                )
+
+            # Extract element IDs from the XML so the LLM has an explicit lookup table.
+            # This prevents the LLM from inventing new IDs for existing elements.
+            id_table = self._extract_element_ids(current_xml)
+            if id_table:
+                parts.append(
+                    "ELEMENT ID TABLE — you MUST use these EXACT IDs for existing elements:\n"
+                    + id_table
+                    + "\nDo NOT rename any of these IDs. Only NEW elements get new IDs."
+                )
+
             parts.append(f"Current BPMN XML to analyse and modify:\n{current_xml.strip()}")
         parts.append("Output the complete IR JSON for the modified process now.")
         return "\n\n".join(parts)
+
+    @staticmethod
+    def _extract_element_ids(xml: str) -> str:
+        """Parse BPMN XML and return a table of element IDs the LLM must preserve."""
+        import re as _re
+        lines = []
+        # Two-pass: first capture each opening tag + all its attributes,
+        # then extract id and name from the attribute string separately.
+        tag_pattern = _re.compile(r'<bpmn:(\w+)\s([^>]*?)/?>') 
+        skip_types = {
+            "definitions", "process", "collaboration", "participant",
+            "laneSet", "lane", "BPMNDiagram", "BPMNPlane",
+            "BPMNShape", "BPMNEdge", "messageEventDefinition",
+            "timerEventDefinition", "conditionalEventDefinition",
+            "signalEventDefinition", "terminateEventDefinition",
+            "dataObject", "incoming", "outgoing", "conditionExpression",
+        }
+        for m in tag_pattern.finditer(xml):
+            bpmn_type = m.group(1)
+            attrs_str = m.group(2)
+            if bpmn_type in skip_types:
+                continue
+            id_m = _re.search(r'id="([^"]+)"', attrs_str)
+            if not id_m:
+                continue
+            elem_id = id_m.group(1)
+            name_m = _re.search(r'name="([^"]*)"', attrs_str)
+            elem_name = name_m.group(1) if name_m else None
+            label = f' name="{elem_name}"' if elem_name else ""
+            lines.append(f'  {bpmn_type} id="{elem_id}"{label}')
+        return "\n".join(lines)
 
     # ── IR pipeline ────────────────────────────────────────────────────────────
 
