@@ -90,14 +90,19 @@ app_include_js = [
 # Installation
 # ------------
 
-# before_install = "one_bpmn.install.before_install"
-# after_install = "one_bpmn.install.after_install"
+after_install = "one_bpmn.setup.setup.after_install"
 
 # Uninstallation
 # ------------
 
-# before_uninstall = "one_bpmn.uninstall.before_uninstall"
-# after_uninstall = "one_bpmn.uninstall.after_uninstall"
+before_uninstall = "one_bpmn.setup.setup.before_uninstall"
+
+# After Migrate
+# ------------
+
+after_migrate = [
+	"one_bpmn.setup.setup.after_migrate"
+]
 
 # Integration Setup
 # ------------------
