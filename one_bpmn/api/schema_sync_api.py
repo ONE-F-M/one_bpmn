@@ -13,14 +13,13 @@ from frappe.utils import get_datetime
 _EXCLUDE_FIELDS = {"_user_tags", "_comments", "_assign", "_liked_by"}
 
 
-def _get_records(doctype: str, since: str | None, fields: list[str] | None = None) -> list[dict]:
+def _get_records(doctype: str, since: str | None) -> list[dict]:
 	"""Fetch records from a given DocType, optionally filtered by modification time.
 
 	Args:
 		doctype: The DocType to query (e.g., "Custom Field").
 		since: ISO datetime string. If provided, only records modified on or after
 			this timestamp are returned. If None, all records are returned.
-		fields: Optional list of fields to fetch. If None, fetches all via get_doc.
 
 	Returns:
 		List of document dicts with all field values.
@@ -87,7 +86,7 @@ def get_schema_delta(since: str = None) -> dict:
 	result = {
 		"custom_fields": _get_records("Custom Field", since),
 		"property_setters": _get_records("Property Setter", since),
-		"sync_timestamp": frappe.utils.now_datetime().isoformat(),
+		"sync_timestamp": frappe.utils.now(),
 	}
 
 	return result

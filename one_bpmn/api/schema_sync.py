@@ -4,7 +4,6 @@
 # Production-side sync engine: pulls delta records from the BA site,
 # applies them to Production ("BA wins" overwrite), then runs bench migrate.
 
-import json
 import subprocess
 
 import frappe
@@ -211,7 +210,8 @@ def _apply_records(log_doc, records: dict) -> tuple[int, int]:
 					action=action,
 					ba_modified=record.get("modified", ""),
 				)
-				applied += 1
+				if action != "Skipped":
+					applied += 1
 			except Exception:
 				failed += 1
 
@@ -229,7 +229,8 @@ def _apply_records(log_doc, records: dict) -> tuple[int, int]:
 					action=action,
 					ba_modified=record.get("modified", ""),
 				)
-				applied += 1
+				if action != "Skipped":
+					applied += 1
 			except Exception:
 				failed += 1
 
@@ -420,6 +421,10 @@ def trigger_manual_sync() -> dict:
 		dict with log_name of the created Schema Sync Log.
 	"""
 	frappe.only_for("System Manager")
+
+	settings = frappe.get_single("Processa Settings")
+	if not settings.enable_ba_sync:
+		frappe.throw(_("BA Sync is not enabled in Processa Settings."))
 
 	frappe.enqueue(
 		method="one_bpmn.api.schema_sync.run_schema_sync",
