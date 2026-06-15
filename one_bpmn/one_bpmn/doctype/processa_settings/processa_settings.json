@@ -15,7 +15,6 @@
   "ba_api_key",
   "ba_api_secret",
   "column_break_ba",
-  "sync_custom_doctypes",
   "sync_custom_fields",
   "sync_property_setters",
   "last_sync_time"
@@ -62,7 +61,7 @@
   },
   {
    "default": "0",
-   "description": "Enable automated daily sync of Custom DocTypes, Custom Fields, and Property Setters from the BA site to this Production site.",
+   "description": "Enable automated daily sync of Custom Fields and Property Setters from the BA site to this Production site.",
    "fieldname": "enable_ba_sync",
    "fieldtype": "Check",
    "label": "Enable BA Sync"
@@ -92,13 +91,6 @@
   {
    "fieldname": "column_break_ba",
    "fieldtype": "Column Break"
-  },
-  {
-   "default": "1",
-   "depends_on": "eval:doc.enable_ba_sync==1",
-   "fieldname": "sync_custom_doctypes",
-   "fieldtype": "Check",
-   "label": "Sync Custom DocTypes"
   },
   {
    "default": "1",

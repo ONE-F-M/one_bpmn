@@ -26,6 +26,8 @@ _INTERNAL_DOCTYPES = frozenset(
 		"BPMN Active Task",
 		"BPMN Activity Log",
 		"BPMN Process DocType",
+		"Processa Legacy Migration",
+		"Legacy Migration Error Log",
 	}
 )
 
