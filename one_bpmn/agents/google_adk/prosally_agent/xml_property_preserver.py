@@ -153,7 +153,7 @@ def extract_configured_elements(xml: str) -> dict:
 		{element_id: {
 			"name": str,
 			"type": str,
-			"attrs": {attr_local_name: value, ...},
+			"attrs": {attr_clark_name: value, ...},
 			"extension_elements_xml": str or None,
 			"documentation": str or None,
 		}}
