@@ -301,11 +301,11 @@ def transfer_properties(old_xml: str, new_xml: str) -> tuple:
 
 	# Ensure the XML declaration uses the standard BPMN format
 	# ET may produce <?xml version='1.0' encoding='us-ascii'?> — normalise
-		merged_xml = re.sub(
-			r"^<\?xml\s[^?]*\?>",
-			'<?xml version="1.0" encoding="UTF-8"?>',
-			merged_xml,
-		)
+	merged_xml = re.sub(
+		r"^<\?xml\s[^?]*\?>",
+		'<?xml version="1.0" encoding="UTF-8"?>',
+		merged_xml,
+	)
 
 	return merged_xml, removed_elements
 
