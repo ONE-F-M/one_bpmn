@@ -986,18 +986,7 @@ class ProsAllyAgent:
         _GENERATE_INTENTS    = {"GENERATE_NEW", "OVERWRITE_EXISTING"}
         _NEEDS_CLARIFICATION = {"AMBIGUOUS", "INCOMPLETE"}
 
-        # STEP 0a — User confirmed APPLY_PENDING: return the pre-computed XML
-        if confirmed_action == "APPLY_PENDING" and current_xml.strip():
-            # current_xml carries the pending merged XML from the CONFIRM_REMOVAL step
-            return {
-                "intent":        "BPMN_MODIFIED",
-                "action_intent": "MODIFY_EXISTING",
-                "bpmn_xml":      current_xml,
-                "response":      "Changes applied. Review the updated diagram on the canvas.",
-                "options":       [],
-            }
-
-        # STEP 0 — User confirmed an action: skip classification and act immediately
+		# STEP 0 — User confirmed an action: skip classification and act immediately
         if confirmed_action in _ACTION_INTENTS:
             name_label = process_name or "process"
 
