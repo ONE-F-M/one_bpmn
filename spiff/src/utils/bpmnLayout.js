@@ -149,7 +149,7 @@ export function layoutBpmnXml(xmlString) {
 		if (!hasEdges && Object.keys(flows).length > 0 && existingDI) {
 			// Parse shape positions from existing DI for edge routing
 			const shapePositions = {};
-			const shapeRegex = /bpmnElement="([^"]+)"[\s\S]*?<dc:Bounds\s+x="([^"]+)"\s+y="([^"]+)"\s+width="([^"]+)"\s+height="([^"]+)"/g;
+			const shapeRegex = /bpmnElement="([^"]+)"[\s\S]*?<(?:dc|omgdc):Bounds\s+x="([^"]+)"\s+y="([^"]+)"\s+width="([^"]+)"\s+height="([^"]+)"/g;
 			let m;
 			while ((m = shapeRegex.exec(existingDI)) !== null) {
 				shapePositions[m[1]] = {
