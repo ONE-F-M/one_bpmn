@@ -97,17 +97,7 @@ def _make_new_xml(task_ids: list[str], extra_tasks: list[str] | None = None) -> 
 # ── Test 1: SpiffWorkflow extension attributes preserved ──────────────────────
 
 def test_spiffworkflow_attrs_preserved():
-	new_xml = _make_new_xml(["Task_A", "Task_B"], extra_tasks=[])
-	# Add Task_B as scriptTask
-	new_xml = new_xml.replace(
-		'<userTask id="Task_B"',
-		'<scriptTask id="Task_B"'
-	).replace(
-		'</userTask>',
-		'</scriptTask>',
-		1  # Only replace the second closing tag — but simpler to just use a clean new XML
-	)
-	# Simpler approach: build new XML manually
+	# Build new XML manually (avoid brittle string replacements)
 	new_xml = """<?xml version="1.0" encoding="UTF-8"?>
 <definitions xmlns="http://www.omg.org/spec/BPMN/20100524/MODEL"
              targetNamespace="http://test" id="Defs">
