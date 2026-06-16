@@ -201,6 +201,45 @@ function normalizeGateways(ir) {
     }
   }
 
+  // ── Cleanup pass: remove superfluous gateways (1 in + 1 out) ──
+  // normalizeGateways may insert join/fork gateways that end up unnecessary
+  // when the IR structure doesn't actually require them (e.g. a join gateway
+  // inserted for a node that only has one actual predecessor after other
+  // normalization). Remove them and bridge predecessor → successor directly.
+  {
+    let changed = true;
+    while (changed) {
+      changed = false;
+      const { out, inn } = buildAdjacency(nodes, flows);
+      for (const n of [...nodes]) {
+        if (!GATEWAY_TYPES.has(n.type)) continue;
+        const inFlows  = inn.get(n.id) || [];
+        const outFlows = out.get(n.id) || [];
+        if (inFlows.length !== 1 || outFlows.length !== 1) continue;
+
+        // This gateway is superfluous: exactly 1 in, 1 out
+        const predFlow = inFlows[0];   // { from, to, ... }
+        const succFlow = outFlows[0];  // { from, to, ... }
+
+        // Bridge: predecessor → successor (preserve name/condition from the outgoing flow)
+        const bridgeFlow = {
+          from: predFlow.from,
+          to:   succFlow.to,
+          name: succFlow.name || predFlow.name || '',
+        };
+        if (succFlow.condition) bridgeFlow.condition = succFlow.condition;
+        if (succFlow.default)   bridgeFlow.default   = succFlow.default;
+
+        // Remove the two old flows and the gateway node
+        flows = flows.filter(f => f !== predFlow && f !== succFlow);
+        flows.push(bridgeFlow);
+        nodes = nodes.filter(nd => nd.id !== n.id);
+        changed = true;
+        break;  // restart scan since adjacency changed
+      }
+    }
+  }
+
   return { ...ir, nodes, flows };
 }
 
