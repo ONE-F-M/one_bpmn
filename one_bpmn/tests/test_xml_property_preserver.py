@@ -17,8 +17,6 @@ from __future__ import annotations
 
 import xml.etree.ElementTree as ET
 
-import pytest
-
 from one_bpmn.agents.google_adk.prosally_agent.xml_property_preserver import (
 	extract_configured_elements,
 	format_removal_warning,
