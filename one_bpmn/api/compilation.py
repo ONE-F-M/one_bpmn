@@ -868,6 +868,40 @@ def _extract_script_task_config(bpmn_xml: str) -> dict:
 	return extensions
 
 
+def _lint_ai_provider_config(bpmn_xml: str, service_extensions: dict) -> None:
+	"""
+	Compile-time lint for AI Agent Tasks:
+	1. Rejects raw API keys embedded in any spiffworkflow:ai* attribute.
+	2. Validates that referenced AI Provider records exist in the database.
+	"""
+	import re
+	_RAW_KEY_RE = re.compile(r"^(sk-|key-)", re.IGNORECASE)
+	_RAW_KEY_ATTR_NAMES = frozenset({"aiApiKey", "aiKey"})
+
+	for bpmn_id, task_cfg in (service_extensions or {}).items():
+		if task_cfg.get("serviceType") != "ai_agent":
+			continue
+
+		for attr_name, attr_value in task_cfg.items():
+			if attr_name in _RAW_KEY_ATTR_NAMES or _RAW_KEY_RE.match(str(attr_value)):
+				frappe.throw(
+					_(
+						"Raw API keys must not appear in BPMN XML. "
+						"Use an AI Provider reference."
+					),
+					exc=frappe.ValidationError,
+				)
+
+		provider_name = task_cfg.get("aiProvider", "")
+		if provider_name and not frappe.db.exists("AI Provider", provider_name):
+			frappe.throw(
+				_(
+					"AI Provider '{0}' not found. "
+					"Create it in the AI Provider list."
+				).format(provider_name),
+				exc=frappe.ValidationError,
+			)
+
 @frappe.whitelist()
 def compile_process_model(model_name: str) -> dict:
 	"""
@@ -1004,6 +1038,7 @@ def compile_process_model(model_name: str) -> dict:
 	service_extensions = _extract_service_task_config(sanitized_xml)
 	if service_extensions:
 		spec_data["service_task_extensions"] = service_extensions
+	_lint_ai_provider_config(sanitized_xml, service_extensions)
 
 	script_extensions = _extract_script_task_config(sanitized_xml)
 	if script_extensions:
