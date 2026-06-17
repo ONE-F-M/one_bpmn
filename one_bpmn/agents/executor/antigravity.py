@@ -29,9 +29,8 @@ class AntigravityExecutor(Executor):
     """Single-call Google Antigravity SDK executor."""
 
     def run(self, config: ExecutorConfig, context: ExecutorContext) -> ExecutorResult:
-        # ── Feature-detect the SDK ──────────────────────────────────
         try:
-            import antigravity  # noqa: F401 — presence check only
+            import antigravity  # noqa: F401
         except ImportError:
             return ExecutorResult(
                 error_code=ErrorCode.FAILED_MODEL_CALL,
@@ -41,7 +40,6 @@ class AntigravityExecutor(Executor):
                 ),
             )
 
-        # ── Execute ─────────────────────────────────────────────────
         try:
             import antigravity as _sdk
 
@@ -50,10 +48,8 @@ class AntigravityExecutor(Executor):
                 system_prompt=config.system_prompt,
             )
             response = agent.send(config.user_prompt)
-
             content = getattr(response, "text", "") or str(response)
 
-            # SDK native token tracking
             usage_obj = getattr(response, "usage", None)
             token_usage = TokenUsage(
                 prompt_tokens=int(getattr(usage_obj, "prompt_tokens", 0) or 0),
@@ -65,7 +61,6 @@ class AntigravityExecutor(Executor):
                     token_usage.prompt_tokens + token_usage.completion_tokens
                 )
 
-            # JSON schema validation (mirrors DirectApiExecutor)
             if config.response_format == "json":
                 validation_result = self._validate_json(content, config.response_schema)
                 if isinstance(validation_result, ExecutorResult):
@@ -101,7 +96,6 @@ class AntigravityExecutor(Executor):
         if schema_str:
             try:
                 import jsonschema
-
                 schema = json.loads(schema_str)
                 jsonschema.validate(parsed, schema)
             except ImportError:
@@ -120,5 +114,4 @@ class AntigravityExecutor(Executor):
         return parsed
 
 
-# Register under "antigravity"
 register_executor("antigravity", AntigravityExecutor)
