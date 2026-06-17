@@ -12,6 +12,7 @@ from frappe.utils import now_datetime
 from SpiffWorkflow.util.task import TaskState
 
 from one_bpmn.one_bpmn import engine as bpmn_engine
+from one_bpmn.one_bpmn.doctype.bpmn_process_instance.dispatchers import dispatch_ai_agent
 
 from .dispatchers import (
 	dispatch_email,
@@ -628,6 +629,9 @@ class BPMNProcessInstance(Document):
 					title=f"BPMN ServiceTask: push_notification failed for task {bpmn_id}",
 					message=frappe.get_traceback(),
 				)
+
+		elif service_type == "ai_agent":
+			dispatch_ai_agent(self, task, task_cfg, bpmn_id)
 
 		return True  # default: complete the task
 
