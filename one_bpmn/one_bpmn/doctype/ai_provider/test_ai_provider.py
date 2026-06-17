@@ -17,7 +17,6 @@ from frappe.tests.utils import FrappeTestCase
 
 
 def make_ai_provider(**kwargs) -> frappe.Document:
-    """Factory function for AI Provider test fixtures."""
     defaults = {
         "doctype": "AI Provider",
         "provider_name": f"test-provider-{frappe.generate_hash(length=6)}",
@@ -34,27 +33,22 @@ def make_ai_provider(**kwargs) -> frappe.Document:
 
 
 class TestAIProvider(FrappeTestCase):
-    # (a) Admin creation
     def test_create_ai_provider(self):
         doc = make_ai_provider()
         self.assertTrue(frappe.db.exists("AI Provider", doc.name))
 
-    # (b) as_dict() does not expose the api_key value
     def test_api_key_not_in_as_dict(self):
         doc = make_ai_provider()
         loaded = frappe.get_doc("AI Provider", doc.name)
         d = loaded.as_dict()
-        # The Password fieldtype stores an empty string in as_dict()
         self.assertNotEqual(d.get("api_key"), "sk-test-placeholder-key")
 
-    # (c) get_password returns the real key
     def test_get_password_returns_real_key(self):
         doc = make_ai_provider(api_key="sk-secret-test-key")
         loaded = frappe.get_doc("AI Provider", doc.name)
         decrypted = loaded.get_password("api_key")
         self.assertEqual(decrypted, "sk-secret-test-key")
 
-    # (d) frappe.get_list does not include api_key in results
     def test_get_list_excludes_api_key(self):
         doc = make_ai_provider()
         results = frappe.get_list(
@@ -62,11 +56,9 @@ class TestAIProvider(FrappeTestCase):
             filters={"name": doc.name},
             fields=["name", "provider_name", "api_key"],
         )
-        # Frappe's Password fieldtype never returns the value in list results
         if results:
             self.assertNotEqual(results[0].get("api_key"), "sk-test-placeholder-key")
 
-    # (e) Non-admin cannot read AI Provider
     def test_non_admin_cannot_read(self):
         doc = make_ai_provider()
         frappe.set_user("Guest")
@@ -76,14 +68,12 @@ class TestAIProvider(FrappeTestCase):
         finally:
             frappe.set_user("Administrator")
 
-    # (f) Duplicate provider_name raises DuplicateEntryError
     def test_duplicate_provider_name_raises(self):
         name = f"dup-{frappe.generate_hash(length=6)}"
         make_ai_provider(provider_name=name)
         with self.assertRaises(frappe.DuplicateEntryError):
             make_ai_provider(provider_name=name)
 
-    # (g) Disabled provider is still readable by admin
     def test_disabled_provider_readable_by_admin(self):
         doc = make_ai_provider(enabled=0)
         loaded = frappe.get_doc("AI Provider", doc.name)
