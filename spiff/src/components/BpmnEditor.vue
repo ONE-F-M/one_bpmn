@@ -1540,7 +1540,22 @@ onMounted(async () => {
 						{ name: "pushMessage",          isAttr: true, type: "String" },
 						{ name: "pushToUsers",          isAttr: true, type: "String" },
 						{ name: "pushToDocFields",      isAttr: true, type: "String" },
-						{ name: "pushToRoles",          isAttr: true, type: "String" }
+						{ name: "pushToRoles",          isAttr: true, type: "String" },
+						// AI Agent Task attrs
+						{ name: "aiBackend",            isAttr: true, type: "String" },
+						{ name: "aiProvider",           isAttr: true, type: "String" },
+						{ name: "aiModel",              isAttr: true, type: "String" },
+						{ name: "aiOutputVariable",     isAttr: true, type: "String" },
+						{ name: "aiSystemPrompt",       isAttr: true, type: "String" },
+						{ name: "aiUserPrompt",         isAttr: true, type: "String" },
+						{ name: "aiResponseFormat",     isAttr: true, type: "String" },
+						{ name: "aiResponseSchema",     isAttr: true, type: "String" },
+						{ name: "aiTemperature",        isAttr: true, type: "String" },
+						{ name: "aiTopP",               isAttr: true, type: "String" },
+						{ name: "aiMaxTokens",          isAttr: true, type: "String" },
+						{ name: "aiTimeout",            isAttr: true, type: "String" },
+						{ name: "aiMaxRetries",         isAttr: true, type: "String" },
+						{ name: "aiWriteBackField",     isAttr: true, type: "String" }
 						]
 				});
 			}
