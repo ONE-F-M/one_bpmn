@@ -948,6 +948,14 @@
 				</div>
 			</template>
 		</Dialog>
+
+		<!-- AI Agent Task config modal -->
+		<AIAgentConfigModal
+			v-if="aiAgentModal.show && aiAgentModal.element"
+			:element="aiAgentModal.element"
+			:modeler="modeler"
+			@close="aiAgentModal.show = false"
+		/>
 	</div>
 </template>
 
@@ -966,6 +974,7 @@ import { useBottomSheet } from "@/composables/useBottomSheet";
 
 import FormattingToolbar from "@/components/FormattingToolbar.vue";
 import ProsAllyPanel from "@/components/ProsAllyPanel.vue";
+import AIAgentConfigModal from "@/components/AIAgentConfigModal.vue";
 import { layoutBpmnXml } from "@/utils/bpmnLayout.js";
 import { initModeler } from "@/composables/useModelerInit";
 import { useBpmnContextMenu } from "@/composables/useBpmnContextMenu";
@@ -1982,6 +1991,11 @@ onMounted(async () => {
 					value: event.value || "",
 					eventBus: event.eventBus,
 				});
+			});
+
+			// AI Agent Task config modal
+			eventBus.on("launch-ai-agent-editor", (event) => {
+				aiAgentModal.value = { show: true, element: event.element };
 			});
 
 			// Notification editing (Send Tasks)
