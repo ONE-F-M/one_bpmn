@@ -118,11 +118,11 @@
 		const has_frappe_workflow = !!workflow_fieldname;
 
 		if (!has_frappe_workflow && doc.workflow_state) {
-			// Check if this DocType actually has the workflow_state field
 			const meta = frappe.get_meta(doctype);
 			const has_ws_field = meta && meta.fields &&
-				meta.fields.some(function (df) { return df.fieldname === "workflow_state"; });
-
+				meta.fields.some(function (df) {
+					return df.fieldname === "workflow_state" && df.fieldtype === "Link" && df.options === "Workflow State";
+				});
 			if (has_ws_field) {
 				const state_value = doc.workflow_state;
 				const colour = _get_state_colour(state_value);
