@@ -111,7 +111,7 @@
 
 		if (!doctype) doctype = doc.doctype;
 
-		// Only intercept for submittable DocTypes that:
+		// Only intercept for DocTypes that:
 		//   1. Have NO active Frappe Workflow (workflow_fieldname is null)
 		//   2. Have a non-empty workflow_state value on the document
 		const workflow_fieldname = frappe.workflow.get_state_fieldname(doctype);
