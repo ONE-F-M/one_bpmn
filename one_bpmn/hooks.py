@@ -35,6 +35,7 @@ website_route_rules = [
 app_include_js = [
 	"/assets/one_bpmn/js/bpmn_json_prettify.js",
 	"/assets/one_bpmn/js/bpmn_form_actions.js",
+	"/assets/one_bpmn/js/bpmn_list_indicator.js",
 ]
 
 # include js, css files in header of web template
