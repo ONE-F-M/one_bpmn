@@ -55,14 +55,19 @@ _FRAPPE_EVENT_TO_TASK_ACTION = {
 	"on_cancel": "Cancel"
 }
 
-# Maps Frappe document events  →  BPMN message names to deliver.
-# Used by Section C: when a document with an active BPMN instance changes,
-# deliver the corresponding BPMN message to the waiting EventBasedGateway.
-# The message name MUST match the <bpmn:message name="..."> in the BPMN XML.
-# Convention: {DocType}_{Action}_Action  e.g. ToDo_Edit_Action
+# When a user edits a document that has an active BPMN process running,
+# the process needs to know about the change so it can react (e.g. sync
+# updated fields to Google Tasks, send a status-change notification, etc.).
 #
-# The mapping is generic: {frappe_event: message_name_suffix}
-# The full message name is constructed as: {DocType}_{suffix}
+# This dict maps Frappe hook events to a BPMN message suffix.
+# At runtime the suffix is combined with the DocType name to form the
+# full BPMN message, for example:
+#     on_update on a ToDo  →  "ToDo" + "_" + "Edit_Action"  →  "ToDo_Edit_Action"
+#
+# The resulting message name must match a <bpmn:message name="ToDo_Edit_Action">
+# in the BPMN diagram.  When delivered, it unblocks whichever
+# IntermediateCatchEvent / EventBasedGateway is waiting for that message,
+# allowing the process to continue down the "update" branch.
 _FRAPPE_EVENT_TO_MESSAGE_SUFFIX = {
 	"on_update":   "Edit_Action",
 	"after_save":  "Edit_Action",
@@ -128,11 +133,24 @@ def on_doc_event(doc, method: str):
 		_maybe_advance_instances(doc, task_action)
 
 
-	# ── C) Deliver messages to waiting instances ──────────────────────────────
-	# If this event maps to a BPMN message (on_update → Edit_Action, etc.),
-	# deliver the message to any active instance waiting at an EventBasedGateway.
-	# Guard: only fire once per document per request to avoid duplicate messages
-	# from Frappe's after_insert → on_update → after_save chain.
+	# ── C) Notify running processes about document changes ────────────────────
+	# Sections A and B handle *starting* processes and *advancing* user tasks.
+	# This section handles the third case: the document was edited by the user
+	# (or by code) and we need to tell the already-running BPMN process about
+	# the change.  For example, when a ToDo's status changes from Open → Closed,
+	# the process needs that event to decide whether to send a notification or
+	# sync the status to Google Tasks.
+	#
+	# How it works:
+	#   1. Look up whether this Frappe event (on_update / after_save) has a
+	#      corresponding BPMN message suffix ("Edit_Action").
+	#   2. If yes, _maybe_send_message() finds every active BPMN instance
+	#      linked to this document and delivers the message.
+	#   3. The message unblocks the process's EventBasedGateway, which routes
+	#      to the update branch of the BPMN diagram.
+	#
+	# Dedup: Frappe fires after_insert → on_update → after_save in one request.
+	# _maybe_send_message() uses frappe.flags to ensure only one delivery.
 	message_suffix = _FRAPPE_EVENT_TO_MESSAGE_SUFFIX.get(method)
 	if message_suffix:
 		_maybe_send_message(doc, message_suffix)
@@ -143,47 +161,65 @@ def on_doc_event(doc, method: str):
 
 def _maybe_send_message(doc, message_suffix: str):
 	"""
-	Deliver a BPMN message to any active instance waiting on this document.
+	Notify all running BPMN processes that this document has been edited.
 
-	Constructs the full message name from the doctype + suffix convention:
-	  {DocType (no spaces)}_{suffix}   e.g.  ToDo_Edit_Action
+	When a user saves a document (e.g. changes a ToDo's status from Open
+	to Closed), this function finds every active BPMN Process Instance
+	linked to that document and delivers a BPMN message like
+	"ToDo_Edit_Action".  The message unblocks the process's
+	EventBasedGateway, which then routes to the update branch —
+	executing tasks like "validate the update", "sync to Google Tasks",
+	or "send a status-change notification".
 
-	Guards:
-	  - Only sends once per document per request (frappe.flags dedup)
-	  - Skips if no active instance exists for this document
-	  - Swallows exceptions so document saves are never blocked
-
-	The message is delivered to the instance's EventBasedGateway which will
-	fire the matching IntermediateCatchEvent and continue the flow.
+	Safety guarantees:
+	  - Skips documents that were just created in this same request
+	    (they are still in their creation flow, not waiting for edits)
+	  - Delivers at most once per document per request, even though
+	    Frappe fires on_update and after_save back-to-back
+	  - Never blocks the document save — errors are logged, not raised
 	"""
-	# Guard: Don't send edit messages during document creation.
-	# When a new document is inserted, Frappe fires after_insert → on_update → after_save
-	# in a single request. The instance was JUST started by after_insert and is still in the
-	# creation flow (not yet waiting). Sending Edit_Action here would crash or be a no-op.
-	# We use frappe.flags (request-scoped) because doc attributes may not survive
-	# if Frappe refreshes the doc object between hook calls.
+
+	# ── Skip if this document was just created ────────────────────────────
+	# Frappe fires after_insert → on_update → after_save in one request.
+	# Section A already started a BPMN instance during after_insert, and
+	# that instance is still executing its creation flow (e.g. creating a
+	# Google Task).  It is NOT yet waiting at an EventBasedGateway for
+	# edit messages.  Sending Edit_Action now would either crash (no
+	# matching catch event) or be silently lost.
+	#
+	# _maybe_start_instance() sets this flag right before calling start(),
+	# so we can detect "this document's process was born in this request".
 	bpmn_created = frappe.flags.get("_bpmn_instances_just_started") or set()
 	doc_id = f"{doc.doctype}:{doc.name}"
 	if doc_id in bpmn_created:
 		return
 
-	# Per-request dedup: Frappe fires after_insert → on_update → after_save
-	# in a single transaction. We only want to deliver the message once.
-	# NOTE: frappe.flags is a _dict — missing keys return None, not AttributeError.
+	# ── Deduplicate within the same HTTP request ──────────────────────────
+	# Frappe fires both on_update and after_save for every save.  Both map
+	# to "Edit_Action" in _FRAPPE_EVENT_TO_MESSAGE_SUFFIX.  Without dedup
+	# the BPMN instance would receive the same message twice, which could
+	# advance the process further than intended or cause a "no waiting
+	# task" error.  We track sent messages in frappe.flags (cleared
+	# automatically at the end of each request).
 	if not frappe.flags._bpmn_message_sent:
 		frappe.flags._bpmn_message_sent = set()
 
 	doc_key = f"{doc.doctype}:{doc.name}:{message_suffix}"
 	if doc_key in frappe.flags._bpmn_message_sent:
-		return  # Already sent in this request
+		return
 	frappe.flags._bpmn_message_sent.add(doc_key)
 
-	# Construct the BPMN message name
-	# Convention: DocType with spaces removed + suffix
+	# ── Build the BPMN message name ───────────────────────────────────────
+	# Convention:  DocType (spaces removed) + "_" + suffix
+	# Example:     "ToDo" + "_" + "Edit_Action"  →  "ToDo_Edit_Action"
+	# This must match the <bpmn:message name="ToDo_Edit_Action"> defined
+	# in the BPMN diagram.
 	doctype_clean = doc.doctype.replace(" ", "")
 	message_name = f"{doctype_clean}_{message_suffix}"
 
-	# Find active instances for this document
+	# ── Find all active BPMN instances linked to this document ────────────
+	# A document may have zero instances (no BPMN process configured) or
+	# multiple (e.g. parallel processes).  If there are none, exit early.
 	try:
 		active_instances = frappe.get_all(
 			"BPMN Process Instance",
@@ -200,12 +236,19 @@ def _maybe_send_message(doc, message_suffix: str):
 	if not active_instances:
 		return
 
+	# ── Deliver the message to each active instance ───────────────────────
 	for instance_name in active_instances:
 		try:
 			instance = frappe.get_doc("BPMN Process Instance", instance_name)
-			# Capture the previous status from Frappe's before-save snapshot.
-			# By the time on_update fires, the DB already has the new value,
-			# so the validate script can't detect status changes without this.
+
+			# Capture the document's previous status BEFORE the save.
+			# Frappe stores the pre-save snapshot in doc._doc_before_save,
+			# but by the time on_update fires the database already has the
+			# new value.  If we don't pass the old status here, the BPMN
+			# validate script would compare the DB value (new) with
+			# doc.status (also new) and conclude "nothing changed".
+			# Including _old_status in the payload lets the script detect
+			# actual status transitions (e.g. Open → Closed).
 			prev_doc = getattr(doc, "_doc_before_save", None)
 			payload = {
 				"triggered_by": frappe.session.user,
@@ -213,12 +256,15 @@ def _maybe_send_message(doc, message_suffix: str):
 			}
 			if prev_doc:
 				payload["_old_status"] = prev_doc.status
+
 			instance.receive_message(
 				message_name=message_name,
 				payload=payload,
 			)
 		except Exception:
-			# Never block the document save — log and move on
+			# Log the error but do NOT re-raise.  The user's document save
+			# must always succeed — BPMN orchestration failures should
+			# never block day-to-day ERP operations.
 			frappe.log_error(
 				title=f"BPMN message delivery failed: {message_name} → {instance_name}",
 				message=frappe.get_traceback(),
