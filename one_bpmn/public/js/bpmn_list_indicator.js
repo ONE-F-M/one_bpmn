@@ -167,7 +167,9 @@
 
 		// Add workflow_state to the fetched fields and sidebar stats
 		this._add_field("workflow_state");
-		this.stats.push("workflow_state");
+		if (Array.isArray(this.stats) && !this.stats.includes("workflow_state")) {
+			this.stats.push("workflow_state");
+		}
 	};
 
 })();
