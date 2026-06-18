@@ -53,6 +53,24 @@ export default defineConfig({
 	build: {
 		sourcemap: false,
 		chunkSizeWarningLimit: 1500,
+		rollupOptions: {
+			output: {
+				manualChunks(id) {
+					if (id.includes("node_modules/bpmn-js") || id.includes("node_modules/bpmn-moddle")) {
+						return "vendor-bpmn"
+					}
+					if (id.includes("node_modules/dmn-js")) {
+						return "vendor-dmn"
+					}
+					if (id.includes("node_modules/frappe-ui")) {
+						return "vendor-frappe-ui"
+					}
+					if (id.includes("node_modules/@bpmn-io") || id.includes("node_modules/diagram-js")) {
+						return "vendor-bpmn-io"
+					}
+				},
+			},
+		},
 	},
 })
 

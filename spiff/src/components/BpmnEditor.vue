@@ -1082,6 +1082,7 @@ const timelineCollapsed = ref(false);
 const showCommentDialog = ref(false);
 const showViewCommentsDialog = ref(false);
 const activeCommentElement = ref(null);
+const aiAgentModal = ref({ show: false, element: null });
 const selectedElementComments = ref([]);
 const messageDialog = ref({
 	show: false,

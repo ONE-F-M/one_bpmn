@@ -8,6 +8,7 @@ export {}
 /* prettier-ignore */
 declare module 'vue' {
   export interface GlobalComponents {
+    AIAgentConfigModal: typeof import('./src/components/AIAgentConfigModal.vue')['default']
     BpmnDiagramViewer: typeof import('./src/components/process_instance/BpmnDiagramViewer.vue')['default']
     BpmnEditor: typeof import('./src/components/BpmnEditor.vue')['default']
     CallActivitySearchDialog: typeof import('./src/components/CallActivitySearchDialog.vue')['default']
@@ -29,6 +30,7 @@ declare module 'vue' {
     ReadinessChecklistDialog: typeof import('./src/components/ReadinessChecklistDialog.vue')['default']
     RouterLink: typeof import('vue-router')['RouterLink']
     RouterView: typeof import('vue-router')['RouterView']
+    ShapeLibraryPanel: typeof import('./src/components/ShapeLibraryPanel.vue')['default']
     VersionDiffDialog: typeof import('./src/components/VersionDiffDialog.vue')['default']
   }
 }
