@@ -1,6 +1,7 @@
 import { createRouter, createWebHistory } from "vue-router"
 import Home from "@/views/Home.vue"
 import Editor from "@/views/Editor.vue"
+import ProcessView from "@/views/ProcessView.vue"
 import InstanceList from "@/views/InstanceList.vue"
 import InstanceDetail from "@/views/InstanceDetail.vue"
 
@@ -9,6 +10,12 @@ const routes = [
 		path: "/processa",
 		name: "Home",
 		component: Home,
+	},
+	{
+		path: "/processa/process-view/:process?",
+		name: "ProcessView",
+		component: ProcessView,
+		props: true,
 	},
 	{
 		path: "/processa/process/:process",
@@ -44,4 +51,5 @@ const router = createRouter({
 })
 
 export default router
+
 

@@ -7,6 +7,7 @@
 				<!-- Left: Back & Title -->
 				<div class="flex items-center gap-2 pr-3 sm:border-r sm:border-gray-200 min-w-0 shrink">
 					<button
+						v-if="!compact"
 						@click="goBack"
 						class="p-1.5 hover:bg-gray-100 rounded-md transition-colors text-gray-600 shrink-0"
 						title="Back to list"
@@ -62,6 +63,46 @@
 						</div>
 
 						<Badge v-if="processStatus" :theme="getStatusTheme(processStatus)" :label="processStatus" size="sm" />
+					</div>
+
+					<!-- Compact mode: Diagram dropdown selector (replaces bottom tab bar) -->
+					<div v-if="compact && openTabs.length > 1" class="relative ml-1 sm:ml-2">
+						<button
+							@click="showCompactDiagramMenu = !showCompactDiagramMenu"
+							class="flex items-center gap-1 sm:gap-1.5 px-2 sm:px-2.5 py-1.5 sm:py-1 rounded-md text-xs font-medium border transition-colors active:bg-gray-200"
+							:class="showCompactDiagramMenu ? 'bg-gray-100 border-gray-300 text-gray-900' : 'bg-gray-50 border-gray-200 text-gray-600 hover:bg-gray-100'"
+						>
+							<span
+								:class="[
+									'w-1.5 h-1.5 rounded-full shrink-0',
+									activeDiagramIsActive ? 'bg-green-500' : 'bg-orange-400'
+								]"
+							></span>
+							<span class="truncate max-w-[80px] sm:max-w-[120px]">{{ activeDiagramLabel }}</span>
+							<Icon icon="lucide:chevron-down" class="w-3.5 h-3.5 shrink-0" />
+						</button>
+						<div
+							v-if="showCompactDiagramMenu"
+							v-click-outside="() => showCompactDiagramMenu = false"
+							class="absolute top-full left-0 sm:left-0 mt-1 w-[calc(100vw-2rem)] sm:w-56 max-w-[280px] bg-white border border-gray-200 rounded-lg shadow-lg z-[70] py-1 max-h-64 overflow-y-auto"
+						>
+							<button
+								v-for="tab in openTabs"
+								:key="tab.name"
+								@click="selectDiagram(tab.name); showCompactDiagramMenu = false"
+								class="w-full flex items-center gap-2 px-3 py-2.5 sm:py-2 text-sm text-gray-700 hover:bg-gray-50 active:bg-gray-100 transition-colors"
+								:class="{ 'bg-gray-50 font-semibold text-gray-900': activeDiagramName === tab.name }"
+							>
+								<span
+									:class="[
+										'w-2 h-2 rounded-full shrink-0',
+										tab.is_active ? 'bg-green-500' : 'bg-orange-400'
+									]"
+								></span>
+								<span class="truncate">{{ tab.model_name }}</span>
+								<Icon v-if="activeDiagramName === tab.name" icon="lucide:check" class="w-3.5 h-3.5 text-blue-500 ml-auto shrink-0" />
+							</button>
+						</div>
 					</div>
 				</div>
 
@@ -399,8 +440,8 @@
 				</div>
 			</div>
 
-			<!-- Tab Bar -->
-			<div v-if="openTabs.length > 0" class="relative z-10 flex items-center justify-between bg-white border-t border-gray-200 min-h-[40px]">
+			<!-- Tab Bar (hidden in compact mode — uses toolbar dropdown instead) -->
+			<div v-if="openTabs.length > 0 && !compact" class="relative z-10 flex items-center justify-between bg-white border-t border-gray-200 min-h-[40px]">
 				<EditorTabs
 					:tabs="openTabs"
 					:activeTab="activeDiagramName"
@@ -850,6 +891,23 @@ const props = defineProps({
 		type: String,
 		default: null,
 	},
+	compact: {
+		type: Boolean,
+		default: false,
+	},
+});
+
+// Compact mode: diagram dropdown state
+const showCompactDiagramMenu = ref(false);
+
+const activeDiagramLabel = computed(() => {
+	const d = openTabs.value.find((t) => t.name === activeDiagramName.value);
+	return d ? d.model_name : "Select Diagram";
+});
+
+const activeDiagramIsActive = computed(() => {
+	const d = openTabs.value.find((t) => t.name === activeDiagramName.value);
+	return d ? !!d.is_active : false;
 });
 
 const router = useRouter();
@@ -1673,11 +1731,13 @@ async function selectDiagram(name) {
 		}
 	}
 
-	// Update URL
-	router.replace({
-		name: "DiagramEditor",
-		params: { process: props.process, diagram: name },
-	});
+	// Update URL (skip in compact mode — parent manages routing)
+	if (!props.compact) {
+		router.replace({
+			name: "DiagramEditor",
+			params: { process: props.process, diagram: name },
+		});
+	}
 	// The watch(activeDiagramName) handles loading the new diagram XML.
 }
 
