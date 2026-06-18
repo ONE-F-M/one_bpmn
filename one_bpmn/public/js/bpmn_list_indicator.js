@@ -44,7 +44,6 @@
 	 */
 	function _bulk_load_workflow_states() {
 		if (_bulk_loaded) return;
-		_bulk_loaded = true;
 
 		frappe.call({
 			method: "frappe.client.get_list",
@@ -61,6 +60,11 @@
 						_state_colour_cache[ws.name] = colour;
 					});
 				}
+				_bulk_loaded = true;
+			},
+			error: function () {
+				// Allow retry on the next indicator render
+				_bulk_loaded = false;
 			},
 		});
 	}
