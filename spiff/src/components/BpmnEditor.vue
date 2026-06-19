@@ -960,7 +960,7 @@
 </template>
 
 <script setup>
-import { ref, shallowRef, onMounted, onBeforeUnmount, onUnmounted, watch, computed, nextTick } from "vue";
+import { ref, shallowRef, markRaw, onMounted, onBeforeUnmount, onUnmounted, watch, computed, nextTick } from "vue";
 import { frappeRequest } from "frappe-ui";
 import {
 	injectProcessNameField,
@@ -1014,6 +1014,7 @@ import resizeModule from "@/resize";
 import userTaskPropertiesProviderModule from "@/bpmn/userTaskPropertiesProvider";
 import sendTaskPropertiesProviderModule from "@/bpmn/sendTaskPropertiesProvider";
 import serviceTaskPropertiesProviderModule from "@/bpmn/serviceTaskPropertiesProvider";
+import aiAgentPropertiesProviderModule from "@/bpmn/aiAgentPropertiesProvider";
 import scriptTaskPropertiesProviderModule from "@/bpmn/scriptTaskPropertiesProvider";
 import businessRuleTaskPropertiesProviderModule from "@/bpmn/businessRuleTaskPropertiesProvider";
 import timerPropertiesProviderModule from "@/bpmn/timerPropertiesProvider";
@@ -1607,6 +1608,7 @@ onMounted(async () => {
 				userTaskPropertiesProviderModule,
 				sendTaskPropertiesProviderModule,
 				serviceTaskPropertiesProviderModule,
+				aiAgentPropertiesProviderModule,
 				scriptTaskPropertiesProviderModule,
 				businessRuleTaskPropertiesProviderModule,
 				timerPropertiesProviderModule,
@@ -1995,7 +1997,7 @@ onMounted(async () => {
 
 			// AI Agent Task config modal
 			eventBus.on("launch-ai-agent-editor", (event) => {
-				aiAgentModal.value = { show: true, element: event.element };
+				aiAgentModal.value = { show: true, element: markRaw(event.element) };
 			});
 
 			// Notification editing (Send Tasks)

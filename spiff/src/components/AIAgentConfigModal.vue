@@ -1,112 +1,210 @@
 <template>
   <div class="ai-agent-modal-overlay" @click.self="$emit('close')">
     <div class="ai-agent-modal">
-      <div class="modal-header">
-        <h3>Configure AI Agent Task</h3>
-        <button class="close-btn" @click="$emit('close')">✕</button>
+      <!-- ============ LEFT: configuration form ============ -->
+      <div class="modal-main">
+        <div class="modal-header">
+          <h3>Configure AI Agent Task</h3>
+          <button class="close-btn" @click="$emit('close')">✕</button>
+        </div>
+
+        <div class="modal-body">
+          <!-- Backend -->
+          <div class="field-row">
+            <label>Backend</label>
+            <select v-model="form.aiBackend">
+              <option value="direct_api">Direct API (OpenAI-compatible)</option>
+              <option value="antigravity">Google Antigravity SDK</option>
+            </select>
+          </div>
+
+          <!-- AI Provider -->
+          <div class="field-row">
+            <label>AI Provider</label>
+            <select v-model="form.aiProvider">
+              <option value="">-- Select Provider --</option>
+              <option v-for="p in providers" :key="p.name" :value="p.name">
+                {{ p.provider_name }}
+              </option>
+            </select>
+          </div>
+
+          <!-- Model override -->
+          <div class="field-row">
+            <label>Model <span class="hint">(overrides provider default)</span></label>
+            <input type="text" v-model="form.aiModel" placeholder="e.g. gpt-4o" />
+          </div>
+
+          <!-- Output variable -->
+          <div class="field-row">
+            <label>Output Variable Name</label>
+            <input type="text" v-model="form.aiOutputVariable" placeholder="ai_result" />
+          </div>
+
+          <!-- System prompt -->
+          <div class="field-row">
+            <label>System Prompt <span class="hint">(Jinja: {{ '{{' }} doc }}, {{ '{{' }} instance }})</span></label>
+            <textarea v-model="form.aiSystemPrompt" rows="4" />
+          </div>
+
+          <!-- User prompt -->
+          <div class="field-row">
+            <label>User Prompt <span class="hint">(Jinja supported)</span></label>
+            <textarea v-model="form.aiUserPrompt" rows="4" />
+          </div>
+
+          <!-- Response format -->
+          <div class="field-row">
+            <label>Response Format</label>
+            <select v-model="form.aiResponseFormat">
+              <option value="text">Text</option>
+              <option value="json">JSON</option>
+            </select>
+          </div>
+
+          <!-- Response schema (only when JSON) -->
+          <div class="field-row" v-if="form.aiResponseFormat === 'json'">
+            <label>Response Schema <span class="hint">(JSON Schema)</span></label>
+            <textarea v-model="form.aiResponseSchema" rows="4" placeholder='{"type":"object",...}' />
+          </div>
+
+          <div class="field-group-title">Advanced Settings</div>
+
+          <!-- Temperature -->
+          <div class="field-row two-col">
+            <div>
+              <label>Temperature</label>
+              <input type="number" v-model.number="form.aiTemperature" min="0" max="2" step="0.1" />
+            </div>
+            <div>
+              <label>Top P</label>
+              <input type="number" v-model.number="form.aiTopP" min="0" max="1" step="0.05" />
+            </div>
+          </div>
+
+          <div class="field-row two-col">
+            <div>
+              <label>Max Tokens</label>
+              <input type="number" v-model.number="form.aiMaxTokens" min="1" />
+            </div>
+            <div>
+              <label>Timeout (seconds)</label>
+              <input type="number" v-model.number="form.aiTimeout" min="1" />
+            </div>
+          </div>
+
+          <div class="field-row">
+            <label>Max Retries</label>
+            <input type="number" v-model.number="form.aiMaxRetries" min="0" max="10" />
+          </div>
+        </div>
+
+        <div class="modal-footer">
+          <button class="btn-cancel" @click="$emit('close')">Cancel</button>
+          <button class="btn-save" @click="save">Save</button>
+        </div>
       </div>
 
-      <div class="modal-body">
-        <!-- Backend -->
-        <div class="field-row">
-          <label>Backend</label>
-          <select v-model="form.aiBackend">
-            <option value="direct_api">Direct API (OpenAI-compatible)</option>
-            <option value="antigravity">Google Antigravity SDK</option>
-          </select>
+      <!-- ============ RIGHT: assistant chat panel ============ -->
+      <div class="assistant-panel">
+        <div class="assistant-header">
+          <span class="assistant-title">✦ AI Assistant</span>
+          <span v-if="form.aiProvider" class="assistant-sub">via {{ providerLabel }}</span>
         </div>
 
-        <!-- AI Provider -->
-        <div class="field-row">
-          <label>AI Provider</label>
-          <select v-model="form.aiProvider">
-            <option value="">-- Select Provider --</option>
-            <option v-for="p in providers" :key="p.name" :value="p.name">
-              {{ p.provider_name }}
-            </option>
-          </select>
+        <!-- Disabled state: no provider selected yet -->
+        <div v-if="!form.aiProvider" class="assistant-disabled">
+          Select an AI Provider on the left to enable the assistant. It will use
+          that provider to recommend prompts and settings for this task.
         </div>
 
-        <!-- Model override -->
-        <div class="field-row">
-          <label>Model <span class="hint">(overrides provider default)</span></label>
-          <input type="text" v-model="form.aiModel" placeholder="e.g. gpt-4o" />
-        </div>
-
-        <!-- Output variable -->
-        <div class="field-row">
-          <label>Output Variable Name</label>
-          <input type="text" v-model="form.aiOutputVariable" placeholder="ai_result" />
-        </div>
-
-        <!-- System prompt -->
-        <div class="field-row">
-          <label>System Prompt <span class="hint">(Jinja: {{ '{{' }} doc }}, {{ '{{' }} instance }})</span></label>
-          <textarea v-model="form.aiSystemPrompt" rows="4" />
-        </div>
-
-        <!-- User prompt -->
-        <div class="field-row">
-          <label>User Prompt <span class="hint">(Jinja supported)</span></label>
-          <textarea v-model="form.aiUserPrompt" rows="4" />
-        </div>
-
-        <!-- Response format -->
-        <div class="field-row">
-          <label>Response Format</label>
-          <select v-model="form.aiResponseFormat">
-            <option value="text">Text</option>
-            <option value="json">JSON</option>
-          </select>
-        </div>
-
-        <!-- Response schema (only when JSON) -->
-        <div class="field-row" v-if="form.aiResponseFormat === 'json'">
-          <label>Response Schema <span class="hint">(JSON Schema)</span></label>
-          <textarea v-model="form.aiResponseSchema" rows="4" placeholder='{"type":"object",...}' />
-        </div>
-
-        <div class="field-group-title">Advanced Settings</div>
-
-        <!-- Temperature -->
-        <div class="field-row two-col">
-          <div>
-            <label>Temperature</label>
-            <input type="number" v-model.number="form.aiTemperature" min="0" max="2" step="0.1" />
+        <template v-else>
+          <!-- Context controls -->
+          <div class="assistant-context">
+            <div class="ctx-row">
+              <label>Context DocType <span class="hint">(optional)</span></label>
+              <input type="text" v-model="contextDoctype" placeholder="e.g. Employee" />
+            </div>
+            <div class="ctx-row">
+              <label>Sample Record <span class="hint">(optional)</span></label>
+              <input type="text" v-model="contextDocname" placeholder="latest record if blank" />
+            </div>
+            <div class="ctx-hint">
+              The assistant reads this DocType's schema and one sample record (your
+              permissions apply) to tailor the prompts.
+            </div>
           </div>
-          <div>
-            <label>Top P</label>
-            <input type="number" v-model.number="form.aiTopP" min="0" max="1" step="0.05" />
-          </div>
-        </div>
 
-        <div class="field-row two-col">
-          <div>
-            <label>Max Tokens</label>
-            <input type="number" v-model.number="form.aiMaxTokens" min="1" />
-          </div>
-          <div>
-            <label>Timeout (seconds)</label>
-            <input type="number" v-model.number="form.aiTimeout" min="1" />
-          </div>
-        </div>
+          <!-- Messages -->
+          <div ref="messagesEl" class="assistant-messages">
+            <div v-if="!messages.length" class="assistant-empty">
+              Describe what this AI Agent Task should do, and I'll recommend field
+              values you can apply one by one.
+            </div>
 
-        <div class="field-row">
-          <label>Max Retries</label>
-          <input type="number" v-model.number="form.aiMaxRetries" min="0" max="10" />
-        </div>
-      </div>
+            <div
+              v-for="m in messages"
+              :key="m.id"
+              :class="['msg', m.role === 'user' ? 'msg-user' : 'msg-assistant']"
+            >
+              <div v-if="m.content" class="msg-text">{{ m.content }}</div>
 
-      <div class="modal-footer">
-        <button class="btn-cancel" @click="$emit('close')">Cancel</button>
-        <button class="btn-save" @click="save">Save</button>
+              <!-- Recommendation cards -->
+              <div v-if="m.recommendations && Object.keys(m.recommendations).length" class="recs">
+                <div
+                  v-for="(value, key) in m.recommendations"
+                  :key="key"
+                  class="rec"
+                >
+                  <div class="rec-head">
+                    <span class="rec-field">{{ fieldLabel(key) }}</span>
+                    <button
+                      class="rec-apply"
+                      :disabled="isApplied(m.id, key)"
+                      @click="applyRecommendation(m.id, key, value)"
+                    >
+                      {{ isApplied(m.id, key) ? "Applied ✓" : "Apply" }}
+                    </button>
+                  </div>
+                  <div class="rec-value">{{ valuePreview(value) }}</div>
+                </div>
+              </div>
+            </div>
+
+            <div v-if="loading" class="msg msg-assistant">
+              <div class="msg-text typing">Thinking…</div>
+            </div>
+          </div>
+
+          <!-- Input -->
+          <div class="assistant-input">
+            <textarea
+              v-model="input"
+              rows="2"
+              placeholder="e.g. Summarise the employee's leave history and flag any policy breaches"
+              :disabled="loading"
+              @keydown.enter.exact.prevent="sendMessage"
+            />
+            <button class="assistant-send" :disabled="loading || !input.trim()" @click="sendMessage">
+              Send
+            </button>
+          </div>
+        </template>
       </div>
     </div>
   </div>
 </template>
 
 <script setup>
-import { ref, onMounted } from "vue";
+import { ref, computed, onMounted, nextTick, toRaw } from "vue";
+import { frappePost } from "@/bpmn/shared/frappeResource";
+
+// bpmn-js elements must never be touched as Vue reactive proxies — the renderer
+// reads non-configurable properties (e.g. labels) that a Proxy cannot return,
+// throwing on re-render. Always unwrap to the raw element before using it.
+function rawElement() {
+  return toRaw(props.element);
+}
 
 const props = defineProps({
   element: { type: Object, required: true },
@@ -134,7 +232,124 @@ const form = ref({
   aiMaxRetries: 2,
 });
 
-// Load AI Providers from Frappe
+// ── Assistant state ───────────────────────────────────────────────────────
+const messages = ref([]);          // { id, role, content, recommendations? }
+const input = ref("");
+const loading = ref(false);
+const contextDoctype = ref("");
+const contextDocname = ref("");
+const messagesEl = ref(null);
+const appliedKeys = ref(new Set()); // "<msgId>:<field>"
+
+// Human-readable labels for recommendation fields (keys match form keys).
+const FIELD_LABELS = {
+  aiBackend: "Backend",
+  aiModel: "Model",
+  aiOutputVariable: "Output Variable",
+  aiSystemPrompt: "System Prompt",
+  aiUserPrompt: "User Prompt",
+  aiResponseFormat: "Response Format",
+  aiResponseSchema: "Response Schema",
+  aiTemperature: "Temperature",
+  aiTopP: "Top P",
+  aiMaxTokens: "Max Tokens",
+  aiTimeout: "Timeout (s)",
+  aiMaxRetries: "Max Retries",
+};
+
+const NUMERIC_FIELDS = ["aiTemperature", "aiTopP", "aiMaxTokens", "aiTimeout", "aiMaxRetries"];
+
+const providerLabel = computed(() => {
+  const p = providers.value.find((x) => x.name === form.value.aiProvider);
+  return p ? p.provider_name : form.value.aiProvider;
+});
+
+function makeId() {
+  return Date.now() + "_" + Math.random().toString(36).slice(2, 8);
+}
+
+function fieldLabel(key) {
+  return FIELD_LABELS[key] || key;
+}
+
+function valuePreview(value) {
+  let str = typeof value === "string" ? value : JSON.stringify(value);
+  str = (str || "").trim();
+  return str.length > 240 ? str.slice(0, 240) + "…" : str;
+}
+
+function isApplied(msgId, key) {
+  return appliedKeys.value.has(`${msgId}:${key}`);
+}
+
+function scrollBottom() {
+  nextTick(() => {
+    if (messagesEl.value) messagesEl.value.scrollTop = messagesEl.value.scrollHeight;
+  });
+}
+
+function applyRecommendation(msgId, key, value) {
+  if (NUMERIC_FIELDS.includes(key)) {
+    const n = Number(value);
+    if (Number.isFinite(n)) form.value[key] = n;
+  } else {
+    form.value[key] = String(value);
+  }
+  // Switch the format toggle on so a JSON schema suggestion is visible.
+  appliedKeys.value = new Set(appliedKeys.value).add(`${msgId}:${key}`);
+}
+
+async function sendMessage() {
+  const requirement = input.value.trim();
+  if (!requirement || loading.value || !form.value.aiProvider) return;
+
+  // History = the conversation so far (before this turn).
+  const history = messages.value
+    .filter((m) => m.content)
+    .map((m) => ({ role: m.role, content: m.content }));
+
+  messages.value.push({ id: makeId(), role: "user", content: requirement });
+  input.value = "";
+  loading.value = true;
+  scrollBottom();
+
+  try {
+    const res = await frappePost(
+      "/api/method/one_bpmn.api.ai_assistant.recommend_ai_task_config",
+      {
+        provider: form.value.aiProvider,
+        backend: form.value.aiBackend || "direct_api",
+        requirement,
+        context_doctype: contextDoctype.value.trim(),
+        context_docname: contextDocname.value.trim(),
+        history: JSON.stringify(history),
+      }
+    );
+
+    if (res && res.ok) {
+      messages.value.push({
+        id: makeId(),
+        role: "assistant",
+        content: res.message || "Here are my recommendations.",
+        recommendations: res.recommendations || {},
+      });
+    } else {
+      const err = (res && (res.message || res.error_code)) || "The assistant request failed.";
+      messages.value.push({ id: makeId(), role: "assistant", content: `⚠️ ${err}` });
+    }
+  } catch (e) {
+    messages.value.push({
+      id: makeId(),
+      role: "assistant",
+      content: "⚠️ Could not reach the assistant. Check your connection and try again.",
+    });
+  } finally {
+    loading.value = false;
+    scrollBottom();
+  }
+}
+
+// ── Load providers + existing element config ────────────────────────────────
 onMounted(async () => {
   try {
     const res = await fetch(
@@ -147,7 +362,7 @@ onMounted(async () => {
   }
 
   // Read existing attrs from element
-  const bo = props.element.businessObject;
+  const bo = rawElement().businessObject;
   const get = (attr) => bo.get(`spiffworkflow:${attr}`) ?? "";
   form.value = {
     aiBackend: get("aiBackend") || "direct_api",
@@ -177,8 +392,9 @@ function save() {
     }
   }
 
-  const modeling = props.modeler.get("modeling");
-  const bo = props.element.businessObject;
+  const modeling = toRaw(props.modeler).get("modeling");
+  const element = rawElement();
+  const bo = element.businessObject;
 
   const patch = {
     "spiffworkflow:aiBackend": form.value.aiBackend || undefined,
@@ -196,7 +412,7 @@ function save() {
     "spiffworkflow:aiMaxRetries": String(form.value.aiMaxRetries),
   };
 
-  modeling.updateModdleProperties(props.element, bo, patch);
+  modeling.updateModdleProperties(element, bo, patch);
   emit("close");
 }
 </script>
@@ -215,11 +431,22 @@ function save() {
 .ai-agent-modal {
   background: white;
   border-radius: 8px;
-  width: 560px;
+  width: 920px;
+  max-width: 95vw;
   max-height: 90vh;
   display: flex;
-  flex-direction: column;
+  flex-direction: row;
+  overflow: hidden;
   box-shadow: 0 8px 32px rgba(0, 0, 0, 0.2);
+}
+
+/* Left column */
+.modal-main {
+  flex: 1 1 560px;
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  max-height: 90vh;
 }
 
 .modal-header {
@@ -294,4 +521,145 @@ function save() {
 .btn-cancel:hover { background: #e2e8f0; }
 .btn-save { background: #6366f1; color: white; }
 .btn-save:hover { background: #4f46e5; }
+
+/* Right column — assistant */
+.assistant-panel {
+  flex: 0 0 340px;
+  display: flex;
+  flex-direction: column;
+  background: #f8fafc;
+  border-left: 1px solid #e2e8f0;
+  max-height: 90vh;
+}
+
+.assistant-header {
+  padding: 16px 18px;
+  border-bottom: 1px solid #e2e8f0;
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+}
+.assistant-title { font-size: 0.92rem; font-weight: 600; color: #4338ca; }
+.assistant-sub { font-size: 0.72rem; color: #94a3b8; }
+
+.assistant-disabled {
+  padding: 24px 18px;
+  font-size: 0.82rem;
+  color: #64748b;
+  line-height: 1.5;
+}
+
+.assistant-context {
+  padding: 12px 16px;
+  border-bottom: 1px solid #eef2f7;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.ctx-row { display: flex; flex-direction: column; gap: 3px; }
+.ctx-row label { font-size: 0.72rem; font-weight: 500; color: #475569; }
+.ctx-row .hint { font-weight: 400; color: #9ca3af; }
+.ctx-row input {
+  padding: 5px 7px;
+  border: 1px solid #d1d5db;
+  border-radius: 4px;
+  font-size: 0.8rem;
+  font-family: inherit;
+}
+.ctx-hint { font-size: 0.68rem; color: #94a3b8; line-height: 1.4; }
+
+.assistant-messages {
+  flex: 1;
+  overflow-y: auto;
+  padding: 14px 16px;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+.assistant-empty { font-size: 0.8rem; color: #94a3b8; line-height: 1.5; }
+
+.msg { max-width: 100%; }
+.msg-text {
+  font-size: 0.82rem;
+  line-height: 1.5;
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+.msg-user .msg-text {
+  background: #6366f1;
+  color: #fff;
+  padding: 8px 10px;
+  border-radius: 8px 8px 2px 8px;
+  align-self: flex-end;
+  margin-left: auto;
+  width: fit-content;
+  max-width: 90%;
+}
+.msg-assistant .msg-text {
+  background: #fff;
+  color: #1f2937;
+  padding: 8px 10px;
+  border: 1px solid #e2e8f0;
+  border-radius: 8px 8px 8px 2px;
+  width: fit-content;
+  max-width: 95%;
+}
+.msg-text.typing { color: #94a3b8; font-style: italic; }
+
+.recs { display: flex; flex-direction: column; gap: 6px; margin-top: 8px; }
+.rec {
+  background: #fff;
+  border: 1px solid #e2e8f0;
+  border-radius: 6px;
+  padding: 7px 9px;
+}
+.rec-head { display: flex; justify-content: space-between; align-items: center; gap: 8px; }
+.rec-field { font-size: 0.72rem; font-weight: 600; text-transform: uppercase; letter-spacing: 0.03em; color: #6366f1; }
+.rec-apply {
+  border: none;
+  background: #6366f1;
+  color: #fff;
+  font-size: 0.72rem;
+  padding: 3px 10px;
+  border-radius: 4px;
+  cursor: pointer;
+}
+.rec-apply:hover { background: #4f46e5; }
+.rec-apply:disabled { background: #cbd5e1; cursor: default; }
+.rec-value {
+  font-size: 0.78rem;
+  color: #334155;
+  margin-top: 4px;
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
+.assistant-input {
+  border-top: 1px solid #e2e8f0;
+  padding: 10px 12px;
+  display: flex;
+  gap: 8px;
+  align-items: flex-end;
+}
+.assistant-input textarea {
+  flex: 1;
+  resize: none;
+  padding: 6px 8px;
+  border: 1px solid #d1d5db;
+  border-radius: 4px;
+  font-size: 0.82rem;
+  font-family: inherit;
+}
+.assistant-input textarea:focus { outline: none; border-color: #6366f1; }
+.assistant-send {
+  border: none;
+  background: #6366f1;
+  color: #fff;
+  padding: 8px 14px;
+  border-radius: 5px;
+  font-size: 0.82rem;
+  cursor: pointer;
+}
+.assistant-send:hover { background: #4f46e5; }
+.assistant-send:disabled { background: #cbd5e1; cursor: default; }
 </style>
