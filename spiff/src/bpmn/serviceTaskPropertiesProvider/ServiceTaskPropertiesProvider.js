@@ -1,5 +1,5 @@
 import { ServiceTaskProps } from "./ServiceTaskProps";
-import { is } from "bpmn-js/lib/util/ModelUtil";
+import { is, getBusinessObject } from "bpmn-js/lib/util/ModelUtil";
 
 const LOW_PRIORITY = 500;
 
@@ -12,6 +12,14 @@ export default class ServiceTaskPropertiesProvider {
 	getGroups(element) {
 		return (groups) => {
 			if (!is(element, "bpmn:ServiceTask")) {
+				return groups;
+			}
+
+			// AI Agent Tasks use their own dedicated properties panel
+			// (see aiAgentPropertiesProvider) — do not show the generic
+			// Service Configuration group (with its Service Type dropdown).
+			const bo = getBusinessObject(element);
+			if ((bo.get("spiffworkflow:serviceType") ?? "") === "ai_agent") {
 				return groups;
 			}
 

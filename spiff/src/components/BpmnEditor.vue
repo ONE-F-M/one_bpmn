@@ -960,7 +960,7 @@
 </template>
 
 <script setup>
-import { ref, shallowRef, onMounted, onBeforeUnmount, onUnmounted, watch, computed, nextTick } from "vue";
+import { ref, shallowRef, markRaw, onMounted, onBeforeUnmount, onUnmounted, watch, computed, nextTick } from "vue";
 import { frappeRequest } from "frappe-ui";
 import {
 	injectProcessNameField,
@@ -1014,6 +1014,8 @@ import resizeModule from "@/resize";
 import userTaskPropertiesProviderModule from "@/bpmn/userTaskPropertiesProvider";
 import sendTaskPropertiesProviderModule from "@/bpmn/sendTaskPropertiesProvider";
 import serviceTaskPropertiesProviderModule from "@/bpmn/serviceTaskPropertiesProvider";
+import aiAgentReplaceMenuProviderModule from "@/bpmn/aiAgentReplaceMenuProvider";
+import aiAgentPropertiesProviderModule from "@/bpmn/aiAgentPropertiesProvider";
 import scriptTaskPropertiesProviderModule from "@/bpmn/scriptTaskPropertiesProvider";
 import businessRuleTaskPropertiesProviderModule from "@/bpmn/businessRuleTaskPropertiesProvider";
 import timerPropertiesProviderModule from "@/bpmn/timerPropertiesProvider";
@@ -1608,6 +1610,8 @@ onMounted(async () => {
 				userTaskPropertiesProviderModule,
 				sendTaskPropertiesProviderModule,
 				serviceTaskPropertiesProviderModule,
+				aiAgentReplaceMenuProviderModule,
+				aiAgentPropertiesProviderModule,
 				scriptTaskPropertiesProviderModule,
 				businessRuleTaskPropertiesProviderModule,
 				timerPropertiesProviderModule,
@@ -1994,9 +1998,12 @@ onMounted(async () => {
 				});
 			});
 
-			// AI Agent Task config modal
+			// AI Agent Task config modal.
+			// markRaw: bpmn-js elements must NOT become Vue reactive proxies —
+			// their renderer reads non-configurable props (e.g. labels) that a
+			// Proxy cannot legally return, which throws on re-render after save.
 			eventBus.on("launch-ai-agent-editor", (event) => {
-				aiAgentModal.value = { show: true, element: event.element };
+				aiAgentModal.value = { show: true, element: markRaw(event.element) };
 			});
 
 			// Notification editing (Send Tasks)
