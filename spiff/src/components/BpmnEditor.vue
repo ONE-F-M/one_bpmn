@@ -1005,6 +1005,7 @@ import resizeModule from "@/resize";
 import userTaskPropertiesProviderModule from "@/bpmn/userTaskPropertiesProvider";
 import sendTaskPropertiesProviderModule from "@/bpmn/sendTaskPropertiesProvider";
 import serviceTaskPropertiesProviderModule from "@/bpmn/serviceTaskPropertiesProvider";
+import aiAgentReplaceMenuProviderModule from "@/bpmn/aiAgentReplaceMenuProvider";
 import scriptTaskPropertiesProviderModule from "@/bpmn/scriptTaskPropertiesProvider";
 import businessRuleTaskPropertiesProviderModule from "@/bpmn/businessRuleTaskPropertiesProvider";
 import timerPropertiesProviderModule from "@/bpmn/timerPropertiesProvider";
@@ -1598,6 +1599,7 @@ onMounted(async () => {
 				userTaskPropertiesProviderModule,
 				sendTaskPropertiesProviderModule,
 				serviceTaskPropertiesProviderModule,
+				aiAgentReplaceMenuProviderModule,
 				scriptTaskPropertiesProviderModule,
 				businessRuleTaskPropertiesProviderModule,
 				timerPropertiesProviderModule,
