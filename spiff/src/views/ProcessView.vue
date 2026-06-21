@@ -31,10 +31,14 @@
 						<span class="text-xs font-semibold text-gray-400 uppercase tracking-wider px-2">Open Processes</span>
 					</div>
 					<div class="overflow-y-auto max-h-[50vh]">
-						<button
+						<div
 							v-for="tab in openTabs"
 							:key="tab.name"
+							role="button"
+							tabindex="0"
 							@click="switchTab(tab.name); showMobileTabMenu = false"
+							@keydown.enter.prevent="switchTab(tab.name); showMobileTabMenu = false"
+							@keydown.space.prevent="switchTab(tab.name); showMobileTabMenu = false"
 							:class="[
 								'w-full flex items-center justify-between px-4 py-3 text-left transition-colors',
 								activeTab === tab.name
@@ -51,10 +55,11 @@
 										? 'text-white/60 active:bg-white/20'
 										: 'text-gray-400 active:bg-gray-200'
 								]"
+								aria-label="Close process tab"
 							>
 								<Icon icon="lucide:x" class="w-4 h-4" />
 							</button>
-						</button>
+						</div>
 					</div>
 				</div>
 			</div>
