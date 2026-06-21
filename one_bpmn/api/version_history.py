@@ -188,6 +188,7 @@ def get_edit_history(model_name: str) -> list:
 		filters={"model": model_name},
 		fields=["name", "owner", "creation", "group_key", "is_named", "version_name", "snapshot_type"],
 		order_by="creation desc",
+		ignore_permissions=True,
 	)
 
 	groups = []
