@@ -32,29 +32,32 @@
 						<span class="text-xs font-semibold text-gray-400 uppercase tracking-wider px-2">Open Processes</span>
 					</div>
 					<div class="overflow-y-auto max-h-[50vh]">
+					<div
+						v-for="tab in openTabs"
+						:key="tab.name"
+						:class="[
+							'w-full flex items-center justify-between px-4 py-3 text-left transition-colors',
+							activeTab === tab.name
+								? 'bg-gray-800 text-white'
+								: 'text-gray-700 active:bg-gray-50'
+						]"
+					>
 						<button
-							v-for="tab in openTabs"
-							:key="tab.name"
+							class="flex-1 min-w-0 text-left"
 							@click="switchTab(tab.name); showMobileTabMenu = false"
-							:class="[
-								'w-full flex items-center justify-between px-4 py-3 text-left transition-colors',
-								activeTab === tab.name
-									? 'bg-gray-800 text-white'
-									: 'text-gray-700 active:bg-gray-50'
-							]"
 						>
 							<span class="text-sm font-medium truncate">{{ tab.process_name || tab.name }}</span>
-							<button
-								@click.stop="closeTab(tab.name); if (openTabs.length === 0) showMobileTabMenu = false"
-								:class="[
-									'p-1.5 rounded-full transition-colors shrink-0 ml-2',
-									activeTab === tab.name
-										? 'text-white/60 active:bg-white/20'
-										: 'text-gray-400 active:bg-gray-200'
-								]"
-							>
-								<Icon icon="lucide:x" class="w-4 h-4" />
-							</button>
+						</button>
+						<button
+							@click.stop="closeTab(tab.name); if (openTabs.length === 0) showMobileTabMenu = false"
+							:class="[
+								'p-1.5 rounded-full transition-colors shrink-0 ml-2',
+								activeTab === tab.name
+									? 'text-white/60 active:bg-white/20'
+									: 'text-gray-400 active:bg-gray-200'
+							]"
+						>
+							<Icon icon="lucide:x" class="w-4 h-4" />
 						</button>
 					</div>
 				</div>
