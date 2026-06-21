@@ -110,6 +110,10 @@ def on_doc_event(doc, method: str):
 	if doc.doctype in _INTERNAL_DOCTYPES:
 		return
 
+	# 1b. Skip if no valid session user (background jobs, system events)
+	if not getattr(frappe.session, "user", None) or frappe.session.user == "None":
+		return
+
 	# 2. Map the Frappe hook name to the trigger_event label
 	trigger_event = _FRAPPE_TO_TRIGGER_EVENT.get(method)
 	if not trigger_event:
@@ -537,8 +541,8 @@ def guard_bpmn_document(doc, method: str):
 
 def delete_linked_bpmn_instances(doc, method: str):
 	"""
-	On document trash: deliver a Delete message to active instances,
-	then clean up orphaned/inactive instances.
+	On document trash: cancel active instances and unlink them
+	so the document can be deleted without lock conflicts.
 	"""
 	if doc.doctype in _INTERNAL_DOCTYPES:
 		return
@@ -556,70 +560,27 @@ def delete_linked_bpmn_instances(doc, method: str):
 	if not instances:
 		return
 
-	# Deliver Delete message to active instances so the BPMN
-	# delete flow can run (e.g. delete the linked Google Task)
-	delete_message = f"{doc.doctype.replace(' ', '')}_Delete_Action"
-	message_delivered = set()
+	# Set flag to prevent guards from blocking
+	frappe.flags.bpmn_engine_action = True
 
-	for inst in instances:
-		if inst.status == "Active":
+	try:
+		for inst in instances:
 			try:
-				instance_doc = frappe.get_doc("BPMN Process Instance", inst.name)
-				instance_doc.receive_message(
-					message_name=delete_message,
-					payload={
-						"deleted_by": frappe.session.user,
-						"deleted_doctype": doc.doctype,
-						"deleted_docname": doc.name,
-					},
-				)
-				message_delivered.add(inst.name)
-			except frappe.ValidationError:
-				# "No task waiting for message" — no delete catch event in
-				# this diagram. Fall through to direct deletion below.
-				pass
-			except Exception:
-				frappe.log_error(
-					title=f"BPMN delete message failed for {inst.name}",
-					message=frappe.get_traceback(),
-				)
-
-	# Unlink delivered instances so Frappe's link-check
-	# allows the document deletion to proceed
-	for inst_name in message_delivered:
-		try:
-			frappe.db.set_value(
-				"BPMN Process Instance", inst_name,
-				{"context_docname": None},
-				update_modified=False,
-			)
-		except Exception:
-			frappe.log_error(
-				title=f"Failed to unlink BPMN instance {inst_name}",
-				message=frappe.get_traceback(),
-			)
-
-	# Clean up instances where delivery failed or
-	# that were already inactive (Completed/Errored/Cancelled)
-	orphans = [i for i in instances if i.name not in message_delivered]
-
-	if not orphans:
-		return
-
-	orphan_names = [i.name for i in orphans]
-	frappe.db.delete("BPMN Activity Log", {"instance": ["in", orphan_names]})
-
-	for inst in orphans:
-		try:
-			frappe.delete_doc("BPMN Process Instance", inst.name, ignore_permissions=True)
-		except Exception:
-			try:
-				frappe.delete_doc(
-					"BPMN Process Instance", inst.name, ignore_permissions=True, force=True
+				# Cancel active instances and unlink the document
+				updates = {"context_docname": None}
+				if inst.status == "Active":
+					updates["status"] = "Cancelled"
+				frappe.db.set_value(
+					"BPMN Process Instance", inst.name,
+					updates,
+					update_modified=False,
 				)
 			except Exception:
 				frappe.log_error(
-					title=f"Failed to delete BPMN instance {inst.name} linked to deleted {doc.doctype} {doc.name}",
+					title=f"Failed to unlink BPMN instance {inst.name}",
 					message=frappe.get_traceback(),
 				)
+	finally:
+		frappe.flags.bpmn_engine_action = False
+
 

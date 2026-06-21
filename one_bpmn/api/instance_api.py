@@ -130,6 +130,35 @@ def start_process(
 
 
 @frappe.whitelist()
+def start_process_async(
+	model_name: str,
+	context_doctype: str = None,
+	context_docname: str = None,
+	initial_data: str = None,
+) -> dict:
+	"""
+	Enqueue start_process as a background job so it doesn't block the UI.
+	"""
+	if not model_name:
+		frappe.throw(_("model_name is required"))
+
+	if not frappe.db.exists("BPMN Process Model", model_name):
+		frappe.throw(_("Process model '{0}' not found").format(model_name))
+
+	frappe.enqueue(
+		"one_bpmn.api.instance_api.start_process",
+		model_name=model_name,
+		context_doctype=context_doctype,
+		context_docname=context_docname,
+		initial_data=initial_data,
+		is_async=True,
+		timeout=600,
+	)
+
+	return {"status": "queued", "message": f"Process '{model_name}' queued for execution"}
+
+
+@frappe.whitelist()
 def complete_task(
 	instance_name: str,
 	task_id: str,
