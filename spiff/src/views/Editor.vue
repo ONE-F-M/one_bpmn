@@ -169,11 +169,14 @@
 				<template v-if="!isMobile">
 					<!-- Version History Button -->
 					<button
-						@click="openVersionPicker"
-						class="w-8 h-8 flex items-center justify-center hover:bg-gray-100 rounded transition-colors text-gray-600"
+						@click="toggleVersionHistory"
+						class="w-8 h-8 flex items-center justify-center rounded transition-colors"
+						:class="[
+							showVersionHistory ? 'bg-blue-100 text-blue-700' : 'hover:bg-gray-100 text-gray-600',
+							{ 'opacity-40 cursor-not-allowed': !activeDiagramName }
+						]"
 						:title="lastEditTooltip"
 						:disabled="!activeDiagramName"
-						:class="{ 'opacity-40 cursor-not-allowed': !activeDiagramName }"
 					>
 						<Icon icon="lucide:history" class="w-4 h-4" />
 					</button>
@@ -300,13 +303,13 @@
 							</button>
 						</template>
 						<button
-							@click="openVersionPicker(); showMobileMoreMenu = false"
+							@click="toggleVersionHistory(); showMobileMoreMenu = false"
 							class="w-full flex items-center gap-2 px-3 py-2.5 text-sm text-gray-700 hover:bg-gray-50 transition-colors"
 							:disabled="!activeDiagramName"
 							:class="{ 'opacity-40 cursor-not-allowed': !activeDiagramName }"
 						>
-							<Icon icon="lucide:git-compare" class="w-4 h-4" />
-							Compare Versions
+							<Icon icon="lucide:history" class="w-4 h-4" />
+							Version history
 						</button>
 						<div class="border-t border-gray-100 my-1"></div>
 						<button
@@ -438,6 +441,18 @@
 						</div>
 					</div>
 				</div>
+
+				<!-- Version History side panel (Google-Docs-style) -->
+				<VersionHistoryPanel
+					v-if="showVersionHistory && activeDiagramName"
+					ref="versionHistoryRef"
+					:modelName="activeDiagramName"
+					:getCurrentXml="getCurrentDiagramXml"
+					@close="showVersionHistory = false"
+					@error="(e) => showNotification(e.title, e.message, e.theme)"
+					@restored="onVersionRestored"
+					@compare-deployed="openVersionPicker"
+				/>
 			</div>
 
 			<!-- Tab Bar (hidden in compact mode — uses toolbar dropdown instead) -->
@@ -488,15 +503,47 @@
 			</div>
 		</div>
 
-		<!-- Add Process Map Dialog -->
-		<Dialog v-model="showNewDiagramDialog" :options="{ title: 'New Process Map' }">
+		<!-- Add Process Map / New Version Dialog -->
+		<Dialog
+			v-model="showNewDiagramDialog"
+			:options="{ title: newDiagramMode === 'version' ? 'Create New Version' : 'New Process Map' }"
+		>
 			<template #body-content>
 				<div class="space-y-4">
+					<!-- Base version picker — only when the process already has a map -->
+					<div v-if="newDiagramMode === 'version'">
+						<label class="block text-sm font-medium text-gray-700 mb-1">
+							Base version <span class="text-red-500">*</span>
+						</label>
+						<p class="text-xs text-gray-500 mb-2">
+							Pick a named version from the history to use as the starting template for the new version.
+						</p>
+						<div v-if="loadingNamedVersions" class="text-sm text-gray-400 py-2">
+							Loading named versions…
+						</div>
+						<div
+							v-else-if="namedVersions.length === 0"
+							class="text-sm text-amber-700 bg-amber-50 border border-amber-200 rounded-md px-3 py-2"
+						>
+							No named versions found in the current map's history. Name a version in the history
+							panel first, then create a new version from it.
+						</div>
+						<select
+							v-else
+							v-model="selectedBaseVersion"
+							class="w-full text-sm border border-gray-300 rounded-md px-3 py-2 bg-white text-gray-800 focus:outline-none focus:ring-1 focus:ring-blue-500"
+						>
+							<option v-for="v in namedVersions" :key="v.name" :value="v.name">
+								{{ v.version_name }} — {{ formatVersionTime(v.timestamp) }}
+							</option>
+						</select>
+					</div>
+
 					<FormControl
-						label="Process Map Name"
+						:label="newDiagramMode === 'version' ? 'New Version Name' : 'Process Map Name'"
 						v-model="newDiagramName"
 						:required="true"
-						placeholder="Enter Process Map name"
+						placeholder="Enter a unique name"
 					/>
 					<FormControl
 						label="Description"
@@ -510,7 +557,12 @@
 			<template #actions>
 				<div class="flex gap-2">
 					<Button variant="subtle" @click="showNewDiagramDialog = false">Cancel</Button>
-					<Button variant="solid" @click="createDiagram" :loading="creating">Create</Button>
+					<Button
+						variant="solid"
+						@click="createDiagram"
+						:loading="creating"
+						:disabled="newDiagramMode === 'version' && (loadingNamedVersions || namedVersions.length === 0)"
+					>Create</Button>
 				</div>
 			</template>
 		</Dialog>
@@ -868,6 +920,7 @@ import BpmnEditor from "@/components/BpmnEditor.vue";
 import EditorTabs from "@/components/EditorTabs.vue";
 
 import VersionDiffDialog from "@/components/VersionDiffDialog.vue";
+import VersionHistoryPanel from "@/components/VersionHistoryPanel.vue";
 import { downloadBpmn } from "@/utils/downloadBpmn";
 import CallActivitySearchDialog from "@/components/CallActivitySearchDialog.vue";
 import LogixCanvas from "@/components/LogixCanvas.vue";
@@ -879,6 +932,7 @@ import ConfigImportResultsDialog from "@/components/ConfigImportResultsDialog.vu
 import { sanitiseFilename } from "@/utils/downloadBpmn";
 import { useNotificationDialog } from "@/composables/useNotificationDialog";
 import { useWindowSize } from "@/composables/useWindowSize";
+import { dayjs } from "@/dayjs";
 
 const { isMobile } = useWindowSize();
 
@@ -906,7 +960,6 @@ const activeDiagramLabel = computed(() => {
 });
 
 const activeDiagramIsActive = computed(() => isActiveModel.value);
-});
 
 const router = useRouter();
 const route = useRoute();
@@ -1026,6 +1079,10 @@ const importConfigFileInput = ref(null);
 // Version diff dialog ref
 const versionDiffRef = ref(null);
 
+// Version history side panel state
+const showVersionHistory = ref(false);
+const versionHistoryRef = ref(null);
+
 // Pathfinder Log editability state
 const isEditable = ref(false);  // locked by default until API confirms
 const editabilityInfo = ref({
@@ -1115,6 +1172,13 @@ let pendingNavigationNext = null;
 const showNewDiagramDialog = ref(false);
 const newDiagramName = ref("");
 const newDiagramDescription = ref("");
+// "blank" when the process has no map yet (create from scratch); "version" once
+// a map exists (create a new version seeded from a chosen named version).
+const newDiagramMode = ref("blank");
+// Named versions from the active map's history, used as base-template choices.
+const namedVersions = ref([]);
+const loadingNamedVersions = ref(false);
+const selectedBaseVersion = ref("");
 
 
 // Track loaded diagram data
@@ -1848,8 +1912,13 @@ async function saveCurrentDiagram() {
 
 		hasUnsavedChanges.value = false;
 		diagramDataCache.value[activeDiagramName.value] = xml;
-		
+
 		saveState.value = 'saved';
+
+		// Refresh the version history panel if it's open so the new snapshot shows.
+		if (showVersionHistory.value) {
+			versionHistoryRef.value?.load();
+		}
 	} catch (error) {
 		console.error("Failed to save diagram:", error);
 		saveState.value = 'error';
@@ -1876,26 +1945,110 @@ function showNotification(title, message, theme = "green", stay = false) {
 	}
 }
 
-function showAddDiagramDialog() {
+async function showAddDiagramDialog() {
 	if (!isEditable.value) return; // Guard: process is locked
 	newDiagramName.value = "";
 	newDiagramDescription.value = "";
-	showNewDiagramDialog.value = true;
+	selectedBaseVersion.value = "";
+
+	// First map in the process → blank create. Once a map exists, the "+" flow
+	// becomes "create a new version" seeded from a chosen named version.
+	if (diagrams.value.length > 0) {
+		newDiagramMode.value = "version";
+		showNewDiagramDialog.value = true;
+		await loadNamedVersionsForBase();
+	} else {
+		newDiagramMode.value = "blank";
+		showNewDiagramDialog.value = true;
+	}
+}
+
+// Load the named versions from the active map's history to offer as base
+// templates for the new version.
+async function loadNamedVersionsForBase() {
+	loadingNamedVersions.value = true;
+	namedVersions.value = [];
+	try {
+		const baseModel = activeDiagramName.value || (diagrams.value[0] && diagrams.value[0].name);
+		if (!baseModel) return;
+		const res = await frappeRequest({
+			url: "/api/method/one_bpmn.api.version_history.get_edit_history",
+			params: { model_name: baseModel },
+		});
+		const groups = res.message || res || [];
+		namedVersions.value = groups
+			.filter((g) => g.is_named)
+			.map((g) => ({
+				name: g.head,
+				version_name: g.version_name,
+				timestamp: g.timestamp,
+				author: g.author,
+			}));
+		// Pre-select the most recent named version for convenience.
+		if (namedVersions.value.length) selectedBaseVersion.value = namedVersions.value[0].name;
+	} catch (error) {
+		console.error("Failed to load named versions:", error);
+		showNotification("Error", "Failed to load named versions.", "red");
+	} finally {
+		loadingNamedVersions.value = false;
+	}
+}
+
+function formatVersionTime(ts) {
+	if (!ts) return "";
+	return dayjs(ts).format("MMM D, h:mm A");
 }
 
 async function createDiagram() {
 	if (!isEditable.value) return; // Guard: process is locked
-	if (!newDiagramName.value.trim()) {
-		alert("Please enter a diagram name");
+	const name = newDiagramName.value.trim();
+	if (!name) {
+		showNotification("Name required", "Please enter a name.", "red");
+		return;
+	}
+
+	// Name must be unique: different from existing process maps and from the
+	// named versions it could be based on.
+	const lower = name.toLowerCase();
+	const dupMap = diagrams.value.some(
+		(d) => (d.model_name || d.title || "").trim().toLowerCase() === lower
+	);
+	const dupVersion = namedVersions.value.some(
+		(v) => (v.version_name || "").trim().toLowerCase() === lower
+	);
+	if (dupMap || dupVersion) {
+		showNotification(
+			"Name already used",
+			"Choose a name different from existing process maps and named versions.",
+			"red"
+		);
 		return;
 	}
 
 	creating.value = true;
 	try {
-		const slug = (props.process || "process").trim().toLowerCase().replace(/[^a-z0-9]+/g, "_").replace(/^_|_$/g, "") || "process";
-		const hex = Array.from(crypto.getRandomValues(new Uint8Array(4)), b => b.toString(16).padStart(2, "0")).join("");
-		const processId = `${slug}_${hex}`;
-		const xmlContent = `<?xml version="1.0" encoding="UTF-8"?>
+		let result;
+		if (newDiagramMode.value === "version") {
+			if (!selectedBaseVersion.value) {
+				showNotification("Select a base version", "Please choose a named version to build from.", "red");
+				return;
+			}
+			const response = await frappeRequest({
+				url: "/api/method/one_bpmn.api.process_map_api.create_map_from_version",
+				params: {
+					process: props.process,
+					model_name: name,
+					base_version: selectedBaseVersion.value,
+					description: newDiagramDescription.value || "",
+				},
+			});
+			result = response.message || response;
+		} else {
+			// Blank create — first map in the process.
+			const slug = (props.process || "process").trim().toLowerCase().replace(/[^a-z0-9]+/g, "_").replace(/^_|_$/g, "") || "process";
+			const hex = Array.from(crypto.getRandomValues(new Uint8Array(4)), b => b.toString(16).padStart(2, "0")).join("");
+			const processId = `${slug}_${hex}`;
+			const xmlContent = `<?xml version="1.0" encoding="UTF-8"?>
 <bpmn:definitions xmlns:bpmn="http://www.omg.org/spec/BPMN/20100524/MODEL"
                   xmlns:bpmndi="http://www.omg.org/spec/BPMN/20100524/DI"
                   id="Definitions_1"
@@ -1906,25 +2059,26 @@ async function createDiagram() {
   </bpmndi:BPMNDiagram>
 </bpmn:definitions>`;
 
-		const response = await frappeRequest({
-			url: "/api/method/one_bpmn.api.process_map_api.save_process_model",
-			params: {
-				process: props.process,
-				model_name: newDiagramName.value,
-				xml_content: xmlContent,
-				description: newDiagramDescription.value || "",
-			},
-		});
+			const response = await frappeRequest({
+				url: "/api/method/one_bpmn.api.process_map_api.save_process_model",
+				params: {
+					process: props.process,
+					model_name: name,
+					xml_content: xmlContent,
+					description: newDiagramDescription.value || "",
+				},
+			});
+			result = response.message || response;
+		}
 
-		const result = response.message || response;
 		showNewDiagramDialog.value = false;
 
-		// Reload process and open new diagram
+		// Reload process and open the new map.
 		await loadProcess();
 		selectDiagram(result.name);
 	} catch (error) {
 		console.error("Failed to create diagram:", error);
-		alert("Failed to create: " + (error.message || error));
+		showNotification("Error", "Failed to create: " + (error.message || error), "red");
 	} finally {
 		creating.value = false;
 	}
@@ -2161,16 +2315,40 @@ function goBack() {
 
 // ── Version Comparison (Diff) ──
 
+// Deployed-version compare (legacy picker, kept available).
 function openVersionPicker() {
 	if (!versionDiffRef.value) return;
 
-	versionDiffRef.value.open(async () => {
-		// Getter for the current diagram XML
-		if (editorRef.value) {
-			return await editorRef.value.getXML();
-		}
-		return diagramDataCache.value[activeDiagramName.value] || null;
-	});
+	versionDiffRef.value.open(getCurrentDiagramXml);
+}
+
+// Shared getter for the current canvas XML.
+async function getCurrentDiagramXml() {
+	if (editorRef.value) {
+		return await editorRef.value.getXML();
+	}
+	return diagramDataCache.value[activeDiagramName.value] || null;
+}
+
+// Google-Docs-style save-history side panel.
+function toggleVersionHistory() {
+	if (!activeDiagramName.value) return;
+	showVersionHistory.value = !showVersionHistory.value;
+}
+
+// Restore: load the restored XML back onto the canvas and persist.
+async function onVersionRestored({ xml }) {
+	if (!xml || !editorRef.value) return;
+	try {
+		await editorRef.value.loadXML(xml);
+		diagramDataCache.value[activeDiagramName.value] = xml;
+		hasUnsavedChanges.value = false;
+		saveState.value = 'saved';
+		showNotification("Restored", "The selected version is now the current diagram.", "green");
+	} catch (error) {
+		console.error("Failed to load restored XML:", error);
+		showNotification("Error", "Restored on the server, but failed to load onto the canvas. Reload the page.", "red");
+	}
 }
 
 async function exportCurrentDiagram() {
