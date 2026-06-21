@@ -401,7 +401,11 @@ class TestFrappeAssignment(BaseBPMNHelperTest):
 		inst = make_instance(context_doctype="ToDo", context_docname="DOC-1")
 		with patch("frappe.desk.form.assign_to.add") as add_mock, patch.object(
 			frappe.db, "exists", return_value=None
-		):
+		), patch.object(
+			frappe.db, "get_value", return_value="TODO-NEW-001"
+		), patch.object(
+			frappe.db, "set_value"
+		) as set_value_mock:
 			call_add_assignment(inst, "alice@x.com", "Approve")
 
 		self.assertTrue(add_mock.called)
@@ -409,6 +413,9 @@ class TestFrappeAssignment(BaseBPMNHelperTest):
 		self.assertEqual(payload["doctype"], "ToDo")
 		self.assertEqual(payload["name"], "DOC-1")
 		self.assertEqual(payload["assign_to"], ["alice@x.com"])
+
+		# Verify the ToDo is stamped with type "Process"
+		set_value_mock.assert_called_once_with("ToDo", "TODO-NEW-001", "type", "Process")
 
 	def test_add_assignment_skips_when_already_assigned(self):
 		inst = make_instance(context_doctype="ToDo", context_docname="DOC-1")
