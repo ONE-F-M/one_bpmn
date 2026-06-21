@@ -2342,6 +2342,7 @@ async function onVersionRestored({ xml }) {
 	try {
 		await editorRef.value.loadXML(xml);
 		diagramDataCache.value[activeDiagramName.value] = xml;
+		isExecutable.value = extractIsExecutable(xml);
 		hasUnsavedChanges.value = false;
 		saveState.value = 'saved';
 		showNotification("Restored", "The selected version is now the current diagram.", "green");
