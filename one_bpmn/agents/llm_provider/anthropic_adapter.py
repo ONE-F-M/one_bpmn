@@ -31,6 +31,7 @@ class AnthropicAdapter(BaseLLMAdapter):
         system: str,
         user: str,
         tools: list[ToolSpec] | None = None,
+        max_tokens: int = 16384,
     ) -> str:
         import re
 
@@ -82,11 +83,8 @@ class AnthropicAdapter(BaseLLMAdapter):
         kwargs: dict = {
             "model": self._model,
             "system": system_blocks,
-            "max_tokens": 8192,
+            "max_tokens": max_tokens,
             "messages": messages,
-            "extra_headers": {
-                "anthropic-beta": "prompt-caching-2024-07-31"
-            }
         }
         if tool_defs:
             kwargs["tools"] = tool_defs

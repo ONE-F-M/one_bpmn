@@ -1,4 +1,5 @@
 import json
+import frappe
 
 from .base import BaseLLMAdapter, ToolSpec
 
@@ -34,6 +35,7 @@ class OpenAIAdapter(BaseLLMAdapter):
         system: str,
         user: str,
         tools: list[ToolSpec] | None = None,
+        max_tokens: int = 16384,
     ) -> str:
         messages = [
             {"role": "system", "content": system},
@@ -42,7 +44,7 @@ class OpenAIAdapter(BaseLLMAdapter):
         tool_defs = [_build_tool_def(t) for t in tools] if tools else []
         tool_map = {t.name: t for t in tools} if tools else {}
 
-        kwargs: dict = {"model": self._model, "messages": messages}
+        kwargs: dict = {"model": self._model, "messages": messages, "max_tokens": max_tokens}
         if tool_defs:
             kwargs["tools"] = tool_defs
 
@@ -51,6 +53,15 @@ class OpenAIAdapter(BaseLLMAdapter):
             choice = response.choices[0]
 
             if choice.finish_reason != "tool_calls":
+                if choice.finish_reason == "length":
+                    content = choice.message.content or ""
+                    frappe.log_error(
+                        title="OpenAI Adapter — output truncated (max_tokens)",
+                        message=(
+                            f"model={self._model}  finish_reason=length  max_tokens={max_tokens}  "
+                            f"content_len={len(content)}"
+                        ),
+                    )
                 return choice.message.content or ""
 
             # Append assistant turn
