@@ -170,15 +170,20 @@ def _start_process_as_user(
 	"""
 	Wrapper for start_process that sets the session user before execution.
 	Used by start_process_async to preserve the caller's user context.
+	Restores the original user afterwards to avoid leaking into subsequent jobs.
 	"""
-	if run_as_user:
-		frappe.set_user(run_as_user)
-	start_process(
-		model_name=model_name,
-		context_doctype=context_doctype,
-		context_docname=context_docname,
-		initial_data=initial_data,
-	)
+	original_user = frappe.session.user
+	try:
+		if run_as_user:
+			frappe.set_user(run_as_user)
+		start_process(
+			model_name=model_name,
+			context_doctype=context_doctype,
+			context_docname=context_docname,
+			initial_data=initial_data,
+		)
+	finally:
+		frappe.set_user(original_user)
 
 
 @frappe.whitelist()

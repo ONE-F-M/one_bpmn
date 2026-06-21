@@ -590,18 +590,30 @@ def delete_linked_bpmn_instances(doc, method: str):
 						message=frappe.get_traceback(),
 					)
 
-		# Step 2: Cancel active instances, their waiting tasks, and unlink
+		# Step 2: Cancel active instances, their waiting tasks, and unlink.
+		# Re-fetch status from DB since receive_message() in Step 1 may
+		# have advanced/completed the instance.
 		for inst in instances:
 			try:
-				updates = {"context_docname": None}
-				if inst.status == "Active":
+				current_status = frappe.db.get_value(
+					"BPMN Process Instance", inst.name, "status"
+				)
+				updates = {"context_doctype": None, "context_docname": None}
+				if current_status == "Active":
 					updates["status"] = "Cancelled"
 					# Cancel orphan BPMN Active Task rows so they don't
 					# surface in get_active_tasks_summary / list_process_instances
-					frappe.db.sql(
-						"UPDATE `tabBPMN Active Task` SET status = %s WHERE parent = %s AND status = %s",
-						("Cancelled", inst.name, "Waiting"),
+					waiting_tasks = frappe.get_all(
+						"BPMN Active Task",
+						filters={"parent": inst.name, "status": "Waiting"},
+						pluck="name",
 					)
+					for task_name in waiting_tasks:
+						frappe.db.set_value(
+							"BPMN Active Task", task_name,
+							"status", "Cancelled",
+							update_modified=False,
+						)
 				frappe.db.set_value(
 					"BPMN Process Instance", inst.name,
 					updates,
