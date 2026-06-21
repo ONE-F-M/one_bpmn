@@ -257,10 +257,17 @@ function loadTabState() {
 			const parsed = JSON.parse(stored);
 			if (Array.isArray(parsed.tabs) && parsed.tabs.length > 0) {
 				openTabs.value = parsed.tabs;
-				activeTab.value = parsed.active || parsed.tabs[0].name;
+
+				const requestedActive = parsed.active;
+				const fallbackActive = parsed.tabs[0]?.name ?? null;
+				activeTab.value = parsed.tabs.some((t) => t?.name === requestedActive)
+					? requestedActive
+					: fallbackActive;
+
 				// Initialize LRU timestamps for restored tabs
+				tabUsageMap.value.clear();
 				parsed.tabs.forEach((t, i) => {
-					tabUsageMap.value.set(t.name, i);
+					if (t?.name) tabUsageMap.value.set(t.name, i);
 				});
 				// Mark the active tab as most recently used
 				if (activeTab.value) {
