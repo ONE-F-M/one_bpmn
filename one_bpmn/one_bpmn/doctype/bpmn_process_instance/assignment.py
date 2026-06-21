@@ -234,7 +234,7 @@ def add_frappe_assignment(instance, user: str, task_name: str = "") -> None:
 			"priority": "Medium",
 			"status": "Open",
 			"date": nowdate(),
-			"assigned_by": frappe.session.user,
+			"assigned_by": (frappe.session.user or getattr(instance, "initiated_by", None) or "Administrator"),
 			"type": "Process",
 		}).insert(ignore_permissions=True)
 
