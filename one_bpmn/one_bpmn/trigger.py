@@ -541,8 +541,11 @@ def guard_bpmn_document(doc, method: str):
 
 def delete_linked_bpmn_instances(doc, method: str):
 	"""
-	On document trash: cancel active instances and unlink them
-	so the document can be deleted without lock conflicts.
+	On document trash:
+	  1. Try to deliver a Delete message to active instances so the BPMN
+	     delete flow can run (e.g. delete the linked Google Task).
+	  2. Cancel all active instances and unlink them so Frappe can
+	     proceed with the document deletion.
 	"""
 	if doc.doctype in _INTERNAL_DOCTYPES:
 		return
@@ -564,9 +567,34 @@ def delete_linked_bpmn_instances(doc, method: str):
 	frappe.flags.bpmn_engine_action = True
 
 	try:
+		# Step 1: Try to deliver Delete message to active instances
+		# so the BPMN delete flow can execute (e.g. delete Google Task)
+		delete_message = f"{doc.doctype.replace(' ', '')}_Delete_Action"
+		for inst in instances:
+			if inst.status == "Active":
+				try:
+					instance_doc = frappe.get_doc("BPMN Process Instance", inst.name)
+					instance_doc.receive_message(
+						message_name=delete_message,
+						payload={
+							"deleted_by": frappe.session.user,
+							"deleted_doctype": doc.doctype,
+							"deleted_docname": doc.name,
+						},
+					)
+				except frappe.ValidationError:
+					# No task waiting for this message — diagram has no delete
+					# catch event. That's fine, fall through to cancel.
+					pass
+				except Exception:
+					frappe.log_error(
+						title=f"BPMN delete message failed for {inst.name}",
+						message=frappe.get_traceback(),
+					)
+
+		# Step 2: Cancel active instances and unlink the document
 		for inst in instances:
 			try:
-				# Cancel active instances and unlink the document
 				updates = {"context_docname": None}
 				if inst.status == "Active":
 					updates["status"] = "Cancelled"
@@ -582,5 +610,4 @@ def delete_linked_bpmn_instances(doc, method: str):
 				)
 	finally:
 		frappe.flags.bpmn_engine_action = False
-
 
