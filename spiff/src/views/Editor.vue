@@ -905,9 +905,7 @@ const activeDiagramLabel = computed(() => {
 	return d ? d.model_name : "Select Diagram";
 });
 
-const activeDiagramIsActive = computed(() => {
-	const d = openTabs.value.find((t) => t.name === activeDiagramName.value);
-	return d ? !!d.is_active : false;
+const activeDiagramIsActive = computed(() => isActiveModel.value);
 });
 
 const router = useRouter();

@@ -15,7 +15,6 @@ const routes = [
 		path: "/processa/process-view/:process?",
 		name: "ProcessView",
 		component: ProcessView,
-		props: true,
 	},
 	{
 		path: "/processa/process/:process",

@@ -55,6 +55,26 @@ _FRAPPE_EVENT_TO_TASK_ACTION = {
 	"on_cancel": "Cancel"
 }
 
+# Generic mapping: Frappe hook event → BPMN message suffix.
+# This is NOT specific to any DocType — it applies universally to every
+# document that has an active BPMN process.  When a user edits any such
+# document, the process needs to know so it can react (e.g. sync changes
+# to Google Tasks, send a notification, etc.).
+#
+# At runtime, _maybe_send_message() combines the DocType name with the
+# suffix to build the full BPMN message name.  Examples:
+#     ToDo        + on_update  →  "ToDo_Edit_Action"
+#     Sales Order + on_update  →  "SalesOrder_Edit_Action"
+#     Work Item   + on_update  →  "WorkItem_Edit_Action"
+#
+# The resulting message must match a <bpmn:message name="..."> defined in
+# the corresponding BPMN diagram.  Only processes that have a matching
+# IntermediateCatchEvent / EventBasedGateway will react to the message.
+_FRAPPE_EVENT_TO_MESSAGE_SUFFIX = {
+	"on_update":   "Edit_Action",
+	"after_save":  "Edit_Action",
+}
+
 # SpiffWorkflow BPMN extension namespace
 _SPIFF_NS = "http://spiffworkflow.org/bpmn/schema/1.0/core"
 _BPMN_NS = "http://www.omg.org/spec/BPMN/20100524/MODEL"
@@ -115,7 +135,105 @@ def on_doc_event(doc, method: str):
 		_maybe_advance_instances(doc, task_action)
 
 
+	# ── C) Notify running processes about document changes ────────────────────
+	# Sections A and B handle *starting* processes and *advancing* user tasks.
+	# This section handles the third case: the document was edited by the user
+	# (or by code) and we need to tell the already-running BPMN process about
+	# the change.  For example, when a ToDo's status changes from Open → Closed,
+	# the process needs that event to decide whether to send a notification or
+	# sync the status to Google Tasks.
+	#
+	# How it works:
+	#   1. Look up whether this Frappe event (on_update / after_save) has a
+	#      corresponding BPMN message suffix ("Edit_Action").
+	#   2. If yes, _maybe_send_message() finds every active BPMN instance
+	#      linked to this document and delivers the message.
+	#   3. The message unblocks the process's EventBasedGateway, which routes
+	#      to the update branch of the BPMN diagram.
+	#
+	# Dedup: Frappe fires after_insert → on_update → after_save in one request.
+	# _maybe_send_message() uses frappe.flags to ensure only one delivery.
+	message_suffix = _FRAPPE_EVENT_TO_MESSAGE_SUFFIX.get(method)
+	if message_suffix:
+		_maybe_send_message(doc, message_suffix)
+
+
 # Internal helpers
+
+
+def _maybe_send_message(doc, message_suffix: str):
+	"""
+	Deliver a BPMN message to active instances when a document is edited.
+	Builds message name as {DocType}_{suffix} and never blocks the save.
+	"""
+
+	# Skip if the document was just created in this request
+	# (the instance is still in its creation flow, not waiting for edits)
+	bpmn_created = frappe.flags.get("_bpmn_instances_just_started") or set()
+	doc_id = f"{doc.doctype}:{doc.name}"
+	if doc_id in bpmn_created:
+		return
+
+	# Dedup: only deliver once per doc per request
+	# (Frappe fires on_update + after_save back-to-back)
+	if not frappe.flags._bpmn_message_sent:
+		frappe.flags._bpmn_message_sent = set()
+
+	doc_key = f"{doc.doctype}:{doc.name}:{message_suffix}"
+	if doc_key in frappe.flags._bpmn_message_sent:
+		return
+	frappe.flags._bpmn_message_sent.add(doc_key)
+
+	# Build message name: e.g. "ToDo" + "Edit_Action" → "ToDo_Edit_Action"
+	# Must match <bpmn:message name="..."> in the diagram
+	doctype_clean = doc.doctype.replace(" ", "")
+	message_name = f"{doctype_clean}_{message_suffix}"
+
+	# Find active BPMN instances for this document
+	try:
+		active_instances = frappe.get_all(
+			"BPMN Process Instance",
+			filters={
+				"context_doctype": doc.doctype,
+				"context_docname": doc.name,
+				"status": "Active",
+			},
+			pluck="name",
+		)
+	except Exception:
+		return
+
+	if not active_instances:
+		return
+
+	for instance_name in active_instances:
+		try:
+			instance = frappe.get_doc("BPMN Process Instance", instance_name)
+
+			# Pass _old_status so scripts can detect status transitions
+			# (by on_update time, the DB already has the new value)
+			prev_doc = getattr(doc, "_doc_before_save", None)
+			payload = {
+				"triggered_by": frappe.session.user,
+				"trigger_event": message_suffix,
+			}
+			if prev_doc:
+				payload["_old_status"] = prev_doc.status
+
+			instance.receive_message(
+				message_name=message_name,
+				payload=payload,
+			)
+		except frappe.ValidationError:
+			# "No task is waiting for message" — expected when the instance
+			# is active but not at a matching catch event. Silently skip.
+			pass
+		except Exception:
+			# Unexpected error — log but never block the document save
+			frappe.log_error(
+				title=f"BPMN message delivery failed: {message_name} → {instance_name}",
+				message=frappe.get_traceback(),
+			)
 
 
 def _find_matching_models(doctype: str, trigger_event: str) -> list:
@@ -213,6 +331,14 @@ def _maybe_start_instance(doc, model_name: str):
 	instance.initiated_by = frappe.session.user
 	instance.started_at = now_datetime()
 	instance.insert(ignore_permissions=True)
+
+	# Mark the doc BEFORE start() so Section C doesn't send Edit_Action
+	# during creation. start() may execute script tasks that save the doc,
+	# triggering nested on_update → Section C. The flag must be set first.
+	# Use frappe.flags (request-scoped) — survives across all hook calls.
+	if not frappe.flags._bpmn_instances_just_started:
+		frappe.flags._bpmn_instances_just_started = set()
+	frappe.flags._bpmn_instances_just_started.add(f"{doc.doctype}:{doc.name}")
 
 	# start() runs the engine and saves the instance
 	instance.start(
@@ -411,50 +537,89 @@ def guard_bpmn_document(doc, method: str):
 
 def delete_linked_bpmn_instances(doc, method: str):
 	"""
-	Automatically delete any BPMN Process Instance linked to a document
-	when that document is deleted (on_trash).
-
-	This ensures that orphaned process instances don't clutter the database
-	when their parent documents are removed.
+	On document trash: deliver a Delete message to active instances,
+	then clean up orphaned/inactive instances.
 	"""
-	# 1. Never clean up internal BPMN doctypes (standard safety check)
 	if doc.doctype in _INTERNAL_DOCTYPES:
 		return
 
-	# 2. Find all instances (Active or otherwise) linked to this document
+	# Find all BPMN instances linked to this document
 	instances = frappe.get_all(
 		"BPMN Process Instance",
 		filters={
 			"context_doctype": doc.doctype,
 			"context_docname": doc.name,
 		},
-		pluck="name",
+		fields=["name", "status"],
 	)
 
 	if not instances:
 		return
 
-	# 3. Clean up dependent Activity Logs first
-	# This avoids orphaned records and allows us to delete the instance without force=True
-	frappe.db.delete("BPMN Activity Log", {"instance": ["in", instances]})
+	# Deliver Delete message to active instances so the BPMN
+	# delete flow can run (e.g. delete the linked Google Task)
+	delete_message = f"{doc.doctype.replace(' ', '')}_Delete_Action"
+	message_delivered = set()
 
-	# 4. Delete the instances permanently
-	# We use ignore_permissions=True to ensure cleanup happens regardless
-	# of the current user's delete permissions on BPMN Process Instance.
-	for instance_name in instances:
+	for inst in instances:
+		if inst.status == "Active":
+			try:
+				instance_doc = frappe.get_doc("BPMN Process Instance", inst.name)
+				instance_doc.receive_message(
+					message_name=delete_message,
+					payload={
+						"deleted_by": frappe.session.user,
+						"deleted_doctype": doc.doctype,
+						"deleted_docname": doc.name,
+					},
+				)
+				message_delivered.add(inst.name)
+			except frappe.ValidationError:
+				# "No task waiting for message" — no delete catch event in
+				# this diagram. Fall through to direct deletion below.
+				pass
+			except Exception:
+				frappe.log_error(
+					title=f"BPMN delete message failed for {inst.name}",
+					message=frappe.get_traceback(),
+				)
+
+	# Unlink delivered instances so Frappe's link-check
+	# allows the document deletion to proceed
+	for inst_name in message_delivered:
 		try:
-			# Try standard deletion first (cleaner)
-			frappe.delete_doc("BPMN Process Instance", instance_name, ignore_permissions=True)
+			frappe.db.set_value(
+				"BPMN Process Instance", inst_name,
+				{"context_docname": None},
+				update_modified=False,
+			)
 		except Exception:
-			# Fallback to force delete if normal deletion fails (e.g. due to other unknown links)
-			# to ensure we don't block the parent document from being deleted.
+			frappe.log_error(
+				title=f"Failed to unlink BPMN instance {inst_name}",
+				message=frappe.get_traceback(),
+			)
+
+	# Clean up instances where delivery failed or
+	# that were already inactive (Completed/Errored/Cancelled)
+	orphans = [i for i in instances if i.name not in message_delivered]
+
+	if not orphans:
+		return
+
+	orphan_names = [i.name for i in orphans]
+	frappe.db.delete("BPMN Activity Log", {"instance": ["in", orphan_names]})
+
+	for inst in orphans:
+		try:
+			frappe.delete_doc("BPMN Process Instance", inst.name, ignore_permissions=True)
+		except Exception:
 			try:
 				frappe.delete_doc(
-					"BPMN Process Instance", instance_name, ignore_permissions=True, force=True
+					"BPMN Process Instance", inst.name, ignore_permissions=True, force=True
 				)
 			except Exception:
 				frappe.log_error(
-					title=f"Failed to delete BPMN instance {instance_name} linked to deleted {doc.doctype} {doc.name}",
+					title=f"Failed to delete BPMN instance {inst.name} linked to deleted {doc.doctype} {doc.name}",
 					message=frappe.get_traceback(),
 				)
 
