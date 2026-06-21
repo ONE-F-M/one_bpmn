@@ -69,7 +69,9 @@
 									'pa-option-btn',
 									msg.intent === 'CONFIRM' && opt === 'Yes, proceed'
 										? 'pa-option-btn--primary'
-										: '',
+										: msg.intent === 'CONFIRM_REMOVAL' && opt === 'Yes, apply changes'
+											? 'pa-option-btn--warning'
+											: '',
 								]"
 								@click="selectOption(opt, msg.id)"
 							>{{ opt }}</button>
@@ -165,12 +167,12 @@ const props = defineProps({
 
 const emit = defineEmits(["close", "bpmn-generated"]);
 
-const messages       = ref([]);
-const editorHasContent = ref(false);
-const isTyping       = ref(false);
-const messagesEl     = ref(null);
-const inputEl        = ref(null);
-const sessionId      = ref(generateSessionId());
+const messages          = ref([]);
+const editorHasContent  = ref(false);
+const isTyping          = ref(false);
+const messagesEl        = ref(null);
+const inputEl           = ref(null);
+const sessionId         = ref(generateSessionId());
 
 function generateSessionId() {
 	return "prosally_" + Date.now() + "_" + Math.random().toString(36).slice(2, 9);
@@ -284,8 +286,26 @@ async function sendMessage(opts = {}) {
 			diagram_name: props.diagramName || "",
 		};
 		if (confirmedAction) body.confirmed_action = confirmedAction;
-		if (confirmedAction === "MODIFY_EXISTING") {
-			if (!props.getCanvasXml) {
+
+		// Always send current canvas XML when available.
+		// For confirmed MODIFY_EXISTING: used for property transfer (preserving configs).
+		// For confirmed OVERWRITE_EXISTING: used to warn about configured elements that will be lost.
+		// For initial classification: used so the confirmer can warn about OVERWRITE property loss.
+		if (confirmedAction !== "APPLY_PENDING") {
+			if (props.getCanvasXml) {
+				const currentXml = ((await props.getCanvasXml()) || "").trim();
+				if (currentXml) {
+					body.current_xml = currentXml;
+				} else if (confirmedAction === "MODIFY_EXISTING") {
+					messages.value.push({
+						id:      makeId(),
+						role:    "assistant",
+						content: "I can't modify the existing diagram because the current canvas is empty. Please reload the diagram and try again.",
+						time:    formatTime(new Date()),
+					});
+					return;
+				}
+			} else if (confirmedAction === "MODIFY_EXISTING") {
 				messages.value.push({
 					id:      makeId(),
 					role:    "assistant",
@@ -294,19 +314,6 @@ async function sendMessage(opts = {}) {
 				});
 				return;
 			}
-
-			const currentXml = ((await props.getCanvasXml()) || "").trim();
-			if (!currentXml) {
-				messages.value.push({
-					id:      makeId(),
-					role:    "assistant",
-					content: "I can't modify the existing diagram because the current canvas is empty. Please reload the diagram and try again.",
-					time:    formatTime(new Date()),
-				});
-				return;
-			}
-
-			body.current_xml = currentXml;
 		}
 
 		const response = await fetch("/api/method/one_bpmn.api.server_script_api.prosally_chat", {
@@ -321,6 +328,7 @@ async function sendMessage(opts = {}) {
 		if (!response.ok) throw new Error(`HTTP ${response.status}`);
 		const data   = await response.json();
 		const result = data?.message || {};
+
 		const reply  = result.response || "I received your message. How can I assist further?";
 		const intent = result.intent || null;
 		const options = (result.options && result.options.length) ? result.options : [];
@@ -332,6 +340,7 @@ async function sendMessage(opts = {}) {
 			intent,
 			action_intent: result.action_intent || null,
 			options,
+			pending_xml:   result.pending_xml || null,
 			time:          formatTime(new Date()),
 		});
 
@@ -359,6 +368,37 @@ function selectOption(option, msgId) {
 		if (msg.intent === "CONFIRM" && option === "Yes, proceed") {
 			confirmedAction = msg.action_intent || "";
 		}
+
+		// Handle CONFIRM_REMOVAL: user approves or rejects element removal
+		if (msg.intent === "CONFIRM_REMOVAL") {
+			msg.options = [];
+			if (option === "Yes, apply changes" && msg.pending_xml) {
+				// User approved removal — apply the pending XML directly
+				messages.value.push({
+					id: makeId(), role: "user", content: option, time: formatTime(new Date()),
+				});
+				messages.value.push({
+					id: makeId(), role: "assistant",
+					content: "Changes applied. Review the updated diagram on the canvas.",
+					time: formatTime(new Date()),
+				});
+				scrollBottom();
+				emit("bpmn-generated", msg.pending_xml);
+			} else {
+				// User rejected — keep existing diagram
+				messages.value.push({
+					id: makeId(), role: "user", content: option, time: formatTime(new Date()),
+				});
+				messages.value.push({
+					id: makeId(), role: "assistant",
+					content: "No changes were made. Your existing diagram and configurations are preserved.",
+					time: formatTime(new Date()),
+				});
+				scrollBottom();
+			}
+			return;
+		}
+
 		msg.options = [];
 	}
 
@@ -751,6 +791,17 @@ function resetConversation() {
 }
 
 .pa-option-btn--primary:hover {
+	opacity: 0.88;
+	border-color: transparent;
+}
+
+.pa-option-btn--warning {
+	background: linear-gradient(135deg, #d97706 0%, #dc2626 100%);
+	color: #fff;
+	border-color: transparent;
+}
+
+.pa-option-btn--warning:hover {
 	opacity: 0.88;
 	border-color: transparent;
 }

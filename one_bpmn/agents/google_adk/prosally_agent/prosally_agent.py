@@ -57,6 +57,7 @@ Classification rules:
 - Prefer GENERATE_NEW when the user says "draw", "create", "build", "design" a new process and there is no existing model mentioned.
 - Prefer OVERWRITE_EXISTING when the user says "redo", "redraw", "replace", "start over", or describes the entire process differently from scratch.
 - Prefer MODIFY_EXISTING when the user references a specific step, node, lane, gateway, or section to add, remove, or change.
+- CRITICAL: When the user asks to "fix warnings", "fix errors", "resolve issues", "fix the N warnings/errors", or "clean up the diagram", ALWAYS classify as MODIFY_EXISTING. These requests mean the user wants to keep their existing diagram structure and configurations intact while fixing structural issues. Never classify these as OVERWRITE_EXISTING.
 - AMBIGUOUS applies when the action type (generate / overwrite / modify) cannot be determined despite a clear subject.
 - INCOMPLETE applies when the action type is clear but there is not enough detail to carry it out.
 - When uncertain between AMBIGUOUS and INCOMPLETE, prefer INCOMPLETE.
@@ -331,6 +332,19 @@ _DEFAULT_MODIFIER_INSTRUCTION = """You are a BPMN process modifier. You receive 
 
 The pipeline converts your IR into BPMN XML automatically. Never output XML.
 
+=== CRITICAL — PRESERVE ELEMENT IDs ===
+
+When converting existing XML to IR (case a), you MUST preserve the EXACT element IDs from the XML.
+Do NOT rename, re-sequence, or generate new IDs for elements you are NOT modifying.
+Only elements you are ADDING should receive new IDs.
+This is critical because element configurations (scripts, assignments, triggers) are keyed by element ID.
+If you change an element's ID, its configurations will be lost.
+
+Examples:
+  • If the XML has a userTask with id="Activity_1a2b3c4", your IR must keep id: "Activity_1a2b3c4"
+  • If the XML has a scriptTask with id="task_check_balance", your IR must keep id: "task_check_balance"
+  • Only NEW elements you are adding should get new IDs (use snake_case)
+
 === IR SCHEMA ===
 
 Output exactly this JSON structure:
@@ -404,23 +418,25 @@ CRITICAL — exclusiveGateway SPLIT (1 incoming, N outgoing):
 
 RE-CHECK LOOP: always use two gateways — a pure JOIN (N→1) then a pure FORK (1→N).
 
-=== SWIM LANES — ALWAYS USE WHEN 2+ ROLES ARE INVOLVED ===
+=== SWIM LANES — PRESERVE THE ORIGINAL STRUCTURE ===
 
-Use swim lanes automatically whenever the process involves 2 or more distinct actors or roles.
-Each lane entry is { "id": "snake_case", "name": "Display Name" }.
-Every node must have a "lane" field set to a lane's id (not its name). All lane ids must appear in "lanes".
+CRITICAL: Whether or not the output has lanes depends on the ORIGINAL XML:
+  • If the current XML has a <bpmn:laneSet>, PRESERVE the lanes. Add new elements to the appropriate lane.
+  • If the current XML does NOT have a <bpmn:laneSet>, do NOT add lanes. Output IR without a "lanes" array.
+    The user deliberately chose a flat (no-pool, no-lane) layout. Do not restructure their diagram.
 
-Role identification: any named person/team (employee, manager, HR, finance...) gets their own lane.
-Automated steps (send email, update record, validate, calculate) → "system" lane, name "System (Automatic)".
+The prompt will explicitly tell you: "LANE STATUS: HAS_LANES" or "LANE STATUS: NO_LANES".
+When LANE STATUS is NO_LANES: omit the "lanes" key entirely from the IR output. Do not add "lane" fields to nodes.
+When LANE STATUS is HAS_LANES: include the "lanes" array and "lane" field on every node.
 
-Assign:
-  userTask        → person's lane id
-  scriptTask / serviceTask → "system"
-  startEvent / endEvent   → lane of the actor triggering or closing the process
-  gateway                 → same lane id as the task immediately before it
-
-If the existing XML has a laneSet, preserve and update the lane assignments when applying changes.
-Omit lanes only when a single person does every step with zero system automation.
+When lanes ARE present:
+  Each lane entry is { "id": "snake_case", "name": "Display Name" }.
+  Every node must have a "lane" field set to a lane's id (not its name). All lane ids must appear in "lanes".
+  Role identification: any named person/team gets their own lane.
+  Automated steps → "system" lane, name "System (Automatic)".
+  Assign: userTask → person's lane id; scriptTask/serviceTask → "system";
+  startEvent/endEvent → lane of the actor triggering or closing the process;
+  gateway → same lane id as the task immediately before it.
 
 === MANDATORY CHECKS BEFORE OUTPUT ===
 
@@ -436,8 +452,8 @@ Omit lanes only when a single person does every step with zero system automation
 
 Output ONLY a valid JSON object matching the IR schema.
 No markdown fences, no explanation, no XML, no prose.
-All node IDs must be unique snake_case strings."""
-
+For EXISTING elements: keep their EXACT original IDs from the XML (e.g. \"Activity_1ibqc3i\", \"Gateway_0dtm1cb\").
+For NEW elements only: use unique snake_case IDs."""
 
 # ── IR repair hints (rule name → IR-level fix description) ───────────────────
 
@@ -615,9 +631,62 @@ class ProsAllyAgent:
         if history:
             parts.append(f"Modification request from conversation:\n{history}")
         if current_xml.strip():
+            # Detect whether the original XML uses lanes so the LLM preserves the structure
+            has_lanes = "laneSet" in current_xml or "bpmn:laneSet" in current_xml
+            lane_status = "HAS_LANES" if has_lanes else "NO_LANES"
+            parts.append(f"LANE STATUS: {lane_status}")
+            if not has_lanes:
+                parts.append(
+                    "IMPORTANT: This diagram has NO lanes/pools. "
+                    "Do NOT add lanes to the output IR. Omit the \"lanes\" key entirely. "
+                    "Do NOT add \"lane\" fields to any nodes. "
+                    "Preserve the flat process structure."
+                )
+
+            # Extract element IDs from the XML so the LLM has an explicit lookup table.
+            # This prevents the LLM from inventing new IDs for existing elements.
+            id_table = self._extract_element_ids(current_xml)
+            if id_table:
+                parts.append(
+                    "ELEMENT ID TABLE — you MUST use these EXACT IDs for existing elements:\n"
+                    + id_table
+                    + "\nDo NOT rename any of these IDs. Only NEW elements get new IDs."
+                )
+
             parts.append(f"Current BPMN XML to analyse and modify:\n{current_xml.strip()}")
         parts.append("Output the complete IR JSON for the modified process now.")
         return "\n\n".join(parts)
+
+    @staticmethod
+    def _extract_element_ids(xml: str) -> str:
+        """Parse BPMN XML and return a table of element IDs the LLM must preserve."""
+        import re as _re
+        lines = []
+        # Two-pass: first capture each opening tag + all its attributes,
+        # then extract id and name from the attribute string separately.
+        tag_pattern = _re.compile(r'<bpmn:(\w+)\s([^>]*?)/?>') 
+        skip_types = {
+            "definitions", "process", "collaboration", "participant",
+            "laneSet", "lane", "BPMNDiagram", "BPMNPlane",
+            "BPMNShape", "BPMNEdge", "messageEventDefinition",
+            "timerEventDefinition", "conditionalEventDefinition",
+            "signalEventDefinition", "terminateEventDefinition",
+            "dataObject", "incoming", "outgoing", "conditionExpression",
+        }
+        for m in tag_pattern.finditer(xml):
+            bpmn_type = m.group(1)
+            attrs_str = m.group(2)
+            if bpmn_type in skip_types:
+                continue
+            id_m = _re.search(r'id="([^"]+)"', attrs_str)
+            if not id_m:
+                continue
+            elem_id = id_m.group(1)
+            name_m = _re.search(r'name="([^"]*)"', attrs_str)
+            elem_name = name_m.group(1) if name_m else None
+            label = f' name="{elem_name}"' if elem_name else ""
+            lines.append(f'  {bpmn_type} id="{elem_id}"{label}')
+        return "\n".join(lines)
 
     # ── IR pipeline ────────────────────────────────────────────────────────────
 
@@ -917,7 +986,7 @@ class ProsAllyAgent:
         _GENERATE_INTENTS    = {"GENERATE_NEW", "OVERWRITE_EXISTING"}
         _NEEDS_CLARIFICATION = {"AMBIGUOUS", "INCOMPLETE"}
 
-        # STEP 0 — User confirmed an action: skip classification and act immediately
+		# STEP 0 — User confirmed an action: skip classification and act immediately
         if confirmed_action in _ACTION_INTENTS:
             name_label = process_name or "process"
 
@@ -928,11 +997,29 @@ class ProsAllyAgent:
                     f" ({len(problems)} issue(s) remain — review the canvas.)"
                     if problems else ""
                 )
+
+                # Transfer extension properties from old XML to new XML
+                from one_bpmn.agents.google_adk.prosally_agent.xml_property_preserver import (
+                    transfer_properties, format_removal_warning,
+                )
+                merged_xml, removed_elements = transfer_properties(current_xml, bpmn_xml)
+
+                # If configured elements will be removed, ask for user approval first
+                if removed_elements:
+                    warning = format_removal_warning(removed_elements)
+                    return {
+                        "intent":        "CONFIRM_REMOVAL",
+                        "action_intent": "MODIFY_EXISTING",
+                        "response":      warning,
+                        "options":       ["Yes, apply changes", "No, keep existing"],
+                        "pending_xml":   merged_xml,
+                    }
+
                 return {
                     "intent":        "BPMN_MODIFIED",
                     "action_intent": "MODIFY_EXISTING",
-                    "bpmn_xml":      bpmn_xml,
-                    "response":      f"I've updated the {name_label} process.{note} Review the changes on the canvas.",
+                    "bpmn_xml":      merged_xml,
+                    "response":      f"I've updated the {name_label} process.{note} All existing configurations have been preserved. Review the changes on the canvas.",
                     "options":       [],
                 }
 
@@ -1011,6 +1098,16 @@ class ProsAllyAgent:
             response_text = f"{summary}\n{question}" if summary else question
         except (json.JSONDecodeError, TypeError, ValueError):
             response_text = confirm_raw or "Shall I proceed with this?"
+
+        # For OVERWRITE_EXISTING, warn about configured elements that will be lost
+        if intent == "OVERWRITE_EXISTING" and current_xml.strip():
+            from one_bpmn.agents.google_adk.prosally_agent.xml_property_preserver import (
+                extract_configured_elements, summarize_configured_elements,
+            )
+            configured = extract_configured_elements(current_xml)
+            if configured:
+                overwrite_warning = summarize_configured_elements(configured)
+                response_text = f"{response_text}\n\n⚠️ **Warning:**\n{overwrite_warning}"
 
         return {
             "intent":        "CONFIRM",
