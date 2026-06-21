@@ -39,6 +39,7 @@ def create_diagram_snapshot(model_name: str, xml_content: str, snapshot_type: st
 		fields=["name", "owner", "creation", "group_key", "is_named", "bpmn_xml"],
 		order_by="creation desc",
 		limit=1,
+		ignore_permissions=True,
 	)
 
 	if last and last[0].bpmn_xml == xml_content:
