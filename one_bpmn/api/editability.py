@@ -16,9 +16,8 @@ def _is_onefm_production() -> bool:
 	active Pathfinder Logs exist.
 	"""
 	try:
-		return bool(frappe.db.get_single_value("ONEFM General Setting", "is_production"))
+		return bool(frappe.db.get_single_value("OneFM General Setting", "is_production"))
 	except Exception:
-		# DocType may not exist on a pure one_bpmn bench (no one_fm app).
 		return False
 
 
