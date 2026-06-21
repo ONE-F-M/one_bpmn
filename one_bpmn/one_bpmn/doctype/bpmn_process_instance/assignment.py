@@ -225,6 +225,22 @@ def add_frappe_assignment(instance, user: str, task_name: str = "") -> None:
 			"description": description,
 			"notify": 1,
 		}, ignore_permissions=True)
+
+		# Stamp the newly created ToDo as a "Process" type so it can be
+		# distinguished from regular Action assignments.  Uses db_set to
+		# bypass the validate hook that would otherwise reset it to "Action".
+		new_todo = frappe.db.get_value(
+			"ToDo",
+			{
+				"reference_type": instance.context_doctype,
+				"reference_name": instance.context_docname,
+				"allocated_to": user,
+				"status": "Open",
+			},
+			"name",
+		)
+		if new_todo:
+			frappe.db.set_value("ToDo", new_todo, "type", "Process")
 	except Exception:
 		frappe.log_error(
 			title=f"BPMN: Failed to assign {instance.context_doctype} to {user}",
