@@ -13,6 +13,8 @@ class ContingencyTaskCompletion(Document):
 				self.process_owner = employee
 
 
+
+
 @frappe.whitelist()
 def get_process_doctypes(
 	doctype: str,
@@ -47,7 +49,7 @@ def get_process_doctypes(
 	if not names:
 		return []
 
-	return frappe.get_all(
+	rows = frappe.get_all(
 		"DocType",
 		filters=[
 			["name", "in", names],
@@ -56,8 +58,8 @@ def get_process_doctypes(
 		fields=["name"],
 		start=int(start),
 		page_length=int(page_len),
-		pluck="name",
 	)
+	return [(r.name,) for r in rows]
 
 
 @frappe.whitelist()
@@ -119,4 +121,5 @@ def get_active_task_documents(
 		if frappe.has_permission(context_doctype, ptype="read", doc=row.target_docname)
 	]
 
-	return readable_docnames[int(start) : int(start) + int(page_len)]
+	page = readable_docnames[int(start) : int(start) + int(page_len)]
+	return [(name,) for name in page]

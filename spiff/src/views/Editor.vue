@@ -113,6 +113,15 @@
 					@change="handleImportFile"
 				/>
 
+				<!-- Hidden file input for config JSON import -->
+				<input
+					ref="importConfigFileInput"
+					type="file"
+					accept=".json"
+					class="hidden"
+					@change="handleImportConfigFile"
+				/>
+
 
 
 				<!-- Desktop: Individual action buttons -->
@@ -157,15 +166,23 @@
 						<div
 							v-if="showFileMenu"
 							v-click-outside="() => showFileMenu = false"
-							class="absolute right-0 mt-1 w-36 bg-white border border-gray-200 rounded-lg shadow-lg z-[70] py-1"
+							class="absolute right-0 mt-1 w-44 bg-white border border-gray-200 rounded-lg shadow-lg z-[70] py-1"
 						>
 							<button
 								@click="triggerImport(); showFileMenu = false"
 								class="w-full flex items-center gap-2 px-3 py-2 text-sm text-gray-700 hover:bg-gray-50 transition-colors"
 							>
 								<Icon icon="lucide:download" class="w-4 h-4" />
-								Import
+								Import BPMN
 							</button>
+							<button
+								@click="triggerImportConfig(); showFileMenu = false"
+								class="w-full flex items-center gap-2 px-3 py-2 text-sm text-gray-700 hover:bg-gray-50 transition-colors"
+							>
+								<Icon icon="lucide:file-json" class="w-4 h-4" />
+								Import Config
+							</button>
+							<div class="border-t border-gray-100 my-1"></div>
 							<button
 								@click="exportCurrentDiagram(); showFileMenu = false"
 								class="w-full flex items-center gap-2 px-3 py-2 text-sm text-gray-700 hover:bg-gray-50 transition-colors"
@@ -256,7 +273,14 @@
 							class="w-full flex items-center gap-2 px-3 py-2.5 text-sm text-gray-700 hover:bg-gray-50 transition-colors"
 						>
 							<Icon icon="lucide:download" class="w-4 h-4" />
-							Import
+							Import BPMN
+						</button>
+						<button
+							@click="triggerImportConfig(); showMobileMoreMenu = false"
+							class="w-full flex items-center gap-2 px-3 py-2.5 text-sm text-gray-700 hover:bg-gray-50 transition-colors"
+						>
+							<Icon icon="lucide:file-json" class="w-4 h-4" />
+							Import Config
 						</button>
 						<button
 							@click="exportCurrentDiagram(); showMobileMoreMenu = false"
@@ -270,18 +294,7 @@
 					</div>
 				</div>
 
-				<!-- Shape Library Toggle - DISABLED (see DEVELOPMENT_CONTEXT.md)
-				<button
-					@click="showShapeLibrary = !showShapeLibrary"
-					:class="[
-						'p-2 rounded-md transition-colors',
-						showShapeLibrary ? 'bg-gray-300 text-gray-800' : 'hover:bg-gray-300 text-gray-600'
-					]"
-					title="Toggle Shape Library"
-				>
-					<Icon icon="lucide:shapes" class="w-5 h-5" />
-				</button>
-				-->
+
 			</div>
 		</header>
 
@@ -320,14 +333,8 @@
 
 		<!-- Main Content -->
 		<div :class="['flex-1 flex flex-col', isMobile ? '' : 'overflow-hidden']">
-			<!-- Canvas Area with Shape Library -->
+			<!-- Canvas Area -->
 			<div :class="['flex-1 flex', isMobile ? '' : 'overflow-hidden']">
-				<!-- Shape Library Panel - DISABLED (see DEVELOPMENT_CONTEXT.md)
-				<ShapeLibraryPanel
-					v-if="showShapeLibrary"
-					@shape-drag-start="onShapeDragStart"
-				/>
-				-->
 
 				<!-- Canvas -->
 
@@ -362,6 +369,7 @@
 						@launch-callactivity-editor="onLaunchCallActivityEditor"
 						@launch-callactivity-search="onLaunchCallActivitySearch"
 						@launch-notification-editor="onLaunchNotificationEditor"
+						@launch-dmn-editor="onLaunchDmnEditor"
 					/>
 
 					<!-- No-diagram placeholder: only shown when not loading and no diagram is selected -->
@@ -681,6 +689,22 @@
 			</template>
 		</Dialog>
 
+		<!-- DMN Editor Dialog (Business Rule Task) — autosaves on every change -->
+		<Dialog v-model="showDmnEditorDialog" :options="{ title: dmnEditorTitle, size: '7xl' }">
+			<template #body-content>
+				<div class="dmn-dialog-body">
+					<DmnEditor
+						v-if="showDmnEditorDialog"
+						:key="dmnEditorKey"
+						ref="dmnEditorRef"
+						:initial-xml="dmnEditorXml"
+						:readonly="!isEditable"
+						@xml-changed="onDmnXmlChanged"
+					/>
+				</div>
+			</template>
+		</Dialog>
+
 		<!-- Call Activity Search Dialog -->
 		<CallActivitySearchDialog
 			v-model="showCallActivitySearchDialog"
@@ -740,6 +764,24 @@
 			@close="onReadinessClose"
 			@cancel="onReadinessCancel"
 			@deploy="onReadinessDeploy"
+			@upload-config="onReadinessUploadConfig"
+			@recheck="onReadinessRecheck"
+		/>
+
+		<!-- Export Config Dialog -->
+		<ExportConfigDialog
+			v-model="showExportConfigDialog"
+			:counts="exportConfigCounts"
+			@export-bpmn-only="doExportBpmnOnly"
+			@export-with-config="doExportWithConfig"
+		/>
+
+		<!-- Config Import Results Dialog -->
+		<ConfigImportResultsDialog
+			v-model="showConfigImportResults"
+			:results="configImportResults"
+			:importing="configImporting"
+			@done="onConfigImportDone"
 		/>
 
 		<!-- Disable Process Confirmation Dialog -->
@@ -783,13 +825,17 @@ import { frappeRequest, TextEditor } from "frappe-ui";
 import { Icon } from "@iconify/vue";
 import BpmnEditor from "@/components/BpmnEditor.vue";
 import EditorTabs from "@/components/EditorTabs.vue";
-import ShapeLibraryPanel from "@/components/ShapeLibraryPanel.vue";
+
 import VersionDiffDialog from "@/components/VersionDiffDialog.vue";
 import { downloadBpmn } from "@/utils/downloadBpmn";
 import CallActivitySearchDialog from "@/components/CallActivitySearchDialog.vue";
 import LogixCanvas from "@/components/LogixCanvas.vue";
+import DmnEditor from "@/components/DmnEditor.vue";
 import NotificationLinkDialog from "@/components/NotificationLinkDialog.vue";
 import ReadinessChecklistDialog from "@/components/ReadinessChecklistDialog.vue";
+import ExportConfigDialog from "@/components/ExportConfigDialog.vue";
+import ConfigImportResultsDialog from "@/components/ConfigImportResultsDialog.vue";
+import { sanitiseFilename } from "@/utils/downloadBpmn";
 import { useNotificationDialog } from "@/composables/useNotificationDialog";
 import { useWindowSize } from "@/composables/useWindowSize";
 
@@ -829,6 +875,9 @@ const isAnyDialogOpen = computed(() => {
 		showCallActivitySearchDialog.value ||
 		showReadinessDialog.value ||
 		showDisableDialog.value ||
+		showDmnEditorDialog.value ||
+		showExportConfigDialog.value ||
+		showConfigImportResults.value ||
 		notifDialog.showNotificationDialog.value ||
 		versionDiffRef.value?.isAnyDialogOpen
 	);
@@ -841,7 +890,7 @@ const importing = ref(false);
 const editorReady = ref(false);
 const hasUnsavedChanges = ref(false);
 const loading = ref(true);
-const showShapeLibrary = ref(false);
+
 const showFileMenu = ref(false);
 const showStatusPopup = ref(false);
 const showMobileMoreMenu = ref(false);
@@ -849,6 +898,27 @@ const deploying = ref(false);
 const disabling = ref(false);
 const showDisableDialog = ref(false);
 const disableRunningCount = ref(0);
+
+// --- DMN Editor State ---
+const showDmnEditorDialog = ref(false);
+const dmnEditorRef = ref(null);
+const dmnEditorTitle = ref("Edit Decision Model");
+const dmnEditorXml = ref("");
+const dmnEditorKey = ref(0); // Incremented on each open to force full recreation
+let activeDmnElement = null;
+let activeDmnEventBus = null;
+let activeDmnDecisionId = null; // The decision_id to load/save — may differ from element.id
+
+// Clean up DMN state when the dialog is closed (X button, click-outside, etc.)
+watch(showDmnEditorDialog, (isOpen) => {
+	if (!isOpen) {
+		activeDmnElement = null;
+		activeDmnEventBus = null;
+		activeDmnDecisionId = null;
+		// Reset XML so the next open doesn't flash stale content
+		dmnEditorXml.value = "";
+	}
+});
 
 // True when the currently selected diagram is deployed (is_active === 1)
 const isActiveModel = computed(() => {
@@ -881,6 +951,21 @@ const showReadinessDialog = ref(false);
 const readinessChecklist = ref(null);
 const readinessMode = ref("import"); // "import" or "deploy"
 const readinessLoading = ref(false);
+let lastReadinessXml = ""; // XML used for the most recent readiness check (for recheck)
+
+// Export config dialog state
+const showExportConfigDialog = ref(false);
+const exportConfigCounts = ref({ server_scripts: 0, workflow_states: 0, workflow_action_masters: 0 });
+let pendingExportXml = ""; // XML to export after config dialog decision
+let pendingExportTitle = ""; // Title for the BPMN download
+
+// Config import results dialog state
+const showConfigImportResults = ref(false);
+const configImportResults = ref({ created: [], skipped: [], needs_confirmation: [] });
+const configImporting = ref(false);
+
+// Config import file input ref
+const importConfigFileInput = ref(null);
 
 // Version diff dialog ref
 const versionDiffRef = ref(null);
@@ -1163,11 +1248,7 @@ function onZoomChanged(newZoom) {
 	currentZoomLevel.value = newZoom;
 }
 
-// Shape library handler
-function onShapeDragStart(shape) {
-	console.log("Shape drag started:", shape.shape_name);
-	// The actual drop handling will be done by bpmn-js canvas
-}
+
 
 // ── Readiness check (shared by import & deploy) ─────────────────────────
 async function runReadinessCheck(xmlContent, mode) {
@@ -1175,6 +1256,7 @@ async function runReadinessCheck(xmlContent, mode) {
 	readinessChecklist.value = null;
 	readinessLoading.value = true;
 	showReadinessDialog.value = true;
+	lastReadinessXml = xmlContent; // Store for recheck after config import
 
 	try {
 		const response = await frappeRequest({
@@ -1218,6 +1300,29 @@ function onReadinessCancel() {
 async function onReadinessDeploy() {
 	showReadinessDialog.value = false;
 	await executeDeployment();
+}
+
+// Upload config from readiness dialog (opens file picker)
+function onReadinessUploadConfig() {
+	if (importConfigFileInput.value) {
+		importConfigFileInput.value.value = "";
+		importConfigFileInput.value.click();
+	}
+}
+
+// Recheck readiness after config import
+async function onReadinessRecheck() {
+	if (lastReadinessXml) {
+		await runReadinessCheck(lastReadinessXml, readinessMode.value);
+	}
+}
+
+// Called when ConfigImportResultsDialog is done (all decisions applied)
+async function onConfigImportDone() {
+	// If readiness dialog is still open, recheck automatically
+	if (showReadinessDialog.value && lastReadinessXml) {
+		await runReadinessCheck(lastReadinessXml, readinessMode.value);
+	}
 }
 
 // Deploy (compile) the process model
@@ -1807,6 +1912,21 @@ async function handleDuplicateTab(tab) {
 		return;
 	}
 
+	// Generate a new unique process ID so the duplicate doesn't share the
+	// original's identity (critical for import/deploy disambiguation).
+	const slug = (props.process || "process").trim().toLowerCase().replace(/[^a-z0-9]+/g, "_").replace(/^_|_$/g, "") || "process";
+	const hex = Array.from(crypto.getRandomValues(new Uint8Array(4)), b => b.toString(16).padStart(2, "0")).join("");
+	const newProcessId = `${slug}_${hex}`;
+
+	// Replace the old process id in the XML:
+	//   <bpmn:process id="OLD_ID" ...>  →  <bpmn:process id="NEW_ID" ...>
+	//   bpmnElement="OLD_ID"            →  bpmnElement="NEW_ID"
+	const processIdMatch = xmlContent.match(/<bpmn:process\s[^>]*id=["']([^"']+)["']/);
+	if (processIdMatch) {
+		const oldId = processIdMatch[1];
+		xmlContent = xmlContent.replaceAll(oldId, newProcessId);
+	}
+
 	creating.value = true;
 	try {
 		const response = await frappeRequest({
@@ -2002,6 +2122,31 @@ async function exportCurrentDiagram() {
 		const xml = await editorRef.value.getXML();
 		const diagram = diagrams.value.find((d) => d.name === activeDiagramName.value);
 		const title = diagram?.model_name || activeDiagramName.value;
+
+		// Check if diagram references any config records
+		try {
+			const resp = await frappeRequest({
+				url: "/api/method/one_bpmn.api.config_export_import.export_bpmn_config",
+				params: { xml_content: xml },
+			});
+			const data = resp.message || resp;
+			const counts = data.counts || {};
+			const total = (counts.server_scripts || 0) + (counts.workflow_states || 0) + (counts.workflow_action_masters || 0);
+
+			if (total > 0) {
+				// Has config records → show popup
+				pendingExportXml = xml;
+				pendingExportTitle = title;
+				exportConfigCounts.value = counts;
+				showExportConfigDialog.value = true;
+				return;
+			}
+		} catch (e) {
+			// If config check fails, just export BPMN only
+			console.warn("Config export check failed, exporting BPMN only:", e);
+		}
+
+		// No config records or check failed — export BPMN directly
 		const filename = downloadBpmn(xml, title);
 		showNotification("Exported", `Downloaded as ${filename}`, "green");
 	} catch (error) {
@@ -2010,11 +2155,113 @@ async function exportCurrentDiagram() {
 	}
 }
 
+// Export BPMN only (from ExportConfigDialog)
+function doExportBpmnOnly() {
+	if (pendingExportXml) {
+		const filename = downloadBpmn(pendingExportXml, pendingExportTitle);
+		showNotification("Exported", `Downloaded as ${filename}`, "green");
+		pendingExportXml = "";
+		pendingExportTitle = "";
+	}
+}
+
+// Export BPMN + Config JSON (from ExportConfigDialog)
+async function doExportWithConfig(selected) {
+	if (!pendingExportXml) return;
+
+	// 1. Download BPMN
+	const bpmnFilename = downloadBpmn(pendingExportXml, pendingExportTitle);
+
+	// 2. Fetch full config data and download as JSON
+	try {
+		const resp = await frappeRequest({
+			url: "/api/method/one_bpmn.api.config_export_import.export_bpmn_config",
+			params: { xml_content: pendingExportXml },
+		});
+		const data = resp.message || resp;
+
+		// Filter by user selection
+		const filteredData = {
+			export_metadata: data.export_metadata,
+			server_scripts: selected.server_scripts ? data.server_scripts : [],
+			workflow_states: selected.workflow_states ? data.workflow_states : [],
+			workflow_action_masters: selected.workflow_action_masters ? data.workflow_action_masters : [],
+		};
+
+		const jsonStr = JSON.stringify(filteredData, null, 2);
+		const jsonFilename = sanitiseFilename(pendingExportTitle) + "-config.json";
+		const blob = new Blob([jsonStr], { type: "application/json" });
+		const url = URL.createObjectURL(blob);
+		const link = document.createElement("a");
+		link.href = url;
+		link.download = jsonFilename;
+		document.body.appendChild(link);
+		link.click();
+		document.body.removeChild(link);
+		URL.revokeObjectURL(url);
+
+		showNotification(
+			"Exported",
+			`Downloaded ${bpmnFilename} and ${jsonFilename}`,
+			"green"
+		);
+	} catch (error) {
+		console.error("Failed to export config:", error);
+		showNotification("Export", `Downloaded ${bpmnFilename} but config export failed`, "yellow");
+	}
+
+	pendingExportXml = "";
+	pendingExportTitle = "";
+}
+
 function triggerImport() {
 	if (importFileInput.value) {
 		// Reset so the same file can be re-imported
 		importFileInput.value.value = "";
 		importFileInput.value.click();
+	}
+}
+
+function triggerImportConfig() {
+	if (importConfigFileInput.value) {
+		importConfigFileInput.value.value = "";
+		importConfigFileInput.value.click();
+	}
+}
+
+async function handleImportConfigFile(event) {
+	const file = event.target.files && event.target.files[0];
+	if (!file) return;
+
+	configImporting.value = true;
+	showConfigImportResults.value = true;
+	configImportResults.value = { created: [], skipped: [], needs_confirmation: [] };
+
+	try {
+		const jsonText = await new Promise((resolve, reject) => {
+			const reader = new FileReader();
+			reader.onload = (e) => resolve(e.target.result);
+			reader.onerror = () => reject(new Error("Failed to read file"));
+			reader.readAsText(file);
+		});
+
+		const resp = await frappeRequest({
+			url: "/api/method/one_bpmn.api.config_export_import.import_bpmn_config",
+			method: "POST",
+			params: { config_json: jsonText },
+		});
+
+		configImportResults.value = resp.message || resp;
+	} catch (error) {
+		console.error("Config import failed:", error);
+		showConfigImportResults.value = false;
+		showNotification(
+			"Import Failed",
+			error.message || "An unexpected error occurred while importing config.",
+			"red"
+		);
+	} finally {
+		configImporting.value = false;
 	}
 }
 
@@ -2135,6 +2382,111 @@ function getAvatarColor(userName) {
 	}
 	const colorIndex = Math.abs(hash) % AVATAR_COLORS.length;
 	return AVATAR_COLORS[colorIndex];
+}
+
+// --- DMN Editor Handlers ---
+
+async function onLaunchDmnEditor(event) {
+	const element = event.element;
+	if (!element) {
+		console.error("[DMN] No element found for DMN editor launch — is a Business Rule Task selected?");
+		return;
+	}
+
+	// Resolve which decision to load:
+	// 1. calledDecisionId from the element's extension attribute (set by dropdown picker)
+	// 2. event.value passed from the properties panel
+	// 3. Fall back to the element's own ID
+	const bo = element.businessObject;
+	const calledDecisionId = (bo && bo.get("spiffworkflow:calledDecisionId")) || event.value || "";
+	const decisionId = calledDecisionId || element.id;
+	const elementName = bo?.name || decisionId || "Decision Model";
+
+	activeDmnElement = element;
+	activeDmnEventBus = event.eventBus;
+	activeDmnDecisionId = decisionId;
+	dmnEditorTitle.value = `Edit Decision Model — ${elementName}`;
+
+	console.log(`[DMN] Launching editor for element: ${element.id}, decision: ${decisionId}, model: ${activeDiagramName.value}`);
+
+	// Load stored XML from backend
+	let storedXml = "";
+	if (activeDiagramName.value) {
+		try {
+			const resp = await frappeRequest({
+				url: "/api/method/one_bpmn.api.dmn_api.get_dmn_xml",
+				params: {
+					process_model: activeDiagramName.value,
+					decision_id: decisionId,
+				},
+			});
+			// frappeRequest unwraps the "message" key automatically.
+			// get_dmn_xml returns a plain string; handle both wrapped and raw.
+			if (typeof resp === "string") {
+				storedXml = resp;
+			} else if (resp && typeof resp.message === "string") {
+				storedXml = resp.message;
+			}
+			console.log(`[DMN] Loaded stored XML: ${storedXml ? storedXml.length + " chars" : "(empty)"}`);
+		} catch (err) {
+			console.warn("[DMN] Could not load stored XML:", err);
+		}
+	}
+
+	dmnEditorXml.value = storedXml;
+	dmnEditorKey.value++;          // Force a fresh DmnEditor instance
+	showDmnEditorDialog.value = true;
+}
+
+async function onDmnXmlChanged(xml) {
+	// Autosave: persist every debounced change to the backend
+	if (!xml) {
+		console.warn("[DMN] onDmnXmlChanged called with empty XML — skipping save");
+		return;
+	}
+	if (!activeDmnElement) {
+		console.warn("[DMN] onDmnXmlChanged: no activeDmnElement — skipping save");
+		return;
+	}
+	if (!activeDiagramName.value) {
+		console.warn("[DMN] onDmnXmlChanged: no activeDiagramName — skipping save");
+		return;
+	}
+
+	const decisionId = activeDmnDecisionId || activeDmnElement.id;
+	const elementName = activeDmnElement.businessObject?.name || decisionId;
+
+	console.log(`[DMN] Saving DMN XML for decision: ${decisionId}, model: ${activeDiagramName.value}, xml length: ${xml.length}`);
+
+	try {
+		await frappeRequest({
+			url: "/api/method/one_bpmn.api.dmn_api.save_dmn_xml",
+			method: "POST",
+			params: {
+				process_model: activeDiagramName.value,
+				decision_id: decisionId,
+				decision_name: elementName,
+				dmn_xml: xml,
+			},
+		});
+		console.log("[DMN] ✅ Save successful");
+	} catch (err) {
+		console.error("[DMN] Autosave failed:", err);
+	}
+
+	// Write DMN reference back to the BPMN element
+	if (activeDmnEventBus && activeDmnElement) {
+		activeDmnEventBus.fire("spiff.dmn.edit.update", {
+			element: activeDmnElement,
+			value: elementId,
+		});
+	}
+}
+
+function closeDmnEditor() {
+	showDmnEditorDialog.value = false;
+	activeDmnElement = null;
+	activeDmnEventBus = null;
 }
 
 // --- SpiffWorkflow Editor Handlers ---
@@ -2521,6 +2873,27 @@ const totalCommentCount = computed(() => {
 :deep(.tiptap) {
 	max-width: 100% !important;
 	width: 100% !important;
+}
+
+/* Logix AI Assistant — wider than the standard 7xl cap */
+:deep(.dialog-content:has(.lc-root)) {
+	max-width: min(92vw, 1520px) !important;
+	width: min(92vw, 1520px) !important;
+}
+
+/* DMN Editor Dialog — near-full-screen experience */
+:deep(.dialog-content:has(.dmn-dialog-body)) {
+	max-width: min(92vw, 1520px) !important;
+	width: min(92vw, 1520px) !important;
+}
+
+.dmn-dialog-body {
+	height: 70vh;
+	min-height: 500px;
+	display: flex;
+	flex-direction: column;
+	padding: 0 !important;
+	overflow: hidden;
 }
 
 .scrollbar-hide::-webkit-scrollbar {

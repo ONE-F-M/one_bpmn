@@ -41,6 +41,15 @@ def save_process_model(
 		doc = frappe.get_doc("BPMN Process Model", model_name)
 		doc.check_permission("write")
 		doc.bpmn_xml = xml_content
+
+		# Clean up orphaned decision table rows whose Business Rule Task
+		# element no longer exists in the updated BPMN XML.
+		_remove_orphaned_decision_rows(doc, xml_content)
+
+		# Sync decision_name from BPMN element names so that renaming
+		# a task after DMN XML was saved updates the child row.
+		_sync_decision_names(doc, xml_content)
+
 		if description is not None:
 			doc.description = description
 		doc.save()
@@ -55,9 +64,82 @@ def save_process_model(
 		doc.is_active = 0
 
 		doc.check_permission("create")
+		# The caller (Processa editor or handleDuplicateTab) already
+		# embeds a unique process_id in the XML — skip re-generation.
+		doc.flags.skip_process_id_regeneration = True
 		doc.insert()
 
 	return {"name": doc.name, "model_name": doc.title, "version": doc.version, "is_active": doc.is_active}
+
+
+def _remove_orphaned_decision_rows(doc, xml_content: str):
+	"""Remove child rows in decision_tables whose element no longer exists.
+
+	When a Business Rule Task is replaced with another element type in the
+	BPMN modeler, the element ID disappears from the XML but the DMN child
+	row persists in the database.  This helper scans the BPMN XML for all
+	element IDs and drops any child rows that are no longer referenced.
+
+	Operates on the in-memory doc before save — no direct DB mutations.
+	"""
+	if not doc.decision_tables:
+		return
+
+	# Collect all element IDs present in the BPMN XML.
+	# We do a broad search for id="..." attributes so that we catch any
+	# element type (not only businessRuleTask) — this is intentional to
+	# avoid false positives if the ID is reused on a different element.
+	import re
+
+	id_matches = re.findall(r"""\bid=(?:\"([^\"]+)\"|'([^']+)')""", xml_content)
+	element_ids = {m[0] or m[1] for m in id_matches}
+
+	doc.decision_tables = [row for row in doc.decision_tables if row.decision_id in element_ids]
+
+
+def _sync_decision_names(doc, xml_content: str):
+	"""Sync decision_name fields from Business Rule Task element names.
+
+	When a user renames a Business Rule Task in the BPMN modeler after
+	its DMN XML has already been saved, the decision_name in the child
+	table becomes stale.  This helper extracts all businessRuleTask
+	element names from the BPMN XML and updates matching child rows.
+
+	Operates on the in-memory doc before save — no direct DB mutations.
+	"""
+	if not doc.decision_tables:
+		return
+
+	# Parse the BPMN XML to extract businessRuleTask elements.
+	# Use a namespace-aware approach to handle both prefixed and bare tags.
+	import re
+
+	# Match <bpmn:businessRuleTask ...> or <businessRuleTask ...>
+	# Capture the full attributes block so we can extract id and name.
+	pattern = re.compile(
+		r'<(?:[\w-]+:)?businessRuleTask\s+([^>]*?)(?:/>|>)',
+		re.IGNORECASE | re.DOTALL
+	)
+
+	# Build a map of element_id → element_name from the XML
+	element_names = {}
+	for match in pattern.finditer(xml_content):
+		attrs = match.group(1)
+		# Extract id attribute
+		id_match = re.search(r'\bid=["\']([^"\']+)["\']', attrs)
+		if not id_match:
+			continue
+		element_id = id_match.group(1)
+		# Extract name attribute (may not exist)
+		name_match = re.search(r'\bname=["\']([^"\']*)["\']', attrs)
+		element_name = name_match.group(1) if name_match else element_id
+		element_names[element_id] = element_name
+
+	# Update child rows where the name has changed
+	for row in doc.decision_tables:
+		new_name = element_names.get(row.decision_id)
+		if new_name and new_name != row.decision_name:
+			row.decision_name = new_name
 
 
 @frappe.whitelist()
@@ -157,6 +239,8 @@ def import_bpmn(
 		doc.check_permission("create")
 		# Import is allowed even on Production — bypass editability gate
 		doc.flags.skip_editability_check = True
+		# Preserve the original process_id from the imported file
+		doc.flags.skip_process_id_regeneration = True
 		doc.insert()
 		action = "created"
 
@@ -168,31 +252,20 @@ def import_bpmn(
 	}
 
 
-@frappe.whitelist()
-def validate_bpmn_readiness(xml_content: str) -> dict:
+def _extract_bpmn_references(xml_content: str) -> dict:
 	"""
-	Parse BPMN XML and check all prerequisites against the database.
+	Parse BPMN XML and extract all external references.
 
-	Shared validation used by both import (informational) and deploy (blocking).
-	Checks 8 categories:
-	  1. DocTypes         — referenced doctypes must exist
-	  2. Fields           — referenced fields must exist on their doctypes
-	  3. Workflow States  — referenced states must exist as Workflow State records
-	  4. Workflow Actions — user task action labels must exist as Workflow Action Master records
-	  5. Server Scripts   — script task references must exist
-	  6. Lane Roles       — roles assigned to lanes must exist and be active
-	  7. Frappe Workflows — active workflows are flagged as conflict warnings
-	  8. Assignment Rules — active rules are flagged as conflict warnings
+	Shared helper used by both ``validate_bpmn_readiness()`` and
+	``config_export_import.export_bpmn_config()``.
 
 	Args:
-		xml_content: Raw BPMN XML text
+		xml_content: Raw BPMN XML text (must be non-empty, already validated)
 
 	Returns:
-		dict with categories, total_checked, total_missing, total_warnings, all_ready
+		dict with keys: doctypes, fields, workflow_states, workflow_actions,
+		server_scripts, lane_roles, apply_workflow_doctypes, root, process_el
 	"""
-	if not xml_content or not xml_content.strip():
-		frappe.throw(_("BPMN XML content is required"))
-
 	import xml.etree.ElementTree as _ET
 
 	BPMN_NS = "http://www.omg.org/spec/BPMN/20100524/MODEL"
@@ -202,8 +275,6 @@ def validate_bpmn_readiness(xml_content: str) -> dict:
 		root = _ET.fromstring(xml_content.strip().encode("utf-8"))
 	except Exception as exc:
 		frappe.throw(_("Invalid BPMN XML: {0}").format(str(exc)))
-
-	# ── Extract all references from the XML ──────────────────────────────
 
 	# DocTypes: collected from all sources
 	referenced_doctypes = set()
@@ -248,7 +319,6 @@ def validate_bpmn_readiness(xml_content: str) -> dict:
 
 	# ── Parse Service Tasks ───────────────────────────────────────────────
 	for service_task in root.iter(f"{{{BPMN_NS}}}serviceTask"):
-		# Extract spiffworkflow:* attributes
 		attrs = {}
 		for attr_name, attr_value in service_task.attrib.items():
 			if attr_name.startswith(f"{{{SPIFF_NS}}}"):
@@ -272,7 +342,6 @@ def validate_bpmn_readiness(xml_content: str) -> dict:
 			if target_dt:
 				referenced_doctypes.add(target_dt)
 
-			# Multi-field rows (new format)
 			rows_json = attrs.get("updateFieldRows", "")
 			if rows_json:
 				try:
@@ -284,13 +353,11 @@ def validate_bpmn_readiness(xml_content: str) -> dict:
 				except (json.JSONDecodeError, ValueError):
 					pass
 
-			# Legacy single-field format
 			legacy_field = attrs.get("updateFieldName", "")
 			if legacy_field and target_dt:
 				referenced_fields.append((target_dt, legacy_field))
 
 		else:
-			# Other service types may reference a doctype
 			target_dt = attrs.get("serviceTargetDoctype", "")
 			if target_dt:
 				referenced_doctypes.add(target_dt)
@@ -307,12 +374,10 @@ def validate_bpmn_readiness(xml_content: str) -> dict:
 		if target_dt:
 			referenced_doctypes.add(target_dt)
 
-		# Assignee field → must exist on target doctype
 		assignee_field = attrs.get("assigneeDocfield", "")
 		if assignee_field and target_dt:
 			referenced_fields.append((target_dt, assignee_field))
 
-		# Task actions → Workflow Action Master
 		actions_json = attrs.get("taskActions", "")
 		if actions_json:
 			try:
@@ -347,7 +412,6 @@ def validate_bpmn_readiness(xml_content: str) -> dict:
 		if attrs.get("serviceType") == "send_email":
 			email_dt = attrs.get("emailDoctype", "")
 			if email_dt:
-				# emailToDocFields may contain comma-separated field names
 				to_fields = attrs.get("emailToDocFields", "")
 				for field in to_fields.split(","):
 					field = field.strip()
@@ -366,6 +430,54 @@ def validate_bpmn_readiness(xml_content: str) -> dict:
 
 	# ── Extract process-level attributes ─────────────────────────────────
 	_process_el = root.find(f"{{{BPMN_NS}}}process") or root.find("process")
+
+	return {
+		"doctypes": referenced_doctypes,
+		"fields": referenced_fields,
+		"workflow_states": referenced_states,
+		"workflow_actions": referenced_actions,
+		"server_scripts": referenced_scripts,
+		"lane_roles": referenced_lane_roles,
+		"apply_workflow_doctypes": apply_workflow_doctypes,
+		"root": root,
+		"process_el": _process_el,
+	}
+
+
+@frappe.whitelist()
+def validate_bpmn_readiness(xml_content: str) -> dict:
+	"""
+	Parse BPMN XML and check all prerequisites against the database.
+
+	Shared validation used by both import (informational) and deploy (blocking).
+	Checks 8 categories:
+	  1. DocTypes         — referenced doctypes must exist
+	  2. Fields           — referenced fields must exist on their doctypes
+	  3. Workflow States  — referenced states must exist as Workflow State records
+	  4. Workflow Actions — user task action labels must exist as Workflow Action Master records
+	  5. Server Scripts   — script task references must exist
+	  6. Lane Roles       — roles assigned to lanes must exist and be active
+	  7. Frappe Workflows — active workflows are flagged as conflict warnings
+	  8. Assignment Rules — active rules are flagged as conflict warnings
+
+	Args:
+		xml_content: Raw BPMN XML text
+
+	Returns:
+		dict with categories, total_checked, total_missing, total_warnings, all_ready
+	"""
+	if not xml_content or not xml_content.strip():
+		frappe.throw(_("BPMN XML content is required"))
+
+	refs = _extract_bpmn_references(xml_content)
+	referenced_doctypes = refs["doctypes"]
+	referenced_fields = refs["fields"]
+	referenced_states = refs["workflow_states"]
+	referenced_actions = refs["workflow_actions"]
+	referenced_scripts = refs["server_scripts"]
+	referenced_lane_roles = refs["lane_roles"]
+	apply_workflow_doctypes = refs["apply_workflow_doctypes"]
+	_process_el = refs["process_el"]
 	is_executable = False
 	if _process_el is not None:
 		is_executable = _process_el.get("isExecutable", "false").strip().lower() == "true"
@@ -402,7 +514,16 @@ def validate_bpmn_readiness(xml_content: str) -> dict:
 
 		try:
 			meta = frappe.get_meta(dt)
-			exists = bool(meta.has_field(fieldname))
+			# has_field() only checks DocType-defined fields; system
+			# metadata columns (owner, modified_by, creation, …) are
+			# real DB columns on every table but absent from meta.fields.
+			from frappe.model import default_fields, optional_fields
+
+			exists = bool(
+				meta.has_field(fieldname)
+				or fieldname in default_fields
+				or fieldname in optional_fields
+			)
 		except Exception:
 			exists = False
 		field_items.append({"name": key, "exists": exists, "type": "check"})
@@ -520,6 +641,31 @@ def validate_bpmn_readiness(xml_content: str) -> dict:
 			"label": "Assignment Rules",
 			"icon": "user-check",
 			"items": assignment_items,
+		})
+
+	# 9. Prohibited Shapes (shapes that must not appear in an executable process)
+	from one_bpmn.api.compilation import PROHIBITED_SHAPES
+
+	prohibited_items = []
+	if PROHIBITED_SHAPES:
+		for child in _process_el or []:
+			local_tag = child.tag.split("}")[-1] if "}" in child.tag else child.tag
+			if local_tag in PROHIBITED_SHAPES:
+				shape_info = PROHIBITED_SHAPES[local_tag]
+				el_name = child.get("name", "").strip()
+				el_id = child.get("id", "?")
+				display_name = f'{shape_info["label"]}: "{el_name}"' if el_name else f'{shape_info["label"]} ({el_id})'
+				prohibited_items.append({
+					"name": display_name,
+					"exists": False,
+					"type": "check",
+					"detail": shape_info.get("suggestion", ""),
+				})
+	if prohibited_items:
+		categories.append({
+			"label": "Prohibited Shapes",
+			"icon": "ban",
+			"items": prohibited_items,
 		})
 
 	# ── Compute summary ──────────────────────────────────────────────────

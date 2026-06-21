@@ -39,6 +39,9 @@ import subProcessBlankStartEvent from "bpmnlint/rules/sub-process-blank-start-ev
 import superfluousGateway from "bpmnlint/rules/superfluous-gateway";
 import superfluousTermination from "bpmnlint/rules/superfluous-termination";
 
+// --- Custom OneFM rules ---
+import noProhibitedShapes from "@/linting/rules/no-prohibited-shapes.js";
+
 /**
  * Map rule names → rule factory functions.
  * The resolver uses this to look up rules by name at runtime.
@@ -69,6 +72,9 @@ const ruleMapping = {
 	"bpmnlint/sub-process-blank-start-event": subProcessBlankStartEvent,
 	"bpmnlint/superfluous-gateway": superfluousGateway,
 	"bpmnlint/superfluous-termination": superfluousTermination,
+
+	// Custom OneFM rules
+	"custom/no-prohibited-shapes": noProhibitedShapes,
 };
 
 const config = {
@@ -107,14 +113,29 @@ const config = {
 		"bpmnlint/link-event": "warn",
 		"bpmnlint/single-event-definition": "warn",
 		"bpmnlint/superfluous-termination": "warn",
+
+		// OneFM custom rules — prohibited shapes (executable processes only)
+		"custom/no-prohibited-shapes": "error",
 	},
 };
 
 const resolver = {
 	resolveRule(pkg, name) {
-		// bpmnlint resolves rules as resolveRule('bpmnlint', 'rule-name')
+		// bpmnlint resolves standard rules as resolveRule('bpmnlint', 'rule-name').
+		// For custom rules, bpmnlint's parseRuleName converts "custom/rule-name"
+		// to pkg = "bpmnlint-plugin-custom", so we must also try the un-prefixed
+		// package name when looking up in ruleMapping.
 		const key = pkg + "/" + name;
-		return ruleMapping[key] || null;
+		if (ruleMapping[key]) return ruleMapping[key];
+
+		// Strip "bpmnlint-plugin-" prefix to match our shorthand keys
+		if (pkg.startsWith("bpmnlint-plugin-")) {
+			const shortPkg = pkg.slice("bpmnlint-plugin-".length);
+			const shortKey = shortPkg + "/" + name;
+			if (ruleMapping[shortKey]) return ruleMapping[shortKey];
+		}
+
+		return null;
 	},
 };
 

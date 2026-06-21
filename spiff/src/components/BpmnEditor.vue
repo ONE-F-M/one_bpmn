@@ -117,8 +117,6 @@
 				ref="container"
 				:class="['bpmn-canvas flex-1 min-w-0', { 'bpmn-canvas--readonly': readonly, 'comment-mode-active': isCommentMode }]"
 				@contextmenu.prevent
-				@dragover.prevent="!readonly && handleDragOver($event)"
-				@drop.prevent="!readonly && handleDrop($event)"
 			></div>
 
 			<!-- ProsAlly Panel — flex sibling so canvas shrinks instead of being covered -->
@@ -965,8 +963,7 @@ import {
 import { Icon } from "@iconify/vue";
 import { useWindowSize } from "@/composables/useWindowSize";
 import { useBottomSheet } from "@/composables/useBottomSheet";
-// Custom Shapes - DISABLED (see DEVELOPMENT_CONTEXT.md)
-// import CustomShapesModule, { customShapeSvgStore } from "@/bpmn";
+
 import FormattingToolbar from "@/components/FormattingToolbar.vue";
 import ProsAllyPanel from "@/components/ProsAllyPanel.vue";
 import { layoutBpmnXml } from "@/utils/bpmnLayout.js";
@@ -1009,6 +1006,7 @@ import userTaskPropertiesProviderModule from "@/bpmn/userTaskPropertiesProvider"
 import sendTaskPropertiesProviderModule from "@/bpmn/sendTaskPropertiesProvider";
 import serviceTaskPropertiesProviderModule from "@/bpmn/serviceTaskPropertiesProvider";
 import scriptTaskPropertiesProviderModule from "@/bpmn/scriptTaskPropertiesProvider";
+import businessRuleTaskPropertiesProviderModule from "@/bpmn/businessRuleTaskPropertiesProvider";
 import timerPropertiesProviderModule from "@/bpmn/timerPropertiesProvider";
 import startEventPropertiesProviderModule from "@/bpmn/startEventPropertiesProvider";
 import conditionalStartEventPropertiesProviderModule from "@/bpmn/conditionalStartEventPropertiesProvider";
@@ -1061,6 +1059,7 @@ const emit = defineEmits([
 	"launch-callactivity-editor",
 	"launch-callactivity-search",
 	"launch-notification-editor",
+	"launch-dmn-editor",
 ]);
 
 // Commenting state
@@ -1546,6 +1545,18 @@ onMounted(async () => {
 				});
 			}
 
+			// Business Rule Task decision reference extension
+			const hasBusinessRuleTaskExt = spiffModdleExtension.types.find(t => t.name === "BusinessRuleTaskDecisionExtension");
+			if (!hasBusinessRuleTaskExt) {
+				spiffModdleExtension.types.push({
+					name: "BusinessRuleTaskDecisionExtension",
+					extends: ["bpmn:BusinessRuleTask"],
+					properties: [
+						{ name: "calledDecisionId", isAttr: true, type: "String" }
+					]
+				});
+			}
+
 			// Sticky Note extension
 			const hasStickyNoteExt = spiffModdleExtension.types.find(t => t.name === "StickyNoteExtension");
 			if (!hasStickyNoteExt) {
@@ -1573,6 +1584,7 @@ onMounted(async () => {
 				sendTaskPropertiesProviderModule,
 				serviceTaskPropertiesProviderModule,
 				scriptTaskPropertiesProviderModule,
+				businessRuleTaskPropertiesProviderModule,
 				timerPropertiesProviderModule,
 				startEventPropertiesProviderModule,
 				conditionalStartEventPropertiesProviderModule,
@@ -1660,48 +1672,53 @@ onMounted(async () => {
 				const originalFormatIssues = linting._formatIssues;
 				linting._formatIssues = function (issues) {
 					let formattedIssues = originalFormatIssues.call(this, issues);
-					const canvas = modeler.get("canvas");
-					const rootElement = canvas.getRootElement();
 
-					// Helper to collect all element IDs strictly contained within the given moddle object
-					const getModdleDescendants = (bo, descendants = new Set(), visited = new Set()) => {
-						if (!bo || typeof bo !== "object") return descendants;
-						if (visited.has(bo)) return descendants;
-						visited.add(bo);
+					try {
+						const canvas = modeler.get("canvas");
+						const rootElement = canvas.getRootElement();
 
-						if (bo.id) descendants.add(bo.id);
+						// Helper to collect all element IDs strictly contained within the given moddle object
+						const getModdleDescendants = (bo, descendants = new Set(), visited = new Set()) => {
+							if (!bo || typeof bo !== "object") return descendants;
+							if (visited.has(bo)) return descendants;
+							visited.add(bo);
 
-						const containmentKeys = [
-							"flowElements", "laneSets", "artifacts", "eventDefinitions",
-							"participants", "messageFlows", "processRef", "rootElements"
-						];
+							if (bo.id) descendants.add(bo.id);
 
-						for (const key of containmentKeys) {
-							const val = bo[key];
-							if (Array.isArray(val)) {
-								val.forEach(child => getModdleDescendants(child, descendants, visited));
-							} else if (val && typeof val === "object") {
-								getModdleDescendants(val, descendants, visited);
+							const containmentKeys = [
+								"flowElements", "laneSets", "lanes", "artifacts", "eventDefinitions",
+								"participants", "messageFlows", "processRef", "rootElements"
+							];
+
+							for (const key of containmentKeys) {
+								const val = bo[key];
+								if (Array.isArray(val)) {
+									val.forEach(child => getModdleDescendants(child, descendants, visited));
+								} else if (val && typeof val === "object") {
+									getModdleDescendants(val, descendants, visited);
+								}
+							}
+							return descendants;
+						};
+
+						const validIds = getModdleDescendants(rootElement.businessObject);
+
+						for (const elementId in formattedIssues) {
+							const issueGroup = formattedIssues[elementId];
+							// Filter reports to ensure their actual element is a descendant
+							const filteredGroup = issueGroup.filter(report => {
+								const actualId = report.actualElementId || report.id;
+								return validIds.has(actualId);
+							});
+
+							if (filteredGroup.length === 0) {
+								delete formattedIssues[elementId];
+							} else {
+								formattedIssues[elementId] = filteredGroup;
 							}
 						}
-						return descendants;
-					};
-
-					const validIds = getModdleDescendants(rootElement.businessObject);
-
-					for (const elementId in formattedIssues) {
-						const issueGroup = formattedIssues[elementId];
-						// Filter reports to ensure their actual element is a descendant
-						const filteredGroup = issueGroup.filter(report => {
-							const actualId = report.actualElementId || report.id;
-							return validIds.has(actualId);
-						});
-
-						if (filteredGroup.length === 0) {
-							delete formattedIssues[elementId];
-						} else {
-							formattedIssues[elementId] = filteredGroup;
-						}
+					} catch (err) {
+						console.warn("[bpmnlint] _formatIssues filter failed, returning unfiltered issues:", err);
 					}
 
 					return formattedIssues;
@@ -1939,8 +1956,17 @@ onMounted(async () => {
 				// Not implemented — file editing is handled externally
 			});
 
-			eventBus.on("spiff.dmn.edit", (_event) => {
-				// Not implemented — DMN editing is handled externally
+			eventBus.on("spiff.dmn.edit", (event) => {
+				// SpiffExtensionLaunchButton fires { value, eventBus } — it does NOT
+				// include the element. Resolve it from the modeler's selection.
+				const selection = modeler.get("selection");
+				const selected = selection.get();
+				const element = selected?.length === 1 ? selected[0] : null;
+				emit("launch-dmn-editor", {
+					element,
+					value: event.value || "",
+					eventBus: event.eventBus,
+				});
 			});
 
 			// Notification editing (Send Tasks)
@@ -1975,10 +2001,25 @@ onMounted(async () => {
 				});
 			});
 
-			eventBus.on("spiff.dmn_files.requested", (event) => {
-				event.eventBus.fire("spiff.dmn_files.returned", {
-					options: [],
-				});
+			eventBus.on("spiff.dmn_files.requested", async (event) => {
+				let options = [];
+				if (props.modelName) {
+					try {
+						const resp = await frappeRequest({
+							url: "/api/method/one_bpmn.api.dmn_api.get_decision_list",
+							params: { process_model: props.modelName },
+						});
+						// frappeRequest auto-unwraps "message"; resp is the list directly
+						const decisions = Array.isArray(resp) ? resp : (resp?.message || []);
+						options = decisions.map((d) => ({
+							label: d.decision_name || d.decision_id,
+							value: d.decision_id,
+						}));
+					} catch (err) {
+						console.warn("[BpmnEditor] Failed to fetch DMN files:", err);
+					}
+				}
+				event.eventBus.fire("spiff.dmn_files.returned", { options });
 			});
 
 			// nativeCopyPasteModule fires 'native-copy-paste:error' on any
@@ -2799,66 +2840,7 @@ function getZoomLevel() {
 	return zoomLevel.value;
 }
 
-// Handle drag over for custom shapes
-function handleDragOver(event) {
-	event.dataTransfer.dropEffect = "copy";
-}
 
-// Handle drop of custom shape onto canvas
-function handleDrop(event) {
-	const dataStr = event.dataTransfer.getData("application/json");
-	if (!dataStr) return;
-
-	try {
-		const shapeData = JSON.parse(dataStr);
-		if (shapeData && shapeData.svg_content) {
-			// Get drop position relative to canvas
-			const canvas = modeler.get("canvas");
-			const viewbox = canvas.viewbox();
-			const containerRect = container.value.getBoundingClientRect();
-
-			// Calculate position in diagram coordinates
-			const x = viewbox.x + (event.clientX - containerRect.left) / viewbox.scale;
-			const y = viewbox.y + (event.clientY - containerRect.top) / viewbox.scale;
-
-			addCustomShape(shapeData.svg_content, x, y, shapeData.shape_name);
-		}
-	} catch (e) {
-		console.error("Failed to parse dropped shape data:", e);
-	}
-}
-
-// Add a custom shape at the specified position
-function addCustomShape(svgContent, x, y, name = "Custom Shape") {
-	if (!modeler) return;
-
-	const modeling = modeler.get("modeling");
-	const elementFactory = modeler.get("elementFactory");
-	const canvas = modeler.get("canvas");
-	const bpmnFactory = modeler.get("bpmnFactory");
-
-	// Get the root element (process)
-	const rootElement = canvas.getRootElement();
-
-	// Create a Task business object
-	const taskBo = bpmnFactory.create("bpmn:Task", {
-		name: name,
-	});
-
-	// Create the shape element
-	const shape = elementFactory.createShape({
-		type: "bpmn:Task",
-		businessObject: taskBo,
-		width: 100,
-		height: 80,
-	});
-
-	// Store SVG content in the global map BEFORE adding to canvas
-	customShapeSvgStore.set(shape.id, svgContent);
-
-	// Add to canvas (this triggers the renderer)
-	modeling.createShape(shape, { x, y }, rootElement);
-}
 
 // Overlay API functions
 function getOverlays() {
@@ -2970,7 +2952,6 @@ defineExpose({
 	resetZoom,
 	fitToScreen,
 	getZoomLevel,
-	addCustomShape,
 	// Overlay API
 	addOverlay,
 	removeOverlay,

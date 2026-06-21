@@ -71,11 +71,6 @@ export function ServiceTaskProps(props) {
 				element,
 				component: OnlyAllowEditComponent,
 				isEdited: isSelectEntryEdited,
-			},
-			{
-				id: "spiffworkflow-confirmTransition",
-				element,
-				component: ConfirmTransitionComponent,
 			}
 		);
 	}
@@ -162,7 +157,7 @@ function ServiceTypeComponent(props) {
 			"spiffworkflow:workflowState":        undefined,
 			"spiffworkflow:docStatus":            undefined,
 			"spiffworkflow:onlyAllowEdit":        undefined,
-			"spiffworkflow:confirmTransition":    undefined,
+
 			// Clear email attrs
 			"spiffworkflow:emailAccount":         undefined,
 			"spiffworkflow:emailUseDoctype":      undefined,
@@ -362,60 +357,7 @@ function OnlyAllowEditComponent(props) {
 	});
 }
 
-function ConfirmTransitionComponent(props) {
-	const { element, id } = props;
-	const modeling  = useService("modeling");
-	const translate = useService("translate");
-	const bo        = getBusinessObject(element);
 
-	const checked = getBoolAttr(bo, "confirmTransition");
-
-	const handleChange = (e) => {
-		modeling.updateModdleProperties(element, bo, {
-			"spiffworkflow:confirmTransition": e.target.checked ? "true" : undefined,
-		});
-	};
-
-	return h(
-		"div",
-		{ class: "bio-properties-panel-entry", "data-entry-id": id },
-		[
-			h(
-				"div",
-				{ class: "bpmn-checkbox-row" },
-				[
-					h("input", {
-						type: "checkbox",
-						id,
-						checked,
-						onChange: handleChange,
-						class: "bpmn-checkbox",
-					}),
-					h(
-						"label",
-						{
-							for: id,
-							class: "bio-properties-panel-label",
-							class: "bpmn-checkbox-label",
-						},
-						translate("Confirm Transition?")
-					),
-				]
-			),
-			h(
-				"div",
-				{
-					class: "bpmn-checkbox-description",
-				},
-				translate(
-					"When enabled, the user will see a confirmation dialog before the workflow state change is applied. " +
-					"This adds a safety step to prevent accidental submissions, cancellations, or state transitions. " +
-					"If unchecked, the state change is applied immediately without user confirmation."
-				)
-			),
-		]
-	);
-}
 
 // ===========================================================================
 // EMAIL NOTIFICATION COMPONENTS

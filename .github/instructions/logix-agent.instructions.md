@@ -1,16 +1,18 @@
 ---
 applyTo:
   - "one_bpmn/agents/google_adk/script_task_agent/**"
+  - "one_bpmn/agents/llm_provider/**"
   - "one_bpmn/security/**"
   - "one_bpmn/tools/tool_for_server_scripts.py"
-  - "spiff/src/components/LogixChat.vue"
+  - "one_bpmn/utils/chat_persistence.py"
+  - "spiff/src/components/LogixCanvas.vue"
 ---
 
 # Logix AI Assistant
 
 Logix is an AI assistant embedded in the Processa BPMN editor. It helps users write and modify
-Frappe API-type Server Scripts attached to BPMN Script Tasks. It is powered by Google ADK
-(`LlmAgent`, `Runner`, `InMemorySessionService`) and uses `gemini-2.0-flash` by default.
+Frappe Server Scripts attached to BPMN Script Tasks. It is provider-agnostic — the active LLM
+is selected via `AI Chat Settings → Processa LLM Provider` (Anthropic, Gemini, or OpenAI).
 
 ## Architecture: 4-Agent Pipeline
 
@@ -25,8 +27,27 @@ User message
                                           └─ invalid → _build_regeneration_prompt() → retry (max 3)
 ```
 
-Every agent is a separate `LlmAgent` instance. They do NOT share session state across pipeline steps —
-each step calls `_run_agent()` with the same `session_id` but a fresh prompt.
+Each pipeline step is a separate `_run()` call via the active `BaseLLMAdapter`. Steps do not share
+session state — each call receives a fresh prompt built from conversation history.
+
+## LLM Provider Abstraction (`agents/llm_provider/`)
+
+Logix is decoupled from any specific LLM vendor via `BaseLLMAdapter`:
+
+| File | Class | Provider |
+|---|---|---|
+| `gemini.py` | `GeminiAdapter` | Google Gemini (`google.genai`) |
+| `anthropic_adapter.py` | `AnthropicAdapter` | Anthropic Claude (`anthropic`) |
+| `openai_adapter.py` | `OpenAIAdapter` | OpenAI (`openai`) |
+
+`factory.py → get_llm_adapter_from_settings()` resolves the active provider in this priority order:
+
+1. `AI Agent Configuration → llm_provider_override` (per-agent)
+2. `AI Chat Settings → processa_llm_provider` (global for all BPMN agents)
+3. `AI Chat Settings → llm_provider` (chatbot fallback)
+4. `"gemini"` (hard fallback)
+
+To add a new provider: create a new adapter class, add one branch in `get_llm_adapter()`.
 
 ## Script Contract (non-negotiable)
 
@@ -46,28 +67,35 @@ frappe.response["message"] = {
 }
 ```
 
-- `script_type` is always `"API"`.
-- `api_method` is auto-derived: script name → lowercase, spaces→underscores, special chars stripped.
-- Scripts are reached by Processa at `/api/method/<api_method>`.
+- Default `script_type` is `"API"`. All four Frappe types are supported: `API`, `DocType Event`,
+  `Scheduler Event`, `Permission Query`. The canvas settings panel exposes the correct
+  sub-fields for each type (reference doctype, doctype event, api method, event frequency, cron format).
+- `api_method` is auto-derived when type is `API`: script name → lowercase, spaces→underscores,
+  special chars stripped. Scripts are reached at `/api/method/<api_method>`.
 - Never use bare `return`. Never use `doc`, `result`, or `context_*` variables — they do not exist.
 
 ## Security Validator (`security/script_validator.py`)
 
 All generated code passes through `validate_script(code)` before being returned to the user.
 
-- **Pass 1 — AST scan**: walks `ast.Import` and `ast.ImportFrom` nodes; blocks anything in `FORBIDDEN_MODULES`
-  (os, sys, subprocess, socket, requests, pickle, ctypes, inspect, pathlib, and others).
+- **Pass 1 — AST scan**: walks `ast.Import` / `ast.ImportFrom` nodes; blocks anything in
+  `FORBIDDEN_MODULES` (os, sys, subprocess, socket, requests, pickle, ctypes, inspect, pathlib, etc.).
 - **Pass 2 — Regex scan**: blocks `open()`, `eval()`, `exec()`, `__import__()`, `compile()`,
-  `globals()`, `locals()`, `vars()`, `__builtins__`, MRO traversal, and destructive `frappe.db.sql`
-  (DROP / TRUNCATE / ALTER / CREATE TABLE).
+  `globals()`, `locals()`, `vars()`, `__builtins__`, MRO traversal, and destructive
+  `frappe.db.sql` (DROP / TRUNCATE / ALTER / CREATE TABLE).
 - Returns `{"valid": bool, "violations": [...]}`.
-- On failure: violations are logged via `frappe.log_error(title="Logix Security Validator", ...)`,
-  then injected back into the writer prompt via `_build_regeneration_prompt()`.
-- Maximum 3 attempts total. On exhaustion, return a user-facing error — never expose the violation list.
+- Non-code responses (greetings, clarifying questions) bypass validation — checked via
+  regex for a ` ```python ``` ` block before calling the validator.
+- On failure: logged via `frappe.log_error(title="Logix Security Validator — Auto-regenerating", ...)`
+  with violations and the flagged code. The violations are injected into the next writer prompt via
+  `_build_regeneration_prompt()` which instructs the agent to use safe Frappe ORM methods instead.
+- On final attempt failure: logged as `"Logix Security Validator — Max retries reached"`.
+  Returns a user-facing error — the violation list is never exposed to the user.
+- Maximum 3 attempts total.
 
-## ADK Tools (`tools/tool_for_server_scripts.py`)
+## Tools (`tools/tool_for_server_scripts.py`)
 
-Four tools are registered on the writer/clarifier agents:
+Four tools are available to the writer and clarifier agents:
 
 | Function | Purpose |
 |---|---|
@@ -80,14 +108,40 @@ All tools return strings (JSON or plain text). They never raise — errors are e
 
 ## Agent Configuration
 
-- Credentials: read from `AI Chat Settings` DocType (`google_vertex_ai_api_key`, `gemini_model`).
+- Provider credentials: read from `AI Chat Settings` DocType. Key fields:
+  `processa_llm_provider`, `anthropic_api_key`, `anthropic_model`, `gemini_api_key`,
+  `google_vertex_ai_api_key`, `gemini_model`, `openai_api_key`, `openai_model`.
 - Sub-prompt overrides: loaded from `AI Agent Configuration` via `get_agent_config(AGENT_ID)`.
   Key names: `intent_classifier`, `clarifier`, `script_writer`, `script_reviewer`.
-- `AGENT_ID = "logix_script_agent"`. Falls back to hardcoded `_DEFAULT_*_INSTRUCTION` strings if config is absent.
+- `AGENT_ID = "logix_agent"`. Falls back to hardcoded `_DEFAULT_*_INSTRUCTION` strings if absent.
+
+## Chat Persistence (`utils/chat_persistence.py`)
+
+Conversations are persisted to three doctypes in `onefm_mcp`:
+
+| Doctype | Purpose |
+|---|---|
+| `Chat Conversation` | One record per session; holds `agent_mode = "Logix"`, title, status |
+| `Chat Message` | Individual messages; `sender` = user email or agent name (`"Logix"`), `receiver` = `"User"` or `"Logix"` |
+| `Chat Conversation State` | JSON state blob per conversation |
+
+Key helpers:
+
+```python
+create_conversation(agent_mode, title, user) -> str   # returns conversation name
+save_user_message(conversation_name, text)             # sender=user, receiver="Logix"
+save_bot_message(conversation_name, text, metadata)    # sender="Logix", receiver="User"
+load_history(conversation_name, limit=30)              # returns [{"role", "content"}]
+```
+
+`process_logix_message()` creates a conversation on the first turn (when `conversation_name` is
+`None`) and passes `conversation_name` back to the frontend for all subsequent turns. History is
+always loaded fresh from the DB — the `chat_history` parameter is kept for backward compatibility
+but ignored when `conversation_name` is provided.
 
 ## Return Shape
 
-`run_logix_message()` always returns a dict with these keys:
+`run_logix_message()` always returns:
 
 ```python
 {
@@ -97,7 +151,7 @@ All tools return strings (JSON or plain text). They never raise — errors are e
     "original_script": str | None,    # original code (MODIFY only)
     "modified_script": str | None,    # new code (CREATE or MODIFY)
     "options":         list | None,   # MCQ choices (DISAMBIGUATE only)
-    "suggested_name":  str | None,    # pre-fills Apply dialog (CREATE only)
+    "suggested_name":  str | None,    # pre-fills script name (CREATE only)
 }
 ```
 
@@ -105,31 +159,57 @@ All tools return strings (JSON or plain text). They never raise — errors are e
 
 | Endpoint | Purpose |
 |---|---|
-| `process_logix_message()` | Main entry — fetches `original_content` then calls `run_logix_message()` |
-| `create_server_script()` | Creates new Server Script; always sets `api_method`; returns `{name, api_method, api_url}` |
-| `update_server_script(script_name, script)` | Saves modified script body; same permission elevation as create |
+| `process_logix_message(message, session_id, conversation_name, element_name, current_script)` | Main entry — loads history, calls agent, persists messages |
+| `create_server_script(script_name, script_type, script, ...)` | Upserts Server Script; auto-derives `api_method` for API type |
+| `update_server_script(script_name, script, ...)` | Updates script body and metadata |
 | `check_server_script_exists(script_name)` | Returns `{"exists": bool}` |
 
-All endpoints use `frappe.session.user = "Administrator"` elevation (scripts require System Manager).
+All write endpoints use `frappe.set_user("Administrator")` elevation (Server Scripts require System Manager).
 
-## Frontend (`LogixChat.vue`)
+## Frontend (`LogixCanvas.vue`)
 
-- `elementLabel` must be a `computed()` — never a static IIFE — so it updates when the user switches Script Tasks.
-- A `watch([props.element?.id, props.currentScript], ...)` resets `messages` and re-runs `initGreeting()` on task switch.
-- `initGreeting()` has three cases:
-  1. Script linked → "redefining" greeting.
-  2. No script, label matches existing Server Script → notification + Link / Create buttons.
-  3. No script, no match → "defining [label]" greeting.
+### Layout
+- Modal: `min(92vw, 1520px)` wide (set via `:deep(.dialog-content:has(.lc-root))` override in `Editor.vue`).
+- Chat panel: `580px` fixed width. Canvas panel takes remaining space.
+- Diff viewer is wrapped in `.lc-split-scroll` (`overflow-x: auto`) so long lines scroll horizontally
+  without clipping. Header and body scroll together.
+
+### Greeting (`initGreeting()`)
+Three cases on open:
+1. Script already linked → `"How would you like me to assist in defining the **[script name]** server script?"`
+2. No script linked, but a Server Script with the same name as the BPMN label exists →
+   notification + **"Link to script task"** / **"Create new"** buttons.
+3. No script, no match → `"How would you like me to assist in defining the **[label]** server script?"`
+
+### Action Buttons by Intent
+
+| Intent | Buttons |
+|---|---|
+| `CREATE` | **Approve** — applies code, sets script name, triggers auto-save + BPMN link |
+| `MODIFY` | **Approve & Save** (purple) — applies changes + auto-save; **Reject** (red) — discards, leaves existing script unchanged |
+| `DISAMBIGUATE` | One button per clarification option — clicks send the option as the next message |
+
+The "Reject" button uses `.lc-action-btn--reject` (red border/hover).
+
+### Auto-save
+`scheduleAutoSave()` is called whenever `canvasCode` changes (including after Approve). It debounces
+1500 ms then calls `saveScript()`, which:
+1. Renames the DB record if `canvasScriptName` changed.
+2. POSTs to `create_server_script` (upsert).
+3. Fires `spiff.script.update` on `props.eventBus` to link the script to the BPMN element.
+4. Sets `isDirty = false`, `isSaved = true` (resets after 3 s).
+
+### Key Rules
+- `elementLabel` must be a `computed()` — never a static IIFE — so it updates when the user switches tasks.
+- A `watch` on `[props.element?.id, props.currentScript]` resets messages and re-runs `initGreeting()` on task switch.
 - `parseSplitDiff(unifiedDiff)` returns `[{type, left, right}]` rows for side-by-side rendering.
   A `-` line immediately followed by `+` is a `changed` pair; standalone `-` is `deleted`; standalone `+` is `added`.
-- After `approve_create` / `approve_modify` succeeds, show the `api_url` from the response in a confirmation message.
-- The Apply Script button is hidden on messages with `CREATE` or `MODIFY` intent (approval is via Approve button instead).
-- Context variables available to the writer: `frappe.form_dict`, `frappe.response["message"]`, `frappe.db`, `frappe.get_doc`.
+- Never show the security violation list to the user. Only the regeneration failure message is user-visible.
 
 ## Review Checklist
 
-- `validate_script()` must be called on every writer output before the result is returned.
-- `_run_agent()` may return `None` (no final event). All callers must guard against `None`.
-- `run_logix_message()` is synchronous (`asyncio.run()`). Never call it from inside an already-running event loop.
-- `InMemorySessionService` sessions must be deleted in the `finally` block of `process_message()`.
+- `validate_script()` must be called on every writer output that contains a Python code block.
+- `_run()` may return an empty string. All callers must guard against falsy output.
+- `run_logix_message()` is async. Call it with `await` inside the agent; `api.py` runs it via `asyncio.run()`.
 - Never log the full generated script at INFO level — only log on security violations via `frappe.log_error`.
+- `conversation_name` must be returned in every `process_logix_message` response so the frontend can persist it for the next turn.
