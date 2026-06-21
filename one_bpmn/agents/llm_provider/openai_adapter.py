@@ -54,12 +54,12 @@ class OpenAIAdapter(BaseLLMAdapter):
 
             if choice.finish_reason != "tool_calls":
                 if choice.finish_reason == "length":
+                    content = choice.message.content or ""
                     frappe.log_error(
                         title="OpenAI Adapter — output truncated (max_tokens)",
                         message=(
-                            f"model={self._model}  finish_reason=length  "
-                            f"max_tokens={max_tokens}\n"
-                            f"Partial content (first 500): {(choice.message.content or '')[:500]}"
+                            f"model={self._model}  finish_reason=length  max_tokens={max_tokens}  "
+                            f"content_len={len(content)}"
                         ),
                     )
                 return choice.message.content or ""
