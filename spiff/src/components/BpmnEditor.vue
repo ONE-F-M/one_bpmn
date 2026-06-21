@@ -1060,6 +1060,7 @@ const emit = defineEmits([
 	"launch-callactivity-search",
 	"launch-notification-editor",
 	"launch-dmn-editor",
+	"launch-notify-assignee-editor",
 ]);
 
 // Commenting state
@@ -1476,7 +1477,9 @@ onMounted(async () => {
 						{ name: "assigneeDocfield",      isAttr: true, type: "String" },
 						{ name: "assigneeUsers",         isAttr: true, type: "String" },
 						{ name: "roundRobinLastUser",    isAttr: true, type: "String" },
-						{ name: "taskActions",           isAttr: true, type: "String" }
+						{ name: "taskActions",           isAttr: true, type: "String" },
+						{ name: "notifyAssignee",        isAttr: true, type: "String" },
+						{ name: "notifyAssigneeBody",    isAttr: true, type: "String" }
 					]
 				});
 
@@ -1985,6 +1988,26 @@ onMounted(async () => {
 					const bo = event.element.businessObject || event.element;
 					modeling.updateModdleProperties(event.element, bo, {
 						"spiffworkflow:notificationName": event.notificationName,
+					});
+				}
+			});
+
+			// Notify Assignee editor (User Tasks)
+			eventBus.on("spiff.userTask.notifyAssignee.edit", (event) => {
+				emit("launch-notify-assignee-editor", {
+					element: event.element,
+					body: event.body || "",
+					eventBus: event.eventBus,
+				});
+			});
+
+			// Write notify-assignee HTML body back to BPMN element
+			eventBus.on("spiff.userTask.notifyAssignee.update", (event) => {
+				if (event.element) {
+					const modeling = modeler.get("modeling");
+					const bo = event.element.businessObject || event.element;
+					modeling.updateModdleProperties(event.element, bo, {
+						"spiffworkflow:notifyAssigneeBody": event.body || undefined,
 					});
 				}
 			});
