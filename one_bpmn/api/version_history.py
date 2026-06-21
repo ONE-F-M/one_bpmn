@@ -39,6 +39,7 @@ def create_diagram_snapshot(model_name: str, xml_content: str, snapshot_type: st
 		fields=["name", "owner", "creation", "group_key", "is_named", "bpmn_xml"],
 		order_by="creation desc",
 		limit=1,
+		ignore_permissions=True,
 	)
 
 	if last and last[0].bpmn_xml == xml_content:
@@ -173,9 +174,8 @@ def get_edit_history(model_name: str) -> list:
 		model_name: Document name of the BPMN Process Model.
 
 	Returns:
-		list of group dicts: {key, name, author, author_id, timestamp,
-		is_named, is_current, entries:[{name, author, timestamp, is_named,
-		version_name}]}
+		list of group dicts: {key, head, author, author_id, timestamp, is_named, is_current, version_name,
+		entries:[{name, author, author_id, timestamp, is_named, version_name, snapshot_type}]}
 	"""
 	if not model_name:
 		frappe.throw(_("Model name is required"))
@@ -188,6 +188,7 @@ def get_edit_history(model_name: str) -> list:
 		filters={"model": model_name},
 		fields=["name", "owner", "creation", "group_key", "is_named", "version_name", "snapshot_type"],
 		order_by="creation desc",
+		ignore_permissions=True,
 	)
 
 	groups = []
