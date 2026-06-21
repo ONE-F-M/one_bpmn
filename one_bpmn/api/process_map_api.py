@@ -53,6 +53,11 @@ def save_process_model(
 		if description is not None:
 			doc.description = description
 		doc.save()
+
+		# Record a full-XML snapshot for the version history panel.
+		from one_bpmn.api.version_history import create_diagram_snapshot
+
+		create_diagram_snapshot(doc.name, xml_content)
 	else:
 		# Create new model
 		doc = frappe.new_doc("BPMN Process Model")
@@ -68,6 +73,82 @@ def save_process_model(
 		# embeds a unique process_id in the XML — skip re-generation.
 		doc.flags.skip_process_id_regeneration = True
 		doc.insert()
+
+		# Seed the version history with the initial snapshot.
+		from one_bpmn.api.version_history import create_diagram_snapshot
+
+		create_diagram_snapshot(doc.name, xml_content)
+
+	return {"name": doc.name, "model_name": doc.title, "version": doc.version, "is_active": doc.is_active}
+
+
+@frappe.whitelist()
+def create_map_from_version(
+	process: str, model_name: str, base_version: str, description: str = None
+) -> dict:
+	"""Create a new process map seeded from a named version snapshot.
+
+	Used by the editor "+" flow once a process already has at least one process
+	map: instead of starting blank, the new map is built on top of a chosen
+	*named* version from the active map's history, which serves as the base
+	template the user builds from.
+
+	The new map receives a fresh, unique process_id — the BPMN Process Model
+	controller regenerates it on insert (and rewrites the XML references) because
+	the seeded XML still carries the source map's process_id — so the new map has
+	its own identity and does not collide with the source.
+
+	Args:
+		process: Name of the parent Process.
+		model_name: Title for the new process map. Must be unique.
+		base_version: Document name of the BPMN Diagram Version to seed from.
+			Must be a *named* version.
+		description: Optional description.
+
+	Returns:
+		dict with name, model_name, version, is_active of the created map.
+	"""
+	if not process or not model_name or not base_version:
+		frappe.throw(_("Process, name and base version are required"))
+
+	title = model_name.strip()
+	if not title:
+		frappe.throw(_("Name is required"))
+
+	# Enforce a unique name (BPMN Process Model autoname is field:title, so the
+	# document name equals the title). Reject duplicates with a friendly message.
+	if frappe.db.exists("BPMN Process Model", title):
+		frappe.throw(
+			_("A process map named '{0}' already exists. Please choose a different name.").format(title)
+		)
+
+	snap = frappe.get_doc("BPMN Diagram Version", base_version)
+	if not snap.is_named:
+		frappe.throw(_("The base version must be a named version"))
+	if not snap.bpmn_xml:
+		frappe.throw(_("The selected base version has no diagram content"))
+
+	# Permission is gated on the source process model the snapshot belongs to.
+	frappe.get_doc("BPMN Process Model", snap.model).check_permission("read")
+
+	doc = frappe.new_doc("BPMN Process Model")
+	doc.title = title
+	doc.process_name = process
+	doc.bpmn_xml = snap.bpmn_xml
+	doc.description = description or ""
+	doc.version = 0
+	doc.is_active = 0
+
+	doc.check_permission("create")
+	# Intentionally do NOT set skip_process_id_regeneration: the seeded XML
+	# carries the source map's process_id, so let the controller mint a fresh
+	# unique one to avoid identity collisions during import/deploy.
+	doc.insert()
+
+	# Seed the new map's version history with its initial snapshot.
+	from one_bpmn.api.version_history import create_diagram_snapshot
+
+	create_diagram_snapshot(doc.name, doc.bpmn_xml)
 
 	return {"name": doc.name, "model_name": doc.title, "version": doc.version, "is_active": doc.is_active}
 
