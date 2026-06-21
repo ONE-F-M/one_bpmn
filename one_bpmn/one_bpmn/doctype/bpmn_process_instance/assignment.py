@@ -225,7 +225,7 @@ def add_frappe_assignment(instance, user: str, task_name: str = "") -> None:
 		# ToDo's on_update hook still updates the _assign sidebar field.
 		from frappe.utils import nowdate
 
-		d = frappe.get_doc({
+		frappe.get_doc({
 			"doctype": "ToDo",
 			"allocated_to": user,
 			"reference_type": instance.context_doctype,
