@@ -100,10 +100,10 @@
 
 		<!-- Canvas Area -->
 		<div class="flex-1 relative overflow-hidden">
-			<!-- Render Editor for each open tab; v-show keeps state alive for the active tab -->
+			<!-- Render Editor for each open tab; mount only the active tab to avoid duplicate global listeners/heartbeats -->
 			<template v-for="tab in openTabs" :key="tab.name">
 				<div
-					v-show="activeTab === tab.name"
+					v-if="activeTab === tab.name"
 					class="absolute inset-0"
 				>
 					<Editor
