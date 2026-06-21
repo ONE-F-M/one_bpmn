@@ -177,9 +177,38 @@ async function fetchLatest() {
 		const data = res.message || res;
 		latestXml = data?.xml_content || "";
 		diagramTitle.value = data?.title || "";
+
+		// Prefer the most recent snapshot (the history's "Current version") for the
+		// default preview. The model's bpmn_xml can lag behind its snapshots (e.g.
+		// a freshly ProsAlly-generated diagram whose autosave hasn't landed yet),
+		// which would otherwise show an empty "Latest version" even though the
+		// timeline already has content.
+		const snapXml = await fetchCurrentSnapshotXml();
+		if (snapXml) latestXml = snapXml;
 	} catch (error) {
 		console.error("Failed to load diagram:", error);
 		onError({ message: "Failed to load the diagram." });
+	}
+}
+
+// Resolve the XML of the newest snapshot in the history (the "Current version").
+async function fetchCurrentSnapshotXml() {
+	try {
+		const res = await frappeRequest({
+			url: "/api/method/one_bpmn.api.version_history.get_edit_history",
+			params: { model_name: props.diagram },
+		});
+		const groups = res.message || res || [];
+		const head = groups[0]?.head;
+		if (!head) return "";
+		const snapRes = await frappeRequest({
+			url: "/api/method/one_bpmn.api.version_history.get_snapshot_xml",
+			params: { version_name: head },
+		});
+		return (snapRes.message || snapRes)?.xml_content || "";
+	} catch (error) {
+		console.error("Failed to load current snapshot:", error);
+		return "";
 	}
 }
 
