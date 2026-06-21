@@ -30,6 +30,7 @@ class BaseLLMAdapter(ABC):
         system: str,
         user: str,
         tools: list[ToolSpec] | None = None,
+        max_tokens: int = 16384,
     ) -> str:
         """Run one conversation turn (with optional multi-step tool calls) and
         return the final text response."""

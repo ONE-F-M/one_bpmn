@@ -131,13 +131,18 @@
 </template>
 
 <script setup>
-import { ref, computed, onMounted } from "vue"
+import { ref, computed, onMounted, provide } from "vue"
 import { useRoute } from "vue-router"
 import { Icon } from "@iconify/vue"
 
 const route = useRoute()
 const collapsed = ref(false)
 const isMobileMenuOpen = ref(false)
+
+// Expose sidebar toggle for child views that hide the default mobile header
+provide("toggleMobileSidebar", () => {
+	isMobileMenuOpen.value = !isMobileMenuOpen.value
+})
 
 // Hide the App-level mobile header on Editor routes to recover 56px of vertical space
 const isEditorRoute = computed(() => {

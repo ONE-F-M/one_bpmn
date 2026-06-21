@@ -110,10 +110,6 @@ def on_doc_event(doc, method: str):
 	if doc.doctype in _INTERNAL_DOCTYPES:
 		return
 
-	# 1b. Skip if no valid session user (background jobs, system events)
-	if not getattr(frappe.session, "user", None) or frappe.session.user == "None":
-		return
-
 	# 2. Map the Frappe hook name to the trigger_event label
 	trigger_event = _FRAPPE_TO_TRIGGER_EVENT.get(method)
 	if not trigger_event:
@@ -585,8 +581,8 @@ def delete_linked_bpmn_instances(doc, method: str):
 						},
 					)
 				except frappe.ValidationError:
-					# No task waiting for this message — diagram has no delete
-					# catch event. That's fine, fall through to cancel.
+					# No task waiting for this message - diagram has no delete
+					# catch event. That is fine, fall through to cancel.
 					pass
 				except Exception:
 					frappe.log_error(
@@ -602,11 +598,10 @@ def delete_linked_bpmn_instances(doc, method: str):
 					updates["status"] = "Cancelled"
 					# Cancel orphan BPMN Active Task rows so they don't
 					# surface in get_active_tasks_summary / list_process_instances
-					frappe.db.sql("""
-						UPDATE `tabBPMN Active Task`
-						SET status = 'Cancelled'
-						WHERE parent = %s AND status = 'Waiting'
-					""", inst.name)
+					frappe.db.sql(
+						"UPDATE `tabBPMN Active Task` SET status = %s WHERE parent = %s AND status = %s",
+						("Cancelled", inst.name, "Waiting"),
+					)
 				frappe.db.set_value(
 					"BPMN Process Instance", inst.name,
 					updates,
