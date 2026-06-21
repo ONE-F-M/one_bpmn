@@ -174,9 +174,8 @@ def get_edit_history(model_name: str) -> list:
 		model_name: Document name of the BPMN Process Model.
 
 	Returns:
-		list of group dicts: {key, name, author, author_id, timestamp,
-		is_named, is_current, entries:[{name, author, timestamp, is_named,
-		version_name}]}
+		list of group dicts: {key, head, author, author_id, timestamp, is_named, is_current, version_name,
+		entries:[{name, author, author_id, timestamp, is_named, version_name, snapshot_type}]}
 	"""
 	if not model_name:
 		frappe.throw(_("Model name is required"))
