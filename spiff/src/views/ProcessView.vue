@@ -3,6 +3,7 @@
 		<!-- Process Tab Bar -->
 		<div class="bg-white border-b flex items-center min-h-[40px] sm:min-h-[42px] px-1 gap-0.5 shrink-0 shadow-sm">
 
+
 			<!-- Mobile: Active tab dropdown (visible < sm) -->
 			<div class="sm:hidden flex items-center flex-1 min-w-0 px-1">
 				<button
@@ -216,6 +217,7 @@ import { useWindowSize } from "@/composables/useWindowSize";
 
 const { isMobile } = useWindowSize();
 
+
 const MAX_TABS = 5;
 const STORAGE_KEY = "one_bpmn_process_view_tabs";
 
@@ -225,6 +227,9 @@ const route = useRoute();
 const openTabs = ref([]);
 const activeTab = ref(null);
 const showMobileTabMenu = ref(false);
+
+// LRU tracking: maps tab name -> last-used timestamp (doesn't affect visual order)
+const tabUsageMap = ref(new Map());
 
 // Add Process Dialog
 const showAddDialog = ref(false);
@@ -250,6 +255,14 @@ function loadTabState() {
 			if (Array.isArray(parsed.tabs) && parsed.tabs.length > 0) {
 				openTabs.value = parsed.tabs;
 				activeTab.value = parsed.active || parsed.tabs[0].name;
+				// Initialize LRU timestamps for restored tabs
+				parsed.tabs.forEach((t, i) => {
+					tabUsageMap.value.set(t.name, i);
+				});
+				// Mark the active tab as most recently used
+				if (activeTab.value) {
+					tabUsageMap.value.set(activeTab.value, Date.now());
+				}
 			}
 		}
 	} catch {
@@ -356,16 +369,30 @@ function addProcess(process) {
 	if (isTabOpen(process.name)) {
 		// Just switch to it
 		activeTab.value = process.name;
+		tabUsageMap.value.set(process.name, Date.now());
 		showAddDialog.value = false;
 		return;
 	}
 
-	// Enforce tab limit — LRU eviction
+	// Enforce tab limit — LRU eviction (using usage timestamps, not array order)
 	if (openTabs.value.length >= MAX_TABS) {
-		// Find the oldest tab that isn't the active one
-		const evictIdx = openTabs.value.findIndex(t => t.name !== activeTab.value);
-		if (evictIdx !== -1) {
-			openTabs.value.splice(evictIdx, 1);
+		// Find the least recently used tab that isn't the active one
+		let lruName = null;
+		let lruTime = Infinity;
+		for (const t of openTabs.value) {
+			if (t.name === activeTab.value) continue;
+			const usage = tabUsageMap.value.get(t.name) || 0;
+			if (usage < lruTime) {
+				lruTime = usage;
+				lruName = t.name;
+			}
+		}
+		if (lruName) {
+			const evictIdx = openTabs.value.findIndex(t => t.name === lruName);
+			if (evictIdx !== -1) {
+				openTabs.value.splice(evictIdx, 1);
+				tabUsageMap.value.delete(lruName);
+			}
 		}
 	}
 
@@ -374,6 +401,7 @@ function addProcess(process) {
 		process_name: process.process_name || process.name,
 	});
 	activeTab.value = process.name;
+	tabUsageMap.value.set(process.name, Date.now());
 	showAddDialog.value = false;
 
 	// Update URL to reflect the active process
@@ -387,12 +415,8 @@ function switchTab(name) {
 	if (activeTab.value === name) return;
 	activeTab.value = name;
 
-	// Move this tab to the end (most recently used) for LRU
-	const idx = openTabs.value.findIndex(t => t.name === name);
-	if (idx !== -1 && idx !== openTabs.value.length - 1) {
-		const [tab] = openTabs.value.splice(idx, 1);
-		openTabs.value.push(tab);
-	}
+	// Track usage for LRU eviction (no reordering of the array)
+	tabUsageMap.value.set(name, Date.now());
 
 	router.replace({
 		name: "ProcessView",
@@ -405,6 +429,7 @@ function closeTab(name) {
 	if (idx === -1) return;
 
 	openTabs.value.splice(idx, 1);
+	tabUsageMap.value.delete(name);
 
 	// If we closed the active tab, switch to the nearest remaining tab
 	if (activeTab.value === name) {
