@@ -342,8 +342,19 @@ def bulk_check_processes_editable(process_names: str) -> dict:
 		)
 
 	# connect_to_production is unchecked — check locally on the same bench
-	return _call_local_pathfinder_api(
-		"one_fm.one_fm.doctype.pathfinder_log.pathfinder_api.bulk_check_process_editable",
-		{"process_names": json.dumps(process_names_list)},
-	)
+	try:
+		return _call_local_pathfinder_api(
+			"one_fm.one_fm.doctype.pathfinder_log.pathfinder_api.bulk_check_process_editable",
+			{"process_names": json.dumps(process_names_list)},
+		)
+	except (ModuleNotFoundError, AttributeError):
+		return {
+			pname: {
+				"editable": False,
+				"pathfinder_log": None,
+				"workflow_state": None,
+				"reason": "Pathfinder Log check is unavailable because the one_fm app is not installed.",
+			}
+			for pname in process_names_list
+		}
 
