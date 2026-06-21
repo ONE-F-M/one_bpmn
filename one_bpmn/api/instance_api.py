@@ -138,6 +138,7 @@ def start_process_async(
 ) -> dict:
 	"""
 	Enqueue start_process as a background job so it doesn't block the UI.
+	Captures the caller's user so the job runs with correct attribution.
 	"""
 	if not model_name:
 		frappe.throw(_("model_name is required"))
@@ -146,16 +147,38 @@ def start_process_async(
 		frappe.throw(_("Process model '{0}' not found").format(model_name))
 
 	frappe.enqueue(
-		"one_bpmn.api.instance_api.start_process",
+		"one_bpmn.api.instance_api._start_process_as_user",
 		model_name=model_name,
 		context_doctype=context_doctype,
 		context_docname=context_docname,
 		initial_data=initial_data,
+		run_as_user=frappe.session.user,
 		is_async=True,
 		timeout=600,
 	)
 
-	return {"status": "queued", "message": f"Process '{model_name}' queued for execution"}
+	return {"status": "queued", "message": _("Process '{0}' queued for execution").format(model_name)}
+
+
+def _start_process_as_user(
+	model_name: str,
+	context_doctype: str = None,
+	context_docname: str = None,
+	initial_data: str = None,
+	run_as_user: str = None,
+):
+	"""
+	Wrapper for start_process that sets the session user before execution.
+	Used by start_process_async to preserve the caller's user context.
+	"""
+	if run_as_user:
+		frappe.set_user(run_as_user)
+	start_process(
+		model_name=model_name,
+		context_doctype=context_doctype,
+		context_docname=context_docname,
+		initial_data=initial_data,
+	)
 
 
 @frappe.whitelist()

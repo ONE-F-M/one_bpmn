@@ -563,7 +563,9 @@ def delete_linked_bpmn_instances(doc, method: str):
 	if not instances:
 		return
 
-	# Set flag to prevent guards from blocking
+	# Save the current flag state so we don't clobber an outer
+	# BPMN engine operation (e.g. a service task deleting a document)
+	previous_flag = getattr(frappe.flags, "bpmn_engine_action", False)
 	frappe.flags.bpmn_engine_action = True
 
 	try:
@@ -592,12 +594,19 @@ def delete_linked_bpmn_instances(doc, method: str):
 						message=frappe.get_traceback(),
 					)
 
-		# Step 2: Cancel active instances and unlink the document
+		# Step 2: Cancel active instances, their waiting tasks, and unlink
 		for inst in instances:
 			try:
 				updates = {"context_docname": None}
 				if inst.status == "Active":
 					updates["status"] = "Cancelled"
+					# Cancel orphan BPMN Active Task rows so they don't
+					# surface in get_active_tasks_summary / list_process_instances
+					frappe.db.sql("""
+						UPDATE `tabBPMN Active Task`
+						SET status = 'Cancelled'
+						WHERE parent = %s AND status = 'Waiting'
+					""", inst.name)
 				frappe.db.set_value(
 					"BPMN Process Instance", inst.name,
 					updates,
@@ -609,5 +618,5 @@ def delete_linked_bpmn_instances(doc, method: str):
 					message=frappe.get_traceback(),
 				)
 	finally:
-		frappe.flags.bpmn_engine_action = False
+		frappe.flags.bpmn_engine_action = previous_flag
 
