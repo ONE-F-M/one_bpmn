@@ -254,10 +254,18 @@ def check_process_editable(process_name: str) -> dict:
 		)
 	else:
 		# Check locally on the same bench (Pathfinder Log lives here)
-		result = _call_local_pathfinder_api(
-			"one_fm.one_fm.doctype.pathfinder_log.pathfinder_api.is_process_editable",
-			{"process_name": process_name},
-		)
+		try:
+			result = _call_local_pathfinder_api(
+				"one_fm.one_fm.doctype.pathfinder_log.pathfinder_api.is_process_editable",
+				{"process_name": process_name},
+			)
+		except (ModuleNotFoundError, AttributeError):
+			return {
+				"editable": False,
+				"pathfinder_log": None,
+				"workflow_state": None,
+				"reason": "Pathfinder Log check is unavailable because the one_fm app is not installed.",
+			}
 
 	# Add a human-readable reason for the frontend
 	if result.get("editable"):
