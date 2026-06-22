@@ -9,10 +9,10 @@ executors so no real API keys or network calls are needed.
 
 Coverage:
   (1) SUCCESS path: mocked executor returning SUCCESS → output written to
-      task.data, gateway routes to success path
+      task.data, gateway routes to the success end event
   (2) FAILED_MODEL_CALL: executor returns error → error variables written,
-      gateway routes to error/fallback path, instance status stays Active
-      (NOT Errored), a Frappe Error Log entry is created
+      gateway routes to the error/fallback end event, instance status stays
+      Active/Completed (NOT Errored), a Frappe Error Log entry is created
   (3) Compile-time lint: diagram referencing non-existent AI Provider →
       compile_process_model raises ValidationError
   (4) Antigravity mock path: mocked AntigravityExecutor returns SUCCESS
@@ -20,20 +20,31 @@ Coverage:
   (5) No double-execution: once an AI Agent Task is completed in persisted
       state, restoring and advancing does NOT re-execute it
 
-Uses FrappeTestCase (auto-rollback) and the test patterns from
-test_bpmn_process_instance.py.
+Notes on this bench:
+  - get_executor is imported *inside* dispatch_ai_agent from
+    one_bpmn.agents.executor, so that module is the correct patch target
+    (patching the dispatchers namespace would not take effect).
+  - frappe.log_error is patched in setUp: on this bench an Error Log insert
+    triggers an onefm_mcp doc-event hook that imports a broken google.adk
+    chain, which would crash any test whose dispatch logs an error.
+
+Uses FrappeTestCase (auto-rollback).
 """
 from __future__ import annotations
 
 import json
 import textwrap
-import unittest
 from unittest.mock import MagicMock, patch
 
 import frappe
 from frappe.tests.utils import FrappeTestCase
 
+from SpiffWorkflow.util.task import TaskState
+
+import one_bpmn.one_bpmn.engine as bpmn_engine
 from one_bpmn.agents.executor import ErrorCode, ExecutorResult, TokenUsage
+
+EXECUTOR_TARGET = "one_bpmn.agents.executor.get_executor"
 
 
 # ---------------------------------------------------------------------------
@@ -44,18 +55,25 @@ def _ai_agent_bpmn(
     ai_provider: str = "openai-test",
     ai_backend: str = "direct_api",
     ai_output_var: str = "ai_result",
-    include_gateway: bool = True,
+    flow: str = "end",
 ) -> str:
     """
-    Minimal BPMN with:
-      - StartEvent → AI Agent ServiceTask → ExclusiveGateway → two EndEvents
-    The gateway routes on ai_result (success path) or
-    {task_id}_error_code (error/fallback path).
+    Build a minimal BPMN process whose single AI Agent ServiceTask is followed
+    by one of three downstream shapes (`flow`):
+
+      "end"     StartEvent → AI Agent Task → EndEvent
+      "gateway" StartEvent → AI Agent Task → ExclusiveGateway → two EndEvents.
+                The gateway routes to end_success when `ai_result is not None`;
+                otherwise it falls through its default flow to end_error. The
+                error branch is the default (not a condition on `ai_result is
+                None`) because on failure ai_result is never written, and the
+                engine treats a NameError in a condition as False.
+      "user"    StartEvent → AI Agent Task → UserTask → EndEvent. Used to pause
+                the instance after the AI task so it can be restored + advanced.
     """
-    gateway_xml = ""
-    if include_gateway:
-        gateway_xml = """
-    <bpmn:exclusiveGateway id="gw1" name="Result Gateway">
+    if flow == "gateway":
+        downstream = """
+    <bpmn:exclusiveGateway id="gw1" name="Result Gateway" default="flow_error">
       <bpmn:incoming>flow2</bpmn:incoming>
       <bpmn:outgoing>flow_success</bpmn:outgoing>
       <bpmn:outgoing>flow_error</bpmn:outgoing>
@@ -65,13 +83,18 @@ def _ai_agent_bpmn(
     <bpmn:sequenceFlow id="flow_success" sourceRef="gw1" targetRef="end_success">
       <bpmn:conditionExpression>ai_result is not None</bpmn:conditionExpression>
     </bpmn:sequenceFlow>
-    <bpmn:sequenceFlow id="flow_error" sourceRef="gw1" targetRef="end_error">
-      <bpmn:conditionExpression>ai_result is None</bpmn:conditionExpression>
-    </bpmn:sequenceFlow>
+    <bpmn:sequenceFlow id="flow_error" sourceRef="gw1" targetRef="end_error"/>
     <bpmn:sequenceFlow id="flow2" sourceRef="ai_task" targetRef="gw1"/>
 """
+    elif flow == "user":
+        downstream = """
+    <bpmn:userTask id="user1" name="Review"><bpmn:incoming>flow2</bpmn:incoming><bpmn:outgoing>flow3</bpmn:outgoing></bpmn:userTask>
+    <bpmn:endEvent id="end1"><bpmn:incoming>flow3</bpmn:incoming></bpmn:endEvent>
+    <bpmn:sequenceFlow id="flow2" sourceRef="ai_task" targetRef="user1"/>
+    <bpmn:sequenceFlow id="flow3" sourceRef="user1" targetRef="end1"/>
+"""
     else:
-        gateway_xml = """
+        downstream = """
     <bpmn:endEvent id="end1"><bpmn:incoming>flow2</bpmn:incoming></bpmn:endEvent>
     <bpmn:sequenceFlow id="flow2" sourceRef="ai_task" targetRef="end1"/>
 """
@@ -98,7 +121,7 @@ def _ai_agent_bpmn(
       <bpmn:outgoing>flow2</bpmn:outgoing>
     </bpmn:serviceTask>
     <bpmn:sequenceFlow id=\"flow1\" sourceRef=\"start1\" targetRef=\"ai_task\"/>
-    {gateway_xml}
+    {downstream}
   </bpmn:process>
 </bpmn:definitions>
 """)
@@ -125,11 +148,17 @@ def _make_process_model(bpmn_xml: str) -> frappe.Document:
     process = frappe.get_doc({
         "doctype": "Process",
         "process_name": f"ai-test-{frappe.generate_hash(length=6)}",
+        "description": "AI Agent Task integration test process",
+        "process_owner": "Administrator",
     })
     process.insert(ignore_permissions=True)
 
+    suffix = frappe.generate_hash(length=6)
     model = frappe.get_doc({
         "doctype": "BPMN Process Model",
+        "title": f"ai-test-model-{suffix}",
+        "process_id": f"ai-test-{suffix}",
+        "version": 1,
         "process_name": process.name,
         "bpmn_xml": bpmn_xml,
     })
@@ -139,6 +168,16 @@ def _make_process_model(bpmn_xml: str) -> frappe.Document:
 
 
 def _make_instance(model_name: str) -> frappe.Document:
+    """Create AND start an instance. start() runs the engine (and dispatches the
+    AI service task), so callers must enter their get_executor patch first.
+
+    We seed ai_result=None into the root workflow data so the gateway's
+    `ai_result is not None` condition is always evaluable: SpiffWorkflow's
+    ExclusiveChoice raises on an undefined name (unlike ConditionalStartEvents,
+    which treat it as False). On success the dispatcher overwrites ai_result;
+    on failure it stays None and the gateway takes its default (error) flow —
+    exactly what a real diagram would do by initialising its routing variable.
+    """
     instance = frappe.get_doc({
         "doctype": "BPMN Process Instance",
         "process_model": model_name,
@@ -146,22 +185,43 @@ def _make_instance(model_name: str) -> frappe.Document:
         "context_docname": "",
     })
     instance.insert(ignore_permissions=True)
+    instance.start(initial_data={"ai_result": None})
     return instance
 
 
-def _mock_success_result(output: str = "Mocked AI response") -> ExecutorResult:
-    return ExecutorResult(
+def _completed_bpmn_ids(instance: frappe.Document) -> set:
+    """Restore the persisted workflow and return the bpmn ids of COMPLETED tasks."""
+    wf = bpmn_engine.restore_workflow(
+        workflow_state=json.loads(instance.workflow_state),
+        context_doctype="",
+        context_docname="",
+        script_task_extensions={},
+        initiated_by="Administrator",
+    )
+    return {
+        getattr(t.task_spec, "bpmn_id", "")
+        for t in wf.get_tasks()
+        if t.state == TaskState.COMPLETED
+    }
+
+
+def _success_executor(output: str = "Mocked AI response") -> MagicMock:
+    """A get_executor stand-in whose executor instance returns SUCCESS."""
+    result = ExecutorResult(
         output=output,
         token_usage=TokenUsage(prompt_tokens=10, completion_tokens=5, total_tokens=15),
         error_code=ErrorCode.SUCCESS,
     )
+    cls = MagicMock()
+    cls.return_value.run.return_value = result
+    return cls
 
 
-def _mock_error_result(code: ErrorCode = ErrorCode.FAILED_MODEL_CALL) -> ExecutorResult:
-    return ExecutorResult(
-        error_code=code,
-        error_message=f"Mocked {code.value}",
-    )
+def _error_executor(code: ErrorCode = ErrorCode.FAILED_MODEL_CALL) -> MagicMock:
+    result = ExecutorResult(error_code=code, error_message=f"Mocked {code.value}")
+    cls = MagicMock()
+    cls.return_value.run.return_value = result
+    return cls
 
 
 # ---------------------------------------------------------------------------
@@ -172,83 +232,74 @@ class TestAIAgentTaskIntegration(FrappeTestCase):
 
     def setUp(self):
         super().setUp()
-        # Ensure AI Provider exists for compilation
         _make_ai_provider("openai-test")
+        # Neutralize frappe.log_error: on this bench an Error Log insert fires
+        # an onefm_mcp hook that imports a broken google.adk chain.
+        patcher = patch.object(frappe, "log_error")
+        patcher.start()
+        self.addCleanup(patcher.stop)
 
     # -----------------------------------------------------------------------
-    # (1) SUCCESS path
+    # (1) SUCCESS path → output in task.data, gateway routes to success end
     # -----------------------------------------------------------------------
-    def test_success_path_writes_output_to_task_data(self):
-        """
-        Given a mocked executor returning SUCCESS
-        When the process instance runs
-        Then ai_result is in task data and instance status is Completed
-        """
+    def test_success_routes_to_success_end_and_writes_output(self):
         from one_bpmn.api.compilation import compile_process_model
 
-        model = _make_process_model(_ai_agent_bpmn(include_gateway=False))
+        model = _make_process_model(_ai_agent_bpmn(flow="gateway"))
         compile_process_model(model.name)
 
-        mock_executor = MagicMock()
-        mock_executor.return_value.run.return_value = _mock_success_result("Mocked AI response")
-
-        with patch("one_bpmn.one_bpmn.doctype.bpmn_process_instance.dispatchers.get_executor",
-                   return_value=mock_executor):
+        with patch(EXECUTOR_TARGET, return_value=_success_executor("Mocked AI response")):
             instance = _make_instance(model.name)
 
         instance.reload()
         self.assertEqual(instance.status, "Completed")
+        # output variable written into task data (survives serialization)
+        self.assertIn("ai_result", instance.workflow_state)
+        self.assertIn("Mocked AI response", instance.workflow_state)
+        # gateway routed to the success end event, not the error one
+        completed = _completed_bpmn_ids(instance)
+        self.assertIn("end_success", completed)
+        self.assertNotIn("end_error", completed)
 
     # -----------------------------------------------------------------------
-    # (2) FAILED_MODEL_CALL error path
+    # (2) FAILED_MODEL_CALL → error vars, gateway routes to error end, log
     # -----------------------------------------------------------------------
-    def test_error_path_writes_error_variables_instance_stays_active(self):
-        """
-        Given a mocked executor returning FAILED_MODEL_CALL
-        When the process runs
-        Then:
-          (a) Instance status is NOT "Errored" — it stays Active/Completed
-          (b) task.data contains ai_task_error_code = "FAILED_MODEL_CALL"
-          (c) A Frappe Error Log entry exists for this BPMN task
-        """
+    def test_error_routes_to_error_end_and_writes_error_vars(self):
         from one_bpmn.api.compilation import compile_process_model
 
-        model = _make_process_model(_ai_agent_bpmn(include_gateway=False))
+        model = _make_process_model(_ai_agent_bpmn(flow="gateway"))
         compile_process_model(model.name)
 
-        mock_executor = MagicMock()
-        mock_executor.return_value.run.return_value = _mock_error_result(ErrorCode.FAILED_MODEL_CALL)
-
-        with patch("one_bpmn.one_bpmn.doctype.bpmn_process_instance.dispatchers.get_executor",
-                   return_value=mock_executor), \
+        with patch(EXECUTOR_TARGET, return_value=_error_executor(ErrorCode.FAILED_MODEL_CALL)), \
              patch("frappe.log_error") as mock_log_error:
             instance = _make_instance(model.name)
 
         instance.reload()
-        # (a) Not errored
+        # (a) instance not errored — failures route, they don't crash
         self.assertNotEqual(instance.status, "Errored")
-        # (c) frappe.log_error was called with FAILED_MODEL_CALL in title
-        called_titles = [str(c.kwargs.get("title", "")) for c in mock_log_error.call_args_list]
+        # (b) error variables written into task data
+        self.assertIn("ai_task_error_code", instance.workflow_state)
+        self.assertIn("FAILED_MODEL_CALL", instance.workflow_state)
+        # (c) an Error Log entry was requested with the error code in the title
+        titles = [str(c.kwargs.get("title", "")) for c in mock_log_error.call_args_list]
         self.assertTrue(
-            any("FAILED_MODEL_CALL" in t for t in called_titles),
-            f"Expected FAILED_MODEL_CALL in log_error titles, got: {called_titles}",
+            any("FAILED_MODEL_CALL" in t for t in titles),
+            f"Expected FAILED_MODEL_CALL in log_error titles, got: {titles}",
         )
+        # (d) gateway routed to the error/fallback end event
+        completed = _completed_bpmn_ids(instance)
+        self.assertIn("end_error", completed)
+        self.assertNotIn("end_success", completed)
 
     # -----------------------------------------------------------------------
     # (3) Compile-time lint: missing AI Provider
     # -----------------------------------------------------------------------
     def test_compile_fails_for_nonexistent_ai_provider(self):
-        """
-        Given a BPMN with aiProvider="nonexistent-provider-xyz"
-        When compile_process_model() is called
-        Then it raises a ValidationError about the missing provider
-        """
         from one_bpmn.api.compilation import compile_process_model
 
         model = _make_process_model(
-            _ai_agent_bpmn(ai_provider="nonexistent-provider-xyz-9999", include_gateway=False)
+            _ai_agent_bpmn(ai_provider="nonexistent-provider-xyz-9999")
         )
-
         with self.assertRaises(frappe.ValidationError) as cm:
             compile_process_model(model.name)
         self.assertIn("nonexistent-provider-xyz-9999", str(cm.exception))
@@ -257,40 +308,26 @@ class TestAIAgentTaskIntegration(FrappeTestCase):
     # (4) Antigravity mock path works identically
     # -----------------------------------------------------------------------
     def test_antigravity_backend_success_path(self):
-        """
-        Given aiBackend="antigravity" and a mocked AntigravityExecutor
-        When the process runs
-        Then the flow completes identically to the direct_api path
-        """
         from one_bpmn.api.compilation import compile_process_model
 
-        model = _make_process_model(
-            _ai_agent_bpmn(ai_backend="antigravity", include_gateway=False)
-        )
+        model = _make_process_model(_ai_agent_bpmn(ai_backend="antigravity", flow="gateway"))
         compile_process_model(model.name)
 
-        mock_executor = MagicMock()
-        mock_executor.return_value.run.return_value = _mock_success_result("Antigravity response")
-
-        with patch("one_bpmn.one_bpmn.doctype.bpmn_process_instance.dispatchers.get_executor",
-                   return_value=mock_executor):
+        with patch(EXECUTOR_TARGET, return_value=_success_executor("Antigravity response")):
             instance = _make_instance(model.name)
 
         instance.reload()
-        self.assertNotEqual(instance.status, "Errored")
+        self.assertEqual(instance.status, "Completed")
+        self.assertIn("Antigravity response", instance.workflow_state)
+        self.assertIn("end_success", _completed_bpmn_ids(instance))
 
     # -----------------------------------------------------------------------
     # (5) No double-execution: completed AI task is not re-executed on restore
     # -----------------------------------------------------------------------
-    def test_no_double_execution_on_restore(self):
-        """
-        Given a completed AI Agent Task serialized in workflow_state
-        When the instance is advanced again (e.g. after a user task)
-        Then the AI Agent Task executor is called exactly ONCE total
-        """
+    def test_no_double_execution_on_restore_and_advance(self):
         from one_bpmn.api.compilation import compile_process_model
 
-        model = _make_process_model(_ai_agent_bpmn(include_gateway=False))
+        model = _make_process_model(_ai_agent_bpmn(flow="user"))
         compile_process_model(model.name)
 
         call_count = 0
@@ -299,11 +336,22 @@ class TestAIAgentTaskIntegration(FrappeTestCase):
             def run(self, config, context):
                 nonlocal call_count
                 call_count += 1
-                return _mock_success_result()
+                return ExecutorResult(output="x", error_code=ErrorCode.SUCCESS)
 
-        with patch("one_bpmn.one_bpmn.doctype.bpmn_process_instance.dispatchers.get_executor",
-                   return_value=CountingExecutor):
+        with patch(EXECUTOR_TARGET, return_value=CountingExecutor):
             instance = _make_instance(model.name)
 
-        # The executor should have been called exactly once
+            # The instance pauses at the User Task; the AI task already ran once.
+            instance.reload()
+            self.assertEqual(instance.status, "Active")
+            self.assertEqual(call_count, 1)
+
+            # Restore from persisted state and advance past the User Task.
+            waiting = [r for r in instance.active_tasks if r.status == "Waiting"]
+            self.assertTrue(waiting, "expected a waiting User Task after the AI task")
+            instance.advance(waiting[0].task_id, {})
+
+        instance.reload()
+        # The AI Agent Task must NOT have been re-executed on restore.
         self.assertEqual(call_count, 1, f"Expected 1 execution, got {call_count}")
+        self.assertEqual(instance.status, "Completed")
