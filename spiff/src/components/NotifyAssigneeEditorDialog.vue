@@ -72,6 +72,7 @@
 
 <script setup>
 import { ref, watch, computed } from "vue";
+import { frappeRequest } from "frappe-ui";
 import { Icon } from "@iconify/vue";
 
 const props = defineProps({
@@ -117,10 +118,10 @@ const filteredTemplates = computed(() => {
 async function fetchTemplates() {
 	loadingTemplates.value = true;
 	try {
-		const url = "/api/resource/Email Template?fields=[\"name\",\"subject\"]&limit_page_length=200&order_by=name asc";
-		const resp = await fetch(url, { credentials: "include" });
-		const json = await resp.json();
-		templates.value = json.data || [];
+		const fields = encodeURIComponent(JSON.stringify(["name", "subject"]));
+		const url = `/api/resource/Email Template?fields=${fields}&limit_page_length=200&order_by=name asc`;
+		const json = await frappeRequest({ url });
+		templates.value = json?.data || [];
 	} catch (err) {
 		console.error("[NotifyAssigneeEditor] Failed to fetch email templates:", err);
 		templates.value = [];
@@ -135,11 +136,10 @@ async function selectTemplate(tpl) {
 
 	// Fetch the full template to get the HTML body
 	try {
-		const url = `/api/resource/Email Template/${encodeURIComponent(tpl.name)}?fields=["response_html","response"]`;
-		const resp = await fetch(url, { credentials: "include" });
-		const json = await resp.json();
-		const doc = json.data || {};
-
+		const fields = encodeURIComponent(JSON.stringify(["response_html", "response"]));
+		const url = `/api/resource/Email Template/${encodeURIComponent(tpl.name)}?fields=${fields}`;
+		const json = await frappeRequest({ url });
+		const doc = json?.data || {};
 		// Prefer response_html; fall back to response (plain text / markdown)
 		const body = doc.response_html || doc.response || "";
 		if (body) {

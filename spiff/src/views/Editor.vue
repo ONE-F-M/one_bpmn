@@ -860,6 +860,7 @@
 			@deploy="onReadinessDeploy"
 			@upload-config="onReadinessUploadConfig"
 			@recheck="onReadinessRecheck"
+			@update-refs="onReadinessUpdateRefs"
 		/>
 
 		<!-- Export Config Dialog -->
@@ -1397,9 +1398,15 @@ async function runReadinessCheck(xmlContent, mode) {
 	lastReadinessXml = xmlContent; // Store for recheck after config import
 
 	try {
+		const params = { xml_content: xmlContent };
+		// When deploying, pass model_name so the backend can check for
+		// call activity references to sibling models that will be disabled.
+		if (mode === "deploy" && activeDiagramName.value) {
+			params.model_name = activeDiagramName.value;
+		}
 		const response = await frappeRequest({
 			url: "/api/method/one_bpmn.api.process_map_api.validate_bpmn_readiness",
-			params: { xml_content: xmlContent },
+			params,
 		});
 		readinessChecklist.value = response.message || response;
 	} catch (err) {
@@ -1452,6 +1459,44 @@ function onReadinessUploadConfig() {
 async function onReadinessRecheck() {
 	if (lastReadinessXml) {
 		await runReadinessCheck(lastReadinessXml, readinessMode.value);
+	}
+}
+
+// Update all call activity references and recheck
+async function onReadinessUpdateRefs(refItems) {
+	if (!refItems || refItems.length === 0) return;
+
+	readinessLoading.value = true;
+	try {
+		const response = await frappeRequest({
+			url: "/api/method/one_bpmn.api.process_map_api.update_call_activity_references",
+			method: "POST",
+			params: { references: JSON.stringify(refItems) },
+		});
+
+		const result = response.message || response;
+		showNotification(
+			"References Updated",
+			`Updated ${result.updated || 0} call activity reference(s).`,
+			"green"
+		);
+
+		// Recheck readiness to confirm the refs are resolved
+		if (lastReadinessXml) {
+			await runReadinessCheck(lastReadinessXml, readinessMode.value);
+		}
+	} catch (err) {
+		const serverMessage =
+			(err.messages && err.messages.length > 0)
+				? err.messages.join("\n")
+				: err.message || "An error occurred while updating references.";
+		showNotification(
+			"Update Failed",
+			serverMessage,
+			"red",
+			true
+		);
+		readinessLoading.value = false;
 	}
 }
 
@@ -3069,6 +3114,12 @@ const showNotifyAssigneeDialog = ref(false);
 const notifyAssigneeBody = ref("");
 let notifyAssigneeEvent = null;
 
+watch(showNotifyAssigneeDialog, (isOpen) => {
+	if (!isOpen) {
+		notifyAssigneeEvent = null;
+		notifyAssigneeBody.value = "";
+	}
+});
 function onLaunchNotifyAssigneeEditor(event) {
 	notifyAssigneeEvent = event;
 	notifyAssigneeBody.value = event.body || "";
