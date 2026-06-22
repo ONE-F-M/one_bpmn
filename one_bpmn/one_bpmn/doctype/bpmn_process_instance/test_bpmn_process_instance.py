@@ -31,6 +31,7 @@ from one_bpmn.one_bpmn.doctype.bpmn_process_instance.dispatchers import (
 	dispatch_update_field,
 )
 from one_bpmn.one_bpmn.doctype.bpmn_process_instance.assignment import (
+	_send_assignee_notification,
 	add_frappe_assignment,
 	get_reliever_if_on_leave,
 	remove_frappe_assignment,
@@ -65,8 +66,12 @@ def call_get_reliever(user):
 	return get_reliever_if_on_leave(user)
 
 
-def call_add_assignment(inst, user, task_name=""):
-	return add_frappe_assignment(inst, user, task_name)
+def call_add_assignment(inst, user, task_name="", task_cfg=None):
+	return add_frappe_assignment(inst, user, task_name, task_cfg=task_cfg)
+
+
+def call_send_assignee_notification(inst, user, task_name, task_cfg):
+	return _send_assignee_notification(inst, user, task_name, task_cfg)
 
 
 def call_remove_assignment(inst, user):
@@ -442,3 +447,107 @@ class TestFrappeAssignment(BaseBPMNHelperTest):
 		kwargs = set_status_mock.call_args.kwargs
 		self.assertEqual(kwargs["assign_to"], "alice@x.com")
 		self.assertEqual(kwargs["status"], "Closed")
+
+
+# ──────────────────────────────────────────────────────────────────────────────
+# Assignee notification email
+# ──────────────────────────────────────────────────────────────────────────────
+class TestAssigneeNotification(BaseBPMNHelperTest):
+	def _patched_sendemail(self):
+		"""
+		Inject a fake one_fm.processor.sendemail so the test is deterministic
+		regardless of whether one_fm is installed.
+		"""
+		fake_proc = types.ModuleType("one_fm.processor")
+		fake_proc.sendemail = Mock()
+		fake_root = sys.modules.get("one_fm") or types.ModuleType("one_fm")
+		patcher = patch.dict(
+			sys.modules, {"one_fm": fake_root, "one_fm.processor": fake_proc}
+		)
+		return patcher, fake_proc.sendemail
+
+	def test_notification_sends_rendered_html_email(self):
+		"""When notifyAssignee=true and notifyAssigneeBody has Jinja, send rendered email."""
+		inst = make_instance(name="TEST-PI-NOTIFY", context_doctype="ToDo")
+		cfg = {
+			"notifyAssignee": "true",
+			"notifyAssigneeBody": "<p>Hello from {{ instance.name }}</p>",
+		}
+
+		patcher, sendemail = self._patched_sendemail()
+		with patcher:
+			call_send_assignee_notification(inst, "alice@x.com", "Review Task", cfg)
+
+		self.assertTrue(sendemail.called)
+		kwargs = sendemail.call_args.kwargs
+		self.assertEqual(kwargs["recipients"], ["alice@x.com"])
+		self.assertIn("TEST-PI-NOTIFY", kwargs["message"])
+		self.assertIn("<p>Hello from", kwargs["message"])
+
+	def test_notification_not_sent_when_body_empty(self):
+		"""When notifyAssigneeBody is empty, no email should be sent."""
+		inst = make_instance(name="TEST-PI-EMPTY")
+		cfg = {
+			"notifyAssignee": "true",
+			"notifyAssigneeBody": "",
+		}
+
+		patcher, sendemail = self._patched_sendemail()
+		with patcher:
+			call_send_assignee_notification(inst, "alice@x.com", "Review Task", cfg)
+
+		self.assertFalse(sendemail.called)
+
+	def test_notification_not_sent_when_flag_unchecked(self):
+		"""When notifyAssignee is not 'true', the notification helper should be a no-op."""
+		inst = make_instance(name="TEST-PI-OFF")
+		cfg = {
+			"notifyAssigneeBody": "<p>Should not send</p>",
+		}
+
+		# _send_assignee_notification checks for body but NOT the flag —
+		# the flag check is in add_frappe_assignment.  But if the flag is
+		# unchecked, add_frappe_assignment never calls the helper.  We test
+		# that flow via a full add_frappe_assignment call.
+		patcher, sendemail = self._patched_sendemail()
+		inst_with_ctx = make_instance(
+			name="TEST-PI-OFF",
+			context_doctype="ToDo",
+			context_docname="DOC-1",
+		)
+		with patcher, patch("frappe.desk.form.assign_to.add") as add_mock, \
+			patch.object(frappe.db, "exists", return_value=None), \
+			patch.object(frappe.db, "get_value", return_value="TODO-NEW"), \
+			patch.object(frappe.db, "set_value"):
+			call_add_assignment(inst_with_ctx, "alice@x.com", "Review Task", task_cfg=cfg)
+
+		# assign_add was called (ToDo created) but no email sent
+		self.assertTrue(add_mock.called)
+		self.assertFalse(sendemail.called)
+
+	def test_add_assignment_sends_notification_when_configured(self):
+		"""Full flow: add_frappe_assignment triggers email when notifyAssignee=true."""
+		cfg = {
+			"notifyAssignee": "true",
+			"notifyAssigneeBody": "<p>You have a task on {{ instance.name }}</p>",
+		}
+
+		patcher, sendemail = self._patched_sendemail()
+		inst = make_instance(
+			name="TEST-PI-FULL",
+			context_doctype="ToDo",
+			context_docname="DOC-1",
+		)
+		with patcher, patch("frappe.desk.form.assign_to.add") as add_mock, \
+			patch.object(frappe.db, "exists", return_value=None), \
+			patch.object(frappe.db, "get_value", return_value="TODO-NEW"), \
+			patch.object(frappe.db, "set_value"):
+			call_add_assignment(inst, "bob@x.com", "Approve PR", task_cfg=cfg)
+
+		# ToDo was created
+		self.assertTrue(add_mock.called)
+		# Notification email was sent
+		self.assertTrue(sendemail.called)
+		kwargs = sendemail.call_args.kwargs
+		self.assertEqual(kwargs["recipients"], ["bob@x.com"])
+		self.assertIn("TEST-PI-FULL", kwargs["message"])

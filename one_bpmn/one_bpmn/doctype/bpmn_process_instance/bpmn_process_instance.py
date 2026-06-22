@@ -667,6 +667,10 @@ class BPMNProcessInstance(Document):
 
 		existing_waiting_ids = {row.task_id for row in self.active_tasks if row.status == "Waiting"}
 
+		# Map of user → (task_name, task_cfg) for newly created rows
+		# Used to pass notification settings to add_frappe_assignment
+		new_user_task_cfgs = {}
+
 		for task in ready_user_tasks:
 			tid = str(task.id)
 			if tid in existing_waiting_ids:
@@ -707,6 +711,10 @@ class BPMNProcessInstance(Document):
 				},
 			)
 
+			# Track the task_cfg so we can pass notification settings below
+			if assigned_user:
+				new_user_task_cfgs[assigned_user] = (task_name, task_cfg)
+
 			self._log_task(
 				task_id=tid,
 				task_name=task_name,
@@ -714,20 +722,20 @@ class BPMNProcessInstance(Document):
 			)
 
 		# Diff: which users are now assigned across all Waiting tasks
-		curr_assigned = {
-			row.assigned_user: row.task_name
+		curr_assigned_users = {
+			row.assigned_user
 			for row in self.active_tasks
 			if row.status == "Waiting" and row.assigned_user
 		}
 
 		# Close ToDos for users who were assigned but no longer are
-		for user in prev_assigned - set(curr_assigned.keys()):
+		for user in prev_assigned - curr_assigned_users:
 			remove_frappe_assignment(self, user)
 
 		# Create ToDos for users who are newly assigned
-		for user, task_name in curr_assigned.items():
-			if user not in prev_assigned:
-				add_frappe_assignment(self, user, task_name)
+		for user in curr_assigned_users - prev_assigned:
+			task_name, task_cfg = new_user_task_cfgs.get(user, ("User Task", {}))
+			add_frappe_assignment(self, user, task_name, task_cfg=task_cfg)
 
 	def _check_completion(self, wf):
 		"""

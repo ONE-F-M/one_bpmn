@@ -186,11 +186,82 @@ def resolve_assignment(instance, task) -> str:
 	return ""
 
 
-def add_frappe_assignment(instance, user: str, task_name: str = "") -> None:
+def _send_assignee_notification(instance, user: str, task_name: str, task_cfg: dict) -> None:
+	"""
+	Send a custom HTML email notification to the assignee when
+	``notifyAssignee`` is checked and ``notifyAssigneeBody`` is configured
+	on the BPMN User Task.
+
+	The HTML body supports Jinja2 rendering with ``{{ doc }}``,
+	``{{ instance }}``, and ``{{ frappe }}`` as template context variables.
+
+	Uses one_fm.processor.sendemail when available (branded template +
+	notification preferences), falling back to frappe.sendmail.
+
+	Non-fatal: failures are logged but never break the workflow.
+	"""
+	body_html = (task_cfg.get("notifyAssigneeBody") or "").strip()
+	if not body_html:
+		return
+
+	# ── Resolve the context document for Jinja rendering ──────────
+	doc = frappe._dict()
+	if instance.context_doctype and instance.context_docname:
+		try:
+			doc = frappe.get_doc(instance.context_doctype, instance.context_docname)
+		except Exception:
+			pass
+
+	jinja_ctx = {
+		"doc": doc,
+		"instance": instance,
+		"frappe": frappe,
+	}
+
+	# Render the HTML body through Jinja2
+	try:
+		rendered_body = frappe.render_template(body_html, jinja_ctx)
+	except Exception:
+		rendered_body = body_html  # fall back to raw HTML on template error
+
+	subject = _('BPMN Task: "{0}"').format(task_name or "User Task")
+
+	try:
+		from one_fm.processor import sendemail as onefm_sendemail
+
+		onefm_sendemail(
+			recipients=[user],
+			subject=subject,
+			sender=None,
+			header=[subject],
+			message=rendered_body,
+			reference_doctype=instance.context_doctype or instance.doctype,
+			reference_name=instance.context_docname or instance.name,
+		)
+	except ImportError:
+		frappe.sendmail(
+			recipients=[user],
+			sender=None,
+			subject=subject,
+			message=rendered_body,
+			reference_doctype=instance.context_doctype or instance.doctype,
+			reference_name=instance.context_docname or instance.name,
+			now=False,
+		)
+
+
+def add_frappe_assignment(instance, user: str, task_name: str = "", task_cfg: dict = None) -> None:
 	"""
 	Create a Frappe Assignment (ToDo) on the context document for the
 	resolved user.  This makes the assignment visible in Frappe's sidebar,
 	notifications, and the user's ToDo list.
+
+	Respects the ``notifyAssignee`` setting from the BPMN diagram:
+	  - If ``notifyAssignee`` is ``"true"``, a custom email notification
+	    is sent using the ``notifyAssigneeBody`` HTML template (Jinja2).
+	    The HTML body is rendered with ``{{ doc }}``, ``{{ instance }}``,
+	    and ``{{ frappe }}`` context variables.
+	  - Otherwise, no notification is sent (``notify=0``).
 
 	Silently skips if no context document is linked or if the user is
 	already assigned.  Failures are logged but never break the workflow.
@@ -214,7 +285,14 @@ def add_frappe_assignment(instance, user: str, task_name: str = "") -> None:
 		if existing:
 			return
 
-		description = _('BPMN Task: "{0}" on instance {1}').format(
+		# Determine notification settings from BPMN diagram config
+		cfg = task_cfg or {}
+		print(cfg)
+		notify_assignee = cfg.get("notifyAssignee") == "true"
+		print(notify_assignee)
+		custom_body = cfg.get("notifyAssigneeBody", "") if notify_assignee else ""
+
+		description = custom_body or _('BPMN Task: "{0}" on instance {1}').format(
 			task_name or "User Task", instance.name
 		)
 
@@ -223,7 +301,7 @@ def add_frappe_assignment(instance, user: str, task_name: str = "") -> None:
 			"name": instance.context_docname,
 			"assign_to": [user],
 			"description": description,
-			"notify": 1,
+			"notify": 0,
 		}, ignore_permissions=True)
 
 		# Stamp the newly created ToDo as a "Process" type so it can be
@@ -241,6 +319,19 @@ def add_frappe_assignment(instance, user: str, task_name: str = "") -> None:
 		)
 		if new_todo:
 			frappe.db.set_value("ToDo", new_todo, "type", "Process")
+
+		# ── Send custom HTML notification email ──────────────────────
+		# Sent AFTER the ToDo is created so the assignment is visible
+		# even if the email fails.  Non-fatal: logged but never breaks.
+		if notify_assignee:
+			try:
+				print("\n\n\n\n\n\n\n\n\n")
+				_send_assignee_notification(instance, user, task_name, cfg)
+			except Exception:
+				frappe.log_error(
+					title=f"BPMN: Assignee notification email failed for {user}",
+					message=frappe.get_traceback(),
+				)
 	except Exception:
 		frappe.log_error(
 			title=f"BPMN: Failed to assign {instance.context_doctype} to {user}",
