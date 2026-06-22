@@ -186,21 +186,36 @@ def resolve_assignment(instance, task) -> str:
 	return ""
 
 
-def add_frappe_assignment(instance, user: str, task_name: str = "") -> None:
+def add_frappe_assignment(
+	instance, user: str, task_name: str = "",
+	bpmn_id: str = "", task_id: str = "",
+) -> None:
 	"""
 	Create a Frappe Assignment (ToDo) on the context document for the
 	resolved user.  This makes the assignment visible in Frappe's sidebar,
 	notifications, and the user's ToDo list.
 
+	The ToDo is created directly (bypassing ``frappe.desk.form.assign_to.add``)
+	so that:
+
+	1. ``type`` is set to ``"Process"`` on insert (no post-hoc ``db_set``).
+	2. The generic Frappe notification email is **suppressed** — the composer
+	   sends a custom AMP email instead when ``notifyAssignee`` is configured.
+
 	Silently skips if no context document is linked or if the user is
 	already assigned.  Failures are logged but never break the workflow.
+
+	Args:
+		instance:  The BPMN Process Instance document.
+		user:      The user email to assign the task to.
+		task_name: Human-readable name of the BPMN task.
+		bpmn_id:   BPMN element ID — used to read ``_user_task_extensions``.
+		task_id:   SpiffWorkflow task UUID — used for HMAC token generation.
 	"""
 	if not (instance.context_doctype and instance.context_docname and user):
 		return
 
 	try:
-		from frappe.desk.form.assign_to import add as assign_add
-
 		# Check if already assigned to avoid duplicates
 		existing = frappe.db.exists(
 			"ToDo",
@@ -218,29 +233,56 @@ def add_frappe_assignment(instance, user: str, task_name: str = "") -> None:
 			task_name or "User Task", instance.name
 		)
 
-		assign_add({
-			"doctype": instance.context_doctype,
-			"name": instance.context_docname,
-			"assign_to": [user],
-			"description": description,
-			"notify": 1,
-		}, ignore_permissions=True)
+		# Create ToDo directly — bypassing assign_add to suppress
+		# the generic Frappe notification email (notify_assignment).
+		from frappe.utils import nowdate
 
-		# Stamp the newly created ToDo as a "Process" type so it can be
-		# distinguished from regular Action assignments.  Uses db_set to
-		# bypass the validate hook that would otherwise reset it to "Action".
-		new_todo = frappe.db.get_value(
-			"ToDo",
+		d = frappe.get_doc(
 			{
-				"reference_type": instance.context_doctype,
-				"reference_name": instance.context_docname,
+				"doctype": "ToDo",
 				"allocated_to": user,
+				"reference_type": instance.context_doctype,
+				"reference_name": str(instance.context_docname),
+				"description": description,
+				"priority": "Medium",
 				"status": "Open",
-			},
-			"name",
-		)
-		if new_todo:
-			frappe.db.set_value("ToDo", new_todo, "type", "Process")
+				"date": nowdate(),
+				"assigned_by": frappe.session.user,
+				"type": "Process",
+			}
+		).insert(ignore_permissions=True)
+
+		# Share document with assignee if they lack permissions
+		doc = frappe.get_doc(instance.context_doctype, instance.context_docname)
+		if not frappe.has_permission(doc=doc, user=user):
+			if not frappe.get_system_settings("disable_document_sharing"):
+				frappe.share.add(doc.doctype, str(doc.name), user)
+
+		# Follow document if user has that setting enabled
+		try:
+			if frappe.get_cached_value("User", user, "follow_assigned_documents"):
+				from frappe.desk.like import follow_document
+				follow_document(instance.context_doctype, instance.context_docname, user)
+		except Exception:
+			pass  # Non-critical — don't block on follow failures
+
+		# ── Send interactive AMP email (Story 5) ──────────────────────
+		try:
+			from one_bpmn.email_builder.composer import compose_and_send_task_email
+
+			compose_and_send_task_email(
+				instance=instance,
+				user=user,
+				task_name=task_name,
+				task_id=task_id,
+				bpmn_id=bpmn_id,
+			)
+		except Exception:
+			frappe.log_error(
+				title="BPMN: AMP email send failed",
+				message=frappe.get_traceback(),
+			)
+
 	except Exception:
 		frappe.log_error(
 			title=f"BPMN: Failed to assign {instance.context_doctype} to {user}",

@@ -433,7 +433,7 @@ def dispatch_push_notification(instance, task, task_cfg: dict, bpmn_id: str) -> 
 		)
 
 
-def dispatch_email(instance, task, task_cfg: dict) -> None:
+def dispatch_email(instance, task, task_cfg: dict, amp_html: str = None) -> None:
 	"""
 	Send an email notification from a Service Task with serviceType='send_email'.
 
@@ -545,6 +545,22 @@ def dispatch_email(instance, task, task_cfg: dict) -> None:
 	# notifications enabled, email notifications enabled, and
 	# preferred company email).
 	# Falls back to frappe.sendmail if one_fm isn't installed.
+
+	# Render AMP info card via the composer (Story 5)
+	if not amp_html:
+		try:
+			from one_bpmn.email_builder.composer import compose_and_send_info_email
+
+			amp_html = compose_and_send_info_email(
+				instance, task_cfg, subject, body
+			)
+		except Exception:
+			amp_html = None  # Graceful fallback — send plain HTML
+
+	# Set AMP flag before sending — picked up by our Email Queue before_insert hook
+	if amp_html:
+		frappe.flags.amp_html = amp_html
+
 	try:
 		from one_fm.processor import sendemail as onefm_sendemail
 

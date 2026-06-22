@@ -602,7 +602,8 @@ class BPMNProcessInstance(Document):
 
 		elif service_type == "send_email":
 			try:
-				dispatch_email(self, task, task_cfg)
+				dispatch_email(self, task, task_cfg,
+					amp_html=task_cfg.get("ampHtml") or None)
 			except Exception:
 				# Email failures are non-fatal: log and continue so the
 				# workflow can complete even if the email account is not
@@ -706,6 +707,9 @@ class BPMNProcessInstance(Document):
 					"target_docname": target_docname,
 				},
 			)
+			# Stash bpmn_id as a transient attribute (not persisted) for
+			# add_frappe_assignment to read the user_task_extensions config.
+			self.active_tasks[-1]._bpmn_id = bpmn_id_key
 
 			self._log_task(
 				task_id=tid,
@@ -714,20 +718,27 @@ class BPMNProcessInstance(Document):
 			)
 
 		# Diff: which users are now assigned across all Waiting tasks
-		curr_assigned = {
-			row.assigned_user: row.task_name
-			for row in self.active_tasks
-			if row.status == "Waiting" and row.assigned_user
-		}
+		curr_assigned = {}
+		for row in self.active_tasks:
+			if row.status == "Waiting" and row.assigned_user:
+				curr_assigned[row.assigned_user] = {
+					"task_name": row.task_name,
+					"bpmn_id": getattr(row, "_bpmn_id", ""),
+					"task_id": row.task_id,
+				}
 
 		# Close ToDos for users who were assigned but no longer are
 		for user in prev_assigned - set(curr_assigned.keys()):
 			remove_frappe_assignment(self, user)
 
 		# Create ToDos for users who are newly assigned
-		for user, task_name in curr_assigned.items():
+		for user, info in curr_assigned.items():
 			if user not in prev_assigned:
-				add_frappe_assignment(self, user, task_name)
+				add_frappe_assignment(
+					self, user, info["task_name"],
+					info.get("bpmn_id", ""),
+					task_id=info.get("task_id", ""),
+				)
 
 	def _check_completion(self, wf):
 		"""
