@@ -369,10 +369,10 @@ def complete_task(
 					"actioned_by": frappe.session.user,
 				}),
 			)
-		except Exception:
+		except Exception as exc:
 			frappe.log_error(
 				title="BPMN CTC expiry message failed",
-				message=frappe.get_traceback(),
+				message=str(exc),
 			)
 
 	# ── Publish realtime events for auto-refresh ────────────────────────────
