@@ -414,6 +414,7 @@
 						@launch-callactivity-search="onLaunchCallActivitySearch"
 						@launch-notification-editor="onLaunchNotificationEditor"
 						@launch-dmn-editor="onLaunchDmnEditor"
+						@launch-notify-assignee-editor="onLaunchNotifyAssigneeEditor"
 					/>
 
 					<!-- No-diagram placeholder: only shown when not loading and no diagram is selected -->
@@ -827,6 +828,13 @@
 
 		<!-- Notification Selector/Creator Dialog (Send Task) -->
 		<NotificationLinkDialog />
+
+		<!-- Notify Assignee Editor Dialog (User Task) -->
+		<NotifyAssigneeEditorDialog
+			v-model="showNotifyAssigneeDialog"
+			:initial-body="notifyAssigneeBody"
+			@save="onSaveNotifyAssigneeBody"
+		/>
 		<Dialog v-model="showUnsavedNavigationWarning" :options="{ title: 'Unsaved Changes', size: 'sm' }">
 			<template #body-content>
 				<div class="text-base text-gray-700">
@@ -928,6 +936,7 @@ import CallActivitySearchDialog from "@/components/CallActivitySearchDialog.vue"
 import LogixCanvas from "@/components/LogixCanvas.vue";
 import DmnEditor from "@/components/DmnEditor.vue";
 import NotificationLinkDialog from "@/components/NotificationLinkDialog.vue";
+import NotifyAssigneeEditorDialog from "@/components/NotifyAssigneeEditorDialog.vue";
 import ReadinessChecklistDialog from "@/components/ReadinessChecklistDialog.vue";
 import ExportConfigDialog from "@/components/ExportConfigDialog.vue";
 import ConfigImportResultsDialog from "@/components/ConfigImportResultsDialog.vue";
@@ -990,6 +999,7 @@ const isAnyDialogOpen = computed(() => {
 		showExportConfigDialog.value ||
 		showConfigImportResults.value ||
 		notifDialog.showNotificationDialog.value ||
+		showNotifyAssigneeDialog.value ||
 		versionDiffRef.value?.isAnyDialogOpen ||
 		compareDialogRef.value?.isAnyDialogOpen
 	);
@@ -3052,6 +3062,33 @@ async function confirmDeleteElement(alsoDeleteScript) {
 // Notification editor launch handler delegates to composable
 function onLaunchNotificationEditor(event) {
 	notifDialog.openDialog(event);
+}
+
+// --- Notify Assignee Editor (User Task) ---
+const showNotifyAssigneeDialog = ref(false);
+const notifyAssigneeBody = ref("");
+let notifyAssigneeEvent = null;
+
+watch(showNotifyAssigneeDialog, (isOpen) => {
+	if (!isOpen) {
+		notifyAssigneeEvent = null;
+		notifyAssigneeBody.value = "";
+	}
+});
+function onLaunchNotifyAssigneeEditor(event) {
+	notifyAssigneeEvent = event;
+	notifyAssigneeBody.value = event.body || "";
+	showNotifyAssigneeDialog.value = true;
+}
+
+function onSaveNotifyAssigneeBody(body) {
+	if (notifyAssigneeEvent && notifyAssigneeEvent.eventBus) {
+		notifyAssigneeEvent.eventBus.fire("spiff.userTask.notifyAssignee.update", {
+			element: notifyAssigneeEvent.element,
+			body: body,
+		});
+	}
+	notifyAssigneeEvent = null;
 }
 
 function onLaunchMarkdownEditor(event) {
