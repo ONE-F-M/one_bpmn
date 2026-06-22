@@ -387,7 +387,7 @@ onMounted(async () => {
     aiTopP: parseFloat(get("aiTopP")) || 1.0,
     aiMaxTokens: parseInt(get("aiMaxTokens")) || 1024,
     aiTimeout: parseInt(get("aiTimeout")) || 30,
-    aiMaxRetries: parseInt(get("aiMaxRetries")) ?? 2,
+    aiMaxRetries: parseInt(get("aiMaxRetries")) || 2,
   };
 });
 
