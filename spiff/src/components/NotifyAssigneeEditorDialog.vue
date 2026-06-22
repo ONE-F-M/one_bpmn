@@ -135,11 +135,10 @@ async function selectTemplate(tpl) {
 
 	// Fetch the full template to get the HTML body
 	try {
-		const url = `/api/resource/Email Template/${encodeURIComponent(tpl.name)}?fields=["response_html","response"]`;
-		const resp = await fetch(url, { credentials: "include" });
-		const json = await resp.json();
-		const doc = json.data || {};
-
+		const fields = encodeURIComponent(JSON.stringify(["response_html", "response"]));
+		const url = `/api/resource/Email Template/${encodeURIComponent(tpl.name)}?fields=${fields}`;
+		const json = await frappeRequest({ url });
+		const doc = json?.data || {};
 		// Prefer response_html; fall back to response (plain text / markdown)
 		const body = doc.response_html || doc.response || "";
 		if (body) {
