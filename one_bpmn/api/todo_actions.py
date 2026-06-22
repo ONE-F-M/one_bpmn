@@ -136,7 +136,6 @@ def handle_amp_action(token: str | None = None, comment: str | None = None) -> d
 			task_id=task_id,
 			data=json.dumps(task_data),
 		)
-		frappe.db.commit()
 
 		return {
 			"message": _("✓ {0} completed successfully.").format(action),

@@ -172,7 +172,7 @@ class TestComposeAndSendTaskEmail:
 			with patch("one_bpmn.email_builder.renderer._get_template") as mock_tmpl:
 				import jinja2
 				from pathlib import Path
-				app_root = Path("/Users/samdanikousera/Desktop/frappe-bench/apps/one_bpmn")
+				app_root = Path(__file__).resolve().parent.parent.parent
 				env = jinja2.Environment(loader=jinja2.FileSystemLoader(str(app_root)), autoescape=False)
 				mock_tmpl.side_effect = lambda p: env.get_template(p)
 

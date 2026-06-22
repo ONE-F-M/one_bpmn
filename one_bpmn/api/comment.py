@@ -16,6 +16,7 @@ Typical usage from an AMP ``<amp-form>``::
 from __future__ import annotations
 
 import frappe
+from frappe import _
 
 
 @frappe.whitelist(allow_guest=False)
@@ -44,16 +45,15 @@ def submit_comment(comment: str, doctype: str, name: str) -> dict:
 			access to the specified document.
 	"""
 	if not comment or not comment.strip():
-		frappe.throw("Comment cannot be empty.")
+		frappe.throw(_("Comment cannot be empty."), frappe.ValidationError)
 
 	if not frappe.has_permission(doctype, "read", name):
 		frappe.throw(
-			"You do not have permission to comment on this document.",
+			_("You do not have permission to comment on this document."),
 			frappe.PermissionError,
 		)
 
 	doc = frappe.get_doc(doctype, name)
 	new_comment = doc.add_comment("Comment", comment.strip())
-	frappe.db.commit()
 
 	return {"ok": True, "comment_name": new_comment.name}
