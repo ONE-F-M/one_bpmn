@@ -3003,6 +3003,12 @@ const showNotifyAssigneeDialog = ref(false);
 const notifyAssigneeBody = ref("");
 let notifyAssigneeEvent = null;
 
+watch(showNotifyAssigneeDialog, (isOpen) => {
+	if (!isOpen) {
+		notifyAssigneeEvent = null;
+		notifyAssigneeBody.value = "";
+	}
+});
 function onLaunchNotifyAssigneeEditor(event) {
 	notifyAssigneeEvent = event;
 	notifyAssigneeBody.value = event.body || "";
