@@ -72,6 +72,7 @@
 
 <script setup>
 import { ref, watch, computed } from "vue";
+import { frappeRequest } from "frappe-ui";
 import { Icon } from "@iconify/vue";
 
 const props = defineProps({
