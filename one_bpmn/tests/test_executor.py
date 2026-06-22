@@ -2,7 +2,8 @@
 # For license information, please see license.txt
 """Unit tests for executor backends using mocked HTTP / SDK responses."""
 import json
-import unittest
+import sys
+import types
 from unittest.mock import MagicMock, patch
 
 import frappe
@@ -183,12 +184,24 @@ class TestDirectApiExecutor(FrappeTestCase):
         self.assertEqual(result.error_code, ErrorCode.PROVIDER_DISABLED)
 
 
+def _fake_antigravity(agent):
+    """
+    Build a stand-in `antigravity` module exposing an Agent factory.
+
+    The executor does `import antigravity` and calls `antigravity.Agent(...)`.
+    Python ships a built-in `antigravity` stdlib module (the xkcd easter egg)
+    that has no `Agent`, so a find_spec-based skip guard never skips and a real
+    import resolves to the wrong module. Injecting a fake module into
+    sys.modules makes these tests deterministic regardless of whether the real
+    google-antigravity SDK is installed.
+    """
+    mod = types.ModuleType("antigravity")
+    mod.Agent = MagicMock(return_value=agent)
+    return mod
+
+
 class TestAntigravityExecutor(FrappeTestCase):
 
-    @unittest.skipUnless(
-        __import__("importlib").util.find_spec("antigravity") is not None,
-        "google-antigravity SDK not installed"
-    )
     def test_antigravity_success(self):
         cfg = _make_config(backend="antigravity")
         ctx = _make_context()
@@ -205,28 +218,70 @@ class TestAntigravityExecutor(FrappeTestCase):
         fake_agent = MagicMock()
         fake_agent.send.return_value = fake_response
 
-        import antigravity
-        with patch.object(antigravity, "Agent", return_value=fake_agent):
+        with patch.dict(sys.modules, {"antigravity": _fake_antigravity(fake_agent)}):
             result = AntigravityExecutor().run(cfg, ctx)
         self.assertEqual(result.error_code, ErrorCode.SUCCESS)
         self.assertEqual(result.output, "AI answer")
         self.assertEqual(result.token_usage.total_tokens, 15)
 
-    @unittest.skipUnless(
-        __import__("importlib").util.find_spec("antigravity") is not None,
-        "google-antigravity SDK not installed"
-    )
     def test_antigravity_sdk_exception(self):
         cfg = _make_config(backend="antigravity")
         ctx = _make_context()
 
-        import antigravity
         fake_agent = MagicMock()
         fake_agent.send.side_effect = RuntimeError("SDK error")
-        with patch.object(antigravity, "Agent", return_value=fake_agent):
+        with patch.dict(sys.modules, {"antigravity": _fake_antigravity(fake_agent)}):
             result = AntigravityExecutor().run(cfg, ctx)
         self.assertEqual(result.error_code, ErrorCode.FAILED_MODEL_CALL)
         self.assertIn("SDK error", result.error_message)
+
+    def test_antigravity_json_success_with_schema(self):
+        try:
+            import jsonschema  # noqa: F401
+        except ImportError:
+            self.skipTest("jsonschema not installed")
+
+        schema = json.dumps(
+            {"type": "object", "properties": {"name": {"type": "string"}}, "required": ["name"]}
+        )
+        cfg = _make_config(backend="antigravity", response_format="json", response_schema=schema)
+        ctx = _make_context()
+
+        fake_response = MagicMock()
+        fake_response.text = json.dumps({"name": "Alice"})
+        fake_response.usage = MagicMock(prompt_tokens=1, completion_tokens=1, total_tokens=2)
+
+        fake_agent = MagicMock()
+        fake_agent.send.return_value = fake_response
+
+        with patch.dict(sys.modules, {"antigravity": _fake_antigravity(fake_agent)}):
+            result = AntigravityExecutor().run(cfg, ctx)
+        self.assertEqual(result.error_code, ErrorCode.SUCCESS)
+        self.assertIsInstance(result.output, dict)
+        self.assertEqual(result.output["name"], "Alice")
+
+    def test_antigravity_json_schema_validation_failed(self):
+        try:
+            import jsonschema  # noqa: F401
+        except ImportError:
+            self.skipTest("jsonschema not installed")
+
+        schema = json.dumps(
+            {"type": "object", "properties": {"age": {"type": "integer"}}, "required": ["age"]}
+        )
+        cfg = _make_config(backend="antigravity", response_format="json", response_schema=schema)
+        ctx = _make_context()
+
+        fake_response = MagicMock()
+        fake_response.text = json.dumps({"name": "missing age"})
+        fake_response.usage = MagicMock(prompt_tokens=1, completion_tokens=1, total_tokens=2)
+
+        fake_agent = MagicMock()
+        fake_agent.send.return_value = fake_response
+
+        with patch.dict(sys.modules, {"antigravity": _fake_antigravity(fake_agent)}):
+            result = AntigravityExecutor().run(cfg, ctx)
+        self.assertEqual(result.error_code, ErrorCode.SCHEMA_VALIDATION_FAILED)
 
     def test_antigravity_sdk_not_installed(self):
         cfg = _make_config(backend="antigravity")
