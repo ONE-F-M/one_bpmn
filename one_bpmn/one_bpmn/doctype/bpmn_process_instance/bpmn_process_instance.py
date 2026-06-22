@@ -184,6 +184,7 @@ class BPMNProcessInstance(Document):
 		_script_exts = _spec_snap.get("script_task_extensions", {})
 		self._service_task_extensions = _spec_snap.get("service_task_extensions", {})
 		self._user_task_extensions = _spec_snap.get("user_task_extensions", {})
+		self._refresh_user_task_extensions_from_model()
 
 		wf = bpmn_engine.restore_workflow(
 			workflow_state=self._load_json(self.workflow_state),
@@ -339,6 +340,7 @@ class BPMNProcessInstance(Document):
 		_script_exts = _spec_snap.get("script_task_extensions", {})
 		self._service_task_extensions = _spec_snap.get("service_task_extensions", {})
 		self._user_task_extensions = _spec_snap.get("user_task_extensions", {})
+		self._refresh_user_task_extensions_from_model()
 
 		wf = bpmn_engine.restore_workflow(
 			workflow_state=self._load_json(self.workflow_state),
@@ -793,6 +795,41 @@ class BPMNProcessInstance(Document):
 			)
 
 	# Utilities
+
+	def _refresh_user_task_extensions_from_model(self):
+		"""
+		Merge notification-related attributes from the **active** process model's
+		compiled spec into this instance's ``_user_task_extensions``.
+
+		The instance stores a snapshot of the spec at start time.  If the process
+		model is re-deployed with new ``notifyAssignee`` / ``notifyAssigneeBody``
+		settings *after* an instance has started, the instance's snapshot will be
+		stale.  This method patches in those notification-only keys from the live
+		model so that running instances transparently pick up notification changes.
+
+		Only ``notifyAssignee`` and ``notifyAssigneeBody`` are refreshed — all
+		other extension keys (assigneeMode, taskActions, etc.) continue to come
+		from the instance's own snapshot to preserve consistency.
+		"""
+		_NOTIFY_KEYS = ("notifyAssignee", "notifyAssigneeBody")
+
+		try:
+			model_spec_json = frappe.db.get_value(
+				"BPMN Process Model", self.process_model, "serialized_spec"
+			)
+			if not model_spec_json:
+				return
+
+			model_spec = self._load_json(model_spec_json) or {}
+			model_user_exts = model_spec.get("user_task_extensions", {})
+
+			for bpmn_id, model_cfg in model_user_exts.items():
+				inst_cfg = self._user_task_extensions.setdefault(bpmn_id, {})
+				for key in _NOTIFY_KEYS:
+					if key in model_cfg and key not in inst_cfg:
+						inst_cfg[key] = model_cfg[key]
+		except Exception:
+			pass  # Non-fatal — fall back to snapshot values
 
 	@staticmethod
 	def _load_json(value):

@@ -253,8 +253,12 @@ def _send_assignee_notification(instance, user: str, task_name: str, task_cfg: d
 def add_frappe_assignment(instance, user: str, task_name: str = "", task_cfg: dict = None) -> None:
 	"""
 	Create a Frappe Assignment (ToDo) on the context document for the
-	resolved user.  This makes the assignment visible in Frappe's sidebar,
-	notifications, and the user's ToDo list.
+	resolved user.  This makes the assignment visible in Frappe's sidebar
+	and the user's ToDo list.
+
+	Creates the ToDo directly with ``type="Process"`` so that the OneFM
+	notification system skips the standard assignment email/bell — Processa
+	handles notifications for process tasks independently.
 
 	Respects the ``notifyAssignee`` setting from the BPMN diagram:
 	  - If ``notifyAssignee`` is ``"true"``, a custom email notification
@@ -270,8 +274,6 @@ def add_frappe_assignment(instance, user: str, task_name: str = "", task_cfg: di
 		return
 
 	try:
-		from frappe.desk.form.assign_to import add as assign_add
-
 		# Check if already assigned to avoid duplicates
 		existing = frappe.db.exists(
 			"ToDo",
@@ -287,45 +289,42 @@ def add_frappe_assignment(instance, user: str, task_name: str = "", task_cfg: di
 
 		# Determine notification settings from BPMN diagram config
 		cfg = task_cfg or {}
-		print(cfg)
 		notify_assignee = cfg.get("notifyAssignee") == "true"
-		print(notify_assignee)
 		custom_body = cfg.get("notifyAssigneeBody", "") if notify_assignee else ""
 
 		description = custom_body or _('BPMN Task: "{0}" on instance {1}').format(
 			task_name or "User Task", instance.name
 		)
 
-		assign_add({
-			"doctype": instance.context_doctype,
-			"name": instance.context_docname,
-			"assign_to": [user],
-			"description": description,
-			"notify": 0,
-		}, ignore_permissions=True)
+		# Create the ToDo directly with type="Process" instead of using
+		# assign_to.add(), which always fires notify_assignment.  The
+		# ToDo's on_update hook still updates the _assign sidebar field.
+		from frappe.utils import nowdate
 
-		# Stamp the newly created ToDo as a "Process" type so it can be
-		# distinguished from regular Action assignments.  Uses db_set to
-		# bypass the validate hook that would otherwise reset it to "Action".
-		new_todo = frappe.db.get_value(
-			"ToDo",
-			{
-				"reference_type": instance.context_doctype,
-				"reference_name": instance.context_docname,
-				"allocated_to": user,
-				"status": "Open",
-			},
-			"name",
-		)
-		if new_todo:
-			frappe.db.set_value("ToDo", new_todo, "type", "Process")
+		frappe.get_doc({
+			"doctype": "ToDo",
+			"allocated_to": user,
+			"reference_type": instance.context_doctype,
+			"reference_name": str(instance.context_docname),
+			"description": description,
+			"priority": "Medium",
+			"status": "Open",
+			"date": nowdate(),
+			"assigned_by": (frappe.session.user or getattr(instance, "initiated_by", None) or "Administrator"),
+			"type": "Process",
+		}).insert(ignore_permissions=True)
+
+		# Share the document if the assignee lacks permission
+		doc = frappe.get_doc(instance.context_doctype, instance.context_docname)
+		if not frappe.has_permission(doc=doc, user=user):
+			if not frappe.get_system_settings("disable_document_sharing"):
+				frappe.share.add(doc.doctype, doc.name, user)
 
 		# ── Send custom HTML notification email ──────────────────────
 		# Sent AFTER the ToDo is created so the assignment is visible
 		# even if the email fails.  Non-fatal: logged but never breaks.
 		if notify_assignee:
 			try:
-				print("\n\n\n\n\n\n\n\n\n")
 				_send_assignee_notification(instance, user, task_name, cfg)
 			except Exception:
 				frappe.log_error(

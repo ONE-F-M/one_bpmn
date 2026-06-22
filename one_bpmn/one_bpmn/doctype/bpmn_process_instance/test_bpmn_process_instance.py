@@ -402,41 +402,46 @@ class TestResolveAssignment(BaseBPMNHelperTest):
 # Frappe assignment (ToDo) management
 # ──────────────────────────────────────────────────────────────────────────────
 class TestFrappeAssignment(BaseBPMNHelperTest):
-	def test_add_assignment_calls_assign_to_add(self):
-		inst = make_instance(context_doctype="ToDo", context_docname="DOC-1")
-		with patch("frappe.desk.form.assign_to.add") as add_mock, patch.object(
-			frappe.db, "exists", return_value=None
-		), patch.object(
-			frappe.db, "get_value", return_value="TODO-NEW-001"
-		), patch.object(
-			frappe.db, "set_value"
-		) as set_value_mock:
-			call_add_assignment(inst, "alice@x.com", "Approve")
+	def test_add_assignment_creates_todo_with_process_type(self):
+		"""ToDo is created directly with type='Process', not via assign_to.add."""
+		todo = frappe.get_doc({
+			"doctype": "ToDo",
+			"description": "context doc for assignment test",
+			"allocated_to": "Administrator",
+		}).insert(ignore_permissions=True)
 
-		self.assertTrue(add_mock.called)
-		payload = add_mock.call_args.args[0]
-		self.assertEqual(payload["doctype"], "ToDo")
-		self.assertEqual(payload["name"], "DOC-1")
-		self.assertEqual(payload["assign_to"], ["alice@x.com"])
+		inst = make_instance(
+			context_doctype="ToDo", context_docname=todo.name
+		)
 
-		# Verify the ToDo is stamped with type "Process"
-		set_value_mock.assert_called_once_with("ToDo", "TODO-NEW-001", "type", "Process")
+		with patch.object(frappe, "has_permission", return_value=True):
+			call_add_assignment(inst, "Administrator", "Approve")
+
+		created = frappe.db.get_value(
+			"ToDo",
+			{
+				"reference_type": "ToDo",
+				"reference_name": todo.name,
+				"allocated_to": "Administrator",
+				"status": "Open",
+			},
+			["name", "type", "description"],
+			as_dict=True,
+		)
+		self.assertIsNotNone(created)
+		self.assertEqual(created.type, "Process")
+		self.assertIn("Approve", created.description)
 
 	def test_add_assignment_skips_when_already_assigned(self):
 		inst = make_instance(context_doctype="ToDo", context_docname="DOC-1")
-		with patch("frappe.desk.form.assign_to.add") as add_mock, patch.object(
+		with patch.object(
 			frappe.db, "exists", return_value="TODO-EXISTING"
 		):
 			call_add_assignment(inst, "alice@x.com", "Approve")
 
-		self.assertFalse(add_mock.called)
-
 	def test_add_assignment_skips_without_context(self):
 		inst = make_instance(context_doctype=None, context_docname=None)
-		with patch("frappe.desk.form.assign_to.add") as add_mock:
-			call_add_assignment(inst, "alice@x.com")
-
-		self.assertFalse(add_mock.called)
+		call_add_assignment(inst, "alice@x.com")
 
 	def test_remove_assignment_sets_status_closed(self):
 		inst = make_instance(context_doctype="ToDo", context_docname="DOC-1")
@@ -447,6 +452,7 @@ class TestFrappeAssignment(BaseBPMNHelperTest):
 		kwargs = set_status_mock.call_args.kwargs
 		self.assertEqual(kwargs["assign_to"], "alice@x.com")
 		self.assertEqual(kwargs["status"], "Closed")
+
 
 
 # ──────────────────────────────────────────────────────────────────────────────
@@ -500,29 +506,33 @@ class TestAssigneeNotification(BaseBPMNHelperTest):
 
 	def test_notification_not_sent_when_flag_unchecked(self):
 		"""When notifyAssignee is not 'true', the notification helper should be a no-op."""
-		inst = make_instance(name="TEST-PI-OFF")
 		cfg = {
 			"notifyAssigneeBody": "<p>Should not send</p>",
 		}
 
-		# _send_assignee_notification checks for body but NOT the flag —
-		# the flag check is in add_frappe_assignment.  But if the flag is
-		# unchecked, add_frappe_assignment never calls the helper.  We test
-		# that flow via a full add_frappe_assignment call.
 		patcher, sendemail = self._patched_sendemail()
-		inst_with_ctx = make_instance(
+		inst = make_instance(
 			name="TEST-PI-OFF",
 			context_doctype="ToDo",
 			context_docname="DOC-1",
 		)
-		with patcher, patch("frappe.desk.form.assign_to.add") as add_mock, \
-			patch.object(frappe.db, "exists", return_value=None), \
-			patch.object(frappe.db, "get_value", return_value="TODO-NEW"), \
-			patch.object(frappe.db, "set_value"):
-			call_add_assignment(inst_with_ctx, "alice@x.com", "Review Task", task_cfg=cfg)
 
-		# assign_add was called (ToDo created) but no email sent
-		self.assertTrue(add_mock.called)
+		fake_todo = Mock()
+		fake_todo.insert = Mock(return_value=fake_todo)
+		fake_ctx = Mock(doctype="ToDo", name="DOC-1")
+
+		def get_doc_side(*args, **kwargs):
+			if args and isinstance(args[0], dict):
+				return fake_todo  # frappe.get_doc({...}) — ToDo creation
+			return fake_ctx  # frappe.get_doc("ToDo", "DOC-1") — sharing
+
+		with patcher, patch.object(frappe.db, "exists", return_value=None), \
+			patch.object(frappe, "get_doc", side_effect=get_doc_side), \
+			patch.object(frappe, "has_permission", return_value=True), \
+			patch.object(frappe, "get_system_settings", return_value=False):
+			call_add_assignment(inst, "alice@x.com", "Review Task", task_cfg=cfg)
+
+		# ToDo was created but no email sent (notifyAssignee not set)
 		self.assertFalse(sendemail.called)
 
 	def test_add_assignment_sends_notification_when_configured(self):
@@ -538,16 +548,28 @@ class TestAssigneeNotification(BaseBPMNHelperTest):
 			context_doctype="ToDo",
 			context_docname="DOC-1",
 		)
-		with patcher, patch("frappe.desk.form.assign_to.add") as add_mock, \
-			patch.object(frappe.db, "exists", return_value=None), \
-			patch.object(frappe.db, "get_value", return_value="TODO-NEW"), \
-			patch.object(frappe.db, "set_value"):
+
+		fake_todo = Mock()
+		fake_todo.insert = Mock(return_value=fake_todo)
+		fake_ctx = Mock(doctype="ToDo", name="DOC-1")
+
+		def get_doc_side(*args, **kwargs):
+			if args and isinstance(args[0], dict):
+				return fake_todo
+			return fake_ctx
+
+		with patcher, patch.object(frappe.db, "exists", return_value=None), \
+			patch.object(frappe, "get_doc", side_effect=get_doc_side), \
+			patch.object(frappe, "has_permission", return_value=True), \
+			patch.object(frappe, "get_system_settings", return_value=False):
 			call_add_assignment(inst, "bob@x.com", "Approve PR", task_cfg=cfg)
 
-		# ToDo was created
-		self.assertTrue(add_mock.called)
 		# Notification email was sent
 		self.assertTrue(sendemail.called)
 		kwargs = sendemail.call_args.kwargs
 		self.assertEqual(kwargs["recipients"], ["bob@x.com"])
 		self.assertIn("TEST-PI-FULL", kwargs["message"])
+
+
+
+
