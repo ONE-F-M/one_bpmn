@@ -195,8 +195,14 @@ def _send_assignee_notification(instance, user: str, task_name: str, task_cfg: d
 	The HTML body supports Jinja2 rendering with ``{{ doc }}``,
 	``{{ instance }}``, and ``{{ frappe }}`` as template context variables.
 
-	Uses one_fm.processor.sendemail when available (branded template +
-	notification preferences), falling back to frappe.sendmail.
+	Sent via ``one_fm.processor.sendemail`` with ``is_external_mail=True`` —
+	"Notify Assignee" is an explicit per-task opt-in in the BPMN diagram, so
+	it must NOT be filtered by the recipient's general notification
+	preferences.  Passing ``is_external_mail=True`` bypasses the
+	``is_email_notifications_allowed`` recipient filter that otherwise drops
+	any user who isn't an Active Employee with their user_id set as the
+	Company Email preferred contact — the filter that silently suppressed
+	this notification.
 
 	Non-fatal: failures are logged but never break the workflow.
 	"""
@@ -226,28 +232,18 @@ def _send_assignee_notification(instance, user: str, task_name: str, task_cfg: d
 
 	subject = _('BPMN Task: "{0}"').format(task_name or "User Task")
 
-	try:
-		from one_fm.processor import sendemail as onefm_sendemail
+	from one_fm.processor import sendemail as onefm_sendemail
 
-		onefm_sendemail(
-			recipients=[user],
-			subject=subject,
-			sender=None,
-			header=[subject],
-			message=rendered_body,
-			reference_doctype=instance.context_doctype or instance.doctype,
-			reference_name=instance.context_docname or instance.name,
-		)
-	except ImportError:
-		frappe.sendmail(
-			recipients=[user],
-			sender=None,
-			subject=subject,
-			message=rendered_body,
-			reference_doctype=instance.context_doctype or instance.doctype,
-			reference_name=instance.context_docname or instance.name,
-			now=False,
-		)
+	onefm_sendemail(
+		recipients=[user],
+		subject=subject,
+		sender=None,
+		header=[subject],
+		message=rendered_body,
+		reference_doctype=instance.context_doctype or instance.doctype,
+		reference_name=instance.context_docname or instance.name,
+		is_external_mail=True,
+	)
 
 
 def add_frappe_assignment(instance, user: str, task_name: str = "", task_cfg: dict = None) -> None:
@@ -289,10 +285,9 @@ def add_frappe_assignment(instance, user: str, task_name: str = "", task_cfg: di
 
 		# Determine notification settings from BPMN diagram config
 		cfg = task_cfg or {}
-		print(cfg, "\n\n\n\n\n", 111111111111)
 		notify_assignee = cfg.get("notifyAssignee") == "true"
-		print(notify_assignee, "\n\n\n\n\n", 2222222222222)
 		custom_body = cfg.get("notifyAssigneeBody", "") if notify_assignee else ""
+
 
 		description = custom_body or _('BPMN Task: "{0}" on instance {1}').format(
 			task_name or "User Task", instance.name
