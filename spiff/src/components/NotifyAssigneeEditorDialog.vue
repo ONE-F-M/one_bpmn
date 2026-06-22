@@ -117,10 +117,10 @@ const filteredTemplates = computed(() => {
 async function fetchTemplates() {
 	loadingTemplates.value = true;
 	try {
-		const url = "/api/resource/Email Template?fields=[\"name\",\"subject\"]&limit_page_length=200&order_by=name asc";
-		const resp = await fetch(url, { credentials: "include" });
-		const json = await resp.json();
-		templates.value = json.data || [];
+		const fields = encodeURIComponent(JSON.stringify(["name", "subject"]));
+		const url = `/api/resource/Email Template?fields=${fields}&limit_page_length=200&order_by=name asc`;
+		const json = await frappeRequest({ url });
+		templates.value = json?.data || [];
 	} catch (err) {
 		console.error("[NotifyAssigneeEditor] Failed to fetch email templates:", err);
 		templates.value = [];
