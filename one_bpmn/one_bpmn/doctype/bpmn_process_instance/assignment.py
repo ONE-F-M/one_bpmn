@@ -192,8 +192,12 @@ def add_frappe_assignment(
 ) -> None:
 	"""
 	Create a Frappe Assignment (ToDo) on the context document for the
-	resolved user.  This makes the assignment visible in Frappe's sidebar,
-	notifications, and the user's ToDo list.
+	resolved user.  This makes the assignment visible in Frappe's sidebar
+	and the user's ToDo list.
+
+	Creates the ToDo directly with ``type="Process"`` so that the OneFM
+	notification system skips the standard assignment email/bell — Processa
+	handles notifications for process tasks independently.
 
 	The ToDo is created directly (bypassing ``frappe.desk.form.assign_to.add``)
 	so that:
@@ -235,6 +239,7 @@ def add_frappe_assignment(
 
 		# Create ToDo directly — bypassing assign_add to suppress
 		# the generic Frappe notification email (notify_assignment).
+		# The ToDo's on_update hook still updates the _assign sidebar field.
 		from frappe.utils import nowdate
 
 		d = frappe.get_doc(
@@ -247,7 +252,7 @@ def add_frappe_assignment(
 				"priority": "Medium",
 				"status": "Open",
 				"date": nowdate(),
-				"assigned_by": frappe.session.user,
+				"assigned_by": (frappe.session.user or getattr(instance, "initiated_by", None) or "Administrator"),
 				"type": "Process",
 			}
 		).insert(ignore_permissions=True)

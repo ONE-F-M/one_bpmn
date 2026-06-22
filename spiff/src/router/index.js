@@ -1,6 +1,7 @@
 import { createRouter, createWebHistory } from "vue-router"
 import Home from "@/views/Home.vue"
 import Editor from "@/views/Editor.vue"
+import VersionHistory from "@/views/VersionHistory.vue"
 import InstanceList from "@/views/InstanceList.vue"
 import InstanceDetail from "@/views/InstanceDetail.vue"
 
@@ -20,6 +21,12 @@ const routes = [
 		path: "/processa/process/:process/diagram/:diagram",
 		name: "DiagramEditor",
 		component: Editor,
+		props: true,
+	},
+	{
+		path: "/processa/process/:process/diagram/:diagram/history",
+		name: "VersionHistory",
+		component: VersionHistory,
 		props: true,
 	},
 	{

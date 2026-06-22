@@ -63,10 +63,11 @@
 								/>
 								<!-- Label -->
 								<span class="text-sm text-gray-800 flex-1 truncate" :title="item.name">{{ item.name }}</span>
-								<!-- Detail for warnings -->
+								<!-- Detail for warnings / call activity refs -->
 								<span
 									v-if="item.detail"
-									class="text-xs text-amber-700 max-w-[180px] truncate"
+									class="text-xs max-w-[180px] truncate"
+									:class="item.type === 'call_activity_ref' ? 'text-blue-700' : 'text-amber-700'"
 									:title="item.detail"
 								>
 									{{ item.detail }}
@@ -105,6 +106,16 @@
 					>
 						<Icon icon="lucide:upload" class="md3-btn-icon" />
 						Upload Config
+					</button>
+
+					<!-- Update All Call Activity Refs — MD3 Tonal -->
+					<button
+						v-if="hasCallActivityRefs && !loading"
+						class="md3-btn md3-btn--tonal-blue"
+						@click="$emit('update-refs', callActivityRefItems)"
+					>
+						<Icon icon="lucide:refresh-cw" class="md3-btn-icon" />
+						Update All References
 					</button>
 
 					<!-- Recheck — MD3 Text -->
@@ -162,10 +173,28 @@ const props = defineProps({
 
 const showDialog = defineModel({ type: Boolean, default: false });
 
-defineEmits(["close", "cancel", "deploy", "upload-config", "recheck"]);
+defineEmits(["close", "cancel", "deploy", "upload-config", "recheck", "update-refs"]);
 
 const hasMissing = computed(() =>
 	props.checklist && props.checklist.total_missing > 0
+);
+
+// Collect all call_activity_ref items across all categories
+const callActivityRefItems = computed(() => {
+	if (!props.checklist?.categories) return [];
+	const items = [];
+	for (const cat of props.checklist.categories) {
+		for (const item of cat.items || []) {
+			if (item.type === "call_activity_ref") {
+				items.push(item);
+			}
+		}
+	}
+	return items;
+});
+
+const hasCallActivityRefs = computed(() =>
+	callActivityRefItems.value.length > 0
 );
 
 const dialogTitle = computed(() =>
@@ -223,16 +252,19 @@ const summaryDetail = computed(() => {
 // ── Item helpers ────────────────────────────────────────────────────────
 
 function itemIcon(item) {
+	if (item.type === "call_activity_ref") return "lucide:link-2";
 	if (item.type === "warning") return "lucide:alert-triangle";
 	return item.exists ? "lucide:check-circle-2" : "lucide:x-circle";
 }
 
 function itemIconClass(item) {
+	if (item.type === "call_activity_ref") return "text-blue-500";
 	if (item.type === "warning") return "text-amber-500";
 	return item.exists ? "text-green-500" : "text-red-500";
 }
 
 function itemRowClass(item) {
+	if (item.type === "call_activity_ref") return "bg-blue-50/50";
 	if (item.type === "warning") return "bg-amber-50/50";
 	if (!item.exists) return "bg-red-50/50";
 	return "";
@@ -241,9 +273,11 @@ function itemRowClass(item) {
 function categoryStatus(category) {
 	const total = category.items.length;
 	const warnings = category.items.filter((i) => i.type === "warning").length;
+	const callActivityRefs = category.items.filter((i) => i.type === "call_activity_ref").length;
 	const missing = category.items.filter((i) => i.type === "check" && !i.exists).length;
-	const passed = total - warnings - missing;
+	const passed = total - warnings - callActivityRefs - missing;
 
+	if (callActivityRefs > 0) return `${callActivityRefs} ref${callActivityRefs > 1 ? "s" : ""} to update`;
 	if (warnings > 0 && missing === 0) return `${warnings} warning${warnings > 1 ? "s" : ""}`;
 	if (missing > 0) return `${missing} missing`;
 	return `${passed}/${passed} passed`;
@@ -312,6 +346,20 @@ function categoryStatus(category) {
 }
 
 .md3-btn--tonal:hover::after {
+	opacity: 0.08;
+}
+
+/* ── Tonal Blue (Update All References) ──────────────────────────────── */
+.md3-btn--tonal-blue {
+	background: #c8e6ff;
+	color: #003a6b;
+}
+
+.md3-btn--tonal-blue::after {
+	background: #003a6b;
+}
+
+.md3-btn--tonal-blue:hover::after {
 	opacity: 0.08;
 }
 
