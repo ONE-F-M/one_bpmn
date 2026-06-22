@@ -826,10 +826,15 @@ class BPMNProcessInstance(Document):
 			for bpmn_id, model_cfg in model_user_exts.items():
 				inst_cfg = self._user_task_extensions.setdefault(bpmn_id, {})
 				for key in _NOTIFY_KEYS:
-					if key in model_cfg and key not in inst_cfg:
+					if key in model_cfg:
 						inst_cfg[key] = model_cfg[key]
+					else:
+						inst_cfg.pop(key, None)
 		except Exception:
-			pass  # Non-fatal — fall back to snapshot values
+		frappe.log_error(
+			title=f"BPMN: Failed to refresh notifyAssignee config for instance {self.name}",
+			message=frappe.get_traceback(),
+		)
 
 	@staticmethod
 	def _load_json(value):
