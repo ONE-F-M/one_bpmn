@@ -123,11 +123,56 @@
           <div class="assistant-context">
             <div class="ctx-row">
               <label>Context DocType <span class="hint">(optional)</span></label>
-              <input type="text" v-model="contextDoctype" placeholder="e.g. Employee" />
+              <div class="ctx-autocomplete">
+                <input
+                  type="text"
+                  v-model="contextDoctype"
+                  placeholder="e.g. Employee"
+                  autocomplete="off"
+                  @input="onDoctypeInput"
+                  @focus="onDoctypeFocus"
+                  @blur="onDoctypeBlur"
+                />
+                <ul v-if="showDoctypeDropdown && filteredDoctypes.length" class="ctx-dropdown">
+                  <li
+                    v-for="dt in filteredDoctypes"
+                    :key="dt"
+                    @mousedown.prevent="selectDoctype(dt)"
+                  >
+                    {{ dt }}
+                  </li>
+                </ul>
+              </div>
             </div>
             <div class="ctx-row">
               <label>Sample Record <span class="hint">(optional)</span></label>
-              <input type="text" v-model="contextDocname" placeholder="latest record if blank" />
+              <div class="ctx-autocomplete">
+                <input
+                  type="text"
+                  v-model="contextDocname"
+                  :placeholder="docnamePlaceholder"
+                  :disabled="!doctypeResolved"
+                  autocomplete="off"
+                  @input="onDocnameInput"
+                  @focus="onDocnameFocus"
+                  @blur="onDocnameBlur"
+                />
+                <ul v-if="showDocnameDropdown && recordOptions.length" class="ctx-dropdown">
+                  <li
+                    v-for="r in recordOptions"
+                    :key="r"
+                    @mousedown.prevent="selectDocname(r)"
+                  >
+                    {{ r }}
+                  </li>
+                </ul>
+                <div
+                  v-else-if="showDocnameDropdown && recordLoading"
+                  class="ctx-dropdown-status"
+                >
+                  Searching…
+                </div>
+              </div>
             </div>
             <div class="ctx-hint">
               The assistant reads this DocType's schema and one sample record (your
@@ -197,7 +242,7 @@
 
 <script setup>
 import { ref, computed, onMounted, nextTick, toRaw } from "vue";
-import { frappePost } from "@/bpmn/shared/frappeResource";
+import { frappePost, frappeGet } from "@/bpmn/shared/frappeResource";
 
 // bpmn-js elements must never be touched as Vue reactive proxies — the renderer
 // reads non-configurable properties (e.g. labels) that a Proxy cannot return,
@@ -239,6 +284,108 @@ const loading = ref(false);
 const contextDoctype = ref("");
 const contextDocname = ref("");
 const messagesEl = ref(null);
+
+// ── DocType / Sample Record autocomplete ─────────────────────────────────────
+const doctypeOptions = ref([]);          // all DocType names (loaded on mount)
+const showDoctypeDropdown = ref(false);
+const recordOptions = ref([]);           // matching record names for chosen DocType
+const showDocnameDropdown = ref(false);
+const recordLoading = ref(false);
+let recordSearchTimer = null;
+let recordSearchSeq = 0;
+
+// Dropdown only lists matches once the user has typed something.
+const filteredDoctypes = computed(() => {
+  const q = contextDoctype.value.trim().toLowerCase();
+  if (!q) return [];
+  return doctypeOptions.value.filter((dt) => dt.toLowerCase().includes(q)).slice(0, 50);
+});
+
+// Sample Record search is only meaningful once the typed DocType is a real one.
+const doctypeResolved = computed(() =>
+  doctypeOptions.value.includes(contextDoctype.value.trim())
+);
+
+const docnamePlaceholder = computed(() =>
+  doctypeResolved.value ? "latest record if blank" : "select a DocType first"
+);
+
+function onDoctypeInput() {
+  showDoctypeDropdown.value = true;
+  // The DocType changed, so any previously chosen Sample Record no longer applies.
+  contextDocname.value = "";
+  recordOptions.value = [];
+  showDocnameDropdown.value = false;
+}
+function onDoctypeFocus() {
+  // Show again only if there's already typed text (never on an empty field).
+  if (contextDoctype.value.trim()) showDoctypeDropdown.value = true;
+}
+function onDoctypeBlur() {
+  // Delay so a mousedown on an option registers before the list hides.
+  setTimeout(() => {
+    showDoctypeDropdown.value = false;
+  }, 150);
+}
+function selectDoctype(dt) {
+  contextDoctype.value = dt;
+  showDoctypeDropdown.value = false;
+  contextDocname.value = "";
+  recordOptions.value = [];
+}
+
+function onDocnameInput() {
+  if (!doctypeResolved.value) return;
+  showDocnameDropdown.value = true;
+  queueRecordSearch();
+}
+function onDocnameFocus() {
+  if (doctypeResolved.value) {
+    showDocnameDropdown.value = true;
+    queueRecordSearch();
+  }
+}
+function onDocnameBlur() {
+  setTimeout(() => {
+    showDocnameDropdown.value = false;
+  }, 150);
+}
+function selectDocname(name) {
+  contextDocname.value = name;
+  showDocnameDropdown.value = false;
+}
+
+function queueRecordSearch() {
+  clearTimeout(recordSearchTimer);
+  recordSearchTimer = setTimeout(runRecordSearch, 250);
+}
+
+// Query records of the currently selected DocType, filtered by the typed text.
+async function runRecordSearch() {
+  const dt = contextDoctype.value.trim();
+  if (!doctypeOptions.value.includes(dt)) {
+    recordOptions.value = [];
+    return;
+  }
+  const q = contextDocname.value.trim();
+  const seq = ++recordSearchSeq;
+  recordLoading.value = true;
+  try {
+    const rows = await frappeGet("/api/method/frappe.client.get_list", {
+      doctype: dt,
+      fields: JSON.stringify(["name"]),
+      filters: q ? JSON.stringify([["name", "like", `%${q}%`]]) : undefined,
+      limit_page_length: 20,
+      order_by: "modified desc",
+    });
+    if (seq !== recordSearchSeq) return; // a newer search superseded this one
+    recordOptions.value = Array.isArray(rows) ? rows.map((r) => r.name) : [];
+  } catch (e) {
+    if (seq === recordSearchSeq) recordOptions.value = [];
+  } finally {
+    if (seq === recordSearchSeq) recordLoading.value = false;
+  }
+}
 const appliedKeys = ref(new Set()); // "<msgId>:<field>"
 
 // Human-readable labels for recommendation fields (keys match form keys).
@@ -369,6 +516,19 @@ onMounted(async () => {
     providers.value = data.data || [];
   } catch (e) {
     providers.value = [];
+  }
+
+  // Load DocType names for the Context DocType autocomplete.
+  try {
+    const rows = await frappeGet("/api/method/frappe.client.get_list", {
+      doctype: "DocType",
+      fields: JSON.stringify(["name"]),
+      limit_page_length: 0,
+      order_by: "name asc",
+    });
+    doctypeOptions.value = Array.isArray(rows) ? rows.map((r) => r.name) : [];
+  } catch (e) {
+    doctypeOptions.value = [];
   }
 
   // Read existing attrs from element
@@ -590,6 +750,50 @@ function save() {
   font-family: inherit;
 }
 .ctx-hint { font-size: 0.68rem; color: #94a3b8; line-height: 1.4; }
+
+.ctx-autocomplete { position: relative; }
+.ctx-autocomplete input { width: 100%; box-sizing: border-box; }
+.ctx-autocomplete input:disabled {
+  background: #f1f5f9;
+  color: #94a3b8;
+  cursor: not-allowed;
+}
+.ctx-dropdown {
+  position: absolute;
+  top: calc(100% + 2px);
+  left: 0;
+  right: 0;
+  margin: 0;
+  padding: 4px 0;
+  list-style: none;
+  background: #fff;
+  border: 1px solid #d1d5db;
+  border-radius: 4px;
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.1);
+  max-height: 200px;
+  overflow-y: auto;
+  z-index: 10;
+}
+.ctx-dropdown li {
+  padding: 5px 9px;
+  font-size: 0.8rem;
+  color: #334155;
+  cursor: pointer;
+}
+.ctx-dropdown li:hover { background: #eef2ff; color: #4338ca; }
+.ctx-dropdown-status {
+  position: absolute;
+  top: calc(100% + 2px);
+  left: 0;
+  right: 0;
+  padding: 6px 9px;
+  font-size: 0.78rem;
+  color: #94a3b8;
+  background: #fff;
+  border: 1px solid #d1d5db;
+  border-radius: 4px;
+  z-index: 10;
+}
 
 .assistant-messages {
   flex: 1;
