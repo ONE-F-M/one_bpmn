@@ -21,7 +21,7 @@
           <!-- AI Provider -->
           <div class="field-row">
             <label>AI Provider</label>
-            <select v-model="form.aiProvider">
+            <select v-model="form.aiProvider" @change="onProviderChange">
               <option value="">-- Select Provider --</option>
               <option v-for="p in providers" :key="p.name" :value="p.name">
                 {{ p.provider_name }}
@@ -264,6 +264,16 @@ const providerLabel = computed(() => {
   return p ? p.provider_name : form.value.aiProvider;
 });
 
+// When a provider is selected, fill the Model field from its Default Model.
+// If the provider has no Default Model, leave the field untouched — the empty
+// state is caught (and blocked) at save time.
+function onProviderChange() {
+  const p = providers.value.find((x) => x.name === form.value.aiProvider);
+  if (p && p.default_model) {
+    form.value.aiModel = p.default_model;
+  }
+}
+
 function makeId() {
   return Date.now() + "_" + Math.random().toString(36).slice(2, 8);
 }
@@ -353,7 +363,7 @@ async function sendMessage() {
 onMounted(async () => {
   try {
     const res = await fetch(
-      "/api/resource/AI Provider?fields=[\"name\",\"provider_name\"]&filters=[[\"enabled\",\"=\",1]]&limit=100"
+      "/api/resource/AI Provider?fields=[\"name\",\"provider_name\",\"default_model\"]&filters=[[\"enabled\",\"=\",1]]&limit=100"
     );
     const data = await res.json();
     providers.value = data.data || [];
@@ -382,6 +392,19 @@ onMounted(async () => {
 });
 
 function save() {
+  // Block save when no model can be resolved: the Model field is empty AND the
+  // selected provider has no Default Model to fall back on at runtime.
+  if (!form.value.aiModel || !form.value.aiModel.trim()) {
+    const p = providers.value.find((x) => x.name === form.value.aiProvider);
+    if (!p || !p.default_model) {
+      alert(
+        "No model is set. The selected AI Provider has no Default Model.\n" +
+          "Set a Default Model on the AI Provider, or enter a Model here."
+      );
+      return;
+    }
+  }
+
   // Validate JSON schema if provided
   if (form.value.aiResponseFormat === "json" && form.value.aiResponseSchema) {
     try {
