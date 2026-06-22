@@ -988,7 +988,7 @@ import translateModule from "@/i18n";
 import customRulesModule from "@/rules";
 
 // Custom text styling module
-import { customTextStyleModule, stickyNoteModule } from "@/renderers";
+import { customTextStyleModule, stickyNoteModule, serviceTaskIconModule } from "@/renderers";
 
 // Native system-clipboard module — enables copy/paste across browser tabs.
 // Inlined from https://github.com/nikku/bpmn-js-native-copy-paste (MIT)
@@ -1594,6 +1594,7 @@ onMounted(async () => {
 				customTextStyleModule,
 				resizeModule,
 				stickyNoteModule,
+				serviceTaskIconModule,
 				clipboardModule,
 				lintModule,
 				nativeCopyPasteModule,
