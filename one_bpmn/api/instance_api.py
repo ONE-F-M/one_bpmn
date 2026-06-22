@@ -355,7 +355,7 @@ def complete_task(
 		)
 		frappe.throw(_("Failed to complete task: {0}").format(str(exc)))
 
-	# ── Expire the CTC now that the original task has been actioned ──────────
+	# ── Send message so the CTC process can expire itself after the task is actioned ──
 	if approved_ctc_name:
 		try:
 			send_message(
