@@ -289,7 +289,9 @@ def add_frappe_assignment(instance, user: str, task_name: str = "", task_cfg: di
 
 		# Determine notification settings from BPMN diagram config
 		cfg = task_cfg or {}
+		print(cfg, "\n\n\n\n\n", 111111111111)
 		notify_assignee = cfg.get("notifyAssignee") == "true"
+		print(notify_assignee, "\n\n\n\n\n", 2222222222222)
 		custom_body = cfg.get("notifyAssigneeBody", "") if notify_assignee else ""
 
 		description = custom_body or _('BPMN Task: "{0}" on instance {1}').format(
