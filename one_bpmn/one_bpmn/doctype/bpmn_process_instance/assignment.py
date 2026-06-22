@@ -230,20 +230,30 @@ def _send_assignee_notification(instance, user: str, task_name: str, task_cfg: d
 	except Exception:
 		rendered_body = body_html  # fall back to raw HTML on template error
 
-	subject = _('BPMN Task: "{0}"').format(task_name or "User Task")
+	subject = _("BPMN Task: \"{0}\"").format(task_name or "User Task")
 
-	from one_fm.processor import sendemail as onefm_sendemail
+	try:
+		from one_fm.processor import sendemail as onefm_sendemail
 
-	onefm_sendemail(
-		recipients=[user],
-		subject=subject,
-		sender=None,
-		header=[subject],
-		message=rendered_body,
-		reference_doctype=instance.context_doctype or instance.doctype,
-		reference_name=instance.context_docname or instance.name,
-		is_external_mail=True,
-	)
+		onefm_sendemail(
+			recipients=[user],
+			subject=subject,
+			sender=None,
+			header=[subject],
+			message=rendered_body,
+			reference_doctype=instance.context_doctype or instance.doctype,
+			reference_name=instance.context_docname or instance.name,
+			is_external_mail=True,
+		)
+	except ImportError:
+		frappe.sendmail(
+			recipients=[user],
+			subject=subject,
+			message=rendered_body,
+			reference_doctype=instance.context_doctype or instance.doctype,
+			reference_name=instance.context_docname or instance.name,
+			now=False,
+		)
 
 
 def add_frappe_assignment(instance, user: str, task_name: str = "", task_cfg: dict = None) -> None:
