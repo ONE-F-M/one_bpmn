@@ -238,6 +238,7 @@ function ServiceTypeComponent(props) {
 			"spiffworkflow:aiMaxTokens":          undefined,
 			"spiffworkflow:aiTimeout":            undefined,
 			"spiffworkflow:aiMaxRetries":         undefined,
+			"spiffworkflow:aiWriteBackField":     undefined,
 		};
 		modeling.updateModdleProperties(element, bo, patch);
 	};
