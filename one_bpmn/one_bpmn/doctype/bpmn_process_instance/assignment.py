@@ -315,10 +315,10 @@ def add_frappe_assignment(instance, user: str, task_name: str = "", task_cfg: di
 		# Determine notification settings from BPMN diagram config
 		cfg = task_cfg or {}
 		notify_assignee = cfg.get("notifyAssignee") == "true"
-		custom_body = _decode_html_attr(cfg.get("notifyAssigneeBody", "")) if notify_assignee else ""
 
-
-		description = custom_body or _('BPMN Task: "{0}" on instance {1}').format(
+		# The ToDo description is always the standard BPMN task message.
+		# notifyAssigneeBody is for email notification only — NOT the ToDo.
+		description = _('BPMN Task: "{0}" on instance {1}').format(
 			task_name or "User Task", instance.name
 		)
 
@@ -327,7 +327,7 @@ def add_frappe_assignment(instance, user: str, task_name: str = "", task_cfg: di
 		# ToDo's on_update hook still updates the _assign sidebar field.
 		from frappe.utils import nowdate
 
-		frappe.get_doc({
+		todo = frappe.get_doc({
 			"doctype": "ToDo",
 			"allocated_to": user,
 			"reference_type": instance.context_doctype,
@@ -337,8 +337,12 @@ def add_frappe_assignment(instance, user: str, task_name: str = "", task_cfg: di
 			"status": "Open",
 			"date": nowdate(),
 			"assigned_by": (frappe.session.user or getattr(instance, "initiated_by", None) or "Administrator"),
-			"type": "Process",
 		}).insert(ignore_permissions=True)
+
+		# Force type="Process" AFTER insert — Frappe's ToDo validate hook
+		# resets the type field to its default ("Action"), so setting it in
+		# the dict above doesn't stick.  db_set bypasses controller hooks.
+		frappe.db.set_value("ToDo", todo.name, "type", "Process")
 
 		# Share the document if the assignee lacks permission
 		doc = frappe.get_doc(instance.context_doctype, instance.context_docname)
