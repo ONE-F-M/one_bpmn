@@ -530,7 +530,10 @@ def dispatch_email(instance, task, task_cfg: dict) -> None:
 
 	# ── Render subject + body ─────────────────────────────────────────
 	subject = render(task_cfg.get("emailSubject", "") or f"Notification from {instance.name}")
-	body = render(task_cfg.get("emailBody", "") or subject)
+	_raw_body = task_cfg.get("emailBody", "") or subject
+	# emailBody may be base64-encoded (HTML stored in XML attribute)
+	from one_bpmn.one_bpmn.doctype.bpmn_process_instance.assignment import _decode_html_attr
+	body = render(_decode_html_attr(_raw_body))
 	cc = task_cfg.get("emailCc", "") or None
 
 	# ── Resolve sender from configured Email Account ──────────────

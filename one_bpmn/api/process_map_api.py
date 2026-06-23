@@ -10,6 +10,59 @@ from frappe.utils import cint
 
 
 # ============================================
+# HTML attribute sanitization for BPMN viewer
+# ============================================
+
+def _sanitize_html_attrs_for_viewer(bpmn_xml: str) -> str:
+	"""Encode raw HTML in spiffworkflow:* attributes to base64.
+
+	Existing BPMN XML may contain raw HTML (e.g. ``<p>Hello</p>``) in
+	attributes like ``notifyAssigneeBody`` and ``emailBody``.  The BPMN
+	viewer's XML parser chokes on these because ``</p>`` looks like a
+	closing XML tag.
+
+	This function encodes any raw HTML attribute values to base64 before
+	the XML reaches the frontend.  Already-encoded (base64) values are
+	left untouched.  Falls back to the original XML on any error.
+	"""
+	import base64 as _b64
+
+	SPIFF_NS = "http://spiffworkflow.org/bpmn/schema/1.0/core"
+	_HTML_ATTRS = (
+		f"{{{SPIFF_NS}}}notifyAssigneeBody",
+		f"{{{SPIFF_NS}}}emailBody",
+	)
+
+	try:
+		parser = ET.XMLParser(resolve_entities=False, no_network=True)
+		root = ET.fromstring(bpmn_xml.strip().encode("utf-8"), parser=parser)
+
+		changed = False
+		for attr_key in _HTML_ATTRS:
+			for elem in root.iter():
+				raw = elem.get(attr_key)
+				if not raw:
+					continue
+				# Already base64?
+				try:
+					_b64.b64decode(raw).decode("utf-8")
+					continue  # valid base64 — skip
+				except Exception:
+					pass
+				# Raw HTML — encode to base64
+				encoded = _b64.b64encode(raw.encode("utf-8")).decode("ascii")
+				elem.set(attr_key, encoded)
+				changed = True
+
+		if not changed:
+			return bpmn_xml
+
+		return ET.tostring(root, encoding="unicode", xml_declaration=False)
+	except Exception:
+		return bpmn_xml
+
+
+# ============================================
 # Process Model CRUD API
 # ============================================
 
@@ -1041,14 +1094,20 @@ def get_process_model(name: str) -> dict:
 	doc = frappe.get_doc("BPMN Process Model", name)
 	doc.check_permission("read")
 
+	# Sanitize XML for the viewer — encode any raw HTML attributes to base64
+	# to prevent XML parse errors in the frontend BPMN viewer.
+	xml_content = doc.bpmn_xml
+	if xml_content:
+		xml_content = _sanitize_html_attrs_for_viewer(xml_content)
+
 	return {
 		"name": doc.name,
 		"model_name": doc.title,
 		"title": doc.title,
 		"process_id": doc.process_id,
 		"description": doc.description,
-		"xml_content": doc.bpmn_xml,
-		"bpmn_xml": doc.bpmn_xml,
+		"xml_content": xml_content,
+		"bpmn_xml": xml_content,
 		"version": doc.version,
 		"is_active": doc.is_active,
 		"modified": doc.modified,

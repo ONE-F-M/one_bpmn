@@ -74,6 +74,78 @@ import NavigatedViewer from "bpmn-js/lib/NavigatedViewer"
 import "bpmn-js/dist/assets/diagram-js.css"
 import "bpmn-js/dist/assets/bpmn-font/css/bpmn.css"
 
+// ── Viewer-side moddle extension ──
+// The BPMN XML produced by the editor uses custom spiffworkflow:* attributes
+// (e.g. notifyAssigneeBody, emailBody).  Without registering the moddle
+// extension, the viewer's XML parser treats unknown attributes containing
+// angle brackets as malformed XML tags, causing "unparsable content" errors.
+//
+// This is a lightweight inline definition — we do NOT import the full
+// bpmn-js-spiffworkflow module to avoid bloating the viewer bundle.
+const viewerModdleExtension = {
+	name: "spiffworkflow",
+	uri: "http://spiffworkflow.org/bpmn/schema/1.0/core",
+	prefix: "spiffworkflow",
+	xml: { tagAlias: "lowerCase" },
+	types: [
+		{
+			name: "UserTaskAssigneeExtension",
+			extends: ["bpmn:UserTask"],
+			properties: [
+				{ name: "assigneeMode",         isAttr: true, type: "String" },
+				{ name: "targetDoctype",         isAttr: true, type: "String" },
+				{ name: "assigneeUser",          isAttr: true, type: "String" },
+				{ name: "assigneeDocfield",      isAttr: true, type: "String" },
+				{ name: "assigneeUsers",         isAttr: true, type: "String" },
+				{ name: "roundRobinLastUser",    isAttr: true, type: "String" },
+				{ name: "taskActions",           isAttr: true, type: "String" },
+				{ name: "notifyAssignee",        isAttr: true, type: "String" },
+				{ name: "notifyAssigneeBody",    isAttr: true, type: "String" },
+			],
+		},
+		{
+			name: "ServiceTaskApplyWorkflowExtension",
+			extends: ["bpmn:ServiceTask"],
+			properties: [
+				{ name: "serviceType",          isAttr: true, type: "String" },
+				{ name: "serviceTargetDoctype", isAttr: true, type: "String" },
+				{ name: "workflowState",        isAttr: true, type: "String" },
+				{ name: "emailBody",            isAttr: true, type: "String" },
+				{ name: "emailSubject",         isAttr: true, type: "String" },
+				{ name: "emailTo",              isAttr: true, type: "String" },
+				{ name: "emailAccount",         isAttr: true, type: "String" },
+				{ name: "emailCc",              isAttr: true, type: "String" },
+				{ name: "emailBcc",             isAttr: true, type: "String" },
+				{ name: "gchatMessage",         isAttr: true, type: "String" },
+				{ name: "pushTitle",            isAttr: true, type: "String" },
+				{ name: "pushMessage",          isAttr: true, type: "String" },
+				{ name: "onlyAllowEdit",        isAttr: true, type: "String" },
+				{ name: "updateFieldDoctype",   isAttr: true, type: "String" },
+				{ name: "updateFieldName",      isAttr: true, type: "String" },
+				{ name: "updateFieldValue",     isAttr: true, type: "String" },
+				{ name: "updateFieldRows",      isAttr: true, type: "String" },
+				{ name: "emailDoctype",         isAttr: true, type: "String" },
+				{ name: "emailToDocFields",     isAttr: true, type: "String" },
+				{ name: "emailToRoles",         isAttr: true, type: "String" },
+				{ name: "gchatType",            isAttr: true, type: "String" },
+				{ name: "gchatEmail",           isAttr: true, type: "String" },
+				{ name: "gchatSpaceId",         isAttr: true, type: "String" },
+				{ name: "pushToUsers",          isAttr: true, type: "String" },
+				{ name: "pushToDocFields",      isAttr: true, type: "String" },
+				{ name: "pushToRoles",          isAttr: true, type: "String" },
+				{ name: "serviceDocstatus",     isAttr: true, type: "String" },
+			],
+		},
+		{
+			name: "ScriptTaskServerScriptExtension",
+			extends: ["bpmn:ScriptTask"],
+			properties: [
+				{ name: "serverScript", isAttr: true, type: "String" },
+			],
+		},
+	],
+}
+
 const props = defineProps({
 	xml: { type: String, default: null },
 	details: { type: Object, default: null },
@@ -96,6 +168,9 @@ async function initViewer() {
 			container: canvasRef.value,
 			width: "100%",
 			height: "100%",
+			moddleExtensions: {
+				spiffworkflow: viewerModdleExtension,
+			},
 		})
 		viewer.value.get("eventBus").on("element.click", onElementClick)
 		viewer.value.get("eventBus").on("canvas.click", () => emit("clear-selection"))

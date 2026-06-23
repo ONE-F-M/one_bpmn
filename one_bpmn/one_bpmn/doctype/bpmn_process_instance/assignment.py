@@ -12,6 +12,25 @@ from frappe import _
 from one_bpmn.one_bpmn import engine as bpmn_engine
 
 
+def _decode_html_attr(value: str) -> str:
+	"""Decode a base64-encoded HTML attribute back to its original HTML.
+
+	The BPMN editor stores HTML content (notifyAssigneeBody, emailBody) as
+	base64 in XML attributes to prevent XML parse failures from raw HTML
+	tags like ``<p>``.  This helper decodes them at runtime.
+
+	Gracefully handles legacy values that were stored as raw HTML.
+	"""
+	if not value:
+		return ""
+	import base64
+	try:
+		return base64.b64decode(value).decode("utf-8")
+	except Exception:
+		# Not valid base64 — assume legacy raw HTML
+		return value
+
+
 def get_reliever_if_on_leave(user: str) -> str:
 	"""
 	If *user* is on approved leave today, return the reliever's User ID
@@ -206,7 +225,7 @@ def _send_assignee_notification(instance, user: str, task_name: str, task_cfg: d
 
 	Non-fatal: failures are logged but never break the workflow.
 	"""
-	body_html = (task_cfg.get("notifyAssigneeBody") or "").strip()
+	body_html = _decode_html_attr(task_cfg.get("notifyAssigneeBody") or "").strip()
 	if not body_html:
 		return
 
@@ -296,7 +315,7 @@ def add_frappe_assignment(instance, user: str, task_name: str = "", task_cfg: di
 		# Determine notification settings from BPMN diagram config
 		cfg = task_cfg or {}
 		notify_assignee = cfg.get("notifyAssignee") == "true"
-		custom_body = cfg.get("notifyAssigneeBody", "") if notify_assignee else ""
+		custom_body = _decode_html_attr(cfg.get("notifyAssigneeBody", "")) if notify_assignee else ""
 
 
 		description = custom_body or _('BPMN Task: "{0}" on instance {1}').format(

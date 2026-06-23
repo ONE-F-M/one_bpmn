@@ -5,6 +5,7 @@ import { h, Component } from "preact";
 import { frappeGet } from "../shared/frappeResource";
 import { FrappeAutocomplete } from "../shared/FrappeAutocomplete";
 import { FrappeMultiSelect } from "../shared/FrappeMultiSelect";
+import { decodeHtmlAttr } from "../shared/htmlAttrCodec";
 
 // Helpers
 function getAttr(bo, attr) {
@@ -808,7 +809,7 @@ function NotifyAssigneeEditorButtonComponent(props) {
 		});
 	};
 
-	const hasBody = !!getAttr(bo, "notifyAssigneeBody");
+	const hasBody = !!decodeHtmlAttr(getAttr(bo, "notifyAssigneeBody"));
 
 	return h(
 		"div",
