@@ -13,16 +13,17 @@ Covers:
   (g) A disabled provider (enabled=0) is still readable by an admin
 """
 import frappe
+from frappe.model.document import Document
 from frappe.tests.utils import FrappeTestCase
 
 
-def make_ai_provider(**kwargs) -> frappe.Document:
+def make_ai_provider(**kwargs) -> Document:
     defaults = {
         "doctype": "AI Provider",
         "provider_name": f"test-provider-{frappe.generate_hash(length=6)}",
         "provider_type": "OpenAI",
         "api_endpoint": "https://api.openai.com/v1",
-        "api_key": "sk-test-placeholder-key",
+        "api_key": "test-placeholder-key",
         "default_model": "gpt-4o",
         "enabled": 1,
     }
@@ -41,13 +42,13 @@ class TestAIProvider(FrappeTestCase):
         doc = make_ai_provider()
         loaded = frappe.get_doc("AI Provider", doc.name)
         d = loaded.as_dict()
-        self.assertNotEqual(d.get("api_key"), "sk-test-placeholder-key")
+        self.assertFalse(d.get("api_key"))
 
     def test_get_password_returns_real_key(self):
-        doc = make_ai_provider(api_key="sk-secret-test-key")
+        doc = make_ai_provider(api_key="secret-test-key")
         loaded = frappe.get_doc("AI Provider", doc.name)
         decrypted = loaded.get_password("api_key")
-        self.assertEqual(decrypted, "sk-secret-test-key")
+        self.assertEqual(decrypted, "secret-test-key")
 
     def test_get_list_excludes_api_key(self):
         doc = make_ai_provider()
@@ -56,8 +57,8 @@ class TestAIProvider(FrappeTestCase):
             filters={"name": doc.name},
             fields=["name", "provider_name", "api_key"],
         )
-        if results:
-            self.assertNotEqual(results[0].get("api_key"), "sk-test-placeholder-key")
+        self.assertEqual(len(results), 1)
+        self.assertFalse(results[0].get("api_key"))
 
     def test_non_admin_cannot_read(self):
         doc = make_ai_provider()

@@ -648,20 +648,10 @@ def dispatch_ai_agent(instance, task, task_cfg: dict, bpmn_id: str) -> None:
 				"completion_tokens": result.token_usage.completion_tokens,
 				"total_tokens":      result.token_usage.total_tokens,
 			}
-	else:
-		error_code_name = result.error_code.value
-		frappe.log_error(
-			title=f"BPMN AI Agent Task: {error_code_name} ({bpmn_id})",
-			message=(
-				f"bpmn_id: {bpmn_id}\n"
-				f"provider: {config.provider_name}\n"
-				f"model: {config.model}\n"
-				f"error: {result.error_message}"
-			),
-		)
-		task.data[f"{bpmn_id}_error_code"]    = error_code_name
-		task.data[f"{bpmn_id}_error_message"] = result.error_message
 
+		# On success, optionally write the result back to a field on the context
+		# document. Write-back happens only when the executor succeeds — on
+		# failure result.output has no meaningful value.
 		write_back_field = task_cfg.get("aiWriteBackField", "")
 		if write_back_field and instance.context_doctype and instance.context_docname:
 			try:
@@ -676,3 +666,16 @@ def dispatch_ai_agent(instance, task, task_cfg: dict, bpmn_id: str) -> None:
 					title=f"BPMN AI Agent Task: write-back failed ({bpmn_id})",
 					message=frappe.get_traceback(),
 				)
+	else:
+		error_code_name = result.error_code.value
+		frappe.log_error(
+			title=f"BPMN AI Agent Task: {error_code_name} ({bpmn_id})",
+			message=(
+				f"bpmn_id: {bpmn_id}\n"
+				f"provider: {config.provider_name}\n"
+				f"model: {config.model}\n"
+				f"error: {result.error_message}"
+			),
+		)
+		task.data[f"{bpmn_id}_error_code"]    = error_code_name
+		task.data[f"{bpmn_id}_error_message"] = result.error_message
