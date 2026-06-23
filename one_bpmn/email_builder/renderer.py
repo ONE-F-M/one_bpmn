@@ -139,6 +139,11 @@ def _build_context(task_content: dict, *, for_amp: bool) -> dict:
 		and (actions[0].get("label") or "").lower().startswith("reply")
 	)
 
+	# Strip Frappe's built-in workflow action buttons from the body
+	# to avoid duplication — we render our own AMP/HTML action buttons.
+	from one_bpmn.email_builder.sanitizer import _WORKFLOW_BTN_RE
+	body = _WORKFLOW_BTN_RE.sub("", body)
+
 	if for_amp:
 		body = Markup(sanitize_for_amp(body))
 

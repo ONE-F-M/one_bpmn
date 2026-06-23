@@ -90,7 +90,10 @@ def generate_action_token(
 	}
 	payload_json = json.dumps(payload, sort_keys=True, separators=(",", ":"))
 	signature = _sign(payload_json)
-	return f"{payload_json}.{signature}"
+	# Base64url-encode to avoid HTML attribute escaping issues
+	import base64
+	encoded_payload = base64.urlsafe_b64encode(payload_json.encode("utf-8")).decode("ascii")
+	return f"{encoded_payload}.{signature}"
 
 
 def verify_action_token(token: str) -> dict:
@@ -116,7 +119,15 @@ def verify_action_token(token: str) -> dict:
 	# the separator is always the last one since the signature is hex).
 	payload_json, given_signature = token.rsplit(".", 1)
 
-	# Constant-time comparison to prevent timing attacks
+	# Decode base64url payload
+	import base64
+	try:
+		payload_json = base64.urlsafe_b64decode(payload_json.encode("ascii")).decode("utf-8")
+	except Exception:
+		# Fallback: try treating as raw JSON (legacy tokens)
+		pass
+
+	# Recompute signature on the decoded JSON
 	expected_signature = _sign(payload_json)
 	if not _hmac.compare_digest(given_signature, expected_signature):
 		raise frappe.AuthenticationError("Invalid or tampered token.")

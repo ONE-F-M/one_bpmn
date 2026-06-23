@@ -122,12 +122,12 @@
       border: none;
     }
     .btn-primary {
-      background: #516ac4;
+      background: #171717;
       color: #ffffff;
     }
     .btn-secondary {
-      background: #e8ecf4;
-      color: #516ac4;
+      background: #e8ecf0;
+      color: #171717;
     }
     /* ── Comment Section ───────────────────────────────── */
     .comment-section {
@@ -256,7 +256,7 @@
         <form method="post"
               action-xhr="{{ site_url }}/api/method/one_bpmn.api.todo_actions.handle_amp_action"
               class="action-form">
-          <input type="hidden" name="token" value="{{ action.token }}">
+          <input type="hidden" name="token" value="{{ action.token | e }}">
           <button type="submit"
                   class="btn {{ 'btn-primary' if action.primary else 'btn-secondary' }}">
             {{ action.label }}

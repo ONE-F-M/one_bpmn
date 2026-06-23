@@ -87,7 +87,13 @@ _ATTR_RE = re.compile(
 
 _SCRIPT_RE = re.compile(r"<script\b[^>]*>.*?</script>", re.IGNORECASE | re.DOTALL)
 _STYLE_TAG_RE = re.compile(r"<style\b[^>]*>.*?</style>", re.IGNORECASE | re.DOTALL)
-_STYLE_ATTR_RE = re.compile(r"""\s+style\s*=\s*(?:"[^"]*"|'[^']*')""", re.IGNORECASE)
+_STYLE_ATTR_RE = re.compile(r'\s*style\s*=\s*"[^"]*"', re.IGNORECASE)
+
+# Strip Frappe workflow action buttons (e.g. <a href="...confirm_action..." class="btn btn-primary btn-action">Approve</a>)
+_WORKFLOW_BTN_RE = re.compile(
+	r'<a\s[^>]*class\s*=\s*"[^"]*btn-action[^"]*"[^>]*>.*?</a>',
+	re.IGNORECASE | re.DOTALL,
+)
 
 
 def _img_to_amp_img(html: str) -> str:
@@ -178,7 +184,10 @@ def sanitize_for_amp(html: str) -> str:
 	# 5. Strip inline style= attributes
 	html = _STYLE_ATTR_RE.sub("", html)
 
-	# 6. Bleach-clean with AMP allowlist
+	# 6. Strip Frappe workflow action buttons (avoid duplicating our AMP buttons)
+	html = _WORKFLOW_BTN_RE.sub("", html)
+
+	# 7. Bleach-clean with AMP allowlist
 	html = bleach.clean(
 		html,
 		tags=AMP_ALLOWED_TAGS,
