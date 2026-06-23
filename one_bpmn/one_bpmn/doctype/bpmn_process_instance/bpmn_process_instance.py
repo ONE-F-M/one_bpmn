@@ -604,7 +604,8 @@ class BPMNProcessInstance(Document):
 
 		elif service_type == "send_email":
 			try:
-				dispatch_email(self, task, task_cfg)
+				dispatch_email(self, task, task_cfg,
+					amp_html=task_cfg.get("ampHtml") or None)
 			except Exception:
 				# Email failures are non-fatal: log and continue so the
 				# workflow can complete even if the email account is not
@@ -712,6 +713,9 @@ class BPMNProcessInstance(Document):
 					"target_docname": target_docname,
 				},
 			)
+			# Stash bpmn_id as a transient attribute (not persisted) for
+			# add_frappe_assignment to read the user_task_extensions config.
+			self.active_tasks[-1]._bpmn_id = bpmn_id_key
 
 			# Track the task_cfg so we can pass notification settings below
 			if assigned_user:
@@ -724,20 +728,29 @@ class BPMNProcessInstance(Document):
 			)
 
 		# Diff: which users are now assigned across all Waiting tasks
-		curr_assigned_users = {
-			row.assigned_user
-			for row in self.active_tasks
-			if row.status == "Waiting" and row.assigned_user
-		}
+		curr_assigned = {}
+		for row in self.active_tasks:
+			if row.status == "Waiting" and row.assigned_user:
+				curr_assigned[row.assigned_user] = {
+					"task_name": row.task_name,
+					"bpmn_id": getattr(row, "_bpmn_id", ""),
+					"task_id": row.task_id,
+				}
 
 		# Close ToDos for users who were assigned but no longer are
-		for user in prev_assigned - curr_assigned_users:
+		for user in prev_assigned - set(curr_assigned.keys()):
 			remove_frappe_assignment(self, user)
 
 		# Create ToDos for users who are newly assigned
-		for user in curr_assigned_users - prev_assigned:
-			task_name, task_cfg = new_user_task_cfgs.get(user, ("User Task", {}))
-			add_frappe_assignment(self, user, task_name, task_cfg=task_cfg)
+		for user, info in curr_assigned.items():
+			if user not in prev_assigned:
+				task_name_cfg = new_user_task_cfgs.get(user, (info["task_name"], {}))
+				add_frappe_assignment(
+					self, user, info["task_name"],
+					info.get("bpmn_id", ""),
+					task_id=info.get("task_id", ""),
+					task_cfg=task_name_cfg[1] if isinstance(task_name_cfg, tuple) else {},
+				)
 
 	def _check_completion(self, wf):
 		"""
