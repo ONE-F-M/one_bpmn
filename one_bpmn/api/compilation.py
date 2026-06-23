@@ -868,7 +868,7 @@ def _extract_script_task_config(bpmn_xml: str) -> dict:
 	return extensions
 
 
-def _lint_ai_provider_config(bpmn_xml: str, service_extensions: dict) -> None:
+def _lint_ai_provider_config(_bpmn_xml: str, service_extensions: dict) -> None:
 	"""
 	Compile-time lint for AI Agent Tasks:
 	1. Rejects raw API keys embedded in any spiffworkflow:ai* attribute.
@@ -886,19 +886,20 @@ def _lint_ai_provider_config(bpmn_xml: str, service_extensions: dict) -> None:
 			if attr_name in _RAW_KEY_ATTR_NAMES or _RAW_KEY_RE.match(str(attr_value)):
 				frappe.throw(
 					_(
-						"Raw API keys must not appear in BPMN XML. "
+						"Raw API keys must not appear in BPMN XML "
+						"(task '{0}', attribute '{1}'). "
 						"Use an AI Provider reference."
-					),
+					).format(bpmn_id, attr_name),
 					exc=frappe.ValidationError,
 				)
 
-		provider_name = task_cfg.get("aiProvider", "")
+		provider_name = (task_cfg.get("aiProvider") or "").strip()
 		if provider_name and not frappe.db.exists("AI Provider", provider_name):
 			frappe.throw(
 				_(
-					"AI Provider '{0}' not found. "
+					"AI Provider '{0}' not found (task '{1}'). "
 					"Create it in the AI Provider list."
-				).format(provider_name),
+				).format(provider_name, bpmn_id),
 				exc=frappe.ValidationError,
 			)
 
