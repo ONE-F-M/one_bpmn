@@ -184,6 +184,7 @@ class BPMNProcessInstance(Document):
 		_script_exts = _spec_snap.get("script_task_extensions", {})
 		self._service_task_extensions = _spec_snap.get("service_task_extensions", {})
 		self._user_task_extensions = _spec_snap.get("user_task_extensions", {})
+		self._refresh_user_task_extensions_from_model()
 
 		wf = bpmn_engine.restore_workflow(
 			workflow_state=self._load_json(self.workflow_state),
@@ -339,6 +340,7 @@ class BPMNProcessInstance(Document):
 		_script_exts = _spec_snap.get("script_task_extensions", {})
 		self._service_task_extensions = _spec_snap.get("service_task_extensions", {})
 		self._user_task_extensions = _spec_snap.get("user_task_extensions", {})
+		self._refresh_user_task_extensions_from_model()
 
 		wf = bpmn_engine.restore_workflow(
 			workflow_state=self._load_json(self.workflow_state),
@@ -668,6 +670,10 @@ class BPMNProcessInstance(Document):
 
 		existing_waiting_ids = {row.task_id for row in self.active_tasks if row.status == "Waiting"}
 
+		# Map of user → (task_name, task_cfg) for newly created rows
+		# Used to pass notification settings to add_frappe_assignment
+		new_user_task_cfgs = {}
+
 		for task in ready_user_tasks:
 			tid = str(task.id)
 			if tid in existing_waiting_ids:
@@ -711,6 +717,10 @@ class BPMNProcessInstance(Document):
 			# add_frappe_assignment to read the user_task_extensions config.
 			self.active_tasks[-1]._bpmn_id = bpmn_id_key
 
+			# Track the task_cfg so we can pass notification settings below
+			if assigned_user:
+				new_user_task_cfgs[assigned_user] = (task_name, task_cfg)
+
 			self._log_task(
 				task_id=tid,
 				task_name=task_name,
@@ -734,10 +744,12 @@ class BPMNProcessInstance(Document):
 		# Create ToDos for users who are newly assigned
 		for user, info in curr_assigned.items():
 			if user not in prev_assigned:
+				task_name_cfg = new_user_task_cfgs.get(user, (info["task_name"], {}))
 				add_frappe_assignment(
 					self, user, info["task_name"],
 					info.get("bpmn_id", ""),
 					task_id=info.get("task_id", ""),
+					task_cfg=task_name_cfg[1] if isinstance(task_name_cfg, tuple) else {},
 				)
 
 	def _check_completion(self, wf):
@@ -796,6 +808,46 @@ class BPMNProcessInstance(Document):
 			)
 
 	# Utilities
+
+	def _refresh_user_task_extensions_from_model(self):
+		"""
+		Merge notification-related attributes from the **active** process model's
+		compiled spec into this instance's ``_user_task_extensions``.
+
+		The instance stores a snapshot of the spec at start time.  If the process
+		model is re-deployed with new ``notifyAssignee`` / ``notifyAssigneeBody``
+		settings *after* an instance has started, the instance's snapshot will be
+		stale.  This method patches in those notification-only keys from the live
+		model so that running instances transparently pick up notification changes.
+
+		Only ``notifyAssignee`` and ``notifyAssigneeBody`` are refreshed — all
+		other extension keys (assigneeMode, taskActions, etc.) continue to come
+		from the instance's own snapshot to preserve consistency.
+		"""
+		_NOTIFY_KEYS = ("notifyAssignee", "notifyAssigneeBody")
+
+		try:
+			model_spec_json = frappe.db.get_value(
+				"BPMN Process Model", self.process_model, "serialized_spec"
+			)
+			if not model_spec_json:
+				return
+
+			model_spec = self._load_json(model_spec_json) or {}
+			model_user_exts = model_spec.get("user_task_extensions", {})
+
+			for bpmn_id, model_cfg in model_user_exts.items():
+				inst_cfg = self._user_task_extensions.setdefault(bpmn_id, {})
+				for key in _NOTIFY_KEYS:
+					if key in model_cfg:
+						inst_cfg[key] = model_cfg[key]
+					else:
+						inst_cfg.pop(key, None)
+		except Exception:
+			frappe.log_error(
+				title=f"BPMN: Failed to refresh notifyAssignee config for instance {self.name}",
+				message=frappe.get_traceback(),
+			)
 
 	@staticmethod
 	def _load_json(value):

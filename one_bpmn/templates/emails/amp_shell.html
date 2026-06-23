@@ -7,6 +7,9 @@
   <script async custom-element="amp-form" src="https://cdn.ampproject.org/v0/amp-form-0.1.js"></script>
   <script async custom-template="amp-mustache" src="https://cdn.ampproject.org/v0/amp-mustache-0.2.js"></script>
   {% endif %}
+  {% if status_url %}
+  <script async custom-element="amp-list" src="https://cdn.ampproject.org/v0/amp-list-0.1.js"></script>
+  {% endif %}
   <style amp-custom>
     body {
       margin: 0;
@@ -129,6 +132,40 @@
       background: #e8ecf0;
       color: #171717;
     }
+    /* Hide buttons after successful submission (Calendar-invite behavior) */
+    form.amp-form-submit-success > button,
+    form.amp-form-submit-success > a {
+      display: none;
+    }
+    .completed-badge {
+      text-align: center;
+      padding: 20px 24px;
+      background: #f0fdf4;
+      border: 1px solid #bbf7d0;
+      border-radius: 10px;
+      margin-top: 24px;
+    }
+    .completed-badge .check-circle {
+      width: 40px;
+      height: 40px;
+      line-height: 40px;
+      border-radius: 50%;
+      background: #22c55e;
+      color: #ffffff;
+      font-size: 22px;
+      font-weight: 700;
+      margin: 0 auto 10px;
+    }
+    .completed-badge .action-name {
+      font-size: 17px;
+      font-weight: 700;
+      color: #166534;
+      margin-bottom: 4px;
+    }
+    .completed-badge .meta {
+      font-size: 13px;
+      color: #4b5563;
+    }
     /* ── Comment Section ───────────────────────────────── */
     .comment-section {
       margin-top: 24px;
@@ -247,33 +284,44 @@
       </div>
       {% endif %}
 
-      {# Action Buttons (not for comment variant) #}
+      {# Action Buttons with live status check #}
       {% if has_actions and not is_comment %}
-      <div class="actions">
+
+      {% if status_url %}
+      {# amp-list checks task status on email open — shows completed badge if already actioned #}
+      <amp-list src="{{ status_url }}"
+               items="."
+               single-item
+               layout="fixed-height"
+               height="80">
+        <template type="amp-mustache">
+          {{'{{'}}#is_completed{{'}}'}}
+          <div class="completed-badge">
+            <div class="check-circle">✓</div>
+            <div class="action-name">Completed</div>
+            <div class="meta">{{'{{'}} completed_at {{'}}'}}</div>
+          </div>
+          {{'{{'}}/is_completed{{'}}'}}
+        </template>
+      </amp-list>
+      {% endif %}
+
+      {# Single form with multiple submit buttons — clicking any button
+         replaces the ENTIRE form (all buttons) with the success badge,
+         just like Google Calendar invites. Each button carries its own
+         HMAC token as name="token" value="<token>". #}
+      <form method="post"
+            action-xhr="{{ site_url }}/api/method/one_bpmn.api.todo_actions.handle_amp_action"
+            class="actions">
         {% for action in actions %}
         {% if action.token %}
-        {# Secure AMP form POST with HMAC token #}
-        <form method="post"
-              action-xhr="{{ site_url }}/api/method/one_bpmn.api.todo_actions.handle_amp_action"
-              class="action-form">
-          <input type="hidden" name="token" value="{{ action.token | e }}">
-          <button type="submit"
-                  class="btn {{ 'btn-primary' if action.primary else 'btn-secondary' }}">
-            {{ action.label }}
-          </button>
-          <div submit-success>
-            <template type="amp-mustache">
-              <p class="submit-success">{{'{{'}} message {{'}}'}}</p>
-            </template>
-          </div>
-          <div submit-error>
-            <template type="amp-mustache">
-              <p class="submit-error">{{'{{'}} error {{'}}'}}</p>
-            </template>
-          </div>
-        </form>
+        <button type="submit"
+                name="token"
+                value="{{ action.token | e }}"
+                class="btn {{ 'btn-primary' if action.primary else 'btn-secondary' }}">
+          {{ action.label }}
+        </button>
         {% else %}
-        {# Fallback: plain link (no token available) #}
         <a href="{{ action.url }}"
            class="btn {{ 'btn-primary' if action.primary else 'btn-secondary' }}"
            target="_blank">
@@ -281,7 +329,22 @@
         </a>
         {% endif %}
         {% endfor %}
-      </div>
+        <div submit-success>
+          <template type="amp-mustache">
+            <div class="completed-badge">
+              <div class="check-circle">✓</div>
+              <div class="action-name">{{'{{'}} message.action {{'}}'}}d</div>
+              <div class="meta">{{'{{'}} message.message {{'}}'}}</div>
+            </div>
+          </template>
+        </div>
+        <div submit-error>
+          <template type="amp-mustache">
+            <p class="submit-error">{{'{{'}} message.error {{'}}'}}</p>
+          </template>
+        </div>
+      </form>
+
       {% endif %}
 
       {# Comment Section (amp-form + amp-mustache) #}

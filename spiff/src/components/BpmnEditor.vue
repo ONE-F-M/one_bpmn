@@ -1013,6 +1013,7 @@ import conditionalStartEventPropertiesProviderModule from "@/bpmn/conditionalSta
 import lanePropertiesProviderModule from "@/bpmn/lanePropertiesProvider";
 import propertiesPanelFilterModule from "@/bpmn/propertiesPanelFilter";
 import commentContextPadModule from "@/bpmn/commentContextPad";
+import { encodeHtmlAttr, decodeHtmlAttr } from "@/bpmn/shared/htmlAttrCodec";
 
 // bpmnlint — diagram validation
 import lintModule from "bpmn-js-bpmnlint";
@@ -1997,7 +1998,7 @@ onMounted(async () => {
 			eventBus.on("spiff.userTask.notifyAssignee.edit", (event) => {
 				emit("launch-notify-assignee-editor", {
 					element: event.element,
-					body: event.body || "",
+					body: decodeHtmlAttr(event.body) || "",
 					eventBus: event.eventBus,
 				});
 			});
@@ -2008,7 +2009,7 @@ onMounted(async () => {
 					const modeling = modeler.get("modeling");
 					const bo = event.element.businessObject || event.element;
 					modeling.updateModdleProperties(event.element, bo, {
-						"spiffworkflow:notifyAssigneeBody": event.body || undefined,
+						"spiffworkflow:notifyAssigneeBody": encodeHtmlAttr(event.body),
 					});
 				}
 			});

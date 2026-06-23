@@ -87,6 +87,33 @@ def _sanitize_bpmn_xml(bpmn_xml: str) -> str:
 			for shape in to_remove:
 				plane.remove(shape)
 
+		# 6. Encode raw HTML attribute values to base64
+		#    notifyAssigneeBody and emailBody may contain raw HTML (e.g. <p>Hello</p>)
+		#    which breaks XML parsers.  Encode to base64 for safe storage.
+		import base64 as _b64
+
+		SPIFF_NS = "http://spiffworkflow.org/bpmn/schema/1.0/core"
+		_HTML_ATTRS = (
+			f"{{{SPIFF_NS}}}notifyAssigneeBody",
+			f"{{{SPIFF_NS}}}emailBody",
+		)
+		for attr_key in _HTML_ATTRS:
+			for elem in root.iter():
+				raw = elem.get(attr_key)
+				if not raw:
+					continue
+				# Already base64? Try decoding — if it produces valid UTF-8
+				# without angle brackets, it's already encoded.
+				try:
+					decoded = _b64.b64decode(raw).decode("utf-8")
+					# Successfully decoded — already base64
+					continue
+				except Exception:
+					pass
+				# Raw HTML detected — encode to base64
+				encoded = _b64.b64encode(raw.encode("utf-8")).decode("ascii")
+				elem.set(attr_key, encoded)
+
 		return etree.tostring(root, encoding="unicode", xml_declaration=False)
 
 	except Exception:

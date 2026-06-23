@@ -150,6 +150,27 @@ def _build_context(task_content: dict, *, for_amp: bool) -> dict:
 	# Check if any action has a token (for AMP form rendering)
 	has_token_actions = any(a.get("token") for a in actions)
 
+	# Build status URL for amp-list (AMP only)
+	status_url = ""
+	if for_amp and has_token_actions:
+		# Find instance_name and task_id from the first token action
+		try:
+			from one_bpmn.utils.token import generate_status_token, verify_action_token
+
+			first_token = next((a["token"] for a in actions if a.get("token")), None)
+			if first_token:
+				payload = verify_action_token(first_token)
+				status_token = generate_status_token(
+					payload["instance_name"], payload["task_id"]
+				)
+				site_url = frappe.utils.get_url()
+				status_url = (
+					f"{site_url}/api/method/one_bpmn.api.todo_actions"
+					f".get_amp_task_status?status_token={status_token}"
+				)
+		except Exception:
+			pass  # Non-fatal — buttons still work without live status
+
 	return {
 		"subject": task_content.get("subject", ""),
 		"body": body,
@@ -162,4 +183,5 @@ def _build_context(task_content: dict, *, for_amp: bool) -> dict:
 		"doctype": task_content.get("doctype", ""),
 		"name": task_content.get("name", ""),
 		"site_url": frappe.utils.get_url(),
+		"status_url": status_url,
 	}

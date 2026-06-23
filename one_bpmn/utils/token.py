@@ -141,3 +141,35 @@ def verify_action_token(token: str) -> dict:
 		)
 
 	return payload
+
+
+def generate_status_token(
+	instance_name: str,
+	task_id: str,
+	expiry_days: int = 30,
+) -> str:
+	"""Generate a read-only HMAC token for checking task status.
+
+	This token is embedded in the ``amp-list`` src URL so the email
+	can fetch live status on open.  It grants no action capability.
+
+	Args:
+		instance_name: BPMN Process Instance document name.
+		task_id: SpiffWorkflow task UUID.
+		expiry_days: Days until the token expires (default 30).
+
+	Returns:
+		A sealed string in the form ``<base64_payload>.<hmac_hex>``.
+	"""
+	payload = {
+		"instance_name": instance_name,
+		"task_id": task_id,
+		"type": "status",
+		"expires": int(time.time()) + (expiry_days * 86400),
+	}
+	payload_json = json.dumps(payload, sort_keys=True, separators=(",", ":"))
+	signature = _sign(payload_json)
+	import base64
+	encoded = base64.urlsafe_b64encode(payload_json.encode("utf-8")).decode("ascii")
+	return f"{encoded}.{signature}"
+
