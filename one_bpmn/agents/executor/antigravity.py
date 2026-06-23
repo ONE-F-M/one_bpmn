@@ -29,9 +29,14 @@ class AntigravityExecutor(Executor):
     """Single-call Google Antigravity SDK executor."""
 
     def run(self, config: ExecutorConfig, context: ExecutorContext) -> ExecutorResult:
+        # NOTE: Python ships a stdlib module named "antigravity", so a bare
+        # `import antigravity` always succeeds. Verify the real SDK API
+        # (the Agent class) is present before using it.
         try:
-            import antigravity  # noqa: F401
+            import antigravity as _sdk
         except ImportError:
+            _sdk = None
+        if _sdk is None or not hasattr(_sdk, "Agent"):
             return ExecutorResult(
                 error_code=ErrorCode.FAILED_MODEL_CALL,
                 error_message=(
@@ -41,8 +46,6 @@ class AntigravityExecutor(Executor):
             )
 
         try:
-            import antigravity as _sdk
-
             agent = _sdk.Agent(
                 model=config.model,
                 system_prompt=config.system_prompt,

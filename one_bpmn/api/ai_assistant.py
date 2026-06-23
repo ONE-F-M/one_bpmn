@@ -207,6 +207,11 @@ def _build_context_block(doctype: str, docname: str) -> str:
 	if not doctype:
 		return ""
 
+	# Do not expose schema for DocTypes the current user cannot read —
+	# frappe.get_meta() does not enforce permissions.
+	if not frappe.has_permission(doctype, "read"):
+		return ""
+
 	try:
 		meta = frappe.get_meta(doctype)
 	except Exception:
