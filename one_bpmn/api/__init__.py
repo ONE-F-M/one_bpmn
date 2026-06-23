@@ -12,6 +12,6 @@
 #   script_version_history — server script version history and restore
 #   version_history    — diagram XML version history
 #   utils              — shared helpers (role checks, field lookups)
-from one_bpmn.api.instance_api import complete_task, get_active_bpmn_tasks
+from one_bpmn.api.instance_api import complete_task, get_active_bpmn_tasks, send_message
 
-__all__ = ["get_active_bpmn_tasks", "complete_task"]
+__all__ = ["get_active_bpmn_tasks", "complete_task", "send_message"]
