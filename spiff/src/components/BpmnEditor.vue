@@ -1091,6 +1091,7 @@ const messageDialog = ref({
 	elementId: "",
 	_eventBus: null,
 });
+const aiAgentModal = ref({ show: false, element: null });
 const isCommentMode = ref(false);
 const commentFormData = ref({
 	text: "",

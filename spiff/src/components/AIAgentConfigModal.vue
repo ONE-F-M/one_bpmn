@@ -534,6 +534,14 @@ onMounted(async () => {
   // Read existing attrs from element
   const bo = rawElement().businessObject;
   const get = (attr) => bo.get(`spiffworkflow:${attr}`) ?? "";
+  // Parse a numeric attr while preserving a legitimately-saved 0
+  // (`parseX(...) || default` would replace a stored 0 with the default).
+  const numOr = (attr, fallback, parse = parseFloat) => {
+    const raw = get(attr);
+    if (raw === "" || raw === null || raw === undefined) return fallback;
+    const v = parse(raw);
+    return Number.isFinite(v) ? v : fallback;
+  };
   form.value = {
     aiBackend: get("aiBackend") || "direct_api",
     aiProvider: get("aiProvider") || "",
@@ -543,11 +551,11 @@ onMounted(async () => {
     aiUserPrompt: get("aiUserPrompt") || "",
     aiResponseFormat: get("aiResponseFormat") || "text",
     aiResponseSchema: get("aiResponseSchema") || "",
-    aiTemperature: parseFloat(get("aiTemperature")) || 0.7,
-    aiTopP: parseFloat(get("aiTopP")) || 1.0,
-    aiMaxTokens: parseInt(get("aiMaxTokens")) || 1024,
-    aiTimeout: parseInt(get("aiTimeout")) || 30,
-    aiMaxRetries: parseInt(get("aiMaxRetries")) || 2,
+    aiTemperature: numOr("aiTemperature", 0.7),
+    aiTopP: numOr("aiTopP", 1.0),
+    aiMaxTokens: numOr("aiMaxTokens", 1024, parseInt),
+    aiTimeout: numOr("aiTimeout", 30, parseInt),
+    aiMaxRetries: numOr("aiMaxRetries", 2, parseInt),
   };
 });
 
