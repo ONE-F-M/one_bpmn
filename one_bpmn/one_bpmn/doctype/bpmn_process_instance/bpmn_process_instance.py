@@ -831,10 +831,10 @@ class BPMNProcessInstance(Document):
 					else:
 						inst_cfg.pop(key, None)
 		except Exception:
-		frappe.log_error(
-			title=f"BPMN: Failed to refresh notifyAssignee config for instance {self.name}",
-			message=frappe.get_traceback(),
-		)
+			frappe.log_error(
+				title=f"BPMN: Failed to refresh notifyAssignee config for instance {self.name}",
+				message=frappe.get_traceback(),
+			)
 
 	@staticmethod
 	def _load_json(value):

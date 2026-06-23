@@ -5,6 +5,7 @@ import { h } from "preact";
 import { frappeGet } from "../shared/frappeResource";
 import { FrappeAutocomplete } from "../shared/FrappeAutocomplete";
 import { FrappeMultiSelect } from "../shared/FrappeMultiSelect";
+import { encodeHtmlAttr, decodeHtmlAttr } from "../shared/htmlAttrCodec";
 
 // ---------------------------------------------------------------------------
 // Document Status options — mirrors Frappe's docstatus values exactly
@@ -672,7 +673,7 @@ function EmailBodyComponent(props) {
 	const modeling  = useService("modeling");
 	const translate = useService("translate");
 	const bo        = getBusinessObject(element);
-	const value     = getAttr(bo, "emailBody");
+	const value     = decodeHtmlAttr(getAttr(bo, "emailBody"));
 
 	return h(TextEntry, {
 		id,
@@ -680,7 +681,7 @@ function EmailBodyComponent(props) {
 		value,
 		multiline: true,
 		onInput: (e) => modeling.updateModdleProperties(element, bo, {
-			"spiffworkflow:emailBody": e.target.value || undefined,
+			"spiffworkflow:emailBody": encodeHtmlAttr(e.target.value),
 		}),
 		placeholder: translate("Supports Jinja2 — use {{ doc.field_name }}, {{ instance.name }}, etc."),
 		hint: translate(
