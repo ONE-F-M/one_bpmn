@@ -138,13 +138,16 @@ class DirectApiExecutor(Executor):
                     error_message="Provider returned non-JSON response.",
                 )
 
-            content = (
-                data.get("choices", [{}])[0]
-                .get("message", {})
-                .get("content", "")
-            )
+            choices = data.get("choices") or []
+            if not choices:
+                return ExecutorResult(
+                    error_code=ErrorCode.FAILED_MODEL_CALL,
+                    error_message="Provider returned no choices.",
+                    raw=data,
+                )
+            content = (choices[0].get("message") or {}).get("content", "")
 
-            token_usage = self._parse_token_usage(data.get("usage", {}))
+            token_usage = self._parse_token_usage(data.get("usage") or {})
 
             # ── JSON schema validation ───────────────────────────────
             if config.response_format == "json":
