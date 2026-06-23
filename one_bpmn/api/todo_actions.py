@@ -47,25 +47,31 @@ def _set_amp_cors_headers() -> None:
 	- ``Access-Control-Allow-Origin`` matching the request Origin
 	- ``AMP-Access-Control-Allow-Source-Origin`` echoing ``__amp_source_origin``
 	- ``Access-Control-Expose-Headers`` listing the AMP header
+
+	Since Frappe's ``allow_cors`` config handles basic CORS, this function
+	only sets the AMP-specific headers that Frappe doesn't know about.
+	We store them in ``frappe.flags._amp_extra_headers`` for the
+	``after_request`` hook to apply.
 	"""
-	# Ensure headers dict exists (it's None by default in Frappe)
-	if not frappe.local.response.get("headers"):
-		frappe.local.response["headers"] = {}
+	extra = {}
 
-	headers = frappe.local.response["headers"]
-
-	origin = (frappe.request.headers.get("Origin") or "").rstrip("/")
-	if origin in _AMP_ALLOWED_ORIGINS:
-		headers["Access-Control-Allow-Origin"] = origin
-
-	headers["Access-Control-Allow-Methods"] = "POST, OPTIONS"
-	headers["Access-Control-Allow-Headers"] = "Content-Type, AMP-Same-Origin"
-	headers["Access-Control-Expose-Headers"] = "AMP-Access-Control-Allow-Source-Origin"
+	# AMP-specific header: expose the source-origin header
+	extra["Access-Control-Expose-Headers"] = "AMP-Access-Control-Allow-Source-Origin"
 
 	# Echo back the __amp_source_origin query param
 	source_origin = frappe.request.args.get("__amp_source_origin", "")
 	if source_origin:
-		headers["AMP-Access-Control-Allow-Source-Origin"] = source_origin
+		extra["AMP-Access-Control-Allow-Source-Origin"] = source_origin
+
+	frappe.flags._amp_extra_headers = extra
+
+
+def apply_amp_headers(response, **kwargs):
+	"""after_request hook — apply AMP-specific CORS headers to the response."""
+	extra = getattr(frappe.flags, "_amp_extra_headers", None)
+	if extra:
+		for key, value in extra.items():
+			response.headers[key] = value
 
 
 # ---------------------------------------------------------------------------
@@ -136,6 +142,28 @@ def handle_amp_action(token: str | None = None, comment: str | None = None) -> d
 			task_id=task_id,
 			data=json.dumps(task_data),
 		)
+
+		# ── Apply Frappe workflow action on the context document ────
+		# complete_task only advances the BPMN engine.  We also need
+		# to apply the workflow transition (Approve, Reject, etc.) on
+		# the actual document so its status changes in ERPNext.
+		instance_doc = frappe.get_doc("BPMN Process Instance", instance_name)
+		ctx_dt = instance_doc.context_doctype
+		ctx_dn = instance_doc.context_docname
+
+		if ctx_dt and ctx_dn:
+			try:
+				from frappe.model.workflow import apply_workflow
+				doc = frappe.get_doc(ctx_dt, ctx_dn)
+				apply_workflow(doc, action)
+				doc.save(ignore_permissions=True)
+				frappe.db.commit()
+			except Exception:
+				# Log but don't fail — the BPMN task already completed
+				frappe.log_error(
+					title=f"AMP: Frappe workflow '{action}' failed on {ctx_dt}/{ctx_dn}",
+					message=frappe.get_traceback(),
+				)
 
 		return {
 			"message": _("✓ {0} completed successfully.").format(action),
