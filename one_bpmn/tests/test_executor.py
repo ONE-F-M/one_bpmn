@@ -13,7 +13,6 @@ from one_bpmn.agents.executor import (
     ErrorCode,
     ExecutorConfig,
     ExecutorContext,
-    ExecutorResult,
     get_executor,
     register_executor,
 )
