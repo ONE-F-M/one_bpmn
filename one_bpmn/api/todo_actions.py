@@ -166,7 +166,8 @@ def handle_amp_action(token: str | None = None, comment: str | None = None) -> d
 				)
 
 		return {
-			"message": _("✓ {0} completed successfully.").format(action),
+			"message": _("{0} completed successfully.").format(action),
+			"action": action,
 			"status": result.get("status", ""),
 		}
 
@@ -176,6 +177,7 @@ def handle_amp_action(token: str | None = None, comment: str | None = None) -> d
 		if "not found in the active tasks" in error_msg or "not in Waiting status" in error_msg:
 			return {
 				"message": _("This task has already been actioned."),
+				"action": "Completed",
 			}
 		# Other validation errors (bad action name, etc.)
 		frappe.local.response.http_status_code = 400
@@ -192,3 +194,70 @@ def handle_amp_action(token: str | None = None, comment: str | None = None) -> d
 		)
 		frappe.local.response.http_status_code = 500
 		return {"error": _("An error occurred. Please try in ERPNext.")}
+
+
+# ---------------------------------------------------------------------------
+# Status endpoint (for amp-list live status on email open)
+# ---------------------------------------------------------------------------
+
+
+@frappe.whitelist(allow_guest=True, methods=["GET"])
+def get_amp_task_status(status_token: str = "") -> dict:
+	"""Return the current task status for an AMP email's amp-list.
+
+	Called automatically when the email is opened in Gmail.
+	The response drives conditional rendering: show action buttons
+	if the task is still waiting, or a "completed" badge if already actioned.
+
+	Args:
+		status_token: HMAC-signed read-only token from :func:`generate_status_token`.
+
+	Returns:
+		AMP-list compatible dict with ``items`` array containing one item
+		with keys: ``is_waiting``, ``is_completed``, ``action_taken``,
+		``completed_by``, ``completed_at``.
+	"""
+	_set_amp_cors_headers()
+
+	if not status_token:
+		return {"items": [{"is_waiting": True}]}
+
+	try:
+		from one_bpmn.utils.token import verify_action_token
+
+		payload = verify_action_token(status_token)
+	except Exception:
+		# Token expired or invalid — assume waiting (safe default)
+		return {"items": [{"is_waiting": True}]}
+
+	if payload.get("type") != "status":
+		return {"items": [{"is_waiting": True}]}
+
+	instance_name = payload["instance_name"]
+	task_id = payload["task_id"]
+
+	try:
+		# Look up the task row
+		task_row = frappe.db.get_value(
+			"BPMN Active Task",
+			{"parent": instance_name, "task_id": task_id},
+			["status", "task_name", "assigned_user", "modified"],
+			as_dict=True,
+		)
+
+		if not task_row or task_row.status == "Waiting":
+			return {"items": [{"is_waiting": True}]}
+
+		# Task is completed
+		return {
+			"items": [{
+				"is_completed": True,
+				"is_waiting": False,
+				"action_taken": task_row.task_name or "Action",
+				"completed_by": frappe.utils.get_fullname(task_row.assigned_user) if task_row.assigned_user else "",
+				"completed_at": frappe.utils.format_datetime(task_row.modified, "d MMM, h:mm a") if task_row.modified else "",
+			}]
+		}
+	except Exception:
+		return {"items": [{"is_waiting": True}]}
+

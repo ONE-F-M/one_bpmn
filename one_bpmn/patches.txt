@@ -8,4 +8,3 @@ one_bpmn.one_bpmn.patches.v1_0.create_process_owner_role
 one_bpmn.one_bpmn.patches.v1_0.set_existing_models_inactive
 one_bpmn.one_bpmn.patches.v1_0.migrate_processa_comments
 one_bpmn.one_bpmn.patches.v1_0.migrate_dmn_xml_to_child_table
-one_bpmn.one_bpmn.patches.v1_0.add_amp_html_field
