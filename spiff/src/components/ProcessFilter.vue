@@ -29,7 +29,7 @@
 					<!-- Active filter rows -->
 					<div
 						v-for="(f, i) in filters"
-						:key="i"
+						:key="f.field || i"
 						class="mb-3 flex items-center justify-between gap-2"
 					>
 						<div class="flex items-center gap-2 flex-1">
