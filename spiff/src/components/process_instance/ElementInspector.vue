@@ -17,8 +17,114 @@
 			>
 				Details
 			</button>
+			<button
+				v-if="isAiAgent"
+				@click="activeTab = 'aiRun'; fetchAiRun()"
+				title="View AI Agent Run details"
+				class="px-3 py-1 text-sm font-medium rounded-t transition-colors border-b-2"
+				:class="activeTab === 'aiRun' ? 'border-purple-600 text-purple-700 bg-white' : 'border-transparent text-gray-500 hover:text-gray-700'"
+			>
+				AI Run
+			</button>
 		</div>
 		<div class="flex-1 overflow-y-auto custom-scrollbar p-4">
+			<!-- AI Run Tab -->
+			<div v-if="activeTab === 'aiRun'" class="text-[13px]">
+				<div v-if="aiRunLoading" class="text-sm text-gray-400 italic text-center py-6">Loading...</div>
+				<div v-else-if="aiRunError" class="text-sm text-red-500 text-center py-6">{{ aiRunError }}</div>
+				<div v-else-if="!aiRun" class="text-sm text-gray-400 italic text-center py-6">No AI Agent Run data available</div>
+				<div v-else class="space-y-3">
+					<!-- Status badge -->
+					<div class="flex items-center gap-2">
+						<span class="text-gray-500 font-medium">Status</span>
+						<span
+							class="inline-flex items-center gap-1 px-2 py-0.5 rounded text-[12px] font-semibold"
+							:class="aiRun.status === 'Success' ? 'bg-green-100 text-green-700' : aiRun.status === 'Error' ? 'bg-red-100 text-red-700' : 'bg-blue-100 text-blue-700'"
+						>{{ aiRun.status }}</span>
+					</div>
+
+					<!-- Error details -->
+					<div v-if="aiRun.status === 'Error' && aiRun.error_code" class="bg-red-50 rounded p-2 text-[12px]">
+						<div><span class="font-semibold">Error:</span> {{ aiRun.error_code }}</div>
+						<div v-if="aiRun.error_message" class="mt-1 text-red-600">{{ aiRun.error_message }}</div>
+					</div>
+
+					<!-- Metadata table -->
+					<table class="w-full text-[13px]">
+						<tbody class="divide-y divide-gray-100">
+							<tr>
+								<td class="py-1 pr-3 text-gray-500 font-medium whitespace-nowrap align-top">Model</td>
+								<td class="py-1 text-gray-800 font-mono text-[12px]">{{ aiRun.model || '—' }}</td>
+							</tr>
+							<tr>
+								<td class="py-1 pr-3 text-gray-500 font-medium whitespace-nowrap align-top">Provider</td>
+								<td class="py-1 text-gray-800">{{ aiRun.provider || '—' }}</td>
+							</tr>
+							<tr>
+								<td class="py-1 pr-3 text-gray-500 font-medium whitespace-nowrap align-top">Tokens</td>
+								<td class="py-1 text-gray-600">
+									{{ aiRun.total_prompt_tokens || 0 }} prompt / {{ aiRun.total_completion_tokens || 0 }} completion
+									<div class="text-gray-500">Total: {{ aiRun.total_tokens || 0 }}</div>
+								</td>
+							</tr>
+							<tr>
+								<td class="py-1 pr-3 text-gray-500 font-medium whitespace-nowrap align-top">Est. Cost</td>
+								<td class="py-1 text-gray-800 font-mono">{{ aiRun.estimated_cost ? 'NGN ' + formatCost(aiRun.estimated_cost) : '—' }}</td>
+							</tr>
+							<tr>
+								<td class="py-1 pr-3 text-gray-500 font-medium whitespace-nowrap align-top">Duration</td>
+								<td class="py-1 text-gray-800">{{ formatDuration(aiRun.duration_ms) }}</td>
+							</tr>
+							<tr>
+								<td class="py-1 pr-3 text-gray-500 font-medium whitespace-nowrap align-top">Started</td>
+								<td class="py-1 text-gray-600 text-[12px] font-mono">{{ formatDateTime(aiRun.started_at) }}</td>
+							</tr>
+						</tbody>
+					</table>
+
+					<!-- Steps section -->
+					<div class="border-t pt-3 mt-3">
+						<button
+							@click="showSteps = !showSteps"
+							class="flex items-center gap-1 text-purple-700 font-medium hover:text-purple-800 text-[12px]"
+						>
+							<Icon :icon="showSteps ? 'lucide:chevron-down' : 'lucide:chevron-right'" class="w-4 h-4" />
+							Steps ({{ aiSteps.length }})
+						</button>
+						<div v-if="showSteps" class="mt-2 space-y-1">
+							<div v-if="stepsLoading" class="text-sm text-gray-400 italic">Loading steps...</div>
+							<div v-else-if="aiSteps.length === 0" class="text-sm text-gray-400 italic">No steps recorded</div>
+							<div
+								v-for="step in aiSteps"
+								:key="step.name"
+								class="border border-gray-200 rounded overflow-hidden"
+							>
+								<button
+									@click="toggleStep(step.name)"
+									class="w-full flex items-center justify-between px-2 py-1.5 text-[12px] hover:bg-gray-50"
+									:class="expandedSteps.has(step.name) ? 'bg-gray-50' : ''"
+								>
+									<span class="flex items-center gap-1.5">
+										<span
+											class="inline-block px-1.5 py-0.5 rounded text-[10px] font-mono font-semibold"
+											:class="roleBadgeClass(step.role)"
+										>{{ step.role }}</span>
+										<span class="text-gray-500">#{{ step.step_index }}</span>
+										<span class="text-gray-600 truncate max-w-[150px]">{{ step.content ? step.content.substring(0, 80) : '(empty)' }}</span>
+									</span>
+									<span class="text-gray-400 text-[10px]">
+										<span v-if="step.prompt_tokens || step.completion_tokens">{{ (step.prompt_tokens || 0) + (step.completion_tokens || 0) }}t</span>
+									</span>
+								</button>
+								<div v-if="expandedSteps.has(step.name)" class="border-t border-gray-200 px-2 py-1.5">
+									<pre class="text-[11px] text-gray-600 font-mono whitespace-pre-wrap max-h-48 overflow-y-auto bg-gray-50 rounded p-2">{{ step.content || '(empty)' }}</pre>
+								</div>
+							</div>
+						</div>
+					</div>
+				</div>
+			</div>
+
 			<!-- Details Tab -->
 			<div v-if="activeTab === 'details'">
 				<div v-if="!selectedNode" class="text-sm text-gray-400 italic text-center py-6">
@@ -118,12 +224,13 @@
 </template>
 
 <script setup>
-import { ref, computed } from "vue"
+import { ref, computed, watch } from "vue"
 import { Icon } from "@iconify/vue"
 import { dayjs } from "@/dayjs"
 
 const props = defineProps({
 	selectedNode: { type: Object, default: null },
+	processInstanceName: { type: String, default: "" },
 })
 
 const activeTab = ref("variables")
@@ -207,6 +314,137 @@ const groupedVariables = computed(() => {
 
 function formatDateTime(d) {
 	return d ? dayjs(d).format("DD-MM-YYYY hh:mm A") : "-"
+}
+
+// ── AI Agent Run observability ───────────────────────────────────────
+
+const isAiAgent = computed(() => {
+	return props.selectedNode?.extensions?.serviceType === "ai_agent"
+})
+
+const aiRun = ref(null)
+const aiRunLoading = ref(false)
+const aiRunError = ref(null)
+const showSteps = ref(false)
+const aiSteps = ref([])
+const stepsLoading = ref(false)
+const expandedSteps = ref(new Set())
+
+// Reset state when selection changes
+watch(() => props.selectedNode, () => {
+	if (activeTab.value !== 'aiRun') return
+	fetchAiRun()
+})
+
+async function fetchAiRun() {
+	aiRun.value = null
+	aiSteps.value = []
+	expandedSteps.value = new Set()
+	showSteps.value = false
+	aiRunError.value = null
+
+	if (!props.selectedNode || !props.processInstanceName) return
+
+	aiRunLoading.value = true
+	try {
+		const csrf = getCsrfToken()
+		const bpmnId = props.selectedNode.bpmnId || props.selectedNode.id
+		const params = new URLSearchParams({
+			doctype: "AI Agent Run",
+			fields: JSON.stringify(["*"]) ,
+			filters: JSON.stringify([
+				["instance", "=", props.processInstanceName],
+				["bpmn_id", "=", bpmnId],
+			]),
+			limit_page_length: 1,
+			order_by: "creation desc",
+		})
+		const r = await fetch(`/api/method/frappe.client.get_list?${params}`, {
+			headers: { "X-Frappe-CSRF-Token": csrf },
+		})
+		const data = await r.json()
+		const rows = data?.message || []
+		if (rows.length > 0) {
+			aiRun.value = rows[0]
+		}
+	} catch (e) {
+		aiRunError.value = "Failed to load AI Run data"
+		console.error("AI Run fetch error:", e)
+	} finally {
+		aiRunLoading.value = false
+	}
+}
+
+async function fetchSteps() {
+	if (!aiRun.value?.name) return
+	stepsLoading.value = true
+	try {
+		const csrf = getCsrfToken()
+		const params = new URLSearchParams({
+			doctype: "AI Agent Step",
+			fields: JSON.stringify(["*"]) ,
+			filters: JSON.stringify([["run", "=", aiRun.value.name]]),
+			limit_page_length: 200,
+			order_by: "step_index asc",
+		})
+		const r = await fetch(`/api/method/frappe.client.get_list?${params}`, {
+			headers: { "X-Frappe-CSRF-Token": csrf },
+		})
+		const data = await r.json()
+		aiSteps.value = data?.message || []
+	} catch (e) {
+		console.error("AI Steps fetch error:", e)
+	} finally {
+		stepsLoading.value = false
+	}
+}
+
+watch(showSteps, (val) => {
+	if (val && aiSteps.value.length === 0) {
+		fetchSteps()
+	}
+})
+
+function toggleStep(name) {
+	if (expandedSteps.value.has(name)) {
+		expandedSteps.value.delete(name)
+	} else {
+		expandedSteps.value.add(name)
+	}
+}
+
+function roleBadgeClass(role) {
+	const map = {
+		system: "bg-gray-100 text-gray-600",
+		user: "bg-blue-50 text-blue-600",
+		assistant: "bg-green-50 text-green-600",
+		tool: "bg-amber-50 text-amber-600",
+	}
+	return map[role] || "bg-gray-100 text-gray-600"
+}
+
+function formatCost(val) {
+	if (val === null || val === undefined) return "—"
+	const n = Number(val)
+	if (n < 0.01) return n.toFixed(6)
+	return n.toFixed(4)
+}
+
+function formatDuration(ms) {
+	if (!ms) return "—"
+	if (ms < 1000) return `${ms}ms`
+	if (ms < 60000) return `${(ms / 1000).toFixed(1)}s`
+	const min = Math.floor(ms / 60000)
+	const sec = ((ms % 60000) / 1000).toFixed(0)
+	return `${min}m ${sec}s`
+}
+
+function getCsrfToken() {
+	const match = document.cookie.match(/csrf_token=([^;]+)/)
+	if (match) return match[1]
+	const meta = document.querySelector('meta[name="csrf-token"]')
+	if (meta) return meta.getAttribute("content")
+	return ""
 }
 </script>
 
