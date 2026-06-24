@@ -836,9 +836,9 @@ function NotifyAssigneeEditorButtonComponent(props) {
 			// Template-attached indicator
 			h(
 				"div",
-				{ class: "bio-properties-panel-description", style: "margin-top:6px;" },
+				{ class: "bio-properties-panel-description bpmn-mt-6" },
 				template
-					? h("span", { style: "color:#16a34a;" }, `📎 ${translate("Template attached")}: ${template}`)
+					? h("span", {}, `${translate("Template attached")}: ${template}`)
 					: h("span", {}, translate("No template attached"))
 			),
 		]
