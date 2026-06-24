@@ -42,7 +42,7 @@
 						:selected-bpmn-id="selectedBpmnId"
 						@select="onHistorySelect"
 					/>
-					<ElementInspector :selected-node="selectedNode" />
+					<ElementInspector :selected-node="selectedNode" :process-instance-name="instanceId" />
 					<PendingActions
 						:active-tasks="activeTasks"
 						:completing-task="completingTask"
