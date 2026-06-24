@@ -598,6 +598,10 @@ def dispatch_ai_agent(instance, task, task_cfg: dict, bpmn_id: str) -> None:
 	prompts, calls the configured executor backend, and writes results into
 	task.data.  On failure, sets error variables and logs to Frappe Error Log
 	— the task STILL completes normally (no instance "Errored" state).
+
+	Observability (AI-009): on every call the instrumentation layer creates
+	an AI Agent Run, records Steps, and finalizes the Run. Instrumentation
+	failures are caught and logged — they never block the executor call.
 	"""
 	from one_bpmn.agents.executor import ExecutorConfig, ExecutorContext, ErrorCode, get_executor
 	from one_bpmn.agents.executor.direct_api import DirectApiExecutor  # noqa
@@ -646,18 +650,63 @@ def dispatch_ai_agent(instance, task, task_cfg: dict, bpmn_id: str) -> None:
 		jinja_context   = jinja_ctx,
 	)
 
+	# ── Observability: create Run ─────────────────────────────────────
+	run = None
+	try:
+		from one_bpmn.agents.observability import create_ai_run
+		run = create_ai_run(instance, bpmn_id, "task", config)
+	except Exception:
+		frappe.log_error(
+			title=f"AI Observability: create_ai_run error ({bpmn_id})",
+			message=frappe.get_traceback(),
+		)
+
+	# ── Executor ───────────────────────────────────────────────────────
 	try:
 		executor_cls = get_executor(config.backend)
 		result = executor_cls().run(config, context)
-	except Exception:
+	except Exception as exc:
 		frappe.log_error(
 			title=f"BPMN AI Agent Task: unexpected error ({bpmn_id})",
 			message=frappe.get_traceback(),
 		)
 		task.data[f"{bpmn_id}_error_code"] = "UNEXPECTED_ERROR"
 		task.data[f"{bpmn_id}_error_message"] = "See Frappe Error Log for details."
+		# Observability: finalize on exception
+		try:
+			from one_bpmn.agents.observability import finalize_ai_run_on_exception
+			finalize_ai_run_on_exception(run, exc)
+		except Exception:
+			pass
 		return
 
+	# ── Observability: record Steps + finalize ─────────────────────────
+	try:
+		from one_bpmn.agents.observability import record_ai_step, finalize_ai_run
+
+		if run and not getattr(run, "stub", False):
+			record_ai_step(run, 0, "system", system_prompt)
+			record_ai_step(run, 1, "user", user_prompt)
+
+		if result.error_code == ErrorCode.SUCCESS:
+			if run and not getattr(run, "stub", False):
+				usage = result.token_usage
+				record_ai_step(
+					run, 2, "assistant",
+					str(result.output or ""),
+					prompt_tokens=usage.prompt_tokens if usage else 0,
+					completion_tokens=usage.completion_tokens if usage else 0,
+				)
+			finalize_ai_run(run, result)
+		else:
+			finalize_ai_run(run, result)
+	except Exception:
+		frappe.log_error(
+			title=f"AI Observability: instrumentation error ({bpmn_id})",
+			message=frappe.get_traceback(),
+		)
+
+	# ── Results ────────────────────────────────────────────────────────
 	if result.error_code == ErrorCode.SUCCESS:
 		output_var = task_cfg.get("aiOutputVariable") or f"{bpmn_id}_output"
 		task.data[output_var] = result.output
@@ -668,10 +717,7 @@ def dispatch_ai_agent(instance, task, task_cfg: dict, bpmn_id: str) -> None:
 				"total_tokens":      result.token_usage.total_tokens,
 			}
 
-		# On success, optionally write the result back to a field on the context
-		# document (follows the dispatch_update_field pattern). Per WI-001144,
-		# write-back happens only when the executor succeeds.
-
+		# Write-back (only on success)
 		write_back_field = task_cfg.get("aiWriteBackField", "")
 		if write_back_field and instance.context_doctype and instance.context_docname:
 			try:
