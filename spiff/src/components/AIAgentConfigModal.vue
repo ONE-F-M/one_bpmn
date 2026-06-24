@@ -13,7 +13,7 @@
           <div class="field-row">
             <label>Backend</label>
             <select v-model="form.aiBackend">
-              <option value="direct_api">Direct API (OpenAI-compatible)</option>
+              <option value="direct_api">Direct API</option>
               <option value="antigravity">Google Antigravity SDK</option>
             </select>
           </div>
@@ -662,12 +662,17 @@ function save() {
 }
 
 .field-row { display: flex; flex-direction: column; gap: 4px; }
-.field-row.two-col { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; }
+.field-row.two-col { display: grid; grid-template-columns: 1fr 1fr; gap: 12px 16px; align-items: start; }
+/* Each cell inside a two-column row stacks its label + input just like a
+   single-column .field-row, so the advanced settings line up consistently. */
+.field-row.two-col > div { display: flex; flex-direction: column; gap: 4px; min-width: 0; }
 .field-row label { font-size: 0.8rem; font-weight: 500; color: #374151; }
 .field-row .hint { font-weight: 400; color: #9ca3af; }
 .field-row input,
 .field-row select,
 .field-row textarea {
+  width: 100%;
+  box-sizing: border-box;
   padding: 6px 8px;
   border: 1px solid #d1d5db;
   border-radius: 4px;
