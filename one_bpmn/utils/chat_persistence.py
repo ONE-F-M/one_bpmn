@@ -85,6 +85,12 @@ def _save_message(
 	metadata: dict | None = None,
 ) -> str:
 	"""Insert a Chat Message document and update the parent conversation."""
+	if not conversation_name or not frappe.db.exists("Chat Conversation", conversation_name):
+		frappe.throw("Invalid conversation")
+
+	if frappe.db.get_value("Chat Conversation", conversation_name, "owner") != frappe.session.user:
+		frappe.throw("Not permitted", frappe.PermissionError)
+
 	msg_doc = frappe.get_doc({
 		"doctype": "Chat Message",
 		"conversation": conversation_name,
