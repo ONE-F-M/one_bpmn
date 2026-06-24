@@ -1,0 +1,204 @@
+{
+ "actions": [],
+ "autoname": "hash",
+ "creation": "2026-06-24 22:20:00.000000",
+ "doctype": "DocType",
+ "engine": "InnoDB",
+ "field_order": [
+  "instance",
+  "bpmn_id",
+  "element_type",
+  "column_break_config",
+  "backend",
+  "provider",
+  "model",
+  "section_break_status",
+  "status",
+  "error_code",
+  "error_message",
+  "section_break_timing",
+  "started_at",
+  "ended_at",
+  "duration_ms",
+  "section_break_tokens",
+  "total_prompt_tokens",
+  "total_completion_tokens",
+  "total_tokens",
+  "column_break_cost",
+  "estimated_cost",
+  "section_break_output",
+  "final_output",
+  "correlation_id"
+ ],
+ "fields": [
+  {
+   "fieldname": "instance",
+   "fieldtype": "Link",
+   "in_list_view": 1,
+   "label": "BPMN Process Instance",
+   "options": "BPMN Process Instance",
+   "reqd": 1
+  },
+  {
+   "fieldname": "bpmn_id",
+   "fieldtype": "Data",
+   "in_list_view": 1,
+   "label": "BPMN Element ID",
+   "reqd": 1,
+   "description": "The element ID on the diagram (e.g. Activity_1a2b3c)"
+  },
+  {
+   "default": "task",
+   "fieldname": "element_type",
+   "fieldtype": "Select",
+   "in_list_view": 1,
+   "label": "Element Type",
+   "options": "task\nsubprocess"
+  },
+  {
+   "fieldname": "column_break_config",
+   "fieldtype": "Column Break"
+  },
+  {
+   "fieldname": "backend",
+   "fieldtype": "Data",
+   "label": "Backend",
+   "description": "Executor backend: direct_api or antigravity"
+  },
+  {
+   "fieldname": "provider",
+   "fieldtype": "Link",
+   "label": "AI Provider",
+   "options": "AI Provider"
+  },
+  {
+   "fieldname": "model",
+   "fieldtype": "Data",
+   "label": "Model",
+   "description": "e.g. gpt-4o"
+  },
+  {
+   "fieldname": "section_break_status",
+   "fieldtype": "Section Break",
+   "label": "Status"
+  },
+  {
+   "fieldname": "status",
+   "fieldtype": "Select",
+   "in_list_view": 1,
+   "label": "Status",
+   "options": "Running\nSuccess\nError",
+   "reqd": 1
+  },
+  {
+   "fieldname": "error_code",
+   "fieldtype": "Data",
+   "label": "Error Code",
+   "description": "From ErrorCode enum, null on success"
+  },
+  {
+   "fieldname": "error_message",
+   "fieldtype": "Long Text",
+   "label": "Error Message"
+  },
+  {
+   "fieldname": "section_break_timing",
+   "fieldtype": "Section Break",
+   "label": "Timing"
+  },
+  {
+   "fieldname": "started_at",
+   "fieldtype": "Datetime",
+   "in_list_view": 1,
+   "label": "Started At",
+   "reqd": 1
+  },
+  {
+   "fieldname": "ended_at",
+   "fieldtype": "Datetime",
+   "label": "Ended At"
+  },
+  {
+   "fieldname": "duration_ms",
+   "fieldtype": "Int",
+   "label": "Duration (ms)"
+  },
+  {
+   "fieldname": "section_break_tokens",
+   "fieldtype": "Section Break",
+   "label": "Token Usage"
+  },
+  {
+   "fieldname": "total_prompt_tokens",
+   "fieldtype": "Int",
+   "label": "Prompt Tokens"
+  },
+  {
+   "fieldname": "total_completion_tokens",
+   "fieldtype": "Int",
+   "label": "Completion Tokens"
+  },
+  {
+   "fieldname": "total_tokens",
+   "fieldtype": "Int",
+   "label": "Total Tokens"
+  },
+  {
+   "fieldname": "column_break_cost",
+   "fieldtype": "Column Break"
+  },
+  {
+   "fieldname": "estimated_cost",
+   "fieldtype": "Currency",
+   "label": "Estimated Cost",
+   "precision": "6"
+  },
+  {
+   "fieldname": "section_break_output",
+   "fieldtype": "Section Break",
+   "label": "Output"
+  },
+  {
+   "fieldname": "final_output",
+   "fieldtype": "Long Text",
+   "label": "Final Output",
+   "description": "Truncated to 64KB; full content on the last AI Agent Step"
+  },
+  {
+   "fieldname": "correlation_id",
+   "fieldtype": "Data",
+   "label": "Correlation ID",
+   "description": "UUID for future external trace export"
+  }
+ ],
+ "indexes": [
+   ["instance"],
+   ["instance", "bpmn_id"],
+   ["started_at"]
+ ],
+ "links": [],
+ "modified": "2026-06-24 22:20:00.000000",
+ "modified_by": "Administrator",
+ "module": "ONE BPMN",
+ "name": "AI Agent Run",
+ "naming_rule": "Hash",
+ "owner": "Administrator",
+ "permissions": [
+  {
+   "create": 1,
+   "delete": 1,
+   "email": 1,
+   "export": 1,
+   "print": 1,
+   "read": 1,
+   "report": 1,
+   "role": "System Manager",
+   "share": 1,
+   "write": 1
+  }
+ ],
+ "sort_field": "modified",
+ "sort_order": "DESC",
+ "states": [],
+ "track_changes": 1
+}
