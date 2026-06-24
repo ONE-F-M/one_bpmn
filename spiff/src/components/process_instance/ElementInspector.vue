@@ -110,7 +110,7 @@
 											:class="roleBadgeClass(step.role)"
 										>{{ step.role }}</span>
 										<span class="text-gray-500">#{{ step.step_index }}</span>
-										<span class="text-gray-600 truncate max-w-[150px]">{{ step.content ? step.content.substring(0, 80) : '(empty)' }}</span>
+										<span class="text-gray-600 truncate max-w-[150px]">{{ step.content ? step.content.substring(0, 200) : '(empty)' }}</span>
 									</span>
 									<span class="text-gray-400 text-[10px]">
 										<span v-if="step.prompt_tokens || step.completion_tokens">{{ (step.prompt_tokens || 0) + (step.completion_tokens || 0) }}t</span>
