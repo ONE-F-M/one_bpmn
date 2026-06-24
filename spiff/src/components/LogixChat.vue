@@ -265,6 +265,7 @@ const applyNameInput  = ref(null);
 const copiedIndex        = ref(null);
 const pendingScriptName  = ref("");
 const localCurrentScript = ref("");
+const conversationName   = ref(null);   // persisted Chat Conversation name
 
 // ── Computed helpers ──────────────────────────────────────────────────
 const elementLabel = computed(() => {
@@ -285,8 +286,9 @@ watch(
 	() => [props.element?.id, props.currentScript],
 	([newId], [oldId]) => {
 		if (newId && newId !== oldId) {
-			sessionId.value = generateSessionId();
-			messages.value  = [];
+			sessionId.value        = generateSessionId();
+			conversationName.value = null;
+			messages.value         = [];
 			initGreeting();
 		}
 	},
@@ -553,17 +555,22 @@ async function sendMessage() {
 				"X-Frappe-CSRF-Token": getCsrfToken(),
 			},
 			body: JSON.stringify({
-				message:        text,
-				session_id:     sessionId.value,
-				chat_history:   JSON.stringify(history),
-				element_name:   elementLabel.value || "",
-				current_script: localCurrentScript.value || props.currentScript || "",
+				message:           text,
+				session_id:        sessionId.value,
+				conversation_name: conversationName.value || null,
+				chat_history:      JSON.stringify(history),
+				element_name:      elementLabel.value || "",
+				current_script:    localCurrentScript.value || props.currentScript || "",
 			}),
 		});
 
 		if (!response.ok) throw new Error(`HTTP ${response.status}`);
 		const data   = await response.json();
 		const result = data?.message;
+
+		// Capture the conversation name returned by the backend
+		if (result?.conversation_name) conversationName.value = result.conversation_name;
+
 		const reply  = result?.response || result?.message || "Sorry, I couldn't process that.";
 		const intent = result?.intent;
 		const diff   = result?.diff   || null;
@@ -730,8 +737,9 @@ async function applyScript() {
 
 // ── Reset / close ─────────────────────────────────────────────────────
 function resetConversation() {
-	sessionId.value        = generateSessionId();
-	messages.value         = [];
+	sessionId.value          = generateSessionId();
+	conversationName.value   = null;
+	messages.value           = [];
 	localCurrentScript.value = "";
 	clearEditor();
 	initGreeting();
