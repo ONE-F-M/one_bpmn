@@ -1,0 +1,133 @@
+{
+ "actions": [],
+ "autoname": "hash",
+ "creation": "2026-06-24 22:20:00.000000",
+ "doctype": "DocType",
+ "engine": "InnoDB",
+ "field_order": [
+  "run",
+  "step_index",
+  "role",
+  "content",
+  "column_break_tool",
+  "tool_name",
+  "tool_args",
+  "tool_result",
+  "section_break_metrics",
+  "prompt_tokens",
+  "completion_tokens",
+  "column_break_cost",
+  "cost",
+  "latency_ms"
+ ],
+ "fields": [
+  {
+   "fieldname": "run",
+   "fieldtype": "Link",
+   "in_list_view": 1,
+   "label": "AI Agent Run",
+   "options": "AI Agent Run",
+   "reqd": 1
+  },
+  {
+   "fieldname": "step_index",
+   "fieldtype": "Int",
+   "in_list_view": 1,
+   "label": "Step Index",
+   "reqd": 1,
+   "description": "0-based order within the run"
+  },
+  {
+   "fieldname": "role",
+   "fieldtype": "Select",
+   "in_list_view": 1,
+   "label": "Role",
+   "options": "system\nuser\nassistant\ntool",
+   "reqd": 1
+  },
+  {
+   "fieldname": "content",
+   "fieldtype": "Long Text",
+   "label": "Content",
+   "description": "The rendered prompt text or response text"
+  },
+  {
+   "fieldname": "column_break_tool",
+   "fieldtype": "Column Break"
+  },
+  {
+   "fieldname": "tool_name",
+   "fieldtype": "Data",
+   "label": "Tool Name",
+   "description": "Null for non-tool steps"
+  },
+  {
+   "fieldname": "tool_args",
+   "fieldtype": "JSON",
+   "label": "Tool Arguments"
+  },
+  {
+   "fieldname": "tool_result",
+   "fieldtype": "Long Text",
+   "label": "Tool Result"
+  },
+  {
+   "fieldname": "section_break_metrics",
+   "fieldtype": "Section Break",
+   "label": "Metrics"
+  },
+  {
+   "fieldname": "prompt_tokens",
+   "fieldtype": "Int",
+   "label": "Prompt Tokens"
+  },
+  {
+   "fieldname": "completion_tokens",
+   "fieldtype": "Int",
+   "label": "Completion Tokens"
+  },
+  {
+   "fieldname": "column_break_cost",
+   "fieldtype": "Column Break"
+  },
+  {
+   "fieldname": "cost",
+   "fieldtype": "Currency",
+   "label": "Cost",
+   "precision": "6"
+  },
+  {
+   "fieldname": "latency_ms",
+   "fieldtype": "Int",
+   "label": "Latency (ms)"
+  }
+ ],
+ "indexes": [
+   ["run"],
+   ["run", "step_index"]
+ ],
+ "links": [],
+ "modified": "2026-06-24 22:20:00.000000",
+ "modified_by": "Administrator",
+ "module": "ONE BPMN",
+ "name": "AI Agent Step",
+ "naming_rule": "Hash",
+ "owner": "Administrator",
+ "permissions": [
+  {
+   "create": 1,
+   "delete": 1,
+   "email": 1,
+   "export": 1,
+   "print": 1,
+   "read": 1,
+   "report": 1,
+   "role": "System Manager",
+   "share": 1,
+   "write": 1
+  }
+ ],
+ "sort_field": "step_index",
+ "sort_order": "ASC",
+ "states": []
+}
