@@ -20,6 +20,7 @@ from frappe.tests.utils import FrappeTestCase
 def make_ai_provider(**kwargs) -> Document:
     """Factory function for AI Provider test fixtures."""
 
+
     defaults = {
         "doctype": "AI Provider",
         "provider_name": f"test-provider-{frappe.generate_hash(length=6)}",
@@ -46,6 +47,7 @@ class TestAIProvider(FrappeTestCase):
         d = loaded.as_dict()
         # The Password fieldtype must not expose the stored value in as_dict()
 
+
         self.assertFalse(d.get("api_key"))
 
     def test_get_password_returns_real_key(self):
@@ -62,6 +64,7 @@ class TestAIProvider(FrappeTestCase):
             fields=["name", "provider_name", "api_key"],
         )
         # The expected row must be returned, and the Password value must not be exposed.
+
 
         self.assertEqual(len(results), 1)
         self.assertFalse(results[0].get("api_key"))
