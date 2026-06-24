@@ -290,7 +290,7 @@ const ownerOptions = computed(() => {
 })
 
 const hasActiveFilters = computed(
-	() => !!filterKeyword.value || activeFilters.value.length > 0
+	() => filterKeyword.value.trim().length > 0 || activeFilters.value.length > 0
 )
 
 // Reset pagination whenever the active filter set changes
