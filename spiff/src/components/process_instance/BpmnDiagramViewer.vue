@@ -408,6 +408,37 @@ function applyHighlights() {
 					} catch (e) {}
 				})
 		}
+
+		// ── AI Agent Task overlay badges (observability) ───────────
+		if (props.details?.workflow_state) {
+			try {
+				const wfState = typeof props.details.workflow_state === "string"
+					? JSON.parse(props.details.workflow_state)
+					: props.details.workflow_state
+				const tasks = wfState.tasks || {}
+				for (const [, taskData] of Object.entries(tasks)) {
+					const taskSpec = taskData.task_spec || ""
+					if (!taskSpec) continue
+					const extensions = taskData.extensions || {}
+					const exts = (typeof extensions === "string" ? JSON.parse(extensions) : extensions) || {}
+					if (exts.serviceType !== "ai_agent") continue
+
+					const state = taskData.state || 0
+					const hasError = taskData.data?.[`${taskSpec}_error_code`]
+					const isCompleted = state === 64
+
+					if (isCompleted || hasError) {
+						const badge = document.createElement("div")
+						badge.className = `ai-badge ${hasError ? "ai-error" : "ai-success"}`
+						badge.textContent = hasError ? "!" : "AI"
+						badge.title = hasError ? "AI Agent Task failed" : "AI Agent Task completed"
+						overlays.add(taskSpec, "ai-badge", { position: { top: -10, left: -10 }, html: badge })
+					}
+				}
+			} catch (e) {
+				// ignore AI badge errors
+			}
+		}
 	} catch (err) {
 		console.warn("Could not apply highlights:", err)
 	}
@@ -443,6 +474,29 @@ function applyHighlights() {
 }
 .highlight-selected.djs-connection .djs-visual > :nth-child(1) {
 	stroke: #4b5563 !important; stroke-width: 3px !important;
+}
+
+/* AI Agent badge */
+.ai-badge {
+	width: 20px;
+	height: 20px;
+	border-radius: 50%;
+	display: flex;
+	align-items: center;
+	justify-content: center;
+	font-size: 9px;
+	font-weight: 700;
+	font-family: monospace;
+	color: #fff;
+	cursor: default;
+	box-shadow: 0 1px 3px rgba(0,0,0,0.15);
+	z-index: 100;
+}
+.ai-badge.ai-success {
+	background: #7B2D8E;
+}
+.ai-badge.ai-error {
+	background: #DC2626;
 }
 
 /* Cursor + overlays */
