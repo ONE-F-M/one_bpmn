@@ -46,17 +46,14 @@ class AntigravityExecutor(Executor):
                 ),
             )
 
-        # ── Execute ─────────────────────────────────────────────────
         try:
             agent = _sdk.Agent(
                 model=config.model,
                 system_prompt=config.system_prompt,
             )
             response = agent.send(config.user_prompt)
-
             content = getattr(response, "text", "") or str(response)
 
-            # SDK native token tracking
             usage_obj = getattr(response, "usage", None)
             token_usage = TokenUsage(
                 prompt_tokens=int(getattr(usage_obj, "prompt_tokens", 0) or 0),
@@ -68,7 +65,6 @@ class AntigravityExecutor(Executor):
                     token_usage.prompt_tokens + token_usage.completion_tokens
                 )
 
-            # JSON schema validation (mirrors DirectApiExecutor)
             if config.response_format == "json":
                 validation_result = self._validate_json(content, config.response_schema)
                 if isinstance(validation_result, ExecutorResult):
@@ -104,7 +100,6 @@ class AntigravityExecutor(Executor):
         if schema_str:
             try:
                 import jsonschema
-
                 schema = json.loads(schema_str)
                 jsonschema.validate(parsed, schema)
             except ImportError:
@@ -123,5 +118,4 @@ class AntigravityExecutor(Executor):
         return parsed
 
 
-# Register under "antigravity"
 register_executor("antigravity", AntigravityExecutor)
