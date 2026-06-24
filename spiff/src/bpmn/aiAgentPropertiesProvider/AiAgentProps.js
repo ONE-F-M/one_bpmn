@@ -136,7 +136,7 @@ function ProviderComponent(props) {
 
 	const fetchProviders = (txt) => {
 		const params = {
-			fields: '["name","provider_name"]',
+			fields: '["name","provider_name","default_model"]',
 			filters: JSON.stringify([
 				["enabled", "=", 1],
 				...(txt ? [["provider_name", "like", `%${txt}%`]] : []),
@@ -145,6 +145,25 @@ function ProviderComponent(props) {
 			order_by: "provider_name asc",
 		};
 		return frappeGet("/api/resource/AI Provider", params);
+	};
+
+	// On provider change, auto-fill the Model from the provider's default_model
+	// — same behaviour as the dedicated editor modal (onProviderChange).
+	const onProviderSelect = (value) => {
+		setAttr(modeling, element, bo, "aiProvider", value);
+		if (!value) return;
+		frappeGet("/api/resource/AI Provider", {
+			filters: JSON.stringify([["name", "=", value]]),
+			fields: '["default_model"]',
+			limit_page_length: 1,
+		})
+			.then((rows) => {
+				const defaultModel = Array.isArray(rows) && rows[0] ? rows[0].default_model : "";
+				if (defaultModel) {
+					setAttr(modeling, element, bo, "aiModel", defaultModel);
+				}
+			})
+			.catch(() => {});
 	};
 
 	return h(
@@ -158,7 +177,7 @@ function ProviderComponent(props) {
 				fetchApi: fetchProviders,
 				valueField: "name",
 				renderOption: (opt) => opt.provider_name || opt.name,
-				onChange: (value) => setAttr(modeling, element, bo, "aiProvider", value),
+				onChange: onProviderSelect,
 			}),
 		])
 	);
