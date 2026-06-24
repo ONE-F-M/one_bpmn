@@ -588,3 +588,113 @@ def dispatch_email(instance, task, task_cfg: dict, amp_html: str = None) -> None
 			reference_name=instance.context_docname or instance.name,
 			now=False,
 		)
+
+
+def dispatch_ai_agent(instance, task, task_cfg: dict, bpmn_id: str) -> None:
+	"""
+	Execute an AI Agent Task via the executor package.
+
+	Reads spiffworkflow:ai* configuration from task_cfg, Jinja-renders the
+	prompts, calls the configured executor backend, and writes results into
+	task.data.  On failure, sets error variables and logs to Frappe Error Log
+	— the task STILL completes normally (no instance "Errored" state).
+	"""
+	from one_bpmn.agents.executor import ExecutorConfig, ExecutorContext, ErrorCode, get_executor
+	from one_bpmn.agents.executor.direct_api import DirectApiExecutor  # noqa
+	from one_bpmn.agents.executor.antigravity import AntigravityExecutor  # noqa
+
+	doc = frappe._dict()
+	if instance.context_doctype and instance.context_docname:
+		try:
+			doc = frappe.get_doc(instance.context_doctype, instance.context_docname)
+		except Exception:
+			pass
+
+	jinja_ctx = {"doc": doc, "instance": instance, "frappe": frappe}
+
+	def render(text):
+		if not text:
+			return ""
+		try:
+			return frappe.render_template(text, jinja_ctx)
+		except Exception:
+			return text
+
+	system_prompt = render(task_cfg.get("aiSystemPrompt", ""))
+	user_prompt   = render(task_cfg.get("aiUserPrompt", ""))
+
+	config = ExecutorConfig(
+		backend          = task_cfg.get("aiBackend", "direct_api"),
+		provider_name    = task_cfg.get("aiProvider", ""),
+		model            = task_cfg.get("aiModel", ""),
+		system_prompt    = system_prompt,
+		user_prompt      = user_prompt,
+		temperature      = float(task_cfg.get("aiTemperature", 0.7) or 0.7),
+		top_p            = float(task_cfg.get("aiTopP", 1.0) or 1.0),
+		max_tokens       = int(task_cfg.get("aiMaxTokens", 1024) or 1024),
+		timeout_seconds  = int(task_cfg.get("aiTimeout", 30) or 30),
+		response_format  = task_cfg.get("aiResponseFormat", "text") or "text",
+		response_schema  = task_cfg.get("aiResponseSchema") or None,
+		max_retries      = int(task_cfg.get("aiMaxRetries", 2) or 2),
+	)
+
+	context = ExecutorContext(
+		context_doctype = instance.context_doctype or "",
+		context_docname = instance.context_docname or "",
+		instance_name   = instance.name or "",
+		initiated_by    = instance.initiated_by or frappe.session.user or "",
+		jinja_context   = jinja_ctx,
+	)
+
+	try:
+		executor_cls = get_executor(config.backend)
+		result = executor_cls().run(config, context)
+	except Exception:
+		frappe.log_error(
+			title=f"BPMN AI Agent Task: unexpected error ({bpmn_id})",
+			message=frappe.get_traceback(),
+		)
+		task.data[f"{bpmn_id}_error_code"] = "UNEXPECTED_ERROR"
+		task.data[f"{bpmn_id}_error_message"] = "See Frappe Error Log for details."
+		return
+
+	if result.error_code == ErrorCode.SUCCESS:
+		output_var = task_cfg.get("aiOutputVariable") or f"{bpmn_id}_output"
+		task.data[output_var] = result.output
+		if result.token_usage:
+			task.data[f"{bpmn_id}_token_usage"] = {
+				"prompt_tokens":     result.token_usage.prompt_tokens,
+				"completion_tokens": result.token_usage.completion_tokens,
+				"total_tokens":      result.token_usage.total_tokens,
+			}
+
+		# On success, optionally write the result back to a field on the context
+		# document (follows the dispatch_update_field pattern). Per WI-001144,
+		# write-back happens only when the executor succeeds.
+		write_back_field = task_cfg.get("aiWriteBackField", "")
+		if write_back_field and instance.context_doctype and instance.context_docname:
+			try:
+				frappe.db.set_value(
+					instance.context_doctype,
+					instance.context_docname,
+					write_back_field,
+					result.output,
+				)
+			except Exception:
+				frappe.log_error(
+					title=f"BPMN AI Agent Task: write-back failed ({bpmn_id})",
+					message=frappe.get_traceback(),
+				)
+	else:
+		error_code_name = result.error_code.value
+		frappe.log_error(
+			title=f"BPMN AI Agent Task: {error_code_name} ({bpmn_id})",
+			message=(
+				f"bpmn_id: {bpmn_id}\n"
+				f"provider: {config.provider_name}\n"
+				f"model: {config.model}\n"
+				f"error: {result.error_message}"
+			),
+		)
+		task.data[f"{bpmn_id}_error_code"]    = error_code_name
+		task.data[f"{bpmn_id}_error_message"] = result.error_message
