@@ -20,3 +20,38 @@ export function frappeGet(path, params = {}) {
 			return json;
 		});
 }
+
+/**
+ * Resolve the Frappe CSRF token from the usual boot/cookie locations.
+ */
+export function getCsrfToken() {
+	return (
+		window.frappe?.csrf_token ||
+		window.frappe?.boot?.csrf_token ||
+		window.csrf_token ||
+		document.cookie.split("; ").find((r) => r.startsWith("csrf_token="))?.split("=")[1] ||
+		""
+	);
+}
+
+/**
+ * POST to a Frappe /api/method/* endpoint with the CSRF token attached.
+ * Returns the unwrapped `message` payload (Frappe method response shape).
+ */
+export function frappePost(path, body = {}) {
+	return fetch(path, {
+		method: "POST",
+		credentials: "include",
+		headers: {
+			"Content-Type": "application/json",
+			"X-Frappe-CSRF-Token": getCsrfToken(),
+		},
+		body: JSON.stringify(body),
+	})
+		.then((r) => r.json())
+		.then((json) => {
+			if (json.message !== undefined) return json.message;
+			if (json.data !== undefined) return json.data;
+			return json;
+		});
+}

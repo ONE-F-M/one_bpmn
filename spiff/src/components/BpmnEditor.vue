@@ -948,11 +948,19 @@
 				</div>
 			</template>
 		</Dialog>
+
+		<!-- AI Agent Task config modal -->
+		<AIAgentConfigModal
+			v-if="aiAgentModal.show && aiAgentModal.element"
+			:element="aiAgentModal.element"
+			:modeler="modeler"
+			@close="aiAgentModal.show = false"
+		/>
 	</div>
 </template>
 
 <script setup>
-import { ref, shallowRef, onMounted, onBeforeUnmount, onUnmounted, watch, computed, nextTick } from "vue";
+import { ref, shallowRef, markRaw, onMounted, onBeforeUnmount, onUnmounted, watch, computed, nextTick } from "vue";
 import { frappeRequest } from "frappe-ui";
 import {
 	injectProcessNameField,
@@ -966,6 +974,7 @@ import { useBottomSheet } from "@/composables/useBottomSheet";
 
 import FormattingToolbar from "@/components/FormattingToolbar.vue";
 import ProsAllyPanel from "@/components/ProsAllyPanel.vue";
+import AIAgentConfigModal from "@/components/AIAgentConfigModal.vue";
 import { layoutBpmnXml } from "@/utils/bpmnLayout.js";
 import { initModeler } from "@/composables/useModelerInit";
 import { useBpmnContextMenu } from "@/composables/useBpmnContextMenu";
@@ -1005,7 +1014,10 @@ import resizeModule from "@/resize";
 import userTaskPropertiesProviderModule from "@/bpmn/userTaskPropertiesProvider";
 import sendTaskPropertiesProviderModule from "@/bpmn/sendTaskPropertiesProvider";
 import serviceTaskPropertiesProviderModule from "@/bpmn/serviceTaskPropertiesProvider";
+import aiAgentPropertiesProviderModule from "@/bpmn/aiAgentPropertiesProvider";
 import aiAgentReplaceMenuProviderModule from "@/bpmn/aiAgentReplaceMenuProvider";
+import aiAgentRendererModule from "@/bpmn/aiAgentRenderer";
+
 import scriptTaskPropertiesProviderModule from "@/bpmn/scriptTaskPropertiesProvider";
 import businessRuleTaskPropertiesProviderModule from "@/bpmn/businessRuleTaskPropertiesProvider";
 import timerPropertiesProviderModule from "@/bpmn/timerPropertiesProvider";
@@ -1084,6 +1096,7 @@ const messageDialog = ref({
 	elementId: "",
 	_eventBus: null,
 });
+const aiAgentModal = ref({ show: false, element: null });
 const isCommentMode = ref(false);
 const commentFormData = ref({
 	text: "",
@@ -1605,7 +1618,10 @@ onMounted(async () => {
 				userTaskPropertiesProviderModule,
 				sendTaskPropertiesProviderModule,
 				serviceTaskPropertiesProviderModule,
+				aiAgentPropertiesProviderModule,
 				aiAgentReplaceMenuProviderModule,
+				aiAgentRendererModule,
+
 				scriptTaskPropertiesProviderModule,
 				businessRuleTaskPropertiesProviderModule,
 				timerPropertiesProviderModule,
@@ -1991,6 +2007,11 @@ onMounted(async () => {
 					value: event.value || "",
 					eventBus: event.eventBus,
 				});
+			});
+
+			// AI Agent Task config modal
+			eventBus.on("launch-ai-agent-editor", (event) => {
+				aiAgentModal.value = { show: true, element: markRaw(event.element) };
 			});
 
 			// Notification editing (Send Tasks)

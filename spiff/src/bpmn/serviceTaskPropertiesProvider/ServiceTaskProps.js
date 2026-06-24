@@ -136,45 +136,11 @@ export function ServiceTaskProps(props) {
 		);
 	}
 
-	// ── AI Agent Task entries ───────────────────────────────────────────────
-	if (serviceType === "ai_agent") {
-		entries.push({
-			id: "spiffworkflow-aiAgentLauncher",
-			element,
-			component: AIAgentLauncherComponent,
-		});
-	}
+	// AI Agent Tasks have their own dedicated properties panel
+	// (see aiAgentPropertiesProvider) and are created via the Change element
+	// menu — they are intentionally not handled here.
 
 	return entries;
-}
-
-// ===========================================================================
-// AI AGENT TASK LAUNCHER COMPONENT
-// ===========================================================================
-function AIAgentLauncherComponent(props) {
-	const { element } = props;
-	const translate = useService("translate");
-	const eventBus  = useService("eventBus");
-
-	function openModal() {
-		eventBus.fire("launch-ai-agent-editor", { element });
-	}
-
-	return h("div", { style: "padding: 4px 0;" },
-		h("button", {
-			style: [
-				"padding: 6px 14px",
-				"background: #6366f1",
-				"color: #fff",
-				"border: none",
-				"border-radius: 4px",
-				"cursor: pointer",
-				"font-size: 0.82rem",
-				"font-weight: 500",
-			].join(";"),
-			onClick: openModal,
-		}, translate("Configure AI Agent Task"))
-	);
 }
 
 // ===========================================================================
@@ -253,7 +219,6 @@ function ServiceTypeComponent(props) {
 		{ label: translate("Update Field"),              value: "update_field" },
 		{ label: translate("Google Chat"),               value: "google_chat" },
 		{ label: translate("Push Notification"),         value: "push_notification" },
-	{ label: translate("AI Agent Task"),             value: "ai_agent" },
 	];
 
 	return h(SelectEntry, {
