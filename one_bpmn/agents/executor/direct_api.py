@@ -36,12 +36,7 @@ _TRANSIENT_STATUS_CODES = frozenset({429, 500, 502, 503})
 class DirectApiExecutor(Executor):
     """Single-call OpenAI-compatible HTTP executor."""
 
-    # ------------------------------------------------------------------
-    # Public interface
-    # ------------------------------------------------------------------
-
     def run(self, config: ExecutorConfig, context: ExecutorContext) -> ExecutorResult:
-        # ── Resolve provider ────────────────────────────────────────
         try:
             provider = frappe.get_doc("AI Provider", config.provider_name)
         except frappe.DoesNotExistError:
@@ -56,13 +51,11 @@ class DirectApiExecutor(Executor):
                 error_message=f"AI Provider '{config.provider_name}' is disabled.",
             )
 
-        # ── Decrypt API key ─────────────────────────────────────────
         try:
             api_key = get_decrypted_password("AI Provider", config.provider_name, "api_key") or ""
         except Exception:
             api_key = ""
 
-        # ── Build request ───────────────────────────────────────────
         endpoint = (provider.api_endpoint or "").rstrip("/")
         url = f"{endpoint}/chat/completions"
         model = config.model or provider.default_model or ""
@@ -84,8 +77,7 @@ class DirectApiExecutor(Executor):
             "Content-Type": "application/json",
         }
 
-        # ── Retry loop ──────────────────────────────────────────────
-        import requests  # local import — no SDK dependency at module level
+        import requests
 
         last_error = ""
         for attempt in range(config.max_retries + 1):
@@ -129,7 +121,6 @@ class DirectApiExecutor(Executor):
                     error_message=str(exc),
                 )
 
-            # ── Parse response ───────────────────────────────────────
             try:
                 data = resp.json()
             except Exception:
@@ -149,11 +140,9 @@ class DirectApiExecutor(Executor):
 
             token_usage = self._parse_token_usage(data.get("usage") or {})
 
-            # ── JSON schema validation ───────────────────────────────
             if config.response_format == "json":
                 validation_result = self._validate_json(content, config.response_schema)
                 if isinstance(validation_result, ExecutorResult):
-                    # validation failed — return error (no retry)
                     return validation_result
                 return ExecutorResult(
                     output=validation_result,
@@ -174,20 +163,14 @@ class DirectApiExecutor(Executor):
             error_message=last_error or "Max retries exceeded.",
         )
 
-    # ------------------------------------------------------------------
-    # Helpers
-    # ------------------------------------------------------------------
-
     @staticmethod
     def _sleep_backoff(config: ExecutorConfig, attempt: int) -> None:
-        """Exponential backoff with jitter before the next retry."""
         base_s = (config.retry_backoff_ms / 1000.0) * (2 ** attempt)
         jitter = random.uniform(0, 0.1)
         time.sleep(base_s + jitter)
 
     @staticmethod
     def _parse_token_usage(usage_raw: dict) -> TokenUsage:
-        """Normalize token usage across OpenAI / Anthropic response formats."""
         prompt = usage_raw.get("prompt_tokens") or usage_raw.get("input_tokens") or 0
         completion = usage_raw.get("completion_tokens") or usage_raw.get("output_tokens") or 0
         total = usage_raw.get("total_tokens") or (prompt + completion)
@@ -199,13 +182,6 @@ class DirectApiExecutor(Executor):
 
     @staticmethod
     def _validate_json(content: str, schema_str: Optional[str]) -> Any:
-        """
-        Parse *content* as JSON and optionally validate against *schema_str*.
-
-        Returns:
-            parsed object    — on success
-            ExecutorResult   — on validation failure (SCHEMA_VALIDATION_FAILED)
-        """
         try:
             parsed = json.loads(content)
         except json.JSONDecodeError as exc:
@@ -216,18 +192,17 @@ class DirectApiExecutor(Executor):
 
         if schema_str:
             try:
-                import jsonschema  # optional dependency
-
+                import jsonschema
                 schema = json.loads(schema_str)
                 jsonschema.validate(parsed, schema)
             except ImportError:
-                pass  # jsonschema not installed — skip validation
+                pass
             except json.JSONDecodeError as exc:
                 return ExecutorResult(
                     error_code=ErrorCode.SCHEMA_VALIDATION_FAILED,
                     error_message=f"Response schema is not valid JSON: {exc}",
                 )
-            except Exception as exc:  # jsonschema.ValidationError
+            except Exception as exc:
                 return ExecutorResult(
                     error_code=ErrorCode.SCHEMA_VALIDATION_FAILED,
                     error_message=f"JSON schema validation failed: {exc}",
@@ -236,5 +211,4 @@ class DirectApiExecutor(Executor):
         return parsed
 
 
-# Register under "direct_api"
 register_executor("direct_api", DirectApiExecutor)
