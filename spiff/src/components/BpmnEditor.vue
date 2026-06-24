@@ -1480,7 +1480,9 @@ onMounted(async () => {
 						{ name: "roundRobinLastUser",    isAttr: true, type: "String" },
 						{ name: "taskActions",           isAttr: true, type: "String" },
 						{ name: "notifyAssignee",        isAttr: true, type: "String" },
-						{ name: "notifyAssigneeBody",    isAttr: true, type: "String" }
+						{ name: "notifyAssigneeBody",    isAttr: true, type: "String" },
+						{ name: "notifyAssigneeSubject", isAttr: true, type: "String" },
+						{ name: "notifyAssigneeTemplate", isAttr: true, type: "String" }
 					]
 				});
 
@@ -1999,17 +2001,21 @@ onMounted(async () => {
 				emit("launch-notify-assignee-editor", {
 					element: event.element,
 					body: decodeHtmlAttr(event.body) || "",
+					subject: event.subject || "",
+					template: event.template || "",
 					eventBus: event.eventBus,
 				});
 			});
 
-			// Write notify-assignee HTML body back to BPMN element
+			// Write notify-assignee HTML body + subject + template back to BPMN element
 			eventBus.on("spiff.userTask.notifyAssignee.update", (event) => {
 				if (event.element) {
 					const modeling = modeler.get("modeling");
 					const bo = event.element.businessObject || event.element;
 					modeling.updateModdleProperties(event.element, bo, {
 						"spiffworkflow:notifyAssigneeBody": encodeHtmlAttr(event.body),
+						"spiffworkflow:notifyAssigneeSubject": event.subject || undefined,
+						"spiffworkflow:notifyAssigneeTemplate": event.template || undefined,
 					});
 				}
 			});

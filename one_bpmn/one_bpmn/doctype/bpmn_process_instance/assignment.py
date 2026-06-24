@@ -249,7 +249,18 @@ def _send_assignee_notification(instance, user: str, task_name: str, task_cfg: d
 	except Exception:
 		rendered_body = body_html  # fall back to raw HTML on template error
 
-	subject = _("BPMN Task: \"{0}\"").format(task_name or "User Task")
+	# Subject: use the configured notifyAssigneeSubject (Jinja-rendered) when
+	# set, otherwise fall back to the default BPMN task subject.
+	subject_tpl = (task_cfg.get("notifyAssigneeSubject") or "").strip()
+	default_subject = _("BPMN Task: \"{0}\"").format(task_name or "User Task")
+	if subject_tpl:
+		try:
+			subject = (frappe.render_template(subject_tpl, jinja_ctx) or "").strip()
+		except Exception:
+			subject = subject_tpl  # fall back to raw subject on template error
+		subject = (subject or "").strip() or default_subject
+	else:
+		subject = default_subject
 
 	try:
 		from one_fm.processor import sendemail as onefm_sendemail
