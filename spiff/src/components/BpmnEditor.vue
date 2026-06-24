@@ -1015,6 +1015,8 @@ import userTaskPropertiesProviderModule from "@/bpmn/userTaskPropertiesProvider"
 import sendTaskPropertiesProviderModule from "@/bpmn/sendTaskPropertiesProvider";
 import serviceTaskPropertiesProviderModule from "@/bpmn/serviceTaskPropertiesProvider";
 import aiAgentPropertiesProviderModule from "@/bpmn/aiAgentPropertiesProvider";
+import aiAgentReplaceMenuProviderModule from "@/bpmn/aiAgentReplaceMenuProvider";
+import aiAgentRendererModule from "@/bpmn/aiAgentRenderer";
 import scriptTaskPropertiesProviderModule from "@/bpmn/scriptTaskPropertiesProvider";
 import businessRuleTaskPropertiesProviderModule from "@/bpmn/businessRuleTaskPropertiesProvider";
 import timerPropertiesProviderModule from "@/bpmn/timerPropertiesProvider";
@@ -1610,6 +1612,8 @@ onMounted(async () => {
 				sendTaskPropertiesProviderModule,
 				serviceTaskPropertiesProviderModule,
 				aiAgentPropertiesProviderModule,
+				aiAgentReplaceMenuProviderModule,
+				aiAgentRendererModule,
 				scriptTaskPropertiesProviderModule,
 				businessRuleTaskPropertiesProviderModule,
 				timerPropertiesProviderModule,
