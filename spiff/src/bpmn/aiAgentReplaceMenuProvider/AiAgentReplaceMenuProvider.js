@@ -1,4 +1,5 @@
 import { is, getBusinessObject } from "bpmn-js/lib/util/ModelUtil";
+import { AI_SPARKLE_DATA_URI } from "../shared/aiSparkleIcon";
 
 /**
  * Adds an "AI Agent Task" entry to the bpmn-js "Change element" (bpmn-replace)
@@ -18,14 +19,14 @@ import { is, getBusinessObject } from "bpmn-js/lib/util/ModelUtil";
 // task options are already present and we simply append ours.
 const LOW_PRIORITY = 500;
 
-// Match the built-in Service Task icon.
 const AI_AGENT_ENTRY_ID = "replace-with-ai-agent-task";
 
-export default function AiAgentReplaceMenuProvider(popupMenu, bpmnReplace, modeling, translate) {
+export default function AiAgentReplaceMenuProvider(popupMenu, bpmnReplace, modeling, translate, selection) {
   this._popupMenu = popupMenu;
   this._bpmnReplace = bpmnReplace;
   this._modeling = modeling;
   this._translate = translate;
+  this._selection = selection;
 
   popupMenu.registerProvider("bpmn-replace", LOW_PRIORITY, this);
 }
@@ -35,6 +36,7 @@ AiAgentReplaceMenuProvider.$inject = [
   "bpmnReplace",
   "modeling",
   "translate",
+  "selection",
 ];
 
 AiAgentReplaceMenuProvider.prototype.getPopupMenuEntries = function(target) {
@@ -50,7 +52,7 @@ AiAgentReplaceMenuProvider.prototype.getPopupMenuEntries = function(target) {
 
     entries[AI_AGENT_ENTRY_ID] = {
       label: self._translate("AI Agent Task"),
-      className: "bpmn-icon-service",
+      imageUrl: AI_SPARKLE_DATA_URI,
       action: function() {
         let element = target;
 
@@ -67,6 +69,15 @@ AiAgentReplaceMenuProvider.prototype.getPopupMenuEntries = function(target) {
           getBusinessObject(element),
           { "spiffworkflow:serviceType": "ai_agent" }
         );
+
+        // Re-select the element so the properties panel re-renders against the
+        // final state and shows the AI Agent group immediately (without this,
+        // morphing TO an AI Agent Task leaves the panel stale until the user
+        // clicks away and back).
+        if (self._selection) {
+          self._selection.select(null);
+          self._selection.select(element);
+        }
 
         return element;
       },
