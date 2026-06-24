@@ -753,9 +753,11 @@ function NotifyAssigneeCheckboxComponent(props) {
 		const updates = {
 			"spiffworkflow:notifyAssignee": e.target.checked ? "true" : undefined,
 		};
-		// Clear the body when unchecking
+		// Clear the body + subject + template when unchecking
 		if (!e.target.checked) {
 			updates["spiffworkflow:notifyAssigneeBody"] = undefined;
+			updates["spiffworkflow:notifyAssigneeSubject"] = undefined;
+			updates["spiffworkflow:notifyAssigneeTemplate"] = undefined;
 		}
 		modeling.updateModdleProperties(element, bo, updates);
 	};
@@ -806,26 +808,39 @@ function NotifyAssigneeEditorButtonComponent(props) {
 			element,
 			eventBus,
 			body: getAttr(bo, "notifyAssigneeBody"),
+			subject: getAttr(bo, "notifyAssigneeSubject"),
+			template: getAttr(bo, "notifyAssigneeTemplate"),
 		});
 	};
 
 	const hasBody = !!decodeHtmlAttr(getAttr(bo, "notifyAssigneeBody"));
+	const template = getAttr(bo, "notifyAssigneeTemplate");
 
 	return h(
 		"div",
 		{ class: "bio-properties-panel-entry", "data-entry-id": id },
-		h(
-			"button",
-			{
-				class: "spiffworkflow-properties-panel-button bpmn-notify-editor-btn",
-				onClick: handleClick,
-				type: "button",
-			},
-			[
-				h("span", {}, translate("Launch Editor")),
-				hasBody &&
-					h("span", { class: "bpmn-notify-editor-badge" }, "✓"),
-			]
-		)
+		[
+			h(
+				"button",
+				{
+					class: "spiffworkflow-properties-panel-button bpmn-notify-editor-btn",
+					onClick: handleClick,
+					type: "button",
+				},
+				[
+					h("span", {}, translate("Launch Editor")),
+					hasBody &&
+						h("span", { class: "bpmn-notify-editor-badge" }, "✓"),
+				]
+			),
+			// Template-attached indicator
+			h(
+				"div",
+				{ class: "bio-properties-panel-description", style: "margin-top:6px;" },
+				template
+					? h("span", { style: "color:#16a34a;" }, `📎 ${translate("Template attached")}: ${template}`)
+					: h("span", {}, translate("No template attached"))
+			),
+		]
 	);
 }

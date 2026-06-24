@@ -101,6 +101,8 @@ const viewerModdleExtension = {
 				{ name: "taskActions",           isAttr: true, type: "String" },
 				{ name: "notifyAssignee",        isAttr: true, type: "String" },
 				{ name: "notifyAssigneeBody",    isAttr: true, type: "String" },
+				{ name: "notifyAssigneeSubject", isAttr: true, type: "String" },
+				{ name: "notifyAssigneeTemplate", isAttr: true, type: "String" },
 			],
 		},
 		{
