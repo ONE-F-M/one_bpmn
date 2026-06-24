@@ -53,8 +53,11 @@
 
 		<!-- Content -->
 		<main class="flex-1 p-6 overflow-auto">
-			<!-- Search Filter (Only show when there are processes or if searching) -->
-			<div v-if="processes.length > 0 || filterKeyword" class="mb-4 flex items-center justify-between">
+			<!-- Search + Filter (Only show when there are processes or if filtering) -->
+			<div
+				v-if="processes.length > 0 || hasActiveFilters"
+				class="mb-4 flex items-center justify-between gap-2"
+			>
 				<TextInput
 					v-model="filterKeyword"
 					placeholder="Search processes..."
@@ -64,6 +67,8 @@
 						<Icon icon="lucide:search" class="w-4 h-4 text-gray-400" />
 					</template>
 				</TextInput>
+
+				<ProcessFilter v-model="activeFilters" :owner-options="ownerOptions" />
 			</div>
 
 			<!-- Loading State -->
@@ -99,7 +104,7 @@
 			<!-- Mobile Card Layout -->
 			<div v-else-if="isMobile" class="space-y-2">
 				<div
-					v-for="process in sortedProcesses"
+					v-for="process in displayedProcesses"
 					:key="process.name"
 					@click="openProcess(process.name)"
 					class="bg-white rounded-lg shadow-sm p-4 flex items-center gap-3 active:bg-gray-50 transition-colors cursor-pointer"
@@ -139,7 +144,7 @@
 			<div v-else class="bg-white rounded-lg shadow-sm">
 				<ListView
 					:columns="columns"
-					:rows="sortedProcesses"
+					:rows="displayedProcesses"
 					:options="{
 						onRowClick: (row) => openProcess(row.name),
 						selectable: false,
@@ -222,15 +227,31 @@
 					</template>
 				</ListView>
 			</div>
+
+			<!-- Pagination Footer -->
+			<div
+				v-if="sortedProcesses.length > 0"
+				class="mt-3 border-t border-gray-200 pt-3"
+			>
+				<ListFooter
+					v-model="pageLength"
+					:options="{
+						rowCount: displayedProcesses.length,
+						totalCount: sortedProcesses.length,
+					}"
+					@loadMore="visibleCount += pageLength"
+				/>
+			</div>
 		</main>
 	</div>
 </template>
 
 <script setup>
-import { ref, onMounted, computed } from "vue"
+import { ref, onMounted, computed, watch } from "vue"
 import { useRouter } from "vue-router"
-import { frappeRequest, TextInput } from "frappe-ui"
+import { frappeRequest, TextInput, ListFooter } from "frappe-ui"
 import { Icon } from "@iconify/vue"
+import ProcessFilter from "@/components/ProcessFilter.vue"
 import { dayjs } from "@/dayjs"
 import { downloadBpmn } from "@/utils/downloadBpmn"
 import { useWindowSize } from "@/composables/useWindowSize"
@@ -248,6 +269,40 @@ const processes = ref([])
 const loading = ref(true)
 const filterKeyword = ref("")
 
+// Filters: array of { field, operator, value } managed by the Filter popover
+const activeFilters = ref([])
+
+// Client-side pagination (mirrors HelpDesk's ListFooter behaviour)
+const pageLength = ref(20)
+const visibleCount = ref(20)
+
+// Distinct process owners present in the loaded data, for the owner filter
+const ownerOptions = computed(() => {
+	const seen = new Map()
+	for (const p of processes.value) {
+		if (p.process_owner && !seen.has(p.process_owner)) {
+			seen.set(p.process_owner, p.process_owner_name || p.process_owner)
+		}
+	}
+	const opts = [...seen.entries()].map(([value, label]) => ({ label, value }))
+	opts.sort((a, b) => a.label.localeCompare(b.label))
+	return opts
+})
+
+const hasActiveFilters = computed(
+	() => !!filterKeyword.value || activeFilters.value.length > 0
+)
+
+// Reset pagination whenever the active filter set changes
+watch([filterKeyword, activeFilters], () => {
+	visibleCount.value = pageLength.value
+}, { deep: true })
+
+// Changing the page length resets the visible window
+watch(pageLength, (val) => {
+	visibleCount.value = val
+})
+
 // Pathfinder Log editability map: { processName: true/false }
 const editabilityMap = ref({})
 
@@ -256,10 +311,17 @@ const filteredProcesses = computed(() => {
 	let list = processes.value
 	if (filterKeyword.value) {
 		const query = filterKeyword.value.toLowerCase().trim()
-		list = list.filter(p => 
+		list = list.filter(p =>
 			(p.process_name && p.process_name.toLowerCase().includes(query)) ||
 			(p.name && p.name.toLowerCase().includes(query))
 		)
+	}
+	for (const f of activeFilters.value) {
+		if (!f.value) continue
+		list = list.filter(p => {
+			const matches = p[f.field] === f.value
+			return f.operator === "not_equals" ? !matches : matches
+		})
 	}
 	return list
 })
@@ -271,6 +333,11 @@ const sortedProcesses = computed(() => {
 		return dateB.isAfter(dateA) ? 1 : -1
 	})
 })
+
+// Current page slice shown in the list
+const displayedProcesses = computed(() =>
+	sortedProcesses.value.slice(0, visibleCount.value)
+)
 
 // Column definitions for ListView
 const columns = computed(() => [

@@ -27,6 +27,7 @@ declare module 'vue' {
     NotificationLinkDialog: typeof import('./src/components/NotificationLinkDialog.vue')['default']
     NotifyAssigneeEditorDialog: typeof import('./src/components/NotifyAssigneeEditorDialog.vue')['default']
     PendingActions: typeof import('./src/components/process_instance/PendingActions.vue')['default']
+    ProcessFilter: typeof import('./src/components/ProcessFilter.vue')['default']
     ProsAllyPanel: typeof import('./src/components/ProsAllyPanel.vue')['default']
     ReadinessChecklistDialog: typeof import('./src/components/ReadinessChecklistDialog.vue')['default']
     RouterLink: typeof import('vue-router')['RouterLink']
