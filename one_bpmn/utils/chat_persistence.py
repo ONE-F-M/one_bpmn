@@ -124,6 +124,9 @@ def load_history(conversation_name: str, limit: int = 30) -> list[dict]:
 	if not conversation_name or not frappe.db.exists("Chat Conversation", conversation_name):
 		return []
 
+	if frappe.db.get_value("Chat Conversation", conversation_name, "owner") != frappe.session.user:
+		return []
+
 	messages = frappe.db.get_all(
 		"Chat Message",
 		fields=["message_type", "text"],
