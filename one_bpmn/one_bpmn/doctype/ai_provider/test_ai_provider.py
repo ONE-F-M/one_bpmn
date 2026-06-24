@@ -22,6 +22,7 @@ def make_ai_provider(**kwargs) -> Document:
 
 
 
+
     defaults = {
         "doctype": "AI Provider",
         "provider_name": f"test-provider-{frappe.generate_hash(length=6)}",
@@ -50,6 +51,7 @@ class TestAIProvider(FrappeTestCase):
 
 
 
+
         self.assertFalse(d.get("api_key"))
 
     def test_get_password_returns_real_key(self):
@@ -66,6 +68,7 @@ class TestAIProvider(FrappeTestCase):
             fields=["name", "provider_name", "api_key"],
         )
         # The expected row must be returned, and the Password value must not be exposed.
+
 
 
 

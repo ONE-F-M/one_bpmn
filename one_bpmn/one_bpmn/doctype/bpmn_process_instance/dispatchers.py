@@ -671,6 +671,7 @@ def dispatch_ai_agent(instance, task, task_cfg: dict, bpmn_id: str) -> None:
 		# On success, optionally write the result back to a field on the context
 		# document (follows the dispatch_update_field pattern). Per WI-001144,
 		# write-back happens only when the executor succeeds.
+
 		write_back_field = task_cfg.get("aiWriteBackField", "")
 		if write_back_field and instance.context_doctype and instance.context_docname:
 			try:
