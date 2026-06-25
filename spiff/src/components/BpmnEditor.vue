@@ -1717,10 +1717,6 @@ onMounted(async () => {
 						const canvas = modeler.get("canvas");
 						const rootElement = canvas.getRootElement();
 
-						// Suppress all lint issues on an empty canvas (no shapes).
-						// Rules like start-event-required / end-event-required fire
-						// on the bare process element, producing false positives for
-						// a blank diagram that the user has not started drawing on.
 						const rootBo = rootElement.businessObject;
 						const flowEls = rootBo && (rootBo.flowElements || []);
 						if (!flowEls.length) {
