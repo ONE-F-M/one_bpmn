@@ -5,6 +5,7 @@ import { h } from "preact";
 import { frappeGet } from "../shared/frappeResource";
 import { FrappeAutocomplete } from "../shared/FrappeAutocomplete";
 import { FrappeMultiSelect } from "../shared/FrappeMultiSelect";
+import { encodeHtmlAttr, decodeHtmlAttr } from "../shared/htmlAttrCodec";
 
 // ---------------------------------------------------------------------------
 // Document Status options — mirrors Frappe's docstatus values exactly
@@ -135,6 +136,10 @@ export function ServiceTaskProps(props) {
 		);
 	}
 
+	// AI Agent Tasks have their own dedicated properties panel
+	// (see aiAgentPropertiesProvider) and are created via the Change element
+	// menu — they are intentionally not handled here.
+
 	return entries;
 }
 
@@ -186,6 +191,21 @@ function ServiceTypeComponent(props) {
 			"spiffworkflow:pushToUsers":          undefined,
 			"spiffworkflow:pushToDocFields":      undefined,
 			"spiffworkflow:pushToRoles":          undefined,
+			// Clear ai_agent attrs
+			"spiffworkflow:aiBackend":            undefined,
+			"spiffworkflow:aiProvider":           undefined,
+			"spiffworkflow:aiModel":              undefined,
+			"spiffworkflow:aiOutputVariable":     undefined,
+			"spiffworkflow:aiSystemPrompt":       undefined,
+			"spiffworkflow:aiUserPrompt":         undefined,
+			"spiffworkflow:aiResponseFormat":     undefined,
+			"spiffworkflow:aiResponseSchema":     undefined,
+			"spiffworkflow:aiTemperature":        undefined,
+			"spiffworkflow:aiTopP":               undefined,
+			"spiffworkflow:aiMaxTokens":          undefined,
+			"spiffworkflow:aiTimeout":            undefined,
+			"spiffworkflow:aiMaxRetries":         undefined,
+			"spiffworkflow:aiWriteBackField":     undefined,
 		};
 		modeling.updateModdleProperties(element, bo, patch);
 	};
@@ -672,7 +692,7 @@ function EmailBodyComponent(props) {
 	const modeling  = useService("modeling");
 	const translate = useService("translate");
 	const bo        = getBusinessObject(element);
-	const value     = getAttr(bo, "emailBody");
+	const value     = decodeHtmlAttr(getAttr(bo, "emailBody"));
 
 	return h(TextEntry, {
 		id,
@@ -680,7 +700,7 @@ function EmailBodyComponent(props) {
 		value,
 		multiline: true,
 		onInput: (e) => modeling.updateModdleProperties(element, bo, {
-			"spiffworkflow:emailBody": e.target.value || undefined,
+			"spiffworkflow:emailBody": encodeHtmlAttr(e.target.value),
 		}),
 		placeholder: translate("Supports Jinja2 — use {{ doc.field_name }}, {{ instance.name }}, etc."),
 		hint: translate(

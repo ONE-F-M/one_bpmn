@@ -103,7 +103,7 @@
 </template>
 
 <script setup>
-import { ref, computed, onMounted, onUnmounted, nextTick } from "vue";
+import { ref, computed, onMounted, onUnmounted, nextTick, watch } from "vue";
 import { Icon } from "@iconify/vue";
 import {
 	computeDiff,
@@ -122,6 +122,7 @@ const props = defineProps({
 	newXml: { type: String, required: true },
 	oldLabel: { type: String, default: "Previous Version" },
 	newLabel: { type: String, default: "Current Version" },
+	highlightChanges: { type: Boolean, default: true },
 });
 
 const canvasOld = ref(null);
@@ -177,8 +178,10 @@ onMounted(async () => {
 		diffResult = computeDiff(viewerOld, viewerNew);
 		changesList.value = buildChanges(diffResult);
 
-		// Apply visual markers
-		applyDiffMarkers(viewerOld, viewerNew, diffResult);
+		// Apply visual markers (toggleable via "Highlight changes")
+		if (props.highlightChanges) {
+			applyDiffMarkers(viewerOld, viewerNew, diffResult);
+		}
 
 		// Fit both to viewport
 		try {
@@ -196,6 +199,17 @@ onUnmounted(() => {
 	if (teardownSync) teardownSync();
 	if (viewerOld) viewerOld.destroy();
 	if (viewerNew) viewerNew.destroy();
+});
+
+// Toggle change highlighting live without re-importing the diagrams.
+watch(() => props.highlightChanges, (on) => {
+	if (!viewerOld || !viewerNew || !diffResult) return;
+	if (on) {
+		applyDiffMarkers(viewerOld, viewerNew, diffResult);
+	} else {
+		clearDiffMarkers(viewerOld);
+		clearDiffMarkers(viewerNew);
+	}
 });
 
 function panToElement(item) {

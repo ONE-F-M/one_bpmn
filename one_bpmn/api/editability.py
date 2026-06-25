@@ -8,8 +8,27 @@ import frappe
 from frappe import _
 
 
+def _is_onefm_production() -> bool:
+	"""Return True if 'Is Production' is checked in OneFM General Setting.
+
+	This is the **highest-priority** editability gate.  When checked, ALL
+	process models on this site are unconditionally read-only — even if
+	active Pathfinder Logs exist.
+	"""
+	try:
+		return bool(frappe.db.get_single_value("OneFM General Setting", "is_production"))
+	except Exception:
+		return False
+
+
 def _is_production_site() -> bool:
-	"""Return True if the current Frappe site IS the Production instance."""
+	"""Return True if the current Frappe site IS the Production instance.
+
+	Determined by URL comparison: if the current site URL matches the
+	``production_url`` configured in Processa Settings, this site is
+	considered Production.  Only evaluated when ``connect_to_production``
+	is enabled.
+	"""
 	settings = frappe.get_single("Processa Settings")
 	if not settings.connect_to_production:
 		return False
@@ -145,7 +164,7 @@ def check_and_update_editor_lock(model_name: str) -> list[dict[str, str | None]]
 
 	now = time.time()
 
-	# Clean up expired heartbeats (> 45s) and identify others
+	# Clean up expired heartbeats (>45s) and identify others
 	other_editors = []
 	updated_editors = {}
 
@@ -173,12 +192,15 @@ def check_and_update_editor_lock(model_name: str) -> list[dict[str, str | None]]
 @frappe.whitelist()
 def check_process_editable(process_name: str) -> dict:
 	"""
-	Check if a single process is editable (has an active Pathfinder Log).
+	Check if a single process is editable.
 
-	On Production: always returns editable=False.
-	On BA site: proxies the call to Production's API.
-	Local dev override: set bypass_process_lock=true in site_config.json
-	  to skip the Pathfinder Log gate entirely and always return editable=True.
+	Priority chain (first match wins):
+	  1. OneFM General Setting → is_production  →  always read-only
+	  2. site_config.json  → bypass_process_lock →  always editable (dev)
+	  3. Pathfinder Log check — an active log must exist for the process:
+	     a. connect_to_production checked + URL match  →  read-only
+	     b. connect_to_production checked  →  check via Production API
+	     c. connect_to_production unchecked  →  check locally on same bench
 
 	Args:
 		process_name: Name of the Process record.
@@ -188,6 +210,17 @@ def check_process_editable(process_name: str) -> dict:
 	"""
 	if not process_name:
 		frappe.throw(_("Process name is required"))
+
+	# ── Priority 1: OneFM General Setting → is_production ───────────────
+	# If this site IS production, ALL processes are unconditionally
+	# read-only — Pathfinder Logs are irrelevant.
+	if _is_onefm_production():
+		return {
+			"editable": False,
+			"pathfinder_log": None,
+			"workflow_state": None,
+			"reason": "This is a Production site (OneFM General Setting). Process models are read-only.",
+		}
 
 	# ── Local dev bypass ────────────────────────────────────────────────────
 	# Set `"bypass_process_lock": true` in site_config.json to unlock all
@@ -200,18 +233,39 @@ def check_process_editable(process_name: str) -> dict:
 			"reason": "Local dev mode: bypass_process_lock is enabled in site_config.json.",
 		}
 
-	if _is_production_site():
-		return {
-			"editable": False,
-			"pathfinder_log": None,
-			"workflow_state": None,
-			"reason": "Production site is always read-only.",
-		}
+	# ── Pathfinder Log check ────────────────────────────────────────────
+	# A process is editable only if an active Pathfinder Log exists.
+	# HOW we check depends on whether connect_to_production is enabled.
+	settings = frappe.get_cached_doc("Processa Settings")
 
-	result = _call_production_api(
-		"one_fm.one_fm.doctype.pathfinder_log.pathfinder_api.is_process_editable",
-		{"process_name": process_name},
-	)
+	if settings.connect_to_production:
+		# If the current site IS the production URL, always read-only.
+		if _is_production_site():
+			return {
+				"editable": False,
+				"pathfinder_log": None,
+				"workflow_state": None,
+				"reason": "Production site is always read-only.",
+			}
+		# Check via Production API (remote HTTP or local dev fallback)
+		result = _call_production_api(
+			"one_fm.one_fm.doctype.pathfinder_log.pathfinder_api.is_process_editable",
+			{"process_name": process_name},
+		)
+	else:
+		# Check locally on the same bench (Pathfinder Log lives here)
+		try:
+			result = _call_local_pathfinder_api(
+				"one_fm.one_fm.doctype.pathfinder_log.pathfinder_api.is_process_editable",
+				{"process_name": process_name},
+			)
+		except (ModuleNotFoundError, AttributeError):
+			return {
+				"editable": False,
+				"pathfinder_log": None,
+				"workflow_state": None,
+				"reason": "Pathfinder Log check is unavailable because the one_fm app is not installed.",
+			}
 
 	# Add a human-readable reason for the frontend
 	if result.get("editable"):
@@ -227,8 +281,7 @@ def bulk_check_processes_editable(process_names: str) -> dict:
 	"""
 	Batch check editability for multiple processes.
 
-	On Production: returns all as non-editable.
-	On BA site: proxies to Production's bulk API.
+	Follows the same priority chain as ``check_process_editable``.
 
 	Args:
 		process_names: JSON-encoded list of process name strings.
@@ -251,6 +304,18 @@ def bulk_check_processes_editable(process_names: str) -> dict:
 	if not isinstance(process_names_list, list):
 		frappe.throw(_("process_names must be a list"))
 
+	# ── Priority 1: OneFM General Setting → is_production ───────────────
+	if _is_onefm_production():
+		return {
+			pname: {
+				"editable": False,
+				"pathfinder_log": None,
+				"workflow_state": None,
+				"reason": "This is a Production site (OneFM General Setting). Process models are read-only.",
+			}
+			for pname in process_names_list
+		}
+
 	# ── Local dev bypass ────────────────────────────────────────────────────
 	if frappe.conf.get("bypass_process_lock"):
 		return {
@@ -263,17 +328,41 @@ def bulk_check_processes_editable(process_names: str) -> dict:
 			for pname in process_names_list
 		}
 
-	if _is_production_site():
+	# ── Pathfinder Log check ────────────────────────────────────────────
+	settings = frappe.get_cached_doc("Processa Settings")
+
+	if settings.connect_to_production:
+		# If the current site IS the production URL, always read-only.
+		if _is_production_site():
+			return {
+				pname: {
+					"editable": False,
+					"pathfinder_log": None,
+					"workflow_state": None,
+					"reason": "Production site is always read-only.",
+				}
+				for pname in process_names_list
+			}
+		# Check via Production API (remote HTTP or local dev fallback)
+		return _call_production_api(
+			"one_fm.one_fm.doctype.pathfinder_log.pathfinder_api.bulk_check_process_editable",
+			{"process_names": json.dumps(process_names_list)},
+		)
+
+	# connect_to_production is unchecked — check locally on the same bench
+	try:
+		return _call_local_pathfinder_api(
+			"one_fm.one_fm.doctype.pathfinder_log.pathfinder_api.bulk_check_process_editable",
+			{"process_names": json.dumps(process_names_list)},
+		)
+	except (ModuleNotFoundError, AttributeError):
 		return {
 			pname: {
 				"editable": False,
 				"pathfinder_log": None,
 				"workflow_state": None,
+				"reason": "Pathfinder Log check is unavailable because the one_fm app is not installed.",
 			}
 			for pname in process_names_list
 		}
 
-	return _call_production_api(
-		"one_fm.one_fm.doctype.pathfinder_log.pathfinder_api.bulk_check_process_editable",
-		{"process_names": json.dumps(process_names_list)},
-	)
