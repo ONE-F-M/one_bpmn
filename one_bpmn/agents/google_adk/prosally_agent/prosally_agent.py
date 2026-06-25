@@ -166,13 +166,12 @@ class ProsAllyAgent:
         for key in _REQUIRED_SUB_PROMPTS:
             prompt = sub_prompts.get(key, {}).get("prompt")
             if not prompt:
-                import frappe as _frappe
-                _frappe.throw(
+                import frappe
+                frappe.throw(
                     f"AI Agent Configuration for '{AGENT_ID}' is missing "
                     f"the required sub-prompt '{key}'. "
                     f"Please add it in the AI Agent Configuration DocType."
                 )
-            instructions[key] = prompt
 
         return instructions
 
