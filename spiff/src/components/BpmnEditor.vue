@@ -2848,6 +2848,43 @@ async function loadXML(xml) {
 				console.warn("Could not fit viewport automatically - container may be hidden:", e);
 			}
 		}, 100);
+
+		// Extract process name from the loaded XML so ProsAlly and other
+		// consumers use the actual BPMN process name, not the model record name.
+		// The pipeline compiler puts the name on bpmn:Participant (pool header),
+		// not on bpmn:Process, so we check both.
+		try {
+			const elementRegistry = modeler.get("elementRegistry");
+			let extractedName = "";
+
+			// 1. Check bpmn:Participant first (where pipeline.mjs puts ir.name)
+			const participants = elementRegistry.filter((el) => el.type === "bpmn:Participant");
+			for (const p of participants) {
+				const name = p.businessObject?.name;
+				if (name && name !== "Process") {
+					extractedName = name;
+					break;
+				}
+			}
+
+			// 2. Fallback: check bpmn:Process name attribute
+			if (!extractedName) {
+				const processEls = elementRegistry.filter((el) => el.type === "bpmn:Process");
+				for (const processEl of processEls) {
+					const name = processEl.businessObject?.name;
+					if (name) {
+						extractedName = name;
+						break;
+					}
+				}
+			}
+
+			if (extractedName) {
+				internalProcessName.value = extractedName;
+			}
+		} catch (e) {
+			console.warn("Could not extract process name:", e);
+		}
 	} catch (err) {
 		console.error("Failed to import XML:", err);
 	} finally {
