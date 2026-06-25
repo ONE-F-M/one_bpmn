@@ -1319,11 +1319,8 @@ def delete_diagram(name: str) -> dict:
 
 	from one_bpmn.api.canvas_comments import cleanup_process_model_assets
 	cleanup_process_model_assets(name)
-
 	# frappe.delete_doc handles: existence check, doc-level permissions,
-	# link validation, child table cleanup, Version/Comment/File/DocShare/ToDo removal.
-	# The model's on_trash hook removes its linked BPMN Diagram Version snapshots
-	# first so the link check passes.
+	# link validation, child table cleanup, Version/Comment/File/DocShare/ToDo removal
 	frappe.delete_doc("BPMN Process Model", name)
 
 	return {"success": True}

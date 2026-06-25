@@ -12,14 +12,6 @@ class BPMNProcessModel(Document):
 	def before_insert(self):
 		self.regenerate_process_id_on_duplicate()
 
-	def on_trash(self):
-		# Remove version-history snapshots that Link to this model, otherwise
-		# deletion fails with a LinkExistsError. Runs before Frappe's link check
-		# (on_trash precedes check_if_doc_is_linked), so it covers desk, API and
-		# programmatic deletions alike.
-		for snap in frappe.get_all("BPMN Diagram Version", filters={"model": self.name}, pluck="name"):
-			frappe.delete_doc("BPMN Diagram Version", snap, ignore_permissions=True, force=True)
-
 	def validate(self):
 		self.validate_is_editable()
 		self.extract_process_id_from_xml()
