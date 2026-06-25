@@ -74,6 +74,9 @@ import NavigatedViewer from "bpmn-js/lib/NavigatedViewer"
 import "bpmn-js/dist/assets/diagram-js.css"
 import "bpmn-js/dist/assets/bpmn-font/css/bpmn.css"
 
+// ── AI Agent Task renderer — replaces Service Task gear icon with sparkle ──
+import aiAgentRendererModule from "@/bpmn/aiAgentRenderer"
+
 // ── Viewer-side moddle extension ──
 // The BPMN XML produced by the editor uses custom spiffworkflow:* attributes
 // (e.g. notifyAssigneeBody, emailBody).  Without registering the moddle
@@ -173,6 +176,9 @@ async function initViewer() {
 			moddleExtensions: {
 				spiffworkflow: viewerModdleExtension,
 			},
+			additionalModules: [
+				aiAgentRendererModule,
+			],
 		})
 		viewer.value.get("eventBus").on("element.click", onElementClick)
 		viewer.value.get("eventBus").on("canvas.click", () => emit("clear-selection"))
