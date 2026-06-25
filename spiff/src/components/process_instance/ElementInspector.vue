@@ -39,7 +39,7 @@
 						<span class="text-gray-500 font-medium">Status</span>
 						<span
 							class="inline-flex items-center gap-1 px-2 py-0.5 rounded text-[12px] font-semibold"
-							:class="aiRun.status === 'Success' ? 'bg-green-100 text-green-700' : aiRun.status === 'Error' ? 'bg-red-100 text-red-700' : 'bg-blue-100 text-blue-700'"
+							:class="aiRun.status === 'Success' ? 'bg-green-100 text-green-700' : aiRun.status === 'Error' ? 'bg-red-100 text-red-700' : 'bg-blue-100 text-blue-700 animate-pulse'"
 						>{{ aiRun.status }}</span>
 					</div>
 
@@ -69,7 +69,7 @@
 							</tr>
 							<tr>
 								<td class="py-1 pr-3 text-gray-500 font-medium whitespace-nowrap align-top">Est. Cost</td>
-								<td class="py-1 text-gray-800 font-mono">{{ aiRun.estimated_cost ? 'NGN ' + formatCost(aiRun.estimated_cost) : '—' }}</td>
+								<td class="py-1 text-gray-800 font-mono">{{ aiRun.estimated_cost ? '$' + formatCost(aiRun.estimated_cost) : '—' }}</td>
 							</tr>
 							<tr>
 								<td class="py-1 pr-3 text-gray-500 font-medium whitespace-nowrap align-top">Duration</td>
@@ -140,7 +140,7 @@
 						<tr>
 							<td class="py-1.5 pr-3 text-gray-500 font-medium whitespace-nowrap align-top">Type</td>
 							<td class="py-1.5 text-gray-800">
-								<span class="inline-flex items-center gap-1 px-2 py-0.5 rounded bg-gray-100 text-gray-700 text-[11px] font-mono">{{ selectedNode.typename }}</span>
+								<span class="inline-flex items-center gap-1 px-2 py-0.5 rounded text-[11px] font-mono" :class="isAiAgent ? 'bg-purple-100 text-purple-700' : 'bg-gray-100 text-gray-700'">{{ displayType }}</span>
 							</td>
 						</tr>
 						<tr>
@@ -320,6 +320,13 @@ function formatDateTime(d) {
 
 const isAiAgent = computed(() => {
 	return props.selectedNode?.extensions?.serviceType === "ai_agent"
+})
+
+// Friendly type label — AI Agent Tasks serialize as a bare "ServiceTask",
+// so surface them as "AI Agent Task" in the Details tab.
+const displayType = computed(() => {
+	if (isAiAgent.value) return "AI Agent Task"
+	return props.selectedNode?.typename || "—"
 })
 
 const aiRun = ref(null)
