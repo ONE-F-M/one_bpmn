@@ -132,7 +132,7 @@ const taskList = computed(() => {
 				stateLabel: getStateLabel(t.state || 0),
 				timestamp: t.last_state_change ? new Date(t.last_state_change * 1000) : null,
 				data: t.data || {},
-				extensions: specData.extensions || {},
+				extensions: (typeof specData.extensions === 'string' ? JSON.parse(specData.extensions) : specData.extensions) || {},
 			})
 		}
 
