@@ -103,6 +103,23 @@ function getStateLabel(s) {
 
 const REACHED_STATES = new Set([64, 128, 256])
 
+// Service Task extensions (serviceType, etc.) are extracted at compile time and
+// embedded in serialized_spec, keyed by BPMN element id. SpiffWorkflow's own
+// task_spec serialization does NOT carry the spiffworkflow:* attributes, so this
+// is the authoritative source for identifying AI Agent tasks (serviceType === "ai_agent").
+const serviceTaskExtensions = computed(() => {
+	if (!details.value?.serialized_spec) return {}
+	try {
+		const spec = typeof details.value.serialized_spec === "string"
+			? JSON.parse(details.value.serialized_spec)
+			: details.value.serialized_spec
+		return spec?.service_task_extensions || {}
+	} catch (e) {
+		console.warn("Failed to parse serialized_spec:", e)
+		return {}
+	}
+})
+
 const taskList = computed(() => {
 	if (!details.value?.workflow_state) return []
 	try {
@@ -132,7 +149,10 @@ const taskList = computed(() => {
 				stateLabel: getStateLabel(t.state || 0),
 				timestamp: t.last_state_change ? new Date(t.last_state_change * 1000) : null,
 				data: t.data || {},
-				extensions: (typeof specData.extensions === 'string' ? JSON.parse(specData.extensions) : specData.extensions) || {},
+				extensions: {
+					...((typeof specData.extensions === 'string' ? JSON.parse(specData.extensions) : specData.extensions) || {}),
+					...(serviceTaskExtensions.value[specName] || {}),
+				},
 			})
 		}
 
