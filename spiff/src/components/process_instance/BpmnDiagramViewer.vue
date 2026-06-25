@@ -421,13 +421,20 @@ function applyHighlights() {
 				const wfState = typeof props.details.workflow_state === "string"
 					? JSON.parse(props.details.workflow_state)
 					: props.details.workflow_state
+				// serviceType lives in the compiled spec (service_task_extensions),
+				// keyed by BPMN element id — not on the runtime task objects.
+				let svcExt = {}
+				try {
+					const spec = typeof props.details.serialized_spec === "string"
+						? JSON.parse(props.details.serialized_spec)
+						: props.details.serialized_spec
+					svcExt = spec?.service_task_extensions || {}
+				} catch (e) { /* ignore */ }
 				const tasks = wfState.tasks || {}
 				for (const [, taskData] of Object.entries(tasks)) {
 					const taskSpec = taskData.task_spec || ""
 					if (!taskSpec) continue
-					const extensions = taskData.extensions || {}
-					const exts = (typeof extensions === "string" ? JSON.parse(extensions) : extensions) || {}
-					if (exts.serviceType !== "ai_agent") continue
+					if ((svcExt[taskSpec] || {}).serviceType !== "ai_agent") continue
 
 					const state = taskData.state || 0
 					const hasError = taskData.data?.[`${taskSpec}_error_code`]
@@ -484,13 +491,13 @@ function applyHighlights() {
 
 /* AI Agent badge */
 .ai-badge {
-	width: 20px;
-	height: 20px;
+	width: 16px;
+	height: 16px;
 	border-radius: 50%;
 	display: flex;
 	align-items: center;
 	justify-content: center;
-	font-size: 9px;
+	font-size: 8px;
 	font-weight: 700;
 	font-family: monospace;
 	color: #fff;
