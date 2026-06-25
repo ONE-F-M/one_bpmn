@@ -1,0 +1,65 @@
+{
+ "actions": [],
+ "creation": "2026-06-25 00:00:00.000000",
+ "doctype": "DocType",
+ "editable_grid": 1,
+ "engine": "InnoDB",
+ "field_order": [
+  "assertion_type",
+  "value",
+  "judge_provider",
+  "judge_model",
+  "pass_threshold"
+ ],
+ "fields": [
+  {
+   "fieldname": "assertion_type",
+   "fieldtype": "Select",
+   "in_list_view": 1,
+   "label": "Assertion Type",
+   "options": "schema_valid\ncontains\nregex\nequals\nllm_judge",
+   "reqd": 1
+  },
+  {
+   "fieldname": "value",
+   "fieldtype": "Long Text",
+   "in_list_view": 1,
+   "label": "Value",
+   "reqd": 1
+  },
+  {
+   "fieldname": "judge_provider",
+   "fieldtype": "Link",
+   "label": "Judge Provider",
+   "options": "AI Provider",
+   "depends_on": "eval:doc.assertion_type=='llm_judge'"
+  },
+  {
+   "fieldname": "judge_model",
+   "fieldtype": "Data",
+   "label": "Judge Model",
+   "depends_on": "eval:doc.assertion_type=='llm_judge'"
+  },
+  {
+   "fieldname": "pass_threshold",
+   "fieldtype": "Int",
+   "label": "Pass Threshold",
+   "default": "4",
+   "description": "Score ≥ threshold passes (llm_judge only)",
+   "depends_on": "eval:doc.assertion_type=='llm_judge'"
+  }
+ ],
+ "index_web_pages_for_search": 0,
+ "istable": 1,
+ "links": [],
+ "modified": "2026-06-25 00:00:00.000000",
+ "modified_by": "Administrator",
+ "module": "ONE BPMN",
+ "name": "AI Eval Assertion",
+ "owner": "Administrator",
+ "permissions": [],
+ "sort_field": "creation",
+ "sort_order": "DESC",
+ "states": [],
+ "track_changes": 0
+}

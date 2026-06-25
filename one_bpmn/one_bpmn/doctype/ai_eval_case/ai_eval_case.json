@@ -1,0 +1,181 @@
+{
+ "actions": [],
+ "allow_import": 1,
+ "autoname": "hash",
+ "creation": "2026-06-25 00:00:00.000000",
+ "doctype": "DocType",
+ "editable_grid": 1,
+ "engine": "InnoDB",
+ "field_order": [
+  "title",
+  "suite",
+  "column_break_header",
+  "source_run",
+  "section_break_bpmn",
+  "process_model",
+  "column_break_bpmn",
+  "bpmn_id",
+  "section_break_provider",
+  "provider",
+  "model",
+  "column_break_provider",
+  "backend",
+  "section_break_prompts",
+  "input_system_prompt",
+  "input_user_prompt",
+  "input_context",
+  "section_break_expected",
+  "expected_output",
+  "section_break_assertions",
+  "assertions"
+ ],
+ "fields": [
+  {
+   "fieldname": "title",
+   "fieldtype": "Data",
+   "in_list_view": 1,
+   "label": "Title",
+   "reqd": 1
+  },
+  {
+   "fieldname": "suite",
+   "fieldtype": "Link",
+   "label": "Suite",
+   "options": "AI Eval Suite"
+  },
+  {
+   "fieldname": "column_break_header",
+   "fieldtype": "Column Break"
+  },
+  {
+   "fieldname": "source_run",
+   "fieldtype": "Link",
+   "label": "Source Run",
+   "options": "AI Agent Run"
+  },
+  {
+   "fieldname": "section_break_bpmn",
+   "fieldtype": "Section Break",
+   "label": "BPMN Context",
+   "collapsible": 1
+  },
+  {
+   "fieldname": "process_model",
+   "fieldtype": "Link",
+   "label": "Process Model",
+   "options": "BPMN Process Model"
+  },
+  {
+   "fieldname": "column_break_bpmn",
+   "fieldtype": "Column Break"
+  },
+  {
+   "fieldname": "bpmn_id",
+   "fieldtype": "Data",
+   "label": "BPMN ID"
+  },
+  {
+   "fieldname": "section_break_provider",
+   "fieldtype": "Section Break",
+   "label": "Provider Configuration"
+  },
+  {
+   "fieldname": "provider",
+   "fieldtype": "Link",
+   "in_list_view": 1,
+   "label": "Provider",
+   "options": "AI Provider",
+   "reqd": 1
+  },
+  {
+   "fieldname": "model",
+   "fieldtype": "Data",
+   "in_list_view": 1,
+   "label": "Model",
+   "reqd": 1
+  },
+  {
+   "fieldname": "column_break_provider",
+   "fieldtype": "Column Break"
+  },
+  {
+   "fieldname": "backend",
+   "fieldtype": "Select",
+   "label": "Backend",
+   "options": "direct_api\nantigravity",
+   "default": "direct_api"
+  },
+  {
+   "fieldname": "section_break_prompts",
+   "fieldtype": "Section Break",
+   "label": "Prompts"
+  },
+  {
+   "fieldname": "input_system_prompt",
+   "fieldtype": "Long Text",
+   "label": "System Prompt"
+  },
+  {
+   "fieldname": "input_user_prompt",
+   "fieldtype": "Long Text",
+   "label": "User Prompt",
+   "reqd": 1
+  },
+  {
+   "fieldname": "input_context",
+   "fieldtype": "JSON",
+   "label": "Input Context",
+   "description": "Jinja context variables (informational only — prompts are already rendered)"
+  },
+  {
+   "fieldname": "section_break_expected",
+   "fieldtype": "Section Break",
+   "label": "Expected Output",
+   "collapsible": 1
+  },
+  {
+   "fieldname": "expected_output",
+   "fieldtype": "Long Text",
+   "label": "Expected Output"
+  },
+  {
+   "fieldname": "section_break_assertions",
+   "fieldtype": "Section Break",
+   "label": "Assertions"
+  },
+  {
+   "fieldname": "assertions",
+   "fieldtype": "Table",
+   "label": "Assertions",
+   "options": "AI Eval Assertion"
+  }
+ ],
+ "index_web_pages_for_search": 0,
+ "links": [],
+ "modified": "2026-06-25 00:00:00.000000",
+ "modified_by": "Administrator",
+ "module": "ONE BPMN",
+ "name": "AI Eval Case",
+ "naming_rule": "Random",
+ "owner": "Administrator",
+ "permissions": [
+  {
+   "create": 1,
+   "delete": 1,
+   "email": 1,
+   "export": 1,
+   "print": 1,
+   "read": 1,
+   "report": 1,
+   "role": "System Manager",
+   "share": 1,
+   "write": 1
+  }
+ ],
+ "show_title_field_in_link": 1,
+ "sort_field": "creation",
+ "sort_order": "DESC",
+ "states": [],
+ "title_field": "title",
+ "track_changes": 1
+}
