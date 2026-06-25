@@ -373,6 +373,8 @@ async function fetchAiRun() {
 		const rows = data?.message || []
 		if (rows.length > 0) {
 			aiRun.value = rows[0]
+			// Eagerly fetch steps so the count is accurate before toggle
+			fetchSteps()
 		}
 	} catch (e) {
 		aiRunError.value = "Failed to load AI Run data"
