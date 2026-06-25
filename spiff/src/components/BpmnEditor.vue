@@ -1717,6 +1717,12 @@ onMounted(async () => {
 						const canvas = modeler.get("canvas");
 						const rootElement = canvas.getRootElement();
 
+						const rootBo = rootElement.businessObject;
+						const flowEls = rootBo && (rootBo.flowElements || []);
+						if (!flowEls.length) {
+							return {};
+						}
+
 						// Helper to collect all element IDs strictly contained within the given moddle object
 						const getModdleDescendants = (bo, descendants = new Set(), visited = new Set()) => {
 							if (!bo || typeof bo !== "object") return descendants;
