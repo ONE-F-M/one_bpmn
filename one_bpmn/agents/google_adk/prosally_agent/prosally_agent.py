@@ -312,12 +312,30 @@ class ProsAllyAgent:
     def _find_node() -> str | None:
         """Return the path to a Node.js ≥ 18 binary, falling back to whatever is in PATH."""
         import shutil
-        # Prefer nvm-managed Node 18+ (avoids system Node 12)
-        home = os.path.expanduser("~")
-        for ver in ("v20.19.4", "v20.19.2", "v18.19.0"):
-            candidate = os.path.join(home, ".nvm", "versions", "node", ver, "bin", "node")
-            if os.path.isfile(candidate) and os.access(candidate, os.X_OK):
-                return candidate
+        # Dynamically scan nvm-managed versions, prefer the latest ≥ 18
+        nvm_dir = os.path.join(os.path.expanduser("~"), ".nvm", "versions", "node")
+        if os.path.isdir(nvm_dir):
+            try:
+                entries = os.listdir(nvm_dir)
+            except OSError:
+                entries = []
+            versions: list[tuple[tuple[int, int, int], str]] = []
+            for entry in entries:
+                if not entry.startswith("v"):
+                    continue
+                candidate = os.path.join(nvm_dir, entry, "bin", "node")
+                if not (os.path.isfile(candidate) and os.access(candidate, os.X_OK)):
+                    continue
+                try:
+                    parts = entry.lstrip("v").split(".")
+                    major, minor, patch = (int(parts[0]), int(parts[1]), int(parts[2]))
+                except (ValueError, IndexError):
+                    continue
+                if major >= 18:
+                    versions.append(((major, minor, patch), candidate))
+            if versions:
+                versions.sort(key=lambda x: x[0], reverse=True)
+                return versions[0][1]
         return shutil.which("node")
 
     @staticmethod
