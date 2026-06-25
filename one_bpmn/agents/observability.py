@@ -143,7 +143,7 @@ def finalize_ai_run(run, result: ExecutorResult) -> None:
 	    run:  AI Agent Run document (status="Running")
 	    result: ExecutorResult from the executor call
 	"""
-	if getattr(run, "stub", False):
+	if run is None or getattr(run, "stub", False):
 		return
 
 	ended = now_datetime()
@@ -155,41 +155,51 @@ def finalize_ai_run(run, result: ExecutorResult) -> None:
 	else:
 		duration = 0
 
-	run.db_set("ended_at", ended)
-	run.db_set("duration_ms", int(duration))
-
 	if result.error_code == ErrorCode.SUCCESS:
-		run.db_set("status", "Success")
-
-		# Token totals from the result
-		if result.token_usage:
-			run.db_set("total_prompt_tokens", result.token_usage.prompt_tokens)
-			run.db_set("total_completion_tokens", result.token_usage.completion_tokens)
-			run.db_set("total_tokens", result.token_usage.total_tokens)
-
 		# Sum step costs from the database
 		step_costs = frappe.db.get_all(
 			"AI Agent Step",
 			filters={"run": run.name},
 			pluck="cost",
 		)
-		run.db_set("estimated_cost", flt(sum(flt(c) for c in step_costs)))
+		estimated_cost = flt(sum(flt(c) for c in step_costs))
 
 		# Final output (truncated)
 		output = str(result.output or "")
 		if len(output) > _MAX_OUTPUT_CHARS:
 			output = output[:_MAX_OUTPUT_CHARS]
-		run.db_set("final_output", output)
+
+		update = {
+			"ended_at": ended,
+			"duration_ms": int(duration),
+			"status": "Success",
+			"estimated_cost": estimated_cost,
+			"final_output": output,
+		}
+
+		# Token totals from the result
+		if result.token_usage:
+			update["total_prompt_tokens"] = result.token_usage.prompt_tokens
+			update["total_completion_tokens"] = result.token_usage.completion_tokens
+			update["total_tokens"] = result.token_usage.total_tokens
+
+		run.db_set(update)
 	else:
-		run.db_set("status", "Error")
-		run.db_set("error_code", result.error_code.value)
-		run.db_set("error_message", (result.error_message or "")[:_MAX_OUTPUT_CHARS])
+		update = {
+			"ended_at": ended,
+			"duration_ms": int(duration),
+			"status": "Error",
+			"error_code": result.error_code.value,
+			"error_message": (result.error_message or "")[:_MAX_OUTPUT_CHARS],
+		}
 
 		# Record partial tokens on error too
 		if result.token_usage:
-			run.db_set("total_prompt_tokens", result.token_usage.prompt_tokens)
-			run.db_set("total_completion_tokens", result.token_usage.completion_tokens)
-			run.db_set("total_tokens", result.token_usage.total_tokens)
+			update["total_prompt_tokens"] = result.token_usage.prompt_tokens
+			update["total_completion_tokens"] = result.token_usage.completion_tokens
+			update["total_tokens"] = result.token_usage.total_tokens
+
+		run.db_set(update)
 
 
 def finalize_ai_run_on_exception(run, exception: Exception) -> None:
@@ -201,7 +211,7 @@ def finalize_ai_run_on_exception(run, exception: Exception) -> None:
 	    run: AI Agent Run document (status="Running")
 	    exception: The unhandled exception
 	"""
-	if getattr(run, "stub", False):
+	if run is None or getattr(run, "stub", False):
 		return
 
 	ended = now_datetime()
@@ -213,11 +223,13 @@ def finalize_ai_run_on_exception(run, exception: Exception) -> None:
 		duration = 0
 
 	try:
-		run.db_set("ended_at", ended)
-		run.db_set("duration_ms", int(duration))
-		run.db_set("status", "Error")
-		run.db_set("error_code", "UNEXPECTED_ERROR")
-		run.db_set("error_message", str(exception)[:_MAX_OUTPUT_CHARS])
+		run.db_set({
+			"ended_at": ended,
+			"duration_ms": int(duration),
+			"status": "Error",
+			"error_code": "UNEXPECTED_ERROR",
+			"error_message": str(exception)[:_MAX_OUTPUT_CHARS],
+		})
 	except Exception:
 		frappe.log_error(
 			title="AI Observability: finalize_ai_run_on_exception failed",

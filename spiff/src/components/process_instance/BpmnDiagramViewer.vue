@@ -273,6 +273,7 @@ function applyHighlights() {
 		const elementRegistry = viewer.value.get("elementRegistry")
 		const overlays = viewer.value.get("overlays")
 		overlays.remove({ type: "heatmap-badge" })
+	overlays.remove({ type: "ai-badge" })
 
 		// Clear stale highlight markers before re-applying
 		const staticHighlightMarkers = new Set(["highlight-done", "highlight-active"])

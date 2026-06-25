@@ -9,7 +9,7 @@ import frappe
 from frappe.tests.utils import FrappeTestCase
 from unittest.mock import patch
 
-from one_bpmn.agents.executor import ErrorCode, ExecutorResult
+from one_bpmn.agents.executor import ErrorCode, ExecutorResult, TokenUsage
 
 
 class TestDispatchObservability(FrappeTestCase):
@@ -52,6 +52,7 @@ class TestDispatchObservability(FrappeTestCase):
 		result = ExecutorResult(
 			output="Hi there!",
 			error_code=ErrorCode.SUCCESS,
+			token_usage=TokenUsage(prompt_tokens=10, completion_tokens=5, total_tokens=15),
 		)
 		self._run_dispatch(result)
 
@@ -77,9 +78,13 @@ class TestDispatchObservability(FrappeTestCase):
 		self.assertEqual(steps[1].role, "user")
 		self.assertEqual(steps[2].role, "assistant")
 
-		# Check backward compat: task.data has output
+		# Check backward compat: task.data has output variable and token_usage
 		self.assertIn("ai_result", self.mock_task.data)
 		self.assertEqual(self.mock_task.data["ai_result"], "Hi there!")
+		self.assertIn(f"{self.bpmn_id}_token_usage", self.mock_task.data)
+		self.assertEqual(
+			self.mock_task.data[f"{self.bpmn_id}_token_usage"]["total_tokens"], 15
+		)
 
 	def test_error_creates_run_and_partial_steps(self):
 		"""dispatch_ai_agent with a mocked error executor creates 1 Run
@@ -118,14 +123,25 @@ class TestDispatchObservability(FrappeTestCase):
 		self.assertEqual(self.mock_task.data[f"{self.bpmn_id}_error_code"], "FAILED_MODEL_CALL")
 		self.assertIn(f"{self.bpmn_id}_error_message", self.mock_task.data)
 
-	def test_backwards_compat_output_and_error(self):
-		"""Task.data still contains output variable and frappe.log_error is still called."""
-		import frappe
+	def test_log_error_still_called_on_error(self):
+		"""Backward compat: frappe.log_error is still called when the executor errors."""
+		from one_bpmn.one_bpmn.doctype.bpmn_process_instance.dispatchers import dispatch_ai_agent
 
 		result = ExecutorResult(
-			output="OK",
-			error_code=ErrorCode.SUCCESS,
+			output=None,
+			error_code=ErrorCode.FAILED_MODEL_CALL,
+			error_message="Model unavailable",
 		)
-		self._run_dispatch(result)
-		self.assertIn("ai_result", self.mock_task.data)
-		self.assertEqual(self.mock_task.data["ai_result"], "OK")
+		with patch("frappe.log_error") as mock_log, patch(
+			"one_bpmn.agents.executor.direct_api.DirectApiExecutor.run",
+			return_value=result,
+		):
+			dispatch_ai_agent(self.instance, self.mock_task, self.task_cfg, self.bpmn_id)
+
+		# The pre-existing error log (title "BPMN AI Agent Task: ...") still fires
+		self.assertTrue(mock_log.called)
+		titles = [str(c.kwargs.get("title", "")) for c in mock_log.call_args_list]
+		self.assertTrue(
+			any("BPMN AI Agent Task" in t for t in titles),
+			f"expected a 'BPMN AI Agent Task' error log, got titles: {titles}",
+		)
