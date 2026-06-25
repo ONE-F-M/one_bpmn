@@ -697,23 +697,27 @@ class ProsAllyAgent:
         # Dynamically scan nvm-managed versions, prefer the latest ≥ 18
         nvm_dir = os.path.join(os.path.expanduser("~"), ".nvm", "versions", "node")
         if os.path.isdir(nvm_dir):
-            versions = []
-            for entry in os.listdir(nvm_dir):
+            try:
+                entries = os.listdir(nvm_dir)
+            except OSError:
+                entries = []
+            versions: list[tuple[tuple[int, int, int], str]] = []
+            for entry in entries:
                 if not entry.startswith("v"):
                     continue
                 candidate = os.path.join(nvm_dir, entry, "bin", "node")
                 if not (os.path.isfile(candidate) and os.access(candidate, os.X_OK)):
                     continue
                 try:
-                    major = int(entry.lstrip("v").split(".")[0])
+                    parts = entry.lstrip("v").split(".")
+                    major, minor, patch = (int(parts[0]), int(parts[1]), int(parts[2]))
                 except (ValueError, IndexError):
                     continue
                 if major >= 18:
-                    versions.append((major, entry, candidate))
+                    versions.append(((major, minor, patch), candidate))
             if versions:
-                # Sort descending by major version, then by version string
-                versions.sort(key=lambda x: (x[0], x[1]), reverse=True)
-                return versions[0][2]
+                versions.sort(key=lambda x: x[0], reverse=True)
+                return versions[0][1]
         return shutil.which("node")
 
     @staticmethod
