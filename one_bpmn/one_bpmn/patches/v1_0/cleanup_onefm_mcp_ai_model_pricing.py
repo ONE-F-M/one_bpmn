@@ -21,16 +21,23 @@ import frappe
 
 def execute():
 	# Get onefm_mcp app module path
-	onefm_mcp_mod = frappe.get_app_path("onefm_mcp")
-	if not onefm_mcp_mod or not os.path.isdir(onefm_mcp_mod):
+	# frappe.get_app_path() raises ModuleNotFoundError when the app
+	# is not installed, so we must guard with try/except.
+	try:
+		onefm_mcp_mod = frappe.get_app_path("onefm_mcp")
+	except (ModuleNotFoundError, ImportError):
 		return  # onefm_mcp is not installed on this site
+
+	if not onefm_mcp_mod or not os.path.isdir(onefm_mcp_mod):
+		return
 
 	# The app root is one level above the module
 	app_root = os.path.dirname(onefm_mcp_mod)
 
 	# 1. Remove the doctype directory tree
-	# Structure: {app_root}/onefm_mcp/doctype/ai_model_pricing/
-	doctype_dir = os.path.join(onefm_mcp_mod, "onefm_mcp", "doctype", "ai_model_pricing")
+	# frappe.get_app_path returns the module dir (e.g. .../onefm_mcp/onefm_mcp)
+	# so doctype/ is directly under it
+	doctype_dir = os.path.join(onefm_mcp_mod, "doctype", "ai_model_pricing")
 	if os.path.isdir(doctype_dir):
 		try:
 			import shutil
@@ -43,8 +50,8 @@ def execute():
 			)
 
 	# 2. Remove the seed patch file
-	# Structure: {onefm_mcp_mod}/patches/v15_0/seed_ai_model_pricing_data.py
-	seed_patch = os.path.join(onefm_mcp_mod, "patches", "v15_0", "seed_ai_model_pricing_data.py")
+	# patches/ lives at the app root, not under the module directory
+	seed_patch = os.path.join(app_root, "patches", "v15_0", "seed_ai_model_pricing_data.py")
 	if os.path.isfile(seed_patch):
 		try:
 			os.remove(seed_patch)
@@ -55,8 +62,8 @@ def execute():
 			)
 
 	# 3. Remove the patch entry from onefm_mcp/patches.txt
-	# Structure: {onefm_mcp_mod}/patches.txt
-	patches_file = os.path.join(onefm_mcp_mod, "patches.txt")
+	# patches.txt lives at the app root
+	patches_file = os.path.join(app_root, "patches.txt")
 	if os.path.isfile(patches_file):
 		try:
 			with open(patches_file) as f:
