@@ -150,7 +150,7 @@ const taskList = computed(() => {
 				timestamp: t.last_state_change ? new Date(t.last_state_change * 1000) : null,
 				data: t.data || {},
 				extensions: {
-					...((typeof specData.extensions === 'string' ? JSON.parse(specData.extensions) : specData.extensions) || {}),
+					...((() => { try { return typeof specData.extensions === 'string' ? JSON.parse(specData.extensions) : specData.extensions; } catch { return {}; } })() || {}),
 					...(serviceTaskExtensions.value[specName] || {}),
 				},
 			})
