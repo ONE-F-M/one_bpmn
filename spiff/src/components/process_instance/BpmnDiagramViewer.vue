@@ -431,6 +431,8 @@ function applyHighlights() {
 					svcExt = spec?.service_task_extensions || {}
 				} catch (e) { /* ignore */ }
 				const tasks = wfState.tasks || {}
+				// Clear any previous AI badge overlays before re-applying
+				try { overlays.remove({ type: "ai-badge" }) } catch { /* no existing overlays */ }
 				for (const [, taskData] of Object.entries(tasks)) {
 					const taskSpec = taskData.task_spec || ""
 					if (!taskSpec) continue
