@@ -27,11 +27,12 @@ def get_model_pricing(model: str) -> Optional[Dict]:
 			"AI Model Pricing",
 			filters={"model_name": model, "is_active": 1},
 			fieldname=["input_cost_per_1k", "output_cost_per_1k"],
+			order_by="effective_from desc",
 			as_dict=True,
 		)
 	except Exception:
 		frappe.log_error(
-			message=f"Failed to fetch pricing for model {model}",
+			message=f"Failed to fetch pricing for model {model}\n{frappe.get_traceback()}",
 			title="Model Pricing Error",
 		)
 		return None
