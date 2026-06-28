@@ -930,6 +930,62 @@ def _lint_ai_provider_config(_bpmn_xml: str, service_extensions: dict) -> None:
 				exc=frappe.ValidationError,
 			)
 
+
+def _check_eval_suite_gating(model_name: str) -> list:
+	"""
+	Check linked AI Eval Suites with ``gate_deployment=True`` and return
+	advisory warning messages based on the latest AI Eval Run status.
+
+	This is a non-blocking check — warnings are informational only and
+	never prevent deployment.
+
+	Args:
+		model_name: Name of the BPMN Process Model being deployed.
+
+	Returns:
+		list of warning strings (may be empty).
+	"""
+	warnings = []
+
+	suites = frappe.get_list(
+		"AI Eval Suite",
+		filters={"process_model": model_name, "gate_deployment": 1},
+		fields=["name", "title"],
+	)
+
+	if not suites:
+		return warnings
+
+	for suite in suites:
+		suite_title = suite.title or suite.name
+
+		# Find the most recent eval run for this suite
+		latest_runs = frappe.get_list(
+			"AI Eval Run",
+			filters={"suite": suite.name},
+			fields=["name", "status", "started_at"],
+			order_by="started_at desc",
+			limit_page_length=1,
+		)
+
+		if not latest_runs:
+			warnings.append(
+				_("Eval suite '{0}' has never been run. "
+				  "Consider running it before deploying.").format(suite_title)
+			)
+		elif latest_runs[0].status == "Failed":
+			run_date = frappe.utils.formatdate(latest_runs[0].started_at)
+			warnings.append(
+				_("Eval suite '{0}' failed — last run on {1}. "
+				  "Consider re-running the suite before deploying.").format(
+					suite_title, run_date
+				)
+			)
+		# If status is "Passed" (or anything else), no warning is added.
+
+	return warnings
+
+
 @frappe.whitelist()
 def compile_process_model(model_name: str) -> dict:
 	"""
@@ -1068,6 +1124,9 @@ def compile_process_model(model_name: str) -> dict:
 		spec_data["service_task_extensions"] = service_extensions
 	_lint_ai_provider_config(sanitized_xml, service_extensions)
 
+	# ── Eval suite deployment gating (non-blocking warnings) ──────────
+	deploy_warnings = _check_eval_suite_gating(model_name)
+
 	script_extensions = _extract_script_task_config(sanitized_xml)
 	if script_extensions:
 		spec_data["script_task_extensions"] = script_extensions
@@ -1108,12 +1167,17 @@ def compile_process_model(model_name: str) -> dict:
 	model.flags.skip_editability_check = True
 	model.save(ignore_permissions=True)
 
-	return {
+	result = {
 		"success": True,
 		"model": model_name,
 		"version": model.version,
 		"subprocess_count": len(sp_dict),
 	}
+
+	if deploy_warnings:
+		result["warnings"] = deploy_warnings
+
+	return result
 
 
 @frappe.whitelist()
