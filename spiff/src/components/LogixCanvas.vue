@@ -372,7 +372,7 @@
 			</div>
 
 			<!-- Code area with syntax highlighting -->
-			<div class="lc-code-area" ref="codeAreaEl">
+			<div class="lc-code-area">
 				<CodeMirrorEditor
 					v-model="canvasCode"
 					language="python"
