@@ -951,6 +951,7 @@ def _check_eval_suite_gating(model_name: str) -> list:
 		"AI Eval Suite",
 		filters={"process_model": model_name, "gate_deployment": 1},
 		fields=["name", "title"],
+		ignore_permissions=True,
 	)
 
 	if not suites:
@@ -966,6 +967,7 @@ def _check_eval_suite_gating(model_name: str) -> list:
 			fields=["name", "status", "started_at"],
 			order_by="started_at desc",
 			limit_page_length=1,
+			ignore_permissions=True,
 		)
 
 		if not latest_runs:
