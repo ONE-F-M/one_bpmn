@@ -17,19 +17,15 @@ frappe.ui.form.on("AI Eval Suite", {
 				if (!r || !r.message) return;
 
 				frm.add_custom_button(__("Run Suite"), function () {
-					frappe.freeze(__("Starting eval run…"));
-
 					frappe.call({
 						method: "one_bpmn.agents.eval_runner.run_eval_suite",
 						args: { suite_name: frm.doc.name },
+						freeze: true,
+						freeze_message: __("Starting eval run…"),
 						callback(res) {
-							frappe.unfreeze();
 							if (res && res.message) {
 								frappe.set_route("Form", "AI Eval Run", res.message);
 							}
-						},
-						error() {
-							frappe.unfreeze();
 						},
 					});
 				}, __("Actions"));

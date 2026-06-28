@@ -30,11 +30,42 @@ from . import (
     register_executor,
 )
 
+
+def _strip_code_fences(content: str) -> str:
+    """
+    Remove a surrounding Markdown code fence from *content*, if present.
+
+    Models (notably Anthropic) frequently wrap JSON responses in ```json …```
+    fences even when asked for raw JSON. This strips an opening fence line
+    (``` or ```json) and a trailing ``` so the inner payload can be parsed.
+    Content without fences is returned stripped but otherwise unchanged.
+    """
+    text = (content or "").strip()
+    if text.startswith("```"):
+        newline = text.find("\n")
+        if newline != -1:
+            text = text[newline + 1:]
+        else:
+            text = text[3:]
+        if text.rstrip().endswith("```"):
+            text = text.rstrip()[:-3]
+    return text.strip()
+
 _TRANSIENT_STATUS_CODES = frozenset({429, 500, 502, 503})
 
 
 class DirectApiExecutor(Executor):
-    """Single-call OpenAI-compatible HTTP executor."""
+    """Single-call HTTP executor supporting OpenAI-compatible and Anthropic APIs."""
+
+    # Default endpoints per provider type (used when api_endpoint is blank).
+    _DEFAULT_ENDPOINTS = {
+        "OpenAI": "https://api.openai.com/v1",
+        "Anthropic": "https://api.anthropic.com",
+        "Google": "https://generativelanguage.googleapis.com/v1beta",
+    }
+
+    # Anthropic API version header required by their Messages API.
+    _ANTHROPIC_API_VERSION = "2023-06-01"
 
     def run(self, config: ExecutorConfig, context: ExecutorContext) -> ExecutorResult:
         try:
@@ -56,26 +87,23 @@ class DirectApiExecutor(Executor):
         except Exception:
             api_key = ""
 
+        provider_type = provider.provider_type or "OpenAI"
         endpoint = (provider.api_endpoint or "").rstrip("/")
-        url = f"{endpoint}/chat/completions"
+        if not endpoint:
+            endpoint = self._DEFAULT_ENDPOINTS.get(provider_type, "")
+
         model = config.model or provider.default_model or ""
 
-        messages = []
-        if config.system_prompt:
-            messages.append({"role": "system", "content": config.system_prompt})
-        messages.append({"role": "user", "content": config.user_prompt})
-
-        payload = {
-            "model": model,
-            "messages": messages,
-            "temperature": config.temperature,
-            "top_p": config.top_p,
-            "max_tokens": config.max_tokens,
-        }
-        headers = {
-            "Authorization": f"Bearer {api_key}",
-            "Content-Type": "application/json",
-        }
+        if provider_type == "Anthropic":
+            url, payload, headers = self._build_anthropic_request(
+                endpoint, api_key, model, config,
+            )
+            parse_fn = self._parse_anthropic_response
+        else:
+            url, payload, headers = self._build_openai_request(
+                endpoint, api_key, model, config,
+            )
+            parse_fn = self._parse_openai_response
 
         import requests
 
@@ -129,16 +157,10 @@ class DirectApiExecutor(Executor):
                     error_message="Provider returned non-JSON response.",
                 )
 
-            choices = data.get("choices") or []
-            if not choices:
-                return ExecutorResult(
-                    error_code=ErrorCode.FAILED_MODEL_CALL,
-                    error_message="Provider returned no choices.",
-                    raw=data,
-                )
-            content = (choices[0].get("message") or {}).get("content", "")
-
-            token_usage = self._parse_token_usage(data.get("usage") or {})
+            # Delegate response parsing to the provider-specific parser.
+            content, token_usage, parse_error = parse_fn(data)
+            if parse_error:
+                return parse_error
 
             if config.response_format == "json":
                 validation_result = self._validate_json(content, config.response_schema)
@@ -163,6 +185,101 @@ class DirectApiExecutor(Executor):
             error_message=last_error or "Max retries exceeded.",
         )
 
+    # ------------------------------------------------------------------
+    # Request builders
+    # ------------------------------------------------------------------
+
+    @staticmethod
+    def _build_openai_request(
+        endpoint: str, api_key: str, model: str, config: ExecutorConfig,
+    ) -> tuple:
+        """Build URL, payload, and headers for OpenAI-compatible APIs."""
+        url = f"{endpoint}/chat/completions"
+        messages = []
+        if config.system_prompt:
+            messages.append({"role": "system", "content": config.system_prompt})
+        messages.append({"role": "user", "content": config.user_prompt})
+
+        payload = {
+            "model": model,
+            "messages": messages,
+            "temperature": config.temperature,
+            "top_p": config.top_p,
+            "max_tokens": config.max_tokens,
+        }
+        headers = {
+            "Authorization": f"Bearer {api_key}",
+            "Content-Type": "application/json",
+        }
+        return url, payload, headers
+
+    def _build_anthropic_request(
+        self, endpoint: str, api_key: str, model: str, config: ExecutorConfig,
+    ) -> tuple:
+        """Build URL, payload, and headers for Anthropic Messages API."""
+        url = f"{endpoint}/v1/messages"
+
+        # Anthropic uses a top-level "system" field, not a system message.
+        messages = [{"role": "user", "content": config.user_prompt}]
+
+        payload: dict = {
+            "model": model,
+            "messages": messages,
+            "max_tokens": config.max_tokens,
+        }
+        if config.system_prompt:
+            payload["system"] = config.system_prompt
+
+        # Anthropic does not allow both temperature and top_p simultaneously.
+        # Send temperature by default; only send top_p if it was explicitly
+        # changed from the default (1.0).
+        if config.top_p < 1.0:
+            payload["top_p"] = config.top_p
+        else:
+            payload["temperature"] = config.temperature
+
+        headers = {
+            "x-api-key": api_key,
+            "anthropic-version": self._ANTHROPIC_API_VERSION,
+            "Content-Type": "application/json",
+        }
+        return url, payload, headers
+
+    # ------------------------------------------------------------------
+    # Response parsers
+    # ------------------------------------------------------------------
+
+    def _parse_openai_response(self, data: dict):
+        """Parse an OpenAI-compatible response. Returns (content, token_usage, error_or_None)."""
+        choices = data.get("choices") or []
+        if not choices:
+            return None, None, ExecutorResult(
+                error_code=ErrorCode.FAILED_MODEL_CALL,
+                error_message="Provider returned no choices.",
+                raw=data,
+            )
+        content = (choices[0].get("message") or {}).get("content", "")
+        token_usage = self._parse_token_usage(data.get("usage") or {})
+        return content, token_usage, None
+
+    def _parse_anthropic_response(self, data: dict):
+        """Parse an Anthropic Messages API response. Returns (content, token_usage, error_or_None)."""
+        content_blocks = data.get("content") or []
+        if not content_blocks:
+            return None, None, ExecutorResult(
+                error_code=ErrorCode.FAILED_MODEL_CALL,
+                error_message="Anthropic returned no content blocks.",
+                raw=data,
+            )
+        # Concatenate all text blocks (Anthropic may return multiple).
+        text_parts = [
+            block.get("text", "") for block in content_blocks
+            if block.get("type") == "text"
+        ]
+        content = "".join(text_parts)
+        token_usage = self._parse_token_usage(data.get("usage") or {})
+        return content, token_usage, None
+
     @staticmethod
     def _sleep_backoff(config: ExecutorConfig, attempt: int) -> None:
         base_s = (config.retry_backoff_ms / 1000.0) * (2 ** attempt)
@@ -183,7 +300,7 @@ class DirectApiExecutor(Executor):
     @staticmethod
     def _validate_json(content: str, schema_str: Optional[str]) -> Any:
         try:
-            parsed = json.loads(content)
+            parsed = json.loads(_strip_code_fences(content))
         except json.JSONDecodeError as exc:
             return ExecutorResult(
                 error_code=ErrorCode.SCHEMA_VALIDATION_FAILED,

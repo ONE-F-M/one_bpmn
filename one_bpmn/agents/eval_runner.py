@@ -34,7 +34,10 @@ from one_bpmn.agents.executor import (
     get_executor,
 )
 # Importing the backend modules registers them in the executor registry.
-from one_bpmn.agents.executor.direct_api import DirectApiExecutor  # noqa: F401
+from one_bpmn.agents.executor.direct_api import (  # noqa: F401
+    DirectApiExecutor,
+    _strip_code_fences,
+)
 from one_bpmn.agents.executor.antigravity import AntigravityExecutor  # noqa: F401
 
 
@@ -70,7 +73,10 @@ def run_eval_suite(suite_name: str) -> str:
     Returns the AI Eval Run name immediately; the cases run in a background
     job on the "long" queue.
     """
+    print("11111111111111111", "\n\n\n\n")
     frappe.only_for("System Manager")
+
+    print("99999999999999999", "\n\n\n\n")
 
     if not frappe.db.exists("AI Eval Suite", suite_name):
         frappe.throw(_("AI Eval Suite '{0}' not found.").format(suite_name))
@@ -82,13 +88,15 @@ def run_eval_suite(suite_name: str) -> str:
     run.started_at = now_datetime()
     run.insert()
 
-    frappe.enqueue(
-        "one_bpmn.agents.eval_runner._execute_eval_suite",
-        queue="long",
-        run_name=run.name,
-        timeout=1800,
-    )
+    # frappe.enqueue(
+    #     "one_bpmn.agents.eval_runner._execute_eval_suite",
+    #     queue="long",
+    #     run_name=run.name,
+    #     timeout=1800,
+    # )
+    _execute_eval_suite(run_name=run.name)
 
+    
     return run.name
 
 
@@ -243,7 +251,7 @@ def _evaluate_schema_valid(schema_str: str, output: Any) -> dict:
     # JSON string (text response_format).
     if isinstance(output, str):
         try:
-            instance = json.loads(output)
+            instance = json.loads(_strip_code_fences(output))
         except json.JSONDecodeError as exc:
             return {"passed": False, "message": f"Output is not valid JSON: {exc}"}
     else:
@@ -312,7 +320,7 @@ def _evaluate_llm_judge(assertion, output: Any) -> dict:
     judge_output = judge_result.output
     if isinstance(judge_output, str):
         try:
-            judge_output = json.loads(judge_output)
+            judge_output = json.loads(_strip_code_fences(judge_output))
         except (json.JSONDecodeError, TypeError):
             return {
                 **base,

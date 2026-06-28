@@ -11,4 +11,4 @@ one_bpmn.one_bpmn.patches.v1_0.migrate_dmn_xml_to_child_table
 one_bpmn.one_bpmn.patches.v1_0.seed_ai_providers
 one_bpmn.one_bpmn.patches.v1_0.seed_agent_prompts #25-06-2026-v2
 one_bpmn.one_bpmn.patches.v1_0.cleanup_onefm_mcp_ai_model_pricing
-one_bpmn.one_bpmn.patches.v1_0.seed_ai_model_pricing
+one_bpmn.one_bpmn.patches.v1_0.seed_ai_model_pricing #1
