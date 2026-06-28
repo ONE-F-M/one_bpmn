@@ -182,6 +182,7 @@ function getLanguageExtension() {
 onMounted(() => {
 	if (!editorEl.value) return;
 
+	const languageCompartment = new Compartment();
 	const extensions = [
 		logixLightTheme,
 		lineNumbers(),
@@ -193,7 +194,7 @@ onMounted(() => {
 		bracketMatching(),
 		syntaxHighlighting(logixHighlightStyle),
 		syntaxHighlighting(defaultHighlightStyle, { fallback: true }),
-		getLanguageExtension(),
+		languageCompartment.of(getLanguageExtension()),
 		keymap.of([...defaultKeymap, ...historyKeymap, ...foldKeymap, indentWithTab]),
 		readOnlyCompartment.of(EditorState.readOnly.of(props.readOnly)),
 		EditorView.updateListener.of((update) => {
