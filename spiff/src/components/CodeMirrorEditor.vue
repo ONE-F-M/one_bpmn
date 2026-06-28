@@ -221,6 +221,13 @@ onMounted(() => {
 		state,
 		parent: editorEl.value,
 	});
+
+	watch(() => props.language, () => {
+		if (!view) return;
+		view.dispatch({
+			effects: languageCompartment.reconfigure(getLanguageExtension()),
+		});
+	});
 });
 
 onBeforeUnmount(() => {
