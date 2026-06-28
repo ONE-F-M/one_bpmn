@@ -39,6 +39,26 @@ from one_bpmn.agents.executor.antigravity import AntigravityExecutor  # noqa: F4
 
 
 # ---------------------------------------------------------------------------
+# LLM Judge prompt template (not configurable for v1)
+# ---------------------------------------------------------------------------
+
+JUDGE_PROMPT_TEMPLATE = """You are an evaluation judge. Score the following AI response based on the given rubric.
+
+Rubric:
+{rubric}
+
+AI Response:
+{actual_output}
+
+Score the response from 1 to 5 where:
+1 = Completely fails the rubric
+5 = Fully meets the rubric
+
+Respond with ONLY a JSON object:
+{{"score": <int>, "explanation": "<one sentence>"}}"""
+
+
+# ---------------------------------------------------------------------------
 # Whitelisted entry point
 # ---------------------------------------------------------------------------
 
@@ -207,9 +227,7 @@ def _evaluate_assertion(assertion, output: Any) -> dict:
             return {**base, **_evaluate_schema_valid(value, output)}
 
         if a_type == "llm_judge":
-            # Handled by story 6-05; not evaluated by the live runner yet.
-            return {**base, "passed": False,
-                    "message": "llm_judge assertions are not evaluated by this runner."}
+            return _evaluate_llm_judge(assertion, output)
 
         return {**base, "passed": False,
                 "message": f"Unsupported assertion type: {a_type!r}."}
@@ -242,6 +260,95 @@ def _evaluate_schema_valid(schema_str: str, output: Any) -> dict:
         return {"passed": False, "message": f"Schema validation failed: {exc.message}"}
 
     return {"passed": True, "message": ""}
+
+
+def _evaluate_llm_judge(assertion, output: Any) -> dict:
+    """
+    Call a judge LLM to score *output* against the rubric in *assertion.value*.
+
+    Uses the same executor infrastructure as the main agent call. Returns a
+    dict with type, passed, score, and explanation.
+    """
+    a_type = assertion.assertion_type
+    value = assertion.value or ""
+    base = {"assertion_type": a_type, "value": value}
+
+    judge_prompt = JUDGE_PROMPT_TEMPLATE.format(
+        rubric=value,
+        actual_output=_stringify(output),
+    )
+
+    judge_config = ExecutorConfig(
+        backend="direct_api",
+        provider_name=assertion.judge_provider or "",
+        model=assertion.judge_model or "",
+        system_prompt="",
+        user_prompt=judge_prompt,
+        response_format="json",
+    )
+    judge_context = ExecutorContext()
+
+    try:
+        executor_cls = get_executor(judge_config.backend)
+        judge_result = executor_cls().run(judge_config, judge_context)
+    except Exception as exc:
+        return {
+            **base,
+            "passed": False,
+            "score": 0,
+            "explanation": f"Judge call failed: {exc}",
+        }
+
+    if judge_result.error_code != ErrorCode.SUCCESS:
+        return {
+            **base,
+            "passed": False,
+            "score": 0,
+            "explanation": f"Judge call failed: {judge_result.error_message}",
+        }
+
+    # Parse the judge response — it may already be a dict (json response_format)
+    # or a raw string.
+    judge_output = judge_result.output
+    if isinstance(judge_output, str):
+        try:
+            judge_output = json.loads(judge_output)
+        except (json.JSONDecodeError, TypeError):
+            return {
+                **base,
+                "passed": False,
+                "score": 0,
+                "explanation": "Judge returned invalid JSON",
+            }
+
+    if not isinstance(judge_output, dict):
+        return {
+            **base,
+            "passed": False,
+            "score": 0,
+            "explanation": "Judge returned invalid JSON",
+        }
+
+    try:
+        score = int(judge_output.get("score", 0))
+    except (ValueError, TypeError):
+        return {
+            **base,
+            "passed": False,
+            "score": 0,
+            "explanation": "Judge returned invalid JSON",
+        }
+
+    explanation = str(judge_output.get("explanation", ""))
+    threshold = assertion.pass_threshold or 4
+    passed = score >= threshold
+
+    return {
+        **base,
+        "passed": passed,
+        "score": score,
+        "explanation": explanation,
+    }
 
 
 # ---------------------------------------------------------------------------
