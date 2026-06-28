@@ -74,6 +74,11 @@ import NavigatedViewer from "bpmn-js/lib/NavigatedViewer"
 import "bpmn-js/dist/assets/diagram-js.css"
 import "bpmn-js/dist/assets/bpmn-font/css/bpmn.css"
 
+// Touch interaction support for mobile devices (pinch-to-zoom, two-finger pan)
+// This is the same module used in the BPMN Editor. It auto-detects touch-primary
+// devices via `(pointer: coarse)` and is a no-op on desktop.
+import touchInteractionModule from "bpmn-js-touch-interaction"
+
 // ── Viewer-side moddle extension ──
 // The BPMN XML produced by the editor uses custom spiffworkflow:* attributes
 // (e.g. notifyAssigneeBody, emailBody).  Without registering the moddle
@@ -170,6 +175,9 @@ async function initViewer() {
 			container: canvasRef.value,
 			width: "100%",
 			height: "100%",
+			additionalModules: [
+				touchInteractionModule,
+			],
 			moddleExtensions: {
 				spiffworkflow: viewerModdleExtension,
 			},
@@ -450,6 +458,13 @@ function applyHighlights() {
 .bpmn-canvas-container .djs-overlay { pointer-events: all; }
 .bpmn-canvas-container .djs-element { cursor: pointer; }
 .bpmn-canvas-container .djs-connection { cursor: pointer; }
+
+/* Prevent browser zoom/scroll on the canvas — let our touch handler manage it */
+.bpmn-canvas-container {
+	touch-action: none;
+	-webkit-user-select: none;
+	user-select: none;
+}
 
 /* Heatmap badges */
 .heatmap-badge {
