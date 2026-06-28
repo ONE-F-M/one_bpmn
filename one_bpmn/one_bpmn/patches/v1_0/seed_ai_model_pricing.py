@@ -17,6 +17,11 @@ def execute():
 		{"model_name": "gemini-2.5-flash-lite", "provider": "gemini", "input_cost_per_1k": 0.0001,   "output_cost_per_1k": 0.0004,  "effective_from": "2025-11-20", "is_active": 1},
 		{"model_name": "gemini-2.0-flash-lite", "provider": "gemini", "input_cost_per_1k": 0.000075, "output_cost_per_1k": 0.0003,  "effective_from": "2025-11-20", "is_active": 1},
 		{"model_name": "gemini-2.0-flash",      "provider": "gemini", "input_cost_per_1k": 0.0001,   "output_cost_per_1k": 0.0004,  "effective_from": "2025-11-20", "is_active": 1},
+		# Anthropic (Claude) — per claude.com/pricing, MTok prices ÷ 1000 → per-1k
+		{"model_name": "claude-opus-4-8",   "provider": "anthropic", "input_cost_per_1k": 0.005, "output_cost_per_1k": 0.025, "effective_from": "2026-06-28", "is_active": 1},
+		{"model_name": "claude-sonnet-4-6", "provider": "anthropic", "input_cost_per_1k": 0.003, "output_cost_per_1k": 0.015, "effective_from": "2026-06-28", "is_active": 1},
+		{"model_name": "claude-haiku-4-5",  "provider": "anthropic", "input_cost_per_1k": 0.001, "output_cost_per_1k": 0.005, "effective_from": "2026-06-28", "is_active": 1},
+		{"model_name": "claude-fable-5",    "provider": "anthropic", "input_cost_per_1k": 0.010, "output_cost_per_1k": 0.050, "effective_from": "2026-06-28", "is_active": 1},
 	]
 
 	for p in pricing_data:
