@@ -371,20 +371,14 @@
 					</div>
 			</div>
 
-			<!-- Code area with line numbers -->
+			<!-- Code area with syntax highlighting -->
 			<div class="lc-code-area" ref="codeAreaEl">
-				<div class="lc-line-numbers" ref="lineNumsEl" aria-hidden="true">
-					<div v-for="n in lineCount" :key="n" class="lc-line-num">{{ n }}</div>
-				</div>
-				<textarea
-					ref="codeTextareaEl"
+				<CodeMirrorEditor
 					v-model="canvasCode"
-					class="lc-code-textarea"
-					spellcheck="false"
+					language="python"
 					placeholder="# Script will appear here after chatting with Logix or loading an existing script..."
-					@input="onCodeInput"
-					@scroll="syncScroll"
-				></textarea>
+					@change="onCodeInput"
+				/>
 			</div>
 
 		</div>
@@ -457,6 +451,7 @@
 import { ref, reactive, computed, nextTick, onMounted, watch } from "vue";
 import DOMPurify from "dompurify";
 import { marked } from "marked";
+import CodeMirrorEditor from "./CodeMirrorEditor.vue";
 
 marked.setOptions({ gfm: true, breaks: true });
 
@@ -656,11 +651,7 @@ let   pendingLogixDescription = "";
 let   pendingScriptName       = "";
 
 // ── Code editor refs ──────────────────────────────────────────────────
-const codeAreaEl      = ref(null);
-const lineNumsEl      = ref(null);
-const codeTextareaEl  = ref(null);
-
-const lineCount = computed(() => Math.max(1, (canvasCode.value || "").split("\n").length));
+const codeAreaEl = ref(null);
 
 // ── Element label ─────────────────────────────────────────────────────
 const elementLabel = computed(() => {
@@ -860,11 +851,7 @@ function onCodeInput() {
 	scheduleAutoSave();
 }
 
-function syncScroll() {
-	if (lineNumsEl.value && codeTextareaEl.value) {
-		lineNumsEl.value.scrollTop = codeTextareaEl.value.scrollTop;
-	}
-}
+// syncScroll removed — CodeMirror handles scroll sync natively
 
 function startEditName() {
 	isEditingName.value = true;
@@ -2202,45 +2189,6 @@ function resetChat() {
 	overflow: hidden;
 	background: #fafafa;
 }
-
-.lc-line-numbers {
-	width: 40px;
-	flex-shrink: 0;
-	background: #f0f0f0;
-	border-right: 1px solid #e0e0e0;
-	padding: 14px 0;
-	overflow: hidden;
-	user-select: none;
-	font-family: "JetBrains Mono", "Fira Code", monospace;
-	font-size: 12.5px;
-	line-height: 1.55;
-}
-
-.lc-line-num {
-	text-align: right;
-	padding-right: 8px;
-	color: #999;
-	line-height: 1.55;
-	font-size: 12px;
-}
-
-.lc-code-textarea {
-	flex: 1;
-	border: none;
-	outline: none;
-	resize: none;
-	padding: 14px 16px;
-	font-family: "JetBrains Mono", "Fira Code", monospace;
-	font-size: 12.5px;
-	line-height: 1.55;
-	background: #fafafa;
-	color: #1c1b1f;
-	tab-size: 4;
-	white-space: pre;
-	overflow-x: auto;
-}
-
-.lc-code-textarea::placeholder { color: #bbb; }
 
 
 /* ── Spinners ───────────────────────────────────────────────────── */

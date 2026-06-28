@@ -12,6 +12,7 @@ declare module 'vue' {
     BpmnDiagramViewer: typeof import('./src/components/process_instance/BpmnDiagramViewer.vue')['default']
     BpmnEditor: typeof import('./src/components/BpmnEditor.vue')['default']
     CallActivitySearchDialog: typeof import('./src/components/CallActivitySearchDialog.vue')['default']
+    CodeMirrorEditor: typeof import('./src/components/CodeMirrorEditor.vue')['default']
     CompareDialog: typeof import('./src/components/CompareDialog.vue')['default']
     ConfigImportResultsDialog: typeof import('./src/components/ConfigImportResultsDialog.vue')['default']
     DiffViewer: typeof import('./src/components/DiffViewer.vue')['default']
