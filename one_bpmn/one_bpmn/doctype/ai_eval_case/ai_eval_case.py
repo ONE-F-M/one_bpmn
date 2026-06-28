@@ -53,7 +53,10 @@ class AIEvalCase(Document):
                     title=_("Missing Judge Model"),
                 )
 
-            if not 1 <= (row.pass_threshold or 0) <= 5:
+            if row.pass_threshold is None:
+                row.pass_threshold = 4
+
+            if not 1 <= row.pass_threshold <= 5:
                 frappe.throw(
                     _("Row {0}: Pass Threshold must be between 1 and 5.").format(idx),
                     title=_("Invalid Pass Threshold"),
