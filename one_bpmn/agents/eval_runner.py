@@ -73,10 +73,7 @@ def run_eval_suite(suite_name: str) -> str:
     Returns the AI Eval Run name immediately; the cases run in a background
     job on the "long" queue.
     """
-    print("11111111111111111", "\n\n\n\n")
     frappe.only_for("System Manager")
-
-    print("99999999999999999", "\n\n\n\n")
 
     if not frappe.db.exists("AI Eval Suite", suite_name):
         frappe.throw(_("AI Eval Suite '{0}' not found.").format(suite_name))
@@ -88,14 +85,12 @@ def run_eval_suite(suite_name: str) -> str:
     run.started_at = now_datetime()
     run.insert()
 
-    # frappe.enqueue(
-    #     "one_bpmn.agents.eval_runner._execute_eval_suite",
-    #     queue="long",
-    #     run_name=run.name,
-    #     timeout=1800,
-    # )
-    _execute_eval_suite(run_name=run.name)
-
+    frappe.enqueue(
+        "one_bpmn.agents.eval_runner._execute_eval_suite",
+        queue="long",
+        run_name=run.name,
+        timeout=1800,
+    )
     
     return run.name
 
