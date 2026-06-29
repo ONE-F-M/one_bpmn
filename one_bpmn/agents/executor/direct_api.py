@@ -57,25 +57,45 @@ class DirectApiExecutor(Executor):
             api_key = ""
 
         endpoint = (provider.api_endpoint or "").rstrip("/")
-        url = f"{endpoint}/chat/completions"
         model = config.model or provider.default_model or ""
+        provider_type = (provider.provider_type or "").strip()
 
-        messages = []
-        if config.system_prompt:
-            messages.append({"role": "system", "content": config.system_prompt})
-        messages.append({"role": "user", "content": config.user_prompt})
-
-        payload = {
-            "model": model,
-            "messages": messages,
-            "temperature": config.temperature,
-            "top_p": config.top_p,
-            "max_tokens": config.max_tokens,
-        }
-        headers = {
-            "Authorization": f"Bearer {api_key}",
-            "Content-Type": "application/json",
-        }
+        # ── Build request based on provider type ──────────────────────────
+        if provider_type == "Anthropic":
+            url = f"{endpoint}/messages"
+            messages = [{"role": "user", "content": config.user_prompt}]
+            payload = {
+                "model": model,
+                "messages": messages,
+                "temperature": config.temperature,
+                "top_p": config.top_p,
+                "max_tokens": config.max_tokens,
+            }
+            if config.system_prompt:
+                payload["system"] = config.system_prompt
+            headers = {
+                "x-api-key": api_key,
+                "anthropic-version": "2023-06-01",
+                "Content-Type": "application/json",
+            }
+        else:
+            # OpenAI-compatible (OpenAI, Google, Bedrock, self-hosted)
+            url = f"{endpoint}/chat/completions"
+            messages = []
+            if config.system_prompt:
+                messages.append({"role": "system", "content": config.system_prompt})
+            messages.append({"role": "user", "content": config.user_prompt})
+            payload = {
+                "model": model,
+                "messages": messages,
+                "temperature": config.temperature,
+                "top_p": config.top_p,
+                "max_tokens": config.max_tokens,
+            }
+            headers = {
+                "Authorization": f"Bearer {api_key}",
+                "Content-Type": "application/json",
+            }
 
         import requests
 
@@ -129,14 +149,30 @@ class DirectApiExecutor(Executor):
                     error_message="Provider returned non-JSON response.",
                 )
 
-            choices = data.get("choices") or []
-            if not choices:
-                return ExecutorResult(
-                    error_code=ErrorCode.FAILED_MODEL_CALL,
-                    error_message="Provider returned no choices.",
-                    raw=data,
-                )
-            content = (choices[0].get("message") or {}).get("content", "")
+            # ── Parse response based on provider type ─────────────────────
+            if provider_type == "Anthropic":
+                # Anthropic returns: {"content": [{"type": "text", "text": "..."}], "usage": {...}}
+                content_blocks = data.get("content") or []
+                content = ""
+                for block in content_blocks:
+                    if isinstance(block, dict) and block.get("type") == "text":
+                        content += block.get("text", "")
+                if not content:
+                    return ExecutorResult(
+                        error_code=ErrorCode.FAILED_MODEL_CALL,
+                        error_message="Anthropic returned no text content.",
+                        raw=data,
+                    )
+            else:
+                # OpenAI-compatible: {"choices": [{"message": {"content": "..."}}]}
+                choices = data.get("choices") or []
+                if not choices:
+                    return ExecutorResult(
+                        error_code=ErrorCode.FAILED_MODEL_CALL,
+                        error_message="Provider returned no choices.",
+                        raw=data,
+                    )
+                content = (choices[0].get("message") or {}).get("content", "")
 
             token_usage = self._parse_token_usage(data.get("usage") or {})
 
