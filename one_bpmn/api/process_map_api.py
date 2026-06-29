@@ -10,6 +10,59 @@ from frappe.utils import cint
 
 
 # ============================================
+# HTML attribute sanitization for BPMN viewer
+# ============================================
+
+def _sanitize_html_attrs_for_viewer(bpmn_xml: str) -> str:
+	"""Encode raw HTML in spiffworkflow:* attributes to base64.
+
+	Existing BPMN XML may contain raw HTML (e.g. ``<p>Hello</p>``) in
+	attributes like ``notifyAssigneeBody`` and ``emailBody``.  The BPMN
+	viewer's XML parser chokes on these because ``</p>`` looks like a
+	closing XML tag.
+
+	This function encodes any raw HTML attribute values to base64 before
+	the XML reaches the frontend.  Already-encoded (base64) values are
+	left untouched.  Falls back to the original XML on any error.
+	"""
+	import base64 as _b64
+
+	SPIFF_NS = "http://spiffworkflow.org/bpmn/schema/1.0/core"
+	_HTML_ATTRS = (
+		f"{{{SPIFF_NS}}}notifyAssigneeBody",
+		f"{{{SPIFF_NS}}}emailBody",
+	)
+
+	try:
+		parser = ET.XMLParser(resolve_entities=False, no_network=True)
+		root = ET.fromstring(bpmn_xml.strip().encode("utf-8"), parser=parser)
+
+		changed = False
+		for attr_key in _HTML_ATTRS:
+			for elem in root.iter():
+				raw = elem.get(attr_key)
+				if not raw:
+					continue
+				# Already base64?
+				try:
+					_b64.b64decode(raw).decode("utf-8")
+					continue  # valid base64 — skip
+				except Exception:
+					pass
+				# Raw HTML — encode to base64
+				encoded = _b64.b64encode(raw.encode("utf-8")).decode("ascii")
+				elem.set(attr_key, encoded)
+				changed = True
+
+		if not changed:
+			return bpmn_xml
+
+		return ET.tostring(root, encoding="unicode", xml_declaration=False)
+	except Exception:
+		return bpmn_xml
+
+
+# ============================================
 # Process Model CRUD API
 # ============================================
 
@@ -53,6 +106,11 @@ def save_process_model(
 		if description is not None:
 			doc.description = description
 		doc.save()
+
+		# Record a full-XML snapshot for the version history panel.
+		from one_bpmn.api.version_history import create_diagram_snapshot
+
+		create_diagram_snapshot(doc.name, xml_content)
 	else:
 		# Create new model
 		doc = frappe.new_doc("BPMN Process Model")
@@ -68,6 +126,82 @@ def save_process_model(
 		# embeds a unique process_id in the XML — skip re-generation.
 		doc.flags.skip_process_id_regeneration = True
 		doc.insert()
+
+		# Seed the version history with the initial snapshot.
+		from one_bpmn.api.version_history import create_diagram_snapshot
+
+		create_diagram_snapshot(doc.name, xml_content)
+
+	return {"name": doc.name, "model_name": doc.title, "version": doc.version, "is_active": doc.is_active}
+
+
+@frappe.whitelist()
+def create_map_from_version(
+	process: str, model_name: str, base_version: str, description: str = None
+) -> dict:
+	"""Create a new process map seeded from a named version snapshot.
+
+	Used by the editor "+" flow once a process already has at least one process
+	map: instead of starting blank, the new map is built on top of a chosen
+	*named* version from the active map's history, which serves as the base
+	template the user builds from.
+
+	The new map receives a fresh, unique process_id — the BPMN Process Model
+	controller regenerates it on insert (and rewrites the XML references) because
+	the seeded XML still carries the source map's process_id — so the new map has
+	its own identity and does not collide with the source.
+
+	Args:
+		process: Name of the parent Process.
+		model_name: Title for the new process map. Must be unique.
+		base_version: Document name of the BPMN Diagram Version to seed from.
+			Must be a *named* version.
+		description: Optional description.
+
+	Returns:
+		dict with name, model_name, version, is_active of the created map.
+	"""
+	if not process or not model_name or not base_version:
+		frappe.throw(_("Process, name and base version are required"))
+
+	title = model_name.strip()
+	if not title:
+		frappe.throw(_("Name is required"))
+
+	# Enforce a unique name (BPMN Process Model autoname is field:title, so the
+	# document name equals the title). Reject duplicates with a friendly message.
+	if frappe.db.exists("BPMN Process Model", title):
+		frappe.throw(
+			_("A process map named '{0}' already exists. Please choose a different name.").format(title)
+		)
+
+	snap = frappe.get_doc("BPMN Diagram Version", base_version)
+	if not snap.is_named:
+		frappe.throw(_("The base version must be a named version"))
+	if not snap.bpmn_xml:
+		frappe.throw(_("The selected base version has no diagram content"))
+
+	# Permission is gated on the source process model the snapshot belongs to.
+	frappe.get_doc("BPMN Process Model", snap.model).check_permission("read")
+
+	doc = frappe.new_doc("BPMN Process Model")
+	doc.title = title
+	doc.process_name = process
+	doc.bpmn_xml = snap.bpmn_xml
+	doc.description = description or ""
+	doc.version = 0
+	doc.is_active = 0
+
+	doc.check_permission("create")
+	# Intentionally do NOT set skip_process_id_regeneration: the seeded XML
+	# carries the source map's process_id, so let the controller mint a fresh
+	# unique one to avoid identity collisions during import/deploy.
+	doc.insert()
+
+	# Seed the new map's version history with its initial snapshot.
+	from one_bpmn.api.version_history import create_diagram_snapshot
+
+	create_diagram_snapshot(doc.name, doc.bpmn_xml)
 
 	return {"name": doc.name, "model_name": doc.title, "version": doc.version, "is_active": doc.is_active}
 
@@ -428,6 +562,9 @@ def _extract_bpmn_references(xml_content: str) -> dict:
 	for dt in apply_workflow_doctypes:
 		referenced_fields.append((dt, "workflow_state"))
 
+	# ── Extract Call Activity references ─────────────────────────────────
+	call_activities = _extract_call_activity_refs(xml_content)
+
 	# ── Extract process-level attributes ─────────────────────────────────
 	_process_el = root.find(f"{{{BPMN_NS}}}process") or root.find("process")
 
@@ -439,18 +576,156 @@ def _extract_bpmn_references(xml_content: str) -> dict:
 		"server_scripts": referenced_scripts,
 		"lane_roles": referenced_lane_roles,
 		"apply_workflow_doctypes": apply_workflow_doctypes,
+		"call_activities": call_activities,
 		"root": root,
 		"process_el": _process_el,
 	}
 
 
+def _extract_call_activity_refs(xml_content: str) -> list:
+	"""
+	Parse BPMN XML and extract all Call Activity references.
+
+	Each Call Activity has a ``calledElement`` attribute that stores the
+	process_id of the target process model.
+
+	Args:
+		xml_content: Raw BPMN XML text
+
+	Returns:
+		list of dicts with keys: bpmn_id, called_element, name
+	"""
+	import xml.etree.ElementTree as _ET
+
+	BPMN_NS = "http://www.omg.org/spec/BPMN/20100524/MODEL"
+
+	if not xml_content or not xml_content.strip():
+		return []
+
+	try:
+		root = _ET.fromstring(
+			xml_content.strip().encode("utf-8") if isinstance(xml_content, str) else xml_content
+		)
+	except Exception:
+		return []
+
+	refs = []
+	for call_activity in root.iter(f"{{{BPMN_NS}}}callActivity"):
+		bpmn_id = call_activity.get("id", "")
+		called_element = call_activity.get("calledElement", "").strip()
+		name = call_activity.get("name", "").strip()
+		if bpmn_id and called_element:
+			refs.append({
+				"bpmn_id": bpmn_id,
+				"called_element": called_element,
+				"name": name or bpmn_id,
+			})
+
+	return refs
+
+
+def _check_call_activity_references(model_name: str) -> list:
+	"""
+	Detect Call Activities in other models that reference process models
+	which will be disabled when ``model_name`` is deployed.
+
+	When a model is deployed, all sibling models (same ``process_name``,
+	different ``name``) that are currently active are deactivated.  If any
+	other active model (across all processes) has a Call Activity whose
+	``calledElement`` points to one of those siblings' ``process_id``
+	values, the reference will break at runtime.
+
+	This function scans all active models (excluding the model being
+	deployed and its siblings) for such references and returns a list
+	of flagged items suitable for the readiness checklist.
+
+	Args:
+		model_name: The name of the BPMN Process Model being deployed.
+
+	Returns:
+		list of item dicts with type ``call_activity_ref`` for the
+		readiness checklist categories.
+	"""
+	model = frappe.db.get_value(
+		"BPMN Process Model",
+		model_name,
+		["name", "process_name", "process_id"],
+		as_dict=True,
+	)
+	if not model or not model.process_name:
+		return []
+
+	# Find sibling models that will be disabled by this deployment
+	# (same process_name, currently active, not the model being deployed)
+	siblings = frappe.get_all(
+		"BPMN Process Model",
+		filters={
+			"process_name": model.process_name,
+			"is_active": 1,
+			"name": ["!=", model_name],
+		},
+		fields=["name", "process_id", "title"],
+	)
+	if not siblings:
+		return []
+
+	# Build a map: process_id → sibling info (for the models being disabled)
+	disabled_process_ids = {}
+	for s in siblings:
+		if s.process_id:
+			disabled_process_ids[s.process_id] = s
+
+	if not disabled_process_ids:
+		return []
+
+	# Scan all other active models for Call Activities referencing the
+	# about-to-be-disabled process_ids.
+	# Exclude the model being deployed AND its siblings (they are the ones
+	# being disabled — not interested in self-references).
+	sibling_names = [s.name for s in siblings] + [model_name]
+	other_models = frappe.get_all(
+		"BPMN Process Model",
+		filters={
+			"name": ["not in", sibling_names],
+			"bpmn_xml": ["is", "set"],
+		},
+		fields=["name", "title", "bpmn_xml", "process_name"],
+	)
+
+	items = []
+	for other in other_models:
+		if not other.bpmn_xml:
+			continue
+
+		call_refs = _extract_call_activity_refs(other.bpmn_xml)
+		for ref in call_refs:
+			if ref["called_element"] in disabled_process_ids:
+				disabled_sibling = disabled_process_ids[ref["called_element"]]
+				items.append({
+					"name": _(
+						"'{0}' in {1} → references {2} (will be disabled)"
+					).format(ref["name"], other.title, disabled_sibling.title),
+					"exists": True,
+					"type": "call_activity_ref",
+					"detail": _(
+						"Update calledElement from {0} to {1}?"
+					).format(ref["called_element"], model.process_id),
+					"source_model": other.name,
+					"source_element_id": ref["bpmn_id"],
+					"old_process_id": ref["called_element"],
+					"new_process_id": model.process_id,
+				})
+
+	return items
+
+
 @frappe.whitelist()
-def validate_bpmn_readiness(xml_content: str) -> dict:
+def validate_bpmn_readiness(xml_content: str, model_name: str = None) -> dict:
 	"""
 	Parse BPMN XML and check all prerequisites against the database.
 
 	Shared validation used by both import (informational) and deploy (blocking).
-	Checks 8 categories:
+	Checks 10 categories:
 	  1. DocTypes         — referenced doctypes must exist
 	  2. Fields           — referenced fields must exist on their doctypes
 	  3. Workflow States  — referenced states must exist as Workflow State records
@@ -459,9 +734,13 @@ def validate_bpmn_readiness(xml_content: str) -> dict:
 	  6. Lane Roles       — roles assigned to lanes must exist and be active
 	  7. Frappe Workflows — active workflows are flagged as conflict warnings
 	  8. Assignment Rules — active rules are flagged as conflict warnings
+	  9. Prohibited Shapes — shapes that must not appear in executable processes
+	 10. Call Activity Refs — call activities referencing models about to be disabled
 
 	Args:
 		xml_content: Raw BPMN XML text
+		model_name:  Optional name of the model being deployed. When provided,
+		             enables call activity reference checking (category 10).
 
 	Returns:
 		dict with categories, total_checked, total_missing, total_warnings, all_ready
@@ -668,6 +947,16 @@ def validate_bpmn_readiness(xml_content: str) -> dict:
 			"items": prohibited_items,
 		})
 
+	# 10. Call Activity References (detect refs to models that will be disabled)
+	if model_name:
+		call_activity_ref_items = _check_call_activity_references(model_name)
+		if call_activity_ref_items:
+			categories.append({
+				"label": "Call Activity References",
+				"icon": "link-2",
+				"items": call_activity_ref_items,
+			})
+
 	# ── Compute summary ──────────────────────────────────────────────────
 	total_checked = 0
 	total_missing = 0
@@ -678,7 +967,7 @@ def validate_bpmn_readiness(xml_content: str) -> dict:
 			total_checked += 1
 			if item["type"] == "check" and not item["exists"]:
 				total_missing += 1
-			elif item["type"] == "warning":
+			elif item["type"] in ("warning", "call_activity_ref"):
 				total_warnings += 1
 
 	return {
@@ -689,6 +978,103 @@ def validate_bpmn_readiness(xml_content: str) -> dict:
 		"is_executable": is_executable,
 		"all_ready": total_missing == 0 and is_executable,
 	}
+
+
+@frappe.whitelist(methods=["POST"])
+def update_call_activity_references(references: str) -> dict:
+	"""
+	Batch-update Call Activity ``calledElement`` attributes in BPMN models.
+
+	Called from the deploy readiness dialog when the user chooses
+	"Update All" to rewrite Call Activity references from a model
+	that is about to be disabled to the model being deployed.
+
+	For each reference entry, the function:
+	  1. Loads the source model's BPMN XML
+	  2. Finds the ``<bpmn:callActivity>`` with the matching ``id``
+	  3. Updates its ``calledElement`` attribute to ``new_process_id``
+	  4. Saves the model (bypassing editability checks)
+
+	Args:
+		references: JSON-encoded list of dicts, each with:
+		  - source_model:      BPMN Process Model name containing the Call Activity
+		  - source_element_id: BPMN element ID of the Call Activity
+		  - old_process_id:    Current calledElement value
+		  - new_process_id:    New calledElement value to set
+
+	Returns:
+		dict with ``success`` (bool) and ``updated`` (int count)
+	"""
+	import xml.etree.ElementTree as _ET
+
+	frappe.only_for(["System Manager", "Process Owner"])
+
+	refs = json.loads(references) if isinstance(references, str) else references
+	if not refs:
+		return {"success": True, "updated": 0}
+
+	BPMN_NS = "http://www.omg.org/spec/BPMN/20100524/MODEL"
+
+	# Register common BPMN namespaces to prevent ns0/ns1 prefix pollution
+	_ET.register_namespace("bpmn", BPMN_NS)
+	_ET.register_namespace("bpmndi", "http://www.omg.org/spec/BPMN/20100524/DI")
+	_ET.register_namespace("dc", "http://www.omg.org/spec/DD/20100524/DC")
+	_ET.register_namespace("di", "http://www.omg.org/spec/DD/20100524/DI")
+	_ET.register_namespace("spiffworkflow", "http://spiffworkflow.org/bpmn/schema/1.0/core")
+
+	updated = 0
+	# Group by source_model to avoid re-parsing/re-saving the same model multiple times
+	by_model = {}
+	for ref in refs:
+		model_name = ref.get("source_model")
+		if model_name:
+			by_model.setdefault(model_name, []).append(ref)
+
+	for model_name, model_refs in by_model.items():
+		if not frappe.db.exists("BPMN Process Model", model_name):
+			continue
+
+		doc = frappe.get_doc("BPMN Process Model", model_name)
+		doc.check_permission("write")
+
+		if not doc.bpmn_xml:
+			continue
+
+		try:
+			root = _ET.fromstring(doc.bpmn_xml.strip().encode("utf-8"))
+		except Exception:
+			frappe.log_error(
+				title="BPMN: update_call_activity_references XML parse failed",
+				message=f"Failed to parse XML for model '{model_name}'",
+			)
+			continue
+
+		xml_changed = False
+		for ref in model_refs:
+			element_id = ref.get("source_element_id", "")
+			old_pid = ref.get("old_process_id", "")
+			new_pid = ref.get("new_process_id", "")
+
+			if not element_id or not old_pid or not new_pid:
+				continue
+
+			for call_activity in root.iter(f"{{{BPMN_NS}}}callActivity"):
+				if (
+					call_activity.get("id") == element_id
+					and call_activity.get("calledElement", "").strip() == old_pid
+				):
+					call_activity.set("calledElement", new_pid)
+					xml_changed = True
+					updated += 1
+					break
+
+		if xml_changed:
+			doc.bpmn_xml = _ET.tostring(root, encoding="unicode", xml_declaration=False)
+			# Bypass editability check — this is a deployment-related operation
+			doc.flags.skip_editability_check = True
+			doc.save(ignore_permissions=True)
+
+	return {"success": True, "updated": updated}
 
 
 @frappe.whitelist()
@@ -708,14 +1094,20 @@ def get_process_model(name: str) -> dict:
 	doc = frappe.get_doc("BPMN Process Model", name)
 	doc.check_permission("read")
 
+	# Sanitize XML for the viewer — encode any raw HTML attributes to base64
+	# to prevent XML parse errors in the frontend BPMN viewer.
+	xml_content = doc.bpmn_xml
+	if xml_content:
+		xml_content = _sanitize_html_attrs_for_viewer(xml_content)
+
 	return {
 		"name": doc.name,
 		"model_name": doc.title,
 		"title": doc.title,
 		"process_id": doc.process_id,
 		"description": doc.description,
-		"xml_content": doc.bpmn_xml,
-		"bpmn_xml": doc.bpmn_xml,
+		"xml_content": xml_content,
+		"bpmn_xml": xml_content,
 		"version": doc.version,
 		"is_active": doc.is_active,
 		"modified": doc.modified,

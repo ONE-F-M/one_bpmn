@@ -5,6 +5,7 @@ import { h, Component } from "preact";
 import { frappeGet } from "../shared/frappeResource";
 import { FrappeAutocomplete } from "../shared/FrappeAutocomplete";
 import { FrappeMultiSelect } from "../shared/FrappeMultiSelect";
+import { decodeHtmlAttr } from "../shared/htmlAttrCodec";
 
 // Helpers
 function getAttr(bo, attr) {
@@ -69,6 +70,21 @@ export function UserTaskProps(props) {
 		component: TaskActionsTableComponent,
 		isEdited: isSelectEntryEdited,
 	});
+
+	// Notify Assignee — checkbox + conditional Launch Editor button
+	entries.push({
+		id: "spiffworkflow-notifyAssignee",
+		element,
+		component: NotifyAssigneeCheckboxComponent,
+	});
+
+	if (getAttr(bo, "notifyAssignee") === "true") {
+		entries.push({
+			id: "spiffworkflow-notifyAssigneeEditor",
+			element,
+			component: NotifyAssigneeEditorButtonComponent,
+		});
+	}
 
 	return entries;
 }
@@ -719,4 +735,112 @@ class ActionRowComponent extends Component {
 			]
 		);
 	}
+}
+
+// ─────────────────────────────────────────────────────────────────────────
+// Notify Assignee — Checkbox + Launch Editor button
+// ─────────────────────────────────────────────────────────────────────────
+
+function NotifyAssigneeCheckboxComponent(props) {
+	const { element, id } = props;
+	const modeling  = useService("modeling");
+	const translate = useService("translate");
+	const bo        = getBusinessObject(element);
+
+	const checked = getAttr(bo, "notifyAssignee") === "true";
+
+	const handleChange = (e) => {
+		const updates = {
+			"spiffworkflow:notifyAssignee": e.target.checked ? "true" : undefined,
+		};
+		// Clear the body + subject + template when unchecking
+		if (!e.target.checked) {
+			updates["spiffworkflow:notifyAssigneeBody"] = undefined;
+			updates["spiffworkflow:notifyAssigneeSubject"] = undefined;
+			updates["spiffworkflow:notifyAssigneeTemplate"] = undefined;
+		}
+		modeling.updateModdleProperties(element, bo, updates);
+	};
+
+	return h(
+		"div",
+		{
+			class: "bio-properties-panel-entry bpmn-notify-assignee-entry",
+			"data-entry-id": id,
+		},
+		h(
+			"div",
+			{ class: "bio-properties-panel-textfield" },
+			[
+				h(
+					"label",
+					{ class: "bpmn-notify-assignee-label" },
+					[
+						h("input", {
+							type: "checkbox",
+							checked,
+							onChange: handleChange,
+							class: "bpmn-notify-assignee-checkbox",
+						}),
+						h("span", {}, translate("Notify Assignee")),
+					]
+				),
+				h(
+					"div",
+					{ class: "bio-properties-panel-description" },
+					translate(
+						"When enabled, the assigned user receives a notification when this task is created."
+					)
+				),
+			]
+		)
+	);
+}
+
+function NotifyAssigneeEditorButtonComponent(props) {
+	const { element, id } = props;
+	const translate = useService("translate");
+	const bo        = getBusinessObject(element);
+	const eventBus  = useService("eventBus");
+
+	const handleClick = () => {
+		eventBus.fire("spiff.userTask.notifyAssignee.edit", {
+			element,
+			eventBus,
+			body: getAttr(bo, "notifyAssigneeBody"),
+			subject: getAttr(bo, "notifyAssigneeSubject"),
+			template: getAttr(bo, "notifyAssigneeTemplate"),
+		});
+	};
+
+	const hasBody = !!decodeHtmlAttr(getAttr(bo, "notifyAssigneeBody"));
+	const template = getAttr(bo, "notifyAssigneeTemplate");
+
+	return h(
+		"div",
+		{ class: "bio-properties-panel-entry", "data-entry-id": id },
+		[
+			h(
+				"button",
+				{
+					class: "spiffworkflow-properties-panel-button bpmn-notify-editor-btn",
+					onClick: handleClick,
+					type: "button",
+				},
+				[
+					h("span", {}, translate("Launch Editor")),
+					hasBody &&
+						h("span", { class: "bpmn-notify-editor-badge" }, "✓"),
+				]
+			),
+			// Template-attached indicator
+			h(
+				"div",
+				{ class: "bio-properties-panel-description bpmn-mt-6" },
+				template
+					? h("span", {}, `${translate("Template attached")}: ${template}`)
+					: h("span", {}, translate("No template attached"))
+			),
+		]
+	);
 }

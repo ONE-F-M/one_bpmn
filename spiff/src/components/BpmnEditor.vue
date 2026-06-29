@@ -948,11 +948,19 @@
 				</div>
 			</template>
 		</Dialog>
+
+		<!-- AI Agent Task config modal -->
+		<AIAgentConfigModal
+			v-if="aiAgentModal.show && aiAgentModal.element"
+			:element="aiAgentModal.element"
+			:modeler="modeler"
+			@close="aiAgentModal.show = false"
+		/>
 	</div>
 </template>
 
 <script setup>
-import { ref, shallowRef, onMounted, onBeforeUnmount, onUnmounted, watch, computed, nextTick } from "vue";
+import { ref, shallowRef, markRaw, onMounted, onBeforeUnmount, onUnmounted, watch, computed, nextTick } from "vue";
 import { frappeRequest } from "frappe-ui";
 import {
 	injectProcessNameField,
@@ -966,6 +974,7 @@ import { useBottomSheet } from "@/composables/useBottomSheet";
 
 import FormattingToolbar from "@/components/FormattingToolbar.vue";
 import ProsAllyPanel from "@/components/ProsAllyPanel.vue";
+import AIAgentConfigModal from "@/components/AIAgentConfigModal.vue";
 import { layoutBpmnXml } from "@/utils/bpmnLayout.js";
 import { initModeler } from "@/composables/useModelerInit";
 import { useBpmnContextMenu } from "@/composables/useBpmnContextMenu";
@@ -988,7 +997,7 @@ import translateModule from "@/i18n";
 import customRulesModule from "@/rules";
 
 // Custom text styling module
-import { customTextStyleModule, stickyNoteModule } from "@/renderers";
+import { customTextStyleModule, stickyNoteModule, serviceTaskIconModule } from "@/renderers";
 
 // Native system-clipboard module — enables copy/paste across browser tabs.
 // Inlined from https://github.com/nikku/bpmn-js-native-copy-paste (MIT)
@@ -1005,6 +1014,10 @@ import resizeModule from "@/resize";
 import userTaskPropertiesProviderModule from "@/bpmn/userTaskPropertiesProvider";
 import sendTaskPropertiesProviderModule from "@/bpmn/sendTaskPropertiesProvider";
 import serviceTaskPropertiesProviderModule from "@/bpmn/serviceTaskPropertiesProvider";
+import aiAgentPropertiesProviderModule from "@/bpmn/aiAgentPropertiesProvider";
+import aiAgentReplaceMenuProviderModule from "@/bpmn/aiAgentReplaceMenuProvider";
+import aiAgentRendererModule from "@/bpmn/aiAgentRenderer";
+
 import scriptTaskPropertiesProviderModule from "@/bpmn/scriptTaskPropertiesProvider";
 import businessRuleTaskPropertiesProviderModule from "@/bpmn/businessRuleTaskPropertiesProvider";
 import timerPropertiesProviderModule from "@/bpmn/timerPropertiesProvider";
@@ -1013,6 +1026,7 @@ import conditionalStartEventPropertiesProviderModule from "@/bpmn/conditionalSta
 import lanePropertiesProviderModule from "@/bpmn/lanePropertiesProvider";
 import propertiesPanelFilterModule from "@/bpmn/propertiesPanelFilter";
 import commentContextPadModule from "@/bpmn/commentContextPad";
+import { encodeHtmlAttr, decodeHtmlAttr } from "@/bpmn/shared/htmlAttrCodec";
 
 // bpmnlint — diagram validation
 import lintModule from "bpmn-js-bpmnlint";
@@ -1060,6 +1074,7 @@ const emit = defineEmits([
 	"launch-callactivity-search",
 	"launch-notification-editor",
 	"launch-dmn-editor",
+	"launch-notify-assignee-editor",
 ]);
 
 // Commenting state
@@ -1081,6 +1096,7 @@ const messageDialog = ref({
 	elementId: "",
 	_eventBus: null,
 });
+const aiAgentModal = ref({ show: false, element: null });
 const isCommentMode = ref(false);
 const commentFormData = ref({
 	text: "",
@@ -1476,7 +1492,11 @@ onMounted(async () => {
 						{ name: "assigneeDocfield",      isAttr: true, type: "String" },
 						{ name: "assigneeUsers",         isAttr: true, type: "String" },
 						{ name: "roundRobinLastUser",    isAttr: true, type: "String" },
-						{ name: "taskActions",           isAttr: true, type: "String" }
+						{ name: "taskActions",           isAttr: true, type: "String" },
+						{ name: "notifyAssignee",        isAttr: true, type: "String" },
+						{ name: "notifyAssigneeBody",    isAttr: true, type: "String" },
+						{ name: "notifyAssigneeSubject", isAttr: true, type: "String" },
+						{ name: "notifyAssigneeTemplate", isAttr: true, type: "String" }
 					]
 				});
 
@@ -1540,7 +1560,22 @@ onMounted(async () => {
 						{ name: "pushMessage",          isAttr: true, type: "String" },
 						{ name: "pushToUsers",          isAttr: true, type: "String" },
 						{ name: "pushToDocFields",      isAttr: true, type: "String" },
-						{ name: "pushToRoles",          isAttr: true, type: "String" }
+						{ name: "pushToRoles",          isAttr: true, type: "String" },
+						// AI Agent Task attrs
+						{ name: "aiBackend",            isAttr: true, type: "String" },
+						{ name: "aiProvider",           isAttr: true, type: "String" },
+						{ name: "aiModel",              isAttr: true, type: "String" },
+						{ name: "aiOutputVariable",     isAttr: true, type: "String" },
+						{ name: "aiSystemPrompt",       isAttr: true, type: "String" },
+						{ name: "aiUserPrompt",         isAttr: true, type: "String" },
+						{ name: "aiResponseFormat",     isAttr: true, type: "String" },
+						{ name: "aiResponseSchema",     isAttr: true, type: "String" },
+						{ name: "aiTemperature",        isAttr: true, type: "String" },
+						{ name: "aiTopP",               isAttr: true, type: "String" },
+						{ name: "aiMaxTokens",          isAttr: true, type: "String" },
+						{ name: "aiTimeout",            isAttr: true, type: "String" },
+						{ name: "aiMaxRetries",         isAttr: true, type: "String" },
+						{ name: "aiWriteBackField",     isAttr: true, type: "String" }
 						]
 				});
 			}
@@ -1583,6 +1618,10 @@ onMounted(async () => {
 				userTaskPropertiesProviderModule,
 				sendTaskPropertiesProviderModule,
 				serviceTaskPropertiesProviderModule,
+				aiAgentPropertiesProviderModule,
+				aiAgentReplaceMenuProviderModule,
+				aiAgentRendererModule,
+
 				scriptTaskPropertiesProviderModule,
 				businessRuleTaskPropertiesProviderModule,
 				timerPropertiesProviderModule,
@@ -1594,6 +1633,7 @@ onMounted(async () => {
 				customTextStyleModule,
 				resizeModule,
 				stickyNoteModule,
+				serviceTaskIconModule,
 				clipboardModule,
 				lintModule,
 				nativeCopyPasteModule,
@@ -1969,6 +2009,11 @@ onMounted(async () => {
 				});
 			});
 
+			// AI Agent Task config modal
+			eventBus.on("launch-ai-agent-editor", (event) => {
+				aiAgentModal.value = { show: true, element: markRaw(event.element) };
+			});
+
 			// Notification editing (Send Tasks)
 			eventBus.on("spiff.notification.edit", (event) => {
 				emit("launch-notification-editor", {
@@ -1985,6 +2030,30 @@ onMounted(async () => {
 					const bo = event.element.businessObject || event.element;
 					modeling.updateModdleProperties(event.element, bo, {
 						"spiffworkflow:notificationName": event.notificationName,
+					});
+				}
+			});
+
+			// Notify Assignee editor (User Tasks)
+			eventBus.on("spiff.userTask.notifyAssignee.edit", (event) => {
+				emit("launch-notify-assignee-editor", {
+					element: event.element,
+					body: decodeHtmlAttr(event.body) || "",
+					subject: event.subject || "",
+					template: event.template || "",
+					eventBus: event.eventBus,
+				});
+			});
+
+			// Write notify-assignee HTML body + subject + template back to BPMN element
+			eventBus.on("spiff.userTask.notifyAssignee.update", (event) => {
+				if (event.element) {
+					const modeling = modeler.get("modeling");
+					const bo = event.element.businessObject || event.element;
+					modeling.updateModdleProperties(event.element, bo, {
+						"spiffworkflow:notifyAssigneeBody": encodeHtmlAttr(event.body),
+						"spiffworkflow:notifyAssigneeSubject": event.subject || undefined,
+						"spiffworkflow:notifyAssigneeTemplate": event.template || undefined,
 					});
 				}
 			});

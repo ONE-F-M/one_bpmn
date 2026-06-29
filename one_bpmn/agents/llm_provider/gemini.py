@@ -39,6 +39,7 @@ class GeminiAdapter(BaseLLMAdapter):
         system: str,
         user: str,
         tools: list[ToolSpec] | None = None,
+        max_tokens: int = 16384,
     ) -> str:
         contents: list[types.Content] = [
             types.Content(role="user", parts=[types.Part(text=user)])
