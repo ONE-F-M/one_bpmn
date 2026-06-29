@@ -1576,7 +1576,8 @@ onMounted(async () => {
 						{ name: "aiMaxTokens",          isAttr: true, type: "String" },
 						{ name: "aiTimeout",            isAttr: true, type: "String" },
 						{ name: "aiMaxRetries",         isAttr: true, type: "String" },
-						{ name: "aiWriteBackField",     isAttr: true, type: "String" }
+						{ name: "aiWriteBackField",     isAttr: true, type: "String" },
+						{ name: "aiStopOnError",        isAttr: true, type: "String" }
 						]
 				});
 			}
