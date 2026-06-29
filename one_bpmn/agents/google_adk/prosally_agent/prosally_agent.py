@@ -172,6 +172,7 @@ class ProsAllyAgent:
                     f"the required sub-prompt '{key}'. "
                     f"Please add it in the AI Agent Configuration DocType."
                 )
+            instructions[key] = prompt
 
         return instructions
 
