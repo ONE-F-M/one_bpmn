@@ -200,7 +200,9 @@ async function initViewer() {
 		}, 100)
 
 		// Setup direct touch handler for mobile pinch-to-zoom & finger pan
-		if (!touchCleanup && canvasRef.value) {
+		// (only on touch-capable devices to avoid no-op listeners on desktop)
+		const isTouchDevice = 'ontouchstart' in window || navigator.maxTouchPoints > 0
+		if (!touchCleanup && canvasRef.value && isTouchDevice) {
 			touchCleanup = setupCanvasTouchHandler(viewer.value, canvasRef.value)
 		}
 	} catch (err) {
