@@ -1673,8 +1673,13 @@ onMounted(async () => {
 			modeler = initializedModeler;
 			modelerInstance.value = modeler;
 
-			// Setup direct touch handler for mobile pinch-to-zoom & finger pan
-			if (!editorTouchCleanup && container.value) {
+			// Direct touch handler fallback: only activate when the device has
+			// touch capability but the bpmn-js-touch-interaction module didn't
+			// initialize (it gates on `(pointer: coarse)` which returns false
+			// on some mobile browsers). This avoids duplicate gesture handlers.
+			const isTouchDevice = 'ontouchstart' in window || navigator.maxTouchPoints > 0
+			const moduleActivated = window.matchMedia('(pointer: coarse)').matches
+			if (!editorTouchCleanup && container.value && isTouchDevice && !moduleActivated) {
 				editorTouchCleanup = setupCanvasTouchHandler(modeler, container.value)
 			}
 
