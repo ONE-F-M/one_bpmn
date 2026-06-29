@@ -1,5 +1,5 @@
 <template>
-	<div class="bg-white border-b flex flex-col relative" style="height: 60%; min-height: 250px;">
+	<div class="bg-white border-b flex flex-col relative" style="height: 60%; min-height: 250px; touch-action: none; overscroll-behavior: contain;">
 		<!-- Zoom controls -->
 		<div class="absolute top-3 right-4 z-20 flex items-center bg-white rounded shadow-sm border overflow-hidden text-gray-600">
 			<button @click="zoomOut" class="p-1.5 hover:bg-gray-50 border-r" title="Zoom Out">
@@ -532,6 +532,12 @@ function applyHighlights() {
 	touch-action: none;
 	-webkit-user-select: none;
 	user-select: none;
+	overscroll-behavior: contain;
+}
+
+/* Ensure parent wrapper doesn't intercept touch gestures meant for the canvas */
+.bpmn-canvas-container * {
+	touch-action: none;
 }
 
 /* Heatmap badges */
