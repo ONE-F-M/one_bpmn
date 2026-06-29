@@ -68,11 +68,6 @@ class DirectApiExecutor(Executor):
     # Anthropic API version header required by their Messages API.
     _ANTHROPIC_API_VERSION = "2023-06-01"
 
-    # Permanent error codes that should never be retried.
-    _PERMANENT_ERRORS = frozenset({
-        ErrorCode.PROVIDER_NOT_FOUND,
-        ErrorCode.PROVIDER_DISABLED,
-    })
 
     def run(self, config: ExecutorConfig, context: ExecutorContext) -> ExecutorResult:
         try:
@@ -132,6 +127,13 @@ class DirectApiExecutor(Executor):
             except requests.Timeout:
                 # Timeouts are not retried — they usually indicate
                 # a genuinely slow model, not a transient glitch.
+                latency_ms = int((time.time() - attempt_start) * 1000)
+                attempts.append(AttemptRecord(
+                    attempt_index=attempt,
+                    error_code=ErrorCode.TIMEOUT.value,
+                    error_message="Request timed out.",
+                    latency_ms=latency_ms,
+                ))
                 return ExecutorResult(
                     error_code=ErrorCode.TIMEOUT,
                     error_message="Request timed out.",
@@ -193,6 +195,12 @@ class DirectApiExecutor(Executor):
                 error_msg = f"{exc}"
                 if body_text:
                     error_msg = f"{exc} — {body_text}"
+                attempts.append(AttemptRecord(
+                    attempt_index=attempt,
+                    error_code=ErrorCode.FAILED_MODEL_CALL.value,
+                    error_message=error_msg,
+                    latency_ms=latency_ms,
+                ))
                 return ExecutorResult(
                     error_code=ErrorCode.FAILED_MODEL_CALL,
                     error_message=error_msg,
