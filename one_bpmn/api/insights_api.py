@@ -124,6 +124,7 @@ def get_cost_token_report(
 	to_date: str = None,
 	model: str = None,
 	provider: str = None,
+	process_model: str = None,
 ) -> dict:
 	"""Return daily cost/token data grouped by date and model."""
 	frappe.only_for("System Manager")
@@ -156,6 +157,8 @@ def get_cost_token_report(
 		query = query.where(Run.model == model)
 	if provider:
 		query = query.where(Run.provider == provider)
+	if process_model:
+		query = query.where(Run.process_model == process_model)
 
 	raw_rows = query.run(as_dict=True)
 
@@ -224,6 +227,7 @@ def get_error_report(
 	to_date: str = None,
 	model: str = None,
 	error_code: str = None,
+	process_model: str = None,
 ) -> dict:
 	"""Return error analysis grouped by model and bpmn_id."""
 	frappe.only_for("System Manager")
@@ -237,6 +241,7 @@ def get_error_report(
 		.select(
 			Run.model,
 			Run.bpmn_id,
+			Run.bpmn_label,
 			fn.Count("*").as_("total_runs"),
 			fn.Sum(Case().when(Run.status == "Success", 1).else_(0)).as_("successes"),
 			fn.Sum(Case().when(Run.status == "Error", 1).else_(0)).as_("errors"),
@@ -251,7 +256,7 @@ def get_error_report(
 		.where(fn.Date(Run.started_at) >= from_d)
 		.where(fn.Date(Run.started_at) <= to_d)
 		.where(Run.status != "Running")
-		.groupby(Run.model, Run.bpmn_id)
+		.groupby(Run.model, Run.bpmn_id, Run.bpmn_label)
 		.orderby(fn.Sum(Case().when(Run.status == "Error", 1).else_(0)), order=frappe.qb.desc)
 	)
 
@@ -259,6 +264,8 @@ def get_error_report(
 		query = query.where(Run.model == model)
 	if error_code:
 		query = query.where(Run.error_code == error_code)
+	if process_model:
+		query = query.where(Run.process_model == process_model)
 
 	raw_rows = query.run(as_dict=True)
 
@@ -270,6 +277,7 @@ def get_error_report(
 		rows.append({
 			"model": cstr(r.get("model")),
 			"bpmn_id": cstr(r.get("bpmn_id")),
+			"bpmn_label": cstr(r.get("bpmn_label")) or cstr(r.get("bpmn_id")),
 			"total_runs": total,
 			"successes": cint(r.get("successes")),
 			"errors": errors,
@@ -294,6 +302,8 @@ def get_error_report(
 		error_query = error_query.where(Run.model == model)
 	if error_code:
 		error_query = error_query.where(Run.error_code == error_code)
+	if process_model:
+		error_query = error_query.where(Run.process_model == process_model)
 
 	error_breakdown = [
 		{"error_code": cstr(r.get("error_code")), "count": cint(r.get("count"))}
@@ -308,7 +318,7 @@ def get_error_report(
 	for r in rows:
 		if r["total_runs"] >= 1 and r["success_rate"] < worst_rate:
 			worst_rate = r["success_rate"]
-			worst_element = r["bpmn_id"]
+			worst_element = r["bpmn_label"] or r["bpmn_id"]
 
 	total_retried = sum(1 for r in rows if cint(r.get("retry_rate")) > 0)
 	total_recovered = sum(r["retry_recovered"] for r in rows)
@@ -340,6 +350,7 @@ def get_performance_report(
 	to_date: str = None,
 	model: str = None,
 	bpmn_id: str = None,
+	process_model: str = None,
 ) -> dict:
 	"""Return latency/throughput data with percentiles."""
 	frappe.only_for("System Manager")
@@ -351,7 +362,7 @@ def get_performance_report(
 	# --- Fetch all successful run durations for percentile calculation ---
 	duration_query = (
 		frappe.qb.from_(Run)
-		.select(Run.model, Run.bpmn_id, Run.duration_ms, Run.total_tokens, fn.Date(Run.started_at).as_("date"))
+		.select(Run.model, Run.bpmn_id, Run.bpmn_label, Run.duration_ms, Run.total_tokens, fn.Date(Run.started_at).as_("date"))
 		.where(fn.Date(Run.started_at) >= from_d)
 		.where(fn.Date(Run.started_at) <= to_d)
 		.where(Run.status == "Success")
@@ -362,6 +373,8 @@ def get_performance_report(
 		duration_query = duration_query.where(Run.model == model)
 	if bpmn_id:
 		duration_query = duration_query.where(Run.bpmn_id == bpmn_id)
+	if process_model:
+		duration_query = duration_query.where(Run.process_model == process_model)
 
 	raw_durations = duration_query.run(as_dict=True)
 
@@ -379,6 +392,8 @@ def get_performance_report(
 		step_counts_query = step_counts_query.where(Run.model == model)
 	if bpmn_id:
 		step_counts_query = step_counts_query.where(Run.bpmn_id == bpmn_id)
+	if process_model:
+		step_counts_query = step_counts_query.where(Run.process_model == process_model)
 
 	step_count_rows = step_counts_query.run(as_dict=True)
 	# Build map: (model, bpmn_id) -> list of step counts
@@ -390,10 +405,14 @@ def get_performance_report(
 	# --- Group durations by model+bpmn_id, compute percentiles ---
 	grouped = defaultdict(list)
 	token_grouped = defaultdict(list)
+	label_map = {}
 	for r in raw_durations:
 		key = (cstr(r.get("model")), cstr(r.get("bpmn_id")))
 		grouped[key].append(cint(r.get("duration_ms")))
 		token_grouped[key].append(cint(r.get("total_tokens")))
+		# Keep first non-empty label per key
+		if key not in label_map and r.get("bpmn_label"):
+			label_map[key] = cstr(r.get("bpmn_label"))
 
 	rows = []
 	for (m, b), durations in sorted(grouped.items()):
@@ -401,9 +420,12 @@ def get_performance_report(
 		n = len(durations_sorted)
 		tokens = token_grouped.get((m, b), [])
 		steps = step_map.get((m, b), [])
+		# Resolve label: pick the first non-empty bpmn_label for this key
+		label = label_map.get((m, b), b)
 		rows.append({
 			"model": m,
 			"bpmn_id": b,
+			"bpmn_label": label,
 			"runs": n,
 			"avg_duration_ms": cint(sum(durations_sorted) / n) if n else 0,
 			"p50_duration_ms": durations_sorted[int(n * 0.5)] if n else 0,

@@ -654,7 +654,12 @@ def dispatch_ai_agent(instance, task, task_cfg: dict, bpmn_id: str) -> None:
 	run = None
 	try:
 		from one_bpmn.agents.observability import create_ai_run
-		run = create_ai_run(instance, bpmn_id, "task", config)
+		from one_bpmn.one_bpmn.engine import get_task_display_name as _get_label
+		run = create_ai_run(
+			instance, bpmn_id, "task", config,
+			bpmn_label=_get_label(task),
+			process_model=instance.process_model or "",
+		)
 	except Exception:
 		frappe.log_error(
 			title=f"AI Observability: create_ai_run error ({bpmn_id})",

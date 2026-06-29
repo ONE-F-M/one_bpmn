@@ -16,6 +16,13 @@
 				class="w-48"
 				@change="fetchReport"
 			/>
+			<FormControl
+				type="select"
+				v-model="filterProcess"
+				:options="processOptions"
+				class="w-48"
+				@change="fetchReport"
+			/>
 		</div>
 
 		<!-- Loading State -->
@@ -137,11 +144,13 @@ const loading = ref(false)
 const reportData = ref({})
 const filterModel = ref("")
 const filterProvider = ref("")
+const filterProcess = ref("")
 
 // Cache dropdown options from the initial (unfiltered) load so they
 // don't shrink to only the selected value after filtering.
 const cachedModels = ref([])
 const cachedProviders = ref([])
+const cachedProcesses = ref([])
 
 const palette = ["#6366f1", "#8b5cf6", "#ec4899", "#f59e0b", "#10b981", "#06b6d4"]
 
@@ -204,6 +213,7 @@ async function fetchReport() {
 		if (props.toDate) params.to_date = props.toDate
 		if (filterModel.value) params.model = filterModel.value
 		if (filterProvider.value) params.provider = filterProvider.value
+		if (filterProcess.value) params.process_model = filterProcess.value
 
 		const response = await frappeRequest({
 			url: "/api/method/one_bpmn.api.insights_api.get_cost_token_report",
@@ -213,16 +223,42 @@ async function fetchReport() {
 		reportData.value = response || {}
 
 		// Refresh cached dropdown options only on unfiltered fetches
-		if (!filterModel.value && !filterProvider.value) {
+		if (!filterModel.value && !filterProvider.value && !filterProcess.value) {
 			const rows = reportData.value.rows || []
 			cachedModels.value = [...new Set(rows.map(r => r.model))].sort()
 			cachedProviders.value = [...new Set(rows.map(r => r.provider))].sort()
+		}
+		// Refresh process list from a separate call on initial load
+		if (!cachedProcesses.value.length) {
+			await loadProcessOptions()
 		}
 	} catch (error) {
 		console.error("Failed to fetch cost report:", error)
 		reportData.value = {}
 	} finally {
 		loading.value = false
+	}
+}
+
+const processOptions = computed(() => {
+	return [{ label: "All Processes", value: "" }, ...cachedProcesses.value.map(p => ({ label: p, value: p }))]
+})
+
+async function loadProcessOptions() {
+	try {
+		const result = await frappeRequest({
+			url: "/api/method/frappe.client.get_list",
+			method: "POST",
+			params: {
+				doctype: "BPMN Process Model",
+				fields: ["name"],
+				order_by: "name asc",
+				limit_page_length: 0,
+			},
+		})
+		cachedProcesses.value = (result || []).map(r => r.name).sort()
+	} catch (e) {
+		console.error("Failed to load process models:", e)
 	}
 }
 

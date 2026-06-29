@@ -29,6 +29,8 @@ def create_ai_run(
 	bpmn_id: str,
 	element_type: str,
 	config: ExecutorConfig,
+	bpmn_label: str = "",
+	process_model: str = "",
 ) -> "frappe.Document":
 	"""Create an AI Agent Run record with status="Running".
 
@@ -37,6 +39,8 @@ def create_ai_run(
 	    bpmn_id: Element ID on the diagram
 	    element_type: "task" or "subprocess"
 	    config: ExecutorConfig from the dispatcher
+	    bpmn_label: Human-readable element name from the BPMN diagram
+	    process_model: Name of the BPMN Process Model
 
 	Returns:
 	    The created AI Agent Run document.
@@ -47,6 +51,8 @@ def create_ai_run(
 		"doctype": "AI Agent Run",
 		"instance": instance.name,
 		"bpmn_id": bpmn_id,
+		"bpmn_label": bpmn_label or "",
+		"process_model": process_model or "",
 		"element_type": element_type,
 		"backend": config.backend,
 		"provider": config.provider_name,

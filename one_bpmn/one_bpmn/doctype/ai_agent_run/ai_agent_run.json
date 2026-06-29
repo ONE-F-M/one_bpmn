@@ -6,7 +6,9 @@
  "engine": "InnoDB",
  "field_order": [
   "instance",
+  "process_model",
   "bpmn_id",
+  "bpmn_label",
   "element_type",
   "column_break_config",
   "backend",
@@ -44,12 +46,25 @@
    "reqd": 1
   },
   {
+   "fieldname": "process_model",
+   "fieldtype": "Link",
+   "label": "Process Model",
+   "options": "BPMN Process Model",
+   "description": "The BPMN Process Model this run belongs to"
+  },
+  {
    "fieldname": "bpmn_id",
    "fieldtype": "Data",
    "in_list_view": 1,
    "label": "BPMN Element ID",
    "reqd": 1,
    "description": "The element ID on the diagram (e.g. Activity_1a2b3c)"
+  },
+  {
+   "fieldname": "bpmn_label",
+   "fieldtype": "Data",
+   "label": "BPMN Element Label",
+   "description": "Human-readable name from the BPMN diagram"
   },
   {
    "default": "task",

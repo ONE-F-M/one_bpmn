@@ -16,6 +16,13 @@
 				class="w-56"
 				@change="fetchReport"
 			/>
+			<FormControl
+				type="select"
+				v-model="filterProcess"
+				:options="processOptions"
+				class="w-48"
+				@change="fetchReport"
+			/>
 		</div>
 
 		<!-- Loading State -->
@@ -86,7 +93,7 @@
 					<tbody>
 						<tr v-for="(row, idx) in reportData.rows" :key="idx" class="border-b border-gray-100 hover:bg-gray-50 transition-colors">
 							<td class="py-3 px-3 text-sm text-gray-900 font-medium">{{ row.model }}</td>
-							<td class="py-3 px-3 text-sm text-gray-600 font-mono text-xs">{{ row.bpmn_id || "—" }}</td>
+							<td class="py-3 px-3 text-sm text-gray-600">{{ row.bpmn_label || row.bpmn_id || "—" }}</td>
 							<td class="py-3 px-3 text-sm text-gray-600 text-right">{{ fmtNum(row.total_runs) }}</td>
 							<td class="py-3 px-3 text-sm text-gray-600 text-right">{{ fmtNum(row.successes) }}</td>
 							<td class="py-3 px-3 text-sm text-right font-medium" :class="row.errors > 0 ? 'text-red-600' : 'text-gray-600'">
@@ -120,9 +127,11 @@ const loading = ref(false)
 const reportData = ref({})
 const filterModel = ref("")
 const filterErrorCode = ref("")
+const filterProcess = ref("")
 
 // Cache model options from the initial (unfiltered) load
 const cachedModels = ref([])
+const cachedProcesses = ref([])
 
 const numFormatter = new Intl.NumberFormat("en-US")
 function fmtNum(val) { return numFormatter.format(val ?? 0) }
@@ -158,6 +167,7 @@ async function fetchReport() {
 		if (props.toDate) params.to_date = props.toDate
 		if (filterModel.value) params.model = filterModel.value
 		if (filterErrorCode.value) params.error_code = filterErrorCode.value
+		if (filterProcess.value) params.process_model = filterProcess.value
 
 		const response = await frappeRequest({
 			url: "/api/method/one_bpmn.api.insights_api.get_error_report",
@@ -167,15 +177,41 @@ async function fetchReport() {
 		reportData.value = response || {}
 
 		// Refresh cached model options only on unfiltered fetches
-		if (!filterModel.value && !filterErrorCode.value) {
+		if (!filterModel.value && !filterErrorCode.value && !filterProcess.value) {
 			const rows = reportData.value.rows || []
 			cachedModels.value = [...new Set(rows.map(r => r.model))].sort()
+		}
+		// Refresh process list from a separate call on initial load
+		if (!cachedProcesses.value.length) {
+			await loadProcessOptions()
 		}
 	} catch (error) {
 		console.error("Failed to fetch error report:", error)
 		reportData.value = {}
 	} finally {
 		loading.value = false
+	}
+}
+
+const processOptions = computed(() => {
+	return [{ label: "All Processes", value: "" }, ...cachedProcesses.value.map(p => ({ label: p, value: p }))]
+})
+
+async function loadProcessOptions() {
+	try {
+		const result = await frappeRequest({
+			url: "/api/method/frappe.client.get_list",
+			method: "POST",
+			params: {
+				doctype: "BPMN Process Model",
+				fields: ["name"],
+				order_by: "name asc",
+				limit_page_length: 0,
+			},
+		})
+		cachedProcesses.value = (result || []).map(r => r.name).sort()
+	} catch (e) {
+		console.error("Failed to load process models:", e)
 	}
 }
 
