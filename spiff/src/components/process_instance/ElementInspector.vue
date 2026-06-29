@@ -60,6 +60,13 @@
 								<td class="py-1 pr-3 text-gray-500 font-medium whitespace-nowrap align-top">Provider</td>
 								<td class="py-1 text-gray-800">{{ aiRun.provider || '—' }}</td>
 							</tr>
+							<tr v-if="aiRun.retry_count > 0 || aiRun.max_retries > 0">
+								<td class="py-1 pr-3 text-gray-500 font-medium whitespace-nowrap align-top">Retries</td>
+								<td class="py-1">
+									<span :class="aiRun.retry_count > 0 ? 'text-amber-600 font-semibold' : 'text-gray-800'">{{ aiRun.retry_count || 0 }}</span>
+									<span class="text-gray-400"> / {{ aiRun.max_retries || 0 }}</span>
+								</td>
+							</tr>
 							<tr>
 								<td class="py-1 pr-3 text-gray-500 font-medium whitespace-nowrap align-top">Tokens</td>
 								<td class="py-1 text-gray-600">
@@ -69,7 +76,15 @@
 							</tr>
 							<tr>
 								<td class="py-1 pr-3 text-gray-500 font-medium whitespace-nowrap align-top">Est. Cost</td>
-								<td class="py-1 text-gray-800 font-mono">{{ aiRun.estimated_cost ? '$' + formatCost(aiRun.estimated_cost) : '—' }}</td>
+								<td class="py-1 text-gray-800 font-mono">
+									<template v-if="aiRun.estimated_cost">
+										${{ formatCost(aiRun.estimated_cost) }}
+										<div class="text-gray-500 text-[11px]">
+											Input: ${{ formatCost(aiRun.total_input_cost) }} / Output: ${{ formatCost(aiRun.total_output_cost) }}
+										</div>
+									</template>
+									<span v-else>—</span>
+								</td>
 							</tr>
 							<tr>
 								<td class="py-1 pr-3 text-gray-500 font-medium whitespace-nowrap align-top">Duration</td>
@@ -97,7 +112,8 @@
 							<div
 								v-for="step in aiSteps"
 								:key="step.name"
-								class="border border-gray-200 rounded overflow-hidden"
+								class="border rounded overflow-hidden"
+								:class="step.error_code ? 'border-red-300 bg-red-50/30' : 'border-gray-200'"
 							>
 								<button
 									@click="toggleStep(step.name)"
@@ -107,16 +123,31 @@
 									<span class="flex items-center gap-1.5">
 										<span
 											class="inline-block px-1.5 py-0.5 rounded text-[10px] font-mono font-semibold"
-											:class="roleBadgeClass(step.role)"
-										>{{ step.role }}</span>
+											:class="step.error_code ? 'bg-red-100 text-red-600' : roleBadgeClass(step.role)"
+										>{{ step.error_code ? '✗ ' + step.role : step.role }}</span>
 										<span class="text-gray-500">#{{ step.step_index }}</span>
-										<span class="text-gray-600 truncate max-w-[150px]">{{ step.content ? step.content.substring(0, 80) : '(empty)' }}</span>
+										<span v-if="step.error_code" class="text-red-500 truncate max-w-[150px]">{{ step.error_code }}</span>
+										<span v-else class="text-gray-600 truncate max-w-[150px]">{{ step.content ? step.content.substring(0, 80) : '(empty)' }}</span>
 									</span>
 									<span class="text-gray-400 text-[10px]">
+										<span v-if="step.cost" class="mr-1 text-green-600">${{ formatCost(step.cost) }}</span>
+										<span v-if="step.latency_ms" class="mr-1">{{ formatDuration(step.latency_ms) }}</span>
 										<span v-if="step.prompt_tokens || step.completion_tokens">{{ (step.prompt_tokens || 0) + (step.completion_tokens || 0) }}t</span>
 									</span>
 								</button>
 								<div v-if="expandedSteps.has(step.name)" class="border-t border-gray-200 px-2 py-1.5">
+									<div v-if="step.error_code" class="bg-red-50 rounded p-2 mb-1.5 text-[11px]">
+										<div class="font-semibold text-red-700">{{ step.error_code }}</div>
+										<div v-if="step.error_message" class="text-red-600 mt-0.5">{{ step.error_message }}</div>
+									</div>
+									<div v-if="step.prompt_tokens || step.completion_tokens || step.cost" class="flex flex-wrap gap-3 text-[10px] text-gray-500 mb-1.5 font-mono bg-gray-50 rounded px-2 py-1">
+										<span v-if="step.cost">Cost: ${{ formatCost(step.cost) }}</span>
+										<span v-if="step.input_cost">In: ${{ formatCost(step.input_cost) }}</span>
+										<span v-if="step.output_cost">Out: ${{ formatCost(step.output_cost) }}</span>
+										<span v-if="step.prompt_tokens">Prompt: {{ step.prompt_tokens }}t</span>
+										<span v-if="step.completion_tokens">Completion: {{ step.completion_tokens }}t</span>
+										<span v-if="step.latency_ms">Latency: {{ formatDuration(step.latency_ms) }}</span>
+									</div>
 									<pre class="text-[11px] text-gray-600 font-mono whitespace-pre-wrap max-h-48 overflow-y-auto bg-gray-50 rounded p-2">{{ step.content || '(empty)' }}</pre>
 								</div>
 							</div>
@@ -178,7 +209,7 @@
 			</div>
 
 			<!-- Variables Tab -->
-			<div v-else>
+			<div v-if="activeTab === 'variables'">
 				<div v-if="!selectedNode" class="text-sm text-gray-400 italic text-center py-6">
 					<Icon icon="lucide:mouse-pointer-click" class="w-5 h-5 mx-auto mb-2 opacity-40" />
 					Select an element to view variables
@@ -265,9 +296,11 @@ function formatVar(key, val) {
 	return { key, value: display, type }
 }
 
-// Keys to skip entirely
+// Keys to skip entirely (AI-internal data is shown in the AI Run tab)
+const AI_INTERNAL_SUFFIXES = ["_token_usage", "_error_code", "_error_message"]
 function isInternalKey(key) {
-	return key.startsWith("__") || key === "spiff__"
+	if (key.startsWith("__") || key === "spiff__") return true
+	return AI_INTERNAL_SUFFIXES.some((suffix) => key.endsWith(suffix))
 }
 
 function isEmpty(val) {
@@ -358,7 +391,7 @@ async function fetchAiRun() {
 		const bpmnId = props.selectedNode.bpmnId || props.selectedNode.id
 		const params = new URLSearchParams({
 			doctype: "AI Agent Run",
-			fields: JSON.stringify(["name", "status", "model", "provider", "total_tokens", "estimated_cost", "duration_ms", "started_at", "ended_at", "error_code", "error_message", "backend"]) ,
+			fields: JSON.stringify(["name", "status", "model", "provider", "total_tokens", "total_prompt_tokens", "total_completion_tokens", "estimated_cost", "total_input_cost", "total_output_cost", "duration_ms", "started_at", "ended_at", "error_code", "error_message", "backend", "retry_count", "max_retries"]) ,
 			filters: JSON.stringify([
 				["instance", "=", props.processInstanceName],
 				["bpmn_id", "=", bpmnId],
@@ -391,7 +424,7 @@ async function fetchSteps() {
 		const csrf = getCsrfToken()
 		const params = new URLSearchParams({
 			doctype: "AI Agent Step",
-			fields: JSON.stringify(["name", "step_index", "role", "content", "tool_name", "tool_args", "tool_result", "tokens", "cost", "latency_ms"]) ,
+			fields: JSON.stringify(["name", "step_index", "role", "content", "tool_name", "tool_args", "tool_result", "prompt_tokens", "completion_tokens", "cost", "input_cost", "output_cost", "latency_ms", "error_code", "error_message"]) ,
 			filters: JSON.stringify([["run", "=", aiRun.value.name]]),
 			limit_page_length: 200,
 			order_by: "step_index asc",

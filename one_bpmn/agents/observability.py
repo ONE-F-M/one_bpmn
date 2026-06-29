@@ -53,6 +53,7 @@ def create_ai_run(
 		"model": config.model,
 		"status": "Running",
 		"started_at": now_datetime(),
+		"max_retries": config.max_retries,
 		"correlation_id": frappe.generate_hash(length=16),
 	})
 	try:
@@ -79,6 +80,8 @@ def record_ai_step(
 	tool_name: str = None,
 	tool_args: dict = None,
 	tool_result: str = None,
+	error_code: str = None,
+	error_message: str = None,
 ) -> Optional["frappe.Document"]:
 	"""Record a single AI Agent Step linked to *run*.
 
@@ -92,6 +95,8 @@ def record_ai_step(
 	    prompt_tokens: Token count for this step's prompt
 	    completion_tokens: Token count for this step's completion
 	    latency_ms: Step latency in milliseconds
+	    error_code: Error code if this step is a failed retry attempt
+	    error_message: Error details for failed retry attempts
 
 	Returns:
 	    The created AI Agent Step document, or None on failure.
@@ -99,14 +104,16 @@ def record_ai_step(
 	if getattr(run, "stub", False):
 		return None
 
-	# Compute cost
-	cost = 0.0
+	# Compute cost (split into input vs output)
+	input_cost = 0.0
+	output_cost = 0.0
 	if getattr(run, "model", None):
 		pricing = get_model_pricing(run.model)
 		if pricing:
 			input_rate = flt(pricing.get("input_cost_per_1k", 0))
 			output_rate = flt(pricing.get("output_cost_per_1k", 0))
-			cost = (prompt_tokens / 1000.0) * input_rate + (completion_tokens / 1000.0) * output_rate
+			input_cost = (prompt_tokens / 1000.0) * input_rate
+			output_cost = (completion_tokens / 1000.0) * output_rate
 
 	step = frappe.get_doc({
 		"doctype": "AI Agent Step",
@@ -119,8 +126,12 @@ def record_ai_step(
 		"tool_result": tool_result,
 		"prompt_tokens": prompt_tokens,
 		"completion_tokens": completion_tokens,
-		"cost": cost,
+		"cost": input_cost + output_cost,
+		"input_cost": input_cost,
+		"output_cost": output_cost,
 		"latency_ms": latency_ms,
+		"error_code": error_code or None,
+		"error_message": error_message or None,
 	})
 	try:
 		step.insert(ignore_permissions=True)
@@ -157,12 +168,14 @@ def finalize_ai_run(run, result: ExecutorResult) -> None:
 
 	if result.error_code == ErrorCode.SUCCESS:
 		# Sum step costs from the database
-		step_costs = frappe.db.get_all(
+		step_cost_rows = frappe.get_all(
 			"AI Agent Step",
 			filters={"run": run.name},
-			pluck="cost",
+			fields=["cost", "input_cost", "output_cost"],
 		)
-		estimated_cost = flt(sum(flt(c) for c in step_costs))
+		estimated_cost = flt(sum(flt(r.get("cost")) for r in step_cost_rows))
+		total_input_cost = flt(sum(flt(r.get("input_cost")) for r in step_cost_rows))
+		total_output_cost = flt(sum(flt(r.get("output_cost")) for r in step_cost_rows))
 
 		# Final output (truncated)
 		output = str(result.output or "")
@@ -174,7 +187,10 @@ def finalize_ai_run(run, result: ExecutorResult) -> None:
 			"duration_ms": int(duration),
 			"status": "Success",
 			"estimated_cost": estimated_cost,
+			"total_input_cost": total_input_cost,
+			"total_output_cost": total_output_cost,
 			"final_output": output,
+			"retry_count": len(result.attempts),
 		}
 
 		# Token totals from the result
@@ -191,6 +207,7 @@ def finalize_ai_run(run, result: ExecutorResult) -> None:
 			"status": "Error",
 			"error_code": result.error_code.value,
 			"error_message": (result.error_message or "")[:_MAX_OUTPUT_CHARS],
+			"retry_count": len(result.attempts),
 		}
 
 		# Record partial tokens on error too

@@ -685,21 +685,41 @@ def dispatch_ai_agent(instance, task, task_cfg: dict, bpmn_id: str) -> None:
 		from one_bpmn.agents.observability import record_ai_step, finalize_ai_run
 
 		if run and not getattr(run, "stub", False):
-			record_ai_step(run, 0, "system", system_prompt)
-			record_ai_step(run, 1, "user", user_prompt)
+			# The API returns a single prompt_tokens count covering both
+			# system + user prompts. Attach input token cost to the user
+			# step so costs display on input rows too.
+			final_usage = result.token_usage if result.error_code == ErrorCode.SUCCESS else None
+			input_tokens_for_user = final_usage.prompt_tokens if final_usage else 0
 
-		if result.error_code == ErrorCode.SUCCESS:
-			if run and not getattr(run, "stub", False):
+			record_ai_step(run, 0, "system", system_prompt)
+			record_ai_step(
+				run, 1, "user", user_prompt,
+				prompt_tokens=input_tokens_for_user,
+			)
+
+			# Record failed retry attempts (each as a separate step)
+			step_idx = 2
+			for att in (result.attempts or []):
+				record_ai_step(
+					run, step_idx, "assistant", att.content,
+					prompt_tokens=att.token_usage.prompt_tokens if att.token_usage else 0,
+					completion_tokens=att.token_usage.completion_tokens if att.token_usage else 0,
+					latency_ms=att.latency_ms,
+					error_code=att.error_code,
+					error_message=att.error_message,
+				)
+				step_idx += 1
+
+			# Record final successful response (completion tokens only)
+			if result.error_code == ErrorCode.SUCCESS:
 				usage = result.token_usage
 				record_ai_step(
-					run, 2, "assistant",
+					run, step_idx, "assistant",
 					str(result.output or ""),
-					prompt_tokens=usage.prompt_tokens if usage else 0,
 					completion_tokens=usage.completion_tokens if usage else 0,
 				)
-			finalize_ai_run(run, result)
-		else:
-			finalize_ai_run(run, result)
+
+		finalize_ai_run(run, result)
 	except Exception:
 		frappe.log_error(
 			title=f"AI Observability: instrumentation error ({bpmn_id})",

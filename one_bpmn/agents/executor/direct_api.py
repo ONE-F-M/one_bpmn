@@ -21,6 +21,7 @@ import frappe
 from frappe.utils.password import get_decrypted_password
 
 from . import (
+    AttemptRecord,
     ErrorCode,
     Executor,
     ExecutorConfig,
@@ -67,6 +68,12 @@ class DirectApiExecutor(Executor):
     # Anthropic API version header required by their Messages API.
     _ANTHROPIC_API_VERSION = "2023-06-01"
 
+    # Permanent error codes that should never be retried.
+    _PERMANENT_ERRORS = frozenset({
+        ErrorCode.PROVIDER_NOT_FOUND,
+        ErrorCode.PROVIDER_DISABLED,
+    })
+
     def run(self, config: ExecutorConfig, context: ExecutorContext) -> ExecutorResult:
         try:
             provider = frappe.get_doc("AI Provider", config.provider_name)
@@ -101,14 +108,20 @@ class DirectApiExecutor(Executor):
             parse_fn = self._parse_anthropic_response
         else:
             url, payload, headers = self._build_openai_request(
-                endpoint, api_key, model, config,
+                endpoint, api_key, model, config, provider_type,
             )
             parse_fn = self._parse_openai_response
 
         import requests
 
-        last_error = ""
+        attempts = []
+        last_error_code = ErrorCode.FAILED_MODEL_CALL
+        last_error_message = ""
+
         for attempt in range(config.max_retries + 1):
+            attempt_start = time.time()
+
+            # ── HTTP call ──────────────────────────────────────────
             try:
                 resp = requests.post(
                     url,
@@ -117,72 +130,163 @@ class DirectApiExecutor(Executor):
                     timeout=config.timeout_seconds,
                 )
             except requests.Timeout:
+                # Timeouts are not retried — they usually indicate
+                # a genuinely slow model, not a transient glitch.
                 return ExecutorResult(
                     error_code=ErrorCode.TIMEOUT,
                     error_message="Request timed out.",
+                    attempts=attempts,
                 )
             except requests.RequestException as exc:
-                last_error = str(exc)
+                latency_ms = int((time.time() - attempt_start) * 1000)
+                last_error_code = ErrorCode.FAILED_MODEL_CALL
+                last_error_message = str(exc)
+                attempts.append(AttemptRecord(
+                    attempt_index=attempt,
+                    error_code=last_error_code.value,
+                    error_message=last_error_message,
+                    latency_ms=latency_ms,
+                ))
                 if attempt < config.max_retries:
                     self._sleep_backoff(config, attempt)
                     continue
                 return ExecutorResult(
-                    error_code=ErrorCode.FAILED_MODEL_CALL,
-                    error_message=last_error,
+                    error_code=last_error_code,
+                    error_message=last_error_message,
+                    attempts=attempts,
                 )
 
+            latency_ms = int((time.time() - attempt_start) * 1000)
+
+            # ── Transient HTTP errors ──────────────────────────────
             if resp.status_code in _TRANSIENT_STATUS_CODES:
-                last_error = f"HTTP {resp.status_code}"
+                last_error_code = ErrorCode.FAILED_MODEL_CALL
+                last_error_message = f"HTTP {resp.status_code}"
+                attempts.append(AttemptRecord(
+                    attempt_index=attempt,
+                    error_code=last_error_code.value,
+                    error_message=last_error_message,
+                    latency_ms=latency_ms,
+                ))
                 if attempt < config.max_retries:
                     self._sleep_backoff(config, attempt)
                     continue
                 return ExecutorResult(
-                    error_code=ErrorCode.FAILED_MODEL_CALL,
-                    error_message=last_error,
+                    error_code=last_error_code,
+                    error_message=last_error_message,
+                    attempts=attempts,
                 )
 
+            # ── Non-transient HTTP errors ──────────────────────────
             try:
                 resp.raise_for_status()
             except requests.HTTPError as exc:
+                # Include the response body for debugging (Anthropic, etc.
+                # return detailed error messages in the body).
+                body_text = ""
+                try:
+                    body = resp.json()
+                    err = body.get("error", {})
+                    body_text = err.get("message") or err.get("type") or resp.text[:500]
+                except Exception:
+                    body_text = (resp.text or "")[:500]
+                error_msg = f"{exc}"
+                if body_text:
+                    error_msg = f"{exc} — {body_text}"
                 return ExecutorResult(
                     error_code=ErrorCode.FAILED_MODEL_CALL,
-                    error_message=str(exc),
+                    error_message=error_msg,
+                    attempts=attempts,
                 )
 
+            # ── Parse response body ────────────────────────────────
             try:
                 data = resp.json()
             except Exception:
+                last_error_code = ErrorCode.FAILED_MODEL_CALL
+                last_error_message = "Provider returned non-JSON response."
+                attempts.append(AttemptRecord(
+                    attempt_index=attempt,
+                    error_code=last_error_code.value,
+                    error_message=last_error_message,
+                    latency_ms=latency_ms,
+                ))
+                if attempt < config.max_retries:
+                    self._sleep_backoff(config, attempt)
+                    continue
                 return ExecutorResult(
-                    error_code=ErrorCode.FAILED_MODEL_CALL,
-                    error_message="Provider returned non-JSON response.",
+                    error_code=last_error_code,
+                    error_message=last_error_message,
+                    attempts=attempts,
                 )
 
-            # Delegate response parsing to the provider-specific parser.
+            # ── Provider-specific response parsing ─────────────────
             content, token_usage, parse_error = parse_fn(data)
             if parse_error:
-                return parse_error
+                last_error_code = parse_error.error_code
+                last_error_message = parse_error.error_message
+                attempts.append(AttemptRecord(
+                    attempt_index=attempt,
+                    content=content or "",
+                    error_code=last_error_code.value,
+                    error_message=last_error_message,
+                    token_usage=token_usage,
+                    latency_ms=latency_ms,
+                ))
+                if attempt < config.max_retries:
+                    self._sleep_backoff(config, attempt)
+                    continue
+                return ExecutorResult(
+                    error_code=last_error_code,
+                    error_message=last_error_message,
+                    attempts=attempts,
+                )
 
+            # ── JSON validation (if response_format == "json") ─────
             if config.response_format == "json":
                 validation_result = self._validate_json(content, config.response_schema)
                 if isinstance(validation_result, ExecutorResult):
-                    return validation_result
+                    # Schema validation failed — retryable
+                    last_error_code = validation_result.error_code
+                    last_error_message = validation_result.error_message
+                    attempts.append(AttemptRecord(
+                        attempt_index=attempt,
+                        content=content or "",
+                        error_code=last_error_code.value,
+                        error_message=last_error_message,
+                        token_usage=token_usage,
+                        latency_ms=latency_ms,
+                    ))
+                    if attempt < config.max_retries:
+                        self._sleep_backoff(config, attempt)
+                        continue
+                    return ExecutorResult(
+                        error_code=last_error_code,
+                        error_message=last_error_message,
+                        attempts=attempts,
+                    )
                 return ExecutorResult(
                     output=validation_result,
                     token_usage=token_usage,
                     error_code=ErrorCode.SUCCESS,
                     raw=data,
+                    attempts=attempts,
                 )
 
+            # ── Success (text format) ──────────────────────────────
             return ExecutorResult(
                 output=content,
                 token_usage=token_usage,
                 error_code=ErrorCode.SUCCESS,
                 raw=data,
+                attempts=attempts,
             )
 
+        # Should not reach here, but safety net
         return ExecutorResult(
-            error_code=ErrorCode.FAILED_MODEL_CALL,
-            error_message=last_error or "Max retries exceeded.",
+            error_code=last_error_code,
+            error_message=last_error_message or "Max retries exceeded.",
+            attempts=attempts,
         )
 
     # ------------------------------------------------------------------
@@ -192,6 +296,7 @@ class DirectApiExecutor(Executor):
     @staticmethod
     def _build_openai_request(
         endpoint: str, api_key: str, model: str, config: ExecutorConfig,
+        provider_type: str = "OpenAI",
     ) -> tuple:
         """Build URL, payload, and headers for OpenAI-compatible APIs."""
         url = f"{endpoint}/chat/completions"
@@ -203,10 +308,20 @@ class DirectApiExecutor(Executor):
         payload = {
             "model": model,
             "messages": messages,
-            "temperature": config.temperature,
-            "top_p": config.top_p,
-            "max_tokens": config.max_tokens,
         }
+
+        if provider_type == "OpenAI":
+            # Native OpenAI: use max_completion_tokens (required by newer
+            # models like o1, o3, gpt-5.x). Omit temperature/top_p so
+            # reasoning models that only accept default(1) don't error.
+            payload["max_completion_tokens"] = config.max_tokens
+        else:
+            # OpenAI-compatible third-party providers: use the older
+            # max_tokens param and always send sampling parameters.
+            payload["max_tokens"] = config.max_tokens
+            payload["temperature"] = config.temperature
+            payload["top_p"] = config.top_p
+
         headers = {
             "Authorization": f"Bearer {api_key}",
             "Content-Type": "application/json",
