@@ -18,7 +18,12 @@
   "completion_tokens",
   "column_break_cost",
   "cost",
-  "latency_ms"
+  "input_cost",
+  "output_cost",
+  "latency_ms",
+  "section_break_error",
+  "error_code",
+  "error_message"
  ],
  "fields": [
   {
@@ -97,9 +102,41 @@
    "precision": "6"
   },
   {
+   "fieldname": "input_cost",
+   "fieldtype": "Currency",
+   "label": "Input Cost",
+   "precision": "6",
+   "description": "Cost of prompt/input tokens for this step"
+  },
+  {
+   "fieldname": "output_cost",
+   "fieldtype": "Currency",
+   "label": "Output Cost",
+   "precision": "6",
+   "description": "Cost of completion/output tokens for this step"
+  },
+  {
    "fieldname": "latency_ms",
    "fieldtype": "Int",
    "label": "Latency (ms)"
+  },
+  {
+   "fieldname": "section_break_error",
+   "fieldtype": "Section Break",
+   "label": "Error",
+   "collapsible": 1
+  },
+  {
+   "fieldname": "error_code",
+   "fieldtype": "Data",
+   "label": "Error Code",
+   "description": "Error code if this step is a failed retry attempt"
+  },
+  {
+   "fieldname": "error_message",
+   "fieldtype": "Long Text",
+   "label": "Error Message",
+   "description": "Error details for failed retry attempts"
   }
  ],
  "indexes": [

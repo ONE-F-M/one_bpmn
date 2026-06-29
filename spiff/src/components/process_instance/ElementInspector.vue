@@ -112,9 +112,10 @@
 										<span class="text-gray-500">#{{ step.step_index }}</span>
 										<span class="text-gray-600 truncate max-w-[150px]">{{ step.content ? step.content.substring(0, 80) : '(empty)' }}</span>
 									</span>
-									<span class="text-gray-400 text-[10px]">
-										<span v-if="step.prompt_tokens || step.completion_tokens">{{ (step.prompt_tokens || 0) + (step.completion_tokens || 0) }}t</span>
-									</span>
+									<span class="text-gray-400 text-[10px] whitespace-nowrap">
+									<template v-if="step.prompt_tokens">{{ step.prompt_tokens }}t in<span v-if="step.cost"> · ${{ formatCost(step.cost) }}</span></template>
+									<template v-else-if="step.completion_tokens">{{ step.completion_tokens }}t out<span v-if="step.cost"> · ${{ formatCost(step.cost) }}</span></template>
+								</span>
 								</button>
 								<div v-if="expandedSteps.has(step.name)" class="border-t border-gray-200 px-2 py-1.5">
 									<pre class="text-[11px] text-gray-600 font-mono whitespace-pre-wrap max-h-48 overflow-y-auto bg-gray-50 rounded p-2">{{ step.content || '(empty)' }}</pre>
@@ -178,7 +179,7 @@
 			</div>
 
 			<!-- Variables Tab -->
-			<div v-else>
+			<div v-else-if="activeTab === 'variables'">
 				<div v-if="!selectedNode" class="text-sm text-gray-400 italic text-center py-6">
 					<Icon icon="lucide:mouse-pointer-click" class="w-5 h-5 mx-auto mb-2 opacity-40" />
 					Select an element to view variables
@@ -358,7 +359,7 @@ async function fetchAiRun() {
 		const bpmnId = props.selectedNode.bpmnId || props.selectedNode.id
 		const params = new URLSearchParams({
 			doctype: "AI Agent Run",
-			fields: JSON.stringify(["name", "status", "model", "provider", "total_tokens", "estimated_cost", "duration_ms", "started_at", "ended_at", "error_code", "error_message", "backend"]) ,
+			fields: JSON.stringify(["name", "status", "model", "provider", "total_prompt_tokens", "total_completion_tokens", "total_tokens", "estimated_cost", "duration_ms", "started_at", "ended_at", "error_code", "error_message", "backend"]) ,
 			filters: JSON.stringify([
 				["instance", "=", props.processInstanceName],
 				["bpmn_id", "=", bpmnId],
@@ -391,7 +392,7 @@ async function fetchSteps() {
 		const csrf = getCsrfToken()
 		const params = new URLSearchParams({
 			doctype: "AI Agent Step",
-			fields: JSON.stringify(["name", "step_index", "role", "content", "tool_name", "tool_args", "tool_result", "tokens", "cost", "latency_ms"]) ,
+			fields: JSON.stringify(["name", "step_index", "role", "content", "tool_name", "tool_args", "tool_result", "prompt_tokens", "completion_tokens", "cost", "latency_ms"]) ,
 			filters: JSON.stringify([["run", "=", aiRun.value.name]]),
 			limit_page_length: 200,
 			order_by: "step_index asc",

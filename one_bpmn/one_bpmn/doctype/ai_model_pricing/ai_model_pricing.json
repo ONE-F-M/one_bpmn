@@ -6,29 +6,40 @@
  "doctype": "DocType",
  "engine": "InnoDB",
  "field_order": [
-  "model_name",
   "provider",
+  "model_name",
+  "column_break_status",
   "effective_from",
   "is_active",
+  "section_break_pricing",
   "input_cost_per_1k",
+  "column_break_output",
   "output_cost_per_1k",
+  "section_break_notes",
   "notes"
  ],
  "fields": [
+  {
+   "fieldname": "provider",
+   "fieldtype": "Link",
+   "in_list_view": 1,
+   "label": "Provider",
+   "options": "AI Provider",
+   "reqd": 1
+  },
   {
    "fieldname": "model_name",
    "fieldtype": "Data",
    "in_list_view": 1,
    "label": "Model Name",
-   "reqd": 1
+   "read_only": 1,
+   "fetch_from": "provider.default_model",
+   "reqd": 1,
+   "description": "Fetched from the AI Provider's Default Model"
   },
   {
-   "fieldname": "provider",
-   "fieldtype": "Select",
-   "in_list_view": 1,
-   "label": "Provider",
-   "options": "openai\ngemini\nanthropic",
-   "reqd": 1
+   "fieldname": "column_break_status",
+   "fieldtype": "Column Break"
   },
   {
    "default": "Today",
@@ -46,6 +57,11 @@
    "label": "Is Active"
   },
   {
+   "fieldname": "section_break_pricing",
+   "fieldtype": "Section Break",
+   "label": "Token Pricing (USD)"
+  },
+  {
    "fieldname": "input_cost_per_1k",
    "fieldtype": "Currency",
    "label": "Input Cost per 1k Tokens",
@@ -53,11 +69,21 @@
    "reqd": 1
   },
   {
+   "fieldname": "column_break_output",
+   "fieldtype": "Column Break"
+  },
+  {
    "fieldname": "output_cost_per_1k",
    "fieldtype": "Currency",
    "label": "Output Cost per 1k Tokens",
    "precision": "6",
    "reqd": 1
+  },
+  {
+   "fieldname": "section_break_notes",
+   "fieldtype": "Section Break",
+   "label": "Notes",
+   "collapsible": 1
   },
   {
    "fieldname": "notes",
@@ -71,7 +97,7 @@
  "grid_page_length": 50,
  "index_web_pages_for_search": 1,
  "links": [],
- "modified": "2026-06-28 00:00:00.000000",
+ "modified": "2026-06-29 00:00:00.000000",
  "modified_by": "Administrator",
  "module": "ONE BPMN",
  "name": "AI Model Pricing",

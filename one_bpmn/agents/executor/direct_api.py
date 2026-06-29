@@ -101,7 +101,7 @@ class DirectApiExecutor(Executor):
             parse_fn = self._parse_anthropic_response
         else:
             url, payload, headers = self._build_openai_request(
-                endpoint, api_key, model, config,
+                endpoint, api_key, model, config, provider_type,
             )
             parse_fn = self._parse_openai_response
 
@@ -192,6 +192,7 @@ class DirectApiExecutor(Executor):
     @staticmethod
     def _build_openai_request(
         endpoint: str, api_key: str, model: str, config: ExecutorConfig,
+        provider_type: str = "OpenAI",
     ) -> tuple:
         """Build URL, payload, and headers for OpenAI-compatible APIs."""
         url = f"{endpoint}/chat/completions"
@@ -203,10 +204,20 @@ class DirectApiExecutor(Executor):
         payload = {
             "model": model,
             "messages": messages,
-            "temperature": config.temperature,
-            "top_p": config.top_p,
-            "max_tokens": config.max_tokens,
         }
+
+        if provider_type == "OpenAI":
+            # Native OpenAI: use max_completion_tokens (required by newer
+            # models like o1, o3, gpt-5.x). Omit temperature/top_p so
+            # reasoning models that only accept default(1) don't error.
+            payload["max_completion_tokens"] = config.max_tokens
+        else:
+            # OpenAI-compatible third-party providers (DeepSeek, etc.):
+            # use the older max_tokens param and send sampling parameters.
+            payload["max_tokens"] = config.max_tokens
+            payload["temperature"] = config.temperature
+            payload["top_p"] = config.top_p
+
         headers = {
             "Authorization": f"Bearer {api_key}",
             "Content-Type": "application/json",

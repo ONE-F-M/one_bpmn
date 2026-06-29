@@ -662,6 +662,8 @@ def dispatch_ai_agent(instance, task, task_cfg: dict, bpmn_id: str) -> None:
 		)
 
 	# ── Executor ───────────────────────────────────────────────────────
+	import time as _time
+	_exec_start = _time.time()
 	try:
 		executor_cls = get_executor(config.backend)
 		result = executor_cls().run(config, context)
@@ -679,6 +681,7 @@ def dispatch_ai_agent(instance, task, task_cfg: dict, bpmn_id: str) -> None:
 		except Exception:
 			pass
 		return
+	_exec_latency_ms = int((_time.time() - _exec_start) * 1000)
 
 	# ── Observability: record Steps + finalize ─────────────────────────
 	try:
@@ -686,20 +689,30 @@ def dispatch_ai_agent(instance, task, task_cfg: dict, bpmn_id: str) -> None:
 
 		if run and not getattr(run, "stub", False):
 			record_ai_step(run, 0, "system", system_prompt)
-			record_ai_step(run, 1, "user", user_prompt)
+
+			usage = result.token_usage if result.error_code == ErrorCode.SUCCESS else None
+			# Attribute prompt_tokens (input cost) to the user step,
+			# completion_tokens (output cost) to the assistant step.
+			record_ai_step(
+				run, 1, "user", user_prompt,
+				prompt_tokens=usage.prompt_tokens if usage else 0,
+			)
 
 		if result.error_code == ErrorCode.SUCCESS:
 			if run and not getattr(run, "stub", False):
-				usage = result.token_usage
 				record_ai_step(
 					run, 2, "assistant",
 					str(result.output or ""),
-					prompt_tokens=usage.prompt_tokens if usage else 0,
 					completion_tokens=usage.completion_tokens if usage else 0,
+					latency_ms=_exec_latency_ms,
 				)
 			finalize_ai_run(run, result)
 		else:
 			finalize_ai_run(run, result)
+
+		# Commit observability data so AI runs + steps survive even if a
+		# downstream aiStopOnError raise rolls back the outer transaction.
+		frappe.db.commit()
 	except Exception:
 		frappe.log_error(
 			title=f"AI Observability: instrumentation error ({bpmn_id})",
@@ -745,3 +758,12 @@ def dispatch_ai_agent(instance, task, task_cfg: dict, bpmn_id: str) -> None:
 		)
 		task.data[f"{bpmn_id}_error_code"]    = error_code_name
 		task.data[f"{bpmn_id}_error_message"] = result.error_message
+
+		# If the BPMN task is configured to stop on error, raise so the
+		# engine loop in _run_engine_steps halts and the instance is
+		# marked Errored (same pattern as apply_workflow).
+		if task_cfg.get("aiStopOnError"):
+			raise Exception(
+				f"AI Agent Task '{bpmn_id}' failed: "
+				f"{error_code_name} — {result.error_message}"
+			)

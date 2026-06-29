@@ -16,6 +16,8 @@
   "status",
   "error_code",
   "error_message",
+  "retry_count",
+  "max_retries",
   "section_break_timing",
   "started_at",
   "ended_at",
@@ -26,6 +28,8 @@
   "total_tokens",
   "column_break_cost",
   "estimated_cost",
+  "total_input_cost",
+  "total_output_cost",
   "section_break_output",
   "final_output",
   "correlation_id"
@@ -102,6 +106,18 @@
    "label": "Error Message"
   },
   {
+   "fieldname": "retry_count",
+   "fieldtype": "Int",
+   "label": "Retry Count",
+   "description": "Number of failed retry attempts (0 = first try succeeded or no retries)"
+  },
+  {
+   "fieldname": "max_retries",
+   "fieldtype": "Int",
+   "label": "Max Retries",
+   "description": "Max retries configured for this run"
+  },
+  {
    "fieldname": "section_break_timing",
    "fieldtype": "Section Break",
    "label": "Timing"
@@ -152,6 +168,20 @@
    "fieldtype": "Currency",
    "label": "Estimated Cost",
    "precision": "6"
+  },
+  {
+   "fieldname": "total_input_cost",
+   "fieldtype": "Currency",
+   "label": "Input Cost",
+   "precision": "6",
+   "description": "Total cost of prompt/input tokens across all steps"
+  },
+  {
+   "fieldname": "total_output_cost",
+   "fieldtype": "Currency",
+   "label": "Output Cost",
+   "precision": "6",
+   "description": "Total cost of completion/output tokens across all steps"
   },
   {
    "fieldname": "section_break_output",

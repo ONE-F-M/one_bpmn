@@ -4,8 +4,7 @@ Pricing utility for AI Agent observability.
 Provides get_model_pricing() used by the instrumentation layer to
 compute estimated costs from token usage.
 
-Continues to work for onefm_mcp's existing _get_model_pricing() call
-since it references "AI Model Pricing" by doctype name.
+Looks up pricing from the AI Model Pricing DocType by model_name.
 """
 
 from __future__ import annotations
