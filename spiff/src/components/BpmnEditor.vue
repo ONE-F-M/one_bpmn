@@ -1040,6 +1040,9 @@ import "bpmn-js/dist/assets/bpmn-font/css/bpmn.css";
 
 // Touch interaction support for mobile devices
 import touchInteractionModule from "bpmn-js-touch-interaction";
+// Direct touch handler fallback — works even when the module's (pointer: coarse)
+// guard prevents initialization on some mobile browsers.
+import { setupCanvasTouchHandler } from "@/utils/canvasTouchHandler";
 
 // Import properties panel CSS
 import "@bpmn-io/properties-panel/dist/assets/properties-panel.css";
@@ -1396,6 +1399,7 @@ watch([showPropertiesPanel, isMobile], () => {
 
 let modeler = null;
 let commandStack = null;
+let editorTouchCleanup = null;
 
 // Empty BPMN diagram template — generates a unique process ID each time
 function makeEmptyDiagram() {
@@ -1668,6 +1672,11 @@ onMounted(async () => {
 		onReady: async (initializedModeler) => {
 			modeler = initializedModeler;
 			modelerInstance.value = modeler;
+
+			// Setup direct touch handler for mobile pinch-to-zoom & finger pan
+			if (!editorTouchCleanup && container.value) {
+				editorTouchCleanup = setupCanvasTouchHandler(modeler, container.value)
+			}
 
 			// Fetch users for assignment
 			fetchUsers();
@@ -2244,6 +2253,10 @@ onBeforeUnmount(() => {
 	// Cancel any pending process-name injection to prevent memory-leaks
 	// and stale DOM updates after the component is torn down.
 	cancelPendingInjection();
+	if (editorTouchCleanup) {
+		editorTouchCleanup()
+		editorTouchCleanup = null
+	}
 	if (modeler) {
 		modeler.destroy();
 	}
