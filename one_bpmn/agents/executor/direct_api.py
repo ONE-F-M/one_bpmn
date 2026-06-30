@@ -21,6 +21,7 @@ import frappe
 from frappe.utils.password import get_decrypted_password
 
 from . import (
+    AttemptRecord,
     ErrorCode,
     Executor,
     ExecutorConfig,
@@ -107,8 +108,17 @@ class DirectApiExecutor(Executor):
 
         import requests
 
-        last_error = ""
+        attempts = []
+        last_error_result = None
+
         for attempt in range(config.max_retries + 1):
+            attempt_start = time.time()
+            error_result = None
+            content = None
+            token_usage = None
+            data = None
+
+            # ── HTTP request ──────────────────────────────────────
             try:
                 resp = requests.post(
                     url,
@@ -117,73 +127,92 @@ class DirectApiExecutor(Executor):
                     timeout=config.timeout_seconds,
                 )
             except requests.Timeout:
-                return ExecutorResult(
+                error_result = ExecutorResult(
                     error_code=ErrorCode.TIMEOUT,
                     error_message="Request timed out.",
                 )
             except requests.RequestException as exc:
-                last_error = str(exc)
-                if attempt < config.max_retries:
-                    self._sleep_backoff(config, attempt)
-                    continue
-                return ExecutorResult(
-                    error_code=ErrorCode.FAILED_MODEL_CALL,
-                    error_message=last_error,
-                )
-
-            if resp.status_code in _TRANSIENT_STATUS_CODES:
-                last_error = f"HTTP {resp.status_code}"
-                if attempt < config.max_retries:
-                    self._sleep_backoff(config, attempt)
-                    continue
-                return ExecutorResult(
-                    error_code=ErrorCode.FAILED_MODEL_CALL,
-                    error_message=last_error,
-                )
-
-            try:
-                resp.raise_for_status()
-            except requests.HTTPError as exc:
-                return ExecutorResult(
+                error_result = ExecutorResult(
                     error_code=ErrorCode.FAILED_MODEL_CALL,
                     error_message=str(exc),
                 )
 
-            try:
-                data = resp.json()
-            except Exception:
-                return ExecutorResult(
-                    error_code=ErrorCode.FAILED_MODEL_CALL,
-                    error_message="Provider returned non-JSON response.",
-                )
+            # ── HTTP status check ─────────────────────────────────
+            if error_result is None:
+                if resp.status_code in _TRANSIENT_STATUS_CODES:
+                    error_result = ExecutorResult(
+                        error_code=ErrorCode.FAILED_MODEL_CALL,
+                        error_message=f"HTTP {resp.status_code}",
+                    )
+                else:
+                    try:
+                        resp.raise_for_status()
+                    except requests.HTTPError as exc:
+                        # Non-transient HTTP error — not retryable
+                        return ExecutorResult(
+                            error_code=ErrorCode.FAILED_MODEL_CALL,
+                            error_message=str(exc),
+                            attempts=list(attempts),
+                        )
 
-            # Delegate response parsing to the provider-specific parser.
-            content, token_usage, parse_error = parse_fn(data)
-            if parse_error:
-                return parse_error
+            # ── Parse response body ───────────────────────────────
+            if error_result is None:
+                try:
+                    data = resp.json()
+                except Exception:
+                    error_result = ExecutorResult(
+                        error_code=ErrorCode.FAILED_MODEL_CALL,
+                        error_message="Provider returned non-JSON response.",
+                    )
 
-            if config.response_format == "json":
+            # ── Provider-specific parsing ─────────────────────────
+            if error_result is None:
+                content, token_usage, parse_error = parse_fn(data)
+                if parse_error:
+                    error_result = parse_error
+
+            # ── JSON schema validation ────────────────────────────
+            if error_result is None and config.response_format == "json":
                 validation_result = self._validate_json(content, config.response_schema)
                 if isinstance(validation_result, ExecutorResult):
-                    return validation_result
+                    error_result = validation_result
+                else:
+                    return ExecutorResult(
+                        output=validation_result,
+                        token_usage=token_usage,
+                        error_code=ErrorCode.SUCCESS,
+                        raw=data,
+                        attempts=list(attempts),
+                    )
+
+            # ── Success (text format) ─────────────────────────────
+            if error_result is None:
                 return ExecutorResult(
-                    output=validation_result,
+                    output=content,
                     token_usage=token_usage,
                     error_code=ErrorCode.SUCCESS,
                     raw=data,
+                    attempts=list(attempts),
                 )
 
-            return ExecutorResult(
-                output=content,
+            # ── Record failed attempt and retry ───────────────────
+            latency_ms = int((time.time() - attempt_start) * 1000)
+            attempts.append(AttemptRecord(
+                attempt_index=attempt,
+                content=content or "",
+                error_code=error_result.error_code.value,
+                error_message=error_result.error_message,
                 token_usage=token_usage,
-                error_code=ErrorCode.SUCCESS,
-                raw=data,
-            )
+                latency_ms=latency_ms,
+            ))
+            last_error_result = error_result
 
-        return ExecutorResult(
-            error_code=ErrorCode.FAILED_MODEL_CALL,
-            error_message=last_error or "Max retries exceeded.",
-        )
+            if attempt < config.max_retries:
+                self._sleep_backoff(config, attempt)
+
+        # All retries exhausted
+        last_error_result.attempts = list(attempts)
+        return last_error_result
 
     # ------------------------------------------------------------------
     # Request builders
