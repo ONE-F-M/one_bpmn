@@ -86,14 +86,13 @@ def run_eval_suite(suite_name: str) -> str:
     run.started_at = now_datetime()
     run.insert()
 
-    # frappe.enqueue(
-    #     "one_bpmn.agents.eval_runner._execute_eval_suite",
-    #     queue="long",
-    #     run_name=run.name,
-    #     timeout=1800,
-    # )
+    frappe.enqueue(
+        "one_bpmn.agents.eval_runner._execute_eval_suite",
+        queue="long",
+        run_name=run.name,
+        timeout=1800,
+    )
     
-    _execute_eval_suite(run.name)
     return run.name
 
 
