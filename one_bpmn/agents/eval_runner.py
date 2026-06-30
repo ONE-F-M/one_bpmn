@@ -25,7 +25,7 @@ from typing import Any, List
 
 import frappe
 from frappe import _
-from frappe.utils import now_datetime
+from frappe.utils import flt, now_datetime
 
 from one_bpmn.agents.executor import (
     ErrorCode,
@@ -39,6 +39,7 @@ from one_bpmn.agents.executor.direct_api import (  # noqa: F401
     _strip_code_fences,
 )
 from one_bpmn.agents.executor.antigravity import AntigravityExecutor  # noqa: F401
+from one_bpmn.agents.pricing import get_model_pricing
 
 
 # ---------------------------------------------------------------------------
@@ -85,13 +86,14 @@ def run_eval_suite(suite_name: str) -> str:
     run.started_at = now_datetime()
     run.insert()
 
-    frappe.enqueue(
-        "one_bpmn.agents.eval_runner._execute_eval_suite",
-        queue="long",
-        run_name=run.name,
-        timeout=1800,
-    )
+    # frappe.enqueue(
+    #     "one_bpmn.agents.eval_runner._execute_eval_suite",
+    #     queue="long",
+    #     run_name=run.name,
+    #     timeout=1800,
+    # )
     
+    _execute_eval_suite(run.name)
     return run.name
 
 
@@ -111,6 +113,8 @@ def _execute_eval_suite(run_name: str) -> None:
     )
 
     passed = failed = 0
+    total_cost = 0.0
+    total_tokens = 0
     for case_name in case_names:
         case = frappe.get_doc("AI Eval Case", case_name)
         result_row = _execute_case(case)
@@ -119,10 +123,14 @@ def _execute_eval_suite(run_name: str) -> None:
             passed += 1
         else:
             failed += 1
+        total_cost += flt(result_row.get("cost", 0))
+        total_tokens += (result_row.get("tokens_used") or 0)
 
     run.total_cases = len(case_names)
     run.passed_cases = passed
     run.failed_cases = failed
+    run.total_cost = total_cost
+    run.total_tokens = total_tokens
     run.status = "Passed" if failed == 0 else "Failed"
     run.ended_at = now_datetime()
     run.save()
@@ -163,8 +171,10 @@ def _execute_case(case) -> dict:
                 "status": "Error",
                 "error_message": result.error_message
                 or result.error_code.value,
+                "prompt_tokens": _prompt_tokens_of(result),
+                "completion_tokens": _completion_tokens_of(result),
                 "tokens_used": _tokens_of(result),
-                "cost": _cost_of(result),
+                "cost": _cost_of(result, config.model),
             }
 
         output = result.output
@@ -178,9 +188,11 @@ def _execute_case(case) -> dict:
             "eval_case": case.name,
             "status": "Passed" if all_passed else "Failed",
             "actual_output": _stringify(output),
-            "assertion_results": json.dumps(assertion_results),
+            "assertion_results": json.dumps(assertion_results, indent=4),
+            "prompt_tokens": _prompt_tokens_of(result),
+            "completion_tokens": _completion_tokens_of(result),
             "tokens_used": _tokens_of(result),
-            "cost": _cost_of(result),
+            "cost": _cost_of(result, config.model),
         }
     except Exception:
         frappe.log_error(
@@ -371,7 +383,25 @@ def _tokens_of(result) -> int:
     return result.token_usage.total_tokens if result.token_usage else 0
 
 
-def _cost_of(result) -> float:
-    # No per-token pricing is configured on AI Provider yet, so cost is
-    # recorded as 0.0. Kept as a seam for when pricing data is added.
-    return 0.0
+def _prompt_tokens_of(result) -> int:
+    return result.token_usage.prompt_tokens if result.token_usage else 0
+
+
+def _completion_tokens_of(result) -> int:
+    return result.token_usage.completion_tokens if result.token_usage else 0
+
+
+def _cost_of(result, model: str = "") -> float:
+    """Compute cost from AI Model Pricing, mirroring observability.record_ai_step."""
+    if not result.token_usage or not model:
+        return 0.0
+
+    pricing = get_model_pricing(model)
+    if not pricing:
+        return 0.0
+
+    input_rate = flt(pricing.get("input_cost_per_1k", 0))
+    output_rate = flt(pricing.get("output_cost_per_1k", 0))
+    input_cost = (result.token_usage.prompt_tokens / 1000.0) * input_rate
+    output_cost = (result.token_usage.completion_tokens / 1000.0) * output_rate
+    return input_cost + output_cost
