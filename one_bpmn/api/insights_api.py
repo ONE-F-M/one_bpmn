@@ -241,7 +241,7 @@ def get_error_report(
 		.select(
 			Run.model,
 			Run.bpmn_id,
-			Run.bpmn_label,
+			fn.Max(Run.bpmn_label).as_("bpmn_label"),
 			fn.Count("*").as_("total_runs"),
 			fn.Sum(Case().when(Run.status == "Success", 1).else_(0)).as_("successes"),
 			fn.Sum(Case().when(Run.status == "Error", 1).else_(0)).as_("errors"),
@@ -256,7 +256,7 @@ def get_error_report(
 		.where(fn.Date(Run.started_at) >= from_d)
 		.where(fn.Date(Run.started_at) <= to_d)
 		.where(Run.status != "Running")
-		.groupby(Run.model, Run.bpmn_id, Run.bpmn_label)
+		.groupby(Run.model, Run.bpmn_id)
 		.orderby(fn.Sum(Case().when(Run.status == "Error", 1).else_(0)), order=frappe.qb.desc)
 	)
 
