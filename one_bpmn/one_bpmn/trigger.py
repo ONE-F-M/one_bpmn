@@ -308,6 +308,17 @@ def _maybe_start_instance(doc, model_name: str):
 		if doc_state != required_state:
 			return
 
+	# Optional generic field filter on the triggering document.
+	# A start event may declare spiffworkflow:triggerFieldName / triggerFieldValue
+	# (e.g. agent_mode == "ProsAlly") so that only the model whose value matches the
+	# document spawns an instance — preventing fan-out where several models listen on
+	# the same DocType + event. Skip (zero-spawn) when the document field does not match.
+	field_cond = _get_trigger_field_condition(model.bpmn_xml)
+	if field_cond:
+		field_name, field_value = field_cond
+		if str(getattr(doc, field_name, None) or "") != str(field_value):
+			return
+
 	# Prevent duplicate: skip if there's already a Queued/Active instance
 	# for this exact document + model combination
 	existing = frappe.db.exists(
@@ -531,6 +542,39 @@ def _get_trigger_workflow_state(bpmn_xml: str):
 			state = start.get(attr_key)
 			if state:
 				return state
+	except Exception:
+		pass
+	return None
+
+
+def _get_trigger_field_condition(bpmn_xml: str):
+	"""
+	Parse the BPMN XML and return a (field_name, field_value) tuple declared via
+	spiffworkflow:triggerFieldName / spiffworkflow:triggerFieldValue on a start
+	event (or its event definition), if set.
+
+	Example BPMN attributes:
+		<bpmn:conditionalEventDefinition
+			spiffworkflow:triggerFieldName="agent_mode"
+			spiffworkflow:triggerFieldValue="ProsAlly" ... >
+
+	Used to scope a DocType-event trigger to documents whose field equals a value,
+	so multiple models listening on the same DocType + event don't all fire.
+
+	Returns None if not set or if parsing fails.
+	"""
+	if not bpmn_xml or not bpmn_xml.strip():
+		return None
+	try:
+		from lxml import etree
+
+		root = etree.fromstring(bpmn_xml.strip().encode("utf-8"))
+		fn_key = f"{{{_SPIFF_NS}}}triggerFieldName"
+		fv_key = f"{{{_SPIFF_NS}}}triggerFieldValue"
+		for el in root.iter():
+			field_name = el.get(fn_key)
+			if field_name:
+				return (field_name, el.get(fv_key) or "")
 	except Exception:
 		pass
 	return None

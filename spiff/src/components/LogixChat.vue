@@ -221,7 +221,7 @@
 </template>
 
 <script setup>
-import { ref, computed, watch, nextTick } from "vue";
+import { ref, computed, watch, nextTick, onUnmounted } from "vue";
 import DOMPurify from "dompurify";
 import { marked } from "marked";
 
@@ -736,7 +736,22 @@ async function applyScript() {
 }
 
 // ── Reset / close ─────────────────────────────────────────────────────
+// Close the active Chat Conversation on the backend so its BPMN orchestration
+// runs the close branch (Cleanup → Conversation Ended). Fire-and-forget.
+function endConversation() {
+	const convName = conversationName.value;
+	if (!convName) return;
+	conversationName.value = null;
+	fetch("/api/method/one_bpmn.api.server_script_api.end_chat_conversation", {
+		method: "POST",
+		keepalive: true,
+		headers: { "Content-Type": "application/json", "X-Frappe-CSRF-Token": getCsrfToken() },
+		body: JSON.stringify({ conversation_name: convName }),
+	}).catch(() => {});
+}
+
 function resetConversation() {
+	endConversation();
 	sessionId.value          = generateSessionId();
 	conversationName.value   = null;
 	messages.value           = [];
@@ -746,8 +761,13 @@ function resetConversation() {
 }
 
 function handleClose() {
+	endConversation();
 	emit("update:modelValue", false);
 }
+
+onUnmounted(() => {
+	endConversation();
+});
 </script>
 
 <style scoped>

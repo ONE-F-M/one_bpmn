@@ -18,7 +18,7 @@
 						<path d="M17.65 6.35A7.958 7.958 0 0 0 12 4c-4.42 0-7.99 3.58-7.99 8s3.57 8 7.99 8c3.73 0 6.84-2.55 7.73-6h-2.08A5.99 5.99 0 0 1 12 18c-3.31 0-6-2.69-6-6s2.69-6 6-6c1.66 0 3.14.69 4.22 1.78L13 11h7V4l-2.35 2.35z"/>
 					</svg>
 				</button>
-				<button class="pa-icon-btn" title="Close ProsAlly" @click="$emit('close')">
+				<button class="pa-icon-btn" title="Close ProsAlly" @click="handleClose">
 					<svg viewBox="0 0 24 24" fill="currentColor" width="16" height="16">
 						<path d="M19 6.41L17.59 5 12 10.59 6.41 5 5 6.41 10.59 12 5 17.59 6.41 19 12 13.41 17.59 19 19 17.59 13.41 12z"/>
 					</svg>
@@ -143,7 +143,7 @@
 </template>
 
 <script setup>
-import { ref, nextTick, onMounted } from "vue";
+import { ref, nextTick, onMounted, onUnmounted } from "vue";
 import DOMPurify from "dompurify";
 import { marked } from "marked";
 
@@ -413,7 +413,28 @@ function selectOption(option, msgId) {
 	sendMessage({ confirmedAction });
 }
 
+// Close the active Chat Conversation on the backend so its BPMN orchestration
+// runs the close branch (Cleanup → Conversation Ended). Fire-and-forget; the
+// keepalive flag lets the request survive the panel being torn down.
+function endConversation() {
+	const convName = conversationName.value;
+	if (!convName) return;
+	conversationName.value = null;
+	fetch("/api/method/one_bpmn.api.server_script_api.end_chat_conversation", {
+		method: "POST",
+		keepalive: true,
+		headers: { "Content-Type": "application/json", "X-Frappe-CSRF-Token": getCsrfToken() },
+		body: JSON.stringify({ conversation_name: convName }),
+	}).catch(() => {});
+}
+
+function handleClose() {
+	endConversation();
+	emit("close");
+}
+
 function resetConversation() {
+	endConversation();
 	sessionId.value        = generateSessionId();
 	conversationName.value = null;
 	messages.value         = [];
@@ -421,6 +442,10 @@ function resetConversation() {
 	initGreeting();
 	nextTick(() => inputEl.value?.focus());
 }
+
+onUnmounted(() => {
+	endConversation();
+});
 </script>
 
 <style scoped>

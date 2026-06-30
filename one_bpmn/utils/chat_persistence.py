@@ -36,13 +36,35 @@ def create_conversation(agent_mode: str, title: str, user: str) -> str:
 
 
 def close_conversation(conversation_name: str) -> None:
-	"""Mark a Chat Conversation as Closed."""
-	if frappe.db.exists("Chat Conversation", conversation_name):
-		frappe.db.set_value("Chat Conversation", conversation_name, {
-			"status": "Closed",
-			"last_updated": frappe.utils.now_datetime(),
-		})
-		frappe.db.commit()
+	"""End a chat conversation by handing control to its process map.
+
+	This delivers ``ChatConversation_Close_Action`` to the BPMN Process Instance
+	driving the conversation; the diagram's close branch (Cleanup → Conversation
+	Ended) is what actually marks the conversation Closed and finalises it. No
+	conversation state is mutated here — all of that lives in the process map.
+	"""
+	if not frappe.db.exists("Chat Conversation", conversation_name):
+		return
+
+	inst_name = frappe.db.get_value(
+		"BPMN Process Instance",
+		{
+			"context_doctype": "Chat Conversation",
+			"context_docname": conversation_name,
+			"status": "Active",
+		},
+		"name",
+	)
+	if not inst_name:
+		return  # No orchestration is running for this conversation — nothing to do.
+
+	try:
+		instance = frappe.get_doc("BPMN Process Instance", inst_name)
+		instance.receive_message("ChatConversation_Close_Action", payload={})
+	except frappe.ValidationError:
+		pass  # instance not waiting for the close message — nothing to do
+	except Exception:
+		frappe.log_error(title="BPMN close delivery failed", message=frappe.get_traceback())
 
 
 # ── Message persistence ────────────────────────────────────────────────────────
