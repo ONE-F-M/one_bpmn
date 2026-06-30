@@ -18,6 +18,10 @@
   "passed_cases",
   "column_break_counts",
   "failed_cases",
+  "section_break_usage",
+  "total_tokens",
+  "column_break_usage",
+  "total_cost",
   "section_break_results",
   "results"
  ],
@@ -88,6 +92,28 @@
    "label": "Failed Cases"
   },
   {
+   "fieldname": "section_break_usage",
+   "fieldtype": "Section Break",
+   "label": "Usage & Cost"
+  },
+  {
+   "fieldname": "total_tokens",
+   "fieldtype": "Int",
+   "in_list_view": 1,
+   "label": "Total Tokens"
+  },
+  {
+   "fieldname": "column_break_usage",
+   "fieldtype": "Column Break"
+  },
+  {
+   "fieldname": "total_cost",
+   "fieldtype": "Currency",
+   "in_list_view": 1,
+   "label": "Total Cost",
+   "precision": "6"
+  },
+  {
    "fieldname": "section_break_results",
    "fieldtype": "Section Break",
    "label": "Results"
@@ -101,7 +127,7 @@
  ],
  "index_web_pages_for_search": 1,
  "links": [],
- "modified": "2026-06-28 00:00:00.000000",
+ "modified": "2026-06-30 06:50:00.000000",
  "modified_by": "Administrator",
  "module": "ONE BPMN",
  "name": "AI Eval Run",

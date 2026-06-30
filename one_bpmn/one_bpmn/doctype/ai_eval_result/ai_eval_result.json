@@ -11,6 +11,10 @@
   "actual_output",
   "assertion_results",
   "error_message",
+  "section_break_tokens",
+  "prompt_tokens",
+  "completion_tokens",
+  "column_break_tokens",
   "tokens_used",
   "cost"
  ],
@@ -50,6 +54,25 @@
    "description": "Populated when status is Error."
   },
   {
+   "fieldname": "section_break_tokens",
+   "fieldtype": "Section Break",
+   "label": "Usage & Cost"
+  },
+  {
+   "fieldname": "prompt_tokens",
+   "fieldtype": "Int",
+   "label": "Prompt Tokens"
+  },
+  {
+   "fieldname": "completion_tokens",
+   "fieldtype": "Int",
+   "label": "Completion Tokens"
+  },
+  {
+   "fieldname": "column_break_tokens",
+   "fieldtype": "Column Break"
+  },
+  {
    "fieldname": "tokens_used",
    "fieldtype": "Int",
    "in_list_view": 1,
@@ -66,7 +89,7 @@
  "index_web_pages_for_search": 1,
  "istable": 1,
  "links": [],
- "modified": "2026-06-28 00:00:00.000000",
+ "modified": "2026-06-30 06:50:00.000000",
  "modified_by": "Administrator",
  "module": "ONE BPMN",
  "name": "AI Eval Result",
