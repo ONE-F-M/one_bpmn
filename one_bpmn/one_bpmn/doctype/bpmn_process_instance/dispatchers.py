@@ -615,6 +615,8 @@ def dispatch_ai_agent(instance, task, task_cfg: dict, bpmn_id: str) -> None:
 			pass
 
 	jinja_ctx = {"doc": doc, "instance": instance, "frappe": frappe}
+	if hasattr(task, "data") and isinstance(task.data, dict):
+		jinja_ctx.update(task.data)
 
 	def render(text):
 		if not text:

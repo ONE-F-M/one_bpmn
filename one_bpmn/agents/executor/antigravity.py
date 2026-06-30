@@ -12,9 +12,12 @@ clear message — the bench continues to function for all other task types.
 from __future__ import annotations
 
 import json
+import random
+import time
 from typing import Any, Optional
 
 from . import (
+    AttemptRecord,
     ErrorCode,
     Executor,
     ExecutorConfig,
@@ -46,46 +49,85 @@ class AntigravityExecutor(Executor):
                 ),
             )
 
-        try:
-            agent = _sdk.Agent(
-                model=config.model,
-                system_prompt=config.system_prompt,
-            )
-            response = agent.send(config.user_prompt)
-            content = getattr(response, "text", "") or str(response)
+        attempts = []
+        last_error_result = None
 
-            usage_obj = getattr(response, "usage", None)
-            token_usage = TokenUsage(
-                prompt_tokens=int(getattr(usage_obj, "prompt_tokens", 0) or 0),
-                completion_tokens=int(getattr(usage_obj, "completion_tokens", 0) or 0),
-                total_tokens=int(getattr(usage_obj, "total_tokens", 0) or 0),
-            )
-            if not token_usage.total_tokens:
-                token_usage.total_tokens = (
-                    token_usage.prompt_tokens + token_usage.completion_tokens
+        for attempt in range(config.max_retries + 1):
+            attempt_start = time.time()
+            error_result = None
+            content = None
+            token_usage = None
+
+            try:
+                agent = _sdk.Agent(
+                    model=config.model,
+                    system_prompt=config.system_prompt,
+                )
+                response = agent.send(config.user_prompt)
+                content = getattr(response, "text", "") or str(response)
+
+                usage_obj = getattr(response, "usage", None)
+                token_usage = TokenUsage(
+                    prompt_tokens=int(getattr(usage_obj, "prompt_tokens", 0) or 0),
+                    completion_tokens=int(getattr(usage_obj, "completion_tokens", 0) or 0),
+                    total_tokens=int(getattr(usage_obj, "total_tokens", 0) or 0),
+                )
+                if not token_usage.total_tokens:
+                    token_usage.total_tokens = (
+                        token_usage.prompt_tokens + token_usage.completion_tokens
+                    )
+            except Exception as exc:
+                error_result = ExecutorResult(
+                    error_code=ErrorCode.FAILED_MODEL_CALL,
+                    error_message=str(exc),
                 )
 
-            if config.response_format == "json":
+            # ── JSON validation ───────────────────────────────────
+            if error_result is None and config.response_format == "json":
                 validation_result = self._validate_json(content, config.response_schema)
                 if isinstance(validation_result, ExecutorResult):
-                    return validation_result
+                    error_result = validation_result
+                else:
+                    return ExecutorResult(
+                        output=validation_result,
+                        token_usage=token_usage,
+                        error_code=ErrorCode.SUCCESS,
+                        attempts=list(attempts),
+                    )
+
+            # ── Success (text format) ─────────────────────────────
+            if error_result is None:
                 return ExecutorResult(
-                    output=validation_result,
+                    output=content,
                     token_usage=token_usage,
                     error_code=ErrorCode.SUCCESS,
+                    attempts=list(attempts),
                 )
 
-            return ExecutorResult(
-                output=content,
+            # ── Record failed attempt and retry ───────────────────
+            latency_ms = int((time.time() - attempt_start) * 1000)
+            attempts.append(AttemptRecord(
+                attempt_index=attempt,
+                content=content or "",
+                error_code=error_result.error_code.value,
+                error_message=error_result.error_message,
                 token_usage=token_usage,
-                error_code=ErrorCode.SUCCESS,
-            )
+                latency_ms=latency_ms,
+            ))
+            last_error_result = error_result
 
-        except Exception as exc:
-            return ExecutorResult(
-                error_code=ErrorCode.FAILED_MODEL_CALL,
-                error_message=str(exc),
-            )
+            if attempt < config.max_retries:
+                self._sleep_backoff(config, attempt)
+
+        # All retries exhausted
+        last_error_result.attempts = list(attempts)
+        return last_error_result
+
+    @staticmethod
+    def _sleep_backoff(config: ExecutorConfig, attempt: int) -> None:
+        base_s = (config.retry_backoff_ms / 1000.0) * (2 ** attempt)
+        jitter = random.uniform(0, 0.1)
+        time.sleep(base_s + jitter)
 
     @staticmethod
     def _validate_json(content: str, schema_str: Optional[str]) -> Any:
@@ -119,3 +161,4 @@ class AntigravityExecutor(Executor):
 
 
 register_executor("antigravity", AntigravityExecutor)
+
