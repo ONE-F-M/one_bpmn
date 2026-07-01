@@ -85,6 +85,12 @@ class AnthropicAdapter(BaseLLMAdapter):
         # gets its own cache_control so that on a cache miss at the automatic
         # breakpoint, the lookback still finds this earlier write.
         user_blocks = []
+        # ``conv_marker`` tracks the single block that currently carries the
+        # moving conversation cache_control marker.  As the conversation grows
+        # we relocate this marker to the latest tool_result rather than adding a
+        # new one, so the total number of markers stays fixed at 3 (tools +
+        # system + conversation) — well within Anthropic's limit of 4.
+        conv_marker: dict | None = None
         split_match = re.search(
             r"(\n+(?:User message|User request|User prompt|Request):\s*)(.*)$",
             user,
@@ -94,11 +100,12 @@ class AnthropicAdapter(BaseLLMAdapter):
             prefix_text = user[:split_match.start()].strip()
             suffix_text = (split_match.group(1) + split_match.group(2)).strip()
             if prefix_text:
-                user_blocks.append({
+                conv_marker = {
                     "type": "text",
                     "text": prefix_text,
                     "cache_control": {"type": "ephemeral"},
-                })
+                }
+                user_blocks.append(conv_marker)
             user_blocks.append({
                 "type": "text",
                 "text": suffix_text,
@@ -174,14 +181,16 @@ class AnthropicAdapter(BaseLLMAdapter):
                     "content": result,
                 })
 
-            # Mark the last tool_result with cache_control so the entire
-            # conversation prefix (tools + system + all prior messages +
-            # this tool result) is cached for the next turn.  This gives
-            # the lookback window an explicit write point close to the end
-            # of the growing conversation, ensuring cache hits even when
-            # the conversation exceeds 20 blocks.
+            # Relocate the single conversation cache_control marker to the last
+            # tool_result so the entire conversation prefix (tools + system +
+            # all prior messages + this tool result) is cached for the next
+            # turn.  We remove the marker from its previous location first so
+            # markers never accumulate beyond the Anthropic limit of 4.
             if tool_results:
+                if conv_marker is not None:
+                    conv_marker.pop("cache_control", None)
                 tool_results[-1]["cache_control"] = {"type": "ephemeral"}
+                conv_marker = tool_results[-1]
 
             messages.append({"role": "user", "content": tool_results})
             kwargs["messages"] = messages
