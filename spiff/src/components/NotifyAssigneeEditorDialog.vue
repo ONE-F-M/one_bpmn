@@ -125,6 +125,7 @@
 
 <script setup>
 import { ref, watch, computed } from "vue";
+import { frappeRequest } from "frappe-ui";
 import { Icon } from "@iconify/vue";
 
 const props = defineProps({
@@ -210,14 +211,15 @@ const filteredTemplates = computed(() => {
 async function fetchTemplates() {
 	loadingTemplates.value = true;
 	try {
-		// NOTE: use raw fetch — frappeRequest() returns the response's `message`
-		// key, but /api/resource endpoints return `data`, so it would yield
-		// undefined and the template list would always be empty.
-		const fields = encodeURIComponent(JSON.stringify(["name", "subject"]));
-		const url = `/api/resource/Email Template?fields=${fields}&limit_page_length=200&order_by=name asc`;
-		const res = await fetch(url, { credentials: "include" });
-		const json = await res.json();
-		templates.value = json?.data || [];
+		const data = await frappeRequest({
+			url: "/api/resource/Email Template",
+			params: {
+				fields: JSON.stringify(["name", "subject"]),
+				limit_page_length: 200,
+				order_by: "name asc",
+			},
+		});
+		templates.value = Array.isArray(data) ? data : [];
 	} catch (err) {
 		console.error("[NotifyAssigneeEditor] Failed to fetch email templates:", err);
 		templates.value = [];
@@ -232,18 +234,19 @@ async function selectTemplate(tpl) {
 
 	// Fetch the full template to get the HTML body + subject
 	try {
-		const fields = encodeURIComponent(JSON.stringify(["subject", "response_html", "response"]));
-		const url = `/api/resource/Email Template/${encodeURIComponent(tpl.name)}?fields=${fields}`;
-		const res = await fetch(url, { credentials: "include" });
-		const json = await res.json();
-		const doc = json?.data || {};
+		const doc = await frappeRequest({
+			url: `/api/resource/Email Template/${encodeURIComponent(tpl.name)}`,
+			params: {
+				fields: JSON.stringify(["subject", "response_html", "response"]),
+			},
+		});
 		// Prefer response_html; fall back to response (plain text / markdown)
-		const body = doc.response_html || doc.response || "";
+		const body = doc?.response_html || doc?.response || "";
 		if (body) {
 			htmlBody.value = body;
 		}
 		// Pre-populate the subject from the template too
-		if (doc.subject) {
+		if (doc?.subject) {
 			subject.value = doc.subject;
 		}
 		// Mark this template as attached

@@ -146,18 +146,9 @@
 import { ref, nextTick, onMounted, onUnmounted } from "vue";
 import DOMPurify from "dompurify";
 import { marked } from "marked";
+import { frappeRequest } from "frappe-ui";
 
 marked.setOptions({ gfm: true, breaks: true });
-
-function getCsrfToken() {
-	return (
-		window.frappe?.csrf_token ||
-		window.frappe?.boot?.csrf_token ||
-		window.csrf_token ||
-		document.cookie.split("; ").find(r => r.startsWith("csrf_token="))?.split("=")[1] ||
-		""
-	);
-}
 
 const props = defineProps({
 	processName:  { type: String,   default: "" },
@@ -173,7 +164,7 @@ const isTyping          = ref(false);
 const messagesEl        = ref(null);
 const inputEl           = ref(null);
 const sessionId         = ref(generateSessionId());
-const conversationName  = ref(null);   // persisted Chat Conversation name
+const conversationName  = ref(null);
 
 function generateSessionId() {
 	return "prosally_" + Date.now() + "_" + Math.random().toString(36).slice(2, 9);
@@ -282,6 +273,7 @@ async function sendMessage(opts = {}) {
 		const body = {
 			message:           text,
 			session_id:        sessionId.value,
+			chat_history:      JSON.stringify(history),
 			conversation_name: conversationName.value || null,
 			process_name:      props.processName || "",
 			diagram_name:      props.diagramName || "",
@@ -317,21 +309,14 @@ async function sendMessage(opts = {}) {
 			}
 		}
 
-		const response = await fetch("/api/method/one_bpmn.api.server_script_api.prosally_chat", {
-			method: "POST",
-			headers: {
-				"Content-Type": "application/json",
-				"X-Frappe-CSRF-Token": getCsrfToken(),
-			},
-			body: JSON.stringify(body),
-		});
+		const result = await frappeRequest({
+			url: "/api/method/one_bpmn.api.server_script_api.prosally_chat",
+			params: body,
+		}) || {};
 
-		if (!response.ok) throw new Error(`HTTP ${response.status}`);
-		const data   = await response.json();
-		const result = data?.message || {};
-
-		// Capture the conversation name returned by the backend
-		if (result?.conversation_name) conversationName.value = result.conversation_name;
+		// Persist the conversation name so every subsequent turn (and the close
+		// on panel teardown) targets the SAME conversation / process instance.
+		if (result.conversation_name) conversationName.value = result.conversation_name;
 
 		const reply  = result.response || "I received your message. How can I assist further?";
 		const intent = result.intent || null;
@@ -414,17 +399,14 @@ function selectOption(option, msgId) {
 }
 
 // Close the active Chat Conversation on the backend so its BPMN orchestration
-// runs the close branch (Cleanup → Conversation Ended). Fire-and-forget; the
-// keepalive flag lets the request survive the panel being torn down.
+// runs the close branch (Cleanup → Conversation Ended). Fire-and-forget.
 function endConversation() {
 	const convName = conversationName.value;
 	if (!convName) return;
 	conversationName.value = null;
-	fetch("/api/method/one_bpmn.api.server_script_api.end_chat_conversation", {
-		method: "POST",
-		keepalive: true,
-		headers: { "Content-Type": "application/json", "X-Frappe-CSRF-Token": getCsrfToken() },
-		body: JSON.stringify({ conversation_name: convName }),
+	frappeRequest({
+		url: "/api/method/one_bpmn.api.server_script_api.end_chat_conversation",
+		params: { conversation_name: convName },
 	}).catch(() => {});
 }
 

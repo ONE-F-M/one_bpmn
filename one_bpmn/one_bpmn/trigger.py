@@ -308,11 +308,33 @@ def _maybe_start_instance(doc, model_name: str):
 		if doc_state != required_state:
 			return
 
-	# Optional generic field filter on the triggering document.
-	# A start event may declare spiffworkflow:triggerFieldName / triggerFieldValue
-	# (e.g. agent_mode == "ProsAlly") so that only the model whose value matches the
-	# document spawns an instance — preventing fan-out where several models listen on
-	# the same DocType + event. Skip (zero-spawn) when the document field does not match.
+	# Conditional start event gate.
+	# Evaluate the start event's <bpmn:condition> (e.g. agent_mode == "ProsAlly")
+	# against the triggering document, so the instance only spawns when the
+	# condition holds. This is the SAME expression SpiffWorkflow evaluates when the
+	# instance starts, so the gate lives in the process map — not in this code.
+	# Skip (zero-spawn) when the condition is cleanly False; a condition we cannot
+	# evaluate falls through to spawning so legitimate triggers are never dropped.
+	start_condition = _get_conditional_start_condition(model.bpmn_xml)
+	if start_condition and start_condition.strip().lower() not in ("true", "1", ""):
+		eval_locals = {}
+		for _f in doc.meta.fields:
+			_v = doc.get(_f.fieldname)
+			if isinstance(_v, (str, int, float, bool)) or _v is None:
+				eval_locals[_f.fieldname] = _v
+		eval_locals["docstatus"] = getattr(doc, "docstatus", 0)
+		try:
+			if not frappe.safe_eval(start_condition, eval_locals=eval_locals):
+				return  # condition not met — do not spawn
+		except Exception:
+			frappe.log_error(
+				title=f"BPMN trigger: start-condition eval failed ({model_name})",
+				message=f"condition={start_condition!r}\n{frappe.get_traceback()}",
+			)
+
+	# Optional generic field filter on the triggering document (legacy /
+	# defence-in-depth): a start event may also declare
+	# spiffworkflow:triggerFieldName / triggerFieldValue.
 	field_cond = _get_trigger_field_condition(model.bpmn_xml)
 	if field_cond:
 		field_name, field_value = field_cond
@@ -575,6 +597,35 @@ def _get_trigger_field_condition(bpmn_xml: str):
 			field_name = el.get(fn_key)
 			if field_name:
 				return (field_name, el.get(fv_key) or "")
+	except Exception:
+		pass
+	return None
+
+
+def _get_conditional_start_condition(bpmn_xml: str):
+	"""Return the <bpmn:condition> expression text of the (first) conditional
+	start event in the diagram, or None when there is none.
+
+	Example BPMN:
+		<bpmn:startEvent ...>
+			<bpmn:conditionalEventDefinition ...>
+				<bpmn:condition>agent_mode == "ProsAlly"</bpmn:condition>
+			</bpmn:conditionalEventDefinition>
+		</bpmn:startEvent>
+	"""
+	if not bpmn_xml or not bpmn_xml.strip():
+		return None
+	try:
+		from lxml import etree
+
+		root = etree.fromstring(bpmn_xml.strip().encode("utf-8"))
+		for start in root.iter(f"{{{_BPMN_NS}}}startEvent"):
+			ced = start.find(f"{{{_BPMN_NS}}}conditionalEventDefinition")
+			if ced is None:
+				continue
+			cond = ced.find(f"{{{_BPMN_NS}}}condition")
+			if cond is not None and cond.text and cond.text.strip():
+				return cond.text.strip()
 	except Exception:
 		pass
 	return None

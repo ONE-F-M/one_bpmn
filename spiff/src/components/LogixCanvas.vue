@@ -452,18 +452,11 @@ import { ref, reactive, computed, nextTick, onMounted, watch } from "vue";
 import DOMPurify from "dompurify";
 import { marked } from "marked";
 import CodeMirrorEditor from "./CodeMirrorEditor.vue";
+import { frappeRequest } from "frappe-ui";
 
 marked.setOptions({ gfm: true, breaks: true });
 
-function getCsrfToken() {
-	return (
-		window.frappe?.csrf_token ||
-		window.frappe?.boot?.csrf_token ||
-		window.csrf_token ||
-		document.cookie.split("; ").find(r => r.startsWith("csrf_token="))?.split("=")[1] ||
-		""
-	);
-}
+// getCsrfToken removed — frappeRequest handles CSRF automatically
 
 function getCurrentUser() {
 	return window.frappe?.session?.user_fullname || window.frappe?.session?.user || "You";
@@ -535,17 +528,21 @@ const EVENT_FREQUENCIES = [
 async function loadDoctypeOptions() {
 	if (doctypeOptions.value.length) return;
 	try {
-		const r = await fetch("/api/method/frappe.client.get_list?doctype=DocType&fields=[%22name%22]&limit_page_length=0&order_by=name+asc", { headers: { "X-Frappe-CSRF-Token": getCsrfToken() } });
-		const d = await r.json();
-		doctypeOptions.value = (d?.message || []).map((x) => x.name);
+		const rows = await frappeRequest({
+			url: "/api/method/frappe.client.get_list",
+			params: { doctype: "DocType", fields: JSON.stringify(["name"]), limit_page_length: 0, order_by: "name asc" },
+		});
+		doctypeOptions.value = (rows || []).map((x) => x.name);
 	} catch (e) { console.error("Failed to load DocTypes", e); }
 }
 async function loadModuleOptions() {
 	if (moduleOptions.value.length) return;
 	try {
-		const r = await fetch("/api/method/frappe.client.get_list?doctype=Module+Def&fields=[%22name%22]&limit_page_length=0&order_by=name+asc", { headers: { "X-Frappe-CSRF-Token": getCsrfToken() } });
-		const d = await r.json();
-		moduleOptions.value = (d?.message || []).map((x) => x.name);
+		const rows = await frappeRequest({
+			url: "/api/method/frappe.client.get_list",
+			params: { doctype: "Module Def", fields: JSON.stringify(["name"]), limit_page_length: 0, order_by: "name asc" },
+		});
+		moduleOptions.value = (rows || []).map((x) => x.name);
 	} catch (e) { console.error("Failed to load Modules", e); }
 }
 
@@ -577,12 +574,16 @@ async function toggleScriptBrowser() {
 async function fetchScriptBrowserList() {
 	loadingScriptBrowser.value = true;
 	try {
-		const r = await fetch(
-			"/api/method/frappe.client.get_list?doctype=Server%20Script&fields=[%22name%22,%22script_type%22]&limit_page_length=0&order_by=modified+desc",
-			{ headers: { "X-Frappe-CSRF-Token": getCsrfToken() } },
-		);
-		const d = await r.json();
-		scriptBrowserList.value = d?.message || [];
+		const rows = await frappeRequest({
+			url: "/api/method/frappe.client.get_list",
+			params: {
+				doctype: "Server Script",
+				fields: JSON.stringify(["name", "script_type"]),
+				limit_page_length: 0,
+				order_by: "modified desc",
+			},
+		});
+		scriptBrowserList.value = rows || [];
 	} catch (e) {
 		console.error("Failed to load script list:", e);
 	} finally {
@@ -597,22 +598,20 @@ async function linkExistingScript(name) {
 		canvasScriptName.value = name;
 		savedScriptName.value  = name;
 		isLoadingScript.value  = true;
-		const resp = await fetch(
-			`/api/method/frappe.client.get?doctype=Server%20Script&name=${encodeURIComponent(name)}`,
-			{ headers: { "X-Frappe-CSRF-Token": getCsrfToken() } },
-		);
-		const data = await resp.json();
-		const msg = data?.message || {};
-		canvasCode.value = msg.script || "";
+		const msg = await frappeRequest({
+			url: "/api/method/frappe.client.get",
+			params: { doctype: "Server Script", name },
+		});
+		canvasCode.value = msg?.script || "";
 		scriptMeta.value = {
-			script_type:       msg.script_type || "API",
-			reference_doctype: msg.reference_doctype || "",
-			doctype_event:     msg.doctype_event || "",
-			api_method:        msg.api_method || "",
-			allow_guest:       !!msg.allow_guest,
-			event_frequency:   msg.event_frequency || "",
-			cron_format:       msg.cron_format || "",
-			module:            msg.module || "",
+			script_type:       msg?.script_type || "API",
+			reference_doctype: msg?.reference_doctype || "",
+			doctype_event:     msg?.doctype_event || "",
+			api_method:        msg?.api_method || "",
+			allow_guest:       !!msg?.allow_guest,
+			event_frequency:   msg?.event_frequency || "",
+			cron_format:       msg?.cron_format || "",
+			module:            msg?.module || "",
 		};
 		if (props.eventBus && props.element) {
 			props.eventBus.fire("spiff.script.update", {
@@ -677,22 +676,20 @@ async function initCanvas() {
 			savedScriptName.value  = props.currentScript;
 			isLoadingScript.value  = true;
 			try {
-				const resp = await fetch(
-					`/api/method/frappe.client.get?doctype=Server%20Script&name=${encodeURIComponent(props.currentScript)}`,
-					{ headers: { "X-Frappe-CSRF-Token": getCsrfToken() } },
-				);
-				const data = await resp.json();
-				const msg = data?.message || {};
-				canvasCode.value = msg.script || "";
+				const msg = await frappeRequest({
+					url: "/api/method/frappe.client.get",
+					params: { doctype: "Server Script", name: props.currentScript },
+				});
+				canvasCode.value = msg?.script || "";
 				scriptMeta.value = {
-					script_type:       msg.script_type || "API",
-					reference_doctype: msg.reference_doctype || "",
-					doctype_event:     msg.doctype_event || "",
-					api_method:        msg.api_method || "",
-					allow_guest:       !!msg.allow_guest,
-					event_frequency:   msg.event_frequency || "",
-					cron_format:       msg.cron_format || "",
-					module:            msg.module || "",
+					script_type:       msg?.script_type || "API",
+					reference_doctype: msg?.reference_doctype || "",
+					doctype_event:     msg?.doctype_event || "",
+					api_method:        msg?.api_method || "",
+					allow_guest:       !!msg?.allow_guest,
+					event_frequency:   msg?.event_frequency || "",
+					cron_format:       msg?.cron_format || "",
+					module:            msg?.module || "",
 				};
 			} catch (e) {
 				console.error("Failed to load script:", e);
@@ -748,13 +745,11 @@ async function initGreeting() {
 	if (label) {
 		// Check whether a Server Script with the same name already exists
 		try {
-			const resp = await fetch(
-				`/api/method/one_bpmn.api.server_script_api.check_server_script_exists?script_name=${encodeURIComponent(label)}`,
-				{ headers: { "X-Frappe-CSRF-Token": getCsrfToken() } },
-			);
-			if (resp.ok) {
-				const data = await resp.json();
-				if (data?.message?.exists) {
+			const data = await frappeRequest({
+				url: "/api/method/one_bpmn.api.server_script_api.check_server_script_exists",
+				params: { script_name: label },
+			});
+			if (data?.exists) {
 					messages.value = [{
 						id: makeId(), role: "assistant", time: formatTime(new Date()),
 						content: `Hello, I am Logix — your process automation assistant.${ctxLine}\n\nI found an existing script named **${label}**. Would you like to link it here, or start fresh with a new one?`,
@@ -765,7 +760,6 @@ async function initGreeting() {
 					}];
 					return;
 				}
-			}
 		} catch (_) { /* fall through */ }
 
 		const contextHint = ctxLine
@@ -1025,25 +1019,18 @@ async function sendMessage() {
 			.slice(-10)
 			.map(m => ({ type: m.role, content: m.content }));
 
-		const response = await fetch("/api/method/one_bpmn.api.server_script_api.process_logix_message", {
+		const result = await frappeRequest({
+			url: "/api/method/one_bpmn.api.server_script_api.process_logix_message",
 			method: "POST",
-			headers: {
-				"Content-Type":       "application/json",
-				"X-Frappe-CSRF-Token": getCsrfToken(),
-			},
-			body: JSON.stringify({
+			params: {
 				message:           text,
 				session_id:        sessionId.value,
 				conversation_name: conversationName.value || null,
 				element_name:      elementLabel.value || canvasScriptName.value || "",
 				current_script:    props.currentScript || "",
 				process_context:   props.processContext || null,
-			}),
+			},
 		});
-
-		if (!response.ok) throw new Error(`HTTP ${response.status}`);
-		const data   = await response.json();
-		const result = data?.message;
 
 		// Capture the conversation name returned by the backend
 		if (result?.conversation_name) conversationName.value = result.conversation_name;
@@ -1138,19 +1125,14 @@ async function runTest(msgId, ti, inputs) {
 	const key = `${msgId}-${ti}`;
 	testRunResults[key] = { loading: true, passed: null, summary: "" };
 	try {
-		const response = await fetch("/api/method/one_bpmn.api.server_script_api.run_logix_test_case", {
+		const result = await frappeRequest({
+			url: "/api/method/one_bpmn.api.server_script_api.run_logix_test_case",
 			method: "POST",
-			headers: {
-				"Content-Type":        "application/json",
-				"X-Frappe-CSRF-Token": getCsrfToken(),
-			},
-			body: JSON.stringify({
+			params: {
 				script_name: savedScriptName.value,
 				inputs:      JSON.stringify(inputs || {}),
-			}),
+			},
 		});
-		const data   = await response.json();
-		const result = data?.message;
 		testRunResults[key] = {
 			loading: false,
 			passed:  result?.passed ?? false,
@@ -1201,12 +1183,11 @@ async function fetchVersionHistory() {
 	if (!canvasScriptName.value) { versions.value = []; return; }
 	loadingVersions.value = true;
 	try {
-		const res = await fetch(
-			`/api/method/one_bpmn.api.script_version_history.get_script_version_history?script_name=${encodeURIComponent(canvasScriptName.value)}`,
-			{ headers: { "X-Frappe-CSRF-Token": getCsrfToken() } }
-		);
-		const data = await res.json();
-		versions.value = data?.message || [];
+		const data = await frappeRequest({
+			url: "/api/method/one_bpmn.api.script_version_history.get_script_version_history",
+			params: { script_name: canvasScriptName.value },
+		});
+		versions.value = data || [];
 	} catch (e) {
 		console.error("Failed to fetch version history:", e);
 		versions.value = [];
@@ -1291,12 +1272,11 @@ async function ensureUniqueName() {
 		try {
 			// A name that matches the currently saved script is always fine (it's ours)
 			if (name === savedScriptName.value) break;
-			const r = await fetch(
-				`/api/method/one_bpmn.api.server_script_api.check_server_script_exists?script_name=${encodeURIComponent(name)}`,
-				{ headers: { "X-Frappe-CSRF-Token": getCsrfToken() } },
-			);
-			const d = await r.json();
-			if (!d?.message?.exists) break;
+			const d = await frappeRequest({
+				url: "/api/method/one_bpmn.api.server_script_api.check_server_script_exists",
+				params: { script_name: name },
+			});
+			if (!d?.exists) break;
 			name = `${base} ${counter++}`;
 		} catch { break; }
 	}
@@ -1312,21 +1292,20 @@ async function saveScript() {
 	try {
 		// If the script was previously saved under a different name, rename it first
 		if (savedScriptName.value && savedScriptName.value !== name) {
-			const renameRes = await fetch("/api/method/frappe.client.rename_doc", {
-				method:  "POST",
-				headers: { "Content-Type": "application/json", "X-Frappe-CSRF-Token": getCsrfToken() },
-				body:    JSON.stringify({ doctype: "Server Script", name: savedScriptName.value, new_name: name }),
+			await frappeRequest({
+				url: "/api/method/frappe.client.rename_doc",
+				method: "POST",
+				params: { doctype: "Server Script", name: savedScriptName.value, new_name: name },
 			});
-			if (!renameRes.ok) throw new Error(`Rename failed: HTTP ${renameRes.status}`);
 			savedScriptName.value = name;
 		}
 
 		// Upsert with the (possibly renamed) name
 		const meta = scriptMeta.value;
-		const res = await fetch("/api/method/one_bpmn.api.server_script_api.create_server_script", {
-			method:  "POST",
-			headers: { "Content-Type": "application/json", "X-Frappe-CSRF-Token": getCsrfToken() },
-			body:    JSON.stringify({
+		const data = await frappeRequest({
+			url: "/api/method/one_bpmn.api.server_script_api.create_server_script",
+			method: "POST",
+			params: {
 				script_name:       name,
 				script_type:       meta.script_type || "API",
 				script:            canvasCode.value,
@@ -1337,11 +1316,9 @@ async function saveScript() {
 				event_frequency:   meta.event_frequency || undefined,
 				cron_format:       meta.cron_format || undefined,
 				module:            meta.module || undefined,
-			}),
+			},
 		});
-		if (!res.ok) throw new Error(`HTTP ${res.status}`);
-		const data = await res.json();
-		const scriptName = data?.message?.name || name;
+		const scriptName = data?.name || name;
 		canvasScriptName.value = scriptName;
 		savedScriptName.value  = scriptName;
 

@@ -136,12 +136,15 @@ export function useNotificationDialog(doctypeOptions, moduleOptions, showToast) 
 		showNotificationDialog.value = true;
 
 		try {
-			const response = await fetch(
-				'/api/resource/Notification?fields=["name","subject","channel","document_type","enabled","event","modified"]&limit_page_length=0&order_by=modified%20desc',
-				{ headers: { "X-Frappe-CSRF-Token": window.csrf_token || "" } }
-			);
-			const json = await response.json();
-			notifications.value = Array.isArray(json.data) ? json.data : [];
+				const data = await frappeRequest({
+				url: "/api/resource/Notification",
+				params: {
+					fields: JSON.stringify(["name", "subject", "channel", "document_type", "enabled", "event", "modified"]),
+					limit_page_length: 0,
+					order_by: "modified desc",
+				},
+			});
+			notifications.value = Array.isArray(data) ? data : [];
 		} catch (error) {
 			console.error("Failed to load notifications:", error);
 			notifications.value = [];
