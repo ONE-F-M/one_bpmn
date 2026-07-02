@@ -32,6 +32,29 @@ from . import (
 )
 
 
+def _run_coro_blocking(coro):
+    """
+    Run *coro* to completion from synchronous code (WI-001356 review fix).
+
+    asyncio.run() raises RuntimeError when the calling thread already has a
+    running event loop. Frappe's request handlers and RQ workers are
+    synchronous today, but if this executor is ever reached from an async
+    context (socketio bridge, future ASGI deployment), fall back to running
+    the coroutine on a dedicated thread with its own loop instead of
+    crashing.
+    """
+    import asyncio
+    import concurrent.futures
+
+    try:
+        asyncio.get_running_loop()
+    except RuntimeError:
+        return asyncio.run(coro)
+
+    with concurrent.futures.ThreadPoolExecutor(max_workers=1) as pool:
+        return pool.submit(asyncio.run, coro).result()
+
+
 def _strip_code_fences(content: str) -> str:
     """
     Remove a surrounding Markdown code fence from *content*, if present.
@@ -243,7 +266,6 @@ class DirectApiExecutor(Executor):
         and map its CompletionResult (final text + turn-by-turn trace) into
         an ExecutorResult.
         """
-        import asyncio
         from dataclasses import asdict
 
         from one_bpmn.agents.llm_provider.factory import get_llm_adapter
@@ -261,7 +283,7 @@ class DirectApiExecutor(Executor):
         start = time.time()
         try:
             adapter = get_llm_adapter(adapter_key, model, api_key)
-            completion = asyncio.run(
+            completion = _run_coro_blocking(
                 adapter.complete(
                     system=config.system_prompt,
                     user=config.user_prompt,
