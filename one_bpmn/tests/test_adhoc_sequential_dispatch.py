@@ -348,3 +348,38 @@ class TestAdhocInstanceLifecycle(FrappeTestCase):
 			if t["task_spec"] == "AdhocSub_1"
 		]
 		self.assertEqual(parent_states, ["STARTED"])
+
+
+class TestUnseededCompletionCondition(FrappeTestCase):
+	"""The completion-condition variable typically doesn't exist until a
+	late inner task sets it (e.g. a wrap-up script running `done = True`).
+	Upstream path_complete evaluated the condition with a raw eval after
+	EVERY inner completion — the unset name raised NameError and failed
+	the user's task completion. The engine now treats an unresolvable
+	condition as not met (Camunda semantics)."""
+
+	def test_first_completion_does_not_raise_on_unset_variable(self):
+		# NOTE: no {"done": False} seeding — mirrors real instances
+		wf = _build("adhoc_sequential.bpmn", "Process_AdhocSequential")
+		_drive(wf)
+		sp = _adhoc(wf)
+
+		_complete_manual(wf, "task_a")  # raised NameError before the fix
+
+		states = _states(sp)
+		self.assertEqual(states["task_a"], "COMPLETED")
+		self.assertIn(states["task_b"], ("READY", "STARTED", "WAITING"))
+		self.assertFalse(wf.completed)
+
+	def test_condition_still_fires_once_variable_is_set(self):
+		wf = _build("adhoc_sequential.bpmn", "Process_AdhocSequential")
+		_drive(wf)
+		sp = _adhoc(wf)
+
+		_complete_manual(wf, "task_a")
+		_complete_manual(wf, "task_b", data={"done": True})
+
+		states = _states(sp)
+		self.assertEqual(states["task_b"], "COMPLETED")
+		self.assertEqual(states["task_c"], "CANCELLED")
+		self.assertTrue(wf.completed)
