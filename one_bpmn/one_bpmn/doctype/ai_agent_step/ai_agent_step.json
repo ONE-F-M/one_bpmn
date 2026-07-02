@@ -13,6 +13,7 @@
   "tool_name",
   "tool_args",
   "tool_result",
+  "tool_calls",
   "section_break_metrics",
   "prompt_tokens",
   "completion_tokens",
@@ -75,6 +76,13 @@
    "fieldname": "tool_result",
    "fieldtype": "Long Text",
    "label": "Tool Result"
+  },
+  {
+   "fieldname": "tool_calls",
+   "fieldtype": "Table",
+   "label": "Tool Calls",
+   "options": "AI Agent Tool Call",
+   "description": "One row per tool actually called in this turn (WI-001358). A single LLM turn can contain several calls; they share the turn's token/cost figures."
   },
   {
    "fieldname": "section_break_metrics",
@@ -140,8 +148,13 @@
   }
  ],
  "indexes": [
-   ["run"],
-   ["run", "step_index"]
+  [
+   "run"
+  ],
+  [
+   "run",
+   "step_index"
+  ]
  ],
  "links": [],
  "modified": "2026-06-24 22:20:00.000000",
