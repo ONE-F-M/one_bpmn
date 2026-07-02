@@ -80,6 +80,7 @@ import { setupCanvasTouchHandler } from "@/utils/canvasTouchHandler"
 
 // ── AI Agent Task renderer — replaces Service Task gear icon with sparkle ──
 import aiAgentRendererModule from "@/bpmn/aiAgentRenderer"
+import aiTaskSelectorRendererModule from "@/bpmn/aiTaskSelectorRenderer"
 
 // ── Viewer-side moddle extension ──
 // The BPMN XML produced by the editor uses custom spiffworkflow:* attributes
@@ -152,6 +153,20 @@ const viewerModdleExtension = {
 				{ name: "serverScript", isAttr: true, type: "String" },
 			],
 		},
+		{
+			// WI-001360: lets the viewer read the AI Task Selector tag so the
+			// wrench badge renders on selector-configured ad-hoc subprocesses.
+			name: "AdhocAiTaskSelectorExtension",
+			extends: ["bpmn:AdHocSubProcess"],
+			properties: [
+				{ name: "serviceType",    isAttr: true, type: "String" },
+				{ name: "aiProvider",     isAttr: true, type: "String" },
+				{ name: "aiModel",        isAttr: true, type: "String" },
+				{ name: "aiSystemPrompt", isAttr: true, type: "String" },
+				{ name: "aiUserPrompt",   isAttr: true, type: "String" },
+				{ name: "aiToolSources",  isAttr: true, type: "String" },
+			],
+		},
 	],
 }
 
@@ -180,6 +195,7 @@ async function initViewer() {
 			height: "100%",
 			additionalModules: [
 				aiAgentRendererModule,
+				aiTaskSelectorRendererModule,
 			],
 			moddleExtensions: {
 				spiffworkflow: viewerModdleExtension,
