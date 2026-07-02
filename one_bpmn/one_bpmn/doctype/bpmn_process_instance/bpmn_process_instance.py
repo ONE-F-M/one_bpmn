@@ -488,9 +488,12 @@ class BPMNProcessInstance(Document):
 		"""
 		wf.refresh_waiting_tasks()
 
+		cap_hit = True
 		for _ in range(20):  # safety cap — no real workflow needs > 20 passes
-			wf.do_engine_steps(
+			bpmn_engine.do_engine_steps_gated(
+				wf,
 				did_complete_task=self._on_engine_task_complete,
+				did_complete_adhoc_task=self._on_adhoc_task_complete,
 			)
 
 			# Find non-manual tasks left in STARTED state.  These are
@@ -500,6 +503,7 @@ class BPMNProcessInstance(Document):
 				t for t in wf.get_tasks(state=TaskState.STARTED) if not getattr(t.task_spec, "manual", False)
 			]
 			if not started_tasks:
+				cap_hit = False
 				break  # nothing left to advance — we're done
 
 			for task in started_tasks:
@@ -507,10 +511,40 @@ class BPMNProcessInstance(Document):
 				self._on_engine_task_complete(task)
 				task.complete()
 
+		if cap_hit:
+			# Flag — don't raise. State serializes correctly and the next
+			# advance() resumes from here; ad-hoc subprocesses with many inner
+			# tasks may legitimately need more passes per call (WI-001350).
+			pending_adhoc = bpmn_engine.adhoc_pending_head_tasks(wf)
+			frappe.log_error(
+				title="BPMN _run_engine pass cap reached",
+				message=(
+					f"Instance {self.name}: 20-pass cap hit with work remaining. "
+					f"Parked ad-hoc heads: {[t.task_spec.name for t in pending_adhoc]}. "
+					"Execution resumes on the next advance() call."
+				),
+			)
+
 		# Final refresh catches conditional events that became true after
 		# the engine steps ran (e.g. script task updated a doc field that
 		# a downstream catch event now matches).
 		wf.refresh_waiting_tasks()
+
+	def _on_adhoc_task_complete(self, task):
+		"""
+		Fired after each ad-hoc inner task completes (WI-001350 Scenario 7).
+
+		Inline <bpmn:script> tasks read the context doc from the shared
+		script-engine environment, which is populated once per API call.
+		Refreshing after every inner completion lets a later inline script
+		see values an earlier one just wrote via frappe.db.set_value().
+		Server-Script-backed tasks are unaffected either way — they call
+		frappe.get_doc() fresh on every execution.
+		"""
+		if self.context_doctype and self.context_docname:
+			bpmn_engine.refresh_context_doc(
+				task.workflow.top_workflow, self.context_doctype, self.context_docname
+			)
 
 	def _on_engine_task_complete(self, task):
 		"""
