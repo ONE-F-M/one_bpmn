@@ -491,20 +491,27 @@ function applyHighlights() {
 				const tasks = wfState.tasks || {}
 				// Clear any previous AI badge overlays before re-applying
 				try { overlays.remove({ type: "ai-badge" }) } catch { /* no existing overlays */ }
-				for (const [, taskData] of Object.entries(tasks)) {
-					const taskSpec = taskData.task_spec || ""
+				const subprocesses = wfState.subprocesses || {}
+				for (const [taskId, td] of Object.entries(tasks)) {
+					const taskSpec = td.task_spec || ""
 					if (!taskSpec) continue
-					if ((svcExt[taskSpec] || {}).serviceType !== "ai_agent") continue
+					const serviceType = (svcExt[taskSpec] || {}).serviceType
+					if (serviceType !== "ai_agent" && serviceType !== "ai_task_selector") continue
 
-					const state = taskData.state || 0
-					const hasError = taskData.data?.[`${taskSpec}_error_code`]
+					const state = td.state || 0
+					// Selector error keys live in the ad-hoc SUBPROCESS data,
+					// keyed by the parent task's id — check both places.
+					const hasError =
+						td.data?.[`${taskSpec}_error_code`] ||
+						subprocesses[taskId]?.data?.[`${taskSpec}_error_code`]
 					const isCompleted = state === 64
+					const kind = serviceType === "ai_task_selector" ? "AI Task Selector" : "AI Agent Task"
 
 					if (isCompleted || hasError) {
 						const badge = document.createElement("div")
 						badge.className = `ai-badge ${hasError ? "ai-error" : "ai-success"}`
 						badge.textContent = hasError ? "!" : "AI"
-						badge.title = hasError ? "AI Agent Task failed" : "AI Agent Task completed"
+						badge.title = hasError ? `${kind} failed` : `${kind} completed`
 						overlays.add(taskSpec, "ai-badge", { position: { top: -10, left: -10 }, html: badge })
 					}
 				}

@@ -101,7 +101,11 @@ function getStateLabel(s) {
 	return TASK_STATE_LABELS[s] || "Unknown"
 }
 
-const REACHED_STATES = new Set([64, 128, 256])
+// Task states the inspector can select: WAITING (8), READY (16) and
+// STARTED (32) are included so in-flight elements — an AI Task Selector
+// deciding, a user task pending — are inspectable, not just finished ones
+// (COMPLETED 64, ERROR 128, CANCELLED 256).
+const REACHED_STATES = new Set([8, 16, 32, 64, 128, 256])
 
 // Service Task extensions (serviceType, etc.) are extracted at compile time and
 // embedded in serialized_spec, keyed by BPMN element id. SpiffWorkflow's own
