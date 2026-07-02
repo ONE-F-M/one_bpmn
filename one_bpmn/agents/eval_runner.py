@@ -67,14 +67,25 @@ Respond with ONLY a JSON object:
 # ---------------------------------------------------------------------------
 
 @frappe.whitelist()
-def run_eval_suite(suite_name: str) -> str:
+def run_eval_suite(suite_name: str, backend: str = "live") -> str:
     """
     Create an AI Eval Run for *suite_name* and enqueue its execution.
 
+    backend="live" executes every case through the real executor.
+    backend="replay" (WI-001364) re-runs assertion evaluation against each
+    case's most recently stored actual_output without any new LLM call —
+    free re-validation when an assertion or judge rubric changes. Replay
+    deliberately does NOT mean deterministic LLM-response mocking (ruled
+    out 2026-07-01): llm_judge assertions still make a real judge call and
+    their cost is still counted — a known, accepted asymmetry.
+
     Returns the AI Eval Run name immediately; the cases run in a background
-    job on the "long" queue.
+    job.
     """
     frappe.only_for("System Manager")
+
+    if backend not in ("live", "replay"):
+        frappe.throw(_("backend must be 'live' or 'replay', not '{0}'.").format(backend))
 
     if not frappe.db.exists("AI Eval Suite", suite_name):
         frappe.throw(_("AI Eval Suite '{0}' not found.").format(suite_name))
@@ -82,7 +93,7 @@ def run_eval_suite(suite_name: str) -> str:
     run = frappe.new_doc("AI Eval Run")
     run.suite = suite_name
     run.status = "Running"
-    run.backend = "live"
+    run.backend = backend
     run.started_at = now_datetime()
     run.insert()
 
@@ -126,7 +137,10 @@ def _execute_eval_suite(run_name: str) -> None:
         total_tokens = 0
         for case_name in case_names:
             case = frappe.get_doc("AI Eval Case", case_name)
-            result_row = _execute_case(case)
+            if run.backend == "replay":
+                result_row = _execute_case_replay(run, case)
+            else:
+                result_row = _execute_case(case)
             run.append("results", result_row)
             if result_row["status"] == "Passed":
                 passed += 1
@@ -160,6 +174,65 @@ def _execute_eval_suite(run_name: str) -> None:
         {"run_name": run.name, "status": run.status},
         user="all",
     )
+
+
+def _execute_case_replay(run, case) -> dict:
+    """
+    Replay one case (WI-001364): skip the executor entirely and re-run
+    evaluate-assertion logic against the case's most recent prior
+    actual_output. total tokens/cost stay 0 for case execution; llm_judge
+    assertions still make (and count) a real judge call.
+    """
+    prior = frappe.get_all(
+        "AI Eval Result",
+        filters={
+            "eval_case": case.name,
+            "parenttype": "AI Eval Run",
+            "parent": ["!=", run.name],
+        },
+        fields=["actual_output", "status"],
+        order_by="creation desc",
+        limit_page_length=1,
+    )
+    if not prior:
+        # Scenario 2: never run live — an explicit Error, not a silent skip
+        # missing from the totals.
+        return {
+            "eval_case": case.name,
+            "status": "Error",
+            "error_message": "Nothing to replay: this case has no prior result. Run it live first.",
+        }
+
+    output = prior[0].actual_output or ""
+    assertion_results = [
+        _evaluate_assertion(assertion, output)
+        for assertion in (case.assertions or [])
+    ]
+    all_passed = all(a["passed"] for a in assertion_results)
+    any_errored = any(a.get("error") for a in assertion_results)
+
+    # Judge calls still spend real tokens on replay (known asymmetry).
+    judge_prompt_tokens = sum(a.get("judge_prompt_tokens", 0) for a in assertion_results)
+    judge_completion_tokens = sum(a.get("judge_completion_tokens", 0) for a in assertion_results)
+    judge_cost = sum(flt(a.get("judge_cost", 0)) for a in assertion_results)
+
+    if any_errored:
+        status = "Error"
+    elif all_passed:
+        status = "Passed"
+    else:
+        status = "Failed"
+
+    return {
+        "eval_case": case.name,
+        "status": status,
+        "actual_output": output,
+        "assertion_results": json.dumps(assertion_results, indent=4),
+        "prompt_tokens": judge_prompt_tokens,
+        "completion_tokens": judge_completion_tokens,
+        "tokens_used": judge_prompt_tokens + judge_completion_tokens,
+        "cost": judge_cost,
+    }
 
 
 def _execute_case(case) -> dict:
