@@ -949,11 +949,12 @@
 			</template>
 		</Dialog>
 
-		<!-- AI Agent Task config modal -->
+		<!-- AI Agent Task / AI Task Selector config modal -->
 		<AIAgentConfigModal
 			v-if="aiAgentModal.show && aiAgentModal.element"
 			:element="aiAgentModal.element"
 			:modeler="modeler"
+			:mode="aiAgentModal.mode"
 			@close="aiAgentModal.show = false"
 		/>
 	</div>
@@ -1100,7 +1101,7 @@ const messageDialog = ref({
 	elementId: "",
 	_eventBus: null,
 });
-const aiAgentModal = ref({ show: false, element: null });
+const aiAgentModal = ref({ show: false, element: null, mode: "agent" });
 const isCommentMode = ref(false);
 const commentFormData = ref({
 	text: "",
@@ -2037,9 +2038,13 @@ onMounted(async () => {
 				});
 			});
 
-			// AI Agent Task config modal
+			// AI Agent Task / AI Task Selector config modal
 			eventBus.on("launch-ai-agent-editor", (event) => {
-				aiAgentModal.value = { show: true, element: markRaw(event.element) };
+				aiAgentModal.value = {
+					show: true,
+					element: markRaw(event.element),
+					mode: event.mode || "agent",
+				};
 			});
 
 			// Notification editing (Send Tasks)
