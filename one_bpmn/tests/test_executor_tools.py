@@ -147,6 +147,19 @@ class TestExecutorToolBridge(FrappeTestCase):
 		factory.assert_not_called()
 		self.assertEqual(result.error_code, ErrorCode.PROVIDER_NOT_FOUND)
 
+	# ── Review fix: safe when the calling thread already has an event loop ──
+
+	def test_run_with_tools_inside_running_event_loop(self):
+		async def call_from_async_context():
+			# asyncio.run() would raise RuntimeError here; the executor must
+			# fall back to a dedicated thread instead of crashing.
+			result, _, _ = self._run(self.openai_provider, [_tool()])
+			return result
+
+		result = asyncio.run(call_from_async_context())
+		self.assertEqual(result.error_code, ErrorCode.SUCCESS)
+		self.assertEqual(result.output, "done")
+
 
 class TestOpenAIAdapterTrace(FrappeTestCase):
 	"""Drive the real OpenAIAdapter loop against a stubbed SDK client."""
