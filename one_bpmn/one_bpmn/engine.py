@@ -379,6 +379,16 @@ def _canonicalize_compiled_workflow(wf_dict: dict) -> dict:
 	Task ids are remapped structurally (root/last_task/tasks/subprocesses and
 	each task's id/parent/children), never by string substitution, so uuid-like
 	text in scripts or task data can never be corrupted.
+
+	Ordering assumption (PR review note): stable ids are assigned in
+	first-encounter order over the serialized dict, which follows Python's
+	insertion-ordered dicts as built by SpiffWorkflow's serializer from a
+	deterministic task-tree traversal. Byte-identity across compiles is
+	asserted by tests for the pinned SpiffWorkflow version. If a future
+	SpiffWorkflow upgrade changed its serialization iteration order, the
+	determinism test would fail loudly and an unchanged diagram would show
+	as modified ONCE on its next compile — ids stay internally consistent
+	within any single compiled spec, so running instances are unaffected.
 	"""
 	id_map = {}
 
