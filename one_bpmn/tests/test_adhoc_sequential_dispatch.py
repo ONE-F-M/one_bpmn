@@ -15,6 +15,7 @@ import json
 from pathlib import Path
 
 from frappe.tests.utils import FrappeTestCase
+from SpiffWorkflow.bpmn.specs.mixins.subworkflow_task import SubWorkflowTask
 from SpiffWorkflow.util.task import TaskState
 
 from one_bpmn.one_bpmn import engine
@@ -59,6 +60,9 @@ def _drive(wf, did_complete_task=None, did_complete_adhoc_task=None):
 			t
 			for t in wf.get_tasks(state=TaskState.STARTED)
 			if not getattr(t.task_spec, "manual", False)
+			# Mirror _run_engine_inner: never force-complete a subworkflow
+			# container — it is STARTED while its inner workflow runs.
+			and not isinstance(t.task_spec, SubWorkflowTask)
 		]
 		if not started:
 			break
@@ -260,3 +264,87 @@ class TestAdhocSequentialDispatch(FrappeTestCase):
 		# Fires exactly once per real inner task, in execution order — never
 		# for main-flow tasks or the subworkflow's internal Start/EndJoin/End.
 		self.assertEqual(adhoc_completions, ["script_a", "script_b", "script_c"])
+
+
+ADHOC_USER_TASK_MODEL_XML = """<?xml version="1.0" encoding="UTF-8"?>
+<bpmn:definitions xmlns:bpmn="http://www.omg.org/spec/BPMN/20100524/MODEL"
+    xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+    id="Defs_AdhocInstance" targetNamespace="http://bpmn.io/schema/bpmn">
+  <bpmn:process id="Process_AdhocInstance" isExecutable="true">
+    <bpmn:startEvent id="StartEvent_1">
+      <bpmn:outgoing>Flow_In</bpmn:outgoing>
+    </bpmn:startEvent>
+    <bpmn:sequenceFlow id="Flow_In" sourceRef="StartEvent_1" targetRef="AdhocSub_1" />
+    <bpmn:adHocSubProcess id="AdhocSub_1" name="Manual Ad-hoc Work">
+      <bpmn:incoming>Flow_In</bpmn:incoming>
+      <bpmn:outgoing>Flow_Out</bpmn:outgoing>
+      <bpmn:userTask id="task_a" name="Task A" />
+      <bpmn:userTask id="task_b" name="Task B" />
+      <bpmn:completionCondition xsi:type="bpmn:tFormalExpression">done</bpmn:completionCondition>
+    </bpmn:adHocSubProcess>
+    <bpmn:sequenceFlow id="Flow_Out" sourceRef="AdhocSub_1" targetRef="EndEvent_1" />
+    <bpmn:endEvent id="EndEvent_1">
+      <bpmn:incoming>Flow_Out</bpmn:incoming>
+    </bpmn:endEvent>
+  </bpmn:process>
+</bpmn:definitions>
+"""
+
+
+class TestAdhocInstanceLifecycle(FrappeTestCase):
+	"""Instance-level (doctype) coverage: the engine-level tests above drive
+	the gate directly, which let a bug in BPMNProcessInstance._run_engine_inner
+	slip through — its STARTED-dispatch loop force-completed the ad-hoc
+	subprocess PARENT task (STARTED while inner work runs), running the
+	process to the End Event while inner user tasks were still pending."""
+
+	def _start_instance(self):
+		import frappe
+
+		from one_bpmn.api.compilation import compile_process_model
+
+		process = frappe.get_doc({
+			"doctype": "Process",
+			"process_name": f"adhoc-test-{frappe.generate_hash(length=6)}",
+			"description": "Ad-hoc instance lifecycle test",
+			"process_owner": "Administrator",
+		})
+		process.insert(ignore_permissions=True)
+
+		suffix = frappe.generate_hash(length=6)
+		model = frappe.get_doc({
+			"doctype": "BPMN Process Model",
+			"title": f"adhoc-test-model-{suffix}",
+			"process_id": f"adhoc-test-{suffix}",
+			"version": 1,
+			"process_name": process.name,
+			"bpmn_xml": ADHOC_USER_TASK_MODEL_XML,
+		})
+		model.flags.skip_editability_check = True
+		model.insert(ignore_permissions=True)
+		compile_process_model(model.name)
+
+		instance = frappe.get_doc({
+			"doctype": "BPMN Process Instance",
+			"process_model": model.name,
+		})
+		instance.insert(ignore_permissions=True)
+		instance.start(initial_data={})
+		return instance
+
+	def test_instance_stays_active_while_adhoc_user_task_pending(self):
+		instance = self._start_instance()
+
+		self.assertEqual(instance.status, "Active")
+		waiting = [(r.task_name, r.status) for r in instance.active_tasks]
+		self.assertIn(("Task A", "Waiting"), waiting)
+
+		# The ad-hoc PARENT task must still be running (STARTED), not
+		# force-completed by the ServiceTask dispatch loop.
+		state = json.loads(instance.workflow_state)
+		parent_states = [
+			TaskState.get_name(t["state"])
+			for t in state["tasks"].values()
+			if t["task_spec"] == "AdhocSub_1"
+		]
+		self.assertEqual(parent_states, ["STARTED"])
