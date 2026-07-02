@@ -1,6 +1,13 @@
 import { useService } from "bpmn-js-properties-panel";
-import { h } from "preact";
-import { useEffect, useState } from "preact/hooks";
+// The properties panel renders with the preact copy VENDORED inside
+// @bpmn-io/properties-panel (its dist imports it by relative path, so
+// vite's alias/dedupe cannot unify it with the root "preact"). Hooks are
+// bound to the preact instance doing the render — importing them from
+// the root copy makes useState crash with "Cannot read properties of
+// undefined (reading '__H')" and freezes the panel. Import h and the
+// hooks from the panel's own copy instead.
+import { h } from "@bpmn-io/properties-panel/preact";
+import { useEffect, useState } from "@bpmn-io/properties-panel/preact/hooks";
 import { frappeGet, frappePost } from "../shared/frappeResource";
 
 /**
