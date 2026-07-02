@@ -43,13 +43,15 @@ def _bridge_available() -> bool:
 
 
 def _instance(extensions=None):
+	if extensions is None:
+		extensions = {"AdhocSub_1": dict(SELECTOR_CFG)}
 	return SimpleNamespace(
 		name="INST-TEST-1",
 		context_doctype=None,
 		context_docname=None,
 		process_model="Test Model",
 		initiated_by="Administrator",
-		_service_task_extensions=extensions or {"AdhocSub_1": dict(SELECTOR_CFG)},
+		_service_task_extensions=extensions,
 	)
 
 
