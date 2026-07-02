@@ -1722,6 +1722,10 @@ onMounted(async () => {
 			// live outside Vue (WI-001357: Registry Tools applicability).
 			window.__ONE_BPMN_CURRENT_MODEL__ = props.modelName || "";
 
+			// Debug handle for console inspection of the live modeler
+			// (element registry, definitions tree, lint state).
+			window.__ONE_BPMN_MODELER__ = modeler;
+
 			// Initial fetch of comments
 			if (props.modelName) {
 				fetchComments();
@@ -1768,8 +1772,10 @@ onMounted(async () => {
 						const canvas = modeler.get("canvas");
 						const rootElement = canvas.getRootElement();
 
+						// Implicit roots (empty canvas) have no businessObject —
+						// guard so the filter degrades to "no issues" instead of throwing.
 						const rootBo = rootElement.businessObject;
-						const flowEls = rootBo && (rootBo.flowElements || []);
+						const flowEls = (rootBo && rootBo.flowElements) || [];
 						if (!flowEls.length) {
 							return {};
 						}

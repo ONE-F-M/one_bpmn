@@ -943,6 +943,65 @@ def _extract_script_task_config(bpmn_xml: str) -> dict:
 	return extensions
 
 
+def _validate_adhoc_structure(bpmn_xml: str) -> None:
+	"""
+	Compile-time validation of Ad-hoc Subprocess structure per the BPMN
+	spec (and Camunda's constraints): an ad-hoc subprocess must not
+	contain start events or end events, and must contain at least one
+	activity. Applies to every ``<bpmn:adHocSubProcess>``, selector-tagged
+	or not.
+	"""
+	import xml.etree.ElementTree as _ET
+
+	BPMN_NS = "http://www.omg.org/spec/BPMN/20100524/MODEL"
+
+	EVENT_TAGS = {
+		f"{{{BPMN_NS}}}startEvent": _("Start Event"),
+		f"{{{BPMN_NS}}}endEvent": _("End Event"),
+	}
+	ACTIVITY_TAGS = {
+		f"{{{BPMN_NS}}}task",
+		f"{{{BPMN_NS}}}userTask",
+		f"{{{BPMN_NS}}}manualTask",
+		f"{{{BPMN_NS}}}scriptTask",
+		f"{{{BPMN_NS}}}serviceTask",
+		f"{{{BPMN_NS}}}sendTask",
+		f"{{{BPMN_NS}}}receiveTask",
+		f"{{{BPMN_NS}}}businessRuleTask",
+		f"{{{BPMN_NS}}}subProcess",
+		f"{{{BPMN_NS}}}adHocSubProcess",
+		f"{{{BPMN_NS}}}callActivity",
+		f"{{{BPMN_NS}}}transaction",
+	}
+
+	try:
+		root = _ET.fromstring(bpmn_xml.strip().encode("utf-8") if isinstance(bpmn_xml, str) else bpmn_xml)
+	except Exception:
+		return
+
+	for adhoc in root.iter(f"{{{BPMN_NS}}}adHocSubProcess"):
+		adhoc_id = adhoc.get("id", "?")
+
+		for child in adhoc:
+			if child.tag in EVENT_TAGS:
+				frappe.throw(
+					_(
+						"Ad-hoc Subprocess '{0}': a {1} ('{2}') is not allowed "
+						"inside an ad-hoc subprocess. Its inner activities start "
+						"ad hoc — delete the event."
+					).format(adhoc_id, EVENT_TAGS[child.tag], child.get("id", "?")),
+					exc=frappe.ValidationError,
+				)
+
+		if not any(child.tag in ACTIVITY_TAGS for child in adhoc):
+			frappe.throw(
+				_(
+					"Ad-hoc Subprocess '{0}' must contain at least one activity."
+				).format(adhoc_id),
+				exc=frappe.ValidationError,
+			)
+
+
 def _validate_adhoc_selector_pool(bpmn_xml: str, model_name: str | None = None) -> None:
 	"""
 	Compile-time validation of an AI Task Selector's candidate pool
@@ -1284,6 +1343,7 @@ def compile_process_model(model_name: str) -> dict:
 	if service_extensions:
 		spec_data["service_task_extensions"] = service_extensions
 	_lint_ai_provider_config(sanitized_xml, service_extensions)
+	_validate_adhoc_structure(sanitized_xml)
 	_validate_adhoc_selector_pool(sanitized_xml, model_name)
 
 	# ── Eval suite deployment gating (non-blocking warnings) ──────────
