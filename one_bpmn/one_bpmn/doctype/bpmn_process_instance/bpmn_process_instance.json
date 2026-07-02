@@ -25,7 +25,8 @@
    "fieldtype": "Link",
    "in_list_view": 1,
    "label": "Process Model",
-   "options": "BPMN Process Model"
+   "options": "BPMN Process Model",
+   "reqd": 1
   },
   {
    "default": "Active",
