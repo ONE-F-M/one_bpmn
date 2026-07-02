@@ -148,6 +148,11 @@ def start_process_async(
 
 	frappe.enqueue(
 		"one_bpmn.api.instance_api._start_process_as_user",
+		# WI-001365: dedicated queue so multi-turn AI Task Selector loops
+		# cannot starve unrelated ONE-FM jobs (emails, reports, integrations)
+		# on the shared default/short/long queues. Requires the queue in
+		# common_site_config.json's "workers" block.
+		queue="bpmn_ai_agent",
 		model_name=model_name,
 		context_doctype=context_doctype,
 		context_docname=context_docname,
