@@ -25,8 +25,8 @@ def _registry_available() -> bool:
 	if not frappe.db.exists("DocType", "AI Agent Tool"):
 		return False
 	try:
-		from one_bpmn.agents.tool_registry import compile_tool_spec  # noqa: F401
-		from one_bpmn.one_bpmn.doctype.ai_agent_tool import ai_agent_tool  # noqa: F401
+		from one_bpmn.agents.tool_registry import compile_tool_spec
+		from one_bpmn.one_bpmn.doctype.ai_agent_tool import ai_agent_tool
 	except ImportError:
 		return False
 	return True
