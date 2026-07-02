@@ -1017,6 +1017,7 @@ import serviceTaskPropertiesProviderModule from "@/bpmn/serviceTaskPropertiesPro
 import aiAgentPropertiesProviderModule from "@/bpmn/aiAgentPropertiesProvider";
 import aiAgentReplaceMenuProviderModule from "@/bpmn/aiAgentReplaceMenuProvider";
 import aiAgentRendererModule from "@/bpmn/aiAgentRenderer";
+import aiToolRegistryPropertiesProviderModule from "@/bpmn/aiToolRegistryPropertiesProvider";
 
 import scriptTaskPropertiesProviderModule from "@/bpmn/scriptTaskPropertiesProvider";
 import businessRuleTaskPropertiesProviderModule from "@/bpmn/businessRuleTaskPropertiesProvider";
@@ -1627,6 +1628,7 @@ onMounted(async () => {
 				aiAgentPropertiesProviderModule,
 				aiAgentReplaceMenuProviderModule,
 				aiAgentRendererModule,
+				aiToolRegistryPropertiesProviderModule,
 
 				scriptTaskPropertiesProviderModule,
 				businessRuleTaskPropertiesProviderModule,
@@ -1686,6 +1688,10 @@ onMounted(async () => {
 
 			// Fetch users for assignment
 			fetchUsers();
+
+			// Expose the current model to bpmn-js properties providers that
+			// live outside Vue (WI-001357: Registry Tools applicability).
+			window.__ONE_BPMN_CURRENT_MODEL__ = props.modelName || "";
 
 			// Initial fetch of comments
 			if (props.modelName) {
