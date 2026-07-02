@@ -86,6 +86,7 @@ def record_ai_step(
 	tool_name: str = None,
 	tool_args: dict = None,
 	tool_result: str = None,
+	tool_calls: list | None = None,
 	error_code: str = None,
 	error_message: str = None,
 ) -> Optional["frappe.Document"]:
@@ -139,6 +140,22 @@ def record_ai_step(
 		"error_code": error_code or None,
 		"error_message": error_message or None,
 	})
+	# WI-001358: one child row per tool actually called in this turn. A
+	# single LLM turn can contain several calls — they stay grouped under
+	# this Step with its one shared token/cost figure, never crammed into
+	# the flat tool_name/tool_args/tool_result fields (which remain for
+	# single-call plain AI Agent Task steps).
+	for call in tool_calls or []:
+		step.append(
+			"tool_calls",
+			{
+				"tool_name": call.get("name") or call.get("tool_name") or "",
+				"tool_source": call.get("tool_source") or "",
+				"tool_args": call.get("arguments") or call.get("tool_args") or None,
+				"tool_result": call.get("result") or call.get("tool_result") or "",
+				"status": call.get("status") or "Success",
+			},
+		)
 	try:
 		step.insert(ignore_permissions=True)
 		return step
@@ -256,5 +273,141 @@ def finalize_ai_run_on_exception(run, exception: Exception) -> None:
 	except Exception:
 		frappe.log_error(
 			title="AI Observability: finalize_ai_run_on_exception failed",
+			message=frappe.get_traceback(),
+		)
+
+
+# ─────────────────────────────────────────────────────────────
+# Ad-hoc / AI Task Selector instrumentation (WI-001358)
+#
+# One ad-hoc subprocess's ENTIRE agent loop is one AI Agent Run
+# (element_type="subprocess"), reused across decision points; one AI Agent
+# Step per real LLM turn from the executor trace (WI-001356); one AI Agent
+# Tool Call child row per tool actually called within a turn. All helpers
+# swallow their own failures — instrumentation must never block dispatch
+# (same guarantee dispatch_ai_agent's instrumentation documents, AI-009).
+# ─────────────────────────────────────────────────────────────
+
+
+def get_or_create_selector_run(instance, bpmn_id: str, config, bpmn_label: str = "", process_model: str = ""):
+	"""Return the open subprocess Run for (instance, bpmn_id), or create one.
+
+	Subsequent decision points of the same ad-hoc subprocess reuse the same
+	AI Agent Run, appending Steps — a subprocess run is one Run, not one per
+	LLM call.
+	"""
+	try:
+		existing = frappe.get_all(
+			"AI Agent Run",
+			filters={
+				"instance": instance.name,
+				"bpmn_id": bpmn_id,
+				"element_type": "subprocess",
+				"status": "Running",
+			},
+			pluck="name",
+			limit_page_length=1,
+		)
+		if existing:
+			return frappe.get_doc("AI Agent Run", existing[0])
+	except Exception:
+		frappe.log_error(
+			title=f"AI Observability: selector run lookup failed ({bpmn_id})",
+			message=frappe.get_traceback(),
+		)
+	return create_ai_run(
+		instance, bpmn_id, "subprocess", config,
+		bpmn_label=bpmn_label, process_model=process_model,
+	)
+
+
+def record_selector_turns(run, trace: list, source_map: dict | None = None) -> int:
+	"""Append one AI Agent Step per turn of an executor trace to *run*.
+
+	Turns with tool calls become role="tool" Steps carrying one AI Agent
+	Tool Call row per call (tool_source resolved via *source_map*,
+	{tool_name: "diagram_task"|"registry_tool"}); the final-answer turn
+	becomes a role="assistant" Step with no Tool Call rows.
+
+	Returns the number of Steps recorded.
+	"""
+	if getattr(run, "stub", False):
+		return 0
+	source_map = source_map or {}
+	try:
+		start_index = frappe.db.count("AI Agent Step", {"run": run.name})
+	except Exception:
+		start_index = 0
+
+	recorded = 0
+	for offset, turn in enumerate(trace or []):
+		tool_calls = [
+			{
+				"name": call.get("name", ""),
+				"tool_source": source_map.get(call.get("name", ""), ""),
+				"arguments": call.get("arguments") or {},
+				"result": call.get("result", ""),
+				"status": "Error" if str(call.get("result", "")).startswith(
+					("Error calling", "Unknown tool:")
+				) else "Success",
+			}
+			for call in turn.get("tool_calls") or []
+		]
+		step = record_ai_step(
+			run,
+			start_index + offset,
+			turn.get("role") or ("tool" if tool_calls else "assistant"),
+			turn.get("content") or "",
+			prompt_tokens=turn.get("prompt_tokens", 0),
+			completion_tokens=turn.get("completion_tokens", 0),
+			tool_calls=tool_calls,
+		)
+		if step is not None:
+			recorded += 1
+	return recorded
+
+
+def finalize_selector_run(run) -> None:
+	"""Finalize a subprocess Run exactly once, when the ad-hoc subprocess
+	completes: status, ended_at, duration, token/cost rollups summed across
+	all Steps, and final_output = the last role="assistant" Step's content —
+	the turn where the loop ended because the LLM stopped calling tools.
+	"""
+	if getattr(run, "stub", False) or getattr(run, "status", "") != "Running":
+		return
+	try:
+		steps = frappe.get_all(
+			"AI Agent Step",
+			filters={"run": run.name},
+			fields=["role", "content", "prompt_tokens", "completion_tokens", "cost"],
+			order_by="step_index asc",
+		)
+		final_output = ""
+		for step in steps:
+			if step.role == "assistant" and (step.content or "").strip():
+				final_output = step.content
+		total_tokens = sum((s.prompt_tokens or 0) + (s.completion_tokens or 0) for s in steps)
+		total_cost = sum(flt(s.cost) for s in steps)
+
+		ended = now_datetime()
+		duration_ms = 0
+		if getattr(run, "started_at", None):
+			duration_ms = int(
+				(ended - frappe.utils.get_datetime(run.started_at)).total_seconds() * 1000
+			)
+		run.db_set(
+			{
+				"status": "Success",
+				"ended_at": ended,
+				"duration_ms": duration_ms,
+				"total_tokens": total_tokens,
+				"estimated_cost": total_cost,
+				"final_output": final_output,
+			},
+			update_modified=True,
+		)
+	except Exception:
+		frappe.log_error(
+			title=f"AI Observability: finalize_selector_run failed ({getattr(run, 'name', '?')})",
 			message=frappe.get_traceback(),
 		)
