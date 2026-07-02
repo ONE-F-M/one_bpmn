@@ -738,12 +738,16 @@ def do_engine_steps_gated(wf: BpmnWorkflow, did_complete_task=None, did_complete
 		# subprocess parents): when a subworkflow finishes, its parent task
 		# only advances on the next _update. Poke ONLY completed subprocesses —
 		# poking an in-flight one re-arms StandardLoopTask iterations and
-		# spins the loop.
-		for sp in wf.subprocesses.values():
-			if sp.completed and sp.parent_task_id is not None:
-				parent = wf.get_task_from_id(sp.parent_task_id)
-				if parent is not None and parent.state & TaskState.NOT_FINISHED_MASK:
-					parent.task_spec._update(parent)
+		# spins the loop. A subprocess can only complete when a task INSIDE
+		# it ran (its EndJoin), so main-flow task runs skip the sweep — keeps
+		# the per-iteration cost O(1) for diagrams with many subprocesses
+		# instead of O(subprocesses) per engine step.
+		if task.workflow is not wf:
+			for sp in wf.subprocesses.values():
+				if sp.completed and sp.parent_task_id is not None:
+					parent = wf.get_task_from_id(sp.parent_task_id)
+					if parent is not None and parent.state & TaskState.NOT_FINISHED_MASK:
+						parent.task_spec._update(parent)
 
 	wf.refresh_timers()
 
