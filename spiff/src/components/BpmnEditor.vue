@@ -1018,6 +1018,8 @@ import aiAgentPropertiesProviderModule from "@/bpmn/aiAgentPropertiesProvider";
 import aiAgentReplaceMenuProviderModule from "@/bpmn/aiAgentReplaceMenuProvider";
 import aiAgentRendererModule from "@/bpmn/aiAgentRenderer";
 import adhocSubprocessPropertiesProviderModule from "@/bpmn/adhocSubprocessPropertiesProvider";
+import aiTaskSelectorMenuProviderModule from "@/bpmn/aiTaskSelectorMenuProvider";
+import aiTaskSelectorPropertiesProviderModule from "@/bpmn/aiTaskSelectorPropertiesProvider";
 
 import scriptTaskPropertiesProviderModule from "@/bpmn/scriptTaskPropertiesProvider";
 import businessRuleTaskPropertiesProviderModule from "@/bpmn/businessRuleTaskPropertiesProvider";
@@ -1587,6 +1589,27 @@ onMounted(async () => {
 				});
 			}
 
+			// Ad-hoc Subprocess AI Task Selector extension (WI-001351).
+			// The selector attaches to the subprocess ITSELF (not an inner
+			// task): an LLM chooses which inner task/tool runs next.
+			const hasAdhocSelectorExt = spiffModdleExtension.types.find(t => t.name === "AdhocAiTaskSelectorExtension");
+			if (!hasAdhocSelectorExt) {
+				spiffModdleExtension.types.push({
+					name: "AdhocAiTaskSelectorExtension",
+					extends: ["bpmn:AdHocSubProcess"],
+					properties: [
+						{ name: "serviceType",    isAttr: true, type: "String" },
+						{ name: "aiProvider",     isAttr: true, type: "String" },
+						{ name: "aiModel",        isAttr: true, type: "String" },
+						{ name: "aiSystemPrompt", isAttr: true, type: "String" },
+						{ name: "aiUserPrompt",   isAttr: true, type: "String" },
+						// "diagram" | "registry" | "both" — which tool sources
+						// the selector may choose from (defaults to "both")
+						{ name: "aiToolSources",  isAttr: true, type: "String" }
+					]
+				});
+			}
+
 			// Business Rule Task decision reference extension
 			const hasBusinessRuleTaskExt = spiffModdleExtension.types.find(t => t.name === "BusinessRuleTaskDecisionExtension");
 			if (!hasBusinessRuleTaskExt) {
@@ -1629,6 +1652,8 @@ onMounted(async () => {
 				aiAgentReplaceMenuProviderModule,
 				aiAgentRendererModule,
 				adhocSubprocessPropertiesProviderModule,
+				aiTaskSelectorMenuProviderModule,
+				aiTaskSelectorPropertiesProviderModule,
 
 				scriptTaskPropertiesProviderModule,
 				businessRuleTaskPropertiesProviderModule,
