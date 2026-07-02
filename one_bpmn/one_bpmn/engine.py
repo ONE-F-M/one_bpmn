@@ -541,6 +541,37 @@ def get_task_type_label(task) -> str:
 	return type(spec).__name__
 
 
+# ─────────────────────────────────────────────────────────────
+# Ad-hoc activation audit hook (WI-001359)
+#
+# The ad-hoc dispatch loop (WI-001350) activates inner tasks one at a
+# time. bpmn_process_instance installs a logger here for the duration of
+# one _run_engine() call so every activation lands in BPMN Activity Log
+# ("Ad-Hoc Task Activated") regardless of whether the decision came from
+# diagram order or the AI Task Selector.
+# ─────────────────────────────────────────────────────────────
+
+# callable(subworkflow, task) — must never raise into the engine.
+adhoc_task_activated_logger = None
+
+
+def notify_adhoc_activation(sp, task) -> None:
+	if adhoc_task_activated_logger is None:
+		return
+	try:
+		adhoc_task_activated_logger(sp, task)
+	except Exception:
+		try:
+			import frappe
+
+			frappe.log_error(
+				title="BPMN: ad-hoc activation logger failed",
+				message=frappe.get_traceback(),
+			)
+		except Exception:
+			pass
+
+
 def get_ready_user_tasks(wf: BpmnWorkflow) -> list:
 	"""Return all READY tasks that require human input."""
 	return [t for t in wf.get_tasks(state=TaskState.READY) if t.task_spec.manual]
