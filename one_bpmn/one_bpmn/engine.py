@@ -35,6 +35,40 @@ from SpiffWorkflow.bpmn.specs.mixins.multiinstance_task import LoopTask
 
 
 # ── Ad-hoc Subprocess support ────────────────────────────────
+# Upstream path_complete() fires after EVERY inner task completion and
+# evaluates the completion condition with a raw eval. A condition that
+# references a variable no task has set yet (e.g. `done` before the
+# wrap-up script task runs `done = True`) raises NameError, which fails
+# the user's task completion. Camunda treats an unresolvable condition
+# as not met — mirror that: pre-evaluate against the merged data view
+# (path_complete merges task.data into workflow.data before evaluating)
+# and hand upstream a literal. Class-level patch so previously
+# serialized instances are covered too. Only NameError is absorbed;
+# genuine expression errors still surface.
+_upstream_path_complete = AdHocSubprocessSpec.path_complete
+
+
+def _safe_path_complete(self, workflow, task):
+	original = self.completion_condition
+	if original:
+		try:
+			met = bool(
+				workflow.script_engine.environment.evaluate(
+					original, {**workflow.data, **task.data}
+				)
+			)
+		except NameError:
+			met = False
+		self.completion_condition = "True" if met else "False"
+	try:
+		return _upstream_path_complete(self, workflow, task)
+	finally:
+		self.completion_condition = original
+
+
+AdHocSubprocessSpec.path_complete = _safe_path_complete
+
+
 class _AdHocSubprocessSpecConverter(AdHocSubprocessSpecConverter):
 	"""
 	Upstream to_dict() hardcodes parallel/cancel_remaining to True
