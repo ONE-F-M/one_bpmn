@@ -775,6 +775,8 @@ def _gate_adhoc_subworkflow(sp) -> bool:
 			if extra.state == TaskState.READY:
 				extra._set_state(TaskState.FUTURE)
 				changed = True
+		if changed:
+			notify_adhoc_activation(sp, active[0])  # WI-001359 audit
 		return _arm_loop_instance(active[0]) or changed
 
 	if len(active) == 1:
@@ -804,6 +806,7 @@ def _gate_adhoc_subworkflow(sp) -> bool:
 			return False
 		promoted._set_state(TaskState.READY)
 		_arm_loop_instance(promoted)
+		notify_adhoc_activation(sp, promoted)  # WI-001359 audit
 	return True
 
 
@@ -922,6 +925,37 @@ def select_next_adhoc_task(sp, pending):
 		if chosen is not None:
 			return chosen
 	return pending[0]
+
+
+# ─────────────────────────────────────────────────────────────
+# Ad-hoc activation audit hook (WI-001359)
+#
+# The ad-hoc dispatch loop (WI-001350) activates inner tasks one at a
+# time. bpmn_process_instance installs a logger here for the duration of
+# one _run_engine() call so every activation lands in BPMN Activity Log
+# ("Ad-Hoc Task Activated") regardless of whether the decision came from
+# diagram order or the AI Task Selector.
+# ─────────────────────────────────────────────────────────────
+
+# callable(subworkflow, task) — must never raise into the engine.
+adhoc_task_activated_logger = None
+
+
+def notify_adhoc_activation(sp, task) -> None:
+	if adhoc_task_activated_logger is None:
+		return
+	try:
+		adhoc_task_activated_logger(sp, task)
+	except Exception:
+		try:
+			import frappe
+
+			frappe.log_error(
+				title="BPMN: ad-hoc activation logger failed",
+				message=frappe.get_traceback(),
+			)
+		except Exception:
+			pass
 
 
 def get_ready_user_tasks(wf: BpmnWorkflow) -> list:

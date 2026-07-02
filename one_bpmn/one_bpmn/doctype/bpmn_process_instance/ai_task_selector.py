@@ -49,6 +49,12 @@ def make_adhoc_decider(instance, wf):
 			if candidate_name == chosen_name:
 				if arguments:
 					task.data.update(arguments)
+				# WI-001359: audit the decision itself; the activation is
+				# logged separately by the gate's activation hook.
+				try:
+					instance.log_ai_task_selected(bpmn_id, [chosen_name], arguments)
+				except Exception:
+					pass
 				return task
 
 		# The LLM picked a diagram task that is not pending (already ran or

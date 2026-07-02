@@ -488,17 +488,48 @@ class BPMNProcessInstance(Document):
 		"""
 		# WI-001352: while this engine call runs, ad-hoc subprocesses tagged
 		# with an AI Task Selector decide their next inner task via the LLM
-		# instead of diagram order. The hook is process-global state on the
-		# engine module — install/uninstall it around the run.
+		# instead of diagram order. WI-001359: every ad-hoc activation is
+		# audited. Both hooks are process-global engine state —
+		# install/uninstall them around the run.
 		from one_bpmn.one_bpmn.doctype.bpmn_process_instance.ai_task_selector import (
 			make_adhoc_decider,
 		)
 
 		bpmn_engine.adhoc_next_task_decider = make_adhoc_decider(self, wf)
+		bpmn_engine.adhoc_task_activated_logger = self._log_adhoc_activation
 		try:
 			self._run_engine_inner(wf)
 		finally:
 			bpmn_engine.adhoc_next_task_decider = None
+			bpmn_engine.adhoc_task_activated_logger = None
+
+	def _log_adhoc_activation(self, sp, task):
+		"""WI-001359: 'Ad-Hoc Task Activated' audit entry. The existing
+		instance+task_id+action dedup in _log_task prevents duplicates on
+		engine restarts re-processing the same state."""
+		self._log_task(
+			task_id=str(task.id),
+			task_name=bpmn_engine.get_task_display_name(task),
+			action="Ad-Hoc Task Activated",
+			data={
+				"bpmn_id": getattr(task.task_spec, "bpmn_id", None) or task.task_spec.name,
+				"parent_subprocess": sp.spec.name,
+			},
+		)
+
+	def log_ai_task_selected(self, bpmn_id: str, chosen_tools: list, arguments: dict = None):
+		"""WI-001359: 'AI Task Selected' audit entry — a lightweight
+		cross-reference to the decision, not a duplicate of the full
+		per-call record on AI Agent Tool Call (WI-001358)."""
+		summary = json.dumps(arguments or {}, default=str)
+		if len(summary) > 500:
+			summary = summary[:500] + "…"
+		self._log_task(
+			task_id=f"{bpmn_id}::decision::{'+'.join(chosen_tools) or 'none'}",
+			task_name=f"AI Task Selector ({bpmn_id})",
+			action="AI Task Selected",
+			data={"chosen_tools": chosen_tools, "arguments_summary": summary},
+		)
 
 	def _run_engine_inner(self, wf):
 		wf.refresh_waiting_tasks()
