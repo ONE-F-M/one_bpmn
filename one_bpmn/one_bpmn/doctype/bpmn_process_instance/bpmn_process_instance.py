@@ -9,6 +9,7 @@ from frappe import _
 from frappe.model.document import Document
 from frappe.utils import now_datetime
 
+from SpiffWorkflow.bpmn.specs.mixins.subworkflow_task import SubWorkflowTask
 from SpiffWorkflow.util.task import TaskState
 
 from one_bpmn.one_bpmn import engine as bpmn_engine
@@ -499,8 +500,17 @@ class BPMNProcessInstance(Document):
 			# Find non-manual tasks left in STARTED state.  These are
 			# ServiceTasks waiting for us to dispatch their action and
 			# explicitly call task.complete().
+			# Subworkflow containers (Sub-Process, Ad-hoc Subprocess, Call
+			# Activity, Transaction) also sit in STARTED while their inner
+			# workflow runs — force-completing them here abandons their
+			# children and runs the parent process straight to the End Event
+			# while inner user tasks are still pending. They complete on
+			# their own when the inner workflow finishes.
 			started_tasks = [
-				t for t in wf.get_tasks(state=TaskState.STARTED) if not getattr(t.task_spec, "manual", False)
+				t
+				for t in wf.get_tasks(state=TaskState.STARTED)
+				if not getattr(t.task_spec, "manual", False)
+				and not isinstance(t.task_spec, SubWorkflowTask)
 			]
 			if not started_tasks:
 				cap_hit = False
