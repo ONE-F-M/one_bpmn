@@ -4,13 +4,13 @@
       <!-- ============ LEFT: configuration form ============ -->
       <div class="modal-main">
         <div class="modal-header">
-          <h3>Configure AI Agent Task</h3>
+          <h3>{{ isSelector ? "Configure AI Task Selector" : "Configure AI Agent Task" }}</h3>
           <button class="close-btn" @click="$emit('close')">✕</button>
         </div>
 
         <div class="modal-body">
-          <!-- Backend -->
-          <div class="field-row">
+          <!-- Backend (selector always runs direct_api) -->
+          <div class="field-row" v-if="!isSelector">
             <label>Backend</label>
             <select v-model="form.aiBackend">
               <option value="direct_api">Direct API</option>
@@ -35,8 +35,8 @@
             <input type="text" v-model="form.aiModel" placeholder="e.g. gpt-4o" />
           </div>
 
-          <!-- Output variable -->
-          <div class="field-row">
+          <!-- Output variable (selector output is the chosen task, not a variable) -->
+          <div class="field-row" v-if="!isSelector">
             <label>Output Variable Name</label>
             <input type="text" v-model="form.aiOutputVariable" placeholder="ai_result" />
           </div>
@@ -53,8 +53,8 @@
             <textarea v-model="form.aiUserPrompt" rows="4" />
           </div>
 
-          <!-- Response format -->
-          <div class="field-row">
+          <!-- Response format (selector responses are tool calls, not text/JSON) -->
+          <div class="field-row" v-if="!isSelector">
             <label>Response Format</label>
             <select v-model="form.aiResponseFormat">
               <option value="text">Text</option>
@@ -63,15 +63,15 @@
           </div>
 
           <!-- Response schema (only when JSON) -->
-          <div class="field-row" v-if="form.aiResponseFormat === 'json'">
+          <div class="field-row" v-if="!isSelector && form.aiResponseFormat === 'json'">
             <label>Response Schema <span class="hint">(JSON Schema)</span></label>
             <textarea v-model="form.aiResponseSchema" rows="4" placeholder='{"type":"object",...}' />
           </div>
 
           <div class="field-group-title">Advanced Settings</div>
 
-          <!-- Temperature -->
-          <div class="field-row two-col">
+          <!-- Temperature (selector dispatch doesn't read sampling params) -->
+          <div class="field-row two-col" v-if="!isSelector">
             <div>
               <label>Temperature</label>
               <input type="number" v-model.number="form.aiTemperature" min="0" max="2" step="0.1" />
@@ -93,12 +93,12 @@
             </div>
           </div>
 
-          <div class="field-row">
+          <div class="field-row" v-if="!isSelector">
             <label>Max Retries</label>
             <input type="number" v-model.number="form.aiMaxRetries" min="0" max="10" />
           </div>
 
-          <div class="field-row" style="margin-top: 8px;">
+          <div class="field-row" style="margin-top: 8px;" v-if="!isSelector">
             <label class="checkbox-row">
               <input type="checkbox" v-model="form.aiStopOnError" class="checkbox-input" />
               <span>Stop process on error</span>
@@ -262,7 +262,25 @@ function rawElement() {
 const props = defineProps({
   element: { type: Object, required: true },
   modeler: { type: Object, required: true },
+  // "agent" (AI Agent Task) or "selector" (AI Task Selector on an ad-hoc
+  // subprocess). Selector mode hides fields the selector dispatch never
+  // reads (backend, output variable, response format/schema, sampling,
+  // retries) and writes only the selector attribute set on save.
+  mode: { type: String, default: "agent" },
 });
+
+const isSelector = computed(() => props.mode === "selector");
+
+// Fields the selector dispatch actually consumes (ai_task_selector.py) —
+// assistant recommendations outside this set are dropped in selector mode.
+const SELECTOR_FIELDS = [
+  "aiProvider",
+  "aiModel",
+  "aiSystemPrompt",
+  "aiUserPrompt",
+  "aiMaxTokens",
+  "aiTimeout",
+];
 
 const emit = defineEmits(["close"]);
 
@@ -493,11 +511,19 @@ async function sendMessage() {
     );
 
     if (res && res.ok) {
+      let recommendations = res.recommendations || {};
+      if (isSelector.value) {
+        // Drop suggestions for fields the selector doesn't have
+        // (response schema, output variable, sampling params, …).
+        recommendations = Object.fromEntries(
+          Object.entries(recommendations).filter(([key]) => SELECTOR_FIELDS.includes(key))
+        );
+      }
       messages.value.push({
         id: makeId(),
         role: "assistant",
         content: res.message || "Here are my recommendations.",
-        recommendations: res.recommendations || {},
+        recommendations,
       });
     } else {
       const err = (res && (res.message || res.error_code)) || "The assistant request failed.";
@@ -584,7 +610,7 @@ function save() {
   }
 
   // Validate JSON schema if provided
-  if (form.value.aiResponseFormat === "json" && form.value.aiResponseSchema) {
+  if (!isSelector.value && form.value.aiResponseFormat === "json" && form.value.aiResponseSchema) {
     try {
       JSON.parse(form.value.aiResponseSchema);
     } catch (e) {
@@ -596,6 +622,22 @@ function save() {
   const modeling = toRaw(props.modeler).get("modeling");
   const element = rawElement();
   const bo = element.businessObject;
+
+  if (isSelector.value) {
+    // Only the attributes the selector dispatch reads — never touch
+    // serviceType/aiToolSources (owned by the properties panel) and never
+    // write agent-only attrs onto the ad-hoc subprocess.
+    modeling.updateModdleProperties(element, bo, {
+      "spiffworkflow:aiProvider": form.value.aiProvider || undefined,
+      "spiffworkflow:aiModel": form.value.aiModel || undefined,
+      "spiffworkflow:aiSystemPrompt": form.value.aiSystemPrompt || undefined,
+      "spiffworkflow:aiUserPrompt": form.value.aiUserPrompt || undefined,
+      "spiffworkflow:aiMaxTokens": String(form.value.aiMaxTokens),
+      "spiffworkflow:aiTimeout": String(form.value.aiTimeout),
+    });
+    emit("close");
+    return;
+  }
 
   const patch = {
     "spiffworkflow:aiBackend": form.value.aiBackend || undefined,
