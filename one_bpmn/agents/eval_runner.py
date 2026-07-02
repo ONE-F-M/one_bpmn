@@ -167,7 +167,10 @@ def _execute_eval_suite(run_name: str) -> None:
 
     run.ended_at = now_datetime()
     run.save()
-    frappe.db.commit()
+    # Background-job commit; skipped in tests so FrappeTestCase rollback
+    # still cleans up fixture docs instead of leaking them into the DB.
+    if not frappe.flags.in_test:
+        frappe.db.commit()
 
     frappe.publish_realtime(
         "eval_run_completed",
