@@ -162,6 +162,21 @@ def dispatch_ai_task_selector(instance, sp, task_cfg: dict, bpmn_id: str) -> tup
 		jinja_context=jinja_ctx,
 	)
 
+	# ── Observability (WI-001358): one Run per subprocess, reused across
+	# decision points. Instrumentation failures never block dispatch.
+	run = None
+	try:
+		from one_bpmn.agents.observability import get_or_create_selector_run
+
+		run = get_or_create_selector_run(
+			instance, bpmn_id, config, process_model=instance.process_model or ""
+		)
+	except Exception:
+		frappe.log_error(
+			title=f"AI Observability: selector run setup failed ({bpmn_id})",
+			message=frappe.get_traceback(),
+		)
+
 	try:
 		executor_cls = get_executor(config.backend)
 		result = executor_cls().run(config, context)
@@ -173,6 +188,19 @@ def dispatch_ai_task_selector(instance, sp, task_cfg: dict, bpmn_id: str) -> tup
 		sp.data[f"{bpmn_id}_error_code"] = "UNEXPECTED_ERROR"
 		sp.data[f"{bpmn_id}_error_message"] = "See Frappe Error Log for details."
 		return ("error", None, None)
+
+	# One Step per LLM turn, one Tool Call row per call within a turn.
+	try:
+		from one_bpmn.agents.observability import record_selector_turns
+
+		if run is not None:
+			source_map = {c.spec.name: c.source for c in pool}
+			record_selector_turns(run, result.trace or [], source_map)
+	except Exception:
+		frappe.log_error(
+			title=f"AI Observability: selector step recording failed ({bpmn_id})",
+			message=frappe.get_traceback(),
+		)
 
 	if result.error_code != ErrorCode.SUCCESS:
 		# Same pattern as dispatch_ai_agent: log, write error variables,
@@ -186,6 +214,20 @@ def dispatch_ai_task_selector(instance, sp, task_cfg: dict, bpmn_id: str) -> tup
 		return ("error", None, None)
 
 	_record_tool_outcomes(sp, bpmn_id, result)
+
+	# Idle decision = the LLM stopped selecting; if the subprocess's
+	# completion condition is (or becomes) satisfied, this Run is over.
+	if not selection:
+		try:
+			from one_bpmn.agents.observability import finalize_selector_run
+
+			if run is not None:
+				finalize_selector_run(run)
+		except Exception:
+			frappe.log_error(
+				title=f"AI Observability: selector finalize failed ({bpmn_id})",
+				message=frappe.get_traceback(),
+			)
 
 	if selection:
 		return ("activate", selection["bpmn_id"], selection["arguments"])
