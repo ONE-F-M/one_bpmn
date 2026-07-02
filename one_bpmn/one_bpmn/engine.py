@@ -796,7 +796,12 @@ def _gate_adhoc_subworkflow(sp) -> bool:
 			if task.state & TaskState.NOT_FINISHED_MASK:
 				task.task_spec._update(task)
 	else:
-		promoted = pending[0]
+		# WI-001352: an installed AI Task Selector decider replaces the
+		# default "next in diagram order" decision. No decider (or a
+		# declined decision) falls through to pending[0].
+		promoted = select_next_adhoc_task(sp, pending)
+		if promoted is None:
+			return False
 		promoted._set_state(TaskState.READY)
 		_arm_loop_instance(promoted)
 	return True
@@ -866,6 +871,57 @@ def adhoc_pending_head_tasks(wf: BpmnWorkflow) -> list:
 	for sp in _adhoc_subworkflows(wf):
 		pending.extend(t for t in adhoc_head_tasks(sp) if t.state == TaskState.FUTURE)
 	return pending
+
+
+# ─────────────────────────────────────────────────────────────
+# Ad-hoc subprocess "decide" hook (WI-001352)
+#
+# The ad-hoc dispatch loop (WI-001350) promotes the next inner task in
+# diagram-XML order by default. When an AI Task Selector is configured,
+# bpmn_process_instance installs a decider here for the duration of one
+# _run_engine() call, and the gate's promotion step routes its choice
+# through select_next_adhoc_task() — the same loop, a different decision
+# function.
+# ─────────────────────────────────────────────────────────────
+
+# Sentinel a decider returns when it made a decision but nothing should be
+# activated (registry-only actions, invalid tool name, executor failure).
+NO_ACTIVATION = object()
+
+# callable(subworkflow, pending_tasks) -> Task | NO_ACTIVATION | None.
+# None means "no selector here" and falls through to diagram order.
+adhoc_next_task_decider = None
+
+
+def select_next_adhoc_task(sp, pending):
+	"""
+	Choose which pending ad-hoc head to promote next.
+
+	Returns a task from ``pending`` or None (promote nothing this round —
+	fail-safe: the completion condition governs and the loop resumes on the
+	next advance() call).
+	"""
+	if not pending:
+		return None
+	if adhoc_next_task_decider is not None:
+		try:
+			chosen = adhoc_next_task_decider(sp, pending)
+		except Exception:
+			try:
+				import frappe
+
+				frappe.log_error(
+					title="AI Task Selector decider failed",
+					message=frappe.get_traceback(),
+				)
+			except Exception:
+				pass
+			chosen = NO_ACTIVATION  # fail-safe: never fall back to silent auto-run
+		if chosen is NO_ACTIVATION:
+			return None
+		if chosen is not None:
+			return chosen
+	return pending[0]
 
 
 def get_ready_user_tasks(wf: BpmnWorkflow) -> list:

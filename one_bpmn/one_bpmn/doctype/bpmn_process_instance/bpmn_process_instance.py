@@ -486,6 +486,21 @@ class BPMNProcessInstance(Document):
 		  We then dispatch the real-world side effect and call task.complete()
 		  to advance STARTED → COMPLETED, then loop again.
 		"""
+		# WI-001352: while this engine call runs, ad-hoc subprocesses tagged
+		# with an AI Task Selector decide their next inner task via the LLM
+		# instead of diagram order. The hook is process-global state on the
+		# engine module — install/uninstall it around the run.
+		from one_bpmn.one_bpmn.doctype.bpmn_process_instance.ai_task_selector import (
+			make_adhoc_decider,
+		)
+
+		bpmn_engine.adhoc_next_task_decider = make_adhoc_decider(self, wf)
+		try:
+			self._run_engine_inner(wf)
+		finally:
+			bpmn_engine.adhoc_next_task_decider = None
+
+	def _run_engine_inner(self, wf):
 		wf.refresh_waiting_tasks()
 
 		cap_hit = True
