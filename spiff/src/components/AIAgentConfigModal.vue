@@ -544,6 +544,7 @@ async function sendMessage() {
         mode: "selector",
         bpmn_xml: xml,
         element_id: rawElement().businessObject?.id || rawElement().id || "",
+        process_model: window.__ONE_BPMN_CURRENT_MODEL__ || "",
         current_config: JSON.stringify({
           aiModel: form.value.aiModel,
           aiSystemPrompt: form.value.aiSystemPrompt,
