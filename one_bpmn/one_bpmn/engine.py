@@ -787,9 +787,15 @@ def do_engine_steps_gated(wf: BpmnWorkflow, did_complete_task=None, did_complete
 			did_complete_adhoc_task is not None
 			and isinstance(getattr(task.workflow, "spec", None), AdHocSubprocessSpec)
 			and getattr(task.task_spec, "bpmn_id", None)
+			and task.state & TaskState.COMPLETED
 		):
 			# Only for real BPMN inner tasks — engine-internal Start/EndJoin/End
 			# tasks carry no bpmn_id and don't warrant a context-doc refresh.
+			# And only on actual COMPLETION: a service task's run() leaves it
+			# STARTED (its real work happens in the caller's dispatch loop,
+			# which fires this hook itself after task.complete()) — firing
+			# here refreshed the context doc BEFORE the task's write landed,
+			# so doc-based completion conditions saw stale state.
 			did_complete_adhoc_task(task)
 
 		# Completion propagation (the reason stock do_engine_steps pokes

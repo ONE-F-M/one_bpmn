@@ -68,6 +68,14 @@ def _drive(wf, did_complete_task=None, did_complete_adhoc_task=None):
 			break
 		for task in started:
 			task.complete()
+			# Mirror _run_engine_inner: the adhoc completion hook fires
+			# AFTER dispatch completes the task (post-write), not at run().
+			if (
+				did_complete_adhoc_task is not None
+				and isinstance(getattr(task.workflow, "spec", None), engine.AdHocSubprocessSpec)
+				and getattr(task.task_spec, "bpmn_id", None)
+			):
+				did_complete_adhoc_task(task)
 
 
 def _complete_manual(wf, name, data=None):
