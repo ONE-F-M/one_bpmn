@@ -115,6 +115,28 @@ def dispatch_ai_task_selector(instance, sp, task_cfg: dict, bpmn_id: str) -> tup
 
 	pool = resolve_tool_pool(sp, task_cfg, instance.process_model or "")
 
+	# Runtime availability: the pool is spec-derived (every candidate on the
+	# diagram), but at a decision point only PARKED heads can actually be
+	# activated. Offering completed tasks as tools invited the model to
+	# re-pick them — a safe no-op that stalled the subprocess (the dominant
+	# failure in UAT). Filter diagram candidates to the pending heads and
+	# tell the model what already ran instead.
+	from SpiffWorkflow.util.task import TaskState
+
+	heads = bpmn_engine.adhoc_head_tasks(sp)
+	head_name = lambda t: getattr(t.task_spec, "bpmn_id", None) or t.task_spec.name  # noqa: E731
+	# Activatable = not yet run: parked (FUTURE, the normal decision-time
+	# state) or freshly readied (READY, subprocess entry before the gate
+	# parks). Finished heads are excluded and reported as progress instead.
+	pending_names = {
+		head_name(t) for t in heads if t.state & (TaskState.FUTURE | TaskState.READY)
+	}
+	finished_names = {
+		head_name(t)
+		for t in heads
+		if t.state & (TaskState.COMPLETED | TaskState.CANCELLED)
+	}
+
 	# Diagram-task candidates cannot execute inline the way registry tools
 	# do — activation happens in the engine after this decision. Their fn
 	# records the FIRST selection and tells the model to stop selecting,
@@ -141,6 +163,8 @@ def dispatch_ai_task_selector(instance, sp, task_cfg: dict, bpmn_id: str) -> tup
 	for candidate in pool:
 		spec = candidate.spec
 		if candidate.source == DIAGRAM_TASK:
+			if spec.name not in pending_names:
+				continue  # completed/cancelled/in-flight — not activatable
 			spec = ToolSpec(
 				fn=make_activation_fn(spec.name),
 				name=spec.name,
@@ -150,12 +174,21 @@ def dispatch_ai_task_selector(instance, sp, task_cfg: dict, bpmn_id: str) -> tup
 			)
 		tools.append(spec)
 
+	# Auto-appended progress block: authoritative memory the prompt author
+	# doesn't have to engineer evidence for (send tasks leave no data trace).
+	user_prompt = render(task_cfg.get("aiUserPrompt", ""))
+	if finished_names:
+		user_prompt += (
+			"\n\nProcess progress (authoritative): these tasks have ALREADY RUN "
+			"and are no longer offered: " + ", ".join(sorted(finished_names)) + "."
+		)
+
 	config = ExecutorConfig(
 		backend="direct_api",
 		provider_name=task_cfg.get("aiProvider", ""),
 		model=task_cfg.get("aiModel", ""),
 		system_prompt=render(task_cfg.get("aiSystemPrompt", "")),
-		user_prompt=render(task_cfg.get("aiUserPrompt", "")),
+		user_prompt=user_prompt,
 		max_tokens=int(task_cfg.get("aiMaxTokens", 1024) or 1024),
 		timeout_seconds=int(task_cfg.get("aiTimeout", 60) or 60),
 		tools=tools,

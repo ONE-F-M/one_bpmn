@@ -248,3 +248,54 @@ class TestDispatchAiTaskSelector(FrappeTestCase):
 		sp, heads = _adhoc_subworkflow()
 		decider = ai_task_selector.make_adhoc_decider(_instance(extensions={}), None)
 		self.assertIsNone(decider(sp, heads))
+
+
+class TestCompletedTasksNotOffered(FrappeTestCase):
+	"""Completed/cancelled heads must not be offered as tools (re-picking a
+	finished task was a safe no-op that stalled the subprocess — the dominant
+	UAT failure), and the prompt gains an authoritative progress line."""
+
+	def setUp(self):
+		super().setUp()
+		if not _bridge_available():
+			self.skipTest("WI-001353/WI-001356 modules not on this branch")
+		_FakeExecutor.scripted_calls = []
+		_FakeExecutor.result_factory = None
+		self._patch = patch(
+			"one_bpmn.agents.executor.get_executor", return_value=_FakeExecutor
+		)
+		self._patch.start()
+
+	def tearDown(self):
+		self._patch.stop()
+		super().tearDown()
+
+	def test_completed_head_excluded_and_reported(self):
+		sp, heads = _adhoc_subworkflow()
+		# Real flow: the gate parks all heads at entry (seeding data_objects),
+		# then task_a is promoted and runs to completion; task_b/task_c stay
+		# parked pending.
+		engine._gate_adhoc_subworkflow(sp)
+		task_a = next(t for t in heads if t.task_spec.name == "task_a")
+		task_a._set_state(TaskState.READY)
+		task_a.run()
+
+		captured = {}
+
+		def factory(config, context):
+			from one_bpmn.agents.executor import ExecutorResult, TokenUsage
+
+			captured["tools"] = [t.name for t in (config.tools or [])]
+			captured["user_prompt"] = config.user_prompt
+			return ExecutorResult(output="", token_usage=TokenUsage(), trace=[])
+
+		_FakeExecutor.result_factory = factory
+		ai_task_selector.dispatch_ai_task_selector(
+			_instance(), sp, dict(SELECTOR_CFG), "AdhocSub_1"
+		)
+
+		self.assertNotIn("task_a", captured["tools"])
+		self.assertIn("task_b", captured["tools"])
+		self.assertIn("task_c", captured["tools"])
+		self.assertIn("ALREADY RUN", captured["user_prompt"])
+		self.assertIn("task_a", captured["user_prompt"])
