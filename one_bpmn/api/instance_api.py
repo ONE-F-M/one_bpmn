@@ -348,75 +348,153 @@ def complete_task(
 				frappe.PermissionError,
 			)
 
+	# ── 4. HAND OFF TO THE ENGINE (background) ───────────────────────────────
+	# All validation passed. The engine pass that follows a user action can
+	# run chained service tasks and multi-turn AI Task Selector decisions
+	# (seconds of LLM latency each) — far past the request budget. Run it on
+	# the dedicated bpmn_ai_agent queue; the UI follows engine_in_progress
+	# and the realtime events the job publishes.
+	frappe.db.set_value(
+		"BPMN Process Instance",
+		instance_name,
+		"engine_in_progress",
+		1,
+		update_modified=False,
+	)
+
+	if frappe.flags.in_test:
+		# Tests run with auto-rollback and no worker: enqueue_after_commit
+		# would never fire. Run inline and report the real resulting state.
+		_complete_task_job(
+			instance_name=instance_name,
+			task_id=task_id,
+			data=parsed_data,
+			run_as_user=current_user,
+			approved_ctc_name=approved_ctc_name,
+		)
+		instance.reload()
+		return {
+			"instance": instance_name,
+			"status": instance.status,
+			"queued": False,
+			"active_tasks": instance.get_active_tasks_summary(),
+		}
+
+	frappe.enqueue(
+		"one_bpmn.api.instance_api._complete_task_job",
+		queue="bpmn_ai_agent",
+		timeout=600,
+		enqueue_after_commit=True,
+		# Double-click safety: at most one queued advance per task.
+		job_id=f"bpmn-advance-{instance_name}-{task_id}",
+		deduplicate=True,
+		instance_name=instance_name,
+		task_id=task_id,
+		data=parsed_data,
+		run_as_user=current_user,
+		approved_ctc_name=approved_ctc_name,
+	)
+
+	return {
+		"instance": instance_name,
+		"status": "Processing",
+		"queued": True,
+		"active_tasks": [],
+	}
+
+
+def _complete_task_job(
+	instance_name: str,
+	task_id: str,
+	data: dict = None,
+	run_as_user: str = None,
+	approved_ctc_name: str = None,
+):
+	"""
+	Background half of complete_task: the engine pass that follows an
+	already-validated user action. Runs with the acting user's identity so
+	completed-by attribution and permission-sensitive script tasks behave
+	exactly as they did inline.
+	"""
+	if run_as_user:
+		frappe.set_user(run_as_user)
+
+	# Row lock serializes concurrent engine passes on the same instance
+	# (a second action, the timer sweep, a message delivery).
+	instance = frappe.get_doc("BPMN Process Instance", instance_name, for_update=True)
 	try:
-		active_tasks = instance.advance(task_id=task_id, data=parsed_data)
+		instance.advance(task_id=task_id, data=data or {})
+
+		# ── CTC expiry message after a successful advance ────────────────
+		if approved_ctc_name:
+			try:
+				send_message(
+					message_name="Active Task is Completed",
+					context_doctype="Contingency Task Completion",
+					context_docname=approved_ctc_name,
+					payload=json.dumps({
+						"ctc_name": approved_ctc_name,
+						"actioned_doctype": instance.context_doctype,
+						"actioned_docname": instance.context_docname,
+						"actioned_by": run_as_user or frappe.session.user,
+					}),
+				)
+			except Exception as exc:
+				frappe.log_error(
+					title="BPMN CTC expiry message failed",
+					message=str(exc),
+				)
 	except frappe.ValidationError:
-		raise
-	except Exception as exc:
+		# Engine-level validation (e.g. the task was completed elsewhere in
+		# the meantime) — not an instance failure. Log for traceability.
+		frappe.log_error(
+			title="BPMN complete_task job: validation error",
+			message=frappe.get_traceback(),
+		)
+	except Exception:
 		frappe.db.set_value("BPMN Process Instance", instance_name, "status", "Errored")
 		frappe.log_error(
 			title="BPMN complete_task failed",
 			message=frappe.get_traceback(),
 		)
-		frappe.throw(_("Failed to complete task: {0}").format(str(exc)))
-
-	# ── Send message so the CTC process can expire itself after the task is actioned ──
-	if approved_ctc_name:
-		try:
-			send_message(
-				message_name="Active Task is Completed",
-				context_doctype="Contingency Task Completion",
-				context_docname=approved_ctc_name,
-				payload=json.dumps({
-					"ctc_name": approved_ctc_name,
-					"actioned_doctype": instance.context_doctype,
-					"actioned_docname": instance.context_docname,
-					"actioned_by": frappe.session.user,
-				}),
-			)
-		except Exception as exc:
-			frappe.log_error(
-				title="BPMN CTC expiry message failed",
-				message=str(exc),
-			)
-
-	# ── Publish realtime events for auto-refresh ────────────────────────────
-	# 1. Notify the Processa frontend — broadcast to ALL users so anyone
-	#    viewing the instance detail page auto-refreshes.
-	#    Note: doc_update for the BPMN Process Instance itself is already
-	#    published by Frappe's notify_update() inside run_method("on_update").
-	frappe.publish_realtime(
-		"bpmn_instance_updated",
-		{
-			"instance_name": instance_name,
-			"status": instance.status,
-			"context_doctype": instance.context_doctype or "",
-			"context_docname": instance.context_docname or "",
-		},
-		after_commit=True,
-		user="all",
-	)
-
-	# 2. Notify the Frappe form of the context document (e.g. Employee Daily
-	#    Action) so it auto-refreshes when open in the desk.
-	if instance.context_doctype and instance.context_docname:
-		frappe.publish_realtime(
-			"doc_update",
-			{
-				"modified": str(frappe.utils.now_datetime()),
-				"doctype": instance.context_doctype,
-				"name": instance.context_docname,
-			},
-			doctype=instance.context_doctype,
-			docname=instance.context_docname,
-			after_commit=True,
+	finally:
+		frappe.db.set_value(
+			"BPMN Process Instance",
+			instance_name,
+			"engine_in_progress",
+			0,
+			update_modified=False,
 		)
 
-	return {
-		"instance": instance_name,
-		"status": instance.status,
-		"active_tasks": active_tasks,
-	}
+		# ── Publish realtime events for auto-refresh ─────────────────────
+		# 1. The Processa frontend — broadcast to ALL users so anyone
+		#    viewing the instance detail page auto-refreshes.
+		frappe.publish_realtime(
+			"bpmn_instance_updated",
+			{
+				"instance_name": instance_name,
+				"status": frappe.db.get_value("BPMN Process Instance", instance_name, "status"),
+				"context_doctype": instance.context_doctype or "",
+				"context_docname": instance.context_docname or "",
+			},
+			after_commit=True,
+			user="all",
+		)
+
+		# 2. The Frappe form of the context document (e.g. Employee Daily
+		#    Action) so it auto-refreshes when open in the desk.
+		if instance.context_doctype and instance.context_docname:
+			frappe.publish_realtime(
+				"doc_update",
+				{
+					"modified": str(frappe.utils.now_datetime()),
+					"doctype": instance.context_doctype,
+					"name": instance.context_docname,
+				},
+				doctype=instance.context_doctype,
+				docname=instance.context_docname,
+				after_commit=True,
+			)
 
 
 @frappe.whitelist()
