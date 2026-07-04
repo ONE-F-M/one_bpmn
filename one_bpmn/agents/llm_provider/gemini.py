@@ -1,3 +1,5 @@
+import time
+
 from google import genai
 from google.genai import types
 
@@ -68,6 +70,7 @@ class GeminiAdapter(BaseLLMAdapter):
 
         trace = []
         for _ in range(_MAX_TOOL_TURNS):
+            _turn_t0 = time.perf_counter()
             response = await self._client.aio.models.generate_content(
                 model=self._model,
                 contents=contents,
@@ -87,6 +90,7 @@ class GeminiAdapter(BaseLLMAdapter):
                         content=content,
                         prompt_tokens=prompt_tokens,
                         completion_tokens=completion_tokens,
+                        latency_ms=int((time.perf_counter() - _turn_t0) * 1000),
                     )
                 )
                 return CompletionResult(text=content, trace=trace)
@@ -125,6 +129,8 @@ class GeminiAdapter(BaseLLMAdapter):
                         )
                     )
                 )
+            # API round-trip + inline tool execution = this turn's decision latency
+            turn.latency_ms = int((time.perf_counter() - _turn_t0) * 1000)
             trace.append(turn)
 
             contents.append(types.Content(role="user", parts=result_parts))
