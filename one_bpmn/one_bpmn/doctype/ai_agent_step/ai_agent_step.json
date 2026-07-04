@@ -10,9 +10,6 @@
   "role",
   "content",
   "column_break_tool",
-  "tool_name",
-  "tool_args",
-  "tool_result",
   "tool_calls",
   "section_break_metrics",
   "prompt_tokens",
@@ -60,22 +57,6 @@
   {
    "fieldname": "column_break_tool",
    "fieldtype": "Column Break"
-  },
-  {
-   "fieldname": "tool_name",
-   "fieldtype": "Data",
-   "label": "Tool Name",
-   "description": "Null for non-tool steps"
-  },
-  {
-   "fieldname": "tool_args",
-   "fieldtype": "JSON",
-   "label": "Tool Arguments"
-  },
-  {
-   "fieldname": "tool_result",
-   "fieldtype": "Long Text",
-   "label": "Tool Result"
   },
   {
    "fieldname": "tool_calls",
