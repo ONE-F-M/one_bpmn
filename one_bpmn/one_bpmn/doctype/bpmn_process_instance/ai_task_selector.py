@@ -176,6 +176,13 @@ def dispatch_ai_task_selector(instance, sp, task_cfg: dict, bpmn_id: str) -> tup
 			"\n\nProcess progress (authoritative): these tasks have ALREADY RUN "
 			"and are no longer offered: " + ", ".join(sorted(finished_names)) + "."
 		)
+	# Engine-level guard rail for every prompt: when a procedure's prescribed
+	# task is unavailable (already ran, filtered out), improvising is worse
+	# than waiting — a UAT run escalated to the wrong team this way.
+	user_prompt += (
+		"\n\nIf the task your rules prescribe is not among your offered tools, "
+		"activate nothing and give your final answer."
+	)
 
 	config = ExecutorConfig(
 		backend="direct_api",
