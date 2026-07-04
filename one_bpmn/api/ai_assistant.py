@@ -94,6 +94,7 @@ def recommend_ai_task_config(
 	bpmn_xml: str = "",
 	element_id: str = "",
 	current_config: str = "{}",
+	process_model: str = "",
 ) -> dict:
 	"""Return assistant recommendations for an AI Agent Task's configuration.
 
@@ -138,7 +139,7 @@ def recommend_ai_task_config(
 
 	digest = None
 	if mode == "selector":
-		digest = _build_diagram_digest(bpmn_xml, element_id)
+		digest = _build_diagram_digest(bpmn_xml, element_id, process_model=process_model)
 		system_prompt = _build_selector_system_prompt()
 	else:
 		system_prompt = _build_system_prompt()
@@ -173,7 +174,9 @@ def recommend_ai_task_config(
 		user_prompt=user_prompt,
 		temperature=0.3,
 		top_p=1.0,
-		max_tokens=1800,
+		# Generous: reasoning models (gpt-5 family) spend completion budget
+		# on hidden reasoning first — 1800 yielded empty visible output.
+		max_tokens=6000,
 		timeout_seconds=60,
 		response_format="text",  # parsed tolerantly below
 		max_retries=1,
@@ -186,6 +189,20 @@ def recommend_ai_task_config(
 			"ok": False,
 			"error_code": result.error_code.value,
 			"message": result.error_message or _("The assistant request failed."),
+		}
+
+	if not (result.output or "").strip() if isinstance(result.output, str) else not result.output:
+		# Reasoning models can exhaust the completion budget on hidden
+		# reasoning and return nothing visible — surface it instead of a
+		# silent empty recommendation set.
+		return {
+			"ok": False,
+			"error_code": "EMPTY_OUTPUT",
+			"message": _(
+				"The model returned no visible text — its token budget was "
+				"likely consumed by internal reasoning. Try again, or use a "
+				"different model for the assistant."
+			),
 		}
 
 	parsed = _extract_json(result.output if isinstance(result.output, str) else json.dumps(result.output))
@@ -268,13 +285,18 @@ def _build_selector_system_prompt() -> str:
 		"tasks by those exact ids.\n"
 		"  3. Exactly one task may be activated per decision. The very FIRST decision "
 		"happens at subprocess entry, before anything has run.\n"
-		"  4. Already-completed tasks REMAIN in the tool list. Picking one is a safe "
-		"no-op but stalls the process — so the selection procedure must give the "
-		"model observable EVIDENCE (document field values, process variables) to "
-		"tell which steps already ran. Never rely on the model remembering.\n"
+		"  4. Completed tasks are NOT offered as tools; the user prompt is "
+		"automatically appended an authoritative progress line naming tasks that "
+		"already ran. Selection procedures should still lean on observable "
+		"EVIDENCE (document field values, process variables) to decide the next "
+		"step — never on the model remembering.\n"
 		"  5. Tasks connected by sequence flows to a candidate run AUTOMATICALLY "
 		"after it — never instruct the model to activate those; instead use their "
 		"effects (e.g. a status value they set) as evidence.\n"
+		"  5b. REGISTRY TOOLS listed in the digest are callable functions, not "
+		"tasks: the model may call them freely within a decision (they answer "
+		"immediately) and still activate one task. Their latest result persists "
+		"in a <selector id>_toolCallResult process variable as a JSON string.\n"
 		"  6. The subprocess ends when its completion condition becomes true "
 		"(usually a variable set by a wrap-up script task).\n\n"
 		"A DIAGRAM DIGEST of the subprocess follows in the user message: the "
@@ -345,7 +367,7 @@ def _build_current_config_block(current_config: str, catalog: dict) -> str:
 # Diagram digest (selector mode)
 # ---------------------------------------------------------------------------
 
-def _build_diagram_digest(bpmn_xml: str, element_id: str) -> dict | None:
+def _build_diagram_digest(bpmn_xml: str, element_id: str, process_model: str = "") -> dict | None:
 	"""Parse the ad-hoc subprocess out of the live diagram XML and produce a
 	model-readable digest: selectable candidates, automatic chains, observable
 	state changes, evidence variables and the completion condition.
@@ -478,6 +500,34 @@ def _build_diagram_digest(bpmn_xml: str, element_id: str) -> dict | None:
 		"SELECTABLE TASKS (the model's tools, named by id):",
 		"\n".join(candidate_lines) or "  (none)",
 	]
+
+	# Registry tools applicable to this process — callable functions, not
+	# tasks: they execute immediately within a decision and return real
+	# results. Their availability depends on aiToolSources at runtime.
+	registry_names = []
+	registry_lines = []
+	try:
+		from one_bpmn.agents.tool_pool import _registry_candidates
+
+		for candidate in _registry_candidates(process_model or ""):
+			spec = candidate.spec
+			registry_names.append(spec.name)
+			params = ", ".join((spec.parameters or {}).keys()) or "no parameters"
+			registry_lines.append(f"- {spec.name}({params}): {spec.description}")
+	except Exception:
+		pass
+	if registry_lines:
+		selector_id = adhoc.get("id") or "Selector"
+		block_parts.append(
+			"REGISTRY TOOLS (callable functions — they run IMMEDIATELY inside a "
+			"decision and return a real result; they are NOT tasks and do not "
+			"count as the one activation):\n"
+			+ "\n".join(registry_lines)
+			+ f"\nThe latest registry result is also saved in the process variable "
+			f"{selector_id}_toolCallResult as a JSON STRING — show it raw in the "
+			f"user prompt with {{{{ {selector_id}_toolCallResult }}}} and never "
+			"access attributes on it."
+		)
 	if condition:
 		block_parts.append(
 			f"COMPLETION CONDITION (Python expression over process variables): {condition}\n"
@@ -487,7 +537,7 @@ def _build_diagram_digest(bpmn_xml: str, element_id: str) -> dict | None:
 	return {
 		"block": "\n\n".join(block_parts),
 		"candidate_ids": candidate_ids,
-		"element_ids": set(nodes.keys()),
+		"element_ids": set(nodes.keys()) | set(registry_names),
 	}
 
 
