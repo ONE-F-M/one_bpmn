@@ -566,6 +566,13 @@ class BPMNProcessInstance(Document):
 				self._dispatch_service_task(task)
 				self._on_engine_task_complete(task)
 				task.complete()
+				# Ad-hoc inner tasks: refresh the context doc and record the
+				# activation outcome AFTER the dispatch's writes landed —
+				# doc-based completion conditions evaluate right after this.
+				if isinstance(
+					getattr(task.workflow, "spec", None), bpmn_engine.AdHocSubprocessSpec
+				) and getattr(task.task_spec, "bpmn_id", None):
+					self._on_adhoc_task_complete(task)
 
 		if cap_hit:
 			# Flag — don't raise. State serializes correctly and the next
