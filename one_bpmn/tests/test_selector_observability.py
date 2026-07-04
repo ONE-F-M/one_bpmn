@@ -210,3 +210,38 @@ class TestSelectorObservability(FrappeTestCase):
 		self.assertEqual(record_selector_turns(stub, TRACE, SOURCE_MAP), 0)
 		finalize_selector_run(stub)  # must not raise
 		self.assertIsNone(record_ai_step(stub, 0, "assistant", "x"))
+
+
+class TestSelectorRunRollups(FrappeTestCase):
+	"""record_selector_turns must keep the Run's token/cost/duration rollups
+	live while the subprocess is still Running — previously they stayed at
+	zero until finalize, so the instance page showed no usage data."""
+
+	@classmethod
+	def setUpClass(cls):
+		super().setUpClass()
+		if not frappe.db.exists("AI Provider", "Obs Test Provider"):
+			frappe.get_doc(
+				{
+					"doctype": "AI Provider",
+					"provider_name": "Obs Test Provider",
+					"provider_type": "OpenAI",
+					"api_key": "test-key-not-real",
+					"enabled": 1,
+				}
+			).insert(ignore_permissions=True)
+
+	def test_rollups_update_after_each_decision(self):
+		run = get_or_create_selector_run(_instance("INST-OBS-ROLLUP"), "AdhocSub_1", _config())
+		record_selector_turns(run, TRACE, SOURCE_MAP)
+
+		run.reload()
+		self.assertEqual(run.status, "Running")  # not finalized yet
+		self.assertEqual(run.total_prompt_tokens, 250)
+		self.assertEqual(run.total_completion_tokens, 50)
+		self.assertEqual(run.total_tokens, 300)
+
+		# A second decision accumulates on top
+		record_selector_turns(run, TRACE, SOURCE_MAP)
+		run.reload()
+		self.assertEqual(run.total_tokens, 600)

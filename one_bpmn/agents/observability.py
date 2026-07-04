@@ -364,7 +364,56 @@ def record_selector_turns(run, trace: list, source_map: dict | None = None) -> i
 		)
 		if step is not None:
 			recorded += 1
+
+	# Selector runs stay "Running" for the whole subprocess — roll the
+	# totals up after every decision so the instance page shows live
+	# token/cost/duration numbers instead of zeros until finalize.
+	if recorded:
+		update_selector_run_rollups(run)
 	return recorded
+
+
+def update_selector_run_rollups(run) -> None:
+	"""Refresh a Running selector run's token/cost/duration rollups from its
+	recorded Steps. Cheap (one aggregate query) and idempotent; finalize
+	still owns status/ended_at/final_output."""
+	if getattr(run, "stub", False):
+		return
+	try:
+		totals = frappe.db.sql(
+			"""
+			select
+				coalesce(sum(prompt_tokens), 0),
+				coalesce(sum(completion_tokens), 0),
+				coalesce(sum(cost), 0),
+				coalesce(sum(input_cost), 0),
+				coalesce(sum(output_cost), 0)
+			from `tabAI Agent Step` where run = %s
+			""",
+			run.name,
+		)[0]
+		duration_ms = 0
+		if getattr(run, "started_at", None):
+			duration_ms = int(
+				(now_datetime() - frappe.utils.get_datetime(run.started_at)).total_seconds() * 1000
+			)
+		run.db_set(
+			{
+				"total_prompt_tokens": int(totals[0]),
+				"total_completion_tokens": int(totals[1]),
+				"total_tokens": int(totals[0]) + int(totals[1]),
+				"estimated_cost": flt(totals[2]),
+				"total_input_cost": flt(totals[3]),
+				"total_output_cost": flt(totals[4]),
+				"duration_ms": duration_ms,
+			},
+			update_modified=False,
+		)
+	except Exception:
+		frappe.log_error(
+			title="AI Observability: selector rollup failed",
+			message=frappe.get_traceback(),
+		)
 
 
 def finalize_selector_run(run) -> None:
@@ -386,8 +435,10 @@ def finalize_selector_run(run) -> None:
 		for step in steps:
 			if step.role == "assistant" and (step.content or "").strip():
 				final_output = step.content
-		total_tokens = sum((s.prompt_tokens or 0) + (s.completion_tokens or 0) for s in steps)
-		total_cost = sum(flt(s.cost) for s in steps)
+
+		# Full rollup (prompt/completion split, costs, duration) shared with
+		# the per-decision live update.
+		update_selector_run_rollups(run)
 
 		ended = now_datetime()
 		duration_ms = 0
@@ -400,8 +451,6 @@ def finalize_selector_run(run) -> None:
 				"status": "Success",
 				"ended_at": ended,
 				"duration_ms": duration_ms,
-				"total_tokens": total_tokens,
-				"estimated_cost": total_cost,
 				"final_output": final_output,
 			},
 			update_modified=True,
