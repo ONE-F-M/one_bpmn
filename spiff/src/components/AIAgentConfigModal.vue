@@ -195,27 +195,10 @@
                 Describe the flow like you'd brief a new colleague — no technical
                 terms needed, the diagram supplies those. I'll recommend prompts
                 you can apply one by one.
-                <div class="assistant-tips">
-                  <div class="assistant-tips-title">💡 Tips for a good description</div>
-                  <ul>
-                    <li><strong>What to check first</strong> — e.g. "first see if the ticket mentions one of their orders"</li>
-                    <li><strong>How to decide between paths</strong> — e.g. "if it's about an order… otherwise…"</li>
-                    <li><strong>Who handles each path</strong> — e.g. "the order team handles it, or normal support"</li>
-                    <li><strong>What "finished" looks like</strong> — e.g. "the customer got a reply and the ticket is closed"</li>
-                  </ul>
-                </div>
               </template>
               <template v-else>
                 Describe what this AI Agent Task should do, and I'll recommend field
                 values you can apply one by one.
-                <div class="assistant-tips">
-                  <div class="assistant-tips-title">💡 Tips for a good prompt</div>
-                  <ul>
-                    <li><strong>What it should read</strong> — which parts of the document matter</li>
-                    <li><strong>What it should produce</strong> — a summary, a decision, a value for a field</li>
-                    <li><strong>What format</strong> — plain text, or structured data for a gateway to route on</li>
-                  </ul>
-                </div>
               </template>
             </div>
 
@@ -254,19 +237,45 @@
           </div>
 
           <!-- Input -->
-          <div class="assistant-input">
-            <textarea
-              v-model="input"
-              rows="2"
-              :placeholder="isSelector
-                ? 'e.g. First check if the ticket is about an order. If it is, the order team handles it; otherwise support does. Either way the customer gets a reply, then close the ticket.'
-                : 'e.g. Summarise the employee\'s leave history and flag any policy breaches'"
-              :disabled="loading"
-              @keydown.enter.exact.prevent="sendMessage"
-            />
-            <button class="assistant-send" :disabled="loading || !input.trim()" @click="sendMessage">
-              Send
-            </button>
+          <div class="assistant-input-wrap">
+            <!-- Tips popover, toggled by the bulb below -->
+            <div v-if="showTips" class="assistant-tips assistant-tips-popover">
+              <div class="assistant-tips-title">
+                💡 {{ isSelector ? "Tips for a good description" : "Tips for a good prompt" }}
+                <button class="assistant-tips-close" title="Close" @click="showTips = false">✕</button>
+              </div>
+              <ul v-if="isSelector">
+                <li><strong>What to check first</strong> — e.g. "first see if the ticket mentions one of their orders"</li>
+                <li><strong>How to decide between paths</strong> — e.g. "if it's about an order… otherwise…"</li>
+                <li><strong>Who handles each path</strong> — e.g. "the order team handles it, or normal support"</li>
+                <li><strong>What "finished" looks like</strong> — e.g. "the customer got a reply and the ticket is closed"</li>
+              </ul>
+              <ul v-else>
+                <li><strong>What it should read</strong> — which parts of the document matter</li>
+                <li><strong>What it should produce</strong> — a summary, a decision, a value for a field</li>
+                <li><strong>What format</strong> — plain text, or structured data for a gateway to route on</li>
+              </ul>
+            </div>
+            <div class="assistant-input">
+              <button
+                class="assistant-tips-toggle"
+                :class="{ active: showTips }"
+                :title="isSelector ? 'Tips for a good description' : 'Tips for a good prompt'"
+                @click="showTips = !showTips"
+              >💡</button>
+              <textarea
+                v-model="input"
+                rows="2"
+                :placeholder="isSelector
+                  ? 'e.g. First check if the ticket is about an order. If it is, the order team handles it; otherwise support does. Either way the customer gets a reply, then close the ticket.'
+                  : 'e.g. Summarise the employee\'s leave history and flag any policy breaches'"
+                :disabled="loading"
+                @keydown.enter.exact.prevent="sendMessage"
+              />
+              <button class="assistant-send" :disabled="loading || !input.trim()" @click="sendMessage">
+                Send
+              </button>
+            </div>
           </div>
         </template>
       </div>
@@ -333,6 +342,7 @@ const form = ref({
 // ── Assistant state ───────────────────────────────────────────────────────
 const messages = ref([]);          // { id, role, content, recommendations? }
 const input = ref("");
+const showTips = ref(false);
 const loading = ref(false);
 const contextDoctype = ref("");
 const contextDocname = ref("");
@@ -962,15 +972,48 @@ function save() {
 }
 .assistant-empty { font-size: 0.8rem; color: #94a3b8; line-height: 1.5; }
 
-/* "Tips for a good prompt" callout shown before the first message */
+/* "Tips for a good prompt" callout — opened from the 💡 toggle by the input */
 .assistant-tips {
-  margin-top: 10px;
   padding: 10px 12px;
   background: #f8fafc;
   border: 1px solid #e2e8f0;
   border-radius: 8px;
   color: #64748b;
+  font-size: 0.8rem;
+  line-height: 1.5;
 }
+.assistant-input-wrap { position: relative; }
+.assistant-tips-popover {
+  position: absolute;
+  bottom: calc(100% + 8px);
+  left: 0;
+  right: 0;
+  background: #ffffff;
+  box-shadow: 0 8px 24px rgba(15, 23, 42, 0.12);
+  z-index: 10;
+}
+.assistant-tips-close {
+  float: right;
+  border: none;
+  background: transparent;
+  color: #94a3b8;
+  cursor: pointer;
+  font-size: 0.75rem;
+  padding: 0 2px;
+}
+.assistant-tips-close:hover { color: #475569; }
+.assistant-tips-toggle {
+  align-self: flex-end;
+  border: 1px solid #e2e8f0;
+  background: #f8fafc;
+  border-radius: 8px;
+  padding: 6px 8px;
+  cursor: pointer;
+  font-size: 0.85rem;
+  line-height: 1;
+}
+.assistant-tips-toggle:hover { background: #f1f5f9; }
+.assistant-tips-toggle.active { background: #ede9fe; border-color: #c4b5fd; }
 .assistant-tips-title {
   font-weight: 600;
   color: #475569;
