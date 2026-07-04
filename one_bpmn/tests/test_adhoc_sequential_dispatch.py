@@ -383,3 +383,37 @@ class TestUnseededCompletionCondition(FrappeTestCase):
 		self.assertEqual(states["task_b"], "COMPLETED")
 		self.assertEqual(states["task_c"], "CANCELLED")
 		self.assertTrue(wf.completed)
+
+
+class TestDeciderChoosesEntryTask(FrappeTestCase):
+	"""User decision 2026-07-04: an installed AI Task Selector decider picks
+	even the FIRST task at subprocess entry (previously the first head in
+	diagram order auto-ran before the selector was ever consulted). Plain
+	ad-hoc subprocesses (no decider) keep diagram-order entry unchanged —
+	covered by test_single_task_active_at_entry above."""
+
+	def tearDown(self):
+		engine.adhoc_next_task_decider = None
+		super().tearDown()
+
+	def test_decider_picks_the_entry_task(self):
+		wf = _build("adhoc_sequential.bpmn", "Process_AdhocSequential")
+		engine.adhoc_next_task_decider = lambda sp, pending: next(
+			t for t in pending if t.task_spec.name == "task_c"
+		)
+		_drive(wf)
+
+		states = _states(_adhoc(wf))
+		self.assertIn(states["task_c"], ("READY", "STARTED", "WAITING"))
+		self.assertEqual(states["task_a"], "FUTURE")
+		self.assertEqual(states["task_b"], "FUTURE")
+
+	def test_decider_no_activation_parks_everything_at_entry(self):
+		wf = _build("adhoc_sequential.bpmn", "Process_AdhocSequential")
+		engine.adhoc_next_task_decider = lambda sp, pending: engine.NO_ACTIVATION
+		_drive(wf)
+
+		states = _states(_adhoc(wf))
+		self.assertEqual(
+			{states["task_a"], states["task_b"], states["task_c"]}, {"FUTURE"}
+		)
