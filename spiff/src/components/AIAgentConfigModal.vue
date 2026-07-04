@@ -497,6 +497,28 @@ async function sendMessage() {
   loading.value = true;
   scrollBottom();
 
+  // Selector mode: ship the LIVE diagram (the saved model may be stale while
+  // the designer edits) plus the current drafts so the assistant proposes
+  // prompts that reference real shapes and refines instead of restarting.
+  let diagramPayload = {};
+  if (isSelector.value) {
+    try {
+      const { xml } = await toRaw(props.modeler).saveXML({ format: false });
+      diagramPayload = {
+        mode: "selector",
+        bpmn_xml: xml,
+        element_id: rawElement().businessObject?.id || rawElement().id || "",
+        current_config: JSON.stringify({
+          aiModel: form.value.aiModel,
+          aiSystemPrompt: form.value.aiSystemPrompt,
+          aiUserPrompt: form.value.aiUserPrompt,
+        }),
+      };
+    } catch (e) {
+      console.warn("[AI assistant] could not serialize diagram:", e);
+    }
+  }
+
   try {
     const res = await frappePost(
       "/api/method/one_bpmn.api.ai_assistant.recommend_ai_task_config",
@@ -507,6 +529,7 @@ async function sendMessage() {
         context_doctype: contextDoctype.value.trim(),
         context_docname: contextDocname.value.trim(),
         history: JSON.stringify(history),
+        ...diagramPayload,
       }
     );
 
@@ -593,6 +616,27 @@ onMounted(async () => {
     aiMaxRetries: numOr("aiMaxRetries", 2, parseInt),
     aiStopOnError: get("aiStopOnError") === "true",
   };
+
+  // Pre-fill the assistant's context DocType from the diagram's start-event
+  // trigger — the process context the prompts will run against.
+  if (!contextDoctype.value) {
+    try {
+      const defs = toRaw(props.modeler).getDefinitions();
+      for (const rootEl of defs.rootElements || []) {
+        for (const flowEl of rootEl.flowElements || []) {
+          if (flowEl.$type !== "bpmn:StartEvent") continue;
+          const triggerDoctype =
+            flowEl.get?.("spiffworkflow:triggerDoctype") ||
+            flowEl.$attrs?.["spiffworkflow:triggerDoctype"];
+          if (triggerDoctype) {
+            contextDoctype.value = triggerDoctype;
+            break;
+          }
+        }
+        if (contextDoctype.value) break;
+      }
+    } catch (e) { /* best effort */ }
+  }
 });
 
 function save() {
