@@ -273,6 +273,58 @@ class TestAdhocSequentialDispatch(FrappeTestCase):
 		# for main-flow tasks or the subworkflow's internal Start/EndJoin/End.
 		self.assertEqual(adhoc_completions, ["script_a", "script_b", "script_c"])
 
+	# ── Regression: doc-based completion condition must see mid-session
+	# writes once refresh_context_doc runs. The env keeps its variables in
+	# TaskDataEnvironment.globals; the old refresh wrote to a nonexistent
+	# `.environment` attribute behind a hasattr guard — a silent no-op, so
+	# `doc.<field>` conditions evaluated against the Document loaded at
+	# engine construction and ad-hoc subprocesses never completed inside
+	# the request that resolved their document (UAT: 7bn03s5gnm et al.) ──
+
+	def test_doc_condition_sees_write_after_refresh(self):
+		import frappe
+
+		todo = frappe.get_doc(
+			{
+				"doctype": "ToDo",
+				"description": "bpmn doc-refresh regression",
+				"allocated_to": "Administrator",
+			}
+		).insert()
+		xml = (FIXTURES / "adhoc_sequential.bpmn").read_text()
+		spec_dict, sp_specs = engine.parse_bpmn(xml, "Process_AdhocSequential")
+		wf = engine.create_workflow(
+			spec_dict,
+			sp_specs,
+			initial_data={"done": False},
+			context_doctype="ToDo",
+			context_docname=todo.name,
+		)
+		_drive(wf)
+		sp = _adhoc(wf)
+		sp.spec.completion_condition = 'doc.status == "Closed"'
+
+		# The write happens outside the env's doc object — exactly what a
+		# Server-Script-backed task or update_field dispatch does.
+		frappe.db.set_value("ToDo", todo.name, "status", "Closed")
+		self.assertFalse(
+			engine._adhoc_completion_met(sp),
+			"env doc predates the write — condition must still be False",
+		)
+
+		engine.refresh_context_doc(wf, "ToDo", todo.name)
+		self.assertTrue(
+			engine._adhoc_completion_met(sp),
+			"refresh_context_doc did not refresh the doc the condition evaluates against",
+		)
+
+		# And the gate must now complete the subprocess in this same session.
+		_complete_manual(wf, "task_a")
+		states = _states(sp)
+		self.assertEqual(states["task_b"], "CANCELLED")
+		self.assertEqual(states["task_c"], "CANCELLED")
+		self.assertTrue(wf.completed)
+
 
 ADHOC_USER_TASK_MODEL_XML = """<?xml version="1.0" encoding="UTF-8"?>
 <bpmn:definitions xmlns:bpmn="http://www.omg.org/spec/BPMN/20100524/MODEL"
