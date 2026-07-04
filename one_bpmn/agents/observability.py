@@ -374,6 +374,47 @@ def record_selector_turns(run, trace: list, source_map: dict | None = None) -> i
 	return recorded
 
 
+def record_activation_outcome(instance_name: str, task_bpmn_id: str, outcome: str) -> bool:
+	"""Attach the real-world outcome to the tool call that activated a
+	diagram task, once that task has completed in the engine.
+
+	The tool_result stays the honest transcript of what the model was told
+	at call time ("will be activated…"); outcome is what actually happened.
+	Targets the most recent outcome-less call of *task_bpmn_id* across the
+	instance's runs. Returns True when a row was updated.
+	"""
+	if not (instance_name and task_bpmn_id and (outcome or "").strip()):
+		return False
+	try:
+		rows = frappe.db.sql(
+			"""
+			select tc.name
+			from `tabAI Agent Tool Call` tc
+			join `tabAI Agent Step` s on tc.parent = s.name
+			join `tabAI Agent Run` r on s.run = r.name
+			where r.instance = %s
+			  and tc.tool_name = %s
+			  and tc.tool_source = 'diagram_task'
+			  and ifnull(tc.outcome, '') = ''
+			order by tc.creation desc
+			limit 1
+			""",
+			(instance_name, task_bpmn_id),
+		)
+		if not rows:
+			return False
+		frappe.db.set_value(
+			"AI Agent Tool Call", rows[0][0], "outcome", outcome.strip(), update_modified=False
+		)
+		return True
+	except Exception:
+		frappe.log_error(
+			title=f"AI Observability: activation outcome failed ({task_bpmn_id})",
+			message=frappe.get_traceback(),
+		)
+		return False
+
+
 def update_selector_run_rollups(run) -> None:
 	"""Refresh a Running selector run's token/cost/duration rollups from its
 	recorded Steps. Cheap (one aggregate query) and idempotent; finalize

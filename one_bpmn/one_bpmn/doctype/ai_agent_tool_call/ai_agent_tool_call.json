@@ -10,7 +10,8 @@
   "tool_source",
   "status",
   "tool_args",
-  "tool_result"
+  "tool_result",
+  "outcome"
  ],
  "fields": [
   {
@@ -44,6 +45,13 @@
    "fieldname": "tool_result",
    "fieldtype": "Long Text",
    "label": "Result"
+  },
+  {
+   "description": "What the activated diagram task actually produced once it ran (recorded after completion). tool_result stays the transcript of what the model was told at call time.",
+   "fieldname": "outcome",
+   "fieldtype": "Long Text",
+   "label": "Outcome",
+   "read_only": 1
   }
  ],
  "index_web_pages_for_search": 0,

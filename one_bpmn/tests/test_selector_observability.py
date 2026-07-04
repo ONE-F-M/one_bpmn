@@ -288,3 +288,65 @@ class TestTurnLatency(FrappeTestCase):
 
 		turn = asdict(TurnRecord(role="assistant", content="x", latency_ms=875))
 		self.assertEqual(turn["latency_ms"], 875)
+
+
+class TestActivationOutcome(FrappeTestCase):
+	"""record_activation_outcome attaches the real-world result to the
+	diagram-task tool call that activated it, without touching tool_result
+	(the transcript of what the model was told)."""
+
+	@classmethod
+	def setUpClass(cls):
+		super().setUpClass()
+		if not frappe.db.exists("AI Provider", "Obs Test Provider"):
+			frappe.get_doc(
+				{
+					"doctype": "AI Provider",
+					"provider_name": "Obs Test Provider",
+					"provider_type": "OpenAI",
+					"api_key": "test-key-not-real",
+					"enabled": 1,
+				}
+			).insert(ignore_permissions=True)
+
+	def _tool_call_row(self, run, tool_name):
+		return frappe.db.sql(
+			"""
+			select tc.name, tc.tool_result, tc.outcome
+			from `tabAI Agent Tool Call` tc
+			join `tabAI Agent Step` s on tc.parent = s.name
+			where s.run = %s and tc.tool_name = %s
+			""",
+			(run.name, tool_name),
+			as_dict=True,
+		)
+
+	def test_outcome_lands_on_diagram_task_call(self):
+		from one_bpmn.agents.observability import record_activation_outcome
+
+		instance = _instance("INST-OBS-OUTCOME")
+		run = get_or_create_selector_run(instance, "AdhocSub_1", _config())
+		record_selector_turns(run, TRACE, SOURCE_MAP)
+
+		updated = record_activation_outcome(
+			instance.name, "task_b", 'Completed 13:22:40 — set HD Ticket.status = "X"'
+		)
+		self.assertTrue(updated)
+
+		rows = self._tool_call_row(run, "task_b")
+		self.assertEqual(len(rows), 1)
+		self.assertIn("set HD Ticket.status", rows[0].outcome)
+		# transcript untouched
+		self.assertIn("will be activated", rows[0].tool_result)
+
+	def test_registry_tools_and_unknown_tasks_are_noops(self):
+		from one_bpmn.agents.observability import record_activation_outcome
+
+		instance = _instance("INST-OBS-OUTCOME2")
+		run = get_or_create_selector_run(instance, "AdhocSub_1", _config())
+		record_selector_turns(run, TRACE, SOURCE_MAP)
+
+		# lookup_tool is a registry tool — its result is already real
+		self.assertFalse(record_activation_outcome(instance.name, "lookup_tool", "x"))
+		self.assertFalse(record_activation_outcome(instance.name, "no_such_task", "x"))
+		self.assertFalse(record_activation_outcome(instance.name, "task_b", ""))
