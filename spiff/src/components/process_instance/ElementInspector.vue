@@ -147,8 +147,12 @@
 											<pre class="text-[11px] text-gray-600 font-mono whitespace-pre-wrap max-h-24 overflow-y-auto bg-white rounded p-1.5 border border-gray-100">{{ tc.tool_args }}</pre>
 										</div>
 										<div v-if="tc.tool_result" class="mt-1">
-											<div class="text-[10px] uppercase tracking-wide text-gray-400">Result</div>
+											<div class="text-[10px] uppercase tracking-wide text-gray-400">Result <span class="normal-case">(what the model was told)</span></div>
 											<pre class="text-[11px] text-gray-600 font-mono whitespace-pre-wrap max-h-32 overflow-y-auto bg-white rounded p-1.5 border border-gray-100">{{ tc.tool_result }}</pre>
+										</div>
+										<div v-if="tc.outcome" class="mt-1">
+											<div class="text-[10px] uppercase tracking-wide text-green-600">Outcome <span class="normal-case">(what actually happened)</span></div>
+											<pre class="text-[11px] text-green-800 font-mono whitespace-pre-wrap max-h-32 overflow-y-auto bg-green-50 rounded p-1.5 border border-green-100">{{ tc.outcome }}</pre>
 										</div>
 									</div>
 								</div>
@@ -442,7 +446,7 @@ async function fetchSteps() {
 				const tcParams = new URLSearchParams({
 					doctype: "AI Agent Tool Call",
 					parent: "AI Agent Step",
-					fields: JSON.stringify(["parent", "tool_name", "tool_source", "status", "tool_args", "tool_result"]),
+					fields: JSON.stringify(["parent", "tool_name", "tool_source", "status", "tool_args", "tool_result", "outcome"]),
 					filters: JSON.stringify([
 						["parenttype", "=", "AI Agent Step"],
 						["parent", "in", steps.map((s) => s.name)],
