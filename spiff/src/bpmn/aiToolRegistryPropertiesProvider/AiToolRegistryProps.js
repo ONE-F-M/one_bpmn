@@ -9,6 +9,7 @@ import { useService } from "bpmn-js-properties-panel";
 import { h } from "@bpmn-io/properties-panel/preact";
 import { useEffect, useState } from "@bpmn-io/properties-panel/preact/hooks";
 import { frappeGet, frappePost } from "../shared/frappeResource";
+import "../shared/bpmn-panel.css";
 
 /**
  * "Registry Tools" section for an AI Task Selector (WI-001357).
@@ -75,9 +76,11 @@ function RegistryToolList(props) {
 	} else {
 		body = h(
 			"ul",
-			{ class: "bio-properties-panel-list" },
+			// NOT .bio-properties-panel-list — the panel hides that class
+			// (display:none) unless its own list-group toggles .open on it.
+			{ class: "bpmn-registry-tools" },
 			tools.map((tool) =>
-				h("li", { key: tool.name, class: "bio-properties-panel-list-item" }, [
+				h("li", { key: tool.name, class: "bpmn-registry-tool-item" }, [
 					tool.is_global
 						? h("span", { title: translate("Global — available to every process") }, "🌐 ")
 						: h("input", {
