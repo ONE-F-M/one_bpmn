@@ -1076,12 +1076,28 @@ def refresh_context_doc(wf: BpmnWorkflow, context_doctype: str, context_docname:
 		wf.task_tree.data.pop("doc", None)
 		wf.task_tree.data.update(safe)
 
+		# Subprocess scopes carry their own snapshot of these fields (task
+		# data drains into sp.data on completion) — _adhoc_completion_met
+		# evaluates against sp.data, where a stale bare-scalar (e.g. `status`)
+		# would shadow anything refreshed above.
+		for sp in (getattr(wf, "subprocesses", None) or {}).values():
+			if isinstance(sp.data, dict):
+				sp.data.pop("doc", None)
+				sp.data.update({k: v for k, v in safe.items() if k in sp.data})
+
 		# ── Inject the full doc object ONLY into the script engine env ──────
 		# The script engine environment is never serialized, so Frappe
-		# Document objects are safe here.
+		# Document objects are safe here. TaskDataEnvironment keeps its
+		# variables in `.globals` — writing anywhere else is a silent no-op
+		# and leaves every `doc.<field>` condition reading the object loaded
+		# at engine construction (the cause of ad-hoc subprocesses never
+		# completing within the request that resolved their document).
 		env = getattr(wf.script_engine, "environment", None)
-		if env and hasattr(env, "environment"):
-			env.environment["doc"] = doc
+		if env is not None:
+			if hasattr(env, "globals") and isinstance(env.globals, dict):
+				env.globals["doc"] = doc
+			elif hasattr(env, "environment") and isinstance(env.environment, dict):
+				env.environment["doc"] = doc
 	except Exception:
 		pass
 
