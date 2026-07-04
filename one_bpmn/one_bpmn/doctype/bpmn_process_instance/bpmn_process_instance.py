@@ -19,6 +19,7 @@ from .dispatchers import (
 	dispatch_email,
 	dispatch_google_chat,
 	dispatch_push_notification,
+	dispatch_send_notification,
 	dispatch_update_field,
 )
 from .assignment import (
@@ -681,6 +682,16 @@ class BPMNProcessInstance(Document):
 		# Skip engine-internal tasks that don't correspond to BPMN elements
 		if not bpmn_id and (spec_name in ("Start", "End") or spec_name.endswith(".EndJoin")):
 			return
+
+		# Send Tasks complete inside the engine sweep (they never sit in
+		# STARTED like service tasks), so this callback is where their
+		# real-world action happens. Guarded by state: the STARTED dispatch
+		# loop also calls this hook pre-complete for service tasks, which a
+		# SendTask can never be.
+		if isinstance(task_spec, bpmn_engine.SendTask) and bpmn_id:
+			task_cfg = getattr(self, "_service_task_extensions", {}).get(bpmn_id, {})
+			if task_cfg.get("notificationName"):
+				dispatch_send_notification(self, task, task_cfg, bpmn_id)
 
 		# A completed subprocess parent ends its AI Task Selector run (if
 		# one exists) — the only moment a selector run is genuinely over.

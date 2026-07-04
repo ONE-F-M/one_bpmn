@@ -410,6 +410,131 @@ class TestAdhocInstanceLifecycle(FrappeTestCase):
 		self.assertEqual(parent_states, ["STARTED"])
 
 
+ADHOC_SEND_TASK_MODEL_XML = """<?xml version="1.0" encoding="UTF-8"?>
+<bpmn:definitions xmlns:bpmn="http://www.omg.org/spec/BPMN/20100524/MODEL"
+    xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+    xmlns:spiffworkflow="http://spiffworkflow.org/bpmn/schema/1.0/core"
+    id="Defs_AdhocSend" targetNamespace="http://bpmn.io/schema/bpmn">
+  <bpmn:process id="Process_AdhocSend" isExecutable="true">
+    <bpmn:startEvent id="StartEvent_1">
+      <bpmn:outgoing>Flow_In</bpmn:outgoing>
+    </bpmn:startEvent>
+    <bpmn:sequenceFlow id="Flow_In" sourceRef="StartEvent_1" targetRef="AdhocSub_1" />
+    <bpmn:adHocSubProcess id="AdhocSub_1" name="Send Work">
+      <bpmn:incoming>Flow_In</bpmn:incoming>
+      <bpmn:outgoing>Flow_Out</bpmn:outgoing>
+      <bpmn:sendTask id="send_ack" name="Send Ack" spiffworkflow:notificationName="__NOTIFICATION__" />
+      <bpmn:userTask id="task_wait" name="Wait Here" />
+      <bpmn:completionCondition xsi:type="bpmn:tFormalExpression">done</bpmn:completionCondition>
+    </bpmn:adHocSubProcess>
+    <bpmn:sequenceFlow id="Flow_Out" sourceRef="AdhocSub_1" targetRef="EndEvent_1" />
+    <bpmn:endEvent id="EndEvent_1">
+      <bpmn:incoming>Flow_Out</bpmn:incoming>
+    </bpmn:endEvent>
+  </bpmn:process>
+</bpmn:definitions>
+"""
+
+
+class TestSendTaskDispatch(FrappeTestCase):
+	"""Send Tasks were runtime no-ops until 2026-07-04: nothing consumed
+	spiffworkflow:notificationName, so 'send acknowledgment' shapes completed
+	without sending anything or leaving evidence — selector prompts gating on
+	'email sent' variables stalled forever (support_triage_selector v1)."""
+
+	def _start_instance(self, notification_name):
+		import frappe
+
+		from one_bpmn.api.compilation import compile_process_model
+
+		process = frappe.get_doc({
+			"doctype": "Process",
+			"process_name": f"send-test-{frappe.generate_hash(length=6)}",
+			"description": "Send task dispatch test",
+			"process_owner": "Administrator",
+		})
+		process.insert(ignore_permissions=True)
+
+		suffix = frappe.generate_hash(length=6)
+		model = frappe.get_doc({
+			"doctype": "BPMN Process Model",
+			"title": f"send-test-model-{suffix}",
+			"process_id": f"send-test-{suffix}",
+			"version": 1,
+			"process_name": process.name,
+			"bpmn_xml": ADHOC_SEND_TASK_MODEL_XML.replace("__NOTIFICATION__", notification_name),
+		})
+		model.flags.skip_editability_check = True
+		model.insert(ignore_permissions=True)
+		compile_process_model(model.name)
+
+		todo = frappe.get_doc({
+			"doctype": "ToDo",
+			"description": "send task dispatch test",
+			"allocated_to": "Administrator",
+		}).insert(ignore_permissions=True)
+
+		instance = frappe.get_doc({
+			"doctype": "BPMN Process Instance",
+			"process_model": model.name,
+			"context_doctype": "ToDo",
+			"context_docname": todo.name,
+		})
+		instance.insert(ignore_permissions=True)
+		instance.start(initial_data={"done": False})
+		return instance
+
+	def _sp_scope(self, instance):
+		state = json.loads(instance.workflow_state)
+		return next(iter((state.get("subprocesses") or {}).values()), {}).get("data", {})
+
+	def test_send_task_sends_notification_and_leaves_evidence(self):
+		import frappe
+		from unittest.mock import patch
+
+		notification = frappe.get_doc({
+			"doctype": "Notification",
+			"__newname": f"send-test-notif-{frappe.generate_hash(length=6)}",
+			"subject": "Test send task",
+			"document_type": "ToDo",
+			"event": "Method",
+			"method": "one_bpmn.tests.never_fired_directly",
+			"channel": "Email",
+			"message": "Test",
+			"recipients": [{"receiver_by_document_field": "allocated_to"}],
+		}).insert(ignore_permissions=True)
+
+		with patch(
+			"frappe.email.doctype.notification.notification.Notification.send"
+		) as mock_send:
+			instance = self._start_instance(notification.name)
+
+		# The send actually fired, against the context document
+		mock_send.assert_called_once()
+		self.assertEqual(mock_send.call_args[0][0].doctype, "ToDo")
+
+		# Evidence convention: the subprocess scope records the send, so
+		# selector prompts can gate follow-up steps on send_ack_sent.
+		scope = self._sp_scope(instance)
+		self.assertEqual(scope.get("send_ack_sent"), 1)
+		self.assertNotIn("send_ack_send_error", scope)
+
+		# Flow continues normally — the user task head is now waiting.
+		self.assertEqual(instance.status, "Active")
+		self.assertIn("Wait Here", [r.task_name for r in instance.active_tasks])
+
+	def test_send_task_failure_leaves_error_evidence_not_success(self):
+		instance = self._start_instance("no-such-notification-record")
+
+		scope = self._sp_scope(instance)
+		self.assertNotIn("send_ack_sent", scope, "failure must not fake a sent email")
+		self.assertIn("send_ack_send_error", scope)
+
+		# The engine is not wedged: the task completed, the flow moved on.
+		self.assertEqual(instance.status, "Active")
+		self.assertIn("Wait Here", [r.task_name for r in instance.active_tasks])
+
+
 class TestUnseededCompletionCondition(FrappeTestCase):
 	"""The completion-condition variable typically doesn't exist until a
 	late inner task sets it (e.g. a wrap-up script running `done = True`).
