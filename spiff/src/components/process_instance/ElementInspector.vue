@@ -120,6 +120,10 @@
 									<span class="text-gray-400 text-[10px] whitespace-nowrap">
 									<template v-if="step.prompt_tokens">{{ step.prompt_tokens }}t in<span v-if="step.cost"> · ${{ formatCost(step.cost) }}</span></template>
 									<template v-else-if="step.completion_tokens">{{ step.completion_tokens }}t out<span v-if="step.cost"> · ${{ formatCost(step.cost) }}</span></template>
+									<span
+										v-if="step.latency_ms"
+										title="Decision latency: the model's API round-trip for this turn — not the runtime of an activated task"
+									> · {{ (step.latency_ms / 1000).toFixed(1) }}s</span>
 								</span>
 								</button>
 								<div v-if="expandedSteps.has(step.name)" class="border-t border-gray-200 px-2 py-1.5">

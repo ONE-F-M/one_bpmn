@@ -360,6 +360,7 @@ def record_selector_turns(run, trace: list, source_map: dict | None = None) -> i
 			turn.get("content") or "",
 			prompt_tokens=turn.get("prompt_tokens", 0),
 			completion_tokens=turn.get("completion_tokens", 0),
+			latency_ms=turn.get("latency_ms", 0),
 			tool_calls=tool_calls,
 		)
 		if step is not None:

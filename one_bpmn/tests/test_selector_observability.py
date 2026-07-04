@@ -59,6 +59,7 @@ TRACE = [
 		"tool_calls": [],
 		"prompt_tokens": 150,
 		"completion_tokens": 30,
+		"latency_ms": 2340,
 	},
 ]
 
@@ -245,3 +246,37 @@ class TestSelectorRunRollups(FrappeTestCase):
 		record_selector_turns(run, TRACE, SOURCE_MAP)
 		run.reload()
 		self.assertEqual(run.total_tokens, 600)
+
+
+class TestTurnLatency(FrappeTestCase):
+	"""Per-turn decision latency (adapter API round-trip + inline tool
+	execution) flows from the executor trace onto AI Agent Step.latency_ms."""
+
+	@classmethod
+	def setUpClass(cls):
+		super().setUpClass()
+		if not frappe.db.exists("AI Provider", "Obs Test Provider"):
+			frappe.get_doc(
+				{
+					"doctype": "AI Provider",
+					"provider_name": "Obs Test Provider",
+					"provider_type": "OpenAI",
+					"api_key": "test-key-not-real",
+					"enabled": 1,
+				}
+			).insert(ignore_permissions=True)
+
+	def test_trace_latency_recorded_on_steps(self):
+		run = get_or_create_selector_run(_instance("INST-OBS-LAT"), "AdhocSub_1", _config())
+		record_selector_turns(run, TRACE, SOURCE_MAP)
+
+		steps = frappe.get_all(
+			"AI Agent Step",
+			filters={"run": run.name},
+			fields=["role", "latency_ms"],
+			order_by="step_index asc",
+		)
+		by_role = {s.role: s.latency_ms for s in steps}
+		# tool turn in TRACE has no latency_ms → defaults to 0
+		self.assertEqual(by_role["tool"], 0)
+		self.assertEqual(by_role["assistant"], 2340)
