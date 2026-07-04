@@ -110,6 +110,11 @@
 											:class="roleBadgeClass(step.role)"
 										>{{ step.role }}</span>
 										<span class="text-gray-500">#{{ step.step_index }}</span>
+										<span
+											v-if="step.toolCalls && step.toolCalls.length"
+											class="inline-block px-1.5 py-0.5 rounded text-[10px] font-mono bg-purple-100 text-purple-700"
+											:title="step.toolCalls.map(tc => tc.tool_name).join(', ')"
+										>🔧 {{ step.toolCalls.map(tc => tc.tool_name).join(", ").substring(0, 40) }}</span>
 										<span class="text-gray-600 truncate max-w-[150px]">{{ step.content ? step.content.substring(0, 80) : '(empty)' }}</span>
 									</span>
 									<span class="text-gray-400 text-[10px] whitespace-nowrap">
@@ -119,6 +124,29 @@
 								</button>
 								<div v-if="expandedSteps.has(step.name)" class="border-t border-gray-200 px-2 py-1.5">
 									<pre class="text-[11px] text-gray-600 font-mono whitespace-pre-wrap max-h-48 overflow-y-auto bg-gray-50 rounded p-2">{{ step.content || '(empty)' }}</pre>
+									<!-- Tool calls made in this turn (AI Agent Tool Call rows) -->
+									<div
+										v-for="tc in step.toolCalls || []"
+										:key="tc.tool_name + (tc.tool_result || '')"
+										class="mt-1.5 border border-purple-200 rounded bg-purple-50/50 px-2 py-1.5"
+									>
+										<div class="flex items-center gap-1.5 text-[11px]">
+											<span class="font-mono font-semibold text-purple-700">🔧 {{ tc.tool_name }}</span>
+											<span v-if="tc.tool_source" class="px-1 py-0.5 rounded bg-purple-100 text-purple-600 text-[10px]">{{ tc.tool_source === 'diagram_task' ? 'diagram task' : 'registry tool' }}</span>
+											<span
+												class="px-1 py-0.5 rounded text-[10px]"
+												:class="tc.status === 'Error' ? 'bg-red-100 text-red-700' : 'bg-green-100 text-green-700'"
+											>{{ tc.status }}</span>
+										</div>
+										<div v-if="tc.tool_args && tc.tool_args !== '{}'" class="mt-1">
+											<div class="text-[10px] uppercase tracking-wide text-gray-400">Arguments</div>
+											<pre class="text-[11px] text-gray-600 font-mono whitespace-pre-wrap max-h-24 overflow-y-auto bg-white rounded p-1.5 border border-gray-100">{{ tc.tool_args }}</pre>
+										</div>
+										<div v-if="tc.tool_result" class="mt-1">
+											<div class="text-[10px] uppercase tracking-wide text-gray-400">Result</div>
+											<pre class="text-[11px] text-gray-600 font-mono whitespace-pre-wrap max-h-32 overflow-y-auto bg-white rounded p-1.5 border border-gray-100">{{ tc.tool_result }}</pre>
+										</div>
+									</div>
 								</div>
 							</div>
 						</div>
@@ -401,7 +429,37 @@ async function fetchSteps() {
 			headers: { "X-Frappe-CSRF-Token": csrf },
 		})
 		const data = await r.json()
-		aiSteps.value = data?.message || []
+		const steps = data?.message || []
+
+		// Tool calls live in the AI Agent Tool Call child table (WI-001358) —
+		// fetch them for all steps in one query and attach per step.
+		if (steps.length) {
+			try {
+				const tcParams = new URLSearchParams({
+					doctype: "AI Agent Tool Call",
+					parent: "AI Agent Step",
+					fields: JSON.stringify(["parent", "tool_name", "tool_source", "status", "tool_args", "tool_result"]),
+					filters: JSON.stringify([
+						["parenttype", "=", "AI Agent Step"],
+						["parent", "in", steps.map((s) => s.name)],
+					]),
+					limit_page_length: 500,
+					order_by: "idx asc",
+				})
+				const tcRes = await fetch(`/api/method/frappe.client.get_list?${tcParams}`, {
+					headers: { "X-Frappe-CSRF-Token": csrf },
+				})
+				const tcData = await tcRes.json()
+				const byStep = {}
+				for (const tc of tcData?.message || []) {
+					;(byStep[tc.parent] = byStep[tc.parent] || []).push(tc)
+				}
+				for (const s of steps) s.toolCalls = byStep[s.name] || []
+			} catch (e) {
+				console.warn("AI Tool Call fetch error:", e)
+			}
+		}
+		aiSteps.value = steps
 	} catch (e) {
 		console.error("AI Steps fetch error:", e)
 	} finally {
