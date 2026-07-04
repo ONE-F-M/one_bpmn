@@ -113,8 +113,8 @@
 										<span
 											v-if="step.toolCalls && step.toolCalls.length"
 											class="inline-block px-1.5 py-0.5 rounded text-[10px] font-mono bg-purple-100 text-purple-700"
-											:title="step.toolCalls.map(tc => tc.tool_name).join(', ')"
-										>🔧 {{ step.toolCalls.map(tc => tc.tool_name).join(", ").substring(0, 40) }}</span>
+											:title="step.toolCalls.map(tc => toolLabel(tc.tool_name)).join(', ')"
+										>🔧 {{ step.toolCalls.map(tc => toolLabel(tc.tool_name)).join(", ").substring(0, 40) }}</span>
 										<span class="text-gray-600 truncate max-w-[150px]">{{ step.content ? step.content.substring(0, 80) : '(empty)' }}</span>
 									</span>
 									<span class="text-gray-400 text-[10px] whitespace-nowrap">
@@ -135,7 +135,8 @@
 										class="mt-1.5 border border-purple-200 rounded bg-purple-50/50 px-2 py-1.5"
 									>
 										<div class="flex items-center gap-1.5 text-[11px]">
-											<span class="font-mono font-semibold text-purple-700">🔧 {{ tc.tool_name }}</span>
+											<span class="font-semibold text-purple-700">🔧 {{ toolLabel(tc.tool_name) }}</span>
+											<span v-if="toolLabel(tc.tool_name) !== tc.tool_name" class="font-mono text-[10px] text-gray-400">{{ tc.tool_name }}</span>
 											<span v-if="tc.tool_source" class="px-1 py-0.5 rounded bg-purple-100 text-purple-600 text-[10px]">{{ tc.tool_source === 'diagram_task' ? 'diagram task' : 'registry tool' }}</span>
 											<span
 												class="px-1 py-0.5 rounded text-[10px]"
@@ -268,7 +269,15 @@ import { dayjs } from "@/dayjs"
 const props = defineProps({
 	selectedNode: { type: Object, default: null },
 	processInstanceName: { type: String, default: "" },
+	// bpmnId → shape label, from the instance's workflow state. Tool names
+	// are BPMN IDs for diagram tasks; registry tools won't be in the map
+	// and fall back to their own name.
+	taskLabels: { type: Object, default: () => ({}) },
 })
+
+function toolLabel(toolName) {
+	return props.taskLabels[toolName] || toolName
+}
 
 const activeTab = ref("variables")
 

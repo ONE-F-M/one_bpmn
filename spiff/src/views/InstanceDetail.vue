@@ -42,7 +42,7 @@
 						:selected-bpmn-id="selectedBpmnId"
 						@select="onHistorySelect"
 					/>
-					<ElementInspector :selected-node="selectedNode" :process-instance-name="instanceId" />
+					<ElementInspector :selected-node="selectedNode" :process-instance-name="instanceId" :task-labels="taskLabels" />
 					<PendingActions
 						:active-tasks="activeTasks"
 						:completing-task="completingTask"
@@ -203,6 +203,31 @@ const taskList = computed(() => {
 	} catch (e) {
 		console.warn("Failed to build task list:", e)
 		return []
+	}
+})
+
+// bpmnId → human label for every task spec in the diagram (top level and
+// subprocess internals alike), so tool-call chips in the inspector can show
+// shape labels instead of raw IDs like Activity_0q9helm. Specs without a
+// label are omitted — consumers fall back to the ID.
+const taskLabels = computed(() => {
+	if (!details.value?.workflow_state) return {}
+	try {
+		const wfState = typeof details.value.workflow_state === "string"
+			? JSON.parse(details.value.workflow_state)
+			: details.value.workflow_state
+		const labels = {}
+		const collect = (taskSpecs) => {
+			for (const [specName, specData] of Object.entries(taskSpecs || {})) {
+				const label = specData.bpmn_name || specData.description
+				if (label) labels[specName] = label
+			}
+		}
+		collect(wfState.spec?.task_specs)
+		for (const sub of Object.values(wfState.subprocess_specs || {})) collect(sub.task_specs)
+		return labels
+	} catch {
+		return {}
 	}
 })
 
