@@ -1,4 +1,6 @@
 import json
+import time
+
 import frappe
 
 from .base import BaseLLMAdapter, CompletionResult, ToolCallRecord, ToolSpec, TurnRecord
@@ -58,6 +60,7 @@ class OpenAIAdapter(BaseLLMAdapter):
 
         trace = []
         for _ in range(_MAX_TOOL_TURNS):
+            _turn_t0 = time.perf_counter()
             response = await self._client.chat.completions.create(**kwargs)
             choice = response.choices[0]
             prompt_tokens, completion_tokens = _usage_tokens(response)
@@ -78,6 +81,7 @@ class OpenAIAdapter(BaseLLMAdapter):
                         content=content,
                         prompt_tokens=prompt_tokens,
                         completion_tokens=completion_tokens,
+                        latency_ms=int((time.perf_counter() - _turn_t0) * 1000),
                     )
                 )
                 return CompletionResult(text=content, trace=trace)
@@ -115,6 +119,8 @@ class OpenAIAdapter(BaseLLMAdapter):
                     "tool_call_id": tc.id,
                     "content": result,
                 })
+            # API round-trip + inline tool execution = this turn's decision latency
+            turn.latency_ms = int((time.perf_counter() - _turn_t0) * 1000)
             trace.append(turn)
 
             kwargs["messages"] = messages

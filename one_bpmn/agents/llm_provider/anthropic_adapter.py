@@ -1,4 +1,5 @@
 import logging
+import time
 
 from .base import BaseLLMAdapter, CompletionResult, ToolCallRecord, ToolSpec, TurnRecord
 
@@ -147,6 +148,7 @@ class AnthropicAdapter(BaseLLMAdapter):
 
         trace = []
         for turn in range(_MAX_TOOL_TURNS):
+            _turn_t0 = time.perf_counter()
             # Use streaming to avoid the Anthropic SDK's 10-minute limit on
             # non-streaming requests.  get_final_message() collects the full
             # response and returns the same Message object as messages.create().
@@ -177,6 +179,7 @@ class AnthropicAdapter(BaseLLMAdapter):
                         content=content,
                         prompt_tokens=prompt_tokens,
                         completion_tokens=completion_tokens,
+                        latency_ms=int((time.perf_counter() - _turn_t0) * 1000),
                     )
                 )
                 return CompletionResult(text=content, trace=trace)
@@ -215,6 +218,8 @@ class AnthropicAdapter(BaseLLMAdapter):
                     "tool_use_id": block.id,
                     "content": result,
                 })
+            # API round-trip + inline tool execution = this turn's decision latency
+            turn_record.latency_ms = int((time.perf_counter() - _turn_t0) * 1000)
             trace.append(turn_record)
 
             # Relocate the single conversation cache_control marker to the last

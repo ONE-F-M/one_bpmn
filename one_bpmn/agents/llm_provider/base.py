@@ -40,6 +40,10 @@ class TurnRecord:
     tool_calls: list = field(default_factory=list)  # list[ToolCallRecord]
     prompt_tokens: int = 0
     completion_tokens: int = 0
+    # Wall-clock for this turn: the provider API round-trip plus any inline
+    # tool executions. Decision latency — NOT the runtime of an activated
+    # diagram task (that happens later in the engine).
+    latency_ms: int = 0
 
 
 @dataclass
