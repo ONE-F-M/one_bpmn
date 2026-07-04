@@ -428,7 +428,7 @@ async function fetchSteps() {
 		const csrf = getCsrfToken()
 		const params = new URLSearchParams({
 			doctype: "AI Agent Step",
-			fields: JSON.stringify(["name", "step_index", "role", "content", "tool_name", "tool_args", "tool_result", "prompt_tokens", "completion_tokens", "cost", "latency_ms"]) ,
+			fields: JSON.stringify(["name", "step_index", "role", "content", "prompt_tokens", "completion_tokens", "cost", "latency_ms"]),
 			filters: JSON.stringify([["run", "=", aiRun.value.name]]),
 			limit_page_length: 200,
 			order_by: "step_index asc",
