@@ -722,6 +722,26 @@ def _gate_adhoc_subworkflow(sp) -> bool:
 			if task.state & TaskState.NOT_FINISHED_MASK:
 				task.task_spec._update(task)
 	else:
+		# Continuation work still awaiting dispatch — a chained service task
+		# (e.g. "set status after escalation") sits in STARTED until
+		# _run_engine_inner's dispatch loop executes it. Consulting the
+		# selector before that write lands feeds it STALE document state
+		# (UAT: a decision saw "Pending Support Confirmation" after the
+		# agent had already resolved). Heads can't be STARTED here (the
+		# active-head checks above returned), so any STARTED non-manual
+		# task is a pending continuation: hold promotion, let the dispatch
+		# loop finish, and decide on the next sweep with fresh evidence.
+		if any(
+			not getattr(t.task_spec, "manual", False)
+			for t in sp.get_tasks(state=TaskState.READY | TaskState.STARTED)
+		):
+			# READY = the gated loop will run it this sweep; STARTED = the
+			# dispatch loop will complete it. Either way: not yet landed.
+			# (Heads can't appear here — active heads returned above. Manual
+			# continuation tasks are excluded: a chained user task can wait
+			# days and must not gag the selector.)
+			return False
+
 		promoted = pending[0]
 		promoted._set_state(TaskState.READY)
 		_arm_loop_instance(promoted)
