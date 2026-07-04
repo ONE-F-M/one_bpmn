@@ -694,8 +694,18 @@ def _gate_adhoc_subworkflow(sp) -> bool:
 	active = [t for t in heads if t.state & _ADHOC_ACTIVE_MASK]
 
 	if len(active) > 1:
-		# Subprocess entry (or a conditional re-add) readied several heads at
-		# once — keep the first in diagram order, park the rest.
+		if all(t.state == TaskState.READY for t in active):
+			# Subprocess entry: SpiffWorkflow readied every head at once.
+			# Park them ALL and let the promotion step below choose the
+			# first task — the AI Task Selector decider gets to pick even
+			# the FIRST task (user decision 2026-07-04); plain ad-hoc
+			# subprocesses fall through to diagram order in
+			# select_next_adhoc_task, identical to the previous behavior.
+			for task in active:
+				task._set_state(TaskState.FUTURE)
+			return True
+		# Mixed states — an in-flight head plus conditionally re-added
+		# READY heads: keep the first in diagram order, park the rest.
 		changed = False
 		for extra in active[1:]:
 			if extra.state == TaskState.READY:
