@@ -248,4 +248,11 @@ def _record_tool_outcomes(sp, bpmn_id: str, result) -> None:
 				)
 			elif not call_result.startswith("Task '"):
 				# A registry tool actually executed inside the adapter loop.
+				# Legacy combined variable (last call wins) …
 				sp.data[f"{bpmn_id}_toolCallResult"] = call_result
+				# … plus a per-tool variable, so one decision calling several
+				# registry tools (lookup + send email) doesn't clobber the
+				# evidence later decisions route on.
+				tool_name = call.get("name") or ""
+				if tool_name:
+					sp.data[f"{tool_name}_toolCallResult"] = call_result
