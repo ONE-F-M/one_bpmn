@@ -523,10 +523,11 @@ def _build_diagram_digest(bpmn_xml: str, element_id: str, process_model: str = "
 			"decision and return a real result; they are NOT tasks and do not "
 			"count as the one activation):\n"
 			+ "\n".join(registry_lines)
-			+ f"\nThe latest registry result is also saved in the process variable "
-			f"{selector_id}_toolCallResult as a JSON STRING — show it raw in the "
-			f"user prompt with {{{{ {selector_id}_toolCallResult }}}} and never "
-			"access attributes on it."
+			+ "\nEach tool's latest result persists as a process variable named "
+			"<tool_name>_toolCallResult (e.g. {{ check_sales_order_toolCallResult }}) "
+			f"— plus a combined {selector_id}_toolCallResult holding the last call. "
+			"All are JSON STRINGS: show them raw in the user prompt and never "
+			"access attributes on them."
 		)
 	if condition:
 		block_parts.append(

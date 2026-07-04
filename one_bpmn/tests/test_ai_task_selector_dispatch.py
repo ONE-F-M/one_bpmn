@@ -299,3 +299,30 @@ class TestCompletedTasksNotOffered(FrappeTestCase):
 		self.assertIn("task_c", captured["tools"])
 		self.assertIn("ALREADY RUN", captured["user_prompt"])
 		self.assertIn("task_a", captured["user_prompt"])
+
+
+class TestPerToolResultVariables(FrappeTestCase):
+	"""One decision can call several registry tools (lookup + send email) —
+	each tool's latest result must persist under its own variable, or later
+	decisions lose the evidence they route on."""
+
+	def test_each_tool_keeps_its_own_result(self):
+		from types import SimpleNamespace
+
+		sp = SimpleNamespace(data={})
+		result = SimpleNamespace(
+			output="done",
+			trace=[{
+				"role": "tool",
+				"tool_calls": [
+					{"name": "check_sales_order", "arguments": {}, "result": '{"is_sales": 1}'},
+					{"name": "send_ticket_email", "arguments": {}, "result": '{"sent": 1}'},
+				],
+			}],
+		)
+		ai_task_selector._record_tool_outcomes(sp, "Triage", result)
+
+		self.assertEqual(sp.data["check_sales_order_toolCallResult"], '{"is_sales": 1}')
+		self.assertEqual(sp.data["send_ticket_email_toolCallResult"], '{"sent": 1}')
+		# legacy combined variable still exists (last call wins)
+		self.assertEqual(sp.data["Triage_toolCallResult"], '{"sent": 1}')
