@@ -14,10 +14,19 @@
 					v-for="node in taskList"
 					:key="node.id"
 					@click="$emit('select', node)"
-					class="flex items-center gap-2 px-3 py-2 cursor-pointer transition-colors text-[13px]"
+					class="flex items-center gap-2 py-2 pr-3 cursor-pointer transition-colors text-[13px]"
 					:class="isSelected(node) ? 'border-l-2 border-gray-500' : 'hover:bg-gray-50 border-l-2 border-transparent'"
-					:style="isSelected(node) ? { backgroundColor: 'rgba(107, 114, 128, 0.12)' } : {}"
+					:style="{
+						paddingLeft: (12 + (node.depth || 0) * 20) + 'px',
+						...(isSelected(node) ? { backgroundColor: 'rgba(107, 114, 128, 0.12)' } : {}),
+					}"
 				>
+					<!-- Nesting marker for tasks inside a subprocess -->
+					<Icon
+						v-if="node.depth"
+						icon="lucide:corner-down-right"
+						class="w-3.5 h-3.5 text-gray-300 shrink-0"
+					/>
 					<!-- State icon -->
 					<Icon v-if="node.stateLabel === 'Completed'" icon="lucide:check-circle-2" class="w-4 h-4 text-green-500 shrink-0" />
 					<Icon v-else-if="node.stateLabel === 'Error'" icon="lucide:alert-circle" class="w-4 h-4 text-red-500 shrink-0" />

@@ -130,38 +130,63 @@ const taskList = computed(() => {
 		const wfState = typeof details.value.workflow_state === "string"
 			? JSON.parse(details.value.workflow_state)
 			: details.value.workflow_state
-		const tasks = wfState.tasks || {}
-		const taskSpecs = wfState.spec?.task_specs || {}
+		const subprocesses = wfState.subprocesses || {}
+		const subprocessSpecs = wfState.subprocess_specs || {}
 
-		const nodes = []
-		for (const [uuid, t] of Object.entries(tasks)) {
-			const specName = t.task_spec || ""
-			if (!specName || specName === "Start" || specName === "End") continue
-			if (specName.endsWith(".EndJoin") || specName.endsWith(".BoundaryEventSplit") || specName.includes(".BoundaryEventJoin")) continue
-			if (!REACHED_STATES.has(t.state)) continue
+		// Recursive: a task whose id keys an entry in wfState.subprocesses is
+		// a Sub-Process / Ad-hoc parent — its inner tasks are flattened in
+		// right after it with depth+1, each clickable like any other node.
+		const buildNodes = (tasksDict, taskSpecs, depth) => {
+			const nodes = []
+			for (const [uuid, t] of Object.entries(tasksDict || {})) {
+				const specName = t.task_spec || ""
+				if (!specName || specName === "Start" || specName === "End") continue
+				if (specName.endsWith(".EndJoin") || specName.endsWith(".BoundaryEventSplit") || specName.includes(".BoundaryEventJoin")) continue
+				if (!REACHED_STATES.has(t.state)) continue
 
-			const specData = taskSpecs[specName] || {}
-			const typename = specData.typename || "Task"
-			nodes.push({
-				id: uuid,
-				bpmnId: specName,
-				name: specData.bpmn_name || specData.description || specName,
-				typename,
-				isPassThrough: /Gateway|Event/i.test(typename),
-				lane: specData.lane || null,
-				state: t.state || 0,
-				stateLabel: getStateLabel(t.state || 0),
-				timestamp: t.last_state_change ? new Date(t.last_state_change * 1000) : null,
-				data: t.data || {},
-				extensions: {
-					...((() => { try { return typeof specData.extensions === 'string' ? JSON.parse(specData.extensions) : specData.extensions; } catch { return {}; } })() || {}),
-					...(serviceTaskExtensions.value[specName] || {}),
-				},
-			})
+				const specData = (taskSpecs || {})[specName] || {}
+				const typename = specData.typename || "Task"
+				const node = {
+					id: uuid,
+					bpmnId: specName,
+					name: specData.bpmn_name || specData.description || specName,
+					typename,
+					depth,
+					isPassThrough: /Gateway|Event/i.test(typename),
+					lane: specData.lane || null,
+					state: t.state || 0,
+					stateLabel: getStateLabel(t.state || 0),
+					timestamp: t.last_state_change ? new Date(t.last_state_change * 1000) : null,
+					data: t.data || {},
+					extensions: {
+						...((() => { try { return typeof specData.extensions === 'string' ? JSON.parse(specData.extensions) : specData.extensions; } catch { return {}; } })() || {}),
+						...(serviceTaskExtensions.value[specName] || {}),
+					},
+				}
+
+				const sub = subprocesses[uuid]
+				if (sub) {
+					const childSpecs = (subprocessSpecs[specName] || {}).task_specs || {}
+					node.childNodes = buildNodes(sub.tasks, childSpecs, depth + 1)
+				}
+				nodes.push(node)
+			}
+
+			// Sort siblings by timestamp, then flatten each parent's subtree
+			// directly beneath it so nesting order is preserved.
+			nodes.sort((a, b) => (a.timestamp || 0) - (b.timestamp || 0))
+			const flat = []
+			for (const n of nodes) {
+				flat.push(n)
+				if (n.childNodes) {
+					flat.push(...n.childNodes)
+					delete n.childNodes
+				}
+			}
+			return flat
 		}
 
-		nodes.sort((a, b) => (a.timestamp || 0) - (b.timestamp || 0))
-		return nodes
+		return buildNodes(wfState.tasks, wfState.spec?.task_specs || {}, 0)
 	} catch (e) {
 		console.warn("Failed to build task list:", e)
 		return []
