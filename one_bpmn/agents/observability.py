@@ -458,6 +458,32 @@ def update_selector_run_rollups(run) -> None:
 		)
 
 
+def finalize_open_selector_runs(instance_name: str, bpmn_id: str) -> int:
+	"""Finalize every still-Running selector run for (instance, subprocess).
+	Called when the ad-hoc subprocess completes — the moment a selector run
+	is actually over. Returns the number of runs finalized."""
+	count = 0
+	try:
+		for name in frappe.get_all(
+			"AI Agent Run",
+			filters={
+				"instance": instance_name,
+				"bpmn_id": bpmn_id,
+				"element_type": "subprocess",
+				"status": "Running",
+			},
+			pluck="name",
+		):
+			finalize_selector_run(frappe.get_doc("AI Agent Run", name))
+			count += 1
+	except Exception:
+		frappe.log_error(
+			title=f"AI Observability: finalize_open_selector_runs failed ({bpmn_id})",
+			message=frappe.get_traceback(),
+		)
+	return count
+
+
 def finalize_selector_run(run) -> None:
 	"""Finalize a subprocess Run exactly once, when the ad-hoc subprocess
 	completes: status, ended_at, duration, token/cost rollups summed across

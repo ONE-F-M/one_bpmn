@@ -675,6 +675,16 @@ class BPMNProcessInstance(Document):
 		if not bpmn_id and (spec_name in ("Start", "End") or spec_name.endswith(".EndJoin")):
 			return
 
+		# A completed subprocess parent ends its AI Task Selector run (if
+		# one exists) — the only moment a selector run is genuinely over.
+		if isinstance(task_spec, SubWorkflowTask):
+			try:
+				from one_bpmn.agents.observability import finalize_open_selector_runs
+
+				finalize_open_selector_runs(self.name, bpmn_id or spec_name)
+			except Exception:
+				pass
+
 		self._log_task(
 			task_id=str(task.id),
 			task_name=bpmn_engine.get_task_display_name(task),

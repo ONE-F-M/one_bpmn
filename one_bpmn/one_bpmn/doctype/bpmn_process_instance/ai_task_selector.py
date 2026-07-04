@@ -182,6 +182,13 @@ def dispatch_ai_task_selector(instance, sp, task_cfg: dict, bpmn_id: str) -> tup
 			"\n\nProcess progress (authoritative): these tasks have ALREADY RUN "
 			"and are no longer offered: " + ", ".join(sorted(finished_names)) + "."
 		)
+	# Engine-level guard rail for every prompt: when a procedure's prescribed
+	# task is unavailable (already ran, filtered out), improvising is worse
+	# than waiting — a UAT run escalated to the wrong team this way.
+	user_prompt += (
+		"\n\nIf the task your rules prescribe is not among your offered tools, "
+		"activate nothing and give your final answer."
+	)
 
 	config = ExecutorConfig(
 		backend="direct_api",
@@ -254,13 +261,18 @@ def dispatch_ai_task_selector(instance, sp, task_cfg: dict, bpmn_id: str) -> tup
 
 	_record_tool_outcomes(sp, bpmn_id, result)
 
-	# Idle decision = the LLM stopped selecting; if the subprocess's
-	# completion condition is (or becomes) satisfied, this Run is over.
+	# An idle decision does NOT close the run — earlier code finalized here
+	# unconditionally, so a correct "wait for the agent" decision marked the
+	# run Success mid-flight and the next decision opened a second run. The
+	# run is finalized when the subprocess itself completes
+	# (_on_engine_task_complete → finalize_open_selector_runs). Belt: if the
+	# completion condition is already satisfied at an idle decision, the
+	# subprocess is about to close, so finalizing here is safe and correct.
 	if not selection:
 		try:
 			from one_bpmn.agents.observability import finalize_selector_run
 
-			if run is not None:
+			if run is not None and bpmn_engine._adhoc_completion_met(sp):
 				finalize_selector_run(run)
 		except Exception:
 			frappe.log_error(
