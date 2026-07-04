@@ -1,4 +1,5 @@
 import {
+	HeaderButton,
 	SelectEntry,
 	isSelectEntryEdited,
 	TextFieldEntry,
@@ -26,6 +27,7 @@ export function AiTaskSelectorProps(props) {
 	const { element } = props;
 
 	return [
+		{ id: "selector-launch", element, component: LaunchSelectorEditorButton },
 		{ id: "selector-aiProvider", element, component: ProviderComponent },
 		{
 			id: "selector-aiModel",
@@ -52,6 +54,21 @@ export function AiTaskSelectorProps(props) {
 			isEdited: isTextAreaEntryEdited,
 		},
 	];
+}
+
+// Opens the AI Agent config modal in selector mode — same dedicated editor
+// (with the AI prompt assistant) used by AI Agent Tasks, restricted to the
+// attributes the selector dispatch reads.
+function LaunchSelectorEditorButton(props) {
+	const { element } = props;
+	const eventBus = useService("eventBus");
+	const translate = useService("translate");
+
+	return HeaderButton({
+		className: "spiffworkflow-properties-panel-button",
+		onClick: () => eventBus.fire("launch-ai-agent-editor", { element, mode: "selector" }),
+		children: translate("Configure with AI Assistant"),
+	});
 }
 
 function ProviderComponent(props) {
