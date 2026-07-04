@@ -133,10 +133,20 @@ const taskList = computed(() => {
 		const subprocesses = wfState.subprocesses || {}
 		const subprocessSpecs = wfState.subprocess_specs || {}
 
+		// SpiffWorkflow drains a task's own data into its containing scope on
+		// completion, so per-task data is usually {} — fall back to the
+		// scope's variables (subprocess data for inner tasks, workflow data
+		// at top level) so the Variables tab shows what was in scope.
+		const SCOPE_SKIP = new Set(["data_objects", "doc"])
+		const scopeVars = (scope) =>
+			Object.fromEntries(
+				Object.entries(scope || {}).filter(([k]) => !SCOPE_SKIP.has(k))
+			)
+
 		// Recursive: a task whose id keys an entry in wfState.subprocesses is
 		// a Sub-Process / Ad-hoc parent — its inner tasks are flattened in
 		// right after it with depth+1, each clickable like any other node.
-		const buildNodes = (tasksDict, taskSpecs, depth) => {
+		const buildNodes = (tasksDict, taskSpecs, depth, scopeData) => {
 			const nodes = []
 			for (const [uuid, t] of Object.entries(tasksDict || {})) {
 				const specName = t.task_spec || ""
@@ -157,7 +167,7 @@ const taskList = computed(() => {
 					state: t.state || 0,
 					stateLabel: getStateLabel(t.state || 0),
 					timestamp: t.last_state_change ? new Date(t.last_state_change * 1000) : null,
-					data: t.data || {},
+					data: Object.keys(t.data || {}).length ? t.data : scopeData,
 					extensions: {
 						...((() => { try { return typeof specData.extensions === 'string' ? JSON.parse(specData.extensions) : specData.extensions; } catch { return {}; } })() || {}),
 						...(serviceTaskExtensions.value[specName] || {}),
@@ -166,8 +176,11 @@ const taskList = computed(() => {
 
 				const sub = subprocesses[uuid]
 				if (sub) {
+					const subScope = scopeVars(sub.data)
+					// The parent's meaningful variables ARE its subprocess scope
+					if (Object.keys(subScope).length) node.data = subScope
 					const childSpecs = (subprocessSpecs[specName] || {}).task_specs || {}
-					node.childNodes = buildNodes(sub.tasks, childSpecs, depth + 1)
+					node.childNodes = buildNodes(sub.tasks, childSpecs, depth + 1, subScope)
 				}
 				nodes.push(node)
 			}
@@ -186,7 +199,7 @@ const taskList = computed(() => {
 			return flat
 		}
 
-		return buildNodes(wfState.tasks, wfState.spec?.task_specs || {}, 0)
+		return buildNodes(wfState.tasks, wfState.spec?.task_specs || {}, 0, scopeVars(wfState.data))
 	} catch (e) {
 		console.warn("Failed to build task list:", e)
 		return []
