@@ -191,8 +191,32 @@
           <!-- Messages -->
           <div ref="messagesEl" class="assistant-messages">
             <div v-if="!messages.length" class="assistant-empty">
-              Describe what this AI Agent Task should do, and I'll recommend field
-              values you can apply one by one.
+              <template v-if="isSelector">
+                Describe the flow like you'd brief a new colleague — no technical
+                terms needed, the diagram supplies those. I'll recommend prompts
+                you can apply one by one.
+                <div class="assistant-tips">
+                  <div class="assistant-tips-title">💡 Tips for a good description</div>
+                  <ul>
+                    <li><strong>What to check first</strong> — e.g. "first see if the ticket mentions one of their orders"</li>
+                    <li><strong>How to decide between paths</strong> — e.g. "if it's about an order… otherwise…"</li>
+                    <li><strong>Who handles each path</strong> — e.g. "the order team handles it, or normal support"</li>
+                    <li><strong>What "finished" looks like</strong> — e.g. "the customer got a reply and the ticket is closed"</li>
+                  </ul>
+                </div>
+              </template>
+              <template v-else>
+                Describe what this AI Agent Task should do, and I'll recommend field
+                values you can apply one by one.
+                <div class="assistant-tips">
+                  <div class="assistant-tips-title">💡 Tips for a good prompt</div>
+                  <ul>
+                    <li><strong>What it should read</strong> — which parts of the document matter</li>
+                    <li><strong>What it should produce</strong> — a summary, a decision, a value for a field</li>
+                    <li><strong>What format</strong> — plain text, or structured data for a gateway to route on</li>
+                  </ul>
+                </div>
+              </template>
             </div>
 
             <div
@@ -234,7 +258,9 @@
             <textarea
               v-model="input"
               rows="2"
-              placeholder="e.g. Summarise the employee's leave history and flag any policy breaches"
+              :placeholder="isSelector
+                ? 'e.g. First check if the ticket is about an order. If it is, the order team handles it; otherwise support does. Either way the customer gets a reply, then close the ticket.'
+                : 'e.g. Summarise the employee\'s leave history and flag any policy breaches'"
               :disabled="loading"
               @keydown.enter.exact.prevent="sendMessage"
             />
@@ -935,6 +961,29 @@ function save() {
   gap: 12px;
 }
 .assistant-empty { font-size: 0.8rem; color: #94a3b8; line-height: 1.5; }
+
+/* "Tips for a good prompt" callout shown before the first message */
+.assistant-tips {
+  margin-top: 10px;
+  padding: 10px 12px;
+  background: #f8fafc;
+  border: 1px solid #e2e8f0;
+  border-radius: 8px;
+  color: #64748b;
+}
+.assistant-tips-title {
+  font-weight: 600;
+  color: #475569;
+  margin-bottom: 6px;
+}
+.assistant-tips ul {
+  margin: 0;
+  padding-left: 16px;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+.assistant-tips li strong { color: #475569; }
 
 .msg { max-width: 100%; }
 .msg-text {
