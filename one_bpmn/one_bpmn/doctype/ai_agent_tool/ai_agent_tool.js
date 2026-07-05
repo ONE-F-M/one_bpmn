@@ -1,5 +1,6 @@
 // Copyright (c) 2026, one-fm and contributors
 // For license information, please see license.txt
+<<<<<<< HEAD
 //
 // WI-001357 (3-04): guided editor for AI Agent Tool records — designers
 // build the input_schema through a parameter dialog instead of hand-writing
@@ -154,6 +155,8 @@ function open_parameter_dialog(frm) {
 	});
 	dialog.show();
 }
+=======
+>>>>>>> upstream/staging
 
 frappe.ui.form.on("AI Agent Tool", {
 	handler_type(frm) {
@@ -169,6 +172,7 @@ frappe.ui.form.on("AI Agent Tool", {
 	},
 
 	refresh(frm) {
+<<<<<<< HEAD
 		// Type-to-search over enabled Server Scripts, matching the pattern
 		// built for AI Agent Task context fields (WI-001142).
 		frm.set_query("handler_reference", () => {
@@ -184,5 +188,13 @@ frappe.ui.form.on("AI Agent Tool", {
 
 	input_schema(frm) {
 		render_parameter_table(frm);
+=======
+		frm.set_query("handler_reference", () => {
+			if (frm.doc.handler_type === "server_script") {
+				return { filters: { disabled: 0 } };
+			}
+			return {};
+		});
+>>>>>>> upstream/staging
 	},
 });

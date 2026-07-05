@@ -1018,7 +1018,11 @@ import serviceTaskPropertiesProviderModule from "@/bpmn/serviceTaskPropertiesPro
 import aiAgentPropertiesProviderModule from "@/bpmn/aiAgentPropertiesProvider";
 import aiAgentReplaceMenuProviderModule from "@/bpmn/aiAgentReplaceMenuProvider";
 import aiAgentRendererModule from "@/bpmn/aiAgentRenderer";
+<<<<<<< HEAD
 import aiToolRegistryPropertiesProviderModule from "@/bpmn/aiToolRegistryPropertiesProvider";
+=======
+import adhocSubprocessPropertiesProviderModule from "@/bpmn/adhocSubprocessPropertiesProvider";
+>>>>>>> upstream/staging
 
 import scriptTaskPropertiesProviderModule from "@/bpmn/scriptTaskPropertiesProvider";
 import businessRuleTaskPropertiesProviderModule from "@/bpmn/businessRuleTaskPropertiesProvider";
@@ -1629,7 +1633,11 @@ onMounted(async () => {
 				aiAgentPropertiesProviderModule,
 				aiAgentReplaceMenuProviderModule,
 				aiAgentRendererModule,
+<<<<<<< HEAD
 				aiToolRegistryPropertiesProviderModule,
+=======
+				adhocSubprocessPropertiesProviderModule,
+>>>>>>> upstream/staging
 
 				scriptTaskPropertiesProviderModule,
 				businessRuleTaskPropertiesProviderModule,
