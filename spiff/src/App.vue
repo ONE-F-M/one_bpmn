@@ -97,24 +97,6 @@
 						Instances
 					</span>
 				</router-link>
-				<router-link
-					to="/processa/insights"
-					class="flex items-center rounded-lg transition-all duration-200"
-					:class="[
-						collapsed ? 'justify-center p-2.5' : 'gap-3 px-4 py-2.5',
-						$route.path.startsWith('/processa/insights') ? 'bg-gray-900 text-white shadow-md' : 'text-gray-600 hover:bg-gray-100 hover:text-gray-900'
-					]"
-					@click="isMobileMenuOpen = false"
-					:title="collapsed ? 'Insights' : ''"
-				>
-					<Icon icon="lucide:bar-chart-3" class="w-5 h-5 shrink-0" />
-					<span
-						class="text-sm font-semibold whitespace-nowrap transition-opacity duration-200 overflow-hidden"
-						:class="collapsed ? 'opacity-0 w-0' : 'opacity-100 w-auto'"
-					>
-						Insights
-					</span>
-				</router-link>
 			</nav>
 
 			<!-- Collapse Toggle -->

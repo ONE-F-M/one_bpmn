@@ -1,7 +1,6 @@
 import { createRouter, createWebHistory } from "vue-router"
 import Home from "@/views/Home.vue"
 import Editor from "@/views/Editor.vue"
-import VersionHistory from "@/views/VersionHistory.vue"
 import InstanceList from "@/views/InstanceList.vue"
 import InstanceDetail from "@/views/InstanceDetail.vue"
 
@@ -24,12 +23,6 @@ const routes = [
 		props: true,
 	},
 	{
-		path: "/processa/process/:process/diagram/:diagram/history",
-		name: "VersionHistory",
-		component: VersionHistory,
-		props: true,
-	},
-	{
 		path: "/processa/instances",
 		name: "InstanceList",
 		component: InstanceList,
@@ -38,11 +31,6 @@ const routes = [
 		path: "/processa/instances/:instance",
 		name: "InstanceDetail",
 		component: InstanceDetail,
-	},
-	{
-		path: "/processa/insights",
-		name: "Insights",
-		component: () => import("@/views/Insights.vue"),
 	},
 	{
 		path: "/:pathMatch(.*)*",

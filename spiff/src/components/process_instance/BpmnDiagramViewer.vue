@@ -1,5 +1,5 @@
 <template>
-	<div class="bg-white border-b flex flex-col relative" style="height: 60%; min-height: 250px; touch-action: none; overscroll-behavior: contain;">
+	<div class="bg-white border-b flex flex-col relative" style="height: 60%; min-height: 250px;">
 		<!-- Zoom controls -->
 		<div class="absolute top-3 right-4 z-20 flex items-center bg-white rounded shadow-sm border overflow-hidden text-gray-600">
 			<button @click="zoomOut" class="p-1.5 hover:bg-gray-50 border-r" title="Zoom Out">
@@ -74,14 +74,6 @@ import NavigatedViewer from "bpmn-js/lib/NavigatedViewer"
 import "bpmn-js/dist/assets/diagram-js.css"
 import "bpmn-js/dist/assets/bpmn-font/css/bpmn.css"
 
-// Direct touch handler for mobile — bypasses bpmn-js-touch-interaction module
-// which may fail to initialize on some devices due to (pointer: coarse) guard.
-import { setupCanvasTouchHandler } from "@/utils/canvasTouchHandler"
-
-// ── AI Agent Task renderer — replaces Service Task gear icon with sparkle ──
-import aiAgentRendererModule from "@/bpmn/aiAgentRenderer"
-import aiTaskSelectorRendererModule from "@/bpmn/aiTaskSelectorRenderer"
-
 // ── Viewer-side moddle extension ──
 // The BPMN XML produced by the editor uses custom spiffworkflow:* attributes
 // (e.g. notifyAssigneeBody, emailBody).  Without registering the moddle
@@ -153,20 +145,6 @@ const viewerModdleExtension = {
 				{ name: "serverScript", isAttr: true, type: "String" },
 			],
 		},
-		{
-			// WI-001360: lets the viewer read the AI Task Selector tag so the
-			// wrench badge renders on selector-configured ad-hoc subprocesses.
-			name: "AdhocAiTaskSelectorExtension",
-			extends: ["bpmn:AdHocSubProcess"],
-			properties: [
-				{ name: "serviceType",    isAttr: true, type: "String" },
-				{ name: "aiProvider",     isAttr: true, type: "String" },
-				{ name: "aiModel",        isAttr: true, type: "String" },
-				{ name: "aiSystemPrompt", isAttr: true, type: "String" },
-				{ name: "aiUserPrompt",   isAttr: true, type: "String" },
-				{ name: "aiToolSources",  isAttr: true, type: "String" },
-			],
-		},
 	],
 }
 
@@ -182,7 +160,6 @@ const emit = defineEmits(["element-select", "clear-selection"])
 
 const canvasRef = ref(null)
 const viewer = shallowRef(null)
-let touchCleanup = null
 
 // ── Viewer Lifecycle ──
 
@@ -193,10 +170,6 @@ async function initViewer() {
 			container: canvasRef.value,
 			width: "100%",
 			height: "100%",
-			additionalModules: [
-				aiAgentRendererModule,
-				aiTaskSelectorRendererModule,
-			],
 			moddleExtensions: {
 				spiffworkflow: viewerModdleExtension,
 			},
@@ -214,13 +187,6 @@ async function initViewer() {
 				// ignore zoom errors
 			}
 		}, 100)
-
-		// Setup direct touch handler for mobile pinch-to-zoom & finger pan
-		// (only on touch-capable devices to avoid no-op listeners on desktop)
-		const isTouchDevice = 'ontouchstart' in window || navigator.maxTouchPoints > 0
-		if (!touchCleanup && canvasRef.value && isTouchDevice) {
-			touchCleanup = setupCanvasTouchHandler(viewer.value, canvasRef.value)
-		}
 	} catch (err) {
 		console.error("Error rendering BPMN:", err)
 	}
@@ -231,10 +197,6 @@ onMounted(() => {
 })
 
 onUnmounted(() => {
-	if (touchCleanup) {
-		touchCleanup()
-		touchCleanup = null
-	}
 	if (viewer.value) {
 		viewer.value.destroy()
 		viewer.value = null
@@ -311,8 +273,6 @@ function applyHighlights() {
 		const elementRegistry = viewer.value.get("elementRegistry")
 		const overlays = viewer.value.get("overlays")
 		overlays.remove({ type: "heatmap-badge" })
-	overlays.remove({ type: "ai-badge" })
-	overlays.remove({ type: "token-badge" })
 
 		// Clear stale highlight markers before re-applying
 		const staticHighlightMarkers = new Set(["highlight-done", "highlight-active"])
@@ -333,43 +293,30 @@ function applyHighlights() {
 		const completedBpmnIds = new Set()
 		const activeBpmnIds = new Set()   // READY (16) or STARTED (32) — truly executing
 		const waitingBpmnIds = new Set()  // WAITING (8) — passively listening (boundary events, timers)
-		const containerSpecs = new Set()  // Sub-Process / Ad-hoc parents — highlighted, but no token dot
 		const frequencyMap = {}
 
-		// Parse workflow_state for task states.
-		// Inner tasks of Sub-Processes / Ad-hoc Subprocesses are serialized
-		// under workflow_state.subprocesses[<parent task id>].tasks — walk
-		// those too so subtasks light up and carry the token.
+		// Parse workflow_state for task states
 		if (props.details?.workflow_state) {
 			try {
 				const wfState = typeof props.details.workflow_state === "string"
 					? JSON.parse(props.details.workflow_state)
 					: props.details.workflow_state
-				const subprocesses = wfState.subprocesses || {}
-
-				const classify = (tasksDict) => {
-					for (const [taskId, taskData] of Object.entries(tasksDict || {})) {
-						const taskSpec = taskData.task_spec || ""
-						if (subprocesses[taskId]) containerSpecs.add(taskSpec)
-						if (!taskSpec || taskSpec === "Start" || taskSpec === "End" || taskSpec.endsWith(".EndJoin")) continue
-						const state = taskData.state || 0
-						if (state === 64) {
-							completedBpmnIds.add(taskSpec)
-							frequencyMap[taskSpec] = (frequencyMap[taskSpec] || 0) + 1
-						} else if (state === 8) {
-							// WAITING — boundary events/timers that are listening but
-							// haven't fired. Show as active on the element but do NOT
-							// include in flow-coloring (their outgoing paths are untouched).
-							waitingBpmnIds.add(taskSpec)
-						} else if (state === 16 || state === 32) {
-							activeBpmnIds.add(taskSpec)
-						}
+				const tasks = wfState.tasks || {}
+				for (const [, taskData] of Object.entries(tasks)) {
+					const taskSpec = taskData.task_spec || ""
+					if (!taskSpec || taskSpec === "Start" || taskSpec === "End" || taskSpec.endsWith(".EndJoin")) continue
+					const state = taskData.state || 0
+					if (state === 64) {
+						completedBpmnIds.add(taskSpec)
+						frequencyMap[taskSpec] = (frequencyMap[taskSpec] || 0) + 1
+					} else if (state === 8) {
+						// WAITING — boundary events/timers that are listening but
+						// haven't fired. Show as active on the element but do NOT
+						// include in flow-coloring (their outgoing paths are untouched).
+						waitingBpmnIds.add(taskSpec)
+					} else if (state === 16 || state === 32) {
+						activeBpmnIds.add(taskSpec)
 					}
-				}
-
-				classify(wfState.tasks)
-				for (const sub of Object.values(subprocesses)) {
-					classify(sub.tasks)
 				}
 			} catch (e) {
 				// ignore parse errors
@@ -402,20 +349,9 @@ function applyHighlights() {
 			}
 		})
 
-		// Active markers (READY / STARTED) + a token dot on the element the
-		// process is actually sitting on. Container parents (Sub-Process /
-		// Ad-hoc) are STARTED for as long as any inner task runs — they get
-		// the active outline but the token belongs to the inner task.
+		// Active markers (READY / STARTED)
 		activeBpmnIds.forEach((bpmnId) => {
-			try {
-				canvas.addMarker(bpmnId, "highlight-active")
-				if (!containerSpecs.has(bpmnId)) {
-					const token = document.createElement("div")
-					token.className = "bpmn-token"
-					token.title = "Process token — the active task"
-					overlays.add(bpmnId, "token-badge", { position: { bottom: 6, left: -7 }, html: token })
-				}
-			} catch (e) {}
+			try { canvas.addMarker(bpmnId, "highlight-active") } catch (e) {}
 		})
 		// Waiting markers (boundary events / timers listening — show as active on element only)
 		waitingBpmnIds.forEach((bpmnId) => {
@@ -472,53 +408,6 @@ function applyHighlights() {
 					} catch (e) {}
 				})
 		}
-
-		// ── AI Agent Task overlay badges (observability) ───────────
-		if (props.details?.workflow_state) {
-			try {
-				const wfState = typeof props.details.workflow_state === "string"
-					? JSON.parse(props.details.workflow_state)
-					: props.details.workflow_state
-				// serviceType lives in the compiled spec (service_task_extensions),
-				// keyed by BPMN element id — not on the runtime task objects.
-				let svcExt = {}
-				try {
-					const spec = typeof props.details.serialized_spec === "string"
-						? JSON.parse(props.details.serialized_spec)
-						: props.details.serialized_spec
-					svcExt = spec?.service_task_extensions || {}
-				} catch (e) { /* ignore */ }
-				const tasks = wfState.tasks || {}
-				// Clear any previous AI badge overlays before re-applying
-				try { overlays.remove({ type: "ai-badge" }) } catch { /* no existing overlays */ }
-				const subprocesses = wfState.subprocesses || {}
-				for (const [taskId, td] of Object.entries(tasks)) {
-					const taskSpec = td.task_spec || ""
-					if (!taskSpec) continue
-					const serviceType = (svcExt[taskSpec] || {}).serviceType
-					if (serviceType !== "ai_agent" && serviceType !== "ai_task_selector") continue
-
-					const state = td.state || 0
-					// Selector error keys live in the ad-hoc SUBPROCESS data,
-					// keyed by the parent task's id — check both places.
-					const hasError =
-						td.data?.[`${taskSpec}_error_code`] ||
-						subprocesses[taskId]?.data?.[`${taskSpec}_error_code`]
-					const isCompleted = state === 64
-					const kind = serviceType === "ai_task_selector" ? "AI Task Selector" : "AI Agent Task"
-
-					if (isCompleted || hasError) {
-						const badge = document.createElement("div")
-						badge.className = `ai-badge ${hasError ? "ai-error" : "ai-success"}`
-						badge.textContent = hasError ? "!" : "AI"
-						badge.title = hasError ? `${kind} failed` : `${kind} completed`
-						overlays.add(taskSpec, "ai-badge", { position: { top: -10, left: -10 }, html: badge })
-					}
-				}
-			} catch (e) {
-				// ignore AI badge errors
-			}
-		}
 	} catch (err) {
 		console.warn("Could not apply highlights:", err)
 	}
@@ -556,47 +445,11 @@ function applyHighlights() {
 	stroke: #4b5563 !important; stroke-width: 3px !important;
 }
 
-/* AI Agent badge */
-.ai-badge {
-	width: 16px;
-	height: 16px;
-	border-radius: 50%;
-	display: flex;
-	align-items: center;
-	justify-content: center;
-	font-size: 8px;
-	font-weight: 700;
-	font-family: monospace;
-	color: #fff;
-	cursor: default;
-	box-shadow: 0 1px 3px rgba(0,0,0,0.15);
-	z-index: 100;
-}
-.ai-badge.ai-success {
-	background: #7B2D8E;
-}
-.ai-badge.ai-error {
-	background: #DC2626;
-}
-
 /* Cursor + overlays */
 .bpmn-canvas-container .djs-overlay-container { pointer-events: none; }
 .bpmn-canvas-container .djs-overlay { pointer-events: all; }
 .bpmn-canvas-container .djs-element { cursor: pointer; }
 .bpmn-canvas-container .djs-connection { cursor: pointer; }
-
-/* Prevent browser zoom/scroll on the canvas — let our touch handler manage it */
-.bpmn-canvas-container {
-	touch-action: none;
-	-webkit-user-select: none;
-	user-select: none;
-	overscroll-behavior: contain;
-}
-
-/* Ensure parent wrapper doesn't intercept touch gestures meant for the canvas */
-.bpmn-canvas-container * {
-	touch-action: none;
-}
 
 /* Heatmap badges */
 .heatmap-badge {
@@ -614,23 +467,5 @@ function applyHighlights() {
 	0% { filter: drop-shadow(0 0 2px rgba(37,99,235,0.4)); }
 	50% { filter: drop-shadow(0 0 8px rgba(37,99,235,0.8)); }
 	100% { filter: drop-shadow(0 0 2px rgba(37,99,235,0.4)); }
-}
-
-/* Process token — the classic BPMN dot marking the task the process is
-   sitting on, including inner tasks of expanded (ad-hoc) subprocesses. */
-.bpmn-token {
-	width: 14px;
-	height: 14px;
-	border-radius: 50%;
-	background: #2563eb;
-	border: 2px solid #fff;
-	box-shadow: 0 1px 4px rgba(0, 0, 0, 0.35);
-	pointer-events: none;
-	animation: token-pulse 1.6s ease-in-out infinite;
-}
-@keyframes token-pulse {
-	0% { box-shadow: 0 1px 4px rgba(0, 0, 0, 0.35), 0 0 0 0 rgba(37, 99, 235, 0.45); }
-	70% { box-shadow: 0 1px 4px rgba(0, 0, 0, 0.35), 0 0 0 8px rgba(37, 99, 235, 0); }
-	100% { box-shadow: 0 1px 4px rgba(0, 0, 0, 0.35), 0 0 0 0 rgba(37, 99, 235, 0); }
 }
 </style>

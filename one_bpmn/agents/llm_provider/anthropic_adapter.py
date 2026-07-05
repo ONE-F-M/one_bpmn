@@ -1,24 +1,10 @@
 import logging
-import time
 
-from .base import BaseLLMAdapter, CompletionResult, ToolCallRecord, ToolSpec, TurnRecord
+from .base import BaseLLMAdapter, ToolSpec
 
 _MAX_TOOL_TURNS = 10
 
 logger = logging.getLogger(__name__)
-
-
-def _usage_tokens(response) -> tuple:
-    """Real prompt/completion counts for the turn. Prompt tokens include the
-    cached portions — cache_read/cache_creation tokens ARE consumed context,
-    just billed differently; pricing.py handles the cost split."""
-    usage = getattr(response, "usage", None)
-    prompt = (
-        (getattr(usage, "input_tokens", 0) or 0)
-        + (getattr(usage, "cache_read_input_tokens", 0) or 0)
-        + (getattr(usage, "cache_creation_input_tokens", 0) or 0)
-    )
-    return prompt, getattr(usage, "output_tokens", 0) or 0
 
 
 def _build_tool_def(tool: ToolSpec) -> dict:
@@ -41,21 +27,23 @@ class AnthropicAdapter(BaseLLMAdapter):
     """
     Anthropic Messages API adapter with prompt caching.
 
-    Caching strategy (3 explicit breakpoints, max 4 allowed by Anthropic):
+    Caching strategy (3 explicit breakpoints, max 4 allowed):
       1. **Tools**  – ``cache_control`` on the last tool definition caches
          the entire tool-definition prefix.  Tools never change within a
          single ``complete()`` invocation, so this is always a cache hit
          from turn 2 onwards.
       2. **System prompt** – ``cache_control`` on the system text block.
          The system prompt is identical across every turn within a call.
-      3. **Conversation prefix** – On the first turn, if the user prompt
-         can be split into a context prefix and a request suffix, the
-         prefix gets ``cache_control``.  On subsequent tool-result turns,
-         the last ``tool_result`` block gets ``cache_control`` instead,
-         caching the entire growing conversation prefix for the next turn.
+      3. **Automatic (top-level)** – ``cache_control`` at the request
+         level causes the API to place a breakpoint on the last cacheable
+         block in ``messages``.  As the conversation grows with
+         assistant+tool_result turns, the breakpoint advances
+         automatically, caching the entire growing prefix.
 
-    This keeps us at 3 active markers per request (tools + system +
-    one conversation marker), safely within the Anthropic limit of 4.
+    On each tool-result turn the last ``tool_result`` block also gets an
+    explicit ``cache_control`` marker so that the *next* LLM call within
+    the same invocation benefits from the lookback window even when the
+    message count exceeds 20 blocks.
 
     Cache metrics are logged at DEBUG level for diagnostics.
     """
@@ -71,7 +59,7 @@ class AnthropicAdapter(BaseLLMAdapter):
         user: str,
         tools: list[ToolSpec] | None = None,
         max_tokens: int = 16384,
-    ) -> CompletionResult:
+    ) -> str:
         import re
 
         tool_defs = [_build_tool_def(t) for t in tools] if tools else []
@@ -99,12 +87,6 @@ class AnthropicAdapter(BaseLLMAdapter):
         # gets its own cache_control so that on a cache miss at the automatic
         # breakpoint, the lookback still finds this earlier write.
         user_blocks = []
-        # ``conv_marker`` tracks the single block that currently carries the
-        # moving conversation cache_control marker.  As the conversation grows
-        # we relocate this marker to the latest tool_result rather than adding a
-        # new one, so the total number of markers stays fixed at 3 (tools +
-        # system + conversation) — well within Anthropic's limit of 4.
-        conv_marker: dict | None = None
         split_match = re.search(
             r"(\n+(?:User message|User request|User prompt|Request):\s*)(.*)$",
             user,
@@ -114,12 +96,11 @@ class AnthropicAdapter(BaseLLMAdapter):
             prefix_text = user[:split_match.start()].strip()
             suffix_text = (split_match.group(1) + split_match.group(2)).strip()
             if prefix_text:
-                conv_marker = {
+                user_blocks.append({
                     "type": "text",
                     "text": prefix_text,
                     "cache_control": {"type": "ephemeral"},
-                }
-                user_blocks.append(conv_marker)
+                })
             user_blocks.append({
                 "type": "text",
                 "text": suffix_text,
@@ -132,23 +113,21 @@ class AnthropicAdapter(BaseLLMAdapter):
 
         messages = [{"role": "user", "content": user_blocks}]
 
-        # ── Build request kwargs ───────────────────────────────────────────────
-        # Explicit cache_control markers are on: (1) last tool def, (2) system
-        # prompt, and (3) either user-prefix (turn 0) or last tool_result
-        # (turns 1+).  This keeps us at 3 active markers — well within the
-        # Anthropic limit of 4.
+        # ── Breakpoint 3: Top-level automatic caching ─────────────────────────
+        # The API automatically places the breakpoint on the last cacheable
+        # block in each request.  As tool turns are appended, the breakpoint
+        # advances with the growing conversation — no manual management needed.
         kwargs: dict = {
             "model": self._model,
             "system": system_blocks,
             "max_tokens": max_tokens,
             "messages": messages,
+            "cache_control": {"type": "ephemeral"},
         }
         if tool_defs:
             kwargs["tools"] = tool_defs
 
-        trace = []
         for turn in range(_MAX_TOOL_TURNS):
-            _turn_t0 = time.perf_counter()
             # Use streaming to avoid the Anthropic SDK's 10-minute limit on
             # non-streaming requests.  get_final_message() collects the full
             # response and returns the same Message object as messages.create().
@@ -168,72 +147,45 @@ class AnthropicAdapter(BaseLLMAdapter):
                 cache_read + cache_write + uncached,
                 getattr(usage, "output_tokens", 0) or 0,
             )
-            prompt_tokens, completion_tokens = _usage_tokens(response)
-            text_parts = [b.text for b in response.content if hasattr(b, "text")]
 
             if response.stop_reason != "tool_use":
-                content = "\n".join(text_parts)
-                trace.append(
-                    TurnRecord(
-                        role="assistant",
-                        content=content,
-                        prompt_tokens=prompt_tokens,
-                        completion_tokens=completion_tokens,
-                        latency_ms=int((time.perf_counter() - _turn_t0) * 1000),
-                    )
-                )
-                return CompletionResult(text=content, trace=trace)
+                # Collect all text blocks
+                text_parts = [b.text for b in response.content if hasattr(b, "text")]
+                return "\n".join(text_parts)
 
             # Append assistant turn (content includes tool_use blocks)
             messages.append({"role": "assistant", "content": response.content})
 
-            # Execute tool calls and build tool_result blocks; all calls of
-            # this response stay grouped under ONE TurnRecord with the turn's
-            # real token usage.
-            turn_record = TurnRecord(
-                role="tool",
-                content="\n".join(text_parts),
-                prompt_tokens=prompt_tokens,
-                completion_tokens=completion_tokens,
-            )
+            # Execute tool calls and build tool_result blocks
             tool_results = []
             for block in response.content:
                 if block.type != "tool_use":
                     continue
                 tool = tool_map.get(block.name)
-                arguments = dict(block.input or {})
                 if tool:
                     try:
-                        result = str(tool.fn(**arguments))
+                        result = str(tool.fn(**block.input))
                     except Exception as exc:
                         result = f"Error calling {block.name}: {exc}"
                 else:
                     result = f"Unknown tool: {block.name}"
 
-                turn_record.tool_calls.append(
-                    ToolCallRecord(name=block.name, arguments=arguments, result=result)
-                )
                 tool_results.append({
                     "type": "tool_result",
                     "tool_use_id": block.id,
                     "content": result,
                 })
-            # API round-trip + inline tool execution = this turn's decision latency
-            turn_record.latency_ms = int((time.perf_counter() - _turn_t0) * 1000)
-            trace.append(turn_record)
 
-            # Relocate the single conversation cache_control marker to the last
-            # tool_result so the entire conversation prefix (tools + system +
-            # all prior messages + this tool result) is cached for the next
-            # turn.  We remove the marker from its previous location first so
-            # markers never accumulate beyond the Anthropic limit of 4.
+            # Mark the last tool_result with cache_control so the entire
+            # conversation prefix (tools + system + all prior messages +
+            # this tool result) is cached for the next turn.  This gives
+            # the lookback window an explicit write point close to the end
+            # of the growing conversation, ensuring cache hits even when
+            # the conversation exceeds 20 blocks.
             if tool_results:
-                if conv_marker is not None:
-                    conv_marker.pop("cache_control", None)
                 tool_results[-1]["cache_control"] = {"type": "ephemeral"}
-                conv_marker = tool_results[-1]
 
             messages.append({"role": "user", "content": tool_results})
             kwargs["messages"] = messages
 
-        return CompletionResult(text="", trace=trace, hit_turn_cap=True)
+        return ""

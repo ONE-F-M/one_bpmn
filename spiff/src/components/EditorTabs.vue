@@ -5,18 +5,9 @@
 			v-if="!readonly"
 			@click="$emit('add-tab')"
 			class="p-2 rounded hover:bg-gray-300 text-gray-600 shrink-0"
-			title="Create new version"
+			title="Add new diagram"
 		>
 			<Icon icon="lucide:plus" class="w-5 h-5" />
-		</button>
-
-		<!-- Compare button (Material Design 3 'compare' icon) -->
-		<button
-			@click="$emit('compare')"
-			class="p-2 rounded hover:bg-gray-300 text-gray-600 shrink-0"
-			title="Compare versions"
-		>
-			<Icon icon="material-symbols:compare" class="w-5 h-5" />
 		</button>
 
 		<!-- All Tabs Menu -->
@@ -100,31 +91,6 @@
 					</button>
 				</div>
 			</div>
-
-			<!-- Divider between map tabs and named-version chips -->
-			<div
-				v-if="versions.length"
-				class="self-stretch w-px bg-gray-300 mx-1 shrink-0"
-			></div>
-
-			<!-- Named-version chips (read-only; darker to distinguish from map tabs) -->
-			<div
-				v-for="v in versions"
-				:key="v.name"
-				:data-tab-active="activeVersion === v.name ? 'true' : undefined"
-				style="scroll-snap-align: center;"
-				:class="[
-					'flex items-center gap-1.5 px-3 py-1.5 rounded text-sm cursor-pointer transition-colors shrink-0',
-					activeVersion === v.name
-						? 'bg-gray-900 text-white shadow-sm'
-						: 'bg-gray-200 text-gray-700 hover:bg-gray-300'
-				]"
-				:title="`Named version — read only`"
-				@click="$emit('select-version', v.name)"
-			>
-				<Icon icon="lucide:lock" class="w-3 h-3 shrink-0 opacity-70" />
-				<span class="truncate max-w-40">{{ v.version_name }}</span>
-			</div>
 		</div>
 
 		<!-- Single Tab Dropdown (positioned dynamically to avoid clipping) -->
@@ -175,28 +141,10 @@ const props = defineProps({
 	readonly: {
 		type: Boolean,
 		default: false
-	},
-	// Named versions shown as read-only chips beside the map tabs.
-	versions: {
-		type: Array,
-		default: () => []
-	},
-	// Name (snapshot doc) of the named version currently being viewed.
-	activeVersion: {
-		type: String,
-		default: null
 	}
 })
 
-const emit = defineEmits([
-	"select-tab",
-	"add-tab",
-	"rename-tab",
-	"duplicate-tab",
-	"delete-tab",
-	"select-version",
-	"compare",
-])
+const emit = defineEmits(["select-tab", "add-tab", "rename-tab", "duplicate-tab", "delete-tab"])
 
 const editingTab = ref(null)
 const editingName = ref("")

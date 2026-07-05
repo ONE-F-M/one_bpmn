@@ -5,20 +5,13 @@
 	"type": "module",
 	"scripts": {
 		"dev": "vite",
-		"build": "NODE_OPTIONS='--max-old-space-size=8192' vite build"
+		"build": "vite build"
 	},
 	"dependencies": {
 		"@bpmn-io/properties-panel": "^3.36.0",
-		"@codemirror/lang-javascript": "^6.2.5",
-		"@codemirror/lang-python": "^6.2.1",
-		"@codemirror/language": "6.12.4",
-		"@codemirror/state": "^6.7.0",
-		"@codemirror/view": "^6.43.4",
 		"@iconify-json/lucide": "^1.2.87",
 		"@iconify-json/mdi": "^1.2.3",
 		"@iconify/vue": "^5.0.0",
-		"@lezer/common": "^1.5.2",
-		"@lezer/highlight": "^1.2.3",
 		"@vitejs/plugin-vue": "^4.4.0",
 		"bpmn-auto-layout": "^0.4.0",
 		"bpmn-js": "^18.0.0",
@@ -29,7 +22,6 @@
 		"bpmn-js-spiffworkflow": "github:ks093/bpmn-js-spiffworkflow#develop",
 		"bpmn-js-touch-interaction": "^0.1.2",
 		"bpmnlint": "^11.12.0",
-		"@codemirror/commands": "^6.10.4",
 		"dayjs": "^1.11.7",
 		"diagram-js-minimap": "^5.2.0",
 		"dmn-js": "^17.8.1",
@@ -52,12 +44,7 @@
 		"defu": ">=6.1.5",
 		"socket.io-parser": ">=4.2.6",
 		"markdown-it": ">=14.1.1",
-		"picomatch": ">=2.3.2",
-		"@codemirror/language": "6.12.4",
-		"@codemirror/state": "6.7.0",
-		"@codemirror/view": "6.43.4",
-		"@lezer/common": "1.5.2",
-		"@lezer/highlight": "1.2.3"
+		"picomatch": ">=2.3.2"
 	},
 	"_comments": {
 		"resolutions/@iconify/utils": "Pinned to 2.2.1 — frappe-ui ships a nested @iconify/utils@3.x which uses node:util styleText (Node 20+ only). This pin forces v2 for Node 18 compatibility."

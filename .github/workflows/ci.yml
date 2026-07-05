@@ -104,32 +104,3 @@ jobs:
           bench --site test_site run-tests --app one_bpmn
         env:
           TYPE: server
-
-  amp-validation:
-    runs-on: ubuntu-latest
-    name: AMP Validation
-
-    steps:
-      - name: Clone
-        uses: actions/checkout@v3
-
-      - name: Setup Python
-        uses: actions/setup-python@v4
-        with:
-          python-version: '3.10'
-
-      - name: Setup Node
-        uses: actions/setup-node@v3
-        with:
-          node-version: 18
-          check-latest: true
-
-      - name: Install AMP validator
-        run: npm install -g amphtml-validator
-
-      - name: Validate golden samples
-        run: |
-          amphtml-validator --html_format AMP4EMAIL \
-            one_bpmn/tests/fixtures/golden_amp_info.html \
-            one_bpmn/tests/fixtures/golden_amp_action.html \
-            one_bpmn/tests/fixtures/golden_amp_comment.html
