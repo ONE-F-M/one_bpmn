@@ -528,6 +528,79 @@ class BPMNProcessInstance(Document):
 		# a downstream catch event now matches).
 		wf.refresh_waiting_tasks()
 
+	def _on_adhoc_task_complete(self, task):
+		"""
+		Fired after each ad-hoc inner task completes (WI-001350 Scenario 7).
+
+		Inline <bpmn:script> tasks read the context doc from the shared
+		script-engine environment, which is populated once per API call.
+		Refreshing after every inner completion lets a later inline script
+		see values an earlier one just wrote via frappe.db.set_value().
+		Server-Script-backed tasks are unaffected either way — they call
+		frappe.get_doc() fresh on every execution.
+		"""
+		if self.context_doctype and self.context_docname:
+			bpmn_engine.refresh_context_doc(
+				task.workflow.top_workflow, self.context_doctype, self.context_docname
+			)
+
+		# If the AI Task Selector activated this task, attach what it actually
+		# produced to the recording (AI Agent Tool Call.outcome). No-op when no
+		# matching outcome-less tool call exists (plain adhoc, chained tasks).
+		try:
+			from one_bpmn.agents.observability import record_activation_outcome
+
+			bpmn_id = getattr(task.task_spec, "bpmn_id", None) or task.task_spec.name
+			outcome = self._compose_task_outcome(task, bpmn_id)
+			record_activation_outcome(self.name, bpmn_id, outcome)
+		except Exception:
+			frappe.log_error(
+				title="BPMN: activation outcome recording failed",
+				message=frappe.get_traceback(),
+			)
+
+	def _compose_task_outcome(self, task, bpmn_id: str) -> str:
+		"""One-line, factual summary of what a completed ad-hoc inner task did,
+		derived from its compile-time config and the data it wrote."""
+		svc_cfg = getattr(self, "_service_task_extensions", {}).get(bpmn_id) or {}
+		script_cfg = getattr(self, "_script_task_extensions", {}).get(bpmn_id) or {}
+		parts = []
+
+		if svc_cfg.get("serviceType") == "update_field":
+			target = svc_cfg.get("updateFieldDoctype") or self.context_doctype or "document"
+			try:
+				for row in json.loads(svc_cfg.get("updateFieldRows") or "[]"):
+					parts.append(f'set {target}.{row.get("field")} = "{row.get("value")}"')
+			except Exception:
+				pass
+
+		script_name = script_cfg.get("serverScript") or svc_cfg.get("serverScript")
+		if script_name:
+			written = {}
+			try:
+				from one_bpmn.api.ai_assistant import _server_script_result_keys
+
+				for key in _server_script_result_keys(script_name):
+					if key in (task.data or {}):
+						written[key] = task.data[key]
+			except Exception:
+				pass
+			if written:
+				values = ", ".join(f"{k} = {v!r}" for k, v in written.items())
+				parts.append(f'ran Server Script "{script_name}" → {values}')
+			else:
+				parts.append(f'ran Server Script "{script_name}"')
+
+		if svc_cfg.get("notificationName"):
+			parts.append(f'sent notification "{svc_cfg["notificationName"]}"')
+
+		task_type = type(task.task_spec).__name__
+		if not parts and "UserTask" in task_type:
+			parts.append(f"completed by {frappe.session.user}")
+
+		summary = "; ".join(parts) if parts else "completed"
+		return f"Completed {now_datetime().strftime('%H:%M:%S')} — {summary}"
+
 	def _on_engine_task_complete(self, task):
 		"""
 		Callback fired by do_engine_steps() after each automated task.
