@@ -125,7 +125,6 @@
 
 <script setup>
 import { ref, watch, computed } from "vue";
-import { frappeRequest } from "frappe-ui";
 import { frappeGet } from "@/bpmn/shared/frappeResource";
 import { Icon } from "@iconify/vue";
 

@@ -284,7 +284,7 @@ async function loadProcessModelXml(modelName) {
 			url: "/api/method/one_bpmn.api.process_map_api.get_process_model",
 			params: { name: modelName },
 		})
-		const data = res.message || res
+		const data = res
 		if (data?.xml_content) {
 			bpmnXml.value = decodeHtmlEntities(data.xml_content)
 		}

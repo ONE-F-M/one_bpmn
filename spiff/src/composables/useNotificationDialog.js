@@ -157,7 +157,7 @@ export function useNotificationDialog(doctypeOptions, moduleOptions, showToast) 
 					url: "/api/method/frappe.client.get_list",
 					params: { doctype: "DocType", fields: ["name"], limit_page_length: 0, order_by: "name asc" },
 				});
-				doctypeOptions.value = (dtResp.message || dtResp || []).map((d) => d.name);
+				doctypeOptions.value = (dtResp || []).map((d) => d.name);
 			} catch (e) {
 				console.error("Failed to load DocTypes:", e);
 			}
@@ -168,7 +168,7 @@ export function useNotificationDialog(doctypeOptions, moduleOptions, showToast) 
 					url: "/api/method/frappe.client.get_list",
 					params: { doctype: "Module Def", fields: ["name"], limit_page_length: 0, order_by: "name asc" },
 				});
-				moduleOptions.value = (modResp.message || modResp || []).map((m) => m.name);
+				moduleOptions.value = (modResp || []).map((m) => m.name);
 			} catch (e) {
 				console.error("Failed to load Modules:", e);
 			}

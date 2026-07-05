@@ -546,7 +546,7 @@ async function sendMessage() {
 		// Capture the conversation name returned by the backend
 		if (result?.conversation_name) conversationName.value = result.conversation_name;
 
-		const reply  = result?.response || result?.message || "Sorry, I couldn't process that.";
+		const reply  = result?.response || "Sorry, I couldn't process that.";
 		const intent = result?.intent;
 		const diff   = result?.diff   || null;
 		const options = result?.options || null;
