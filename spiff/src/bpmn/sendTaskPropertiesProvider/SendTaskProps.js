@@ -2,6 +2,7 @@ import { isSelectEntryEdited } from "@bpmn-io/properties-panel";
 import { useService } from "bpmn-js-properties-panel";
 import { getBusinessObject } from "bpmn-js/lib/util/ModelUtil";
 import { h, Component } from "preact";
+import { fixedDropdownStyle } from "../shared/dropdownPosition";
 
 // Shared REST helper
 function frappeGet(path, params = {}) {
@@ -48,17 +49,28 @@ class NotificationAutocomplete extends Component {
 			searchTxt: props.value || "",
 		};
 		this.containerRef = null;
+		this.inputRef = null;
 		this.debounceTimer = null;
 		this.handleDocumentClick = this.handleDocumentClick.bind(this);
+		this.handleScroll = this.handleScroll.bind(this);
 	}
 
 	componentDidMount() {
 		document.addEventListener("mousedown", this.handleDocumentClick);
+		// Fixed-position dropdown must follow its anchor when the panel scrolls
+		document.addEventListener("scroll", this.handleScroll, true);
+		window.addEventListener("resize", this.handleScroll);
 	}
 
 	componentWillUnmount() {
 		document.removeEventListener("mousedown", this.handleDocumentClick);
+		document.removeEventListener("scroll", this.handleScroll, true);
+		window.removeEventListener("resize", this.handleScroll);
 		if (this.debounceTimer) clearTimeout(this.debounceTimer);
+	}
+
+	handleScroll() {
+		if (this.state.isOpen) this.forceUpdate();
 	}
 
 	componentDidUpdate(prevProps) {
@@ -134,6 +146,7 @@ class NotificationAutocomplete extends Component {
 						type: "text",
 						class: "bio-properties-panel-input",
 						value: searchTxt,
+						ref: (c) => (this.inputRef = c),
 						onInput: (e) => this.onInput(e),
 						onFocus: () => this.onFocus(),
 						autoComplete: "off",
@@ -144,8 +157,8 @@ class NotificationAutocomplete extends Component {
 						h(
 							"ul",
 							{
-								class: "bio-properties-panel-dropdown",
 								class: "bpmn-dropdown-list",
+								style: fixedDropdownStyle(this.inputRef),
 							},
 							[
 								loading && h("li", { class: "bpmn-dropdown-loading" }, "Loading..."),

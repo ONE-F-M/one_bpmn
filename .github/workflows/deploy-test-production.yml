@@ -28,15 +28,15 @@ jobs:
             export NVM_DIR="$HOME/.nvm"
             [ -s "$NVM_DIR/nvm.sh" ] && . "$NVM_DIR/nvm.sh"
             node -v
-            cd /home/frappe/test-production/apps/one_bpmn
+            cd /home/ubuntu/test-production/apps/one_bpmn
             git pull upstream test-production
-            cd /home/frappe/test-production
+            cd /home/ubuntu/test-production
             bench setup requirements one_bpmn
-            cd /home/frappe/test-production/apps/one_bpmn/spiff
+            cd /home/ubuntu/test-production/apps/one_bpmn/spiff
             yarn install
             export NODE_OPTIONS="--max-old-space-size=4096"
             yarn build
-            cd /home/frappe/test-production
+            cd /home/ubuntu/test-production
             bench --site staging.one-fm.com migrate
             bench --site staging.one-fm.com build --app one_bpmn
             bench --site staging.one-fm.com clear-cache

@@ -19,6 +19,7 @@ from .dispatchers import (
 	dispatch_email,
 	dispatch_google_chat,
 	dispatch_push_notification,
+	dispatch_send_notification,
 	dispatch_update_field,
 )
 from .assignment import (
@@ -487,6 +488,52 @@ class BPMNProcessInstance(Document):
 		  We then dispatch the real-world side effect and call task.complete()
 		  to advance STARTED → COMPLETED, then loop again.
 		"""
+		# WI-001352: while this engine call runs, ad-hoc subprocesses tagged
+		# with an AI Task Selector decide their next inner task via the LLM
+		# instead of diagram order. WI-001359: every ad-hoc activation is
+		# audited. Both hooks are process-global engine state —
+		# install/uninstall them around the run.
+		from one_bpmn.one_bpmn.doctype.bpmn_process_instance.ai_task_selector import (
+			make_adhoc_decider,
+		)
+
+		bpmn_engine.adhoc_next_task_decider = make_adhoc_decider(self, wf)
+		bpmn_engine.adhoc_task_activated_logger = self._log_adhoc_activation
+		try:
+			self._run_engine_inner(wf)
+		finally:
+			bpmn_engine.adhoc_next_task_decider = None
+			bpmn_engine.adhoc_task_activated_logger = None
+
+	def _log_adhoc_activation(self, sp, task):
+		"""WI-001359: 'Ad-Hoc Task Activated' audit entry. The existing
+		instance+task_id+action dedup in _log_task prevents duplicates on
+		engine restarts re-processing the same state."""
+		self._log_task(
+			task_id=str(task.id),
+			task_name=bpmn_engine.get_task_display_name(task),
+			action="Ad-Hoc Task Activated",
+			data={
+				"bpmn_id": getattr(task.task_spec, "bpmn_id", None) or task.task_spec.name,
+				"parent_subprocess": sp.spec.name,
+			},
+		)
+
+	def log_ai_task_selected(self, bpmn_id: str, chosen_tools: list, arguments: dict = None):
+		"""WI-001359: 'AI Task Selected' audit entry — a lightweight
+		cross-reference to the decision, not a duplicate of the full
+		per-call record on AI Agent Tool Call (WI-001358)."""
+		summary = json.dumps(arguments or {}, default=str)
+		if len(summary) > 500:
+			summary = summary[:500] + "…"
+		self._log_task(
+			task_id=f"{bpmn_id}::decision::{'+'.join(chosen_tools) or 'none'}",
+			task_name=f"AI Task Selector ({bpmn_id})",
+			action="AI Task Selected",
+			data={"chosen_tools": chosen_tools, "arguments_summary": summary},
+		)
+
+	def _run_engine_inner(self, wf):
 		wf.refresh_waiting_tasks()
 
 		cap_hit = True
@@ -563,6 +610,63 @@ class BPMNProcessInstance(Document):
 				task.workflow.top_workflow, self.context_doctype, self.context_docname
 			)
 
+		# If the AI Task Selector activated this task, attach what it actually
+		# produced to the recording (AI Agent Tool Call.outcome). No-op when no
+		# matching outcome-less tool call exists (plain adhoc, chained tasks).
+		try:
+			from one_bpmn.agents.observability import record_activation_outcome
+
+			bpmn_id = getattr(task.task_spec, "bpmn_id", None) or task.task_spec.name
+			outcome = self._compose_task_outcome(task, bpmn_id)
+			record_activation_outcome(self.name, bpmn_id, outcome)
+		except Exception:
+			frappe.log_error(
+				title="BPMN: activation outcome recording failed",
+				message=frappe.get_traceback(),
+			)
+
+	def _compose_task_outcome(self, task, bpmn_id: str) -> str:
+		"""One-line, factual summary of what a completed ad-hoc inner task did,
+		derived from its compile-time config and the data it wrote."""
+		svc_cfg = getattr(self, "_service_task_extensions", {}).get(bpmn_id) or {}
+		script_cfg = getattr(self, "_script_task_extensions", {}).get(bpmn_id) or {}
+		parts = []
+
+		if svc_cfg.get("serviceType") == "update_field":
+			target = svc_cfg.get("updateFieldDoctype") or self.context_doctype or "document"
+			try:
+				for row in json.loads(svc_cfg.get("updateFieldRows") or "[]"):
+					parts.append(f'set {target}.{row.get("field")} = "{row.get("value")}"')
+			except Exception:
+				pass
+
+		script_name = script_cfg.get("serverScript") or svc_cfg.get("serverScript")
+		if script_name:
+			written = {}
+			try:
+				from one_bpmn.api.ai_assistant import _server_script_result_keys
+
+				for key in _server_script_result_keys(script_name):
+					if key in (task.data or {}):
+						written[key] = task.data[key]
+			except Exception:
+				pass
+			if written:
+				values = ", ".join(f"{k} = {v!r}" for k, v in written.items())
+				parts.append(f'ran Server Script "{script_name}" → {values}')
+			else:
+				parts.append(f'ran Server Script "{script_name}"')
+
+		if svc_cfg.get("notificationName"):
+			parts.append(f'sent notification "{svc_cfg["notificationName"]}"')
+
+		task_type = type(task.task_spec).__name__
+		if not parts and "UserTask" in task_type:
+			parts.append(f"completed by {frappe.session.user}")
+
+		summary = "; ".join(parts) if parts else "completed"
+		return f"Completed {now_datetime().strftime('%H:%M:%S')} — {summary}"
+
 	def _on_engine_task_complete(self, task):
 		"""
 		Callback fired by do_engine_steps() after each automated task.
@@ -578,6 +682,26 @@ class BPMNProcessInstance(Document):
 		# Skip engine-internal tasks that don't correspond to BPMN elements
 		if not bpmn_id and (spec_name in ("Start", "End") or spec_name.endswith(".EndJoin")):
 			return
+
+		# Send Tasks complete inside the engine sweep (they never sit in
+		# STARTED like service tasks), so this callback is where their
+		# real-world action happens. Guarded by state: the STARTED dispatch
+		# loop also calls this hook pre-complete for service tasks, which a
+		# SendTask can never be.
+		if isinstance(task_spec, bpmn_engine.SendTask) and bpmn_id:
+			task_cfg = getattr(self, "_service_task_extensions", {}).get(bpmn_id, {})
+			if task_cfg.get("notificationName"):
+				dispatch_send_notification(self, task, task_cfg, bpmn_id)
+
+		# A completed subprocess parent ends its AI Task Selector run (if
+		# one exists) — the only moment a selector run is genuinely over.
+		if isinstance(task_spec, SubWorkflowTask):
+			try:
+				from one_bpmn.agents.observability import finalize_open_selector_runs
+
+				finalize_open_selector_runs(self.name, bpmn_id or spec_name)
+			except Exception:
+				pass
 
 		self._log_task(
 			task_id=str(task.id),

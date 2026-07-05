@@ -1,0 +1,153 @@
+{
+ "actions": [],
+ "allow_copy": 1,
+ "allow_import": 1,
+ "allow_rename": 1,
+ "autoname": "field:tool_name",
+ "creation": "2026-07-02 00:00:00.000000",
+ "doctype": "DocType",
+ "editable_grid": 1,
+ "engine": "InnoDB",
+ "field_order": [
+  "tool_name",
+  "is_active",
+  "column_break_main",
+  "handler_type",
+  "handler_doctype",
+  "handler_reference",
+  "section_definition",
+  "description",
+  "input_schema",
+  "required_params",
+  "section_scope",
+  "applicable_processes"
+ ],
+ "fields": [
+  {
+   "fieldname": "tool_name",
+   "fieldtype": "Data",
+   "in_list_view": 1,
+   "in_standard_filter": 1,
+   "label": "Tool Name",
+   "reqd": 1,
+   "unique": 1,
+   "description": "Machine-facing tool name offered to the LLM. Use snake_case (e.g. create_work_item)."
+  },
+  {
+   "default": "1",
+   "fieldname": "is_active",
+   "fieldtype": "Check",
+   "in_list_view": 1,
+   "label": "Is Active"
+  },
+  {
+   "fieldname": "column_break_main",
+   "fieldtype": "Column Break"
+  },
+  {
+   "default": "server_script",
+   "fieldname": "handler_type",
+   "fieldtype": "Select",
+   "in_list_view": 1,
+   "label": "Handler Type",
+   "options": "server_script\ncall_activity",
+   "reqd": 1,
+   "description": "call_activity handlers can be defined but are not executable yet — only server_script handlers run."
+  },
+  {
+   "fieldname": "handler_doctype",
+   "fieldtype": "Select",
+   "hidden": 1,
+   "label": "Handler DocType",
+   "options": "Server Script\nBPMN Process Model",
+   "read_only": 1
+  },
+  {
+   "fieldname": "handler_reference",
+   "fieldtype": "Dynamic Link",
+   "label": "Handler Reference",
+   "options": "handler_doctype",
+   "reqd": 1
+  },
+  {
+   "fieldname": "section_definition",
+   "fieldtype": "Section Break",
+   "label": "Tool Definition"
+  },
+  {
+   "fieldname": "description",
+   "fieldtype": "Text",
+   "label": "Description",
+   "reqd": 1,
+   "description": "Natural-language purpose fed to the LLM — this is how the model decides when to call the tool."
+  },
+  {
+   "fieldname": "input_schema",
+   "fieldtype": "JSON",
+   "label": "Input Schema",
+   "reqd": 1,
+   "description": "Parameters as {\"param_name\": {\"type\": \"string\", \"description\": \"...\"}}."
+  },
+  {
+   "fieldname": "required_params",
+   "fieldtype": "Small Text",
+   "label": "Required Parameters",
+   "description": "Comma-separated parameter names that the LLM must always supply. Each must be a key of the input schema."
+  },
+  {
+   "fieldname": "section_scope",
+   "fieldtype": "Section Break",
+   "label": "Scope"
+  },
+  {
+   "fieldname": "applicable_processes",
+   "fieldtype": "Table MultiSelect",
+   "label": "Applicable Processes",
+   "options": "AI Agent Tool Process",
+   "description": "Leave empty to make this tool available to every process."
+  }
+ ],
+ "index_web_pages_for_search": 0,
+ "is_submittable": 0,
+ "is_tree": 0,
+ "is_virtual": 0,
+ "issingle": 0,
+ "istable": 0,
+ "links": [],
+ "modified": "2026-07-02 00:00:00.000000",
+ "modified_by": "Administrator",
+ "module": "ONE BPMN",
+ "name": "AI Agent Tool",
+ "naming_rule": "By fieldname",
+ "owner": "Administrator",
+ "permissions": [
+  {
+   "create": 1,
+   "delete": 1,
+   "email": 1,
+   "export": 1,
+   "import": 1,
+   "print": 1,
+   "read": 1,
+   "report": 1,
+   "role": "System Manager",
+   "share": 1,
+   "write": 1
+  },
+  {
+   "create": 1,
+   "email": 1,
+   "export": 1,
+   "print": 1,
+   "read": 1,
+   "report": 1,
+   "role": "Process Owner",
+   "share": 1
+  }
+ ],
+ "show_title_field_in_link": 0,
+ "sort_field": "creation",
+ "sort_order": "DESC",
+ "states": [],
+ "track_changes": 1
+}
