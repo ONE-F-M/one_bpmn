@@ -74,6 +74,10 @@ class ExecutorConfig:
     response_schema: Optional[str] = None  # JSON Schema string
     max_retries: int = 2
     retry_backoff_ms: int = 1000
+    # Optional prior message history to prime the call, same {role, content, ...}
+    # shape as the conversation store. Provisional — the multi-turn loop may
+    # revise this. When empty, executor behaviour is byte-for-byte unchanged.
+    messages: list = field(default_factory=list)
     # WI-001356: optional list[ToolSpec]. None (default) keeps the raw HTTP
     # path byte-for-byte unchanged; when set, DirectApiExecutor delegates to
     # the matching agents/llm_provider adapter's multi-turn tool loop.
