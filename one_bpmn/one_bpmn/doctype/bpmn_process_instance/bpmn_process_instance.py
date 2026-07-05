@@ -13,7 +13,6 @@ from SpiffWorkflow.bpmn.specs.mixins.subworkflow_task import SubWorkflowTask
 from SpiffWorkflow.util.task import TaskState
 
 from one_bpmn.one_bpmn import engine as bpmn_engine
-from one_bpmn.one_bpmn.doctype.bpmn_process_instance.dispatchers import dispatch_ai_agent
 
 from .dispatchers import (
 	dispatch_email,
@@ -187,7 +186,6 @@ class BPMNProcessInstance(Document):
 		_script_exts = _spec_snap.get("script_task_extensions", {})
 		self._service_task_extensions = _spec_snap.get("service_task_extensions", {})
 		self._user_task_extensions = _spec_snap.get("user_task_extensions", {})
-		self._refresh_user_task_extensions_from_model()
 
 		wf = bpmn_engine.restore_workflow(
 			workflow_state=self._load_json(self.workflow_state),
@@ -343,7 +341,6 @@ class BPMNProcessInstance(Document):
 		_script_exts = _spec_snap.get("script_task_extensions", {})
 		self._service_task_extensions = _spec_snap.get("service_task_extensions", {})
 		self._user_task_extensions = _spec_snap.get("user_task_extensions", {})
-		self._refresh_user_task_extensions_from_model()
 
 		wf = bpmn_engine.restore_workflow(
 			workflow_state=self._load_json(self.workflow_state),
@@ -780,8 +777,7 @@ class BPMNProcessInstance(Document):
 
 		elif service_type == "send_email":
 			try:
-				dispatch_email(self, task, task_cfg,
-					amp_html=task_cfg.get("ampHtml") or None)
+				dispatch_email(self, task, task_cfg)
 			except Exception:
 				# Email failures are non-fatal: log and continue so the
 				# workflow can complete even if the email account is not
@@ -807,9 +803,6 @@ class BPMNProcessInstance(Document):
 					title=f"BPMN ServiceTask: push_notification failed for task {bpmn_id}",
 					message=frappe.get_traceback(),
 				)
-
-		elif service_type == "ai_agent":
-			dispatch_ai_agent(self, task, task_cfg, bpmn_id)
 
 		return True  # default: complete the task
 
@@ -848,10 +841,6 @@ class BPMNProcessInstance(Document):
 		]
 
 		existing_waiting_ids = {row.task_id for row in self.active_tasks if row.status == "Waiting"}
-
-		# Map of user → (task_name, task_cfg) for newly created rows
-		# Used to pass notification settings to add_frappe_assignment
-		new_user_task_cfgs = {}
 
 		for task in ready_user_tasks:
 			tid = str(task.id)
@@ -892,13 +881,6 @@ class BPMNProcessInstance(Document):
 					"target_docname": target_docname,
 				},
 			)
-			# Stash bpmn_id as a transient attribute (not persisted) for
-			# add_frappe_assignment to read the user_task_extensions config.
-			self.active_tasks[-1]._bpmn_id = bpmn_id_key
-
-			# Track the task_cfg so we can pass notification settings below
-			if assigned_user:
-				new_user_task_cfgs[assigned_user] = (task_name, task_cfg)
 
 			self._log_task(
 				task_id=tid,
@@ -907,29 +889,20 @@ class BPMNProcessInstance(Document):
 			)
 
 		# Diff: which users are now assigned across all Waiting tasks
-		curr_assigned = {}
-		for row in self.active_tasks:
-			if row.status == "Waiting" and row.assigned_user:
-				curr_assigned[row.assigned_user] = {
-					"task_name": row.task_name,
-					"bpmn_id": getattr(row, "_bpmn_id", ""),
-					"task_id": row.task_id,
-				}
+		curr_assigned = {
+			row.assigned_user: row.task_name
+			for row in self.active_tasks
+			if row.status == "Waiting" and row.assigned_user
+		}
 
 		# Close ToDos for users who were assigned but no longer are
 		for user in prev_assigned - set(curr_assigned.keys()):
 			remove_frappe_assignment(self, user)
 
 		# Create ToDos for users who are newly assigned
-		for user, info in curr_assigned.items():
+		for user, task_name in curr_assigned.items():
 			if user not in prev_assigned:
-				task_name_cfg = new_user_task_cfgs.get(user, (info["task_name"], {}))
-				add_frappe_assignment(
-					self, user, info["task_name"],
-					info.get("bpmn_id", ""),
-					task_id=info.get("task_id", ""),
-					task_cfg=task_name_cfg[1] if isinstance(task_name_cfg, tuple) else {},
-				)
+				add_frappe_assignment(self, user, task_name)
 
 	def _check_completion(self, wf):
 		"""
@@ -987,46 +960,6 @@ class BPMNProcessInstance(Document):
 			)
 
 	# Utilities
-
-	def _refresh_user_task_extensions_from_model(self):
-		"""
-		Merge notification-related attributes from the **active** process model's
-		compiled spec into this instance's ``_user_task_extensions``.
-
-		The instance stores a snapshot of the spec at start time.  If the process
-		model is re-deployed with new ``notifyAssignee`` / ``notifyAssigneeBody``
-		settings *after* an instance has started, the instance's snapshot will be
-		stale.  This method patches in those notification-only keys from the live
-		model so that running instances transparently pick up notification changes.
-
-		Only ``notifyAssignee`` and ``notifyAssigneeBody`` are refreshed — all
-		other extension keys (assigneeMode, taskActions, etc.) continue to come
-		from the instance's own snapshot to preserve consistency.
-		"""
-		_NOTIFY_KEYS = ("notifyAssignee", "notifyAssigneeBody")
-
-		try:
-			model_spec_json = frappe.db.get_value(
-				"BPMN Process Model", self.process_model, "serialized_spec"
-			)
-			if not model_spec_json:
-				return
-
-			model_spec = self._load_json(model_spec_json) or {}
-			model_user_exts = model_spec.get("user_task_extensions", {})
-
-			for bpmn_id, model_cfg in model_user_exts.items():
-				inst_cfg = self._user_task_extensions.setdefault(bpmn_id, {})
-				for key in _NOTIFY_KEYS:
-					if key in model_cfg:
-						inst_cfg[key] = model_cfg[key]
-					else:
-						inst_cfg.pop(key, None)
-		except Exception:
-			frappe.log_error(
-				title=f"BPMN: Failed to refresh notifyAssignee config for instance {self.name}",
-				message=frappe.get_traceback(),
-			)
 
 	@staticmethod
 	def _load_json(value):
