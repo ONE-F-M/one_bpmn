@@ -110,15 +110,52 @@
 											:class="roleBadgeClass(step.role)"
 										>{{ step.role }}</span>
 										<span class="text-gray-500">#{{ step.step_index }}</span>
+										<span
+											v-if="step.toolCalls && step.toolCalls.length"
+											class="inline-block px-1.5 py-0.5 rounded text-[10px] font-mono bg-purple-100 text-purple-700"
+											:title="step.toolCalls.map(tc => toolLabel(tc.tool_name)).join(', ')"
+										>🔧 {{ step.toolCalls.map(tc => toolLabel(tc.tool_name)).join(", ").substring(0, 40) }}</span>
 										<span class="text-gray-600 truncate max-w-[150px]">{{ step.content ? step.content.substring(0, 80) : '(empty)' }}</span>
 									</span>
 									<span class="text-gray-400 text-[10px] whitespace-nowrap">
 									<template v-if="step.prompt_tokens">{{ step.prompt_tokens }}t in<span v-if="step.cost"> · ${{ formatCost(step.cost) }}</span></template>
 									<template v-else-if="step.completion_tokens">{{ step.completion_tokens }}t out<span v-if="step.cost"> · ${{ formatCost(step.cost) }}</span></template>
+									<span
+										v-if="step.latency_ms"
+										title="Decision latency: the model's API round-trip for this turn — not the runtime of an activated task"
+									> · {{ (step.latency_ms / 1000).toFixed(1) }}s</span>
 								</span>
 								</button>
 								<div v-if="expandedSteps.has(step.name)" class="border-t border-gray-200 px-2 py-1.5">
 									<pre class="text-[11px] text-gray-600 font-mono whitespace-pre-wrap max-h-48 overflow-y-auto bg-gray-50 rounded p-2">{{ step.content || '(empty)' }}</pre>
+									<!-- Tool calls made in this turn (AI Agent Tool Call rows) -->
+									<div
+										v-for="tc in step.toolCalls || []"
+										:key="tc.tool_name + (tc.tool_result || '')"
+										class="mt-1.5 border border-purple-200 rounded bg-purple-50/50 px-2 py-1.5"
+									>
+										<div class="flex items-center gap-1.5 text-[11px]">
+											<span class="font-semibold text-purple-700">🔧 {{ toolLabel(tc.tool_name) }}</span>
+											<span v-if="toolLabel(tc.tool_name) !== tc.tool_name" class="font-mono text-[10px] text-gray-400">{{ tc.tool_name }}</span>
+											<span v-if="tc.tool_source" class="px-1 py-0.5 rounded bg-purple-100 text-purple-600 text-[10px]">{{ tc.tool_source === 'diagram_task' ? 'diagram task' : 'registry tool' }}</span>
+											<span
+												class="px-1 py-0.5 rounded text-[10px]"
+												:class="tc.status === 'Error' ? 'bg-red-100 text-red-700' : 'bg-green-100 text-green-700'"
+											>{{ tc.status }}</span>
+										</div>
+										<div v-if="tc.tool_args && tc.tool_args !== '{}'" class="mt-1">
+											<div class="text-[10px] uppercase tracking-wide text-gray-400">Arguments</div>
+											<pre class="text-[11px] text-gray-600 font-mono whitespace-pre-wrap max-h-24 overflow-y-auto bg-white rounded p-1.5 border border-gray-100">{{ tc.tool_args }}</pre>
+										</div>
+										<div v-if="tc.tool_result" class="mt-1">
+											<div class="text-[10px] uppercase tracking-wide text-gray-400">Result <span class="normal-case">(what the model was told)</span></div>
+											<pre class="text-[11px] text-gray-600 font-mono whitespace-pre-wrap max-h-32 overflow-y-auto bg-white rounded p-1.5 border border-gray-100">{{ tc.tool_result }}</pre>
+										</div>
+										<div v-if="tc.outcome" class="mt-1">
+											<div class="text-[10px] uppercase tracking-wide text-green-600">Outcome <span class="normal-case">(what actually happened)</span></div>
+											<pre class="text-[11px] text-green-800 font-mono whitespace-pre-wrap max-h-32 overflow-y-auto bg-green-50 rounded p-1.5 border border-green-100">{{ tc.outcome }}</pre>
+										</div>
+									</div>
 								</div>
 							</div>
 						</div>
@@ -232,7 +269,15 @@ import { dayjs } from "@/dayjs"
 const props = defineProps({
 	selectedNode: { type: Object, default: null },
 	processInstanceName: { type: String, default: "" },
+	// bpmnId → shape label, from the instance's workflow state. Tool names
+	// are BPMN IDs for diagram tasks; registry tools won't be in the map
+	// and fall back to their own name.
+	taskLabels: { type: Object, default: () => ({}) },
 })
+
+function toolLabel(toolName) {
+	return props.taskLabels[toolName] || toolName
+}
 
 const activeTab = ref("variables")
 
@@ -392,7 +437,7 @@ async function fetchSteps() {
 		const csrf = getCsrfToken()
 		const params = new URLSearchParams({
 			doctype: "AI Agent Step",
-			fields: JSON.stringify(["name", "step_index", "role", "content", "tool_name", "tool_args", "tool_result", "prompt_tokens", "completion_tokens", "cost", "latency_ms"]) ,
+			fields: JSON.stringify(["name", "step_index", "role", "content", "prompt_tokens", "completion_tokens", "cost", "latency_ms"]),
 			filters: JSON.stringify([["run", "=", aiRun.value.name]]),
 			limit_page_length: 200,
 			order_by: "step_index asc",
@@ -401,7 +446,37 @@ async function fetchSteps() {
 			headers: { "X-Frappe-CSRF-Token": csrf },
 		})
 		const data = await r.json()
-		aiSteps.value = data?.message || []
+		const steps = data?.message || []
+
+		// Tool calls live in the AI Agent Tool Call child table (WI-001358) —
+		// fetch them for all steps in one query and attach per step.
+		if (steps.length) {
+			try {
+				const tcParams = new URLSearchParams({
+					doctype: "AI Agent Tool Call",
+					parent: "AI Agent Step",
+					fields: JSON.stringify(["parent", "tool_name", "tool_source", "status", "tool_args", "tool_result", "outcome"]),
+					filters: JSON.stringify([
+						["parenttype", "=", "AI Agent Step"],
+						["parent", "in", steps.map((s) => s.name)],
+					]),
+					limit_page_length: 500,
+					order_by: "idx asc",
+				})
+				const tcRes = await fetch(`/api/method/frappe.client.get_list?${tcParams}`, {
+					headers: { "X-Frappe-CSRF-Token": csrf },
+				})
+				const tcData = await tcRes.json()
+				const byStep = {}
+				for (const tc of tcData?.message || []) {
+					;(byStep[tc.parent] = byStep[tc.parent] || []).push(tc)
+				}
+				for (const s of steps) s.toolCalls = byStep[s.name] || []
+			} catch (e) {
+				console.warn("AI Tool Call fetch error:", e)
+			}
+		}
+		aiSteps.value = steps
 	} catch (e) {
 		console.error("AI Steps fetch error:", e)
 	} finally {
