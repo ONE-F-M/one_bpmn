@@ -42,11 +42,12 @@
 						:selected-bpmn-id="selectedBpmnId"
 						@select="onHistorySelect"
 					/>
-					<ElementInspector :selected-node="selectedNode" :process-instance-name="instanceId" />
+					<ElementInspector :selected-node="selectedNode" :process-instance-name="instanceId" :task-labels="taskLabels" />
 					<PendingActions
 						:active-tasks="activeTasks"
 						:completing-task="completingTask"
 						:completing-action="completingAction"
+						:engine-busy="engineBusy"
 						@complete="completeTask"
 					/>
 				</div>
@@ -56,7 +57,7 @@
 </template>
 
 <script setup>
-import { ref, computed, onMounted, onUnmounted } from "vue"
+import { ref, computed, watch, onMounted, onUnmounted } from "vue"
 import { useRoute } from "vue-router"
 import { frappeRequest } from "frappe-ui"
 import { Icon } from "@iconify/vue"
@@ -161,6 +162,31 @@ const taskList = computed(() => {
 	} catch (e) {
 		console.warn("Failed to build task list:", e)
 		return []
+	}
+})
+
+// bpmnId → human label for every task spec in the diagram (top level and
+// subprocess internals alike), so tool-call chips in the inspector can show
+// shape labels instead of raw IDs like Activity_0q9helm. Specs without a
+// label are omitted — consumers fall back to the ID.
+const taskLabels = computed(() => {
+	if (!details.value?.workflow_state) return {}
+	try {
+		const wfState = typeof details.value.workflow_state === "string"
+			? JSON.parse(details.value.workflow_state)
+			: details.value.workflow_state
+		const labels = {}
+		const collect = (taskSpecs) => {
+			for (const [specName, specData] of Object.entries(taskSpecs || {})) {
+				const label = specData.bpmn_name || specData.description
+				if (label) labels[specName] = label
+			}
+		}
+		collect(wfState.spec?.task_specs)
+		for (const sub of Object.values(wfState.subprocess_specs || {})) collect(sub.task_specs)
+		return labels
+	} catch {
+		return {}
 	}
 })
 
@@ -354,6 +380,33 @@ async function handleRealtimeUpdate(data) {
 	await loadLogs()
 }
 
+// ── Background engine tracking ──
+// The engine (task dispatch + AI decisions) runs in a background job after
+// document triggers and user actions. While it does, engine_in_progress is
+// set (or the instance is still Queued) — show progress and poll as a
+// fallback in case the realtime completion event is missed.
+const engineBusy = computed(
+	() => details.value?.status === "Queued" || Boolean(details.value?.engine_in_progress)
+)
+
+let enginePollTimer = null
+watch(engineBusy, (busy) => {
+	if (busy && !enginePollTimer) {
+		enginePollTimer = setInterval(async () => {
+			await loadDetails()
+			if (!engineBusy.value) {
+				logs.value = []
+				limitStart.value = 0
+				hasMoreLogs.value = true
+				await loadLogs()
+			}
+		}, 4000)
+	} else if (!busy && enginePollTimer) {
+		clearInterval(enginePollTimer)
+		enginePollTimer = null
+	}
+})
+
 // ── Lifecycle ──
 
 onMounted(async () => {
@@ -369,6 +422,10 @@ onMounted(async () => {
 onUnmounted(() => {
 	if (window.frappe?.realtime) {
 		window.frappe.realtime.off("bpmn_instance_updated", handleRealtimeUpdate)
+	}
+	if (enginePollTimer) {
+		clearInterval(enginePollTimer)
+		enginePollTimer = null
 	}
 })
 </script>
