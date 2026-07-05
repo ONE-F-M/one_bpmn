@@ -33,11 +33,6 @@ const routes = [
 		component: InstanceDetail,
 	},
 	{
-		path: "/processa/insights",
-		name: "Insights",
-		component: () => import("@/views/Insights.vue"),
-	},
-	{
 		path: "/:pathMatch(.*)*",
 		redirect: "/processa",
 	},

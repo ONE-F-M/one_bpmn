@@ -39,7 +39,7 @@
    "fieldtype": "Select",
    "in_list_view": 1,
    "label": "Action",
-   "options": "Started\nCompleted\nErrored\nSkipped\nTimer Expired\nError Boundary Activated\nSub-Process Started\nSub-Process Completed\nMessage Received\nAd-Hoc Task Activated\nAI Task Selected"
+   "options": "Started\nCompleted\nErrored\nSkipped\nTimer Expired\nError Boundary Activated\nSub-Process Started\nSub-Process Completed\nMessage Received"
   },
   {
    "fieldname": "timestamp",
