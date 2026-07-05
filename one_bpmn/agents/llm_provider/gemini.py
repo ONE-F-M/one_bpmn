@@ -1,19 +1,9 @@
-import time
-
 from google import genai
 from google.genai import types
 
-from .base import BaseLLMAdapter, CompletionResult, ToolCallRecord, ToolSpec, TurnRecord
+from .base import BaseLLMAdapter, ToolSpec
 
 _MAX_TOOL_TURNS = 10
-
-
-def _usage_tokens(response) -> tuple:
-    usage = getattr(response, "usage_metadata", None)
-    return (
-        getattr(usage, "prompt_token_count", 0) or 0,
-        getattr(usage, "candidates_token_count", 0) or 0,
-    )
 
 
 def _build_fn_decl(tool: ToolSpec) -> types.FunctionDeclaration:
@@ -50,7 +40,7 @@ class GeminiAdapter(BaseLLMAdapter):
         user: str,
         tools: list[ToolSpec] | None = None,
         max_tokens: int = 16384,
-    ) -> CompletionResult:
+    ) -> str:
         contents: list[types.Content] = [
             types.Content(role="user", parts=[types.Part(text=user)])
         ]
@@ -68,9 +58,7 @@ class GeminiAdapter(BaseLLMAdapter):
             tools=genai_tools,
         )
 
-        trace = []
         for _ in range(_MAX_TOOL_TURNS):
-            _turn_t0 = time.perf_counter()
             response = await self._client.aio.models.generate_content(
                 model=self._model,
                 contents=contents,
@@ -80,47 +68,26 @@ class GeminiAdapter(BaseLLMAdapter):
             candidate = response.candidates[0]
             parts = candidate.content.parts or []
             fn_call_parts = [p for p in parts if p.function_call]
-            prompt_tokens, completion_tokens = _usage_tokens(response)
 
             if not fn_call_parts:
-                content = response.text or ""
-                trace.append(
-                    TurnRecord(
-                        role="assistant",
-                        content=content,
-                        prompt_tokens=prompt_tokens,
-                        completion_tokens=completion_tokens,
-                        latency_ms=int((time.perf_counter() - _turn_t0) * 1000),
-                    )
-                )
-                return CompletionResult(text=content, trace=trace)
+                return response.text or ""
 
             # Append model turn
             contents.append(types.Content(role="model", parts=parts))
 
-            # Execute tool calls and collect responses; all calls of this
-            # response stay grouped under ONE TurnRecord.
-            turn = TurnRecord(
-                role="tool",
-                content="",
-                prompt_tokens=prompt_tokens,
-                completion_tokens=completion_tokens,
-            )
+            # Execute tool calls and collect responses
             result_parts = []
             for p in fn_call_parts:
                 fc = p.function_call
                 tool = tool_map.get(fc.name)
-                args = dict(fc.args) if fc.args else {}
                 if tool:
+                    args = dict(fc.args) if fc.args else {}
                     try:
                         result = str(tool.fn(**args))
                     except Exception as exc:
                         result = f"Error calling {fc.name}: {exc}"
                 else:
                     result = f"Unknown tool: {fc.name}"
-                turn.tool_calls.append(
-                    ToolCallRecord(name=fc.name, arguments=args, result=result)
-                )
                 result_parts.append(
                     types.Part(
                         function_response=types.FunctionResponse(
@@ -129,10 +96,7 @@ class GeminiAdapter(BaseLLMAdapter):
                         )
                     )
                 )
-            # API round-trip + inline tool execution = this turn's decision latency
-            turn.latency_ms = int((time.perf_counter() - _turn_t0) * 1000)
-            trace.append(turn)
 
             contents.append(types.Content(role="user", parts=result_parts))
 
-        return CompletionResult(text="", trace=trace, hit_turn_cap=True)
+        return ""

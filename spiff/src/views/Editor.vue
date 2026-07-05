@@ -172,7 +172,7 @@
 						@click="toggleVersionHistory"
 						class="w-8 h-8 flex items-center justify-center rounded transition-colors"
 						:class="[
-							showVersionHistory ? 'bg-blue-100 text-blue-700' : 'hover:bg-gray-100 text-gray-600',
+							'hover:bg-gray-100 text-gray-600',
 							{ 'opacity-40 cursor-not-allowed': !activeDiagramName }
 						]"
 						:title="lastEditTooltip"
@@ -256,9 +256,9 @@
 							v-else
 							@click="deployModel"
 							class="h-7 flex items-center gap-1 px-2.5 bg-blue-600 hover:bg-blue-700 text-white rounded transition-colors text-xs font-medium leading-none"
-							title="Deploy process model"
-							:disabled="!activeDiagramName || deploying"
-							:class="{ 'opacity-50 cursor-not-allowed': !activeDiagramName || deploying }"
+							:title="activeVersionName ? 'Switch to the latest version to deploy' : 'Deploy process model'"
+							:disabled="!activeDiagramName || deploying || !!activeVersionName"
+							:class="{ 'opacity-50 cursor-not-allowed': !activeDiagramName || deploying || !!activeVersionName }"
 						>
 							<Icon :icon="deploying ? 'lucide:loader-2' : 'lucide:rocket'" class="w-3.5 h-3.5" :class="{ 'animate-spin': deploying }" />
 							{{ deploying ? 'Deploying…' : 'Deploy' }}
@@ -295,8 +295,8 @@
 								v-else
 								@click="deployModel(); showMobileMoreMenu = false"
 								class="w-full flex items-center gap-2 px-3 py-2.5 text-sm text-gray-700 hover:bg-gray-50 transition-colors"
-								:disabled="!activeDiagramName || deploying"
-								:class="{ 'opacity-40 cursor-not-allowed': !activeDiagramName || deploying }"
+								:disabled="!activeDiagramName || deploying || !!activeVersionName"
+								:class="{ 'opacity-40 cursor-not-allowed': !activeDiagramName || deploying || !!activeVersionName }"
 							>
 								<Icon :icon="deploying ? 'lucide:loader-2' : 'lucide:rocket'" class="w-4 h-4" />
 								{{ deploying ? 'Deploying…' : 'Deploy' }}
@@ -402,7 +402,7 @@
 						class="absolute inset-0"
 						:save-status-text="saveStatusText"
 						:save-status-color="saveStatusColor"
-						:readonly="!isEditable"
+						:readonly="!isEditable || !!activeVersionName"
 						:model-name="activeDiagramName"
 						@ready="onEditorReady"
 						@changed="onDiagramChanged"
@@ -443,30 +443,23 @@
 					</div>
 				</div>
 
-				<!-- Version History side panel (Google-Docs-style) -->
-				<VersionHistoryPanel
-					v-if="showVersionHistory && activeDiagramName"
-					ref="versionHistoryRef"
-					:modelName="activeDiagramName"
-					:getCurrentXml="getCurrentDiagramXml"
-					@close="showVersionHistory = false"
-					@error="(e) => showNotification(e.title, e.message, e.theme)"
-					@restored="onVersionRestored"
-					@compare-deployed="openVersionPicker"
-				/>
 			</div>
 
 			<!-- Tab Bar (hidden in compact mode — uses toolbar dropdown instead) -->
 			<div v-if="openTabs.length > 0 && !compact" class="relative z-10 flex items-center justify-between bg-white border-t border-gray-200 min-h-[40px]">
 				<EditorTabs
 					:tabs="openTabs"
-					:activeTab="activeDiagramName"
+					:activeTab="activeVersionName ? null : activeDiagramName"
 					:readonly="!isEditable"
-					@select-tab="selectDiagram"
+					:versions="namedVersionTabs"
+					:activeVersion="activeVersionName"
+					@select-tab="onSelectTab"
 					@add-tab="showAddDiagramDialog"
 					@rename-tab="renameProcessModel"
 					@duplicate-tab="handleDuplicateTab"
 					@delete-tab="handleDeleteTab"
+					@select-version="selectVersion"
+					@compare="openCompareDialog"
 					class="flex-1 min-w-0"
 				/>
 				
@@ -919,6 +912,15 @@
 			:diagramName="activeDiagramName"
 			@error="(e) => showNotification(e.title, e.message, e.theme)"
 		/>
+
+		<!-- Compare versions dialog (named version vs latest), opened by the
+		     compare icon in the bottom bar -->
+		<CompareDialog
+			ref="compareDialogRef"
+			:modelName="activeDiagramName"
+			@error="(e) => showNotification(e.title, e.message, e.theme)"
+			@compare-deployed="openVersionPicker"
+		/>
 	</div>
 </template>
 
@@ -931,7 +933,7 @@ import BpmnEditor from "@/components/BpmnEditor.vue";
 import EditorTabs from "@/components/EditorTabs.vue";
 
 import VersionDiffDialog from "@/components/VersionDiffDialog.vue";
-import VersionHistoryPanel from "@/components/VersionHistoryPanel.vue";
+import CompareDialog from "@/components/CompareDialog.vue";
 import { downloadBpmn } from "@/utils/downloadBpmn";
 import CallActivitySearchDialog from "@/components/CallActivitySearchDialog.vue";
 import LogixCanvas from "@/components/LogixCanvas.vue";
@@ -1001,7 +1003,8 @@ const isAnyDialogOpen = computed(() => {
 		showConfigImportResults.value ||
 		notifDialog.showNotificationDialog.value ||
 		showNotifyAssigneeDialog.value ||
-		versionDiffRef.value?.isAnyDialogOpen
+		versionDiffRef.value?.isAnyDialogOpen ||
+		compareDialogRef.value?.isAnyDialogOpen
 	);
 });
 
@@ -1092,9 +1095,14 @@ const importConfigFileInput = ref(null);
 // Version diff dialog ref
 const versionDiffRef = ref(null);
 
-// Version history side panel state
-const showVersionHistory = ref(false);
-const versionHistoryRef = ref(null);
+// Compare versions dialog ref (named version vs latest)
+const compareDialogRef = ref(null);
+
+// Named versions of the active map, shown as read-only chips in the bottom bar.
+const namedVersionTabs = ref([]);
+// When set (snapshot doc name), the editor is previewing a named version
+// read-only instead of editing the live map.
+const activeVersionName = ref(null);
 
 // Pathfinder Log editability state
 const isEditable = ref(false);  // locked by default until API confirms
@@ -1505,6 +1513,10 @@ async function onConfigImportDone() {
 // Deploy (compile) the process model
 async function deployModel() {
 	if (!activeDiagramName.value || deploying.value) return;
+	if (activeVersionName.value) {
+		showNotification("Deploy", "You're viewing a read-only version. Switch to the latest version to deploy.", "red");
+		return;
+	}
 
 	// Get current XML for readiness check
 	let xml = "";
@@ -1523,6 +1535,7 @@ async function deployModel() {
 // Actual deployment (called after readiness check passes)
 async function executeDeployment() {
 	if (!activeDiagramName.value || deploying.value) return;
+	if (activeVersionName.value) return; // Guard: previewing a read-only version
 
 	deploying.value = true;
 	try {
@@ -1873,6 +1886,7 @@ async function onEditorReady() {
 	// Load the initial diagram content (fires only once on first mount)
 	if (activeDiagramName.value) {
 		await loadDiagramContent(activeDiagramName.value);
+		await loadNamedVersionTabs();
 		hasUnsavedChanges.value = false;
 	}
 
@@ -1894,6 +1908,7 @@ watch(activeDiagramName, async (newName) => {
 	hasUnsavedChanges.value = false;
 	saveState.value = 'saved';
 	await loadDiagramContent(newName);
+	await loadNamedVersionTabs();
 	hasUnsavedChanges.value = false;
 });
 
@@ -1937,6 +1952,8 @@ function onDiagramChanged() {
 	if (!editorReady.value) return;
 	// Do not trigger auto-save when the process is locked
 	if (!isEditable.value) return;
+	// Do not auto-save while previewing a read-only named version.
+	if (activeVersionName.value) return;
 
 	hasUnsavedChanges.value = true;
 	saveState.value = 'unsaved';
@@ -1954,6 +1971,7 @@ function onDiagramChanged() {
 async function saveCurrentDiagram() {
 	if (!activeDiagramName.value || !editorRef.value) return;
 	if (!isEditable.value) return; // Guard: process is locked
+	if (activeVersionName.value) return; // Guard: previewing a read-only version
 
 	saving.value = true;
 	saveState.value = 'saving';
@@ -1978,11 +1996,6 @@ async function saveCurrentDiagram() {
 		diagramDataCache.value[activeDiagramName.value] = xml;
 
 		saveState.value = 'saved';
-
-		// Refresh the version history panel if it's open so the new snapshot shows.
-		if (showVersionHistory.value) {
-			versionHistoryRef.value?.load();
-		}
 	} catch (error) {
 		console.error("Failed to save diagram:", error);
 		saveState.value = 'error';
@@ -2394,25 +2407,78 @@ async function getCurrentDiagramXml() {
 	return diagramDataCache.value[activeDiagramName.value] || null;
 }
 
-// Google-Docs-style save-history side panel.
+// Open the full-page version history (Google-Docs-style), not a sidebar.
 function toggleVersionHistory() {
 	if (!activeDiagramName.value) return;
-	showVersionHistory.value = !showVersionHistory.value;
+	router.push({
+		name: "VersionHistory",
+		params: { process: props.process, diagram: activeDiagramName.value },
+	});
 }
 
-// Restore: load the restored XML back onto the canvas and persist.
-async function onVersionRestored({ xml }) {
-	if (!xml || !editorRef.value) return;
+// Open the compare-versions dialog (named version vs latest).
+function openCompareDialog() {
+	if (!activeDiagramName.value || !compareDialogRef.value) return;
+	compareDialogRef.value.open(getCurrentDiagramXml);
+}
+
+// ── Named-version chips in the bottom bar ──────────────────────────────────
+
+// Load the active map's named versions for display as read-only chips.
+async function loadNamedVersionTabs() {
+	namedVersionTabs.value = [];
+	if (!activeDiagramName.value) return;
 	try {
-		await editorRef.value.loadXML(xml);
-		diagramDataCache.value[activeDiagramName.value] = xml;
-		isExecutable.value = extractIsExecutable(xml);
-		hasUnsavedChanges.value = false;
-		saveState.value = 'saved';
-		showNotification("Restored", "The selected version is now the current diagram.", "green");
+		const res = await frappeRequest({
+			url: "/api/method/one_bpmn.api.version_history.get_edit_history",
+			params: { model_name: activeDiagramName.value },
+		});
+		const groups = res.message || res || [];
+		namedVersionTabs.value = groups
+			.filter((g) => g.is_named)
+			.map((g) => ({ name: g.head, version_name: g.version_name, timestamp: g.timestamp }));
 	} catch (error) {
-		console.error("Failed to load restored XML:", error);
-		showNotification("Error", "Restored on the server, but failed to load onto the canvas. Reload the page.", "red");
+		console.error("Failed to load named versions:", error);
+	}
+}
+
+// Selecting a map tab leaves any version-preview and returns to the live map.
+async function onSelectTab(name) {
+	const wasViewingVersion = !!activeVersionName.value;
+	activeVersionName.value = null;
+	if (name === activeDiagramName.value) {
+		// Reload the live diagram to replace the read-only snapshot preview.
+		if (wasViewingVersion) await loadDiagramContent(activeDiagramName.value);
+		return;
+	}
+	selectDiagram(name);
+}
+
+// View a named version read-only in the editor canvas.
+async function selectVersion(versionName) {
+	if (activeVersionName.value === versionName) return;
+
+	// Persist any unsaved edits to the live map before switching to a preview.
+	if (!activeVersionName.value && hasUnsavedChanges.value && activeDiagramName.value && editorRef.value) {
+		clearTimeout(saveTimeout);
+		saving.value = true;
+		await saveCurrentDiagram();
+	}
+
+	activeVersionName.value = versionName;
+	try {
+		const res = await frappeRequest({
+			url: "/api/method/one_bpmn.api.version_history.get_snapshot_xml",
+			params: { version_name: versionName },
+		});
+		const snap = res.message || res;
+		if (snap?.xml_content && editorRef.value) {
+			await editorRef.value.loadXML(snap.xml_content);
+		}
+	} catch (error) {
+		console.error("Failed to load version:", error);
+		showNotification("Error", "Failed to load this version.", "red");
+		activeVersionName.value = null;
 	}
 }
 
@@ -2855,7 +2921,6 @@ function openLogixCanvas() {
 
 function onLogixBack() {
 	showLogixCanvas.value = false;
-	showScriptEditorDialog.value = true;
 }
 
 function onLogixScriptSaved(scriptName) {

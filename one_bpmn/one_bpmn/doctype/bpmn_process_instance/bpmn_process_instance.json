@@ -7,7 +7,6 @@
  "field_order": [
   "process_model",
   "status",
-  "engine_in_progress",
   "initiated_by",
   "started_at",
   "completed_at",
@@ -26,8 +25,7 @@
    "fieldtype": "Link",
    "in_list_view": 1,
    "label": "Process Model",
-   "options": "BPMN Process Model",
-   "reqd": 1
+   "options": "BPMN Process Model"
   },
   {
    "default": "Active",
@@ -35,15 +33,7 @@
    "fieldtype": "Select",
    "in_list_view": 1,
    "label": "Status",
-   "options": "Queued\nActive\nCompleted\nErrored\nCancelled"
-  },
-  {
-   "default": "0",
-   "description": "A background engine pass (task dispatch / AI decision) is currently running for this instance",
-   "fieldname": "engine_in_progress",
-   "fieldtype": "Check",
-   "label": "Engine In Progress",
-   "read_only": 1
+   "options": "Active\nCompleted\nErrored\nCancelled"
   },
   {
    "fieldname": "initiated_by",

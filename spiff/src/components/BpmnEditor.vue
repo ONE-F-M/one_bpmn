@@ -949,12 +949,11 @@
 			</template>
 		</Dialog>
 
-		<!-- AI Agent Task / AI Task Selector config modal -->
+		<!-- AI Agent Task config modal -->
 		<AIAgentConfigModal
 			v-if="aiAgentModal.show && aiAgentModal.element"
 			:element="aiAgentModal.element"
 			:modeler="modeler"
-			:mode="aiAgentModal.mode"
 			@close="aiAgentModal.show = false"
 		/>
 	</div>
@@ -1018,11 +1017,6 @@ import serviceTaskPropertiesProviderModule from "@/bpmn/serviceTaskPropertiesPro
 import aiAgentPropertiesProviderModule from "@/bpmn/aiAgentPropertiesProvider";
 import aiAgentReplaceMenuProviderModule from "@/bpmn/aiAgentReplaceMenuProvider";
 import aiAgentRendererModule from "@/bpmn/aiAgentRenderer";
-import adhocSubprocessPropertiesProviderModule from "@/bpmn/adhocSubprocessPropertiesProvider";
-import aiTaskSelectorMenuProviderModule from "@/bpmn/aiTaskSelectorMenuProvider";
-import aiTaskSelectorPropertiesProviderModule from "@/bpmn/aiTaskSelectorPropertiesProvider";
-import aiTaskSelectorRendererModule from "@/bpmn/aiTaskSelectorRenderer";
-import aiToolRegistryPropertiesProviderModule from "@/bpmn/aiToolRegistryPropertiesProvider";
 
 import scriptTaskPropertiesProviderModule from "@/bpmn/scriptTaskPropertiesProvider";
 import businessRuleTaskPropertiesProviderModule from "@/bpmn/businessRuleTaskPropertiesProvider";
@@ -1105,7 +1099,7 @@ const messageDialog = ref({
 	elementId: "",
 	_eventBus: null,
 });
-const aiAgentModal = ref({ show: false, element: null, mode: "agent" });
+const aiAgentModal = ref({ show: false, element: null });
 const isCommentMode = ref(false);
 const commentFormData = ref({
 	text: "",
@@ -1592,27 +1586,6 @@ onMounted(async () => {
 				});
 			}
 
-			// Ad-hoc Subprocess AI Task Selector extension (WI-001351).
-			// The selector attaches to the subprocess ITSELF (not an inner
-			// task): an LLM chooses which inner task/tool runs next.
-			const hasAdhocSelectorExt = spiffModdleExtension.types.find(t => t.name === "AdhocAiTaskSelectorExtension");
-			if (!hasAdhocSelectorExt) {
-				spiffModdleExtension.types.push({
-					name: "AdhocAiTaskSelectorExtension",
-					extends: ["bpmn:AdHocSubProcess"],
-					properties: [
-						{ name: "serviceType",    isAttr: true, type: "String" },
-						{ name: "aiProvider",     isAttr: true, type: "String" },
-						{ name: "aiModel",        isAttr: true, type: "String" },
-						{ name: "aiSystemPrompt", isAttr: true, type: "String" },
-						{ name: "aiUserPrompt",   isAttr: true, type: "String" },
-						// "diagram" | "registry" | "both" — which tool sources
-						// the selector may choose from (defaults to "both")
-						{ name: "aiToolSources",  isAttr: true, type: "String" }
-					]
-				});
-			}
-
 			// Business Rule Task decision reference extension
 			const hasBusinessRuleTaskExt = spiffModdleExtension.types.find(t => t.name === "BusinessRuleTaskDecisionExtension");
 			if (!hasBusinessRuleTaskExt) {
@@ -1654,11 +1627,6 @@ onMounted(async () => {
 				aiAgentPropertiesProviderModule,
 				aiAgentReplaceMenuProviderModule,
 				aiAgentRendererModule,
-				adhocSubprocessPropertiesProviderModule,
-				aiTaskSelectorMenuProviderModule,
-				aiTaskSelectorPropertiesProviderModule,
-				aiTaskSelectorRendererModule,
-				aiToolRegistryPropertiesProviderModule,
 
 				scriptTaskPropertiesProviderModule,
 				businessRuleTaskPropertiesProviderModule,
@@ -1719,10 +1687,6 @@ onMounted(async () => {
 			// Fetch users for assignment
 			fetchUsers();
 
-			// Expose the current model to bpmn-js properties providers that
-			// live outside Vue (WI-001357: Registry Tools applicability).
-			window.__ONE_BPMN_CURRENT_MODEL__ = props.modelName || "";
-
 			// Initial fetch of comments
 			if (props.modelName) {
 				fetchComments();
@@ -1769,10 +1733,8 @@ onMounted(async () => {
 						const canvas = modeler.get("canvas");
 						const rootElement = canvas.getRootElement();
 
-						// Implicit roots (empty canvas) have no businessObject —
-						// guard so the filter degrades to "no issues" instead of throwing.
 						const rootBo = rootElement.businessObject;
-						const flowEls = (rootBo && rootBo.flowElements) || [];
+						const flowEls = rootBo && (rootBo.flowElements || []);
 						if (!flowEls.length) {
 							return {};
 						}
@@ -2069,13 +2031,9 @@ onMounted(async () => {
 				});
 			});
 
-			// AI Agent Task / AI Task Selector config modal
+			// AI Agent Task config modal
 			eventBus.on("launch-ai-agent-editor", (event) => {
-				aiAgentModal.value = {
-					show: true,
-					element: markRaw(event.element),
-					mode: event.mode || "agent",
-				};
+				aiAgentModal.value = { show: true, element: markRaw(event.element) };
 			});
 
 			// Notification editing (Send Tasks)

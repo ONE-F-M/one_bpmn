@@ -42,12 +42,11 @@
 						:selected-bpmn-id="selectedBpmnId"
 						@select="onHistorySelect"
 					/>
-					<ElementInspector :selected-node="selectedNode" :process-instance-name="instanceId" :task-labels="taskLabels" />
+					<ElementInspector :selected-node="selectedNode" :process-instance-name="instanceId" />
 					<PendingActions
 						:active-tasks="activeTasks"
 						:completing-task="completingTask"
 						:completing-action="completingAction"
-						:engine-busy="engineBusy"
 						@complete="completeTask"
 					/>
 				</div>
@@ -57,7 +56,7 @@
 </template>
 
 <script setup>
-import { ref, computed, watch, onMounted, onUnmounted } from "vue"
+import { ref, computed, onMounted, onUnmounted } from "vue"
 import { useRoute } from "vue-router"
 import { frappeRequest } from "frappe-ui"
 import { Icon } from "@iconify/vue"
@@ -102,11 +101,7 @@ function getStateLabel(s) {
 	return TASK_STATE_LABELS[s] || "Unknown"
 }
 
-// Task states the inspector can select: WAITING (8), READY (16) and
-// STARTED (32) are included so in-flight elements — an AI Task Selector
-// deciding, a user task pending — are inspectable, not just finished ones
-// (COMPLETED 64, ERROR 128, CANCELLED 256).
-const REACHED_STATES = new Set([8, 16, 32, 64, 128, 256])
+const REACHED_STATES = new Set([64, 128, 256])
 
 // Service Task extensions (serviceType, etc.) are extracted at compile time and
 // embedded in serialized_spec, keyed by BPMN element id. SpiffWorkflow's own
@@ -131,104 +126,41 @@ const taskList = computed(() => {
 		const wfState = typeof details.value.workflow_state === "string"
 			? JSON.parse(details.value.workflow_state)
 			: details.value.workflow_state
-		const subprocesses = wfState.subprocesses || {}
-		const subprocessSpecs = wfState.subprocess_specs || {}
+		const tasks = wfState.tasks || {}
+		const taskSpecs = wfState.spec?.task_specs || {}
 
-		// SpiffWorkflow drains a task's own data into its containing scope on
-		// completion, so per-task data is usually {} — fall back to the
-		// scope's variables (subprocess data for inner tasks, workflow data
-		// at top level) so the Variables tab shows what was in scope.
-		const SCOPE_SKIP = new Set(["data_objects", "doc"])
-		const scopeVars = (scope) =>
-			Object.fromEntries(
-				Object.entries(scope || {}).filter(([k]) => !SCOPE_SKIP.has(k))
-			)
+		const nodes = []
+		for (const [uuid, t] of Object.entries(tasks)) {
+			const specName = t.task_spec || ""
+			if (!specName || specName === "Start" || specName === "End") continue
+			if (specName.endsWith(".EndJoin") || specName.endsWith(".BoundaryEventSplit") || specName.includes(".BoundaryEventJoin")) continue
+			if (!REACHED_STATES.has(t.state)) continue
 
-		// Recursive: a task whose id keys an entry in wfState.subprocesses is
-		// a Sub-Process / Ad-hoc parent — its inner tasks are flattened in
-		// right after it with depth+1, each clickable like any other node.
-		const buildNodes = (tasksDict, taskSpecs, depth, scopeData) => {
-			const nodes = []
-			for (const [uuid, t] of Object.entries(tasksDict || {})) {
-				const specName = t.task_spec || ""
-				if (!specName || specName === "Start" || specName === "End") continue
-				if (specName.endsWith(".EndJoin") || specName.endsWith(".BoundaryEventSplit") || specName.includes(".BoundaryEventJoin")) continue
-				if (!REACHED_STATES.has(t.state)) continue
-
-				const specData = (taskSpecs || {})[specName] || {}
-				const typename = specData.typename || "Task"
-				const node = {
-					id: uuid,
-					bpmnId: specName,
-					name: specData.bpmn_name || specData.description || specName,
-					typename,
-					depth,
-					isPassThrough: /Gateway|Event/i.test(typename),
-					lane: specData.lane || null,
-					state: t.state || 0,
-					stateLabel: getStateLabel(t.state || 0),
-					timestamp: t.last_state_change ? new Date(t.last_state_change * 1000) : null,
-					data: Object.keys(t.data || {}).length ? t.data : scopeData,
-					extensions: {
-						...((() => { try { return typeof specData.extensions === 'string' ? JSON.parse(specData.extensions) : specData.extensions; } catch { return {}; } })() || {}),
-						...(serviceTaskExtensions.value[specName] || {}),
-					},
-				}
-
-				const sub = subprocesses[uuid]
-				if (sub) {
-					const subScope = scopeVars(sub.data)
-					// The parent's meaningful variables ARE its subprocess scope
-					if (Object.keys(subScope).length) node.data = subScope
-					const childSpecs = (subprocessSpecs[specName] || {}).task_specs || {}
-					node.childNodes = buildNodes(sub.tasks, childSpecs, depth + 1, subScope)
-				}
-				nodes.push(node)
-			}
-
-			// Sort siblings by timestamp, then flatten each parent's subtree
-			// directly beneath it so nesting order is preserved.
-			nodes.sort((a, b) => (a.timestamp || 0) - (b.timestamp || 0))
-			const flat = []
-			for (const n of nodes) {
-				flat.push(n)
-				if (n.childNodes) {
-					flat.push(...n.childNodes)
-					delete n.childNodes
-				}
-			}
-			return flat
+			const specData = taskSpecs[specName] || {}
+			const typename = specData.typename || "Task"
+			nodes.push({
+				id: uuid,
+				bpmnId: specName,
+				name: specData.bpmn_name || specData.description || specName,
+				typename,
+				isPassThrough: /Gateway|Event/i.test(typename),
+				lane: specData.lane || null,
+				state: t.state || 0,
+				stateLabel: getStateLabel(t.state || 0),
+				timestamp: t.last_state_change ? new Date(t.last_state_change * 1000) : null,
+				data: t.data || {},
+				extensions: {
+					...((() => { try { return typeof specData.extensions === 'string' ? JSON.parse(specData.extensions) : specData.extensions; } catch { return {}; } })() || {}),
+					...(serviceTaskExtensions.value[specName] || {}),
+				},
+			})
 		}
 
-		return buildNodes(wfState.tasks, wfState.spec?.task_specs || {}, 0, scopeVars(wfState.data))
+		nodes.sort((a, b) => (a.timestamp || 0) - (b.timestamp || 0))
+		return nodes
 	} catch (e) {
 		console.warn("Failed to build task list:", e)
 		return []
-	}
-})
-
-// bpmnId → human label for every task spec in the diagram (top level and
-// subprocess internals alike), so tool-call chips in the inspector can show
-// shape labels instead of raw IDs like Activity_0q9helm. Specs without a
-// label are omitted — consumers fall back to the ID.
-const taskLabels = computed(() => {
-	if (!details.value?.workflow_state) return {}
-	try {
-		const wfState = typeof details.value.workflow_state === "string"
-			? JSON.parse(details.value.workflow_state)
-			: details.value.workflow_state
-		const labels = {}
-		const collect = (taskSpecs) => {
-			for (const [specName, specData] of Object.entries(taskSpecs || {})) {
-				const label = specData.bpmn_name || specData.description
-				if (label) labels[specName] = label
-			}
-		}
-		collect(wfState.spec?.task_specs)
-		for (const sub of Object.values(wfState.subprocess_specs || {})) collect(sub.task_specs)
-		return labels
-	} catch {
-		return {}
 	}
 })
 
@@ -422,33 +354,6 @@ async function handleRealtimeUpdate(data) {
 	await loadLogs()
 }
 
-// ── Background engine tracking ──
-// The engine (task dispatch + AI decisions) runs in a background job after
-// document triggers and user actions. While it does, engine_in_progress is
-// set (or the instance is still Queued) — show progress and poll as a
-// fallback in case the realtime completion event is missed.
-const engineBusy = computed(
-	() => details.value?.status === "Queued" || Boolean(details.value?.engine_in_progress)
-)
-
-let enginePollTimer = null
-watch(engineBusy, (busy) => {
-	if (busy && !enginePollTimer) {
-		enginePollTimer = setInterval(async () => {
-			await loadDetails()
-			if (!engineBusy.value) {
-				logs.value = []
-				limitStart.value = 0
-				hasMoreLogs.value = true
-				await loadLogs()
-			}
-		}, 4000)
-	} else if (!busy && enginePollTimer) {
-		clearInterval(enginePollTimer)
-		enginePollTimer = null
-	}
-})
-
 // ── Lifecycle ──
 
 onMounted(async () => {
@@ -464,10 +369,6 @@ onMounted(async () => {
 onUnmounted(() => {
 	if (window.frappe?.realtime) {
 		window.frappe.realtime.off("bpmn_instance_updated", handleRealtimeUpdate)
-	}
-	if (enginePollTimer) {
-		clearInterval(enginePollTimer)
-		enginePollTimer = null
 	}
 })
 </script>
