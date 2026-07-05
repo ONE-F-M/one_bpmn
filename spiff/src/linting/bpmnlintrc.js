@@ -110,7 +110,9 @@ const config = {
 		"bpmnlint/no-overlapping-elements": "warn",
 
 		// Event correctness
-		"bpmnlint/ad-hoc-sub-process": "warn",
+		// Error per the BPMN spec / Camunda: no start or end events inside
+		// an ad-hoc subprocess (backend mirror: _validate_adhoc_structure).
+		"bpmnlint/ad-hoc-sub-process": "error",
 		"bpmnlint/conditional-event": "warn",
 		"bpmnlint/link-event": "warn",
 		"bpmnlint/single-event-definition": "warn",
