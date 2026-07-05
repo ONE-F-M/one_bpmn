@@ -4,7 +4,7 @@ Short-term (per-agent) conversation store for BPMN AI agents.
 Each AI Agent Task / Subprocess owns ONE conversation thread, keyed by
 (instance_name, bpmn_id), so one agent's history never leaks into another
 agent's context. A message is a plain dict with the same shape the executor
-history slot uses (7-04):
+history slot uses:
 
     {"role": str, "content": str, "tool_calls"?: list, "tool_call_id"?: str}
 
@@ -41,7 +41,7 @@ from dataclasses import dataclass
 import frappe
 from frappe import _
 
-# Roles that make up a multi-turn thread (same vocabulary as the 7-04 executor).
+# Roles that make up a multi-turn thread (same vocabulary as the executor).
 MESSAGE_ROLES = ("system", "user", "assistant", "tool")
 
 
