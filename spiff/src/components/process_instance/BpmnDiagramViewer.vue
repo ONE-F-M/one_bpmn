@@ -80,6 +80,7 @@ import { setupCanvasTouchHandler } from "@/utils/canvasTouchHandler"
 
 // ── AI Agent Task renderer — replaces Service Task gear icon with sparkle ──
 import aiAgentRendererModule from "@/bpmn/aiAgentRenderer"
+import aiTaskSelectorRendererModule from "@/bpmn/aiTaskSelectorRenderer"
 
 // ── Viewer-side moddle extension ──
 // The BPMN XML produced by the editor uses custom spiffworkflow:* attributes
@@ -152,6 +153,20 @@ const viewerModdleExtension = {
 				{ name: "serverScript", isAttr: true, type: "String" },
 			],
 		},
+		{
+			// WI-001360: lets the viewer read the AI Task Selector tag so the
+			// wrench badge renders on selector-configured ad-hoc subprocesses.
+			name: "AdhocAiTaskSelectorExtension",
+			extends: ["bpmn:AdHocSubProcess"],
+			properties: [
+				{ name: "serviceType",    isAttr: true, type: "String" },
+				{ name: "aiProvider",     isAttr: true, type: "String" },
+				{ name: "aiModel",        isAttr: true, type: "String" },
+				{ name: "aiSystemPrompt", isAttr: true, type: "String" },
+				{ name: "aiUserPrompt",   isAttr: true, type: "String" },
+				{ name: "aiToolSources",  isAttr: true, type: "String" },
+			],
+		},
 	],
 }
 
@@ -180,6 +195,7 @@ async function initViewer() {
 			height: "100%",
 			additionalModules: [
 				aiAgentRendererModule,
+				aiTaskSelectorRendererModule,
 			],
 			moddleExtensions: {
 				spiffworkflow: viewerModdleExtension,
@@ -296,6 +312,7 @@ function applyHighlights() {
 		const overlays = viewer.value.get("overlays")
 		overlays.remove({ type: "heatmap-badge" })
 	overlays.remove({ type: "ai-badge" })
+	overlays.remove({ type: "token-badge" })
 
 		// Clear stale highlight markers before re-applying
 		const staticHighlightMarkers = new Set(["highlight-done", "highlight-active"])
@@ -316,30 +333,43 @@ function applyHighlights() {
 		const completedBpmnIds = new Set()
 		const activeBpmnIds = new Set()   // READY (16) or STARTED (32) — truly executing
 		const waitingBpmnIds = new Set()  // WAITING (8) — passively listening (boundary events, timers)
+		const containerSpecs = new Set()  // Sub-Process / Ad-hoc parents — highlighted, but no token dot
 		const frequencyMap = {}
 
-		// Parse workflow_state for task states
+		// Parse workflow_state for task states.
+		// Inner tasks of Sub-Processes / Ad-hoc Subprocesses are serialized
+		// under workflow_state.subprocesses[<parent task id>].tasks — walk
+		// those too so subtasks light up and carry the token.
 		if (props.details?.workflow_state) {
 			try {
 				const wfState = typeof props.details.workflow_state === "string"
 					? JSON.parse(props.details.workflow_state)
 					: props.details.workflow_state
-				const tasks = wfState.tasks || {}
-				for (const [, taskData] of Object.entries(tasks)) {
-					const taskSpec = taskData.task_spec || ""
-					if (!taskSpec || taskSpec === "Start" || taskSpec === "End" || taskSpec.endsWith(".EndJoin")) continue
-					const state = taskData.state || 0
-					if (state === 64) {
-						completedBpmnIds.add(taskSpec)
-						frequencyMap[taskSpec] = (frequencyMap[taskSpec] || 0) + 1
-					} else if (state === 8) {
-						// WAITING — boundary events/timers that are listening but
-						// haven't fired. Show as active on the element but do NOT
-						// include in flow-coloring (their outgoing paths are untouched).
-						waitingBpmnIds.add(taskSpec)
-					} else if (state === 16 || state === 32) {
-						activeBpmnIds.add(taskSpec)
+				const subprocesses = wfState.subprocesses || {}
+
+				const classify = (tasksDict) => {
+					for (const [taskId, taskData] of Object.entries(tasksDict || {})) {
+						const taskSpec = taskData.task_spec || ""
+						if (subprocesses[taskId]) containerSpecs.add(taskSpec)
+						if (!taskSpec || taskSpec === "Start" || taskSpec === "End" || taskSpec.endsWith(".EndJoin")) continue
+						const state = taskData.state || 0
+						if (state === 64) {
+							completedBpmnIds.add(taskSpec)
+							frequencyMap[taskSpec] = (frequencyMap[taskSpec] || 0) + 1
+						} else if (state === 8) {
+							// WAITING — boundary events/timers that are listening but
+							// haven't fired. Show as active on the element but do NOT
+							// include in flow-coloring (their outgoing paths are untouched).
+							waitingBpmnIds.add(taskSpec)
+						} else if (state === 16 || state === 32) {
+							activeBpmnIds.add(taskSpec)
+						}
 					}
+				}
+
+				classify(wfState.tasks)
+				for (const sub of Object.values(subprocesses)) {
+					classify(sub.tasks)
 				}
 			} catch (e) {
 				// ignore parse errors
@@ -372,9 +402,20 @@ function applyHighlights() {
 			}
 		})
 
-		// Active markers (READY / STARTED)
+		// Active markers (READY / STARTED) + a token dot on the element the
+		// process is actually sitting on. Container parents (Sub-Process /
+		// Ad-hoc) are STARTED for as long as any inner task runs — they get
+		// the active outline but the token belongs to the inner task.
 		activeBpmnIds.forEach((bpmnId) => {
-			try { canvas.addMarker(bpmnId, "highlight-active") } catch (e) {}
+			try {
+				canvas.addMarker(bpmnId, "highlight-active")
+				if (!containerSpecs.has(bpmnId)) {
+					const token = document.createElement("div")
+					token.className = "bpmn-token"
+					token.title = "Process token — the active task"
+					overlays.add(bpmnId, "token-badge", { position: { bottom: 6, left: -7 }, html: token })
+				}
+			} catch (e) {}
 		})
 		// Waiting markers (boundary events / timers listening — show as active on element only)
 		waitingBpmnIds.forEach((bpmnId) => {
@@ -450,20 +491,27 @@ function applyHighlights() {
 				const tasks = wfState.tasks || {}
 				// Clear any previous AI badge overlays before re-applying
 				try { overlays.remove({ type: "ai-badge" }) } catch { /* no existing overlays */ }
-				for (const [, taskData] of Object.entries(tasks)) {
-					const taskSpec = taskData.task_spec || ""
+				const subprocesses = wfState.subprocesses || {}
+				for (const [taskId, td] of Object.entries(tasks)) {
+					const taskSpec = td.task_spec || ""
 					if (!taskSpec) continue
-					if ((svcExt[taskSpec] || {}).serviceType !== "ai_agent") continue
+					const serviceType = (svcExt[taskSpec] || {}).serviceType
+					if (serviceType !== "ai_agent" && serviceType !== "ai_task_selector") continue
 
-					const state = taskData.state || 0
-					const hasError = taskData.data?.[`${taskSpec}_error_code`]
+					const state = td.state || 0
+					// Selector error keys live in the ad-hoc SUBPROCESS data,
+					// keyed by the parent task's id — check both places.
+					const hasError =
+						td.data?.[`${taskSpec}_error_code`] ||
+						subprocesses[taskId]?.data?.[`${taskSpec}_error_code`]
 					const isCompleted = state === 64
+					const kind = serviceType === "ai_task_selector" ? "AI Task Selector" : "AI Agent Task"
 
 					if (isCompleted || hasError) {
 						const badge = document.createElement("div")
 						badge.className = `ai-badge ${hasError ? "ai-error" : "ai-success"}`
 						badge.textContent = hasError ? "!" : "AI"
-						badge.title = hasError ? "AI Agent Task failed" : "AI Agent Task completed"
+						badge.title = hasError ? `${kind} failed` : `${kind} completed`
 						overlays.add(taskSpec, "ai-badge", { position: { top: -10, left: -10 }, html: badge })
 					}
 				}
@@ -566,5 +614,23 @@ function applyHighlights() {
 	0% { filter: drop-shadow(0 0 2px rgba(37,99,235,0.4)); }
 	50% { filter: drop-shadow(0 0 8px rgba(37,99,235,0.8)); }
 	100% { filter: drop-shadow(0 0 2px rgba(37,99,235,0.4)); }
+}
+
+/* Process token — the classic BPMN dot marking the task the process is
+   sitting on, including inner tasks of expanded (ad-hoc) subprocesses. */
+.bpmn-token {
+	width: 14px;
+	height: 14px;
+	border-radius: 50%;
+	background: #2563eb;
+	border: 2px solid #fff;
+	box-shadow: 0 1px 4px rgba(0, 0, 0, 0.35);
+	pointer-events: none;
+	animation: token-pulse 1.6s ease-in-out infinite;
+}
+@keyframes token-pulse {
+	0% { box-shadow: 0 1px 4px rgba(0, 0, 0, 0.35), 0 0 0 0 rgba(37, 99, 235, 0.45); }
+	70% { box-shadow: 0 1px 4px rgba(0, 0, 0, 0.35), 0 0 0 8px rgba(37, 99, 235, 0); }
+	100% { box-shadow: 0 1px 4px rgba(0, 0, 0, 0.35), 0 0 0 0 rgba(37, 99, 235, 0); }
 }
 </style>
