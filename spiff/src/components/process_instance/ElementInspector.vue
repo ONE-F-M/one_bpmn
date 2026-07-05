@@ -26,6 +26,15 @@
 			>
 				AI Run
 			</button>
+			<button
+				v-if="isAiAgent"
+				@click="activeTab = 'memory'; fetchMemory()"
+				title="View the agent's conversation and long-term memory"
+				class="px-3 py-1 text-sm font-medium rounded-t transition-colors border-b-2"
+				:class="activeTab === 'memory' ? 'border-purple-600 text-purple-700 bg-white' : 'border-transparent text-gray-500 hover:text-gray-700'"
+			>
+				Memory
+			</button>
 		</div>
 		<div class="flex-1 overflow-y-auto custom-scrollbar p-4">
 			<!-- AI Run Tab -->
@@ -156,6 +165,61 @@
 											<pre class="text-[11px] text-green-800 font-mono whitespace-pre-wrap max-h-32 overflow-y-auto bg-green-50 rounded p-1.5 border border-green-100">{{ tc.outcome }}</pre>
 										</div>
 									</div>
+								</div>
+							</div>
+						</div>
+					</div>
+				</div>
+			</div>
+
+			<!-- Memory Tab -->
+			<div v-if="activeTab === 'memory'" class="text-[13px]">
+				<div v-if="memoryLoading" class="text-sm text-gray-400 italic text-center py-6">Loading...</div>
+				<div v-else-if="memoryError" class="text-sm text-red-500 text-center py-6">{{ memoryError }}</div>
+				<div v-else-if="!hasMemoryData" class="text-sm text-gray-400 italic text-center py-6">No memory data</div>
+				<div v-else class="space-y-4">
+					<!-- Conversation -->
+					<div v-if="conversation.length">
+						<div class="text-gray-500 font-medium mb-1">Conversation</div>
+						<div class="space-y-1">
+							<div v-for="(m, i) in conversation" :key="i" class="border border-gray-200 rounded px-2 py-1.5">
+								<div class="flex items-center gap-1.5">
+									<span
+										class="inline-block px-1.5 py-0.5 rounded text-[10px] font-mono font-semibold"
+										:class="roleBadgeClass(m.role)"
+									>{{ m.role }}</span>
+									<span
+										v-if="m.toolCalls && m.toolCalls.length"
+										class="inline-block px-1.5 py-0.5 rounded text-[10px] font-mono bg-purple-100 text-purple-700"
+									>🔧 {{ m.toolCalls.length }} tool call{{ m.toolCalls.length > 1 ? 's' : '' }}</span>
+								</div>
+								<pre v-if="m.content" class="mt-1 text-[11px] text-gray-600 font-mono whitespace-pre-wrap max-h-40 overflow-y-auto bg-gray-50 rounded p-2">{{ m.content }}</pre>
+								<div
+									v-for="(tc, j) in m.toolCalls || []"
+									:key="j"
+									class="mt-1 border border-purple-200 rounded bg-purple-50/50 px-2 py-1"
+								>
+									<span class="text-[11px] font-semibold text-purple-700">🔧 {{ toolLabel(toolCallName(tc)) }}</span>
+									<pre v-if="toolCallArgs(tc)" class="mt-1 text-[11px] text-gray-600 font-mono whitespace-pre-wrap max-h-24 overflow-y-auto bg-white rounded p-1.5 border border-gray-100">{{ toolCallArgs(tc) }}</pre>
+								</div>
+							</div>
+						</div>
+					</div>
+
+					<!-- Long-term memory -->
+					<div v-if="memoryGroups.length">
+						<div class="text-gray-500 font-medium mb-1">Long-term memory</div>
+						<div v-for="group in memoryGroups" :key="group.label" class="mb-2">
+							<div class="text-[10px] uppercase tracking-wide text-gray-400 mb-1">{{ group.label }}</div>
+							<div
+								v-for="mem in group.items"
+								:key="mem.name"
+								class="border border-gray-200 rounded px-2 py-1.5 mb-1"
+							>
+								<pre class="text-[11px] text-gray-700 whitespace-pre-wrap max-h-32 overflow-y-auto">{{ mem.content }}</pre>
+								<div v-if="mem.metadata && mem.metadata !== '{}'" class="mt-1">
+									<div class="text-[10px] uppercase tracking-wide text-gray-400">Metadata</div>
+									<pre class="text-[11px] text-gray-500 font-mono whitespace-pre-wrap max-h-24 overflow-y-auto bg-gray-50 rounded p-1.5">{{ mem.metadata }}</pre>
 								</div>
 							</div>
 						</div>
@@ -391,8 +455,8 @@ const expandedSteps = ref(new Set())
 
 // Reset state when selection changes
 watch(() => props.selectedNode, () => {
-	if (activeTab.value !== 'aiRun') return
-	fetchAiRun()
+	if (activeTab.value === 'aiRun') fetchAiRun()
+	else if (activeTab.value === 'memory') fetchMemory()
 })
 
 async function fetchAiRun() {
@@ -501,6 +565,172 @@ function toggleStep(name) {
 		expandedSteps.value.delete(name)
 	} else {
 		expandedSteps.value.add(name)
+	}
+}
+
+// ── Memory view (conversation + long-term memory) ─────────────────────
+const memoryLoading = ref(false)
+const memoryError = ref(null)
+const conversation = ref([])   // [{ role, content, toolCalls, tool_call_id }]
+const memWritten = ref([])     // AI Memory rows written by this run (source_run)
+const memInScope = ref([])     // AI Memory rows in the task's scope (retrievable)
+
+const hasMemoryData = computed(
+	() => conversation.value.length || memWritten.value.length || memInScope.value.length,
+)
+
+const memoryGroups = computed(() => {
+	const groups = []
+	if (memWritten.value.length) groups.push({ label: "Written by this run", items: memWritten.value })
+	if (memInScope.value.length) groups.push({ label: "In scope (retrievable)", items: memInScope.value })
+	return groups
+})
+
+const MESSAGE_TYPE_TO_ROLE = { User: "user", Bot: "assistant", Tool: "tool" }
+
+function normalizeMsg(m) {
+	return {
+		role: m.role,
+		content: m.content || "",
+		toolCalls: Array.isArray(m.tool_calls) ? m.tool_calls : null,
+		tool_call_id: m.tool_call_id || null,
+	}
+}
+
+function toolCallName(tc) {
+	return tc?.name || tc?.tool_name || tc?.function?.name || "tool"
+}
+
+function toolCallArgs(tc) {
+	const a = tc?.arguments ?? tc?.args ?? tc?.tool_args ?? tc?.function?.arguments
+	if (a === null || a === undefined || a === "") return ""
+	return typeof a === "string" ? a : JSON.stringify(a, null, 2)
+}
+
+// Shared read helper. Throws on non-OK (e.g. 403) so the caller can surface a
+// clear permission message instead of crashing.
+async function frappeGetList(doctype, fields, filters, extra = {}) {
+	const params = new URLSearchParams({
+		doctype,
+		fields: JSON.stringify(fields),
+		filters: JSON.stringify(filters),
+		limit_page_length: extra.limit || 100,
+		order_by: extra.order_by || "creation desc",
+	})
+	if (extra.parent) params.set("parent", extra.parent)
+	const r = await fetch(`/api/method/frappe.client.get_list?${params}`, {
+		headers: { "X-Frappe-CSRF-Token": getCsrfToken() },
+	})
+	if (!r.ok) {
+		const err = new Error(`HTTP ${r.status}`)
+		err.status = r.status
+		throw err
+	}
+	const data = await r.json()
+	return data?.message || []
+}
+
+async function loadDocumentStoreConversation(bpmnId) {
+	const title = `one_bpmn:${props.processInstanceName}:${bpmnId}`
+	const convs = await frappeGetList("Chat Conversation", ["name"], [["title", "=", title]], { limit: 1 })
+	if (!convs.length) return
+	const rows = await frappeGetList(
+		"Chat Message",
+		["text", "message_type", "tool_calls", "tool_call_id", "metadata"],
+		[["conversation", "=", convs[0].name]],
+		{ limit: 500, order_by: "creation asc" },
+	)
+	const parsed = rows.map((r) => {
+		let meta = {}
+		try { meta = JSON.parse(r.metadata || "{}") } catch (e) { meta = {} }
+		let toolCalls = null
+		try { toolCalls = r.tool_calls ? JSON.parse(r.tool_calls) : null } catch (e) { toolCalls = null }
+		return {
+			seq: meta.seq ?? 0,
+			role: meta.role || MESSAGE_TYPE_TO_ROLE[r.message_type] || "assistant",
+			content: r.text || "",
+			toolCalls: Array.isArray(toolCalls) ? toolCalls : null,
+			tool_call_id: r.tool_call_id || null,
+		}
+	})
+	parsed.sort((a, b) => a.seq - b.seq)
+	conversation.value = parsed
+}
+
+// Resolve the AI Memory filters for the task's scope + scope key(s), mirroring
+// the dispatcher's resolution. Returns null when the key can't be built.
+async function resolveScopeFilters(bpmnId, ext) {
+	const scope = ext.aiMemoryScope || "Agent"
+	if (scope === "Agent") {
+		const el = ext.aiMemoryAgentElement || bpmnId
+		return el ? [["memory_scope", "=", "Agent"], ["agent_element", "=", el]] : null
+	}
+	if (scope === "Entity") {
+		const data = props.selectedNode.data || {}
+		const rd = data.context_doctype
+		const rn = data.context_docname
+		return rd && rn
+			? [["memory_scope", "=", "Entity"], ["reference_doctype", "=", rd], ["reference_name", "=", rn]]
+			: null
+	}
+	if (scope === "Process") {
+		const inst = await frappeGetList("BPMN Process Instance", ["process_model"], [["name", "=", props.processInstanceName]], { limit: 1 })
+		const pm = inst[0]?.process_model
+		return pm ? [["memory_scope", "=", "Process"], ["process_model", "=", pm]] : null
+	}
+	return null
+}
+
+async function fetchMemory() {
+	conversation.value = []
+	memWritten.value = []
+	memInScope.value = []
+	memoryError.value = null
+
+	if (!props.selectedNode || !props.processInstanceName) return
+
+	memoryLoading.value = true
+	try {
+		const bpmnId = props.selectedNode.bpmnId || props.selectedNode.id
+		const ext = props.selectedNode.extensions || {}
+
+		// ── Conversation ──
+		const backend = ext.aiConversationStore || "process_variable"
+		if (backend === "document_store") {
+			await loadDocumentStoreConversation(bpmnId)
+		} else {
+			// process_variable / custom: the thread lives in the viewer's task data
+			const thread = (props.selectedNode.data || {})[`${bpmnId}_conversation`]
+			conversation.value = Array.isArray(thread) ? thread.map(normalizeMsg) : []
+		}
+
+		// ── Long-term memory: written by this run (via source_run) ──
+		let runName = aiRun.value?.name
+		if (!runName) {
+			const runs = await frappeGetList(
+				"AI Agent Run", ["name"],
+				[["instance", "=", props.processInstanceName], ["bpmn_id", "=", bpmnId]],
+				{ limit: 1, order_by: "creation desc" },
+			)
+			runName = runs[0]?.name || null
+		}
+		const memFields = ["name", "content", "metadata", "memory_scope", "dedup_key"]
+		if (runName) {
+			memWritten.value = await frappeGetList("AI Memory", memFields, [["source_run", "=", runName]], { limit: 50, order_by: "creation desc" })
+		}
+
+		// ── Long-term memory: retrievable (task's scope + scope key) ──
+		const scopeFilters = await resolveScopeFilters(bpmnId, ext)
+		if (scopeFilters) {
+			memInScope.value = await frappeGetList("AI Memory", memFields, scopeFilters, { limit: 50, order_by: "modified desc" })
+		}
+	} catch (e) {
+		memoryError.value = e.status === 403
+			? "You don't have permission to view this memory data."
+			: "Failed to load memory data"
+		console.error("Memory fetch error:", e)
+	} finally {
+		memoryLoading.value = false
 	}
 }
 
