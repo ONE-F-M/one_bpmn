@@ -1,0 +1,151 @@
+{
+ "actions": [],
+ "autoname": "hash",
+ "creation": "2026-07-05 00:00:00.000000",
+ "description": "Durable, scoped agent memory. Read/written by the memory search/write API and injected by the dispatcher. Keyword/full-text retrieval in v1; a nullable embedding field can be added later without a migration.",
+ "doctype": "DocType",
+ "engine": "InnoDB",
+ "field_order": [
+  "memory_scope",
+  "agent_element",
+  "process_model",
+  "reference_doctype",
+  "reference_name",
+  "section_break_content",
+  "content",
+  "dedup_key",
+  "metadata",
+  "section_break_provenance",
+  "source_run",
+  "expires_on"
+ ],
+ "fields": [
+  {
+   "fieldname": "memory_scope",
+   "fieldtype": "Select",
+   "in_list_view": 1,
+   "in_standard_filter": 1,
+   "label": "Memory Scope",
+   "options": "\nAgent\nProcess\nEntity",
+   "reqd": 1,
+   "description": "Agent = one BPMN agent element; Process = one process model; Entity = one business document"
+  },
+  {
+   "depends_on": "eval:doc.memory_scope=='Agent'",
+   "fieldname": "agent_element",
+   "fieldtype": "Data",
+   "in_list_view": 1,
+   "label": "Agent Element",
+   "mandatory_depends_on": "eval:doc.memory_scope=='Agent'",
+   "description": "The BPMN element id (e.g. Activity_1a2b3c). Required for Agent scope."
+  },
+  {
+   "depends_on": "eval:doc.memory_scope=='Process'",
+   "fieldname": "process_model",
+   "fieldtype": "Link",
+   "label": "Process",
+   "mandatory_depends_on": "eval:doc.memory_scope=='Process'",
+   "options": "BPMN Process Model",
+   "description": "The process model this memory is scoped to. Required for Process scope."
+  },
+  {
+   "depends_on": "eval:doc.memory_scope=='Entity'",
+   "fieldname": "reference_doctype",
+   "fieldtype": "Link",
+   "label": "Reference Doctype",
+   "mandatory_depends_on": "eval:doc.memory_scope=='Entity'",
+   "options": "DocType",
+   "description": "The business document type this memory is about (e.g. Customer). Required for Entity scope."
+  },
+  {
+   "depends_on": "eval:doc.memory_scope=='Entity'",
+   "fieldname": "reference_name",
+   "fieldtype": "Dynamic Link",
+   "label": "Reference Name",
+   "mandatory_depends_on": "eval:doc.memory_scope=='Entity'",
+   "options": "reference_doctype",
+   "description": "The specific business document this memory is about. Required for Entity scope."
+  },
+  {
+   "fieldname": "section_break_content",
+   "fieldtype": "Section Break",
+   "label": "Memory"
+  },
+  {
+   "fieldname": "content",
+   "fieldtype": "Long Text",
+   "in_global_search": 1,
+   "label": "Content",
+   "reqd": 1,
+   "description": "The memory text — the single source of truth for v1 keyword search."
+  },
+  {
+   "fieldname": "dedup_key",
+   "fieldtype": "Data",
+   "label": "Dedup Key",
+   "description": "Optional. When set, a write with the same scope + scope keys + dedup_key overwrites the existing record instead of inserting a new one."
+  },
+  {
+   "fieldname": "metadata",
+   "fieldtype": "Code",
+   "label": "Metadata",
+   "options": "JSON",
+   "description": "Arbitrary structured data (JSON)."
+  },
+  {
+   "fieldname": "section_break_provenance",
+   "fieldtype": "Section Break",
+   "label": "Provenance & Retention"
+  },
+  {
+   "fieldname": "source_run",
+   "fieldtype": "Link",
+   "label": "Source Run",
+   "no_copy": 1,
+   "options": "AI Agent Run",
+   "description": "The AI Agent Run that wrote this memory, when written by an agent."
+  },
+  {
+   "fieldname": "expires_on",
+   "fieldtype": "Datetime",
+   "label": "Expires On",
+   "description": "Optional per-record expiry, independent of Log Settings retention."
+  }
+ ],
+ "indexes": [
+  ["memory_scope", "agent_element"],
+  ["reference_doctype", "reference_name"]
+ ],
+ "index_web_pages_for_search": 0,
+ "links": [],
+ "modified": "2026-07-05 00:00:00.000000",
+ "modified_by": "Administrator",
+ "module": "ONE BPMN",
+ "name": "AI Memory",
+ "naming_rule": "Hash",
+ "owner": "Administrator",
+ "permissions": [
+  {
+   "create": 1,
+   "delete": 1,
+   "email": 1,
+   "export": 1,
+   "print": 1,
+   "read": 1,
+   "report": 1,
+   "role": "System Manager",
+   "share": 1,
+   "write": 1
+  },
+  {
+   "export": 1,
+   "read": 1,
+   "report": 1,
+   "role": "Process Designer"
+  }
+ ],
+ "sort_field": "modified",
+ "sort_order": "DESC",
+ "states": [],
+ "track_changes": 1
+}

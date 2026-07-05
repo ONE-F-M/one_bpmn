@@ -308,7 +308,7 @@ def _maybe_start_instance(doc, model_name: str):
 		if doc_state != required_state:
 			return
 
-	# Prevent duplicate: skip if there's already an Active instance
+	# Prevent duplicate: skip if there's already a Queued/Active instance
 	# for this exact document + model combination
 	existing = frappe.db.exists(
 		"BPMN Process Instance",
@@ -316,18 +316,22 @@ def _maybe_start_instance(doc, model_name: str):
 			"process_model": model_name,
 			"context_doctype": doc.doctype,
 			"context_docname": doc.name,
-			"status": "Active",
+			"status": ["in", ["Queued", "Active"]],
 		},
 	)
 	if existing:
 		return
 
-	# All checks passed — create and start the instance
+	# All checks passed — create the instance now (so the save request
+	# returns a visible, linked instance immediately) but run the engine in
+	# a background job. The first engine pass can include multi-turn AI
+	# Task Selector decisions (seconds of LLM latency each) — far past the
+	# 5-second budget for a document save.
 	instance = frappe.new_doc("BPMN Process Instance")
 	instance.process_model = model_name
 	instance.context_doctype = doc.doctype
 	instance.context_docname = doc.name
-	instance.status = "Active"
+	instance.status = "Queued"
 	instance.initiated_by = frappe.session.user
 	instance.started_at = now_datetime()
 	instance.insert(ignore_permissions=True)
@@ -340,14 +344,71 @@ def _maybe_start_instance(doc, model_name: str):
 		frappe.flags._bpmn_instances_just_started = set()
 	frappe.flags._bpmn_instances_just_started.add(f"{doc.doctype}:{doc.name}")
 
-	# start() runs the engine and saves the instance
-	instance.start(
-		initial_data={
-			"triggered_by": frappe.session.user,
-			"trigger_doctype": doc.doctype,
-			"trigger_docname": doc.name,
-		}
+	if frappe.flags.in_test:
+		# Tests run with auto-rollback and no worker: enqueue_after_commit
+		# would strand the instance in Queued forever. Run inline.
+		start_queued_instance(instance.name, run_as_user=frappe.session.user)
+		return
+
+	frappe.enqueue(
+		"one_bpmn.one_bpmn.trigger.start_queued_instance",
+		# Dedicated queue (WI-001365) so AI decision loops can't starve
+		# unrelated ONE-FM jobs on default/short/long.
+		queue="bpmn_ai_agent",
+		timeout=600,
+		enqueue_after_commit=True,  # the job must see the committed doc + instance
+		instance_name=instance.name,
+		run_as_user=frappe.session.user,
 	)
+
+
+def start_queued_instance(instance_name: str, run_as_user: str = None):
+	"""
+	Background half of _maybe_start_instance: run the first engine pass of a
+	Queued instance on the bpmn_ai_agent queue.
+	"""
+	instance = frappe.get_doc("BPMN Process Instance", instance_name, for_update=True)
+	if instance.status != "Queued":
+		return  # already started (or cancelled) elsewhere
+	if run_as_user:
+		frappe.set_user(run_as_user)
+
+	# Same guard as the inline path: script tasks inside start() may save the
+	# context doc, which would otherwise self-deliver Edit_Action messages.
+	if not frappe.flags._bpmn_instances_just_started:
+		frappe.flags._bpmn_instances_just_started = set()
+	frappe.flags._bpmn_instances_just_started.add(
+		f"{instance.context_doctype}:{instance.context_docname}"
+	)
+
+	instance.status = "Active"
+	try:
+		# start() runs the engine and saves the instance
+		instance.start(
+			initial_data={
+				"triggered_by": run_as_user or frappe.session.user,
+				"trigger_doctype": instance.context_doctype,
+				"trigger_docname": instance.context_docname,
+			}
+		)
+	except Exception:
+		frappe.db.set_value("BPMN Process Instance", instance_name, "status", "Errored")
+		frappe.log_error(
+			title=f"BPMN queued start failed: {instance_name}",
+			message=frappe.get_traceback(),
+		)
+	finally:
+		frappe.publish_realtime(
+			"bpmn_instance_updated",
+			{
+				"instance_name": instance_name,
+				"status": frappe.db.get_value("BPMN Process Instance", instance_name, "status"),
+				"context_doctype": instance.context_doctype or "",
+				"context_docname": instance.context_docname or "",
+			},
+			after_commit=True,
+			user="all",
+		)
 
 
 

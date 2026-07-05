@@ -109,7 +109,8 @@ class TestDirectApiExecutor(FrappeTestCase):
 
         with patch("frappe.get_doc", return_value=provider), \
              patch("frappe.utils.password.get_decrypted_password", return_value="sk-test"), \
-             patch("requests.post", return_value=resp):
+             patch("requests.post", return_value=resp), \
+             patch("time.sleep"):
             try:
                 import jsonschema  # noqa
                 result = DirectApiExecutor().run(cfg, ctx)
@@ -163,7 +164,8 @@ class TestDirectApiExecutor(FrappeTestCase):
 
         with patch("frappe.get_doc", return_value=provider), \
              patch("frappe.utils.password.get_decrypted_password", return_value="sk-test"), \
-             patch("requests.post", side_effect=req.Timeout):
+             patch("requests.post", side_effect=req.Timeout), \
+             patch("time.sleep"):
             result = DirectApiExecutor().run(cfg, ctx)
         self.assertEqual(result.error_code, ErrorCode.TIMEOUT)
 
@@ -229,7 +231,8 @@ class TestAntigravityExecutor(FrappeTestCase):
 
         fake_agent = MagicMock()
         fake_agent.send.side_effect = RuntimeError("SDK error")
-        with patch.dict(sys.modules, {"antigravity": _fake_antigravity(fake_agent)}):
+        with patch.dict(sys.modules, {"antigravity": _fake_antigravity(fake_agent)}), \
+             patch("time.sleep"):
             result = AntigravityExecutor().run(cfg, ctx)
         self.assertEqual(result.error_code, ErrorCode.FAILED_MODEL_CALL)
         self.assertIn("SDK error", result.error_message)
@@ -278,7 +281,8 @@ class TestAntigravityExecutor(FrappeTestCase):
         fake_agent = MagicMock()
         fake_agent.send.return_value = fake_response
 
-        with patch.dict(sys.modules, {"antigravity": _fake_antigravity(fake_agent)}):
+        with patch.dict(sys.modules, {"antigravity": _fake_antigravity(fake_agent)}), \
+             patch("time.sleep"):
             result = AntigravityExecutor().run(cfg, ctx)
         self.assertEqual(result.error_code, ErrorCode.SCHEMA_VALIDATION_FAILED)
 
