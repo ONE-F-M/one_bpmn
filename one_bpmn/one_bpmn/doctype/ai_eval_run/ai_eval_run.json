@@ -1,0 +1,154 @@
+{
+ "actions": [],
+ "allow_rename": 1,
+ "autoname": "hash",
+ "creation": "2026-06-28 00:00:00.000000",
+ "doctype": "DocType",
+ "editable_grid": 1,
+ "engine": "InnoDB",
+ "field_order": [
+  "suite",
+  "status",
+  "backend",
+  "column_break_meta",
+  "started_at",
+  "ended_at",
+  "section_break_counts",
+  "total_cases",
+  "passed_cases",
+  "column_break_counts",
+  "failed_cases",
+  "section_break_usage",
+  "total_tokens",
+  "column_break_usage",
+  "total_cost",
+  "section_break_results",
+  "results"
+ ],
+ "fields": [
+  {
+   "fieldname": "suite",
+   "fieldtype": "Link",
+   "in_list_view": 1,
+   "label": "Suite",
+   "options": "AI Eval Suite",
+   "reqd": 1
+  },
+  {
+   "fieldname": "status",
+   "fieldtype": "Select",
+   "in_list_view": 1,
+   "in_standard_filter": 1,
+   "label": "Status",
+   "options": "Running\nPassed\nFailed\nError",
+   "reqd": 1
+  },
+  {
+   "default": "live",
+   "fieldname": "backend",
+   "fieldtype": "Select",
+   "label": "Backend",
+   "options": "live\nreplay"
+  },
+  {
+   "fieldname": "column_break_meta",
+   "fieldtype": "Column Break"
+  },
+  {
+   "fieldname": "started_at",
+   "fieldtype": "Datetime",
+   "in_list_view": 1,
+   "label": "Started At",
+   "reqd": 1
+  },
+  {
+   "fieldname": "ended_at",
+   "fieldtype": "Datetime",
+   "label": "Ended At"
+  },
+  {
+   "fieldname": "section_break_counts",
+   "fieldtype": "Section Break",
+   "label": "Case Counts"
+  },
+  {
+   "fieldname": "total_cases",
+   "fieldtype": "Int",
+   "in_list_view": 1,
+   "label": "Total Cases"
+  },
+  {
+   "fieldname": "passed_cases",
+   "fieldtype": "Int",
+   "label": "Passed Cases"
+  },
+  {
+   "fieldname": "column_break_counts",
+   "fieldtype": "Column Break"
+  },
+  {
+   "fieldname": "failed_cases",
+   "fieldtype": "Int",
+   "label": "Failed Cases"
+  },
+  {
+   "fieldname": "section_break_usage",
+   "fieldtype": "Section Break",
+   "label": "Usage & Cost"
+  },
+  {
+   "fieldname": "total_tokens",
+   "fieldtype": "Int",
+   "in_list_view": 1,
+   "label": "Total Tokens"
+  },
+  {
+   "fieldname": "column_break_usage",
+   "fieldtype": "Column Break"
+  },
+  {
+   "fieldname": "total_cost",
+   "fieldtype": "Currency",
+   "in_list_view": 1,
+   "label": "Total Cost",
+   "precision": "6"
+  },
+  {
+   "fieldname": "section_break_results",
+   "fieldtype": "Section Break",
+   "label": "Results"
+  },
+  {
+   "fieldname": "results",
+   "fieldtype": "Table",
+   "label": "Results",
+   "options": "AI Eval Result"
+  }
+ ],
+ "index_web_pages_for_search": 1,
+ "links": [],
+ "modified": "2026-06-30 06:50:00.000000",
+ "modified_by": "Administrator",
+ "module": "ONE BPMN",
+ "name": "AI Eval Run",
+ "naming_rule": "Random",
+ "owner": "Administrator",
+ "permissions": [
+  {
+   "create": 1,
+   "delete": 1,
+   "email": 1,
+   "export": 1,
+   "print": 1,
+   "read": 1,
+   "report": 1,
+   "role": "System Manager",
+   "share": 1,
+   "write": 1
+  }
+ ],
+ "sort_field": "modified",
+ "sort_order": "DESC",
+ "states": [],
+ "track_changes": 1
+}

@@ -121,7 +121,63 @@
 				<p class="text-gray-500 mb-4">Try adjusting your filters or start a new process.</p>
 			</div>
 
-			<!-- List View -->
+			<!-- Mobile Card Layout -->
+			<div v-else-if="isMobile" class="flex flex-col">
+				<div class="space-y-2">
+					<div
+						v-for="row in instances"
+						:key="row.name"
+						@click="openInstance(row.name)"
+						class="bg-white rounded-lg shadow-sm p-4 active:bg-gray-50 transition-colors cursor-pointer"
+					>
+						<div class="flex items-center justify-between mb-2">
+							<span class="text-sm font-medium text-gray-900 truncate">{{ row.process_model || '-' }}</span>
+							<Badge :theme="getStatusTheme(row.status)" :label="row.status || 'Unknown'" size="sm" />
+						</div>
+						<div v-if="row.context_docname" class="mb-1.5">
+							<a
+								:href="getContextDocumentLink(row)"
+								@click.stop
+								class="text-xs text-blue-600 hover:underline truncate block"
+							>
+								{{ row.context_doctype }} - {{ row.context_docname }}
+							</a>
+						</div>
+						<div v-if="row.current_step" class="text-xs text-gray-500 mb-1">Step: {{ row.current_step }}</div>
+						<div class="flex items-center justify-between text-xs text-gray-400">
+							<span v-if="row.initiated_by">{{ row.initiated_by }}</span>
+							<span v-if="row.started_at">{{ formatDateTime(row.started_at) }}</span>
+						</div>
+					</div>
+				</div>
+
+				<!-- Mobile Pagination Controls -->
+				<div class="px-2 py-4 border-t mt-3 flex items-center justify-between text-sm">
+					<div class="text-gray-600 text-xs">
+						Showing {{ limitStart + 1 }} to {{ limitStart + instances.length }}
+					</div>
+					<div class="flex items-center gap-3">
+						<Button
+							variant="outline"
+							:disabled="limitStart === 0"
+							@click="prevPage"
+							class="min-h-[44px] min-w-[80px]"
+						>
+							Previous
+						</Button>
+						<Button
+							variant="outline"
+							:disabled="instances.length < pageLengthNum"
+							@click="nextPage"
+							class="min-h-[44px] min-w-[80px]"
+						>
+							Next
+						</Button>
+					</div>
+				</div>
+			</div>
+
+			<!-- Desktop List View -->
 			<div v-else class="bg-white rounded-lg shadow-sm flex flex-col">
 				<ListView
 					:columns="columns"
@@ -180,22 +236,22 @@
 					</template>
 				</ListView>
 
-				<!-- Pagination Controls -->
+				<!-- Desktop Pagination Controls -->
 				<div class="px-6 py-4 border-t flex items-center justify-between text-sm">
 					<div class="text-gray-600">
-						Showing {{ limitStart + 1 }} to {{ limitStart + instances.length }} 
+						Showing {{ limitStart + 1 }} to {{ limitStart + instances.length }}
 					</div>
 					<div class="flex items-center gap-2">
-						<Button 
-							variant="outline" 
-							:disabled="limitStart === 0" 
+						<Button
+							variant="outline"
+							:disabled="limitStart === 0"
 							@click="prevPage"
 						>
 							Previous
 						</Button>
-						<Button 
-							variant="outline" 
-							:disabled="instances.length < limitPageLength" 
+						<Button
+							variant="outline"
+							:disabled="instances.length < pageLengthNum"
 							@click="nextPage"
 						>
 							Next
@@ -223,6 +279,9 @@ import {
 } from "frappe-ui"
 import { Icon } from "@iconify/vue"
 import { dayjs } from "@/dayjs"
+import { useWindowSize } from "@/composables/useWindowSize"
+
+const { isMobile } = useWindowSize()
 
 const router = useRouter()
 const instances = ref([])
@@ -231,6 +290,9 @@ const loading = ref(true)
 // Pagination state
 const limitStart = ref(0)
 const limitPageLength = ref(20)
+
+// Coerce limitPageLength to a number (FormControl select can set it as a string)
+const pageLengthNum = computed(() => Number(limitPageLength.value))
 
 // Filters state
 const filters = ref({
@@ -347,14 +409,14 @@ function changePageSize() {
 
 function prevPage() {
 	if (limitStart.value > 0) {
-		limitStart.value = Math.max(0, limitStart.value - limitPageLength.value)
+		limitStart.value = Math.max(0, limitStart.value - pageLengthNum.value)
 		loadInstances()
 	}
 }
 
 function nextPage() {
-	if (instances.value.length === limitPageLength.value) {
-		limitStart.value += limitPageLength.value
+	if (instances.value.length >= pageLengthNum.value) {
+		limitStart.value += pageLengthNum.value
 		loadInstances()
 	}
 }
@@ -386,7 +448,7 @@ async function loadInstances() {
 			params: {
 				filters: JSON.stringify(apiFilters),
 				limit_start: limitStart.value,
-				limit_page_length: limitPageLength.value,
+				limit_page_length: pageLengthNum.value,
 				order_by: "creation desc"
 			}
 		})

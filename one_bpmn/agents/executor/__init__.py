@@ -49,6 +49,17 @@ class TokenUsage:
 
 
 @dataclass
+class AttemptRecord:
+    """Record of a single failed retry attempt."""
+    attempt_index: int = 0
+    content: str = ""
+    error_code: str = ""       # ErrorCode.value or ""
+    error_message: str = ""
+    token_usage: Optional[TokenUsage] = None
+    latency_ms: int = 0
+
+
+@dataclass
 class ExecutorConfig:
     backend: str = "direct_api"
     provider_name: str = ""
@@ -81,6 +92,7 @@ class ExecutorResult:
     error_code: ErrorCode = ErrorCode.SUCCESS
     error_message: str = ""
     raw: Any = None
+    attempts: list = field(default_factory=list)  # List[AttemptRecord]
 
 
 # ---------------------------------------------------------------------------

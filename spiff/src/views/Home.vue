@@ -227,22 +227,22 @@
 					</template>
 				</ListView>
 			</div>
-
-			<!-- Pagination Footer -->
-			<div
-				v-if="sortedProcesses.length > 0"
-				class="mt-3 border-t border-gray-200 pt-3"
-			>
-				<ListFooter
-					v-model="pageLength"
-					:options="{
-						rowCount: displayedProcesses.length,
-						totalCount: sortedProcesses.length,
-					}"
-					@loadMore="visibleCount += pageLength"
-				/>
-			</div>
 		</main>
+
+		<!-- Pagination Footer (fixed at bottom) -->
+		<div
+			v-if="sortedProcesses.length > 0"
+			class="shrink-0 border-t border-gray-200 bg-white px-6 py-3"
+		>
+			<ListFooter
+				v-model="pageLength"
+				:options="{
+					rowCount: displayedProcesses.length,
+					totalCount: sortedProcesses.length,
+				}"
+				@loadMore="visibleCount += pageLength"
+			/>
+		</div>
 	</div>
 </template>
 
