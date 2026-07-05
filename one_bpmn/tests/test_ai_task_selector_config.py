@@ -97,3 +97,63 @@ class TestAiTaskSelectorConfig(FrappeTestCase):
 		provider.insert(ignore_permissions=True)
 		extensions = _extract_adhoc_selector_config(_xml(provider=provider.name))
 		_lint_ai_provider_config("", extensions)  # must not raise
+
+
+ADHOC_STRUCTURE_XML = """<?xml version="1.0" encoding="UTF-8"?>
+<bpmn:definitions xmlns:bpmn="http://www.omg.org/spec/BPMN/20100524/MODEL"
+    id="Defs_Structure" targetNamespace="http://bpmn.io/schema/bpmn">
+  <bpmn:process id="Process_Structure" isExecutable="true">
+    <bpmn:adHocSubProcess id="AdhocSub_S" name="Structure">
+      {children}
+    </bpmn:adHocSubProcess>
+  </bpmn:process>
+</bpmn:definitions>
+"""
+
+
+class TestAdhocStructureValidation(FrappeTestCase):
+	"""_validate_adhoc_structure: BPMN-spec constraints on ad-hoc subprocesses
+	(no start/end events inside, at least one activity)."""
+
+	def _validate(self, children):
+		from one_bpmn.api.compilation import _validate_adhoc_structure
+
+		_validate_adhoc_structure(ADHOC_STRUCTURE_XML.replace("{children}", children))
+
+	def test_activities_only_passes(self):
+		self._validate('<bpmn:userTask id="t1" /><bpmn:scriptTask id="t2" />')
+
+	def test_start_event_inside_adhoc_blocks_save(self):
+		with self.assertRaises(frappe.ValidationError) as ctx:
+			self._validate('<bpmn:startEvent id="ev1" /><bpmn:userTask id="t1" />')
+		self.assertIn("Start Event", str(ctx.exception))
+
+	def test_end_event_inside_adhoc_blocks_save(self):
+		with self.assertRaises(frappe.ValidationError) as ctx:
+			self._validate('<bpmn:userTask id="t1" /><bpmn:endEvent id="ev2" />')
+		self.assertIn("End Event", str(ctx.exception))
+
+	def test_empty_adhoc_blocks_save(self):
+		with self.assertRaises(frappe.ValidationError) as ctx:
+			self._validate("")
+		self.assertIn("at least one activity", str(ctx.exception))
+
+	def test_intermediate_event_allowed(self):
+		# Only start/end events are prohibited by the spec; intermediate
+		# events may appear inside an ad-hoc subprocess.
+		self._validate('<bpmn:intermediateCatchEvent id="ic1" /><bpmn:userTask id="t1" />')
+
+	def test_events_outside_adhoc_untouched(self):
+		from one_bpmn.api.compilation import _validate_adhoc_structure
+
+		xml = """<?xml version="1.0" encoding="UTF-8"?>
+<bpmn:definitions xmlns:bpmn="http://www.omg.org/spec/BPMN/20100524/MODEL"
+    id="Defs_Outer" targetNamespace="http://bpmn.io/schema/bpmn">
+  <bpmn:process id="Process_Outer" isExecutable="true">
+    <bpmn:startEvent id="Start_1" />
+    <bpmn:adHocSubProcess id="AdhocSub_O"><bpmn:userTask id="t1" /></bpmn:adHocSubProcess>
+    <bpmn:endEvent id="End_1" />
+  </bpmn:process>
+</bpmn:definitions>
+"""
+		_validate_adhoc_structure(xml)  # must not raise
