@@ -47,6 +47,7 @@
 						:active-tasks="activeTasks"
 						:completing-task="completingTask"
 						:completing-action="completingAction"
+						:engine-busy="engineBusy"
 						@complete="completeTask"
 					/>
 				</div>
@@ -56,7 +57,7 @@
 </template>
 
 <script setup>
-import { ref, computed, onMounted, onUnmounted } from "vue"
+import { ref, computed, watch, onMounted, onUnmounted } from "vue"
 import { useRoute } from "vue-router"
 import { frappeRequest } from "frappe-ui"
 import { Icon } from "@iconify/vue"
@@ -379,6 +380,33 @@ async function handleRealtimeUpdate(data) {
 	await loadLogs()
 }
 
+// ── Background engine tracking ──
+// The engine (task dispatch + AI decisions) runs in a background job after
+// document triggers and user actions. While it does, engine_in_progress is
+// set (or the instance is still Queued) — show progress and poll as a
+// fallback in case the realtime completion event is missed.
+const engineBusy = computed(
+	() => details.value?.status === "Queued" || Boolean(details.value?.engine_in_progress)
+)
+
+let enginePollTimer = null
+watch(engineBusy, (busy) => {
+	if (busy && !enginePollTimer) {
+		enginePollTimer = setInterval(async () => {
+			await loadDetails()
+			if (!engineBusy.value) {
+				logs.value = []
+				limitStart.value = 0
+				hasMoreLogs.value = true
+				await loadLogs()
+			}
+		}, 4000)
+	} else if (!busy && enginePollTimer) {
+		clearInterval(enginePollTimer)
+		enginePollTimer = null
+	}
+})
+
 // ── Lifecycle ──
 
 onMounted(async () => {
@@ -394,6 +422,10 @@ onMounted(async () => {
 onUnmounted(() => {
 	if (window.frappe?.realtime) {
 		window.frappe.realtime.off("bpmn_instance_updated", handleRealtimeUpdate)
+	}
+	if (enginePollTimer) {
+		clearInterval(enginePollTimer)
+		enginePollTimer = null
 	}
 })
 </script>
