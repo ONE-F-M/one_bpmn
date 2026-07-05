@@ -433,7 +433,7 @@ def dispatch_push_notification(instance, task, task_cfg: dict, bpmn_id: str) -> 
 		)
 
 
-def dispatch_email(instance, task, task_cfg: dict) -> None:
+def dispatch_email(instance, task, task_cfg: dict, amp_html: str = None) -> None:
 	"""
 	Send an email notification from a Service Task with serviceType='send_email'.
 
@@ -548,6 +548,22 @@ def dispatch_email(instance, task, task_cfg: dict) -> None:
 	# notifications enabled, email notifications enabled, and
 	# preferred company email).
 	# Falls back to frappe.sendmail if one_fm isn't installed.
+
+	# Render AMP info card via the composer (Story 5)
+	if not amp_html:
+		try:
+			from one_bpmn.email_builder.composer import compose_and_send_info_email
+
+			amp_html = compose_and_send_info_email(
+				instance, task_cfg, subject, body
+			)
+		except Exception:
+			amp_html = None  # Graceful fallback — send plain HTML
+
+	# Set AMP flag before sending — picked up by our Email Queue before_insert hook
+	if amp_html:
+		frappe.flags.amp_html = amp_html
+
 	try:
 		from one_fm.processor import sendemail as onefm_sendemail
 
@@ -582,6 +598,10 @@ def dispatch_ai_agent(instance, task, task_cfg: dict, bpmn_id: str) -> None:
 	prompts, calls the configured executor backend, and writes results into
 	task.data.  On failure, sets error variables and logs to Frappe Error Log
 	— the task STILL completes normally (no instance "Errored" state).
+
+	Observability (AI-009): on every call the instrumentation layer creates
+	an AI Agent Run, records Steps, and finalizes the Run. Instrumentation
+	failures are caught and logged — they never block the executor call.
 	"""
 	from one_bpmn.agents.executor import ExecutorConfig, ExecutorContext, ErrorCode, get_executor
 	from one_bpmn.agents.executor.direct_api import DirectApiExecutor  # noqa
@@ -595,6 +615,8 @@ def dispatch_ai_agent(instance, task, task_cfg: dict, bpmn_id: str) -> None:
 			pass
 
 	jinja_ctx = {"doc": doc, "instance": instance, "frappe": frappe}
+	if hasattr(task, "data") and isinstance(task.data, dict):
+		jinja_ctx.update(task.data)
 
 	def render(text):
 		if not text:
@@ -630,18 +652,81 @@ def dispatch_ai_agent(instance, task, task_cfg: dict, bpmn_id: str) -> None:
 		jinja_context   = jinja_ctx,
 	)
 
+	# ── Observability: create Run ─────────────────────────────────────
+	run = None
+	try:
+		from one_bpmn.agents.observability import create_ai_run
+		from one_bpmn.one_bpmn.engine import get_task_display_name as _get_label
+		run = create_ai_run(
+			instance, bpmn_id, "task", config,
+			bpmn_label=_get_label(task),
+			process_model=instance.process_model or "",
+		)
+	except Exception:
+		frappe.log_error(
+			title=f"AI Observability: create_ai_run error ({bpmn_id})",
+			message=frappe.get_traceback(),
+		)
+
+	# ── Executor ───────────────────────────────────────────────────────
+	import time as _time
+	_exec_start = _time.time()
 	try:
 		executor_cls = get_executor(config.backend)
 		result = executor_cls().run(config, context)
-	except Exception:
+	except Exception as exc:
 		frappe.log_error(
 			title=f"BPMN AI Agent Task: unexpected error ({bpmn_id})",
 			message=frappe.get_traceback(),
 		)
 		task.data[f"{bpmn_id}_error_code"] = "UNEXPECTED_ERROR"
 		task.data[f"{bpmn_id}_error_message"] = "See Frappe Error Log for details."
+		# Observability: finalize on exception
+		try:
+			from one_bpmn.agents.observability import finalize_ai_run_on_exception
+			finalize_ai_run_on_exception(run, exc)
+		except Exception:
+			pass
 		return
+	_exec_latency_ms = int((_time.time() - _exec_start) * 1000)
 
+	# ── Observability: record Steps + finalize ─────────────────────────
+	try:
+		from one_bpmn.agents.observability import record_ai_step, finalize_ai_run
+
+		if run and not getattr(run, "stub", False):
+			record_ai_step(run, 0, "system", system_prompt)
+
+			usage = result.token_usage if result.error_code == ErrorCode.SUCCESS else None
+			# Attribute prompt_tokens (input cost) to the user step,
+			# completion_tokens (output cost) to the assistant step.
+			record_ai_step(
+				run, 1, "user", user_prompt,
+				prompt_tokens=usage.prompt_tokens if usage else 0,
+			)
+
+		if result.error_code == ErrorCode.SUCCESS:
+			if run and not getattr(run, "stub", False):
+				record_ai_step(
+					run, 2, "assistant",
+					str(result.output or ""),
+					completion_tokens=usage.completion_tokens if usage else 0,
+					latency_ms=_exec_latency_ms,
+				)
+			finalize_ai_run(run, result)
+		else:
+			finalize_ai_run(run, result)
+
+		# Commit observability data so AI runs + steps survive even if a
+		# downstream aiStopOnError raise rolls back the outer transaction.
+		frappe.db.commit()
+	except Exception:
+		frappe.log_error(
+			title=f"AI Observability: instrumentation error ({bpmn_id})",
+			message=frappe.get_traceback(),
+		)
+
+	# ── Results ────────────────────────────────────────────────────────
 	if result.error_code == ErrorCode.SUCCESS:
 		output_var = task_cfg.get("aiOutputVariable") or f"{bpmn_id}_output"
 		task.data[output_var] = result.output
@@ -652,10 +737,7 @@ def dispatch_ai_agent(instance, task, task_cfg: dict, bpmn_id: str) -> None:
 				"total_tokens":      result.token_usage.total_tokens,
 			}
 
-		# On success, optionally write the result back to a field on the context
-		# document (follows the dispatch_update_field pattern). Per WI-001144,
-		# write-back happens only when the executor succeeds.
-
+		# Write-back (only on success)
 		write_back_field = task_cfg.get("aiWriteBackField", "")
 		if write_back_field and instance.context_doctype and instance.context_docname:
 			try:
@@ -683,3 +765,12 @@ def dispatch_ai_agent(instance, task, task_cfg: dict, bpmn_id: str) -> None:
 		)
 		task.data[f"{bpmn_id}_error_code"]    = error_code_name
 		task.data[f"{bpmn_id}_error_message"] = result.error_message
+
+		# If the BPMN task is configured to stop on error, raise so the
+		# engine loop in _run_engine_steps halts and the instance is
+		# marked Errored (same pattern as apply_workflow).
+		if task_cfg.get("aiStopOnError"):
+			raise Exception(
+				f"AI Agent Task '{bpmn_id}' failed: "
+				f"{error_code_name} — {result.error_message}"
+			)

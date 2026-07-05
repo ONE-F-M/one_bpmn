@@ -23,8 +23,9 @@
 
 /* ── Mobile Responsive ────────────────────────────── */
 
-/* Prevent pull-to-refresh on the BPMN canvas */
-.bpmn-canvas {
+/* Prevent pull-to-refresh on the BPMN canvas (editor & instance viewer) */
+.bpmn-canvas,
+.bpmn-canvas-container {
 	overscroll-behavior: contain;
 	-webkit-overflow-scrolling: touch;
 }

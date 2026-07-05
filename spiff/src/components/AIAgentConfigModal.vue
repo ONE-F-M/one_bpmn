@@ -97,6 +97,14 @@
             <label>Max Retries</label>
             <input type="number" v-model.number="form.aiMaxRetries" min="0" max="10" />
           </div>
+
+          <div class="field-row" style="margin-top: 8px;">
+            <label class="checkbox-row">
+              <input type="checkbox" v-model="form.aiStopOnError" class="checkbox-input" />
+              <span>Stop process on error</span>
+            </label>
+            <span class="field-hint">If checked, the process instance will halt when this AI task fails.</span>
+          </div>
         </div>
 
         <div class="modal-footer">
@@ -275,6 +283,7 @@ const form = ref({
   aiMaxTokens: 1024,
   aiTimeout: 30,
   aiMaxRetries: 2,
+  aiStopOnError: false,
 });
 
 // ── Assistant state ───────────────────────────────────────────────────────
@@ -556,6 +565,7 @@ onMounted(async () => {
     aiMaxTokens: numOr("aiMaxTokens", 1024, parseInt),
     aiTimeout: numOr("aiTimeout", 30, parseInt),
     aiMaxRetries: numOr("aiMaxRetries", 2, parseInt),
+    aiStopOnError: get("aiStopOnError") === "true",
   };
 });
 
@@ -601,6 +611,7 @@ function save() {
     "spiffworkflow:aiMaxTokens": String(form.value.aiMaxTokens),
     "spiffworkflow:aiTimeout": String(form.value.aiTimeout),
     "spiffworkflow:aiMaxRetries": String(form.value.aiMaxRetries),
+    "spiffworkflow:aiStopOnError": form.value.aiStopOnError ? "true" : undefined,
   };
 
   modeling.updateModdleProperties(element, bo, patch);
@@ -668,7 +679,7 @@ function save() {
 .field-row.two-col > div { display: flex; flex-direction: column; gap: 4px; min-width: 0; }
 .field-row label { font-size: 0.8rem; font-weight: 500; color: #374151; }
 .field-row .hint { font-weight: 400; color: #9ca3af; }
-.field-row input,
+.field-row input:not([type="checkbox"]),
 .field-row select,
 .field-row textarea {
   width: 100%;
@@ -678,6 +689,27 @@ function save() {
   border-radius: 4px;
   font-size: 0.85rem;
   font-family: inherit;
+}
+.checkbox-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  cursor: pointer;
+  font-size: 0.8rem;
+  font-weight: 500;
+  color: #374151;
+}
+.checkbox-input {
+  width: 16px;
+  height: 16px;
+  accent-color: #6366f1;
+  cursor: pointer;
+  flex-shrink: 0;
+}
+.field-hint {
+  font-size: 0.75rem;
+  color: #9ca3af;
+  font-weight: 400;
 }
 .field-row textarea { resize: vertical; min-height: 80px; }
 .field-row input:focus,

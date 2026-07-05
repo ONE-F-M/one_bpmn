@@ -1040,6 +1040,9 @@ import "bpmn-js/dist/assets/bpmn-font/css/bpmn.css";
 
 // Touch interaction support for mobile devices
 import touchInteractionModule from "bpmn-js-touch-interaction";
+// Direct touch handler fallback — works even when the module's (pointer: coarse)
+// guard prevents initialization on some mobile browsers.
+import { setupCanvasTouchHandler } from "@/utils/canvasTouchHandler";
 
 // Import properties panel CSS
 import "@bpmn-io/properties-panel/dist/assets/properties-panel.css";
@@ -1260,7 +1263,8 @@ async function submitTimelineComment() {
 		timelineAssignedTo.value = "";
 		timelineIsTask.value = false;
 		timelineMentionedUsers.value = [];
-		fetchComments();
+		// Small delay to ensure DB commit before re-fetching
+		setTimeout(() => fetchComments(), 300);
 	} catch (err) {
 		console.error("Failed to post timeline comment:", err);
 	}
@@ -1395,6 +1399,7 @@ watch([showPropertiesPanel, isMobile], () => {
 
 let modeler = null;
 let commandStack = null;
+let editorTouchCleanup = null;
 
 // Empty BPMN diagram template — generates a unique process ID each time
 function makeEmptyDiagram() {
@@ -1575,7 +1580,8 @@ onMounted(async () => {
 						{ name: "aiMaxTokens",          isAttr: true, type: "String" },
 						{ name: "aiTimeout",            isAttr: true, type: "String" },
 						{ name: "aiMaxRetries",         isAttr: true, type: "String" },
-						{ name: "aiWriteBackField",     isAttr: true, type: "String" }
+						{ name: "aiWriteBackField",     isAttr: true, type: "String" },
+						{ name: "aiStopOnError",        isAttr: true, type: "String" }
 						]
 				});
 			}
@@ -1668,6 +1674,16 @@ onMounted(async () => {
 			modeler = initializedModeler;
 			modelerInstance.value = modeler;
 
+			// Direct touch handler fallback: only activate when the device has
+			// touch capability but the bpmn-js-touch-interaction module didn't
+			// initialize (it gates on `(pointer: coarse)` which returns false
+			// on some mobile browsers). This avoids duplicate gesture handlers.
+			const isTouchDevice = 'ontouchstart' in window || navigator.maxTouchPoints > 0
+			const moduleActivated = window.matchMedia('(pointer: coarse)').matches
+			if (!editorTouchCleanup && container.value && isTouchDevice && !moduleActivated) {
+				editorTouchCleanup = setupCanvasTouchHandler(modeler, container.value)
+			}
+
 			// Fetch users for assignment
 			fetchUsers();
 
@@ -1716,6 +1732,12 @@ onMounted(async () => {
 					try {
 						const canvas = modeler.get("canvas");
 						const rootElement = canvas.getRootElement();
+
+						const rootBo = rootElement.businessObject;
+						const flowEls = rootBo && (rootBo.flowElements || []);
+						if (!flowEls.length) {
+							return {};
+						}
 
 						// Helper to collect all element IDs strictly contained within the given moddle object
 						const getModdleDescendants = (bo, descendants = new Set(), visited = new Set()) => {
@@ -2237,6 +2259,10 @@ onBeforeUnmount(() => {
 	// Cancel any pending process-name injection to prevent memory-leaks
 	// and stale DOM updates after the component is torn down.
 	cancelPendingInjection();
+	if (editorTouchCleanup) {
+		editorTouchCleanup()
+		editorTouchCleanup = null
+	}
 	if (modeler) {
 		modeler.destroy();
 	}
@@ -2505,7 +2531,8 @@ async function submitInlineComment() {
 		});
 
 		closeInlineComment(true);
-		fetchComments();
+		// Small delay to ensure DB commit before re-fetching
+		setTimeout(() => fetchComments(), 300);
 		
 		// To fix unresponsiveness, re-select the element after a short delay
 		// which forces the context pad to refresh and ensures interaction is restored.
@@ -2644,25 +2671,39 @@ function renderComments() {
 	Object.keys(grouped).forEach(elementId => {
 		const elementComments = grouped[elementId];
 		const openTasks = elementComments.filter(c => c.is_task && c.status === "Open");
+		const regularComments = elementComments.filter(c => !c.is_task);
+		const hasOpenTasks = openTasks.length > 0;
+		const hasRegularComments = regularComments.length > 0;
 		
-		if (openTasks.length === 0) return;
+		if (!hasOpenTasks && !hasRegularComments) return;
 
-		// Create numeric badge HTML
 		const html = document.createElement("div");
-		html.className = "flex items-center justify-center bg-orange-500 text-white rounded-full text-[10px] font-extrabold shadow-sm border border-white cursor-pointer hover:scale-110 transition-transform";
-		html.style.width = "18px";
-		html.style.height = "18px";
-		html.innerText = openTasks.length;
-		html.title = `${openTasks.length} open task(s)`;
+
+		if (hasOpenTasks) {
+			// Show orange numeric badge for open tasks
+			html.className = "flex items-center justify-center bg-orange-500 text-white rounded-full text-[10px] font-extrabold shadow-sm border border-white cursor-pointer hover:scale-110 transition-transform";
+			html.style.width = "18px";
+			html.style.height = "18px";
+			html.innerText = openTasks.length;
+			html.title = `${openTasks.length} open task(s)`;
+		} else {
+			// Show blue comment icon for regular (non-task) comments
+			html.className = "flex items-center justify-center bg-blue-500 text-white rounded-full shadow-sm border border-white cursor-pointer hover:scale-110 transition-transform";
+			html.style.width = "18px";
+			html.style.height = "18px";
+			// Chat-bubble SVG icon
+			html.innerHTML = `<svg xmlns="http://www.w3.org/2000/svg" width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></svg>`;
+			html.title = `${regularComments.length} comment(s)`;
+		}
 
 		html.onclick = (e) => {
 			e.stopPropagation();
 			// Select the element
 			navigateToElementComments(elementId);
-			// Open timeline and filter to open tasks
+			// Open timeline and filter appropriately
 			showTimeline.value = true;
 			timelineFilterMode.value = "element";
-			timelineTaskFilter.value = true;
+			timelineTaskFilter.value = hasOpenTasks;
 		};
 
 		const elementRegistry = modeler.get("elementRegistry");
@@ -2709,7 +2750,8 @@ async function submitComment() {
 
 		showCommentDialog.value = false;
 		isCommentMode.value = false;
-		fetchComments();
+		// Small delay to ensure DB commit before re-fetching
+		setTimeout(() => fetchComments(), 300);
 	} catch (err) {
 		console.error("Failed to post comment:", err);
 	}
@@ -2825,6 +2867,43 @@ async function loadXML(xml) {
 				console.warn("Could not fit viewport automatically - container may be hidden:", e);
 			}
 		}, 100);
+
+		// Extract process name from the loaded XML so ProsAlly and other
+		// consumers use the actual BPMN process name, not the model record name.
+		// The pipeline compiler puts the name on bpmn:Participant (pool header),
+		// not on bpmn:Process, so we check both.
+		try {
+			const elementRegistry = modeler.get("elementRegistry");
+			let extractedName = "";
+
+			// 1. Check bpmn:Participant first (where pipeline.mjs puts ir.name)
+			const participants = elementRegistry.filter((el) => el.type === "bpmn:Participant");
+			for (const p of participants) {
+				const name = p.businessObject?.name;
+				if (name && name !== "Process") {
+					extractedName = name;
+					break;
+				}
+			}
+
+			// 2. Fallback: check bpmn:Process name attribute
+			if (!extractedName) {
+				const processEls = elementRegistry.filter((el) => el.type === "bpmn:Process");
+				for (const processEl of processEls) {
+					const name = processEl.businessObject?.name;
+					if (name) {
+						extractedName = name;
+						break;
+					}
+				}
+			}
+
+			if (extractedName) {
+				internalProcessName.value = extractedName;
+			}
+		} catch (e) {
+			console.warn("Could not extract process name:", e);
+		}
 	} catch (err) {
 		console.error("Failed to import XML:", err);
 	} finally {
