@@ -4,13 +4,13 @@
       <!-- ============ LEFT: configuration form ============ -->
       <div class="modal-main">
         <div class="modal-header">
-          <h3>Configure AI Agent Task</h3>
+          <h3>{{ isSelector ? "Configure AI Task Selector" : "Configure AI Agent Task" }}</h3>
           <button class="close-btn" @click="$emit('close')">✕</button>
         </div>
 
         <div class="modal-body">
-          <!-- Backend -->
-          <div class="field-row">
+          <!-- Backend (selector always runs direct_api) -->
+          <div class="field-row" v-if="!isSelector">
             <label>Backend</label>
             <select v-model="form.aiBackend">
               <option value="direct_api">Direct API</option>
@@ -35,8 +35,8 @@
             <input type="text" v-model="form.aiModel" placeholder="e.g. gpt-4o" />
           </div>
 
-          <!-- Output variable -->
-          <div class="field-row">
+          <!-- Output variable (selector output is the chosen task, not a variable) -->
+          <div class="field-row" v-if="!isSelector">
             <label>Output Variable Name</label>
             <input type="text" v-model="form.aiOutputVariable" placeholder="ai_result" />
           </div>
@@ -53,8 +53,8 @@
             <textarea v-model="form.aiUserPrompt" rows="4" />
           </div>
 
-          <!-- Response format -->
-          <div class="field-row">
+          <!-- Response format (selector responses are tool calls, not text/JSON) -->
+          <div class="field-row" v-if="!isSelector">
             <label>Response Format</label>
             <select v-model="form.aiResponseFormat">
               <option value="text">Text</option>
@@ -63,15 +63,15 @@
           </div>
 
           <!-- Response schema (only when JSON) -->
-          <div class="field-row" v-if="form.aiResponseFormat === 'json'">
+          <div class="field-row" v-if="!isSelector && form.aiResponseFormat === 'json'">
             <label>Response Schema <span class="hint">(JSON Schema)</span></label>
             <textarea v-model="form.aiResponseSchema" rows="4" placeholder='{"type":"object",...}' />
           </div>
 
           <div class="field-group-title">Advanced Settings</div>
 
-          <!-- Temperature -->
-          <div class="field-row two-col">
+          <!-- Temperature (selector dispatch doesn't read sampling params) -->
+          <div class="field-row two-col" v-if="!isSelector">
             <div>
               <label>Temperature</label>
               <input type="number" v-model.number="form.aiTemperature" min="0" max="2" step="0.1" />
@@ -93,12 +93,12 @@
             </div>
           </div>
 
-          <div class="field-row">
+          <div class="field-row" v-if="!isSelector">
             <label>Max Retries</label>
             <input type="number" v-model.number="form.aiMaxRetries" min="0" max="10" />
           </div>
 
-          <div class="field-row" style="margin-top: 8px;">
+          <div class="field-row" style="margin-top: 8px;" v-if="!isSelector">
             <label class="checkbox-row">
               <input type="checkbox" v-model="form.aiStopOnError" class="checkbox-input" />
               <span>Stop process on error</span>
@@ -191,8 +191,15 @@
           <!-- Messages -->
           <div ref="messagesEl" class="assistant-messages">
             <div v-if="!messages.length" class="assistant-empty">
-              Describe what this AI Agent Task should do, and I'll recommend field
-              values you can apply one by one.
+              <template v-if="isSelector">
+                Describe the flow like you'd brief a new colleague — no technical
+                terms needed, the diagram supplies those. I'll recommend prompts
+                you can apply one by one.
+              </template>
+              <template v-else>
+                Describe what this AI Agent Task should do, and I'll recommend field
+                values you can apply one by one.
+              </template>
             </div>
 
             <div
@@ -230,17 +237,45 @@
           </div>
 
           <!-- Input -->
-          <div class="assistant-input">
-            <textarea
-              v-model="input"
-              rows="2"
-              placeholder="e.g. Summarise the employee's leave history and flag any policy breaches"
-              :disabled="loading"
-              @keydown.enter.exact.prevent="sendMessage"
-            />
-            <button class="assistant-send" :disabled="loading || !input.trim()" @click="sendMessage">
-              Send
-            </button>
+          <div class="assistant-input-wrap">
+            <!-- Tips popover, toggled by the bulb below -->
+            <div v-if="showTips" class="assistant-tips assistant-tips-popover">
+              <div class="assistant-tips-title">
+                💡 {{ isSelector ? "Tips for a good description" : "Tips for a good prompt" }}
+                <button class="assistant-tips-close" title="Close" @click="showTips = false">✕</button>
+              </div>
+              <ul v-if="isSelector">
+                <li><strong>What to check first</strong> — e.g. "first see if the ticket mentions one of their orders"</li>
+                <li><strong>How to decide between paths</strong> — e.g. "if it's about an order… otherwise…"</li>
+                <li><strong>Who handles each path</strong> — e.g. "the order team handles it, or normal support"</li>
+                <li><strong>What "finished" looks like</strong> — e.g. "the customer got a reply and the ticket is closed"</li>
+              </ul>
+              <ul v-else>
+                <li><strong>What it should read</strong> — which parts of the document matter</li>
+                <li><strong>What it should produce</strong> — a summary, a decision, a value for a field</li>
+                <li><strong>What format</strong> — plain text, or structured data for a gateway to route on</li>
+              </ul>
+            </div>
+            <div class="assistant-input">
+              <button
+                class="assistant-tips-toggle"
+                :class="{ active: showTips }"
+                :title="isSelector ? 'Tips for a good description' : 'Tips for a good prompt'"
+                @click="showTips = !showTips"
+              >💡</button>
+              <textarea
+                v-model="input"
+                rows="2"
+                :placeholder="isSelector
+                  ? 'e.g. First check if the ticket is about an order. If it is, the order team handles it; otherwise support does. Either way the customer gets a reply, then close the ticket.'
+                  : 'e.g. Summarise the employee\'s leave history and flag any policy breaches'"
+                :disabled="loading"
+                @keydown.enter.exact.prevent="sendMessage"
+              />
+              <button class="assistant-send" :disabled="loading || !input.trim()" @click="sendMessage">
+                Send
+              </button>
+            </div>
           </div>
         </template>
       </div>
@@ -262,7 +297,25 @@ function rawElement() {
 const props = defineProps({
   element: { type: Object, required: true },
   modeler: { type: Object, required: true },
+  // "agent" (AI Agent Task) or "selector" (AI Task Selector on an ad-hoc
+  // subprocess). Selector mode hides fields the selector dispatch never
+  // reads (backend, output variable, response format/schema, sampling,
+  // retries) and writes only the selector attribute set on save.
+  mode: { type: String, default: "agent" },
 });
+
+const isSelector = computed(() => props.mode === "selector");
+
+// Fields the selector dispatch actually consumes (ai_task_selector.py) —
+// assistant recommendations outside this set are dropped in selector mode.
+const SELECTOR_FIELDS = [
+  "aiProvider",
+  "aiModel",
+  "aiSystemPrompt",
+  "aiUserPrompt",
+  "aiMaxTokens",
+  "aiTimeout",
+];
 
 const emit = defineEmits(["close"]);
 
@@ -289,6 +342,7 @@ const form = ref({
 // ── Assistant state ───────────────────────────────────────────────────────
 const messages = ref([]);          // { id, role, content, recommendations? }
 const input = ref("");
+const showTips = ref(false);
 const loading = ref(false);
 const contextDoctype = ref("");
 const contextDocname = ref("");
@@ -479,6 +533,29 @@ async function sendMessage() {
   loading.value = true;
   scrollBottom();
 
+  // Selector mode: ship the LIVE diagram (the saved model may be stale while
+  // the designer edits) plus the current drafts so the assistant proposes
+  // prompts that reference real shapes and refines instead of restarting.
+  let diagramPayload = {};
+  if (isSelector.value) {
+    try {
+      const { xml } = await toRaw(props.modeler).saveXML({ format: false });
+      diagramPayload = {
+        mode: "selector",
+        bpmn_xml: xml,
+        element_id: rawElement().businessObject?.id || rawElement().id || "",
+        process_model: window.__ONE_BPMN_CURRENT_MODEL__ || "",
+        current_config: JSON.stringify({
+          aiModel: form.value.aiModel,
+          aiSystemPrompt: form.value.aiSystemPrompt,
+          aiUserPrompt: form.value.aiUserPrompt,
+        }),
+      };
+    } catch (e) {
+      console.warn("[AI assistant] could not serialize diagram:", e);
+    }
+  }
+
   try {
     const res = await frappePost(
       "/api/method/one_bpmn.api.ai_assistant.recommend_ai_task_config",
@@ -489,15 +566,24 @@ async function sendMessage() {
         context_doctype: contextDoctype.value.trim(),
         context_docname: contextDocname.value.trim(),
         history: JSON.stringify(history),
+        ...diagramPayload,
       }
     );
 
     if (res && res.ok) {
+      let recommendations = res.recommendations || {};
+      if (isSelector.value) {
+        // Drop suggestions for fields the selector doesn't have
+        // (response schema, output variable, sampling params, …).
+        recommendations = Object.fromEntries(
+          Object.entries(recommendations).filter(([key]) => SELECTOR_FIELDS.includes(key))
+        );
+      }
       messages.value.push({
         id: makeId(),
         role: "assistant",
         content: res.message || "Here are my recommendations.",
-        recommendations: res.recommendations || {},
+        recommendations,
       });
     } else {
       const err = (res && (res.message || res.error_code)) || "The assistant request failed.";
@@ -567,6 +653,27 @@ onMounted(async () => {
     aiMaxRetries: numOr("aiMaxRetries", 2, parseInt),
     aiStopOnError: get("aiStopOnError") === "true",
   };
+
+  // Pre-fill the assistant's context DocType from the diagram's start-event
+  // trigger — the process context the prompts will run against.
+  if (!contextDoctype.value) {
+    try {
+      const defs = toRaw(props.modeler).getDefinitions();
+      for (const rootEl of defs.rootElements || []) {
+        for (const flowEl of rootEl.flowElements || []) {
+          if (flowEl.$type !== "bpmn:StartEvent") continue;
+          const triggerDoctype =
+            flowEl.get?.("spiffworkflow:triggerDoctype") ||
+            flowEl.$attrs?.["spiffworkflow:triggerDoctype"];
+          if (triggerDoctype) {
+            contextDoctype.value = triggerDoctype;
+            break;
+          }
+        }
+        if (contextDoctype.value) break;
+      }
+    } catch (e) { /* best effort */ }
+  }
 });
 
 function save() {
@@ -584,7 +691,7 @@ function save() {
   }
 
   // Validate JSON schema if provided
-  if (form.value.aiResponseFormat === "json" && form.value.aiResponseSchema) {
+  if (!isSelector.value && form.value.aiResponseFormat === "json" && form.value.aiResponseSchema) {
     try {
       JSON.parse(form.value.aiResponseSchema);
     } catch (e) {
@@ -596,6 +703,22 @@ function save() {
   const modeling = toRaw(props.modeler).get("modeling");
   const element = rawElement();
   const bo = element.businessObject;
+
+  if (isSelector.value) {
+    // Only the attributes the selector dispatch reads — never touch
+    // serviceType/aiToolSources (owned by the properties panel) and never
+    // write agent-only attrs onto the ad-hoc subprocess.
+    modeling.updateModdleProperties(element, bo, {
+      "spiffworkflow:aiProvider": form.value.aiProvider || undefined,
+      "spiffworkflow:aiModel": form.value.aiModel || undefined,
+      "spiffworkflow:aiSystemPrompt": form.value.aiSystemPrompt || undefined,
+      "spiffworkflow:aiUserPrompt": form.value.aiUserPrompt || undefined,
+      "spiffworkflow:aiMaxTokens": String(form.value.aiMaxTokens),
+      "spiffworkflow:aiTimeout": String(form.value.aiTimeout),
+    });
+    emit("close");
+    return;
+  }
 
   const patch = {
     "spiffworkflow:aiBackend": form.value.aiBackend || undefined,
@@ -849,6 +972,62 @@ function save() {
   gap: 12px;
 }
 .assistant-empty { font-size: 0.8rem; color: #94a3b8; line-height: 1.5; }
+
+/* "Tips for a good prompt" callout — opened from the 💡 toggle by the input */
+.assistant-tips {
+  padding: 10px 12px;
+  background: #f8fafc;
+  border: 1px solid #e2e8f0;
+  border-radius: 8px;
+  color: #64748b;
+  font-size: 0.8rem;
+  line-height: 1.5;
+}
+.assistant-input-wrap { position: relative; }
+.assistant-tips-popover {
+  position: absolute;
+  bottom: calc(100% + 8px);
+  left: 0;
+  right: 0;
+  background: #ffffff;
+  box-shadow: 0 8px 24px rgba(15, 23, 42, 0.12);
+  z-index: 10;
+}
+.assistant-tips-close {
+  float: right;
+  border: none;
+  background: transparent;
+  color: #94a3b8;
+  cursor: pointer;
+  font-size: 0.75rem;
+  padding: 0 2px;
+}
+.assistant-tips-close:hover { color: #475569; }
+.assistant-tips-toggle {
+  align-self: flex-end;
+  border: 1px solid #e2e8f0;
+  background: #f8fafc;
+  border-radius: 8px;
+  padding: 6px 8px;
+  cursor: pointer;
+  font-size: 0.85rem;
+  line-height: 1;
+}
+.assistant-tips-toggle:hover { background: #f1f5f9; }
+.assistant-tips-toggle.active { background: #ede9fe; border-color: #c4b5fd; }
+.assistant-tips-title {
+  font-weight: 600;
+  color: #475569;
+  margin-bottom: 6px;
+}
+.assistant-tips ul {
+  margin: 0;
+  padding-left: 16px;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+.assistant-tips li strong { color: #475569; }
 
 .msg { max-width: 100%; }
 .msg-text {

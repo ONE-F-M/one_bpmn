@@ -31,5 +31,9 @@ def get_boot() -> dict:
 			"site_name": frappe.local.site,
 			"csrf_token": frappe.sessions.get_csrf_token(),
 			"session_user": frappe.session.user,
+			# The SPA's socket.io client needs the real port — frappe-ui
+			# defaults to 9000, but bench configures socketio_port per bench
+			# (webserver_port + 1000, e.g. 9001 on this bench).
+			"socketio_port": frappe.conf.socketio_port or 9000,
 		}
 	)

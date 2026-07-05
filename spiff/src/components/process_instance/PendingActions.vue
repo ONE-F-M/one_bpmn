@@ -12,7 +12,16 @@
 			/>
 		</div>
 		<div class="flex-1 overflow-y-auto custom-scrollbar p-3">
-			<div v-if="actionableTasks.length > 0" class="space-y-2">
+			<!-- A background engine pass is running (task dispatch / AI decisions):
+			     any Waiting rows below are about to change, so show progress instead -->
+			<div v-if="engineBusy" class="text-center py-6">
+				<div class="w-8 h-8 rounded-full bg-purple-50 flex items-center justify-center mx-auto mb-2">
+					<Icon icon="lucide:loader" class="w-5 h-5 text-purple-500 animate-spin" />
+				</div>
+				<span class="text-sm text-gray-500">Process is running…</span>
+				<p class="text-[11px] text-gray-400 mt-1">Executing tasks and AI decisions — this view updates automatically.</p>
+			</div>
+			<div v-else-if="actionableTasks.length > 0" class="space-y-2">
 				<div
 					v-for="task in actionableTasks"
 					:key="task.task_id"
@@ -85,6 +94,7 @@ const props = defineProps({
 	activeTasks: { type: Array, default: () => [] },
 	completingTask: { type: String, default: null },
 	completingAction: { type: String, default: null },
+	engineBusy: { type: Boolean, default: false },
 })
 
 defineEmits(["complete"])

@@ -649,6 +649,47 @@ def dispatch_email(instance, task, task_cfg: dict, amp_html: str = None) -> None
 		)
 
 
+def dispatch_send_notification(instance, task, task_cfg: dict, bpmn_id: str) -> None:
+	"""
+	Execute a BPMN Send Task (WI-001352 gap closure, 2026-07-04).
+
+	Send tasks carry spiffworkflow:notificationName — the name of a Frappe
+	Notification record (event=Method so it only fires when told to). This
+	renders and sends that notification against the instance's context doc.
+
+	Evidence convention: on success, ``{bpmn_id}_sent = 1`` is written into
+	the task's containing scope (the ad-hoc subprocess data for inner tasks)
+	so AI Task Selector prompts can gate follow-up steps on it — the same
+	observable-evidence pattern registry tools use via *_toolCallResult. On
+	failure, ``{bpmn_id}_send_error`` carries the reason instead: the flow
+	deliberately does NOT pretend the email went out, and the selector's
+	next decision sees the failure in its evidence.
+
+	Never raises — a broken notification must not wedge the engine.
+	"""
+	scope = getattr(task.workflow, "data", None)
+	try:
+		notification_name = (task_cfg.get("notificationName") or "").strip()
+		if not notification_name:
+			return
+		if not (instance.context_doctype and instance.context_docname):
+			raise ValueError("send task has no context document to render against")
+
+		notification = frappe.get_doc("Notification", notification_name)
+		doc = frappe.get_doc(instance.context_doctype, instance.context_docname)
+		notification.send(doc)
+
+		if isinstance(scope, dict):
+			scope[f"{bpmn_id}_sent"] = 1
+	except Exception as exc:
+		if isinstance(scope, dict):
+			scope[f"{bpmn_id}_send_error"] = str(exc)
+		frappe.log_error(
+			title=f"BPMN send task failed: {bpmn_id} on {instance.name}",
+			message=frappe.get_traceback(),
+		)
+
+
 def dispatch_ai_agent(instance, task, task_cfg: dict, bpmn_id: str) -> None:
 	"""
 	Execute an AI Agent Task via the executor package.
@@ -802,7 +843,11 @@ def dispatch_ai_agent(instance, task, task_cfg: dict, bpmn_id: str) -> None:
 
 		# Commit observability data so AI runs + steps survive even if a
 		# downstream aiStopOnError raise rolls back the outer transaction.
-		frappe.db.commit()
+		# Never inside tests: a mid-test commit also persists the test's
+		# fixture docs, defeating FrappeTestCase rollback and leaking
+		# orphan "Active" instances into the shared dev DB.
+		if not frappe.flags.in_test:
+			frappe.db.commit()
 	except Exception:
 		frappe.log_error(
 			title=f"AI Observability: instrumentation error ({bpmn_id})",
