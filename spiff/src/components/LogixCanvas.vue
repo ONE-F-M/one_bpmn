@@ -448,7 +448,7 @@
 </template>
 
 <script setup>
-import { ref, reactive, computed, nextTick, onMounted, watch } from "vue";
+import { ref, reactive, computed, nextTick, onMounted, onUnmounted, watch } from "vue";
 import DOMPurify from "dompurify";
 import { marked } from "marked";
 import CodeMirrorEditor from "./CodeMirrorEditor.vue";
@@ -1345,13 +1345,34 @@ async function saveScript() {
 	}
 }
 
-// ── Reset chat ────────────────────────────────────────────────────────
+// ── Reset / close ─────────────────────────────────────────────────────
+// Close the active Chat Conversation on the backend so its BPMN orchestration
+// runs the close branch (Cleanup → Conversation Ended), the same way ProsAlly
+// ends its own conversation when its panel closes. Fire-and-forget.
+function endConversation() {
+	const convName = conversationName.value;
+	if (!convName) return;
+	conversationName.value = null;
+	frappeRequest({
+		url: "/api/method/one_bpmn.api.server_script_api.end_chat_conversation",
+		params: { conversation_name: convName },
+	}).catch(() => {});
+}
+
 function resetChat() {
+	endConversation();
 	sessionId.value        = generateSessionId();
 	conversationName.value = null;
 	messages.value         = [];
 	initGreeting();
 }
+
+// The Logix Canvas is mounted inside a Dialog; closing the dialog unmounts it.
+// End the conversation here so its BPMN instance completes instead of lingering
+// in the Active state.
+onUnmounted(() => {
+	endConversation();
+});
 </script>
 
 <style scoped>

@@ -40,17 +40,39 @@ def _delegate_to_bpmn_instance(conversation_name: str, message: str, context: di
 	"""
 	import json
 
-	inst_name = frappe.db.get_value(
+	inst = frappe.db.get_value(
 		"BPMN Process Instance",
 		{
 			"context_doctype": "Chat Conversation",
 			"context_docname": conversation_name,
-			"status": "Active",
+			"status": ["in", ["Active", "Queued"]],
 		},
-		"name",
+		["name", "status"],
+		as_dict=True,
 	)
-	if not inst_name:
+	if not inst:
 		return None
+	inst_name = inst.name
+
+	# A brand-new conversation spawns its BPMN instance via a doc-event hook that
+	# enqueues the first engine pass on the bpmn_ai_agent worker (async). The very
+	# first chat turn arrives in THIS request — before the worker has promoted the
+	# instance from "Queued" to "Active" — so the wait gateway isn't armed yet and
+	# the message can't be delivered. Start it inline here to close that race. This
+	# is idempotent with the background job: start_queued_instance() locks the row
+	# (for_update) and no-ops when the status is no longer "Queued", so whichever
+	# runs first wins and the other returns immediately.
+	if inst.status == "Queued":
+		try:
+			from one_bpmn.one_bpmn.trigger import start_queued_instance
+
+			start_queued_instance(inst_name)
+		except Exception:
+			frappe.log_error(title="BPMN inline start failed", message=frappe.get_traceback())
+		if frappe.db.get_value("BPMN Process Instance", inst_name, "status") != "Active":
+			# Start failed (Errored) or is still being started elsewhere — the
+			# caller surfaces the "reopen the chat" message rather than guessing.
+			return None
 
 	payload = {
 		"user_text": message,

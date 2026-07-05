@@ -9,10 +9,19 @@
 import { frappeRequest } from "frappe-ui";
 
 export function frappeGet(path, params = {}) {
-	return frappeRequest({
-		url: path,
-		params,
-	});
+	// frappe-ui 0.1.192's frappeRequest is unusable for /api/resource/* reads: it
+	// defaults to POST (turning a read into a create — "… is required") and unwraps
+	// the response to `data.message`, while /api/resource/* returns the payload under
+	// `data.data`. Do a plain same-origin GET and read `.data` ourselves. Returns the
+	// list array (or the doc object for a single-record path).
+	const qs = new URLSearchParams(params).toString();
+	return fetch(qs ? `${path}?${qs}` : path, {
+		method: "GET",
+		credentials: "same-origin",
+		headers: { Accept: "application/json", "X-Frappe-CSRF-Token": getCsrfToken() },
+	})
+		.then((r) => r.json())
+		.then((d) => (d && d.data !== undefined ? d.data : d && d.message !== undefined ? d.message : []));
 }
 
 /**

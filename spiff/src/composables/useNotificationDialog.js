@@ -3,6 +3,7 @@
 
 import { ref, computed } from "vue";
 import { frappeRequest } from "frappe-ui";
+import { frappeGet } from "@/bpmn/shared/frappeResource";
 
 // Monotonically increasing row ID for stable :key bindings (Review Comment #2)
 let _rowIdCounter = 0;
@@ -136,14 +137,11 @@ export function useNotificationDialog(doctypeOptions, moduleOptions, showToast) 
 		showNotificationDialog.value = true;
 
 		try {
-				const data = await frappeRequest({
-				url: "/api/resource/Notification",
-				params: {
+				const data = await frappeGet("/api/resource/Notification", {
 					fields: JSON.stringify(["name", "subject", "channel", "document_type", "enabled", "event", "modified"]),
 					limit_page_length: 0,
 					order_by: "modified desc",
-				},
-			});
+				});
 			notifications.value = Array.isArray(data) ? data : [];
 		} catch (error) {
 			console.error("Failed to load notifications:", error);

@@ -126,6 +126,7 @@
 <script setup>
 import { ref, watch, computed } from "vue";
 import { frappeRequest } from "frappe-ui";
+import { frappeGet } from "@/bpmn/shared/frappeResource";
 import { Icon } from "@iconify/vue";
 
 const props = defineProps({
@@ -211,13 +212,10 @@ const filteredTemplates = computed(() => {
 async function fetchTemplates() {
 	loadingTemplates.value = true;
 	try {
-		const data = await frappeRequest({
-			url: "/api/resource/Email Template",
-			params: {
-				fields: JSON.stringify(["name", "subject"]),
-				limit_page_length: 200,
-				order_by: "name asc",
-			},
+		const data = await frappeGet("/api/resource/Email Template", {
+			fields: JSON.stringify(["name", "subject"]),
+			limit_page_length: 200,
+			order_by: "name asc",
 		});
 		templates.value = Array.isArray(data) ? data : [];
 	} catch (err) {
@@ -234,11 +232,8 @@ async function selectTemplate(tpl) {
 
 	// Fetch the full template to get the HTML body + subject
 	try {
-		const doc = await frappeRequest({
-			url: `/api/resource/Email Template/${encodeURIComponent(tpl.name)}`,
-			params: {
-				fields: JSON.stringify(["subject", "response_html", "response"]),
-			},
+		const doc = await frappeGet(`/api/resource/Email Template/${encodeURIComponent(tpl.name)}`, {
+			fields: JSON.stringify(["subject", "response_html", "response"]),
 		});
 		// Prefer response_html; fall back to response (plain text / markdown)
 		const body = doc?.response_html || doc?.response || "";
