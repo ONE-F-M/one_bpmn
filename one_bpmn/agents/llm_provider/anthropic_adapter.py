@@ -27,23 +27,21 @@ class AnthropicAdapter(BaseLLMAdapter):
     """
     Anthropic Messages API adapter with prompt caching.
 
-    Caching strategy (3 explicit breakpoints, max 4 allowed):
+    Caching strategy (3 explicit breakpoints, max 4 allowed by Anthropic):
       1. **Tools**  – ``cache_control`` on the last tool definition caches
          the entire tool-definition prefix.  Tools never change within a
          single ``complete()`` invocation, so this is always a cache hit
          from turn 2 onwards.
       2. **System prompt** – ``cache_control`` on the system text block.
          The system prompt is identical across every turn within a call.
-      3. **Automatic (top-level)** – ``cache_control`` at the request
-         level causes the API to place a breakpoint on the last cacheable
-         block in ``messages``.  As the conversation grows with
-         assistant+tool_result turns, the breakpoint advances
-         automatically, caching the entire growing prefix.
+      3. **Conversation prefix** – On the first turn, if the user prompt
+         can be split into a context prefix and a request suffix, the
+         prefix gets ``cache_control``.  On subsequent tool-result turns,
+         the last ``tool_result`` block gets ``cache_control`` instead,
+         caching the entire growing conversation prefix for the next turn.
 
-    On each tool-result turn the last ``tool_result`` block also gets an
-    explicit ``cache_control`` marker so that the *next* LLM call within
-    the same invocation benefits from the lookback window even when the
-    message count exceeds 20 blocks.
+    This keeps us at 3 active markers per request (tools + system +
+    one conversation marker), safely within the Anthropic limit of 4.
 
     Cache metrics are logged at DEBUG level for diagnostics.
     """
@@ -113,16 +111,16 @@ class AnthropicAdapter(BaseLLMAdapter):
 
         messages = [{"role": "user", "content": user_blocks}]
 
-        # ── Breakpoint 3: Top-level automatic caching ─────────────────────────
-        # The API automatically places the breakpoint on the last cacheable
-        # block in each request.  As tool turns are appended, the breakpoint
-        # advances with the growing conversation — no manual management needed.
+        # ── Build request kwargs ───────────────────────────────────────────────
+        # Explicit cache_control markers are on: (1) last tool def, (2) system
+        # prompt, and (3) either user-prefix (turn 0) or last tool_result
+        # (turns 1+).  This keeps us at 3 active markers — well within the
+        # Anthropic limit of 4.
         kwargs: dict = {
             "model": self._model,
             "system": system_blocks,
             "max_tokens": max_tokens,
             "messages": messages,
-            "cache_control": {"type": "ephemeral"},
         }
         if tool_defs:
             kwargs["tools"] = tool_defs

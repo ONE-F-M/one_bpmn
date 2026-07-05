@@ -1,5 +1,5 @@
 <template>
-	<div class="bg-white border-b flex flex-col relative" style="height: 60%; min-height: 250px;">
+	<div class="bg-white border-b flex flex-col relative" style="height: 60%; min-height: 250px; touch-action: none; overscroll-behavior: contain;">
 		<!-- Zoom controls -->
 		<div class="absolute top-3 right-4 z-20 flex items-center bg-white rounded shadow-sm border overflow-hidden text-gray-600">
 			<button @click="zoomOut" class="p-1.5 hover:bg-gray-50 border-r" title="Zoom Out">
@@ -73,6 +73,13 @@ import { Icon } from "@iconify/vue"
 import NavigatedViewer from "bpmn-js/lib/NavigatedViewer"
 import "bpmn-js/dist/assets/diagram-js.css"
 import "bpmn-js/dist/assets/bpmn-font/css/bpmn.css"
+
+// Direct touch handler for mobile — bypasses bpmn-js-touch-interaction module
+// which may fail to initialize on some devices due to (pointer: coarse) guard.
+import { setupCanvasTouchHandler } from "@/utils/canvasTouchHandler"
+
+// ── AI Agent Task renderer — replaces Service Task gear icon with sparkle ──
+import aiAgentRendererModule from "@/bpmn/aiAgentRenderer"
 
 // ── Viewer-side moddle extension ──
 // The BPMN XML produced by the editor uses custom spiffworkflow:* attributes
@@ -160,6 +167,7 @@ const emit = defineEmits(["element-select", "clear-selection"])
 
 const canvasRef = ref(null)
 const viewer = shallowRef(null)
+let touchCleanup = null
 
 // ── Viewer Lifecycle ──
 
@@ -170,6 +178,9 @@ async function initViewer() {
 			container: canvasRef.value,
 			width: "100%",
 			height: "100%",
+			additionalModules: [
+				aiAgentRendererModule,
+			],
 			moddleExtensions: {
 				spiffworkflow: viewerModdleExtension,
 			},
@@ -187,6 +198,13 @@ async function initViewer() {
 				// ignore zoom errors
 			}
 		}, 100)
+
+		// Setup direct touch handler for mobile pinch-to-zoom & finger pan
+		// (only on touch-capable devices to avoid no-op listeners on desktop)
+		const isTouchDevice = 'ontouchstart' in window || navigator.maxTouchPoints > 0
+		if (!touchCleanup && canvasRef.value && isTouchDevice) {
+			touchCleanup = setupCanvasTouchHandler(viewer.value, canvasRef.value)
+		}
 	} catch (err) {
 		console.error("Error rendering BPMN:", err)
 	}
@@ -197,6 +215,10 @@ onMounted(() => {
 })
 
 onUnmounted(() => {
+	if (touchCleanup) {
+		touchCleanup()
+		touchCleanup = null
+	}
 	if (viewer.value) {
 		viewer.value.destroy()
 		viewer.value = null
@@ -273,6 +295,7 @@ function applyHighlights() {
 		const elementRegistry = viewer.value.get("elementRegistry")
 		const overlays = viewer.value.get("overlays")
 		overlays.remove({ type: "heatmap-badge" })
+	overlays.remove({ type: "ai-badge" })
 
 		// Clear stale highlight markers before re-applying
 		const staticHighlightMarkers = new Set(["highlight-done", "highlight-active"])
@@ -408,6 +431,46 @@ function applyHighlights() {
 					} catch (e) {}
 				})
 		}
+
+		// ── AI Agent Task overlay badges (observability) ───────────
+		if (props.details?.workflow_state) {
+			try {
+				const wfState = typeof props.details.workflow_state === "string"
+					? JSON.parse(props.details.workflow_state)
+					: props.details.workflow_state
+				// serviceType lives in the compiled spec (service_task_extensions),
+				// keyed by BPMN element id — not on the runtime task objects.
+				let svcExt = {}
+				try {
+					const spec = typeof props.details.serialized_spec === "string"
+						? JSON.parse(props.details.serialized_spec)
+						: props.details.serialized_spec
+					svcExt = spec?.service_task_extensions || {}
+				} catch (e) { /* ignore */ }
+				const tasks = wfState.tasks || {}
+				// Clear any previous AI badge overlays before re-applying
+				try { overlays.remove({ type: "ai-badge" }) } catch { /* no existing overlays */ }
+				for (const [, taskData] of Object.entries(tasks)) {
+					const taskSpec = taskData.task_spec || ""
+					if (!taskSpec) continue
+					if ((svcExt[taskSpec] || {}).serviceType !== "ai_agent") continue
+
+					const state = taskData.state || 0
+					const hasError = taskData.data?.[`${taskSpec}_error_code`]
+					const isCompleted = state === 64
+
+					if (isCompleted || hasError) {
+						const badge = document.createElement("div")
+						badge.className = `ai-badge ${hasError ? "ai-error" : "ai-success"}`
+						badge.textContent = hasError ? "!" : "AI"
+						badge.title = hasError ? "AI Agent Task failed" : "AI Agent Task completed"
+						overlays.add(taskSpec, "ai-badge", { position: { top: -10, left: -10 }, html: badge })
+					}
+				}
+			} catch (e) {
+				// ignore AI badge errors
+			}
+		}
 	} catch (err) {
 		console.warn("Could not apply highlights:", err)
 	}
@@ -445,11 +508,47 @@ function applyHighlights() {
 	stroke: #4b5563 !important; stroke-width: 3px !important;
 }
 
+/* AI Agent badge */
+.ai-badge {
+	width: 16px;
+	height: 16px;
+	border-radius: 50%;
+	display: flex;
+	align-items: center;
+	justify-content: center;
+	font-size: 8px;
+	font-weight: 700;
+	font-family: monospace;
+	color: #fff;
+	cursor: default;
+	box-shadow: 0 1px 3px rgba(0,0,0,0.15);
+	z-index: 100;
+}
+.ai-badge.ai-success {
+	background: #7B2D8E;
+}
+.ai-badge.ai-error {
+	background: #DC2626;
+}
+
 /* Cursor + overlays */
 .bpmn-canvas-container .djs-overlay-container { pointer-events: none; }
 .bpmn-canvas-container .djs-overlay { pointer-events: all; }
 .bpmn-canvas-container .djs-element { cursor: pointer; }
 .bpmn-canvas-container .djs-connection { cursor: pointer; }
+
+/* Prevent browser zoom/scroll on the canvas — let our touch handler manage it */
+.bpmn-canvas-container {
+	touch-action: none;
+	-webkit-user-select: none;
+	user-select: none;
+	overscroll-behavior: contain;
+}
+
+/* Ensure parent wrapper doesn't intercept touch gestures meant for the canvas */
+.bpmn-canvas-container * {
+	touch-action: none;
+}
 
 /* Heatmap badges */
 .heatmap-badge {

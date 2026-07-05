@@ -957,6 +957,55 @@ def validate_bpmn_readiness(xml_content: str, model_name: str = None) -> dict:
 				"items": call_activity_ref_items,
 			})
 
+	# 11. Eval Suites (deployment gating — non-blocking warnings)
+	if model_name:
+		eval_suite_items = []
+		gating_suites = frappe.get_all(
+			"AI Eval Suite",
+			filters={"process_model": model_name, "gate_deployment": 1},
+			fields=["name", "title"],
+		)
+		for suite in gating_suites:
+			suite_title = suite.title or suite.name
+			latest_runs = frappe.get_all(
+				"AI Eval Run",
+				filters={"suite": suite.name},
+				fields=["name", "status", "started_at"],
+				order_by="started_at desc",
+				limit_page_length=1,
+			)
+			# Mirror compile_process_model's _check_eval_suite_gating logic:
+			# only a Failed last run or no run at all is a warning.
+			if not latest_runs:
+				eval_suite_items.append({
+					"name": suite_title,
+					"exists": True,
+					"type": "warning",
+					"detail": _("Has never been run. Consider running it before deploying."),
+				})
+			elif latest_runs[0].status == "Failed":
+				run_date = frappe.utils.formatdate(latest_runs[0].started_at)
+				eval_suite_items.append({
+					"name": suite_title,
+					"exists": True,
+					"type": "warning",
+					"detail": _("Failed — last run on {0}. Consider re-running the suite before deploying.").format(run_date),
+				})
+			else:
+				# Passed, Running, or Error — informational, non-blocking.
+				eval_suite_items.append({
+					"name": suite_title,
+					"exists": True,
+					"type": "check",
+					"detail": _("Last eval run: {0}").format(latest_runs[0].status),
+				})
+		if eval_suite_items:
+			categories.append({
+				"label": "Eval Suites",
+				"icon": "flask-conical",
+				"items": eval_suite_items,
+			})
+
 	# ── Compute summary ──────────────────────────────────────────────────
 	total_checked = 0
 	total_missing = 0
@@ -1319,8 +1368,11 @@ def delete_diagram(name: str) -> dict:
 
 	from one_bpmn.api.canvas_comments import cleanup_process_model_assets
 	cleanup_process_model_assets(name)
+
 	# frappe.delete_doc handles: existence check, doc-level permissions,
-	# link validation, child table cleanup, Version/Comment/File/DocShare/ToDo removal
+	# link validation, child table cleanup, Version/Comment/File/DocShare/ToDo removal.
+	# The model's on_trash hook removes its linked BPMN Diagram Version snapshots
+	# first so the link check passes.
 	frappe.delete_doc("BPMN Process Model", name)
 
 	return {"success": True}

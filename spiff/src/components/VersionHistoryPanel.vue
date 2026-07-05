@@ -53,7 +53,7 @@
 						<div
 							class="group flex items-start gap-1 px-2 py-2 rounded-lg cursor-pointer hover:bg-gray-100"
 							:class="selectedVersion === group.head ? 'bg-blue-50' : ''"
-							@click="onVersionClick(group.head)"
+							@click="onVersionClick({ name: group.head, is_current: group.is_current, version_name: group.is_named ? group.version_name : '', timestamp: group.timestamp, author: group.author })"
 						>
 							<button
 								v-if="group.entries.length > 1"
@@ -121,7 +121,7 @@
 								:key="entry.name"
 								class="flex items-start gap-1 pl-9 pr-2 py-1.5 rounded-lg cursor-pointer hover:bg-gray-100"
 								:class="selectedVersion === entry.name ? 'bg-blue-50' : ''"
-								@click="onVersionClick(entry.name)"
+								@click="onVersionClick({ name: entry.name, is_current: false, version_name: entry.version_name, timestamp: entry.timestamp, author: entry.author })"
 							>
 								<div class="flex-1 min-w-0">
 									<div class="text-sm text-gray-800">{{ formatTime(entry.timestamp) }}</div>
@@ -144,19 +144,6 @@
 			</template>
 		</div>
 
-		<!-- Footer -->
-		<div class="border-t border-gray-200 px-4 py-3 space-y-2">
-			<label class="flex items-center gap-2 text-sm text-gray-700 cursor-pointer">
-				<input type="checkbox" v-model="highlightChanges" class="rounded border-gray-300 text-blue-600 focus:ring-blue-500" />
-				Highlight changes
-			</label>
-			<button
-				class="text-xs text-blue-600 hover:text-blue-700 hover:underline"
-				@click="$emit('compare-deployed')"
-			>
-				Compare deployed versions…
-			</button>
-		</div>
 	</aside>
 
 	<!-- Name / rename dialog -->
@@ -213,7 +200,7 @@ const props = defineProps({
 	getCurrentXml: { type: Function, default: null },
 });
 
-const emit = defineEmits(["error", "restored", "close", "compare-deployed"]);
+const emit = defineEmits(["error", "restored", "close", "select-version"]);
 
 const loading = ref(false);
 const groups = ref([]);
@@ -286,9 +273,11 @@ function toggleMenu(name) {
 	openMenu.value = openMenu.value === name ? null : name;
 }
 
-function onVersionClick(name) {
-	selectedVersion.value = name;
-	compareVersion(name);
+function onVersionClick(item) {
+	selectedVersion.value = item.name;
+	// Show this version in the page preview (Google-Docs-style) instead of
+	// immediately opening a diff.
+	emit("select-version", item);
 }
 
 async function fetchSnapshotXml(versionName) {
