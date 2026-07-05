@@ -1723,10 +1723,6 @@ onMounted(async () => {
 			// live outside Vue (WI-001357: Registry Tools applicability).
 			window.__ONE_BPMN_CURRENT_MODEL__ = props.modelName || "";
 
-			// Debug handle for console inspection of the live modeler
-			// (element registry, definitions tree, lint state).
-			window.__ONE_BPMN_MODELER__ = modeler;
-
 			// Initial fetch of comments
 			if (props.modelName) {
 				fetchComments();
