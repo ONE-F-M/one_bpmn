@@ -502,41 +502,37 @@ async function fetchSteps() {
 	if (!aiRun.value?.name) return
 	stepsLoading.value = true
 	try {
-		const csrf = getCsrfToken()
-		const params = new URLSearchParams({
-			doctype: "AI Agent Step",
-			fields: JSON.stringify(["name", "step_index", "role", "content", "prompt_tokens", "completion_tokens", "cost", "latency_ms"]),
-			filters: JSON.stringify([["run", "=", aiRun.value.name]]),
-			limit_page_length: 200,
-			order_by: "step_index asc",
-		})
-		const r = await fetch(`/api/method/frappe.client.get_list?${params}`, {
-			headers: { "X-Frappe-CSRF-Token": csrf },
-		})
-		const data = await r.json()
-		const steps = data?.message || []
+		const steps = (await frappeRequest({
+			url: "/api/method/frappe.client.get_list",
+			params: {
+				doctype: "AI Agent Step",
+				fields: JSON.stringify(["name", "step_index", "role", "content", "prompt_tokens", "completion_tokens", "cost", "latency_ms"]),
+				filters: JSON.stringify([["run", "=", aiRun.value.name]]),
+				limit_page_length: 200,
+				order_by: "step_index asc",
+			},
+		})) || []
 
 		// Tool calls live in the AI Agent Tool Call child table (WI-001358) —
 		// fetch them for all steps in one query and attach per step.
 		if (steps.length) {
 			try {
-				const tcParams = new URLSearchParams({
-					doctype: "AI Agent Tool Call",
-					parent: "AI Agent Step",
-					fields: JSON.stringify(["parent", "tool_name", "tool_source", "status", "tool_args", "tool_result", "outcome"]),
-					filters: JSON.stringify([
-						["parenttype", "=", "AI Agent Step"],
-						["parent", "in", steps.map((s) => s.name)],
-					]),
-					limit_page_length: 500,
-					order_by: "idx asc",
-				})
-				const tcRes = await fetch(`/api/method/frappe.client.get_list?${tcParams}`, {
-					headers: { "X-Frappe-CSRF-Token": csrf },
-				})
-				const tcData = await tcRes.json()
+				const tcRows = (await frappeRequest({
+					url: "/api/method/frappe.client.get_list",
+					params: {
+						doctype: "AI Agent Tool Call",
+						parent: "AI Agent Step",
+						fields: JSON.stringify(["parent", "tool_name", "tool_source", "status", "tool_args", "tool_result", "outcome"]),
+						filters: JSON.stringify([
+							["parenttype", "=", "AI Agent Step"],
+							["parent", "in", steps.map((s) => s.name)],
+						]),
+						limit_page_length: 500,
+						order_by: "idx asc",
+					},
+				})) || []
 				const byStep = {}
-				for (const tc of tcData?.message || []) {
+				for (const tc of tcRows) {
 					;(byStep[tc.parent] = byStep[tc.parent] || []).push(tc)
 				}
 				for (const s of steps) s.toolCalls = byStep[s.name] || []
@@ -608,24 +604,17 @@ function toolCallArgs(tc) {
 // Shared read helper. Throws on non-OK (e.g. 403) so the caller can surface a
 // clear permission message instead of crashing.
 async function frappeGetList(doctype, fields, filters, extra = {}) {
-	const params = new URLSearchParams({
+	const params = {
 		doctype,
 		fields: JSON.stringify(fields),
 		filters: JSON.stringify(filters),
 		limit_page_length: extra.limit || 100,
 		order_by: extra.order_by || "creation desc",
-	})
-	if (extra.parent) params.set("parent", extra.parent)
-	const r = await fetch(`/api/method/frappe.client.get_list?${params}`, {
-		headers: { "X-Frappe-CSRF-Token": getCsrfToken() },
-	})
-	if (!r.ok) {
-		const err = new Error(`HTTP ${r.status}`)
-		err.status = r.status
-		throw err
 	}
-	const data = await r.json()
-	return data?.message || []
+	if (extra.parent) params.parent = extra.parent
+	// frappeRequest throws on non-OK (e.g. 403) so the caller can surface a
+	// clear permission message instead of crashing.
+	return (await frappeRequest({ url: "/api/method/frappe.client.get_list", params })) || []
 }
 
 async function loadDocumentStoreConversation(bpmnId) {
@@ -757,15 +746,6 @@ function formatDuration(ms) {
 	const sec = ((ms % 60000) / 1000).toFixed(0)
 	return `${min}m ${sec}s`
 }
-
-function getCsrfToken() {
-	const match = document.cookie.match(/csrf_token=([^;]+)/)
-	if (match) return match[1]
-	const meta = document.querySelector('meta[name="csrf-token"]')
-	if (meta) return meta.getAttribute("content")
-	return ""
-}
-
 
 </script>
 
