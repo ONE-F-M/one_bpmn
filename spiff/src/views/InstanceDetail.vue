@@ -102,7 +102,11 @@ function getStateLabel(s) {
 	return TASK_STATE_LABELS[s] || "Unknown"
 }
 
-const REACHED_STATES = new Set([64, 128, 256])
+// Task states the inspector can select: WAITING (8), READY (16) and
+// STARTED (32) are included so in-flight elements — an AI Task Selector
+// deciding, a user task pending — are inspectable, not just finished ones
+// (COMPLETED 64, ERROR 128, CANCELLED 256).
+const REACHED_STATES = new Set([8, 16, 32, 64, 128, 256])
 
 // Service Task extensions (serviceType, etc.) are extracted at compile time and
 // embedded in serialized_spec, keyed by BPMN element id. SpiffWorkflow's own
@@ -127,38 +131,76 @@ const taskList = computed(() => {
 		const wfState = typeof details.value.workflow_state === "string"
 			? JSON.parse(details.value.workflow_state)
 			: details.value.workflow_state
-		const tasks = wfState.tasks || {}
-		const taskSpecs = wfState.spec?.task_specs || {}
+		const subprocesses = wfState.subprocesses || {}
+		const subprocessSpecs = wfState.subprocess_specs || {}
 
-		const nodes = []
-		for (const [uuid, t] of Object.entries(tasks)) {
-			const specName = t.task_spec || ""
-			if (!specName || specName === "Start" || specName === "End") continue
-			if (specName.endsWith(".EndJoin") || specName.endsWith(".BoundaryEventSplit") || specName.includes(".BoundaryEventJoin")) continue
-			if (!REACHED_STATES.has(t.state)) continue
+		// SpiffWorkflow drains a task's own data into its containing scope on
+		// completion, so per-task data is usually {} — fall back to the
+		// scope's variables (subprocess data for inner tasks, workflow data
+		// at top level) so the Variables tab shows what was in scope.
+		const SCOPE_SKIP = new Set(["data_objects", "doc"])
+		const scopeVars = (scope) =>
+			Object.fromEntries(
+				Object.entries(scope || {}).filter(([k]) => !SCOPE_SKIP.has(k))
+			)
 
-			const specData = taskSpecs[specName] || {}
-			const typename = specData.typename || "Task"
-			nodes.push({
-				id: uuid,
-				bpmnId: specName,
-				name: specData.bpmn_name || specData.description || specName,
-				typename,
-				isPassThrough: /Gateway|Event/i.test(typename),
-				lane: specData.lane || null,
-				state: t.state || 0,
-				stateLabel: getStateLabel(t.state || 0),
-				timestamp: t.last_state_change ? new Date(t.last_state_change * 1000) : null,
-				data: t.data || {},
-				extensions: {
-					...((() => { try { return typeof specData.extensions === 'string' ? JSON.parse(specData.extensions) : specData.extensions; } catch { return {}; } })() || {}),
-					...(serviceTaskExtensions.value[specName] || {}),
-				},
-			})
+		// Recursive: a task whose id keys an entry in wfState.subprocesses is
+		// a Sub-Process / Ad-hoc parent — its inner tasks are flattened in
+		// right after it with depth+1, each clickable like any other node.
+		const buildNodes = (tasksDict, taskSpecs, depth, scopeData) => {
+			const nodes = []
+			for (const [uuid, t] of Object.entries(tasksDict || {})) {
+				const specName = t.task_spec || ""
+				if (!specName || specName === "Start" || specName === "End") continue
+				if (specName.endsWith(".EndJoin") || specName.endsWith(".BoundaryEventSplit") || specName.includes(".BoundaryEventJoin")) continue
+				if (!REACHED_STATES.has(t.state)) continue
+
+				const specData = (taskSpecs || {})[specName] || {}
+				const typename = specData.typename || "Task"
+				const node = {
+					id: uuid,
+					bpmnId: specName,
+					name: specData.bpmn_name || specData.description || specName,
+					typename,
+					depth,
+					isPassThrough: /Gateway|Event/i.test(typename),
+					lane: specData.lane || null,
+					state: t.state || 0,
+					stateLabel: getStateLabel(t.state || 0),
+					timestamp: t.last_state_change ? new Date(t.last_state_change * 1000) : null,
+					data: Object.keys(t.data || {}).length ? t.data : scopeData,
+					extensions: {
+						...((() => { try { return typeof specData.extensions === 'string' ? JSON.parse(specData.extensions) : specData.extensions; } catch { return {}; } })() || {}),
+						...(serviceTaskExtensions.value[specName] || {}),
+					},
+				}
+
+				const sub = subprocesses[uuid]
+				if (sub) {
+					const subScope = scopeVars(sub.data)
+					// The parent's meaningful variables ARE its subprocess scope
+					if (Object.keys(subScope).length) node.data = subScope
+					const childSpecs = (subprocessSpecs[specName] || {}).task_specs || {}
+					node.childNodes = buildNodes(sub.tasks, childSpecs, depth + 1, subScope)
+				}
+				nodes.push(node)
+			}
+
+			// Sort siblings by timestamp, then flatten each parent's subtree
+			// directly beneath it so nesting order is preserved.
+			nodes.sort((a, b) => (a.timestamp || 0) - (b.timestamp || 0))
+			const flat = []
+			for (const n of nodes) {
+				flat.push(n)
+				if (n.childNodes) {
+					flat.push(...n.childNodes)
+					delete n.childNodes
+				}
+			}
+			return flat
 		}
 
-		nodes.sort((a, b) => (a.timestamp || 0) - (b.timestamp || 0))
-		return nodes
+		return buildNodes(wfState.tasks, wfState.spec?.task_specs || {}, 0, scopeVars(wfState.data))
 	} catch (e) {
 		console.warn("Failed to build task list:", e)
 		return []
