@@ -337,7 +337,8 @@
 
 <script setup>
 import { ref, computed, onMounted, nextTick, toRaw } from "vue";
-import { frappePost, frappeGet } from "@/bpmn/shared/frappeResource";
+import { frappeRequest } from "frappe-ui";
+import { frappeGet } from "@/bpmn/shared/frappeResource";
 
 // bpmn-js elements must never be touched as Vue reactive proxies — the renderer
 // reads non-configurable properties (e.g. labels) that a Proxy cannot return,
@@ -492,12 +493,15 @@ async function runRecordSearch() {
   const seq = ++recordSearchSeq;
   recordLoading.value = true;
   try {
-    const rows = await frappeGet("/api/method/frappe.client.get_list", {
-      doctype: dt,
-      fields: JSON.stringify(["name"]),
-      filters: q ? JSON.stringify([["name", "like", `%${q}%`]]) : undefined,
-      limit_page_length: 20,
-      order_by: "modified desc",
+    const rows = await frappeRequest({
+      url: "/api/method/frappe.client.get_list",
+      params: {
+        doctype: dt,
+        fields: JSON.stringify(["name"]),
+        filters: q ? JSON.stringify([["name", "like", `%${q}%`]]) : undefined,
+        limit_page_length: 20,
+        order_by: "modified desc",
+      },
     });
     if (seq !== recordSearchSeq) return; // a newer search superseded this one
     recordOptions.value = Array.isArray(rows) ? rows.map((r) => r.name) : [];
@@ -615,9 +619,10 @@ async function sendMessage() {
   }
 
   try {
-    const res = await frappePost(
-      "/api/method/one_bpmn.api.ai_assistant.recommend_ai_task_config",
-      {
+    const res = await frappeRequest({
+      url: "/api/method/one_bpmn.api.ai_assistant.recommend_ai_task_config",
+      method: "POST",
+      params: {
         provider: form.value.aiProvider,
         backend: form.value.aiBackend || "direct_api",
         requirement,
@@ -625,8 +630,8 @@ async function sendMessage() {
         context_docname: contextDocname.value.trim(),
         history: JSON.stringify(history),
         ...diagramPayload,
-      }
-    );
+      },
+    });
 
     if (res && res.ok) {
       let recommendations = res.recommendations || {};
@@ -662,22 +667,26 @@ async function sendMessage() {
 // ── Load providers + existing element config ────────────────────────────────
 onMounted(async () => {
   try {
-    const res = await fetch(
-      "/api/resource/AI Provider?fields=[\"name\",\"provider_name\",\"default_model\"]&filters=[[\"enabled\",\"=\",1]]&limit=100"
-    );
-    const data = await res.json();
-    providers.value = data.data || [];
+    const data = await frappeGet("/api/resource/AI Provider", {
+      fields: JSON.stringify(["name", "provider_name", "default_model"]),
+      filters: JSON.stringify([["enabled", "=", 1]]),
+      limit_page_length: 100,
+    });
+    providers.value = Array.isArray(data) ? data : [];
   } catch (e) {
     providers.value = [];
   }
 
   // Load DocType names for the Context DocType autocomplete.
   try {
-    const rows = await frappeGet("/api/method/frappe.client.get_list", {
-      doctype: "DocType",
-      fields: JSON.stringify(["name"]),
-      limit_page_length: 0,
-      order_by: "name asc",
+    const rows = await frappeRequest({
+      url: "/api/method/frappe.client.get_list",
+      params: {
+        doctype: "DocType",
+        fields: JSON.stringify(["name"]),
+        limit_page_length: 0,
+        order_by: "name asc",
+      },
     });
     doctypeOptions.value = Array.isArray(rows) ? rows.map((r) => r.name) : [];
   } catch (e) {

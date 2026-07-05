@@ -95,7 +95,7 @@ const selectedNodeId = ref(null)
 
 const TASK_STATE_LABELS = {
 	1: "Future", 2: "Likely", 4: "Maybe", 8: "Waiting",
-	16: "Ready", 32: "Started", 64: "Completed", 128: "Cancelled", 256: "Error",
+	16: "Ready", 32: "Started", 64: "Completed", 128: "Error", 256: "Cancelled",
 }
 
 function getStateLabel(s) {
@@ -284,7 +284,7 @@ async function loadProcessModelXml(modelName) {
 			url: "/api/method/one_bpmn.api.process_map_api.get_process_model",
 			params: { name: modelName },
 		})
-		const data = res.message || res
+		const data = res
 		if (data?.xml_content) {
 			bpmnXml.value = decodeHtmlEntities(data.xml_content)
 		}
@@ -342,42 +342,15 @@ async function completeTask(task, detail) {
 		completingTask.value = task.task_id
 		completingAction.value = actionName
 		try {
-			const csrfToken = window.csrf_token
-				|| window.frappe?.csrf_token
-				|| window.frappe?.boot?.csrf_token
-				|| decodeURIComponent(document.cookie.split("; ").find(r => r.startsWith("csrf_token="))?.split("=")[1] || "")
-				|| ""
-
-			const resp = await fetch("/api/method/one_bpmn.api.instance_api.complete_task", {
+			await frappeRequest({
+				url: "/api/method/one_bpmn.api.instance_api.complete_task",
 				method: "POST",
-				headers: {
-					"Content-Type": "application/json",
-					"X-Frappe-CSRF-Token": csrfToken,
-				},
-				body: JSON.stringify({
+				params: {
 					instance_name: instanceId.value,
 					task_id: task.task_id,
 					data: actionName ? JSON.stringify({ action: actionName }) : "{}",
-				}),
+				},
 			})
-
-			const payload = await resp.json().catch(() => ({}))
-
-			if (!resp.ok) {
-				// Extract the human-readable message from _server_messages
-				let errMsg = "Failed to complete task. Please try again."
-				try {
-					const smsgs = JSON.parse(payload._server_messages || "[]")
-					if (smsgs.length) {
-						errMsg = JSON.parse(smsgs[0]).message || errMsg
-					} else if (payload.exception) {
-						const m = payload.exception.match(/(?:PermissionError|ValidationError):\s*(.+)/)
-						if (m) errMsg = m[1].trim()
-					}
-				} catch (_) { /* keep default */ }
-				taskError.value = errMsg
-				return
-			}
 
 			// Success — refresh data
 			logs.value = []
@@ -386,7 +359,19 @@ async function completeTask(task, detail) {
 			await loadDetails()
 			await loadLogs()
 		} catch (err) {
-			taskError.value = "An unexpected error occurred. Please try again."
+			// Extract the human-readable message from the frappeRequest error
+			let errMsg = "Failed to complete task. Please try again."
+			try {
+				if (err.messages && err.messages.length) {
+					errMsg = err.messages[0]
+				} else if (err.exc) {
+					const m = err.exc.match(/(?:PermissionError|ValidationError):\s*(.+)/)
+					if (m) errMsg = m[1].trim()
+				} else if (err.message) {
+					errMsg = err.message
+				}
+			} catch (_) { /* keep default */ }
+			taskError.value = errMsg
 		} finally {
 			completingTask.value = null
 			completingAction.value = null
