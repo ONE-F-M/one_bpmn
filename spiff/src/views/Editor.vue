@@ -1539,13 +1539,6 @@ async function executeDeployment() {
 				"green"
 			);
 
-			// Show eval suite gating warnings (non-blocking)
-			if (response.warnings && response.warnings.length > 0) {
-				for (const warning of response.warnings) {
-					showNotification("Eval Suite Warning", warning, "orange");
-				}
-			}
-
 			// Update local state: mark this diagram as active, deactivate siblings
 			for (const d of diagrams.value) {
 				if (d.name === activeDiagramName.value) {

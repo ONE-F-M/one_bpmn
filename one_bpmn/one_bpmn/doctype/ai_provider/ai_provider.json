@@ -42,7 +42,6 @@
    "fieldname": "api_key",
    "fieldtype": "Password",
    "label": "API Key",
-   "length": 255,
    "reqd": 1,
    "description": "Stored encrypted. Never appears in list views or API responses."
   },

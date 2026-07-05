@@ -156,71 +156,19 @@ def _extract_service_task_config(bpmn_xml: str) -> dict:
 		return {}
 
 	config = {}
-	# sendTask elements carry spiffworkflow:notificationName the same way —
-	# without extracting them here, send tasks are invisible at runtime and
-	# complete as silent no-ops (the pre-2026-07-04 behavior).
-	for tag in ("serviceTask", "sendTask"):
-		for service_task in root.iter(f"{{{BPMN_NS}}}{tag}"):
-			bpmn_id = service_task.get("id")
-			if not bpmn_id:
-				continue
-
-			task_cfg = {}
-			for attr_name, attr_value in service_task.attrib.items():
-				if attr_name.startswith(f"{{{SPIFF_NS}}}"):
-					key = attr_name[len(f"{{{SPIFF_NS}}}") :]
-					task_cfg[key] = attr_value
-
-			if task_cfg:
-				config[bpmn_id] = task_cfg
-
-	return config
-
-
-def _extract_adhoc_selector_config(bpmn_xml: str) -> dict:
-	"""
-	Extract AI Task Selector configuration from ``<bpmn:adHocSubProcess>``
-	elements (WI-001351).
-
-	The selector attaches to the subprocess itself — not to an inner task —
-	as ``spiffworkflow:*`` attributes: serviceType="ai_task_selector",
-	aiProvider, aiModel, aiSystemPrompt, aiUserPrompt and aiToolSources
-	(one of "diagram" / "registry" / "both"; defaults to "both" per the
-	merged-pool design). Entries are merged into service_task_extensions,
-	keyed by the subprocess bpmn_id, so the dispatch loop (WI-001352) finds
-	the config the same way it finds any service task's.
-
-	Returns:
-		dict keyed by adHocSubProcess element ID, only for elements tagged
-		serviceType="ai_task_selector".
-	"""
-	import xml.etree.ElementTree as _ET
-
-	BPMN_NS = "http://www.omg.org/spec/BPMN/20100524/MODEL"
-	SPIFF_NS = "http://spiffworkflow.org/bpmn/schema/1.0/core"
-
-	try:
-		root = _ET.fromstring(bpmn_xml.strip().encode("utf-8") if isinstance(bpmn_xml, str) else bpmn_xml)
-	except Exception:
-		return {}
-
-	config = {}
-	for adhoc in root.iter(f"{{{BPMN_NS}}}adHocSubProcess"):
-		bpmn_id = adhoc.get("id")
+	for service_task in root.iter(f"{{{BPMN_NS}}}serviceTask"):
+		bpmn_id = service_task.get("id")
 		if not bpmn_id:
 			continue
 
 		task_cfg = {}
-		for attr_name, attr_value in adhoc.attrib.items():
+		for attr_name, attr_value in service_task.attrib.items():
 			if attr_name.startswith(f"{{{SPIFF_NS}}}"):
 				key = attr_name[len(f"{{{SPIFF_NS}}}") :]
 				task_cfg[key] = attr_value
 
-		if task_cfg.get("serviceType") != "ai_task_selector":
-			continue
-
-		task_cfg.setdefault("aiToolSources", "both")
-		config[bpmn_id] = task_cfg
+		if task_cfg:
+			config[bpmn_id] = task_cfg
 
 	return config
 
@@ -947,159 +895,6 @@ def _extract_script_task_config(bpmn_xml: str) -> dict:
 	return extensions
 
 
-def _validate_adhoc_structure(bpmn_xml: str) -> None:
-	"""
-	Compile-time validation of Ad-hoc Subprocess structure per the BPMN
-	spec (and Camunda's constraints): an ad-hoc subprocess must not
-	contain start events or end events, and must contain at least one
-	activity. Applies to every ``<bpmn:adHocSubProcess>``, selector-tagged
-	or not.
-	"""
-	import xml.etree.ElementTree as _ET
-
-	BPMN_NS = "http://www.omg.org/spec/BPMN/20100524/MODEL"
-
-	EVENT_TAGS = {
-		f"{{{BPMN_NS}}}startEvent": _("Start Event"),
-		f"{{{BPMN_NS}}}endEvent": _("End Event"),
-	}
-	ACTIVITY_TAGS = {
-		f"{{{BPMN_NS}}}task",
-		f"{{{BPMN_NS}}}userTask",
-		f"{{{BPMN_NS}}}manualTask",
-		f"{{{BPMN_NS}}}scriptTask",
-		f"{{{BPMN_NS}}}serviceTask",
-		f"{{{BPMN_NS}}}sendTask",
-		f"{{{BPMN_NS}}}receiveTask",
-		f"{{{BPMN_NS}}}businessRuleTask",
-		f"{{{BPMN_NS}}}subProcess",
-		f"{{{BPMN_NS}}}adHocSubProcess",
-		f"{{{BPMN_NS}}}callActivity",
-		f"{{{BPMN_NS}}}transaction",
-	}
-
-	try:
-		root = _ET.fromstring(bpmn_xml.strip().encode("utf-8") if isinstance(bpmn_xml, str) else bpmn_xml)
-	except Exception:
-		return
-
-	for adhoc in root.iter(f"{{{BPMN_NS}}}adHocSubProcess"):
-		adhoc_id = adhoc.get("id", "?")
-
-		for child in adhoc:
-			if child.tag in EVENT_TAGS:
-				frappe.throw(
-					_(
-						"Ad-hoc Subprocess '{0}': a {1} ('{2}') is not allowed "
-						"inside an ad-hoc subprocess. Its inner activities start "
-						"ad hoc — delete the event."
-					).format(adhoc_id, EVENT_TAGS[child.tag], child.get("id", "?")),
-					exc=frappe.ValidationError,
-				)
-
-		if not any(child.tag in ACTIVITY_TAGS for child in adhoc):
-			frappe.throw(
-				_(
-					"Ad-hoc Subprocess '{0}' must contain at least one activity."
-				).format(adhoc_id),
-				exc=frappe.ValidationError,
-			)
-
-
-def _validate_adhoc_selector_pool(bpmn_xml: str, model_name: str | None = None) -> None:
-	"""
-	Compile-time validation of an AI Task Selector's candidate pool
-	(WI-001353). Runs while the designer edits, not at dispatch time.
-
-	1. Eligibility (decision 2026-07-02): candidates are leaf task
-	   activities only. A container activity — embedded Sub-Process,
-	   Call Activity, Transaction or nested Ad-hoc Subprocess — with no
-	   incoming sequence flow inside a selector-tagged ad-hoc subprocess is
-	   rejected with an error naming the element and its type. This also
-	   rules out recursive selector-in-selector loops.
-	2. Name collisions: a diagram candidate's bpmn_id must not equal an
-	   enabled AI Agent Tool name applicable to this process — neither may
-	   silently shadow the other.
-	"""
-	import xml.etree.ElementTree as _ET
-
-	BPMN_NS = "http://www.omg.org/spec/BPMN/20100524/MODEL"
-	SPIFF_NS = "http://spiffworkflow.org/bpmn/schema/1.0/core"
-
-	CONTAINER_TAGS = {
-		f"{{{BPMN_NS}}}subProcess": "Sub-Process",
-		f"{{{BPMN_NS}}}adHocSubProcess": "Ad-hoc Subprocess",
-		f"{{{BPMN_NS}}}callActivity": "Call Activity",
-		f"{{{BPMN_NS}}}transaction": "Transaction",
-	}
-	LEAF_TASK_TAGS = {
-		f"{{{BPMN_NS}}}task",
-		f"{{{BPMN_NS}}}userTask",
-		f"{{{BPMN_NS}}}manualTask",
-		f"{{{BPMN_NS}}}scriptTask",
-		f"{{{BPMN_NS}}}serviceTask",
-		f"{{{BPMN_NS}}}sendTask",
-		f"{{{BPMN_NS}}}receiveTask",
-		f"{{{BPMN_NS}}}businessRuleTask",
-	}
-
-	try:
-		root = _ET.fromstring(bpmn_xml.strip().encode("utf-8") if isinstance(bpmn_xml, str) else bpmn_xml)
-	except Exception:
-		return
-
-	def has_incoming(element):
-		return element.find(f"{{{BPMN_NS}}}incoming") is not None
-
-	for adhoc in root.iter(f"{{{BPMN_NS}}}adHocSubProcess"):
-		if adhoc.get(f"{{{SPIFF_NS}}}serviceType") != "ai_task_selector":
-			continue
-
-		adhoc_id = adhoc.get("id", "?")
-		candidate_names = []
-
-		for child in adhoc:
-			if has_incoming(child):
-				continue  # connected flow, not a selector candidate
-			if child.tag in CONTAINER_TAGS:
-				frappe.throw(
-					_(
-						"AI Task Selector '{0}': {1} '{2}' cannot be a selector "
-						"candidate — only leaf task activities (Script, Service, "
-						"Send, User/Manual, Business Rule) are eligible. Connect "
-						"it with a sequence flow or move it out of the subprocess."
-					).format(adhoc_id, CONTAINER_TAGS[child.tag], child.get("id", "?")),
-					exc=frappe.ValidationError,
-				)
-			if child.tag in LEAF_TASK_TAGS and child.get("id"):
-				candidate_names.append(child.get("id"))
-
-		if not candidate_names or not frappe.db.exists("DocType", "AI Agent Tool"):
-			continue
-
-		registry_rows = frappe.get_all(
-			"AI Agent Tool",
-			filters={"is_active": 1, "tool_name": ["in", candidate_names]},
-			fields=["name", "tool_name"],
-		)
-		for row in registry_rows:
-			scoped = frappe.get_all(
-				"AI Agent Tool Process",
-				filters={"parent": row.name},
-				pluck="process_model",
-			)
-			if scoped and model_name not in scoped:
-				continue
-			frappe.throw(
-				_(
-					"AI Task Selector '{0}': inner task '{1}' has the same name "
-					"as AI Agent Tool '{1}'. Rename one of them — a diagram task "
-					"and a registry tool must not shadow each other."
-				).format(adhoc_id, row.tool_name),
-				exc=frappe.ValidationError,
-			)
-
-
 def _lint_ai_provider_config(_bpmn_xml: str, service_extensions: dict) -> None:
 	"""
 	Compile-time lint for AI Agent Tasks:
@@ -1111,8 +906,7 @@ def _lint_ai_provider_config(_bpmn_xml: str, service_extensions: dict) -> None:
 	_RAW_KEY_ATTR_NAMES = frozenset({"aiApiKey", "aiKey"})
 
 	for bpmn_id, task_cfg in (service_extensions or {}).items():
-		service_type = task_cfg.get("serviceType")
-		if service_type not in ("ai_agent", "ai_task_selector"):
+		if task_cfg.get("serviceType") != "ai_agent":
 			continue
 
 		for attr_name, attr_value in task_cfg.items():
@@ -1127,19 +921,6 @@ def _lint_ai_provider_config(_bpmn_xml: str, service_extensions: dict) -> None:
 				)
 
 		provider_name = (task_cfg.get("aiProvider") or "").strip()
-
-		# An AI Task Selector is unusable without a provider — block the save
-		# outright (WI-001351 Scenario 4); a plain AI Agent Task may still be
-		# a work-in-progress draft, so only its non-empty reference is checked.
-		if service_type == "ai_task_selector" and not provider_name:
-			frappe.throw(
-				_(
-					"AI Task Selector on '{0}' has no AI Provider configured. "
-					"Select a provider before saving."
-				).format(bpmn_id),
-				exc=frappe.ValidationError,
-			)
-
 		if provider_name and not frappe.db.exists("AI Provider", provider_name):
 			frappe.throw(
 				_(
@@ -1148,64 +929,6 @@ def _lint_ai_provider_config(_bpmn_xml: str, service_extensions: dict) -> None:
 				).format(provider_name, bpmn_id),
 				exc=frappe.ValidationError,
 			)
-
-
-def _check_eval_suite_gating(model_name: str) -> list:
-	"""
-	Check linked AI Eval Suites with ``gate_deployment=True`` and return
-	advisory warning messages based on the latest AI Eval Run status.
-
-	This is a non-blocking check — warnings are informational only and
-	never prevent deployment.
-
-	Args:
-		model_name: Name of the BPMN Process Model being deployed.
-
-	Returns:
-		list of warning strings (may be empty).
-	"""
-	warnings = []
-
-	suites = frappe.get_list(
-		"AI Eval Suite",
-		filters={"process_model": model_name, "gate_deployment": 1},
-		fields=["name", "title"],
-		ignore_permissions=True,
-	)
-
-	if not suites:
-		return warnings
-
-	for suite in suites:
-		suite_title = suite.title or suite.name
-
-		# Find the most recent eval run for this suite
-		latest_runs = frappe.get_list(
-			"AI Eval Run",
-			filters={"suite": suite.name},
-			fields=["name", "status", "started_at"],
-			order_by="started_at desc",
-			limit_page_length=1,
-			ignore_permissions=True,
-		)
-
-		if not latest_runs:
-			warnings.append(
-				_("Eval suite '{0}' has never been run. "
-				  "Consider running it before deploying.").format(suite_title)
-			)
-		elif latest_runs[0].status == "Failed":
-			run_date = frappe.utils.formatdate(latest_runs[0].started_at)
-			warnings.append(
-				_("Eval suite '{0}' failed — last run on {1}. "
-				  "Consider re-running the suite before deploying.").format(
-					suite_title, run_date
-				)
-			)
-		# If status is "Passed" (or anything else), no warning is added.
-
-	return warnings
-
 
 @frappe.whitelist()
 def compile_process_model(model_name: str) -> dict:
@@ -1341,17 +1064,9 @@ def compile_process_model(model_name: str) -> dict:
 	spec_data = json.loads(model.serialized_spec)
 
 	service_extensions = _extract_service_task_config(sanitized_xml)
-	# AI Task Selector config lives on adHocSubProcess elements (WI-001351)
-	# but is dispatched through the same extensions dict, keyed by bpmn_id.
-	service_extensions.update(_extract_adhoc_selector_config(sanitized_xml))
 	if service_extensions:
 		spec_data["service_task_extensions"] = service_extensions
 	_lint_ai_provider_config(sanitized_xml, service_extensions)
-	_validate_adhoc_structure(sanitized_xml)
-	_validate_adhoc_selector_pool(sanitized_xml, model_name)
-
-	# ── Eval suite deployment gating (non-blocking warnings) ──────────
-	deploy_warnings = _check_eval_suite_gating(model_name)
 
 	script_extensions = _extract_script_task_config(sanitized_xml)
 	if script_extensions:
@@ -1393,17 +1108,12 @@ def compile_process_model(model_name: str) -> dict:
 	model.flags.skip_editability_check = True
 	model.save(ignore_permissions=True)
 
-	result = {
+	return {
 		"success": True,
 		"model": model_name,
 		"version": model.version,
 		"subprocess_count": len(sp_dict),
 	}
-
-	if deploy_warnings:
-		result["warnings"] = deploy_warnings
-
-	return result
 
 
 @frappe.whitelist()

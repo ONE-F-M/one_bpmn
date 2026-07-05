@@ -53,7 +53,7 @@ const props = defineProps({
 	details: { type: Object, default: null },
 })
 
-const STATUS_THEMES = { Queued: "orange", Completed: "green", Active: "blue", Errored: "red" }
+const STATUS_THEMES = { Completed: "green", Active: "blue", Errored: "red" }
 const statusTheme = computed(() => STATUS_THEMES[props.details?.status] || "gray")
 
 const contextLink = computed(() => {

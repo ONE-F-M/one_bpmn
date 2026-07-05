@@ -11,65 +11,6 @@ import frappe
 import frappe.utils
 
 
-# ── AI Agent long-term memory integration ──────────────────────────────────
-# Stable, documented format for the injected memory block. Evals and the run
-# inspector reference this header — do not change it lightly.
-MEMORY_BLOCK_HEADER = "Relevant memory:"
-
-
-def _cfg_truthy(value) -> bool:
-	"""Interpret a BPMN config value as a boolean (checkbox or string)."""
-	if isinstance(value, bool):
-		return value
-	if isinstance(value, (int, float)):
-		return bool(value)
-	return str(value or "").strip().lower() in ("1", "true", "yes", "on", "enabled")
-
-
-def _resolve_memory_target(task_cfg: dict, instance, bpmn_id: str):
-	"""Resolve (scope, scope_key) for memory search/write from task config and
-	the instance context. Returns None when the scope key can't be built (e.g.
-	Entity scope with no context document) so the caller safely skips memory.
-
-	Agent   -> agent_element (defaults to the task's bpmn_id)
-	Process -> the instance's process_model
-	Entity  -> {reference_doctype, reference_name} from the instance context doc
-	"""
-	scope = (task_cfg.get("aiMemoryScope") or "Agent").strip() or "Agent"
-	if scope == "Agent":
-		agent_element = task_cfg.get("aiMemoryAgentElement") or bpmn_id
-		return ("Agent", agent_element) if agent_element else None
-	if scope == "Process":
-		process_model = getattr(instance, "process_model", None)
-		return ("Process", process_model) if process_model else None
-	if scope == "Entity":
-		reference_doctype = getattr(instance, "context_doctype", None)
-		reference_name = getattr(instance, "context_docname", None)
-		if reference_doctype and reference_name:
-			return ("Entity", {"reference_doctype": reference_doctype, "reference_name": reference_name})
-		return None
-	return None
-
-
-def _format_memory_block(memories: list) -> str:
-	"""Render retrieved memories as a clearly delimited block that is appended
-	to the system prompt. Stable format — see ``MEMORY_BLOCK_HEADER``."""
-	lines = [MEMORY_BLOCK_HEADER]
-	for m in memories:
-		content = (m.get("content") or "").strip()
-		if content:
-			lines.append(f"- {content}")
-	return "\n".join(lines)
-
-
-def _extract_memory_content(output, content_field: str) -> str:
-	"""Pick the content to store from the agent output. When a field is
-	configured and the output is a dict, use that field; otherwise stringify."""
-	if content_field and isinstance(output, dict):
-		return str(output.get(content_field, "") or "")
-	return str(output or "")
-
-
 def dispatch_update_field(instance, task, task_cfg: dict, bpmn_id: str) -> None:
 	"""
 	Update one or more fields on a document in a single service task.
@@ -633,47 +574,6 @@ def dispatch_email(instance, task, task_cfg: dict) -> None:
 		)
 
 
-def dispatch_send_notification(instance, task, task_cfg: dict, bpmn_id: str) -> None:
-	"""
-	Execute a BPMN Send Task (WI-001352 gap closure, 2026-07-04).
-
-	Send tasks carry spiffworkflow:notificationName — the name of a Frappe
-	Notification record (event=Method so it only fires when told to). This
-	renders and sends that notification against the instance's context doc.
-
-	Evidence convention: on success, ``{bpmn_id}_sent = 1`` is written into
-	the task's containing scope (the ad-hoc subprocess data for inner tasks)
-	so AI Task Selector prompts can gate follow-up steps on it — the same
-	observable-evidence pattern registry tools use via *_toolCallResult. On
-	failure, ``{bpmn_id}_send_error`` carries the reason instead: the flow
-	deliberately does NOT pretend the email went out, and the selector's
-	next decision sees the failure in its evidence.
-
-	Never raises — a broken notification must not wedge the engine.
-	"""
-	scope = getattr(task.workflow, "data", None)
-	try:
-		notification_name = (task_cfg.get("notificationName") or "").strip()
-		if not notification_name:
-			return
-		if not (instance.context_doctype and instance.context_docname):
-			raise ValueError("send task has no context document to render against")
-
-		notification = frappe.get_doc("Notification", notification_name)
-		doc = frappe.get_doc(instance.context_doctype, instance.context_docname)
-		notification.send(doc)
-
-		if isinstance(scope, dict):
-			scope[f"{bpmn_id}_sent"] = 1
-	except Exception as exc:
-		if isinstance(scope, dict):
-			scope[f"{bpmn_id}_send_error"] = str(exc)
-		frappe.log_error(
-			title=f"BPMN send task failed: {bpmn_id} on {instance.name}",
-			message=frappe.get_traceback(),
-		)
-
-
 def dispatch_ai_agent(instance, task, task_cfg: dict, bpmn_id: str) -> None:
 	"""
 	Execute an AI Agent Task via the executor package.
@@ -682,10 +582,6 @@ def dispatch_ai_agent(instance, task, task_cfg: dict, bpmn_id: str) -> None:
 	prompts, calls the configured executor backend, and writes results into
 	task.data.  On failure, sets error variables and logs to Frappe Error Log
 	— the task STILL completes normally (no instance "Errored" state).
-
-	Observability (AI-009): on every call the instrumentation layer creates
-	an AI Agent Run, records Steps, and finalizes the Run. Instrumentation
-	failures are caught and logged — they never block the executor call.
 	"""
 	from one_bpmn.agents.executor import ExecutorConfig, ExecutorContext, ErrorCode, get_executor
 	from one_bpmn.agents.executor.direct_api import DirectApiExecutor  # noqa
@@ -699,8 +595,6 @@ def dispatch_ai_agent(instance, task, task_cfg: dict, bpmn_id: str) -> None:
 			pass
 
 	jinja_ctx = {"doc": doc, "instance": instance, "frappe": frappe}
-	if hasattr(task, "data") and isinstance(task.data, dict):
-		jinja_ctx.update(task.data)
 
 	def render(text):
 		if not text:
@@ -712,30 +606,6 @@ def dispatch_ai_agent(instance, task, task_cfg: dict, bpmn_id: str) -> None:
 
 	system_prompt = render(task_cfg.get("aiSystemPrompt", ""))
 	user_prompt   = render(task_cfg.get("aiUserPrompt", ""))
-
-	# ── Long-term memory: search + inject (config-gated; safe when off) ──
-	# When aiLongTermMemory is enabled, recall memories for the task's scope
-	# using the rendered user prompt as the query and append them to the system
-	# prompt as a stable "Relevant memory:" block. Failures never block the call.
-	memory_target = None
-	if _cfg_truthy(task_cfg.get("aiLongTermMemory")):
-		try:
-			memory_target = _resolve_memory_target(task_cfg, instance, bpmn_id)
-			if memory_target and user_prompt:
-				from one_bpmn.agents.memory.tools import memory_search
-				scope, scope_key = memory_target
-				limit = int(task_cfg.get("aiMemoryLimit", 5) or 5)
-				memories = memory_search(
-					scope, scope_key, user_prompt, limit=limit, ignore_permissions=True
-				)
-				if memories:
-					block = _format_memory_block(memories)
-					system_prompt = f"{system_prompt}\n\n{block}" if system_prompt else block
-		except Exception:
-			frappe.log_error(
-				title=f"BPMN AI Agent Task: memory_search failed ({bpmn_id})",
-				message=frappe.get_traceback(),
-			)
 
 	config = ExecutorConfig(
 		backend          = task_cfg.get("aiBackend", "direct_api"),
@@ -760,85 +630,18 @@ def dispatch_ai_agent(instance, task, task_cfg: dict, bpmn_id: str) -> None:
 		jinja_context   = jinja_ctx,
 	)
 
-	# ── Observability: create Run ─────────────────────────────────────
-	run = None
-	try:
-		from one_bpmn.agents.observability import create_ai_run
-		from one_bpmn.one_bpmn.engine import get_task_display_name as _get_label
-		run = create_ai_run(
-			instance, bpmn_id, "task", config,
-			bpmn_label=_get_label(task),
-			process_model=instance.process_model or "",
-		)
-	except Exception:
-		frappe.log_error(
-			title=f"AI Observability: create_ai_run error ({bpmn_id})",
-			message=frappe.get_traceback(),
-		)
-
-	# ── Executor ───────────────────────────────────────────────────────
-	import time as _time
-	_exec_start = _time.time()
 	try:
 		executor_cls = get_executor(config.backend)
 		result = executor_cls().run(config, context)
-	except Exception as exc:
+	except Exception:
 		frappe.log_error(
 			title=f"BPMN AI Agent Task: unexpected error ({bpmn_id})",
 			message=frappe.get_traceback(),
 		)
 		task.data[f"{bpmn_id}_error_code"] = "UNEXPECTED_ERROR"
 		task.data[f"{bpmn_id}_error_message"] = "See Frappe Error Log for details."
-		# Observability: finalize on exception
-		try:
-			from one_bpmn.agents.observability import finalize_ai_run_on_exception
-			finalize_ai_run_on_exception(run, exc)
-		except Exception:
-			pass
 		return
-	_exec_latency_ms = int((_time.time() - _exec_start) * 1000)
 
-	# ── Observability: record Steps + finalize ─────────────────────────
-	try:
-		from one_bpmn.agents.observability import record_ai_step, finalize_ai_run
-
-		if run and not getattr(run, "stub", False):
-			record_ai_step(run, 0, "system", system_prompt)
-
-			usage = result.token_usage if result.error_code == ErrorCode.SUCCESS else None
-			# Attribute prompt_tokens (input cost) to the user step,
-			# completion_tokens (output cost) to the assistant step.
-			record_ai_step(
-				run, 1, "user", user_prompt,
-				prompt_tokens=usage.prompt_tokens if usage else 0,
-			)
-
-		if result.error_code == ErrorCode.SUCCESS:
-			if run and not getattr(run, "stub", False):
-				record_ai_step(
-					run, 2, "assistant",
-					str(result.output or ""),
-					completion_tokens=usage.completion_tokens if usage else 0,
-					latency_ms=_exec_latency_ms,
-				)
-			finalize_ai_run(run, result)
-		else:
-			finalize_ai_run(run, result)
-
-		# Commit observability data so AI runs + steps survive even if a
-		# downstream aiStopOnError raise rolls back the outer transaction.
-		# Never inside tests: a mid-test commit also persists the test's
-		# fixture docs, defeating FrappeTestCase rollback and leaking
-		# orphan "Active" instances into the shared dev DB.
-		if not frappe.flags.in_test:
-			frappe.db.commit()
-	except Exception:
-		frappe.log_error(
-			title=f"AI Observability: instrumentation error ({bpmn_id})",
-			message=frappe.get_traceback(),
-		)
-
-	# ── Results ────────────────────────────────────────────────────────
 	if result.error_code == ErrorCode.SUCCESS:
 		output_var = task_cfg.get("aiOutputVariable") or f"{bpmn_id}_output"
 		task.data[output_var] = result.output
@@ -849,7 +652,10 @@ def dispatch_ai_agent(instance, task, task_cfg: dict, bpmn_id: str) -> None:
 				"total_tokens":      result.token_usage.total_tokens,
 			}
 
-		# Write-back (only on success)
+		# On success, optionally write the result back to a field on the context
+		# document (follows the dispatch_update_field pattern). Per WI-001144,
+		# write-back happens only when the executor succeeds.
+
 		write_back_field = task_cfg.get("aiWriteBackField", "")
 		if write_back_field and instance.context_doctype and instance.context_docname:
 			try:
@@ -862,46 +668,6 @@ def dispatch_ai_agent(instance, task, task_cfg: dict, bpmn_id: str) -> None:
 			except Exception:
 				frappe.log_error(
 					title=f"BPMN AI Agent Task: write-back failed ({bpmn_id})",
-					message=frappe.get_traceback(),
-				)
-		# ── Long-term memory: auto-write (config-gated) ─────────────────
-		# Store the agent output (or a configured field of it) as a memory,
-		# with provenance (source_run) and an optional dedup_key. Failures
-		# never block the task.
-		if _cfg_truthy(task_cfg.get("aiMemoryAutoWrite")):
-			try:
-				write_target = memory_target or _resolve_memory_target(task_cfg, instance, bpmn_id)
-				content = _extract_memory_content(result.output, task_cfg.get("aiMemoryContentField", ""))
-				if write_target and content:
-					from one_bpmn.agents.memory.tools import memory_write
-					scope, scope_key = write_target
-					memory_write(
-						scope,
-						scope_key,
-						content,
-						dedup_key=(task_cfg.get("aiMemoryDedupKey") or None),
-						source_run=(run.name if run and not getattr(run, "stub", False) else None),
-						ignore_permissions=True,
-					)
-			except Exception:
-				frappe.log_error(
-					title=f"BPMN AI Agent Task: memory_write failed ({bpmn_id})",
-					message=frappe.get_traceback(),
-				)
-
-		# ── Conversation store: append user + assistant turns (optional) ─
-		# Primarily for the multi-turn loop; when a backend is configured we
-		# record this single call's turns. process_variable uses the live task.
-		cs_backend = task_cfg.get("aiConversationStore") or ""
-		if cs_backend:
-			try:
-				from one_bpmn.agents.memory.conversation_store import get_conversation_store
-				store = get_conversation_store(cs_backend, task=task)
-				store.append(instance.name, bpmn_id, {"role": "user", "content": user_prompt})
-				store.append(instance.name, bpmn_id, {"role": "assistant", "content": str(result.output or "")})
-			except Exception:
-				frappe.log_error(
-					title=f"BPMN AI Agent Task: conversation store append failed ({bpmn_id})",
 					message=frappe.get_traceback(),
 				)
 	else:
@@ -917,12 +683,3 @@ def dispatch_ai_agent(instance, task, task_cfg: dict, bpmn_id: str) -> None:
 		)
 		task.data[f"{bpmn_id}_error_code"]    = error_code_name
 		task.data[f"{bpmn_id}_error_message"] = result.error_message
-
-		# If the BPMN task is configured to stop on error, raise so the
-		# engine loop in _run_engine_steps halts and the instance is
-		# marked Errored (same pattern as apply_workflow).
-		if task_cfg.get("aiStopOnError"):
-			raise Exception(
-				f"AI Agent Task '{bpmn_id}' failed: "
-				f"{error_code_name} — {result.error_message}"
-			)
