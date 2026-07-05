@@ -1018,11 +1018,11 @@ import serviceTaskPropertiesProviderModule from "@/bpmn/serviceTaskPropertiesPro
 import aiAgentPropertiesProviderModule from "@/bpmn/aiAgentPropertiesProvider";
 import aiAgentReplaceMenuProviderModule from "@/bpmn/aiAgentReplaceMenuProvider";
 import aiAgentRendererModule from "@/bpmn/aiAgentRenderer";
-<<<<<<< HEAD
-import aiToolRegistryPropertiesProviderModule from "@/bpmn/aiToolRegistryPropertiesProvider";
-=======
 import adhocSubprocessPropertiesProviderModule from "@/bpmn/adhocSubprocessPropertiesProvider";
->>>>>>> upstream/staging
+import aiTaskSelectorMenuProviderModule from "@/bpmn/aiTaskSelectorMenuProvider";
+import aiTaskSelectorPropertiesProviderModule from "@/bpmn/aiTaskSelectorPropertiesProvider";
+import aiTaskSelectorRendererModule from "@/bpmn/aiTaskSelectorRenderer";
+import aiToolRegistryPropertiesProviderModule from "@/bpmn/aiToolRegistryPropertiesProvider";
 
 import scriptTaskPropertiesProviderModule from "@/bpmn/scriptTaskPropertiesProvider";
 import businessRuleTaskPropertiesProviderModule from "@/bpmn/businessRuleTaskPropertiesProvider";
@@ -1592,6 +1592,27 @@ onMounted(async () => {
 				});
 			}
 
+			// Ad-hoc Subprocess AI Task Selector extension (WI-001351).
+			// The selector attaches to the subprocess ITSELF (not an inner
+			// task): an LLM chooses which inner task/tool runs next.
+			const hasAdhocSelectorExt = spiffModdleExtension.types.find(t => t.name === "AdhocAiTaskSelectorExtension");
+			if (!hasAdhocSelectorExt) {
+				spiffModdleExtension.types.push({
+					name: "AdhocAiTaskSelectorExtension",
+					extends: ["bpmn:AdHocSubProcess"],
+					properties: [
+						{ name: "serviceType",    isAttr: true, type: "String" },
+						{ name: "aiProvider",     isAttr: true, type: "String" },
+						{ name: "aiModel",        isAttr: true, type: "String" },
+						{ name: "aiSystemPrompt", isAttr: true, type: "String" },
+						{ name: "aiUserPrompt",   isAttr: true, type: "String" },
+						// "diagram" | "registry" | "both" — which tool sources
+						// the selector may choose from (defaults to "both")
+						{ name: "aiToolSources",  isAttr: true, type: "String" }
+					]
+				});
+			}
+
 			// Business Rule Task decision reference extension
 			const hasBusinessRuleTaskExt = spiffModdleExtension.types.find(t => t.name === "BusinessRuleTaskDecisionExtension");
 			if (!hasBusinessRuleTaskExt) {
@@ -1633,11 +1654,11 @@ onMounted(async () => {
 				aiAgentPropertiesProviderModule,
 				aiAgentReplaceMenuProviderModule,
 				aiAgentRendererModule,
-<<<<<<< HEAD
-				aiToolRegistryPropertiesProviderModule,
-=======
 				adhocSubprocessPropertiesProviderModule,
->>>>>>> upstream/staging
+				aiTaskSelectorMenuProviderModule,
+				aiTaskSelectorPropertiesProviderModule,
+				aiTaskSelectorRendererModule,
+				aiToolRegistryPropertiesProviderModule,
 
 				scriptTaskPropertiesProviderModule,
 				businessRuleTaskPropertiesProviderModule,
@@ -1748,8 +1769,10 @@ onMounted(async () => {
 						const canvas = modeler.get("canvas");
 						const rootElement = canvas.getRootElement();
 
+						// Implicit roots (empty canvas) have no businessObject —
+						// guard so the filter degrades to "no issues" instead of throwing.
 						const rootBo = rootElement.businessObject;
-						const flowEls = rootBo && (rootBo.flowElements || []);
+						const flowEls = (rootBo && rootBo.flowElements) || [];
 						if (!flowEls.length) {
 							return {};
 						}
