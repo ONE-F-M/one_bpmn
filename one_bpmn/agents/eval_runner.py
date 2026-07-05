@@ -101,36 +101,54 @@ def run_eval_suite(suite_name: str) -> str:
 # ---------------------------------------------------------------------------
 
 def _execute_eval_suite(run_name: str) -> None:
-    """Run every case in the suite and finalise the AI Eval Run."""
+    """Run every case in the suite and finalise the AI Eval Run.
+
+    WI-001361 Scenario 5: an unexpected exception partway through must
+    never leave the Run stuck on "Running" — the run is finalised as
+    status="Error" with whatever partial results were collected, and the
+    completion event STILL fires so the client script's realtime listener
+    doesn't hang forever.
+    """
     run = frappe.get_doc("AI Eval Run", run_name)
 
-    case_names = frappe.get_all(
-        "AI Eval Case",
-        filters={"suite": run.suite},
-        pluck="name",
-        order_by="creation asc",
-    )
+    try:
+        case_names = frappe.get_all(
+            "AI Eval Case",
+            filters={"suite": run.suite},
+            pluck="name",
+            order_by="creation asc",
+        )
 
-    passed = failed = 0
-    total_cost = 0.0
-    total_tokens = 0
-    for case_name in case_names:
-        case = frappe.get_doc("AI Eval Case", case_name)
-        result_row = _execute_case(case)
-        run.append("results", result_row)
-        if result_row["status"] == "Passed":
-            passed += 1
-        else:
-            failed += 1
-        total_cost += flt(result_row.get("cost", 0))
-        total_tokens += (result_row.get("tokens_used") or 0)
+        passed = failed = 0
+        total_cost = 0.0
+        total_tokens = 0
+        for case_name in case_names:
+            case = frappe.get_doc("AI Eval Case", case_name)
+            result_row = _execute_case(case)
+            run.append("results", result_row)
+            if result_row["status"] == "Passed":
+                passed += 1
+            else:
+                failed += 1
+            total_cost += flt(result_row.get("cost", 0))
+            total_tokens += (result_row.get("tokens_used") or 0)
 
-    run.total_cases = len(case_names)
-    run.passed_cases = passed
-    run.failed_cases = failed
-    run.total_cost = total_cost
-    run.total_tokens = total_tokens
-    run.status = "Passed" if failed == 0 else "Failed"
+        run.total_cases = len(case_names)
+        run.passed_cases = passed
+        run.failed_cases = failed
+        run.total_cost = total_cost
+        run.total_tokens = total_tokens
+        run.status = "Passed" if failed == 0 else "Failed"
+    except Exception:
+        frappe.log_error(
+            title=f"AI Eval: suite execution failed ({run_name})",
+            message=frappe.get_traceback(),
+        )
+        run.status = "Error"
+        run.total_cases = len(run.results or [])
+        run.passed_cases = sum(1 for r in (run.results or []) if r.status == "Passed")
+        run.failed_cases = run.total_cases - run.passed_cases
+
     run.ended_at = now_datetime()
     run.save()
     # Background-job commit; skipped in tests so FrappeTestCase rollback
