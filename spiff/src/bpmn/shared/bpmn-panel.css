@@ -293,3 +293,26 @@
 	border-color: #4c72f5;
 	color: #4c72f5;
 }
+
+
+/* ── Registry Tools list (AI Task Selector panel group) ──────────── */
+.bpmn-registry-tools {
+	margin: 6px 0 0;
+	padding: 0;
+	list-style: none;
+	display: flex;
+	flex-direction: column;
+	gap: 8px;
+}
+.bpmn-registry-tool-item {
+	padding: 6px 8px;
+	border: 1px solid #e2e8f0;
+	border-radius: 6px;
+	background: #f8fafc;
+	font-size: 12px;
+	line-height: 1.45;
+}
+.bpmn-registry-tool-item input[type="checkbox"] {
+	margin-right: 4px;
+	vertical-align: middle;
+}
