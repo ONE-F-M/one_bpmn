@@ -15,7 +15,7 @@ from __future__ import annotations
 import json
 import random
 import time
-from typing import Any, Optional
+from typing import Any, ClassVar, Optional
 
 import frappe
 from frappe.utils.password import get_decrypted_password
@@ -30,6 +30,29 @@ from . import (
     TokenUsage,
     register_executor,
 )
+
+
+def _run_coro_blocking(coro):
+    """
+    Run *coro* to completion from synchronous code (WI-001356 review fix).
+
+    asyncio.run() raises RuntimeError when the calling thread already has a
+    running event loop. Frappe's request handlers and RQ workers are
+    synchronous today, but if this executor is ever reached from an async
+    context (socketio bridge, future ASGI deployment), fall back to running
+    the coroutine on a dedicated thread with its own loop instead of
+    crashing.
+    """
+    import asyncio
+    import concurrent.futures
+
+    try:
+        asyncio.get_running_loop()
+    except RuntimeError:
+        return asyncio.run(coro)
+
+    with concurrent.futures.ThreadPoolExecutor(max_workers=1) as pool:
+        return pool.submit(asyncio.run, coro).result()
 
 
 def _strip_code_fences(content: str) -> str:
@@ -94,6 +117,12 @@ class DirectApiExecutor(Executor):
             endpoint = self._DEFAULT_ENDPOINTS.get(provider_type, "")
 
         model = config.model or provider.default_model or ""
+
+        # WI-001356: with tools present, delegate to the matching
+        # agents/llm_provider adapter's multi-turn tool-calling loop. With
+        # tools=None (the default) the raw HTTP path below is untouched.
+        if config.tools:
+            return self._run_with_tools(config, provider_type, api_key, model)
 
         if provider_type == "Anthropic":
             url, payload, headers = self._build_anthropic_request(
@@ -217,6 +246,92 @@ class DirectApiExecutor(Executor):
     # ------------------------------------------------------------------
     # Request builders
     # ------------------------------------------------------------------
+
+    # Map AI Provider.provider_type values to agents/llm_provider factory
+    # keys. Absence means no adapter exists for that provider type — with
+    # tools requested that is an explicit error, never a silent fallback to
+    # the tool-less raw HTTP path.
+    _ADAPTER_PROVIDERS: ClassVar[dict] = {
+        "OpenAI": "openai",
+        "Anthropic": "anthropic",
+        "Google": "gemini",
+    }
+
+    def _run_with_tools(
+        self, config: ExecutorConfig, provider_type: str, api_key: str, model: str
+    ) -> ExecutorResult:
+        """
+        Tool-enabled execution path (WI-001356): delegate to the matching
+        agents/llm_provider adapter, which owns the multi-turn tool loop,
+        and map its CompletionResult (final text + turn-by-turn trace) into
+        an ExecutorResult.
+        """
+        from dataclasses import asdict
+
+        from one_bpmn.agents.llm_provider.factory import get_llm_adapter
+
+        adapter_key = self._ADAPTER_PROVIDERS.get(provider_type)
+        if not adapter_key:
+            return ExecutorResult(
+                error_code=ErrorCode.PROVIDER_NOT_FOUND,
+                error_message=(
+                    f"Provider type '{provider_type}' has no agents/llm_provider adapter — "
+                    "tool-calling is only available for OpenAI, Anthropic and Google providers."
+                ),
+            )
+
+        start = time.time()
+        try:
+            adapter = get_llm_adapter(adapter_key, model, api_key)
+            completion = _run_coro_blocking(
+                adapter.complete(
+                    system=config.system_prompt,
+                    user=config.user_prompt,
+                    tools=config.tools,
+                    max_tokens=config.max_tokens,
+                )
+            )
+        except Exception as exc:
+            return ExecutorResult(
+                error_code=ErrorCode.FAILED_MODEL_CALL,
+                error_message=str(exc),
+            )
+
+        token_usage = TokenUsage(
+            prompt_tokens=completion.prompt_tokens,
+            completion_tokens=completion.completion_tokens,
+            total_tokens=completion.prompt_tokens + completion.completion_tokens,
+        )
+        trace = [asdict(turn) for turn in completion.trace]
+        latency_ms = int((time.time() - start) * 1000)
+
+        if completion.hit_turn_cap:
+            # Partial progress is not lost: the trace collected so far ships
+            # with the error result.
+            return ExecutorResult(
+                error_code=ErrorCode.FAILED_MODEL_CALL,
+                error_message=(
+                    f"Tool-calling loop hit the adapter's turn cap without a final answer "
+                    f"({len(trace)} turns recorded)."
+                ),
+                token_usage=token_usage,
+                trace=trace,
+                attempts=[
+                    AttemptRecord(
+                        attempt_index=0,
+                        error_code=ErrorCode.FAILED_MODEL_CALL.value,
+                        error_message="turn cap exhausted",
+                        token_usage=token_usage,
+                        latency_ms=latency_ms,
+                    )
+                ],
+            )
+
+        return ExecutorResult(
+            output=completion.text,
+            token_usage=token_usage,
+            trace=trace,
+        )
 
     @staticmethod
     def _build_openai_request(
