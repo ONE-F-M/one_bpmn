@@ -181,13 +181,10 @@ class ProsAllyAgent:
     # ── Helpers ────────────────────────────────────────────────────────────────
 
     async def _run(self, role: str, prompt: str) -> str | None:
-        # complete() returns a CompletionResult since WI-001356; this agent
-        # only needs the final answer text.
-        completion = await self._llm.complete(
+        return await self._llm.complete(
             system=self._instructions[role],
             user=prompt,
         )
-        return completion.text
 
     def _format_history(self, chat_history: list) -> str:
         if not chat_history:
