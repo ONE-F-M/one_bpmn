@@ -26,6 +26,7 @@ from .assignment import (
 	add_frappe_assignment,
 	remove_frappe_assignment,
 	resolve_assignment,
+	split_users,
 )
 
 
@@ -232,11 +233,10 @@ class BPMNProcessInstance(Document):
 
 		# Capture current assignments BEFORE marking task completed,
 		# so the diff in _sync_active_tasks knows who was previously assigned.
-		prev_assigned = {
-			row.assigned_user
-			for row in self.active_tasks
-			if row.status == "Waiting" and row.assigned_user
-		}
+		prev_assigned = set()
+		for row in self.active_tasks:
+			if row.status == "Waiting" and row.assigned_user:
+				prev_assigned.update(split_users(row.assigned_user))
 
 		# Mark the active_tasks row as Completed and record timing
 		# (Frappe assignment cleanup is handled by _sync_active_tasks
@@ -358,11 +358,10 @@ class BPMNProcessInstance(Document):
 			bpmn_engine.refresh_context_doc(wf, self.context_doctype, self.context_docname)
 
 		# Capture current assignments BEFORE message delivery
-		prev_assigned = {
-			row.assigned_user
-			for row in self.active_tasks
-			if row.status == "Waiting" and row.assigned_user
-		}
+		prev_assigned = set()
+		for row in self.active_tasks:
+			if row.status == "Waiting" and row.assigned_user:
+				prev_assigned.update(split_users(row.assigned_user))
 
 		# ── Deliver the message ──────────────────────────────────────────────
 		caught = bpmn_engine.send_message(wf, message_name, payload=payload)
@@ -836,11 +835,10 @@ class BPMNProcessInstance(Document):
 
 		# Snapshot: which users have Open assignments before this rebuild
 		if prev_assigned is None:
-			prev_assigned = {
-				row.assigned_user
-				for row in self.active_tasks
-				if row.status == "Waiting" and row.assigned_user
-			}
+			prev_assigned = set()
+			for row in self.active_tasks:
+				if row.status == "Waiting" and row.assigned_user:
+					prev_assigned.update(split_users(row.assigned_user))
 
 		# Keep completed rows + rows still waiting that are still ready
 		self.active_tasks = [
@@ -896,9 +894,11 @@ class BPMNProcessInstance(Document):
 			# add_frappe_assignment to read the user_task_extensions config.
 			self.active_tasks[-1]._bpmn_id = bpmn_id_key
 
-			# Track the task_cfg so we can pass notification settings below
-			if assigned_user:
-				new_user_task_cfgs[assigned_user] = (task_name, task_cfg)
+			# Track the task_cfg so we can pass notification settings below.
+			# assigned_user may be a comma-joined list (Table Field mode) —
+			# every one of those users gets the same task_cfg for notifications.
+			for u in split_users(assigned_user):
+				new_user_task_cfgs[u] = (task_name, task_cfg)
 
 			self._log_task(
 				task_id=tid,
@@ -906,19 +906,26 @@ class BPMNProcessInstance(Document):
 				action="Started",
 			)
 
-		# Diff: which users are now assigned across all Waiting tasks
+		# Diff: which users are now assigned across all Waiting tasks.
+		# A Waiting row's assigned_user may list multiple people (Table Field
+		# mode) — any one of them can complete it, so each gets its own entry.
 		curr_assigned = {}
 		for row in self.active_tasks:
 			if row.status == "Waiting" and row.assigned_user:
-				curr_assigned[row.assigned_user] = {
-					"task_name": row.task_name,
-					"bpmn_id": getattr(row, "_bpmn_id", ""),
-					"task_id": row.task_id,
-				}
+				for u in split_users(row.assigned_user):
+					curr_assigned[u] = {
+						"task_name": row.task_name,
+						"bpmn_id": getattr(row, "_bpmn_id", ""),
+						"task_id": row.task_id,
+					}
 
 		# Close ToDos for users who were assigned but no longer are
+		# A preceding script task can override the close status via
+		# task.data["todo_close_status"] (same pattern as assigned_role) —
+		# defaults to "Closed" for every process that never sets it.
+		todo_close_status = (wf.task_tree.data or {}).get("todo_close_status") or "Closed"
 		for user in prev_assigned - set(curr_assigned.keys()):
-			remove_frappe_assignment(self, user)
+			remove_frappe_assignment(self, user, status=todo_close_status)
 
 		# Create ToDos for users who are newly assigned
 		for user, info in curr_assigned.items():
