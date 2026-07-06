@@ -777,6 +777,8 @@ def dispatch_ai_agent(instance, task, task_cfg: dict, bpmn_id: str) -> None:
 		response_schema  = task_cfg.get("aiResponseSchema") or None,
 		max_retries      = int(task_cfg.get("aiMaxRetries", 2) or 2),
 		tools            = tool_specs,
+		# "Maximum model calls" (Camunda Limits); caps the tool-calling loop.
+		max_tool_calls   = int(task_cfg.get("aiMaxToolCalls", 10) or 10),
 	)
 
 	context = ExecutorContext(
