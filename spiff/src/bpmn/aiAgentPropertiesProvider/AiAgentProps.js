@@ -11,6 +11,7 @@ import { useService } from "bpmn-js-properties-panel";
 import { getBusinessObject } from "bpmn-js/lib/util/ModelUtil";
 import { h } from "preact";
 import { FrappeAutocomplete } from "../shared/FrappeAutocomplete";
+import { FrappeMultiSelect } from "../shared/FrappeMultiSelect";
 import { frappeGet } from "../shared/frappeResource";
 
 // ---------------------------------------------------------------------------
@@ -82,6 +83,11 @@ export function AiAgentProps(props) {
 			element,
 			component: UserPromptComponent,
 			isEdited: isTextAreaEntryEdited,
+		},
+		{
+			id: "spiffworkflow-aiTools",
+			element,
+			component: ToolsComponent,
 		},
 		{
 			id: "spiffworkflow-aiResponseFormat",
@@ -286,6 +292,55 @@ function UserPromptComponent(props) {
 		setValue: (value) => setAttr(modeling, element, bo, "aiUserPrompt", value),
 		debounce,
 	});
+}
+
+// ---------------------------------------------------------------------------
+// Tools — explicit allow-list of AI Agent Tool records this agent may call.
+// Stored as a comma-separated spiffworkflow:aiTools list of tool names. No
+// ad-hoc sub-process is needed: the agent invokes these registry tools
+// in-process (the Camunda "AI Agent Task connector" shape). Leave empty for a
+// plain LLM call with no tools.
+// ---------------------------------------------------------------------------
+function ToolsComponent(props) {
+	const { element, id } = props;
+	const modeling  = useService("modeling");
+	const translate = useService("translate");
+	const bo        = getBusinessObject(element);
+
+	const fetchTools = (txt) => {
+		const params = {
+			fields: '["name","description"]',
+			filters: JSON.stringify([
+				["is_active", "=", 1],
+				...(txt ? [["tool_name", "like", `%${txt}%`]] : []),
+			]),
+			limit_page_length: 50,
+			order_by: "tool_name asc",
+		};
+		return frappeGet("/api/resource/AI Agent Tool", params);
+	};
+
+	return h(
+		"div",
+		{ class: "bio-properties-panel-entry", "data-entry-id": id },
+		h("div", { class: "bio-properties-panel-textfield" }, [
+			h("label", { class: "bio-properties-panel-label" }, translate("Tools")),
+			h(FrappeMultiSelect, {
+				id,
+				value: getAttr(bo, "aiTools"),
+				onChange: (value) => setAttr(modeling, element, bo, "aiTools", value),
+				fetchApi: fetchTools,
+				valueField: "name",
+				renderOption: (opt) => opt.name,
+				itemLabel: "tool",
+			}),
+			h(
+				"div",
+				{ class: "bio-properties-panel-description" },
+				translate("Registry tools this agent may call. Empty = plain LLM call.")
+			),
+		])
+	);
 }
 
 // ---------------------------------------------------------------------------

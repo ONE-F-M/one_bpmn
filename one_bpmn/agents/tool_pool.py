@@ -66,6 +66,46 @@ def resolve_tool_pool(subworkflow, task_cfg: dict, process_model: str | None = N
 	return pool
 
 
+def resolve_agent_tools(allowed_tool_names, process_model: str | None = None) -> list:
+	"""
+	Resolve a standalone AI Agent Task's explicit tool allow-list into ToolSpecs.
+
+	Unlike the selector's resolve_tool_pool — which offers a whole pool the LLM
+	chooses an *activation* from — an AI Agent Task carries an explicit list of
+	the registry tools it may call, attached to THIS shape (mirroring Camunda's
+	AI Agent Task connector, where tools belong to the agent). Only tools that
+	(a) are named in ``allowed_tool_names``, (b) are active, and (c) apply to
+	``process_model`` are returned; unknown/inactive/out-of-scope names are
+	skipped here (compile-time validation surfaces them to the designer).
+
+	Args:
+	    allowed_tool_names: iterable of AI Agent Tool names (== tool_name, since
+	                        the doctype autonames by that field)
+	    process_model:      BPMN Process Model name, for registry scoping
+
+	Returns:
+	    list[ToolSpec] — ready for ExecutorConfig.tools / the adapter tool loop.
+	"""
+	from one_bpmn.agents.tool_registry import compile_tool_spec
+
+	specs = []
+	seen = set()
+	for raw_name in allowed_tool_names or []:
+		name = (raw_name or "").strip()
+		if not name or name in seen:
+			continue
+		seen.add(name)
+		if not frappe.db.exists("AI Agent Tool", name):
+			continue
+		doc = frappe.get_doc("AI Agent Tool", name)
+		if not doc.is_active:
+			continue
+		if not _applies_to_process(doc, process_model):
+			continue
+		specs.append(compile_tool_spec(doc))
+	return specs
+
+
 def _diagram_candidates(subworkflow) -> list:
 	candidates = []
 	for spec in _candidate_task_specs(subworkflow.spec):

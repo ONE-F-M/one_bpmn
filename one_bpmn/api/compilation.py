@@ -1149,6 +1149,30 @@ def _lint_ai_provider_config(_bpmn_xml: str, service_extensions: dict) -> None:
 				exc=frappe.ValidationError,
 			)
 
+		# AI Agent Task tool allow-list (spiffworkflow:aiTools, comma-separated):
+		# every named tool must exist and be active, so a typo surfaces at design
+		# time rather than as a silent no-op when the agent runs.
+		if service_type == "ai_agent":
+			for tool_name in [
+				t.strip() for t in (task_cfg.get("aiTools") or "").split(",") if t.strip()
+			]:
+				if not frappe.db.exists("AI Agent Tool", tool_name):
+					frappe.throw(
+						_(
+							"AI Agent Tool '{0}' not found (task '{1}'). "
+							"Create it in the AI Agent Tool list or remove it."
+						).format(tool_name, bpmn_id),
+						exc=frappe.ValidationError,
+					)
+				if not frappe.db.get_value("AI Agent Tool", tool_name, "is_active"):
+					frappe.throw(
+						_(
+							"AI Agent Tool '{0}' is inactive (task '{1}'). "
+							"Activate it or remove it from the agent's tools."
+						).format(tool_name, bpmn_id),
+						exc=frappe.ValidationError,
+					)
+
 
 def _check_eval_suite_gating(model_name: str) -> list:
 	"""

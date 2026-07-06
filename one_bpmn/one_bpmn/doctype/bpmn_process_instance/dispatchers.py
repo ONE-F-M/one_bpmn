@@ -753,6 +753,22 @@ def dispatch_ai_agent(instance, task, task_cfg: dict, bpmn_id: str) -> None:
 				message=frappe.get_traceback(),
 			)
 
+	# ── Tools (allow-list): a standalone agent may call registry tools it
+	# declares on the task itself (Camunda "AI Agent Task connector"). The
+	# spiffworkflow:aiTools attribute is a comma-separated list of AI Agent Tool
+	# names; each resolves to a callable ToolSpec the adapter loop invokes
+	# in-process. Empty/absent → a plain LLM call (tools stays None).
+	tool_specs = None
+	raw_tools = task_cfg.get("aiTools")
+	if raw_tools:
+		if isinstance(raw_tools, str):
+			tool_names = [t.strip() for t in raw_tools.split(",") if t.strip()]
+		else:
+			tool_names = [str(t).strip() for t in raw_tools if str(t).strip()]
+		if tool_names:
+			from one_bpmn.agents.tool_pool import resolve_agent_tools
+			tool_specs = resolve_agent_tools(tool_names, instance.process_model or "") or None
+
 	config = ExecutorConfig(
 		backend          = task_cfg.get("aiBackend", "direct_api"),
 		provider_name    = task_cfg.get("aiProvider", ""),
@@ -766,6 +782,7 @@ def dispatch_ai_agent(instance, task, task_cfg: dict, bpmn_id: str) -> None:
 		response_format  = task_cfg.get("aiResponseFormat", "text") or "text",
 		response_schema  = task_cfg.get("aiResponseSchema") or None,
 		max_retries      = int(task_cfg.get("aiMaxRetries", 2) or 2),
+		tools            = tool_specs,
 	)
 
 	context = ExecutorContext(
@@ -819,27 +836,35 @@ def dispatch_ai_agent(instance, task, task_cfg: dict, bpmn_id: str) -> None:
 		from one_bpmn.agents.observability import record_ai_step, finalize_ai_run
 
 		if run and not getattr(run, "stub", False):
-			record_ai_step(run, 0, "system", system_prompt)
+			if tool_specs:
+				# Tool-calling run: system+user prompts are the run's config;
+				# the executor trace carries one turn per LLM call, so record it
+				# with the same recorder the selector uses (one Step per turn,
+				# one Tool Call row per call).
+				from one_bpmn.agents.observability import record_selector_turns
+				record_ai_step(run, 0, "system", system_prompt)
+				record_ai_step(run, 1, "user", user_prompt)
+				source_map = {t.name: "registry_tool" for t in tool_specs}
+				record_selector_turns(run, result.trace or [], source_map)
+			else:
+				record_ai_step(run, 0, "system", system_prompt)
 
-			usage = result.token_usage if result.error_code == ErrorCode.SUCCESS else None
-			# Attribute prompt_tokens (input cost) to the user step,
-			# completion_tokens (output cost) to the assistant step.
-			record_ai_step(
-				run, 1, "user", user_prompt,
-				prompt_tokens=usage.prompt_tokens if usage else 0,
-			)
-
-		if result.error_code == ErrorCode.SUCCESS:
-			if run and not getattr(run, "stub", False):
+				usage = result.token_usage if result.error_code == ErrorCode.SUCCESS else None
+				# Attribute prompt_tokens (input cost) to the user step,
+				# completion_tokens (output cost) to the assistant step.
 				record_ai_step(
-					run, 2, "assistant",
-					str(result.output or ""),
-					completion_tokens=usage.completion_tokens if usage else 0,
-					latency_ms=_exec_latency_ms,
+					run, 1, "user", user_prompt,
+					prompt_tokens=usage.prompt_tokens if usage else 0,
 				)
-			finalize_ai_run(run, result)
-		else:
-			finalize_ai_run(run, result)
+				if result.error_code == ErrorCode.SUCCESS:
+					record_ai_step(
+						run, 2, "assistant",
+						str(result.output or ""),
+						completion_tokens=usage.completion_tokens if usage else 0,
+						latency_ms=_exec_latency_ms,
+					)
+
+		finalize_ai_run(run, result)
 
 		# Commit observability data so AI runs + steps survive even if a
 		# downstream aiStopOnError raise rolls back the outer transaction.
@@ -864,6 +889,17 @@ def dispatch_ai_agent(instance, task, task_cfg: dict, bpmn_id: str) -> None:
 				"completion_tokens": result.token_usage.completion_tokens,
 				"total_tokens":      result.token_usage.total_tokens,
 			}
+
+		# Per-tool evidence: expose each registry tool's latest result as a
+		# process variable, mirroring the selector's {tool}_toolCallResult
+		# convention so downstream steps can route on what the agent did.
+		if tool_specs:
+			for turn in result.trace or []:
+				for call in turn.get("tool_calls") or []:
+					call_result = call.get("result") or ""
+					tool_name = call.get("name") or ""
+					if tool_name and not str(call_result).startswith("Unknown tool:"):
+						task.data[f"{tool_name}_toolCallResult"] = call_result
 
 		# Write-back (only on success)
 		write_back_field = task_cfg.get("aiWriteBackField", "")
