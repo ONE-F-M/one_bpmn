@@ -28,12 +28,11 @@ IR pipeline (after confirmation):
 
 import asyncio
 import json
-import os
 import re
-import subprocess
 
 from onefm_mcp.onefm_mcp.doctype.ai_agent_configuration.ai_agent_configuration import get_agent_config
 from one_bpmn.agents.llm_provider import get_llm_adapter_from_settings
+from one_bpmn.agents.google_adk.prosally_agent import tools as prosally_tools
 
 AGENT_ID = "prosally_agent"
 
@@ -50,99 +49,13 @@ _REQUIRED_SUB_PROMPTS = (
 def _extract_process_name_from_xml(bpmn_xml: str) -> str:
     """Extract the human-readable process name from BPMN XML.
 
-    The pipeline compiler (pipeline.mjs) puts the process name on
-    ``<bpmn:Participant name="...">`` (the pool header), **not** on
-    ``<bpmn:Process>``.  We check both, preferring the participant name.
-    Returns an empty string if no name is found.
+    Delegates to ``tools.extract_process_name`` — the single source of truth.
     """
-    if not bpmn_xml:
-        return ""
-
-    # 1. Check bpmn:Participant name (where pipeline.mjs puts ir.name)
-    match = re.search(r'<bpmn:Participant[^>]+name="([^"]+)"', bpmn_xml)
-    if match and match.group(1) != "Process":
-        return match.group(1)
-
-    # 2. Fallback: check bpmn:Process name attribute
-    match = re.search(r'<bpmn:Process[^>]+name="([^"]+)"', bpmn_xml)
-    if match:
-        return match.group(1)
-
-    return ""
+    return prosally_tools.extract_process_name(bpmn_xml)
 
 
-# ── IR repair hints (rule name → IR-level fix description) ───────────────────
-
-_RULE_HINTS: dict[str, str] = {
-    "task-type": (
-        "Change the node's 'type' field. 'task' is forbidden. "
-        "Use: 'userTask' (person acts on screen), 'scriptTask' (system runs automatically), "
-        "'serviceTask' (external API/service), 'manualTask' (physical real-world action)."
-    ),
-    "start-event-required": (
-        "Add a node with type='startEvent'. The process must have exactly one."
-    ),
-    "end-event-required": (
-        "Add a node with type='endEvent'. The process must have at least one."
-    ),
-    "single-blank-start-event": (
-        "Remove extra startEvent nodes — keep exactly one startEvent in the entire process."
-    ),
-    "no-disconnected": (
-        "This node has no flows at all. Add incoming and/or outgoing flows connecting it "
-        "to the rest of the process, or remove the node entirely."
-    ),
-    "no-implicit-start": (
-        "This node has no incoming flow but is not a startEvent. "
-        "Add a flow leading into it from a predecessor node."
-    ),
-    "no-implicit-end": (
-        "This node has no outgoing flow but is not an endEvent. "
-        "Add a flow leading out of it to a successor node."
-    ),
-    "no-gateway-join-fork": (
-        "A gateway cannot both join (multiple incoming) AND fork (multiple outgoing) at the same time. "
-        "Replace it with TWO separate gateways: a join gateway (N→1) immediately followed by a fork gateway (1→N)."
-    ),
-    "superfluous-gateway": (
-        "This gateway has exactly 1 incoming and 1 outgoing flow — it serves no purpose. "
-        "Remove it and connect its predecessor directly to its successor."
-    ),
-    "conditional-flows": (
-        "For every exclusiveGateway split: mark exactly one outgoing flow with 'default': true "
-        "(the else/fallback path), and add a 'condition' field to every other outgoing flow."
-    ),
-    "label-required": (
-        "Add a descriptive 'name' field to this node or flow. Every element must have a non-empty name."
-    ),
-    "no-bpmndi": (
-        "DI shapes are added by the compiler — no IR change needed for this rule."
-    ),
-    "no-complex-gateway": (
-        "Remove the complexGateway node. Replace it with an exclusiveGateway or parallelGateway."
-    ),
-    "no-inclusive-gateway": (
-        "Remove the inclusiveGateway node. Replace it with an exclusiveGateway or parallelGateway."
-    ),
-    "no-duplicate-sequence-flows": (
-        "Two flows connect the same pair of nodes. Remove one of the duplicate flows."
-    ),
-    "lane-orphan": (
-        "Add a 'lane' field to this node. Every node must be assigned to one of the lane ids "
-        "defined in the 'lanes' array. Match the lane to the actor who performs the work: "
-        "userTask → person's lane, scriptTask/serviceTask → 'system' lane, "
-        "startEvent → lane of whoever triggers the process, "
-        "endEvent → lane of the last meaningful actor before it, "
-        "gateway → same lane as the task immediately before it."
-    ),
-    "lane-bounds": (
-        "This node's visual position falls outside its lane band. The 'lane' field is likely wrong. "
-        "Change the node's 'lane' to the correct lane id for the actor performing this step."
-    ),
-}
-
-# Rules whose problems are fixed by the compiler, not by LLM IR changes
-_IR_IGNORABLE_RULES: frozenset[str] = frozenset({"no-bpmndi"})
+# ``_RULE_HINTS`` and ``_IR_IGNORABLE_RULES`` now live in tools.py (imported
+# above) so validate_bpmn's hint translation is shared with the agent.
 
 
 class ProsAllyAgent:
@@ -281,153 +194,28 @@ class ProsAllyAgent:
 
     @staticmethod
     def _extract_element_ids(xml: str) -> str:
-        """Parse BPMN XML and return a table of element IDs the LLM must preserve."""
-        import re as _re
-        lines = []
-        # Two-pass: first capture each opening tag + all its attributes,
-        # then extract id and name from the attribute string separately.
-        tag_pattern = _re.compile(r'<bpmn:(\w+)\s([^>]*?)/?>') 
-        skip_types = {
-            "definitions", "process", "collaboration", "participant",
-            "laneSet", "lane", "BPMNDiagram", "BPMNPlane",
-            "BPMNShape", "BPMNEdge", "messageEventDefinition",
-            "timerEventDefinition", "conditionalEventDefinition",
-            "signalEventDefinition", "terminateEventDefinition",
-            "dataObject", "incoming", "outgoing", "conditionExpression",
-        }
-        for m in tag_pattern.finditer(xml):
-            bpmn_type = m.group(1)
-            attrs_str = m.group(2)
-            if bpmn_type in skip_types:
-                continue
-            id_m = _re.search(r'id="([^"]+)"', attrs_str)
-            if not id_m:
-                continue
-            elem_id = id_m.group(1)
-            name_m = _re.search(r'name="([^"]*)"', attrs_str)
-            elem_name = name_m.group(1) if name_m else None
-            label = f' name="{elem_name}"' if elem_name else ""
-            lines.append(f'  {bpmn_type} id="{elem_id}"{label}')
-        return "\n".join(lines)
+        """Table of element IDs the LLM must preserve. See tools.extract_element_ids."""
+        return prosally_tools.extract_element_ids(xml)
 
     # ── IR pipeline ────────────────────────────────────────────────────────────
-
-    @staticmethod
-    def _find_node() -> str | None:
-        """Return the path to a Node.js ≥ 18 binary, falling back to whatever is in PATH."""
-        import shutil
-        # Dynamically scan nvm-managed versions, prefer the latest ≥ 18
-        nvm_dir = os.path.join(os.path.expanduser("~"), ".nvm", "versions", "node")
-        if os.path.isdir(nvm_dir):
-            try:
-                entries = os.listdir(nvm_dir)
-            except OSError:
-                entries = []
-            versions: list[tuple[tuple[int, int, int], str]] = []
-            for entry in entries:
-                if not entry.startswith("v"):
-                    continue
-                candidate = os.path.join(nvm_dir, entry, "bin", "node")
-                if not (os.path.isfile(candidate) and os.access(candidate, os.X_OK)):
-                    continue
-                try:
-                    parts = entry.lstrip("v").split(".")
-                    major, minor, patch = (int(parts[0]), int(parts[1]), int(parts[2]))
-                except (ValueError, IndexError):
-                    continue
-                if major >= 18:
-                    versions.append(((major, minor, patch), candidate))
-            if versions:
-                versions.sort(key=lambda x: x[0], reverse=True)
-                return versions[0][1]
-        return shutil.which("node")
-
-    @staticmethod
-    def _run_pipeline_sync(ir_dict: dict, pipeline_path: str) -> dict:
-        """Synchronous subprocess call to pipeline.mjs. Returns {ok, xml, problems}."""
-        node = ProsAllyAgent._find_node()
-        if not node:
-            return {
-                "ok": False, "xml": "",
-                "problems": [{"kind": "fatal", "message": "node not found in PATH"}],
-            }
-        try:
-            result = subprocess.run(
-                [node, pipeline_path],
-                input=json.dumps(ir_dict),
-                capture_output=True,
-                text=True,
-                timeout=30,
-            )
-            stdout = result.stdout.strip()
-            if not stdout:
-                stderr = result.stderr.strip() or "pipeline produced no output"
-                return {"ok": False, "xml": "", "problems": [{"kind": "fatal", "message": stderr}]}
-            return json.loads(stdout)
-        except subprocess.TimeoutExpired:
-            return {"ok": False, "xml": "", "problems": [{"kind": "fatal", "message": "pipeline timed out after 30 s"}]}
-        except Exception as exc:
-            return {"ok": False, "xml": "", "problems": [{"kind": "fatal", "message": str(exc)}]}
+    # The pipeline invocation, node discovery, and hint translation now live in
+    # tools.py (compile_ir / translate_problems / translate_violations) so the
+    # agent and the Epic-4 loop share one implementation.
 
     async def _call_pipeline(self, ir_dict: dict) -> dict:
-        """Async wrapper — runs _run_pipeline_sync in a thread executor."""
-        pipeline_path = os.path.normpath(os.path.join(
-            os.path.dirname(__file__),
-            "..", "..", "..", "..",
-            "spiff", "pipeline.mjs",
-        ))
+        """Async wrapper — runs tools.compile_ir in a thread executor."""
         loop = asyncio.get_event_loop()
-        return await loop.run_in_executor(
-            None,
-            self._run_pipeline_sync,
-            ir_dict,
-            pipeline_path,
-        )
+        return await loop.run_in_executor(None, prosally_tools.compile_ir, ir_dict)
 
     @staticmethod
     def _translate_problems(problems: list) -> list[str]:
-        """Convert pipeline problem dicts into IR-level fix hints (deduped, ignorable rules removed)."""
-        hints: list[str] = []
-        seen: set[tuple] = set()
-        for p in problems:
-            rule = p.get("rule") or ""
-            kind = p.get("kind") or ""
-            eid  = p.get("elementId") or ""
-            msg  = p.get("message") or str(p)
-
-            if rule in _IR_IGNORABLE_RULES:
-                continue
-
-            key = (rule or kind, eid)
-            if key in seen:
-                continue
-            seen.add(key)
-
-            hint_body = _RULE_HINTS.get(rule, msg)
-            label     = rule or kind or "problem"
-            if eid:
-                hints.append(f"[{label}] Element '{eid}': {hint_body}")
-            else:
-                hints.append(f"[{label}] {hint_body}")
-        return hints
+        """Convert pipeline problem dicts into IR-level fix hints. See tools.translate_problems."""
+        return prosally_tools.translate_problems(problems)
 
     @staticmethod
     def _translate_violations(violations: list[str]) -> list[str]:
-        """Convert Python bpmn_validator violation strings to IR-level fix hints (deduped)."""
-        import re
-        hints: list[str] = []
-        seen: set[str] = set()
-        for v in violations:
-            rule_match = re.match(r'\[([^\]]+)\]', v)
-            rule = rule_match.group(1) if rule_match else ""
-            if rule in _IR_IGNORABLE_RULES:
-                continue
-            if rule in seen:
-                continue
-            seen.add(rule or v[:60])
-            hint = _RULE_HINTS.get(rule, v)
-            hints.append(f"[{rule}] {hint}" if rule else hint)
-        return hints
+        """Convert bpmn_validator violation strings to IR-level fix hints. See tools.translate_violations."""
+        return prosally_tools.translate_violations(violations)
 
     @staticmethod
     def _build_ir_repair_prompt(ir_dict: dict, hints: list[str]) -> str:
