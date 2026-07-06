@@ -84,6 +84,24 @@ export function AiAgentProps(props) {
 			isEdited: isTextAreaEntryEdited,
 		},
 		{
+			id: "spiffworkflow-aiToolsAdhoc",
+			element,
+			component: ToolsAdhocComponent,
+			isEdited: isTextFieldEntryEdited,
+		},
+		{
+			id: "spiffworkflow-aiToolCallResults",
+			element,
+			component: ToolCallResultsComponent,
+			isEdited: isTextFieldEntryEdited,
+		},
+		{
+			id: "spiffworkflow-aiMaxToolCalls",
+			element,
+			component: MaxToolCallsComponent,
+			isEdited: isTextFieldEntryEdited,
+		},
+		{
 			id: "spiffworkflow-aiResponseFormat",
 			element,
 			component: ResponseFormatComponent,
@@ -308,6 +326,80 @@ function UserPromptComponent(props) {
 		),
 		getValue: () => getAttr(bo, "aiUserPrompt"),
 		setValue: (value) => setAttr(modeling, element, bo, "aiUserPrompt", value),
+		debounce,
+	});
+}
+
+// ---------------------------------------------------------------------------
+// Tools — the referenced ad-hoc sub-process whose shapes are this agent's
+// tools (Camunda's "Ad-hoc sub-process ID"). No registry: the shapes are the
+// tools, resolved at compile time.
+// ---------------------------------------------------------------------------
+function ToolsAdhocComponent(props) {
+	const { element, id } = props;
+	const modeling  = useService("modeling");
+	const translate = useService("translate");
+	const debounce  = useService("debounceInput");
+	const bo        = getBusinessObject(element);
+
+	return h(TextFieldEntry, {
+		element,
+		id,
+		label: translate("Tools: Ad-hoc sub-process ID"),
+		description: translate("Sub-process whose shapes are the agent's tools"),
+		tooltip: translate(
+			"The id of the ad-hoc sub-process whose shapes the agent may call as tools "
+			+ "(Camunda's 'Ad-hoc sub-process ID'). The shapes are the tools — there is no registry."
+		),
+		getValue: () => getAttr(bo, "aiToolsAdhoc"),
+		setValue: (value) => setAttr(modeling, element, bo, "aiToolsAdhoc", value),
+		debounce,
+	});
+}
+
+// ---------------------------------------------------------------------------
+// Tool call results variable
+// ---------------------------------------------------------------------------
+function ToolCallResultsComponent(props) {
+	const { element, id } = props;
+	const modeling  = useService("modeling");
+	const translate = useService("translate");
+	const debounce  = useService("debounceInput");
+	const bo        = getBusinessObject(element);
+
+	return h(TextFieldEntry, {
+		element,
+		id,
+		label: translate("Tool Call Results Variable"),
+		tooltip: translate(
+			"Process variable that collects the results the tool shapes returned "
+			+ "(Camunda's 'Tool call results'). Defaults to <taskId>_toolCallResults."
+		),
+		getValue: () => getAttr(bo, "aiToolCallResults"),
+		setValue: (value) => setAttr(modeling, element, bo, "aiToolCallResults", value),
+		debounce,
+	});
+}
+
+// ---------------------------------------------------------------------------
+// Limits — maximum model calls
+// ---------------------------------------------------------------------------
+function MaxToolCallsComponent(props) {
+	const { element, id } = props;
+	const modeling  = useService("modeling");
+	const translate = useService("translate");
+	const debounce  = useService("debounceInput");
+	const bo        = getBusinessObject(element);
+
+	return h(TextFieldEntry, {
+		element,
+		id,
+		label: translate("Maximum Model Calls"),
+		tooltip: translate(
+			"Caps the agent's tool-calling loop (Camunda's 'Limits'). Defaults to 10 when blank."
+		),
+		getValue: () => getAttr(bo, "aiMaxToolCalls"),
+		setValue: (value) => setAttr(modeling, element, bo, "aiMaxToolCalls", value),
 		debounce,
 	});
 }
