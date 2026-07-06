@@ -170,7 +170,16 @@ function ProviderComponent(props) {
 		"div",
 		{ class: "bio-properties-panel-entry", "data-entry-id": id },
 		h("div", { class: "bio-properties-panel-textfield" }, [
-			h("label", { class: "bio-properties-panel-label" }, translate("AI Provider")),
+			h(
+				"label",
+				{
+					class: "bio-properties-panel-label",
+					title: translate(
+						"The LLM provider this agent calls. References an AI Provider record — the API key lives on that record, never on the diagram."
+					),
+				},
+				translate("AI Provider")
+			),
 			h(FrappeAutocomplete, {
 				value: currentValue,
 				placeholder: translate("Select an AI Provider…"),
@@ -202,6 +211,9 @@ function BackendComponent(props) {
 			{ value: "direct_api", label: BACKEND_LABELS.direct_api },
 			{ value: "antigravity", label: BACKEND_LABELS.antigravity },
 		],
+		tooltip: translate(
+			"How the model request runs: Direct API (a direct HTTP call to the provider) or the Google Antigravity SDK."
+		),
 	});
 }
 
@@ -220,6 +232,9 @@ function ModelComponent(props) {
 		id,
 		label: translate("Model"),
 		description: translate("Overrides the provider's default model"),
+		tooltip: translate(
+			"Model id to send the request to (e.g. claude-haiku-4-5). Leave blank to use the provider's default model."
+		),
 		getValue: () => getAttr(bo, "aiModel"),
 		setValue: (value) => setAttr(modeling, element, bo, "aiModel", value),
 		debounce,
@@ -240,6 +255,9 @@ function OutputVariableComponent(props) {
 		element,
 		id,
 		label: translate("Output Variable Name"),
+		tooltip: translate(
+			"Process variable that receives the agent's final answer. Defaults to <taskId>_output when left blank."
+		),
 		getValue: () => getAttr(bo, "aiOutputVariable"),
 		setValue: (value) => setAttr(modeling, element, bo, "aiOutputVariable", value),
 		debounce,
@@ -261,6 +279,9 @@ function SystemPromptComponent(props) {
 		id,
 		label: translate("System Prompt"),
 		description: translate("Jinja supported: {{ doc }}, {{ instance }}"),
+		tooltip: translate(
+			"The agent's role and standing instructions, sent as the system prompt. Jinja supported: {{ doc }}, {{ instance }}."
+		),
 		getValue: () => getAttr(bo, "aiSystemPrompt"),
 		setValue: (value) => setAttr(modeling, element, bo, "aiSystemPrompt", value),
 		debounce,
@@ -282,6 +303,9 @@ function UserPromptComponent(props) {
 		id,
 		label: translate("User Prompt"),
 		description: translate("Jinja supported"),
+		tooltip: translate(
+			"The specific request/input for this run, sent as the user prompt. Jinja supported."
+		),
 		getValue: () => getAttr(bo, "aiUserPrompt"),
 		setValue: (value) => setAttr(modeling, element, bo, "aiUserPrompt", value),
 		debounce,
@@ -307,6 +331,9 @@ function ResponseFormatComponent(props) {
 			{ value: "text", label: translate("Text") },
 			{ value: "json", label: translate("JSON") },
 		],
+		tooltip: translate(
+			"Return the answer as free Text, or as structured JSON validated against a schema."
+		),
 	});
 }
 
@@ -325,6 +352,9 @@ function ResponseSchemaComponent(props) {
 		id,
 		label: translate("Response Schema"),
 		description: translate("JSON Schema"),
+		tooltip: translate(
+			"JSON Schema the response must satisfy. Applies only when Response Format is JSON."
+		),
 		getValue: () => getAttr(bo, "aiResponseSchema"),
 		setValue: (value) => setAttr(modeling, element, bo, "aiResponseSchema", value),
 		debounce,
