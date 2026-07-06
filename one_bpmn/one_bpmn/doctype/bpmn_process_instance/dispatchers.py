@@ -753,6 +753,16 @@ def dispatch_ai_agent(instance, task, task_cfg: dict, bpmn_id: str) -> None:
 				message=frappe.get_traceback(),
 			)
 
+	# ── Tools: the shapes of the referenced ad-hoc sub-process (Camunda "tools
+	# are the shapes"). aiToolShapes was embedded at compile time (WI-001421);
+	# each becomes a function-tool the LLM can call, whose result feeds back into
+	# the loop. Empty/absent → a plain LLM call (tools stays None).
+	tool_specs = None
+	tool_shapes = task_cfg.get("aiToolShapes")
+	if tool_shapes:
+		from one_bpmn.agents.shape_tools import compile_shape_tools
+		tool_specs = compile_shape_tools(tool_shapes, instance) or None
+
 	config = ExecutorConfig(
 		backend          = task_cfg.get("aiBackend", "direct_api"),
 		provider_name    = task_cfg.get("aiProvider", ""),
@@ -766,6 +776,7 @@ def dispatch_ai_agent(instance, task, task_cfg: dict, bpmn_id: str) -> None:
 		response_format  = task_cfg.get("aiResponseFormat", "text") or "text",
 		response_schema  = task_cfg.get("aiResponseSchema") or None,
 		max_retries      = int(task_cfg.get("aiMaxRetries", 2) or 2),
+		tools            = tool_specs,
 	)
 
 	context = ExecutorContext(
@@ -864,6 +875,22 @@ def dispatch_ai_agent(instance, task, task_cfg: dict, bpmn_id: str) -> None:
 				"completion_tokens": result.token_usage.completion_tokens,
 				"total_tokens":      result.token_usage.total_tokens,
 			}
+
+		# Tool-call evidence: expose the results the shape-tools returned so
+		# downstream steps can route on them. Per-tool {tool}_toolCallResult and
+		# an aggregate aiToolCallResults var (Camunda's "Tool call results").
+		if tool_specs and result.trace:
+			all_results = []
+			for turn in result.trace:
+				for call in turn.get("tool_calls") or []:
+					call_result = call.get("result") or ""
+					tool_name = call.get("name") or ""
+					if not tool_name or str(call_result).startswith("Unknown tool:"):
+						continue
+					task.data[f"{tool_name}_toolCallResult"] = call_result
+					all_results.append({"tool": tool_name, "result": call_result})
+			results_var = task_cfg.get("aiToolCallResults") or f"{bpmn_id}_toolCallResults"
+			task.data[results_var] = all_results
 
 		# Write-back (only on success)
 		write_back_field = task_cfg.get("aiWriteBackField", "")
