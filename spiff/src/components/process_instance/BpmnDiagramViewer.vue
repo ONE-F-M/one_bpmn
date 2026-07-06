@@ -176,6 +176,10 @@ const props = defineProps({
 	logs: { type: Array, default: () => [] },
 	activeTasks: { type: Array, default: () => [] },
 	selectedBpmnId: { type: String, default: null },
+	// WI-001426: toolbox shapes the AI agent called as function-tools —
+	// bpmnId → "Success" | "Error". These shapes never executed as flow,
+	// so they get a distinct purple treatment instead of the green DONE.
+	aiCalledTools: { type: Object, default: () => ({}) },
 })
 
 const emit = defineEmits(["element-select", "clear-selection"])
@@ -247,7 +251,7 @@ watch(() => props.xml, (val) => {
 	if (val && canvasRef.value) initViewer()
 })
 
-watch([() => props.logs, () => props.activeTasks, () => props.xml], () => {
+watch([() => props.logs, () => props.activeTasks, () => props.xml, () => props.aiCalledTools], () => {
 	applyHighlights()
 }, { deep: true })
 
@@ -315,7 +319,7 @@ function applyHighlights() {
 	overlays.remove({ type: "token-badge" })
 
 		// Clear stale highlight markers before re-applying
-		const staticHighlightMarkers = new Set(["highlight-done", "highlight-active"])
+		const staticHighlightMarkers = new Set(["highlight-done", "highlight-active", "highlight-ai-called", "highlight-ai-error"])
 		const dynamicHighlightPrefixes = ["heatmap-", "highlight-flow-"]
 		for (const element of elementRegistry.getAll()) {
 			const gfx = elementRegistry.getGraphics(element)
@@ -421,6 +425,15 @@ function applyHighlights() {
 		waitingBpmnIds.forEach((bpmnId) => {
 			try { canvas.addMarker(bpmnId, "highlight-active") } catch (e) {}
 		})
+
+		// AI-called toolbox shapes (WI-001426): the agent invoked these as
+		// function-tools inside its LLM loop — flow never entered them, so
+		// mark them purple (or the error treatment), never green DONE.
+		for (const [bpmnId, status] of Object.entries(props.aiCalledTools || {})) {
+			try {
+				canvas.addMarker(bpmnId, status === "Error" ? "highlight-ai-error" : "highlight-ai-called")
+			} catch (e) {}
+		}
 
 		// Sequence flows, start events, and gateways
 		// NOTE: waitingBpmnIds are deliberately excluded — a WAITING boundary
@@ -532,6 +545,15 @@ function applyHighlights() {
 }
 .highlight-active:not(.djs-connection) .djs-visual > :nth-child(1) {
 	stroke: #2563eb !important; fill: #dbeafe !important; stroke-width: 2px !important;
+}
+/* WI-001426: toolbox shapes called by the AI agent (not flow execution) */
+.highlight-ai-called:not(.djs-connection) .djs-visual > :nth-child(1) {
+	stroke: #9333ea !important; fill: #f3e8ff !important; stroke-width: 2px !important;
+	stroke-dasharray: 6 3 !important;
+}
+.highlight-ai-error:not(.djs-connection) .djs-visual > :nth-child(1) {
+	stroke: #dc2626 !important; fill: #f3e8ff !important; stroke-width: 2px !important;
+	stroke-dasharray: 6 3 !important;
 }
 .highlight-flow-done.djs-connection .djs-visual > path {
 	stroke: #16a34a !important; stroke-width: 2px !important;

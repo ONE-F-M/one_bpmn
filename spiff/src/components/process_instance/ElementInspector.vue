@@ -338,6 +338,9 @@ const props = defineProps({
 	// are BPMN IDs for diagram tasks; registry tools won't be in the map
 	// and fall back to their own name.
 	taskLabels: { type: Object, default: () => ({}) },
+	// WI-001426: bumped when an AI tool-call history row is clicked —
+	// forces the AI Run tab open so the call's full trace is in view.
+	openAiRunTick: { type: Number, default: 0 },
 })
 
 function toolLabel(toolName) {
@@ -345,6 +348,12 @@ function toolLabel(toolName) {
 }
 
 const activeTab = ref("variables")
+
+watch(() => props.openAiRunTick, (tick) => {
+	if (!tick) return
+	activeTab.value = "aiRun"
+	fetchAiRun()
+})
 
 const STATE_COLORS = {
 	Completed: "text-green-600",

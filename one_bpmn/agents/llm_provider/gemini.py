@@ -50,6 +50,7 @@ class GeminiAdapter(BaseLLMAdapter):
         user: str,
         tools: list[ToolSpec] | None = None,
         max_tokens: int = 16384,
+        max_turns: int | None = None,
     ) -> CompletionResult:
         contents: list[types.Content] = [
             types.Content(role="user", parts=[types.Part(text=user)])
@@ -69,7 +70,7 @@ class GeminiAdapter(BaseLLMAdapter):
         )
 
         trace = []
-        for _ in range(_MAX_TOOL_TURNS):
+        for _ in range(max_turns or _MAX_TOOL_TURNS):
             _turn_t0 = time.perf_counter()
             response = await self._client.aio.models.generate_content(
                 model=self._model,
