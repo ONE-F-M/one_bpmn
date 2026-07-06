@@ -4,21 +4,7 @@ import { getBusinessObject } from "bpmn-js/lib/util/ModelUtil";
 import { h, Component } from "preact";
 import { fixedDropdownStyle } from "../shared/dropdownPosition";
 
-// Shared REST helper
-function frappeGet(path, params = {}) {
-	const qs = Object.entries(params)
-		.filter(([, v]) => v !== undefined && v !== null)
-		.map(([k, v]) => `${encodeURIComponent(k)}=${encodeURIComponent(v)}`)
-		.join("&");
-	const url = qs ? `${path}?${qs}` : path;
-	return fetch(url, { credentials: "include" })
-		.then((r) => r.json())
-		.then((json) => {
-			if (json.data !== undefined) return json.data;
-			if (json.message !== undefined) return json.message;
-			return json;
-		});
-}
+import { frappeGet } from "@/bpmn/shared/frappeResource";
 
 // Channel emoji badges
 const CHANNEL_ICONS = {

@@ -69,6 +69,34 @@ def _safe_path_complete(self, workflow, task):
 AdHocSubprocessSpec.path_complete = _safe_path_complete
 
 
+# ── Event-based gateway prediction fix ───────────────────────
+# SpiffWorkflow 3.1.x EventBasedGateway._predict_hook unconditionally forces
+# its child tasks into WAITING state:
+#     my_task._sync_children(self.outputs, state=TaskState.WAITING)
+# During the whole-tree prediction pass (BpmnWorkflow.__init__), a gateway that
+# sits inside a LOOP is re-reached via look-ahead as a *predicted* task. Adding a
+# WAITING (non-predicted) child to a predicted parent violates the invariant in
+# Task._add_child and raises "Attempt to add non-predicted child to predicted
+# task" — so any model with an event-based gateway in a loop (e.g. the ProsAlly /
+# Logix conversation loops) fails to (re)compile. Mirror the base
+# TaskSpec._predict_hook: only force WAITING once the gateway is DEFINITE
+# (actually entered); during predicted look-ahead, copy the predicted state.
+# Class-level patch so previously serialized instances are covered too.
+from SpiffWorkflow.bpmn.specs.mixins.events.intermediate_event import (
+	EventBasedGateway as _EventBasedGateway,
+)
+
+
+def _safe_eventgateway_predict_hook(self, my_task):
+	if my_task.has_state(TaskState.DEFINITE_MASK):
+		my_task._sync_children(self.outputs, state=TaskState.WAITING)
+	else:
+		my_task._sync_children(self.outputs, my_task.state)
+
+
+_EventBasedGateway._predict_hook = _safe_eventgateway_predict_hook
+
+
 class _AdHocSubprocessSpecConverter(AdHocSubprocessSpecConverter):
 	"""
 	Upstream to_dict() hardcodes parallel/cancel_remaining to True
@@ -1140,6 +1168,7 @@ def send_message(wf: BpmnWorkflow, message_name: str, payload: dict = None) -> b
 	"""
 	from SpiffWorkflow.bpmn.specs.event_definitions import MessageEventDefinition
 	from SpiffWorkflow.bpmn.util.event import BpmnEvent
+	from SpiffWorkflow.bpmn.specs.mixins.events.event_types import CatchingEvent
 	from SpiffWorkflow.exceptions import WorkflowException
 
 	msg_def = MessageEventDefinition(message_name)
@@ -1147,7 +1176,6 @@ def send_message(wf: BpmnWorkflow, message_name: str, payload: dict = None) -> b
 
 	try:
 		wf.send_event(event)
-		return True
 	except WorkflowException:
 		# No task is currently waiting for this message
 		return False
@@ -1157,3 +1185,27 @@ def send_message(wf: BpmnWorkflow, message_name: str, payload: dict = None) -> b
 			message=frappe.get_traceback(),
 		)
 		raise
+
+	# ── Catch-event successor repair (SpiffWorkflow 3.1.3a) ──────────────────
+	# This SpiffWorkflow build PRUNES a fired catch event's successor when the
+	# event is delivered, and never rebuilds it: prediction stops at WAITING catch
+	# events, and _on_complete only *updates* existing children (it never creates
+	# them). Net effect — an event-based-gateway wait (e.g. the ProsAlly / Logix
+	# "Waiting for User Message" loop) dead-ends right after "Message Received" and
+	# the instance completes with no reply. Re-materialize each fired catch event's
+	# successor(s) as LIKELY and re-predict, so the forward chain is rebuilt and the
+	# engine loop can advance past the catch. Verified end-to-end: without this the
+	# conversation loop produces no reply; with it, the turn runs and re-parks.
+	repaired = False
+	for _t in wf.get_tasks():
+		if (
+			isinstance(_t.task_spec, CatchingEvent)
+			and _t.internal_data.get("event_fired")
+			and _t.task_spec.outputs
+			and not _t.children
+		):
+			_t._sync_children(_t.task_spec.outputs, TaskState.LIKELY)
+			repaired = True
+	if repaired:
+		wf.task_tree.task_spec._predict(wf.task_tree, mask=TaskState.NOT_FINISHED_MASK)
+	return True

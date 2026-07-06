@@ -18,7 +18,7 @@
 						<path d="M17.65 6.35A7.958 7.958 0 0 0 12 4c-4.42 0-7.99 3.58-7.99 8s3.57 8 7.99 8c3.73 0 6.84-2.55 7.73-6h-2.08A5.99 5.99 0 0 1 12 18c-3.31 0-6-2.69-6-6s2.69-6 6-6c1.66 0 3.14.69 4.22 1.78L13 11h7V4l-2.35 2.35z"/>
 					</svg>
 				</button>
-				<button class="pa-icon-btn" title="Close ProsAlly" @click="$emit('close')">
+				<button class="pa-icon-btn" title="Close ProsAlly" @click="handleClose">
 					<svg viewBox="0 0 24 24" fill="currentColor" width="16" height="16">
 						<path d="M19 6.41L17.59 5 12 10.59 6.41 5 5 6.41 10.59 12 5 17.59 6.41 19 12 13.41 17.59 19 19 17.59 13.41 12z"/>
 					</svg>
@@ -143,21 +143,12 @@
 </template>
 
 <script setup>
-import { ref, nextTick, onMounted } from "vue";
+import { ref, nextTick, onMounted, onUnmounted } from "vue";
 import DOMPurify from "dompurify";
 import { marked } from "marked";
+import { frappeRequest } from "frappe-ui";
 
 marked.setOptions({ gfm: true, breaks: true });
-
-function getCsrfToken() {
-	return (
-		window.frappe?.csrf_token ||
-		window.frappe?.boot?.csrf_token ||
-		window.csrf_token ||
-		document.cookie.split("; ").find(r => r.startsWith("csrf_token="))?.split("=")[1] ||
-		""
-	);
-}
 
 const props = defineProps({
 	processName:  { type: String,   default: "" },
@@ -173,7 +164,7 @@ const isTyping          = ref(false);
 const messagesEl        = ref(null);
 const inputEl           = ref(null);
 const sessionId         = ref(generateSessionId());
-const conversationName  = ref(null);   // persisted Chat Conversation name
+const conversationName  = ref(null);
 
 function generateSessionId() {
 	return "prosally_" + Date.now() + "_" + Math.random().toString(36).slice(2, 9);
@@ -282,6 +273,7 @@ async function sendMessage(opts = {}) {
 		const body = {
 			message:           text,
 			session_id:        sessionId.value,
+			chat_history:      JSON.stringify(history),
 			conversation_name: conversationName.value || null,
 			process_name:      props.processName || "",
 			diagram_name:      props.diagramName || "",
@@ -317,21 +309,14 @@ async function sendMessage(opts = {}) {
 			}
 		}
 
-		const response = await fetch("/api/method/one_bpmn.api.server_script_api.prosally_chat", {
-			method: "POST",
-			headers: {
-				"Content-Type": "application/json",
-				"X-Frappe-CSRF-Token": getCsrfToken(),
-			},
-			body: JSON.stringify(body),
-		});
+		const result = await frappeRequest({
+			url: "/api/method/one_bpmn.api.server_script_api.prosally_chat",
+			params: body,
+		}) || {};
 
-		if (!response.ok) throw new Error(`HTTP ${response.status}`);
-		const data   = await response.json();
-		const result = data?.message || {};
-
-		// Capture the conversation name returned by the backend
-		if (result?.conversation_name) conversationName.value = result.conversation_name;
+		// Persist the conversation name so every subsequent turn (and the close
+		// on panel teardown) targets the SAME conversation / process instance.
+		if (result.conversation_name) conversationName.value = result.conversation_name;
 
 		const reply  = result.response || "I received your message. How can I assist further?";
 		const intent = result.intent || null;
@@ -413,7 +398,25 @@ function selectOption(option, msgId) {
 	sendMessage({ confirmedAction });
 }
 
+// Close the active Chat Conversation on the backend so its BPMN orchestration
+// runs the close branch (Cleanup → Conversation Ended). Fire-and-forget.
+function endConversation() {
+	const convName = conversationName.value;
+	if (!convName) return;
+	conversationName.value = null;
+	frappeRequest({
+		url: "/api/method/one_bpmn.api.server_script_api.end_chat_conversation",
+		params: { conversation_name: convName },
+	}).catch(() => {});
+}
+
+function handleClose() {
+	endConversation();
+	emit("close");
+}
+
 function resetConversation() {
+	endConversation();
 	sessionId.value        = generateSessionId();
 	conversationName.value = null;
 	messages.value         = [];
@@ -421,6 +424,10 @@ function resetConversation() {
 	initGreeting();
 	nextTick(() => inputEl.value?.focus());
 }
+
+onUnmounted(() => {
+	endConversation();
+});
 </script>
 
 <style scoped>

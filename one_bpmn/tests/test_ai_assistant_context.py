@@ -163,47 +163,6 @@ class TestModeCatalog(FrappeTestCase):
 		self.assertIn("aiSystemPrompt", block)
 		self.assertNotIn("aiOutputVariable", block)
 
-
-class TestRegistryToolsInDigest(FrappeTestCase):
-	"""The digest must include registry tools applicable to the process, and
-	the toolCallResult evidence convention, so the assistant proposes prompts
-	that actually use them (a reasoning model refused a tool it could not see)."""
-
-	def _make_tool(self, active=1):
-		# Server Script inserts commit internally — keep the fixture idempotent.
-		if not frappe.db.exists("Server Script", "Digest Registry Tool Script"):
-			frappe.get_doc({
-				"doctype": "Server Script",
-				"name": "Digest Registry Tool Script",
-				"script_type": "API",
-				"api_method": "digest_registry_tool",
-				"script": 'frappe.response["message"] = {"ok": 1}',
-			}).insert(ignore_permissions=True)
-		frappe.db.delete("AI Agent Tool", {"tool_name": "digest_test_tool"})
-		# Global tool (no applicable_processes) — applies to every process.
-		frappe.get_doc({
-			"doctype": "AI Agent Tool",
-			"tool_name": "digest_test_tool",
-			"is_active": active,
-			"handler_type": "server_script",
-			"handler_doctype": "Server Script",
-			"handler_reference": "Digest Registry Tool Script",
-			"description": "A registry tool for digest tests.",
-			"input_schema": '{"ticket": {"type": "string", "description": "HD Ticket name"}}',
-			"required_params": "ticket",
-		}).insert(ignore_permissions=True)
-
-	def test_registry_tool_and_convention_in_block(self):
-		self._make_tool(active=1)
-		digest = _build_diagram_digest(TRIAGE_XML, "Triage", process_model="any-model")
-		self.assertIn("REGISTRY TOOLS", digest["block"])
-		self.assertIn("digest_test_tool(ticket)", digest["block"])
-		self.assertIn("Triage_toolCallResult", digest["block"])
-		self.assertIn("JSON STRING", digest["block"])
-		# registry names count as known ids for the prompt lint
-		self.assertIn("digest_test_tool", digest["element_ids"])
-
-	def test_inactive_tool_not_in_digest(self):
-		self._make_tool(active=0)
-		digest = _build_diagram_digest(TRIAGE_XML, "Triage", process_model="any-model")
-		self.assertNotIn("digest_test_tool", digest["block"])
+# TestRegistryToolsInDigest was removed with the AI Agent Tool registry
+# (WI-001423): a selector's tools are its ad-hoc sub-process shapes, which the
+# TestDiagramDigest cases above already cover.

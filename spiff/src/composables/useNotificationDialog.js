@@ -3,6 +3,7 @@
 
 import { ref, computed } from "vue";
 import { frappeRequest } from "frappe-ui";
+import { frappeGet } from "@/bpmn/shared/frappeResource";
 
 // Monotonically increasing row ID for stable :key bindings (Review Comment #2)
 let _rowIdCounter = 0;
@@ -136,12 +137,12 @@ export function useNotificationDialog(doctypeOptions, moduleOptions, showToast) 
 		showNotificationDialog.value = true;
 
 		try {
-			const response = await fetch(
-				'/api/resource/Notification?fields=["name","subject","channel","document_type","enabled","event","modified"]&limit_page_length=0&order_by=modified%20desc',
-				{ headers: { "X-Frappe-CSRF-Token": window.csrf_token || "" } }
-			);
-			const json = await response.json();
-			notifications.value = Array.isArray(json.data) ? json.data : [];
+				const data = await frappeGet("/api/resource/Notification", {
+					fields: JSON.stringify(["name", "subject", "channel", "document_type", "enabled", "event", "modified"]),
+					limit_page_length: 0,
+					order_by: "modified desc",
+				});
+			notifications.value = Array.isArray(data) ? data : [];
 		} catch (error) {
 			console.error("Failed to load notifications:", error);
 			notifications.value = [];
@@ -156,7 +157,7 @@ export function useNotificationDialog(doctypeOptions, moduleOptions, showToast) 
 					url: "/api/method/frappe.client.get_list",
 					params: { doctype: "DocType", fields: ["name"], limit_page_length: 0, order_by: "name asc" },
 				});
-				doctypeOptions.value = (dtResp.message || dtResp || []).map((d) => d.name);
+				doctypeOptions.value = (dtResp || []).map((d) => d.name);
 			} catch (e) {
 				console.error("Failed to load DocTypes:", e);
 			}
@@ -167,7 +168,7 @@ export function useNotificationDialog(doctypeOptions, moduleOptions, showToast) 
 					url: "/api/method/frappe.client.get_list",
 					params: { doctype: "Module Def", fields: ["name"], limit_page_length: 0, order_by: "name asc" },
 				});
-				moduleOptions.value = (modResp.message || modResp || []).map((m) => m.name);
+				moduleOptions.value = (modResp || []).map((m) => m.name);
 			} catch (e) {
 				console.error("Failed to load Modules:", e);
 			}

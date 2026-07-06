@@ -11,6 +11,65 @@ import frappe
 import frappe.utils
 
 
+# ── AI Agent long-term memory integration ──────────────────────────────────
+# Stable, documented format for the injected memory block. Evals and the run
+# inspector reference this header — do not change it lightly.
+MEMORY_BLOCK_HEADER = "Relevant memory:"
+
+
+def _cfg_truthy(value) -> bool:
+	"""Interpret a BPMN config value as a boolean (checkbox or string)."""
+	if isinstance(value, bool):
+		return value
+	if isinstance(value, (int, float)):
+		return bool(value)
+	return str(value or "").strip().lower() in ("1", "true", "yes", "on", "enabled")
+
+
+def _resolve_memory_target(task_cfg: dict, instance, bpmn_id: str):
+	"""Resolve (scope, scope_key) for memory search/write from task config and
+	the instance context. Returns None when the scope key can't be built (e.g.
+	Entity scope with no context document) so the caller safely skips memory.
+
+	Agent   -> agent_element (defaults to the task's bpmn_id)
+	Process -> the instance's process_model
+	Entity  -> {reference_doctype, reference_name} from the instance context doc
+	"""
+	scope = (task_cfg.get("aiMemoryScope") or "Agent").strip() or "Agent"
+	if scope == "Agent":
+		agent_element = task_cfg.get("aiMemoryAgentElement") or bpmn_id
+		return ("Agent", agent_element) if agent_element else None
+	if scope == "Process":
+		process_model = getattr(instance, "process_model", None)
+		return ("Process", process_model) if process_model else None
+	if scope == "Entity":
+		reference_doctype = getattr(instance, "context_doctype", None)
+		reference_name = getattr(instance, "context_docname", None)
+		if reference_doctype and reference_name:
+			return ("Entity", {"reference_doctype": reference_doctype, "reference_name": reference_name})
+		return None
+	return None
+
+
+def _format_memory_block(memories: list) -> str:
+	"""Render retrieved memories as a clearly delimited block that is appended
+	to the system prompt. Stable format — see ``MEMORY_BLOCK_HEADER``."""
+	lines = [MEMORY_BLOCK_HEADER]
+	for m in memories:
+		content = (m.get("content") or "").strip()
+		if content:
+			lines.append(f"- {content}")
+	return "\n".join(lines)
+
+
+def _extract_memory_content(output, content_field: str) -> str:
+	"""Pick the content to store from the agent output. When a field is
+	configured and the output is a dict, use that field; otherwise stringify."""
+	if content_field and isinstance(output, dict):
+		return str(output.get(content_field, "") or "")
+	return str(output or "")
+
+
 def dispatch_update_field(instance, task, task_cfg: dict, bpmn_id: str) -> None:
 	"""
 	Update one or more fields on a document in a single service task.
@@ -670,6 +729,40 @@ def dispatch_ai_agent(instance, task, task_cfg: dict, bpmn_id: str) -> None:
 	system_prompt = render(task_cfg.get("aiSystemPrompt", ""))
 	user_prompt   = render(task_cfg.get("aiUserPrompt", ""))
 
+	# ── Long-term memory: search + inject (config-gated; safe when off) ──
+	# When aiLongTermMemory is enabled, recall memories for the task's scope
+	# using the rendered user prompt as the query and append them to the system
+	# prompt as a stable "Relevant memory:" block. Failures never block the call.
+	memory_target = None
+	if _cfg_truthy(task_cfg.get("aiLongTermMemory")):
+		try:
+			memory_target = _resolve_memory_target(task_cfg, instance, bpmn_id)
+			if memory_target and user_prompt:
+				from one_bpmn.agents.memory.tools import memory_search
+				scope, scope_key = memory_target
+				limit = int(task_cfg.get("aiMemoryLimit", 5) or 5)
+				memories = memory_search(
+					scope, scope_key, user_prompt, limit=limit, ignore_permissions=True
+				)
+				if memories:
+					block = _format_memory_block(memories)
+					system_prompt = f"{system_prompt}\n\n{block}" if system_prompt else block
+		except Exception:
+			frappe.log_error(
+				title=f"BPMN AI Agent Task: memory_search failed ({bpmn_id})",
+				message=frappe.get_traceback(),
+			)
+
+	# ── Tools: the shapes of the referenced ad-hoc sub-process (Camunda "tools
+	# are the shapes"). aiToolShapes was embedded at compile time (WI-001421);
+	# each becomes a function-tool the LLM can call, whose result feeds back into
+	# the loop. Empty/absent → a plain LLM call (tools stays None).
+	tool_specs = None
+	tool_shapes = task_cfg.get("aiToolShapes")
+	if tool_shapes:
+		from one_bpmn.agents.shape_tools import compile_shape_tools
+		tool_specs = compile_shape_tools(tool_shapes, instance) or None
+
 	config = ExecutorConfig(
 		backend          = task_cfg.get("aiBackend", "direct_api"),
 		provider_name    = task_cfg.get("aiProvider", ""),
@@ -683,6 +776,9 @@ def dispatch_ai_agent(instance, task, task_cfg: dict, bpmn_id: str) -> None:
 		response_format  = task_cfg.get("aiResponseFormat", "text") or "text",
 		response_schema  = task_cfg.get("aiResponseSchema") or None,
 		max_retries      = int(task_cfg.get("aiMaxRetries", 2) or 2),
+		tools            = tool_specs,
+		# "Maximum model calls" (Camunda Limits); caps the tool-calling loop.
+		max_tool_calls   = int(task_cfg.get("aiMaxToolCalls", 10) or 10),
 	)
 
 	context = ExecutorContext(
@@ -736,27 +832,35 @@ def dispatch_ai_agent(instance, task, task_cfg: dict, bpmn_id: str) -> None:
 		from one_bpmn.agents.observability import record_ai_step, finalize_ai_run
 
 		if run and not getattr(run, "stub", False):
-			record_ai_step(run, 0, "system", system_prompt)
+			if tool_specs:
+				# Tool-calling run: system+user prompts are config; the trace
+				# carries one turn per LLM call. Record it with the shared
+				# recorder — one Step per turn, one ai_agent_tool_call row per
+				# call, tool_source = diagram_task (the shapes are the tools).
+				from one_bpmn.agents.observability import record_selector_turns
+				record_ai_step(run, 0, "system", system_prompt)
+				record_ai_step(run, 1, "user", user_prompt)
+				source_map = {t.name: "diagram_task" for t in tool_specs}
+				record_selector_turns(run, result.trace or [], source_map)
+			else:
+				record_ai_step(run, 0, "system", system_prompt)
 
-			usage = result.token_usage if result.error_code == ErrorCode.SUCCESS else None
-			# Attribute prompt_tokens (input cost) to the user step,
-			# completion_tokens (output cost) to the assistant step.
-			record_ai_step(
-				run, 1, "user", user_prompt,
-				prompt_tokens=usage.prompt_tokens if usage else 0,
-			)
-
-		if result.error_code == ErrorCode.SUCCESS:
-			if run and not getattr(run, "stub", False):
+				usage = result.token_usage if result.error_code == ErrorCode.SUCCESS else None
+				# Attribute prompt_tokens (input cost) to the user step,
+				# completion_tokens (output cost) to the assistant step.
 				record_ai_step(
-					run, 2, "assistant",
-					str(result.output or ""),
-					completion_tokens=usage.completion_tokens if usage else 0,
-					latency_ms=_exec_latency_ms,
+					run, 1, "user", user_prompt,
+					prompt_tokens=usage.prompt_tokens if usage else 0,
 				)
-			finalize_ai_run(run, result)
-		else:
-			finalize_ai_run(run, result)
+				if result.error_code == ErrorCode.SUCCESS:
+					record_ai_step(
+						run, 2, "assistant",
+						str(result.output or ""),
+						completion_tokens=usage.completion_tokens if usage else 0,
+						latency_ms=_exec_latency_ms,
+					)
+
+		finalize_ai_run(run, result)
 
 		# Commit observability data so AI runs + steps survive even if a
 		# downstream aiStopOnError raise rolls back the outer transaction.
@@ -782,6 +886,22 @@ def dispatch_ai_agent(instance, task, task_cfg: dict, bpmn_id: str) -> None:
 				"total_tokens":      result.token_usage.total_tokens,
 			}
 
+		# Tool-call evidence: expose the results the shape-tools returned so
+		# downstream steps can route on them. Per-tool {tool}_toolCallResult and
+		# an aggregate aiToolCallResults var (Camunda's "Tool call results").
+		if tool_specs and result.trace:
+			all_results = []
+			for turn in result.trace:
+				for call in turn.get("tool_calls") or []:
+					call_result = call.get("result") or ""
+					tool_name = call.get("name") or ""
+					if not tool_name or str(call_result).startswith("Unknown tool:"):
+						continue
+					task.data[f"{tool_name}_toolCallResult"] = call_result
+					all_results.append({"tool": tool_name, "result": call_result})
+			results_var = task_cfg.get("aiToolCallResults") or f"{bpmn_id}_toolCallResults"
+			task.data[results_var] = all_results
+
 		# Write-back (only on success)
 		write_back_field = task_cfg.get("aiWriteBackField", "")
 		if write_back_field and instance.context_doctype and instance.context_docname:
@@ -795,6 +915,46 @@ def dispatch_ai_agent(instance, task, task_cfg: dict, bpmn_id: str) -> None:
 			except Exception:
 				frappe.log_error(
 					title=f"BPMN AI Agent Task: write-back failed ({bpmn_id})",
+					message=frappe.get_traceback(),
+				)
+		# ── Long-term memory: auto-write (config-gated) ─────────────────
+		# Store the agent output (or a configured field of it) as a memory,
+		# with provenance (source_run) and an optional dedup_key. Failures
+		# never block the task.
+		if _cfg_truthy(task_cfg.get("aiMemoryAutoWrite")):
+			try:
+				write_target = memory_target or _resolve_memory_target(task_cfg, instance, bpmn_id)
+				content = _extract_memory_content(result.output, task_cfg.get("aiMemoryContentField", ""))
+				if write_target and content:
+					from one_bpmn.agents.memory.tools import memory_write
+					scope, scope_key = write_target
+					memory_write(
+						scope,
+						scope_key,
+						content,
+						dedup_key=(task_cfg.get("aiMemoryDedupKey") or None),
+						source_run=(run.name if run and not getattr(run, "stub", False) else None),
+						ignore_permissions=True,
+					)
+			except Exception:
+				frappe.log_error(
+					title=f"BPMN AI Agent Task: memory_write failed ({bpmn_id})",
+					message=frappe.get_traceback(),
+				)
+
+		# ── Conversation store: append user + assistant turns (optional) ─
+		# Primarily for the multi-turn loop; when a backend is configured we
+		# record this single call's turns. process_variable uses the live task.
+		cs_backend = task_cfg.get("aiConversationStore") or ""
+		if cs_backend:
+			try:
+				from one_bpmn.agents.memory.conversation_store import get_conversation_store
+				store = get_conversation_store(cs_backend, task=task)
+				store.append(instance.name, bpmn_id, {"role": "user", "content": user_prompt})
+				store.append(instance.name, bpmn_id, {"role": "assistant", "content": str(result.output or "")})
+			except Exception:
+				frappe.log_error(
+					title=f"BPMN AI Agent Task: conversation store append failed ({bpmn_id})",
 					message=frappe.get_traceback(),
 				)
 	else:
