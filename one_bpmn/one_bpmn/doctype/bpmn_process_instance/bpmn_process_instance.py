@@ -923,7 +923,26 @@ class BPMNProcessInstance(Document):
 		# A preceding script task can override the close status via
 		# task.data["todo_close_status"] (same pattern as assigned_role) —
 		# defaults to "Closed" for every process that never sets it.
-		todo_close_status = (wf.task_tree.data or {}).get("todo_close_status") or "Closed"
+		#
+		# wf.task_tree.data is the workflow ROOT's data and is never updated
+		# by downstream script tasks (verified: it stays {} for the whole
+		# run) — task.data only inherits forward along the execution path,
+		# so the hint must be read off a task that's actually downstream of
+		# the script that set it. ready_user_tasks (computed above) are the
+		# tasks immediately following wherever the engine just stopped, so
+		# they carry the current data forward; wf.last_task is a fallback
+		# for the case where nothing is left ready (e.g. process about to
+		# complete).
+		todo_close_status = "Closed"
+		for _t in ready_user_tasks:
+			_hint = _t.data.get("todo_close_status")
+			if _hint:
+				todo_close_status = _hint
+				break
+		else:
+			_last_task = getattr(wf, "last_task", None)
+			if _last_task is not None:
+				todo_close_status = _last_task.data.get("todo_close_status") or "Closed"
 		for user in prev_assigned - set(curr_assigned.keys()):
 			remove_frappe_assignment(self, user, status=todo_close_status)
 

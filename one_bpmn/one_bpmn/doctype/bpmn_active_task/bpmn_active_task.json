@@ -88,10 +88,10 @@
    "options": "Role"
   },
   {
+   "description": "One user, or a comma-separated list when a User Task has multiple assignees (Table Field mode).",
    "fieldname": "assigned_user",
-   "fieldtype": "Link",
-   "label": "Assigned User",
-   "options": "User"
+   "fieldtype": "Data",
+   "label": "Assigned User"
   },
   {
    "fieldname": "timer_duration",
