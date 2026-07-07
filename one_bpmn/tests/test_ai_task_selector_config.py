@@ -46,13 +46,15 @@ class TestAiTaskSelectorConfig(FrappeTestCase):
 		self.assertEqual(cfg["aiSystemPrompt"], "You choose the next task.")
 		self.assertEqual(cfg["aiUserPrompt"], "Pick one.")
 
-	# ── Scenario 3: aiToolSources defaults to "both" ──
+	# ── Scenario 3 (WI-001423): no aiToolSources default — the registry is
+	# gone, so the selector's tools are always its own inner shapes. Old
+	# diagrams may still carry the attribute; it passes through harmlessly.
 
-	def test_tool_sources_defaults_to_both(self):
+	def test_no_tool_sources_default_injected(self):
 		config = _extract_adhoc_selector_config(_xml(provider="My Provider"))
-		self.assertEqual(config["AdhocSub_1"]["aiToolSources"], "both")
+		self.assertNotIn("aiToolSources", config["AdhocSub_1"])
 
-	def test_explicit_tool_sources_preserved(self):
+	def test_legacy_tool_sources_attr_passes_through(self):
 		xml = _xml(provider="My Provider", extra=' spiffworkflow:aiToolSources="diagram"')
 		config = _extract_adhoc_selector_config(xml)
 		self.assertEqual(config["AdhocSub_1"]["aiToolSources"], "diagram")

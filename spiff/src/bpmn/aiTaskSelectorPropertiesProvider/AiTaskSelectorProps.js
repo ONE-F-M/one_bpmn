@@ -1,7 +1,5 @@
 import {
 	HeaderButton,
-	SelectEntry,
-	isSelectEntryEdited,
 	TextFieldEntry,
 	isTextFieldEntryEdited,
 	TextAreaEntry,
@@ -34,12 +32,6 @@ export function AiTaskSelectorProps(props) {
 			element,
 			component: ModelComponent,
 			isEdited: isTextFieldEntryEdited,
-		},
-		{
-			id: "selector-aiToolSources",
-			element,
-			component: ToolSourcesComponent,
-			isEdited: isSelectEntryEdited,
 		},
 		{
 			id: "selector-aiSystemPrompt",
@@ -137,29 +129,6 @@ function ModelComponent(props) {
 		getValue: () => getAttr(bo, "aiModel"),
 		setValue: (value) => setAttr(modeling, element, bo, "aiModel", value),
 		debounce: useService("debounceInput"),
-	});
-}
-
-function ToolSourcesComponent(props) {
-	const { element, id } = props;
-	const modeling = useService("modeling");
-	const translate = useService("translate");
-	const bo = getBusinessObject(element);
-
-	return h(SelectEntry, {
-		element,
-		id,
-		label: translate("Tool Sources"),
-		description: translate(
-			"Where the selector's candidate tools come from: this subprocess's inner tasks, the AI Agent Tool registry, or both."
-		),
-		getValue: () => getAttr(bo, "aiToolSources") || "both",
-		setValue: (value) => setAttr(modeling, element, bo, "aiToolSources", value || "both"),
-		getOptions: () => [
-			{ value: "both", label: translate("Diagram tasks + registry (default)") },
-			{ value: "diagram", label: translate("Diagram tasks only") },
-			{ value: "registry", label: translate("Registry tools only") },
-		],
 	});
 }
 
