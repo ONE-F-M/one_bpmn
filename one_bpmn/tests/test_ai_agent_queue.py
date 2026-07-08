@@ -53,6 +53,8 @@ class TestAiAgentQueueRouting(FrappeTestCase):
 			if 'queue="bpmn_ai_agent"' in text and py.name not in (
 				"instance_api.py",
 				"eval_runner.py",
+				# WI-001494: trigger start keeps the queue for AI models
+				"trigger.py",
 			):
 				offenders.append(py.name)
 		self.assertEqual(offenders, [])
