@@ -132,6 +132,63 @@ def doctype_exists(doctype: str) -> str:
 		return json.dumps({"exists": False, "custom": False})
 
 
+# Field attributes Docu understands and carries end-to-end (IR ⇄ DocField).
+DOCFIELD_ATTRS = (
+	"fieldname", "label", "fieldtype", "options", "reqd", "unique", "in_list_view",
+	"in_standard_filter", "read_only", "hidden", "bold", "default", "description",
+	"depends_on", "mandatory_depends_on", "read_only_depends_on", "fetch_from",
+	"precision", "non_negative", "length",
+)
+
+
+def read_doctype_definition(doctype: str) -> dict | None:
+	"""Read an existing DocType into the full Docu IR shape (all field properties).
+
+	Single source of truth for "read the live definition" — used both as the
+	MODIFY baseline (docu_agent) and as the get_doctype_definition tool.
+	Returns None if the DocType does not exist.
+	"""
+	if not frappe.db.exists("DocType", doctype):
+		return None
+	try:
+		meta = frappe.get_meta(doctype)
+	except Exception:
+		return None
+	fields = []
+	for f in meta.fields:
+		row = {"fieldname": f.fieldname, "fieldtype": f.fieldtype, "label": f.label or f.fieldname}
+		for attr in DOCFIELD_ATTRS:
+			if attr in ("fieldname", "fieldtype", "label"):
+				continue
+			val = getattr(f, attr, None)
+			if attr in ("reqd", "unique", "in_list_view", "in_standard_filter",
+						"read_only", "hidden", "bold", "non_negative"):
+				row[attr] = int(bool(val))
+			else:
+				row[attr] = val or ""
+		fields.append(row)
+	return {
+		"doctype_name": doctype,
+		"module": getattr(meta, "module", "ONE BPMN"),
+		"is_child_table": int(bool(getattr(meta, "istable", 0))),
+		"custom": int(bool(getattr(meta, "custom", 0))),
+		"autoname": getattr(meta, "autoname", "") or "",
+		"fields": fields,
+	}
+
+
+def get_doctype_definition(doctype: str) -> str:
+	"""Full definition (every field + all its properties + naming) of a DocType, as JSON."""
+	try:
+		ir = read_doctype_definition(doctype)
+		if ir is None:
+			return json.dumps({"error": f"DocType '{doctype}' does not exist."})
+		return json.dumps(ir)
+	except Exception:
+		frappe.log_error(title="Docu Tool - get_doctype_definition", message=frappe.get_traceback())
+		return json.dumps({"error": f"Failed to read DocType '{doctype}'."})
+
+
 # ── Read ToolSpecs (handed to the writer/clarifier sub-agents) ───────────────
 TOOL_LIST_DOCTYPES = ToolSpec(
 	fn=list_doctypes,
@@ -144,6 +201,18 @@ TOOL_GET_DOCTYPE_FIELDS = ToolSpec(
 	fn=_get_doctype_fields,
 	name="get_doctype_fields",
 	description="Get the existing fields (fieldname, fieldtype, label, reqd) of a DocType. Use before modifying one.",
+	parameters={"doctype": {"type": "string", "description": "The exact DocType name, e.g. 'Employee'."}},
+	required=["doctype"],
+)
+TOOL_GET_DOCTYPE_DEFINITION = ToolSpec(
+	fn=get_doctype_definition,
+	name="get_doctype_definition",
+	description=(
+		"Get the COMPLETE definition of a DocType — every field with all its properties "
+		"(options, reqd, unique, in_list_view, read_only, hidden, default, depends_on, "
+		"fetch_from, precision, ...) plus naming. Use this before modifying a DocType so you "
+		"preserve existing field properties exactly."
+	),
 	parameters={"doctype": {"type": "string", "description": "The exact DocType name, e.g. 'Employee'."}},
 	required=["doctype"],
 )
@@ -184,14 +253,18 @@ TOOL_VALIDATE_DOCTYPE = ToolSpec(
 # The classifier grounds intent in reality: it checks whether a named DocType
 # actually exists (CREATE vs MODIFY) and can look one up by keyword.
 CLASSIFIER_TOOLS = [TOOL_DOCTYPE_EXISTS, TOOL_LIST_DOCTYPES]
-WRITER_TOOLS = [TOOL_GET_DOCTYPE_FIELDS, TOOL_DOCTYPE_EXISTS, TOOL_LIST_DOCTYPES, TOOL_VALIDATE_DOCTYPE]
+WRITER_TOOLS = [
+	TOOL_GET_DOCTYPE_DEFINITION, TOOL_GET_DOCTYPE_FIELDS,
+	TOOL_DOCTYPE_EXISTS, TOOL_LIST_DOCTYPES, TOOL_VALIDATE_DOCTYPE,
+]
 CLARIFIER_TOOLS = [TOOL_LIST_DOCTYPES, TOOL_DOCTYPE_EXISTS]
-REVIEWER_TOOLS = [TOOL_GET_DOCTYPE_FIELDS, TOOL_DOCTYPE_EXISTS, TOOL_VALIDATE_DOCTYPE]
+REVIEWER_TOOLS = [TOOL_GET_DOCTYPE_DEFINITION, TOOL_DOCTYPE_EXISTS, TOOL_VALIDATE_DOCTYPE]
 
 # Full surface (for any future multi-turn loop).
 DOCU_TOOLS: list = [
 	TOOL_LIST_DOCTYPES,
 	TOOL_GET_DOCTYPE_FIELDS,
+	TOOL_GET_DOCTYPE_DEFINITION,
 	TOOL_DOCTYPE_EXISTS,
 	TOOL_VALIDATE_DOCTYPE,
 ]

@@ -116,6 +116,7 @@ _SCHEMA_WRITER = (
 	"  \"doctype_name\": \"Human Readable Name\",   // Title Case, letters/digits/spaces\n"
 	"  \"module\": \"" + _DEFAULT_MODULE + "\",\n"
 	"  \"is_child_table\": false,                  // true only if this is a row inside another form\n"
+	"  \"autoname\": \"\",                          // how records are named — see NAMING below (omit/empty = random hash)\n"
 	"  \"fields\": [\n"
 	"    {\n"
 	"      \"fieldname\": \"snake_case_id\",        // lowercase, underscores, starts with a letter\n"
@@ -123,14 +124,24 @@ _SCHEMA_WRITER = (
 	"      \"fieldtype\": \"Data\",                 // see the allowed list below\n"
 	"      \"options\": \"\",                       // required for Link/Table/Dynamic Link/Select\n"
 	"      \"reqd\": 0,                             // 1 = mandatory\n"
-	"      \"in_list_view\": 0,                     // 1 = show in the list columns\n"
-	"      \"unique\": 0,\n"
-	"      \"read_only\": 0,\n"
-	"      \"default\": \"\",\n"
-	"      \"description\": \"\"\n"
+	"      \"in_list_view\": 0,                     // 1 = show as a list column\n"
+	"      \"in_standard_filter\": 0,               // 1 = offer as a list filter\n"
+	"      \"unique\": 0,                           // 1 = value must be unique across records\n"
+	"      \"read_only\": 0,                        // 1 = user cannot edit\n"
+	"      \"hidden\": 0,                           // 1 = not shown on the form\n"
+	"      \"bold\": 0,\n"
+	"      \"default\": \"\",                       // default value (\"Today\" for dates, \"1\"/\"0\" for Check)\n"
+	"      \"description\": \"\",                    // helper text under the field\n"
+	"      \"depends_on\": \"\",                     // show only when a JS expr is true, e.g. \"eval:doc.status=='Approved'\"\n"
+	"      \"mandatory_depends_on\": \"\",           // required only when this expr is true\n"
+	"      \"read_only_depends_on\": \"\",           // read-only only when this expr is true\n"
+	"      \"fetch_from\": \"\",                     // auto-fill from a Link field, e.g. \"employee.department\"\n"
+	"      \"precision\": \"\",                      // decimal places for Float/Currency\n"
+	"      \"non_negative\": 0                      // 1 = disallow negatives on numbers\n"
 	"    }\n"
 	"  ]\n"
-	"}\n\n"
+	"}\n"
+	"Only 'fieldname', 'label', and 'fieldtype' are required per field; include the other properties only when they add value.\n\n"
 	"ALLOWED FIELD TYPES (use nothing else):\n"
 	"  Text-like: Data, Small Text, Text, Long Text, Text Editor, Code, Markdown Editor\n"
 	"  Numbers:   Int, Float, Currency, Percent\n"
@@ -148,11 +159,19 @@ _SCHEMA_WRITER = (
 	"4. Mark the one or two fields that best identify a record with \"in_list_view\": 1.\n"
 	"5. Group related fields with a 'Section Break' (give it a label) for a clean layout.\n"
 	"6. Keep the form focused — only the fields the process actually needs.\n"
-	"7. When MODIFYING, you are given the current fields. Output the COMPLETE desired field list (keep unchanged fields exactly as-is, including their fieldname), not just the change.\n\n"
+	"7. When MODIFYING, output the COMPLETE desired field list — keep every field you are not changing EXACTLY as-is, including its fieldname AND all its existing properties (options, reqd, depends_on, fetch_from, ...). Read the full current definition with a tool first so you don't drop anything.\n\n"
+	"NAMING (how records are titled) — set 'autoname' when it matters:\n"
+	"- \"field:some_fieldname\"       → name each record after that field's value (e.g. \"field:employee_name\").\n"
+	"- \"format:INSP-.#####\"          → a pattern with an auto-incrementing counter (the .#####).\n"
+	"- \"naming_series:\"              → user picks from a series (also add a Select field named 'naming_series').\n"
+	"- \"Prompt\"                      → the user types the name each time.\n"
+	"- \"autoincrement\"               → simple 1, 2, 3 numbering.\n"
+	"- omit / empty                    → a random hash (fine for child tables or when identity doesn't matter).\n"
+	"Prefer \"field:...\" when one field clearly identifies the record, or \"format:...\" for a coded ID.\n\n"
 	"USE YOUR TOOLS — do not guess:\n"
-	"- `list_doctypes` / `doctype_exists`: before naming a new form, check the name is not already taken.\n"
+	"- `list_doctypes` / `doctype_exists`: before naming a NEW form, check the name is not already taken.\n"
 	"- `doctype_exists`: call it on the 'options' of EVERY Link and Table field to confirm the target DocType really exists. If it does not, pick an existing one or choose a different field type — never invent a target.\n"
-	"- `get_doctype_fields`: when modifying, or when referencing another form, read its real fields.\n"
+	"- `get_doctype_definition`: when MODIFYING, read the FULL current definition (every field + all properties) so you preserve them exactly. Use `get_doctype_fields` for a quick look at another referenced form.\n"
 	"- `validate_doctype`: run it on your finished design and fix anything it flags BEFORE you output.\n\n"
 	"OUTPUT FORMAT: a short plain-English sentence describing what you built, then the JSON object in a ```json code block."
 )
@@ -485,31 +504,13 @@ class DocuAgent:
 
 
 def _read_doctype_ir(doctype: str) -> dict | None:
-	"""Read an existing DocType's fields into the Docu IR shape (for MODIFY baseline)."""
-	try:
-		meta = frappe.get_meta(doctype)
-	except Exception:
-		return None
-	fields = []
-	for f in meta.fields:
-		fields.append({
-			"fieldname": f.fieldname,
-			"label": f.label or f.fieldname,
-			"fieldtype": f.fieldtype,
-			"options": (f.options or "").strip(),
-			"reqd": int(bool(f.reqd)),
-			"unique": int(bool(getattr(f, "unique", 0))),
-			"in_list_view": int(bool(getattr(f, "in_list_view", 0))),
-			"read_only": int(bool(getattr(f, "read_only", 0))),
-			"default": getattr(f, "default", "") or "",
-		})
-	return {
-		"doctype_name": doctype,
-		"module": getattr(meta, "module", _DEFAULT_MODULE),
-		"is_child_table": int(bool(getattr(meta, "istable", 0))),
-		"custom": int(bool(getattr(meta, "custom", 0))),
-		"fields": fields,
-	}
+	"""Read an existing DocType into the full Docu IR (MODIFY baseline).
+
+	Delegates to ``tools.read_doctype_definition`` — the single source of truth —
+	so the MODIFY baseline carries every field property (depends_on, fetch_from,
+	precision, ...) and naming, not just a handful of flags.
+	"""
+	return docu_tools.read_doctype_definition(doctype)
 
 
 def run_docu_message(
