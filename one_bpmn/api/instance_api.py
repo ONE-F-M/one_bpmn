@@ -7,6 +7,7 @@ import frappe
 from frappe import _
 
 from one_bpmn.api.utils import _is_bpmn_super_user
+from one_bpmn.one_bpmn.trigger import should_run_engine_inline
 
 
 @frappe.whitelist()
@@ -421,12 +422,13 @@ def complete_task(
 				frappe.PermissionError,
 			)
 
-	# ── 4. HAND OFF TO THE ENGINE (background) ───────────────────────────────
-	# All validation passed. The engine pass that follows a user action can
-	# run chained service tasks and multi-turn AI Task Selector decisions
-	# (seconds of LLM latency each) — far past the request budget. Run it on
-	# the dedicated bpmn_ai_agent queue; the UI follows engine_in_progress
-	# and the realtime events the job publishes.
+	# ── 4. HAND OFF TO THE ENGINE ────────────────────────────────────────────
+	# All validation passed. Models without AI tasks run the engine pass
+	# inline in the request (WI-001494). Models WITH AI tasks keep the
+	# background pass — it can run multi-turn AI decisions (seconds of LLM
+	# latency each), far past the request budget. Those run on the dedicated
+	# bpmn_ai_agent queue; the UI follows engine_in_progress and the
+	# realtime events the job publishes.
 	frappe.db.set_value(
 		"BPMN Process Instance",
 		instance_name,
@@ -435,9 +437,9 @@ def complete_task(
 		update_modified=False,
 	)
 
-	if frappe.flags.in_test:
-		# Tests run with auto-rollback and no worker: enqueue_after_commit
-		# would never fire. Run inline and report the real resulting state.
+	if should_run_engine_inline(instance.process_model):
+		# Inline: tests (no worker, auto-rollback) and non-AI models.
+		# Report the real resulting state.
 		_complete_task_job(
 			instance_name=instance_name,
 			task_id=task_id,
@@ -455,6 +457,8 @@ def complete_task(
 
 	frappe.enqueue(
 		"one_bpmn.api.instance_api._complete_task_job",
+		# AI models only (WI-001494) — the park-and-enqueue seam
+		# (WI-001495/WI-001496) will narrow this to just the AI task.
 		queue="bpmn_ai_agent",
 		timeout=600,
 		enqueue_after_commit=True,
@@ -484,10 +488,11 @@ def _complete_task_job(
 	approved_ctc_name: str = None,
 ):
 	"""
-	Background half of complete_task: the engine pass that follows an
-	already-validated user action. Runs with the acting user's identity so
-	completed-by attribution and permission-sensitive script tasks behave
-	exactly as they did inline.
+	Second half of complete_task: the engine pass that follows an
+	already-validated user action. Runs inline for models without AI tasks
+	(WI-001494) and as a bpmn_ai_agent background job for models with AI
+	tasks. Runs with the acting user's identity so completed-by attribution
+	and permission-sensitive script tasks behave exactly as they did inline.
 	"""
 	if run_as_user:
 		frappe.set_user(run_as_user)
