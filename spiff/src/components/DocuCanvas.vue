@@ -161,6 +161,7 @@ const inputText   = ref("");
 const messagesEl  = ref(null);
 const inputEl     = ref(null);
 const sessionId   = ref(`docu-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`);
+const conversationName = ref(null);  // set by the backend on the first turn; reused after
 
 const dtName     = ref(props.doctype || "");
 const dtModule   = ref("ONE BPMN");
@@ -293,12 +294,14 @@ async function sendMessage(preset) {
 			params: {
 				message: text,
 				session_id: sessionId.value,
+				conversation_name: conversationName.value || null,
 				chat_history: chatHistoryPayload(),
 				doctype: dtName.value || props.doctype || "",
 				target_module: dtModule.value || "",
 				process_context: props.processContext || null,
 			},
 		});
+		if (res?.conversation_name) conversationName.value = res.conversation_name;
 		const reply = res?.response || "Sorry, I couldn't process that.";
 		pushMsg("assistant", reply, { options: res?.options || null });
 		if (res?.doctype_ir) loadIr(res.doctype_ir);
@@ -344,7 +347,17 @@ async function applyDoctype() {
 	}
 }
 
-function close() { emit("close"); }
+function close() {
+	// Hand control to the process map's close branch (Cleanup → Conversation Ended).
+	if (conversationName.value) {
+		frappeRequest({
+			url: "/api/method/one_bpmn.api.server_script_api.end_chat_conversation",
+			method: "POST",
+			params: { conversation_name: conversationName.value },
+		}).catch(() => {});
+	}
+	emit("close");
+}
 
 // ── Init ──────────────────────────────────────────────────────────────
 onMounted(async () => {
