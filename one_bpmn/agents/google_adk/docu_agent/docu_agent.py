@@ -33,6 +33,7 @@ from one_bpmn.agents.google_adk.docu_agent import tools as docu_tools
 
 AGENT_ID = "docu_agent"
 
+_CLASSIFIER_TOOLS = docu_tools.CLASSIFIER_TOOLS
 _WRITER_TOOLS = docu_tools.WRITER_TOOLS
 _CLARIFIER_TOOLS = docu_tools.CLARIFIER_TOOLS
 _REVIEWER_TOOLS = docu_tools.REVIEWER_TOOLS
@@ -56,22 +57,32 @@ _REQUIRED_SUB_PROMPTS = (
 _SYSTEM_PROMPT = (
 	"You are Docu, an AI assistant embedded in Processa's BPMN editor. You help "
 	"process owners design and manage Frappe DocTypes (the data forms behind a "
-	"business process) using plain language. You classify intent (CREATE, MODIFY, "
-	"or DISAMBIGUATE), then design, review, and validate a DocType through a "
-	"multi-step pipeline. Always speak in plain, non-technical language — the "
-	"person you are helping is a business user, not a developer."
+	"business process) using plain language. You analyse both the user's message "
+	"and the BPMN context (the process, the current step, and any DocType already "
+	"selected on the shape) to determine intent (CREATE, MODIFY, or DISAMBIGUATE), "
+	"then design, review, and validate a DocType through a multi-step pipeline. You "
+	"ground your decisions in the real schema using tools rather than guessing, and "
+	"when a request is ambiguous you ask a single polar (Yes/No) or multiple-choice "
+	"question to clarify. Always speak in plain, non-technical language — the person "
+	"you are helping is a business user, not a developer."
 )
 
 _INTENT_CLASSIFIER = (
-	"You are an intent classifier for Docu, a Frappe DocType-building AI assistant.\n\n"
-	"Given a user request and the current context, classify the intent as exactly one of:\n"
-	"- CREATE  — the user wants to build a brand-new form/record type from scratch\n"
-	"- MODIFY  — the user wants to add, remove, rename, or change fields on the form that is already selected\n"
-	"- DISAMBIGUATE — the request is vague, could mean more than one thing, or the target is unclear\n\n"
+	"You are an intent classifier for Docu, a Frappe DocType-building AI assistant embedded in a BPMN editor.\n\n"
+	"Analyse BOTH the user's message AND the BPMN context you are given (the process name, the current "
+	"step/shape, and which DocType — if any — is already selected on that shape). Use them together to "
+	"determine what the user wants, then classify the intent as exactly one of:\n"
+	"- CREATE  — the user wants to build a brand-new DocType (form/record type) from scratch\n"
+	"- MODIFY  — the user wants to add, remove, rename, or change the properties of fields on an EXISTING DocType\n"
+	"- DISAMBIGUATE — the request is vague, could mean more than one thing, or the target DocType is unclear\n\n"
+	"GROUND YOUR DECISION WITH TOOLS — do not assume:\n"
+	"- If the user names a DocType, call `doctype_exists` on it: if it exists → lean MODIFY; if not → lean CREATE.\n"
+	"- If the user refers to a form only by description (\"the leave form\"), use `list_doctypes` to see whether a matching one exists.\n\n"
 	"Classification rules:\n"
-	"- If a DocType IS currently selected on the shape, lean toward MODIFY unless the user clearly says \"create new\" or names a different, non-existent form.\n"
-	"- If NO DocType is selected, lean toward CREATE unless the user references an existing form by name.\n"
-	"- If the request is ambiguous and could reasonably mean several things, use DISAMBIGUATE.\n\n"
+	"- If a DocType IS already selected on the shape, lean MODIFY unless the user clearly says \"create a new …\" or names a different form.\n"
+	"- If NO DocType is selected and the user does not reference an existing one, lean CREATE.\n"
+	"- Use DISAMBIGUATE when you genuinely cannot tell create-vs-modify, when several existing DocTypes could match, or when the request is too vague to act on.\n"
+	"- When DISAMBIGUATE, suggest in your reason whether a Yes/No (polar) question or a multiple-choice question would resolve it fastest.\n\n"
 	"Respond with ONLY a JSON object — no other text:\n"
 	"{\"intent\": \"CREATE|MODIFY|DISAMBIGUATE\", \"reason\": \"one short sentence\"}"
 )
@@ -80,10 +91,12 @@ _CLARIFIER = (
 	"You are a helpful assistant for Docu, an AI tool that builds data forms (DocTypes) for business processes on Processa.\n\n"
 	"IMPORTANT: The person you are talking to is NOT technical. They do not know what a DocType, field type, or database is. "
 	"Speak to them in plain everyday English — the way you would speak to a colleague who knows their work well but has never built a form.\n\n"
-	"The user's request is unclear. Ask ONE simple question to find out exactly what they want the form to capture.\n\n"
+	"The user's request is unclear. Ask ONE simple question to pin down exactly what they want.\n\n"
 	"Rules:\n"
 	"- One question only.\n"
-	"- Offer 2–4 plain-English options whenever possible — it is much easier than typing a free answer.\n"
+	"- PREFER a yes/no (polar) question when the ambiguity is binary (e.g. \"Do you want to create a new form, or change an existing one?\" → options [\"Create a new one\", \"Change an existing one\"]).\n"
+	"- Otherwise offer 2–4 plain-English multiple-choice options — much easier than a free-text answer.\n"
+	"- Always populate the \"options\" array (2–4 entries) so the user can click rather than type.\n"
 	"- Do NOT use technical words like DocType, field type, schema, Link, table, or database.\n"
 	"- Never design or show a form — only ask your question.\n"
 	"- Keep everything short and friendly.\n\n"
@@ -229,8 +242,11 @@ class DocuAgent:
 			lines.append(f"- {f.get('label') or f.get('fieldname')} [{f.get('fieldname')}] : {f.get('fieldtype')}{opt}")
 		return "\n".join(lines)
 
-	def _build_intent_prompt(self, message: str, doctype: str, exists: bool) -> str:
+	def _build_intent_prompt(self, message: str, doctype: str, exists: bool, process_context: dict = None) -> str:
 		parts = []
+		ctx = self._format_process_context(process_context or {})
+		if ctx:
+			parts.append(f"BPMN context: {ctx}")
 		if doctype and exists:
 			parts.append(f"Currently selected form: {doctype}  ← existing, treat as MODIFY target unless stated otherwise")
 		elif doctype:
@@ -389,8 +405,12 @@ class DocuAgent:
 		exists = bool(doctype) and bool(frappe.db.exists("DocType", doctype))
 		current_ir = _read_doctype_ir(doctype) if exists else None
 
-		# STEP 1 — Classify intent
-		intent_raw = await self._run("intent_classifier", self._build_intent_prompt(message, doctype, exists))
+		# STEP 1 — Classify intent (grounded in the BPMN context + live schema tools)
+		intent_raw = await self._run(
+			"intent_classifier",
+			self._build_intent_prompt(message, doctype, exists, process_context),
+			tools=_CLASSIFIER_TOOLS,
+		)
 		intent = "MODIFY" if exists else "CREATE"
 		intent_reason = ""
 		try:
