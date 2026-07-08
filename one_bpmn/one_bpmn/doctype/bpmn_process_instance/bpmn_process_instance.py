@@ -487,6 +487,65 @@ class BPMNProcessInstance(Document):
 		self.update_children()
 		self.run_method("on_update")
 
+	def get_parked_ai_units(self) -> list:
+		"""
+		WI-001499: the AI units currently parked on this instance.
+
+		- ai_agent Service Tasks sitting in STARTED (their job is queued,
+		  running, retrying, or exhausted-awaiting-manual-retry)
+		- ai_task_selector ad-hoc subprocesses waiting for a DECISION
+		  (container STARTED with no active inner head)
+
+		Returns: list of {kind, task_id, bpmn_id, label} — task_id is what
+		retry_ai_task / run_parked_ai_task expect for that kind.
+		"""
+		if not self.workflow_state:
+			return []
+
+		_spec_snap = self._load_json(self.serialized_spec or "{}") or {}
+		self._service_task_extensions = _spec_snap.get("service_task_extensions", {})
+
+		wf = bpmn_engine.restore_workflow(
+			workflow_state=self._load_json(self.workflow_state),
+			context_doctype=self.context_doctype,
+			context_docname=self.context_docname,
+		)
+
+		units = []
+		for t in wf.get_tasks(state=TaskState.STARTED):
+			if getattr(t.task_spec, "manual", False):
+				continue
+			bpmn_id = getattr(t.task_spec, "bpmn_id", None) or t.task_spec.name
+			if isinstance(t.task_spec, SubWorkflowTask):
+				cfg = self._service_task_extensions.get(bpmn_id) or {}
+				if cfg.get("serviceType") != "ai_task_selector":
+					continue
+				# Waiting for a decision only when no inner head is active —
+				# otherwise the selector is mid-turn running a shape.
+				sp = getattr(wf, "subprocesses", {}).get(t.id)
+				if sp is not None and sp.get_tasks(
+					state=TaskState.READY | TaskState.STARTED
+				):
+					continue
+				units.append(
+					{
+						"kind": "adhoc_decision",
+						"task_id": bpmn_id,
+						"bpmn_id": bpmn_id,
+						"label": bpmn_engine.get_task_display_name(t),
+					}
+				)
+			elif self._ai_service_type(t) in self._AI_SERVICE_TYPES:
+				units.append(
+					{
+						"kind": "service_task",
+						"task_id": str(t.id),
+						"bpmn_id": bpmn_id,
+						"label": bpmn_engine.get_task_display_name(t),
+					}
+				)
+		return units
+
 	def get_active_tasks_summary(self) -> list:
 		"""
 		Return the current waiting User Tasks as a list of dicts.

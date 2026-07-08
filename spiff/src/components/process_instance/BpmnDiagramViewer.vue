@@ -180,6 +180,9 @@ const props = defineProps({
 	// bpmnId → "Success" | "Error". These shapes never executed as flow,
 	// so they get a distinct purple treatment instead of the green DONE.
 	aiCalledTools: { type: Object, default: () => ({}) },
+	// WI-001499: AI units parked "Waiting for AI execution" (or Errored
+	// after retries) — bpmnId → "Waiting" | "Error". Pulsing purple outline.
+	waitingAiTasks: { type: Object, default: () => ({}) },
 })
 
 const emit = defineEmits(["element-select", "clear-selection"])
@@ -251,7 +254,7 @@ watch(() => props.xml, (val) => {
 	if (val && canvasRef.value) initViewer()
 })
 
-watch([() => props.logs, () => props.activeTasks, () => props.xml, () => props.aiCalledTools], () => {
+watch([() => props.logs, () => props.activeTasks, () => props.xml, () => props.aiCalledTools, () => props.waitingAiTasks], () => {
 	applyHighlights()
 }, { deep: true })
 
@@ -319,7 +322,7 @@ function applyHighlights() {
 	overlays.remove({ type: "token-badge" })
 
 		// Clear stale highlight markers before re-applying
-		const staticHighlightMarkers = new Set(["highlight-done", "highlight-active", "highlight-ai-called", "highlight-ai-error"])
+		const staticHighlightMarkers = new Set(["highlight-done", "highlight-active", "highlight-ai-called", "highlight-ai-error", "highlight-ai-waiting"])
 		const dynamicHighlightPrefixes = ["heatmap-", "highlight-flow-"]
 		for (const element of elementRegistry.getAll()) {
 			const gfx = elementRegistry.getGraphics(element)
@@ -432,6 +435,14 @@ function applyHighlights() {
 		for (const [bpmnId, status] of Object.entries(props.aiCalledTools || {})) {
 			try {
 				canvas.addMarker(bpmnId, status === "Error" ? "highlight-ai-error" : "highlight-ai-called")
+			} catch (e) {}
+		}
+
+		// Parked AI units (WI-001499): waiting for their background AI job —
+		// pulsing purple; an exhausted-retries failure gets the error look.
+		for (const [bpmnId, status] of Object.entries(props.waitingAiTasks || {})) {
+			try {
+				canvas.addMarker(bpmnId, status === "Error" ? "highlight-ai-error" : "highlight-ai-waiting")
 			} catch (e) {}
 		}
 
@@ -554,6 +565,15 @@ function applyHighlights() {
 .highlight-ai-error:not(.djs-connection) .djs-visual > :nth-child(1) {
 	stroke: #dc2626 !important; fill: #f3e8ff !important; stroke-width: 2px !important;
 	stroke-dasharray: 6 3 !important;
+}
+.highlight-ai-waiting:not(.djs-connection) .djs-visual > :nth-child(1) {
+	stroke: #9333ea !important; fill: #f3e8ff !important; stroke-width: 2.5px !important;
+	stroke-dasharray: 6 3 !important;
+	animation: ai-waiting-pulse 1.6s ease-in-out infinite;
+}
+@keyframes ai-waiting-pulse {
+	0%, 100% { stroke-opacity: 1; }
+	50% { stroke-opacity: 0.35; }
 }
 .highlight-flow-done.djs-connection .djs-visual > path {
 	stroke: #16a34a !important; stroke-width: 2px !important;
