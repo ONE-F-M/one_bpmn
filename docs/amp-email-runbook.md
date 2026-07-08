@@ -229,3 +229,32 @@ python one_bpmn/tests/_generate_golden_samples.py
 
 Re-run `test_amp_validation.py` afterward to confirm the regenerated
 files still validate.
+
+## 7. Adding AMP actions for a new doctype (plain Frappe Workflow)
+
+Since 2026-07-08, `one_bpmn.api.workflow_actions.handle_workflow_action`
+is a generic AMP action endpoint any doctype with a standard Frappe
+Workflow can use — you do **not** need to write a new endpoint file. See
+that module's docstring for the full config schema. Summary:
+
+1. In your app's `hooks.py`, add an `amp_workflow_actions` entry (a flat
+   **list** of dicts — not a nested dict, to avoid Frappe's hook-merge
+   turning leaf values into single-item lists) naming the doctype,
+   action, optional `from_state` idempotency guard, optional `fields`
+   mapping (form-field-name → document-field-name; only these are ever
+   written), optional `compute` (called before save), and optional
+   `after` (called after the workflow transition commits).
+2. Generate tokens with
+   `one_bpmn.utils.token.generate_doc_action_token(doctype, docname, action, user)`
+   and set `action_endpoint` in the rendered email's `task_content` to
+   `{site_url}/api/method/one_bpmn.api.workflow_actions.handle_workflow_action`.
+3. **Clear the hooks cache after registering** (`bench --site <site>
+   clear-cache`, or restart the bench) — hooks are cached in Redis unless
+   `developer_mode` is on, so a fresh `hooks.py` registration silently
+   has no effect until the cache is cleared.
+4. An unregistered (doctype, action) pair is rejected even with a
+   validly-signed token for it — the registry is an allowlist, not just
+   a lookup table, so this fails closed by design.
+
+The Leave Application `Approve` / `Propose New Dates` actions
+(`one_fm/hooks.py`) are the reference implementation of this pattern.
