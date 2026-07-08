@@ -7,7 +7,6 @@ import frappe
 from frappe import _
 
 from one_bpmn.api.utils import _is_bpmn_super_user
-from one_bpmn.one_bpmn.trigger import should_run_engine_inline
 
 
 @frappe.whitelist()
@@ -422,13 +421,13 @@ def complete_task(
 				frappe.PermissionError,
 			)
 
-	# ── 4. HAND OFF TO THE ENGINE ────────────────────────────────────────────
-	# All validation passed. Models without AI tasks run the engine pass
-	# inline in the request (WI-001494). Models WITH AI tasks keep the
-	# background pass — it can run multi-turn AI decisions (seconds of LLM
-	# latency each), far past the request budget. Those run on the dedicated
-	# bpmn_ai_agent queue; the UI follows engine_in_progress and the
-	# realtime events the job publishes.
+	# ── 4. HAND OFF TO THE ENGINE (inline) ───────────────────────────────────
+	# All validation passed. The engine pass runs inline in the request
+	# (WI-001494/WI-001496) and reports the real resulting state. AI tasks
+	# reached by the pass are parked by the WI-001495 seam — ONLY their LLM
+	# work runs as a bpmn_ai_agent job, so the request never blocks on AI
+	# latency. The UI follows waiting_for_ai and the realtime events the AI
+	# job publishes.
 	frappe.db.set_value(
 		"BPMN Process Instance",
 		instance_name,
@@ -437,46 +436,20 @@ def complete_task(
 		update_modified=False,
 	)
 
-	if should_run_engine_inline(instance.process_model):
-		# Inline: tests (no worker, auto-rollback) and non-AI models.
-		# Report the real resulting state.
-		_complete_task_job(
-			instance_name=instance_name,
-			task_id=task_id,
-			data=parsed_data,
-			run_as_user=current_user,
-			approved_ctc_name=approved_ctc_name,
-		)
-		instance.reload()
-		return {
-			"instance": instance_name,
-			"status": instance.status,
-			"queued": False,
-			"active_tasks": instance.get_active_tasks_summary(),
-		}
-
-	frappe.enqueue(
-		"one_bpmn.api.instance_api._complete_task_job",
-		# AI models only (WI-001494) — the park-and-enqueue seam
-		# (WI-001495/WI-001496) will narrow this to just the AI task.
-		queue="bpmn_ai_agent",
-		timeout=600,
-		enqueue_after_commit=True,
-		# Double-click safety: at most one queued advance per task.
-		job_id=f"bpmn-advance-{instance_name}-{task_id}",
-		deduplicate=True,
+	_complete_task_job(
 		instance_name=instance_name,
 		task_id=task_id,
 		data=parsed_data,
 		run_as_user=current_user,
 		approved_ctc_name=approved_ctc_name,
 	)
-
+	instance.reload()
 	return {
 		"instance": instance_name,
-		"status": "Processing",
-		"queued": True,
-		"active_tasks": [],
+		"status": instance.status,
+		"queued": False,
+		"waiting_for_ai": instance.waiting_for_ai,
+		"active_tasks": instance.get_active_tasks_summary(),
 	}
 
 
@@ -489,10 +462,11 @@ def _complete_task_job(
 ):
 	"""
 	Second half of complete_task: the engine pass that follows an
-	already-validated user action. Runs inline for models without AI tasks
-	(WI-001494) and as a bpmn_ai_agent background job for models with AI
-	tasks. Runs with the acting user's identity so completed-by attribution
-	and permission-sensitive script tasks behave exactly as they did inline.
+	already-validated user action, run inline in the request
+	(WI-001494/WI-001496). Runs with the acting user's identity so
+	completed-by attribution and permission-sensitive script tasks behave
+	consistently. AI tasks reached by the pass are parked by the WI-001495
+	seam and continue on the bpmn_ai_agent worker.
 	"""
 	if run_as_user:
 		frappe.set_user(run_as_user)

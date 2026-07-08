@@ -288,38 +288,6 @@ def _find_matching_models(doctype: str, trigger_event: str) -> list:
 	return active_models
 
 
-_AI_SERVICE_TYPE_MARKERS = (
-	'serviceType="ai_agent"',
-	'serviceType="ai_task_selector"',
-	"serviceType='ai_agent'",
-	"serviceType='ai_task_selector'",
-)
-
-
-def model_requires_ai_worker(model_name: str) -> bool:
-	"""
-	True when the model's BPMN XML contains AI tasks (serviceType ai_agent
-	or ai_task_selector). Cheap substring check on the raw XML — a false
-	positive (the marker appearing in documentation text) only keeps the
-	pass on the worker, never the reverse.
-	"""
-	bpmn_xml = frappe.db.get_value("BPMN Process Model", model_name, "bpmn_xml") or ""
-	return any(marker in bpmn_xml for marker in _AI_SERVICE_TYPE_MARKERS)
-
-
-def should_run_engine_inline(model_name: str) -> bool:
-	"""
-	WI-001494: engine passes run inline in the request unless the model
-	contains AI tasks — their LLM latency must not block the request, so
-	those models keep the whole-pass enqueue until the park-and-enqueue
-	seam (WI-001495/WI-001496) moves only the AI work to the worker.
-
-	Tests always run inline: the test runner has no worker and rolls back
-	the transaction, so enqueue_after_commit jobs would never fire.
-	"""
-	return bool(frappe.flags.in_test) or not model_requires_ai_worker(model_name)
-
-
 def _maybe_start_instance(doc, model_name: str):
 	"""
 	Evaluate conditions for one model against the current document.
@@ -387,12 +355,10 @@ def _maybe_start_instance(doc, model_name: str):
 	if existing:
 		return
 
-	# All checks passed — create the instance now (so the save request
-	# returns a visible, linked instance immediately). Models without AI
-	# tasks run their first engine pass inline in the save request
-	# (WI-001494); models WITH AI tasks keep the background pass because a
-	# first pass can include multi-turn AI decisions (seconds of LLM
-	# latency each) — far past the 5-second budget for a document save.
+	# All checks passed — create the instance and run the first engine pass
+	# inline in the save request (WI-001494/WI-001496). AI tasks reached by
+	# the pass are parked by the WI-001495 seam and ONLY their LLM work runs
+	# as a bpmn_ai_agent job, so the save never blocks on AI latency.
 	instance = frappe.new_doc("BPMN Process Instance")
 	instance.process_model = model_name
 	instance.context_doctype = doc.doctype
@@ -410,31 +376,15 @@ def _maybe_start_instance(doc, model_name: str):
 		frappe.flags._bpmn_instances_just_started = set()
 	frappe.flags._bpmn_instances_just_started.add(f"{doc.doctype}:{doc.name}")
 
-	if should_run_engine_inline(model_name):
-		# Tests (auto-rollback, no worker) and models without AI tasks
-		# (WI-001494): run the first engine pass inline in the save request.
-		start_queued_instance(instance.name, run_as_user=frappe.session.user)
-		return
-
-	frappe.enqueue(
-		"one_bpmn.one_bpmn.trigger.start_queued_instance",
-		# Dedicated queue (WI-001365) so AI decision loops can't starve
-		# unrelated ONE-FM jobs on default/short/long. AI models only —
-		# the park-and-enqueue seam (WI-001495/WI-001496) will narrow this
-		# to just the AI task instead of the whole pass.
-		queue="bpmn_ai_agent",
-		timeout=600,
-		enqueue_after_commit=True,  # the job must see the committed doc + instance
-		instance_name=instance.name,
-		run_as_user=frappe.session.user,
-	)
+	start_queued_instance(instance.name, run_as_user=frappe.session.user)
 
 
 def start_queued_instance(instance_name: str, run_as_user: str = None):
 	"""
 	Second half of _maybe_start_instance: run the first engine pass of a
-	Queued instance. Called inline for models without AI tasks (WI-001494)
-	and as a bpmn_ai_agent background job for models with AI tasks.
+	Queued instance, inline in the save request (WI-001494/WI-001496).
+	Kept as a standalone function (with the Queued guard) so stranded
+	Queued instances from the pre-inline era can still be started by a job.
 	"""
 	instance = frappe.get_doc("BPMN Process Instance", instance_name, for_update=True)
 	if instance.status != "Queued":

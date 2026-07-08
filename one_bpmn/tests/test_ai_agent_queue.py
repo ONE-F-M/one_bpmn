@@ -51,11 +51,11 @@ class TestAiAgentQueueRouting(FrappeTestCase):
 				continue
 			text = py.read_text(errors="ignore")
 			if 'queue="bpmn_ai_agent"' in text and py.name not in (
+				# start_process_async — explicit async API
 				"instance_api.py",
 				"eval_runner.py",
-				# WI-001494: trigger start keeps the queue for AI models
-				"trigger.py",
-				# WI-001495: parked AI units run as AI-only jobs
+				# WI-001495/WI-001496: parked AI units run as AI-only jobs —
+				# the ONLY engine-driven producer after the inline flip
 				"bpmn_process_instance.py",
 			):
 				offenders.append(py.name)
