@@ -294,6 +294,21 @@ def complete_task(
 	instance = frappe.get_doc("BPMN Process Instance", instance_name)
 	instance.check_permission("write")
 
+	# ── WI-001498: gate scoped to ACTIVE AI execution ────────────────────────
+	# engine_in_progress is held only while an engine pass (an AI job, or a
+	# concurrent complete_task) is actually running. A waiting instance —
+	# parked AI job queued, human task, catch event — has the gate clear, so
+	# human tasks stay completable even when they were spawned by AI.
+	if frappe.db.get_value(
+		"BPMN Process Instance", instance_name, "engine_in_progress"
+	):
+		frappe.throw(
+			_(
+				"Instance is processing — an engine pass (AI task or another "
+				"action) is currently running. Please retry in a moment."
+			)
+		)
+
 	parsed_data = {}
 	if data:
 		parsed_data = frappe.parse_json(data) if isinstance(data, str) else data

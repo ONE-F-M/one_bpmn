@@ -1266,6 +1266,14 @@ def run_parked_ai_task(
 
 	# Row lock serializes concurrent engine passes on the same instance
 	instance = frappe.get_doc("BPMN Process Instance", instance_name, for_update=True)
+
+	# WI-001498: the gate is held ONLY while this AI job actively executes.
+	# complete_task rejects user actions while it is set; it is ALWAYS
+	# cleared in the finally below (crash included), so a waiting instance
+	# (parked AI, human task, catch event) never stays locked.
+	frappe.db.set_value(
+		"BPMN Process Instance", instance_name, "engine_in_progress", 1, update_modified=False
+	)
 	try:
 		instance.resume_parked_ai(kind=kind, task_id=task_id)
 	except Exception:
@@ -1316,6 +1324,15 @@ def run_parked_ai_task(
 				},
 			)
 	finally:
+		# WI-001498: release the gate unconditionally — success, retry
+		# scheduled, or exhausted. The instance must never stay locked.
+		frappe.db.set_value(
+			"BPMN Process Instance",
+			instance_name,
+			"engine_in_progress",
+			0,
+			update_modified=False,
+		)
 		frappe.publish_realtime(
 			"bpmn_instance_updated",
 			{

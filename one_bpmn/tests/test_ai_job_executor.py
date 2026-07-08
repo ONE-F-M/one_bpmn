@@ -193,6 +193,9 @@ class TestJobOutputParity(JobHarness):
 		)
 
 	def test_job_failure_marks_instance_errored(self):
+		# WI-001497: crashes below the retry cap re-enqueue (instance stays
+		# Active — covered in test_ai_job_retries); an EXHAUSTED job errors
+		# the instance.
 		frappe.flags.bpmn_force_ai_parking = True
 		task_id = self._park_linear_with_tools()
 		from one_bpmn.one_bpmn.doctype.bpmn_process_instance.bpmn_process_instance import (
@@ -202,7 +205,10 @@ class TestJobOutputParity(JobHarness):
 		with patch.object(
 			BPMNProcessInstance, "resume_parked_ai", side_effect=RuntimeError("boom")
 		):
-			run_parked_ai_task(self.instance.name, "service_task", task_id)
+			with patch.object(frappe, "enqueue"):
+				run_parked_ai_task(
+					self.instance.name, "service_task", task_id, attempt=2
+				)
 
 		self.assertEqual(
 			frappe.db.get_value("BPMN Process Instance", self.instance.name, "status"),
