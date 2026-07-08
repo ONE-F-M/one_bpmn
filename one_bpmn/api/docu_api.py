@@ -19,7 +19,7 @@ import json
 import frappe
 from frappe import _
 
-from one_bpmn.agents.google_adk.docu_agent.docu_agent import run_docu_message, _read_doctype_ir
+from one_bpmn.agents.google_adk.docu_agent.docu_agent import _read_doctype_ir
 from one_bpmn.security.doctype_validator import validate_doctype_ir
 
 # DocField keys Docu is allowed to write (everything else is ignored).
@@ -54,28 +54,60 @@ def _parse(value, fallback):
 def docu_chat(
 	message: str,
 	session_id: str = "",
+	conversation_name: str = None,
 	chat_history: str = None,
 	doctype: str = "",
 	target_module: str = "",
 	process_context: str = None,
 ) -> dict:
-	"""Run one Docu chat turn. Returns the DocuAgent result dict verbatim."""
+	"""Run one Docu chat turn through the BPMN process instance.
+
+	Mirrors ``server_script_api.process_logix_message``: the first turn creates a
+	Chat Conversation (agent_mode="Docu"), which spawns the Docu process map's
+	instance; every turn is delivered to that instance, which runs the pipeline
+	(Build Context → Run Docu Agent → Save Response) and produces the Bot reply.
+	The agent is NEVER invoked directly here — the map is the only execution path.
+	"""
 	if frappe.session.user == "Guest":
 		frappe.throw(_("Please sign in to use Docu."), frappe.PermissionError)
 	if not (message or "").strip():
 		frappe.throw(_("Message is required"))
 
-	history = _parse(chat_history, [])
-	ctx = _parse(process_context, {})
-
 	try:
-		result = run_docu_message(
-			message=message,
-			chat_history=history,
-			doctype=doctype or "",
-			target_module=target_module or "",
-			process_context=ctx,
+		from one_bpmn.utils.chat_persistence import create_conversation
+		from one_bpmn.api.server_script_api import _delegate_to_bpmn_instance
+
+		# First message → create the conversation, which triggers the Docu map and
+		# spawns the orchestrating instance (parked at "Waiting for User Message").
+		if not conversation_name:
+			label = doctype or "DocType"
+			conversation_name = create_conversation(
+				agent_mode="Docu",
+				title=f"Docu: {label}",
+				user=frappe.session.user,
+			)
+
+		bpmn_result = _delegate_to_bpmn_instance(
+			conversation_name,
+			message,
+			context={
+				"doctype": doctype or "",
+				"target_module": target_module or "",
+				"process_context": _parse(process_context, {}),
+			},
 		)
+		if bpmn_result is None:
+			return {
+				"intent": "ERROR",
+				"response": "The Docu process orchestration isn't running for this conversation. Please reopen the chat.",
+				"conversation_name": conversation_name,
+				"doctype_ir": None, "diff": None, "options": None, "suggested_name": None,
+			}
+
+		bpmn_result["conversation_name"] = conversation_name
+		bpmn_result["session_id"] = session_id
+		return bpmn_result
+
 	except Exception:
 		frappe.log_error(title="Docu chat failed", message=frappe.get_traceback())
 		return {
@@ -83,14 +115,8 @@ def docu_chat(
 			"response": _(
 				"Something went wrong while designing the form. Please try again or rephrase your request."
 			),
-			"doctype_ir": None,
-			"diff": None,
-			"options": None,
-			"suggested_name": None,
+			"doctype_ir": None, "diff": None, "options": None, "suggested_name": None,
 		}
-
-	result["session_id"] = session_id
-	return result
 
 
 # ═══════════════════════════════════════════════════════════════════════════
