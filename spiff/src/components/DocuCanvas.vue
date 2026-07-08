@@ -338,8 +338,16 @@ function close() { emit("close"); }
 // ── Init ──────────────────────────────────────────────────────────────
 onMounted(async () => {
 	if (props.doctype) {
+		// A doctype is already selected on the shape — load its form builder view
+		// on the right and greet with a change-focused message (AC: WI Docu greeting).
 		await loadSchema(props.doctype);
-		pushMsg("assistant", `Let's work on the **${props.doctype}** form. Tell me what to add or change — or edit the fields on the right directly.`);
+		const dt = props.doctype;
+		pushMsg(
+			"assistant",
+			`Hello, I am **Docu**.\n` +
+			`Happy to help with changes to **${dt}** doctype.\n` +
+			`How would you like me to assist in redefining the **${dt}** doctype or its fields?`,
+		);
 	} else {
 		pushMsg("assistant", "Hi, I'm **Docu**. Describe the information this step needs to capture and I'll build the form for you.");
 	}
