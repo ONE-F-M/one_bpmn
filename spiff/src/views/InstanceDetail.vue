@@ -17,9 +17,36 @@
 					:active-tasks="activeTasks"
 					:selected-bpmn-id="selectedBpmnId"
 					:ai-called-tools="aiCalledTools"
+					:waiting-ai-tasks="waitingAiMap"
 					@element-select="onDiagramSelect"
 					@clear-selection="clearSelection"
 				/>
+
+				<!-- Waiting for AI execution (WI-001499) -->
+				<div v-if="waitingForAi" class="flex items-center gap-3 bg-purple-50 border border-purple-200 text-purple-800 text-sm px-4 py-2.5 mx-4 mt-2 rounded-lg">
+					<span class="text-purple-600 animate-pulse text-base leading-none">✦</span>
+					<div class="flex-1">
+						<span class="font-semibold">Waiting for AI execution</span>
+						<span v-if="parkedAiLabels" class="text-purple-600"> — {{ parkedAiLabels }}</span>
+					</div>
+					<Icon icon="lucide:loader" class="w-4 h-4 text-purple-400 animate-spin" />
+				</div>
+
+				<!-- AI job failed after retries (WI-001497/WI-001499) -->
+				<div v-else-if="details.status === 'Errored' && parkedAiTasks.length" class="flex items-start gap-3 bg-red-50 border border-red-200 text-red-800 text-sm px-4 py-3 mx-4 mt-2 rounded-lg">
+					<span class="text-red-500 text-base leading-none mt-0.5">✦</span>
+					<div class="flex-1">
+						<p class="font-semibold">AI execution failed</p>
+						<p class="mt-0.5">The AI job for {{ parkedAiLabels }} failed after its retries. The task is still parked — retry resumes exactly where it stopped.</p>
+					</div>
+					<button
+						class="px-3 py-1.5 rounded-md bg-purple-600 text-white text-xs font-semibold hover:bg-purple-700 disabled:opacity-50"
+						:disabled="retryingAi"
+						@click="retryAiTasks"
+					>
+						{{ retryingAi ? "Retrying…" : "Retry AI task" }}
+					</button>
+				</div>
 
 				<!-- Task error banner -->
 				<div v-if="taskError" class="flex items-start gap-3 bg-red-50 border border-red-200 text-red-800 text-sm px-4 py-3 mx-4 mt-2 rounded-lg">
@@ -352,6 +379,67 @@ const aiCalledTools = computed(() => {
 	return map
 })
 
+// ── Waiting for AI execution (WI-001499) ──
+// AI tasks reached by an engine pass are parked (STARTED) while ONLY their
+// LLM work runs as a bpmn_ai_agent job. waiting_for_ai flags the instance;
+// get_parked_ai_tasks names the parked units for the banner, the diagram
+// highlight, and the manual retry (WI-001497) after exhausted retries.
+
+const parkedAiTasks = ref([])
+const retryingAi = ref(false)
+
+const waitingForAi = computed(() => Boolean(details.value?.waiting_for_ai))
+
+const parkedAiLabels = computed(() =>
+	parkedAiTasks.value.map((u) => u.label || u.bpmn_id).join(", ")
+)
+
+const waitingAiMap = computed(() => {
+	if (!waitingForAi.value && details.value?.status !== "Errored") return {}
+	const map = {}
+	for (const u of parkedAiTasks.value) {
+		map[u.bpmn_id] = details.value?.status === "Errored" ? "Error" : "Waiting"
+	}
+	return map
+})
+
+async function loadParkedAiTasks() {
+	if (!waitingForAi.value && details.value?.status !== "Errored") {
+		parkedAiTasks.value = []
+		return
+	}
+	try {
+		const res = await frappeRequest({
+			url: "/api/method/one_bpmn.api.instance_api.get_parked_ai_tasks",
+			params: { instance_name: instanceId.value },
+		})
+		parkedAiTasks.value = Array.isArray(res) ? res : []
+	} catch (e) {
+		console.warn("Failed to load parked AI tasks:", e)
+		parkedAiTasks.value = []
+	}
+}
+
+async function retryAiTasks() {
+	if (retryingAi.value || !parkedAiTasks.value.length) return
+	retryingAi.value = true
+	try {
+		for (const u of parkedAiTasks.value) {
+			await frappeRequest({
+				url: "/api/method/one_bpmn.api.instance_api.retry_ai_task",
+				method: "POST",
+				params: { instance_name: instanceId.value, task_id: u.task_id, kind: u.kind },
+			})
+		}
+		await loadDetails()
+	} catch (e) {
+		console.error("AI retry failed:", e)
+		taskError.value = "AI retry could not be queued. Please try again."
+	} finally {
+		retryingAi.value = false
+	}
+}
+
 // ── Selection handlers ──
 
 function onHistorySelect(node) {
@@ -392,6 +480,7 @@ async function loadDetails() {
 			: []
 		if (res?.process_model) loadProcessModelXml(res.process_model)
 		loadAiToolCalls()
+		loadParkedAiTasks()
 	} catch (e) {
 		console.error("Failed to load instance details:", e)
 	}
@@ -535,12 +624,18 @@ const engineBusy = computed(
 	() => details.value?.status === "Queued" || Boolean(details.value?.engine_in_progress)
 )
 
+// WI-001499: also poll while waiting on an AI job — realtime is primary,
+// this is the fallback if the job's completion event is missed. NOTE:
+// waitingForAi deliberately does NOT feed engineBusy — the gate is clear
+// while waiting, so pending human actions stay enabled (WI-001498).
+const enginePolling = computed(() => engineBusy.value || waitingForAi.value)
+
 let enginePollTimer = null
-watch(engineBusy, (busy) => {
+watch(enginePolling, (busy) => {
 	if (busy && !enginePollTimer) {
 		enginePollTimer = setInterval(async () => {
 			await loadDetails()
-			if (!engineBusy.value) {
+			if (!enginePolling.value) {
 				logs.value = []
 				limitStart.value = 0
 				hasMoreLogs.value = true
