@@ -31,6 +31,7 @@ def list_process_instances(
 			"name",
 			"process_model",
 			"status",
+			"waiting_for_ai",
 			"context_doctype",
 			"context_docname",
 			"started_at",
@@ -466,6 +467,29 @@ def complete_task(
 		"waiting_for_ai": instance.waiting_for_ai,
 		"active_tasks": instance.get_active_tasks_summary(),
 	}
+
+
+@frappe.whitelist()
+def get_parked_ai_tasks(instance_name: str) -> list:
+	"""
+	WI-001499: the parked AI units of an instance — the shapes the diagram
+	viewer highlights as "Waiting for AI execution" and the targets the
+	manual retry button re-kicks.
+
+	Returns: list of {kind, task_id, bpmn_id, label}.
+	"""
+	if not instance_name:
+		frappe.throw(_("instance_name is required"))
+	instance = frappe.get_doc("BPMN Process Instance", instance_name)
+	instance.check_permission("read")
+	try:
+		return instance.get_parked_ai_units()
+	except Exception:
+		frappe.log_error(
+			title=f"BPMN get_parked_ai_tasks failed: {instance_name}",
+			message=frappe.get_traceback(),
+		)
+		return []
 
 
 @frappe.whitelist()

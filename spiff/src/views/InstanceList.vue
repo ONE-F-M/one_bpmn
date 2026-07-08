@@ -198,7 +198,14 @@
 
 						<!-- Status column -->
 						<template v-else-if="column.key === 'status'">
-							<Badge :theme="getStatusTheme(item)" :label="item || 'Unknown'" />
+							<span class="inline-flex items-center gap-1.5">
+								<Badge :theme="getStatusTheme(item)" :label="item || 'Unknown'" />
+								<span
+									v-if="row.waiting_for_ai"
+									class="inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] font-semibold bg-purple-100 text-purple-700"
+									title="Waiting for AI execution"
+								>✦ AI</span>
+							</span>
 						</template>
 
 						<!-- Context Document link -->
