@@ -453,6 +453,61 @@ def complete_task(
 	}
 
 
+@frappe.whitelist()
+def retry_ai_task(instance_name: str, task_id: str, kind: str = "service_task") -> dict:
+	"""
+	WI-001497: manually re-kick a parked AI unit after the automatic retries
+	were exhausted (instance Errored) — or re-run a stalled selector decision.
+
+	The parked task was deliberately left in STARTED state on exhaustion, so
+	the fresh job resumes exactly where the failed one stopped.
+
+	Args:
+		instance_name: BPMN Process Instance name
+		task_id:       parked task UUID (service_task) or the ad-hoc
+		               subprocess bpmn id (adhoc_decision)
+		kind:          "service_task" | "adhoc_decision"
+	"""
+	if not instance_name or not task_id:
+		frappe.throw(_("instance_name and task_id are required"))
+	if kind not in ("service_task", "adhoc_decision"):
+		frappe.throw(_("kind must be 'service_task' or 'adhoc_decision'"))
+
+	instance = frappe.get_doc("BPMN Process Instance", instance_name)
+	instance.check_permission("write")
+
+	if instance.status not in ("Errored", "Active"):
+		frappe.throw(
+			_('Instance "{0}" is {1} — only Errored or Active instances can retry an AI task.').format(
+				instance_name, instance.status
+			)
+		)
+
+	frappe.db.set_value(
+		"BPMN Process Instance",
+		instance_name,
+		{"status": "Active", "waiting_for_ai": 1},
+		update_modified=False,
+	)
+
+	frappe.enqueue(
+		"one_bpmn.one_bpmn.doctype.bpmn_process_instance"
+		".bpmn_process_instance.run_parked_ai_task",
+		queue="bpmn_ai_agent",
+		timeout=600,
+		enqueue_after_commit=True,
+		# Manual retries are deliberate — never dedup against a stale job id.
+		job_id=f"bpmn-ai-{instance_name}-{task_id}-manual-{frappe.generate_hash(length=6)}",
+		instance_name=instance_name,
+		kind=kind,
+		task_id=task_id,
+		run_as_user=frappe.session.user,
+		attempt=0,
+	)
+
+	return {"instance": instance_name, "status": "queued", "kind": kind, "task_id": task_id}
+
+
 def _complete_task_job(
 	instance_name: str,
 	task_id: str,
