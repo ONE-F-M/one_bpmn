@@ -227,6 +227,32 @@ scheduler_events = {
 # before_request = ["one_bpmn.utils.before_request"]
 after_request = ["one_bpmn.api.todo_actions.apply_amp_headers"]
 
+# Registrations for one_bpmn.api.workflow_actions.handle_workflow_action —
+# see that module's docstring for the config schema. Kept here (rather than
+# in one_fm) for this test rollout so it doesn't require any one_fm change;
+# Leave Application is expected to become a real BPMN process eventually,
+# at which point this would move to the standard handle_amp_action path
+# instead and this registration would go away.
+amp_workflow_actions = [
+	{
+		"doctype": "Leave Application",
+		"action": "Approve",
+		"from_state": "Pending Approver",
+	},
+	{
+		"doctype": "Leave Application",
+		"action": "Propose New Dates",
+		"from_state": "Pending Approver",
+		"fields": {
+			"propose_from_date": "custom_propose_from_date",
+			"propose_to_date": "custom_propose_to_date",
+		},
+		"required_fields": ["propose_from_date", "propose_to_date"],
+		"compute": "one_bpmn.integrations.leave_application_amp.compute_leave_propose_totals",
+		"after": "one_fm.overrides.leave_application.send_proposed_date_email",
+	},
+]
+
 # Job Events
 # ----------
 # before_job = ["one_bpmn.utils.before_job"]
