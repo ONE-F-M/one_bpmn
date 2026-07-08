@@ -55,6 +55,8 @@ class TestAiAgentQueueRouting(FrappeTestCase):
 				"eval_runner.py",
 				# WI-001494: trigger start keeps the queue for AI models
 				"trigger.py",
+				# WI-001495: parked AI units run as AI-only jobs
+				"bpmn_process_instance.py",
 			):
 				offenders.append(py.name)
 		self.assertEqual(offenders, [])

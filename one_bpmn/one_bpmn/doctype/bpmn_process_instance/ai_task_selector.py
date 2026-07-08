@@ -38,6 +38,19 @@ def make_adhoc_decider(instance, wf):
 		if task_cfg.get("serviceType") != "ai_task_selector":
 			return None
 
+		# WI-001495: park the decision — ONLY the LLM turn goes to the
+		# bpmn_ai_agent worker. The resume job (run_parked_ai_task) sets
+		# bpmn_ai_resume_target to this subprocess so exactly one decision
+		# runs inline there; the target is consumed so the NEXT decision of
+		# the same loop parks again (one job per selector turn).
+		_parking_active = getattr(instance, "_ai_parking_active", None)
+		if _parking_active is not None and _parking_active():
+			if frappe.flags.bpmn_ai_resume_target == bpmn_id:
+				frappe.flags.bpmn_ai_resume_target = None
+			else:
+				instance._queue_parked_ai_job("adhoc_decision", bpmn_id)
+				return bpmn_engine.NO_ACTIVATION
+
 		action, chosen_name, arguments = dispatch_ai_task_selector(
 			instance, sp, task_cfg, bpmn_id
 		)
