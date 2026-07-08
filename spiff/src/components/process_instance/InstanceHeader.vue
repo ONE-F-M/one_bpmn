@@ -11,7 +11,19 @@
 					{{ details.process_model }}
 				</span>
 			</div>
-			<Badge v-if="details" :theme="statusTheme" :label="details.status || 'Unknown'" size="lg" />
+			<div class="flex items-center gap-3">
+				<Button
+					v-if="details"
+					icon-left="refresh-cw"
+					variant="subtle"
+					size="sm"
+					:loading="refreshing"
+					@click="$emit('refresh')"
+				>
+					Refresh
+				</Button>
+				<Badge v-if="details" :theme="statusTheme" :label="details.status || 'Unknown'" size="lg" />
+			</div>
 		</div>
 		<div v-if="details" class="flex items-center gap-6 mt-2 text-[12px] text-gray-500">
 			<div class="flex items-center gap-1.5">
@@ -51,7 +63,10 @@ import { dayjs } from "@/dayjs"
 
 const props = defineProps({
 	details: { type: Object, default: null },
+	refreshing: { type: Boolean, default: false },
 })
+
+defineEmits(["refresh"])
 
 const STATUS_THEMES = { Queued: "orange", Completed: "green", Active: "blue", Errored: "red" }
 const statusTheme = computed(() => STATUS_THEMES[props.details?.status] || "gray")
