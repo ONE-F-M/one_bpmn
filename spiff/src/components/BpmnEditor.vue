@@ -957,6 +957,17 @@
 			:mode="aiAgentModal.mode"
 			@close="aiAgentModal.show = false"
 		/>
+
+		<!-- Docu — AI DocType builder -->
+		<DocuCanvas
+			v-if="docuPanel.show && docuPanel.element"
+			:element="docuPanel.element"
+			:doctype="docuPanel.doctype"
+			:attr="docuPanel.attr"
+			:process-context="docuProcessContext"
+			@applied="onDocuApplied"
+			@close="docuPanel.show = false"
+		/>
 	</div>
 </template>
 
@@ -976,6 +987,7 @@ import { useBottomSheet } from "@/composables/useBottomSheet";
 import FormattingToolbar from "@/components/FormattingToolbar.vue";
 import ProsAllyPanel from "@/components/ProsAllyPanel.vue";
 import AIAgentConfigModal from "@/components/AIAgentConfigModal.vue";
+import DocuCanvas from "@/components/DocuCanvas.vue";
 import { layoutBpmnXml } from "@/utils/bpmnLayout.js";
 import { initModeler } from "@/composables/useModelerInit";
 import { useBpmnContextMenu } from "@/composables/useBpmnContextMenu";
@@ -1105,6 +1117,22 @@ const messageDialog = ref({
 	_eventBus: null,
 });
 const aiAgentModal = ref({ show: false, element: null, mode: "agent" });
+// Docu (AI DocType builder) panel state. `_eventBus` is the properties-panel
+// eventBus that launched us — we fire "docu.doctype.update" back through it so
+// the Launch Docu button writes the applied DocType name onto the shape.
+const docuPanel = ref({ show: false, element: null, doctype: "", attr: "", _eventBus: null });
+const docuProcessContext = computed(() => ({
+	process_name: props.modelName || "",
+	element_name: docuPanel.value.element?.businessObject?.name || "",
+}));
+// Docu applied a DocType — write its name back onto the shape's doctype field
+// through the properties-panel eventBus that launched the panel.
+function onDocuApplied(doctypeName) {
+	const eb = docuPanel.value._eventBus;
+	if (eb && doctypeName) {
+		eb.fire("docu.doctype.update", { doctype: doctypeName });
+	}
+}
 const isCommentMode = ref(false);
 const commentFormData = ref({
 	text: "",
@@ -2073,6 +2101,17 @@ onMounted(async () => {
 					show: true,
 					element: markRaw(event.element),
 					mode: event.mode || "agent",
+				};
+			});
+
+			// Docu — AI DocType builder (launched from a doctype field's button)
+			eventBus.on("launch-docu-editor", (event) => {
+				docuPanel.value = {
+					show: true,
+					element: markRaw(event.element),
+					doctype: event.doctype || "",
+					attr: event.attr || "",
+					_eventBus: event.eventBus || eventBus,
 				};
 			});
 

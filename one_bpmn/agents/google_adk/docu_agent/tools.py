@@ -1,0 +1,167 @@
+# Copyright (c) 2026, one-fm and contributors
+# For license information, please see license.txt
+"""
+Docu (DocType builder) deterministic tools.
+
+Mirrors the Logix tools.py layout: the LLM-reasoning steps (classify / clarify /
+write schema / review) stay in the orchestrator, while the deterministic pieces
+live here as the single source of truth shared with any future multi-turn loop:
+
+    validate_ir      schema-safety gate + actionable fix hints
+    diff_ir          human-readable field-level diff of two DocType IRs
+    extract_json     pull the first JSON object out of an LLM response
+
+Read ToolSpecs (list_doctypes / get_doctype_fields / doctype_exists) are handed
+to the schema_writer/clarifier sub-agents so they can inspect the live schema
+before proposing changes. Core functions return plain dicts/strings (ergonomic
+for tests); ToolSpec wrappers JSON-encode results to match the tool-result
+convention used across ``agents/`` (see script_task_agent/tools.py).
+"""
+
+from __future__ import annotations
+
+import json
+
+import frappe
+
+from one_bpmn.agents.llm_provider.base import ToolSpec
+from one_bpmn.security.doctype_validator import validate_doctype_ir as _validate_doctype_ir
+from one_bpmn.tools.tool_for_server_scripts import get_doctype_fields as _get_doctype_fields
+
+
+# ── Deterministic transforms ────────────────────────────────────────────────
+def validate_ir(ir: dict) -> dict:
+	"""Schema-safety gate. Returns ``{valid, violations, fix_hints}``."""
+	return _validate_doctype_ir(ir)
+
+
+def _field_index(ir: dict) -> dict:
+	"""Map fieldname → field dict for the data fields of an IR (layout breaks skipped)."""
+	out = {}
+	for f in (ir.get("fields") or []):
+		fn = (f.get("fieldname") or "").strip()
+		if fn:
+			out[fn] = f
+	return out
+
+
+# Field attributes worth surfacing in a diff (label/type/options/flags).
+_DIFF_ATTRS = ("label", "fieldtype", "options", "reqd", "unique", "in_list_view", "read_only", "default")
+
+
+def diff_ir(original: dict, modified: dict) -> dict:
+	"""Field-level diff between two DocType IRs.
+
+	Returns ``{added, removed, changed, summary}`` where ``changed`` items carry
+	the per-attribute before/after. ``summary`` is a compact human-readable list
+	suitable for a chat bubble.
+	"""
+	orig = _field_index(original or {})
+	new = _field_index(modified or {})
+
+	added = [new[fn] for fn in new if fn not in orig]
+	removed = [orig[fn] for fn in orig if fn not in new]
+	changed = []
+	for fn in new:
+		if fn not in orig:
+			continue
+		before, after = orig[fn], new[fn]
+		attr_changes = {}
+		for attr in _DIFF_ATTRS:
+			b, a = before.get(attr), after.get(attr)
+			if (b or "") != (a or "") and b != a:
+				attr_changes[attr] = {"from": b, "to": a}
+		if attr_changes:
+			changed.append({"fieldname": fn, "changes": attr_changes})
+
+	lines = []
+	for f in added:
+		lines.append(f"+ add field '{f.get('label') or f.get('fieldname')}' ({f.get('fieldtype')})")
+	for f in removed:
+		lines.append(f"- remove field '{f.get('label') or f.get('fieldname')}'")
+	for c in changed:
+		attrs = ", ".join(f"{k}: {v['from']!r}→{v['to']!r}" for k, v in c["changes"].items())
+		lines.append(f"~ change '{c['fieldname']}' ({attrs})")
+
+	return {"added": added, "removed": removed, "changed": changed, "summary": "\n".join(lines)}
+
+
+def extract_json(response: str) -> dict:
+	"""Pull the first JSON object from an LLM response (fenced or bare)."""
+	import re
+
+	text = (response or "").strip()
+	fence = re.search(r"```(?:json)?\s*\n?([\s\S]*?)```", text)
+	if fence:
+		return json.loads(fence.group(1).strip())
+	try:
+		return json.loads(text)
+	except (json.JSONDecodeError, ValueError):
+		pass
+	brace = re.search(r"\{[\s\S]*\}", text)
+	if brace:
+		return json.loads(brace.group(0))
+	raise ValueError(f"No JSON object found in LLM response: {text[:200]}")
+
+
+# ── Read helpers (backing the ToolSpecs) ─────────────────────────────────────
+def list_doctypes(search: str = "") -> str:
+	"""List existing DocTypes (name + module), optionally filtered by *search*."""
+	try:
+		filters = {"istable": 0}
+		if search:
+			filters["name"] = ["like", f"%{search}%"]
+		rows = frappe.get_all(
+			"DocType", filters=filters, fields=["name", "module", "custom"],
+			order_by="modified desc", limit_page_length=50,
+		)
+		return json.dumps(rows)
+	except Exception:
+		frappe.log_error(title="Docu Tool - list_doctypes", message=frappe.get_traceback())
+		return json.dumps([])
+
+
+def doctype_exists(doctype: str) -> str:
+	"""Return whether a DocType exists and whether it is a custom DocType."""
+	try:
+		exists = bool(frappe.db.exists("DocType", doctype))
+		is_custom = bool(frappe.db.get_value("DocType", doctype, "custom")) if exists else False
+		return json.dumps({"exists": exists, "custom": is_custom})
+	except Exception:
+		frappe.log_error(title="Docu Tool - doctype_exists", message=frappe.get_traceback())
+		return json.dumps({"exists": False, "custom": False})
+
+
+# ── Read ToolSpecs (handed to the writer/clarifier sub-agents) ───────────────
+TOOL_LIST_DOCTYPES = ToolSpec(
+	fn=list_doctypes,
+	name="list_doctypes",
+	description="List existing DocTypes (name, module, custom flag). Optionally filter by a search term.",
+	parameters={"search": {"type": "string", "description": "Optional substring to filter DocType names."}},
+	required=[],
+)
+TOOL_GET_DOCTYPE_FIELDS = ToolSpec(
+	fn=_get_doctype_fields,
+	name="get_doctype_fields",
+	description="Get the existing fields (fieldname, fieldtype, label, reqd) of a DocType. Use before modifying one.",
+	parameters={"doctype": {"type": "string", "description": "The exact DocType name, e.g. 'Employee'."}},
+	required=["doctype"],
+)
+TOOL_DOCTYPE_EXISTS = ToolSpec(
+	fn=doctype_exists,
+	name="doctype_exists",
+	description="Check whether a DocType exists and whether it is a custom DocType. Returns {exists, custom}.",
+	parameters={"doctype": {"type": "string", "description": "The DocType name to check."}},
+	required=["doctype"],
+)
+
+# Sub-agent tool bundles.
+WRITER_TOOLS = [TOOL_GET_DOCTYPE_FIELDS, TOOL_DOCTYPE_EXISTS, TOOL_LIST_DOCTYPES]
+CLARIFIER_TOOLS = [TOOL_LIST_DOCTYPES, TOOL_DOCTYPE_EXISTS]
+
+# Full surface (for any future multi-turn loop).
+DOCU_TOOLS: list = [
+	TOOL_LIST_DOCTYPES,
+	TOOL_GET_DOCTYPE_FIELDS,
+	TOOL_DOCTYPE_EXISTS,
+]

@@ -6,6 +6,7 @@ import { frappeGet } from "../shared/frappeResource";
 import { FrappeAutocomplete } from "../shared/FrappeAutocomplete";
 import { FrappeMultiSelect } from "../shared/FrappeMultiSelect";
 import { decodeHtmlAttr } from "../shared/htmlAttrCodec";
+import { makeLaunchDocuButton } from "../shared/launchDocuButton";
 
 // Helpers
 function getAttr(bo, attr) {
@@ -25,6 +26,11 @@ export function UserTaskProps(props) {
 			element,
 			component: TargetDoctypeComponent,
 			isEdited: isSelectEntryEdited,
+		},
+		{
+			id: "spiffworkflow-targetDoctype-launchDocu",
+			element,
+			component: makeLaunchDocuButton("targetDoctype"),
 		},
 		{
 			id: "spiffworkflow-assigneeMode",
