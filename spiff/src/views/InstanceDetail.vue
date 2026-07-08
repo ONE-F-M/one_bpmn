@@ -1,6 +1,6 @@
 <template>
 	<div class="h-full flex flex-col bg-gray-50">
-		<InstanceHeader :details="details" />
+		<InstanceHeader :details="details" :refreshing="refreshing" @refresh="refresh" />
 
 		<main class="flex-1 flex flex-col overflow-hidden">
 			<div v-if="loading" class="flex justify-center flex-col items-center p-12 gap-4 flex-1">
@@ -103,6 +103,7 @@ const instanceId = computed(() => route.params.instance)
 // ── State ──
 
 const loading = ref(true)
+const refreshing = ref(false)
 const details = ref(null)
 const activeTasks = ref([])
 const completingTask = ref(null)
@@ -601,6 +602,24 @@ async function completeTask(task, detail) {
 		if (window.confirm(msg)) doSig()
 	} else {
 		doSig()
+	}
+}
+
+// ── Manual refresh (WI: Refresh button) ──
+// Re-pull the instance, its logs and AI tool calls on demand so the user can
+// see the latest state without waiting for a realtime event or reloading the
+// page. Guarded so overlapping clicks don't stack requests.
+async function refresh() {
+	if (refreshing.value) return
+	refreshing.value = true
+	try {
+		await loadDetails()
+		logs.value = []
+		limitStart.value = 0
+		hasMoreLogs.value = true
+		await loadLogs()
+	} finally {
+		refreshing.value = false
 	}
 }
 
