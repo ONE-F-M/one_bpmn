@@ -7,17 +7,20 @@ golden-sample HTML files for regression coverage.
 Requirements:
 	- Node.js with ``amphtml-validator`` available via ``npx``
 	  (install globally: ``npm install -g amphtml-validator``)
+
+Run with: bench --site SITE run-tests --app one_bpmn --module one_bpmn.tests.test_amp_validation
 """
 
 from __future__ import annotations
 
-import json
 import shutil
 import subprocess
 import tempfile
+import unittest
 from pathlib import Path
+from unittest.mock import patch
 
-import pytest
+from frappe.tests.utils import FrappeTestCase
 
 FIXTURES_DIR = Path(__file__).resolve().parent / "fixtures"
 
@@ -36,7 +39,7 @@ def _get_validator_cmd() -> list[str]:
 	elif shutil.which("npx"):
 		_VALIDATOR_CMD = ["npx", "--yes", "amphtml-validator"]
 	else:
-		pytest.skip("amphtml-validator not found; install via: npm install -g amphtml-validator")
+		raise unittest.SkipTest("amphtml-validator not found; install via: npm install -g amphtml-validator")
 
 	return _VALIDATOR_CMD
 
@@ -44,7 +47,7 @@ def _get_validator_cmd() -> list[str]:
 def _validate_amp4email(html: str, label: str = "amp_doc") -> None:
 	"""Write *html* to a temp file and run the AMP validator against it.
 
-	Asserts that the validator exits with code 0 (PASS).
+	Raises AssertionError unless the validator exits with code 0 (PASS).
 	"""
 	cmd = _get_validator_cmd()
 	with tempfile.NamedTemporaryFile(
@@ -108,24 +111,22 @@ COMMENT_CONTENT = {
 # ---------------------------------------------------------------------------
 
 
-class TestGoldenSamples:
+class TestGoldenSamples(FrappeTestCase):
 	"""Validate the committed golden AMP sample files."""
 
-	@pytest.mark.parametrize(
-		"filename",
-		[
+	def test_golden_file_passes_validation(self) -> None:
+		"""Each committed golden sample must pass AMP4EMAIL validation."""
+		for filename in (
 			"golden_amp_info.html",
 			"golden_amp_action.html",
 			"golden_amp_comment.html",
-		],
-	)
-	def test_golden_file_passes_validation(self, filename: str) -> None:
-		"""Each committed golden sample must pass AMP4EMAIL validation."""
-		path = FIXTURES_DIR / filename
-		if not path.exists():
-			pytest.skip(f"Golden sample not yet generated: {filename}")
-		html = path.read_text(encoding="utf-8")
-		_validate_amp4email(html, label=filename)
+		):
+			with self.subTest(filename=filename):
+				path = FIXTURES_DIR / filename
+				if not path.exists():
+					self.skipTest(f"Golden sample not yet generated: {filename}")
+				html = path.read_text(encoding="utf-8")
+				_validate_amp4email(html, label=filename)
 
 
 # ---------------------------------------------------------------------------
@@ -133,14 +134,12 @@ class TestGoldenSamples:
 # ---------------------------------------------------------------------------
 
 
-class TestRenderedAmpValidation:
+class TestRenderedAmpValidation(FrappeTestCase):
 	"""Render AMP docs from fixture data and validate them."""
 
-	@pytest.fixture(autouse=True)
-	def _setup_frappe_mocks(self):
+	def setUp(self):
 		"""Mock Frappe so render_amp() works without a site."""
 		import jinja2
-		from unittest.mock import patch
 
 		app_root = Path(__file__).resolve().parent.parent.parent
 		env = jinja2.Environment(
@@ -148,11 +147,15 @@ class TestRenderedAmpValidation:
 			autoescape=False,
 		)
 
-		with patch("one_bpmn.email_builder.renderer.frappe") as mock_frappe:
-			mock_frappe.utils.get_url.return_value = "https://erp.one-fm.com"
-			with patch("one_bpmn.email_builder.renderer._get_template") as mock_tmpl:
-				mock_tmpl.side_effect = lambda p: env.get_template(p)
-				yield
+		frappe_patch = patch("one_bpmn.email_builder.renderer.frappe")
+		mock_frappe = frappe_patch.start()
+		self.addCleanup(frappe_patch.stop)
+		mock_frappe.utils.get_url.return_value = "https://erp.one-fm.com"
+
+		template_patch = patch("one_bpmn.email_builder.renderer._get_template")
+		mock_tmpl = template_patch.start()
+		self.addCleanup(template_patch.stop)
+		mock_tmpl.side_effect = lambda p: env.get_template(p)
 
 	def test_info_only_renders_valid_amp(self) -> None:
 		from one_bpmn.email_builder.renderer import render_amp

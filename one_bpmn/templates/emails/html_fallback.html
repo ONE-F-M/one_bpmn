@@ -42,7 +42,7 @@
               {% if has_actions and not is_comment %}
               <div style="margin-top:24px;text-align:center;">
                 {% for action in actions %}
-                <a href="{{ open_link }}"
+                <a href="{{ action.url or open_link }}"
                    target="_blank"
                    style="display:inline-block;padding:10px 28px;border-radius:6px;font-size:14px;font-weight:600;text-decoration:none;margin:4px;
                    {% if action.primary %}background:#171717;color:#ffffff;{% else %}background:#e8ecf0;color:#171717;{% endif %}">
