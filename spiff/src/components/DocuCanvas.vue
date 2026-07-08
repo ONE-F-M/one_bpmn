@@ -162,10 +162,14 @@ const messagesEl  = ref(null);
 const inputEl     = ref(null);
 const sessionId   = ref(`docu-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`);
 
-const dtName    = ref(props.doctype || "");
-const dtModule  = ref("ONE BPMN");
-const isChild   = ref(false);
-const fields    = ref([]);
+const dtName     = ref(props.doctype || "");
+const dtModule   = ref("ONE BPMN");
+const dtAutoname = ref("");
+const isChild    = ref(false);
+const fields     = ref([]);
+
+// Field boolean flags coerced to 0/1 on the way to the backend.
+const FIELD_FLAGS = ["reqd", "in_list_view", "unique", "read_only", "in_standard_filter", "hidden", "bold", "non_negative"];
 
 const applying    = ref(false);
 const applyError  = ref("");
@@ -222,8 +226,13 @@ function loadIr(ir) {
 	if (!ir) return;
 	if (ir.doctype_name) dtName.value = ir.doctype_name;
 	if (ir.module) dtModule.value = ir.module;
+	dtAutoname.value = ir.autoname || "";
 	isChild.value = !!ir.is_child_table;
+	// Spread every incoming property so agent-generated attributes the grid does
+	// not render (depends_on, fetch_from, precision, …) survive the round-trip;
+	// then coerce the UI-bound flags to booleans for the checkboxes.
 	fields.value = (ir.fields || []).map((f) => reactive({
+		...f,
 		fieldname: f.fieldname || "",
 		label: f.label || "",
 		fieldtype: f.fieldtype || "Data",
@@ -232,7 +241,6 @@ function loadIr(ir) {
 		in_list_view: !!f.in_list_view,
 		unique: !!f.unique,
 		read_only: !!f.read_only,
-		default: f.default || "",
 	}));
 	appliedName.value = "";
 	applyError.value = "";
@@ -243,17 +251,17 @@ function currentIr() {
 		doctype_name: dtName.value.trim(),
 		module: dtModule.value || "ONE BPMN",
 		is_child_table: isChild.value,
-		fields: fields.value.map((f) => ({
-			fieldname: isLayout(f.fieldtype) ? "" : (f.fieldname || "").trim(),
-			label: f.label || "",
-			fieldtype: f.fieldtype,
-			options: (f.options || "").trim(),
-			reqd: f.reqd ? 1 : 0,
-			in_list_view: f.in_list_view ? 1 : 0,
-			unique: f.unique ? 1 : 0,
-			read_only: f.read_only ? 1 : 0,
-			default: f.default || "",
-		})),
+		autoname: dtAutoname.value || "",
+		fields: fields.value.map((f) => {
+			const out = { ...f };  // preserve all properties, incl. ones the grid doesn't show
+			out.fieldname = isLayout(f.fieldtype) ? "" : (f.fieldname || "").trim();
+			out.label = f.label || "";
+			out.options = (f.options || "").trim();
+			for (const flag of FIELD_FLAGS) {
+				if (flag in out) out[flag] = out[flag] ? 1 : 0;
+			}
+			return out;
+		}),
 	};
 }
 
@@ -323,8 +331,11 @@ async function applyDoctype() {
 		const name = res?.name || dtName.value;
 		appliedName.value = name;
 		const verb = { created: "created", updated: "updated", fields_added: "updated", unchanged: "already up to date" }[res?.action] || "saved";
-		pushMsg("assistant", `✓ **${name}** ${verb}. You can now use it on the shape. [Open it](${res?.url || "#"})`);
+		// Write the doctype name back onto the shape's property field (the one Docu
+		// was launched from), then tell the user what happened.
 		emit("applied", name);
+		const setNote = res?.action === "created" ? " and set it on this step" : "";
+		pushMsg("assistant", `✓ Done — I've **${verb}** the **${name}** doctype${setNote}. [Open it](${res?.url || "#"})`);
 	} catch (e) {
 		applyError.value = (e && (e.message || e._server_messages)) ? String(e.message || e._server_messages) : "Could not apply the form.";
 		pushMsg("assistant", `⚠️ I couldn't apply the form: ${applyError.value}`);

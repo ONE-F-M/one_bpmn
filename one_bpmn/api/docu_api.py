@@ -25,7 +25,13 @@ from one_bpmn.security.doctype_validator import validate_doctype_ir
 # DocField keys Docu is allowed to write (everything else is ignored).
 _DOCFIELD_KEYS = (
 	"fieldname", "label", "fieldtype", "options", "reqd", "unique",
-	"in_list_view", "read_only", "default", "description", "depends_on",
+	"in_list_view", "in_standard_filter", "read_only", "hidden", "bold",
+	"default", "description", "depends_on", "mandatory_depends_on",
+	"read_only_depends_on", "fetch_from", "precision", "non_negative",
+)
+_DOCFIELD_FLAGS = (
+	"reqd", "unique", "in_list_view", "in_standard_filter",
+	"read_only", "hidden", "bold", "non_negative",
 )
 
 
@@ -143,15 +149,16 @@ def apply_doctype(ir: str) -> dict:
 	name = ir_dict["doctype_name"].strip()
 	module = (ir_dict.get("module") or "ONE BPMN").strip()
 	is_child = int(bool(ir_dict.get("is_child_table")))
+	autoname = (ir_dict.get("autoname") or "").strip()
 	fields = ir_dict.get("fields") or []
 
 	original_user = frappe.session.user
 	try:
 		frappe.set_user("Administrator")
 		if not frappe.db.exists("DocType", name):
-			action = _create_custom_doctype(name, module, is_child, fields)
+			action = _create_custom_doctype(name, module, is_child, autoname, fields)
 		elif frappe.db.get_value("DocType", name, "custom"):
-			action = _reconcile_custom_doctype(name, is_child, fields)
+			action = _reconcile_custom_doctype(name, is_child, autoname, fields)
 		else:
 			action = _add_custom_fields(name, fields)
 		frappe.db.commit()
@@ -177,13 +184,13 @@ def _docfield_dict(field: dict, idx: int) -> dict:
 	out = {k: field[k] for k in _DOCFIELD_KEYS if k in field and field[k] not in (None, "")}
 	out["idx"] = idx
 	# Normalise integer flags.
-	for flag in ("reqd", "unique", "in_list_view", "read_only"):
+	for flag in _DOCFIELD_FLAGS:
 		if flag in out:
 			out[flag] = int(bool(out[flag]))
 	return out
 
 
-def _create_custom_doctype(name: str, module: str, is_child: int, fields: list) -> str:
+def _create_custom_doctype(name: str, module: str, is_child: int, autoname: str, fields: list) -> str:
 	doc = frappe.get_doc({
 		"doctype": "DocType",
 		"name": name,
@@ -191,6 +198,7 @@ def _create_custom_doctype(name: str, module: str, is_child: int, fields: list) 
 		"custom": 1,
 		"istable": is_child,
 		"editable_grid": 1,
+		"autoname": autoname or None,
 		"fields": [_docfield_dict(f, i + 1) for i, f in enumerate(fields)],
 	})
 	if not is_child:
@@ -203,7 +211,7 @@ def _create_custom_doctype(name: str, module: str, is_child: int, fields: list) 
 	return "created"
 
 
-def _reconcile_custom_doctype(name: str, is_child: int, fields: list) -> str:
+def _reconcile_custom_doctype(name: str, is_child: int, autoname: str, fields: list) -> str:
 	"""Bring a custom DocType's fields in line with the IR (add / update / remove).
 
 	The IR (seeded from the live schema and echoed back by the writer) is the
@@ -222,6 +230,8 @@ def _reconcile_custom_doctype(name: str, is_child: int, fields: list) -> str:
 		payloads.append(_docfield_dict(f, idx))
 	doc.set("fields", payloads)
 	doc.istable = is_child
+	if autoname:
+		doc.autoname = autoname
 	doc.save(ignore_permissions=True)
 	return "updated"
 
