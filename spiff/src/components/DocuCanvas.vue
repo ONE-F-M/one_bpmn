@@ -349,7 +349,15 @@ onMounted(async () => {
 			`How would you like me to assist in redefining the **${dt}** doctype or its fields?`,
 		);
 	} else {
-		pushMsg("assistant", "Hi, I'm **Docu**. Describe the information this step needs to capture and I'll build the form for you.");
+		// No doctype selected on the shape — greet with a create-focused message and
+		// tell the user how to switch to change-mode (AC: Docu no-doctype greeting).
+		pushMsg(
+			"assistant",
+			`Hello, I am **Docu**.\n` +
+			`Happy to help with creating doctypes.\n` +
+			`If the doctype already exists and you just want to make changes, please close this window, ` +
+			`select the doctype in the relevant shape's property panel and click on the "Launch Docu" button again.`,
+		);
 	}
 	nextTick(() => inputEl.value?.focus());
 });
