@@ -403,6 +403,90 @@ class BPMNProcessInstance(Document):
 
 		return self.get_active_tasks_summary()
 
+	def resume_parked_ai(self, kind: str, task_id: str):
+		"""
+		WI-001495: execute one parked AI unit in the bpmn_ai_agent worker and
+		resume the flow.
+
+		kind == "service_task"  — task_id is the SpiffWorkflow UUID of a parked
+		    (STARTED) ai_agent Service Task: dispatch it, complete it, then run
+		    the engine forward. Idempotent: if the task is no longer STARTED
+		    (redelivery, completed elsewhere) this is a no-op.
+		kind == "adhoc_decision" — task_id is the ad-hoc subprocess spec name
+		    whose AI Task Selector decision was parked: re-run the engine with
+		    the resume target set so the decider executes exactly ONE LLM
+		    decision inline; the next decision parks again (one job per turn).
+
+		Downstream non-AI tasks reached after the AI completes run in this
+		worker pass — there is no open request to return them to. Further AI
+		tasks reached here park again as fresh jobs.
+		"""
+		if self.status in ("Completed", "Cancelled"):
+			return
+		if not self.workflow_state:
+			return
+
+		# Restore extensions + workflow exactly like advance()
+		_spec_snap = self._load_json(self.serialized_spec or "{}") or {}
+		_script_exts = _spec_snap.get("script_task_extensions", {})
+		self._service_task_extensions = _spec_snap.get("service_task_extensions", {})
+		self._user_task_extensions = _spec_snap.get("user_task_extensions", {})
+		self._refresh_user_task_extensions_from_model()
+
+		wf = bpmn_engine.restore_workflow(
+			workflow_state=self._load_json(self.workflow_state),
+			context_doctype=self.context_doctype,
+			context_docname=self.context_docname,
+			script_task_extensions=_script_exts,
+			initiated_by=self.initiated_by or "Administrator",
+		)
+
+		if self.context_doctype and self.context_docname:
+			bpmn_engine.refresh_context_doc(wf, self.context_doctype, self.context_docname)
+
+		prev_assigned = {
+			row.assigned_user
+			for row in self.active_tasks
+			if row.status == "Waiting" and row.assigned_user
+		}
+
+		frappe.flags.bpmn_engine_action = True
+		try:
+			if kind == "service_task":
+				try:
+					task = wf.get_task_from_id(uuid.UUID(task_id))
+				except Exception:
+					task = None
+				if task is None or task.state != TaskState.STARTED:
+					return  # already resolved elsewhere — idempotent no-op
+				self._dispatch_service_task(task)
+				self._on_engine_task_complete(task)
+				task.complete()
+				if isinstance(
+					getattr(task.workflow, "spec", None), bpmn_engine.AdHocSubprocessSpec
+				) and getattr(task.task_spec, "bpmn_id", None):
+					self._on_adhoc_task_complete(task)
+			else:  # adhoc_decision
+				frappe.flags.bpmn_ai_resume_target = task_id
+
+			self._run_engine(wf)
+		finally:
+			frappe.flags.bpmn_engine_action = False
+			frappe.flags.bpmn_ai_resume_target = None
+
+		# ── Persist (same as advance) ────────────────────────────────────────
+		bpmn_engine.clean_doc_from_wf_data(wf)
+		self.workflow_state = json.dumps(bpmn_engine.serialize_workflow(wf))
+
+		self._sync_active_tasks(wf, prev_assigned=prev_assigned)
+		self._check_completion(wf)
+
+		self.modified = frappe.utils.now()
+		self.modified_by = frappe.session.user
+		self.db_update()
+		self.update_children()
+		self.run_method("on_update")
+
 	def get_active_tasks_summary(self) -> list:
 		"""
 		Return the current waiting User Tasks as a list of dicts.
@@ -499,11 +583,87 @@ class BPMNProcessInstance(Document):
 
 		bpmn_engine.adhoc_next_task_decider = make_adhoc_decider(self, wf)
 		bpmn_engine.adhoc_task_activated_logger = self._log_adhoc_activation
+		self._pending_ai_jobs = []
 		try:
 			self._run_engine_inner(wf)
 		finally:
 			bpmn_engine.adhoc_next_task_decider = None
 			bpmn_engine.adhoc_task_activated_logger = None
+
+		# WI-001495: reflect parked AI work on the instance and hand ONLY the
+		# AI work to the bpmn_ai_agent worker. The callers (start / advance /
+		# receive_message / resume_parked_ai) persist the doc right after this
+		# method returns, and the jobs fire enqueue_after_commit — so the job
+		# always sees the committed parked state.
+		self.waiting_for_ai = (
+			1 if (self._pending_ai_jobs or self._has_parked_ai_tasks(wf)) else 0
+		)
+		self._enqueue_parked_ai_jobs()
+
+	# ── WI-001495: park-and-enqueue seam for AI tasks ─────────────────────────
+
+	_AI_SERVICE_TYPES = ("ai_agent", "ai_task_selector")
+
+	def _ai_parking_active(self) -> bool:
+		"""
+		Parking moves ONLY the AI work of an engine pass to the bpmn_ai_agent
+		worker. Inactive in tests (no worker, auto-rollback) unless a test
+		opts in via frappe.flags.bpmn_force_ai_parking.
+		"""
+		if frappe.flags.bpmn_force_ai_parking:
+			return True
+		return not frappe.flags.in_test
+
+	def _ai_service_type(self, task) -> str:
+		"""The serviceType of a task's compile-time extension config ('' if none)."""
+		bpmn_id = getattr(task.task_spec, "bpmn_id", None) or task.task_spec.name
+		task_cfg = getattr(self, "_service_task_extensions", {}).get(bpmn_id) or {}
+		return task_cfg.get("serviceType", "")
+
+	def _queue_parked_ai_job(self, kind: str, ident: str):
+		"""
+		Record one parked AI unit (an ai_agent service task or an
+		ai_task_selector decision) for enqueueing after this engine pass.
+		Deduplicated here AND by job_id at the queue (AC: one job per
+		instance + task).
+		"""
+		jobs = getattr(self, "_pending_ai_jobs", None)
+		if jobs is None:
+			jobs = self._pending_ai_jobs = []
+		if any(i == ident for _, i in jobs):
+			return
+		jobs.append((kind, ident))
+
+	def _has_parked_ai_tasks(self, wf) -> bool:
+		"""Any ai_agent service task still parked in STARTED state?"""
+		for t in wf.get_tasks(state=TaskState.STARTED):
+			if getattr(t.task_spec, "manual", False) or isinstance(
+				t.task_spec, SubWorkflowTask
+			):
+				continue
+			if self._ai_service_type(t) in self._AI_SERVICE_TYPES:
+				return True
+		return False
+
+	def _enqueue_parked_ai_jobs(self):
+		"""One bpmn_ai_agent job per parked AI unit, deduplicated by job_id."""
+		jobs, self._pending_ai_jobs = getattr(self, "_pending_ai_jobs", []), []
+		for kind, ident in jobs:
+			frappe.enqueue(
+				"one_bpmn.one_bpmn.doctype.bpmn_process_instance"
+				".bpmn_process_instance.run_parked_ai_task",
+				# AI-only jobs — the rest of the pass already ran inline
+				# (WI-001494/WI-001495).
+				queue="bpmn_ai_agent",
+				timeout=600,
+				enqueue_after_commit=True,
+				job_id=f"bpmn-ai-{self.name}-{ident}",
+				deduplicate=True,
+				instance_name=self.name,
+				kind=kind,
+				task_id=ident,
+				run_as_user=frappe.session.user,
+			)
 
 	def _log_adhoc_activation(self, sp, task):
 		"""WI-001359: 'Ad-Hoc Task Activated' audit entry. The existing
@@ -559,6 +719,19 @@ class BPMNProcessInstance(Document):
 				if not getattr(t.task_spec, "manual", False)
 				and not isinstance(t.task_spec, SubWorkflowTask)
 			]
+
+			# WI-001495: AI service tasks never dispatch inline — leave them
+			# parked in STARTED and queue ONLY their LLM work on the
+			# bpmn_ai_agent worker (run_parked_ai_task dispatches and resumes).
+			# Non-AI siblings in the same pass still dispatch inline below.
+			if self._ai_parking_active():
+				parked = [
+					t for t in started_tasks if self._ai_service_type(t) == "ai_agent"
+				]
+				for t in parked:
+					self._queue_parked_ai_job("service_task", str(t.id))
+				started_tasks = [t for t in started_tasks if t not in parked]
+
 			if not started_tasks:
 				cap_hit = False
 				break  # nothing left to advance — we're done
@@ -1039,3 +1212,47 @@ class BPMNProcessInstance(Document):
 			return json.loads(value)
 		except (TypeError, ValueError):
 			return None
+
+
+def run_parked_ai_task(instance_name: str, kind: str, task_id: str, run_as_user: str = None):
+	"""
+	WI-001495: bpmn_ai_agent job — execute ONE parked AI unit (an ai_agent
+	Service Task dispatch or an ai_task_selector decision) and resume the
+	instance. Enqueued by _enqueue_parked_ai_jobs with
+	job_id=f"bpmn-ai-{instance}-{task_id}" (deduplicate=True), so at most one
+	job exists per parked unit.
+
+	Failure policy (basic — bounded retries land in WI-001497): errors mark
+	the instance Errored, mirroring _complete_task_job.
+	"""
+	if run_as_user:
+		frappe.set_user(run_as_user)
+
+	# Row lock serializes concurrent engine passes on the same instance
+	instance = frappe.get_doc("BPMN Process Instance", instance_name, for_update=True)
+	try:
+		instance.resume_parked_ai(kind=kind, task_id=task_id)
+	except Exception:
+		frappe.db.set_value("BPMN Process Instance", instance_name, "status", "Errored")
+		frappe.db.set_value(
+			"BPMN Process Instance", instance_name, "waiting_for_ai", 0, update_modified=False
+		)
+		frappe.log_error(
+			title=f"BPMN parked AI job failed: {instance_name}",
+			message=frappe.get_traceback(),
+		)
+	finally:
+		frappe.publish_realtime(
+			"bpmn_instance_updated",
+			{
+				"instance_name": instance_name,
+				"status": frappe.db.get_value("BPMN Process Instance", instance_name, "status"),
+				"waiting_for_ai": frappe.db.get_value(
+					"BPMN Process Instance", instance_name, "waiting_for_ai"
+				),
+				"context_doctype": instance.context_doctype or "",
+				"context_docname": instance.context_docname or "",
+			},
+			after_commit=True,
+			user="all",
+		)

@@ -8,6 +8,7 @@
   "process_model",
   "status",
   "engine_in_progress",
+  "waiting_for_ai",
   "initiated_by",
   "started_at",
   "completed_at",
@@ -43,6 +44,14 @@
    "fieldname": "engine_in_progress",
    "fieldtype": "Check",
    "label": "Engine In Progress",
+   "read_only": 1
+  },
+  {
+   "default": "0",
+   "description": "An AI task in this instance is parked, waiting for its background AI job (Waiting for AI execution)",
+   "fieldname": "waiting_for_ai",
+   "fieldtype": "Check",
+   "label": "Waiting For AI",
    "read_only": 1
   },
   {
