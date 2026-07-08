@@ -389,7 +389,13 @@ def start_queued_instance(instance_name: str, run_as_user: str = None):
 	instance = frappe.get_doc("BPMN Process Instance", instance_name, for_update=True)
 	if instance.status != "Queued":
 		return  # already started (or cancelled) elsewhere
-	if run_as_user:
+	# NEVER call frappe.set_user for the current user: set_user() rewrites
+	# local.session.sid and WIPES session.data — inside a web request (the
+	# inline path) the end-of-request session persistence then writes the
+	# gutted data back under the browser's cookie sid, and every following
+	# request fails with "User None is disabled". Only switch identity when
+	# it actually differs (the background-job case).
+	if run_as_user and run_as_user != frappe.session.user:
 		frappe.set_user(run_as_user)
 
 	# Same guard as the inline path: script tasks inside start() may save the

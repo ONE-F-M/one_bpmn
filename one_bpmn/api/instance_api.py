@@ -562,7 +562,13 @@ def _complete_task_job(
 	consistently. AI tasks reached by the pass are parked by the WI-001495
 	seam and continue on the bpmn_ai_agent worker.
 	"""
-	if run_as_user:
+	# NEVER call frappe.set_user for the current user: set_user() rewrites
+	# local.session.sid and WIPES session.data — inside a web request (the
+	# inline path) the end-of-request session persistence then writes the
+	# gutted data back under the browser's cookie sid, and every following
+	# request fails with "User None is disabled". Only switch identity when
+	# it actually differs (the background-job case).
+	if run_as_user and run_as_user != frappe.session.user:
 		frappe.set_user(run_as_user)
 
 	# Row lock serializes concurrent engine passes on the same instance
