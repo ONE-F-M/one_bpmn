@@ -35,6 +35,7 @@ AGENT_ID = "docu_agent"
 
 _WRITER_TOOLS = docu_tools.WRITER_TOOLS
 _CLARIFIER_TOOLS = docu_tools.CLARIFIER_TOOLS
+_REVIEWER_TOOLS = docu_tools.REVIEWER_TOOLS
 
 _DEFAULT_MODULE = "ONE BPMN"
 _MAX_FIX_PASSES = 3
@@ -135,7 +136,11 @@ _SCHEMA_WRITER = (
 	"5. Group related fields with a 'Section Break' (give it a label) for a clean layout.\n"
 	"6. Keep the form focused — only the fields the process actually needs.\n"
 	"7. When MODIFYING, you are given the current fields. Output the COMPLETE desired field list (keep unchanged fields exactly as-is, including their fieldname), not just the change.\n\n"
-	"Use the tools to inspect existing DocTypes and confirm Link targets before finalizing.\n\n"
+	"USE YOUR TOOLS — do not guess:\n"
+	"- `list_doctypes` / `doctype_exists`: before naming a new form, check the name is not already taken.\n"
+	"- `doctype_exists`: call it on the 'options' of EVERY Link and Table field to confirm the target DocType really exists. If it does not, pick an existing one or choose a different field type — never invent a target.\n"
+	"- `get_doctype_fields`: when modifying, or when referencing another form, read its real fields.\n"
+	"- `validate_doctype`: run it on your finished design and fix anything it flags BEFORE you output.\n\n"
 	"OUTPUT FORMAT: a short plain-English sentence describing what you built, then the JSON object in a ```json code block."
 )
 
@@ -146,6 +151,9 @@ _SCHEMA_REVIEWER = (
 	"2. Fieldnames — snake_case, unique, not a reserved Frappe field (name, owner, creation, modified, docstatus, parent, idx, ...).\n"
 	"3. Completeness — the form captures what the request described; nothing important is missing.\n"
 	"4. Sanity — labels are clear, at least one field is marked in_list_view, related fields are grouped.\n\n"
+	"USE YOUR TOOLS to verify, don't assume:\n"
+	"- `doctype_exists`: confirm the target of every Link/Table field actually exists. A Link to a non-existent DocType is a blocking issue — set approved=false and fix it.\n"
+	"- `validate_doctype`: run it on the definition; if it reports violations, fix them in revised_ir.\n\n"
 	"If the design is good, approve it unchanged. If not, return a corrected full definition.\n\n"
 	"Respond with ONLY a JSON object:\n"
 	"{\n"
@@ -330,7 +338,7 @@ class DocuAgent:
 			except (ValueError, json.JSONDecodeError):
 				return draft, None, []
 
-			review_raw = await self._run("schema_reviewer", json.dumps(draft_ir))
+			review_raw = await self._run("schema_reviewer", json.dumps(draft_ir), tools=_REVIEWER_TOOLS)
 			candidate_ir = self._apply_review(draft_ir, review_raw)
 			candidate_ir.setdefault("module", target_module or _DEFAULT_MODULE)
 

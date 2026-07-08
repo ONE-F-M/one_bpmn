@@ -150,18 +150,45 @@ TOOL_GET_DOCTYPE_FIELDS = ToolSpec(
 TOOL_DOCTYPE_EXISTS = ToolSpec(
 	fn=doctype_exists,
 	name="doctype_exists",
-	description="Check whether a DocType exists and whether it is a custom DocType. Returns {exists, custom}.",
+	description=(
+		"Check whether a DocType exists and whether it is a custom DocType. Returns {exists, custom}. "
+		"Call this on the 'options' of every Link/Table field to confirm the target really exists."
+	),
 	parameters={"doctype": {"type": "string", "description": "The DocType name to check."}},
 	required=["doctype"],
 )
 
+
+def _validate_doctype_tool(ir: str = "{}") -> str:
+	"""Tool wrapper: parse the IR JSON string and run the schema-safety gate."""
+	try:
+		data = json.loads(ir) if isinstance(ir, str) else ir
+	except (json.JSONDecodeError, TypeError, ValueError) as exc:
+		return json.dumps({"valid": False, "violations": [f"Not valid JSON: {exc}"], "fix_hints": []})
+	return json.dumps(validate_ir(data))
+
+
+TOOL_VALIDATE_DOCTYPE = ToolSpec(
+	fn=_validate_doctype_tool,
+	name="validate_doctype",
+	description=(
+		"Validate a DocType definition (JSON) against the schema-safety rules. "
+		"Returns {valid, violations, fix_hints}. Call this on your design before you finalize it, "
+		"and fix any violations it reports."
+	),
+	parameters={"ir": {"type": "string", "description": "The DocType definition as a JSON object string."}},
+	required=["ir"],
+)
+
 # Sub-agent tool bundles.
-WRITER_TOOLS = [TOOL_GET_DOCTYPE_FIELDS, TOOL_DOCTYPE_EXISTS, TOOL_LIST_DOCTYPES]
+WRITER_TOOLS = [TOOL_GET_DOCTYPE_FIELDS, TOOL_DOCTYPE_EXISTS, TOOL_LIST_DOCTYPES, TOOL_VALIDATE_DOCTYPE]
 CLARIFIER_TOOLS = [TOOL_LIST_DOCTYPES, TOOL_DOCTYPE_EXISTS]
+REVIEWER_TOOLS = [TOOL_GET_DOCTYPE_FIELDS, TOOL_DOCTYPE_EXISTS, TOOL_VALIDATE_DOCTYPE]
 
 # Full surface (for any future multi-turn loop).
 DOCU_TOOLS: list = [
 	TOOL_LIST_DOCTYPES,
 	TOOL_GET_DOCTYPE_FIELDS,
 	TOOL_DOCTYPE_EXISTS,
+	TOOL_VALIDATE_DOCTYPE,
 ]
