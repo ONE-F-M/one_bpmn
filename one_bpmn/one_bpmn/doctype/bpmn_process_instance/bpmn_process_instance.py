@@ -1214,7 +1214,34 @@ class BPMNProcessInstance(Document):
 			return None
 
 
-def run_parked_ai_task(instance_name: str, kind: str, task_id: str, run_as_user: str = None):
+def _job_retry_cap(instance, kind: str, task_id: str) -> int:
+	"""
+	WI-001497: bounded retries for job-level failures reuse the panel's
+	aiMaxRetries setting (the same field that already governs the executor's
+	in-process LLM retries) — no new fields. Falls back to the executor's
+	default (2) when the config can't be resolved.
+	"""
+	try:
+		spec = json.loads(instance.serialized_spec or "{}") or {}
+		exts = spec.get("service_task_extensions", {}) or {}
+		if kind == "adhoc_decision":
+			cfg = exts.get(task_id) or {}
+		else:
+			# task_id is a runtime UUID — resolvable to a bpmn_id only via the
+			# workflow (whose restore may be the thing that failed). When the
+			# model has exactly one ai_agent task the config is unambiguous.
+			ai_cfgs = [
+				c for c in exts.values() if (c or {}).get("serviceType") == "ai_agent"
+			]
+			cfg = ai_cfgs[0] if len(ai_cfgs) == 1 else {}
+		return int(cfg.get("aiMaxRetries", 2) or 2)
+	except Exception:
+		return 2
+
+
+def run_parked_ai_task(
+	instance_name: str, kind: str, task_id: str, run_as_user: str = None, attempt: int = 0
+):
 	"""
 	WI-001495: bpmn_ai_agent job — execute ONE parked AI unit (an ai_agent
 	Service Task dispatch or an ai_task_selector decision) and resume the
@@ -1222,8 +1249,17 @@ def run_parked_ai_task(instance_name: str, kind: str, task_id: str, run_as_user:
 	job_id=f"bpmn-ai-{instance}-{task_id}" (deduplicate=True), so at most one
 	job exists per parked unit.
 
-	Failure policy (basic — bounded retries land in WI-001497): errors mark
-	the instance Errored, mirroring _complete_task_job.
+	Failure policy (WI-001497):
+	- LLM/provider failures are retried IN-PROCESS by the executor up to the
+	  panel's aiMaxRetries and recorded on AI Agent Run.retry_count; when the
+	  executor exhausts its retries the dispatch writes the error variables
+	  and the flow continues — identical to inline dispatch (parity).
+	- Job-level failures (engine restore, DB errors, crashes) re-enqueue this
+	  job with attempt+1 while attempt < aiMaxRetries; the parked task stays
+	  STARTED and the instance stays Active ("Waiting for AI execution").
+	- On exhaustion the instance is marked Errored, the error is recorded on
+	  the task's activity log, and the task stays parked so retry_ai_task
+	  (manual retry) can re-kick it.
 	"""
 	if run_as_user:
 		frappe.set_user(run_as_user)
@@ -1233,14 +1269,52 @@ def run_parked_ai_task(instance_name: str, kind: str, task_id: str, run_as_user:
 	try:
 		instance.resume_parked_ai(kind=kind, task_id=task_id)
 	except Exception:
-		frappe.db.set_value("BPMN Process Instance", instance_name, "status", "Errored")
-		frappe.db.set_value(
-			"BPMN Process Instance", instance_name, "waiting_for_ai", 0, update_modified=False
-		)
+		retry_cap = _job_retry_cap(instance, kind, task_id)
 		frappe.log_error(
-			title=f"BPMN parked AI job failed: {instance_name}",
+			title=(
+				f"BPMN parked AI job failed: {instance_name} "
+				f"(attempt {attempt + 1}/{retry_cap + 1})"
+			),
 			message=frappe.get_traceback(),
 		)
+		if attempt < retry_cap:
+			# Bounded retry: same unit, next attempt. Distinct job_id so the
+			# dedup of the original job can't swallow the retry.
+			frappe.enqueue(
+				"one_bpmn.one_bpmn.doctype.bpmn_process_instance"
+				".bpmn_process_instance.run_parked_ai_task",
+				queue="bpmn_ai_agent",
+				timeout=600,
+				enqueue_after_commit=True,
+				job_id=f"bpmn-ai-{instance_name}-{task_id}-r{attempt + 1}",
+				deduplicate=True,
+				instance_name=instance_name,
+				kind=kind,
+				task_id=task_id,
+				run_as_user=run_as_user,
+				attempt=attempt + 1,
+			)
+		else:
+			# Exhausted: surface the failure. The task stays parked (STARTED)
+			# so a manual retry can resume exactly where it stopped.
+			frappe.db.set_value("BPMN Process Instance", instance_name, "status", "Errored")
+			frappe.db.set_value(
+				"BPMN Process Instance",
+				instance_name,
+				"waiting_for_ai",
+				0,
+				update_modified=False,
+			)
+			instance._log_task(
+				task_id=task_id,
+				task_name=f"AI job ({kind})",
+				action="Errored",
+				data={
+					"kind": kind,
+					"attempts": attempt + 1,
+					"error": frappe.get_traceback()[-1000:],
+				},
+			)
 	finally:
 		frappe.publish_realtime(
 			"bpmn_instance_updated",
