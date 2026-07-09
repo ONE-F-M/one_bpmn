@@ -667,7 +667,17 @@ class BPMNProcessInstance(Document):
 		Parking moves ONLY the AI work of an engine pass to the bpmn_ai_agent
 		worker. Inactive in tests (no worker, auto-rollback) unless a test
 		opts in via frappe.flags.bpmn_force_ai_parking.
+
+		The chat delegation path (Logix / ProsAlly / Docu) opts OUT via
+		frappe.flags.bpmn_disable_ai_parking so the agent runs INLINE and the
+		HTTP turn returns the reply synchronously. Unlike a document save, the
+		chat endpoint is an explicit waiter — the frontend expects the reply in
+		the response, so blocking on the LLM is correct there. (Without this the
+		agent parks async, the caller's read-back finds no fresh bot message,
+		and it wrongly surfaces "reopen the chat" while the instance is fine.)
 		"""
+		if getattr(frappe.flags, "bpmn_disable_ai_parking", False):
+			return False
 		if frappe.flags.bpmn_force_ai_parking:
 			return True
 		return not frappe.flags.in_test
