@@ -256,5 +256,8 @@ that module's docstring for the full config schema. Summary:
    validly-signed token for it — the registry is an allowlist, not just
    a lookup table, so this fails closed by design.
 
-The Leave Application `Approve` / `Propose New Dates` actions
-(`one_fm/hooks.py`) are the reference implementation of this pattern.
+This was validated end-to-end (2026-07-08) with a temporary Leave
+Application `Approve` / `Propose New Dates` registration — since removed,
+as Leave Application is expected to become a real BPMN process, which
+would use the standard `handle_amp_action` path instead. No doctype is
+currently registered against this endpoint.
