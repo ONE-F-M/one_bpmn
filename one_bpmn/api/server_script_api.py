@@ -80,6 +80,15 @@ def _delegate_to_bpmn_instance(conversation_name: str, message: str, context: di
 	}
 	payload.update({k: v for k, v in (context or {}).items() if v not in (None, "")})
 
+	# Run the agent INLINE for this turn instead of parking it on the
+	# bpmn_ai_agent worker. The chat endpoint is an explicit waiter: the
+	# frontend expects the reply in this HTTP response, so the "Run <Agent>"
+	# AI task must execute (and "Save Response" must persist the bot message)
+	# before the read-back below. Without this the agent parks async, the
+	# read-back finds no fresh bot message, and the caller wrongly surfaces
+	# "reopen the chat" even though the instance is running normally.
+	prev_parking_flag = getattr(frappe.flags, "bpmn_disable_ai_parking", False)
+	frappe.flags.bpmn_disable_ai_parking = True
 	try:
 		instance = frappe.get_doc("BPMN Process Instance", inst_name)
 		instance.receive_message("ChatConversation_Message_Action", payload=payload)
@@ -89,6 +98,8 @@ def _delegate_to_bpmn_instance(conversation_name: str, message: str, context: di
 	except Exception:
 		frappe.log_error(title="BPMN chat delegation failed", message=frappe.get_traceback())
 		return None
+	finally:
+		frappe.flags.bpmn_disable_ai_parking = prev_parking_flag
 
 	# Read back the bot message the instance produced during Call Agent → Save Response.
 	rows = frappe.get_all(
