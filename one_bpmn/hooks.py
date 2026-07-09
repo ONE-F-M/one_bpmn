@@ -227,13 +227,6 @@ scheduler_events = {
 # before_request = ["one_bpmn.utils.before_request"]
 after_request = ["one_bpmn.api.todo_actions.apply_amp_headers"]
 
-# amp_workflow_actions registrations for one_bpmn.api.workflow_actions.
-# handle_workflow_action go here — see that module's docstring for the
-# config schema. (Leave Application's Approve/Propose New Dates were
-# registered here temporarily to test this endpoint end-to-end; removed
-# since Leave Application is expected to become a real BPMN process,
-# which would use the standard handle_amp_action path instead.)
-
 # Job Events
 # ----------
 # before_job = ["one_bpmn.utils.before_job"]
