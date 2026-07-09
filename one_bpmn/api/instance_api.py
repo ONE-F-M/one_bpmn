@@ -523,6 +523,41 @@ def get_parked_ai_tasks(instance_name: str) -> list:
 
 
 @frappe.whitelist()
+def get_suspended_ai_tasks(instance_name: str) -> list:
+	"""
+	Durable AI Agent HITL: the agents of this instance currently suspended
+	waiting for a person. Powers the "waiting for human task X" banner and
+	the distinct suspended-agent diagram marker.
+
+	Returns: list of {bpmn_id, human_task_id, human_task_label}.
+	"""
+	if not instance_name:
+		frappe.throw(_("instance_name is required"))
+
+	instance = frappe.get_doc("BPMN Process Instance", instance_name)
+	instance.check_permission("read")
+
+	runs = frappe.get_list(
+		"AI Agent Run",
+		filters={"instance": instance_name, "status": "Suspended"},
+		fields=["bpmn_id", "pending_human_task"],
+	)
+	labels = {
+		row.task_id: row.task_name
+		for row in instance.active_tasks
+		if str(row.task_id).startswith(instance.AI_HUMAN_PREFIX)
+	}
+	return [
+		{
+			"bpmn_id": r.bpmn_id,
+			"human_task_id": r.pending_human_task or "",
+			"human_task_label": labels.get(r.pending_human_task, ""),
+		}
+		for r in runs
+	]
+
+
+@frappe.whitelist()
 def retry_ai_task(instance_name: str, task_id: str, kind: str = "service_task") -> dict:
 	"""
 	WI-001497: manually re-kick a parked AI unit after the automatic retries

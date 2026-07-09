@@ -322,7 +322,7 @@ function applyHighlights() {
 	overlays.remove({ type: "token-badge" })
 
 		// Clear stale highlight markers before re-applying
-		const staticHighlightMarkers = new Set(["highlight-done", "highlight-active", "highlight-ai-called", "highlight-ai-error", "highlight-ai-waiting"])
+		const staticHighlightMarkers = new Set(["highlight-done", "highlight-active", "highlight-ai-called", "highlight-ai-error", "highlight-ai-waiting", "highlight-ai-human"])
 		const dynamicHighlightPrefixes = ["heatmap-", "highlight-flow-"]
 		for (const element of elementRegistry.getAll()) {
 			const gfx = elementRegistry.getGraphics(element)
@@ -440,9 +440,18 @@ function applyHighlights() {
 
 		// Parked AI units (WI-001499): waiting for their background AI job —
 		// pulsing purple; an exhausted-retries failure gets the error look.
+		// A suspended agent (Durable HITL, status "Human") is waiting for a
+		// PERSON — distinct amber treatment.
 		for (const [bpmnId, status] of Object.entries(props.waitingAiTasks || {})) {
 			try {
-				canvas.addMarker(bpmnId, status === "Error" ? "highlight-ai-error" : "highlight-ai-waiting")
+				canvas.addMarker(
+					bpmnId,
+					status === "Error"
+						? "highlight-ai-error"
+						: status === "Human"
+							? "highlight-ai-human"
+							: "highlight-ai-waiting",
+				)
 			} catch (e) {}
 		}
 
@@ -574,6 +583,12 @@ function applyHighlights() {
 @keyframes ai-waiting-pulse {
 	0%, 100% { stroke-opacity: 1; }
 	50% { stroke-opacity: 0.35; }
+}
+/* Durable HITL: agent suspended, waiting for a person — amber, pulsing */
+.highlight-ai-human:not(.djs-connection) .djs-visual > :nth-child(1) {
+	stroke: #d97706 !important; fill: #fef3c7 !important; stroke-width: 2.5px !important;
+	stroke-dasharray: 6 3 !important;
+	animation: ai-waiting-pulse 1.6s ease-in-out infinite;
 }
 .highlight-flow-done.djs-connection .djs-visual > path {
 	stroke: #16a34a !important; stroke-width: 2px !important;

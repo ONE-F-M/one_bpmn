@@ -32,6 +32,16 @@
 					<Icon icon="lucide:loader" class="w-4 h-4 text-purple-400 animate-spin" />
 				</div>
 
+				<!-- Suspended agent waiting for a person (Durable AI Agent HITL) -->
+				<div v-if="waitingForHuman" class="flex items-center gap-3 bg-amber-50 border border-amber-200 text-amber-800 text-sm px-4 py-2.5 mx-4 mt-2 rounded-lg">
+					<Icon icon="lucide:user-round" class="w-4 h-4 text-amber-600" />
+					<div class="flex-1">
+						<span class="font-semibold">AI agent waiting for a human task</span>
+						<span class="text-amber-700"> — {{ waitingForHuman }}</span>
+					</div>
+					<span class="text-amber-500 animate-pulse text-base leading-none">✦</span>
+				</div>
+
 				<!-- AI job failed after retries (WI-001497/WI-001499) -->
 				<div v-else-if="details.status === 'Errored' && parkedAiTasks.length" class="flex items-start gap-3 bg-red-50 border border-red-200 text-red-800 text-sm px-4 py-3 mx-4 mt-2 rounded-lg">
 					<span class="text-red-500 text-base leading-none mt-0.5">✦</span>
@@ -396,13 +406,40 @@ const parkedAiLabels = computed(() =>
 )
 
 const waitingAiMap = computed(() => {
-	if (!waitingForAi.value && details.value?.status !== "Errored") return {}
 	const map = {}
-	for (const u of parkedAiTasks.value) {
-		map[u.bpmn_id] = details.value?.status === "Errored" ? "Error" : "Waiting"
+	if (waitingForAi.value || details.value?.status === "Errored") {
+		for (const u of parkedAiTasks.value) {
+			map[u.bpmn_id] = details.value?.status === "Errored" ? "Error" : "Waiting"
+		}
+	}
+	// Durable HITL: a suspended agent gets its own marker — it is waiting
+	// for a person, not for an AI job.
+	for (const s of suspendedAiTasks.value) {
+		map[s.bpmn_id] = "Human"
 	}
 	return map
 })
+
+// ── Suspended agents waiting for a human (Durable AI Agent HITL) ──
+const suspendedAiTasks = ref([])
+const waitingForHuman = computed(() => details.value?.waiting_for_human || "")
+
+async function loadSuspendedAiTasks() {
+	if (!waitingForHuman.value) {
+		suspendedAiTasks.value = []
+		return
+	}
+	try {
+		const res = await frappeRequest({
+			url: "/api/method/one_bpmn.api.instance_api.get_suspended_ai_tasks",
+			params: { instance_name: instanceId.value },
+		})
+		suspendedAiTasks.value = Array.isArray(res) ? res : []
+	} catch (e) {
+		console.warn("Failed to load suspended AI tasks:", e)
+		suspendedAiTasks.value = []
+	}
+}
 
 async function loadParkedAiTasks() {
 	if (!waitingForAi.value && details.value?.status !== "Errored") {
@@ -482,6 +519,7 @@ async function loadDetails() {
 		if (res?.process_model) loadProcessModelXml(res.process_model)
 		loadAiToolCalls()
 		loadParkedAiTasks()
+		loadSuspendedAiTasks()
 	} catch (e) {
 		console.error("Failed to load instance details:", e)
 	}

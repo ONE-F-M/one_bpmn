@@ -357,6 +357,19 @@ class TestCompleteTaskApiRouting(HitlHarness):
 		enqueue.assert_called_once()
 		self.assertEqual(enqueue.call_args.kwargs["kind"], "human_resume")
 
+	def test_get_suspended_ai_tasks_names_agent_and_human_task(self):
+		task_id = self._park_linear()
+		self._suspend(task_id)
+		row = self._human_row()
+
+		from one_bpmn.api import instance_api
+
+		suspended = instance_api.get_suspended_ai_tasks(self.instance.name)
+		self.assertEqual(len(suspended), 1)
+		self.assertEqual(suspended[0]["bpmn_id"], "Agent_1")
+		self.assertEqual(suspended[0]["human_task_id"], row.task_id)
+		self.assertEqual(suspended[0]["human_task_label"], "Approve Refund")
+
 	def test_complete_task_validates_action_for_human_rows(self):
 		task_id = self._park_linear()
 		self._suspend(task_id)
