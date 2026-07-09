@@ -176,7 +176,10 @@ def _resolve_options() -> ValidatorOptions:
 		if value is None:
 			continue
 		if isinstance(default, bool):
-			setattr(opts, attr, bool(value))
+			# Check fields can surface as the strings "0"/"1" (e.g. from the
+			# singles table before the doctype is migrated). bool("0") is True,
+			# so coerce numerically — cint("0") == 0 → False, cint("1") == 1 → True.
+			setattr(opts, attr, bool(_f.utils.cint(value)))
 		else:
 			# Threshold: ignore unset/zero/malformed values, keep the default.
 			try:
