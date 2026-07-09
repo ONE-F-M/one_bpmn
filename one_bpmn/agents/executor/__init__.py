@@ -35,6 +35,11 @@ class ErrorCode(Enum):
     PROVIDER_DISABLED = "PROVIDER_DISABLED"
     TIMEOUT = "TIMEOUT"
     UNEXPECTED_ERROR = "UNEXPECTED_ERROR"
+    # Durable AI Agent HITL: the model selected a human tool — the run is
+    # neither success nor failure; it is waiting for a person. Callers MUST
+    # branch on this before any failure/retry handling: a suspension never
+    # consumes a retry and never writes error variables.
+    SUSPENDED = "SUSPENDED"
 
 
 # ---------------------------------------------------------------------------
@@ -85,6 +90,11 @@ class ExecutorConfig:
     # WI-001422: cap on tool-calling turns ("Maximum model calls" in Camunda);
     # None uses the adapter default. dispatch_ai_agent sets it from aiMaxToolCalls.
     max_tool_calls: int | None = None
+    # Durable AI Agent HITL: persisted AgentSuspension fields + "human_result".
+    # When set, the step loop re-enters the checkpointed conversation instead
+    # of starting fresh (system_prompt/user_prompt are NOT re-rendered — the
+    # transcript already contains the rendered originals).
+    resume_state: dict | None = None
 
 
 @dataclass
@@ -109,6 +119,10 @@ class ExecutorResult:
     # LLM turn, each carrying its tool calls and that turn's token usage.
     # Plain dataclass field: no doctype/database migration involved.
     trace: list = field(default_factory=list)
+    # Durable AI Agent HITL: JSON-serializable AgentSuspension payload, set
+    # if and only if error_code == ErrorCode.SUSPENDED. This is what the
+    # checkpoint layer persists.
+    suspension: dict | None = None
 
 
 # ---------------------------------------------------------------------------

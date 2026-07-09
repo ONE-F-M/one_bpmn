@@ -15,6 +15,8 @@ from one_bpmn.agents.executor import ErrorCode, ExecutorConfig, ExecutorContext
 from one_bpmn.agents.executor.direct_api import DirectApiExecutor
 from one_bpmn.agents.llm_provider.base import (
 	CompletionResult,
+	StepResult,
+	StepToolCall,
 	ToolCallRecord,
 	ToolSpec,
 	TurnRecord,
@@ -46,13 +48,26 @@ def _tool(fn=None):
 
 
 class _FakeAdapter:
-	def __init__(self, completion):
-		self._completion = completion
+	"""Scripted step() fake for the step-driven loop (Durable AI Agent HITL).
+
+	The bridge no longer calls adapter.complete() — one_bpmn owns the loop and
+	the adapter only makes single model calls. The last scripted step repeats,
+	so a scripted tool-call step loops until the executor's turn cap."""
+
+	def __init__(self, steps):
+		self._steps = list(steps)
 		self.calls = []
 
-	async def complete(self, system, user, tools=None, max_tokens=16384):
-		self.calls.append({"system": system, "user": user, "tools": tools, "max_tokens": max_tokens})
-		return self._completion
+	async def step(self, system, transcript, tools=None, max_tokens=16384):
+		self.calls.append({
+			"system": system,
+			"transcript": [dict(e) for e in transcript],
+			"tools": tools,
+			"max_tokens": max_tokens,
+		})
+		if len(self._steps) > 1:
+			return self._steps.pop(0)
+		return self._steps[0]
 
 
 class TestExecutorToolBridge(FrappeTestCase):
@@ -62,15 +77,16 @@ class TestExecutorToolBridge(FrappeTestCase):
 		cls.openai_provider = _provider("Bridge OpenAI Provider", "OpenAI")
 		cls.unsupported_provider = _provider("Bridge Bedrock Provider", "Bedrock")
 
-	def _run(self, provider, tools, completion=None):
+	def _run(self, provider, tools, steps=None, max_tool_calls=None):
 		config = ExecutorConfig(
 			provider_name=provider,
 			model="test-model",
 			system_prompt="sys",
 			user_prompt="usr",
 			tools=tools,
+			max_tool_calls=max_tool_calls,
 		)
-		fake = _FakeAdapter(completion or CompletionResult(text="done", trace=[]))
+		fake = _FakeAdapter(steps or [StepResult(content="done")])
 		with patch(
 			"one_bpmn.agents.llm_provider.factory.get_llm_adapter", return_value=fake
 		) as factory:
@@ -85,26 +101,26 @@ class TestExecutorToolBridge(FrappeTestCase):
 		factory.assert_called_once()
 		self.assertEqual(factory.call_args[0][0], "openai")
 		self.assertIs(fake.calls[0]["tools"], tools)
+		self.assertEqual(fake.calls[0]["system"], "sys")
+		self.assertEqual(
+			fake.calls[0]["transcript"], [{"role": "user", "content": "usr"}]
+		)
 		self.assertEqual(result.error_code, ErrorCode.SUCCESS)
 		self.assertEqual(result.output, "done")
 
 	# ── Scenario 4: ExecutorResult populated from the trace ──
 
 	def test_result_maps_output_usage_and_trace(self):
-		completion = CompletionResult(
-			text="final answer",
-			trace=[
-				TurnRecord(
-					role="tool",
-					content="",
-					tool_calls=[ToolCallRecord(name="echo_tool", arguments={"text": "a"}, result="ok")],
-					prompt_tokens=100,
-					completion_tokens=20,
-				),
-				TurnRecord(role="assistant", content="final answer", prompt_tokens=150, completion_tokens=30),
-			],
-		)
-		result, _, _ = self._run(self.openai_provider, [_tool()], completion)
+		steps = [
+			StepResult(
+				content="",
+				tool_calls=[StepToolCall(id="c1", name="echo_tool", arguments={"text": "a"})],
+				prompt_tokens=100,
+				completion_tokens=20,
+			),
+			StepResult(content="final answer", prompt_tokens=150, completion_tokens=30),
+		]
+		result, _, _ = self._run(self.openai_provider, [_tool()], steps)
 		self.assertEqual(result.output, "final answer")
 		self.assertEqual(result.token_usage.prompt_tokens, 250)
 		self.assertEqual(result.token_usage.completion_tokens, 50)
@@ -112,17 +128,22 @@ class TestExecutorToolBridge(FrappeTestCase):
 		self.assertEqual(len(result.trace), 2)
 		self.assertEqual(result.trace[0]["role"], "tool")
 		self.assertEqual(result.trace[0]["tool_calls"][0]["name"], "echo_tool")
+		self.assertEqual(result.trace[0]["tool_calls"][0]["result"], "ok")
 		json.dumps(result.trace)  # trace must be JSON-safe for observability
 
 	# ── Scenario 5: turn cap → FAILED_MODEL_CALL naming the cause, trace kept ──
 
 	def test_turn_cap_returns_failed_model_call_with_trace(self):
-		completion = CompletionResult(
-			text="",
-			trace=[TurnRecord(role="tool", prompt_tokens=10, completion_tokens=5)],
-			hit_turn_cap=True,
+		steps = [
+			StepResult(
+				tool_calls=[StepToolCall(id="c1", name="echo_tool", arguments={"text": "a"})],
+				prompt_tokens=10,
+				completion_tokens=5,
+			),
+		]
+		result, _, _ = self._run(
+			self.openai_provider, [_tool()], steps, max_tool_calls=1
 		)
-		result, _, _ = self._run(self.openai_provider, [_tool()], completion)
 		self.assertEqual(result.error_code, ErrorCode.FAILED_MODEL_CALL)
 		self.assertIn("turn cap", result.error_message)
 		self.assertEqual(len(result.trace), 1)
