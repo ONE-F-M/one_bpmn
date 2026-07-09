@@ -143,6 +143,44 @@ def verify_action_token(token: str) -> dict:
 	return payload
 
 
+def generate_doc_action_token(
+	doctype: str,
+	docname: str,
+	action: str,
+	user: str,
+	expiry_hours: int = 72,
+) -> str:
+	"""Generate an HMAC-signed token for a plain Frappe-workflow action email.
+
+	Same sealing scheme as :func:`generate_action_token`, but keyed on
+	``doctype``/``docname`` instead of a BPMN instance/task — for documents
+	whose approval is driven by a standard Frappe Workflow rather than a
+	BPMN Process Instance. Verified with the same :func:`verify_action_token`.
+
+	Args:
+		doctype: Target DocType (e.g. ``"Leave Application"``).
+		docname: Target document name.
+		action: Workflow action name (e.g. ``"Approve"``).
+		user: Frappe user (email) who is allowed to execute the action.
+		expiry_hours: Hours until the token expires (default 72 = 3 days).
+
+	Returns:
+		A sealed string in the form ``<json_payload>.<hmac_hex>``.
+	"""
+	payload = {
+		"doctype": doctype,
+		"docname": docname,
+		"action": action,
+		"user": user,
+		"expires": int(time.time()) + (expiry_hours * 3600),
+	}
+	payload_json = json.dumps(payload, sort_keys=True, separators=(",", ":"))
+	signature = _sign(payload_json)
+	import base64
+	encoded_payload = base64.urlsafe_b64encode(payload_json.encode("utf-8")).decode("ascii")
+	return f"{encoded_payload}.{signature}"
+
+
 def generate_status_token(
 	instance_name: str,
 	task_id: str,

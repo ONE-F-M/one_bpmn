@@ -171,10 +171,19 @@ def _build_context(task_content: dict, *, for_amp: bool) -> dict:
 		except Exception:
 			pass  # Non-fatal — buttons still work without live status
 
+	# Actions with `extra_fields` (e.g. date inputs) need their own <form> —
+	# AMP forms validate all their fields as one atomic unit, so a required
+	# field on one action would block submitting a plain token action if
+	# they shared a form.
+	simple_actions = [a for a in actions if not a.get("extra_fields")]
+	complex_actions = [a for a in actions if a.get("extra_fields")]
+
 	return {
 		"subject": task_content.get("subject", ""),
 		"body": body,
 		"actions": actions,
+		"simple_actions": simple_actions,
+		"complex_actions": complex_actions,
 		"open_link": open_link,
 		"has_actions": has_actions,
 		"has_token_actions": has_token_actions,
@@ -184,4 +193,6 @@ def _build_context(task_content: dict, *, for_amp: bool) -> dict:
 		"name": task_content.get("name", ""),
 		"site_url": frappe.utils.get_url(),
 		"status_url": status_url,
+		"action_endpoint": task_content.get("action_endpoint", ""),
+		"comment_token": task_content.get("comment_token", ""),
 	}
