@@ -16,15 +16,38 @@ def _usage_tokens(response) -> tuple:
     )
 
 
+_JSON_TYPE_TO_GEMINI = {
+    "string": types.Type.STRING,
+    "integer": types.Type.INTEGER,
+    "number": types.Type.NUMBER,
+    "boolean": types.Type.BOOLEAN,
+    "array": types.Type.ARRAY,
+    "object": types.Type.OBJECT,
+}
+
+
+def _property_to_gemini_schema(info: dict) -> types.Schema:
+    """Convert one JSON Schema property (type/description/enum/items) to a
+    Gemini Schema — preserves enum and array item types instead of
+    flattening everything to a bare string."""
+    json_type = info.get("type", "string")
+    kwargs = {
+        "type": _JSON_TYPE_TO_GEMINI.get(json_type, types.Type.STRING),
+        "description": info.get("description", ""),
+    }
+    if info.get("enum"):
+        kwargs["enum"] = info["enum"]
+    if json_type == "array":
+        kwargs["items"] = _property_to_gemini_schema(info.get("items") or {"type": "string"})
+    return types.Schema(**kwargs)
+
+
 def _build_fn_decl(tool: ToolSpec) -> types.FunctionDeclaration:
     if not tool.parameters:
         params = None
     else:
         props = {
-            name: types.Schema(
-                type=types.Type.STRING,
-                description=info.get("description", ""),
-            )
+            name: _property_to_gemini_schema(info)
             for name, info in tool.parameters.items()
         }
         params = types.Schema(
