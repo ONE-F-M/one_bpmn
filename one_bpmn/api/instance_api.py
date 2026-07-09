@@ -334,7 +334,17 @@ def complete_task(
 	assigned_user = active_row.assigned_user or ""
 	assigned_role = active_row.assigned_role or ""
 
-	if assigned_user and assigned_user != current_user and not _is_bpmn_super_user(current_user):
+	# assigned_user may list multiple people (Table Field / multi-assignee
+	# mode, e.g. Task.custom_assigned_to) — completion by any one of them
+	# is authorized, not just an exact string match.
+	# Imported lazily: assignment.py pulls in engine.py, which is fragile
+	# (SpiffWorkflow version drift) — importing it at module load time would
+	# take down every whitelisted method in this file, not just this one.
+	from one_bpmn.one_bpmn.doctype.bpmn_process_instance.assignment import split_users
+
+	assigned_users_list = split_users(assigned_user)
+
+	if assigned_users_list and current_user not in assigned_users_list and not _is_bpmn_super_user(current_user):
 		# Also allow the document owner (they initiated the process)
 		is_doc_owner = False
 		if instance.context_doctype and instance.context_docname:
@@ -366,9 +376,12 @@ def complete_task(
 				approved_ctc_name = ctc_result[0][0] if ctc_result else None
 
 			if not approved_ctc_name:
+				assignee_names = ", ".join(
+					frappe.utils.get_fullname(u) or u for u in assigned_users_list
+				)
 				frappe.throw(
 					_("You are not authorized to complete this task. It is assigned to {0}.").format(
-						frappe.utils.get_fullname(assigned_user) or assigned_user
+						assignee_names
 					),
 					frappe.PermissionError,
 				)
