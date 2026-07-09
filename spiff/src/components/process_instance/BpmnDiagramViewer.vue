@@ -62,6 +62,15 @@
 				>
 					<path d="M 1 5 L 11 10 L 1 15 Z" fill="#16a34a" stroke="#16a34a" />
 				</marker>
+				<marker
+					id="sequenceflow-arrow-ai"
+					viewBox="0 0 20 20"
+					refX="11" refY="10"
+					markerWidth="10" markerHeight="10"
+					orient="auto"
+				>
+					<path d="M 1 5 L 11 10 L 1 15 Z" fill="#9333ea" stroke="#9333ea" />
+				</marker>
 			</defs>
 		</svg>
 	</div>
@@ -432,10 +441,33 @@ function applyHighlights() {
 		// AI-called toolbox shapes (WI-001426): the agent invoked these as
 		// function-tools inside its LLM loop — flow never entered them, so
 		// mark them purple (or the error treatment), never green DONE.
+		const aiToolboxIds = new Set()
 		for (const [bpmnId, status] of Object.entries(props.aiCalledTools || {})) {
 			try {
 				canvas.addMarker(bpmnId, status === "Error" ? "highlight-ai-error" : "highlight-ai-called")
+				// The container holding this tool is an agent's toolbox — its
+				// valve edges get the purple-dashed "AI reached in" treatment.
+				const parent = elementRegistry.get(bpmnId)?.parent
+				if (parent?.type === "bpmn:AdHocSubProcess") aiToolboxIds.add(parent.id)
 			} catch (e) {}
+		}
+
+		// Edges touching an AI-used toolbox: purple dashed, matching the tool
+		// shapes — the agent reached into this box mid-reasoning. Deliberately
+		// NOT green: the token never traveled these flows (they exist only to
+		// wire the toolbox into a valid diagram).
+		if (aiToolboxIds.size && elementRegistry) {
+			elementRegistry
+				.filter(
+					(e) =>
+						e.type === "bpmn:SequenceFlow" &&
+						(aiToolboxIds.has(e.source?.id) || aiToolboxIds.has(e.target?.id)),
+				)
+				.forEach((element) => {
+					try {
+						canvas.addMarker(element.id, "highlight-flow-ai")
+					} catch (e) {}
+				})
 		}
 
 		// Parked AI units (WI-001499): waiting for their background AI job —
@@ -589,6 +621,13 @@ function applyHighlights() {
 	stroke: #d97706 !important; fill: #fef3c7 !important; stroke-width: 2.5px !important;
 	stroke-dasharray: 6 3 !important;
 	animation: ai-waiting-pulse 1.6s ease-in-out infinite;
+}
+/* Edges of an agent's toolbox whose tools were AI-called: same purple-dashed
+   language as the tool shapes — "the agent reached in", not token flow. */
+.highlight-flow-ai.djs-connection .djs-visual > path {
+	stroke: #9333ea !important; stroke-width: 2px !important;
+	stroke-dasharray: 6 3 !important;
+	marker-end: url(#sequenceflow-arrow-ai) !important;
 }
 .highlight-flow-done.djs-connection .djs-visual > path {
 	stroke: #16a34a !important; stroke-width: 2px !important;
