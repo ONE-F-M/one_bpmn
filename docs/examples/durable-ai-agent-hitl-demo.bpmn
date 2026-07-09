@@ -1,0 +1,70 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<bpmn:definitions xmlns:bpmn="http://www.omg.org/spec/BPMN/20100524/MODEL"
+    xmlns:bpmndi="http://www.omg.org/spec/BPMN/20100524/DI"
+    xmlns:dc="http://www.omg.org/spec/DD/20100524/DC"
+    xmlns:di="http://www.omg.org/spec/DD/20100524/DI"
+    xmlns:spiffworkflow="http://spiffworkflow.org/bpmn/schema/1.0/core"
+    id="Defs_HITL_Demo" targetNamespace="http://bpmn.io/schema/bpmn">
+  <bpmn:process id="durable_agent_hitl_demo" isExecutable="true">
+    <bpmn:startEvent id="start_1">
+      <bpmn:outgoing>f1</bpmn:outgoing>
+    </bpmn:startEvent>
+    <bpmn:sequenceFlow id="f1" sourceRef="start_1" targetRef="Agent_1" />
+    <bpmn:serviceTask id="Agent_1" name="Refund Agent"
+        spiffworkflow:serviceType="ai_agent"
+        spiffworkflow:aiToolsAdhoc="Tools_1"
+        spiffworkflow:aiSystemPrompt="You are a refunds agent. Gather the facts with your tools. Any refund needs human approval via the Approve Refund tool before you conclude. If the human rejects, explain the rejection in your final answer and do not process the refund."
+        spiffworkflow:aiUserPrompt="Handle the refund request described on {{ doc.doctype }} {{ doc.name }}."
+        spiffworkflow:aiOutputVariable="refund_outcome"
+        spiffworkflow:aiMaxToolCalls="8">
+      <bpmn:incoming>f1</bpmn:incoming>
+      <bpmn:outgoing>f2</bpmn:outgoing>
+    </bpmn:serviceTask>
+    <bpmn:sequenceFlow id="f2" sourceRef="Agent_1" targetRef="end_1" />
+    <bpmn:endEvent id="end_1">
+      <bpmn:incoming>f2</bpmn:incoming>
+    </bpmn:endEvent>
+    <bpmn:adHocSubProcess id="Tools_1" name="Refund Agent Tools">
+      <bpmn:scriptTask id="check_balance" name="Check Balance"
+          spiffworkflow:serverScript="HITL Demo Check Balance">
+        <bpmn:documentation>Check the customer's current balance and recent payments.</bpmn:documentation>
+      </bpmn:scriptTask>
+      <bpmn:userTask id="approve_refund" name="Approve Refund"
+          spiffworkflow:assigneeMode="User"
+          spiffworkflow:assigneeUser="Administrator"
+          spiffworkflow:taskActions="Approve,Reject">
+        <bpmn:documentation>Ask a manager to approve or reject the refund. Include the amount and the reason in your request.</bpmn:documentation>
+      </bpmn:userTask>
+    </bpmn:adHocSubProcess>
+  </bpmn:process>
+  <bpmndi:BPMNDiagram id="Diagram_1">
+    <bpmndi:BPMNPlane id="Plane_1" bpmnElement="durable_agent_hitl_demo">
+      <bpmndi:BPMNShape id="start_1_di" bpmnElement="start_1">
+        <dc:Bounds x="152" y="102" width="36" height="36" />
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Agent_1_di" bpmnElement="Agent_1">
+        <dc:Bounds x="250" y="80" width="120" height="80" />
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="end_1_di" bpmnElement="end_1">
+        <dc:Bounds x="432" y="102" width="36" height="36" />
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Tools_1_di" bpmnElement="Tools_1" isExpanded="true">
+        <dc:Bounds x="160" y="220" width="360" height="160" />
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="check_balance_di" bpmnElement="check_balance">
+        <dc:Bounds x="190" y="260" width="120" height="80" />
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="approve_refund_di" bpmnElement="approve_refund">
+        <dc:Bounds x="360" y="260" width="120" height="80" />
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNEdge id="f1_di" bpmnElement="f1">
+        <di:waypoint x="188" y="120" />
+        <di:waypoint x="250" y="120" />
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="f2_di" bpmnElement="f2">
+        <di:waypoint x="370" y="120" />
+        <di:waypoint x="432" y="120" />
+      </bpmndi:BPMNEdge>
+    </bpmndi:BPMNPlane>
+  </bpmndi:BPMNDiagram>
+</bpmn:definitions>
