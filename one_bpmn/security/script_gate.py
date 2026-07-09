@@ -45,9 +45,9 @@ def _script_task_sources(bpmn_xml: str) -> list[tuple]:
 	"""
 	Resolve every script task in the diagram to the code that will run.
 
-	Returns a list of ``(label, code)`` tuples:
-	  * inline ``<bpmn:script>`` tasks  → (label, inline python)
-	  * ``spiffworkflow:serverScript`` tasks → (label, Server Script .script)
+	Returns a list of ``(label, code, script_name)`` tuples:
+	  * inline ``<bpmn:script>`` tasks  → (label, inline python, None)
+	  * ``spiffworkflow:serverScript`` tasks → (label, Server Script .script, name)
 
 	Referenced Server Scripts that do not exist yet (authoring in progress) are
 	skipped — the deploy gate re-checks once they exist. Never raises: an
@@ -77,13 +77,30 @@ def _script_task_sources(bpmn_xml: str) -> list[tuple]:
 		if server_script:
 			code = frappe.db.get_value("Server Script", server_script, "script")
 			if code:
-				sources.append(
-					(_("Script Task '{0}' → Server Script '{1}'").format(bpmn_id, server_script), code)
-				)
+				sources.append((
+					_("Script Task '{0}' → Server Script '{1}'").format(bpmn_id, server_script),
+					code,
+					server_script,
+				))
 		elif inline and _looks_like_python(inline):
-			sources.append((_("Script Task '{0}' (inline)").format(bpmn_id), inline))
+			sources.append((_("Script Task '{0}' (inline)").format(bpmn_id), inline, None))
 
 	return sources
+
+
+def collect_script_security_violations(bpmn_xml: str) -> list:
+	"""
+	Structurally validate every (non-exempt) script task in a diagram.
+
+	Shared by the deploy readiness check and the authoring/deploy gate, so all
+	surfaces report exactly the same findings. Returns a list of dicts:
+	``{"label": <task → script>, "message": <violation>}``. Empty when clean.
+	"""
+	findings: list = []
+	for label, code, _script_name in _script_task_sources(bpmn_xml):
+		for message in deep_inspect_script(code):
+			findings.append({"label": label, "message": message})
+	return findings
 
 
 def _format_violations(messages: list) -> str:
@@ -106,17 +123,13 @@ def validate_process_model_scripts(bpmn_xml: str) -> None:
 	listing all violations found across all script tasks. No-op when clean.
 
 	Used by both the authoring gate (model.validate) and the deploy gate
-	(compile_process_model).
+	(compile_process_model) as a backend safety net; the deploy readiness check
+	surfaces the same findings in the UI first.
 	"""
-	messages: list[str] = []
-	for label, code in _script_task_sources(bpmn_xml):
-		violations = deep_inspect_script(code)
-		for v in violations:
-			messages.append(f"{label}: {v}")
-
-	if messages:
+	findings = collect_script_security_violations(bpmn_xml)
+	if findings:
 		frappe.throw(
-			_format_violations(messages),
+			_format_violations([f"{f['label']}: {f['message']}" for f in findings]),
 			title=_("Unsafe BPMN Script Task"),
 			exc=frappe.ValidationError,
 		)
