@@ -50,6 +50,25 @@ class TestCompileShapeTools(FrappeTestCase):
 		self.assertEqual(compile_shape_tools(None, _fake_instance()), [])
 		self.assertEqual(compile_shape_tools([], _fake_instance()), [])
 
+	def test_parameters_and_required_are_threaded_through(self):
+		shapes = [
+			{
+				"bpmn_id": "search",
+				"description": "Search records.",
+				"serverScript": "S1",
+				"parameters": {"query": {"type": "string", "description": "Search text"}},
+				"required": ["query"],
+			},
+			{"bpmn_id": "no_args", "description": "No-arg tool.", "serverScript": "S2"},
+		]
+		tools = compile_shape_tools(shapes, _fake_instance())
+		by_name = {t.name: t for t in tools}
+		self.assertEqual(by_name["search"].parameters, {"query": {"type": "string", "description": "Search text"}})
+		self.assertEqual(by_name["search"].required, ["query"])
+		# A descriptor with no parameters/required still gets a zero-arg tool.
+		self.assertEqual(by_name["no_args"].parameters, {})
+		self.assertEqual(by_name["no_args"].required, [])
+
 
 class TestExecuteShape(FrappeTestCase):
 	def _script(self, name, body):

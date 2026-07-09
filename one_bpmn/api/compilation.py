@@ -1198,6 +1198,12 @@ def _extract_tool_shapes(adhoc_el, bpmn_ns: str, spiff_ns: str) -> list:
 	Task with a serviceType. Description is the shape's documentation (Camunda
 	uses an activity's documentation as its tool description). Containers,
 	gateways, events and human tasks are not included.
+
+	A shape may also carry spiffworkflow:aiToolParams — a JSON Schema object
+	(``{"properties": {...}, "required": [...]}``) describing the arguments
+	the LLM should supply when calling it. When present, it is embedded as
+	``parameters``/``required`` so the tool isn't exposed to the LLM as a
+	zero-argument function.
 	"""
 	shapes = []
 	for child in list(adhoc_el):
@@ -1218,6 +1224,19 @@ def _extract_tool_shapes(adhoc_el, bpmn_ns: str, spiff_ns: str) -> list:
 			shape["serverScript"] = server_script
 		if service_type:
 			shape["serviceType"] = service_type
+		tool_params_raw = child.get(f"{{{spiff_ns}}}aiToolParams", "")
+		if tool_params_raw:
+			try:
+				tool_params = json.loads(tool_params_raw)
+			except Exception:
+				tool_params = {}
+			if isinstance(tool_params, dict):
+				properties = tool_params.get("properties")
+				if isinstance(properties, dict) and properties:
+					shape["parameters"] = properties
+				required = tool_params.get("required")
+				if isinstance(required, list) and required:
+					shape["required"] = required
 		shapes.append(shape)
 	return shapes
 

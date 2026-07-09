@@ -3,7 +3,7 @@ import time
 
 import frappe
 
-from .base import BaseLLMAdapter, CompletionResult, ToolCallRecord, ToolSpec, TurnRecord
+from .base import BaseLLMAdapter, CompletionResult, ToolCallRecord, ToolSpec, TurnRecord, build_parameter_schema
 
 _MAX_TOOL_TURNS = 10
 
@@ -22,14 +22,7 @@ def _build_tool_def(tool: ToolSpec) -> dict:
         "function": {
             "name": tool.name,
             "description": tool.description,
-            "parameters": {
-                "type": "object",
-                "properties": {
-                    name: {"type": info.get("type", "string"), "description": info.get("description", "")}
-                    for name, info in tool.parameters.items()
-                },
-                "required": tool.required or [],
-            },
+            "parameters": build_parameter_schema(tool),
         },
     }
 

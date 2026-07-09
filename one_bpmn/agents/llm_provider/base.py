@@ -17,6 +17,24 @@ class ToolSpec:
     required: list = field(default_factory=list)
 
 
+def build_parameter_schema(tool: "ToolSpec") -> dict:
+    """Provider-agnostic JSON Schema ``parameters`` object for a tool spec.
+
+    Passes each parameter's schema through as-is (enum, items, etc. included)
+    rather than keeping only type/description — a shape's aiToolParams may
+    document constraints (e.g. an enum of allowed doctypes) that the LLM
+    needs in order to call the tool correctly.
+    """
+    return {
+        "type": "object",
+        "properties": {
+            name: {"type": "string", **info}
+            for name, info in tool.parameters.items()
+        },
+        "required": tool.required or [],
+    }
+
+
 @dataclass
 class ToolCallRecord:
     """One tool call made within a single LLM turn."""

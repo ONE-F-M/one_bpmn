@@ -30,7 +30,9 @@ def compile_shape_tools(tool_shapes, instance) -> list:
 	Eligibility (executable leaf shapes only; human/container shapes excluded)
 	is already enforced at extraction, so here we simply build one tool per
 	descriptor: name = bpmn_id, description = the shape's documentation (Camunda
-	uses an activity's documentation as its tool description).
+	uses an activity's documentation as its tool description). ``parameters``/
+	``required`` (from the shape's aiToolParams, if any) are passed through so
+	the LLM sees the tool's real argument schema instead of a zero-arg function.
 
 	Args:
 	    tool_shapes: list[dict] tool descriptors (may be a JSON string).
@@ -63,8 +65,8 @@ def compile_shape_tools(tool_shapes, instance) -> list:
 				fn=_make_shape_fn(instance, bpmn_id, shape),
 				name=bpmn_id,
 				description=description,
-				parameters={},
-				required=[],
+				parameters=shape.get("parameters") or {},
+				required=shape.get("required") or [],
 			)
 		)
 	return tools

@@ -62,6 +62,24 @@ class TestResolveToolShapes(FrappeTestCase):
 		_resolve_ai_agent_tool_shapes(xml, svc)
 		self.assertNotIn("aiToolShapes", svc.get("Agent_1", {}))
 
+	def test_embeds_ai_tool_params(self):
+		params = json.dumps(
+			{"properties": {"query": {"type": "string", "description": "Search text"}}, "required": ["query"]}
+		).replace('"', "&quot;")
+		tools = (
+			f'<bpmn:scriptTask id="lookup" spiffworkflow:serverScript="Lookup Cust" spiffworkflow:aiToolParams="{params}">'
+			"<bpmn:documentation>Look up a customer.</bpmn:documentation></bpmn:scriptTask>"
+			'<bpmn:scriptTask id="no_params" spiffworkflow:serverScript="No Params" />'
+		)
+		svc = _extensions(_xml('spiffworkflow:aiToolsAdhoc="Tools_1"', tools))
+		shapes = json.loads(svc["Agent_1"]["aiToolShapes"])
+		by_id = {s["bpmn_id"]: s for s in shapes}
+		self.assertEqual(by_id["lookup"]["parameters"], {"query": {"type": "string", "description": "Search text"}})
+		self.assertEqual(by_id["lookup"]["required"], ["query"])
+		# A shape with no aiToolParams carries no parameters/required keys.
+		self.assertNotIn("parameters", by_id["no_params"])
+		self.assertNotIn("required", by_id["no_params"])
+
 
 class TestValidateAgentTools(FrappeTestCase):
 	def test_valid_reference_passes(self):
