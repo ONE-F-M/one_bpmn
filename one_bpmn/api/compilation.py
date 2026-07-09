@@ -184,11 +184,12 @@ def _extract_adhoc_selector_config(bpmn_xml: str) -> dict:
 
 	The selector attaches to the subprocess itself — not to an inner task —
 	as ``spiffworkflow:*`` attributes: serviceType="ai_task_selector",
-	aiProvider, aiModel, aiSystemPrompt, aiUserPrompt and aiToolSources
-	(one of "diagram" / "registry" / "both"; defaults to "both" per the
-	merged-pool design). Entries are merged into service_task_extensions,
-	keyed by the subprocess bpmn_id, so the dispatch loop (WI-001352) finds
-	the config the same way it finds any service task's.
+	aiProvider, aiModel, aiSystemPrompt and aiUserPrompt. Its candidate
+	tools are always the subprocess's own inner shapes (the AI Agent Tool
+	registry was removed in WI-001423). Entries are merged into
+	service_task_extensions, keyed by the subprocess bpmn_id, so the
+	dispatch loop (WI-001352) finds the config the same way it finds any
+	service task's.
 
 	Returns:
 		dict keyed by adHocSubProcess element ID, only for elements tagged
@@ -219,7 +220,6 @@ def _extract_adhoc_selector_config(bpmn_xml: str) -> dict:
 		if task_cfg.get("serviceType") != "ai_task_selector":
 			continue
 
-		task_cfg.setdefault("aiToolSources", "both")
 		config[bpmn_id] = task_cfg
 
 	return config
