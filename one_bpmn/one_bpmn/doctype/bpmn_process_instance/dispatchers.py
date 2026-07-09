@@ -7,6 +7,8 @@
 # initiated_by, doctype).  They are invoked from the controller's
 # ``_dispatch_service_task`` router.
 
+import json
+
 import frappe
 import frappe.utils
 
@@ -1005,9 +1007,20 @@ def dispatch_ai_agent(instance, task, task_cfg: dict, bpmn_id: str, resume_run: 
 			prior_completion_tokens=int((resume_payload or {}).get("completion_tokens_so_far") or 0),
 		)
 		pending = (result.suspension or {}).get("pending_call") or {}
+		pending_name = pending.get("name") or ""
+		# The shape's diagram label rides along for the human task row name.
+		label = ""
+		try:
+			for shape in json.loads(task_cfg.get("aiToolShapes") or "[]"):
+				if isinstance(shape, dict) and shape.get("bpmn_id") == pending_name:
+					label = shape.get("label") or ""
+					break
+		except Exception:
+			pass
 		task.data["_bpmn_ai_waiting_human"] = {
 			"run": run.name,
-			"tool": pending.get("name") or "",
+			"tool": pending_name,
+			"label": label,
 			"arguments": pending.get("arguments") or {},
 		}
 		if not frappe.flags.in_test:

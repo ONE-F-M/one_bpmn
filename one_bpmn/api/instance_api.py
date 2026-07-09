@@ -450,6 +450,23 @@ def complete_task(
 				frappe.PermissionError,
 			)
 
+	# ── Durable AI Agent HITL: human-tool tasks resume the agent ─────────────
+	# These rows are synthetic (spawned by a suspended agent, no engine task
+	# behind them). They pass the exact same checks above as real User Tasks;
+	# completion stores the person's output on the agent's checkpoint and
+	# enqueues the resume job instead of running an engine pass here.
+	if task_id.startswith(instance.AI_HUMAN_PREFIX):
+		instance.complete_ai_human_task(task_id, parsed_data)
+		instance.reload()
+		return {
+			"instance": instance_name,
+			"status": instance.status,
+			"queued": True,
+			"waiting_for_ai": instance.waiting_for_ai,
+			"waiting_for_human": instance.waiting_for_human,
+			"active_tasks": instance.get_active_tasks_summary(),
+		}
+
 	# ── 4. HAND OFF TO THE ENGINE (inline) ───────────────────────────────────
 	# All validation passed. The engine pass runs inline in the request
 	# (WI-001494/WI-001496) and reports the real resulting state. AI tasks
