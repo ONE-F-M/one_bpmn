@@ -873,7 +873,8 @@ def dispatch_ai_agent(instance, task, task_cfg: dict, bpmn_id: str, resume_run: 
 			human_result = _checkpoint.build_resume_state(resume_payload)["human_result"]
 			record_ai_step(
 				run,
-				frappe.db.count("AI Agent Step", {"run": run.name}),
+				# step_index is 1-based: with N steps recorded, the next is N+1
+				frappe.db.count("AI Agent Step", {"run": run.name}) + 1,
 				"tool",
 				human_result,
 				tool_calls=[{
@@ -948,23 +949,23 @@ def dispatch_ai_agent(instance, task, task_cfg: dict, bpmn_id: str, resume_run: 
 				# only the resumed segment's turns are appended.
 				from one_bpmn.agents.observability import record_selector_turns
 				if not resume_payload:
-					record_ai_step(run, 0, "system", system_prompt)
-					record_ai_step(run, 1, "user", user_prompt)
+					record_ai_step(run, 1, "system", system_prompt)
+					record_ai_step(run, 2, "user", user_prompt)
 				source_map = {t.name: "diagram_task" for t in tool_specs}
 				record_selector_turns(run, result.trace or [], source_map)
 			else:
-				record_ai_step(run, 0, "system", system_prompt)
+				record_ai_step(run, 1, "system", system_prompt)
 
 				usage = result.token_usage if result.error_code == ErrorCode.SUCCESS else None
 				# Attribute prompt_tokens (input cost) to the user step,
 				# completion_tokens (output cost) to the assistant step.
 				record_ai_step(
-					run, 1, "user", user_prompt,
+					run, 2, "user", user_prompt,
 					prompt_tokens=usage.prompt_tokens if usage else 0,
 				)
 				if result.error_code == ErrorCode.SUCCESS:
 					record_ai_step(
-						run, 2, "assistant",
+						run, 3, "assistant",
 						str(result.output or ""),
 						completion_tokens=usage.completion_tokens if usage else 0,
 						latency_ms=_exec_latency_ms,

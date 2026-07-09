@@ -328,10 +328,11 @@ def record_selector_turns(run, trace: list, source_map: dict | None = None) -> i
 	if getattr(run, "stub", False):
 		return 0
 	source_map = source_map or {}
+	# step_index is 1-based: with N steps already recorded, the next is N+1.
 	try:
-		start_index = frappe.db.count("AI Agent Step", {"run": run.name})
+		start_index = frappe.db.count("AI Agent Step", {"run": run.name}) + 1
 	except Exception:
-		start_index = 0
+		start_index = 1
 
 	recorded = 0
 	for offset, turn in enumerate(trace or []):
