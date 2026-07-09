@@ -338,11 +338,21 @@ class FrappeScriptEngine(PythonScriptEngine):
 		_check_script_permissions(script_doc.script, script_name)
 
 		# Build locals: workflow variables + framework context
-		local_vars = dict(task.data)
+		#
+		# Workflow variables are exposed two ways so either script convention works:
+		#   1. spread as top-level names (e.g. `user_text`) — the legacy style, and
+		#   2. bundled under `task_data` (e.g. `task_data.get("user_text", "")`) —
+		#      the style the chat-agent scripts (ProsAlly/Logix/Docu) use so they can
+		#      safely `.get()` keys that don't exist on every turn without NameError.
+		# `task_data` is a copy: scripts only read from it and write outputs to
+		# `result`, so mutations can't leak back into engine state unexpectedly.
+		task_data = dict(task.data)
+		local_vars = dict(task_data)
 		result_dict = {}
 		local_vars.update(
 			{
 				"frappe": _frappe,
+				"task_data": task_data,
 				"context_doctype": self._context_doctype or "",
 				"context_docname": self._context_docname or "",
 				"result": result_dict,
