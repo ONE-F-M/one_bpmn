@@ -86,6 +86,20 @@ def _script_task_sources(bpmn_xml: str) -> list[tuple]:
 	return sources
 
 
+def _format_violations(messages: list) -> str:
+	"""
+	Render violation messages for display.
+
+	Plain text, one bullet per line (``\\n`` separated) so it reads cleanly in
+	the Processa editor notification (which uses ``whitespace-pre-line`` text
+	interpolation, not HTML) and remains readable in the desk dialog. Angle
+	brackets are stripped so an untrusted script/task name cannot inject markup
+	into the desk's HTML message view.
+	"""
+	safe = [str(m).replace("<", "").replace(">", "") for m in messages]
+	return "\n".join(f"• {m}" for m in safe)
+
+
 def validate_process_model_scripts(bpmn_xml: str) -> None:
 	"""
 	Gate every script task in a process model. Raises ``frappe.ValidationError``
@@ -102,7 +116,7 @@ def validate_process_model_scripts(bpmn_xml: str) -> None:
 
 	if messages:
 		frappe.throw(
-			"<br>".join(f"• {frappe.utils.escape_html(m)}" for m in messages),
+			_format_violations(messages),
 			title=_("Unsafe BPMN Script Task"),
 			exc=frappe.ValidationError,
 		)
@@ -155,7 +169,7 @@ def validate_server_script_on_save(doc, method=None) -> None:
 	violations = deep_inspect_script(code)
 	if violations:
 		frappe.throw(
-			"<br>".join(f"• {frappe.utils.escape_html(v)}" for v in violations),
+			_format_violations(violations),
 			title=_("Unsafe BPMN Server Script"),
 			exc=frappe.ValidationError,
 		)

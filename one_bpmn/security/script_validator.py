@@ -24,8 +24,9 @@ Tuning (per the agreed decisions):
         - soft builtins: hasattr / type / id / classmethod / staticmethod  (strict_builtins)
         - soft frappe attrs: sql / commit / flags / conf / cache           (strict_frappe_attrs)
         - all imports:                                                       (block_all_imports)
-  * Overrides are read from site_config.json (see ``_resolve_options``) so an
-    operator can tighten the posture without a code change or migration.
+  * Overrides live on the **Processa Settings** single doctype (see
+    ``_resolve_options``) so an operator can tighten the posture from the desk
+    UI without a code change.
 
 Public API:
   deep_inspect_script(script_text, options=None) -> list[str]
@@ -111,15 +112,15 @@ _DESTRUCTIVE_SQL_RE = re.compile(
 	re.IGNORECASE | re.DOTALL,
 )
 
-# site_config.json overrides → ValidatorOptions field, with defaults.
-_CONFIG_KEYS = {
-	"bpmn_script_block_while": ("block_while", False),
-	"bpmn_script_block_functiondef": ("block_functiondef", False),
-	"bpmn_script_block_lambda": ("block_lambda", False),
-	"bpmn_script_strict_builtins": ("strict_builtins", False),
-	"bpmn_script_strict_frappe_attrs": ("strict_frappe_attrs", False),
-	"bpmn_script_block_all_imports": ("block_all_imports", False),
-	"bpmn_script_binop_threshold": ("binop_multiply_threshold", 50000),
+# Processa Settings field → ValidatorOptions attribute, with defaults.
+_SETTINGS_FIELDS = {
+	"script_block_while": ("block_while", False),
+	"script_block_functiondef": ("block_functiondef", False),
+	"script_block_lambda": ("block_lambda", False),
+	"script_strict_builtins": ("strict_builtins", False),
+	"script_strict_frappe_attrs": ("strict_frappe_attrs", False),
+	"script_block_all_imports": ("block_all_imports", False),
+	"script_binop_multiply_threshold": ("binop_multiply_threshold", 50000),
 }
 
 
@@ -157,30 +158,33 @@ class ValidatorOptions:
 
 def _resolve_options() -> ValidatorOptions:
 	"""
-	Build :class:`ValidatorOptions` from site_config.json overrides.
+	Build :class:`ValidatorOptions` from the Processa Settings single doctype.
 
-	Defensive: if ``frappe`` is not importable (unit tests, tooling) or no
-	overrides are set, the secure-but-usable defaults apply.
+	Defensive: if ``frappe`` is not importable (unit tests, tooling) or the
+	doctype is not yet installed, the secure-but-usable defaults apply.
 	"""
 	opts = ValidatorOptions()
 	try:
 		import frappe as _f
 
-		conf = _f.conf or {}
+		settings = _f.get_cached_doc("Processa Settings")
 	except Exception:
 		return opts
 
-	for cfg_key, (attr, default) in _CONFIG_KEYS.items():
-		if cfg_key not in conf:
+	for field, (attr, default) in _SETTINGS_FIELDS.items():
+		value = getattr(settings, field, None)
+		if value is None:
 			continue
-		value = conf.get(cfg_key)
 		if isinstance(default, bool):
 			setattr(opts, attr, bool(value))
 		else:
+			# Threshold: ignore unset/zero/malformed values, keep the default.
 			try:
-				setattr(opts, attr, int(value))
+				parsed = int(value)
 			except (TypeError, ValueError):
-				pass  # keep default on a malformed override
+				continue
+			if parsed > 0:
+				setattr(opts, attr, parsed)
 	return opts
 
 
