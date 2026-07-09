@@ -328,6 +328,7 @@ function applyHighlights() {
 		const overlays = viewer.value.get("overlays")
 		overlays.remove({ type: "heatmap-badge" })
 	overlays.remove({ type: "ai-badge" })
+	overlays.remove({ type: "ai-call-badge" })
 	overlays.remove({ type: "token-badge" })
 
 		// Clear stale highlight markers before re-applying
@@ -441,10 +442,22 @@ function applyHighlights() {
 		// AI-called toolbox shapes (WI-001426): the agent invoked these as
 		// function-tools inside its LLM loop — flow never entered them, so
 		// mark them purple (or the error treatment), never green DONE.
+		// info is {status, count} (legacy string = status only). Tools called
+		// more than once get a purple ×N badge — same convention as the token
+		// heatmap, but counting LLM tool calls, not token traversals.
 		const aiToolboxIds = new Set()
-		for (const [bpmnId, status] of Object.entries(props.aiCalledTools || {})) {
+		for (const [bpmnId, info] of Object.entries(props.aiCalledTools || {})) {
 			try {
+				const status = typeof info === "string" ? info : info?.status
+				const count = (typeof info === "object" && info?.count) || 0
 				canvas.addMarker(bpmnId, status === "Error" ? "highlight-ai-error" : "highlight-ai-called")
+				if (count > 1) {
+					const badge = document.createElement("div")
+					badge.className = "ai-call-badge"
+					badge.textContent = `×${count}`
+					badge.title = `The agent called this tool ${count} times`
+					overlays.add(bpmnId, "ai-call-badge", { position: { top: -10, right: -10 }, html: badge })
+				}
 				// The container holding this tool is an agent's toolbox — its
 				// valve edges get the purple-dashed "AI reached in" treatment.
 				const parent = elementRegistry.get(bpmnId)?.parent
@@ -704,6 +717,16 @@ function applyHighlights() {
 }
 .heatmap-badge.hot { background: #dc2626; }
 .heatmap-badge.warm { background: #f59e0b; }
+
+/* ×N tool-call count on AI-called toolbox shapes (purple family: these are
+   LLM tool calls, not token traversals) */
+.ai-call-badge {
+	min-width: 20px; height: 20px; line-height: 20px; text-align: center;
+	font-size: 10px; font-weight: 700; color: #fff; background: #9333ea;
+	border-radius: 10px; padding: 0 5px;
+	box-shadow: 0 1px 3px rgba(0,0,0,0.3);
+	font-family: ui-monospace, monospace; pointer-events: none;
+}
 
 /* Active pulse animation */
 @keyframes active-pulse {

@@ -381,10 +381,15 @@ async function loadAiToolCalls() {
 // Diagram highlight: toolbox shapes the agent actually called (WI-001426).
 // bpmnId → "Success" | "Error" (an Error anywhere wins for that shape).
 const aiCalledTools = computed(() => {
+	// {tool_name: {status, count}} — status is "Error" if ANY call errored;
+	// count is the number of times the agent called this tool (drives the
+	// ×N badge on the tool shape).
 	const map = {}
 	for (const calls of Object.values(aiCallsByBpmnId.value)) {
 		for (const c of calls) {
-			if (c.status === "Error" || !(c.tool_name in map)) map[c.tool_name] = c.status
+			const entry = map[c.tool_name] || (map[c.tool_name] = { status: c.status, count: 0 })
+			entry.count += 1
+			if (c.status === "Error") entry.status = "Error"
 		}
 	}
 	return map
