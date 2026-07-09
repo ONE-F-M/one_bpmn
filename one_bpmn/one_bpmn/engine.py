@@ -363,8 +363,13 @@ class FrappeScriptEngine(PythonScriptEngine):
 			# runs code in a RestrictedPython sandbox with a limited frappe namespace.
 			# BPMN Server Scripts are trusted, pre-deployed code stored in the DB,
 			# so they run with the real frappe module and no config gate.
-			exec_globals = {"frappe": _frappe, "__builtins__": __builtins__}  # noqa: S102
-			exec(script_doc.script, exec_globals, local_vars)  # noqa: S102
+			# ONE namespace for globals AND locals. With separate dicts,
+			# top-level `def`s land in locals but each function's __globals__
+			# is exec_globals — so a script where one function calls another
+			# (or reads a top-level variable) dies with NameError at runtime.
+			exec_ns = {"frappe": _frappe, "__builtins__": __builtins__}
+			exec_ns.update(local_vars)
+			exec(script_doc.script, exec_ns)  # noqa: S102
 		except Exception:
 			_frappe.log_error(
 				title=f'BPMN ScriptTask: "{script_name}" execution failed',
