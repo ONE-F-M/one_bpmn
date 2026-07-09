@@ -205,6 +205,13 @@
 					<span v-else-if="isDirty && !isSaved" class="lc-save-status lc-unsaved">● Unsaved</span>
 					<span v-else-if="isSaved" class="lc-save-status lc-saved">✓ Saved</span>
 
+					<!-- Live security-lint status -->
+					<span
+						v-if="lintViolations.length"
+						class="lc-save-status lc-lint-status"
+						:title="lintViolations.join('\n')"
+					>⚠ {{ lintViolations.length }} security issue{{ lintViolations.length > 1 ? 's' : '' }}</span>
+
 					<div v-if="isLoadingScript" class="lc-loading-indicator">
 						<div class="lc-spinner-sm"></div>
 						Loading...
@@ -371,6 +378,19 @@
 					</div>
 			</div>
 
+			<!-- Security-lint banner: what's wrong with the script, live -->
+			<div v-if="lintViolations.length" class="lc-lint-banner">
+				<div class="lc-lint-banner-head">
+					<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="14" height="14">
+						<path stroke-linecap="round" stroke-linejoin="round" d="M12 9v4m0 4h.01M10.29 3.86L1.82 18a2 2 0 001.71 3h16.94a2 2 0 001.71-3L13.71 3.86a2 2 0 00-3.42 0z"/>
+					</svg>
+					{{ lintViolations.length }} security issue{{ lintViolations.length > 1 ? 's' : '' }} — must be fixed before this script can be saved or deployed
+				</div>
+				<ul class="lc-lint-list">
+					<li v-for="(v, i) in lintViolations" :key="i">{{ v }}</li>
+				</ul>
+			</div>
+
 			<!-- Code area with syntax highlighting -->
 			<div class="lc-code-area">
 				<CodeMirrorEditor
@@ -482,6 +502,36 @@ const isDirty          = ref(false);
 const isSaving         = ref(false);
 const isSaved          = ref(false);
 const isLoadingScript  = ref(false);
+
+// ── Live security lint ────────────────────────────────────────────────
+// Mirrors the pre-deployment gate so the author sees blocking issues as they
+// type — same checks that will reject a save/deploy.
+const lintViolations = ref([]);
+let lintTimer = null;
+
+async function runSecurityLint() {
+	const code = canvasCode.value || "";
+	if (!code.trim()) {
+		lintViolations.value = [];
+		return;
+	}
+	try {
+		const res = await frappeRequest({
+			url: "/api/method/one_bpmn.api.script_security.lint_server_script",
+			method: "POST",
+			params: { code },
+		});
+		lintViolations.value = res && res.violations ? res.violations : [];
+	} catch (e) {
+		// Never let a lint failure disrupt editing.
+		lintViolations.value = [];
+	}
+}
+
+watch(canvasCode, () => {
+	if (lintTimer) clearTimeout(lintTimer);
+	lintTimer = setTimeout(runSecurityLint, 400);
+});
 
 // ── Auto-save ─────────────────────────────────────────────────────────
 let autoSaveTimer = null;
@@ -1994,6 +2044,34 @@ onUnmounted(() => {
 .lc-unsaved   { color: #e65100; }
 .lc-saved     { color: #2e7d32; }
 .lc-autosaving { color: #888; }
+.lc-lint-status { color: #c62828; font-weight: 600; cursor: default; }
+
+/* ── Security-lint banner ───────────────────────────────────────────── */
+.lc-lint-banner {
+	flex: 0 0 auto;
+	margin: 6px 8px 0;
+	border: 1px solid #f3c2c2;
+	background: #fdecec;
+	border-radius: 6px;
+	padding: 8px 10px;
+	font-size: 11.5px;
+	color: #8a1c1c;
+	max-height: 120px;
+	overflow-y: auto;
+}
+.lc-lint-banner-head {
+	display: flex;
+	align-items: center;
+	gap: 6px;
+	font-weight: 600;
+	margin-bottom: 4px;
+}
+.lc-lint-list {
+	margin: 0;
+	padding-left: 22px;
+	list-style: disc;
+}
+.lc-lint-list li { margin: 2px 0; line-height: 1.35; word-break: break-word; }
 
 /* ── Script browser ─────────────────────────────────────────────────── */
 .lc-script-browser-wrap {

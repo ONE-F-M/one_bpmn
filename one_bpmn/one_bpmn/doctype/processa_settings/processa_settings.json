@@ -17,7 +17,17 @@
   "column_break_ba",
   "sync_custom_fields",
   "sync_property_setters",
-  "last_sync_time"
+  "last_sync_time",
+  "section_break_script_security",
+  "script_security_intro",
+  "script_binop_multiply_threshold",
+  "column_break_script_security",
+  "script_block_while",
+  "script_block_functiondef",
+  "script_block_lambda",
+  "script_strict_builtins",
+  "script_strict_frappe_attrs",
+  "script_block_all_imports"
  ],
  "fields": [
   {
@@ -113,6 +123,70 @@
    "label": "Last Sync Time",
    "read_only": 1,
    "description": "Timestamp of the last successful sync. If empty, the next sync will pull ALL records (full sync)."
+  },
+  {
+   "fieldname": "section_break_script_security",
+   "fieldtype": "Section Break",
+   "label": "Script Task Security"
+  },
+  {
+   "fieldname": "script_security_intro",
+   "fieldtype": "HTML",
+   "options": "<p style=\"color:var(--text-muted)\">Controls the pre-deployment security gate for BPMN Script Tasks. Dangerous escape vectors (exec/eval/getattr, frame-walking dunders, permission-bypass kwargs, memory bombs, destructive SQL) are <b>always blocked</b> and are not configurable here. The options below tighten the gate for constructs that also have legitimate uses; all default to <b>allowed</b>.</p>"
+  },
+  {
+   "default": "50000",
+   "description": "Reject multiplication whose factor exceeds this value (memory-bomb guard, e.g. \"A\" * 999999999). Leave at 50000 unless you have a reason to change it.",
+   "fieldname": "script_binop_multiply_threshold",
+   "fieldtype": "Int",
+   "label": "Multiplication Factor Threshold",
+   "non_negative": 1
+  },
+  {
+   "fieldname": "column_break_script_security",
+   "fieldtype": "Column Break"
+  },
+  {
+   "default": "0",
+   "description": "Block <code>while</code> loops in script tasks (use a BPMN gateway/loop instead).",
+   "fieldname": "script_block_while",
+   "fieldtype": "Check",
+   "label": "Block while Loops"
+  },
+  {
+   "default": "0",
+   "description": "Block function definitions (<code>def</code> / <code>async def</code>) in script tasks.",
+   "fieldname": "script_block_functiondef",
+   "fieldtype": "Check",
+   "label": "Block Function Definitions"
+  },
+  {
+   "default": "0",
+   "description": "Block <code>lambda</code> expressions in script tasks.",
+   "fieldname": "script_block_lambda",
+   "fieldtype": "Check",
+   "label": "Block lambda Expressions"
+  },
+  {
+   "default": "0",
+   "description": "Also block the commonly-legitimate builtins <code>hasattr / type / id / classmethod / staticmethod</code>.",
+   "fieldname": "script_strict_builtins",
+   "fieldtype": "Check",
+   "label": "Strict Builtins"
+  },
+  {
+   "default": "0",
+   "description": "Also block the sensitive Frappe attributes <code>sql / commit / flags / conf / cache</code> (destructive raw SQL is always blocked regardless).",
+   "fieldname": "script_strict_frappe_attrs",
+   "fieldtype": "Check",
+   "label": "Strict Frappe Attributes"
+  },
+  {
+   "default": "0",
+   "description": "Block ALL imports, not just the dangerous-module denylist.",
+   "fieldname": "script_block_all_imports",
+   "fieldtype": "Check",
+   "label": "Block All Imports"
   }
  ],
  "issingle": 1,
