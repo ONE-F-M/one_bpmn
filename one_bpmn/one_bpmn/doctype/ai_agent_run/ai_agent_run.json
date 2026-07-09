@@ -32,6 +32,9 @@
   "estimated_cost",
   "total_input_cost",
   "total_output_cost",
+  "section_break_checkpoint",
+  "pending_human_task",
+  "checkpoint",
   "section_break_output",
   "final_output",
   "correlation_id"
@@ -46,25 +49,25 @@
    "reqd": 1
   },
   {
+   "description": "The BPMN Process Model this run belongs to",
    "fieldname": "process_model",
    "fieldtype": "Link",
    "label": "Process Model",
-   "options": "BPMN Process Model",
-   "description": "The BPMN Process Model this run belongs to"
+   "options": "BPMN Process Model"
   },
   {
+   "description": "The element ID on the diagram (e.g. Activity_1a2b3c)",
    "fieldname": "bpmn_id",
    "fieldtype": "Data",
    "in_list_view": 1,
    "label": "BPMN Element ID",
-   "reqd": 1,
-   "description": "The element ID on the diagram (e.g. Activity_1a2b3c)"
+   "reqd": 1
   },
   {
+   "description": "Human-readable name from the BPMN diagram",
    "fieldname": "bpmn_label",
    "fieldtype": "Data",
-   "label": "BPMN Element Label",
-   "description": "Human-readable name from the BPMN diagram"
+   "label": "BPMN Element Label"
   },
   {
    "default": "task",
@@ -79,10 +82,10 @@
    "fieldtype": "Column Break"
   },
   {
+   "description": "Executor backend: direct_api or antigravity",
    "fieldname": "backend",
    "fieldtype": "Data",
-   "label": "Backend",
-   "description": "Executor backend: direct_api or antigravity"
+   "label": "Backend"
   },
   {
    "fieldname": "provider",
@@ -91,10 +94,10 @@
    "options": "AI Provider"
   },
   {
+   "description": "e.g. gpt-4o",
    "fieldname": "model",
    "fieldtype": "Data",
-   "label": "Model",
-   "description": "e.g. gpt-4o"
+   "label": "Model"
   },
   {
    "fieldname": "section_break_status",
@@ -106,14 +109,14 @@
    "fieldtype": "Select",
    "in_list_view": 1,
    "label": "Status",
-   "options": "Running\nSuccess\nError",
+   "options": "Running\nSuspended\nSuccess\nError",
    "reqd": 1
   },
   {
+   "description": "From ErrorCode enum, null on success",
    "fieldname": "error_code",
    "fieldtype": "Data",
-   "label": "Error Code",
-   "description": "From ErrorCode enum, null on success"
+   "label": "Error Code"
   },
   {
    "fieldname": "error_message",
@@ -121,16 +124,16 @@
    "label": "Error Message"
   },
   {
+   "description": "Number of failed retry attempts (0 = first try succeeded or no retries)",
    "fieldname": "retry_count",
    "fieldtype": "Int",
-   "label": "Retry Count",
-   "description": "Number of failed retry attempts (0 = first try succeeded or no retries)"
+   "label": "Retry Count"
   },
   {
+   "description": "Max retries configured for this run",
    "fieldname": "max_retries",
    "fieldtype": "Int",
-   "label": "Max Retries",
-   "description": "Max retries configured for this run"
+   "label": "Max Retries"
   },
   {
    "fieldname": "section_break_timing",
@@ -185,18 +188,18 @@
    "precision": "6"
   },
   {
+   "description": "Total cost of prompt/input tokens across all steps",
    "fieldname": "total_input_cost",
    "fieldtype": "Currency",
    "label": "Input Cost",
-   "precision": "6",
-   "description": "Total cost of prompt/input tokens across all steps"
+   "precision": "6"
   },
   {
+   "description": "Total cost of completion/output tokens across all steps",
    "fieldname": "total_output_cost",
    "fieldtype": "Currency",
    "label": "Output Cost",
-   "precision": "6",
-   "description": "Total cost of completion/output tokens across all steps"
+   "precision": "6"
   },
   {
    "fieldname": "section_break_output",
@@ -204,22 +207,49 @@
    "label": "Output"
   },
   {
+   "description": "Truncated to 64KB; full content on the last AI Agent Step",
    "fieldname": "final_output",
    "fieldtype": "Long Text",
-   "label": "Final Output",
-   "description": "Truncated to 64KB; full content on the last AI Agent Step"
+   "label": "Final Output"
   },
   {
+   "description": "UUID for future external trace export",
    "fieldname": "correlation_id",
    "fieldtype": "Data",
-   "label": "Correlation ID",
-   "description": "UUID for future external trace export"
+   "label": "Correlation ID"
+  },
+  {
+   "collapsible": 1,
+   "fieldname": "section_break_checkpoint",
+   "fieldtype": "Section Break",
+   "label": "Durable Agent Checkpoint"
+  },
+  {
+   "description": "Active-task row id of the human task this suspended agent is waiting for",
+   "fieldname": "pending_human_task",
+   "fieldtype": "Data",
+   "label": "Pending Human Task",
+   "read_only": 1
+  },
+  {
+   "description": "JSON conversation checkpoint of a suspended (human-in-the-loop) agent run",
+   "fieldname": "checkpoint",
+   "fieldtype": "Long Text",
+   "label": "Checkpoint",
+   "read_only": 1
   }
  ],
  "indexes": [
-   ["instance"],
-   ["instance", "bpmn_id"],
-   ["started_at"]
+  [
+   "instance"
+  ],
+  [
+   "instance",
+   "bpmn_id"
+  ],
+  [
+   "started_at"
+  ]
  ],
  "links": [],
  "modified": "2026-06-24 22:20:00.000000",

@@ -690,7 +690,55 @@ def dispatch_send_notification(instance, task, task_cfg: dict, bpmn_id: str) -> 
 		)
 
 
-def dispatch_ai_agent(instance, task, task_cfg: dict, bpmn_id: str) -> None:
+def resume_ai_agent(instance, task, task_cfg: dict, bpmn_id: str, human_result=None, run_name: str = None) -> bool:
+	"""Resume a suspended AI Agent Task with the human's output.
+
+	Reloads the checkpointed conversation, injects *human_result* as the
+	pending human tool call's result, and re-enters the step loop. Exactly-once:
+	the underlying claim flips the run out of "Suspended" atomically, so a
+	second call (job redelivery, double submit) returns False and does nothing.
+
+	Returns True when a resume actually ran.
+	"""
+	from one_bpmn.agents import checkpoint as _checkpoint
+
+	run_name = run_name or _checkpoint.get_suspended_run(instance.name, bpmn_id)
+	if not run_name:
+		return False
+	if human_result is not None:
+		_checkpoint.store_human_result(run_name, human_result)
+	before = frappe.db.get_value("AI Agent Run", run_name, "status")
+	if before != "Suspended":
+		return False
+	dispatch_ai_agent(instance, task, task_cfg, bpmn_id, resume_run=run_name)
+	return True
+
+
+def _checkpointed_tool_results(resume_payload: dict) -> list:
+	"""Tool results of the segments BEFORE the final resume, in call order:
+	every completed turn's results from the checkpointed transcript, the
+	suspended turn's deferred automatic results, then the human's answer."""
+	from one_bpmn.agents.checkpoint import _human_result_str
+
+	suspension = resume_payload.get("suspension") or {}
+	out = []
+
+	def _add(name, content):
+		if name and not str(content or "").startswith("Unknown tool:"):
+			out.append({"tool": name, "result": content or ""})
+
+	for entry in suspension.get("transcript") or []:
+		if entry.get("role") == "tool_results":
+			for r in entry.get("results") or []:
+				_add(r.get("name"), r.get("content"))
+	for r in suspension.get("deferred_results") or []:
+		_add(r.get("name"), r.get("content"))
+	pending = suspension.get("pending_call") or {}
+	_add(pending.get("name"), _human_result_str(resume_payload.get("pending_result")))
+	return out
+
+
+def dispatch_ai_agent(instance, task, task_cfg: dict, bpmn_id: str, resume_run: str = None) -> None:
 	"""
 	Execute an AI Agent Task via the executor package.
 
@@ -699,13 +747,28 @@ def dispatch_ai_agent(instance, task, task_cfg: dict, bpmn_id: str) -> None:
 	task.data.  On failure, sets error variables and logs to Frappe Error Log
 	— the task STILL completes normally (no instance "Errored" state).
 
+	Durable HITL: when the model calls a HUMAN tool the executor returns
+	SUSPENDED — the conversation is checkpointed on the AI Agent Run, a
+	waiting marker is left on task.data, and the task does NOT complete.
+	``resume_run`` re-enters a checkpointed run after the person answered:
+	prompts are NOT re-rendered (the transcript holds the rendered originals)
+	and the claim is idempotent — an already-claimed run is a no-op.
+
 	Observability (AI-009): on every call the instrumentation layer creates
 	an AI Agent Run, records Steps, and finalizes the Run. Instrumentation
 	failures are caught and logged — they never block the executor call.
+	A suspended run stays open (status="Suspended") instead of finalizing.
 	"""
 	from one_bpmn.agents.executor import ExecutorConfig, ExecutorContext, ErrorCode, get_executor
 	from one_bpmn.agents.executor.direct_api import DirectApiExecutor  # noqa
 	from one_bpmn.agents.executor.antigravity import AntigravityExecutor  # noqa
+	from one_bpmn.agents import checkpoint as _checkpoint
+
+	resume_payload = None
+	if resume_run:
+		resume_payload = _checkpoint.claim_for_resume(resume_run)
+		if resume_payload is None:
+			return  # already resumed (redelivery / double submit) — no-op
 
 	doc = frappe._dict()
 	if instance.context_doctype and instance.context_docname:
@@ -726,15 +789,21 @@ def dispatch_ai_agent(instance, task, task_cfg: dict, bpmn_id: str) -> None:
 		except Exception:
 			return text
 
-	system_prompt = render(task_cfg.get("aiSystemPrompt", ""))
-	user_prompt   = render(task_cfg.get("aiUserPrompt", ""))
+	if resume_payload:
+		# The conversation continues — the checkpointed system prompt (incl.
+		# any memory block injected at dispatch time) must be reused verbatim.
+		system_prompt = resume_payload.get("system_prompt") or ""
+		user_prompt = ""
+	else:
+		system_prompt = render(task_cfg.get("aiSystemPrompt", ""))
+		user_prompt   = render(task_cfg.get("aiUserPrompt", ""))
 
 	# ── Long-term memory: search + inject (config-gated; safe when off) ──
 	# When aiLongTermMemory is enabled, recall memories for the task's scope
 	# using the rendered user prompt as the query and append them to the system
 	# prompt as a stable "Relevant memory:" block. Failures never block the call.
 	memory_target = None
-	if _cfg_truthy(task_cfg.get("aiLongTermMemory")):
+	if not resume_payload and _cfg_truthy(task_cfg.get("aiLongTermMemory")):
 		try:
 			memory_target = _resolve_memory_target(task_cfg, instance, bpmn_id)
 			if memory_target and user_prompt:
@@ -779,6 +848,7 @@ def dispatch_ai_agent(instance, task, task_cfg: dict, bpmn_id: str) -> None:
 		tools            = tool_specs,
 		# "Maximum model calls" (Camunda Limits); caps the tool-calling loop.
 		max_tool_calls   = int(task_cfg.get("aiMaxToolCalls", 10) or 10),
+		resume_state     = _checkpoint.build_resume_state(resume_payload) if resume_payload else None,
 	)
 
 	context = ExecutorContext(
@@ -789,21 +859,48 @@ def dispatch_ai_agent(instance, task, task_cfg: dict, bpmn_id: str) -> None:
 		jinja_context   = jinja_ctx,
 	)
 
-	# ── Observability: create Run ─────────────────────────────────────
+	# ── Observability: create Run (or continue the suspended one) ─────
 	run = None
-	try:
-		from one_bpmn.agents.observability import create_ai_run
-		from one_bpmn.one_bpmn.engine import get_task_display_name as _get_label
-		run = create_ai_run(
-			instance, bpmn_id, "task", config,
-			bpmn_label=_get_label(task),
-			process_model=instance.process_model or "",
-		)
-	except Exception:
-		frappe.log_error(
-			title=f"AI Observability: create_ai_run error ({bpmn_id})",
-			message=frappe.get_traceback(),
-		)
+	if resume_payload:
+		try:
+			run = frappe.get_doc("AI Agent Run", resume_run)
+			# The human's answer is a real tool result — record it as a step
+			# BEFORE the resumed turns so the Run reads chronologically.
+			from one_bpmn.agents.observability import record_ai_step
+			pending = (resume_payload.get("suspension") or {}).get("pending_call") or {}
+			human_result = _checkpoint.build_resume_state(resume_payload)["human_result"]
+			record_ai_step(
+				run,
+				frappe.db.count("AI Agent Step", {"run": run.name}),
+				"tool",
+				human_result,
+				tool_calls=[{
+					"name": pending.get("name") or "",
+					"tool_source": "diagram_task",
+					"arguments": pending.get("arguments") or {},
+					"result": human_result,
+					"status": "Success",
+				}],
+			)
+		except Exception:
+			frappe.log_error(
+				title=f"AI Observability: resume run load error ({bpmn_id})",
+				message=frappe.get_traceback(),
+			)
+	else:
+		try:
+			from one_bpmn.agents.observability import create_ai_run
+			from one_bpmn.one_bpmn.engine import get_task_display_name as _get_label
+			run = create_ai_run(
+				instance, bpmn_id, "task", config,
+				bpmn_label=_get_label(task),
+				process_model=instance.process_model or "",
+			)
+		except Exception:
+			frappe.log_error(
+				title=f"AI Observability: create_ai_run error ({bpmn_id})",
+				message=frappe.get_traceback(),
+			)
 
 	# ── Executor ───────────────────────────────────────────────────────
 	import time as _time
@@ -827,6 +924,14 @@ def dispatch_ai_agent(instance, task, task_cfg: dict, bpmn_id: str) -> None:
 		return
 	_exec_latency_ms = int((_time.time() - _exec_start) * 1000)
 
+	# ── Durable HITL: token totals are cumulative across suspensions ───
+	if resume_payload and result.token_usage:
+		result.token_usage.prompt_tokens += int(resume_payload.get("prompt_tokens_so_far") or 0)
+		result.token_usage.completion_tokens += int(resume_payload.get("completion_tokens_so_far") or 0)
+		result.token_usage.total_tokens = (
+			result.token_usage.prompt_tokens + result.token_usage.completion_tokens
+		)
+
 	# ── Observability: record Steps + finalize ─────────────────────────
 	try:
 		from one_bpmn.agents.observability import record_ai_step, finalize_ai_run
@@ -837,9 +942,12 @@ def dispatch_ai_agent(instance, task, task_cfg: dict, bpmn_id: str) -> None:
 				# carries one turn per LLM call. Record it with the shared
 				# recorder — one Step per turn, one ai_agent_tool_call row per
 				# call, tool_source = diagram_task (the shapes are the tools).
+				# On resume, system/user steps were recorded at dispatch time —
+				# only the resumed segment's turns are appended.
 				from one_bpmn.agents.observability import record_selector_turns
-				record_ai_step(run, 0, "system", system_prompt)
-				record_ai_step(run, 1, "user", user_prompt)
+				if not resume_payload:
+					record_ai_step(run, 0, "system", system_prompt)
+					record_ai_step(run, 1, "user", user_prompt)
 				source_map = {t.name: "diagram_task" for t in tool_specs}
 				record_selector_turns(run, result.trace or [], source_map)
 			else:
@@ -860,7 +968,10 @@ def dispatch_ai_agent(instance, task, task_cfg: dict, bpmn_id: str) -> None:
 						latency_ms=_exec_latency_ms,
 					)
 
-		finalize_ai_run(run, result)
+		# A suspension is not an outcome — the run stays open ("Suspended",
+		# set by save_checkpoint below) until the final answer or a failure.
+		if result.error_code != ErrorCode.SUSPENDED:
+			finalize_ai_run(run, result)
 
 		# Commit observability data so AI runs + steps survive even if a
 		# downstream aiStopOnError raise rolls back the outer transaction.
@@ -876,7 +987,37 @@ def dispatch_ai_agent(instance, task, task_cfg: dict, bpmn_id: str) -> None:
 		)
 
 	# ── Results ────────────────────────────────────────────────────────
+	if result.error_code == ErrorCode.SUSPENDED:
+		# The model called a human tool. Checkpoint the conversation on the
+		# Run (status="Suspended") and leave a waiting marker on task.data —
+		# the engine wiring parks the service task and spawns the human task
+		# off this marker. No output/error variables, no retry consumed, no
+		# aiStopOnError: waiting for a person is not a failure.
+		run = _checkpoint.save_checkpoint(
+			run,
+			instance,
+			bpmn_id,
+			result.suspension or {},
+			system_prompt=system_prompt,
+			wf_task_id=str(getattr(task, "id", "") or ""),
+			human_row_id="",
+			prior_prompt_tokens=int((resume_payload or {}).get("prompt_tokens_so_far") or 0),
+			prior_completion_tokens=int((resume_payload or {}).get("completion_tokens_so_far") or 0),
+		)
+		pending = (result.suspension or {}).get("pending_call") or {}
+		task.data["_bpmn_ai_waiting_human"] = {
+			"run": run.name,
+			"tool": pending.get("name") or "",
+			"arguments": pending.get("arguments") or {},
+		}
+		if not frappe.flags.in_test:
+			frappe.db.commit()
+		return
+
 	if result.error_code == ErrorCode.SUCCESS:
+		# Completing a resumed run: drop the waiting marker the suspension left
+		if isinstance(task.data, dict):
+			task.data.pop("_bpmn_ai_waiting_human", None)
 		output_var = task_cfg.get("aiOutputVariable") or f"{bpmn_id}_output"
 		task.data[output_var] = result.output
 		if result.token_usage:
@@ -889,16 +1030,22 @@ def dispatch_ai_agent(instance, task, task_cfg: dict, bpmn_id: str) -> None:
 		# Tool-call evidence: expose the results the shape-tools returned so
 		# downstream steps can route on them. Per-tool {tool}_toolCallResult and
 		# an aggregate aiToolCallResults var (Camunda's "Tool call results").
-		if tool_specs and result.trace:
+		# On a resumed run the trace only covers the final segment — the
+		# earlier segments' results (and the human's answer) are reconstructed
+		# from the checkpointed transcript so downstream evidence is complete.
+		if tool_specs and (result.trace or resume_payload):
 			all_results = []
-			for turn in result.trace:
+			if resume_payload:
+				all_results.extend(_checkpointed_tool_results(resume_payload))
+			for turn in result.trace or []:
 				for call in turn.get("tool_calls") or []:
 					call_result = call.get("result") or ""
 					tool_name = call.get("name") or ""
 					if not tool_name or str(call_result).startswith("Unknown tool:"):
 						continue
-					task.data[f"{tool_name}_toolCallResult"] = call_result
 					all_results.append({"tool": tool_name, "result": call_result})
+			for entry in all_results:
+				task.data[f"{entry['tool']}_toolCallResult"] = entry["result"]
 			results_var = task_cfg.get("aiToolCallResults") or f"{bpmn_id}_toolCallResults"
 			task.data[results_var] = all_results
 
