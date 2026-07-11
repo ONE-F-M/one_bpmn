@@ -208,7 +208,7 @@
 								<label><input type="checkbox" v-model="sel.node.df.reqd" /> Mandatory</label>
 								<label><input type="checkbox" v-model="sel.node.df.unique" /> Unique</label>
 								<label><input type="checkbox" v-model="sel.node.df.in_list_view" /> In list view</label>
-								<label><input type="checkbox" v-model="sel.node.df.in_standard_filter" /> Std filter</label>
+								<label><input type="checkbox" v-model="sel.node.df.in_standard_filter" /> Standard filter</label>
 								<label><input type="checkbox" v-model="sel.node.df.read_only" /> Read only</label>
 								<label><input type="checkbox" v-model="sel.node.df.hidden" /> Hidden</label>
 								<label><input type="checkbox" v-model="sel.node.df.bold" /> Bold</label>
