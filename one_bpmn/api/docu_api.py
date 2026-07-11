@@ -259,6 +259,14 @@ def check_doctype_exists(doctype: str) -> dict:
 
 
 @frappe.whitelist()
+def list_modules() -> list:
+	"""Module Def names — for the DocType-settings module picker."""
+	if frappe.session.user == "Guest":
+		frappe.throw(_("Please sign in to use Docu."), frappe.PermissionError)
+	return frappe.get_all("Module Def", pluck="name", order_by="name asc")
+
+
+@frappe.whitelist()
 def get_doctype_schema(doctype: str) -> dict:
 	"""Return an existing DocType as a Docu IR so the form builder can render it.
 

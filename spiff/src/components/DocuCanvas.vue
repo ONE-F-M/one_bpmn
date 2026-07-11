@@ -245,7 +245,9 @@
 							</div>
 							<div class="dc-prop">
 								<label>Module</label>
-								<input v-model="dtModule" class="dc-prop-input" placeholder="ONE BPMN" />
+								<select v-model="dtModule" class="dc-prop-input">
+									<option v-for="m in moduleOptions" :key="m" :value="m">{{ m }}</option>
+								</select>
 							</div>
 							<div class="dc-prop">
 								<label>Naming (autoname)</label>
@@ -421,6 +423,15 @@ const dtName     = ref(props.doctype || "");
 const dtModule   = ref("ONE BPMN");
 const dtAutoname = ref("");
 const isChild    = ref(false);
+const modules    = ref([]);   // Module Def names for the module picker
+// Always include the current module (e.g. an agent-supplied one) so it stays selectable.
+const moduleOptions = computed(() => {
+	const list = modules.value.slice();
+	for (const m of [dtModule.value, "ONE BPMN"]) {
+		if (m && !list.includes(m)) list.unshift(m);
+	}
+	return list;
+});
 
 // ── Builder tree (tabs → sections → columns → fields) ──────────────────
 // The tree is the working model while editing; the flat IR fields[] the
@@ -710,6 +721,13 @@ async function loadSchema(dt) {
 	} catch (e) { /* new doctype — nothing to load */ }
 }
 
+async function loadModules() {
+	try {
+		const res = await frappeRequest({ url: `${API}list_modules` });
+		if (Array.isArray(res)) modules.value = res;
+	} catch (e) { /* fall back to the current module only */ }
+}
+
 function chatHistoryPayload() {
 	return messages.value
 		.filter((m) => m.role === "user" || m.role === "assistant")
@@ -935,6 +953,7 @@ onBeforeUnmount(stopPolling);
 onMounted(async () => {
 	buildTree([]);  // start with an empty tab/section/column so the canvas is usable
 	selectForm();
+	loadModules();  // populate the module picker (fire-and-forget)
 	if (props.doctype) {
 		// A doctype is already selected on the shape — load its form builder view
 		// and greet with a change-focused message.
