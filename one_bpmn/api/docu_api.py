@@ -403,6 +403,10 @@ def apply_doctype(ir: str, confirm: int = 0) -> dict:
 
 	name = ir_dict["doctype_name"].strip()
 	module = (ir_dict.get("module") or "ONE BPMN").strip()
+	# The module must be a real Frappe Module — the agent can mistake the business
+	# process name for a module. Fall back to ONE BPMN rather than fail on a bogus one.
+	if not module or not frappe.db.exists("Module Def", module):
+		module = "ONE BPMN"
 	is_child = int(bool(ir_dict.get("is_child_table")))
 	autoname = (ir_dict.get("autoname") or "").strip()
 	fields = ir_dict.get("fields") or []
@@ -467,6 +471,43 @@ def _docfield_dict(field: dict, idx: int) -> dict:
 	return out
 
 
+def _uniquify_fieldnames(fields: list) -> list:
+	"""Give every field a unique, non-empty fieldname before it reaches Frappe.
+
+	Layout breaks (Section/Column/Tab Break) in the IR carry no fieldname (or a
+	generic one). Frappe's own auto-naming derives from the label, so several
+	breaks that share a label collide (``Fieldname section_break_section appears
+	multiple times``). We assign each break a unique ``section_break_<hash>`` up
+	front — the same shape Frappe uses — and defensively de-duplicate any repeated
+	data fieldname too. Returns copies; the input dicts are not mutated.
+	"""
+	seen: set[str] = set()
+	out = []
+	for f in fields:
+		if not isinstance(f, dict):
+			continue
+		f = dict(f)
+		ft = (f.get("fieldtype") or "").strip()
+		fn = (f.get("fieldname") or "").strip()
+		if ft in _LAYOUT_FIELDTYPES:
+			base = frappe.scrub(ft)  # section_break / column_break / tab_break
+			if not fn or fn in seen:
+				fn = f"{base}_{frappe.generate_hash(length=6)}"
+				while fn in seen:
+					fn = f"{base}_{frappe.generate_hash(length=6)}"
+			f["fieldname"] = fn
+		elif fn and fn in seen:
+			new = f"{fn}_{frappe.generate_hash(length=4)}"
+			while new in seen:
+				new = f"{fn}_{frappe.generate_hash(length=4)}"
+			fn = new
+			f["fieldname"] = fn
+		if fn:
+			seen.add(fn)
+		out.append(f)
+	return out
+
+
 import re as _re
 
 
@@ -518,7 +559,7 @@ def _create_custom_doctype(name: str, module: str, is_child: int, autoname: str,
 		"istable": is_child,
 		"editable_grid": 1,
 		"autoname": autoname or None,
-		"fields": [_docfield_dict(f, i + 1) for i, f in enumerate(fields)],
+		"fields": [_docfield_dict(f, i + 1) for i, f in enumerate(_uniquify_fieldnames(fields))],
 	})
 	if not is_child:
 		doc.append("permissions", {
@@ -541,8 +582,8 @@ def _reconcile_custom_doctype(name: str, is_child: int, autoname: str, fields: l
 	doc = frappe.get_doc("DocType", name)
 	payloads = []
 	idx = 0
-	for f in fields:
-		is_layout = f.get("fieldtype") in ("Section Break", "Column Break", "Tab Break")
+	for f in _uniquify_fieldnames(fields):
+		is_layout = f.get("fieldtype") in _LAYOUT_FIELDTYPES
 		if not is_layout and not (f.get("fieldname") or "").strip():
 			continue
 		idx += 1

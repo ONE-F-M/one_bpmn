@@ -117,7 +117,7 @@ _SCHEMA_WRITER = (
 	"YOUR OUTPUT — a DocType definition as a single JSON object with this exact shape:\n"
 	"{\n"
 	"  \"doctype_name\": \"Human Readable Name\",   // Title Case, letters/digits/spaces\n"
-	"  \"module\": \"" + _DEFAULT_MODULE + "\",\n"
+	"  \"module\": \"" + _DEFAULT_MODULE + "\",         // Frappe app module — always the module you are told to use (default " + _DEFAULT_MODULE + "); NEVER the business-process name\n"
 	"  \"is_child_table\": false,                  // true only if this is a row inside another form\n"
 	"  \"autoname\": \"\",                          // how records are named — see NAMING below (omit/empty = random hash)\n"
 	"  \"fields\": [\n"
@@ -296,7 +296,10 @@ class DocuAgent:
 				"keep every field you are not changing exactly as it is (same fieldname), and apply the requested change."
 			)
 		else:
-			parts.append(f"Target module: {target_module or _DEFAULT_MODULE}")
+			parts.append(
+				f"Module to use (a Frappe app module — NOT the business-process name): "
+				f"{target_module or _DEFAULT_MODULE}"
+			)
 			if doctype:
 				parts.append(f"Suggested form name: {doctype}")
 		history = self._format_history(chat_history)

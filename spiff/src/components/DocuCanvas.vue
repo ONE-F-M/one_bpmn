@@ -681,10 +681,18 @@ function deleteSelected() {
 }
 
 // ── IR round-trip ──────────────────────────────────────────────────────
+// Module is a real Frappe Module the user controls via the dropdown — never trust
+// the agent to set it (it can confuse the business-process name for a module). Only
+// accept an IR module that is an actual Module Def; otherwise keep "ONE BPMN".
+function sanitizeModule(m) {
+	if (!m) return dtModule.value || "ONE BPMN";
+	if (modules.value.length && !modules.value.includes(m)) return "ONE BPMN";
+	return m;
+}
 function loadIr(ir) {
 	if (!ir) return;
 	if (ir.doctype_name) dtName.value = ir.doctype_name;
-	if (ir.module) dtModule.value = ir.module;
+	dtModule.value = sanitizeModule(ir.module);
 	dtAutoname.value = ir.autoname || "";
 	isChild.value = !!ir.is_child_table;
 	buildTree(ir.fields || []);
@@ -724,7 +732,11 @@ async function loadSchema(dt) {
 async function loadModules() {
 	try {
 		const res = await frappeRequest({ url: `${API}list_modules` });
-		if (Array.isArray(res)) modules.value = res;
+		if (Array.isArray(res)) {
+			modules.value = res;
+			// A module set before the list loaded (e.g. by the agent) may be bogus — fix it.
+			if (dtModule.value && !res.includes(dtModule.value)) dtModule.value = "ONE BPMN";
+		}
 	} catch (e) { /* fall back to the current module only */ }
 }
 
@@ -1039,7 +1051,7 @@ onMounted(async () => {
 
 .dc-window {
 	position: relative;
-	width: min(1640px, 98vw); height: min(960px, 96vh);
+	width: min(1640px, 98vw); height: min(960px, 96dvh);
 	background: var(--md-surface-container-low);
 	color: var(--md-on-surface);
 	border-radius: var(--md-corner-xl); overflow: hidden;
@@ -1066,7 +1078,7 @@ onMounted(async () => {
 .dc-root { flex: 1; display: flex; min-height: 0; }
 
 /* ── Chat (left) ── */
-.dc-chat-panel { width: 460px; flex: none; display: flex; flex-direction: column; background: var(--md-surface-container-low); border-right: 1px solid var(--md-outline-variant); min-width: 0; }
+.dc-chat-panel { width: clamp(320px, 30%, 460px); flex: none; display: flex; flex-direction: column; background: var(--md-surface-container-low); border-right: 1px solid var(--md-outline-variant); min-width: 0; }
 .dc-messages { flex: 1; overflow-y: auto; padding: 16px; display: flex; flex-direction: column; gap: 12px; }
 .dc-msg-row { display: flex; }
 .dc-msg-row.user { justify-content: flex-end; }
@@ -1094,7 +1106,7 @@ onMounted(async () => {
 
 /* ── Builder canvas (middle) ── */
 .dc-builder-panel { flex: 1; display: flex; flex-direction: column; min-width: 0; background: var(--md-surface-container); }
-.dc-builder-topbar { display: flex; align-items: center; gap: 12px; padding: 12px 16px; background: var(--md-surface-container-low); border-bottom: 1px solid var(--md-outline-variant); }
+.dc-builder-topbar { display: flex; align-items: center; flex-wrap: wrap; gap: 10px; padding: 12px 16px; background: var(--md-surface-container-low); border-bottom: 1px solid var(--md-outline-variant); }
 .dc-form-name { flex: 1; min-width: 0; }
 .dc-name-input { width: 100%; border: 1px solid var(--md-outline); border-radius: var(--md-corner-sm); padding: 9px 12px; font-size: 15px; font-weight: 500; background: var(--md-surface-container-lowest); color: var(--md-on-surface); transition: border-color var(--md-dur) var(--md-ease), box-shadow var(--md-dur) var(--md-ease); }
 .dc-name-input:focus { outline: none; border-color: var(--md-primary); box-shadow: inset 0 0 0 1px var(--md-primary); }
@@ -1153,7 +1165,7 @@ onMounted(async () => {
 .dc-add-section:hover { background: rgba(79,70,229,var(--md-state-hover)); }
 
 /* ── Properties (right) ── */
-.dc-props-panel { width: 312px; flex: none; border-left: 1px solid var(--md-outline-variant); background: var(--md-surface-container-low); overflow-y: auto; padding: 18px 16px; }
+.dc-props-panel { width: clamp(250px, 22%, 312px); flex: none; border-left: 1px solid var(--md-outline-variant); background: var(--md-surface-container-low); overflow-y: auto; padding: 18px 16px; }
 .dc-props-head { font-size: 14px; font-weight: 600; letter-spacing: .01em; color: var(--md-on-surface); margin-bottom: 16px; }
 .dc-prop { display: flex; flex-direction: column; gap: 5px; margin-bottom: 14px; }
 .dc-prop label { font-size: 12px; color: var(--md-on-surface-variant); font-weight: 500; }
@@ -1223,4 +1235,36 @@ onMounted(async () => {
 .dc-template-item:hover { border-color: var(--md-primary); background: color-mix(in srgb, var(--md-primary) 5%, var(--md-surface-container-lowest)); }
 .dc-template-name { font-size: 14px; font-weight: 600; color: var(--md-on-surface); }
 .dc-template-desc { font-size: 12px; color: var(--md-on-surface-variant); }
+
+/* ══════════════════════════════════════════════════════════════════════
+   Responsive (MD3 adaptive dialog): panels flex on medium widths, and the
+   three-pane layout stacks into a full-screen, single-column flow on small
+   screens so nothing overflows on laptops/tablets/phones.
+   ══════════════════════════════════════════════════════════════════════ */
+@media (max-width: 1100px) {
+	.dc-chat-panel { width: clamp(260px, 30%, 380px); }
+	.dc-props-panel { width: clamp(220px, 25%, 290px); }
+	.dc-form-name { flex-basis: 100%; }   /* name input takes its own row */
+}
+@media (max-width: 760px) {
+	.dc-window { width: 100vw; height: 100dvh; max-height: 100dvh; border-radius: 0; }
+	.dc-root { flex-direction: column; }
+	.dc-chat-panel {
+		width: 100%; height: 42%; min-height: 160px; flex: none;
+		border-right: none; border-bottom: 1px solid var(--md-outline-variant);
+	}
+	.dc-builder-panel { width: 100%; flex: 1 1 auto; min-height: 0; }
+	.dc-props-panel {
+		width: 100%; height: auto; max-height: 46%; flex: none;
+		border-left: none; border-top: 1px solid var(--md-outline-variant);
+	}
+	.dc-add-group { flex-wrap: wrap; }
+	.dc-window-header { padding: 10px 12px 10px 14px; }
+	.dc-subtitle { display: none; }        /* keep the header compact */
+	.dc-modal { width: min(560px, 94%); padding: 18px; }
+}
+@media (max-width: 420px) {
+	.dc-add-btn { padding: 7px 12px; font-size: 12px; }
+	.dc-dt-chip { max-width: 120px; }
+}
 </style>
