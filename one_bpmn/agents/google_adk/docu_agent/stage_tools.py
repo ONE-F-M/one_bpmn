@@ -97,10 +97,14 @@ def tool_clarify(conversation: str) -> dict:
 	)
 	question, options = (raw or "Could you tell me a bit more?"), []
 	try:
-		data = json.loads((raw or "").strip())
-		question = data.get("question", raw)
-		options = data.get("options", [])
-	except (json.JSONDecodeError, TypeError):
+		# extract_json tolerates markdown-fenced or prose-wrapped JSON. A bare
+		# json.loads left fenced replies unparsed, leaking the raw JSON object
+		# into the chat (and dropping the clickable options).
+		data = docu_tools.extract_json(raw or "")
+		if isinstance(data, dict):
+			question = data.get("question") or raw
+			options = data.get("options") or []
+	except (ValueError, json.JSONDecodeError, TypeError):
 		pass
 
 	output = {

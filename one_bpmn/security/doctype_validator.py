@@ -41,6 +41,9 @@ _OPTIONS_REQUIRED = frozenset({
 	"Link", "Table", "Table MultiSelect", "Dynamic Link", "Select",
 })
 
+# "Repeating list" field types — may define their rows inline via ``child_fields``.
+_TABLE_FIELDTYPES = frozenset({"Table", "Table MultiSelect"})
+
 # Layout fieldtypes that never need a fieldname/label to be meaningful and are
 # skipped by most of the per-field checks.
 _LAYOUT_FIELDTYPES = frozenset({
@@ -150,11 +153,54 @@ def validate_doctype_ir(ir: dict) -> dict:
 		if not label:
 			violations.append(f"{pos} ({fieldname or fieldtype}): missing 'label'.")
 
-		if fieldtype in _OPTIONS_REQUIRED and not (field.get("options") or "").strip():
+		# A Table / Table MultiSelect field is a "repeating list". It may point at an
+		# existing child DocType via 'options', OR define its rows inline via
+		# 'child_fields' — in which case apply_doctype auto-creates the child DocType.
+		child_fields = field.get("child_fields")
+		is_table = fieldtype in _TABLE_FIELDTYPES
+		has_inline_child = is_table and isinstance(child_fields, list) and bool(child_fields)
+		if has_inline_child:
+			child_seen: set[str] = set()
+			child_has_data = False
+			for cidx, cf in enumerate(child_fields):
+				cpos = f"{pos} → repeating-list column #{cidx + 1}"
+				if not isinstance(cf, dict):
+					violations.append(f"{cpos} is not an object.")
+					continue
+				cft = (cf.get("fieldtype") or "").strip()
+				cfn = (cf.get("fieldname") or "").strip()
+				clabel = (cf.get("label") or "").strip()
+				if cft not in ALLOWED_FIELDTYPES:
+					violations.append(f"{cpos}: field type '{cft or '(missing)'}' is not allowed.")
+					continue
+				if cft in _TABLE_FIELDTYPES:
+					violations.append(f"{cpos}: a repeating list cannot itself contain another repeating list.")
+					continue
+				if cft in _LAYOUT_FIELDTYPES:
+					continue
+				child_has_data = True
+				if not cfn:
+					violations.append(f"{cpos} ({clabel or cft}): missing 'fieldname'.")
+				elif not _FIELDNAME_RE.match(cfn):
+					violations.append(f"{cpos}: fieldname '{cfn}' must be snake_case.")
+				elif cfn in RESERVED_FIELDNAMES:
+					violations.append(f"{cpos}: fieldname '{cfn}' is a reserved Frappe field.")
+				elif cfn in child_seen:
+					violations.append(f"{cpos}: duplicate fieldname '{cfn}'.")
+				else:
+					child_seen.add(cfn)
+				if not clabel:
+					violations.append(f"{cpos} ({cfn or cft}): missing 'label'.")
+				if cft in _OPTIONS_REQUIRED and not (cf.get("options") or "").strip():
+					violations.append(f"{cpos} ({cfn or clabel}): a '{cft}' field requires 'options'.")
+			if not child_has_data:
+				violations.append(f"{pos} ({label or fieldname}): the repeating list has no data columns.")
+
+		if fieldtype in _OPTIONS_REQUIRED and not (field.get("options") or "").strip() and not has_inline_child:
 			hint = {
 				"Link": "the target DocType name",
-				"Table": "the child-table DocType name",
-				"Table MultiSelect": "the child-table DocType name",
+				"Table": "the child-table DocType name (or provide 'child_fields')",
+				"Table MultiSelect": "the child-table DocType name (or provide 'child_fields')",
 				"Dynamic Link": "the fieldname holding the target DocType",
 				"Select": "newline-separated choices",
 			}[fieldtype]
