@@ -284,16 +284,23 @@ class DocuAgent:
 		self, message: str, chat_history: list, doctype: str,
 		current_ir: dict | None, target_module: str, process_context: dict = None,
 	) -> str:
+		import json as _json
+
 		parts = []
-		ctx = self._format_process_context(process_context or {})
+		is_modify = bool(doctype and isinstance(current_ir, dict) and current_ir.get("fields"))
+		ctx = self._format_process_context(process_context or {}, for_modify=is_modify)
 		if ctx:
-			parts.append(ctx)
-		schema = self._format_current_schema(doctype, current_ir)
-		if schema:
-			parts.append(schema)
+			parts.append(("For background only — do NOT redesign around this: " if is_modify else "") + ctx)
+		if is_modify:
+			# Hand the writer the FULL current definition (every field + property +
+			# Section/Column/Tab break) as JSON to edit — a lossy field listing makes
+			# it drop the structure and redraw from scratch.
+			parts.append(f'The DocType "{doctype}" ALREADY EXISTS. Its CURRENT complete definition is below — you are EDITING it, NOT creating a new one.')
+			parts.append("```json\n" + _json.dumps(current_ir, indent=2, default=str) + "\n```")
 			parts.append(
-				"You are MODIFYING the form above. Output the COMPLETE desired field list — "
-				"keep every field you are not changing exactly as it is (same fieldname), and apply the requested change."
+				"Return the COMPLETE JSON again with ONLY the user's requested change applied. Keep EVERY other "
+				"field exactly as above — same fieldname, same properties, and every Section/Column/Tab break in "
+				"the same order. Do NOT say it doesn't exist, and do NOT redesign it from the process context."
 			)
 		else:
 			parts.append(
@@ -310,10 +317,14 @@ class DocuAgent:
 		return "\n\n".join(parts)
 
 	@staticmethod
-	def _format_process_context(ctx: dict) -> str:
+	def _format_process_context(ctx: dict, for_modify: bool = False) -> str:
 		"""Render the BPMN model context so the agent designs a DocType that fits
 		exactly where it sits in the process — the step, its role, and its position
 		in the flow (what comes before/after).
+
+		When ``for_modify`` is True the closing "design it to fit this step" directive
+		is dropped: on an edit the context is background only, and telling the model to
+		(re)design for the step makes it redraw from scratch instead of editing.
 		"""
 		if not isinstance(ctx, dict) or not ctx:
 			return ""
@@ -344,7 +355,7 @@ class DocuAgent:
 		if down:
 			lines.append("Later steps in the process: " + ", ".join(down) + ".")
 
-		if lines:
+		if lines and not for_modify:
 			lines.append(
 				"Design the DocType so it fits this step's purpose — capture exactly what "
 				"this step needs (no more), and use field names/labels that match the process."

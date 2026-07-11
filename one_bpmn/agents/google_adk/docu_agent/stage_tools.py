@@ -125,11 +125,20 @@ def tool_write_schema(conversation: str) -> dict:
 	violations, calling this again regenerates a corrected definition."""
 	turn = get_turn(conversation)
 	agent = DocuAgent()
+	doctype = turn.get("doctype", "")
+	# The MODIFY baseline: use what classify seeded, but read it fresh if it isn't
+	# there (the orchestrator may reach write before classify, or the seed may not
+	# have persisted). Without it the writer redraws from scratch instead of editing
+	# the existing DocType — dropping every field it wasn't told about.
+	current_ir = turn.get("current_ir")
+	if current_ir is None and doctype and _exists(doctype):
+		current_ir = _read_doctype_ir(doctype)
+		update_turn(conversation, current_ir=current_ir)  # cache for finalize's diff
 	base_prompt = agent._build_writer_prompt(
 		turn.get("user_text", ""),
 		turn.get("chat_history", []),
-		turn.get("doctype", ""),
-		turn.get("current_ir"),
+		doctype,
+		current_ir,
 		turn.get("target_module", ""),
 		turn.get("process_context") or {},
 	)
