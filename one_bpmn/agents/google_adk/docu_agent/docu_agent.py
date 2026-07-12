@@ -72,14 +72,15 @@ _INTENT_CLASSIFIER = (
 	"Analyse BOTH the user's message AND the BPMN context you are given (the process name, the current "
 	"step/shape, and which DocType — if any — is already selected on that shape). Use them together to "
 	"determine what the user wants, then classify the intent as exactly one of:\n"
-	"- CREATE  — the user wants to build a brand-new DocType (form/record type) from scratch\n"
+	"- CREATE  — the user wants to build a brand-new DocType (record type) from scratch\n"
 	"- MODIFY  — the user wants to add, remove, rename, or change the properties of fields on an EXISTING DocType\n"
 	"- DISAMBIGUATE — the request is vague, could mean more than one thing, or the target DocType is unclear\n\n"
 	"GROUND YOUR DECISION WITH TOOLS — do not assume:\n"
 	"- If the user names a DocType, call `doctype_exists` on it: if it exists → lean MODIFY; if not → lean CREATE.\n"
-	"- If the user refers to a form only by description (\"the leave form\"), use `list_doctypes` to see whether a matching one exists.\n\n"
+	"- If the user refers to a DocType only by description (\"the leave request\"), use `list_doctypes` to see whether a matching one exists.\n"
+	"- DUPLICATE CHECK: before returning CREATE, call `list_doctypes` and check whether a DocType that already serves this purpose exists. If a clear match exists, return DISAMBIGUATE and NAME the match in your reason so the user can choose to modify it instead of creating a duplicate.\n\n"
 	"Classification rules:\n"
-	"- If a DocType IS already selected on the shape, lean MODIFY unless the user clearly says \"create a new …\" or names a different form.\n"
+	"- If a DocType IS already selected on the shape, lean MODIFY unless the user clearly says \"create a new …\" or names a different DocType.\n"
 	"- If NO DocType is selected and the user does not reference an existing one, lean CREATE.\n"
 	"- Use DISAMBIGUATE when you genuinely cannot tell create-vs-modify, when several existing DocTypes could match, or when the request is too vague to act on.\n"
 	"- When DISAMBIGUATE, suggest in your reason whether a Yes/No (polar) question or a multiple-choice question would resolve it fastest.\n\n"
@@ -88,33 +89,35 @@ _INTENT_CLASSIFIER = (
 )
 
 _CLARIFIER = (
-	"You are a helpful assistant for Docu, an AI tool that builds data forms (DocTypes) for business processes on Processa.\n\n"
-	"IMPORTANT: The person you are talking to is NOT technical. They do not know what a DocType, field type, or database is. "
-	"Speak to them in plain everyday English — the way you would speak to a colleague who knows their work well but has never built a form.\n\n"
+	"You are a helpful assistant for Docu, an AI tool that builds Frappe DocTypes for business processes on Processa.\n\n"
+	"Keep it approachable — the person may not be deeply technical, so use plain everyday English. "
+	"We build DocTypes, so call the thing a \"DocType\" (never a \"form\").\n\n"
 	"The user's request is unclear. Ask ONE simple question to pin down exactly what they want.\n\n"
 	"Rules:\n"
 	"- One question only.\n"
-	"- PREFER a yes/no (polar) question when the ambiguity is binary (e.g. \"Do you want to create a new form, or change an existing one?\" → options [\"Create a new one\", \"Change an existing one\"]).\n"
+	"- PREFER a yes/no (polar) question when the ambiguity is binary (e.g. \"Do you want to create a new DocType, or change an existing one?\" → options [\"Create a new one\", \"Change an existing one\"]).\n"
 	"- Otherwise offer 2–4 plain-English multiple-choice options — much easier than a free-text answer.\n"
 	"- Always populate the \"options\" array (2–4 entries) so the user can click rather than type.\n"
-	"- Do NOT use technical words like DocType, field type, schema, Link, table, or database.\n"
-	"- Never design or show a form — only ask your question.\n"
+	"- If the request looks like something that may ALREADY exist, use list_doctypes / doctype_exists to check; if a match exists, include an option like \"Update the existing <name>\" alongside \"Create a new one\" so the user avoids a duplicate.\n"
+	"- Avoid deep jargon like field type, schema, Link, child table, or database.\n"
+	"- Never design or show a DocType — only ask your question.\n"
 	"- Keep everything short and friendly.\n\n"
 	"Respond with ONLY a JSON object — no other text:\n"
 	"{\"question\": \"your plain-English question\", \"options\": [\"option1\", \"option2\", ...]}"
 )
 
 _SCHEMA_WRITER = (
-	"You are Docu, an expert assistant that designs Frappe DocTypes (data forms) for business processes.\n\n"
+	"You are Docu, an expert assistant that designs Frappe DocTypes for business processes.\n\n"
 	"IMPORTANT — WHO YOU ARE TALKING TO:\n"
-	"The person asking is a process owner, NOT a developer. In your response text (outside the JSON) speak in plain everyday English:\n"
-	"- Describe the form in terms of what it captures, not how it is stored.\n"
+	"The person asking is a process owner, NOT a developer. In your response text (outside the JSON) speak in plain everyday English "
+	"and call the thing a \"DocType\" (never a \"form\"):\n"
+	"- Describe the DocType in terms of what it captures, not how it is stored.\n"
 	"- Say \"I've added a field for the employee's name\" — never \"I created a Data field.\"\n"
 	"- Keep it to 2–3 short sentences.\n\n"
 	"YOUR OUTPUT — a DocType definition as a single JSON object with this exact shape:\n"
 	"{\n"
 	"  \"doctype_name\": \"Human Readable Name\",   // Title Case, letters/digits/spaces\n"
-	"  \"module\": \"" + _DEFAULT_MODULE + "\",\n"
+	"  \"module\": \"" + _DEFAULT_MODULE + "\",         // Frappe app module — always the module you are told to use (default " + _DEFAULT_MODULE + "); NEVER the business-process name\n"
 	"  \"is_child_table\": false,                  // true only if this is a row inside another form\n"
 	"  \"autoname\": \"\",                          // how records are named — see NAMING below (omit/empty = random hash)\n"
 	"  \"fields\": [\n"
@@ -148,7 +151,7 @@ _SCHEMA_WRITER = (
 	"  Boolean:   Check\n"
 	"  Dates:     Date, Datetime, Time, Duration\n"
 	"  Choices:   Select (options = newline-separated choices)\n"
-	"  Relations: Link (options = the DocType it points to), Dynamic Link, Table / Table MultiSelect (options = child DocType)\n"
+	"  Relations: Link (options = the DocType it points to), Dynamic Link, Table / Table MultiSelect (options = existing child DocType, OR define rows inline with 'child_fields' — see rule 8)\n"
 	"  Files:     Attach, Attach Image, Signature\n"
 	"  Other:     Color, Rating, Phone, Password, Read Only\n"
 	"  Layout:    Section Break, Column Break, Tab Break, HTML, Heading (no fieldname/options needed)\n\n"
@@ -159,7 +162,9 @@ _SCHEMA_WRITER = (
 	"4. Mark the one or two fields that best identify a record with \"in_list_view\": 1.\n"
 	"5. Group related fields with a 'Section Break' (give it a label) for a clean layout.\n"
 	"6. Keep the form focused — only the fields the process actually needs.\n"
-	"7. When MODIFYING, output the COMPLETE desired field list — keep every field you are not changing EXACTLY as-is, including its fieldname AND all its existing properties (options, reqd, depends_on, fetch_from, ...). Read the full current definition with a tool first so you don't drop anything.\n\n"
+	"7. When MODIFYING, output the COMPLETE desired field list — keep every field you are not changing EXACTLY as-is, including its fieldname AND all its existing properties (options, reqd, depends_on, fetch_from, ...). Read the full current definition with a tool first so you don't drop anything.\n"
+	"8. REPEATING LISTS (child tables): when the user needs many rows of the same thing (line items, parts used, attendees, documents), add a field of type \"Table\" and define its columns INLINE with a \"child_fields\": [ ... ] array — each entry is a field object exactly like the ones above (fieldname/label/fieldtype/...). Do NOT set 'options' and do NOT invent a child DocType name; Docu creates the child DocType automatically. Example: {\"fieldname\":\"parts_used\",\"label\":\"Parts Used\",\"fieldtype\":\"Table\",\"child_fields\":[{\"fieldname\":\"part\",\"label\":\"Part\",\"fieldtype\":\"Data\"},{\"fieldname\":\"qty\",\"label\":\"Quantity\",\"fieldtype\":\"Int\"}]}.\n"
+	"9. REUSE what exists: if the thing the user references is already a DocType (Employee, Customer, Vehicle, ...), LINK to it (a Link field whose options is that DocType's name) instead of recreating it. Use list_doctypes to discover what already exists before adding a Link.\n\n"
 	"NAMING (how records are titled) — set 'autoname' when it matters:\n"
 	"- \"field:some_fieldname\"       → name each record after that field's value (e.g. \"field:employee_name\").\n"
 	"- \"format:INSP-.#####\"          → a pattern with an auto-incrementing counter (the .#####).\n"
@@ -181,7 +186,7 @@ _SCHEMA_REVIEWER = (
 	"Evaluate the given DocType definition JSON for:\n"
 	"1. Field types — every field uses a supported type; Link/Table/Dynamic Link/Select carry a sensible 'options'.\n"
 	"2. Fieldnames — snake_case, unique, not a reserved Frappe field (name, owner, creation, modified, docstatus, parent, idx, ...).\n"
-	"3. Completeness — the form captures what the request described; nothing important is missing.\n"
+	"3. Completeness — EVERY field the user described is present. If any described field is missing, that is a BLOCKING issue: set approved=false and add the missing field(s) in revised_ir. A repeating list the user asked for must be a Table field with 'child_fields'.\n"
 	"4. Sanity — labels are clear, at least one field is marked in_list_view, related fields are grouped.\n\n"
 	"USE YOUR TOOLS to verify, don't assume:\n"
 	"- `doctype_exists`: confirm the target of every Link/Table field actually exists. A Link to a non-existent DocType is a blocking issue — set approved=false and fix it.\n"
@@ -279,19 +284,29 @@ class DocuAgent:
 		self, message: str, chat_history: list, doctype: str,
 		current_ir: dict | None, target_module: str, process_context: dict = None,
 	) -> str:
+		import json as _json
+
 		parts = []
-		ctx = self._format_process_context(process_context or {})
+		is_modify = bool(doctype and isinstance(current_ir, dict) and current_ir.get("fields"))
+		ctx = self._format_process_context(process_context or {}, for_modify=is_modify)
 		if ctx:
-			parts.append(ctx)
-		schema = self._format_current_schema(doctype, current_ir)
-		if schema:
-			parts.append(schema)
+			parts.append(("For background only — do NOT redesign around this: " if is_modify else "") + ctx)
+		if is_modify:
+			# Hand the writer the FULL current definition (every field + property +
+			# Section/Column/Tab break) as JSON to edit — a lossy field listing makes
+			# it drop the structure and redraw from scratch.
+			parts.append(f'The DocType "{doctype}" ALREADY EXISTS. Its CURRENT complete definition is below — you are EDITING it, NOT creating a new one.')
+			parts.append("```json\n" + _json.dumps(current_ir, indent=2, default=str) + "\n```")
 			parts.append(
-				"You are MODIFYING the form above. Output the COMPLETE desired field list — "
-				"keep every field you are not changing exactly as it is (same fieldname), and apply the requested change."
+				"Return the COMPLETE JSON again with ONLY the user's requested change applied. Keep EVERY other "
+				"field exactly as above — same fieldname, same properties, and every Section/Column/Tab break in "
+				"the same order. Do NOT say it doesn't exist, and do NOT redesign it from the process context."
 			)
 		else:
-			parts.append(f"Target module: {target_module or _DEFAULT_MODULE}")
+			parts.append(
+				f"Module to use (a Frappe app module — NOT the business-process name): "
+				f"{target_module or _DEFAULT_MODULE}"
+			)
 			if doctype:
 				parts.append(f"Suggested form name: {doctype}")
 		history = self._format_history(chat_history)
@@ -302,14 +317,49 @@ class DocuAgent:
 		return "\n\n".join(parts)
 
 	@staticmethod
-	def _format_process_context(ctx: dict) -> str:
-		if not ctx:
+	def _format_process_context(ctx: dict, for_modify: bool = False) -> str:
+		"""Render the BPMN model context so the agent designs a DocType that fits
+		exactly where it sits in the process — the step, its role, and its position
+		in the flow (what comes before/after).
+
+		When ``for_modify`` is True the closing "design it to fit this step" directive
+		is dropped: on an edit the context is background only, and telling the model to
+		(re)design for the step makes it redraw from scratch instead of editing.
+		"""
+		if not isinstance(ctx, dict) or not ctx:
 			return ""
 		lines = []
-		if ctx.get("process_name"):
-			lines.append(f"This form is used by the '{ctx['process_name']}' process.")
-		if ctx.get("element_name"):
-			lines.append(f"It is attached to the step '{ctx['element_name']}'.")
+		proc = (ctx.get("process_name") or "").strip()
+		step = (ctx.get("element_name") or "").strip()
+		etype = (ctx.get("element_type") or "step").strip() or "step"
+		role = (ctx.get("field_role") or "").strip()
+		desc = (ctx.get("element_description") or "").strip()
+
+		if proc:
+			lines.append(f"This DocType belongs to the \"{proc}\" business process.")
+		if step:
+			s = f"It is attached to the {etype} \"{step}\""
+			if role:
+				s += f", where it represents {role}"
+			lines.append(s + ".")
+		elif role:
+			lines.append(f"At this step the DocType represents {role}.")
+		if desc:
+			lines.append(f"That step is described as: {desc}")
+
+		def _names(v):
+			return [str(x).strip() for x in (v or []) if str(x).strip()]
+		up, down = _names(ctx.get("upstream")), _names(ctx.get("downstream"))
+		if up:
+			lines.append("Earlier steps in the process: " + ", ".join(up) + ".")
+		if down:
+			lines.append("Later steps in the process: " + ", ".join(down) + ".")
+
+		if lines and not for_modify:
+			lines.append(
+				"Design the DocType so it fits this step's purpose — capture exactly what "
+				"this step needs (no more), and use field names/labels that match the process."
+			)
 		return " ".join(lines)
 
 	def _build_clarifier_prompt(self, message: str, doctype: str, intent_reason: str, chat_history: list) -> str:
@@ -399,7 +449,7 @@ class DocuAgent:
 		import re
 
 		text = re.sub(r"```(?:json)?\s*[\s\S]*?```", "", draft or "").strip()
-		return text or "Here's the form I put together — review it on the right."
+		return text or "Here's the DocType I put together — review it on the right."
 
 	# ── Main pipeline ──────────────────────────────────────────────────────────
 

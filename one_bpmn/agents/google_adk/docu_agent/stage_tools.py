@@ -97,10 +97,14 @@ def tool_clarify(conversation: str) -> dict:
 	)
 	question, options = (raw or "Could you tell me a bit more?"), []
 	try:
-		data = json.loads((raw or "").strip())
-		question = data.get("question", raw)
-		options = data.get("options", [])
-	except (json.JSONDecodeError, TypeError):
+		# extract_json tolerates markdown-fenced or prose-wrapped JSON. A bare
+		# json.loads left fenced replies unparsed, leaking the raw JSON object
+		# into the chat (and dropping the clickable options).
+		data = docu_tools.extract_json(raw or "")
+		if isinstance(data, dict):
+			question = data.get("question") or raw
+			options = data.get("options") or []
+	except (ValueError, json.JSONDecodeError, TypeError):
 		pass
 
 	output = {
@@ -121,11 +125,20 @@ def tool_write_schema(conversation: str) -> dict:
 	violations, calling this again regenerates a corrected definition."""
 	turn = get_turn(conversation)
 	agent = DocuAgent()
+	doctype = turn.get("doctype", "")
+	# The MODIFY baseline: use what classify seeded, but read it fresh if it isn't
+	# there (the orchestrator may reach write before classify, or the seed may not
+	# have persisted). Without it the writer redraws from scratch instead of editing
+	# the existing DocType — dropping every field it wasn't told about.
+	current_ir = turn.get("current_ir")
+	if current_ir is None and doctype and _exists(doctype):
+		current_ir = _read_doctype_ir(doctype)
+		update_turn(conversation, current_ir=current_ir)  # cache for finalize's diff
 	base_prompt = agent._build_writer_prompt(
 		turn.get("user_text", ""),
 		turn.get("chat_history", []),
-		turn.get("doctype", ""),
-		turn.get("current_ir"),
+		doctype,
+		current_ir,
 		turn.get("target_module", ""),
 		turn.get("process_context") or {},
 	)
