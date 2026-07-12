@@ -1478,7 +1478,7 @@ onMounted(async () => {
 .dc-save-status.st-error { color: var(--md-error); }
 
 /* ── Properties (right) ── */
-.dc-props-panel { width: clamp(250px, 22%, 312px); flex: none; border-left: 1px solid var(--md-outline-variant); background: var(--md-surface-container-low); overflow-y: auto; padding: 18px 16px; }
+.dc-props-panel { width: clamp(250px, 22%, 312px); flex: none; border-left: 1px solid var(--md-outline-variant); background: var(--md-surface-container-low); overflow-y: auto; scrollbar-gutter: stable; padding: 18px 16px; }
 .dc-props-head { font-size: 14px; font-weight: 600; letter-spacing: .01em; color: var(--md-on-surface); margin-bottom: 16px; }
 .dc-prop { display: flex; flex-direction: column; gap: 5px; margin-bottom: 14px; }
 .dc-prop label { font-size: 12px; color: var(--md-on-surface-variant); font-weight: 500; }
@@ -1489,12 +1489,12 @@ onMounted(async () => {
 .dc-mono { font-family: ui-monospace, monospace; }
 
 /* ── Field properties (Frappe-style: sticky search + scroll + filled) ── */
-.fb-props-header { position: sticky; top: -18px; z-index: 3; display: flex; align-items: center; gap: 6px; margin: -18px -16px 12px; padding: 10px 12px; background: var(--md-surface-container-low); border-bottom: 1px solid var(--md-outline-variant); }
-.fb-props-search { flex: 1; display: flex; align-items: center; gap: 6px; background: var(--md-surface-container-high); border-radius: var(--md-corner-full); padding: 6px 12px; }
+.fb-props-header { position: sticky; top: -18px; z-index: 3; display: flex; align-items: center; gap: 8px; margin: -18px -16px 12px; padding: 10px 14px; background: var(--md-surface-container-low); border-bottom: 1px solid var(--md-outline-variant); }
+.fb-props-search { flex: 1; min-width: 0; display: flex; align-items: center; gap: 6px; background: var(--md-surface-container-high); border-radius: var(--md-corner-full); padding: 6px 12px; }
 .fb-props-search-ico { color: var(--md-on-surface-variant); font-size: 15px; }
 .fb-props-search input { flex: 1; min-width: 0; border: none; background: transparent; outline: none; font-size: 13px; color: var(--md-on-surface); }
 .fb-props-search-x { border: none; background: transparent; color: var(--md-on-surface-variant); cursor: pointer; font-size: 11px; padding: 0 2px; }
-.fb-props-close { flex: none; border: none; background: transparent; color: var(--md-on-surface-variant); cursor: pointer; font-size: 13px; width: 28px; height: 28px; border-radius: var(--md-corner-full); }
+.fb-props-close { flex: none; border: none; background: transparent; color: var(--md-on-surface-variant); cursor: pointer; font-size: 14px; line-height: 1; width: 26px; height: 26px; border-radius: var(--md-corner-full); display: grid; place-items: center; }
 .fb-props-close:hover { background: rgba(71,70,79,var(--md-state-hover)); color: var(--md-on-surface); }
 .fb-props-body { display: flex; flex-direction: column; padding-bottom: 4px; }
 /* Frappe controls: bold-ish label above a soft filled field */
