@@ -19,16 +19,13 @@ class TestDispatchObservability(FrappeTestCase):
 		self.instance = frappe.get_doc({
 			"doctype": "BPMN Process Instance",
 			"process_id": f"test-{frappe.generate_hash(length=6)}",
-			"status": "Active",
+			"status": "Running",
 		})
 		self.instance.flags.ignore_mandatory = True
 		self.instance.insert(ignore_permissions=True, ignore_mandatory=True)
 
+		self.mock_task = frappe._dict({"data": {}})
 		self.bpmn_id = "Activity_1A2B3C"
-		self.mock_task = frappe._dict({
-			"data": {},
-			"task_spec": frappe._dict({"name": self.bpmn_id, "description": "Test AI Task"}),
-		})
 		self.task_cfg = {
 			"serviceType": "ai_agent",
 			"aiBackend": "direct_api",
