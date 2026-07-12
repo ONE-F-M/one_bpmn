@@ -308,40 +308,7 @@ def _maybe_start_instance(doc, model_name: str):
 		if doc_state != required_state:
 			return
 
-	# Conditional start event gate.
-	# Evaluate the start event's <bpmn:condition> (e.g. agent_mode == "ProsAlly")
-	# against the triggering document, so the instance only spawns when the
-	# condition holds. This is the SAME expression SpiffWorkflow evaluates when the
-	# instance starts, so the gate lives in the process map — not in this code.
-	# Skip (zero-spawn) when the condition is cleanly False; a condition we cannot
-	# evaluate falls through to spawning so legitimate triggers are never dropped.
-	start_condition = _get_conditional_start_condition(model.bpmn_xml)
-	if start_condition and start_condition.strip().lower() not in ("true", "1", ""):
-		eval_locals = {}
-		for _f in doc.meta.fields:
-			_v = doc.get(_f.fieldname)
-			if isinstance(_v, (str, int, float, bool)) or _v is None:
-				eval_locals[_f.fieldname] = _v
-		eval_locals["docstatus"] = getattr(doc, "docstatus", 0)
-		try:
-			if not frappe.safe_eval(start_condition, eval_locals=eval_locals):
-				return  # condition not met — do not spawn
-		except Exception:
-			frappe.log_error(
-				title=f"BPMN trigger: start-condition eval failed ({model_name})",
-				message=f"condition={start_condition!r}\n{frappe.get_traceback()}",
-			)
-
-	# Optional generic field filter on the triggering document (legacy /
-	# defence-in-depth): a start event may also declare
-	# spiffworkflow:triggerFieldName / triggerFieldValue.
-	field_cond = _get_trigger_field_condition(model.bpmn_xml)
-	if field_cond:
-		field_name, field_value = field_cond
-		if str(getattr(doc, field_name, None) or "") != str(field_value):
-			return
-
-	# Prevent duplicate: skip if there's already a Queued/Active instance
+	# Prevent duplicate: skip if there's already an Active instance
 	# for this exact document + model combination
 	existing = frappe.db.exists(
 		"BPMN Process Instance",
@@ -349,22 +316,18 @@ def _maybe_start_instance(doc, model_name: str):
 			"process_model": model_name,
 			"context_doctype": doc.doctype,
 			"context_docname": doc.name,
-			"status": ["in", ["Queued", "Active"]],
+			"status": "Active",
 		},
 	)
 	if existing:
 		return
 
-	# All checks passed — create the instance now (so the save request
-	# returns a visible, linked instance immediately) but run the engine in
-	# a background job. The first engine pass can include multi-turn AI
-	# Task Selector decisions (seconds of LLM latency each) — far past the
-	# 5-second budget for a document save.
+	# All checks passed — create and start the instance
 	instance = frappe.new_doc("BPMN Process Instance")
 	instance.process_model = model_name
 	instance.context_doctype = doc.doctype
 	instance.context_docname = doc.name
-	instance.status = "Queued"
+	instance.status = "Active"
 	instance.initiated_by = frappe.session.user
 	instance.started_at = now_datetime()
 	instance.insert(ignore_permissions=True)
@@ -377,71 +340,14 @@ def _maybe_start_instance(doc, model_name: str):
 		frappe.flags._bpmn_instances_just_started = set()
 	frappe.flags._bpmn_instances_just_started.add(f"{doc.doctype}:{doc.name}")
 
-	if frappe.flags.in_test:
-		# Tests run with auto-rollback and no worker: enqueue_after_commit
-		# would strand the instance in Queued forever. Run inline.
-		start_queued_instance(instance.name, run_as_user=frappe.session.user)
-		return
-
-	frappe.enqueue(
-		"one_bpmn.one_bpmn.trigger.start_queued_instance",
-		# Dedicated queue (WI-001365) so AI decision loops can't starve
-		# unrelated ONE-FM jobs on default/short/long.
-		queue="bpmn_ai_agent",
-		timeout=600,
-		enqueue_after_commit=True,  # the job must see the committed doc + instance
-		instance_name=instance.name,
-		run_as_user=frappe.session.user,
+	# start() runs the engine and saves the instance
+	instance.start(
+		initial_data={
+			"triggered_by": frappe.session.user,
+			"trigger_doctype": doc.doctype,
+			"trigger_docname": doc.name,
+		}
 	)
-
-
-def start_queued_instance(instance_name: str, run_as_user: str = None):
-	"""
-	Background half of _maybe_start_instance: run the first engine pass of a
-	Queued instance on the bpmn_ai_agent queue.
-	"""
-	instance = frappe.get_doc("BPMN Process Instance", instance_name, for_update=True)
-	if instance.status != "Queued":
-		return  # already started (or cancelled) elsewhere
-	if run_as_user:
-		frappe.set_user(run_as_user)
-
-	# Same guard as the inline path: script tasks inside start() may save the
-	# context doc, which would otherwise self-deliver Edit_Action messages.
-	if not frappe.flags._bpmn_instances_just_started:
-		frappe.flags._bpmn_instances_just_started = set()
-	frappe.flags._bpmn_instances_just_started.add(
-		f"{instance.context_doctype}:{instance.context_docname}"
-	)
-
-	instance.status = "Active"
-	try:
-		# start() runs the engine and saves the instance
-		instance.start(
-			initial_data={
-				"triggered_by": run_as_user or frappe.session.user,
-				"trigger_doctype": instance.context_doctype,
-				"trigger_docname": instance.context_docname,
-			}
-		)
-	except Exception:
-		frappe.db.set_value("BPMN Process Instance", instance_name, "status", "Errored")
-		frappe.log_error(
-			title=f"BPMN queued start failed: {instance_name}",
-			message=frappe.get_traceback(),
-		)
-	finally:
-		frappe.publish_realtime(
-			"bpmn_instance_updated",
-			{
-				"instance_name": instance_name,
-				"status": frappe.db.get_value("BPMN Process Instance", instance_name, "status"),
-				"context_doctype": instance.context_doctype or "",
-				"context_docname": instance.context_docname or "",
-			},
-			after_commit=True,
-			user="all",
-		)
 
 
 
@@ -564,68 +470,6 @@ def _get_trigger_workflow_state(bpmn_xml: str):
 			state = start.get(attr_key)
 			if state:
 				return state
-	except Exception:
-		pass
-	return None
-
-
-def _get_trigger_field_condition(bpmn_xml: str):
-	"""
-	Parse the BPMN XML and return a (field_name, field_value) tuple declared via
-	spiffworkflow:triggerFieldName / spiffworkflow:triggerFieldValue on a start
-	event (or its event definition), if set.
-
-	Example BPMN attributes:
-		<bpmn:conditionalEventDefinition
-			spiffworkflow:triggerFieldName="agent_mode"
-			spiffworkflow:triggerFieldValue="ProsAlly" ... >
-
-	Used to scope a DocType-event trigger to documents whose field equals a value,
-	so multiple models listening on the same DocType + event don't all fire.
-
-	Returns None if not set or if parsing fails.
-	"""
-	if not bpmn_xml or not bpmn_xml.strip():
-		return None
-	try:
-		from lxml import etree
-
-		root = etree.fromstring(bpmn_xml.strip().encode("utf-8"))
-		fn_key = f"{{{_SPIFF_NS}}}triggerFieldName"
-		fv_key = f"{{{_SPIFF_NS}}}triggerFieldValue"
-		for el in root.iter():
-			field_name = el.get(fn_key)
-			if field_name:
-				return (field_name, el.get(fv_key) or "")
-	except Exception:
-		pass
-	return None
-
-
-def _get_conditional_start_condition(bpmn_xml: str):
-	"""Return the <bpmn:condition> expression text of the (first) conditional
-	start event in the diagram, or None when there is none.
-
-	Example BPMN:
-		<bpmn:startEvent ...>
-			<bpmn:conditionalEventDefinition ...>
-				<bpmn:condition>agent_mode == "ProsAlly"</bpmn:condition>
-			</bpmn:conditionalEventDefinition>
-		</bpmn:startEvent>
-	"""
-	if not bpmn_xml or not bpmn_xml.strip():
-		return None
-	try:
-		from lxml import etree
-
-		root = etree.fromstring(bpmn_xml.strip().encode("utf-8"))
-		for start in root.iter(f"{{{_BPMN_NS}}}startEvent"):
-			ced = start.find(f"{{{_BPMN_NS}}}conditionalEventDefinition")
-			if ced is None:
-				continue
-			cond = ced.find(f"{{{_BPMN_NS}}}condition")
-			if cond is not None and cond.text and cond.text.strip():
-				return cond.text.strip()
 	except Exception:
 		pass
 	return None

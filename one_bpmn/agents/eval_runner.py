@@ -88,9 +88,7 @@ def run_eval_suite(suite_name: str) -> str:
 
     frappe.enqueue(
         "one_bpmn.agents.eval_runner._execute_eval_suite",
-        # WI-001365: eval suites share the dedicated AI queue so they never
-        # compete with production business jobs for the default workers.
-        queue="bpmn_ai_agent",
+        queue="long",
         run_name=run.name,
         timeout=1800,
     )
