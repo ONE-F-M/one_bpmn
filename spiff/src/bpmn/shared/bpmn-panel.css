@@ -9,17 +9,17 @@
 }
 
 .bpmn-dropdown-list {
-	/* Fixed so the list escapes the properties panel's overflow clipping;
-	   left/width and top/bottom come inline from the input's viewport rect
-	   (FrappeAutocomplete._listStyle), flipping above when space runs out. */
-	position: fixed;
+	position: absolute;
+	top: calc(100% + 4px);
+	left: 0;
+	right: 0;
 	max-height: 200px;
 	overflow-y: auto;
 	background: white;
 	border: 1px solid #ccc;
 	border-radius: 4px;
 	box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
-	z-index: 10000;
+	z-index: 1000;
 	margin: 0;
 	padding: 0;
 	list-style: none;
