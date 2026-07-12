@@ -203,31 +203,16 @@ def _execute_case(case) -> dict:
             for assertion in (case.assertions or [])
         ]
         all_passed = all(a["passed"] for a in assertion_results)
-        any_errored = any(a.get("error") for a in assertion_results)
-
-        # WI-001362: judge calls spend their own tokens — add them to the
-        # Result separately from the case's executor call so the Run-level
-        # rollup doesn't undercount.
-        judge_prompt_tokens = sum(a.get("judge_prompt_tokens", 0) for a in assertion_results)
-        judge_completion_tokens = sum(a.get("judge_completion_tokens", 0) for a in assertion_results)
-        judge_cost = sum(flt(a.get("judge_cost", 0)) for a in assertion_results)
-
-        if any_errored:
-            status = "Error"
-        elif all_passed:
-            status = "Passed"
-        else:
-            status = "Failed"
 
         return {
             "eval_case": case.name,
-            "status": status,
+            "status": "Passed" if all_passed else "Failed",
             "actual_output": _stringify(output),
             "assertion_results": json.dumps(assertion_results, indent=4),
-            "prompt_tokens": _prompt_tokens_of(result) + judge_prompt_tokens,
-            "completion_tokens": _completion_tokens_of(result) + judge_completion_tokens,
-            "tokens_used": _tokens_of(result) + judge_prompt_tokens + judge_completion_tokens,
-            "cost": _cost_of(result, config.model) + judge_cost,
+            "prompt_tokens": _prompt_tokens_of(result),
+            "completion_tokens": _completion_tokens_of(result),
+            "tokens_used": _tokens_of(result),
+            "cost": _cost_of(result, config.model),
         }
     except Exception:
         frappe.log_error(
@@ -279,14 +264,10 @@ def _evaluate_assertion(assertion, output: Any) -> dict:
         if a_type == "llm_judge":
             return _evaluate_llm_judge(assertion, output)
 
-        return {**base, "passed": False, "error": True,
+        return {**base, "passed": False,
                 "message": f"Unsupported assertion type: {a_type!r}."}
     except Exception as exc:
-        # WI-001362 Scenario 5: a bad assertion (e.g. invalid regex) is an
-        # ERROR result — never silently Passed/Failed, never a crash that
-        # aborts the other cases in the suite.
-        return {**base, "passed": False, "error": True,
-                "message": f"Assertion error: {exc}"}
+        return {**base, "passed": False, "message": f"Assertion error: {exc}"}
 
 
 def _evaluate_schema_valid(schema_str: str, output: Any) -> dict:
@@ -346,31 +327,17 @@ def _evaluate_llm_judge(assertion, output: Any) -> dict:
         executor_cls = get_executor(judge_config.backend)
         judge_result = executor_cls().run(judge_config, judge_context)
     except Exception as exc:
-        # WI-001362 Scenario 4: a failed judge call is an ERROR, never
-        # silently Passed or Failed.
         return {
             **base,
             "passed": False,
-            "error": True,
             "score": 0,
             "explanation": f"Judge call failed: {exc}",
         }
 
-    # The judge call spends real tokens of its own (WI-001362 note): report
-    # them on the assertion so _execute_case can add them to the Result's
-    # token/cost fields — otherwise the Run-level rollup undercounts.
-    judge_usage = {
-        "judge_prompt_tokens": _prompt_tokens_of(judge_result),
-        "judge_completion_tokens": _completion_tokens_of(judge_result),
-        "judge_cost": _cost_of(judge_result, judge_config.model),
-    }
-
     if judge_result.error_code != ErrorCode.SUCCESS:
         return {
             **base,
-            **judge_usage,
             "passed": False,
-            "error": True,
             "score": 0,
             "explanation": f"Judge call failed: {judge_result.error_message}",
         }
@@ -384,9 +351,7 @@ def _evaluate_llm_judge(assertion, output: Any) -> dict:
         except (json.JSONDecodeError, TypeError):
             return {
                 **base,
-                **judge_usage,
                 "passed": False,
-                "error": True,
                 "score": 0,
                 "explanation": "Judge returned invalid JSON",
             }
@@ -394,9 +359,7 @@ def _evaluate_llm_judge(assertion, output: Any) -> dict:
     if not isinstance(judge_output, dict):
         return {
             **base,
-            **judge_usage,
             "passed": False,
-            "error": True,
             "score": 0,
             "explanation": "Judge returned invalid JSON",
         }
@@ -406,9 +369,7 @@ def _evaluate_llm_judge(assertion, output: Any) -> dict:
     except (ValueError, TypeError):
         return {
             **base,
-            **judge_usage,
             "passed": False,
-            "error": True,
             "score": 0,
             "explanation": "Judge returned invalid JSON",
         }
@@ -419,7 +380,6 @@ def _evaluate_llm_judge(assertion, output: Any) -> dict:
 
     return {
         **base,
-        **judge_usage,
         "passed": passed,
         "score": score,
         "explanation": explanation,
