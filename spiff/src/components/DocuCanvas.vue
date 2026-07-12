@@ -116,7 +116,7 @@
 												<div class="fb-section-header" @click.stop="selectContainer('section', section)">
 													<div class="fb-section-label">
 														<span class="fb-section-grip" title="Drag to reorder">⠿</span>
-														<span class="fb-section-title">{{ sectionLabel(section) }}</span>
+														<span class="fb-section-title" :class="{ empty: !(section.df && section.df.label) }">{{ (section.df && section.df.label) || 'No Label' }}</span>
 													</div>
 													<div class="fb-menu-wrap">
 														<button class="fb-menu-btn" @click.stop="toggleMenu(section)" title="Section options">⋯</button>
@@ -231,56 +231,50 @@
 					<!-- ── RIGHT: Properties sidebar ───────────────────── -->
 					<div class="dc-props-panel" v-if="view === 'form'">
 
-						<!-- Field properties -->
+						<!-- Field properties (Frappe-style: searchable + scrollable) -->
 						<template v-if="sel.type === 'field' && sel.node">
-							<div class="dc-props-head">Field properties</div>
-							<div class="dc-prop">
-								<label>Label</label>
-								<input v-model="sel.node.df.label" class="dc-prop-input" @blur="autoName(sel.node.df)" />
+							<div class="fb-props-header">
+								<div class="fb-props-search">
+									<span class="fb-props-search-ico">⌕</span>
+									<input v-model="propSearch" type="text" placeholder="Search properties..." />
+									<button v-if="propSearch" class="fb-props-search-x" @click="propSearch = ''" title="Clear">✕</button>
+								</div>
+								<button class="fb-props-close" @click="selectForm()" title="Close properties">✕</button>
 							</div>
-							<div class="dc-prop">
-								<label>Name (fieldname)</label>
-								<input v-model="sel.node.df.fieldname" class="dc-prop-input dc-mono" placeholder="snake_case" />
+							<div class="fb-props-body">
+								<template v-for="p in visibleFieldProps" :key="p.key">
+									<label v-if="p.type === 'check'" class="fb-prop-check">
+										<input type="checkbox" v-model="sel.node.df[p.key]" />
+										<span>{{ p.label }}</span>
+									</label>
+									<div v-else class="dc-prop">
+										<label>{{ p.label }}</label>
+										<select v-if="p.type === 'select'" v-model="sel.node.df[p.key]" class="dc-prop-input">
+											<option v-for="o in p.options" :key="o" :value="o">{{ o }}</option>
+										</select>
+										<textarea
+											v-else-if="p.type === 'textarea' || p.type === 'code'"
+											v-model="sel.node.df[p.key]"
+											class="dc-prop-input"
+											:class="{ 'dc-mono': p.type === 'code' }"
+											rows="3"
+											:placeholder="p.placeholder || ''"
+										></textarea>
+										<input v-else-if="p.type === 'int'" type="number" v-model.number="sel.node.df[p.key]" class="dc-prop-input" :placeholder="p.placeholder || '0'" />
+										<input
+											v-else
+											v-model="sel.node.df[p.key]"
+											class="dc-prop-input"
+											:class="{ 'dc-mono': p.mono }"
+											:placeholder="p.placeholder || ''"
+											@blur="p.key === 'label' && autoName(sel.node.df)"
+										/>
+										<p v-if="p.hint" class="fb-prop-hint">{{ p.hint }}</p>
+									</div>
+								</template>
+								<p v-if="!visibleFieldProps.length" class="dc-hint">No properties match “{{ propSearch }}”.</p>
+								<button class="dc-delete-btn" @click="deleteSelected()">Delete field</button>
 							</div>
-							<div class="dc-prop">
-								<label>Type</label>
-								<select v-model="sel.node.df.fieldtype" class="dc-prop-input">
-									<option v-for="t in CONTENT_TYPES" :key="t" :value="t">{{ t }}</option>
-								</select>
-							</div>
-							<div class="dc-prop" v-if="needsOptions(sel.node.df.fieldtype)">
-								<label>Options — {{ optionsHint(sel.node.df.fieldtype) }}</label>
-								<textarea
-									v-if="sel.node.df.fieldtype === 'Select'"
-									v-model="sel.node.df.options"
-									class="dc-prop-input"
-									rows="4"
-									placeholder="One choice per line"
-								></textarea>
-								<input v-else v-model="sel.node.df.options" class="dc-prop-input" :placeholder="optionsHint(sel.node.df.fieldtype)" />
-							</div>
-							<div class="dc-prop">
-								<label>Default</label>
-								<input v-model="sel.node.df.default" class="dc-prop-input" />
-							</div>
-							<div class="dc-prop">
-								<label>Description</label>
-								<input v-model="sel.node.df.description" class="dc-prop-input" />
-							</div>
-							<div class="dc-prop">
-								<label>Depends on (eval)</label>
-								<input v-model="sel.node.df.depends_on" class="dc-prop-input dc-mono" placeholder="eval:doc.status=='Open'" />
-							</div>
-							<div class="dc-flags">
-								<label><input type="checkbox" v-model="sel.node.df.reqd" /> Mandatory</label>
-								<label><input type="checkbox" v-model="sel.node.df.unique" /> Unique</label>
-								<label><input type="checkbox" v-model="sel.node.df.in_list_view" /> In list view</label>
-								<label><input type="checkbox" v-model="sel.node.df.in_standard_filter" /> Standard filter</label>
-								<label><input type="checkbox" v-model="sel.node.df.read_only" /> Read only</label>
-								<label><input type="checkbox" v-model="sel.node.df.hidden" /> Hidden</label>
-								<label><input type="checkbox" v-model="sel.node.df.bold" /> Bold</label>
-							</div>
-							<button class="dc-delete-btn" @click="deleteSelected()">Delete field</button>
 						</template>
 
 						<!-- Section / Column / Tab properties -->
@@ -367,10 +361,15 @@ const STRUCTURAL = new Set(["Section Break", "Column Break", "Tab Break"]);
 // add-section/column/tab buttons + drag, exactly like Frappe's builder).
 const CONTENT_TYPES = FIELD_TYPES.filter((t) => !STRUCTURAL.has(t));
 const OPTIONS_TYPES = new Set(["Select", "Link", "Dynamic Link", "Table", "Table MultiSelect"]);
-// Field boolean flags coerced to 0/1 on the way to the backend.
+// Field boolean flags coerced to 0/1 on the way to the backend. Every 'check'
+// property surfaced in the field-properties panel must live here so it is a
+// controlled boolean in the UI and serialises to 0/1 for Frappe.
 const FIELD_FLAGS = [
 	"reqd", "in_list_view", "unique", "read_only", "in_standard_filter",
 	"hidden", "bold", "non_negative", "collapsible",
+	"fetch_if_empty", "in_global_search", "in_preview", "allow_in_quick_entry",
+	"translatable", "print_hide", "report_hide", "search_index",
+	"ignore_user_permissions", "allow_on_submit",
 ];
 
 // Which control preview to render for a field type (mirrors Frappe's controls).
@@ -468,13 +467,66 @@ const nowTime = () => new Date().toLocaleTimeString([], { hour: "2-digit", minut
 
 function renderMarkdown(text) { return DOMPurify.sanitize(marked.parse(text || "")); }
 function capitalize(s) { return s ? s[0].toUpperCase() + s.slice(1) : s; }
-function needsOptions(t) { return OPTIONS_TYPES.has(t); }
 function optionsHint(t) {
 	if (t === "Link" || t === "Table" || t === "Table MultiSelect") return "Target DocType";
 	if (t === "Dynamic Link") return "fieldname holding DocType";
 	if (t === "Select") return "one choice per line";
 	return "—";
 }
+
+// ── Field-properties panel (mirrors Frappe's searchable FieldProperties) ──
+const propSearch = ref("");
+const _NUMBER_TYPES = new Set(["Int", "Float", "Currency", "Percent"]);
+const _NO_VALUE_TYPES = new Set(["HTML", "Heading"]);
+const _TRANSLATABLE_TYPES = new Set(["Data", "Small Text", "Text", "Long Text", "Text Editor", "Select"]);
+
+// The full property list Frappe's form builder exposes, in df order, each with
+// the control type and a `show(t)` predicate for type-specific visibility.
+function fieldPropDefs(df) {
+	const t = df.fieldtype;
+	const optType = t === "Select" ? "textarea" : "data";
+	return [
+		{ key: "label", label: "Label", type: "data" },
+		{ key: "fieldtype", label: "Type", type: "select", options: CONTENT_TYPES },
+		{ key: "fieldname", label: "Name", type: "data", mono: true, placeholder: "snake_case" },
+		{ key: "length", label: "Length", type: "int", show: t === "Data" },
+		{ key: "reqd", label: "Mandatory", type: "check", show: t !== "Check" },
+		{ key: "options", label: "Options", type: optType, show: OPTIONS_TYPES.has(t),
+			placeholder: optionsHint(t), hint: t === "Select" ? "One choice per line." : "For Links/Tables, enter the target DocType." },
+		{ key: "default", label: "Default", type: "data" },
+		{ key: "fetch_from", label: "Fetch From", type: "data", mono: true, show: !_NO_VALUE_TYPES.has(t), placeholder: "link_field.source_field" },
+		{ key: "fetch_if_empty", label: "Fetch on Save if Empty", type: "check", show: !_NO_VALUE_TYPES.has(t) },
+		{ key: "description", label: "Description", type: "data" },
+		{ key: "depends_on", label: "Display Depends On (eval)", type: "code", mono: true, placeholder: "eval:doc.status=='Open'" },
+		{ key: "read_only", label: "Read Only", type: "check" },
+		{ key: "hidden", label: "Hidden", type: "check" },
+		{ key: "bold", label: "Bold", type: "check" },
+		{ key: "unique", label: "Unique", type: "check", show: t === "Data" || t === "Link" || t === "Int" },
+		{ key: "search_index", label: "Index", type: "check" },
+		{ key: "in_list_view", label: "In List View", type: "check" },
+		{ key: "in_standard_filter", label: "In Standard Filter", type: "check" },
+		{ key: "in_preview", label: "In Preview", type: "check" },
+		{ key: "in_global_search", label: "In Global Search", type: "check" },
+		{ key: "allow_in_quick_entry", label: "Allow in Quick Entry", type: "check" },
+		{ key: "translatable", label: "Translatable", type: "check", show: _TRANSLATABLE_TYPES.has(t) },
+		{ key: "print_hide", label: "Print Hide", type: "check" },
+		{ key: "report_hide", label: "Report Hide", type: "check" },
+		{ key: "non_negative", label: "Non Negative", type: "check", show: _NUMBER_TYPES.has(t) },
+		{ key: "precision", label: "Precision", type: "data", show: t === "Float" || t === "Currency" || t === "Percent", placeholder: "e.g. 2" },
+		{ key: "ignore_user_permissions", label: "Ignore User Permissions", type: "check", show: t === "Link" || t === "Dynamic Link" },
+		{ key: "allow_on_submit", label: "Allow on Submit", type: "check" },
+		{ key: "permlevel", label: "Perm Level", type: "int" },
+	];
+}
+const visibleFieldProps = computed(() => {
+	if (sel.type !== "field" || !sel.node) return [];
+	const q = propSearch.value.trim().toLowerCase();
+	return fieldPropDefs(sel.node.df).filter((p) => {
+		if (p.show === false) return false;
+		if (q && !(p.label.toLowerCase().includes(q) || p.key.toLowerCase().includes(q))) return false;
+		return true;
+	});
+});
 
 function pushMsg(role, content, extra = {}) {
 	messages.value.push({ id: makeId(), role, content, time: nowTime(), ...extra });
@@ -578,7 +630,6 @@ function isSel(kind, node) { return sel.type === kind && sel.node === node; }
 function isSelField(w) { return sel.type === "field" && sel.node === w; }
 
 function tabLabel(tab, i) { return (tab.df && tab.df.label) || (i === 0 ? "Details" : `Tab ${i + 1}`); }
-function sectionLabel(section) { return (section.df && section.df.label) || "Section"; }
 
 function autoName(df) {
 	if (!df.fieldname && df.label && !STRUCTURAL.has(df.fieldtype)) {
@@ -1214,6 +1265,7 @@ onMounted(async () => {
 .fb-section-label { display: flex; align-items: center; gap: 6px; }
 .fb-section-grip { cursor: grab; color: var(--fb-gray-400); font-size: 14px; line-height: 1; }
 .fb-section-title { font-weight: 600; color: var(--fb-heading); }
+.fb-section-title.empty { font-weight: 400; font-style: italic; color: var(--fb-muted); }
 .fb-section-columns { display: flex; min-height: 2rem; align-items: flex-start; }
 
 /* Section "…" options menu (mirrors Frappe's Dropdown) */
@@ -1280,11 +1332,26 @@ onMounted(async () => {
 .dc-prop-input:hover { border-color: var(--md-on-surface); }
 .dc-prop-input:focus { outline: none; border-color: var(--md-primary); box-shadow: inset 0 0 0 1px var(--md-primary); }
 .dc-mono { font-family: ui-monospace, monospace; }
-/* checkbox flags */
-.dc-flags { display: grid; grid-template-columns: 1fr 1fr; gap: 4px 8px; margin: 8px 0 16px; }
-.dc-flags label { display: flex; align-items: center; gap: 8px; font-size: 13px; color: var(--md-on-surface); padding: 6px 8px; border-radius: var(--md-corner-sm); cursor: pointer; transition: background-color var(--md-dur) var(--md-ease); }
-.dc-flags label:hover { background: rgba(71,70,79,var(--md-state-hover)); }
-.dc-flags input[type="checkbox"] { width: 18px; height: 18px; accent-color: var(--md-primary); cursor: pointer; }
+
+/* ── Field properties (Frappe-style: sticky search + scroll + filled) ── */
+.fb-props-header { position: sticky; top: -18px; z-index: 3; display: flex; align-items: center; gap: 6px; margin: -18px -16px 12px; padding: 10px 12px; background: var(--md-surface-container-low); border-bottom: 1px solid var(--md-outline-variant); }
+.fb-props-search { flex: 1; display: flex; align-items: center; gap: 6px; background: var(--md-surface-container-high); border-radius: var(--md-corner-full); padding: 6px 12px; }
+.fb-props-search-ico { color: var(--md-on-surface-variant); font-size: 15px; }
+.fb-props-search input { flex: 1; min-width: 0; border: none; background: transparent; outline: none; font-size: 13px; color: var(--md-on-surface); }
+.fb-props-search-x { border: none; background: transparent; color: var(--md-on-surface-variant); cursor: pointer; font-size: 11px; padding: 0 2px; }
+.fb-props-close { flex: none; border: none; background: transparent; color: var(--md-on-surface-variant); cursor: pointer; font-size: 13px; width: 28px; height: 28px; border-radius: var(--md-corner-full); }
+.fb-props-close:hover { background: rgba(71,70,79,var(--md-state-hover)); color: var(--md-on-surface); }
+.fb-props-body { display: flex; flex-direction: column; }
+/* Frappe controls read as soft filled fields, label above */
+.fb-props-body .dc-prop { gap: 4px; margin-bottom: 12px; }
+.fb-props-body .dc-prop label { font-size: 12px; font-weight: 500; color: var(--md-on-surface-variant); }
+.fb-props-body .dc-prop-input { border: 1px solid transparent; background: var(--md-surface-container-high); border-radius: var(--md-corner-sm); padding: 8px 10px; }
+.fb-props-body .dc-prop-input:hover { border-color: var(--md-outline-variant); }
+.fb-props-body .dc-prop-input:focus { background: var(--md-surface-container-lowest); border-color: var(--md-primary); box-shadow: inset 0 0 0 1px var(--md-primary); }
+.fb-prop-check { display: flex; align-items: center; gap: 10px; padding: 8px 4px; font-size: 13px; font-weight: 500; color: var(--md-on-surface); cursor: pointer; border-radius: var(--md-corner-sm); }
+.fb-prop-check:hover { background: rgba(71,70,79,var(--md-state-hover)); }
+.fb-prop-check input[type="checkbox"] { width: 17px; height: 17px; accent-color: var(--md-primary); cursor: pointer; flex: none; }
+.fb-prop-hint { font-size: 11px; color: var(--md-on-surface-variant); line-height: 1.4; margin: 4px 0 0; }
 /* MD3 switch */
 .dc-switch { display: flex; align-items: center; gap: 12px; margin: 6px 0 16px; cursor: pointer; font-size: 13px; color: var(--md-on-surface); }
 .dc-switch input { position: absolute; opacity: 0; width: 0; height: 0; }
