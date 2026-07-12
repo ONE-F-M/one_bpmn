@@ -370,6 +370,10 @@ const FIELD_FLAGS = [
 	"fetch_if_empty", "in_global_search", "in_preview", "allow_in_quick_entry",
 	"translatable", "print_hide", "report_hide", "search_index",
 	"ignore_user_permissions", "allow_on_submit",
+	"set_only_once", "allow_bulk_edit", "remember_last_selected_value",
+	"ignore_xss_filter", "in_filter", "no_copy", "print_hide_if_no_value",
+	"hide_days", "hide_seconds", "is_virtual", "sort_options",
+	"show_on_timeline", "make_attachment_public",
 ];
 
 // Which control preview to render for a field type (mirrors Frappe's controls).
@@ -477,45 +481,71 @@ function optionsHint(t) {
 // ── Field-properties panel (mirrors Frappe's searchable FieldProperties) ──
 const propSearch = ref("");
 const _NUMBER_TYPES = new Set(["Int", "Float", "Currency", "Percent"]);
-const _NO_VALUE_TYPES = new Set(["HTML", "Heading"]);
-const _TRANSLATABLE_TYPES = new Set(["Data", "Small Text", "Text", "Long Text", "Text Editor", "Select"]);
+const _NON_NEG_TYPES = new Set(["Int", "Float", "Currency"]);
+const _LENGTH_TYPES = new Set(["Data", "Link", "Dynamic Link", "Password", "Select", "Read Only", "Attach", "Attach Image", "Int"]);
+const _GLOBAL_SEARCH_TYPES = new Set(["Data", "Select", "Table", "Text", "Text Editor", "Link", "Small Text", "Long Text", "Read Only", "Heading", "Dynamic Link"]);
+const _TRANSLATABLE_TYPES = new Set(["Data", "Select", "Text", "Small Text", "Text Editor"]);
+const _NO_FETCH_TYPES = new Set(["HTML", "Heading", "Table", "Table MultiSelect"]);
+const _PRECISION_OPTS = ["", "0", "1", "2", "3", "4", "5", "6", "7", "8", "9"];
 
-// The full property list Frappe's form builder exposes, in df order, each with
-// the control type and a `show(t)` predicate for type-specific visibility.
+// The full property list Frappe's DocField exposes (order, control type, labels,
+// and per-fieldtype visibility mirror frappe/core/doctype/docfield). Layout-only
+// props (collapsible, hide_border, show_dashboard…) are omitted since this panel
+// only ever edits a real field inside a column.
 function fieldPropDefs(df) {
 	const t = df.fieldtype;
-	const optType = t === "Select" ? "textarea" : "data";
 	return [
 		{ key: "label", label: "Label", type: "data" },
 		{ key: "fieldtype", label: "Type", type: "select", options: CONTENT_TYPES },
 		{ key: "fieldname", label: "Name", type: "data", mono: true, placeholder: "snake_case" },
-		{ key: "length", label: "Length", type: "int", show: t === "Data" },
-		{ key: "reqd", label: "Mandatory", type: "check", show: t !== "Check" },
-		{ key: "options", label: "Options", type: optType, show: OPTIONS_TYPES.has(t),
-			placeholder: optionsHint(t), hint: t === "Select" ? "One choice per line." : "For Links/Tables, enter the target DocType." },
-		{ key: "default", label: "Default", type: "data" },
-		{ key: "fetch_from", label: "Fetch From", type: "data", mono: true, show: !_NO_VALUE_TYPES.has(t), placeholder: "link_field.source_field" },
-		{ key: "fetch_if_empty", label: "Fetch on Save if Empty", type: "check", show: !_NO_VALUE_TYPES.has(t) },
-		{ key: "description", label: "Description", type: "data" },
-		{ key: "depends_on", label: "Display Depends On (eval)", type: "code", mono: true, placeholder: "eval:doc.status=='Open'" },
-		{ key: "read_only", label: "Read Only", type: "check" },
-		{ key: "hidden", label: "Hidden", type: "check" },
-		{ key: "bold", label: "Bold", type: "check" },
-		{ key: "unique", label: "Unique", type: "check", show: t === "Data" || t === "Link" || t === "Int" },
+		{ key: "reqd", label: "Mandatory", type: "check", show: t !== "Check" && t !== "HTML" },
+		{ key: "precision", label: "Precision", type: "select", options: _PRECISION_OPTS, show: t === "Float" || t === "Currency" || t === "Percent", hint: "Set non-standard precision for a Float or Currency field." },
+		{ key: "length", label: "Length", type: "int", show: _LENGTH_TYPES.has(t) },
 		{ key: "search_index", label: "Index", type: "check" },
-		{ key: "in_list_view", label: "In List View", type: "check" },
-		{ key: "in_standard_filter", label: "In Standard Filter", type: "check" },
-		{ key: "in_preview", label: "In Preview", type: "check" },
-		{ key: "in_global_search", label: "In Global Search", type: "check" },
+		{ key: "in_list_view", label: "In List View", type: "check", show: !df.is_virtual },
+		{ key: "in_standard_filter", label: "In List Filter", type: "check" },
+		{ key: "in_global_search", label: "In Global Search", type: "check", show: _GLOBAL_SEARCH_TYPES.has(t) },
+		{ key: "in_preview", label: "In Preview", type: "check", show: t !== "Table" && t !== "Table MultiSelect" },
 		{ key: "allow_in_quick_entry", label: "Allow in Quick Entry", type: "check" },
+		{ key: "bold", label: "Bold", type: "check" },
 		{ key: "translatable", label: "Translatable", type: "check", show: _TRANSLATABLE_TYPES.has(t) },
-		{ key: "print_hide", label: "Print Hide", type: "check" },
-		{ key: "report_hide", label: "Report Hide", type: "check" },
-		{ key: "non_negative", label: "Non Negative", type: "check", show: _NUMBER_TYPES.has(t) },
-		{ key: "precision", label: "Precision", type: "data", show: t === "Float" || t === "Currency" || t === "Percent", placeholder: "e.g. 2" },
-		{ key: "ignore_user_permissions", label: "Ignore User Permissions", type: "check", show: t === "Link" || t === "Dynamic Link" },
-		{ key: "allow_on_submit", label: "Allow on Submit", type: "check" },
+		{ key: "options", label: "Options", type: "textarea", placeholder: optionsHint(t),
+			hint: "For Links, enter the DocType as range. For Select, enter list of Options, each on a new line." },
+		{ key: "default", label: "Default", type: "textarea" },
+		{ key: "fetch_from", label: "Fetch From", type: "textarea", mono: true, show: !_NO_FETCH_TYPES.has(t), placeholder: "link_field.source_field" },
+		{ key: "fetch_if_empty", label: "Fetch on Save if Empty", type: "check", show: !_NO_FETCH_TYPES.has(t), hint: "If unchecked, the value will always be re-fetched on save." },
+		{ key: "depends_on", label: "Display Depends On (JS)", type: "code", mono: true, placeholder: "eval:doc.status=='Open'" },
+		{ key: "hidden", label: "Hidden", type: "check" },
+		{ key: "read_only", label: "Read Only", type: "check" },
+		{ key: "unique", label: "Unique", type: "check" },
+		{ key: "set_only_once", label: "Set only once", type: "check" },
+		{ key: "allow_bulk_edit", label: "Allow Bulk Edit", type: "check", show: t === "Table" },
 		{ key: "permlevel", label: "Perm Level", type: "int" },
+		{ key: "ignore_user_permissions", label: "Ignore User Permissions", type: "check" },
+		{ key: "allow_on_submit", label: "Allow on Submit", type: "check" },
+		{ key: "report_hide", label: "Report Hide", type: "check" },
+		{ key: "remember_last_selected_value", label: "Remember Last Selected Value", type: "check", show: t === "Link" },
+		{ key: "ignore_xss_filter", label: "Ignore XSS Filter", type: "check", hint: "Don't encode HTML tags like <script> or just characters like < or >, as they could be intentionally used in this field." },
+		{ key: "in_filter", label: "In Filter", type: "check" },
+		{ key: "no_copy", label: "No Copy", type: "check" },
+		{ key: "print_hide", label: "Print Hide", type: "check" },
+		{ key: "print_hide_if_no_value", label: "Print Hide If No Value", type: "check", show: _NUMBER_TYPES.has(t) },
+		{ key: "print_width", label: "Print Width", type: "data" },
+		{ key: "width", label: "Width", type: "data" },
+		{ key: "columns", label: "Columns", type: "int", hint: "Number of columns for a field in a List View or a Grid (Total Columns should be less than 11)." },
+		{ key: "description", label: "Description", type: "textarea" },
+		{ key: "mandatory_depends_on", label: "Mandatory Depends On (JS)", type: "code", mono: true, placeholder: "eval:doc.status=='Open'" },
+		{ key: "read_only_depends_on", label: "Read Only Depends On (JS)", type: "code", mono: true, placeholder: "eval:doc.docstatus==1" },
+		{ key: "hide_days", label: "Hide Days", type: "check", show: t === "Duration" },
+		{ key: "hide_seconds", label: "Hide Seconds", type: "check", show: t === "Duration" },
+		{ key: "non_negative", label: "Non Negative", type: "check", show: _NON_NEG_TYPES.has(t) },
+		{ key: "max_height", label: "Max Height", type: "data" },
+		{ key: "is_virtual", label: "Virtual", type: "check" },
+		{ key: "documentation_url", label: "Documentation URL", type: "data", show: t !== "HTML" },
+		{ key: "sort_options", label: "Sort Options", type: "check", show: t === "Select" },
+		{ key: "show_on_timeline", label: "Show on Timeline", type: "check", show: !!df.hidden },
+		{ key: "placeholder", label: "Placeholder", type: "data" },
+		{ key: "make_attachment_public", label: "Make Attachment Public (by default)", type: "check", show: t === "Attach" || t === "Attach Image" },
 	];
 }
 const visibleFieldProps = computed(() => {
@@ -1341,17 +1371,20 @@ onMounted(async () => {
 .fb-props-search-x { border: none; background: transparent; color: var(--md-on-surface-variant); cursor: pointer; font-size: 11px; padding: 0 2px; }
 .fb-props-close { flex: none; border: none; background: transparent; color: var(--md-on-surface-variant); cursor: pointer; font-size: 13px; width: 28px; height: 28px; border-radius: var(--md-corner-full); }
 .fb-props-close:hover { background: rgba(71,70,79,var(--md-state-hover)); color: var(--md-on-surface); }
-.fb-props-body { display: flex; flex-direction: column; }
-/* Frappe controls read as soft filled fields, label above */
-.fb-props-body .dc-prop { gap: 4px; margin-bottom: 12px; }
-.fb-props-body .dc-prop label { font-size: 12px; font-weight: 500; color: var(--md-on-surface-variant); }
-.fb-props-body .dc-prop-input { border: 1px solid transparent; background: var(--md-surface-container-high); border-radius: var(--md-corner-sm); padding: 8px 10px; }
-.fb-props-body .dc-prop-input:hover { border-color: var(--md-outline-variant); }
+.fb-props-body { display: flex; flex-direction: column; padding-bottom: 4px; }
+/* Frappe controls: bold-ish label above a soft filled field */
+.fb-props-body .dc-prop { gap: 6px; margin-bottom: 16px; }
+.fb-props-body .dc-prop label { font-size: 13px; font-weight: 600; color: #44546a; }
+.fb-props-body .dc-prop-input { border: 1px solid transparent; background: var(--md-surface-container-high); border-radius: 8px; padding: 8px 10px; font-size: 13px; }
+.fb-props-body .dc-prop-input:hover { background: color-mix(in srgb, var(--md-on-surface) 3%, var(--md-surface-container-high)); }
 .fb-props-body .dc-prop-input:focus { background: var(--md-surface-container-lowest); border-color: var(--md-primary); box-shadow: inset 0 0 0 1px var(--md-primary); }
-.fb-prop-check { display: flex; align-items: center; gap: 10px; padding: 8px 4px; font-size: 13px; font-weight: 500; color: var(--md-on-surface); cursor: pointer; border-radius: var(--md-corner-sm); }
+.fb-props-body textarea.dc-prop-input { resize: vertical; min-height: 40px; }
+/* Code / *_depends_on fields read as a small code box */
+.fb-props-body textarea.dc-prop-input.dc-mono { min-height: 54px; background: var(--md-surface-container-high); line-height: 1.5; }
+.fb-prop-check { display: flex; align-items: center; gap: 10px; padding: 7px 4px; font-size: 13px; font-weight: 600; color: #44546a; cursor: pointer; border-radius: 6px; }
 .fb-prop-check:hover { background: rgba(71,70,79,var(--md-state-hover)); }
-.fb-prop-check input[type="checkbox"] { width: 17px; height: 17px; accent-color: var(--md-primary); cursor: pointer; flex: none; }
-.fb-prop-hint { font-size: 11px; color: var(--md-on-surface-variant); line-height: 1.4; margin: 4px 0 0; }
+.fb-prop-check input[type="checkbox"] { width: 16px; height: 16px; accent-color: var(--md-primary); cursor: pointer; flex: none; }
+.fb-prop-hint { font-size: 12px; color: #6b7684; line-height: 1.45; margin: 5px 0 0; }
 /* MD3 switch */
 .dc-switch { display: flex; align-items: center; gap: 12px; margin: 6px 0 16px; cursor: pointer; font-size: 13px; color: var(--md-on-surface); }
 .dc-switch input { position: absolute; opacity: 0; width: 0; height: 0; }
