@@ -66,10 +66,6 @@
 								<input v-model="dtName" class="dc-name-input" placeholder="DocType name (e.g. Vehicle Inspection)"
 									@focus="selectForm()" />
 							</div>
-							<div class="dc-hist-group">
-								<button class="dc-icon-sm" :disabled="!canUndo" @click="undo" title="Undo (Ctrl+Z)">↶</button>
-								<button class="dc-icon-sm" :disabled="!canRedo" @click="redo" title="Redo (Ctrl+Shift+Z)">↷</button>
-							</div>
 						</div>
 
 						<!-- Frappe-style form-builder canvas -->
@@ -78,7 +74,7 @@
 							<div v-if="openMenu" class="fb-menu-backdrop" @click="openMenu = null"></div>
 							<!-- Tab header -->
 							<div class="fb-tab-header">
-								<draggable :list="tabs" item-key="id" class="fb-tabs" :animation="150">
+								<draggable v-if="tabs.length > 1" :list="tabs" item-key="id" class="fb-tabs" :animation="150">
 									<template #item="{ element: tab, index }">
 										<div
 											class="fb-tab"
@@ -87,7 +83,6 @@
 											@dblclick="selectContainer('tab', tab)"
 										>
 											<span>{{ tabLabel(tab, index) }}</span>
-											<button class="fb-tab-edit" @click.stop="selectContainer('tab', tab)" title="Tab properties">⚙</button>
 											<button v-if="tabs.length > 1" class="fb-tab-x" @click.stop="removeTab(tab)" title="Remove tab">✕</button>
 										</div>
 									</template>
@@ -1431,8 +1426,6 @@ onMounted(async () => {
 .fb-tab:hover::before { border-color: var(--fb-gray-400); }
 .fb-tab.active { font-weight: 600; color: var(--fb-heading); }
 .fb-tab.active::before { border-color: var(--fb-border-primary); }
-.fb-tab-edit { border: none; background: transparent; cursor: pointer; color: inherit; font-size: 11px; opacity: .55; }
-.fb-tab-edit:hover { opacity: 1; }
 .fb-tab-x { border: none; background: transparent; cursor: pointer; color: var(--fb-muted); font-size: 11px; margin-left: 2px; opacity: 0; transition: opacity .15s; }
 .fb-tab:hover .fb-tab-x { opacity: .7; }
 .fb-tab-x:hover { opacity: 1; color: #eb5757; }
@@ -1558,12 +1551,6 @@ onMounted(async () => {
 /* ── Footer ── */
 .dc-window-footer { display: flex; align-items: center; justify-content: flex-end; gap: 12px; padding: 12px 16px; background: var(--md-surface-container); }
 .dc-count { color: var(--md-on-surface-variant); font-size: 13px; margin-right: auto; }
-
-/* ── History group (undo/redo/templates) ── */
-.dc-hist-group { display: flex; gap: 6px; align-items: center; }
-.dc-icon-sm { border: none; background: transparent; color: var(--md-on-surface-variant); border-radius: var(--md-corner-full); width: 34px; height: 34px; font-size: 16px; cursor: pointer; transition: background-color var(--md-dur) var(--md-ease); }
-.dc-icon-sm:hover:not(:disabled) { background: rgba(71,70,79,var(--md-state-hover)); }
-.dc-icon-sm:disabled { opacity: .35; cursor: not-allowed; }
 
 /* ══════════════════════════════════════════════════════════════════════
    Responsive (MD3 adaptive dialog): panels flex on medium widths, and the
