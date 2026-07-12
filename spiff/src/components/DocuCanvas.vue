@@ -164,8 +164,18 @@
 																					<span class="reqd-asterisk" v-if="fld.df.reqd">*</span>
 																				</div>
 																				<div class="field-actions">
-																					<button class="fb-icon" @click.stop="duplicateField(column, fld)" title="Duplicate">⧉</button>
-																					<button class="fb-icon" @click.stop="removeField(column, fld)" title="Remove">✕</button>
+																					<button class="fb-icon" @click.stop="addFieldAfter(column, fld)" title="Add field below">
+																						<svg viewBox="0 0 16 16" aria-hidden="true"><path d="M8 3.5v9M3.5 8h9"/></svg>
+																					</button>
+																					<button v-if="column.fields.indexOf(fld) > 0" class="fb-icon" @click.stop="moveFieldsToNewColumn(column, fld)" title="Move this and the following fields to a new column">
+																						<svg viewBox="0 0 16 16" aria-hidden="true"><path d="M6 10.5 10.5 6M7 5.5h4v4"/></svg>
+																					</button>
+																					<button class="fb-icon" @click.stop="duplicateField(column, fld)" title="Duplicate field">
+																						<svg viewBox="0 0 16 16" aria-hidden="true"><rect x="5.5" y="5.5" width="7.5" height="7.5" rx="1.3"/><path d="M10.5 5.5V4a1 1 0 0 0-1-1H4a1 1 0 0 0-1 1v5.5a1 1 0 0 0 1 1h1.5"/></svg>
+																					</button>
+																					<button class="fb-icon" @click.stop="removeField(column, fld)" title="Remove field">
+																						<svg viewBox="0 0 16 16" aria-hidden="true"><path d="M4.5 4.5 11.5 11.5M11.5 4.5 4.5 11.5"/></svg>
+																					</button>
 																				</div>
 																			</div>
 																			<!-- live control preview, per field type -->
@@ -897,6 +907,26 @@ function duplicateField(column, w) {
 	column.fields.splice(i + 1, 0, nw);
 	selectField(nw);
 }
+// Add a new field directly after this one (Frappe's per-field "+" action).
+function addFieldAfter(column, w) {
+	const nw = wrapField(normalizeDf({ fieldtype: "Data", label: "", fieldname: "" }));
+	const i = column.fields.indexOf(w);
+	column.fields.splice(i + 1, 0, nw);
+	selectField(nw);
+}
+// Move this field and every field after it into a fresh column (Frappe's "move").
+function moveFieldsToNewColumn(column, w) {
+	const section = findSectionOfColumn(column);
+	if (!section) return;
+	const i = column.fields.indexOf(w);
+	if (i <= 0) return;   // nothing to split off when it's already the first field
+	const moved = column.fields.splice(i);
+	const nc = wrapColumn(makeBreak("Column Break"));
+	nc.fields = moved;
+	const ci = section.columns.indexOf(column);
+	section.columns.splice(ci + 1, 0, nc);
+	selectField(w);
+}
 function deleteSelected() {
 	if (sel.type === "field" && sel.node) {
 		const col = findColumnOfField(sel.node);
@@ -1453,8 +1483,9 @@ onMounted(async () => {
 .fb-field .fb-flabel.empty { color: var(--fb-muted); font-style: italic; }
 .fb-field .reqd-asterisk { margin-left: 3px; color: #eb9091; }
 .fb-field .field-actions { display: flex; gap: 2px; flex: none; }
-.fb-icon { opacity: 0; border: none; background: transparent; cursor: pointer; color: var(--fb-muted); font-size: 12px; padding: 2px 4px; border-radius: 4px; transition: opacity .15s, background-color .15s, color .15s; }
+.fb-icon { opacity: 0; border: none; background: transparent; cursor: pointer; color: var(--fb-muted); padding: 3px; border-radius: 5px; display: inline-flex; align-items: center; justify-content: center; transition: opacity .15s, background-color .15s, color .15s; }
 .fb-icon:hover { background: var(--fg); color: var(--fb-heading); }
+.fb-icon svg { width: 15px; height: 15px; display: block; fill: none; stroke: currentColor; stroke-width: 1.4; stroke-linecap: round; stroke-linejoin: round; }
 
 /* Control previews (mirror Frappe's control widgets) */
 .fb-field .form-control { width: 100%; height: 28px; border: none; border-radius: var(--fb-radius); background: var(--control-bg); padding: 6px 8px; font-size: var(--fb-tsm); color: var(--fb-text); box-shadow: inset 0 0 0 1px var(--fb-border); }
