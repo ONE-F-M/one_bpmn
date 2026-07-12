@@ -1121,10 +1121,51 @@ const aiAgentModal = ref({ show: false, element: null, mode: "agent" });
 // eventBus that launched us — we fire "docu.doctype.update" back through it so
 // the Launch Docu button writes the applied DocType name onto the shape.
 const docuPanel = ref({ show: false, element: null, doctype: "", attr: "", _eventBus: null });
-const docuProcessContext = computed(() => ({
-	process_name: props.modelName || "",
-	element_name: docuPanel.value.element?.businessObject?.name || "",
-}));
+
+// Human-readable BPMN shape type, and what the DocType *is* at this step (derived
+// from the property field the Launch-Docu button was placed on). Threaded to the
+// agent so it designs a DocType that fits this exact step + its role in the flow.
+function _elementTypeLabel(bo) {
+	const t = (bo?.$type || "").replace(/^bpmn:/, "");
+	const map = {
+		StartEvent: "start event",
+		UserTask: "user task (a step a person completes)",
+		ServiceTask: "automated service task",
+		SendTask: "notification step",
+		ScriptTask: "script step",
+		BusinessRuleTask: "decision step",
+		Task: "task",
+	};
+	return map[t] || (t ? t.replace(/([A-Z])/g, " $1").trim().toLowerCase() : "step");
+}
+const _DOCTYPE_FIELD_ROLES = {
+	triggerDoctype: "the record whose creation or change starts this process",
+	targetDoctype: "the record a person fills in or works on at this step",
+	serviceTargetDoctype: "the record this automated step reads or updates",
+	emailDoctype: "the record this email is about",
+	updateFieldDoctype: "the record whose fields this step updates",
+	pushDoctype: "the record this notification is about",
+};
+function _neighbourNames(conns, side) {
+	return (conns || [])
+		.map((c) => (side === "source" ? c.source : c.target)?.businessObject?.name)
+		.filter(Boolean);
+}
+const docuProcessContext = computed(() => {
+	const el = docuPanel.value.element;
+	const bo = el?.businessObject;
+	const doc = bo?.documentation?.[0];
+	return {
+		process_name: props.modelName || "",
+		element_id: bo?.id || "",
+		element_name: bo?.name || "",
+		element_type: _elementTypeLabel(bo),
+		field_role: _DOCTYPE_FIELD_ROLES[docuPanel.value.attr] || "",
+		element_description: ((doc?.text || doc?.$body) || "").trim(),
+		upstream: _neighbourNames(el?.incoming, "source"),
+		downstream: _neighbourNames(el?.outgoing, "target"),
+	};
+});
 // Docu applied a DocType — write its name back onto the shape's doctype field
 // through the properties-panel eventBus that launched the panel.
 function onDocuApplied(doctypeName) {

@@ -132,12 +132,40 @@ def doctype_exists(doctype: str) -> str:
 		return json.dumps({"exists": False, "custom": False})
 
 
+# Field boolean attributes (stored 0/1 in DocField).
+DOCFIELD_FLAGS = (
+	"reqd", "unique", "in_list_view", "in_standard_filter", "in_global_search",
+	"in_preview", "in_filter", "allow_in_quick_entry", "bold", "translatable",
+	"fetch_if_empty", "hidden", "read_only", "search_index", "set_only_once",
+	"allow_bulk_edit", "ignore_user_permissions", "allow_on_submit", "report_hide",
+	"remember_last_selected_value", "ignore_xss_filter", "no_copy", "print_hide",
+	"print_hide_if_no_value", "hide_days", "hide_seconds", "non_negative",
+	"is_virtual", "sort_options", "show_on_timeline", "make_attachment_public",
+	"collapsible",
+)
+# Field integer attributes.
+DOCFIELD_INTS = ("length", "columns", "permlevel")
+# Field free-text attributes.
+DOCFIELD_STRS = (
+	"options", "default", "description", "depends_on", "mandatory_depends_on",
+	"read_only_depends_on", "fetch_from", "precision", "print_width", "width",
+	"max_height", "documentation_url", "placeholder",
+)
 # Field attributes Docu understands and carries end-to-end (IR ⇄ DocField).
-DOCFIELD_ATTRS = (
-	"fieldname", "label", "fieldtype", "options", "reqd", "unique", "in_list_view",
-	"in_standard_filter", "read_only", "hidden", "bold", "default", "description",
-	"depends_on", "mandatory_depends_on", "read_only_depends_on", "fetch_from",
-	"precision", "non_negative", "length",
+DOCFIELD_ATTRS = ("fieldname", "label", "fieldtype") + DOCFIELD_STRS + DOCFIELD_INTS + DOCFIELD_FLAGS
+
+# ── DocType-level settings Docu can configure (IR ⇄ DocType) ─────────────────
+DOCTYPE_SETTING_FLAGS = (
+	"is_submittable", "issingle", "editable_grid", "quick_entry", "track_changes",
+	"track_seen", "track_views", "beta", "hide_toolbar", "allow_copy", "allow_rename",
+	"allow_import", "allow_events_in_timeline", "allow_auto_repeat", "show_preview_popup",
+	"show_name_in_global_search", "show_title_field_in_link", "translated_doctype",
+	"make_attachments_public", "is_tree",
+)
+DOCTYPE_SETTING_INTS = ("max_attachments",)
+DOCTYPE_SETTING_STRS = (
+	"description", "image_field", "title_field", "search_fields",
+	"default_print_format", "sort_field", "sort_order", "document_type",
 )
 
 
@@ -161,13 +189,14 @@ def read_doctype_definition(doctype: str) -> dict | None:
 			if attr in ("fieldname", "fieldtype", "label"):
 				continue
 			val = getattr(f, attr, None)
-			if attr in ("reqd", "unique", "in_list_view", "in_standard_filter",
-						"read_only", "hidden", "bold", "non_negative"):
+			if attr in DOCFIELD_FLAGS:
 				row[attr] = int(bool(val))
+			elif attr in DOCFIELD_INTS:
+				row[attr] = int(val or 0)
 			else:
 				row[attr] = val or ""
 		fields.append(row)
-	return {
+	out = {
 		"doctype_name": doctype,
 		"module": getattr(meta, "module", "ONE BPMN"),
 		"is_child_table": int(bool(getattr(meta, "istable", 0))),
@@ -175,6 +204,13 @@ def read_doctype_definition(doctype: str) -> dict | None:
 		"autoname": getattr(meta, "autoname", "") or "",
 		"fields": fields,
 	}
+	for attr in DOCTYPE_SETTING_FLAGS:
+		out[attr] = int(bool(getattr(meta, attr, 0)))
+	for attr in DOCTYPE_SETTING_INTS:
+		out[attr] = int(getattr(meta, attr, 0) or 0)
+	for attr in DOCTYPE_SETTING_STRS:
+		out[attr] = getattr(meta, attr, "") or ""
+	return out
 
 
 def get_doctype_definition(doctype: str) -> str:

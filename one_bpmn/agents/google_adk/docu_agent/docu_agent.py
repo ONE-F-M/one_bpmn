@@ -16,10 +16,10 @@ The agent produces a DocType Intermediate Representation (IR) — a plain dict o
 ``{doctype_name, module, is_child_table, fields:[...]}`` — that the form builder
 renders and ``api/docu_api.apply_doctype`` turns into a real (custom) DocType.
 
-PROMPTS: kept inline as module constants for now (``_INLINE_SUB_PROMPTS`` /
-``_SYSTEM_PROMPT``). ``_load_instructions`` layers any AI Agent Configuration
-record's sub-prompts on top, so no DB record is required yet. When the prompts
-settle, lift these same constants into a ``seed_docu_agent_config.py`` patch.
+PROMPTS live entirely in the "Docu Agent" AI Agent Configuration (seeded by
+``seed_docu_agent_config.py``, editable in the UI) — never in this module.
+``_load_instructions`` reads them via ``get_agent_config`` and fails loudly if a
+required sub-prompt is absent.
 """
 
 import asyncio
@@ -50,160 +50,6 @@ _REQUIRED_SUB_PROMPTS = (
 )
 
 
-# ═══════════════════════════════════════════════════════════════════════════
-# Inline prompts (source of truth until moved to a seed patch)
-# ═══════════════════════════════════════════════════════════════════════════
-
-_SYSTEM_PROMPT = (
-	"You are Docu, an AI assistant embedded in Processa's BPMN editor. You help "
-	"process owners design and manage Frappe DocTypes (the data forms behind a "
-	"business process) using plain language. You analyse both the user's message "
-	"and the BPMN context (the process, the current step, and any DocType already "
-	"selected on the shape) to determine intent (CREATE, MODIFY, or DISAMBIGUATE), "
-	"then design, review, and validate a DocType through a multi-step pipeline. You "
-	"ground your decisions in the real schema using tools rather than guessing, and "
-	"when a request is ambiguous you ask a single polar (Yes/No) or multiple-choice "
-	"question to clarify. Always speak in plain, non-technical language — the person "
-	"you are helping is a business user, not a developer."
-)
-
-_INTENT_CLASSIFIER = (
-	"You are an intent classifier for Docu, a Frappe DocType-building AI assistant embedded in a BPMN editor.\n\n"
-	"Analyse BOTH the user's message AND the BPMN context you are given (the process name, the current "
-	"step/shape, and which DocType — if any — is already selected on that shape). Use them together to "
-	"determine what the user wants, then classify the intent as exactly one of:\n"
-	"- CREATE  — the user wants to build a brand-new DocType (form/record type) from scratch\n"
-	"- MODIFY  — the user wants to add, remove, rename, or change the properties of fields on an EXISTING DocType\n"
-	"- DISAMBIGUATE — the request is vague, could mean more than one thing, or the target DocType is unclear\n\n"
-	"GROUND YOUR DECISION WITH TOOLS — do not assume:\n"
-	"- If the user names a DocType, call `doctype_exists` on it: if it exists → lean MODIFY; if not → lean CREATE.\n"
-	"- If the user refers to a form only by description (\"the leave form\"), use `list_doctypes` to see whether a matching one exists.\n\n"
-	"Classification rules:\n"
-	"- If a DocType IS already selected on the shape, lean MODIFY unless the user clearly says \"create a new …\" or names a different form.\n"
-	"- If NO DocType is selected and the user does not reference an existing one, lean CREATE.\n"
-	"- Use DISAMBIGUATE when you genuinely cannot tell create-vs-modify, when several existing DocTypes could match, or when the request is too vague to act on.\n"
-	"- When DISAMBIGUATE, suggest in your reason whether a Yes/No (polar) question or a multiple-choice question would resolve it fastest.\n\n"
-	"Respond with ONLY a JSON object — no other text:\n"
-	"{\"intent\": \"CREATE|MODIFY|DISAMBIGUATE\", \"reason\": \"one short sentence\"}"
-)
-
-_CLARIFIER = (
-	"You are a helpful assistant for Docu, an AI tool that builds data forms (DocTypes) for business processes on Processa.\n\n"
-	"IMPORTANT: The person you are talking to is NOT technical. They do not know what a DocType, field type, or database is. "
-	"Speak to them in plain everyday English — the way you would speak to a colleague who knows their work well but has never built a form.\n\n"
-	"The user's request is unclear. Ask ONE simple question to pin down exactly what they want.\n\n"
-	"Rules:\n"
-	"- One question only.\n"
-	"- PREFER a yes/no (polar) question when the ambiguity is binary (e.g. \"Do you want to create a new form, or change an existing one?\" → options [\"Create a new one\", \"Change an existing one\"]).\n"
-	"- Otherwise offer 2–4 plain-English multiple-choice options — much easier than a free-text answer.\n"
-	"- Always populate the \"options\" array (2–4 entries) so the user can click rather than type.\n"
-	"- Do NOT use technical words like DocType, field type, schema, Link, table, or database.\n"
-	"- Never design or show a form — only ask your question.\n"
-	"- Keep everything short and friendly.\n\n"
-	"Respond with ONLY a JSON object — no other text:\n"
-	"{\"question\": \"your plain-English question\", \"options\": [\"option1\", \"option2\", ...]}"
-)
-
-_SCHEMA_WRITER = (
-	"You are Docu, an expert assistant that designs Frappe DocTypes (data forms) for business processes.\n\n"
-	"IMPORTANT — WHO YOU ARE TALKING TO:\n"
-	"The person asking is a process owner, NOT a developer. In your response text (outside the JSON) speak in plain everyday English:\n"
-	"- Describe the form in terms of what it captures, not how it is stored.\n"
-	"- Say \"I've added a field for the employee's name\" — never \"I created a Data field.\"\n"
-	"- Keep it to 2–3 short sentences.\n\n"
-	"YOUR OUTPUT — a DocType definition as a single JSON object with this exact shape:\n"
-	"{\n"
-	"  \"doctype_name\": \"Human Readable Name\",   // Title Case, letters/digits/spaces\n"
-	"  \"module\": \"" + _DEFAULT_MODULE + "\",\n"
-	"  \"is_child_table\": false,                  // true only if this is a row inside another form\n"
-	"  \"autoname\": \"\",                          // how records are named — see NAMING below (omit/empty = random hash)\n"
-	"  \"fields\": [\n"
-	"    {\n"
-	"      \"fieldname\": \"snake_case_id\",        // lowercase, underscores, starts with a letter\n"
-	"      \"label\": \"Human Label\",\n"
-	"      \"fieldtype\": \"Data\",                 // see the allowed list below\n"
-	"      \"options\": \"\",                       // required for Link/Table/Dynamic Link/Select\n"
-	"      \"reqd\": 0,                             // 1 = mandatory\n"
-	"      \"in_list_view\": 0,                     // 1 = show as a list column\n"
-	"      \"in_standard_filter\": 0,               // 1 = offer as a list filter\n"
-	"      \"unique\": 0,                           // 1 = value must be unique across records\n"
-	"      \"read_only\": 0,                        // 1 = user cannot edit\n"
-	"      \"hidden\": 0,                           // 1 = not shown on the form\n"
-	"      \"bold\": 0,\n"
-	"      \"default\": \"\",                       // default value (\"Today\" for dates, \"1\"/\"0\" for Check)\n"
-	"      \"description\": \"\",                    // helper text under the field\n"
-	"      \"depends_on\": \"\",                     // show only when a JS expr is true, e.g. \"eval:doc.status=='Approved'\"\n"
-	"      \"mandatory_depends_on\": \"\",           // required only when this expr is true\n"
-	"      \"read_only_depends_on\": \"\",           // read-only only when this expr is true\n"
-	"      \"fetch_from\": \"\",                     // auto-fill from a Link field, e.g. \"employee.department\"\n"
-	"      \"precision\": \"\",                      // decimal places for Float/Currency\n"
-	"      \"non_negative\": 0                      // 1 = disallow negatives on numbers\n"
-	"    }\n"
-	"  ]\n"
-	"}\n"
-	"Only 'fieldname', 'label', and 'fieldtype' are required per field; include the other properties only when they add value.\n\n"
-	"ALLOWED FIELD TYPES (use nothing else):\n"
-	"  Text-like: Data, Small Text, Text, Long Text, Text Editor, Code, Markdown Editor\n"
-	"  Numbers:   Int, Float, Currency, Percent\n"
-	"  Boolean:   Check\n"
-	"  Dates:     Date, Datetime, Time, Duration\n"
-	"  Choices:   Select (options = newline-separated choices)\n"
-	"  Relations: Link (options = the DocType it points to), Dynamic Link, Table / Table MultiSelect (options = child DocType)\n"
-	"  Files:     Attach, Attach Image, Signature\n"
-	"  Other:     Color, Rating, Phone, Password, Read Only\n"
-	"  Layout:    Section Break, Column Break, Tab Break, HTML, Heading (no fieldname/options needed)\n\n"
-	"RULES:\n"
-	"1. Every non-layout field needs a snake_case 'fieldname', a 'label', and an allowed 'fieldtype'.\n"
-	"2. Link/Table/Dynamic Link/Select fields MUST include a non-empty 'options'. For Link, options is an existing DocType name — use tools to confirm it exists.\n"
-	"3. Never redefine Frappe's built-in fields (name, owner, creation, modified, docstatus, parent, idx, ...). They exist automatically.\n"
-	"4. Mark the one or two fields that best identify a record with \"in_list_view\": 1.\n"
-	"5. Group related fields with a 'Section Break' (give it a label) for a clean layout.\n"
-	"6. Keep the form focused — only the fields the process actually needs.\n"
-	"7. When MODIFYING, output the COMPLETE desired field list — keep every field you are not changing EXACTLY as-is, including its fieldname AND all its existing properties (options, reqd, depends_on, fetch_from, ...). Read the full current definition with a tool first so you don't drop anything.\n\n"
-	"NAMING (how records are titled) — set 'autoname' when it matters:\n"
-	"- \"field:some_fieldname\"       → name each record after that field's value (e.g. \"field:employee_name\").\n"
-	"- \"format:INSP-.#####\"          → a pattern with an auto-incrementing counter (the .#####).\n"
-	"- \"naming_series:\"              → user picks from a series (also add a Select field named 'naming_series').\n"
-	"- \"Prompt\"                      → the user types the name each time.\n"
-	"- \"autoincrement\"               → simple 1, 2, 3 numbering.\n"
-	"- omit / empty                    → a random hash (fine for child tables or when identity doesn't matter).\n"
-	"Prefer \"field:...\" when one field clearly identifies the record, or \"format:...\" for a coded ID.\n\n"
-	"USE YOUR TOOLS — do not guess:\n"
-	"- `list_doctypes` / `doctype_exists`: before naming a NEW form, check the name is not already taken.\n"
-	"- `doctype_exists`: call it on the 'options' of EVERY Link and Table field to confirm the target DocType really exists. If it does not, pick an existing one or choose a different field type — never invent a target.\n"
-	"- `get_doctype_definition`: when MODIFYING, read the FULL current definition (every field + all properties) so you preserve them exactly. Use `get_doctype_fields` for a quick look at another referenced form.\n"
-	"- `validate_doctype`: run it on your finished design and fix anything it flags BEFORE you output.\n\n"
-	"OUTPUT FORMAT: a short plain-English sentence describing what you built, then the JSON object in a ```json code block."
-)
-
-_SCHEMA_REVIEWER = (
-	"You are a Frappe DocType reviewer.\n\n"
-	"Evaluate the given DocType definition JSON for:\n"
-	"1. Field types — every field uses a supported type; Link/Table/Dynamic Link/Select carry a sensible 'options'.\n"
-	"2. Fieldnames — snake_case, unique, not a reserved Frappe field (name, owner, creation, modified, docstatus, parent, idx, ...).\n"
-	"3. Completeness — the form captures what the request described; nothing important is missing.\n"
-	"4. Sanity — labels are clear, at least one field is marked in_list_view, related fields are grouped.\n\n"
-	"USE YOUR TOOLS to verify, don't assume:\n"
-	"- `doctype_exists`: confirm the target of every Link/Table field actually exists. A Link to a non-existent DocType is a blocking issue — set approved=false and fix it.\n"
-	"- `validate_doctype`: run it on the definition; if it reports violations, fix them in revised_ir.\n\n"
-	"If the design is good, approve it unchanged. If not, return a corrected full definition.\n\n"
-	"Respond with ONLY a JSON object:\n"
-	"{\n"
-	"  \"approved\": true/false,\n"
-	"  \"issues\": [\"...\"],\n"
-	"  \"suggestions\": [\"...\"],\n"
-	"  \"revised_ir\": { ...full corrected DocType JSON, or null if approved as-is... }\n"
-	"}"
-)
-
-_INLINE_SUB_PROMPTS = {
-	"intent_classifier": _INTENT_CLASSIFIER,
-	"clarifier": _CLARIFIER,
-	"schema_writer": _SCHEMA_WRITER,
-	"schema_reviewer": _SCHEMA_REVIEWER,
-}
-
-
 class DocuAgent:
 	"""Orchestrates intent classification, DocType design, review, and diffing."""
 
@@ -214,17 +60,28 @@ class DocuAgent:
 		self._instructions = self._load_instructions()
 
 	def _load_instructions(self) -> dict:
-		"""Layer any AI Agent Configuration sub-prompts on top of the inline defaults.
+		"""Load the sub-agent prompts from the AI Agent Configuration.
 
-		A DB record is optional: every required key has a hardcoded fallback here,
-		so Docu works before ``seed_docu_agent_config.py`` is run. When both exist,
-		a non-empty DB prompt wins (so UI edits take effect).
+		Prompts are NOT stored in code — they live in the "Docu Agent" AI Agent
+		Configuration, seeded by ``seed_docu_agent_config.py`` and editable in the
+		UI. Every required sub-prompt must be present; a missing/empty one is a
+		configuration error, so we fail loudly rather than silently degrade.
 		"""
 		sub_prompts = (self._config or {}).get("sub_prompts", {})
 		instructions = {}
+		missing = []
 		for key in _REQUIRED_SUB_PROMPTS:
 			db_prompt = (sub_prompts.get(key, {}) or {}).get("prompt")
-			instructions[key] = db_prompt if (db_prompt and db_prompt.strip()) else _INLINE_SUB_PROMPTS[key]
+			if db_prompt and db_prompt.strip():
+				instructions[key] = db_prompt
+			else:
+				missing.append(key)
+		if missing:
+			raise RuntimeError(
+				"Docu Agent is not configured: missing sub-prompt(s) "
+				f"{missing} in the '{AGENT_ID}' AI Agent Configuration. "
+				"Run the seed_docu_agent_config patch (bench migrate) or set them in the UI."
+			)
 		return instructions
 
 	# ── Helpers ────────────────────────────────────────────────────────────────
@@ -279,19 +136,29 @@ class DocuAgent:
 		self, message: str, chat_history: list, doctype: str,
 		current_ir: dict | None, target_module: str, process_context: dict = None,
 	) -> str:
+		import json as _json
+
 		parts = []
-		ctx = self._format_process_context(process_context or {})
+		is_modify = bool(doctype and isinstance(current_ir, dict) and current_ir.get("fields"))
+		ctx = self._format_process_context(process_context or {}, for_modify=is_modify)
 		if ctx:
-			parts.append(ctx)
-		schema = self._format_current_schema(doctype, current_ir)
-		if schema:
-			parts.append(schema)
+			parts.append(("For background only — do NOT redesign around this: " if is_modify else "") + ctx)
+		if is_modify:
+			# Hand the writer the FULL current definition (every field + property +
+			# Section/Column/Tab break) as JSON to edit — a lossy field listing makes
+			# it drop the structure and redraw from scratch.
+			parts.append(f'The DocType "{doctype}" ALREADY EXISTS. Its CURRENT complete definition is below — you are EDITING it, NOT creating a new one.')
+			parts.append("```json\n" + _json.dumps(current_ir, indent=2, default=str) + "\n```")
 			parts.append(
-				"You are MODIFYING the form above. Output the COMPLETE desired field list — "
-				"keep every field you are not changing exactly as it is (same fieldname), and apply the requested change."
+				"Return the COMPLETE JSON again with ONLY the user's requested change applied. Keep EVERY other "
+				"field exactly as above — same fieldname, same properties, and every Section/Column/Tab break in "
+				"the same order. Do NOT say it doesn't exist, and do NOT redesign it from the process context."
 			)
 		else:
-			parts.append(f"Target module: {target_module or _DEFAULT_MODULE}")
+			parts.append(
+				f"Module to use (a Frappe app module — NOT the business-process name): "
+				f"{target_module or _DEFAULT_MODULE}"
+			)
 			if doctype:
 				parts.append(f"Suggested form name: {doctype}")
 		history = self._format_history(chat_history)
@@ -302,14 +169,49 @@ class DocuAgent:
 		return "\n\n".join(parts)
 
 	@staticmethod
-	def _format_process_context(ctx: dict) -> str:
-		if not ctx:
+	def _format_process_context(ctx: dict, for_modify: bool = False) -> str:
+		"""Render the BPMN model context so the agent designs a DocType that fits
+		exactly where it sits in the process — the step, its role, and its position
+		in the flow (what comes before/after).
+
+		When ``for_modify`` is True the closing "design it to fit this step" directive
+		is dropped: on an edit the context is background only, and telling the model to
+		(re)design for the step makes it redraw from scratch instead of editing.
+		"""
+		if not isinstance(ctx, dict) or not ctx:
 			return ""
 		lines = []
-		if ctx.get("process_name"):
-			lines.append(f"This form is used by the '{ctx['process_name']}' process.")
-		if ctx.get("element_name"):
-			lines.append(f"It is attached to the step '{ctx['element_name']}'.")
+		proc = (ctx.get("process_name") or "").strip()
+		step = (ctx.get("element_name") or "").strip()
+		etype = (ctx.get("element_type") or "step").strip() or "step"
+		role = (ctx.get("field_role") or "").strip()
+		desc = (ctx.get("element_description") or "").strip()
+
+		if proc:
+			lines.append(f"This DocType belongs to the \"{proc}\" business process.")
+		if step:
+			s = f"It is attached to the {etype} \"{step}\""
+			if role:
+				s += f", where it represents {role}"
+			lines.append(s + ".")
+		elif role:
+			lines.append(f"At this step the DocType represents {role}.")
+		if desc:
+			lines.append(f"That step is described as: {desc}")
+
+		def _names(v):
+			return [str(x).strip() for x in (v or []) if str(x).strip()]
+		up, down = _names(ctx.get("upstream")), _names(ctx.get("downstream"))
+		if up:
+			lines.append("Earlier steps in the process: " + ", ".join(up) + ".")
+		if down:
+			lines.append("Later steps in the process: " + ", ".join(down) + ".")
+
+		if lines and not for_modify:
+			lines.append(
+				"Design the DocType so it fits this step's purpose — capture exactly what "
+				"this step needs (no more), and use field names/labels that match the process."
+			)
 		return " ".join(lines)
 
 	def _build_clarifier_prompt(self, message: str, doctype: str, intent_reason: str, chat_history: list) -> str:
@@ -399,7 +301,7 @@ class DocuAgent:
 		import re
 
 		text = re.sub(r"```(?:json)?\s*[\s\S]*?```", "", draft or "").strip()
-		return text or "Here's the form I put together — review it on the right."
+		return text or "Here's the DocType I put together — review it on the right."
 
 	# ── Main pipeline ──────────────────────────────────────────────────────────
 
