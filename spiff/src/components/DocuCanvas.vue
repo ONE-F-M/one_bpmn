@@ -54,6 +54,13 @@
 
 					<!-- ── MIDDLE: Visual form builder ─────────────────── -->
 					<div class="dc-builder-panel">
+						<!-- Top-level view tabs (mirrors Frappe's Form / Settings) -->
+						<div class="dc-view-tabs">
+							<button class="dc-view-tab" :class="{ active: view === 'form' }" @click="view = 'form'">Form</button>
+							<button class="dc-view-tab" :class="{ active: view === 'settings' }" @click="view = 'settings'">Settings</button>
+						</div>
+
+						<template v-if="view === 'form'">
 						<div class="dc-builder-topbar">
 							<div class="dc-form-name">
 								<input v-model="dtName" class="dc-name-input" placeholder="DocType name (e.g. Vehicle Inspection)"
@@ -62,21 +69,15 @@
 							<div class="dc-hist-group">
 								<button class="dc-icon-sm" :disabled="!canUndo" @click="undo" title="Undo (Ctrl+Z)">↶</button>
 								<button class="dc-icon-sm" :disabled="!canRedo" @click="redo" title="Redo (Ctrl+Shift+Z)">↷</button>
-								<button class="dc-add-btn" @click="showTemplates = true" title="Start from a template">Templates</button>
-							</div>
-							<div class="dc-add-group">
-								<button class="dc-add-btn" @click="addField()" title="Add a field">+ Field</button>
-								<button class="dc-add-btn" @click="addSection()" title="Add a section">+ Section</button>
-								<button class="dc-add-btn" @click="addColumn()" title="Add a column">+ Column</button>
-								<button class="dc-add-btn" @click="addTab()" title="Add a tab">+ Tab</button>
-								<button class="dc-gear-btn" :class="{ active: sel.type === 'form' }" @click="selectForm()" title="DocType settings">⚙</button>
 							</div>
 						</div>
 
 						<!-- Frappe-style form-builder canvas -->
 						<div class="fb-form" v-if="activeTab">
+							<!-- click-away layer for the section “…” menu -->
+							<div v-if="openMenu" class="fb-menu-backdrop" @click="openMenu = null"></div>
 							<!-- Tab header -->
-							<div v-if="tabs.length" class="fb-tab-header">
+							<div class="fb-tab-header">
 								<draggable :list="tabs" item-key="id" class="fb-tabs" :animation="150">
 									<template #item="{ element: tab, index }">
 										<div
@@ -87,9 +88,13 @@
 										>
 											<span>{{ tabLabel(tab, index) }}</span>
 											<button class="fb-tab-edit" @click.stop="selectContainer('tab', tab)" title="Tab properties">⚙</button>
+											<button v-if="tabs.length > 1" class="fb-tab-x" @click.stop="removeTab(tab)" title="Remove tab">✕</button>
 										</div>
 									</template>
 								</draggable>
+								<div class="fb-tab-actions">
+									<button class="fb-addtab" @click="addTab()" title="Add tab">+ Add tab</button>
+								</div>
 							</div>
 
 							<!-- Sections -->
@@ -113,7 +118,15 @@
 														<span class="fb-section-grip" title="Drag to reorder">⠿</span>
 														<span class="fb-section-title">{{ sectionLabel(section) }}</span>
 													</div>
-													<button class="fb-mini" @click.stop="addColumn(section)" title="Add column">+ Column</button>
+													<div class="fb-menu-wrap">
+														<button class="fb-menu-btn" @click.stop="toggleMenu(section)" title="Section options">⋯</button>
+														<div v-if="openMenu === section" class="fb-menu" @click.stop>
+															<div v-for="(g, gi) in sectionMenu(section)" :key="gi" class="fb-menu-group">
+																<div class="fb-menu-title">{{ g.group }}</div>
+																<button v-for="it in g.items" :key="it.label" class="fb-menu-item" @click.stop="it.onClick()">{{ it.label }}</button>
+															</div>
+														</div>
+													</div>
 												</div>
 												<draggable
 													:list="section.columns"
@@ -183,15 +196,40 @@
 										</div>
 									</template>
 								</draggable>
-								<div class="fb-add-section-wrap">
-									<button class="fb-add-btn" @click="addSection()">+ Add section</button>
+							</div>
+						</div>
+						</template>
+
+						<!-- Settings view (mirrors Frappe form builder's "Settings" tab) -->
+						<div v-else class="dc-settings-page">
+							<div class="dc-settings-card">
+								<div class="dc-props-head">DocType settings</div>
+								<div class="dc-prop">
+									<label>DocType name</label>
+									<input v-model="dtName" class="dc-prop-input" placeholder="e.g. Vehicle Inspection" />
 								</div>
+								<div class="dc-prop">
+									<label>Module</label>
+									<select v-model="dtModule" class="dc-prop-input">
+										<option v-for="m in moduleOptions" :key="m" :value="m">{{ m }}</option>
+									</select>
+								</div>
+								<div class="dc-prop">
+									<label>Naming (autoname)</label>
+									<input v-model="dtAutoname" class="dc-prop-input dc-mono" placeholder="e.g. field:vehicle_no or format:VI-.#####" />
+								</div>
+								<label class="dc-switch">
+									<input type="checkbox" v-model="isChild" />
+									<span class="dc-switch-track"><span class="dc-switch-thumb"></span></span>
+									<span class="dc-switch-text">Child table (lives inside another DocType)</span>
+								</label>
+								<p class="dc-hint">These settings apply to the whole DocType. Switch to the <strong>Form</strong> tab to design its fields.</p>
 							</div>
 						</div>
 					</div>
 
 					<!-- ── RIGHT: Properties sidebar ───────────────────── -->
-					<div class="dc-props-panel">
+					<div class="dc-props-panel" v-if="view === 'form'">
 
 						<!-- Field properties -->
 						<template v-if="sel.type === 'field' && sel.node">
@@ -265,31 +303,13 @@
 							<button class="dc-delete-btn" @click="deleteSelected()">Delete {{ sel.type }}</button>
 						</template>
 
-						<!-- DocType settings -->
+						<!-- Nothing selected -->
 						<template v-else>
-							<div class="dc-props-head">DocType settings</div>
-							<div class="dc-prop">
-								<label>DocType name</label>
-								<input v-model="dtName" class="dc-prop-input" placeholder="e.g. Vehicle Inspection" />
-							</div>
-							<div class="dc-prop">
-								<label>Module</label>
-								<select v-model="dtModule" class="dc-prop-input">
-									<option v-for="m in moduleOptions" :key="m" :value="m">{{ m }}</option>
-								</select>
-							</div>
-							<div class="dc-prop">
-								<label>Naming (autoname)</label>
-								<input v-model="dtAutoname" class="dc-prop-input dc-mono" placeholder="e.g. field:vehicle_no or format:VI-.#####" />
-							</div>
-							<label class="dc-switch">
-								<input type="checkbox" v-model="isChild" />
-								<span class="dc-switch-track"><span class="dc-switch-thumb"></span></span>
-								<span class="dc-switch-text">Child table (lives inside another DocType)</span>
-							</label>
+							<div class="dc-props-head">Properties</div>
 							<p class="dc-hint">
 								Select a field, section, column or tab to edit its properties.
 								Ask Docu on the left to build or change the DocType, then drag to arrange.
+								DocType-wide settings live in the <strong>Settings</strong> tab.
 							</p>
 						</template>
 					</div>
@@ -305,23 +325,6 @@
 						<template v-else-if="saveState === 'error'">⚠ {{ saveError }}</template>
 						<template v-else>Changes save automatically</template>
 					</span>
-				</div>
-
-				<!-- Template picker (#12) -->
-				<div v-if="showTemplates" class="dc-modal-scrim" @click.self="showTemplates = false">
-					<div class="dc-modal">
-						<div class="dc-modal-title">Start from a template</div>
-						<p class="dc-modal-summary">Pick a starting point — you can change everything afterwards.</p>
-						<div class="dc-template-list">
-							<button v-for="t in TEMPLATES" :key="t.ir.doctype_name" class="dc-template-item" @click="pickTemplate(t)">
-								<span class="dc-template-name">{{ t.name }}</span>
-								<span class="dc-template-desc">{{ t.desc }}</span>
-							</button>
-						</div>
-						<div class="dc-modal-actions">
-							<button class="dc-btn-text" @click="showTemplates = false">Cancel</button>
-						</div>
-					</div>
 				</div>
 			</div>
 		</div>
@@ -346,47 +349,6 @@ const props = defineProps({
 const emit = defineEmits(["close", "applied"]);
 
 const API = "/api/method/one_bpmn.api.docu_api.";
-
-// Starter templates (#12) — plain-language OneFM forms the user can adapt.
-const TEMPLATES = [
-	{ name: "Visitor Sign-In", desc: "Log visitors at the gate", ir: {
-		doctype_name: "Visitor Sign In", module: "ONE BPMN", autoname: "format:VSI-.#####", fields: [
-			{ fieldname: "visitor_name", label: "Visitor Name", fieldtype: "Data", reqd: 1, in_list_view: 1 },
-			{ fieldname: "phone_number", label: "Phone Number", fieldtype: "Phone" },
-			{ fieldname: "company", label: "Company", fieldtype: "Data" },
-			{ fieldname: "person_to_meet", label: "Person to Meet", fieldtype: "Data" },
-			{ fieldname: "check_in", label: "Check-In Time", fieldtype: "Datetime", default: "Now", in_list_view: 1 },
-			{ fieldname: "check_out", label: "Check-Out Time", fieldtype: "Datetime" },
-			{ fieldname: "notes", label: "Notes", fieldtype: "Small Text" },
-		] } },
-	{ name: "Leave Request", desc: "Staff time-off requests", ir: {
-		doctype_name: "Staff Leave Request", module: "ONE BPMN", fields: [
-			{ fieldname: "employee_name", label: "Employee Name", fieldtype: "Data", reqd: 1, in_list_view: 1 },
-			{ fieldname: "leave_type", label: "Leave Type", fieldtype: "Select", options: "Annual\nSick\nUnpaid\nEmergency", reqd: 1 },
-			{ fieldname: "from_date", label: "From", fieldtype: "Date", reqd: 1 },
-			{ fieldname: "to_date", label: "To", fieldtype: "Date", reqd: 1 },
-			{ fieldname: "reason", label: "Reason", fieldtype: "Small Text" },
-		] } },
-	{ name: "Incident Report", desc: "Report on-site incidents", ir: {
-		doctype_name: "Incident Report", module: "ONE BPMN", autoname: "format:INC-.#####", fields: [
-			{ fieldname: "occurred_at", label: "When It Happened", fieldtype: "Datetime", reqd: 1, in_list_view: 1 },
-			{ fieldname: "location", label: "Location", fieldtype: "Data", in_list_view: 1 },
-			{ fieldname: "severity", label: "Severity", fieldtype: "Select", options: "Low\nMedium\nHigh\nCritical", reqd: 1 },
-			{ fieldname: "sec_desc", label: "Details", fieldtype: "Section Break" },
-			{ fieldname: "description", label: "What Happened", fieldtype: "Text", reqd: 1 },
-			{ fieldname: "action_taken", label: "Action Taken", fieldtype: "Text" },
-		] } },
-	{ name: "Equipment Handover", desc: "Track items given to staff", ir: {
-		doctype_name: "Equipment Handover", module: "ONE BPMN", fields: [
-			{ fieldname: "worker", label: "Worker", fieldtype: "Data", reqd: 1, in_list_view: 1 },
-			{ fieldname: "date_out", label: "Date Given Out", fieldtype: "Date", default: "Today" },
-			{ fieldname: "items", label: "Items", fieldtype: "Table", child_fields: [
-				{ fieldname: "item", label: "Item", fieldtype: "Data" },
-				{ fieldname: "quantity", label: "Quantity", fieldtype: "Int" },
-			] },
-			{ fieldname: "returned", label: "Returned", fieldtype: "Check" },
-		] } },
-];
 
 // Field types — mirrors ALLOWED_FIELDTYPES in security/doctype_validator.py.
 const FIELD_TYPES = [
@@ -461,6 +423,11 @@ const moduleOptions = computed(() => {
 	return list;
 });
 
+// Top-level builder view — mirrors Frappe's Form / Settings tabs.
+const view = ref("form");            // 'form' | 'settings'
+// Which section's "…" options menu is open (Frappe's section Dropdown).
+const openMenu = ref(null);
+
 // ── Builder tree (tabs → sections → columns → fields) ──────────────────
 // The tree is the working model while editing; the flat IR fields[] the
 // backend expects is derived on demand in currentIr(). Each node wraps a
@@ -479,9 +446,6 @@ const nid = () => `n${++uid}`;
 const applying    = ref(false);
 const applyError  = ref("");
 const appliedName = ref("");
-
-// Template picker (#12)
-const showTemplates = ref(false);
 
 // Auto-save: changes persist to the system automatically (no "Apply" button).
 const saveState  = ref("idle");   // idle | saving | saved | error
@@ -623,25 +587,6 @@ function autoName(df) {
 }
 
 // ── Add / remove ───────────────────────────────────────────────────────
-function currentSection() {
-	if (sel.type === "column" && sel.node) return findSectionOfColumn(sel.node);
-	if (sel.type === "section" && sel.node) return sel.node;
-	if (sel.type === "field" && sel.node) {
-		const col = findColumnOfField(sel.node);
-		if (col) return findSectionOfColumn(col);
-	}
-	const secs = activeTab.value.sections;
-	return secs[secs.length - 1];
-}
-function currentColumn() {
-	if (sel.type === "column" && sel.node) return sel.node;
-	if (sel.type === "field" && sel.node) {
-		const col = findColumnOfField(sel.node);
-		if (col) return col;
-	}
-	const s = currentSection();
-	return s.columns[s.columns.length - 1];
-}
 function findColumnOfField(w) {
 	for (const s of activeTab.value.sections)
 		for (const c of s.columns)
@@ -659,19 +604,6 @@ function addFieldToColumn(col) {
 	col.fields.push(w);
 	selectField(w);
 }
-function addField() { addFieldToColumn(currentColumn()); }
-function addSection() {
-	const s = wrapSection(makeBreak("Section Break"));
-	s.columns.push(wrapColumn(null));
-	activeTab.value.sections.push(s);
-	selectContainer("section", s);
-}
-function addColumn(section) {
-	const sec = section && section.columns ? section : currentSection();
-	const c = wrapColumn(makeBreak("Column Break"));
-	sec.columns.push(c);
-	selectContainer("column", c);
-}
 function addTab() {
 	const t = wrapTab(makeBreak("Tab Break"));
 	const s = wrapSection(null);
@@ -680,6 +612,94 @@ function addTab() {
 	tabs.value.push(t);
 	activeTabIndex.value = tabs.value.length - 1;
 	selectContainer("tab", t);
+}
+function removeTab(tab) {
+	if (tabs.value.length <= 1) return;   // always keep at least one tab
+	const i = tabs.value.indexOf(tab);
+	if (i < 0) return;
+	tabs.value.splice(i, 1);
+	if (activeTabIndex.value >= tabs.value.length) activeTabIndex.value = tabs.value.length - 1;
+	ensureStructure();
+	selectForm();
+}
+
+// ── Section "…" options menu (mirrors Frappe's Section Dropdown) ─────────
+function toggleMenu(section) { openMenu.value = openMenu.value === section ? null : section; }
+function sectionIndex(section) { return activeTab.value.sections.indexOf(section); }
+
+function addSectionBelow(section) {
+	const s = wrapSection(makeBreak("Section Break"));
+	s.columns.push(wrapColumn(null));
+	const i = sectionIndex(section);
+	activeTab.value.sections.splice(i + 1, 0, s);
+	openMenu.value = null;
+	selectContainer("section", s);
+}
+function removeSection(section) {
+	const secs = activeTab.value.sections;
+	const i = secs.indexOf(section);
+	if (i >= 0) secs.splice(i, 1);
+	openMenu.value = null;
+	ensureStructure();
+	selectForm();
+}
+function addColumnTo(section) {
+	const c = wrapColumn(makeBreak("Column Break"));
+	section.columns.push(c);
+	openMenu.value = null;
+	selectContainer("column", c);
+}
+function removeColumn(section) {
+	// Remove the last column, moving its fields into the previous one (Frappe's behaviour).
+	const cols = section.columns;
+	if (cols.length <= 1) return;
+	const last = cols[cols.length - 1];
+	const prev = cols[cols.length - 2];
+	prev.fields.push(...last.fields);
+	cols.splice(cols.length - 1, 1);
+	openMenu.value = null;
+	selectForm();
+}
+function emptyColumn(section) {
+	// Clear every field from the (single) column but keep the column.
+	const col = section.columns[0];
+	if (col) col.fields.splice(0);
+	openMenu.value = null;
+	selectForm();
+}
+function moveSectionsToTab(section) {
+	// Move this section and every one after it into a fresh tab.
+	const secs = activeTab.value.sections;
+	const i = secs.indexOf(section);
+	if (i < 0) return;
+	const moved = secs.splice(i);
+	const t = wrapTab(makeBreak("Tab Break"));
+	t.sections = moved;
+	tabs.value.push(t);
+	openMenu.value = null;
+	ensureStructure();
+	activeTabIndex.value = tabs.value.length - 1;
+	selectForm();
+}
+function sectionMenu(section) {
+	const groups = [
+		{ group: "Section", items: [
+			{ label: "Add section below", onClick: () => addSectionBelow(section) },
+			{ label: "Remove section",    onClick: () => removeSection(section) },
+		] },
+		{ group: "Column", items: [
+			{ label: "Add column", onClick: () => addColumnTo(section) },
+		] },
+	];
+	if (section.columns.length > 1) {
+		groups[1].items.push({ label: "Remove column", onClick: () => removeColumn(section) });
+	} else if (section.columns[0] && section.columns[0].fields.length) {
+		groups[1].items.push({ label: "Empty column", onClick: () => emptyColumn(section) });
+	}
+	if (sectionIndex(section) > 0) {
+		groups[0].items.push({ label: "Move to new tab", onClick: () => moveSectionsToTab(section) });
+	}
+	return groups;
 }
 
 function removeField(column, w) {
@@ -954,13 +974,6 @@ function onGlobalKeydown(e) {
 	else if ((k === "z" && e.shiftKey) || k === "y") { e.preventDefault(); redo(); }
 }
 
-// ── Templates (#12) ────────────────────────────────────────────────────
-function pickTemplate(t) {
-	loadIr(JSON.parse(JSON.stringify(t.ir)));
-	showTemplates.value = false;
-	scheduleSnapshot();
-}
-
 function stopPolling() {
 	pollCancelled = true;
 	if (pollTimer) { clearTimeout(pollTimer); pollTimer = null; }
@@ -1132,17 +1145,22 @@ onMounted(async () => {
 
 /* ── Builder canvas (middle) ── */
 .dc-builder-panel { flex: 1; display: flex; flex-direction: column; min-width: 0; background: var(--md-surface-container); }
-.dc-builder-topbar { display: flex; align-items: center; flex-wrap: wrap; gap: 10px; padding: 12px 16px; background: var(--md-surface-container-low); border-bottom: 1px solid var(--md-outline-variant); }
+/* Top-level view tabs (Form / Settings) */
+.dc-view-tabs { display: flex; gap: 2px; padding: 6px 12px 0; background: var(--md-surface-container-low); border-bottom: 1px solid var(--md-outline-variant); }
+.dc-view-tab { position: relative; border: none; background: transparent; color: var(--md-on-surface-variant); padding: 10px 16px 12px; font-size: 13px; font-weight: 500; cursor: pointer; transition: color var(--md-dur) var(--md-ease); }
+.dc-view-tab:hover { color: var(--md-on-surface); }
+.dc-view-tab.active { color: var(--md-primary); }
+.dc-view-tab.active::after { content: ""; position: absolute; left: 12px; right: 12px; bottom: 0; height: 2px; background: var(--md-primary); border-radius: 2px 2px 0 0; }
+
+.dc-builder-topbar { display: flex; align-items: center; gap: 10px; padding: 12px 16px; background: var(--md-surface-container-low); border-bottom: 1px solid var(--md-outline-variant); }
 .dc-form-name { flex: 1; min-width: 0; }
 .dc-name-input { width: 100%; border: 1px solid var(--md-outline); border-radius: var(--md-corner-sm); padding: 9px 12px; font-size: 15px; font-weight: 500; background: var(--md-surface-container-lowest); color: var(--md-on-surface); transition: border-color var(--md-dur) var(--md-ease), box-shadow var(--md-dur) var(--md-ease); }
 .dc-name-input:focus { outline: none; border-color: var(--md-primary); box-shadow: inset 0 0 0 1px var(--md-primary); }
-.dc-add-group { display: flex; gap: 8px; align-items: center; }
-/* MD3 tonal buttons */
-.dc-add-btn { position: relative; border: none; background: var(--md-secondary-container); color: var(--md-on-secondary-container); border-radius: var(--md-corner-full); padding: 8px 16px; font-size: 13px; font-weight: 500; cursor: pointer; white-space: nowrap; transition: background-color var(--md-dur) var(--md-ease), box-shadow var(--md-dur) var(--md-ease); }
-.dc-add-btn:hover { box-shadow: var(--md-elev-1); background: color-mix(in srgb, var(--md-on-secondary-container) 8%, var(--md-secondary-container)); }
-.dc-gear-btn { position: relative; border: none; background: transparent; color: var(--md-on-surface-variant); border-radius: var(--md-corner-full); width: 40px; height: 40px; cursor: pointer; font-size: 16px; transition: background-color var(--md-dur) var(--md-ease); }
-.dc-gear-btn:hover { background: rgba(71,70,79,var(--md-state-hover)); }
-.dc-gear-btn.active { background: var(--md-primary-container); color: var(--md-on-primary-container); }
+
+/* Settings view (whole-DocType settings, moved off the properties sidebar) */
+.dc-settings-page { flex: 1; min-height: 0; overflow-y: auto; padding: 24px; display: flex; justify-content: center; }
+.dc-settings-card { width: 100%; max-width: 560px; }
+.dc-settings-card .dc-props-head { margin-bottom: 4px; }
 
 /* ══════════════════════════════════════════════════════════════════════
    Frappe form-builder canvas — matched to the desk Form Builder look/feel.
@@ -1179,6 +1197,12 @@ onMounted(async () => {
 .fb-tab.active::before { border-color: var(--fb-border-primary); }
 .fb-tab-edit { border: none; background: transparent; cursor: pointer; color: inherit; font-size: 11px; opacity: .55; }
 .fb-tab-edit:hover { opacity: 1; }
+.fb-tab-x { border: none; background: transparent; cursor: pointer; color: var(--fb-muted); font-size: 11px; margin-left: 2px; opacity: 0; transition: opacity .15s; }
+.fb-tab:hover .fb-tab-x { opacity: .7; }
+.fb-tab-x:hover { opacity: 1; color: #eb5757; }
+.fb-tab-actions { margin-left: auto; padding: 0 12px; }
+.fb-addtab { border: none; background: var(--control-bg); color: var(--fb-text); border-radius: 6px; padding: 6px 12px; font-size: var(--fb-txs); cursor: pointer; box-shadow: inset 0 0 0 1px var(--fb-border); white-space: nowrap; transition: background-color .15s; }
+.fb-addtab:hover { background: var(--bg-light-gray); }
 
 /* Canvas + sections */
 .fb-canvas { flex: 1; min-height: 0; overflow-y: auto; }
@@ -1190,9 +1214,19 @@ onMounted(async () => {
 .fb-section-label { display: flex; align-items: center; gap: 6px; }
 .fb-section-grip { cursor: grab; color: var(--fb-gray-400); font-size: 14px; line-height: 1; }
 .fb-section-title { font-weight: 600; color: var(--fb-heading); }
-.fb-mini { border: none; background: transparent; color: var(--fb-muted); font-size: var(--fb-txs); cursor: pointer; padding: 2px 6px; border-radius: 6px; }
-.fb-mini:hover { background: var(--bg-light-gray); color: var(--fb-heading); }
 .fb-section-columns { display: flex; min-height: 2rem; align-items: flex-start; }
+
+/* Section "…" options menu (mirrors Frappe's Dropdown) */
+.fb-menu-backdrop { position: fixed; inset: 0; z-index: 40; }
+.fb-menu-wrap { position: relative; }
+.fb-menu-btn { border: none; background: transparent; color: var(--fb-muted); font-size: 16px; line-height: 1; cursor: pointer; padding: 2px 8px; border-radius: 6px; }
+.fb-menu-btn:hover { background: var(--bg-light-gray); color: var(--fb-heading); }
+.fb-menu { position: absolute; top: 100%; right: 0; z-index: 50; margin-top: 4px; min-width: 180px; background: var(--fg); border: 1px solid var(--fb-border); border-radius: 10px; box-shadow: 0 8px 28px rgba(0,0,0,.16); padding: 4px; }
+.fb-menu-group { padding: 4px; }
+.fb-menu-group + .fb-menu-group { border-top: 1px solid var(--fb-border); }
+.fb-menu-title { padding: 4px 8px; font-size: 10px; font-weight: 600; text-transform: uppercase; letter-spacing: .04em; color: var(--fb-muted); }
+.fb-menu-item { display: block; width: 100%; text-align: left; border: none; background: transparent; color: var(--fb-text); font-size: var(--fb-tsm); padding: 7px 8px; border-radius: 6px; cursor: pointer; }
+.fb-menu-item:hover { background: var(--bg-light-gray); }
 
 /* Columns */
 .fb-column { position: relative; display: flex; flex-direction: column; width: 100%; background: var(--bg-light-gray); border-radius: var(--fb-radius); border: 1px dashed var(--fb-gray-400); padding: 0.5rem; margin: 0 4px; }
@@ -1229,7 +1263,6 @@ onMounted(async () => {
 .fb-add-field { padding: 8px 2px 2px; }
 .fb-add-btn { border: none; background: var(--fg); color: var(--fb-muted); border-radius: 6px; padding: 6px 12px; font-size: var(--fb-txs); cursor: pointer; box-shadow: inset 0 0 0 1px var(--fb-border); transition: background-color .15s, color .15s; }
 .fb-add-btn:hover { background: var(--bg-light-gray); color: var(--fb-heading); }
-.fb-add-section-wrap { padding: 10px 16px 16px; }
 
 /* Auto-save status */
 .dc-save-status { font-size: 13px; color: var(--md-on-surface-variant); }
@@ -1276,33 +1309,6 @@ onMounted(async () => {
 .dc-icon-sm:hover:not(:disabled) { background: rgba(71,70,79,var(--md-state-hover)); }
 .dc-icon-sm:disabled { opacity: .35; cursor: not-allowed; }
 
-/* ── Modal (confirmation + templates) ── */
-.dc-modal-scrim { position: absolute; inset: 0; z-index: 10; background: rgba(20,18,30,0.45); display: flex; align-items: center; justify-content: center; animation: dc-scrim-in var(--md-dur) var(--md-ease); }
-.dc-modal { width: min(560px, 90%); max-height: 80%; overflow-y: auto; background: var(--md-surface-container-low); border-radius: var(--md-corner-lg); box-shadow: var(--md-elev-3); padding: 22px 24px; animation: dc-window-in 200ms var(--md-ease); }
-.dc-modal-title { font-size: 18px; font-weight: 600; color: var(--md-on-surface); margin-bottom: 8px; }
-.dc-modal-summary { font-size: 14px; line-height: 1.5; color: var(--md-on-surface-variant); margin: 0 0 14px; }
-.dc-diff { display: flex; flex-direction: column; gap: 4px; margin-bottom: 12px; font-size: 13px; }
-.dc-diff-line { padding: 6px 10px; border-radius: var(--md-corner-sm); }
-.dc-diff-add { background: color-mix(in srgb, var(--md-success) 12%, transparent); color: var(--md-success); }
-.dc-diff-chg { background: rgba(71,70,79,var(--md-state-hover)); color: var(--md-on-surface); }
-.dc-diff-rem { background: var(--md-error-container); color: var(--md-on-error-container); }
-.dc-warn { background: var(--md-error-container); color: var(--md-on-error-container); border-radius: var(--md-corner-sm); padding: 10px 12px; font-size: 13px; line-height: 1.5; margin-bottom: 14px; }
-.dc-modal-actions { display: flex; justify-content: flex-end; gap: 10px; margin-top: 8px; }
-.dc-btn-text { border: none; background: transparent; color: var(--md-primary); border-radius: var(--md-corner-full); padding: 10px 18px; font-size: 14px; font-weight: 500; cursor: pointer; transition: background-color var(--md-dur) var(--md-ease); }
-.dc-btn-text:hover { background: rgba(79,70,229,var(--md-state-hover)); }
-.dc-btn-filled { border: none; background: var(--md-primary); color: var(--md-on-primary); border-radius: var(--md-corner-full); padding: 10px 20px; font-size: 14px; font-weight: 500; cursor: pointer; box-shadow: var(--md-elev-1); transition: box-shadow var(--md-dur) var(--md-ease), background-color var(--md-dur) var(--md-ease); }
-.dc-btn-filled:hover:not(:disabled) { box-shadow: var(--md-elev-2); }
-.dc-btn-filled:disabled { background: rgba(27,27,33,0.12); color: rgba(27,27,33,0.38); box-shadow: none; cursor: not-allowed; }
-.dc-btn-danger { background: var(--md-error); }
-.dc-btn-danger:hover:not(:disabled) { background: color-mix(in srgb, #000 8%, var(--md-error)); }
-
-/* ── Template picker ── */
-.dc-template-list { display: flex; flex-direction: column; gap: 8px; margin-bottom: 6px; }
-.dc-template-item { display: flex; flex-direction: column; align-items: flex-start; gap: 2px; text-align: left; border: 1px solid var(--md-outline-variant); background: var(--md-surface-container-lowest); border-radius: var(--md-corner-md); padding: 12px 14px; cursor: pointer; transition: background-color var(--md-dur) var(--md-ease), border-color var(--md-dur) var(--md-ease); }
-.dc-template-item:hover { border-color: var(--md-primary); background: color-mix(in srgb, var(--md-primary) 5%, var(--md-surface-container-lowest)); }
-.dc-template-name { font-size: 14px; font-weight: 600; color: var(--md-on-surface); }
-.dc-template-desc { font-size: 12px; color: var(--md-on-surface-variant); }
-
 /* ══════════════════════════════════════════════════════════════════════
    Responsive (MD3 adaptive dialog): panels flex on medium widths, and the
    three-pane layout stacks into a full-screen, single-column flow on small
@@ -1325,13 +1331,11 @@ onMounted(async () => {
 		width: 100%; height: auto; max-height: 46%; flex: none;
 		border-left: none; border-top: 1px solid var(--md-outline-variant);
 	}
-	.dc-add-group { flex-wrap: wrap; }
 	.dc-window-header { padding: 10px 12px 10px 14px; }
 	.dc-subtitle { display: none; }        /* keep the header compact */
-	.dc-modal { width: min(560px, 94%); padding: 18px; }
+	.dc-settings-page { padding: 16px; }
 }
 @media (max-width: 420px) {
-	.dc-add-btn { padding: 7px 12px; font-size: 12px; }
 	.dc-dt-chip { max-width: 120px; }
 }
 </style>
