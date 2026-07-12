@@ -105,58 +105,6 @@
             </label>
             <span class="field-hint">If checked, the process instance will halt when this AI task fails.</span>
           </div>
-
-          <!-- ============ Memory ============ -->
-          <div class="field-group-title" v-if="!isSelector">Memory</div>
-
-          <!-- Conversation store backend -->
-          <div class="field-row" v-if="!isSelector">
-            <label>Conversation Store</label>
-            <select v-model="form.aiConversationStore">
-              <option value="process_variable">Process Variable (transient)</option>
-              <option value="document_store">Document Store (persistent)</option>
-              <option value="custom">Custom</option>
-            </select>
-            <span class="field-hint">Where this agent's message thread is kept. Process Variable lives in the instance and is discarded with it.</span>
-          </div>
-
-          <!-- Context window size -->
-          <div class="field-row" v-if="!isSelector">
-            <label>Context Window <span class="hint">(max messages)</span></label>
-            <input type="number" v-model.number="form.aiContextMaxMessages" min="1" />
-            <span class="field-hint">Most recent messages kept when priming a call; the system prompt is always retained.</span>
-          </div>
-
-          <!-- Long-term memory toggle -->
-          <div class="field-row" style="margin-top: 8px;" v-if="!isSelector">
-            <label class="checkbox-row">
-              <input type="checkbox" v-model="form.aiLongTermMemory" class="checkbox-input" />
-              <span>Enable long-term memory</span>
-            </label>
-            <span class="field-hint">Recall relevant saved memories before the call, and optionally save one after.</span>
-          </div>
-
-          <!-- Memory scope (only when long-term memory is on) -->
-          <div class="field-row" v-if="!isSelector && form.aiLongTermMemory">
-            <label>Memory Scope</label>
-            <select v-model="form.aiMemoryScope">
-              <option value="Agent">Agent (this task)</option>
-              <option value="Process">Process (this process model)</option>
-              <option value="Entity">Entity (the context document)</option>
-            </select>
-            <span class="field-hint" v-if="form.aiMemoryScope === 'Entity'">
-              The entity is taken from the task's context document (context_doctype / context_docname) at runtime — no extra field needed.
-            </span>
-          </div>
-
-          <!-- Auto-write memory (only when long-term memory is on) -->
-          <div class="field-row" v-if="!isSelector && form.aiLongTermMemory">
-            <label class="checkbox-row">
-              <input type="checkbox" v-model="form.aiMemoryAutoWrite" class="checkbox-input" />
-              <span>Save a memory after each run</span>
-            </label>
-            <span class="field-hint">Stores the agent output as a memory in the selected scope.</span>
-          </div>
         </div>
 
         <div class="modal-footer">
@@ -390,12 +338,6 @@ const form = ref({
   aiTimeout: 30,
   aiMaxRetries: 2,
   aiStopOnError: false,
-  // Memory
-  aiConversationStore: "process_variable",
-  aiContextMaxMessages: 20,
-  aiLongTermMemory: false,
-  aiMemoryScope: "Agent",
-  aiMemoryAutoWrite: false,
 });
 
 // ── Assistant state ───────────────────────────────────────────────────────
@@ -719,12 +661,6 @@ onMounted(async () => {
     aiTimeout: numOr("aiTimeout", 30, parseInt),
     aiMaxRetries: numOr("aiMaxRetries", 2, parseInt),
     aiStopOnError: get("aiStopOnError") === "true",
-    // Memory
-    aiConversationStore: get("aiConversationStore") || "process_variable",
-    aiContextMaxMessages: numOr("aiContextMaxMessages", 20, parseInt),
-    aiLongTermMemory: get("aiLongTermMemory") === "true",
-    aiMemoryScope: get("aiMemoryScope") || "Agent",
-    aiMemoryAutoWrite: get("aiMemoryAutoWrite") === "true",
   };
 
   // Pre-fill the assistant's context DocType from the diagram's start-event
@@ -808,16 +744,6 @@ function save() {
     "spiffworkflow:aiTimeout": String(form.value.aiTimeout),
     "spiffworkflow:aiMaxRetries": String(form.value.aiMaxRetries),
     "spiffworkflow:aiStopOnError": form.value.aiStopOnError ? "true" : undefined,
-    // Memory
-    "spiffworkflow:aiConversationStore": form.value.aiConversationStore || undefined,
-    "spiffworkflow:aiContextMaxMessages": String(form.value.aiContextMaxMessages),
-    "spiffworkflow:aiLongTermMemory": form.value.aiLongTermMemory ? "true" : undefined,
-    // Scope + auto-write only apply when long-term memory is on; clear them otherwise.
-    "spiffworkflow:aiMemoryScope": form.value.aiLongTermMemory
-      ? (form.value.aiMemoryScope || undefined)
-      : undefined,
-    "spiffworkflow:aiMemoryAutoWrite":
-      form.value.aiLongTermMemory && form.value.aiMemoryAutoWrite ? "true" : undefined,
   };
 
   modeling.updateModdleProperties(element, bo, patch);
