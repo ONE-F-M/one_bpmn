@@ -830,35 +830,27 @@ def dispatch_ai_agent(instance, task, task_cfg: dict, bpmn_id: str) -> None:
 		from one_bpmn.agents.observability import record_ai_step, finalize_ai_run
 
 		if run and not getattr(run, "stub", False):
-			if tool_specs:
-				# Tool-calling run: system+user prompts are config; the trace
-				# carries one turn per LLM call. Record it with the shared
-				# recorder — one Step per turn, one ai_agent_tool_call row per
-				# call, tool_source = diagram_task (the shapes are the tools).
-				from one_bpmn.agents.observability import record_selector_turns
-				record_ai_step(run, 0, "system", system_prompt)
-				record_ai_step(run, 1, "user", user_prompt)
-				source_map = {t.name: "diagram_task" for t in tool_specs}
-				record_selector_turns(run, result.trace or [], source_map)
-			else:
-				record_ai_step(run, 0, "system", system_prompt)
+			record_ai_step(run, 0, "system", system_prompt)
 
-				usage = result.token_usage if result.error_code == ErrorCode.SUCCESS else None
-				# Attribute prompt_tokens (input cost) to the user step,
-				# completion_tokens (output cost) to the assistant step.
+			usage = result.token_usage if result.error_code == ErrorCode.SUCCESS else None
+			# Attribute prompt_tokens (input cost) to the user step,
+			# completion_tokens (output cost) to the assistant step.
+			record_ai_step(
+				run, 1, "user", user_prompt,
+				prompt_tokens=usage.prompt_tokens if usage else 0,
+			)
+
+		if result.error_code == ErrorCode.SUCCESS:
+			if run and not getattr(run, "stub", False):
 				record_ai_step(
-					run, 1, "user", user_prompt,
-					prompt_tokens=usage.prompt_tokens if usage else 0,
+					run, 2, "assistant",
+					str(result.output or ""),
+					completion_tokens=usage.completion_tokens if usage else 0,
+					latency_ms=_exec_latency_ms,
 				)
-				if result.error_code == ErrorCode.SUCCESS:
-					record_ai_step(
-						run, 2, "assistant",
-						str(result.output or ""),
-						completion_tokens=usage.completion_tokens if usage else 0,
-						latency_ms=_exec_latency_ms,
-					)
-
-		finalize_ai_run(run, result)
+			finalize_ai_run(run, result)
+		else:
+			finalize_ai_run(run, result)
 
 		# Commit observability data so AI runs + steps survive even if a
 		# downstream aiStopOnError raise rolls back the outer transaction.
