@@ -148,11 +148,7 @@ def get_cost_token_report(
 		)
 		.where(fn.Date(Run.started_at) >= from_d)
 		.where(fn.Date(Run.started_at) <= to_d)
-		# Running runs ARE included: selector runs stay "Running" for the
-		# whole life of their subprocess and their token/cost rollups are
-		# refreshed after every decision — excluding them hid all selector
-		# spend until (if ever) the subprocess completed. Success-rate and
-		# reliability reports still exclude Running, correctly.
+		.where(Run.status != "Running")
 		.groupby(fn.Date(Run.started_at), Run.model, Run.provider)
 		.orderby(fn.Date(Run.started_at))
 	)

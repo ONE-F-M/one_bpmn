@@ -18,7 +18,6 @@ from .dispatchers import (
 	dispatch_email,
 	dispatch_google_chat,
 	dispatch_push_notification,
-	dispatch_send_notification,
 	dispatch_update_field,
 )
 from .assignment import (
@@ -487,21 +486,6 @@ class BPMNProcessInstance(Document):
 		  We then dispatch the real-world side effect and call task.complete()
 		  to advance STARTED → COMPLETED, then loop again.
 		"""
-		# WI-001352: while this engine call runs, ad-hoc subprocesses tagged
-		# with an AI Task Selector decide their next inner task via the LLM
-		# instead of diagram order. The hook is process-global state on the
-		# engine module — install/uninstall it around the run.
-		from one_bpmn.one_bpmn.doctype.bpmn_process_instance.ai_task_selector import (
-			make_adhoc_decider,
-		)
-
-		bpmn_engine.adhoc_next_task_decider = make_adhoc_decider(self, wf)
-		try:
-			self._run_engine_inner(wf)
-		finally:
-			bpmn_engine.adhoc_next_task_decider = None
-
-	def _run_engine_inner(self, wf):
 		wf.refresh_waiting_tasks()
 
 		for _ in range(20):  # safety cap — no real workflow needs > 20 passes
@@ -543,16 +527,6 @@ class BPMNProcessInstance(Document):
 		# Skip engine-internal tasks that don't correspond to BPMN elements
 		if not bpmn_id and (spec_name in ("Start", "End") or spec_name.endswith(".EndJoin")):
 			return
-
-		# Send Tasks complete inside the engine sweep (they never sit in
-		# STARTED like service tasks), so this callback is where their
-		# real-world action happens. Guarded by state: the STARTED dispatch
-		# loop also calls this hook pre-complete for service tasks, which a
-		# SendTask can never be.
-		if isinstance(task_spec, bpmn_engine.SendTask) and bpmn_id:
-			task_cfg = getattr(self, "_service_task_extensions", {}).get(bpmn_id, {})
-			if task_cfg.get("notificationName"):
-				dispatch_send_notification(self, task, task_cfg, bpmn_id)
 
 		self._log_task(
 			task_id=str(task.id),
