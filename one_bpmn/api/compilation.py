@@ -1071,10 +1071,33 @@ def _validate_adhoc_selector_pool(bpmn_xml: str, model_name: str | None = None) 
 					).format(adhoc_id, CONTAINER_TAGS[child.tag], child.get("id", "?")),
 					exc=frappe.ValidationError,
 				)
-			# The AI Agent Tool registry was removed (WI-001423), so there is no
-			# longer a diagram/registry name-collision to check — a selector's
-			# tools are its inner shapes only. Container eligibility (above) is
-			# the remaining validation.
+			if child.tag in LEAF_TASK_TAGS and child.get("id"):
+				candidate_names.append(child.get("id"))
+
+		if not candidate_names or not frappe.db.exists("DocType", "AI Agent Tool"):
+			continue
+
+		registry_rows = frappe.get_all(
+			"AI Agent Tool",
+			filters={"is_active": 1, "tool_name": ["in", candidate_names]},
+			fields=["name", "tool_name"],
+		)
+		for row in registry_rows:
+			scoped = frappe.get_all(
+				"AI Agent Tool Process",
+				filters={"parent": row.name},
+				pluck="process_model",
+			)
+			if scoped and model_name not in scoped:
+				continue
+			frappe.throw(
+				_(
+					"AI Task Selector '{0}': inner task '{1}' has the same name "
+					"as AI Agent Tool '{1}'. Rename one of them — a diagram task "
+					"and a registry tool must not shadow each other."
+				).format(adhoc_id, row.tool_name),
+				exc=frappe.ValidationError,
+			)
 
 
 def _lint_ai_provider_config(_bpmn_xml: str, service_extensions: dict) -> None:

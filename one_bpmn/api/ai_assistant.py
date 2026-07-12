@@ -502,8 +502,34 @@ def _build_diagram_digest(bpmn_xml: str, element_id: str, process_model: str = "
 		"\n".join(candidate_lines) or "  (none)",
 	]
 
-	# The AI Agent Tool registry was removed (WI-001423) — a selector's tools
-	# are the ad-hoc sub-process's own shapes, already listed above.
+	# Registry tools applicable to this process — callable functions, not
+	# tasks: they execute immediately within a decision and return real
+	# results. Their availability depends on aiToolSources at runtime.
+	registry_names = []
+	registry_lines = []
+	try:
+		from one_bpmn.agents.tool_pool import _registry_candidates
+
+		for candidate in _registry_candidates(process_model or ""):
+			spec = candidate.spec
+			registry_names.append(spec.name)
+			params = ", ".join((spec.parameters or {}).keys()) or "no parameters"
+			registry_lines.append(f"- {spec.name}({params}): {spec.description}")
+	except Exception:
+		pass
+	if registry_lines:
+		selector_id = adhoc.get("id") or "Selector"
+		block_parts.append(
+			"REGISTRY TOOLS (callable functions — they run IMMEDIATELY inside a "
+			"decision and return a real result; they are NOT tasks and do not "
+			"count as the one activation):\n"
+			+ "\n".join(registry_lines)
+			+ "\nEach tool's latest result persists as a process variable named "
+			"<tool_name>_toolCallResult (e.g. {{ check_sales_order_toolCallResult }}) "
+			f"— plus a combined {selector_id}_toolCallResult holding the last call. "
+			"All are JSON STRINGS: show them raw in the user prompt and never "
+			"access attributes on them."
+		)
 	if condition:
 		block_parts.append(
 			f"COMPLETION CONDITION (Python expression over process variables): {condition}\n"
@@ -513,7 +539,7 @@ def _build_diagram_digest(bpmn_xml: str, element_id: str, process_model: str = "
 	return {
 		"block": "\n\n".join(block_parts),
 		"candidate_ids": candidate_ids,
-		"element_ids": set(nodes.keys()),
+		"element_ids": set(nodes.keys()) | set(registry_names),
 	}
 
 

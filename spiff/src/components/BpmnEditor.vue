@@ -1022,6 +1022,7 @@ import adhocSubprocessPropertiesProviderModule from "@/bpmn/adhocSubprocessPrope
 import aiTaskSelectorMenuProviderModule from "@/bpmn/aiTaskSelectorMenuProvider";
 import aiTaskSelectorPropertiesProviderModule from "@/bpmn/aiTaskSelectorPropertiesProvider";
 import aiTaskSelectorRendererModule from "@/bpmn/aiTaskSelectorRenderer";
+import aiToolRegistryPropertiesProviderModule from "@/bpmn/aiToolRegistryPropertiesProvider";
 
 import scriptTaskPropertiesProviderModule from "@/bpmn/scriptTaskPropertiesProvider";
 import businessRuleTaskPropertiesProviderModule from "@/bpmn/businessRuleTaskPropertiesProvider";
@@ -1657,6 +1658,7 @@ onMounted(async () => {
 				aiTaskSelectorMenuProviderModule,
 				aiTaskSelectorPropertiesProviderModule,
 				aiTaskSelectorRendererModule,
+				aiToolRegistryPropertiesProviderModule,
 
 				scriptTaskPropertiesProviderModule,
 				businessRuleTaskPropertiesProviderModule,
