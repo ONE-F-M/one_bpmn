@@ -270,9 +270,3 @@ after_request = ["one_bpmn.api.todo_actions.apply_amp_headers"]
 # 	"Logging DocType Name": 30  # days to retain logs
 # }
 
-# Reuse Frappe's Log Settings for AI Memory retention instead of a custom scheduler.
-# 0 = retain indefinitely by default; an administrator can lower it in Log Settings.
-default_log_clearing_doctypes = {
-	"AI Memory": 0,
-}
-
