@@ -54,166 +54,261 @@
 
 					<!-- ── MIDDLE: Visual form builder ─────────────────── -->
 					<div class="dc-builder-panel">
+						<!-- Top-level view tabs (mirrors Frappe's Form / Settings) -->
+						<div class="dc-view-tabs">
+							<button class="dc-view-tab" :class="{ active: view === 'form' }" @click="view = 'form'">Form</button>
+							<button class="dc-view-tab" :class="{ active: view === 'settings' }" @click="view = 'settings'">Settings</button>
+						</div>
+
+						<template v-if="view === 'form'">
 						<div class="dc-builder-topbar">
 							<div class="dc-form-name">
 								<input v-model="dtName" class="dc-name-input" placeholder="DocType name (e.g. Vehicle Inspection)"
 									@focus="selectForm()" />
 							</div>
-							<div class="dc-hist-group">
-								<button class="dc-icon-sm" :disabled="!canUndo" @click="undo" title="Undo (Ctrl+Z)">↶</button>
-								<button class="dc-icon-sm" :disabled="!canRedo" @click="redo" title="Redo (Ctrl+Shift+Z)">↷</button>
-								<button class="dc-add-btn" @click="showTemplates = true" title="Start from a template">Templates</button>
-							</div>
-							<div class="dc-add-group">
-								<button class="dc-add-btn" @click="addField()" title="Add a field">+ Field</button>
-								<button class="dc-add-btn" @click="addSection()" title="Add a section">+ Section</button>
-								<button class="dc-add-btn" @click="addColumn()" title="Add a column">+ Column</button>
-								<button class="dc-add-btn" @click="addTab()" title="Add a tab">+ Tab</button>
-								<button class="dc-gear-btn" :class="{ active: sel.type === 'form' }" @click="selectForm()" title="DocType settings">⚙</button>
-							</div>
 						</div>
 
-						<!-- Tabs strip -->
-						<draggable
-							v-if="tabs.length"
-							:list="tabs"
-							item-key="id"
-							class="dc-tabs"
-							:animation="150"
-						>
-							<template #item="{ element: tab, index }">
-								<div
-									class="dc-tab"
-									:class="{ active: index === activeTabIndex, sel: isSel('tab', tab) }"
-									@click="activeTabIndex = index"
-									@dblclick="selectContainer('tab', tab)"
-								>
-									<span class="dc-tab-label">{{ tabLabel(tab, index) }}</span>
-									<button class="dc-tab-edit" @click.stop="selectContainer('tab', tab)" title="Tab properties">⚙</button>
-								</div>
-							</template>
-						</draggable>
-
-						<!-- Active tab body -->
-						<div class="dc-canvas" v-if="activeTab">
-							<draggable
-								:list="activeTab.sections"
-								item-key="id"
-								group="dc-sections"
-								handle=".dc-section-grip"
-								class="dc-sections"
-								:animation="150"
-							>
-								<template #item="{ element: section }">
-									<div class="dc-section" :class="{ sel: isSel('section', section) }">
-										<div class="dc-section-bar">
-											<span class="dc-section-grip" title="Drag to reorder section">⠿</span>
-											<span class="dc-section-title" @click="selectContainer('section', section)">
-												{{ sectionLabel(section) }}
-											</span>
-											<button class="dc-mini-btn" @click.stop="addColumn(section)" title="Add column">+ Col</button>
-										</div>
-										<draggable
-											:list="section.columns"
-											item-key="id"
-											group="dc-columns"
-											class="dc-columns"
-											:animation="150"
+						<!-- Frappe-style form-builder canvas -->
+						<div class="fb-form" v-if="activeTab">
+							<!-- click-away layer for the section “…” menu -->
+							<div v-if="openMenu" class="fb-menu-backdrop" @click="openMenu = null"></div>
+							<!-- Tab header -->
+							<div class="fb-tab-header">
+								<draggable v-if="tabs.length > 1" :list="tabs" item-key="id" class="fb-tabs" :animation="150">
+									<template #item="{ element: tab, index }">
+										<div
+											class="fb-tab"
+											:class="{ active: index === activeTabIndex }"
+											@click="activeTabIndex = index"
+											@dblclick="selectContainer('tab', tab)"
 										>
-											<template #item="{ element: column }">
-												<div
-													class="dc-column"
-													:class="{ sel: isSel('column', column) }"
-													@click.self="selectContainer('column', column)"
-												>
-													<draggable
-														:list="column.fields"
-														item-key="id"
-														group="dc-fields"
-														class="dc-col-fields"
-														:animation="150"
-													>
-														<template #item="{ element: fld }">
-															<div
-																class="dc-chip"
-																:class="{ sel: isSelField(fld) }"
-																:title="fld.df.fieldname || fld.df.label"
-																@click.stop="selectField(fld)"
-															>
-																<span class="dc-chip-grip">⠿</span>
-																<span class="dc-chip-main">
-																	<span class="dc-chip-label">{{ fld.df.label || "(No label)" }}</span>
-																	<span class="dc-chip-type">{{ fld.df.fieldtype }}</span>
-																</span>
-																<span v-if="fld.df.reqd" class="dc-req" title="Mandatory">*</span>
-																<button class="dc-chip-x" @click.stop="removeField(column, fld)" title="Remove">✕</button>
+											<span>{{ tabLabel(tab, index) }}</span>
+											<button v-if="tabs.length > 1" class="fb-tab-x" @click.stop="removeTab(tab)" title="Remove tab">✕</button>
+										</div>
+									</template>
+								</draggable>
+								<div class="fb-tab-actions">
+									<button class="fb-addtab" @click="addTab()" title="Add tab">+ Add tab</button>
+								</div>
+							</div>
+
+							<!-- Sections -->
+							<div class="fb-canvas">
+								<draggable
+									:list="activeTab.sections"
+									item-key="id"
+									group="fb-sections"
+									handle=".fb-section-grip"
+									:animation="200"
+								>
+									<template #item="{ element: section }">
+										<div class="fb-section-container">
+											<div
+												class="fb-section"
+												:class="{ selected: isSel('section', section) }"
+												@click.self="selectContainer('section', section)"
+											>
+												<div class="fb-section-header" @click.stop="selectContainer('section', section)">
+													<div class="fb-section-label">
+														<span class="fb-section-grip" title="Drag to reorder">⠿</span>
+														<span class="fb-section-title" :class="{ empty: !(section.df && section.df.label) }">{{ (section.df && section.df.label) || 'No Label' }}</span>
+													</div>
+													<div class="fb-menu-wrap">
+														<button class="fb-menu-btn" @click.stop="toggleMenu(section)" title="Section options">⋯</button>
+														<div v-if="openMenu === section" class="fb-menu" @click.stop>
+															<div v-for="(g, gi) in sectionMenu(section)" :key="gi" class="fb-menu-group">
+																<div class="fb-menu-title">{{ g.group }}</div>
+																<button v-for="it in g.items" :key="it.label" class="fb-menu-item" @click.stop="it.onClick()">{{ it.label }}</button>
 															</div>
-														</template>
-													</draggable>
-													<button class="dc-add-inline" @click.stop="addFieldToColumn(column)">+ field</button>
+														</div>
+													</div>
 												</div>
-											</template>
-										</draggable>
+												<draggable
+													:list="section.columns"
+													item-key="id"
+													group="fb-columns"
+													class="fb-section-columns"
+													:animation="200"
+												>
+													<template #item="{ element: column }">
+														<div
+															class="fb-column"
+															:class="{ selected: isSel('column', column) }"
+															@click.self="selectContainer('column', column)"
+														>
+															<draggable
+																:list="column.fields"
+																item-key="id"
+																group="fb-fields"
+																class="fb-column-container"
+																:animation="200"
+															>
+																<template #item="{ element: fld }">
+																	<div
+																		class="fb-field"
+																		:class="{ selected: isSelField(fld) }"
+																		:title="fld.df.fieldname || fld.df.label"
+																		@click.stop="selectField(fld)"
+																	>
+																		<div class="control frappe-control editable">
+																			<div class="field-controls">
+																				<div class="field-label">
+																					<span class="fb-flabel" :class="{ empty: !fld.df.label }">
+																						{{ fld.df.label || ('No Label (' + fld.df.fieldtype + ')') }}
+																					</span>
+																					<span class="reqd-asterisk" v-if="fld.df.reqd">*</span>
+																				</div>
+																				<div class="field-actions">
+																					<button class="fb-icon" @click.stop="addFieldAfter(column, fld)" title="Add field below">
+																						<svg viewBox="0 0 16 16" aria-hidden="true"><path d="M8 3.5v9M3.5 8h9"/></svg>
+																					</button>
+																					<button v-if="column.fields.indexOf(fld) > 0" class="fb-icon" @click.stop="moveFieldsToNewColumn(column, fld)" title="Move this and the following fields to a new column">
+																						<svg viewBox="0 0 16 16" aria-hidden="true"><path d="M6 10.5 10.5 6M7 5.5h4v4"/></svg>
+																					</button>
+																					<button class="fb-icon" @click.stop="duplicateField(column, fld)" title="Duplicate field">
+																						<svg viewBox="0 0 16 16" aria-hidden="true"><rect x="5.5" y="5.5" width="7.5" height="7.5" rx="1.3"/><path d="M10.5 5.5V4a1 1 0 0 0-1-1H4a1 1 0 0 0-1 1v5.5a1 1 0 0 0 1 1h1.5"/></svg>
+																					</button>
+																					<button class="fb-icon" @click.stop="removeField(column, fld)" title="Remove field">
+																						<svg viewBox="0 0 16 16" aria-hidden="true"><path d="M4.5 4.5 11.5 11.5M11.5 4.5 4.5 11.5"/></svg>
+																					</button>
+																				</div>
+																			</div>
+																			<!-- live control preview, per field type -->
+																			<label v-if="previewKind(fld.df.fieldtype) === 'check'" class="fb-check">
+																				<input type="checkbox" disabled />
+																			</label>
+																			<select v-else-if="previewKind(fld.df.fieldtype) === 'select'" class="form-control" disabled>
+																				<option>{{ (fld.df.options || '').split('\n')[0] || '' }}</option>
+																			</select>
+																			<textarea v-else-if="previewKind(fld.df.fieldtype) === 'textarea'" class="form-control" rows="2" readonly></textarea>
+																			<div v-else-if="previewKind(fld.df.fieldtype) === 'table'" class="fb-table-preview">
+																				▦ {{ fld.df.options || 'child table' }}
+																			</div>
+																			<div v-else-if="previewKind(fld.df.fieldtype) === 'heading'" class="fb-heading-preview">{{ fld.df.label }}</div>
+																			<div v-else-if="previewKind(fld.df.fieldtype) === 'html'" class="fb-html-preview">HTML</div>
+																			<input v-else class="form-control" type="text" readonly :placeholder="previewPlaceholder(fld.df)" />
+																		</div>
+																	</div>
+																</template>
+															</draggable>
+															<div class="fb-add-field">
+																<button class="fb-add-btn" @click.stop="addFieldToColumn(column)">+ Add field</button>
+															</div>
+														</div>
+													</template>
+												</draggable>
+											</div>
+										</div>
+									</template>
+								</draggable>
+							</div>
+						</div>
+						</template>
+
+						<!-- Settings view (mirrors Frappe's DocType Settings page) -->
+						<div v-else class="dc-settings-page">
+							<div class="dc-settings-card">
+								<!-- Identity / naming -->
+								<div class="dc-settings-section">
+									<div class="dc-settings-grid">
+										<div class="dc-prop">
+											<label>DocType name</label>
+											<input v-model="dtName" class="dc-prop-input" placeholder="e.g. Vehicle Inspection" />
+										</div>
+										<div class="dc-prop">
+											<label>Module</label>
+											<select v-model="dtModule" class="dc-prop-input">
+												<option v-for="m in moduleOptions" :key="m" :value="m">{{ m }}</option>
+											</select>
+										</div>
+										<div class="dc-prop">
+											<label>Auto Name</label>
+											<input v-model="dtAutoname" class="dc-prop-input dc-mono" placeholder="e.g. field:vehicle_no or format:VI-.#####" />
+										</div>
+										<div class="dc-prop">
+											<label>Description</label>
+											<textarea v-model="dtSettings.description" class="dc-prop-input" rows="2"></textarea>
+										</div>
+										<label class="fb-prop-check">
+											<input type="checkbox" v-model="isChild" />
+											<span>Is Child Table (lives inside another DocType)</span>
+										</label>
 									</div>
-								</template>
-							</draggable>
-							<button class="dc-add-section" @click="addSection()">+ Add section</button>
+								</div>
+
+								<!-- Grouped settings, matching Frappe's sections -->
+								<div v-for="sec in settingsSections" :key="sec.title" class="dc-settings-section">
+									<div class="dc-settings-title">{{ sec.title }}</div>
+									<div class="dc-settings-grid">
+										<template v-for="f in sec.fields" :key="f.key">
+											<label v-if="f.type === 'check'" class="fb-prop-check">
+												<input type="checkbox" v-model="dtSettings[f.key]" />
+												<span>{{ f.label }}</span>
+											</label>
+											<div v-else class="dc-prop">
+												<label>{{ f.label }}</label>
+												<select v-if="f.type === 'select'" v-model="dtSettings[f.key]" class="dc-prop-input">
+													<option v-for="o in f.options" :key="o" :value="o">{{ o || "—" }}</option>
+												</select>
+												<input v-else-if="f.type === 'int'" type="number" v-model.number="dtSettings[f.key]" class="dc-prop-input" placeholder="0" />
+												<input v-else v-model="dtSettings[f.key]" class="dc-prop-input" :placeholder="f.placeholder || ''" />
+											</div>
+										</template>
+									</div>
+								</div>
+
+								<p class="dc-hint">These settings apply to the whole DocType. Switch to the <strong>Form</strong> tab to design its fields.</p>
+							</div>
 						</div>
 					</div>
 
 					<!-- ── RIGHT: Properties sidebar ───────────────────── -->
-					<div class="dc-props-panel">
+					<div class="dc-props-panel" v-if="view === 'form'">
 
-						<!-- Field properties -->
+						<!-- Field properties (Frappe-style: searchable + scrollable) -->
 						<template v-if="sel.type === 'field' && sel.node">
-							<div class="dc-props-head">Field properties</div>
-							<div class="dc-prop">
-								<label>Label</label>
-								<input v-model="sel.node.df.label" class="dc-prop-input" @blur="autoName(sel.node.df)" />
+							<div class="fb-props-header">
+								<div class="fb-props-search">
+									<span class="fb-props-search-ico">⌕</span>
+									<input v-model="propSearch" type="text" placeholder="Search properties..." />
+									<button v-if="propSearch" class="fb-props-search-x" @click="propSearch = ''" title="Clear">✕</button>
+								</div>
+								<button class="fb-props-close" @click="selectForm()" title="Close properties">✕</button>
 							</div>
-							<div class="dc-prop">
-								<label>Name (fieldname)</label>
-								<input v-model="sel.node.df.fieldname" class="dc-prop-input dc-mono" placeholder="snake_case" />
+							<div class="fb-props-body">
+								<template v-for="p in visibleFieldProps" :key="p.key">
+									<label v-if="p.type === 'check'" class="fb-prop-check">
+										<input type="checkbox" v-model="sel.node.df[p.key]" />
+										<span>{{ p.label }}</span>
+									</label>
+									<div v-else class="dc-prop">
+										<label>{{ p.label }}</label>
+										<select v-if="p.type === 'select'" v-model="sel.node.df[p.key]" class="dc-prop-input">
+											<option v-for="o in p.options" :key="o" :value="o">{{ o }}</option>
+										</select>
+										<textarea
+											v-else-if="p.type === 'textarea' || p.type === 'code'"
+											v-model="sel.node.df[p.key]"
+											class="dc-prop-input"
+											:class="{ 'dc-mono': p.type === 'code' }"
+											rows="3"
+											:placeholder="p.placeholder || ''"
+										></textarea>
+										<input v-else-if="p.type === 'int'" type="number" v-model.number="sel.node.df[p.key]" class="dc-prop-input" :placeholder="p.placeholder || '0'" />
+										<input
+											v-else
+											v-model="sel.node.df[p.key]"
+											class="dc-prop-input"
+											:class="{ 'dc-mono': p.mono }"
+											:placeholder="p.placeholder || ''"
+											@blur="p.key === 'label' && autoName(sel.node.df)"
+										/>
+										<p v-if="p.hint" class="fb-prop-hint">{{ p.hint }}</p>
+									</div>
+								</template>
+								<p v-if="!visibleFieldProps.length" class="dc-hint">No properties match “{{ propSearch }}”.</p>
+								<button class="dc-delete-btn" @click="deleteSelected()">Delete field</button>
 							</div>
-							<div class="dc-prop">
-								<label>Type</label>
-								<select v-model="sel.node.df.fieldtype" class="dc-prop-input">
-									<option v-for="t in CONTENT_TYPES" :key="t" :value="t">{{ t }}</option>
-								</select>
-							</div>
-							<div class="dc-prop" v-if="needsOptions(sel.node.df.fieldtype)">
-								<label>Options — {{ optionsHint(sel.node.df.fieldtype) }}</label>
-								<textarea
-									v-if="sel.node.df.fieldtype === 'Select'"
-									v-model="sel.node.df.options"
-									class="dc-prop-input"
-									rows="4"
-									placeholder="One choice per line"
-								></textarea>
-								<input v-else v-model="sel.node.df.options" class="dc-prop-input" :placeholder="optionsHint(sel.node.df.fieldtype)" />
-							</div>
-							<div class="dc-prop">
-								<label>Default</label>
-								<input v-model="sel.node.df.default" class="dc-prop-input" />
-							</div>
-							<div class="dc-prop">
-								<label>Description</label>
-								<input v-model="sel.node.df.description" class="dc-prop-input" />
-							</div>
-							<div class="dc-prop">
-								<label>Depends on (eval)</label>
-								<input v-model="sel.node.df.depends_on" class="dc-prop-input dc-mono" placeholder="eval:doc.status=='Open'" />
-							</div>
-							<div class="dc-flags">
-								<label><input type="checkbox" v-model="sel.node.df.reqd" /> Mandatory</label>
-								<label><input type="checkbox" v-model="sel.node.df.unique" /> Unique</label>
-								<label><input type="checkbox" v-model="sel.node.df.in_list_view" /> In list view</label>
-								<label><input type="checkbox" v-model="sel.node.df.in_standard_filter" /> Standard filter</label>
-								<label><input type="checkbox" v-model="sel.node.df.read_only" /> Read only</label>
-								<label><input type="checkbox" v-model="sel.node.df.hidden" /> Hidden</label>
-								<label><input type="checkbox" v-model="sel.node.df.bold" /> Bold</label>
-							</div>
-							<button class="dc-delete-btn" @click="deleteSelected()">Delete field</button>
 						</template>
 
 						<!-- Section / Column / Tab properties -->
@@ -236,88 +331,28 @@
 							<button class="dc-delete-btn" @click="deleteSelected()">Delete {{ sel.type }}</button>
 						</template>
 
-						<!-- DocType settings -->
+						<!-- Nothing selected -->
 						<template v-else>
-							<div class="dc-props-head">DocType settings</div>
-							<div class="dc-prop">
-								<label>DocType name</label>
-								<input v-model="dtName" class="dc-prop-input" placeholder="e.g. Vehicle Inspection" />
-							</div>
-							<div class="dc-prop">
-								<label>Module</label>
-								<select v-model="dtModule" class="dc-prop-input">
-									<option v-for="m in moduleOptions" :key="m" :value="m">{{ m }}</option>
-								</select>
-							</div>
-							<div class="dc-prop">
-								<label>Naming (autoname)</label>
-								<input v-model="dtAutoname" class="dc-prop-input dc-mono" placeholder="e.g. field:vehicle_no or format:VI-.#####" />
-							</div>
-							<label class="dc-switch">
-								<input type="checkbox" v-model="isChild" />
-								<span class="dc-switch-track"><span class="dc-switch-thumb"></span></span>
-								<span class="dc-switch-text">Child table (lives inside another DocType)</span>
-							</label>
+							<div class="dc-props-head">Properties</div>
 							<p class="dc-hint">
 								Select a field, section, column or tab to edit its properties.
 								Ask Docu on the left to build or change the DocType, then drag to arrange.
+								DocType-wide settings live in the <strong>Settings</strong> tab.
 							</p>
 						</template>
 					</div>
 
 				</div>
 
-				<!-- Footer -->
+				<!-- Footer — changes auto-save to the system -->
 				<div class="dc-window-footer">
-					<span v-if="applyError" class="dc-error">{{ applyError }}</span>
-					<span v-else-if="appliedName" class="dc-ok">✓ Saved “{{ appliedName }}”</span>
-					<span v-else class="dc-count">{{ contentCount }} field{{ contentCount === 1 ? "" : "s" }}</span>
-					<button
-						class="dc-apply-btn"
-						:disabled="applying || previewing || !dtName.trim() || !contentCount"
-						@click="requestApply"
-					>
-						{{ previewing ? "Checking…" : (applying ? "Applying…" : "Apply to system") }}
-					</button>
-				</div>
-
-				<!-- Apply confirmation (#3 / #4) -->
-				<div v-if="showConfirm && previewData" class="dc-modal-scrim" @click.self="showConfirm = false">
-					<div class="dc-modal">
-						<div class="dc-modal-title">Confirm change</div>
-						<p class="dc-modal-summary">{{ previewData.summary }}</p>
-						<div v-if="previewData.diff" class="dc-diff">
-							<div v-if="previewData.diff.added.length" class="dc-diff-line dc-diff-add">＋ Adds: {{ previewData.diff.added.join(", ") }}</div>
-							<div v-if="previewData.diff.changed.length" class="dc-diff-line dc-diff-chg">～ Changes: {{ previewData.diff.changed.join(", ") }}</div>
-							<div v-if="previewData.diff.removed.length" class="dc-diff-line dc-diff-rem">− Removes: {{ previewData.diff.removed.join(", ") }}</div>
-						</div>
-						<div v-if="previewData.warnings && previewData.warnings.length" class="dc-warn">
-							<div v-for="(w, wi) in previewData.warnings" :key="wi">⚠ {{ w }}</div>
-						</div>
-						<div class="dc-modal-actions">
-							<button class="dc-btn-text" @click="showConfirm = false">Cancel</button>
-							<button class="dc-btn-filled" :class="{ 'dc-btn-danger': previewData.destructive }" :disabled="applying" @click="confirmApply">
-								{{ applying ? "Applying…" : (previewData.destructive ? "Apply anyway" : "Confirm & apply") }}
-							</button>
-						</div>
-					</div>
-				</div>
-
-				<!-- Template picker (#12) -->
-				<div v-if="showTemplates" class="dc-modal-scrim" @click.self="showTemplates = false">
-					<div class="dc-modal">
-						<div class="dc-modal-title">Start from a template</div>
-						<p class="dc-modal-summary">Pick a starting point — you can change everything afterwards.</p>
-						<div class="dc-template-list">
-							<button v-for="t in TEMPLATES" :key="t.ir.doctype_name" class="dc-template-item" @click="pickTemplate(t)">
-								<span class="dc-template-name">{{ t.name }}</span>
-								<span class="dc-template-desc">{{ t.desc }}</span>
-							</button>
-						</div>
-						<div class="dc-modal-actions">
-							<button class="dc-btn-text" @click="showTemplates = false">Cancel</button>
-						</div>
-					</div>
+					<span class="dc-count">{{ contentCount }} field{{ contentCount === 1 ? "" : "s" }}</span>
+					<span class="dc-save-status" :class="'st-' + saveState">
+						<template v-if="saveState === 'saving'">Saving…</template>
+						<template v-else-if="saveState === 'saved'">✓ Saved{{ appliedName ? ' “' + appliedName + '”' : '' }}</template>
+						<template v-else-if="saveState === 'error'">⚠ {{ saveError }}</template>
+						<template v-else>Changes save automatically</template>
+					</span>
 				</div>
 			</div>
 		</div>
@@ -343,47 +378,6 @@ const emit = defineEmits(["close", "applied"]);
 
 const API = "/api/method/one_bpmn.api.docu_api.";
 
-// Starter templates (#12) — plain-language OneFM forms the user can adapt.
-const TEMPLATES = [
-	{ name: "Visitor Sign-In", desc: "Log visitors at the gate", ir: {
-		doctype_name: "Visitor Sign In", module: "ONE BPMN", autoname: "format:VSI-.#####", fields: [
-			{ fieldname: "visitor_name", label: "Visitor Name", fieldtype: "Data", reqd: 1, in_list_view: 1 },
-			{ fieldname: "phone_number", label: "Phone Number", fieldtype: "Phone" },
-			{ fieldname: "company", label: "Company", fieldtype: "Data" },
-			{ fieldname: "person_to_meet", label: "Person to Meet", fieldtype: "Data" },
-			{ fieldname: "check_in", label: "Check-In Time", fieldtype: "Datetime", default: "Now", in_list_view: 1 },
-			{ fieldname: "check_out", label: "Check-Out Time", fieldtype: "Datetime" },
-			{ fieldname: "notes", label: "Notes", fieldtype: "Small Text" },
-		] } },
-	{ name: "Leave Request", desc: "Staff time-off requests", ir: {
-		doctype_name: "Staff Leave Request", module: "ONE BPMN", fields: [
-			{ fieldname: "employee_name", label: "Employee Name", fieldtype: "Data", reqd: 1, in_list_view: 1 },
-			{ fieldname: "leave_type", label: "Leave Type", fieldtype: "Select", options: "Annual\nSick\nUnpaid\nEmergency", reqd: 1 },
-			{ fieldname: "from_date", label: "From", fieldtype: "Date", reqd: 1 },
-			{ fieldname: "to_date", label: "To", fieldtype: "Date", reqd: 1 },
-			{ fieldname: "reason", label: "Reason", fieldtype: "Small Text" },
-		] } },
-	{ name: "Incident Report", desc: "Report on-site incidents", ir: {
-		doctype_name: "Incident Report", module: "ONE BPMN", autoname: "format:INC-.#####", fields: [
-			{ fieldname: "occurred_at", label: "When It Happened", fieldtype: "Datetime", reqd: 1, in_list_view: 1 },
-			{ fieldname: "location", label: "Location", fieldtype: "Data", in_list_view: 1 },
-			{ fieldname: "severity", label: "Severity", fieldtype: "Select", options: "Low\nMedium\nHigh\nCritical", reqd: 1 },
-			{ fieldname: "sec_desc", label: "Details", fieldtype: "Section Break" },
-			{ fieldname: "description", label: "What Happened", fieldtype: "Text", reqd: 1 },
-			{ fieldname: "action_taken", label: "Action Taken", fieldtype: "Text" },
-		] } },
-	{ name: "Equipment Handover", desc: "Track items given to staff", ir: {
-		doctype_name: "Equipment Handover", module: "ONE BPMN", fields: [
-			{ fieldname: "worker", label: "Worker", fieldtype: "Data", reqd: 1, in_list_view: 1 },
-			{ fieldname: "date_out", label: "Date Given Out", fieldtype: "Date", default: "Today" },
-			{ fieldname: "items", label: "Items", fieldtype: "Table", child_fields: [
-				{ fieldname: "item", label: "Item", fieldtype: "Data" },
-				{ fieldname: "quantity", label: "Quantity", fieldtype: "Int" },
-			] },
-			{ fieldname: "returned", label: "Returned", fieldtype: "Check" },
-		] } },
-];
-
 // Field types — mirrors ALLOWED_FIELDTYPES in security/doctype_validator.py.
 const FIELD_TYPES = [
 	"Data", "Small Text", "Text", "Long Text", "Text Editor", "Code", "Markdown Editor",
@@ -401,11 +395,44 @@ const STRUCTURAL = new Set(["Section Break", "Column Break", "Tab Break"]);
 // add-section/column/tab buttons + drag, exactly like Frappe's builder).
 const CONTENT_TYPES = FIELD_TYPES.filter((t) => !STRUCTURAL.has(t));
 const OPTIONS_TYPES = new Set(["Select", "Link", "Dynamic Link", "Table", "Table MultiSelect"]);
-// Field boolean flags coerced to 0/1 on the way to the backend.
+// Field boolean flags coerced to 0/1 on the way to the backend. Every 'check'
+// property surfaced in the field-properties panel must live here so it is a
+// controlled boolean in the UI and serialises to 0/1 for Frappe.
 const FIELD_FLAGS = [
 	"reqd", "in_list_view", "unique", "read_only", "in_standard_filter",
 	"hidden", "bold", "non_negative", "collapsible",
+	"fetch_if_empty", "in_global_search", "in_preview", "allow_in_quick_entry",
+	"translatable", "print_hide", "report_hide", "search_index",
+	"ignore_user_permissions", "allow_on_submit",
+	"set_only_once", "allow_bulk_edit", "remember_last_selected_value",
+	"ignore_xss_filter", "in_filter", "no_copy", "print_hide_if_no_value",
+	"hide_days", "hide_seconds", "is_virtual", "sort_options",
+	"show_on_timeline", "make_attachment_public",
 ];
+
+// Which control preview to render for a field type (mirrors Frappe's controls).
+const _TEXTAREA_TYPES = new Set(["Text", "Small Text", "Long Text", "Text Editor", "Code", "Markdown Editor"]);
+function previewKind(t) {
+	if (t === "Check") return "check";
+	if (t === "Select") return "select";
+	if (t === "Table" || t === "Table MultiSelect") return "table";
+	if (t === "Heading") return "heading";
+	if (t === "HTML") return "html";
+	if (_TEXTAREA_TYPES.has(t)) return "textarea";
+	return "input";
+}
+function previewPlaceholder(df) {
+	const t = df.fieldtype;
+	if (t === "Link" || t === "Dynamic Link") return df.options || "";
+	if (t === "Date") return "YYYY-MM-DD";
+	if (t === "Datetime") return "YYYY-MM-DD HH:MM:SS";
+	if (t === "Time") return "HH:MM:SS";
+	if (t === "Currency" || t === "Float" || t === "Int" || t === "Percent") return "0";
+	if (t === "Phone") return "+0 000 000 0000";
+	if (t === "Attach" || t === "Attach Image") return "Attach a file…";
+	if (t === "Color") return "Choose a color";
+	return "";
+}
 
 // ── Chat state ─────────────────────────────────────────────────────────
 const messages   = ref([]);
@@ -424,6 +451,31 @@ const dtModule   = ref("ONE BPMN");
 const dtAutoname = ref("");
 const isChild    = ref(false);
 const modules    = ref([]);   // Module Def names for the module picker
+
+// DocType-level settings (mirrors the DocType doctype's own settings; keys/
+// coercion match tools.py DOCTYPE_SETTING_* and docu_api._apply_doctype_settings).
+const SETTING_FLAG_KEYS = [
+	"is_submittable", "issingle", "editable_grid", "quick_entry", "track_changes",
+	"track_seen", "track_views", "beta", "hide_toolbar", "allow_copy", "allow_rename",
+	"allow_import", "allow_events_in_timeline", "allow_auto_repeat", "show_preview_popup",
+	"show_name_in_global_search", "show_title_field_in_link", "translated_doctype",
+	"make_attachments_public", "is_tree",
+];
+const SETTING_INT_KEYS = ["max_attachments"];
+const SETTING_STR_KEYS = [
+	"description", "image_field", "title_field", "search_fields",
+	"default_print_format", "sort_field", "sort_order", "document_type",
+];
+function defaultSettings() {
+	const s = {};
+	for (const k of SETTING_FLAG_KEYS) s[k] = false;
+	for (const k of SETTING_INT_KEYS) s[k] = 0;
+	for (const k of SETTING_STR_KEYS) s[k] = "";
+	s.editable_grid = true;   // Frappe's default for child tables
+	s.sort_order = "DESC";
+	return s;
+}
+const dtSettings = reactive(defaultSettings());
 // Always include the current module (e.g. an agent-supplied one) so it stays selectable.
 const moduleOptions = computed(() => {
 	const list = modules.value.slice();
@@ -432,6 +484,11 @@ const moduleOptions = computed(() => {
 	}
 	return list;
 });
+
+// Top-level builder view — mirrors Frappe's Form / Settings tabs.
+const view = ref("form");            // 'form' | 'settings'
+// Which section's "…" options menu is open (Frappe's section Dropdown).
+const openMenu = ref(null);
 
 // ── Builder tree (tabs → sections → columns → fields) ──────────────────
 // The tree is the working model while editing; the flat IR fields[] the
@@ -452,11 +509,12 @@ const applying    = ref(false);
 const applyError  = ref("");
 const appliedName = ref("");
 
-// Apply confirmation (#3/#4) + template picker (#12)
-const previewing   = ref(false);
-const showConfirm  = ref(false);
-const previewData  = ref(null);
-const showTemplates = ref(false);
+// Auto-save: changes persist to the system automatically (no "Apply" button).
+const saveState  = ref("idle");   // idle | saving | saved | error
+const saveError  = ref("");
+let autosaveTimer = null;
+let autosaveInFlight = false;
+let autosaveQueued = false;
 
 // Undo/redo (#12) — snapshot the flat IR; restore rebuilds the tree.
 const history   = ref([]);
@@ -472,13 +530,139 @@ const nowTime = () => new Date().toLocaleTimeString([], { hour: "2-digit", minut
 
 function renderMarkdown(text) { return DOMPurify.sanitize(marked.parse(text || "")); }
 function capitalize(s) { return s ? s[0].toUpperCase() + s.slice(1) : s; }
-function needsOptions(t) { return OPTIONS_TYPES.has(t); }
 function optionsHint(t) {
 	if (t === "Link" || t === "Table" || t === "Table MultiSelect") return "Target DocType";
 	if (t === "Dynamic Link") return "fieldname holding DocType";
 	if (t === "Select") return "one choice per line";
 	return "—";
 }
+
+// ── Field-properties panel (mirrors Frappe's searchable FieldProperties) ──
+const propSearch = ref("");
+const _NUMBER_TYPES = new Set(["Int", "Float", "Currency", "Percent"]);
+const _NON_NEG_TYPES = new Set(["Int", "Float", "Currency"]);
+const _LENGTH_TYPES = new Set(["Data", "Link", "Dynamic Link", "Password", "Select", "Read Only", "Attach", "Attach Image", "Int"]);
+const _GLOBAL_SEARCH_TYPES = new Set(["Data", "Select", "Table", "Text", "Text Editor", "Link", "Small Text", "Long Text", "Read Only", "Heading", "Dynamic Link"]);
+const _TRANSLATABLE_TYPES = new Set(["Data", "Select", "Text", "Small Text", "Text Editor"]);
+const _NO_FETCH_TYPES = new Set(["HTML", "Heading", "Table", "Table MultiSelect"]);
+const _PRECISION_OPTS = ["", "0", "1", "2", "3", "4", "5", "6", "7", "8", "9"];
+
+// The full property list Frappe's DocField exposes (order, control type, labels,
+// and per-fieldtype visibility mirror frappe/core/doctype/docfield). Layout-only
+// props (collapsible, hide_border, show_dashboard…) are omitted since this panel
+// only ever edits a real field inside a column.
+function fieldPropDefs(df) {
+	const t = df.fieldtype;
+	return [
+		{ key: "label", label: "Label", type: "data" },
+		{ key: "fieldtype", label: "Type", type: "select", options: CONTENT_TYPES },
+		{ key: "fieldname", label: "Name", type: "data", mono: true, placeholder: "snake_case" },
+		{ key: "reqd", label: "Mandatory", type: "check", show: t !== "Check" && t !== "HTML" },
+		{ key: "precision", label: "Precision", type: "select", options: _PRECISION_OPTS, show: t === "Float" || t === "Currency" || t === "Percent", hint: "Set non-standard precision for a Float or Currency field." },
+		{ key: "length", label: "Length", type: "int", show: _LENGTH_TYPES.has(t) },
+		{ key: "search_index", label: "Index", type: "check" },
+		{ key: "in_list_view", label: "In List View", type: "check", show: !df.is_virtual },
+		{ key: "in_standard_filter", label: "In List Filter", type: "check" },
+		{ key: "in_global_search", label: "In Global Search", type: "check", show: _GLOBAL_SEARCH_TYPES.has(t) },
+		{ key: "in_preview", label: "In Preview", type: "check", show: t !== "Table" && t !== "Table MultiSelect" },
+		{ key: "allow_in_quick_entry", label: "Allow in Quick Entry", type: "check" },
+		{ key: "bold", label: "Bold", type: "check" },
+		{ key: "translatable", label: "Translatable", type: "check", show: _TRANSLATABLE_TYPES.has(t) },
+		{ key: "options", label: "Options", type: "textarea", placeholder: optionsHint(t),
+			hint: "For Links, enter the DocType as range. For Select, enter list of Options, each on a new line." },
+		{ key: "default", label: "Default", type: "textarea" },
+		{ key: "fetch_from", label: "Fetch From", type: "textarea", mono: true, show: !_NO_FETCH_TYPES.has(t), placeholder: "link_field.source_field" },
+		{ key: "fetch_if_empty", label: "Fetch on Save if Empty", type: "check", show: !_NO_FETCH_TYPES.has(t), hint: "If unchecked, the value will always be re-fetched on save." },
+		{ key: "depends_on", label: "Display Depends On (JS)", type: "code", mono: true, placeholder: "eval:doc.status=='Open'" },
+		{ key: "hidden", label: "Hidden", type: "check" },
+		{ key: "read_only", label: "Read Only", type: "check" },
+		{ key: "unique", label: "Unique", type: "check" },
+		{ key: "set_only_once", label: "Set only once", type: "check" },
+		{ key: "allow_bulk_edit", label: "Allow Bulk Edit", type: "check", show: t === "Table" },
+		{ key: "permlevel", label: "Perm Level", type: "int" },
+		{ key: "ignore_user_permissions", label: "Ignore User Permissions", type: "check" },
+		{ key: "allow_on_submit", label: "Allow on Submit", type: "check" },
+		{ key: "report_hide", label: "Report Hide", type: "check" },
+		{ key: "remember_last_selected_value", label: "Remember Last Selected Value", type: "check", show: t === "Link" },
+		{ key: "ignore_xss_filter", label: "Ignore XSS Filter", type: "check", hint: "Don't encode HTML tags like <script> or just characters like < or >, as they could be intentionally used in this field." },
+		{ key: "in_filter", label: "In Filter", type: "check" },
+		{ key: "no_copy", label: "No Copy", type: "check" },
+		{ key: "print_hide", label: "Print Hide", type: "check" },
+		{ key: "print_hide_if_no_value", label: "Print Hide If No Value", type: "check", show: _NUMBER_TYPES.has(t) },
+		{ key: "print_width", label: "Print Width", type: "data" },
+		{ key: "width", label: "Width", type: "data" },
+		{ key: "columns", label: "Columns", type: "int", hint: "Number of columns for a field in a List View or a Grid (Total Columns should be less than 11)." },
+		{ key: "description", label: "Description", type: "textarea" },
+		{ key: "mandatory_depends_on", label: "Mandatory Depends On (JS)", type: "code", mono: true, placeholder: "eval:doc.status=='Open'" },
+		{ key: "read_only_depends_on", label: "Read Only Depends On (JS)", type: "code", mono: true, placeholder: "eval:doc.docstatus==1" },
+		{ key: "hide_days", label: "Hide Days", type: "check", show: t === "Duration" },
+		{ key: "hide_seconds", label: "Hide Seconds", type: "check", show: t === "Duration" },
+		{ key: "non_negative", label: "Non Negative", type: "check", show: _NON_NEG_TYPES.has(t) },
+		{ key: "max_height", label: "Max Height", type: "data" },
+		{ key: "is_virtual", label: "Virtual", type: "check" },
+		{ key: "documentation_url", label: "Documentation URL", type: "data", show: t !== "HTML" },
+		{ key: "sort_options", label: "Sort Options", type: "check", show: t === "Select" },
+		{ key: "show_on_timeline", label: "Show on Timeline", type: "check", show: !!df.hidden },
+		{ key: "placeholder", label: "Placeholder", type: "data" },
+		{ key: "make_attachment_public", label: "Make Attachment Public (by default)", type: "check", show: t === "Attach" || t === "Attach Image" },
+	];
+}
+const visibleFieldProps = computed(() => {
+	if (sel.type !== "field" || !sel.node) return [];
+	const q = propSearch.value.trim().toLowerCase();
+	return fieldPropDefs(sel.node.df).filter((p) => {
+		if (p.show === false) return false;
+		if (q && !(p.label.toLowerCase().includes(q) || p.key.toLowerCase().includes(q))) return false;
+		return true;
+	});
+});
+
+// ── DocType settings layout (mirrors the DocType doctype's Settings sections) ──
+const settingsSections = computed(() => {
+	const child = isChild.value;
+	const sections = [
+		{ title: "General", fields: [
+			{ key: "is_submittable", label: "Is Submittable", type: "check", show: !child },
+			{ key: "issingle", label: "Is Single", type: "check", show: !child },
+			{ key: "editable_grid", label: "Editable Grid", type: "check", show: child },
+			{ key: "quick_entry", label: "Quick Entry", type: "check", show: !child },
+			{ key: "track_changes", label: "Track Changes", type: "check", show: !child },
+			{ key: "track_seen", label: "Track Seen", type: "check", show: !child },
+			{ key: "track_views", label: "Track Views", type: "check", show: !child },
+			{ key: "beta", label: "Beta", type: "check", show: !child },
+		] },
+		{ title: "Form Settings", show: !child, fields: [
+			{ key: "image_field", label: "Image Field", type: "data", placeholder: "an Attach Image fieldname" },
+			{ key: "max_attachments", label: "Max Attachments", type: "int" },
+			{ key: "hide_toolbar", label: "Hide Sidebar, Menu, and Comments", type: "check" },
+			{ key: "allow_copy", label: "Hide Copy", type: "check" },
+			{ key: "allow_rename", label: "Allow Rename", type: "check" },
+			{ key: "allow_import", label: "Allow Import (via Data Import Tool)", type: "check" },
+			{ key: "allow_events_in_timeline", label: "Allow events in timeline", type: "check" },
+			{ key: "allow_auto_repeat", label: "Allow Auto Repeat", type: "check" },
+		] },
+		{ title: "View Settings", show: !child, fields: [
+			{ key: "title_field", label: "Title Field", type: "data", placeholder: "a fieldname" },
+			{ key: "search_fields", label: "Search Fields", type: "data", placeholder: "comma-separated fieldnames" },
+			{ key: "sort_field", label: "Default Sort Field", type: "data", placeholder: "e.g. modified" },
+			{ key: "sort_order", label: "Default Sort Order", type: "select", options: ["ASC", "DESC"] },
+			{ key: "default_print_format", label: "Default Print Format", type: "data" },
+			{ key: "document_type", label: "Show in Module Section", type: "select", options: ["", "Document", "Setup", "System", "Other"] },
+			{ key: "show_preview_popup", label: "Show Preview Popup", type: "check" },
+			{ key: "show_name_in_global_search", label: 'Make "name" searchable in Global Search', type: "check" },
+			{ key: "show_title_field_in_link", label: "Show Title in Link Fields", type: "check" },
+			{ key: "translated_doctype", label: "Translate Link Fields", type: "check" },
+			{ key: "make_attachments_public", label: "Make Attachments Public by Default", type: "check" },
+		] },
+		{ title: "Advanced", fields: [
+			{ key: "is_tree", label: "Is Tree", type: "check", show: !child },
+		] },
+	];
+	return sections
+		.filter((s) => s.show !== false)
+		.map((s) => ({ ...s, fields: s.fields.filter((f) => f.show !== false) }))
+		.filter((s) => s.fields.length);
+});
 
 function pushMsg(role, content, extra = {}) {
 	messages.value.push({ id: makeId(), role, content, time: nowTime(), ...extra });
@@ -582,7 +766,6 @@ function isSel(kind, node) { return sel.type === kind && sel.node === node; }
 function isSelField(w) { return sel.type === "field" && sel.node === w; }
 
 function tabLabel(tab, i) { return (tab.df && tab.df.label) || (i === 0 ? "Details" : `Tab ${i + 1}`); }
-function sectionLabel(section) { return (section.df && section.df.label) || "Section"; }
 
 function autoName(df) {
 	if (!df.fieldname && df.label && !STRUCTURAL.has(df.fieldtype)) {
@@ -591,25 +774,6 @@ function autoName(df) {
 }
 
 // ── Add / remove ───────────────────────────────────────────────────────
-function currentSection() {
-	if (sel.type === "column" && sel.node) return findSectionOfColumn(sel.node);
-	if (sel.type === "section" && sel.node) return sel.node;
-	if (sel.type === "field" && sel.node) {
-		const col = findColumnOfField(sel.node);
-		if (col) return findSectionOfColumn(col);
-	}
-	const secs = activeTab.value.sections;
-	return secs[secs.length - 1];
-}
-function currentColumn() {
-	if (sel.type === "column" && sel.node) return sel.node;
-	if (sel.type === "field" && sel.node) {
-		const col = findColumnOfField(sel.node);
-		if (col) return col;
-	}
-	const s = currentSection();
-	return s.columns[s.columns.length - 1];
-}
 function findColumnOfField(w) {
 	for (const s of activeTab.value.sections)
 		for (const c of s.columns)
@@ -627,19 +791,6 @@ function addFieldToColumn(col) {
 	col.fields.push(w);
 	selectField(w);
 }
-function addField() { addFieldToColumn(currentColumn()); }
-function addSection() {
-	const s = wrapSection(makeBreak("Section Break"));
-	s.columns.push(wrapColumn(null));
-	activeTab.value.sections.push(s);
-	selectContainer("section", s);
-}
-function addColumn(section) {
-	const sec = section && section.columns ? section : currentSection();
-	const c = wrapColumn(makeBreak("Column Break"));
-	sec.columns.push(c);
-	selectContainer("column", c);
-}
 function addTab() {
 	const t = wrapTab(makeBreak("Tab Break"));
 	const s = wrapSection(null);
@@ -649,11 +800,127 @@ function addTab() {
 	activeTabIndex.value = tabs.value.length - 1;
 	selectContainer("tab", t);
 }
+function removeTab(tab) {
+	if (tabs.value.length <= 1) return;   // always keep at least one tab
+	const i = tabs.value.indexOf(tab);
+	if (i < 0) return;
+	tabs.value.splice(i, 1);
+	if (activeTabIndex.value >= tabs.value.length) activeTabIndex.value = tabs.value.length - 1;
+	ensureStructure();
+	selectForm();
+}
+
+// ── Section "…" options menu (mirrors Frappe's Section Dropdown) ─────────
+function toggleMenu(section) { openMenu.value = openMenu.value === section ? null : section; }
+function sectionIndex(section) { return activeTab.value.sections.indexOf(section); }
+
+function addSectionBelow(section) {
+	const s = wrapSection(makeBreak("Section Break"));
+	s.columns.push(wrapColumn(null));
+	const i = sectionIndex(section);
+	activeTab.value.sections.splice(i + 1, 0, s);
+	openMenu.value = null;
+	selectContainer("section", s);
+}
+function removeSection(section) {
+	const secs = activeTab.value.sections;
+	const i = secs.indexOf(section);
+	if (i >= 0) secs.splice(i, 1);
+	openMenu.value = null;
+	ensureStructure();
+	selectForm();
+}
+function addColumnTo(section) {
+	const c = wrapColumn(makeBreak("Column Break"));
+	section.columns.push(c);
+	openMenu.value = null;
+	selectContainer("column", c);
+}
+function removeColumn(section) {
+	// Remove the last column, moving its fields into the previous one (Frappe's behaviour).
+	const cols = section.columns;
+	if (cols.length <= 1) return;
+	const last = cols[cols.length - 1];
+	const prev = cols[cols.length - 2];
+	prev.fields.push(...last.fields);
+	cols.splice(cols.length - 1, 1);
+	openMenu.value = null;
+	selectForm();
+}
+function emptyColumn(section) {
+	// Clear every field from the (single) column but keep the column.
+	const col = section.columns[0];
+	if (col) col.fields.splice(0);
+	openMenu.value = null;
+	selectForm();
+}
+function moveSectionsToTab(section) {
+	// Move this section and every one after it into a fresh tab.
+	const secs = activeTab.value.sections;
+	const i = secs.indexOf(section);
+	if (i < 0) return;
+	const moved = secs.splice(i);
+	const t = wrapTab(makeBreak("Tab Break"));
+	t.sections = moved;
+	tabs.value.push(t);
+	openMenu.value = null;
+	ensureStructure();
+	activeTabIndex.value = tabs.value.length - 1;
+	selectForm();
+}
+function sectionMenu(section) {
+	const groups = [
+		{ group: "Section", items: [
+			{ label: "Add section below", onClick: () => addSectionBelow(section) },
+			{ label: "Remove section",    onClick: () => removeSection(section) },
+		] },
+		{ group: "Column", items: [
+			{ label: "Add column", onClick: () => addColumnTo(section) },
+		] },
+	];
+	if (section.columns.length > 1) {
+		groups[1].items.push({ label: "Remove column", onClick: () => removeColumn(section) });
+	} else if (section.columns[0] && section.columns[0].fields.length) {
+		groups[1].items.push({ label: "Empty column", onClick: () => emptyColumn(section) });
+	}
+	if (sectionIndex(section) > 0) {
+		groups[0].items.push({ label: "Move to new tab", onClick: () => moveSectionsToTab(section) });
+	}
+	return groups;
+}
 
 function removeField(column, w) {
 	const i = column.fields.indexOf(w);
 	if (i >= 0) column.fields.splice(i, 1);
 	if (sel.node === w) selectForm();
+}
+function duplicateField(column, w) {
+	const src = w.df || {};
+	const copy = normalizeDf({ ...src, fieldname: "", label: (src.label || "") ? src.label + " Copy" : "" });
+	const nw = wrapField(copy);
+	const i = column.fields.indexOf(w);
+	column.fields.splice(i + 1, 0, nw);
+	selectField(nw);
+}
+// Add a new field directly after this one (Frappe's per-field "+" action).
+function addFieldAfter(column, w) {
+	const nw = wrapField(normalizeDf({ fieldtype: "Data", label: "", fieldname: "" }));
+	const i = column.fields.indexOf(w);
+	column.fields.splice(i + 1, 0, nw);
+	selectField(nw);
+}
+// Move this field and every field after it into a fresh column (Frappe's "move").
+function moveFieldsToNewColumn(column, w) {
+	const section = findSectionOfColumn(column);
+	if (!section) return;
+	const i = column.fields.indexOf(w);
+	if (i <= 0) return;   // nothing to split off when it's already the first field
+	const moved = column.fields.splice(i);
+	const nc = wrapColumn(makeBreak("Column Break"));
+	nc.fields = moved;
+	const ci = section.columns.indexOf(column);
+	section.columns.splice(ci + 1, 0, nc);
+	selectField(w);
 }
 function deleteSelected() {
 	if (sel.type === "field" && sel.node) {
@@ -695,10 +962,23 @@ function loadIr(ir) {
 	dtModule.value = sanitizeModule(ir.module);
 	dtAutoname.value = ir.autoname || "";
 	isChild.value = !!ir.is_child_table;
+	// Only overwrite a setting the IR actually carries — an agent turn returns
+	// fields without settings, so session-set settings must survive it.
+	for (const k of SETTING_FLAG_KEYS) if (k in ir) dtSettings[k] = !!ir[k];
+	for (const k of SETTING_INT_KEYS) if (k in ir) dtSettings[k] = Number(ir[k]) || 0;
+	for (const k of SETTING_STR_KEYS) if (k in ir) dtSettings[k] = ir[k] || "";
 	buildTree(ir.fields || []);
 	selectForm();
 	appliedName.value = "";
 	applyError.value = "";
+}
+
+function settingsPayload() {
+	const out = {};
+	for (const k of SETTING_FLAG_KEYS) out[k] = dtSettings[k] ? 1 : 0;
+	for (const k of SETTING_INT_KEYS) out[k] = Number(dtSettings[k]) || 0;
+	for (const k of SETTING_STR_KEYS) out[k] = (dtSettings[k] || "").toString().trim();
+	return out;
 }
 
 function currentIr() {
@@ -707,6 +987,7 @@ function currentIr() {
 		module: dtModule.value || "ONE BPMN",
 		is_child_table: isChild.value,
 		autoname: dtAutoname.value || "",
+		...settingsPayload(),
 		fields: flatten().map((f) => {
 			const out = { ...f };  // preserve all properties, incl. ones the builder doesn't show
 			const structural = STRUCTURAL.has(f.fieldtype);
@@ -842,55 +1123,37 @@ function onKeydown(e) {
 	}
 }
 
-// Step 1: preview what Apply will do, then show a confirmation (#3/#4).
-async function requestApply() {
-	applyError.value = "";
-	appliedName.value = "";
-	previewing.value = true;
-	try {
-		const res = await frappeRequest({
-			url: `${API}preview_doctype`,
-			method: "POST",
-			params: { ir: JSON.stringify(currentIr()) },
-		});
-		if (res && res.valid === false) {
-			applyError.value = (res.violations || []).join(" ") || "The DocType has problems that must be fixed first.";
-			return;
-		}
-		previewData.value = res;
-		showConfirm.value = true;
-	} catch (e) {
-		applyError.value = errText(e) || "Could not check the DocType.";
-	} finally {
-		previewing.value = false;
-	}
+// Auto-save: persist the current design to the system, debounced, on every change.
+function scheduleAutosave() {
+	if (isRestoring) return;
+	if (autosaveTimer) clearTimeout(autosaveTimer);
+	autosaveTimer = setTimeout(runAutosave, 1500);
 }
-
-// Step 2: the user confirmed — apply for real (confirm=1 clears the data-loss guard).
-async function confirmApply() {
-	applying.value = true;
+async function runAutosave() {
+	// Only save a valid design (a name + at least one real field).
+	if (!dtName.value.trim() || !contentCount.value) return;
+	if (autosaveInFlight) { autosaveQueued = true; return; }
+	autosaveInFlight = true;
+	saveState.value = "saving";
+	saveError.value = "";
 	try {
 		const res = await frappeRequest({
 			url: `${API}apply_doctype`,
 			method: "POST",
+			// confirm=1: the builder edits are the user's intent — no extra prompt.
 			params: { ir: JSON.stringify(currentIr()), confirm: 1 },
 		});
-		const name = res?.name || dtName.value;
-		appliedName.value = name;
-		showConfirm.value = false;
-		const verb = { created: "created", updated: "updated", fields_added: "updated", unchanged: "already up to date" }[res?.action] || "saved";
-		emit("applied", name);
-		const setNote = res?.action === "created" ? " and set it on this step" : "";
-		const childNote = (res?.child_tables && res.child_tables.length)
-			? ` (plus ${res.child_tables.length} linked list${res.child_tables.length === 1 ? "" : "s"})`
-			: "";
-		pushMsg("assistant", `✓ Done — I've **${verb}** the **${name}** doctype${childNote}${setNote}. [Open it](${res?.url || "#"})`);
+		if (res?.name) {
+			appliedName.value = res.name;
+			emit("applied", res.name);   // write the DocType name back onto the shape
+		}
+		saveState.value = "saved";
 	} catch (e) {
-		applyError.value = errText(e) || "Could not apply the DocType.";
-		showConfirm.value = false;
-		pushMsg("assistant", `⚠️ I couldn't apply the DocType: ${applyError.value}`);
+		saveError.value = errText(e) || "Could not save.";
+		saveState.value = "error";
 	} finally {
-		applying.value = false;
+		autosaveInFlight = false;
+		if (autosaveQueued) { autosaveQueued = false; scheduleAutosave(); }
 	}
 }
 
@@ -932,17 +1195,11 @@ function onGlobalKeydown(e) {
 	else if ((k === "z" && e.shiftKey) || k === "y") { e.preventDefault(); redo(); }
 }
 
-// ── Templates (#12) ────────────────────────────────────────────────────
-function pickTemplate(t) {
-	loadIr(JSON.parse(JSON.stringify(t.ir)));
-	showTemplates.value = false;
-	scheduleSnapshot();
-}
-
 function stopPolling() {
 	pollCancelled = true;
 	if (pollTimer) { clearTimeout(pollTimer); pollTimer = null; }
 	if (snapTimer) { clearTimeout(snapTimer); snapTimer = null; }
+	if (autosaveTimer) { clearTimeout(autosaveTimer); autosaveTimer = null; }
 	window.removeEventListener("keydown", onGlobalKeydown, true);
 }
 
@@ -992,7 +1249,10 @@ onMounted(async () => {
 	// Undo/redo: seed the baseline snapshot, then record on every edit.
 	nextTick(() => {
 		recordSnapshot();
-		watch([tabs, dtName, dtModule, dtAutoname, isChild], scheduleSnapshot, { deep: true });
+		watch([tabs, dtName, dtModule, dtAutoname, isChild, dtSettings], () => {
+			scheduleSnapshot();
+			scheduleAutosave();
+		}, { deep: true });
 	});
 	window.addEventListener("keydown", onGlobalKeydown, true);
 });
@@ -1106,66 +1366,143 @@ onMounted(async () => {
 
 /* ── Builder canvas (middle) ── */
 .dc-builder-panel { flex: 1; display: flex; flex-direction: column; min-width: 0; background: var(--md-surface-container); }
-.dc-builder-topbar { display: flex; align-items: center; flex-wrap: wrap; gap: 10px; padding: 12px 16px; background: var(--md-surface-container-low); border-bottom: 1px solid var(--md-outline-variant); }
+/* Top-level view tabs (Form / Settings) */
+.dc-view-tabs { display: flex; gap: 2px; padding: 6px 12px 0; background: var(--md-surface-container-low); border-bottom: 1px solid var(--md-outline-variant); }
+.dc-view-tab { position: relative; border: none; background: transparent; color: var(--md-on-surface-variant); padding: 10px 16px 12px; font-size: 13px; font-weight: 500; cursor: pointer; transition: color var(--md-dur) var(--md-ease); }
+.dc-view-tab:hover { color: var(--md-on-surface); }
+.dc-view-tab.active { color: var(--md-primary); }
+.dc-view-tab.active::after { content: ""; position: absolute; left: 12px; right: 12px; bottom: 0; height: 2px; background: var(--md-primary); border-radius: 2px 2px 0 0; }
+
+.dc-builder-topbar { display: flex; align-items: center; gap: 10px; padding: 12px 16px; background: var(--md-surface-container-low); border-bottom: 1px solid var(--md-outline-variant); }
 .dc-form-name { flex: 1; min-width: 0; }
 .dc-name-input { width: 100%; border: 1px solid var(--md-outline); border-radius: var(--md-corner-sm); padding: 9px 12px; font-size: 15px; font-weight: 500; background: var(--md-surface-container-lowest); color: var(--md-on-surface); transition: border-color var(--md-dur) var(--md-ease), box-shadow var(--md-dur) var(--md-ease); }
 .dc-name-input:focus { outline: none; border-color: var(--md-primary); box-shadow: inset 0 0 0 1px var(--md-primary); }
-.dc-add-group { display: flex; gap: 8px; align-items: center; }
-/* MD3 tonal buttons */
-.dc-add-btn { position: relative; border: none; background: var(--md-secondary-container); color: var(--md-on-secondary-container); border-radius: var(--md-corner-full); padding: 8px 16px; font-size: 13px; font-weight: 500; cursor: pointer; white-space: nowrap; transition: background-color var(--md-dur) var(--md-ease), box-shadow var(--md-dur) var(--md-ease); }
-.dc-add-btn:hover { box-shadow: var(--md-elev-1); background: color-mix(in srgb, var(--md-on-secondary-container) 8%, var(--md-secondary-container)); }
-.dc-gear-btn { position: relative; border: none; background: transparent; color: var(--md-on-surface-variant); border-radius: var(--md-corner-full); width: 40px; height: 40px; cursor: pointer; font-size: 16px; transition: background-color var(--md-dur) var(--md-ease); }
-.dc-gear-btn:hover { background: rgba(71,70,79,var(--md-state-hover)); }
-.dc-gear-btn.active { background: var(--md-primary-container); color: var(--md-on-primary-container); }
 
-/* MD3 secondary tabs with sliding active indicator */
-.dc-tabs { display: flex; gap: 2px; padding: 6px 14px 0; overflow-x: auto; background: var(--md-surface-container); }
-.dc-tab { position: relative; display: flex; align-items: center; gap: 6px; background: transparent; color: var(--md-on-surface-variant); border: none; border-radius: var(--md-corner-sm) var(--md-corner-sm) 0 0; padding: 10px 16px 12px; font-size: 13px; font-weight: 500; cursor: pointer; white-space: nowrap; transition: background-color var(--md-dur) var(--md-ease), color var(--md-dur) var(--md-ease); }
-.dc-tab:hover { background: rgba(71,70,79,var(--md-state-hover)); }
-.dc-tab.active { color: var(--md-primary); }
-.dc-tab.active::after { content: ""; position: absolute; left: 12px; right: 12px; bottom: 0; height: 3px; background: var(--md-primary); border-radius: 3px 3px 0 0; }
-.dc-tab.sel { color: var(--md-primary); }
-.dc-tab-edit { border: none; background: transparent; cursor: pointer; color: inherit; opacity: .6; font-size: 12px; }
-.dc-tab-edit:hover { opacity: 1; }
+/* Settings view (whole-DocType settings, moved off the properties sidebar) */
+.dc-settings-page { flex: 1; min-height: 0; overflow-y: auto; padding: 24px; display: flex; justify-content: center; }
+.dc-settings-card { width: 100%; max-width: 720px; }
+.dc-settings-card .dc-props-head { margin-bottom: 4px; }
+/* Frappe-style settings sections: a bold section title over a 2-column grid */
+.dc-settings-section { padding: 8px 0 18px; border-bottom: 1px solid var(--md-outline-variant); margin-bottom: 18px; }
+.dc-settings-section:last-of-type { border-bottom: none; }
+.dc-settings-title { font-size: 15px; font-weight: 600; color: var(--md-on-surface); margin-bottom: 14px; }
+.dc-settings-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 12px 28px; align-items: start; }
+.dc-settings-grid .dc-prop { margin-bottom: 0; gap: 6px; }
+.dc-settings-grid .dc-prop label { font-size: 13px; font-weight: 600; color: #44546a; }
+.dc-settings-grid .dc-prop-input { border: 1px solid var(--md-outline); border-radius: 8px; background: var(--md-surface-container-lowest); padding: 9px 12px; font-size: 14px; }
+.dc-settings-grid .dc-prop-input:focus { outline: none; border-color: var(--md-primary); box-shadow: inset 0 0 0 1px var(--md-primary); }
+.dc-settings-grid .fb-prop-check { align-self: center; }
 
-.dc-canvas { flex: 1; overflow-y: auto; padding: 16px; }
-.dc-sections { display: flex; flex-direction: column; gap: 14px; }
-/* elevated cards */
-.dc-section { background: var(--md-surface-container-lowest); border: 1px solid transparent; border-radius: var(--md-corner-md); padding: 12px 14px; box-shadow: var(--md-elev-1); transition: box-shadow var(--md-dur) var(--md-ease), border-color var(--md-dur) var(--md-ease); }
-.dc-section.sel { border-color: var(--md-primary); box-shadow: 0 0 0 1px var(--md-primary), var(--md-elev-1); }
-.dc-section-bar { display: flex; align-items: center; gap: 8px; margin-bottom: 10px; }
-.dc-section-grip { cursor: grab; color: var(--md-outline); font-size: 15px; line-height: 1; }
-.dc-section-title { flex: 1; font-size: 14px; font-weight: 600; color: var(--md-on-surface); cursor: pointer; }
-.dc-section-title:hover { color: var(--md-primary); }
-/* text button */
-.dc-mini-btn { border: none; background: transparent; color: var(--md-primary); border-radius: var(--md-corner-full); padding: 6px 12px; font-size: 13px; font-weight: 500; cursor: pointer; transition: background-color var(--md-dur) var(--md-ease); }
-.dc-mini-btn:hover { background: rgba(79,70,229,var(--md-state-hover)); }
+/* ══════════════════════════════════════════════════════════════════════
+   Frappe form-builder canvas — matched to the desk Form Builder look/feel.
+   Frappe's CSS variables aren't present on /processa, so they're defined
+   here and the markup/classes mirror Frappe's Section/Column/Field.
+   ══════════════════════════════════════════════════════════════════════ */
+.fb-form {
+	--fg: #ffffff;
+	--bg-light-gray: #f3f3f3;
+	--control-bg: #ffffff;
+	--fb-border: #e2e2e2;
+	--fb-border-primary: #a6acb3;
+	--fb-gray-400: #c7c7c7;
+	--fb-heading: #171717;
+	--fb-text: #383838;
+	--fb-muted: #7c7c7c;
+	--fb-radius: 8px;
+	--fb-tsm: 13px;
+	--fb-txs: 12px;
 
-.dc-columns { display: flex; gap: 12px; align-items: flex-start; }
-.dc-column { flex: 1; min-width: 0; min-height: 64px; border: 1px dashed var(--md-outline-variant); border-radius: var(--md-corner-md); padding: 10px; background: var(--md-surface); transition: border-color var(--md-dur) var(--md-ease), background-color var(--md-dur) var(--md-ease); }
-.dc-column.sel { border-style: solid; border-color: var(--md-primary); background: color-mix(in srgb, var(--md-primary) 4%, var(--md-surface)); }
-.dc-col-fields { display: flex; flex-direction: column; gap: 8px; min-height: 28px; }
+	flex: 1; min-height: 0; display: flex; flex-direction: column;
+	margin: 16px; background: var(--fg);
+	border: 1px solid var(--fb-border); border-radius: var(--fb-radius);
+	overflow: hidden; color: var(--fb-text); font-size: var(--fb-tsm);
+}
 
-/* field = filled card / list item with state layer */
-.dc-chip { display: flex; align-items: center; gap: 8px; background: var(--md-surface-container-high); border: 1px solid transparent; border-radius: var(--md-corner-sm); padding: 8px 10px; cursor: pointer; transition: background-color var(--md-dur) var(--md-ease), border-color var(--md-dur) var(--md-ease); }
-.dc-chip:hover { background: color-mix(in srgb, var(--md-on-surface) 6%, var(--md-surface-container-high)); }
-.dc-chip.sel { border-color: var(--md-primary); background: var(--md-primary-container); }
-.dc-chip-grip { cursor: grab; color: var(--md-outline); font-size: 13px; }
-.dc-chip-main { flex: 1; min-width: 0; display: flex; flex-direction: column; }
-.dc-chip-label { font-size: 14px; color: var(--md-on-surface); font-weight: 500; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.dc-chip-type { font-size: 11px; color: var(--md-on-surface-variant); text-transform: uppercase; letter-spacing: .04em; }
-.dc-req { color: var(--md-error); font-weight: 700; }
-.dc-chip-x { border: none; background: transparent; color: var(--md-on-surface-variant); cursor: pointer; font-size: 12px; border-radius: var(--md-corner-full); width: 24px; height: 24px; transition: background-color var(--md-dur) var(--md-ease), color var(--md-dur) var(--md-ease); }
-.dc-chip-x:hover { color: var(--md-error); background: rgba(186,26,26,var(--md-state-hover)); }
-/* text buttons for adding */
-.dc-add-inline { margin-top: 8px; width: 100%; border: none; background: transparent; color: var(--md-primary); border-radius: var(--md-corner-sm); padding: 7px; font-size: 13px; font-weight: 500; cursor: pointer; transition: background-color var(--md-dur) var(--md-ease); }
-.dc-add-inline:hover { background: rgba(79,70,229,var(--md-state-hover)); }
-/* outlined button */
-.dc-add-section { margin-top: 14px; border: 1px solid var(--md-outline); background: transparent; color: var(--md-primary); border-radius: var(--md-corner-full); padding: 9px 18px; font-size: 13px; font-weight: 500; cursor: pointer; transition: background-color var(--md-dur) var(--md-ease); }
-.dc-add-section:hover { background: rgba(79,70,229,var(--md-state-hover)); }
+/* Tabs */
+.fb-tab-header { display: flex; min-height: 42px; align-items: center; background: var(--fg); border-bottom: 1px solid var(--fb-border); padding-left: 5px; flex: none; }
+.fb-tabs { display: flex; flex: 1; overflow-x: auto; }
+.fb-tab { display: flex; align-items: center; gap: 6px; position: relative; padding: 10px 15px 11px; color: var(--fb-muted); min-width: max-content; cursor: pointer; }
+.fb-tab::before { content: ""; position: absolute; left: 12px; right: 12px; bottom: 0; border-bottom: 2px solid transparent; }
+.fb-tab:hover::before { border-color: var(--fb-gray-400); }
+.fb-tab.active { font-weight: 600; color: var(--fb-heading); }
+.fb-tab.active::before { border-color: var(--fb-border-primary); }
+.fb-tab-x { border: none; background: transparent; cursor: pointer; color: var(--fb-muted); font-size: 11px; margin-left: 2px; opacity: 0; transition: opacity .15s; }
+.fb-tab:hover .fb-tab-x { opacity: .7; }
+.fb-tab-x:hover { opacity: 1; color: #eb5757; }
+.fb-tab-actions { margin-left: auto; padding: 0 12px; }
+.fb-addtab { border: none; background: var(--control-bg); color: var(--fb-text); border-radius: 6px; padding: 6px 12px; font-size: var(--fb-txs); cursor: pointer; box-shadow: inset 0 0 0 1px var(--fb-border); white-space: nowrap; transition: background-color .15s; }
+.fb-addtab:hover { background: var(--bg-light-gray); }
+
+/* Canvas + sections */
+.fb-canvas { flex: 1; min-height: 0; overflow-y: auto; }
+.fb-section-container { background: var(--fg); border-bottom: 1px solid var(--fb-border); }
+.fb-section-container:last-child { border-bottom: none; }
+.fb-section { border: 1px solid transparent; border-radius: var(--fb-radius); padding: 1rem; cursor: pointer; }
+.fb-section.selected { border-color: var(--fb-border-primary); }
+.fb-section-header { display: flex; justify-content: space-between; align-items: center; padding-bottom: 0.75rem; }
+.fb-section-label { display: flex; align-items: center; gap: 6px; }
+.fb-section-grip { cursor: grab; color: var(--fb-gray-400); font-size: 14px; line-height: 1; }
+.fb-section-title { font-weight: 600; color: var(--fb-heading); }
+.fb-section-title.empty { font-weight: 400; font-style: italic; color: var(--fb-muted); }
+.fb-section-columns { display: flex; min-height: 2rem; align-items: flex-start; }
+
+/* Section "…" options menu (mirrors Frappe's Dropdown) */
+.fb-menu-backdrop { position: fixed; inset: 0; z-index: 40; }
+.fb-menu-wrap { position: relative; }
+.fb-menu-btn { border: none; background: transparent; color: var(--fb-muted); font-size: 16px; line-height: 1; cursor: pointer; padding: 2px 8px; border-radius: 6px; }
+.fb-menu-btn:hover { background: var(--bg-light-gray); color: var(--fb-heading); }
+.fb-menu { position: absolute; top: 100%; right: 0; z-index: 50; margin-top: 4px; min-width: 180px; background: var(--fg); border: 1px solid var(--fb-border); border-radius: 10px; box-shadow: 0 8px 28px rgba(0,0,0,.16); padding: 4px; }
+.fb-menu-group { padding: 4px; }
+.fb-menu-group + .fb-menu-group { border-top: 1px solid var(--fb-border); }
+.fb-menu-title { padding: 4px 8px; font-size: 10px; font-weight: 600; text-transform: uppercase; letter-spacing: .04em; color: var(--fb-muted); }
+.fb-menu-item { display: block; width: 100%; text-align: left; border: none; background: transparent; color: var(--fb-text); font-size: var(--fb-tsm); padding: 7px 8px; border-radius: 6px; cursor: pointer; }
+.fb-menu-item:hover { background: var(--bg-light-gray); }
+
+/* Columns */
+.fb-column { position: relative; display: flex; flex-direction: column; width: 100%; background: var(--bg-light-gray); border-radius: var(--fb-radius); border: 1px dashed var(--fb-gray-400); padding: 0.5rem; margin: 0 4px; }
+.fb-column:first-child { margin-left: 0; }
+.fb-column:last-child { margin-right: 0; }
+.fb-column.selected { border-color: var(--fb-border-primary); border-style: solid; }
+.fb-column-container { min-height: 2rem; display: flex; flex-direction: column; }
+
+/* Field cards: label row + a live control preview */
+.fb-field { text-align: left; width: 100%; background: var(--bg-light-gray); border-radius: var(--fb-radius); border: 1px solid transparent; padding: 0.4rem; cursor: pointer; }
+.fb-field:not(:first-child) { margin-top: 0.4rem; }
+.fb-field.selected, .fb-field:hover { border-color: var(--fb-border-primary); }
+.fb-field.selected .fb-icon, .fb-field:hover .fb-icon { opacity: 1; }
+.fb-field .field-controls { display: flex; justify-content: space-between; align-items: center; margin-bottom: 0.3rem; }
+.fb-field .field-label { display: flex; align-items: center; min-width: 0; }
+.fb-field .fb-flabel { font-size: var(--fb-tsm); color: var(--fb-text); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.fb-field .fb-flabel.empty { color: var(--fb-muted); font-style: italic; }
+.fb-field .reqd-asterisk { margin-left: 3px; color: #eb9091; }
+.fb-field .field-actions { display: flex; gap: 2px; flex: none; }
+.fb-icon { opacity: 0; border: none; background: transparent; cursor: pointer; color: var(--fb-muted); padding: 3px; border-radius: 5px; display: inline-flex; align-items: center; justify-content: center; transition: opacity .15s, background-color .15s, color .15s; }
+.fb-icon:hover { background: var(--fg); color: var(--fb-heading); }
+.fb-icon svg { width: 15px; height: 15px; display: block; fill: none; stroke: currentColor; stroke-width: 1.4; stroke-linecap: round; stroke-linejoin: round; }
+
+/* Control previews (mirror Frappe's control widgets) */
+.fb-field .form-control { width: 100%; height: 28px; border: none; border-radius: var(--fb-radius); background: var(--control-bg); padding: 6px 8px; font-size: var(--fb-tsm); color: var(--fb-text); box-shadow: inset 0 0 0 1px var(--fb-border); }
+.fb-field textarea.form-control { height: auto; resize: none; }
+.fb-field select.form-control { appearance: none; }
+.fb-check { display: inline-flex; align-items: center; }
+.fb-check input { width: 14px; height: 14px; }
+.fb-table-preview { border: 1px dashed var(--fb-gray-400); border-radius: var(--fb-radius); padding: 8px 10px; font-size: var(--fb-txs); color: var(--fb-muted); background: var(--control-bg); }
+.fb-heading-preview { font-weight: 700; color: var(--fb-heading); font-size: 15px; }
+.fb-html-preview { border: 1px dashed var(--fb-gray-400); border-radius: var(--fb-radius); padding: 12px; text-align: center; font-size: var(--fb-txs); color: var(--fb-muted); }
+
+/* Add buttons */
+.fb-add-field { padding: 8px 2px 2px; }
+.fb-add-btn { border: none; background: var(--fg); color: var(--fb-muted); border-radius: 6px; padding: 6px 12px; font-size: var(--fb-txs); cursor: pointer; box-shadow: inset 0 0 0 1px var(--fb-border); transition: background-color .15s, color .15s; }
+.fb-add-btn:hover { background: var(--bg-light-gray); color: var(--fb-heading); }
+
+/* Auto-save status */
+.dc-save-status { font-size: 13px; color: var(--md-on-surface-variant); }
+.dc-save-status.st-saving { color: var(--md-primary); }
+.dc-save-status.st-saved { color: var(--md-success); }
+.dc-save-status.st-error { color: var(--md-error); }
 
 /* ── Properties (right) ── */
-.dc-props-panel { width: clamp(250px, 22%, 312px); flex: none; border-left: 1px solid var(--md-outline-variant); background: var(--md-surface-container-low); overflow-y: auto; padding: 18px 16px; }
+.dc-props-panel { width: clamp(250px, 22%, 312px); flex: none; border-left: 1px solid var(--md-outline-variant); background: var(--md-surface-container-low); overflow-y: auto; scrollbar-gutter: stable; padding: 18px 16px; }
 .dc-props-head { font-size: 14px; font-weight: 600; letter-spacing: .01em; color: var(--md-on-surface); margin-bottom: 16px; }
 .dc-prop { display: flex; flex-direction: column; gap: 5px; margin-bottom: 14px; }
 .dc-prop label { font-size: 12px; color: var(--md-on-surface-variant); font-weight: 500; }
@@ -1174,11 +1511,29 @@ onMounted(async () => {
 .dc-prop-input:hover { border-color: var(--md-on-surface); }
 .dc-prop-input:focus { outline: none; border-color: var(--md-primary); box-shadow: inset 0 0 0 1px var(--md-primary); }
 .dc-mono { font-family: ui-monospace, monospace; }
-/* checkbox flags */
-.dc-flags { display: grid; grid-template-columns: 1fr 1fr; gap: 4px 8px; margin: 8px 0 16px; }
-.dc-flags label { display: flex; align-items: center; gap: 8px; font-size: 13px; color: var(--md-on-surface); padding: 6px 8px; border-radius: var(--md-corner-sm); cursor: pointer; transition: background-color var(--md-dur) var(--md-ease); }
-.dc-flags label:hover { background: rgba(71,70,79,var(--md-state-hover)); }
-.dc-flags input[type="checkbox"] { width: 18px; height: 18px; accent-color: var(--md-primary); cursor: pointer; }
+
+/* ── Field properties (Frappe-style: sticky search + scroll + filled) ── */
+.fb-props-header { position: sticky; top: -18px; z-index: 3; display: flex; align-items: center; gap: 8px; margin: -18px -16px 12px; padding: 10px 14px; background: var(--md-surface-container-low); border-bottom: 1px solid var(--md-outline-variant); }
+.fb-props-search { flex: 1; min-width: 0; display: flex; align-items: center; gap: 6px; background: var(--md-surface-container-high); border-radius: var(--md-corner-full); padding: 6px 12px; }
+.fb-props-search-ico { color: var(--md-on-surface-variant); font-size: 15px; }
+.fb-props-search input { flex: 1; min-width: 0; border: none; background: transparent; outline: none; font-size: 13px; color: var(--md-on-surface); }
+.fb-props-search-x { border: none; background: transparent; color: var(--md-on-surface-variant); cursor: pointer; font-size: 11px; padding: 0 2px; }
+.fb-props-close { flex: none; border: none; background: transparent; color: var(--md-on-surface-variant); cursor: pointer; font-size: 14px; line-height: 1; width: 26px; height: 26px; border-radius: var(--md-corner-full); display: grid; place-items: center; }
+.fb-props-close:hover { background: rgba(71,70,79,var(--md-state-hover)); color: var(--md-on-surface); }
+.fb-props-body { display: flex; flex-direction: column; padding-bottom: 4px; }
+/* Frappe controls: bold-ish label above a soft filled field */
+.fb-props-body .dc-prop { gap: 6px; margin-bottom: 16px; }
+.fb-props-body .dc-prop label { font-size: 13px; font-weight: 600; color: #44546a; }
+.fb-props-body .dc-prop-input { border: 1px solid transparent; background: var(--md-surface-container-high); border-radius: 8px; padding: 8px 10px; font-size: 13px; }
+.fb-props-body .dc-prop-input:hover { background: color-mix(in srgb, var(--md-on-surface) 3%, var(--md-surface-container-high)); }
+.fb-props-body .dc-prop-input:focus { background: var(--md-surface-container-lowest); border-color: var(--md-primary); box-shadow: inset 0 0 0 1px var(--md-primary); }
+.fb-props-body textarea.dc-prop-input { resize: vertical; min-height: 40px; }
+/* Code / *_depends_on fields read as a small code box */
+.fb-props-body textarea.dc-prop-input.dc-mono { min-height: 54px; background: var(--md-surface-container-high); line-height: 1.5; }
+.fb-prop-check { display: flex; align-items: center; gap: 10px; padding: 7px 4px; font-size: 13px; font-weight: 600; color: #44546a; cursor: pointer; border-radius: 6px; }
+.fb-prop-check:hover { background: rgba(71,70,79,var(--md-state-hover)); }
+.fb-prop-check input[type="checkbox"] { width: 16px; height: 16px; accent-color: var(--md-primary); cursor: pointer; flex: none; }
+.fb-prop-hint { font-size: 12px; color: #6b7684; line-height: 1.45; margin: 5px 0 0; }
 /* MD3 switch */
 .dc-switch { display: flex; align-items: center; gap: 12px; margin: 6px 0 16px; cursor: pointer; font-size: 13px; color: var(--md-on-surface); }
 .dc-switch input { position: absolute; opacity: 0; width: 0; height: 0; }
@@ -1195,46 +1550,7 @@ onMounted(async () => {
 
 /* ── Footer ── */
 .dc-window-footer { display: flex; align-items: center; justify-content: flex-end; gap: 12px; padding: 12px 16px; background: var(--md-surface-container); }
-.dc-error { color: var(--md-error); font-size: 13px; margin-right: auto; }
-.dc-ok { color: var(--md-success); font-size: 13px; font-weight: 500; margin-right: auto; }
 .dc-count { color: var(--md-on-surface-variant); font-size: 13px; margin-right: auto; }
-/* MD3 filled button */
-.dc-apply-btn { border: none; background: var(--md-primary); color: var(--md-on-primary); border-radius: var(--md-corner-full); padding: 11px 24px; font-size: 14px; font-weight: 500; cursor: pointer; box-shadow: var(--md-elev-1); transition: box-shadow var(--md-dur) var(--md-ease), background-color var(--md-dur) var(--md-ease); }
-.dc-apply-btn:hover:not(:disabled) { box-shadow: var(--md-elev-2); background: color-mix(in srgb, var(--md-on-primary) 8%, var(--md-primary)); }
-.dc-apply-btn:disabled { background: rgba(27,27,33,0.12); color: rgba(27,27,33,0.38); box-shadow: none; cursor: not-allowed; }
-
-/* ── History group (undo/redo/templates) ── */
-.dc-hist-group { display: flex; gap: 6px; align-items: center; }
-.dc-icon-sm { border: none; background: transparent; color: var(--md-on-surface-variant); border-radius: var(--md-corner-full); width: 34px; height: 34px; font-size: 16px; cursor: pointer; transition: background-color var(--md-dur) var(--md-ease); }
-.dc-icon-sm:hover:not(:disabled) { background: rgba(71,70,79,var(--md-state-hover)); }
-.dc-icon-sm:disabled { opacity: .35; cursor: not-allowed; }
-
-/* ── Modal (confirmation + templates) ── */
-.dc-modal-scrim { position: absolute; inset: 0; z-index: 10; background: rgba(20,18,30,0.45); display: flex; align-items: center; justify-content: center; animation: dc-scrim-in var(--md-dur) var(--md-ease); }
-.dc-modal { width: min(560px, 90%); max-height: 80%; overflow-y: auto; background: var(--md-surface-container-low); border-radius: var(--md-corner-lg); box-shadow: var(--md-elev-3); padding: 22px 24px; animation: dc-window-in 200ms var(--md-ease); }
-.dc-modal-title { font-size: 18px; font-weight: 600; color: var(--md-on-surface); margin-bottom: 8px; }
-.dc-modal-summary { font-size: 14px; line-height: 1.5; color: var(--md-on-surface-variant); margin: 0 0 14px; }
-.dc-diff { display: flex; flex-direction: column; gap: 4px; margin-bottom: 12px; font-size: 13px; }
-.dc-diff-line { padding: 6px 10px; border-radius: var(--md-corner-sm); }
-.dc-diff-add { background: color-mix(in srgb, var(--md-success) 12%, transparent); color: var(--md-success); }
-.dc-diff-chg { background: rgba(71,70,79,var(--md-state-hover)); color: var(--md-on-surface); }
-.dc-diff-rem { background: var(--md-error-container); color: var(--md-on-error-container); }
-.dc-warn { background: var(--md-error-container); color: var(--md-on-error-container); border-radius: var(--md-corner-sm); padding: 10px 12px; font-size: 13px; line-height: 1.5; margin-bottom: 14px; }
-.dc-modal-actions { display: flex; justify-content: flex-end; gap: 10px; margin-top: 8px; }
-.dc-btn-text { border: none; background: transparent; color: var(--md-primary); border-radius: var(--md-corner-full); padding: 10px 18px; font-size: 14px; font-weight: 500; cursor: pointer; transition: background-color var(--md-dur) var(--md-ease); }
-.dc-btn-text:hover { background: rgba(79,70,229,var(--md-state-hover)); }
-.dc-btn-filled { border: none; background: var(--md-primary); color: var(--md-on-primary); border-radius: var(--md-corner-full); padding: 10px 20px; font-size: 14px; font-weight: 500; cursor: pointer; box-shadow: var(--md-elev-1); transition: box-shadow var(--md-dur) var(--md-ease), background-color var(--md-dur) var(--md-ease); }
-.dc-btn-filled:hover:not(:disabled) { box-shadow: var(--md-elev-2); }
-.dc-btn-filled:disabled { background: rgba(27,27,33,0.12); color: rgba(27,27,33,0.38); box-shadow: none; cursor: not-allowed; }
-.dc-btn-danger { background: var(--md-error); }
-.dc-btn-danger:hover:not(:disabled) { background: color-mix(in srgb, #000 8%, var(--md-error)); }
-
-/* ── Template picker ── */
-.dc-template-list { display: flex; flex-direction: column; gap: 8px; margin-bottom: 6px; }
-.dc-template-item { display: flex; flex-direction: column; align-items: flex-start; gap: 2px; text-align: left; border: 1px solid var(--md-outline-variant); background: var(--md-surface-container-lowest); border-radius: var(--md-corner-md); padding: 12px 14px; cursor: pointer; transition: background-color var(--md-dur) var(--md-ease), border-color var(--md-dur) var(--md-ease); }
-.dc-template-item:hover { border-color: var(--md-primary); background: color-mix(in srgb, var(--md-primary) 5%, var(--md-surface-container-lowest)); }
-.dc-template-name { font-size: 14px; font-weight: 600; color: var(--md-on-surface); }
-.dc-template-desc { font-size: 12px; color: var(--md-on-surface-variant); }
 
 /* ══════════════════════════════════════════════════════════════════════
    Responsive (MD3 adaptive dialog): panels flex on medium widths, and the
@@ -1258,13 +1574,12 @@ onMounted(async () => {
 		width: 100%; height: auto; max-height: 46%; flex: none;
 		border-left: none; border-top: 1px solid var(--md-outline-variant);
 	}
-	.dc-add-group { flex-wrap: wrap; }
 	.dc-window-header { padding: 10px 12px 10px 14px; }
 	.dc-subtitle { display: none; }        /* keep the header compact */
-	.dc-modal { width: min(560px, 94%); padding: 18px; }
+	.dc-settings-page { padding: 16px; }
+	.dc-settings-grid { grid-template-columns: 1fr; gap: 10px; }
 }
 @media (max-width: 420px) {
-	.dc-add-btn { padding: 7px 12px; font-size: 12px; }
 	.dc-dt-chip { max-width: 120px; }
 }
 </style>
