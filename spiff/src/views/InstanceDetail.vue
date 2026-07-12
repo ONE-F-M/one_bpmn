@@ -23,13 +23,13 @@
 				/>
 
 				<!-- Waiting for AI execution (WI-001499) -->
-				<div v-if="waitingForAi" class="flex items-center gap-3 bg-purple-50 border border-purple-200 text-purple-800 text-sm px-4 py-2.5 mx-4 mt-2 rounded-lg">
-					<span class="text-purple-600 animate-pulse text-base leading-none">✦</span>
+				<div v-if="waitingForAi" class="flex items-center gap-3 bg-blue-50 border border-blue-200 text-blue-800 text-sm px-4 py-2.5 mx-4 mt-2 rounded-lg">
+					<span class="text-blue-600 animate-pulse text-base leading-none">✦</span>
 					<div class="flex-1">
 						<span class="font-semibold">Waiting for AI execution</span>
-						<span v-if="parkedAiLabels" class="text-purple-600"> — {{ parkedAiLabels }}</span>
+						<span v-if="parkedAiLabels" class="text-blue-600"> — {{ parkedAiLabels }}</span>
 					</div>
-					<Icon icon="lucide:loader" class="w-4 h-4 text-purple-400 animate-spin" />
+					<Icon icon="lucide:loader" class="w-4 h-4 text-blue-400 animate-spin" />
 				</div>
 
 				<!-- Suspended agent waiting for a person (Durable AI Agent HITL) -->
@@ -50,7 +50,7 @@
 						<p class="mt-0.5">The AI job for {{ parkedAiLabels }} failed after its retries. The task is still parked — retry resumes exactly where it stopped.</p>
 					</div>
 					<button
-						class="px-3 py-1.5 rounded-md bg-purple-600 text-white text-xs font-semibold hover:bg-purple-700 disabled:opacity-50"
+						class="px-3 py-1.5 rounded-md bg-blue-600 text-white text-xs font-semibold hover:bg-blue-700 disabled:opacity-50"
 						:disabled="retryingAi"
 						@click="retryAiTasks"
 					>
@@ -229,21 +229,48 @@ const taskList = computed(() => {
 			// directly beneath it so nesting order is preserved.
 			nodes.sort((a, b) => (a.timestamp || 0) - (b.timestamp || 0))
 			const flat = []
-			for (const n of nodes) {
+			const aiVisitIdx = {} // bpmnId → agent-task visits emitted so far
+			for (let i = 0; i < nodes.length; i++) {
+				const n = nodes[i]
 				flat.push(n)
 				// WI-001426: an AI Agent Task's tool calls happen inside the
 				// LLM loop, not as engine tasks — inject synthetic nested rows
 				// (from ai_agent_tool_call records) so the history shows what
-				// the agent did, styled distinctly from real flow steps.
+				// the agent did. AI Agent Runs are zipped to the task's visits
+				// in chronological order, so a looping conversation shows each
+				// turn's own calls, not every turn's calls under every visit.
 				if (n.extensions?.serviceType === "ai_agent") {
-					const calls = aiCallsByBpmnId.value[n.bpmnId] || []
-					calls.forEach((call, i) => {
+					const runs = aiCallRunsByBpmnId.value[n.bpmnId] || []
+					const visit = aiVisitIdx[n.bpmnId] || 0
+					aiVisitIdx[n.bpmnId] = visit + 1
+					const slot = runs[visit] || {}
+					const calls = slot.calls || []
+					// This visit's own AI Agent Run — the inspector's AI tab
+					// fetches this exact run instead of "latest for the shape".
+					n.aiRunName = slot.runName || null
+					// The tools-decision gateway that follows the agent completes
+					// in the same engine pass, milliseconds later. Emit it before
+					// the call rows so the history reads agent → decision → tools
+					// (Camunda's Operate ordering), not tools → decision.
+					if (calls.length) {
+						const next = nodes[i + 1]
+						if (next && /Gateway/i.test(next.typename || "")) {
+							flat.push(next)
+							if (next.childNodes) {
+								flat.push(...next.childNodes)
+								delete next.childNodes
+							}
+							i++
+						}
+					}
+					calls.forEach((call, ci) => {
 						flat.push({
-							id: `${n.id}::aicall::${i}`,
+							id: `${n.id}::aicall::${ci}`,
 							bpmnId: null,
 							isAiToolCall: true,
 							parentId: n.id,
 							parentBpmnId: n.bpmnId,
+							aiRunName: slot.runName || null,
 							toolBpmnId: call.tool_name,
 							name: taskLabels.value[call.tool_name] || call.tool_name,
 							callStatus: call.status,
@@ -309,7 +336,10 @@ const selectedNode = computed(() => {
 // tasks — fetch them from the observability records (AI Agent Run → Step →
 // Tool Call) so the history and diagram can show what the agent did.
 
-const aiCallsByBpmnId = ref({})
+// bpmnId → [ [calls of run 1], [calls of run 2], ... ] in run start order,
+// one entry per run even when a run made no tool calls — the flattener zips
+// this list to the agent task's visits, so slots must line up 1:1.
+const aiCallRunsByBpmnId = ref({})
 const aiRunTick = ref(0)
 
 async function loadAiToolCalls() {
@@ -318,12 +348,13 @@ async function loadAiToolCalls() {
 			url: "/api/method/frappe.client.get_list",
 			params: {
 				doctype: "AI Agent Run",
-				fields: JSON.stringify(["name", "bpmn_id"]),
+				fields: JSON.stringify(["name", "bpmn_id", "started_at"]),
 				filters: JSON.stringify([["instance", "=", instanceId.value]]),
+				order_by: "started_at asc",
 				limit_page_length: 0,
 			},
 		})
-		if (!Array.isArray(runs) || !runs.length) { aiCallsByBpmnId.value = {}; return }
+		if (!Array.isArray(runs) || !runs.length) { aiCallRunsByBpmnId.value = {}; return }
 
 		const runByName = Object.fromEntries(runs.map((r) => [r.name, r.bpmn_id]))
 		const steps = await frappeRequest({
@@ -336,7 +367,7 @@ async function loadAiToolCalls() {
 				limit_page_length: 0,
 			},
 		})
-		if (!Array.isArray(steps) || !steps.length) { aiCallsByBpmnId.value = {}; return }
+		if (!Array.isArray(steps) || !steps.length) { aiCallRunsByBpmnId.value = {}; return }
 
 		const stepOrder = Object.fromEntries(steps.map((s, i) => [s.name, i]))
 		const stepRun = Object.fromEntries(steps.map((s) => [s.name, s.run]))
@@ -357,24 +388,37 @@ async function loadAiToolCalls() {
 			const s = typeof v === "string" ? v : JSON.stringify(v)
 			return s.length > 160 ? s.slice(0, 160) + "…" : s
 		}
-		const grouped = {}
+		const byRun = {}
 		;(Array.isArray(calls) ? calls : [])
 			.filter((c) => c.tool_source === "diagram_task")
 			.sort((a, b) => (stepOrder[a.parent] - stepOrder[b.parent]) || (a.idx - b.idx))
 			.forEach((c) => {
-				const bpmnId = runByName[stepRun[c.parent]]
-				if (!bpmnId) return
-				;(grouped[bpmnId] = grouped[bpmnId] || []).push({
+				const runName = stepRun[c.parent]
+				if (!runName) return
+				;(byRun[runName] = byRun[runName] || []).push({
 					tool_name: c.tool_name,
 					status: c.status,
 					args_preview: preview(c.tool_args),
 					result_preview: preview(c.tool_result),
 				})
 			})
-		aiCallsByBpmnId.value = grouped
+		// One slot per run in start order — including empty slots for runs
+		// without tool calls — so run N always pairs with task visit N. Each
+		// slot carries its run name so the flattener can stamp the visit's own
+		// AI Agent Run onto the history row (the inspector fetches THAT run,
+		// not "latest run for the shape").
+		const grouped = {}
+		runs.forEach((r) => {
+			if (!r.bpmn_id) return
+			;(grouped[r.bpmn_id] = grouped[r.bpmn_id] || []).push({
+				runName: r.name,
+				calls: byRun[r.name] || [],
+			})
+		})
+		aiCallRunsByBpmnId.value = grouped
 	} catch (e) {
 		console.warn("Failed to load AI tool calls:", e)
-		aiCallsByBpmnId.value = {}
+		aiCallRunsByBpmnId.value = {}
 	}
 }
 
@@ -385,11 +429,13 @@ const aiCalledTools = computed(() => {
 	// count is the number of times the agent called this tool (drives the
 	// ×N badge on the tool shape).
 	const map = {}
-	for (const calls of Object.values(aiCallsByBpmnId.value)) {
-		for (const c of calls) {
-			const entry = map[c.tool_name] || (map[c.tool_name] = { status: c.status, count: 0 })
-			entry.count += 1
-			if (c.status === "Error") entry.status = "Error"
+	for (const runs of Object.values(aiCallRunsByBpmnId.value)) {
+		for (const slot of runs) {
+			for (const c of slot.calls || []) {
+				const entry = map[c.tool_name] || (map[c.tool_name] = { status: c.status, count: 0 })
+				entry.count += 1
+				if (c.status === "Error") entry.status = "Error"
+			}
 		}
 	}
 	return map
