@@ -11,6 +11,12 @@
   "column_break_nejc",
   "is_generic",
   "ctc_requires_approval",
+  "section_break_eezn",
+  "process_owner",
+  "process_owner_name",
+  "column_break_wigk",
+  "column_break_sile",
+  "dependency_tab",
   "section_break_xvap",
   "is_group",
   "parent_process",
@@ -22,14 +28,15 @@
   "predecessor_count",
   "is_required_for",
   "successor_count",
-  "section_break_eezn",
-  "process_owner",
-  "process_owner_name",
-  "column_break_wigk",
+  "more_information_tab",
   "section_break_xkrb",
   "process_doctypes",
   "column_break_ptuq",
-  "roles"
+  "roles",
+  "section_break_uimp",
+  "process_creation_request",
+  "column_break_tutf",
+  "column_break_vapa"
  ],
  "fields": [
   {
@@ -177,6 +184,40 @@
    "fieldname": "ctc_requires_approval",
    "fieldtype": "Check",
    "label": "CTC Requires Approval"
+  },
+  {
+   "fieldname": "more_information_tab",
+   "fieldtype": "Tab Break",
+   "label": "More Information"
+  },
+  {
+   "fieldname": "section_break_uimp",
+   "fieldtype": "Section Break"
+  },
+  {
+   "fieldname": "process_creation_request",
+   "fieldtype": "Link",
+   "label": "Process Creation Request",
+   "options": "Process Creation Request",
+   "read_only": 1,
+   "search_index": 1
+  },
+  {
+   "fieldname": "column_break_tutf",
+   "fieldtype": "Column Break"
+  },
+  {
+   "fieldname": "column_break_vapa",
+   "fieldtype": "Column Break"
+  },
+  {
+   "fieldname": "dependency_tab",
+   "fieldtype": "Tab Break",
+   "label": "Dependency"
+  },
+  {
+   "fieldname": "column_break_sile",
+   "fieldtype": "Column Break"
   }
  ],
  "grid_page_length": 50,
@@ -186,9 +227,13 @@
   {
    "link_doctype": "Pathfinder Log",
    "link_fieldname": "process_name"
+  },
+  {
+   "link_doctype": "Process Owner Assignment",
+   "link_fieldname": "process_name"
   }
  ],
- "modified": "2026-06-04 22:02:08.795956",
+ "modified": "2026-07-09 12:12:43.279886",
  "modified_by": "Administrator",
  "module": "ONE BPMN",
  "name": "Process",

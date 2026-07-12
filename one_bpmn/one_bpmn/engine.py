@@ -356,6 +356,11 @@ class FrappeScriptEngine(PythonScriptEngine):
 				"context_doctype": self._context_doctype or "",
 				"context_docname": self._context_docname or "",
 				"result": result_dict,
+				# Snapshot of the workflow variables as a plain dict, so scripts
+				# can safely read OPTIONAL vars — e.g. task_data.get("x", default)
+				# — without resorting to locals()/globals() (blocked by the
+				# script-security validator).
+				"task_data": dict(task.data),
 			}
 		)
 		if self._context_doctype and self._context_docname:

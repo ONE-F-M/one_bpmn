@@ -1489,6 +1489,13 @@ def compile_process_model(model_name: str) -> dict:
 	if script_extensions:
 		spec_data["script_task_extensions"] = script_extensions
 
+	# ── Deploy-time security gate ─────────────────────────────────────────
+	# Structurally validate every script task (inline + referenced Server
+	# Scripts) before the model is activated and its scripts enabled.
+	from one_bpmn.security.script_gate import validate_process_model_scripts
+
+	validate_process_model_scripts(sanitized_xml)
+
 	user_extensions = _extract_user_task_config(sanitized_xml)
 	if user_extensions:
 		spec_data["user_task_extensions"] = user_extensions
@@ -1521,8 +1528,10 @@ def compile_process_model(model_name: str) -> dict:
 	_activate_deployed_model(model, script_extensions)
 
 	# ── Single save ──────────────────────────────────────────────────────
-	# Deploy is allowed even on Production — bypass editability gate
+	# Deploy is allowed even on Production — bypass editability gate.
+	# Script tasks were already validated above, so skip the authoring gate.
 	model.flags.skip_editability_check = True
+	model.flags.skip_script_security_check = True
 	model.save(ignore_permissions=True)
 
 	result = {
