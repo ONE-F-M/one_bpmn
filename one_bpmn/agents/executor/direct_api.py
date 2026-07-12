@@ -343,10 +343,6 @@ class DirectApiExecutor(Executor):
         messages = []
         if config.system_prompt:
             messages.append({"role": "system", "content": config.system_prompt})
-        # Prior history (if any) precedes the rendered user_prompt. Empty by
-        # default, so the payload is identical to before when unused.
-        if config.messages:
-            messages.extend(config.messages)
         messages.append({"role": "user", "content": config.user_prompt})
 
         payload = {
@@ -379,10 +375,7 @@ class DirectApiExecutor(Executor):
         url = f"{endpoint}/v1/messages"
 
         # Anthropic uses a top-level "system" field, not a system message.
-        # Prior history (if any) precedes the rendered user_prompt. Empty by
-        # default, so the payload is identical to before when unused.
-        messages = list(config.messages) if config.messages else []
-        messages.append({"role": "user", "content": config.user_prompt})
+        messages = [{"role": "user", "content": config.user_prompt}]
 
         payload: dict = {
             "model": model,

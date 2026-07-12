@@ -18,32 +18,12 @@ Scope key shapes (the ``scope_key`` argument):
 from __future__ import annotations
 
 import json
-import re
 
 import frappe
 from frappe import _
 
 VALID_SCOPES = ("Agent", "Process", "Entity")
 _DEFAULT_LIMIT = 5
-# Max distinct keyword tokens to OR-match from a query (bounds the WHERE clause).
-_MAX_QUERY_TOKENS = 10
-# Ignore very short tokens so a whole-sentence query still matches on real words.
-_MIN_TOKEN_LEN = 2
-
-
-def _query_tokens(query: str) -> list[str]:
-	"""Split a free-text query into distinct keyword tokens for matching. A
-	whole user prompt is a valid query, so we match on its words rather than
-	the entire string as one substring."""
-	seen, tokens = set(), []
-	for tok in re.split(r"\W+", query or ""):
-		tok = tok.strip()
-		if len(tok) >= _MIN_TOKEN_LEN and tok.lower() not in seen:
-			seen.add(tok.lower())
-			tokens.append(tok)
-		if len(tokens) >= _MAX_QUERY_TOKENS:
-			break
-	return tokens
 
 
 def _json_loads(value):
@@ -107,20 +87,13 @@ def memory_search(scope: str, scope_key, query: str, limit: int = 5, *, ignore_p
 	method.
 	"""
 	filters = _resolve_scope(scope, scope_key)
-	# Keyword match: OR each query token against content. `filters` (scope) is
-	# AND-ed with `or_filters` (the token match) by DatabaseQuery, so results
-	# stay pinned to the exact scope key. Empty/short-only query -> recency list.
-	or_filters = None
 	if query:
-		tokens = _query_tokens(query)
-		if tokens:
-			or_filters = [["content", "like", f"%{tok}%"] for tok in tokens]
+		filters["content"] = ["like", f"%{query}%"]
 
 	page_length = limit if isinstance(limit, int) and limit > 0 else _DEFAULT_LIMIT
 	rows = frappe.get_list(
 		"AI Memory",
 		filters=filters,
-		or_filters=or_filters,
 		fields=["name", "content", "metadata"],
 		order_by="modified desc",
 		limit_page_length=page_length,
