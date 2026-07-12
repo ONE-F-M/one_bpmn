@@ -2,7 +2,6 @@
  "actions": [],
  "autoname": "hash",
  "creation": "2026-07-05 00:00:00.000000",
- "description": "Durable, scoped agent memory. Read/written by the memory search/write API and injected by the dispatcher. Keyword/full-text retrieval in v1; a nullable embedding field can be added later without a migration.",
  "doctype": "DocType",
  "engine": "InnoDB",
  "field_order": [
