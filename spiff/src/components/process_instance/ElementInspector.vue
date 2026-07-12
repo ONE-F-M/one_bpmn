@@ -364,20 +364,14 @@ function formatDateTime(d) {
 
 // ── AI Agent Run observability ───────────────────────────────────────
 
-// Both AI element kinds have AI Agent Run observability: AI Agent Tasks
-// (service tasks) and AI Task Selectors (ad-hoc subprocesses); runs are
-// keyed by instance + bpmn_id either way.
 const isAiAgent = computed(() => {
-	const serviceType = props.selectedNode?.extensions?.serviceType
-	return serviceType === "ai_agent" || serviceType === "ai_task_selector"
+	return props.selectedNode?.extensions?.serviceType === "ai_agent"
 })
 
 // Friendly type label — AI Agent Tasks serialize as a bare "ServiceTask",
 // so surface them as "AI Agent Task" in the Details tab.
 const displayType = computed(() => {
-	const serviceType = props.selectedNode?.extensions?.serviceType
-	if (serviceType === "ai_task_selector") return "AI Task Selector"
-	if (serviceType === "ai_agent") return "AI Agent Task"
+	if (isAiAgent.value) return "AI Agent Task"
 	return props.selectedNode?.typename || "—"
 })
 

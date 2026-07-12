@@ -474,74 +474,16 @@ def get_performance_report(
 
 @frappe.whitelist()
 def get_run_steps(run_name: str) -> list:
-	"""Return steps for a single AI Agent Run.
-
-	WI-001360: each step carries its AI Agent Tool Call child rows so the
-	instance detail view can render subprocess runs as Run → expandable
-	Steps (one per LLM turn) → the individual tool calls that turn made —
-	instead of the flat single-call view built for plain AI Agent Tasks.
-	Per-tool analytics must aggregate through these rows, not the flat
-	tool_name column (a single turn can contain several calls).
-	"""
+	"""Return steps for a single AI Agent Run."""
 	frappe.only_for("System Manager")
 
-	steps = frappe.get_list(
+	return frappe.get_list(
 		"AI Agent Step",
 		filters={"run": run_name},
 		fields=[
-			"name", "step_index", "role", "tool_name", "content",
+			"step_index", "role", "tool_name",
 			"latency_ms", "prompt_tokens", "completion_tokens", "cost",
 		],
 		order_by="step_index asc",
 		limit_page_length=100,
 	)
-
-	step_names = [s.name for s in steps]
-	calls_by_step = {}
-	if step_names and frappe.db.exists("DocType", "AI Agent Tool Call"):
-		for call in frappe.get_all(
-			"AI Agent Tool Call",
-			filters={"parent": ["in", step_names], "parenttype": "AI Agent Step"},
-			fields=["parent", "tool_name", "tool_source", "tool_args", "tool_result", "status"],
-			order_by="idx asc",
-		):
-			calls_by_step.setdefault(call.pop("parent"), []).append(call)
-
-	for step in steps:
-		step["tool_calls"] = calls_by_step.get(step.name, [])
-	return steps
-
-
-@frappe.whitelist()
-def get_run_totals_crosscheck(run_name: str) -> dict:
-	"""WI-001360 Scenario 4: verify a run's rolled-up totals against the sum
-	of its Step rows — cross-checked, not just trusted."""
-	frappe.only_for("System Manager")
-
-	run = frappe.db.get_value(
-		"AI Agent Run", run_name, ["total_tokens", "estimated_cost"], as_dict=True
-	)
-	if not run:
-		frappe.throw(_("AI Agent Run '{0}' not found").format(run_name))
-
-	Step = DocType("AI Agent Step")
-	sums = (
-		frappe.qb.from_(Step)
-		.select(
-			fn.Sum(Step.prompt_tokens + Step.completion_tokens).as_("tokens"),
-			fn.Sum(Step.cost).as_("cost"),
-		)
-		.where(Step.run == run_name)
-		.run(as_dict=True)
-	)[0]
-
-	step_tokens = cint(sums.get("tokens"))
-	step_cost = flt(sums.get("cost"), 4)
-	return {
-		"run_total_tokens": cint(run.total_tokens),
-		"step_total_tokens": step_tokens,
-		"tokens_match": cint(run.total_tokens) == step_tokens,
-		"run_estimated_cost": flt(run.estimated_cost, 4),
-		"step_total_cost": step_cost,
-		"cost_match": abs(flt(run.estimated_cost, 4) - step_cost) < 0.0001,
-	}
