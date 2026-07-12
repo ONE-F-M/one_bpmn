@@ -73,91 +73,120 @@
 							</div>
 						</div>
 
-						<!-- Tabs strip -->
-						<draggable
-							v-if="tabs.length"
-							:list="tabs"
-							item-key="id"
-							class="dc-tabs"
-							:animation="150"
-						>
-							<template #item="{ element: tab, index }">
-								<div
-									class="dc-tab"
-									:class="{ active: index === activeTabIndex, sel: isSel('tab', tab) }"
-									@click="activeTabIndex = index"
-									@dblclick="selectContainer('tab', tab)"
-								>
-									<span class="dc-tab-label">{{ tabLabel(tab, index) }}</span>
-									<button class="dc-tab-edit" @click.stop="selectContainer('tab', tab)" title="Tab properties">⚙</button>
-								</div>
-							</template>
-						</draggable>
-
-						<!-- Active tab body -->
-						<div class="dc-canvas" v-if="activeTab">
-							<draggable
-								:list="activeTab.sections"
-								item-key="id"
-								group="dc-sections"
-								handle=".dc-section-grip"
-								class="dc-sections"
-								:animation="150"
-							>
-								<template #item="{ element: section }">
-									<div class="dc-section" :class="{ sel: isSel('section', section) }">
-										<div class="dc-section-bar">
-											<span class="dc-section-grip" title="Drag to reorder section">⠿</span>
-											<span class="dc-section-title" @click="selectContainer('section', section)">
-												{{ sectionLabel(section) }}
-											</span>
-											<button class="dc-mini-btn" @click.stop="addColumn(section)" title="Add column">+ Col</button>
-										</div>
-										<draggable
-											:list="section.columns"
-											item-key="id"
-											group="dc-columns"
-											class="dc-columns"
-											:animation="150"
+						<!-- Frappe-style form-builder canvas -->
+						<div class="fb-form" v-if="activeTab">
+							<!-- Tab header -->
+							<div v-if="tabs.length" class="fb-tab-header">
+								<draggable :list="tabs" item-key="id" class="fb-tabs" :animation="150">
+									<template #item="{ element: tab, index }">
+										<div
+											class="fb-tab"
+											:class="{ active: index === activeTabIndex }"
+											@click="activeTabIndex = index"
+											@dblclick="selectContainer('tab', tab)"
 										>
-											<template #item="{ element: column }">
-												<div
-													class="dc-column"
-													:class="{ sel: isSel('column', column) }"
-													@click.self="selectContainer('column', column)"
-												>
-													<draggable
-														:list="column.fields"
-														item-key="id"
-														group="dc-fields"
-														class="dc-col-fields"
-														:animation="150"
-													>
-														<template #item="{ element: fld }">
-															<div
-																class="dc-chip"
-																:class="{ sel: isSelField(fld) }"
-																:title="fld.df.fieldname || fld.df.label"
-																@click.stop="selectField(fld)"
-															>
-																<span class="dc-chip-grip">⠿</span>
-																<span class="dc-chip-main">
-																	<span class="dc-chip-label">{{ fld.df.label || "(No label)" }}</span>
-																	<span class="dc-chip-type">{{ fld.df.fieldtype }}</span>
-																</span>
-																<span v-if="fld.df.reqd" class="dc-req" title="Mandatory">*</span>
-																<button class="dc-chip-x" @click.stop="removeField(column, fld)" title="Remove">✕</button>
-															</div>
-														</template>
-													</draggable>
-													<button class="dc-add-inline" @click.stop="addFieldToColumn(column)">+ field</button>
+											<span>{{ tabLabel(tab, index) }}</span>
+											<button class="fb-tab-edit" @click.stop="selectContainer('tab', tab)" title="Tab properties">⚙</button>
+										</div>
+									</template>
+								</draggable>
+							</div>
+
+							<!-- Sections -->
+							<div class="fb-canvas">
+								<draggable
+									:list="activeTab.sections"
+									item-key="id"
+									group="fb-sections"
+									handle=".fb-section-grip"
+									:animation="200"
+								>
+									<template #item="{ element: section }">
+										<div class="fb-section-container">
+											<div
+												class="fb-section"
+												:class="{ selected: isSel('section', section) }"
+												@click.self="selectContainer('section', section)"
+											>
+												<div class="fb-section-header" @click.stop="selectContainer('section', section)">
+													<div class="fb-section-label">
+														<span class="fb-section-grip" title="Drag to reorder">⠿</span>
+														<span class="fb-section-title">{{ sectionLabel(section) }}</span>
+													</div>
+													<button class="fb-mini" @click.stop="addColumn(section)" title="Add column">+ Column</button>
 												</div>
-											</template>
-										</draggable>
-									</div>
-								</template>
-							</draggable>
-							<button class="dc-add-section" @click="addSection()">+ Add section</button>
+												<draggable
+													:list="section.columns"
+													item-key="id"
+													group="fb-columns"
+													class="fb-section-columns"
+													:animation="200"
+												>
+													<template #item="{ element: column }">
+														<div
+															class="fb-column"
+															:class="{ selected: isSel('column', column) }"
+															@click.self="selectContainer('column', column)"
+														>
+															<draggable
+																:list="column.fields"
+																item-key="id"
+																group="fb-fields"
+																class="fb-column-container"
+																:animation="200"
+															>
+																<template #item="{ element: fld }">
+																	<div
+																		class="fb-field"
+																		:class="{ selected: isSelField(fld) }"
+																		:title="fld.df.fieldname || fld.df.label"
+																		@click.stop="selectField(fld)"
+																	>
+																		<div class="control frappe-control editable">
+																			<div class="field-controls">
+																				<div class="field-label">
+																					<span class="fb-flabel" :class="{ empty: !fld.df.label }">
+																						{{ fld.df.label || ('No Label (' + fld.df.fieldtype + ')') }}
+																					</span>
+																					<span class="reqd-asterisk" v-if="fld.df.reqd">*</span>
+																				</div>
+																				<div class="field-actions">
+																					<button class="fb-icon" @click.stop="duplicateField(column, fld)" title="Duplicate">⧉</button>
+																					<button class="fb-icon" @click.stop="removeField(column, fld)" title="Remove">✕</button>
+																				</div>
+																			</div>
+																			<!-- live control preview, per field type -->
+																			<label v-if="previewKind(fld.df.fieldtype) === 'check'" class="fb-check">
+																				<input type="checkbox" disabled />
+																			</label>
+																			<select v-else-if="previewKind(fld.df.fieldtype) === 'select'" class="form-control" disabled>
+																				<option>{{ (fld.df.options || '').split('\n')[0] || '' }}</option>
+																			</select>
+																			<textarea v-else-if="previewKind(fld.df.fieldtype) === 'textarea'" class="form-control" rows="2" readonly></textarea>
+																			<div v-else-if="previewKind(fld.df.fieldtype) === 'table'" class="fb-table-preview">
+																				▦ {{ fld.df.options || 'child table' }}
+																			</div>
+																			<div v-else-if="previewKind(fld.df.fieldtype) === 'heading'" class="fb-heading-preview">{{ fld.df.label }}</div>
+																			<div v-else-if="previewKind(fld.df.fieldtype) === 'html'" class="fb-html-preview">HTML</div>
+																			<input v-else class="form-control" type="text" readonly :placeholder="previewPlaceholder(fld.df)" />
+																		</div>
+																	</div>
+																</template>
+															</draggable>
+															<div class="fb-add-field">
+																<button class="fb-add-btn" @click.stop="addFieldToColumn(column)">+ Add field</button>
+															</div>
+														</div>
+													</template>
+												</draggable>
+											</div>
+										</div>
+									</template>
+								</draggable>
+								<div class="fb-add-section-wrap">
+									<button class="fb-add-btn" @click="addSection()">+ Add section</button>
+								</div>
+							</div>
 						</div>
 					</div>
 
@@ -267,40 +296,15 @@
 
 				</div>
 
-				<!-- Footer -->
+				<!-- Footer — changes auto-save to the system -->
 				<div class="dc-window-footer">
-					<span v-if="applyError" class="dc-error">{{ applyError }}</span>
-					<span v-else-if="appliedName" class="dc-ok">✓ Saved “{{ appliedName }}”</span>
-					<span v-else class="dc-count">{{ contentCount }} field{{ contentCount === 1 ? "" : "s" }}</span>
-					<button
-						class="dc-apply-btn"
-						:disabled="applying || previewing || !dtName.trim() || !contentCount"
-						@click="requestApply"
-					>
-						{{ previewing ? "Checking…" : (applying ? "Applying…" : "Apply to system") }}
-					</button>
-				</div>
-
-				<!-- Apply confirmation (#3 / #4) -->
-				<div v-if="showConfirm && previewData" class="dc-modal-scrim" @click.self="showConfirm = false">
-					<div class="dc-modal">
-						<div class="dc-modal-title">Confirm change</div>
-						<p class="dc-modal-summary">{{ previewData.summary }}</p>
-						<div v-if="previewData.diff" class="dc-diff">
-							<div v-if="previewData.diff.added.length" class="dc-diff-line dc-diff-add">＋ Adds: {{ previewData.diff.added.join(", ") }}</div>
-							<div v-if="previewData.diff.changed.length" class="dc-diff-line dc-diff-chg">～ Changes: {{ previewData.diff.changed.join(", ") }}</div>
-							<div v-if="previewData.diff.removed.length" class="dc-diff-line dc-diff-rem">− Removes: {{ previewData.diff.removed.join(", ") }}</div>
-						</div>
-						<div v-if="previewData.warnings && previewData.warnings.length" class="dc-warn">
-							<div v-for="(w, wi) in previewData.warnings" :key="wi">⚠ {{ w }}</div>
-						</div>
-						<div class="dc-modal-actions">
-							<button class="dc-btn-text" @click="showConfirm = false">Cancel</button>
-							<button class="dc-btn-filled" :class="{ 'dc-btn-danger': previewData.destructive }" :disabled="applying" @click="confirmApply">
-								{{ applying ? "Applying…" : (previewData.destructive ? "Apply anyway" : "Confirm & apply") }}
-							</button>
-						</div>
-					</div>
+					<span class="dc-count">{{ contentCount }} field{{ contentCount === 1 ? "" : "s" }}</span>
+					<span class="dc-save-status" :class="'st-' + saveState">
+						<template v-if="saveState === 'saving'">Saving…</template>
+						<template v-else-if="saveState === 'saved'">✓ Saved{{ appliedName ? ' “' + appliedName + '”' : '' }}</template>
+						<template v-else-if="saveState === 'error'">⚠ {{ saveError }}</template>
+						<template v-else>Changes save automatically</template>
+					</span>
 				</div>
 
 				<!-- Template picker (#12) -->
@@ -407,6 +411,30 @@ const FIELD_FLAGS = [
 	"hidden", "bold", "non_negative", "collapsible",
 ];
 
+// Which control preview to render for a field type (mirrors Frappe's controls).
+const _TEXTAREA_TYPES = new Set(["Text", "Small Text", "Long Text", "Text Editor", "Code", "Markdown Editor"]);
+function previewKind(t) {
+	if (t === "Check") return "check";
+	if (t === "Select") return "select";
+	if (t === "Table" || t === "Table MultiSelect") return "table";
+	if (t === "Heading") return "heading";
+	if (t === "HTML") return "html";
+	if (_TEXTAREA_TYPES.has(t)) return "textarea";
+	return "input";
+}
+function previewPlaceholder(df) {
+	const t = df.fieldtype;
+	if (t === "Link" || t === "Dynamic Link") return df.options || "";
+	if (t === "Date") return "YYYY-MM-DD";
+	if (t === "Datetime") return "YYYY-MM-DD HH:MM:SS";
+	if (t === "Time") return "HH:MM:SS";
+	if (t === "Currency" || t === "Float" || t === "Int" || t === "Percent") return "0";
+	if (t === "Phone") return "+0 000 000 0000";
+	if (t === "Attach" || t === "Attach Image") return "Attach a file…";
+	if (t === "Color") return "Choose a color";
+	return "";
+}
+
 // ── Chat state ─────────────────────────────────────────────────────────
 const messages   = ref([]);
 const isTyping    = ref(false);
@@ -452,11 +480,15 @@ const applying    = ref(false);
 const applyError  = ref("");
 const appliedName = ref("");
 
-// Apply confirmation (#3/#4) + template picker (#12)
-const previewing   = ref(false);
-const showConfirm  = ref(false);
-const previewData  = ref(null);
+// Template picker (#12)
 const showTemplates = ref(false);
+
+// Auto-save: changes persist to the system automatically (no "Apply" button).
+const saveState  = ref("idle");   // idle | saving | saved | error
+const saveError  = ref("");
+let autosaveTimer = null;
+let autosaveInFlight = false;
+let autosaveQueued = false;
 
 // Undo/redo (#12) — snapshot the flat IR; restore rebuilds the tree.
 const history   = ref([]);
@@ -655,6 +687,14 @@ function removeField(column, w) {
 	if (i >= 0) column.fields.splice(i, 1);
 	if (sel.node === w) selectForm();
 }
+function duplicateField(column, w) {
+	const src = w.df || {};
+	const copy = normalizeDf({ ...src, fieldname: "", label: (src.label || "") ? src.label + " Copy" : "" });
+	const nw = wrapField(copy);
+	const i = column.fields.indexOf(w);
+	column.fields.splice(i + 1, 0, nw);
+	selectField(nw);
+}
 function deleteSelected() {
 	if (sel.type === "field" && sel.node) {
 		const col = findColumnOfField(sel.node);
@@ -842,55 +882,37 @@ function onKeydown(e) {
 	}
 }
 
-// Step 1: preview what Apply will do, then show a confirmation (#3/#4).
-async function requestApply() {
-	applyError.value = "";
-	appliedName.value = "";
-	previewing.value = true;
-	try {
-		const res = await frappeRequest({
-			url: `${API}preview_doctype`,
-			method: "POST",
-			params: { ir: JSON.stringify(currentIr()) },
-		});
-		if (res && res.valid === false) {
-			applyError.value = (res.violations || []).join(" ") || "The DocType has problems that must be fixed first.";
-			return;
-		}
-		previewData.value = res;
-		showConfirm.value = true;
-	} catch (e) {
-		applyError.value = errText(e) || "Could not check the DocType.";
-	} finally {
-		previewing.value = false;
-	}
+// Auto-save: persist the current design to the system, debounced, on every change.
+function scheduleAutosave() {
+	if (isRestoring) return;
+	if (autosaveTimer) clearTimeout(autosaveTimer);
+	autosaveTimer = setTimeout(runAutosave, 1500);
 }
-
-// Step 2: the user confirmed — apply for real (confirm=1 clears the data-loss guard).
-async function confirmApply() {
-	applying.value = true;
+async function runAutosave() {
+	// Only save a valid design (a name + at least one real field).
+	if (!dtName.value.trim() || !contentCount.value) return;
+	if (autosaveInFlight) { autosaveQueued = true; return; }
+	autosaveInFlight = true;
+	saveState.value = "saving";
+	saveError.value = "";
 	try {
 		const res = await frappeRequest({
 			url: `${API}apply_doctype`,
 			method: "POST",
+			// confirm=1: the builder edits are the user's intent — no extra prompt.
 			params: { ir: JSON.stringify(currentIr()), confirm: 1 },
 		});
-		const name = res?.name || dtName.value;
-		appliedName.value = name;
-		showConfirm.value = false;
-		const verb = { created: "created", updated: "updated", fields_added: "updated", unchanged: "already up to date" }[res?.action] || "saved";
-		emit("applied", name);
-		const setNote = res?.action === "created" ? " and set it on this step" : "";
-		const childNote = (res?.child_tables && res.child_tables.length)
-			? ` (plus ${res.child_tables.length} linked list${res.child_tables.length === 1 ? "" : "s"})`
-			: "";
-		pushMsg("assistant", `✓ Done — I've **${verb}** the **${name}** doctype${childNote}${setNote}. [Open it](${res?.url || "#"})`);
+		if (res?.name) {
+			appliedName.value = res.name;
+			emit("applied", res.name);   // write the DocType name back onto the shape
+		}
+		saveState.value = "saved";
 	} catch (e) {
-		applyError.value = errText(e) || "Could not apply the DocType.";
-		showConfirm.value = false;
-		pushMsg("assistant", `⚠️ I couldn't apply the DocType: ${applyError.value}`);
+		saveError.value = errText(e) || "Could not save.";
+		saveState.value = "error";
 	} finally {
-		applying.value = false;
+		autosaveInFlight = false;
+		if (autosaveQueued) { autosaveQueued = false; scheduleAutosave(); }
 	}
 }
 
@@ -943,6 +965,7 @@ function stopPolling() {
 	pollCancelled = true;
 	if (pollTimer) { clearTimeout(pollTimer); pollTimer = null; }
 	if (snapTimer) { clearTimeout(snapTimer); snapTimer = null; }
+	if (autosaveTimer) { clearTimeout(autosaveTimer); autosaveTimer = null; }
 	window.removeEventListener("keydown", onGlobalKeydown, true);
 }
 
@@ -992,7 +1015,10 @@ onMounted(async () => {
 	// Undo/redo: seed the baseline snapshot, then record on every edit.
 	nextTick(() => {
 		recordSnapshot();
-		watch([tabs, dtName, dtModule, dtAutoname, isChild], scheduleSnapshot, { deep: true });
+		watch([tabs, dtName, dtModule, dtAutoname, isChild], () => {
+			scheduleSnapshot();
+			scheduleAutosave();
+		}, { deep: true });
 	});
 	window.addEventListener("keydown", onGlobalKeydown, true);
 });
@@ -1118,51 +1144,98 @@ onMounted(async () => {
 .dc-gear-btn:hover { background: rgba(71,70,79,var(--md-state-hover)); }
 .dc-gear-btn.active { background: var(--md-primary-container); color: var(--md-on-primary-container); }
 
-/* MD3 secondary tabs with sliding active indicator */
-.dc-tabs { display: flex; gap: 2px; padding: 6px 14px 0; overflow-x: auto; background: var(--md-surface-container); }
-.dc-tab { position: relative; display: flex; align-items: center; gap: 6px; background: transparent; color: var(--md-on-surface-variant); border: none; border-radius: var(--md-corner-sm) var(--md-corner-sm) 0 0; padding: 10px 16px 12px; font-size: 13px; font-weight: 500; cursor: pointer; white-space: nowrap; transition: background-color var(--md-dur) var(--md-ease), color var(--md-dur) var(--md-ease); }
-.dc-tab:hover { background: rgba(71,70,79,var(--md-state-hover)); }
-.dc-tab.active { color: var(--md-primary); }
-.dc-tab.active::after { content: ""; position: absolute; left: 12px; right: 12px; bottom: 0; height: 3px; background: var(--md-primary); border-radius: 3px 3px 0 0; }
-.dc-tab.sel { color: var(--md-primary); }
-.dc-tab-edit { border: none; background: transparent; cursor: pointer; color: inherit; opacity: .6; font-size: 12px; }
-.dc-tab-edit:hover { opacity: 1; }
+/* ══════════════════════════════════════════════════════════════════════
+   Frappe form-builder canvas — matched to the desk Form Builder look/feel.
+   Frappe's CSS variables aren't present on /processa, so they're defined
+   here and the markup/classes mirror Frappe's Section/Column/Field.
+   ══════════════════════════════════════════════════════════════════════ */
+.fb-form {
+	--fg: #ffffff;
+	--bg-light-gray: #f3f3f3;
+	--control-bg: #ffffff;
+	--fb-border: #e2e2e2;
+	--fb-border-primary: #a6acb3;
+	--fb-gray-400: #c7c7c7;
+	--fb-heading: #171717;
+	--fb-text: #383838;
+	--fb-muted: #7c7c7c;
+	--fb-radius: 8px;
+	--fb-tsm: 13px;
+	--fb-txs: 12px;
 
-.dc-canvas { flex: 1; overflow-y: auto; padding: 16px; }
-.dc-sections { display: flex; flex-direction: column; gap: 14px; }
-/* elevated cards */
-.dc-section { background: var(--md-surface-container-lowest); border: 1px solid transparent; border-radius: var(--md-corner-md); padding: 12px 14px; box-shadow: var(--md-elev-1); transition: box-shadow var(--md-dur) var(--md-ease), border-color var(--md-dur) var(--md-ease); }
-.dc-section.sel { border-color: var(--md-primary); box-shadow: 0 0 0 1px var(--md-primary), var(--md-elev-1); }
-.dc-section-bar { display: flex; align-items: center; gap: 8px; margin-bottom: 10px; }
-.dc-section-grip { cursor: grab; color: var(--md-outline); font-size: 15px; line-height: 1; }
-.dc-section-title { flex: 1; font-size: 14px; font-weight: 600; color: var(--md-on-surface); cursor: pointer; }
-.dc-section-title:hover { color: var(--md-primary); }
-/* text button */
-.dc-mini-btn { border: none; background: transparent; color: var(--md-primary); border-radius: var(--md-corner-full); padding: 6px 12px; font-size: 13px; font-weight: 500; cursor: pointer; transition: background-color var(--md-dur) var(--md-ease); }
-.dc-mini-btn:hover { background: rgba(79,70,229,var(--md-state-hover)); }
+	flex: 1; min-height: 0; display: flex; flex-direction: column;
+	margin: 16px; background: var(--fg);
+	border: 1px solid var(--fb-border); border-radius: var(--fb-radius);
+	overflow: hidden; color: var(--fb-text); font-size: var(--fb-tsm);
+}
 
-.dc-columns { display: flex; gap: 12px; align-items: flex-start; }
-.dc-column { flex: 1; min-width: 0; min-height: 64px; border: 1px dashed var(--md-outline-variant); border-radius: var(--md-corner-md); padding: 10px; background: var(--md-surface); transition: border-color var(--md-dur) var(--md-ease), background-color var(--md-dur) var(--md-ease); }
-.dc-column.sel { border-style: solid; border-color: var(--md-primary); background: color-mix(in srgb, var(--md-primary) 4%, var(--md-surface)); }
-.dc-col-fields { display: flex; flex-direction: column; gap: 8px; min-height: 28px; }
+/* Tabs */
+.fb-tab-header { display: flex; min-height: 42px; align-items: center; background: var(--fg); border-bottom: 1px solid var(--fb-border); padding-left: 5px; flex: none; }
+.fb-tabs { display: flex; flex: 1; overflow-x: auto; }
+.fb-tab { display: flex; align-items: center; gap: 6px; position: relative; padding: 10px 15px 11px; color: var(--fb-muted); min-width: max-content; cursor: pointer; }
+.fb-tab::before { content: ""; position: absolute; left: 12px; right: 12px; bottom: 0; border-bottom: 2px solid transparent; }
+.fb-tab:hover::before { border-color: var(--fb-gray-400); }
+.fb-tab.active { font-weight: 600; color: var(--fb-heading); }
+.fb-tab.active::before { border-color: var(--fb-border-primary); }
+.fb-tab-edit { border: none; background: transparent; cursor: pointer; color: inherit; font-size: 11px; opacity: .55; }
+.fb-tab-edit:hover { opacity: 1; }
 
-/* field = filled card / list item with state layer */
-.dc-chip { display: flex; align-items: center; gap: 8px; background: var(--md-surface-container-high); border: 1px solid transparent; border-radius: var(--md-corner-sm); padding: 8px 10px; cursor: pointer; transition: background-color var(--md-dur) var(--md-ease), border-color var(--md-dur) var(--md-ease); }
-.dc-chip:hover { background: color-mix(in srgb, var(--md-on-surface) 6%, var(--md-surface-container-high)); }
-.dc-chip.sel { border-color: var(--md-primary); background: var(--md-primary-container); }
-.dc-chip-grip { cursor: grab; color: var(--md-outline); font-size: 13px; }
-.dc-chip-main { flex: 1; min-width: 0; display: flex; flex-direction: column; }
-.dc-chip-label { font-size: 14px; color: var(--md-on-surface); font-weight: 500; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.dc-chip-type { font-size: 11px; color: var(--md-on-surface-variant); text-transform: uppercase; letter-spacing: .04em; }
-.dc-req { color: var(--md-error); font-weight: 700; }
-.dc-chip-x { border: none; background: transparent; color: var(--md-on-surface-variant); cursor: pointer; font-size: 12px; border-radius: var(--md-corner-full); width: 24px; height: 24px; transition: background-color var(--md-dur) var(--md-ease), color var(--md-dur) var(--md-ease); }
-.dc-chip-x:hover { color: var(--md-error); background: rgba(186,26,26,var(--md-state-hover)); }
-/* text buttons for adding */
-.dc-add-inline { margin-top: 8px; width: 100%; border: none; background: transparent; color: var(--md-primary); border-radius: var(--md-corner-sm); padding: 7px; font-size: 13px; font-weight: 500; cursor: pointer; transition: background-color var(--md-dur) var(--md-ease); }
-.dc-add-inline:hover { background: rgba(79,70,229,var(--md-state-hover)); }
-/* outlined button */
-.dc-add-section { margin-top: 14px; border: 1px solid var(--md-outline); background: transparent; color: var(--md-primary); border-radius: var(--md-corner-full); padding: 9px 18px; font-size: 13px; font-weight: 500; cursor: pointer; transition: background-color var(--md-dur) var(--md-ease); }
-.dc-add-section:hover { background: rgba(79,70,229,var(--md-state-hover)); }
+/* Canvas + sections */
+.fb-canvas { flex: 1; min-height: 0; overflow-y: auto; }
+.fb-section-container { background: var(--fg); border-bottom: 1px solid var(--fb-border); }
+.fb-section-container:last-child { border-bottom: none; }
+.fb-section { border: 1px solid transparent; border-radius: var(--fb-radius); padding: 1rem; cursor: pointer; }
+.fb-section.selected { border-color: var(--fb-border-primary); }
+.fb-section-header { display: flex; justify-content: space-between; align-items: center; padding-bottom: 0.75rem; }
+.fb-section-label { display: flex; align-items: center; gap: 6px; }
+.fb-section-grip { cursor: grab; color: var(--fb-gray-400); font-size: 14px; line-height: 1; }
+.fb-section-title { font-weight: 600; color: var(--fb-heading); }
+.fb-mini { border: none; background: transparent; color: var(--fb-muted); font-size: var(--fb-txs); cursor: pointer; padding: 2px 6px; border-radius: 6px; }
+.fb-mini:hover { background: var(--bg-light-gray); color: var(--fb-heading); }
+.fb-section-columns { display: flex; min-height: 2rem; align-items: flex-start; }
+
+/* Columns */
+.fb-column { position: relative; display: flex; flex-direction: column; width: 100%; background: var(--bg-light-gray); border-radius: var(--fb-radius); border: 1px dashed var(--fb-gray-400); padding: 0.5rem; margin: 0 4px; }
+.fb-column:first-child { margin-left: 0; }
+.fb-column:last-child { margin-right: 0; }
+.fb-column.selected { border-color: var(--fb-border-primary); border-style: solid; }
+.fb-column-container { min-height: 2rem; display: flex; flex-direction: column; }
+
+/* Field cards: label row + a live control preview */
+.fb-field { text-align: left; width: 100%; background: var(--bg-light-gray); border-radius: var(--fb-radius); border: 1px solid transparent; padding: 0.4rem; cursor: pointer; }
+.fb-field:not(:first-child) { margin-top: 0.4rem; }
+.fb-field.selected, .fb-field:hover { border-color: var(--fb-border-primary); }
+.fb-field.selected .fb-icon, .fb-field:hover .fb-icon { opacity: 1; }
+.fb-field .field-controls { display: flex; justify-content: space-between; align-items: center; margin-bottom: 0.3rem; }
+.fb-field .field-label { display: flex; align-items: center; min-width: 0; }
+.fb-field .fb-flabel { font-size: var(--fb-tsm); color: var(--fb-text); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.fb-field .fb-flabel.empty { color: var(--fb-muted); font-style: italic; }
+.fb-field .reqd-asterisk { margin-left: 3px; color: #eb9091; }
+.fb-field .field-actions { display: flex; gap: 2px; flex: none; }
+.fb-icon { opacity: 0; border: none; background: transparent; cursor: pointer; color: var(--fb-muted); font-size: 12px; padding: 2px 4px; border-radius: 4px; transition: opacity .15s, background-color .15s, color .15s; }
+.fb-icon:hover { background: var(--fg); color: var(--fb-heading); }
+
+/* Control previews (mirror Frappe's control widgets) */
+.fb-field .form-control { width: 100%; height: 28px; border: none; border-radius: var(--fb-radius); background: var(--control-bg); padding: 6px 8px; font-size: var(--fb-tsm); color: var(--fb-text); box-shadow: inset 0 0 0 1px var(--fb-border); }
+.fb-field textarea.form-control { height: auto; resize: none; }
+.fb-field select.form-control { appearance: none; }
+.fb-check { display: inline-flex; align-items: center; }
+.fb-check input { width: 14px; height: 14px; }
+.fb-table-preview { border: 1px dashed var(--fb-gray-400); border-radius: var(--fb-radius); padding: 8px 10px; font-size: var(--fb-txs); color: var(--fb-muted); background: var(--control-bg); }
+.fb-heading-preview { font-weight: 700; color: var(--fb-heading); font-size: 15px; }
+.fb-html-preview { border: 1px dashed var(--fb-gray-400); border-radius: var(--fb-radius); padding: 12px; text-align: center; font-size: var(--fb-txs); color: var(--fb-muted); }
+
+/* Add buttons */
+.fb-add-field { padding: 8px 2px 2px; }
+.fb-add-btn { border: none; background: var(--fg); color: var(--fb-muted); border-radius: 6px; padding: 6px 12px; font-size: var(--fb-txs); cursor: pointer; box-shadow: inset 0 0 0 1px var(--fb-border); transition: background-color .15s, color .15s; }
+.fb-add-btn:hover { background: var(--bg-light-gray); color: var(--fb-heading); }
+.fb-add-section-wrap { padding: 10px 16px 16px; }
+
+/* Auto-save status */
+.dc-save-status { font-size: 13px; color: var(--md-on-surface-variant); }
+.dc-save-status.st-saving { color: var(--md-primary); }
+.dc-save-status.st-saved { color: var(--md-success); }
+.dc-save-status.st-error { color: var(--md-error); }
 
 /* ── Properties (right) ── */
 .dc-props-panel { width: clamp(250px, 22%, 312px); flex: none; border-left: 1px solid var(--md-outline-variant); background: var(--md-surface-container-low); overflow-y: auto; padding: 18px 16px; }
@@ -1195,13 +1268,7 @@ onMounted(async () => {
 
 /* ── Footer ── */
 .dc-window-footer { display: flex; align-items: center; justify-content: flex-end; gap: 12px; padding: 12px 16px; background: var(--md-surface-container); }
-.dc-error { color: var(--md-error); font-size: 13px; margin-right: auto; }
-.dc-ok { color: var(--md-success); font-size: 13px; font-weight: 500; margin-right: auto; }
 .dc-count { color: var(--md-on-surface-variant); font-size: 13px; margin-right: auto; }
-/* MD3 filled button */
-.dc-apply-btn { border: none; background: var(--md-primary); color: var(--md-on-primary); border-radius: var(--md-corner-full); padding: 11px 24px; font-size: 14px; font-weight: 500; cursor: pointer; box-shadow: var(--md-elev-1); transition: box-shadow var(--md-dur) var(--md-ease), background-color var(--md-dur) var(--md-ease); }
-.dc-apply-btn:hover:not(:disabled) { box-shadow: var(--md-elev-2); background: color-mix(in srgb, var(--md-on-primary) 8%, var(--md-primary)); }
-.dc-apply-btn:disabled { background: rgba(27,27,33,0.12); color: rgba(27,27,33,0.38); box-shadow: none; cursor: not-allowed; }
 
 /* ── History group (undo/redo/templates) ── */
 .dc-hist-group { display: flex; gap: 6px; align-items: center; }
