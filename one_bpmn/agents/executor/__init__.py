@@ -82,9 +82,6 @@ class ExecutorConfig:
     # path byte-for-byte unchanged; when set, DirectApiExecutor delegates to
     # the matching agents/llm_provider adapter's multi-turn tool loop.
     tools: list | None = None
-    # WI-001422: cap on tool-calling turns ("Maximum model calls" in Camunda);
-    # None uses the adapter default. dispatch_ai_agent sets it from aiMaxToolCalls.
-    max_tool_calls: int | None = None
 
 
 @dataclass

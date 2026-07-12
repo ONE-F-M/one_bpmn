@@ -84,7 +84,6 @@ class BaseLLMAdapter(ABC):
         user: str,
         tools: list[ToolSpec] | None = None,
         max_tokens: int = 16384,
-        max_turns: int | None = None,
     ) -> CompletionResult:
         """Run one conversation (with optional multi-step tool calls) and
         return the final text plus the per-turn trace."""

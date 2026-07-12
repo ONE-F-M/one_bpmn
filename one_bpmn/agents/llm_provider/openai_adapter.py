@@ -46,7 +46,6 @@ class OpenAIAdapter(BaseLLMAdapter):
         user: str,
         tools: list[ToolSpec] | None = None,
         max_tokens: int = 16384,
-        max_turns: int | None = None,
     ) -> CompletionResult:
         messages = [
             {"role": "system", "content": system},
@@ -60,7 +59,7 @@ class OpenAIAdapter(BaseLLMAdapter):
             kwargs["tools"] = tool_defs
 
         trace = []
-        for _ in range(max_turns or _MAX_TOOL_TURNS):
+        for _ in range(_MAX_TOOL_TURNS):
             _turn_t0 = time.perf_counter()
             response = await self._client.chat.completions.create(**kwargs)
             choice = response.choices[0]

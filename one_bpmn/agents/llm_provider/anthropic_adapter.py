@@ -71,7 +71,6 @@ class AnthropicAdapter(BaseLLMAdapter):
         user: str,
         tools: list[ToolSpec] | None = None,
         max_tokens: int = 16384,
-        max_turns: int | None = None,
     ) -> CompletionResult:
         import re
 
@@ -148,7 +147,7 @@ class AnthropicAdapter(BaseLLMAdapter):
             kwargs["tools"] = tool_defs
 
         trace = []
-        for turn in range(max_turns or _MAX_TOOL_TURNS):
+        for turn in range(_MAX_TOOL_TURNS):
             _turn_t0 = time.perf_counter()
             # Use streaming to avoid the Anthropic SDK's 10-minute limit on
             # non-streaming requests.  get_final_message() collects the full

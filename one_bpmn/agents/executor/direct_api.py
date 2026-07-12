@@ -289,7 +289,6 @@ class DirectApiExecutor(Executor):
                     user=config.user_prompt,
                     tools=config.tools,
                     max_tokens=config.max_tokens,
-                    max_turns=config.max_tool_calls,
                 )
             )
         except Exception as exc:
