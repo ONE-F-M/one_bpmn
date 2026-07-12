@@ -200,29 +200,58 @@
 						</div>
 						</template>
 
-						<!-- Settings view (mirrors Frappe form builder's "Settings" tab) -->
+						<!-- Settings view (mirrors Frappe's DocType Settings page) -->
 						<div v-else class="dc-settings-page">
 							<div class="dc-settings-card">
-								<div class="dc-props-head">DocType settings</div>
-								<div class="dc-prop">
-									<label>DocType name</label>
-									<input v-model="dtName" class="dc-prop-input" placeholder="e.g. Vehicle Inspection" />
+								<!-- Identity / naming -->
+								<div class="dc-settings-section">
+									<div class="dc-settings-grid">
+										<div class="dc-prop">
+											<label>DocType name</label>
+											<input v-model="dtName" class="dc-prop-input" placeholder="e.g. Vehicle Inspection" />
+										</div>
+										<div class="dc-prop">
+											<label>Module</label>
+											<select v-model="dtModule" class="dc-prop-input">
+												<option v-for="m in moduleOptions" :key="m" :value="m">{{ m }}</option>
+											</select>
+										</div>
+										<div class="dc-prop">
+											<label>Auto Name</label>
+											<input v-model="dtAutoname" class="dc-prop-input dc-mono" placeholder="e.g. field:vehicle_no or format:VI-.#####" />
+										</div>
+										<div class="dc-prop">
+											<label>Description</label>
+											<textarea v-model="dtSettings.description" class="dc-prop-input" rows="2"></textarea>
+										</div>
+										<label class="fb-prop-check">
+											<input type="checkbox" v-model="isChild" />
+											<span>Is Child Table (lives inside another DocType)</span>
+										</label>
+									</div>
 								</div>
-								<div class="dc-prop">
-									<label>Module</label>
-									<select v-model="dtModule" class="dc-prop-input">
-										<option v-for="m in moduleOptions" :key="m" :value="m">{{ m }}</option>
-									</select>
+
+								<!-- Grouped settings, matching Frappe's sections -->
+								<div v-for="sec in settingsSections" :key="sec.title" class="dc-settings-section">
+									<div class="dc-settings-title">{{ sec.title }}</div>
+									<div class="dc-settings-grid">
+										<template v-for="f in sec.fields" :key="f.key">
+											<label v-if="f.type === 'check'" class="fb-prop-check">
+												<input type="checkbox" v-model="dtSettings[f.key]" />
+												<span>{{ f.label }}</span>
+											</label>
+											<div v-else class="dc-prop">
+												<label>{{ f.label }}</label>
+												<select v-if="f.type === 'select'" v-model="dtSettings[f.key]" class="dc-prop-input">
+													<option v-for="o in f.options" :key="o" :value="o">{{ o || "—" }}</option>
+												</select>
+												<input v-else-if="f.type === 'int'" type="number" v-model.number="dtSettings[f.key]" class="dc-prop-input" placeholder="0" />
+												<input v-else v-model="dtSettings[f.key]" class="dc-prop-input" :placeholder="f.placeholder || ''" />
+											</div>
+										</template>
+									</div>
 								</div>
-								<div class="dc-prop">
-									<label>Naming (autoname)</label>
-									<input v-model="dtAutoname" class="dc-prop-input dc-mono" placeholder="e.g. field:vehicle_no or format:VI-.#####" />
-								</div>
-								<label class="dc-switch">
-									<input type="checkbox" v-model="isChild" />
-									<span class="dc-switch-track"><span class="dc-switch-thumb"></span></span>
-									<span class="dc-switch-text">Child table (lives inside another DocType)</span>
-								</label>
+
 								<p class="dc-hint">These settings apply to the whole DocType. Switch to the <strong>Form</strong> tab to design its fields.</p>
 							</div>
 						</div>
@@ -417,6 +446,31 @@ const dtModule   = ref("ONE BPMN");
 const dtAutoname = ref("");
 const isChild    = ref(false);
 const modules    = ref([]);   // Module Def names for the module picker
+
+// DocType-level settings (mirrors the DocType doctype's own settings; keys/
+// coercion match tools.py DOCTYPE_SETTING_* and docu_api._apply_doctype_settings).
+const SETTING_FLAG_KEYS = [
+	"is_submittable", "issingle", "editable_grid", "quick_entry", "track_changes",
+	"track_seen", "track_views", "beta", "hide_toolbar", "allow_copy", "allow_rename",
+	"allow_import", "allow_events_in_timeline", "allow_auto_repeat", "show_preview_popup",
+	"show_name_in_global_search", "show_title_field_in_link", "translated_doctype",
+	"make_attachments_public", "is_tree",
+];
+const SETTING_INT_KEYS = ["max_attachments"];
+const SETTING_STR_KEYS = [
+	"description", "image_field", "title_field", "search_fields",
+	"default_print_format", "sort_field", "sort_order", "document_type",
+];
+function defaultSettings() {
+	const s = {};
+	for (const k of SETTING_FLAG_KEYS) s[k] = false;
+	for (const k of SETTING_INT_KEYS) s[k] = 0;
+	for (const k of SETTING_STR_KEYS) s[k] = "";
+	s.editable_grid = true;   // Frappe's default for child tables
+	s.sort_order = "DESC";
+	return s;
+}
+const dtSettings = reactive(defaultSettings());
 // Always include the current module (e.g. an agent-supplied one) so it stays selectable.
 const moduleOptions = computed(() => {
 	const list = modules.value.slice();
@@ -556,6 +610,53 @@ const visibleFieldProps = computed(() => {
 		if (q && !(p.label.toLowerCase().includes(q) || p.key.toLowerCase().includes(q))) return false;
 		return true;
 	});
+});
+
+// ── DocType settings layout (mirrors the DocType doctype's Settings sections) ──
+const settingsSections = computed(() => {
+	const child = isChild.value;
+	const sections = [
+		{ title: "General", fields: [
+			{ key: "is_submittable", label: "Is Submittable", type: "check", show: !child },
+			{ key: "issingle", label: "Is Single", type: "check", show: !child },
+			{ key: "editable_grid", label: "Editable Grid", type: "check", show: child },
+			{ key: "quick_entry", label: "Quick Entry", type: "check", show: !child },
+			{ key: "track_changes", label: "Track Changes", type: "check", show: !child },
+			{ key: "track_seen", label: "Track Seen", type: "check", show: !child },
+			{ key: "track_views", label: "Track Views", type: "check", show: !child },
+			{ key: "beta", label: "Beta", type: "check", show: !child },
+		] },
+		{ title: "Form Settings", show: !child, fields: [
+			{ key: "image_field", label: "Image Field", type: "data", placeholder: "an Attach Image fieldname" },
+			{ key: "max_attachments", label: "Max Attachments", type: "int" },
+			{ key: "hide_toolbar", label: "Hide Sidebar, Menu, and Comments", type: "check" },
+			{ key: "allow_copy", label: "Hide Copy", type: "check" },
+			{ key: "allow_rename", label: "Allow Rename", type: "check" },
+			{ key: "allow_import", label: "Allow Import (via Data Import Tool)", type: "check" },
+			{ key: "allow_events_in_timeline", label: "Allow events in timeline", type: "check" },
+			{ key: "allow_auto_repeat", label: "Allow Auto Repeat", type: "check" },
+		] },
+		{ title: "View Settings", show: !child, fields: [
+			{ key: "title_field", label: "Title Field", type: "data", placeholder: "a fieldname" },
+			{ key: "search_fields", label: "Search Fields", type: "data", placeholder: "comma-separated fieldnames" },
+			{ key: "sort_field", label: "Default Sort Field", type: "data", placeholder: "e.g. modified" },
+			{ key: "sort_order", label: "Default Sort Order", type: "select", options: ["ASC", "DESC"] },
+			{ key: "default_print_format", label: "Default Print Format", type: "data" },
+			{ key: "document_type", label: "Show in Module Section", type: "select", options: ["", "Document", "Setup", "System", "Other"] },
+			{ key: "show_preview_popup", label: "Show Preview Popup", type: "check" },
+			{ key: "show_name_in_global_search", label: 'Make "name" searchable in Global Search', type: "check" },
+			{ key: "show_title_field_in_link", label: "Show Title in Link Fields", type: "check" },
+			{ key: "translated_doctype", label: "Translate Link Fields", type: "check" },
+			{ key: "make_attachments_public", label: "Make Attachments Public by Default", type: "check" },
+		] },
+		{ title: "Advanced", fields: [
+			{ key: "is_tree", label: "Is Tree", type: "check", show: !child },
+		] },
+	];
+	return sections
+		.filter((s) => s.show !== false)
+		.map((s) => ({ ...s, fields: s.fields.filter((f) => f.show !== false) }))
+		.filter((s) => s.fields.length);
 });
 
 function pushMsg(role, content, extra = {}) {
@@ -836,10 +937,23 @@ function loadIr(ir) {
 	dtModule.value = sanitizeModule(ir.module);
 	dtAutoname.value = ir.autoname || "";
 	isChild.value = !!ir.is_child_table;
+	// Only overwrite a setting the IR actually carries — an agent turn returns
+	// fields without settings, so session-set settings must survive it.
+	for (const k of SETTING_FLAG_KEYS) if (k in ir) dtSettings[k] = !!ir[k];
+	for (const k of SETTING_INT_KEYS) if (k in ir) dtSettings[k] = Number(ir[k]) || 0;
+	for (const k of SETTING_STR_KEYS) if (k in ir) dtSettings[k] = ir[k] || "";
 	buildTree(ir.fields || []);
 	selectForm();
 	appliedName.value = "";
 	applyError.value = "";
+}
+
+function settingsPayload() {
+	const out = {};
+	for (const k of SETTING_FLAG_KEYS) out[k] = dtSettings[k] ? 1 : 0;
+	for (const k of SETTING_INT_KEYS) out[k] = Number(dtSettings[k]) || 0;
+	for (const k of SETTING_STR_KEYS) out[k] = (dtSettings[k] || "").toString().trim();
+	return out;
 }
 
 function currentIr() {
@@ -848,6 +962,7 @@ function currentIr() {
 		module: dtModule.value || "ONE BPMN",
 		is_child_table: isChild.value,
 		autoname: dtAutoname.value || "",
+		...settingsPayload(),
 		fields: flatten().map((f) => {
 			const out = { ...f };  // preserve all properties, incl. ones the builder doesn't show
 			const structural = STRUCTURAL.has(f.fieldtype);
@@ -1109,7 +1224,7 @@ onMounted(async () => {
 	// Undo/redo: seed the baseline snapshot, then record on every edit.
 	nextTick(() => {
 		recordSnapshot();
-		watch([tabs, dtName, dtModule, dtAutoname, isChild], () => {
+		watch([tabs, dtName, dtModule, dtAutoname, isChild, dtSettings], () => {
 			scheduleSnapshot();
 			scheduleAutosave();
 		}, { deep: true });
@@ -1240,8 +1355,18 @@ onMounted(async () => {
 
 /* Settings view (whole-DocType settings, moved off the properties sidebar) */
 .dc-settings-page { flex: 1; min-height: 0; overflow-y: auto; padding: 24px; display: flex; justify-content: center; }
-.dc-settings-card { width: 100%; max-width: 560px; }
+.dc-settings-card { width: 100%; max-width: 720px; }
 .dc-settings-card .dc-props-head { margin-bottom: 4px; }
+/* Frappe-style settings sections: a bold section title over a 2-column grid */
+.dc-settings-section { padding: 8px 0 18px; border-bottom: 1px solid var(--md-outline-variant); margin-bottom: 18px; }
+.dc-settings-section:last-of-type { border-bottom: none; }
+.dc-settings-title { font-size: 15px; font-weight: 600; color: var(--md-on-surface); margin-bottom: 14px; }
+.dc-settings-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 12px 28px; align-items: start; }
+.dc-settings-grid .dc-prop { margin-bottom: 0; gap: 6px; }
+.dc-settings-grid .dc-prop label { font-size: 13px; font-weight: 600; color: #44546a; }
+.dc-settings-grid .dc-prop-input { border: 1px solid var(--md-outline); border-radius: 8px; background: var(--md-surface-container-lowest); padding: 9px 12px; font-size: 14px; }
+.dc-settings-grid .dc-prop-input:focus { outline: none; border-color: var(--md-primary); box-shadow: inset 0 0 0 1px var(--md-primary); }
+.dc-settings-grid .fb-prop-check { align-self: center; }
 
 /* ══════════════════════════════════════════════════════════════════════
    Frappe form-builder canvas — matched to the desk Form Builder look/feel.
@@ -1434,6 +1559,7 @@ onMounted(async () => {
 	.dc-window-header { padding: 10px 12px 10px 14px; }
 	.dc-subtitle { display: none; }        /* keep the header compact */
 	.dc-settings-page { padding: 16px; }
+	.dc-settings-grid { grid-template-columns: 1fr; gap: 10px; }
 }
 @media (max-width: 420px) {
 	.dc-dt-chip { max-width: 120px; }

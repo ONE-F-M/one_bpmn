@@ -20,24 +20,27 @@ import frappe
 from frappe import _
 
 from one_bpmn.agents.google_adk.docu_agent.docu_agent import _read_doctype_ir
-from one_bpmn.agents.google_adk.docu_agent.tools import diff_ir
+from one_bpmn.agents.google_adk.docu_agent.tools import (
+	diff_ir,
+	DOCFIELD_ATTRS,
+	DOCFIELD_FLAGS,
+	DOCFIELD_INTS,
+	DOCTYPE_SETTING_FLAGS,
+	DOCTYPE_SETTING_INTS,
+	DOCTYPE_SETTING_STRS,
+)
 from one_bpmn.security.doctype_validator import validate_doctype_ir
 
 _LAYOUT_FIELDTYPES = ("Section Break", "Column Break", "Tab Break")
 _TABLE_FIELDTYPES = ("Table", "Table MultiSelect")
 
-# DocField keys Docu is allowed to write (everything else is ignored).
-_DOCFIELD_KEYS = (
-	"fieldname", "label", "fieldtype", "options", "reqd", "unique",
-	"in_list_view", "in_standard_filter", "read_only", "hidden", "bold",
-	"default", "description", "depends_on", "mandatory_depends_on",
-	"read_only_depends_on", "fetch_from", "precision", "non_negative",
-	"collapsible",
-)
-_DOCFIELD_FLAGS = (
-	"reqd", "unique", "in_list_view", "in_standard_filter",
-	"read_only", "hidden", "bold", "non_negative", "collapsible",
-)
+# DocField keys Docu is allowed to write (everything else is ignored) — the same
+# attribute set the reader round-trips, so a field's full property set persists.
+_DOCFIELD_KEYS = DOCFIELD_ATTRS
+_DOCFIELD_FLAGS = DOCFIELD_FLAGS
+_DOCFIELD_INTS = DOCFIELD_INTS
+# All configurable DocType-level settings, keyed once for extraction/apply.
+_DOCTYPE_SETTING_KEYS = DOCTYPE_SETTING_FLAGS + DOCTYPE_SETTING_INTS + DOCTYPE_SETTING_STRS
 
 
 def _parse(value, fallback):
@@ -410,6 +413,7 @@ def apply_doctype(ir: str, confirm: int = 0) -> dict:
 	is_child = int(bool(ir_dict.get("is_child_table")))
 	autoname = (ir_dict.get("autoname") or "").strip()
 	fields = ir_dict.get("fields") or []
+	settings = _extract_settings(ir_dict)
 
 	# 3) Data-loss guard: block destructive field removals on an existing custom
 	#    DocType unless the client explicitly confirmed (via preview_doctype). This
@@ -436,9 +440,9 @@ def apply_doctype(ir: str, confirm: int = 0) -> dict:
 		# Create any inline child DocTypes first and point the Table fields at them.
 		child_tables = _ensure_child_doctypes(name, module, fields)
 		if not frappe.db.exists("DocType", name):
-			action = _create_custom_doctype(name, module, is_child, autoname, fields)
+			action = _create_custom_doctype(name, module, is_child, autoname, fields, settings)
 		elif frappe.db.get_value("DocType", name, "custom"):
-			action = _reconcile_custom_doctype(name, is_child, autoname, fields)
+			action = _reconcile_custom_doctype(name, is_child, autoname, fields, settings)
 		else:
 			action = _add_custom_fields(name, fields)
 		frappe.db.commit()
@@ -464,11 +468,47 @@ def _docfield_dict(field: dict, idx: int) -> dict:
 	"""Project a Docu IR field onto the DocField keys Frappe accepts."""
 	out = {k: field[k] for k in _DOCFIELD_KEYS if k in field and field[k] not in (None, "")}
 	out["idx"] = idx
-	# Normalise integer flags.
+	# Normalise boolean flags to 0/1 and integer attrs to ints.
 	for flag in _DOCFIELD_FLAGS:
 		if flag in out:
 			out[flag] = int(bool(out[flag]))
+	for attr in _DOCFIELD_INTS:
+		if attr in out:
+			try:
+				out[attr] = int(out[attr])
+			except (TypeError, ValueError):
+				del out[attr]
 	return out
+
+
+def _extract_settings(ir_dict: dict) -> dict:
+	"""Pull the DocType-level settings the client sent (only keys actually present)."""
+	return {k: ir_dict[k] for k in _DOCTYPE_SETTING_KEYS if k in ir_dict}
+
+
+def _apply_doctype_settings(doc, settings: dict) -> None:
+	"""Set the whitelisted DocType-level attributes on a DocType doc.
+
+	Only ever touches the curated settings keys — never name/module/custom/istable
+	(those are handled explicitly by the caller), so a posted IR can't flip a
+	DocType to standard or rename it. Frappe validates each on save (e.g. a bad
+	title_field), and apply_doctype surfaces the error.
+	"""
+	if not isinstance(settings, dict):
+		return
+	for k in DOCTYPE_SETTING_FLAGS:
+		if k in settings:
+			setattr(doc, k, int(bool(settings[k])))
+	for k in DOCTYPE_SETTING_INTS:
+		if k in settings:
+			try:
+				setattr(doc, k, int(settings[k] or 0))
+			except (TypeError, ValueError):
+				pass
+	for k in DOCTYPE_SETTING_STRS:
+		if k in settings:
+			val = settings[k]
+			setattr(doc, k, val.strip() if isinstance(val, str) else (val or ""))
 
 
 def _uniquify_fieldnames(fields: list) -> list:
@@ -550,7 +590,7 @@ def _ensure_child_doctypes(parent: str, module: str, fields: list) -> list:
 	return created
 
 
-def _create_custom_doctype(name: str, module: str, is_child: int, autoname: str, fields: list) -> str:
+def _create_custom_doctype(name: str, module: str, is_child: int, autoname: str, fields: list, settings: dict = None) -> str:
 	doc = frappe.get_doc({
 		"doctype": "DocType",
 		"name": name,
@@ -561,7 +601,10 @@ def _create_custom_doctype(name: str, module: str, is_child: int, autoname: str,
 		"autoname": autoname or None,
 		"fields": [_docfield_dict(f, i + 1) for i, f in enumerate(_uniquify_fieldnames(fields))],
 	})
-	if not is_child:
+	_apply_doctype_settings(doc, settings)
+	doc.custom = 1          # never let a setting flip the custom flag
+	doc.istable = is_child  # child-table state is owned by the caller
+	if not doc.istable:
 		doc.append("permissions", {
 			"role": "System Manager",
 			"read": 1, "write": 1, "create": 1, "delete": 1,
@@ -571,7 +614,7 @@ def _create_custom_doctype(name: str, module: str, is_child: int, autoname: str,
 	return "created"
 
 
-def _reconcile_custom_doctype(name: str, is_child: int, autoname: str, fields: list) -> str:
+def _reconcile_custom_doctype(name: str, is_child: int, autoname: str, fields: list, settings: dict = None) -> str:
 	"""Bring a custom DocType's fields in line with the IR (add / update / remove).
 
 	The IR (seeded from the live schema and echoed back by the writer) is the
@@ -589,6 +632,7 @@ def _reconcile_custom_doctype(name: str, is_child: int, autoname: str, fields: l
 		idx += 1
 		payloads.append(_docfield_dict(f, idx))
 	doc.set("fields", payloads)
+	_apply_doctype_settings(doc, settings)
 	doc.istable = is_child
 	if autoname:
 		doc.autoname = autoname
