@@ -16,7 +16,6 @@
 					:logs="logs"
 					:active-tasks="activeTasks"
 					:selected-bpmn-id="selectedBpmnId"
-					:ai-called-tools="aiCalledTools"
 					@element-select="onDiagramSelect"
 					@clear-selection="clearSelection"
 				/>
@@ -43,7 +42,7 @@
 						:selected-bpmn-id="selectedBpmnId"
 						@select="onHistorySelect"
 					/>
-					<ElementInspector :selected-node="selectedNode" :process-instance-name="instanceId" :task-labels="taskLabels" :open-ai-run-tick="aiRunTick" />
+					<ElementInspector :selected-node="selectedNode" :process-instance-name="instanceId" :task-labels="taskLabels" />
 					<PendingActions
 						:active-tasks="activeTasks"
 						:completing-task="completingTask"
@@ -193,29 +192,6 @@ const taskList = computed(() => {
 			const flat = []
 			for (const n of nodes) {
 				flat.push(n)
-				// WI-001426: an AI Agent Task's tool calls happen inside the
-				// LLM loop, not as engine tasks — inject synthetic nested rows
-				// (from ai_agent_tool_call records) so the history shows what
-				// the agent did, styled distinctly from real flow steps.
-				if (n.extensions?.serviceType === "ai_agent") {
-					const calls = aiCallsByBpmnId.value[n.bpmnId] || []
-					calls.forEach((call, i) => {
-						flat.push({
-							id: `${n.id}::aicall::${i}`,
-							bpmnId: null,
-							isAiToolCall: true,
-							parentId: n.id,
-							parentBpmnId: n.bpmnId,
-							toolBpmnId: call.tool_name,
-							name: taskLabels.value[call.tool_name] || call.tool_name,
-							callStatus: call.status,
-							argsPreview: call.args_preview,
-							resultPreview: call.result_preview,
-							depth: (n.depth || 0) + 1,
-							stateLabel: call.status === "Error" ? "Error" : "Completed",
-						})
-					})
-				}
 				if (n.childNodes) {
 					flat.push(...n.childNodes)
 					delete n.childNodes
@@ -266,103 +242,9 @@ const selectedNode = computed(() => {
 
 
 
-// ── AI Agent tool calls (WI-001426) ──
-// Tool calls made by an AI Agent Task run inside the LLM loop, not as engine
-// tasks — fetch them from the observability records (AI Agent Run → Step →
-// Tool Call) so the history and diagram can show what the agent did.
-
-const aiCallsByBpmnId = ref({})
-const aiRunTick = ref(0)
-
-async function loadAiToolCalls() {
-	try {
-		const runs = await frappeRequest({
-			url: "/api/method/frappe.client.get_list",
-			params: {
-				doctype: "AI Agent Run",
-				fields: JSON.stringify(["name", "bpmn_id"]),
-				filters: JSON.stringify([["instance", "=", instanceId.value]]),
-				limit_page_length: 0,
-			},
-		})
-		if (!Array.isArray(runs) || !runs.length) { aiCallsByBpmnId.value = {}; return }
-
-		const runByName = Object.fromEntries(runs.map((r) => [r.name, r.bpmn_id]))
-		const steps = await frappeRequest({
-			url: "/api/method/frappe.client.get_list",
-			params: {
-				doctype: "AI Agent Step",
-				fields: JSON.stringify(["name", "run", "step_index"]),
-				filters: JSON.stringify([["run", "in", Object.keys(runByName)]]),
-				order_by: "step_index asc",
-				limit_page_length: 0,
-			},
-		})
-		if (!Array.isArray(steps) || !steps.length) { aiCallsByBpmnId.value = {}; return }
-
-		const stepOrder = Object.fromEntries(steps.map((s, i) => [s.name, i]))
-		const stepRun = Object.fromEntries(steps.map((s) => [s.name, s.run]))
-		const calls = await frappeRequest({
-			url: "/api/method/frappe.client.get_list",
-			params: {
-				doctype: "AI Agent Tool Call",
-				fields: JSON.stringify(["parent", "tool_name", "tool_source", "status", "tool_args", "tool_result", "idx"]),
-				filters: JSON.stringify([["parent", "in", steps.map((s) => s.name)]]),
-				parent: "AI Agent Step",
-				order_by: "idx asc",
-				limit_page_length: 0,
-			},
-		})
-
-		const preview = (v) => {
-			if (v == null || v === "") return ""
-			const s = typeof v === "string" ? v : JSON.stringify(v)
-			return s.length > 160 ? s.slice(0, 160) + "…" : s
-		}
-		const grouped = {}
-		;(Array.isArray(calls) ? calls : [])
-			.filter((c) => c.tool_source === "diagram_task")
-			.sort((a, b) => (stepOrder[a.parent] - stepOrder[b.parent]) || (a.idx - b.idx))
-			.forEach((c) => {
-				const bpmnId = runByName[stepRun[c.parent]]
-				if (!bpmnId) return
-				;(grouped[bpmnId] = grouped[bpmnId] || []).push({
-					tool_name: c.tool_name,
-					status: c.status,
-					args_preview: preview(c.tool_args),
-					result_preview: preview(c.tool_result),
-				})
-			})
-		aiCallsByBpmnId.value = grouped
-	} catch (e) {
-		console.warn("Failed to load AI tool calls:", e)
-		aiCallsByBpmnId.value = {}
-	}
-}
-
-// Diagram highlight: toolbox shapes the agent actually called (WI-001426).
-// bpmnId → "Success" | "Error" (an Error anywhere wins for that shape).
-const aiCalledTools = computed(() => {
-	const map = {}
-	for (const calls of Object.values(aiCallsByBpmnId.value)) {
-		for (const c of calls) {
-			if (c.status === "Error" || !(c.tool_name in map)) map[c.tool_name] = c.status
-		}
-	}
-	return map
-})
-
 // ── Selection handlers ──
 
 function onHistorySelect(node) {
-	if (node.isAiToolCall) {
-		// An AI call row selects its agent task and opens the AI Run tab —
-		// the call's full trace lives there, not in engine task data.
-		selectedNodeId.value = node.parentId
-		selectedBpmnId.value = node.parentBpmnId
-		aiRunTick.value++
-		return
-	}
 	selectedNodeId.value = node.id
 	selectedBpmnId.value = node.bpmnId
 }
@@ -391,7 +273,6 @@ async function loadDetails() {
 			? res.active_tasks.filter((t) => !t.status || t.status === "Waiting")
 			: []
 		if (res?.process_model) loadProcessModelXml(res.process_model)
-		loadAiToolCalls()
 	} catch (e) {
 		console.error("Failed to load instance details:", e)
 	}
