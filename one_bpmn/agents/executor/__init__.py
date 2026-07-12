@@ -74,10 +74,6 @@ class ExecutorConfig:
     response_schema: Optional[str] = None  # JSON Schema string
     max_retries: int = 2
     retry_backoff_ms: int = 1000
-    # WI-001356: optional list[ToolSpec]. None (default) keeps the raw HTTP
-    # path byte-for-byte unchanged; when set, DirectApiExecutor delegates to
-    # the matching agents/llm_provider adapter's multi-turn tool loop.
-    tools: list | None = None
 
 
 @dataclass
@@ -97,11 +93,6 @@ class ExecutorResult:
     error_message: str = ""
     raw: Any = None
     attempts: list = field(default_factory=list)  # List[AttemptRecord]
-    # WI-001356: full turn-by-turn trace (list[TurnRecord] from
-    # agents/llm_provider/base.py) when tools were used — one entry per real
-    # LLM turn, each carrying its tool calls and that turn's token usage.
-    # Plain dataclass field: no doctype/database migration involved.
-    trace: list = field(default_factory=list)
 
 
 # ---------------------------------------------------------------------------

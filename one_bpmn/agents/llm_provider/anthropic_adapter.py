@@ -1,24 +1,10 @@
 import logging
-import time
 
-from .base import BaseLLMAdapter, CompletionResult, ToolCallRecord, ToolSpec, TurnRecord
+from .base import BaseLLMAdapter, ToolSpec
 
 _MAX_TOOL_TURNS = 10
 
 logger = logging.getLogger(__name__)
-
-
-def _usage_tokens(response) -> tuple:
-    """Real prompt/completion counts for the turn. Prompt tokens include the
-    cached portions — cache_read/cache_creation tokens ARE consumed context,
-    just billed differently; pricing.py handles the cost split."""
-    usage = getattr(response, "usage", None)
-    prompt = (
-        (getattr(usage, "input_tokens", 0) or 0)
-        + (getattr(usage, "cache_read_input_tokens", 0) or 0)
-        + (getattr(usage, "cache_creation_input_tokens", 0) or 0)
-    )
-    return prompt, getattr(usage, "output_tokens", 0) or 0
 
 
 def _build_tool_def(tool: ToolSpec) -> dict:
@@ -71,7 +57,7 @@ class AnthropicAdapter(BaseLLMAdapter):
         user: str,
         tools: list[ToolSpec] | None = None,
         max_tokens: int = 16384,
-    ) -> CompletionResult:
+    ) -> str:
         import re
 
         tool_defs = [_build_tool_def(t) for t in tools] if tools else []
@@ -146,9 +132,7 @@ class AnthropicAdapter(BaseLLMAdapter):
         if tool_defs:
             kwargs["tools"] = tool_defs
 
-        trace = []
         for turn in range(_MAX_TOOL_TURNS):
-            _turn_t0 = time.perf_counter()
             # Use streaming to avoid the Anthropic SDK's 10-minute limit on
             # non-streaming requests.  get_final_message() collects the full
             # response and returns the same Message object as messages.create().
@@ -168,59 +152,34 @@ class AnthropicAdapter(BaseLLMAdapter):
                 cache_read + cache_write + uncached,
                 getattr(usage, "output_tokens", 0) or 0,
             )
-            prompt_tokens, completion_tokens = _usage_tokens(response)
-            text_parts = [b.text for b in response.content if hasattr(b, "text")]
 
             if response.stop_reason != "tool_use":
-                content = "\n".join(text_parts)
-                trace.append(
-                    TurnRecord(
-                        role="assistant",
-                        content=content,
-                        prompt_tokens=prompt_tokens,
-                        completion_tokens=completion_tokens,
-                        latency_ms=int((time.perf_counter() - _turn_t0) * 1000),
-                    )
-                )
-                return CompletionResult(text=content, trace=trace)
+                # Collect all text blocks
+                text_parts = [b.text for b in response.content if hasattr(b, "text")]
+                return "\n".join(text_parts)
 
             # Append assistant turn (content includes tool_use blocks)
             messages.append({"role": "assistant", "content": response.content})
 
-            # Execute tool calls and build tool_result blocks; all calls of
-            # this response stay grouped under ONE TurnRecord with the turn's
-            # real token usage.
-            turn_record = TurnRecord(
-                role="tool",
-                content="\n".join(text_parts),
-                prompt_tokens=prompt_tokens,
-                completion_tokens=completion_tokens,
-            )
+            # Execute tool calls and build tool_result blocks
             tool_results = []
             for block in response.content:
                 if block.type != "tool_use":
                     continue
                 tool = tool_map.get(block.name)
-                arguments = dict(block.input or {})
                 if tool:
                     try:
-                        result = str(tool.fn(**arguments))
+                        result = str(tool.fn(**block.input))
                     except Exception as exc:
                         result = f"Error calling {block.name}: {exc}"
                 else:
                     result = f"Unknown tool: {block.name}"
 
-                turn_record.tool_calls.append(
-                    ToolCallRecord(name=block.name, arguments=arguments, result=result)
-                )
                 tool_results.append({
                     "type": "tool_result",
                     "tool_use_id": block.id,
                     "content": result,
                 })
-            # API round-trip + inline tool execution = this turn's decision latency
-            turn_record.latency_ms = int((time.perf_counter() - _turn_t0) * 1000)
-            trace.append(turn_record)
 
             # Relocate the single conversation cache_control marker to the last
             # tool_result so the entire conversation prefix (tools + system +
@@ -236,4 +195,4 @@ class AnthropicAdapter(BaseLLMAdapter):
             messages.append({"role": "user", "content": tool_results})
             kwargs["messages"] = messages
 
-        return CompletionResult(text="", trace=trace, hit_turn_cap=True)
+        return ""
