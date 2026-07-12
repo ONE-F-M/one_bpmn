@@ -62,15 +62,6 @@
 				>
 					<path d="M 1 5 L 11 10 L 1 15 Z" fill="#16a34a" stroke="#16a34a" />
 				</marker>
-				<marker
-					id="sequenceflow-arrow-ai"
-					viewBox="0 0 20 20"
-					refX="11" refY="10"
-					markerWidth="10" markerHeight="10"
-					orient="auto"
-				>
-					<path d="M 1 5 L 11 10 L 1 15 Z" fill="#9333ea" stroke="#9333ea" />
-				</marker>
 			</defs>
 		</svg>
 	</div>
@@ -187,10 +178,10 @@ const props = defineProps({
 	selectedBpmnId: { type: String, default: null },
 	// WI-001426: toolbox shapes the AI agent called as function-tools —
 	// bpmnId → "Success" | "Error". These shapes never executed as flow,
-	// so they get a distinct purple treatment instead of the green DONE.
+	// so they get the same green treatment as engine-executed shapes.
 	aiCalledTools: { type: Object, default: () => ({}) },
 	// WI-001499: AI units parked "Waiting for AI execution" (or Errored
-	// after retries) — bpmnId → "Waiting" | "Error". Pulsing purple outline.
+	// after retries) — bpmnId → "Waiting" | "Error". Pulsing blue outline.
 	waitingAiTasks: { type: Object, default: () => ({}) },
 })
 
@@ -440,10 +431,11 @@ function applyHighlights() {
 		})
 
 		// AI-called toolbox shapes (WI-001426): the agent invoked these as
-		// function-tools inside its LLM loop — flow never entered them, so
-		// mark them purple (or the error treatment), never green DONE.
+		// function-tools inside its LLM loop — styled with the same green as
+		// engine-executed shapes (errors get the error treatment) so AI and
+		// engine runs read identically on the diagram.
 		// info is {status, count} (legacy string = status only). Tools called
-		// more than once get a purple ×N badge — same convention as the token
+		// more than once get a ×N badge — same convention as the token
 		// heatmap, but counting LLM tool calls, not token traversals.
 		const aiToolboxIds = new Set()
 		for (const [bpmnId, info] of Object.entries(props.aiCalledTools || {})) {
@@ -459,16 +451,15 @@ function applyHighlights() {
 					overlays.add(bpmnId, "ai-call-badge", { position: { top: -10, right: -10 }, html: badge })
 				}
 				// The container holding this tool is an agent's toolbox — its
-				// valve edges get the purple-dashed "AI reached in" treatment.
+				// valve edges get the same executed-flow colouring.
 				const parent = elementRegistry.get(bpmnId)?.parent
 				if (parent?.type === "bpmn:AdHocSubProcess") aiToolboxIds.add(parent.id)
 			} catch (e) {}
 		}
 
-		// Edges touching an AI-used toolbox: purple dashed, matching the tool
-		// shapes — the agent reached into this box mid-reasoning. Deliberately
-		// NOT green: the token never traveled these flows (they exist only to
-		// wire the toolbox into a valid diagram).
+		// Edges touching an AI-used toolbox: coloured like every other
+		// executed flow, so AI-driven and engine-driven execution share one
+		// visual language on the instance diagram.
 		if (aiToolboxIds.size && elementRegistry) {
 			elementRegistry
 				.filter(
@@ -484,7 +475,7 @@ function applyHighlights() {
 		}
 
 		// Parked AI units (WI-001499): waiting for their background AI job —
-		// pulsing purple; an exhausted-retries failure gets the error look.
+		// pulsing blue; an exhausted-retries failure gets the error look.
 		// A suspended agent (Durable HITL, status "Human") is waiting for a
 		// PERSON — distinct amber treatment.
 		for (const [bpmnId, status] of Object.entries(props.waitingAiTasks || {})) {
@@ -611,18 +602,16 @@ function applyHighlights() {
 .highlight-active:not(.djs-connection) .djs-visual > :nth-child(1) {
 	stroke: #2563eb !important; fill: #dbeafe !important; stroke-width: 2px !important;
 }
-/* WI-001426: toolbox shapes called by the AI agent (not flow execution) */
+/* WI-001426: toolbox shapes called by the AI agent — same green as engine-
+   executed shapes so AI and engine runs read identically on the diagram. */
 .highlight-ai-called:not(.djs-connection) .djs-visual > :nth-child(1) {
-	stroke: #9333ea !important; fill: #f3e8ff !important; stroke-width: 2px !important;
-	stroke-dasharray: 6 3 !important;
+	stroke: #16a34a !important; fill: #dcfce7 !important; stroke-width: 2px !important;
 }
 .highlight-ai-error:not(.djs-connection) .djs-visual > :nth-child(1) {
-	stroke: #dc2626 !important; fill: #f3e8ff !important; stroke-width: 2px !important;
-	stroke-dasharray: 6 3 !important;
+	stroke: #dc2626 !important; fill: #fee2e2 !important; stroke-width: 2px !important;
 }
 .highlight-ai-waiting:not(.djs-connection) .djs-visual > :nth-child(1) {
-	stroke: #9333ea !important; fill: #f3e8ff !important; stroke-width: 2.5px !important;
-	stroke-dasharray: 6 3 !important;
+	stroke: #2563eb !important; fill: #dbeafe !important; stroke-width: 2.5px !important;
 	animation: ai-waiting-pulse 1.6s ease-in-out infinite;
 }
 @keyframes ai-waiting-pulse {
@@ -635,12 +624,11 @@ function applyHighlights() {
 	stroke-dasharray: 6 3 !important;
 	animation: ai-waiting-pulse 1.6s ease-in-out infinite;
 }
-/* Edges of an agent's toolbox whose tools were AI-called: same purple-dashed
-   language as the tool shapes — "the agent reached in", not token flow. */
+/* Edges of an agent's toolbox whose tools were AI-called: same green as
+   engine-traversed flows — AI and engine runs use one consistent colour. */
 .highlight-flow-ai.djs-connection .djs-visual > path {
-	stroke: #9333ea !important; stroke-width: 2px !important;
-	stroke-dasharray: 6 3 !important;
-	marker-end: url(#sequenceflow-arrow-ai) !important;
+	stroke: #16a34a !important; stroke-width: 2px !important;
+	marker-end: url(#sequenceflow-arrow-green) !important;
 }
 .highlight-flow-done.djs-connection .djs-visual > path {
 	stroke: #16a34a !important; stroke-width: 2px !important;
@@ -682,7 +670,7 @@ function applyHighlights() {
 	z-index: 100;
 }
 .ai-badge.ai-success {
-	background: #7B2D8E;
+	background: #16a34a;
 }
 .ai-badge.ai-error {
 	background: #DC2626;
@@ -718,11 +706,11 @@ function applyHighlights() {
 .heatmap-badge.hot { background: #dc2626; }
 .heatmap-badge.warm { background: #f59e0b; }
 
-/* ×N tool-call count on AI-called toolbox shapes (purple family: these are
-   LLM tool calls, not token traversals) */
+/* ×N tool-call count on AI-called toolbox shapes — same badge style as the
+   token heatmap ×N so repeat counts read identically everywhere. */
 .ai-call-badge {
 	min-width: 20px; height: 20px; line-height: 20px; text-align: center;
-	font-size: 10px; font-weight: 700; color: #fff; background: #9333ea;
+	font-size: 10px; font-weight: 700; color: #fff; background: #6366f1;
 	border-radius: 10px; padding: 0 5px;
 	box-shadow: 0 1px 3px rgba(0,0,0,0.3);
 	font-family: ui-monospace, monospace; pointer-events: none;
