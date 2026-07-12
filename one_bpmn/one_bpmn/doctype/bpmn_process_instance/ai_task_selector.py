@@ -49,12 +49,6 @@ def make_adhoc_decider(instance, wf):
 			if candidate_name == chosen_name:
 				if arguments:
 					task.data.update(arguments)
-				# WI-001359: audit the decision itself; the activation is
-				# logged separately by the gate's activation hook.
-				try:
-					instance.log_ai_task_selected(bpmn_id, [chosen_name], arguments)
-				except Exception:
-					pass
 				return task
 
 		# The LLM picked a diagram task that is not pending (already ran or
@@ -208,21 +202,6 @@ def dispatch_ai_task_selector(instance, sp, task_cfg: dict, bpmn_id: str) -> tup
 		jinja_context=jinja_ctx,
 	)
 
-	# ── Observability (WI-001358): one Run per subprocess, reused across
-	# decision points. Instrumentation failures never block dispatch.
-	run = None
-	try:
-		from one_bpmn.agents.observability import get_or_create_selector_run
-
-		run = get_or_create_selector_run(
-			instance, bpmn_id, config, process_model=instance.process_model or ""
-		)
-	except Exception:
-		frappe.log_error(
-			title=f"AI Observability: selector run setup failed ({bpmn_id})",
-			message=frappe.get_traceback(),
-		)
-
 	try:
 		executor_cls = get_executor(config.backend)
 		result = executor_cls().run(config, context)
@@ -234,19 +213,6 @@ def dispatch_ai_task_selector(instance, sp, task_cfg: dict, bpmn_id: str) -> tup
 		sp.data[f"{bpmn_id}_error_code"] = "UNEXPECTED_ERROR"
 		sp.data[f"{bpmn_id}_error_message"] = "See Frappe Error Log for details."
 		return ("error", None, None)
-
-	# One Step per LLM turn, one Tool Call row per call within a turn.
-	try:
-		from one_bpmn.agents.observability import record_selector_turns
-
-		if run is not None:
-			source_map = {c.spec.name: c.source for c in pool}
-			record_selector_turns(run, result.trace or [], source_map)
-	except Exception:
-		frappe.log_error(
-			title=f"AI Observability: selector step recording failed ({bpmn_id})",
-			message=frappe.get_traceback(),
-		)
 
 	if result.error_code != ErrorCode.SUCCESS:
 		# Same pattern as dispatch_ai_agent: log, write error variables,
@@ -260,25 +226,6 @@ def dispatch_ai_task_selector(instance, sp, task_cfg: dict, bpmn_id: str) -> tup
 		return ("error", None, None)
 
 	_record_tool_outcomes(sp, bpmn_id, result)
-
-	# An idle decision does NOT close the run — earlier code finalized here
-	# unconditionally, so a correct "wait for the agent" decision marked the
-	# run Success mid-flight and the next decision opened a second run. The
-	# run is finalized when the subprocess itself completes
-	# (_on_engine_task_complete → finalize_open_selector_runs). Belt: if the
-	# completion condition is already satisfied at an idle decision, the
-	# subprocess is about to close, so finalizing here is safe and correct.
-	if not selection:
-		try:
-			from one_bpmn.agents.observability import finalize_selector_run
-
-			if run is not None and bpmn_engine._adhoc_completion_met(sp):
-				finalize_selector_run(run)
-		except Exception:
-			frappe.log_error(
-				title=f"AI Observability: selector finalize failed ({bpmn_id})",
-				message=frappe.get_traceback(),
-			)
 
 	if selection:
 		return ("activate", selection["bpmn_id"], selection["arguments"])

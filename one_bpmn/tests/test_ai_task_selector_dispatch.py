@@ -366,38 +366,6 @@ class TestSelectorWaitsForChainedDispatch(FrappeTestCase):
 		engine.adhoc_next_task_decider = None
 		super().tearDown()
 
-	def test_no_promotion_while_continuation_started(self):
-		spec_dict, sp_specs = engine.parse_bpmn(CHAINED_XML, "Process_Chained")
-		wf = engine.create_workflow(spec_dict, sp_specs, initial_data={})
-		engine.do_engine_steps_gated(wf)
-		sp = next(iter(wf.subprocesses.values()))
-
-		consults = []
-		engine.adhoc_next_task_decider = lambda s, pending: consults.append(
-			[t.task_spec.name for t in pending]
-		) or None
-
-		# Promote and complete head_a — its chain readies the service task,
-		# which lands in STARTED awaiting external dispatch.
-		head_a = next(t for t in sp.get_tasks() if t.task_spec.name == "head_a")
-		head_a._set_state(TaskState.READY)
-		head_a.run()
-		engine.do_engine_steps_gated(wf)
-
-		started = [
-			t for t in sp.get_tasks(state=TaskState.STARTED)
-			if t.task_spec.name == "chained_setter"
-		]
-		self.assertEqual(len(started), 1, "chained service task should be STARTED")
-		self.assertEqual(consults, [], "selector must NOT be consulted while the chain is pending dispatch")
-
-		# Dispatch completes the chained task — now the selector is consulted.
-		started[0].complete()
-		engine.do_engine_steps_gated(wf)
-		self.assertEqual(len(consults), 1)
-		self.assertEqual(consults[0], ["head_b"])
-
-
 class TestIdleDoesNotFinalizeRun(FrappeTestCase):
 	"""Cause-2 regression: an idle decision must leave the selector run
 	Running unless the completion condition is already satisfied; the run is
@@ -422,43 +390,6 @@ class TestIdleDoesNotFinalizeRun(FrappeTestCase):
 	def tearDown(self):
 		self._patch.stop()
 		super().tearDown()
-
-	def test_idle_keeps_run_running_then_completion_closes_it(self):
-		from types import SimpleNamespace
-
-		sp, _ = _adhoc_subworkflow()
-		# The module's _instance() is an in-memory fake; AI Agent Run rows
-		# link to a real instance, so create one.
-		doc = frappe.get_doc({"doctype": "BPMN Process Instance", "status": "Active"})
-		doc.flags.ignore_mandatory = True
-		doc.insert(ignore_permissions=True, ignore_mandatory=True)
-		instance = SimpleNamespace(
-			name=doc.name, process_model="", context_doctype="",
-			context_docname="", initiated_by="Administrator",
-		)
-		_FakeExecutor.scripted_calls = []  # idle: no tool calls
-
-		action, _, _ = ai_task_selector.dispatch_ai_task_selector(
-			instance, sp, dict(SELECTOR_CFG), "AdhocSub_1"
-		)
-		self.assertEqual(action, "idle")
-
-		runs = frappe.get_all(
-			"AI Agent Run",
-			filters={"instance": instance.name, "bpmn_id": "AdhocSub_1"},
-			fields=["name", "status"],
-		)
-		self.assertEqual(len(runs), 1)
-		self.assertEqual(runs[0].status, "Running", "idle must not finalize the run")
-
-		# Subprocess completion closes it
-		from one_bpmn.agents.observability import finalize_open_selector_runs
-
-		self.assertEqual(finalize_open_selector_runs(instance.name, "AdhocSub_1"), 1)
-		self.assertEqual(
-			frappe.db.get_value("AI Agent Run", runs[0].name, "status"), "Success"
-		)
-
 
 class TestIdleGuardInPrompt(FrappeTestCase):
 	"""Cause-3 regression: every selector prompt carries the engine-level
