@@ -1207,113 +1207,6 @@ def _check_eval_suite_gating(model_name: str) -> list:
 	return warnings
 
 
-# AI Agent Task tools = the shapes of a referenced ad-hoc sub-process
-# (Camunda "tools are the shapes"). The tool container is NOT wired into the
-# process flow, so its shapes are resolved here at compile time and embedded in
-# the agent's config; the runtime never navigates the live spec tree.
-_AI_AGENT_TOOL_TAGS = frozenset({"scriptTask", "serviceTask"})
-
-
-def _extract_tool_shapes(adhoc_el, bpmn_ns: str, spiff_ns: str) -> list:
-	"""Eligible leaf tool shapes of an ad-hoc sub-process, as tool descriptors.
-
-	Executable-inline only: a Script Task with a Server Script, or a Service
-	Task with a serviceType. Description is the shape's documentation (Camunda
-	uses an activity's documentation as its tool description). Containers,
-	gateways, events and human tasks are not included.
-	"""
-	shapes = []
-	for child in list(adhoc_el):
-		tag = child.tag.split("}")[-1]
-		if tag not in _AI_AGENT_TOOL_TAGS:
-			continue
-		bpmn_id = child.get("id")
-		if not bpmn_id:
-			continue
-		server_script = child.get(f"{{{spiff_ns}}}serverScript", "")
-		service_type = child.get(f"{{{spiff_ns}}}serviceType", "")
-		if not (server_script or service_type):
-			continue
-		doc_el = child.find(f"{{{bpmn_ns}}}documentation")
-		description = (doc_el.text or "").strip() if doc_el is not None and doc_el.text else ""
-		shape = {"bpmn_id": bpmn_id, "description": description}
-		if server_script:
-			shape["serverScript"] = server_script
-		if service_type:
-			shape["serviceType"] = service_type
-		shapes.append(shape)
-	return shapes
-
-
-def _ai_agents_with_tools(service_extensions: dict) -> dict:
-	return {
-		bid: cfg
-		for bid, cfg in (service_extensions or {}).items()
-		if cfg.get("serviceType") == "ai_agent" and (cfg.get("aiToolsAdhoc") or "").strip()
-	}
-
-
-def _index_adhoc_subprocesses(bpmn_xml: str, bpmn_ns: str):
-	import xml.etree.ElementTree as _ET
-
-	try:
-		root = _ET.fromstring(bpmn_xml.strip().encode("utf-8") if isinstance(bpmn_xml, str) else bpmn_xml)
-	except Exception:
-		return None
-	return {el.get("id"): el for el in root.iter(f"{{{bpmn_ns}}}adHocSubProcess") if el.get("id")}
-
-
-def _resolve_ai_agent_tool_shapes(bpmn_xml: str, service_extensions: dict) -> None:
-	"""Embed each AI Agent Task's tool shapes (from its referenced ad-hoc
-	sub-process) into the agent's config as ``aiToolShapes`` (JSON)."""
-	BPMN_NS = "http://www.omg.org/spec/BPMN/20100524/MODEL"
-	SPIFF_NS = "http://spiffworkflow.org/bpmn/schema/1.0/core"
-
-	agents = _ai_agents_with_tools(service_extensions)
-	if not agents:
-		return
-	adhocs = _index_adhoc_subprocesses(bpmn_xml, BPMN_NS)
-	if adhocs is None:
-		return
-	for cfg in agents.values():
-		adhoc = adhocs.get((cfg.get("aiToolsAdhoc") or "").strip())
-		if adhoc is None:
-			continue  # _validate_ai_agent_tools reports the missing reference
-		cfg["aiToolShapes"] = json.dumps(_extract_tool_shapes(adhoc, BPMN_NS, SPIFF_NS))
-
-
-def _validate_ai_agent_tools(bpmn_xml: str, service_extensions: dict) -> None:
-	"""Reject AI Agent Tasks whose Tools sub-process reference is missing or has
-	no executable tool shapes — surfaced at deploy, not as a silent runtime
-	no-op. Only fires when aiToolsAdhoc is set (a draft agent may omit it)."""
-	BPMN_NS = "http://www.omg.org/spec/BPMN/20100524/MODEL"
-
-	agents = _ai_agents_with_tools(service_extensions)
-	if not agents:
-		return
-	adhocs = _index_adhoc_subprocesses(bpmn_xml, BPMN_NS) or {}
-	for agent_id, cfg in agents.items():
-		adhoc_id = (cfg.get("aiToolsAdhoc") or "").strip()
-		if adhoc_id not in adhocs:
-			frappe.throw(
-				_(
-					"AI Agent Task '{0}' references ad-hoc sub-process '{1}', "
-					"which does not exist. Point it at the sub-process that holds its tools."
-				).format(agent_id, adhoc_id),
-				exc=frappe.ValidationError,
-			)
-		shapes = json.loads(cfg.get("aiToolShapes") or "[]")
-		if not shapes:
-			frappe.throw(
-				_(
-					"AI Agent Task '{0}' references ad-hoc sub-process '{1}', which has no "
-					"executable tool shapes (Script tasks with a Server Script, or Service "
-					"tasks with a service type). Add at least one tool."
-				).format(agent_id, adhoc_id),
-				exc=frappe.ValidationError,
-			)
-
-
 @frappe.whitelist()
 def compile_process_model(model_name: str) -> dict:
 	"""
@@ -1451,15 +1344,11 @@ def compile_process_model(model_name: str) -> dict:
 	# AI Task Selector config lives on adHocSubProcess elements (WI-001351)
 	# but is dispatched through the same extensions dict, keyed by bpmn_id.
 	service_extensions.update(_extract_adhoc_selector_config(sanitized_xml))
-	# AI Agent Task: resolve its referenced ad-hoc sub-process's shapes into
-	# embedded tool descriptors so the runtime needs no live spec navigation.
-	_resolve_ai_agent_tool_shapes(sanitized_xml, service_extensions)
 	if service_extensions:
 		spec_data["service_task_extensions"] = service_extensions
 	_lint_ai_provider_config(sanitized_xml, service_extensions)
 	_validate_adhoc_structure(sanitized_xml)
 	_validate_adhoc_selector_pool(sanitized_xml, model_name)
-	_validate_ai_agent_tools(sanitized_xml, service_extensions)
 
 	# ── Eval suite deployment gating (non-blocking warnings) ──────────
 	deploy_warnings = _check_eval_suite_gating(model_name)
