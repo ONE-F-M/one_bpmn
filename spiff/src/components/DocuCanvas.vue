@@ -1069,7 +1069,7 @@ async function sendMessage(preset) {
 // Poll a backgrounded turn to completion. Cancellable (close/unmount).
 function pollTurn(turnId) {
 	const startedAt = Date.now();
-	const MAX_MS = 180000;   // give up surfacing after 3 min (turn may still finish server-side)
+	const MAX_MS = 600000;   // match the backend job timeout (docu_chat_async enqueue timeout=600s)
 	const INTERVAL = 1800;
 	pollCancelled = false;
 

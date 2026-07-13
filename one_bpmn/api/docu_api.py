@@ -186,10 +186,14 @@ def docu_chat_async(
 
 	# enqueue_after_commit → the worker (separate process) only runs once this
 	# request's conversation/instance rows are committed and visible to it.
+	# at_front → an interactive Docu turn jumps ahead of batch/background jobs
+	# already queued (e.g. memory distillation, engine jobs) so a user waiting on
+	# the chat isn't stuck behind them on a shared worker.
 	frappe.enqueue(
 		"one_bpmn.api.docu_api._run_docu_turn",
 		queue="default",
 		timeout=600,
+		at_front=True,
 		enqueue_after_commit=True,
 		turn_id=turn_id,
 		conversation_name=conversation_name,
