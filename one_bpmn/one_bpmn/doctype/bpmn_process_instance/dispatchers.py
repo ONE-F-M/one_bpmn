@@ -70,6 +70,37 @@ def _extract_memory_content(output, content_field: str) -> str:
 	return str(output or "")
 
 
+def _memory_write_mode(task_cfg: dict) -> str:
+	"""Resolve the long-term memory write mode: "off" | "raw" | "distilled".
+
+	Explicit ``aiMemoryWriteMode`` wins. Back-compat: a legacy ``aiMemoryAutoWrite``
+	with no explicit mode now means "distilled" (extract durable facts) rather
+	than the old verbatim dump; off/absent means "off".
+	"""
+	mode = str(task_cfg.get("aiMemoryWriteMode") or "").strip().lower()
+	if mode in ("off", "raw", "distilled"):
+		return mode
+	return "distilled" if _cfg_truthy(task_cfg.get("aiMemoryAutoWrite")) else "off"
+
+
+def _enqueue_distill(**kwargs) -> None:
+	"""Run distillation off the dispatch hot path so memory never adds latency.
+
+	Enqueued as a background job in normal operation; run inline under tests so
+	assertions and FrappeTestCase rollback work without a live worker.
+	"""
+	if getattr(frappe.flags, "in_test", False):
+		from one_bpmn.agents.memory.writeback import distill_and_write
+
+		distill_and_write(**kwargs)
+	else:
+		frappe.enqueue(
+			"one_bpmn.agents.memory.writeback.distill_and_write",
+			queue="short",
+			**kwargs,
+		)
+
+
 def dispatch_update_field(instance, task, task_cfg: dict, bpmn_id: str) -> None:
 	"""
 	Update one or more fields on a document in a single service task.
@@ -917,28 +948,46 @@ def dispatch_ai_agent(instance, task, task_cfg: dict, bpmn_id: str) -> None:
 					title=f"BPMN AI Agent Task: write-back failed ({bpmn_id})",
 					message=frappe.get_traceback(),
 				)
-		# ── Long-term memory: auto-write (config-gated) ─────────────────
-		# Store the agent output (or a configured field of it) as a memory,
-		# with provenance (source_run) and an optional dedup_key. Failures
-		# never block the task.
-		if _cfg_truthy(task_cfg.get("aiMemoryAutoWrite")):
+		# ── Long-term memory: write (config-gated) ──────────────────────
+		# "distilled" (default) extracts durable, deduplicated facts from the
+		# run via a background job; "raw" stores the output verbatim (legacy);
+		# "off" writes nothing. Failures never block the task.
+		write_mode = _memory_write_mode(task_cfg)
+		if write_mode != "off":
 			try:
 				write_target = memory_target or _resolve_memory_target(task_cfg, instance, bpmn_id)
-				content = _extract_memory_content(result.output, task_cfg.get("aiMemoryContentField", ""))
-				if write_target and content:
-					from one_bpmn.agents.memory.tools import memory_write
+				if write_target:
 					scope, scope_key = write_target
-					memory_write(
-						scope,
-						scope_key,
-						content,
-						dedup_key=(task_cfg.get("aiMemoryDedupKey") or None),
-						source_run=(run.name if run and not getattr(run, "stub", False) else None),
-						ignore_permissions=True,
-					)
+					src = run.name if run and not getattr(run, "stub", False) else None
+					if write_mode == "raw":
+						content = _extract_memory_content(result.output, task_cfg.get("aiMemoryContentField", ""))
+						if content:
+							from one_bpmn.agents.memory.tools import memory_write
+							memory_write(
+								scope,
+								scope_key,
+								content,
+								dedup_key=(task_cfg.get("aiMemoryDedupKey") or None),
+								source_run=src,
+								ignore_permissions=True,
+							)
+					else:  # distilled
+						# Distill with the task's own provider/model so the
+						# extraction call is always valid for the configured
+						# provider; aiMemoryDistillModel overrides when set.
+						_enqueue_distill(
+							agent_output=result.output,
+							agent=(task_cfg.get("aiMemoryAgentElement") or bpmn_id),
+							scope=scope,
+							scope_key=scope_key,
+							provider_name=config.provider_name,
+							backend=config.backend,
+							model=(task_cfg.get("aiMemoryDistillModel") or config.model or None),
+							source_run=src,
+						)
 			except Exception:
 				frappe.log_error(
-					title=f"BPMN AI Agent Task: memory_write failed ({bpmn_id})",
+					title=f"BPMN AI Agent Task: memory write failed ({bpmn_id})",
 					message=frappe.get_traceback(),
 				)
 
