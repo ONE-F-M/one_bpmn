@@ -149,13 +149,18 @@
             </span>
           </div>
 
-          <!-- Auto-write memory (only when long-term memory is on) -->
+          <!-- Memory write mode (only when long-term memory is on) -->
           <div class="field-row" v-if="!isSelector && form.aiLongTermMemory">
-            <label class="checkbox-row">
-              <input type="checkbox" v-model="form.aiMemoryAutoWrite" class="checkbox-input" />
-              <span>Save a memory after each run</span>
-            </label>
-            <span class="field-hint">Stores the agent output as a memory in the selected scope.</span>
+            <label>Memory Write Mode</label>
+            <select v-model="form.aiMemoryWriteMode">
+              <option value="off">Off (recall only)</option>
+              <option value="distilled">Distilled facts (recommended)</option>
+              <option value="raw">Raw output (legacy)</option>
+            </select>
+            <span class="field-hint">
+              Distilled extracts durable, deduplicated facts worth remembering (skipping confirmations and one-off replies);
+              Raw stores the full agent output verbatim.
+            </span>
           </div>
         </div>
 
@@ -395,7 +400,7 @@ const form = ref({
   aiContextMaxMessages: 20,
   aiLongTermMemory: false,
   aiMemoryScope: "Agent",
-  aiMemoryAutoWrite: false,
+  aiMemoryWriteMode: "off",
 });
 
 // ── Assistant state ───────────────────────────────────────────────────────
@@ -724,7 +729,11 @@ onMounted(async () => {
     aiContextMaxMessages: numOr("aiContextMaxMessages", 20, parseInt),
     aiLongTermMemory: get("aiLongTermMemory") === "true",
     aiMemoryScope: get("aiMemoryScope") || "Agent",
-    aiMemoryAutoWrite: get("aiMemoryAutoWrite") === "true",
+    // Back-compat: a legacy aiMemoryAutoWrite="true" now maps to "distilled"
+    // (matching the dispatcher), so an old element reads as its effective mode.
+    aiMemoryWriteMode:
+      get("aiMemoryWriteMode") ||
+      (get("aiMemoryAutoWrite") === "true" ? "distilled" : "off"),
   };
 
   // Pre-fill the assistant's context DocType from the diagram's start-event
@@ -812,12 +821,16 @@ function save() {
     "spiffworkflow:aiConversationStore": form.value.aiConversationStore || undefined,
     "spiffworkflow:aiContextMaxMessages": String(form.value.aiContextMaxMessages),
     "spiffworkflow:aiLongTermMemory": form.value.aiLongTermMemory ? "true" : undefined,
-    // Scope + auto-write only apply when long-term memory is on; clear them otherwise.
+    // Scope + write mode only apply when long-term memory is on; clear them otherwise.
+    "spiffworkflow:aiMemoryWriteMode":
+      form.value.aiLongTermMemory &&
+      form.value.aiMemoryWriteMode &&
+      form.value.aiMemoryWriteMode !== "off"
+        ? form.value.aiMemoryWriteMode
+        : undefined,
     "spiffworkflow:aiMemoryScope": form.value.aiLongTermMemory
       ? (form.value.aiMemoryScope || undefined)
       : undefined,
-    "spiffworkflow:aiMemoryAutoWrite":
-      form.value.aiLongTermMemory && form.value.aiMemoryAutoWrite ? "true" : undefined,
   };
 
   modeling.updateModdleProperties(element, bo, patch);

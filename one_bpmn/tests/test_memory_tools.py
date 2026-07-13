@@ -42,6 +42,32 @@ class TestMemorySearch(FrappeTestCase):
 		self.assertEqual(set(row), {"name", "content", "metadata"})
 
 
+class TestQueryTokenizer(FrappeTestCase):
+	def test_stopwords_and_short_tokens_dropped(self):
+		# "the"/"with" are stopwords; "of"/"a" are below the min length; only the
+		# content words survive so a whole prompt no longer matches everything.
+		toks = [t.lower() for t in T._query_tokens("Please create the invoice with a lot of items")]
+		self.assertNotIn("the", toks)
+		self.assertNotIn("with", toks)
+		self.assertNotIn("of", toks)
+		self.assertNotIn("please", toks)
+		self.assertIn("invoice", toks)
+		self.assertIn("items", toks)
+
+	def test_distinct_tokens_only(self):
+		self.assertEqual(T._query_tokens("invoice invoice invoice"), ["invoice"])
+
+
+class TestFulltextPath(FrappeTestCase):
+	def test_trusted_search_returns_only_in_scope(self):
+		# Exercises the relevance (FULLTEXT) path; it must never leak another
+		# scope key regardless of which path (fulltext or like) actually serves.
+		agent, other = _seed_agent_memories()
+		res = T.memory_search("Agent", agent, "net-30 terms", ignore_permissions=True)
+		self.assertTrue(all(r["content"] != "net-30 for a different agent" for r in res))
+		self.assertIn("customer prefers net-30 terms", [r["content"] for r in res])
+
+
 class TestMemoryWrite(FrappeTestCase):
 	def test_insert_and_dedup_overwrite(self):
 		agent = f"D_{frappe.generate_hash(length=8)}"

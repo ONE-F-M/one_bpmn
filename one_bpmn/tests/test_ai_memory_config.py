@@ -19,7 +19,7 @@ MEMORY_XML = """<?xml version="1.0" encoding="UTF-8"?>
         spiffworkflow:aiContextMaxMessages="20"
         spiffworkflow:aiLongTermMemory="true"
         spiffworkflow:aiMemoryScope="Entity"
-        spiffworkflow:aiMemoryAutoWrite="true" />
+        spiffworkflow:aiMemoryWriteMode="distilled" />
   </bpmn:process>
 </bpmn:definitions>
 """
@@ -47,7 +47,7 @@ class TestAIMemoryConfig(FrappeTestCase):
 		self.assertEqual(cfg["aiContextMaxMessages"], "20")
 		self.assertEqual(cfg["aiLongTermMemory"], "true")
 		self.assertEqual(cfg["aiMemoryScope"], "Entity")
-		self.assertEqual(cfg["aiMemoryAutoWrite"], "true")
+		self.assertEqual(cfg["aiMemoryWriteMode"], "distilled")
 
 	def test_memory_off_omits_scope_and_autowrite(self):
 		cfg = _extract_service_task_config(MEMORY_OFF_XML)["ai_task"]
@@ -57,4 +57,4 @@ class TestAIMemoryConfig(FrappeTestCase):
 		self.assertEqual(cfg["aiContextMaxMessages"], "20")
 		self.assertNotIn("aiLongTermMemory", cfg)
 		self.assertNotIn("aiMemoryScope", cfg)
-		self.assertNotIn("aiMemoryAutoWrite", cfg)
+		self.assertNotIn("aiMemoryWriteMode", cfg)

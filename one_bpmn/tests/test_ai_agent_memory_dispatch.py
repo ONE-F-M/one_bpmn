@@ -121,14 +121,14 @@ class TestDispatcherMemory(FrappeTestCase):
 		self.assertEqual(_CAPTURED["config"].system_prompt, "SYS")
 		self.assertNotIn("Relevant memory:", _CAPTURED["config"].system_prompt)
 
-	def test_auto_write_with_source_run(self):
+	def test_raw_write_mode_stores_output_verbatim(self):
 		with patch("one_bpmn.agents.memory.tools.memory_write") as mw:
 			D.dispatch_ai_agent(
 				_instance(),
 				_task("Act_W"),
 				{
 					"aiBackend": "faketest",
-					"aiMemoryAutoWrite": "enabled",
+					"aiMemoryWriteMode": "raw",
 					"aiMemoryScope": "Agent",
 					"aiUserPrompt": "q",
 				},
@@ -138,8 +138,69 @@ class TestDispatcherMemory(FrappeTestCase):
 		args, kwargs = mw.call_args
 		self.assertEqual(args[0], "Agent")
 		self.assertEqual(args[1], "Act_W")
-		self.assertEqual(args[2], "agent output")          # content = output
+		self.assertEqual(args[2], "agent output")          # content = output verbatim
 		self.assertEqual(kwargs.get("source_run"), "RUN-FAKE")
+
+	def test_distilled_write_mode_enqueues_distillation(self):
+		# distilled is the new default path: the raw output is NOT stored; a
+		# distill job is dispatched instead (run inline under tests).
+		with patch("one_bpmn.agents.memory.writeback.distill_and_write") as dw, patch(
+			"one_bpmn.agents.memory.tools.memory_write"
+		) as mw:
+			D.dispatch_ai_agent(
+				_instance(),
+				_task("Act_D"),
+				{
+					"aiBackend": "faketest",
+					"aiMemoryWriteMode": "distilled",
+					"aiMemoryScope": "Agent",
+					"aiUserPrompt": "q",
+				},
+				"Act_D",
+			)
+		mw.assert_not_called()
+		dw.assert_called_once()
+		kwargs = dw.call_args.kwargs
+		self.assertEqual(kwargs["scope"], "Agent")
+		self.assertEqual(kwargs["scope_key"], "Act_D")
+		self.assertEqual(kwargs["agent_output"], "agent output")
+		self.assertEqual(kwargs["source_run"], "RUN-FAKE")
+		self.assertEqual(kwargs["backend"], "faketest")
+
+	def test_legacy_autowrite_defaults_to_distilled(self):
+		# Back-compat: an existing element with aiMemoryAutoWrite on and no mode
+		# now distils rather than dumping the reply verbatim.
+		with patch("one_bpmn.agents.memory.writeback.distill_and_write") as dw:
+			D.dispatch_ai_agent(
+				_instance(),
+				_task("Act_L"),
+				{
+					"aiBackend": "faketest",
+					"aiMemoryAutoWrite": "enabled",
+					"aiMemoryScope": "Agent",
+					"aiUserPrompt": "q",
+				},
+				"Act_L",
+			)
+		dw.assert_called_once()
+
+	def test_write_mode_off_writes_nothing(self):
+		with patch("one_bpmn.agents.memory.writeback.distill_and_write") as dw, patch(
+			"one_bpmn.agents.memory.tools.memory_write"
+		) as mw:
+			D.dispatch_ai_agent(
+				_instance(),
+				_task("Act_O"),
+				{
+					"aiBackend": "faketest",
+					"aiMemoryWriteMode": "off",
+					"aiMemoryScope": "Agent",
+					"aiUserPrompt": "q",
+				},
+				"Act_O",
+			)
+		dw.assert_not_called()
+		mw.assert_not_called()
 
 
 class TestExecutorMessagesSlot(FrappeTestCase):

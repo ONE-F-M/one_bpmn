@@ -27,19 +27,32 @@ VALID_SCOPES = ("Agent", "Process", "Entity")
 _DEFAULT_LIMIT = 5
 # Max distinct keyword tokens to OR-match from a query (bounds the WHERE clause).
 _MAX_QUERY_TOKENS = 10
-# Ignore very short tokens so a whole-sentence query still matches on real words.
-_MIN_TOKEN_LEN = 2
+# Ignore short tokens: InnoDB FULLTEXT ignores anything below ft_min_token_size
+# (default 3), so a whole-sentence query still matches on its real words.
+_MIN_TOKEN_LEN = 3
+# Very common words carry no signal; dropping them stops a whole-prompt query
+# from matching essentially every memory in scope (the old recency-noise bug).
+_STOPWORDS = frozenset(
+	{
+		"the", "and", "for", "with", "that", "this", "you", "your", "are", "was",
+		"were", "have", "has", "had", "will", "would", "should", "could", "can",
+		"not", "but", "from", "into", "out", "about", "what", "when", "where",
+		"which", "who", "how", "please", "need", "want", "use", "using", "all",
+		"any", "its", "our", "their", "them", "then", "there", "here", "been",
+	}
+)
 
 
 def _query_tokens(query: str) -> list[str]:
-	"""Split a free-text query into distinct keyword tokens for matching. A
-	whole user prompt is a valid query, so we match on its words rather than
-	the entire string as one substring."""
+	"""Split a free-text query into distinct, meaningful keyword tokens. A whole
+	user prompt is a valid query, so we match on its content words — dropping
+	stopwords and sub-index-length tokens — rather than the entire string."""
 	seen, tokens = set(), []
 	for tok in re.split(r"\W+", query or ""):
 		tok = tok.strip()
-		if len(tok) >= _MIN_TOKEN_LEN and tok.lower() not in seen:
-			seen.add(tok.lower())
+		low = tok.lower()
+		if len(tok) >= _MIN_TOKEN_LEN and low not in _STOPWORDS and low not in seen:
+			seen.add(low)
 			tokens.append(tok)
 		if len(tokens) >= _MAX_QUERY_TOKENS:
 			break
@@ -93,13 +106,50 @@ def _resolve_scope(scope: str, scope_key) -> dict:
 
 
 # ── Tools ─────────────────────────────────────────────────────────────────
+def _row_dict(r) -> dict:
+	return {"name": r["name"], "content": r.get("content"), "metadata": _json_loads(r.get("metadata"))}
+
+
+def _fulltext_search(filters: dict, query: str, limit: int):
+	"""Relevance-ranked search via a MariaDB FULLTEXT ``MATCH`` (the
+	``content_fulltext`` index created in ``ai_memory.on_doctype_update``).
+
+	Returns row dicts ordered by match score then recency, or ``None`` when
+	FULLTEXT is unavailable (missing index / unsupported engine) so the caller
+	falls back to ``like``. An empty list is also treated by the caller as
+	"fall back" — it covers the InnoDB case where rows written in the current
+	uncommitted transaction are not yet visible to the FULLTEXT cache.
+	"""
+	conds = " AND ".join(f"`{col}` = %({col})s" for col in filters)
+	params = dict(filters, _q=query, _lim=int(limit))
+	sql = f"""
+		SELECT name, content, metadata,
+		       MATCH(content) AGAINST (%(_q)s IN NATURAL LANGUAGE MODE) AS _score
+		FROM `tabAI Memory`
+		WHERE {conds}
+		  AND MATCH(content) AGAINST (%(_q)s IN NATURAL LANGUAGE MODE)
+		ORDER BY _score DESC, modified DESC
+		LIMIT %(_lim)s
+	"""
+	try:
+		return frappe.db.sql(sql, params, as_dict=True)
+	except Exception:
+		return None
+
+
 def memory_search(scope: str, scope_key, query: str, limit: int = 5, *, ignore_permissions: bool = False) -> list[dict]:
 	"""Look up memories for exactly one scope key whose content matches ``query``.
 
-	Returns up to ``limit`` results as ``[{name, content, metadata}]`` ordered by
-	recency (most recent first). Never returns memories from a different scope
-	key. Content matching uses keyword ``like`` filters (the documented v1
-	approach for AI Memory; a FULLTEXT index backs it at scale).
+	Returns up to ``limit`` results as ``[{name, content, metadata}]``, never from
+	a different scope key. Ranking depends on the path taken:
+
+	- Trusted dispatch (``ignore_permissions=True``) with indexable query tokens
+	  uses a FULLTEXT ``MATCH`` and returns results ordered by **relevance** then
+	  recency — so the most on-topic memories surface, not merely the most recent.
+	- Otherwise (permission-enforced callers, no indexable tokens, or FULLTEXT
+	  unavailable) it uses keyword ``like`` filters ordered by recency. The
+	  FULLTEXT path is gated on ``ignore_permissions`` because raw SQL cannot
+	  apply Frappe row-level permissions.
 
 	Permissions are enforced by default so an agent only searches memories it is
 	allowed to read. ``ignore_permissions=True`` is for trusted server-side
@@ -107,16 +157,20 @@ def memory_search(scope: str, scope_key, query: str, limit: int = 5, *, ignore_p
 	method.
 	"""
 	filters = _resolve_scope(scope, scope_key)
+	page_length = limit if isinstance(limit, int) and limit > 0 else _DEFAULT_LIMIT
+	tokens = _query_tokens(query) if query else []
+
+	# Relevance-ranked FULLTEXT path (trusted dispatch only). A non-empty result
+	# wins; empty/unavailable falls through to the keyword path below.
+	if ignore_permissions and tokens:
+		rows = _fulltext_search(filters, " ".join(tokens), page_length)
+		if rows:
+			return [_row_dict(r) for r in rows]
+
 	# Keyword match: OR each query token against content. `filters` (scope) is
 	# AND-ed with `or_filters` (the token match) by DatabaseQuery, so results
 	# stay pinned to the exact scope key. Empty/short-only query -> recency list.
-	or_filters = None
-	if query:
-		tokens = _query_tokens(query)
-		if tokens:
-			or_filters = [["content", "like", f"%{tok}%"] for tok in tokens]
-
-	page_length = limit if isinstance(limit, int) and limit > 0 else _DEFAULT_LIMIT
+	or_filters = [["content", "like", f"%{tok}%"] for tok in tokens] or None
 	rows = frappe.get_list(
 		"AI Memory",
 		filters=filters,
@@ -126,10 +180,7 @@ def memory_search(scope: str, scope_key, query: str, limit: int = 5, *, ignore_p
 		limit_page_length=page_length,
 		ignore_permissions=ignore_permissions,
 	)
-	return [
-		{"name": r["name"], "content": r.get("content"), "metadata": _json_loads(r.get("metadata"))}
-		for r in rows
-	]
+	return [_row_dict(r) for r in rows]
 
 
 def memory_write(
