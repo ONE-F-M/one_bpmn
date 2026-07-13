@@ -22,8 +22,6 @@ import re
 
 import frappe
 
-# The cheapest model is fine — this is a bounded extraction task, not generation.
-_DEFAULT_DISTILL_MODEL = "claude-haiku-4-5-20251001"
 _MAX_FACTS = 5
 _MAX_CONTENT_LEN = 1000
 # Bound the input we hand the curator so a huge reply can't blow up the call.
@@ -122,6 +120,16 @@ def distill_memories(
 	if not text.strip():
 		return []
 
+	# No hardcoded fallback model: distillation runs with the model the caller
+	# resolved (the task's aiModel or an explicit aiMemoryDistillModel). Without
+	# one there is nothing valid to call, so skip — visibly.
+	if not model:
+		frappe.log_error(
+			title="AI Memory: distillation skipped (no model configured)",
+			message=f"agent={agent} scope={scope} — pass the task's aiModel or set aiMemoryDistillModel.",
+		)
+		return []
+
 	try:
 		from one_bpmn.agents.executor import (
 			ErrorCode,
@@ -134,7 +142,7 @@ def distill_memories(
 		config = ExecutorConfig(
 			backend=backend or "direct_api",
 			provider_name=provider_name,
-			model=model or _DEFAULT_DISTILL_MODEL,
+			model=model,
 			system_prompt=_SYSTEM_PROMPT.format(agent=agent),
 			user_prompt=_USER_PROMPT.format(output=text[:_MAX_INPUT_LEN]),
 			temperature=0.0,

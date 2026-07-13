@@ -27,7 +27,7 @@ class _FakeCurator(Executor):
 register_executor("curatortest", _FakeCurator)
 
 
-def _distill(output_text):
+def _distill(output_text, model="test-model"):
 	return DZ.distill_memories(
 		output_text,
 		agent="prosally",
@@ -35,6 +35,7 @@ def _distill(output_text):
 		scope_key="run_prosally_agent",
 		provider_name="",
 		backend="curatortest",
+		model=model,
 	)
 
 
@@ -83,6 +84,12 @@ class TestDistillSalienceGate(FrappeTestCase):
 
 	def test_empty_output_short_circuits(self):
 		self.assertEqual(_distill("   "), [])
+
+	def test_no_model_skips_distillation(self):
+		# No hardcoded fallback: without a resolved model nothing is distilled.
+		_FAKE["output"] = {"memories": [{"content": "c", "topic": "t"}]}
+		_FAKE["error"] = ErrorCode.SUCCESS
+		self.assertEqual(_distill("out", model=None), [])
 
 	def test_json_string_output_is_parsed(self):
 		# Tolerate a raw JSON string as well as a parsed dict.

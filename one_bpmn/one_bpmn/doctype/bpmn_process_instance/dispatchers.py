@@ -972,6 +972,9 @@ def dispatch_ai_agent(instance, task, task_cfg: dict, bpmn_id: str) -> None:
 								ignore_permissions=True,
 							)
 					else:  # distilled
+						# Distill with the task's own provider/model so the
+						# extraction call is always valid for the configured
+						# provider; aiMemoryDistillModel overrides when set.
 						_enqueue_distill(
 							agent_output=result.output,
 							agent=(task_cfg.get("aiMemoryAgentElement") or bpmn_id),
@@ -979,7 +982,7 @@ def dispatch_ai_agent(instance, task, task_cfg: dict, bpmn_id: str) -> None:
 							scope_key=scope_key,
 							provider_name=config.provider_name,
 							backend=config.backend,
-							model=(task_cfg.get("aiMemoryDistillModel") or None),
+							model=(task_cfg.get("aiMemoryDistillModel") or config.model or None),
 							source_run=src,
 						)
 			except Exception:
