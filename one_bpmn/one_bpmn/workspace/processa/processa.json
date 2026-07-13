@@ -1,13 +1,14 @@
 {
+ "app": "one_bpmn",
  "charts": [],
- "content": "[{\"type\":\"header\",\"data\":{\"text\":\"<span class=\\\"h3\\\" style=\\\"\\\"><a href=\\\"/processa/process\\\">Visit Processa</a></span>\",\"col\":12}},{\"type\":\"spacer\",\"data\":{\"col\":12}},{\"type\":\"paragraph\",\"data\":{\"text\":\"<span class=\\\"h4\\\">BPMN Configuration<br></span>\",\"col\":12}},{\"type\":\"card\",\"data\":{\"card_name\":\"BPMN\",\"col\":4}}]",
+ "content": "[{\"id\": \"wi1333hdr\", \"type\": \"header\", \"data\": {\"text\": \"<span class=\\\"h4\\\">Processa</span>\", \"col\": 12}}, {\"id\": \"wi1333c0\", \"type\": \"card\", \"data\": {\"card_name\": \"Process Modelling\", \"col\": 4}}, {\"id\": \"wi1333c1\", \"type\": \"card\", \"data\": {\"card_name\": \"Execution\", \"col\": 4}}, {\"id\": \"wi1333c2\", \"type\": \"card\", \"data\": {\"card_name\": \"Settings\", \"col\": 4}}]",
  "creation": "2026-03-23 09:50:00",
  "custom_blocks": [],
  "docstatus": 0,
  "doctype": "Workspace",
  "for_user": "",
  "hide_custom": 0,
- "icon": "workflow",
+ "icon": "branch",
  "idx": 0,
  "is_hidden": 0,
  "label": "Processa",
@@ -15,13 +16,23 @@
   {
    "hidden": 0,
    "is_query_report": 0,
-   "label": "BPMN",
+   "label": "Process Modelling",
    "link_count": 4,
+   "link_type": "DocType",
    "onboard": 0,
    "type": "Card Break"
   },
   {
-   "dependencies": "",
+   "hidden": 0,
+   "is_query_report": 0,
+   "label": "Process",
+   "link_count": 0,
+   "link_to": "Process",
+   "link_type": "DocType",
+   "onboard": 0,
+   "type": "Link"
+  },
+  {
    "hidden": 0,
    "is_query_report": 0,
    "label": "BPMN Process Model",
@@ -32,7 +43,35 @@
    "type": "Link"
   },
   {
-   "dependencies": "",
+   "hidden": 0,
+   "is_query_report": 0,
+   "label": "BPMN Shape Library",
+   "link_count": 0,
+   "link_to": "BPMN Shape Library",
+   "link_type": "DocType",
+   "onboard": 0,
+   "type": "Link"
+  },
+  {
+   "hidden": 0,
+   "is_query_report": 0,
+   "label": "BPMN Custom Shape",
+   "link_count": 0,
+   "link_to": "BPMN Custom Shape",
+   "link_type": "DocType",
+   "onboard": 0,
+   "type": "Link"
+  },
+  {
+   "hidden": 0,
+   "is_query_report": 0,
+   "label": "Execution",
+   "link_count": 4,
+   "link_type": "DocType",
+   "onboard": 0,
+   "type": "Card Break"
+  },
+  {
    "hidden": 0,
    "is_query_report": 0,
    "label": "BPMN Process Instance",
@@ -43,7 +82,6 @@
    "type": "Link"
   },
   {
-   "dependencies": "",
    "hidden": 0,
    "is_query_report": 0,
    "label": "BPMN Activity Log",
@@ -54,7 +92,35 @@
    "type": "Link"
   },
   {
-   "dependencies": "",
+   "hidden": 0,
+   "is_query_report": 0,
+   "label": "Contingency Task Completion",
+   "link_count": 0,
+   "link_to": "Contingency Task Completion",
+   "link_type": "DocType",
+   "onboard": 0,
+   "type": "Link"
+  },
+  {
+   "hidden": 0,
+   "is_query_report": 0,
+   "label": "Processa Comment",
+   "link_count": 0,
+   "link_to": "Processa Comment",
+   "link_type": "DocType",
+   "onboard": 0,
+   "type": "Link"
+  },
+  {
+   "hidden": 0,
+   "is_query_report": 0,
+   "label": "Settings",
+   "link_count": 1,
+   "link_type": "DocType",
+   "onboard": 0,
+   "type": "Card Break"
+  },
+  {
    "hidden": 0,
    "is_query_report": 0,
    "label": "Processa Settings",
@@ -65,7 +131,7 @@
    "type": "Link"
   }
  ],
- "modified": "2026-03-23 10:10:00",
+ "modified": "2026-07-13 20:20:00.000000",
  "modified_by": "Administrator",
  "module": "ONE BPMN",
  "name": "Processa",
