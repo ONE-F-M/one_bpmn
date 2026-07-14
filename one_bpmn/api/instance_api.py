@@ -184,17 +184,30 @@ def start_process(
 		instance.context_docname = context_docname
 	instance.insert(ignore_permissions=True)
 
-	# Start the engine
+	# Start the engine (synchronous).
 	try:
 		instance.start(initial_data=parsed_data)
-	except Exception as exc:
-		# Mark errored and re-raise so the caller knows
-		frappe.db.set_value("BPMN Process Instance", instance.name, "status", "Errored")
+	except frappe.ValidationError:
+		# start() already handles the failures it owns: runtime/script errors are
+		# halted + surfaced as a sanitized Reference-ID message, and pre-engine
+		# validation (e.g. no compiled spec) already carries a safe message.
+		# Re-raise as-is — never wrap raw internals (the old wrapper leaked str(exc)).
+		raise
+	except Exception:
+		# Backstop for failures OUTSIDE the engine seam (e.g. building or
+		# serializing the workflow), which start() does not sanitize. Record the
+		# failure and surface a generic message instead of a raw traceback.
+		frappe.db.set_value(
+			"BPMN Process Instance", instance.name, "status", "Errored",
+			update_modified=False,
+		)
 		frappe.log_error(
-			title="BPMN start_process failed",
+			title=f"BPMN start_process failed — {instance.name}",
 			message=frappe.get_traceback(),
 		)
-		frappe.throw(_("Failed to start process '{0}': {1}").format(model_name, str(exc)))
+		frappe.throw(
+			_("Failed to start process '{0}'. Please contact your administrator.").format(model_name)
+		)
 
 	return {
 		"instance": instance.name,
