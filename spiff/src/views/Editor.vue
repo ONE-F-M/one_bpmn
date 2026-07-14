@@ -1999,7 +1999,14 @@ async function saveCurrentDiagram() {
 	} catch (error) {
 		console.error("Failed to save diagram:", error);
 		saveState.value = 'error';
-		showNotification("Error", "Failed to save: " + (error.message || error), "red");
+		// Surface the server-thrown message (e.g. the script-security gate's
+		// summary) rather than the generic HTTP/ValidationError string. Keep it
+		// on screen (stay) since a blocked save needs the author's attention.
+		const serverMsg =
+			(error.messages && error.messages.length > 0)
+				? error.messages.join("\n")
+				: (error.message || String(error));
+		showNotification("Couldn't Save Process", serverMsg, "red", true);
 	} finally {
 		saving.value = false;
 	}

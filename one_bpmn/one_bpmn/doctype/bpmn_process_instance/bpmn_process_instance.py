@@ -138,6 +138,9 @@ class BPMNProcessInstance(Document):
 		frappe.flags.bpmn_engine_action = True
 		try:
 			self._run_engine(wf)
+		except Exception:
+			# Script/service/gateway failure — halt + sanitized Reference-ID error.
+			self._fail_runtime(phase="start")
 		finally:
 			frappe.flags.bpmn_engine_action = False
 
@@ -262,6 +265,9 @@ class BPMNProcessInstance(Document):
 		try:
 			task.run()
 			self._run_engine(wf)
+		except Exception:
+			# Script/service/gateway failure — halt + sanitized Reference-ID error.
+			self._fail_runtime(phase="advance")
 		finally:
 			frappe.flags.bpmn_engine_action = False
 
@@ -292,6 +298,86 @@ class BPMNProcessInstance(Document):
 		self.run_method("on_update")
 
 		return self.get_active_tasks_summary()
+
+	# ── Runtime failure handling (spec 2.2 + 2.4) ─────────────────────────────
+	#
+	# A script/service/gateway task can fail while the engine runs (start / advance
+	# / receive_message / resume_parked_ai). When that happens we must:
+	#   * HALT — mark the instance "Errored" durably so it never silently proceeds
+	#     past a control gate (2.4); and
+	#   * SANITISE — write the full traceback + context to admin-only stores under a
+	#     random Reference ID, and surface the caller only a generic message + that
+	#     ID, so a failing script can't leak schema names, permission walls, or
+	#     blocked-keyword hints back to an attacker (2.2).
+
+	def _record_runtime_failure(self, phase: str) -> str:
+		"""
+		Halt this instance on a runtime engine failure and record an admin-only
+		diagnostic keyed by a random Reference ID. Returns that Reference ID.
+
+		Must be called from inside an ``except`` block (it reads the live
+		traceback). Sets ``status = "Errored"`` and COMMITS it — the caller then
+		re-raises a sanitized error which rolls the request back, so without the
+		commit the failure state would be lost (the pre-existing gap).
+
+		Both sinks are admin-only: the Frappe Error Log (System Manager) and the
+		BPMN Activity Log (a System-Manager-only doctype), so the traceback and
+		variables never reach a regular user.
+		"""
+		ref_id = frappe.generate_hash(length=12).upper()
+
+		detail = (
+			f"Reference ID: {ref_id}\n"
+			f"Phase: {phase}\n"
+			f"Instance: {self.name}\n"
+			f"Process Model: {self.process_model}\n"
+			f"Context: {self.context_doctype or '-'} / {self.context_docname or '-'}\n"
+			f"Initiated by: {self.initiated_by or '-'}\n"
+			f"\n{frappe.get_traceback()}"
+		)
+		# log_error truncates the title to ~140 chars; keep the Reference ID in it
+		# so an admin can jump straight from the user's quoted ID to the record.
+		frappe.log_error(
+			title=f"BPMN runtime failure [{ref_id}] — {self.name}",
+			message=detail,
+		)
+
+		try:
+			frappe.db.set_value(
+				"BPMN Process Instance", self.name, "status", "Errored",
+				update_modified=False,
+			)
+			self.status = "Errored"
+			self._log_task(
+				task_id=f"runtime-failure::{ref_id}",
+				task_name=f"Runtime failure ({phase})",
+				action="Errored",
+				data={"reference_id": ref_id, "phase": phase},
+			)
+			# Persist the Errored state before the sanitized re-raise rolls back.
+			frappe.db.commit()
+		except Exception:
+			frappe.log_error(
+				title=f"BPMN: failed to persist Errored state [{ref_id}]",
+				message=frappe.get_traceback(),
+			)
+
+		return ref_id
+
+	def _fail_runtime(self, phase: str):
+		"""
+		Record the failure (halt + deep log) then raise a sanitized, Reference-ID
+		error for the caller. Never returns. Call from inside an ``except`` block.
+		"""
+		ref_id = self._record_runtime_failure(phase)
+		frappe.throw(
+			_(
+				"This process could not continue and has been halted due to an "
+				"internal error. Quote Reference ID {0} to your administrator for "
+				"assistance."
+			).format(ref_id),
+			title=_("Process Halted"),
+		)
 
 	def receive_message(self, message_name: str, payload: dict = None) -> list:
 		"""
@@ -384,6 +470,9 @@ class BPMNProcessInstance(Document):
 		frappe.flags.bpmn_engine_action = True
 		try:
 			self._run_engine(wf)
+		except Exception:
+			# Script/service/gateway failure — halt + sanitized Reference-ID error.
+			self._fail_runtime(phase="receive_message")
 		finally:
 			frappe.flags.bpmn_engine_action = False
 

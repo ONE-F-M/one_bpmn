@@ -67,6 +67,23 @@ class TestProcessModelScriptGate(FrappeTestCase):
 		# Never raise on malformed XML — other validators own that.
 		script_gate.validate_process_model_scripts("<not-bpmn>")
 
+	def test_blocked_message_is_generic_summary(self):
+		# The editor modal gets a concise summary (task label + issue count +
+		# where to look), NOT a dump of every rule that tripped.
+		xml = _bpmn_with_inline(
+			"import os\nexec('x')\neval('y')\nopen('/etc/passwd')", task_id="Task_Bad"
+		)
+		with self.assertRaises(frappe.ValidationError) as ctx:
+			script_gate.validate_process_model_scripts(xml)
+		msg = str(ctx.exception)
+		# Names the affected task and summarises with a count …
+		self.assertIn("Task_Bad", msg)
+		self.assertIn("security issue", msg)
+		self.assertIn("Deployment Readiness", msg)
+		# … but does not leak the specific per-rule blacklist text.
+		self.assertNotIn("Forbidden import", msg)
+		self.assertNotIn("exec() is not allowed", msg)
+
 
 class TestServerScriptGate(FrappeTestCase):
 	def _make_server_script(self, name: str, body: str):

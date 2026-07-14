@@ -120,19 +120,54 @@ def _format_violations(messages: list) -> str:
 def validate_process_model_scripts(bpmn_xml: str) -> None:
 	"""
 	Gate every script task in a process model. Raises ``frappe.ValidationError``
-	listing all violations found across all script tasks. No-op when clean.
+	with a concise, generic summary when any violation is found. No-op when clean.
+
+	The user-facing message names the affected task(s) and the number of issues,
+	and points to the Deployment Readiness → Script Security panel for the full
+	per-rule breakdown — rather than dumping every rule into a modal. The complete
+	detail is written to the admin-only Frappe Error Log.
 
 	Used by both the authoring gate (model.validate) and the deploy gate
 	(compile_process_model) as a backend safety net; the deploy readiness check
 	surfaces the same findings in the UI first.
 	"""
 	findings = collect_script_security_violations(bpmn_xml)
-	if findings:
-		frappe.throw(
-			_format_violations([f"{f['label']}: {f['message']}" for f in findings]),
-			title=_("Unsafe BPMN Script Task"),
-			exc=frappe.ValidationError,
+	if not findings:
+		return
+
+	# Full per-rule detail → admin-only Error Log. Keeps the editor modal generic
+	# while admins retain the exact findings for triage.
+	frappe.log_error(
+		title=_("Unsafe BPMN Script Task blocked"),
+		message=_format_violations([f"{f['label']}: {f['message']}" for f in findings]),
+	)
+
+	# Concise, generic-but-actionable summary: one line per affected task with an
+	# issue count, plus where to find the specifics.
+	issue_counts: dict = {}
+	for f in findings:
+		safe_label = str(f["label"]).replace("<", "").replace(">", "")
+		issue_counts[safe_label] = issue_counts.get(safe_label, 0) + 1
+
+	lines = [
+		_("This process can't be saved because one or more script tasks contain unsafe code:"),
+		"",
+	]
+	for label, count in issue_counts.items():
+		lines.append(_("• {0} — {1} security issue(s)").format(label, count))
+	lines.append("")
+	lines.append(
+		_(
+			"Unsafe scripts are blocked to protect the system. Open Deployment "
+			"Readiness → Script Security to see each issue, or contact your administrator."
 		)
+	)
+
+	frappe.throw(
+		"\n".join(lines),
+		title=_("Unsafe BPMN Script Task"),
+		exc=frappe.ValidationError,
+	)
 
 
 def is_bpmn_linked_server_script(script_name: str) -> bool:
