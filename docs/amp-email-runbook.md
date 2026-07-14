@@ -98,26 +98,33 @@ DKIM/SPF/DMARC setup entirely (see §5, item 4 for why that matters).
      there, the code path is confirmed working and the remaining issue
      is purely the sending domain's missing DKIM — a Workspace-admin
      fix, not a code fix.
+   - **Caveat (2026-07-13):** the test above was sent via a local dev
+     Email Account using a personal Gmail app password over
+     `smtp.gmail.com` — a different sending path from production's real
+     pipeline. A DNS check of `one-fm.com` (the real apex domain, not a
+     `notifications.` subdomain — that was a misreading, see §8) shows
+     SPF and DMARC already correctly configured, and a DKIM key already
+     published at the default Google selector. Whether production mail
+     is actually *signed* with it (vs. the key merely existing in DNS)
+     was not conclusively established by the local test above — it
+     could easily fail there even if production is fine, since they are
+     different sending paths. §8 is the real, authoritative test.
 
 ## 3. Pre-flight checklist before requesting production registration
 
 All of these must be true — Google's review will fail otherwise:
 
 - [ ] **DKIM signing domain matches the `From:` domain.** Notifications
-      are sent from `notifications.one-fm.com`. Verify with a real sent
-      message:
-      ```
-      dig txt <selector>._domainkey.notifications.one-fm.com
-      ```
-      and check the `d=` tag in the `DKIM-Signature` header of a received
-      message equals `notifications.one-fm.com` (not a parent domain or a
-      third-party ESP domain).
-- [ ] **SPF** record for `notifications.one-fm.com` includes the sending
-      MTA's IP/include, and **DMARC** (`_dmarc.notifications.one-fm.com`)
-      has `p=quarantine` or `p=reject` with alignment covering DKIM.
-      (Story notes say SPF/DKIM/DMARC are already configured — confirm on
-      the actual production sending domain, not just the apex domain,
-      before submitting.)
+      are sent from `notifications@one-fm.com` — the domain is
+      `one-fm.com` (not a `notifications.` subdomain — see §8). Verify
+      with a real sent message using the procedure in §8, Step 1: the
+      `d=` tag in the `DKIM-Signature` header of a received message must
+      equal `one-fm.com`.
+- [x] **SPF** — confirmed via `dig +short txt one-fm.com`:
+      `v=spf1 include:_spf.google.com ~all`.
+- [x] **DMARC** — confirmed via `dig +short txt _dmarc.one-fm.com`:
+      `p=reject` (stricter than Google's minimum requirement of any
+      policy at all), reports routed to `notifications@one-fm.com`.
 - [x] **Every AMP sample submitted to Google passes the validator.**
       Run:
       ```
@@ -261,3 +268,63 @@ Application `Approve` / `Propose New Dates` registration — since removed,
 as Leave Application is expected to become a real BPMN process, which
 would use the standard `handle_amp_action` path instead. No doctype is
 currently registered against this endpoint.
+
+## 8. Final pre-submission verification & submission procedure (2026-07-13)
+
+The AMP changes are deployed to production. This is the confirmed,
+authoritative procedure for the two remaining manual steps before
+Operations can submit the Google registration — both require production
+access, which is outside what can be done from this dev environment.
+
+**Note on the sending domain:** confirmed via DNS lookup that the real
+domain is `one-fm.com` (e.g. `notifications@one-fm.com`), not a
+`notifications.one-fm.com` subdomain — an earlier misreading in this
+runbook. `one-fm.com` already has SPF and DMARC correctly configured and
+a DKIM key published; whether it's actually signing production mail is
+what step 1 below settles.
+
+### Step 1 — DKIM verification (do this first)
+
+1. Create a minimal BPMN process in production with a single User Task.
+2. Configure its notification settings with `notifyAssignee = true` so
+   the User Task assignment triggers the AMP email notification (see
+   `one_bpmn.email_builder.composer.compose_and_send_task_email`).
+3. Assign the User Task to an email address you can personally inspect —
+   a Gmail account, or `s.shariff@one-fm.com` if you have full mailbox
+   access there.
+4. Publish the process in production and create a process instance. This
+   triggers the BPMN email flow and sends the AMP notification from
+   `notifications@one-fm.com` through the real production mail pipeline
+   — not a local/dev shortcut.
+5. Open the received email in Gmail → **Show original**. Confirm
+   `DKIM: PASS` with `d=one-fm.com` (equivalently: the **▼** next to the
+   sender name shows a `signed-by: one-fm.com` line).
+6. **If it fails**, the remaining manual step is enabling authentication
+   in Admin Console: **Apps → Google Workspace → Gmail → Authenticate
+   email** for `one-fm.com` — then repeat this test.
+
+Receiver-side note: the recipient inbox used in step 3 needs **Dynamic
+email → Developer settings** enabled with `notifications@one-fm.com`
+whitelisted, so it will actually attempt to render the AMP part rather
+than silently showing the HTML fallback. This is a receiver-only
+setting — there is no equivalent toggle needed on the sending side; the
+sender's requirement is purely the DKIM/SPF/DMARC alignment being
+verified here. It's also only needed for this pre-registration testing
+phase — once Google approves the sender registration, rendering happens
+automatically for every recipient, no toggle required anywhere.
+
+### Step 2 — Google submission (only after step 1 passes)
+
+1. Repeat the exact same process-instance trigger from Step 1, but this
+   time assign/notify the User Task to
+   `ampforemail.whitelisting@gmail.com` instead of a personal inbox.
+   This must be a real, complete production send — not forwarded (Gmail
+   strips the AMP MIME part on forward) and not a blank/placeholder
+   email (Google rejects both).
+2. Submit the **AMP for Email sender registration form** (§4), using
+   this production email as the reference submission.
+3. Wait for Google's review (~5 business days per their docs — no
+   guaranteed SLA). Do not re-submit repeatedly.
+
+**Do not skip ahead to Step 2 before Step 1 has actually passed** — a
+submission sent while DKIM is unauthenticated will fail Google's review.
