@@ -261,13 +261,18 @@ class DirectApiExecutor(Executor):
         self, config: ExecutorConfig, provider_type: str, api_key: str, model: str
     ) -> ExecutorResult:
         """
-        Tool-enabled execution path (WI-001356): delegate to the matching
-        agents/llm_provider adapter, which owns the multi-turn tool loop,
-        and map its CompletionResult (final text + turn-by-turn trace) into
-        an ExecutorResult.
+        Tool-enabled execution path. Since the Durable AI Agent HITL work the
+        loop is STEP-DRIVEN and owned by one_bpmn (agents/executor/step_loop):
+        the adapter makes single model calls (step()), automatic tools execute
+        inline in the loop, and a human tool suspends the run — returned as
+        error_code=SUSPENDED with the checkpointable payload in .suspension.
+
+        Automatic-only runs keep the exact WI-001356 contract: same trace
+        shape, token accounting, and turn-cap error message.
         """
         from dataclasses import asdict
 
+        from one_bpmn.agents.executor.step_loop import run_agent_loop
         from one_bpmn.agents.llm_provider.factory import get_llm_adapter
 
         adapter_key = self._ADAPTER_PROVIDERS.get(provider_type)
@@ -283,19 +288,33 @@ class DirectApiExecutor(Executor):
         start = time.time()
         try:
             adapter = get_llm_adapter(adapter_key, model, api_key)
-            completion = _run_coro_blocking(
-                adapter.complete(
+            completion, suspension = _run_coro_blocking(
+                run_agent_loop(
+                    adapter,
                     system=config.system_prompt,
                     user=config.user_prompt,
                     tools=config.tools,
                     max_tokens=config.max_tokens,
-                    max_turns=config.max_tool_calls,
+                    max_turns=config.max_tool_calls or 10,
+                    resume=config.resume_state,
                 )
             )
         except Exception as exc:
             return ExecutorResult(
                 error_code=ErrorCode.FAILED_MODEL_CALL,
                 error_message=str(exc),
+            )
+
+        if suspension is not None:
+            return ExecutorResult(
+                error_code=ErrorCode.SUSPENDED,
+                token_usage=TokenUsage(
+                    prompt_tokens=suspension.prompt_tokens,
+                    completion_tokens=suspension.completion_tokens,
+                    total_tokens=suspension.prompt_tokens + suspension.completion_tokens,
+                ),
+                trace=list(suspension.trace),
+                suspension=asdict(suspension),
             )
 
         token_usage = TokenUsage(

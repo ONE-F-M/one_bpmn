@@ -1,7 +1,16 @@
 import logging
 import time
 
-from .base import BaseLLMAdapter, CompletionResult, ToolCallRecord, ToolSpec, TurnRecord, build_parameter_schema
+from .base import (
+    BaseLLMAdapter,
+    CompletionResult,
+    StepResult,
+    StepToolCall,
+    ToolCallRecord,
+    ToolSpec,
+    TurnRecord,
+    build_parameter_schema,
+)
 
 _MAX_TOOL_TURNS = 10
 
@@ -231,3 +240,89 @@ class AnthropicAdapter(BaseLLMAdapter):
             kwargs["messages"] = messages
 
         return CompletionResult(text="", trace=trace, hit_turn_cap=True)
+
+    async def step(
+        self,
+        system: str,
+        transcript: list,
+        tools: list[ToolSpec] | None = None,
+        max_tokens: int = 16384,
+    ) -> StepResult:
+        """One Messages API call from the provider-agnostic transcript.
+
+        The transcript is rebuilt into wire format on every step (it must be
+        JSON-checkpointable, so no SDK objects are retained between steps).
+        The same 3 cache breakpoints as complete() apply — tools, system, and
+        the LAST tool_result block — so the growing conversation prefix stays
+        cached across steps exactly as it did across the internal loop's turns.
+        """
+        tool_defs = [_build_tool_def(t) for t in tools] if tools else []
+        if tool_defs:
+            tool_defs[-1]["cache_control"] = {"type": "ephemeral"}
+
+        system_blocks = [
+            {"type": "text", "text": system, "cache_control": {"type": "ephemeral"}}
+        ]
+
+        messages = []
+        last_tool_result_block = None
+        for entry in transcript:
+            role = entry.get("role")
+            if role == "user":
+                messages.append({
+                    "role": "user",
+                    "content": [{"type": "text", "text": entry.get("content", "")}],
+                })
+            elif role == "assistant":
+                blocks = []
+                if entry.get("content"):
+                    blocks.append({"type": "text", "text": entry["content"]})
+                for c in entry.get("tool_calls") or []:
+                    blocks.append({
+                        "type": "tool_use",
+                        "id": c.get("id", ""),
+                        "name": c.get("name", ""),
+                        "input": c.get("arguments") or {},
+                    })
+                messages.append({"role": "assistant", "content": blocks})
+            elif role == "tool_results":
+                blocks = [
+                    {
+                        "type": "tool_result",
+                        "tool_use_id": r.get("id", ""),
+                        "content": r.get("content", ""),
+                    }
+                    for r in entry.get("results") or []
+                ]
+                if blocks:
+                    last_tool_result_block = blocks[-1]
+                    messages.append({"role": "user", "content": blocks})
+        if last_tool_result_block is not None:
+            last_tool_result_block["cache_control"] = {"type": "ephemeral"}
+
+        kwargs: dict = {
+            "model": self._model,
+            "system": system_blocks,
+            "max_tokens": max_tokens,
+            "messages": messages,
+        }
+        if tool_defs:
+            kwargs["tools"] = tool_defs
+
+        async with self._client.messages.stream(**kwargs) as stream:
+            response = await stream.get_final_message()
+
+        prompt_tokens, completion_tokens = _usage_tokens(response)
+        text_parts = [b.text for b in response.content if hasattr(b, "text")]
+        tool_calls = [
+            StepToolCall(id=b.id, name=b.name, arguments=dict(b.input or {}))
+            for b in response.content
+            if b.type == "tool_use"
+        ]
+
+        return StepResult(
+            content="\n".join(text_parts),
+            tool_calls=tool_calls if response.stop_reason == "tool_use" else [],
+            prompt_tokens=prompt_tokens,
+            completion_tokens=completion_tokens,
+        )

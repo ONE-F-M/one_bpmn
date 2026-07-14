@@ -9,6 +9,7 @@
   "status",
   "engine_in_progress",
   "waiting_for_ai",
+  "waiting_for_human",
   "initiated_by",
   "started_at",
   "completed_at",
@@ -52,6 +53,13 @@
    "fieldname": "waiting_for_ai",
    "fieldtype": "Check",
    "label": "Waiting For AI",
+   "read_only": 1
+  },
+  {
+   "description": "A suspended AI Agent Task in this instance is waiting for a person to complete this human task (task name shown to users)",
+   "fieldname": "waiting_for_human",
+   "fieldtype": "Data",
+   "label": "Waiting For Human",
    "read_only": 1
   },
   {

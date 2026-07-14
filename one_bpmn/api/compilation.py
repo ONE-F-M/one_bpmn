@@ -1188,22 +1188,39 @@ def _check_eval_suite_gating(model_name: str) -> list:
 # (Camunda "tools are the shapes"). The tool container is NOT wired into the
 # process flow, so its shapes are resolved here at compile time and embedded in
 # the agent's config; the runtime never navigates the live spec tree.
-_AI_AGENT_TOOL_TAGS = frozenset({"scriptTask", "serviceTask"})
+# Automatic tools execute inline in the step loop; HUMAN tools (User/Manual
+# tasks — Durable AI Agent HITL) suspend the agent until a person completes
+# the spawned task.
+_AI_AGENT_AUTO_TAGS = frozenset({"scriptTask", "serviceTask"})
+_AI_AGENT_HUMAN_TAGS = frozenset({"userTask", "manualTask"})
+_AI_AGENT_TOOL_TAGS = _AI_AGENT_AUTO_TAGS | _AI_AGENT_HUMAN_TAGS
+
+# Argument schema a human tool exposes when the designer sets no
+# aiToolParams: the model states what it needs from the person.
+_DEFAULT_HUMAN_TOOL_PARAMS = {
+	"request": {
+		"type": "string",
+		"description": "What you need from the person — shown with the task.",
+	}
+}
 
 
 def _extract_tool_shapes(adhoc_el, bpmn_ns: str, spiff_ns: str) -> list:
 	"""Eligible leaf tool shapes of an ad-hoc sub-process, as tool descriptors.
 
-	Executable-inline only: a Script Task with a Server Script, or a Service
-	Task with a serviceType. Description is the shape's documentation (Camunda
-	uses an activity's documentation as its tool description). Containers,
-	gateways, events and human tasks are not included.
+	Automatic tools are executable-inline only: a Script Task with a Server
+	Script, or a Service Task with a serviceType. User/Manual tasks become
+	HUMAN tools ({"human": true} descriptors) — calling one suspends the agent
+	(create + wait) instead of executing inline. Description is the shape's
+	documentation (Camunda uses an activity's documentation as its tool
+	description). Containers, gateways and events are not included.
 
 	A shape may also carry spiffworkflow:aiToolParams — a JSON Schema object
 	(``{"properties": {...}, "required": [...]}``) describing the arguments
 	the LLM should supply when calling it. When present, it is embedded as
 	``parameters``/``required`` so the tool isn't exposed to the LLM as a
-	zero-argument function.
+	zero-argument function. Human tools without aiToolParams default to a
+	single "request" argument.
 	"""
 	shapes = []
 	for child in list(adhoc_el):
@@ -1213,13 +1230,17 @@ def _extract_tool_shapes(adhoc_el, bpmn_ns: str, spiff_ns: str) -> list:
 		bpmn_id = child.get("id")
 		if not bpmn_id:
 			continue
+		is_human = tag in _AI_AGENT_HUMAN_TAGS
 		server_script = child.get(f"{{{spiff_ns}}}serverScript", "")
 		service_type = child.get(f"{{{spiff_ns}}}serviceType", "")
-		if not (server_script or service_type):
+		if not is_human and not (server_script or service_type):
 			continue
 		doc_el = child.find(f"{{{bpmn_ns}}}documentation")
 		description = (doc_el.text or "").strip() if doc_el is not None and doc_el.text else ""
 		shape = {"bpmn_id": bpmn_id, "description": description}
+		if is_human:
+			shape["human"] = True
+			shape["label"] = (child.get("name") or "").strip()
 		if server_script:
 			shape["serverScript"] = server_script
 		if service_type:
@@ -1237,6 +1258,9 @@ def _extract_tool_shapes(adhoc_el, bpmn_ns: str, spiff_ns: str) -> list:
 				required = tool_params.get("required")
 				if isinstance(required, list) and required:
 					shape["required"] = required
+		if is_human and not shape.get("parameters"):
+			shape["parameters"] = dict(_DEFAULT_HUMAN_TOOL_PARAMS)
+			shape["required"] = ["request"]
 		shapes.append(shape)
 	return shapes
 
@@ -1303,8 +1327,9 @@ def _validate_ai_agent_tools(bpmn_xml: str, service_extensions: dict) -> None:
 			frappe.throw(
 				_(
 					"AI Agent Task '{0}' references ad-hoc sub-process '{1}', which has no "
-					"executable tool shapes (Script tasks with a Server Script, or Service "
-					"tasks with a service type). Add at least one tool."
+					"eligible tool shapes (Script tasks with a Server Script, Service "
+					"tasks with a service type, or User/Manual tasks as human tools). "
+					"Add at least one tool."
 				).format(agent_id, adhoc_id),
 				exc=frappe.ValidationError,
 			)

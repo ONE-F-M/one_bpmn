@@ -349,7 +349,10 @@ function ToolsAdhocComponent(props) {
 		description: translate("Sub-process whose shapes are the agent's tools"),
 		tooltip: translate(
 			"The id of the ad-hoc sub-process whose shapes the agent may call as tools "
-			+ "(Camunda's 'Ad-hoc sub-process ID'). The shapes are the tools — there is no registry."
+			+ "(Camunda's 'Ad-hoc sub-process ID'). The shapes are the tools — there is no registry. "
+			+ "Script/Service tasks run inline; User/Manual tasks are HUMAN tools — calling one "
+			+ "suspends the agent until the assigned person completes the task, then the agent "
+			+ "resumes with their output."
 		),
 		getValue: () => getAttr(bo, "aiToolsAdhoc"),
 		setValue: (value) => setAttr(modeling, element, bo, "aiToolsAdhoc", value),

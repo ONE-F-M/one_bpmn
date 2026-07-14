@@ -463,6 +463,23 @@ def complete_task(
 				frappe.PermissionError,
 			)
 
+	# ── Durable AI Agent HITL: human-tool tasks resume the agent ─────────────
+	# These rows are synthetic (spawned by a suspended agent, no engine task
+	# behind them). They pass the exact same checks above as real User Tasks;
+	# completion stores the person's output on the agent's checkpoint and
+	# enqueues the resume job instead of running an engine pass here.
+	if task_id.startswith(instance.AI_HUMAN_PREFIX):
+		instance.complete_ai_human_task(task_id, parsed_data)
+		instance.reload()
+		return {
+			"instance": instance_name,
+			"status": instance.status,
+			"queued": True,
+			"waiting_for_ai": instance.waiting_for_ai,
+			"waiting_for_human": instance.waiting_for_human,
+			"active_tasks": instance.get_active_tasks_summary(),
+		}
+
 	# ── 4. HAND OFF TO THE ENGINE (inline) ───────────────────────────────────
 	# All validation passed. The engine pass runs inline in the request
 	# (WI-001494/WI-001496) and reports the real resulting state. AI tasks
@@ -516,6 +533,41 @@ def get_parked_ai_tasks(instance_name: str) -> list:
 			message=frappe.get_traceback(),
 		)
 		return []
+
+
+@frappe.whitelist()
+def get_suspended_ai_tasks(instance_name: str) -> list:
+	"""
+	Durable AI Agent HITL: the agents of this instance currently suspended
+	waiting for a person. Powers the "waiting for human task X" banner and
+	the distinct suspended-agent diagram marker.
+
+	Returns: list of {bpmn_id, human_task_id, human_task_label}.
+	"""
+	if not instance_name:
+		frappe.throw(_("instance_name is required"))
+
+	instance = frappe.get_doc("BPMN Process Instance", instance_name)
+	instance.check_permission("read")
+
+	runs = frappe.get_list(
+		"AI Agent Run",
+		filters={"instance": instance_name, "status": "Suspended"},
+		fields=["bpmn_id", "pending_human_task"],
+	)
+	labels = {
+		row.task_id: row.task_name
+		for row in instance.active_tasks
+		if str(row.task_id).startswith(instance.AI_HUMAN_PREFIX)
+	}
+	return [
+		{
+			"bpmn_id": r.bpmn_id,
+			"human_task_id": r.pending_human_task or "",
+			"human_task_label": labels.get(r.pending_human_task, ""),
+		}
+		for r in runs
+	]
 
 
 @frappe.whitelist()

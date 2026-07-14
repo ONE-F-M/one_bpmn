@@ -55,6 +55,25 @@ def compile_shape_tools(tool_shapes, instance) -> list:
 		bpmn_id = shape.get("bpmn_id")
 		if not bpmn_id:
 			continue
+		if shape.get("human"):
+			# Durable HITL: a User/Manual shape is a HUMAN tool. The step
+			# loop never calls fn — selecting it suspends the agent until a
+			# person completes the spawned task; the stub only exists to make
+			# a mis-routed call loud instead of silent.
+			description = (shape.get("description") or "").strip() or (
+				f"Ask a person to handle: {shape.get('label') or bpmn_id}"
+			)
+			tools.append(
+				ToolSpec(
+					fn=_make_human_stub(bpmn_id),
+					name=bpmn_id,
+					description=description,
+					parameters=shape.get("parameters") or {},
+					required=shape.get("required") or [],
+					human=True,
+				)
+			)
+			continue
 		# Executable-inline only: a shape is a callable tool when it runs a
 		# Server Script or dispatches a service/send action.
 		if not (shape.get("serverScript") or shape.get("serviceType")):
@@ -70,6 +89,15 @@ def compile_shape_tools(tool_shapes, instance) -> list:
 			)
 		)
 	return tools
+
+
+def _make_human_stub(bpmn_id: str):
+	def fn(**kwargs):
+		raise RuntimeError(
+			f"Human tool '{bpmn_id}' must suspend the agent, never execute inline."
+		)
+
+	return fn
 
 
 def _make_shape_fn(instance, bpmn_id: str, task_cfg: dict):

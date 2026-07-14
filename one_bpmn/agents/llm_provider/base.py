@@ -9,12 +9,17 @@ class ToolSpec:
 
     parameters: JSON Schema "properties" dict — {param_name: {type, description}}
     required:   list of required parameter names
+    human:      a human-in-the-loop tool (a User/Manual shape). The step-driven
+                loop never executes it inline — selecting it suspends the agent
+                until a person completes the spawned task and the loop resumes
+                with their output as the tool result. fn is never called.
     """
     fn: Callable
     name: str
     description: str
     parameters: dict = field(default_factory=dict)
     required: list = field(default_factory=list)
+    human: bool = False
 
 
 def build_parameter_schema(tool: "ToolSpec") -> dict:
@@ -41,6 +46,30 @@ class ToolCallRecord:
     name: str
     arguments: dict = field(default_factory=dict)
     result: str = ""
+
+
+@dataclass
+class StepToolCall:
+    """One tool call requested by a single model call in the step-driven loop.
+
+    id is the provider's tool-call id (synthesized for providers without one,
+    e.g. Gemini) — the loop echoes it back in the matching tool result.
+    """
+    id: str
+    name: str
+    arguments: dict = field(default_factory=dict)
+
+
+@dataclass
+class StepResult:
+    """Return value of BaseLLMAdapter.step() — ONE model call, no tool
+    execution. The externally-driven loop (agents/executor/step_loop.py)
+    decides what happens to each requested call: execute it inline, or —
+    for a human tool — suspend the agent."""
+    content: str = ""
+    tool_calls: list = field(default_factory=list)  # list[StepToolCall]
+    prompt_tokens: int = 0
+    completion_tokens: int = 0
 
 
 @dataclass
@@ -106,3 +135,28 @@ class BaseLLMAdapter(ABC):
     ) -> CompletionResult:
         """Run one conversation (with optional multi-step tool calls) and
         return the final text plus the per-turn trace."""
+
+    async def step(
+        self,
+        system: str,
+        transcript: list,
+        tools: list[ToolSpec] | None = None,
+        max_tokens: int = 16384,
+    ) -> StepResult:
+        """Make ONE model call against a provider-agnostic transcript and
+        return its content + requested tool calls WITHOUT executing anything.
+
+        The transcript is a JSON-serializable list (it must survive a DB
+        checkpoint round-trip) of entries::
+
+            {"role": "user",         "content": str}
+            {"role": "assistant",    "content": str,
+             "tool_calls": [{"id": str, "name": str, "arguments": dict}]}
+            {"role": "tool_results", "results":
+             [{"id": str, "name": str, "content": str}]}
+
+        Each adapter converts this to its wire format. complete() keeps its
+        adapter-internal loop for existing callers; the AI Agent Task's
+        step-driven loop (agents/executor/step_loop.py) uses step() only.
+        """
+        raise NotImplementedError(f"{type(self).__name__} does not implement step()")

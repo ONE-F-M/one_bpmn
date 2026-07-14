@@ -25,25 +25,25 @@
 					<Icon
 						v-if="node.depth"
 						icon="lucide:corner-down-right"
-						class="w-3.5 h-3.5 shrink-0"
-						:class="node.isAiToolCall ? 'text-purple-300' : 'text-gray-300'"
+						class="w-3.5 h-3.5 shrink-0 text-gray-300"
 					/>
 					<!-- AI tool call (WI-001426): called by the agent's LLM loop,
-					     not executed as a flow step — styled distinctly. -->
+					     not executed as a flow step — same colours as executed
+					     steps; the AI chip marks the provenance. -->
 					<template v-if="node.isAiToolCall">
 						<Icon
-							:icon="node.callStatus === 'Error' ? 'lucide:alert-circle' : 'lucide:sparkles'"
+							:icon="node.callStatus === 'Error' ? 'lucide:alert-circle' : 'lucide:check-circle-2'"
 							class="w-4 h-4 shrink-0"
-							:class="node.callStatus === 'Error' ? 'text-red-500' : 'text-purple-500'"
+							:class="node.callStatus === 'Error' ? 'text-red-500' : 'text-green-500'"
 						/>
 						<span
 							class="truncate"
-							:class="isSelected(node) ? 'font-semibold text-purple-900' : 'text-purple-700'"
+							:class="isSelected(node) ? 'font-semibold text-gray-900' : 'text-gray-700'"
 							:title="aiCallTooltip(node)"
 						>{{ node.name }}</span>
 						<span
 							class="ml-auto shrink-0 text-[10px] font-semibold px-1.5 py-0.5 rounded"
-							:class="node.callStatus === 'Error' ? 'bg-red-50 text-red-600 border border-red-200' : 'bg-purple-50 text-purple-600 border border-purple-200'"
+							:class="node.callStatus === 'Error' ? 'bg-red-50 text-red-600 border border-red-200' : 'bg-blue-50 text-blue-600 border border-blue-200'"
 							:title="aiCallTooltip(node)"
 						>AI</span>
 					</template>

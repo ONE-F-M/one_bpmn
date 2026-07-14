@@ -481,15 +481,23 @@ async function fetchAiRun() {
 	aiRunLoading.value = true
 	try {
 		const bpmnId = props.selectedNode.bpmnId || props.selectedNode.id
+		// A history-row selection carries its visit's own run name (stamped by
+		// the task-list flattener): a looping process executes the same shape
+		// once per turn, so "latest run for the shape" would show every visit
+		// identical data. Diagram-shape selections have no visit — latest is
+		// the right answer there.
+		const runFilter = props.selectedNode.aiRunName
+			? [["name", "=", props.selectedNode.aiRunName]]
+			: [
+					["instance", "=", props.processInstanceName],
+					["bpmn_id", "=", bpmnId],
+				]
 		const rows = await frappeRequest({
 			url: "/api/method/frappe.client.get_list",
 			params: {
 				doctype: "AI Agent Run",
 				fields: JSON.stringify(["name", "status", "model", "provider", "total_prompt_tokens", "total_completion_tokens", "total_tokens", "estimated_cost", "duration_ms", "started_at", "ended_at", "error_code", "error_message", "backend"]),
-				filters: JSON.stringify([
-					["instance", "=", props.processInstanceName],
-					["bpmn_id", "=", bpmnId],
-				]),
+				filters: JSON.stringify(runFilter),
 				limit_page_length: 1,
 				order_by: "creation desc",
 			},

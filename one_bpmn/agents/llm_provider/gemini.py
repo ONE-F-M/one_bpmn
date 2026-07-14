@@ -3,7 +3,15 @@ import time
 from google import genai
 from google.genai import types
 
-from .base import BaseLLMAdapter, CompletionResult, ToolCallRecord, ToolSpec, TurnRecord
+from .base import (
+    BaseLLMAdapter,
+    CompletionResult,
+    StepResult,
+    StepToolCall,
+    ToolCallRecord,
+    ToolSpec,
+    TurnRecord,
+)
 
 _MAX_TOOL_TURNS = 10
 
@@ -160,3 +168,88 @@ class GeminiAdapter(BaseLLMAdapter):
             contents.append(types.Content(role="user", parts=result_parts))
 
         return CompletionResult(text="", trace=trace, hit_turn_cap=True)
+
+    async def step(
+        self,
+        system: str,
+        transcript: list,
+        tools: list[ToolSpec] | None = None,
+        max_tokens: int = 16384,
+    ) -> StepResult:
+        """One generate_content call from the provider-agnostic transcript.
+
+        Gemini has no wire-level tool-call ids: FunctionResponse is matched
+        to FunctionCall by NAME. step() synthesizes ids ("<name>::<n>") so
+        the loop's id-based bookkeeping works; when rebuilding the wire
+        conversation the ids are dropped and results are sent by name.
+        """
+        contents: list[types.Content] = []
+        for entry in transcript:
+            role = entry.get("role")
+            if role == "user":
+                contents.append(
+                    types.Content(role="user", parts=[types.Part(text=entry.get("content", ""))])
+                )
+            elif role == "assistant":
+                parts = []
+                if entry.get("content"):
+                    parts.append(types.Part(text=entry["content"]))
+                for c in entry.get("tool_calls") or []:
+                    parts.append(
+                        types.Part(
+                            function_call=types.FunctionCall(
+                                name=c.get("name", ""), args=c.get("arguments") or {}
+                            )
+                        )
+                    )
+                contents.append(types.Content(role="model", parts=parts))
+            elif role == "tool_results":
+                parts = [
+                    types.Part(
+                        function_response=types.FunctionResponse(
+                            name=r.get("name", ""),
+                            response={"output": r.get("content", "")},
+                        )
+                    )
+                    for r in entry.get("results") or []
+                ]
+                if parts:
+                    contents.append(types.Content(role="user", parts=parts))
+
+        genai_tools = None
+        if tools:
+            genai_tools = [
+                types.Tool(function_declarations=[_build_fn_decl(t) for t in tools])
+            ]
+        config = types.GenerateContentConfig(
+            system_instruction=system,
+            tools=genai_tools,
+        )
+
+        response = await self._client.aio.models.generate_content(
+            model=self._model,
+            contents=contents,
+            config=config,
+        )
+
+        candidate = response.candidates[0]
+        parts = candidate.content.parts or []
+        fn_call_parts = [p for p in parts if p.function_call]
+        prompt_tokens, completion_tokens = _usage_tokens(response)
+
+        tool_calls = [
+            StepToolCall(
+                id=f"{p.function_call.name}::{i}",
+                name=p.function_call.name,
+                arguments=dict(p.function_call.args) if p.function_call.args else {},
+            )
+            for i, p in enumerate(fn_call_parts)
+        ]
+
+        text_parts = [p.text for p in parts if getattr(p, "text", None)]
+        return StepResult(
+            content="\n".join(text_parts),
+            tool_calls=tool_calls,
+            prompt_tokens=prompt_tokens,
+            completion_tokens=completion_tokens,
+        )

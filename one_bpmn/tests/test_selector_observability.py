@@ -177,7 +177,7 @@ class TestSelectorObservability(FrappeTestCase):
 		indices = frappe.get_all(
 			"AI Agent Step", filters={"run": run.name}, pluck="step_index", order_by="step_index asc"
 		)
-		self.assertEqual(indices, [0, 1, 2, 3])
+		self.assertEqual(indices, [1, 2, 3, 4])
 
 	# ── Scenario 6: finalized exactly once, final_output = last assistant ──
 
