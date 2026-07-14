@@ -276,7 +276,7 @@ const taskList = computed(() => {
 							callStatus: call.status,
 							argsPreview: call.args_preview,
 							resultPreview: call.result_preview,
-							depth: (n.depth || 0) + 1,
+							depth: n.depth || 0,
 							stateLabel: call.status === "Error" ? "Error" : "Completed",
 						})
 					})

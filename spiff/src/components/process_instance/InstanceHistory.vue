@@ -43,7 +43,7 @@
 						>{{ node.name }}</span>
 						<span
 							class="ml-auto shrink-0 text-[10px] font-semibold px-1.5 py-0.5 rounded"
-							:class="node.callStatus === 'Error' ? 'bg-red-50 text-red-600 border border-red-200' : 'bg-gray-50 text-gray-500 border border-gray-200'"
+							:class="node.callStatus === 'Error' ? 'bg-red-50 text-red-600 border border-red-200' : 'bg-blue-50 text-blue-600 border border-blue-200'"
 							:title="aiCallTooltip(node)"
 						>AI</span>
 					</template>
