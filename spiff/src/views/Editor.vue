@@ -1121,6 +1121,23 @@ const saveState = ref("idle"); // idle, unsaved, saving, saved, error
 let saveTimeout = null;
 let hasPendingSave = false; // true while the 1.5s debounce timer is counting down
 
+// True while the analyst is actively typing in a Processa shape-property field
+// (any input/select/textarea/contenteditable inside the properties panel). We use
+// this to defer auto-save so a value being entered isn't saved half-finished and
+// the panel refresh/save cycle doesn't interrupt the user mid-edit.
+function isEditingShapeProperties() {
+	const el = document.activeElement;
+	if (!el || !el.closest) return false;
+	if (!el.closest(".properties-panel-container")) return false;
+	const tag = el.tagName;
+	return (
+		tag === "INPUT" ||
+		tag === "TEXTAREA" ||
+		tag === "SELECT" ||
+		el.isContentEditable === true
+	);
+}
+
 // Returns true when there are edits that haven't reached the server yet
 // (the debounce timer is ticking, a save is in-flight, or a save failed).
 function isUnsavedOrInFlight() {
@@ -1960,12 +1977,23 @@ function onDiagramChanged() {
 
 	clearTimeout(saveTimeout);
 	hasPendingSave = true;
-	saveTimeout = setTimeout(() => {
-		hasPendingSave = false;
-		if (activeDiagramName.value) {
-			saveCurrentDiagram();
-		}
-	}, 1500);
+	saveTimeout = setTimeout(runDebouncedSave, 1500);
+}
+
+// Runs when the auto-save debounce elapses. If the analyst is still entering
+// values in a shape-property field, we don't save yet — re-arm the timer so the
+// value can be finished first. hasPendingSave stays true throughout, so the
+// unsaved-changes leave guards still protect the edit. The save flushes on the
+// first tick after focus leaves the properties panel (≤1.5s later).
+function runDebouncedSave() {
+	if (isEditingShapeProperties()) {
+		saveTimeout = setTimeout(runDebouncedSave, 1500);
+		return;
+	}
+	hasPendingSave = false;
+	if (activeDiagramName.value) {
+		saveCurrentDiagram();
+	}
 }
 
 async function saveCurrentDiagram() {
