@@ -1,0 +1,133 @@
+{
+ "actions": [],
+ "allow_rename": 1,
+ "creation": "2025-09-19 00:55:28.292960",
+ "doctype": "DocType",
+ "engine": "InnoDB",
+ "field_order": [
+  "conversation",
+  "sender",
+  "receiver",
+  "text",
+  "message_type",
+  "file",
+  "tool_calls",
+  "tool_call_id",
+  "metadata",
+  "is_reply",
+  "linked_message"
+ ],
+ "fields": [
+  {
+   "fieldname": "conversation",
+   "fieldtype": "Link",
+   "label": "Conversation",
+   "options": "Chat Conversation"
+  },
+  {
+   "fieldname": "sender",
+   "fieldtype": "Data",
+   "ignore_user_permissions": 1,
+   "label": "Sender"
+  },
+  {
+   "fieldname": "receiver",
+   "fieldtype": "Select",
+   "ignore_user_permissions": 1,
+   "label": "Receiver",
+   "options": "Lumina\nLogix\nProsAlly\nUser"
+  },
+  {
+   "fieldname": "text",
+   "fieldtype": "Small Text",
+   "ignore_user_permissions": 1,
+   "label": "Text"
+  },
+  {
+   "fieldname": "message_type",
+   "fieldtype": "Select",
+   "ignore_user_permissions": 1,
+   "label": "Message Type",
+   "options": "User\nBot\nTool"
+  },
+  {
+   "fieldname": "file",
+   "fieldtype": "Attach",
+   "ignore_user_permissions": 1,
+   "label": "File"
+  },
+  {
+   "fieldname": "tool_calls",
+   "fieldtype": "Code",
+   "ignore_user_permissions": 1,
+   "label": "Tool Calls",
+   "options": "JSON"
+  },
+  {
+   "fieldname": "tool_call_id",
+   "fieldtype": "Data",
+   "ignore_user_permissions": 1,
+   "label": "Tool Call ID"
+  },
+  {
+   "fieldname": "metadata",
+   "fieldtype": "Code",
+   "ignore_user_permissions": 1,
+   "label": "Metadata",
+   "options": "JSON"
+  },
+  {
+   "default": "0",
+   "fieldname": "is_reply",
+   "fieldtype": "Check",
+   "ignore_user_permissions": 1,
+   "label": "Is Reply"
+  },
+  {
+   "fieldname": "linked_message",
+   "fieldtype": "Link",
+   "ignore_user_permissions": 1,
+   "label": "Linked Message",
+   "options": "Chat Message"
+  }
+ ],
+ "grid_page_length": 50,
+ "in_create": 1,
+ "index_web_pages_for_search": 1,
+ "links": [],
+ "modified": "2025-09-29 13:00:25.902191",
+ "modified_by": "Administrator",
+ "module": "ONE BPMN",
+ "name": "Chat Message",
+ "owner": "Administrator",
+ "permissions": [
+  {
+   "create": 1,
+   "delete": 1,
+   "email": 1,
+   "export": 1,
+   "print": 1,
+   "read": 1,
+   "report": 1,
+   "role": "System Manager",
+   "share": 1,
+   "write": 1
+  },
+  {
+   "create": 1,
+   "delete": 1,
+   "email": 1,
+   "export": 1,
+   "print": 1,
+   "read": 1,
+   "report": 1,
+   "role": "All",
+   "share": 1,
+   "write": 1
+  }
+ ],
+ "row_format": "Dynamic",
+ "sort_field": "modified",
+ "sort_order": "DESC",
+ "states": []
+}
