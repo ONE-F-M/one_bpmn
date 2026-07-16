@@ -31,6 +31,7 @@ This is the single source of truth — ``script_task_agent.py`` delegates here.
 
 from __future__ import annotations
 
+import ast
 import difflib
 import json
 import re
@@ -88,6 +89,168 @@ def extract_code(response: str) -> str:
     """Pull the first ```python fenced block from an LLM response; else the whole text."""
     match = re.search(r"```python\s*\n(.*?)```", response or "", re.DOTALL)
     return match.group(1).strip() if match else (response or "").strip()
+
+
+def replace_code_block(text: str, new_code: str) -> str:
+    """Swap the body of the first ```python fenced block in ``text`` for
+    ``new_code``.
+
+    Used to keep the reply the user reads identical to the script that will
+    actually be applied after the optimizer rewrites it. Returns ``text``
+    unchanged when it contains no python fence (e.g. the agent asked a
+    question instead of writing code).
+    """
+    pattern = re.compile(r"(```python\s*\n)(.*?)(```)", re.DOTALL)
+    if not pattern.search(text or ""):
+        return text
+    return pattern.sub(
+        lambda m: m.group(1) + new_code.rstrip("\n") + "\n" + m.group(3),
+        text or "",
+        count=1,
+    )
+
+
+# ── Optimization pass ────────────────────────────────────────────────────────
+# Names the BPMN engine injects into every Server Script's scope
+# (engine.py FrappeScriptEngine._run_frappe_server_script). They are pre-defined
+# and — in the case of ``result`` — read back by the engine after the script
+# runs, so a binding to one of them is NEVER dead code, even if the script never
+# reads it back itself.
+_ENGINE_INJECTED_NAMES = frozenset({
+    "frappe", "doc", "task_data", "result",
+    "context_doctype", "context_docname",
+})
+
+
+def _is_side_effect_free(node: ast.AST) -> bool:
+    """True when evaluating ``node`` cannot have a side effect, so an assignment
+    whose value is never read can be dropped entirely rather than merely unbound.
+
+    Deliberately conservative: only literals, bare names, and pure combinations
+    of those qualify. A call, attribute access, comprehension, subscript, await,
+    etc. is treated as potentially side-effecting and its assignment is KEPT
+    (e.g. ``x = frappe.db.set_value(...)`` stays even if ``x`` is unused).
+    """
+    if isinstance(node, (ast.Constant, ast.Name)):
+        return True
+    if isinstance(node, (ast.Tuple, ast.List, ast.Set)):
+        return all(_is_side_effect_free(e) for e in node.elts)
+    if isinstance(node, ast.Dict):
+        return (all(_is_side_effect_free(k) for k in node.keys if k is not None)
+                and all(_is_side_effect_free(v) for v in node.values))
+    if isinstance(node, ast.BinOp):
+        return _is_side_effect_free(node.left) and _is_side_effect_free(node.right)
+    if isinstance(node, ast.UnaryOp):
+        return _is_side_effect_free(node.operand)
+    if isinstance(node, ast.BoolOp):
+        return all(_is_side_effect_free(v) for v in node.values)
+    if isinstance(node, ast.Compare):
+        return (_is_side_effect_free(node.left)
+                and all(_is_side_effect_free(c) for c in node.comparators))
+    if isinstance(node, ast.IfExp):
+        return all(_is_side_effect_free(n) for n in (node.test, node.body, node.orelse))
+    if isinstance(node, ast.JoinedStr):
+        return all(_is_side_effect_free(v) for v in node.values)
+    if isinstance(node, ast.FormattedValue):
+        return _is_side_effect_free(node.value)
+    return False
+
+
+def optimize_script(code: str, max_passes: int = 6) -> str:
+    """Conservatively strip dead code from a generated Server Script.
+
+    Two removals, both provably behaviour-preserving:
+
+      * **unused imports** — an ``import`` / ``from … import`` whose every bound
+        name is never referenced (skips ``from __future__`` and star imports),
+      * **unused variable assignments** whose right-hand side is side-effect-free
+        (see :func:`_is_side_effect_free`) and whose single ``Name`` target is
+        never referenced.
+
+    Everything else is left untouched: assignments to engine-injected names,
+    tuple / attribute / subscript targets, chained and augmented/annotated
+    assignments, and any binding whose value could have a side effect. Comments
+    and formatting survive because removal is line-based, and a flagged node is
+    skipped whenever it shares a physical line with another statement (so a
+    compound one-liner like ``if x: y = 1`` is never mangled).
+
+    Runs to a fixpoint (one removal can orphan another binding). NEVER raises and
+    NEVER returns code that fails to parse: on any parse failure it returns the
+    last version that parsed (the original when the first parse already fails).
+    """
+    if not code or not code.strip():
+        return code
+
+    current = code
+    for _ in range(max_passes):
+        try:
+            tree = ast.parse(current)
+        except SyntaxError:
+            return current
+
+        # A name is "referenced" if it is read (Load), deleted (Del — a later
+        # `del x` would NameError if we dropped its binding), or declared
+        # global/nonlocal. Store-only names are the removal candidates.
+        referenced: set[str] = set()
+        for n in ast.walk(tree):
+            if isinstance(n, ast.Name) and isinstance(n.ctx, (ast.Load, ast.Del)):
+                referenced.add(n.id)
+            elif isinstance(n, (ast.Global, ast.Nonlocal)):
+                referenced.update(n.names)
+
+        # Start line of every statement, so a flagged node that shares a line
+        # with a statement we must keep (compound one-liners, `a; b`) is spared.
+        stmt_starts = [n.lineno for n in ast.walk(tree) if isinstance(n, ast.stmt)]
+
+        drop_lines: set[int] = set()
+
+        def _flag(node: ast.AST) -> None:
+            start = node.lineno
+            end = getattr(node, "end_lineno", None) or start
+            # Exactly one statement (this node) may start within the span.
+            if sum(1 for s in stmt_starts if start <= s <= end) != 1:
+                return
+            drop_lines.update(range(start, end + 1))
+
+        for node in ast.walk(tree):
+            if isinstance(node, ast.Import):
+                bound = [a.asname or a.name.split(".")[0] for a in node.names]
+                if bound and all(
+                    b not in referenced and b not in _ENGINE_INJECTED_NAMES for b in bound
+                ):
+                    _flag(node)
+            elif isinstance(node, ast.ImportFrom):
+                if node.module == "__future__" or any(a.name == "*" for a in node.names):
+                    continue
+                bound = [a.asname or a.name for a in node.names]
+                if bound and all(
+                    b not in referenced and b not in _ENGINE_INJECTED_NAMES for b in bound
+                ):
+                    _flag(node)
+            elif isinstance(node, ast.Assign):
+                if len(node.targets) == 1 and isinstance(node.targets[0], ast.Name):
+                    name = node.targets[0].id
+                    if (name not in referenced
+                            and name not in _ENGINE_INJECTED_NAMES
+                            and _is_side_effect_free(node.value)):
+                        _flag(node)
+
+        if not drop_lines:
+            break
+
+        lines = current.split("\n")
+        candidate = "\n".join(
+            ln for i, ln in enumerate(lines, start=1) if i not in drop_lines
+        )
+        try:
+            ast.parse(candidate)  # never emit something that won't parse
+        except SyntaxError:
+            break
+        if candidate == current:
+            break
+        current = candidate
+
+    return current
 
 
 # ── Read ToolSpecs (already existed on the agent; centralised here) ──────────
