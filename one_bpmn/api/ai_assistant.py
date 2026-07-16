@@ -4,7 +4,7 @@
 AI Agent Task configuration assistant.
 
 Powers the in-modal chat panel on the AI Agent Task config page. The assistant
-uses the SAME AI Provider the designer has selected for the task to recommend
+uses the SAME AI Provider Credentials the designer has selected for the task to recommend
 values for the task's fields (prompts, model, output variable, response format,
 advanced limits) based on a plain-language requirement.
 
@@ -99,7 +99,7 @@ def recommend_ai_task_config(
 	"""Return assistant recommendations for an AI Agent Task's configuration.
 
 	Args:
-		provider: AI Provider name powering the assistant (the task's own provider).
+		provider: AI Provider Credentials name powering the assistant (the task's own provider).
 		backend: Executor backend ("direct_api" | "antigravity").
 		requirement: The designer's latest chat message.
 		context_doctype: Optional DocType whose schema/sample to show the model.
@@ -123,10 +123,10 @@ def recommend_ai_task_config(
 		frappe.throw(_("You must be logged in to use the assistant."))
 
 	if not provider:
-		frappe.throw(_("Select an AI Provider before using the assistant."))
+		frappe.throw(_("Select an AI Provider Credentials before using the assistant."))
 
-	if not frappe.db.exists("AI Provider", provider):
-		frappe.throw(_("AI Provider '{0}' not found.").format(provider))
+	if not frappe.db.exists("AI Provider Credentials", provider):
+		frappe.throw(_("AI Provider Credentials '{0}' not found.").format(provider))
 
 	if not (requirement or "").strip():
 		frappe.throw(_("Describe what you want the AI Agent Task to do."))

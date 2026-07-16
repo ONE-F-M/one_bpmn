@@ -13,10 +13,10 @@ test_ignore = ["BPMN Process Instance", "AI Eval Suite"]
 
 def _provider():
 	name = "Factory Test Provider"
-	if not frappe.db.exists("AI Provider", name):
+	if not frappe.db.exists("AI Provider Credentials", name):
 		frappe.get_doc(
 			{
-				"doctype": "AI Provider",
+				"doctype": "AI Provider Credentials",
 				"provider_name": name,
 				"provider_type": "OpenAI",
 				"api_key": "x",

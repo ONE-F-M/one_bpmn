@@ -672,7 +672,7 @@ async function sendMessage() {
 // ── Load providers + existing element config ────────────────────────────────
 onMounted(async () => {
   try {
-    const data = await frappeGet("/api/resource/AI Provider", {
+    const data = await frappeGet("/api/resource/AI Provider Credentials", {
       fields: JSON.stringify(["name", "provider_name", "default_model"]),
       filters: JSON.stringify([["enabled", "=", 1]]),
       limit_page_length: 100,
@@ -765,8 +765,8 @@ function save() {
     const p = providers.value.find((x) => x.name === form.value.aiProvider);
     if (!p || !p.default_model) {
       alert(
-        "No model is set. The selected AI Provider has no Default Model.\n" +
-          "Set a Default Model on the AI Provider, or enter a Model here."
+        "No model is set. The selected AI Provider Credentials record has no Default Model.\n" +
+          "Set a Default Model on the AI Provider Credentials record, or enter a Model here."
       );
       return;
     }

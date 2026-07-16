@@ -60,7 +60,7 @@
    "fieldtype": "Link",
    "in_list_view": 1,
    "label": "Provider",
-   "options": "AI Provider",
+   "options": "AI Provider Credentials",
    "reqd": 1
   },
   {
