@@ -79,13 +79,13 @@ function ProviderComponent(props) {
 			limit_page_length: 50,
 			order_by: "provider_name asc",
 		};
-		return frappeGet("/api/resource/AI Provider", params);
+		return frappeGet("/api/resource/AI Provider Credentials", params);
 	};
 
 	const onProviderSelect = (value) => {
 		setAttr(modeling, element, bo, "aiProvider", value);
 		if (!value) return;
-		frappeGet("/api/resource/AI Provider", {
+		frappeGet("/api/resource/AI Provider Credentials", {
 			filters: JSON.stringify([["name", "=", value]]),
 			fields: '["default_model"]',
 			limit_page_length: 1,

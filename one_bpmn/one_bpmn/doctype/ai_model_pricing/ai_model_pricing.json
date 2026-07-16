@@ -24,7 +24,7 @@
    "fieldtype": "Link",
    "in_list_view": 1,
    "label": "Provider",
-   "options": "AI Provider",
+   "options": "AI Provider Credentials",
    "reqd": 1
   },
   {
@@ -35,7 +35,7 @@
    "read_only": 1,
    "fetch_from": "provider.default_model",
    "reqd": 1,
-   "description": "Fetched from the AI Provider's Default Model"
+   "description": "Fetched from the AI Provider Credentials's Default Model"
   },
   {
    "fieldname": "column_break_status",

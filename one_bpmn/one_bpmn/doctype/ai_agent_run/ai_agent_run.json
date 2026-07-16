@@ -90,8 +90,8 @@
   {
    "fieldname": "provider",
    "fieldtype": "Link",
-   "label": "AI Provider",
-   "options": "AI Provider"
+   "label": "AI Provider Credentials",
+   "options": "AI Provider Credentials"
   },
   {
    "description": "e.g. gpt-4o",
