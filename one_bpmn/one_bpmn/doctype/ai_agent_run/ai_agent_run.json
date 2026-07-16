@@ -7,6 +7,7 @@
  "field_order": [
   "instance",
   "process_model",
+  "agent_configuration",
   "bpmn_id",
   "bpmn_label",
   "element_type",
@@ -54,6 +55,15 @@
    "fieldtype": "Link",
    "label": "Process Model",
    "options": "BPMN Process Model"
+  },
+  {
+   "fieldname": "agent_configuration",
+   "fieldtype": "Link",
+   "label": "Agent Configuration",
+   "options": "AI Agent Configuration",
+   "in_standard_filter": 1,
+   "read_only": 1,
+   "description": "The AI Agent Configuration that owns the process model this run executed under (WI-001636)."
   },
   {
    "description": "The element ID on the diagram (e.g. Activity_1a2b3c)",

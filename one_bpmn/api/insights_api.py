@@ -32,8 +32,13 @@ def _default_dates(from_date: Optional[str], to_date: Optional[str], days: int =
 # ---------------------------------------------------------------------------
 
 @frappe.whitelist()
-def get_agent_overview(days: int = 7) -> dict:
-	"""Return 6 headline metrics for the overview number cards."""
+def get_agent_overview(days: int = 7, agent_configuration: str = None) -> dict:
+	"""Return 6 headline metrics for the overview number cards.
+
+	Pass *agent_configuration* to scope every metric to one agent's runs
+	(WI-001636). Deeper per-agent filtering across the other reports ships
+	with the observability feature story (WI-001608).
+	"""
 	frappe.only_for("System Manager")
 	days = cint(days) or 7
 
@@ -46,6 +51,7 @@ def get_agent_overview(days: int = 7) -> dict:
 		frappe.qb.from_(Run)
 		.select(fn.Count("*"))
 		.where(fn.Date(Run.started_at) == today_date)
+		.where(Run.agent_configuration == agent_configuration if agent_configuration else Run.name.notnull())
 		.run()[0][0]
 	)
 
@@ -58,6 +64,7 @@ def get_agent_overview(days: int = 7) -> dict:
 		)
 		.where(fn.Date(Run.started_at) >= range_start)
 		.where(fn.Date(Run.started_at) <= today_date)
+		.where(Run.agent_configuration == agent_configuration if agent_configuration else Run.name.notnull())
 		.where(Run.status != "Running")
 		.run(as_dict=True)
 	)[0]
@@ -72,6 +79,7 @@ def get_agent_overview(days: int = 7) -> dict:
 		.select(fn.Sum(Run.estimated_cost))
 		.where(fn.Date(Run.started_at) >= range_start)
 		.where(fn.Date(Run.started_at) <= today_date)
+		.where(Run.agent_configuration == agent_configuration if agent_configuration else Run.name.notnull())
 		.run()[0][0],
 		4,
 	)
@@ -81,6 +89,7 @@ def get_agent_overview(days: int = 7) -> dict:
 		frappe.qb.from_(Run)
 		.select(fn.Count("*"))
 		.where(fn.Date(Run.started_at) == today_date)
+		.where(Run.agent_configuration == agent_configuration if agent_configuration else Run.name.notnull())
 		.where(Run.status == "Error")
 		.run()[0][0]
 	)
@@ -91,6 +100,7 @@ def get_agent_overview(days: int = 7) -> dict:
 		.select(fn.Avg(Run.duration_ms))
 		.where(fn.Date(Run.started_at) >= range_start)
 		.where(fn.Date(Run.started_at) <= today_date)
+		.where(Run.agent_configuration == agent_configuration if agent_configuration else Run.name.notnull())
 		.where(Run.status == "Success")
 		.run()[0][0]
 	)
@@ -101,6 +111,7 @@ def get_agent_overview(days: int = 7) -> dict:
 		.select(fn.Sum(Run.total_tokens))
 		.where(fn.Date(Run.started_at) >= range_start)
 		.where(fn.Date(Run.started_at) <= today_date)
+		.where(Run.agent_configuration == agent_configuration if agent_configuration else Run.name.notnull())
 		.run()[0][0]
 	)
 
