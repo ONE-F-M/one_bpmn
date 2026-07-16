@@ -212,6 +212,16 @@ function AgentConfigComponent(props) {
 				renderOption: (opt) => opt.name,
 				onChange: onConfigSelect,
 			}),
+			currentValue
+				? h(
+						"div",
+						{ class: "bio-properties-panel-description" },
+						translate("Seeded from: {{config}} — the fields below are an editable copy; edits stay on this task.").replace(
+							"{{config}}",
+							currentValue
+						)
+				  )
+				: null,
 		])
 	);
 }
