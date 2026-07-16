@@ -105,25 +105,42 @@ def provision_agent(config_name: str):
 		)
 
 
-def on_agent_config_insert(doc, method=None):
-	"""Doc-event: kick off the creation process when a chat agent
-	configuration is created. Skipped during migrate/install/patch so
-	seed patches don't auto-provision. Enqueued so the insert returns fast.
+def needs_generated_prompt(config_name: str) -> bool:
+	"""Gateway predicate (WI-001620): does this agent still need a system
+	prompt drafted for it? True when the prompt is blank."""
+	return not (frappe.db.get_value("AI Agent Configuration", config_name, "system_prompt") or "").strip()
+
+
+def generate_system_prompt(config_name: str) -> str:
+	"""Draft a system prompt for an agent from its name + description, using
+	its own linked credentials, and save it on the configuration (WI-001620).
+
+	Body of the creation process's auto-prompt branch: when an agent is
+	created without a prompt, the process generates one here rather than
+	failing validation.
 	"""
-	if getattr(frappe.flags, "in_migrate", False) or getattr(frappe.flags, "in_install", False) or getattr(frappe.flags, "in_patch", False):
-		return
-	if doc.agent_type != "Chat" or not doc.enabled:
-		return
-	if (doc.lifecycle_status or "Draft") not in ("Draft", "Needs Attention"):
-		return
-	frappe.enqueue(
-		"one_bpmn.agents.agent_provisioning.provision_agent",
-		queue="bpmn_ai_agent",
-		enqueue_after_commit=True,
-		job_id=f"provision-agent-{doc.name}",
-		deduplicate=True,
-		config_name=doc.name,
+	from one_bpmn.agents.executor.direct_api import _run_coro_blocking
+	from one_bpmn.agents.llm_provider import get_llm_adapter_from_settings
+	from one_bpmn.one_bpmn.doctype.ai_agent_configuration.ai_agent_configuration import get_agent_config
+
+	cfg = frappe.get_doc("AI Agent Configuration", config_name)
+	meta_prompt = (
+		"You are an expert prompt engineer. Write a concise, production-ready "
+		"system prompt for an AI chat agent with the following purpose. Return "
+		"ONLY the system prompt text, no preamble or quotes.\n\n"
+		f"Agent name: {cfg.agent_name}\n"
+		f"Description: {cfg.description or '(none given)'}\n"
+		f"Chat mode: {cfg.chat_mode_label or cfg.agent_id}"
 	)
+	adapter = get_llm_adapter_from_settings(get_agent_config(cfg.agent_id))
+	completion = _run_coro_blocking(
+		adapter.complete(system="You write system prompts.", user=meta_prompt, max_tokens=1024)
+	)
+	prompt = (getattr(completion, "text", "") or "").strip()
+	if prompt:
+		cfg.db_set("system_prompt", prompt, update_modified=False)
+		frappe.cache.delete_value(f"agent_config:{cfg.agent_id}")
+	return prompt
 
 
 def _provider_test_call(cfg) -> tuple[bool, str]:
