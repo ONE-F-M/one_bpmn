@@ -1,0 +1,241 @@
+{
+ "actions": [],
+ "autoname": "naming_series:",
+ "creation": "2026-07-16 20:24:09.940868",
+ "default_view": "List",
+ "doctype": "DocType",
+ "engine": "InnoDB",
+ "field_order": [
+  "basic_details_tab",
+  "section_break_esrh",
+  "process_name",
+  "bpmn_process_model",
+  "editable",
+  "column_break_iarv",
+  "process_owner",
+  "business_analyst",
+  "column_break_cccw",
+  "goal_description",
+  "change_requests_tab",
+  "section_break_gamf",
+  "change_requests",
+  "more_information_tab",
+  "section_break_qrox",
+  "naming_series",
+  "amended_from",
+  "workflow_state",
+  "column_break_saah",
+  "column_break_xmyv",
+  "amended_from"
+ ],
+ "fields": [
+  {
+   "fieldname": "basic_details_tab",
+   "fieldtype": "Tab Break",
+   "label": "Basic Details"
+  },
+  {
+   "fieldname": "section_break_esrh",
+   "fieldtype": "Section Break"
+  },
+  {
+   "fieldname": "process_name",
+   "fieldtype": "Link",
+   "in_list_view": 1,
+   "in_standard_filter": 1,
+   "label": "Process Name",
+   "options": "Process",
+   "remember_last_selected_value": 1,
+   "reqd": 1
+  },
+  {
+   "fieldname": "bpmn_process_model",
+   "fieldtype": "Link",
+   "label": "BPMN Process Model",
+   "options": "BPMN Process Model",
+   "read_only": 1
+  },
+  {
+   "default": "0",
+   "description": "Indicates whether the process model is editable. It is automatically updated as the workflow state changes.",
+   "fieldname": "editable",
+   "fieldtype": "Check",
+   "label": "Editable",
+   "read_only": 1
+  },
+  {
+   "fieldname": "column_break_iarv",
+   "fieldtype": "Column Break"
+  },
+  {
+   "fetch_from": "process_name.process_owner",
+   "fieldname": "process_owner",
+   "fieldtype": "Link",
+   "ignore_user_permissions": 1,
+   "in_list_view": 1,
+   "label": "Process Owner",
+   "options": "User",
+   "reqd": 1
+  },
+  {
+   "default": "User",
+   "fieldname": "business_analyst",
+   "fieldtype": "Link",
+   "ignore_user_permissions": 1,
+   "label": "Business Analyst",
+   "options": "User",
+   "reqd": 1
+  },
+  {
+   "fieldname": "column_break_cccw",
+   "fieldtype": "Column Break"
+  },
+  {
+   "description": "A brief description of what this update is meant to achieve.",
+   "fieldname": "goal_description",
+   "fieldtype": "Small Text",
+   "in_list_view": 1,
+   "label": "Goal Description",
+   "reqd": 1
+  },
+  {
+   "fieldname": "change_requests_tab",
+   "fieldtype": "Tab Break",
+   "label": "Change Requests"
+  },
+  {
+   "fieldname": "section_break_gamf",
+   "fieldtype": "Section Break"
+  },
+  {
+   "fieldname": "change_requests",
+   "fieldtype": "Table",
+   "label": "Change Requests",
+   "options": "Pathfinder Log Change Request"
+  },
+  {
+   "fieldname": "more_information_tab",
+   "fieldtype": "Tab Break",
+   "label": "More Information"
+  },
+  {
+   "fieldname": "section_break_qrox",
+   "fieldtype": "Section Break"
+  },
+  {
+   "fieldname": "naming_series",
+   "fieldtype": "Select",
+   "label": "Naming Series",
+   "no_copy": 1,
+   "options": "PBR-IMP-.YYYY.-.MM.-.####",
+   "set_only_once": 1
+  },
+  {
+   "fieldname": "amended_from",
+   "fieldtype": "Link",
+   "label": "Amended From",
+   "no_copy": 1,
+   "options": "Pathfinder Log",
+   "print_hide": 1,
+   "read_only": 1,
+   "search_index": 1
+  },
+  {
+   "fieldname": "workflow_state",
+   "fieldtype": "Link",
+   "hidden": 1,
+   "label": "Workflow State",
+   "options": "Workflow State",
+   "read_only": 1
+  },
+  {
+   "fieldname": "column_break_saah",
+   "fieldtype": "Column Break"
+  },
+  {
+   "fieldname": "column_break_xmyv",
+   "fieldtype": "Column Break"
+  },
+  {
+   "fieldname": "amended_from",
+   "fieldtype": "Link",
+   "label": "Amended From",
+   "no_copy": 1,
+   "options": "Process Implementation",
+   "print_hide": 1,
+   "read_only": 1,
+   "search_index": 1
+  }
+ ],
+ "grid_page_length": 50,
+ "index_web_pages_for_search": 1,
+ "is_submittable": 1,
+ "links": [
+  {
+   "link_doctype": "BPMN Process Model",
+   "link_fieldname": "pathfinder_log"
+  }
+ ],
+ "modified": "2026-07-16 20:24:09.940868",
+ "modified_by": "Administrator",
+ "module": "ONE BPMN",
+ "name": "Process Implementation",
+ "naming_rule": "By \"Naming Series\" field",
+ "owner": "Administrator",
+ "permissions": [
+  {
+   "create": 1,
+   "email": 1,
+   "export": 1,
+   "print": 1,
+   "read": 1,
+   "report": 1,
+   "role": "Head Office Employee",
+   "share": 1,
+   "write": 1
+  },
+  {
+   "create": 1,
+   "delete": 1,
+   "email": 1,
+   "export": 1,
+   "print": 1,
+   "read": 1,
+   "report": 1,
+   "role": "Business Analyst",
+   "share": 1,
+   "submit": 1,
+   "write": 1
+  },
+  {
+   "create": 1,
+   "delete": 1,
+   "email": 1,
+   "export": 1,
+   "print": 1,
+   "read": 1,
+   "report": 1,
+   "role": "System Manager",
+   "share": 1,
+   "submit": 1,
+   "write": 1
+  },
+  {
+   "create": 1,
+   "delete": 1,
+   "email": 1,
+   "export": 1,
+   "print": 1,
+   "read": 1,
+   "report": 1,
+   "role": "Process Owner",
+   "share": 1,
+   "write": 1
+  }
+ ],
+ "row_format": "Dynamic",
+ "sort_field": "modified",
+ "sort_order": "DESC",
+ "states": [],
+ "track_changes": 1
+}
