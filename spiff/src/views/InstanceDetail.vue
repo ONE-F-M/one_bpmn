@@ -584,7 +584,12 @@ async function loadProcessModelXml(modelName) {
 		})
 		const data = res
 		if (data?.xml_content) {
-			bpmnXml.value = decodeHtmlEntities(data.xml_content)
+			// Assign the XML verbatim. bpmn-js parses XML entities itself, so we
+			// must NOT HTML-decode it first — doing so turns required escaping like
+			// `&lt;` in a condition (e.g. `gen_attempts &lt; 3`) into a literal `<`,
+			// which corrupts the XML ("illegal first char nodeName"). The editor
+			// (BpmnEditor.vue loadXML) imports the raw XML for the same reason.
+			bpmnXml.value = data.xml_content
 		}
 	} catch (e) {
 		console.error("Failed to load process model XML:", e)
@@ -619,12 +624,6 @@ async function loadLogs() {
 	} finally {
 		logsLoading.value = false
 	}
-}
-
-function decodeHtmlEntities(text) {
-	const t = document.createElement("textarea")
-	t.innerHTML = text
-	return t.value
 }
 
 // ── Task completion ──
