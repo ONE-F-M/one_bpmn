@@ -183,6 +183,38 @@ const taskList = computed(() => {
 				Object.entries(scope || {}).filter(([k]) => !SCOPE_SKIP.has(k))
 			)
 
+		// SpiffWorkflow 1.4 serializes each task's data as a DELTA relative to
+		// its parent (task.delta = { updates, deletions }); task.data itself is
+		// {}. To show "variables at this execution point" we must reconstruct the
+		// cumulative data by walking the parent chain from the root and applying
+		// each task's delta in order. The root (Start) still carries the initial
+		// data in task.data. Falls back cleanly to the pre-1.4 format, where a
+		// task's data is the full accumulated dict (last-in-chain wins) or empty
+		// (then baseScope — the containing workflow/subprocess scope — is used).
+		const reconstructData = (uuid, tasksDict, baseScope) => {
+			const chain = []
+			const seen = new Set()
+			let cur = uuid
+			while (cur && tasksDict[cur] && !seen.has(cur)) {
+				seen.add(cur)
+				chain.push(tasksDict[cur])
+				cur = tasksDict[cur].parent
+			}
+			chain.reverse()
+			let data = { ...(baseScope || {}) }
+			for (const node of chain) {
+				if (node.data && Object.keys(node.data).length) {
+					data = { ...data, ...node.data }
+				}
+				const delta = node.delta
+				if (delta) {
+					for (const [k, v] of Object.entries(delta.updates || {})) data[k] = v
+					for (const k of delta.deletions || []) delete data[k]
+				}
+			}
+			return data
+		}
+
 		// Recursive: a task whose id keys an entry in wfState.subprocesses is
 		// a Sub-Process / Ad-hoc parent — its inner tasks are flattened in
 		// right after it with depth+1, each clickable like any other node.
@@ -207,7 +239,7 @@ const taskList = computed(() => {
 					state: t.state || 0,
 					stateLabel: getStateLabel(t.state || 0),
 					timestamp: t.last_state_change ? new Date(t.last_state_change * 1000) : null,
-					data: Object.keys(t.data || {}).length ? t.data : scopeData,
+					data: reconstructData(uuid, tasksDict, scopeData),
 					extensions: {
 						...((() => { try { return typeof specData.extensions === 'string' ? JSON.parse(specData.extensions) : specData.extensions; } catch { return {}; } })() || {}),
 						...(serviceTaskExtensions.value[specName] || {}),
