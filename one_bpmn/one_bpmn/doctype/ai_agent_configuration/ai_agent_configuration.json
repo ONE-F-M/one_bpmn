@@ -285,7 +285,13 @@
   }
  ],
  "index_web_pages_for_search": 1,
- "links": [],
+ "links": [
+  {
+   "group": "Observability",
+   "link_doctype": "AI Agent Run",
+   "link_fieldname": "agent_configuration"
+  }
+ ],
  "modified": "2026-03-03 09:42:23.593202",
  "modified_by": "Administrator",
  "module": "ONE BPMN",
