@@ -1104,15 +1104,31 @@ def _lint_ai_provider_config(_bpmn_xml: str, service_extensions: dict) -> None:
 				)
 
 		provider_name = (task_cfg.get("aiProvider") or "").strip()
+		agent_config = (task_cfg.get("aiAgentConfig") or "").strip()
+
+		# WI-001637: a shape may resolve its provider EITHER directly or by
+		# referencing an AI Agent Configuration (which seeds the provider).
+		# Validate the reference when present.
+		if agent_config:
+			if not frappe.db.exists("AI Agent Configuration", agent_config):
+				frappe.throw(
+					_("Referenced AI Agent Configuration '{0}' not found (task '{1}').").format(agent_config, bpmn_id),
+					exc=frappe.ValidationError,
+				)
+			if not frappe.db.get_value("AI Agent Configuration", agent_config, "enabled"):
+				frappe.throw(
+					_("Referenced AI Agent Configuration '{0}' is disabled (task '{1}').").format(agent_config, bpmn_id),
+					exc=frappe.ValidationError,
+				)
 
 		# An AI Task Selector is unusable without a provider — block the save
 		# outright (WI-001351 Scenario 4); a plain AI Agent Task may still be
 		# a work-in-progress draft, so only its non-empty reference is checked.
-		if service_type == "ai_task_selector" and not provider_name:
+		if service_type == "ai_task_selector" and not provider_name and not agent_config:
 			frappe.throw(
 				_(
-					"AI Task Selector on '{0}' has no AI Provider Credentials configured. "
-					"Select a provider before saving."
+					"AI Task Selector on '{0}' has no AI Provider Credentials or AI Agent "
+					"Configuration configured. Select one before saving."
 				).format(bpmn_id),
 				exc=frappe.ValidationError,
 			)
