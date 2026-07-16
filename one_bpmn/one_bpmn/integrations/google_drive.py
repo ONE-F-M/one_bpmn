@@ -171,6 +171,20 @@ def set_permissions(file_id: str, grants: list) -> list:
 	return results
 
 
+def delete_file(file_id: str, permanent: bool = False) -> None:
+	"""
+	Remove a file from Drive. Trashes it (recoverable from the Drive trash)
+	by default; pass permanent=True to bypass the trash entirely.
+	"""
+	service = _get_service()
+	if permanent:
+		service.files().delete(fileId=file_id, supportsAllDrives=True).execute()
+	else:
+		service.files().update(
+			fileId=file_id, body={"trashed": True}, fields="id", supportsAllDrives=True
+		).execute()
+
+
 def list_files(folder_id: str, page_size: int = 20) -> list:
 	"""List non-trashed files directly inside a Drive folder."""
 	service = _get_service()
