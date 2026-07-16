@@ -126,7 +126,10 @@ def _call_production_api(method: str, params: dict) -> dict:
 	}
 
 	try:
-		resp = requests.get(url, params=params, headers=headers, timeout=10)
+		# POST (not GET): the payload can be a large JSON list of process names.
+		# As a query string it produces a multi-KB URL that nginx/proxies reject
+		# with 400 Bad Request. Sending it in the request body avoids the limit.
+		resp = requests.post(url, json=params, headers=headers, timeout=10)
 		resp.raise_for_status()
 		data = resp.json()
 		return data.get("message", data)
