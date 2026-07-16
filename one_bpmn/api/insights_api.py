@@ -374,6 +374,7 @@ def get_performance_report(
 	model: str = None,
 	bpmn_id: str = None,
 	process_model: str = None,
+	agent_configuration: str = None,
 ) -> dict:
 	"""Return latency/throughput data with percentiles."""
 	frappe.only_for("System Manager")
