@@ -21,3 +21,4 @@ one_bpmn.one_bpmn.patches.v1_0.shift_ai_step_index_to_one_based #09-07-2026
 one_bpmn.one_bpmn.patches.v1_0.seed_docu_agent_config #12-07-2026
 one_bpmn.one_bpmn.patches.v1_0.migrate_llm_credentials_to_ai_provider_credentials #16-07-2026
 one_bpmn.one_bpmn.patches.v1_0.backfill_agent_provider_credentials_links #16-07-2026
+one_bpmn.one_bpmn.patches.v1_0.seed_ai_assistant_agent #16-07-2026
