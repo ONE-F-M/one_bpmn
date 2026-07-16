@@ -53,8 +53,48 @@ def get_llm_adapter(provider: str, model: str, api_key: str) -> BaseLLMAdapter:
     raise ValueError(f"Unknown LLM provider: {provider!r}. Supported: gemini, anthropic, openai")
 
 
+# WI-001614: canonical credential store. Maps the factory's lowercase provider
+# keys to AI Provider Credentials.provider_type values.
+_PROVIDER_TYPE_MAP = {
+    "gemini": "Google",
+    "anthropic": "Anthropic",
+    "claude": "Anthropic",
+    "openai": "OpenAI",
+}
+
+
+def _get_provider_credentials(provider: str) -> tuple[str, str]:
+    """
+    Return (api_key, default_model) for *provider* from AI Provider
+    Credentials — the single credential store (WI-001614). Prefers the
+    canonical record name, else the first enabled record of the matching
+    provider_type that holds a key. Returns ("", "") when none qualifies
+    so callers can fall back to the legacy AI Chat Settings fields.
+    """
+    ptype = _PROVIDER_TYPE_MAP.get(provider)
+    if not ptype:
+        return "", ""
+    try:
+        from frappe.utils.password import get_decrypted_password
+
+        names = frappe.get_all(
+            "AI Provider Credentials",
+            filters={"provider_type": ptype, "enabled": 1},
+            fields=["name", "default_model"],
+        )
+        canonical = {"gemini": "Gemini", "anthropic": "Anthropic", "claude": "Anthropic", "openai": "OpenAI"}.get(provider)
+        names.sort(key=lambda r: (r.name != canonical))
+        for rec in names:
+            key = get_decrypted_password("AI Provider Credentials", rec.name, "api_key", raise_exception=False)
+            if key:
+                return key, rec.default_model or ""
+    except Exception:
+        frappe.log_error(title="LLM Factory - AI Provider Credentials", message=frappe.get_traceback())
+    return "", ""
+
+
 def _get_global_api_key(settings, provider: str) -> str:
-    """Return the global API key for *provider* from AI Chat Settings."""
+    """Return the global API key for *provider* from AI Chat Settings (legacy fallback)."""
     try:
         if provider == "gemini":
             return (
@@ -121,12 +161,19 @@ def get_llm_adapter_from_settings(agent_config: dict | None = None) -> BaseLLMAd
     else:
         provider = "gemini"
 
+    # WI-001614: AI Provider Credentials is the credential store. Resolve it
+    # once; the legacy AI Chat Settings fields remain only as a fallback until
+    # every agent's migration story lands.
+    cred_key, cred_model = _get_provider_credentials(provider)
+
     # ── Model ─────────────────────────────────────────────────────────────────
     model_override = cfg.get("model_override")
     if model_override:
         model = model_override
     elif agent_row and agent_row.model:
         model = agent_row.model
+    elif cred_model:
+        model = cred_model
     elif settings:
         model = _get_global_model(settings, provider)
     else:
@@ -139,6 +186,9 @@ def get_llm_adapter_from_settings(agent_config: dict | None = None) -> BaseLLMAd
             api_key = agent_row.get_password("api_key") or ""
         except Exception:
             pass
+
+    if not api_key:
+        api_key = cred_key
 
     if not api_key and settings:
         api_key = _get_global_api_key(settings, provider)
