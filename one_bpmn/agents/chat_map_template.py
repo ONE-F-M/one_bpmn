@@ -66,7 +66,10 @@ def clone_chat_map_for_agent(config_name: str) -> str:
 	label = config.chat_mode_label or config.agent_id
 	xml = render_chat_map_xml(label, config.system_prompt or "")
 
+	# BPMN Process Model autonames from `title`; process_id + version are also
+	# required. Derive a stable process_id from the agent_id.
 	model_name = config.process_model or f"{config.agent_name} — Chat"
+	process_id = frappe.scrub(config.agent_id or config.agent_name).replace("__", "_")
 	if frappe.db.exists("BPMN Process Model", model_name):
 		model = frappe.get_doc("BPMN Process Model", model_name)
 		model.bpmn_xml = xml
@@ -74,7 +77,9 @@ def clone_chat_map_for_agent(config_name: str) -> str:
 	else:
 		model = frappe.get_doc({
 			"doctype": "BPMN Process Model",
-			"__newname": model_name,
+			"title": model_name,
+			"process_id": process_id,
+			"version": 1,
 			"bpmn_xml": xml,
 		})
 		model.insert(ignore_permissions=True)
