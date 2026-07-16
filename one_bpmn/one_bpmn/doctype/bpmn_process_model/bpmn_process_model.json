@@ -13,7 +13,7 @@
   "column_break_pbtg",
   "is_active",
   "version",
-  "pathfinder_log",
+  "process_implementation",
   "section_description",
   "description",
   "section_bpmn_diagram",
@@ -228,17 +228,17 @@
    "fieldtype": "Column Break"
   },
   {
-   "fieldname": "pathfinder_log",
+   "fieldname": "process_implementation",
    "fieldtype": "Link",
-   "label": "Pathfinder Log",
-   "options": "Pathfinder Log",
+   "label": "Process Implementation",
+   "options": "Process Implementation",
    "read_only": 1
   }
  ],
  "in_create": 1,
  "index_web_pages_for_search": 1,
  "links": [],
- "modified": "2026-06-14 12:22:54.454592",
+ "modified": "2026-07-16 20:25:22.302783",
  "modified_by": "Administrator",
  "module": "ONE BPMN",
  "name": "BPMN Process Model",

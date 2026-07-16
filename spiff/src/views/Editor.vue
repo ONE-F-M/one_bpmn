@@ -18,12 +18,12 @@
 						<h1 class="text-sm font-semibold text-gray-800 truncate max-w-[120px] sm:max-w-[180px] lg:max-w-[260px]" :title="processName">{{ processName }}</h1>
 						
 						<!-- Status Icon -->
-						<button 
+						<button
 							@click="showStatusPopup = !showStatusPopup"
 							class="p-1 rounded transition-colors"
-							:class="isEditable ? 'text-green-500 hover:bg-green-50' : 'text-amber-500 hover:bg-amber-50'"
+							:class="canEditActiveDiagram ? 'text-green-500 hover:bg-green-50' : 'text-amber-500 hover:bg-amber-50'"
 						>
-							<Icon :icon="isEditable ? 'lucide:pencil' : 'lucide:lock'" class="w-4 h-4" />
+							<Icon :icon="canEditActiveDiagram ? 'lucide:pencil' : 'lucide:lock'" class="w-4 h-4" />
 						</button>
 
 						<!-- Status Popup -->
@@ -34,18 +34,18 @@
 						>
 							<div class="p-4 space-y-3">
 								<div class="flex items-start gap-3">
-									<div 
+									<div
 										class="p-2 rounded-lg shrink-0"
-										:class="isEditable ? 'bg-green-50 text-green-600' : 'bg-amber-50 text-amber-600'"
+										:class="canEditActiveDiagram ? 'bg-green-50 text-green-600' : 'bg-amber-50 text-amber-600'"
 									>
-										<Icon :icon="isEditable ? 'lucide:pencil' : 'lucide:lock'" class="w-5 h-5" />
+										<Icon :icon="canEditActiveDiagram ? 'lucide:pencil' : 'lucide:lock'" class="w-5 h-5" />
 									</div>
 									<div class="space-y-1">
 										<h3 class="text-sm font-bold text-gray-900 leading-none">
-											{{ isEditable ? 'Active Editing Session' : 'Document is Locked' }}
+											{{ canEditActiveDiagram ? 'Active Editing Session' : 'Document is Locked' }}
 										</h3>
 										<p class="text-xs text-gray-500 leading-relaxed">
-											{{ isEditable ? 'This document is live and available for editing. Your changes are automatically saved and synchronized with the server.' : editabilityInfo.reason || 'No active Pathfinder Log. Create one on Production to enable editing.' }}
+											{{ canEditActiveDiagram ? 'This document is live and available for editing. Your changes are automatically saved and synchronized with the server.' : lockReason }}
 										</p>
 									</div>
 								</div>
@@ -66,7 +66,7 @@
 					</div>
 
 					<!-- Compact mode: Diagram dropdown selector (replaces bottom tab bar) -->
-					<div v-if="compact && openTabs.length > 1" class="relative ml-1 sm:ml-2">
+					<div v-if="compact && diagrams.length > 1" class="relative ml-1 sm:ml-2">
 						<button
 							@click="showCompactDiagramMenu = !showCompactDiagramMenu"
 							class="flex items-center gap-1 sm:gap-1.5 px-2 sm:px-2.5 py-1.5 sm:py-1 rounded-md text-xs font-medium border transition-colors active:bg-gray-200"
@@ -87,7 +87,7 @@
 							class="absolute top-full left-0 sm:left-0 mt-1 w-[calc(100vw-2rem)] sm:w-56 max-w-[280px] bg-white border border-gray-200 rounded-lg shadow-lg z-[70] py-1 max-h-64 overflow-y-auto"
 						>
 							<button
-								v-for="tab in openTabs"
+								v-for="tab in diagrams"
 								:key="tab.name"
 								@click="selectDiagram(tab.name); showCompactDiagramMenu = false"
 								class="w-full flex items-center gap-2 px-3 py-2.5 sm:py-2 text-sm text-gray-700 hover:bg-gray-50 active:bg-gray-100 transition-colors"
@@ -402,7 +402,7 @@
 						class="absolute inset-0"
 						:save-status-text="saveStatusText"
 						:save-status-color="saveStatusColor"
-						:readonly="!isEditable || !!activeVersionName"
+						:readonly="!canEditActiveDiagram || !!activeVersionName"
 						:model-name="activeDiagramName"
 						@ready="onEditorReady"
 						@changed="onDiagramChanged"
@@ -437,7 +437,7 @@
 							</button>
 							<p v-else class="text-sm text-gray-400">
 								<Icon icon="lucide:lock" class="w-4 h-4 inline mr-1" />
-								Process is locked. Create a Pathfinder Log to enable editing.
+								Process is locked. Create a Process Implementation to enable editing.
 							</p>
 						</div>
 					</div>
@@ -449,6 +449,7 @@
 			<div v-if="openTabs.length > 0 && !compact" class="relative z-10 flex items-center justify-between bg-white border-t border-gray-200 min-h-[40px]">
 				<EditorTabs
 					:tabs="openTabs"
+					:all-tabs="diagrams"
 					:activeTab="activeVersionName ? null : activeDiagramName"
 					:readonly="!isEditable"
 					:versions="namedVersionTabs"
@@ -785,7 +786,7 @@
 						:key="dmnEditorKey"
 						ref="dmnEditorRef"
 						:initial-xml="dmnEditorXml"
-						:readonly="!isEditable"
+						:readonly="!canEditActiveDiagram"
 						@xml-changed="onDmnXmlChanged"
 					/>
 				</div>
@@ -969,7 +970,7 @@ const props = defineProps({
 const showCompactDiagramMenu = ref(false);
 
 const activeDiagramLabel = computed(() => {
-	const d = openTabs.value.find((t) => t.name === activeDiagramName.value);
+	const d = diagrams.value.find((t) => t.name === activeDiagramName.value);
 	return d ? d.model_name : "Select Diagram";
 });
 
@@ -1104,13 +1105,34 @@ const namedVersionTabs = ref([]);
 // read-only instead of editing the live map.
 const activeVersionName = ref(null);
 
-// Pathfinder Log editability state
+// Process Implementation editability state (process-level: can new maps be
+// created / does at least one editable implementation exist for the process)
 const isEditable = ref(false);  // locked by default until API confirms
 const editabilityInfo = ref({
 	editable: false,
-	pathfinder_log: null,
+	process_implementation: null,
 	workflow_state: null,
+	override: false,
 	reason: null,
+});
+
+// Canvas editability is per process map: the Process Implementation linked
+// to the ACTIVE map must have its 'Editable' flag checked. Site-wide gates
+// (production lock / dev bypass) override the per-map check.
+const canEditActiveDiagram = computed(() => {
+	if (!isEditable.value) return false;
+	if (editabilityInfo.value.override) return true;
+	const d = diagrams.value.find((d) => d.name === activeDiagramName.value);
+	return !!d?.implementation_editable;
+});
+
+// Human-readable reason shown in the lock popup.
+const lockReason = computed(() => {
+	if (!isEditable.value) {
+		return editabilityInfo.value.reason
+			|| "No editable Process Implementation. Create one and let it reach the Active state to enable editing.";
+	}
+	return "This process map is not linked to an editable Process Implementation, so it is read-only.";
 });
 
 // Import file input ref
@@ -1686,7 +1708,7 @@ function handleKeyDown(event) {
 	// Ctrl+S or Cmd+S to save (only when editable)
 	if ((event.ctrlKey || event.metaKey) && event.key === "s") {
 		event.preventDefault();
-		if (isEditable.value && activeDiagramName.value && !saving.value) {
+		if (canEditActiveDiagram.value && activeDiagramName.value && !saving.value) {
 			saveCurrentDiagram();
 		}
 	}
@@ -1752,28 +1774,41 @@ onMounted(async () => {
 		loading.value = true;
 		await loadProcess();
 
-		// Check editability (Pathfinder Log status) from Production
+		// Check editability (Process Implementation status)
 		await checkEditability();
 
-		// Add all diagrams to open tabs
-		if (diagrams.value.length > 0) {
-			openTabs.value = [...diagrams.value];
+		// Pick the map to show: an explicit route diagram wins, otherwise the
+		// map linked to an editable Process Implementation (last modified if
+		// several), otherwise the last modified map. Only ONE map is visible
+		// at a time — the rest stay reachable via the bottom-bar menu.
+		let initial = null;
+		if (props.diagram && diagrams.value.some((d) => d.name === props.diagram)) {
+			initial = props.diagram;
+		} else {
+			initial = pickDefaultDiagram();
 		}
 
-		// If a specific diagram was passed in route, select it
-		if (props.diagram) {
-			activeDiagramName.value = props.diagram;
-		} else if (diagrams.value.length > 0) {
-			// Default to the active model; fallback to first (most recently modified)
-			const activeDiagram = diagrams.value.find((d) => d.is_active || d.status === 'Active');
-			activeDiagramName.value = activeDiagram
-				? activeDiagram.name
-				: diagrams.value[0].name;
+		if (initial) {
+			activeDiagramName.value = initial;
+			const d = diagrams.value.find((d) => d.name === initial);
+			openTabs.value = d ? [d] : [];
 		}
 	} finally {
 		loading.value = false;
 	}
 });
+
+// Choose the default map: the one linked to an editable Process
+// Implementation (last modified when several are editable); if none exists,
+// the last modified map.
+function pickDefaultDiagram() {
+	const list = diagrams.value;
+	if (!list.length) return null;
+	const byModifiedDesc = (a, b) => new Date(b.modified) - new Date(a.modified);
+	const editables = list.filter((d) => d.implementation_editable);
+	const pool = editables.length ? editables : list;
+	return [...pool].sort(byModifiedDesc)[0].name;
+}
 
 async function checkEditability() {
 
@@ -1787,8 +1822,9 @@ async function checkEditability() {
 		isEditable.value = !!data.editable;
 		editabilityInfo.value = {
 			editable: !!data.editable,
-			pathfinder_log: data.pathfinder_log || null,
+			process_implementation: data.process_implementation || null,
 			workflow_state: data.workflow_state || null,
+			override: !!data.override,
 			reason: data.reason || null,
 		};
 	} catch (error) {
@@ -1797,8 +1833,9 @@ async function checkEditability() {
 		isEditable.value = false;
 		editabilityInfo.value = {
 			editable: false,
-			pathfinder_log: null,
+			process_implementation: null,
 			workflow_state: null,
+			override: false,
 			reason: "Unable to check editability. Process is locked for safety.",
 		};
 	}
@@ -1879,13 +1916,10 @@ async function selectDiagram(name) {
 
 	activeDiagramName.value = name;
 
-	// Add to open tabs if not already there
-	if (!openTabs.value.find((t) => t.name === name)) {
-		const diagram = diagrams.value.find((d) => d.name === name);
-		if (diagram) {
-			openTabs.value.push(diagram);
-		}
-	}
+	// Only one map is visible at a time — the tab bar shows just the
+	// selected map; all others are reachable via the bottom-bar menu.
+	const diagram = diagrams.value.find((d) => d.name === name);
+	openTabs.value = diagram ? [diagram] : [];
 
 	// Update URL (skip in compact mode — parent manages routing)
 	if (!props.compact) {
@@ -1967,8 +2001,8 @@ async function saveDiagramToCache(name) {
 
 function onDiagramChanged() {
 	if (!editorReady.value) return;
-	// Do not trigger auto-save when the process is locked
-	if (!isEditable.value) return;
+	// Do not trigger auto-save when this map is locked
+	if (!canEditActiveDiagram.value) return;
 	// Do not auto-save while previewing a read-only named version.
 	if (activeVersionName.value) return;
 
@@ -1998,7 +2032,7 @@ function runDebouncedSave() {
 
 async function saveCurrentDiagram() {
 	if (!activeDiagramName.value || !editorRef.value) return;
-	if (!isEditable.value) return; // Guard: process is locked
+	if (!canEditActiveDiagram.value) return; // Guard: this map is locked
 	if (activeVersionName.value) return; // Guard: previewing a read-only version
 
 	saving.value = true;
@@ -2295,12 +2329,12 @@ async function handleDeleteTab(tab) {
 		hasUnsavedChanges.value = false;
 		saveState.value = "idle";
 
-		if (openTabs.value.length > 0) {
-			selectDiagram(openTabs.value[Math.min(tabIndex, openTabs.value.length - 1)].name);
-		} else if (diagrams.value.length > 0) {
-			selectDiagram(diagrams.value[0].name);
+		const fallback = pickDefaultDiagram();
+		if (fallback) {
+			selectDiagram(fallback);
 		} else {
 			activeDiagramName.value = null;
+			openTabs.value = [];
 			router.replace({ name: "ProcessEditor", params: { process: props.process } });
 		}
 	}
@@ -2318,7 +2352,12 @@ async function handleDeleteTab(tab) {
 		// ── Rollback on failure ─────────────────────────────────────
 		console.error("Deletion failed:", error);
 		if (removedDiagram) diagrams.value.splice(diagramIndex, 0, removedDiagram);
-		if (removedTab) openTabs.value.splice(tabIndex, 0, removedTab);
+		if (wasActive) {
+			// Restore the deleted map as the (single) visible tab
+			selectDiagram(tab.name);
+		} else if (removedTab) {
+			openTabs.value.splice(tabIndex, 0, removedTab);
+		}
 		showNotification("Error", "Failed to delete diagram: " + (error.message || error), "red");
 	}
 }
@@ -2716,10 +2755,8 @@ async function handleImportFile(event) {
 			diagrams.value.push(diagramEntry);
 		}
 
-		// Preserve existing openTabs; only add the imported diagram tab if not already open
-		if (!openTabs.value.some((tab) => tab.name === diagramEntry.name)) {
-			openTabs.value = [...openTabs.value, diagramEntry];
-		}
+		// Only one map is visible at a time — the imported map becomes it.
+		openTabs.value = [diagramEntry];
 
 		// Switch to the imported diagram via SPA (no page reload → no Preact crash)
 		// The watch(activeDiagramName) picks up the change and calls loadDiagramContent.
