@@ -16,21 +16,28 @@ config-driven spots filled at clone time:
 
 The tool shapes drawn in the template's ad-hoc subprocess define the
 cloned agent's toolkit (the map is the tool grant).
-"""
 
-import os
+The template itself is DATA, not code: a BPMN Process Model document
+titled "Chat Agent Template", authored/maintained in Processa like any
+other diagram (never deploy/compile it — it exists only to be cloned).
+"""
 
 import frappe
 from frappe.utils import escape_html
 
-_TEMPLATE_PATH = os.path.join(
-	os.path.dirname(__file__), "..", "one_bpmn", "templates", "chat_agent_map_template.bpmn"
-)
+TEMPLATE_MODEL = "Chat Agent Template"
 
 
 def _read_template() -> str:
-	with open(os.path.normpath(_TEMPLATE_PATH)) as fh:
-		return fh.read()
+	xml = frappe.db.get_value("BPMN Process Model", TEMPLATE_MODEL, "bpmn_xml")
+	if not xml:
+		frappe.throw(
+			frappe._(
+				"The chat-map template is missing: create a BPMN Process Model named '{0}' "
+				"(with the {1} and {2} placeholders) before provisioning chat agents."
+			).format(TEMPLATE_MODEL, "{{ CHAT_MODE_LABEL }}", "{{ SYSTEM_PROMPT }}")
+		)
+	return xml
 
 
 def render_chat_map_xml(chat_mode_label: str, system_prompt: str) -> str:
