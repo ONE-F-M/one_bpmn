@@ -32,10 +32,9 @@
   },
   {
    "fieldname": "receiver",
-   "fieldtype": "Select",
+   "fieldtype": "Data",
    "ignore_user_permissions": 1,
-   "label": "Receiver",
-   "options": "Lumina\nLogix\nProsAlly\nUser"
+   "label": "Receiver"
   },
   {
    "fieldname": "text",
