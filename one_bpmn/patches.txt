@@ -18,3 +18,4 @@ one_bpmn.one_bpmn.patches.v1_0.remove_ai_agent_tool_registry
 one_bpmn.one_bpmn.patches.v1_0.shift_ai_step_index_to_one_based #09-07-2026
 one_bpmn.one_bpmn.patches.v1_0.seed_docu_agent_config #12-07-2026
 one_bpmn.one_bpmn.patches.v1_0.fix_logix_script_task_injected_vars #15-07-2026
+one_bpmn.one_bpmn.patches.v1_0.optimize_logix_generated_scripts #16-07-2026
