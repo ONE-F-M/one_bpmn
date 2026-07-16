@@ -1,0 +1,175 @@
+# Copyright (c) 2026, Kartik Sharma and contributors
+# For license information, please see license.txt
+
+import frappe
+from frappe.model.document import Document
+
+
+class AIAgentConfiguration(Document):
+	# begin: auto-generated types
+	# This code is auto-generated. Do not modify anything in this block.
+
+	from typing import TYPE_CHECKING
+
+	if TYPE_CHECKING:
+		from frappe.types import DF
+
+		from one_bpmn.one_bpmn.doctype.ai_agent_constant.ai_agent_constant import AIAgentConstant
+		from one_bpmn.one_bpmn.doctype.ai_agent_sub_prompt.ai_agent_sub_prompt import AIAgentSubPrompt
+
+		agent_framework: DF.Literal["", "Google ADK", "LangGraph", "Direct API", "Anthropic"]
+		agent_id: DF.Data
+		agent_name: DF.Data
+		constants: DF.Table[AIAgentConstant]
+		description: DF.SmallText | None
+		enabled: DF.Check
+		langsmith_project: DF.Data | None
+		llm_provider_override: DF.Literal["Use Global", "gemini", "anthropic", "openai"]
+		max_tokens: DF.Int
+		model_override: DF.Data | None
+		process_owner: DF.Link | None
+		sub_prompts: DF.Table[AIAgentSubPrompt]
+		system_prompt: DF.Code | None
+		temperature: DF.Float
+		required_variables: DF.SmallText | None
+	# end: auto-generated types
+
+	def validate(self):
+		"""Validate that required runtime variables are present in the system prompt."""
+		self.validate_required_variables()
+
+	def validate_required_variables(self):
+		"""Check that all required variables appear as {var} placeholders in the correct prompt.
+
+		Each variable object may contain a ``source`` field:
+		- ``"system_prompt"`` (default) – variable must appear in ``self.system_prompt``
+		- any other string – treated as a ``sub_agent_id``; variable must appear in
+		  the matching sub-prompt's ``prompt_text``
+		"""
+		if not self.required_variables:
+			return
+
+		import json
+
+		try:
+			variables = json.loads(self.required_variables)
+		except (json.JSONDecodeError, TypeError):
+			return
+
+		if not isinstance(variables, list):
+			return
+
+		# Build a lookup of sub-prompt texts keyed by sub_agent_id
+		sub_prompt_texts = {
+			sp.sub_agent_id: sp.prompt_text or ""
+			for sp in (self.sub_prompts or [])
+		}
+
+		missing = []
+		for v in variables:
+			if not isinstance(v, dict) or not v.get("name"):
+				continue
+			source = v.get("source", "system_prompt")
+			placeholder = f"{{{v['name']}}}"
+
+			if source == "system_prompt":
+				text = self.system_prompt or ""
+			else:
+				text = sub_prompt_texts.get(source, "")
+
+			if placeholder not in text:
+				label = "system prompt" if source == "system_prompt" else f"sub-prompt \"{source}\""
+				missing.append(f"<code>{placeholder}</code> in {label}")
+
+		if missing:
+			formatted = ", ".join(missing)
+			frappe.throw(
+				msg=frappe._("The following required variables are missing: {0}. "
+					"The agent may not function correctly without them.").format(formatted),
+				title=frappe._("Missing Required Variables"),
+			)
+
+	def on_update(self):
+		"""Clear cached config when this record is saved."""
+		frappe.cache.delete_value(f"agent_config:{self.agent_id}")
+
+
+def get_agent_config(agent_id: str) -> dict | None:
+	"""
+	Load agent configuration from AI Agent Configuration DocType.
+
+	Returns a dict with: system_prompt, temperature, max_tokens,
+	llm_provider_override, model_override, langsmith_project,
+	sub_prompts, and constants.
+
+	Returns None if the record is not found or disabled,
+	allowing callers to fall back to hardcoded defaults.
+
+	Cache is indefinite — only invalidated when the record is saved
+	(via on_update hook in the controller above).
+	"""
+	cache_key = f"agent_config:{agent_id}"
+	cached = frappe.cache.get_value(cache_key)
+	if cached:
+		return cached
+
+	config = frappe.db.get_value(
+		"AI Agent Configuration",
+		{"agent_id": agent_id, "enabled": 1},
+		[
+			"name", "agent_id", "system_prompt", "temperature", "max_tokens",
+			"llm_provider_override", "model_override", "langsmith_project",
+		],
+		as_dict=True,
+	)
+
+
+	if not config:
+		return None
+
+	# Load sub-prompts keyed by sub_agent_id
+	sub_prompts = {}
+	for sp in frappe.get_all(
+		"AI Agent Sub Prompt",
+		filters={"parent": config.name},
+		fields=["sub_agent_id", "prompt_text", "temperature"],
+	):
+		sub_prompts[sp.sub_agent_id] = {
+			"prompt": sp.prompt_text,
+			"temperature": sp.temperature,
+		}
+
+	# Load constants keyed by constant_name, cast to proper types
+	constants = {}
+	for c in frappe.get_all(
+		"AI Agent Constant",
+		filters={"parent": config.name},
+		fields=["constant_name", "constant_value", "constant_type"],
+	):
+		constants[c.constant_name] = _cast_constant(c.constant_value, c.constant_type)
+
+	result = {
+		"agent_id": config.agent_id,
+		"system_prompt": config.system_prompt,
+		"temperature": config.temperature,
+		"max_tokens": config.max_tokens,
+		"llm_provider_override": config.llm_provider_override,
+		"model_override": config.model_override,
+		"langsmith_project": config.langsmith_project,
+		"sub_prompts": sub_prompts,
+		"constants": constants,
+	}
+
+	frappe.cache.set_value(cache_key, result)
+	return result
+
+
+def _cast_constant(value: str, const_type: str):
+	"""Cast a string constant value to the appropriate Python type."""
+	if const_type == "Integer":
+		return int(value)
+	elif const_type == "Float":
+		return float(value)
+	elif const_type == "Boolean":
+		return value.lower() in ("1", "true", "yes")
+	return value
