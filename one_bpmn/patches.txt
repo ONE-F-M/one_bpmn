@@ -18,3 +18,4 @@ one_bpmn.one_bpmn.patches.v1_0.shift_ai_step_index_to_one_based #09-07-2026
 one_bpmn.one_bpmn.patches.v1_0.seed_docu_agent_config #12-07-2026
 one_bpmn.one_bpmn.patches.v1_0.repair_empty_workflow_state_instances #22-07-2026
 one_bpmn.one_bpmn.patches.v1_0.release_stale_engine_gates #22-07-2026
+one_bpmn.one_bpmn.patches.v1_0.optimize_logix_generated_scripts #16-07-2026
