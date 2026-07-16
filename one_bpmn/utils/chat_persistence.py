@@ -35,6 +35,29 @@ def create_conversation(agent_mode: str, title: str, user: str) -> str:
 	return doc.name
 
 
+def create_agent_conversation(agent_id: str, title: str = None, user: str = None) -> str:
+	"""Create a Chat Conversation for an agent purely from its configuration
+	(WI-001619).
+
+	Reads the chat mode label off the agent's AI Agent Configuration and
+	stamps it on the conversation, so callers never hardcode a mode string.
+	Newly-created agents use this directly; the existing per-agent endpoints
+	(ProsAlly / Logix / Docu / Lumina) are repointed to it in their own
+	migration stories.
+	"""
+	from one_bpmn.one_bpmn.doctype.ai_agent_configuration.ai_agent_configuration import get_agent_config
+
+	config = get_agent_config(agent_id)
+	if not config:
+		frappe.throw(frappe._("No enabled AI Agent Configuration for agent '{0}'.").format(agent_id))
+
+	return create_conversation(
+		agent_mode=config.get("chat_mode_label") or agent_id,
+		title=title or frappe._("New chat"),
+		user=user or frappe.session.user,
+	)
+
+
 def close_conversation(conversation_name: str) -> None:
 	"""End a chat conversation by handing control to its process map.
 
