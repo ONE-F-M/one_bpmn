@@ -60,6 +60,72 @@ def validate_agent_config(config_name: str, test_provider: bool = True) -> dict:
 	return {"ok": not errors, "errors": errors, "warnings": warnings}
 
 
+def _set_status(config_name: str, status: str):
+	frappe.db.set_value("AI Agent Configuration", config_name, "lifecycle_status", status, update_modified=False)
+	frappe.db.commit()
+
+
+def provision_agent(config_name: str):
+	"""v1 AI Agent creation process (WI-001620).
+
+	Carries a chat agent from Draft to Live: Validating -> Provisioning
+	(clone the chat-map template + compile/deploy so its start trigger arms)
+	-> Live. Any failure lands the agent in Needs Attention with the reason
+	logged; editing the configuration re-triggers this. Idempotent and safe
+	to enqueue.
+	"""
+	cfg = frappe.get_doc("AI Agent Configuration", config_name)
+	if cfg.agent_type != "Chat":
+		return  # background agents are provisioned by their own path (later pass)
+
+	try:
+		_set_status(config_name, "Validating")
+		result = validate_agent_config(config_name)
+		if not result["ok"]:
+			_set_status(config_name, "Needs Attention")
+			frappe.log_error(
+				title=f"Agent provisioning: validation failed ({cfg.agent_id})",
+				message="\n".join(result["errors"]),
+			)
+			return
+
+		_set_status(config_name, "Provisioning")
+		from one_bpmn.agents.chat_map_template import clone_chat_map_for_agent
+		from one_bpmn.api.compilation import compile_process_model
+
+		model_name = clone_chat_map_for_agent(config_name)
+		compile_process_model(model_name)  # arms the conditional start trigger
+
+		_set_status(config_name, "Live")
+	except Exception:
+		_set_status(config_name, "Needs Attention")
+		frappe.log_error(
+			title=f"Agent provisioning failed ({cfg.agent_id})",
+			message=frappe.get_traceback(),
+		)
+
+
+def on_agent_config_insert(doc, method=None):
+	"""Doc-event: kick off the creation process when a chat agent
+	configuration is created. Skipped during migrate/install/patch so
+	seed patches don't auto-provision. Enqueued so the insert returns fast.
+	"""
+	if getattr(frappe.flags, "in_migrate", False) or getattr(frappe.flags, "in_install", False) or getattr(frappe.flags, "in_patch", False):
+		return
+	if doc.agent_type != "Chat" or not doc.enabled:
+		return
+	if (doc.lifecycle_status or "Draft") not in ("Draft", "Needs Attention"):
+		return
+	frappe.enqueue(
+		"one_bpmn.agents.agent_provisioning.provision_agent",
+		queue="bpmn_ai_agent",
+		enqueue_after_commit=True,
+		job_id=f"provision-agent-{doc.name}",
+		deduplicate=True,
+		config_name=doc.name,
+	)
+
+
 def _provider_test_call(cfg) -> tuple[bool, str]:
 	"""Make a minimal live call through the agent's resolved adapter."""
 	try:
