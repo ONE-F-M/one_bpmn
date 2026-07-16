@@ -288,9 +288,18 @@ def _build_system_prompt() -> str:
 		"should return structured data; otherwise 'text'.\n"
 		"  - Only include a field in 'recommendations' when you have a concrete value "
 		"for it. Omit fields you are unsure about.\n\n"
+		"CLARIFY WHEN UNSURE:\n"
+		"  - If the requirement is ambiguous or missing something you need to "
+		"recommend good values (e.g. which field to summarise, the desired output "
+		"shape, or the target DocType), ASK a specific clarifying question instead "
+		"of guessing. Return your question as 'message' with an EMPTY "
+		"'recommendations' object, and wait for the designer's reply — the "
+		"conversation is multi-turn and prior turns are provided.\n"
+		"  - Only propose recommendations once the requirement is clear enough to "
+		"stand behind them.\n\n"
 		"Respond with ONLY a single JSON object, no prose outside it, in this exact shape:\n"
 		'{\n'
-		'  "message": "<a short, friendly explanation of what you suggested>",\n'
+		'  "message": "<your recommendation summary, OR a clarifying question when unsure>",\n'
 		'  "recommendations": { "aiUserPrompt": "...", "aiOutputVariable": "...", ... }\n'
 		'}'
 	)
