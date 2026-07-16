@@ -9,6 +9,28 @@
         </div>
 
         <div class="modal-body">
+          <!-- AI Agent Configuration — optional seed. Mirrors the properties
+               panel (WI-001637): selecting one copies its provider, model,
+               prompt and params into the editable fields below. Edits stay on
+               this shape; the configuration is never changed from the diagram,
+               and tools are not imported. -->
+          <div class="field-row">
+            <label>
+              AI Agent Configuration
+              <span class="hint">(optional — seeds the fields below)</span>
+            </label>
+            <select v-model="form.aiAgentConfig" @change="onAgentConfigSelect">
+              <option value="">-- None --</option>
+              <option v-for="c in agentConfigs" :key="c.name" :value="c.name">
+                {{ c.name }}
+              </option>
+            </select>
+            <p v-if="form.aiAgentConfig" class="hint seed-hint">
+              Seeded from {{ form.aiAgentConfig }} — the fields below are an editable
+              copy; edits stay on this task.
+            </p>
+          </div>
+
           <!-- Backend (selector always runs direct_api) -->
           <div class="field-row" v-if="!isSelector">
             <label>Backend</label>
@@ -378,9 +400,11 @@ const SELECTOR_FIELDS = [
 const emit = defineEmits(["close"]);
 
 const providers = ref([]);
+const agentConfigs = ref([]);
 
 // Form state — defaults
 const form = ref({
+  aiAgentConfig: "",
   aiBackend: "direct_api",
   aiProvider: "",
   aiModel: "",
@@ -682,6 +706,19 @@ onMounted(async () => {
     providers.value = [];
   }
 
+  // Load selectable AI Agent Configurations for the seed dropdown.
+  try {
+    const cfgs = await frappeGet("/api/resource/AI Agent Configuration", {
+      fields: JSON.stringify(["name", "agent_id"]),
+      filters: JSON.stringify([["enabled", "=", 1]]),
+      limit_page_length: 100,
+      order_by: "name asc",
+    });
+    agentConfigs.value = Array.isArray(cfgs) ? cfgs : [];
+  } catch (e) {
+    agentConfigs.value = [];
+  }
+
   // Load DocType names for the Context DocType autocomplete.
   try {
     const rows = await frappeRequest({
@@ -710,6 +747,7 @@ onMounted(async () => {
     return Number.isFinite(v) ? v : fallback;
   };
   form.value = {
+    aiAgentConfig: get("aiAgentConfig") || "",
     aiBackend: get("aiBackend") || "direct_api",
     aiProvider: get("aiProvider") || "",
     aiModel: get("aiModel") || "",
@@ -758,6 +796,28 @@ onMounted(async () => {
   }
 });
 
+// Seed the form from a saved AI Agent Configuration (one-time copy). The
+// resolver returns shape-attribute keys (aiSystemPrompt, aiProvider, aiModel,
+// aiTemperature, aiMaxTokens) that map directly onto our form fields. Values
+// stay editable here and are persisted onto the shape on save; the reference
+// itself is kept in form.aiAgentConfig so the "seeded from" provenance sticks.
+async function onAgentConfigSelect() {
+  const value = form.value.aiAgentConfig;
+  if (!value) return;
+  try {
+    const fields = await frappeRequest({
+      url: "/api/method/one_bpmn.agents.agent_config_resolver.get_agent_config_for_shape",
+      method: "POST",
+      params: { config_name: value },
+    });
+    Object.entries(fields || {}).forEach(([key, val]) => {
+      if (key in form.value) form.value[key] = val;
+    });
+  } catch (e) {
+    /* leave the current field values as-is if the seed lookup fails */
+  }
+}
+
 function save() {
   // Block save when no model can be resolved: the Model field is empty AND the
   // selected provider has no Default Model to fall back on at runtime.
@@ -791,6 +851,7 @@ function save() {
     // serviceType/aiToolSources (owned by the properties panel) and never
     // write agent-only attrs onto the ad-hoc subprocess.
     modeling.updateModdleProperties(element, bo, {
+      "spiffworkflow:aiAgentConfig": form.value.aiAgentConfig || undefined,
       "spiffworkflow:aiProvider": form.value.aiProvider || undefined,
       "spiffworkflow:aiModel": form.value.aiModel || undefined,
       "spiffworkflow:aiSystemPrompt": form.value.aiSystemPrompt || undefined,
@@ -803,6 +864,7 @@ function save() {
   }
 
   const patch = {
+    "spiffworkflow:aiAgentConfig": form.value.aiAgentConfig || undefined,
     "spiffworkflow:aiBackend": form.value.aiBackend || undefined,
     "spiffworkflow:aiProvider": form.value.aiProvider || undefined,
     "spiffworkflow:aiModel": form.value.aiModel || undefined,
