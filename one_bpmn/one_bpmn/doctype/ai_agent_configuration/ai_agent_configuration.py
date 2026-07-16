@@ -123,8 +123,10 @@ def get_agent_config(agent_id: str) -> dict | None:
 	Load agent configuration from AI Agent Configuration DocType.
 
 	Returns a dict with: system_prompt, temperature, max_tokens,
-	llm_provider_override, model_override, langsmith_project,
-	sub_prompts, and constants.
+	ai_provider_credentials, langsmith_project, sub_prompts, and
+	constants. There is no per-agent override mechanism (WI-001615):
+	provider, key and model come from the linked AI Provider
+	Credentials record.
 
 	Returns None if the record is not found or disabled,
 	allowing callers to fall back to hardcoded defaults.
@@ -142,7 +144,7 @@ def get_agent_config(agent_id: str) -> dict | None:
 		{"agent_id": agent_id, "enabled": 1},
 		[
 			"name", "agent_id", "system_prompt", "temperature", "max_tokens",
-			"llm_provider_override", "model_override", "langsmith_project",
+			"ai_provider_credentials", "langsmith_project",
 		],
 		as_dict=True,
 	)
@@ -177,8 +179,7 @@ def get_agent_config(agent_id: str) -> dict | None:
 		"system_prompt": config.system_prompt,
 		"temperature": config.temperature,
 		"max_tokens": config.max_tokens,
-		"llm_provider_override": config.llm_provider_override,
-		"model_override": config.model_override,
+		"ai_provider_credentials": config.ai_provider_credentials,
 		"langsmith_project": config.langsmith_project,
 		"sub_prompts": sub_prompts,
 		"constants": constants,
