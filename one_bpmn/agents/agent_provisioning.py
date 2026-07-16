@@ -120,25 +120,42 @@ def provision_agent(config_name: str):
 		)
 
 
-def on_agent_config_insert(doc, method=None):
-	"""Doc-event: kick off the creation process when a chat agent
-	configuration is created. Skipped during migrate/install/patch so
-	seed patches don't auto-provision. Enqueued so the insert returns fast.
+def needs_generated_prompt(config_name: str) -> bool:
+	"""Gateway predicate (WI-001620): does this agent still need a system
+	prompt drafted for it? True when the prompt is blank."""
+	return not (frappe.db.get_value("AI Agent Configuration", config_name, "system_prompt") or "").strip()
+
+
+def generate_system_prompt(config_name: str) -> str:
+	"""Draft a system prompt for an agent from its name + description, using
+	its own linked credentials, and save it on the configuration (WI-001620).
+
+	Body of the creation process's auto-prompt branch: when an agent is
+	created without a prompt, the process generates one here rather than
+	failing validation.
 	"""
-	if getattr(frappe.flags, "in_migrate", False) or getattr(frappe.flags, "in_install", False) or getattr(frappe.flags, "in_patch", False):
-		return
-	if doc.agent_type != "Chat" or not doc.enabled:
-		return
-	if (doc.lifecycle_status or "Draft") not in ("Draft", "Needs Attention"):
-		return
-	frappe.enqueue(
-		"one_bpmn.agents.agent_provisioning.provision_agent",
-		queue="bpmn_ai_agent",
-		enqueue_after_commit=True,
-		job_id=f"provision-agent-{doc.name}",
-		deduplicate=True,
-		config_name=doc.name,
+	from one_bpmn.agents.executor.direct_api import _run_coro_blocking
+	from one_bpmn.agents.llm_provider import get_llm_adapter_from_settings
+	from one_bpmn.one_bpmn.doctype.ai_agent_configuration.ai_agent_configuration import get_agent_config
+
+	cfg = frappe.get_doc("AI Agent Configuration", config_name)
+	meta_prompt = (
+		"You are an expert prompt engineer. Write a concise, production-ready "
+		"system prompt for an AI chat agent with the following purpose. Return "
+		"ONLY the system prompt text, no preamble or quotes.\n\n"
+		f"Agent name: {cfg.agent_name}\n"
+		f"Description: {cfg.description or '(none given)'}\n"
+		f"Chat mode: {cfg.chat_mode_label or cfg.agent_id}"
 	)
+	adapter = get_llm_adapter_from_settings(get_agent_config(cfg.agent_id))
+	completion = _run_coro_blocking(
+		adapter.complete(system="You write system prompts.", user=meta_prompt, max_tokens=1024)
+	)
+	prompt = (getattr(completion, "text", "") or "").strip()
+	if prompt:
+		cfg.db_set("system_prompt", prompt, update_modified=False)
+		frappe.cache.delete_value(f"agent_config:{cfg.agent_id}")
+	return prompt
 
 
 def _run_baseline_eval(suite_name: str) -> bool | None:
@@ -148,8 +165,7 @@ def _run_baseline_eval(suite_name: str) -> bool | None:
 		from one_bpmn.agents.eval_runner import run_eval_suite
 
 		run_name = run_eval_suite(suite_name, backend="live")
-		status = frappe.db.get_value("AI Eval Run", run_name, "status")
-		return status == "Passed"
+		return frappe.db.get_value("AI Eval Run", run_name, "status") == "Passed"
 	except Exception:
 		frappe.log_error(title=f"Baseline eval run failed ({suite_name})", message=frappe.get_traceback())
 		return None
@@ -162,12 +178,12 @@ def generate_eval_suite_for_agent(config_name: str) -> str | None:
 	One eval case per sample prompt: the agent's system prompt + credentials,
 	the sample's text as the user prompt, and — when the sample declares an
 	expected behaviour — an llm_judge assertion scoring the reply against it.
-	Returns the suite name, or None when the agent has no sample prompts.
+	Returns the suite name, or None when there is nothing to evaluate yet.
 	"""
 	cfg = frappe.get_doc("AI Agent Configuration", config_name)
 	samples = cfg.get("sample_prompts") or []
 	if not samples or not cfg.process_model:
-		return None  # nothing to evaluate, or the map isn't provisioned yet
+		return None
 
 	suite_title = f"{cfg.agent_name} — Baseline"
 	if frappe.db.exists("AI Eval Suite", suite_title):
@@ -182,8 +198,6 @@ def generate_eval_suite_for_agent(config_name: str) -> str | None:
 			"description": _("Baseline suite generated from {0}'s sample prompts.").format(cfg.agent_name),
 		}).insert(ignore_permissions=True)
 
-	judge_provider = cfg.ai_provider_credentials
-	judge_model = frappe.db.get_value("AI Provider Credentials", judge_provider, "default_model") or ""
 	for i, sample in enumerate(samples, start=1):
 		case = frappe.get_doc({
 			"doctype": "AI Eval Case",
@@ -191,7 +205,6 @@ def generate_eval_suite_for_agent(config_name: str) -> str | None:
 			"suite": suite.name,
 			"process_model": cfg.process_model,
 			"provider": cfg.ai_provider_credentials,
-			"model": judge_model,
 			"backend": "direct_api",
 			"input_system_prompt": cfg.system_prompt or "",
 			"input_user_prompt": sample.prompt,
@@ -200,9 +213,8 @@ def generate_eval_suite_for_agent(config_name: str) -> str | None:
 			case.append("assertions", {
 				"assertion_type": "llm_judge",
 				"value": sample.expected_behaviour,
-				"judge_provider": judge_provider,
-				"judge_model": judge_model,
-				"pass_threshold": 4,  # 1–5 scale; 4 = "mostly meets expectation"
+				"judge_provider": cfg.ai_provider_credentials,
+				"pass_threshold": 7,
 			})
 		case.insert(ignore_permissions=True)
 

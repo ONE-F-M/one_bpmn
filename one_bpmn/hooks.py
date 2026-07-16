@@ -180,10 +180,8 @@ doc_events = {
 		"on_trash":               _BPMN_DELETE,
 	},
 	# WI-001620: creating a chat agent configuration kicks off the
-	# agent-creation process (validate -> provision -> Live).
-	"AI Agent Configuration": {
-		"after_insert": "one_bpmn.agents.agent_provisioning.on_agent_config_insert",
-	},
+	# "AI Agent Creation Process" BPMN map via its conditional start event
+	# (handled by the universal _BPMN_TRIGGER above) — no dedicated hook.
 	# Pre-deployment security gate: structurally validate the body of any
 	# Server Script that a BPMN script task references (unrelated Server
 	# Scripts pass through untouched).
