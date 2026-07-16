@@ -129,12 +129,10 @@ def invoke_agent(agent_id: str, message: str, conversation: str = None, context:
 	_authorize(config, conversation)
 
 	if not conversation:
-		from one_bpmn.utils.chat_persistence import create_conversation
+		from one_bpmn.utils.chat_persistence import create_agent_conversation
 
-		conversation = create_conversation(
-			agent_mode=config.get("chat_mode_label") or agent_id,
-			title=(message or "New chat")[:140],
-			user=frappe.session.user,
+		conversation = create_agent_conversation(
+			agent_id, title=(message or "New chat")[:140], user=frappe.session.user
 		)
 
 	runner = _runner_for(config)
