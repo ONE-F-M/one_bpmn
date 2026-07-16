@@ -411,6 +411,10 @@ async function checkAllEditability() {
 		const processNames = processes.value.map(p => p.name)
 		const response = await frappeRequest({
 			url: "/api/method/one_bpmn.api.editability.bulk_check_processes_editable",
+			// POST so the (potentially large) process_names list travels in the
+			// request body — as a GET query string it builds a multi-KB URL that
+			// nginx rejects with 400 Bad Request.
+			method: "POST",
 			params: { process_names: JSON.stringify(processNames) },
 		})
 
