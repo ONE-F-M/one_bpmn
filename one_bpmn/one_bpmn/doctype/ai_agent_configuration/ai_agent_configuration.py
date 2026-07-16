@@ -145,6 +145,8 @@ def get_agent_config(agent_id: str) -> dict | None:
 		[
 			"name", "agent_id", "system_prompt", "temperature", "max_tokens",
 			"ai_provider_credentials", "langsmith_project",
+			"agent_framework", "process_model", "chat_mode_label",
+			"lifecycle_status", "agent_type",
 		],
 		as_dict=True,
 	)
@@ -181,6 +183,11 @@ def get_agent_config(agent_id: str) -> dict | None:
 		"max_tokens": config.max_tokens,
 		"ai_provider_credentials": config.ai_provider_credentials,
 		"langsmith_project": config.langsmith_project,
+		"agent_framework": config.agent_framework,
+		"process_model": config.process_model,
+		"chat_mode_label": config.chat_mode_label,
+		"lifecycle_status": config.lifecycle_status,
+		"agent_type": config.agent_type,
 		"sub_prompts": sub_prompts,
 		"constants": constants,
 	}
