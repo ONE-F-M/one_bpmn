@@ -37,6 +37,30 @@ class AIAgentConfiguration(Document):
 	def validate(self):
 		"""Validate that required runtime variables are present in the system prompt."""
 		self.validate_required_variables()
+		self.validate_unique_chat_mode_label()
+
+	def validate_unique_chat_mode_label(self):
+		"""Two enabled chat agents must never claim the same conversation mode —
+		the mode label is what the map's start condition and the chat registry
+		key on (WI-001538)."""
+		if self.agent_type != "Chat" or not self.chat_mode_label:
+			return
+		clash = frappe.db.get_value(
+			"AI Agent Configuration",
+			{
+				"chat_mode_label": self.chat_mode_label,
+				"agent_type": "Chat",
+				"enabled": 1,
+				"name": ("!=", self.name),
+			},
+			"name",
+		)
+		if clash and self.enabled:
+			frappe.throw(
+				frappe._("Chat mode label {0} is already used by enabled agent {1}.").format(
+					frappe.bold(self.chat_mode_label), frappe.bold(clash)
+				)
+			)
 
 	def validate_required_variables(self):
 		"""Check that all required variables appear as {var} placeholders in the correct prompt.
