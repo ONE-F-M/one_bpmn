@@ -141,19 +141,24 @@ def recommend_ai_task_config(
 	context_block = _build_context_block(context_doctype, context_docname)
 
 	digest = None
+	diagram_block = ""
 	if mode == "selector":
 		digest = _build_diagram_digest(bpmn_xml, element_id, process_model=process_model)
+		diagram_block = digest["block"] if digest else ""
 		system_prompt = _build_selector_system_prompt()
 	else:
 		# WI-001623: the agent-mode system prompt is now sourced from the
 		# ai_agent_assistant AI Agent Configuration (single source of truth);
 		# the builder remains only as a fallback / the seed's source.
 		system_prompt = _assistant_system_prompt() or _build_system_prompt()
+		# WI-001625: give the assistant the full diagram as read-only grounding
+		# so its recommendations reference the actual shapes around the task.
+		diagram_block = _build_full_diagram_block(bpmn_xml, element_id)
 	user_prompt = _build_user_prompt(
 		requirement,
 		turns,
 		context_block,
-		diagram_block=digest["block"] if digest else "",
+		diagram_block=diagram_block,
 		current_config_block=_build_current_config_block(current_config, catalog),
 	)
 
@@ -405,6 +410,38 @@ def _build_current_config_block(current_config: str, catalog: dict) -> str:
 # ---------------------------------------------------------------------------
 # Diagram digest (selector mode)
 # ---------------------------------------------------------------------------
+
+_MAX_DIAGRAM_CHARS = 24000
+
+
+def _build_full_diagram_block(bpmn_xml: str, element_id: str = "") -> str:
+	"""Read-only full-diagram grounding for agent mode (WI-001625).
+
+	Passes the complete BPMN XML so the assistant's recommendations can
+	reference the real shapes, flows and variables around the AI task —
+	rather than the shape in isolation. Read-only: the assistant proposes
+	field values; it never edits the diagram. Oversized diagrams are
+	truncated with an explicit marker so the prompt stays bounded.
+	"""
+	xml = (bpmn_xml or "").strip()
+	if not xml:
+		return ""
+	truncated = ""
+	if len(xml) > _MAX_DIAGRAM_CHARS:
+		xml = xml[:_MAX_DIAGRAM_CHARS]
+		truncated = "\n<!-- … diagram truncated for length … -->"
+	focus = f" The AI task being configured is element id '{element_id}'." if element_id else ""
+	return (
+		"FULL PROCESS DIAGRAM (read-only context)."
+		+ focus
+		+ " Use it to ground your recommendations in the surrounding shapes, "
+		"sequence flows and process variables; do not propose edits to the "
+		"diagram itself:\n```xml\n"
+		+ xml
+		+ truncated
+		+ "\n```"
+	)
+
 
 def _build_diagram_digest(bpmn_xml: str, element_id: str, process_model: str = "") -> dict | None:
 	"""Parse the ad-hoc subprocess out of the live diagram XML and produce a
