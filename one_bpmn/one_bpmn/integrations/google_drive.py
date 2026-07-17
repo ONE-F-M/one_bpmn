@@ -202,21 +202,11 @@ def list_files(folder_id: str, page_size: int = 20) -> list:
 	return resp.get("files", [])
 
 
-def download_file_text(file_id: str, mime_type: str) -> str:
-	"""
-	Fetch a file's text content. Native Google Docs/Slides get exported as
-	plain text; anything else is downloaded as raw bytes and decoded
-	best-effort (works for .md/.txt; binary formats like .pptx/.docx would
-	need their own zip-based extraction, not plain decoding).
-	"""
-	service = _get_service()
-	if mime_type in (
-		"application/vnd.google-apps.document",
-		"application/vnd.google-apps.presentation",
-	):
-		data = service.files().export(fileId=file_id, mimeType="text/plain").execute()
-		return data.decode("utf-8") if isinstance(data, bytes) else data
+_PPTX_MIME = "application/vnd.openxmlformats-officedocument.presentationml.presentation"
+_DOCX_MIME = "application/vnd.openxmlformats-officedocument.wordprocessingml.document"
 
+
+def _download_raw_bytes(service, file_id: str) -> bytes:
 	from googleapiclient.http import MediaIoBaseDownload
 
 	request = service.files().get_media(fileId=file_id)
@@ -225,4 +215,73 @@ def download_file_text(file_id: str, mime_type: str) -> str:
 	done = False
 	while not done:
 		_, done = downloader.next_chunk()
-	return buf.getvalue().decode("utf-8", errors="ignore")
+	return buf.getvalue()
+
+
+def _extract_pptx_text(raw: bytes) -> str:
+	from pptx import Presentation
+
+	prs = Presentation(io.BytesIO(raw))
+	blocks = []
+	for i, slide in enumerate(prs.slides, start=1):
+		lines = [f"## Slide {i}"]
+		for shape in slide.shapes:
+			if shape.has_text_frame:
+				text = shape.text_frame.text.strip()
+				if text:
+					lines.append(text)
+			if shape.has_table:
+				for row in shape.table.rows:
+					lines.append(" | ".join(cell.text.strip() for cell in row.cells))
+		if len(lines) > 1:
+			blocks.append("\n".join(lines))
+	return "\n\n".join(blocks)
+
+
+def _extract_docx_text(raw: bytes) -> str:
+	from docx import Document as DocxDocument
+
+	doc = DocxDocument(io.BytesIO(raw))
+	blocks = [p.text for p in doc.paragraphs if p.text.strip()]
+	for table in doc.tables:
+		for row in table.rows:
+			blocks.append(" | ".join(cell.text.strip() for cell in row.cells))
+	return "\n".join(blocks)
+
+
+def download_file_text(file_id: str, mime_type: str = None) -> str:
+	"""
+	Fetch a file's text content, converting to plain text regardless of
+	source format:
+	  - Native Google Docs/Slides   → Drive's own export-to-text API
+	  - Raw .pptx (uploaded as-is)  → parsed slide-by-slide via python-pptx
+	  - Raw .docx (uploaded as-is)  → parsed paragraph/table via python-docx
+	  - Anything else (.md/.txt)    → best-effort UTF-8 decode
+
+	mime_type is looked up from Drive automatically when not supplied —
+	pass it explicitly only if the caller already has it on hand (e.g. from
+	a prior list_files() call) to save the extra round trip.
+	"""
+	service = _get_service()
+	if mime_type is None:
+		mime_type = (
+			service.files()
+			.get(fileId=file_id, fields="mimeType", supportsAllDrives=True)
+			.execute()
+			.get("mimeType", "")
+		)
+	if mime_type in (
+		"application/vnd.google-apps.document",
+		"application/vnd.google-apps.presentation",
+	):
+		data = service.files().export(fileId=file_id, mimeType="text/plain").execute()
+		return data.decode("utf-8") if isinstance(data, bytes) else data
+
+	raw = _download_raw_bytes(service, file_id)
+
+	if mime_type == _PPTX_MIME:
+		return _extract_pptx_text(raw)
+	if mime_type == _DOCX_MIME:
+		return _extract_docx_text(raw)
+
+	return raw.decode("utf-8", errors="ignore")
