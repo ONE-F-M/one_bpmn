@@ -239,30 +239,71 @@
 						</div>
 					</div>
 
-					<!-- Deploy / Disable Button (last — primary action, only for executable processes) -->
+					<!-- Actions menu (last — primary actions, only for executable processes) -->
 					<template v-if="isExecutable">
-						<button
-							v-if="isActiveModel"
-							@click="disableModel"
-							class="h-7 flex items-center gap-1 px-2.5 bg-red-600 hover:bg-red-700 text-white rounded transition-colors text-xs font-medium leading-none"
-							title="Disable process map — stops new instances"
-							:disabled="!activeDiagramName || disabling"
-							:class="{ 'opacity-50 cursor-not-allowed': !activeDiagramName || disabling }"
-						>
-							<Icon :icon="disabling ? 'lucide:loader-2' : 'lucide:power-off'" class="w-3.5 h-3.5" :class="{ 'animate-spin': disabling }" />
-							{{ disabling ? 'Disabling…' : 'Disable' }}
-						</button>
-						<button
-							v-else
-							@click="deployModel"
-							class="h-7 flex items-center gap-1 px-2.5 bg-blue-600 hover:bg-blue-700 text-white rounded transition-colors text-xs font-medium leading-none"
-							:title="activeVersionName ? 'Switch to the latest version to deploy' : 'Deploy process model'"
-							:disabled="!activeDiagramName || deploying || !!activeVersionName"
-							:class="{ 'opacity-50 cursor-not-allowed': !activeDiagramName || deploying || !!activeVersionName }"
-						>
-							<Icon :icon="deploying ? 'lucide:loader-2' : 'lucide:rocket'" class="w-3.5 h-3.5" :class="{ 'animate-spin': deploying }" />
-							{{ deploying ? 'Deploying…' : 'Deploy' }}
-						</button>
+						<div class="relative">
+							<button
+								@click="showActionsMenu = !showActionsMenu"
+								class="h-7 flex items-center gap-1 px-2.5 bg-blue-600 hover:bg-blue-700 text-white rounded transition-colors text-xs font-medium leading-none"
+								title="Actions"
+								:disabled="!activeDiagramName"
+								:class="{ 'opacity-50 cursor-not-allowed': !activeDiagramName }"
+							>
+								<Icon icon="lucide:zap" class="w-3.5 h-3.5" />
+								Actions
+								<Icon icon="lucide:chevron-down" class="w-3 h-3" />
+							</button>
+							<div
+								v-if="showActionsMenu"
+								v-click-outside="() => showActionsMenu = false"
+								class="absolute right-0 mt-1 w-56 bg-white border border-gray-200 rounded-lg shadow-lg z-[70] py-1"
+							>
+								<!-- Deploy (only when the model is not yet Active) -->
+								<button
+									v-if="!isActiveModel"
+									@click="deployModel(); showActionsMenu = false"
+									class="w-full flex items-center gap-2 px-3 py-2 text-sm text-gray-700 hover:bg-gray-50 transition-colors"
+									:disabled="!activeDiagramName || deploying || !!activeVersionName"
+									:class="{ 'opacity-40 cursor-not-allowed': !activeDiagramName || deploying || !!activeVersionName }"
+								>
+									<Icon :icon="deploying ? 'lucide:loader-2' : 'lucide:rocket'" class="w-4 h-4" :class="{ 'animate-spin': deploying }" />
+									{{ deploying ? 'Deploying…' : 'Deploy' }}
+								</button>
+								<!-- Disable (only when the model is Active) -->
+								<button
+									v-if="isActiveModel"
+									@click="disableModel(); showActionsMenu = false"
+									class="w-full flex items-center gap-2 px-3 py-2 text-sm text-red-600 hover:bg-red-50 transition-colors"
+									:disabled="!activeDiagramName || disabling"
+									:class="{ 'opacity-40 cursor-not-allowed': !activeDiagramName || disabling }"
+								>
+									<Icon :icon="disabling ? 'lucide:loader-2' : 'lucide:power-off'" class="w-4 h-4" :class="{ 'animate-spin': disabling }" />
+									{{ disabling ? 'Disabling…' : 'Disable' }}
+								</button>
+								<!-- Production review (only when connected to Production) -->
+								<template v-if="connectToProduction">
+									<div class="border-t border-gray-100 my-1"></div>
+									<button
+										@click="openReview('doctypes'); showActionsMenu = false"
+										class="w-full flex items-center gap-2 px-3 py-2 text-sm text-gray-700 hover:bg-gray-50 transition-colors"
+										:disabled="!activeDiagramName"
+										:class="{ 'opacity-40 cursor-not-allowed': !activeDiagramName }"
+									>
+										<Icon icon="lucide:table-2" class="w-4 h-4" />
+										Review Doctypes
+									</button>
+									<button
+										@click="openReview('workflow'); showActionsMenu = false"
+										class="w-full flex items-center gap-2 px-3 py-2 text-sm text-gray-700 hover:bg-gray-50 transition-colors"
+										:disabled="!activeDiagramName"
+										:class="{ 'opacity-40 cursor-not-allowed': !activeDiagramName }"
+									>
+										<Icon icon="lucide:workflow" class="w-4 h-4" />
+										Review Workflow Objects
+									</button>
+								</template>
+							</div>
+						</div>
 					</template>
 				</template>
 
@@ -301,6 +342,26 @@
 								<Icon :icon="deploying ? 'lucide:loader-2' : 'lucide:rocket'" class="w-4 h-4" />
 								{{ deploying ? 'Deploying…' : 'Deploy' }}
 							</button>
+							<template v-if="connectToProduction">
+								<button
+									@click="openReview('doctypes'); showMobileMoreMenu = false"
+									class="w-full flex items-center gap-2 px-3 py-2.5 text-sm text-gray-700 hover:bg-gray-50 transition-colors"
+									:disabled="!activeDiagramName"
+									:class="{ 'opacity-40 cursor-not-allowed': !activeDiagramName }"
+								>
+									<Icon icon="lucide:table-2" class="w-4 h-4" />
+									Review Doctypes
+								</button>
+								<button
+									@click="openReview('workflow'); showMobileMoreMenu = false"
+									class="w-full flex items-center gap-2 px-3 py-2.5 text-sm text-gray-700 hover:bg-gray-50 transition-colors"
+									:disabled="!activeDiagramName"
+									:class="{ 'opacity-40 cursor-not-allowed': !activeDiagramName }"
+								>
+									<Icon icon="lucide:workflow" class="w-4 h-4" />
+									Review Workflow Objects
+								</button>
+							</template>
 						</template>
 						<button
 							@click="toggleVersionHistory(); showMobileMoreMenu = false"
@@ -437,7 +498,7 @@
 							</button>
 							<p v-else class="text-sm text-gray-400">
 								<Icon icon="lucide:lock" class="w-4 h-4 inline mr-1" />
-								Process is locked. Create a Process Implementation to enable editing.
+								Process is locked. Create a Process Implementation and get it actioned to "Active" state to enable editing.
 							</p>
 						</div>
 					</div>
@@ -907,6 +968,123 @@
 			</template>
 		</Dialog>
 
+		<!-- Production Review dialog (Review Doctypes / Review Workflow Objects) -->
+		<Dialog v-model="showReviewDialog" :options="{ title: reviewTitle, size: 'xl' }">
+			<template #body-content>
+				<!-- Intro / confirmation -->
+				<div v-if="reviewStage === 'intro'" class="text-sm text-gray-700 leading-relaxed">
+					{{ reviewIntro }}
+				</div>
+
+				<!-- Comparing -->
+				<div v-else-if="reviewStage === 'loading'" class="flex items-center gap-3 py-6 text-sm text-gray-600">
+					<Icon icon="lucide:loader-2" class="w-5 h-5 animate-spin" />
+					Comparing with Production…
+				</div>
+
+				<!-- Diffs -->
+				<div v-else-if="reviewStage === 'diff'" class="space-y-3">
+					<p class="text-sm text-gray-600">
+						{{ reviewChanges.length }} change(s) found between this site and Production.
+					</p>
+					<div class="max-h-80 overflow-auto border border-gray-200 rounded-lg">
+						<table class="w-full text-sm">
+							<thead class="bg-gray-50 text-gray-500 text-xs uppercase sticky top-0">
+								<tr>
+									<th class="text-left px-3 py-2 font-medium">Object</th>
+									<th class="text-left px-3 py-2 font-medium">Name</th>
+									<th class="text-left px-3 py-2 font-medium">Action</th>
+									<th class="text-left px-3 py-2 font-medium">Changed</th>
+								</tr>
+							</thead>
+							<tbody>
+								<tr v-for="(c, i) in reviewChanges" :key="i" class="border-t border-gray-100">
+									<td class="px-3 py-2 text-gray-700 whitespace-nowrap">{{ c.object_type }}</td>
+									<td class="px-3 py-2 text-gray-800 font-medium">
+										{{ c.name }}
+										<span v-if="c.doctype && c.doctype !== c.name" class="text-gray-400">· {{ c.doctype }}</span>
+									</td>
+									<td class="px-3 py-2">
+										<span :class="c.action === 'Create' ? 'text-green-600' : 'text-amber-600'">{{ c.action }}</span>
+									</td>
+									<td class="px-3 py-2 text-gray-500 text-xs">{{ c.detail }}</td>
+								</tr>
+							</tbody>
+						</table>
+					</div>
+					<p v-if="reviewKind === 'doctypes'" class="text-xs text-gray-500">
+						Sync opens a GitHub pull request (per owning app) with these changes. Merging and deploying migrates Production.
+					</p>
+					<p v-else class="text-xs text-gray-500">
+						Sync overwrites existing records and creates new ones on the linked Production system.
+					</p>
+				</div>
+
+				<!-- No differences -->
+				<div v-else-if="reviewStage === 'empty'" class="flex items-center gap-3 py-4 text-sm text-gray-700">
+					<Icon icon="lucide:check-circle-2" class="w-5 h-5 text-green-600" />
+					{{ reviewEmptyMessage }}
+				</div>
+
+				<!-- Syncing -->
+				<div v-else-if="reviewStage === 'syncing'" class="flex items-center gap-3 py-6 text-sm text-gray-600">
+					<Icon icon="lucide:loader-2" class="w-5 h-5 animate-spin" />
+					Syncing to Production…
+				</div>
+
+				<!-- Sync result -->
+				<div v-else-if="reviewStage === 'result'" class="space-y-3 text-sm">
+					<div v-if="reviewResult && reviewResult.error" class="flex items-start gap-3 rounded-lg px-4 py-3 border border-red-200 bg-red-50 text-red-800">
+						<Icon icon="lucide:alert-circle" class="w-5 h-5 shrink-0 mt-0.5" />
+						<div class="whitespace-pre-wrap">{{ reviewResult.error }}</div>
+					</div>
+					<template v-else-if="reviewKind === 'doctypes'">
+						<div v-if="reviewResult && reviewResult.prs && reviewResult.prs.length" class="space-y-2">
+							<div class="text-gray-700">Pull request(s) opened:</div>
+							<a v-for="(pr, i) in reviewResult.prs" :key="i" :href="pr.pr_url" target="_blank"
+								class="flex items-center gap-2 text-blue-600 hover:underline">
+								<Icon icon="lucide:git-pull-request" class="w-4 h-4" />
+								{{ pr.repository }} — {{ (pr.doctypes || []).join(', ') }}
+							</a>
+						</div>
+						<div v-for="(s, i) in (reviewResult && reviewResult.skipped) || []" :key="'s' + i"
+							class="flex items-start gap-2 rounded-lg px-3 py-2 border border-amber-200 bg-amber-50 text-amber-800">
+							<Icon icon="lucide:alert-triangle" class="w-4 h-4 shrink-0 mt-0.5" />
+							<span>{{ s.reason }} ({{ (s.doctypes || []).join(', ') }})</span>
+						</div>
+					</template>
+					<template v-else>
+						<div class="flex items-start gap-3 rounded-lg px-4 py-3 border border-green-200 bg-green-50 text-green-800">
+							<Icon icon="lucide:check-circle-2" class="w-5 h-5 shrink-0 mt-0.5" />
+							<div>
+								<div class="font-semibold">Synced to Production.</div>
+								<div class="mt-1 opacity-90" v-if="reviewResult && reviewResult.results">
+									{{ (reviewResult.results.created || []).length }} created,
+									{{ (reviewResult.results.updated || []).length }} updated<span v-if="(reviewResult.results.failed || []).length">, {{ reviewResult.results.failed.length }} failed</span>.
+								</div>
+							</div>
+						</div>
+						<div v-for="(f, i) in (reviewResult && reviewResult.results && reviewResult.results.failed) || []" :key="'f' + i" class="text-xs text-red-600">{{ f }}</div>
+					</template>
+				</div>
+			</template>
+			<template #actions>
+				<div class="flex gap-2 justify-end w-full">
+					<template v-if="reviewStage === 'intro'">
+						<Button variant="subtle" @click="closeReview">Cancel</Button>
+						<Button variant="solid" @click="confirmReview">Confirm</Button>
+					</template>
+					<template v-else-if="reviewStage === 'diff'">
+						<Button variant="subtle" @click="closeReview">Close</Button>
+						<Button variant="solid" theme="blue" @click="runSync">Sync</Button>
+					</template>
+					<template v-else-if="reviewStage === 'empty' || reviewStage === 'result'">
+						<Button variant="solid" @click="closeReview">Close</Button>
+					</template>
+				</div>
+			</template>
+		</Dialog>
+
 		<!-- Version Comparison Dialogs (extracted component) -->
 		<VersionDiffDialog
 			ref="versionDiffRef"
@@ -1025,6 +1203,106 @@ const disabling = ref(false);
 const showDisableDialog = ref(false);
 const disableRunningCount = ref(0);
 
+// --- Actions menu + Production Review state ---
+const showActionsMenu = ref(false);
+// Whether Processa Settings has "Connect to Production" enabled — gates the
+// "Review Doctypes" / "Review Workflow Objects" actions.
+const connectToProduction = ref(false);
+const showReviewDialog = ref(false);
+const reviewKind = ref("doctypes"); // "doctypes" | "workflow"
+const reviewStage = ref("intro"); // intro | loading | diff | empty | syncing | result
+const reviewChanges = ref([]);
+const reviewResult = ref(null);
+
+const reviewTitle = computed(() =>
+	reviewKind.value === "doctypes" ? "Review Doctypes" : "Review Workflow Objects"
+);
+const reviewIntro = computed(() =>
+	reviewKind.value === "doctypes"
+		? "Doctypes referenced in the process model, alongside Custom Fields and Property Setters will be compared to the Production system for changes."
+		: "Workflow Objects (Roles, Server Scripts, Workflow States, and Workflow Action Master) referenced in the process model will be compared to the Production system for changes."
+);
+const reviewEmptyMessage = computed(() =>
+	reviewKind.value === "doctypes"
+		? "No changes seen in the relevant doctype(s)"
+		: "No changes seen in the relevant workflow objects."
+);
+
+async function loadProductionReviewSettings() {
+	try {
+		const r = await frappeRequest({
+			url: "/api/method/one_bpmn.api.production_review.production_review_settings",
+		});
+		const d = r.message || r;
+		connectToProduction.value = !!d.connect_to_production;
+	} catch (e) {
+		connectToProduction.value = false;
+	}
+}
+
+function openReview(kind) {
+	reviewKind.value = kind;
+	reviewStage.value = "intro";
+	reviewChanges.value = [];
+	reviewResult.value = null;
+	showReviewDialog.value = true;
+}
+
+function closeReview() {
+	showReviewDialog.value = false;
+}
+
+async function confirmReview() {
+	if (!activeDiagramName.value) return;
+	reviewStage.value = "loading";
+	try {
+		const url =
+			reviewKind.value === "doctypes"
+				? "/api/method/one_bpmn.api.production_review.review_doctypes"
+				: "/api/method/one_bpmn.api.production_review.review_workflow_objects";
+		const response = await frappeRequest({
+			url,
+			method: "GET",
+			params: { model_name: activeDiagramName.value },
+		});
+		const data = response.message || response;
+		reviewChanges.value = data.changes || [];
+		reviewStage.value = data.has_changes ? "diff" : "empty";
+	} catch (err) {
+		showReviewDialog.value = false;
+		const msg =
+			err.messages && err.messages.length
+				? err.messages.join("\n")
+				: err.message || "Comparison failed.";
+		showNotification("Review failed", msg, "red", true);
+	}
+}
+
+async function runSync() {
+	if (!activeDiagramName.value) return;
+	reviewStage.value = "syncing";
+	try {
+		const url =
+			reviewKind.value === "doctypes"
+				? "/api/method/one_bpmn.api.production_review.sync_doctypes"
+				: "/api/method/one_bpmn.api.production_review.sync_workflow_objects";
+		const response = await frappeRequest({
+			url,
+			method: "POST",
+			params: { model_name: activeDiagramName.value },
+		});
+		reviewResult.value = response.message || response;
+		reviewStage.value = "result";
+	} catch (err) {
+		const msg =
+			err.messages && err.messages.length
+				? err.messages.join("\n")
+				: err.message || "Sync failed.";
+		reviewResult.value = { error: msg };
+		reviewStage.value = "result";
+	}
+}
+
 // --- DMN Editor State ---
 const showDmnEditorDialog = ref(false);
 const dmnEditorRef = ref(null);
@@ -1130,7 +1408,7 @@ const canEditActiveDiagram = computed(() => {
 const lockReason = computed(() => {
 	if (!isEditable.value) {
 		return editabilityInfo.value.reason
-			|| "No editable Process Implementation. Create one and let it reach the Active state to enable editing.";
+			|| 'Process is locked. Create a Process Implementation and get it actioned to "Active" state to enable editing.';
 	}
 	return "This process map is not linked to an editable Process Implementation, so it is read-only.";
 });
@@ -1899,6 +2177,7 @@ async function loadProcess() {
 		const data = response.message || response;
 		processName.value = data.process_name;
 		diagrams.value = data.diagrams || [];
+		loadProductionReviewSettings();
 	} catch (error) {
 		console.error("Failed to load process:", error);
 	}
