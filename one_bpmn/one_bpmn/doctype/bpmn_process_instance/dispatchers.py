@@ -803,6 +803,15 @@ def dispatch_ai_agent(instance, task, task_cfg: dict, bpmn_id: str, resume_run: 
 		if resume_payload is None:
 			return  # already resumed (redelivery / double submit) — no-op
 
+	# WI-001637 (live link): a linked AI Agent Configuration is authoritative at
+	# dispatch for agent-level fields (prompt, provider, model, temperature,
+	# max tokens) — the shape's copies are the editing view and the fallback
+	# when the config is missing. Resume paths skip this: the checkpointed
+	# transcript already holds the prompts the run started with.
+	if not resume_payload and task_cfg.get("aiAgentConfig"):
+		from one_bpmn.agents.agent_config_resolver import resolve_dispatch_overrides
+		task_cfg = {**task_cfg, **resolve_dispatch_overrides(task_cfg["aiAgentConfig"])}
+
 	doc = frappe._dict()
 	if instance.context_doctype and instance.context_docname:
 		try:
