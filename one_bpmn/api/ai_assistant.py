@@ -122,9 +122,12 @@ def recommend_ai_task_config(
 	if frappe.session.user == "Guest":
 		frappe.throw(_("You must be logged in to use the assistant."))
 
-	# WI-001623: fall back to the AI Assistant configuration's linked
-	# credentials so the modal no longer has to supply one.
-	provider = provider or _assistant_default_provider()
+	# WI-001623: the assistant runs on ITS OWN configuration's credentials,
+	# not the task's. The task's provider is only the fallback for sites
+	# without an ai_agent_assistant record. (Previously the task's provider
+	# won — so a task linked to broken credentials broke the very assistant
+	# meant to help fix them.)
+	provider = _assistant_default_provider() or provider
 	if not provider:
 		frappe.throw(_("Select an AI Provider Credentials before using the assistant."))
 
