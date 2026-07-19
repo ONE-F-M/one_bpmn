@@ -431,11 +431,17 @@ def _extract_bpmn_references(xml_content: str) -> dict:
 	# Lane roles (from lane name attributes)
 	referenced_lane_roles = set()
 
+	# Context doctypes: the doctype(s) a start event is bound to (the
+	# "context document" a process instance runs against). A subset of
+	# referenced_doctypes, tracked separately for backend-code-removal checks.
+	context_doctypes = set()
+
 	# ── Parse Start Events ────────────────────────────────────────────────
 	for start_event in root.iter(f"{{{BPMN_NS}}}startEvent"):
 		dt = start_event.get(f"{{{SPIFF_NS}}}triggerDoctype", "")
 		if dt:
 			referenced_doctypes.add(dt)
+			context_doctypes.add(dt)
 
 		ws = start_event.get(f"{{{SPIFF_NS}}}triggerWorkflowState", "")
 		if ws:
@@ -447,6 +453,7 @@ def _extract_bpmn_references(xml_content: str) -> dict:
 			dt2 = cond_def.get(f"{{{SPIFF_NS}}}triggerDoctype", "")
 			if dt2:
 				referenced_doctypes.add(dt2)
+				context_doctypes.add(dt2)
 			ws2 = cond_def.get(f"{{{SPIFF_NS}}}triggerWorkflowState", "")
 			if ws2:
 				referenced_states.add(ws2)
@@ -576,10 +583,56 @@ def _extract_bpmn_references(xml_content: str) -> dict:
 		"server_scripts": referenced_scripts,
 		"lane_roles": referenced_lane_roles,
 		"apply_workflow_doctypes": apply_workflow_doctypes,
+		"context_doctypes": context_doctypes,
 		"call_activities": call_activities,
 		"root": root,
 		"process_el": _process_el,
 	}
+
+
+def _controller_lifecycle_overrides(doctype: str) -> list:
+	"""
+	Inspect a doctype's controller class for native lifecycle methods.
+
+	These methods (``validate``, ``on_submit``, …) are executed by Frappe's
+	document lifecycle *before/around* the BPMN hooks, so any that survive
+	on the context doctype's controller mean old backend code still runs
+	alongside the BPMN process. Only methods defined directly on the
+	doctype's own controller class are reported — inherited framework
+	behaviour (Document / NestedSet) is ignored to avoid false positives.
+
+	Args:
+		doctype: DocType name to inspect.
+
+	Returns:
+		Ordered list of lifecycle method names still defined on the
+		controller (empty if none, or if the controller can't be loaded).
+	"""
+	# Lifecycle hooks that interfere with a BPMN-driven document. ``validate``
+	# is the headline case (runs on every save, before any BPMN hook); the
+	# submit/update/cancel hooks run old code around the BPMN guards too.
+	LIFECYCLE_METHODS = (
+		"validate",
+		"before_save",
+		"before_submit",
+		"before_cancel",
+		"on_update",
+		"on_submit",
+		"on_cancel",
+		"on_update_after_submit",
+	)
+	from frappe.model.base_document import get_controller
+
+	try:
+		controller = get_controller(doctype)
+	except Exception:
+		return []
+	if controller is None:
+		return []
+	# Only methods defined directly on the doctype's own controller class
+	# count — inherited framework behaviour (Document / NestedSet) is skipped.
+	own = getattr(controller, "__dict__", {})
+	return [m for m in LIFECYCLE_METHODS if m in own]
 
 
 def _extract_call_activity_refs(xml_content: str) -> list:
@@ -736,6 +789,9 @@ def validate_bpmn_readiness(xml_content: str, model_name: str = None) -> dict:
 	  8. Assignment Rules — active rules are flagged as conflict warnings
 	  9. Prohibited Shapes — shapes that must not appear in executable processes
 	 10. Call Activity Refs — call activities referencing models about to be disabled
+	 11. Eval Suites        — deployment-gating eval suites (non-blocking warnings)
+	 12. Backend Code Removal — context doctype controller still runs old code
+	                            (non-blocking; suppressed at "Removed on Production")
 
 	Args:
 		xml_content: Raw BPMN XML text
@@ -1024,6 +1080,54 @@ def validate_bpmn_readiness(xml_content: str, model_name: str = None) -> dict:
 				"label": "Eval Suites",
 				"icon": "flask-conical",
 				"items": eval_suite_items,
+			})
+
+	# 12. Backend Code Removal (deploy readiness — non-blocking warnings)
+	# Frappe runs controller validate()/on_submit() BEFORE the BPMN hooks, so
+	# old native controller code can still reject or mutate the context
+	# document even after the BPMN process is active. Until the designer marks
+	# backend_code_removal_status = "Removed on Production", warn — and scan
+	# each context (start-event) doctype's controller for lingering lifecycle
+	# methods. Marking "Removed on Production" is the deliberate escape hatch
+	# for validation that must stay in code (couldn't move to a script).
+	if model_name:
+		removal_status = frappe.db.get_value(
+			"BPMN Process Model", model_name, "backend_code_removal_status"
+		)
+		if removal_status and removal_status not in ("Removed on Production",):
+			backend_items = [{
+				"name": _("Backend code removal not confirmed"),
+				"exists": True,
+				"type": "warning",
+				"detail": _(
+					"Status is '{0}' — old controller code may still run "
+					"alongside BPMN. Confirm removal on production before "
+					"go-live, or set status to 'Removed on Production' if "
+					"validation must intentionally stay in code."
+				).format(removal_status),
+			}]
+
+			# Scan each context doctype's controller for lingering lifecycle code.
+			for dt in sorted(refs["context_doctypes"]):
+				if not frappe.db.exists("DocType", dt):
+					continue
+				overrides = _controller_lifecycle_overrides(dt)
+				if overrides:
+					backend_items.append({
+						"name": dt,
+						"exists": True,
+						"type": "warning",
+						"detail": _(
+							"Controller still defines: {0}. This code runs "
+							"before/around the BPMN hooks. Remove it, or set "
+							"status to 'Removed on Production' if intentional."
+						).format(", ".join(overrides)),
+					})
+
+			categories.append({
+				"label": "Backend Code Removal",
+				"icon": "code-2",
+				"items": backend_items,
 			})
 
 	# ── Compute summary ──────────────────────────────────────────────────
