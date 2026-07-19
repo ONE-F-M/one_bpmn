@@ -140,7 +140,10 @@ class BPMNProcessModel(Document):
 				return
 			frappe.throw(
 				_("Cannot create BPMN Process Model: {0}").format(
-					editability_info.get("reason", _("Process is locked."))
+					editability_info.get(
+						"reason",
+						_('Process is locked. Create a Process Implementation and get it actioned to "Active" state to enable editing.'),
+					)
 				),
 				exc=frappe.ValidationError,
 				title=_("Process Locked"),

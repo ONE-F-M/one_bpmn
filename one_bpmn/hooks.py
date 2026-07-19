@@ -194,9 +194,6 @@ scheduler_events = {
 			"one_bpmn.tasks.process_timer_start_events",
 			"one_bpmn.tasks.process_timer_catch_events",
 		],
-		"0 2 * * *": [
-			"one_bpmn.api.schema_sync.scheduled_schema_sync",
-		],
 	}
 }
 

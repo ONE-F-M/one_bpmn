@@ -8,8 +8,8 @@ import frappe
 from frappe import _
 
 NOT_EDITABLE_REASON = (
-	"No editable Process Implementation. Create a Process Implementation "
-	"and move it to the Active state to enable editing."
+	'Process is locked. Create a Process Implementation and get it '
+	'actioned to "Active" state to enable editing.'
 )
 
 # Source-of-truth methods, executed on the site where the Process

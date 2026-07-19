@@ -20,4 +20,5 @@ one_bpmn.one_bpmn.patches.v1_0.repair_empty_workflow_state_instances #22-07-2026
 one_bpmn.one_bpmn.patches.v1_0.release_stale_engine_gates #22-07-2026
 one_bpmn.one_bpmn.patches.v1_0.optimize_logix_generated_scripts #16-07-2026
 one_bpmn.one_bpmn.patches.v1_0.create_process_implementations_from_pathfinder_logs #16-07-2026
+one_bpmn.one_bpmn.patches.v1_0.remove_schema_sync_doctypes #19-07-2026
 one_bpmn.one_bpmn.patches.v1_0.change_process_implementation_to_data #24-07-2026

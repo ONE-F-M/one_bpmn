@@ -1,0 +1,51 @@
+{
+ "actions": [],
+ "allow_rename": 0,
+ "creation": "2026-07-19 00:00:00.000000",
+ "doctype": "DocType",
+ "editable_grid": 1,
+ "engine": "InnoDB",
+ "field_order": [
+  "app_name",
+  "repository",
+  "base_branch"
+ ],
+ "fields": [
+  {
+   "description": "Frappe app name (e.g. one_fm, hrms). A referenced DocType's owning app selects the repository its schema changes are pushed to.",
+   "fieldname": "app_name",
+   "fieldtype": "Data",
+   "in_list_view": 1,
+   "label": "App Name",
+   "reqd": 1
+  },
+  {
+   "description": "GitHub repository as owner/repo (e.g. ONE-F-M/one_fm).",
+   "fieldname": "repository",
+   "fieldtype": "Data",
+   "in_list_view": 1,
+   "label": "Repository (owner/repo)",
+   "reqd": 1
+  },
+  {
+   "description": "Optional. Branch this repo's Doctype-sync PRs target. Falls back to the Default PR Base Branch when blank.",
+   "fieldname": "base_branch",
+   "fieldtype": "Data",
+   "in_list_view": 1,
+   "label": "Base Branch"
+  }
+ ],
+ "index_web_pages_for_search": 0,
+ "istable": 1,
+ "links": [],
+ "modified": "2026-07-19 00:00:00.000000",
+ "modified_by": "Administrator",
+ "module": "ONE BPMN",
+ "name": "Processa GitHub Repo",
+ "owner": "Administrator",
+ "permissions": [],
+ "sort_field": "creation",
+ "sort_order": "DESC",
+ "states": [],
+ "track_changes": 0
+}

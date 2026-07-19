@@ -448,7 +448,7 @@ def apply_doctype(ir: str, confirm: int = 0) -> dict:
 		elif frappe.db.get_value("DocType", name, "custom"):
 			action = _reconcile_custom_doctype(name, is_child, autoname, fields, settings)
 		else:
-			action = _add_custom_fields(name, fields)
+			action = _customize_standard_doctype(name, fields)
 		frappe.db.commit()
 	except frappe.PermissionError:
 		raise
@@ -624,7 +624,7 @@ def _reconcile_custom_doctype(name: str, is_child: int, autoname: str, fields: l
 	The IR (seeded from the live schema and echoed back by the writer) is the
 	complete desired field set, so we rebuild the child table from it via
 	``doc.set`` — Frappe adds/updates/drops the DB columns on save. Only ever
-	called for custom DocTypes; standard types go through ``_add_custom_fields``.
+	called for custom DocTypes; standard types go through ``_customize_standard_doctype``.
 	"""
 	doc = frappe.get_doc("DocType", name)
 	payloads = []
@@ -644,23 +644,54 @@ def _reconcile_custom_doctype(name: str, is_child: int, autoname: str, fields: l
 	return "updated"
 
 
-def _add_custom_fields(name: str, fields: list) -> str:
-	"""Add only the not-yet-present fields to a STANDARD DocType as Custom Fields.
+def _customize_standard_doctype(name: str, fields: list) -> str:
+	"""Apply Docu IR field changes to a STANDARD DocType via Customize Form.
 
-	Core/standard fields are never modified — this is the non-destructive path.
+	Customize Form is Frappe's supported mechanism for changing a standard
+	DocType: brand-new fields are materialised as Custom Fields, and edits to
+	existing (standard or custom) fields are emitted as Property Setters. The
+	DocType's own source definition is never touched.
 	"""
-	from frappe.custom.doctype.custom_field.custom_field import create_custom_fields
+	from frappe.custom.doctype.customize_form.customize_form import docfield_properties
 
-	meta = frappe.get_meta(name)
-	present = {f.fieldname for f in meta.fields}
-	to_add = [
-		_docfield_dict(f, i + 1)
-		for i, f in enumerate(fields)
-		if (f.get("fieldname") or "").strip()
-		and f.get("fieldname") not in present
-		and f.get("fieldtype") not in ("Section Break", "Column Break", "Tab Break")
-	]
-	if not to_add:
+	cf = frappe.get_doc("Customize Form")
+	cf.doc_type = name
+	cf.fetch_to_customize()
+
+	existing = {row.fieldname: row for row in cf.fields if row.fieldname}
+	changed = False
+
+	for field in fields:
+		fieldname = (field.get("fieldname") or "").strip()
+		if not fieldname:
+			continue
+		row = existing.get(fieldname)
+		if row is None:
+			# New field — skip pure layout breaks (they would disrupt the
+			# standard form layout); everything else becomes a Custom Field.
+			if field.get("fieldtype") in _LAYOUT_FIELDTYPES:
+				continue
+			cf.append("fields", _docfield_dict(field, len(cf.fields) + 1))
+			changed = True
+		else:
+			# Existing field — apply only the Customize-Form-editable props that
+			# Docu supplied; each real delta is saved as a Property Setter.
+			for prop in docfield_properties:
+				if prop == "idx" or prop not in field:
+					continue
+				val = field[prop]
+				if val in (None, ""):
+					continue
+				if prop in _DOCFIELD_FLAGS:
+					val = int(bool(val))
+				if row.get(prop) != val:
+					row.set(prop, val)
+					changed = True
+
+	if not changed:
 		return "unchanged"
-	create_custom_fields({name: to_add}, ignore_validate=False)
-	return "fields_added"
+
+	cf.flags.ignore_permissions = True
+	cf.hide_success = True
+	cf.save_customization()
+	return "customized"

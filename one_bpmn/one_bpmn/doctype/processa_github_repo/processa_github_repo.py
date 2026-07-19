@@ -4,5 +4,5 @@
 from frappe.model.document import Document
 
 
-class SchemaSyncDetail(Document):
+class ProcessaGitHubRepo(Document):
 	pass
