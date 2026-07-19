@@ -67,25 +67,14 @@ Respond with ONLY a JSON object:
 # ---------------------------------------------------------------------------
 
 @frappe.whitelist()
-def run_eval_suite(suite_name: str, backend: str = "live") -> str:
+def run_eval_suite(suite_name: str) -> str:
     """
     Create an AI Eval Run for *suite_name* and enqueue its execution.
 
-    backend="live" executes every case through the real executor.
-    backend="replay" (WI-001364) re-runs assertion evaluation against each
-    case's most recently stored actual_output without any new LLM call —
-    free re-validation when an assertion or judge rubric changes. Replay
-    deliberately does NOT mean deterministic LLM-response mocking (ruled
-    out 2026-07-01): llm_judge assertions still make a real judge call and
-    their cost is still counted — a known, accepted asymmetry.
-
     Returns the AI Eval Run name immediately; the cases run in a background
-    job.
+    job on the "long" queue.
     """
     frappe.only_for("System Manager")
-
-    if backend not in ("live", "replay"):
-        frappe.throw(_("backend must be 'live' or 'replay', not '{0}'.").format(backend))
 
     if not frappe.db.exists("AI Eval Suite", suite_name):
         frappe.throw(_("AI Eval Suite '{0}' not found.").format(suite_name))
@@ -93,15 +82,13 @@ def run_eval_suite(suite_name: str, backend: str = "live") -> str:
     run = frappe.new_doc("AI Eval Run")
     run.suite = suite_name
     run.status = "Running"
-    run.backend = backend
+    run.backend = "live"
     run.started_at = now_datetime()
     run.insert()
 
     frappe.enqueue(
         "one_bpmn.agents.eval_runner._execute_eval_suite",
-        # WI-001365: eval suites share the dedicated AI queue so they never
-        # compete with production business jobs for the default workers.
-        queue="bpmn_ai_agent",
+        queue="long",
         run_name=run.name,
         timeout=1800,
     )
@@ -114,128 +101,45 @@ def run_eval_suite(suite_name: str, backend: str = "live") -> str:
 # ---------------------------------------------------------------------------
 
 def _execute_eval_suite(run_name: str) -> None:
-    """Run every case in the suite and finalise the AI Eval Run.
-
-    WI-001361 Scenario 5: an unexpected exception partway through must
-    never leave the Run stuck on "Running" — the run is finalised as
-    status="Error" with whatever partial results were collected, and the
-    completion event STILL fires so the client script's realtime listener
-    doesn't hang forever.
-    """
+    """Run every case in the suite and finalise the AI Eval Run."""
     run = frappe.get_doc("AI Eval Run", run_name)
 
-    try:
-        case_names = frappe.get_all(
-            "AI Eval Case",
-            filters={"suite": run.suite},
-            pluck="name",
-            order_by="creation asc",
-        )
+    case_names = frappe.get_all(
+        "AI Eval Case",
+        filters={"suite": run.suite},
+        pluck="name",
+        order_by="creation asc",
+    )
 
-        passed = failed = 0
-        total_cost = 0.0
-        total_tokens = 0
-        for case_name in case_names:
-            case = frappe.get_doc("AI Eval Case", case_name)
-            if run.backend == "replay":
-                result_row = _execute_case_replay(run, case)
-            else:
-                result_row = _execute_case(case)
-            run.append("results", result_row)
-            if result_row["status"] == "Passed":
-                passed += 1
-            else:
-                failed += 1
-            total_cost += flt(result_row.get("cost", 0))
-            total_tokens += (result_row.get("tokens_used") or 0)
+    passed = failed = 0
+    total_cost = 0.0
+    total_tokens = 0
+    for case_name in case_names:
+        case = frappe.get_doc("AI Eval Case", case_name)
+        result_row = _execute_case(case)
+        run.append("results", result_row)
+        if result_row["status"] == "Passed":
+            passed += 1
+        else:
+            failed += 1
+        total_cost += flt(result_row.get("cost", 0))
+        total_tokens += (result_row.get("tokens_used") or 0)
 
-        run.total_cases = len(case_names)
-        run.passed_cases = passed
-        run.failed_cases = failed
-        run.total_cost = total_cost
-        run.total_tokens = total_tokens
-        run.status = "Passed" if failed == 0 else "Failed"
-    except Exception:
-        frappe.log_error(
-            title=f"AI Eval: suite execution failed ({run_name})",
-            message=frappe.get_traceback(),
-        )
-        run.status = "Error"
-        run.total_cases = len(run.results or [])
-        run.passed_cases = sum(1 for r in (run.results or []) if r.status == "Passed")
-        run.failed_cases = run.total_cases - run.passed_cases
-
+    run.total_cases = len(case_names)
+    run.passed_cases = passed
+    run.failed_cases = failed
+    run.total_cost = total_cost
+    run.total_tokens = total_tokens
+    run.status = "Passed" if failed == 0 else "Failed"
     run.ended_at = now_datetime()
     run.save()
-    # Background-job commit; skipped in tests so FrappeTestCase rollback
-    # still cleans up fixture docs instead of leaking them into the DB.
-    if not frappe.flags.in_test:
-        frappe.db.commit()
+    frappe.db.commit()
 
     frappe.publish_realtime(
         "eval_run_completed",
         {"run_name": run.name, "status": run.status},
         user="all",
     )
-
-
-def _execute_case_replay(run, case) -> dict:
-    """
-    Replay one case (WI-001364): skip the executor entirely and re-run
-    evaluate-assertion logic against the case's most recent prior
-    actual_output. total tokens/cost stay 0 for case execution; llm_judge
-    assertions still make (and count) a real judge call.
-    """
-    prior = frappe.get_all(
-        "AI Eval Result",
-        filters={
-            "eval_case": case.name,
-            "parenttype": "AI Eval Run",
-            "parent": ["!=", run.name],
-        },
-        fields=["actual_output", "status"],
-        order_by="creation desc",
-        limit_page_length=1,
-    )
-    if not prior:
-        # Scenario 2: never run live — an explicit Error, not a silent skip
-        # missing from the totals.
-        return {
-            "eval_case": case.name,
-            "status": "Error",
-            "error_message": "Nothing to replay: this case has no prior result. Run it live first.",
-        }
-
-    output = prior[0].actual_output or ""
-    assertion_results = [
-        _evaluate_assertion(assertion, output)
-        for assertion in (case.assertions or [])
-    ]
-    all_passed = all(a["passed"] for a in assertion_results)
-    any_errored = any(a.get("error") for a in assertion_results)
-
-    # Judge calls still spend real tokens on replay (known asymmetry).
-    judge_prompt_tokens = sum(a.get("judge_prompt_tokens", 0) for a in assertion_results)
-    judge_completion_tokens = sum(a.get("judge_completion_tokens", 0) for a in assertion_results)
-    judge_cost = sum(flt(a.get("judge_cost", 0)) for a in assertion_results)
-
-    if any_errored:
-        status = "Error"
-    elif all_passed:
-        status = "Passed"
-    else:
-        status = "Failed"
-
-    return {
-        "eval_case": case.name,
-        "status": status,
-        "actual_output": output,
-        "assertion_results": json.dumps(assertion_results, indent=4),
-        "prompt_tokens": judge_prompt_tokens,
-        "completion_tokens": judge_completion_tokens,
-        "tokens_used": judge_prompt_tokens + judge_completion_tokens,
-        "cost": judge_cost,
-    }
 
 
 def _execute_case(case) -> dict:
@@ -278,31 +182,16 @@ def _execute_case(case) -> dict:
             for assertion in (case.assertions or [])
         ]
         all_passed = all(a["passed"] for a in assertion_results)
-        any_errored = any(a.get("error") for a in assertion_results)
-
-        # WI-001362: judge calls spend their own tokens — add them to the
-        # Result separately from the case's executor call so the Run-level
-        # rollup doesn't undercount.
-        judge_prompt_tokens = sum(a.get("judge_prompt_tokens", 0) for a in assertion_results)
-        judge_completion_tokens = sum(a.get("judge_completion_tokens", 0) for a in assertion_results)
-        judge_cost = sum(flt(a.get("judge_cost", 0)) for a in assertion_results)
-
-        if any_errored:
-            status = "Error"
-        elif all_passed:
-            status = "Passed"
-        else:
-            status = "Failed"
 
         return {
             "eval_case": case.name,
-            "status": status,
+            "status": "Passed" if all_passed else "Failed",
             "actual_output": _stringify(output),
             "assertion_results": json.dumps(assertion_results, indent=4),
-            "prompt_tokens": _prompt_tokens_of(result) + judge_prompt_tokens,
-            "completion_tokens": _completion_tokens_of(result) + judge_completion_tokens,
-            "tokens_used": _tokens_of(result) + judge_prompt_tokens + judge_completion_tokens,
-            "cost": _cost_of(result, config.model) + judge_cost,
+            "prompt_tokens": _prompt_tokens_of(result),
+            "completion_tokens": _completion_tokens_of(result),
+            "tokens_used": _tokens_of(result),
+            "cost": _cost_of(result, config.model),
         }
     except Exception:
         frappe.log_error(
@@ -354,14 +243,10 @@ def _evaluate_assertion(assertion, output: Any) -> dict:
         if a_type == "llm_judge":
             return _evaluate_llm_judge(assertion, output)
 
-        return {**base, "passed": False, "error": True,
+        return {**base, "passed": False,
                 "message": f"Unsupported assertion type: {a_type!r}."}
     except Exception as exc:
-        # WI-001362 Scenario 5: a bad assertion (e.g. invalid regex) is an
-        # ERROR result — never silently Passed/Failed, never a crash that
-        # aborts the other cases in the suite.
-        return {**base, "passed": False, "error": True,
-                "message": f"Assertion error: {exc}"}
+        return {**base, "passed": False, "message": f"Assertion error: {exc}"}
 
 
 def _evaluate_schema_valid(schema_str: str, output: Any) -> dict:
@@ -421,31 +306,17 @@ def _evaluate_llm_judge(assertion, output: Any) -> dict:
         executor_cls = get_executor(judge_config.backend)
         judge_result = executor_cls().run(judge_config, judge_context)
     except Exception as exc:
-        # WI-001362 Scenario 4: a failed judge call is an ERROR, never
-        # silently Passed or Failed.
         return {
             **base,
             "passed": False,
-            "error": True,
             "score": 0,
             "explanation": f"Judge call failed: {exc}",
         }
 
-    # The judge call spends real tokens of its own (WI-001362 note): report
-    # them on the assertion so _execute_case can add them to the Result's
-    # token/cost fields — otherwise the Run-level rollup undercounts.
-    judge_usage = {
-        "judge_prompt_tokens": _prompt_tokens_of(judge_result),
-        "judge_completion_tokens": _completion_tokens_of(judge_result),
-        "judge_cost": _cost_of(judge_result, judge_config.model),
-    }
-
     if judge_result.error_code != ErrorCode.SUCCESS:
         return {
             **base,
-            **judge_usage,
             "passed": False,
-            "error": True,
             "score": 0,
             "explanation": f"Judge call failed: {judge_result.error_message}",
         }
@@ -459,9 +330,7 @@ def _evaluate_llm_judge(assertion, output: Any) -> dict:
         except (json.JSONDecodeError, TypeError):
             return {
                 **base,
-                **judge_usage,
                 "passed": False,
-                "error": True,
                 "score": 0,
                 "explanation": "Judge returned invalid JSON",
             }
@@ -469,9 +338,7 @@ def _evaluate_llm_judge(assertion, output: Any) -> dict:
     if not isinstance(judge_output, dict):
         return {
             **base,
-            **judge_usage,
             "passed": False,
-            "error": True,
             "score": 0,
             "explanation": "Judge returned invalid JSON",
         }
@@ -481,9 +348,7 @@ def _evaluate_llm_judge(assertion, output: Any) -> dict:
     except (ValueError, TypeError):
         return {
             **base,
-            **judge_usage,
             "passed": False,
-            "error": True,
             "score": 0,
             "explanation": "Judge returned invalid JSON",
         }
@@ -494,7 +359,6 @@ def _evaluate_llm_judge(assertion, output: Any) -> dict:
 
     return {
         **base,
-        **judge_usage,
         "passed": passed,
         "score": score,
         "explanation": explanation,

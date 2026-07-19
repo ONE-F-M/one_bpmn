@@ -212,7 +212,7 @@ def _extract_adhoc_selector_config(bpmn_xml: str) -> dict:
 			continue
 
 		task_cfg = {}
-		for attr_name, attr_value in adhoc.attrib.items():
+		for attr_name, attr_value in service_task.attrib.items():
 			if attr_name.startswith(f"{{{SPIFF_NS}}}"):
 				key = attr_name[len(f"{{{SPIFF_NS}}}") :]
 				task_cfg[key] = attr_value
@@ -1088,8 +1088,7 @@ def _lint_ai_provider_config(_bpmn_xml: str, service_extensions: dict) -> None:
 	_RAW_KEY_ATTR_NAMES = frozenset({"aiApiKey", "aiKey"})
 
 	for bpmn_id, task_cfg in (service_extensions or {}).items():
-		service_type = task_cfg.get("serviceType")
-		if service_type not in ("ai_agent", "ai_task_selector"):
+		if task_cfg.get("serviceType") != "ai_agent":
 			continue
 
 		for attr_name, attr_value in task_cfg.items():
@@ -1104,19 +1103,6 @@ def _lint_ai_provider_config(_bpmn_xml: str, service_extensions: dict) -> None:
 				)
 
 		provider_name = (task_cfg.get("aiProvider") or "").strip()
-
-		# An AI Task Selector is unusable without a provider — block the save
-		# outright (WI-001351 Scenario 4); a plain AI Agent Task may still be
-		# a work-in-progress draft, so only its non-empty reference is checked.
-		if service_type == "ai_task_selector" and not provider_name:
-			frappe.throw(
-				_(
-					"AI Task Selector on '{0}' has no AI Provider configured. "
-					"Select a provider before saving."
-				).format(bpmn_id),
-				exc=frappe.ValidationError,
-			)
-
 		if provider_name and not frappe.db.exists("AI Provider", provider_name):
 			frappe.throw(
 				_(

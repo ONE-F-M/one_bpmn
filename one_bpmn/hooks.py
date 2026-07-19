@@ -276,15 +276,3 @@ after_request = ["one_bpmn.api.todo_actions.apply_amp_headers"]
 # 	"Logging DocType Name": 30  # days to retain logs
 # }
 
-# Reuse Frappe's Log Settings for AI Memory retention instead of a custom scheduler.
-# 0 = retain indefinitely by default; an administrator can lower it in Log Settings.
-default_log_clearing_doctypes = {
-	"AI Memory": 0,
-}
-
-# Custom short-term conversation store for AI agents (backend = "custom").
-# Point this at a dotted path to a
-# one_bpmn.agents.memory.conversation_store.ConversationStore subclass.
-# Consumed by get_conversation_store("custom"); optional.
-# ai_conversation_store = "your_app.path.to.YourConversationStore"
-

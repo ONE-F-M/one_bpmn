@@ -15,7 +15,7 @@ from __future__ import annotations
 import json
 import random
 import time
-from typing import Any, ClassVar, Optional
+from typing import Any, Optional
 
 import frappe
 from frappe.utils.password import get_decrypted_password
@@ -30,29 +30,6 @@ from . import (
     TokenUsage,
     register_executor,
 )
-
-
-def _run_coro_blocking(coro):
-    """
-    Run *coro* to completion from synchronous code (WI-001356 review fix).
-
-    asyncio.run() raises RuntimeError when the calling thread already has a
-    running event loop. Frappe's request handlers and RQ workers are
-    synchronous today, but if this executor is ever reached from an async
-    context (socketio bridge, future ASGI deployment), fall back to running
-    the coroutine on a dedicated thread with its own loop instead of
-    crashing.
-    """
-    import asyncio
-    import concurrent.futures
-
-    try:
-        asyncio.get_running_loop()
-    except RuntimeError:
-        return asyncio.run(coro)
-
-    with concurrent.futures.ThreadPoolExecutor(max_workers=1) as pool:
-        return pool.submit(asyncio.run, coro).result()
 
 
 def _strip_code_fences(content: str) -> str:
@@ -117,12 +94,6 @@ class DirectApiExecutor(Executor):
             endpoint = self._DEFAULT_ENDPOINTS.get(provider_type, "")
 
         model = config.model or provider.default_model or ""
-
-        # WI-001356: with tools present, delegate to the matching
-        # agents/llm_provider adapter's multi-turn tool-calling loop. With
-        # tools=None (the default) the raw HTTP path below is untouched.
-        if config.tools:
-            return self._run_with_tools(config, provider_type, api_key, model)
 
         if provider_type == "Anthropic":
             url, payload, headers = self._build_anthropic_request(
@@ -363,10 +334,6 @@ class DirectApiExecutor(Executor):
         messages = []
         if config.system_prompt:
             messages.append({"role": "system", "content": config.system_prompt})
-        # Prior history (if any) precedes the rendered user_prompt. Empty by
-        # default, so the payload is identical to before when unused.
-        if config.messages:
-            messages.extend(config.messages)
         messages.append({"role": "user", "content": config.user_prompt})
 
         payload = {
@@ -399,10 +366,7 @@ class DirectApiExecutor(Executor):
         url = f"{endpoint}/v1/messages"
 
         # Anthropic uses a top-level "system" field, not a system message.
-        # Prior history (if any) precedes the rendered user_prompt. Empty by
-        # default, so the payload is identical to before when unused.
-        messages = list(config.messages) if config.messages else []
-        messages.append({"role": "user", "content": config.user_prompt})
+        messages = [{"role": "user", "content": config.user_prompt}]
 
         payload: dict = {
             "model": model,

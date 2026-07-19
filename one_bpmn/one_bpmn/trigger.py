@@ -349,7 +349,7 @@ def _maybe_start_instance(doc, model_name: str):
 			"process_model": model_name,
 			"context_doctype": doc.doctype,
 			"context_docname": doc.name,
-			"status": ["in", ["Queued", "Active"]],
+			"status": "Active",
 		},
 	)
 	if existing:
@@ -363,7 +363,7 @@ def _maybe_start_instance(doc, model_name: str):
 	instance.process_model = model_name
 	instance.context_doctype = doc.doctype
 	instance.context_docname = doc.name
-	instance.status = "Queued"
+	instance.status = "Active"
 	instance.initiated_by = frappe.session.user
 	instance.started_at = now_datetime()
 	instance.insert(ignore_permissions=True)

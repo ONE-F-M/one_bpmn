@@ -64,80 +64,7 @@ def list_process_instances(
 		for d in instances:
 			d.current_step = ", ".join(task_map.get(d.name, []))
 
-		# Active instances with no waiting USER task still have a current
-		# position — a running automation, an inner subprocess task, or an
-		# ad-hoc subprocess waiting on its next selection. Derive it from
-		# the engine state so the column never goes silently blank.
-		needs_derivation = [
-			d.name for d in instances if d.status == "Active" and not d.current_step
-		]
-		if needs_derivation:
-			states = frappe.get_all(
-				"BPMN Process Instance",
-				filters={"name": ["in", needs_derivation]},
-				fields=["name", "workflow_state"],
-			)
-			derived = {row.name: _derive_current_step(row.workflow_state) for row in states}
-			for d in instances:
-				if not d.current_step:
-					d.current_step = derived.get(d.name, "")
-
 	return instances
-
-
-def _derive_current_step(workflow_state: str) -> str:
-	"""Name the engine's current position from serialized state: active
-	non-internal tasks, descending into subprocesses. A container with no
-	active inner task (an ad-hoc subprocess whose heads are all parked —
-	e.g. the AI selector declined or stalled) is reported as awaiting
-	selection instead of blank."""
-	try:
-		state = json.loads(workflow_state or "{}")
-	except Exception:
-		return ""
-	if not state:
-		return ""
-
-	ACTIVE_STATES = {8, 16, 32}  # WAITING, READY, STARTED
-	subprocesses = state.get("subprocesses") or {}
-	subprocess_specs = state.get("subprocess_specs") or {}
-
-	def display(spec_map, spec_name):
-		spec_data = (spec_map or {}).get(spec_name) or {}
-		return spec_data.get("bpmn_name") or spec_data.get("description") or spec_name
-
-	def active_tasks(tasks_dict):
-		for task_id, t in (tasks_dict or {}).items():
-			spec = t.get("task_spec") or ""
-			if not spec or spec in ("Start", "End"):
-				continue
-			if spec.endswith(".EndJoin") or ".BoundaryEvent" in spec:
-				continue
-			if (t.get("state") or 0) in ACTIVE_STATES:
-				yield task_id, spec
-
-	def describe(tasks_dict, spec_map):
-		labels = []
-		for task_id, spec_name in active_tasks(tasks_dict):
-			sub = subprocesses.get(task_id)
-			if sub is None:
-				labels.append(display(spec_map, spec_name))
-				continue
-			child_specs = (subprocess_specs.get(spec_name) or {}).get("task_specs") or {}
-			inner = describe(sub.get("tasks"), child_specs)
-			if inner:
-				labels.append(inner)
-			else:
-				typename = ((spec_map or {}).get(spec_name) or {}).get("typename") or ""
-				label = display(spec_map, spec_name)
-				if "AdHoc" in typename:
-					labels.append(f"{label} — awaiting task selection")
-				else:
-					labels.append(f"{label} — in progress")
-		return ", ".join(labels)
-
-	top_specs = (state.get("spec") or {}).get("task_specs") or {}
-	return describe(state.get("tasks"), top_specs)
 
 
 @frappe.whitelist()
@@ -235,11 +162,6 @@ def start_process_async(
 
 	frappe.enqueue(
 		"one_bpmn.api.instance_api._start_process_as_user",
-		# WI-001365: dedicated queue so multi-turn AI Task Selector loops
-		# cannot starve unrelated ONE-FM jobs (emails, reports, integrations)
-		# on the shared default/short/long queues. Requires the queue in
-		# common_site_config.json's "workers" block.
-		queue="bpmn_ai_agent",
 		model_name=model_name,
 		context_doctype=context_doctype,
 		context_docname=context_docname,
@@ -640,78 +562,74 @@ def _complete_task_job(
 	# (a second action, the timer sweep, a message delivery).
 	instance = frappe.get_doc("BPMN Process Instance", instance_name, for_update=True)
 	try:
-		instance.advance(task_id=task_id, data=data or {})
-
-		# ── CTC expiry message after a successful advance ────────────────
-		if approved_ctc_name:
-			try:
-				send_message(
-					message_name="Active Task is Completed",
-					context_doctype="Contingency Task Completion",
-					context_docname=approved_ctc_name,
-					payload=json.dumps({
-						"ctc_name": approved_ctc_name,
-						"actioned_doctype": instance.context_doctype,
-						"actioned_docname": instance.context_docname,
-						"actioned_by": run_as_user or frappe.session.user,
-					}),
-				)
-			except Exception as exc:
-				frappe.log_error(
-					title="BPMN CTC expiry message failed",
-					message=str(exc),
-				)
+		active_tasks = instance.advance(task_id=task_id, data=parsed_data)
 	except frappe.ValidationError:
-		# Engine-level validation (e.g. the task was completed elsewhere in
-		# the meantime) — not an instance failure. Log for traceability.
-		frappe.log_error(
-			title="BPMN complete_task job: validation error",
-			message=frappe.get_traceback(),
-		)
-	except Exception:
+		raise
+	except Exception as exc:
 		frappe.db.set_value("BPMN Process Instance", instance_name, "status", "Errored")
 		frappe.log_error(
 			title="BPMN complete_task failed",
 			message=frappe.get_traceback(),
 		)
-	finally:
-		frappe.db.set_value(
-			"BPMN Process Instance",
-			instance_name,
-			"engine_in_progress",
-			0,
-			update_modified=False,
-		)
+		frappe.throw(_("Failed to complete task: {0}").format(str(exc)))
 
-		# ── Publish realtime events for auto-refresh ─────────────────────
-		# 1. The Processa frontend — broadcast to ALL users so anyone
-		#    viewing the instance detail page auto-refreshes.
-		frappe.publish_realtime(
-			"bpmn_instance_updated",
-			{
-				"instance_name": instance_name,
-				"status": frappe.db.get_value("BPMN Process Instance", instance_name, "status"),
-				"context_doctype": instance.context_doctype or "",
-				"context_docname": instance.context_docname or "",
-			},
-			after_commit=True,
-			user="all",
-		)
-
-		# 2. The Frappe form of the context document (e.g. Employee Daily
-		#    Action) so it auto-refreshes when open in the desk.
-		if instance.context_doctype and instance.context_docname:
-			frappe.publish_realtime(
-				"doc_update",
-				{
-					"modified": str(frappe.utils.now_datetime()),
-					"doctype": instance.context_doctype,
-					"name": instance.context_docname,
-				},
-				doctype=instance.context_doctype,
-				docname=instance.context_docname,
-				after_commit=True,
+	# ── Send message so the CTC process can expire itself after the task is actioned ──
+	if approved_ctc_name:
+		try:
+			send_message(
+				message_name="Active Task is Completed",
+				context_doctype="Contingency Task Completion",
+				context_docname=approved_ctc_name,
+				payload=json.dumps({
+					"ctc_name": approved_ctc_name,
+					"actioned_doctype": instance.context_doctype,
+					"actioned_docname": instance.context_docname,
+					"actioned_by": frappe.session.user,
+				}),
 			)
+		except Exception as exc:
+			frappe.log_error(
+				title="BPMN CTC expiry message failed",
+				message=str(exc),
+			)
+
+	# ── Publish realtime events for auto-refresh ────────────────────────────
+	# 1. Notify the Processa frontend — broadcast to ALL users so anyone
+	#    viewing the instance detail page auto-refreshes.
+	#    Note: doc_update for the BPMN Process Instance itself is already
+	#    published by Frappe's notify_update() inside run_method("on_update").
+	frappe.publish_realtime(
+		"bpmn_instance_updated",
+		{
+			"instance_name": instance_name,
+			"status": instance.status,
+			"context_doctype": instance.context_doctype or "",
+			"context_docname": instance.context_docname or "",
+		},
+		after_commit=True,
+		user="all",
+	)
+
+	# 2. Notify the Frappe form of the context document (e.g. Employee Daily
+	#    Action) so it auto-refreshes when open in the desk.
+	if instance.context_doctype and instance.context_docname:
+		frappe.publish_realtime(
+			"doc_update",
+			{
+				"modified": str(frappe.utils.now_datetime()),
+				"doctype": instance.context_doctype,
+				"name": instance.context_docname,
+			},
+			doctype=instance.context_doctype,
+			docname=instance.context_docname,
+			after_commit=True,
+		)
+
+	return {
+		"instance": instance_name,
+		"status": instance.status,
+		"active_tasks": active_tasks,
+	}
 
 
 @frappe.whitelist()
