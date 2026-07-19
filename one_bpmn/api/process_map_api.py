@@ -594,12 +594,12 @@ def _controller_lifecycle_overrides(doctype: str) -> list:
 	"""
 	Inspect a doctype's controller class for native lifecycle methods.
 
-	These methods (``validate``, ``on_submit``, …) are executed by Frappe's
-	document lifecycle *before/around* the BPMN hooks, so any that survive
-	on the context doctype's controller mean old backend code still runs
-	alongside the BPMN process. Only methods defined directly on the
-	doctype's own controller class are reported — inherited framework
-	behaviour (Document / NestedSet) is ignored to avoid false positives.
+	As of now this only checks ``validate`` — executed by Frappe's document
+	lifecycle *before* any BPMN hook, so if it survives on the context
+	doctype's controller then old backend code still runs alongside the
+	BPMN process. Only methods defined directly on the doctype's own
+	controller class are reported — inherited framework behaviour
+	(Document / NestedSet) is ignored to avoid false positives.
 
 	Args:
 		doctype: DocType name to inspect.
@@ -608,18 +608,12 @@ def _controller_lifecycle_overrides(doctype: str) -> list:
 		Ordered list of lifecycle method names still defined on the
 		controller (empty if none, or if the controller can't be loaded).
 	"""
-	# Lifecycle hooks that interfere with a BPMN-driven document. ``validate``
-	# is the headline case (runs on every save, before any BPMN hook); the
-	# submit/update/cancel hooks run old code around the BPMN guards too.
+	# Lifecycle hooks that interfere with a BPMN-driven document. For now we
+	# only flag ``validate`` — it runs on every save, before any BPMN hook,
+	# and is the primary way old controller code rejects/mutates a document.
+	# Extend this tuple (e.g. on_submit, on_update) if wider coverage is needed.
 	LIFECYCLE_METHODS = (
 		"validate",
-		"before_save",
-		"before_submit",
-		"before_cancel",
-		"on_update",
-		"on_submit",
-		"on_cancel",
-		"on_update_after_submit",
 	)
 	from frappe.model.base_document import get_controller
 
