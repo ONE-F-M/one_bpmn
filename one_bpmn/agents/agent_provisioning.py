@@ -17,6 +17,18 @@ class AgentValidationError(frappe.ValidationError):
 	pass
 
 
+# The checks validate_agent_config enforces, as DATA (WI-001649) — kept
+# directly above the function so the two evolve together. The AI Assistant
+# injects these as structured context at call time; nothing about the rules
+# is written into its prompt as prose.
+VALIDATION_RULES = (
+	{"field": "agent_id", "rule": "required"},
+	{"field": "system_prompt", "rule": "must be non-empty (or a description provided so the creation process can generate one)"},
+	{"field": "ai_provider_credentials", "rule": "must link an ENABLED AI Provider Credentials record; a live test call is made against it"},
+	{"field": "chat_mode_label", "rule": "required for Chat agents; must be unique across agents"},
+)
+
+
 def validate_agent_config(config_name: str, test_provider: bool = True) -> dict:
 	"""Validate the six essentials of a chat agent configuration (WI-001621).
 

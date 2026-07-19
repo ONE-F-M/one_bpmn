@@ -158,6 +158,20 @@ def update_agent_config_from_shape(config_name: str, fields: str | dict) -> dict
 	return {"ok": True, "updated": changed, "reprovisioned": reprovisioned}
 
 
+# The create endpoint's payload contract as DATA (WI-001649): the AI Assistant
+# is told about these fields at call time instead of having them written into
+# its prompt as prose. Keys match create_agent_configuration's payload exactly.
+CREATE_PAYLOAD_CONTRACT = {
+	"agent_name": "Human-readable agent name (required).",
+	"agent_id": "Machine id; auto-derived from the name when omitted.",
+	"chat_mode_label": "Label shown in chat mode pickers (required, must be unique).",
+	"ai_provider_credentials": "Name of an enabled AI Provider Credentials record.",
+	"system_prompt": "The agent's system prompt; leave empty to have the creation process generate one from the description.",
+	"description": "What the agent does — feeds prompt auto-generation.",
+	"sample_prompts": 'Optional list of {"prompt", "expected_behaviour"} rows; becomes the baseline eval suite.',
+}
+
+
 @frappe.whitelist()
 def create_agent_configuration(payload: str | dict) -> dict:
 	"""Create a new AI Agent Configuration from the Processa editor (WI-001648).
