@@ -268,10 +268,11 @@
 
         <!-- WI-001650: the assistant is always available — with no linked
              configuration yet it runs on its own credentials (WI-001623), so
-             you can ask it to create the agent this task will link. -->
-        <template>
-          <!-- Context controls -->
-          <div class="assistant-context">
+             you can ask it to create the agent this task will link.
+             (No wrapper <template> here: a bare template element is native
+             HTML and Vue does not render its children.) -->
+        <!-- Context controls -->
+        <div class="assistant-context">
             <div class="ctx-row">
               <label>Context DocType <span class="hint">(optional)</span></label>
               <div class="ctx-autocomplete">
@@ -446,7 +447,6 @@
               </button>
             </div>
           </div>
-        </template>
       </div>
     </div>
   </div>
