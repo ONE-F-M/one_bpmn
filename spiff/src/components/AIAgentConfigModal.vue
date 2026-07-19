@@ -9,15 +9,15 @@
         </div>
 
         <div class="modal-body">
-          <!-- AI Agent Configuration — optional seed. Mirrors the properties
-               panel (WI-001637): selecting one copies its provider, model,
-               prompt and params into the editable fields below. Edits stay on
-               this shape; the configuration is never changed from the diagram,
-               and tools are not imported. -->
+          <!-- Linked AI Agent Configuration (WI-001637 live link). Selecting
+               one shows its current values in the fields below; at run time
+               the configuration is authoritative for agent-level fields, and
+               saving this dialog writes agent-level edits back to it. Tools
+               are not imported — the toolkit stays this diagram's shapes. -->
           <div class="field-row">
             <label>
-              AI Agent Configuration
-              <span class="hint">(optional — seeds the fields below)</span>
+              Linked AI Agent Configuration
+              <span class="hint">(optional)</span>
             </label>
             <select v-model="form.aiAgentConfig" @change="onAgentConfigSelect">
               <option value="">-- None --</option>
@@ -25,10 +25,10 @@
                 {{ c.name }}
               </option>
             </select>
-            <p v-if="form.aiAgentConfig" class="hint seed-hint">
-              Seeded from {{ form.aiAgentConfig }} — the fields below are an editable
-              copy; edits stay on this task.
-            </p>
+            <span v-if="form.aiAgentConfig" class="field-hint">
+              Prompt, provider, model and params resolve from this configuration
+              when the process runs. Saving writes your edits back to it.
+            </span>
           </div>
 
           <!-- Backend (selector always runs direct_api) -->
@@ -796,11 +796,11 @@ onMounted(async () => {
   }
 });
 
-// Seed the form from a saved AI Agent Configuration (one-time copy). The
-// resolver returns shape-attribute keys (aiSystemPrompt, aiProvider, aiModel,
-// aiTemperature, aiMaxTokens) that map directly onto our form fields. Values
-// stay editable here and are persisted onto the shape on save; the reference
-// itself is kept in form.aiAgentConfig so the "seeded from" provenance sticks.
+// Pull the linked configuration's current values into the form (WI-001637
+// live link). The resolver returns shape-attribute keys (aiSystemPrompt,
+// aiProvider, aiModel, aiTemperature, aiMaxTokens) that map directly onto our
+// form fields. At run time the configuration is authoritative for these
+// fields; editing them here and saving writes the changes back to it.
 async function onAgentConfigSelect() {
   const value = form.value.aiAgentConfig;
   if (!value) return;
@@ -818,7 +818,42 @@ async function onAgentConfigSelect() {
   }
 }
 
-function save() {
+// WI-001637 live link: on Save, write agent-level edits back to the linked
+// AI Agent Configuration. Selector mode omits temperature — the selector
+// dialog never shows it, so its form default must not clobber the record.
+// Failure never blocks the shape save; the user is warned instead. A Live
+// agent is automatically re-provisioned by the backend so its chat map picks
+// up the change — surface that so the brief non-Live window isn't a surprise.
+async function writeBackToConfig() {
+  if (!form.value.aiAgentConfig) return;
+  const fields = {
+    aiProvider: form.value.aiProvider,
+    aiSystemPrompt: form.value.aiSystemPrompt,
+    aiMaxTokens: form.value.aiMaxTokens,
+  };
+  if (!isSelector.value) fields.aiTemperature = form.value.aiTemperature;
+  try {
+    const res = await frappeRequest({
+      url: "/api/method/one_bpmn.agents.agent_config_resolver.update_agent_config_from_shape",
+      method: "POST",
+      params: { config_name: form.value.aiAgentConfig, fields: JSON.stringify(fields) },
+    });
+    if (res && res.reprovisioned) {
+      alert(
+        `"${form.value.aiAgentConfig}" was Live, so it is being re-provisioned ` +
+          "with your changes (validate → provision → Live)."
+      );
+    }
+  } catch (e) {
+    alert(
+      `The task was saved, but writing the changes back to "${form.value.aiAgentConfig}" failed: ` +
+        (e?.message || e) +
+        "\nUpdate the AI Agent Configuration record directly if the change should apply to the agent."
+    );
+  }
+}
+
+async function save() {
   // Block save when no model can be resolved: the Model field is empty AND the
   // selected provider has no Default Model to fall back on at runtime.
   if (!form.value.aiModel || !form.value.aiModel.trim()) {
@@ -859,6 +894,7 @@ function save() {
       "spiffworkflow:aiMaxTokens": String(form.value.aiMaxTokens),
       "spiffworkflow:aiTimeout": String(form.value.aiTimeout),
     });
+    await writeBackToConfig();
     emit("close");
     return;
   }
@@ -896,6 +932,7 @@ function save() {
   };
 
   modeling.updateModdleProperties(element, bo, patch);
+  await writeBackToConfig();
   emit("close");
 }
 </script>

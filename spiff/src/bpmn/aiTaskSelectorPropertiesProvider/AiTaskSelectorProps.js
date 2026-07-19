@@ -97,14 +97,14 @@ function AgentConfigComponent(props) {
 				{
 					class: "bio-properties-panel-label",
 					title: translate(
-						"Optionally seed this selector from a saved AI Agent Configuration. Provider, model, prompt and params are copied into the fields below (editable). Tools are not imported."
+						"Optionally link this selector to a saved AI Agent Configuration. At run time the configuration is authoritative for prompt, provider and model; the fields below show its current values. Tools are not imported."
 					),
 				},
-				translate("AI Agent Configuration")
+				translate("Linked AI Agent Configuration")
 			),
 			h(FrappeAutocomplete, {
 				value: getAttr(bo, "aiAgentConfig"),
-				placeholder: translate("Select a configuration to seed from…"),
+				placeholder: translate("Select a configuration to link…"),
 				fetchApi: (txt) =>
 					frappeGet("/api/resource/AI Agent Configuration", {
 						fields: '["name","agent_id"]',
@@ -123,7 +123,7 @@ function AgentConfigComponent(props) {
 				? h(
 						"div",
 						{ class: "bio-properties-panel-description" },
-						translate("Seeded from: {{config}} — the fields below are an editable copy; edits stay on this task.").replace(
+						translate("Linked to: {{config}} — prompt, provider and model resolve from this configuration at run time. The selector dialog's Save writes edits back to it.").replace(
 							"{{config}}",
 							getAttr(bo, "aiAgentConfig")
 						)

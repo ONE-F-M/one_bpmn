@@ -199,14 +199,14 @@ function AgentConfigComponent(props) {
 				{
 					class: "bio-properties-panel-label",
 					title: translate(
-						"Optionally seed this task from a saved AI Agent Configuration. Its provider, model, prompt and params are copied into the fields below (editable here). Tools are not imported — the toolkit stays this diagram's ad-hoc shapes."
+						"Optionally link this task to a saved AI Agent Configuration. At run time the configuration is authoritative for prompt, provider, model and params; the fields below show its current values and act as the fallback if it is deleted. Tools are not imported — the toolkit stays this diagram's ad-hoc shapes."
 					),
 				},
-				translate("AI Agent Configuration")
+				translate("Linked AI Agent Configuration")
 			),
 			h(FrappeAutocomplete, {
 				value: currentValue,
-				placeholder: translate("Select a configuration to seed from…"),
+				placeholder: translate("Select a configuration to link…"),
 				fetchApi: fetchConfigs,
 				valueField: "name",
 				renderOption: (opt) => opt.name,
@@ -216,7 +216,7 @@ function AgentConfigComponent(props) {
 				? h(
 						"div",
 						{ class: "bio-properties-panel-description" },
-						translate("Seeded from: {{config}} — the fields below are an editable copy; edits stay on this task.").replace(
+						translate("Linked to: {{config}} — prompt, provider, model and params resolve from this configuration at run time. The task dialog's Save writes edits back to it.").replace(
 							"{{config}}",
 							currentValue
 						)
