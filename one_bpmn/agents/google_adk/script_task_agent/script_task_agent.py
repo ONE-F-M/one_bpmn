@@ -195,4 +195,3 @@ class ScriptTaskAgent:
         except (json.JSONDecodeError, TypeError, KeyError):
             pass
         return draft
-
