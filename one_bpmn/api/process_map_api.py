@@ -720,6 +720,29 @@ def _check_call_activity_references(model_name: str) -> list:
 
 
 @frappe.whitelist()
+def _extract_ai_shapes(xml_content: str) -> list:
+	"""AI Agent Task / AI Task Selector shapes with their linked configuration
+	(WI-001650): [{"id", "label", "config"}]. Empty list on unparsable XML —
+	the well-formedness check elsewhere owns that failure."""
+	BPMN_NS = "http://www.omg.org/spec/BPMN/20100524/MODEL"
+	SPIFF_NS = "http://spiffworkflow.org/bpmn/schema/1.0/core"
+	try:
+		parser = ET.XMLParser(resolve_entities=False, no_network=True)
+		root = ET.fromstring(xml_content.strip().encode("utf-8"), parser=parser)
+	except Exception:
+		return []
+	shapes = []
+	for tag in ("serviceTask", "adHocSubProcess"):
+		for el in root.iter(f"{{{BPMN_NS}}}{tag}"):
+			if el.get(f"{{{SPIFF_NS}}}serviceType") in ("ai_agent", "ai_task_selector"):
+				shapes.append({
+					"id": el.get("id") or "",
+					"label": el.get("name") or "",
+					"config": (el.get(f"{{{SPIFF_NS}}}aiAgentConfig") or "").strip(),
+				})
+	return shapes
+
+
 def validate_bpmn_readiness(xml_content: str, model_name: str = None) -> dict:
 	"""
 	Parse BPMN XML and check all prerequisites against the database.
@@ -871,6 +894,39 @@ def validate_bpmn_readiness(xml_content: str, model_name: str = None) -> dict:
 			"label": "Script Security",
 			"icon": "shield-alert",
 			"items": security_items,
+		})
+
+	# 5c. AI Agents (WI-001650/WI-001652) — every LLM-calling shape must link
+	# an enabled, LIVE AI Agent Configuration. The compile gate enforces the
+	# same rule, so surface it here as a readiness item instead of letting a
+	# green checklist run into a red deploy error.
+	agent_items = []
+	for shape in _extract_ai_shapes(xml_content):
+		label = shape["label"] or shape["id"]
+		cfg = shape["config"]
+		if not cfg:
+			agent_items.append({
+				"name": f"{label} — no linked AI Agent Configuration (raw provider setup is retired)",
+				"exists": False, "type": "check",
+			})
+			continue
+		row = frappe.db.get_value("AI Agent Configuration", cfg, ["enabled", "lifecycle_status"], as_dict=True)
+		if not row:
+			agent_items.append({"name": f"{label} — '{cfg}' not found", "exists": False, "type": "check"})
+		elif not row.enabled:
+			agent_items.append({"name": f"{label} — '{cfg}' is disabled", "exists": False, "type": "check"})
+		elif row.lifecycle_status != "Live":
+			agent_items.append({
+				"name": f"{label} — '{cfg}' is {row.lifecycle_status or 'Draft'} (must be Live to deploy)",
+				"exists": False, "type": "check",
+			})
+		else:
+			agent_items.append({"name": f"{label} — {cfg} (Live)", "exists": True, "type": "check"})
+	if agent_items:
+		categories.append({
+			"label": "AI Agents",
+			"icon": "bot",
+			"items": agent_items,
 		})
 
 	# 6. Lane Roles
