@@ -719,7 +719,6 @@ def _check_call_activity_references(model_name: str) -> list:
 	return items
 
 
-@frappe.whitelist()
 def _extract_ai_shapes(xml_content: str) -> list:
 	"""AI Agent Task / AI Task Selector shapes with their linked configuration
 	(WI-001650): [{"id", "label", "config"}]. Empty list on unparsable XML —
@@ -743,6 +742,7 @@ def _extract_ai_shapes(xml_content: str) -> list:
 	return shapes
 
 
+@frappe.whitelist()
 def validate_bpmn_readiness(xml_content: str, model_name: str = None) -> dict:
 	"""
 	Parse BPMN XML and check all prerequisites against the database.
