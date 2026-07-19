@@ -25,3 +25,4 @@ one_bpmn.one_bpmn.patches.v1_0.seed_ai_assistant_agent #16-07-2026
 one_bpmn.one_bpmn.patches.v1_0.refresh_ai_assistant_prompt #16-07-2026
 one_bpmn.one_bpmn.patches.v1_0.refresh_ai_assistant_prompt #19-07-2026 WI-001649 creation behavior
 one_bpmn.one_bpmn.patches.v1_0.enforce_agent_config_on_ai_shapes #19-07-2026 WI-001650
+one_bpmn.one_bpmn.patches.v1_0.background_agents_go_live #19-07-2026 WI-001652

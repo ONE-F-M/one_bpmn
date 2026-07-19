@@ -21,12 +21,12 @@
    "reqd": 1
   },
   {
+   "description": "Optional — agents reach Live before any diagram exists (WI-001652); baseline suites run direct_api against the agent's prompt and credentials.",
    "fieldname": "process_model",
    "fieldtype": "Link",
    "in_list_view": 1,
    "label": "Process Model",
-   "options": "BPMN Process Model",
-   "reqd": 1
+   "options": "BPMN Process Model"
   },
   {
    "default": "0",
@@ -44,7 +44,7 @@
  ],
  "index_web_pages_for_search": 1,
  "links": [],
- "modified": "2026-06-28 00:00:00.000000",
+ "modified": "2026-07-19 12:00:00.000000",
  "modified_by": "Administrator",
  "module": "ONE BPMN",
  "name": "AI Eval Suite",

@@ -1106,18 +1106,31 @@ def _lint_ai_provider_config(_bpmn_xml: str, service_extensions: dict) -> None:
 		provider_name = (task_cfg.get("aiProvider") or "").strip()
 		agent_config = (task_cfg.get("aiAgentConfig") or "").strip()
 
-		# WI-001637: a shape may resolve its provider EITHER directly or by
-		# referencing an AI Agent Configuration (which seeds the provider).
-		# Validate the reference when present.
+		# WI-001637: validate the AI Agent Configuration reference when present.
 		if agent_config:
-			if not frappe.db.exists("AI Agent Configuration", agent_config):
+			cfg_row = frappe.db.get_value(
+				"AI Agent Configuration", agent_config, ["enabled", "lifecycle_status"], as_dict=True
+			)
+			if not cfg_row:
 				frappe.throw(
 					_("Referenced AI Agent Configuration '{0}' not found (task '{1}').").format(agent_config, bpmn_id),
 					exc=frappe.ValidationError,
 				)
-			if not frappe.db.get_value("AI Agent Configuration", agent_config, "enabled"):
+			if not cfg_row.enabled:
 				frappe.throw(
 					_("Referenced AI Agent Configuration '{0}' is disabled (task '{1}').").format(agent_config, bpmn_id),
+					exc=frappe.ValidationError,
+				)
+			# WI-001652: deployment requires Live. Agents reach Live without any
+			# diagram existing, so the diagram is always the later step — no
+			# exceptions needed. A non-Live agent (Draft, Validating, Needs
+			# Attention, Retired) cannot be shipped against.
+			if cfg_row.lifecycle_status != "Live":
+				frappe.throw(
+					_(
+						"AI Agent Configuration '{0}' is {1} (task '{2}'). "
+						"Wait for it to reach Live — or repair it — before deploying."
+					).format(agent_config, cfg_row.lifecycle_status or "Draft", bpmn_id),
 					exc=frappe.ValidationError,
 				)
 
