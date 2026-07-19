@@ -990,13 +990,14 @@ onMounted(async () => {
 async function onAgentConfigSelect() {
   const value = form.value.aiAgentConfig;
   if (value === "__create__") {
-    // WI-001648: open the inline create panel instead of linking. Pre-fill
-    // from the dialog's current values so work already typed isn't lost.
+    // WI-001648: open the inline create panel instead of linking. A NEW
+    // agent starts BLANK — carrying the task's prompts into the panel
+    // confused more than it helped. Only the provider carries over
+    // (harmless convenience, freely changeable).
     form.value.aiAgentConfig = "";
     newAgent.value = {
       ...emptyNewAgent(),
       ai_provider_credentials: form.value.aiProvider || "",
-      system_prompt: form.value.aiSystemPrompt || "",
     };
     agentIdEdited.value = false;
     showCreateAgent.value = true;
