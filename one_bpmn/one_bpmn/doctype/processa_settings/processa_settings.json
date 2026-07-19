@@ -9,15 +9,10 @@
   "production_url",
   "production_api_key",
   "production_api_secret",
-  "section_break_ba",
-  "enable_ba_sync",
-  "ba_site_url",
-  "ba_api_key",
-  "ba_api_secret",
-  "column_break_ba",
-  "sync_custom_fields",
-  "sync_property_setters",
-  "last_sync_time",
+  "section_break_github",
+  "github_token",
+  "github_pr_base_branch",
+  "github_repo_map",
   "section_break_script_security",
   "script_security_intro",
   "script_binop_multiply_threshold",
@@ -65,64 +60,31 @@
    "label": "Connect to Production"
   },
   {
-   "fieldname": "section_break_ba",
+   "collapsible": 1,
+   "depends_on": "eval:doc.connect_to_production==1",
+   "fieldname": "section_break_github",
    "fieldtype": "Section Break",
-   "label": "BA Site Configuration"
+   "label": "GitHub Integration"
   },
   {
-   "default": "0",
-   "description": "Enable automated daily sync of Custom Fields and Property Setters from the BA site to this Production site.",
-   "fieldname": "enable_ba_sync",
-   "fieldtype": "Check",
-   "label": "Enable BA Sync"
+   "description": "Personal (or fine-grained) access token able to push branches and open pull requests on the mapped repositories. Used by \"Review Doctypes\" → \"Sync\" to raise a PR with the DocType schema changes.",
+   "fieldname": "github_token",
+   "fieldtype": "Password",
+   "label": "GitHub Access Token"
   },
   {
-   "depends_on": "eval:doc.enable_ba_sync==1",
-   "description": "Ex: https://ba.one-fm.com",
-   "fieldname": "ba_site_url",
+   "default": "develop",
+   "description": "Branch that Doctype-sync pull requests target when a repository mapping does not override it.",
+   "fieldname": "github_pr_base_branch",
    "fieldtype": "Data",
-   "label": "BA Site URL",
-   "mandatory_depends_on": "eval:doc.enable_ba_sync==1"
+   "label": "Default PR Base Branch"
   },
   {
-   "depends_on": "eval:doc.enable_ba_sync==1",
-   "fieldname": "ba_api_key",
-   "fieldtype": "Password",
-   "label": "BA API Key",
-   "mandatory_depends_on": "eval:doc.enable_ba_sync==1"
-  },
-  {
-   "depends_on": "eval:doc.enable_ba_sync==1",
-   "fieldname": "ba_api_secret",
-   "fieldtype": "Password",
-   "label": "BA API Secret",
-   "mandatory_depends_on": "eval:doc.enable_ba_sync==1"
-  },
-  {
-   "fieldname": "column_break_ba",
-   "fieldtype": "Column Break"
-  },
-  {
-   "default": "1",
-   "depends_on": "eval:doc.enable_ba_sync==1",
-   "fieldname": "sync_custom_fields",
-   "fieldtype": "Check",
-   "label": "Sync Custom Fields"
-  },
-  {
-   "default": "1",
-   "depends_on": "eval:doc.enable_ba_sync==1",
-   "fieldname": "sync_property_setters",
-   "fieldtype": "Check",
-   "label": "Sync Property Setters"
-  },
-  {
-   "depends_on": "eval:doc.enable_ba_sync==1",
-   "fieldname": "last_sync_time",
-   "fieldtype": "Datetime",
-   "label": "Last Sync Time",
-   "read_only": 1,
-   "description": "Timestamp of the last successful sync. If empty, the next sync will pull ALL records (full sync)."
+   "description": "Maps each Frappe app to its GitHub repository. A referenced DocType's owning app determines which repo its changes are pushed to.",
+   "fieldname": "github_repo_map",
+   "fieldtype": "Table",
+   "label": "Repository Mapping",
+   "options": "Processa GitHub Repo"
   },
   {
    "fieldname": "section_break_script_security",
