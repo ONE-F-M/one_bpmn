@@ -261,18 +261,22 @@ def get_error_report(
 	error_code: str = None,
 	process_model: str = None,
 	agent_configuration: str = None,
+	group_by: str = "model",
 ) -> dict:
-	"""Return error analysis grouped by model and bpmn_id."""
+	"""Return error analysis grouped by model + bpmn_id — or by the run's
+	AI Agent Configuration + bpmn_id when ``group_by="agent"`` (WI-001608)."""
 	frappe.only_for("System Manager")
+	group_by = group_by if group_by in ("model", "agent") else "model"
 	from_d, to_d = _default_dates(from_date, to_date)
 
 	Run = DocType("AI Agent Run")
+	group_field = Run.agent_configuration if group_by == "agent" else Run.model
 
-	# --- Main rows: group by model + bpmn_id ---
+	# --- Main rows: group by (model | agent) + bpmn_id ---
 	query = (
 		frappe.qb.from_(Run)
 		.select(
-			Run.model,
+			group_field.as_("group_key"),
 			Run.bpmn_id,
 			fn.Max(Run.bpmn_label).as_("bpmn_label"),
 			fn.Count("*").as_("total_runs"),
@@ -289,7 +293,7 @@ def get_error_report(
 		.where(fn.Date(Run.started_at) >= from_d)
 		.where(fn.Date(Run.started_at) <= to_d)
 		.where(Run.status != "Running")
-		.groupby(Run.model, Run.bpmn_id)
+		.groupby(group_field, Run.bpmn_id)
 		.orderby(fn.Sum(Case().when(Run.status == "Error", 1).else_(0)), order=frappe.qb.desc)
 	)
 
@@ -309,8 +313,9 @@ def get_error_report(
 		total = cint(r.get("total_runs"))
 		errors = cint(r.get("errors"))
 		retried = cint(r.get("retried"))
+		series = cstr(r.get("group_key")) or ("Unattributed" if group_by == "agent" else "")
 		rows.append({
-			"model": cstr(r.get("model")),
+			"model": series,
 			"bpmn_id": cstr(r.get("bpmn_id")),
 			"bpmn_label": cstr(r.get("bpmn_label")) or cstr(r.get("bpmn_id")),
 			"total_runs": total,
@@ -389,18 +394,24 @@ def get_performance_report(
 	bpmn_id: str = None,
 	process_model: str = None,
 	agent_configuration: str = None,
+	group_by: str = "model",
 ) -> dict:
-	"""Return latency/throughput data with percentiles."""
+	"""Return latency/throughput data with percentiles, grouped by model +
+	bpmn_id — or by the run's AI Agent Configuration + bpmn_id when
+	``group_by="agent"`` (WI-001608)."""
 	frappe.only_for("System Manager")
+	group_by = group_by if group_by in ("model", "agent") else "model"
 	from_d, to_d = _default_dates(from_date, to_date)
 
 	Run = DocType("AI Agent Run")
 	Step = DocType("AI Agent Step")
+	group_field = Run.agent_configuration if group_by == "agent" else Run.model
+	unattributed = "Unattributed" if group_by == "agent" else ""
 
 	# --- Fetch all successful run durations for percentile calculation ---
 	duration_query = (
 		frappe.qb.from_(Run)
-		.select(Run.model, Run.bpmn_id, Run.bpmn_label, Run.duration_ms, Run.total_tokens, fn.Date(Run.started_at).as_("date"))
+		.select(group_field.as_("group_key"), Run.bpmn_id, Run.bpmn_label, Run.duration_ms, Run.total_tokens, fn.Date(Run.started_at).as_("date"))
 		.where(fn.Date(Run.started_at) >= from_d)
 		.where(fn.Date(Run.started_at) <= to_d)
 		.where(Run.status == "Success")
@@ -422,11 +433,11 @@ def get_performance_report(
 	step_counts_query = (
 		frappe.qb.from_(Step)
 		.join(Run).on(Step.run == Run.name)
-		.select(Run.model, Run.bpmn_id, Step.run, fn.Count("*").as_("step_count"))
+		.select(group_field.as_("group_key"), Run.bpmn_id, Step.run, fn.Count("*").as_("step_count"))
 		.where(fn.Date(Run.started_at) >= from_d)
 		.where(fn.Date(Run.started_at) <= to_d)
 		.where(Run.status == "Success")
-		.groupby(Step.run, Run.model, Run.bpmn_id)
+		.groupby(Step.run, group_field, Run.bpmn_id)
 	)
 	if model:
 		step_counts_query = step_counts_query.where(Run.model == model)
@@ -436,18 +447,18 @@ def get_performance_report(
 		step_counts_query = step_counts_query.where(Run.process_model == process_model)
 
 	step_count_rows = step_counts_query.run(as_dict=True)
-	# Build map: (model, bpmn_id) -> list of step counts
+	# Build map: (series, bpmn_id) -> list of step counts
 	step_map = defaultdict(list)
 	for s in step_count_rows:
-		key = (cstr(s.get("model")), cstr(s.get("bpmn_id")))
+		key = (cstr(s.get("group_key")) or unattributed, cstr(s.get("bpmn_id")))
 		step_map[key].append(cint(s.get("step_count")))
 
-	# --- Group durations by model+bpmn_id, compute percentiles ---
+	# --- Group durations by the series dimension + bpmn_id, compute percentiles ---
 	grouped = defaultdict(list)
 	token_grouped = defaultdict(list)
 	label_map = {}
 	for r in raw_durations:
-		key = (cstr(r.get("model")), cstr(r.get("bpmn_id")))
+		key = (cstr(r.get("group_key")) or unattributed, cstr(r.get("bpmn_id")))
 		grouped[key].append(cint(r.get("duration_ms")))
 		token_grouped[key].append(cint(r.get("total_tokens")))
 		# Keep first non-empty label per key
