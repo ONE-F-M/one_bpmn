@@ -968,6 +968,9 @@ async function onAgentConfigSelect() {
     return;
   }
   refreshLinkedAgentStatus();
+  // A real link (picked from the dropdown, or set by the assistant's
+  // create flow) makes a still-open manual create panel stale — close it.
+  if (value) showCreateAgent.value = false;
   if (!value) return;
   try {
     const fields = await frappeRequest({
