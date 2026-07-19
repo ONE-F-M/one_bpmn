@@ -49,7 +49,7 @@ def open_customization_pr(
 	*,
 	token: str,
 	repo: str,
-	base_branch: str,
+	base_branch: str | None,
 	head_branch: str,
 	files: dict,
 	commit_message: str,
@@ -61,7 +61,8 @@ def open_customization_pr(
 	Args:
 		token: GitHub access token with contents:write + pull_requests:write.
 		repo: "owner/repo".
-		base_branch: branch the PR targets (e.g. "develop").
+		base_branch: branch the PR targets. When falsy, the repository's default
+			branch is used.
 		head_branch: new branch name to create and push to.
 		files: mapping of repo-relative path → file text content.
 		commit_message: message for each file commit.
@@ -76,6 +77,11 @@ def open_customization_pr(
 		frappe.throw(_("Invalid GitHub repository (expected owner/repo): {0}").format(repo))
 	if not files:
 		frappe.throw(_("No files to push."))
+
+	# 0) Default the PR base to the repository's default branch.
+	if not base_branch:
+		info = _request("GET", f"{_API}/repos/{repo}", token)
+		base_branch = info.get("default_branch") or "main"
 
 	# 1) Resolve base branch SHA.
 	ref = _request("GET", f"{_API}/repos/{repo}/git/ref/heads/{base_branch}", token)

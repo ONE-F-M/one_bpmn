@@ -11,8 +11,6 @@
   "production_api_secret",
   "section_break_github",
   "github_token",
-  "github_pr_base_branch",
-  "github_repo_map",
   "section_break_script_security",
   "script_security_intro",
   "script_binop_multiply_threshold",
@@ -54,7 +52,7 @@
   },
   {
    "default": "1",
-   "description": " If checked, a Pathfinder Log with \"Active\" status in Production is required to make changes to a process map.",
+   "description": " If checked, a Process Implementation with \"Active\" status in Production is required to make changes to a process map.",
    "fieldname": "connect_to_production",
    "fieldtype": "Check",
    "label": "Connect to Production"
@@ -67,24 +65,10 @@
    "label": "GitHub Integration"
   },
   {
-   "description": "Personal (or fine-grained) access token able to push branches and open pull requests on the mapped repositories. Used by \"Review Doctypes\" → \"Sync\" to raise a PR with the DocType schema changes.",
+   "description": "Personal (or fine-grained) access token able to push branches and open pull requests. Used by \"Review Doctypes\" → \"Sync\" to raise a PR with the DocType schema changes. The repository is derived from each referenced DocType's owning app (its git remote), and the PR targets that repository's default branch.",
    "fieldname": "github_token",
    "fieldtype": "Password",
    "label": "GitHub Access Token"
-  },
-  {
-   "default": "develop",
-   "description": "Branch that Doctype-sync pull requests target when a repository mapping does not override it.",
-   "fieldname": "github_pr_base_branch",
-   "fieldtype": "Data",
-   "label": "Default PR Base Branch"
-  },
-  {
-   "description": "Maps each Frappe app to its GitHub repository. A referenced DocType's owning app determines which repo its changes are pushed to.",
-   "fieldname": "github_repo_map",
-   "fieldtype": "Table",
-   "label": "Repository Mapping",
-   "options": "Processa GitHub Repo"
   },
   {
    "fieldname": "section_break_script_security",

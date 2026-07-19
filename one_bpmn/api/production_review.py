@@ -289,10 +289,7 @@ def sync_doctypes(model_name: str) -> dict:
 
 	changed_doctypes = sorted({c["doctype"] for c in changes})
 
-	settings = frappe.get_cached_doc("Processa Settings")
-	token = settings.get_password("github_token")
-	default_base = (settings.github_pr_base_branch or "develop").strip()
-	repo_map = {(r.app_name or "").strip(): r for r in (settings.github_repo_map or [])}
+	token = frappe.get_cached_doc("Processa Settings").get_password("github_token")
 
 	# Group the changed doctypes by their owning app.
 	by_app = {}
@@ -302,16 +299,15 @@ def sync_doctypes(model_name: str) -> dict:
 
 	prs, skipped = [], []
 	for app, dts in by_app.items():
-		mapping = repo_map.get(app)
-		if not app or not mapping or not (mapping.repository or "").strip() or not token:
+		repo = _repo_for_app(app) if app else None
+		if not app or not repo or not token:
 			skipped.append({"app": app, "doctypes": dts,
-			                "reason": _("No GitHub repository/token configured for app '{0}'.").format(app or "?")})
+			                "reason": _("No GitHub token, or no GitHub remote resolved for app '{0}'.").format(app or "?")})
 			continue
 		files = {}
 		for dt in dts:
 			path, content = _customization_file(dt, app)
 			files[path] = content
-		base_branch = (mapping.base_branch or "").strip() or default_base
 		head_branch = f"processa/sync-{frappe.scrub(model_name)}-{frappe.generate_hash(length=6)}"
 		title = f"Processa: sync customizations for {', '.join(dts)}"
 		body = (
@@ -321,17 +317,18 @@ def sync_doctypes(model_name: str) -> dict:
 			"These Custom Field / Property Setter changes exist on the authoring (BA) "
 			"site but not yet on Production. Merging and deploying this branch migrates them."
 		)
+		# base_branch=None → github_sync targets the repository's default branch.
 		pr_url = open_customization_pr(
 			token=token,
-			repo=mapping.repository.strip(),
-			base_branch=base_branch,
+			repo=repo,
+			base_branch=None,
 			head_branch=head_branch,
 			files=files,
 			commit_message=title,
 			pr_title=title,
 			pr_body=body,
 		)
-		prs.append({"app": app, "repository": mapping.repository.strip(), "pr_url": pr_url, "doctypes": dts})
+		prs.append({"app": app, "repository": repo, "pr_url": pr_url, "doctypes": dts})
 
 	return {"synced": bool(prs), "prs": prs, "skipped": skipped}
 
@@ -348,6 +345,44 @@ def _app_for_doctype(dt: str) -> str | None:
 	if not module:
 		return None
 	return frappe.local.module_app.get(frappe.scrub(module))
+
+
+def _repo_for_app(app: str) -> str | None:
+	"""Derive "owner/repo" from the app's git remote (each app is its own repo)."""
+	import subprocess
+
+	repo_root = os.path.dirname(frappe.get_app_path(app))
+
+	def _git(*args):
+		try:
+			out = subprocess.run(
+				["git", "-C", repo_root, *args], capture_output=True, text=True, timeout=10
+			)
+			return out.stdout.strip() if out.returncode == 0 else ""
+		except Exception:
+			return ""
+
+	# Prefer origin/upstream, then fall back to whatever remote is configured.
+	url = ""
+	for remote in ("origin", "upstream"):
+		url = _git("remote", "get-url", remote)
+		if url:
+			break
+	if not url:
+		remotes = _git("remote").split()
+		if remotes:
+			url = _git("remote", "get-url", remotes[0])
+	return _parse_github_repo(url)
+
+
+def _parse_github_repo(url: str) -> str | None:
+	"""Extract "owner/repo" from an https or ssh GitHub remote URL."""
+	import re
+
+	if not url:
+		return None
+	m = re.search(r"github\.com[:/]+([^/]+)/([^/]+?)(?:\.git)?/?$", url)
+	return f"{m.group(1)}/{m.group(2)}" if m else None
 
 
 def _customization_file(dt: str, app: str) -> tuple[str, str]:
