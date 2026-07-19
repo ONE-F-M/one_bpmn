@@ -148,7 +148,10 @@ def update_agent_config_from_shape(config_name: str, fields: str | dict) -> dict
 	if not changed:
 		return {"ok": True, "updated": [], "reprovisioned": False}
 
-	was_live = doc.lifecycle_status == "Live"
+	# Re-provisioning is a chat-map concern: it re-runs the creation process
+	# so a Live CHAT agent picks up the change. Background agents (Live via
+	# auto-go-live, WI-001652) have no map to rebuild — never re-provision them.
+	was_live = doc.lifecycle_status == "Live" and doc.agent_type == "Chat"
 	doc.save()
 
 	reprovisioned = False

@@ -78,17 +78,18 @@ def _set_status(config_name: str, status: str):
 
 
 def provision_agent(config_name: str):
-	"""v1 AI Agent creation process (WI-001620).
+	"""AI Agent creation flow (WI-001620, reshaped by WI-001652).
 
-	Carries a chat agent from Draft to Live: Validating -> Provisioning
-	(clone the chat-map template + compile/deploy so its start trigger arms)
-	-> Live. Any failure lands the agent in Needs Attention with the reason
-	logged; editing the configuration re-triggers this. Idempotent and safe
-	to enqueue.
+	Carries a chat agent from Draft to Live: Validating -> Evaluating ->
+	Live. Live means "details valid and tested" — NO diagram is created or
+	required (WI-001652): diagrams are authored by people in the editor, and
+	the config's process_model is a manual, informational link. Any failure
+	lands the agent in Needs Attention with the reason logged; editing the
+	configuration re-triggers this. Idempotent and safe to enqueue.
 	"""
 	cfg = frappe.get_doc("AI Agent Configuration", config_name)
 	if cfg.agent_type != "Chat":
-		return  # background agents are provisioned by their own path (later pass)
+		return  # Background agents go Live on save (apply_background_lifecycle)
 
 	try:
 		_set_status(config_name, "Validating")
@@ -100,13 +101,6 @@ def provision_agent(config_name: str):
 				message="\n".join(result["errors"]),
 			)
 			return
-
-		_set_status(config_name, "Provisioning")
-		from one_bpmn.agents.chat_map_template import clone_chat_map_for_agent
-		from one_bpmn.api.compilation import compile_process_model
-
-		model_name = clone_chat_map_for_agent(config_name)
-		compile_process_model(model_name)  # arms the conditional start trigger
 
 		# Evaluating (WI-001609): generate + run a baseline suite from the
 		# agent's sample prompts. A suite marked gate_deployment blocks Live

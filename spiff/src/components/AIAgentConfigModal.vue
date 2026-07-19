@@ -27,8 +27,12 @@
               <option value="__create__">＋ Create new…</option>
             </select>
             <span v-if="form.aiAgentConfig && form.aiAgentConfig !== '__create__'" class="field-hint">
+              <span :class="['agent-status', agentStatusClass]" :title="'Deployment requires Live (WI-001652)'">
+                ● {{ linkedAgentStatus || "checking…" }}
+              </span>
               Prompt, provider, model and params resolve from this configuration
               when the process runs. Saving writes your edits back to it.
+              Deploying this diagram requires the agent to be Live.
             </span>
           </div>
 
@@ -510,6 +514,34 @@ const scrubbedAgentId = computed(() =>
     .replace(/^_+|_+$/g, "")
 );
 
+// ── Linked agent lifecycle badge (WI-001652): deployment requires Live ──
+const linkedAgentStatus = ref("");
+const agentStatusClass = computed(() =>
+  linkedAgentStatus.value === "Live"
+    ? "agent-status-live"
+    : ["Needs Attention", "Retired"].includes(linkedAgentStatus.value)
+      ? "agent-status-bad"
+      : "agent-status-pending"
+);
+async function refreshLinkedAgentStatus() {
+  linkedAgentStatus.value = "";
+  const name = form.value.aiAgentConfig;
+  if (!name || name === "__create__") return;
+  try {
+    const r = await frappeRequest({
+      url: "/api/method/frappe.client.get_value",
+      params: {
+        doctype: "AI Agent Configuration",
+        filters: name,
+        fieldname: "lifecycle_status",
+      },
+    });
+    linkedAgentStatus.value = (r && r.lifecycle_status) || "";
+  } catch (e) {
+    /* badge stays blank */
+  }
+}
+
 // Form state — defaults
 const form = ref({
   aiAgentConfig: "",
@@ -909,6 +941,10 @@ onMounted(async () => {
       }
     } catch (e) { /* best effort */ }
   }
+
+  // WI-001652: show the linked agent's lifecycle so "why can't I deploy"
+  // is visible before the compile error says it.
+  refreshLinkedAgentStatus();
 });
 
 // Pull the linked configuration's current values into the form (WI-001637
@@ -931,6 +967,7 @@ async function onAgentConfigSelect() {
     showCreateAgent.value = true;
     return;
   }
+  refreshLinkedAgentStatus();
   if (!value) return;
   try {
     const fields = await frappeRequest({
@@ -1534,6 +1571,19 @@ async function save() {
 }
 .assistant-send:hover { background: #4f46e5; }
 .assistant-send:disabled { background: #cbd5e1; cursor: default; }
+
+/* ── Linked agent lifecycle badge (WI-001652) ── */
+.agent-status {
+  display: inline-block;
+  font-weight: 600;
+  font-size: 11px;
+  margin-right: 6px;
+  padding: 1px 6px;
+  border-radius: 10px;
+}
+.agent-status-live { color: #15803d; background: #dcfce7; }
+.agent-status-bad { color: #b91c1c; background: #fee2e2; }
+.agent-status-pending { color: #92400e; background: #fef3c7; }
 
 /* ── Assistant new-agent proposal card (WI-001649) ── */
 .proposal {

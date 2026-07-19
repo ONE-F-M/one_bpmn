@@ -38,6 +38,20 @@ class AIAgentConfiguration(Document):
 		"""Validate that required runtime variables are present in the system prompt."""
 		self.validate_required_variables()
 		self.validate_unique_chat_mode_label()
+		self.apply_background_lifecycle()
+
+	def apply_background_lifecycle(self):
+		"""WI-001652: Background agents skip the chat creation process, so they
+		go Live directly on save when their essentials check out — enabled,
+		with an enabled provider link. A failing check parks them in Needs
+		Attention, like any agent. Retired is a deliberate manual state and is
+		never overridden. Applies on every save path (form, endpoint, patch)."""
+		if self.agent_type != "Background" or self.lifecycle_status == "Retired":
+			return
+		provider_ok = self.ai_provider_credentials and frappe.db.get_value(
+			"AI Provider Credentials", self.ai_provider_credentials, "enabled"
+		)
+		self.lifecycle_status = "Live" if (self.enabled and provider_ok) else "Needs Attention"
 
 	def validate_unique_chat_mode_label(self):
 		"""Two enabled chat agents must never claim the same conversation mode —
