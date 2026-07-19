@@ -412,15 +412,20 @@ def _creation_prerequisites_block() -> str:
 		pass
 
 	try:
-		taken = frappe.get_list(
+		rows = frappe.get_list(
 			"AI Agent Configuration",
-			filters={"enabled": 1},
-			pluck="chat_mode_label",
-			limit_page_length=100,
+			fields=["name", "agent_id", "chat_mode_label"],
+			limit_page_length=200,
 		)
-		taken = sorted({t for t in taken if t})
-		if taken:
-			lines.append("Chat mode labels already taken (the new one must differ): " + ", ".join(taken))
+		labels = sorted({r.chat_mode_label for r in rows if r.chat_mode_label})
+		if labels:
+			lines.append("Chat mode labels already taken (a new one must differ): " + ", ".join(labels))
+		existing = sorted({f"{r.name} (agent_id: {r.agent_id})" for r in rows})
+		if existing:
+			lines.append(
+				"Agents that ALREADY EXIST — never propose creating one of these; "
+				"propose an update to it instead: " + "; ".join(existing)
+			)
 	except Exception:
 		pass
 
@@ -462,7 +467,17 @@ def _creation_capability_block() -> str:
 		"the updatable fields above (agent id, chat mode label, enabled, "
 		"lifecycle, roles…) must be made on the record in the desk — say so. "
 		"NEVER state or imply that you performed an action — reporting an "
-		"update you did not make is the worst possible answer."
+		"update you did not make is the worst possible answer.\n\n"
+		"ROUTING RULES:\n"
+		"- The USER PROMPT is a property of the TASK SHAPE, not of an agent "
+		"configuration (agents have no user prompt). A request to write or "
+		"change the User Prompt is answered with an ordinary field "
+		"recommendation (\"recommendations\": {\"aiUserPrompt\": ...}) — never "
+		"with proposed_config or proposed_update.\n"
+		"- Once an agent has been created in this conversation, follow-up "
+		"requests refine THAT agent (proposed_update) or the task's own fields "
+		"(recommendations) — do not propose creating it again. Creating an "
+		"agent whose name or agent_id already exists always fails."
 	)
 
 
@@ -524,8 +539,15 @@ _PROPOSAL_FIELDS = {
 def _sanitize_proposed_config(proposed) -> dict | None:
 	"""Keep only the create-payload fields from a model proposal; normalize
 	sample prompts to {prompt, expected_behaviour} rows. None when there is
-	no usable proposal."""
+	no usable proposal — including a proposal to create an agent that already
+	exists (Create & link would only ever fail with a duplicate error)."""
 	if not isinstance(proposed, dict):
+		return None
+	agent_name = str(proposed.get("agent_name") or "").strip()
+	agent_id = str(proposed.get("agent_id") or "").strip() or (frappe.scrub(agent_name) if agent_name else "")
+	if agent_name and frappe.db.exists("AI Agent Configuration", {"agent_name": agent_name}):
+		return None
+	if agent_id and frappe.db.exists("AI Agent Configuration", {"agent_id": agent_id}):
 		return None
 	clean = {
 		key: str(value)

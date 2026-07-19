@@ -202,9 +202,22 @@ def create_agent_configuration(payload: str | dict) -> dict:
 		# label — fail fast here instead of guaranteeing a Needs Attention.
 		frappe.throw(_("A chat mode label is required for a chat agent."))
 
+	# Friendly duplicate guard — a raw DuplicateEntryError helps nobody.
+	agent_id = (payload.get("agent_id") or "").strip() or frappe.scrub(agent_name)
+	clash = frappe.db.exists("AI Agent Configuration", {"agent_name": agent_name}) or frappe.db.exists(
+		"AI Agent Configuration", {"agent_id": agent_id}
+	)
+	if clash:
+		frappe.throw(
+			_(
+				"An AI Agent Configuration named '{0}' already exists. "
+				"Link it instead of creating it again, or ask for a change to it."
+			).format(clash)
+		)
+
 	doc = frappe.new_doc("AI Agent Configuration")
 	doc.agent_name = agent_name
-	doc.agent_id = (payload.get("agent_id") or "").strip() or frappe.scrub(agent_name)
+	doc.agent_id = agent_id
 	doc.agent_framework = payload.get("agent_framework") or "Direct API"
 	doc.agent_type = "Chat"
 	doc.lifecycle_status = "Draft"
