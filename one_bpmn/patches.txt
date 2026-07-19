@@ -21,3 +21,4 @@ one_bpmn.one_bpmn.patches.v1_0.fix_logix_script_task_injected_vars #15-07-2026
 one_bpmn.one_bpmn.patches.v1_0.optimize_logix_generated_scripts #16-07-2026
 one_bpmn.one_bpmn.patches.v1_0.create_process_implementations_from_pathfinder_logs #16-07-2026
 one_bpmn.one_bpmn.patches.v1_0.remove_schema_sync_doctypes #19-07-2026
+one_bpmn.one_bpmn.patches.v1_0.add_logix_agent_tool_authoring #19-07-2026

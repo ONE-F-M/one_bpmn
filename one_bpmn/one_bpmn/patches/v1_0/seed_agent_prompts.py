@@ -12,9 +12,15 @@ Idempotent: skips if sub-prompts already exist (won't overwrite manual edits).
 """
 import frappe
 
-from one_bpmn.one_bpmn.patches.v1_0.fix_logix_script_task_injected_vars import (
+# Canonical writer/reviewer/tool-writer prompts live in the dual-contract patch
+# (script_task vs agent_tool — see docs/agent-tool-authoring-standard.md);
+# test_writer is unchanged since the injected-vars fix.
+from one_bpmn.one_bpmn.patches.v1_0.add_logix_agent_tool_authoring import (
 	SCRIPT_REVIEWER,
 	SCRIPT_WRITER,
+	TOOL_WRITER,
+)
+from one_bpmn.one_bpmn.patches.v1_0.fix_logix_script_task_injected_vars import (
 	TEST_WRITER,
 )
 
@@ -109,6 +115,12 @@ def _seed_logix():
 				"sub_agent_name": "Script Reviewer",
 				"temperature": 0.1,
 				"prompt_text": SCRIPT_REVIEWER,
+			},
+			{
+				"sub_agent_id": "tool_writer",
+				"sub_agent_name": "Tool Writer (Agent Tools)",
+				"temperature": 0.3,
+				"prompt_text": TOOL_WRITER,
 			},
 			{
 				"sub_agent_id": "test_writer",

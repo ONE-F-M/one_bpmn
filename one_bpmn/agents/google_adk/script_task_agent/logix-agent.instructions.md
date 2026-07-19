@@ -12,29 +12,33 @@ Logix is an AI assistant embedded in the Processa BPMN editor. It helps users wr
 Frappe API-type Server Scripts attached to BPMN Script Tasks. It is powered by Google ADK
 (`LlmAgent`, `Runner`, `InMemorySessionService`) and uses `gemini-2.0-flash` by default.
 
-## Architecture: 4-Agent Pipeline
+## Architecture: Sub-Agent Pipeline
 
 ```
-User message
-  └─► IntentClassifier  →  CREATE | MODIFY | DISAMBIGUATE
-         ├─ DISAMBIGUATE → Clarifier         (asks one clarifying question, writes no code)
-         └─ CREATE/MODIFY → ScriptWriter
-                              └─► ScriptReviewer
-                                    └─► validate_script()  ← security gate
+User message  (process_context carries shape_kind: script_task | agent_tool)
+  └─► IntentClassifier  →  CREATE | MODIFY | DISAMBIGUATE   (+ shape_kind routing)
+         ├─ DISAMBIGUATE → Clarifier            (asks one clarifying question, writes no code)
+         ├─ CREATE/MODIFY + script_task → ScriptWriter        (general dual-contract writer)
+         └─ CREATE/MODIFY + agent_tool  → ToolWriter          (specialist — Agent Tool standard)
+                              └─► ScriptReviewer   (receives "Shape kind: X" preamble; knows both contracts)
+                                    └─► validate_script()  ← security gate  → optimize_script()
                                           ├─ valid   → return final script + diff (MODIFY)
                                           └─ invalid → _build_regeneration_prompt() → retry (max 3)
 ```
 
-Every agent is a separate `LlmAgent` instance. They do NOT share session state across pipeline steps —
-each step calls `_run_agent()` with the same `session_id` but a fresh prompt.
+At runtime the pipeline stages are inlined DB Server Scripts ("Logix – Tool ...") called as
+Agent Tools by the "Run Logix Agent" AI Agent Task in the "Logix – Script Task Agent" process
+model. `classify_intent` returns `next` = `clarify` | `write_script` | `write_agent_tool`.
 
-## Script Contract (non-negotiable)
+## Script Contracts (non-negotiable — see `docs/agent-tool-authoring-standard.md`)
 
-BPMN Script Tasks run INSIDE the SpiffWorkflow engine
+There are TWO contracts, selected by `shape_kind` in `process_context`:
+
+**script_task** — runs INSIDE the SpiffWorkflow engine
 (`FrappeScriptEngine._run_frappe_server_script` in `one_bpmn/one_bpmn/engine.py`), **not** inside an
-HTTP request. `frappe.form_dict` is always empty and `frappe.response` is ignored. The engine injects
-`doc`, `context_doctype`, `context_docname`, `task_data`, `result`, and `frappe` as local variables;
-generated scripts must use them:
+HTTP request, in ONE merged exec namespace. `frappe.form_dict` is always empty and `frappe.response`
+is ignored. The engine injects `doc`, `context_doctype`, `context_docname`, `task_data`, `result`,
+and `frappe`; generated scripts must use them:
 
 ```python
 # Injected by the engine: doc, context_doctype, context_docname, task_data, result, frappe.
@@ -59,6 +63,19 @@ result["next_step"] = "manager_review"
   Do not redefine them.
 - Never use bare `return` — Server Scripts run as top-level code, so `return` is a SyntaxError.
   Use `if/else` for branching and `frappe.throw()` to abort.
+
+**agent_tool** — backs a shape inside an AI Agent Task's ad-hoc Tools sub-process, executed by
+`_run_server_script` in `one_bpmn/agents/shape_tools.py` against a synthetic task with SPLIT exec
+globals/locals. Injected: the calling LLM's arguments as top-level names (declared via
+`spiffworkflow:aiToolParams`), plus `frappe`, `context_doctype`, `context_docname`, `doc`, `result`.
+
+- NO workflow variables and NO `task_data` — reading `task_data` raises NameError.
+- STRAIGHT-LINE code only — an inline helper `def`/`lambda` referencing a top-level name dies with
+  NameError under split namespaces (imported module functions are fine).
+- Never raise for expected failures — report via `result["error"] = "..."` so the LLM can recover.
+- `result` must be a flat JSON-serialisable dict — it is serialised as the tool result the LLM reads.
+- The turn-state bridge (`get_turn(context_docname)` / `update_turn(...)`) is the CORRECT pattern for
+  reaching per-turn state — never "fix" thin wrappers into inline logic.
 
 ## Security Validator (`security/script_validator.py`)
 
@@ -91,7 +108,8 @@ All tools return strings (JSON or plain text). They never raise — errors are e
 
 - Credentials: read from `AI Chat Settings` DocType (`google_vertex_ai_api_key`, `gemini_model`).
 - Sub-prompt overrides: loaded from `AI Agent Configuration` via `get_agent_config(AGENT_ID)`.
-  Key names: `intent_classifier`, `clarifier`, `script_writer`, `script_reviewer`.
+  Key names: `intent_classifier`, `clarifier`, `script_writer`, `script_reviewer`, `test_writer`,
+  `tool_writer` (optional specialist — Agent Tool authoring standard).
 - `AGENT_ID = "logix_agent"`. Falls back to hardcoded `_DEFAULT_*_INSTRUCTION` strings if config is absent.
 
 ## Return Shape

@@ -404,13 +404,45 @@ class DirectApiExecutor(Executor):
         messages = list(config.messages) if config.messages else []
         messages.append({"role": "user", "content": config.user_prompt})
 
+        # ── Prompt caching (2 explicit breakpoints, max 4 allowed) ────────────
+        # Caching is a prefix match on the rendered prompt bytes. AI Agent Task
+        # system prompts and stage sub-prompts are identical across every turn
+        # of a conversation, so marking them cuts repeat-input cost by ~90%.
+        # 1. System prompt — sent as a content block so it can carry
+        #    cache_control (a plain string cannot). Prompts below the model's
+        #    minimum cacheable length are silently not cached — harmless.
+        # 2. Conversation prefix — when prior history is present, the last
+        #    history message gets a marker so the whole growing prefix
+        #    (system + all prior turns) is a single cache read next turn.
+        #    The final user_prompt stays after the marker: it varies per turn.
+        if messages and config.messages:
+            idx = len(config.messages) - 1
+            last = dict(messages[idx])  # copy — never mutate the caller's dicts
+            content = last.get("content")
+            if isinstance(content, str):
+                last["content"] = [{
+                    "type": "text",
+                    "text": content,
+                    "cache_control": {"type": "ephemeral"},
+                }]
+                messages[idx] = last
+            elif isinstance(content, list) and content and isinstance(content[-1], dict):
+                new_content = list(content)
+                new_content[-1] = {**content[-1], "cache_control": {"type": "ephemeral"}}
+                last["content"] = new_content
+                messages[idx] = last
+
         payload: dict = {
             "model": model,
             "messages": messages,
             "max_tokens": config.max_tokens,
         }
         if config.system_prompt:
-            payload["system"] = config.system_prompt
+            payload["system"] = [{
+                "type": "text",
+                "text": config.system_prompt,
+                "cache_control": {"type": "ephemeral"},
+            }]
 
         # Anthropic does not allow both temperature and top_p simultaneously.
         # Send temperature by default; only send top_p if it was explicitly
@@ -471,6 +503,12 @@ class DirectApiExecutor(Executor):
     @staticmethod
     def _parse_token_usage(usage_raw: dict) -> TokenUsage:
         prompt = usage_raw.get("prompt_tokens") or usage_raw.get("input_tokens") or 0
+        # Anthropic reports cached portions separately from input_tokens.
+        # Cache read/creation tokens ARE consumed context — just billed
+        # differently — so include them in the prompt count (mirrors
+        # llm_provider.anthropic_adapter._usage_tokens; pricing handles cost).
+        prompt += (usage_raw.get("cache_read_input_tokens") or 0)
+        prompt += (usage_raw.get("cache_creation_input_tokens") or 0)
         completion = usage_raw.get("completion_tokens") or usage_raw.get("output_tokens") or 0
         total = usage_raw.get("total_tokens") or (prompt + completion)
         return TokenUsage(

@@ -1,6 +1,7 @@
 # Copyright (c) 2026, kartiksharma9319@gmail.com and contributors
 # For license information, please see license.txt
 
+import json
 import re
 
 import frappe
@@ -320,6 +321,26 @@ def process_logix_message(
 				original_content = frappe.get_doc("Server Script", current_script).script or ""
 			except Exception:
 				pass
+
+		# Normalise shape_kind server-side. The editor labels the element, but the
+		# authoritative rule is the parent shape's type: an element inside an
+		# ad-hoc sub-process is an Agent Tool (shape_tools synthetic-task contract),
+		# anything else is a Script Task (engine contract). Re-derive from
+		# parent_type when available so a stale client label can't mislabel the
+		# script contract Logix writes to.
+		process_context = process_context or {}
+		if isinstance(process_context, str):
+			try:
+				process_context = json.loads(process_context)
+			except Exception:
+				process_context = {}
+		parent_type = (process_context.get("parent_type") or "").strip()
+		if parent_type:
+			process_context["shape_kind"] = (
+				"agent_tool" if parent_type == "AdHocSubProcess" else "script_task"
+			)
+		elif process_context.get("shape_kind") not in ("agent_tool", "script_task"):
+			process_context["shape_kind"] = "script_task"
 
 		# Hand the turn to the process map — it saves the user message, runs the
 		# agent (Call Agent) and saves the reply. We only deliver + return.
