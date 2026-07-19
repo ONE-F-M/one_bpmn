@@ -2,6 +2,7 @@
 # For license information, please see license.txt
 
 import frappe
+from frappe import _
 from frappe.model.document import Document
 
 
@@ -48,10 +49,17 @@ class AIAgentConfiguration(Document):
 		never overridden. Applies on every save path (form, endpoint, patch)."""
 		if self.agent_type != "Background" or self.lifecycle_status == "Retired":
 			return
-		provider_ok = self.ai_provider_credentials and frappe.db.get_value(
-			"AI Provider Credentials", self.ai_provider_credentials, "enabled"
-		)
-		self.lifecycle_status = "Live" if (self.enabled and provider_ok) else "Needs Attention"
+		reason = ""
+		if not self.enabled:
+			reason = _("The agent is disabled.")
+		elif not self.ai_provider_credentials:
+			reason = _("No AI Provider Credentials record is linked.")
+		elif not frappe.db.get_value("AI Provider Credentials", self.ai_provider_credentials, "enabled"):
+			reason = _("The linked AI Provider Credentials record '{0}' is disabled.").format(
+				self.ai_provider_credentials
+			)
+		self.lifecycle_status = "Needs Attention" if reason else "Live"
+		self.needs_attention_reason = reason
 
 	def validate_unique_chat_mode_label(self):
 		"""Two enabled chat agents must never claim the same conversation mode —
@@ -130,6 +138,21 @@ class AIAgentConfiguration(Document):
 	def on_update(self):
 		"""Clear cached config when this record is saved."""
 		frappe.cache.delete_value(f"agent_config:{self.agent_id}")
+		# WI-001652: leave a timeline trail when a save parks the agent.
+		# (The creation process's park path writes its own comment — this
+		# covers the controller-driven Background auto-lifecycle.)
+		prev = getattr(self, "_doc_before_save", None)
+		if (
+			self.lifecycle_status == "Needs Attention"
+			and self.needs_attention_reason
+			# fresh insert straight into Needs Attention (prev is None), or a
+			# genuine transition — but not every re-save while already parked
+			and (prev is None or prev.get("lifecycle_status") != "Needs Attention")
+		):
+			try:
+				self.add_comment("Comment", _("Needs Attention: {0}").format(self.needs_attention_reason))
+			except Exception:
+				pass
 
 
 def get_agent_config(agent_id: str) -> dict | None:
