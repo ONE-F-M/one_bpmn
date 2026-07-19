@@ -1325,9 +1325,24 @@ def get_process_diagrams(process: str) -> dict:
 	diagrams = frappe.get_list(
 		"BPMN Process Model",
 		filters={"process_name": process},
-		fields=["name", "title", "process_id", "description", "version", "is_active", "modified", "modified_by"],
+		fields=[
+			"name",
+			"title",
+			"process_id",
+			"description",
+			"version",
+			"is_active",
+			"modified",
+			"modified_by",
+			"process_implementation",
+		],
 		order_by="is_active desc, modified desc",
 	)
+
+	# Flag which diagrams are editable via their linked Process Implementation
+	from one_bpmn.api.editability import annotate_model_editability
+
+	annotate_model_editability(diagrams)
 
 	# Resolve user emails to full names for frontend display
 	user_emails = list({d["modified_by"] for d in diagrams if d.get("modified_by")})

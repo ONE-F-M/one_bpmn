@@ -54,6 +54,84 @@ class TestLogixExtractCode(FrappeTestCase):
         self.assertEqual(tools.extract_code(""), "")
 
 
+class TestLogixOptimizeScript(FrappeTestCase):
+    def test_removes_unused_import(self):
+        out = tools.optimize_script("import re\nresult['x'] = doc.name\n")
+        self.assertNotIn("import re", out)
+        self.assertIn("result['x'] = doc.name", out)
+
+    def test_keeps_used_import(self):
+        src = "import json\nresult['x'] = json.dumps({'a': 1})\n"
+        self.assertEqual(tools.optimize_script(src), src)
+
+    def test_removes_unused_pure_assignment(self):
+        out = tools.optimize_script("unused = 5\nresult['ok'] = True\n")
+        self.assertNotIn("unused = 5", out)
+        self.assertIn("result['ok'] = True", out)
+
+    def test_keeps_unused_side_effecting_assignment(self):
+        # RHS is a call → may have needed side effects → keep the whole line.
+        src = "row = frappe.db.set_value('X', 'n', 'f', 1)\nresult['done'] = True\n"
+        self.assertEqual(tools.optimize_script(src), src)
+
+    def test_keeps_used_assignment(self):
+        src = "name = doc.name\nresult['n'] = name\n"
+        self.assertEqual(tools.optimize_script(src), src)
+
+    def test_never_removes_engine_injected_names(self):
+        # `result` is injected and read back by the engine; never treat a bare
+        # rebinding as dead even when the script itself never reads it again.
+        src = "result = {}\nfrappe.msgprint('hi')\n"
+        self.assertIn("result = {}", tools.optimize_script(src))
+
+    def test_fixpoint_removes_chained_dead_bindings(self):
+        # `a` unused-pure → drop; that orphans `b` (also pure) → drop next pass.
+        out = tools.optimize_script("b = 1\na = b\nresult['ok'] = True\n")
+        self.assertNotIn("a = b", out)
+        self.assertNotIn("b = 1", out)
+        self.assertIn("result['ok'] = True", out)
+
+    def test_removes_dead_var_inside_block(self):
+        # `y` is unused+pure and on its own line inside the block; a sibling
+        # statement remains so the block stays valid after removal.
+        src = "if doc.name:\n    y = 1\n    result['ok'] = True\n"
+        out = tools.optimize_script(src)
+        self.assertNotIn("y = 1", out)
+        self.assertIn("result['ok'] = True", out)
+
+    def test_does_not_mangle_compound_one_liner(self):
+        # `z` shares its physical line with the `if` header → never line-deleted.
+        one_liner = "if doc.name: z = 1\nresult['ok'] = True\n"
+        self.assertEqual(tools.optimize_script(one_liner), one_liner)
+
+    def test_preserves_comments(self):
+        src = "# important context\nname = doc.name\nresult['n'] = name\n"
+        self.assertIn("# important context", tools.optimize_script(src))
+
+    def test_syntax_error_returns_original_unchanged(self):
+        bad = "def broken(:\n  pass"
+        self.assertEqual(tools.optimize_script(bad), bad)
+
+    def test_empty_input_is_safe(self):
+        self.assertEqual(tools.optimize_script(""), "")
+        self.assertEqual(tools.optimize_script("   "), "   ")
+
+    def test_keeps_del_target_binding(self):
+        # A later `del x` would NameError if we dropped `x = {}`.
+        src = "x = {}\ndel x\nresult['ok'] = True\n"
+        self.assertIn("x = {}", tools.optimize_script(src))
+
+    def test_replace_code_block_swaps_body(self):
+        text = "Here:\n```python\nimport re\nx = 1\n```\nDone."
+        out = tools.replace_code_block(text, "x = 1")
+        self.assertIn("```python\nx = 1\n```", out)
+        self.assertIn("Here:", out)
+        self.assertIn("Done.", out)
+
+    def test_replace_code_block_no_fence_unchanged(self):
+        self.assertEqual(tools.replace_code_block("no code here", "x=1"), "no code here")
+
+
 class TestLogixRegistry(FrappeTestCase):
     def test_registry_has_expected_tools(self):
         names = {t.name for t in tools.LOGIX_TOOLS}

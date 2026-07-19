@@ -34,7 +34,7 @@ jobs:
             bench setup requirements one_bpmn
             cd /home/ubuntu/sandbox-bench/apps/one_bpmn/spiff
             yarn install
-            export NODE_OPTIONS="--max-old-space-size=4096"
+            export NODE_OPTIONS="--max-old-space-size=8192"
             yarn build
             cd /home/ubuntu/sandbox-bench
             bench --site business-analyst.one-fm.com migrate
