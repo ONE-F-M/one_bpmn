@@ -263,7 +263,9 @@
       <div class="assistant-panel">
         <div class="assistant-header">
           <span class="assistant-title">✦ AI Assistant</span>
-          <span v-if="form.aiProvider" class="assistant-sub">via {{ providerLabel }}</span>
+          <!-- WI-001623: the assistant runs on its own configuration's
+               credentials, not the task's — don't imply otherwise. -->
+          <span class="assistant-sub">runs on its own credentials</span>
         </div>
 
         <!-- WI-001650: the assistant is always available — with no linked
