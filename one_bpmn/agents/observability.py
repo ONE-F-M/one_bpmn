@@ -47,11 +47,20 @@ def create_ai_run(
 	"""
 	import frappe
 
-	# WI-001636: attribute the run to the AI Agent Configuration that owns
-	# this process model. Runs from maps no configuration owns carry none.
-	owning_model = process_model or getattr(instance, "process_model", "") or ""
+	# WI-001636/WI-001608: attribute the run to its AI Agent Configuration.
+	# Primary source: the shape's own aiAgentConfig link (every AI shape
+	# carries one since WI-001650) — covers task AND selector runs. Fallback:
+	# the configuration that owns this process model (chat maps provisioned
+	# before the live link). Runs nobody owns carry none.
 	agent_configuration = None
-	if owning_model:
+	try:
+		shape_cfg = (getattr(instance, "_service_task_extensions", {}) or {}).get(bpmn_id, {}).get("aiAgentConfig")
+		if shape_cfg and frappe.db.exists("AI Agent Configuration", shape_cfg):
+			agent_configuration = shape_cfg
+	except Exception:
+		agent_configuration = None
+	owning_model = process_model or getattr(instance, "process_model", "") or ""
+	if not agent_configuration and owning_model:
 		try:
 			agent_configuration = frappe.db.get_value(
 				"AI Agent Configuration",

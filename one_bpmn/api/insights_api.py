@@ -137,18 +137,26 @@ def get_cost_token_report(
 	provider: str = None,
 	process_model: str = None,
 	agent_configuration: str = None,
+	group_by: str = "model",
 ) -> dict:
-	"""Return daily cost/token data grouped by date and model."""
+	"""Return daily cost/token data grouped by date and model — or, since
+	AI tasks are done by AI Agents (WI-001608), grouped by the run's
+	AI Agent Configuration when ``group_by="agent"``. Runs recorded before
+	agent attribution existed appear as "Unattributed"."""
 	frappe.only_for("System Manager")
+	group_by = group_by if group_by in ("model", "agent") else "model"
 	from_d, to_d = _default_dates(from_date, to_date)
 
 	Run = DocType("AI Agent Run")
+
+	# The series dimension: model (classic) or the run's agent (WI-001608).
+	group_field = Run.agent_configuration if group_by == "agent" else Run.model
 
 	query = (
 		frappe.qb.from_(Run)
 		.select(
 			fn.Date(Run.started_at).as_("date"),
-			Run.model,
+			group_field.as_("group_key"),
 			Run.provider,
 			fn.Count("*").as_("total_runs"),
 			fn.Sum(Run.total_tokens).as_("total_tokens"),
@@ -165,9 +173,9 @@ def get_cost_token_report(
 		# refreshed after every decision — excluding them hid all selector
 		# spend until (if ever) the subprocess completed. Success-rate and
 		# reliability reports still exclude Running, correctly.
-		.groupby(fn.Date(Run.started_at), Run.model, Run.provider)
 		.orderby(fn.Date(Run.started_at))
 	)
+	query = query.groupby(fn.Date(Run.started_at), group_field, Run.provider)
 
 	if model:
 		query = query.where(Run.model == model)
@@ -180,12 +188,17 @@ def get_cost_token_report(
 
 	raw_rows = query.run(as_dict=True)
 
-	# Build rows with safe number conversions
+	# Build rows with safe number conversions. "series" is the grouped
+	# dimension's display value; "model" keeps carrying it too so the
+	# existing frontend bindings keep working in both modes.
+	unattributed = "Unattributed"
 	rows = []
 	for r in raw_rows:
+		series = cstr(r.get("group_key")) or (unattributed if group_by == "agent" else "")
 		rows.append({
 			"date": cstr(r.get("date")),
-			"model": cstr(r.get("model")),
+			"series": series,
+			"model": series,
 			"provider": cstr(r.get("provider")),
 			"total_runs": cint(r.get("total_runs")),
 			"total_tokens": cint(r.get("total_tokens")),
@@ -196,24 +209,25 @@ def get_cost_token_report(
 			"output_cost": flt(r.get("output_cost"), 6),
 		})
 
-	# Build chart_data — pivot by model per day
+	# Build chart_data — pivot by the grouped dimension per day
 	all_dates = []
 	d = from_d
 	while d <= to_d:
 		all_dates.append(cstr(d))
 		d = getdate(add_days(cstr(d), 1))
 
-	model_day_cost = defaultdict(lambda: defaultdict(float))
-	models_seen = set()
+	series_day_cost = defaultdict(lambda: defaultdict(float))
+	series_seen = set()
 	for r in rows:
-		model_day_cost[r["model"]][r["date"]] += r["total_cost"]
-		models_seen.add(r["model"])
+		series_day_cost[r["series"]][r["date"]] += r["total_cost"]
+		series_seen.add(r["series"])
 
 	datasets = []
-	for m in sorted(models_seen):
+	for m in sorted(series_seen):
 		datasets.append({
-			"model": m,
-			"values": [flt(model_day_cost[m].get(d, 0), 6) for d in all_dates],
+			"model": m,  # legacy key the chart legend binds to
+			"label": m,
+			"values": [flt(series_day_cost[m].get(d, 0), 6) for d in all_dates],
 		})
 
 	# Summary
