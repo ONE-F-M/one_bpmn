@@ -1121,14 +1121,17 @@ def _lint_ai_provider_config(_bpmn_xml: str, service_extensions: dict) -> None:
 					exc=frappe.ValidationError,
 				)
 
-		# An AI Task Selector is unusable without a provider — block the save
-		# outright (WI-001351 Scenario 4); a plain AI Agent Task may still be
-		# a work-in-progress draft, so only its non-empty reference is checked.
-		if service_type == "ai_task_selector" and not provider_name and not agent_config:
+		# WI-001650: every LLM-calling shape — AI Agent Task and AI Task
+		# Selector alike — must be backed by an AI Agent Configuration. Raw
+		# provider setup is retired; deploying a config-less AI shape is
+		# blocked. (The shape's copied fields remain the runtime fallback for
+		# a config deleted AFTER deploy — resilience, not an authoring path.)
+		if not agent_config:
 			frappe.throw(
 				_(
-					"AI Task Selector on '{0}' has no AI Provider Credentials or AI Agent "
-					"Configuration configured. Select one before saving."
+					"AI shape '{0}' has no linked AI Agent Configuration. Link an "
+					"existing agent or create one from the task dialog — setting up "
+					"an AI task with a raw provider has been retired (WI-001650)."
 				).format(bpmn_id),
 				exc=frappe.ValidationError,
 			)
