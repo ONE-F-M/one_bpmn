@@ -369,6 +369,32 @@
                   <div class="rec-value">{{ valuePreview(value) }}</div>
                 </div>
               </div>
+
+              <!-- New-agent proposal card (WI-001649). The assistant PROPOSES;
+                   the designer confirms; only then is the record created (via
+                   the same endpoint as the manual "+ Create new…" panel) and
+                   the creation process takes it to Live. -->
+              <div v-if="m.proposal" class="proposal">
+                <div class="proposal-title">Create this agent?</div>
+                <table class="proposal-fields">
+                  <tbody>
+                    <tr v-for="(value, key) in proposalRows(m.proposal)" :key="key">
+                      <td class="proposal-key">{{ key }}</td>
+                      <td class="proposal-value">{{ valuePreview(value) }}</td>
+                    </tr>
+                  </tbody>
+                </table>
+                <div v-if="m.proposalState === 'created'" class="proposal-done">
+                  ✓ Created and linked{{ m.proposalResult?.creation_instance ? ` — creation process running (${m.proposalResult.creation_instance})` : "" }}
+                </div>
+                <div v-else-if="m.proposalState === 'dismissed'" class="proposal-done">Dismissed — nothing was created.</div>
+                <div v-else class="proposal-actions">
+                  <button class="btn-cancel" :disabled="m.proposalState === 'creating'" @click="m.proposalState = 'dismissed'">Dismiss</button>
+                  <button class="btn-save" :disabled="m.proposalState === 'creating'" @click="createProposedAgent(m)">
+                    {{ m.proposalState === "creating" ? "Creating…" : "Create & link" }}
+                  </button>
+                </div>
+              </div>
             </div>
 
             <div v-if="loading" class="msg msg-assistant">
@@ -759,6 +785,10 @@ async function sendMessage() {
         role: "assistant",
         content: res.message || "Here are my recommendations.",
         recommendations,
+        // WI-001649: a complete new-agent proposal the designer can confirm.
+        proposal: !isSelector.value && res.proposed_config ? res.proposed_config : null,
+        proposalState: null, // null | "creating" | "created" | "dismissed"
+        proposalResult: null,
       });
     } else {
       const err = (res && (res.message || res.error_code)) || "The assistant request failed.";
@@ -911,6 +941,55 @@ async function onAgentConfigSelect() {
     });
   } catch (e) {
     /* leave the current field values as-is if the seed lookup fails */
+  }
+}
+
+// WI-001649: human-readable rows for the proposal card.
+const PROPOSAL_LABELS = {
+  agent_name: "Name",
+  agent_id: "Agent ID",
+  chat_mode_label: "Chat mode label",
+  ai_provider_credentials: "Provider",
+  system_prompt: "System prompt",
+  description: "Description",
+};
+function proposalRows(proposal) {
+  const rows = {};
+  for (const [key, label] of Object.entries(PROPOSAL_LABELS)) {
+    if (proposal[key]) rows[label] = proposal[key];
+  }
+  if (Array.isArray(proposal.sample_prompts) && proposal.sample_prompts.length) {
+    rows["Sample prompts"] = proposal.sample_prompts.map((sp) => sp.prompt).join(" • ");
+  }
+  return rows;
+}
+
+// WI-001649: confirm the assistant's proposal — same endpoint as the manual
+// "+ Create new…" panel, so permission checks and the Chat+Draft insert (which
+// starts the creation process) are identical. On success the new agent is
+// linked on this shape and its values pulled into the form.
+async function createProposedAgent(m) {
+  if (m.proposalState === "creating") return;
+  m.proposalState = "creating";
+  try {
+    const res = await frappeRequest({
+      url: "/api/method/one_bpmn.agents.agent_config_resolver.create_agent_configuration",
+      method: "POST",
+      params: { payload: JSON.stringify(m.proposal) },
+    });
+    agentConfigs.value.push({ name: res.name, agent_id: res.agent_id });
+    form.value.aiAgentConfig = res.name;
+    await onAgentConfigSelect();
+    m.proposalState = "created";
+    m.proposalResult = res;
+  } catch (e) {
+    m.proposalState = null;
+    messages.value.push({
+      id: makeId(),
+      role: "assistant",
+      content: "⚠️ Could not create the agent: " + (e?.message || e),
+    });
+    scrollBottom();
   }
 }
 
@@ -1442,6 +1521,50 @@ async function save() {
 }
 .assistant-send:hover { background: #4f46e5; }
 .assistant-send:disabled { background: #cbd5e1; cursor: default; }
+
+/* ── Assistant new-agent proposal card (WI-001649) ── */
+.proposal {
+  margin-top: 8px;
+  padding: 10px;
+  border: 1px solid #c7d2fe;
+  border-radius: 8px;
+  background: #eef2ff;
+}
+.proposal-title {
+  font-weight: 600;
+  font-size: 13px;
+  color: #3730a3;
+  margin-bottom: 6px;
+}
+.proposal-fields {
+  width: 100%;
+  font-size: 12px;
+  border-collapse: collapse;
+}
+.proposal-key {
+  color: #6366f1;
+  font-weight: 600;
+  padding: 2px 8px 2px 0;
+  white-space: nowrap;
+  vertical-align: top;
+}
+.proposal-value {
+  color: #1e293b;
+  padding: 2px 0;
+  word-break: break-word;
+}
+.proposal-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+  margin-top: 8px;
+}
+.proposal-done {
+  margin-top: 8px;
+  font-size: 12px;
+  font-weight: 600;
+  color: #15803d;
+}
 
 /* ── Create-new-agent panel (WI-001648) ── */
 .create-agent-panel {
