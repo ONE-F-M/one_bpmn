@@ -96,6 +96,14 @@
    "description": "Owned by the agent-creation process — stamped as each stage completes."
   },
   {
+   "fieldname": "needs_attention_reason",
+   "fieldtype": "Small Text",
+   "label": "Needs Attention Reason",
+   "read_only": 1,
+   "hidden": 1,
+   "description": "Why the last go-live attempt parked this agent — surfaced as a form intro banner, not a field. Cleared automatically when the agent leaves Needs Attention."
+  },
+  {
    "fieldname": "column_break_basics",
    "fieldtype": "Column Break"
   },

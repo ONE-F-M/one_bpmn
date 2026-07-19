@@ -72,8 +72,22 @@ def validate_agent_config(config_name: str, test_provider: bool = True) -> dict:
 	return {"ok": not errors, "errors": errors, "warnings": warnings}
 
 
-def _set_status(config_name: str, status: str):
-	frappe.db.set_value("AI Agent Configuration", config_name, "lifecycle_status", status, update_modified=False)
+def _set_status(config_name: str, status: str, reason: str = None):
+	"""Stamp the lifecycle stage. Needs Attention carries WHY (shown as a
+	form intro banner + timeline comment); every other stage clears it."""
+	values = {"lifecycle_status": status}
+	if status == "Needs Attention":
+		values["needs_attention_reason"] = (reason or "").strip() or "See the Error Log for details."
+	else:
+		values["needs_attention_reason"] = ""
+	frappe.db.set_value("AI Agent Configuration", config_name, values, update_modified=False)
+	if status == "Needs Attention":
+		try:
+			frappe.get_doc("AI Agent Configuration", config_name).add_comment(
+				"Comment", "Needs Attention: " + values["needs_attention_reason"]
+			)
+		except Exception:
+			pass  # a failed comment must never block the status stamp
 	frappe.db.commit()
 
 
@@ -95,7 +109,7 @@ def provision_agent(config_name: str):
 		_set_status(config_name, "Validating")
 		result = validate_agent_config(config_name)
 		if not result["ok"]:
-			_set_status(config_name, "Needs Attention")
+			_set_status(config_name, "Needs Attention", reason="; ".join(result["errors"]))
 			frappe.log_error(
 				title=f"Agent provisioning: validation failed ({cfg.agent_id})",
 				message="\n".join(result["errors"]),
@@ -110,7 +124,10 @@ def provision_agent(config_name: str):
 			_set_status(config_name, "Evaluating")
 			passed = _run_baseline_eval(suite_name)
 			if passed is False and frappe.db.get_value("AI Eval Suite", suite_name, "gate_deployment"):
-				_set_status(config_name, "Needs Attention")
+				_set_status(
+					config_name, "Needs Attention",
+					reason=f"Baseline eval suite '{suite_name}' did not pass and gates deployment.",
+				)
 				frappe.log_error(
 					title=f"Agent provisioning: eval gate failed ({cfg.agent_id})",
 					message=f"Baseline suite {suite_name} did not pass and gates deployment.",
@@ -119,7 +136,11 @@ def provision_agent(config_name: str):
 
 		_set_status(config_name, "Live")
 	except Exception:
-		_set_status(config_name, "Needs Attention")
+		_set_status(
+			config_name, "Needs Attention",
+			reason="The go-live flow crashed unexpectedly — see the Error Log "
+			f"entry 'Agent provisioning failed ({cfg.agent_id})'.",
+		)
 		frappe.log_error(
 			title=f"Agent provisioning failed ({cfg.agent_id})",
 			message=frappe.get_traceback(),
