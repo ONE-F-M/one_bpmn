@@ -182,7 +182,11 @@ def generate_eval_suite_for_agent(config_name: str) -> str | None:
 	"""
 	cfg = frappe.get_doc("AI Agent Configuration", config_name)
 	samples = cfg.get("sample_prompts") or []
-	if not samples or not cfg.process_model:
+	# WI-001648: process_model is optional — the eval cases run direct_api
+	# against the agent's prompt + credentials, so a suite can be generated
+	# before the chat map is provisioned (e.g. a config created from Processa
+	# with sample prompts declared up front).
+	if not samples:
 		return None
 
 	suite_title = f"{cfg.agent_name} — Baseline"
@@ -194,7 +198,7 @@ def generate_eval_suite_for_agent(config_name: str) -> str | None:
 		suite = frappe.get_doc({
 			"doctype": "AI Eval Suite",
 			"title": suite_title,
-			"process_model": cfg.process_model,
+			"process_model": cfg.process_model or None,
 			"description": _("Baseline suite generated from {0}'s sample prompts.").format(cfg.agent_name),
 		}).insert(ignore_permissions=True)
 
@@ -208,7 +212,7 @@ def generate_eval_suite_for_agent(config_name: str) -> str | None:
 			"doctype": "AI Eval Case",
 			"title": f"{suite_title} — {i}",
 			"suite": suite.name,
-			"process_model": cfg.process_model,
+			"process_model": cfg.process_model or None,
 			"provider": cfg.ai_provider_credentials,
 			"model": judge_model,
 			"backend": "direct_api",

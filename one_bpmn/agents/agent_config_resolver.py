@@ -158,6 +158,64 @@ def update_agent_config_from_shape(config_name: str, fields: str | dict) -> dict
 	return {"ok": True, "updated": changed, "reprovisioned": reprovisioned}
 
 
+@frappe.whitelist()
+def create_agent_configuration(payload: str | dict) -> dict:
+	"""Create a new AI Agent Configuration from the Processa editor (WI-001648).
+
+	Inserted as **Chat + Draft with the caller's permissions**, so the
+	AI Agent Creation Process start trigger fires on insert exactly as it
+	does for a config created from the doctype form — the agent walks
+	validate → provision → evaluate → Live on its own. Sample prompts (with
+	optional expected behaviour) become the baseline eval suite during the
+	process's Evaluate step.
+
+	Returns the new record's name plus the creation-process instance the
+	insert started (None when the creation model is inactive on this site).
+	"""
+	if isinstance(payload, str):
+		payload = frappe.parse_json(payload) or {}
+	frappe.has_permission("AI Agent Configuration", "create", throw=True)
+
+	agent_name = (payload.get("agent_name") or "").strip()
+	if not agent_name:
+		frappe.throw(_("Agent name is required."))
+	chat_mode_label = (payload.get("chat_mode_label") or "").strip()
+	if not chat_mode_label:
+		# The creation process's Validate step rejects chat agents without a
+		# label — fail fast here instead of guaranteeing a Needs Attention.
+		frappe.throw(_("A chat mode label is required for a chat agent."))
+
+	doc = frappe.new_doc("AI Agent Configuration")
+	doc.agent_name = agent_name
+	doc.agent_id = (payload.get("agent_id") or "").strip() or frappe.scrub(agent_name)
+	doc.agent_framework = payload.get("agent_framework") or "Direct API"
+	doc.agent_type = "Chat"
+	doc.lifecycle_status = "Draft"
+	doc.enabled = 1
+	doc.chat_mode_label = chat_mode_label
+	doc.ai_provider_credentials = payload.get("ai_provider_credentials") or None
+	doc.system_prompt = payload.get("system_prompt") or ""
+	doc.description = payload.get("description") or ""
+	for row in payload.get("sample_prompts") or []:
+		if (row.get("prompt") or "").strip():
+			doc.append("sample_prompts", {
+				"prompt": row["prompt"],
+				"expected_behaviour": row.get("expected_behaviour") or "",
+			})
+	doc.insert()  # caller's permissions; the After-Insert trigger starts the process
+
+	creation_instance = frappe.db.get_value(
+		"BPMN Process Instance",
+		{
+			"process_model": CREATION_PROCESS_MODEL,
+			"context_doctype": "AI Agent Configuration",
+			"context_docname": doc.name,
+		},
+		"name",
+	)
+	return {"name": doc.name, "agent_id": doc.agent_id, "creation_instance": creation_instance}
+
+
 def _start_reprovision(config_name: str) -> bool:
 	"""Send a Live agent back through the creation process after a write-back.
 
