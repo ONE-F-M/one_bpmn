@@ -199,6 +199,9 @@ def generate_eval_suite_for_agent(config_name: str) -> str | None:
 			"description": _("Baseline suite generated from {0}'s sample prompts.").format(cfg.agent_name),
 		}).insert(ignore_permissions=True)
 
+	# AI Eval Case requires a model, and llm_judge assertions require a judge
+	# model — both are mandatory fields. Resolve the provider's default model
+	# once and reuse it for the case and its judge.
 	judge_provider = cfg.ai_provider_credentials
 	judge_model = frappe.db.get_value("AI Provider Credentials", judge_provider, "default_model") or ""
 	for i, sample in enumerate(samples, start=1):
