@@ -401,6 +401,31 @@
                   </button>
                 </div>
               </div>
+
+              <!-- Update-existing-agent proposal card (WI-001649 amendment).
+                   Confirming calls the WI-001637 write-back endpoint — the
+                   assistant itself never writes. -->
+              <div v-if="m.update" class="proposal">
+                <div class="proposal-title">Apply this change to {{ m.update.config_name }}?</div>
+                <table class="proposal-fields">
+                  <tbody>
+                    <tr v-for="(value, key) in m.update.fields" :key="key">
+                      <td class="proposal-key">{{ fieldLabel(key) }}</td>
+                      <td class="proposal-value">{{ valuePreview(value) }}</td>
+                    </tr>
+                  </tbody>
+                </table>
+                <div v-if="m.updateState === 'applied'" class="proposal-done">
+                  ✓ Applied — {{ (m.updateResult?.updated || []).join(", ") || "no fields changed" }}{{ m.updateResult?.reprovisioned ? " — the agent is re-provisioning (validate → Live)" : "" }}
+                </div>
+                <div v-else-if="m.updateState === 'dismissed'" class="proposal-done">Dismissed — nothing was changed.</div>
+                <div v-else class="proposal-actions">
+                  <button class="btn-cancel" :disabled="m.updateState === 'applying'" @click="m.updateState = 'dismissed'">Dismiss</button>
+                  <button class="btn-save" :disabled="m.updateState === 'applying'" @click="applyProposedUpdate(m)">
+                    {{ m.updateState === "applying" ? "Applying…" : "Apply & save" }}
+                  </button>
+                </div>
+              </div>
             </div>
 
             <div v-if="loading" class="msg msg-assistant">
@@ -686,6 +711,7 @@ const appliedKeys = ref(new Set()); // "<msgId>:<field>"
 
 // Human-readable labels for recommendation fields (keys match form keys).
 const FIELD_LABELS = {
+  aiProvider: "AI Provider",
   aiBackend: "Backend",
   aiModel: "Model",
   aiOutputVariable: "Output Variable",
@@ -803,6 +829,9 @@ async function sendMessage() {
         context_doctype: contextDoctype.value.trim(),
         context_docname: contextDocname.value.trim(),
         history: JSON.stringify(history),
+        // WI-001649 amendment: the linked config is the default target for
+        // "change this agent…" requests — no interrogation needed.
+        linked_config: form.value.aiAgentConfig || "",
         ...diagramPayload,
       },
     });
@@ -825,6 +854,10 @@ async function sendMessage() {
         proposal: !isSelector.value && res.proposed_config ? res.proposed_config : null,
         proposalState: null, // null | "creating" | "created" | "dismissed"
         proposalResult: null,
+        // WI-001649 amendment: a proposed change to an EXISTING agent.
+        update: !isSelector.value && res.proposed_update ? res.proposed_update : null,
+        updateState: null, // null | "applying" | "applied" | "dismissed"
+        updateResult: null,
       });
     } else {
       const err = (res && (res.message || res.error_code)) || "The assistant request failed.";
@@ -1032,6 +1065,39 @@ async function createProposedAgent(m) {
       id: makeId(),
       role: "assistant",
       content: "⚠️ Could not create the agent: " + (e?.message || e),
+    });
+    scrollBottom();
+  }
+}
+
+// WI-001649 amendment: confirm the assistant's update proposal — same
+// endpoint as the dialog's Save write-back (WI-001637): permission-checked,
+// a Needs-Attention agent's waiting instance resumes on save, a Live chat
+// agent re-provisions. If the changed config is the one linked on this shape,
+// its fresh values are pulled back into the form and the badge refreshed.
+async function applyProposedUpdate(m) {
+  if (m.updateState === "applying") return;
+  m.updateState = "applying";
+  try {
+    const res = await frappeRequest({
+      url: "/api/method/one_bpmn.agents.agent_config_resolver.update_agent_config_from_shape",
+      method: "POST",
+      params: {
+        config_name: m.update.config_name,
+        fields: JSON.stringify(m.update.fields),
+      },
+    });
+    m.updateState = "applied";
+    m.updateResult = res;
+    if (form.value.aiAgentConfig === m.update.config_name) {
+      await onAgentConfigSelect();
+    }
+  } catch (e) {
+    m.updateState = null;
+    messages.value.push({
+      id: makeId(),
+      role: "assistant",
+      content: "⚠️ Could not apply the change: " + (e?.message || e),
     });
     scrollBottom();
   }
