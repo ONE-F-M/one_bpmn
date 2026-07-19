@@ -427,7 +427,19 @@ def _creation_capability_block() -> str:
 		"for it via \"message\" instead — do not guess values, do not invent "
 		"provider names, and never include \"proposed_config\" until the "
 		"proposal is complete. The designer confirms the proposal in the UI "
-		"before anything is created."
+		"before anything is created.\n\n"
+		"CAPABILITY LIMITS (hard, non-negotiable):\n"
+		"You cannot read-modify-write ANY record. You have no update, save, or "
+		"delete capability of any kind — your only side-effect path is the "
+		"\"proposed_config\" object above, and even that only takes effect after "
+		"the designer confirms it in the UI. In particular, you CANNOT change an "
+		"existing AI Agent Configuration (its provider, prompt, or any field). "
+		"When asked to, say plainly that you cannot, and direct the designer to: "
+		"open the AI Agent Configuration record in the desk to change its "
+		"provider or other fields; or, for the prompt and sampling params, edit "
+		"them in this dialog and press Save, which writes back to the linked "
+		"configuration. NEVER state or imply that you performed an action — "
+		"reporting an update you did not make is the worst possible answer."
 	)
 
 
