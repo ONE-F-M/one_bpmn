@@ -62,7 +62,7 @@
                 <select v-model="newAgent.ai_model">
                   <option value="">-- Pick a Model --</option>
                   <option v-for="m in catalogModels" :key="m.name" :value="m.name">
-                    {{ m.name }} — via {{ m.ai_provider_credentials || "no credentials linked" }}
+                    {{ m.name }} — via {{ m.ai_provider_credentials }}
                   </option>
                 </select>
               </div>
@@ -130,7 +130,7 @@
                 {{ form.aiModel }} (not in catalog)
               </option>
               <option v-for="m in catalogModels" :key="m.name" :value="m.name">
-                {{ m.name }} — via {{ m.ai_provider_credentials || "no credentials linked" }}
+                {{ m.name }} — via {{ m.ai_provider_credentials }}
               </option>
             </select>
           </div>
@@ -903,15 +903,21 @@ onMounted(async () => {
     providers.value = [];
   }
 
-  // WI-001655: the AI Model catalog for the create panel — picking a model
-  // implies its credentials, so there is no provider picker.
+  // WI-001655: the AI Model catalog — picking a model implies its
+  // credentials. Only USABLE models are offered: linked to credentials
+  // that are enabled (same rule as the assistant's grounding); unlinked
+  // catalog rows are managed in the desk until someone links them.
   try {
     const models = await frappeGet("/api/resource/AI Model", {
       fields: JSON.stringify(["name", "ai_provider_credentials"]),
+      filters: JSON.stringify([["ai_provider_credentials", "is", "set"]]),
       limit_page_length: 100,
       order_by: "name asc",
     });
-    catalogModels.value = Array.isArray(models) ? models : [];
+    const enabledCreds = new Set(providers.value.map((p) => p.name));
+    catalogModels.value = (Array.isArray(models) ? models : []).filter(
+      (m) => enabledCreds.has(m.ai_provider_credentials)
+    );
   } catch (e) {
     catalogModels.value = [];
   }
