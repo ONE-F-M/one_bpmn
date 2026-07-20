@@ -58,10 +58,12 @@
                 <input type="text" v-model="newAgent.chat_mode_label" placeholder="e.g. Leave Summarizer" />
               </div>
               <div>
-                <label>AI Provider</label>
-                <select v-model="newAgent.ai_provider_credentials">
-                  <option value="">-- Select Provider --</option>
-                  <option v-for="p in providers" :key="p.name" :value="p.name">{{ p.provider_name }}</option>
+                <label>AI Model <span class="hint">(provider follows the model)</span></label>
+                <select v-model="newAgent.ai_model">
+                  <option value="">-- Pick a Model --</option>
+                  <option v-for="m in catalogModels" :key="m.name" :value="m.name">
+                    {{ m.name }} — via {{ m.ai_provider_credentials || "no credentials linked" }}
+                  </option>
                 </select>
               </div>
             </div>
@@ -518,6 +520,7 @@ const emit = defineEmits(["close"]);
 
 const providers = ref([]);
 const agentConfigs = ref([]);
+const catalogModels = ref([]); // AI Model catalog (WI-001655)
 
 // ── Create-new-agent panel state (WI-001648) ──
 const showCreateAgent = ref(false);
@@ -527,7 +530,7 @@ const emptyNewAgent = () => ({
   agent_name: "",
   agent_id: "",
   chat_mode_label: "",
-  ai_provider_credentials: "",
+  ai_model: "",
   system_prompt: "",
   description: "",
   sample_prompts: [],
@@ -736,6 +739,8 @@ const providerLabel = computed(() => {
 // When a provider is selected, fill the Model field from its Default Model.
 // If the provider has no Default Model, leave the field untouched — the empty
 // state is caught (and blocked) at save time.
+// WI-001655: dead since the provider select became read-only and models
+// come from the catalog; kept as a no-op guard in case of stale bindings.
 function onProviderChange() {
   const p = providers.value.find((x) => x.name === form.value.aiProvider);
   if (p && p.default_model) {
@@ -879,13 +884,26 @@ async function sendMessage() {
 onMounted(async () => {
   try {
     const data = await frappeGet("/api/resource/AI Provider Credentials", {
-      fields: JSON.stringify(["name", "provider_name", "default_model"]),
+      fields: JSON.stringify(["name", "provider_name"]),
       filters: JSON.stringify([["enabled", "=", 1]]),
       limit_page_length: 100,
     });
     providers.value = Array.isArray(data) ? data : [];
   } catch (e) {
     providers.value = [];
+  }
+
+  // WI-001655: the AI Model catalog for the create panel — picking a model
+  // implies its credentials, so there is no provider picker.
+  try {
+    const models = await frappeGet("/api/resource/AI Model", {
+      fields: JSON.stringify(["name", "ai_provider_credentials"]),
+      limit_page_length: 100,
+      order_by: "name asc",
+    });
+    catalogModels.value = Array.isArray(models) ? models : [];
+  } catch (e) {
+    catalogModels.value = [];
   }
 
   // Load selectable AI Agent Configurations for the seed dropdown.
@@ -997,7 +1015,7 @@ async function onAgentConfigSelect() {
     form.value.aiAgentConfig = "";
     newAgent.value = {
       ...emptyNewAgent(),
-      ai_provider_credentials: form.value.aiProvider || "",
+      ai_model: form.value.aiModel || "",
     };
     agentIdEdited.value = false;
     showCreateAgent.value = true;
@@ -1027,7 +1045,7 @@ const PROPOSAL_LABELS = {
   agent_name: "Name",
   agent_id: "Agent ID",
   chat_mode_label: "Chat mode label",
-  ai_provider_credentials: "Provider",
+  ai_model: "Model (provider follows)",
   system_prompt: "System prompt",
   description: "Description",
 };
@@ -1112,7 +1130,7 @@ async function createAgent() {
   if (creatingAgent.value) return;
   if (!newAgent.value.agent_name.trim()) return alert("Agent name is required.");
   if (!newAgent.value.chat_mode_label.trim()) return alert("A chat mode label is required.");
-  if (!newAgent.value.ai_provider_credentials) return alert("Select an AI provider.");
+  if (!newAgent.value.ai_model) return alert("Pick an AI Model — the provider follows from it.");
   creatingAgent.value = true;
   try {
     const payload = {
@@ -1189,17 +1207,14 @@ async function save() {
     return;
   }
 
-  // Block save when no model can be resolved: the Model field is empty AND the
-  // selected provider has no Default Model to fall back on at runtime.
+  // WI-001655: the model comes from the linked agent's catalog pick. An
+  // empty model here means the agent has none yet — fix it on the agent.
   if (!form.value.aiModel || !form.value.aiModel.trim()) {
-    const p = providers.value.find((x) => x.name === form.value.aiProvider);
-    if (!p || !p.default_model) {
-      alert(
-        "No model is set. The selected AI Provider Credentials record has no Default Model.\n" +
-          "Set a Default Model on the AI Provider Credentials record, or enter a Model here."
-      );
-      return;
-    }
+    alert(
+      "No model is set. Pick an AI Model on the linked AI Agent Configuration " +
+        "(or ask the assistant to change the model) — the provider follows from it."
+    );
+    return;
   }
 
   // Validate JSON schema if provided

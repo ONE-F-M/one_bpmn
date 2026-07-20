@@ -69,10 +69,12 @@ class TestAgentConfigLiveLink(FrappeTestCase):
 		self.assertFalse(result["reprovisioned"])
 
 	def test_write_back_ignores_unknown_fields(self):
+		# WI-001655 inverted the old rule: aiModel IS the updatable pick now,
+		# while aiProvider (derived from the model) and shape-only fields are
+		# ignored. An invalid model name fails link validation on save.
 		result = update_agent_config_from_shape(
-			TEST_CONFIG, {"aiModel": "some-model", "aiOutputVariable": "x"}
+			TEST_CONFIG, {"aiProvider": "Claude", "aiOutputVariable": "x"}
 		)
-		# aiModel is deliberately not written back (shape-local override).
 		self.assertEqual(result["updated"], [])
 
 	def test_write_back_requires_write_permission(self):

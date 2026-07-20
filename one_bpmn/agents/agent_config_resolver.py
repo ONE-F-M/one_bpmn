@@ -41,14 +41,15 @@ _CONFIG_TO_SHAPE = {
 }
 
 # Shape attributes the modal may write back, and the config fields they land
-# in. aiModel is deliberately absent: the configuration derives its model from
-# the linked credentials' default, so a model typed on the shape is a
-# shape-local override, not an agent property.
+# in. WI-001655 inverted the old rule: the MODEL is now the agent's editable
+# pick (a Link into the AI Model catalog), while aiProvider is deliberately
+# absent — the provider is derived from the model's credentials link, so "to
+# change the provider, change the model".
 _SHAPE_TO_CONFIG = {
 	"aiSystemPrompt": "system_prompt",
 	"aiTemperature": "temperature",
 	"aiMaxTokens": "max_tokens",
-	"aiProvider": "ai_provider_credentials",
+	"aiModel": "ai_model",
 }
 
 # The platform process that carries an agent Draft -> Live. Used to re-provision
@@ -69,9 +70,11 @@ def config_field_map(config_name: str) -> dict:
 			out[sattr] = val
 	if cfg.ai_provider_credentials:
 		out["aiProvider"] = cfg.ai_provider_credentials
-		model = frappe.db.get_value("AI Provider Credentials", cfg.ai_provider_credentials, "default_model")
-		if model:
-			out["aiModel"] = model
+	# WI-001655: the model is the agent's own pick from the AI Model catalog
+	# (the record name IS the model id); the provider above is derived from
+	# that model's credentials link at save time.
+	if cfg.get("ai_model"):
+		out["aiModel"] = cfg.ai_model
 	return out
 
 
@@ -168,7 +171,7 @@ CREATE_PAYLOAD_CONTRACT = {
 	"agent_name": "Human-readable agent name (required).",
 	"agent_id": "Machine id; auto-derived from the name when omitted.",
 	"chat_mode_label": "Label shown in chat mode pickers (required, must be unique).",
-	"ai_provider_credentials": "Name of an enabled AI Provider Credentials record.",
+	"ai_model": "Name of an AI Model catalog record — the agent's provider follows from this model's credentials link (WI-001655).",
 	"system_prompt": "The agent's system prompt; leave empty to have the creation process generate one from the description.",
 	"description": "What the agent does — feeds prompt auto-generation.",
 	"sample_prompts": 'Optional list of {"prompt", "expected_behaviour"} rows; becomes the baseline eval suite.',
@@ -223,6 +226,10 @@ def create_agent_configuration(payload: str | dict) -> dict:
 	doc.lifecycle_status = "Draft"
 	doc.enabled = 1
 	doc.chat_mode_label = chat_mode_label
+	# WI-001655: the model is the pick; the provider derives from its
+	# credentials link on save. A directly-passed credentials value is kept
+	# only as legacy fallback for model-less payloads.
+	doc.ai_model = payload.get("ai_model") or None
 	doc.ai_provider_credentials = payload.get("ai_provider_credentials") or None
 	doc.system_prompt = payload.get("system_prompt") or ""
 	doc.description = payload.get("description") or ""
