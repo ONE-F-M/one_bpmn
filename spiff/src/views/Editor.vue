@@ -302,6 +302,22 @@
 										Review Workflow Objects
 									</button>
 								</template>
+								<!-- Reassign User Task (only when NOT connected to Production) -->
+								<template v-if="!connectToProduction">
+									<div class="border-t border-gray-100 my-1"></div>
+									<button
+										@click="toggleReassignMode(); showActionsMenu = false"
+										class="w-full flex items-center gap-2 px-3 py-2 text-sm transition-colors"
+										:disabled="!activeDiagramName"
+										:class="[
+											reassignMode ? 'text-blue-600 bg-blue-50 hover:bg-blue-100' : 'text-gray-700 hover:bg-gray-50',
+											{ 'opacity-40 cursor-not-allowed': !activeDiagramName }
+										]"
+									>
+										<Icon icon="lucide:user-cog" class="w-4 h-4" />
+										{{ reassignMode ? 'Exit Reassign Mode' : 'Reassign User Task' }}
+									</button>
+								</template>
 							</div>
 						</div>
 					</template>
@@ -360,6 +376,20 @@
 								>
 									<Icon icon="lucide:workflow" class="w-4 h-4" />
 									Review Workflow Objects
+								</button>
+							</template>
+							<template v-if="!connectToProduction">
+								<button
+									@click="toggleReassignMode(); showMobileMoreMenu = false"
+									class="w-full flex items-center gap-2 px-3 py-2.5 text-sm transition-colors"
+									:disabled="!activeDiagramName"
+									:class="[
+										reassignMode ? 'text-blue-600 bg-blue-50 hover:bg-blue-100' : 'text-gray-700 hover:bg-gray-50',
+										{ 'opacity-40 cursor-not-allowed': !activeDiagramName }
+									]"
+								>
+									<Icon icon="lucide:user-cog" class="w-4 h-4" />
+									{{ reassignMode ? 'Exit Reassign Mode' : 'Reassign User Task' }}
 								</button>
 							</template>
 						</template>
@@ -464,9 +494,11 @@
 						:save-status-text="saveStatusText"
 						:save-status-color="saveStatusColor"
 						:readonly="!canEditActiveDiagram || !!activeVersionName"
+						:reassign-mode="reassignMode && !activeVersionName"
 						:model-name="activeDiagramName"
 						@ready="onEditorReady"
 						@changed="onDiagramChanged"
+						@reassign-changed="onReassignChanged"
 						@zoom-changed="onZoomChanged"
 						@launch-script-editor="onLaunchScriptEditor"
 						@confirm-script-delete="onConfirmScriptDelete"
@@ -1300,6 +1332,74 @@ async function runSync() {
 				: err.message || "Sync failed.";
 		reviewResult.value = { error: msg };
 		reviewStage.value = "result";
+	}
+}
+
+// --- Reassign User Task (only when Connect to Production is unchecked) ---
+// While enabled, the Assignment Configuration fields of User Tasks become
+// editable on an otherwise read-only canvas. Changes are persisted through a
+// dedicated attribute-scoped endpoint (the normal save path is blocked on
+// locked models).
+const reassignMode = ref(false);
+const pendingReassignments = new Map(); // taskId → { modelName, assignment }
+let reassignSaveTimer = null;
+
+function toggleReassignMode() {
+	reassignMode.value = !reassignMode.value;
+	if (reassignMode.value) {
+		showNotification(
+			"Reassign mode enabled",
+			"Assignment Configuration fields (Assignment Mode, User, DocField, Users, Table Field) on User Tasks are now editable. Changes save automatically.",
+			"blue"
+		);
+	} else {
+		showNotification("Reassign mode disabled", "Assignment fields are read-only again.", "gray");
+	}
+}
+
+// Leaving the diagram (or previewing a version) exits reassign mode.
+watch(activeDiagramName, () => {
+	reassignMode.value = false;
+});
+
+function onReassignChanged({ taskId, assignment }) {
+	if (!activeDiagramName.value || !taskId) return;
+	pendingReassignments.set(taskId, {
+		modelName: activeDiagramName.value,
+		assignment,
+	});
+	if (reassignSaveTimer) clearTimeout(reassignSaveTimer);
+	reassignSaveTimer = setTimeout(flushReassignments, 1200);
+}
+
+async function flushReassignments() {
+	reassignSaveTimer = null;
+	const entries = [...pendingReassignments.entries()];
+	pendingReassignments.clear();
+	let saved = 0;
+	for (const [taskId, { modelName, assignment }] of entries) {
+		try {
+			await frappeRequest({
+				url: "/api/method/one_bpmn.api.reassignment.reassign_user_task",
+				method: "POST",
+				params: {
+					model_name: modelName,
+					task_id: taskId,
+					assignment: JSON.stringify(assignment),
+				},
+			});
+			saved += 1;
+		} catch (err) {
+			const msg =
+				err.messages && err.messages.length
+					? err.messages.join("\n")
+					: err.message || "Failed to save the reassignment.";
+			showNotification("Reassignment failed", msg, "red", true);
+			return;
+		}
+	}
+	if (saved) {
+		showNotification("Reassignment saved", "User Task assignment changes were saved.", "green");
 	}
 }
 
