@@ -39,6 +39,18 @@ _REQUIRED_SUB_PROMPTS = (
     "test_writer",
 )
 
+# Optional specialist sub-prompts: loaded when present, but their absence must
+# not break the whole agent (the general writer/reviewer path still works).
+_OPTIONAL_SUB_PROMPTS = (
+    "tool_writer",
+)
+
+# Human-readable element labels per shape kind (see logix-agent.instructions.md).
+_SHAPE_KIND_LABELS = {
+    "agent_tool": "Agent Tool",
+    "script_task": "Script Task",
+}
+
 
 class ScriptTaskAgent:
     """Orchestrates intent classification, script writing, review, and diffing."""
@@ -69,6 +81,11 @@ class ScriptTaskAgent:
                 )
             instructions[key] = prompt
 
+        for key in _OPTIONAL_SUB_PROMPTS:
+            prompt = sub_prompts.get(key, {}).get("prompt")
+            if prompt:
+                instructions[key] = prompt
+
         return instructions
 
     # ── Helpers ────────────────────────────────────────────────────────────────
@@ -94,10 +111,13 @@ class ScriptTaskAgent:
                 lines.append(f"{'User' if role == 'user' else 'Logix'}: {content}")
         return "\n".join(lines)
 
-    def _build_intent_prompt(self, message: str, current_script: str, element_name: str) -> str:
+    def _build_intent_prompt(
+        self, message: str, current_script: str, element_name: str, shape_kind: str = "",
+    ) -> str:
         parts = []
+        label = _SHAPE_KIND_LABELS.get(shape_kind, "Script Task")
         if element_name:
-            parts.append(f"Script Task: {element_name}")
+            parts.append(f"{label}: {element_name}")
         if current_script:
             parts.append(f"Linked script: {current_script}  ← existing, treat as MODIFY target unless stated otherwise")
         else:
@@ -109,9 +129,15 @@ class ScriptTaskAgent:
     def _format_process_context(ctx: dict) -> str:
         if not ctx:
             return ""
+        is_tool = ctx.get("shape_kind") == "agent_tool"
         lines = ["**Process Context (from the BPMN diagram):**"]
         if ctx.get("process_name"):
             lines.append(f"- Process: {ctx['process_name']}")
+        if is_tool:
+            lines.append(
+                "- This element is an AGENT TOOL inside an AI Agent Task's ad-hoc Tools "
+                "sub-process — an LLM calls it on demand; it is NOT a sequential process step."
+            )
         incoming = ctx.get("incoming") or []
         outgoing = ctx.get("outgoing") or []
         if incoming:
@@ -120,12 +146,21 @@ class ScriptTaskAgent:
         if outgoing:
             neighbours = ", ".join(f"{n['name']} ({n['type']})" for n in outgoing)
             lines.append(f"- This script leads TO: {neighbours}")
-        if not incoming and not outgoing:
+        if not incoming and not outgoing and not is_tool:
             return ""
-        lines.append(
-            "Use this context to infer what workflow variables are available as inputs "
-            "and what outputs the next step will need."
-        )
+        if is_tool:
+            # Agent tools receive NO workflow variables — never invite the model
+            # to "infer available workflow variables" for one.
+            lines.append(
+                "Remember: an agent tool receives ONLY the arguments the calling LLM "
+                "passes (plus frappe/doc/context_doctype/context_docname/result) — "
+                "no workflow variables and no task_data exist in its namespace."
+            )
+        else:
+            lines.append(
+                "Use this context to infer what workflow variables are available as inputs "
+                "and what outputs the next step will need."
+            )
         return "\n".join(lines)
 
     def _build_writer_prompt(
@@ -133,11 +168,15 @@ class ScriptTaskAgent:
         current_script: str, process_context: dict = None,
     ) -> str:
         parts = []
-        ctx_str = self._format_process_context(process_context or {})
+        ctx = process_context or {}
+        shape_kind = ctx.get("shape_kind") or "script_task"
+        ctx_str = self._format_process_context(ctx)
         if ctx_str:
             parts.append(ctx_str)
+        parts.append(f"**Shape kind:** {shape_kind}")
         if element_name:
-            parts.append(f"**Script Task:** {element_name}")
+            label = _SHAPE_KIND_LABELS.get(shape_kind, "Script Task")
+            parts.append(f"**{label}:** {element_name}")
         if current_script:
             parts.append(f"**Currently linked Server Script:** {current_script}")
         history = self._format_history(chat_history)
@@ -182,17 +221,70 @@ class ScriptTaskAgent:
             f"Do NOT import os, sys, subprocess, or any module outside the standard Frappe sandbox."
         )
 
+    @staticmethod
+    def _strip_json_fences(text: str) -> str:
+        """Remove a surrounding ```json ... ``` fence LLMs often wrap JSON in."""
+        stripped = (text or "").strip()
+        if stripped.startswith("```"):
+            stripped = stripped.split("\n", 1)[-1]
+            if stripped.rstrip().endswith("```"):
+                stripped = stripped.rstrip()[: stripped.rstrip().rfind("```")]
+        return stripped.strip()
+
+    @staticmethod
+    def _extract_json(text: str | None) -> dict | None:
+        """Best-effort parse of a JSON object from an LLM reply.
+
+        Models asked to "respond with ONLY a JSON object" still frequently wrap
+        it in ```json fences and/or lead with prose. Without this, callers fall
+        back to showing the raw blob to the user. Tries, in order: the whole
+        text, the fence-stripped text, the first fenced block, and the first
+        balanced {...} span.
+        """
+        if not text:
+            return None
+        candidates = [text.strip(), ScriptTaskAgent._strip_json_fences(text)]
+        fenced = re.search(r"```(?:json)?\s*\n(.*?)```", text, re.DOTALL)
+        if fenced:
+            candidates.append(fenced.group(1).strip())
+        start = text.find("{")
+        if start != -1:
+            depth = 0
+            for i in range(start, len(text)):
+                if text[i] == "{":
+                    depth += 1
+                elif text[i] == "}":
+                    depth -= 1
+                    if depth == 0:
+                        candidates.append(text[start:i + 1])
+                        break
+        for candidate in candidates:
+            try:
+                parsed = json.loads(candidate)
+                if isinstance(parsed, dict):
+                    return parsed
+            except (json.JSONDecodeError, TypeError):
+                continue
+        return None
+
     def _apply_review(self, draft: str, review_text: str | None) -> str:
         if not review_text:
             return draft
         try:
-            review = json.loads(review_text.strip())
+            # Fenced JSON must not silently void the review — a rejected draft
+            # would otherwise pass through unrevised.
+            review = json.loads(self._strip_json_fences(review_text))
             if not review.get("approved") and review.get("revised_script"):
-                return review["revised_script"]
+                # Keep the reply text and its ```python fence intact — returning
+                # the bare revised code makes the downstream fence check
+                # misclassify the reply as a question and skip validation.
+                revised = review["revised_script"]
+                if re.search(r"```python\s*\n.*?```", draft, re.DOTALL):
+                    return logix_tools.replace_code_block(draft, revised)
+                return f"```python\n{revised}\n```"
             if review.get("suggestions"):
                 note = "\n\n> **Review notes:** " + "; ".join(review["suggestions"])
                 return draft + note
         except (json.JSONDecodeError, TypeError, KeyError):
             pass
         return draft
-
