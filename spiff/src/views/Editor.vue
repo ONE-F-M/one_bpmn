@@ -18,12 +18,12 @@
 						<h1 class="text-sm font-semibold text-gray-800 truncate max-w-[120px] sm:max-w-[180px] lg:max-w-[260px]" :title="processName">{{ processName }}</h1>
 						
 						<!-- Status Icon -->
-						<button 
+						<button
 							@click="showStatusPopup = !showStatusPopup"
 							class="p-1 rounded transition-colors"
-							:class="isEditable ? 'text-green-500 hover:bg-green-50' : 'text-amber-500 hover:bg-amber-50'"
+							:class="canEditActiveDiagram ? 'text-green-500 hover:bg-green-50' : 'text-amber-500 hover:bg-amber-50'"
 						>
-							<Icon :icon="isEditable ? 'lucide:pencil' : 'lucide:lock'" class="w-4 h-4" />
+							<Icon :icon="canEditActiveDiagram ? 'lucide:pencil' : 'lucide:lock'" class="w-4 h-4" />
 						</button>
 
 						<!-- Status Popup -->
@@ -34,18 +34,18 @@
 						>
 							<div class="p-4 space-y-3">
 								<div class="flex items-start gap-3">
-									<div 
+									<div
 										class="p-2 rounded-lg shrink-0"
-										:class="isEditable ? 'bg-green-50 text-green-600' : 'bg-amber-50 text-amber-600'"
+										:class="canEditActiveDiagram ? 'bg-green-50 text-green-600' : 'bg-amber-50 text-amber-600'"
 									>
-										<Icon :icon="isEditable ? 'lucide:pencil' : 'lucide:lock'" class="w-5 h-5" />
+										<Icon :icon="canEditActiveDiagram ? 'lucide:pencil' : 'lucide:lock'" class="w-5 h-5" />
 									</div>
 									<div class="space-y-1">
 										<h3 class="text-sm font-bold text-gray-900 leading-none">
-											{{ isEditable ? 'Active Editing Session' : 'Document is Locked' }}
+											{{ canEditActiveDiagram ? 'Active Editing Session' : 'Document is Locked' }}
 										</h3>
 										<p class="text-xs text-gray-500 leading-relaxed">
-											{{ isEditable ? 'This document is live and available for editing. Your changes are automatically saved and synchronized with the server.' : editabilityInfo.reason || 'No active Pathfinder Log. Create one on Production to enable editing.' }}
+											{{ canEditActiveDiagram ? 'This document is live and available for editing. Your changes are automatically saved and synchronized with the server.' : lockReason }}
 										</p>
 									</div>
 								</div>
@@ -66,7 +66,7 @@
 					</div>
 
 					<!-- Compact mode: Diagram dropdown selector (replaces bottom tab bar) -->
-					<div v-if="compact && openTabs.length > 1" class="relative ml-1 sm:ml-2">
+					<div v-if="compact && diagrams.length > 1" class="relative ml-1 sm:ml-2">
 						<button
 							@click="showCompactDiagramMenu = !showCompactDiagramMenu"
 							class="flex items-center gap-1 sm:gap-1.5 px-2 sm:px-2.5 py-1.5 sm:py-1 rounded-md text-xs font-medium border transition-colors active:bg-gray-200"
@@ -87,7 +87,7 @@
 							class="absolute top-full left-0 sm:left-0 mt-1 w-[calc(100vw-2rem)] sm:w-56 max-w-[280px] bg-white border border-gray-200 rounded-lg shadow-lg z-[70] py-1 max-h-64 overflow-y-auto"
 						>
 							<button
-								v-for="tab in openTabs"
+								v-for="tab in diagrams"
 								:key="tab.name"
 								@click="selectDiagram(tab.name); showCompactDiagramMenu = false"
 								class="w-full flex items-center gap-2 px-3 py-2.5 sm:py-2 text-sm text-gray-700 hover:bg-gray-50 active:bg-gray-100 transition-colors"
@@ -239,30 +239,71 @@
 						</div>
 					</div>
 
-					<!-- Deploy / Disable Button (last — primary action, only for executable processes) -->
+					<!-- Actions menu (last — primary actions, only for executable processes) -->
 					<template v-if="isExecutable">
-						<button
-							v-if="isActiveModel"
-							@click="disableModel"
-							class="h-7 flex items-center gap-1 px-2.5 bg-red-600 hover:bg-red-700 text-white rounded transition-colors text-xs font-medium leading-none"
-							title="Disable process map — stops new instances"
-							:disabled="!activeDiagramName || disabling"
-							:class="{ 'opacity-50 cursor-not-allowed': !activeDiagramName || disabling }"
-						>
-							<Icon :icon="disabling ? 'lucide:loader-2' : 'lucide:power-off'" class="w-3.5 h-3.5" :class="{ 'animate-spin': disabling }" />
-							{{ disabling ? 'Disabling…' : 'Disable' }}
-						</button>
-						<button
-							v-else
-							@click="deployModel"
-							class="h-7 flex items-center gap-1 px-2.5 bg-blue-600 hover:bg-blue-700 text-white rounded transition-colors text-xs font-medium leading-none"
-							:title="activeVersionName ? 'Switch to the latest version to deploy' : 'Deploy process model'"
-							:disabled="!activeDiagramName || deploying || !!activeVersionName"
-							:class="{ 'opacity-50 cursor-not-allowed': !activeDiagramName || deploying || !!activeVersionName }"
-						>
-							<Icon :icon="deploying ? 'lucide:loader-2' : 'lucide:rocket'" class="w-3.5 h-3.5" :class="{ 'animate-spin': deploying }" />
-							{{ deploying ? 'Deploying…' : 'Deploy' }}
-						</button>
+						<div class="relative">
+							<button
+								@click="showActionsMenu = !showActionsMenu"
+								class="h-7 flex items-center gap-1 px-2.5 bg-blue-600 hover:bg-blue-700 text-white rounded transition-colors text-xs font-medium leading-none"
+								title="Actions"
+								:disabled="!activeDiagramName"
+								:class="{ 'opacity-50 cursor-not-allowed': !activeDiagramName }"
+							>
+								<Icon icon="lucide:zap" class="w-3.5 h-3.5" />
+								Actions
+								<Icon icon="lucide:chevron-down" class="w-3 h-3" />
+							</button>
+							<div
+								v-if="showActionsMenu"
+								v-click-outside="() => showActionsMenu = false"
+								class="absolute right-0 mt-1 w-56 bg-white border border-gray-200 rounded-lg shadow-lg z-[70] py-1"
+							>
+								<!-- Deploy (only when the model is not yet Active) -->
+								<button
+									v-if="!isActiveModel"
+									@click="deployModel(); showActionsMenu = false"
+									class="w-full flex items-center gap-2 px-3 py-2 text-sm text-gray-700 hover:bg-gray-50 transition-colors"
+									:disabled="!activeDiagramName || deploying || !!activeVersionName"
+									:class="{ 'opacity-40 cursor-not-allowed': !activeDiagramName || deploying || !!activeVersionName }"
+								>
+									<Icon :icon="deploying ? 'lucide:loader-2' : 'lucide:rocket'" class="w-4 h-4" :class="{ 'animate-spin': deploying }" />
+									{{ deploying ? 'Deploying…' : 'Deploy' }}
+								</button>
+								<!-- Disable (only when the model is Active) -->
+								<button
+									v-if="isActiveModel"
+									@click="disableModel(); showActionsMenu = false"
+									class="w-full flex items-center gap-2 px-3 py-2 text-sm text-red-600 hover:bg-red-50 transition-colors"
+									:disabled="!activeDiagramName || disabling"
+									:class="{ 'opacity-40 cursor-not-allowed': !activeDiagramName || disabling }"
+								>
+									<Icon :icon="disabling ? 'lucide:loader-2' : 'lucide:power-off'" class="w-4 h-4" :class="{ 'animate-spin': disabling }" />
+									{{ disabling ? 'Disabling…' : 'Disable' }}
+								</button>
+								<!-- Production review (only when connected to Production) -->
+								<template v-if="connectToProduction">
+									<div class="border-t border-gray-100 my-1"></div>
+									<button
+										@click="openReview('doctypes'); showActionsMenu = false"
+										class="w-full flex items-center gap-2 px-3 py-2 text-sm text-gray-700 hover:bg-gray-50 transition-colors"
+										:disabled="!activeDiagramName"
+										:class="{ 'opacity-40 cursor-not-allowed': !activeDiagramName }"
+									>
+										<Icon icon="lucide:table-2" class="w-4 h-4" />
+										Review Doctypes
+									</button>
+									<button
+										@click="openReview('workflow'); showActionsMenu = false"
+										class="w-full flex items-center gap-2 px-3 py-2 text-sm text-gray-700 hover:bg-gray-50 transition-colors"
+										:disabled="!activeDiagramName"
+										:class="{ 'opacity-40 cursor-not-allowed': !activeDiagramName }"
+									>
+										<Icon icon="lucide:workflow" class="w-4 h-4" />
+										Review Workflow Objects
+									</button>
+								</template>
+							</div>
+						</div>
 					</template>
 				</template>
 
@@ -301,6 +342,26 @@
 								<Icon :icon="deploying ? 'lucide:loader-2' : 'lucide:rocket'" class="w-4 h-4" />
 								{{ deploying ? 'Deploying…' : 'Deploy' }}
 							</button>
+							<template v-if="connectToProduction">
+								<button
+									@click="openReview('doctypes'); showMobileMoreMenu = false"
+									class="w-full flex items-center gap-2 px-3 py-2.5 text-sm text-gray-700 hover:bg-gray-50 transition-colors"
+									:disabled="!activeDiagramName"
+									:class="{ 'opacity-40 cursor-not-allowed': !activeDiagramName }"
+								>
+									<Icon icon="lucide:table-2" class="w-4 h-4" />
+									Review Doctypes
+								</button>
+								<button
+									@click="openReview('workflow'); showMobileMoreMenu = false"
+									class="w-full flex items-center gap-2 px-3 py-2.5 text-sm text-gray-700 hover:bg-gray-50 transition-colors"
+									:disabled="!activeDiagramName"
+									:class="{ 'opacity-40 cursor-not-allowed': !activeDiagramName }"
+								>
+									<Icon icon="lucide:workflow" class="w-4 h-4" />
+									Review Workflow Objects
+								</button>
+							</template>
 						</template>
 						<button
 							@click="toggleVersionHistory(); showMobileMoreMenu = false"
@@ -402,7 +463,7 @@
 						class="absolute inset-0"
 						:save-status-text="saveStatusText"
 						:save-status-color="saveStatusColor"
-						:readonly="!isEditable || !!activeVersionName"
+						:readonly="!canEditActiveDiagram || !!activeVersionName"
 						:model-name="activeDiagramName"
 						@ready="onEditorReady"
 						@changed="onDiagramChanged"
@@ -437,7 +498,7 @@
 							</button>
 							<p v-else class="text-sm text-gray-400">
 								<Icon icon="lucide:lock" class="w-4 h-4 inline mr-1" />
-								Process is locked. Create a Pathfinder Log to enable editing.
+								Process is locked. Create a Process Implementation and get it actioned to "Active" state to enable editing.
 							</p>
 						</div>
 					</div>
@@ -449,6 +510,7 @@
 			<div v-if="openTabs.length > 0 && !compact" class="relative z-10 flex items-center justify-between bg-white border-t border-gray-200 min-h-[40px]">
 				<EditorTabs
 					:tabs="openTabs"
+					:all-tabs="diagrams"
 					:activeTab="activeVersionName ? null : activeDiagramName"
 					:readonly="!isEditable"
 					:versions="namedVersionTabs"
@@ -785,7 +847,7 @@
 						:key="dmnEditorKey"
 						ref="dmnEditorRef"
 						:initial-xml="dmnEditorXml"
-						:readonly="!isEditable"
+						:readonly="!canEditActiveDiagram"
 						@xml-changed="onDmnXmlChanged"
 					/>
 				</div>
@@ -906,6 +968,123 @@
 			</template>
 		</Dialog>
 
+		<!-- Production Review dialog (Review Doctypes / Review Workflow Objects) -->
+		<Dialog v-model="showReviewDialog" :options="{ title: reviewTitle, size: 'xl' }">
+			<template #body-content>
+				<!-- Intro / confirmation -->
+				<div v-if="reviewStage === 'intro'" class="text-sm text-gray-700 leading-relaxed">
+					{{ reviewIntro }}
+				</div>
+
+				<!-- Comparing -->
+				<div v-else-if="reviewStage === 'loading'" class="flex items-center gap-3 py-6 text-sm text-gray-600">
+					<Icon icon="lucide:loader-2" class="w-5 h-5 animate-spin" />
+					Comparing with Production…
+				</div>
+
+				<!-- Diffs -->
+				<div v-else-if="reviewStage === 'diff'" class="space-y-3">
+					<p class="text-sm text-gray-600">
+						{{ reviewChanges.length }} change(s) found between this site and Production.
+					</p>
+					<div class="max-h-80 overflow-auto border border-gray-200 rounded-lg">
+						<table class="w-full text-sm">
+							<thead class="bg-gray-50 text-gray-500 text-xs uppercase sticky top-0">
+								<tr>
+									<th class="text-left px-3 py-2 font-medium">Object</th>
+									<th class="text-left px-3 py-2 font-medium">Name</th>
+									<th class="text-left px-3 py-2 font-medium">Action</th>
+									<th class="text-left px-3 py-2 font-medium">Changed</th>
+								</tr>
+							</thead>
+							<tbody>
+								<tr v-for="(c, i) in reviewChanges" :key="i" class="border-t border-gray-100">
+									<td class="px-3 py-2 text-gray-700 whitespace-nowrap">{{ c.object_type }}</td>
+									<td class="px-3 py-2 text-gray-800 font-medium">
+										{{ c.name }}
+										<span v-if="c.doctype && c.doctype !== c.name" class="text-gray-400">· {{ c.doctype }}</span>
+									</td>
+									<td class="px-3 py-2">
+										<span :class="c.action === 'Create' ? 'text-green-600' : 'text-amber-600'">{{ c.action }}</span>
+									</td>
+									<td class="px-3 py-2 text-gray-500 text-xs">{{ c.detail }}</td>
+								</tr>
+							</tbody>
+						</table>
+					</div>
+					<p v-if="reviewKind === 'doctypes'" class="text-xs text-gray-500">
+						Sync opens a GitHub pull request (per owning app) with these changes. Merging and deploying migrates Production.
+					</p>
+					<p v-else class="text-xs text-gray-500">
+						Sync overwrites existing records and creates new ones on the linked Production system.
+					</p>
+				</div>
+
+				<!-- No differences -->
+				<div v-else-if="reviewStage === 'empty'" class="flex items-center gap-3 py-4 text-sm text-gray-700">
+					<Icon icon="lucide:check-circle-2" class="w-5 h-5 text-green-600" />
+					{{ reviewEmptyMessage }}
+				</div>
+
+				<!-- Syncing -->
+				<div v-else-if="reviewStage === 'syncing'" class="flex items-center gap-3 py-6 text-sm text-gray-600">
+					<Icon icon="lucide:loader-2" class="w-5 h-5 animate-spin" />
+					Syncing to Production…
+				</div>
+
+				<!-- Sync result -->
+				<div v-else-if="reviewStage === 'result'" class="space-y-3 text-sm">
+					<div v-if="reviewResult && reviewResult.error" class="flex items-start gap-3 rounded-lg px-4 py-3 border border-red-200 bg-red-50 text-red-800">
+						<Icon icon="lucide:alert-circle" class="w-5 h-5 shrink-0 mt-0.5" />
+						<div class="whitespace-pre-wrap">{{ reviewResult.error }}</div>
+					</div>
+					<template v-else-if="reviewKind === 'doctypes'">
+						<div v-if="reviewResult && reviewResult.prs && reviewResult.prs.length" class="space-y-2">
+							<div class="text-gray-700">Pull request(s) opened:</div>
+							<a v-for="(pr, i) in reviewResult.prs" :key="i" :href="pr.pr_url" target="_blank"
+								class="flex items-center gap-2 text-blue-600 hover:underline">
+								<Icon icon="lucide:git-pull-request" class="w-4 h-4" />
+								{{ pr.repository }} — {{ (pr.doctypes || []).join(', ') }}
+							</a>
+						</div>
+						<div v-for="(s, i) in (reviewResult && reviewResult.skipped) || []" :key="'s' + i"
+							class="flex items-start gap-2 rounded-lg px-3 py-2 border border-amber-200 bg-amber-50 text-amber-800">
+							<Icon icon="lucide:alert-triangle" class="w-4 h-4 shrink-0 mt-0.5" />
+							<span>{{ s.reason }} ({{ (s.doctypes || []).join(', ') }})</span>
+						</div>
+					</template>
+					<template v-else>
+						<div class="flex items-start gap-3 rounded-lg px-4 py-3 border border-green-200 bg-green-50 text-green-800">
+							<Icon icon="lucide:check-circle-2" class="w-5 h-5 shrink-0 mt-0.5" />
+							<div>
+								<div class="font-semibold">Synced to Production.</div>
+								<div class="mt-1 opacity-90" v-if="reviewResult && reviewResult.results">
+									{{ (reviewResult.results.created || []).length }} created,
+									{{ (reviewResult.results.updated || []).length }} updated<span v-if="(reviewResult.results.failed || []).length">, {{ reviewResult.results.failed.length }} failed</span>.
+								</div>
+							</div>
+						</div>
+						<div v-for="(f, i) in (reviewResult && reviewResult.results && reviewResult.results.failed) || []" :key="'f' + i" class="text-xs text-red-600">{{ f }}</div>
+					</template>
+				</div>
+			</template>
+			<template #actions>
+				<div class="flex gap-2 justify-end w-full">
+					<template v-if="reviewStage === 'intro'">
+						<Button variant="subtle" @click="closeReview">Cancel</Button>
+						<Button variant="solid" @click="confirmReview">Confirm</Button>
+					</template>
+					<template v-else-if="reviewStage === 'diff'">
+						<Button variant="subtle" @click="closeReview">Close</Button>
+						<Button variant="solid" theme="blue" @click="runSync">Sync</Button>
+					</template>
+					<template v-else-if="reviewStage === 'empty' || reviewStage === 'result'">
+						<Button variant="solid" @click="closeReview">Close</Button>
+					</template>
+				</div>
+			</template>
+		</Dialog>
+
 		<!-- Version Comparison Dialogs (extracted component) -->
 		<VersionDiffDialog
 			ref="versionDiffRef"
@@ -969,7 +1148,7 @@ const props = defineProps({
 const showCompactDiagramMenu = ref(false);
 
 const activeDiagramLabel = computed(() => {
-	const d = openTabs.value.find((t) => t.name === activeDiagramName.value);
+	const d = diagrams.value.find((t) => t.name === activeDiagramName.value);
 	return d ? d.model_name : "Select Diagram";
 });
 
@@ -1023,6 +1202,106 @@ const deploying = ref(false);
 const disabling = ref(false);
 const showDisableDialog = ref(false);
 const disableRunningCount = ref(0);
+
+// --- Actions menu + Production Review state ---
+const showActionsMenu = ref(false);
+// Whether Processa Settings has "Connect to Production" enabled — gates the
+// "Review Doctypes" / "Review Workflow Objects" actions.
+const connectToProduction = ref(false);
+const showReviewDialog = ref(false);
+const reviewKind = ref("doctypes"); // "doctypes" | "workflow"
+const reviewStage = ref("intro"); // intro | loading | diff | empty | syncing | result
+const reviewChanges = ref([]);
+const reviewResult = ref(null);
+
+const reviewTitle = computed(() =>
+	reviewKind.value === "doctypes" ? "Review Doctypes" : "Review Workflow Objects"
+);
+const reviewIntro = computed(() =>
+	reviewKind.value === "doctypes"
+		? "Doctypes referenced in the process model, alongside Custom Fields and Property Setters will be compared to the Production system for changes."
+		: "Workflow Objects (Roles, Server Scripts, Workflow States, and Workflow Action Master) referenced in the process model will be compared to the Production system for changes."
+);
+const reviewEmptyMessage = computed(() =>
+	reviewKind.value === "doctypes"
+		? "No changes seen in the relevant doctype(s)"
+		: "No changes seen in the relevant workflow objects."
+);
+
+async function loadProductionReviewSettings() {
+	try {
+		const r = await frappeRequest({
+			url: "/api/method/one_bpmn.api.production_review.production_review_settings",
+		});
+		const d = r.message || r;
+		connectToProduction.value = !!d.connect_to_production;
+	} catch (e) {
+		connectToProduction.value = false;
+	}
+}
+
+function openReview(kind) {
+	reviewKind.value = kind;
+	reviewStage.value = "intro";
+	reviewChanges.value = [];
+	reviewResult.value = null;
+	showReviewDialog.value = true;
+}
+
+function closeReview() {
+	showReviewDialog.value = false;
+}
+
+async function confirmReview() {
+	if (!activeDiagramName.value) return;
+	reviewStage.value = "loading";
+	try {
+		const url =
+			reviewKind.value === "doctypes"
+				? "/api/method/one_bpmn.api.production_review.review_doctypes"
+				: "/api/method/one_bpmn.api.production_review.review_workflow_objects";
+		const response = await frappeRequest({
+			url,
+			method: "GET",
+			params: { model_name: activeDiagramName.value },
+		});
+		const data = response.message || response;
+		reviewChanges.value = data.changes || [];
+		reviewStage.value = data.has_changes ? "diff" : "empty";
+	} catch (err) {
+		showReviewDialog.value = false;
+		const msg =
+			err.messages && err.messages.length
+				? err.messages.join("\n")
+				: err.message || "Comparison failed.";
+		showNotification("Review failed", msg, "red", true);
+	}
+}
+
+async function runSync() {
+	if (!activeDiagramName.value) return;
+	reviewStage.value = "syncing";
+	try {
+		const url =
+			reviewKind.value === "doctypes"
+				? "/api/method/one_bpmn.api.production_review.sync_doctypes"
+				: "/api/method/one_bpmn.api.production_review.sync_workflow_objects";
+		const response = await frappeRequest({
+			url,
+			method: "POST",
+			params: { model_name: activeDiagramName.value },
+		});
+		reviewResult.value = response.message || response;
+		reviewStage.value = "result";
+	} catch (err) {
+		const msg =
+			err.messages && err.messages.length
+				? err.messages.join("\n")
+				: err.message || "Sync failed.";
+		reviewResult.value = { error: msg };
+		reviewStage.value = "result";
+	}
+}
 
 // --- DMN Editor State ---
 const showDmnEditorDialog = ref(false);
@@ -1104,13 +1383,34 @@ const namedVersionTabs = ref([]);
 // read-only instead of editing the live map.
 const activeVersionName = ref(null);
 
-// Pathfinder Log editability state
+// Process Implementation editability state (process-level: can new maps be
+// created / does at least one editable implementation exist for the process)
 const isEditable = ref(false);  // locked by default until API confirms
 const editabilityInfo = ref({
 	editable: false,
-	pathfinder_log: null,
+	process_implementation: null,
 	workflow_state: null,
+	override: false,
 	reason: null,
+});
+
+// Canvas editability is per process map: the Process Implementation linked
+// to the ACTIVE map must have its 'Editable' flag checked. Site-wide gates
+// (production lock / dev bypass) override the per-map check.
+const canEditActiveDiagram = computed(() => {
+	if (!isEditable.value) return false;
+	if (editabilityInfo.value.override) return true;
+	const d = diagrams.value.find((d) => d.name === activeDiagramName.value);
+	return !!d?.implementation_editable;
+});
+
+// Human-readable reason shown in the lock popup.
+const lockReason = computed(() => {
+	if (!isEditable.value) {
+		return editabilityInfo.value.reason
+			|| 'Process is locked. Create a Process Implementation and get it actioned to "Active" state to enable editing.';
+	}
+	return "This process map is not linked to an editable Process Implementation, so it is read-only.";
 });
 
 // Import file input ref
@@ -1120,6 +1420,23 @@ const importFileInput = ref(null);
 const saveState = ref("idle"); // idle, unsaved, saving, saved, error
 let saveTimeout = null;
 let hasPendingSave = false; // true while the 1.5s debounce timer is counting down
+
+// True while the analyst is actively typing in a Processa shape-property field
+// (any input/select/textarea/contenteditable inside the properties panel). We use
+// this to defer auto-save so a value being entered isn't saved half-finished and
+// the panel refresh/save cycle doesn't interrupt the user mid-edit.
+function isEditingShapeProperties() {
+	const el = document.activeElement;
+	if (!el || !el.closest) return false;
+	if (!el.closest(".properties-panel-container")) return false;
+	const tag = el.tagName;
+	return (
+		tag === "INPUT" ||
+		tag === "TEXTAREA" ||
+		tag === "SELECT" ||
+		el.isContentEditable === true
+	);
+}
 
 // Returns true when there are edits that haven't reached the server yet
 // (the debounce timer is ticking, a save is in-flight, or a save failed).
@@ -1552,10 +1869,17 @@ async function executeDeployment() {
 				"green"
 			);
 
-			// Show eval suite gating warnings (non-blocking)
+			// Show deploy readiness warnings (non-blocking). Warnings may be
+			// plain strings (eval suite gating) or structured objects with
+			// { label, detail, type, icon } (e.g. backend code removal).
 			if (response.warnings && response.warnings.length > 0) {
 				for (const warning of response.warnings) {
-					showNotification("Eval Suite Warning", warning, "orange");
+					if (warning && typeof warning === "object") {
+						const title = warning.label ? `${warning.label} Warning` : "Deploy Warning";
+						showNotification(title, warning.detail || warning.label || "", "orange");
+					} else {
+						showNotification("Eval Suite Warning", warning, "orange");
+					}
 				}
 			}
 
@@ -1669,7 +1993,7 @@ function handleKeyDown(event) {
 	// Ctrl+S or Cmd+S to save (only when editable)
 	if ((event.ctrlKey || event.metaKey) && event.key === "s") {
 		event.preventDefault();
-		if (isEditable.value && activeDiagramName.value && !saving.value) {
+		if (canEditActiveDiagram.value && activeDiagramName.value && !saving.value) {
 			saveCurrentDiagram();
 		}
 	}
@@ -1735,28 +2059,41 @@ onMounted(async () => {
 		loading.value = true;
 		await loadProcess();
 
-		// Check editability (Pathfinder Log status) from Production
+		// Check editability (Process Implementation status)
 		await checkEditability();
 
-		// Add all diagrams to open tabs
-		if (diagrams.value.length > 0) {
-			openTabs.value = [...diagrams.value];
+		// Pick the map to show: an explicit route diagram wins, otherwise the
+		// map linked to an editable Process Implementation (last modified if
+		// several), otherwise the last modified map. Only ONE map is visible
+		// at a time — the rest stay reachable via the bottom-bar menu.
+		let initial = null;
+		if (props.diagram && diagrams.value.some((d) => d.name === props.diagram)) {
+			initial = props.diagram;
+		} else {
+			initial = pickDefaultDiagram();
 		}
 
-		// If a specific diagram was passed in route, select it
-		if (props.diagram) {
-			activeDiagramName.value = props.diagram;
-		} else if (diagrams.value.length > 0) {
-			// Default to the active model; fallback to first (most recently modified)
-			const activeDiagram = diagrams.value.find((d) => d.is_active || d.status === 'Active');
-			activeDiagramName.value = activeDiagram
-				? activeDiagram.name
-				: diagrams.value[0].name;
+		if (initial) {
+			activeDiagramName.value = initial;
+			const d = diagrams.value.find((d) => d.name === initial);
+			openTabs.value = d ? [d] : [];
 		}
 	} finally {
 		loading.value = false;
 	}
 });
+
+// Choose the default map: the one linked to an editable Process
+// Implementation (last modified when several are editable); if none exists,
+// the last modified map.
+function pickDefaultDiagram() {
+	const list = diagrams.value;
+	if (!list.length) return null;
+	const byModifiedDesc = (a, b) => new Date(b.modified) - new Date(a.modified);
+	const editables = list.filter((d) => d.implementation_editable);
+	const pool = editables.length ? editables : list;
+	return [...pool].sort(byModifiedDesc)[0].name;
+}
 
 async function checkEditability() {
 
@@ -1770,8 +2107,9 @@ async function checkEditability() {
 		isEditable.value = !!data.editable;
 		editabilityInfo.value = {
 			editable: !!data.editable,
-			pathfinder_log: data.pathfinder_log || null,
+			process_implementation: data.process_implementation || null,
 			workflow_state: data.workflow_state || null,
+			override: !!data.override,
 			reason: data.reason || null,
 		};
 	} catch (error) {
@@ -1780,8 +2118,9 @@ async function checkEditability() {
 		isEditable.value = false;
 		editabilityInfo.value = {
 			editable: false,
-			pathfinder_log: null,
+			process_implementation: null,
 			workflow_state: null,
+			override: false,
 			reason: "Unable to check editability. Process is locked for safety.",
 		};
 	}
@@ -1845,6 +2184,7 @@ async function loadProcess() {
 		const data = response.message || response;
 		processName.value = data.process_name;
 		diagrams.value = data.diagrams || [];
+		loadProductionReviewSettings();
 	} catch (error) {
 		console.error("Failed to load process:", error);
 	}
@@ -1862,13 +2202,10 @@ async function selectDiagram(name) {
 
 	activeDiagramName.value = name;
 
-	// Add to open tabs if not already there
-	if (!openTabs.value.find((t) => t.name === name)) {
-		const diagram = diagrams.value.find((d) => d.name === name);
-		if (diagram) {
-			openTabs.value.push(diagram);
-		}
-	}
+	// Only one map is visible at a time — the tab bar shows just the
+	// selected map; all others are reachable via the bottom-bar menu.
+	const diagram = diagrams.value.find((d) => d.name === name);
+	openTabs.value = diagram ? [diagram] : [];
 
 	// Update URL (skip in compact mode — parent manages routing)
 	if (!props.compact) {
@@ -1950,8 +2287,8 @@ async function saveDiagramToCache(name) {
 
 function onDiagramChanged() {
 	if (!editorReady.value) return;
-	// Do not trigger auto-save when the process is locked
-	if (!isEditable.value) return;
+	// Do not trigger auto-save when this map is locked
+	if (!canEditActiveDiagram.value) return;
 	// Do not auto-save while previewing a read-only named version.
 	if (activeVersionName.value) return;
 
@@ -1960,17 +2297,28 @@ function onDiagramChanged() {
 
 	clearTimeout(saveTimeout);
 	hasPendingSave = true;
-	saveTimeout = setTimeout(() => {
-		hasPendingSave = false;
-		if (activeDiagramName.value) {
-			saveCurrentDiagram();
-		}
-	}, 1500);
+	saveTimeout = setTimeout(runDebouncedSave, 1500);
+}
+
+// Runs when the auto-save debounce elapses. If the analyst is still entering
+// values in a shape-property field, we don't save yet — re-arm the timer so the
+// value can be finished first. hasPendingSave stays true throughout, so the
+// unsaved-changes leave guards still protect the edit. The save flushes on the
+// first tick after focus leaves the properties panel (≤1.5s later).
+function runDebouncedSave() {
+	if (isEditingShapeProperties()) {
+		saveTimeout = setTimeout(runDebouncedSave, 1500);
+		return;
+	}
+	hasPendingSave = false;
+	if (activeDiagramName.value) {
+		saveCurrentDiagram();
+	}
 }
 
 async function saveCurrentDiagram() {
 	if (!activeDiagramName.value || !editorRef.value) return;
-	if (!isEditable.value) return; // Guard: process is locked
+	if (!canEditActiveDiagram.value) return; // Guard: this map is locked
 	if (activeVersionName.value) return; // Guard: previewing a read-only version
 
 	saving.value = true;
@@ -2267,12 +2615,12 @@ async function handleDeleteTab(tab) {
 		hasUnsavedChanges.value = false;
 		saveState.value = "idle";
 
-		if (openTabs.value.length > 0) {
-			selectDiagram(openTabs.value[Math.min(tabIndex, openTabs.value.length - 1)].name);
-		} else if (diagrams.value.length > 0) {
-			selectDiagram(diagrams.value[0].name);
+		const fallback = pickDefaultDiagram();
+		if (fallback) {
+			selectDiagram(fallback);
 		} else {
 			activeDiagramName.value = null;
+			openTabs.value = [];
 			router.replace({ name: "ProcessEditor", params: { process: props.process } });
 		}
 	}
@@ -2290,7 +2638,12 @@ async function handleDeleteTab(tab) {
 		// ── Rollback on failure ─────────────────────────────────────
 		console.error("Deletion failed:", error);
 		if (removedDiagram) diagrams.value.splice(diagramIndex, 0, removedDiagram);
-		if (removedTab) openTabs.value.splice(tabIndex, 0, removedTab);
+		if (wasActive) {
+			// Restore the deleted map as the (single) visible tab
+			selectDiagram(tab.name);
+		} else if (removedTab) {
+			openTabs.value.splice(tabIndex, 0, removedTab);
+		}
 		showNotification("Error", "Failed to delete diagram: " + (error.message || error), "red");
 	}
 }
@@ -2688,10 +3041,8 @@ async function handleImportFile(event) {
 			diagrams.value.push(diagramEntry);
 		}
 
-		// Preserve existing openTabs; only add the imported diagram tab if not already open
-		if (!openTabs.value.some((tab) => tab.name === diagramEntry.name)) {
-			openTabs.value = [...openTabs.value, diagramEntry];
-		}
+		// Only one map is visible at a time — the imported map becomes it.
+		openTabs.value = [diagramEntry];
 
 		// Switch to the imported diagram via SPA (no page reload → no Preact crash)
 		// The watch(activeDiagramName) picks up the change and calls loadDiagramContent.

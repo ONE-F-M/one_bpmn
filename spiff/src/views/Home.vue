@@ -161,13 +161,13 @@
 									v-if="editabilityMap[row.name]"
 									icon="lucide:pencil"
 									class="w-3.5 h-3.5 text-green-500 shrink-0"
-									title="Editable — Active Pathfinder Log"
+									title="Editable — Active Process Implementation"
 								/>
 								<Icon
 									v-else
 									icon="lucide:lock"
 									class="w-3.5 h-3.5 text-gray-300 shrink-0"
-									title="Locked — No active Pathfinder Log"
+									title="Locked — No editable Process Implementation"
 								/>
 								<div>
 									<div class="text-sm font-medium text-gray-900">{{ item }}</div>
@@ -303,7 +303,7 @@ watch(pageLength, (val) => {
 	visibleCount.value = val
 })
 
-// Pathfinder Log editability map: { processName: true/false }
+// Process Implementation editability map: { processName: true/false }
 const editabilityMap = ref({})
 
 const filteredProcesses = computed(() => {
@@ -411,6 +411,10 @@ async function checkAllEditability() {
 		const processNames = processes.value.map(p => p.name)
 		const response = await frappeRequest({
 			url: "/api/method/one_bpmn.api.editability.bulk_check_processes_editable",
+			// POST so the (potentially large) process_names list travels in the
+			// request body — as a GET query string it builds a multi-KB URL that
+			// nginx rejects with 400 Bad Request.
+			method: "POST",
 			params: { process_names: JSON.stringify(processNames) },
 		})
 

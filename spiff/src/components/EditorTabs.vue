@@ -19,12 +19,13 @@
 			<Icon icon="material-symbols:compare" class="w-5 h-5" />
 		</button>
 
-		<!-- All Tabs Menu -->
+		<!-- All Tabs Menu — lists every process map; only the selected one is
+		     shown in the tab strip, the rest are switched to from here -->
 		<div class="relative shrink-0">
 			<button
 				@click="showAllTabsMenu = !showAllTabsMenu"
 				class="p-2 rounded hover:bg-gray-300 text-gray-600 transition-colors"
-				title="All diagrams"
+				title="All process maps"
 			>
 				<Icon icon="lucide:menu" class="w-5 h-5" />
 			</button>
@@ -34,7 +35,7 @@
 				class="absolute left-0 bottom-full mb-1 w-56 bg-white border border-gray-200 rounded-lg shadow-lg z-50 py-1 max-h-80 overflow-y-auto"
 			>
 				<button
-					v-for="tab in tabs"
+					v-for="tab in menuTabs"
 					:key="tab.name"
 					@click="$emit('select-tab', tab.name); showAllTabsMenu = false"
 					class="w-full flex items-center gap-2 px-3 py-2 text-sm text-gray-700 hover:bg-gray-50 transition-colors"
@@ -47,6 +48,12 @@
 						]"
 					></span>
 					<span class="truncate">{{ tab.model_name }}</span>
+					<Icon
+						v-if="tab.implementation_editable"
+						icon="lucide:pencil"
+						class="w-3 h-3 text-green-500 ml-auto shrink-0"
+						title="Editable — linked to an editable Process Implementation"
+					/>
 				</button>
 			</div>
 		</div>
@@ -168,6 +175,12 @@ const props = defineProps({
 		type: Array,
 		default: () => []
 	},
+	// Full list of process maps for the "all maps" menu. The strip itself
+	// only renders `tabs` (the single visible map).
+	allTabs: {
+		type: Array,
+		default: null
+	},
 	activeTab: {
 		type: String,
 		default: null
@@ -206,6 +219,10 @@ const activeMenuTab = ref(null) // Stores tab object
 const menuPosition = ref({ top: 0, left: 0 })
 const showAllTabsMenu = ref(false)
 const scrollContainerRef = ref(null)
+
+// The "all maps" menu lists every map when provided, falling back to the
+// visible tabs for callers that don't pass allTabs.
+const menuTabs = computed(() => props.allTabs ?? props.tabs)
 
 // Auto-scroll active tab into view when it changes
 watch(() => props.activeTab, () => {

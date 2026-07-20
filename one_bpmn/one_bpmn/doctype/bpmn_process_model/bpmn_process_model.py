@@ -11,6 +11,36 @@ import uuid
 class BPMNProcessModel(Document):
 	def before_insert(self):
 		self.regenerate_process_id_on_duplicate()
+		self.attach_process_implementation()
+
+	def attach_process_implementation(self):
+		"""Link the editable Process Implementation that enabled this creation.
+
+		When a new model is created for a process (e.g. from the Processa
+		editor), the Process Implementation that made the process editable
+		is attached so that per-model editability can later be derived from
+		that implementation's 'Editable' flag.
+
+		Callers that already set process_implementation explicitly (e.g. the
+		'Create BPMN Process Model' engine script) are left untouched.
+		"""
+		if self.process_implementation or not self.process_name:
+			return
+
+		from one_bpmn.api.editability import check_process_editable
+
+		try:
+			info = check_process_editable(self.process_name)
+		except Exception:
+			# Attaching is best-effort — the editability gate in validate()
+			# is what actually blocks creation on locked processes.
+			return
+
+		pi_name = info.get("process_implementation")
+		# The implementation may live on the Production site only (connected
+		# mode) — never create a dangling local Link.
+		if pi_name and frappe.db.exists("Process Implementation", pi_name):
+			self.process_implementation = pi_name
 
 	def on_trash(self):
 		# Remove version-history snapshots that Link to this model, otherwise
@@ -46,11 +76,17 @@ class BPMNProcessModel(Document):
 		validate_process_model_scripts(self.bpmn_xml)
 
 	def validate_is_editable(self):
-		"""Ensure that the process is editable on the backend level before saving it.
+		"""Ensure the model is editable on the backend level before saving it.
 
-		The cross-site Pathfinder Log check is expensive (~0.5-2s HTTP round-trip).
-		Skip it for metadata-only changes (title, description, is_active, etc.)
-		where the actual BPMN XML content has not been modified.
+		Editability is derived from the Process Implementation doctype:
+		  - New models require an editable (Active) Process Implementation
+		    for the process — which gets attached in ``before_insert`` — or
+		    an explicitly pre-set ``process_implementation``.
+		  - Existing models are editable only while the Process
+		    Implementation *linked to them* has its 'Editable' flag checked.
+
+		Skipped for metadata-only changes (title, description, is_active,
+		etc.) where the actual BPMN XML content has not been modified.
 
 		Trusted callers (import_bpmn, compile_process_model) set
 		``doc.flags.skip_editability_check = True`` to bypass this gate
@@ -66,9 +102,9 @@ class BPMNProcessModel(Document):
 		if frappe.session.user == "Administrator":
 			return
 
-		# Skip the expensive cross-site check only when neither the XML
-		# content nor the process assignment has changed. Changing
-		# process_name could move the model to a locked process.
+		# Skip the check only when neither the XML content nor the process
+		# assignment has changed. Changing process_name could move the
+		# model to a locked process.
 		if (
 			not self.is_new()
 			and not self.has_value_changed("bpmn_xml")
@@ -76,16 +112,60 @@ class BPMNProcessModel(Document):
 		):
 			return
 
-		from one_bpmn.api.editability import check_process_editable
+		from one_bpmn.api.editability import (
+			_site_lock_override,
+			check_process_editable,
+			is_implementation_editable,
+		)
 
-		editability_info = check_process_editable(self.process_name)
-		if not editability_info.get("editable"):
-			reason = editability_info.get("reason", "No active Pathfinder Log.")
+		override = _site_lock_override()
+		if override is not None:
+			if not override["editable"]:
+				frappe.throw(
+					_("Cannot edit BPMN Process Model: {0}").format(override["reason"]),
+					exc=frappe.ValidationError,
+					title=_("Process Locked"),
+				)
+			return
+
+		if self.is_new():
+			# A pre-set implementation (engine script / before_insert attach)
+			# authorises the creation; otherwise an editable implementation
+			# must exist for the process (checked via the Production API in
+			# connected mode, locally otherwise).
+			if self.process_implementation:
+				return
+			editability_info = check_process_editable(self.process_name)
+			if editability_info.get("editable"):
+				return
 			frappe.throw(
-				_("Cannot edit BPMN Process Model: {0}").format(reason),
+				_("Cannot create BPMN Process Model: {0}").format(
+					editability_info.get(
+						"reason",
+						_('Process is locked. Create a Process Implementation and get it actioned to "Active" state to enable editing.'),
+					)
+				),
 				exc=frappe.ValidationError,
-				title=_("Process Locked")
+				title=_("Process Locked"),
 			)
+
+		# Existing model — its own linked implementation must be editable
+		# (routed to Production when connect_to_production is enabled).
+		if self.process_implementation and is_implementation_editable(self.process_implementation):
+			return
+
+		reason = (
+			_("The Process Implementation linked to this model ({0}) is not editable.").format(
+				self.process_implementation
+			)
+			if self.process_implementation
+			else _("No Process Implementation is linked to this model.")
+		)
+		frappe.throw(
+			_("Cannot edit BPMN Process Model: {0}").format(reason),
+			exc=frappe.ValidationError,
+			title=_("Process Locked"),
+		)
 
 	def enforce_single_active(self):
 		"""Ensure only one process model is active per process.
