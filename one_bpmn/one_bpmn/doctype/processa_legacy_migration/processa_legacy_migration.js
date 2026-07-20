@@ -3,50 +3,10 @@
 //
 // This DocType is the context document for the self-hosted "Processa Legacy
 // Migration V1" BPMN process. Preview Records and Run Migration are BPMN
-// user-task actions performed in Processa — not form buttons here. The only
-// action offered on the form is starting the process against this record.
-
-const LEGACY_MIGRATION_MODEL = "Processa Legacy Migration V1";
+// user-task actions performed in Processa — not form buttons here.
 
 frappe.ui.form.on("Processa Legacy Migration", {
 	refresh(frm) {
-		// ── Start the Processa process against this record ────────────────
-		if (
-			!frm.is_new() &&
-			(frm.doc.status === "Draft" || frm.doc.status === "Failed") &&
-			frm.doc.process_model &&
-			frm.doc.target_doctype &&
-			frm.doc.old_status &&
-			frm.doc.target_status
-		) {
-			frm.add_custom_button(__("Start in Processa"), function () {
-				frappe.call({
-					method: "one_bpmn.api.instance_api.start_process",
-					args: {
-						model_name: LEGACY_MIGRATION_MODEL,
-						context_doctype: "Processa Legacy Migration",
-						context_docname: frm.doc.name,
-					},
-					freeze: true,
-					freeze_message: __("Starting migration process…"),
-					callback: function (r) {
-						if (!r.message) return;
-						frappe.msgprint({
-							title: __("Migration process started"),
-							message: __(
-								"Open <b>Processa</b> to run <b>Preview Records</b> or " +
-									"<b>Run Migration</b> from your task inbox. Instance: {0}",
-								[r.message.instance]
-							),
-							indicator: "green",
-						});
-						frm.reload_doc();
-					},
-				});
-			});
-			frm.change_custom_button_type(__("Start in Processa"), null, "primary");
-		}
-
 		// ── Status-based indicators ───────────────────────────────────────
 		if (frm.doc.status === "Running" || frm.doc.status === "Queued") {
 			frm.dashboard.set_headline(
