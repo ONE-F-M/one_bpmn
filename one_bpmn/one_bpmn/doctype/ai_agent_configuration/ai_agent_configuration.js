@@ -1,11 +1,37 @@
 // Copyright (c) 2026, Kartik Sharma and contributors
 // For license information, please see license.txt
 
+frappe.provide("frappe.one_bpmn");
+
+// Colour for each lifecycle_status value, used by the form header indicator
+// and the list view (see ai_agent_configuration_list.js). Keep the two in sync.
+frappe.one_bpmn.lifecycle_color = function (status) {
+	return {
+		"Draft": "gray",
+		"Validating": "orange",
+		"Provisioning": "light-blue",
+		"Evaluating": "purple",
+		"Live": "green",
+		"Needs Attention": "red",
+		"Retired": "darkgrey",
+	}[status] || "gray";
+};
+
 frappe.ui.form.on("AI Agent Configuration", {
 	refresh(frm) {
 		frm.events.setup_queries(frm);
 		frm.events.render_required_variables(frm);
+		frm.events.set_lifecycle_indicator(frm);
 		frm.events.show_needs_attention_reason(frm);
+	},
+
+	set_lifecycle_indicator(frm) {
+		// Show lifecycle_status as the header pill instead of Frappe's default
+		// Enabled/Disabled indicator (which comes from the `enabled` field).
+		if (frm.is_new()) return;
+		const status = frm.doc.lifecycle_status;
+		if (!status) return;
+		frm.page.set_indicator(__(status), frappe.one_bpmn.lifecycle_color(status));
 	},
 
 	show_needs_attention_reason(frm) {
