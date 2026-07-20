@@ -1,0 +1,7 @@
+{
+ "note": "Processa PR smoke test \u2014 safe to delete, do not merge",
+ "custom_fields": [],
+ "property_setters": [],
+ "doctype": "AI Eval Case",
+ "sync_on_migrate": 1
+}
