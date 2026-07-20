@@ -1066,6 +1066,11 @@ def _extract_json(text: str):
 
 	Handles plain JSON, fenced ```json blocks, and prose wrapped around an
 	object. Returns the parsed object/dict, or None if nothing parses.
+
+	strict=False because models routinely emit literal newlines inside JSON
+	string values (invalid per the spec, rejected by strict json.loads).
+	Dropping such a reply loses its proposed_config — the confirm/create
+	card never renders and the whole raw blob shows in chat as the message.
 	"""
 	if not text:
 		return None
@@ -1079,7 +1084,7 @@ def _extract_json(text: str):
 		text = text.strip()
 
 	try:
-		return json.loads(text)
+		return json.loads(text, strict=False)
 	except Exception:
 		pass
 
@@ -1087,7 +1092,7 @@ def _extract_json(text: str):
 	end = text.rfind("}")
 	if start != -1 and end != -1 and end > start:
 		try:
-			return json.loads(text[start:end + 1])
+			return json.loads(text[start:end + 1], strict=False)
 		except Exception:
 			return None
 	return None
