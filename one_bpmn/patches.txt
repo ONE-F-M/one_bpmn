@@ -28,3 +28,4 @@ one_bpmn.one_bpmn.patches.v1_0.enforce_agent_config_on_ai_shapes #19-07-2026 WI-
 one_bpmn.one_bpmn.patches.v1_0.background_agents_go_live #19-07-2026 WI-001652
 one_bpmn.one_bpmn.patches.v1_0.refresh_ai_assistant_prompt #19-07-2026 WI-001649 update behavior
 one_bpmn.one_bpmn.patches.v1_0.link_models_to_credentials #19-07-2026 WI-001655
+one_bpmn.one_bpmn.patches.v1_0.refresh_ai_assistant_prompt #20-07-2026 WI-001623 dual-surface reply format

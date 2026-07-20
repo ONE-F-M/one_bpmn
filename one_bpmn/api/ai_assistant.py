@@ -96,6 +96,7 @@ def recommend_ai_task_config(
 	current_config: str = "{}",
 	process_model: str = "",
 	linked_config: str = "",
+	conversation: str = "",
 ) -> dict:
 	"""Return assistant recommendations for an AI Agent Task's configuration.
 
@@ -151,11 +152,15 @@ def recommend_ai_task_config(
 		diagram_block = digest["block"] if digest else ""
 		system_prompt = _build_selector_system_prompt()
 	else:
-		# WI-001623/WI-001649: the agent-mode persona is sourced ONLY from the
-		# ai_agent_assistant AI Agent Configuration — never a hardcoded
-		# fallback. A missing/blank record is an explicit, actionable error.
-		system_prompt = _assistant_system_prompt()
-		if not system_prompt:
+		# WI-001623 full parity: an agent-mode turn IS a chat-platform turn.
+		# It runs through the generic invocation on the assistant's own chat
+		# map — so it persists as a Chat Conversation + Chat Messages, its
+		# LLM call is an AI Agent Run attributed to the assistant, and the
+		# map instance is inspectable on Processa like any other process.
+		# The dialog's grounding rides as per-turn context (the map's user
+		# prompt renders {{ dialog_context }}); the persona comes from the
+		# assistant's configuration as always.
+		if not _assistant_system_prompt():
 			return {
 				"ok": False,
 				"error_code": "ASSISTANT_NOT_CONFIGURED",
@@ -166,18 +171,57 @@ def recommend_ai_task_config(
 					"enable the assistant."
 				),
 			}
-		# WI-001649: teach the assistant how to propose creating a new agent —
-		# the prerequisites are assembled from live sources (doctype meta,
-		# validation rules, enabled providers), never written as prose here.
-		system_prompt += "\n\n" + _creation_capability_block()
-		# WI-001649 amendment: the task's linked configuration as live context,
-		# so "change this agent's provider" needs no interrogation.
-		linked_block = _linked_config_block(linked_config)
-		if linked_block:
-			system_prompt += "\n\n" + linked_block
-		# WI-001625: give the assistant the full diagram as read-only grounding
-		# so its recommendations reference the actual shapes around the task.
-		diagram_block = _build_full_diagram_block(bpmn_xml, element_id)
+		dialog_context_parts = [
+			_creation_capability_block(),
+			_linked_config_block(linked_config),
+			_build_full_diagram_block(bpmn_xml, element_id),
+			context_block,
+			_build_current_config_block(current_config, catalog),
+		]
+		dialog_context = "\n\n".join(p for p in dialog_context_parts if p)
+
+		from one_bpmn.api.agent_invocation import invoke_agent
+
+		try:
+			turn = invoke_agent(
+				agent_id="ai_agent_assistant",
+				message=requirement.strip(),
+				conversation=conversation or None,
+				context={"dialog_context": dialog_context, "source": "task_dialog"},
+			)
+		except frappe.ValidationError as exc:
+			return {
+				"ok": False,
+				"error_code": "ASSISTANT_PROCESS_NOT_RUNNING",
+				"message": str(exc),
+			}
+
+		raw = (turn or {}).get("response") or ""
+		parsed = _extract_json(raw if isinstance(raw, str) else json.dumps(raw))
+		if not isinstance(parsed, dict):
+			return {
+				"ok": True,
+				"message": raw or _("No recommendation returned."),
+				"recommendations": {},
+				"conversation": (turn or {}).get("conversation"),
+			}
+		message = str(parsed.get("message", "")).strip() or (
+			raw if not parsed.get("recommendations") else ""
+		)
+		recommendations = {
+			key: value
+			for key, value in (parsed.get("recommendations") or {}).items()
+			if key in catalog and value not in (None, "")
+		}
+		return {
+			"ok": True,
+			"message": message,
+			"recommendations": recommendations,
+			"proposed_config": _sanitize_proposed_config(parsed.get("proposed_config")),
+			"proposed_update": _sanitize_proposed_update(parsed.get("proposed_update")),
+			"conversation": (turn or {}).get("conversation"),
+		}
+
 	user_prompt = _build_user_prompt(
 		requirement,
 		turns,
@@ -368,11 +412,18 @@ def _build_system_prompt() -> str:
 		"target unless told otherwise — do not interrogate the designer about "
 		"which record they mean. The designer always confirms before anything "
 		"is applied; never claim a change was made.\n\n"
-		"Respond with ONLY a single JSON object, no prose outside it, in this exact shape:\n"
-		'{\n'
-		'  "message": "<your recommendation summary, OR a clarifying question when unsure>",\n'
-		'  "recommendations": { "aiUserPrompt": "...", "aiOutputVariable": "...", ... }\n'
-		'}'
+		"REPLY FORMAT (WI-001623 — you serve two surfaces):\n"
+		"  - When the request carries PLATFORM CONTEXT blocks (task-dialog "
+		"turns), the CONTENT of your reply must be exactly one JSON object, no "
+		"prose outside it:\n"
+		'    { "message": "<summary, or clarifying question when unsure>",\n'
+		'      "recommendations": { "aiUserPrompt": "...", ... } }\n'
+		"    plus \"proposed_config\" / \"proposed_update\" when their contracts "
+		"apply.\n"
+		"  - In ordinary chat (no platform context), reply as plain, helpful "
+		"conversational text — never raw JSON.\n"
+		"  - Either way, if the message specifies an OUTPUT PROTOCOL wrapper, "
+		"obey it exactly and place the reply above inside it."
 	)
 
 
