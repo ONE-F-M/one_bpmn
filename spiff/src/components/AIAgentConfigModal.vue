@@ -608,7 +608,8 @@ const form = ref({
 });
 
 // ── Assistant state ───────────────────────────────────────────────────────
-const messages = ref([]);          // { id, role, content, recommendations? }
+const messages = ref([]);
+const assistantConversation = ref(""); // Chat Conversation driving the dialog (WI-001623)          // { id, role, content, recommendations? }
 const input = ref("");
 const showTips = ref(false);
 const loading = ref(false);
@@ -847,11 +848,15 @@ async function sendMessage() {
         // WI-001649 amendment: the linked config is the default target for
         // "change this agent…" requests — no interrogation needed.
         linked_config: form.value.aiAgentConfig || "",
+        // WI-001623: the dialog IS a chat-platform conversation — first send
+        // creates it; later sends continue it (history lives server-side).
+        conversation: assistantConversation.value || "",
         ...diagramPayload,
       },
     });
 
     if (res && res.ok) {
+      if (res.conversation) assistantConversation.value = res.conversation;
       let recommendations = res.recommendations || {};
       if (isSelector.value) {
         // Drop suggestions for fields the selector doesn't have
