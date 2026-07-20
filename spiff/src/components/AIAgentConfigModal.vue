@@ -1204,7 +1204,8 @@ async function createAgent() {
 // dialog never shows it, so its form default must not clobber the record.
 // Failure never blocks the shape save; the user is warned instead. A Live
 // agent is automatically re-provisioned by the backend so its chat map picks
-// up the change — surface that so the brief non-Live window isn't a surprise.
+// up the change — silently: re-validation failures surface in deploy checks,
+// not as a popup on every save.
 async function writeBackToConfig() {
   if (!form.value.aiAgentConfig) return;
   // WI-001655: the MODEL is the agent's editable pick and writes back;
@@ -1216,17 +1217,11 @@ async function writeBackToConfig() {
   };
   if (!isSelector.value) fields.aiTemperature = form.value.aiTemperature;
   try {
-    const res = await frappeRequest({
+    await frappeRequest({
       url: "/api/method/one_bpmn.agents.agent_config_resolver.update_agent_config_from_shape",
       method: "POST",
       params: { config_name: form.value.aiAgentConfig, fields: JSON.stringify(fields) },
     });
-    if (res && res.reprovisioned) {
-      alert(
-        `"${form.value.aiAgentConfig}" was Live, so it is being re-provisioned ` +
-          "with your changes (validate → provision → Live)."
-      );
-    }
   } catch (e) {
     alert(
       `The task was saved, but writing the changes back to "${form.value.aiAgentConfig}" failed: ` +
