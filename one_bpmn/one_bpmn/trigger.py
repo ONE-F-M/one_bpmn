@@ -19,6 +19,13 @@ from frappe.utils import now_datetime
 
 # Doctypes that belong to one_bpmn itself — never trigger workflows on these
 # to avoid infinite recursion.
+#
+# NOTE: "Processa Legacy Migration" is intentionally NOT listed. The
+# "Processa Legacy Migration - v2" process is triggered by its After Insert
+# event, so document events on it must reach on_doc_event. Its own writes are
+# safe: the v2 model only triggers on After Insert (fired once at creation), and
+# the migration run updates status via db_set (no doc events), so there is no
+# recursion.
 _INTERNAL_DOCTYPES = frozenset(
 	{
 		"BPMN Process Model",
@@ -26,7 +33,6 @@ _INTERNAL_DOCTYPES = frozenset(
 		"BPMN Active Task",
 		"BPMN Activity Log",
 		"BPMN Process DocType",
-		"Processa Legacy Migration",
 		"Legacy Migration Error Log",
 	}
 )
