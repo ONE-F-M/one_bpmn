@@ -24,15 +24,15 @@ class TestAssistantCreatesConfig(FrappeTestCase):
 		# The endpoint contract and validation rules are injected as data.
 		self.assertIn("chat_mode_label", block)
 		self.assertIn("Validation rules", block)
-		# Enabled providers are named exactly.
-		for p in frappe.get_all("AI Provider Credentials", filters={"enabled": 1}, pluck="name", limit=3):
-			self.assertIn(p, block)
+		# WI-001655: the catalog models (with their credentials) are named.
+		for m in frappe.get_all("AI Model", filters={"ai_provider_credentials": ("is", "set")}, pluck="name", limit=3):
+			self.assertIn(m, block)
 
 	def test_sanitize_keeps_only_contract_fields(self):
 		clean = _sanitize_proposed_config({
 			"agent_name": "HR Helper",
 			"chat_mode_label": "HR Helper",
-			"ai_provider_credentials": "Claude",
+			"ai_model": "claude-haiku-4-5-20251001",
 			"lifecycle_status": "Live",          # not proposable — dropped
 			"agent_type": "Background",          # not proposable — dropped
 			"sample_prompts": [

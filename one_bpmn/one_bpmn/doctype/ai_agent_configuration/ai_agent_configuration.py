@@ -37,9 +37,21 @@ class AIAgentConfiguration(Document):
 
 	def validate(self):
 		"""Validate that required runtime variables are present in the system prompt."""
+		self.derive_provider_from_model()
 		self.validate_required_variables()
 		self.validate_unique_chat_mode_label()
 		self.apply_background_lifecycle()
+
+	def derive_provider_from_model(self):
+		"""WI-001655: the model is the pick, the provider is derived. When an
+		AI Model is linked, ai_provider_credentials follows its credentials
+		link — one choice, no model/provider mismatch possible. An agent with
+		no model keeps whatever credentials it has (legacy records)."""
+		if not self.ai_model:
+			return
+		creds = frappe.db.get_value("AI Model", self.ai_model, "ai_provider_credentials")
+		if creds:
+			self.ai_provider_credentials = creds
 
 	def apply_background_lifecycle(self):
 		"""WI-001652: Background agents skip the chat creation process, so they
@@ -53,7 +65,11 @@ class AIAgentConfiguration(Document):
 		if not self.enabled:
 			reason = _("The agent is disabled.")
 		elif not self.ai_provider_credentials:
-			reason = _("No AI Provider Credentials record is linked.")
+			reason = (
+				_("The linked AI Model '{0}' has no AI Provider Credentials link.").format(self.ai_model)
+				if self.ai_model
+				else _("No AI Model is linked — pick one from the catalog.")
+			)
 		elif not frappe.db.get_value("AI Provider Credentials", self.ai_provider_credentials, "enabled"):
 			reason = _("The linked AI Provider Credentials record '{0}' is disabled.").format(
 				self.ai_provider_credentials
@@ -181,7 +197,7 @@ def get_agent_config(agent_id: str) -> dict | None:
 		{"agent_id": agent_id, "enabled": 1},
 		[
 			"name", "agent_id", "system_prompt", "temperature", "max_tokens",
-			"ai_provider_credentials", "langsmith_project",
+			"ai_model", "ai_provider_credentials", "langsmith_project",
 			"agent_framework", "process_model", "chat_mode_label",
 			"lifecycle_status", "agent_type",
 		],

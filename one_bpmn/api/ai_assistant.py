@@ -204,7 +204,7 @@ def recommend_ai_task_config(
 	config = ExecutorConfig(
 		backend=backend,
 		provider_name=provider,
-		model="",  # blank -> provider's default_model
+		model=_assistant_default_model(),  # the assistant's own catalog pick (WI-001655)
 		system_prompt=system_prompt,
 		user_prompt=user_prompt,
 		temperature=0.3,
@@ -296,6 +296,16 @@ def _assistant_system_prompt() -> str:
 
 		cfg = get_agent_config("ai_agent_assistant")
 		return (cfg or {}).get("system_prompt") or ""
+	except Exception:
+		return ""
+
+
+def _assistant_default_model() -> str:
+	"""The AI Model the assistant's own configuration picks (WI-001655)."""
+	try:
+		from one_bpmn.one_bpmn.doctype.ai_agent_configuration.ai_agent_configuration import get_agent_config
+
+		return (get_agent_config("ai_agent_assistant") or {}).get("ai_model") or ""
 	except Exception:
 		return ""
 
@@ -395,19 +405,26 @@ def _creation_prerequisites_block() -> str:
 	lines.extend(f"  - {rule['field']}: {rule['rule']}" for rule in VALIDATION_RULES)
 
 	try:
-		providers = frappe.get_list(
-			"AI Provider Credentials",
-			filters={"enabled": 1},
-			fields=["name", "default_model"],
-			limit_page_length=50,
+		# WI-001655: the agent's LLM choice is a MODEL pick from the catalog;
+		# the provider follows from the model's credentials link.
+		models = frappe.get_list(
+			"AI Model",
+			fields=["name", "ai_provider_credentials"],
+			limit_page_length=100,
+			order_by="name asc",
 		)
-		if providers:
+		enabled = set(frappe.get_list(
+			"AI Provider Credentials", filters={"enabled": 1}, pluck="name", limit_page_length=50,
+		))
+		usable = [m for m in models if m.ai_provider_credentials in enabled]
+		if usable:
 			lines.append(
-				"Enabled AI Provider Credentials (use these EXACT names): "
-				+ ", ".join(f"{p.name} (default model: {p.default_model or 'unset'})" for p in providers)
+				"AI Model catalog (use these EXACT names for ai_model / aiModel; "
+				"the provider follows from the model): "
+				+ ", ".join(f"{m.name} (via {m.ai_provider_credentials})" for m in usable)
 			)
 		else:
-			lines.append("No enabled AI Provider Credentials are visible to this user.")
+			lines.append("No usable AI Model catalog records (none link enabled credentials).")
 	except Exception:
 		pass
 
@@ -453,13 +470,15 @@ def _creation_capability_block() -> str:
 		"When the designer asks to CHANGE an existing AI Agent Configuration, "
 		"add a \"proposed_update\" object to your JSON reply (alongside "
 		"\"message\"): {\"config_name\": \"<exact record name>\", \"fields\": "
-		"{...}} where fields may only contain \"aiProvider\" (an enabled "
-		"AI Provider Credentials name), \"aiSystemPrompt\", \"aiTemperature\" "
-		"and/or \"aiMaxTokens\". Include ONLY the fields being changed. When "
-		"the conversation refers to \"this agent\" or \"the configuration\", it "
-		"means the LINKED AGENT CONFIGURATION context below when present; ask "
-		"only if genuinely ambiguous. The designer confirms the proposal in the "
-		"UI before anything is applied.\n\n"
+		"{...}} where fields may only contain \"aiModel\" (an EXACT AI Model "
+		"catalog name from the list above — the agent's provider follows from "
+		"the model automatically), \"aiSystemPrompt\", \"aiTemperature\" and/or "
+		"\"aiMaxTokens\". There is no direct provider change: to change the "
+		"provider, change the model. Include ONLY the fields being changed. "
+		"When the conversation refers to \"this agent\" or \"the "
+		"configuration\", it means the LINKED AGENT CONFIGURATION context below "
+		"when present; ask only if genuinely ambiguous. The designer confirms "
+		"the proposal in the UI before anything is applied.\n\n"
 		"CAPABILITY LIMITS (hard, non-negotiable):\n"
 		"You cannot write to ANY record yourself. Your only side-effect paths "
 		"are \"proposed_config\" and \"proposed_update\", both of which take "
@@ -490,7 +509,7 @@ def _linked_config_block(linked_config: str) -> str:
 		return ""
 	cfg = frappe.db.get_value(
 		"AI Agent Configuration", linked_config,
-		["name", "agent_id", "agent_type", "lifecycle_status", "ai_provider_credentials", "chat_mode_label"],
+		["name", "agent_id", "agent_type", "lifecycle_status", "ai_model", "ai_provider_credentials", "chat_mode_label"],
 		as_dict=True,
 	)
 	return (
@@ -499,14 +518,16 @@ def _linked_config_block(linked_config: str) -> str:
 		f"  name: {cfg.name}\n"
 		f"  agent_id: {cfg.agent_id}\n"
 		f"  type: {cfg.agent_type} | lifecycle: {cfg.lifecycle_status}\n"
-		f"  provider: {cfg.ai_provider_credentials or '(none)'}\n"
+		f"  model: {cfg.ai_model or '(none)'} | provider (derived): {cfg.ai_provider_credentials or '(none)'}\n"
 		f"  chat mode label: {cfg.chat_mode_label or '(none)'}"
 	)
 
 
 # Shape-attribute fields the assistant may propose changing on an existing
 # configuration — exactly what update_agent_config_from_shape accepts.
-_UPDATABLE_FIELDS = {"aiProvider", "aiSystemPrompt", "aiTemperature", "aiMaxTokens"}
+# WI-001655: the MODEL is the updatable pick (validated against the AI Model
+# catalog); aiProvider is gone — the provider follows the model.
+_UPDATABLE_FIELDS = {"aiModel", "aiSystemPrompt", "aiTemperature", "aiMaxTokens"}
 
 
 def _sanitize_proposed_update(proposed) -> dict | None:
@@ -525,6 +546,10 @@ def _sanitize_proposed_update(proposed) -> dict | None:
 		for key, value in fields.items()
 		if key in _UPDATABLE_FIELDS and isinstance(value, (str, int, float)) and str(value).strip()
 	}
+	# WI-001655: a model must be a real catalog record — drop hallucinated ones
+	# so the Apply card can never be doomed to a link-validation error.
+	if "aiModel" in clean and not frappe.db.exists("AI Model", str(clean["aiModel"])):
+		clean.pop("aiModel")
 	if not clean:
 		return None
 	return {"config_name": config_name, "fields": clean}
@@ -532,7 +557,7 @@ def _sanitize_proposed_update(proposed) -> dict | None:
 
 _PROPOSAL_FIELDS = {
 	"agent_name", "agent_id", "chat_mode_label",
-	"ai_provider_credentials", "system_prompt", "description",
+	"ai_model", "system_prompt", "description",
 }
 
 

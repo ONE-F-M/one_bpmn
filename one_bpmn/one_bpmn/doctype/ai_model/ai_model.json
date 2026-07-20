@@ -7,7 +7,7 @@
  "engine": "InnoDB",
  "field_order": [
   "model_name",
-  "provider"
+  "ai_provider_credentials"
  ],
  "fields": [
   {
@@ -19,17 +19,18 @@
    "unique": 1
   },
   {
-   "fieldname": "provider",
-   "fieldtype": "Select",
+   "description": "The connection this model is callable through (WI-001655). Agents pick a model; the provider follows from this link.",
+   "fieldname": "ai_provider_credentials",
+   "fieldtype": "Link",
    "in_list_view": 1,
-   "label": "Provider",
-   "options": "openai\ngemini\nanthropic",
-   "reqd": 1
+   "in_standard_filter": 1,
+   "label": "AI Provider Credentials",
+   "options": "AI Provider Credentials"
   }
  ],
  "index_web_pages_for_search": 1,
  "links": [],
- "modified": "2026-03-08 10:16:54.000000",
+ "modified": "2026-07-19 20:00:00.000000",
  "modified_by": "Administrator",
  "module": "ONE BPMN",
  "name": "AI Model",
