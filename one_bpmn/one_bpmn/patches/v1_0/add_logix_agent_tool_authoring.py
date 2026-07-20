@@ -1,7 +1,8 @@
 # Copyright (c) 2026, one-fm and contributors
 # For license information, please see license.txt
 """
-Teach Logix the Agent Tool authoring standard (docs/agent-tool-authoring-standard.md).
+Teach Logix the Agent Tool authoring standard (see logix-agent.instructions.md,
+"Script Contracts").
 
 A Script Task and an Agent Tool are different execution contexts: a Script
 Task runs through the engine (single exec namespace, workflow variables +
@@ -267,7 +268,7 @@ Respond with ONLY a JSON object:
 WRITE_AGENT_TOOL_SCRIPT = '''# Logix – Tool Write Agent Tool (inlined AI Agent Task stage tool).
 # Author an Agent Tool script — an element inside an AI Agent Task's ad-hoc
 # Tools sub-process — to the Agent Tool authoring standard
-# (docs/agent-tool-authoring-standard.md). Regenerates safe code if review
+# (see logix-agent.instructions.md, "Script Contracts"). Regenerates safe code if review
 # flagged violations.
 import re
 from one_bpmn.agents.turn_state import get_turn, run_sync, update_turn
@@ -373,7 +374,7 @@ review_raw = run_sync(agent._run("script_reviewer", draft))'''
 
 _REVIEW_NEW_INPUT = '''draft = turn.get("draft", "")
 # Tell the reviewer which execution contract to judge against (see
-# docs/agent-tool-authoring-standard.md — script_task vs agent_tool).
+# logix-agent.instructions.md "Script Contracts" — script_task vs agent_tool).
 shape_kind = turn.get("shape_kind") or (turn.get("process_context") or {}).get("shape_kind") or "script_task"
 review_raw = run_sync(agent._run("script_reviewer", f"Shape kind: {shape_kind}\\n\\n{draft}"))'''
 

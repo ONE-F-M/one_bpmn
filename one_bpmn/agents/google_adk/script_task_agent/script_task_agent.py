@@ -45,7 +45,7 @@ _OPTIONAL_SUB_PROMPTS = (
     "tool_writer",
 )
 
-# Human-readable element labels per shape kind (see docs/agent-tool-authoring-standard.md).
+# Human-readable element labels per shape kind (see logix-agent.instructions.md).
 _SHAPE_KIND_LABELS = {
     "agent_tool": "Agent Tool",
     "script_task": "Script Task",

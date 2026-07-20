@@ -30,7 +30,7 @@ At runtime the pipeline stages are inlined DB Server Scripts ("Logix – Tool ..
 Agent Tools by the "Run Logix Agent" AI Agent Task in the "Logix – Script Task Agent" process
 model. `classify_intent` returns `next` = `clarify` | `write_script` | `write_agent_tool`.
 
-## Script Contracts (non-negotiable — see `docs/agent-tool-authoring-standard.md`)
+## Script Contracts (non-negotiable)
 
 There are TWO contracts, selected by `shape_kind` in `process_context`:
 

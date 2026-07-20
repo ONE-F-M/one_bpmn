@@ -13,7 +13,7 @@ Idempotent: skips if sub-prompts already exist (won't overwrite manual edits).
 import frappe
 
 # Canonical writer/reviewer/tool-writer prompts live in the dual-contract patch
-# (script_task vs agent_tool — see docs/agent-tool-authoring-standard.md);
+# (script_task vs agent_tool — see logix-agent.instructions.md, "Script Contracts");
 # test_writer is unchanged since the injected-vars fix.
 from one_bpmn.one_bpmn.patches.v1_0.add_logix_agent_tool_authoring import (
 	SCRIPT_REVIEWER,
