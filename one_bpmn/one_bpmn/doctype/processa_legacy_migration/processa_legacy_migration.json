@@ -12,7 +12,6 @@
   "column_break_cfg",
   "old_status",
   "target_status",
-  "preview_summary",
   "section_options",
   "create_process_instance",
   "column_break_opts",
@@ -73,13 +72,6 @@
    "in_list_view": 1,
    "label": "Target Status",
    "reqd": 1
-  },
-  {
-   "description": "Result of the last 'Preview Records' action from Processa.",
-   "fieldname": "preview_summary",
-   "fieldtype": "Small Text",
-   "label": "Preview Summary",
-   "read_only": 1
   },
   {
    "fieldname": "section_options",
