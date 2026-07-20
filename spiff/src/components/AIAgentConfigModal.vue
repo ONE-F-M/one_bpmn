@@ -491,7 +491,7 @@
 </template>
 
 <script setup>
-import { ref, computed, onMounted, nextTick, toRaw } from "vue";
+import { ref, computed, onMounted, onUnmounted, nextTick, toRaw } from "vue";
 import { frappeRequest } from "frappe-ui";
 import { frappeGet } from "@/bpmn/shared/frappeResource";
 
@@ -610,6 +610,24 @@ const form = ref({
 // ── Assistant state ───────────────────────────────────────────────────────
 const messages = ref([]);
 const assistantConversation = ref(""); // Chat Conversation driving the dialog (WI-001623)          // { id, role, content, recommendations? }
+
+// Close the assistant's Chat Conversation on the backend so its BPMN
+// orchestration runs the close branch (Cleanup → Conversation Ended) and the
+// instance completes instead of staying parked at the event-based gateway.
+// Fire-and-forget — same pattern as LogixChat's endConversation().
+function endAssistantConversation() {
+  const convName = assistantConversation.value;
+  if (!convName) return;
+  assistantConversation.value = "";
+  frappeRequest({
+    url: "/api/method/one_bpmn.api.server_script_api.end_chat_conversation",
+    params: { conversation_name: convName },
+  }).catch(() => {});
+}
+
+// The modal is v-if mounted per open (BpmnEditor), so unmount fires on every
+// close path: ✕, Cancel, overlay click, apply-then-close, and parent teardown.
+onUnmounted(endAssistantConversation);
 const input = ref("");
 const showTips = ref(false);
 const loading = ref(false);
