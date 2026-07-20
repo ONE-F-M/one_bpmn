@@ -18,6 +18,7 @@
   "target_task_id",
   "target_task_name",
   "section_progress",
+  "workflow_state",
   "status",
   "total_records",
   "column_break_prog",
@@ -107,6 +108,14 @@
    "fieldname": "section_progress",
    "fieldtype": "Section Break",
    "label": "Progress"
+  },
+  {
+   "description": "BPMN process state, set by the 'Processa Legacy Migration - v2' process (apply_workflow service tasks).",
+   "fieldname": "workflow_state",
+   "fieldtype": "Link",
+   "label": "Workflow State",
+   "options": "Workflow State",
+   "read_only": 1
   },
   {
    "default": "Draft",

@@ -302,6 +302,22 @@
 										Review Workflow Objects
 									</button>
 								</template>
+								<!-- Reassign User Task (only when NOT connected to Production) -->
+								<template v-if="!connectToProduction">
+									<div class="border-t border-gray-100 my-1"></div>
+									<button
+										@click="toggleReassignMode(); showActionsMenu = false"
+										class="w-full flex items-center gap-2 px-3 py-2 text-sm transition-colors"
+										:disabled="!activeDiagramName"
+										:class="[
+											reassignMode ? 'text-blue-600 bg-blue-50 hover:bg-blue-100' : 'text-gray-700 hover:bg-gray-50',
+											{ 'opacity-40 cursor-not-allowed': !activeDiagramName }
+										]"
+									>
+										<Icon icon="lucide:user-cog" class="w-4 h-4" />
+										{{ reassignMode ? 'Exit Reassign Mode' : 'Reassign User Task' }}
+									</button>
+								</template>
 							</div>
 						</div>
 					</template>
@@ -360,6 +376,20 @@
 								>
 									<Icon icon="lucide:workflow" class="w-4 h-4" />
 									Review Workflow Objects
+								</button>
+							</template>
+							<template v-if="!connectToProduction">
+								<button
+									@click="toggleReassignMode(); showMobileMoreMenu = false"
+									class="w-full flex items-center gap-2 px-3 py-2.5 text-sm transition-colors"
+									:disabled="!activeDiagramName"
+									:class="[
+										reassignMode ? 'text-blue-600 bg-blue-50 hover:bg-blue-100' : 'text-gray-700 hover:bg-gray-50',
+										{ 'opacity-40 cursor-not-allowed': !activeDiagramName }
+									]"
+								>
+									<Icon icon="lucide:user-cog" class="w-4 h-4" />
+									{{ reassignMode ? 'Exit Reassign Mode' : 'Reassign User Task' }}
 								</button>
 							</template>
 						</template>
@@ -464,9 +494,11 @@
 						:save-status-text="saveStatusText"
 						:save-status-color="saveStatusColor"
 						:readonly="!canEditActiveDiagram || !!activeVersionName"
+						:reassign-mode="reassignMode && !activeVersionName"
 						:model-name="activeDiagramName"
 						@ready="onEditorReady"
 						@changed="onDiagramChanged"
+						@reassign-changed="onReassignChanged"
 						@zoom-changed="onZoomChanged"
 						@launch-script-editor="onLaunchScriptEditor"
 						@confirm-script-delete="onConfirmScriptDelete"
@@ -1303,6 +1335,127 @@ async function runSync() {
 	}
 }
 
+// --- Reassign User Task (only when Connect to Production is unchecked) ---
+// While enabled, the Assignment Configuration fields of User Tasks become
+// editable on an otherwise read-only canvas. Each change is persisted (and
+// logged) through a dedicated attribute-scoped endpoint (the normal save path
+// is blocked on locked models). The map is recompiled ONCE — a single Deploy —
+// when reassign mode is exited, rather than once per edited task.
+const reassignMode = ref(false);
+const pendingReassignments = new Map(); // taskId → { modelName, assignment }
+let reassignSaveTimer = null;
+// Logs created this session, grouped by model, awaiting the batched deploy.
+const savedReassignLogs = []; // [{ modelName, log }]
+
+function toggleReassignMode() {
+	if (reassignMode.value) {
+		// Turning OFF → persist anything pending, then deploy once.
+		reassignMode.value = false;
+		showNotification("Reassign mode disabled", "Assignment fields are read-only again.", "gray");
+		finalizeReassignments();
+	} else {
+		reassignMode.value = true;
+		savedReassignLogs.length = 0;
+		showNotification(
+			"Reassign mode enabled",
+			"Assignment Configuration fields (Assignment Mode, User, DocField, Users, Table Field, Row User Field) on User Tasks are now editable. Changes are logged as you make them, and the map is redeployed once when you exit reassign mode.",
+			"blue"
+		);
+	}
+}
+
+// Leaving the diagram (or previewing a version) exits reassign mode — finalize
+// so the session's edits are still deployed in one pass.
+watch(activeDiagramName, () => {
+	if (reassignMode.value) {
+		reassignMode.value = false;
+		finalizeReassignments();
+	}
+});
+
+function onReassignChanged({ taskId, assignment }) {
+	if (!activeDiagramName.value || !taskId) return;
+	pendingReassignments.set(taskId, {
+		modelName: activeDiagramName.value,
+		assignment,
+	});
+	if (reassignSaveTimer) clearTimeout(reassignSaveTimer);
+	reassignSaveTimer = setTimeout(flushReassignments, 1200);
+}
+
+// Persist pending per-task changes (attribute write + audit log). Does NOT
+// deploy — that is batched into finalizeReassignments().
+async function flushReassignments() {
+	if (reassignSaveTimer) {
+		clearTimeout(reassignSaveTimer);
+		reassignSaveTimer = null;
+	}
+	const entries = [...pendingReassignments.entries()];
+	pendingReassignments.clear();
+	for (const [taskId, { modelName, assignment }] of entries) {
+		try {
+			const res = await frappeRequest({
+				url: "/api/method/one_bpmn.api.reassignment.reassign_user_task",
+				method: "POST",
+				params: {
+					model_name: modelName,
+					task_id: taskId,
+					assignment: JSON.stringify(assignment),
+				},
+			});
+			if (res && res.updated && res.log) savedReassignLogs.push({ modelName, log: res.log });
+		} catch (err) {
+			const msg =
+				err.messages && err.messages.length
+					? err.messages.join("\n")
+					: err.message || "Failed to save the reassignment.";
+			showNotification("Reassignment failed", msg, "red", true);
+		}
+	}
+}
+
+// Flush any pending change, then recompile each touched model exactly once.
+async function finalizeReassignments() {
+	await flushReassignments();
+	if (!savedReassignLogs.length) return;
+
+	const byModel = new Map(); // modelName → [logName]
+	for (const { modelName, log } of savedReassignLogs) {
+		if (!byModel.has(modelName)) byModel.set(modelName, []);
+		byModel.get(modelName).push(log);
+	}
+	savedReassignLogs.length = 0;
+
+	let deployFailed = false;
+	for (const [modelName, logs] of byModel.entries()) {
+		try {
+			const res = await frappeRequest({
+				url: "/api/method/one_bpmn.api.reassignment.deploy_reassignments",
+				method: "POST",
+				params: { model_name: modelName, logs: JSON.stringify(logs) },
+			});
+			if (!res || res.redeployed === false) deployFailed = true;
+		} catch (err) {
+			deployFailed = true;
+		}
+	}
+
+	if (deployFailed) {
+		showNotification(
+			"Reassignments saved — redeploy pending",
+			"Assignment changes were logged, but automatic redeploy failed. Click Deploy to apply them to new instances.",
+			"red",
+			true
+		);
+	} else {
+		showNotification(
+			"Reassignments saved & redeployed",
+			"All assignment changes were logged and the map was redeployed once. New process instances use the new assignment; already-running tasks keep their current assignee.",
+			"green"
+		);
+	}
+}
+
 // --- DMN Editor State ---
 const showDmnEditorDialog = ref(false);
 const dmnEditorRef = ref(null);
@@ -1876,10 +2029,17 @@ async function executeDeployment() {
 				"green"
 			);
 
-			// Show eval suite gating warnings (non-blocking)
+			// Show deploy readiness warnings (non-blocking). Warnings may be
+			// plain strings (eval suite gating) or structured objects with
+			// { label, detail, type, icon } (e.g. backend code removal).
 			if (response.warnings && response.warnings.length > 0) {
 				for (const warning of response.warnings) {
-					showNotification("Eval Suite Warning", warning, "orange");
+					if (warning && typeof warning === "object") {
+						const title = warning.label ? `${warning.label} Warning` : "Deploy Warning";
+						showNotification(title, warning.detail || warning.label || "", "orange");
+					} else {
+						showNotification("Eval Suite Warning", warning, "orange");
+					}
 				}
 			}
 
