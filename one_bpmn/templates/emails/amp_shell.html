@@ -3,7 +3,7 @@
 <head>
   <meta charset="utf-8">
   <script async src="https://cdn.ampproject.org/v0.js"></script>
-  {% if has_token_actions or is_comment %}
+  {% if has_actions or is_comment %}
   <script async custom-element="amp-form" src="https://cdn.ampproject.org/v0/amp-form-0.1.js"></script>
   <script async custom-template="amp-mustache" src="https://cdn.ampproject.org/v0/amp-mustache-0.2.js"></script>
   {% endif %}
@@ -310,10 +310,11 @@
          replaces the ENTIRE form (all buttons) with the success badge,
          just like Google Calendar invites. Each button carries its own
          HMAC token as name="token" value="<token>". #}
+      {% if simple_actions %}
       <form method="post"
-            action-xhr="{{ site_url }}/api/method/one_bpmn.api.todo_actions.handle_amp_action"
+            action-xhr="{{ action_endpoint or (site_url + '/api/method/one_bpmn.api.todo_actions.handle_amp_action') }}"
             class="actions">
-        {% for action in actions %}
+        {% for action in simple_actions %}
         {% if action.token %}
         <button type="submit"
                 name="token"
@@ -344,6 +345,44 @@
           </template>
         </div>
       </form>
+      {% endif %}
+
+      {# Actions that need extra input (e.g. a date range) get their own
+         form — AMP validates all fields in a form as one atomic unit, so a
+         required field here would otherwise block submitting a plain
+         token action sharing the same form. #}
+      {% for action in complex_actions %}
+      <form method="post"
+            action-xhr="{{ action_endpoint or (site_url + '/api/method/one_bpmn.api.todo_actions.handle_amp_action') }}"
+            class="actions date-range-form">
+        <input type="hidden" name="token" value="{{ action.token | e }}">
+        {% for field in action.extra_fields %}
+        <label class="comment-label" for="{{ field.name }}">{{ field.label }}</label>
+        <input type="{{ field.type }}"
+               id="{{ field.name }}"
+               name="{{ field.name }}"
+               class="comment-textarea"
+               {% if field.required %}required{% endif %}>
+        {% endfor %}
+        <button type="submit" class="btn {{ 'btn-primary' if action.primary else 'btn-secondary' }} comment-submit">
+          {{ action.label }}
+        </button>
+        <div submit-success>
+          <template type="amp-mustache">
+            <div class="completed-badge">
+              <div class="check-circle">✓</div>
+              <div class="action-name">{{'{{'}} message.action {{'}}'}}d</div>
+              <div class="meta">{{'{{'}} message.message {{'}}'}}</div>
+            </div>
+          </template>
+        </div>
+        <div submit-error>
+          <template type="amp-mustache">
+            <p class="submit-error">{{'{{'}} message.error {{'}}'}}</p>
+          </template>
+        </div>
+      </form>
+      {% endfor %}
 
       {% endif %}
 
@@ -358,8 +397,7 @@
                     name="comment"
                     placeholder="Write your comment here…"
                     required></textarea>
-          <input type="hidden" name="doctype" value="{{ doctype }}">
-          <input type="hidden" name="name" value="{{ name }}">
+          <input type="hidden" name="token" value="{{ comment_token | e }}">
           <button type="submit" class="btn btn-primary comment-submit">
             Submit Comment
           </button>

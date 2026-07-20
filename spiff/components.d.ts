@@ -18,6 +18,7 @@ declare module 'vue' {
     CostTokenReport: typeof import('./src/components/insights/CostTokenReport.vue')['default']
     DiffViewer: typeof import('./src/components/DiffViewer.vue')['default']
     DmnEditor: typeof import('./src/components/DmnEditor.vue')['default']
+    DocuCanvas: typeof import('./src/components/DocuCanvas.vue')['default']
     EditorSidebar: typeof import('./src/components/EditorSidebar.vue')['default']
     EditorTabs: typeof import('./src/components/EditorTabs.vue')['default']
     ElementInspector: typeof import('./src/components/process_instance/ElementInspector.vue')['default']

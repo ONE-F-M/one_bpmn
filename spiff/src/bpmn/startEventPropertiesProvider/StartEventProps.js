@@ -9,6 +9,7 @@ import { useService } from "bpmn-js-properties-panel";
 import { getBusinessObject } from "bpmn-js/lib/util/ModelUtil";
 import { h } from "preact";
 import { FrappeAutocomplete } from "../shared/FrappeAutocomplete";
+import { makeLaunchDocuButton } from "../shared/launchDocuButton";
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -38,6 +39,11 @@ export function StartEventProps(props) {
 			element,
 			component: TriggerDoctypeAutocompleteComponent,
 			isEdited: isSelectEntryEdited,
+		},
+		{
+			id: "spiffworkflow-triggerDoctype-launchDocu",
+			element,
+			component: makeLaunchDocuButton("triggerDoctype"),
 		},
 		{
 			id: "spiffworkflow-triggerType",

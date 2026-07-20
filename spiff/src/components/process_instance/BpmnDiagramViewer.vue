@@ -161,6 +161,13 @@ const props = defineProps({
 	logs: { type: Array, default: () => [] },
 	activeTasks: { type: Array, default: () => [] },
 	selectedBpmnId: { type: String, default: null },
+	// WI-001426: toolbox shapes the AI agent called as function-tools —
+	// bpmnId → "Success" | "Error". These shapes never executed as flow,
+	// so they get the same green treatment as engine-executed shapes.
+	aiCalledTools: { type: Object, default: () => ({}) },
+	// WI-001499: AI units parked "Waiting for AI execution" (or Errored
+	// after retries) — bpmnId → "Waiting" | "Error". Pulsing blue outline.
+	waitingAiTasks: { type: Object, default: () => ({}) },
 })
 
 const emit = defineEmits(["element-select", "clear-selection"])
@@ -231,7 +238,7 @@ watch(() => props.xml, (val) => {
 	if (val && canvasRef.value) initViewer()
 })
 
-watch([() => props.logs, () => props.activeTasks, () => props.xml], () => {
+watch([() => props.logs, () => props.activeTasks, () => props.xml, () => props.aiCalledTools, () => props.waitingAiTasks], () => {
 	applyHighlights()
 }, { deep: true })
 
@@ -296,9 +303,11 @@ function applyHighlights() {
 		const overlays = viewer.value.get("overlays")
 		overlays.remove({ type: "heatmap-badge" })
 	overlays.remove({ type: "ai-badge" })
+	overlays.remove({ type: "ai-call-badge" })
+	overlays.remove({ type: "token-badge" })
 
 		// Clear stale highlight markers before re-applying
-		const staticHighlightMarkers = new Set(["highlight-done", "highlight-active"])
+		const staticHighlightMarkers = new Set(["highlight-done", "highlight-active", "highlight-ai-called", "highlight-ai-error", "highlight-ai-waiting", "highlight-ai-human"])
 		const dynamicHighlightPrefixes = ["heatmap-", "highlight-flow-"]
 		for (const element of elementRegistry.getAll()) {
 			const gfx = elementRegistry.getGraphics(element)
@@ -380,6 +389,67 @@ function applyHighlights() {
 		waitingBpmnIds.forEach((bpmnId) => {
 			try { canvas.addMarker(bpmnId, "highlight-active") } catch (e) {}
 		})
+
+		// AI-called toolbox shapes (WI-001426): the agent invoked these as
+		// function-tools inside its LLM loop — styled with the same green as
+		// engine-executed shapes (errors get the error treatment) so AI and
+		// engine runs read identically on the diagram.
+		// info is {status, count} (legacy string = status only). Tools called
+		// more than once get a ×N badge — same convention as the token
+		// heatmap, but counting LLM tool calls, not token traversals.
+		const aiToolboxIds = new Set()
+		for (const [bpmnId, info] of Object.entries(props.aiCalledTools || {})) {
+			try {
+				const status = typeof info === "string" ? info : info?.status
+				const count = (typeof info === "object" && info?.count) || 0
+				canvas.addMarker(bpmnId, status === "Error" ? "highlight-ai-error" : "highlight-ai-called")
+				if (count > 1) {
+					const badge = document.createElement("div")
+					badge.className = "ai-call-badge"
+					badge.textContent = `×${count}`
+					badge.title = `The agent called this tool ${count} times`
+					overlays.add(bpmnId, "ai-call-badge", { position: { top: -10, right: -10 }, html: badge })
+				}
+				// The container holding this tool is an agent's toolbox — its
+				// valve edges get the same executed-flow colouring.
+				const parent = elementRegistry.get(bpmnId)?.parent
+				if (parent?.type === "bpmn:AdHocSubProcess") aiToolboxIds.add(parent.id)
+			} catch (e) {}
+		}
+
+		// Edges touching an AI-used toolbox: coloured like every other
+		// executed flow, so AI-driven and engine-driven execution share one
+		// visual language on the instance diagram.
+		if (aiToolboxIds.size && elementRegistry) {
+			elementRegistry
+				.filter(
+					(e) =>
+						e.type === "bpmn:SequenceFlow" &&
+						(aiToolboxIds.has(e.source?.id) || aiToolboxIds.has(e.target?.id)),
+				)
+				.forEach((element) => {
+					try {
+						canvas.addMarker(element.id, "highlight-flow-ai")
+					} catch (e) {}
+				})
+		}
+
+		// Parked AI units (WI-001499): waiting for their background AI job —
+		// pulsing blue; an exhausted-retries failure gets the error look.
+		// A suspended agent (Durable HITL, status "Human") is waiting for a
+		// PERSON — distinct amber treatment.
+		for (const [bpmnId, status] of Object.entries(props.waitingAiTasks || {})) {
+			try {
+				canvas.addMarker(
+					bpmnId,
+					status === "Error"
+						? "highlight-ai-error"
+						: status === "Human"
+							? "highlight-ai-human"
+							: "highlight-ai-waiting",
+				)
+			} catch (e) {}
+		}
 
 		// Sequence flows, start events, and gateways
 		// NOTE: waitingBpmnIds are deliberately excluded — a WAITING boundary
@@ -485,6 +555,34 @@ function applyHighlights() {
 .highlight-active:not(.djs-connection) .djs-visual > :nth-child(1) {
 	stroke: #2563eb !important; fill: #dbeafe !important; stroke-width: 2px !important;
 }
+/* WI-001426: toolbox shapes called by the AI agent — same green as engine-
+   executed shapes so AI and engine runs read identically on the diagram. */
+.highlight-ai-called:not(.djs-connection) .djs-visual > :nth-child(1) {
+	stroke: #16a34a !important; fill: #dcfce7 !important; stroke-width: 2px !important;
+}
+.highlight-ai-error:not(.djs-connection) .djs-visual > :nth-child(1) {
+	stroke: #dc2626 !important; fill: #fee2e2 !important; stroke-width: 2px !important;
+}
+.highlight-ai-waiting:not(.djs-connection) .djs-visual > :nth-child(1) {
+	stroke: #2563eb !important; fill: #dbeafe !important; stroke-width: 2.5px !important;
+	animation: ai-waiting-pulse 1.6s ease-in-out infinite;
+}
+@keyframes ai-waiting-pulse {
+	0%, 100% { stroke-opacity: 1; }
+	50% { stroke-opacity: 0.35; }
+}
+/* Durable HITL: agent suspended, waiting for a person — amber, pulsing */
+.highlight-ai-human:not(.djs-connection) .djs-visual > :nth-child(1) {
+	stroke: #d97706 !important; fill: #fef3c7 !important; stroke-width: 2.5px !important;
+	stroke-dasharray: 6 3 !important;
+	animation: ai-waiting-pulse 1.6s ease-in-out infinite;
+}
+/* Edges of an agent's toolbox whose tools were AI-called: same green as
+   engine-traversed flows — AI and engine runs use one consistent colour. */
+.highlight-flow-ai.djs-connection .djs-visual > path {
+	stroke: #16a34a !important; stroke-width: 2px !important;
+	marker-end: url(#sequenceflow-arrow-green) !important;
+}
 .highlight-flow-done.djs-connection .djs-visual > path {
 	stroke: #16a34a !important; stroke-width: 2px !important;
 	marker-end: url(#sequenceflow-arrow-green) !important;
@@ -525,7 +623,7 @@ function applyHighlights() {
 	z-index: 100;
 }
 .ai-badge.ai-success {
-	background: #7B2D8E;
+	background: #16a34a;
 }
 .ai-badge.ai-error {
 	background: #DC2626;
@@ -560,6 +658,16 @@ function applyHighlights() {
 }
 .heatmap-badge.hot { background: #dc2626; }
 .heatmap-badge.warm { background: #f59e0b; }
+
+/* ×N tool-call count on AI-called toolbox shapes — same badge style as the
+   token heatmap ×N so repeat counts read identically everywhere. */
+.ai-call-badge {
+	min-width: 20px; height: 20px; line-height: 20px; text-align: center;
+	font-size: 10px; font-weight: 700; color: #fff; background: #6366f1;
+	border-radius: 10px; padding: 0 5px;
+	box-shadow: 0 1px 3px rgba(0,0,0,0.3);
+	font-family: ui-monospace, monospace; pointer-events: none;
+}
 
 /* Active pulse animation */
 @keyframes active-pulse {

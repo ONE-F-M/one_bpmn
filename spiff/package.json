@@ -9,6 +9,7 @@
 	},
 	"dependencies": {
 		"@bpmn-io/properties-panel": "^3.36.0",
+		"@codemirror/commands": "^6.10.4",
 		"@codemirror/lang-javascript": "^6.2.5",
 		"@codemirror/lang-python": "^6.2.1",
 		"@codemirror/language": "6.12.4",
@@ -29,14 +30,14 @@
 		"bpmn-js-spiffworkflow": "github:ks093/bpmn-js-spiffworkflow#develop",
 		"bpmn-js-touch-interaction": "^0.1.2",
 		"bpmnlint": "^11.12.0",
-		"@codemirror/commands": "^6.10.4",
 		"dayjs": "^1.11.7",
 		"diagram-js-minimap": "^5.2.0",
 		"dmn-js": "^17.8.1",
 		"frappe-ui": "0.1.192",
 		"unplugin-icons": "^23.0.1",
 		"vue": "^3.5.13",
-		"vue-router": "^4.5.0"
+		"vue-router": "^4.5.0",
+		"vuedraggable": "^4.1.0"
 	},
 	"devDependencies": {
 		"autoprefixer": "^10.4.20",

@@ -173,7 +173,13 @@ doc_events = {
 		"before_cancel":          _BPMN_GUARD,
 		"before_workflow_action": _BPMN_GUARD,
 		"on_trash":               _BPMN_DELETE,
-	}
+	},
+	# Pre-deployment security gate: structurally validate the body of any
+	# Server Script that a BPMN script task references (unrelated Server
+	# Scripts pass through untouched).
+	"Server Script": {
+		"validate": "one_bpmn.security.script_gate.validate_server_script_on_save",
+	},
 }
 
 # Scheduled Tasks

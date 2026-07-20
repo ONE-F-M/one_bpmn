@@ -31,6 +31,7 @@ def list_process_instances(
 			"name",
 			"process_model",
 			"status",
+			"waiting_for_ai",
 			"context_doctype",
 			"context_docname",
 			"started_at",
@@ -110,17 +111,30 @@ def start_process(
 		instance.context_docname = context_docname
 	instance.insert(ignore_permissions=True)
 
-	# Start the engine
+	# Start the engine (synchronous).
 	try:
 		instance.start(initial_data=parsed_data)
-	except Exception as exc:
-		# Mark errored and re-raise so the caller knows
-		frappe.db.set_value("BPMN Process Instance", instance.name, "status", "Errored")
+	except frappe.ValidationError:
+		# start() already handles the failures it owns: runtime/script errors are
+		# halted + surfaced as a sanitized Reference-ID message, and pre-engine
+		# validation (e.g. no compiled spec) already carries a safe message.
+		# Re-raise as-is — never wrap raw internals (the old wrapper leaked str(exc)).
+		raise
+	except Exception:
+		# Backstop for failures OUTSIDE the engine seam (e.g. building or
+		# serializing the workflow), which start() does not sanitize. Record the
+		# failure and surface a generic message instead of a raw traceback.
+		frappe.db.set_value(
+			"BPMN Process Instance", instance.name, "status", "Errored",
+			update_modified=False,
+		)
 		frappe.log_error(
-			title="BPMN start_process failed",
+			title=f"BPMN start_process failed — {instance.name}",
 			message=frappe.get_traceback(),
 		)
-		frappe.throw(_("Failed to start process '{0}': {1}").format(model_name, str(exc)))
+		frappe.throw(
+			_("Failed to start process '{0}'. Please contact your administrator.").format(model_name)
+		)
 
 	return {
 		"instance": instance.name,
@@ -215,6 +229,21 @@ def complete_task(
 
 	instance = frappe.get_doc("BPMN Process Instance", instance_name)
 	instance.check_permission("write")
+
+	# ── WI-001498: gate scoped to ACTIVE AI execution ────────────────────────
+	# engine_in_progress is held only while an engine pass (an AI job, or a
+	# concurrent complete_task) is actually running. A waiting instance —
+	# parked AI job queued, human task, catch event — has the gate clear, so
+	# human tasks stay completable even when they were spawned by AI.
+	if frappe.db.get_value(
+		"BPMN Process Instance", instance_name, "engine_in_progress"
+	):
+		frappe.throw(
+			_(
+				"Instance is processing — an engine pass (AI task or another "
+				"action) is currently running. Please retry in a moment."
+			)
+		)
 
 	parsed_data = {}
 	if data:
@@ -343,6 +372,195 @@ def complete_task(
 				frappe.PermissionError,
 			)
 
+	# ── Durable AI Agent HITL: human-tool tasks resume the agent ─────────────
+	# These rows are synthetic (spawned by a suspended agent, no engine task
+	# behind them). They pass the exact same checks above as real User Tasks;
+	# completion stores the person's output on the agent's checkpoint and
+	# enqueues the resume job instead of running an engine pass here.
+	if task_id.startswith(instance.AI_HUMAN_PREFIX):
+		instance.complete_ai_human_task(task_id, parsed_data)
+		instance.reload()
+		return {
+			"instance": instance_name,
+			"status": instance.status,
+			"queued": True,
+			"waiting_for_ai": instance.waiting_for_ai,
+			"waiting_for_human": instance.waiting_for_human,
+			"active_tasks": instance.get_active_tasks_summary(),
+		}
+
+	# ── 4. HAND OFF TO THE ENGINE (inline) ───────────────────────────────────
+	# All validation passed. The engine pass runs inline in the request
+	# (WI-001494/WI-001496) and reports the real resulting state. AI tasks
+	# reached by the pass are parked by the WI-001495 seam — ONLY their LLM
+	# work runs as a bpmn_ai_agent job, so the request never blocks on AI
+	# latency. The UI follows waiting_for_ai and the realtime events the AI
+	# job publishes.
+	frappe.db.set_value(
+		"BPMN Process Instance",
+		instance_name,
+		"engine_in_progress",
+		1,
+		update_modified=False,
+	)
+
+	_complete_task_job(
+		instance_name=instance_name,
+		task_id=task_id,
+		data=parsed_data,
+		run_as_user=current_user,
+		approved_ctc_name=approved_ctc_name,
+	)
+	instance.reload()
+	return {
+		"instance": instance_name,
+		"status": instance.status,
+		"queued": False,
+		"waiting_for_ai": instance.waiting_for_ai,
+		"active_tasks": instance.get_active_tasks_summary(),
+	}
+
+
+@frappe.whitelist()
+def get_parked_ai_tasks(instance_name: str) -> list:
+	"""
+	WI-001499: the parked AI units of an instance — the shapes the diagram
+	viewer highlights as "Waiting for AI execution" and the targets the
+	manual retry button re-kicks.
+
+	Returns: list of {kind, task_id, bpmn_id, label}.
+	"""
+	if not instance_name:
+		frappe.throw(_("instance_name is required"))
+	instance = frappe.get_doc("BPMN Process Instance", instance_name)
+	instance.check_permission("read")
+	try:
+		return instance.get_parked_ai_units()
+	except Exception:
+		frappe.log_error(
+			title=f"BPMN get_parked_ai_tasks failed: {instance_name}",
+			message=frappe.get_traceback(),
+		)
+		return []
+
+
+@frappe.whitelist()
+def get_suspended_ai_tasks(instance_name: str) -> list:
+	"""
+	Durable AI Agent HITL: the agents of this instance currently suspended
+	waiting for a person. Powers the "waiting for human task X" banner and
+	the distinct suspended-agent diagram marker.
+
+	Returns: list of {bpmn_id, human_task_id, human_task_label}.
+	"""
+	if not instance_name:
+		frappe.throw(_("instance_name is required"))
+
+	instance = frappe.get_doc("BPMN Process Instance", instance_name)
+	instance.check_permission("read")
+
+	runs = frappe.get_list(
+		"AI Agent Run",
+		filters={"instance": instance_name, "status": "Suspended"},
+		fields=["bpmn_id", "pending_human_task"],
+	)
+	labels = {
+		row.task_id: row.task_name
+		for row in instance.active_tasks
+		if str(row.task_id).startswith(instance.AI_HUMAN_PREFIX)
+	}
+	return [
+		{
+			"bpmn_id": r.bpmn_id,
+			"human_task_id": r.pending_human_task or "",
+			"human_task_label": labels.get(r.pending_human_task, ""),
+		}
+		for r in runs
+	]
+
+
+@frappe.whitelist()
+def retry_ai_task(instance_name: str, task_id: str, kind: str = "service_task") -> dict:
+	"""
+	WI-001497: manually re-kick a parked AI unit after the automatic retries
+	were exhausted (instance Errored) — or re-run a stalled selector decision.
+
+	The parked task was deliberately left in STARTED state on exhaustion, so
+	the fresh job resumes exactly where the failed one stopped.
+
+	Args:
+		instance_name: BPMN Process Instance name
+		task_id:       parked task UUID (service_task) or the ad-hoc
+		               subprocess bpmn id (adhoc_decision)
+		kind:          "service_task" | "adhoc_decision"
+	"""
+	if not instance_name or not task_id:
+		frappe.throw(_("instance_name and task_id are required"))
+	if kind not in ("service_task", "adhoc_decision"):
+		frappe.throw(_("kind must be 'service_task' or 'adhoc_decision'"))
+
+	instance = frappe.get_doc("BPMN Process Instance", instance_name)
+	instance.check_permission("write")
+
+	if instance.status not in ("Errored", "Active"):
+		frappe.throw(
+			_('Instance "{0}" is {1} — only Errored or Active instances can retry an AI task.').format(
+				instance_name, instance.status
+			)
+		)
+
+	frappe.db.set_value(
+		"BPMN Process Instance",
+		instance_name,
+		{"status": "Active", "waiting_for_ai": 1},
+		update_modified=False,
+	)
+
+	frappe.enqueue(
+		"one_bpmn.one_bpmn.doctype.bpmn_process_instance"
+		".bpmn_process_instance.run_parked_ai_task",
+		queue="bpmn_ai_agent",
+		timeout=600,
+		enqueue_after_commit=True,
+		# Manual retries are deliberate — never dedup against a stale job id.
+		job_id=f"bpmn-ai-{instance_name}-{task_id}-manual-{frappe.generate_hash(length=6)}",
+		instance_name=instance_name,
+		kind=kind,
+		task_id=task_id,
+		run_as_user=frappe.session.user,
+		attempt=0,
+	)
+
+	return {"instance": instance_name, "status": "queued", "kind": kind, "task_id": task_id}
+
+
+def _complete_task_job(
+	instance_name: str,
+	task_id: str,
+	data: dict = None,
+	run_as_user: str = None,
+	approved_ctc_name: str = None,
+):
+	"""
+	Second half of complete_task: the engine pass that follows an
+	already-validated user action, run inline in the request
+	(WI-001494/WI-001496). Runs with the acting user's identity so
+	completed-by attribution and permission-sensitive script tasks behave
+	consistently. AI tasks reached by the pass are parked by the WI-001495
+	seam and continue on the bpmn_ai_agent worker.
+	"""
+	# NEVER call frappe.set_user for the current user: set_user() rewrites
+	# local.session.sid and WIPES session.data — inside a web request (the
+	# inline path) the end-of-request session persistence then writes the
+	# gutted data back under the browser's cookie sid, and every following
+	# request fails with "User None is disabled". Only switch identity when
+	# it actually differs (the background-job case).
+	if run_as_user and run_as_user != frappe.session.user:
+		frappe.set_user(run_as_user)
+
+	# Row lock serializes concurrent engine passes on the same instance
+	# (a second action, the timer sweep, a message delivery).
+	instance = frappe.get_doc("BPMN Process Instance", instance_name, for_update=True)
 	try:
 		active_tasks = instance.advance(task_id=task_id, data=parsed_data)
 	except frappe.ValidationError:

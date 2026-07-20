@@ -18,16 +18,44 @@
 					:class="isSelected(node) ? 'border-l-2 border-gray-500' : 'hover:bg-gray-50 border-l-2 border-transparent'"
 					:style="isSelected(node) ? { backgroundColor: 'rgba(107, 114, 128, 0.12)' } : {}"
 				>
-					<!-- State icon -->
-					<Icon v-if="node.stateLabel === 'Completed'" icon="lucide:check-circle-2" class="w-4 h-4 text-green-500 shrink-0" />
-					<Icon v-else-if="node.stateLabel === 'Error'" icon="lucide:alert-circle" class="w-4 h-4 text-red-500 shrink-0" />
-					<Icon v-else-if="node.stateLabel === 'Cancelled'" icon="lucide:x-circle" class="w-4 h-4 text-gray-400 shrink-0" />
-					<Icon v-else icon="lucide:circle" class="w-4 h-4 text-gray-300 shrink-0" />
-					<!-- Task name -->
-					<span
-						class="truncate"
-						:class="isSelected(node) ? 'font-semibold text-gray-900' : 'text-gray-700'"
-					>{{ node.name }}</span>
+					<!-- Nesting marker for tasks inside a subprocess -->
+					<Icon
+						v-if="node.depth"
+						icon="lucide:corner-down-right"
+						class="w-3.5 h-3.5 shrink-0 text-gray-300"
+					/>
+					<!-- AI tool call (WI-001426): called by the agent's LLM loop,
+					     not executed as a flow step — same colours as executed
+					     steps; the AI chip marks the provenance. -->
+					<template v-if="node.isAiToolCall">
+						<Icon
+							:icon="node.callStatus === 'Error' ? 'lucide:alert-circle' : 'lucide:check-circle-2'"
+							class="w-4 h-4 shrink-0"
+							:class="node.callStatus === 'Error' ? 'text-red-500' : 'text-green-500'"
+						/>
+						<span
+							class="truncate"
+							:class="isSelected(node) ? 'font-semibold text-gray-900' : 'text-gray-700'"
+							:title="aiCallTooltip(node)"
+						>{{ node.name }}</span>
+						<span
+							class="ml-auto shrink-0 text-[10px] font-semibold px-1.5 py-0.5 rounded"
+							:class="node.callStatus === 'Error' ? 'bg-red-50 text-red-600 border border-red-200' : 'bg-blue-50 text-blue-600 border border-blue-200'"
+							:title="aiCallTooltip(node)"
+						>AI</span>
+					</template>
+					<template v-else>
+						<!-- State icon -->
+						<Icon v-if="node.stateLabel === 'Completed'" icon="lucide:check-circle-2" class="w-4 h-4 text-green-500 shrink-0" />
+						<Icon v-else-if="node.stateLabel === 'Error'" icon="lucide:alert-circle" class="w-4 h-4 text-red-500 shrink-0" />
+						<Icon v-else-if="node.stateLabel === 'Cancelled'" icon="lucide:x-circle" class="w-4 h-4 text-gray-400 shrink-0" />
+						<Icon v-else icon="lucide:circle" class="w-4 h-4 text-gray-300 shrink-0" />
+						<!-- Task name -->
+						<span
+							class="truncate"
+							:class="isSelected(node) ? 'font-semibold text-gray-900' : 'text-gray-700'"
+						>{{ node.name }}</span>
+					</template>
 				</div>
 			</div>
 		</div>
@@ -46,9 +74,18 @@ const props = defineProps({
 defineEmits(["select"])
 
 function isSelected(node) {
+	if (node.isAiToolCall) return false // selection belongs to the agent task row
 	if (props.selectedNodeId) return props.selectedNodeId === node.id
 	if (props.selectedBpmnId) return props.selectedBpmnId === node.bpmnId
 	return false
+}
+
+function aiCallTooltip(node) {
+	const lines = ["Called by the AI agent — not a flow step"]
+	if (node.argsPreview) lines.push(`args: ${node.argsPreview}`)
+	if (node.resultPreview) lines.push(`result: ${node.resultPreview}`)
+	lines.push("Click to open the agent's AI Run tab")
+	return lines.join("\n")
 }
 </script>
 

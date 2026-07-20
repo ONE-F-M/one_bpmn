@@ -1,12 +1,14 @@
 from __future__ import annotations
 
+from frappe.tests.utils import FrappeTestCase
+
 from one_bpmn.email_builder.sanitizer import sanitize_for_amp
 
 
-class TestSanitizeForAmp:
-	"""Pure-Python tests for the AMP HTML sanitizer.
+class TestSanitizeForAmp(FrappeTestCase):
+	"""Tests for the AMP HTML sanitizer.
 
-	No Frappe site required — run with ``pytest``.
+	Run with: bench --site SITE run-tests --app one_bpmn --module one_bpmn.tests.test_sanitizer
 	"""
 
 	def test_allowed_tags_survive(self):

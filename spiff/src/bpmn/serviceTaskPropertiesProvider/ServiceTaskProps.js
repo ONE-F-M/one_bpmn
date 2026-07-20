@@ -6,6 +6,7 @@ import { frappeGet } from "../shared/frappeResource";
 import { FrappeAutocomplete } from "../shared/FrappeAutocomplete";
 import { FrappeMultiSelect } from "../shared/FrappeMultiSelect";
 import { encodeHtmlAttr, decodeHtmlAttr } from "../shared/htmlAttrCodec";
+import { makeLaunchDocuButton } from "../shared/launchDocuButton";
 
 // ---------------------------------------------------------------------------
 // Document Status options — mirrors Frappe's docstatus values exactly
@@ -56,6 +57,11 @@ export function ServiceTaskProps(props) {
 				isEdited: isSelectEntryEdited,
 			},
 			{
+				id: "spiffworkflow-serviceTargetDoctype-launchDocu",
+				element,
+				component: makeLaunchDocuButton("serviceTargetDoctype"),
+			},
+			{
 				id: "spiffworkflow-workflowState",
 				element,
 				component: WorkflowStateComponent,
@@ -84,7 +90,10 @@ export function ServiceTaskProps(props) {
 		);
 		// Only show Doctype picker when "Based on Specific Doctype" is checked
 		if (getBoolAttr(bo, "emailUseDoctype")) {
-			entries.push({ id: "spiffworkflow-emailDoctype", element, component: EmailDoctypeComponent });
+			entries.push(
+				{ id: "spiffworkflow-emailDoctype", element, component: EmailDoctypeComponent },
+				{ id: "spiffworkflow-emailDoctype-launchDocu", element, component: makeLaunchDocuButton("emailDoctype") },
+			);
 		}
 		entries.push(
 			{ id: "spiffworkflow-emailSubject",       element, component: EmailSubjectComponent },
@@ -105,6 +114,7 @@ export function ServiceTaskProps(props) {
 	if (serviceType === "update_field") {
 		entries.push(
 			{ id: "spiffworkflow-updateFieldDoctype",  element, component: UpdateFieldDoctypeComponent },
+			{ id: "spiffworkflow-updateFieldDoctype-launchDocu", element, component: makeLaunchDocuButton("updateFieldDoctype") },
 			{ id: "spiffworkflow-updateFieldRows",     element, component: UpdateFieldRowsComponent },
 		);
 	}
@@ -127,6 +137,7 @@ export function ServiceTaskProps(props) {
 	if (serviceType === "push_notification") {
 		entries.push(
 			{ id: "spiffworkflow-pushDoctype",             element, component: PushDoctypeComponent },
+			{ id: "spiffworkflow-pushDoctype-launchDocu",  element, component: makeLaunchDocuButton("pushDoctype") },
 			{ id: "spiffworkflow-pushTitle",               element, component: PushTitleComponent },
 			{ id: "spiffworkflow-push-recipients-header",  element, component: PushRecipientsHeaderComponent },
 			{ id: "spiffworkflow-pushToUsers",             element, component: PushToUsersComponent },
