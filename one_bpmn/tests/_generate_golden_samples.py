@@ -37,13 +37,38 @@ def _render_amp(template_path: str, task_content: dict) -> str:
 		and (actions[0].get("label") or "").lower().startswith("reply")
 	)
 
+	comment_token = ""
+	if is_comment:
+		# Deterministic dummy secret so this script needs no Frappe site.
+		from unittest.mock import patch
+
+		with patch("one_bpmn.utils.token._get_secret", return_value="golden-sample-secret"):
+			from one_bpmn.utils.token import generate_doc_action_token
+
+			comment_token = generate_doc_action_token(
+				task_content.get("doctype", ""),
+				task_content.get("name", ""),
+				"Comment",
+				"golden-sample-user@one-fm.com",
+			)
+
+	# Mirrors one_bpmn.email_builder.renderer._build_context — kept in sync
+	# manually since this script must run without a Frappe site.
+	simple_actions = [a for a in actions if not a.get("extra_fields")]
+	complex_actions = [a for a in actions if a.get("extra_fields")]
+
 	ctx = {
 		"subject": task_content.get("subject", ""),
 		"body": Markup(sanitize_for_amp(body)),
 		"actions": actions,
+		"simple_actions": simple_actions,
+		"complex_actions": complex_actions,
+		"action_endpoint": task_content.get("action_endpoint", ""),
 		"open_link": open_link,
 		"has_actions": has_actions,
+		"has_token_actions": any(a.get("token") for a in actions),
 		"is_comment": is_comment,
+		"comment_token": comment_token,
 		"is_amp": True,
 		"doctype": task_content.get("doctype", ""),
 		"name": task_content.get("name", ""),

@@ -156,8 +156,58 @@ def _extract_service_task_config(bpmn_xml: str) -> dict:
 		return {}
 
 	config = {}
-	for service_task in root.iter(f"{{{BPMN_NS}}}serviceTask"):
-		bpmn_id = service_task.get("id")
+	# sendTask elements carry spiffworkflow:notificationName the same way —
+	# without extracting them here, send tasks are invisible at runtime and
+	# complete as silent no-ops (the pre-2026-07-04 behavior).
+	for tag in ("serviceTask", "sendTask"):
+		for service_task in root.iter(f"{{{BPMN_NS}}}{tag}"):
+			bpmn_id = service_task.get("id")
+			if not bpmn_id:
+				continue
+
+			task_cfg = {}
+			for attr_name, attr_value in service_task.attrib.items():
+				if attr_name.startswith(f"{{{SPIFF_NS}}}"):
+					key = attr_name[len(f"{{{SPIFF_NS}}}") :]
+					task_cfg[key] = attr_value
+
+			if task_cfg:
+				config[bpmn_id] = task_cfg
+
+	return config
+
+
+def _extract_adhoc_selector_config(bpmn_xml: str) -> dict:
+	"""
+	Extract AI Task Selector configuration from ``<bpmn:adHocSubProcess>``
+	elements (WI-001351).
+
+	The selector attaches to the subprocess itself — not to an inner task —
+	as ``spiffworkflow:*`` attributes: serviceType="ai_task_selector",
+	aiProvider, aiModel, aiSystemPrompt and aiUserPrompt. Its candidate
+	tools are always the subprocess's own inner shapes (the AI Agent Tool
+	registry was removed in WI-001423). Entries are merged into
+	service_task_extensions, keyed by the subprocess bpmn_id, so the
+	dispatch loop (WI-001352) finds the config the same way it finds any
+	service task's.
+
+	Returns:
+		dict keyed by adHocSubProcess element ID, only for elements tagged
+		serviceType="ai_task_selector".
+	"""
+	import xml.etree.ElementTree as _ET
+
+	BPMN_NS = "http://www.omg.org/spec/BPMN/20100524/MODEL"
+	SPIFF_NS = "http://spiffworkflow.org/bpmn/schema/1.0/core"
+
+	try:
+		root = _ET.fromstring(bpmn_xml.strip().encode("utf-8") if isinstance(bpmn_xml, str) else bpmn_xml)
+	except Exception:
+		return {}
+
+	config = {}
+	for adhoc in root.iter(f"{{{BPMN_NS}}}adHocSubProcess"):
+		bpmn_id = adhoc.get("id")
 		if not bpmn_id:
 			continue
 
@@ -167,8 +217,10 @@ def _extract_service_task_config(bpmn_xml: str) -> dict:
 				key = attr_name[len(f"{{{SPIFF_NS}}}") :]
 				task_cfg[key] = attr_value
 
-		if task_cfg:
-			config[bpmn_id] = task_cfg
+		if task_cfg.get("serviceType") != "ai_task_selector":
+			continue
+
+		config[bpmn_id] = task_cfg
 
 	return config
 
@@ -895,6 +947,136 @@ def _extract_script_task_config(bpmn_xml: str) -> dict:
 	return extensions
 
 
+def _validate_adhoc_structure(bpmn_xml: str) -> None:
+	"""
+	Compile-time validation of Ad-hoc Subprocess structure per the BPMN
+	spec (and Camunda's constraints): an ad-hoc subprocess must not
+	contain start events or end events, and must contain at least one
+	activity. Applies to every ``<bpmn:adHocSubProcess>``, selector-tagged
+	or not.
+	"""
+	import xml.etree.ElementTree as _ET
+
+	BPMN_NS = "http://www.omg.org/spec/BPMN/20100524/MODEL"
+
+	EVENT_TAGS = {
+		f"{{{BPMN_NS}}}startEvent": _("Start Event"),
+		f"{{{BPMN_NS}}}endEvent": _("End Event"),
+	}
+	ACTIVITY_TAGS = {
+		f"{{{BPMN_NS}}}task",
+		f"{{{BPMN_NS}}}userTask",
+		f"{{{BPMN_NS}}}manualTask",
+		f"{{{BPMN_NS}}}scriptTask",
+		f"{{{BPMN_NS}}}serviceTask",
+		f"{{{BPMN_NS}}}sendTask",
+		f"{{{BPMN_NS}}}receiveTask",
+		f"{{{BPMN_NS}}}businessRuleTask",
+		f"{{{BPMN_NS}}}subProcess",
+		f"{{{BPMN_NS}}}adHocSubProcess",
+		f"{{{BPMN_NS}}}callActivity",
+		f"{{{BPMN_NS}}}transaction",
+	}
+
+	try:
+		root = _ET.fromstring(bpmn_xml.strip().encode("utf-8") if isinstance(bpmn_xml, str) else bpmn_xml)
+	except Exception:
+		return
+
+	for adhoc in root.iter(f"{{{BPMN_NS}}}adHocSubProcess"):
+		adhoc_id = adhoc.get("id", "?")
+
+		for child in adhoc:
+			if child.tag in EVENT_TAGS:
+				frappe.throw(
+					_(
+						"Ad-hoc Subprocess '{0}': a {1} ('{2}') is not allowed "
+						"inside an ad-hoc subprocess. Its inner activities start "
+						"ad hoc — delete the event."
+					).format(adhoc_id, EVENT_TAGS[child.tag], child.get("id", "?")),
+					exc=frappe.ValidationError,
+				)
+
+		if not any(child.tag in ACTIVITY_TAGS for child in adhoc):
+			frappe.throw(
+				_(
+					"Ad-hoc Subprocess '{0}' must contain at least one activity."
+				).format(adhoc_id),
+				exc=frappe.ValidationError,
+			)
+
+
+def _validate_adhoc_selector_pool(bpmn_xml: str, model_name: str | None = None) -> None:
+	"""
+	Compile-time validation of an AI Task Selector's candidate pool
+	(WI-001353). Runs while the designer edits, not at dispatch time.
+
+	1. Eligibility (decision 2026-07-02): candidates are leaf task
+	   activities only. A container activity — embedded Sub-Process,
+	   Call Activity, Transaction or nested Ad-hoc Subprocess — with no
+	   incoming sequence flow inside a selector-tagged ad-hoc subprocess is
+	   rejected with an error naming the element and its type. This also
+	   rules out recursive selector-in-selector loops.
+	2. Name collisions: a diagram candidate's bpmn_id must not equal an
+	   enabled AI Agent Tool name applicable to this process — neither may
+	   silently shadow the other.
+	"""
+	import xml.etree.ElementTree as _ET
+
+	BPMN_NS = "http://www.omg.org/spec/BPMN/20100524/MODEL"
+	SPIFF_NS = "http://spiffworkflow.org/bpmn/schema/1.0/core"
+
+	CONTAINER_TAGS = {
+		f"{{{BPMN_NS}}}subProcess": "Sub-Process",
+		f"{{{BPMN_NS}}}adHocSubProcess": "Ad-hoc Subprocess",
+		f"{{{BPMN_NS}}}callActivity": "Call Activity",
+		f"{{{BPMN_NS}}}transaction": "Transaction",
+	}
+	LEAF_TASK_TAGS = {
+		f"{{{BPMN_NS}}}task",
+		f"{{{BPMN_NS}}}userTask",
+		f"{{{BPMN_NS}}}manualTask",
+		f"{{{BPMN_NS}}}scriptTask",
+		f"{{{BPMN_NS}}}serviceTask",
+		f"{{{BPMN_NS}}}sendTask",
+		f"{{{BPMN_NS}}}receiveTask",
+		f"{{{BPMN_NS}}}businessRuleTask",
+	}
+
+	try:
+		root = _ET.fromstring(bpmn_xml.strip().encode("utf-8") if isinstance(bpmn_xml, str) else bpmn_xml)
+	except Exception:
+		return
+
+	def has_incoming(element):
+		return element.find(f"{{{BPMN_NS}}}incoming") is not None
+
+	for adhoc in root.iter(f"{{{BPMN_NS}}}adHocSubProcess"):
+		if adhoc.get(f"{{{SPIFF_NS}}}serviceType") != "ai_task_selector":
+			continue
+
+		adhoc_id = adhoc.get("id", "?")
+		candidate_names = []
+
+		for child in adhoc:
+			if has_incoming(child):
+				continue  # connected flow, not a selector candidate
+			if child.tag in CONTAINER_TAGS:
+				frappe.throw(
+					_(
+						"AI Task Selector '{0}': {1} '{2}' cannot be a selector "
+						"candidate — only leaf task activities (Script, Service, "
+						"Send, User/Manual, Business Rule) are eligible. Connect "
+						"it with a sequence flow or move it out of the subprocess."
+					).format(adhoc_id, CONTAINER_TAGS[child.tag], child.get("id", "?")),
+					exc=frappe.ValidationError,
+				)
+			# The AI Agent Tool registry was removed (WI-001423), so there is no
+			# longer a diagram/registry name-collision to check — a selector's
+			# tools are its inner shapes only. Container eligibility (above) is
+			# the remaining validation.
+
+
 def _lint_ai_provider_config(_bpmn_xml: str, service_extensions: dict) -> None:
 	"""
 	Compile-time lint for AI Agent Tasks:
@@ -986,6 +1168,157 @@ def _check_eval_suite_gating(model_name: str) -> list:
 		# If status is "Passed" (or anything else), no warning is added.
 
 	return warnings
+
+
+# AI Agent Task tools = the shapes of a referenced ad-hoc sub-process
+# (Camunda "tools are the shapes"). The tool container is NOT wired into the
+# process flow, so its shapes are resolved here at compile time and embedded in
+# the agent's config; the runtime never navigates the live spec tree.
+# Automatic tools execute inline in the step loop; HUMAN tools (User/Manual
+# tasks — Durable AI Agent HITL) suspend the agent until a person completes
+# the spawned task.
+_AI_AGENT_AUTO_TAGS = frozenset({"scriptTask", "serviceTask"})
+_AI_AGENT_HUMAN_TAGS = frozenset({"userTask", "manualTask"})
+_AI_AGENT_TOOL_TAGS = _AI_AGENT_AUTO_TAGS | _AI_AGENT_HUMAN_TAGS
+
+# Argument schema a human tool exposes when the designer sets no
+# aiToolParams: the model states what it needs from the person.
+_DEFAULT_HUMAN_TOOL_PARAMS = {
+	"request": {
+		"type": "string",
+		"description": "What you need from the person — shown with the task.",
+	}
+}
+
+
+def _extract_tool_shapes(adhoc_el, bpmn_ns: str, spiff_ns: str) -> list:
+	"""Eligible leaf tool shapes of an ad-hoc sub-process, as tool descriptors.
+
+	Automatic tools are executable-inline only: a Script Task with a Server
+	Script, or a Service Task with a serviceType. User/Manual tasks become
+	HUMAN tools ({"human": true} descriptors) — calling one suspends the agent
+	(create + wait) instead of executing inline. Description is the shape's
+	documentation (Camunda uses an activity's documentation as its tool
+	description). Containers, gateways and events are not included.
+
+	A shape may also carry spiffworkflow:aiToolParams — a JSON Schema object
+	(``{"properties": {...}, "required": [...]}``) describing the arguments
+	the LLM should supply when calling it. When present, it is embedded as
+	``parameters``/``required`` so the tool isn't exposed to the LLM as a
+	zero-argument function. Human tools without aiToolParams default to a
+	single "request" argument.
+	"""
+	shapes = []
+	for child in list(adhoc_el):
+		tag = child.tag.split("}")[-1]
+		if tag not in _AI_AGENT_TOOL_TAGS:
+			continue
+		bpmn_id = child.get("id")
+		if not bpmn_id:
+			continue
+		is_human = tag in _AI_AGENT_HUMAN_TAGS
+		server_script = child.get(f"{{{spiff_ns}}}serverScript", "")
+		service_type = child.get(f"{{{spiff_ns}}}serviceType", "")
+		if not is_human and not (server_script or service_type):
+			continue
+		doc_el = child.find(f"{{{bpmn_ns}}}documentation")
+		description = (doc_el.text or "").strip() if doc_el is not None and doc_el.text else ""
+		shape = {"bpmn_id": bpmn_id, "description": description}
+		if is_human:
+			shape["human"] = True
+			shape["label"] = (child.get("name") or "").strip()
+		if server_script:
+			shape["serverScript"] = server_script
+		if service_type:
+			shape["serviceType"] = service_type
+		tool_params_raw = child.get(f"{{{spiff_ns}}}aiToolParams", "")
+		if tool_params_raw:
+			try:
+				tool_params = json.loads(tool_params_raw)
+			except Exception:
+				tool_params = {}
+			if isinstance(tool_params, dict):
+				properties = tool_params.get("properties")
+				if isinstance(properties, dict) and properties:
+					shape["parameters"] = properties
+				required = tool_params.get("required")
+				if isinstance(required, list) and required:
+					shape["required"] = required
+		if is_human and not shape.get("parameters"):
+			shape["parameters"] = dict(_DEFAULT_HUMAN_TOOL_PARAMS)
+			shape["required"] = ["request"]
+		shapes.append(shape)
+	return shapes
+
+
+def _ai_agents_with_tools(service_extensions: dict) -> dict:
+	return {
+		bid: cfg
+		for bid, cfg in (service_extensions or {}).items()
+		if cfg.get("serviceType") == "ai_agent" and (cfg.get("aiToolsAdhoc") or "").strip()
+	}
+
+
+def _index_adhoc_subprocesses(bpmn_xml: str, bpmn_ns: str):
+	import xml.etree.ElementTree as _ET
+
+	try:
+		root = _ET.fromstring(bpmn_xml.strip().encode("utf-8") if isinstance(bpmn_xml, str) else bpmn_xml)
+	except Exception:
+		return None
+	return {el.get("id"): el for el in root.iter(f"{{{bpmn_ns}}}adHocSubProcess") if el.get("id")}
+
+
+def _resolve_ai_agent_tool_shapes(bpmn_xml: str, service_extensions: dict) -> None:
+	"""Embed each AI Agent Task's tool shapes (from its referenced ad-hoc
+	sub-process) into the agent's config as ``aiToolShapes`` (JSON)."""
+	BPMN_NS = "http://www.omg.org/spec/BPMN/20100524/MODEL"
+	SPIFF_NS = "http://spiffworkflow.org/bpmn/schema/1.0/core"
+
+	agents = _ai_agents_with_tools(service_extensions)
+	if not agents:
+		return
+	adhocs = _index_adhoc_subprocesses(bpmn_xml, BPMN_NS)
+	if adhocs is None:
+		return
+	for cfg in agents.values():
+		adhoc = adhocs.get((cfg.get("aiToolsAdhoc") or "").strip())
+		if adhoc is None:
+			continue  # _validate_ai_agent_tools reports the missing reference
+		cfg["aiToolShapes"] = json.dumps(_extract_tool_shapes(adhoc, BPMN_NS, SPIFF_NS))
+
+
+def _validate_ai_agent_tools(bpmn_xml: str, service_extensions: dict) -> None:
+	"""Reject AI Agent Tasks whose Tools sub-process reference is missing or has
+	no executable tool shapes — surfaced at deploy, not as a silent runtime
+	no-op. Only fires when aiToolsAdhoc is set (a draft agent may omit it)."""
+	BPMN_NS = "http://www.omg.org/spec/BPMN/20100524/MODEL"
+
+	agents = _ai_agents_with_tools(service_extensions)
+	if not agents:
+		return
+	adhocs = _index_adhoc_subprocesses(bpmn_xml, BPMN_NS) or {}
+	for agent_id, cfg in agents.items():
+		adhoc_id = (cfg.get("aiToolsAdhoc") or "").strip()
+		if adhoc_id not in adhocs:
+			frappe.throw(
+				_(
+					"AI Agent Task '{0}' references ad-hoc sub-process '{1}', "
+					"which does not exist. Point it at the sub-process that holds its tools."
+				).format(agent_id, adhoc_id),
+				exc=frappe.ValidationError,
+			)
+		shapes = json.loads(cfg.get("aiToolShapes") or "[]")
+		if not shapes:
+			frappe.throw(
+				_(
+					"AI Agent Task '{0}' references ad-hoc sub-process '{1}', which has no "
+					"eligible tool shapes (Script tasks with a Server Script, Service "
+					"tasks with a service type, or User/Manual tasks as human tools). "
+					"Add at least one tool."
+				).format(agent_id, adhoc_id),
+				exc=frappe.ValidationError,
+			)
 
 
 @frappe.whitelist()
@@ -1122,9 +1455,18 @@ def compile_process_model(model_name: str) -> dict:
 	spec_data = json.loads(model.serialized_spec)
 
 	service_extensions = _extract_service_task_config(sanitized_xml)
+	# AI Task Selector config lives on adHocSubProcess elements (WI-001351)
+	# but is dispatched through the same extensions dict, keyed by bpmn_id.
+	service_extensions.update(_extract_adhoc_selector_config(sanitized_xml))
+	# AI Agent Task: resolve its referenced ad-hoc sub-process's shapes into
+	# embedded tool descriptors so the runtime needs no live spec navigation.
+	_resolve_ai_agent_tool_shapes(sanitized_xml, service_extensions)
 	if service_extensions:
 		spec_data["service_task_extensions"] = service_extensions
 	_lint_ai_provider_config(sanitized_xml, service_extensions)
+	_validate_adhoc_structure(sanitized_xml)
+	_validate_adhoc_selector_pool(sanitized_xml, model_name)
+	_validate_ai_agent_tools(sanitized_xml, service_extensions)
 
 	# ── Eval suite deployment gating (non-blocking warnings) ──────────
 	deploy_warnings = _check_eval_suite_gating(model_name)
@@ -1132,6 +1474,13 @@ def compile_process_model(model_name: str) -> dict:
 	script_extensions = _extract_script_task_config(sanitized_xml)
 	if script_extensions:
 		spec_data["script_task_extensions"] = script_extensions
+
+	# ── Deploy-time security gate ─────────────────────────────────────────
+	# Structurally validate every script task (inline + referenced Server
+	# Scripts) before the model is activated and its scripts enabled.
+	from one_bpmn.security.script_gate import validate_process_model_scripts
+
+	validate_process_model_scripts(sanitized_xml)
 
 	user_extensions = _extract_user_task_config(sanitized_xml)
 	if user_extensions:
@@ -1165,8 +1514,10 @@ def compile_process_model(model_name: str) -> dict:
 	_activate_deployed_model(model, script_extensions)
 
 	# ── Single save ──────────────────────────────────────────────────────
-	# Deploy is allowed even on Production — bypass editability gate
+	# Deploy is allowed even on Production — bypass editability gate.
+	# Script tasks were already validated above, so skip the authoring gate.
 	model.flags.skip_editability_check = True
+	model.flags.skip_script_security_check = True
 	model.save(ignore_permissions=True)
 
 	result = {

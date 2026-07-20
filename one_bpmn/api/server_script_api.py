@@ -24,6 +24,109 @@ def _derive_api_method(script_name: str) -> str:
 	return method or "script"
 
 
+def _delegate_to_bpmn_instance(conversation_name: str, message: str, context: dict):
+	"""Hand a chat turn to the BPMN Process Instance driving this conversation.
+
+	The process map performs ALL the work: its ``Save User Message`` task persists
+	the user message, ``Call Agent`` runs the agent, ``Save Response`` persists the
+	reply. This function only delivers the ``ChatConversation_Message_Action``
+	trigger (carrying the user text + editor context) to the instance parked at its
+	"Waiting for User Message" gateway, then reads back the reply the map produced
+	so it can be returned over HTTP.
+
+	Returns ``None`` when no instance is driving the conversation (or it is not
+	currently waiting) — the orchestration is the only execution path, so callers
+	surface an error rather than running the agent themselves.
+	"""
+	import json
+
+	inst = frappe.db.get_value(
+		"BPMN Process Instance",
+		{
+			"context_doctype": "Chat Conversation",
+			"context_docname": conversation_name,
+			"status": ["in", ["Active", "Queued"]],
+		},
+		["name", "status"],
+		as_dict=True,
+	)
+	if not inst:
+		return None
+	inst_name = inst.name
+
+	# A brand-new conversation spawns its BPMN instance via a doc-event hook that
+	# enqueues the first engine pass on the bpmn_ai_agent worker (async). The very
+	# first chat turn arrives in THIS request — before the worker has promoted the
+	# instance from "Queued" to "Active" — so the wait gateway isn't armed yet and
+	# the message can't be delivered. Start it inline here to close that race. This
+	# is idempotent with the background job: start_queued_instance() locks the row
+	# (for_update) and no-ops when the status is no longer "Queued", so whichever
+	# runs first wins and the other returns immediately.
+	if inst.status == "Queued":
+		try:
+			from one_bpmn.one_bpmn.trigger import start_queued_instance
+
+			start_queued_instance(inst_name)
+		except Exception:
+			frappe.log_error(title="BPMN inline start failed", message=frappe.get_traceback())
+		if frappe.db.get_value("BPMN Process Instance", inst_name, "status") != "Active":
+			# Start failed (Errored) or is still being started elsewhere — the
+			# caller surfaces the "reopen the chat" message rather than guessing.
+			return None
+
+	payload = {
+		"user_text": message,
+		"sender": frappe.session.user,
+	}
+	payload.update({k: v for k, v in (context or {}).items() if v not in (None, "")})
+
+	# Run the agent INLINE for this turn instead of parking it on the
+	# bpmn_ai_agent worker. The chat endpoint is an explicit waiter: the
+	# frontend expects the reply in this HTTP response, so the "Run <Agent>"
+	# AI task must execute (and "Save Response" must persist the bot message)
+	# before the read-back below. Without this the agent parks async, the
+	# read-back finds no fresh bot message, and the caller wrongly surfaces
+	# "reopen the chat" even though the instance is running normally.
+	prev_parking_flag = getattr(frappe.flags, "bpmn_disable_ai_parking", False)
+	frappe.flags.bpmn_disable_ai_parking = True
+	try:
+		instance = frappe.get_doc("BPMN Process Instance", inst_name)
+		instance.receive_message("ChatConversation_Message_Action", payload=payload)
+	except frappe.ValidationError:
+		# Instance is not currently waiting for a message.
+		return None
+	except Exception:
+		frappe.log_error(title="BPMN chat delegation failed", message=frappe.get_traceback())
+		return None
+	finally:
+		frappe.flags.bpmn_disable_ai_parking = prev_parking_flag
+
+	# Read back the bot message the instance produced during Call Agent → Save Response.
+	rows = frappe.get_all(
+		"Chat Message",
+		filters={"conversation": conversation_name, "message_type": "Bot"},
+		fields=["text", "metadata"],
+		order_by="creation desc",
+		limit=1,
+	)
+	if not rows:
+		return None
+
+	meta = {}
+	if rows[0].get("metadata"):
+		try:
+			meta = json.loads(rows[0]["metadata"])
+		except Exception:
+			meta = {}
+
+	agent_result = meta.get("agent_result")
+	result = dict(agent_result) if isinstance(agent_result, dict) else {}
+	result.setdefault("response", rows[0]["text"])
+	result.setdefault("intent", meta.get("intent"))
+	result["bpmn_driven"] = True
+	return result
+
+
 @frappe.whitelist()
 def create_server_script(
 	script_name: str,
@@ -196,11 +299,11 @@ def process_logix_message(
 		frappe.throw(_("Authentication required"))
 
 	try:
-		from one_bpmn.utils.chat_persistence import (
-			create_conversation, save_user_message, save_bot_message, load_history,
-		)
+		from one_bpmn.utils.chat_persistence import create_conversation
 
-		# Create a new conversation on the first message
+		# Create a new conversation on the first message. Inserting the Chat
+		# Conversation triggers its process map, which spawns the orchestrating
+		# BPMN instance (parked at "Waiting for User Message").
 		if not conversation_name:
 			label = element_name or "Script Task"
 			conversation_name = create_conversation(
@@ -209,13 +312,8 @@ def process_logix_message(
 				user=frappe.session.user,
 			)
 
-		# Persist the user message
-		save_user_message(conversation_name, message)
-
-		# Load full history from DB (ignores the frontend-supplied chat_history)
-		history = load_history(conversation_name)
-
-		# Fetch the original script body for diff computation on MODIFY
+		# Gather the editor inputs the Logix agent needs (the original script body
+		# is used for MODIFY diffs). These are delivered to the map as context.
 		original_content = ""
 		if current_script:
 			try:
@@ -223,26 +321,27 @@ def process_logix_message(
 			except Exception:
 				pass
 
-		from one_bpmn.agents.google_adk.script_task_agent.script_task_agent import run_logix_message
-
-		result = run_logix_message(
-			message=message,
-			chat_history=history,
-			element_name=element_name or "",
-			current_script=current_script or "",
-			original_script_content=original_content,
-			process_context=process_context or {},
-		)
-
-		# Persist the bot response
-		save_bot_message(
+		# Hand the turn to the process map — it saves the user message, runs the
+		# agent (Call Agent) and saves the reply. We only deliver + return.
+		bpmn_result = _delegate_to_bpmn_instance(
 			conversation_name,
-			result.get("response", ""),
-			metadata={"intent": result.get("intent")},
+			message,
+			context={
+				"element_name": element_name or "",
+				"current_script": current_script or "",
+				"original_script_content": original_content,
+				"process_context": process_context or {},
+			},
 		)
+		if bpmn_result is None:
+			return {
+				"intent": "ERROR",
+				"response": "The Logix process orchestration isn't running for this conversation. Please reopen the chat.",
+				"conversation_name": conversation_name,
+			}
 
-		result["conversation_name"] = conversation_name
-		return result
+		bpmn_result["conversation_name"] = conversation_name
+		return bpmn_result
 
 	except Exception:
 		frappe.log_error(title="Logix Agent error", message=frappe.get_traceback())
@@ -321,11 +420,11 @@ def prosally_chat(
 		frappe.throw(_("Authentication required"))
 
 	try:
-		from one_bpmn.utils.chat_persistence import (
-			create_conversation, save_user_message, save_bot_message, load_history,
-		)
+		from one_bpmn.utils.chat_persistence import create_conversation
 
-		# Create a new conversation on the first message
+		# Create a new conversation on the first message. Inserting the Chat
+		# Conversation triggers its process map, which spawns the orchestrating
+		# BPMN instance (parked at "Waiting for User Message").
 		if not conversation_name:
 			label = process_name or diagram_name or "Process"
 			conversation_name = create_conversation(
@@ -334,36 +433,56 @@ def prosally_chat(
 				user=frappe.session.user,
 			)
 
-		# Persist the user message
-		save_user_message(conversation_name, message)
-
-		# Load full history from DB
-		history = load_history(conversation_name)
-
-		from one_bpmn.agents.google_adk.prosally_agent.prosally_agent import run_prosally_message
-
-		result = run_prosally_message(
-			message=message,
-			chat_history=history,
-			process_name=process_name or "",
-			diagram_name=diagram_name or "",
-			confirmed_action=confirmed_action or "",
-			current_xml=current_xml or "",
-		)
-
-		# Persist the bot response
-		save_bot_message(
+		# Hand the turn to the process map — it saves the user message, runs the
+		# agent (Call Agent) and saves the reply. We only deliver + return.
+		bpmn_result = _delegate_to_bpmn_instance(
 			conversation_name,
-			result.get("response", ""),
-			metadata={"intent": result.get("intent"), "action_intent": result.get("action_intent")},
+			message,
+			context={
+				"process_name": process_name or "",
+				"diagram_name": diagram_name or "",
+				"confirmed_action": confirmed_action or "",
+				"current_xml": current_xml or "",
+			},
 		)
+		if bpmn_result is None:
+			return {
+				"intent": "ERROR",
+				"response": "The ProsAlly process orchestration isn't running for this conversation. Please reopen the chat.",
+				"conversation_name": conversation_name,
+			}
 
-		result["conversation_name"] = conversation_name
-		return result
+		bpmn_result["conversation_name"] = conversation_name
+		return bpmn_result
 
 	except Exception:
 		frappe.log_error(title="ProsAlly Agent error", message=frappe.get_traceback())
 		return {"intent": "ERROR", "response": "An unexpected error occurred. Please try again."}
+
+
+@frappe.whitelist()
+def end_chat_conversation(conversation_name: str) -> dict:
+	"""Close a Logix/ProsAlly chat conversation when its panel is closed.
+
+	Marks the Chat Conversation as Closed and, if a BPMN Process Instance is
+	driving it, delivers ``ChatConversation_Close_Action`` so the diagram runs
+	its close branch (Cleanup → Conversation Ended) and the instance completes.
+
+	Safe to call repeatedly / with an unknown name — it never raises.
+	"""
+	if frappe.session.user == "Guest":
+		frappe.throw(_("Authentication required"))
+
+	if not conversation_name:
+		return {"ok": False}
+
+	try:
+		from one_bpmn.utils.chat_persistence import close_conversation
+		close_conversation(conversation_name)
+		return {"ok": True, "conversation_name": conversation_name}
+	except Exception:
+		frappe.log_error(title="end_chat_conversation error", message=frappe.get_traceback())
+		return {"ok": False}
 
 
 @frappe.whitelist()

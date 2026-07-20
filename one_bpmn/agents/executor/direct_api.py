@@ -218,6 +218,112 @@ class DirectApiExecutor(Executor):
     # Request builders
     # ------------------------------------------------------------------
 
+    # Map AI Provider.provider_type values to agents/llm_provider factory
+    # keys. Absence means no adapter exists for that provider type — with
+    # tools requested that is an explicit error, never a silent fallback to
+    # the tool-less raw HTTP path.
+    _ADAPTER_PROVIDERS: ClassVar[dict] = {
+        "OpenAI": "openai",
+        "Anthropic": "anthropic",
+        "Google": "gemini",
+    }
+
+    def _run_with_tools(
+        self, config: ExecutorConfig, provider_type: str, api_key: str, model: str
+    ) -> ExecutorResult:
+        """
+        Tool-enabled execution path. Since the Durable AI Agent HITL work the
+        loop is STEP-DRIVEN and owned by one_bpmn (agents/executor/step_loop):
+        the adapter makes single model calls (step()), automatic tools execute
+        inline in the loop, and a human tool suspends the run — returned as
+        error_code=SUSPENDED with the checkpointable payload in .suspension.
+
+        Automatic-only runs keep the exact WI-001356 contract: same trace
+        shape, token accounting, and turn-cap error message.
+        """
+        from dataclasses import asdict
+
+        from one_bpmn.agents.executor.step_loop import run_agent_loop
+        from one_bpmn.agents.llm_provider.factory import get_llm_adapter
+
+        adapter_key = self._ADAPTER_PROVIDERS.get(provider_type)
+        if not adapter_key:
+            return ExecutorResult(
+                error_code=ErrorCode.PROVIDER_NOT_FOUND,
+                error_message=(
+                    f"Provider type '{provider_type}' has no agents/llm_provider adapter — "
+                    "tool-calling is only available for OpenAI, Anthropic and Google providers."
+                ),
+            )
+
+        start = time.time()
+        try:
+            adapter = get_llm_adapter(adapter_key, model, api_key)
+            completion, suspension = _run_coro_blocking(
+                run_agent_loop(
+                    adapter,
+                    system=config.system_prompt,
+                    user=config.user_prompt,
+                    tools=config.tools,
+                    max_tokens=config.max_tokens,
+                    max_turns=config.max_tool_calls or 10,
+                    resume=config.resume_state,
+                )
+            )
+        except Exception as exc:
+            return ExecutorResult(
+                error_code=ErrorCode.FAILED_MODEL_CALL,
+                error_message=str(exc),
+            )
+
+        if suspension is not None:
+            return ExecutorResult(
+                error_code=ErrorCode.SUSPENDED,
+                token_usage=TokenUsage(
+                    prompt_tokens=suspension.prompt_tokens,
+                    completion_tokens=suspension.completion_tokens,
+                    total_tokens=suspension.prompt_tokens + suspension.completion_tokens,
+                ),
+                trace=list(suspension.trace),
+                suspension=asdict(suspension),
+            )
+
+        token_usage = TokenUsage(
+            prompt_tokens=completion.prompt_tokens,
+            completion_tokens=completion.completion_tokens,
+            total_tokens=completion.prompt_tokens + completion.completion_tokens,
+        )
+        trace = [asdict(turn) for turn in completion.trace]
+        latency_ms = int((time.time() - start) * 1000)
+
+        if completion.hit_turn_cap:
+            # Partial progress is not lost: the trace collected so far ships
+            # with the error result.
+            return ExecutorResult(
+                error_code=ErrorCode.FAILED_MODEL_CALL,
+                error_message=(
+                    f"Tool-calling loop hit the adapter's turn cap without a final answer "
+                    f"({len(trace)} turns recorded)."
+                ),
+                token_usage=token_usage,
+                trace=trace,
+                attempts=[
+                    AttemptRecord(
+                        attempt_index=0,
+                        error_code=ErrorCode.FAILED_MODEL_CALL.value,
+                        error_message="turn cap exhausted",
+                        token_usage=token_usage,
+                        latency_ms=latency_ms,
+                    )
+                ],
+            )
+
+        return ExecutorResult(
+            output=completion.text,
+            token_usage=token_usage,
+            trace=trace,
+        )
+
     @staticmethod
     def _build_openai_request(
         endpoint: str, api_key: str, model: str, config: ExecutorConfig,

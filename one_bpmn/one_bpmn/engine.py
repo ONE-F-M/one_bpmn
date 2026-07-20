@@ -25,6 +25,128 @@ from SpiffWorkflow.bpmn.specs.defaults import (
 	InclusiveGateway,
 	EventBasedGateway,
 )
+from SpiffWorkflow.bpmn.parser.ProcessParser import AdHocParser
+from SpiffWorkflow.bpmn.serializer.default import AdHocSubprocessSpecConverter
+from SpiffWorkflow.bpmn.specs.bpmn_process_spec import AdHocSubprocessSpec
+from SpiffWorkflow.bpmn.specs.control import BpmnStartTask, SimpleBpmnTask, _EndJoin
+from SpiffWorkflow.bpmn.specs.mixins.multiinstance_task import LoopTask
+
+
+# ── Ad-hoc Subprocess support ────────────────────────────────
+# Upstream path_complete() fires after EVERY inner task completion and
+# evaluates the completion condition with a raw eval. A condition that
+# references a variable no task has set yet (e.g. `done` before the
+# wrap-up script task runs `done = True`) raises NameError, which fails
+# the user's task completion. Camunda treats an unresolvable condition
+# as not met — mirror that: pre-evaluate against the merged data view
+# (path_complete merges task.data into workflow.data before evaluating)
+# and hand upstream a literal. Class-level patch so previously
+# serialized instances are covered too. Only NameError is absorbed;
+# genuine expression errors still surface.
+_upstream_path_complete = AdHocSubprocessSpec.path_complete
+
+
+def _safe_path_complete(self, workflow, task):
+	original = self.completion_condition
+	if original:
+		try:
+			met = bool(
+				workflow.script_engine.environment.evaluate(
+					original, {**workflow.data, **task.data}
+				)
+			)
+		except NameError:
+			met = False
+		self.completion_condition = "True" if met else "False"
+	try:
+		return _upstream_path_complete(self, workflow, task)
+	finally:
+		self.completion_condition = original
+
+
+AdHocSubprocessSpec.path_complete = _safe_path_complete
+
+
+# ── Event-based gateway prediction fix ───────────────────────
+# SpiffWorkflow 3.1.x EventBasedGateway._predict_hook unconditionally forces
+# its child tasks into WAITING state:
+#     my_task._sync_children(self.outputs, state=TaskState.WAITING)
+# During the whole-tree prediction pass (BpmnWorkflow.__init__), a gateway that
+# sits inside a LOOP is re-reached via look-ahead as a *predicted* task. Adding a
+# WAITING (non-predicted) child to a predicted parent violates the invariant in
+# Task._add_child and raises "Attempt to add non-predicted child to predicted
+# task" — so any model with an event-based gateway in a loop (e.g. the ProsAlly /
+# Logix conversation loops) fails to (re)compile. Mirror the base
+# TaskSpec._predict_hook: only force WAITING once the gateway is DEFINITE
+# (actually entered); during predicted look-ahead, copy the predicted state.
+# Class-level patch so previously serialized instances are covered too.
+from SpiffWorkflow.bpmn.specs.mixins.events.intermediate_event import (
+	EventBasedGateway as _EventBasedGateway,
+)
+
+
+def _safe_eventgateway_predict_hook(self, my_task):
+	if my_task.has_state(TaskState.DEFINITE_MASK):
+		my_task._sync_children(self.outputs, state=TaskState.WAITING)
+	else:
+		my_task._sync_children(self.outputs, my_task.state)
+
+
+_EventBasedGateway._predict_hook = _safe_eventgateway_predict_hook
+
+
+class _AdHocSubprocessSpecConverter(AdHocSubprocessSpecConverter):
+	"""
+	Upstream to_dict() hardcodes parallel/cancel_remaining to True
+	(SpiffWorkflow 3.1.x, serializer/default/process_spec.py:95-96), so the
+	parsed cancelRemainingInstances value is lost on every serialize.
+	Read the actual spec values instead; from_dict() already restores them.
+	"""
+
+	def to_dict(self, spec):
+		dct = super().to_dict(spec)
+		dct["parallel"] = spec.parallel
+		dct["cancel_remaining"] = spec.cancel_remaining
+		return dct
+
+
+class _AdHocProcessParser(AdHocParser):
+	"""
+	AdHocParser that reads standard BPMN attributes the way editors write them.
+
+	BPMN 2.0 declares attributeFormDefault="unqualified", and bpmn-js/Camunda
+	write cancelRemainingInstances/ordering without a namespace prefix.
+	SpiffWorkflow's NodeParser.attribute() only checks the namespace-qualified
+	name, so stock parsing silently ignores both attributes (cancel_remaining
+	always defaults to True). Upstream's ordering check is also case-sensitive
+	('sequential') while the BPMN enum value is 'Sequential'.
+	"""
+
+	def attribute(self, attribute, namespace=None, node=None):
+		if namespace is None:
+			value = (node if node is not None else self.node).attrib.get(attribute)
+			if value is not None:
+				return value
+		return super().attribute(attribute, namespace=namespace, node=node)
+
+	def create_spec(self):
+		if (self.attribute("ordering") or "").lower() == "sequential":
+			raise ValidationException(
+				"Sequential ordering for ad hoc subprocesses not supported",
+				node=self.node,
+				file_name=self.filename,
+			)
+		cancel_remaining = (self.attribute("cancelRemainingInstances") or "true").lower() == "true"
+		condition = self.xpath("./bpmn:completionCondition")
+		condition = condition[0].text if len(condition) > 0 else None
+		return AdHocSubprocessSpec(
+			completion_condition=condition,
+			cancel_remaining=cancel_remaining,
+			name=self.bpmn_id,
+			description=self.get_name(),
+			filename=self.filename,
+		)
+
 
 # ── DMN (Business Rule Task) support ─────────────────────────
 # bpmn-js-spiffworkflow writes <spiffworkflow:calledDecisionId> so we
@@ -210,14 +332,29 @@ class FrappeScriptEngine(PythonScriptEngine):
 		_check_script_permissions(script_doc.script, script_name)
 
 		# Build locals: workflow variables + framework context
-		local_vars = dict(task.data)
+		#
+		# Workflow variables are exposed two ways so either script convention works:
+		#   1. spread as top-level names (e.g. `user_text`) — the legacy style, and
+		#   2. bundled under `task_data` (e.g. `task_data.get("user_text", "")`) —
+		#      the style the chat-agent scripts (ProsAlly/Logix/Docu) use so they can
+		#      safely `.get()` keys that don't exist on every turn without NameError.
+		# `task_data` is a copy: scripts only read from it and write outputs to
+		# `result`, so mutations can't leak back into engine state unexpectedly.
+		task_data = dict(task.data)
+		local_vars = dict(task_data)
 		result_dict = {}
 		local_vars.update(
 			{
 				"frappe": _frappe,
+				"task_data": task_data,
 				"context_doctype": self._context_doctype or "",
 				"context_docname": self._context_docname or "",
 				"result": result_dict,
+				# Snapshot of the workflow variables as a plain dict, so scripts
+				# can safely read OPTIONAL vars — e.g. task_data.get("x", default)
+				# — without resorting to locals()/globals() (blocked by the
+				# script-security validator).
+				"task_data": dict(task.data),
 			}
 		)
 		if self._context_doctype and self._context_docname:
@@ -235,8 +372,13 @@ class FrappeScriptEngine(PythonScriptEngine):
 			# runs code in a RestrictedPython sandbox with a limited frappe namespace.
 			# BPMN Server Scripts are trusted, pre-deployed code stored in the DB,
 			# so they run with the real frappe module and no config gate.
-			exec_globals = {"frappe": _frappe, "__builtins__": __builtins__}  # noqa: S102
-			exec(script_doc.script, exec_globals, local_vars)  # noqa: S102
+			# ONE namespace for globals AND locals. With separate dicts,
+			# top-level `def`s land in locals but each function's __globals__
+			# is exec_globals — so a script where one function calls another
+			# (or reads a top-level variable) dies with NameError at runtime.
+			exec_ns = {"frappe": _frappe, "__builtins__": __builtins__}
+			exec_ns.update(local_vars)
+			exec(script_doc.script, exec_ns)  # noqa: S102
 		except Exception:
 			_frappe.log_error(
 				title=f'BPMN ScriptTask: "{script_name}" execution failed',
@@ -623,6 +765,7 @@ def send_message(wf: BpmnWorkflow, message_name: str, payload: dict = None) -> b
 	"""
 	from SpiffWorkflow.bpmn.specs.event_definitions import MessageEventDefinition
 	from SpiffWorkflow.bpmn.util.event import BpmnEvent
+	from SpiffWorkflow.bpmn.specs.mixins.events.event_types import CatchingEvent
 	from SpiffWorkflow.exceptions import WorkflowException
 
 	msg_def = MessageEventDefinition(message_name)
@@ -630,7 +773,6 @@ def send_message(wf: BpmnWorkflow, message_name: str, payload: dict = None) -> b
 
 	try:
 		wf.send_event(event)
-		return True
 	except WorkflowException:
 		# No task is currently waiting for this message
 		return False
@@ -640,3 +782,27 @@ def send_message(wf: BpmnWorkflow, message_name: str, payload: dict = None) -> b
 			message=frappe.get_traceback(),
 		)
 		raise
+
+	# ── Catch-event successor repair (SpiffWorkflow 3.1.3a) ──────────────────
+	# This SpiffWorkflow build PRUNES a fired catch event's successor when the
+	# event is delivered, and never rebuilds it: prediction stops at WAITING catch
+	# events, and _on_complete only *updates* existing children (it never creates
+	# them). Net effect — an event-based-gateway wait (e.g. the ProsAlly / Logix
+	# "Waiting for User Message" loop) dead-ends right after "Message Received" and
+	# the instance completes with no reply. Re-materialize each fired catch event's
+	# successor(s) as LIKELY and re-predict, so the forward chain is rebuilt and the
+	# engine loop can advance past the catch. Verified end-to-end: without this the
+	# conversation loop produces no reply; with it, the turn runs and re-parks.
+	repaired = False
+	for _t in wf.get_tasks():
+		if (
+			isinstance(_t.task_spec, CatchingEvent)
+			and _t.internal_data.get("event_fired")
+			and _t.task_spec.outputs
+			and not _t.children
+		):
+			_t._sync_children(_t.task_spec.outputs, TaskState.LIKELY)
+			repaired = True
+	if repaired:
+		wf.task_tree.task_spec._predict(wf.task_tree, mask=TaskState.NOT_FINISHED_MASK)
+	return True

@@ -199,6 +199,230 @@ def _build_user_prompt(requirement: str, turns: list, context_block: str) -> str
 	return "\n\n".join(parts)
 
 
+def _build_current_config_block(current_config: str, catalog: dict) -> str:
+	try:
+		cfg = json.loads(current_config or "{}")
+	except Exception:
+		return ""
+	if not isinstance(cfg, dict):
+		return ""
+	lines = [
+		f"  {key}: {value}"
+		for key, value in cfg.items()
+		if key in catalog and str(value or "").strip()
+	]
+	if not lines:
+		return ""
+	return "CURRENT CONFIGURATION (refine these rather than starting over when the designer asks for changes):\n" + "\n".join(lines)
+
+
+# ---------------------------------------------------------------------------
+# Diagram digest (selector mode)
+# ---------------------------------------------------------------------------
+
+def _build_diagram_digest(bpmn_xml: str, element_id: str, process_model: str = "") -> dict | None:
+	"""Parse the ad-hoc subprocess out of the live diagram XML and produce a
+	model-readable digest: selectable candidates, automatic chains, observable
+	state changes, evidence variables and the completion condition.
+
+	Returns {"block": str, "candidate_ids": [..], "element_ids": {..}} or None
+	when no ad-hoc subprocess is found (the assistant then works blind, as
+	before).
+	"""
+	import xml.etree.ElementTree as _ET
+
+	if not (bpmn_xml or "").strip():
+		return None
+	try:
+		root = _ET.fromstring(bpmn_xml.strip().encode("utf-8"))
+	except Exception:
+		return None
+
+	adhoc = None
+	for candidate in root.iter(f"{{{_BPMN_NS}}}adHocSubProcess"):
+		if not element_id or candidate.get("id") == element_id:
+			adhoc = candidate
+			break
+	if adhoc is None:
+		return None
+
+	# ── flow graph within the subprocess ──
+	flows = {}       # source id -> [target ids]
+	has_incoming = set()
+	for flow in adhoc.findall(f"{{{_BPMN_NS}}}sequenceFlow"):
+		src, tgt = flow.get("sourceRef"), flow.get("targetRef")
+		if src and tgt:
+			flows.setdefault(src, []).append(tgt)
+			has_incoming.add(tgt)
+
+	nodes = {}       # id -> element (tasks + gateways)
+	for child in adhoc:
+		if child.tag in _LEAF_TASK_TAGS or child.tag in _GATEWAY_TAGS:
+			node_id = child.get("id")
+			if node_id:
+				nodes[node_id] = child
+
+	def spiff(el, attr):
+		return el.get(f"{{{_SPIFF_NS}}}{attr}") or ""
+
+	def documentation(el):
+		doc_el = el.find(f"{{{_BPMN_NS}}}documentation")
+		return (doc_el.text or "").strip() if doc_el is not None else ""
+
+	def describe_effects(el):
+		"""One-line behavior summary: what observably happens when this runs."""
+		effects = []
+		if spiff(el, "serviceType") == "update_field":
+			try:
+				rows = json.loads(spiff(el, "updateFieldRows") or "[]")
+				target = spiff(el, "updateFieldDoctype") or "context document"
+				for row in rows:
+					effects.append(f"sets {target}.{row.get('field')} = \"{row.get('value')}\"")
+			except Exception:
+				pass
+		script_name = spiff(el, "serverScript")
+		if script_name:
+			keys = _server_script_result_keys(script_name)
+			if keys:
+				effects.append(
+					"runs Server Script \"%s\" which sets process variable(s): %s"
+					% (script_name, ", ".join(keys))
+				)
+			else:
+				effects.append(f'runs Server Script "{script_name}"')
+		else:
+			script_el = el.find(f"{{{_BPMN_NS}}}script")
+			if script_el is not None and (script_el.text or "").strip():
+				effects.append(f"runs inline script: {script_el.text.strip()[:120]}")
+		if spiff(el, "notificationName"):
+			effects.append(f'sends notification "{spiff(el, "notificationName")}"')
+		if el.tag == f"{{{_BPMN_NS}}}userTask":
+			assignee = spiff(el, "assigneeDocfield") or spiff(el, "assigneeMode")
+			effects.append(
+				"waits for a human"
+				+ (f" (assigned from docfield '{assignee}')" if assignee else "")
+			)
+		return "; ".join(effects)
+
+	def walk_chain(start_id, seen=None):
+		"""Follow sequence flows from a candidate, describing the automatic
+		continuation (through gateways) until the chain ends."""
+		seen = seen or set()
+		steps = []
+		queue = list(flows.get(start_id, []))
+		while queue:
+			node_id = queue.pop(0)
+			if node_id in seen:
+				continue
+			seen.add(node_id)
+			el = nodes.get(node_id)
+			if el is None:
+				continue
+			if el.tag in _GATEWAY_TAGS:
+				queue.extend(flows.get(node_id, []))
+				continue
+			effect = describe_effects(el)
+			label = el.get("name") or node_id
+			steps.append(f"{label}" + (f" — {effect}" if effect else ""))
+			queue.extend(flows.get(node_id, []))
+		return steps
+
+	candidate_lines = []
+	candidate_ids = []
+	for node_id, el in nodes.items():
+		if el.tag not in _LEAF_TASK_TAGS or node_id in has_incoming:
+			continue
+		candidate_ids.append(node_id)
+		line = f'- id: {node_id} | "{el.get("name") or node_id}" | {_LEAF_TASK_TAGS[el.tag]}'
+		doc_text = documentation(el)
+		if doc_text:
+			line += f"\n    description: {doc_text}"
+		effects = describe_effects(el)
+		if effects:
+			line += f"\n    when activated: {effects}"
+		chain = walk_chain(node_id)
+		if chain:
+			line += "\n    then AUTOMATICALLY (do not activate these): " + " → ".join(chain)
+		candidate_lines.append(line)
+
+	condition_el = adhoc.find(f"{{{_BPMN_NS}}}completionCondition")
+	condition = (condition_el.text or "").strip() if condition_el is not None else ""
+
+	block_parts = [
+		f'AD-HOC SUBPROCESS DIGEST ("{adhoc.get("name") or adhoc.get("id")}"):',
+		"SELECTABLE TASKS (the model's tools, named by id):",
+		"\n".join(candidate_lines) or "  (none)",
+	]
+
+	# The AI Agent Tool registry was removed (WI-001423) — a selector's tools
+	# are the ad-hoc sub-process's own shapes, already listed above.
+	if condition:
+		block_parts.append(
+			f"COMPLETION CONDITION (Python expression over process variables): {condition}\n"
+			"The subprocess ends when this becomes true."
+		)
+
+	return {
+		"block": "\n\n".join(block_parts),
+		"candidate_ids": candidate_ids,
+		"element_ids": set(nodes.keys()),
+	}
+
+
+def _server_script_result_keys(script_name: str) -> list:
+	"""Sniff which process variables a BPMN Server Script sets: the engine
+	merges the injected ``result`` dict into task data, so result["key"]
+	assignments become Jinja-visible variables."""
+	import re as _re
+
+	if not frappe.db.exists("Server Script", script_name):
+		return []
+	if not frappe.has_permission("Server Script", "read"):
+		return []
+	script = frappe.db.get_value("Server Script", script_name, "script") or ""
+	keys = _re.findall(r"result\[\s*['\"](\w+)['\"]\s*\]", script)
+	seen, ordered = set(), []
+	for key in keys:
+		if key not in seen:
+			seen.add(key)
+			ordered.append(key)
+	return ordered
+
+
+def _lint_recommended_prompts(recommendations: dict, digest: dict) -> list:
+	"""Cross-check recommended prompts against the real diagram: flag task-id
+	lookalikes that don't exist, and candidates the procedure never mentions."""
+	import re as _re
+
+	text = " ".join(
+		str(recommendations.get(key) or "")
+		for key in ("aiSystemPrompt", "aiUserPrompt")
+	)
+	if not text.strip():
+		return []
+
+	warnings = []
+	known = digest["element_ids"] | set(digest["candidate_ids"])
+	mentioned_ids = set(_re.findall(r"\b(?:Activity|Task|Gateway|Event)_[0-9A-Za-z]+\b", text))
+	unknown = sorted(mentioned_ids - known)
+	if unknown:
+		warnings.append(
+			"These task ids in the suggested prompts do not exist on the diagram: "
+			+ ", ".join(unknown)
+		)
+
+	if recommendations.get("aiSystemPrompt"):
+		unmentioned = sorted(
+			c for c in digest["candidate_ids"] if c not in str(recommendations["aiSystemPrompt"])
+		)
+		if unmentioned:
+			warnings.append(
+				"The suggested procedure never mentions these selectable tasks: "
+				+ ", ".join(unmentioned)
+			)
+	return warnings
+
+
 # ---------------------------------------------------------------------------
 # Context gathering (permission-aware)
 # ---------------------------------------------------------------------------

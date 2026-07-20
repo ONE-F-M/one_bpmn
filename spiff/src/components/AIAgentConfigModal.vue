@@ -105,6 +105,63 @@
             </label>
             <span class="field-hint">If checked, the process instance will halt when this AI task fails.</span>
           </div>
+
+          <!-- ============ Memory ============ -->
+          <div class="field-group-title" v-if="!isSelector">Memory</div>
+
+          <!-- Conversation store backend -->
+          <div class="field-row" v-if="!isSelector">
+            <label>Conversation Store</label>
+            <select v-model="form.aiConversationStore">
+              <option value="process_variable">Process Variable (transient)</option>
+              <option value="document_store">Document Store (persistent)</option>
+              <option value="custom">Custom</option>
+            </select>
+            <span class="field-hint">Where this agent's message thread is kept. Process Variable lives in the instance and is discarded with it.</span>
+          </div>
+
+          <!-- Context window size -->
+          <div class="field-row" v-if="!isSelector">
+            <label>Context Window <span class="hint">(max messages)</span></label>
+            <input type="number" v-model.number="form.aiContextMaxMessages" min="1" />
+            <span class="field-hint">Most recent messages kept when priming a call; the system prompt is always retained.</span>
+          </div>
+
+          <!-- Long-term memory toggle -->
+          <div class="field-row" style="margin-top: 8px;" v-if="!isSelector">
+            <label class="checkbox-row">
+              <input type="checkbox" v-model="form.aiLongTermMemory" class="checkbox-input" />
+              <span>Enable long-term memory</span>
+            </label>
+            <span class="field-hint">Recall relevant saved memories before the call, and optionally save one after.</span>
+          </div>
+
+          <!-- Memory scope (only when long-term memory is on) -->
+          <div class="field-row" v-if="!isSelector && form.aiLongTermMemory">
+            <label>Memory Scope</label>
+            <select v-model="form.aiMemoryScope">
+              <option value="Agent">Agent (this task)</option>
+              <option value="Process">Process (this process model)</option>
+              <option value="Entity">Entity (the context document)</option>
+            </select>
+            <span class="field-hint" v-if="form.aiMemoryScope === 'Entity'">
+              The entity is taken from the task's context document (context_doctype / context_docname) at runtime — no extra field needed.
+            </span>
+          </div>
+
+          <!-- Memory write mode (only when long-term memory is on) -->
+          <div class="field-row" v-if="!isSelector && form.aiLongTermMemory">
+            <label>Memory Write Mode</label>
+            <select v-model="form.aiMemoryWriteMode">
+              <option value="off">Off (recall only)</option>
+              <option value="distilled">Distilled facts (recommended)</option>
+              <option value="raw">Raw output (legacy)</option>
+            </select>
+            <span class="field-hint">
+              Distilled extracts durable, deduplicated facts worth remembering (skipping confirmations and one-off replies);
+              Raw stores the full agent output verbatim.
+            </span>
+          </div>
         </div>
 
         <div class="modal-footer">
@@ -250,7 +307,8 @@
 
 <script setup>
 import { ref, computed, onMounted, nextTick, toRaw } from "vue";
-import { frappePost, frappeGet } from "@/bpmn/shared/frappeResource";
+import { frappeRequest } from "frappe-ui";
+import { frappeGet } from "@/bpmn/shared/frappeResource";
 
 // bpmn-js elements must never be touched as Vue reactive proxies — the renderer
 // reads non-configurable properties (e.g. labels) that a Proxy cannot return,
@@ -284,6 +342,12 @@ const form = ref({
   aiTimeout: 30,
   aiMaxRetries: 2,
   aiStopOnError: false,
+  // Memory
+  aiConversationStore: "process_variable",
+  aiContextMaxMessages: 20,
+  aiLongTermMemory: false,
+  aiMemoryScope: "Agent",
+  aiMemoryWriteMode: "off",
 });
 
 // ── Assistant state ───────────────────────────────────────────────────────
@@ -380,12 +444,15 @@ async function runRecordSearch() {
   const seq = ++recordSearchSeq;
   recordLoading.value = true;
   try {
-    const rows = await frappeGet("/api/method/frappe.client.get_list", {
-      doctype: dt,
-      fields: JSON.stringify(["name"]),
-      filters: q ? JSON.stringify([["name", "like", `%${q}%`]]) : undefined,
-      limit_page_length: 20,
-      order_by: "modified desc",
+    const rows = await frappeRequest({
+      url: "/api/method/frappe.client.get_list",
+      params: {
+        doctype: dt,
+        fields: JSON.stringify(["name"]),
+        filters: q ? JSON.stringify([["name", "like", `%${q}%`]]) : undefined,
+        limit_page_length: 20,
+        order_by: "modified desc",
+      },
     });
     if (seq !== recordSearchSeq) return; // a newer search superseded this one
     recordOptions.value = Array.isArray(rows) ? rows.map((r) => r.name) : [];
@@ -480,17 +547,19 @@ async function sendMessage() {
   scrollBottom();
 
   try {
-    const res = await frappePost(
-      "/api/method/one_bpmn.api.ai_assistant.recommend_ai_task_config",
-      {
+    const res = await frappeRequest({
+      url: "/api/method/one_bpmn.api.ai_assistant.recommend_ai_task_config",
+      method: "POST",
+      params: {
         provider: form.value.aiProvider,
         backend: form.value.aiBackend || "direct_api",
         requirement,
         context_doctype: contextDoctype.value.trim(),
         context_docname: contextDocname.value.trim(),
         history: JSON.stringify(history),
-      }
-    );
+        ...diagramPayload,
+      },
+    });
 
     if (res && res.ok) {
       messages.value.push({
@@ -518,22 +587,26 @@ async function sendMessage() {
 // ── Load providers + existing element config ────────────────────────────────
 onMounted(async () => {
   try {
-    const res = await fetch(
-      "/api/resource/AI Provider?fields=[\"name\",\"provider_name\",\"default_model\"]&filters=[[\"enabled\",\"=\",1]]&limit=100"
-    );
-    const data = await res.json();
-    providers.value = data.data || [];
+    const data = await frappeGet("/api/resource/AI Provider", {
+      fields: JSON.stringify(["name", "provider_name", "default_model"]),
+      filters: JSON.stringify([["enabled", "=", 1]]),
+      limit_page_length: 100,
+    });
+    providers.value = Array.isArray(data) ? data : [];
   } catch (e) {
     providers.value = [];
   }
 
   // Load DocType names for the Context DocType autocomplete.
   try {
-    const rows = await frappeGet("/api/method/frappe.client.get_list", {
-      doctype: "DocType",
-      fields: JSON.stringify(["name"]),
-      limit_page_length: 0,
-      order_by: "name asc",
+    const rows = await frappeRequest({
+      url: "/api/method/frappe.client.get_list",
+      params: {
+        doctype: "DocType",
+        fields: JSON.stringify(["name"]),
+        limit_page_length: 0,
+        order_by: "name asc",
+      },
     });
     doctypeOptions.value = Array.isArray(rows) ? rows.map((r) => r.name) : [];
   } catch (e) {
@@ -566,6 +639,16 @@ onMounted(async () => {
     aiTimeout: numOr("aiTimeout", 30, parseInt),
     aiMaxRetries: numOr("aiMaxRetries", 2, parseInt),
     aiStopOnError: get("aiStopOnError") === "true",
+    // Memory
+    aiConversationStore: get("aiConversationStore") || "process_variable",
+    aiContextMaxMessages: numOr("aiContextMaxMessages", 20, parseInt),
+    aiLongTermMemory: get("aiLongTermMemory") === "true",
+    aiMemoryScope: get("aiMemoryScope") || "Agent",
+    // Back-compat: a legacy aiMemoryAutoWrite="true" now maps to "distilled"
+    // (matching the dispatcher), so an old element reads as its effective mode.
+    aiMemoryWriteMode:
+      get("aiMemoryWriteMode") ||
+      (get("aiMemoryAutoWrite") === "true" ? "distilled" : "off"),
   };
 });
 
@@ -612,6 +695,20 @@ function save() {
     "spiffworkflow:aiTimeout": String(form.value.aiTimeout),
     "spiffworkflow:aiMaxRetries": String(form.value.aiMaxRetries),
     "spiffworkflow:aiStopOnError": form.value.aiStopOnError ? "true" : undefined,
+    // Memory
+    "spiffworkflow:aiConversationStore": form.value.aiConversationStore || undefined,
+    "spiffworkflow:aiContextMaxMessages": String(form.value.aiContextMaxMessages),
+    "spiffworkflow:aiLongTermMemory": form.value.aiLongTermMemory ? "true" : undefined,
+    // Scope + write mode only apply when long-term memory is on; clear them otherwise.
+    "spiffworkflow:aiMemoryWriteMode":
+      form.value.aiLongTermMemory &&
+      form.value.aiMemoryWriteMode &&
+      form.value.aiMemoryWriteMode !== "off"
+        ? form.value.aiMemoryWriteMode
+        : undefined,
+    "spiffworkflow:aiMemoryScope": form.value.aiLongTermMemory
+      ? (form.value.aiMemoryScope || undefined)
+      : undefined,
   };
 
   modeling.updateModdleProperties(element, bo, patch);

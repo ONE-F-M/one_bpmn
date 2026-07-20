@@ -226,15 +226,29 @@
 
 <script setup>
 import { ref, computed, watch } from "vue"
+import { frappeRequest } from "frappe-ui"
 import { Icon } from "@iconify/vue"
 import { dayjs } from "@/dayjs"
 
 const props = defineProps({
 	selectedNode: { type: Object, default: null },
 	processInstanceName: { type: String, default: "" },
+	// bpmnId → shape label, from the instance's workflow state. Tool names
+	// are BPMN IDs for diagram tasks; registry tools won't be in the map
+	// and fall back to their own name.
+	taskLabels: { type: Object, default: () => ({}) },
+	// WI-001426: bumped when an AI tool-call history row is clicked —
+	// forces the AI Run tab open so the call's full trace is in view.
+	openAiRunTick: { type: Number, default: 0 },
 })
 
 const activeTab = ref("variables")
+
+watch(() => props.openAiRunTick, (tick) => {
+	if (!tick) return
+	activeTab.value = "aiRun"
+	fetchAiRun()
+})
 
 const STATE_COLORS = {
 	Completed: "text-green-600",
@@ -355,24 +369,29 @@ async function fetchAiRun() {
 
 	aiRunLoading.value = true
 	try {
-		const csrf = getCsrfToken()
 		const bpmnId = props.selectedNode.bpmnId || props.selectedNode.id
-		const params = new URLSearchParams({
-			doctype: "AI Agent Run",
-			fields: JSON.stringify(["name", "status", "model", "provider", "total_prompt_tokens", "total_completion_tokens", "total_tokens", "estimated_cost", "duration_ms", "started_at", "ended_at", "error_code", "error_message", "backend"]) ,
-			filters: JSON.stringify([
-				["instance", "=", props.processInstanceName],
-				["bpmn_id", "=", bpmnId],
-			]),
-			limit_page_length: 1,
-			order_by: "creation desc",
+		// A history-row selection carries its visit's own run name (stamped by
+		// the task-list flattener): a looping process executes the same shape
+		// once per turn, so "latest run for the shape" would show every visit
+		// identical data. Diagram-shape selections have no visit — latest is
+		// the right answer there.
+		const runFilter = props.selectedNode.aiRunName
+			? [["name", "=", props.selectedNode.aiRunName]]
+			: [
+					["instance", "=", props.processInstanceName],
+					["bpmn_id", "=", bpmnId],
+				]
+		const rows = await frappeRequest({
+			url: "/api/method/frappe.client.get_list",
+			params: {
+				doctype: "AI Agent Run",
+				fields: JSON.stringify(["name", "status", "model", "provider", "total_prompt_tokens", "total_completion_tokens", "total_tokens", "estimated_cost", "duration_ms", "started_at", "ended_at", "error_code", "error_message", "backend"]),
+				filters: JSON.stringify(runFilter),
+				limit_page_length: 1,
+				order_by: "creation desc",
+			},
 		})
-		const r = await fetch(`/api/method/frappe.client.get_list?${params}`, {
-			headers: { "X-Frappe-CSRF-Token": csrf },
-		})
-		const data = await r.json()
-		const rows = data?.message || []
-		if (rows.length > 0) {
+		if (rows?.length > 0) {
 			aiRun.value = rows[0]
 			// Eagerly fetch steps so the count is accurate before toggle
 			fetchSteps()
@@ -389,19 +408,45 @@ async function fetchSteps() {
 	if (!aiRun.value?.name) return
 	stepsLoading.value = true
 	try {
-		const csrf = getCsrfToken()
-		const params = new URLSearchParams({
-			doctype: "AI Agent Step",
-			fields: JSON.stringify(["name", "step_index", "role", "content", "tool_name", "tool_args", "tool_result", "prompt_tokens", "completion_tokens", "cost", "latency_ms"]) ,
-			filters: JSON.stringify([["run", "=", aiRun.value.name]]),
-			limit_page_length: 200,
-			order_by: "step_index asc",
-		})
-		const r = await fetch(`/api/method/frappe.client.get_list?${params}`, {
-			headers: { "X-Frappe-CSRF-Token": csrf },
-		})
-		const data = await r.json()
-		aiSteps.value = data?.message || []
+		const steps = (await frappeRequest({
+			url: "/api/method/frappe.client.get_list",
+			params: {
+				doctype: "AI Agent Step",
+				fields: JSON.stringify(["name", "step_index", "role", "content", "prompt_tokens", "completion_tokens", "cost", "latency_ms"]),
+				filters: JSON.stringify([["run", "=", aiRun.value.name]]),
+				limit_page_length: 200,
+				order_by: "step_index asc",
+			},
+		})) || []
+
+		// Tool calls live in the AI Agent Tool Call child table (WI-001358) —
+		// fetch them for all steps in one query and attach per step.
+		if (steps.length) {
+			try {
+				const tcRows = (await frappeRequest({
+					url: "/api/method/frappe.client.get_list",
+					params: {
+						doctype: "AI Agent Tool Call",
+						parent: "AI Agent Step",
+						fields: JSON.stringify(["parent", "tool_name", "tool_source", "status", "tool_args", "tool_result", "outcome"]),
+						filters: JSON.stringify([
+							["parenttype", "=", "AI Agent Step"],
+							["parent", "in", steps.map((s) => s.name)],
+						]),
+						limit_page_length: 500,
+						order_by: "idx asc",
+					},
+				})) || []
+				const byStep = {}
+				for (const tc of tcRows) {
+					;(byStep[tc.parent] = byStep[tc.parent] || []).push(tc)
+				}
+				for (const s of steps) s.toolCalls = byStep[s.name] || []
+			} catch (e) {
+				console.warn("AI Tool Call fetch error:", e)
+			}
+		}
+		aiSteps.value = steps
 	} catch (e) {
 		console.error("AI Steps fetch error:", e)
 	} finally {
@@ -420,6 +465,165 @@ function toggleStep(name) {
 		expandedSteps.value.delete(name)
 	} else {
 		expandedSteps.value.add(name)
+	}
+}
+
+// ── Memory view (conversation + long-term memory) ─────────────────────
+const memoryLoading = ref(false)
+const memoryError = ref(null)
+const conversation = ref([])   // [{ role, content, toolCalls, tool_call_id }]
+const memWritten = ref([])     // AI Memory rows written by this run (source_run)
+const memInScope = ref([])     // AI Memory rows in the task's scope (retrievable)
+
+const hasMemoryData = computed(
+	() => conversation.value.length || memWritten.value.length || memInScope.value.length,
+)
+
+const memoryGroups = computed(() => {
+	const groups = []
+	if (memWritten.value.length) groups.push({ label: "Written by this run", items: memWritten.value })
+	if (memInScope.value.length) groups.push({ label: "In scope (retrievable)", items: memInScope.value })
+	return groups
+})
+
+const MESSAGE_TYPE_TO_ROLE = { User: "user", Bot: "assistant", Tool: "tool" }
+
+function normalizeMsg(m) {
+	return {
+		role: m.role,
+		content: m.content || "",
+		toolCalls: Array.isArray(m.tool_calls) ? m.tool_calls : null,
+		tool_call_id: m.tool_call_id || null,
+	}
+}
+
+function toolCallName(tc) {
+	return tc?.name || tc?.tool_name || tc?.function?.name || "tool"
+}
+
+function toolCallArgs(tc) {
+	const a = tc?.arguments ?? tc?.args ?? tc?.tool_args ?? tc?.function?.arguments
+	if (a === null || a === undefined || a === "") return ""
+	return typeof a === "string" ? a : JSON.stringify(a, null, 2)
+}
+
+// Shared read helper. Throws on non-OK (e.g. 403) so the caller can surface a
+// clear permission message instead of crashing.
+async function frappeGetList(doctype, fields, filters, extra = {}) {
+	const params = {
+		doctype,
+		fields: JSON.stringify(fields),
+		filters: JSON.stringify(filters),
+		limit_page_length: extra.limit || 100,
+		order_by: extra.order_by || "creation desc",
+	}
+	if (extra.parent) params.parent = extra.parent
+	// frappeRequest throws on non-OK (e.g. 403) so the caller can surface a
+	// clear permission message instead of crashing.
+	return (await frappeRequest({ url: "/api/method/frappe.client.get_list", params })) || []
+}
+
+async function loadDocumentStoreConversation(bpmnId) {
+	const title = `one_bpmn:${props.processInstanceName}:${bpmnId}`
+	const convs = await frappeGetList("Chat Conversation", ["name"], [["title", "=", title]], { limit: 1 })
+	if (!convs.length) return
+	const rows = await frappeGetList(
+		"Chat Message",
+		["text", "message_type", "tool_calls", "tool_call_id", "metadata"],
+		[["conversation", "=", convs[0].name]],
+		{ limit: 500, order_by: "creation asc" },
+	)
+	const parsed = rows.map((r) => {
+		let meta = {}
+		try { meta = JSON.parse(r.metadata || "{}") } catch (e) { meta = {} }
+		let toolCalls = null
+		try { toolCalls = r.tool_calls ? JSON.parse(r.tool_calls) : null } catch (e) { toolCalls = null }
+		return {
+			seq: meta.seq ?? 0,
+			role: meta.role || MESSAGE_TYPE_TO_ROLE[r.message_type] || "assistant",
+			content: r.text || "",
+			toolCalls: Array.isArray(toolCalls) ? toolCalls : null,
+			tool_call_id: r.tool_call_id || null,
+		}
+	})
+	parsed.sort((a, b) => a.seq - b.seq)
+	conversation.value = parsed
+}
+
+// Resolve the AI Memory filters for the task's scope + scope key(s), mirroring
+// the dispatcher's resolution. Returns null when the key can't be built.
+async function resolveScopeFilters(bpmnId, ext) {
+	const scope = ext.aiMemoryScope || "Agent"
+	if (scope === "Agent") {
+		const el = ext.aiMemoryAgentElement || bpmnId
+		return el ? [["memory_scope", "=", "Agent"], ["agent_element", "=", el]] : null
+	}
+	if (scope === "Entity") {
+		const data = props.selectedNode.data || {}
+		const rd = data.context_doctype
+		const rn = data.context_docname
+		return rd && rn
+			? [["memory_scope", "=", "Entity"], ["reference_doctype", "=", rd], ["reference_name", "=", rn]]
+			: null
+	}
+	if (scope === "Process") {
+		const inst = await frappeGetList("BPMN Process Instance", ["process_model"], [["name", "=", props.processInstanceName]], { limit: 1 })
+		const pm = inst[0]?.process_model
+		return pm ? [["memory_scope", "=", "Process"], ["process_model", "=", pm]] : null
+	}
+	return null
+}
+
+async function fetchMemory() {
+	conversation.value = []
+	memWritten.value = []
+	memInScope.value = []
+	memoryError.value = null
+
+	if (!props.selectedNode || !props.processInstanceName) return
+
+	memoryLoading.value = true
+	try {
+		const bpmnId = props.selectedNode.bpmnId || props.selectedNode.id
+		const ext = props.selectedNode.extensions || {}
+
+		// ── Conversation ──
+		const backend = ext.aiConversationStore || "process_variable"
+		if (backend === "document_store") {
+			await loadDocumentStoreConversation(bpmnId)
+		} else {
+			// process_variable / custom: the thread lives in the viewer's task data
+			const thread = (props.selectedNode.data || {})[`${bpmnId}_conversation`]
+			conversation.value = Array.isArray(thread) ? thread.map(normalizeMsg) : []
+		}
+
+		// ── Long-term memory: written by this run (via source_run) ──
+		let runName = aiRun.value?.name
+		if (!runName) {
+			const runs = await frappeGetList(
+				"AI Agent Run", ["name"],
+				[["instance", "=", props.processInstanceName], ["bpmn_id", "=", bpmnId]],
+				{ limit: 1, order_by: "creation desc" },
+			)
+			runName = runs[0]?.name || null
+		}
+		const memFields = ["name", "content", "metadata", "memory_scope", "dedup_key"]
+		if (runName) {
+			memWritten.value = await frappeGetList("AI Memory", memFields, [["source_run", "=", runName]], { limit: 50, order_by: "creation desc" })
+		}
+
+		// ── Long-term memory: retrievable (task's scope + scope key) ──
+		const scopeFilters = await resolveScopeFilters(bpmnId, ext)
+		if (scopeFilters) {
+			memInScope.value = await frappeGetList("AI Memory", memFields, scopeFilters, { limit: 50, order_by: "modified desc" })
+		}
+	} catch (e) {
+		memoryError.value = e.status === 403
+			? "You don't have permission to view this memory data."
+			: "Failed to load memory data"
+		console.error("Memory fetch error:", e)
+	} finally {
+		memoryLoading.value = false
 	}
 }
 
@@ -449,13 +653,6 @@ function formatDuration(ms) {
 	return `${min}m ${sec}s`
 }
 
-function getCsrfToken() {
-	const match = document.cookie.match(/csrf_token=([^;]+)/)
-	if (match) return match[1]
-	const meta = document.querySelector('meta[name="csrf-token"]')
-	if (meta) return meta.getAttribute("content")
-	return ""
-}
 </script>
 
 <style scoped>

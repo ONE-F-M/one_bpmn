@@ -221,21 +221,12 @@
 </template>
 
 <script setup>
-import { ref, computed, watch, nextTick } from "vue";
+import { ref, computed, watch, nextTick, onUnmounted } from "vue";
 import DOMPurify from "dompurify";
 import { marked } from "marked";
+import { frappeRequest } from "frappe-ui";
 
 marked.setOptions({ gfm: true, breaks: true });
-
-function getCsrfToken() {
-	return (
-		window.frappe?.csrf_token ||
-		window.frappe?.boot?.csrf_token ||
-		window.csrf_token ||
-		document.cookie.split("; ").find(r => r.startsWith("csrf_token="))?.split("=")[1] ||
-		""
-	);
-}
 
 const props = defineProps({
 	modelValue:    { type: Boolean, default: false },
@@ -368,23 +359,20 @@ async function initGreeting() {
 
 	if (label) {
 		try {
-			const resp = await fetch(
-				`/api/method/one_bpmn.api.server_script_api.check_server_script_exists?script_name=${encodeURIComponent(label)}`,
-				{ headers: { "X-Frappe-CSRF-Token": getCsrfToken() } },
-			);
-			if (resp.ok) {
-				const data = await resp.json();
-				if (data?.message?.exists) {
-					messages.value = [{
-						id: makeId(), role: "assistant", time: formatTime(new Date()),
-						content: `Hello, I am Logix.\nHappy to help with the server scripts\nI found an existing server script named **${label}**. Would you like to link it to this Script Task instead of creating a new one?`,
-						actions: [
-							{ label: "Link existing script", handler: "link_existing" },
-							{ label: "Create new script",    handler: "create_new"    },
-						],
-					}];
-					return;
-				}
+			const data = await frappeRequest({
+				url: "/api/method/one_bpmn.api.server_script_api.check_server_script_exists",
+				params: { script_name: label },
+			});
+			if (data?.exists) {
+				messages.value = [{
+					id: makeId(), role: "assistant", time: formatTime(new Date()),
+					content: `Hello, I am Logix.\nHappy to help with the server scripts\nI found an existing server script named **${label}**. Would you like to link it to this Script Task instead of creating a new one?`,
+					actions: [
+						{ label: "Link existing script", handler: "link_existing" },
+						{ label: "Create new script",    handler: "create_new"    },
+					],
+				}];
+				return;
 			}
 		} catch (_) { /* fall through */ }
 
@@ -440,15 +428,12 @@ async function handleMessageAction(handler, msgId, value = "") {
 		if (msg) msg.actions = null;
 
 		try {
-			const res = await fetch("/api/method/one_bpmn.api.server_script_api.create_server_script", {
-				method: "POST",
-				headers: { "Content-Type": "application/json", "X-Frappe-CSRF-Token": getCsrfToken() },
-				body: JSON.stringify({ script_name: name, script_type: "API", script: code }),
+			const data = await frappeRequest({
+				url: "/api/method/one_bpmn.api.server_script_api.create_server_script",
+				params: { script_name: name, script_type: "API", script: code },
 			});
-			if (!res.ok) throw new Error(`HTTP ${res.status}`);
-			const data       = await res.json();
-			const scriptName = data?.message?.name    || name;
-			const apiUrl     = data?.message?.api_url || "";
+			const scriptName = data?.name    || name;
+			const apiUrl     = data?.api_url || "";
 
 			if (props.eventBus) {
 				props.eventBus.fire("spiff.script.update", {
@@ -477,12 +462,10 @@ async function handleMessageAction(handler, msgId, value = "") {
 		if (msg) msg.actions = null;
 
 		try {
-			const res = await fetch("/api/method/one_bpmn.api.server_script_api.update_server_script", {
-				method: "POST",
-				headers: { "Content-Type": "application/json", "X-Frappe-CSRF-Token": getCsrfToken() },
-				body: JSON.stringify({ script_name: scriptName, script: code }),
+			await frappeRequest({
+				url: "/api/method/one_bpmn.api.server_script_api.update_server_script",
+				params: { script_name: scriptName, script: code },
 			});
-			if (!res.ok) throw new Error(`HTTP ${res.status}`);
 			messages.value.push({
 				id: makeId(), role: "assistant", time: formatTime(new Date()),
 				content: `**${scriptName}** has been updated successfully.`,
@@ -548,30 +531,22 @@ async function sendMessage() {
 			.slice(-10)
 			.map(m => ({ type: m.role, content: m.content }));
 
-		const response = await fetch("/api/method/one_bpmn.api.server_script_api.process_logix_message", {
-			method:  "POST",
-			headers: {
-				"Content-Type":       "application/json",
-				"X-Frappe-CSRF-Token": getCsrfToken(),
-			},
-			body: JSON.stringify({
+		const result = await frappeRequest({
+			url: "/api/method/one_bpmn.api.server_script_api.process_logix_message",
+			params: {
 				message:           text,
 				session_id:        sessionId.value,
 				conversation_name: conversationName.value || null,
 				chat_history:      JSON.stringify(history),
 				element_name:      elementLabel.value || "",
 				current_script:    localCurrentScript.value || props.currentScript || "",
-			}),
+			},
 		});
-
-		if (!response.ok) throw new Error(`HTTP ${response.status}`);
-		const data   = await response.json();
-		const result = data?.message;
 
 		// Capture the conversation name returned by the backend
 		if (result?.conversation_name) conversationName.value = result.conversation_name;
 
-		const reply  = result?.response || result?.message || "Sorry, I couldn't process that.";
+		const reply  = result?.response || "Sorry, I couldn't process that.";
 		const intent = result?.intent;
 		const diff   = result?.diff   || null;
 		const options = result?.options || null;
@@ -690,23 +665,12 @@ async function applyScript() {
 	applyLoading.value = true;
 
 	try {
-		const res = await fetch("/api/method/one_bpmn.api.server_script_api.create_server_script", {
-			method:  "POST",
-			headers: {
-				"Content-Type":       "application/json",
-				"X-Frappe-CSRF-Token": getCsrfToken(),
-			},
-			body: JSON.stringify({ script_name: name, script_type: "API", script: applyScriptCode.value }),
+		const data = await frappeRequest({
+			url: "/api/method/one_bpmn.api.server_script_api.create_server_script",
+			params: { script_name: name, script_type: "API", script: applyScriptCode.value },
 		});
-
-		if (!res.ok) {
-			const errData = await res.json().catch(() => ({}));
-			throw new Error(errData?.exc_type || errData?.message || `HTTP ${res.status}`);
-		}
-
-		const data       = await res.json();
-		const scriptName = data?.message?.name    || name;
-		const apiUrl     = data?.message?.api_url || "";
+		const scriptName = data?.name    || name;
+		const apiUrl     = data?.api_url || "";
 
 		if (props.eventBus) {
 			props.eventBus.fire("spiff.script.update", {
@@ -736,7 +700,20 @@ async function applyScript() {
 }
 
 // ── Reset / close ─────────────────────────────────────────────────────
+// Close the active Chat Conversation on the backend so its BPMN orchestration
+// runs the close branch (Cleanup → Conversation Ended). Fire-and-forget.
+function endConversation() {
+	const convName = conversationName.value;
+	if (!convName) return;
+	conversationName.value = null;
+	frappeRequest({
+		url: "/api/method/one_bpmn.api.server_script_api.end_chat_conversation",
+		params: { conversation_name: convName },
+	}).catch(() => {});
+}
+
 function resetConversation() {
+	endConversation();
 	sessionId.value          = generateSessionId();
 	conversationName.value   = null;
 	messages.value           = [];
@@ -746,8 +723,13 @@ function resetConversation() {
 }
 
 function handleClose() {
+	endConversation();
 	emit("update:modelValue", false);
 }
+
+onUnmounted(() => {
+	endConversation();
+});
 </script>
 
 <style scoped>

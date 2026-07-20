@@ -853,6 +853,26 @@ def validate_bpmn_readiness(xml_content: str, model_name: str = None) -> dict:
 			"items": script_items,
 		})
 
+	# 5b. Script Security (structural AST validation of script task code)
+	# Surfaces the same findings the pre-deployment gate enforces, so unsafe
+	# scripts are shown here as blocking items instead of a raw deploy error.
+	# Trusted framework scripts (Docu/ProsAlly/Logix) are exempt.
+	from one_bpmn.security.script_gate import collect_script_security_violations
+
+	security_items = []
+	for finding in collect_script_security_violations(xml_content):
+		security_items.append({
+			"name": f"{finding['label']}: {finding['message']}",
+			"exists": False,
+			"type": "check",
+		})
+	if security_items:
+		categories.append({
+			"label": "Script Security",
+			"icon": "shield-alert",
+			"items": security_items,
+		})
+
 	# 6. Lane Roles
 	role_items = []
 	for role_name in sorted(referenced_lane_roles):

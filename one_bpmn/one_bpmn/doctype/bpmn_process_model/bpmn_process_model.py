@@ -24,6 +24,26 @@ class BPMNProcessModel(Document):
 		self.validate_is_editable()
 		self.extract_process_id_from_xml()
 		self.enforce_single_active()
+		self.validate_script_task_security()
+
+	def validate_script_task_security(self):
+		"""Pre-deployment gate: block unsafe script tasks at authoring time.
+
+		Only runs when the BPMN XML actually changed (metadata-only saves are
+		exempt), and can be bypassed by trusted internal callers that have
+		already validated the content (e.g. compile_process_model) via
+		``doc.flags.skip_script_security_check = True``.
+		"""
+		if self.flags.get("skip_script_security_check"):
+			return
+		if not self.bpmn_xml:
+			return
+		if not self.is_new() and not self.has_value_changed("bpmn_xml"):
+			return
+
+		from one_bpmn.security.script_gate import validate_process_model_scripts
+
+		validate_process_model_scripts(self.bpmn_xml)
 
 	def validate_is_editable(self):
 		"""Ensure that the process is editable on the backend level before saving it.

@@ -13,57 +13,22 @@ Process flow:
 """
 
 import asyncio
-import difflib
 import json
 import re
 
 import frappe
 
 from onefm_mcp.onefm_mcp.doctype.ai_agent_configuration.ai_agent_configuration import get_agent_config
-from one_bpmn.security.script_validator import validate_script
-from one_bpmn.agents.llm_provider import ToolSpec, get_llm_adapter_from_settings
-from one_bpmn.tools.tool_for_server_scripts import (
-    get_doctype_fields,
-    get_server_script_content,
-    get_server_script_meta,
-    list_api_server_scripts,
-)
+from one_bpmn.agents.llm_provider import get_llm_adapter_from_settings
+from one_bpmn.agents.google_adk.script_task_agent import tools as logix_tools
 
 AGENT_ID = "logix_agent"
 
-# ── Tool specs ─────────────────────────────────────────────────────────────────
-
-_TOOL_LIST_SCRIPTS = ToolSpec(
-    fn=list_api_server_scripts,
-    name="list_api_server_scripts",
-    description="List all enabled API-type Server Scripts available in the system.",
-    parameters={},
-    required=[],
-)
-_TOOL_GET_CONTENT = ToolSpec(
-    fn=get_server_script_content,
-    name="get_server_script_content",
-    description="Fetch the full Python source code of a Frappe Server Script by name.",
-    parameters={"script_name": {"type": "string", "description": "The exact name (document ID) of the Server Script."}},
-    required=["script_name"],
-)
-_TOOL_GET_META = ToolSpec(
-    fn=get_server_script_meta,
-    name="get_server_script_meta",
-    description="Fetch the metadata (type, doctype, method, disabled status) of a Server Script.",
-    parameters={"script_name": {"type": "string", "description": "The exact name (document ID) of the Server Script."}},
-    required=["script_name"],
-)
-_TOOL_GET_FIELDS = ToolSpec(
-    fn=get_doctype_fields,
-    name="get_doctype_fields",
-    description="Get the field names and types for a Frappe DocType.",
-    parameters={"doctype": {"type": "string", "description": "The DocType name, e.g. 'Employee', 'Sales Order'."}},
-    required=["doctype"],
-)
-
-_WRITER_TOOLS   = [_TOOL_GET_CONTENT, _TOOL_GET_META, _TOOL_LIST_SCRIPTS, _TOOL_GET_FIELDS]
-_CLARIFIER_TOOLS = [_TOOL_LIST_SCRIPTS, _TOOL_GET_META]
+# Tool specs and the deterministic transforms now live in tools.py (the single
+# source of truth shared with the Epic-4 loop). LOGIX_TOOLS is the full surface;
+# these bundles are the per-sub-agent subsets the current single-call flow uses.
+_WRITER_TOOLS = logix_tools.WRITER_TOOLS
+_CLARIFIER_TOOLS = logix_tools.CLARIFIER_TOOLS
 
 # ── Required sub-prompt keys (must exist in AI Agent Configuration) ─────────────
 _REQUIRED_SUB_PROMPTS = (
@@ -192,19 +157,13 @@ class ScriptTaskAgent:
 
     @staticmethod
     def _extract_code(response: str) -> str:
-        match = re.search(r"```python\s*\n(.*?)```", response, re.DOTALL)
-        return match.group(1).strip() if match else response.strip()
+        """Pull the python code block from an LLM response. See tools.extract_code."""
+        return logix_tools.extract_code(response)
 
     @staticmethod
     def _compute_diff(original: str, modified: str) -> str:
-        diff = difflib.unified_diff(
-            original.splitlines(keepends=True),
-            modified.splitlines(keepends=True),
-            fromfile="original",
-            tofile="modified",
-            lineterm="",
-        )
-        return "".join(diff)
+        """Unified diff between two script versions. See tools.diff_scripts."""
+        return logix_tools.diff_scripts(original, modified)["diff"]
 
     @staticmethod
     def _build_regeneration_prompt(original_prompt: str, violations: list[str]) -> str:
@@ -315,7 +274,7 @@ class ScriptTaskAgent:
 
             modified_code = self._extract_code(candidate)
 
-            validation = validate_script(modified_code)
+            validation = logix_tools.validate_script(modified_code)
             if validation["valid"]:
                 final = candidate
                 break
