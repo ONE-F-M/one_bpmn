@@ -334,6 +334,40 @@ result["intent"] = intent
 result["shape_kind"] = shape_kind
 result["next"] = nxt'''
 
+# ── Robust JSON parsing in Classify/Clarify (models fence their JSON) ─────────
+# The sub-prompts say "respond with ONLY a JSON object", but models still wrap
+# the object in ```json fences and/or prose. A bare json.loads then fails and
+# the raw blob is shown to the user as the clarifying question. Route both
+# scripts through ScriptTaskAgent._extract_json instead.
+_JSON_PARSE_MARKER = "_extract_json"
+
+_CLASSIFY_OLD_PARSE = '''intent = "CREATE" if not current_script else "MODIFY"
+try:
+    intent = json.loads((raw or "").strip()).get("intent", intent).upper()
+except (json.JSONDecodeError, TypeError, AttributeError):
+    pass'''
+
+_CLASSIFY_NEW_PARSE = '''intent = "CREATE" if not current_script else "MODIFY"
+data = agent._extract_json(raw)
+if data and data.get("intent"):
+    intent = str(data["intent"]).upper()'''
+
+_CLARIFY_OLD_PARSE = '''question, options = (raw or "Could you clarify your request?"), []
+try:
+    data = json.loads((raw or "").strip())
+    question = data.get("question", raw)
+    options = data.get("options", [])
+except (json.JSONDecodeError, TypeError):
+    pass'''
+
+_CLARIFY_NEW_PARSE = '''question, options = (raw or "Could you clarify your request?"), []
+data = agent._extract_json(raw)
+if data:
+    question = data.get("question") or question
+    options = data.get("options") or []'''
+
+CLARIFY_SCRIPT_NAME = "Logix – Tool Clarify"
+
 _REVIEW_OLD_INPUT = '''draft = turn.get("draft", "")
 review_raw = run_sync(agent._run("script_reviewer", draft))'''
 
@@ -431,13 +465,15 @@ def _create_write_tool_script():
     }).insert(ignore_permissions=True)
 
 
-def _patch_stage_script(script_name: str, replacements: list[tuple[str, str]]):
+def _patch_stage_script(
+    script_name: str, replacements: list[tuple[str, str]], marker: str = _SHAPE_KIND_MARKER,
+):
     """Apply guarded string replacements to an inlined stage-tool DB row."""
     if not frappe.db.exists("Server Script", script_name):
         return
     doc = frappe.get_doc("Server Script", script_name)
     script = doc.script or ""
-    if _SHAPE_KIND_MARKER in script:
+    if marker in script:
         return  # already patched
     changed = False
     for old, new in replacements:
@@ -505,5 +541,13 @@ def execute():
     _patch_stage_script(REVIEW_SCRIPT_NAME, [
         (_REVIEW_OLD_INPUT, _REVIEW_NEW_INPUT),
     ])
+    # Fence-tolerant JSON parsing (separate marker: these rows may already
+    # carry the shape_kind changes from the steps above).
+    _patch_stage_script(CLASSIFY_SCRIPT_NAME, [
+        (_CLASSIFY_OLD_PARSE, _CLASSIFY_NEW_PARSE),
+    ], marker=_JSON_PARSE_MARKER)
+    _patch_stage_script(CLARIFY_SCRIPT_NAME, [
+        (_CLARIFY_OLD_PARSE, _CLARIFY_NEW_PARSE),
+    ], marker=_JSON_PARSE_MARKER)
     _update_process_model()
     frappe.db.commit()

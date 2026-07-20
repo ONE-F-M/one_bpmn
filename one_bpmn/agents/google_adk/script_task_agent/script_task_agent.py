@@ -231,6 +231,42 @@ class ScriptTaskAgent:
                 stripped = stripped.rstrip()[: stripped.rstrip().rfind("```")]
         return stripped.strip()
 
+    @staticmethod
+    def _extract_json(text: str | None) -> dict | None:
+        """Best-effort parse of a JSON object from an LLM reply.
+
+        Models asked to "respond with ONLY a JSON object" still frequently wrap
+        it in ```json fences and/or lead with prose. Without this, callers fall
+        back to showing the raw blob to the user. Tries, in order: the whole
+        text, the fence-stripped text, the first fenced block, and the first
+        balanced {...} span.
+        """
+        if not text:
+            return None
+        candidates = [text.strip(), ScriptTaskAgent._strip_json_fences(text)]
+        fenced = re.search(r"```(?:json)?\s*\n(.*?)```", text, re.DOTALL)
+        if fenced:
+            candidates.append(fenced.group(1).strip())
+        start = text.find("{")
+        if start != -1:
+            depth = 0
+            for i in range(start, len(text)):
+                if text[i] == "{":
+                    depth += 1
+                elif text[i] == "}":
+                    depth -= 1
+                    if depth == 0:
+                        candidates.append(text[start:i + 1])
+                        break
+        for candidate in candidates:
+            try:
+                parsed = json.loads(candidate)
+                if isinstance(parsed, dict):
+                    return parsed
+            except (json.JSONDecodeError, TypeError):
+                continue
+        return None
+
     def _apply_review(self, draft: str, review_text: str | None) -> str:
         if not review_text:
             return draft
