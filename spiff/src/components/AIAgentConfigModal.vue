@@ -119,11 +119,20 @@
             </select>
           </div>
 
-          <!-- Model — read-only since WI-001650: resolved from the linked
-               configuration's credentials (default model). -->
+          <!-- Model — the agent's catalog pick (WI-001655): editable here and
+               written back to the linked configuration on Save; the provider
+               follows the model automatically. -->
           <div class="field-row">
-            <label>Model <span class="hint">(from the linked configuration)</span></label>
-            <input type="text" v-model="form.aiModel" disabled placeholder="resolved from the linked agent" />
+            <label>Model <span class="hint">(the agent's catalog pick — saving writes it back; provider follows)</span></label>
+            <select v-model="form.aiModel">
+              <option value="">-- Pick a Model --</option>
+              <option v-if="form.aiModel && !catalogModels.some(m => m.name === form.aiModel)" :value="form.aiModel">
+                {{ form.aiModel }} (not in catalog)
+              </option>
+              <option v-for="m in catalogModels" :key="m.name" :value="m.name">
+                {{ m.name }} — via {{ m.ai_provider_credentials || "no credentials linked" }}
+              </option>
+            </select>
           </div>
 
           <!-- Output variable (selector output is the chosen task, not a variable) -->
@@ -521,6 +530,7 @@ const emit = defineEmits(["close"]);
 const providers = ref([]);
 const agentConfigs = ref([]);
 const catalogModels = ref([]); // AI Model catalog (WI-001655)
+
 
 // ── Create-new-agent panel state (WI-001648) ──
 const showCreateAgent = ref(false);
@@ -1168,8 +1178,10 @@ async function createAgent() {
 // up the change — surface that so the brief non-Live window isn't a surprise.
 async function writeBackToConfig() {
   if (!form.value.aiAgentConfig) return;
+  // WI-001655: the MODEL is the agent's editable pick and writes back;
+  // aiProvider is no longer sent — the provider is derived from the model.
   const fields = {
-    aiProvider: form.value.aiProvider,
+    aiModel: form.value.aiModel,
     aiSystemPrompt: form.value.aiSystemPrompt,
     aiMaxTokens: form.value.aiMaxTokens,
   };
