@@ -75,6 +75,29 @@ def _strip_code_fences(content: str) -> str:
             text = text.rstrip()[:-3]
     return text.strip()
 
+
+def _extract_json_object(text: str) -> Optional[dict]:
+    """
+    Best-effort recovery of a JSON object embedded in surrounding prose.
+
+    Models sometimes preface the requested JSON with commentary ("Sure!
+    Here is the decision: {...}") despite JSON-only instructions. Scan for
+    the first parseable object literal and return it, or None.
+    """
+    decoder = json.JSONDecoder()
+    idx = text.find("{")
+    while idx != -1:
+        try:
+            obj, _ = decoder.raw_decode(text, idx)
+        except json.JSONDecodeError:
+            idx = text.find("{", idx + 1)
+            continue
+        if isinstance(obj, dict):
+            return obj
+        idx = text.find("{", idx + 1)
+    return None
+
+
 _TRANSIENT_STATUS_CODES = frozenset({429, 500, 502, 503})
 
 
@@ -347,6 +370,21 @@ class DirectApiExecutor(Executor):
                 ],
             )
 
+        # Honor the declared response format the same way the no-tools path
+        # does: a "json" agent must yield a parsed (schema-valid) object, not
+        # the raw final text — downstream gateways route on its keys.
+        if config.response_format == "json":
+            validation_result = self._validate_json(completion.text, config.response_schema)
+            if isinstance(validation_result, ExecutorResult):
+                validation_result.token_usage = token_usage
+                validation_result.trace = trace
+                return validation_result
+            return ExecutorResult(
+                output=validation_result,
+                token_usage=token_usage,
+                trace=trace,
+            )
+
         return ExecutorResult(
             output=completion.text,
             token_usage=token_usage,
@@ -481,13 +519,17 @@ class DirectApiExecutor(Executor):
 
     @staticmethod
     def _validate_json(content: str, schema_str: Optional[str]) -> Any:
+        stripped = _strip_code_fences(content)
         try:
-            parsed = json.loads(_strip_code_fences(content))
+            parsed = json.loads(stripped)
         except json.JSONDecodeError as exc:
-            return ExecutorResult(
-                error_code=ErrorCode.SCHEMA_VALIDATION_FAILED,
-                error_message=f"Model returned invalid JSON: {exc}",
-            )
+            # Fallback: pull the object out of surrounding prose before failing.
+            parsed = _extract_json_object(stripped)
+            if parsed is None:
+                return ExecutorResult(
+                    error_code=ErrorCode.SCHEMA_VALIDATION_FAILED,
+                    error_message=f"Model returned invalid JSON: {exc}",
+                )
 
         if schema_str:
             try:

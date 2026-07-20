@@ -181,6 +181,10 @@ def _run_server_script(instance, script_name: str, task, bpmn_id: str) -> None:
 			"context_doctype": getattr(instance, "context_doctype", "") or "",
 			"context_docname": getattr(instance, "context_docname", "") or "",
 			"result": result_dict,
+			# Same convention as the engine's FrappeScriptEngine: scripts may
+			# read their inputs bundled under `task_data` (the LLM-supplied
+			# arguments, here) instead of as bare locals.
+			"task_data": dict(task.data),
 		}
 	)
 	if getattr(instance, "context_doctype", None) and getattr(instance, "context_docname", None):
