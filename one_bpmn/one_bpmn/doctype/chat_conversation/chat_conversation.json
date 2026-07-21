@@ -17,7 +17,7 @@
    "fieldname": "agent_mode",
    "fieldtype": "Select",
    "label": "Agent Mode",
-   "options": "General Chat\nBA Agent\nLogix\nProsAlly",
+   "options": "General Chat\nBA Agent\nLogix\nProsAlly\nDocu",
    "default": "General Chat",
    "read_only_depends_on": "eval:doc.last_message"
   },
