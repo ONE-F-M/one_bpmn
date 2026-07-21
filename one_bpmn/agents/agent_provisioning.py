@@ -96,6 +96,21 @@ def provision_agent(config_name: str):
 		model_name = clone_chat_map_for_agent(config_name)
 		compile_process_model(model_name)  # arms the conditional start trigger
 
+		# Evaluating (WI-001609): generate + run a baseline suite from the
+		# agent's sample prompts. A suite marked gate_deployment blocks Live
+		# on failure; otherwise eval results are advisory and Live proceeds.
+		suite_name = generate_eval_suite_for_agent(config_name)
+		if suite_name:
+			_set_status(config_name, "Evaluating")
+			passed = _run_baseline_eval(suite_name)
+			if passed is False and frappe.db.get_value("AI Eval Suite", suite_name, "gate_deployment"):
+				_set_status(config_name, "Needs Attention")
+				frappe.log_error(
+					title=f"Agent provisioning: eval gate failed ({cfg.agent_id})",
+					message=f"Baseline suite {suite_name} did not pass and gates deployment.",
+				)
+				return
+
 		_set_status(config_name, "Live")
 	except Exception:
 		_set_status(config_name, "Needs Attention")
@@ -141,6 +156,80 @@ def generate_system_prompt(config_name: str) -> str:
 		cfg.db_set("system_prompt", prompt, update_modified=False)
 		frappe.cache.delete_value(f"agent_config:{cfg.agent_id}")
 	return prompt
+
+
+def _run_baseline_eval(suite_name: str) -> bool | None:
+	"""Run a suite and return True/False for pass/fail, or None if it could
+	not be run. Never raises — eval is advisory unless the suite gates."""
+	try:
+		from one_bpmn.agents.eval_runner import run_eval_suite
+
+		run_name = run_eval_suite(suite_name, backend="live")
+		status = frappe.db.get_value("AI Eval Run", run_name, "status")
+		return status == "Passed"
+	except Exception:
+		frappe.log_error(title=f"Baseline eval run failed ({suite_name})", message=frappe.get_traceback())
+		return None
+
+
+def generate_eval_suite_for_agent(config_name: str) -> str | None:
+	"""Create (or refresh) a baseline AI Eval Suite from the agent's sample
+	prompts and link it on the configuration (WI-001609).
+
+	One eval case per sample prompt: the agent's system prompt + credentials,
+	the sample's text as the user prompt, and — when the sample declares an
+	expected behaviour — an llm_judge assertion scoring the reply against it.
+	Returns the suite name, or None when the agent has no sample prompts.
+	"""
+	cfg = frappe.get_doc("AI Agent Configuration", config_name)
+	samples = cfg.get("sample_prompts") or []
+	if not samples or not cfg.process_model:
+		return None  # nothing to evaluate, or the map isn't provisioned yet
+
+	suite_title = f"{cfg.agent_name} — Baseline"
+	if frappe.db.exists("AI Eval Suite", suite_title):
+		suite = frappe.get_doc("AI Eval Suite", suite_title)
+		for case in frappe.get_all("AI Eval Case", filters={"suite": suite.name}, pluck="name"):
+			frappe.delete_doc("AI Eval Case", case, force=True, ignore_permissions=True)
+	else:
+		suite = frappe.get_doc({
+			"doctype": "AI Eval Suite",
+			"title": suite_title,
+			"process_model": cfg.process_model,
+			"description": _("Baseline suite generated from {0}'s sample prompts.").format(cfg.agent_name),
+		}).insert(ignore_permissions=True)
+
+	# AI Eval Case requires a model, and llm_judge assertions require a judge
+	# model — both are mandatory fields. Resolve the provider's default model
+	# once and reuse it for the case and its judge.
+	judge_provider = cfg.ai_provider_credentials
+	judge_model = frappe.db.get_value("AI Provider Credentials", judge_provider, "default_model") or ""
+	for i, sample in enumerate(samples, start=1):
+		case = frappe.get_doc({
+			"doctype": "AI Eval Case",
+			"title": f"{suite_title} — {i}",
+			"suite": suite.name,
+			"process_model": cfg.process_model,
+			"provider": cfg.ai_provider_credentials,
+			"model": judge_model,
+			"backend": "direct_api",
+			"input_system_prompt": cfg.system_prompt or "",
+			"input_user_prompt": sample.prompt,
+		})
+		if (sample.get("expected_behaviour") or "").strip():
+			case.append("assertions", {
+				"assertion_type": "llm_judge",
+				"value": sample.expected_behaviour,
+				"judge_provider": judge_provider,
+				"judge_model": judge_model,
+				"pass_threshold": 4,  # 1–5 scale; 4 = "mostly meets expectation"
+			})
+		case.insert(ignore_permissions=True)
+
+	if cfg.eval_suite != suite.name:
+		cfg.db_set("eval_suite", suite.name, update_modified=False)
+	frappe.db.commit()
+	return suite.name
 
 
 def _provider_test_call(cfg) -> tuple[bool, str]:
