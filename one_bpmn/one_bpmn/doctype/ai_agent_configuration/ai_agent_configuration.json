@@ -15,8 +15,6 @@
   "description",
   "process_owner",
   "llm_settings_section",
-  "llm_provider_override",
-  "model_override",
   "column_break_llm",
   "temperature",
   "max_tokens",
@@ -116,21 +114,6 @@
    "fieldname": "llm_settings_section",
    "fieldtype": "Section Break",
    "label": "LLM Settings"
-  },
-  {
-   "default": "Use Global",
-   "fieldname": "llm_provider_override",
-   "fieldtype": "Select",
-   "label": "LLM Provider Override",
-   "options": "Use Global\ngemini\nanthropic\nopenai"
-  },
-  {
-   "depends_on": "eval:doc.llm_provider_override != 'Use Global'",
-   "description": "Leave blank to use the global model from AI Chat Settings",
-   "fieldname": "model_override",
-   "fieldtype": "Link",
-   "label": "Model Override",
-   "options": "AI Model"
   },
   {
    "fieldname": "column_break_llm",
