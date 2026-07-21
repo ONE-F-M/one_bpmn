@@ -30,13 +30,18 @@ VALIDATION_RULES = (
 )
 
 
-def validate_agent_config(config_name: str, test_provider: bool = True) -> dict:
+def validate_agent_config(config_name: str, test_provider: bool = True, require_prompt: bool = True) -> dict:
 	"""Validate the six essentials of a chat agent configuration (WI-001621).
 
 	Checks, in order: identity, system prompt, LLM credentials link, and —
 	for chat agents — a chat mode label; lints the prompt for unresolved
 	template markers; and (optionally) makes a live provider test call so a
 	bad key or model is caught before provisioning rather than at first use.
+
+	``require_prompt=False`` waives the empty-prompt error for provider-grant
+	Background agents (WI-001650: e.g. "Platform Prompt Engineer" is a
+	deliberate empty-prompt credentials grant) so the on-save revalidation
+	can still run their live provider test.
 
 	Returns {"ok": bool, "errors": [...], "warnings": [...]}; never raises,
 	so the process can route a failure to Needs Attention.
@@ -50,7 +55,8 @@ def validate_agent_config(config_name: str, test_provider: bool = True) -> dict:
 
 	# 2. System prompt
 	if not (cfg.system_prompt or "").strip():
-		errors.append(_("System prompt is empty."))
+		if require_prompt:
+			errors.append(_("System prompt is empty."))
 	elif "{{" in cfg.system_prompt and "}}" in cfg.system_prompt:
 		warnings.append(_("System prompt contains unresolved '{{ }}' markers."))
 

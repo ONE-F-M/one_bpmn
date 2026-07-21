@@ -169,6 +169,82 @@ class AIAgentConfiguration(Document):
 				self.add_comment("Comment", _("Needs Attention: {0}").format(self.needs_attention_reason))
 			except Exception:
 				pass
+		self.revalidate_credentials_on_save()
+
+	def revalidate_credentials_on_save(self):
+		"""Re-prove the agent on EVERY save — assume nothing (user ruling,
+		2026-07-21): credentials that validated at creation may since have
+		been rotated, disabled, or pointed at a dead model, and a Live badge
+		must mean the agent works NOW.
+
+		Runs the full validation including the live provider test call:
+		  * Live agent that fails    → parked Needs Attention, with the reason
+		  * Needs Attention that passes → promoted back to Live (self-healing)
+		  * Draft is the creation process's to advance, Retired is a manual
+		    state — neither is touched.
+
+		Skipped during migrate/patch/install/import (seed patches save many
+		configs on sites whose credentials arrive later — parking them all
+		mid-migration would be noise) and in tests unless a test opts in via
+		frappe.flags.test_agent_revalidation.
+		"""
+		if self.lifecycle_status not in ("Live", "Needs Attention"):
+			return
+		if (
+			frappe.flags.in_migrate
+			or frappe.flags.in_patch
+			or frappe.flags.in_install
+			or frappe.flags.in_import
+			or (frappe.flags.in_test and not frappe.flags.get("test_agent_revalidation"))
+		):
+			return
+		if frappe.flags.get("_agent_revalidation_running"):
+			return  # a stamp/reprovision triggered from below must not recurse
+
+		frappe.flags._agent_revalidation_running = True
+		try:
+			from one_bpmn.agents.agent_provisioning import validate_agent_config
+
+			result = validate_agent_config(
+				self.name,
+				test_provider=True,
+				# WI-001650 provider-grant Background agents keep an empty
+				# prompt on purpose — their credentials still get live-tested.
+				require_prompt=(self.agent_type != "Background"),
+			)
+		except Exception:
+			# The revalidation must never make a record unsaveable; a broken
+			# validator is its own bug and lands in the Error Log.
+			frappe.log_error(
+				title=f"Agent revalidation failed to run: {self.name}",
+				message=frappe.get_traceback(),
+			)
+			return
+		finally:
+			frappe.flags._agent_revalidation_running = False
+
+		if result["ok"] and self.lifecycle_status == "Needs Attention":
+			self._stamp_lifecycle("Live", "")
+		elif not result["ok"] and self.lifecycle_status == "Live":
+			self._stamp_lifecycle("Needs Attention", "; ".join(result["errors"]))
+
+	def _stamp_lifecycle(self, status: str, reason: str):
+		"""Post-save lifecycle stamp: the doc row is already written, so this
+		goes straight to the DB (no re-save, no hook recursion) and keeps the
+		in-memory doc in sync for whoever holds the reference."""
+		frappe.db.set_value(
+			self.doctype,
+			self.name,
+			{"lifecycle_status": status, "needs_attention_reason": reason},
+			update_modified=False,
+		)
+		self.lifecycle_status = status
+		self.needs_attention_reason = reason
+		if status == "Needs Attention":
+			try:
+				self.add_comment("Comment", _("Needs Attention: {0}").format(reason))
+			except Exception:
+				pass
 
 
 def get_agent_config(agent_id: str) -> dict | None:
