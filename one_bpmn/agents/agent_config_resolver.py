@@ -144,6 +144,17 @@ def update_agent_config_from_shape(config_name: str, fields: str | dict) -> dict
 			value = frappe.utils.flt(value)
 		if cfield == "max_tokens" and value not in (None, ""):
 			value = frappe.utils.cint(value)
+		# Old diagrams carry model ids baked into the shape before the AI Model
+		# catalog existed (WI-001655). Letting doc.save() hit the Link
+		# validation surfaces a raw LinkValidationError — say what is actually
+		# wrong instead.
+		if cfield == "ai_model" and value and not frappe.db.exists("AI Model", value):
+			frappe.throw(
+				_(
+					"'{0}' is not in the AI Model catalog — the task shape carries an "
+					"outdated model id. Pick a model from the dropdown and save again."
+				).format(value)
+			)
 		if doc.get(cfield) != value:
 			doc.set(cfield, value)
 			changed.append(cfield)

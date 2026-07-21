@@ -487,12 +487,19 @@
           </div>
       </div>
     </div>
+
+    <!-- Standard error/notice dialog (frappe-ui) — replaces browser alert()s -->
+    <Dialog v-model="notice.show" :options="{ title: notice.title }">
+      <template #body-content>
+        <p class="whitespace-pre-line text-p-base text-ink-gray-7">{{ notice.message }}</p>
+      </template>
+    </Dialog>
   </div>
 </template>
 
 <script setup>
 import { ref, computed, onMounted, onUnmounted, nextTick, toRaw } from "vue";
-import { frappeRequest } from "frappe-ui";
+import { Dialog, frappeRequest } from "frappe-ui";
 import { frappeGet } from "@/bpmn/shared/frappeResource";
 
 // bpmn-js elements must never be touched as Vue reactive proxies — the renderer
@@ -606,6 +613,21 @@ const form = ref({
   aiMemoryScope: "Agent",
   aiMemoryWriteMode: "off",
 });
+
+// ── Notices ───────────────────────────────────────────────────────────────
+// Standard frappe-ui dialog for errors and confirmations — never a bare
+// browser alert().
+const notice = ref({ show: false, title: "", message: "" });
+function showNotice(title, message) {
+  notice.value = { show: true, title, message };
+}
+
+// frappe-ui's request error falls back to "<url> <ExceptionClass>" when it
+// finds no friendlier text — prefer the server's own messages when present.
+function serverMessage(e) {
+  const msgs = Array.isArray(e?.messages) ? e.messages.filter(Boolean) : [];
+  return msgs.join("\n") || e?.message || String(e);
+}
 
 // ── Assistant state ───────────────────────────────────────────────────────
 const messages = ref([]);
@@ -1167,9 +1189,9 @@ async function applyProposedUpdate(m) {
 // agent is linked on this shape and its values pulled into the form.
 async function createAgent() {
   if (creatingAgent.value) return;
-  if (!newAgent.value.agent_name.trim()) return alert("Agent name is required.");
-  if (!newAgent.value.chat_mode_label.trim()) return alert("A chat mode label is required.");
-  if (!newAgent.value.ai_model) return alert("Pick an AI Model — the provider follows from it.");
+  if (!newAgent.value.agent_name.trim()) return showNotice("Missing information", "Agent name is required.");
+  if (!newAgent.value.chat_mode_label.trim()) return showNotice("Missing information", "A chat mode label is required.");
+  if (!newAgent.value.ai_model) return showNotice("Missing information", "Pick an AI Model — the provider follows from it.");
   creatingAgent.value = true;
   try {
     const payload = {
@@ -1186,14 +1208,15 @@ async function createAgent() {
     form.value.aiAgentConfig = res.name;
     await onAgentConfigSelect();
     showCreateAgent.value = false;
-    alert(
+    showNotice(
+      "Agent created",
       `"${res.name}" created and linked to this task.\n` +
         (res.creation_instance
           ? `The AI Agent Creation Process is running (instance ${res.creation_instance}) — it will take the agent to Live.`
           : "The creation process did not start (model inactive?) — check the AI Agent Configuration record.")
     );
   } catch (e) {
-    alert("Could not create the agent configuration: " + (e?.message || e));
+    showNotice("Could not create the agent configuration", serverMessage(e));
   } finally {
     creatingAgent.value = false;
   }
@@ -1223,10 +1246,11 @@ async function writeBackToConfig() {
       params: { config_name: form.value.aiAgentConfig, fields: JSON.stringify(fields) },
     });
   } catch (e) {
-    alert(
-      `The task was saved, but writing the changes back to "${form.value.aiAgentConfig}" failed: ` +
-        (e?.message || e) +
-        "\nUpdate the AI Agent Configuration record directly if the change should apply to the agent."
+    showNotice(
+      "Changes not applied to the agent",
+      `The task was saved, but writing the changes back to "${form.value.aiAgentConfig}" failed:\n` +
+        serverMessage(e) +
+        "\n\nUpdate the AI Agent Configuration record directly if the change should apply to the agent."
     );
   }
 }
@@ -1235,7 +1259,8 @@ async function save() {
   // WI-001650: every AI shape must be backed by an AI Agent Configuration —
   // raw provider setup is retired (the compile gate enforces the same rule).
   if (!form.value.aiAgentConfig) {
-    alert(
+    showNotice(
+      "Link an AI Agent Configuration",
       "Link an AI Agent Configuration before saving.\n" +
         "Pick an existing agent, use “+ Create new…”, or ask the assistant to " +
         "create one — setting up an AI task with a raw provider has been retired (WI-001650)."
@@ -1246,7 +1271,8 @@ async function save() {
   // WI-001655: the model comes from the linked agent's catalog pick. An
   // empty model here means the agent has none yet — fix it on the agent.
   if (!form.value.aiModel || !form.value.aiModel.trim()) {
-    alert(
+    showNotice(
+      "No model set",
       "No model is set. Pick an AI Model on the linked AI Agent Configuration " +
         "(or ask the assistant to change the model) — the provider follows from it."
     );
@@ -1258,7 +1284,7 @@ async function save() {
     try {
       JSON.parse(form.value.aiResponseSchema);
     } catch (e) {
-      alert("Response Schema is not valid JSON: " + e.message);
+      showNotice("Invalid Response Schema", "Response Schema is not valid JSON: " + e.message);
       return;
     }
   }
@@ -1774,5 +1800,14 @@ async function save() {
   flex-direction: row;
   justify-content: flex-end;
   gap: 8px;
+}
+</style>
+
+<style>
+/* frappe-ui dialogs portal to <body> with no z-index of their own; this
+   modal's overlay sits at z-index 1000, which would bury them. Dialogs are
+   always the topmost surface. */
+.dialog-overlay {
+  z-index: 2000;
 }
 </style>
