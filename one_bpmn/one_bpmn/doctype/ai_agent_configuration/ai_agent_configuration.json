@@ -1,0 +1,204 @@
+{
+ "actions": [],
+ "autoname": "field:agent_name",
+ "creation": "2026-02-19 05:10:00",
+ "doctype": "DocType",
+ "engine": "InnoDB",
+ "field_order": [
+  "agent_name",
+  "agent_id",
+  "agent_framework",
+  "enabled",
+  "column_break_basics",
+  "description",
+  "process_owner",
+  "llm_settings_section",
+  "llm_provider_override",
+  "model_override",
+  "column_break_llm",
+  "temperature",
+  "max_tokens",
+  "prompt_section",
+  "required_variables",
+  "required_variables_html",
+  "system_prompt",
+  "sub_prompts_section",
+  "sub_prompts",
+  "constants_section",
+  "constants",
+  "observability_section",
+  "langsmith_project"
+ ],
+ "fields": [
+  {
+   "fieldname": "agent_name",
+   "fieldtype": "Data",
+   "in_list_view": 1,
+   "label": "Agent Name",
+   "reqd": 1,
+   "unique": 1
+  },
+  {
+   "fieldname": "agent_id",
+   "fieldtype": "Data",
+   "in_list_view": 1,
+   "label": "Agent ID",
+   "reqd": 1,
+   "unique": 1
+  },
+  {
+   "fieldname": "agent_framework",
+   "fieldtype": "Select",
+   "in_list_view": 1,
+   "label": "Agent Framework",
+   "options": "\nGoogle ADK\nLangGraph\nDirect API\nAnthropic",
+   "reqd": 1
+  },
+  {
+   "default": "1",
+   "fieldname": "enabled",
+   "fieldtype": "Check",
+   "label": "Enabled"
+  },
+  {
+   "fieldname": "column_break_basics",
+   "fieldtype": "Column Break"
+  },
+  {
+   "fieldname": "description",
+   "fieldtype": "Small Text",
+   "label": "Description"
+  },
+  {
+   "fieldname": "process_owner",
+   "fieldtype": "Link",
+   "label": "Process Owner",
+   "options": "User"
+  },
+  {
+   "fieldname": "llm_settings_section",
+   "fieldtype": "Section Break",
+   "label": "LLM Settings"
+  },
+  {
+   "default": "Use Global",
+   "fieldname": "llm_provider_override",
+   "fieldtype": "Select",
+   "label": "LLM Provider Override",
+   "options": "Use Global\ngemini\nanthropic\nopenai"
+  },
+  {
+   "depends_on": "eval:doc.llm_provider_override != 'Use Global'",
+   "description": "Leave blank to use the global model from AI Chat Settings",
+   "fieldname": "model_override",
+   "fieldtype": "Link",
+   "label": "Model Override",
+   "options": "AI Model"
+  },
+  {
+   "fieldname": "column_break_llm",
+   "fieldtype": "Column Break"
+  },
+  {
+   "default": "0.3",
+   "description": "LLM temperature (0.0 = deterministic, 2.0 = creative)",
+   "fieldname": "temperature",
+   "fieldtype": "Float",
+   "label": "Temperature",
+   "precision": "2"
+  },
+  {
+   "default": "0",
+   "description": "Max output tokens. 0 = use global default",
+   "fieldname": "max_tokens",
+   "fieldtype": "Int",
+   "label": "Max Tokens"
+  },
+  {
+   "fieldname": "prompt_section",
+   "fieldtype": "Section Break",
+   "label": "System Prompt"
+  },
+  {
+   "description": "JSON list of required runtime variables. Format: [{\"name\": \"var_name\", \"description\": \"What it contains\"}]",
+   "fieldname": "required_variables",
+   "fieldtype": "Small Text",
+   "hidden": 1,
+   "label": "Required Variables",
+   "no_copy": 1
+  },
+  {
+   "fieldname": "required_variables_html",
+   "fieldtype": "HTML",
+   "label": "Required Prompt Variables"
+  },
+  {
+   "fieldname": "system_prompt",
+   "fieldtype": "Code",
+   "label": "System Prompt",
+   "options": "Markdown"
+  },
+  {
+   "description": "For agents with multiple sub-agents (e.g., Report Query Agent)",
+   "fieldname": "sub_prompts_section",
+   "fieldtype": "Section Break",
+   "label": "Sub Prompts"
+  },
+  {
+   "fieldname": "sub_prompts",
+   "fieldtype": "Table",
+   "label": "Sub Prompts",
+   "options": "AI Agent Sub Prompt"
+  },
+  {
+   "fieldname": "constants_section",
+   "fieldtype": "Section Break",
+   "label": "Operational Constants"
+  },
+  {
+   "fieldname": "constants",
+   "fieldtype": "Table",
+   "label": "Constants",
+   "options": "AI Agent Constant"
+  },
+  {
+   "depends_on": "eval:doc.agent_framework!=\"Google ADK\"",
+   "fieldname": "observability_section",
+   "fieldtype": "Section Break",
+   "label": "Observability"
+  },
+  {
+   "description": "LangSmith project name for this agent. Leave blank to use the global project from AI Chat Settings.",
+   "fieldname": "langsmith_project",
+   "fieldtype": "Data",
+   "label": "LangSmith Project"
+  }
+ ],
+ "index_web_pages_for_search": 1,
+ "links": [],
+ "modified": "2026-03-03 09:42:23.593202",
+ "modified_by": "Administrator",
+ "module": "ONE BPMN",
+ "name": "AI Agent Configuration",
+ "naming_rule": "By fieldname",
+ "owner": "Administrator",
+ "permissions": [
+  {
+   "create": 1,
+   "delete": 1,
+   "email": 1,
+   "export": 1,
+   "print": 1,
+   "read": 1,
+   "report": 1,
+   "role": "System Manager",
+   "share": 1,
+   "write": 1
+  }
+ ],
+ "row_format": "Dynamic",
+ "sort_field": "modified",
+ "sort_order": "DESC",
+ "states": [],
+ "track_changes": 1
+}

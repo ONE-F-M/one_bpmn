@@ -18,7 +18,7 @@ import re
 
 import frappe
 
-from onefm_mcp.onefm_mcp.doctype.ai_agent_configuration.ai_agent_configuration import get_agent_config
+from one_bpmn.one_bpmn.doctype.ai_agent_configuration.ai_agent_configuration import get_agent_config
 from one_bpmn.agents.llm_provider import get_llm_adapter_from_settings
 from one_bpmn.agents.google_adk.script_task_agent import tools as logix_tools
 
