@@ -136,6 +136,7 @@ def get_cost_token_report(
 	model: str = None,
 	provider: str = None,
 	process_model: str = None,
+	agent_configuration: str = None,
 ) -> dict:
 	"""Return daily cost/token data grouped by date and model."""
 	frappe.only_for("System Manager")
@@ -174,6 +175,8 @@ def get_cost_token_report(
 		query = query.where(Run.provider == provider)
 	if process_model:
 		query = query.where(Run.process_model == process_model)
+	if agent_configuration:
+		query = query.where(Run.agent_configuration == agent_configuration)
 
 	raw_rows = query.run(as_dict=True)
 
@@ -243,6 +246,7 @@ def get_error_report(
 	model: str = None,
 	error_code: str = None,
 	process_model: str = None,
+	agent_configuration: str = None,
 ) -> dict:
 	"""Return error analysis grouped by model and bpmn_id."""
 	frappe.only_for("System Manager")
@@ -281,6 +285,8 @@ def get_error_report(
 		query = query.where(Run.error_code == error_code)
 	if process_model:
 		query = query.where(Run.process_model == process_model)
+	if agent_configuration:
+		query = query.where(Run.agent_configuration == agent_configuration)
 
 	raw_rows = query.run(as_dict=True)
 
@@ -319,6 +325,8 @@ def get_error_report(
 		error_query = error_query.where(Run.error_code == error_code)
 	if process_model:
 		error_query = error_query.where(Run.process_model == process_model)
+	if agent_configuration:
+		error_query = error_query.where(Run.agent_configuration == agent_configuration)
 
 	error_breakdown = [
 		{"error_code": cstr(r.get("error_code")), "count": cint(r.get("count"))}
@@ -366,6 +374,7 @@ def get_performance_report(
 	model: str = None,
 	bpmn_id: str = None,
 	process_model: str = None,
+	agent_configuration: str = None,
 ) -> dict:
 	"""Return latency/throughput data with percentiles."""
 	frappe.only_for("System Manager")
@@ -390,6 +399,8 @@ def get_performance_report(
 		duration_query = duration_query.where(Run.bpmn_id == bpmn_id)
 	if process_model:
 		duration_query = duration_query.where(Run.process_model == process_model)
+	if agent_configuration:
+		duration_query = duration_query.where(Run.agent_configuration == agent_configuration)
 
 	raw_durations = duration_query.run(as_dict=True)
 
