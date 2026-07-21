@@ -34,7 +34,7 @@
    "fieldname": "judge_provider",
    "fieldtype": "Link",
    "label": "Judge Provider",
-   "options": "AI Provider",
+   "options": "AI Provider Credentials",
    "description": "Only used when Assertion Type is llm_judge."
   },
   {

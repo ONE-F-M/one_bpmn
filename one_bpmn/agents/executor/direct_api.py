@@ -116,21 +116,21 @@ class DirectApiExecutor(Executor):
 
     def run(self, config: ExecutorConfig, context: ExecutorContext) -> ExecutorResult:
         try:
-            provider = frappe.get_doc("AI Provider", config.provider_name)
+            provider = frappe.get_doc("AI Provider Credentials", config.provider_name)
         except frappe.DoesNotExistError:
             return ExecutorResult(
                 error_code=ErrorCode.PROVIDER_NOT_FOUND,
-                error_message=f"AI Provider '{config.provider_name}' not found.",
+                error_message=f"AI Provider Credentials '{config.provider_name}' not found.",
             )
 
         if not provider.enabled:
             return ExecutorResult(
                 error_code=ErrorCode.PROVIDER_DISABLED,
-                error_message=f"AI Provider '{config.provider_name}' is disabled.",
+                error_message=f"AI Provider Credentials '{config.provider_name}' is disabled.",
             )
 
         try:
-            api_key = get_decrypted_password("AI Provider", config.provider_name, "api_key") or ""
+            api_key = get_decrypted_password("AI Provider Credentials", config.provider_name, "api_key") or ""
         except Exception:
             api_key = ""
 
@@ -270,7 +270,7 @@ class DirectApiExecutor(Executor):
     # Request builders
     # ------------------------------------------------------------------
 
-    # Map AI Provider.provider_type values to agents/llm_provider factory
+    # Map AI Provider Credentials.provider_type values to agents/llm_provider factory
     # keys. Absence means no adapter exists for that provider type — with
     # tools requested that is an explicit error, never a silent fallback to
     # the tool-less raw HTTP path.

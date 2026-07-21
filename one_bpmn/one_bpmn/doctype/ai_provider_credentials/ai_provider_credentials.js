@@ -1,7 +1,7 @@
 // Copyright (c) 2026, one-fm and contributors
 // For license information, please see license.txt
 
-frappe.ui.form.on("AI Provider", {
+frappe.ui.form.on("AI Provider Credentials", {
 	refresh(frm) {
 		// A live test needs a saved provider (the key lives in the __Auth table).
 		if (frm.is_new()) {
@@ -10,7 +10,7 @@ frappe.ui.form.on("AI Provider", {
 
 		frm.add_custom_button(__("Test Connection"), () => {
 			frappe.call({
-				method: "one_bpmn.one_bpmn.doctype.ai_provider.ai_provider.test_connection",
+				method: "one_bpmn.one_bpmn.doctype.ai_provider_credentials.ai_provider.test_connection",
 				args: { provider_name: frm.doc.name },
 				freeze: true,
 				freeze_message: __("Testing connection…"),

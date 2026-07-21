@@ -407,9 +407,9 @@ class TestIdleDoesNotFinalizeRun(FrappeTestCase):
 		super().setUp()
 		if not _bridge_available():
 			self.skipTest("bridge modules missing")
-		if not frappe.db.exists("AI Provider", "Selector Provider"):
+		if not frappe.db.exists("AI Provider Credentials", "Selector Provider"):
 			frappe.get_doc({
-				"doctype": "AI Provider", "provider_name": "Selector Provider",
+				"doctype": "AI Provider Credentials", "provider_name": "Selector Provider",
 				"provider_type": "OpenAI", "api_key": "test-key-not-real", "enabled": 1,
 			}).insert(ignore_permissions=True)
 		_FakeExecutor.scripted_calls = []
