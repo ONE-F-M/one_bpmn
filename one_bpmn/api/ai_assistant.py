@@ -122,6 +122,9 @@ def recommend_ai_task_config(
 	if frappe.session.user == "Guest":
 		frappe.throw(_("You must be logged in to use the assistant."))
 
+	# WI-001623: fall back to the AI Assistant configuration's linked
+	# credentials so the modal no longer has to supply one.
+	provider = provider or _assistant_default_provider()
 	if not provider:
 		frappe.throw(_("Select an AI Provider Credentials before using the assistant."))
 
@@ -142,7 +145,10 @@ def recommend_ai_task_config(
 		digest = _build_diagram_digest(bpmn_xml, element_id, process_model=process_model)
 		system_prompt = _build_selector_system_prompt()
 	else:
-		system_prompt = _build_system_prompt()
+		# WI-001623: the agent-mode system prompt is now sourced from the
+		# ai_agent_assistant AI Agent Configuration (single source of truth);
+		# the builder remains only as a fallback / the seed's source.
+		system_prompt = _assistant_system_prompt() or _build_system_prompt()
 	user_prompt = _build_user_prompt(
 		requirement,
 		turns,
@@ -236,6 +242,29 @@ def _catalog_for_mode(mode: str) -> dict:
 # ---------------------------------------------------------------------------
 # Prompt construction
 # ---------------------------------------------------------------------------
+
+def _assistant_system_prompt() -> str:
+	"""Agent-mode system prompt from the AI Assistant's configuration
+	(WI-001623). Returns "" when the config is absent so the caller falls
+	back to the in-code builder."""
+	try:
+		from one_bpmn.one_bpmn.doctype.ai_agent_configuration.ai_agent_configuration import get_agent_config
+
+		cfg = get_agent_config("ai_agent_assistant")
+		return (cfg or {}).get("system_prompt") or ""
+	except Exception:
+		return ""
+
+
+def _assistant_default_provider() -> str:
+	"""The credentials record the AI Assistant configuration links, if any."""
+	try:
+		from one_bpmn.one_bpmn.doctype.ai_agent_configuration.ai_agent_configuration import get_agent_config
+
+		return (get_agent_config("ai_agent_assistant") or {}).get("ai_provider_credentials") or ""
+	except Exception:
+		return ""
+
 
 def _build_system_prompt() -> str:
 	field_lines = "\n".join(f'  - "{name}": {desc}' for name, desc in FIELD_CATALOG.items())
