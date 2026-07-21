@@ -15,11 +15,11 @@
  "fields": [
   {
    "fieldname": "agent_mode",
-   "fieldtype": "Select",
+   "fieldtype": "Data",
    "label": "Agent Mode",
-   "options": "General Chat\nBA Agent\nLogix\nProsAlly\nDocu",
    "default": "General Chat",
-   "read_only_depends_on": "eval:doc.last_message"
+   "read_only_depends_on": "eval:doc.last_message",
+   "description": "The chat mode label of the AI Agent Configuration driving this conversation (WI-001539: free-form so any registered agent's label is accepted)."
   },
   {
    "fieldname": "title",

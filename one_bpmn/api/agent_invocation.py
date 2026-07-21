@@ -64,6 +64,51 @@ def _authorize(config: dict, conversation_name: str = None):
 
 
 @frappe.whitelist()
+def list_available_agents(include_legacy: int = 1) -> list:
+	"""Return the chat agents the current user may use (WI-001618).
+
+	The list is a query over enabled, Live, Chat-type AI Agent
+	Configurations, filtered by each agent's allowed_roles (empty = all
+	logged-in users). During the transition — until the legacy Lumina-page
+	agents (General Chat, BA Agent, LuCrusher) are migrated to Live configs —
+	the hardcoded set is unioned in so the chat dropdown never empties.
+	Each entry: {value (chat mode label), label, icon, agent_id}.
+	"""
+	user_roles = set(frappe.get_roles(frappe.session.user))
+	agents, seen = [], set()
+
+	configs = frappe.get_all(
+		"AI Agent Configuration",
+		filters={"enabled": 1, "agent_type": "Chat", "lifecycle_status": "Live"},
+		fields=["name", "agent_id", "chat_mode_label", "icon"],
+	)
+	for cfg in configs:
+		if not cfg.chat_mode_label:
+			continue
+		allowed = frappe.get_all(
+			"AI Agent Allowed Role",
+			filters={"parent": cfg.name, "parenttype": "AI Agent Configuration"},
+			pluck="role",
+		)
+		if allowed and not (user_roles & set(allowed)):
+			continue
+		agents.append({
+			"value": cfg.chat_mode_label,
+			"label": cfg.chat_mode_label,
+			"icon": cfg.icon or "🤖",
+			"agent_id": cfg.agent_id,
+		})
+		seen.add(cfg.chat_mode_label)
+
+	if int(include_legacy or 0):
+		for label, icon in (("General Chat", "💬"), ("BA Agent", "📋"), ("LuCrusher", "💥")):
+			if label not in seen:
+				agents.append({"value": label, "label": label, "icon": icon, "agent_id": None, "legacy": True})
+
+	return agents
+
+
+@frappe.whitelist()
 def invoke_agent(agent_id: str, message: str, conversation: str = None, context: dict = None):
 	"""Invoke a configured agent with a single message; return its reply.
 
