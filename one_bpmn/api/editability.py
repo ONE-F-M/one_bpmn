@@ -20,23 +20,15 @@ SOURCE_BULK_CHECK = "one_bpmn.api.editability.bulk_check_process_editable"
 SOURCE_IMPLEMENTATIONS_EDITABLE = "one_bpmn.api.editability.check_implementations_editable"
 
 
-def _is_production_instance() -> bool:
-	"""Return True when this site IS the Production instance.
+def _is_onefm_production() -> bool:
+	"""Return True if 'Is Production' is checked in ONEFM General Setting.
 
-	Derived from Processa Settings → ``connect_to_production``:
-	- UNCHECKED → this site has no Production box to connect to because it
-	  IS Production → ALL process models are unconditionally read-only,
-	  even if editable Process Implementations exist.
-	- CHECKED → this is a dev/staging site that connects to Production for
-	  its Process Implementation checks → not Production.
-
-	Replaces the old ``OneFM General Setting → is_production`` flag so
-	Production detection lives on a single setting.
+	This is the **highest-priority** editability gate.  When checked, ALL
+	process models on this site are unconditionally read-only — even if
+	editable Process Implementations exist.
 	"""
 	try:
-		return not bool(
-			frappe.db.get_single_value("Processa Settings", "connect_to_production")
-		)
+		return bool(frappe.db.get_single_value("ONEFM General Setting", "is_production"))
 	except Exception:
 		return False
 
@@ -70,15 +62,21 @@ def _site_lock_override() -> dict | None:
 	Process Implementation check should run.
 
 	Priority chain:
-	  1. site_config.json → bypass_process_lock  →  always editable (dev)
-	  2. Processa Settings → connect_to_production UNCHECKED (= this site
-	     IS Production)  →  always read-only
+	  1. ONEFM General Setting → is_production   →  always read-only
+	  2. site_config.json → bypass_process_lock  →  always editable (dev)
 	  3. Processa Settings → connect_to_production + URL match → read-only
 	"""
+	if _is_onefm_production():
+		return {
+			"editable": False,
+			"process_implementation": None,
+			"workflow_state": None,
+			"override": True,
+			"reason": "This is a Production site (ONEFM General Setting). Process models are read-only.",
+		}
+
 	# Local dev bypass — set `"bypass_process_lock": true` in site_config.json
 	# to unlock all processes for editing without a Process Implementation.
-	# Checked FIRST: connect_to_production defaults to unchecked on a fresh
-	# bench, which would otherwise read as "Production" and lock local dev out.
 	if frappe.conf.get("bypass_process_lock"):
 		return {
 			"editable": True,
@@ -86,18 +84,6 @@ def _site_lock_override() -> dict | None:
 			"workflow_state": None,
 			"override": True,
 			"reason": "Local dev mode: bypass_process_lock is enabled in site_config.json.",
-		}
-
-	if _is_production_instance():
-		return {
-			"editable": False,
-			"process_implementation": None,
-			"workflow_state": None,
-			"override": True,
-			"reason": (
-				"This is a Production site (Processa Settings → Connect To Production "
-				"is unchecked). Process models are read-only."
-			),
 		}
 
 	if _is_production_site():
@@ -487,14 +473,13 @@ def check_process_editable(process_name: str) -> dict:
 	Check if a single process is editable.
 
 	Priority chain (first match wins):
-	  1. site_config.json  → bypass_process_lock →  always editable (dev)
-	  2. Processa Settings → connect_to_production UNCHECKED (= this site
-	     IS Production)  →  always read-only
+	  1. ONEFM General Setting → is_production  →  always read-only
+	  2. site_config.json  → bypass_process_lock →  always editable (dev)
 	  3. Process Implementation check — an editable (Active) implementation
-	     must exist for the process (only reached when connect_to_production
-	     is checked):
-	     a. URL matches production_url  →  read-only
-	     b. otherwise  →  check via Production API
+	     must exist for the process:
+	     a. connect_to_production checked + URL match  →  read-only
+	     b. connect_to_production checked  →  check via Production API
+	     c. connect_to_production unchecked  →  check locally on same bench
 
 	Args:
 		process_name: Name of the Process record.

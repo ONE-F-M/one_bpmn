@@ -134,6 +134,20 @@ class DirectApiExecutor(Executor):
         except Exception:
             api_key = ""
 
+        # Fail fast on a missing key: without this guard an empty key is passed
+        # straight to the provider SDK/endpoint, which surfaces a cryptic
+        # low-level error (e.g. Anthropic's "Could not resolve authentication
+        # method"). A clear, actionable message points the operator at the
+        # exact record to fix.
+        if not api_key:
+            return ExecutorResult(
+                error_code=ErrorCode.PROVIDER_DISABLED,
+                error_message=(
+                    f"AI Provider Credentials '{config.provider_name}' has no API key set. "
+                    f"Open that record and enter the {provider.provider_type or 'provider'} API key."
+                ),
+            )
+
         provider_type = provider.provider_type or "OpenAI"
         endpoint = (provider.api_endpoint or "").rstrip("/")
         if not endpoint:

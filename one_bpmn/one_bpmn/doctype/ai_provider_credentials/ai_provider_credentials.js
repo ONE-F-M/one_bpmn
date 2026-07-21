@@ -10,7 +10,7 @@ frappe.ui.form.on("AI Provider Credentials", {
 
 		frm.add_custom_button(__("Test Connection"), () => {
 			frappe.call({
-				method: "one_bpmn.one_bpmn.doctype.ai_provider_credentials.ai_provider.test_connection",
+				method: "one_bpmn.one_bpmn.doctype.ai_provider_credentials.ai_provider_credentials.test_connection",
 				args: { provider_name: frm.doc.name },
 				freeze: true,
 				freeze_message: __("Testing connection…"),
