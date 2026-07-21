@@ -47,12 +47,27 @@ def create_ai_run(
 	"""
 	import frappe
 
+	# WI-001636: attribute the run to the AI Agent Configuration that owns
+	# this process model. Runs from maps no configuration owns carry none.
+	owning_model = process_model or getattr(instance, "process_model", "") or ""
+	agent_configuration = None
+	if owning_model:
+		try:
+			agent_configuration = frappe.db.get_value(
+				"AI Agent Configuration",
+				{"process_model": owning_model, "enabled": 1},
+				"name",
+			)
+		except Exception:
+			agent_configuration = None
+
 	run = frappe.get_doc({
 		"doctype": "AI Agent Run",
 		"instance": instance.name,
 		"bpmn_id": bpmn_id,
 		"bpmn_label": bpmn_label or "",
 		"process_model": process_model or "",
+		"agent_configuration": agent_configuration,
 		"element_type": element_type,
 		"backend": config.backend,
 		"provider": config.provider_name,
