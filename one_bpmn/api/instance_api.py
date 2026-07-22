@@ -572,6 +572,24 @@ def _complete_task_job(
 			message=frappe.get_traceback(),
 		)
 		frappe.throw(_("Failed to complete task: {0}").format(str(exc)))
+	finally:
+		# WI-001498 contract: engine_in_progress is held only while an engine
+		# pass is actually running. complete_task() sets it before handing off
+		# to this inline pass, so this pass MUST release it — success, failure
+		# or validation error alike. The release cannot be left to the parked
+		# AI job's finally: a pure-human flow parks nothing, so without this
+		# block every successful Confirm on an AI-less model locked its
+		# instance forever ("Instance is processing — … Please retry in a
+		# moment." on every later action). Restores the release dropped by the
+		# "Sprint 24th-30th" revert (71f1978); staging has carried it since
+		# WI-001496.
+		frappe.db.set_value(
+			"BPMN Process Instance",
+			instance_name,
+			"engine_in_progress",
+			0,
+			update_modified=False,
+		)
 
 	# ── Send message so the CTC process can expire itself after the task is actioned ──
 	if approved_ctc_name:
