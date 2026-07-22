@@ -212,7 +212,7 @@ def _extract_adhoc_selector_config(bpmn_xml: str) -> dict:
 			continue
 
 		task_cfg = {}
-		for attr_name, attr_value in service_task.attrib.items():
+		for attr_name, attr_value in adhoc.attrib.items():
 			if attr_name.startswith(f"{{{SPIFF_NS}}}"):
 				key = attr_name[len(f"{{{SPIFF_NS}}}") :]
 				task_cfg[key] = attr_value

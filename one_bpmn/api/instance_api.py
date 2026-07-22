@@ -562,7 +562,7 @@ def _complete_task_job(
 	# (a second action, the timer sweep, a message delivery).
 	instance = frappe.get_doc("BPMN Process Instance", instance_name, for_update=True)
 	try:
-		active_tasks = instance.advance(task_id=task_id, data=parsed_data)
+		active_tasks = instance.advance(task_id=task_id, data=data)
 	except frappe.ValidationError:
 		raise
 	except Exception as exc:
