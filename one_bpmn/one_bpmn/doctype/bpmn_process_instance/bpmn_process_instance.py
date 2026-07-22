@@ -9,6 +9,7 @@ from frappe import _
 from frappe.model.document import Document
 from frappe.utils import now_datetime
 
+from SpiffWorkflow.bpmn.specs.mixins.subworkflow_task import SubWorkflowTask
 from SpiffWorkflow.util.task import TaskState
 
 from one_bpmn.one_bpmn import engine as bpmn_engine
@@ -24,6 +25,7 @@ from .assignment import (
 	add_frappe_assignment,
 	remove_frappe_assignment,
 	resolve_assignment,
+	split_users,
 )
 
 

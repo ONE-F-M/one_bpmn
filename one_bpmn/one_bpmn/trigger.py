@@ -349,7 +349,7 @@ def _maybe_start_instance(doc, model_name: str):
 			"process_model": model_name,
 			"context_doctype": doc.doctype,
 			"context_docname": doc.name,
-			"status": "Active",
+			"status": ["in", ["Queued", "Active"]],
 		},
 	)
 	if existing:
@@ -363,7 +363,12 @@ def _maybe_start_instance(doc, model_name: str):
 	instance.process_model = model_name
 	instance.context_doctype = doc.doctype
 	instance.context_docname = doc.name
-	instance.status = "Active"
+	# Insert as "Queued", NOT "Active": start_queued_instance() below only runs
+	# start() (which compiles the spec and writes workflow_state) when the row
+	# is Queued. Inserting "Active" makes that guard no-op, leaving an Active
+	# instance with an empty workflow_state — later actions then fail with
+	# "Workflow state is missing". start() flips it to "Active" once state exists.
+	instance.status = "Queued"
 	instance.initiated_by = frappe.session.user
 	instance.started_at = now_datetime()
 	instance.insert(ignore_permissions=True)
