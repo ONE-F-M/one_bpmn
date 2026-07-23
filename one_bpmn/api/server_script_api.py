@@ -311,22 +311,37 @@ def process_logix_message(
 	current_script: str = None,
 	process_context: dict = None,
 ) -> dict:
-	"""Process a Logix AI chat message, persisting history in Chat Conversation."""
+	"""Route a Logix chat turn through the generic agent path (WI-001539).
+
+	Logix chat is no longer orchestrated here: this endpoint is a thin alias
+	that opens the conversation with ``create_agent_conversation`` and hands the
+	turn to ``invoke_agent("logix_agent", …)``, exactly like every other
+	configured agent. Its only remaining job is the editor's request/response
+	contract — the parameters the LogixCanvas panel sends and the
+	``{intent, response, conversation_name}`` reply it consumes. Because the
+	``logix`` configuration links the Logix process map, ``invoke_agent`` selects
+	the ``bpmn_map`` runner and the map still performs all the work (Save User
+	Message → Call Agent → Save Response), so behavior is unchanged.
+
+	The Server Script CRUD + test-runner endpoints in this module are Logix
+	*tooling*, not chat, and are intentionally left untouched.
+	"""
 	if frappe.session.user == "Guest":
 		frappe.throw(_("Authentication required"))
 
 	try:
-		from one_bpmn.utils.chat_persistence import create_conversation
+		from one_bpmn.api.agent_invocation import invoke_agent
+		from one_bpmn.utils.chat_persistence import create_agent_conversation
 
-		# Create a new conversation on the first message. Inserting the Chat
-		# Conversation triggers its process map, which spawns the orchestrating
-		# BPMN instance (parked at "Waiting for User Message").
+		# Open the conversation on the first turn. Inserting the Chat Conversation
+		# (stamped with the agent's chat mode label — "Logix") arms the process
+		# map's conditional start trigger, which spawns the orchestrating BPMN
+		# instance parked at "Waiting for User Message". Created here (rather than
+		# letting invoke_agent create it) to preserve the "Logix: <label>" title.
 		if not conversation_name:
 			label = element_name or "Script Task"
-			conversation_name = create_conversation(
-				agent_mode="Logix",
-				title=f"Logix: {label}",
-				user=frappe.session.user,
+			conversation_name = create_agent_conversation(
+				"logix_agent", title=f"Logix: {label}", user=frappe.session.user
 			)
 
 		# Gather the editor inputs the Logix agent needs (the original script body
@@ -358,27 +373,31 @@ def process_logix_message(
 		elif process_context.get("shape_kind") not in ("agent_tool", "script_task"):
 			process_context["shape_kind"] = "script_task"
 
-		# Hand the turn to the process map — it saves the user message, runs the
-		# agent (Call Agent) and saves the reply. We only deliver + return.
-		bpmn_result = _delegate_to_bpmn_instance(
-			conversation_name,
-			message,
-			context={
-				"element_name": element_name or "",
-				"current_script": current_script or "",
-				"original_script_content": original_content,
-				"process_context": process_context or {},
-			},
-		)
-		if bpmn_result is None:
+		try:
+			result = invoke_agent(
+				"logix_agent",
+				message,
+				conversation=conversation_name,
+				context={
+					"element_name": element_name or "",
+					"current_script": current_script or "",
+					"original_script_content": original_content,
+					"process_context": process_context,
+				},
+			)
+		except frappe.ValidationError:
+			# No instance is driving this conversation (map never armed or the
+			# instance died) — the generic runner throws; surface the same
+			# reopen guidance the editor showed before, over a 200 response.
 			return {
 				"intent": "ERROR",
 				"response": "The Logix process orchestration isn't running for this conversation. Please reopen the chat.",
 				"conversation_name": conversation_name,
 			}
 
-		bpmn_result["conversation_name"] = conversation_name
-		return bpmn_result
+		# The editor keys on ``conversation_name``; invoke_agent returns ``conversation``.
+		result["conversation_name"] = result.get("conversation") or conversation_name
+		return result
 
 	except Exception:
 		frappe.log_error(title="Logix Agent error", message=frappe.get_traceback())
