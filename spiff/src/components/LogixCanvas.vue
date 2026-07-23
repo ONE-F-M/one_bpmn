@@ -132,7 +132,7 @@
 					</div>
 					<div class="lc-msg-body">
 						<div class="lc-bubble-bot lc-typing-bubble">
-							<div class="lc-typing"><span></span><span></span><span></span></div>
+							<AgentThinkingIndicator />
 						</div>
 					</div>
 				</div>
@@ -472,6 +472,7 @@ import { ref, reactive, computed, nextTick, onMounted, onUnmounted, watch } from
 import DOMPurify from "dompurify";
 import { marked } from "marked";
 import CodeMirrorEditor from "./CodeMirrorEditor.vue";
+import AgentThinkingIndicator from "./AgentThinkingIndicator.vue";
 import { frappeRequest } from "frappe-ui";
 
 marked.setOptions({ gfm: true, breaks: true });
@@ -1703,25 +1704,6 @@ onUnmounted(() => {
 
 /* ── Typing indicator ───────────────────────────────────────────── */
 .lc-typing-bubble { padding: 11px 14px !important; }
-
-.lc-typing { display: flex; gap: 4px; align-items: center; }
-
-.lc-typing span {
-	display: block;
-	width: 6px;
-	height: 6px;
-	border-radius: 50%;
-	background: #aaa;
-	animation: lc-bounce 1.4s infinite ease-in-out;
-}
-
-.lc-typing span:nth-child(1) { animation-delay: -0.32s; }
-.lc-typing span:nth-child(2) { animation-delay: -0.16s; }
-
-@keyframes lc-bounce {
-	0%, 80%, 100% { transform: scale(0.75); opacity: 0.5; }
-	40%            { transform: scale(1);    opacity: 1;   }
-}
 
 /* ── Diff viewer ─────────────────────────────────────────────────────── */
 .lc-split-diff {
