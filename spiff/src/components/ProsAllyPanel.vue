@@ -92,9 +92,7 @@
 				</div>
 				<div class="pa-msg-body">
 					<div class="pa-bubble-bot pa-typing-bubble">
-						<div class="pa-typing">
-							<span></span><span></span><span></span>
-						</div>
+						<AgentThinkingIndicator />
 					</div>
 				</div>
 			</div>
@@ -147,6 +145,7 @@ import { ref, nextTick, onMounted, onUnmounted } from "vue";
 import DOMPurify from "dompurify";
 import { marked } from "marked";
 import { frappeRequest } from "frappe-ui";
+import AgentThinkingIndicator from "./AgentThinkingIndicator.vue";
 
 marked.setOptions({ gfm: true, breaks: true });
 
@@ -650,29 +649,6 @@ onUnmounted(() => {
 /* ── Typing indicator ───────────────────────────────────────────────── */
 .pa-typing-bubble {
 	padding: 12px 16px !important;
-}
-
-.pa-typing {
-	display: flex;
-	gap: 4px;
-	align-items: center;
-}
-
-.pa-typing span {
-	display: block;
-	width: 6px;
-	height: 6px;
-	border-radius: 50%;
-	background: #aaa;
-	animation: pa-bounce 1.4s infinite ease-in-out;
-}
-
-.pa-typing span:nth-child(1) { animation-delay: -0.32s; }
-.pa-typing span:nth-child(2) { animation-delay: -0.16s; }
-
-@keyframes pa-bounce {
-	0%, 80%, 100% { transform: scale(0.75); opacity: 0.5; }
-	40%            { transform: scale(1);    opacity: 1;   }
 }
 
 /* ── Input area ─────────────────────────────────────────────────────── */
