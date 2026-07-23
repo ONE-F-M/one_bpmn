@@ -4,6 +4,8 @@
  "doctype": "DocType",
  "engine": "InnoDB",
  "field_order": [
+  "section_break_instance",
+  "instance_type",
   "section_break_1",
   "connect_to_production",
   "production_url",
@@ -23,6 +25,19 @@
   "script_block_all_imports"
  ],
  "fields": [
+  {
+   "fieldname": "section_break_instance",
+   "fieldtype": "Section Break",
+   "label": "Instance Configuration"
+  },
+  {
+   "default": "Local",
+   "description": "Identifies the role of this site so Processa can behave appropriately per environment. \"Review Doctypes/Workflow\" is available only on a BA instance; \"Reassign User Task\" only on a Production instance.",
+   "fieldname": "instance_type",
+   "fieldtype": "Select",
+   "label": "Instance Type",
+   "options": "Local\nProduction\nStaging\nBA"
+  },
   {
    "fieldname": "section_break_1",
    "fieldtype": "Section Break",
