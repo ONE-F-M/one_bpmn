@@ -20,8 +20,10 @@ re-running, or running against a manually edited row, is a no-op):
 
 1. **"Logix – Tool Reference Database" Server Script** — a self-contained FLAT
    stage tool (no def/lambda: it runs under the AI Agent shape-tool executor's
-   split globals/locals, see shape_tools._run_server_script) that imports the
-   shared read helpers and writes its result onto ``result``.
+   split globals/locals, see shape_tools._run_server_script). The DocType/field
+   lookups are inlined directly (Frappe ORM only, no module import) so the whole
+   tool is visible and editable in the Server Script on Processa; it writes its
+   result onto ``result``.
 2. **"Logix – Script Task Agent" process model** — the ``reference_database``
    shape (with a ``spiffworkflow:aiToolParams`` JSON Schema declaring its
    optional ``doctype``/``search`` arguments) added to the ad-hoc Tools
@@ -50,8 +52,8 @@ REFERENCE_TOOL_SCRIPT = r'''# Logix – Tool Reference Database (self-contained,
 # READ-ONLY schema reference so the agent can ground scripts in real DocTypes and
 # fields. Given a `doctype`, returns that DocType's fields; otherwise lists
 # DocType names (optionally filtered by `search`). Never writes to the database.
-import json
-from one_bpmn.tools.tool_for_server_scripts import get_doctype_fields, list_doctypes
+# The lookups are inlined (Frappe ORM only) so the whole tool is visible and
+# editable here — no module import to open elsewhere.
 
 # The shape-tool executor injects the LLM's arguments both as bare locals and,
 # bundled, as `task_data`. Read them through task_data so an omitted optional
@@ -61,24 +63,39 @@ _doctype = (_args.get("doctype") or "").strip()
 _search = (_args.get("search") or "").strip()
 
 if _doctype:
-    _raw = get_doctype_fields(_doctype)
-    try:
-        _parsed = json.loads(_raw)
-    except (json.JSONDecodeError, TypeError):
-        _parsed = _raw
     result["doctype"] = _doctype
-    if isinstance(_parsed, dict) and _parsed.get("error"):
-        result["error"] = _parsed["error"]
+    if not frappe.db.exists("DocType", _doctype):
+        result["error"] = "DocType '" + _doctype + "' does not exist."
     else:
-        result["fields"] = _parsed
+        # Field names/types for the DocType — skip layout-only fields. A plain
+        # for-loop (not a comprehension) keeps every name in the top-level scope,
+        # which is the only scope the split-namespace executor populates.
+        _meta = frappe.get_meta(_doctype)
+        _fields = []
+        for _f in _meta.fields:
+            if _f.fieldtype not in ("Section Break", "Column Break", "HTML", "Heading"):
+                _fields.append({
+                    "fieldname": _f.fieldname,
+                    "fieldtype": _f.fieldtype,
+                    "label": _f.label or _f.fieldname,
+                    "reqd": bool(_f.reqd),
+                })
+        result["fields"] = _fields
 else:
-    _raw = list_doctypes(_search)
-    try:
-        _parsed = json.loads(_raw)
-    except (json.JSONDecodeError, TypeError):
-        _parsed = []
+    # DocType-name discovery — exclude child tables, most-recently-modified
+    # first, capped so the tool result stays small.
+    _filters = {"istable": 0}
+    if _search:
+        _filters["name"] = ["like", "%" + _search + "%"]
+    _rows = frappe.get_all(
+        "DocType",
+        filters=_filters,
+        fields=["name", "module"],
+        order_by="modified desc",
+        limit_page_length=50,
+    )
     result["search"] = _search
-    result["doctypes"] = _parsed
+    result["doctypes"] = _rows
 '''
 
 
@@ -162,8 +179,13 @@ _NEW_AI_SYSTEM_PROMPT = (
 # ═══════════════════════════════════════════════════════════════════════════════
 
 def _create_reference_tool_script():
-    """Create the read-only reference stage tool Server Script (skip if present)."""
+    """Create the read-only reference stage tool Server Script, or refresh its
+    body if it exists and has drifted from the canonical inlined version."""
     if frappe.db.exists("Server Script", REFERENCE_TOOL_SCRIPT_NAME):
+        doc = frappe.get_doc("Server Script", REFERENCE_TOOL_SCRIPT_NAME)
+        if (doc.script or "").strip() != REFERENCE_TOOL_SCRIPT.strip():
+            doc.script = REFERENCE_TOOL_SCRIPT
+            doc.save(ignore_permissions=True)
         return
     frappe.get_doc({
         "doctype": "Server Script",
