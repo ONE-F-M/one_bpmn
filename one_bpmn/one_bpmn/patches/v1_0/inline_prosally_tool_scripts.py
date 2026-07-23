@@ -5,15 +5,20 @@ Server Script in the process map's ad-hoc Tools sub-process now carries its own
 self-contained, FLAT logic; the one_bpmn.agents.google_adk.prosally_agent
 package has been deleted.
 
-The bodies are FLAT (no def/lambda, no comprehension referencing a module-level
-name) because the AI Agent shape-tool executor runs them under SPLIT
-globals/locals (shape_tools._run_server_script) — a nested scope there cannot
-see top-level imports/consts. They import only shared infrastructure that cannot
-live in a diagram: turn_state, the LLM adapter factory, get_agent_config, the
-BPMN semantic validator, and the two deterministic transforms relocated out of
-the deleted package — bpmn_ir_pipeline (compile_ir shells out to node, which the
-security gate forbids in a script body) and bpmn_property_preserver (ElementTree
-config transfer).
+The top-level bodies are FLAT (no def/lambda, no comprehension referencing a
+module-level name) because the AI Agent shape-tool executor runs them under SPLIT
+globals/locals (shape_tools._run_server_script) — a top-level nested scope there
+cannot see top-level imports/consts. The one exception is the property-preserver:
+it is inlined as a single SELF-CONTAINED dispatcher function (``_prosally_preserver``)
+whose helpers are NESTED inside it, so they close over the function's own scope and
+run correctly under the split exec (verified: passes the security gate and all 13
+original preserver unit tests).
+
+They import only shared infrastructure that cannot live in a diagram: turn_state,
+the LLM adapter factory, get_agent_config, the BPMN semantic validator, and
+bpmn_ir_pipeline — whose ``compile_ir`` shells out to node via ``subprocess``,
+which the security gate forbids in a script body, so it is the one transform that
+cannot be inlined. ElementTree property preservation IS inlined (above).
 
 Idempotent: only updates a Server Script that exists and whose body differs.
 Registered after seed_agent_prompts (which creates the config) in patches.txt.
@@ -229,7 +234,286 @@ import re
 from one_bpmn.agents.turn_state import get_turn, run_sync, update_turn
 from one_bpmn.agents.llm_provider import get_llm_adapter_from_settings
 from one_bpmn.one_bpmn.doctype.ai_agent_configuration.ai_agent_configuration import get_agent_config
-from one_bpmn.agents.bpmn_property_preserver import extract_configured_elements, summarize_configured_elements
+# Property preservation is INLINED (self-contained dispatcher) — no backend
+# dependency. Helpers are NESTED inside the dispatcher so they close over its
+# scope and survive the shape-tool split globals/locals exec.
+def _prosally_preserver(mode, arg_a="", arg_b=None):
+    # Self-contained BPMN property preserver (inlined for the ProsAlly shape-tool
+    # split-namespace exec). All helpers are nested so they close over this
+    # function's scope; nothing is referenced from the top-level exec locals.
+    # modes: "extract" -> configured dict; "summarize" -> str; "transfer" ->
+    # (merged_xml, removed); "format_removal" -> str; "overwrite_warning" -> str.
+    import re
+    from xml.etree import ElementTree as ET
+
+    NS = {
+        "bpmn": "http://www.omg.org/spec/BPMN/20100524/MODEL",
+        "bpmndi": "http://www.omg.org/spec/BPMN/20100524/DI",
+        "dc": "http://www.omg.org/spec/DD/20100524/DC",
+        "di": "http://www.omg.org/spec/DD/20100524/DI",
+        "spiffworkflow": "http://spiffworkflow.org/bpmn/schema/1.0/core",
+        "custom": "http://custom/text-style",
+        "camunda": "http://camunda.org/schema/1.0/bpmn",
+    }
+    _EXTENSION_NS_URIS = (
+        "{http://spiffworkflow.org/bpmn/schema/1.0/core}",
+        "{http://custom/text-style}",
+        "{http://camunda.org/schema/1.0/bpmn}",
+    )
+    _ATTR_FAMILY_LABELS = {
+        "serverScript": "Server Script",
+        "assignmentMode": "Assignment Mode",
+        "assigneeDocField": "Assignee (Doc Field)",
+        "roundRobinRole": "Round Robin Role",
+        "loadBalancingRole": "Load Balancing Role",
+        "leaveRelieverEnabled": "Leave Reliever",
+        "triggerType": "Trigger Type",
+        "triggerDoctype": "Trigger DocType",
+        "serviceType": "Service Type",
+        "serviceTargetDoctype": "Target DocType",
+        "workflowState": "Workflow State",
+        "docStatus": "Doc Status",
+        "emailSubject": "Email Subject",
+        "emailTo": "Email To",
+        "emailBody": "Email Body",
+        "emailAccount": "Email Account",
+        "gchatMessage": "Google Chat Message",
+        "gchatSpaceId": "Google Chat Space",
+        "pushTitle": "Push Notification Title",
+        "pushMessage": "Push Notification Message",
+        "updateFieldDoctype": "Update Field DocType",
+        "updateFieldName": "Update Field Name",
+        "updateFieldValue": "Update Field Value",
+        "calledDecisionId": "Decision Table",
+        "notificationName": "Notification",
+        "fontFamily": "Font Family",
+        "fontSize": "Font Size",
+        "fontWeight": "Font Weight",
+        "fontStyle": "Font Style",
+        "textColor": "Text Color",
+        "textDecoration": "Text Decoration",
+        "assignee": "Assignee",
+        "candidateGroups": "Candidate Groups",
+        "candidateUsers": "Candidate Users",
+        "formKey": "Form Key",
+        "dueDate": "Due Date",
+        "followUpDate": "Follow-Up Date",
+        "priority": "Priority",
+        "asyncBefore": "Async Before",
+        "asyncAfter": "Async After",
+    }
+
+    def _register_namespaces():
+        for _p, _u in NS.items():
+            ET.register_namespace(_p, _u)
+
+    def _is_extension_attr(attr_name):
+        for _uri in _EXTENSION_NS_URIS:
+            if attr_name.startswith(_uri):
+                return True
+        return False
+
+    def _short_attr_name(attr_name):
+        if "}" in attr_name:
+            return attr_name.split("}", 1)[1]
+        return attr_name
+
+    def _attr_label(clark_name):
+        _local = _short_attr_name(clark_name)
+        return _ATTR_FAMILY_LABELS.get(_local, _local)
+
+    def _element_type_label(tag):
+        _local = tag.split("}", 1)[-1] if "}" in tag else tag
+        _label = re.sub(r"([a-z])([A-Z])", r"\1 \2", _local)
+        return _label.title()
+
+    def _get_documentation_text(elem):
+        _doc_el = elem.find("{" + NS["bpmn"] + "}documentation")
+        if _doc_el is not None and _doc_el.text:
+            return _doc_el.text.strip()
+        return None
+
+    def _set_documentation(elem, text):
+        _doc_tag = "{" + NS["bpmn"] + "}documentation"
+        _doc_el = elem.find(_doc_tag)
+        if _doc_el is not None:
+            if not (_doc_el.text or "").strip():
+                _doc_el.text = text
+        else:
+            _doc_el = ET.Element(_doc_tag)
+            _doc_el.text = text
+            elem.insert(0, _doc_el)
+
+    def extract_configured_elements(xml):
+        if not xml or not xml.strip():
+            return {}
+        _register_namespaces()
+        try:
+            _root = ET.fromstring(xml)
+        except ET.ParseError:
+            return {}
+        _configured = {}
+        for _elem in _root.iter():
+            _tag = _elem.tag
+            _skip = False
+            for _ns in (NS["bpmndi"], NS["dc"], NS["di"]):
+                if _ns in _tag:
+                    _skip = True
+                    break
+            if _skip:
+                continue
+            _elem_id = _elem.get("id")
+            if not _elem_id:
+                continue
+            _ext_attrs = {}
+            for _an, _av in _elem.attrib.items():
+                if _is_extension_attr(_an):
+                    _ext_attrs[_an] = _av
+            _ext_elements_xml = None
+            _ext_el = _elem.find("{" + NS["bpmn"] + "}extensionElements")
+            if _ext_el is not None and len(_ext_el) > 0:
+                _ext_elements_xml = ET.tostring(_ext_el, encoding="unicode")
+            _documentation = _get_documentation_text(_elem)
+            if _ext_attrs or _ext_elements_xml or _documentation:
+                _configured[_elem_id] = {
+                    "name": _elem.get("name", _elem_id),
+                    "type": _element_type_label(_tag),
+                    "attrs": _ext_attrs,
+                    "extension_elements_xml": _ext_elements_xml,
+                    "documentation": _documentation,
+                }
+        return _configured
+
+    def transfer_properties(old_xml, new_xml):
+        if not old_xml or not old_xml.strip() or not new_xml or not new_xml.strip():
+            return new_xml, []
+        _old_configured = extract_configured_elements(old_xml)
+        if not _old_configured:
+            return new_xml, []
+        _register_namespaces()
+        try:
+            _new_root = ET.fromstring(new_xml)
+        except ET.ParseError:
+            return new_xml, []
+        _new_by_id = {}
+        for _elem in _new_root.iter():
+            _eid = _elem.get("id")
+            if _eid:
+                _new_by_id[_eid] = _elem
+        _removed = []
+        for _elem_id, _old_data in _old_configured.items():
+            if _elem_id in _new_by_id:
+                _new_elem = _new_by_id[_elem_id]
+                for _clark, _val in _old_data["attrs"].items():
+                    _new_elem.set(_clark, _val)
+                if _old_data["extension_elements_xml"]:
+                    try:
+                        _old_ext_el = ET.fromstring(_old_data["extension_elements_xml"])
+                        _new_ext_el = _new_elem.find("{" + NS["bpmn"] + "}extensionElements")
+                        if _new_ext_el is None:
+                            _new_ext_el = ET.SubElement(_new_elem, "{" + NS["bpmn"] + "}extensionElements")
+                        for _child in _old_ext_el:
+                            _new_ext_el.append(_child)
+                    except ET.ParseError:
+                        pass
+                if _old_data.get("documentation"):
+                    _set_documentation(_new_elem, _old_data["documentation"])
+            else:
+                _configs = []
+                for _clark, _val in _old_data["attrs"].items():
+                    _configs.append(_attr_label(_clark) + ": " + _val)
+                if _old_data["extension_elements_xml"]:
+                    _configs.append("Extension Elements (pre/post scripts or other)")
+                if _old_data.get("documentation"):
+                    _doc_preview = _old_data["documentation"][:80]
+                    if len(_old_data["documentation"]) > 80:
+                        _doc_preview = _doc_preview + "…"
+                    _configs.append("Documentation: " + _doc_preview)
+                _removed.append({
+                    "id": _elem_id,
+                    "name": _old_data["name"],
+                    "type": _old_data["type"],
+                    "configs": _configs,
+                })
+        _merged_xml = ET.tostring(_new_root, encoding="unicode", xml_declaration=True)
+        _merged_xml = re.sub(
+            r"^<\?xml\s[^?]*\?>",
+            '<?xml version="1.0" encoding="UTF-8"?>',
+            _merged_xml,
+        )
+        return _merged_xml, _removed
+
+    def format_removal_warning(removed_elements):
+        if not removed_elements:
+            return ""
+        _lines = [
+            "I've prepared the changes, but the following configured shapes "
+            "will be removed and their settings will be lost:\n"
+        ]
+        for _elem in removed_elements:
+            _name = _elem.get("name", _elem.get("id", "Unknown"))
+            _etype = _elem.get("type", "Element")
+            _configs = _elem.get("configs", [])
+            _line = "• **" + _name + "** (" + _etype + ")"
+            if _configs:
+                _detail = list(_configs[:3])
+                if len(_configs) > 3:
+                    _detail.append("and " + str(len(_configs) - 3) + " more")
+                _line = _line + " — " + ", ".join(_detail)
+            _lines.append(_line)
+        _lines.append(
+            "\nThese configurations (scripts, assignments, triggers, documentation, etc.) "
+            "cannot be recovered after applying the changes."
+            "\n\nShall I apply the changes anyway?"
+        )
+        return "\n".join(_lines)
+
+    def summarize_configured_elements(configured):
+        if not configured:
+            return ""
+        _lines = [
+            "This will completely replace the existing diagram. "
+            "The following shapes have configurations that will be lost:\n"
+        ]
+        for _elem_id, _data in configured.items():
+            _name = _data.get("name", _elem_id)
+            _etype = _data.get("type", "Element")
+            _attrs = _data.get("attrs", {})
+            _config_labels = []
+            for _clark in _attrs:
+                _lbl = _attr_label(_clark)
+                if _lbl not in _config_labels:
+                    _config_labels.append(_lbl)
+            if _data.get("extension_elements_xml"):
+                _config_labels.append("Extension Elements")
+            if _data.get("documentation"):
+                _config_labels.append("Documentation")
+            _line = "• **" + _name + "** (" + _etype + ")"
+            if _config_labels:
+                _line = _line + " — " + ", ".join(_config_labels[:4])
+                if len(_config_labels) > 4:
+                    _line = _line + " and " + str(len(_config_labels) - 4) + " more"
+            _lines.append(_line)
+        _lines.append(
+            "\nAll of these configurations will be lost. "
+            "Are you sure you want to proceed?"
+        )
+        return "\n".join(_lines)
+
+    if mode == "extract":
+        return extract_configured_elements(arg_a)
+    if mode == "summarize":
+        return summarize_configured_elements(arg_b)
+    if mode == "transfer":
+        return transfer_properties(arg_a, arg_b)
+    if mode == "format_removal":
+        return format_removal_warning(arg_b)
+    if mode == "overwrite_warning":
+        _cfg = extract_configured_elements(arg_a)
+        if not _cfg:
+            return ""
+        return summarize_configured_elements(_cfg)
+    return None
 
 _ACTION_LABELS = {
     "GENERATE_NEW": "GENERATE_NEW — draw a brand-new process from scratch on an empty canvas",
@@ -314,9 +598,9 @@ else:
 
 # Warn about configuration that an OVERWRITE would discard.
 if intent == "OVERWRITE_EXISTING" and current_xml.strip():
-    configured = extract_configured_elements(current_xml)
-    if configured:
-        response_text = response_text + "\n\n⚠️ **Warning:**\n" + summarize_configured_elements(configured)
+    _overwrite_warning = _prosally_preserver("overwrite_warning", current_xml)
+    if _overwrite_warning:
+        response_text = response_text + "\n\n⚠️ **Warning:**\n" + _overwrite_warning
 
 output = {
     "intent": "CONFIRM",
@@ -515,7 +799,286 @@ from one_bpmn.agents.turn_state import get_turn, run_sync, update_turn
 from one_bpmn.agents.llm_provider import get_llm_adapter_from_settings
 from one_bpmn.one_bpmn.doctype.ai_agent_configuration.ai_agent_configuration import get_agent_config
 from one_bpmn.agents.bpmn_ir_pipeline import compile_ir, extract_process_name, extract_element_ids, translate_problems, translate_violations
-from one_bpmn.agents.bpmn_property_preserver import transfer_properties, format_removal_warning
+# Property preservation is INLINED (self-contained dispatcher) — no backend
+# dependency. Helpers are NESTED inside the dispatcher so they close over its
+# scope and survive the shape-tool split globals/locals exec.
+def _prosally_preserver(mode, arg_a="", arg_b=None):
+    # Self-contained BPMN property preserver (inlined for the ProsAlly shape-tool
+    # split-namespace exec). All helpers are nested so they close over this
+    # function's scope; nothing is referenced from the top-level exec locals.
+    # modes: "extract" -> configured dict; "summarize" -> str; "transfer" ->
+    # (merged_xml, removed); "format_removal" -> str; "overwrite_warning" -> str.
+    import re
+    from xml.etree import ElementTree as ET
+
+    NS = {
+        "bpmn": "http://www.omg.org/spec/BPMN/20100524/MODEL",
+        "bpmndi": "http://www.omg.org/spec/BPMN/20100524/DI",
+        "dc": "http://www.omg.org/spec/DD/20100524/DC",
+        "di": "http://www.omg.org/spec/DD/20100524/DI",
+        "spiffworkflow": "http://spiffworkflow.org/bpmn/schema/1.0/core",
+        "custom": "http://custom/text-style",
+        "camunda": "http://camunda.org/schema/1.0/bpmn",
+    }
+    _EXTENSION_NS_URIS = (
+        "{http://spiffworkflow.org/bpmn/schema/1.0/core}",
+        "{http://custom/text-style}",
+        "{http://camunda.org/schema/1.0/bpmn}",
+    )
+    _ATTR_FAMILY_LABELS = {
+        "serverScript": "Server Script",
+        "assignmentMode": "Assignment Mode",
+        "assigneeDocField": "Assignee (Doc Field)",
+        "roundRobinRole": "Round Robin Role",
+        "loadBalancingRole": "Load Balancing Role",
+        "leaveRelieverEnabled": "Leave Reliever",
+        "triggerType": "Trigger Type",
+        "triggerDoctype": "Trigger DocType",
+        "serviceType": "Service Type",
+        "serviceTargetDoctype": "Target DocType",
+        "workflowState": "Workflow State",
+        "docStatus": "Doc Status",
+        "emailSubject": "Email Subject",
+        "emailTo": "Email To",
+        "emailBody": "Email Body",
+        "emailAccount": "Email Account",
+        "gchatMessage": "Google Chat Message",
+        "gchatSpaceId": "Google Chat Space",
+        "pushTitle": "Push Notification Title",
+        "pushMessage": "Push Notification Message",
+        "updateFieldDoctype": "Update Field DocType",
+        "updateFieldName": "Update Field Name",
+        "updateFieldValue": "Update Field Value",
+        "calledDecisionId": "Decision Table",
+        "notificationName": "Notification",
+        "fontFamily": "Font Family",
+        "fontSize": "Font Size",
+        "fontWeight": "Font Weight",
+        "fontStyle": "Font Style",
+        "textColor": "Text Color",
+        "textDecoration": "Text Decoration",
+        "assignee": "Assignee",
+        "candidateGroups": "Candidate Groups",
+        "candidateUsers": "Candidate Users",
+        "formKey": "Form Key",
+        "dueDate": "Due Date",
+        "followUpDate": "Follow-Up Date",
+        "priority": "Priority",
+        "asyncBefore": "Async Before",
+        "asyncAfter": "Async After",
+    }
+
+    def _register_namespaces():
+        for _p, _u in NS.items():
+            ET.register_namespace(_p, _u)
+
+    def _is_extension_attr(attr_name):
+        for _uri in _EXTENSION_NS_URIS:
+            if attr_name.startswith(_uri):
+                return True
+        return False
+
+    def _short_attr_name(attr_name):
+        if "}" in attr_name:
+            return attr_name.split("}", 1)[1]
+        return attr_name
+
+    def _attr_label(clark_name):
+        _local = _short_attr_name(clark_name)
+        return _ATTR_FAMILY_LABELS.get(_local, _local)
+
+    def _element_type_label(tag):
+        _local = tag.split("}", 1)[-1] if "}" in tag else tag
+        _label = re.sub(r"([a-z])([A-Z])", r"\1 \2", _local)
+        return _label.title()
+
+    def _get_documentation_text(elem):
+        _doc_el = elem.find("{" + NS["bpmn"] + "}documentation")
+        if _doc_el is not None and _doc_el.text:
+            return _doc_el.text.strip()
+        return None
+
+    def _set_documentation(elem, text):
+        _doc_tag = "{" + NS["bpmn"] + "}documentation"
+        _doc_el = elem.find(_doc_tag)
+        if _doc_el is not None:
+            if not (_doc_el.text or "").strip():
+                _doc_el.text = text
+        else:
+            _doc_el = ET.Element(_doc_tag)
+            _doc_el.text = text
+            elem.insert(0, _doc_el)
+
+    def extract_configured_elements(xml):
+        if not xml or not xml.strip():
+            return {}
+        _register_namespaces()
+        try:
+            _root = ET.fromstring(xml)
+        except ET.ParseError:
+            return {}
+        _configured = {}
+        for _elem in _root.iter():
+            _tag = _elem.tag
+            _skip = False
+            for _ns in (NS["bpmndi"], NS["dc"], NS["di"]):
+                if _ns in _tag:
+                    _skip = True
+                    break
+            if _skip:
+                continue
+            _elem_id = _elem.get("id")
+            if not _elem_id:
+                continue
+            _ext_attrs = {}
+            for _an, _av in _elem.attrib.items():
+                if _is_extension_attr(_an):
+                    _ext_attrs[_an] = _av
+            _ext_elements_xml = None
+            _ext_el = _elem.find("{" + NS["bpmn"] + "}extensionElements")
+            if _ext_el is not None and len(_ext_el) > 0:
+                _ext_elements_xml = ET.tostring(_ext_el, encoding="unicode")
+            _documentation = _get_documentation_text(_elem)
+            if _ext_attrs or _ext_elements_xml or _documentation:
+                _configured[_elem_id] = {
+                    "name": _elem.get("name", _elem_id),
+                    "type": _element_type_label(_tag),
+                    "attrs": _ext_attrs,
+                    "extension_elements_xml": _ext_elements_xml,
+                    "documentation": _documentation,
+                }
+        return _configured
+
+    def transfer_properties(old_xml, new_xml):
+        if not old_xml or not old_xml.strip() or not new_xml or not new_xml.strip():
+            return new_xml, []
+        _old_configured = extract_configured_elements(old_xml)
+        if not _old_configured:
+            return new_xml, []
+        _register_namespaces()
+        try:
+            _new_root = ET.fromstring(new_xml)
+        except ET.ParseError:
+            return new_xml, []
+        _new_by_id = {}
+        for _elem in _new_root.iter():
+            _eid = _elem.get("id")
+            if _eid:
+                _new_by_id[_eid] = _elem
+        _removed = []
+        for _elem_id, _old_data in _old_configured.items():
+            if _elem_id in _new_by_id:
+                _new_elem = _new_by_id[_elem_id]
+                for _clark, _val in _old_data["attrs"].items():
+                    _new_elem.set(_clark, _val)
+                if _old_data["extension_elements_xml"]:
+                    try:
+                        _old_ext_el = ET.fromstring(_old_data["extension_elements_xml"])
+                        _new_ext_el = _new_elem.find("{" + NS["bpmn"] + "}extensionElements")
+                        if _new_ext_el is None:
+                            _new_ext_el = ET.SubElement(_new_elem, "{" + NS["bpmn"] + "}extensionElements")
+                        for _child in _old_ext_el:
+                            _new_ext_el.append(_child)
+                    except ET.ParseError:
+                        pass
+                if _old_data.get("documentation"):
+                    _set_documentation(_new_elem, _old_data["documentation"])
+            else:
+                _configs = []
+                for _clark, _val in _old_data["attrs"].items():
+                    _configs.append(_attr_label(_clark) + ": " + _val)
+                if _old_data["extension_elements_xml"]:
+                    _configs.append("Extension Elements (pre/post scripts or other)")
+                if _old_data.get("documentation"):
+                    _doc_preview = _old_data["documentation"][:80]
+                    if len(_old_data["documentation"]) > 80:
+                        _doc_preview = _doc_preview + "…"
+                    _configs.append("Documentation: " + _doc_preview)
+                _removed.append({
+                    "id": _elem_id,
+                    "name": _old_data["name"],
+                    "type": _old_data["type"],
+                    "configs": _configs,
+                })
+        _merged_xml = ET.tostring(_new_root, encoding="unicode", xml_declaration=True)
+        _merged_xml = re.sub(
+            r"^<\?xml\s[^?]*\?>",
+            '<?xml version="1.0" encoding="UTF-8"?>',
+            _merged_xml,
+        )
+        return _merged_xml, _removed
+
+    def format_removal_warning(removed_elements):
+        if not removed_elements:
+            return ""
+        _lines = [
+            "I've prepared the changes, but the following configured shapes "
+            "will be removed and their settings will be lost:\n"
+        ]
+        for _elem in removed_elements:
+            _name = _elem.get("name", _elem.get("id", "Unknown"))
+            _etype = _elem.get("type", "Element")
+            _configs = _elem.get("configs", [])
+            _line = "• **" + _name + "** (" + _etype + ")"
+            if _configs:
+                _detail = list(_configs[:3])
+                if len(_configs) > 3:
+                    _detail.append("and " + str(len(_configs) - 3) + " more")
+                _line = _line + " — " + ", ".join(_detail)
+            _lines.append(_line)
+        _lines.append(
+            "\nThese configurations (scripts, assignments, triggers, documentation, etc.) "
+            "cannot be recovered after applying the changes."
+            "\n\nShall I apply the changes anyway?"
+        )
+        return "\n".join(_lines)
+
+    def summarize_configured_elements(configured):
+        if not configured:
+            return ""
+        _lines = [
+            "This will completely replace the existing diagram. "
+            "The following shapes have configurations that will be lost:\n"
+        ]
+        for _elem_id, _data in configured.items():
+            _name = _data.get("name", _elem_id)
+            _etype = _data.get("type", "Element")
+            _attrs = _data.get("attrs", {})
+            _config_labels = []
+            for _clark in _attrs:
+                _lbl = _attr_label(_clark)
+                if _lbl not in _config_labels:
+                    _config_labels.append(_lbl)
+            if _data.get("extension_elements_xml"):
+                _config_labels.append("Extension Elements")
+            if _data.get("documentation"):
+                _config_labels.append("Documentation")
+            _line = "• **" + _name + "** (" + _etype + ")"
+            if _config_labels:
+                _line = _line + " — " + ", ".join(_config_labels[:4])
+                if len(_config_labels) > 4:
+                    _line = _line + " and " + str(len(_config_labels) - 4) + " more"
+            _lines.append(_line)
+        _lines.append(
+            "\nAll of these configurations will be lost. "
+            "Are you sure you want to proceed?"
+        )
+        return "\n".join(_lines)
+
+    if mode == "extract":
+        return extract_configured_elements(arg_a)
+    if mode == "summarize":
+        return summarize_configured_elements(arg_b)
+    if mode == "transfer":
+        return transfer_properties(arg_a, arg_b)
+    if mode == "format_removal":
+        return format_removal_warning(arg_b)
+    if mode == "overwrite_warning":
+        _cfg = extract_configured_elements(arg_a)
+        if not _cfg:
+            return ""
+        return summarize_configured_elements(_cfg)
+    return None
 from one_bpmn.security.bpmn_validator import validate_bpmn_xml
 
 _MAX_FIX_PASSES = 3
@@ -659,13 +1222,13 @@ for attempt in range(_MAX_FIX_PASSES + 1):
 note = (" (" + str(len(problems)) + " issue(s) remain — review the canvas.)") if problems else ""
 
 # ── preserve configured properties from the old diagram onto the new one ──
-merged_xml, removed_elements = transfer_properties(current_xml, best_xml)
+merged_xml, removed_elements = _prosally_preserver("transfer", current_xml, best_xml)
 
 if removed_elements:
     output = {
         "intent": "CONFIRM_REMOVAL",
         "action_intent": "MODIFY_EXISTING",
-        "response": format_removal_warning(removed_elements),
+        "response": _prosally_preserver("format_removal", "", removed_elements),
         "options": ["Yes, apply changes", "No, keep existing"],
         "pending_xml": merged_xml,
     }
