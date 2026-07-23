@@ -319,6 +319,17 @@ class FrappeScriptEngine(PythonScriptEngine):
 		"""
 		try:
 			import frappe as _frappe
+
+			# Guarantee the sanctioned outbound-HTTP helpers are reachable via
+			# their fully-qualified path. Server Scripts run through plain exec()
+			# with the real `frappe` module (not safe_exec, which pre-binds the
+			# bare make_get_request names), so scripts must call
+			# `frappe.integrations.utils.make_get_request(...)` etc. A bare
+			# `import frappe` does NOT auto-load that submodule, so without this
+			# eager import the qualified access raises AttributeError in a worker
+			# that has not imported it yet. Cheap after the first load (cached in
+			# sys.modules); Logix is taught to emit exactly this qualified form.
+			import frappe.integrations.utils  # noqa: F401
 		except ImportError:
 			return
 
