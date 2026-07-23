@@ -471,45 +471,63 @@ def prosally_chat(
 	confirmed_action: str = "",
 	current_xml: str = "",
 ) -> dict:
-	"""Process a ProsAlly chat message, persisting history in Chat Conversation."""
+	"""Route a ProsAlly chat turn through the generic agent path (WI-001539).
+
+	ProsAlly chat is no longer orchestrated here: this endpoint is a thin alias
+	that opens the conversation with ``create_agent_conversation`` and hands the
+	turn to ``invoke_agent("prosally_agent", …)``, exactly like every other
+	configured agent (and like ``process_logix_message``). Its only remaining job
+	is the ProsAlly panel's request/response contract — the editor state it sends
+	and the ``{intent, response, conversation_name, bpmn_xml, …}`` reply it
+	consumes. Because the ``prosally`` configuration links the ProsAlly process
+	map, ``invoke_agent`` selects the ``bpmn_map`` runner and the map still
+	performs all the work (Save User Message → Call Agent → Save Response), so
+	behavior is unchanged. All ProsAlly tools live in the map's ad-hoc Tools
+	sub-process; no backend agent code remains.
+	"""
 	if frappe.session.user == "Guest":
 		frappe.throw(_("Authentication required"))
 
 	try:
-		from one_bpmn.utils.chat_persistence import create_conversation
+		from one_bpmn.api.agent_invocation import invoke_agent
+		from one_bpmn.utils.chat_persistence import create_agent_conversation
 
-		# Create a new conversation on the first message. Inserting the Chat
-		# Conversation triggers its process map, which spawns the orchestrating
-		# BPMN instance (parked at "Waiting for User Message").
+		# Open the conversation on the first turn. Inserting the Chat Conversation
+		# (stamped with the agent's chat mode label — "ProsAlly") arms the process
+		# map's conditional start trigger, which spawns the orchestrating BPMN
+		# instance parked at "Waiting for User Message". Created here (rather than
+		# letting invoke_agent create it) to preserve the "ProsAlly: <label>" title.
 		if not conversation_name:
 			label = process_name or diagram_name or "Process"
-			conversation_name = create_conversation(
-				agent_mode="ProsAlly",
-				title=f"ProsAlly: {label}",
-				user=frappe.session.user,
+			conversation_name = create_agent_conversation(
+				"prosally_agent", title=f"ProsAlly: {label}", user=frappe.session.user
 			)
 
-		# Hand the turn to the process map — it saves the user message, runs the
-		# agent (Call Agent) and saves the reply. We only deliver + return.
-		bpmn_result = _delegate_to_bpmn_instance(
-			conversation_name,
-			message,
-			context={
-				"process_name": process_name or "",
-				"diagram_name": diagram_name or "",
-				"confirmed_action": confirmed_action or "",
-				"current_xml": current_xml or "",
-			},
-		)
-		if bpmn_result is None:
+		try:
+			result = invoke_agent(
+				"prosally_agent",
+				message,
+				conversation=conversation_name,
+				context={
+					"process_name": process_name or "",
+					"diagram_name": diagram_name or "",
+					"confirmed_action": confirmed_action or "",
+					"current_xml": current_xml or "",
+				},
+			)
+		except frappe.ValidationError:
+			# No instance is driving this conversation (map never armed or the
+			# instance died) — the generic runner throws; surface the same reopen
+			# guidance the panel showed before, over a 200 response.
 			return {
 				"intent": "ERROR",
 				"response": "The ProsAlly process orchestration isn't running for this conversation. Please reopen the chat.",
 				"conversation_name": conversation_name,
 			}
 
-		bpmn_result["conversation_name"] = conversation_name
-		return bpmn_result
+		# The panel keys on ``conversation_name``; invoke_agent returns ``conversation``.
+		result["conversation_name"] = result.get("conversation") or conversation_name
+		return result
 
 	except Exception:
 		frappe.log_error(title="ProsAlly Agent error", message=frappe.get_traceback())

@@ -1,28 +1,27 @@
 # Copyright (c) 2026, one-fm and contributors
 # For license information, please see license.txt
 """
-ProsAlly deterministic tools.
+BPMN IR pipeline — shared deterministic infrastructure.
 
-These are the non-LLM steps of ProsAlly's IR pipeline, extracted as standalone,
-unit-testable functions and exposed as ``ToolSpec`` entries in ``PROSALLY_TOOLS``
-so the Epic-4 multi-turn loop can call them directly (the Camunda agentic-AI
-tool-calling pattern). The LLM-reasoning steps (intent classify / clarify /
-confirm / generate IR) stay in the loop; these are the things the model cannot
-do itself:
+The non-LLM steps of the process-modelling pipeline, kept as importable Python
+because they cannot live inside a BPMN Script Task body: ``compile_ir`` shells
+out to ``spiff/pipeline.mjs`` via ``subprocess`` (and ``os``/``shutil`` for node
+discovery), and the security gate (``deep_inspect_script``) bans those modules
+in gated script bodies. The ProsAlly agent's LLM/prompt/routing logic now lives
+inline in its BPMN tool scripts; these transforms are the shared seam those
+scripts import.
 
-    get_diagram_facts    read the current diagram (process name, lanes, element ids)
-    compile_ir           IR JSON -> BPMN XML via spiff/pipeline.mjs
-    validate_bpmn        semantic lint + IR-level fix hints
-    preserve_properties  transfer extension config from an old diagram to a new one
+    compile_ir            IR JSON -> BPMN XML via spiff/pipeline.mjs (subprocess)
+    extract_process_name  read the pool/process name out of BPMN XML
+    extract_element_ids   the preserve-these-ids table for a modify turn
+    has_lanes             does the diagram use swimlanes/pools
+    get_diagram_facts     bundle of the three reads above
+    translate_problems    pipeline problem dicts -> IR-level fix hints
+    translate_violations  validator strings -> IR-level fix hints
+    validate_bpmn         semantic lint + fix hints
 
-Each core function returns a plain dict (ergonomic for Python callers and
-tests). The ToolSpec wrappers JSON-encode the result to match the tool-result
-convention used across ``agents/`` (see tool_for_server_scripts.py /
-tool_registry.py) so a tool-calling loop handles them identically to any other
-tool.
-
-This is the single source of truth for these transforms — ``prosally_agent.py``
-delegates to it, so the agent and the future loop never diverge.
+Previously ``one_bpmn/agents/google_adk/prosally_agent/tools.py`` (deleted with
+the rest of the ProsAlly agent package during the per-agent migration).
 """
 
 from __future__ import annotations
@@ -35,8 +34,6 @@ import subprocess
 
 # ── IR repair hints (rule name -> IR-level fix description) ──────────────────
 # Turns cryptic linter rule ids into IR-level instructions the LLM can act on.
-# Kept here (not in the orchestrator) so any consumer of ``validate_bpmn`` gets
-# self-repair guidance for free.
 _RULE_HINTS: dict[str, str] = {
     "task-type": (
         "Change the node's 'type' field. 'task' is forbidden. "
@@ -154,12 +151,13 @@ def _find_node() -> str | None:
 def _pipeline_path() -> str:
     """Absolute path to spiff/pipeline.mjs, resolved relative to this module.
 
-    tools.py lives in the same directory as prosally_agent.py, so the relative
-    hop is identical to the original agent's.
+    This module lives at ``one_bpmn/one_bpmn/agents/bpmn_ir_pipeline.py``; the
+    pipeline lives at ``one_bpmn/spiff/pipeline.mjs`` (the app root's spiff dir),
+    two directories up from ``agents/``.
     """
     return os.path.normpath(os.path.join(
         os.path.dirname(__file__),
-        "..", "..", "..", "..",
+        "..", "..",
         "spiff", "pipeline.mjs",
     ))
 
@@ -323,81 +321,3 @@ def validate_bpmn(xml: str) -> dict:
         "violations": violations,
         "fix_hints": translate_violations(violations),
     }
-
-
-# ── Property preservation ────────────────────────────────────────────────────
-def preserve_properties(old_xml: str, new_xml: str) -> dict:
-    """Transfer extension config from an old diagram onto a freshly generated one.
-
-    Returns ``{merged_xml, removed_elements}``. ``removed_elements`` lists the
-    configured elements present in ``old_xml`` that no longer exist in
-    ``new_xml`` (so a caller can warn before applying).
-    """
-    from one_bpmn.agents.google_adk.prosally_agent.xml_property_preserver import (
-        transfer_properties,
-    )
-
-    merged_xml, removed_elements = transfer_properties(old_xml, new_xml)
-    return {"merged_xml": merged_xml, "removed_elements": removed_elements}
-
-
-# ── MCP/ToolSpec registry ─────────────────────────────────────────────────────
-# ToolSpec.fn returns a JSON string (the tool-result convention the llm_provider
-# loops consume); the core functions above return dicts for Python/test callers.
-def _import_toolspec():
-    from one_bpmn.agents.llm_provider.base import ToolSpec
-    return ToolSpec
-
-
-def _build_registry() -> list:
-    ToolSpec = _import_toolspec()
-    return [
-        ToolSpec(
-            fn=lambda xml="": json.dumps(get_diagram_facts(xml)),
-            name="get_diagram_facts",
-            description=(
-                "Read the current BPMN diagram: returns its process name, whether it "
-                "uses swimlanes, and the table of existing element ids that must be "
-                "preserved when modifying it."
-            ),
-            parameters={"xml": {"type": "string", "description": "The current BPMN 2.0 XML."}},
-            required=["xml"],
-        ),
-        ToolSpec(
-            fn=lambda ir=None: json.dumps(compile_ir(ir or {})),
-            name="compile_ir",
-            description=(
-                "Compile a process IR JSON object into BPMN 2.0 XML via the pipeline "
-                "(normalise, compile, layout). Returns {ok, xml, problems, normalizedIR}."
-            ),
-            parameters={"ir": {"type": "object", "description": "The process IR JSON to compile."}},
-            required=["ir"],
-        ),
-        ToolSpec(
-            fn=lambda xml="": json.dumps(validate_bpmn(xml)),
-            name="validate_bpmn",
-            description=(
-                "Semantic-lint BPMN 2.0 XML. Returns {valid, violations, fix_hints} — "
-                "fix_hints are IR-level instructions for correcting any problems."
-            ),
-            parameters={"xml": {"type": "string", "description": "The BPMN 2.0 XML to validate."}},
-            required=["xml"],
-        ),
-        ToolSpec(
-            fn=lambda old_xml="", new_xml="": json.dumps(preserve_properties(old_xml, new_xml)),
-            name="preserve_properties",
-            description=(
-                "Transfer extension configuration (service/task config, documentation) from "
-                "an old diagram onto a newly generated one, matching by element id. Returns "
-                "{merged_xml, removed_elements}."
-            ),
-            parameters={
-                "old_xml": {"type": "string", "description": "The existing diagram XML with configuration."},
-                "new_xml": {"type": "string", "description": "The freshly generated diagram XML."},
-            },
-            required=["old_xml", "new_xml"],
-        ),
-    ]
-
-
-PROSALLY_TOOLS: list = _build_registry()

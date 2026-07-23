@@ -1,5 +1,9 @@
 """
-XML Property Preserver
+XML Property Preserver — shared deterministic infrastructure.
+
+Relocated from one_bpmn/agents/google_adk/prosally_agent/xml_property_preserver.py
+during the ProsAlly per-agent migration (the agent package was deleted). Pure
+ElementTree transforms imported by the ProsAlly BPMN tool scripts.
 
 Transfers extension attributes, documentation elements, and other user-configured
 properties from an existing (old) BPMN XML document to a newly generated BPMN XML
