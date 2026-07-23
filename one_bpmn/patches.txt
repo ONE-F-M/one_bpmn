@@ -33,5 +33,3 @@ one_bpmn.one_bpmn.patches.v1_0.migrate_logix_agent_to_generic_path #23-07-2026
 one_bpmn.one_bpmn.patches.v1_0.inline_logix_tool_scripts #23-07-2026
 one_bpmn.one_bpmn.patches.v1_0.migrate_prosally_agent_to_generic_path #23-07-2026
 one_bpmn.one_bpmn.patches.v1_0.inline_prosally_tool_scripts #23-07-2026
-one_bpmn.one_bpmn.patches.v1_0.add_logix_db_reference_tool #23-07-2026
-one_bpmn.one_bpmn.patches.v1_0.add_logix_server_script_read_tools #23-07-2026

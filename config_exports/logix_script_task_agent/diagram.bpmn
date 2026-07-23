@@ -1,0 +1,306 @@
+<bpmn:definitions xmlns:bpmn="http://www.omg.org/spec/BPMN/20100524/MODEL" xmlns:bpmndi="http://www.omg.org/spec/BPMN/20100524/DI" xmlns:dc="http://www.omg.org/spec/DD/20100524/DC" xmlns:di="http://www.omg.org/spec/DD/20100524/DI" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xmlns:spiffworkflow="http://spiffworkflow.org/bpmn/schema/1.0/core" id="Definitions_1" targetNamespace="http://bpmn.io/schema/bpmn">
+  <bpmn:message id="Message_ChatMsg" name="ChatConversation_Message_Action"/>
+  <bpmn:message id="Message_ChatClose" name="ChatConversation_Close_Action"/>
+  <bpmn:process id="logix_script_task_agent" name="Logix Script Task Agent" isExecutable="true">
+    <bpmn:startEvent id="chat_start" name="New Conversation">
+      <bpmn:outgoing>f_start_merge</bpmn:outgoing>
+      <bpmn:conditionalEventDefinition id="ConditionalEventDefinition_1" spiffworkflow:triggerDoctype="Chat Conversation" spiffworkflow:triggerType="After Insert" spiffworkflow:triggerFieldName="agent_mode" spiffworkflow:triggerFieldValue="Logix">
+        <bpmn:condition>agent_mode == "Logix"</bpmn:condition>
+      </bpmn:conditionalEventDefinition>
+    </bpmn:startEvent>
+    <bpmn:exclusiveGateway id="gw_wait_merge" name="Conversation Loop">
+      <bpmn:incoming>f_start_merge</bpmn:incoming>
+      <bpmn:incoming>f_loop_back</bpmn:incoming>
+      <bpmn:outgoing>f_merge_wait</bpmn:outgoing>
+    </bpmn:exclusiveGateway>
+    <bpmn:eventBasedGateway id="wait_msg" name="Waiting for User Message">
+      <bpmn:incoming>f_merge_wait</bpmn:incoming>
+      <bpmn:outgoing>f_wait_msg</bpmn:outgoing>
+      <bpmn:outgoing>f_wait_close</bpmn:outgoing>
+    </bpmn:eventBasedGateway>
+    <bpmn:intermediateCatchEvent id="msg_received" name="Message Received">
+      <bpmn:incoming>f_wait_msg</bpmn:incoming>
+      <bpmn:outgoing>msg_to_agent</bpmn:outgoing>
+      <bpmn:messageEventDefinition messageRef="Message_ChatMsg"/>
+    </bpmn:intermediateCatchEvent>
+    <bpmn:intermediateCatchEvent id="msg_conv_closed" name="Conversation Closed">
+      <bpmn:incoming>f_wait_close</bpmn:incoming>
+      <bpmn:outgoing>cleanup_in</bpmn:outgoing>
+      <bpmn:messageEventDefinition messageRef="Message_ChatClose"/>
+    </bpmn:intermediateCatchEvent>
+    <bpmn:scriptTask id="update_conv" name="Update Conversation" spiffworkflow:serverScript="Logix – Update Conversation" spiffworkflow:scriptType="Server Script" spiffworkflow:scriptName="Logix – Update Conversation">
+      <bpmn:incoming>agent_to_update</bpmn:incoming>
+      <bpmn:outgoing>f_loop_back</bpmn:outgoing>
+      <bpmn:script>Logix – Update Conversation</bpmn:script>
+    </bpmn:scriptTask>
+    <bpmn:scriptTask id="cleanup" name="Cleanup" spiffworkflow:serverScript="Logix – Cleanup" spiffworkflow:scriptType="Server Script" spiffworkflow:scriptName="Logix – Cleanup">
+      <bpmn:incoming>cleanup_in</bpmn:incoming>
+      <bpmn:outgoing>f_cleanup_end</bpmn:outgoing>
+      <bpmn:script>Logix – Cleanup</bpmn:script>
+    </bpmn:scriptTask>
+    <bpmn:endEvent id="end_done" name="Conversation Ended">
+      <bpmn:incoming>f_cleanup_end</bpmn:incoming>
+    </bpmn:endEvent>
+    <bpmn:sequenceFlow id="f_start_merge" sourceRef="chat_start" targetRef="gw_wait_merge"/>
+    <bpmn:sequenceFlow id="f_merge_wait" sourceRef="gw_wait_merge" targetRef="wait_msg"/>
+    <bpmn:sequenceFlow id="f_wait_msg" sourceRef="wait_msg" targetRef="msg_received"/>
+    <bpmn:sequenceFlow id="f_wait_close" sourceRef="wait_msg" targetRef="msg_conv_closed"/>
+    <bpmn:sequenceFlow id="msg_to_agent" sourceRef="msg_received" targetRef="save_user_msg"/>
+    <bpmn:sequenceFlow id="agent_to_update" sourceRef="save_response" targetRef="update_conv"/>
+    <bpmn:sequenceFlow id="f_loop_back" sourceRef="update_conv" targetRef="gw_wait_merge"/>
+    <bpmn:sequenceFlow id="cleanup_in" sourceRef="msg_conv_closed" targetRef="cleanup"/>
+    <bpmn:sequenceFlow id="f_cleanup_end" sourceRef="cleanup" targetRef="end_done"/>
+    <bpmn:scriptTask id="save_user_msg" name="Save User Message" spiffworkflow:serverScript="Logix – Save User Message" spiffworkflow:scriptType="Server Script" spiffworkflow:scriptName="Logix – Save User Message">
+      <bpmn:incoming>msg_to_agent</bpmn:incoming>
+      <bpmn:outgoing>f_su_load</bpmn:outgoing>
+      <bpmn:script>Logix – Save User Message</bpmn:script>
+    </bpmn:scriptTask>
+    <bpmn:scriptTask id="load_agent" name="Load Agent Config" spiffworkflow:serverScript="Logix – Load Agent Config" spiffworkflow:scriptType="Server Script" spiffworkflow:scriptName="Logix – Load Agent Config">
+      <bpmn:incoming>f_su_load</bpmn:incoming>
+      <bpmn:outgoing>f_load_build</bpmn:outgoing>
+      <bpmn:script>Logix – Load Agent Config</bpmn:script>
+    </bpmn:scriptTask>
+    <bpmn:scriptTask id="build_context" name="Build Context" spiffworkflow:serverScript="Logix – Build Context" spiffworkflow:scriptType="Server Script" spiffworkflow:scriptName="Logix – Build Context">
+      <bpmn:incoming>f_load_build</bpmn:incoming>
+      <bpmn:outgoing>f_build_merge</bpmn:outgoing>
+      <bpmn:script>Logix – Build Context</bpmn:script>
+    </bpmn:scriptTask>
+    <bpmn:exclusiveGateway id="gw_merge" name="">
+      <bpmn:incoming>f_build_merge</bpmn:incoming>
+      <bpmn:incoming>f_tools_merge</bpmn:incoming>
+      <bpmn:outgoing>f_merge_run</bpmn:outgoing>
+    </bpmn:exclusiveGateway>
+    <bpmn:serviceTask id="run_logix_agent" name="Run Logix Agent" spiffworkflow:serviceType="ai_agent" spiffworkflow:aiBackend="direct_api" spiffworkflow:aiProvider="Anthropic" spiffworkflow:aiModel="claude-haiku-4-5-20251001" spiffworkflow:aiOutputVariable="ai_result" spiffworkflow:aiSystemPrompt="You run ONE turn of the Logix script-writing assistant by calling tools, one at a time. Step 1: call classify_intent; its result includes a 'next' field naming the tool to call next and a 'shape_kind' field describing the target element (script_task or agent_tool). Step 2: if next is clarify, call clarify then call finalize and stop. If next is write_script, call write_script then call review_script. If next is write_agent_tool, call write_agent_tool then call review_script. After review_script: if it returns approved true, call finalize and stop; if it returns approved false, call the SAME writer tool named by 'next' again, then review_script again, repeating at most 2 more times, then call finalize and stop. Always finish by calling finalize exactly once. Obey the 'next' field, never skip a step, and never write code yourself." spiffworkflow:aiUserPrompt="Process the latest user message now. Begin with classify_intent." spiffworkflow:aiResponseFormat="text" spiffworkflow:aiTemperature="0.7" spiffworkflow:aiTopP="1" spiffworkflow:aiMaxTokens="1024" spiffworkflow:aiTimeout="30" spiffworkflow:aiMaxRetries="2" spiffworkflow:aiToolsAdhoc="logix_tools" spiffworkflow:aiMaxToolCalls="14" spiffworkflow:aiConversationStore="document_store" spiffworkflow:aiContextMaxMessages="20" spiffworkflow:aiLongTermMemory="true" spiffworkflow:aiMemoryScope="Agent" spiffworkflow:aiMemoryAutoWrite="true" spiffworkflow:aiMemoryDistillModel="claude-sonnet-4-5-20250929">
+      <bpmn:documentation>AI Agent Task — reasons and calls the pipeline-stage tools (loop runs inside the task).</bpmn:documentation>
+      <bpmn:incoming>f_merge_run</bpmn:incoming>
+      <bpmn:outgoing>f_run_gw</bpmn:outgoing>
+    </bpmn:serviceTask>
+    <bpmn:exclusiveGateway id="gw_needs_tools" name="Needs to call tools?" default="f_gw_save">
+      <bpmn:incoming>f_run_gw</bpmn:incoming>
+      <bpmn:outgoing>f_gw_tools</bpmn:outgoing>
+      <bpmn:outgoing>f_gw_save</bpmn:outgoing>
+    </bpmn:exclusiveGateway>
+    <bpmn:adHocSubProcess id="logix_tools" name="Tools">
+      <bpmn:incoming>f_gw_tools</bpmn:incoming>
+      <bpmn:outgoing>f_tools_merge</bpmn:outgoing>
+      <bpmn:scriptTask id="classify_intent" name="classify_intent" spiffworkflow:serverScript="Logix – Tool Classify Intent" spiffworkflow:scriptType="Server Script" spiffworkflow:scriptName="Logix – Tool Classify Intent">
+        <bpmn:documentation>Classify the user request as CREATE, MODIFY, or DISAMBIGUATE. Call this FIRST.</bpmn:documentation>
+        <bpmn:script>Logix – Tool Classify Intent</bpmn:script>
+      </bpmn:scriptTask>
+      <bpmn:scriptTask id="clarify" name="clarify" spiffworkflow:serverScript="Logix – Tool Clarify" spiffworkflow:scriptType="Server Script" spiffworkflow:scriptName="Logix – Tool Clarify">
+        <bpmn:documentation>Ask one focused clarifying question. Use ONLY when intent is DISAMBIGUATE.</bpmn:documentation>
+        <bpmn:script>Logix – Tool Clarify</bpmn:script>
+      </bpmn:scriptTask>
+      <bpmn:scriptTask id="write_script" name="write_script" spiffworkflow:serverScript="Logix – Tool Write Script" spiffworkflow:scriptType="Server Script" spiffworkflow:scriptName="Logix – Tool Write Script">
+        <bpmn:documentation>Write or rewrite the Server Script. Call for CREATE or MODIFY; calling again after a failed review regenerates safe code.</bpmn:documentation>
+        <bpmn:script>Logix – Tool Write Script</bpmn:script>
+      </bpmn:scriptTask>
+      <bpmn:scriptTask id="review_script" name="review_script" spiffworkflow:serverScript="Logix – Tool Review Script" spiffworkflow:scriptType="Server Script" spiffworkflow:scriptName="Logix – Tool Review Script">
+        <bpmn:documentation>Review the drafted script and run the security gate. Returns approved and any violations.</bpmn:documentation>
+        <bpmn:script>Logix – Tool Review Script</bpmn:script>
+      </bpmn:scriptTask>
+      <bpmn:scriptTask id="finalize" name="finalize" spiffworkflow:serverScript="Logix – Tool Finalize" spiffworkflow:scriptType="Server Script" spiffworkflow:scriptName="Logix – Tool Finalize">
+        <bpmn:documentation>Assemble the final structured reply. ALWAYS call exactly once, last.</bpmn:documentation>
+        <bpmn:script>Logix – Tool Finalize</bpmn:script>
+      </bpmn:scriptTask>
+      <bpmn:scriptTask id="write_agent_tool" name="write_agent_tool" spiffworkflow:serverScript="Logix – Tool Write Agent Tool" spiffworkflow:scriptType="Server Script" spiffworkflow:scriptName="Logix – Tool Write Agent Tool">
+        <bpmn:documentation>Author an AGENT TOOL script (the target element lives inside an AI Agent Task's ad-hoc Tools sub-process). Call for CREATE or MODIFY when shape_kind is agent_tool; calling again after a failed review regenerates safe code.</bpmn:documentation>
+        <bpmn:script>Logix – Tool Write Agent Tool</bpmn:script>
+      </bpmn:scriptTask>
+      <bpmn:scriptTask id="reference_database" name="reference_database" spiffworkflow:serverScript="Logix – Tool Reference Database" spiffworkflow:scriptType="Server Script" spiffworkflow:scriptName="Logix – Tool Reference Database" spiffworkflow:aiToolParams="{&quot;properties&quot;: {&quot;doctype&quot;: {&quot;type&quot;: &quot;string&quot;, &quot;description&quot;: &quot;Exact DocType name to inspect, e.g. 'Employee'. When provided, returns that DocType's fields (fieldname, fieldtype, label, reqd). Omit to list DocType names instead.&quot;}, &quot;search&quot;: {&quot;type&quot;: &quot;string&quot;, &quot;description&quot;: &quot;Substring to filter DocType names by when listing them (used only when 'doctype' is omitted), e.g. 'leave'.&quot;}}, &quot;required&quot;: []}">
+        <bpmn:documentation>Read-only database reference. Look up real DocType and field names so scripts reference them correctly. Pass a `doctype` to get that DocType's fields (fieldname, fieldtype, label, reqd); omit it (optionally with `search`) to list matching DocType names. Never changes data. Call it whenever you are unsure a DocType or field name exists.</bpmn:documentation>
+        <bpmn:script>Logix – Tool Reference Database</bpmn:script>
+      </bpmn:scriptTask>
+      <bpmn:scriptTask id="get_server_script" name="get_server_script" spiffworkflow:serverScript="Logix – Tool Get Server Script" spiffworkflow:scriptType="Server Script" spiffworkflow:scriptName="Logix – Tool Get Server Script" spiffworkflow:aiToolParams="{&quot;properties&quot;: {&quot;script_name&quot;: {&quot;type&quot;: &quot;string&quot;, &quot;description&quot;: &quot;Exact name (document ID) of the Server Script, e.g. 'Check Attendance'.&quot;}}, &quot;required&quot;: [&quot;script_name&quot;]}">
+        <bpmn:documentation>Read-only. Return the full Python source of an existing Server Script by its exact name. Use it to review a script the user refers to before proposing changes. Never modifies anything.</bpmn:documentation>
+        <bpmn:script>Logix – Tool Get Server Script</bpmn:script>
+      </bpmn:scriptTask>
+      <bpmn:scriptTask id="get_server_script_meta" name="get_server_script_meta" spiffworkflow:serverScript="Logix – Tool Get Server Script Meta" spiffworkflow:scriptType="Server Script" spiffworkflow:scriptName="Logix – Tool Get Server Script Meta" spiffworkflow:aiToolParams="{&quot;properties&quot;: {&quot;script_name&quot;: {&quot;type&quot;: &quot;string&quot;, &quot;description&quot;: &quot;Exact name (document ID) of the Server Script, e.g. 'Check Attendance'.&quot;}}, &quot;required&quot;: [&quot;script_name&quot;]}">
+        <bpmn:documentation>Read-only. Return an existing Server Script's configuration (script_type, reference_doctype, doctype_event, api_method, disabled) without its code.</bpmn:documentation>
+        <bpmn:script>Logix – Tool Get Server Script Meta</bpmn:script>
+      </bpmn:scriptTask>
+      <bpmn:scriptTask id="list_api_server_scripts" name="list_api_server_scripts" spiffworkflow:serverScript="Logix – Tool List API Server Scripts" spiffworkflow:scriptType="Server Script" spiffworkflow:scriptName="Logix – Tool List API Server Scripts">
+        <bpmn:documentation>Read-only. List the names of all enabled API-type Server Scripts, e.g. to check whether a script with a similar purpose already exists.</bpmn:documentation>
+        <bpmn:script>Logix – Tool List API Server Scripts</bpmn:script>
+      </bpmn:scriptTask>
+      <bpmn:completionCondition xsi:type="bpmn:tFormalExpression">True</bpmn:completionCondition>
+    </bpmn:adHocSubProcess>
+    <bpmn:scriptTask id="save_response" name="Save AI Response" spiffworkflow:serverScript="Logix – Save Response" spiffworkflow:scriptType="Server Script" spiffworkflow:scriptName="Logix – Save Response">
+      <bpmn:incoming>f_gw_save</bpmn:incoming>
+      <bpmn:outgoing>agent_to_update</bpmn:outgoing>
+      <bpmn:script>Logix – Save Response</bpmn:script>
+    </bpmn:scriptTask>
+    <bpmn:sequenceFlow id="f_su_load" sourceRef="save_user_msg" targetRef="load_agent"/>
+    <bpmn:sequenceFlow id="f_load_build" sourceRef="load_agent" targetRef="build_context"/>
+    <bpmn:sequenceFlow id="f_build_merge" sourceRef="build_context" targetRef="gw_merge"/>
+    <bpmn:sequenceFlow id="f_merge_run" sourceRef="gw_merge" targetRef="run_logix_agent"/>
+    <bpmn:sequenceFlow id="f_run_gw" sourceRef="run_logix_agent" targetRef="gw_needs_tools"/>
+    <bpmn:sequenceFlow id="f_gw_tools" name="Call tools" sourceRef="gw_needs_tools" targetRef="logix_tools">
+      <bpmn:conditionExpression xsi:type="bpmn:tFormalExpression">needs_tools == True</bpmn:conditionExpression>
+    </bpmn:sequenceFlow>
+    <bpmn:sequenceFlow id="f_gw_save" name="No" sourceRef="gw_needs_tools" targetRef="save_response"/>
+    <bpmn:sequenceFlow id="f_tools_merge" name="Tool call results" sourceRef="logix_tools" targetRef="gw_merge"/>
+  </bpmn:process>
+  <bpmndi:BPMNDiagram id="BPMNDiagram_1">
+    <bpmndi:BPMNPlane id="BPMNPlane_1" bpmnElement="logix_script_task_agent">
+      <bpmndi:BPMNShape id="chat_start_di" bpmnElement="chat_start">
+        <dc:Bounds x="160" y="162" width="36" height="36"/>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="gw_wait_merge_di" bpmnElement="gw_wait_merge" isMarkerVisible="true">
+        <dc:Bounds x="250" y="155" width="50" height="50"/>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="wait_msg_di" bpmnElement="wait_msg">
+        <dc:Bounds x="340" y="155" width="50" height="50"/>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="msg_received_di" bpmnElement="msg_received">
+        <dc:Bounds x="440" y="162" width="36" height="36"/>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="msg_conv_closed_di" bpmnElement="msg_conv_closed">
+        <dc:Bounds x="340" y="300" width="36" height="36"/>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="update_conv_di" bpmnElement="update_conv">
+        <dc:Bounds x="1340" y="140" width="100" height="80"/>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="cleanup_di" bpmnElement="cleanup">
+        <dc:Bounds x="450" y="280" width="100" height="80"/>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="end_done_di" bpmnElement="end_done">
+        <dc:Bounds x="600" y="302" width="36" height="36"/>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="save_user_msg_di" bpmnElement="save_user_msg">
+        <dc:Bounds x="520" y="140" width="100" height="80"/>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="load_agent_di" bpmnElement="load_agent">
+        <dc:Bounds x="650" y="140" width="100" height="80"/>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="build_context_di" bpmnElement="build_context">
+        <dc:Bounds x="780" y="140" width="100" height="80"/>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="gw_merge_di" bpmnElement="gw_merge" isMarkerVisible="true">
+        <dc:Bounds x="900" y="155" width="50" height="50"/>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="run_logix_agent_di" bpmnElement="run_logix_agent">
+        <dc:Bounds x="980" y="140" width="100" height="80"/>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="gw_needs_tools_di" bpmnElement="gw_needs_tools" isMarkerVisible="true">
+        <dc:Bounds x="1120" y="155" width="50" height="50"/>
+        <bpmndi:BPMNLabel>
+          <dc:Bounds x="1112" y="117.5" width="65" height="27"/>
+        </bpmndi:BPMNLabel>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="logix_tools_di" bpmnElement="logix_tools" isExpanded="true">
+        <dc:Bounds x="900" y="320" width="550" height="360"/>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="classify_intent_di" bpmnElement="classify_intent">
+        <dc:Bounds x="920" y="360" width="100" height="70"/>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="clarify_di" bpmnElement="clarify">
+        <dc:Bounds x="1050" y="360" width="100" height="70"/>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="write_script_di" bpmnElement="write_script">
+        <dc:Bounds x="1180" y="360" width="100" height="70"/>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="review_script_di" bpmnElement="review_script">
+        <dc:Bounds x="1310" y="360" width="100" height="70"/>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="finalize_di" bpmnElement="finalize">
+        <dc:Bounds x="920" y="460" width="100" height="70"/>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="write_agent_tool_di" bpmnElement="write_agent_tool">
+        <dc:Bounds x="1050" y="460" width="100" height="70"/>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="save_response_di" bpmnElement="save_response">
+        <dc:Bounds x="1210" y="140" width="100" height="80"/>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNEdge id="f_start_merge_di" bpmnElement="f_start_merge">
+        <di:waypoint x="196" y="180"/>
+        <di:waypoint x="250" y="180"/>
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="f_merge_wait_di" bpmnElement="f_merge_wait">
+        <di:waypoint x="300" y="180"/>
+        <di:waypoint x="340" y="180"/>
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="f_wait_msg_di" bpmnElement="f_wait_msg">
+        <di:waypoint x="390" y="180"/>
+        <di:waypoint x="440" y="180"/>
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="f_wait_close_di" bpmnElement="f_wait_close">
+        <di:waypoint x="365" y="205"/>
+        <di:waypoint x="365" y="290"/>
+        <di:waypoint x="358" y="300"/>
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="msg_to_agent_di" bpmnElement="msg_to_agent">
+        <di:waypoint x="476" y="180"/>
+        <di:waypoint x="520" y="180"/>
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="agent_to_update_di" bpmnElement="agent_to_update">
+        <di:waypoint x="1310" y="180"/>
+        <di:waypoint x="1340" y="180"/>
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="f_loop_back_di" bpmnElement="f_loop_back">
+        <di:waypoint x="1390" y="140"/>
+        <di:waypoint x="1390" y="95"/>
+        <di:waypoint x="275" y="95"/>
+        <di:waypoint x="275" y="155"/>
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="cleanup_in_di" bpmnElement="cleanup_in">
+        <di:waypoint x="376" y="318"/>
+        <di:waypoint x="450" y="320"/>
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="f_cleanup_end_di" bpmnElement="f_cleanup_end">
+        <di:waypoint x="550" y="320"/>
+        <di:waypoint x="600" y="320"/>
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="f_su_load_di" bpmnElement="f_su_load">
+        <di:waypoint x="620" y="180"/>
+        <di:waypoint x="650" y="180"/>
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="f_load_build_di" bpmnElement="f_load_build">
+        <di:waypoint x="750" y="180"/>
+        <di:waypoint x="780" y="180"/>
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="f_build_merge_di" bpmnElement="f_build_merge">
+        <di:waypoint x="880" y="180"/>
+        <di:waypoint x="900" y="180"/>
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="f_merge_run_di" bpmnElement="f_merge_run">
+        <di:waypoint x="950" y="180"/>
+        <di:waypoint x="980" y="180"/>
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="f_run_gw_di" bpmnElement="f_run_gw">
+        <di:waypoint x="1080" y="180"/>
+        <di:waypoint x="1120" y="180"/>
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="f_gw_tools_di" bpmnElement="f_gw_tools">
+        <di:waypoint x="1145" y="205"/>
+        <di:waypoint x="1145" y="320"/>
+        <bpmndi:BPMNLabel>
+          <dc:Bounds x="1137" y="253" width="47" height="14"/>
+        </bpmndi:BPMNLabel>
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="f_gw_save_di" bpmnElement="f_gw_save">
+        <di:waypoint x="1170" y="180"/>
+        <di:waypoint x="1210" y="180"/>
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="f_tools_merge_di" bpmnElement="f_tools_merge">
+        <di:waypoint x="925" y="320"/>
+        <di:waypoint x="925" y="205"/>
+        <bpmndi:BPMNLabel>
+          <dc:Bounds x="901" y="253" width="78" height="14"/>
+        </bpmndi:BPMNLabel>
+      </bpmndi:BPMNEdge>
+    <bpmndi:BPMNShape id="reference_database_di" bpmnElement="reference_database">
+        <dc:Bounds x="1180" y="460" width="100" height="70"/>
+      </bpmndi:BPMNShape>
+    <bpmndi:BPMNShape id="get_server_script_di" bpmnElement="get_server_script">
+        <dc:Bounds x="1310" y="460" width="100" height="70"/>
+      </bpmndi:BPMNShape>
+    <bpmndi:BPMNShape id="get_server_script_meta_di" bpmnElement="get_server_script_meta">
+        <dc:Bounds x="920" y="570" width="100" height="70"/>
+      </bpmndi:BPMNShape>
+    <bpmndi:BPMNShape id="list_api_server_scripts_di" bpmnElement="list_api_server_scripts">
+        <dc:Bounds x="1050" y="570" width="100" height="70"/>
+      </bpmndi:BPMNShape>
+    </bpmndi:BPMNPlane>
+  </bpmndi:BPMNDiagram>
+</bpmn:definitions>
