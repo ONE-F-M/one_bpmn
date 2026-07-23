@@ -107,6 +107,13 @@ def dispatch_ai_task_selector(instance, sp, task_cfg: dict, bpmn_id: str) -> tup
 	from one_bpmn.agents.llm_provider.base import ToolSpec
 	from one_bpmn.agents.tool_pool import DIAGRAM_TASK, resolve_tool_pool
 
+	# WI-001637 (live link): a linked AI Agent Configuration is authoritative
+	# for agent-level fields; the shape's copies are the fallback. Tools stay
+	# the subprocess's own shapes — never sourced from the config.
+	if task_cfg.get("aiAgentConfig"):
+		from one_bpmn.agents.agent_config_resolver import resolve_dispatch_overrides
+		task_cfg = {**task_cfg, **resolve_dispatch_overrides(task_cfg["aiAgentConfig"])}
+
 	doc = frappe._dict()
 	if instance.context_doctype and instance.context_docname:
 		try:

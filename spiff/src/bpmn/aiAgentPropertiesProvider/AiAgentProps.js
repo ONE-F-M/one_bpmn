@@ -11,7 +11,7 @@ import { useService } from "bpmn-js-properties-panel";
 import { getBusinessObject } from "bpmn-js/lib/util/ModelUtil";
 import { h } from "preact";
 import { FrappeAutocomplete } from "../shared/FrappeAutocomplete";
-import { frappeGet } from "../shared/frappeResource";
+import { frappeGet, frappePost } from "../shared/frappeResource";
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -48,6 +48,11 @@ export function AiAgentProps(props) {
 
 	const entries = [
 		{ id: "ai-agent-launch", element, component: LaunchEditorButton },
+		{
+			id: "spiffworkflow-aiAgentConfig",
+			element,
+			component: AgentConfigComponent,
+		},
 		{
 			id: "spiffworkflow-aiProvider",
 			element,
@@ -139,6 +144,86 @@ function LaunchEditorButton(props) {
 			? translate("Edit AI Task Configuration")
 			: translate("Configure AI Task"),
 	});
+}
+
+// ---------------------------------------------------------------------------
+// AI Agent Configuration — optional. Selecting one SEEDS this task's fields
+// (provider, model, system prompt, params) as a one-time copy the designer can
+// then edit here. Edits stay on the shape; the configuration is never changed
+// from the diagram, and its tools are NOT imported — the toolkit is always the
+// diagram's own ad-hoc shapes (WI-001637).
+// ---------------------------------------------------------------------------
+function AgentConfigComponent(props) {
+	const { element, id } = props;
+	const modeling = useService("modeling");
+	const translate = useService("translate");
+	const bo = getBusinessObject(element);
+
+	const currentValue = getAttr(bo, "aiAgentConfig");
+
+	const fetchConfigs = (txt) =>
+		frappeGet("/api/resource/AI Agent Configuration", {
+			fields: '["name","agent_id"]',
+			filters: JSON.stringify([
+				["enabled", "=", 1],
+				...(txt ? [["name", "like", `%${txt}%`]] : []),
+			]),
+			limit_page_length: 50,
+			order_by: "name asc",
+		});
+
+	// On select: record the reference, then seed each mapped field into the
+	// shape's own attributes (one-time copy — see module note).
+	const onConfigSelect = (value) => {
+		setAttr(modeling, element, bo, "aiAgentConfig", value);
+		if (!value) return;
+		frappePost(
+			"/api/method/one_bpmn.agents.agent_config_resolver.get_agent_config_for_shape",
+			{ config_name: value },
+		)
+			.then((res) => {
+				const fields = (res && res.message) || {};
+				Object.entries(fields).forEach(([attr, val]) => {
+					setAttr(modeling, element, bo, attr, val);
+				});
+			})
+			.catch(() => {});
+	};
+
+	return h(
+		"div",
+		{ class: "bio-properties-panel-entry", "data-entry-id": id },
+		h("div", { class: "bio-properties-panel-textfield" }, [
+			h(
+				"label",
+				{
+					class: "bio-properties-panel-label",
+					title: translate(
+						"Optionally link this task to a saved AI Agent Configuration. At run time the configuration is authoritative for prompt, provider, model and params; the fields below show its current values and act as the fallback if it is deleted. Tools are not imported — the toolkit stays this diagram's ad-hoc shapes."
+					),
+				},
+				translate("Linked AI Agent Configuration")
+			),
+			h(FrappeAutocomplete, {
+				value: currentValue,
+				placeholder: translate("Select a configuration to link…"),
+				fetchApi: fetchConfigs,
+				valueField: "name",
+				renderOption: (opt) => opt.name,
+				onChange: onConfigSelect,
+			}),
+			currentValue
+				? h(
+						"div",
+						{ class: "bio-properties-panel-description" },
+						translate("Linked to: {{config}} — prompt, provider, model and params resolve from this configuration at run time. The task dialog's Save writes edits back to it.").replace(
+							"{{config}}",
+							currentValue
+						)
+				  )
+				: null,
+		])
+	);
 }
 
 // ---------------------------------------------------------------------------

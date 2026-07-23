@@ -9,6 +9,28 @@
         </div>
 
         <div class="modal-body">
+          <!-- Linked AI Agent Configuration (WI-001637 live link). Selecting
+               one shows its current values in the fields below; at run time
+               the configuration is authoritative for agent-level fields, and
+               saving this dialog writes agent-level edits back to it. Tools
+               are not imported — the toolkit stays this diagram's shapes. -->
+          <div class="field-row">
+            <label>
+              Linked AI Agent Configuration
+              <span class="hint">(optional)</span>
+            </label>
+            <select v-model="form.aiAgentConfig" @change="onAgentConfigSelect">
+              <option value="">-- None --</option>
+              <option v-for="c in agentConfigs" :key="c.name" :value="c.name">
+                {{ c.name }}
+              </option>
+            </select>
+            <span v-if="form.aiAgentConfig" class="field-hint">
+              Prompt, provider, model and params resolve from this configuration
+              when the process runs. Saving writes your edits back to it.
+            </span>
+          </div>
+
           <!-- Backend (selector always runs direct_api) -->
           <div class="field-row" v-if="!isSelector">
             <label>Backend</label>
@@ -378,9 +400,11 @@ const SELECTOR_FIELDS = [
 const emit = defineEmits(["close"]);
 
 const providers = ref([]);
+const agentConfigs = ref([]);
 
 // Form state — defaults
 const form = ref({
+  aiAgentConfig: "",
   aiBackend: "direct_api",
   aiProvider: "",
   aiModel: "",
@@ -682,6 +706,19 @@ onMounted(async () => {
     providers.value = [];
   }
 
+  // Load selectable AI Agent Configurations for the seed dropdown.
+  try {
+    const cfgs = await frappeGet("/api/resource/AI Agent Configuration", {
+      fields: JSON.stringify(["name", "agent_id"]),
+      filters: JSON.stringify([["enabled", "=", 1]]),
+      limit_page_length: 100,
+      order_by: "name asc",
+    });
+    agentConfigs.value = Array.isArray(cfgs) ? cfgs : [];
+  } catch (e) {
+    agentConfigs.value = [];
+  }
+
   // Load DocType names for the Context DocType autocomplete.
   try {
     const rows = await frappeRequest({
@@ -710,6 +747,7 @@ onMounted(async () => {
     return Number.isFinite(v) ? v : fallback;
   };
   form.value = {
+    aiAgentConfig: get("aiAgentConfig") || "",
     aiBackend: get("aiBackend") || "direct_api",
     aiProvider: get("aiProvider") || "",
     aiModel: get("aiModel") || "",
@@ -758,7 +796,64 @@ onMounted(async () => {
   }
 });
 
-function save() {
+// Pull the linked configuration's current values into the form (WI-001637
+// live link). The resolver returns shape-attribute keys (aiSystemPrompt,
+// aiProvider, aiModel, aiTemperature, aiMaxTokens) that map directly onto our
+// form fields. At run time the configuration is authoritative for these
+// fields; editing them here and saving writes the changes back to it.
+async function onAgentConfigSelect() {
+  const value = form.value.aiAgentConfig;
+  if (!value) return;
+  try {
+    const fields = await frappeRequest({
+      url: "/api/method/one_bpmn.agents.agent_config_resolver.get_agent_config_for_shape",
+      method: "POST",
+      params: { config_name: value },
+    });
+    Object.entries(fields || {}).forEach(([key, val]) => {
+      if (key in form.value) form.value[key] = val;
+    });
+  } catch (e) {
+    /* leave the current field values as-is if the seed lookup fails */
+  }
+}
+
+// WI-001637 live link: on Save, write agent-level edits back to the linked
+// AI Agent Configuration. Selector mode omits temperature — the selector
+// dialog never shows it, so its form default must not clobber the record.
+// Failure never blocks the shape save; the user is warned instead. A Live
+// agent is automatically re-provisioned by the backend so its chat map picks
+// up the change — surface that so the brief non-Live window isn't a surprise.
+async function writeBackToConfig() {
+  if (!form.value.aiAgentConfig) return;
+  const fields = {
+    aiProvider: form.value.aiProvider,
+    aiSystemPrompt: form.value.aiSystemPrompt,
+    aiMaxTokens: form.value.aiMaxTokens,
+  };
+  if (!isSelector.value) fields.aiTemperature = form.value.aiTemperature;
+  try {
+    const res = await frappeRequest({
+      url: "/api/method/one_bpmn.agents.agent_config_resolver.update_agent_config_from_shape",
+      method: "POST",
+      params: { config_name: form.value.aiAgentConfig, fields: JSON.stringify(fields) },
+    });
+    if (res && res.reprovisioned) {
+      alert(
+        `"${form.value.aiAgentConfig}" was Live, so it is being re-provisioned ` +
+          "with your changes (validate → provision → Live)."
+      );
+    }
+  } catch (e) {
+    alert(
+      `The task was saved, but writing the changes back to "${form.value.aiAgentConfig}" failed: ` +
+        (e?.message || e) +
+        "\nUpdate the AI Agent Configuration record directly if the change should apply to the agent."
+    );
+  }
+}
+
+async function save() {
   // Block save when no model can be resolved: the Model field is empty AND the
   // selected provider has no Default Model to fall back on at runtime.
   if (!form.value.aiModel || !form.value.aiModel.trim()) {
@@ -791,6 +886,7 @@ function save() {
     // serviceType/aiToolSources (owned by the properties panel) and never
     // write agent-only attrs onto the ad-hoc subprocess.
     modeling.updateModdleProperties(element, bo, {
+      "spiffworkflow:aiAgentConfig": form.value.aiAgentConfig || undefined,
       "spiffworkflow:aiProvider": form.value.aiProvider || undefined,
       "spiffworkflow:aiModel": form.value.aiModel || undefined,
       "spiffworkflow:aiSystemPrompt": form.value.aiSystemPrompt || undefined,
@@ -798,11 +894,13 @@ function save() {
       "spiffworkflow:aiMaxTokens": String(form.value.aiMaxTokens),
       "spiffworkflow:aiTimeout": String(form.value.aiTimeout),
     });
+    await writeBackToConfig();
     emit("close");
     return;
   }
 
   const patch = {
+    "spiffworkflow:aiAgentConfig": form.value.aiAgentConfig || undefined,
     "spiffworkflow:aiBackend": form.value.aiBackend || undefined,
     "spiffworkflow:aiProvider": form.value.aiProvider || undefined,
     "spiffworkflow:aiModel": form.value.aiModel || undefined,
@@ -834,6 +932,7 @@ function save() {
   };
 
   modeling.updateModdleProperties(element, bo, patch);
+  await writeBackToConfig();
   emit("close");
 }
 </script>
