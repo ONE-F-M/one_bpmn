@@ -3,7 +3,7 @@
 """
 Docu API — the whitelisted surface the DocuCanvas Vue panel calls.
 
-- ``docu_chat``           one chat turn → DocuAgent → structured result dict
+- ``docu_chat``           one chat turn → the generic agent path → structured result dict
 - ``get_doctype_schema``  read an existing DocType into the Docu IR (form builder)
 - ``check_doctype_exists``{exists, custom}
 - ``apply_doctype``       create / update a real (custom) DocType from a Docu IR
@@ -19,7 +19,6 @@ import json
 import frappe
 from frappe import _
 
-from one_bpmn.agents.google_adk.docu_agent.docu_agent import _read_doctype_ir
 from one_bpmn.agents.google_adk.docu_agent.tools import (
 	diff_ir,
 	DOCFIELD_ATTRS,
@@ -28,6 +27,7 @@ from one_bpmn.agents.google_adk.docu_agent.tools import (
 	DOCTYPE_SETTING_FLAGS,
 	DOCTYPE_SETTING_INTS,
 	DOCTYPE_SETTING_STRS,
+	read_doctype_definition as _read_doctype_ir,
 )
 from one_bpmn.security.doctype_validator import RESERVED_FIELDNAMES, validate_doctype_ir
 
@@ -70,13 +70,21 @@ def docu_chat(
 	                        # a JSON string, or None — so Frappe's type coercion can
 	                        # never reject the wire format (avoids FrappeTypeError).
 ) -> dict:
-	"""Run one Docu chat turn through the BPMN process instance.
+	"""Run one Docu chat turn through the generic agent path (WI-001539).
 
-	Mirrors ``server_script_api.process_logix_message``: the first turn creates a
-	Chat Conversation (agent_mode="Docu"), which spawns the Docu process map's
-	instance; every turn is delivered to that instance, which runs the pipeline
-	(Build Context → Run Docu Agent → Save Response) and produces the Bot reply.
-	The agent is NEVER invoked directly here — the map is the only execution path.
+	Docu chat is no longer orchestrated here: this endpoint is a thin alias that
+	opens the conversation with ``create_agent_conversation`` and hands the turn to
+	``invoke_agent("docu_agent", …)``, exactly like every other configured agent
+	(and like ``process_logix_message`` / ``prosally_chat``). Its only remaining job
+	is the DocuCanvas panel's request/response contract — the editor state it sends
+	and the ``{intent, response, conversation_name, doctype_ir, diff, …}`` reply it
+	consumes. Because the ``docu_agent`` configuration links the Docu process map,
+	``invoke_agent`` selects the ``bpmn_map`` runner and the map still performs all
+	the work (Save User Message → Run Docu Agent → Save Response), so behavior is
+	unchanged. The schema helpers below (preview/apply/read) are untouched.
+
+	This synchronous variant is retained for parity; DocuCanvas uses the async
+	``docu_chat_async``/``docu_chat_status`` pair because a Docu turn runs 25–50s.
 	"""
 	if frappe.session.user == "Guest":
 		frappe.throw(_("Please sign in to use Docu."), frappe.PermissionError)
@@ -84,29 +92,34 @@ def docu_chat(
 		frappe.throw(_("Message is required"))
 
 	try:
-		from one_bpmn.utils.chat_persistence import create_conversation
-		from one_bpmn.api.server_script_api import _delegate_to_bpmn_instance
+		from one_bpmn.api.agent_invocation import invoke_agent
+		from one_bpmn.utils.chat_persistence import create_agent_conversation
 
-		# First message → create the conversation, which triggers the Docu map and
-		# spawns the orchestrating instance (parked at "Waiting for User Message").
+		# First turn → open the conversation (stamped with the agent's chat mode
+		# label "Docu"), which arms the process map's conditional start trigger and
+		# spawns the orchestrating instance. Created here (rather than letting
+		# invoke_agent create it) to preserve the "Docu: <label>" title.
 		if not conversation_name:
 			label = doctype or "DocType"
-			conversation_name = create_conversation(
-				agent_mode="Docu",
-				title=f"Docu: {label}",
-				user=frappe.session.user,
+			conversation_name = create_agent_conversation(
+				"docu_agent", title=f"Docu: {label}", user=frappe.session.user
 			)
 
-		bpmn_result = _delegate_to_bpmn_instance(
-			conversation_name,
-			message,
-			context={
-				"doctype": doctype or "",
-				"target_module": target_module or "",
-				"process_context": _parse(process_context, {}),
-			},
-		)
-		if bpmn_result is None:
+		try:
+			result = invoke_agent(
+				"docu_agent",
+				message,
+				conversation=conversation_name,
+				context={
+					"doctype": doctype or "",
+					"target_module": target_module or "",
+					"process_context": _parse(process_context, {}),
+				},
+			)
+		except frappe.ValidationError:
+			# No instance is driving this conversation (map never armed or the
+			# instance died) — the generic runner throws; surface the same reopen
+			# guidance the panel showed before, over a 200 response.
 			return {
 				"intent": "ERROR",
 				"response": "The Docu process orchestration isn't running for this conversation. Please reopen the chat.",
@@ -114,9 +127,10 @@ def docu_chat(
 				"doctype_ir": None, "diff": None, "options": None, "suggested_name": None,
 			}
 
-		bpmn_result["conversation_name"] = conversation_name
-		bpmn_result["session_id"] = session_id
-		return bpmn_result
+		# The panel keys on ``conversation_name``; invoke_agent returns ``conversation``.
+		result["conversation_name"] = result.get("conversation") or conversation_name
+		result["session_id"] = session_id
+		return result
 
 	except Exception:
 		frappe.log_error(title="Docu chat failed", message=frappe.get_traceback())
@@ -139,6 +153,12 @@ def docu_chat(
 # browser request time out (the generic "Something went wrong"). Instead we
 # create the conversation synchronously (fast), enqueue the slow turn on a
 # worker, and let the client poll ``docu_chat_status`` for the result.
+#
+# This is a thin async wrapper over the generic ``invoke_agent`` entry point
+# (WI-001539): the enqueued worker (``_run_docu_turn``) is the only thing that
+# calls it, so the enqueue-and-poll shape wraps cleanly around the same path
+# every other agent uses. The conversation is still opened here (fast) via
+# ``create_agent_conversation`` so the client gets ``conversation_name`` at once.
 
 _TURN_TTL_SEC = 900  # keep a finished turn's result retrievable for 15 min
 
@@ -162,23 +182,23 @@ def docu_chat_async(
 	"""Kick off one Docu turn in the background and return a ``turn_id`` to poll.
 
 	The conversation is created here (fast, so the client gets ``conversation_name``
-	immediately); the slow BPMN delegation runs in ``_run_docu_turn`` on a worker.
-	``chat_history`` is accepted for client parity but, as in ``docu_chat``, is not
-	forwarded — the BPMN instance carries the conversation's own history.
+	immediately) via ``create_agent_conversation``, which stamps the agent's chat
+	mode label and arms the Docu process map; the slow turn runs through
+	``invoke_agent`` in ``_run_docu_turn`` on a worker. ``chat_history`` is accepted
+	for client parity but, as in ``docu_chat``, is not forwarded — the BPMN instance
+	carries the conversation's own history.
 	"""
 	if frappe.session.user == "Guest":
 		frappe.throw(_("Please sign in to use Docu."), frappe.PermissionError)
 	if not (message or "").strip():
 		frappe.throw(_("Message is required"))
 
-	from one_bpmn.utils.chat_persistence import create_conversation
+	from one_bpmn.utils.chat_persistence import create_agent_conversation
 
 	if not conversation_name:
 		label = doctype or "DocType"
-		conversation_name = create_conversation(
-			agent_mode="Docu",
-			title=f"Docu: {label}",
-			user=frappe.session.user,
+		conversation_name = create_agent_conversation(
+			"docu_agent", title=f"Docu: {label}", user=frappe.session.user
 		)
 
 	turn_id = frappe.generate_hash(length=14)
@@ -210,23 +230,29 @@ def docu_chat_async(
 
 
 def _run_docu_turn(turn_id: str, conversation_name: str, message: str, context: dict, user: str) -> None:
-	"""Background worker: run the slow BPMN turn and cache the result for polling."""
+	"""Background worker: run the slow turn through the generic agent path and
+	cache the result for polling.
+
+	This is where the async wrapper meets the generic entry point: it calls
+	``invoke_agent("docu_agent", …)`` (which, because the config links the Docu
+	map, drives the same Save User Message → Run Docu Agent → Save Response
+	pipeline) rather than delegating to the BPMN instance directly.
+	"""
 	key = _turn_key(turn_id)
 	try:
 		frappe.set_user(user)
-		from one_bpmn.api.server_script_api import _delegate_to_bpmn_instance
+		from one_bpmn.api.agent_invocation import invoke_agent
 
-		bpmn_result = _delegate_to_bpmn_instance(conversation_name, message, context=context)
-		if bpmn_result is None:
+		try:
+			result = invoke_agent("docu_agent", message, conversation=conversation_name, context=context)
+			result["conversation_name"] = result.get("conversation") or conversation_name
+		except frappe.ValidationError:
 			result = {
 				"intent": "ERROR",
 				"response": _("The Docu process orchestration isn't running for this conversation. Please reopen the chat."),
 				"conversation_name": conversation_name,
 				"doctype_ir": None, "diff": None, "options": None, "suggested_name": None,
 			}
-		else:
-			bpmn_result["conversation_name"] = conversation_name
-			result = bpmn_result
 
 		frappe.cache().set_value(key, {"status": "done", "result": result}, expires_in_sec=_TURN_TTL_SEC)
 	except Exception:
