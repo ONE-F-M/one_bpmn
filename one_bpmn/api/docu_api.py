@@ -3,7 +3,7 @@
 """
 Docu API — the whitelisted surface the DocuCanvas Vue panel calls.
 
-- ``docu_chat``           one chat turn → DocuAgent → structured result dict
+- ``docu_chat``           one chat turn → the generic agent path → structured result dict
 - ``get_doctype_schema``  read an existing DocType into the Docu IR (form builder)
 - ``check_doctype_exists``{exists, custom}
 - ``apply_doctype``       create / update a real (custom) DocType from a Docu IR
@@ -19,7 +19,6 @@ import json
 import frappe
 from frappe import _
 
-from one_bpmn.agents.google_adk.docu_agent.docu_agent import _read_doctype_ir
 from one_bpmn.agents.google_adk.docu_agent.tools import (
 	diff_ir,
 	DOCFIELD_ATTRS,
@@ -28,8 +27,9 @@ from one_bpmn.agents.google_adk.docu_agent.tools import (
 	DOCTYPE_SETTING_FLAGS,
 	DOCTYPE_SETTING_INTS,
 	DOCTYPE_SETTING_STRS,
+	read_doctype_definition as _read_doctype_ir,
 )
-from one_bpmn.security.doctype_validator import validate_doctype_ir
+from one_bpmn.security.doctype_validator import RESERVED_FIELDNAMES, validate_doctype_ir
 
 _LAYOUT_FIELDTYPES = ("Section Break", "Column Break", "Tab Break")
 _TABLE_FIELDTYPES = ("Table", "Table MultiSelect")
@@ -70,13 +70,21 @@ def docu_chat(
 	                        # a JSON string, or None — so Frappe's type coercion can
 	                        # never reject the wire format (avoids FrappeTypeError).
 ) -> dict:
-	"""Run one Docu chat turn through the BPMN process instance.
+	"""Run one Docu chat turn through the generic agent path (WI-001539).
 
-	Mirrors ``server_script_api.process_logix_message``: the first turn creates a
-	Chat Conversation (agent_mode="Docu"), which spawns the Docu process map's
-	instance; every turn is delivered to that instance, which runs the pipeline
-	(Build Context → Run Docu Agent → Save Response) and produces the Bot reply.
-	The agent is NEVER invoked directly here — the map is the only execution path.
+	Docu chat is no longer orchestrated here: this endpoint is a thin alias that
+	opens the conversation with ``create_agent_conversation`` and hands the turn to
+	``invoke_agent("docu_agent", …)``, exactly like every other configured agent
+	(and like ``process_logix_message`` / ``prosally_chat``). Its only remaining job
+	is the DocuCanvas panel's request/response contract — the editor state it sends
+	and the ``{intent, response, conversation_name, doctype_ir, diff, …}`` reply it
+	consumes. Because the ``docu_agent`` configuration links the Docu process map,
+	``invoke_agent`` selects the ``bpmn_map`` runner and the map still performs all
+	the work (Save User Message → Run Docu Agent → Save Response), so behavior is
+	unchanged. The schema helpers below (preview/apply/read) are untouched.
+
+	This synchronous variant is retained for parity; DocuCanvas uses the async
+	``docu_chat_async``/``docu_chat_status`` pair because a Docu turn runs 25–50s.
 	"""
 	if frappe.session.user == "Guest":
 		frappe.throw(_("Please sign in to use Docu."), frappe.PermissionError)
@@ -84,29 +92,34 @@ def docu_chat(
 		frappe.throw(_("Message is required"))
 
 	try:
-		from one_bpmn.utils.chat_persistence import create_conversation
-		from one_bpmn.api.server_script_api import _delegate_to_bpmn_instance
+		from one_bpmn.api.agent_invocation import invoke_agent
+		from one_bpmn.utils.chat_persistence import create_agent_conversation
 
-		# First message → create the conversation, which triggers the Docu map and
-		# spawns the orchestrating instance (parked at "Waiting for User Message").
+		# First turn → open the conversation (stamped with the agent's chat mode
+		# label "Docu"), which arms the process map's conditional start trigger and
+		# spawns the orchestrating instance. Created here (rather than letting
+		# invoke_agent create it) to preserve the "Docu: <label>" title.
 		if not conversation_name:
 			label = doctype or "DocType"
-			conversation_name = create_conversation(
-				agent_mode="Docu",
-				title=f"Docu: {label}",
-				user=frappe.session.user,
+			conversation_name = create_agent_conversation(
+				"docu_agent", title=f"Docu: {label}", user=frappe.session.user
 			)
 
-		bpmn_result = _delegate_to_bpmn_instance(
-			conversation_name,
-			message,
-			context={
-				"doctype": doctype or "",
-				"target_module": target_module or "",
-				"process_context": _parse(process_context, {}),
-			},
-		)
-		if bpmn_result is None:
+		try:
+			result = invoke_agent(
+				"docu_agent",
+				message,
+				conversation=conversation_name,
+				context={
+					"doctype": doctype or "",
+					"target_module": target_module or "",
+					"process_context": _parse(process_context, {}),
+				},
+			)
+		except frappe.ValidationError:
+			# No instance is driving this conversation (map never armed or the
+			# instance died) — the generic runner throws; surface the same reopen
+			# guidance the panel showed before, over a 200 response.
 			return {
 				"intent": "ERROR",
 				"response": "The Docu process orchestration isn't running for this conversation. Please reopen the chat.",
@@ -114,9 +127,10 @@ def docu_chat(
 				"doctype_ir": None, "diff": None, "options": None, "suggested_name": None,
 			}
 
-		bpmn_result["conversation_name"] = conversation_name
-		bpmn_result["session_id"] = session_id
-		return bpmn_result
+		# The panel keys on ``conversation_name``; invoke_agent returns ``conversation``.
+		result["conversation_name"] = result.get("conversation") or conversation_name
+		result["session_id"] = session_id
+		return result
 
 	except Exception:
 		frappe.log_error(title="Docu chat failed", message=frappe.get_traceback())
@@ -139,6 +153,12 @@ def docu_chat(
 # browser request time out (the generic "Something went wrong"). Instead we
 # create the conversation synchronously (fast), enqueue the slow turn on a
 # worker, and let the client poll ``docu_chat_status`` for the result.
+#
+# This is a thin async wrapper over the generic ``invoke_agent`` entry point
+# (WI-001539): the enqueued worker (``_run_docu_turn``) is the only thing that
+# calls it, so the enqueue-and-poll shape wraps cleanly around the same path
+# every other agent uses. The conversation is still opened here (fast) via
+# ``create_agent_conversation`` so the client gets ``conversation_name`` at once.
 
 _TURN_TTL_SEC = 900  # keep a finished turn's result retrievable for 15 min
 
@@ -162,23 +182,23 @@ def docu_chat_async(
 	"""Kick off one Docu turn in the background and return a ``turn_id`` to poll.
 
 	The conversation is created here (fast, so the client gets ``conversation_name``
-	immediately); the slow BPMN delegation runs in ``_run_docu_turn`` on a worker.
-	``chat_history`` is accepted for client parity but, as in ``docu_chat``, is not
-	forwarded — the BPMN instance carries the conversation's own history.
+	immediately) via ``create_agent_conversation``, which stamps the agent's chat
+	mode label and arms the Docu process map; the slow turn runs through
+	``invoke_agent`` in ``_run_docu_turn`` on a worker. ``chat_history`` is accepted
+	for client parity but, as in ``docu_chat``, is not forwarded — the BPMN instance
+	carries the conversation's own history.
 	"""
 	if frappe.session.user == "Guest":
 		frappe.throw(_("Please sign in to use Docu."), frappe.PermissionError)
 	if not (message or "").strip():
 		frappe.throw(_("Message is required"))
 
-	from one_bpmn.utils.chat_persistence import create_conversation
+	from one_bpmn.utils.chat_persistence import create_agent_conversation
 
 	if not conversation_name:
 		label = doctype or "DocType"
-		conversation_name = create_conversation(
-			agent_mode="Docu",
-			title=f"Docu: {label}",
-			user=frappe.session.user,
+		conversation_name = create_agent_conversation(
+			"docu_agent", title=f"Docu: {label}", user=frappe.session.user
 		)
 
 	turn_id = frappe.generate_hash(length=14)
@@ -210,23 +230,29 @@ def docu_chat_async(
 
 
 def _run_docu_turn(turn_id: str, conversation_name: str, message: str, context: dict, user: str) -> None:
-	"""Background worker: run the slow BPMN turn and cache the result for polling."""
+	"""Background worker: run the slow turn through the generic agent path and
+	cache the result for polling.
+
+	This is where the async wrapper meets the generic entry point: it calls
+	``invoke_agent("docu_agent", …)`` (which, because the config links the Docu
+	map, drives the same Save User Message → Run Docu Agent → Save Response
+	pipeline) rather than delegating to the BPMN instance directly.
+	"""
 	key = _turn_key(turn_id)
 	try:
 		frappe.set_user(user)
-		from one_bpmn.api.server_script_api import _delegate_to_bpmn_instance
+		from one_bpmn.api.agent_invocation import invoke_agent
 
-		bpmn_result = _delegate_to_bpmn_instance(conversation_name, message, context=context)
-		if bpmn_result is None:
+		try:
+			result = invoke_agent("docu_agent", message, conversation=conversation_name, context=context)
+			result["conversation_name"] = result.get("conversation") or conversation_name
+		except frappe.ValidationError:
 			result = {
 				"intent": "ERROR",
 				"response": _("The Docu process orchestration isn't running for this conversation. Please reopen the chat."),
 				"conversation_name": conversation_name,
 				"doctype_ir": None, "diff": None, "options": None, "suggested_name": None,
 			}
-		else:
-			bpmn_result["conversation_name"] = conversation_name
-			result = bpmn_result
 
 		frappe.cache().set_value(key, {"status": "done", "result": result}, expires_in_sec=_TURN_TTL_SEC)
 	except Exception:
@@ -396,8 +422,15 @@ def apply_doctype(ir: str, confirm: int = 0) -> dict:
 	if not isinstance(ir_dict, dict):
 		frappe.throw(_("Invalid form definition."))
 
-	# 1) Server-side safety gate — never trust the client IR.
-	verdict = validate_doctype_ir(ir_dict)
+	# 1) Server-side safety gate — never trust the client IR. When customizing an
+	#    existing DocType, its own fields (incl. reserved/standard ones like
+	#    amended_from) are passed through untouched, so they are exempted from the
+	#    new-field checks; only genuinely new fields are strictly validated.
+	_name = (ir_dict.get("doctype_name") or "").strip()
+	existing_fieldnames = set()
+	if _name and frappe.db.exists("DocType", _name):
+		existing_fieldnames = {f.fieldname for f in frappe.get_meta(_name).fields if f.fieldname}
+	verdict = validate_doctype_ir(ir_dict, existing_fieldnames=existing_fieldnames)
 	if not verdict["valid"]:
 		frappe.throw(_("The form has problems that must be fixed first:<br>") + "<br>".join(verdict["violations"]))
 
@@ -448,7 +481,7 @@ def apply_doctype(ir: str, confirm: int = 0) -> dict:
 		elif frappe.db.get_value("DocType", name, "custom"):
 			action = _reconcile_custom_doctype(name, is_child, autoname, fields, settings)
 		else:
-			action = _add_custom_fields(name, fields)
+			action = _customize_standard_doctype(name, fields)
 		frappe.db.commit()
 	except frappe.PermissionError:
 		raise
@@ -624,7 +657,7 @@ def _reconcile_custom_doctype(name: str, is_child: int, autoname: str, fields: l
 	The IR (seeded from the live schema and echoed back by the writer) is the
 	complete desired field set, so we rebuild the child table from it via
 	``doc.set`` — Frappe adds/updates/drops the DB columns on save. Only ever
-	called for custom DocTypes; standard types go through ``_add_custom_fields``.
+	called for custom DocTypes; standard types go through ``_customize_standard_doctype``.
 	"""
 	doc = frappe.get_doc("DocType", name)
 	payloads = []
@@ -644,23 +677,210 @@ def _reconcile_custom_doctype(name: str, is_child: int, autoname: str, fields: l
 	return "updated"
 
 
-def _add_custom_fields(name: str, fields: list) -> str:
-	"""Add only the not-yet-present fields to a STANDARD DocType as Custom Fields.
+def _customize_standard_doctype(name: str, fields: list) -> str:
+	"""Apply Docu IR field changes to a STANDARD DocType via Customize Form.
 
-	Core/standard fields are never modified — this is the non-destructive path.
+	Customize Form is Frappe's supported mechanism for changing a standard
+	DocType: brand-new fields are materialised as Custom Fields, and edits to
+	existing (standard or custom) fields are emitted as Property Setters. The
+	DocType's own source definition is never touched.
 	"""
-	from frappe.custom.doctype.custom_field.custom_field import create_custom_fields
+	# Single DocTypes can't go through Customize Form (Frappe raises "Single
+	# DocTypes cannot be customized"). They still accept Custom Fields and
+	# Property Setters, so route them through a Customize-Form-free path.
+	if frappe.db.get_value("DocType", name, "issingle"):
+		return _customize_single_doctype(name, fields)
 
-	meta = frappe.get_meta(name)
-	present = {f.fieldname for f in meta.fields}
-	to_add = [
-		_docfield_dict(f, i + 1)
-		for i, f in enumerate(fields)
-		if (f.get("fieldname") or "").strip()
-		and f.get("fieldname") not in present
-		and f.get("fieldtype") not in ("Section Break", "Column Break", "Tab Break")
-	]
-	if not to_add:
+	from frappe.custom.doctype.customize_form.customize_form import docfield_properties
+
+	cf = frappe.get_doc("Customize Form")
+	cf.doc_type = name
+	cf.fetch_to_customize()
+
+	existing = {row.fieldname: row for row in cf.fields if row.fieldname}
+	changed = False
+	# Brand-new fields, materialised as Custom Fields after the customize pass.
+	new_fields: list = []
+	# (fieldname, prop) → desired value, for edits to already-present fields. Used
+	# to force through any change Frappe's Customize Form soft-guards refuse.
+	desired: dict = {}
+
+	for field in fields:
+		# Never customise layout breaks or Frappe's reserved/standard meta fields
+		# (name, amended_from, docstatus, …). They round-trip through the IR but
+		# must be left untouched — touching them only produces spurious Property
+		# Setters (e.g. a "column_break_4" label) or is outright rejected.
+		if field.get("fieldtype") in _LAYOUT_FIELDTYPES:
+			continue
+		fieldname = (field.get("fieldname") or "").strip()
+		if not fieldname or fieldname in RESERVED_FIELDNAMES:
+			continue
+		row = existing.get(fieldname)
+		if row is None:
+			# Brand-new field → collected now, created as a Custom Field below.
+			new_fields.append(_docfield_dict(field, len(new_fields) + 1))
+			changed = True
+		else:
+			# Existing field — apply only the Customize-Form-editable props that
+			# Docu supplied and that GENUINELY differ. Values are normalised per
+			# property type so the IR's coerced blanks ("" / 0) don't read as
+			# changes against the live None values — otherwise every field would
+			# spawn a flood of no-op Property Setters on save.
+			for prop in docfield_properties:
+				if prop == "idx" or prop not in field:
+					continue
+				want = _norm_prop(prop, field[prop], docfield_properties)
+				if want == _norm_prop(prop, row.get(prop), docfield_properties):
+					continue
+				row.set(prop, want)
+				desired[(fieldname, prop)] = want
+				changed = True
+
+	if not changed:
 		return "unchanged"
-	create_custom_fields({name: to_add}, ignore_validate=False)
-	return "fields_added"
+
+	# Edits to already-present fields (standard → Property Setters, custom → the
+	# Custom Field itself) go through Customize Form's own save.
+	if desired:
+		cf.flags.ignore_permissions = True
+		cf.hide_success = True
+		cf.save_customization()
+
+		# Force any standard-field change Frappe's Customize Form soft-guards
+		# refused (e.g. disabling Mandatory on a standard field) by writing the
+		# Property Setter directly. Allowed/custom changes already applied above,
+		# so they compare equal here and are skipped.
+		_force_refused_property_changes(name, desired, docfield_properties)
+
+	# Brand-new fields → materialised as Custom Fields (reliable, avoids the
+	# Customize-Form append path).
+	if new_fields:
+		from frappe.custom.doctype.custom_field.custom_field import create_custom_fields
+
+		create_custom_fields({name: new_fields}, ignore_validate=False)
+
+	frappe.clear_cache(doctype=name)
+	return "customized"
+
+
+def _customize_single_doctype(name: str, fields: list) -> str:
+	"""Apply Docu IR field changes to a STANDARD *Single* DocType.
+
+	Frappe's Customize Form refuses Single DocTypes, so this bypasses it: new
+	fields become Custom Fields and edits to existing fields become Property
+	Setters directly — both fully supported on Single DocTypes. Mirrors the
+	new-field / forced-edit logic of ``_customize_standard_doctype`` without the
+	Customize Form round-trip.
+	"""
+	from frappe.custom.doctype.customize_form.customize_form import docfield_properties
+
+	frappe.clear_cache(doctype=name)
+	meta = frappe.get_meta(name)
+	existing = {df.fieldname: df for df in meta.fields if df.fieldname}
+
+	new_fields: list = []
+	# (fieldname, prop) → desired value, for edits to already-present fields.
+	desired: dict = {}
+	# The most recent already-present field seen while walking the IR in order.
+	# A brand-new field is positioned right after it (Custom Field ``insert_after``)
+	# so IR order is honoured — e.g. a field inserted "before footer" lands after
+	# whatever precedes footer, rather than being appended at the end.
+	last_existing: str | None = None
+
+	for field in fields:
+		if field.get("fieldtype") in _LAYOUT_FIELDTYPES:
+			continue
+		fieldname = (field.get("fieldname") or "").strip()
+		if not fieldname or fieldname in RESERVED_FIELDNAMES:
+			continue
+		df = existing.get(fieldname)
+		if df is None:
+			payload = _docfield_dict(field, len(new_fields) + 1)
+			if last_existing:
+				payload["insert_after"] = last_existing
+			new_fields.append(payload)
+		else:
+			last_existing = fieldname
+			for prop in docfield_properties:
+				if prop == "idx" or prop not in field:
+					continue
+				want = _norm_prop(prop, field[prop], docfield_properties)
+				if want == _norm_prop(prop, df.get(prop), docfield_properties):
+					continue
+				desired[(fieldname, prop)] = want
+
+	if not new_fields and not desired:
+		return "unchanged"
+
+	# Brand-new fields → Custom Fields (supported on Single DocTypes).
+	if new_fields:
+		from frappe.custom.doctype.custom_field.custom_field import create_custom_fields
+
+		create_custom_fields({name: new_fields}, ignore_validate=False)
+
+	# Edits to existing fields → Property Setters written directly.
+	for (fieldname, prop), val in desired.items():
+		_force_property_setter(name, fieldname, prop, val, docfield_properties.get(prop) or "Data")
+
+	frappe.clear_cache(doctype=name)
+	return "customized"
+
+
+def _force_refused_property_changes(doctype: str, desired: dict, docfield_properties: dict) -> None:
+	"""Write Property Setters directly for edits Customize Form refused to persist."""
+	if not desired:
+		return
+	frappe.clear_cache(doctype=doctype)
+	meta = frappe.get_meta(doctype)
+	for (fieldname, prop), val in desired.items():
+		df = meta.get_field(fieldname)
+		if not df:
+			continue
+		if _norm_prop(prop, df.get(prop), docfield_properties) == _norm_prop(prop, val, docfield_properties):
+			continue  # already applied (allowed change, or a custom field)
+		_force_property_setter(doctype, fieldname, prop, val, docfield_properties.get(prop) or "Data")
+
+
+def _norm_prop(prop: str, value, prop_types: dict):
+	"""Normalise a DocField property value for change detection.
+
+	Coerces per the property's type so the IR's blanks (``""`` / ``0`` / ``None``)
+	compare equal to the live meta values and don't register as edits.
+	"""
+	t = prop_types.get(prop)
+	if t == "Check":
+		return 1 if value else 0
+	if t == "Int":
+		try:
+			return int(value or 0)
+		except (TypeError, ValueError):
+			return 0
+	return "" if value in (None, "") else value
+
+
+def _force_property_setter(doctype: str, fieldname: str, prop: str, value, property_type: str) -> None:
+	"""Upsert a Property Setter, bypassing Customize Form's soft guards."""
+	if property_type == "Check":
+		ps_value = "1" if value else "0"
+	else:
+		ps_value = "" if value is None else str(value)
+
+	ps_name = f"{doctype}-{fieldname}-{prop}"
+	if frappe.db.exists("Property Setter", ps_name):
+		ps = frappe.get_doc("Property Setter", ps_name)
+		ps.value = ps_value
+		ps.property_type = property_type
+		ps.flags.ignore_permissions = True
+		ps.save(ignore_permissions=True)
+	else:
+		frappe.make_property_setter(
+			{
+				"doctype": doctype,
+				"doctype_or_field": "DocField",
+				"fieldname": fieldname,
+				"property": prop,
+				"value": ps_value,
+				"property_type": property_type,
+			},
+			is_system_generated=False,
+		)

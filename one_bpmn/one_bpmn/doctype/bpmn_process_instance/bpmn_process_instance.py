@@ -467,11 +467,14 @@ class BPMNProcessInstance(Document):
 		caught = bpmn_engine.send_message(wf, message_name, payload=payload)
 
 		if not caught:
-			frappe.throw(
-				_('No task in instance "{0}" is waiting for message "{1}".').format(
-					self.name, message_name
-				)
+			# No task is waiting for this message (e.g. a document event fired
+			# while the instance isn't parked at a matching catch node). This is
+			# benign, so skip quietly and return the unchanged task summary rather
+			# than surfacing an alarming error to the user.
+			frappe.logger("one_bpmn").debug(
+				f'No task in instance "{self.name}" is waiting for message "{message_name}".'
 			)
+			return self.get_active_tasks_summary()
 
 		self._log_task(
 			task_id="",

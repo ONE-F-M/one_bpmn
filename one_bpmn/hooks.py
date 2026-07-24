@@ -179,6 +179,9 @@ doc_events = {
 		"before_workflow_action": _BPMN_GUARD,
 		"on_trash":               _BPMN_DELETE,
 	},
+	# WI-001620: creating a chat agent configuration kicks off the
+	# "AI Agent Creation Process" BPMN map via its conditional start event
+	# (handled by the universal _BPMN_TRIGGER above) — no dedicated hook.
 	# Pre-deployment security gate: structurally validate the body of any
 	# Server Script that a BPMN script task references (unrelated Server
 	# Scripts pass through untouched).
@@ -198,9 +201,6 @@ scheduler_events = {
 		"* * * * *": [
 			"one_bpmn.tasks.process_timer_start_events",
 			"one_bpmn.tasks.process_timer_catch_events",
-		],
-		"0 2 * * *": [
-			"one_bpmn.api.schema_sync.scheduled_schema_sync",
 		],
 	}
 }

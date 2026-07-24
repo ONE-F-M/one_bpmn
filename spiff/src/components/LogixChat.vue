@@ -132,9 +132,7 @@
 						</div>
 						<div class="lx-msg-body">
 							<div class="lx-bubble-bot lx-typing-bubble">
-								<div class="lx-typing">
-									<span></span><span></span><span></span>
-								</div>
+								<AgentThinkingIndicator />
 							</div>
 						</div>
 					</div>
@@ -225,6 +223,7 @@ import { ref, computed, watch, nextTick, onUnmounted } from "vue";
 import DOMPurify from "dompurify";
 import { marked } from "marked";
 import { frappeRequest } from "frappe-ui";
+import AgentThinkingIndicator from "./AgentThinkingIndicator.vue";
 
 marked.setOptions({ gfm: true, breaks: true });
 
@@ -1084,29 +1083,6 @@ onUnmounted(() => {
 /* ── Typing indicator ───────────────────────────────────────────────── */
 .lx-typing-bubble {
 	padding: 14px 18px !important;
-}
-
-.lx-typing {
-	display: flex;
-	gap: 5px;
-	align-items: center;
-}
-
-.lx-typing span {
-	display: block;
-	width: 7px;
-	height: 7px;
-	border-radius: 50%;
-	background: #aaa;
-	animation: lx-bounce 1.4s infinite ease-in-out;
-}
-
-.lx-typing span:nth-child(1) { animation-delay: -0.32s; }
-.lx-typing span:nth-child(2) { animation-delay: -0.16s; }
-
-@keyframes lx-bounce {
-	0%, 80%, 100% { transform: scale(0.75); opacity: 0.5; }
-	40%            { transform: scale(1);    opacity: 1;   }
 }
 
 /* ── Input area ─────────────────────────────────────────────────────── */

@@ -4,7 +4,7 @@
 AI Agent Task configuration assistant.
 
 Powers the in-modal chat panel on the AI Agent Task config page. The assistant
-uses the SAME AI Provider the designer has selected for the task to recommend
+uses the SAME AI Provider Credentials the designer has selected for the task to recommend
 values for the task's fields (prompts, model, output variable, response format,
 advanced limits) based on a plain-language requirement.
 
@@ -99,7 +99,7 @@ def recommend_ai_task_config(
 	"""Return assistant recommendations for an AI Agent Task's configuration.
 
 	Args:
-		provider: AI Provider name powering the assistant (the task's own provider).
+		provider: AI Provider Credentials name powering the assistant (the task's own provider).
 		backend: Executor backend ("direct_api" | "antigravity").
 		requirement: The designer's latest chat message.
 		context_doctype: Optional DocType whose schema/sample to show the model.
@@ -122,11 +122,14 @@ def recommend_ai_task_config(
 	if frappe.session.user == "Guest":
 		frappe.throw(_("You must be logged in to use the assistant."))
 
+	# WI-001623: fall back to the AI Assistant configuration's linked
+	# credentials so the modal no longer has to supply one.
+	provider = provider or _assistant_default_provider()
 	if not provider:
-		frappe.throw(_("Select an AI Provider before using the assistant."))
+		frappe.throw(_("Select an AI Provider Credentials before using the assistant."))
 
-	if not frappe.db.exists("AI Provider", provider):
-		frappe.throw(_("AI Provider '{0}' not found.").format(provider))
+	if not frappe.db.exists("AI Provider Credentials", provider):
+		frappe.throw(_("AI Provider Credentials '{0}' not found.").format(provider))
 
 	if not (requirement or "").strip():
 		frappe.throw(_("Describe what you want the AI Agent Task to do."))
@@ -138,16 +141,24 @@ def recommend_ai_task_config(
 	context_block = _build_context_block(context_doctype, context_docname)
 
 	digest = None
+	diagram_block = ""
 	if mode == "selector":
 		digest = _build_diagram_digest(bpmn_xml, element_id, process_model=process_model)
+		diagram_block = digest["block"] if digest else ""
 		system_prompt = _build_selector_system_prompt()
 	else:
-		system_prompt = _build_system_prompt()
+		# WI-001623: the agent-mode system prompt is now sourced from the
+		# ai_agent_assistant AI Agent Configuration (single source of truth);
+		# the builder remains only as a fallback / the seed's source.
+		system_prompt = _assistant_system_prompt() or _build_system_prompt()
+		# WI-001625: give the assistant the full diagram as read-only grounding
+		# so its recommendations reference the actual shapes around the task.
+		diagram_block = _build_full_diagram_block(bpmn_xml, element_id)
 	user_prompt = _build_user_prompt(
 		requirement,
 		turns,
 		context_block,
-		diagram_block=digest["block"] if digest else "",
+		diagram_block=diagram_block,
 		current_config_block=_build_current_config_block(current_config, catalog),
 	)
 
@@ -237,6 +248,29 @@ def _catalog_for_mode(mode: str) -> dict:
 # Prompt construction
 # ---------------------------------------------------------------------------
 
+def _assistant_system_prompt() -> str:
+	"""Agent-mode system prompt from the AI Assistant's configuration
+	(WI-001623). Returns "" when the config is absent so the caller falls
+	back to the in-code builder."""
+	try:
+		from one_bpmn.one_bpmn.doctype.ai_agent_configuration.ai_agent_configuration import get_agent_config
+
+		cfg = get_agent_config("ai_agent_assistant")
+		return (cfg or {}).get("system_prompt") or ""
+	except Exception:
+		return ""
+
+
+def _assistant_default_provider() -> str:
+	"""The credentials record the AI Assistant configuration links, if any."""
+	try:
+		from one_bpmn.one_bpmn.doctype.ai_agent_configuration.ai_agent_configuration import get_agent_config
+
+		return (get_agent_config("ai_agent_assistant") or {}).get("ai_provider_credentials") or ""
+	except Exception:
+		return ""
+
+
 def _build_system_prompt() -> str:
 	field_lines = "\n".join(f'  - "{name}": {desc}' for name, desc in FIELD_CATALOG.items())
 	return (
@@ -259,9 +293,18 @@ def _build_system_prompt() -> str:
 		"should return structured data; otherwise 'text'.\n"
 		"  - Only include a field in 'recommendations' when you have a concrete value "
 		"for it. Omit fields you are unsure about.\n\n"
+		"CLARIFY WHEN UNSURE:\n"
+		"  - If the requirement is ambiguous or missing something you need to "
+		"recommend good values (e.g. which field to summarise, the desired output "
+		"shape, or the target DocType), ASK a specific clarifying question instead "
+		"of guessing. Return your question as 'message' with an EMPTY "
+		"'recommendations' object, and wait for the designer's reply — the "
+		"conversation is multi-turn and prior turns are provided.\n"
+		"  - Only propose recommendations once the requirement is clear enough to "
+		"stand behind them.\n\n"
 		"Respond with ONLY a single JSON object, no prose outside it, in this exact shape:\n"
 		'{\n'
-		'  "message": "<a short, friendly explanation of what you suggested>",\n'
+		'  "message": "<your recommendation summary, OR a clarifying question when unsure>",\n'
 		'  "recommendations": { "aiUserPrompt": "...", "aiOutputVariable": "...", ... }\n'
 		'}'
 	)
@@ -367,6 +410,38 @@ def _build_current_config_block(current_config: str, catalog: dict) -> str:
 # ---------------------------------------------------------------------------
 # Diagram digest (selector mode)
 # ---------------------------------------------------------------------------
+
+_MAX_DIAGRAM_CHARS = 24000
+
+
+def _build_full_diagram_block(bpmn_xml: str, element_id: str = "") -> str:
+	"""Read-only full-diagram grounding for agent mode (WI-001625).
+
+	Passes the complete BPMN XML so the assistant's recommendations can
+	reference the real shapes, flows and variables around the AI task —
+	rather than the shape in isolation. Read-only: the assistant proposes
+	field values; it never edits the diagram. Oversized diagrams are
+	truncated with an explicit marker so the prompt stays bounded.
+	"""
+	xml = (bpmn_xml or "").strip()
+	if not xml:
+		return ""
+	truncated = ""
+	if len(xml) > _MAX_DIAGRAM_CHARS:
+		xml = xml[:_MAX_DIAGRAM_CHARS]
+		truncated = "\n<!-- … diagram truncated for length … -->"
+	focus = f" The AI task being configured is element id '{element_id}'." if element_id else ""
+	return (
+		"FULL PROCESS DIAGRAM (read-only context)."
+		+ focus
+		+ " Use it to ground your recommendations in the surrounding shapes, "
+		"sequence flows and process variables; do not propose edits to the "
+		"diagram itself:\n```xml\n"
+		+ xml
+		+ truncated
+		+ "\n```"
+	)
+
 
 def _build_diagram_digest(bpmn_xml: str, element_id: str, process_model: str = "") -> dict | None:
 	"""Parse the ad-hoc subprocess out of the live diagram XML and produce a

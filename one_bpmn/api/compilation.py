@@ -1081,7 +1081,7 @@ def _lint_ai_provider_config(_bpmn_xml: str, service_extensions: dict) -> None:
 	"""
 	Compile-time lint for AI Agent Tasks:
 	1. Rejects raw API keys embedded in any spiffworkflow:ai* attribute.
-	2. Validates that referenced AI Provider records exist in the database.
+	2. Validates that referenced AI Provider Credentials records exist in the database.
 	"""
 	import re
 	_RAW_KEY_RE = re.compile(r"^(sk-|key-)", re.IGNORECASE)
@@ -1098,30 +1098,46 @@ def _lint_ai_provider_config(_bpmn_xml: str, service_extensions: dict) -> None:
 					_(
 						"Raw API keys must not appear in BPMN XML "
 						"(task '{0}', attribute '{1}'). "
-						"Use an AI Provider reference."
+						"Use an AI Provider Credentials reference."
 					).format(bpmn_id, attr_name),
 					exc=frappe.ValidationError,
 				)
 
 		provider_name = (task_cfg.get("aiProvider") or "").strip()
+		agent_config = (task_cfg.get("aiAgentConfig") or "").strip()
+
+		# WI-001637: a shape may resolve its provider EITHER directly or by
+		# referencing an AI Agent Configuration (which seeds the provider).
+		# Validate the reference when present.
+		if agent_config:
+			if not frappe.db.exists("AI Agent Configuration", agent_config):
+				frappe.throw(
+					_("Referenced AI Agent Configuration '{0}' not found (task '{1}').").format(agent_config, bpmn_id),
+					exc=frappe.ValidationError,
+				)
+			if not frappe.db.get_value("AI Agent Configuration", agent_config, "enabled"):
+				frappe.throw(
+					_("Referenced AI Agent Configuration '{0}' is disabled (task '{1}').").format(agent_config, bpmn_id),
+					exc=frappe.ValidationError,
+				)
 
 		# An AI Task Selector is unusable without a provider — block the save
 		# outright (WI-001351 Scenario 4); a plain AI Agent Task may still be
 		# a work-in-progress draft, so only its non-empty reference is checked.
-		if service_type == "ai_task_selector" and not provider_name:
+		if service_type == "ai_task_selector" and not provider_name and not agent_config:
 			frappe.throw(
 				_(
-					"AI Task Selector on '{0}' has no AI Provider configured. "
-					"Select a provider before saving."
+					"AI Task Selector on '{0}' has no AI Provider Credentials or AI Agent "
+					"Configuration configured. Select one before saving."
 				).format(bpmn_id),
 				exc=frappe.ValidationError,
 			)
 
-		if provider_name and not frappe.db.exists("AI Provider", provider_name):
+		if provider_name and not frappe.db.exists("AI Provider Credentials", provider_name):
 			frappe.throw(
 				_(
-					"AI Provider '{0}' not found (task '{1}'). "
-					"Create it in the AI Provider list."
+					"AI Provider Credentials '{0}' not found (task '{1}'). "
+					"Create it in the AI Provider Credentials list."
 				).format(provider_name, bpmn_id),
 				exc=frappe.ValidationError,
 			)
@@ -1533,6 +1549,23 @@ def compile_process_model(model_name: str) -> dict:
 	model.flags.skip_editability_check = True
 	model.flags.skip_script_security_check = True
 	model.save(ignore_permissions=True)
+
+	# ── Backend Code Removal readiness warning (non-blocking) ─────────────
+	# Frappe runs controller validate()/on_submit() BEFORE our BPMN hooks, so
+	# old native controller code can still reject or mutate a document even
+	# after the BPMN process is active. Warn — but never block — if the
+	# designer hasn't confirmed the backend code was removed on Production.
+	# Absent field (pre-schema-change records) or "Removed on Production"
+	# suppresses the warning.
+	removal_status = model.get("backend_code_removal_status")
+	if removal_status and removal_status not in ("Removed on Production",):
+		deploy_warnings.append({
+			"label": "Backend Code Removal",
+			"icon": "code-2",
+			"type": "warning",
+			"detail": _("Backend code removal not yet confirmed on production — "
+			            "confirm before go-live"),
+		})
 
 	result = {
 		"success": True,

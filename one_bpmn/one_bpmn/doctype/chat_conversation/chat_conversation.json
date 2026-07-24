@@ -1,0 +1,98 @@
+{
+ "actions": [],
+ "allow_rename": 1,
+ "creation": "2025-09-19 00:53:14.359369",
+ "doctype": "DocType",
+ "engine": "InnoDB",
+ "field_order": [
+  "agent_mode",
+  "title",
+  "participants",
+  "status",
+  "last_message",
+  "last_updated"
+ ],
+ "fields": [
+  {
+   "fieldname": "agent_mode",
+   "fieldtype": "Data",
+   "label": "Agent Mode",
+   "default": "General Chat",
+   "read_only_depends_on": "eval:doc.last_message",
+   "description": "The chat mode label of the AI Agent Configuration driving this conversation (WI-001539: free-form so any registered agent's label is accepted)."
+  },
+  {
+   "fieldname": "title",
+   "fieldtype": "Data",
+   "ignore_user_permissions": 1,
+   "label": "Title"
+  },
+  {
+   "fieldname": "participants",
+   "fieldtype": "Table",
+   "ignore_user_permissions": 1,
+   "label": "Participants",
+   "options": "Chat Participant"
+  },
+  {
+   "fieldname": "last_message",
+   "fieldtype": "Link",
+   "ignore_user_permissions": 1,
+   "label": "Last Message",
+   "options": "Chat Message"
+  },
+  {
+   "fieldname": "last_updated",
+   "fieldtype": "Datetime",
+   "ignore_user_permissions": 1,
+   "label": "Last Updated"
+  },
+  {
+   "fieldname": "status",
+   "fieldtype": "Select",
+   "ignore_user_permissions": 1,
+   "label": "Status",
+   "options": "Open\nClosed"
+  }
+ ],
+ "grid_page_length": 50,
+ "in_create": 1,
+ "index_web_pages_for_search": 1,
+ "links": [],
+ "modified": "2025-09-29 11:16:02.810753",
+ "modified_by": "Administrator",
+ "module": "ONE BPMN",
+ "name": "Chat Conversation",
+ "owner": "Administrator",
+ "permissions": [
+  {
+   "create": 1,
+   "delete": 1,
+   "email": 1,
+   "export": 1,
+   "print": 1,
+   "read": 1,
+   "report": 1,
+   "role": "System Manager",
+   "select": 1,
+   "share": 1,
+   "write": 1
+  },
+  {
+   "create": 1,
+   "delete": 1,
+   "email": 1,
+   "export": 1,
+   "print": 1,
+   "read": 1,
+   "report": 1,
+   "role": "All",
+   "share": 1,
+   "write": 1
+  }
+ ],
+ "row_format": "Dynamic",
+ "sort_field": "modified",
+ "sort_order": "DESC",
+ "states": []
+}

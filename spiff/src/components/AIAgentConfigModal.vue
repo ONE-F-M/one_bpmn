@@ -9,6 +9,89 @@
         </div>
 
         <div class="modal-body">
+          <!-- Linked AI Agent Configuration (WI-001637 live link). Selecting
+               one shows its current values in the fields below; at run time
+               the configuration is authoritative for agent-level fields, and
+               saving this dialog writes agent-level edits back to it. Tools
+               are not imported — the toolkit stays this diagram's shapes. -->
+          <div class="field-row">
+            <label>
+              Linked AI Agent Configuration
+              <span class="hint">(optional)</span>
+            </label>
+            <select v-model="form.aiAgentConfig" @change="onAgentConfigSelect">
+              <option value="">-- None --</option>
+              <option v-for="c in agentConfigs" :key="c.name" :value="c.name">
+                {{ c.name }}
+              </option>
+              <option value="__create__">＋ Create new…</option>
+            </select>
+            <span v-if="form.aiAgentConfig && form.aiAgentConfig !== '__create__'" class="field-hint">
+              Prompt, provider, model and params resolve from this configuration
+              when the process runs. Saving writes your edits back to it.
+            </span>
+          </div>
+
+          <!-- WI-001648: create a new AI Agent Configuration without leaving
+               Processa. Inserted as Chat + Draft, so the AI Agent Creation
+               Process takes it validate → provision → evaluate → Live on its
+               own; the new agent is auto-linked on this shape. -->
+          <div v-if="showCreateAgent" class="create-agent-panel">
+            <div class="field-group-title">New AI Agent Configuration</div>
+            <div class="field-row two-col">
+              <div>
+                <label>Agent Name <span class="hint">(required)</span></label>
+                <input type="text" v-model="newAgent.agent_name" placeholder="e.g. Leave Summarizer" />
+              </div>
+              <div>
+                <label>Agent ID</label>
+                <input type="text" v-model="newAgent.agent_id" :placeholder="scrubbedAgentId || 'auto from name'" @input="agentIdEdited = true" />
+              </div>
+            </div>
+            <div class="field-row two-col">
+              <div>
+                <label>Chat Mode Label <span class="hint">(required, unique)</span></label>
+                <input type="text" v-model="newAgent.chat_mode_label" placeholder="e.g. Leave Summarizer" />
+              </div>
+              <div>
+                <label>AI Provider</label>
+                <select v-model="newAgent.ai_provider_credentials">
+                  <option value="">-- Select Provider --</option>
+                  <option v-for="p in providers" :key="p.name" :value="p.name">{{ p.provider_name }}</option>
+                </select>
+              </div>
+            </div>
+            <div class="field-row">
+              <label>System Prompt <span class="hint">(leave empty to auto-generate from the description)</span></label>
+              <textarea v-model="newAgent.system_prompt" rows="3" />
+            </div>
+            <div class="field-row">
+              <label>Description</label>
+              <textarea v-model="newAgent.description" rows="2" placeholder="What this agent does — feeds prompt auto-generation" />
+            </div>
+            <div class="field-row">
+              <label>Sample Prompts <span class="hint">(optional — become the baseline eval suite)</span></label>
+              <div v-for="(sp, i) in newAgent.sample_prompts" :key="i" class="sample-prompt-row">
+                <input type="text" v-model="sp.prompt" placeholder="Sample user prompt" />
+                <input type="text" v-model="sp.expected_behaviour" placeholder="Expected behaviour (optional)" />
+                <button type="button" class="close-btn" title="Remove" @click="newAgent.sample_prompts.splice(i, 1)">✕</button>
+              </div>
+              <button type="button" class="btn-cancel" @click="newAgent.sample_prompts.push({ prompt: '', expected_behaviour: '' })">
+                + Add sample prompt
+              </button>
+            </div>
+            <div class="field-row create-agent-actions">
+              <button type="button" class="btn-cancel" @click="showCreateAgent = false">Cancel</button>
+              <button type="button" class="btn-save" :disabled="creatingAgent" @click="createAgent">
+                {{ creatingAgent ? "Creating…" : "Create agent" }}
+              </button>
+            </div>
+            <span class="field-hint">
+              The agent is created as a Chat agent in Draft — the AI Agent Creation
+              Process takes it to Live automatically and links it on this task.
+            </span>
+          </div>
+
           <!-- Backend (selector always runs direct_api) -->
           <div class="field-row" v-if="!isSelector">
             <label>Backend</label>
@@ -378,9 +461,33 @@ const SELECTOR_FIELDS = [
 const emit = defineEmits(["close"]);
 
 const providers = ref([]);
+const agentConfigs = ref([]);
+
+// ── Create-new-agent panel state (WI-001648) ──
+const showCreateAgent = ref(false);
+const creatingAgent = ref(false);
+const agentIdEdited = ref(false);
+const emptyNewAgent = () => ({
+  agent_name: "",
+  agent_id: "",
+  chat_mode_label: "",
+  ai_provider_credentials: "",
+  system_prompt: "",
+  description: "",
+  sample_prompts: [],
+});
+const newAgent = ref(emptyNewAgent());
+const scrubbedAgentId = computed(() =>
+  (newAgent.value.agent_name || "")
+    .toLowerCase()
+    .trim()
+    .replace(/[^a-z0-9]+/g, "_")
+    .replace(/^_+|_+$/g, "")
+);
 
 // Form state — defaults
 const form = ref({
+  aiAgentConfig: "",
   aiBackend: "direct_api",
   aiProvider: "",
   aiModel: "",
@@ -672,7 +779,7 @@ async function sendMessage() {
 // ── Load providers + existing element config ────────────────────────────────
 onMounted(async () => {
   try {
-    const data = await frappeGet("/api/resource/AI Provider", {
+    const data = await frappeGet("/api/resource/AI Provider Credentials", {
       fields: JSON.stringify(["name", "provider_name", "default_model"]),
       filters: JSON.stringify([["enabled", "=", 1]]),
       limit_page_length: 100,
@@ -680,6 +787,19 @@ onMounted(async () => {
     providers.value = Array.isArray(data) ? data : [];
   } catch (e) {
     providers.value = [];
+  }
+
+  // Load selectable AI Agent Configurations for the seed dropdown.
+  try {
+    const cfgs = await frappeGet("/api/resource/AI Agent Configuration", {
+      fields: JSON.stringify(["name", "agent_id"]),
+      filters: JSON.stringify([["enabled", "=", 1]]),
+      limit_page_length: 100,
+      order_by: "name asc",
+    });
+    agentConfigs.value = Array.isArray(cfgs) ? cfgs : [];
+  } catch (e) {
+    agentConfigs.value = [];
   }
 
   // Load DocType names for the Context DocType autocomplete.
@@ -710,6 +830,7 @@ onMounted(async () => {
     return Number.isFinite(v) ? v : fallback;
   };
   form.value = {
+    aiAgentConfig: get("aiAgentConfig") || "",
     aiBackend: get("aiBackend") || "direct_api",
     aiProvider: get("aiProvider") || "",
     aiModel: get("aiModel") || "",
@@ -758,15 +879,123 @@ onMounted(async () => {
   }
 });
 
-function save() {
+// Pull the linked configuration's current values into the form (WI-001637
+// live link). The resolver returns shape-attribute keys (aiSystemPrompt,
+// aiProvider, aiModel, aiTemperature, aiMaxTokens) that map directly onto our
+// form fields. At run time the configuration is authoritative for these
+// fields; editing them here and saving writes the changes back to it.
+async function onAgentConfigSelect() {
+  const value = form.value.aiAgentConfig;
+  if (value === "__create__") {
+    // WI-001648: open the inline create panel instead of linking. Pre-fill
+    // from the dialog's current values so work already typed isn't lost.
+    form.value.aiAgentConfig = "";
+    newAgent.value = {
+      ...emptyNewAgent(),
+      ai_provider_credentials: form.value.aiProvider || "",
+      system_prompt: form.value.aiSystemPrompt || "",
+    };
+    agentIdEdited.value = false;
+    showCreateAgent.value = true;
+    return;
+  }
+  if (!value) return;
+  try {
+    const fields = await frappeRequest({
+      url: "/api/method/one_bpmn.agents.agent_config_resolver.get_agent_config_for_shape",
+      method: "POST",
+      params: { config_name: value },
+    });
+    Object.entries(fields || {}).forEach(([key, val]) => {
+      if (key in form.value) form.value[key] = val;
+    });
+  } catch (e) {
+    /* leave the current field values as-is if the seed lookup fails */
+  }
+}
+
+// WI-001648: create the AI Agent Configuration from the dialog. The record is
+// inserted as Chat + Draft with the user's own permissions; the AI Agent
+// Creation Process starts on insert and takes it to Live. On success the new
+// agent is linked on this shape and its values pulled into the form.
+async function createAgent() {
+  if (creatingAgent.value) return;
+  if (!newAgent.value.agent_name.trim()) return alert("Agent name is required.");
+  if (!newAgent.value.chat_mode_label.trim()) return alert("A chat mode label is required.");
+  if (!newAgent.value.ai_provider_credentials) return alert("Select an AI provider.");
+  creatingAgent.value = true;
+  try {
+    const payload = {
+      ...newAgent.value,
+      agent_id: newAgent.value.agent_id.trim() || scrubbedAgentId.value,
+      sample_prompts: newAgent.value.sample_prompts.filter((sp) => (sp.prompt || "").trim()),
+    };
+    const res = await frappeRequest({
+      url: "/api/method/one_bpmn.agents.agent_config_resolver.create_agent_configuration",
+      method: "POST",
+      params: { payload: JSON.stringify(payload) },
+    });
+    agentConfigs.value.push({ name: res.name, agent_id: res.agent_id });
+    form.value.aiAgentConfig = res.name;
+    await onAgentConfigSelect();
+    showCreateAgent.value = false;
+    alert(
+      `"${res.name}" created and linked to this task.\n` +
+        (res.creation_instance
+          ? `The AI Agent Creation Process is running (instance ${res.creation_instance}) — it will take the agent to Live.`
+          : "The creation process did not start (model inactive?) — check the AI Agent Configuration record.")
+    );
+  } catch (e) {
+    alert("Could not create the agent configuration: " + (e?.message || e));
+  } finally {
+    creatingAgent.value = false;
+  }
+}
+
+// WI-001637 live link: on Save, write agent-level edits back to the linked
+// AI Agent Configuration. Selector mode omits temperature — the selector
+// dialog never shows it, so its form default must not clobber the record.
+// Failure never blocks the shape save; the user is warned instead. A Live
+// agent is automatically re-provisioned by the backend so its chat map picks
+// up the change — surface that so the brief non-Live window isn't a surprise.
+async function writeBackToConfig() {
+  if (!form.value.aiAgentConfig) return;
+  const fields = {
+    aiProvider: form.value.aiProvider,
+    aiSystemPrompt: form.value.aiSystemPrompt,
+    aiMaxTokens: form.value.aiMaxTokens,
+  };
+  if (!isSelector.value) fields.aiTemperature = form.value.aiTemperature;
+  try {
+    const res = await frappeRequest({
+      url: "/api/method/one_bpmn.agents.agent_config_resolver.update_agent_config_from_shape",
+      method: "POST",
+      params: { config_name: form.value.aiAgentConfig, fields: JSON.stringify(fields) },
+    });
+    if (res && res.reprovisioned) {
+      alert(
+        `"${form.value.aiAgentConfig}" was Live, so it is being re-provisioned ` +
+          "with your changes (validate → provision → Live)."
+      );
+    }
+  } catch (e) {
+    alert(
+      `The task was saved, but writing the changes back to "${form.value.aiAgentConfig}" failed: ` +
+        (e?.message || e) +
+        "\nUpdate the AI Agent Configuration record directly if the change should apply to the agent."
+    );
+  }
+}
+
+async function save() {
   // Block save when no model can be resolved: the Model field is empty AND the
   // selected provider has no Default Model to fall back on at runtime.
   if (!form.value.aiModel || !form.value.aiModel.trim()) {
     const p = providers.value.find((x) => x.name === form.value.aiProvider);
     if (!p || !p.default_model) {
       alert(
-        "No model is set. The selected AI Provider has no Default Model.\n" +
-          "Set a Default Model on the AI Provider, or enter a Model here."
+        "No model is set. The selected AI Provider Credentials record has no Default Model.\n" +
+          "Set a Default Model on the AI Provider Credentials record, or enter a Model here."
       );
       return;
     }
@@ -791,6 +1020,7 @@ function save() {
     // serviceType/aiToolSources (owned by the properties panel) and never
     // write agent-only attrs onto the ad-hoc subprocess.
     modeling.updateModdleProperties(element, bo, {
+      "spiffworkflow:aiAgentConfig": form.value.aiAgentConfig || undefined,
       "spiffworkflow:aiProvider": form.value.aiProvider || undefined,
       "spiffworkflow:aiModel": form.value.aiModel || undefined,
       "spiffworkflow:aiSystemPrompt": form.value.aiSystemPrompt || undefined,
@@ -798,11 +1028,13 @@ function save() {
       "spiffworkflow:aiMaxTokens": String(form.value.aiMaxTokens),
       "spiffworkflow:aiTimeout": String(form.value.aiTimeout),
     });
+    await writeBackToConfig();
     emit("close");
     return;
   }
 
   const patch = {
+    "spiffworkflow:aiAgentConfig": form.value.aiAgentConfig || undefined,
     "spiffworkflow:aiBackend": form.value.aiBackend || undefined,
     "spiffworkflow:aiProvider": form.value.aiProvider || undefined,
     "spiffworkflow:aiModel": form.value.aiModel || undefined,
@@ -834,6 +1066,7 @@ function save() {
   };
 
   modeling.updateModdleProperties(element, bo, patch);
+  await writeBackToConfig();
   emit("close");
 }
 </script>
@@ -1209,4 +1442,28 @@ function save() {
 }
 .assistant-send:hover { background: #4f46e5; }
 .assistant-send:disabled { background: #cbd5e1; cursor: default; }
+
+/* ── Create-new-agent panel (WI-001648) ── */
+.create-agent-panel {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding: 12px;
+  margin-bottom: 12px;
+  border: 1px solid #e2e8f0;
+  border-radius: 8px;
+  background: #f8fafc;
+}
+.sample-prompt-row {
+  display: grid;
+  grid-template-columns: 1fr 1fr auto;
+  gap: 8px;
+  align-items: center;
+  margin-bottom: 6px;
+}
+.create-agent-actions {
+  flex-direction: row;
+  justify-content: flex-end;
+  gap: 8px;
+}
 </style>

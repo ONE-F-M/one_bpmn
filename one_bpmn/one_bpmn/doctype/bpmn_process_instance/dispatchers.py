@@ -72,6 +72,37 @@ def _extract_memory_content(output, content_field: str) -> str:
 	return str(output or "")
 
 
+def _memory_output_from_trace(trace) -> str:
+	"""Distillable text for a tool-protocol agent whose assistant text is empty.
+
+	Agents instructed to "never reply in prose, always call tools" (e.g. the Docu
+	orchestrator) put their user-facing answer in tool-call arguments and RESULTS
+	(e.g. the Docu stage tools are zero-arg and return the draft/response as their
+	result) — so ``result.output`` is legitimately blank and the note-taker would
+	see nothing. Reconstruct what the agent said/did from the trace's tool calls
+	instead. Most recent turn first, so the terminal tools' payloads (the final
+	response) survive the distiller's input cap.
+	"""
+	parts = []
+	for turn in reversed(trace or []):
+		for call in turn.get("tool_calls") or []:
+			name = call.get("name") or ""
+			call_result = call.get("result") or ""
+			if str(call_result).startswith("Unknown tool:"):
+				continue
+			args = call.get("arguments")
+			rendered = ""
+			if args:
+				try:
+					rendered = json.dumps(args, default=str)
+				except (TypeError, ValueError):
+					rendered = str(args)
+			payload = " ".join(p for p in (rendered, str(call_result)) if p).strip()
+			if payload:
+				parts.append(f"{name}: {payload[:2000]}")
+	return "\n".join(parts)
+
+
 def _memory_write_mode(task_cfg: dict) -> str:
 	"""Resolve the long-term memory write mode: "off" | "raw" | "distilled".
 
@@ -803,6 +834,15 @@ def dispatch_ai_agent(instance, task, task_cfg: dict, bpmn_id: str, resume_run: 
 		if resume_payload is None:
 			return  # already resumed (redelivery / double submit) — no-op
 
+	# WI-001637 (live link): a linked AI Agent Configuration is authoritative at
+	# dispatch for agent-level fields (prompt, provider, model, temperature,
+	# max tokens) — the shape's copies are the editing view and the fallback
+	# when the config is missing. Resume paths skip this: the checkpointed
+	# transcript already holds the prompts the run started with.
+	if not resume_payload and task_cfg.get("aiAgentConfig"):
+		from one_bpmn.agents.agent_config_resolver import resolve_dispatch_overrides
+		task_cfg = {**task_cfg, **resolve_dispatch_overrides(task_cfg["aiAgentConfig"])}
+
 	doc = frappe._dict()
 	if instance.context_doctype and instance.context_docname:
 		try:
@@ -1136,8 +1176,24 @@ def dispatch_ai_agent(instance, task, task_cfg: dict, bpmn_id: str, resume_run: 
 						# Distill with the task's own provider/model so the
 						# extraction call is always valid for the configured
 						# provider; aiMemoryDistillModel overrides when set.
+						# Tool-protocol agents leave result.output empty (their
+						# answer lives in tool arguments/results) — distill the
+						# interaction instead: the user message (where standing
+						# rules are stated) plus the trace's tool activity. The
+						# user part leads so a durable rule survives the
+						# distiller's input cap even when the tool payloads are
+						# long; without any tool activity there was no agent
+						# interaction, so memory is skipped as before.
+						memory_src = result.output
+						if not str(memory_src or "").strip():
+							trace_text = _memory_output_from_trace(result.trace)
+							if trace_text:
+								memory_src = (
+									f"[User message]\n{str(user_prompt or '')[:3000]}\n\n"
+									f"[Agent tool activity]\n{trace_text}"
+								)
 						_enqueue_distill(
-							agent_output=result.output,
+							agent_output=memory_src,
 							agent=(task_cfg.get("aiMemoryAgentElement") or bpmn_id),
 							scope=scope,
 							scope_key=scope_key,
@@ -1180,6 +1236,13 @@ def dispatch_ai_agent(instance, task, task_cfg: dict, bpmn_id: str, resume_run: 
 		)
 		task.data[f"{bpmn_id}_error_code"]    = error_code_name
 		task.data[f"{bpmn_id}_error_message"] = result.error_message
+
+		# Without aiStopOnError the flow continues past the failed task, so
+		# the declared output variable must still exist (as None) — otherwise
+		# a downstream gateway condition referencing it dies on a NameError
+		# instead of routing to its default branch.
+		output_var = task_cfg.get("aiOutputVariable") or f"{bpmn_id}_output"
+		task.data.setdefault(output_var, None)
 
 		# If the BPMN task is configured to stop on error, raise so the
 		# engine loop in _run_engine_steps halts and the instance is

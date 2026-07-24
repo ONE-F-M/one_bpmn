@@ -1,6 +1,7 @@
 # Copyright (c) 2026, kartiksharma9319@gmail.com and contributors
 # For license information, please see license.txt
 
+import json
 import re
 
 import frappe
@@ -125,6 +126,22 @@ def _delegate_to_bpmn_instance(conversation_name: str, message: str, context: di
 	result.setdefault("intent", meta.get("intent"))
 	result["bpmn_driven"] = True
 	return result
+
+
+def delegate_chat_turn(conversation_name: str, message: str, context: dict = None):
+	"""Public entry point for other apps (e.g. the Lumina Desk page in onefm_mcp)
+	to hand a chat turn to the BPMN Process Instance driving a conversation.
+
+	Delivers ``ChatConversation_Message_Action`` to the instance parked at its
+	"Waiting for User Message" gateway and returns the result the map produced
+	(``response`` plus ``bpmn_driven=True``). Returns ``None`` when no instance
+	is driving the conversation, so callers can fall back to their own pipeline.
+
+	Pass ``context["message_name"]`` when the caller already persisted the user
+	Chat Message — the map's "Save User Message" task then reuses it instead of
+	inserting a duplicate.
+	"""
+	return _delegate_to_bpmn_instance(conversation_name, message, context or {})
 
 
 @frappe.whitelist()
@@ -294,22 +311,37 @@ def process_logix_message(
 	current_script: str = None,
 	process_context: dict = None,
 ) -> dict:
-	"""Process a Logix AI chat message, persisting history in Chat Conversation."""
+	"""Route a Logix chat turn through the generic agent path (WI-001539).
+
+	Logix chat is no longer orchestrated here: this endpoint is a thin alias
+	that opens the conversation with ``create_agent_conversation`` and hands the
+	turn to ``invoke_agent("logix_agent", …)``, exactly like every other
+	configured agent. Its only remaining job is the editor's request/response
+	contract — the parameters the LogixCanvas panel sends and the
+	``{intent, response, conversation_name}`` reply it consumes. Because the
+	``logix`` configuration links the Logix process map, ``invoke_agent`` selects
+	the ``bpmn_map`` runner and the map still performs all the work (Save User
+	Message → Call Agent → Save Response), so behavior is unchanged.
+
+	The Server Script CRUD + test-runner endpoints in this module are Logix
+	*tooling*, not chat, and are intentionally left untouched.
+	"""
 	if frappe.session.user == "Guest":
 		frappe.throw(_("Authentication required"))
 
 	try:
-		from one_bpmn.utils.chat_persistence import create_conversation
+		from one_bpmn.api.agent_invocation import invoke_agent
+		from one_bpmn.utils.chat_persistence import create_agent_conversation
 
-		# Create a new conversation on the first message. Inserting the Chat
-		# Conversation triggers its process map, which spawns the orchestrating
-		# BPMN instance (parked at "Waiting for User Message").
+		# Open the conversation on the first turn. Inserting the Chat Conversation
+		# (stamped with the agent's chat mode label — "Logix") arms the process
+		# map's conditional start trigger, which spawns the orchestrating BPMN
+		# instance parked at "Waiting for User Message". Created here (rather than
+		# letting invoke_agent create it) to preserve the "Logix: <label>" title.
 		if not conversation_name:
 			label = element_name or "Script Task"
-			conversation_name = create_conversation(
-				agent_mode="Logix",
-				title=f"Logix: {label}",
-				user=frappe.session.user,
+			conversation_name = create_agent_conversation(
+				"logix_agent", title=f"Logix: {label}", user=frappe.session.user
 			)
 
 		# Gather the editor inputs the Logix agent needs (the original script body
@@ -321,27 +353,51 @@ def process_logix_message(
 			except Exception:
 				pass
 
-		# Hand the turn to the process map — it saves the user message, runs the
-		# agent (Call Agent) and saves the reply. We only deliver + return.
-		bpmn_result = _delegate_to_bpmn_instance(
-			conversation_name,
-			message,
-			context={
-				"element_name": element_name or "",
-				"current_script": current_script or "",
-				"original_script_content": original_content,
-				"process_context": process_context or {},
-			},
-		)
-		if bpmn_result is None:
+		# Normalise shape_kind server-side. The editor labels the element, but the
+		# authoritative rule is the parent shape's type: an element inside an
+		# ad-hoc sub-process is an Agent Tool (shape_tools synthetic-task contract),
+		# anything else is a Script Task (engine contract). Re-derive from
+		# parent_type when available so a stale client label can't mislabel the
+		# script contract Logix writes to.
+		process_context = process_context or {}
+		if isinstance(process_context, str):
+			try:
+				process_context = json.loads(process_context)
+			except Exception:
+				process_context = {}
+		parent_type = (process_context.get("parent_type") or "").strip()
+		if parent_type:
+			process_context["shape_kind"] = (
+				"agent_tool" if parent_type == "AdHocSubProcess" else "script_task"
+			)
+		elif process_context.get("shape_kind") not in ("agent_tool", "script_task"):
+			process_context["shape_kind"] = "script_task"
+
+		try:
+			result = invoke_agent(
+				"logix_agent",
+				message,
+				conversation=conversation_name,
+				context={
+					"element_name": element_name or "",
+					"current_script": current_script or "",
+					"original_script_content": original_content,
+					"process_context": process_context,
+				},
+			)
+		except frappe.ValidationError:
+			# No instance is driving this conversation (map never armed or the
+			# instance died) — the generic runner throws; surface the same
+			# reopen guidance the editor showed before, over a 200 response.
 			return {
 				"intent": "ERROR",
 				"response": "The Logix process orchestration isn't running for this conversation. Please reopen the chat.",
 				"conversation_name": conversation_name,
 			}
 
-		bpmn_result["conversation_name"] = conversation_name
-		return bpmn_result
+		# The editor keys on ``conversation_name``; invoke_agent returns ``conversation``.
+		result["conversation_name"] = result.get("conversation") or conversation_name
+		return result
 
 	except Exception:
 		frappe.log_error(title="Logix Agent error", message=frappe.get_traceback())
@@ -415,45 +471,63 @@ def prosally_chat(
 	confirmed_action: str = "",
 	current_xml: str = "",
 ) -> dict:
-	"""Process a ProsAlly chat message, persisting history in Chat Conversation."""
+	"""Route a ProsAlly chat turn through the generic agent path (WI-001539).
+
+	ProsAlly chat is no longer orchestrated here: this endpoint is a thin alias
+	that opens the conversation with ``create_agent_conversation`` and hands the
+	turn to ``invoke_agent("prosally_agent", …)``, exactly like every other
+	configured agent (and like ``process_logix_message``). Its only remaining job
+	is the ProsAlly panel's request/response contract — the editor state it sends
+	and the ``{intent, response, conversation_name, bpmn_xml, …}`` reply it
+	consumes. Because the ``prosally`` configuration links the ProsAlly process
+	map, ``invoke_agent`` selects the ``bpmn_map`` runner and the map still
+	performs all the work (Save User Message → Call Agent → Save Response), so
+	behavior is unchanged. All ProsAlly tools live in the map's ad-hoc Tools
+	sub-process; no backend agent code remains.
+	"""
 	if frappe.session.user == "Guest":
 		frappe.throw(_("Authentication required"))
 
 	try:
-		from one_bpmn.utils.chat_persistence import create_conversation
+		from one_bpmn.api.agent_invocation import invoke_agent
+		from one_bpmn.utils.chat_persistence import create_agent_conversation
 
-		# Create a new conversation on the first message. Inserting the Chat
-		# Conversation triggers its process map, which spawns the orchestrating
-		# BPMN instance (parked at "Waiting for User Message").
+		# Open the conversation on the first turn. Inserting the Chat Conversation
+		# (stamped with the agent's chat mode label — "ProsAlly") arms the process
+		# map's conditional start trigger, which spawns the orchestrating BPMN
+		# instance parked at "Waiting for User Message". Created here (rather than
+		# letting invoke_agent create it) to preserve the "ProsAlly: <label>" title.
 		if not conversation_name:
 			label = process_name or diagram_name or "Process"
-			conversation_name = create_conversation(
-				agent_mode="ProsAlly",
-				title=f"ProsAlly: {label}",
-				user=frappe.session.user,
+			conversation_name = create_agent_conversation(
+				"prosally_agent", title=f"ProsAlly: {label}", user=frappe.session.user
 			)
 
-		# Hand the turn to the process map — it saves the user message, runs the
-		# agent (Call Agent) and saves the reply. We only deliver + return.
-		bpmn_result = _delegate_to_bpmn_instance(
-			conversation_name,
-			message,
-			context={
-				"process_name": process_name or "",
-				"diagram_name": diagram_name or "",
-				"confirmed_action": confirmed_action or "",
-				"current_xml": current_xml or "",
-			},
-		)
-		if bpmn_result is None:
+		try:
+			result = invoke_agent(
+				"prosally_agent",
+				message,
+				conversation=conversation_name,
+				context={
+					"process_name": process_name or "",
+					"diagram_name": diagram_name or "",
+					"confirmed_action": confirmed_action or "",
+					"current_xml": current_xml or "",
+				},
+			)
+		except frappe.ValidationError:
+			# No instance is driving this conversation (map never armed or the
+			# instance died) — the generic runner throws; surface the same reopen
+			# guidance the panel showed before, over a 200 response.
 			return {
 				"intent": "ERROR",
 				"response": "The ProsAlly process orchestration isn't running for this conversation. Please reopen the chat.",
 				"conversation_name": conversation_name,
 			}
 
-		bpmn_result["conversation_name"] = conversation_name
-		return bpmn_result
+		# The panel keys on ``conversation_name``; invoke_agent returns ``conversation``.
+		result["conversation_name"] = result.get("conversation") or conversation_name
+		return result
 
 	except Exception:
 		frappe.log_error(title="ProsAlly Agent error", message=frappe.get_traceback())

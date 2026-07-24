@@ -304,7 +304,10 @@
 						!isMobile && propertiesCollapsed 
 							? 'w-0 overflow-hidden' 
 							: !isMobile ? 'w-full md:w-96 overflow-auto' : '',
-						{ 'properties-panel--readonly': readonly }
+						{
+							'properties-panel--readonly': readonly,
+							'properties-panel--reassign': readonly && reassignMode
+						}
 					]"
 					:style="isDragging ? { transform: `translateY(${dragOffset}px)`, transition: 'none', willChange: 'transform' } : {}"
 				>
@@ -1077,6 +1080,13 @@ const props = defineProps({
 		type: Boolean,
 		default: false
 	},
+	// "Reassign User Task" mode — while readonly, selectively re-enables the
+	// Assignment Configuration fields of User Tasks (Assignment Mode, User,
+	// DocField, Users, Table Field). All other editing stays blocked.
+	reassignMode: {
+		type: Boolean,
+		default: false
+	},
 	modelName: {
 		type: String,
 		default: ""
@@ -1095,6 +1105,7 @@ const emit = defineEmits([
 	"launch-notification-editor",
 	"launch-dmn-editor",
 	"launch-notify-assignee-editor",
+	"reassign-changed",
 ]);
 
 // Commenting state
@@ -2330,11 +2341,43 @@ onMounted(async () => {
 			if (props.readonly) {
 				// Intercept commandStack to prevent any model mutations
 				const originalExecute = commandStack.execute.bind(commandStack);
+
+				// "Reassign User Task" mode: the ONLY mutation allowed while
+				// readonly is updating the whitelisted assignment attributes
+				// of a User Task from the properties panel.
+				const REASSIGN_ATTRS = [
+					"spiffworkflow:assigneeMode",
+					"spiffworkflow:assigneeUser",
+					"spiffworkflow:assigneeDocfield",
+					"spiffworkflow:assigneeUsers",
+					"spiffworkflow:assigneeTableField",
+					"spiffworkflow:assigneeTableUserField",
+				];
+				const isReassignCommand = (command, context) => {
+					if (!props.reassignMode) return false;
+					if (command !== "element.updateModdleProperties") return false;
+					const bo = context?.element?.businessObject;
+					if (!bo || bo.$type !== "bpmn:UserTask") return false;
+					if (context.moddleElement !== bo) return false;
+					const keys = Object.keys(context.properties || {});
+					return keys.length > 0 && keys.every((k) => REASSIGN_ATTRS.includes(k));
+				};
+
 				commandStack.execute = (command, context) => {
 					// Allow canvas operations (zoom, scroll) but block element mutations
 					const allowedCommands = ['canvas.updateRootElement'];
 					if (allowedCommands.includes(command)) {
 						return originalExecute(command, context);
+					}
+					if (isReassignCommand(command, context)) {
+						const result = originalExecute(command, context);
+						const bo = context.element.businessObject;
+						const assignment = {};
+						REASSIGN_ATTRS.forEach((attr) => {
+							assignment[attr.split(":")[1]] = bo.get(attr) || "";
+						});
+						emit("reassign-changed", { taskId: bo.id, assignment });
+						return result;
 					}
 					// Silently ignore all other commands
 					return;
@@ -3706,6 +3749,16 @@ function getAvatarColor(userName) {
 }
 
 .properties-panel--readonly .bio-properties-panel-header {
+	pointer-events: auto !important;
+	opacity: 1;
+}
+
+/* ── Reassign User Task Mode ────────────────────────
+   While readonly, re-enable ONLY the User Task Assignment Configuration
+   fields (Assignment Mode, User, DocField, Users, Table Field). */
+.properties-panel--reassign [data-entry-id^="spiffworkflow-assignee"] input,
+.properties-panel--reassign [data-entry-id^="spiffworkflow-assignee"] select,
+.properties-panel--reassign [data-entry-id^="spiffworkflow-assignee"] button {
 	pointer-events: auto !important;
 	opacity: 1;
 }

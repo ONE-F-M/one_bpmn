@@ -220,7 +220,18 @@ class TestExecutorMessagesSlot(FrappeTestCase):
 		cfg = ExecutorConfig(system_prompt="S", user_prompt="U", messages=[{"role": "assistant", "content": "prior"}])
 		_, payload, _ = ex._build_anthropic_request("http://x", "k", "m", cfg)
 		self.assertEqual([m["role"] for m in payload["messages"]], ["assistant", "user"])
-		self.assertEqual(payload.get("system"), "S")
+		# System is sent as a content block carrying a prompt-cache marker.
+		self.assertEqual(
+			payload.get("system"),
+			[{"type": "text", "text": "S", "cache_control": {"type": "ephemeral"}}],
+		)
+		# The last history message carries the conversation-prefix cache marker;
+		# the caller's dict is never mutated.
+		self.assertEqual(
+			payload["messages"][0]["content"][-1]["cache_control"],
+			{"type": "ephemeral"},
+		)
+		self.assertEqual(cfg.messages, [{"role": "assistant", "content": "prior"}])
 		_, empty, _ = ex._build_anthropic_request(
 			"http://x", "k", "m", ExecutorConfig(system_prompt="S", user_prompt="U")
 		)
