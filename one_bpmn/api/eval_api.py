@@ -8,6 +8,19 @@ System Manager sees all.
 
 import frappe
 from frappe import _
+from frappe.utils import get_datetime
+
+
+def _run_title(suite_title: str, seq: int, started_at) -> str:
+	"""Human-readable title for an AI Eval Run (which has no title field):
+	the suite title + the run's ordinal + its start time."""
+	base = f"{suite_title or 'Suite'} — Run {seq}"
+	if started_at:
+		try:
+			return f"{base} · {get_datetime(started_at).strftime('%Y-%m-%d %H:%M')}"
+		except Exception:
+			pass
+	return base
 
 
 @frappe.whitelist()
@@ -65,3 +78,101 @@ def list_eval_suites() -> dict:
 		"suites": suites,
 		"is_system_manager": "System Manager" in frappe.get_roles(),
 	}
+
+
+@frappe.whitelist()
+def get_suite_detail(suite: str) -> dict:
+	"""Suite header, its cases, and recent runs for the suite-detail view
+	(WI-001746). Permission is enforced by check_permission (owner / SM).
+	"""
+	doc = frappe.get_doc("AI Eval Suite", suite)
+	doc.check_permission("read")
+
+	agent_name = None
+	if doc.agent_configuration:
+		agent_name = frappe.db.get_value(
+			"AI Agent Configuration", doc.agent_configuration, "agent_name"
+		)
+
+	cases = frappe.get_all(
+		"AI Eval Case",
+		filters={"suite": suite},
+		fields=["name", "title", "provider", "model", "source_run"],
+		order_by="creation asc",
+	)
+	# Assertion summary per case (one bulk query on the child table). Kept
+	# defensive: a hiccup building the summary must never blank the whole
+	# detail view — the cases and runs still return, just without chips.
+	assertions: dict[str, list] = {}
+	if cases:
+		try:
+			for a in frappe.get_all(
+				"AI Eval Assertion",
+				filters={"parenttype": "AI Eval Case", "parent": ["in", [c["name"] for c in cases]]},
+				fields=["parent", "assertion_type"],
+			):
+				assertions.setdefault(a["parent"], []).append(a["assertion_type"])
+		except Exception:
+			frappe.log_error(
+				title="Evals: assertion summary failed",
+				message=frappe.get_traceback(),
+			)
+	for c in cases:
+		c["assertion_types"] = assertions.get(c["name"], [])
+
+	runs = frappe.get_all(
+		"AI Eval Run",
+		filters={"suite": suite},
+		fields=["name", "status", "backend", "total_cases", "passed_cases",
+				"failed_cases", "started_at", "ended_at"],
+		order_by="creation desc",
+		limit_page_length=20,
+	)
+	# Number runs by their absolute order (newest first in the list), and give
+	# each a readable title so the UI never shows the raw run id.
+	total_runs = frappe.db.count("AI Eval Run", {"suite": suite})
+	for idx, r in enumerate(runs):
+		r["display_title"] = _run_title(doc.title, total_runs - idx, r.get("started_at"))
+
+	return {
+		"suite": {
+			"name": doc.name,
+			"title": doc.title,
+			"process_model": doc.process_model,
+			"agent_configuration": doc.agent_configuration,
+			"agent_name": agent_name,
+		},
+		"cases": cases,
+		"runs": runs,
+	}
+
+
+@frappe.whitelist()
+def create_eval_case(
+	suite: str,
+	title: str,
+	input_user_prompt: str,
+	provider: str,
+	model: str,
+	input_system_prompt: str = "",
+	expected_output: str = "",
+) -> str:
+	"""Create a manual AI Eval Case in ``suite`` (WI-001746). The current user
+	must be able to write the suite (owner / SM)."""
+	suite_doc = frappe.get_doc("AI Eval Suite", suite)
+	suite_doc.check_permission("write")
+
+	case = frappe.get_doc({
+		"doctype": "AI Eval Case",
+		"suite": suite,
+		"title": title,
+		"process_model": suite_doc.process_model or None,
+		"provider": provider,
+		"model": model,
+		"backend": "direct_api",
+		"input_system_prompt": input_system_prompt,
+		"input_user_prompt": input_user_prompt,
+		"expected_output": expected_output,
+	})
+	case.insert()
+	return case.name

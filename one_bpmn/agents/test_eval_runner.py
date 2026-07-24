@@ -14,7 +14,7 @@ from unittest.mock import patch
 import frappe
 from frappe.tests.utils import FrappeTestCase
 
-from one_bpmn.agents.eval_runner import _execute_eval_suite, run_eval_suite
+from one_bpmn.agents.eval_runner import _execute_eval_suite, run_eval_cases, run_eval_suite
 from one_bpmn.agents._eval_test_factories import (
     make_eval_case,
     make_eval_run,
@@ -46,6 +46,32 @@ class TestEvalRunner(FrappeTestCase):
         """run_eval_suite() throws for an unknown suite name."""
         self.assertRaises(
             frappe.ValidationError, run_eval_suite, "does-not-exist"
+        )
+
+    # -- run_eval_cases (WI-001746) -------------------------------------
+
+    def test_run_eval_cases_subset_passes_case_names(self):
+        """run_eval_cases() enqueues only the chosen cases."""
+        suite = make_eval_suite()
+        c1 = make_eval_case(suite=suite.name)
+        make_eval_case(suite=suite.name)  # not selected
+
+        with patch("frappe.enqueue") as mock_enqueue:
+            run_name = run_eval_cases(suite.name, case_names=json.dumps([c1.name]))
+
+        self.assertTrue(run_name)
+        _, kwargs = mock_enqueue.call_args
+        self.assertEqual(kwargs["case_names"], [c1.name])
+
+    def test_run_eval_cases_rejects_foreign_case(self):
+        """A case that does not belong to the suite is rejected."""
+        suite = make_eval_suite()
+        other = make_eval_case()  # no suite / different suite
+        self.assertRaises(
+            frappe.ValidationError,
+            run_eval_cases,
+            suite.name,
+            json.dumps([other.name]),
         )
 
     # -- assertion types ------------------------------------------------

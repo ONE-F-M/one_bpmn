@@ -136,7 +136,7 @@ async function runSuite(s) {
 	running[s.name] = true
 	try {
 		await frappeRequest({
-			url: "/api/method/one_bpmn.agents.eval_runner.run_eval_suite",
+			url: "/api/method/one_bpmn.agents.eval_runner.run_eval_cases",
 			method: "POST",
 			params: { suite_name: s.name },
 		})

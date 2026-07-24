@@ -105,7 +105,51 @@ def run_eval_suite(suite_name: str, backend: str = "live") -> str:
         run_name=run.name,
         timeout=1800,
     )
-    
+
+    return run.name
+
+
+@frappe.whitelist()
+def run_eval_cases(suite_name: str, case_names=None, backend: str = "live") -> str:
+    """Run a chosen subset of a suite's cases (WI-001746), or the whole suite
+    when no cases are given.
+
+    Unlike ``run_eval_suite`` (System Manager only), this is available to any
+    user who can read the suite — a process owner may run their own suites.
+    The subset is validated to belong to the suite.
+    """
+    if backend not in ("live", "replay"):
+        frappe.throw(_("backend must be 'live' or 'replay', not '{0}'.").format(backend))
+
+    suite = frappe.get_doc("AI Eval Suite", suite_name)  # 404s if missing
+    suite.check_permission("read")  # owner / System Manager gate
+
+    if isinstance(case_names, str):
+        case_names = frappe.parse_json(case_names) or None
+    if case_names:
+        valid = set(
+            frappe.get_all("AI Eval Case", filters={"suite": suite_name}, pluck="name")
+        )
+        invalid = [c for c in case_names if c not in valid]
+        if invalid:
+            frappe.throw(_("Cases do not belong to this suite: {0}").format(", ".join(invalid)))
+    else:
+        case_names = None  # whole suite
+
+    run = frappe.new_doc("AI Eval Run")
+    run.suite = suite_name
+    run.status = "Running"
+    run.backend = backend
+    run.started_at = now_datetime()
+    run.insert()
+
+    frappe.enqueue(
+        "one_bpmn.agents.eval_runner._execute_eval_suite",
+        queue="bpmn_ai_agent",
+        run_name=run.name,
+        case_names=case_names,
+        timeout=1800,
+    )
     return run.name
 
 
@@ -113,8 +157,11 @@ def run_eval_suite(suite_name: str, backend: str = "live") -> str:
 # Background job
 # ---------------------------------------------------------------------------
 
-def _execute_eval_suite(run_name: str) -> None:
-    """Run every case in the suite and finalise the AI Eval Run.
+def _execute_eval_suite(run_name: str, case_names: list | None = None) -> None:
+    """Run the suite's cases and finalise the AI Eval Run.
+
+    ``case_names`` (WI-001746) restricts the run to a chosen subset; when None
+    every case in the suite runs.
 
     WI-001361 Scenario 5: an unexpected exception partway through must
     never leave the Run stuck on "Running" — the run is finalised as
@@ -125,12 +172,13 @@ def _execute_eval_suite(run_name: str) -> None:
     run = frappe.get_doc("AI Eval Run", run_name)
 
     try:
-        case_names = frappe.get_all(
-            "AI Eval Case",
-            filters={"suite": run.suite},
-            pluck="name",
-            order_by="creation asc",
-        )
+        if case_names is None:
+            case_names = frappe.get_all(
+                "AI Eval Case",
+                filters={"suite": run.suite},
+                pluck="name",
+                order_by="creation asc",
+            )
 
         passed = failed = 0
         total_cost = 0.0

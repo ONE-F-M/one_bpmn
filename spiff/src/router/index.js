@@ -50,6 +50,12 @@ const routes = [
 		component: () => import("@/views/Evals.vue"),
 	},
 	{
+		path: "/processa/evals/suite/:suite",
+		name: "EvalSuiteDetail",
+		component: () => import("@/views/EvalSuiteDetail.vue"),
+		props: true,
+	},
+	{
 		path: "/:pathMatch(.*)*",
 		redirect: "/processa",
 	},

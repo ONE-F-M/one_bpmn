@@ -6,6 +6,7 @@
 
 import frappe
 from frappe import _
+from frappe.utils import get_datetime
 
 
 @frappe.whitelist()
@@ -39,7 +40,10 @@ def get_run_steps_for_case_picker(run_name: str) -> list:
 
 @frappe.whitelist()
 def create_eval_case_from_run(
-	run_name: str, step_name: str | None = None, tool_call_name: str | None = None
+	run_name: str,
+	step_name: str | None = None,
+	tool_call_name: str | None = None,
+	suite: str | None = None,
 ) -> str:
 	"""
 	Create an AI Eval Case pre-filled from an AI Agent Run (Scenario 1).
@@ -111,7 +115,9 @@ def create_eval_case_from_run(
 	case = frappe.get_doc(
 		{
 			"doctype": "AI Eval Case",
-			"title": f"From {run_name}{title_suffix}",
+			# Readable title (no raw run id); source_run keeps the link.
+			"title": f"From run · {get_datetime(run.creation).strftime('%Y-%m-%d %H:%M')}{title_suffix}",
+			"suite": suite or "",
 			"source_run": run_name,
 			"process_model": run.process_model or "",
 			"bpmn_id": run.bpmn_id or "",
