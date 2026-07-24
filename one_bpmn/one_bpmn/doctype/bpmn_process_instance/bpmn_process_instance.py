@@ -16,6 +16,7 @@ from one_bpmn.one_bpmn import engine as bpmn_engine
 from one_bpmn.one_bpmn.doctype.bpmn_process_instance.dispatchers import dispatch_ai_agent
 
 from .dispatchers import (
+	dispatch_connector,
 	dispatch_email,
 	dispatch_google_chat,
 	dispatch_push_notification,
@@ -1387,6 +1388,13 @@ class BPMNProcessInstance(Document):
 			# Error handling is fully inside _dispatch_google_chat;
 			# failures are non-fatal and logged there.
 			dispatch_google_chat(self, task, task_cfg, bpmn_id)
+
+		elif service_type == "connector":
+			# Data-driven provider connector (Google Drive/Docs/Slides, …).
+			# Errors are handled inside dispatch_connector: logged and non-fatal,
+			# re-raised only when the task's failOnError is set so the instance
+			# can be marked Errored.
+			dispatch_connector(self, task, task_cfg, bpmn_id)
 
 		elif service_type == "push_notification":
 			try:
