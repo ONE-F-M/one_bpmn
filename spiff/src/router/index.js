@@ -45,6 +45,11 @@ const routes = [
 		component: () => import("@/views/Insights.vue"),
 	},
 	{
+		path: "/processa/evals",
+		name: "Evals",
+		component: () => import("@/views/Evals.vue"),
+	},
+	{
 		path: "/:pathMatch(.*)*",
 		redirect: "/processa",
 	},
