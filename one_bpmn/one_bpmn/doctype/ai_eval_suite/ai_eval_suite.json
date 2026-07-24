@@ -9,6 +9,7 @@
  "field_order": [
   "title",
   "process_model",
+  "agent_configuration",
   "gate_deployment",
   "description"
  ],
@@ -27,6 +28,14 @@
    "label": "Process Model",
    "options": "BPMN Process Model",
    "reqd": 1
+  },
+  {
+   "fieldname": "agent_configuration",
+   "fieldtype": "Link",
+   "in_list_view": 1,
+   "label": "Agent Configuration",
+   "options": "AI Agent Configuration",
+   "description": "The agent this suite evaluates. This is the only link between a suite and an agent; an agent may have many suites."
   },
   {
    "default": "0",
