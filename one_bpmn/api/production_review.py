@@ -24,7 +24,23 @@ import os
 import frappe
 from frappe import _
 
-from one_bpmn.api.editability import _call_production_api
+from one_bpmn.api.editability import _call_production_api, _is_ba_instance
+
+
+def _require_ba_instance():
+	"""Guard the BA-only review actions.
+
+	"Review Doctypes" / "Review Workflow Objects" (and their Sync counterparts)
+	are only meaningful on a BA (authoring) instance comparing against
+	Production. Enforced here so the gate holds even if the frontend is bypassed.
+	The snapshot/apply endpoints below run ON Production and are intentionally
+	NOT gated by this.
+	"""
+	if not _is_ba_instance():
+		frappe.throw(
+			_("This action is only available on a BA instance (Processa Settings → Instance Type)."),
+			title=_("Not Available"),
+		)
 
 # Source-of-truth methods executed on the Production site.
 SNAPSHOT_WORKFLOW = "one_bpmn.api.production_review.snapshot_workflow_objects"
@@ -137,6 +153,7 @@ def _diff_workflow(local: dict, remote: dict) -> list:
 @frappe.whitelist()
 def review_workflow_objects(model_name: str) -> dict:
 	"""Compare referenced workflow objects against Production (read-only)."""
+	_require_ba_instance()
 	targets = _workflow_targets(_refs_for_model(model_name, "read"))
 	local = _build_workflow_snapshot(targets)
 	remote = _call_production_api(SNAPSHOT_WORKFLOW, {"targets": json.dumps(targets)}) or {}
@@ -147,6 +164,7 @@ def review_workflow_objects(model_name: str) -> dict:
 @frappe.whitelist(methods=["POST"])
 def sync_workflow_objects(model_name: str) -> dict:
 	"""Overwrite/create the changed workflow objects on Production via API."""
+	_require_ba_instance()
 	targets = _workflow_targets(_refs_for_model(model_name, "write"))
 	local = _build_workflow_snapshot(targets)
 	remote = _call_production_api(SNAPSHOT_WORKFLOW, {"targets": json.dumps(targets)}) or {}
@@ -268,6 +286,7 @@ def _diff_doctypes(local: dict, remote: dict) -> list:
 @frappe.whitelist()
 def review_doctypes(model_name: str) -> dict:
 	"""Compare referenced DocTypes + customizations against Production (read-only)."""
+	_require_ba_instance()
 	doctypes = sorted(_refs_for_model(model_name, "read").get("doctypes") or [])
 	local = _build_doctype_snapshot(doctypes)
 	remote = _call_production_api(SNAPSHOT_DOCTYPES, {"doctypes": json.dumps(doctypes)}) or {}
@@ -280,6 +299,7 @@ def sync_doctypes(model_name: str) -> dict:
 	"""Open a GitHub PR (per owning app) carrying the changed customizations."""
 	from one_bpmn.api.github_sync import open_customization_pr
 
+	_require_ba_instance()
 	doctypes = sorted(_refs_for_model(model_name, "write").get("doctypes") or [])
 	local = _build_doctype_snapshot(doctypes)
 	remote = _call_production_api(SNAPSHOT_DOCTYPES, {"doctypes": json.dumps(doctypes)}) or {}
@@ -417,6 +437,15 @@ def _customization_file(dt: str, app: str) -> tuple[str, str]:
 
 @frappe.whitelist()
 def production_review_settings() -> dict:
-	"""Lightweight flags the Processa canvas needs to render the Actions menu."""
+	"""Lightweight flags the Processa canvas needs to render the Actions menu.
+
+	``instance_type`` drives which environment-specific actions are shown:
+	"Review Doctypes/Workflow" only on a BA instance, "Reassign User Task" only
+	on a Production instance. ``connect_to_production`` is still surfaced for
+	other callers.
+	"""
 	settings = frappe.get_cached_doc("Processa Settings")
-	return {"connect_to_production": bool(settings.connect_to_production)}
+	return {
+		"connect_to_production": bool(settings.connect_to_production),
+		"instance_type": settings.instance_type or "",
+	}
