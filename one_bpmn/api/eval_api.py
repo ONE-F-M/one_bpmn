@@ -335,20 +335,27 @@ def get_run_review(run: str) -> dict:
 	suite_title = frappe.db.get_value("AI Eval Suite", doc.suite, "title")
 	run_seq = frappe.db.count("AI Eval Run", {"suite": doc.suite, "creation": ["<=", doc.creation]})
 
-	case_titles = {
-		c["name"]: c["title"]
+	# Look up by the result rows' own case names (not by suite) so a case that
+	# was later moved or renamed still resolves. Carries the prompt so the
+	# review shows what was evaluated alongside the verdict.
+	case_names = [r.eval_case for r in doc.results if r.eval_case]
+	case_info = {
+		c["name"]: c
 		for c in frappe.get_all(
 			"AI Eval Case",
-			filters={"suite": doc.suite},
-			fields=["name", "title"],
+			filters={"name": ["in", case_names]} if case_names else {"name": ""},
+			fields=["name", "title", "input_user_prompt", "expected_output"],
 		)
 	}
 
 	results = []
 	for r in doc.results:
+		info = case_info.get(r.eval_case) or {}
 		results.append({
 			"eval_case": r.eval_case,
-			"case_title": case_titles.get(r.eval_case, r.eval_case),
+			"case_title": info.get("title") or r.eval_case,
+			"input_user_prompt": info.get("input_user_prompt") or "",
+			"expected_output": info.get("expected_output") or "",
 			"status": r.status,
 			"actual_output": r.actual_output,
 			"error_message": r.error_message,

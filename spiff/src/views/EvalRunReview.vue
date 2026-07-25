@@ -66,6 +66,16 @@
 					<span class="text-xs text-gray-400">{{ res.tokens_used }} tok · ${{ (res.cost || 0).toFixed(4) }}</span>
 				</div>
 				<div class="px-6 py-4 space-y-4">
+					<!-- Prompt under test -->
+					<div v-if="res.input_user_prompt">
+						<div class="text-xs uppercase tracking-wide text-gray-500 font-medium mb-2">Prompt</div>
+						<pre class="text-xs bg-gray-50 rounded p-3 whitespace-pre-wrap overflow-auto max-h-40">{{ res.input_user_prompt }}</pre>
+						<details v-if="res.expected_output" class="mt-2">
+							<summary class="text-xs text-gray-500 cursor-pointer">Expected output</summary>
+							<pre class="text-xs bg-gray-50 rounded p-3 mt-2 whitespace-pre-wrap overflow-auto">{{ res.expected_output }}</pre>
+						</details>
+					</div>
+
 					<!-- Assertions -->
 					<div>
 						<div class="text-xs uppercase tracking-wide text-gray-500 font-medium mb-2">Assertions</div>
