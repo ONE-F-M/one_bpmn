@@ -252,7 +252,8 @@
   {
    "fieldname": "evaluation_section",
    "fieldtype": "Section Break",
-   "label": "Evaluation"
+   "label": "Evaluation",
+   "description": "Eval suites now link to this agent from the suite side — see the Evaluation group in the Connections panel above to view or add suites. (The former Evaluation Suite field was removed.)"
   },
   {
    "fieldname": "sample_prompts",
@@ -267,6 +268,11 @@
   {
    "group": "Observability",
    "link_doctype": "AI Agent Run",
+   "link_fieldname": "agent_configuration"
+  },
+  {
+   "group": "Evaluation",
+   "link_doctype": "AI Eval Suite",
    "link_fieldname": "agent_configuration"
   }
  ],
