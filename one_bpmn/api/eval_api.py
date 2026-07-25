@@ -8,6 +8,7 @@ System Manager sees all.
 
 import frappe
 from frappe import _
+from frappe.utils import flt
 from frappe.utils import get_datetime
 
 
@@ -81,6 +82,49 @@ def list_eval_suites() -> dict:
 
 
 @frappe.whitelist()
+def get_evals_overview(from_date: str = None, to_date: str = None) -> dict:
+	"""Portfolio metrics for the Evals console dashboard (WI-001745), scoped to
+	the suites the user can see. Suites/cases are structural totals; runs,
+	tokens and cost respect the optional date range (like the Insights page).
+	Cost is ``AI Eval Run.total_cost`` — the same per-1k pricing as observability.
+	"""
+	names = [s["name"] for s in frappe.get_list("AI Eval Suite", fields=["name"], limit_page_length=0)]
+	overview = {
+		"suites": len(names),
+		"cases": 0,
+		"runs": 0,
+		"suites_passing": 0,
+		"total_tokens": 0,
+		"total_cost": 0.0,
+	}
+	if not names:
+		return overview
+
+	overview["cases"] = frappe.db.count("AI Eval Case", {"suite": ["in", names]})
+
+	run_filters = {"suite": ["in", names]}
+	if from_date and to_date:
+		run_filters["creation"] = ["between", [from_date, f"{to_date} 23:59:59"]]
+	period_runs = frappe.get_all(
+		"AI Eval Run", filters=run_filters, fields=["total_tokens", "total_cost"], limit_page_length=0
+	)
+	overview["runs"] = len(period_runs)
+	overview["total_tokens"] = sum((r.get("total_tokens") or 0) for r in period_runs)
+	overview["total_cost"] = sum(flt(r.get("total_cost")) for r in period_runs)
+
+	# Suites currently passing = each suite's latest run status is "Passed".
+	latest: dict[str, str] = {}
+	for r in frappe.get_all(
+		"AI Eval Run", filters={"suite": ["in", names]},
+		fields=["suite", "status"], order_by="creation desc", limit_page_length=0
+	):
+		latest.setdefault(r["suite"], r["status"])
+	overview["suites_passing"] = sum(1 for st in latest.values() if st == "Passed")
+
+	return overview
+
+
+@frappe.whitelist()
 def get_suite_detail(suite: str) -> dict:
 	"""Suite header, its cases, and recent runs for the suite-detail view
 	(WI-001746). Permission is enforced by check_permission (owner / SM).
@@ -134,6 +178,31 @@ def get_suite_detail(suite: str) -> dict:
 	for idx, r in enumerate(runs):
 		r["display_title"] = _run_title(doc.title, total_runs - idx, r.get("started_at"))
 
+	# Dashboard metrics for the suite page (WI-001746).
+	# Pass-rate sparkline: % of cases passing per run, oldest -> newest.
+	spark = []
+	for r in reversed(runs):
+		tot = r.get("total_cases") or 0
+		if tot:
+			spark.append(round(100.0 * (r.get("passed_cases") or 0) / tot))
+	spark = spark[-12:]
+	latest = runs[0] if runs else None
+	with_assertions = sum(1 for c in cases if c.get("assertion_types"))
+	metrics = {
+		"cases": len(cases),
+		"runs": total_runs,
+		"latest": {
+			"status": latest["status"],
+			"passed": latest.get("passed_cases") or 0,
+			"total": latest.get("total_cases") or 0,
+		} if latest else None,
+		"pass_rate": round(sum(spark) / len(spark)) if spark else None,
+		"latest_tokens": (latest.get("total_tokens") or 0) if latest else 0,
+		"latest_cost": flt(latest.get("total_cost")) if latest else 0.0,
+		"assertion_coverage": {"with_assertions": with_assertions, "total": len(cases)},
+		"sparkline": spark,
+	}
+
 	return {
 		"suite": {
 			"name": doc.name,
@@ -144,7 +213,26 @@ def get_suite_detail(suite: str) -> dict:
 		},
 		"cases": cases,
 		"runs": runs,
+		"metrics": metrics,
 	}
+
+
+_ASSERTION_FIELDS = ("assertion_type", "value", "judge_provider", "judge_model", "pass_threshold")
+
+
+def _set_assertions(case, assertions) -> None:
+	"""Replace a case's assertions from a list of dicts (WI-001746)."""
+	if isinstance(assertions, str):
+		assertions = frappe.parse_json(assertions) or []
+	case.set("assertions", [])
+	for a in assertions or []:
+		if not a.get("assertion_type"):
+			continue
+		row = {"assertion_type": a["assertion_type"]}
+		for k in _ASSERTION_FIELDS[1:]:
+			if a.get(k) not in (None, ""):
+				row[k] = a[k]
+		case.append("assertions", row)
 
 
 @frappe.whitelist()
@@ -156,9 +244,10 @@ def create_eval_case(
 	model: str,
 	input_system_prompt: str = "",
 	expected_output: str = "",
+	assertions=None,
 ) -> str:
-	"""Create a manual AI Eval Case in ``suite`` (WI-001746). The current user
-	must be able to write the suite (owner / SM)."""
+	"""Create a manual AI Eval Case in ``suite`` with optional assertions
+	(WI-001746). The current user must be able to write the suite (owner / SM)."""
 	suite_doc = frappe.get_doc("AI Eval Suite", suite)
 	suite_doc.check_permission("write")
 
@@ -174,7 +263,56 @@ def create_eval_case(
 		"input_user_prompt": input_user_prompt,
 		"expected_output": expected_output,
 	})
+	_set_assertions(case, assertions)
 	case.insert()
+	return case.name
+
+
+@frappe.whitelist()
+def get_eval_case(name: str) -> dict:
+	"""Full case (fields + assertions) for the edit form (WI-001746)."""
+	case = frappe.get_doc("AI Eval Case", name)
+	frappe.get_doc("AI Eval Suite", case.suite).check_permission("read")
+	return {
+		"name": case.name,
+		"title": case.title,
+		"provider": case.provider,
+		"model": case.model,
+		"input_system_prompt": case.input_system_prompt,
+		"input_user_prompt": case.input_user_prompt,
+		"expected_output": case.expected_output,
+		"assertions": [{k: a.get(k) for k in _ASSERTION_FIELDS} for a in case.assertions],
+	}
+
+
+@frappe.whitelist()
+def update_eval_case(
+	name: str,
+	title: str = None,
+	provider: str = None,
+	model: str = None,
+	input_system_prompt: str = None,
+	input_user_prompt: str = None,
+	expected_output: str = None,
+	assertions=None,
+) -> str:
+	"""Edit an existing case, including its assertions (WI-001746). Gated by the
+	suite's write permission."""
+	case = frappe.get_doc("AI Eval Case", name)
+	frappe.get_doc("AI Eval Suite", case.suite).check_permission("write")
+
+	for field, val in (
+		("title", title), ("provider", provider), ("model", model),
+		("input_system_prompt", input_system_prompt),
+		("input_user_prompt", input_user_prompt),
+		("expected_output", expected_output),
+	):
+		if val is not None:
+			case.set(field, val)
+	if assertions is not None:
+		_set_assertions(case, assertions)
+
+	case.save()
 	return case.name
 
 

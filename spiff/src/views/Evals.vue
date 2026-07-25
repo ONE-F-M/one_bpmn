@@ -13,13 +13,24 @@
 				</span>
 			</div>
 			<div class="flex items-center gap-2">
+				<FormControl type="date" v-model="fromDate" class="w-36" />
+				<span class="text-sm text-gray-400">to</span>
+				<FormControl type="date" v-model="toDate" class="w-36" />
 				<Button icon-left="plus" @click="openNewSuite">New suite</Button>
-				<Button icon-left="refresh-cw" @click="fetchSuites" :loading="loading">Refresh</Button>
+				<Button icon-left="refresh-cw" @click="refreshAll" :loading="loading">Refresh</Button>
 			</div>
 		</header>
 
 		<!-- Content -->
-		<main class="flex-1 p-6 overflow-auto">
+		<main class="flex-1 p-6 overflow-auto space-y-6">
+			<!-- Dashboard -->
+			<div class="grid grid-cols-2 lg:grid-cols-3 xl:grid-cols-6 gap-4">
+				<div v-for="c in overviewCards" :key="c.key" class="bg-white rounded-lg shadow-sm p-4 border-l-4" :class="c.border">
+					<div class="text-xs text-gray-500 uppercase tracking-wide font-medium">{{ c.label }}</div>
+					<div class="text-2xl font-bold text-gray-900">{{ c.value }}</div>
+				</div>
+			</div>
+
 			<div class="bg-white rounded-lg shadow-sm">
 				<div class="border-b px-6 py-3 flex items-center justify-between">
 					<h2 class="text-sm font-semibold text-gray-700">
@@ -106,14 +117,34 @@
 </template>
 
 <script setup>
-import { ref, reactive, onMounted } from "vue"
+import { ref, reactive, computed, watch, onMounted } from "vue"
 import { frappeRequest, Button, Dialog, FormControl } from "frappe-ui"
 import { Icon } from "@iconify/vue"
+import { dayjs } from "@/dayjs"
 
 const loading = ref(true)
 const suites = ref([])
 const isSystemManager = ref(false)
 const running = reactive({})
+
+const fromDate = ref(dayjs().subtract(29, "day").format("YYYY-MM-DD"))
+const toDate = ref(dayjs().format("YYYY-MM-DD"))
+const overview = ref({})
+
+const fmt = new Intl.NumberFormat("en-US")
+const fmtCost = new Intl.NumberFormat("en-US", { style: "currency", currency: "USD", minimumFractionDigits: 2, maximumFractionDigits: 4 })
+
+const overviewCards = computed(() => {
+	const o = overview.value
+	return [
+		{ key: "suites", label: "Suites", value: fmt.format(o.suites ?? 0), border: "border-blue-500" },
+		{ key: "cases", label: "Eval cases", value: fmt.format(o.cases ?? 0), border: "border-cyan-500" },
+		{ key: "runs", label: "Runs", value: fmt.format(o.runs ?? 0), border: "border-indigo-500" },
+		{ key: "passing", label: "Suites passing", value: `${o.suites_passing ?? 0} / ${o.suites ?? 0}`, border: "border-green-500" },
+		{ key: "tokens", label: "Tokens", value: fmt.format(o.total_tokens ?? 0), border: "border-amber-500" },
+		{ key: "cost", label: "Cost", value: fmtCost.format(o.total_cost ?? 0), border: "border-purple-500" },
+	]
+})
 
 const agentOptions = ref([])
 const processOptions = ref([])
@@ -159,6 +190,26 @@ async function fetchSuites() {
 		loading.value = false
 	}
 }
+
+async function fetchOverview() {
+	try {
+		overview.value = await frappeRequest({
+			url: "/api/method/one_bpmn.api.eval_api.get_evals_overview",
+			method: "GET",
+			params: { from_date: fromDate.value, to_date: toDate.value },
+		}) || {}
+	} catch (e) {
+		console.error("Failed to load overview:", e)
+		overview.value = {}
+	}
+}
+
+function refreshAll() {
+	fetchSuites()
+	fetchOverview()
+}
+
+watch([fromDate, toDate], fetchOverview)
 
 async function fetchAgents() {
 	try {
@@ -243,6 +294,7 @@ async function doReassign() {
 
 onMounted(() => {
 	fetchSuites()
+	fetchOverview()
 	fetchAgents()
 	fetchProcesses()
 })
