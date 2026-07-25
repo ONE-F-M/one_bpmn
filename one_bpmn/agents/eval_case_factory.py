@@ -70,7 +70,8 @@ def create_eval_case_from_run(
 		fields=["name", "role", "content"],
 		order_by="step_index asc",
 	)
-	system_prompt = next((s.content for s in steps if s.role == "system"), "")
+	# Only the user turn is carried onto the case: the system prompt comes from
+	# the suite's agent configuration at run time (WI-001751).
 	user_prompt = next((s.content for s in steps if s.role == "user"), "")
 
 	expected_output = ""
