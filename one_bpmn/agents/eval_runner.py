@@ -46,6 +46,10 @@ from one_bpmn.agents.pricing import get_model_pricing
 # LLM Judge prompt template (not configurable for v1)
 # ---------------------------------------------------------------------------
 
+# bpmn_id markers for the eval LLM calls recorded as AI Agent Runs (origin="eval").
+EVAL_RUN_DIRECT = "direct-eval"
+EVAL_RUN_JUDGE = "eval-judge"
+
 JUDGE_PROMPT_TEMPLATE = """You are an evaluation judge. Score the following AI response based on the given rubric.
 
 Rubric:
@@ -402,6 +406,60 @@ def _execute_case(case) -> dict:
         }
 
 
+def _cost_split(prompt_tokens: int, completion_tokens: int, model: str) -> tuple:
+    """(input_cost, output_cost) for a call, from AI Model Pricing."""
+    pricing = get_model_pricing(model) or {}
+    return (
+        (prompt_tokens / 1000.0) * flt(pricing.get("input_cost_per_1k", 0)),
+        (completion_tokens / 1000.0) * flt(pricing.get("output_cost_per_1k", 0)),
+    )
+
+
+def _record_eval_run(
+    bpmn_id: str,
+    provider: str,
+    model: str,
+    started,
+    prompt_tokens: int,
+    completion_tokens: int,
+    input_cost: float,
+    output_cost: float,
+    agent_configuration: str = None,
+) -> None:
+    """Record an eval LLM call as an AI Agent Run tagged origin="eval".
+
+    Evals spend real money outside the BPMN AI Agent Task path: the direct-eval
+    call and every llm_judge assertion. Recording them keeps AI Agent Runs the
+    single ledger of all AI cost, so cost reporting reads one place and can never
+    double-count evals. Never raises — failing to record usage must not fail the
+    eval itself.
+    """
+    try:
+        frappe.get_doc({
+            "doctype": "AI Agent Run",
+            "bpmn_id": bpmn_id,
+            "agent_configuration": agent_configuration,
+            "backend": "direct_api",
+            "provider": provider or "",
+            "model": model or "",
+            "origin": "eval",
+            "status": "Success",
+            "started_at": started,
+            "ended_at": now_datetime(),
+            "total_prompt_tokens": prompt_tokens,
+            "total_completion_tokens": completion_tokens,
+            "total_tokens": prompt_tokens + completion_tokens,
+            "estimated_cost": input_cost + output_cost,
+            "total_input_cost": input_cost,
+            "total_output_cost": output_cost,
+        }).insert(ignore_permissions=True)
+    except Exception:
+        frappe.log_error(
+            title=f"AI Eval: run record failed ({bpmn_id})",
+            message=frappe.get_traceback(),
+        )
+
+
 def _run_agent_eval(cfg, case) -> tuple:
     """Agent (process) eval: invoke the full agent; tokens/cost from its runs.
 
@@ -432,7 +490,14 @@ def _run_agent_eval(cfg, case) -> tuple:
     output = (reply or {}).get("response") or ""
     runs = frappe.get_all(
         "AI Agent Run",
-        filters={"agent_configuration": cfg.name, "creation": [">=", started]},
+        filters={
+            "agent_configuration": cfg.name,
+            "creation": [">=", started],
+            # Judge runs are recorded separately and their cost is added by
+            # _execute_case; excluding them here keeps execution and judge spend
+            # from being counted twice on the Result row.
+            "bpmn_id": ["!=", EVAL_RUN_JUDGE],
+        },
         fields=["total_prompt_tokens", "total_completion_tokens", "total_tokens", "estimated_cost"],
     )
     usage = {
@@ -478,27 +543,11 @@ def _run_direct_eval(cfg, case) -> tuple:
     input_cost = (prompt_tokens / 1000.0) * flt(pricing.get("input_cost_per_1k", 0))
     output_cost = (completion_tokens / 1000.0) * flt(pricing.get("output_cost_per_1k", 0))
 
-    try:
-        frappe.get_doc({
-            "doctype": "AI Agent Run",
-            "bpmn_id": "direct-eval",
-            "agent_configuration": cfg.name,
-            "backend": "direct_api",
-            "provider": provider,
-            "model": model,
-            "origin": "eval",
-            "status": "Success",
-            "started_at": started,
-            "ended_at": now_datetime(),
-            "total_prompt_tokens": prompt_tokens,
-            "total_completion_tokens": completion_tokens,
-            "total_tokens": prompt_tokens + completion_tokens,
-            "estimated_cost": input_cost + output_cost,
-            "total_input_cost": input_cost,
-            "total_output_cost": output_cost,
-        }).insert(ignore_permissions=True)
-    except Exception:
-        frappe.log_error(title="AI Eval: direct-eval run record failed", message=frappe.get_traceback())
+    _record_eval_run(
+        EVAL_RUN_DIRECT, provider, model, started,
+        prompt_tokens, completion_tokens, input_cost, output_cost,
+        agent_configuration=cfg.name,
+    )
 
     return result.output, {
         "prompt_tokens": prompt_tokens,
@@ -609,6 +658,7 @@ def _evaluate_llm_judge(assertion, output: Any) -> dict:
     )
     judge_context = ExecutorContext()
 
+    judge_started = now_datetime()
     try:
         executor_cls = get_executor(judge_config.backend)
         judge_result = executor_cls().run(judge_config, judge_context)
@@ -626,11 +676,31 @@ def _evaluate_llm_judge(assertion, output: Any) -> dict:
     # The judge call spends real tokens of its own (WI-001362 note): report
     # them on the assertion so _execute_case can add them to the Result's
     # token/cost fields — otherwise the Run-level rollup undercounts.
+    judge_prompt_tokens = _prompt_tokens_of(judge_result)
+    judge_completion_tokens = _completion_tokens_of(judge_result)
+    judge_in_cost, judge_out_cost = _cost_split(
+        judge_prompt_tokens, judge_completion_tokens, judge_config.model
+    )
     judge_usage = {
-        "judge_prompt_tokens": _prompt_tokens_of(judge_result),
-        "judge_completion_tokens": _completion_tokens_of(judge_result),
-        "judge_cost": _cost_of(judge_result, judge_config.model),
+        "judge_prompt_tokens": judge_prompt_tokens,
+        "judge_completion_tokens": judge_completion_tokens,
+        "judge_cost": judge_in_cost + judge_out_cost,
     }
+    # The judge is a billed LLM call of its own. Record it in the AI Agent Run
+    # ledger too (it never goes through an AI Agent Task), so cost reporting
+    # built on runs is not missing judge spend. Recorded even when the judge
+    # errored, as long as it consumed tokens.
+    if judge_prompt_tokens or judge_completion_tokens:
+        _record_eval_run(
+            EVAL_RUN_JUDGE,
+            judge_config.provider_name,
+            judge_config.model,
+            judge_started,
+            judge_prompt_tokens,
+            judge_completion_tokens,
+            judge_in_cost,
+            judge_out_cost,
+        )
 
     if judge_result.error_code != ErrorCode.SUCCESS:
         return {
@@ -718,17 +788,3 @@ def _completion_tokens_of(result) -> int:
     return result.token_usage.completion_tokens if result.token_usage else 0
 
 
-def _cost_of(result, model: str = "") -> float:
-    """Compute cost from AI Model Pricing, mirroring observability.record_ai_step."""
-    if not result.token_usage or not model:
-        return 0.0
-
-    pricing = get_model_pricing(model)
-    if not pricing:
-        return 0.0
-
-    input_rate = flt(pricing.get("input_cost_per_1k", 0))
-    output_rate = flt(pricing.get("output_cost_per_1k", 0))
-    input_cost = (result.token_usage.prompt_tokens / 1000.0) * input_rate
-    output_cost = (result.token_usage.completion_tokens / 1000.0) * output_rate
-    return input_cost + output_cost
