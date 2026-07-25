@@ -322,6 +322,7 @@ function optimisticRun(runName, totalCases) {
 
 async function runCases(caseNames, flag) {
 	flag.value = true
+	loadError.value = ""
 	try {
 		const runName = await frappeRequest({
 			url: "/api/method/one_bpmn.agents.eval_runner.run_eval_cases",
@@ -332,6 +333,7 @@ async function runCases(caseNames, flag) {
 		pollRun(runName)
 	} catch (e) {
 		console.error("Run failed:", e)
+		loadError.value = e?.message || "Failed to start the run."
 	} finally {
 		flag.value = false
 	}
@@ -351,6 +353,7 @@ async function runCase(c) {
 		pollRun(runName)
 	} catch (e) {
 		console.error("Run failed:", e)
+		loadError.value = e?.message || "Failed to start the run."
 	} finally {
 		runningCase[c.name] = false
 	}

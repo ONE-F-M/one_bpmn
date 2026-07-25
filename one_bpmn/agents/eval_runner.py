@@ -110,6 +110,23 @@ def run_eval_suite(suite_name: str, backend: str = "live") -> str:
 
 
 @frappe.whitelist()
+def _assert_agent_evaluatable(agent_cfg: str) -> None:
+    """Block a live run whose agent can't be invoked for evaluation, with a
+    clear message (WI-001751). Evals invoke the agent; a Google ADK agent needs
+    a process map to run and cannot be invoked standalone.
+    """
+    if not agent_cfg:
+        frappe.throw(_("This suite has no agent configuration. Assign an agent before running evals."))
+    fw, pm = frappe.db.get_value(
+        "AI Agent Configuration", agent_cfg, ["agent_framework", "process_model"]
+    ) or (None, None)
+    if (fw or "").strip().lower() == "google adk" and not pm:
+        frappe.throw(_(
+            "Agent '{0}' can't be evaluated yet: it needs a process map. "
+            "Give the agent a process map, then run its evals."
+        ).format(agent_cfg))
+
+
 def run_eval_cases(suite_name: str, case_names=None, backend: str = "live") -> str:
     """Run a chosen subset of a suite's cases (WI-001746), or the whole suite
     when no cases are given.
@@ -123,6 +140,9 @@ def run_eval_cases(suite_name: str, case_names=None, backend: str = "live") -> s
 
     suite = frappe.get_doc("AI Eval Suite", suite_name)  # 404s if missing
     suite.check_permission("read")  # owner / System Manager gate
+
+    if backend == "live":
+        _assert_agent_evaluatable(suite.agent_configuration)
 
     if isinstance(case_names, str):
         case_names = frappe.parse_json(case_names) or None
