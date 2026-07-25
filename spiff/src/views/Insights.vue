@@ -64,6 +64,11 @@
 						:from-date="fromDate"
 						:to-date="toDate"
 					/>
+					<CostAllocationReport
+						v-if="activeTab === 'allocation'"
+						:from-date="fromDate"
+						:to-date="toDate"
+					/>
 				</div>
 			</div>
 		</main>
@@ -80,6 +85,7 @@ import OverviewCards from "@/components/insights/OverviewCards.vue"
 import CostTokenReport from "@/components/insights/CostTokenReport.vue"
 import ErrorReport from "@/components/insights/ErrorReport.vue"
 import PerformanceReport from "@/components/insights/PerformanceReport.vue"
+import CostAllocationReport from "@/components/insights/CostAllocationReport.vue"
 
 const activeTab = ref("cost")
 
@@ -90,5 +96,6 @@ const tabs = [
 	{ key: "cost", label: "Cost & Tokens", icon: "lucide:credit-card" },
 	{ key: "errors", label: "Errors", icon: "lucide:alert-triangle" },
 	{ key: "performance", label: "Performance", icon: "lucide:timer" },
+	{ key: "allocation", label: "Cost Allocation", icon: "lucide:receipt" },
 ]
 </script>
