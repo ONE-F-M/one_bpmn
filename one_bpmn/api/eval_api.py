@@ -176,3 +176,87 @@ def create_eval_case(
 	})
 	case.insert()
 	return case.name
+
+
+@frappe.whitelist()
+def get_run_review(run: str) -> dict:
+	"""Full result of one AI Eval Run for the run-review view (WI-001747):
+	summary, per-case results (status, actual output, parsed assertion results
+	incl. judge score/reasoning), and a per-case comparison to the previous
+	run of the same suite. Permission enforced via check_permission (owner/SM).
+	"""
+	doc = frappe.get_doc("AI Eval Run", run)
+	doc.check_permission("read")
+
+	suite_title = frappe.db.get_value("AI Eval Suite", doc.suite, "title")
+	run_seq = frappe.db.count("AI Eval Run", {"suite": doc.suite, "creation": ["<=", doc.creation]})
+
+	case_titles = {
+		c["name"]: c["title"]
+		for c in frappe.get_all(
+			"AI Eval Case",
+			filters={"suite": doc.suite},
+			fields=["name", "title"],
+		)
+	}
+
+	results = []
+	for r in doc.results:
+		results.append({
+			"eval_case": r.eval_case,
+			"case_title": case_titles.get(r.eval_case, r.eval_case),
+			"status": r.status,
+			"actual_output": r.actual_output,
+			"error_message": r.error_message,
+			"tokens_used": r.tokens_used,
+			"cost": r.cost,
+			"assertions": frappe.parse_json(r.assertion_results) or [],
+		})
+
+	# Previous finished run of the same suite, for a per-case delta.
+	prev = frappe.get_all(
+		"AI Eval Run",
+		filters={
+			"suite": doc.suite,
+			"name": ["!=", doc.name],
+			"creation": ["<", doc.creation],
+			"status": ["in", ["Passed", "Failed"]],
+		},
+		fields=["name", "started_at", "creation"],
+		order_by="creation desc",
+		limit_page_length=1,
+	)
+	previous = None
+	if prev:
+		prev_name = prev[0]["name"]
+		prev_seq = frappe.db.count(
+			"AI Eval Run", {"suite": doc.suite, "creation": ["<=", prev[0]["creation"]]}
+		)
+		prev_status = {
+			row.eval_case: row.status
+			for row in frappe.get_doc("AI Eval Run", prev_name).results
+		}
+		previous = {
+			"name": prev_name,
+			"display_title": _run_title(suite_title, prev_seq, prev[0]["started_at"]),
+			"case_status": prev_status,
+		}
+
+	return {
+		"run": {
+			"name": doc.name,
+			"display_title": _run_title(suite_title, run_seq, doc.started_at),
+			"suite": doc.suite,
+			"status": doc.status,
+			"backend": doc.backend,
+			"started_at": doc.started_at,
+			"ended_at": doc.ended_at,
+			"total_cases": doc.total_cases,
+			"passed_cases": doc.passed_cases,
+			"failed_cases": doc.failed_cases,
+			"total_tokens": doc.total_tokens,
+			"total_cost": doc.total_cost,
+		},
+		"results": results,
+		"previous": previous,
+	}

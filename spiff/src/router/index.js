@@ -56,6 +56,12 @@ const routes = [
 		props: true,
 	},
 	{
+		path: "/processa/evals/run/:run",
+		name: "EvalRunReview",
+		component: () => import("@/views/EvalRunReview.vue"),
+		props: true,
+	},
+	{
 		path: "/:pathMatch(.*)*",
 		redirect: "/processa",
 	},
