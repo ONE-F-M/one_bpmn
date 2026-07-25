@@ -121,10 +121,9 @@ def create_eval_case_from_run(
 			"source_run": run_name,
 			"process_model": run.process_model or "",
 			"bpmn_id": run.bpmn_id or "",
-			"provider": run.provider or "",
-			"model": run.model or "",
-			"backend": run.backend or "direct_api",
-			"input_system_prompt": system_prompt,
+			# WI-001751: the case tests the suite's agent; it carries only the
+			# prompt + expected output (provider/model/system prompt come from
+			# the agent). ``system_prompt`` above is no longer stored on the case.
 			"input_user_prompt": user_prompt,
 			"expected_output": expected_output,
 		}

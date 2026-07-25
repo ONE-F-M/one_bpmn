@@ -79,7 +79,6 @@
 							<th class="px-4 py-3 w-8"><input type="checkbox" :checked="allSelected" @change="toggleAll" /></th>
 							<th class="px-4 py-3 font-medium">Case</th>
 							<th class="px-4 py-3 font-medium">Assertions</th>
-							<th class="px-4 py-3 font-medium">Model</th>
 							<th class="px-4 py-3 font-medium text-right">Actions</th>
 						</tr>
 					</thead>
@@ -94,7 +93,6 @@
 								<span v-for="t in c.assertion_types" :key="t" class="inline-block px-2 py-0.5 rounded-full text-xs bg-gray-100 text-gray-600 mr-1">{{ t }}</span>
 								<span v-if="!c.assertion_types.length" class="text-xs text-amber-600">no assertions</span>
 							</td>
-							<td class="px-4 py-3 text-gray-600">{{ c.model }}</td>
 							<td class="px-4 py-3 text-right whitespace-nowrap">
 								<Button variant="ghost" icon-left="pencil" @click="openEditCase(c)">Edit</Button>
 								<Button icon-left="play" :loading="runningCase[c.name]" @click="runCase(c)">Run</Button>
@@ -131,12 +129,11 @@
 		<Dialog v-model="showCaseEditor" :options="{ title: caseMode === 'edit' ? 'Edit case' : 'New eval case', size: '3xl' }">
 			<template #body-content>
 				<div class="space-y-3">
-					<FormControl label="Title" v-model="caseForm.title" />
-					<div class="grid grid-cols-2 gap-3">
-						<FormControl type="select" label="Provider" :options="providerOptions" v-model="caseForm.provider" />
-						<FormControl label="Model" v-model="caseForm.model" placeholder="e.g. claude-haiku-4-5-20251001" />
+					<div class="text-xs text-gray-500">
+						Tests agent: <span class="font-medium text-gray-700">{{ suite.agent_name || suite.agent_configuration || "none" }}</span>
+						— its provider, model and system prompt are used.
 					</div>
-					<FormControl type="textarea" label="System prompt" v-model="caseForm.input_system_prompt" />
+					<FormControl label="Title" v-model="caseForm.title" />
 					<FormControl type="textarea" label="User prompt" v-model="caseForm.input_user_prompt" />
 					<FormControl type="textarea" label="Expected output (optional)" v-model="caseForm.expected_output" />
 
@@ -161,7 +158,7 @@
 							/>
 							<div v-if="a.assertion_type === 'llm_judge'" class="grid grid-cols-3 gap-2">
 								<FormControl type="select" label="Judge provider" :options="providerOptions" v-model="a.judge_provider" />
-								<FormControl label="Judge model" v-model="a.judge_model" />
+								<FormControl type="select" label="Judge model" :options="aiModelOptions" v-model="a.judge_model" />
 								<FormControl type="number" label="Pass threshold (1–5)" v-model="a.pass_threshold" />
 							</div>
 						</div>
@@ -214,13 +211,13 @@ const runningSelected = ref(false)
 const runningSuite = ref(false)
 
 const providerOptions = ref([])
+const aiModelOptions = ref([])
 
 const showCaseEditor = ref(false)
 const caseMode = ref("new")
 const savingCase = ref(false)
 const caseForm = reactive({
-	name: "", title: "", provider: "", model: "",
-	input_system_prompt: "", input_user_prompt: "", expected_output: "", assertions: [],
+	name: "", title: "", input_user_prompt: "", expected_output: "", assertions: [],
 })
 
 const showFromRun = ref(false)
@@ -302,6 +299,19 @@ async function fetchProviders() {
 	}
 }
 
+async function fetchAiModels() {
+	try {
+		const res = await frappeRequest({
+			url: "/api/method/frappe.client.get_list",
+			method: "GET",
+			params: { doctype: "AI Model", fields: JSON.stringify(["name"]), limit_page_length: 0 },
+		})
+		aiModelOptions.value = (res || []).map((m) => ({ label: m.name, value: m.name }))
+	} catch (e) {
+		aiModelOptions.value = []
+	}
+}
+
 function optimisticRun(runName, totalCases) {
 	// Show the run immediately so there's no dead time after the click.
 	runs.value.unshift({
@@ -348,7 +358,7 @@ async function runCase(c) {
 
 // ── Case editor (new + edit) ─────────────────────────────────────────────
 function resetCaseForm() {
-	Object.assign(caseForm, { name: "", title: "", provider: "", model: "", input_system_prompt: "", input_user_prompt: "", expected_output: "", assertions: [] })
+	Object.assign(caseForm, { name: "", title: "", input_user_prompt: "", expected_output: "", assertions: [] })
 }
 function addAssertion() {
 	caseForm.assertions.push({ assertion_type: "contains", value: "", judge_provider: "", judge_model: "", pass_threshold: 4 })
@@ -372,8 +382,8 @@ async function openEditCase(c) {
 			params: { name: c.name },
 		})
 		Object.assign(caseForm, {
-			name: res.name, title: res.title, provider: res.provider, model: res.model,
-			input_system_prompt: res.input_system_prompt || "", input_user_prompt: res.input_user_prompt || "",
+			name: res.name, title: res.title,
+			input_user_prompt: res.input_user_prompt || "",
 			expected_output: res.expected_output || "",
 			assertions: (res.assertions || []).map((a) => ({
 				assertion_type: a.assertion_type, value: a.value || "",
@@ -389,8 +399,7 @@ async function saveCase() {
 	savingCase.value = true
 	try {
 		const payload = {
-			title: caseForm.title, provider: caseForm.provider, model: caseForm.model,
-			input_system_prompt: caseForm.input_system_prompt, input_user_prompt: caseForm.input_user_prompt,
+			title: caseForm.title, input_user_prompt: caseForm.input_user_prompt,
 			expected_output: caseForm.expected_output, assertions: JSON.stringify(caseForm.assertions),
 		}
 		if (caseMode.value === "edit") {
@@ -446,5 +455,6 @@ async function createFromRun() {
 onMounted(() => {
 	fetchDetail()
 	fetchProviders()
+	fetchAiModels()
 })
 </script>

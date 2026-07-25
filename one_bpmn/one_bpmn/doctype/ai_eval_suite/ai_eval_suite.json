@@ -35,7 +35,8 @@
    "in_list_view": 1,
    "label": "Agent Configuration",
    "options": "AI Agent Configuration",
-   "description": "The agent this suite evaluates. This is the only link between a suite and an agent; an agent may have many suites."
+   "reqd": 1,
+   "description": "The agent this suite evaluates. Cases run against this agent's provider, model, system prompt, tools and orchestration."
   },
   {
    "default": "0",

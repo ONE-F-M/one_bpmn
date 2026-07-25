@@ -288,39 +288,61 @@ def _execute_case_replay(run, case) -> dict:
 
 def _execute_case(case) -> dict:
     """
-    Run a single case through its executor and evaluate its assertions.
+    Invoke the suite's AI Agent Configuration against the case's user prompt
+    (WI-001751) and evaluate its assertions.
 
-    Returns a dict suitable for appending to AI Eval Run.results. Any
+    The agent runs its real path (tools, process map / LangGraph) via
+    invoke_agent; the AI Agent Runs it produces are tagged eval-origin (so
+    Insights can separate them) and supply the case's tokens/cost. Any
     unexpected exception is captured as an Error result so the suite can
     continue.
     """
     try:
-        config = ExecutorConfig(
-            backend=case.backend or "direct_api",
-            provider_name=case.provider or "",
-            model=case.model or "",
-            system_prompt=case.input_system_prompt or "",
-            user_prompt=case.input_user_prompt or "",
-        )
-        # Evals carry no instance and no context document — just the prompts.
-        context = ExecutorContext()
+        from one_bpmn.api.agent_invocation import invoke_agent
 
-        executor_cls = get_executor(config.backend)
-        result = executor_cls().run(config, context)
-
-        if result.error_code != ErrorCode.SUCCESS:
+        agent_cfg = frappe.db.get_value("AI Eval Suite", case.suite, "agent_configuration")
+        if not agent_cfg:
             return {
-                "eval_case": case.name,
-                "status": "Error",
-                "error_message": result.error_message
-                or result.error_code.value,
-                "prompt_tokens": _prompt_tokens_of(result),
-                "completion_tokens": _completion_tokens_of(result),
-                "tokens_used": _tokens_of(result),
-                "cost": _cost_of(result, config.model),
+                "eval_case": case.name, "status": "Error",
+                "error_message": "The suite has no agent configuration to test.",
+            }
+        agent_id = frappe.db.get_value("AI Agent Configuration", agent_cfg, "agent_id")
+        if not agent_id:
+            return {
+                "eval_case": case.name, "status": "Error",
+                "error_message": f"Agent configuration '{agent_cfg}' has no agent_id.",
             }
 
-        output = result.output
+        context = {}
+        if case.input_context:
+            try:
+                context = frappe.parse_json(case.input_context) or {}
+            except Exception:
+                context = {}
+
+        started = now_datetime()
+        # Tag AI Agent Runs produced here as eval-origin, and run the agent to
+        # completion synchronously (no parking) for the duration of the call.
+        prev = (getattr(frappe.flags, "eval_origin", None), getattr(frappe.flags, "bpmn_disable_ai_parking", False))
+        frappe.flags.eval_origin = {"eval_case": case.name}
+        frappe.flags.bpmn_disable_ai_parking = True
+        try:
+            reply = invoke_agent(agent_id, case.input_user_prompt or "", context=context)
+        finally:
+            frappe.flags.eval_origin, frappe.flags.bpmn_disable_ai_parking = prev
+
+        output = (reply or {}).get("response") or ""
+
+        # Tokens/cost from the agent's runs during this invocation (same per-1k
+        # pricing as Insights, since observability computed estimated_cost).
+        agent_runs = frappe.get_all(
+            "AI Agent Run",
+            filters={"agent_configuration": agent_cfg, "creation": [">=", started]},
+            fields=["total_tokens", "estimated_cost"],
+        )
+        exec_tokens = sum((r.get("total_tokens") or 0) for r in agent_runs)
+        exec_cost = sum(flt(r.get("estimated_cost")) for r in agent_runs)
+
         assertion_results = [
             _evaluate_assertion(assertion, output)
             for assertion in (case.assertions or [])
@@ -328,9 +350,6 @@ def _execute_case(case) -> dict:
         all_passed = all(a["passed"] for a in assertion_results)
         any_errored = any(a.get("error") for a in assertion_results)
 
-        # WI-001362: judge calls spend their own tokens — add them to the
-        # Result separately from the case's executor call so the Run-level
-        # rollup doesn't undercount.
         judge_prompt_tokens = sum(a.get("judge_prompt_tokens", 0) for a in assertion_results)
         judge_completion_tokens = sum(a.get("judge_completion_tokens", 0) for a in assertion_results)
         judge_cost = sum(flt(a.get("judge_cost", 0)) for a in assertion_results)
@@ -347,10 +366,10 @@ def _execute_case(case) -> dict:
             "status": status,
             "actual_output": _stringify(output),
             "assertion_results": json.dumps(assertion_results, indent=4),
-            "prompt_tokens": _prompt_tokens_of(result) + judge_prompt_tokens,
-            "completion_tokens": _completion_tokens_of(result) + judge_completion_tokens,
-            "tokens_used": _tokens_of(result) + judge_prompt_tokens + judge_completion_tokens,
-            "cost": _cost_of(result, config.model) + judge_cost,
+            "prompt_tokens": judge_prompt_tokens,
+            "completion_tokens": judge_completion_tokens,
+            "tokens_used": exec_tokens + judge_prompt_tokens + judge_completion_tokens,
+            "cost": exec_cost + judge_cost,
         }
     except Exception:
         frappe.log_error(

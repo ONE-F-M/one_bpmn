@@ -39,3 +39,4 @@ one_bpmn.one_bpmn.patches.v1_0.inline_docu_tool_scripts #23-07-2026
 one_bpmn.one_bpmn.patches.v1_0.change_process_implementation_to_data #24-07-2026
 one_bpmn.one_bpmn.patches.v1_0.fix_logix_http_helper_qualified_path #24-07-2026
 one_bpmn.one_bpmn.patches.v1_0.move_eval_suite_link_to_suite #24-07-2026
+one_bpmn.one_bpmn.patches.v1_0.evals_test_agent_configuration #25-07-2026

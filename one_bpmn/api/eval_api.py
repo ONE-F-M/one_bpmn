@@ -141,7 +141,7 @@ def get_suite_detail(suite: str) -> dict:
 	cases = frappe.get_all(
 		"AI Eval Case",
 		filters={"suite": suite},
-		fields=["name", "title", "provider", "model", "source_run"],
+		fields=["name", "title", "source_run"],
 		order_by="creation asc",
 	)
 	# Assertion summary per case (one bulk query on the child table). Kept
@@ -232,7 +232,25 @@ def _set_assertions(case, assertions) -> None:
 		for k in _ASSERTION_FIELDS[1:]:
 			if a.get(k) not in (None, ""):
 				row[k] = a[k]
+		# WI-001751: judge_model is now a Link -> AI Model. Make sure the model
+		# record exists so the link validates.
+		if row.get("judge_model"):
+			row["judge_model"] = _ensure_ai_model(row["judge_model"], row.get("judge_provider"))
 		case.append("assertions", row)
+
+
+def _ensure_ai_model(model_name: str, judge_provider: str = None) -> str:
+	"""Return an AI Model name, creating the record if it doesn't exist yet
+	(AI Model is autonamed by model_name, so name == model_name)."""
+	if not model_name or frappe.db.exists("AI Model", model_name):
+		return model_name
+	provider = "anthropic"
+	if judge_provider:
+		pt = (frappe.db.get_value("AI Provider Credentials", judge_provider, "provider_type") or "").lower()
+		if pt in ("openai", "gemini", "anthropic"):
+			provider = pt
+	frappe.get_doc({"doctype": "AI Model", "model_name": model_name, "provider": provider}).insert(ignore_permissions=True)
+	return model_name
 
 
 @frappe.whitelist()
@@ -240,14 +258,12 @@ def create_eval_case(
 	suite: str,
 	title: str,
 	input_user_prompt: str,
-	provider: str,
-	model: str,
-	input_system_prompt: str = "",
 	expected_output: str = "",
 	assertions=None,
 ) -> str:
 	"""Create a manual AI Eval Case in ``suite`` with optional assertions
-	(WI-001746). The current user must be able to write the suite (owner / SM)."""
+	(WI-001746). Provider/model/system prompt come from the suite's agent
+	(WI-001751). The current user must be able to write the suite (owner / SM)."""
 	suite_doc = frappe.get_doc("AI Eval Suite", suite)
 	suite_doc.check_permission("write")
 
@@ -256,10 +272,6 @@ def create_eval_case(
 		"suite": suite,
 		"title": title,
 		"process_model": suite_doc.process_model or None,
-		"provider": provider,
-		"model": model,
-		"backend": "direct_api",
-		"input_system_prompt": input_system_prompt,
 		"input_user_prompt": input_user_prompt,
 		"expected_output": expected_output,
 	})
@@ -276,9 +288,6 @@ def get_eval_case(name: str) -> dict:
 	return {
 		"name": case.name,
 		"title": case.title,
-		"provider": case.provider,
-		"model": case.model,
-		"input_system_prompt": case.input_system_prompt,
 		"input_user_prompt": case.input_user_prompt,
 		"expected_output": case.expected_output,
 		"assertions": [{k: a.get(k) for k in _ASSERTION_FIELDS} for a in case.assertions],
@@ -289,9 +298,6 @@ def get_eval_case(name: str) -> dict:
 def update_eval_case(
 	name: str,
 	title: str = None,
-	provider: str = None,
-	model: str = None,
-	input_system_prompt: str = None,
 	input_user_prompt: str = None,
 	expected_output: str = None,
 	assertions=None,
@@ -302,8 +308,7 @@ def update_eval_case(
 	frappe.get_doc("AI Eval Suite", case.suite).check_permission("write")
 
 	for field, val in (
-		("title", title), ("provider", provider), ("model", model),
-		("input_system_prompt", input_system_prompt),
+		("title", title),
 		("input_user_prompt", input_user_prompt),
 		("expected_output", expected_output),
 	):

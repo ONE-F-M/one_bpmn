@@ -72,6 +72,9 @@ def create_ai_run(
 		"backend": config.backend,
 		"provider": config.provider_name,
 		"model": config.model,
+		# WI-001751: runs produced while an eval is invoking the agent are
+		# tagged so Insights can show them under a separate "Evals" segment.
+		"origin": "eval" if getattr(frappe.flags, "eval_origin", None) else "production",
 		"status": "Running",
 		"started_at": now_datetime(),
 		"max_retries": config.max_retries,

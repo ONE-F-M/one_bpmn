@@ -208,24 +208,25 @@ def generate_eval_suite_for_agent(config_name: str) -> str | None:
 			"description": _("Baseline suite generated from {0}'s sample prompts.").format(cfg.agent_name),
 		}).insert(ignore_permissions=True)
 
-	# AI Eval Case requires a model, and llm_judge assertions require a judge
-	# model — both are mandatory fields. Resolve the provider's default model
-	# once and reuse it for the case and its judge.
+	# WI-001751: cases test the agent itself, so they carry only the prompt +
+	# assertions — provider/model/system prompt come from the suite's agent.
+	# llm_judge still needs a judge model; use the agent provider's default and
+	# ensure a matching AI Model record exists (judge_model is a Link now).
+	from one_bpmn.api.eval_api import _ensure_ai_model
+
 	judge_provider = cfg.ai_provider_credentials
 	judge_model = frappe.db.get_value("AI Provider Credentials", judge_provider, "default_model") or ""
+	if judge_model:
+		judge_model = _ensure_ai_model(judge_model, judge_provider)
 	for i, sample in enumerate(samples, start=1):
 		case = frappe.get_doc({
 			"doctype": "AI Eval Case",
 			"title": f"{suite_title} — {i}",
 			"suite": suite.name,
 			"process_model": cfg.process_model or None,
-			"provider": cfg.ai_provider_credentials,
-			"model": judge_model,
-			"backend": "direct_api",
-			"input_system_prompt": cfg.system_prompt or "",
 			"input_user_prompt": sample.prompt,
 		})
-		if (sample.get("expected_behaviour") or "").strip():
+		if judge_model and (sample.get("expected_behaviour") or "").strip():
 			case.append("assertions", {
 				"assertion_type": "llm_judge",
 				"value": sample.expected_behaviour,
