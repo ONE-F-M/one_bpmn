@@ -5,7 +5,16 @@
 			<router-link to="/processa/evals" class="text-xs text-gray-500 hover:underline">← Evals</router-link>
 			<div class="flex items-center justify-between mt-1">
 				<div>
-					<h1 class="text-xl font-semibold text-gray-900">{{ suite.title || suiteName }}</h1>
+					<div class="flex items-center gap-2">
+						<h1 class="text-xl font-semibold text-gray-900">{{ suite.title || suiteName }}</h1>
+						<span
+							v-if="suite.eval_type"
+							class="text-xs px-2 py-0.5 rounded-full"
+							:class="suite.eval_type === 'Agent' ? 'bg-indigo-50 text-indigo-700' : 'bg-blue-50 text-blue-700'"
+						>
+							{{ suite.eval_type }} eval
+						</span>
+					</div>
 					<div class="text-xs text-gray-400">
 						{{ suite.agent_name || suite.agent_configuration || "no agent" }} ·
 						{{ suite.process_model || "no process" }}

@@ -22,16 +22,19 @@ def _is_system_manager(user: str) -> bool:
 
 
 def _owned_suites_subquery(user: str) -> str:
-	"""SQL selecting the names of AI Eval Suites whose process is owned by ``user``."""
+	"""SQL selecting the names of AI Eval Suites visible to ``user``: suites
+	whose process they own, plus process-less suites they created themselves
+	(WI-001751: Direct-eval suites may have no process_model)."""
 	suite = DocType("AI Eval Suite")
 	model = DocType("BPMN Process Model")
 	process = DocType("Process")
+	no_process = suite.process_model.isnull() | (suite.process_model == "")
 	q = (
 		frappe.qb.from_(suite)
-		.inner_join(model).on(model.name == suite.process_model)
-		.inner_join(process).on(process.name == model.process_name)
+		.left_join(model).on(model.name == suite.process_model)
+		.left_join(process).on(process.name == model.process_name)
 		.select(suite.name)
-		.where(process.process_owner == user)
+		.where((process.process_owner == user) | (no_process & (suite.owner == user)))
 	)
 	return q.get_sql()
 
@@ -48,9 +51,13 @@ def _process_model_owned_by(process_model: str, user: str) -> bool:
 def _suite_owned_by(suite: str, user: str) -> bool:
 	if not suite:
 		return False
-	return _process_model_owned_by(
-		frappe.db.get_value("AI Eval Suite", suite, "process_model"), user
-	)
+	process_model, creator = frappe.db.get_value(
+		"AI Eval Suite", suite, ["process_model", "owner"]
+	) or (None, None)
+	if not process_model:
+		# Process-less (Direct) suite: visible to its creator (WI-001751).
+		return creator == user
+	return _process_model_owned_by(process_model, user)
 
 
 # ── AI Eval Suite ────────────────────────────────────────────────────────────
@@ -65,7 +72,11 @@ def eval_suite_has_permission(doc, ptype=None, user: str = None) -> bool:
 	user = user or frappe.session.user
 	if _is_system_manager(user):
 		return True
-	return _process_model_owned_by(getattr(doc, "process_model", None), user)
+	process_model = getattr(doc, "process_model", None)
+	if not process_model:
+		# Process-less (Direct) suite: its creator may work with it (WI-001751).
+		return getattr(doc, "owner", None) == user
+	return _process_model_owned_by(process_model, user)
 
 
 # ── AI Eval Case ─────────────────────────────────────────────────────────────

@@ -48,7 +48,7 @@
    "in_list_view": 1,
    "label": "BPMN Process Instance",
    "options": "BPMN Process Instance",
-   "reqd": 1
+   "description": "Empty for direct (non-process) eval runs (WI-001751)."
   },
   {
    "description": "The BPMN Process Model this run belongs to",

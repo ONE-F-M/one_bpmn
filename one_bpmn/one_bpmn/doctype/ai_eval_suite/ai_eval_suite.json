@@ -10,10 +10,21 @@
   "title",
   "process_model",
   "agent_configuration",
+  "eval_type",
   "gate_deployment",
   "description"
  ],
  "fields": [
+  {
+   "default": "Direct",
+   "fieldname": "eval_type",
+   "fieldtype": "Select",
+   "in_list_view": 1,
+   "label": "Eval Type",
+   "options": "Direct\nAgent",
+   "reqd": 1,
+   "description": "Direct: a simple LLM call using the agent's provider/model/system prompt. Agent: invoke the full agent through its process map (needs a map)."
+  },
   {
    "fieldname": "title",
    "fieldtype": "Data",
@@ -27,7 +38,7 @@
    "in_list_view": 1,
    "label": "Process Model",
    "options": "BPMN Process Model",
-   "reqd": 1
+   "description": "Optional. Used for owner-scoping and Agent evals; Direct-eval suites (e.g. agents with no map yet) may leave it empty."
   },
   {
    "fieldname": "agent_configuration",

@@ -205,6 +205,9 @@ def generate_eval_suite_for_agent(config_name: str) -> str | None:
 			"title": suite_title,
 			"process_model": cfg.process_model or None,
 			"agent_configuration": cfg.name,
+			# Baseline suites are Direct (simple LLM) — the AI Assistant creates
+			# them at agent-config time, before any process map exists (WI-001751).
+			"eval_type": "Direct",
 			"description": _("Baseline suite generated from {0}'s sample prompts.").format(cfg.agent_name),
 		}).insert(ignore_permissions=True)
 

@@ -110,20 +110,23 @@ def run_eval_suite(suite_name: str, backend: str = "live") -> str:
 
 
 @frappe.whitelist()
-def _assert_agent_evaluatable(agent_cfg: str) -> None:
-    """Block a live run whose agent can't be invoked for evaluation, with a
-    clear message (WI-001751). Evals invoke the agent; a Google ADK agent needs
-    a process map to run and cannot be invoked standalone.
+def _assert_agent_evaluatable(agent_cfg: str, eval_type: str) -> None:
+    """Block a live run whose agent can't be evaluated, with a clear message
+    (WI-001751). Only "Agent" (process) evals need a map — a Google ADK agent
+    needs a process map to run and cannot be invoked standalone. "Direct" evals
+    are a plain LLM call and work for any agent.
     """
     if not agent_cfg:
         frappe.throw(_("This suite has no agent configuration. Assign an agent before running evals."))
+    if (eval_type or "Direct") != "Agent":
+        return
     fw, pm = frappe.db.get_value(
         "AI Agent Configuration", agent_cfg, ["agent_framework", "process_model"]
     ) or (None, None)
     if (fw or "").strip().lower() == "google adk" and not pm:
         frappe.throw(_(
-            "Agent '{0}' can't be evaluated yet: it needs a process map. "
-            "Give the agent a process map, then run its evals."
+            "Agent '{0}' can't run an Agent (process) eval yet: it needs a process map. "
+            "Give the agent a process map, or use a Direct eval suite instead."
         ).format(agent_cfg))
 
 
@@ -142,7 +145,7 @@ def run_eval_cases(suite_name: str, case_names=None, backend: str = "live") -> s
     suite.check_permission("read")  # owner / System Manager gate
 
     if backend == "live":
-        _assert_agent_evaluatable(suite.agent_configuration)
+        _assert_agent_evaluatable(suite.agent_configuration, suite.eval_type)
 
     if isinstance(case_names, str):
         case_names = frappe.parse_json(case_names) or None
@@ -308,60 +311,33 @@ def _execute_case_replay(run, case) -> dict:
 
 def _execute_case(case) -> dict:
     """
-    Invoke the suite's AI Agent Configuration against the case's user prompt
-    (WI-001751) and evaluate its assertions.
+    Evaluate a case against the suite's AI Agent Configuration (WI-001751).
 
-    The agent runs its real path (tools, process map / LangGraph) via
-    invoke_agent; the AI Agent Runs it produces are tagged eval-origin (so
-    Insights can separate them) and supply the case's tokens/cost. Any
-    unexpected exception is captured as an Error result so the suite can
+    The suite's ``eval_type`` selects how the agent runs:
+      - "Agent":  invoke the full agent through its process map (invoke_agent);
+                  the AI Agent Runs it produces are tagged eval-origin and supply
+                  the case's tokens/cost.
+      - "Direct": a plain LLM call using the agent's provider/model/system prompt
+                  (no map needed); a lightweight eval-origin AI Agent Run is
+                  recorded so the call still shows in Insights.
+
+    Any unexpected exception is captured as an Error result so the suite can
     continue.
     """
     try:
-        from one_bpmn.api.agent_invocation import invoke_agent
-
         agent_cfg = frappe.db.get_value("AI Eval Suite", case.suite, "agent_configuration")
         if not agent_cfg:
             return {
                 "eval_case": case.name, "status": "Error",
                 "error_message": "The suite has no agent configuration to test.",
             }
-        agent_id = frappe.db.get_value("AI Agent Configuration", agent_cfg, "agent_id")
-        if not agent_id:
-            return {
-                "eval_case": case.name, "status": "Error",
-                "error_message": f"Agent configuration '{agent_cfg}' has no agent_id.",
-            }
+        eval_type = frappe.db.get_value("AI Eval Suite", case.suite, "eval_type") or "Direct"
+        cfg = frappe.get_cached_doc("AI Agent Configuration", agent_cfg)
 
-        context = {}
-        if case.input_context:
-            try:
-                context = frappe.parse_json(case.input_context) or {}
-            except Exception:
-                context = {}
-
-        started = now_datetime()
-        # Tag AI Agent Runs produced here as eval-origin, and run the agent to
-        # completion synchronously (no parking) for the duration of the call.
-        prev = (getattr(frappe.flags, "eval_origin", None), getattr(frappe.flags, "bpmn_disable_ai_parking", False))
-        frappe.flags.eval_origin = {"eval_case": case.name}
-        frappe.flags.bpmn_disable_ai_parking = True
-        try:
-            reply = invoke_agent(agent_id, case.input_user_prompt or "", context=context)
-        finally:
-            frappe.flags.eval_origin, frappe.flags.bpmn_disable_ai_parking = prev
-
-        output = (reply or {}).get("response") or ""
-
-        # Tokens/cost from the agent's runs during this invocation (same per-1k
-        # pricing as Insights, since observability computed estimated_cost).
-        agent_runs = frappe.get_all(
-            "AI Agent Run",
-            filters={"agent_configuration": agent_cfg, "creation": [">=", started]},
-            fields=["total_tokens", "estimated_cost"],
-        )
-        exec_tokens = sum((r.get("total_tokens") or 0) for r in agent_runs)
-        exec_cost = sum(flt(r.get("estimated_cost")) for r in agent_runs)
+        if eval_type == "Agent":
+            output, exec_tokens, exec_cost = _run_agent_eval(cfg, case)
+        else:
+            output, exec_tokens, exec_cost = _run_direct_eval(cfg, case)
 
         assertion_results = [
             _evaluate_assertion(assertion, output)
@@ -401,6 +377,88 @@ def _execute_case(case) -> dict:
             "status": "Error",
             "error_message": frappe.get_traceback(),
         }
+
+
+def _run_agent_eval(cfg, case) -> tuple:
+    """Agent (process) eval: invoke the full agent; tokens/cost from its runs."""
+    from one_bpmn.api.agent_invocation import invoke_agent
+
+    if not cfg.agent_id:
+        raise ValueError(f"Agent configuration '{cfg.name}' has no agent_id.")
+
+    context = {}
+    if case.input_context:
+        try:
+            context = frappe.parse_json(case.input_context) or {}
+        except Exception:
+            context = {}
+
+    started = now_datetime()
+    prev = (getattr(frappe.flags, "eval_origin", None), getattr(frappe.flags, "bpmn_disable_ai_parking", False))
+    frappe.flags.eval_origin = {"eval_case": case.name}
+    frappe.flags.bpmn_disable_ai_parking = True
+    try:
+        reply = invoke_agent(cfg.agent_id, case.input_user_prompt or "", context=context)
+    finally:
+        frappe.flags.eval_origin, frappe.flags.bpmn_disable_ai_parking = prev
+
+    output = (reply or {}).get("response") or ""
+    runs = frappe.get_all(
+        "AI Agent Run",
+        filters={"agent_configuration": cfg.name, "creation": [">=", started]},
+        fields=["total_tokens", "estimated_cost"],
+    )
+    return output, sum((r.get("total_tokens") or 0) for r in runs), sum(flt(r.get("estimated_cost")) for r in runs)
+
+
+def _run_direct_eval(cfg, case) -> tuple:
+    """Direct (simple) eval: a plain LLM call with the agent's provider/model/
+    system prompt. Records a standalone eval-origin AI Agent Run so the call
+    shows in Insights alongside process (agent) evals."""
+    provider = cfg.ai_provider_credentials or ""
+    model = frappe.db.get_value("AI Provider Credentials", provider, "default_model") or ""
+
+    started = now_datetime()
+    config = ExecutorConfig(
+        backend="direct_api",
+        provider_name=provider,
+        model=model,
+        system_prompt=cfg.system_prompt or "",
+        user_prompt=case.input_user_prompt or "",
+    )
+    result = get_executor("direct_api")().run(config, ExecutorContext())
+    if result.error_code != ErrorCode.SUCCESS:
+        raise RuntimeError(result.error_message or result.error_code.value)
+
+    prompt_tokens = _prompt_tokens_of(result)
+    completion_tokens = _completion_tokens_of(result)
+    pricing = get_model_pricing(model) or {}
+    input_cost = (prompt_tokens / 1000.0) * flt(pricing.get("input_cost_per_1k", 0))
+    output_cost = (completion_tokens / 1000.0) * flt(pricing.get("output_cost_per_1k", 0))
+
+    try:
+        frappe.get_doc({
+            "doctype": "AI Agent Run",
+            "bpmn_id": "direct-eval",
+            "agent_configuration": cfg.name,
+            "backend": "direct_api",
+            "provider": provider,
+            "model": model,
+            "origin": "eval",
+            "status": "Success",
+            "started_at": started,
+            "ended_at": now_datetime(),
+            "total_prompt_tokens": prompt_tokens,
+            "total_completion_tokens": completion_tokens,
+            "total_tokens": prompt_tokens + completion_tokens,
+            "estimated_cost": input_cost + output_cost,
+            "total_input_cost": input_cost,
+            "total_output_cost": output_cost,
+        }).insert(ignore_permissions=True)
+    except Exception:
+        frappe.log_error(title="AI Eval: direct-eval run record failed", message=frappe.get_traceback())
+
+    return result.output, prompt_tokens + completion_tokens, input_cost + output_cost
 
 
 # ---------------------------------------------------------------------------

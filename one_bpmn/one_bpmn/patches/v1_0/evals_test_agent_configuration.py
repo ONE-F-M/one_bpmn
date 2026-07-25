@@ -29,6 +29,13 @@ def execute():
 		seen.add(model)
 		_ensure_ai_model(model, row.get("judge_provider"))
 
+	# Backfill the new eval_type (required, default Direct) on existing suites.
+	if frappe.db.has_column("AI Eval Suite", "eval_type"):
+		frappe.db.set_value(
+			"AI Eval Suite", {"eval_type": ["in", ["", None]]}, "eval_type", "Direct",
+			update_modified=False,
+		)
+
 	orphan_suites = frappe.get_all(
 		"AI Eval Suite", filters={"agent_configuration": ["in", ["", None]]}, pluck="name"
 	)

@@ -210,6 +210,7 @@ def get_suite_detail(suite: str) -> dict:
 			"process_model": doc.process_model,
 			"agent_configuration": doc.agent_configuration,
 			"agent_name": agent_name,
+			"eval_type": doc.eval_type,
 		},
 		"cases": cases,
 		"runs": runs,
@@ -472,10 +473,13 @@ def reassign_suite(suite: str, agent_configuration: str = None) -> str:
 
 
 @frappe.whitelist()
-def create_suite(title: str, process_model: str, agent_configuration: str = None) -> str:
+def create_suite(title: str, process_model: str = None, agent_configuration: str = None, eval_type: str = "Direct") -> str:
 	"""Create a new suite from the Evals page and assign it to an agent.
-	The process must be one the current user owns (or SM) — WI-001749 / Q5."""
-	_assert_process_owned(process_model)
+	``process_model`` is optional (Direct suites may have none); when set it must
+	be one the current user owns (or SM) — WI-001749 / Q5. ``eval_type`` is Direct
+	(simple LLM call) or Agent (invoke the map)."""
+	if process_model:
+		_assert_process_owned(process_model)
 
 	if agent_configuration and not frappe.db.exists("AI Agent Configuration", agent_configuration):
 		frappe.throw(_("AI Agent Configuration '{0}' not found.").format(agent_configuration))
@@ -483,8 +487,9 @@ def create_suite(title: str, process_model: str, agent_configuration: str = None
 	doc = frappe.get_doc({
 		"doctype": "AI Eval Suite",
 		"title": title,
-		"process_model": process_model,
+		"process_model": process_model or None,
 		"agent_configuration": agent_configuration or None,
+		"eval_type": eval_type if eval_type in ("Direct", "Agent") else "Direct",
 	})
 	doc.insert()
 	return doc.name

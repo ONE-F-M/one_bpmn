@@ -90,12 +90,16 @@
 			<template #body-content>
 				<div class="space-y-3">
 					<FormControl label="Title" v-model="newSuite.title" />
-					<FormControl type="select" label="Process" :options="processOptions" v-model="newSuite.process_model" />
 					<FormControl type="select" label="Agent" :options="agentOptions" v-model="newSuite.agent_configuration" />
+					<FormControl type="select" label="Eval type" :options="evalTypeOptions" v-model="newSuite.eval_type" />
+					<p class="text-xs text-gray-400">
+						{{ newSuite.eval_type === "Agent" ? "Invokes the full agent through its process map." : "A simple LLM call using the agent's provider, model and system prompt." }}
+					</p>
+					<FormControl type="select" label="Process (optional)" :options="processOptions" v-model="newSuite.process_model" />
 				</div>
 			</template>
 			<template #actions>
-				<Button variant="solid" :loading="savingSuite" :disabled="!newSuite.title || !newSuite.process_model" @click="createSuite">
+				<Button variant="solid" :loading="savingSuite" :disabled="!newSuite.title || !newSuite.agent_configuration" @click="createSuite">
 					Create suite
 				</Button>
 			</template>
@@ -151,7 +155,11 @@ const processOptions = ref([])
 
 const showNewSuite = ref(false)
 const savingSuite = ref(false)
-const newSuite = reactive({ title: "", process_model: "", agent_configuration: "" })
+const evalTypeOptions = [
+	{ label: "Direct — simple LLM call", value: "Direct" },
+	{ label: "Agent — invoke the process map", value: "Agent" },
+]
+const newSuite = reactive({ title: "", process_model: "", agent_configuration: "", eval_type: "Direct" })
 
 const showReassign = ref(false)
 const savingReassign = ref(false)
@@ -261,7 +269,7 @@ async function pollRunning(suiteName) {
 }
 
 function openNewSuite() {
-	Object.assign(newSuite, { title: "", process_model: "", agent_configuration: "" })
+	Object.assign(newSuite, { title: "", process_model: "", agent_configuration: "", eval_type: "Direct" })
 	showNewSuite.value = true
 }
 

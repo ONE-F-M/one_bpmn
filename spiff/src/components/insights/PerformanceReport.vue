@@ -222,6 +222,7 @@ import { dayjs } from "@/dayjs"
 const props = defineProps({
 	fromDate: String,
 	toDate: String,
+	origin: { type: String, default: "production" },
 })
 
 const loading = ref(false)
@@ -342,6 +343,7 @@ async function fetchReport() {
 		if (filterModel.value) params.model = filterModel.value
 		if (filterBpmnId.value) params.bpmn_id = filterBpmnId.value
 		if (filterProcess.value) params.process_model = filterProcess.value
+		params.origin = props.origin
 
 		const response = await frappeRequest({
 			url: "/api/method/one_bpmn.api.insights_api.get_performance_report",
@@ -384,6 +386,6 @@ async function loadProcessOptions() {
 	}
 }
 
-watch(() => [props.fromDate, props.toDate], fetchReport)
+watch(() => [props.fromDate, props.toDate, props.origin], fetchReport)
 onMounted(fetchReport)
 </script>
