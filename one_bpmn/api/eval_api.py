@@ -436,10 +436,12 @@ def _assert_process_owned(process_model: str) -> None:
 
 @frappe.whitelist()
 def list_assignable_agents() -> list:
-	"""Agent configurations offered in the assign/reassign picker."""
+	"""Agent configurations offered in the assign/reassign picker: only Live,
+	enabled agents, since a Draft or disabled agent cannot be evaluated."""
 	return frappe.get_all(
 		"AI Agent Configuration",
-		fields=["name", "agent_name"],
+		filters={"lifecycle_status": "Live", "enabled": 1},
+		fields=["name", "agent_name", "agent_framework", "process_model"],
 		order_by="agent_name asc",
 	)
 

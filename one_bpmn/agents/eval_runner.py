@@ -114,7 +114,6 @@ def run_eval_suite(suite_name: str, backend: str = "live") -> str:
     return run.name
 
 
-@frappe.whitelist()
 def _assert_agent_evaluatable(agent_cfg: str, eval_type: str) -> None:
     """Block a live run whose agent can't be evaluated, with a clear message
     (WI-001751). Only "Agent" (process) evals need a map — a Google ADK agent
@@ -135,6 +134,7 @@ def _assert_agent_evaluatable(agent_cfg: str, eval_type: str) -> None:
         ).format(agent_cfg))
 
 
+@frappe.whitelist()
 def run_eval_cases(suite_name: str, case_names=None, backend: str = "live") -> str:
     """Run a chosen subset of a suite's cases (WI-001746), or the whole suite
     when no cases are given.

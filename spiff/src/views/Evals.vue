@@ -90,7 +90,14 @@
 			<template #body-content>
 				<div class="space-y-3">
 					<FormControl label="Title" v-model="newSuite.title" />
-					<FormControl type="select" label="Agent" :options="agentOptions" v-model="newSuite.agent_configuration" />
+					<div>
+						<label class="block text-xs text-gray-600 mb-1.5">Agent</label>
+						<Autocomplete
+							v-model="newAgentOption"
+							:options="agentOptions"
+							placeholder="Search Live agents…"
+						/>
+					</div>
 					<FormControl type="select" label="Eval type" :options="evalTypeOptions" v-model="newSuite.eval_type" />
 					<p class="text-xs text-gray-400">
 						{{ newSuite.eval_type === "Agent" ? "Invokes the full agent through its process map." : "A simple LLM call using the agent's provider, model and system prompt." }}
@@ -110,7 +117,14 @@
 			<template #body-content>
 				<div class="space-y-3">
 					<p class="text-sm text-gray-600">{{ reassignSuite?.title }}</p>
-					<FormControl type="select" label="Agent" :options="agentOptions" v-model="reassignAgent" />
+					<div>
+						<label class="block text-xs text-gray-600 mb-1.5">Agent</label>
+						<Autocomplete
+							v-model="reassignAgentOption"
+							:options="reassignAgentOptions"
+							placeholder="Search Live agents…"
+						/>
+					</div>
 				</div>
 			</template>
 			<template #actions>
@@ -122,7 +136,7 @@
 
 <script setup>
 import { ref, reactive, computed, watch, onMounted } from "vue"
-import { frappeRequest, Button, Dialog, FormControl } from "frappe-ui"
+import { frappeRequest, Button, Dialog, FormControl, Autocomplete } from "frappe-ui"
 import { Icon } from "@iconify/vue"
 import { dayjs } from "@/dayjs"
 
@@ -165,6 +179,30 @@ const showReassign = ref(false)
 const savingReassign = ref(false)
 const reassignSuite = ref(null)
 const reassignAgent = ref("")
+
+// Autocomplete works with {label, value} objects; the payloads stay plain
+// strings, so map between the two here.
+function agentOptionFor(name) {
+	if (!name) return null
+	return agentOptions.value.find((o) => o.value === name) || { label: name, value: name }
+}
+const newAgentOption = computed({
+	get: () => agentOptionFor(newSuite.agent_configuration),
+	set: (opt) => { newSuite.agent_configuration = opt?.value || "" },
+})
+const reassignAgentOption = computed({
+	get: () => agentOptionFor(reassignAgent.value),
+	set: (opt) => { reassignAgent.value = opt?.value || "" },
+})
+// A suite may currently point at an agent that is no longer Live; keep it in
+// the list so reassigning doesn't silently blank the existing link.
+const reassignAgentOptions = computed(() => {
+	const current = reassignAgent.value
+	if (current && !agentOptions.value.some((o) => o.value === current)) {
+		return [{ label: current, value: current, description: "not Live" }, ...agentOptions.value]
+	}
+	return agentOptions.value
+})
 
 function runLabel(run) {
 	if (!run) return "never run"
@@ -222,11 +260,15 @@ watch([fromDate, toDate], fetchOverview)
 async function fetchAgents() {
 	try {
 		const res = await frappeRequest({ url: "/api/method/one_bpmn.api.eval_api.list_assignable_agents", method: "GET" })
-		agentOptions.value = [{ label: "— none —", value: "" }].concat(
-			(res || []).map((a) => ({ label: a.agent_name || a.name, value: a.name }))
-		)
+		// Only Live agents come back; a suite always needs one, so there is no
+		// "none" entry. `description` shows how the agent runs.
+		agentOptions.value = (res || []).map((a) => ({
+			label: a.agent_name || a.name,
+			value: a.name,
+			description: a.process_model ? `${a.agent_framework} · has process map` : a.agent_framework,
+		}))
 	} catch (e) {
-		agentOptions.value = [{ label: "— none —", value: "" }]
+		agentOptions.value = []
 	}
 }
 
