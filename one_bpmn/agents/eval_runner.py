@@ -352,9 +352,9 @@ def _execute_case(case) -> dict:
         cfg = frappe.get_cached_doc("AI Agent Configuration", agent_cfg)
 
         if eval_type == "Agent":
-            output, exec_tokens, exec_cost = _run_agent_eval(cfg, case)
+            output, usage = _run_agent_eval(cfg, case)
         else:
-            output, exec_tokens, exec_cost = _run_direct_eval(cfg, case)
+            output, usage = _run_direct_eval(cfg, case)
 
         assertion_results = [
             _evaluate_assertion(assertion, output)
@@ -374,15 +374,16 @@ def _execute_case(case) -> dict:
         else:
             status = "Failed"
 
+        # The split must add up to tokens_used: execution + judge on both sides.
         return {
             "eval_case": case.name,
             "status": status,
             "actual_output": _stringify(output),
             "assertion_results": json.dumps(assertion_results, indent=4),
-            "prompt_tokens": judge_prompt_tokens,
-            "completion_tokens": judge_completion_tokens,
-            "tokens_used": exec_tokens + judge_prompt_tokens + judge_completion_tokens,
-            "cost": exec_cost + judge_cost,
+            "prompt_tokens": usage["prompt_tokens"] + judge_prompt_tokens,
+            "completion_tokens": usage["completion_tokens"] + judge_completion_tokens,
+            "tokens_used": usage["tokens"] + judge_prompt_tokens + judge_completion_tokens,
+            "cost": usage["cost"] + judge_cost,
         }
     except Exception:
         frappe.log_error(
@@ -397,7 +398,11 @@ def _execute_case(case) -> dict:
 
 
 def _run_agent_eval(cfg, case) -> tuple:
-    """Agent (process) eval: invoke the full agent; tokens/cost from its runs."""
+    """Agent (process) eval: invoke the full agent; tokens/cost from its runs.
+
+    Returns ``(output, usage)`` where usage carries the prompt/completion split
+    so the Result row's numbers add up.
+    """
     from one_bpmn.api.agent_invocation import invoke_agent
 
     if not cfg.agent_id:
@@ -423,9 +428,15 @@ def _run_agent_eval(cfg, case) -> tuple:
     runs = frappe.get_all(
         "AI Agent Run",
         filters={"agent_configuration": cfg.name, "creation": [">=", started]},
-        fields=["total_tokens", "estimated_cost"],
+        fields=["total_prompt_tokens", "total_completion_tokens", "total_tokens", "estimated_cost"],
     )
-    return output, sum((r.get("total_tokens") or 0) for r in runs), sum(flt(r.get("estimated_cost")) for r in runs)
+    usage = {
+        "prompt_tokens": sum((r.get("total_prompt_tokens") or 0) for r in runs),
+        "completion_tokens": sum((r.get("total_completion_tokens") or 0) for r in runs),
+        "tokens": sum((r.get("total_tokens") or 0) for r in runs),
+        "cost": sum(flt(r.get("estimated_cost")) for r in runs),
+    }
+    return output, usage
 
 
 def _run_direct_eval(cfg, case) -> tuple:
@@ -449,7 +460,16 @@ def _run_direct_eval(cfg, case) -> tuple:
 
     prompt_tokens = _prompt_tokens_of(result)
     completion_tokens = _completion_tokens_of(result)
-    pricing = get_model_pricing(model) or {}
+    pricing = get_model_pricing(model)
+    if not pricing:
+        # Tokens are still counted; without an AI Model Pricing row the cost
+        # would silently read $0.00, so leave a trace explaining why.
+        frappe.log_error(
+            title="AI Eval: no pricing for direct-eval model",
+            message=f"No active AI Model Pricing for model '{model}' "
+            f"(provider {provider}); cost recorded as 0 for case {case.name}.",
+        )
+        pricing = {}
     input_cost = (prompt_tokens / 1000.0) * flt(pricing.get("input_cost_per_1k", 0))
     output_cost = (completion_tokens / 1000.0) * flt(pricing.get("output_cost_per_1k", 0))
 
@@ -475,7 +495,12 @@ def _run_direct_eval(cfg, case) -> tuple:
     except Exception:
         frappe.log_error(title="AI Eval: direct-eval run record failed", message=frappe.get_traceback())
 
-    return result.output, prompt_tokens + completion_tokens, input_cost + output_cost
+    return result.output, {
+        "prompt_tokens": prompt_tokens,
+        "completion_tokens": completion_tokens,
+        "tokens": prompt_tokens + completion_tokens,
+        "cost": input_cost + output_cost,
+    }
 
 
 # ---------------------------------------------------------------------------

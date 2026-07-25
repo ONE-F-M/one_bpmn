@@ -168,7 +168,9 @@ def get_suite_detail(suite: str) -> dict:
 		"AI Eval Run",
 		filters={"suite": suite},
 		fields=["name", "status", "backend", "total_cases", "passed_cases",
-				"failed_cases", "started_at", "ended_at"],
+				"failed_cases", "started_at", "ended_at",
+				# Needed by the dashboard's latest-run tokens/cost tiles.
+				"total_tokens", "total_cost"],
 		order_by="creation desc",
 		limit_page_length=20,
 	)
