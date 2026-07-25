@@ -1,8 +1,6 @@
 # Copyright (c) 2026, one-fm and contributors
 # Whitelisted endpoint that serves the connector manifests to the modeler UI.
 
-import json
-
 import frappe
 
 from one_bpmn.one_bpmn.connectors.manifest import load_manifests
@@ -19,20 +17,8 @@ def get_connector_field_choices(source, folder=None):
     """Dynamic dropdown choices for manifest fields that declare ``choicesFrom``.
 
     Returns a list of ``{label, value}``. Unknown sources return [].
-        driveDocumentTypes — the document types with a configured Drive folder
-        driveFiles         — files inside ``folder`` (id or link)
+        driveFiles — files inside ``folder`` (id or link)
     """
-    if source == "driveDocumentTypes":
-        folder_map = {}
-        try:
-            raw = frappe.get_single("AI Chat Settings").google_drive_folder_ids
-            folder_map = json.loads(raw) if raw else {}
-        except Exception:
-            folder_map = {}
-        if not folder_map:
-            folder_map = frappe.conf.get("dms_drive_folder_ids") or {}
-        return [{"label": k, "value": k} for k in sorted(folder_map.keys())]
-
     if source == "driveFiles" and folder:
         from one_bpmn.one_bpmn.integrations import google_common as gc
         from one_bpmn.one_bpmn.integrations import google_drive as gd

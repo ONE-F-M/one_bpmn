@@ -63,17 +63,17 @@ class TestDispatchConnector(FrappeTestCase):
         self.assertEqual(task.data["echo_out"]["got"]["b"], "plain")
 
     def test_drive_create_file_output_mapped(self):
-        task = SimpleNamespace(data={"document_type": "SOP", "title": "My SOP", "sop_markdown": "BODY"})
-        with patch(f"{_GD}.resolve_folder_id", return_value="FOLDER") as _r, \
-             patch(f"{_GD}.create_file",
+        task = SimpleNamespace(data={"title": "My SOP", "sop_markdown": "BODY"})
+        with patch(f"{_GD}.create_file",
                    return_value={"id": "FILE_1", "name": "My SOP", "webViewLink": "http://drive/FILE_1"}) as cf:
             dispatch_connector(_instance(), task, {
                 "connectorId": "google_drive", "operation": "createFile", "resultVariable": "drive_file",
-                "connectorParams": ('{"documentType": "{{task_data.document_type}}", '
+                "connectorParams": ('{"folder": "https://drive.google.com/drive/folders/FOLDER_ABC123", '
                                     '"filename": "{{task_data.title}}", "content": "{{task_data.sop_markdown}}"}'),
             }, "t2")
         self.assertEqual(task.data["drive_file"]["id"], "FILE_1")
-        # rendered inputs reached the underlying function
+        # folder link normalized to id, and rendered inputs reached the function
+        self.assertEqual(cf.call_args.kwargs["folder_id"], "FOLDER_ABC123")
         self.assertEqual(cf.call_args.kwargs["filename"], "My SOP")
         self.assertEqual(cf.call_args.kwargs["content"], "BODY")
 
@@ -170,8 +170,8 @@ class TestRetryAndChoices(FrappeTestCase):
         with self.assertRaises(_Err):
             call_with_retry(boom, attempts=3, base_delay=0)
 
-    def test_field_choices_document_types(self):
+    def test_field_choices_unknown_source_empty(self):
         from one_bpmn.one_bpmn.connectors.api import get_connector_field_choices
-        # returns a list (possibly empty if no folder map configured)
-        self.assertIsInstance(get_connector_field_choices("driveDocumentTypes"), list)
+        # driveDocumentTypes was removed with the folder map; unknown sources → []
+        self.assertEqual(get_connector_field_choices("driveDocumentTypes"), [])
         self.assertEqual(get_connector_field_choices("__unknown__"), [])

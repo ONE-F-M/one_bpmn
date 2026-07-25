@@ -1,18 +1,18 @@
 # Copyright (c) 2026, one-fm and contributors
 # Google Drive integration for Processa document storage (DMS).
 #
-# Credentials + config live in the "AI Chat Settings" singleton (onefm_mcp) —
-# the same settings doc already used for Anthropic/OpenAI/Gemini/Vertex AI/
-# Jira/Copilot/Langfuse credentials — under its "Google Drive Settings"
-# section:
+# Credentials + config live on the "Processa Settings" singleton (one_bpmn),
+# under its "Google Integration" section, resolved via
+# integrations/google_common (shared with the Docs/Slides integrations and the
+# connector layer):
 #   google_drive_service_account_json  - service account JSON (Password field)
-#   google_drive_folder_ids            - JSON dict mapping document_type -> Drive folder id, e.g.
-#       {"SOP": "<folder id>", "Policy": "<folder id>", "Guideline": "<folder id>",
-#        "Manual": "<folder id>", "AI Knowledge Document": "<folder id>"}
 #
-# Falls back to frappe.conf.get("google_drive_service_account_json") /
-# <site>/private/files/gcp.json if the settings doc field is empty, so this
-# also works from a bare bench console without the doctype populated.
+# (Destination folders are configured on the connector element / passed by the
+# caller, not in settings.)
+#
+# Lookup order (google_common): Processa Settings -> AI Chat Settings (legacy
+# fallback) -> frappe.conf -> <site>/private/files/gcp.json, so this also works
+# from a bare bench console without the doctype populated.
 #
 # The backing GCP project must have the Drive API enabled, and the service
 # account must be a member of the target Shared Drive (Content Manager or
@@ -37,62 +37,21 @@ class GoogleDriveConfigError(Exception):
 
 
 def _get_credentials():
-	from google.oauth2 import service_account
+	# Credentials now come from the shared loader (Processa Settings → AI Chat
+	# Settings → site_config → gcp.json). Re-raise as GoogleDriveConfigError so
+	# existing Script Tasks that catch that type keep working unchanged.
+	from one_bpmn.one_bpmn.integrations import google_common as _gc
 
-	sa_json = None
 	try:
-		sa_json = frappe.get_single("AI Chat Settings").get_password(
-			"google_drive_service_account_json", raise_exception=False
-		)
-	except Exception:
-		sa_json = None
-
-	if not sa_json:
-		sa_json = frappe.conf.get("google_drive_service_account_json")
-
-	if sa_json:
-		sa_info = sa_json if isinstance(sa_json, dict) else json.loads(sa_json)
-	else:
-		try:
-			with open(frappe.get_site_path("private", "files", "gcp.json")) as f:
-				sa_info = json.load(f)
-		except FileNotFoundError:
-			raise GoogleDriveConfigError(
-				"No Google Drive service account configured — set it on "
-				"AI Chat Settings > Google Drive Settings, or "
-				"google_drive_service_account_json in site_config.json, or place "
-				"credentials at private/files/gcp.json."
-			)
-	return service_account.Credentials.from_service_account_info(sa_info, scopes=SCOPES)
+		return _gc.get_credentials(SCOPES)
+	except _gc.GoogleConfigError as e:
+		raise GoogleDriveConfigError(str(e))
 
 
 def _get_service():
 	from googleapiclient.discovery import build
 
 	return build("drive", "v3", credentials=_get_credentials(), cache_discovery=False)
-
-
-def resolve_folder_id(document_type: str) -> str:
-	"""Look up the Drive folder id configured for a given document_type."""
-	folder_map = {}
-	try:
-		raw = frappe.get_single("AI Chat Settings").google_drive_folder_ids
-		if raw:
-			folder_map = json.loads(raw)
-	except Exception:
-		folder_map = {}
-
-	if not folder_map:
-		folder_map = frappe.conf.get("dms_drive_folder_ids") or {}
-
-	folder_id = folder_map.get(document_type)
-	if not folder_id:
-		raise GoogleDriveConfigError(
-			f"No Drive folder configured for document_type={document_type!r}. "
-			f"Set it on AI Chat Settings > Google Drive Settings > Drive Folder IDs "
-			f'by Document Type, e.g. {{"SOP": "<folder id>", "Policy": "<folder id>", ...}}.'
-		)
-	return folder_id
 
 
 def create_file(
@@ -141,7 +100,7 @@ def update_file_content(file_id: str, content: str, source_mime_type: str = "tex
 	media = MediaInMemoryUpload(content.encode("utf-8"), mimetype=source_mime_type, resumable=False)
 	return (
 		service.files()
-		.update(fileId=file_id, media_body=media, fields="id,name,webViewLink")
+		.update(fileId=file_id, media_body=media, fields="id,name,webViewLink", supportsAllDrives=True)
 		.execute()
 	)
 
@@ -279,9 +238,25 @@ def download_file_text(file_id: str, mime_type: str = None) -> str:
 
 	raw = _download_raw_bytes(service, file_id)
 
-	if mime_type == _PPTX_MIME:
+	# Match OOXML variants tolerantly: some editors (e.g. WPS Office) report
+	# non-standard mimetypes like "application/wps-office.docx" — detect by the
+	# real container instead of trusting the mimetype string.
+	mt = (mime_type or "").lower()
+	is_pptx = mt == _PPTX_MIME or mt.endswith("pptx") or "presentationml" in mt
+	is_docx = mt == _DOCX_MIME or mt.endswith("docx") or "wordprocessingml" in mt
+
+	# OOXML files are ZIP containers ("PK\x03\x04"); if the mimetype is unhelpful
+	# but the bytes are a zip holding the tell-tale parts, sniff the type.
+	if not (is_pptx or is_docx) and raw[:2] == b"PK":
+		head = raw[:4000]
+		if b"ppt/" in head:
+			is_pptx = True
+		elif b"word/" in head:
+			is_docx = True
+
+	if is_pptx:
 		return _extract_pptx_text(raw)
-	if mime_type == _DOCX_MIME:
+	if is_docx:
 		return _extract_docx_text(raw)
 
 	return raw.decode("utf-8", errors="ignore")

@@ -23,9 +23,10 @@ class GoogleConfigError(Exception):
     """Raised for missing/invalid configuration — not a transient API failure."""
 
 
-# A Drive/Docs/Slides file id is the token after ``/d/`` in a share link, or the
-# value of an ``id=`` query param, or (already) a bare id.
-_ID_IN_PATH = re.compile(r"/d/([A-Za-z0-9_-]{10,})")
+# A Drive/Docs/Slides id is the token after ``/d/`` (files/docs/slides) or
+# ``/folders/`` (folders) in a share link, or the value of an ``id=`` query
+# param, or (already) a bare id.
+_ID_IN_PATH = re.compile(r"/(?:d|folders)/([A-Za-z0-9_-]{10,})")
 _ID_IN_QUERY = re.compile(r"[?&]id=([A-Za-z0-9_-]{10,})")
 
 
@@ -33,7 +34,8 @@ def normalize_drive_id(value):
     """Accept a Google share link OR a bare file/folder id and return the id.
 
     People paste full URLs (``https://docs.google.com/document/d/<id>/edit``,
-    ``https://drive.google.com/file/d/<id>/view``, ``...?id=<id>``); the API
+    ``https://drive.google.com/file/d/<id>/view``,
+    ``https://drive.google.com/drive/folders/<id>``, ``...?id=<id>``); the API
     wants just ``<id>``. A value that is already a bare id passes through.
     """
     if not value:
@@ -43,15 +45,25 @@ def normalize_drive_id(value):
     return m.group(1) if m else s
 
 
+# Google config now lives on Processa Settings (this app). AI Chat Settings is
+# kept as a read fallback for sites that configured it there before the move.
+_SETTINGS_DOCTYPES = ("Processa Settings", "AI Chat Settings")
+
+
+def _read_setting_secret(fieldname):
+    for doctype in _SETTINGS_DOCTYPES:
+        try:
+            val = frappe.get_single(doctype).get_password(fieldname, raise_exception=False)
+        except Exception:
+            val = None
+        if val:
+            return val
+    return None
+
+
 def load_service_account_info():
-    """3-tier lookup: AI Chat Settings singleton → site_config → private/files/gcp.json."""
-    sa_json = None
-    try:
-        sa_json = frappe.get_single("AI Chat Settings").get_password(
-            "google_drive_service_account_json", raise_exception=False
-        )
-    except Exception:
-        sa_json = None
+    """Lookup order: Processa Settings → AI Chat Settings → site_config → gcp.json."""
+    sa_json = _read_setting_secret("google_drive_service_account_json")
 
     if not sa_json:
         sa_json = frappe.conf.get("google_drive_service_account_json")
@@ -64,8 +76,8 @@ def load_service_account_info():
             return json.load(f)
     except FileNotFoundError:
         raise GoogleConfigError(
-            "No Google service account configured — set it on AI Chat Settings > "
-            "Google Drive Settings, or google_drive_service_account_json in "
+            "No Google service account configured — set it on Processa Settings > "
+            "Google Integration, or google_drive_service_account_json in "
             "site_config.json, or place credentials at private/files/gcp.json."
         )
 

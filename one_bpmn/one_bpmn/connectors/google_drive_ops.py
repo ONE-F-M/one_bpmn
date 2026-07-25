@@ -28,10 +28,11 @@ def download_text(params, ctx):
 def create_file(params, ctx):
     """files.create — upload content, optionally converting to a native Google type.
 
-    Destination folder resolves from an explicit ``folder`` id, else from the
-    per-document-type folder map via ``documentType``.
+    The destination folder is given directly on the connector (``folder``).
     """
-    folder_id = params.get("folder") or gd.resolve_folder_id(params["documentType"])
+    folder_id = params.get("folder")
+    if not folder_id:
+        raise gd.GoogleDriveConfigError("createFile requires a Folder (Drive folder link or id).")
     created = gd.create_file(
         folder_id=folder_id,
         filename=params.get("filename") or "Untitled Document",

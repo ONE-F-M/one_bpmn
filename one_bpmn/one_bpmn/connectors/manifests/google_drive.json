@@ -20,10 +20,8 @@
       "label": "Create file",
       "method": "files.create",
       "fields": [
-        { "name": "documentType", "label": "Document Type", "type": "Dropdown", "choicesFrom": "driveDocumentTypes",
-          "help": "Destination folder resolved from the per-type folder map. Use the Folder override if no types are configured." },
-        { "name": "folder", "label": "Folder (override)", "type": "DriveFolder", "expression": true,
-          "help": "Explicit destination folder link/id. Overrides Document Type." },
+        { "name": "folder", "label": "Folder", "type": "DriveFolder", "required": true, "expression": true,
+          "help": "Destination Drive folder — paste a folder link or id. The service account must have write access." },
         { "name": "filename", "label": "File name", "type": "String", "required": true, "expression": true },
         { "name": "content", "label": "Content", "type": "Text", "expression": true },
         { "name": "targetMimeType", "label": "Create as", "type": "Dropdown", "default": "application/vnd.google-apps.document",

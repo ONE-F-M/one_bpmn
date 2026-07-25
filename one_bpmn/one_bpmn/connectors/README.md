@@ -57,7 +57,7 @@ No engine or frontend change is needed — the panel renders any manifest.
 { "name": "file", "label": "File", "type": "String|Text|Dropdown|Boolean|DriveFile|DriveFolder",
   "required": true, "expression": true, "default": "",
   "choices": [{ "label": "...", "value": "..." }],   // static Dropdown enum
-  "choicesFrom": "driveDocumentTypes",                // OR dynamic dropdown (backend get_connector_field_choices)
+  "choicesFrom": "driveFiles",                        // OR dynamic dropdown (backend get_connector_field_choices)
   "condition": { "field": "type", "equals": "user" }, // OR "oneOf": [...]  — conditional visibility
   "help": "shown under the field" }
 ```
@@ -76,9 +76,12 @@ No engine or frontend change is needed — the panel renders any manifest.
 
 ## Credentials
 
-A single service-account JSON in `AI Chat Settings` (fallbacks: `site_config.json`,
-`private/files/gcp.json`) — see `google_common.load_service_account_info`. Business
-config (files, folders, templates) lives **on the element**, never in settings.
+A single service-account JSON on **Processa Settings → Google Integration**
+(lookup order: Processa Settings → AI Chat Settings legacy fallback →
+`site_config.json` → `private/files/gcp.json`) — see
+`google_common.load_service_account_info`. That credential is the *only* Google
+config in settings. All business config — destination **folders**, files,
+templates — is entered **on the connector element**, never in settings.
 
 ## Not yet done (future)
 
