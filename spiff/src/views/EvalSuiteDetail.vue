@@ -123,6 +123,9 @@
 									{{ r.display_title || r.name }}
 								</router-link>
 							</td>
+							<td class="px-6 py-3 text-gray-600" :title="(r.case_names || []).join(', ')">
+								{{ r.case_label }}
+							</td>
 							<td class="px-6 py-3">
 								<span class="inline-block px-2 py-0.5 rounded-full text-xs" :class="runPill(r.status)">{{ r.status }}</span>
 							</td>

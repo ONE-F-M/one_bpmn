@@ -124,6 +124,49 @@ def get_evals_overview(from_date: str = None, to_date: str = None) -> dict:
 	return overview
 
 
+def _annotate_run_scope(runs: list, cases: list) -> None:
+	"""Add ``case_label`` / ``case_names`` to each run: which cases it covered.
+
+	Prefers the scope recorded at request time (so a Running run, or one that
+	errored before any result, still reports its scope). Runs from before that
+	was tracked have no scope, so it is derived from their result rows instead.
+	"""
+	titles = {c["name"]: c["title"] for c in cases}
+	total_cases = len(cases)
+
+	# Result-row case names, fetched once for the runs that need deriving.
+	needs_derive = [r["name"] for r in runs if not r.get("scope")]
+	derived: dict[str, list] = {}
+	if needs_derive:
+		for row in frappe.get_all(
+			"AI Eval Result",
+			filters={"parenttype": "AI Eval Run", "parent": ["in", needs_derive]},
+			fields=["parent", "eval_case"],
+		):
+			derived.setdefault(row["parent"], []).append(row["eval_case"])
+
+	for r in runs:
+		scope = r.get("scope")
+		if scope == "Subset":
+			names = frappe.parse_json(r.get("requested_cases")) or []
+		elif scope == "Suite":
+			names = []  # whole suite — the case list is implicit
+		else:
+			names = derived.get(r["name"], [])
+			# A derived run that covered every current case reads as whole-suite.
+			if total_cases and len(set(names)) >= total_cases:
+				names = []
+
+		r["case_names"] = [titles.get(n, n) for n in names]
+		if not names:
+			ran = r.get("total_cases") or total_cases
+			r["case_label"] = _("All {0} cases").format(ran) if ran != 1 else _("1 case")
+		elif len(names) == 1:
+			r["case_label"] = titles.get(names[0], names[0])
+		else:
+			r["case_label"] = _("{0} of {1} cases").format(len(names), total_cases)
+
+
 @frappe.whitelist()
 def get_suite_detail(suite: str) -> dict:
 	"""Suite header, its cases, and recent runs for the suite-detail view
@@ -170,10 +213,13 @@ def get_suite_detail(suite: str) -> dict:
 		fields=["name", "status", "backend", "total_cases", "passed_cases",
 				"failed_cases", "started_at", "ended_at",
 				# Needed by the dashboard's latest-run tokens/cost tiles.
-				"total_tokens", "total_cost"],
+				"total_tokens", "total_cost",
+				# Which cases the run covered (WI-001746 follow-up).
+				"scope", "requested_cases"],
 		order_by="creation desc",
 		limit_page_length=20,
 	)
+	_annotate_run_scope(runs, cases)
 	# Number runs by their absolute order (newest first in the list), and give
 	# each a readable title so the UI never shows the raw run id.
 	total_runs = frappe.db.count("AI Eval Run", {"suite": suite})

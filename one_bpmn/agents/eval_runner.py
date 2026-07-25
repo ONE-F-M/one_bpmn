@@ -95,6 +95,7 @@ def run_eval_suite(suite_name: str, backend: str = "live") -> str:
     run.status = "Running"
     run.backend = backend
     run.started_at = now_datetime()
+    run.scope = "Suite"  # this entry point always runs the whole suite
     # The caller is already authorised above (suite read gate + evaluatable
     # check, or System Manager). The AI Eval Run is a system-written record of
     # that action, so it must not additionally demand write rights on the Run
@@ -169,6 +170,10 @@ def run_eval_cases(suite_name: str, case_names=None, backend: str = "live") -> s
     run.status = "Running"
     run.backend = backend
     run.started_at = now_datetime()
+    # Record the requested scope now, so the run reports which cases it covers
+    # even while Running, or if it errors before producing any result.
+    run.scope = "Subset" if case_names else "Suite"
+    run.requested_cases = json.dumps(case_names) if case_names else None
     # The caller is already authorised above (suite read gate + evaluatable
     # check, or System Manager). The AI Eval Run is a system-written record of
     # that action, so it must not additionally demand write rights on the Run
