@@ -68,7 +68,12 @@
 				<div class="px-6 py-4 space-y-4">
 					<!-- Prompt under test -->
 					<div v-if="res.input_user_prompt">
-						<div class="text-xs uppercase tracking-wide text-gray-500 font-medium mb-2">Prompt</div>
+						<div class="flex items-center gap-2 mb-2">
+							<span class="text-xs uppercase tracking-wide text-gray-500 font-medium">Prompt</span>
+							<span v-if="!res.prompt_is_snapshot" class="text-xs text-amber-600" title="This run predates prompt snapshots, so the case's current prompt is shown.">
+								current version
+							</span>
+						</div>
 						<pre class="text-xs bg-gray-50 rounded p-3 whitespace-pre-wrap overflow-auto max-h-40">{{ res.input_user_prompt }}</pre>
 						<details v-if="res.expected_output" class="mt-2">
 							<summary class="text-xs text-gray-500 cursor-pointer">Expected output</summary>

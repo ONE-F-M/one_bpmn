@@ -262,6 +262,14 @@ function toggleAll(e) {
 	selected.value = e.target.checked ? cases.value.map((c) => c.name) : []
 }
 
+// Frappe puts the useful text in _server_messages / exception; e.message is
+// often just "<endpoint> PermissionError", which tells the user nothing.
+function errorText(e, fallback) {
+	const raw = e?.messages?.length ? e.messages.join(" ") : ""
+	const exc = e?.exc_type && e?._error_message ? e._error_message : ""
+	return raw || exc || e?.message || fallback
+}
+
 async function fetchDetail(silent = false) {
 	if (!silent) loading.value = true
 	loadError.value = ""
@@ -277,7 +285,7 @@ async function fetchDetail(silent = false) {
 		metrics.value = res?.metrics || {}
 	} catch (e) {
 		console.error("Failed to load suite:", e)
-		if (!silent) loadError.value = e?.message || String(e) || "Failed to load this suite."
+		if (!silent) loadError.value = errorText(e, "Failed to load this suite.")
 	} finally {
 		if (!silent) loading.value = false
 	}
@@ -342,7 +350,7 @@ async function runCases(caseNames, flag) {
 		pollRun(runName)
 	} catch (e) {
 		console.error("Run failed:", e)
-		loadError.value = e?.message || "Failed to start the run."
+		loadError.value = errorText(e, "Failed to start the run.")
 	} finally {
 		flag.value = false
 	}
@@ -362,7 +370,7 @@ async function runCase(c) {
 		pollRun(runName)
 	} catch (e) {
 		console.error("Run failed:", e)
-		loadError.value = e?.message || "Failed to start the run."
+		loadError.value = errorText(e, "Failed to start the run.")
 	} finally {
 		runningCase[c.name] = false
 	}

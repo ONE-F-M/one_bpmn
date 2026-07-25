@@ -95,7 +95,12 @@ def run_eval_suite(suite_name: str, backend: str = "live") -> str:
     run.status = "Running"
     run.backend = backend
     run.started_at = now_datetime()
-    run.insert()
+    # The caller is already authorised above (suite read gate + evaluatable
+    # check, or System Manager). The AI Eval Run is a system-written record of
+    # that action, so it must not additionally demand write rights on the Run
+    # doctype — a process owner may run their own suites without being able to
+    # hand-edit run records.
+    run.insert(ignore_permissions=True)
 
     frappe.enqueue(
         "one_bpmn.agents.eval_runner._execute_eval_suite",
@@ -164,7 +169,12 @@ def run_eval_cases(suite_name: str, case_names=None, backend: str = "live") -> s
     run.status = "Running"
     run.backend = backend
     run.started_at = now_datetime()
-    run.insert()
+    # The caller is already authorised above (suite read gate + evaluatable
+    # check, or System Manager). The AI Eval Run is a system-written record of
+    # that action, so it must not additionally demand write rights on the Run
+    # doctype — a process owner may run their own suites without being able to
+    # hand-edit run records.
+    run.insert(ignore_permissions=True)
 
     frappe.enqueue(
         "one_bpmn.agents.eval_runner._execute_eval_suite",
@@ -212,6 +222,11 @@ def _execute_eval_suite(run_name: str, case_names: list | None = None) -> None:
                 result_row = _execute_case_replay(run, case)
             else:
                 result_row = _execute_case(case)
+            # Snapshot what was evaluated, so later edits to the case don't
+            # rewrite this run's history. Set centrally so every path (live,
+            # replay, error) records it.
+            result_row.setdefault("input_user_prompt", case.input_user_prompt or "")
+            result_row.setdefault("expected_output", case.expected_output or "")
             run.append("results", result_row)
             if result_row["status"] == "Passed":
                 passed += 1
@@ -237,7 +252,9 @@ def _execute_eval_suite(run_name: str, case_names: list | None = None) -> None:
         run.failed_cases = run.total_cases - run.passed_cases
 
     run.ended_at = now_datetime()
-    run.save()
+    # Background finalise: the job writes results on the user's behalf, so it
+    # must not depend on that user holding write rights on AI Eval Run.
+    run.save(ignore_permissions=True)
     # Background-job commit; skipped in tests so FrappeTestCase rollback
     # still cleans up fixture docs instead of leaking them into the DB.
     if not frappe.flags.in_test:

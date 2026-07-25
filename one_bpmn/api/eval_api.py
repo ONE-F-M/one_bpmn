@@ -351,11 +351,14 @@ def get_run_review(run: str) -> dict:
 	results = []
 	for r in doc.results:
 		info = case_info.get(r.eval_case) or {}
+		# Prefer the snapshot taken when the run executed; fall back to the
+		# case's current values for runs recorded before snapshots existed.
 		results.append({
 			"eval_case": r.eval_case,
 			"case_title": info.get("title") or r.eval_case,
-			"input_user_prompt": info.get("input_user_prompt") or "",
-			"expected_output": info.get("expected_output") or "",
+			"input_user_prompt": r.input_user_prompt or info.get("input_user_prompt") or "",
+			"expected_output": r.expected_output or info.get("expected_output") or "",
+			"prompt_is_snapshot": bool(r.input_user_prompt),
 			"status": r.status,
 			"actual_output": r.actual_output,
 			"error_message": r.error_message,
