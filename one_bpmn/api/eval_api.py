@@ -260,3 +260,88 @@ def get_run_review(run: str) -> dict:
 		"results": results,
 		"previous": previous,
 	}
+
+
+# ── Suite ↔ Agent management from the Evals page (WI-001749) ──────────────────
+def _assert_process_owned(process_model: str) -> None:
+	"""Guard: the current user must own the process behind ``process_model``
+	(or be System Manager). Mirrors the WI-001744 scoping chain."""
+	from one_bpmn.agents.eval_permissions import _is_system_manager, _process_model_owned_by
+
+	user = frappe.session.user
+	if _is_system_manager(user):
+		return
+	if not _process_model_owned_by(process_model, user):
+		frappe.throw(
+			_("You can only create suites for processes you own."),
+			frappe.PermissionError,
+		)
+
+
+@frappe.whitelist()
+def list_assignable_agents() -> list:
+	"""Agent configurations offered in the assign/reassign picker."""
+	return frappe.get_all(
+		"AI Agent Configuration",
+		fields=["name", "agent_name"],
+		order_by="agent_name asc",
+	)
+
+
+@frappe.whitelist()
+def list_owned_processes() -> list:
+	"""BPMN Process Models the current user may attach a suite to — those
+	whose process they own; System Manager sees all (WI-001749 / Q5)."""
+	user = frappe.session.user
+	is_sm = "System Manager" in frappe.get_roles(user)
+
+	owners = {
+		p["name"]: p["process_owner"]
+		for p in frappe.get_all("Process", fields=["name", "process_owner"])
+	}
+	models = frappe.get_all(
+		"BPMN Process Model",
+		fields=["name", "process_name"],
+		order_by="name asc",
+		limit_page_length=0,
+	)
+	return [
+		m for m in models
+		if is_sm or owners.get(m["process_name"]) == user
+	]
+
+
+@frappe.whitelist()
+def reassign_suite(suite: str, agent_configuration: str = None) -> str:
+	"""(Re)assign a suite to an agent — or clear it when agent is empty.
+	The user must be able to write the suite (owner / SM)."""
+	doc = frappe.get_doc("AI Eval Suite", suite)
+	doc.check_permission("write")
+
+	if agent_configuration and not frappe.db.exists("AI Agent Configuration", agent_configuration):
+		frappe.throw(_("AI Agent Configuration '{0}' not found.").format(agent_configuration))
+
+	# Update only the agent link. Using db_set avoids re-validating the suite's
+	# other links (e.g. a stale process_model) that would otherwise block a
+	# reassignment for reasons unrelated to it.
+	doc.db_set("agent_configuration", agent_configuration or None)
+	return doc.name
+
+
+@frappe.whitelist()
+def create_suite(title: str, process_model: str, agent_configuration: str = None) -> str:
+	"""Create a new suite from the Evals page and assign it to an agent.
+	The process must be one the current user owns (or SM) — WI-001749 / Q5."""
+	_assert_process_owned(process_model)
+
+	if agent_configuration and not frappe.db.exists("AI Agent Configuration", agent_configuration):
+		frappe.throw(_("AI Agent Configuration '{0}' not found.").format(agent_configuration))
+
+	doc = frappe.get_doc({
+		"doctype": "AI Eval Suite",
+		"title": title,
+		"process_model": process_model,
+		"agent_configuration": agent_configuration or None,
+	})
+	doc.insert()
+	return doc.name
