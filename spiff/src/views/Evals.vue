@@ -170,12 +170,12 @@ function runPill(run) {
 	const status = run?.status
 	if (status === "Passed") return "bg-green-50 text-green-700"
 	if (status === "Failed" || status === "Error") return "bg-red-50 text-red-700"
-	if (status === "Running") return "bg-yellow-50 text-yellow-700"
+	if (status === "Running") return "bg-yellow-50 text-yellow-700 animate-pulse"
 	return "bg-gray-100 text-gray-500"
 }
 
-async function fetchSuites() {
-	loading.value = true
+async function fetchSuites(silent = false) {
+	if (!silent) loading.value = true
 	try {
 		const res = await frappeRequest({
 			url: "/api/method/one_bpmn.api.eval_api.list_eval_suites",
@@ -185,9 +185,9 @@ async function fetchSuites() {
 		isSystemManager.value = !!res?.is_system_manager
 	} catch (e) {
 		console.error("Failed to load eval suites:", e)
-		suites.value = []
+		if (!silent) suites.value = []
 	} finally {
-		loading.value = false
+		if (!silent) loading.value = false
 	}
 }
 
@@ -231,6 +231,8 @@ async function fetchProcesses() {
 	}
 }
 
+function sleep(ms) { return new Promise((r) => setTimeout(r, ms)) }
+
 async function runSuite(s) {
 	running[s.name] = true
 	try {
@@ -239,11 +241,22 @@ async function runSuite(s) {
 			method: "POST",
 			params: { suite_name: s.name },
 		})
-		setTimeout(fetchSuites, 1500)
+		// Optimistic: mark the row Running immediately, then poll quietly.
+		s.latest_run = { status: "Running", passed_cases: 0, total_cases: s.case_count }
+		pollRunning(s.name)
 	} catch (e) {
 		console.error("Failed to start run:", e)
 	} finally {
 		running[s.name] = false
+	}
+}
+
+async function pollRunning(suiteName) {
+	for (let i = 0; i < 40; i++) {
+		await sleep(1500)
+		await fetchSuites(true)
+		const s = suites.value.find((x) => x.name === suiteName)
+		if (!s || s.latest_run?.status !== "Running") break
 	}
 }
 

@@ -248,7 +248,7 @@ const sparkPoints = computed(() => {
 function runPill(status) {
 	if (status === "Passed") return "bg-green-50 text-green-700"
 	if (status === "Failed" || status === "Error") return "bg-red-50 text-red-700"
-	if (status === "Running") return "bg-yellow-50 text-yellow-700"
+	if (status === "Running") return "bg-yellow-50 text-yellow-700 animate-pulse"
 	return "bg-gray-100 text-gray-500"
 }
 
@@ -256,8 +256,8 @@ function toggleAll(e) {
 	selected.value = e.target.checked ? cases.value.map((c) => c.name) : []
 }
 
-async function fetchDetail() {
-	loading.value = true
+async function fetchDetail(silent = false) {
+	if (!silent) loading.value = true
 	loadError.value = ""
 	try {
 		const res = await frappeRequest({
@@ -271,9 +271,21 @@ async function fetchDetail() {
 		metrics.value = res?.metrics || {}
 	} catch (e) {
 		console.error("Failed to load suite:", e)
-		loadError.value = e?.message || String(e) || "Failed to load this suite."
+		if (!silent) loadError.value = e?.message || String(e) || "Failed to load this suite."
 	} finally {
-		loading.value = false
+		if (!silent) loading.value = false
+	}
+}
+
+function sleep(ms) { return new Promise((r) => setTimeout(r, ms)) }
+
+// Poll quietly (no skeleton flicker) until the run leaves "Running".
+async function pollRun(runName) {
+	for (let i = 0; i < 40; i++) {
+		await sleep(1500)
+		await fetchDetail(true)
+		const r = runs.value.find((x) => x.name === runName)
+		if (!r || r.status !== "Running") break
 	}
 }
 
@@ -290,15 +302,24 @@ async function fetchProviders() {
 	}
 }
 
+function optimisticRun(runName, totalCases) {
+	// Show the run immediately so there's no dead time after the click.
+	runs.value.unshift({
+		name: runName, display_title: "Run — starting…", status: "Running",
+		passed_cases: 0, total_cases: totalCases, started_at: "",
+	})
+}
+
 async function runCases(caseNames, flag) {
 	flag.value = true
 	try {
-		await frappeRequest({
+		const runName = await frappeRequest({
 			url: "/api/method/one_bpmn.agents.eval_runner.run_eval_cases",
 			method: "POST",
 			params: { suite_name: suiteName, case_names: caseNames ? JSON.stringify(caseNames) : null },
 		})
-		setTimeout(fetchDetail, 1500)
+		optimisticRun(runName, caseNames ? caseNames.length : cases.value.length)
+		pollRun(runName)
 	} catch (e) {
 		console.error("Run failed:", e)
 	} finally {
@@ -311,12 +332,15 @@ function runSelected() { return runCases(selected.value, runningSelected) }
 async function runCase(c) {
 	runningCase[c.name] = true
 	try {
-		await frappeRequest({
+		const runName = await frappeRequest({
 			url: "/api/method/one_bpmn.agents.eval_runner.run_eval_cases",
 			method: "POST",
 			params: { suite_name: suiteName, case_names: JSON.stringify([c.name]) },
 		})
-		setTimeout(fetchDetail, 1500)
+		optimisticRun(runName, 1)
+		pollRun(runName)
+	} catch (e) {
+		console.error("Run failed:", e)
 	} finally {
 		runningCase[c.name] = false
 	}
