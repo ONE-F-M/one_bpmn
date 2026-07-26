@@ -873,27 +873,6 @@ async function main() {
     return;
   }
 
-  // Guard: the IR must carry node/flow arrays before any pass touches them.
-  // A malformed IR (e.g. LLM returned partial JSON, or omitted a key) would
-  // otherwise crash normalizeGateways with "Cannot read properties of
-  // undefined (reading 'map')". Report it as a structured problem so the
-  // repair loop can ask the LLM to regenerate rather than dying fatally.
-  const shapeProblems = [];
-  if (!ir || typeof ir !== 'object') {
-    shapeProblems.push({ kind: 'parse', message: 'IR is not an object' });
-  } else {
-    if (!Array.isArray(ir.nodes)) {
-      shapeProblems.push({ kind: 'parse', message: 'IR is missing a "nodes" array' });
-    }
-    if (!Array.isArray(ir.flows)) {
-      shapeProblems.push({ kind: 'parse', message: 'IR is missing a "flows" array' });
-    }
-  }
-  if (shapeProblems.length) {
-    process.stdout.write(JSON.stringify({ ok: false, xml: '', problems: shapeProblems }));
-    return;
-  }
-
   // Pass 1 — normalise (deterministic; no LLM involvement)
   const normIR = normalizeGateways(ir);
 

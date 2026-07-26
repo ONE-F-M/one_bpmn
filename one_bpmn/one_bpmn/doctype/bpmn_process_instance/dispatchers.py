@@ -1009,11 +1009,7 @@ def dispatch_ai_agent(instance, task, task_cfg: dict, bpmn_id: str, resume_run: 
 
 		# Commit observability data so AI runs + steps survive even if a
 		# downstream aiStopOnError raise rolls back the outer transaction.
-		# Never inside tests: a mid-test commit also persists the test's
-		# fixture docs, defeating FrappeTestCase rollback and leaking
-		# orphan "Active" instances into the shared dev DB.
-		if not frappe.flags.in_test:
-			frappe.db.commit()
+		frappe.db.commit()
 	except Exception:
 		frappe.log_error(
 			title=f"AI Observability: instrumentation error ({bpmn_id})",

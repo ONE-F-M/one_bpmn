@@ -85,7 +85,6 @@
 						:active-tasks="activeTasks"
 						:completing-task="completingTask"
 						:completing-action="completingAction"
-						:engine-busy="engineBusy"
 						@complete="completeTask"
 					/>
 				</div>
@@ -95,7 +94,7 @@
 </template>
 
 <script setup>
-import { ref, computed, watch, onMounted, onUnmounted } from "vue"
+import { ref, computed, onMounted, onUnmounted } from "vue"
 import { useRoute } from "vue-router"
 import { frappeRequest } from "frappe-ui"
 import { Icon } from "@iconify/vue"
@@ -141,11 +140,7 @@ function getStateLabel(s) {
 	return TASK_STATE_LABELS[s] || "Unknown"
 }
 
-// Task states the inspector can select: WAITING (8), READY (16) and
-// STARTED (32) are included so in-flight elements — an AI Task Selector
-// deciding, a user task pending — are inspectable, not just finished ones
-// (COMPLETED 64, ERROR 128, CANCELLED 256).
-const REACHED_STATES = new Set([8, 16, 32, 64, 128, 256])
+const REACHED_STATES = new Set([64, 128, 256])
 
 // Service Task extensions (serviceType, etc.) are extracted at compile time and
 // embedded in serialized_spec, keyed by BPMN element id. SpiffWorkflow's own
@@ -170,18 +165,15 @@ const taskList = computed(() => {
 		const wfState = typeof details.value.workflow_state === "string"
 			? JSON.parse(details.value.workflow_state)
 			: details.value.workflow_state
-		const subprocesses = wfState.subprocesses || {}
-		const subprocessSpecs = wfState.subprocess_specs || {}
+		const tasks = wfState.tasks || {}
+		const taskSpecs = wfState.spec?.task_specs || {}
 
-		// SpiffWorkflow drains a task's own data into its containing scope on
-		// completion, so per-task data is usually {} — fall back to the
-		// scope's variables (subprocess data for inner tasks, workflow data
-		// at top level) so the Variables tab shows what was in scope.
-		const SCOPE_SKIP = new Set(["data_objects", "doc"])
-		const scopeVars = (scope) =>
-			Object.fromEntries(
-				Object.entries(scope || {}).filter(([k]) => !SCOPE_SKIP.has(k))
-			)
+		const nodes = []
+		for (const [uuid, t] of Object.entries(tasks)) {
+			const specName = t.task_spec || ""
+			if (!specName || specName === "Start" || specName === "End") continue
+			if (specName.endsWith(".EndJoin") || specName.endsWith(".BoundaryEventSplit") || specName.includes(".BoundaryEventJoin")) continue
+			if (!REACHED_STATES.has(t.state)) continue
 
 		// SpiffWorkflow 1.4 serializes each task's data as a DELTA relative to
 		// its parent (task.delta = { updates, deletions }); task.data itself is
@@ -321,35 +313,11 @@ const taskList = computed(() => {
 			return flat
 		}
 
-		return buildNodes(wfState.tasks, wfState.spec?.task_specs || {}, 0, scopeVars(wfState.data))
+		nodes.sort((a, b) => (a.timestamp || 0) - (b.timestamp || 0))
+		return nodes
 	} catch (e) {
 		console.warn("Failed to build task list:", e)
 		return []
-	}
-})
-
-// bpmnId → human label for every task spec in the diagram (top level and
-// subprocess internals alike), so tool-call chips in the inspector can show
-// shape labels instead of raw IDs like Activity_0q9helm. Specs without a
-// label are omitted — consumers fall back to the ID.
-const taskLabels = computed(() => {
-	if (!details.value?.workflow_state) return {}
-	try {
-		const wfState = typeof details.value.workflow_state === "string"
-			? JSON.parse(details.value.workflow_state)
-			: details.value.workflow_state
-		const labels = {}
-		const collect = (taskSpecs) => {
-			for (const [specName, specData] of Object.entries(taskSpecs || {})) {
-				const label = specData.bpmn_name || specData.description
-				if (label) labels[specName] = label
-			}
-		}
-		collect(wfState.spec?.task_specs)
-		for (const sub of Object.values(wfState.subprocess_specs || {})) collect(sub.task_specs)
-		return labels
-	} catch {
-		return {}
 	}
 })
 
@@ -802,10 +770,6 @@ onMounted(async () => {
 onUnmounted(() => {
 	if (window.frappe?.realtime) {
 		window.frappe.realtime.off("bpmn_instance_updated", handleRealtimeUpdate)
-	}
-	if (enginePollTimer) {
-		clearInterval(enginePollTimer)
-		enginePollTimer = null
 	}
 })
 </script>

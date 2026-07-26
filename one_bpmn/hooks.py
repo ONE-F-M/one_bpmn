@@ -34,12 +34,7 @@ website_route_rules = [
 # app_include_css = "/assets/one_bpmn/css/one_bpmn.css"
 app_include_js = [
 	"/assets/one_bpmn/js/bpmn_json_prettify.js",
-	# ?v= is a manual cache-buster — bump it any time this file changes.
-	# Plain app_include_js paths (not *.bundle.js) get no automatic
-	# versioning from Frappe, and this file has a 12h Cache-Control on
-	# /assets/ — without a version bump, browsers can keep serving a
-	# stale copy indefinitely even across hard reloads.
-	"/assets/one_bpmn/js/bpmn_form_actions.js?v=2",
+	"/assets/one_bpmn/js/bpmn_form_actions.js",
 	"/assets/one_bpmn/js/bpmn_list_indicator.js",
 ]
 
@@ -280,16 +275,4 @@ after_request = ["one_bpmn.api.todo_actions.apply_amp_headers"]
 # default_log_clearing_doctypes = {
 # 	"Logging DocType Name": 30  # days to retain logs
 # }
-
-# Reuse Frappe's Log Settings for AI Memory retention instead of a custom scheduler.
-# 0 = retain indefinitely by default; an administrator can lower it in Log Settings.
-default_log_clearing_doctypes = {
-	"AI Memory": 0,
-}
-
-# Custom short-term conversation store for AI agents (backend = "custom").
-# Point this at a dotted path to a
-# one_bpmn.agents.memory.conversation_store.ConversationStore subclass.
-# Consumed by get_conversation_store("custom"); optional.
-# ai_conversation_store = "your_app.path.to.YourConversationStore"
 

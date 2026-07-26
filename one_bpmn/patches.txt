@@ -2,7 +2,6 @@
 # Patches added in this section will be executed before doctypes are migrated
 # Read docs to understand patches: https://frappeframework.com/docs/v14/user/en/database-migrations
 one_bpmn.one_bpmn.patches.v1_0.drop_process_id_unique_index
-one_bpmn.one_bpmn.patches.v1_0.create_process_designer_role
 
 one_bpmn.one_bpmn.patches.v1_0.rename_ai_provider_to_ai_provider_credentials #16-07-2026
 one_bpmn.one_bpmn.patches.v1_0.move_agent_chat_doctypes_to_one_bpmn #16-07-2026
