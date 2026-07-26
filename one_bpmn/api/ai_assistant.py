@@ -4,7 +4,7 @@
 AI Agent Task configuration assistant.
 
 Powers the in-modal chat panel on the AI Agent Task config page. The assistant
-uses the SAME AI Provider the designer has selected for the task to recommend
+uses the SAME AI Provider Credentials the designer has selected for the task to recommend
 values for the task's fields (prompts, model, output variable, response format,
 advanced limits) based on a plain-language requirement.
 
@@ -42,11 +42,44 @@ FIELD_CATALOG = {
 	"aiMaxRetries":     "Integer — number of retries on transient failure.",
 }
 
+# Fields the assistant may recommend in SELECTOR mode (AI Task Selector on an
+# ad-hoc subprocess). Mirrors what the selector dispatch reads at runtime and
+# the modal's selector-mode form. aiProvider is deliberately absent — the
+# designer picks it, and it powers the assistant itself.
+SELECTOR_FIELD_CATALOG = {
+	"aiModel":        "Model name override (blank = provider default).",
+	"aiSystemPrompt": "The selection procedure: rules for which task to activate at each decision point, referencing tasks by their BPMN id.",
+	"aiUserPrompt":   "The evidence template. Jinja2 — {{ doc.<field> }} for the live context document, process variables like {{ my_var }}, and {% if my_var is defined %} guards for variables that appear mid-process.",
+	"aiMaxTokens":    "Integer — max output tokens per decision.",
+	"aiTimeout":      "Integer — request timeout in seconds per decision.",
+}
+
 # Layout-only / non-data field types skipped when summarising a DocType schema.
 _SKIP_FIELDTYPES = {"Section Break", "Column Break", "Tab Break", "HTML", "Button", "Heading"}
 
 _MAX_SCHEMA_FIELDS = 120
 _MAX_SAMPLE_CHARS = 4000
+
+_BPMN_NS = "http://www.omg.org/spec/BPMN/20100524/MODEL"
+_SPIFF_NS = "http://spiffworkflow.org/bpmn/schema/1.0/core"
+
+# Mirrors tool_pool eligibility (2026-07-02 decision): only leaf task
+# activities with no incoming sequence flow are selector candidates.
+_LEAF_TASK_TAGS = {
+	f"{{{_BPMN_NS}}}task": "Task",
+	f"{{{_BPMN_NS}}}userTask": "User Task",
+	f"{{{_BPMN_NS}}}manualTask": "Manual Task",
+	f"{{{_BPMN_NS}}}scriptTask": "Script Task",
+	f"{{{_BPMN_NS}}}serviceTask": "Service Task",
+	f"{{{_BPMN_NS}}}sendTask": "Send Task",
+	f"{{{_BPMN_NS}}}receiveTask": "Receive Task",
+	f"{{{_BPMN_NS}}}businessRuleTask": "Business Rule Task",
+}
+_GATEWAY_TAGS = {
+	f"{{{_BPMN_NS}}}exclusiveGateway": "Exclusive Gateway",
+	f"{{{_BPMN_NS}}}parallelGateway": "Parallel Gateway",
+	f"{{{_BPMN_NS}}}inclusiveGateway": "Inclusive Gateway",
+}
 
 
 @frappe.whitelist()
@@ -57,17 +90,30 @@ def recommend_ai_task_config(
 	context_doctype: str = "",
 	context_docname: str = "",
 	history: str = "[]",
+	mode: str = "agent",
+	bpmn_xml: str = "",
+	element_id: str = "",
+	current_config: str = "{}",
+	process_model: str = "",
 ) -> dict:
 	"""Return assistant recommendations for an AI Agent Task's configuration.
 
 	Args:
-		provider: AI Provider name powering the assistant (the task's own provider).
+		provider: AI Provider Credentials name powering the assistant (the task's own provider).
 		backend: Executor backend ("direct_api" | "antigravity").
 		requirement: The designer's latest chat message.
 		context_doctype: Optional DocType whose schema/sample to show the model.
 		context_docname: Optional specific record; if blank, the latest readable
 			record of context_doctype is used as the sample.
 		history: JSON array of prior turns [{"role": "...", "content": "..."}].
+		mode: "agent" (AI Agent Task) or "selector" (AI Task Selector on an
+			ad-hoc subprocess). Selector mode teaches the model the selector
+			runtime semantics and shows it the diagram digest.
+		bpmn_xml: The LIVE diagram XML from the editor canvas (selector mode) —
+			the saved model may be stale while the designer edits.
+		element_id: BPMN id of the ad-hoc subprocess being configured.
+		current_config: JSON of the form's current values so the assistant can
+			refine drafts instead of starting over.
 
 	Returns:
 		{"ok": True, "message": str, "recommendations": {field: value, ...}}
@@ -76,20 +122,45 @@ def recommend_ai_task_config(
 	if frappe.session.user == "Guest":
 		frappe.throw(_("You must be logged in to use the assistant."))
 
+	# WI-001623: fall back to the AI Assistant configuration's linked
+	# credentials so the modal no longer has to supply one.
+	provider = provider or _assistant_default_provider()
 	if not provider:
-		frappe.throw(_("Select an AI Provider before using the assistant."))
+		frappe.throw(_("Select an AI Provider Credentials before using the assistant."))
 
-	if not frappe.db.exists("AI Provider", provider):
-		frappe.throw(_("AI Provider '{0}' not found.").format(provider))
+	if not frappe.db.exists("AI Provider Credentials", provider):
+		frappe.throw(_("AI Provider Credentials '{0}' not found.").format(provider))
 
 	if not (requirement or "").strip():
 		frappe.throw(_("Describe what you want the AI Agent Task to do."))
 
+	mode = mode if mode in ("agent", "selector") else "agent"
+	catalog = _catalog_for_mode(mode)
+
 	turns = _parse_history(history)
 	context_block = _build_context_block(context_doctype, context_docname)
 
-	system_prompt = _build_system_prompt()
-	user_prompt = _build_user_prompt(requirement, turns, context_block)
+	digest = None
+	diagram_block = ""
+	if mode == "selector":
+		digest = _build_diagram_digest(bpmn_xml, element_id, process_model=process_model)
+		diagram_block = digest["block"] if digest else ""
+		system_prompt = _build_selector_system_prompt()
+	else:
+		# WI-001623: the agent-mode system prompt is now sourced from the
+		# ai_agent_assistant AI Agent Configuration (single source of truth);
+		# the builder remains only as a fallback / the seed's source.
+		system_prompt = _assistant_system_prompt() or _build_system_prompt()
+		# WI-001625: give the assistant the full diagram as read-only grounding
+		# so its recommendations reference the actual shapes around the task.
+		diagram_block = _build_full_diagram_block(bpmn_xml, element_id)
+	user_prompt = _build_user_prompt(
+		requirement,
+		turns,
+		context_block,
+		diagram_block=diagram_block,
+		current_config_block=_build_current_config_block(current_config, catalog),
+	)
 
 	from one_bpmn.agents.executor import (
 		ExecutorConfig,
@@ -114,7 +185,9 @@ def recommend_ai_task_config(
 		user_prompt=user_prompt,
 		temperature=0.3,
 		top_p=1.0,
-		max_tokens=1800,
+		# Generous: reasoning models (gpt-5 family) spend completion budget
+		# on hidden reasoning first — 1800 yielded empty visible output.
+		max_tokens=6000,
 		timeout_seconds=60,
 		response_format="text",  # parsed tolerantly below
 		max_retries=1,
@@ -129,6 +202,20 @@ def recommend_ai_task_config(
 			"message": result.error_message or _("The assistant request failed."),
 		}
 
+	if not (result.output or "").strip() if isinstance(result.output, str) else not result.output:
+		# Reasoning models can exhaust the completion budget on hidden
+		# reasoning and return nothing visible — surface it instead of a
+		# silent empty recommendation set.
+		return {
+			"ok": False,
+			"error_code": "EMPTY_OUTPUT",
+			"message": _(
+				"The model returned no visible text — its token budget was "
+				"likely consumed by internal reasoning. Try again, or use a "
+				"different model for the assistant."
+			),
+		}
+
 	parsed = _extract_json(result.output if isinstance(result.output, str) else json.dumps(result.output))
 	if not isinstance(parsed, dict):
 		# Model answered but not as JSON — surface the text, no field changes.
@@ -140,15 +227,49 @@ def recommend_ai_task_config(
 	recommendations = {}
 	if isinstance(raw_recs, dict):
 		for key, value in raw_recs.items():
-			if key in FIELD_CATALOG and value not in (None, ""):
+			if key in catalog and value not in (None, ""):
 				recommendations[key] = value
 
+	# Post-check (selector mode): every task id a recommended prompt mentions
+	# must exist on the diagram, and every candidate should be covered.
+	if digest:
+		warnings = _lint_recommended_prompts(recommendations, digest)
+		if warnings:
+			message = (message + "\n\n" if message else "") + "\n".join(f"⚠️ {w}" for w in warnings)
+
 	return {"ok": True, "message": message, "recommendations": recommendations}
+
+
+def _catalog_for_mode(mode: str) -> dict:
+	return SELECTOR_FIELD_CATALOG if mode == "selector" else FIELD_CATALOG
 
 
 # ---------------------------------------------------------------------------
 # Prompt construction
 # ---------------------------------------------------------------------------
+
+def _assistant_system_prompt() -> str:
+	"""Agent-mode system prompt from the AI Assistant's configuration
+	(WI-001623). Returns "" when the config is absent so the caller falls
+	back to the in-code builder."""
+	try:
+		from one_bpmn.one_bpmn.doctype.ai_agent_configuration.ai_agent_configuration import get_agent_config
+
+		cfg = get_agent_config("ai_agent_assistant")
+		return (cfg or {}).get("system_prompt") or ""
+	except Exception:
+		return ""
+
+
+def _assistant_default_provider() -> str:
+	"""The credentials record the AI Assistant configuration links, if any."""
+	try:
+		from one_bpmn.one_bpmn.doctype.ai_agent_configuration.ai_agent_configuration import get_agent_config
+
+		return (get_agent_config("ai_agent_assistant") or {}).get("ai_provider_credentials") or ""
+	except Exception:
+		return ""
+
 
 def _build_system_prompt() -> str:
 	field_lines = "\n".join(f'  - "{name}": {desc}' for name, desc in FIELD_CATALOG.items())
@@ -172,18 +293,88 @@ def _build_system_prompt() -> str:
 		"should return structured data; otherwise 'text'.\n"
 		"  - Only include a field in 'recommendations' when you have a concrete value "
 		"for it. Omit fields you are unsure about.\n\n"
+		"CLARIFY WHEN UNSURE:\n"
+		"  - If the requirement is ambiguous or missing something you need to "
+		"recommend good values (e.g. which field to summarise, the desired output "
+		"shape, or the target DocType), ASK a specific clarifying question instead "
+		"of guessing. Return your question as 'message' with an EMPTY "
+		"'recommendations' object, and wait for the designer's reply — the "
+		"conversation is multi-turn and prior turns are provided.\n"
+		"  - Only propose recommendations once the requirement is clear enough to "
+		"stand behind them.\n\n"
 		"Respond with ONLY a single JSON object, no prose outside it, in this exact shape:\n"
 		'{\n'
-		'  "message": "<a short, friendly explanation of what you suggested>",\n'
+		'  "message": "<your recommendation summary, OR a clarifying question when unsure>",\n'
 		'  "recommendations": { "aiUserPrompt": "...", "aiOutputVariable": "...", ... }\n'
 		'}'
 	)
 
 
-def _build_user_prompt(requirement: str, turns: list, context_block: str) -> str:
+def _build_selector_system_prompt() -> str:
+	field_lines = "\n".join(f'  - "{name}": {desc}' for name, desc in SELECTOR_FIELD_CATALOG.items())
+	return (
+		"You are a configuration assistant embedded in a BPMN editor. You help a "
+		"process designer write the prompts for an 'AI Task Selector' — an ad-hoc "
+		"subprocess where an LLM decides, one decision at a time, which inner task "
+		"to activate next.\n\n"
+		"HOW THE SELECTOR RUNS (these facts are non-negotiable — your prompts must "
+		"work within them):\n"
+		"  1. Every decision is a FRESH, stateless LLM call. The only memory between "
+		"decisions is process data, surfaced through Jinja placeholders in the user "
+		"prompt, plus the live context document ({{ doc.<field> }} is re-read every "
+		"decision).\n"
+		"  2. The model is offered the candidate tasks as tools NAMED BY THEIR BPMN "
+		"ID (the documentation text is the tool description). Prompts must reference "
+		"tasks by those exact ids.\n"
+		"  3. Exactly one task may be activated per decision. The very FIRST decision "
+		"happens at subprocess entry, before anything has run.\n"
+		"  4. Completed tasks are NOT offered as tools; the user prompt is "
+		"automatically appended an authoritative progress line naming tasks that "
+		"already ran, plus a standing guard: if the prescribed task is not "
+		"offered, activate nothing. Selection procedures should still lean on "
+		"observable EVIDENCE (document field values, process variables) to "
+		"decide the next step — never on the model remembering.\n"
+		"  5. Tasks connected by sequence flows to a candidate run AUTOMATICALLY "
+		"after it — never instruct the model to activate those; instead use their "
+		"effects (e.g. a status value they set) as evidence.\n"
+		"  5b. REGISTRY TOOLS listed in the digest are callable functions, not "
+		"tasks: the model may call them freely within a decision (they answer "
+		"immediately) and still activate one task. Their latest result persists "
+		"in a <selector id>_toolCallResult process variable as a JSON string.\n"
+		"  6. The subprocess ends when its completion condition becomes true "
+		"(usually a variable set by a wrap-up script task).\n\n"
+		"A DIAGRAM DIGEST of the subprocess follows in the user message: the "
+		"selectable tasks with their ids and behaviors, the automatic chains, the "
+		"observable state changes, and the completion condition. Build the "
+		"selection procedure (aiSystemPrompt) as explicit if/then rules over that "
+		"evidence, referencing only ids from the digest, and build the evidence "
+		"template (aiUserPrompt) so every rule's condition is actually visible in "
+		"it — use {% if var is defined %} guards for variables that only appear "
+		"after some task runs.\n\n"
+		"Recommend values for these fields:\n"
+		f"{field_lines}\n\n"
+		"Respond with ONLY a single JSON object, no prose outside it, in this exact shape:\n"
+		'{\n'
+		'  "message": "<a short, friendly explanation of what you suggested>",\n'
+		'  "recommendations": { "aiSystemPrompt": "...", "aiUserPrompt": "...", ... }\n'
+		'}'
+	)
+
+
+def _build_user_prompt(
+	requirement: str,
+	turns: list,
+	context_block: str,
+	diagram_block: str = "",
+	current_config_block: str = "",
+) -> str:
 	parts = []
+	if diagram_block:
+		parts.append(diagram_block)
 	if context_block:
 		parts.append(context_block)
+	if current_config_block:
+		parts.append(current_config_block)
 	if turns:
 		convo = "\n".join(
 			f"{str(t.get('role', 'user')).upper()}: {t.get('content', '')}"
@@ -219,6 +410,38 @@ def _build_current_config_block(current_config: str, catalog: dict) -> str:
 # ---------------------------------------------------------------------------
 # Diagram digest (selector mode)
 # ---------------------------------------------------------------------------
+
+_MAX_DIAGRAM_CHARS = 24000
+
+
+def _build_full_diagram_block(bpmn_xml: str, element_id: str = "") -> str:
+	"""Read-only full-diagram grounding for agent mode (WI-001625).
+
+	Passes the complete BPMN XML so the assistant's recommendations can
+	reference the real shapes, flows and variables around the AI task —
+	rather than the shape in isolation. Read-only: the assistant proposes
+	field values; it never edits the diagram. Oversized diagrams are
+	truncated with an explicit marker so the prompt stays bounded.
+	"""
+	xml = (bpmn_xml or "").strip()
+	if not xml:
+		return ""
+	truncated = ""
+	if len(xml) > _MAX_DIAGRAM_CHARS:
+		xml = xml[:_MAX_DIAGRAM_CHARS]
+		truncated = "\n<!-- … diagram truncated for length … -->"
+	focus = f" The AI task being configured is element id '{element_id}'." if element_id else ""
+	return (
+		"FULL PROCESS DIAGRAM (read-only context)."
+		+ focus
+		+ " Use it to ground your recommendations in the surrounding shapes, "
+		"sequence flows and process variables; do not propose edits to the "
+		"diagram itself:\n```xml\n"
+		+ xml
+		+ truncated
+		+ "\n```"
+	)
+
 
 def _build_diagram_digest(bpmn_xml: str, element_id: str, process_model: str = "") -> dict | None:
 	"""Parse the ad-hoc subprocess out of the live diagram XML and produce a

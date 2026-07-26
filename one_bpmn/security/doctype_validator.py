@@ -70,13 +70,21 @@ _DOCTYPE_NAME_RE = re.compile(r"^[A-Za-z][A-Za-z0-9 ]*[A-Za-z0-9]$")
 _MAX_FIELDS = 200
 
 
-def validate_doctype_ir(ir: dict) -> dict:
+def validate_doctype_ir(ir: dict, existing_fieldnames: set | None = None) -> dict:
 	"""Validate a Docu DocType IR.
 
 	Returns ``{valid, violations, fix_hints}``. ``violations`` are precise,
 	human-readable strings; ``fix_hints`` is a single actionable guidance string
 	(empty when valid) a self-correcting loop can feed straight back to the model.
+
+	``existing_fieldnames`` is the set of fieldnames already on the target DocType
+	when customizing an existing type. Those fields are not being (re)created —
+	Docu only edits their allowed properties via Customize Form (which validates
+	the change itself) — so the strict new-field checks are skipped for them. This
+	lets a standard DocType's own fields (e.g. the reserved ``amended_from``) pass
+	through untouched while new fields are still fully validated.
 	"""
+	existing_fieldnames = existing_fieldnames or set()
 	violations: list[str] = []
 
 	if not isinstance(ir, dict):
@@ -119,6 +127,19 @@ def validate_doctype_ir(ir: dict) -> dict:
 		fieldtype = (field.get("fieldtype") or "").strip()
 		fieldname = (field.get("fieldname") or "").strip()
 		label = (field.get("label") or "").strip()
+
+		# Field already present on the target DocType (customizing an existing
+		# type). Docu never redefines it here — at most it edits allowed props via
+		# Customize Form, which validates the change itself. Skip the new-field
+		# structural checks (allowed types, reserved names, snake_case, required
+		# label/options) so a standard DocType's own fields pass through.
+		if fieldname and fieldname in existing_fieldnames:
+			if fieldname in seen:
+				violations.append(f"{pos}: duplicate fieldname '{fieldname}'.")
+			else:
+				seen.add(fieldname)
+			has_data_field = True
+			continue
 
 		if fieldtype not in ALLOWED_FIELDTYPES:
 			violations.append(

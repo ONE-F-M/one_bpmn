@@ -183,8 +183,13 @@ def read_doctype_definition(doctype: str) -> dict | None:
 	except Exception:
 		return None
 	fields = []
+	_layout = ("Section Break", "Column Break", "Tab Break")
 	for f in meta.fields:
-		row = {"fieldname": f.fieldname, "fieldtype": f.fieldtype, "label": f.label or f.fieldname}
+		# Layout breaks carry no real label — don't fall back to the fieldname,
+		# or a round-trip through Customize Form would emit spurious label
+		# Property Setters (e.g. label "column_break_4").
+		label = f.label or ("" if f.fieldtype in _layout else f.fieldname)
+		row = {"fieldname": f.fieldname, "fieldtype": f.fieldtype, "label": label}
 		for attr in DOCFIELD_ATTRS:
 			if attr in ("fieldname", "fieldtype", "label"):
 				continue

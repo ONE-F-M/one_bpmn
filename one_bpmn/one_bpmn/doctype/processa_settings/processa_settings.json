@@ -14,10 +14,8 @@
   "ba_site_url",
   "ba_api_key",
   "ba_api_secret",
-  "column_break_ba",
-  "sync_custom_fields",
-  "sync_property_setters",
-  "last_sync_time",
+  "section_break_github",
+  "github_token",
   "section_break_script_security",
   "script_security_intro",
   "script_binop_multiply_threshold",
@@ -59,7 +57,7 @@
   },
   {
    "default": "1",
-   "description": " If checked, a Pathfinder Log with \"Active\" status in Production is required to make changes to a process map.",
+   "description": " If checked, a Process Implementation with \"Active\" status in Production is required to make changes to a process map.",
    "fieldname": "connect_to_production",
    "fieldtype": "Check",
    "label": "Connect to Production"
@@ -71,7 +69,6 @@
   },
   {
    "default": "0",
-   "description": "Enable automated daily sync of Custom Fields and Property Setters from the BA site to this Production site.",
    "fieldname": "enable_ba_sync",
    "fieldtype": "Check",
    "label": "Enable BA Sync"
@@ -99,30 +96,17 @@
    "mandatory_depends_on": "eval:doc.enable_ba_sync==1"
   },
   {
-   "fieldname": "column_break_ba",
-   "fieldtype": "Column Break"
+   "collapsible": 1,
+   "depends_on": "eval:doc.connect_to_production==1",
+   "fieldname": "section_break_github",
+   "fieldtype": "Section Break",
+   "label": "GitHub Integration"
   },
   {
-   "default": "1",
-   "depends_on": "eval:doc.enable_ba_sync==1",
-   "fieldname": "sync_custom_fields",
-   "fieldtype": "Check",
-   "label": "Sync Custom Fields"
-  },
-  {
-   "default": "1",
-   "depends_on": "eval:doc.enable_ba_sync==1",
-   "fieldname": "sync_property_setters",
-   "fieldtype": "Check",
-   "label": "Sync Property Setters"
-  },
-  {
-   "depends_on": "eval:doc.enable_ba_sync==1",
-   "fieldname": "last_sync_time",
-   "fieldtype": "Datetime",
-   "label": "Last Sync Time",
-   "read_only": 1,
-   "description": "Timestamp of the last successful sync. If empty, the next sync will pull ALL records (full sync)."
+   "description": "Personal (or fine-grained) access token able to push branches and open pull requests. Used by \"Review Doctypes\" → \"Sync\" to raise a PR with the DocType schema changes. The repository is derived from each referenced DocType's owning app (its git remote), and the PR targets that repository's default branch.",
+   "fieldname": "github_token",
+   "fieldtype": "Password",
+   "label": "GitHub Access Token"
   },
   {
    "fieldname": "section_break_script_security",

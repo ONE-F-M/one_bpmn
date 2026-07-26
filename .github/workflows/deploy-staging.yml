@@ -34,7 +34,7 @@ jobs:
             bench setup requirements one_bpmn
             cd /home/frappe/frappe-bench/apps/one_bpmn/spiff
             yarn install
-            export NODE_OPTIONS="--max-old-space-size=4096"
+            export NODE_OPTIONS="--max-old-space-size=8192"
             yarn build
             cd /home/frappe/frappe-bench
             bench --site staging.one-fm.com migrate

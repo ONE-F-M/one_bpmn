@@ -1,7 +1,7 @@
 # Copyright (c) 2026, one-fm and contributors
 # For license information, please see license.txt
 """
-Seed patch: create sample AI Provider records for developer mode.
+Seed patch: create sample AI Provider Credentials records for developer mode.
 Guarded by frappe.conf.developer_mode — never runs in production.
 """
 import frappe
@@ -32,9 +32,9 @@ def execute():
 
     inserted = False
     for p in providers:
-        if frappe.db.exists("AI Provider", p["provider_name"]):
+        if frappe.db.exists("AI Provider Credentials", p["provider_name"]):
             continue
-        doc = frappe.get_doc({"doctype": "AI Provider", **p})
+        doc = frappe.get_doc({"doctype": "AI Provider Credentials", **p})
         doc.insert(ignore_permissions=True)
         inserted = True
 

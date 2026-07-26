@@ -156,6 +156,12 @@ def tool_review_script(conversation: str) -> dict:
     code = agent._extract_code(candidate)
     validation = logix_tools.validate_script(code)
     if validation["valid"]:
+        # Strip dead code, then re-validate so the optimizer can never bypass
+        # the security gate. Keep the reply text in sync with the applied code.
+        optimized = logix_tools.optimize_script(code)
+        if optimized != code and logix_tools.validate_script(optimized)["valid"]:
+            candidate = logix_tools.replace_code_block(candidate, optimized)
+            code = optimized
         update_turn(
             conversation, final=candidate, modified_code=code, script_safe=True, violations=[]
         )
