@@ -2022,17 +2022,10 @@ async function executeDeployment() {
 				"green"
 			);
 
-			// Show deploy readiness warnings (non-blocking). Warnings may be
-			// plain strings (eval suite gating) or structured objects with
-			// { label, detail, type, icon } (e.g. backend code removal).
+			// Show eval suite gating warnings (non-blocking)
 			if (response.warnings && response.warnings.length > 0) {
 				for (const warning of response.warnings) {
-					if (warning && typeof warning === "object") {
-						const title = warning.label ? `${warning.label} Warning` : "Deploy Warning";
-						showNotification(title, warning.detail || warning.label || "", "orange");
-					} else {
-						showNotification("Eval Suite Warning", warning, "orange");
-					}
+					showNotification("Eval Suite Warning", warning, "orange");
 				}
 			}
 

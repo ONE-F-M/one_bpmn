@@ -389,3 +389,183 @@ class ProsAllyAgent:
         parts.append(f"User message: {message}")
         return "\n\n".join(parts)
 
+    # ── Main pipeline ──────────────────────────────────────────────────────────
+
+    async def process_message(
+        self,
+        message: str,
+        chat_history: list,
+        process_name: str = "",
+        diagram_name: str = "",
+        confirmed_action: str = "",
+        current_xml: str = "",
+    ) -> dict:
+        """
+        Classify intent then route to the correct handler.
+
+        Returns a dict:
+          intent        : "BPMN_GENERATED" | "BPMN_MODIFIED" | "CONFIRM" | "CLARIFY" | "IRRELEVANT"
+          response      : agent text
+          action_intent : "GENERATE_NEW" | "OVERWRITE_EXISTING" | "MODIFY_EXISTING" | None
+          bpmn_xml      : BPMN 2.0 XML string (when intent is BPMN_GENERATED or BPMN_MODIFIED)
+          options       : list of button labels
+        """
+        _ACTION_INTENTS      = {"GENERATE_NEW", "OVERWRITE_EXISTING", "MODIFY_EXISTING"}
+        _GENERATE_INTENTS    = {"GENERATE_NEW", "OVERWRITE_EXISTING"}
+        _NEEDS_CLARIFICATION = {"AMBIGUOUS", "INCOMPLETE"}
+
+		# STEP 0 — User confirmed an action: skip classification and act immediately
+        if confirmed_action in _ACTION_INTENTS:
+
+            if confirmed_action == "MODIFY_EXISTING" and current_xml.strip():
+                modifier_prompt = self._build_modifier_prompt(process_name, chat_history, current_xml)
+                bpmn_xml, problems = await self._generate_and_validate("modifier", modifier_prompt)
+                note = (
+                    f" ({len(problems)} issue(s) remain — review the canvas.)"
+                    if problems else ""
+                )
+
+                # Transfer extension properties from old XML to new XML
+                from one_bpmn.agents.google_adk.prosally_agent.xml_property_preserver import (
+                    transfer_properties, format_removal_warning,
+                )
+                merged_xml, removed_elements = transfer_properties(current_xml, bpmn_xml)
+
+                # If configured elements will be removed, ask for user approval first
+                if removed_elements:
+                    warning = format_removal_warning(removed_elements)
+                    return {
+                        "intent":        "CONFIRM_REMOVAL",
+                        "action_intent": "MODIFY_EXISTING",
+                        "response":      warning,
+                        "options":       ["Yes, apply changes", "No, keep existing"],
+                        "pending_xml":   merged_xml,
+                    }
+
+                xml_name = _extract_process_name_from_xml(merged_xml) or process_name or "process"
+                return {
+                    "intent":        "BPMN_MODIFIED",
+                    "action_intent": "MODIFY_EXISTING",
+                    "bpmn_xml":      merged_xml,
+                    "response":      f"I've updated the {xml_name} process.{note} All existing configurations have been preserved. Review the changes on the canvas.",
+                    "options":       [],
+                }
+
+            generator_prompt = self._build_generator_prompt(process_name, confirmed_action, chat_history)
+            bpmn_xml, problems = await self._generate_and_validate("process_generator", generator_prompt)
+            note = (
+                f" ({len(problems)} issue(s) remain — review the canvas.)"
+                if problems else ""
+            )
+            xml_name = _extract_process_name_from_xml(bpmn_xml) or process_name or "process"
+            return {
+                "intent":        "BPMN_GENERATED",
+                "action_intent": confirmed_action,
+                "bpmn_xml":      bpmn_xml,
+                "response":      f"I've generated the {xml_name} process model.{note} Review it on the canvas.",
+                "options":       [],
+            }
+
+        # STEP 1 — Classify intent
+        intent_prompt = self._build_intent_prompt(message, process_name, chat_history)
+        intent_raw    = await self._run("intent_classifier", intent_prompt)
+
+        intent        = "INCOMPLETE"
+        intent_reason = ""
+        try:
+            intent_data   = self._parse_json_response(intent_raw)
+            intent        = intent_data.get("intent", "INCOMPLETE").upper()
+            intent_reason = intent_data.get("reason", "")
+        except (json.JSONDecodeError, TypeError, ValueError):
+            pass
+
+        if intent not in (_ACTION_INTENTS | _NEEDS_CLARIFICATION | {"IRRELEVANT"}):
+            intent = "INCOMPLETE"
+
+        # STEP 2a — IRRELEVANT
+        if intent == "IRRELEVANT":
+            sub_prompts  = (self._config or {}).get("sub_prompts", {})
+            redirect_msg = sub_prompts.get("redirect", {}).get(
+                "prompt",
+                "I'm here to help with process modelling. I'm not able to help with that request."
+            )
+            return {
+                "intent":        "IRRELEVANT",
+                "action_intent": None,
+                "response":      redirect_msg,
+                "options":       [],
+            }
+
+        # STEP 2b — AMBIGUOUS / INCOMPLETE
+        if intent in _NEEDS_CLARIFICATION:
+            clarifier_prompt = self._build_clarifier_prompt(
+                message, process_name, intent_reason, chat_history
+            )
+            clarify_raw = await self._run("clarifier", clarifier_prompt)
+            try:
+                clarify_data = self._parse_json_response(clarify_raw)
+                return {
+                    "intent":        "CLARIFY",
+                    "action_intent": None,
+                    "response":      clarify_data.get("question", "Could you tell me more about the process?"),
+                    "options":       clarify_data.get("options", []),
+                }
+            except (json.JSONDecodeError, TypeError, ValueError):
+                return {
+                    "intent":        "CLARIFY",
+                    "action_intent": None,
+                    "response":      "Could you tell me more about the process you'd like to model?",
+                    "options":       [],
+                }
+
+        # STEP 2c — GENERATE_NEW / OVERWRITE_EXISTING / MODIFY_EXISTING → confirm
+        confirm_raw = await self._run(
+            "confirmer",
+            self._build_confirmer_prompt(message, process_name, intent, chat_history),
+        )
+        try:
+            confirm_data  = self._parse_json_response(confirm_raw)
+            summary       = confirm_data.get("summary", "")
+            question      = confirm_data.get("question", "Shall I proceed?")
+            response_text = f"{summary}\n{question}" if summary else question
+        except (json.JSONDecodeError, TypeError, ValueError):
+            response_text = confirm_raw or "Shall I proceed with this?"
+
+        # For OVERWRITE_EXISTING, warn about configured elements that will be lost
+        if intent == "OVERWRITE_EXISTING" and current_xml.strip():
+            from one_bpmn.agents.google_adk.prosally_agent.xml_property_preserver import (
+                extract_configured_elements, summarize_configured_elements,
+            )
+            configured = extract_configured_elements(current_xml)
+            if configured:
+                overwrite_warning = summarize_configured_elements(configured)
+                response_text = f"{response_text}\n\n⚠️ **Warning:**\n{overwrite_warning}"
+
+        return {
+            "intent":        "CONFIRM",
+            "action_intent": intent,
+            "response":      response_text,
+            "options":       ["Yes, proceed", "No, let me adjust"],
+        }
+
+
+def run_prosally_message(
+    message: str,
+    chat_history: list,
+    process_name: str = "",
+    diagram_name: str = "",
+    confirmed_action: str = "",
+    current_xml: str = "",
+) -> dict:
+    """Synchronous entry point — wraps the async agent pipeline."""
+    agent = ProsAllyAgent()
+    return asyncio.run(
+        agent.process_message(
+            message=message,
+            chat_history=chat_history,
+            process_name=process_name,
+            diagram_name=diagram_name,
+            confirmed_action=confirmed_action,
+            current_xml=current_xml,
+        )
+    )

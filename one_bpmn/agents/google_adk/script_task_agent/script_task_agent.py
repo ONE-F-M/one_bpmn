@@ -196,3 +196,207 @@ class ScriptTaskAgent:
             pass
         return draft
 
+    # ── Main pipeline ──────────────────────────────────────────────────────────
+
+    async def process_message(
+        self,
+        message: str,
+        chat_history: list,
+        element_name: str,
+        current_script: str,
+        original_script_content: str = "",
+        process_context: dict = None,
+    ) -> dict:
+        """
+        Classify intent then route to the correct pipeline.
+
+        Returns a dict:
+          intent   : "CREATE" | "MODIFY" | "DISAMBIGUATE"
+          response : agent text (script with markdown, or clarifying question)
+          diff     : unified diff string (MODIFY only, else None)
+          options  : list of clarification choices (DISAMBIGUATE only, else None)
+          suggested_name : Script Task label pre-filled for Apply dialog (CREATE only)
+        """
+        # STEP 1 — Classify intent
+        intent_prompt = self._build_intent_prompt(message, current_script, element_name)
+        intent_raw    = await self._run("intent_classifier", intent_prompt)
+
+        intent = "CREATE" if not current_script else "MODIFY"
+        try:
+            intent_data = json.loads((intent_raw or "").strip())
+            intent = intent_data.get("intent", intent).upper()
+        except (json.JSONDecodeError, TypeError):
+            pass
+        if intent not in ("CREATE", "MODIFY", "DISAMBIGUATE"):
+            intent = "CREATE" if not current_script else "MODIFY"
+
+        # STEP 2a — DISAMBIGUATE
+        if intent == "DISAMBIGUATE":
+            clarify_raw = await self._run(
+                "clarifier",
+                self._build_intent_prompt(message, current_script, element_name),
+                tools=_CLARIFIER_TOOLS,
+            )
+            try:
+                clarify_data = json.loads((clarify_raw or "").strip())
+                return {
+                    "intent":         "DISAMBIGUATE",
+                    "response":       clarify_data.get("question", clarify_raw),
+                    "options":        clarify_data.get("options", []),
+                    "diff":           None,
+                    "suggested_name": None,
+                }
+            except (json.JSONDecodeError, TypeError):
+                return {
+                    "intent":         "DISAMBIGUATE",
+                    "response":       clarify_raw or "Could you clarify your request?",
+                    "options":        [],
+                    "diff":           None,
+                    "suggested_name": None,
+                }
+
+        # STEP 2b — CREATE / MODIFY: write → review → validate (up to 3 attempts)
+        _MAX_RETRIES  = 2
+        writer_prompt = self._build_writer_prompt(message, chat_history, element_name, current_script, process_context)
+        final         = None
+        modified_code = ""
+
+        for attempt in range(_MAX_RETRIES + 1):
+            draft = await self._run("script_writer", writer_prompt, tools=_WRITER_TOOLS)
+            if not draft:
+                break
+
+            review_raw    = await self._run("script_reviewer", draft)
+            candidate     = self._apply_review(draft, review_raw)
+
+            # If there's no Python code block the agent is asking a question —
+            # pass it straight through without security validation.
+            if not re.search(r"```python\s*\n.*?```", candidate, re.DOTALL):
+                final = candidate
+                break
+
+            modified_code = self._extract_code(candidate)
+
+            validation = logix_tools.validate_script(modified_code)
+            if validation["valid"]:
+                # Strip dead code (unused imports + unused pure assignments) from
+                # the approved script, then re-validate so an optimized script can
+                # never slip past the security gate. Keep the reply text in sync
+                # with the code that will actually be applied.
+                optimized = logix_tools.optimize_script(modified_code)
+                if optimized != modified_code and logix_tools.validate_script(optimized)["valid"]:
+                    candidate     = logix_tools.replace_code_block(candidate, optimized)
+                    modified_code = optimized
+                final = candidate
+                break
+
+            is_last = attempt == _MAX_RETRIES
+            frappe.log_error(
+                title="Logix Security Validator — " + ("Max retries reached" if is_last else "Auto-regenerating"),
+                message=(
+                    f"Attempt {attempt + 1}/{_MAX_RETRIES + 1} blocked.\n"
+                    f"Violations: {validation['violations']}\n"
+                    f"Action: {'Returning error to user' if is_last else 'Regenerating with safe Frappe ORM prompt'}\n\n"
+                    f"Flagged code:\n{modified_code}"
+                ),
+            )
+
+            if is_last:
+                return {
+                    "intent":          intent,
+                    "response":        (
+                        "I was unable to generate a safe script after multiple attempts. "
+                        "Please rephrase your request to avoid forbidden operations "
+                        "(e.g. file access, shell commands, or raw destructive SQL)."
+                    ),
+                    "diff":            None,
+                    "original_script": None,
+                    "modified_script": None,
+                    "options":         None,
+                    "suggested_name":  None,
+                }
+
+            writer_prompt = self._build_regeneration_prompt(writer_prompt, validation["violations"])
+
+        if not final:
+            return {
+                "intent":          intent,
+                "response":        "I wasn't able to generate a script. Please try again.",
+                "diff":            None,
+                "options":         None,
+                "suggested_name":  None,
+                "original_script": None,
+                "modified_script": None,
+            }
+
+        # STEP 3 — Diff for MODIFY
+        if intent == "MODIFY" and original_script_content:
+            diff = self._compute_diff(original_script_content, modified_code)
+            return {
+                "intent":          "MODIFY",
+                "response":        final,
+                "diff":            diff or None,
+                "original_script": original_script_content,
+                "modified_script": modified_code,
+                "options":         None,
+                "suggested_name":  None,
+            }
+
+        # STEP 3 (CREATE only) — generate plain-English verification checklist
+        tests_checklist = []
+        if modified_code:
+            test_raw = None
+            try:
+                test_prompt = self._build_test_prompt(modified_code, element_name, process_context)
+                test_raw    = await self._run("test_writer", test_prompt)
+                # Strip markdown fences that LLMs often wrap JSON in
+                raw_stripped = (test_raw or "").strip()
+                if raw_stripped.startswith("```"):
+                    # Remove opening fence (```json or ```) and closing fence (```)
+                    raw_stripped = raw_stripped.split("\n", 1)[-1]
+                    if raw_stripped.endswith("```"):
+                        raw_stripped = raw_stripped[: raw_stripped.rfind("```")].strip()
+                test_data = json.loads(raw_stripped)
+                tests_checklist = test_data.get("checklist", [])
+            except Exception as exc:
+                # Tests are bonus — don't fail the whole response, but log for visibility
+                frappe.log_error(
+                    title="Logix test_writer parse error",
+                    message=(
+                        f"Error: {exc}\n"
+                        f"Raw output (first 500 chars):\n{(test_raw or '')[:500]}"
+                    ),
+                )
+
+        return {
+            "intent":           "CREATE",
+            "response":         final,
+            "diff":             None,
+            "original_script":  None,
+            "modified_script":  modified_code,
+            "options":          None,
+            "suggested_name":   element_name or None,
+            "tests_checklist":  tests_checklist,
+        }
+
+
+def run_logix_message(
+    message: str,
+    chat_history: list,
+    element_name: str,
+    current_script: str,
+    original_script_content: str = "",
+    process_context: dict = None,
+) -> dict:
+    """Synchronous entry point called by the Frappe API endpoint."""
+    agent = ScriptTaskAgent()
+    return asyncio.run(
+        agent.process_message(
+            message=message,
+            chat_history=chat_history,
+            element_name=element_name,
+            current_script=current_script,
+            original_script_content=original_script_content,
+            process_context=process_context,
+        )
+    )
