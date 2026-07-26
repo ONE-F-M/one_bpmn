@@ -70,10 +70,10 @@ class TestSelectorObservability(FrappeTestCase):
 	@classmethod
 	def setUpClass(cls):
 		super().setUpClass()
-		if not frappe.db.exists("AI Provider", "Obs Test Provider"):
+		if not frappe.db.exists("AI Provider Credentials", "Obs Test Provider"):
 			frappe.get_doc(
 				{
-					"doctype": "AI Provider",
+					"doctype": "AI Provider Credentials",
 					"provider_name": "Obs Test Provider",
 					"provider_type": "OpenAI",
 					"api_key": "test-key-not-real",
@@ -221,10 +221,10 @@ class TestSelectorRunRollups(FrappeTestCase):
 	@classmethod
 	def setUpClass(cls):
 		super().setUpClass()
-		if not frappe.db.exists("AI Provider", "Obs Test Provider"):
+		if not frappe.db.exists("AI Provider Credentials", "Obs Test Provider"):
 			frappe.get_doc(
 				{
-					"doctype": "AI Provider",
+					"doctype": "AI Provider Credentials",
 					"provider_name": "Obs Test Provider",
 					"provider_type": "OpenAI",
 					"api_key": "test-key-not-real",
@@ -255,10 +255,10 @@ class TestTurnLatency(FrappeTestCase):
 	@classmethod
 	def setUpClass(cls):
 		super().setUpClass()
-		if not frappe.db.exists("AI Provider", "Obs Test Provider"):
+		if not frappe.db.exists("AI Provider Credentials", "Obs Test Provider"):
 			frappe.get_doc(
 				{
-					"doctype": "AI Provider",
+					"doctype": "AI Provider Credentials",
 					"provider_name": "Obs Test Provider",
 					"provider_type": "OpenAI",
 					"api_key": "test-key-not-real",
@@ -298,10 +298,10 @@ class TestActivationOutcome(FrappeTestCase):
 	@classmethod
 	def setUpClass(cls):
 		super().setUpClass()
-		if not frappe.db.exists("AI Provider", "Obs Test Provider"):
+		if not frappe.db.exists("AI Provider Credentials", "Obs Test Provider"):
 			frappe.get_doc(
 				{
-					"doctype": "AI Provider",
+					"doctype": "AI Provider Credentials",
 					"provider_name": "Obs Test Provider",
 					"provider_type": "OpenAI",
 					"api_key": "test-key-not-real",
