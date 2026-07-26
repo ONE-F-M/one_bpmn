@@ -29,18 +29,25 @@
 			<span class="font-mono text-xs">{{ missingPricing.join(", ") }}</span>
 		</div>
 
-		<!-- Summary tiles -->
+		<!-- Summary tiles. Scoped to the selected axis, never the whole period —
+		     the label says so, and the note below reports what is excluded. -->
 		<div class="grid grid-cols-2 lg:grid-cols-5 gap-4">
 			<div class="bg-white rounded-lg shadow-sm p-4 border-l-4 border-purple-500">
-				<div class="text-xs text-gray-500 uppercase tracking-wide font-medium">Total cost</div>
+				<div class="text-xs text-gray-500 uppercase tracking-wide font-medium">
+					Cost · {{ scopeLabel }}
+				</div>
 				<div class="text-2xl font-bold text-gray-900">{{ fmtCost(totals.cost) }}</div>
 			</div>
 			<div class="bg-white rounded-lg shadow-sm p-4 border-l-4 border-amber-500">
-				<div class="text-xs text-gray-500 uppercase tracking-wide font-medium">Tokens</div>
+				<div class="text-xs text-gray-500 uppercase tracking-wide font-medium">
+					Tokens · {{ scopeLabel }}
+				</div>
 				<div class="text-2xl font-bold text-gray-900">{{ fmtNum(totals.tokens) }}</div>
 			</div>
 			<div class="bg-white rounded-lg shadow-sm p-4 border-l-4 border-blue-500">
-				<div class="text-xs text-gray-500 uppercase tracking-wide font-medium">Runs</div>
+				<div class="text-xs text-gray-500 uppercase tracking-wide font-medium">
+					Runs · {{ scopeLabel }}
+				</div>
 				<div class="text-2xl font-bold text-gray-900">{{ fmtNum(totals.runs) }}</div>
 			</div>
 			<div class="bg-white rounded-lg shadow-sm p-4 border-l-4 border-green-500">
@@ -53,6 +60,16 @@
 				<div class="text-xs text-gray-500 uppercase tracking-wide font-medium">Departments</div>
 				<div class="text-2xl font-bold text-gray-900">{{ fmtNum(totals.departments) }}</div>
 			</div>
+		</div>
+
+		<!-- What this axis leaves out, so the tiles are never read as the
+		     period's whole AI spend. -->
+		<div v-if="!loading && unshownRuns" class="text-sm text-gray-500">
+			Showing {{ fmtNum(totals.runs) }} of {{ fmtNum(periodTotals.runs) }} runs
+			({{ fmtCost(totals.cost) }} of {{ fmtCost(periodTotals.cost) }}) for this period.
+			The other {{ fmtNum(unshownRuns) }} runs ({{ fmtCost(unshownCost) }}) are on
+			<button class="underline hover:text-gray-700" @click="toggleAxis">
+				{{ otherAxisLabel }}</button>.
 		</div>
 
 		<!-- Loading / empty -->
@@ -94,7 +111,9 @@
 				</tbody>
 				<tfoot>
 					<tr class="border-t-2 border-gray-200">
-						<td colspan="4" class="py-2.5 px-3 text-xs uppercase text-gray-500 font-medium">Total</td>
+						<td colspan="4" class="py-2.5 px-3 text-xs uppercase text-gray-500 font-medium">
+							Subtotal · {{ scopeLabel }}
+						</td>
 						<td class="py-2.5 px-3 text-sm text-gray-900 text-right font-bold">{{ fmtNum(totals.runs) }}</td>
 						<td class="py-2.5 px-3 text-sm text-gray-900 text-right font-bold">{{ fmtNum(totals.tokens) }}</td>
 						<td class="py-2.5 px-3 text-sm text-gray-900 text-right font-bold">{{ fmtCost(totals.cost) }}</td>
@@ -124,7 +143,27 @@ const loading = ref(true)
 const axis = ref("process_owner")
 const rows = ref([])
 const totals = ref({ runs: 0, tokens: 0, cost: 0, people: 0, departments: 0 })
+const periodTotals = ref({ runs: 0, tokens: 0, cost: 0 })
 const missingPricing = ref([])
+
+// Each axis covers only its own half of the runs (non-chat vs chat), so the
+// tiles below are a slice, never the period's whole AI spend.
+const scopeLabel = computed(() =>
+	axis.value === "chat_user" ? "chat users" : "process owners"
+)
+const otherAxisLabel = computed(() =>
+	axis.value === "chat_user" ? "By process owner" : "By chat user"
+)
+const unshownRuns = computed(() =>
+	Math.max(0, (periodTotals.value.runs || 0) - (totals.value.runs || 0))
+)
+const unshownCost = computed(() =>
+	Math.max(0, (periodTotals.value.cost || 0) - (totals.value.cost || 0))
+)
+
+function toggleAxis() {
+	axis.value = axis.value === "chat_user" ? "process_owner" : "chat_user"
+}
 
 const _num = new Intl.NumberFormat("en-US")
 const _cost = new Intl.NumberFormat("en-US", {
@@ -166,6 +205,7 @@ async function fetchReport() {
 		})
 		rows.value = res?.rows || []
 		totals.value = res?.totals || { runs: 0, tokens: 0, cost: 0, people: 0, departments: 0 }
+		periodTotals.value = res?.period_totals || { runs: 0, tokens: 0, cost: 0 }
 		missingPricing.value = res?.models_missing_pricing || []
 	} catch (e) {
 		console.error("Failed to fetch cost allocation:", e)

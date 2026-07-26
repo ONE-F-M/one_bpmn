@@ -614,14 +614,19 @@ def _allocation_rows(axis: str, from_d, to_d) -> list:
 
 	if axis == "chat_user":
 		Conv = DocType("Chat Conversation")
+		# LEFT join, and group on the instance's context_docname rather than
+		# Conv.name: a run whose Chat Conversation has since been deleted is
+		# still a chat run, so it must not vanish. An inner join dropped it
+		# from this axis while the process-owner axis already excluded it for
+		# being chat — leaving its spend unallocated in both views.
 		q = (
 			frappe.qb.from_(Run)
 			.inner_join(Inst).on(Inst.name == Run.instance)
-			.inner_join(Conv).on(Conv.name == Inst.context_docname)
+			.left_join(Conv).on(Conv.name == Inst.context_docname)
 			.select(
 				month.as_("month"),
 				Conv.owner.as_("person"),
-				Conv.name.as_("subject"),
+				Inst.context_docname.as_("subject"),
 				Conv.title.as_("subject_label"),
 				fn.Count("*").as_("runs"),
 				fn.Sum(Run.total_tokens).as_("tokens"),
@@ -629,7 +634,7 @@ def _allocation_rows(axis: str, from_d, to_d) -> list:
 			)
 			.where(in_range)
 			.where(Inst.context_doctype == "Chat Conversation")
-			.groupby(month, Conv.owner, Conv.name, Conv.title)
+			.groupby(month, Conv.owner, Inst.context_docname, Conv.title)
 		)
 	else:
 		Model = DocType("BPMN Process Model")
@@ -672,6 +677,32 @@ def _allocation_rows(axis: str, from_d, to_d) -> list:
 	return rows
 
 
+def _period_totals(from_d, to_d) -> dict:
+	"""Unfiltered totals for the whole period, across both allocation axes.
+
+	Each axis shows only its own slice (non-chat vs chat), so the axis totals
+	are not the period's AI spend. The UI needs this to say so plainly instead
+	of labelling a slice "Total".
+	"""
+	Run = DocType("AI Agent Run")
+	row = (
+		frappe.qb.from_(Run)
+		.select(
+			fn.Count("*").as_("runs"),
+			fn.Sum(Run.total_tokens).as_("tokens"),
+			fn.Sum(Run.estimated_cost).as_("cost"),
+		)
+		.where(fn.Date(Run.started_at) >= from_d)
+		.where(fn.Date(Run.started_at) <= to_d)
+	).run(as_dict=True)
+	r = row[0] if row else {}
+	return {
+		"runs": cint(r.get("runs")),
+		"tokens": cint(r.get("tokens")),
+		"cost": flt(r.get("cost"), 6),
+	}
+
+
 def _models_missing_pricing(from_d, to_d) -> list:
 	"""Models used in the period that have no active AI Model Pricing row, so
 	their spend silently counts as 0 — finance needs to know."""
@@ -705,6 +736,8 @@ def get_cost_allocation(from_date: str = None, to_date: str = None, axis: str = 
 		"from_date": cstr(from_d),
 		"to_date": cstr(to_d),
 		"rows": rows,
+		# Totals for THIS axis only — the chat and process-owner axes each
+		# cover half the runs. Compare against period_totals below.
 		"totals": {
 			"runs": sum(r["runs"] for r in rows),
 			"tokens": sum(r["tokens"] for r in rows),
@@ -712,6 +745,7 @@ def get_cost_allocation(from_date: str = None, to_date: str = None, axis: str = 
 			"people": len({r["person"] for r in rows if r["person"]}),
 			"departments": len({r["department"] for r in rows if r["department"]}),
 		},
+		"period_totals": _period_totals(from_d, to_d),
 		"models_missing_pricing": _models_missing_pricing(from_d, to_d),
 	}
 
