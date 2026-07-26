@@ -175,3 +175,37 @@ class TestRetryAndChoices(FrappeTestCase):
         # driveDocumentTypes was removed with the folder map; unknown sources → []
         self.assertEqual(get_connector_field_choices("driveDocumentTypes"), [])
         self.assertEqual(get_connector_field_choices("__unknown__"), [])
+
+
+_GSHEETS = "one_bpmn.one_bpmn.integrations.google_sheets"
+
+
+class TestSheetsConnector(FrappeTestCase):
+    def test_sheets_registered(self):
+        for op in ("createSpreadsheet", "getValues", "updateValues", "appendValues", "clearValues", "addSheet"):
+            self.assertIsNotNone(get_handler("google_sheets", op), f"missing sheets {op}")
+
+    def test_create_spreadsheet_folder_normalized(self):
+        task = SimpleNamespace(data={"title": "Metrics"})
+        with patch(f"{_GSHEETS}.create_spreadsheet",
+                   return_value={"spreadsheetId": "SS1", "title": "Metrics", "url": "http://x"}) as cs:
+            dispatch_connector(_instance(), task, {
+                "connectorId": "google_sheets", "operation": "createSpreadsheet", "resultVariable": "ss",
+                "connectorParams": ('{"title": "{{task_data.title}}", '
+                                    '"folder": "https://drive.google.com/drive/folders/FOLDER_XYZ12345"}'),
+            }, "s1")
+        self.assertEqual(task.data["ss"]["spreadsheetId"], "SS1")
+        self.assertEqual(cs.call_args.args[0], "Metrics")           # title rendered
+        self.assertEqual(cs.call_args.args[1], "FOLDER_XYZ12345")   # folder link normalized
+
+    def test_update_values_parses_json_grid(self):
+        task = SimpleNamespace(data={})
+        with patch(f"{_GSHEETS}.update_values", return_value={"updatedRange": "A1:B2", "updatedCells": 4}) as uv:
+            dispatch_connector(_instance(), task, {
+                "connectorId": "google_sheets", "operation": "updateValues", "resultVariable": "res",
+                "connectorParams": ('{"spreadsheet": "SS1", "range": "A1", '
+                                    '"values": "[[\\"Name\\",\\"Score\\"],[\\"Ann\\",42]]"}'),
+            }, "s2")
+        self.assertEqual(task.data["res"]["updatedCells"], 4)
+        # values JSON string parsed into a 2D list before reaching the API
+        self.assertEqual(uv.call_args.args[2], [["Name", "Score"], ["Ann", 42]])

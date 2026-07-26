@@ -73,6 +73,7 @@ No engine or frontend change is needed — the panel renders any manifest.
 - **google_drive** — downloadText, createFile, updateFileContent, setPermissions, listFiles, deleteFile
 - **google_docs** — createDocument, insertText, appendText, replaceAllText, getText
 - **google_slides** — createPresentation, replaceAllText, createSlide, duplicateSlide, getText
+- **google_sheets** — createSpreadsheet, getValues, updateValues, appendValues, clearValues, addSheet
 
 ## Credentials
 

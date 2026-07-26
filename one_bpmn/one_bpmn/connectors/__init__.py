@@ -5,6 +5,7 @@
 
 from one_bpmn.one_bpmn.connectors import google_docs_ops  # noqa: F401,E402
 from one_bpmn.one_bpmn.connectors import google_drive_ops  # noqa: F401,E402
+from one_bpmn.one_bpmn.connectors import google_sheets_ops  # noqa: F401,E402
 from one_bpmn.one_bpmn.connectors import google_slides_ops  # noqa: F401,E402
 
-__all__ = ["google_drive_ops", "google_docs_ops", "google_slides_ops"]
+__all__ = ["google_drive_ops", "google_docs_ops", "google_slides_ops", "google_sheets_ops"]

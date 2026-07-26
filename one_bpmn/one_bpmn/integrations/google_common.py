@@ -16,7 +16,8 @@ import frappe
 DRIVE_SCOPE = "https://www.googleapis.com/auth/drive"
 DOCS_SCOPE = "https://www.googleapis.com/auth/documents"
 SLIDES_SCOPE = "https://www.googleapis.com/auth/presentations"
-DEFAULT_SCOPES = [DRIVE_SCOPE, DOCS_SCOPE, SLIDES_SCOPE]
+SHEETS_SCOPE = "https://www.googleapis.com/auth/spreadsheets"
+DEFAULT_SCOPES = [DRIVE_SCOPE, DOCS_SCOPE, SLIDES_SCOPE, SHEETS_SCOPE]
 
 
 class GoogleConfigError(Exception):
