@@ -30,35 +30,26 @@ each step calls `_run_agent()` with the same `session_id` but a fresh prompt.
 
 ## Script Contract (non-negotiable)
 
-BPMN Script Tasks run INSIDE the SpiffWorkflow engine
-(`FrappeScriptEngine._run_frappe_server_script` in `one_bpmn/one_bpmn/engine.py`), **not** inside an
-HTTP request. `frappe.form_dict` is always empty and `frappe.response` is ignored. The engine injects
-`doc`, `context_doctype`, `context_docname`, `task_data`, `result`, and `frappe` as local variables;
-generated scripts must use them:
+All generated scripts must follow the Processa API calling convention:
 
 ```python
-# Injected by the engine: doc, context_doctype, context_docname, task_data, result, frappe.
-
-# Read the context document directly (or frappe.get_doc(context_doctype, context_docname)):
-process_name = doc.process_name
-
-# Read workflow variables produced by earlier steps:
-threshold = task_data.get("threshold")
+# Input: always read from frappe.form_dict
+context_doctype = frappe.form_dict.get("context_doctype")
+context_docname = frappe.form_dict.get("context_docname")
 
 # ... business logic ...
 
-# Write outputs onto the pre-defined `result` dict — the engine merges it back into
-# task.data so downstream steps and gateways can read the keys:
-result["approved"] = True
-result["next_step"] = "manager_review"
+# Output: always set frappe.response["message"] to a plain dict
+frappe.response["message"] = {
+    "approved": True,
+    "next_step": "manager_review",
+}
 ```
 
-- Never use `frappe.form_dict` (always empty here) or `frappe.response` (ignored). Read inputs from
-  `doc` / `task_data`; write outputs onto `result`.
-- `doc`, `context_doctype`, `context_docname`, `task_data`, and `result` DO exist — they are injected.
-  Do not redefine them.
-- Never use bare `return` — Server Scripts run as top-level code, so `return` is a SyntaxError.
-  Use `if/else` for branching and `frappe.throw()` to abort.
+- `script_type` is always `"API"`.
+- `api_method` is auto-derived: script name → lowercase, spaces→underscores, special chars stripped.
+- Scripts are reached by Processa at `/api/method/<api_method>`.
+- Never use bare `return`. Never use `doc`, `result`, or `context_*` variables — they do not exist.
 
 ## Security Validator (`security/script_validator.py`)
 
@@ -133,7 +124,7 @@ All endpoints use `frappe.session.user = "Administrator"` elevation (scripts req
   A `-` line immediately followed by `+` is a `changed` pair; standalone `-` is `deleted`; standalone `+` is `added`.
 - After `approve_create` / `approve_modify` succeeds, show the `api_url` from the response in a confirmation message.
 - The Apply Script button is hidden on messages with `CREATE` or `MODIFY` intent (approval is via Approve button instead).
-- Context variables available to the writer (injected by the BPMN engine): `doc`, `context_doctype`, `context_docname`, `task_data`, `result`, `frappe`. Never `frappe.form_dict` / `frappe.response` — they don't work in the script-task runtime.
+- Context variables available to the writer: `frappe.form_dict`, `frappe.response["message"]`, `frappe.db`, `frappe.get_doc`.
 
 ## Review Checklist
 
