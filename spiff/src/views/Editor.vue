@@ -1762,17 +1762,10 @@ function extractProcessContext(element) {
 	const incoming = (bo.incoming || []).map(f => mapNode(f.sourceRef)).filter(Boolean);
 	const outgoing  = (bo.outgoing  || []).map(f => mapNode(f.targetRef)).filter(Boolean);
 	const process   = bo.$parent;
-	// An element parented by an ad-hoc sub-process is an Agent Tool (it runs via
-	// shape_tools' synthetic-task path, not the engine's Script Task path) — the
-	// two have different script contracts, so Logix must know which it is writing.
-	const parentType = process?.$type || "";
 	return {
 		element_id:   bo.id,
 		element_name: bo.name || bo.id,
-		element_type: (bo.$type || "").replace("bpmn:", ""),
 		process_name: process?.name || process?.id || "",
-		parent_type:  parentType.replace("bpmn:", ""),
-		shape_kind:   parentType === "bpmn:AdHocSubProcess" ? "agent_tool" : "script_task",
 		incoming,
 		outgoing,
 	};
