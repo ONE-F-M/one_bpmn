@@ -331,6 +331,12 @@ def dispatch_connector(instance, task, task_cfg: dict, bpmn_id: str) -> None:
 		spec = specs.get(key, {})
 		val = value
 		expression = spec.get("expression", True)  # default: allow expressions
+		# connectorParams arrives from an XML attribute, so entity artifacts
+		# (e.g. &#39; for ' introduced by moddle/serialization round-trips) can
+		# survive into expression text and break Jinja. Undo them first.
+		if isinstance(val, str) and expression:
+			import html as _html
+			val = _html.unescape(val)
 		if isinstance(val, str) and expression and ("{{" in val or "{%" in val):
 			try:
 				val = frappe.render_template(val, render_ctx)
