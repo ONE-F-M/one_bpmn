@@ -142,7 +142,7 @@ function LaunchEditorButton(props) {
 }
 
 // ---------------------------------------------------------------------------
-// AI Provider — autocomplete backed by the AI Provider doctype (enabled only).
+// AI Provider — autocomplete backed by the AI Provider Credentials doctype (enabled only).
 // ---------------------------------------------------------------------------
 function ProviderComponent(props) {
 	const { element, id } = props;
@@ -162,7 +162,7 @@ function ProviderComponent(props) {
 			limit_page_length: 50,
 			order_by: "provider_name asc",
 		};
-		return frappeGet("/api/resource/AI Provider", params);
+		return frappeGet("/api/resource/AI Provider Credentials", params);
 	};
 
 	// On provider change, auto-fill the Model from the provider's default_model
@@ -170,7 +170,7 @@ function ProviderComponent(props) {
 	const onProviderSelect = (value) => {
 		setAttr(modeling, element, bo, "aiProvider", value);
 		if (!value) return;
-		frappeGet("/api/resource/AI Provider", {
+		frappeGet("/api/resource/AI Provider Credentials", {
 			filters: JSON.stringify([["name", "=", value]]),
 			fields: '["default_model"]',
 			limit_page_length: 1,
@@ -193,7 +193,7 @@ function ProviderComponent(props) {
 				{
 					class: "bio-properties-panel-label",
 					title: translate(
-						"The LLM provider this agent calls. References an AI Provider record — the API key lives on that record, never on the diagram."
+						"The LLM provider this agent calls. References an AI Provider Credentials record — the API key lives on that record, never on the diagram."
 					),
 				},
 				translate("AI Provider")

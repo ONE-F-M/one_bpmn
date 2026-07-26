@@ -1177,6 +1177,13 @@ def dispatch_ai_agent(instance, task, task_cfg: dict, bpmn_id: str, resume_run: 
 		task.data[f"{bpmn_id}_error_code"]    = error_code_name
 		task.data[f"{bpmn_id}_error_message"] = result.error_message
 
+		# Without aiStopOnError the flow continues past the failed task, so
+		# the declared output variable must still exist (as None) — otherwise
+		# a downstream gateway condition referencing it dies on a NameError
+		# instead of routing to its default branch.
+		output_var = task_cfg.get("aiOutputVariable") or f"{bpmn_id}_output"
+		task.data.setdefault(output_var, None)
+
 		# If the BPMN task is configured to stop on error, raise so the
 		# engine loop in _run_engine_steps halts and the instance is
 		# marked Errored (same pattern as apply_workflow).

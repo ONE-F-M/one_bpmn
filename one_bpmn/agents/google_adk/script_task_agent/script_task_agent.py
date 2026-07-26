@@ -18,7 +18,7 @@ import re
 
 import frappe
 
-from onefm_mcp.onefm_mcp.doctype.ai_agent_configuration.ai_agent_configuration import get_agent_config
+from one_bpmn.one_bpmn.doctype.ai_agent_configuration.ai_agent_configuration import get_agent_config
 from one_bpmn.agents.llm_provider import get_llm_adapter_from_settings
 from one_bpmn.agents.google_adk.script_task_agent import tools as logix_tools
 
@@ -276,6 +276,14 @@ class ScriptTaskAgent:
 
             validation = logix_tools.validate_script(modified_code)
             if validation["valid"]:
+                # Strip dead code (unused imports + unused pure assignments) from
+                # the approved script, then re-validate so an optimized script can
+                # never slip past the security gate. Keep the reply text in sync
+                # with the code that will actually be applied.
+                optimized = logix_tools.optimize_script(modified_code)
+                if optimized != modified_code and logix_tools.validate_script(optimized)["valid"]:
+                    candidate     = logix_tools.replace_code_block(candidate, optimized)
+                    modified_code = optimized
                 final = candidate
                 break
 

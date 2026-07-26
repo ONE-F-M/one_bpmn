@@ -1,0 +1,40 @@
+{
+ "actions": [],
+ "allow_rename": 1,
+ "autoname": "hash",
+ "creation": "2026-07-16 12:00:00.000000",
+ "doctype": "DocType",
+ "editable_grid": 1,
+ "engine": "InnoDB",
+ "field_order": [
+  "prompt",
+  "expected_behaviour"
+ ],
+ "fields": [
+  {
+   "fieldname": "prompt",
+   "fieldtype": "Small Text",
+   "in_list_view": 1,
+   "label": "Prompt",
+   "reqd": 1
+  },
+  {
+   "fieldname": "expected_behaviour",
+   "fieldtype": "Small Text",
+   "in_list_view": 1,
+   "label": "Expected Behaviour",
+   "description": "What a correct response should do — used to generate baseline evaluation cases."
+  }
+ ],
+ "istable": 1,
+ "links": [],
+ "modified": "2026-07-16 12:00:00.000000",
+ "modified_by": "Administrator",
+ "module": "ONE BPMN",
+ "name": "AI Agent Sample Prompt",
+ "owner": "Administrator",
+ "permissions": [],
+ "sort_field": "modified",
+ "sort_order": "DESC",
+ "states": []
+}

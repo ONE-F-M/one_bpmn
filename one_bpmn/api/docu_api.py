@@ -29,7 +29,7 @@ from one_bpmn.agents.google_adk.docu_agent.tools import (
 	DOCTYPE_SETTING_INTS,
 	DOCTYPE_SETTING_STRS,
 )
-from one_bpmn.security.doctype_validator import validate_doctype_ir
+from one_bpmn.security.doctype_validator import RESERVED_FIELDNAMES, validate_doctype_ir
 
 _LAYOUT_FIELDTYPES = ("Section Break", "Column Break", "Tab Break")
 _TABLE_FIELDTYPES = ("Table", "Table MultiSelect")
@@ -396,8 +396,15 @@ def apply_doctype(ir: str, confirm: int = 0) -> dict:
 	if not isinstance(ir_dict, dict):
 		frappe.throw(_("Invalid form definition."))
 
-	# 1) Server-side safety gate — never trust the client IR.
-	verdict = validate_doctype_ir(ir_dict)
+	# 1) Server-side safety gate — never trust the client IR. When customizing an
+	#    existing DocType, its own fields (incl. reserved/standard ones like
+	#    amended_from) are passed through untouched, so they are exempted from the
+	#    new-field checks; only genuinely new fields are strictly validated.
+	_name = (ir_dict.get("doctype_name") or "").strip()
+	existing_fieldnames = set()
+	if _name and frappe.db.exists("DocType", _name):
+		existing_fieldnames = {f.fieldname for f in frappe.get_meta(_name).fields if f.fieldname}
+	verdict = validate_doctype_ir(ir_dict, existing_fieldnames=existing_fieldnames)
 	if not verdict["valid"]:
 		frappe.throw(_("The form has problems that must be fixed first:<br>") + "<br>".join(verdict["violations"]))
 
@@ -448,7 +455,7 @@ def apply_doctype(ir: str, confirm: int = 0) -> dict:
 		elif frappe.db.get_value("DocType", name, "custom"):
 			action = _reconcile_custom_doctype(name, is_child, autoname, fields, settings)
 		else:
-			action = _add_custom_fields(name, fields)
+			action = _customize_standard_doctype(name, fields)
 		frappe.db.commit()
 	except frappe.PermissionError:
 		raise
@@ -624,7 +631,7 @@ def _reconcile_custom_doctype(name: str, is_child: int, autoname: str, fields: l
 	The IR (seeded from the live schema and echoed back by the writer) is the
 	complete desired field set, so we rebuild the child table from it via
 	``doc.set`` — Frappe adds/updates/drops the DB columns on save. Only ever
-	called for custom DocTypes; standard types go through ``_add_custom_fields``.
+	called for custom DocTypes; standard types go through ``_customize_standard_doctype``.
 	"""
 	doc = frappe.get_doc("DocType", name)
 	payloads = []
@@ -644,23 +651,210 @@ def _reconcile_custom_doctype(name: str, is_child: int, autoname: str, fields: l
 	return "updated"
 
 
-def _add_custom_fields(name: str, fields: list) -> str:
-	"""Add only the not-yet-present fields to a STANDARD DocType as Custom Fields.
+def _customize_standard_doctype(name: str, fields: list) -> str:
+	"""Apply Docu IR field changes to a STANDARD DocType via Customize Form.
 
-	Core/standard fields are never modified — this is the non-destructive path.
+	Customize Form is Frappe's supported mechanism for changing a standard
+	DocType: brand-new fields are materialised as Custom Fields, and edits to
+	existing (standard or custom) fields are emitted as Property Setters. The
+	DocType's own source definition is never touched.
 	"""
-	from frappe.custom.doctype.custom_field.custom_field import create_custom_fields
+	# Single DocTypes can't go through Customize Form (Frappe raises "Single
+	# DocTypes cannot be customized"). They still accept Custom Fields and
+	# Property Setters, so route them through a Customize-Form-free path.
+	if frappe.db.get_value("DocType", name, "issingle"):
+		return _customize_single_doctype(name, fields)
 
-	meta = frappe.get_meta(name)
-	present = {f.fieldname for f in meta.fields}
-	to_add = [
-		_docfield_dict(f, i + 1)
-		for i, f in enumerate(fields)
-		if (f.get("fieldname") or "").strip()
-		and f.get("fieldname") not in present
-		and f.get("fieldtype") not in ("Section Break", "Column Break", "Tab Break")
-	]
-	if not to_add:
+	from frappe.custom.doctype.customize_form.customize_form import docfield_properties
+
+	cf = frappe.get_doc("Customize Form")
+	cf.doc_type = name
+	cf.fetch_to_customize()
+
+	existing = {row.fieldname: row for row in cf.fields if row.fieldname}
+	changed = False
+	# Brand-new fields, materialised as Custom Fields after the customize pass.
+	new_fields: list = []
+	# (fieldname, prop) → desired value, for edits to already-present fields. Used
+	# to force through any change Frappe's Customize Form soft-guards refuse.
+	desired: dict = {}
+
+	for field in fields:
+		# Never customise layout breaks or Frappe's reserved/standard meta fields
+		# (name, amended_from, docstatus, …). They round-trip through the IR but
+		# must be left untouched — touching them only produces spurious Property
+		# Setters (e.g. a "column_break_4" label) or is outright rejected.
+		if field.get("fieldtype") in _LAYOUT_FIELDTYPES:
+			continue
+		fieldname = (field.get("fieldname") or "").strip()
+		if not fieldname or fieldname in RESERVED_FIELDNAMES:
+			continue
+		row = existing.get(fieldname)
+		if row is None:
+			# Brand-new field → collected now, created as a Custom Field below.
+			new_fields.append(_docfield_dict(field, len(new_fields) + 1))
+			changed = True
+		else:
+			# Existing field — apply only the Customize-Form-editable props that
+			# Docu supplied and that GENUINELY differ. Values are normalised per
+			# property type so the IR's coerced blanks ("" / 0) don't read as
+			# changes against the live None values — otherwise every field would
+			# spawn a flood of no-op Property Setters on save.
+			for prop in docfield_properties:
+				if prop == "idx" or prop not in field:
+					continue
+				want = _norm_prop(prop, field[prop], docfield_properties)
+				if want == _norm_prop(prop, row.get(prop), docfield_properties):
+					continue
+				row.set(prop, want)
+				desired[(fieldname, prop)] = want
+				changed = True
+
+	if not changed:
 		return "unchanged"
-	create_custom_fields({name: to_add}, ignore_validate=False)
-	return "fields_added"
+
+	# Edits to already-present fields (standard → Property Setters, custom → the
+	# Custom Field itself) go through Customize Form's own save.
+	if desired:
+		cf.flags.ignore_permissions = True
+		cf.hide_success = True
+		cf.save_customization()
+
+		# Force any standard-field change Frappe's Customize Form soft-guards
+		# refused (e.g. disabling Mandatory on a standard field) by writing the
+		# Property Setter directly. Allowed/custom changes already applied above,
+		# so they compare equal here and are skipped.
+		_force_refused_property_changes(name, desired, docfield_properties)
+
+	# Brand-new fields → materialised as Custom Fields (reliable, avoids the
+	# Customize-Form append path).
+	if new_fields:
+		from frappe.custom.doctype.custom_field.custom_field import create_custom_fields
+
+		create_custom_fields({name: new_fields}, ignore_validate=False)
+
+	frappe.clear_cache(doctype=name)
+	return "customized"
+
+
+def _customize_single_doctype(name: str, fields: list) -> str:
+	"""Apply Docu IR field changes to a STANDARD *Single* DocType.
+
+	Frappe's Customize Form refuses Single DocTypes, so this bypasses it: new
+	fields become Custom Fields and edits to existing fields become Property
+	Setters directly — both fully supported on Single DocTypes. Mirrors the
+	new-field / forced-edit logic of ``_customize_standard_doctype`` without the
+	Customize Form round-trip.
+	"""
+	from frappe.custom.doctype.customize_form.customize_form import docfield_properties
+
+	frappe.clear_cache(doctype=name)
+	meta = frappe.get_meta(name)
+	existing = {df.fieldname: df for df in meta.fields if df.fieldname}
+
+	new_fields: list = []
+	# (fieldname, prop) → desired value, for edits to already-present fields.
+	desired: dict = {}
+	# The most recent already-present field seen while walking the IR in order.
+	# A brand-new field is positioned right after it (Custom Field ``insert_after``)
+	# so IR order is honoured — e.g. a field inserted "before footer" lands after
+	# whatever precedes footer, rather than being appended at the end.
+	last_existing: str | None = None
+
+	for field in fields:
+		if field.get("fieldtype") in _LAYOUT_FIELDTYPES:
+			continue
+		fieldname = (field.get("fieldname") or "").strip()
+		if not fieldname or fieldname in RESERVED_FIELDNAMES:
+			continue
+		df = existing.get(fieldname)
+		if df is None:
+			payload = _docfield_dict(field, len(new_fields) + 1)
+			if last_existing:
+				payload["insert_after"] = last_existing
+			new_fields.append(payload)
+		else:
+			last_existing = fieldname
+			for prop in docfield_properties:
+				if prop == "idx" or prop not in field:
+					continue
+				want = _norm_prop(prop, field[prop], docfield_properties)
+				if want == _norm_prop(prop, df.get(prop), docfield_properties):
+					continue
+				desired[(fieldname, prop)] = want
+
+	if not new_fields and not desired:
+		return "unchanged"
+
+	# Brand-new fields → Custom Fields (supported on Single DocTypes).
+	if new_fields:
+		from frappe.custom.doctype.custom_field.custom_field import create_custom_fields
+
+		create_custom_fields({name: new_fields}, ignore_validate=False)
+
+	# Edits to existing fields → Property Setters written directly.
+	for (fieldname, prop), val in desired.items():
+		_force_property_setter(name, fieldname, prop, val, docfield_properties.get(prop) or "Data")
+
+	frappe.clear_cache(doctype=name)
+	return "customized"
+
+
+def _force_refused_property_changes(doctype: str, desired: dict, docfield_properties: dict) -> None:
+	"""Write Property Setters directly for edits Customize Form refused to persist."""
+	if not desired:
+		return
+	frappe.clear_cache(doctype=doctype)
+	meta = frappe.get_meta(doctype)
+	for (fieldname, prop), val in desired.items():
+		df = meta.get_field(fieldname)
+		if not df:
+			continue
+		if _norm_prop(prop, df.get(prop), docfield_properties) == _norm_prop(prop, val, docfield_properties):
+			continue  # already applied (allowed change, or a custom field)
+		_force_property_setter(doctype, fieldname, prop, val, docfield_properties.get(prop) or "Data")
+
+
+def _norm_prop(prop: str, value, prop_types: dict):
+	"""Normalise a DocField property value for change detection.
+
+	Coerces per the property's type so the IR's blanks (``""`` / ``0`` / ``None``)
+	compare equal to the live meta values and don't register as edits.
+	"""
+	t = prop_types.get(prop)
+	if t == "Check":
+		return 1 if value else 0
+	if t == "Int":
+		try:
+			return int(value or 0)
+		except (TypeError, ValueError):
+			return 0
+	return "" if value in (None, "") else value
+
+
+def _force_property_setter(doctype: str, fieldname: str, prop: str, value, property_type: str) -> None:
+	"""Upsert a Property Setter, bypassing Customize Form's soft guards."""
+	if property_type == "Check":
+		ps_value = "1" if value else "0"
+	else:
+		ps_value = "" if value is None else str(value)
+
+	ps_name = f"{doctype}-{fieldname}-{prop}"
+	if frappe.db.exists("Property Setter", ps_name):
+		ps = frappe.get_doc("Property Setter", ps_name)
+		ps.value = ps_value
+		ps.property_type = property_type
+		ps.flags.ignore_permissions = True
+		ps.save(ignore_permissions=True)
+	else:
+		frappe.make_property_setter(
+			{
+				"doctype": doctype,
+				"doctype_or_field": "DocField",
+				"fieldname": fieldname,
+				"property": prop,
+				"value": ps_value,
+				"property_type": property_type,
+			},
+			is_system_generated=False,
+		)
