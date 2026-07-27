@@ -2,7 +2,7 @@
 # For license information, please see license.txt
 #
 # "Reassign User Task" — available from the Processa canvas Actions menu only
-# when "Connect to Production" is UNCHECKED in Processa Settings.
+# on a Production instance (Processa Settings → Instance Type = "Production").
 #
 # It lets an authorised user change the Assignment Configuration of User Tasks
 # (Assignment Mode, User, DocField, Users, Table Field, Row User Field) on a
@@ -25,7 +25,22 @@ from frappe import _
 from frappe.utils import now_datetime
 from lxml import etree
 
+from one_bpmn.api.editability import _is_production_instance
+
 SPIFF_NS = "http://spiffworkflow.org/bpmn/schema/1.0/core"
+
+
+def _require_production_instance():
+	"""Guard: "Reassign User Task" is only available on a Production instance.
+
+	Enforced here (not just in the frontend) so the gate holds even if the
+	Actions menu is bypassed.
+	"""
+	if not _is_production_instance():
+		frappe.throw(
+			_("Reassign User Task is only available on a Production instance (Processa Settings → Instance Type)."),
+			title=_("Not Available"),
+		)
 
 # The only attributes this endpoint may write (Assignment Configuration).
 # targetDoctype is deliberately excluded — the DocType stays read-only.
@@ -70,12 +85,7 @@ def reassign_user_task(model_name: str, task_id: str, assignment) -> dict:
 			whitelisted assignment attributes. Empty/None values remove
 			the attribute.
 	"""
-	settings = frappe.get_cached_doc("Processa Settings")
-	if settings.connect_to_production:
-		frappe.throw(
-			_("Reassign User Task is only available when 'Connect to Production' is disabled."),
-			title=_("Not Available"),
-		)
+	_require_production_instance()
 
 	if not model_name or not task_id:
 		frappe.throw(_("Process map name and task id are required."))
@@ -156,12 +166,7 @@ def deploy_reassignments(model_name: str, logs=None) -> dict:
 		logs: list (or JSON string) of User Task Assignment Log names created
 			during this reassign session, to mark as redeployed.
 	"""
-	settings = frappe.get_cached_doc("Processa Settings")
-	if settings.connect_to_production:
-		frappe.throw(
-			_("Reassign User Task is only available when 'Connect to Production' is disabled."),
-			title=_("Not Available"),
-		)
+	_require_production_instance()
 
 	if not model_name:
 		frappe.throw(_("Process map name is required."))

@@ -1,0 +1,61 @@
+{
+  "connectorId": "google_docs",
+  "label": "Google Docs",
+  "icon": "docs",
+  "description": "Create and edit Google Docs — insert/replace/append text, read content.",
+  "api": { "name": "docs", "version": "v1", "discovery": "https://docs.googleapis.com/$discovery/rest?version=v1" },
+  "operations": [
+    {
+      "value": "createDocument",
+      "label": "Create document",
+      "method": "documents.create",
+      "fields": [
+        { "name": "title", "label": "Title", "type": "String", "required": true, "expression": true }
+      ],
+      "output": { "documentId": "New document id", "title": "Title" }
+    },
+    {
+      "value": "insertText",
+      "label": "Insert text",
+      "method": "documents.batchUpdate → insertText",
+      "fields": [
+        { "name": "document", "label": "Document", "type": "DriveFile", "required": true, "expression": true },
+        { "name": "text", "label": "Text", "type": "Text", "required": true, "expression": true },
+        { "name": "index", "label": "At index", "type": "String", "default": "1",
+          "help": "1-based structural index. 1 = start of body." }
+      ],
+      "output": { "documentId": "Document id" }
+    },
+    {
+      "value": "appendText",
+      "label": "Append text",
+      "method": "documents.batchUpdate → insertText (at end)",
+      "fields": [
+        { "name": "document", "label": "Document", "type": "DriveFile", "required": true, "expression": true },
+        { "name": "text", "label": "Text", "type": "Text", "required": true, "expression": true }
+      ],
+      "output": { "documentId": "Document id" }
+    },
+    {
+      "value": "replaceAllText",
+      "label": "Replace all text (template fill)",
+      "method": "documents.batchUpdate → replaceAllText",
+      "fields": [
+        { "name": "document", "label": "Document", "type": "DriveFile", "required": true, "expression": true },
+        { "name": "find", "label": "Find text", "type": "String", "required": true, "expression": true },
+        { "name": "replace", "label": "Replace with", "type": "Text", "expression": true },
+        { "name": "matchCase", "label": "Match case", "type": "Boolean", "default": false }
+      ],
+      "output": { "documentId": "Document id", "occurrencesChanged": "Number of replacements" }
+    },
+    {
+      "value": "getText",
+      "label": "Get text",
+      "method": "documents.get + walk",
+      "fields": [
+        { "name": "document", "label": "Document", "type": "DriveFile", "required": true, "expression": true }
+      ],
+      "output": { "text": "Plain text of the document body" }
+    }
+  ]
+}
