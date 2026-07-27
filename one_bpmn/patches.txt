@@ -28,6 +28,11 @@ one_bpmn.one_bpmn.patches.v1_0.migrate_llm_credentials_to_ai_provider_credential
 one_bpmn.one_bpmn.patches.v1_0.backfill_agent_provider_credentials_links #16-07-2026
 one_bpmn.one_bpmn.patches.v1_0.seed_ai_assistant_agent #16-07-2026
 one_bpmn.one_bpmn.patches.v1_0.refresh_ai_assistant_prompt #16-07-2026
+one_bpmn.one_bpmn.patches.v1_0.refresh_ai_assistant_prompt #19-07-2026 WI-001649 creation behavior
+one_bpmn.one_bpmn.patches.v1_0.enforce_agent_config_on_ai_shapes #19-07-2026 WI-001650
+one_bpmn.one_bpmn.patches.v1_0.background_agents_go_live #19-07-2026 WI-001652
+one_bpmn.one_bpmn.patches.v1_0.refresh_ai_assistant_prompt #19-07-2026 WI-001649 update behavior
+
 one_bpmn.one_bpmn.patches.v1_0.harden_logix_permission_bypass_prompts #23-07-2026
 one_bpmn.one_bpmn.patches.v1_0.migrate_logix_agent_to_generic_path #23-07-2026
 one_bpmn.one_bpmn.patches.v1_0.inline_logix_tool_scripts #23-07-2026
@@ -40,4 +45,5 @@ one_bpmn.one_bpmn.patches.v1_0.change_process_implementation_to_data #24-07-2026
 one_bpmn.one_bpmn.patches.v1_0.fix_logix_http_helper_qualified_path #24-07-2026
 one_bpmn.one_bpmn.patches.v1_0.move_eval_suite_link_to_suite #24-07-2026
 one_bpmn.one_bpmn.patches.v1_0.evals_test_agent_configuration #25-07-2026
+one_bpmn.one_bpmn.patches.v1_0.move_google_settings_to_processa #25-07-2026
 one_bpmn.one_bpmn.patches.v1_0.add_assistant_eval_authoring_tools #27-07-2026

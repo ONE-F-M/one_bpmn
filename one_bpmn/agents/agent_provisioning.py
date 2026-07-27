@@ -17,6 +17,18 @@ class AgentValidationError(frappe.ValidationError):
 	pass
 
 
+# The checks validate_agent_config enforces, as DATA (WI-001649) — kept
+# directly above the function so the two evolve together. The AI Assistant
+# injects these as structured context at call time; nothing about the rules
+# is written into its prompt as prose.
+VALIDATION_RULES = (
+	{"field": "agent_id", "rule": "required"},
+	{"field": "system_prompt", "rule": "must be non-empty (or a description provided so the creation process can generate one)"},
+	{"field": "ai_provider_credentials", "rule": "must link an ENABLED AI Provider Credentials record; a live test call is made against it"},
+	{"field": "chat_mode_label", "rule": "required for Chat agents; must be unique across agents"},
+)
+
+
 def validate_agent_config(config_name: str, test_provider: bool = True) -> dict:
 	"""Validate the six essentials of a chat agent configuration (WI-001621).
 
@@ -60,41 +72,49 @@ def validate_agent_config(config_name: str, test_provider: bool = True) -> dict:
 	return {"ok": not errors, "errors": errors, "warnings": warnings}
 
 
-def _set_status(config_name: str, status: str):
-	frappe.db.set_value("AI Agent Configuration", config_name, "lifecycle_status", status, update_modified=False)
+def _set_status(config_name: str, status: str, reason: str = None):
+	"""Stamp the lifecycle stage. Needs Attention carries WHY (shown as a
+	form intro banner + timeline comment); every other stage clears it."""
+	values = {"lifecycle_status": status}
+	if status == "Needs Attention":
+		values["needs_attention_reason"] = (reason or "").strip() or "See the Error Log for details."
+	else:
+		values["needs_attention_reason"] = ""
+	frappe.db.set_value("AI Agent Configuration", config_name, values, update_modified=False)
+	if status == "Needs Attention":
+		try:
+			frappe.get_doc("AI Agent Configuration", config_name).add_comment(
+				"Comment", "Needs Attention: " + values["needs_attention_reason"]
+			)
+		except Exception:
+			pass  # a failed comment must never block the status stamp
 	frappe.db.commit()
 
 
 def provision_agent(config_name: str):
-	"""v1 AI Agent creation process (WI-001620).
+	"""AI Agent creation flow (WI-001620, reshaped by WI-001652).
 
-	Carries a chat agent from Draft to Live: Validating -> Provisioning
-	(clone the chat-map template + compile/deploy so its start trigger arms)
-	-> Live. Any failure lands the agent in Needs Attention with the reason
-	logged; editing the configuration re-triggers this. Idempotent and safe
-	to enqueue.
+	Carries a chat agent from Draft to Live: Validating -> Evaluating ->
+	Live. Live means "details valid and tested" — NO diagram is created or
+	required (WI-001652): diagrams are authored by people in the editor, and
+	the config's process_model is a manual, informational link. Any failure
+	lands the agent in Needs Attention with the reason logged; editing the
+	configuration re-triggers this. Idempotent and safe to enqueue.
 	"""
 	cfg = frappe.get_doc("AI Agent Configuration", config_name)
 	if cfg.agent_type != "Chat":
-		return  # background agents are provisioned by their own path (later pass)
+		return  # Background agents go Live on save (apply_background_lifecycle)
 
 	try:
 		_set_status(config_name, "Validating")
 		result = validate_agent_config(config_name)
 		if not result["ok"]:
-			_set_status(config_name, "Needs Attention")
+			_set_status(config_name, "Needs Attention", reason="; ".join(result["errors"]))
 			frappe.log_error(
 				title=f"Agent provisioning: validation failed ({cfg.agent_id})",
 				message="\n".join(result["errors"]),
 			)
 			return
-
-		_set_status(config_name, "Provisioning")
-		from one_bpmn.agents.chat_map_template import clone_chat_map_for_agent
-		from one_bpmn.api.compilation import compile_process_model
-
-		model_name = clone_chat_map_for_agent(config_name)
-		compile_process_model(model_name)  # arms the conditional start trigger
 
 		# Evaluating (WI-001609): generate + run a baseline suite from the
 		# agent's sample prompts. A suite marked gate_deployment blocks Live
@@ -104,7 +124,10 @@ def provision_agent(config_name: str):
 			_set_status(config_name, "Evaluating")
 			passed = _run_baseline_eval(suite_name)
 			if passed is False and frappe.db.get_value("AI Eval Suite", suite_name, "gate_deployment"):
-				_set_status(config_name, "Needs Attention")
+				_set_status(
+					config_name, "Needs Attention",
+					reason=f"Baseline eval suite '{suite_name}' did not pass and gates deployment.",
+				)
 				frappe.log_error(
 					title=f"Agent provisioning: eval gate failed ({cfg.agent_id})",
 					message=f"Baseline suite {suite_name} did not pass and gates deployment.",
@@ -113,7 +136,11 @@ def provision_agent(config_name: str):
 
 		_set_status(config_name, "Live")
 	except Exception:
-		_set_status(config_name, "Needs Attention")
+		_set_status(
+			config_name, "Needs Attention",
+			reason="The go-live flow crashed unexpectedly — see the Error Log "
+			f"entry 'Agent provisioning failed ({cfg.agent_id})'.",
+		)
 		frappe.log_error(
 			title=f"Agent provisioning failed ({cfg.agent_id})",
 			message=frappe.get_traceback(),

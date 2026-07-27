@@ -148,7 +148,10 @@ def update_agent_config_from_shape(config_name: str, fields: str | dict) -> dict
 	if not changed:
 		return {"ok": True, "updated": [], "reprovisioned": False}
 
-	was_live = doc.lifecycle_status == "Live"
+	# Re-provisioning is a chat-map concern: it re-runs the creation process
+	# so a Live CHAT agent picks up the change. Background agents (Live via
+	# auto-go-live, WI-001652) have no map to rebuild — never re-provision them.
+	was_live = doc.lifecycle_status == "Live" and doc.agent_type == "Chat"
 	doc.save()
 
 	reprovisioned = False
@@ -156,6 +159,20 @@ def update_agent_config_from_shape(config_name: str, fields: str | dict) -> dict
 		reprovisioned = _start_reprovision(doc.name)
 
 	return {"ok": True, "updated": changed, "reprovisioned": reprovisioned}
+
+
+# The create endpoint's payload contract as DATA (WI-001649): the AI Assistant
+# is told about these fields at call time instead of having them written into
+# its prompt as prose. Keys match create_agent_configuration's payload exactly.
+CREATE_PAYLOAD_CONTRACT = {
+	"agent_name": "Human-readable agent name (required).",
+	"agent_id": "Machine id; auto-derived from the name when omitted.",
+	"chat_mode_label": "Label shown in chat mode pickers (required, must be unique).",
+	"ai_provider_credentials": "Name of an enabled AI Provider Credentials record.",
+	"system_prompt": "The agent's system prompt; leave empty to have the creation process generate one from the description.",
+	"description": "What the agent does — feeds prompt auto-generation.",
+	"sample_prompts": 'Optional list of {"prompt", "expected_behaviour"} rows; becomes the baseline eval suite.',
+}
 
 
 @frappe.whitelist()
@@ -185,9 +202,22 @@ def create_agent_configuration(payload: str | dict) -> dict:
 		# label — fail fast here instead of guaranteeing a Needs Attention.
 		frappe.throw(_("A chat mode label is required for a chat agent."))
 
+	# Friendly duplicate guard — a raw DuplicateEntryError helps nobody.
+	agent_id = (payload.get("agent_id") or "").strip() or frappe.scrub(agent_name)
+	clash = frappe.db.exists("AI Agent Configuration", {"agent_name": agent_name}) or frappe.db.exists(
+		"AI Agent Configuration", {"agent_id": agent_id}
+	)
+	if clash:
+		frappe.throw(
+			_(
+				"An AI Agent Configuration named '{0}' already exists. "
+				"Link it instead of creating it again, or ask for a change to it."
+			).format(clash)
+		)
+
 	doc = frappe.new_doc("AI Agent Configuration")
 	doc.agent_name = agent_name
-	doc.agent_id = (payload.get("agent_id") or "").strip() or frappe.scrub(agent_name)
+	doc.agent_id = agent_id
 	doc.agent_framework = payload.get("agent_framework") or "Direct API"
 	doc.agent_type = "Chat"
 	doc.lifecycle_status = "Draft"

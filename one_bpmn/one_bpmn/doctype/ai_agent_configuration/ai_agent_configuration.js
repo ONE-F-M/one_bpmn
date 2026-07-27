@@ -5,6 +5,19 @@ frappe.ui.form.on("AI Agent Configuration", {
 	refresh(frm) {
 		frm.events.setup_queries(frm);
 		frm.events.render_required_variables(frm);
+		frm.events.show_needs_attention_reason(frm);
+	},
+
+	show_needs_attention_reason(frm) {
+		// WI-001652: surface WHY the last go-live attempt parked this agent —
+		// as an intro banner, not a field. The reason lives in the hidden
+		// needs_attention_reason field, written by the creation process and
+		// the Background auto-lifecycle, and cleared when the agent moves on.
+		frm.set_intro("");
+		if (frm.is_new() || frm.doc.lifecycle_status !== "Needs Attention") return;
+		const reason = frm.doc.needs_attention_reason
+			|| __("See the Error Log or the creation process instance for details.");
+		frm.set_intro(__("Needs Attention: {0}", [frappe.utils.escape_html(reason)]), "red");
 	},
 
 	setup_queries(frm) {

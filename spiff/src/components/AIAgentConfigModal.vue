@@ -17,7 +17,7 @@
           <div class="field-row">
             <label>
               Linked AI Agent Configuration
-              <span class="hint">(optional)</span>
+              <span class="hint">(required — raw provider setup is retired)</span>
             </label>
             <select v-model="form.aiAgentConfig" @change="onAgentConfigSelect">
               <option value="">-- None --</option>
@@ -27,8 +27,12 @@
               <option value="__create__">＋ Create new…</option>
             </select>
             <span v-if="form.aiAgentConfig && form.aiAgentConfig !== '__create__'" class="field-hint">
+              <span :class="['agent-status', agentStatusClass]" :title="'Deployment requires Live (WI-001652)'">
+                ● {{ linkedAgentStatus || "checking…" }}
+              </span>
               Prompt, provider, model and params resolve from this configuration
               when the process runs. Saving writes your edits back to it.
+              Deploying this diagram requires the agent to be Live.
             </span>
           </div>
 
@@ -101,21 +105,23 @@
             </select>
           </div>
 
-          <!-- AI Provider -->
+          <!-- AI Provider — read-only since WI-001650: the provider is an
+               agent property, resolved from the linked configuration. -->
           <div class="field-row">
-            <label>AI Provider</label>
-            <select v-model="form.aiProvider" @change="onProviderChange">
-              <option value="">-- Select Provider --</option>
+            <label>AI Provider <span class="hint">(from the linked configuration)</span></label>
+            <select v-model="form.aiProvider" disabled>
+              <option value="">-- Link an agent configuration --</option>
               <option v-for="p in providers" :key="p.name" :value="p.name">
                 {{ p.provider_name }}
               </option>
             </select>
           </div>
 
-          <!-- Model override -->
+          <!-- Model — read-only since WI-001650: resolved from the linked
+               configuration's credentials (default model). -->
           <div class="field-row">
-            <label>Model <span class="hint">(overrides provider default)</span></label>
-            <input type="text" v-model="form.aiModel" placeholder="e.g. gpt-4o" />
+            <label>Model <span class="hint">(from the linked configuration)</span></label>
+            <input type="text" v-model="form.aiModel" disabled placeholder="resolved from the linked agent" />
           </div>
 
           <!-- Output variable (selector output is the chosen task, not a variable) -->
@@ -257,18 +263,18 @@
       <div class="assistant-panel">
         <div class="assistant-header">
           <span class="assistant-title">✦ AI Assistant</span>
-          <span v-if="form.aiProvider" class="assistant-sub">via {{ providerLabel }}</span>
+          <!-- WI-001623: the assistant runs on its own configuration's
+               credentials, not the task's — don't imply otherwise. -->
+          <span class="assistant-sub">runs on its own credentials</span>
         </div>
 
-        <!-- Disabled state: no provider selected yet -->
-        <div v-if="!form.aiProvider" class="assistant-disabled">
-          Select an AI Provider on the left to enable the assistant. It will use
-          that provider to recommend prompts and settings for this task.
-        </div>
-
-        <template v-else>
-          <!-- Context controls -->
-          <div class="assistant-context">
+        <!-- WI-001650: the assistant is always available — with no linked
+             configuration yet it runs on its own credentials (WI-001623), so
+             you can ask it to create the agent this task will link.
+             (No wrapper <template> here: a bare template element is native
+             HTML and Vue does not render its children.) -->
+        <!-- Context controls -->
+        <div class="assistant-context">
             <div class="ctx-row">
               <label>Context DocType <span class="hint">(optional)</span></label>
               <div class="ctx-autocomplete">
@@ -369,6 +375,57 @@
                   <div class="rec-value">{{ valuePreview(value) }}</div>
                 </div>
               </div>
+
+              <!-- New-agent proposal card (WI-001649). The assistant PROPOSES;
+                   the designer confirms; only then is the record created (via
+                   the same endpoint as the manual "+ Create new…" panel) and
+                   the creation process takes it to Live. -->
+              <div v-if="m.proposal" class="proposal">
+                <div class="proposal-title">Create this agent?</div>
+                <table class="proposal-fields">
+                  <tbody>
+                    <tr v-for="(value, key) in proposalRows(m.proposal)" :key="key">
+                      <td class="proposal-key">{{ key }}</td>
+                      <td class="proposal-value">{{ valuePreview(value) }}</td>
+                    </tr>
+                  </tbody>
+                </table>
+                <div v-if="m.proposalState === 'created'" class="proposal-done">
+                  ✓ Created and linked{{ m.proposalResult?.creation_instance ? ` — creation process running (${m.proposalResult.creation_instance})` : "" }}
+                </div>
+                <div v-else-if="m.proposalState === 'dismissed'" class="proposal-done">Dismissed — nothing was created.</div>
+                <div v-else class="proposal-actions">
+                  <button class="btn-cancel" :disabled="m.proposalState === 'creating'" @click="m.proposalState = 'dismissed'">Dismiss</button>
+                  <button class="btn-save" :disabled="m.proposalState === 'creating'" @click="createProposedAgent(m)">
+                    {{ m.proposalState === "creating" ? "Creating…" : "Create & link" }}
+                  </button>
+                </div>
+              </div>
+
+              <!-- Update-existing-agent proposal card (WI-001649 amendment).
+                   Confirming calls the WI-001637 write-back endpoint — the
+                   assistant itself never writes. -->
+              <div v-if="m.update" class="proposal">
+                <div class="proposal-title">Apply this change to {{ m.update.config_name }}?</div>
+                <table class="proposal-fields">
+                  <tbody>
+                    <tr v-for="(value, key) in m.update.fields" :key="key">
+                      <td class="proposal-key">{{ fieldLabel(key) }}</td>
+                      <td class="proposal-value">{{ valuePreview(value) }}</td>
+                    </tr>
+                  </tbody>
+                </table>
+                <div v-if="m.updateState === 'applied'" class="proposal-done">
+                  ✓ Applied — {{ (m.updateResult?.updated || []).join(", ") || "no fields changed" }}{{ m.updateResult?.reprovisioned ? " — the agent is re-provisioning (validate → Live)" : "" }}
+                </div>
+                <div v-else-if="m.updateState === 'dismissed'" class="proposal-done">Dismissed — nothing was changed.</div>
+                <div v-else class="proposal-actions">
+                  <button class="btn-cancel" :disabled="m.updateState === 'applying'" @click="m.updateState = 'dismissed'">Dismiss</button>
+                  <button class="btn-save" :disabled="m.updateState === 'applying'" @click="applyProposedUpdate(m)">
+                    {{ m.updateState === "applying" ? "Applying…" : "Apply & save" }}
+                  </button>
+                </div>
+              </div>
             </div>
 
             <div v-if="loading" class="msg msg-assistant">
@@ -417,7 +474,6 @@
               </button>
             </div>
           </div>
-        </template>
       </div>
     </div>
   </div>
@@ -484,6 +540,34 @@ const scrubbedAgentId = computed(() =>
     .replace(/[^a-z0-9]+/g, "_")
     .replace(/^_+|_+$/g, "")
 );
+
+// ── Linked agent lifecycle badge (WI-001652): deployment requires Live ──
+const linkedAgentStatus = ref("");
+const agentStatusClass = computed(() =>
+  linkedAgentStatus.value === "Live"
+    ? "agent-status-live"
+    : ["Needs Attention", "Retired"].includes(linkedAgentStatus.value)
+      ? "agent-status-bad"
+      : "agent-status-pending"
+);
+async function refreshLinkedAgentStatus() {
+  linkedAgentStatus.value = "";
+  const name = form.value.aiAgentConfig;
+  if (!name || name === "__create__") return;
+  try {
+    const r = await frappeRequest({
+      url: "/api/method/frappe.client.get_value",
+      params: {
+        doctype: "AI Agent Configuration",
+        filters: name,
+        fieldname: "lifecycle_status",
+      },
+    });
+    linkedAgentStatus.value = (r && r.lifecycle_status) || "";
+  } catch (e) {
+    /* badge stays blank */
+  }
+}
 
 // Form state — defaults
 const form = ref({
@@ -627,6 +711,7 @@ const appliedKeys = ref(new Set()); // "<msgId>:<field>"
 
 // Human-readable labels for recommendation fields (keys match form keys).
 const FIELD_LABELS = {
+  aiProvider: "AI Provider",
   aiBackend: "Backend",
   aiModel: "Model",
   aiOutputVariable: "Output Variable",
@@ -695,7 +780,10 @@ function applyRecommendation(msgId, key, value) {
 
 async function sendMessage() {
   const requirement = input.value.trim();
-  if (!requirement || loading.value || !form.value.aiProvider) return;
+  // WI-001650: no provider requirement — with nothing linked yet the server
+  // falls back to the assistant's own credentials (WI-001623), so the chat
+  // can be used to create the very first configuration for this task.
+  if (!requirement || loading.value) return;
 
   // History = the conversation so far (before this turn).
   const history = messages.value
@@ -741,6 +829,9 @@ async function sendMessage() {
         context_doctype: contextDoctype.value.trim(),
         context_docname: contextDocname.value.trim(),
         history: JSON.stringify(history),
+        // WI-001649 amendment: the linked config is the default target for
+        // "change this agent…" requests — no interrogation needed.
+        linked_config: form.value.aiAgentConfig || "",
         ...diagramPayload,
       },
     });
@@ -759,6 +850,14 @@ async function sendMessage() {
         role: "assistant",
         content: res.message || "Here are my recommendations.",
         recommendations,
+        // WI-001649: a complete new-agent proposal the designer can confirm.
+        proposal: !isSelector.value && res.proposed_config ? res.proposed_config : null,
+        proposalState: null, // null | "creating" | "created" | "dismissed"
+        proposalResult: null,
+        // WI-001649 amendment: a proposed change to an EXISTING agent.
+        update: !isSelector.value && res.proposed_update ? res.proposed_update : null,
+        updateState: null, // null | "applying" | "applied" | "dismissed"
+        updateResult: null,
       });
     } else {
       const err = (res && (res.message || res.error_code)) || "The assistant request failed.";
@@ -877,6 +976,10 @@ onMounted(async () => {
       }
     } catch (e) { /* best effort */ }
   }
+
+  // WI-001652: show the linked agent's lifecycle so "why can't I deploy"
+  // is visible before the compile error says it.
+  refreshLinkedAgentStatus();
 });
 
 // Pull the linked configuration's current values into the form (WI-001637
@@ -887,18 +990,23 @@ onMounted(async () => {
 async function onAgentConfigSelect() {
   const value = form.value.aiAgentConfig;
   if (value === "__create__") {
-    // WI-001648: open the inline create panel instead of linking. Pre-fill
-    // from the dialog's current values so work already typed isn't lost.
+    // WI-001648: open the inline create panel instead of linking. A NEW
+    // agent starts BLANK — carrying the task's prompts into the panel
+    // confused more than it helped. Only the provider carries over
+    // (harmless convenience, freely changeable).
     form.value.aiAgentConfig = "";
     newAgent.value = {
       ...emptyNewAgent(),
       ai_provider_credentials: form.value.aiProvider || "",
-      system_prompt: form.value.aiSystemPrompt || "",
     };
     agentIdEdited.value = false;
     showCreateAgent.value = true;
     return;
   }
+  refreshLinkedAgentStatus();
+  // A real link (picked from the dropdown, or set by the assistant's
+  // create flow) makes a still-open manual create panel stale — close it.
+  if (value) showCreateAgent.value = false;
   if (!value) return;
   try {
     const fields = await frappeRequest({
@@ -911,6 +1019,88 @@ async function onAgentConfigSelect() {
     });
   } catch (e) {
     /* leave the current field values as-is if the seed lookup fails */
+  }
+}
+
+// WI-001649: human-readable rows for the proposal card.
+const PROPOSAL_LABELS = {
+  agent_name: "Name",
+  agent_id: "Agent ID",
+  chat_mode_label: "Chat mode label",
+  ai_provider_credentials: "Provider",
+  system_prompt: "System prompt",
+  description: "Description",
+};
+function proposalRows(proposal) {
+  const rows = {};
+  for (const [key, label] of Object.entries(PROPOSAL_LABELS)) {
+    if (proposal[key]) rows[label] = proposal[key];
+  }
+  if (Array.isArray(proposal.sample_prompts) && proposal.sample_prompts.length) {
+    rows["Sample prompts"] = proposal.sample_prompts.map((sp) => sp.prompt).join(" • ");
+  }
+  return rows;
+}
+
+// WI-001649: confirm the assistant's proposal — same endpoint as the manual
+// "+ Create new…" panel, so permission checks and the Chat+Draft insert (which
+// starts the creation process) are identical. On success the new agent is
+// linked on this shape and its values pulled into the form.
+async function createProposedAgent(m) {
+  if (m.proposalState === "creating") return;
+  m.proposalState = "creating";
+  try {
+    const res = await frappeRequest({
+      url: "/api/method/one_bpmn.agents.agent_config_resolver.create_agent_configuration",
+      method: "POST",
+      params: { payload: JSON.stringify(m.proposal) },
+    });
+    agentConfigs.value.push({ name: res.name, agent_id: res.agent_id });
+    form.value.aiAgentConfig = res.name;
+    await onAgentConfigSelect();
+    m.proposalState = "created";
+    m.proposalResult = res;
+  } catch (e) {
+    m.proposalState = null;
+    messages.value.push({
+      id: makeId(),
+      role: "assistant",
+      content: "⚠️ Could not create the agent: " + (e?.message || e),
+    });
+    scrollBottom();
+  }
+}
+
+// WI-001649 amendment: confirm the assistant's update proposal — same
+// endpoint as the dialog's Save write-back (WI-001637): permission-checked,
+// a Needs-Attention agent's waiting instance resumes on save, a Live chat
+// agent re-provisions. If the changed config is the one linked on this shape,
+// its fresh values are pulled back into the form and the badge refreshed.
+async function applyProposedUpdate(m) {
+  if (m.updateState === "applying") return;
+  m.updateState = "applying";
+  try {
+    const res = await frappeRequest({
+      url: "/api/method/one_bpmn.agents.agent_config_resolver.update_agent_config_from_shape",
+      method: "POST",
+      params: {
+        config_name: m.update.config_name,
+        fields: JSON.stringify(m.update.fields),
+      },
+    });
+    m.updateState = "applied";
+    m.updateResult = res;
+    if (form.value.aiAgentConfig === m.update.config_name) {
+      await onAgentConfigSelect();
+    }
+  } catch (e) {
+    m.updateState = null;
+    messages.value.push({
+      id: makeId(),
+      role: "assistant",
+      content: "⚠️ Could not apply the change: " + (e?.message || e),
+    });
+    scrollBottom();
   }
 }
 
@@ -988,6 +1178,17 @@ async function writeBackToConfig() {
 }
 
 async function save() {
+  // WI-001650: every AI shape must be backed by an AI Agent Configuration —
+  // raw provider setup is retired (the compile gate enforces the same rule).
+  if (!form.value.aiAgentConfig) {
+    alert(
+      "Link an AI Agent Configuration before saving.\n" +
+        "Pick an existing agent, use “+ Create new…”, or ask the assistant to " +
+        "create one — setting up an AI task with a raw provider has been retired (WI-001650)."
+    );
+    return;
+  }
+
   // Block save when no model can be resolved: the Model field is empty AND the
   // selected provider has no Default Model to fall back on at runtime.
   if (!form.value.aiModel || !form.value.aiModel.trim()) {
@@ -1442,6 +1643,63 @@ async function save() {
 }
 .assistant-send:hover { background: #4f46e5; }
 .assistant-send:disabled { background: #cbd5e1; cursor: default; }
+
+/* ── Linked agent lifecycle badge (WI-001652) ── */
+.agent-status {
+  display: inline-block;
+  font-weight: 600;
+  font-size: 11px;
+  margin-right: 6px;
+  padding: 1px 6px;
+  border-radius: 10px;
+}
+.agent-status-live { color: #15803d; background: #dcfce7; }
+.agent-status-bad { color: #b91c1c; background: #fee2e2; }
+.agent-status-pending { color: #92400e; background: #fef3c7; }
+
+/* ── Assistant new-agent proposal card (WI-001649) ── */
+.proposal {
+  margin-top: 8px;
+  padding: 10px;
+  border: 1px solid #c7d2fe;
+  border-radius: 8px;
+  background: #eef2ff;
+}
+.proposal-title {
+  font-weight: 600;
+  font-size: 13px;
+  color: #3730a3;
+  margin-bottom: 6px;
+}
+.proposal-fields {
+  width: 100%;
+  font-size: 12px;
+  border-collapse: collapse;
+}
+.proposal-key {
+  color: #6366f1;
+  font-weight: 600;
+  padding: 2px 8px 2px 0;
+  white-space: nowrap;
+  vertical-align: top;
+}
+.proposal-value {
+  color: #1e293b;
+  padding: 2px 0;
+  word-break: break-word;
+}
+.proposal-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+  margin-top: 8px;
+}
+.proposal-done {
+  margin-top: 8px;
+  font-size: 12px;
+  font-weight: 600;
+  color: #15803d;
+}
 
 /* ── Create-new-agent panel (WI-001648) ── */
 .create-agent-panel {

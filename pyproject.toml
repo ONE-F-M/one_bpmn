@@ -11,10 +11,13 @@ dependencies = [
     # "frappe~=15.0.0" # Installed and managed by bench.
     "spiffworkflow",
     "google-auth>=2.0.0",
+    "google-api-python-client>=2.0.0",
     "anthropic",
     "openai>=1.0.0",
     "google-genai",
     "bleach>=6.0",
+    "python-pptx>=0.6.23",
+    "python-docx>=1.0.0",
 ]
 
 

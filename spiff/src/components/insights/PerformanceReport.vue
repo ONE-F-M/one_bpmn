@@ -23,6 +23,17 @@
 				class="w-48"
 				@change="fetchReport"
 			/>
+			<!-- WI-001608: AI tasks are done by AI Agents -->
+			<FormControl
+				type="select"
+				v-model="groupBy"
+				:options="[
+					{ label: 'Group by Model', value: 'model' },
+					{ label: 'Group by AI Agent', value: 'agent' },
+				]"
+				class="w-48"
+				@change="fetchReport"
+			/>
 		</div>
 
 		<!-- Loading State -->
@@ -94,7 +105,7 @@
 					<thead>
 						<tr class="border-b border-gray-200">
 							<th class="text-left text-xs uppercase text-gray-500 font-medium py-2 px-3 w-8"></th>
-							<th class="text-left text-xs uppercase text-gray-500 font-medium py-2 px-3">Model</th>
+							<th class="text-left text-xs uppercase text-gray-500 font-medium py-2 px-3">{{ groupBy === "agent" ? "AI Agent" : "Model" }}</th>
 							<th class="text-left text-xs uppercase text-gray-500 font-medium py-2 px-3">BPMN Element</th>
 							<th class="text-right text-xs uppercase text-gray-500 font-medium py-2 px-3">Runs</th>
 							<th class="text-right text-xs uppercase text-gray-500 font-medium py-2 px-3">Avg</th>
@@ -230,7 +241,9 @@ const reportData = ref({})
 const filterModel = ref("")
 const filterBpmnId = ref("")
 const filterProcess = ref("")
+const groupBy = ref("model") // "model" | "agent" (WI-001608)
 const cachedProcesses = ref([])
+const cachedModels = ref([])
 
 const expandedRow = ref(null)
 const recentRuns = ref([])
@@ -263,8 +276,7 @@ function trendBarH(value) {
 }
 
 const modelOptions = computed(() => {
-	const models = new Set(reportData.value.rows?.map(r => r.model) || [])
-	return [{ label: "All Models", value: "" }, ...[...models].sort().map(m => ({ label: m, value: m }))]
+	return [{ label: "All Models", value: "" }, ...cachedModels.value.map(m => ({ label: m, value: m }))]
 })
 
 let fetchTimer = null
@@ -344,6 +356,7 @@ async function fetchReport() {
 		if (filterBpmnId.value) params.bpmn_id = filterBpmnId.value
 		if (filterProcess.value) params.process_model = filterProcess.value
 		params.origin = props.origin
+		params.group_by = groupBy.value
 
 		const response = await frappeRequest({
 			url: "/api/method/one_bpmn.api.insights_api.get_performance_report",
@@ -351,6 +364,12 @@ async function fetchReport() {
 			params,
 		})
 		reportData.value = response || {}
+
+		// Only model-grouped rows may feed the Model filter options —
+		// agent names must not leak in (WI-001608).
+		if (groupBy.value === "model" && !filterModel.value) {
+			cachedModels.value = [...new Set((reportData.value.rows || []).map(r => r.model))].sort()
+		}
 
 		// Load process options on first fetch
 		if (!cachedProcesses.value.length) {
