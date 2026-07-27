@@ -24,18 +24,24 @@ class AgentValidationError(frappe.ValidationError):
 VALIDATION_RULES = (
 	{"field": "agent_id", "rule": "required"},
 	{"field": "system_prompt", "rule": "must be non-empty (or a description provided so the creation process can generate one)"},
-	{"field": "ai_provider_credentials", "rule": "must link an ENABLED AI Provider Credentials record; a live test call is made against it"},
+	{"field": "ai_model", "rule": "must link an AI Model catalog record — the provider is derived from the model's credentials link (WI-001655)"},
+	{"field": "ai_provider_credentials", "rule": "derived from the model; the derived record must exist and be ENABLED; a live test call is made against it"},
 	{"field": "chat_mode_label", "rule": "required for Chat agents; must be unique across agents"},
 )
 
 
-def validate_agent_config(config_name: str, test_provider: bool = True) -> dict:
+def validate_agent_config(config_name: str, test_provider: bool = True, require_prompt: bool = True) -> dict:
 	"""Validate the six essentials of a chat agent configuration (WI-001621).
 
 	Checks, in order: identity, system prompt, LLM credentials link, and —
 	for chat agents — a chat mode label; lints the prompt for unresolved
 	template markers; and (optionally) makes a live provider test call so a
 	bad key or model is caught before provisioning rather than at first use.
+
+	``require_prompt=False`` waives the empty-prompt error for provider-grant
+	Background agents (WI-001650: e.g. "Platform Prompt Engineer" is a
+	deliberate empty-prompt credentials grant) so the on-save revalidation
+	can still run their live provider test.
 
 	Returns {"ok": bool, "errors": [...], "warnings": [...]}; never raises,
 	so the process can route a failure to Needs Attention.
@@ -49,13 +55,20 @@ def validate_agent_config(config_name: str, test_provider: bool = True) -> dict:
 
 	# 2. System prompt
 	if not (cfg.system_prompt or "").strip():
-		errors.append(_("System prompt is empty."))
+		if require_prompt:
+			errors.append(_("System prompt is empty."))
 	elif "{{" in cfg.system_prompt and "}}" in cfg.system_prompt:
 		warnings.append(_("System prompt contains unresolved '{{ }}' markers."))
 
-	# 3. LLM credentials
+	# 3. Model + derived credentials (WI-001655: the model is the pick)
+	if not cfg.get("ai_model"):
+		errors.append(_("No AI Model is linked — pick one from the catalog."))
 	if not cfg.ai_provider_credentials:
-		errors.append(_("No AI Provider Credentials record is linked."))
+		errors.append(
+			_("The linked AI Model has no AI Provider Credentials link.")
+			if cfg.get("ai_model")
+			else _("No AI Provider Credentials could be derived.")
+		)
 	elif not frappe.db.get_value("AI Provider Credentials", cfg.ai_provider_credentials, "enabled"):
 		errors.append(_("The linked AI Provider Credentials record is disabled."))
 
@@ -233,8 +246,10 @@ def generate_eval_suite_for_agent(config_name: str) -> str | None:
 	# AI Eval Case requires a model, and llm_judge assertions require a judge
 	# model — both are mandatory fields. Resolve the provider's default model
 	# once and reuse it for the case and its judge.
+	# WI-001655: the model comes from the agent's own catalog pick (the AI
+	# Model record name IS the model id); the provider is its derived creds.
 	judge_provider = cfg.ai_provider_credentials
-	judge_model = frappe.db.get_value("AI Provider Credentials", judge_provider, "default_model") or ""
+	judge_model = cfg.get("ai_model") or ""
 	for i, sample in enumerate(samples, start=1):
 		case = frappe.get_doc({
 			"doctype": "AI Eval Case",

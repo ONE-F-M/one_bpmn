@@ -15,11 +15,15 @@ class TestCreateAgentFromProcessa(FrappeTestCase):
 		frappe.flags.in_migrate = False
 		super().tearDown()
 
+	def _model(self):
+		# WI-001655: agents pick a model; the provider follows its link.
+		return frappe.db.get_value("AI Model", {"ai_provider_credentials": ("is", "set")}, "name")
+
 	def _payload(self, **overrides):
 		payload = {
 			"agent_name": NAME,
 			"chat_mode_label": "ZZ Processa Create Test",
-			"ai_provider_credentials": None,
+			"ai_model": self._model(),
 			"system_prompt": "Test prompt.",
 			"sample_prompts": [
 				{"prompt": "hello", "expected_behaviour": "greets back"},
@@ -62,12 +66,11 @@ class TestCreateAgentFromProcessa(FrappeTestCase):
 	def test_eval_suite_generation_without_process_model(self):
 		# WI-001648 relaxation: a suite can be generated before the chat map
 		# is provisioned (process_model empty).
-		if not frappe.db.exists("AI Provider Credentials", {"enabled": 1}):
-			self.skipTest("no enabled AI Provider Credentials on this site")
-		provider = frappe.db.get_value("AI Provider Credentials", {"enabled": 1}, "name")
+		if not self._model():
+			self.skipTest("no linked AI Model in the catalog on this site")
 
 		frappe.flags.in_migrate = True
-		create_agent_configuration(self._payload(ai_provider_credentials=provider))
+		create_agent_configuration(self._payload())
 		frappe.flags.in_migrate = False
 
 		from one_bpmn.agents.agent_provisioning import generate_eval_suite_for_agent

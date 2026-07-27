@@ -8,6 +8,7 @@ from frappe.tests.utils import FrappeTestCase
 from one_bpmn.api import ai_assistant
 from one_bpmn.api.ai_assistant import (
 	_creation_prerequisites_block,
+	_extract_json,
 	_sanitize_proposed_config,
 	recommend_ai_task_config,
 )
@@ -24,15 +25,15 @@ class TestAssistantCreatesConfig(FrappeTestCase):
 		# The endpoint contract and validation rules are injected as data.
 		self.assertIn("chat_mode_label", block)
 		self.assertIn("Validation rules", block)
-		# Enabled providers are named exactly.
-		for p in frappe.get_all("AI Provider Credentials", filters={"enabled": 1}, pluck="name", limit=3):
-			self.assertIn(p, block)
+		# WI-001655: the catalog models (with their credentials) are named.
+		for m in frappe.get_all("AI Model", filters={"ai_provider_credentials": ("is", "set")}, pluck="name", limit=3):
+			self.assertIn(m, block)
 
 	def test_sanitize_keeps_only_contract_fields(self):
 		clean = _sanitize_proposed_config({
 			"agent_name": "HR Helper",
 			"chat_mode_label": "HR Helper",
-			"ai_provider_credentials": "Claude",
+			"ai_model": "claude-haiku-4-5-20251001",
 			"lifecycle_status": "Live",          # not proposable — dropped
 			"agent_type": "Background",          # not proposable — dropped
 			"sample_prompts": [
@@ -50,6 +51,28 @@ class TestAssistantCreatesConfig(FrappeTestCase):
 		self.assertIsNone(_sanitize_proposed_config(None))
 		self.assertIsNone(_sanitize_proposed_config("a string"))
 		self.assertIsNone(_sanitize_proposed_config({"unknown": "x"}))
+
+	def test_extract_json_tolerates_literal_newlines_in_strings(self):
+		# Models routinely emit raw newlines inside JSON string values —
+		# invalid per spec, but strict parsing dropped the whole reply, so
+		# the proposed_config was lost and no confirm card rendered (the
+		# "Rambo" incident: the user saw raw JSON and no create button).
+		raw = (
+			'{"message": "Perfect! I have all the details.\n\n'
+			'**Agent Name:** Rambo\n**Chat Mode Label:** Rambo_bot",\n'
+			'"proposed_config": {"agent_name": "Rambo",'
+			' "chat_mode_label": "Rambo_bot"}}'
+		)
+		parsed = _extract_json(raw)
+		self.assertIsInstance(parsed, dict)
+		self.assertEqual(parsed["proposed_config"]["agent_name"], "Rambo")
+		self.assertIn("Rambo_bot", parsed["message"])
+
+	def test_extract_json_still_handles_fences_and_prose(self):
+		self.assertEqual(_extract_json('```json\n{"a": 1}\n```'), {"a": 1})
+		self.assertEqual(_extract_json('Sure!\n{"a": "x\ny"}\nHope that helps.'), {"a": "x\ny"})
+		self.assertIsNone(_extract_json("no json here"))
+		self.assertIsNone(_extract_json(""))
 
 	def test_missing_assistant_record_is_explicit(self):
 		# WI-001623/WI-001649: never a hardcoded persona fallback.

@@ -58,10 +58,12 @@
                 <input type="text" v-model="newAgent.chat_mode_label" placeholder="e.g. Leave Summarizer" />
               </div>
               <div>
-                <label>AI Provider</label>
-                <select v-model="newAgent.ai_provider_credentials">
-                  <option value="">-- Select Provider --</option>
-                  <option v-for="p in providers" :key="p.name" :value="p.name">{{ p.provider_name }}</option>
+                <label>AI Model <span class="hint">(provider follows the model)</span></label>
+                <select v-model="newAgent.ai_model">
+                  <option value="">-- Pick a Model --</option>
+                  <option v-for="m in catalogModels" :key="m.name" :value="m.name">
+                    {{ m.name }} — via {{ m.ai_provider_credentials }}
+                  </option>
                 </select>
               </div>
             </div>
@@ -117,11 +119,20 @@
             </select>
           </div>
 
-          <!-- Model — read-only since WI-001650: resolved from the linked
-               configuration's credentials (default model). -->
+          <!-- Model — the agent's catalog pick (WI-001655): editable here and
+               written back to the linked configuration on Save; the provider
+               follows the model automatically. -->
           <div class="field-row">
-            <label>Model <span class="hint">(from the linked configuration)</span></label>
-            <input type="text" v-model="form.aiModel" disabled placeholder="resolved from the linked agent" />
+            <label>Model <span class="hint">(the agent's catalog pick — saving writes it back; provider follows)</span></label>
+            <select v-model="form.aiModel">
+              <option value="">-- Pick a Model --</option>
+              <option v-if="form.aiModel && !catalogModels.some(m => m.name === form.aiModel)" :value="form.aiModel">
+                {{ form.aiModel }} (not in catalog)
+              </option>
+              <option v-for="m in catalogModels" :key="m.name" :value="m.name">
+                {{ m.name }} — via {{ m.ai_provider_credentials }}
+              </option>
+            </select>
           </div>
 
           <!-- Output variable (selector output is the chosen task, not a variable) -->
@@ -476,12 +487,19 @@
           </div>
       </div>
     </div>
+
+    <!-- Standard error/notice dialog (frappe-ui) — replaces browser alert()s -->
+    <Dialog v-model="notice.show" :options="{ title: notice.title }">
+      <template #body-content>
+        <p class="whitespace-pre-line text-p-base text-ink-gray-7">{{ notice.message }}</p>
+      </template>
+    </Dialog>
   </div>
 </template>
 
 <script setup>
-import { ref, computed, onMounted, nextTick, toRaw } from "vue";
-import { frappeRequest } from "frappe-ui";
+import { ref, computed, onMounted, onUnmounted, nextTick, toRaw } from "vue";
+import { Dialog, frappeRequest } from "frappe-ui";
 import { frappeGet } from "@/bpmn/shared/frappeResource";
 
 // bpmn-js elements must never be touched as Vue reactive proxies — the renderer
@@ -518,6 +536,8 @@ const emit = defineEmits(["close"]);
 
 const providers = ref([]);
 const agentConfigs = ref([]);
+const catalogModels = ref([]); // AI Model catalog (WI-001655)
+
 
 // ── Create-new-agent panel state (WI-001648) ──
 const showCreateAgent = ref(false);
@@ -527,7 +547,7 @@ const emptyNewAgent = () => ({
   agent_name: "",
   agent_id: "",
   chat_mode_label: "",
-  ai_provider_credentials: "",
+  ai_model: "",
   system_prompt: "",
   description: "",
   sample_prompts: [],
@@ -594,8 +614,42 @@ const form = ref({
   aiMemoryWriteMode: "off",
 });
 
+// ── Notices ───────────────────────────────────────────────────────────────
+// Standard frappe-ui dialog for errors and confirmations — never a bare
+// browser alert().
+const notice = ref({ show: false, title: "", message: "" });
+function showNotice(title, message) {
+  notice.value = { show: true, title, message };
+}
+
+// frappe-ui's request error falls back to "<url> <ExceptionClass>" when it
+// finds no friendlier text — prefer the server's own messages when present.
+function serverMessage(e) {
+  const msgs = Array.isArray(e?.messages) ? e.messages.filter(Boolean) : [];
+  return msgs.join("\n") || e?.message || String(e);
+}
+
 // ── Assistant state ───────────────────────────────────────────────────────
-const messages = ref([]);          // { id, role, content, recommendations? }
+const messages = ref([]);
+const assistantConversation = ref(""); // Chat Conversation driving the dialog (WI-001623)          // { id, role, content, recommendations? }
+
+// Close the assistant's Chat Conversation on the backend so its BPMN
+// orchestration runs the close branch (Cleanup → Conversation Ended) and the
+// instance completes instead of staying parked at the event-based gateway.
+// Fire-and-forget — same pattern as LogixChat's endConversation().
+function endAssistantConversation() {
+  const convName = assistantConversation.value;
+  if (!convName) return;
+  assistantConversation.value = "";
+  frappeRequest({
+    url: "/api/method/one_bpmn.api.server_script_api.end_chat_conversation",
+    params: { conversation_name: convName },
+  }).catch(() => {});
+}
+
+// The modal is v-if mounted per open (BpmnEditor), so unmount fires on every
+// close path: ✕, Cancel, overlay click, apply-then-close, and parent teardown.
+onUnmounted(endAssistantConversation);
 const input = ref("");
 const showTips = ref(false);
 const loading = ref(false);
@@ -736,6 +790,8 @@ const providerLabel = computed(() => {
 // When a provider is selected, fill the Model field from its Default Model.
 // If the provider has no Default Model, leave the field untouched — the empty
 // state is caught (and blocked) at save time.
+// WI-001655: dead since the provider select became read-only and models
+// come from the catalog; kept as a no-op guard in case of stale bindings.
 function onProviderChange() {
   const p = providers.value.find((x) => x.name === form.value.aiProvider);
   if (p && p.default_model) {
@@ -832,11 +888,15 @@ async function sendMessage() {
         // WI-001649 amendment: the linked config is the default target for
         // "change this agent…" requests — no interrogation needed.
         linked_config: form.value.aiAgentConfig || "",
+        // WI-001623: the dialog IS a chat-platform conversation — first send
+        // creates it; later sends continue it (history lives server-side).
+        conversation: assistantConversation.value || "",
         ...diagramPayload,
       },
     });
 
     if (res && res.ok) {
+      if (res.conversation) assistantConversation.value = res.conversation;
       let recommendations = res.recommendations || {};
       if (isSelector.value) {
         // Drop suggestions for fields the selector doesn't have
@@ -879,13 +939,32 @@ async function sendMessage() {
 onMounted(async () => {
   try {
     const data = await frappeGet("/api/resource/AI Provider Credentials", {
-      fields: JSON.stringify(["name", "provider_name", "default_model"]),
+      fields: JSON.stringify(["name", "provider_name"]),
       filters: JSON.stringify([["enabled", "=", 1]]),
       limit_page_length: 100,
     });
     providers.value = Array.isArray(data) ? data : [];
   } catch (e) {
     providers.value = [];
+  }
+
+  // WI-001655: the AI Model catalog — picking a model implies its
+  // credentials. Only USABLE models are offered: linked to credentials
+  // that are enabled (same rule as the assistant's grounding); unlinked
+  // catalog rows are managed in the desk until someone links them.
+  try {
+    const models = await frappeGet("/api/resource/AI Model", {
+      fields: JSON.stringify(["name", "ai_provider_credentials"]),
+      filters: JSON.stringify([["ai_provider_credentials", "is", "set"]]),
+      limit_page_length: 100,
+      order_by: "name asc",
+    });
+    const enabledCreds = new Set(providers.value.map((p) => p.name));
+    catalogModels.value = (Array.isArray(models) ? models : []).filter(
+      (m) => enabledCreds.has(m.ai_provider_credentials)
+    );
+  } catch (e) {
+    catalogModels.value = [];
   }
 
   // Load selectable AI Agent Configurations for the seed dropdown.
@@ -997,7 +1076,7 @@ async function onAgentConfigSelect() {
     form.value.aiAgentConfig = "";
     newAgent.value = {
       ...emptyNewAgent(),
-      ai_provider_credentials: form.value.aiProvider || "",
+      ai_model: form.value.aiModel || "",
     };
     agentIdEdited.value = false;
     showCreateAgent.value = true;
@@ -1027,7 +1106,7 @@ const PROPOSAL_LABELS = {
   agent_name: "Name",
   agent_id: "Agent ID",
   chat_mode_label: "Chat mode label",
-  ai_provider_credentials: "Provider",
+  ai_model: "Model (provider follows)",
   system_prompt: "System prompt",
   description: "Description",
 };
@@ -1110,9 +1189,9 @@ async function applyProposedUpdate(m) {
 // agent is linked on this shape and its values pulled into the form.
 async function createAgent() {
   if (creatingAgent.value) return;
-  if (!newAgent.value.agent_name.trim()) return alert("Agent name is required.");
-  if (!newAgent.value.chat_mode_label.trim()) return alert("A chat mode label is required.");
-  if (!newAgent.value.ai_provider_credentials) return alert("Select an AI provider.");
+  if (!newAgent.value.agent_name.trim()) return showNotice("Missing information", "Agent name is required.");
+  if (!newAgent.value.chat_mode_label.trim()) return showNotice("Missing information", "A chat mode label is required.");
+  if (!newAgent.value.ai_model) return showNotice("Missing information", "Pick an AI Model — the provider follows from it.");
   creatingAgent.value = true;
   try {
     const payload = {
@@ -1129,14 +1208,15 @@ async function createAgent() {
     form.value.aiAgentConfig = res.name;
     await onAgentConfigSelect();
     showCreateAgent.value = false;
-    alert(
+    showNotice(
+      "Agent created",
       `"${res.name}" created and linked to this task.\n` +
         (res.creation_instance
           ? `The AI Agent Creation Process is running (instance ${res.creation_instance}) — it will take the agent to Live.`
           : "The creation process did not start (model inactive?) — check the AI Agent Configuration record.")
     );
   } catch (e) {
-    alert("Could not create the agent configuration: " + (e?.message || e));
+    showNotice("Could not create the agent configuration", serverMessage(e));
   } finally {
     creatingAgent.value = false;
   }
@@ -1147,32 +1227,30 @@ async function createAgent() {
 // dialog never shows it, so its form default must not clobber the record.
 // Failure never blocks the shape save; the user is warned instead. A Live
 // agent is automatically re-provisioned by the backend so its chat map picks
-// up the change — surface that so the brief non-Live window isn't a surprise.
+// up the change — silently: re-validation failures surface in deploy checks,
+// not as a popup on every save.
 async function writeBackToConfig() {
   if (!form.value.aiAgentConfig) return;
+  // WI-001655: the MODEL is the agent's editable pick and writes back;
+  // aiProvider is no longer sent — the provider is derived from the model.
   const fields = {
-    aiProvider: form.value.aiProvider,
+    aiModel: form.value.aiModel,
     aiSystemPrompt: form.value.aiSystemPrompt,
     aiMaxTokens: form.value.aiMaxTokens,
   };
   if (!isSelector.value) fields.aiTemperature = form.value.aiTemperature;
   try {
-    const res = await frappeRequest({
+    await frappeRequest({
       url: "/api/method/one_bpmn.agents.agent_config_resolver.update_agent_config_from_shape",
       method: "POST",
       params: { config_name: form.value.aiAgentConfig, fields: JSON.stringify(fields) },
     });
-    if (res && res.reprovisioned) {
-      alert(
-        `"${form.value.aiAgentConfig}" was Live, so it is being re-provisioned ` +
-          "with your changes (validate → provision → Live)."
-      );
-    }
   } catch (e) {
-    alert(
-      `The task was saved, but writing the changes back to "${form.value.aiAgentConfig}" failed: ` +
-        (e?.message || e) +
-        "\nUpdate the AI Agent Configuration record directly if the change should apply to the agent."
+    showNotice(
+      "Changes not applied to the agent",
+      `The task was saved, but writing the changes back to "${form.value.aiAgentConfig}" failed:\n` +
+        serverMessage(e) +
+        "\n\nUpdate the AI Agent Configuration record directly if the change should apply to the agent."
     );
   }
 }
@@ -1181,7 +1259,8 @@ async function save() {
   // WI-001650: every AI shape must be backed by an AI Agent Configuration —
   // raw provider setup is retired (the compile gate enforces the same rule).
   if (!form.value.aiAgentConfig) {
-    alert(
+    showNotice(
+      "Link an AI Agent Configuration",
       "Link an AI Agent Configuration before saving.\n" +
         "Pick an existing agent, use “+ Create new…”, or ask the assistant to " +
         "create one — setting up an AI task with a raw provider has been retired (WI-001650)."
@@ -1189,17 +1268,15 @@ async function save() {
     return;
   }
 
-  // Block save when no model can be resolved: the Model field is empty AND the
-  // selected provider has no Default Model to fall back on at runtime.
+  // WI-001655: the model comes from the linked agent's catalog pick. An
+  // empty model here means the agent has none yet — fix it on the agent.
   if (!form.value.aiModel || !form.value.aiModel.trim()) {
-    const p = providers.value.find((x) => x.name === form.value.aiProvider);
-    if (!p || !p.default_model) {
-      alert(
-        "No model is set. The selected AI Provider Credentials record has no Default Model.\n" +
-          "Set a Default Model on the AI Provider Credentials record, or enter a Model here."
-      );
-      return;
-    }
+    showNotice(
+      "No model set",
+      "No model is set. Pick an AI Model on the linked AI Agent Configuration " +
+        "(or ask the assistant to change the model) — the provider follows from it."
+    );
+    return;
   }
 
   // Validate JSON schema if provided
@@ -1207,7 +1284,7 @@ async function save() {
     try {
       JSON.parse(form.value.aiResponseSchema);
     } catch (e) {
-      alert("Response Schema is not valid JSON: " + e.message);
+      showNotice("Invalid Response Schema", "Response Schema is not valid JSON: " + e.message);
       return;
     }
   }
@@ -1723,5 +1800,14 @@ async function save() {
   flex-direction: row;
   justify-content: flex-end;
   gap: 8px;
+}
+</style>
+
+<style>
+/* frappe-ui dialogs portal to <body> with no z-index of their own; this
+   modal's overlay sits at z-index 1000, which would bury them. Dialogs are
+   always the topmost surface. */
+.dialog-overlay {
+  z-index: 2000;
 }
 </style>
