@@ -95,6 +95,7 @@ def recommend_ai_task_config(
 	element_id: str = "",
 	current_config: str = "{}",
 	process_model: str = "",
+	linked_config: str = "",
 ) -> dict:
 	"""Return assistant recommendations for an AI Agent Task's configuration.
 
@@ -122,9 +123,12 @@ def recommend_ai_task_config(
 	if frappe.session.user == "Guest":
 		frappe.throw(_("You must be logged in to use the assistant."))
 
-	# WI-001623: fall back to the AI Assistant configuration's linked
-	# credentials so the modal no longer has to supply one.
-	provider = provider or _assistant_default_provider()
+	# WI-001623: the assistant runs on ITS OWN configuration's credentials,
+	# not the task's. The task's provider is only the fallback for sites
+	# without an ai_agent_assistant record. (Previously the task's provider
+	# won — so a task linked to broken credentials broke the very assistant
+	# meant to help fix them.)
+	provider = _assistant_default_provider() or provider
 	if not provider:
 		frappe.throw(_("Select an AI Provider Credentials before using the assistant."))
 
@@ -166,6 +170,11 @@ def recommend_ai_task_config(
 		# the prerequisites are assembled from live sources (doctype meta,
 		# validation rules, enabled providers), never written as prose here.
 		system_prompt += "\n\n" + _creation_capability_block()
+		# WI-001649 amendment: the task's linked configuration as live context,
+		# so "change this agent's provider" needs no interrogation.
+		linked_block = _linked_config_block(linked_config)
+		if linked_block:
+			system_prompt += "\n\n" + linked_block
 		# WI-001625: give the assistant the full diagram as read-only grounding
 		# so its recommendations reference the actual shapes around the task.
 		diagram_block = _build_full_diagram_block(bpmn_xml, element_id)
@@ -252,18 +261,21 @@ def recommend_ai_task_config(
 		if warnings:
 			message = (message + "\n\n" if message else "") + "\n".join(f"⚠️ {w}" for w in warnings)
 
-	# WI-001649 (agent mode only): a proposed new-agent configuration. The
-	# model PROPOSES; the user confirms in the UI; only then does the frontend
-	# call create_agent_configuration — the model never writes documents.
-	proposed_config = None
+	# WI-001649 (agent mode only): proposed new-agent creation and proposed
+	# updates to an existing agent. The model PROPOSES; the user confirms in
+	# the UI; only then does the frontend call the (permission-checked)
+	# endpoint — the model never writes documents.
+	proposed_config = proposed_update = None
 	if mode == "agent":
 		proposed_config = _sanitize_proposed_config(parsed.get("proposed_config"))
+		proposed_update = _sanitize_proposed_update(parsed.get("proposed_update"))
 
 	return {
 		"ok": True,
 		"message": message,
 		"recommendations": recommendations,
 		"proposed_config": proposed_config,
+		"proposed_update": proposed_update,
 	}
 
 
@@ -339,6 +351,13 @@ def _build_system_prompt() -> str:
 		"the agent once the details are complete, following the create-agent "
 		"response contract. The designer always confirms before anything is "
 		"created.\n\n"
+		"UPDATING EXISTING AGENTS:\n"
+		"  - You can also propose changes to an existing AI Agent Configuration "
+		"(provider, prompt, sampling params) following the update-agent response "
+		"contract. When the task already links a configuration, treat it as the "
+		"target unless told otherwise — do not interrogate the designer about "
+		"which record they mean. The designer always confirms before anything "
+		"is applied; never claim a change was made.\n\n"
 		"Respond with ONLY a single JSON object, no prose outside it, in this exact shape:\n"
 		'{\n'
 		'  "message": "<your recommendation summary, OR a clarifying question when unsure>",\n'
@@ -393,15 +412,20 @@ def _creation_prerequisites_block() -> str:
 		pass
 
 	try:
-		taken = frappe.get_list(
+		rows = frappe.get_list(
 			"AI Agent Configuration",
-			filters={"enabled": 1},
-			pluck="chat_mode_label",
-			limit_page_length=100,
+			fields=["name", "agent_id", "chat_mode_label"],
+			limit_page_length=200,
 		)
-		taken = sorted({t for t in taken if t})
-		if taken:
-			lines.append("Chat mode labels already taken (the new one must differ): " + ", ".join(taken))
+		labels = sorted({r.chat_mode_label for r in rows if r.chat_mode_label})
+		if labels:
+			lines.append("Chat mode labels already taken (a new one must differ): " + ", ".join(labels))
+		existing = sorted({f"{r.name} (agent_id: {r.agent_id})" for r in rows})
+		if existing:
+			lines.append(
+				"Agents that ALREADY EXIST — never propose creating one of these; "
+				"propose an update to it instead: " + "; ".join(existing)
+			)
 	except Exception:
 		pass
 
@@ -424,8 +448,86 @@ def _creation_capability_block() -> str:
 		"for it via \"message\" instead — do not guess values, do not invent "
 		"provider names, and never include \"proposed_config\" until the "
 		"proposal is complete. The designer confirms the proposal in the UI "
-		"before anything is created."
+		"before anything is created.\n\n"
+		"UPDATE-AGENT RESPONSE CONTRACT:\n"
+		"When the designer asks to CHANGE an existing AI Agent Configuration, "
+		"add a \"proposed_update\" object to your JSON reply (alongside "
+		"\"message\"): {\"config_name\": \"<exact record name>\", \"fields\": "
+		"{...}} where fields may only contain \"aiProvider\" (an enabled "
+		"AI Provider Credentials name), \"aiSystemPrompt\", \"aiTemperature\" "
+		"and/or \"aiMaxTokens\". Include ONLY the fields being changed. When "
+		"the conversation refers to \"this agent\" or \"the configuration\", it "
+		"means the LINKED AGENT CONFIGURATION context below when present; ask "
+		"only if genuinely ambiguous. The designer confirms the proposal in the "
+		"UI before anything is applied.\n\n"
+		"CAPABILITY LIMITS (hard, non-negotiable):\n"
+		"You cannot write to ANY record yourself. Your only side-effect paths "
+		"are \"proposed_config\" and \"proposed_update\", both of which take "
+		"effect only after the designer confirms them in the UI. Changes outside "
+		"the updatable fields above (agent id, chat mode label, enabled, "
+		"lifecycle, roles…) must be made on the record in the desk — say so. "
+		"NEVER state or imply that you performed an action — reporting an "
+		"update you did not make is the worst possible answer.\n\n"
+		"ROUTING RULES:\n"
+		"- The USER PROMPT is a property of the TASK SHAPE, not of an agent "
+		"configuration (agents have no user prompt). A request to write or "
+		"change the User Prompt is answered with an ordinary field "
+		"recommendation (\"recommendations\": {\"aiUserPrompt\": ...}) — never "
+		"with proposed_config or proposed_update.\n"
+		"- Once an agent has been created in this conversation, follow-up "
+		"requests refine THAT agent (proposed_update) or the task's own fields "
+		"(recommendations) — do not propose creating it again. Creating an "
+		"agent whose name or agent_id already exists always fails."
 	)
+
+
+def _linked_config_block(linked_config: str) -> str:
+	"""Live context about the task's linked AI Agent Configuration, so a
+	request like 'change this agent's provider' needs no interrogation."""
+	if not linked_config or not frappe.db.exists("AI Agent Configuration", linked_config):
+		return ""
+	if not frappe.has_permission("AI Agent Configuration", "read"):
+		return ""
+	cfg = frappe.db.get_value(
+		"AI Agent Configuration", linked_config,
+		["name", "agent_id", "agent_type", "lifecycle_status", "ai_provider_credentials", "chat_mode_label"],
+		as_dict=True,
+	)
+	return (
+		"LINKED AGENT CONFIGURATION (this task's — the default target for "
+		"update requests):\n"
+		f"  name: {cfg.name}\n"
+		f"  agent_id: {cfg.agent_id}\n"
+		f"  type: {cfg.agent_type} | lifecycle: {cfg.lifecycle_status}\n"
+		f"  provider: {cfg.ai_provider_credentials or '(none)'}\n"
+		f"  chat mode label: {cfg.chat_mode_label or '(none)'}"
+	)
+
+
+# Shape-attribute fields the assistant may propose changing on an existing
+# configuration — exactly what update_agent_config_from_shape accepts.
+_UPDATABLE_FIELDS = {"aiProvider", "aiSystemPrompt", "aiTemperature", "aiMaxTokens"}
+
+
+def _sanitize_proposed_update(proposed) -> dict | None:
+	"""Keep only a valid update proposal: an existing config plus allowlisted
+	fields. None when there is nothing usable."""
+	if not isinstance(proposed, dict):
+		return None
+	config_name = str(proposed.get("config_name") or "").strip()
+	if not config_name or not frappe.db.exists("AI Agent Configuration", config_name):
+		return None
+	fields = proposed.get("fields")
+	if not isinstance(fields, dict):
+		return None
+	clean = {
+		key: value
+		for key, value in fields.items()
+		if key in _UPDATABLE_FIELDS and isinstance(value, (str, int, float)) and str(value).strip()
+	}
+	if not clean:
+		return None
+	return {"config_name": config_name, "fields": clean}
 
 
 _PROPOSAL_FIELDS = {
@@ -437,8 +539,15 @@ _PROPOSAL_FIELDS = {
 def _sanitize_proposed_config(proposed) -> dict | None:
 	"""Keep only the create-payload fields from a model proposal; normalize
 	sample prompts to {prompt, expected_behaviour} rows. None when there is
-	no usable proposal."""
+	no usable proposal — including a proposal to create an agent that already
+	exists (Create & link would only ever fail with a duplicate error)."""
 	if not isinstance(proposed, dict):
+		return None
+	agent_name = str(proposed.get("agent_name") or "").strip()
+	agent_id = str(proposed.get("agent_id") or "").strip() or (frappe.scrub(agent_name) if agent_name else "")
+	if agent_name and frappe.db.exists("AI Agent Configuration", {"agent_name": agent_name}):
+		return None
+	if agent_id and frappe.db.exists("AI Agent Configuration", {"agent_id": agent_id}):
 		return None
 	clean = {
 		key: str(value)
