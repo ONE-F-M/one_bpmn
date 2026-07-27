@@ -229,9 +229,8 @@
   },
   {
    "fieldname": "process_implementation",
-   "fieldtype": "Link",
+   "fieldtype": "Data",
    "label": "Process Implementation",
-   "options": "Process Implementation",
    "read_only": 1
   }
  ],
