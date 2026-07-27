@@ -133,73 +133,65 @@ function AgentConfigComponent(props) {
 	);
 }
 
+// WI-001650: read-only. The provider is an agent property, resolved from the
+// linked AI Agent Configuration at run time — raw provider setup is retired.
 function ProviderComponent(props) {
 	const { element, id } = props;
-	const modeling = useService("modeling");
 	const translate = useService("translate");
 	const bo = getBusinessObject(element);
-
-	const fetchProviders = (txt) => {
-		const params = {
-			fields: '["name","provider_name","default_model"]',
-			filters: JSON.stringify([
-				["enabled", "=", 1],
-				...(txt ? [["provider_name", "like", `%${txt}%`]] : []),
-			]),
-			limit_page_length: 50,
-			order_by: "provider_name asc",
-		};
-		return frappeGet("/api/resource/AI Provider Credentials", params);
-	};
-
-	const onProviderSelect = (value) => {
-		setAttr(modeling, element, bo, "aiProvider", value);
-		if (!value) return;
-		frappeGet("/api/resource/AI Provider Credentials", {
-			filters: JSON.stringify([["name", "=", value]]),
-			fields: '["default_model"]',
-			limit_page_length: 1,
-		})
-			.then((rows) => {
-				const defaultModel = Array.isArray(rows) && rows[0] ? rows[0].default_model : "";
-				if (defaultModel) {
-					setAttr(modeling, element, bo, "aiModel", defaultModel);
-				}
-			})
-			.catch(() => {});
-	};
 
 	return h(
 		"div",
 		{ class: "bio-properties-panel-entry", "data-entry-id": id },
 		h("div", { class: "bio-properties-panel-textfield" }, [
-			h("label", { class: "bio-properties-panel-label" }, translate("AI Provider")),
-			h(FrappeAutocomplete, {
-				value: getAttr(bo, "aiProvider"),
-				placeholder: translate("Select an AI Provider…"),
-				fetchApi: fetchProviders,
-				valueField: "name",
-				renderOption: (opt) => opt.provider_name || opt.name,
-				onChange: onProviderSelect,
+			h(
+				"label",
+				{
+					class: "bio-properties-panel-label",
+					title: translate(
+						"Resolved from the linked AI Agent Configuration at run time. Raw provider setup is retired (WI-001650) — link an agent configuration above to set the provider."
+					),
+				},
+				translate("AI Provider (from linked configuration)")
+			),
+			h("input", {
+				class: "bio-properties-panel-input",
+				value: getAttr(bo, "aiProvider") || "",
+				disabled: true,
+				placeholder: translate("link an agent configuration"),
 			}),
 		])
 	);
 }
 
+// WI-001650: read-only — resolved from the linked configuration's credentials.
 function ModelComponent(props) {
 	const { element, id } = props;
-	const modeling = useService("modeling");
 	const translate = useService("translate");
 	const bo = getBusinessObject(element);
 
-	return h(TextFieldEntry, {
-		element,
-		id,
-		label: translate("Model"),
-		getValue: () => getAttr(bo, "aiModel"),
-		setValue: (value) => setAttr(modeling, element, bo, "aiModel", value),
-		debounce: useService("debounceInput"),
-	});
+	return h(
+		"div",
+		{ class: "bio-properties-panel-entry", "data-entry-id": id },
+		h("div", { class: "bio-properties-panel-textfield" }, [
+			h(
+				"label",
+				{
+					class: "bio-properties-panel-label",
+					title: translate(
+						"Resolved from the linked AI Agent Configuration's credentials (default model) at run time."
+					),
+				},
+				translate("Model (from linked configuration)")
+			),
+			h("input", {
+				class: "bio-properties-panel-input",
+				value: getAttr(bo, "aiModel") || "",
+				disabled: true,
+				placeholder: translate("resolved from the linked agent"),
+			}),
+		])
+	);
 }
 
 function SystemPromptComponent(props) {

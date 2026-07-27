@@ -17,7 +17,7 @@
           <div class="field-row">
             <label>
               Linked AI Agent Configuration
-              <span class="hint">(optional)</span>
+              <span class="hint">(required — raw provider setup is retired)</span>
             </label>
             <select v-model="form.aiAgentConfig" @change="onAgentConfigSelect">
               <option value="">-- None --</option>
@@ -101,21 +101,23 @@
             </select>
           </div>
 
-          <!-- AI Provider -->
+          <!-- AI Provider — read-only since WI-001650: the provider is an
+               agent property, resolved from the linked configuration. -->
           <div class="field-row">
-            <label>AI Provider</label>
-            <select v-model="form.aiProvider" @change="onProviderChange">
-              <option value="">-- Select Provider --</option>
+            <label>AI Provider <span class="hint">(from the linked configuration)</span></label>
+            <select v-model="form.aiProvider" disabled>
+              <option value="">-- Link an agent configuration --</option>
               <option v-for="p in providers" :key="p.name" :value="p.name">
                 {{ p.provider_name }}
               </option>
             </select>
           </div>
 
-          <!-- Model override -->
+          <!-- Model — read-only since WI-001650: resolved from the linked
+               configuration's credentials (default model). -->
           <div class="field-row">
-            <label>Model <span class="hint">(overrides provider default)</span></label>
-            <input type="text" v-model="form.aiModel" placeholder="e.g. gpt-4o" />
+            <label>Model <span class="hint">(from the linked configuration)</span></label>
+            <input type="text" v-model="form.aiModel" disabled placeholder="resolved from the linked agent" />
           </div>
 
           <!-- Output variable (selector output is the chosen task, not a variable) -->
@@ -260,13 +262,10 @@
           <span v-if="form.aiProvider" class="assistant-sub">via {{ providerLabel }}</span>
         </div>
 
-        <!-- Disabled state: no provider selected yet -->
-        <div v-if="!form.aiProvider" class="assistant-disabled">
-          Select an AI Provider on the left to enable the assistant. It will use
-          that provider to recommend prompts and settings for this task.
-        </div>
-
-        <template v-else>
+        <!-- WI-001650: the assistant is always available — with no linked
+             configuration yet it runs on its own credentials (WI-001623), so
+             you can ask it to create the agent this task will link. -->
+        <template>
           <!-- Context controls -->
           <div class="assistant-context">
             <div class="ctx-row">
@@ -721,7 +720,10 @@ function applyRecommendation(msgId, key, value) {
 
 async function sendMessage() {
   const requirement = input.value.trim();
-  if (!requirement || loading.value || !form.value.aiProvider) return;
+  // WI-001650: no provider requirement — with nothing linked yet the server
+  // falls back to the assistant's own credentials (WI-001623), so the chat
+  // can be used to create the very first configuration for this task.
+  if (!requirement || loading.value) return;
 
   // History = the conversation so far (before this turn).
   const history = messages.value
@@ -1067,6 +1069,17 @@ async function writeBackToConfig() {
 }
 
 async function save() {
+  // WI-001650: every AI shape must be backed by an AI Agent Configuration —
+  // raw provider setup is retired (the compile gate enforces the same rule).
+  if (!form.value.aiAgentConfig) {
+    alert(
+      "Link an AI Agent Configuration before saving.\n" +
+        "Pick an existing agent, use “+ Create new…”, or ask the assistant to " +
+        "create one — setting up an AI task with a raw provider has been retired (WI-001650)."
+    );
+    return;
+  }
+
   // Block save when no model can be resolved: the Model field is empty AND the
   // selected provider has no Default Model to fall back on at runtime.
   if (!form.value.aiModel || !form.value.aiModel.trim()) {
