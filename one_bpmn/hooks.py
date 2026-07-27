@@ -93,7 +93,7 @@ app_include_js = [
 # ------------
 
 # before_install = "one_bpmn.install.before_install"
-# after_install = "one_bpmn.install.after_install"
+after_install = "one_bpmn.install.after_install"
 
 # Uninstallation
 # ------------

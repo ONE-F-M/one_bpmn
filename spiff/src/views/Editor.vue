@@ -280,8 +280,8 @@
 									<Icon :icon="disabling ? 'lucide:loader-2' : 'lucide:power-off'" class="w-4 h-4" :class="{ 'animate-spin': disabling }" />
 									{{ disabling ? 'Disabling…' : 'Disable' }}
 								</button>
-								<!-- Production review (only when connected to Production) -->
-								<template v-if="connectToProduction">
+								<!-- Production review (only on a BA instance) -->
+								<template v-if="isBaInstance">
 									<div class="border-t border-gray-100 my-1"></div>
 									<button
 										@click="openReview('doctypes'); showActionsMenu = false"
@@ -302,8 +302,8 @@
 										Review Workflow Objects
 									</button>
 								</template>
-								<!-- Reassign User Task (only when NOT connected to Production) -->
-								<template v-if="!connectToProduction">
+								<!-- Reassign User Task (only on a Production instance) -->
+								<template v-if="isProductionInstance">
 									<div class="border-t border-gray-100 my-1"></div>
 									<button
 										@click="toggleReassignMode(); showActionsMenu = false"
@@ -358,7 +358,7 @@
 								<Icon :icon="deploying ? 'lucide:loader-2' : 'lucide:rocket'" class="w-4 h-4" />
 								{{ deploying ? 'Deploying…' : 'Deploy' }}
 							</button>
-							<template v-if="connectToProduction">
+							<template v-if="isBaInstance">
 								<button
 									@click="openReview('doctypes'); showMobileMoreMenu = false"
 									class="w-full flex items-center gap-2 px-3 py-2.5 text-sm text-gray-700 hover:bg-gray-50 transition-colors"
@@ -378,7 +378,7 @@
 									Review Workflow Objects
 								</button>
 							</template>
-							<template v-if="!connectToProduction">
+							<template v-if="isProductionInstance">
 								<button
 									@click="toggleReassignMode(); showMobileMoreMenu = false"
 									class="w-full flex items-center gap-2 px-3 py-2.5 text-sm transition-colors"
@@ -1237,9 +1237,14 @@ const disableRunningCount = ref(0);
 
 // --- Actions menu + Production Review state ---
 const showActionsMenu = ref(false);
-// Whether Processa Settings has "Connect to Production" enabled — gates the
-// "Review Doctypes" / "Review Workflow Objects" actions.
+// Whether Processa Settings has "Connect to Production" enabled.
 const connectToProduction = ref(false);
+// Processa Settings → Instance Type. Gates the environment-specific Actions:
+//   "Review Doctypes" / "Review Workflow Objects" → BA instance only
+//   "Reassign User Task"                          → Production instance only
+const instanceType = ref("");
+const isBaInstance = computed(() => instanceType.value === "BA");
+const isProductionInstance = computed(() => instanceType.value === "Production");
 const showReviewDialog = ref(false);
 const reviewKind = ref("doctypes"); // "doctypes" | "workflow"
 const reviewStage = ref("intro"); // intro | loading | diff | empty | syncing | result
@@ -1267,8 +1272,10 @@ async function loadProductionReviewSettings() {
 		});
 		const d = r.message || r;
 		connectToProduction.value = !!d.connect_to_production;
+		instanceType.value = d.instance_type || "";
 	} catch (e) {
 		connectToProduction.value = false;
+		instanceType.value = "";
 	}
 }
 
@@ -1335,7 +1342,7 @@ async function runSync() {
 	}
 }
 
-// --- Reassign User Task (only when Connect to Production is unchecked) ---
+// --- Reassign User Task (only on a Production instance) ---
 // While enabled, the Assignment Configuration fields of User Tasks become
 // editable on an otherwise read-only canvas. Each change is persisted (and
 // logged) through a dedicated attribute-scoped endpoint (the normal save path

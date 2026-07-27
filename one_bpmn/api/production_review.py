@@ -24,7 +24,23 @@ import os
 import frappe
 from frappe import _
 
-from one_bpmn.api.editability import _call_production_api
+from one_bpmn.api.editability import _call_production_api, _is_ba_instance, get_instance_type
+
+
+def _require_ba_instance():
+	"""Guard the BA-only review actions.
+
+	"Review Doctypes" / "Review Workflow Objects" (and their Sync counterparts)
+	are only meaningful on a BA (authoring) instance comparing against
+	Production. Enforced here so the gate holds even if the frontend is bypassed.
+	The snapshot/apply endpoints below run ON Production and are intentionally
+	NOT gated by this.
+	"""
+	if not _is_ba_instance():
+		frappe.throw(
+			_("This action is only available on a BA instance (Processa Settings → Instance Type)."),
+			title=_("Not Available"),
+		)
 
 # Source-of-truth methods executed on the Production site.
 SNAPSHOT_WORKFLOW = "one_bpmn.api.production_review.snapshot_workflow_objects"
@@ -45,6 +61,37 @@ _WORKFLOW_FIELDS = {
 
 # Records are applied to Production in dependency-friendly order.
 _APPLY_ORDER = ["Role", "Workflow State", "Workflow Action Master", "Server Script"]
+
+# Server Scripts carry executable Python, so they are never applied on the same
+# terms as a Role. They stay syncable (a script task in a process map *is* a
+# Server Script), but under three extra conditions:
+#
+#   1. On the BA site the *requester* must hold "Script Manager" — write access
+#      to a single BPMN Process Model is not enough to push code.
+#   2. On Production validation is never skipped, so ServerScript.validate()
+#      runs its frappe.only_for("Script Manager") and RestrictedPython compile
+#      check against the incoming script.
+#   3. Fields that widen who can execute the script are refused over this
+#      channel; changing those goes through the repo and a code review.
+#
+# Note (1) is the load-bearing one: (2) checks the API-key user configured in
+# Processa Settings, which on most benches is a privileged integration account
+# (frappe.only_for() is a no-op for Administrator).
+_CODE_DOCTYPES = frozenset({"Server Script"})
+_CODE_ROLE = "Script Manager"
+_REFUSED_CODE_FIELDS = ("allow_guest",)
+
+
+def _require_code_authority(doctypes: list):
+	"""Guard the code-carrying half of "Sync Workflow Objects" (condition 1)."""
+	if _CODE_ROLE in frappe.get_roles() or frappe.session.user == "Administrator":
+		return
+	frappe.throw(
+		_("Syncing {0} to Production requires the '{1}' role.").format(", ".join(doctypes), _CODE_ROLE),
+		frappe.PermissionError,
+		title=_("Not Permitted"),
+	)
+
 
 # Volatile metadata never used for comparison or push.
 _META_KEYS = {
@@ -137,6 +184,7 @@ def _diff_workflow(local: dict, remote: dict) -> list:
 @frappe.whitelist()
 def review_workflow_objects(model_name: str) -> dict:
 	"""Compare referenced workflow objects against Production (read-only)."""
+	_require_ba_instance()
 	targets = _workflow_targets(_refs_for_model(model_name, "read"))
 	local = _build_workflow_snapshot(targets)
 	remote = _call_production_api(SNAPSHOT_WORKFLOW, {"targets": json.dumps(targets)}) or {}
@@ -147,6 +195,7 @@ def review_workflow_objects(model_name: str) -> dict:
 @frappe.whitelist(methods=["POST"])
 def sync_workflow_objects(model_name: str) -> dict:
 	"""Overwrite/create the changed workflow objects on Production via API."""
+	_require_ba_instance()
 	targets = _workflow_targets(_refs_for_model(model_name, "write"))
 	local = _build_workflow_snapshot(targets)
 	remote = _call_production_api(SNAPSHOT_WORKFLOW, {"targets": json.dumps(targets)}) or {}
@@ -159,6 +208,10 @@ def sync_workflow_objects(model_name: str) -> dict:
 	for c in changes:
 		changed_by_type.setdefault(c["object_type"], set()).add(c["name"])
 
+	# Pushing executable code needs more than write on one process model.
+	if _CODE_DOCTYPES & set(changed_by_type):
+		_require_code_authority(sorted(_CODE_DOCTYPES & set(changed_by_type)))
+
 	payload = {}
 	for dt, names in changed_by_type.items():
 		payload[dt] = []
@@ -167,7 +220,13 @@ def sync_workflow_objects(model_name: str) -> dict:
 				rec = {k: v for k, v in frappe.get_doc(dt, name).as_dict().items() if k not in _META_KEYS}
 				payload[dt].append(rec)
 
-	results = _call_production_api(APPLY_WORKFLOW, {"payload": json.dumps(payload)}) or {}
+	results = (
+		_call_production_api(
+			APPLY_WORKFLOW,
+			{"payload": json.dumps(payload), "requested_by": frappe.session.user},
+		)
+		or {}
+	)
 	return {"synced": True, "results": results}
 
 
@@ -182,10 +241,21 @@ def snapshot_workflow_objects(targets: str) -> dict:
 
 
 @frappe.whitelist(methods=["POST"])
-def apply_workflow_objects(payload: str) -> dict:
-	"""Create/overwrite the supplied workflow objects (Production)."""
+def apply_workflow_objects(payload: str, requested_by: str | None = None) -> dict:
+	"""Create/overwrite the supplied workflow objects (Production).
+
+	``requested_by`` is the user who triggered the sync on the BA site. It is
+	recorded for audit only — the authorisation that matters happened there
+	(:func:`_require_code_authority`) and here (``only_for`` + per-record
+	validation), because this side only ever sees the API-key user.
+	"""
 	frappe.only_for("System Manager")
 	payload = _parse(payload)
+	code_types = sorted(_CODE_DOCTYPES & {dt for dt, recs in payload.items() if recs})
+	if code_types:
+		frappe.only_for(_CODE_ROLE)
+	_log_apply(payload, requested_by)
+
 	results = {"created": [], "updated": [], "failed": []}
 	for dt in _APPLY_ORDER:
 		for rec in payload.get(dt, []) or []:
@@ -194,9 +264,36 @@ def apply_workflow_objects(payload: str) -> dict:
 	return results
 
 
+def _log_apply(payload: dict, requested_by: str | None) -> None:
+	"""Leave an audit trail of what was pushed onto this site, and by whom."""
+	summary = {dt: sorted(r.get("name") for r in (recs or [])) for dt, recs in payload.items() if recs}
+	frappe.logger("one_bpmn").info(
+		f"Processa workflow object sync — requested_by={requested_by or 'unknown'} "
+		f"api_user={frappe.session.user} objects={summary}"
+	)
+
+
+def _reject_widened_code(dt: str, rec: dict) -> None:
+	"""Refuse code changes that widen who can execute the script.
+
+	Turning on ``allow_guest`` exposes a Server Script to unauthenticated
+	callers. That is a decision for a repo review, not for a canvas action.
+	"""
+	if dt not in _CODE_DOCTYPES:
+		return
+	for field in _REFUSED_CODE_FIELDS:
+		if rec.get(field):
+			frappe.throw(
+				_("{0} '{1}' sets '{2}' — apply this one through the repository, not the canvas sync.").format(
+					dt, rec.get("name"), field
+				)
+			)
+
+
 def _upsert_record(dt: str, rec: dict, results: dict) -> None:
 	name = rec.get("name")
 	try:
+		_reject_widened_code(dt, rec)
 		if name and frappe.db.exists(dt, name):
 			doc = frappe.get_doc(dt, name)
 			for k, v in rec.items():
@@ -204,14 +301,15 @@ def _upsert_record(dt: str, rec: dict, results: dict) -> None:
 					continue
 				doc.set(k, v)
 			doc.flags.ignore_permissions = True
-			doc.flags.ignore_validate = True
+			# Validation is NEVER skipped: for a Server Script this is where
+			# frappe.only_for("Script Manager") and the RestrictedPython
+			# compile check live.
 			doc.save(ignore_permissions=True)
 			results["updated"].append(f"{dt}: {name}")
 		else:
 			rec.setdefault("doctype", dt)
 			doc = frappe.get_doc(rec)
 			doc.flags.ignore_permissions = True
-			doc.flags.ignore_validate = True
 			doc.insert(ignore_permissions=True)
 			results["created"].append(f"{dt}: {doc.name}")
 	except Exception as e:
@@ -268,6 +366,7 @@ def _diff_doctypes(local: dict, remote: dict) -> list:
 @frappe.whitelist()
 def review_doctypes(model_name: str) -> dict:
 	"""Compare referenced DocTypes + customizations against Production (read-only)."""
+	_require_ba_instance()
 	doctypes = sorted(_refs_for_model(model_name, "read").get("doctypes") or [])
 	local = _build_doctype_snapshot(doctypes)
 	remote = _call_production_api(SNAPSHOT_DOCTYPES, {"doctypes": json.dumps(doctypes)}) or {}
@@ -280,6 +379,7 @@ def sync_doctypes(model_name: str) -> dict:
 	"""Open a GitHub PR (per owning app) carrying the changed customizations."""
 	from one_bpmn.api.github_sync import open_customization_pr
 
+	_require_ba_instance()
 	doctypes = sorted(_refs_for_model(model_name, "write").get("doctypes") or [])
 	local = _build_doctype_snapshot(doctypes)
 	remote = _call_production_api(SNAPSHOT_DOCTYPES, {"doctypes": json.dumps(doctypes)}) or {}
@@ -417,6 +517,18 @@ def _customization_file(dt: str, app: str) -> tuple[str, str]:
 
 @frappe.whitelist()
 def production_review_settings() -> dict:
-	"""Lightweight flags the Processa canvas needs to render the Actions menu."""
+	"""Lightweight flags the Processa canvas needs to render the Actions menu.
+
+	``instance_type`` drives which environment-specific actions are shown:
+	"Review Doctypes/Workflow" only on a BA instance, "Reassign User Task" only
+	on a Production instance. ``connect_to_production`` is still surfaced for
+	other callers.
+
+	Read through ``get_instance_type`` so the frontend sees exactly what the
+	backend gates see — including "" (Unknown), which hides both actions.
+	"""
 	settings = frappe.get_cached_doc("Processa Settings")
-	return {"connect_to_production": bool(settings.connect_to_production)}
+	return {
+		"connect_to_production": bool(settings.connect_to_production),
+		"instance_type": get_instance_type(),
+	}

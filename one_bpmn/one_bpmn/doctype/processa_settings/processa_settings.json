@@ -4,16 +4,13 @@
  "doctype": "DocType",
  "engine": "InnoDB",
  "field_order": [
+  "section_break_instance",
+  "instance_type",
   "section_break_1",
   "connect_to_production",
   "production_url",
   "production_api_key",
   "production_api_secret",
-  "section_break_ba",
-  "enable_ba_sync",
-  "ba_site_url",
-  "ba_api_key",
-  "ba_api_secret",
   "section_break_github",
   "github_token",
   "section_break_script_security",
@@ -28,6 +25,19 @@
   "script_block_all_imports"
  ],
  "fields": [
+  {
+   "fieldname": "section_break_instance",
+   "fieldtype": "Section Break",
+   "label": "Instance Configuration"
+  },
+  {
+   "default": "Local",
+   "description": "Identifies the role of this site so Processa can behave appropriately per environment. \"Review Doctypes/Workflow\" is available only on a BA instance; \"Reassign User Task\" only on a Production instance.",
+   "fieldname": "instance_type",
+   "fieldtype": "Select",
+   "label": "Instance Type",
+   "options": "Local\nProduction\nStaging\nBA"
+  },
   {
    "fieldname": "section_break_1",
    "fieldtype": "Section Break",
@@ -61,39 +71,6 @@
    "fieldname": "connect_to_production",
    "fieldtype": "Check",
    "label": "Connect to Production"
-  },
-  {
-   "fieldname": "section_break_ba",
-   "fieldtype": "Section Break",
-   "label": "BA Site Configuration"
-  },
-  {
-   "default": "0",
-   "fieldname": "enable_ba_sync",
-   "fieldtype": "Check",
-   "label": "Enable BA Sync"
-  },
-  {
-   "depends_on": "eval:doc.enable_ba_sync==1",
-   "description": "Ex: https://ba.one-fm.com",
-   "fieldname": "ba_site_url",
-   "fieldtype": "Data",
-   "label": "BA Site URL",
-   "mandatory_depends_on": "eval:doc.enable_ba_sync==1"
-  },
-  {
-   "depends_on": "eval:doc.enable_ba_sync==1",
-   "fieldname": "ba_api_key",
-   "fieldtype": "Password",
-   "label": "BA API Key",
-   "mandatory_depends_on": "eval:doc.enable_ba_sync==1"
-  },
-  {
-   "depends_on": "eval:doc.enable_ba_sync==1",
-   "fieldname": "ba_api_secret",
-   "fieldtype": "Password",
-   "label": "BA API Secret",
-   "mandatory_depends_on": "eval:doc.enable_ba_sync==1"
   },
   {
    "collapsible": 1,
