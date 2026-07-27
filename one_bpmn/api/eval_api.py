@@ -533,11 +533,19 @@ def reassign_suite(suite: str, agent_configuration: str = None) -> str:
 
 
 @frappe.whitelist()
-def create_suite(title: str, process_model: str = None, agent_configuration: str = None, eval_type: str = "Direct") -> str:
+def create_suite(
+	title: str,
+	process_model: str = None,
+	agent_configuration: str = None,
+	eval_type: str = "Direct",
+	description: str = "",
+) -> str:
 	"""Create a new suite from the Evals page and assign it to an agent.
 	``process_model`` is optional (Direct suites may have none); when set it must
 	be one the current user owns (or SM) — WI-001749 / Q5. ``eval_type`` is Direct
-	(simple LLM call) or Agent (invoke the map)."""
+	(simple LLM call) or Agent (invoke the map). ``description`` records what the
+	suite covers, so a later reader — the Evals console or the AI Assistant
+	deciding whether an existing suite already fits — can tell suites apart."""
 	if process_model:
 		_assert_process_owned(process_model)
 
@@ -550,6 +558,7 @@ def create_suite(title: str, process_model: str = None, agent_configuration: str
 		"process_model": process_model or None,
 		"agent_configuration": agent_configuration or None,
 		"eval_type": eval_type if eval_type in ("Direct", "Agent") else "Direct",
+		"description": description or None,
 	})
 	doc.insert()
 	return doc.name
