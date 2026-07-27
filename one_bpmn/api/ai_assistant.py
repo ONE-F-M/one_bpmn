@@ -147,10 +147,25 @@ def recommend_ai_task_config(
 		diagram_block = digest["block"] if digest else ""
 		system_prompt = _build_selector_system_prompt()
 	else:
-		# WI-001623: the agent-mode system prompt is now sourced from the
-		# ai_agent_assistant AI Agent Configuration (single source of truth);
-		# the builder remains only as a fallback / the seed's source.
-		system_prompt = _assistant_system_prompt() or _build_system_prompt()
+		# WI-001623/WI-001649: the agent-mode persona is sourced ONLY from the
+		# ai_agent_assistant AI Agent Configuration — never a hardcoded
+		# fallback. A missing/blank record is an explicit, actionable error.
+		system_prompt = _assistant_system_prompt()
+		if not system_prompt:
+			return {
+				"ok": False,
+				"error_code": "ASSISTANT_NOT_CONFIGURED",
+				"message": _(
+					"The AI Assistant's agent configuration (agent_id "
+					"'ai_agent_assistant') is missing or has an empty system "
+					"prompt. Create or repair that AI Agent Configuration to "
+					"enable the assistant."
+				),
+			}
+		# WI-001649: teach the assistant how to propose creating a new agent —
+		# the prerequisites are assembled from live sources (doctype meta,
+		# validation rules, enabled providers), never written as prose here.
+		system_prompt += "\n\n" + _creation_capability_block()
 		# WI-001625: give the assistant the full diagram as read-only grounding
 		# so its recommendations reference the actual shapes around the task.
 		diagram_block = _build_full_diagram_block(bpmn_xml, element_id)
@@ -237,7 +252,19 @@ def recommend_ai_task_config(
 		if warnings:
 			message = (message + "\n\n" if message else "") + "\n".join(f"⚠️ {w}" for w in warnings)
 
-	return {"ok": True, "message": message, "recommendations": recommendations}
+	# WI-001649 (agent mode only): a proposed new-agent configuration. The
+	# model PROPOSES; the user confirms in the UI; only then does the frontend
+	# call create_agent_configuration — the model never writes documents.
+	proposed_config = None
+	if mode == "agent":
+		proposed_config = _sanitize_proposed_config(parsed.get("proposed_config"))
+
+	return {
+		"ok": True,
+		"message": message,
+		"recommendations": recommendations,
+		"proposed_config": proposed_config,
+	}
 
 
 def _catalog_for_mode(mode: str) -> dict:
@@ -302,12 +329,132 @@ def _build_system_prompt() -> str:
 		"conversation is multi-turn and prior turns are provided.\n"
 		"  - Only propose recommendations once the requirement is clear enough to "
 		"stand behind them.\n\n"
+		"CREATING NEW AGENTS:\n"
+		"  - You can also help the designer create a whole new AI Agent "
+		"Configuration — a reusable agent the task links to. The prerequisites "
+		"(required fields, validation rules, enabled providers, taken labels) are "
+		"supplied to you as live platform data, not from memory.\n"
+		"  - Gather every required detail conversationally — ask focused "
+		"questions for what is missing rather than guessing — and only propose "
+		"the agent once the details are complete, following the create-agent "
+		"response contract. The designer always confirms before anything is "
+		"created.\n\n"
 		"Respond with ONLY a single JSON object, no prose outside it, in this exact shape:\n"
 		'{\n'
 		'  "message": "<your recommendation summary, OR a clarifying question when unsure>",\n'
 		'  "recommendations": { "aiUserPrompt": "...", "aiOutputVariable": "...", ... }\n'
 		'}'
 	)
+
+
+def _creation_prerequisites_block() -> str:
+	"""WI-001649: the prerequisites for creating an AI Agent Configuration,
+	assembled from LIVE sources at call time — required fields from the
+	doctype meta, the creation endpoint's payload contract, the validation
+	rules kept next to validate_agent_config, the enabled provider records,
+	and the chat-mode labels already taken. Adding a required field to the
+	doctype (or a rule to the validator) updates what the assistant knows
+	with zero edits here.
+	"""
+	from one_bpmn.agents.agent_config_resolver import CREATE_PAYLOAD_CONTRACT
+	from one_bpmn.agents.agent_provisioning import VALIDATION_RULES
+
+	lines = ["PREREQUISITES FOR CREATING AN AI AGENT CONFIGURATION (live platform data):"]
+
+	try:
+		meta = frappe.get_meta("AI Agent Configuration")
+		reqd = [f"{f.fieldname} ({f.label})" for f in meta.fields if f.reqd]
+		if reqd:
+			lines.append("Required doctype fields: " + ", ".join(reqd))
+	except Exception:
+		pass
+
+	lines.append("Creation payload fields:")
+	lines.extend(f'  - "{field}": {desc}' for field, desc in CREATE_PAYLOAD_CONTRACT.items())
+
+	lines.append("Validation rules (checked by the creation process before go-live):")
+	lines.extend(f"  - {rule['field']}: {rule['rule']}" for rule in VALIDATION_RULES)
+
+	try:
+		providers = frappe.get_list(
+			"AI Provider Credentials",
+			filters={"enabled": 1},
+			fields=["name", "default_model"],
+			limit_page_length=50,
+		)
+		if providers:
+			lines.append(
+				"Enabled AI Provider Credentials (use these EXACT names): "
+				+ ", ".join(f"{p.name} (default model: {p.default_model or 'unset'})" for p in providers)
+			)
+		else:
+			lines.append("No enabled AI Provider Credentials are visible to this user.")
+	except Exception:
+		pass
+
+	try:
+		taken = frappe.get_list(
+			"AI Agent Configuration",
+			filters={"enabled": 1},
+			pluck="chat_mode_label",
+			limit_page_length=100,
+		)
+		taken = sorted({t for t in taken if t})
+		if taken:
+			lines.append("Chat mode labels already taken (the new one must differ): " + ", ".join(taken))
+	except Exception:
+		pass
+
+	return "\n".join(lines)
+
+
+def _creation_capability_block() -> str:
+	"""WI-001649: the response contract for proposing a new agent, plus the
+	live prerequisites data. This is interface plumbing (like the JSON shape
+	the recommendations contract defines) — the assistant's persona and
+	behavior live in its AI Agent Configuration record, not here.
+	"""
+	return (
+		_creation_prerequisites_block()
+		+ "\n\nCREATE-AGENT RESPONSE CONTRACT:\n"
+		"When the designer asks to create a NEW agent and every required detail "
+		"above has been gathered from the conversation, add a \"proposed_config\" "
+		"object to your JSON reply (alongside \"message\") using exactly the "
+		"creation payload fields. While anything required is still missing, ask "
+		"for it via \"message\" instead — do not guess values, do not invent "
+		"provider names, and never include \"proposed_config\" until the "
+		"proposal is complete. The designer confirms the proposal in the UI "
+		"before anything is created."
+	)
+
+
+_PROPOSAL_FIELDS = {
+	"agent_name", "agent_id", "chat_mode_label",
+	"ai_provider_credentials", "system_prompt", "description",
+}
+
+
+def _sanitize_proposed_config(proposed) -> dict | None:
+	"""Keep only the create-payload fields from a model proposal; normalize
+	sample prompts to {prompt, expected_behaviour} rows. None when there is
+	no usable proposal."""
+	if not isinstance(proposed, dict):
+		return None
+	clean = {
+		key: str(value)
+		for key, value in proposed.items()
+		if key in _PROPOSAL_FIELDS and isinstance(value, (str, int, float)) and str(value).strip()
+	}
+	samples = []
+	for row in proposed.get("sample_prompts") or []:
+		if isinstance(row, dict) and str(row.get("prompt") or "").strip():
+			samples.append({
+				"prompt": str(row["prompt"]),
+				"expected_behaviour": str(row.get("expected_behaviour") or ""),
+			})
+	if samples:
+		clean["sample_prompts"] = samples
+	return clean or None
 
 
 def _build_selector_system_prompt() -> str:
