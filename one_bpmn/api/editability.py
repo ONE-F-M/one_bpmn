@@ -20,17 +20,28 @@ SOURCE_BULK_CHECK = "one_bpmn.api.editability.bulk_check_process_editable"
 SOURCE_IMPLEMENTATIONS_EDITABLE = "one_bpmn.api.editability.check_implementations_editable"
 
 
-def _is_onefm_production() -> bool:
-	"""Return True if 'Is Production' is checked in ONEFM General Setting.
-
-	This is the **highest-priority** editability gate.  When checked, ALL
-	process models on this site are unconditionally read-only — even if
-	editable Process Implementations exist.
-	"""
+def get_instance_type() -> str:
+	"""Return Processa Settings → Instance Type ("Local" / "Production" /
+	"Staging" / "BA"), or "" if unset / unavailable."""
 	try:
-		return bool(frappe.db.get_single_value("ONEFM General Setting", "is_production"))
+		return frappe.db.get_single_value("Processa Settings", "instance_type") or ""
 	except Exception:
-		return False
+		return ""
+
+
+def _is_production_instance() -> bool:
+	"""Return True if Processa Settings → Instance Type is "Production".
+
+	This is the **highest-priority** editability gate.  When this site is
+	marked as a Production instance, ALL process models are unconditionally
+	read-only — even if editable Process Implementations exist.
+	"""
+	return get_instance_type() == "Production"
+
+
+def _is_ba_instance() -> bool:
+	"""Return True if Processa Settings → Instance Type is "BA"."""
+	return get_instance_type() == "BA"
 
 
 def _is_production_site() -> bool:
@@ -62,17 +73,17 @@ def _site_lock_override() -> dict | None:
 	Process Implementation check should run.
 
 	Priority chain:
-	  1. ONEFM General Setting → is_production   →  always read-only
+	  1. Processa Settings → Instance Type = "Production"  →  always read-only
 	  2. site_config.json → bypass_process_lock  →  always editable (dev)
 	  3. Processa Settings → connect_to_production + URL match → read-only
 	"""
-	if _is_onefm_production():
+	if _is_production_instance():
 		return {
 			"editable": False,
 			"process_implementation": None,
 			"workflow_state": None,
 			"override": True,
-			"reason": "This is a Production site (ONEFM General Setting). Process models are read-only.",
+			"reason": "This is a Production instance (Processa Settings → Instance Type). Process models are read-only.",
 		}
 
 	# Local dev bypass — set `"bypass_process_lock": true` in site_config.json
@@ -473,7 +484,7 @@ def check_process_editable(process_name: str) -> dict:
 	Check if a single process is editable.
 
 	Priority chain (first match wins):
-	  1. ONEFM General Setting → is_production  →  always read-only
+	  1. Processa Settings → Instance Type = "Production"  →  always read-only
 	  2. site_config.json  → bypass_process_lock →  always editable (dev)
 	  3. Process Implementation check — an editable (Active) implementation
 	     must exist for the process:

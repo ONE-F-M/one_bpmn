@@ -37,3 +37,8 @@ one_bpmn.one_bpmn.patches.v1_0.inline_logix_tool_scripts #23-07-2026
 one_bpmn.one_bpmn.patches.v1_0.add_logix_http_helper_guidance #23-07-2026
 one_bpmn.one_bpmn.patches.v1_0.migrate_prosally_agent_to_generic_path #23-07-2026
 one_bpmn.one_bpmn.patches.v1_0.inline_prosally_tool_scripts #23-07-2026
+one_bpmn.one_bpmn.patches.v1_0.migrate_docu_agent_to_generic_path #23-07-2026
+one_bpmn.one_bpmn.patches.v1_0.inline_docu_tool_scripts #23-07-2026
+one_bpmn.one_bpmn.patches.v1_0.change_process_implementation_to_data #24-07-2026
+one_bpmn.one_bpmn.patches.v1_0.fix_logix_http_helper_qualified_path #24-07-2026
+one_bpmn.one_bpmn.patches.v1_0.move_google_settings_to_processa #25-07-2026
