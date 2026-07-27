@@ -371,11 +371,16 @@ def update_eval_case(
 
 
 @frappe.whitelist()
-def get_run_review(run: str) -> dict:
+def get_run_review(run: str, baseline: str = None) -> dict:
 	"""Full result of one AI Eval Run for the run-review view (WI-001747):
 	summary, per-case results (status, actual output, parsed assertion results
-	incl. judge score/reasoning), and a per-case comparison to the previous
-	run of the same suite. Permission enforced via check_permission (owner/SM).
+	incl. judge score/reasoning), and a per-case comparison against earlier runs.
+	Permission enforced via check_permission (owner/SM).
+
+	``baseline`` optionally pins the comparison to one earlier finished run of the
+	same suite. Without it each case is compared against the most recent earlier
+	run that actually covered that case — necessary because subset runs
+	(WI-001746) mean consecutive runs frequently share no cases at all.
 	"""
 	doc = frappe.get_doc("AI Eval Run", run)
 	doc.check_permission("read")
@@ -415,33 +420,67 @@ def get_run_review(run: str) -> dict:
 			"assertions": frappe.parse_json(r.assertion_results) or [],
 		})
 
-	# Previous finished run of the same suite, for a per-case delta.
-	prev = frappe.get_all(
+	# Comparison baseline. Every finished run of the suite, oldest first, so the
+	# ordinal in each title is its real position and no per-run count query is
+	# needed.
+	history = frappe.get_all(
 		"AI Eval Run",
-		filters={
-			"suite": doc.suite,
-			"name": ["!=", doc.name],
-			"creation": ["<", doc.creation],
-			"status": ["in", ["Passed", "Failed"]],
-		},
+		filters={"suite": doc.suite, "status": ["in", ["Passed", "Failed"]]},
 		fields=["name", "started_at", "creation"],
-		order_by="creation desc",
-		limit_page_length=1,
+		order_by="creation asc",
+		limit_page_length=0,
 	)
+	titles = {
+		r["name"]: _run_title(suite_title, i + 1, r["started_at"])
+		for i, r in enumerate(history)
+	}
+	earlier = [r for r in history if r["creation"] < doc.creation and r["name"] != doc.name]
+
+	# Selectable baselines, newest first, for the run-vs-run picker.
+	baselines = [{"name": r["name"], "display_title": titles[r["name"]]} for r in reversed(earlier)]
+
+	# Which earlier runs to read statuses from. An explicit baseline compares
+	# against exactly that run; otherwise each case falls back to the most recent
+	# earlier run that actually COVERED it. Since WI-001746 allowed running a
+	# subset, consecutive runs often share no cases at all — comparing only
+	# against the immediately previous run then yields no deltas even though the
+	# case has plenty of history.
+	if baseline and baseline not in titles:
+		frappe.throw(_("Run '{0}' is not a finished run of this suite.").format(baseline))
+	scope = [r for r in earlier if r["name"] == baseline] if baseline else earlier
+
+	case_baselines = {}
+	by_run = {}
+	if scope and case_names:
+		for row in frappe.get_all(
+			"AI Eval Result",
+			filters={
+				"parenttype": "AI Eval Run",
+				"parent": ["in", [r["name"] for r in scope]],
+				"eval_case": ["in", case_names],
+			},
+			fields=["parent", "eval_case", "status"],
+		):
+			by_run.setdefault(row["parent"], {})[row["eval_case"]] = row["status"]
+		# Newest first, so the first run carrying a case wins.
+		for run in reversed(scope):
+			for case, status in by_run.get(run["name"], {}).items():
+				case_baselines.setdefault(case, {
+					"status": status,
+					"run": run["name"],
+					"run_title": titles[run["name"]],
+				})
+
+	# Kept for the header back-link: the immediately preceding run.
 	previous = None
-	if prev:
-		prev_name = prev[0]["name"]
-		prev_seq = frappe.db.count(
-			"AI Eval Run", {"suite": doc.suite, "creation": ["<=", prev[0]["creation"]]}
-		)
-		prev_status = {
-			row.eval_case: row.status
-			for row in frappe.get_doc("AI Eval Run", prev_name).results
-		}
+	if earlier:
+		last = earlier[-1]
 		previous = {
-			"name": prev_name,
-			"display_title": _run_title(suite_title, prev_seq, prev[0]["started_at"]),
-			"case_status": prev_status,
+			"name": last["name"],
+			"display_title": titles[last["name"]],
+			# Per-case statuses now come from case_baselines; retained so an
+			# older frontend build keeps working.
+			"case_status": by_run.get(last["name"], {}),
 		}
 
 	return {
@@ -461,6 +500,13 @@ def get_run_review(run: str) -> dict:
 		},
 		"results": results,
 		"previous": previous,
+		# Per-case comparison baseline: {case: {status, run, run_title}}. Each
+		# case is compared against the most recent earlier run that covered it,
+		# or against ``baseline`` when one was requested.
+		"case_baselines": case_baselines,
+		# Earlier finished runs of this suite, newest first, for the picker.
+		"baselines": baselines,
+		"baseline": baseline or None,
 	}
 
 

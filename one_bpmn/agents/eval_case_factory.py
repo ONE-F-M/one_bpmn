@@ -9,14 +9,79 @@ from frappe import _
 from frappe.utils import get_datetime
 
 
+def _assert_may_read_run(run_name: str):
+	"""A run's contents are visible to its process owner, or a System Manager.
+
+	AI Agent Run itself is System-Manager-only at the doctype level; this is the
+	narrower grant that lets a process owner work with their own runs without
+	opening every run on the platform to the role.
+	"""
+	from one_bpmn.agents.eval_permissions import _is_system_manager, _process_model_owned_by
+
+	user = frappe.session.user
+	if _is_system_manager(user):
+		return
+	process_model = frappe.db.get_value("AI Agent Run", run_name, "process_model")
+	if not (process_model and _process_model_owned_by(process_model, user)):
+		frappe.throw(
+			_("You can only work with runs of a process you own."),
+			frappe.PermissionError,
+		)
+
+
+def _assert_may_author_case(run_name: str, suite: str | None):
+	"""Gate the create-from-run path without widening access to AI Agent Run.
+
+	This action used to be only_for("System Manager") while the UI calling it —
+	the Evals "From run" dialog and the AI Agent Run desk buttons — was not
+	role-gated, so a Process Owner saw the button and got a PermissionError.
+
+	Two things have to hold for a non-System-Manager, and they are separate:
+
+	1. The DESTINATION. Permission on an eval case comes from its suite
+	   (eval_permissions: suite -> process_model -> Process.process_owner,
+	   falling back to the suite's owner), so writing the suite is the right
+	   test — the same one eval_api.create_eval_case applies. A case with NO
+	   suite has no anchor at all: nothing scopes it and the suite views cannot
+	   see it, so that stays System-Manager-only.
+
+	2. The SOURCE. AI Agent Run is readable only by System Manager, and it holds
+	   every prompt and response on the platform — so check_permission("read")
+	   would simply block process owners, and granting the role read on the
+	   doctype would expose far more than their own work. Instead a process
+	   owner is allowed through only for runs belonging to a process they own,
+	   reusing the same ownership chain. Runs with no process_model (a direct
+	   eval, or a run predating attribution) have nothing to scope on and stay
+	   System-Manager-only.
+	"""
+	from one_bpmn.agents.eval_permissions import _is_system_manager
+
+	if _is_system_manager(frappe.session.user):
+		return
+
+	if not suite:
+		frappe.throw(
+			_("Building a case from a run without choosing a suite requires the "
+			  "System Manager role. Pick a suite to add the case to."),
+			frappe.PermissionError,
+		)
+	frappe.get_doc("AI Eval Suite", suite).check_permission("write")
+	_assert_may_read_run(run_name)
+
+
 @frappe.whitelist()
 def get_run_steps_for_case_picker(run_name: str) -> list:
 	"""
 	Steps of a subprocess Run for the "which Step / which tool call" picker
 	(Scenario 2) — a subprocess Run has no single input/output the way a
 	plain task Run does.
+
+	Gated the same way as authoring the case itself, minus the suite: the picker
+	is opened from the Evals page by process owners who may never be System
+	Managers, but it exposes a run's full step content, so a process owner sees
+	it only for a process they own.
 	"""
-	frappe.only_for("System Manager")
+	_assert_may_read_run(run_name)
 
 	steps = frappe.get_all(
 		"AI Agent Step",
@@ -57,8 +122,11 @@ def create_eval_case_from_run(
 	Returns the new AI Eval Case name; source_run links back to the
 	originating Run (Scenario 4). No assertions are auto-generated beyond
 	the expected_output pre-fill.
+
+	Requires read on the run, plus write on ``suite`` when one is given —
+	System Manager only when it is not. See _assert_may_author_case.
 	"""
-	frappe.only_for("System Manager")
+	_assert_may_author_case(run_name, suite)
 
 	run = frappe.get_doc("AI Agent Run", run_name)
 	if run.status not in ("Success", "Error"):

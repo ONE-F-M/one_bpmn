@@ -14,13 +14,28 @@
 					</span>
 					<span class="text-xs text-gray-400">{{ run.backend }}</span>
 				</div>
-				<router-link
-					v-if="previous"
-					:to="`/processa/evals/run/${encodeURIComponent(previous.name)}`"
-					class="text-xs text-blue-600 hover:underline"
-				>
-					← {{ previous.display_title || previous.name }}
-				</router-link>
+				<div class="flex items-center gap-4">
+					<label v-if="baselines.length" class="flex items-center gap-2 text-xs text-gray-500">
+						Compare against
+						<select
+							v-model="baseline"
+							class="border rounded px-2 py-1 text-xs text-gray-700 bg-white"
+							@change="fetchReview"
+						>
+							<option value="">Most recent run of each case</option>
+							<option v-for="b in baselines" :key="b.name" :value="b.name">
+								{{ b.display_title }}
+							</option>
+						</select>
+					</label>
+					<router-link
+						v-if="previous"
+						:to="`/processa/evals/run/${encodeURIComponent(previous.name)}`"
+						class="text-xs text-blue-600 hover:underline"
+					>
+						← {{ previous.display_title || previous.name }}
+					</router-link>
+				</div>
 			</div>
 		</header>
 
@@ -61,7 +76,12 @@
 						<span class="inline-block px-2 py-0.5 rounded-full text-xs" :class="runPill(res.status)">
 							{{ res.status }}
 						</span>
-						<span v-if="delta(res)" class="text-xs" :class="delta(res).cls">{{ delta(res).label }}</span>
+						<span
+							v-if="delta(res)"
+							class="text-xs"
+							:class="delta(res).cls"
+							:title="delta(res).title"
+						>{{ delta(res).label }}</span>
 					</div>
 					<span class="text-xs text-gray-400">{{ res.tokens_used }} tok · ${{ (res.cost || 0).toFixed(4) }}</span>
 				</div>
@@ -128,6 +148,11 @@ const loading = ref(true)
 const run = ref({})
 const results = ref([])
 const previous = ref(null)
+const baselines = ref([])
+const caseBaselines = ref({})
+// "" = auto: compare each case against the most recent earlier run that covered
+// it. A run name pins every case to that one run instead.
+const baseline = ref("")
 
 function runPill(status) {
 	if (status === "Passed") return "bg-green-50 text-green-700"
@@ -136,25 +161,47 @@ function runPill(status) {
 	return "bg-gray-100 text-gray-500"
 }
 
+// An absent badge used to be ambiguous — "nothing changed" and "no earlier run
+// to compare against" looked identical. Every case now reports one or the other.
 function delta(res) {
-	const prev = previous.value?.case_status?.[res.eval_case]
-	if (!prev || prev === res.status) return null
-	if (res.status === "Passed" && prev === "Failed") return { label: "▲ improved", cls: "text-green-600" }
-	if (res.status === "Failed" && prev === "Passed") return { label: "▼ regressed", cls: "text-red-600" }
-	return { label: `was ${prev}`, cls: "text-gray-400" }
+	const base = caseBaselines.value?.[res.eval_case]
+	if (!base) {
+		return {
+			label: baseline.value ? "not in baseline run" : "no earlier run",
+			cls: "text-gray-400",
+			title: baseline.value
+				? "The selected baseline run did not cover this case."
+				: "This case has not run before, so there is nothing to compare against.",
+		}
+	}
+	const from = base.run_title || base.run
+	if (base.status === res.status) {
+		return { label: `unchanged vs ${from}`, cls: "text-gray-400", title: `Also ${base.status} in ${from}.` }
+	}
+	if (res.status === "Passed" && base.status === "Failed") {
+		return { label: `▲ improved vs ${from}`, cls: "text-green-600", title: `Was ${base.status} in ${from}.` }
+	}
+	if (res.status === "Failed" && base.status === "Passed") {
+		return { label: `▼ regressed vs ${from}`, cls: "text-red-600", title: `Was ${base.status} in ${from}.` }
+	}
+	return { label: `was ${base.status} in ${from}`, cls: "text-gray-400", title: "" }
 }
 
 async function fetchReview() {
 	loading.value = true
 	try {
+		const params = { run: runName }
+		if (baseline.value) params.baseline = baseline.value
 		const res = await frappeRequest({
 			url: "/api/method/one_bpmn.api.eval_api.get_run_review",
 			method: "GET",
-			params: { run: runName },
+			params,
 		})
 		run.value = res?.run || {}
 		results.value = res?.results || []
 		previous.value = res?.previous || null
+		baselines.value = res?.baselines || []
+		caseBaselines.value = res?.case_baselines || {}
 	} catch (e) {
 		console.error("Failed to load run review:", e)
 	} finally {
