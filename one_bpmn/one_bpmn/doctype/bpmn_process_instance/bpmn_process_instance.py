@@ -86,6 +86,7 @@ class BPMNProcessInstance(Document):
 		data = {
 			"context_doctype": self.context_doctype or "",
 			"context_docname": self.context_docname or "",
+			"process_model": self.process_model or "",
 		}
 
 		# ── Inject context doc fields into task data ───────────────────────────
