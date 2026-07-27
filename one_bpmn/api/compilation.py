@@ -1081,14 +1081,15 @@ def _lint_ai_provider_config(_bpmn_xml: str, service_extensions: dict) -> None:
 	"""
 	Compile-time lint for AI Agent Tasks:
 	1. Rejects raw API keys embedded in any spiffworkflow:ai* attribute.
-	2. Validates that referenced AI Provider records exist in the database.
+	2. Validates that referenced AI Provider Credentials records exist in the database.
 	"""
 	import re
 	_RAW_KEY_RE = re.compile(r"^(sk-|key-)", re.IGNORECASE)
 	_RAW_KEY_ATTR_NAMES = frozenset({"aiApiKey", "aiKey"})
 
 	for bpmn_id, task_cfg in (service_extensions or {}).items():
-		if task_cfg.get("serviceType") != "ai_agent":
+		service_type = task_cfg.get("serviceType")
+		if service_type not in ("ai_agent", "ai_task_selector"):
 			continue
 
 		for attr_name, attr_value in task_cfg.items():
@@ -1097,17 +1098,30 @@ def _lint_ai_provider_config(_bpmn_xml: str, service_extensions: dict) -> None:
 					_(
 						"Raw API keys must not appear in BPMN XML "
 						"(task '{0}', attribute '{1}'). "
-						"Use an AI Provider reference."
+						"Use an AI Provider Credentials reference."
 					).format(bpmn_id, attr_name),
 					exc=frappe.ValidationError,
 				)
 
 		provider_name = (task_cfg.get("aiProvider") or "").strip()
-		if provider_name and not frappe.db.exists("AI Provider", provider_name):
+
+		# An AI Task Selector is unusable without a provider — block the save
+		# outright (WI-001351 Scenario 4); a plain AI Agent Task may still be
+		# a work-in-progress draft, so only its non-empty reference is checked.
+		if service_type == "ai_task_selector" and not provider_name:
 			frappe.throw(
 				_(
-					"AI Provider '{0}' not found (task '{1}'). "
-					"Create it in the AI Provider list."
+					"AI Task Selector on '{0}' has no AI Provider Credentials configured. "
+					"Select a provider before saving."
+				).format(bpmn_id),
+				exc=frappe.ValidationError,
+			)
+
+		if provider_name and not frappe.db.exists("AI Provider Credentials", provider_name):
+			frappe.throw(
+				_(
+					"AI Provider Credentials '{0}' not found (task '{1}'). "
+					"Create it in the AI Provider Credentials list."
 				).format(provider_name, bpmn_id),
 				exc=frappe.ValidationError,
 			)

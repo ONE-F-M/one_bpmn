@@ -127,6 +127,22 @@ def _delegate_to_bpmn_instance(conversation_name: str, message: str, context: di
 	return result
 
 
+def delegate_chat_turn(conversation_name: str, message: str, context: dict = None):
+	"""Public entry point for other apps (e.g. the Lumina Desk page in onefm_mcp)
+	to hand a chat turn to the BPMN Process Instance driving a conversation.
+
+	Delivers ``ChatConversation_Message_Action`` to the instance parked at its
+	"Waiting for User Message" gateway and returns the result the map produced
+	(``response`` plus ``bpmn_driven=True``). Returns ``None`` when no instance
+	is driving the conversation, so callers can fall back to their own pipeline.
+
+	Pass ``context["message_name"]`` when the caller already persisted the user
+	Chat Message — the map's "Save User Message" task then reuses it instead of
+	inserting a duplicate.
+	"""
+	return _delegate_to_bpmn_instance(conversation_name, message, context or {})
+
+
 @frappe.whitelist()
 def create_server_script(
 	script_name: str,

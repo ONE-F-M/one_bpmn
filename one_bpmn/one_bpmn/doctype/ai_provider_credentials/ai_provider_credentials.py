@@ -10,7 +10,7 @@ from frappe import _
 from frappe.model.document import Document
 
 
-class AIProvider(Document):
+class AIProviderCredentials(Document):
     # begin: auto-generated types
     # This code is auto-generated. Do not modify anything in this block.
 
@@ -33,20 +33,20 @@ class AIProvider(Document):
 def test_connection(provider_name: str) -> dict:
 	"""
 	Make a minimal live call to the provider to verify its stored credentials
-	and endpoint. Backs the "Test Connection" button on the AI Provider form.
+	and endpoint. Backs the "Test Connection" button on the AI Provider Credentials form.
 
-	Reading an AI Provider (and decrypting its key) is restricted to System
+	Reading an AI Provider Credentials (and decrypting its key) is restricted to System
 	Manager, so we load the doc with permission checks and confirm read access
 	before doing anything sensitive.
 	"""
-	provider = frappe.get_doc("AI Provider", provider_name)
+	provider = frappe.get_doc("AI Provider Credentials", provider_name)
 	provider.check_permission("read")
 
 	if not provider.enabled:
 		return {
 			"ok": False,
 			"error_code": "PROVIDER_DISABLED",
-			"message": _("This AI Provider is disabled. Enable it before testing."),
+			"message": _("This AI Provider Credentials is disabled. Enable it before testing."),
 		}
 
 	from one_bpmn.agents.executor import ErrorCode, ExecutorConfig, ExecutorContext
