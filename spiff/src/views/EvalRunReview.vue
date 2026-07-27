@@ -20,13 +20,15 @@
 						<select
 							v-model="baseline"
 							class="border rounded px-2 py-1 text-xs text-gray-700 bg-white"
-							@change="fetchReview"
+							:disabled="comparing"
+							@change="fetchReview({ keepContent: true })"
 						>
 							<option value="">Most recent run of each case</option>
 							<option v-for="b in baselines" :key="b.name" :value="b.name">
 								{{ b.display_title }}
 							</option>
 						</select>
+						<span v-if="comparing" class="text-gray-400">comparing…</span>
 					</label>
 					<router-link
 						v-if="previous"
@@ -62,6 +64,27 @@
 					<div class="text-xs text-gray-500 uppercase tracking-wide font-medium">Cost</div>
 					<div class="text-2xl font-bold text-gray-900">${{ (run.total_cost ?? 0).toFixed(4) }}</div>
 				</div>
+			</div>
+
+			<!-- Comparison summary. Stated explicitly so that "nothing changed" is
+			     a visible answer rather than an absence of one. -->
+			<div
+				v-if="baselines.length && !loading"
+				class="bg-white rounded-lg shadow-sm px-6 py-3 flex items-center gap-4 text-sm"
+			>
+				<span class="text-xs uppercase tracking-wide text-gray-500 font-medium">
+					vs {{ baseline ? baselineTitle : "most recent run of each case" }}
+				</span>
+				<span v-if="comparison.improved" class="text-green-600">▲ {{ comparison.improved }} improved</span>
+				<span v-if="comparison.regressed" class="text-red-600">▼ {{ comparison.regressed }} regressed</span>
+				<span v-if="comparison.unchanged" class="text-gray-500">{{ comparison.unchanged }} unchanged</span>
+				<span v-if="comparison.missing" class="text-gray-400">
+					{{ comparison.missing }} with no baseline
+				</span>
+				<span
+					v-if="!comparison.improved && !comparison.regressed && comparison.unchanged"
+					class="text-gray-400 text-xs"
+				>· no change in any case</span>
 			</div>
 
 			<div v-if="loading" class="bg-white rounded-lg shadow-sm p-6 space-y-3 animate-pulse">
@@ -136,7 +159,7 @@
 </template>
 
 <script setup>
-import { ref, onMounted } from "vue"
+import { ref, computed, onMounted } from "vue"
 import { useRoute } from "vue-router"
 import { frappeRequest } from "frappe-ui"
 import { Icon } from "@iconify/vue"
@@ -145,6 +168,9 @@ const route = useRoute()
 const runName = route.params.run
 
 const loading = ref(true)
+// Changing the baseline re-fetches, but blanking the page to a skeleton for it
+// made a correct "nothing changed" answer look like a failed reload.
+const comparing = ref(false)
 const run = ref({})
 const results = ref([])
 const previous = ref(null)
@@ -187,8 +213,29 @@ function delta(res) {
 	return { label: `was ${base.status} in ${from}`, cls: "text-gray-400", title: "" }
 }
 
-async function fetchReview() {
-	loading.value = true
+// Summary of the comparison, so choosing a baseline always changes something
+// visible. Without it the only feedback was muted text beside each case, which
+// on a suite whose results never varied looked like the picker doing nothing.
+const baselineTitle = computed(
+	() => baselines.value.find((b) => b.name === baseline.value)?.display_title || baseline.value
+)
+
+const comparison = computed(() => {
+	let improved = 0, regressed = 0, unchanged = 0, missing = 0
+	for (const res of results.value) {
+		const base = caseBaselines.value?.[res.eval_case]
+		if (!base) missing += 1
+		else if (base.status === res.status) unchanged += 1
+		else if (res.status === "Passed") improved += 1
+		else if (res.status === "Failed") regressed += 1
+		else unchanged += 1
+	}
+	return { improved, regressed, unchanged, missing, total: results.value.length }
+})
+
+async function fetchReview({ keepContent = false } = {}) {
+	if (keepContent) comparing.value = true
+	else loading.value = true
 	try {
 		const params = { run: runName }
 		if (baseline.value) params.baseline = baseline.value
@@ -206,8 +253,9 @@ async function fetchReview() {
 		console.error("Failed to load run review:", e)
 	} finally {
 		loading.value = false
+		comparing.value = false
 	}
 }
 
-onMounted(fetchReview)
+onMounted(() => fetchReview())
 </script>
