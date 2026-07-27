@@ -28,3 +28,4 @@ one_bpmn.one_bpmn.patches.v1_0.optimize_logix_generated_scripts #16-07-2026
 one_bpmn.one_bpmn.patches.v1_0.create_process_implementations_from_pathfinder_logs #16-07-2026
 one_bpmn.one_bpmn.patches.v1_0.remove_schema_sync_doctypes #19-07-2026
 one_bpmn.one_bpmn.patches.v1_0.change_process_implementation_to_data #24-07-2026
+one_bpmn.one_bpmn.patches.v1_0.seed_processa_instance_type #27-07-2026
