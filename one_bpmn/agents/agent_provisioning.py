@@ -214,7 +214,8 @@ def _run_baseline_eval(suite_name: str) -> bool | None:
 
 def generate_eval_suite_for_agent(config_name: str) -> str | None:
 	"""Create (or refresh) a baseline AI Eval Suite from the agent's sample
-	prompts and link it on the configuration (WI-001609).
+	prompts, linking the suite back to the configuration (WI-001609; the
+	link now lives on the suite per WI-001743).
 
 	One eval case per sample prompt: the agent's system prompt + credentials,
 	the sample's text as the user prompt, and — when the sample declares an
@@ -235,11 +236,15 @@ def generate_eval_suite_for_agent(config_name: str) -> str | None:
 		suite = frappe.get_doc("AI Eval Suite", suite_title)
 		for case in frappe.get_all("AI Eval Case", filters={"suite": suite.name}, pluck="name"):
 			frappe.delete_doc("AI Eval Case", case, force=True, ignore_permissions=True)
+		# WI-001743: the suite owns the link back to its agent.
+		if suite.agent_configuration != cfg.name:
+			suite.db_set("agent_configuration", cfg.name, update_modified=False)
 	else:
 		suite = frappe.get_doc({
 			"doctype": "AI Eval Suite",
 			"title": suite_title,
 			"process_model": cfg.process_model or None,
+			"agent_configuration": cfg.name,
 			"description": _("Baseline suite generated from {0}'s sample prompts.").format(cfg.agent_name),
 		}).insert(ignore_permissions=True)
 
@@ -272,8 +277,6 @@ def generate_eval_suite_for_agent(config_name: str) -> str | None:
 			})
 		case.insert(ignore_permissions=True)
 
-	if cfg.eval_suite != suite.name:
-		cfg.db_set("eval_suite", suite.name, update_modified=False)
 	frappe.db.commit()
 	return suite.name
 

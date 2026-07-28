@@ -38,7 +38,6 @@
   "chat_description",
   "allowed_roles",
   "evaluation_section",
-  "eval_suite",
   "sample_prompts",
   "needs_attention_reason"
  ],
@@ -262,12 +261,6 @@
    "fieldname": "evaluation_section",
    "fieldtype": "Section Break",
    "label": "Evaluation"
-  },
-  {
-   "fieldname": "eval_suite",
-   "fieldtype": "Link",
-   "label": "Evaluation Suite",
-   "options": "AI Eval Suite"
   },
   {
    "description": "Baseline evaluation cases are generated from these.",
