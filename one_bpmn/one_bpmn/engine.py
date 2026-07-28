@@ -277,7 +277,10 @@ class FrappeScriptEngine(PythonScriptEngine):
 		  1. Validates the script content for forbidden permission-bypass patterns
 		  2. Switches frappe.session.user to self._initiated_by so the script
 		     runs with that user's permission context (ignore_permissions=False)
-		  3. Restores the original session user after execution
+		     — but only when it actually differs from the current user, and it
+		     snapshots/restores the full session so an inline (web-request) run
+		     never corrupts the caller's browser session
+		  3. Restores the original session user (and sid/data) after execution
 
 		For timer-triggered instances _initiated_by is "Administrator".
 		For user-triggered instances it is the user who started the process.
@@ -296,9 +299,22 @@ class FrappeScriptEngine(PythonScriptEngine):
 		if not server_script_name:
 			_check_script_permissions(script, f"bpmn:{bpmn_id}")
 
+		# frappe.set_user() rewrites session.sid and WIPES session.data. When a
+		# script task runs INLINE inside a web request (user submits/approves a
+		# BPMN-driven document), that guts the caller's browser session and the
+		# next request fails with "User None is disabled". So:
+		#   - skip the switch entirely when we already run as the target user
+		#     (the common inline case — session is never touched), and
+		#   - for a genuine switch, snapshot sid+data and restore them in the
+		#     finally so end-of-request persistence keeps the real session.
+		# Same hazard the trigger.py inline-start path guards against.
 		original_user = _frappe.session.user
+		need_switch = bool(self._initiated_by) and self._initiated_by != original_user
+		saved_sid = _frappe.session.sid
+		saved_data = _frappe.session.data
 		try:
-			_frappe.set_user(self._initiated_by)
+			if need_switch:
+				_frappe.set_user(self._initiated_by)
 			_frappe.flags.ignore_permissions = False
 
 			if server_script_name:
@@ -306,7 +322,12 @@ class FrappeScriptEngine(PythonScriptEngine):
 			else:
 				super().execute(task, script, **kwargs)
 		finally:
-			_frappe.set_user(original_user)
+			if need_switch:
+				_frappe.set_user(original_user)
+				# set_user() gutted session.sid/.data above — put the real
+				# browser session back so it is not persisted as userless.
+				_frappe.session.sid = saved_sid
+				_frappe.session.data = saved_data
 			_frappe.flags.ignore_permissions = False
 
 	def _run_frappe_server_script(self, script_name: str, task) -> None:

@@ -95,6 +95,8 @@ def recommend_ai_task_config(
 	element_id: str = "",
 	current_config: str = "{}",
 	process_model: str = "",
+	linked_config: str = "",
+	conversation: str = "",
 ) -> dict:
 	"""Return assistant recommendations for an AI Agent Task's configuration.
 
@@ -122,9 +124,12 @@ def recommend_ai_task_config(
 	if frappe.session.user == "Guest":
 		frappe.throw(_("You must be logged in to use the assistant."))
 
-	# WI-001623: fall back to the AI Assistant configuration's linked
-	# credentials so the modal no longer has to supply one.
-	provider = provider or _assistant_default_provider()
+	# WI-001623: the assistant runs on ITS OWN configuration's credentials,
+	# not the task's. The task's provider is only the fallback for sites
+	# without an ai_agent_assistant record. (Previously the task's provider
+	# won — so a task linked to broken credentials broke the very assistant
+	# meant to help fix them.)
+	provider = _assistant_default_provider() or provider
 	if not provider:
 		frappe.throw(_("Select an AI Provider Credentials before using the assistant."))
 
@@ -147,13 +152,76 @@ def recommend_ai_task_config(
 		diagram_block = digest["block"] if digest else ""
 		system_prompt = _build_selector_system_prompt()
 	else:
-		# WI-001623: the agent-mode system prompt is now sourced from the
-		# ai_agent_assistant AI Agent Configuration (single source of truth);
-		# the builder remains only as a fallback / the seed's source.
-		system_prompt = _assistant_system_prompt() or _build_system_prompt()
-		# WI-001625: give the assistant the full diagram as read-only grounding
-		# so its recommendations reference the actual shapes around the task.
-		diagram_block = _build_full_diagram_block(bpmn_xml, element_id)
+		# WI-001623 full parity: an agent-mode turn IS a chat-platform turn.
+		# It runs through the generic invocation on the assistant's own chat
+		# map — so it persists as a Chat Conversation + Chat Messages, its
+		# LLM call is an AI Agent Run attributed to the assistant, and the
+		# map instance is inspectable on Processa like any other process.
+		# The dialog's grounding rides as per-turn context (the map's user
+		# prompt renders {{ dialog_context }}); the persona comes from the
+		# assistant's configuration as always.
+		if not _assistant_system_prompt():
+			return {
+				"ok": False,
+				"error_code": "ASSISTANT_NOT_CONFIGURED",
+				"message": _(
+					"The AI Assistant's agent configuration (agent_id "
+					"'ai_agent_assistant') is missing or has an empty system "
+					"prompt. Create or repair that AI Agent Configuration to "
+					"enable the assistant."
+				),
+			}
+		dialog_context_parts = [
+			_creation_capability_block(),
+			_linked_config_block(linked_config),
+			_build_full_diagram_block(bpmn_xml, element_id),
+			context_block,
+			_build_current_config_block(current_config, catalog),
+		]
+		dialog_context = "\n\n".join(p for p in dialog_context_parts if p)
+
+		from one_bpmn.api.agent_invocation import invoke_agent
+
+		try:
+			turn = invoke_agent(
+				agent_id="ai_agent_assistant",
+				message=requirement.strip(),
+				conversation=conversation or None,
+				context={"dialog_context": dialog_context, "source": "task_dialog"},
+			)
+		except frappe.ValidationError as exc:
+			return {
+				"ok": False,
+				"error_code": "ASSISTANT_PROCESS_NOT_RUNNING",
+				"message": str(exc),
+			}
+
+		raw = (turn or {}).get("response") or ""
+		parsed = _extract_json(raw if isinstance(raw, str) else json.dumps(raw))
+		if not isinstance(parsed, dict):
+			return {
+				"ok": True,
+				"message": raw or _("No recommendation returned."),
+				"recommendations": {},
+				"conversation": (turn or {}).get("conversation"),
+			}
+		message = str(parsed.get("message", "")).strip() or (
+			raw if not parsed.get("recommendations") else ""
+		)
+		recommendations = {
+			key: value
+			for key, value in (parsed.get("recommendations") or {}).items()
+			if key in catalog and value not in (None, "")
+		}
+		return {
+			"ok": True,
+			"message": message,
+			"recommendations": recommendations,
+			"proposed_config": _sanitize_proposed_config(parsed.get("proposed_config")),
+			"proposed_update": _sanitize_proposed_update(parsed.get("proposed_update")),
+			"conversation": (turn or {}).get("conversation"),
+		}
+
 	user_prompt = _build_user_prompt(
 		requirement,
 		turns,
@@ -180,7 +248,7 @@ def recommend_ai_task_config(
 	config = ExecutorConfig(
 		backend=backend,
 		provider_name=provider,
-		model="",  # blank -> provider's default_model
+		model=_assistant_default_model(),  # the assistant's own catalog pick (WI-001655)
 		system_prompt=system_prompt,
 		user_prompt=user_prompt,
 		temperature=0.3,
@@ -237,7 +305,22 @@ def recommend_ai_task_config(
 		if warnings:
 			message = (message + "\n\n" if message else "") + "\n".join(f"⚠️ {w}" for w in warnings)
 
-	return {"ok": True, "message": message, "recommendations": recommendations}
+	# WI-001649 (agent mode only): proposed new-agent creation and proposed
+	# updates to an existing agent. The model PROPOSES; the user confirms in
+	# the UI; only then does the frontend call the (permission-checked)
+	# endpoint — the model never writes documents.
+	proposed_config = proposed_update = None
+	if mode == "agent":
+		proposed_config = _sanitize_proposed_config(parsed.get("proposed_config"))
+		proposed_update = _sanitize_proposed_update(parsed.get("proposed_update"))
+
+	return {
+		"ok": True,
+		"message": message,
+		"recommendations": recommendations,
+		"proposed_config": proposed_config,
+		"proposed_update": proposed_update,
+	}
 
 
 def _catalog_for_mode(mode: str) -> dict:
@@ -257,6 +340,16 @@ def _assistant_system_prompt() -> str:
 
 		cfg = get_agent_config("ai_agent_assistant")
 		return (cfg or {}).get("system_prompt") or ""
+	except Exception:
+		return ""
+
+
+def _assistant_default_model() -> str:
+	"""The AI Model the assistant's own configuration picks (WI-001655)."""
+	try:
+		from one_bpmn.one_bpmn.doctype.ai_agent_configuration.ai_agent_configuration import get_agent_config
+
+		return (get_agent_config("ai_agent_assistant") or {}).get("ai_model") or ""
 	except Exception:
 		return ""
 
@@ -282,6 +375,15 @@ def _build_system_prompt() -> str:
 		"process instance) and {{ frappe }}. The task stores the model's reply in a "
 		"process variable named by aiOutputVariable, which downstream gateways and "
 		"script tasks can read.\n\n"
+		"YOUR TOOLBOX:\n"
+		"You have callable tools (platform lookups: records, counts, schemas, "
+		"reports, wiki — and 'add_agent_evals' to attach evaluation cases to an "
+		"AI Agent Configuration and refresh its baseline suite). USE a tool for "
+		"any platform fact you cannot know from the conversation alone — never "
+		"invent record names, counts or field values. When the designer asks to "
+		"add tests/evals to an agent, call add_agent_evals with the agent's "
+		"exact record name and the cases. After a new agent is created, offer "
+		"to add evals for it.\n\n"
 		"Based on the designer's requirement (and any DocType schema / sample record "
 		"provided), recommend values for these fields:\n"
 		f"{field_lines}\n\n"
@@ -302,12 +404,251 @@ def _build_system_prompt() -> str:
 		"conversation is multi-turn and prior turns are provided.\n"
 		"  - Only propose recommendations once the requirement is clear enough to "
 		"stand behind them.\n\n"
-		"Respond with ONLY a single JSON object, no prose outside it, in this exact shape:\n"
-		'{\n'
-		'  "message": "<your recommendation summary, OR a clarifying question when unsure>",\n'
-		'  "recommendations": { "aiUserPrompt": "...", "aiOutputVariable": "...", ... }\n'
-		'}'
+		"CREATING NEW AGENTS:\n"
+		"  - You can also help the designer create a whole new AI Agent "
+		"Configuration — a reusable agent the task links to. The prerequisites "
+		"(required fields, validation rules, enabled providers, taken labels) are "
+		"supplied to you as live platform data, not from memory.\n"
+		"  - Gather every required detail conversationally — ask focused "
+		"questions for what is missing rather than guessing — and only propose "
+		"the agent once the details are complete, following the create-agent "
+		"response contract. The designer always confirms before anything is "
+		"created.\n\n"
+		"UPDATING EXISTING AGENTS:\n"
+		"  - You can also propose changes to an existing AI Agent Configuration "
+		"(provider, prompt, sampling params) following the update-agent response "
+		"contract. When the task already links a configuration, treat it as the "
+		"target unless told otherwise — do not interrogate the designer about "
+		"which record they mean. The designer always confirms before anything "
+		"is applied; never claim a change was made.\n\n"
+		"REPLY FORMAT (WI-001623 — you serve two surfaces):\n"
+		"  - When the request carries PLATFORM CONTEXT blocks (task-dialog "
+		"turns), the CONTENT of your reply must be exactly one JSON object, no "
+		"prose outside it:\n"
+		'    { "message": "<summary, or clarifying question when unsure>",\n'
+		'      "recommendations": { "aiUserPrompt": "...", ... } }\n'
+		"    plus \"proposed_config\" / \"proposed_update\" when their contracts "
+		"apply.\n"
+		"  - In ordinary chat (no platform context), reply as plain, helpful "
+		"conversational text — never raw JSON.\n"
+		"  - Either way, if the message specifies an OUTPUT PROTOCOL wrapper, "
+		"obey it exactly and place the reply above inside it."
 	)
+
+
+def _creation_prerequisites_block() -> str:
+	"""WI-001649: the prerequisites for creating an AI Agent Configuration,
+	assembled from LIVE sources at call time — required fields from the
+	doctype meta, the creation endpoint's payload contract, the validation
+	rules kept next to validate_agent_config, the enabled provider records,
+	and the chat-mode labels already taken. Adding a required field to the
+	doctype (or a rule to the validator) updates what the assistant knows
+	with zero edits here.
+	"""
+	from one_bpmn.agents.agent_config_resolver import CREATE_PAYLOAD_CONTRACT
+	from one_bpmn.agents.agent_provisioning import VALIDATION_RULES
+
+	lines = ["PREREQUISITES FOR CREATING AN AI AGENT CONFIGURATION (live platform data):"]
+
+	try:
+		meta = frappe.get_meta("AI Agent Configuration")
+		reqd = [f"{f.fieldname} ({f.label})" for f in meta.fields if f.reqd]
+		if reqd:
+			lines.append("Required doctype fields: " + ", ".join(reqd))
+	except Exception:
+		pass
+
+	lines.append("Creation payload fields:")
+	lines.extend(f'  - "{field}": {desc}' for field, desc in CREATE_PAYLOAD_CONTRACT.items())
+
+	lines.append("Validation rules (checked by the creation process before go-live):")
+	lines.extend(f"  - {rule['field']}: {rule['rule']}" for rule in VALIDATION_RULES)
+
+	try:
+		# WI-001655: the agent's LLM choice is a MODEL pick from the catalog;
+		# the provider follows from the model's credentials link.
+		models = frappe.get_list(
+			"AI Model",
+			fields=["name", "ai_provider_credentials"],
+			limit_page_length=100,
+			order_by="name asc",
+		)
+		enabled = set(frappe.get_list(
+			"AI Provider Credentials", filters={"enabled": 1}, pluck="name", limit_page_length=50,
+		))
+		usable = [m for m in models if m.ai_provider_credentials in enabled]
+		if usable:
+			lines.append(
+				"AI Model catalog (use these EXACT names for ai_model / aiModel; "
+				"the provider follows from the model): "
+				+ ", ".join(f"{m.name} (via {m.ai_provider_credentials})" for m in usable)
+			)
+		else:
+			lines.append("No usable AI Model catalog records (none link enabled credentials).")
+	except Exception:
+		pass
+
+	try:
+		rows = frappe.get_list(
+			"AI Agent Configuration",
+			fields=["name", "agent_id", "chat_mode_label"],
+			limit_page_length=200,
+		)
+		labels = sorted({r.chat_mode_label for r in rows if r.chat_mode_label})
+		if labels:
+			lines.append("Chat mode labels already taken (a new one must differ): " + ", ".join(labels))
+		existing = sorted({f"{r.name} (agent_id: {r.agent_id})" for r in rows})
+		if existing:
+			lines.append(
+				"Agents that ALREADY EXIST — never propose creating one of these; "
+				"propose an update to it instead: " + "; ".join(existing)
+			)
+	except Exception:
+		pass
+
+	return "\n".join(lines)
+
+
+def _creation_capability_block() -> str:
+	"""WI-001649: the response contract for proposing a new agent, plus the
+	live prerequisites data. This is interface plumbing (like the JSON shape
+	the recommendations contract defines) — the assistant's persona and
+	behavior live in its AI Agent Configuration record, not here.
+	"""
+	return (
+		_creation_prerequisites_block()
+		+ "\n\nCREATE-AGENT RESPONSE CONTRACT:\n"
+		"When the designer asks to create a NEW agent and every required detail "
+		"above has been gathered from the conversation, add a \"proposed_config\" "
+		"object to your JSON reply (alongside \"message\") using exactly the "
+		"creation payload fields. While anything required is still missing, ask "
+		"for it via \"message\" instead — do not guess values, do not invent "
+		"provider names, and never include \"proposed_config\" until the "
+		"proposal is complete. The designer confirms the proposal in the UI "
+		"before anything is created.\n\n"
+		"UPDATE-AGENT RESPONSE CONTRACT:\n"
+		"When the designer asks to CHANGE an existing AI Agent Configuration, "
+		"add a \"proposed_update\" object to your JSON reply (alongside "
+		"\"message\"): {\"config_name\": \"<exact record name>\", \"fields\": "
+		"{...}} where fields may only contain \"aiModel\" (an EXACT AI Model "
+		"catalog name from the list above — the agent's provider follows from "
+		"the model automatically), \"aiSystemPrompt\", \"aiTemperature\" and/or "
+		"\"aiMaxTokens\". There is no direct provider change: to change the "
+		"provider, change the model. Include ONLY the fields being changed. "
+		"When the conversation refers to \"this agent\" or \"the "
+		"configuration\", it means the LINKED AGENT CONFIGURATION context below "
+		"when present; ask only if genuinely ambiguous. The designer confirms "
+		"the proposal in the UI before anything is applied.\n\n"
+		"CAPABILITY LIMITS (hard, non-negotiable):\n"
+		"You cannot write to ANY record yourself. Your only side-effect paths "
+		"are \"proposed_config\" and \"proposed_update\", both of which take "
+		"effect only after the designer confirms them in the UI. Changes outside "
+		"the updatable fields above (agent id, chat mode label, enabled, "
+		"lifecycle, roles…) must be made on the record in the desk — say so. "
+		"NEVER state or imply that you performed an action — reporting an "
+		"update you did not make is the worst possible answer.\n\n"
+		"ROUTING RULES:\n"
+		"- The USER PROMPT is a property of the TASK SHAPE, not of an agent "
+		"configuration (agents have no user prompt). A request to write or "
+		"change the User Prompt is answered with an ordinary field "
+		"recommendation (\"recommendations\": {\"aiUserPrompt\": ...}) — never "
+		"with proposed_config or proposed_update.\n"
+		"- Once an agent has been created in this conversation, follow-up "
+		"requests refine THAT agent (proposed_update) or the task's own fields "
+		"(recommendations) — do not propose creating it again. Creating an "
+		"agent whose name or agent_id already exists always fails."
+	)
+
+
+def _linked_config_block(linked_config: str) -> str:
+	"""Live context about the task's linked AI Agent Configuration, so a
+	request like 'change this agent's provider' needs no interrogation."""
+	if not linked_config or not frappe.db.exists("AI Agent Configuration", linked_config):
+		return ""
+	if not frappe.has_permission("AI Agent Configuration", "read"):
+		return ""
+	cfg = frappe.db.get_value(
+		"AI Agent Configuration", linked_config,
+		["name", "agent_id", "agent_type", "lifecycle_status", "ai_model", "ai_provider_credentials", "chat_mode_label"],
+		as_dict=True,
+	)
+	return (
+		"LINKED AGENT CONFIGURATION (this task's — the default target for "
+		"update requests):\n"
+		f"  name: {cfg.name}\n"
+		f"  agent_id: {cfg.agent_id}\n"
+		f"  type: {cfg.agent_type} | lifecycle: {cfg.lifecycle_status}\n"
+		f"  model: {cfg.ai_model or '(none)'} | provider (derived): {cfg.ai_provider_credentials or '(none)'}\n"
+		f"  chat mode label: {cfg.chat_mode_label or '(none)'}"
+	)
+
+
+# Shape-attribute fields the assistant may propose changing on an existing
+# configuration — exactly what update_agent_config_from_shape accepts.
+# WI-001655: the MODEL is the updatable pick (validated against the AI Model
+# catalog); aiProvider is gone — the provider follows the model.
+_UPDATABLE_FIELDS = {"aiModel", "aiSystemPrompt", "aiTemperature", "aiMaxTokens"}
+
+
+def _sanitize_proposed_update(proposed) -> dict | None:
+	"""Keep only a valid update proposal: an existing config plus allowlisted
+	fields. None when there is nothing usable."""
+	if not isinstance(proposed, dict):
+		return None
+	config_name = str(proposed.get("config_name") or "").strip()
+	if not config_name or not frappe.db.exists("AI Agent Configuration", config_name):
+		return None
+	fields = proposed.get("fields")
+	if not isinstance(fields, dict):
+		return None
+	clean = {
+		key: value
+		for key, value in fields.items()
+		if key in _UPDATABLE_FIELDS and isinstance(value, (str, int, float)) and str(value).strip()
+	}
+	# WI-001655: a model must be a real catalog record — drop hallucinated ones
+	# so the Apply card can never be doomed to a link-validation error.
+	if "aiModel" in clean and not frappe.db.exists("AI Model", str(clean["aiModel"])):
+		clean.pop("aiModel")
+	if not clean:
+		return None
+	return {"config_name": config_name, "fields": clean}
+
+
+_PROPOSAL_FIELDS = {
+	"agent_name", "agent_id", "chat_mode_label",
+	"ai_model", "system_prompt", "description",
+}
+
+
+def _sanitize_proposed_config(proposed) -> dict | None:
+	"""Keep only the create-payload fields from a model proposal; normalize
+	sample prompts to {prompt, expected_behaviour} rows. None when there is
+	no usable proposal — including a proposal to create an agent that already
+	exists (Create & link would only ever fail with a duplicate error)."""
+	if not isinstance(proposed, dict):
+		return None
+	agent_name = str(proposed.get("agent_name") or "").strip()
+	agent_id = str(proposed.get("agent_id") or "").strip() or (frappe.scrub(agent_name) if agent_name else "")
+	if agent_name and frappe.db.exists("AI Agent Configuration", {"agent_name": agent_name}):
+		return None
+	if agent_id and frappe.db.exists("AI Agent Configuration", {"agent_id": agent_id}):
+		return None
+	clean = {
+		key: str(value)
+		for key, value in proposed.items()
+		if key in _PROPOSAL_FIELDS and isinstance(value, (str, int, float)) and str(value).strip()
+	}
+	samples = []
+	for row in proposed.get("sample_prompts") or []:
+		if isinstance(row, dict) and str(row.get("prompt") or "").strip():
+			samples.append({
+				"prompt": str(row["prompt"]),
+				"expected_behaviour": str(row.get("expected_behaviour") or ""),
+			})
+	if samples:
+		clean["sample_prompts"] = samples
+	return clean or None
 
 
 def _build_selector_system_prompt() -> str:
@@ -725,6 +1066,11 @@ def _extract_json(text: str):
 
 	Handles plain JSON, fenced ```json blocks, and prose wrapped around an
 	object. Returns the parsed object/dict, or None if nothing parses.
+
+	strict=False because models routinely emit literal newlines inside JSON
+	string values (invalid per the spec, rejected by strict json.loads).
+	Dropping such a reply loses its proposed_config — the confirm/create
+	card never renders and the whole raw blob shows in chat as the message.
 	"""
 	if not text:
 		return None
@@ -738,7 +1084,7 @@ def _extract_json(text: str):
 		text = text.strip()
 
 	try:
-		return json.loads(text)
+		return json.loads(text, strict=False)
 	except Exception:
 		pass
 
@@ -746,7 +1092,7 @@ def _extract_json(text: str):
 	end = text.rfind("}")
 	if start != -1 and end != -1 and end > start:
 		try:
-			return json.loads(text[start:end + 1])
+			return json.loads(text[start:end + 1], strict=False)
 		except Exception:
 			return None
 	return None

@@ -259,6 +259,112 @@ def dispatch_update_field(instance, task, task_cfg: dict, bpmn_id: str) -> None:
 	)
 
 
+def dispatch_connector(instance, task, task_cfg: dict, bpmn_id: str) -> None:
+	"""
+	Execute a Service Task with serviceType='connector'.
+
+	Config keys (from BPMN XML):
+	    connectorId     — provider id, e.g. "google_drive"
+	    operation       — operation id, e.g. "createFile"
+	    connectorParams — JSON object of operation inputs (values may be Jinja2)
+	    resultVariable  — task-data key to store the handler's return under
+	    failOnError     — truthy → re-raise so the instance is marked Errored;
+	                      otherwise errors are logged and the workflow continues.
+
+	Input values flagged as expressions in the manifest are Jinja2-rendered
+	against {doc, instance, frappe, task_data}; DriveFile/DriveFolder fields are
+	link-or-ID normalized. The handler's dict return is written to
+	task.data[resultVariable] so downstream tasks/gateways can use it.
+	"""
+	import json as _json
+
+	from one_bpmn.one_bpmn.connectors import manifest as _manifest
+	from one_bpmn.one_bpmn.connectors import registry as _registry
+	from one_bpmn.one_bpmn.integrations.google_common import normalize_drive_id
+
+	# Importing the package runs every @connector registration (idempotent).
+	import one_bpmn.one_bpmn.connectors  # noqa: F401
+
+	connector_id = (task_cfg.get("connectorId") or "").strip()
+	operation = (task_cfg.get("operation") or "").strip()
+	result_var = (task_cfg.get("resultVariable") or "").strip()
+	fail_on_error = _cfg_truthy(task_cfg.get("failOnError"))
+
+	handler = _registry.get_handler(connector_id, operation)
+	if not handler:
+		frappe.log_error(
+			title=f"BPMN ServiceTask: connector unknown ({bpmn_id})",
+			message=(
+				f"No handler for connectorId={connector_id!r} operation={operation!r}. "
+				f"Registered: {_registry.registered()}"
+			),
+		)
+		if fail_on_error:
+			frappe.throw(f"Unknown connector {connector_id}/{operation}")
+		return
+
+	raw_params = task_cfg.get("connectorParams") or "{}"
+	try:
+		params = _json.loads(raw_params) if isinstance(raw_params, str) else dict(raw_params or {})
+		if not isinstance(params, dict):
+			raise ValueError("connectorParams must be a JSON object")
+	except Exception:
+		frappe.log_error(
+			title=f"BPMN ServiceTask: connector params invalid ({bpmn_id})",
+			message=f"connectorParams is not a JSON object: {raw_params!r}",
+		)
+		if fail_on_error:
+			raise
+		return
+
+	# ── Resolve field values: Jinja render (expressions) + link/ID normalize ──
+	doc = (
+		frappe.get_doc(instance.context_doctype, instance.context_docname)
+		if (instance.context_doctype and instance.context_docname)
+		else frappe._dict()
+	)
+	render_ctx = {"doc": doc, "instance": instance, "frappe": frappe, "task_data": dict(task.data)}
+	specs = _manifest.field_specs(connector_id, operation)
+
+	resolved = {}
+	for key, value in params.items():
+		spec = specs.get(key, {})
+		val = value
+		expression = spec.get("expression", True)  # default: allow expressions
+		# connectorParams arrives from an XML attribute, so entity artifacts
+		# (e.g. &#39; for ' introduced by moddle/serialization round-trips) can
+		# survive into expression text and break Jinja. Undo them first.
+		if isinstance(val, str) and expression:
+			import html as _html
+			val = _html.unescape(val)
+		if isinstance(val, str) and expression and ("{{" in val or "{%" in val):
+			try:
+				val = frappe.render_template(val, render_ctx)
+			except Exception:
+				frappe.log_error(
+					title=f"BPMN ServiceTask: connector Jinja render failed ({bpmn_id})",
+					message=f"field={key!r}\n\n{frappe.get_traceback()}",
+				)
+		if spec.get("type") in ("DriveFile", "DriveFolder") and isinstance(val, str):
+			val = normalize_drive_id(val)
+		resolved[key] = val
+
+	ctx = {"instance": instance, "task": task, "doc": doc, "task_data": dict(task.data)}
+	output = None
+	try:
+		output = handler(resolved, ctx)
+	except Exception:
+		frappe.log_error(
+			title=f"BPMN ServiceTask: connector {connector_id}/{operation} failed ({bpmn_id})",
+			message=frappe.get_traceback(),
+		)
+		if fail_on_error:
+			raise
+
+	if result_var:
+		task.data[result_var] = output
+
+
 def dispatch_google_chat(instance, task, task_cfg: dict, bpmn_id: str) -> None:
 	"""
 	Send a Google Chat message from a Service Task with serviceType='google_chat'.
