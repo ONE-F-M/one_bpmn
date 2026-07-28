@@ -11,6 +11,10 @@ The source __Auth rows are intentionally NOT deleted: legacy readers
 (Lumina direct-API path, llm_factory fallback) keep working until each
 agent's migration story retires them. Field removal from the AI Chat
 Settings form ships in the companion onefm_mcp commit.
+
+Because that companion commit drops the model fields from the doctype, this
+patch cannot read them through the normal accessors — see
+``_removed_single_value`` below.
 """
 
 import frappe
@@ -23,6 +27,26 @@ PROVIDERS = [
 	("Anthropic", "Anthropic", "anthropic_api_key", "anthropic_model"),
 	("xAI", "OpenAI-compatible", "xai_api_key", None),
 ]
+
+
+def _removed_single_value(doctype: str, fieldname: str) -> str:
+	"""Read a Single's stored value straight out of ``tabSingles``.
+
+	The companion onefm_mcp commit deletes these model fields from AI Chat
+	Settings, and this patch runs post-model-sync — so on any site that syncs
+	the new schema before running the patch, the field is already gone from the
+	doctype. ``frappe.db.get_single_value`` validates against the doctype meta
+	and throws for an undeclared field, even though the row itself survives in
+	``tabSingles`` (Frappe does not delete stored values when a field is
+	dropped). Reading the row directly is what makes this patch replayable on a
+	site of any vintage.
+	"""
+	row = frappe.qb.get_query(
+		table="Singles",
+		filters={"doctype": doctype, "field": fieldname},
+		fields="value",
+	).run()
+	return (row[0][0] if row else "") or ""
 
 
 def execute():
@@ -41,7 +65,7 @@ def execute():
 
 		default_model = ""
 		if model_field:
-			default_model = frappe.db.get_single_value("AI Chat Settings", model_field) or ""
+			default_model = _removed_single_value("AI Chat Settings", model_field)
 
 		# An enabled record of this provider_type that already has a key wins.
 		existing = frappe.get_all(
