@@ -27,17 +27,32 @@ def _default_dates(from_date: Optional[str], to_date: Optional[str], days: int =
 	return from_d, to_d
 
 
+def _origin_condition(Run, origin: str):
+	"""qb criterion for the run-origin segment (WI-001751).
+
+	"production" (default) excludes eval-origin runs — rows created before the
+	origin field existed are NULL and count as production. "eval" selects only
+	eval-origin runs. "all" applies no filter.
+	"""
+	if origin == "eval":
+		return Run.origin == "eval"
+	if origin == "all":
+		return Run.name.notnull()
+	return fn.Coalesce(Run.origin, "production") != "eval"
+
+
 # ---------------------------------------------------------------------------
 # 1. Overview cards
 # ---------------------------------------------------------------------------
 
 @frappe.whitelist()
-def get_agent_overview(days: int = 7, agent_configuration: str = None) -> dict:
+def get_agent_overview(days: int = 7, agent_configuration: str = None, origin: str = "production") -> dict:
 	"""Return 6 headline metrics for the overview number cards.
 
 	Pass *agent_configuration* to scope every metric to one agent's runs
 	(WI-001636). Deeper per-agent filtering across the other reports ships
-	with the observability feature story (WI-001608).
+	with the observability feature story (WI-001608). *origin* segments the
+	metrics: "production" (default), "eval", or "all" (WI-001751).
 	"""
 	frappe.only_for("System Manager")
 	days = cint(days) or 7
@@ -52,6 +67,7 @@ def get_agent_overview(days: int = 7, agent_configuration: str = None) -> dict:
 		.select(fn.Count("*"))
 		.where(fn.Date(Run.started_at) == today_date)
 		.where(Run.agent_configuration == agent_configuration if agent_configuration else Run.name.notnull())
+		.where(_origin_condition(Run, origin))
 		.run()[0][0]
 	)
 
@@ -65,6 +81,7 @@ def get_agent_overview(days: int = 7, agent_configuration: str = None) -> dict:
 		.where(fn.Date(Run.started_at) >= range_start)
 		.where(fn.Date(Run.started_at) <= today_date)
 		.where(Run.agent_configuration == agent_configuration if agent_configuration else Run.name.notnull())
+		.where(_origin_condition(Run, origin))
 		.where(Run.status != "Running")
 		.run(as_dict=True)
 	)[0]
@@ -80,6 +97,7 @@ def get_agent_overview(days: int = 7, agent_configuration: str = None) -> dict:
 		.where(fn.Date(Run.started_at) >= range_start)
 		.where(fn.Date(Run.started_at) <= today_date)
 		.where(Run.agent_configuration == agent_configuration if agent_configuration else Run.name.notnull())
+		.where(_origin_condition(Run, origin))
 		.run()[0][0],
 		4,
 	)
@@ -90,6 +108,7 @@ def get_agent_overview(days: int = 7, agent_configuration: str = None) -> dict:
 		.select(fn.Count("*"))
 		.where(fn.Date(Run.started_at) == today_date)
 		.where(Run.agent_configuration == agent_configuration if agent_configuration else Run.name.notnull())
+		.where(_origin_condition(Run, origin))
 		.where(Run.status == "Error")
 		.run()[0][0]
 	)
@@ -101,6 +120,7 @@ def get_agent_overview(days: int = 7, agent_configuration: str = None) -> dict:
 		.where(fn.Date(Run.started_at) >= range_start)
 		.where(fn.Date(Run.started_at) <= today_date)
 		.where(Run.agent_configuration == agent_configuration if agent_configuration else Run.name.notnull())
+		.where(_origin_condition(Run, origin))
 		.where(Run.status == "Success")
 		.run()[0][0]
 	)
@@ -112,6 +132,7 @@ def get_agent_overview(days: int = 7, agent_configuration: str = None) -> dict:
 		.where(fn.Date(Run.started_at) >= range_start)
 		.where(fn.Date(Run.started_at) <= today_date)
 		.where(Run.agent_configuration == agent_configuration if agent_configuration else Run.name.notnull())
+		.where(_origin_condition(Run, origin))
 		.run()[0][0]
 	)
 
@@ -137,6 +158,7 @@ def get_cost_token_report(
 	provider: str = None,
 	process_model: str = None,
 	agent_configuration: str = None,
+	origin: str = "production",
 	group_by: str = "model",
 ) -> dict:
 	"""Return daily cost/token data grouped by date and model — or, since
@@ -168,6 +190,7 @@ def get_cost_token_report(
 		)
 		.where(fn.Date(Run.started_at) >= from_d)
 		.where(fn.Date(Run.started_at) <= to_d)
+		.where(_origin_condition(Run, origin))
 		# Running runs ARE included: selector runs stay "Running" for the
 		# whole life of their subprocess and their token/cost rollups are
 		# refreshed after every decision — excluding them hid all selector
@@ -261,6 +284,7 @@ def get_error_report(
 	error_code: str = None,
 	process_model: str = None,
 	agent_configuration: str = None,
+	origin: str = "production",
 	group_by: str = "model",
 ) -> dict:
 	"""Return error analysis grouped by model + bpmn_id — or by the run's
@@ -293,6 +317,7 @@ def get_error_report(
 		.where(fn.Date(Run.started_at) >= from_d)
 		.where(fn.Date(Run.started_at) <= to_d)
 		.where(Run.status != "Running")
+		.where(_origin_condition(Run, origin))
 		.groupby(group_field, Run.bpmn_id)
 		.orderby(fn.Sum(Case().when(Run.status == "Error", 1).else_(0)), order=frappe.qb.desc)
 	)
@@ -335,6 +360,7 @@ def get_error_report(
 		.where(fn.Date(Run.started_at) <= to_d)
 		.where(Run.status == "Error")
 		.where(Run.error_code.isnotnull())
+		.where(_origin_condition(Run, origin))
 		.groupby(Run.error_code)
 		.orderby(fn.Count("*"), order=frappe.qb.desc)
 	)
@@ -394,6 +420,7 @@ def get_performance_report(
 	bpmn_id: str = None,
 	process_model: str = None,
 	agent_configuration: str = None,
+	origin: str = "production",
 	group_by: str = "model",
 ) -> dict:
 	"""Return latency/throughput data with percentiles, grouped by model +
@@ -416,6 +443,7 @@ def get_performance_report(
 		.where(fn.Date(Run.started_at) <= to_d)
 		.where(Run.status == "Success")
 		.where(Run.duration_ms.isnotnull())
+		.where(_origin_condition(Run, origin))
 		.orderby(Run.model, Run.bpmn_id)
 	)
 	if model:
@@ -437,6 +465,7 @@ def get_performance_report(
 		.where(fn.Date(Run.started_at) >= from_d)
 		.where(fn.Date(Run.started_at) <= to_d)
 		.where(Run.status == "Success")
+		.where(_origin_condition(Run, origin))
 		.groupby(Step.run, group_field, Run.bpmn_id)
 	)
 	if model:
