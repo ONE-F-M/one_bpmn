@@ -219,13 +219,24 @@ def generate_eval_suite_for_agent(config_name: str) -> str | None:
 		return None
 
 	suite_title = f"{cfg.agent_name} — Baseline"
-	if frappe.db.exists("AI Eval Suite", suite_title):
-		suite = frappe.get_doc("AI Eval Suite", suite_title)
+	# AI Eval Suite is autoname:hash, so the docname is never the title — the
+	# suite has to be looked up by field. Scope on agent_configuration as well
+	# as title: since WI-001743 that link is the authoritative (and mandatory)
+	# Suite -> Agent relationship, and a suite the migration handed to another
+	# agent under its "last one wins" collision rule must not be hijacked here.
+	# Order by creation so that where an earlier bug left duplicate baselines
+	# behind, every call converges on the same, oldest suite.
+	existing = frappe.get_all(
+		"AI Eval Suite",
+		filters={"title": suite_title, "agent_configuration": cfg.name},
+		pluck="name",
+		order_by="creation asc",
+		limit=1,
+	)
+	if existing:
+		suite = frappe.get_doc("AI Eval Suite", existing[0])
 		for case in frappe.get_all("AI Eval Case", filters={"suite": suite.name}, pluck="name"):
 			frappe.delete_doc("AI Eval Case", case, force=True, ignore_permissions=True)
-		# WI-001743: the suite owns the link back to its agent.
-		if suite.agent_configuration != cfg.name:
-			suite.db_set("agent_configuration", cfg.name, update_modified=False)
 	else:
 		suite = frappe.get_doc({
 			"doctype": "AI Eval Suite",
