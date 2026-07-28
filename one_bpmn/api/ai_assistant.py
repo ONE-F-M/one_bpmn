@@ -96,6 +96,7 @@ def recommend_ai_task_config(
 	current_config: str = "{}",
 	process_model: str = "",
 	linked_config: str = "",
+	conversation: str = "",
 ) -> dict:
 	"""Return assistant recommendations for an AI Agent Task's configuration.
 
@@ -151,11 +152,15 @@ def recommend_ai_task_config(
 		diagram_block = digest["block"] if digest else ""
 		system_prompt = _build_selector_system_prompt()
 	else:
-		# WI-001623/WI-001649: the agent-mode persona is sourced ONLY from the
-		# ai_agent_assistant AI Agent Configuration — never a hardcoded
-		# fallback. A missing/blank record is an explicit, actionable error.
-		system_prompt = _assistant_system_prompt()
-		if not system_prompt:
+		# WI-001623 full parity: an agent-mode turn IS a chat-platform turn.
+		# It runs through the generic invocation on the assistant's own chat
+		# map — so it persists as a Chat Conversation + Chat Messages, its
+		# LLM call is an AI Agent Run attributed to the assistant, and the
+		# map instance is inspectable on Processa like any other process.
+		# The dialog's grounding rides as per-turn context (the map's user
+		# prompt renders {{ dialog_context }}); the persona comes from the
+		# assistant's configuration as always.
+		if not _assistant_system_prompt():
 			return {
 				"ok": False,
 				"error_code": "ASSISTANT_NOT_CONFIGURED",
@@ -166,18 +171,57 @@ def recommend_ai_task_config(
 					"enable the assistant."
 				),
 			}
-		# WI-001649: teach the assistant how to propose creating a new agent —
-		# the prerequisites are assembled from live sources (doctype meta,
-		# validation rules, enabled providers), never written as prose here.
-		system_prompt += "\n\n" + _creation_capability_block()
-		# WI-001649 amendment: the task's linked configuration as live context,
-		# so "change this agent's provider" needs no interrogation.
-		linked_block = _linked_config_block(linked_config)
-		if linked_block:
-			system_prompt += "\n\n" + linked_block
-		# WI-001625: give the assistant the full diagram as read-only grounding
-		# so its recommendations reference the actual shapes around the task.
-		diagram_block = _build_full_diagram_block(bpmn_xml, element_id)
+		dialog_context_parts = [
+			_creation_capability_block(),
+			_linked_config_block(linked_config),
+			_build_full_diagram_block(bpmn_xml, element_id),
+			context_block,
+			_build_current_config_block(current_config, catalog),
+		]
+		dialog_context = "\n\n".join(p for p in dialog_context_parts if p)
+
+		from one_bpmn.api.agent_invocation import invoke_agent
+
+		try:
+			turn = invoke_agent(
+				agent_id="ai_agent_assistant",
+				message=requirement.strip(),
+				conversation=conversation or None,
+				context={"dialog_context": dialog_context, "source": "task_dialog"},
+			)
+		except frappe.ValidationError as exc:
+			return {
+				"ok": False,
+				"error_code": "ASSISTANT_PROCESS_NOT_RUNNING",
+				"message": str(exc),
+			}
+
+		raw = (turn or {}).get("response") or ""
+		parsed = _extract_json(raw if isinstance(raw, str) else json.dumps(raw))
+		if not isinstance(parsed, dict):
+			return {
+				"ok": True,
+				"message": raw or _("No recommendation returned."),
+				"recommendations": {},
+				"conversation": (turn or {}).get("conversation"),
+			}
+		message = str(parsed.get("message", "")).strip() or (
+			raw if not parsed.get("recommendations") else ""
+		)
+		recommendations = {
+			key: value
+			for key, value in (parsed.get("recommendations") or {}).items()
+			if key in catalog and value not in (None, "")
+		}
+		return {
+			"ok": True,
+			"message": message,
+			"recommendations": recommendations,
+			"proposed_config": _sanitize_proposed_config(parsed.get("proposed_config")),
+			"proposed_update": _sanitize_proposed_update(parsed.get("proposed_update")),
+			"conversation": (turn or {}).get("conversation"),
+		}
+
 	user_prompt = _build_user_prompt(
 		requirement,
 		turns,
@@ -204,7 +248,7 @@ def recommend_ai_task_config(
 	config = ExecutorConfig(
 		backend=backend,
 		provider_name=provider,
-		model="",  # blank -> provider's default_model
+		model=_assistant_default_model(),  # the assistant's own catalog pick (WI-001655)
 		system_prompt=system_prompt,
 		user_prompt=user_prompt,
 		temperature=0.3,
@@ -300,6 +344,16 @@ def _assistant_system_prompt() -> str:
 		return ""
 
 
+def _assistant_default_model() -> str:
+	"""The AI Model the assistant's own configuration picks (WI-001655)."""
+	try:
+		from one_bpmn.one_bpmn.doctype.ai_agent_configuration.ai_agent_configuration import get_agent_config
+
+		return (get_agent_config("ai_agent_assistant") or {}).get("ai_model") or ""
+	except Exception:
+		return ""
+
+
 def _assistant_default_provider() -> str:
 	"""The credentials record the AI Assistant configuration links, if any."""
 	try:
@@ -321,6 +375,15 @@ def _build_system_prompt() -> str:
 		"process instance) and {{ frappe }}. The task stores the model's reply in a "
 		"process variable named by aiOutputVariable, which downstream gateways and "
 		"script tasks can read.\n\n"
+		"YOUR TOOLBOX:\n"
+		"You have callable tools (platform lookups: records, counts, schemas, "
+		"reports, wiki — and 'add_agent_evals' to attach evaluation cases to an "
+		"AI Agent Configuration and refresh its baseline suite). USE a tool for "
+		"any platform fact you cannot know from the conversation alone — never "
+		"invent record names, counts or field values. When the designer asks to "
+		"add tests/evals to an agent, call add_agent_evals with the agent's "
+		"exact record name and the cases. After a new agent is created, offer "
+		"to add evals for it.\n\n"
 		"Based on the designer's requirement (and any DocType schema / sample record "
 		"provided), recommend values for these fields:\n"
 		f"{field_lines}\n\n"
@@ -358,11 +421,18 @@ def _build_system_prompt() -> str:
 		"target unless told otherwise — do not interrogate the designer about "
 		"which record they mean. The designer always confirms before anything "
 		"is applied; never claim a change was made.\n\n"
-		"Respond with ONLY a single JSON object, no prose outside it, in this exact shape:\n"
-		'{\n'
-		'  "message": "<your recommendation summary, OR a clarifying question when unsure>",\n'
-		'  "recommendations": { "aiUserPrompt": "...", "aiOutputVariable": "...", ... }\n'
-		'}'
+		"REPLY FORMAT (WI-001623 — you serve two surfaces):\n"
+		"  - When the request carries PLATFORM CONTEXT blocks (task-dialog "
+		"turns), the CONTENT of your reply must be exactly one JSON object, no "
+		"prose outside it:\n"
+		'    { "message": "<summary, or clarifying question when unsure>",\n'
+		'      "recommendations": { "aiUserPrompt": "...", ... } }\n'
+		"    plus \"proposed_config\" / \"proposed_update\" when their contracts "
+		"apply.\n"
+		"  - In ordinary chat (no platform context), reply as plain, helpful "
+		"conversational text — never raw JSON.\n"
+		"  - Either way, if the message specifies an OUTPUT PROTOCOL wrapper, "
+		"obey it exactly and place the reply above inside it."
 	)
 
 
@@ -395,19 +465,26 @@ def _creation_prerequisites_block() -> str:
 	lines.extend(f"  - {rule['field']}: {rule['rule']}" for rule in VALIDATION_RULES)
 
 	try:
-		providers = frappe.get_list(
-			"AI Provider Credentials",
-			filters={"enabled": 1},
-			fields=["name", "default_model"],
-			limit_page_length=50,
+		# WI-001655: the agent's LLM choice is a MODEL pick from the catalog;
+		# the provider follows from the model's credentials link.
+		models = frappe.get_list(
+			"AI Model",
+			fields=["name", "ai_provider_credentials"],
+			limit_page_length=100,
+			order_by="name asc",
 		)
-		if providers:
+		enabled = set(frappe.get_list(
+			"AI Provider Credentials", filters={"enabled": 1}, pluck="name", limit_page_length=50,
+		))
+		usable = [m for m in models if m.ai_provider_credentials in enabled]
+		if usable:
 			lines.append(
-				"Enabled AI Provider Credentials (use these EXACT names): "
-				+ ", ".join(f"{p.name} (default model: {p.default_model or 'unset'})" for p in providers)
+				"AI Model catalog (use these EXACT names for ai_model / aiModel; "
+				"the provider follows from the model): "
+				+ ", ".join(f"{m.name} (via {m.ai_provider_credentials})" for m in usable)
 			)
 		else:
-			lines.append("No enabled AI Provider Credentials are visible to this user.")
+			lines.append("No usable AI Model catalog records (none link enabled credentials).")
 	except Exception:
 		pass
 
@@ -453,13 +530,15 @@ def _creation_capability_block() -> str:
 		"When the designer asks to CHANGE an existing AI Agent Configuration, "
 		"add a \"proposed_update\" object to your JSON reply (alongside "
 		"\"message\"): {\"config_name\": \"<exact record name>\", \"fields\": "
-		"{...}} where fields may only contain \"aiProvider\" (an enabled "
-		"AI Provider Credentials name), \"aiSystemPrompt\", \"aiTemperature\" "
-		"and/or \"aiMaxTokens\". Include ONLY the fields being changed. When "
-		"the conversation refers to \"this agent\" or \"the configuration\", it "
-		"means the LINKED AGENT CONFIGURATION context below when present; ask "
-		"only if genuinely ambiguous. The designer confirms the proposal in the "
-		"UI before anything is applied.\n\n"
+		"{...}} where fields may only contain \"aiModel\" (an EXACT AI Model "
+		"catalog name from the list above — the agent's provider follows from "
+		"the model automatically), \"aiSystemPrompt\", \"aiTemperature\" and/or "
+		"\"aiMaxTokens\". There is no direct provider change: to change the "
+		"provider, change the model. Include ONLY the fields being changed. "
+		"When the conversation refers to \"this agent\" or \"the "
+		"configuration\", it means the LINKED AGENT CONFIGURATION context below "
+		"when present; ask only if genuinely ambiguous. The designer confirms "
+		"the proposal in the UI before anything is applied.\n\n"
 		"CAPABILITY LIMITS (hard, non-negotiable):\n"
 		"You cannot write to ANY record yourself. Your only side-effect paths "
 		"are \"proposed_config\" and \"proposed_update\", both of which take "
@@ -490,7 +569,7 @@ def _linked_config_block(linked_config: str) -> str:
 		return ""
 	cfg = frappe.db.get_value(
 		"AI Agent Configuration", linked_config,
-		["name", "agent_id", "agent_type", "lifecycle_status", "ai_provider_credentials", "chat_mode_label"],
+		["name", "agent_id", "agent_type", "lifecycle_status", "ai_model", "ai_provider_credentials", "chat_mode_label"],
 		as_dict=True,
 	)
 	return (
@@ -499,14 +578,16 @@ def _linked_config_block(linked_config: str) -> str:
 		f"  name: {cfg.name}\n"
 		f"  agent_id: {cfg.agent_id}\n"
 		f"  type: {cfg.agent_type} | lifecycle: {cfg.lifecycle_status}\n"
-		f"  provider: {cfg.ai_provider_credentials or '(none)'}\n"
+		f"  model: {cfg.ai_model or '(none)'} | provider (derived): {cfg.ai_provider_credentials or '(none)'}\n"
 		f"  chat mode label: {cfg.chat_mode_label or '(none)'}"
 	)
 
 
 # Shape-attribute fields the assistant may propose changing on an existing
 # configuration — exactly what update_agent_config_from_shape accepts.
-_UPDATABLE_FIELDS = {"aiProvider", "aiSystemPrompt", "aiTemperature", "aiMaxTokens"}
+# WI-001655: the MODEL is the updatable pick (validated against the AI Model
+# catalog); aiProvider is gone — the provider follows the model.
+_UPDATABLE_FIELDS = {"aiModel", "aiSystemPrompt", "aiTemperature", "aiMaxTokens"}
 
 
 def _sanitize_proposed_update(proposed) -> dict | None:
@@ -525,6 +606,10 @@ def _sanitize_proposed_update(proposed) -> dict | None:
 		for key, value in fields.items()
 		if key in _UPDATABLE_FIELDS and isinstance(value, (str, int, float)) and str(value).strip()
 	}
+	# WI-001655: a model must be a real catalog record — drop hallucinated ones
+	# so the Apply card can never be doomed to a link-validation error.
+	if "aiModel" in clean and not frappe.db.exists("AI Model", str(clean["aiModel"])):
+		clean.pop("aiModel")
 	if not clean:
 		return None
 	return {"config_name": config_name, "fields": clean}
@@ -532,7 +617,7 @@ def _sanitize_proposed_update(proposed) -> dict | None:
 
 _PROPOSAL_FIELDS = {
 	"agent_name", "agent_id", "chat_mode_label",
-	"ai_provider_credentials", "system_prompt", "description",
+	"ai_model", "system_prompt", "description",
 }
 
 
@@ -981,6 +1066,11 @@ def _extract_json(text: str):
 
 	Handles plain JSON, fenced ```json blocks, and prose wrapped around an
 	object. Returns the parsed object/dict, or None if nothing parses.
+
+	strict=False because models routinely emit literal newlines inside JSON
+	string values (invalid per the spec, rejected by strict json.loads).
+	Dropping such a reply loses its proposed_config — the confirm/create
+	card never renders and the whole raw blob shows in chat as the message.
 	"""
 	if not text:
 		return None
@@ -994,7 +1084,7 @@ def _extract_json(text: str):
 		text = text.strip()
 
 	try:
-		return json.loads(text)
+		return json.loads(text, strict=False)
 	except Exception:
 		pass
 
@@ -1002,7 +1092,7 @@ def _extract_json(text: str):
 	end = text.rfind("}")
 	if start != -1 and end != -1 and end > start:
 		try:
-			return json.loads(text[start:end + 1])
+			return json.loads(text[start:end + 1], strict=False)
 		except Exception:
 			return None
 	return None

@@ -153,7 +153,12 @@ class DirectApiExecutor(Executor):
         if not endpoint:
             endpoint = self._DEFAULT_ENDPOINTS.get(provider_type, "")
 
-        model = config.model or provider.default_model or ""
+        # WI-001655: credentials no longer carry a default model. The model
+        # comes from the config (the agent's catalog pick, resolved upstream);
+        # the last-resort fallback is any catalog model linked to this record.
+        model = config.model or frappe.db.get_value(
+            "AI Model", {"ai_provider_credentials": provider.name}, "name"
+        ) or ""
 
         # WI-001356: with tools present, delegate to the matching
         # agents/llm_provider adapter's multi-turn tool-calling loop. With
