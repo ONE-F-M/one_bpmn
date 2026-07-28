@@ -1,0 +1,66 @@
+{
+  "connectorId": "google_slides",
+  "label": "Google Slides",
+  "icon": "slides",
+  "description": "Create and edit Google Slides decks — template fill, add/duplicate slides, read text.",
+  "api": { "name": "slides", "version": "v1", "discovery": "https://slides.googleapis.com/$discovery/rest?version=v1" },
+  "operations": [
+    {
+      "value": "createPresentation",
+      "label": "Create presentation",
+      "method": "presentations.create",
+      "fields": [
+        { "name": "title", "label": "Title", "type": "String", "required": true, "expression": true }
+      ],
+      "output": { "presentationId": "New presentation id", "title": "Title" }
+    },
+    {
+      "value": "replaceAllText",
+      "label": "Replace all text (deck template fill)",
+      "method": "presentations.batchUpdate → replaceAllText",
+      "fields": [
+        { "name": "presentation", "label": "Presentation", "type": "DriveFile", "required": true, "expression": true },
+        { "name": "find", "label": "Find text", "type": "String", "required": true, "expression": true },
+        { "name": "replace", "label": "Replace with", "type": "Text", "expression": true },
+        { "name": "matchCase", "label": "Match case", "type": "Boolean", "default": false }
+      ],
+      "output": { "presentationId": "Presentation id", "occurrencesChanged": "Number of replacements" }
+    },
+    {
+      "value": "createSlide",
+      "label": "Add slide",
+      "method": "presentations.batchUpdate → createSlide",
+      "fields": [
+        { "name": "presentation", "label": "Presentation", "type": "DriveFile", "required": true, "expression": true },
+        { "name": "layout", "label": "Layout", "type": "Dropdown", "default": "",
+          "choices": [
+            { "label": "Blank", "value": "BLANK" },
+            { "label": "Title", "value": "TITLE" },
+            { "label": "Title and body", "value": "TITLE_AND_BODY" },
+            { "label": "Section header", "value": "SECTION_HEADER" },
+            { "label": "One column text", "value": "ONE_COLUMN_TEXT" }
+          ]}
+      ],
+      "output": { "presentationId": "Presentation id", "slideObjectId": "New slide object id" }
+    },
+    {
+      "value": "duplicateSlide",
+      "label": "Duplicate slide",
+      "method": "presentations.batchUpdate → duplicateObject",
+      "fields": [
+        { "name": "presentation", "label": "Presentation", "type": "DriveFile", "required": true, "expression": true },
+        { "name": "slideObjectId", "label": "Slide object id", "type": "String", "required": true, "expression": true }
+      ],
+      "output": { "presentationId": "Presentation id", "duplicatedObjectId": "Duplicated slide object id" }
+    },
+    {
+      "value": "getText",
+      "label": "Get text",
+      "method": "presentations.get + walk",
+      "fields": [
+        { "name": "presentation", "label": "Presentation", "type": "DriveFile", "required": true, "expression": true }
+      ],
+      "output": { "text": "Plain text across all slides" }
+    }
+  ]
+}

@@ -16,6 +16,7 @@ from one_bpmn.one_bpmn import engine as bpmn_engine
 from one_bpmn.one_bpmn.doctype.bpmn_process_instance.dispatchers import dispatch_ai_agent
 
 from .dispatchers import (
+	dispatch_connector,
 	dispatch_email,
 	dispatch_google_chat,
 	dispatch_push_notification,
@@ -85,6 +86,7 @@ class BPMNProcessInstance(Document):
 		data = {
 			"context_doctype": self.context_doctype or "",
 			"context_docname": self.context_docname or "",
+			"process_model": self.process_model or "",
 		}
 
 		# ── Inject context doc fields into task data ───────────────────────────
@@ -159,7 +161,21 @@ class BPMNProcessInstance(Document):
 		# Maybe it completed immediately (e.g. no user tasks at all)
 		self._check_completion(wf)
 
-		self.save(ignore_permissions=True)
+		# Persist state directly via db_update to bypass Frappe's check_if_latest
+		# (optimistic-lock check), same as advance()/receive_message()/
+		# resume_parked_ai(). _sync_active_tasks() above can create a ToDo whose
+		# assignment email sends synchronously (frappe.sendmail(..., now=True)),
+		# committing mid-flow; an enqueue_after_commit AI job can then touch this
+		# same row before we get here. self.save() would raise
+		# TimestampMismatchError at that point — a ValidationError (HTTP 417),
+		# which Frappe never logs to Error Log (only >=500 gets logged), so the
+		# instance silently ends up with status="Active" but no workflow_state
+		# and no active_tasks ever persisted. db_update() doesn't hit that check.
+		self.modified = frappe.utils.now()
+		self.modified_by = frappe.session.user
+		self.db_update()
+		self.update_children()
+		self.run_method("on_update")
 
 	def advance(self, task_id: str, data: dict = None) -> list:
 		"""
@@ -1374,6 +1390,13 @@ class BPMNProcessInstance(Document):
 			# failures are non-fatal and logged there.
 			dispatch_google_chat(self, task, task_cfg, bpmn_id)
 
+		elif service_type == "connector":
+			# Data-driven provider connector (Google Drive/Docs/Slides, …).
+			# Errors are handled inside dispatch_connector: logged and non-fatal,
+			# re-raised only when the task's failOnError is set so the instance
+			# can be marked Errored.
+			dispatch_connector(self, task, task_cfg, bpmn_id)
+
 		elif service_type == "push_notification":
 			try:
 				dispatch_push_notification(self, task, task_cfg, bpmn_id)
@@ -1385,6 +1408,22 @@ class BPMNProcessInstance(Document):
 
 		elif service_type == "ai_agent":
 			dispatch_ai_agent(self, task, task_cfg, bpmn_id)
+
+		elif service_type == "langgraph_node":
+			from one_bpmn.one_bpmn import bpmn_bridge
+
+			agent_node = task_cfg.get("agentNode", "")
+			try:
+				if agent_node == "tools":
+					bpmn_bridge.run_tools(self, task)
+				else:
+					bpmn_bridge.run_node(self, task, agent_node)
+			except Exception:
+				frappe.log_error(
+					title=f"BPMN ServiceTask: langgraph_node failed for task {bpmn_id}",
+					message=frappe.get_traceback(),
+				)
+				raise  # bubble up so the instance can be marked Errored
 
 		return True  # default: complete the task
 
