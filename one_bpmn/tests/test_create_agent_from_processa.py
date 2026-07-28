@@ -79,3 +79,8 @@ class TestCreateAgentFromProcessa(FrappeTestCase):
 		self.assertTrue(suite)
 		cases = frappe.get_all("AI Eval Case", filters={"suite": suite}, fields=["name", "model"])
 		self.assertEqual(len(cases), 1)
+
+		# WI-001743: the link lives on the suite, pointing back to the agent.
+		self.assertEqual(
+			frappe.db.get_value("AI Eval Suite", suite, "agent_configuration"), NAME
+		)

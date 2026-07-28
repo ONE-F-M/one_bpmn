@@ -38,7 +38,6 @@
   "chat_description",
   "allowed_roles",
   "evaluation_section",
-  "eval_suite",
   "sample_prompts",
   "needs_attention_reason"
  ],
@@ -261,13 +260,8 @@
   {
    "fieldname": "evaluation_section",
    "fieldtype": "Section Break",
-   "label": "Evaluation"
-  },
-  {
-   "fieldname": "eval_suite",
-   "fieldtype": "Link",
-   "label": "Evaluation Suite",
-   "options": "AI Eval Suite"
+   "label": "Evaluation",
+   "description": "Eval suites now link to this agent from the suite side — see the Evaluation group in the Connections panel above to view or add suites. (The former Evaluation Suite field was removed.)"
   },
   {
    "description": "Baseline evaluation cases are generated from these.",
@@ -282,6 +276,11 @@
   {
    "group": "Observability",
    "link_doctype": "AI Agent Run",
+   "link_fieldname": "agent_configuration"
+  },
+  {
+   "group": "Evaluation",
+   "link_doctype": "AI Eval Suite",
    "link_fieldname": "agent_configuration"
   }
  ],

@@ -17,7 +17,11 @@ from frappe.query_builder import DocType
 from frappe.query_builder import functions as fn
 from frappe.utils import add_days, cint, cstr, flt, getdate, today
 
+from pypika import CustomFunction
 from pypika.terms import Case
+
+# MariaDB month bucketing, used by the cost-allocation report (WI-001668).
+DateFormat = CustomFunction("DATE_FORMAT", ["field", "format"])
 
 
 def _default_dates(from_date: Optional[str], to_date: Optional[str], days: int = 7):
@@ -27,17 +31,32 @@ def _default_dates(from_date: Optional[str], to_date: Optional[str], days: int =
 	return from_d, to_d
 
 
+def _origin_condition(Run, origin: str):
+	"""qb criterion for the run-origin segment (WI-001751).
+
+	"production" (default) excludes eval-origin runs — rows created before the
+	origin field existed are NULL and count as production. "eval" selects only
+	eval-origin runs. "all" applies no filter.
+	"""
+	if origin == "eval":
+		return Run.origin == "eval"
+	if origin == "all":
+		return Run.name.notnull()
+	return fn.Coalesce(Run.origin, "production") != "eval"
+
+
 # ---------------------------------------------------------------------------
 # 1. Overview cards
 # ---------------------------------------------------------------------------
 
 @frappe.whitelist()
-def get_agent_overview(days: int = 7, agent_configuration: str = None) -> dict:
+def get_agent_overview(days: int = 7, agent_configuration: str = None, origin: str = "production") -> dict:
 	"""Return 6 headline metrics for the overview number cards.
 
 	Pass *agent_configuration* to scope every metric to one agent's runs
 	(WI-001636). Deeper per-agent filtering across the other reports ships
-	with the observability feature story (WI-001608).
+	with the observability feature story (WI-001608). *origin* segments the
+	metrics: "production" (default), "eval", or "all" (WI-001751).
 	"""
 	frappe.only_for("System Manager")
 	days = cint(days) or 7
@@ -52,6 +71,7 @@ def get_agent_overview(days: int = 7, agent_configuration: str = None) -> dict:
 		.select(fn.Count("*"))
 		.where(fn.Date(Run.started_at) == today_date)
 		.where(Run.agent_configuration == agent_configuration if agent_configuration else Run.name.notnull())
+		.where(_origin_condition(Run, origin))
 		.run()[0][0]
 	)
 
@@ -65,6 +85,7 @@ def get_agent_overview(days: int = 7, agent_configuration: str = None) -> dict:
 		.where(fn.Date(Run.started_at) >= range_start)
 		.where(fn.Date(Run.started_at) <= today_date)
 		.where(Run.agent_configuration == agent_configuration if agent_configuration else Run.name.notnull())
+		.where(_origin_condition(Run, origin))
 		.where(Run.status != "Running")
 		.run(as_dict=True)
 	)[0]
@@ -80,6 +101,7 @@ def get_agent_overview(days: int = 7, agent_configuration: str = None) -> dict:
 		.where(fn.Date(Run.started_at) >= range_start)
 		.where(fn.Date(Run.started_at) <= today_date)
 		.where(Run.agent_configuration == agent_configuration if agent_configuration else Run.name.notnull())
+		.where(_origin_condition(Run, origin))
 		.run()[0][0],
 		4,
 	)
@@ -90,6 +112,7 @@ def get_agent_overview(days: int = 7, agent_configuration: str = None) -> dict:
 		.select(fn.Count("*"))
 		.where(fn.Date(Run.started_at) == today_date)
 		.where(Run.agent_configuration == agent_configuration if agent_configuration else Run.name.notnull())
+		.where(_origin_condition(Run, origin))
 		.where(Run.status == "Error")
 		.run()[0][0]
 	)
@@ -101,6 +124,7 @@ def get_agent_overview(days: int = 7, agent_configuration: str = None) -> dict:
 		.where(fn.Date(Run.started_at) >= range_start)
 		.where(fn.Date(Run.started_at) <= today_date)
 		.where(Run.agent_configuration == agent_configuration if agent_configuration else Run.name.notnull())
+		.where(_origin_condition(Run, origin))
 		.where(Run.status == "Success")
 		.run()[0][0]
 	)
@@ -112,6 +136,7 @@ def get_agent_overview(days: int = 7, agent_configuration: str = None) -> dict:
 		.where(fn.Date(Run.started_at) >= range_start)
 		.where(fn.Date(Run.started_at) <= today_date)
 		.where(Run.agent_configuration == agent_configuration if agent_configuration else Run.name.notnull())
+		.where(_origin_condition(Run, origin))
 		.run()[0][0]
 	)
 
@@ -137,6 +162,7 @@ def get_cost_token_report(
 	provider: str = None,
 	process_model: str = None,
 	agent_configuration: str = None,
+	origin: str = "production",
 	group_by: str = "model",
 ) -> dict:
 	"""Return daily cost/token data grouped by date and model — or, since
@@ -168,6 +194,7 @@ def get_cost_token_report(
 		)
 		.where(fn.Date(Run.started_at) >= from_d)
 		.where(fn.Date(Run.started_at) <= to_d)
+		.where(_origin_condition(Run, origin))
 		# Running runs ARE included: selector runs stay "Running" for the
 		# whole life of their subprocess and their token/cost rollups are
 		# refreshed after every decision — excluding them hid all selector
@@ -261,6 +288,7 @@ def get_error_report(
 	error_code: str = None,
 	process_model: str = None,
 	agent_configuration: str = None,
+	origin: str = "production",
 	group_by: str = "model",
 ) -> dict:
 	"""Return error analysis grouped by model + bpmn_id — or by the run's
@@ -293,6 +321,7 @@ def get_error_report(
 		.where(fn.Date(Run.started_at) >= from_d)
 		.where(fn.Date(Run.started_at) <= to_d)
 		.where(Run.status != "Running")
+		.where(_origin_condition(Run, origin))
 		.groupby(group_field, Run.bpmn_id)
 		.orderby(fn.Sum(Case().when(Run.status == "Error", 1).else_(0)), order=frappe.qb.desc)
 	)
@@ -335,6 +364,7 @@ def get_error_report(
 		.where(fn.Date(Run.started_at) <= to_d)
 		.where(Run.status == "Error")
 		.where(Run.error_code.isnotnull())
+		.where(_origin_condition(Run, origin))
 		.groupby(Run.error_code)
 		.orderby(fn.Count("*"), order=frappe.qb.desc)
 	)
@@ -394,6 +424,7 @@ def get_performance_report(
 	bpmn_id: str = None,
 	process_model: str = None,
 	agent_configuration: str = None,
+	origin: str = "production",
 	group_by: str = "model",
 ) -> dict:
 	"""Return latency/throughput data with percentiles, grouped by model +
@@ -416,6 +447,7 @@ def get_performance_report(
 		.where(fn.Date(Run.started_at) <= to_d)
 		.where(Run.status == "Success")
 		.where(Run.duration_ms.isnotnull())
+		.where(_origin_condition(Run, origin))
 		.orderby(Run.model, Run.bpmn_id)
 	)
 	if model:
@@ -437,6 +469,7 @@ def get_performance_report(
 		.where(fn.Date(Run.started_at) >= from_d)
 		.where(fn.Date(Run.started_at) <= to_d)
 		.where(Run.status == "Success")
+		.where(_origin_condition(Run, origin))
 		.groupby(Step.run, group_field, Run.bpmn_id)
 	)
 	if model:
@@ -592,3 +625,223 @@ def get_run_totals_crosscheck(run_name: str) -> dict:
 		"step_total_cost": step_cost,
 		"cost_match": abs(flt(run.estimated_cost, 4) - step_cost) < 0.0001,
 	}
+
+
+# ---------------------------------------------------------------------------
+# 6. Cost allocation (WI-001668)
+# ---------------------------------------------------------------------------
+#
+# Finance needs monthly AI spend attributed to a person and their department:
+#   * non-chat  -> per process, via the process's Process Owner
+#   * chat      -> per conversation, via the conversation's owner
+#
+# A run is a chat run when its BPMN instance's context is a Chat Conversation
+# (set in utils/chat_persistence.py); anything else — including runs with no
+# instance — is non-chat. Eval-origin runs are included, per WI-001668.
+
+ALLOCATION_AXES = ("process_owner", "chat_user")
+
+
+def _month_expr(Run):
+	return DateFormat(Run.started_at, "%Y-%m")
+
+
+def _departments_for(users: list) -> dict:
+	"""Map user -> Employee.department for the given users (one bulk query)."""
+	users = [u for u in set(users) if u]
+	if not users:
+		return {}
+	rows = frappe.get_all(
+		"Employee",
+		filters={"user_id": ["in", users]},
+		fields=["user_id", "department"],
+	)
+	return {r["user_id"]: r["department"] for r in rows if r.get("department")}
+
+
+def _allocation_rows(axis: str, from_d, to_d) -> list:
+	"""Monthly usage rows for the requested allocation axis."""
+	Run = DocType("AI Agent Run")
+	Inst = DocType("BPMN Process Instance")
+	month = _month_expr(Run)
+	in_range = (fn.Date(Run.started_at) >= from_d) & (fn.Date(Run.started_at) <= to_d)
+
+	if axis == "chat_user":
+		Conv = DocType("Chat Conversation")
+		# LEFT join, and group on the instance's context_docname rather than
+		# Conv.name: a run whose Chat Conversation has since been deleted is
+		# still a chat run, so it must not vanish. An inner join dropped it
+		# from this axis while the process-owner axis already excluded it for
+		# being chat — leaving its spend unallocated in both views.
+		q = (
+			frappe.qb.from_(Run)
+			.inner_join(Inst).on(Inst.name == Run.instance)
+			.left_join(Conv).on(Conv.name == Inst.context_docname)
+			.select(
+				month.as_("month"),
+				Conv.owner.as_("person"),
+				Inst.context_docname.as_("subject"),
+				Conv.title.as_("subject_label"),
+				fn.Count("*").as_("runs"),
+				fn.Sum(Run.total_tokens).as_("tokens"),
+				fn.Sum(Run.estimated_cost).as_("cost"),
+			)
+			.where(in_range)
+			.where(Inst.context_doctype == "Chat Conversation")
+			.groupby(month, Conv.owner, Inst.context_docname, Conv.title)
+		)
+	else:
+		Model = DocType("BPMN Process Model")
+		Proc = DocType("Process")
+		q = (
+			frappe.qb.from_(Run)
+			.left_join(Inst).on(Inst.name == Run.instance)
+			.left_join(Model).on(Model.name == Run.process_model)
+			.left_join(Proc).on(Proc.name == Model.process_name)
+			.select(
+				month.as_("month"),
+				Proc.process_owner.as_("person"),
+				Run.process_model.as_("subject"),
+				Model.process_name.as_("subject_label"),
+				fn.Count("*").as_("runs"),
+				fn.Sum(Run.total_tokens).as_("tokens"),
+				fn.Sum(Run.estimated_cost).as_("cost"),
+			)
+			.where(in_range)
+			.where(Inst.context_doctype.isnull() | (Inst.context_doctype != "Chat Conversation"))
+			.groupby(month, Proc.process_owner, Run.process_model, Model.process_name)
+		)
+
+	raw = q.run(as_dict=True)
+	departments = _departments_for([r.get("person") for r in raw])
+	rows = []
+	for r in raw:
+		person = cstr(r.get("person"))
+		rows.append({
+			"month": cstr(r.get("month")),
+			"person": person,
+			"department": departments.get(person) or "",
+			"subject": cstr(r.get("subject")),
+			"subject_label": cstr(r.get("subject_label")) or cstr(r.get("subject")),
+			"runs": cint(r.get("runs")),
+			"tokens": cint(r.get("tokens")),
+			"cost": flt(r.get("cost"), 6),
+		})
+	rows.sort(key=lambda x: (x["month"], x["department"], x["person"], x["subject_label"]), reverse=False)
+	return rows
+
+
+def _period_totals(from_d, to_d) -> dict:
+	"""Unfiltered totals for the whole period, across both allocation axes.
+
+	Each axis shows only its own slice (non-chat vs chat), so the axis totals
+	are not the period's AI spend. The UI needs this to say so plainly instead
+	of labelling a slice "Total".
+	"""
+	Run = DocType("AI Agent Run")
+	row = (
+		frappe.qb.from_(Run)
+		.select(
+			fn.Count("*").as_("runs"),
+			fn.Sum(Run.total_tokens).as_("tokens"),
+			fn.Sum(Run.estimated_cost).as_("cost"),
+		)
+		.where(fn.Date(Run.started_at) >= from_d)
+		.where(fn.Date(Run.started_at) <= to_d)
+	).run(as_dict=True)
+	r = row[0] if row else {}
+	return {
+		"runs": cint(r.get("runs")),
+		"tokens": cint(r.get("tokens")),
+		"cost": flt(r.get("cost"), 6),
+	}
+
+
+def _models_missing_pricing(from_d, to_d) -> list:
+	"""Models used in the period that have no active AI Model Pricing row, so
+	their spend silently counts as 0 — finance needs to know."""
+	from one_bpmn.agents.pricing import get_model_pricing
+
+	Run = DocType("AI Agent Run")
+	used = (
+		frappe.qb.from_(Run)
+		.select(Run.model)
+		.distinct()
+		.where(fn.Date(Run.started_at) >= from_d)
+		.where(fn.Date(Run.started_at) <= to_d)
+		.where(Run.model.isnotnull())
+		.where(Run.model != "")
+	).run(as_dict=True)
+	return sorted({r["model"] for r in used if not get_model_pricing(r["model"])})
+
+
+@frappe.whitelist()
+def get_cost_allocation(from_date: str = None, to_date: str = None, axis: str = "process_owner") -> dict:
+	"""Monthly AI spend allocated by Process Owner (non-chat) or chat user
+	(WI-001668), with department, totals, and a pricing-gap warning."""
+	frappe.only_for("System Manager")
+	if axis not in ALLOCATION_AXES:
+		frappe.throw(_("axis must be one of {0}").format(", ".join(ALLOCATION_AXES)))
+	from_d, to_d = _default_dates(from_date, to_date, days=30)
+
+	rows = _allocation_rows(axis, from_d, to_d)
+	return {
+		"axis": axis,
+		"from_date": cstr(from_d),
+		"to_date": cstr(to_d),
+		"rows": rows,
+		# Totals for THIS axis only — the chat and process-owner axes each
+		# cover half the runs. Compare against period_totals below.
+		"totals": {
+			"runs": sum(r["runs"] for r in rows),
+			"tokens": sum(r["tokens"] for r in rows),
+			"cost": flt(sum(r["cost"] for r in rows), 6),
+			"people": len({r["person"] for r in rows if r["person"]}),
+			"departments": len({r["department"] for r in rows if r["department"]}),
+		},
+		"period_totals": _period_totals(from_d, to_d),
+		"models_missing_pricing": _models_missing_pricing(from_d, to_d),
+	}
+
+
+@frappe.whitelist()
+def export_cost_allocation(
+	from_date: str = None, to_date: str = None, axis: str = "process_owner", fmt: str = "xlsx"
+):
+	"""Download the cost allocation as XLSX or CSV (WI-001668). Returns a file
+	response, so the client navigates to this endpoint rather than fetching it."""
+	frappe.only_for("System Manager")
+	if axis not in ALLOCATION_AXES:
+		frappe.throw(_("axis must be one of {0}").format(", ".join(ALLOCATION_AXES)))
+	if fmt not in ("xlsx", "csv"):
+		frappe.throw(_("fmt must be 'xlsx' or 'csv'"))
+	from_d, to_d = _default_dates(from_date, to_date, days=30)
+
+	subject_header = _("Chat") if axis == "chat_user" else _("Process")
+	person_header = _("User") if axis == "chat_user" else _("Process Owner")
+	data = [[_("Month"), _("Department"), person_header, subject_header,
+			 _("Runs"), _("Tokens"), _("Cost")]]
+	for r in _allocation_rows(axis, from_d, to_d):
+		data.append([
+			r["month"], r["department"], r["person"], r["subject_label"],
+			r["runs"], r["tokens"], flt(r["cost"], 6),
+		])
+
+	stem = f"cost-allocation-{axis}-{from_d}-to-{to_d}"
+	if fmt == "xlsx":
+		from frappe.utils.xlsxutils import make_xlsx
+
+		content = make_xlsx(data, "Cost Allocation").getvalue()
+		filename = f"{stem}.xlsx"
+	else:
+		import csv
+		import io
+
+		buf = io.StringIO()
+		csv.writer(buf).writerows(data)
+		content = buf.getvalue().encode("utf-8-sig")  # BOM so Excel reads UTF-8
+		filename = f"{stem}.csv"
+
+	frappe.response["type"] = "binary"
+	frappe.response["filename"] = filename
+	frappe.response["filecontent"] = content

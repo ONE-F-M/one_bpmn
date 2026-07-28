@@ -132,6 +132,7 @@ import { Icon } from "@iconify/vue"
 const props = defineProps({
 	fromDate: String,
 	toDate: String,
+	origin: { type: String, default: "production" },
 })
 
 const loading = ref(false)
@@ -180,6 +181,7 @@ async function fetchReport() {
 		if (filterModel.value) params.model = filterModel.value
 		if (filterErrorCode.value) params.error_code = filterErrorCode.value
 		if (filterProcess.value) params.process_model = filterProcess.value
+		params.origin = props.origin
 		params.group_by = groupBy.value
 
 		const response = await frappeRequest({
@@ -229,6 +231,6 @@ async function loadProcessOptions() {
 	}
 }
 
-watch(() => [props.fromDate, props.toDate], fetchReport)
+watch(() => [props.fromDate, props.toDate, props.origin], fetchReport)
 onMounted(fetchReport)
 </script>
