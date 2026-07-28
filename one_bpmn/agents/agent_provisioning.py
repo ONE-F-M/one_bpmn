@@ -17,13 +17,31 @@ class AgentValidationError(frappe.ValidationError):
 	pass
 
 
-def validate_agent_config(config_name: str, test_provider: bool = True) -> dict:
+# The checks validate_agent_config enforces, as DATA (WI-001649) — kept
+# directly above the function so the two evolve together. The AI Assistant
+# injects these as structured context at call time; nothing about the rules
+# is written into its prompt as prose.
+VALIDATION_RULES = (
+	{"field": "agent_id", "rule": "required"},
+	{"field": "system_prompt", "rule": "must be non-empty (or a description provided so the creation process can generate one)"},
+	{"field": "ai_model", "rule": "must link an AI Model catalog record — the provider is derived from the model's credentials link (WI-001655)"},
+	{"field": "ai_provider_credentials", "rule": "derived from the model; the derived record must exist and be ENABLED; a live test call is made against it"},
+	{"field": "chat_mode_label", "rule": "required for Chat agents; must be unique across agents"},
+)
+
+
+def validate_agent_config(config_name: str, test_provider: bool = True, require_prompt: bool = True) -> dict:
 	"""Validate the six essentials of a chat agent configuration (WI-001621).
 
 	Checks, in order: identity, system prompt, LLM credentials link, and —
 	for chat agents — a chat mode label; lints the prompt for unresolved
 	template markers; and (optionally) makes a live provider test call so a
 	bad key or model is caught before provisioning rather than at first use.
+
+	``require_prompt=False`` waives the empty-prompt error for provider-grant
+	Background agents (WI-001650: e.g. "Platform Prompt Engineer" is a
+	deliberate empty-prompt credentials grant) so the on-save revalidation
+	can still run their live provider test.
 
 	Returns {"ok": bool, "errors": [...], "warnings": [...]}; never raises,
 	so the process can route a failure to Needs Attention.
@@ -37,13 +55,20 @@ def validate_agent_config(config_name: str, test_provider: bool = True) -> dict:
 
 	# 2. System prompt
 	if not (cfg.system_prompt or "").strip():
-		errors.append(_("System prompt is empty."))
+		if require_prompt:
+			errors.append(_("System prompt is empty."))
 	elif "{{" in cfg.system_prompt and "}}" in cfg.system_prompt:
 		warnings.append(_("System prompt contains unresolved '{{ }}' markers."))
 
-	# 3. LLM credentials
+	# 3. Model + derived credentials (WI-001655: the model is the pick)
+	if not cfg.get("ai_model"):
+		errors.append(_("No AI Model is linked — pick one from the catalog."))
 	if not cfg.ai_provider_credentials:
-		errors.append(_("No AI Provider Credentials record is linked."))
+		errors.append(
+			_("The linked AI Model has no AI Provider Credentials link.")
+			if cfg.get("ai_model")
+			else _("No AI Provider Credentials could be derived.")
+		)
 	elif not frappe.db.get_value("AI Provider Credentials", cfg.ai_provider_credentials, "enabled"):
 		errors.append(_("The linked AI Provider Credentials record is disabled."))
 
@@ -60,41 +85,49 @@ def validate_agent_config(config_name: str, test_provider: bool = True) -> dict:
 	return {"ok": not errors, "errors": errors, "warnings": warnings}
 
 
-def _set_status(config_name: str, status: str):
-	frappe.db.set_value("AI Agent Configuration", config_name, "lifecycle_status", status, update_modified=False)
+def _set_status(config_name: str, status: str, reason: str = None):
+	"""Stamp the lifecycle stage. Needs Attention carries WHY (shown as a
+	form intro banner + timeline comment); every other stage clears it."""
+	values = {"lifecycle_status": status}
+	if status == "Needs Attention":
+		values["needs_attention_reason"] = (reason or "").strip() or "See the Error Log for details."
+	else:
+		values["needs_attention_reason"] = ""
+	frappe.db.set_value("AI Agent Configuration", config_name, values, update_modified=False)
+	if status == "Needs Attention":
+		try:
+			frappe.get_doc("AI Agent Configuration", config_name).add_comment(
+				"Comment", "Needs Attention: " + values["needs_attention_reason"]
+			)
+		except Exception:
+			pass  # a failed comment must never block the status stamp
 	frappe.db.commit()
 
 
 def provision_agent(config_name: str):
-	"""v1 AI Agent creation process (WI-001620).
+	"""AI Agent creation flow (WI-001620, reshaped by WI-001652).
 
-	Carries a chat agent from Draft to Live: Validating -> Provisioning
-	(clone the chat-map template + compile/deploy so its start trigger arms)
-	-> Live. Any failure lands the agent in Needs Attention with the reason
-	logged; editing the configuration re-triggers this. Idempotent and safe
-	to enqueue.
+	Carries a chat agent from Draft to Live: Validating -> Evaluating ->
+	Live. Live means "details valid and tested" — NO diagram is created or
+	required (WI-001652): diagrams are authored by people in the editor, and
+	the config's process_model is a manual, informational link. Any failure
+	lands the agent in Needs Attention with the reason logged; editing the
+	configuration re-triggers this. Idempotent and safe to enqueue.
 	"""
 	cfg = frappe.get_doc("AI Agent Configuration", config_name)
 	if cfg.agent_type != "Chat":
-		return  # background agents are provisioned by their own path (later pass)
+		return  # Background agents go Live on save (apply_background_lifecycle)
 
 	try:
 		_set_status(config_name, "Validating")
 		result = validate_agent_config(config_name)
 		if not result["ok"]:
-			_set_status(config_name, "Needs Attention")
+			_set_status(config_name, "Needs Attention", reason="; ".join(result["errors"]))
 			frappe.log_error(
 				title=f"Agent provisioning: validation failed ({cfg.agent_id})",
 				message="\n".join(result["errors"]),
 			)
 			return
-
-		_set_status(config_name, "Provisioning")
-		from one_bpmn.agents.chat_map_template import clone_chat_map_for_agent
-		from one_bpmn.api.compilation import compile_process_model
-
-		model_name = clone_chat_map_for_agent(config_name)
-		compile_process_model(model_name)  # arms the conditional start trigger
 
 		# Evaluating (WI-001609): generate + run a baseline suite from the
 		# agent's sample prompts. A suite marked gate_deployment blocks Live
@@ -104,7 +137,10 @@ def provision_agent(config_name: str):
 			_set_status(config_name, "Evaluating")
 			passed = _run_baseline_eval(suite_name)
 			if passed is False and frappe.db.get_value("AI Eval Suite", suite_name, "gate_deployment"):
-				_set_status(config_name, "Needs Attention")
+				_set_status(
+					config_name, "Needs Attention",
+					reason=f"Baseline eval suite '{suite_name}' did not pass and gates deployment.",
+				)
 				frappe.log_error(
 					title=f"Agent provisioning: eval gate failed ({cfg.agent_id})",
 					message=f"Baseline suite {suite_name} did not pass and gates deployment.",
@@ -113,7 +149,11 @@ def provision_agent(config_name: str):
 
 		_set_status(config_name, "Live")
 	except Exception:
-		_set_status(config_name, "Needs Attention")
+		_set_status(
+			config_name, "Needs Attention",
+			reason="The go-live flow crashed unexpectedly — see the Error Log "
+			f"entry 'Agent provisioning failed ({cfg.agent_id})'.",
+		)
 		frappe.log_error(
 			title=f"Agent provisioning failed ({cfg.agent_id})",
 			message=frappe.get_traceback(),
@@ -211,8 +251,10 @@ def generate_eval_suite_for_agent(config_name: str) -> str | None:
 	# AI Eval Case requires a model, and llm_judge assertions require a judge
 	# model — both are mandatory fields. Resolve the provider's default model
 	# once and reuse it for the case and its judge.
+	# WI-001655: the model comes from the agent's own catalog pick (the AI
+	# Model record name IS the model id); the provider is its derived creds.
 	judge_provider = cfg.ai_provider_credentials
-	judge_model = frappe.db.get_value("AI Provider Credentials", judge_provider, "default_model") or ""
+	judge_model = cfg.get("ai_model") or ""
 	for i, sample in enumerate(samples, start=1):
 		case = frappe.get_doc({
 			"doctype": "AI Eval Case",
