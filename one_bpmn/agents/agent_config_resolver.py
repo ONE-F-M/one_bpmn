@@ -41,14 +41,15 @@ _CONFIG_TO_SHAPE = {
 }
 
 # Shape attributes the modal may write back, and the config fields they land
-# in. aiModel is deliberately absent: the configuration derives its model from
-# the linked credentials' default, so a model typed on the shape is a
-# shape-local override, not an agent property.
+# in. WI-001655 inverted the old rule: the MODEL is now the agent's editable
+# pick (a Link into the AI Model catalog), while aiProvider is deliberately
+# absent — the provider is derived from the model's credentials link, so "to
+# change the provider, change the model".
 _SHAPE_TO_CONFIG = {
 	"aiSystemPrompt": "system_prompt",
 	"aiTemperature": "temperature",
 	"aiMaxTokens": "max_tokens",
-	"aiProvider": "ai_provider_credentials",
+	"aiModel": "ai_model",
 }
 
 # The platform process that carries an agent Draft -> Live. Used to re-provision
@@ -69,9 +70,11 @@ def config_field_map(config_name: str) -> dict:
 			out[sattr] = val
 	if cfg.ai_provider_credentials:
 		out["aiProvider"] = cfg.ai_provider_credentials
-		model = frappe.db.get_value("AI Provider Credentials", cfg.ai_provider_credentials, "default_model")
-		if model:
-			out["aiModel"] = model
+	# WI-001655: the model is the agent's own pick from the AI Model catalog
+	# (the record name IS the model id); the provider above is derived from
+	# that model's credentials link at save time.
+	if cfg.get("ai_model"):
+		out["aiModel"] = cfg.ai_model
 	return out
 
 
@@ -141,6 +144,17 @@ def update_agent_config_from_shape(config_name: str, fields: str | dict) -> dict
 			value = frappe.utils.flt(value)
 		if cfield == "max_tokens" and value not in (None, ""):
 			value = frappe.utils.cint(value)
+		# Old diagrams carry model ids baked into the shape before the AI Model
+		# catalog existed (WI-001655). Letting doc.save() hit the Link
+		# validation surfaces a raw LinkValidationError — say what is actually
+		# wrong instead.
+		if cfield == "ai_model" and value and not frappe.db.exists("AI Model", value):
+			frappe.throw(
+				_(
+					"'{0}' is not in the AI Model catalog — the task shape carries an "
+					"outdated model id. Pick a model from the dropdown and save again."
+				).format(value)
+			)
 		if doc.get(cfield) != value:
 			doc.set(cfield, value)
 			changed.append(cfield)
@@ -148,7 +162,10 @@ def update_agent_config_from_shape(config_name: str, fields: str | dict) -> dict
 	if not changed:
 		return {"ok": True, "updated": [], "reprovisioned": False}
 
-	was_live = doc.lifecycle_status == "Live"
+	# Re-provisioning is a chat-map concern: it re-runs the creation process
+	# so a Live CHAT agent picks up the change. Background agents (Live via
+	# auto-go-live, WI-001652) have no map to rebuild — never re-provision them.
+	was_live = doc.lifecycle_status == "Live" and doc.agent_type == "Chat"
 	doc.save()
 
 	reprovisioned = False
@@ -156,6 +173,20 @@ def update_agent_config_from_shape(config_name: str, fields: str | dict) -> dict
 		reprovisioned = _start_reprovision(doc.name)
 
 	return {"ok": True, "updated": changed, "reprovisioned": reprovisioned}
+
+
+# The create endpoint's payload contract as DATA (WI-001649): the AI Assistant
+# is told about these fields at call time instead of having them written into
+# its prompt as prose. Keys match create_agent_configuration's payload exactly.
+CREATE_PAYLOAD_CONTRACT = {
+	"agent_name": "Human-readable agent name (required).",
+	"agent_id": "Machine id; auto-derived from the name when omitted.",
+	"chat_mode_label": "Label shown in chat mode pickers (required, must be unique).",
+	"ai_model": "Name of an AI Model catalog record — the agent's provider follows from this model's credentials link (WI-001655).",
+	"system_prompt": "The agent's system prompt; leave empty to have the creation process generate one from the description.",
+	"description": "What the agent does — feeds prompt auto-generation.",
+	"sample_prompts": 'Optional list of {"prompt", "expected_behaviour"} rows; becomes the baseline eval suite.',
+}
 
 
 @frappe.whitelist()
@@ -185,14 +216,31 @@ def create_agent_configuration(payload: str | dict) -> dict:
 		# label — fail fast here instead of guaranteeing a Needs Attention.
 		frappe.throw(_("A chat mode label is required for a chat agent."))
 
+	# Friendly duplicate guard — a raw DuplicateEntryError helps nobody.
+	agent_id = (payload.get("agent_id") or "").strip() or frappe.scrub(agent_name)
+	clash = frappe.db.exists("AI Agent Configuration", {"agent_name": agent_name}) or frappe.db.exists(
+		"AI Agent Configuration", {"agent_id": agent_id}
+	)
+	if clash:
+		frappe.throw(
+			_(
+				"An AI Agent Configuration named '{0}' already exists. "
+				"Link it instead of creating it again, or ask for a change to it."
+			).format(clash)
+		)
+
 	doc = frappe.new_doc("AI Agent Configuration")
 	doc.agent_name = agent_name
-	doc.agent_id = (payload.get("agent_id") or "").strip() or frappe.scrub(agent_name)
+	doc.agent_id = agent_id
 	doc.agent_framework = payload.get("agent_framework") or "Direct API"
 	doc.agent_type = "Chat"
 	doc.lifecycle_status = "Draft"
 	doc.enabled = 1
 	doc.chat_mode_label = chat_mode_label
+	# WI-001655: the model is the pick; the provider derives from its
+	# credentials link on save. A directly-passed credentials value is kept
+	# only as legacy fallback for model-less payloads.
+	doc.ai_model = payload.get("ai_model") or None
 	doc.ai_provider_credentials = payload.get("ai_provider_credentials") or None
 	doc.system_prompt = payload.get("system_prompt") or ""
 	doc.description = payload.get("description") or ""

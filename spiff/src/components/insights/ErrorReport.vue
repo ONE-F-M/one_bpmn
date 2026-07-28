@@ -23,6 +23,17 @@
 				class="w-48"
 				@change="fetchReport"
 			/>
+			<!-- WI-001608: AI tasks are done by AI Agents -->
+			<FormControl
+				type="select"
+				v-model="groupBy"
+				:options="[
+					{ label: 'Group by Model', value: 'model' },
+					{ label: 'Group by AI Agent', value: 'agent' },
+				]"
+				class="w-48"
+				@change="fetchReport"
+			/>
 		</div>
 
 		<!-- Loading State -->
@@ -79,7 +90,7 @@
 				<table class="w-full">
 					<thead>
 						<tr class="border-b border-gray-200">
-							<th class="text-left text-xs uppercase text-gray-500 font-medium py-2 px-3">Model</th>
+							<th class="text-left text-xs uppercase text-gray-500 font-medium py-2 px-3">{{ groupBy === "agent" ? "AI Agent" : "Model" }}</th>
 							<th class="text-left text-xs uppercase text-gray-500 font-medium py-2 px-3">BPMN Element</th>
 							<th class="text-right text-xs uppercase text-gray-500 font-medium py-2 px-3">Total Runs</th>
 							<th class="text-right text-xs uppercase text-gray-500 font-medium py-2 px-3">Successes</th>
@@ -128,6 +139,7 @@ const reportData = ref({})
 const filterModel = ref("")
 const filterErrorCode = ref("")
 const filterProcess = ref("")
+const groupBy = ref("model") // "model" | "agent" (WI-001608)
 
 // Cache model options from the initial (unfiltered) load
 const cachedModels = ref([])
@@ -168,6 +180,7 @@ async function fetchReport() {
 		if (filterModel.value) params.model = filterModel.value
 		if (filterErrorCode.value) params.error_code = filterErrorCode.value
 		if (filterProcess.value) params.process_model = filterProcess.value
+		params.group_by = groupBy.value
 
 		const response = await frappeRequest({
 			url: "/api/method/one_bpmn.api.insights_api.get_error_report",
@@ -176,8 +189,9 @@ async function fetchReport() {
 		})
 		reportData.value = response || {}
 
-		// Refresh cached model options only on unfiltered fetches
-		if (!filterModel.value && !filterErrorCode.value && !filterProcess.value) {
+		// Refresh cached model options only on unfiltered, model-grouped
+		// fetches — agent names must not leak into the Model filter.
+		if (!filterModel.value && !filterErrorCode.value && !filterProcess.value && groupBy.value === "model") {
 			const rows = reportData.value.rows || []
 			cachedModels.value = [...new Set(rows.map(r => r.model))].sort()
 		}
