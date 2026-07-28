@@ -1106,29 +1106,45 @@ def _lint_ai_provider_config(_bpmn_xml: str, service_extensions: dict) -> None:
 		provider_name = (task_cfg.get("aiProvider") or "").strip()
 		agent_config = (task_cfg.get("aiAgentConfig") or "").strip()
 
-		# WI-001637: a shape may resolve its provider EITHER directly or by
-		# referencing an AI Agent Configuration (which seeds the provider).
-		# Validate the reference when present.
+		# WI-001637: validate the AI Agent Configuration reference when present.
 		if agent_config:
-			if not frappe.db.exists("AI Agent Configuration", agent_config):
+			cfg_row = frappe.db.get_value(
+				"AI Agent Configuration", agent_config, ["enabled", "lifecycle_status"], as_dict=True
+			)
+			if not cfg_row:
 				frappe.throw(
 					_("Referenced AI Agent Configuration '{0}' not found (task '{1}').").format(agent_config, bpmn_id),
 					exc=frappe.ValidationError,
 				)
-			if not frappe.db.get_value("AI Agent Configuration", agent_config, "enabled"):
+			if not cfg_row.enabled:
 				frappe.throw(
 					_("Referenced AI Agent Configuration '{0}' is disabled (task '{1}').").format(agent_config, bpmn_id),
 					exc=frappe.ValidationError,
 				)
+			# WI-001652: deployment requires Live. Agents reach Live without any
+			# diagram existing, so the diagram is always the later step — no
+			# exceptions needed. A non-Live agent (Draft, Validating, Needs
+			# Attention, Retired) cannot be shipped against.
+			if cfg_row.lifecycle_status != "Live":
+				frappe.throw(
+					_(
+						"AI Agent Configuration '{0}' is {1} (task '{2}'). "
+						"Wait for it to reach Live — or repair it — before deploying."
+					).format(agent_config, cfg_row.lifecycle_status or "Draft", bpmn_id),
+					exc=frappe.ValidationError,
+				)
 
-		# An AI Task Selector is unusable without a provider — block the save
-		# outright (WI-001351 Scenario 4); a plain AI Agent Task may still be
-		# a work-in-progress draft, so only its non-empty reference is checked.
-		if service_type == "ai_task_selector" and not provider_name and not agent_config:
+		# WI-001650: every LLM-calling shape — AI Agent Task and AI Task
+		# Selector alike — must be backed by an AI Agent Configuration. Raw
+		# provider setup is retired; deploying a config-less AI shape is
+		# blocked. (The shape's copied fields remain the runtime fallback for
+		# a config deleted AFTER deploy — resilience, not an authoring path.)
+		if not agent_config:
 			frappe.throw(
 				_(
-					"AI Task Selector on '{0}' has no AI Provider Credentials or AI Agent "
-					"Configuration configured. Select one before saving."
+					"AI shape '{0}' has no linked AI Agent Configuration. Link an "
+					"existing agent or create one from the task dialog — setting up "
+					"an AI task with a raw provider has been retired (WI-001650)."
 				).format(bpmn_id),
 				exc=frappe.ValidationError,
 			)
