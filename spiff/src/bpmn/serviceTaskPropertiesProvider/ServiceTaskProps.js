@@ -7,6 +7,7 @@ import { FrappeAutocomplete } from "../shared/FrappeAutocomplete";
 import { FrappeMultiSelect } from "../shared/FrappeMultiSelect";
 import { encodeHtmlAttr, decodeHtmlAttr } from "../shared/htmlAttrCodec";
 import { makeLaunchDocuButton } from "../shared/launchDocuButton";
+import { connectorEntries } from "./connectorEntries";
 
 // ---------------------------------------------------------------------------
 // Document Status options — mirrors Frappe's docstatus values exactly
@@ -147,6 +148,11 @@ export function ServiceTaskProps(props) {
 		);
 	}
 
+	// ── Connector entries (manifest-driven; Google Drive/Docs/Slides, …) ────
+	if (serviceType === "connector") {
+		entries.push(...connectorEntries({ element }));
+	}
+
 	// AI Agent Tasks have their own dedicated properties panel
 	// (see aiAgentPropertiesProvider) and are created via the Change element
 	// menu — they are intentionally not handled here.
@@ -202,6 +208,12 @@ function ServiceTypeComponent(props) {
 			"spiffworkflow:pushToUsers":          undefined,
 			"spiffworkflow:pushToDocFields":      undefined,
 			"spiffworkflow:pushToRoles":          undefined,
+			// Clear connector attrs
+			"spiffworkflow:connectorId":          undefined,
+			"spiffworkflow:operation":            undefined,
+			"spiffworkflow:connectorParams":      undefined,
+			"spiffworkflow:resultVariable":       undefined,
+			"spiffworkflow:failOnError":          undefined,
 			// Clear ai_agent attrs
 			"spiffworkflow:aiBackend":            undefined,
 			"spiffworkflow:aiProvider":           undefined,
@@ -230,6 +242,7 @@ function ServiceTypeComponent(props) {
 		{ label: translate("Update Field"),              value: "update_field" },
 		{ label: translate("Google Chat"),               value: "google_chat" },
 		{ label: translate("Push Notification"),         value: "push_notification" },
+		{ label: translate("Connector"),                 value: "connector" },
 	];
 
 	return h(SelectEntry, {
