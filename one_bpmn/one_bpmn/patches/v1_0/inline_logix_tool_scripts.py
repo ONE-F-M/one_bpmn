@@ -302,6 +302,9 @@ if element_name:
     _parts.append("**" + _label + ":** " + element_name)
 if current_script:
     _parts.append("**Currently linked Server Script:** " + current_script)
+_original = turn.get("original_script_content", "")
+if _original:
+    _parts.append("**Existing script (the CURRENT code of the linked Server Script) - you are MODIFYING this. Rewrite THIS code, preserve its intent and structure, and change only what the user asked. Do NOT invent a new script from scratch:**\n```python\n" + _original + "\n```")
 if _hist:
     _parts.append("**Conversation so far:**\n" + _hist)
 _parts.append("**User request:** " + message)
@@ -422,6 +425,9 @@ if element_name:
     _parts.append("**" + _label + ":** " + element_name)
 if current_script:
     _parts.append("**Currently linked Server Script:** " + current_script)
+_original = turn.get("original_script_content", "")
+if _original:
+    _parts.append("**Existing script (the CURRENT code of the linked Server Script) - you are MODIFYING this. Rewrite THIS code, preserve its intent and structure, and change only what the user asked. Do NOT invent a new script from scratch:**\n```python\n" + _original + "\n```")
 if _hist:
     _parts.append("**Conversation so far:**\n" + _hist)
 _parts.append("**User request:** " + message)

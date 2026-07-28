@@ -346,12 +346,59 @@ def process_logix_message(
 
 		# Gather the editor inputs the Logix agent needs (the original script body
 		# is used for MODIFY diffs). These are delivered to the map as context.
+		# A linked script that cannot be READ must NOT be silently swallowed — that
+		# leaves the agent with no code and it fabricates a fresh, unrelated one.
+		# Surface the real reason to the user instead. (frappe.get_doc does not
+		# enforce read permission, so check it explicitly; Server Script read is
+		# limited to Script Manager — System Manager is allowed too, matching the
+		# create/update endpoints above.)
 		original_content = ""
 		if current_script:
+			if not (
+				frappe.has_permission("Server Script", "read", doc=current_script)
+				or "System Manager" in frappe.get_roles()
+			):
+				frappe.log_error(
+					title="Logix: no permission to read linked Server Script",
+					message=f"user={frappe.session.user} script={current_script}",
+				)
+				return {
+					"intent": "ERROR",
+					"response": _(
+						"A script named '{0}' is linked here, but you don't have permission to read it, "
+						"so I can't safely modify it. You likely need the Script Manager role (or an admin's "
+						"help) to let Logix access it."
+					).format(current_script),
+					"conversation_name": conversation_name,
+				}
 			try:
 				original_content = frappe.get_doc("Server Script", current_script).script or ""
+			except frappe.DoesNotExistError:
+				frappe.log_error(
+					title="Logix: linked Server Script not found",
+					message=f"script={current_script}",
+				)
+				return {
+					"intent": "ERROR",
+					"response": _(
+						"I couldn't find the linked script '{0}' — it may not be saved yet. "
+						"Please save it first, then ask me to modify it."
+					).format(current_script),
+					"conversation_name": conversation_name,
+				}
 			except Exception:
-				pass
+				frappe.log_error(
+					title="Logix: failed to load linked Server Script",
+					message=frappe.get_traceback(),
+				)
+				return {
+					"intent": "ERROR",
+					"response": _(
+						"I couldn't load the existing script to modify it. Please try again; if it keeps "
+						"happening, ask an admin to check the Error Log."
+					),
+					"conversation_name": conversation_name,
+				}
 
 		# Normalise shape_kind server-side. The editor labels the element, but the
 		# authoritative rule is the parent shape's type: an element inside an
