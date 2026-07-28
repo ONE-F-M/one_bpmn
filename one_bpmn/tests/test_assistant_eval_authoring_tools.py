@@ -22,6 +22,7 @@ from one_bpmn.one_bpmn.patches.v1_0.add_assistant_eval_authoring_tools import (
 	_PROMPT_MARKER,
 	_PROMPT_SECTION,
 	_TOOL_SHAPES,
+	_apply_section,
 	_di_xml,
 	_escape_attr,
 	_shape_xml,
@@ -143,3 +144,72 @@ class TestAssistantEvalToolShapes(FrappeTestCase):
 			section.index("list_eval_suites"),
 			section.index("create_eval_suite"),
 		)
+
+	# ── Behaviour the assistant got wrong in practice ──
+	# Asked "create sample prompts for me", it replied by asking the designer to
+	# supply the prompts — and repeated that reply verbatim even after they had
+	# answered. These assert the rules that address both, so a later prompt edit
+	# cannot quietly drop them.
+
+	def test_prompt_tells_it_to_offer_both_sources_of_cases(self):
+		section = _PROMPT_SECTION
+		self.assertIn("would they like you to propose some", section)
+		self.assertIn("Offer both", section)
+
+	def test_prompt_forbids_bouncing_a_request_to_propose(self):
+		section = _PROMPT_SECTION
+		self.assertIn("PROPOSE THEM", section)
+		self.assertIn("asking the designer to supply is always the wrong answer", section)
+
+	def test_prompt_forbids_repeating_itself_or_re_asking(self):
+		section = _PROMPT_SECTION
+		self.assertIn("never repeat one of your own earlier replies word for word", section)
+		self.assertIn("Never ask again for something they have answered", section)
+
+	def test_prompt_recognises_the_request_however_worded(self):
+		self.assertIn("however it is worded", _PROMPT_SECTION)
+
+	def test_prompt_is_honest_about_having_no_tools_in_the_dialog(self):
+		"""It promised to "set up the eval suite" from the task dialog, where it
+		has no tools at all."""
+		self.assertIn("Your tools are only available in chat", _PROMPT_SECTION)
+
+	def test_deciding_the_source_comes_before_the_tool_order(self):
+		section = _PROMPT_SECTION
+		self.assertLess(
+			section.index("Settle WHERE THE CASES COME FROM"),
+			section.index("FIRST call list_eval_suites"),
+		)
+
+	# ── Section replacement ──
+
+	def test_apply_section_appends_when_absent(self):
+		out = _apply_section("EXISTING RULES:\n  - something")
+		self.assertIn("EXISTING RULES:", out)
+		self.assertEqual(out.count(_PROMPT_MARKER), 1)
+
+	def test_apply_section_replaces_rather_than_duplicates(self):
+		once = _apply_section("EXISTING RULES:\n  - something")
+		twice = _apply_section(once)
+		self.assertEqual(twice.count(_PROMPT_MARKER), 1)
+		self.assertEqual(once, twice)
+
+	def test_apply_section_replaces_a_stale_copy_in_place(self):
+		stale = (
+			"EXISTING RULES:\n  - something\n\n"
+			"AUTHORING EVAL SUITES AND CASES:\n  - outdated wording here\n\n"
+			"CREATING AN AGENT THROUGH YOUR TOOLS:\n  - keep me"
+		)
+		out = _apply_section(stale)
+		self.assertNotIn("outdated wording here", out)
+		self.assertEqual(out.count(_PROMPT_MARKER), 1)
+		# Sections either side must survive — the replacement is bounded by the
+		# next known heading, not by the end of the prompt.
+		self.assertIn("EXISTING RULES:", out)
+		self.assertIn("CREATING AN AGENT THROUGH YOUR TOOLS:\n  - keep me", out)
+
+	def test_apply_section_keeps_a_trailing_section_when_it_is_last(self):
+		stale = "AUTHORING EVAL SUITES AND CASES:\n  - outdated"
+		out = _apply_section(stale)
+		self.assertNotIn("outdated", out)
+		self.assertEqual(out.count(_PROMPT_MARKER), 1)

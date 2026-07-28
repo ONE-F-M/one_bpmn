@@ -354,13 +354,54 @@ _PROMPT_MARKER = "AUTHORING EVAL SUITES AND CASES:"
 _PROMPT_SECTION = """
 
 AUTHORING EVAL SUITES AND CASES:
-  - You can build evals for an AI Agent Configuration directly with three tools, in this order.
+  - Any request to test an agent, add evals, add test cases, or check an agent's quality is an eval-authoring request, however it is worded. Recognise it and act; do not make the designer restate it.
+  - Settle WHERE THE CASES COME FROM before anything else, and ask it once: do they already have prompts in mind, or would they like you to propose some? Offer both. Never assume they will supply them.
+  - If they ask YOU to produce them — "create sample prompts for me", "you suggest some", "propose them" — then PROPOSE THEM. Draft concrete prompts, each with the behaviour it should produce, inferred from the agent's own purpose and system prompt plus whatever they have told you, and show them for approval. Answering a request to propose by asking the designer to supply is always the wrong answer.
+  - Build on what the designer has already said. Never ask again for something they have answered, and never repeat one of your own earlier replies word for word — if you are about to, you have missed something they told you; use it instead.
+  - Once the cases are agreed, build them with the tools in this order.
   - FIRST call list_eval_suites for the agent. It returns each suite's title, description, eval type and existing case titles.
   - If one of those suites already covers what the designer asked for, ADD cases to it with create_eval_case. Do not create a second suite for the same purpose.
   - Only when no suite fits, call create_eval_suite (the agent's record name and a title are required), then create_eval_case for each case using the returned suite name.
   - Give every case at least one assertion — a case with none passes trivially. Use contains / regex / equals / schema_valid for exact checks, and llm_judge (with a judge provider, judge model and pass threshold) when correctness is a matter of judgement.
   - Prefer these tools over add_agent_evals when the designer wants a named or purpose-specific suite: add_agent_evals only ever refreshes the agent's single baseline suite.
-  - The suite's link to the agent lives on the suite, not on the AI Agent Configuration, so always pass the agent's exact record name when creating one."""
+  - The suite's link to the agent lives on the suite, not on the AI Agent Configuration, so always pass the agent's exact record name when creating one.
+  - Your tools are only available in chat. On a task-dialog turn you have none, so there you propose the suite and cases as text and say they can be created from the chat — never say you will create them when on that surface you cannot."""
+
+# Where each known heading in the assistant's prompt begins. Used to find where
+# this section ENDS so a changed section can be swapped in place: prompts get
+# iterated, and appending a second copy would leave the model two sets of rules
+# for the same job.
+_SECTION_HEADINGS = (
+	"AUTHORING EVAL SUITES AND CASES:",
+	"CREATING AN AGENT THROUGH YOUR TOOLS:",
+	"YOUR TOOLBOX:",
+	"CREATING NEW AGENTS:",
+	"UPDATING EXISTING AGENTS:",
+	"CAPABILITY LIMITS",
+	"ROUTING RULES:",
+	"REPLY FORMAT",
+	"CLARIFY WHEN UNSURE:",
+)
+
+
+def _apply_section(prompt: str) -> str:
+	"""Return *prompt* with this section present exactly once and current.
+
+	Absent -> appended. Present -> replaced from its heading up to whichever
+	known heading follows it (or the end), so re-running with edited text
+	updates the rules rather than stacking a rival copy.
+	"""
+	body = _PROMPT_SECTION.lstrip("\n").rstrip()
+	start = prompt.find(_PROMPT_MARKER)
+	if start == -1:
+		return prompt.rstrip() + _PROMPT_SECTION
+
+	after = start + len(_PROMPT_MARKER)
+	following = [
+		pos for pos in (prompt.find(h, after) for h in _SECTION_HEADINGS) if pos != -1
+	]
+	end = min(following) if following else len(prompt)
+	return (prompt[:start] + body + "\n\n" + prompt[end:]).rstrip()
 
 
 # ═══════════════════════════════════════════════════════════════════════════════
@@ -465,14 +506,11 @@ def _steer_prompt() -> None:
 	if not name:
 		return
 	prompt = frappe.db.get_value("AI Agent Configuration", name, "system_prompt") or ""
-	if _PROMPT_MARKER in prompt:
+	updated = _apply_section(prompt)
+	if updated == prompt:
 		return
 	frappe.db.set_value(
-		"AI Agent Configuration",
-		name,
-		"system_prompt",
-		prompt.rstrip() + _PROMPT_SECTION,
-		update_modified=False,
+		"AI Agent Configuration", name, "system_prompt", updated, update_modified=False
 	)
 	frappe.cache.delete_value(f"agent_config:{AGENT_ID}")
 
