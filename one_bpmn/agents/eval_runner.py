@@ -46,6 +46,10 @@ from one_bpmn.agents.pricing import get_model_pricing
 # LLM Judge prompt template (not configurable for v1)
 # ---------------------------------------------------------------------------
 
+# bpmn_id markers for the eval LLM calls recorded as AI Agent Runs (origin="eval").
+EVAL_RUN_DIRECT = "direct-eval"
+EVAL_RUN_JUDGE = "eval-judge"
+
 JUDGE_PROMPT_TEMPLATE = """You are an evaluation judge. Score the following AI response based on the given rubric.
 
 Rubric:
@@ -95,7 +99,13 @@ def run_eval_suite(suite_name: str, backend: str = "live") -> str:
     run.status = "Running"
     run.backend = backend
     run.started_at = now_datetime()
-    run.insert()
+    run.scope = "Suite"  # this entry point always runs the whole suite
+    # The caller is already authorised above (suite read gate + evaluatable
+    # check, or System Manager). The AI Eval Run is a system-written record of
+    # that action, so it must not additionally demand write rights on the Run
+    # doctype — a process owner may run their own suites without being able to
+    # hand-edit run records.
+    run.insert(ignore_permissions=True)
 
     frappe.enqueue(
         "one_bpmn.agents.eval_runner._execute_eval_suite",
@@ -105,7 +115,83 @@ def run_eval_suite(suite_name: str, backend: str = "live") -> str:
         run_name=run.name,
         timeout=1800,
     )
-    
+
+    return run.name
+
+
+def _assert_agent_evaluatable(agent_cfg: str, eval_type: str) -> None:
+    """Block a live run whose agent can't be evaluated, with a clear message
+    (WI-001751). Only "Agent" (process) evals need a map — a Google ADK agent
+    needs a process map to run and cannot be invoked standalone. "Direct" evals
+    are a plain LLM call and work for any agent.
+    """
+    if not agent_cfg:
+        frappe.throw(_("This suite has no agent configuration. Assign an agent before running evals."))
+    if (eval_type or "Direct") != "Agent":
+        return
+    fw, pm = frappe.db.get_value(
+        "AI Agent Configuration", agent_cfg, ["agent_framework", "process_model"]
+    ) or (None, None)
+    if (fw or "").strip().lower() == "google adk" and not pm:
+        frappe.throw(_(
+            "Agent '{0}' can't run an Agent (process) eval yet: it needs a process map. "
+            "Give the agent a process map, or use a Direct eval suite instead."
+        ).format(agent_cfg))
+
+
+@frappe.whitelist()
+def run_eval_cases(suite_name: str, case_names=None, backend: str = "live") -> str:
+    """Run a chosen subset of a suite's cases (WI-001746), or the whole suite
+    when no cases are given.
+
+    Unlike ``run_eval_suite`` (System Manager only), this is available to any
+    user who can read the suite — a process owner may run their own suites.
+    The subset is validated to belong to the suite.
+    """
+    if backend not in ("live", "replay"):
+        frappe.throw(_("backend must be 'live' or 'replay', not '{0}'.").format(backend))
+
+    suite = frappe.get_doc("AI Eval Suite", suite_name)  # 404s if missing
+    suite.check_permission("read")  # owner / System Manager gate
+
+    if backend == "live":
+        _assert_agent_evaluatable(suite.agent_configuration, suite.eval_type)
+
+    if isinstance(case_names, str):
+        case_names = frappe.parse_json(case_names) or None
+    if case_names:
+        valid = set(
+            frappe.get_all("AI Eval Case", filters={"suite": suite_name}, pluck="name")
+        )
+        invalid = [c for c in case_names if c not in valid]
+        if invalid:
+            frappe.throw(_("Cases do not belong to this suite: {0}").format(", ".join(invalid)))
+    else:
+        case_names = None  # whole suite
+
+    run = frappe.new_doc("AI Eval Run")
+    run.suite = suite_name
+    run.status = "Running"
+    run.backend = backend
+    run.started_at = now_datetime()
+    # Record the requested scope now, so the run reports which cases it covers
+    # even while Running, or if it errors before producing any result.
+    run.scope = "Subset" if case_names else "Suite"
+    run.requested_cases = json.dumps(case_names) if case_names else None
+    # The caller is already authorised above (suite read gate + evaluatable
+    # check, or System Manager). The AI Eval Run is a system-written record of
+    # that action, so it must not additionally demand write rights on the Run
+    # doctype — a process owner may run their own suites without being able to
+    # hand-edit run records.
+    run.insert(ignore_permissions=True)
+
+    frappe.enqueue(
+        "one_bpmn.agents.eval_runner._execute_eval_suite",
+        queue="bpmn_ai_agent",
+        run_name=run.name,
+        case_names=case_names,
+        timeout=1800,
+    )
     return run.name
 
 
@@ -113,8 +199,11 @@ def run_eval_suite(suite_name: str, backend: str = "live") -> str:
 # Background job
 # ---------------------------------------------------------------------------
 
-def _execute_eval_suite(run_name: str) -> None:
-    """Run every case in the suite and finalise the AI Eval Run.
+def _execute_eval_suite(run_name: str, case_names: list | None = None) -> None:
+    """Run the suite's cases and finalise the AI Eval Run.
+
+    ``case_names`` (WI-001746) restricts the run to a chosen subset; when None
+    every case in the suite runs.
 
     WI-001361 Scenario 5: an unexpected exception partway through must
     never leave the Run stuck on "Running" — the run is finalised as
@@ -125,12 +214,13 @@ def _execute_eval_suite(run_name: str) -> None:
     run = frappe.get_doc("AI Eval Run", run_name)
 
     try:
-        case_names = frappe.get_all(
-            "AI Eval Case",
-            filters={"suite": run.suite},
-            pluck="name",
-            order_by="creation asc",
-        )
+        if case_names is None:
+            case_names = frappe.get_all(
+                "AI Eval Case",
+                filters={"suite": run.suite},
+                pluck="name",
+                order_by="creation asc",
+            )
 
         passed = failed = 0
         total_cost = 0.0
@@ -141,6 +231,11 @@ def _execute_eval_suite(run_name: str) -> None:
                 result_row = _execute_case_replay(run, case)
             else:
                 result_row = _execute_case(case)
+            # Snapshot what was evaluated, so later edits to the case don't
+            # rewrite this run's history. Set centrally so every path (live,
+            # replay, error) records it.
+            result_row.setdefault("input_user_prompt", case.input_user_prompt or "")
+            result_row.setdefault("expected_output", case.expected_output or "")
             run.append("results", result_row)
             if result_row["status"] == "Passed":
                 passed += 1
@@ -166,7 +261,9 @@ def _execute_eval_suite(run_name: str) -> None:
         run.failed_cases = run.total_cases - run.passed_cases
 
     run.ended_at = now_datetime()
-    run.save()
+    # Background finalise: the job writes results on the user's behalf, so it
+    # must not depend on that user holding write rights on AI Eval Run.
+    run.save(ignore_permissions=True)
     # Background-job commit; skipped in tests so FrappeTestCase rollback
     # still cleans up fixture docs instead of leaking them into the DB.
     if not frappe.flags.in_test:
@@ -240,39 +337,34 @@ def _execute_case_replay(run, case) -> dict:
 
 def _execute_case(case) -> dict:
     """
-    Run a single case through its executor and evaluate its assertions.
+    Evaluate a case against the suite's AI Agent Configuration (WI-001751).
 
-    Returns a dict suitable for appending to AI Eval Run.results. Any
-    unexpected exception is captured as an Error result so the suite can
+    The suite's ``eval_type`` selects how the agent runs:
+      - "Agent":  invoke the full agent through its process map (invoke_agent);
+                  the AI Agent Runs it produces are tagged eval-origin and supply
+                  the case's tokens/cost.
+      - "Direct": a plain LLM call using the agent's provider/model/system prompt
+                  (no map needed); a lightweight eval-origin AI Agent Run is
+                  recorded so the call still shows in Insights.
+
+    Any unexpected exception is captured as an Error result so the suite can
     continue.
     """
     try:
-        config = ExecutorConfig(
-            backend=case.backend or "direct_api",
-            provider_name=case.provider or "",
-            model=case.model or "",
-            system_prompt=case.input_system_prompt or "",
-            user_prompt=case.input_user_prompt or "",
-        )
-        # Evals carry no instance and no context document — just the prompts.
-        context = ExecutorContext()
-
-        executor_cls = get_executor(config.backend)
-        result = executor_cls().run(config, context)
-
-        if result.error_code != ErrorCode.SUCCESS:
+        agent_cfg = frappe.db.get_value("AI Eval Suite", case.suite, "agent_configuration")
+        if not agent_cfg:
             return {
-                "eval_case": case.name,
-                "status": "Error",
-                "error_message": result.error_message
-                or result.error_code.value,
-                "prompt_tokens": _prompt_tokens_of(result),
-                "completion_tokens": _completion_tokens_of(result),
-                "tokens_used": _tokens_of(result),
-                "cost": _cost_of(result, config.model),
+                "eval_case": case.name, "status": "Error",
+                "error_message": "The suite has no agent configuration to test.",
             }
+        eval_type = frappe.db.get_value("AI Eval Suite", case.suite, "eval_type") or "Direct"
+        cfg = frappe.get_cached_doc("AI Agent Configuration", agent_cfg)
 
-        output = result.output
+        if eval_type == "Agent":
+            output, usage = _run_agent_eval(cfg, case)
+        else:
+            output, usage = _run_direct_eval(cfg, case)
+
         assertion_results = [
             _evaluate_assertion(assertion, output)
             for assertion in (case.assertions or [])
@@ -280,9 +372,6 @@ def _execute_case(case) -> dict:
         all_passed = all(a["passed"] for a in assertion_results)
         any_errored = any(a.get("error") for a in assertion_results)
 
-        # WI-001362: judge calls spend their own tokens — add them to the
-        # Result separately from the case's executor call so the Run-level
-        # rollup doesn't undercount.
         judge_prompt_tokens = sum(a.get("judge_prompt_tokens", 0) for a in assertion_results)
         judge_completion_tokens = sum(a.get("judge_completion_tokens", 0) for a in assertion_results)
         judge_cost = sum(flt(a.get("judge_cost", 0)) for a in assertion_results)
@@ -294,15 +383,16 @@ def _execute_case(case) -> dict:
         else:
             status = "Failed"
 
+        # The split must add up to tokens_used: execution + judge on both sides.
         return {
             "eval_case": case.name,
             "status": status,
             "actual_output": _stringify(output),
             "assertion_results": json.dumps(assertion_results, indent=4),
-            "prompt_tokens": _prompt_tokens_of(result) + judge_prompt_tokens,
-            "completion_tokens": _completion_tokens_of(result) + judge_completion_tokens,
-            "tokens_used": _tokens_of(result) + judge_prompt_tokens + judge_completion_tokens,
-            "cost": _cost_of(result, config.model) + judge_cost,
+            "prompt_tokens": usage["prompt_tokens"] + judge_prompt_tokens,
+            "completion_tokens": usage["completion_tokens"] + judge_completion_tokens,
+            "tokens_used": usage["tokens"] + judge_prompt_tokens + judge_completion_tokens,
+            "cost": usage["cost"] + judge_cost,
         }
     except Exception:
         frappe.log_error(
@@ -314,6 +404,157 @@ def _execute_case(case) -> dict:
             "status": "Error",
             "error_message": frappe.get_traceback(),
         }
+
+
+def _cost_split(prompt_tokens: int, completion_tokens: int, model: str) -> tuple:
+    """(input_cost, output_cost) for a call, from AI Model Pricing."""
+    pricing = get_model_pricing(model) or {}
+    return (
+        (prompt_tokens / 1000.0) * flt(pricing.get("input_cost_per_1k", 0)),
+        (completion_tokens / 1000.0) * flt(pricing.get("output_cost_per_1k", 0)),
+    )
+
+
+def _record_eval_run(
+    bpmn_id: str,
+    provider: str,
+    model: str,
+    started,
+    prompt_tokens: int,
+    completion_tokens: int,
+    input_cost: float,
+    output_cost: float,
+    agent_configuration: str = None,
+) -> None:
+    """Record an eval LLM call as an AI Agent Run tagged origin="eval".
+
+    Evals spend real money outside the BPMN AI Agent Task path: the direct-eval
+    call and every llm_judge assertion. Recording them keeps AI Agent Runs the
+    single ledger of all AI cost, so cost reporting reads one place and can never
+    double-count evals. Never raises — failing to record usage must not fail the
+    eval itself.
+    """
+    try:
+        frappe.get_doc({
+            "doctype": "AI Agent Run",
+            "bpmn_id": bpmn_id,
+            "agent_configuration": agent_configuration,
+            "backend": "direct_api",
+            "provider": provider or "",
+            "model": model or "",
+            "origin": "eval",
+            "status": "Success",
+            "started_at": started,
+            "ended_at": now_datetime(),
+            "total_prompt_tokens": prompt_tokens,
+            "total_completion_tokens": completion_tokens,
+            "total_tokens": prompt_tokens + completion_tokens,
+            "estimated_cost": input_cost + output_cost,
+            "total_input_cost": input_cost,
+            "total_output_cost": output_cost,
+        }).insert(ignore_permissions=True)
+    except Exception:
+        frappe.log_error(
+            title=f"AI Eval: run record failed ({bpmn_id})",
+            message=frappe.get_traceback(),
+        )
+
+
+def _run_agent_eval(cfg, case) -> tuple:
+    """Agent (process) eval: invoke the full agent; tokens/cost from its runs.
+
+    Returns ``(output, usage)`` where usage carries the prompt/completion split
+    so the Result row's numbers add up.
+    """
+    from one_bpmn.api.agent_invocation import invoke_agent
+
+    if not cfg.agent_id:
+        raise ValueError(f"Agent configuration '{cfg.name}' has no agent_id.")
+
+    context = {}
+    if case.input_context:
+        try:
+            context = frappe.parse_json(case.input_context) or {}
+        except Exception:
+            context = {}
+
+    started = now_datetime()
+    prev = (getattr(frappe.flags, "eval_origin", None), getattr(frappe.flags, "bpmn_disable_ai_parking", False))
+    frappe.flags.eval_origin = {"eval_case": case.name}
+    frappe.flags.bpmn_disable_ai_parking = True
+    try:
+        reply = invoke_agent(cfg.agent_id, case.input_user_prompt or "", context=context)
+    finally:
+        frappe.flags.eval_origin, frappe.flags.bpmn_disable_ai_parking = prev
+
+    output = (reply or {}).get("response") or ""
+    runs = frappe.get_all(
+        "AI Agent Run",
+        filters={
+            "agent_configuration": cfg.name,
+            "creation": [">=", started],
+            # Judge runs are recorded separately and their cost is added by
+            # _execute_case; excluding them here keeps execution and judge spend
+            # from being counted twice on the Result row.
+            "bpmn_id": ["!=", EVAL_RUN_JUDGE],
+        },
+        fields=["total_prompt_tokens", "total_completion_tokens", "total_tokens", "estimated_cost"],
+    )
+    usage = {
+        "prompt_tokens": sum((r.get("total_prompt_tokens") or 0) for r in runs),
+        "completion_tokens": sum((r.get("total_completion_tokens") or 0) for r in runs),
+        "tokens": sum((r.get("total_tokens") or 0) for r in runs),
+        "cost": sum(flt(r.get("estimated_cost")) for r in runs),
+    }
+    return output, usage
+
+
+def _run_direct_eval(cfg, case) -> tuple:
+    """Direct (simple) eval: a plain LLM call with the agent's provider/model/
+    system prompt. Records a standalone eval-origin AI Agent Run so the call
+    shows in Insights alongside process (agent) evals."""
+    provider = cfg.ai_provider_credentials or ""
+    model = frappe.db.get_value("AI Provider Credentials", provider, "default_model") or ""
+
+    started = now_datetime()
+    config = ExecutorConfig(
+        backend="direct_api",
+        provider_name=provider,
+        model=model,
+        system_prompt=cfg.system_prompt or "",
+        user_prompt=case.input_user_prompt or "",
+    )
+    result = get_executor("direct_api")().run(config, ExecutorContext())
+    if result.error_code != ErrorCode.SUCCESS:
+        raise RuntimeError(result.error_message or result.error_code.value)
+
+    prompt_tokens = _prompt_tokens_of(result)
+    completion_tokens = _completion_tokens_of(result)
+    pricing = get_model_pricing(model)
+    if not pricing:
+        # Tokens are still counted; without an AI Model Pricing row the cost
+        # would silently read $0.00, so leave a trace explaining why.
+        frappe.log_error(
+            title="AI Eval: no pricing for direct-eval model",
+            message=f"No active AI Model Pricing for model '{model}' "
+            f"(provider {provider}); cost recorded as 0 for case {case.name}.",
+        )
+        pricing = {}
+    input_cost = (prompt_tokens / 1000.0) * flt(pricing.get("input_cost_per_1k", 0))
+    output_cost = (completion_tokens / 1000.0) * flt(pricing.get("output_cost_per_1k", 0))
+
+    _record_eval_run(
+        EVAL_RUN_DIRECT, provider, model, started,
+        prompt_tokens, completion_tokens, input_cost, output_cost,
+        agent_configuration=cfg.name,
+    )
+
+    return result.output, {
+        "prompt_tokens": prompt_tokens,
+        "completion_tokens": completion_tokens,
+        "tokens": prompt_tokens + completion_tokens,
+        "cost": input_cost + output_cost,
+    }
 
 
 # ---------------------------------------------------------------------------
@@ -417,6 +658,7 @@ def _evaluate_llm_judge(assertion, output: Any) -> dict:
     )
     judge_context = ExecutorContext()
 
+    judge_started = now_datetime()
     try:
         executor_cls = get_executor(judge_config.backend)
         judge_result = executor_cls().run(judge_config, judge_context)
@@ -434,11 +676,31 @@ def _evaluate_llm_judge(assertion, output: Any) -> dict:
     # The judge call spends real tokens of its own (WI-001362 note): report
     # them on the assertion so _execute_case can add them to the Result's
     # token/cost fields — otherwise the Run-level rollup undercounts.
+    judge_prompt_tokens = _prompt_tokens_of(judge_result)
+    judge_completion_tokens = _completion_tokens_of(judge_result)
+    judge_in_cost, judge_out_cost = _cost_split(
+        judge_prompt_tokens, judge_completion_tokens, judge_config.model
+    )
     judge_usage = {
-        "judge_prompt_tokens": _prompt_tokens_of(judge_result),
-        "judge_completion_tokens": _completion_tokens_of(judge_result),
-        "judge_cost": _cost_of(judge_result, judge_config.model),
+        "judge_prompt_tokens": judge_prompt_tokens,
+        "judge_completion_tokens": judge_completion_tokens,
+        "judge_cost": judge_in_cost + judge_out_cost,
     }
+    # The judge is a billed LLM call of its own. Record it in the AI Agent Run
+    # ledger too (it never goes through an AI Agent Task), so cost reporting
+    # built on runs is not missing judge spend. Recorded even when the judge
+    # errored, as long as it consumed tokens.
+    if judge_prompt_tokens or judge_completion_tokens:
+        _record_eval_run(
+            EVAL_RUN_JUDGE,
+            judge_config.provider_name,
+            judge_config.model,
+            judge_started,
+            judge_prompt_tokens,
+            judge_completion_tokens,
+            judge_in_cost,
+            judge_out_cost,
+        )
 
     if judge_result.error_code != ErrorCode.SUCCESS:
         return {
@@ -526,17 +788,3 @@ def _completion_tokens_of(result) -> int:
     return result.token_usage.completion_tokens if result.token_usage else 0
 
 
-def _cost_of(result, model: str = "") -> float:
-    """Compute cost from AI Model Pricing, mirroring observability.record_ai_step."""
-    if not result.token_usage or not model:
-        return 0.0
-
-    pricing = get_model_pricing(model)
-    if not pricing:
-        return 0.0
-
-    input_rate = flt(pricing.get("input_cost_per_1k", 0))
-    output_rate = flt(pricing.get("output_cost_per_1k", 0))
-    input_cost = (result.token_usage.prompt_tokens / 1000.0) * input_rate
-    output_cost = (result.token_usage.completion_tokens / 1000.0) * output_rate
-    return input_cost + output_cost

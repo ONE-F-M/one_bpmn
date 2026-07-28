@@ -11,6 +11,7 @@
   "bpmn_id",
   "bpmn_label",
   "element_type",
+  "origin",
   "column_break_config",
   "backend",
   "provider",
@@ -47,7 +48,7 @@
    "in_list_view": 1,
    "label": "BPMN Process Instance",
    "options": "BPMN Process Instance",
-   "reqd": 1
+   "description": "Empty for direct (non-process) eval runs (WI-001751)."
   },
   {
    "description": "The BPMN Process Model this run belongs to",
@@ -86,6 +87,14 @@
    "in_list_view": 1,
    "label": "Element Type",
    "options": "task\nsubprocess"
+  },
+  {
+   "default": "production",
+   "fieldname": "origin",
+   "fieldtype": "Select",
+   "label": "Origin",
+   "options": "production\neval",
+   "description": "Runs produced by an eval invocation are tagged 'eval' so Insights can show them separately."
   },
   {
    "fieldname": "column_break_config",

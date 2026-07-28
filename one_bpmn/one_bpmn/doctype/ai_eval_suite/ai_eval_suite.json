@@ -10,10 +10,21 @@
   "title",
   "process_model",
   "agent_configuration",
+  "eval_type",
   "gate_deployment",
   "description"
  ],
  "fields": [
+  {
+   "default": "Direct",
+   "fieldname": "eval_type",
+   "fieldtype": "Select",
+   "in_list_view": 1,
+   "label": "Eval Type",
+   "options": "Direct\nAgent",
+   "reqd": 1,
+   "description": "Direct: a simple LLM call using the agent's provider/model/system prompt. Agent: invoke the full agent through its process map (needs a map)."
+  },
   {
    "fieldname": "title",
    "fieldtype": "Data",
@@ -22,12 +33,12 @@
    "reqd": 1
   },
   {
-   "description": "Optional — agents reach Live before any diagram exists (WI-001652); baseline suites run direct_api against the agent's prompt and credentials.",
    "fieldname": "process_model",
    "fieldtype": "Link",
    "in_list_view": 1,
    "label": "Process Model",
-   "options": "BPMN Process Model"
+   "options": "BPMN Process Model",
+   "description": "Optional. Used for owner-scoping and Agent evals; Direct-eval suites (e.g. agents with no map yet) may leave it empty."
   },
   {
    "fieldname": "agent_configuration",
@@ -35,7 +46,8 @@
    "in_list_view": 1,
    "label": "Agent Configuration",
    "options": "AI Agent Configuration",
-   "description": "The agent this suite evaluates. This is the only link between a suite and an agent; an agent may have many suites."
+   "reqd": 1,
+   "description": "The agent this suite evaluates. Cases run against this agent's provider, model, system prompt, tools and orchestration."
   },
   {
    "default": "0",
@@ -53,7 +65,7 @@
  ],
  "index_web_pages_for_search": 1,
  "links": [],
- "modified": "2026-07-19 12:00:00.000000",
+ "modified": "2026-06-28 00:00:00.000000",
  "modified_by": "Administrator",
  "module": "ONE BPMN",
  "name": "AI Eval Suite",
@@ -69,6 +81,18 @@
    "read": 1,
    "report": 1,
    "role": "System Manager",
+   "share": 1,
+   "write": 1
+  },
+  {
+   "create": 1,
+   "delete": 1,
+   "email": 1,
+   "export": 1,
+   "print": 1,
+   "read": 1,
+   "report": 1,
+   "role": "Process Owner",
    "share": 1,
    "write": 1
   }
