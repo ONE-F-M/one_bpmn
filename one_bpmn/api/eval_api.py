@@ -269,15 +269,39 @@ def get_suite_detail(suite: str) -> dict:
 _ASSERTION_FIELDS = ("assertion_type", "value", "judge_provider", "judge_model", "pass_threshold")
 
 
+_ASSERTION_VALUE_LABEL = {
+	"llm_judge": _("a rubric describing what a correct answer must contain"),
+	"contains": _("the substring the output must contain"),
+	"regex": _("the pattern the output must match"),
+	"equals": _("the exact text the output must equal"),
+	"schema_valid": _("the JSON Schema the output must validate against"),
+}
+
+
 def _set_assertions(case, assertions) -> None:
-	"""Replace a case's assertions from a list of dicts (WI-001746)."""
+	"""Replace a case's assertions from a list of dicts (WI-001746).
+
+	``value`` is mandatory on AI Eval Assertion and carries the whole meaning of
+	the check — the rubric for llm_judge, the substring for contains, and so on.
+	An empty one used to be dropped from the row and then surfaced from
+	doc.save() as a bare "MandatoryError: value", which named neither the
+	assertion nor the field the author had actually left blank. Reject it here
+	instead, saying which assertion and what belongs in it.
+	"""
 	if isinstance(assertions, str):
 		assertions = frappe.parse_json(assertions) or []
 	case.set("assertions", [])
-	for a in assertions or []:
+	for idx, a in enumerate(assertions or [], start=1):
 		if not a.get("assertion_type"):
 			continue
-		row = {"assertion_type": a["assertion_type"]}
+		kind = a["assertion_type"]
+		if not str(a.get("value") or "").strip():
+			frappe.throw(
+				_("Assertion {0} ({1}) needs a value — {2}.").format(
+					idx, kind, _ASSERTION_VALUE_LABEL.get(kind, _("what the output is checked against"))
+				)
+			)
+		row = {"assertion_type": kind}
 		for k in _ASSERTION_FIELDS[1:]:
 			if a.get(k) not in (None, ""):
 				row[k] = a[k]

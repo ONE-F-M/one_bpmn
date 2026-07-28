@@ -178,9 +178,21 @@
 				</div>
 			</template>
 			<template #actions>
-				<Button variant="solid" :loading="savingCase" :disabled="!caseForm.title" @click="saveCase">
-					{{ caseMode === 'edit' ? 'Save changes' : 'Create case' }}
-				</Button>
+				<div class="w-full space-y-2">
+					<p v-if="caseError" class="text-sm text-red-600">{{ caseError }}</p>
+					<p v-else-if="incompleteAssertion !== -1" class="text-sm text-amber-600">
+						Assertion {{ incompleteAssertion + 1 }} needs
+						{{ caseForm.assertions[incompleteAssertion].assertion_type === 'llm_judge' ? 'a rubric' : 'an expected value' }}.
+					</p>
+					<Button
+						variant="solid"
+						:loading="savingCase"
+						:disabled="!caseForm.title || incompleteAssertion !== -1"
+						@click="saveCase"
+					>
+						{{ caseMode === 'edit' ? 'Save changes' : 'Create case' }}
+					</Button>
+				</div>
 			</template>
 		</Dialog>
 
@@ -228,6 +240,13 @@ const aiModelOptions = ref([])
 const showCaseEditor = ref(false)
 const caseMode = ref("new")
 const savingCase = ref(false)
+const caseError = ref("")
+// value carries the whole meaning of an assertion — the rubric for llm_judge,
+// the substring for contains — and is mandatory on the doctype. Catch it here so
+// the button explains itself instead of the save failing at the server.
+const incompleteAssertion = computed(() =>
+	caseForm.assertions.findIndex((a) => !(a.value || "").trim())
+)
 const caseForm = reactive({
 	name: "", title: "", input_user_prompt: "", expected_output: "", assertions: [],
 })
@@ -392,11 +411,13 @@ function removeAssertion(i) {
 function openNewCase() {
 	resetCaseForm()
 	caseMode.value = "new"
+	caseError.value = ""
 	showCaseEditor.value = true
 }
 async function openEditCase(c) {
 	caseMode.value = "edit"
 	resetCaseForm()
+	caseError.value = ""
 	showCaseEditor.value = true
 	try {
 		const res = await frappeRequest({
@@ -420,6 +441,7 @@ async function openEditCase(c) {
 }
 async function saveCase() {
 	savingCase.value = true
+	caseError.value = ""
 	try {
 		const payload = {
 			title: caseForm.title, input_user_prompt: caseForm.input_user_prompt,
@@ -433,9 +455,27 @@ async function saveCase() {
 		showCaseEditor.value = false
 		fetchDetail()
 	} catch (e) {
+		// Previously console.error only, so a rejected save looked like a dead
+		// button: the dialog stayed open with no explanation and the reason was
+		// only visible with devtools open.
 		console.error("Save case failed:", e)
+		caseError.value = serverMessage(e) || "Could not save the case."
 	} finally {
 		savingCase.value = false
+	}
+}
+
+// Frappe puts the useful text in _server_messages (a JSON array of JSON
+// strings); e.message is the bare exception class for a 417.
+function serverMessage(e) {
+	const raw = e?._server_messages || e?.exc || ""
+	try {
+		const parsed = JSON.parse(raw)
+		const first = Array.isArray(parsed) ? parsed[0] : parsed
+		const inner = typeof first === "string" ? JSON.parse(first) : first
+		return (inner?.message || "").replace(/<[^>]*>/g, "").trim()
+	} catch {
+		return (e?.message || "").trim()
 	}
 }
 
