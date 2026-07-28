@@ -50,3 +50,4 @@ one_bpmn.one_bpmn.patches.v1_0.move_eval_suite_link_to_suite #24-07-2026
 one_bpmn.one_bpmn.patches.v1_0.evals_test_agent_configuration #25-07-2026
 one_bpmn.one_bpmn.patches.v1_0.move_google_settings_to_processa #25-07-2026
 one_bpmn.one_bpmn.patches.v1_0.add_assistant_eval_authoring_tools #27-07-2026
+one_bpmn.one_bpmn.patches.v1_0.add_assistant_agent_creation_tool #28-07-2026
