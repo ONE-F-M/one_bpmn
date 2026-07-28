@@ -397,6 +397,29 @@ class DirectApiExecutor(Executor):
             if isinstance(validation_result, ExecutorResult):
                 validation_result.token_usage = token_usage
                 validation_result.trace = trace
+                # Say what actually came back. A tool-using agent that narrates
+                # instead of answering ("Now I'll add the test cases:") fails
+                # here AFTER its tool calls have committed their writes, so the
+                # bare parser error left no way to tell a malformed object from
+                # ordinary prose — or to see that real work had been done.
+                said = (completion.text or "").strip()
+                executed = [
+                    call.get("name")
+                    for turn in trace
+                    for call in (turn.get("tool_calls") or [])
+                ]
+                validation_result.error_message = (
+                    f"{validation_result.error_message} "
+                    f"Model returned {len(said)} chars of non-JSON text"
+                    f"{': ' + repr(said[:160]) if said else ''}."
+                    + (
+                        f" {len(executed)} tool call(s) had already run this turn "
+                        f"({', '.join(dict.fromkeys(executed))}), so their writes are "
+                        "committed even though this turn failed."
+                        if executed
+                        else ""
+                    )
+                )
                 return validation_result
             return ExecutorResult(
                 output=validation_result,

@@ -40,8 +40,9 @@
   {
    "depends_on": "eval:doc.assertion_type=='llm_judge'",
    "fieldname": "judge_model",
-   "fieldtype": "Data",
+   "fieldtype": "Link",
    "label": "Judge Model",
+   "options": "AI Model",
    "description": "Only used when Assertion Type is llm_judge."
   },
   {

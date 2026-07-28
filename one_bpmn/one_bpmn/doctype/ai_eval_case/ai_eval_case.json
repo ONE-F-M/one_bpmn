@@ -12,10 +12,6 @@
   "source_run",
   "process_model",
   "bpmn_id",
-  "provider",
-  "model",
-  "backend",
-  "input_system_prompt",
   "input_user_prompt",
   "input_context",
   "expected_output",
@@ -54,34 +50,6 @@
    "fieldtype": "Data",
    "label": "BPMN ID",
    "description": "Which BPMN element this case tests."
-  },
-  {
-   "fieldname": "provider",
-   "fieldtype": "Link",
-   "in_list_view": 1,
-   "label": "Provider",
-   "options": "AI Provider Credentials",
-   "reqd": 1
-  },
-  {
-   "fieldname": "model",
-   "fieldtype": "Data",
-   "label": "Model",
-   "reqd": 1,
-   "description": "e.g. gpt-4o"
-  },
-  {
-   "default": "direct_api",
-   "fieldname": "backend",
-   "fieldtype": "Select",
-   "label": "Backend",
-   "options": "direct_api\nantigravity"
-  },
-  {
-   "fieldname": "input_system_prompt",
-   "fieldtype": "Long Text",
-   "label": "Input System Prompt",
-   "description": "The system prompt to use, stored as rendered text (post-Jinja)."
   },
   {
    "fieldname": "input_user_prompt",

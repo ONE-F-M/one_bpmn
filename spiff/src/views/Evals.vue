@@ -12,11 +12,25 @@
 					{{ isSystemManager ? "System Manager — all suites" : "Viewing as process owner — your suites" }}
 				</span>
 			</div>
-			<Button icon-left="refresh-cw" @click="fetchSuites" :loading="loading">Refresh</Button>
+			<div class="flex items-center gap-2">
+				<FormControl type="date" v-model="fromDate" class="w-36" />
+				<span class="text-sm text-gray-400">to</span>
+				<FormControl type="date" v-model="toDate" class="w-36" />
+				<Button icon-left="plus" @click="openNewSuite">New suite</Button>
+				<Button icon-left="refresh-cw" @click="refreshAll" :loading="loading">Refresh</Button>
+			</div>
 		</header>
 
 		<!-- Content -->
-		<main class="flex-1 p-6 overflow-auto">
+		<main class="flex-1 p-6 overflow-auto space-y-6">
+			<!-- Dashboard -->
+			<div class="grid grid-cols-2 lg:grid-cols-3 xl:grid-cols-6 gap-4">
+				<div v-for="c in overviewCards" :key="c.key" class="bg-white rounded-lg shadow-sm p-4 border-l-4" :class="c.border">
+					<div class="text-xs text-gray-500 uppercase tracking-wide font-medium">{{ c.label }}</div>
+					<div class="text-2xl font-bold text-gray-900">{{ c.value }}</div>
+				</div>
+			</div>
+
 			<div class="bg-white rounded-lg shadow-sm">
 				<div class="border-b px-6 py-3 flex items-center justify-between">
 					<h2 class="text-sm font-semibold text-gray-700">
@@ -24,18 +38,15 @@
 					</h2>
 				</div>
 
-				<!-- Loading -->
 				<div v-if="loading" class="p-6 space-y-3 animate-pulse">
 					<div v-for="n in 3" :key="n" class="h-10 bg-gray-100 rounded"></div>
 				</div>
 
-				<!-- Empty -->
 				<div v-else-if="!suites.length" class="p-10 text-center text-gray-500">
 					<Icon icon="lucide:clipboard-check" class="w-8 h-8 mx-auto mb-2 text-gray-300" />
 					<p class="text-sm">No eval suites for your processes yet.</p>
 				</div>
 
-				<!-- Table -->
 				<table v-else class="w-full text-sm">
 					<thead>
 						<tr class="text-left text-xs uppercase tracking-wide text-gray-500 border-b">
@@ -47,11 +58,7 @@
 						</tr>
 					</thead>
 					<tbody>
-						<tr
-							v-for="s in suites"
-							:key="s.name"
-							class="border-b border-gray-100 hover:bg-gray-50"
-						>
+						<tr v-for="s in suites" :key="s.name" class="border-b border-gray-100 hover:bg-gray-50">
 							<td class="px-6 py-3">
 								<router-link
 									:to="`/processa/evals/suite/${encodeURIComponent(s.name)}`"
@@ -64,40 +71,147 @@
 							<td class="px-6 py-3 text-gray-600">{{ s.agent_name || s.agent_configuration || "—" }}</td>
 							<td class="px-6 py-3 text-gray-600">{{ s.case_count }}</td>
 							<td class="px-6 py-3">
-								<span
-									class="inline-block px-2 py-0.5 rounded-full text-xs"
-									:class="runPill(s.latest_run)"
-								>
+								<span class="inline-block px-2 py-0.5 rounded-full text-xs" :class="runPill(s.latest_run)">
 									{{ runLabel(s.latest_run) }}
 								</span>
 							</td>
-							<td class="px-6 py-3 text-right">
-								<Button
-									variant="solid"
-									icon-left="play"
-									:loading="running[s.name]"
-									@click="runSuite(s)"
-								>
-									Run
-								</Button>
+							<td class="px-6 py-3 text-right whitespace-nowrap">
+								<Button variant="ghost" icon-left="user-cog" @click="openReassign(s)">Reassign</Button>
+								<Button variant="solid" icon-left="play" :loading="running[s.name]" @click="runSuite(s)">Run</Button>
 							</td>
 						</tr>
 					</tbody>
 				</table>
 			</div>
 		</main>
+
+		<!-- New suite modal -->
+		<Dialog v-model="showNewSuite" :options="{ title: 'New eval suite' }">
+			<template #body-content>
+				<div class="space-y-3">
+					<FormControl label="Title" v-model="newSuite.title" />
+					<div>
+						<label class="block text-xs text-gray-600 mb-1.5">Agent</label>
+						<Autocomplete
+							v-model="newAgentOption"
+							:options="agentOptions"
+							:compare-fn="compareOption"
+							placeholder="Search Live agents…"
+						/>
+					</div>
+					<FormControl type="select" label="Eval type" :options="evalTypeOptions" v-model="newSuite.eval_type" />
+					<p class="text-xs text-gray-400">
+						{{ newSuite.eval_type === "Agent" ? "Invokes the full agent through its process map." : "A simple LLM call using the agent's provider, model and system prompt." }}
+					</p>
+					<FormControl type="select" label="Process (optional)" :options="processOptions" v-model="newSuite.process_model" />
+				</div>
+			</template>
+			<template #actions>
+				<Button variant="solid" :loading="savingSuite" :disabled="!newSuite.title || !newSuite.agent_configuration" @click="createSuite">
+					Create suite
+				</Button>
+			</template>
+		</Dialog>
+
+		<!-- Reassign modal -->
+		<Dialog v-model="showReassign" :options="{ title: 'Reassign suite to an agent' }">
+			<template #body-content>
+				<div class="space-y-3">
+					<p class="text-sm text-gray-600">{{ reassignSuite?.title }}</p>
+					<div>
+						<label class="block text-xs text-gray-600 mb-1.5">Agent</label>
+						<Autocomplete
+							v-model="reassignAgentOption"
+							:options="reassignAgentOptions"
+							:compare-fn="compareOption"
+							placeholder="Search Live agents…"
+						/>
+					</div>
+				</div>
+			</template>
+			<template #actions>
+				<Button variant="solid" :loading="savingReassign" @click="doReassign">Save</Button>
+			</template>
+		</Dialog>
 	</div>
 </template>
 
 <script setup>
-import { ref, reactive, onMounted } from "vue"
-import { frappeRequest, Button } from "frappe-ui"
+import { ref, reactive, computed, watch, onMounted } from "vue"
+import { frappeRequest, Button, Dialog, FormControl, Autocomplete } from "frappe-ui"
 import { Icon } from "@iconify/vue"
+import { dayjs } from "@/dayjs"
 
 const loading = ref(true)
 const suites = ref([])
 const isSystemManager = ref(false)
 const running = reactive({})
+
+const fromDate = ref(dayjs().subtract(29, "day").format("YYYY-MM-DD"))
+const toDate = ref(dayjs().format("YYYY-MM-DD"))
+const overview = ref({})
+
+const fmt = new Intl.NumberFormat("en-US")
+const fmtCost = new Intl.NumberFormat("en-US", { style: "currency", currency: "USD", minimumFractionDigits: 2, maximumFractionDigits: 4 })
+
+const overviewCards = computed(() => {
+	const o = overview.value
+	return [
+		{ key: "suites", label: "Suites", value: fmt.format(o.suites ?? 0), border: "border-blue-500" },
+		{ key: "cases", label: "Eval cases", value: fmt.format(o.cases ?? 0), border: "border-cyan-500" },
+		{ key: "runs", label: "Runs", value: fmt.format(o.runs ?? 0), border: "border-indigo-500" },
+		{ key: "passing", label: "Suites passing", value: `${o.suites_passing ?? 0} / ${o.suites ?? 0}`, border: "border-green-500" },
+		{ key: "tokens", label: "Tokens", value: fmt.format(o.total_tokens ?? 0), border: "border-amber-500" },
+		{ key: "cost", label: "Cost", value: fmtCost.format(o.total_cost ?? 0), border: "border-purple-500" },
+	]
+})
+
+const agentOptions = ref([])
+const processOptions = ref([])
+
+const showNewSuite = ref(false)
+const savingSuite = ref(false)
+const evalTypeOptions = [
+	{ label: "Direct — simple LLM call", value: "Direct" },
+	{ label: "Agent — invoke the process map", value: "Agent" },
+]
+const newSuite = reactive({ title: "", process_model: "", agent_configuration: "", eval_type: "Direct" })
+
+const showReassign = ref(false)
+const savingReassign = ref(false)
+const reassignSuite = ref(null)
+const reassignAgent = ref("")
+
+// Autocomplete works with {label, value} objects; the payloads stay plain
+// strings, so map between the two here.
+function agentOptionFor(name) {
+	if (!name) return null
+	return agentOptions.value.find((o) => o.value === name) || { label: name, value: name }
+}
+// frappe-ui's default comparator is `(a, b) => a.value === b.value`, which
+// throws the moment the dropdown registers an option while nothing is selected
+// (agentOptionFor returns null for "no agent yet"). Compare defensively — the
+// rest of Autocomplete already treats a null model as "nothing selected".
+function compareOption(a, b) {
+	return a?.value === b?.value
+}
+const newAgentOption = computed({
+	get: () => agentOptionFor(newSuite.agent_configuration),
+	set: (opt) => { newSuite.agent_configuration = opt?.value || "" },
+})
+const reassignAgentOption = computed({
+	get: () => agentOptionFor(reassignAgent.value),
+	set: (opt) => { reassignAgent.value = opt?.value || "" },
+})
+// A suite may currently point at an agent that is no longer Live; keep it in
+// the list so reassigning doesn't silently blank the existing link.
+const reassignAgentOptions = computed(() => {
+	const current = reassignAgent.value
+	if (current && !agentOptions.value.some((o) => o.value === current)) {
+		return [{ label: current, value: current, description: "not Live" }, ...agentOptions.value]
+	}
+	return agentOptions.value
+})
 
 function runLabel(run) {
 	if (!run) return "never run"
@@ -111,12 +225,12 @@ function runPill(run) {
 	const status = run?.status
 	if (status === "Passed") return "bg-green-50 text-green-700"
 	if (status === "Failed" || status === "Error") return "bg-red-50 text-red-700"
-	if (status === "Running") return "bg-yellow-50 text-yellow-700"
+	if (status === "Running") return "bg-yellow-50 text-yellow-700 animate-pulse"
 	return "bg-gray-100 text-gray-500"
 }
 
-async function fetchSuites() {
-	loading.value = true
+async function fetchSuites(silent = false) {
+	if (!silent) loading.value = true
 	try {
 		const res = await frappeRequest({
 			url: "/api/method/one_bpmn.api.eval_api.list_eval_suites",
@@ -126,22 +240,69 @@ async function fetchSuites() {
 		isSystemManager.value = !!res?.is_system_manager
 	} catch (e) {
 		console.error("Failed to load eval suites:", e)
-		suites.value = []
+		if (!silent) suites.value = []
 	} finally {
-		loading.value = false
+		if (!silent) loading.value = false
 	}
 }
+
+async function fetchOverview() {
+	try {
+		overview.value = await frappeRequest({
+			url: "/api/method/one_bpmn.api.eval_api.get_evals_overview",
+			method: "GET",
+			params: { from_date: fromDate.value, to_date: toDate.value },
+		}) || {}
+	} catch (e) {
+		console.error("Failed to load overview:", e)
+		overview.value = {}
+	}
+}
+
+function refreshAll() {
+	fetchSuites()
+	fetchOverview()
+}
+
+watch([fromDate, toDate], fetchOverview)
+
+async function fetchAgents() {
+	try {
+		const res = await frappeRequest({ url: "/api/method/one_bpmn.api.eval_api.list_assignable_agents", method: "GET" })
+		// Only Live agents come back; a suite always needs one, so there is no
+		// "none" entry. `description` shows how the agent runs.
+		agentOptions.value = (res || []).map((a) => ({
+			label: a.agent_name || a.name,
+			value: a.name,
+			description: a.process_model ? `${a.agent_framework} · has process map` : a.agent_framework,
+		}))
+	} catch (e) {
+		agentOptions.value = []
+	}
+}
+
+async function fetchProcesses() {
+	try {
+		const res = await frappeRequest({ url: "/api/method/one_bpmn.api.eval_api.list_owned_processes", method: "GET" })
+		processOptions.value = (res || []).map((p) => ({ label: p.name, value: p.name }))
+	} catch (e) {
+		processOptions.value = []
+	}
+}
+
+function sleep(ms) { return new Promise((r) => setTimeout(r, ms)) }
 
 async function runSuite(s) {
 	running[s.name] = true
 	try {
 		await frappeRequest({
-			url: "/api/method/one_bpmn.agents.eval_runner.run_eval_suite",
+			url: "/api/method/one_bpmn.agents.eval_runner.run_eval_cases",
 			method: "POST",
 			params: { suite_name: s.name },
 		})
-		// The run is enqueued; give it a moment then refresh the summary.
-		setTimeout(fetchSuites, 1500)
+		// Optimistic: mark the row Running immediately, then poll quietly.
+		s.latest_run = { status: "Running", passed_cases: 0, total_cases: s.case_count }
+		pollRunning(s.name)
 	} catch (e) {
 		console.error("Failed to start run:", e)
 	} finally {
@@ -149,5 +310,64 @@ async function runSuite(s) {
 	}
 }
 
-onMounted(fetchSuites)
+async function pollRunning(suiteName) {
+	for (let i = 0; i < 40; i++) {
+		await sleep(1500)
+		await fetchSuites(true)
+		const s = suites.value.find((x) => x.name === suiteName)
+		if (!s || s.latest_run?.status !== "Running") break
+	}
+}
+
+function openNewSuite() {
+	Object.assign(newSuite, { title: "", process_model: "", agent_configuration: "", eval_type: "Direct" })
+	showNewSuite.value = true
+}
+
+async function createSuite() {
+	savingSuite.value = true
+	try {
+		await frappeRequest({
+			url: "/api/method/one_bpmn.api.eval_api.create_suite",
+			method: "POST",
+			params: { ...newSuite },
+		})
+		showNewSuite.value = false
+		fetchSuites()
+	} catch (e) {
+		console.error("Create suite failed:", e)
+	} finally {
+		savingSuite.value = false
+	}
+}
+
+function openReassign(s) {
+	reassignSuite.value = s
+	reassignAgent.value = s.agent_configuration || ""
+	showReassign.value = true
+}
+
+async function doReassign() {
+	savingReassign.value = true
+	try {
+		await frappeRequest({
+			url: "/api/method/one_bpmn.api.eval_api.reassign_suite",
+			method: "POST",
+			params: { suite: reassignSuite.value.name, agent_configuration: reassignAgent.value || null },
+		})
+		showReassign.value = false
+		fetchSuites()
+	} catch (e) {
+		console.error("Reassign failed:", e)
+	} finally {
+		savingReassign.value = false
+	}
+}
+
+onMounted(() => {
+	fetchSuites()
+	fetchOverview()
+	fetchAgents()
+	fetchProcesses()
+})
 </script>
