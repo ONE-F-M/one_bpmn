@@ -95,6 +95,7 @@
 						<Autocomplete
 							v-model="newAgentOption"
 							:options="agentOptions"
+							:compare-fn="compareOption"
 							placeholder="Search Live agents…"
 						/>
 					</div>
@@ -122,6 +123,7 @@
 						<Autocomplete
 							v-model="reassignAgentOption"
 							:options="reassignAgentOptions"
+							:compare-fn="compareOption"
 							placeholder="Search Live agents…"
 						/>
 					</div>
@@ -185,6 +187,13 @@ const reassignAgent = ref("")
 function agentOptionFor(name) {
 	if (!name) return null
 	return agentOptions.value.find((o) => o.value === name) || { label: name, value: name }
+}
+// frappe-ui's default comparator is `(a, b) => a.value === b.value`, which
+// throws the moment the dropdown registers an option while nothing is selected
+// (agentOptionFor returns null for "no agent yet"). Compare defensively — the
+// rest of Autocomplete already treats a null model as "nothing selected".
+function compareOption(a, b) {
+	return a?.value === b?.value
 }
 const newAgentOption = computed({
 	get: () => agentOptionFor(newSuite.agent_configuration),
