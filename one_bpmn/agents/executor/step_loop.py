@@ -193,4 +193,11 @@ async def run_agent_loop(
 
 		transcript.append({"role": "tool_results", "results": results})
 
-	return CompletionResult(text="", trace=trace, hit_turn_cap=True), None
+	# Turn cap reached. Carry the model's last narration out as the text rather
+	# than "": an empty string reaches a response_format="json" agent as
+	# "invalid JSON at char 0", which reads as a model fault and says nothing
+	# about the loop having run out of turns.
+	last_said = next(
+		(t.content for t in reversed(trace) if (t.content or "").strip()), ""
+	)
+	return CompletionResult(text=last_said, trace=trace, hit_turn_cap=True), None
