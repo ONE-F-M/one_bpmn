@@ -64,15 +64,32 @@ class TestEvalRunner(FrappeTestCase):
         self.assertEqual(kwargs["case_names"], [c1.name])
 
     def test_run_eval_cases_rejects_foreign_case(self):
-        """A case that does not belong to the suite is rejected."""
+        """A case that does not belong to the suite is rejected.
+
+        Asserting on the message matters here: run_eval_cases also throws
+        ValidationError for an agent-less suite, so a bare assertRaises passed
+        for the wrong reason while the fixtures had no agent configuration.
+        """
         suite = make_eval_suite()
         other = make_eval_case()  # no suite / different suite
-        self.assertRaises(
-            frappe.ValidationError,
-            run_eval_cases,
-            suite.name,
-            json.dumps([other.name]),
-        )
+        with self.assertRaises(frappe.ValidationError) as ctx:
+            run_eval_cases(suite.name, json.dumps([other.name]))
+        self.assertIn(other.name, str(ctx.exception))
+
+    def test_run_eval_cases_rejects_suite_without_agent(self):
+        """A live run needs an agent to evaluate (WI-001751)."""
+        suite = make_eval_suite(agent_configuration=None)
+        make_eval_case(suite=suite.name)
+        with self.assertRaises(frappe.ValidationError) as ctx:
+            run_eval_cases(suite.name)
+        self.assertIn("agent configuration", str(ctx.exception))
+
+    def test_replay_run_skips_the_agent_requirement(self):
+        """Replay does not call the agent, so it must not demand one."""
+        suite = make_eval_suite(agent_configuration=None)
+        make_eval_case(suite=suite.name)
+        with patch("frappe.enqueue"):
+            self.assertTrue(run_eval_cases(suite.name, backend="replay"))
 
     # -- assertion types ------------------------------------------------
 
