@@ -22,9 +22,13 @@
 </template>
 
 <script setup>
-import { ref, computed, onMounted } from "vue"
+import { ref, computed, watch, onMounted } from "vue"
 import { frappeRequest } from "frappe-ui"
 import { Icon } from "@iconify/vue"
+
+const props = defineProps({
+	origin: { type: String, default: "production" },
+})
 
 const loading = ref(true)
 const data = ref({})
@@ -93,7 +97,7 @@ async function fetchOverview() {
 		const response = await frappeRequest({
 			url: "/api/method/one_bpmn.api.insights_api.get_agent_overview",
 			method: "POST",
-			params: { days: 7 },
+			params: { days: 7, origin: props.origin },
 		})
 		data.value = response || {}
 	} catch (error) {
@@ -104,5 +108,6 @@ async function fetchOverview() {
 	}
 }
 
+watch(() => props.origin, fetchOverview)
 onMounted(fetchOverview)
 </script>

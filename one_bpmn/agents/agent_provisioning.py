@@ -232,27 +232,42 @@ def generate_eval_suite_for_agent(config_name: str) -> str | None:
 		return None
 
 	suite_title = f"{cfg.agent_name} — Baseline"
-	if frappe.db.exists("AI Eval Suite", suite_title):
-		suite = frappe.get_doc("AI Eval Suite", suite_title)
+	# AI Eval Suite is autoname:hash, so the docname is never the title — the
+	# suite has to be looked up by field. Scope on agent_configuration as well
+	# as title: since WI-001743 that link is the authoritative (and mandatory)
+	# Suite -> Agent relationship, and a suite the migration handed to another
+	# agent under its "last one wins" collision rule must not be hijacked here.
+	# Order by creation so that where an earlier bug left duplicate baselines
+	# behind, every call converges on the same, oldest suite.
+	existing = frappe.get_all(
+		"AI Eval Suite",
+		filters={"title": suite_title, "agent_configuration": cfg.name},
+		pluck="name",
+		order_by="creation asc",
+		limit=1,
+	)
+	if existing:
+		suite = frappe.get_doc("AI Eval Suite", existing[0])
 		for case in frappe.get_all("AI Eval Case", filters={"suite": suite.name}, pluck="name"):
 			frappe.delete_doc("AI Eval Case", case, force=True, ignore_permissions=True)
-		# WI-001743: the suite owns the link back to its agent.
-		if suite.agent_configuration != cfg.name:
-			suite.db_set("agent_configuration", cfg.name, update_modified=False)
 	else:
 		suite = frappe.get_doc({
 			"doctype": "AI Eval Suite",
 			"title": suite_title,
 			"process_model": cfg.process_model or None,
 			"agent_configuration": cfg.name,
+			# Baseline suites are Direct (simple LLM) — the AI Assistant creates
+			# them at agent-config time, before any process map exists (WI-001751).
+			"eval_type": "Direct",
 			"description": _("Baseline suite generated from {0}'s sample prompts.").format(cfg.agent_name),
 		}).insert(ignore_permissions=True)
 
-	# AI Eval Case requires a model, and llm_judge assertions require a judge
-	# model — both are mandatory fields. Resolve the provider's default model
-	# once and reuse it for the case and its judge.
-	# WI-001655: the model comes from the agent's own catalog pick (the AI
-	# Model record name IS the model id); the provider is its derived creds.
+	# WI-001751: cases test the agent itself, so they carry only the prompt +
+	# assertions — provider/model/system prompt come from the suite's agent.
+	# llm_judge still needs a judge model, and since WI-001655 that is the
+	# agent's own catalog pick: an AI Model record name, which is exactly what
+	# the judge_model Link wants. (AI Provider Credentials.default_model, which
+	# this used to read, no longer exists.)
 	judge_provider = cfg.ai_provider_credentials
 	judge_model = cfg.get("ai_model") or ""
 	for i, sample in enumerate(samples, start=1):
@@ -261,13 +276,9 @@ def generate_eval_suite_for_agent(config_name: str) -> str | None:
 			"title": f"{suite_title} — {i}",
 			"suite": suite.name,
 			"process_model": cfg.process_model or None,
-			"provider": cfg.ai_provider_credentials,
-			"model": judge_model,
-			"backend": "direct_api",
-			"input_system_prompt": cfg.system_prompt or "",
 			"input_user_prompt": sample.prompt,
 		})
-		if (sample.get("expected_behaviour") or "").strip():
+		if judge_model and (sample.get("expected_behaviour") or "").strip():
 			case.append("assertions", {
 				"assertion_type": "llm_judge",
 				"value": sample.expected_behaviour,
