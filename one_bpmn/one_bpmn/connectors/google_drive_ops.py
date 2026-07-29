@@ -18,6 +18,22 @@ def _truthy(v):
     return str(v or "").strip().lower() in ("1", "true", "yes", "on")
 
 
+def list_file_choices(folder=None, **_ignored):
+    """Dropdown choices for a field configured with this as its Choices From path.
+
+    Point a field's ``choices_source_path`` here to let the modeler pick a file
+    from the folder chosen in a sibling ``folder`` field, instead of pasting an
+    id. Lives with the Drive connector rather than in connectors/api.py so the
+    generic choices endpoint knows nothing about Google.
+    """
+    from one_bpmn.one_bpmn.integrations import google_common as gc
+
+    if not folder:
+        return []
+    files = gd.list_files(gc.normalize_drive_id(folder))
+    return [{"label": f.get("name") or f.get("id"), "value": f.get("id")} for f in files]
+
+
 @connector("google_drive", "downloadText")
 def download_text(params, ctx):
     """files.export / get_media → plain text of a Doc/Slides/pptx/docx/txt."""

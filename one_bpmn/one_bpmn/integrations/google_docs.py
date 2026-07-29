@@ -2,22 +2,42 @@
 # Google Docs integration (Docs API v1), used by the google_docs connector.
 # Shares credentials/plumbing with google_common; all calls go through
 # call_with_retry so transient 429/5xx are retried.
+#
+# create_document goes through the DRIVE API (files.create with the document
+# mimeType + a parent folder) rather than documents.create, for the same reason
+# google_sheets does: documents.create cannot target a folder, so the new file
+# lands in the service account's My Drive — which has zero quota — and fails with
+# storageQuotaExceeded. Creating it in a Shared Drive folder the service account
+# belongs to is the only thing that works. Structural edits then use the Docs API
+# on that id.
 
 from one_bpmn.one_bpmn.integrations import google_common as gc
+
+DOC_MIME = "application/vnd.google-apps.document"
 
 
 def _svc():
     return gc.get_service("docs", "v1", scopes=[gc.DOCS_SCOPE, gc.DRIVE_SCOPE])
 
 
+def _drive():
+    return gc.get_service("drive", "v3", scopes=[gc.DRIVE_SCOPE])
+
+
 def _run(request):
     return gc.call_with_retry(request.execute)
 
 
-def create_document(title: str) -> dict:
-    """documents.create — a new empty Google Doc."""
-    doc = _run(_svc().documents().create(body={"title": title or "Untitled Document"}))
-    return {"documentId": doc.get("documentId"), "title": doc.get("title")}
+def create_document(title: str, folder: str) -> dict:
+    """Create an empty Google Doc inside a Drive folder (Shared-Drive safe)."""
+    if not folder:
+        raise gc.GoogleConfigError(
+            "createDocument requires a Folder — a service account has no My Drive "
+            "quota, so the document must be created inside a Shared Drive folder."
+        )
+    body = {"name": title or "Untitled Document", "mimeType": DOC_MIME, "parents": [folder]}
+    f = _run(_drive().files().create(body=body, fields="id,name,webViewLink", supportsAllDrives=True))
+    return {"documentId": f.get("id"), "title": f.get("name"), "url": f.get("webViewLink")}
 
 
 def batch_update(document_id: str, requests: list) -> dict:

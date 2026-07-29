@@ -119,7 +119,7 @@ class TestDocsSlidesConnectors(FrappeTestCase):
                                    '"find": "{{name}}", "replace": "{{ task_data.name }}"}',
             }, "d1")
         self.assertEqual(task.data["r"]["occurrencesChanged"], 3)
-        # DriveFile normalized, expression rendered
+        # Drive id normalized by the field's Value Transform, expression rendered
         self.assertEqual(rp.call_args.args[0], "DOCID12345")
         self.assertEqual(rp.call_args.args[2], "Acme")
 
@@ -143,7 +143,7 @@ class TestManifestValidator(FrappeTestCase):
 
 class TestRetryAndChoices(FrappeTestCase):
     def test_call_with_retry_retries_transient(self):
-        from one_bpmn.one_bpmn.integrations.google_common import call_with_retry
+        from one_bpmn.one_bpmn.integrations.retry import call_with_retry
         calls = {"n": 0}
 
         class _Err(Exception):
@@ -159,7 +159,7 @@ class TestRetryAndChoices(FrappeTestCase):
         self.assertEqual(calls["n"], 3)
 
     def test_call_with_retry_reraises_non_transient(self):
-        from one_bpmn.one_bpmn.integrations.google_common import call_with_retry
+        from one_bpmn.one_bpmn.integrations.retry import call_with_retry
 
         class _Err(Exception):
             resp = SimpleNamespace(status=404)
@@ -170,11 +170,11 @@ class TestRetryAndChoices(FrappeTestCase):
         with self.assertRaises(_Err):
             call_with_retry(boom, attempts=3, base_delay=0)
 
-    def test_field_choices_unknown_source_empty(self):
+    def test_field_choices_unconfigured_is_empty(self):
+        """A field with no Choices From path yields [] rather than an error."""
         from one_bpmn.one_bpmn.connectors.api import get_connector_field_choices
-        # driveDocumentTypes was removed with the folder map; unknown sources → []
-        self.assertEqual(get_connector_field_choices("driveDocumentTypes"), [])
-        self.assertEqual(get_connector_field_choices("__unknown__"), [])
+        self.assertEqual(get_connector_field_choices("google_drive", "createFile", "folder"), [])
+        self.assertEqual(get_connector_field_choices("__nope__", "__nope__", "__nope__"), [])
 
 
 _GSHEETS = "one_bpmn.one_bpmn.integrations.google_sheets"

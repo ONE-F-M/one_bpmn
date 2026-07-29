@@ -1,27 +1,42 @@
 # Copyright (c) 2026, one-fm and contributors
-# Structural validator for connector manifests. Enforces the invariant that a
-# manifest faithfully mirrors the code: every manifest operation has a
-# registered handler (and vice versa), and every field is well-formed with the
-# enums/required flags it claims. Run as part of the test suite (see
-# tests/test_connector_dispatch.py) so a manifest can't drift from its handlers.
+# Structural validator for connector configuration. Enforces the invariant that
+# every operation a modeler can pick is actually executable, and that every field
+# is well-formed with the enums/required flags it claims. Run as part of the test
+# suite (see tests/test_connector_dispatch.py) and from the "Validate
+# Configuration" button on BPMN Connector, so a connector cannot silently drift
+# into a state that only fails at runtime.
+#
+# Since connectors became configuration, "executable" has three legitimate
+# shapes — an explicit handler path, a declarative HTTP request, or a registered
+# @connector handler — so the old "every operation needs a Python handler" rule
+# is now "every operation must resolve to an executor". A registered handler with
+# no configuration row is still reported, because it is unreachable from the
+# modeler.
 #
 # NOTE: full reconciliation against Google's live API discovery documents
 # (fetching https://www.googleapis.com/discovery/v1/apis/<api>/<ver>/rest and
 # diffing field names/enums) is intentionally out of scope here — it needs
-# network access. This validator guarantees manifest⇄handler parity and field
+# network access. This validator guarantees executability and field
 # well-formedness, which is what protects the runtime.
 
+import frappe
+
 import one_bpmn.one_bpmn.connectors  # noqa: F401 — ensures handlers are registered
-from one_bpmn.one_bpmn.connectors.manifest import load_manifests
+from one_bpmn.one_bpmn.connectors.manifest import get_execution_spec, load_manifests
 from one_bpmn.one_bpmn.connectors.registry import CONNECTORS
 
-_VALID_TYPES = {"String", "Text", "Dropdown", "Boolean", "DriveFile", "DriveFolder", "Hidden"}
+# Provider-neutral on purpose: DriveFile/DriveFolder used to live here, which put
+# a Google Drive concept in the generic layer. Input normalisation is now a
+# per-field Value Transform (a dotted path), so types only describe the widget.
+_VALID_TYPES = {"String", "Text", "Dropdown", "Boolean", "Hidden"}
 
 
 def validate_manifests():
     """Return a list of human-readable issue strings (empty == all good)."""
     issues = []
-    manifests = load_manifests()
+    # Disabled rows are included so an operation a site has switched off is not
+    # misreported as "registered handler with no configuration".
+    manifests = load_manifests(include_disabled=True)
 
     seen = set()
     for m in manifests:
@@ -32,6 +47,8 @@ def validate_manifests():
         if cid in seen:
             issues.append(f"duplicate connectorId {cid!r}")
         seen.add(cid)
+
+        issues.extend(_validate_icon(cid, m.get("icon")))
 
         ops = m.get("operations")
         if not isinstance(ops, list) or not ops:
@@ -45,40 +62,119 @@ def validate_manifests():
                 issues.append(f"{cid}: operation missing 'value'")
                 continue
             manifest_ops.add(ov)
-            # every manifest op must have a registered handler
-            if not (CONNECTORS.get(cid, {}).get(ov)):
-                issues.append(f"{cid}/{ov}: manifest operation has no registered handler")
-            # fields well-formed
-            names = set()
-            for f in op.get("fields", []) or []:
-                name = f.get("name")
-                if not name:
-                    issues.append(f"{cid}/{ov}: field missing 'name'")
-                    continue
-                if name in names:
-                    issues.append(f"{cid}/{ov}: duplicate field {name!r}")
-                names.add(name)
-                ftype = f.get("type", "String")
-                if ftype not in _VALID_TYPES:
-                    issues.append(f"{cid}/{ov}/{name}: unknown field type {ftype!r}")
-                if ftype == "Dropdown" and not f.get("choices") and not f.get("choicesFrom"):
-                    issues.append(f"{cid}/{ov}/{name}: Dropdown field has no choices or choicesFrom")
-                cond = f.get("condition")
-                if cond is not None:
-                    if not cond.get("field"):
-                        issues.append(f"{cid}/{ov}/{name}: condition missing 'field'")
-                    if "equals" not in cond and "oneOf" not in cond:
-                        issues.append(f"{cid}/{ov}/{name}: condition needs 'equals' or 'oneOf'")
+            issues.extend(_validate_executability(cid, ov))
+            issues.extend(_validate_fields(cid, ov, op.get("fields") or []))
 
-        # every registered handler must appear in the manifest
+        # every registered handler must be reachable from the configuration
         for ov in CONNECTORS.get(cid, {}):
             if ov not in manifest_ops:
-                issues.append(f"{cid}/{ov}: registered handler missing from manifest")
+                issues.append(
+                    f"{cid}/{ov}: registered handler is not configured as a BPMN "
+                    f"Connector Operation, so no modeler can select it"
+                )
 
-    # connectors with handlers but no manifest at all
+    # connectors with handlers but no configuration at all
     manifest_ids = {m.get("connectorId") for m in manifests}
     for cid in CONNECTORS:
         if cid not in manifest_ids and not cid.startswith("__"):
-            issues.append(f"{cid}: handlers registered but no manifest file")
+            issues.append(f"{cid}: handlers registered but no connector configured")
+
+    return issues
+
+
+def _validate_icon(cid, icon):
+    if not icon or isinstance(icon, str):
+        return []  # unset, or a legacy name-only hint
+    if not isinstance(icon, dict):
+        return [f"{cid}: icon must be an object with path/color/label"]
+
+    issues = []
+    path = icon.get("path") or ""
+    if not path:
+        issues.append(f"{cid}: icon has no path")
+    elif "<" in path or ">" in path:
+        issues.append(f"{cid}: icon path must be SVG path data, not markup")
+    return issues
+
+
+def _validate_executability(cid, ov):
+    """An operation must resolve to exactly one executor."""
+    try:
+        spec = get_execution_spec(cid, ov)
+    except Exception as e:
+        return [f"{cid}/{ov}: execution config could not be read ({e})"]
+
+    registry_handler = CONNECTORS.get(cid, {}).get(ov)
+
+    if not spec:
+        # No configuration row — seed-file fallback, or the operation is
+        # disabled. The registry is then the only possible executor.
+        if not registry_handler:
+            return [f"{cid}/{ov}: no execution configuration and no registered handler"]
+        return []
+
+    if spec.handler_path:
+        try:
+            frappe.get_attr(spec.handler_path)
+        except Exception as e:
+            return [f"{cid}/{ov}: Handler Path {spec.handler_path!r} is not importable ({e})"]
+        return []
+
+    if spec.execution_type == "HTTP Request":
+        issues = []
+        if not spec.url_template:
+            issues.append(f"{cid}/{ov}: HTTP operation has no URL Template")
+        elif not spec.url_template.lower().startswith(("http://", "https://")):
+            if not spec.base_url and not spec.url_template.startswith("{{"):
+                issues.append(
+                    f"{cid}/{ov}: URL Template is relative but the connector has no Base URL"
+                )
+        if not spec.http_method:
+            issues.append(f"{cid}/{ov}: HTTP operation has no Method")
+        return issues
+
+    # Python Handler with no explicit path — the registry must supply one.
+    if not registry_handler:
+        return [
+            f"{cid}/{ov}: execution type is Python Handler but there is neither a "
+            f"registered handler nor a Handler Path"
+        ]
+    return []
+
+
+def _validate_fields(cid, ov, fields):
+    issues = []
+    names = set()
+    for f in fields:
+        name = f.get("name")
+        if not name:
+            issues.append(f"{cid}/{ov}: field missing 'name'")
+            continue
+        if name in names:
+            issues.append(f"{cid}/{ov}: duplicate field {name!r}")
+        names.add(name)
+
+        ftype = f.get("type", "String")
+        if ftype not in _VALID_TYPES:
+            issues.append(f"{cid}/{ov}/{name}: unknown field type {ftype!r}")
+        if ftype == "Dropdown" and not f.get("choices") and not f.get("dynamicChoices"):
+            issues.append(f"{cid}/{ov}/{name}: Dropdown field has no choices or Choices From path")
+
+        cond = f.get("condition")
+        if cond is not None:
+            if not cond.get("field"):
+                issues.append(f"{cid}/{ov}/{name}: condition missing 'field'")
+            if "equals" not in cond and "oneOf" not in cond:
+                issues.append(f"{cid}/{ov}/{name}: condition needs 'equals' or 'oneOf'")
+            if isinstance(cond.get("oneOf"), list) and not cond["oneOf"]:
+                issues.append(f"{cid}/{ov}/{name}: condition 'oneOf' is empty")
+
+    # a condition can only point at a sibling field (or the operation itself)
+    for f in fields:
+        target = (f.get("condition") or {}).get("field")
+        if target and target != "operation" and target not in names:
+            issues.append(
+                f"{cid}/{ov}/{f.get('name')}: condition refers to unknown field {target!r}"
+            )
 
     return issues

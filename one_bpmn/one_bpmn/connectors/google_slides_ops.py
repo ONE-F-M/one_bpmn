@@ -7,7 +7,8 @@ from one_bpmn.one_bpmn.integrations import google_slides as gslides
 
 @connector("google_slides", "createPresentation")
 def create_presentation(params, ctx):
-    return gslides.create_presentation(params.get("title") or "Untitled Presentation")
+    return gslides.create_presentation(params.get("title") or "Untitled Presentation",
+                                       params.get("folder"))
 
 
 @connector("google_slides", "replaceAllText")

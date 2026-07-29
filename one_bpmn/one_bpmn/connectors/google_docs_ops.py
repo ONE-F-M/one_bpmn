@@ -11,7 +11,7 @@ def _truthy(v):
 
 @connector("google_docs", "createDocument")
 def create_document(params, ctx):
-    return gdocs.create_document(params.get("title") or "Untitled Document")
+    return gdocs.create_document(params.get("title") or "Untitled Document", params.get("folder"))
 
 
 @connector("google_docs", "insertText")

@@ -53,3 +53,7 @@ one_bpmn.one_bpmn.patches.v1_0.harden_logix_modify_existing_script_prompts #28-0
 one_bpmn.one_bpmn.patches.v1_0.add_assistant_eval_authoring_tools #27-07-2026
 one_bpmn.one_bpmn.patches.v1_0.add_assistant_agent_creation_tool #28-07-2026
 one_bpmn.one_bpmn.patches.v1_0.fix_assistant_response_contract #28-07-2026
+
+one_bpmn.one_bpmn.patches.v1_0.import_connector_manifests_to_doctype #29-07-2026 connectors become configuration
+one_bpmn.one_bpmn.patches.v1_0.degoogle_connector_field_types #29-07-2026 Drive field types -> configurable Value Transform
+one_bpmn.one_bpmn.patches.v1_0.set_connector_credential_source #29-07-2026 connector holds its own credential

@@ -1,61 +1,161 @@
 {
   "connectorId": "google_docs",
   "label": "Google Docs",
-  "icon": "docs",
-  "description": "Create and edit Google Docs — insert/replace/append text, read content.",
-  "api": { "name": "docs", "version": "v1", "discovery": "https://docs.googleapis.com/$discovery/rest?version=v1" },
+  "icon": {
+    "path": "M6 2h8l6 6v12a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2m7 1.5V9h5.5zM8 9h4v1.5H8zm0 4h8v1.5H8zm0 4h8v1.5H8z",
+    "color": "#1a73e8",
+    "label": "Google Docs"
+  },
+  "description": "Create and edit Google Docs \u2014 insert/replace/append text, read content.",
+  "api": {
+    "name": "docs",
+    "version": "v1",
+    "discovery": "https://docs.googleapis.com/$discovery/rest?version=v1"
+  },
   "operations": [
     {
       "value": "createDocument",
       "label": "Create document",
-      "method": "documents.create",
+      "method": "files.create (Drive) \u2014 see google_docs.create_document",
       "fields": [
-        { "name": "title", "label": "Title", "type": "String", "required": true, "expression": true }
+        {
+          "name": "folder",
+          "label": "Folder",
+          "type": "String",
+          "transform": "one_bpmn.one_bpmn.integrations.google_common.normalize_drive_id",
+          "required": true,
+          "expression": true,
+          "help": "Destination Drive folder \u2014 paste a folder link or id. Must be a Shared Drive folder the service account can write to: a service account has no My Drive quota of its own."
+        },
+        {
+          "name": "title",
+          "label": "Title",
+          "type": "String",
+          "required": true,
+          "expression": true
+        }
       ],
-      "output": { "documentId": "New document id", "title": "Title" }
+      "output": {
+        "documentId": "New document id",
+        "title": "Title",
+        "url": "Open-in-Drive URL"
+      }
     },
     {
       "value": "insertText",
       "label": "Insert text",
-      "method": "documents.batchUpdate → insertText",
+      "method": "documents.batchUpdate \u2192 insertText",
       "fields": [
-        { "name": "document", "label": "Document", "type": "DriveFile", "required": true, "expression": true },
-        { "name": "text", "label": "Text", "type": "Text", "required": true, "expression": true },
-        { "name": "index", "label": "At index", "type": "String", "default": "1",
-          "help": "1-based structural index. 1 = start of body." }
+        {
+          "name": "document",
+          "label": "Document",
+          "type": "String",
+          "transform": "one_bpmn.one_bpmn.integrations.google_common.normalize_drive_id",
+          "required": true,
+          "expression": true
+        },
+        {
+          "name": "text",
+          "label": "Text",
+          "type": "Text",
+          "required": true,
+          "expression": true
+        },
+        {
+          "name": "index",
+          "label": "At index",
+          "type": "String",
+          "default": "1",
+          "help": "1-based structural index. 1 = start of body."
+        }
       ],
-      "output": { "documentId": "Document id" }
+      "output": {
+        "documentId": "Document id"
+      }
     },
     {
       "value": "appendText",
       "label": "Append text",
-      "method": "documents.batchUpdate → insertText (at end)",
+      "method": "documents.batchUpdate \u2192 insertText (at end)",
       "fields": [
-        { "name": "document", "label": "Document", "type": "DriveFile", "required": true, "expression": true },
-        { "name": "text", "label": "Text", "type": "Text", "required": true, "expression": true }
+        {
+          "name": "document",
+          "label": "Document",
+          "type": "String",
+          "transform": "one_bpmn.one_bpmn.integrations.google_common.normalize_drive_id",
+          "required": true,
+          "expression": true
+        },
+        {
+          "name": "text",
+          "label": "Text",
+          "type": "Text",
+          "required": true,
+          "expression": true
+        }
       ],
-      "output": { "documentId": "Document id" }
+      "output": {
+        "documentId": "Document id"
+      }
     },
     {
       "value": "replaceAllText",
       "label": "Replace all text (template fill)",
-      "method": "documents.batchUpdate → replaceAllText",
+      "method": "documents.batchUpdate \u2192 replaceAllText",
       "fields": [
-        { "name": "document", "label": "Document", "type": "DriveFile", "required": true, "expression": true },
-        { "name": "find", "label": "Find text", "type": "String", "required": true, "expression": true },
-        { "name": "replace", "label": "Replace with", "type": "Text", "expression": true },
-        { "name": "matchCase", "label": "Match case", "type": "Boolean", "default": false }
+        {
+          "name": "document",
+          "label": "Document",
+          "type": "String",
+          "transform": "one_bpmn.one_bpmn.integrations.google_common.normalize_drive_id",
+          "required": true,
+          "expression": true
+        },
+        {
+          "name": "find",
+          "label": "Find text",
+          "type": "String",
+          "required": true,
+          "expression": true
+        },
+        {
+          "name": "replace",
+          "label": "Replace with",
+          "type": "Text",
+          "expression": true
+        },
+        {
+          "name": "matchCase",
+          "label": "Match case",
+          "type": "Boolean",
+          "default": false
+        }
       ],
-      "output": { "documentId": "Document id", "occurrencesChanged": "Number of replacements" }
+      "output": {
+        "documentId": "Document id",
+        "occurrencesChanged": "Number of replacements"
+      }
     },
     {
       "value": "getText",
       "label": "Get text",
       "method": "documents.get + walk",
       "fields": [
-        { "name": "document", "label": "Document", "type": "DriveFile", "required": true, "expression": true }
+        {
+          "name": "document",
+          "label": "Document",
+          "type": "String",
+          "transform": "one_bpmn.one_bpmn.integrations.google_common.normalize_drive_id",
+          "required": true,
+          "expression": true
+        }
       ],
-      "output": { "text": "Plain text of the document body" }
+      "output": {
+        "text": "Plain text of the document body"
+      }
     }
-  ]
+  ],
+  "execution": {
+    "type": "Python Handler"
+  }
 }

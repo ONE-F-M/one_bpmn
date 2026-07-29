@@ -9,7 +9,6 @@
 
 import json
 import re
-import time
 
 import frappe
 
@@ -99,35 +98,12 @@ def get_service(api, version, scopes=None):
 
 
 # ── Transient-failure retry ─────────────────────────────────────────────────
-# Google APIs surface transient failures as HTTP 429 (rate limit) and 5xx.
-# Retry those a few times with exponential backoff; anything else propagates.
-_TRANSIENT_STATUS = {429, 500, 502, 503, 504}
+# The implementation is provider-neutral and lives in integrations/retry.py (the
+# connector HTTP executor uses it too). Re-exported here so existing Google
+# integrations and Script Tasks that import it from google_common keep working.
 
-
-def _http_status(exc):
-    resp = getattr(exc, "resp", None)  # googleapiclient.errors.HttpError
-    if resp is not None:
-        try:
-            return int(getattr(resp, "status", None))
-        except (TypeError, ValueError):
-            pass
-    return getattr(exc, "status_code", None)
-
-
-def call_with_retry(fn, *args, attempts=3, base_delay=0.5, **kwargs):
-    """Call ``fn(*args, **kwargs)``, retrying transient Google errors.
-
-    Pass the request's bound ``.execute`` so each retry re-issues the call, e.g.
-    ``call_with_retry(service.documents().get(documentId=x).execute)``.
-    """
-    last = None
-    for i in range(attempts):
-        try:
-            return fn(*args, **kwargs)
-        except Exception as exc:  # noqa: BLE001 — we re-raise unless transient
-            last = exc
-            if _http_status(exc) in _TRANSIENT_STATUS and i < attempts - 1:
-                time.sleep(base_delay * (2 ** i))
-                continue
-            raise
-    raise last
+from one_bpmn.one_bpmn.integrations.retry import (  # noqa: E402,F401
+    _TRANSIENT_STATUS,
+    call_with_retry,
+)
+from one_bpmn.one_bpmn.integrations.retry import http_status as _http_status  # noqa: E402,F401
