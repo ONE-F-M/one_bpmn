@@ -53,3 +53,4 @@ one_bpmn.one_bpmn.patches.v1_0.harden_logix_modify_existing_script_prompts #28-0
 one_bpmn.one_bpmn.patches.v1_0.add_assistant_eval_authoring_tools #27-07-2026
 one_bpmn.one_bpmn.patches.v1_0.add_assistant_agent_creation_tool #28-07-2026
 one_bpmn.one_bpmn.patches.v1_0.fix_assistant_response_contract #28-07-2026
+one_bpmn.one_bpmn.patches.v1_0.migrate_lucrusher_agent_to_generic_path #29-07-2026 WI-001634
