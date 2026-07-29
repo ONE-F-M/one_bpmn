@@ -70,6 +70,9 @@ class StepResult:
     tool_calls: list = field(default_factory=list)  # list[StepToolCall]
     prompt_tokens: int = 0
     completion_tokens: int = 0
+    # Breakdown of prompt_tokens by billing rate (WI-001643) — see TurnRecord.
+    cache_read_tokens: int = 0
+    cache_write_tokens: int = 0
 
 
 @dataclass
@@ -87,6 +90,13 @@ class TurnRecord:
     tool_calls: list = field(default_factory=list)  # list[ToolCallRecord]
     prompt_tokens: int = 0
     completion_tokens: int = 0
+    # Breakdown of prompt_tokens by billing rate (WI-001643). INCLUSIVE: these
+    # are part of prompt_tokens, not extra on top of it, so the turn's consumed
+    # context stays one number while cost can be split three ways (uncached
+    # input / cache read / cache write). Providers that charge nothing extra for
+    # cache writes (OpenAI, Gemini) report reads only and leave writes at 0.
+    cache_read_tokens: int = 0
+    cache_write_tokens: int = 0
     # Wall-clock for this turn: the provider API round-trip plus any inline
     # tool executions. Decision latency — NOT the runtime of an activated
     # diagram task (that happens later in the engine).
@@ -112,6 +122,14 @@ class CompletionResult:
     @property
     def completion_tokens(self) -> int:
         return sum(t.completion_tokens for t in self.trace)
+
+    @property
+    def cache_read_tokens(self) -> int:
+        return sum(getattr(t, "cache_read_tokens", 0) or 0 for t in self.trace)
+
+    @property
+    def cache_write_tokens(self) -> int:
+        return sum(getattr(t, "cache_write_tokens", 0) or 0 for t in self.trace)
 
 
 class BaseLLMAdapter(ABC):
