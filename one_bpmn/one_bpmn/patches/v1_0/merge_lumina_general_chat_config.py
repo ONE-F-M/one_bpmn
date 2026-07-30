@@ -53,13 +53,14 @@ MAX_TOKENS = 10000
 RETIRED = ("lumina_chatbot_openai", "lumina_chatbot_gemini")
 
 # The prompt that actually serves General Chat today (the OpenAI copy), carried
-# over verbatim so reply behaviour is unchanged. NOTE: `{current_datetime}` is a
-# str.format placeholder filled by the direct-API path. If/when the turn moves
-# onto the process map, the map renders prompts with Jinja instead and this must
-# become `{{ frappe.utils.now_datetime() }}` — the two syntaxes cannot both work
-# from one string.
+# over so reply behaviour is unchanged — except for one deliberate removal: the
+# original carried a `Current datetime: {current_datetime}` line, a str.format
+# placeholder. The map renders prompts with JINJA, which leaves single braces
+# untouched, so the model was reading the literal "{current_datetime}". Both paths
+# now append the real datetime themselves (the map in its user prompt, the
+# direct-API path in build_conversation_history), and this text stays free of any
+# template syntax so one string can serve both.
 SYSTEM_PROMPT = """You are a helpful AI assistant integrated with Frappe/ERPNext. You are friendly, professional, and conversational.
-Current datetime: {current_datetime}
 
 CORE BEHAVIOR:
 - Speak naturally as if you're a helpful colleague
@@ -143,7 +144,11 @@ def _upsert_config():
 	elif doc.system_prompt.strip() != SYSTEM_PROMPT.strip():
 		# Own the prompt only while it is still one of the originals; a genuine
 		# edit made in the UI is left alone.
-		if "You are a helpful AI assistant integrated with Frappe/ERPNext" in doc.system_prompt:
+		if (
+			"You are a helpful AI assistant integrated with Frappe/ERPNext" in doc.system_prompt
+			# and re-adopt it whenever the broken placeholder is still present
+			or "{current_datetime}" in doc.system_prompt
+		):
 			doc.system_prompt = SYSTEM_PROMPT
 
 	# The model is the pick; ai_provider_credentials follows it on save.
