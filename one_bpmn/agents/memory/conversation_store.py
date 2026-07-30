@@ -44,6 +44,13 @@ from frappe import _
 # Roles that make up a multi-turn thread (same vocabulary as the executor).
 MESSAGE_ROLES = ("system", "user", "assistant", "tool")
 
+# Reserved agent_mode for an AI Agent Task's own persisted memory thread. It must
+# never equal any agent's chat_mode_label: Chat Conversation.agent_mode defaults to
+# "General Chat", so an unset value made every memory thread look like a user
+# opening General Chat, and that map's After-Insert trigger then spawned a phantom
+# instance which waited for messages forever and never closed.
+AGENT_MEMORY_MODE = "one_bpmn:agent-memory"
+
 
 def conversation_data_key(bpmn_id: str) -> str:
 	"""Deterministic ``task.data`` key for a BPMN element's thread."""
@@ -209,7 +216,20 @@ class DocumentConversationStore(ConversationStore):
 		if name or not create:
 			return name
 		conv = frappe.get_doc(
-			{"doctype": self._CONVERSATION_DOCTYPE, "title": title, "status": "Open"}
+			{
+				"doctype": self._CONVERSATION_DOCTYPE,
+				"title": title,
+				"status": "Open",
+				# A memory thread is NOT a user chat, and it must not be mistaken
+				# for one. Chat Conversation.agent_mode defaults to "General Chat",
+				# so leaving it unset made every persisted agent thread look exactly
+				# like somebody opening General Chat — and once General Chat had a
+				# process map, its After-Insert trigger fired on each one and spawned
+				# a phantom instance that waited for messages forever and never
+				# closed. This sentinel matches no agent's chat_mode_label, so no
+				# start trigger can ever match it.
+				"agent_mode": AGENT_MEMORY_MODE,
+			}
 		)
 		conv.insert(ignore_permissions=True)
 		return conv.name
