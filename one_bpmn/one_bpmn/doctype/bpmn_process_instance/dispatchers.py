@@ -72,37 +72,6 @@ def _extract_memory_content(output, content_field: str) -> str:
 	return str(output or "")
 
 
-def _memory_output_from_trace(trace) -> str:
-	"""Distillable text for a tool-protocol agent whose assistant text is empty.
-
-	Agents instructed to "never reply in prose, always call tools" (e.g. the Docu
-	orchestrator) put their user-facing answer in tool-call arguments and RESULTS
-	(e.g. the Docu stage tools are zero-arg and return the draft/response as their
-	result) — so ``result.output`` is legitimately blank and the note-taker would
-	see nothing. Reconstruct what the agent said/did from the trace's tool calls
-	instead. Most recent turn first, so the terminal tools' payloads (the final
-	response) survive the distiller's input cap.
-	"""
-	parts = []
-	for turn in reversed(trace or []):
-		for call in turn.get("tool_calls") or []:
-			name = call.get("name") or ""
-			call_result = call.get("result") or ""
-			if str(call_result).startswith("Unknown tool:"):
-				continue
-			args = call.get("arguments")
-			rendered = ""
-			if args:
-				try:
-					rendered = json.dumps(args, default=str)
-				except (TypeError, ValueError):
-					rendered = str(args)
-			payload = " ".join(p for p in (rendered, str(call_result)) if p).strip()
-			if payload:
-				parts.append(f"{name}: {payload[:2000]}")
-	return "\n".join(parts)
-
-
 def _memory_write_mode(task_cfg: dict) -> str:
 	"""Resolve the long-term memory write mode: "off" | "raw" | "distilled".
 
@@ -1155,11 +1124,7 @@ def dispatch_ai_agent(instance, task, task_cfg: dict, bpmn_id: str, resume_run: 
 
 		# Commit observability data so AI runs + steps survive even if a
 		# downstream aiStopOnError raise rolls back the outer transaction.
-		# Never inside tests: a mid-test commit also persists the test's
-		# fixture docs, defeating FrappeTestCase rollback and leaking
-		# orphan "Active" instances into the shared dev DB.
-		if not frappe.flags.in_test:
-			frappe.db.commit()
+		frappe.db.commit()
 	except Exception:
 		frappe.log_error(
 			title=f"AI Observability: instrumentation error ({bpmn_id})",
@@ -1282,24 +1247,8 @@ def dispatch_ai_agent(instance, task, task_cfg: dict, bpmn_id: str, resume_run: 
 						# Distill with the task's own provider/model so the
 						# extraction call is always valid for the configured
 						# provider; aiMemoryDistillModel overrides when set.
-						# Tool-protocol agents leave result.output empty (their
-						# answer lives in tool arguments/results) — distill the
-						# interaction instead: the user message (where standing
-						# rules are stated) plus the trace's tool activity. The
-						# user part leads so a durable rule survives the
-						# distiller's input cap even when the tool payloads are
-						# long; without any tool activity there was no agent
-						# interaction, so memory is skipped as before.
-						memory_src = result.output
-						if not str(memory_src or "").strip():
-							trace_text = _memory_output_from_trace(result.trace)
-							if trace_text:
-								memory_src = (
-									f"[User message]\n{str(user_prompt or '')[:3000]}\n\n"
-									f"[Agent tool activity]\n{trace_text}"
-								)
 						_enqueue_distill(
-							agent_output=memory_src,
+							agent_output=result.output,
 							agent=(task_cfg.get("aiMemoryAgentElement") or bpmn_id),
 							scope=scope,
 							scope_key=scope_key,

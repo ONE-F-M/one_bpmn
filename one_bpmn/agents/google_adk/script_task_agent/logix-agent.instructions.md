@@ -12,70 +12,44 @@ Logix is an AI assistant embedded in the Processa BPMN editor. It helps users wr
 Frappe API-type Server Scripts attached to BPMN Script Tasks. It is powered by Google ADK
 (`LlmAgent`, `Runner`, `InMemorySessionService`) and uses `gemini-2.0-flash` by default.
 
-## Architecture: Sub-Agent Pipeline
+## Architecture: 4-Agent Pipeline
 
 ```
-User message  (process_context carries shape_kind: script_task | agent_tool)
-  └─► IntentClassifier  →  CREATE | MODIFY | DISAMBIGUATE   (+ shape_kind routing)
-         ├─ DISAMBIGUATE → Clarifier            (asks one clarifying question, writes no code)
-         ├─ CREATE/MODIFY + script_task → ScriptWriter        (general dual-contract writer)
-         └─ CREATE/MODIFY + agent_tool  → ToolWriter          (specialist — Agent Tool standard)
-                              └─► ScriptReviewer   (receives "Shape kind: X" preamble; knows both contracts)
-                                    └─► validate_script()  ← security gate  → optimize_script()
+User message
+  └─► IntentClassifier  →  CREATE | MODIFY | DISAMBIGUATE
+         ├─ DISAMBIGUATE → Clarifier         (asks one clarifying question, writes no code)
+         └─ CREATE/MODIFY → ScriptWriter
+                              └─► ScriptReviewer
+                                    └─► validate_script()  ← security gate
                                           ├─ valid   → return final script + diff (MODIFY)
                                           └─ invalid → _build_regeneration_prompt() → retry (max 3)
 ```
 
-At runtime the pipeline stages are inlined DB Server Scripts ("Logix – Tool ...") called as
-Agent Tools by the "Run Logix Agent" AI Agent Task in the "Logix – Script Task Agent" process
-model. `classify_intent` returns `next` = `clarify` | `write_script` | `write_agent_tool`.
+Every agent is a separate `LlmAgent` instance. They do NOT share session state across pipeline steps —
+each step calls `_run_agent()` with the same `session_id` but a fresh prompt.
 
-## Script Contracts (non-negotiable)
+## Script Contract (non-negotiable)
 
-There are TWO contracts, selected by `shape_kind` in `process_context`:
-
-**script_task** — runs INSIDE the SpiffWorkflow engine
-(`FrappeScriptEngine._run_frappe_server_script` in `one_bpmn/one_bpmn/engine.py`), **not** inside an
-HTTP request, in ONE merged exec namespace. `frappe.form_dict` is always empty and `frappe.response`
-is ignored. The engine injects `doc`, `context_doctype`, `context_docname`, `task_data`, `result`,
-and `frappe`; generated scripts must use them:
+All generated scripts must follow the Processa API calling convention:
 
 ```python
-# Injected by the engine: doc, context_doctype, context_docname, task_data, result, frappe.
-
-# Read the context document directly (or frappe.get_doc(context_doctype, context_docname)):
-process_name = doc.process_name
-
-# Read workflow variables produced by earlier steps:
-threshold = task_data.get("threshold")
+# Input: always read from frappe.form_dict
+context_doctype = frappe.form_dict.get("context_doctype")
+context_docname = frappe.form_dict.get("context_docname")
 
 # ... business logic ...
 
-# Write outputs onto the pre-defined `result` dict — the engine merges it back into
-# task.data so downstream steps and gateways can read the keys:
-result["approved"] = True
-result["next_step"] = "manager_review"
+# Output: always set frappe.response["message"] to a plain dict
+frappe.response["message"] = {
+    "approved": True,
+    "next_step": "manager_review",
+}
 ```
 
-- Never use `frappe.form_dict` (always empty here) or `frappe.response` (ignored). Read inputs from
-  `doc` / `task_data`; write outputs onto `result`.
-- `doc`, `context_doctype`, `context_docname`, `task_data`, and `result` DO exist — they are injected.
-  Do not redefine them.
-- Never use bare `return` — Server Scripts run as top-level code, so `return` is a SyntaxError.
-  Use `if/else` for branching and `frappe.throw()` to abort.
-
-**agent_tool** — backs a shape inside an AI Agent Task's ad-hoc Tools sub-process, executed by
-`_run_server_script` in `one_bpmn/agents/shape_tools.py` against a synthetic task with SPLIT exec
-globals/locals. Injected: the calling LLM's arguments as top-level names (declared via
-`spiffworkflow:aiToolParams`), plus `frappe`, `context_doctype`, `context_docname`, `doc`, `result`.
-
-- NO workflow variables and NO `task_data` — reading `task_data` raises NameError.
-- STRAIGHT-LINE code only — an inline helper `def`/`lambda` referencing a top-level name dies with
-  NameError under split namespaces (imported module functions are fine).
-- Never raise for expected failures — report via `result["error"] = "..."` so the LLM can recover.
-- `result` must be a flat JSON-serialisable dict — it is serialised as the tool result the LLM reads.
-- The turn-state bridge (`get_turn(context_docname)` / `update_turn(...)`) is the CORRECT pattern for
-  reaching per-turn state — never "fix" thin wrappers into inline logic.
+- `script_type` is always `"API"`.
+- `api_method` is auto-derived: script name → lowercase, spaces→underscores, special chars stripped.
+- Scripts are reached by Processa at `/api/method/<api_method>`.
+- Never use bare `return`. Never use `doc`, `result`, or `context_*` variables — they do not exist.
 
 ## Security Validator (`security/script_validator.py`)
 
@@ -108,8 +82,7 @@ All tools return strings (JSON or plain text). They never raise — errors are e
 
 - Credentials: read from `AI Chat Settings` DocType (`google_vertex_ai_api_key`, `gemini_model`).
 - Sub-prompt overrides: loaded from `AI Agent Configuration` via `get_agent_config(AGENT_ID)`.
-  Key names: `intent_classifier`, `clarifier`, `script_writer`, `script_reviewer`, `test_writer`,
-  `tool_writer` (optional specialist — Agent Tool authoring standard).
+  Key names: `intent_classifier`, `clarifier`, `script_writer`, `script_reviewer`.
 - `AGENT_ID = "logix_agent"`. Falls back to hardcoded `_DEFAULT_*_INSTRUCTION` strings if config is absent.
 
 ## Return Shape
@@ -151,7 +124,7 @@ All endpoints use `frappe.session.user = "Administrator"` elevation (scripts req
   A `-` line immediately followed by `+` is a `changed` pair; standalone `-` is `deleted`; standalone `+` is `added`.
 - After `approve_create` / `approve_modify` succeeds, show the `api_url` from the response in a confirmation message.
 - The Apply Script button is hidden on messages with `CREATE` or `MODIFY` intent (approval is via Approve button instead).
-- Context variables available to the writer (injected by the BPMN engine): `doc`, `context_doctype`, `context_docname`, `task_data`, `result`, `frappe`. Never `frappe.form_dict` / `frappe.response` — they don't work in the script-task runtime.
+- Context variables available to the writer: `frappe.form_dict`, `frappe.response["message"]`, `frappe.db`, `frappe.get_doc`.
 
 ## Review Checklist
 

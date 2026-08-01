@@ -24,19 +24,8 @@ const app = createApp(App)
 setConfig("resourceFetcher", frappeRequest)
 app.use(resourcesPlugin)
 
-// Initialize Socket.IO for realtime updates.
-// frappe-ui defaults to port 9000, but bench sets socketio_port to
-// webserver_port + 1000 (e.g. web 8001 → socketio 9001). Derive it from
-// the current port in dev; in production (no explicit port, behind
-// nginx) frappe-ui ignores the port and uses the /socket.io path.
-const socket = initSocket({
-	// Prefer the server-provided port from the boot payload; fall back to
-	// bench's webserver_port + 1000 convention when boot is unavailable
-	// (e.g. Vite dev server before boot loads).
-	port:
-		window.socketio_port ||
-		(window.location.port ? Number(window.location.port) + 1000 : undefined),
-})
+// Initialize Socket.IO for realtime updates
+const socket = initSocket()
 app.config.globalProperties.$socket = socket
 
 // Expose socket as window.frappe.realtime so components can use
