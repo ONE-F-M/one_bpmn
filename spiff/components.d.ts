@@ -16,7 +16,6 @@ declare module 'vue' {
     CodeMirrorEditor: typeof import('./src/components/CodeMirrorEditor.vue')['default']
     CompareDialog: typeof import('./src/components/CompareDialog.vue')['default']
     ConfigImportResultsDialog: typeof import('./src/components/ConfigImportResultsDialog.vue')['default']
-    CostAllocationReport: typeof import('./src/components/insights/CostAllocationReport.vue')['default']
     CostTokenReport: typeof import('./src/components/insights/CostTokenReport.vue')['default']
     DiffViewer: typeof import('./src/components/DiffViewer.vue')['default']
     DmnEditor: typeof import('./src/components/DmnEditor.vue')['default']
