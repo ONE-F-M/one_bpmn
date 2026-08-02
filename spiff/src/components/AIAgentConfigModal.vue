@@ -1118,6 +1118,17 @@ function proposalRows(proposal) {
   if (Array.isArray(proposal.sample_prompts) && proposal.sample_prompts.length) {
     rows["Sample prompts"] = proposal.sample_prompts.map((sp) => sp.prompt).join(" • ");
   }
+  // WI-001639: examples and guard rails become part of the agent's frozen
+  // static context, so the designer must SEE them before confirming — a
+  // proposal card that hides them would create rules nobody agreed to.
+  if (Array.isArray(proposal.examples) && proposal.examples.length) {
+    rows["Examples"] = proposal.examples.map((ex) => ex.input).join(" • ");
+  }
+  if (Array.isArray(proposal.guardrails) && proposal.guardrails.length) {
+    rows["Guard rails"] = proposal.guardrails
+      .map((g) => (g.category ? `[${g.category}] ${g.guardrail}` : g.guardrail))
+      .join(" • ");
+  }
   return rows;
 }
 

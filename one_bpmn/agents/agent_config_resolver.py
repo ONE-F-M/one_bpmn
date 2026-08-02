@@ -52,6 +52,18 @@ _SHAPE_TO_CONFIG = {
 	"aiModel": "ai_model",
 }
 
+# Guard rail categories, mirroring the AI Agent Guard Rail Select options
+# (WI-001639). Kept here so the create endpoint can reject a bogus category
+# before doc validation turns it into a hard failure.
+_GUARDRAIL_CATEGORIES = (
+	"Code Quality",
+	"Performance",
+	"Cost & Tokens",
+	"Safety",
+	"Output Format",
+	"Other",
+)
+
 # The platform process that carries an agent Draft -> Live. Used to re-provision
 # a Live agent after a write-back; missing model = skip with a log, never block.
 CREATION_PROCESS_MODEL = "AI Agent Creation Process"
@@ -186,6 +198,19 @@ CREATE_PAYLOAD_CONTRACT = {
 	"system_prompt": "The agent's system prompt; leave empty to have the creation process generate one from the description.",
 	"description": "What the agent does — feeds prompt auto-generation.",
 	"sample_prompts": 'Optional list of {"prompt", "expected_behaviour"} rows; becomes the baseline eval suite.',
+	"examples": (
+		'Optional list of {"input", "expected_output", "note"} rows — worked few-shot '
+		"examples that DEMONSTRATE the behaviour. Rendered into the agent's frozen static "
+		"context after the system prompt. Use these to show a format or a judgement call "
+		"that is hard to state as a rule."
+	),
+	"guardrails": (
+		'Optional list of {"guardrail", "category"} rows — rules the agent must obey on '
+		"every turn, each stated imperatively. category is one of: Code Quality, "
+		"Performance, Cost & Tokens, Safety, Output Format, Other. Rendered LAST in the "
+		"frozen static context. Use these for constraints (limits, checks, prohibitions); "
+		"use examples for demonstrations."
+	),
 }
 
 
@@ -249,6 +274,25 @@ def create_agent_configuration(payload: str | dict) -> dict:
 			doc.append("sample_prompts", {
 				"prompt": row["prompt"],
 				"expected_behaviour": row.get("expected_behaviour") or "",
+			})
+	# WI-001639: the agent's frozen static context. Row order is the order the
+	# proposer gave them — it is the order they reach the model.
+	for row in payload.get("examples") or []:
+		if (row.get("input") or "").strip():
+			doc.append("examples", {
+				"input": row["input"],
+				"expected_output": row.get("expected_output") or "",
+				"note": row.get("note") or "",
+				"enabled": 1,
+			})
+	for row in payload.get("guardrails") or []:
+		if (row.get("guardrail") or "").strip():
+			doc.append("guardrails", {
+				"guardrail": row["guardrail"],
+				# An unrecognised category would fail Select validation and lose
+				# the whole agent; fall back rather than reject the rule.
+				"category": row.get("category") if row.get("category") in _GUARDRAIL_CATEGORIES else "Other",
+				"enabled": 1,
 			})
 	doc.insert()  # caller's permissions; the After-Insert trigger starts the process
 

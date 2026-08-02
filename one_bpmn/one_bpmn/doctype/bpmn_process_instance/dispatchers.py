@@ -969,23 +969,54 @@ def dispatch_ai_agent(instance, task, task_cfg: dict, bpmn_id: str, resume_run: 
 			return text
 
 	if resume_payload:
-		# The conversation continues — the checkpointed system prompt (incl.
-		# any memory block injected at dispatch time) must be reused verbatim.
+		# The conversation continues — the checkpointed system prompt must be
+		# reused verbatim. The static layer is frozen for the whole run, so a
+		# resumed segment sees exactly the context the first segment saw.
 		system_prompt = resume_payload.get("system_prompt") or ""
 		user_prompt = ""
 	else:
-		system_prompt = render(task_cfg.get("aiSystemPrompt", ""))
-		user_prompt   = render(task_cfg.get("aiUserPrompt", ""))
+		# ── Static context layer (WI-001639) ──────────────────────────────
+		# Instructions -> Examples -> Guard Rails, assembled once and frozen
+		# for the rest of the run. Examples and guard rails come from the
+		# linked AI Agent Configuration; a shape with no linked config renders
+		# its own prompt alone, exactly as before.
+		from one_bpmn.agents.context_assembler import build_static_context, load_agent_behaviour
+
+		instructions = render(task_cfg.get("aiSystemPrompt", ""))
+		agent_config = {}
+		if task_cfg.get("aiAgentConfig"):
+			try:
+				agent_config = load_agent_behaviour(task_cfg["aiAgentConfig"])
+			except Exception:
+				# Behaviour rows are additive: a failure here must degrade to
+				# the plain prompt, never take the agent down.
+				frappe.log_error(
+					title=f"BPMN AI Agent Task: static context load failed ({bpmn_id})",
+					message=frappe.get_traceback(),
+				)
+		system_prompt = build_static_context(
+			system_prompt=instructions,
+			examples=agent_config.get("examples"),
+			guardrails=agent_config.get("guardrails"),
+		)
+		user_prompt = render(task_cfg.get("aiUserPrompt", ""))
 
 	# ── Long-term memory: search + inject (config-gated; safe when off) ──
 	# When aiLongTermMemory is enabled, recall memories for the task's scope
-	# using the rendered user prompt as the query and append them to the system
-	# prompt as a stable "Relevant memory:" block. Failures never block the call.
+	# using the rendered user prompt as the query.
+	#
+	# WI-001639: the retrieved block goes into the DYNAMIC layer (ahead of the
+	# user's text), not onto the system prompt. Memory is searched per turn, so
+	# appending it to the system prompt made the "immutable" layer differ on
+	# every call — the drift this story exists to remove — and invalidated the
+	# provider's system-prompt cache breakpoint each time.
+	# Failures never block the call.
 	memory_target = None
 	if not resume_payload and _cfg_truthy(task_cfg.get("aiLongTermMemory")):
 		try:
 			memory_target = _resolve_memory_target(task_cfg, instance, bpmn_id)
 			if memory_target and user_prompt:
+				from one_bpmn.agents.context_assembler import build_dynamic_preamble
 				from one_bpmn.agents.memory.tools import memory_search
 				scope, scope_key = memory_target
 				limit = int(task_cfg.get("aiMemoryLimit", 5) or 5)
@@ -993,8 +1024,10 @@ def dispatch_ai_agent(instance, task, task_cfg: dict, bpmn_id: str, resume_run: 
 					scope, scope_key, user_prompt, limit=limit, ignore_permissions=True
 				)
 				if memories:
-					block = _format_memory_block(memories)
-					system_prompt = f"{system_prompt}\n\n{block}" if system_prompt else block
+					user_prompt = build_dynamic_preamble(
+						memory_block=_format_memory_block(memories),
+						user_prompt=user_prompt,
+					)
 		except Exception:
 			frappe.log_error(
 				title=f"BPMN AI Agent Task: memory_search failed ({bpmn_id})",
