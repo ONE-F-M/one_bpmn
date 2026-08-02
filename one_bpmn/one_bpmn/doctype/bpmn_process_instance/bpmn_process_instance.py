@@ -9,6 +9,7 @@ from frappe import _
 from frappe.model.document import Document
 from frappe.utils import now_datetime
 
+from SpiffWorkflow.bpmn.specs.mixins.subworkflow_task import SubWorkflowTask
 from SpiffWorkflow.util.task import TaskState
 
 from one_bpmn.one_bpmn import engine as bpmn_engine
@@ -25,6 +26,7 @@ from .assignment import (
 	add_frappe_assignment,
 	remove_frappe_assignment,
 	resolve_assignment,
+	split_users,
 )
 
 
@@ -420,10 +422,12 @@ class BPMNProcessInstance(Document):
 		                  a task variable usable in gateway conditions.
 
 		Returns:
-		    list of dicts describing the next active tasks
+		    list of dicts describing the next active tasks. If no task is waiting
+		    for the message, it is a benign no-op: the current active tasks are
+		    returned unchanged (no exception).
 
 		Raises:
-		    frappe.ValidationError: if instance is not Active or message not caught
+		    frappe.ValidationError: if the instance is not Active
 		"""
 		if self.status in ("Completed", "Cancelled"):
 			frappe.throw(
@@ -468,12 +472,15 @@ class BPMNProcessInstance(Document):
 		caught = bpmn_engine.send_message(wf, message_name, payload=payload)
 
 		if not caught:
-			# No task is waiting for this message (e.g. a document event fired
-			# while the instance isn't parked at a matching catch node). This is
-			# benign, so skip quietly and return the unchanged task summary rather
-			# than surfacing an alarming error to the user.
-			frappe.logger("one_bpmn").debug(
-				f'No task in instance "{self.name}" is waiting for message "{message_name}".'
+			# An active instance that isn't currently parked at a catch event for
+			# this message simply ignores it. This is a normal, benign condition
+			# for the auto doc-event messages (e.g. WorkItem_Edit_Action fired on
+			# every save): most instances have no catch event for the event at
+			# their current position. Never raise — a non-match must not surface a
+			# user-facing error or block the triggering document's save.
+			frappe.logger("bpmn").debug(
+				f'receive_message: no task waiting for "{message_name}" '
+				f'in instance "{self.name}"; ignoring.'
 			)
 			return self.get_active_tasks_summary()
 
