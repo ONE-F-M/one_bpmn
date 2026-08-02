@@ -18,9 +18,11 @@ class AIAgentConfiguration(Document):
 		from one_bpmn.one_bpmn.doctype.ai_agent_constant.ai_agent_constant import AIAgentConstant
 		from one_bpmn.one_bpmn.doctype.ai_agent_sub_prompt.ai_agent_sub_prompt import AIAgentSubPrompt
 
+		agent_creation_process: DF.Link | None
 		agent_framework: DF.Literal["", "Google ADK", "LangGraph", "Direct API", "Anthropic"]
 		agent_id: DF.Data
 		agent_name: DF.Data
+		can_create_agents: DF.Check
 		constants: DF.Table[AIAgentConstant]
 		description: DF.SmallText | None
 		enabled: DF.Check
@@ -40,7 +42,43 @@ class AIAgentConfiguration(Document):
 		self.derive_provider_from_model()
 		self.validate_required_variables()
 		self.validate_unique_chat_mode_label()
+		self.validate_agent_creation_grant()
 		self.apply_background_lifecycle()
+
+	def validate_agent_creation_grant(self):
+		"""At most one configuration may hold the agent-creation grant, and it
+		must link the process that carries a new agent Draft -> Live.
+
+		The grant replaces the hardcoded "AI Agent Creation Process" name that
+		agent_config_resolver used to assume: the process is whatever THIS
+		field points at. Keeping it unique means the lookup can never be
+		ambiguous — there is one answer or none.
+		"""
+		if not self.can_create_agents:
+			return
+
+		# mandatory_depends_on covers the form; this covers every other write
+		# path (endpoint, patch, bulk edit), where mandatory_depends_on is not
+		# evaluated.
+		if not self.agent_creation_process:
+			frappe.throw(
+				_("Link an Agent Creation Process before granting this agent the right to create agents."),
+				title=_("Agent Creation Process required"),
+			)
+
+		clash = frappe.db.get_value(
+			"AI Agent Configuration",
+			{"can_create_agents": 1, "name": ("!=", self.name)},
+			"name",
+		)
+		if clash:
+			frappe.throw(
+				_(
+					"'{0}' already holds the agent-creation grant. Only one AI Agent "
+					"Configuration may create agents — clear the checkbox on '{0}' first."
+				).format(clash),
+				title=_("Agent-creation grant already held"),
+			)
 
 	def derive_provider_from_model(self):
 		"""WI-001655: the model is the pick, the provider is derived. When an
