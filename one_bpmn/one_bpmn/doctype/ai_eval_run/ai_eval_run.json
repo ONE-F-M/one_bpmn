@@ -9,6 +9,8 @@
  "field_order": [
   "suite",
   "status",
+  "scope",
+  "requested_cases",
   "backend",
   "column_break_meta",
   "started_at",
@@ -42,6 +44,19 @@
    "label": "Status",
    "options": "Running\nPassed\nFailed\nError",
    "reqd": 1
+  },
+  {
+   "fieldname": "scope",
+   "fieldtype": "Select",
+   "label": "Scope",
+   "options": "\nSuite\nSubset",
+   "description": "Whether the run was requested for the whole suite or a chosen subset of cases. Empty on runs recorded before this was tracked."
+  },
+  {
+   "fieldname": "requested_cases",
+   "fieldtype": "JSON",
+   "label": "Requested Cases",
+   "description": "The eval cases this run was requested for (subset runs only), recorded at request time so the scope is known even before results exist."
   },
   {
    "default": "live",
@@ -143,6 +158,16 @@
    "read": 1,
    "report": 1,
    "role": "System Manager",
+   "share": 1,
+   "write": 1
+  },
+  {
+   "create": 1,
+   "export": 1,
+   "print": 1,
+   "read": 1,
+   "report": 1,
+   "role": "Process Owner",
    "share": 1,
    "write": 1
   }

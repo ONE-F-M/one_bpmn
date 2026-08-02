@@ -23,6 +23,18 @@
 				class="w-48"
 				@change="fetchReport"
 			/>
+			<!-- WI-001608: AI tasks are done by AI Agents — group the report
+			     by the run's AI Agent Configuration instead of by model. -->
+			<FormControl
+				type="select"
+				v-model="groupBy"
+				:options="[
+					{ label: 'Group by Model', value: 'model' },
+					{ label: 'Group by AI Agent', value: 'agent' },
+				]"
+				class="w-48"
+				@change="fetchReport"
+			/>
 		</div>
 
 		<!-- Loading State -->
@@ -99,7 +111,7 @@
 					<thead>
 						<tr class="border-b border-gray-200">
 							<th class="text-left text-xs uppercase text-gray-500 font-medium py-2 px-3">Date</th>
-							<th class="text-left text-xs uppercase text-gray-500 font-medium py-2 px-3">Model</th>
+							<th class="text-left text-xs uppercase text-gray-500 font-medium py-2 px-3">{{ groupBy === "agent" ? "AI Agent" : "Model" }}</th>
 							<th class="text-left text-xs uppercase text-gray-500 font-medium py-2 px-3">Provider</th>
 							<th class="text-right text-xs uppercase text-gray-500 font-medium py-2 px-3">Runs</th>
 							<th class="text-right text-xs uppercase text-gray-500 font-medium py-2 px-3">Tokens</th>
@@ -138,6 +150,7 @@ import { Icon } from "@iconify/vue"
 const props = defineProps({
 	fromDate: String,
 	toDate: String,
+	origin: { type: String, default: "production" },
 })
 
 const loading = ref(false)
@@ -145,6 +158,7 @@ const reportData = ref({})
 const filterModel = ref("")
 const filterProvider = ref("")
 const filterProcess = ref("")
+const groupBy = ref("model") // "model" | "agent" (WI-001608)
 
 // Cache dropdown options from the initial (unfiltered) load so they
 // don't shrink to only the selected value after filtering.
@@ -214,6 +228,8 @@ async function fetchReport() {
 		if (filterModel.value) params.model = filterModel.value
 		if (filterProvider.value) params.provider = filterProvider.value
 		if (filterProcess.value) params.process_model = filterProcess.value
+		params.origin = props.origin
+		params.group_by = groupBy.value
 
 		const response = await frappeRequest({
 			url: "/api/method/one_bpmn.api.insights_api.get_cost_token_report",
@@ -222,8 +238,10 @@ async function fetchReport() {
 		})
 		reportData.value = response || {}
 
-		// Refresh cached dropdown options only on unfiltered fetches
-		if (!filterModel.value && !filterProvider.value && !filterProcess.value) {
+		// Refresh cached dropdown options only on unfiltered, model-grouped
+		// fetches — in agent grouping the rows' series carry agent names,
+		// which must not leak into the Model filter options.
+		if (!filterModel.value && !filterProvider.value && !filterProcess.value && groupBy.value === "model") {
 			const rows = reportData.value.rows || []
 			cachedModels.value = [...new Set(rows.map(r => r.model))].sort()
 			cachedProviders.value = [...new Set(rows.map(r => r.provider))].sort()
@@ -262,6 +280,6 @@ async function loadProcessOptions() {
 	}
 }
 
-watch(() => [props.fromDate, props.toDate], fetchReport)
+watch(() => [props.fromDate, props.toDate, props.origin], fetchReport)
 onMounted(fetchReport)
 </script>

@@ -80,10 +80,17 @@ def list_available_agents(include_legacy: int = 1) -> list:
 	configs = frappe.get_all(
 		"AI Agent Configuration",
 		filters={"enabled": 1, "agent_type": "Chat", "lifecycle_status": "Live"},
-		fields=["name", "agent_id", "chat_mode_label", "icon"],
+		fields=["name", "agent_id", "chat_mode_label", "icon", "process_model"],
 	)
 	for cfg in configs:
 		if not cfg.chat_mode_label:
+			continue
+		# WI-001652: Live makes an agent referenceable in the editor; a
+		# deployed linked diagram is what makes it CHATTABLE. Task-only agents
+		# (no diagram, or diagram not deployed) stay out of the chat picker.
+		if not cfg.process_model or not frappe.db.get_value(
+			"BPMN Process Model", cfg.process_model, "is_active"
+		):
 			continue
 		allowed = frappe.get_all(
 			"AI Agent Allowed Role",

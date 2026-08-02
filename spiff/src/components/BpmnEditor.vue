@@ -1665,7 +1665,13 @@ onMounted(async () => {
 						{ name: "aiTimeout",            isAttr: true, type: "String" },
 						{ name: "aiMaxRetries",         isAttr: true, type: "String" },
 						{ name: "aiWriteBackField",     isAttr: true, type: "String" },
-						{ name: "aiStopOnError",        isAttr: true, type: "String" }
+						{ name: "aiStopOnError",        isAttr: true, type: "String" },
+						// Connector service-task attributes
+						{ name: "connectorId",          isAttr: true, type: "String" },
+						{ name: "operation",            isAttr: true, type: "String" },
+						{ name: "connectorParams",      isAttr: true, type: "String" },
+						{ name: "resultVariable",       isAttr: true, type: "String" },
+						{ name: "failOnError",          isAttr: true, type: "String" }
 						]
 				});
 			}

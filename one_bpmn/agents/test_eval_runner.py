@@ -14,7 +14,7 @@ from unittest.mock import patch
 import frappe
 from frappe.tests.utils import FrappeTestCase
 
-from one_bpmn.agents.eval_runner import _execute_eval_suite, run_eval_suite
+from one_bpmn.agents.eval_runner import _execute_eval_suite, run_eval_cases, run_eval_suite
 from one_bpmn.agents._eval_test_factories import (
     make_eval_case,
     make_eval_run,
@@ -47,6 +47,49 @@ class TestEvalRunner(FrappeTestCase):
         self.assertRaises(
             frappe.ValidationError, run_eval_suite, "does-not-exist"
         )
+
+    # -- run_eval_cases (WI-001746) -------------------------------------
+
+    def test_run_eval_cases_subset_passes_case_names(self):
+        """run_eval_cases() enqueues only the chosen cases."""
+        suite = make_eval_suite()
+        c1 = make_eval_case(suite=suite.name)
+        make_eval_case(suite=suite.name)  # not selected
+
+        with patch("frappe.enqueue") as mock_enqueue:
+            run_name = run_eval_cases(suite.name, case_names=json.dumps([c1.name]))
+
+        self.assertTrue(run_name)
+        _, kwargs = mock_enqueue.call_args
+        self.assertEqual(kwargs["case_names"], [c1.name])
+
+    def test_run_eval_cases_rejects_foreign_case(self):
+        """A case that does not belong to the suite is rejected.
+
+        Asserting on the message matters here: run_eval_cases also throws
+        ValidationError for an agent-less suite, so a bare assertRaises passed
+        for the wrong reason while the fixtures had no agent configuration.
+        """
+        suite = make_eval_suite()
+        other = make_eval_case()  # no suite / different suite
+        with self.assertRaises(frappe.ValidationError) as ctx:
+            run_eval_cases(suite.name, json.dumps([other.name]))
+        self.assertIn(other.name, str(ctx.exception))
+
+    def test_run_eval_cases_rejects_suite_without_agent(self):
+        """A live run needs an agent to evaluate (WI-001751)."""
+        suite = make_eval_suite(agent_configuration=None)
+        make_eval_case(suite=suite.name)
+        with self.assertRaises(frappe.ValidationError) as ctx:
+            run_eval_cases(suite.name)
+        self.assertIn("agent configuration", str(ctx.exception))
+
+    def test_replay_run_skips_the_agent_requirement(self):
+        """Replay does not call the agent, so it must not demand one."""
+        suite = make_eval_suite(agent_configuration=None)
+        make_eval_case(suite=suite.name)
+        with patch("frappe.enqueue"):
+            self.assertTrue(run_eval_cases(suite.name, backend="replay"))
 
     # -- assertion types ------------------------------------------------
 

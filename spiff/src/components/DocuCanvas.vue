@@ -35,7 +35,7 @@
 								</div>
 							</div>
 							<div v-if="isTyping" class="dc-msg-row assistant">
-								<div class="dc-bubble-bot dc-typing"><span></span><span></span><span></span></div>
+								<div class="dc-bubble-bot"><AgentThinkingIndicator /></div>
 							</div>
 						</div>
 
@@ -365,6 +365,7 @@ import { frappeRequest } from "frappe-ui";
 import { marked } from "marked";
 import DOMPurify from "dompurify";
 import draggable from "vuedraggable";
+import AgentThinkingIndicator from "./AgentThinkingIndicator.vue";
 
 marked.setOptions({ gfm: true, breaks: true });
 
@@ -1353,9 +1354,6 @@ onMounted(async () => {
 .dc-options { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 8px; }
 .dc-option-btn { border: 1px solid var(--md-outline-variant); background: transparent; color: var(--md-primary); border-radius: var(--md-corner-sm); padding: 6px 14px; font-size: 13px; font-weight: 500; cursor: pointer; transition: background-color var(--md-dur) var(--md-ease); }
 .dc-option-btn:hover { background: rgba(79,70,229,var(--md-state-hover)); }
-.dc-typing span { display: inline-block; width: 6px; height: 6px; margin: 0 1px; background: var(--md-on-surface-variant); border-radius: 50%; animation: dc-blink 1.2s infinite; }
-.dc-typing span:nth-child(2) { animation-delay: .2s; } .dc-typing span:nth-child(3) { animation-delay: .4s; }
-@keyframes dc-blink { 0%, 60%, 100% { opacity: .3; } 30% { opacity: 1; } }
 .dc-input-area { display: flex; gap: 10px; align-items: flex-end; padding: 12px; border-top: 1px solid var(--md-outline-variant); }
 .dc-input { flex: 1; resize: none; border: 1px solid var(--md-outline); border-radius: var(--md-corner-lg); padding: 10px 14px; font-size: 14px; line-height: 20px; font-family: inherit; background: var(--md-surface-container-low); color: var(--md-on-surface); transition: border-color var(--md-dur) var(--md-ease), box-shadow var(--md-dur) var(--md-ease); }
 .dc-input:focus { outline: none; border-color: var(--md-primary); box-shadow: inset 0 0 0 1px var(--md-primary); }

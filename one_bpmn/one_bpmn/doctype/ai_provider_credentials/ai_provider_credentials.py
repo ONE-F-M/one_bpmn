@@ -52,10 +52,22 @@ def test_connection(provider_name: str) -> dict:
 	from one_bpmn.agents.executor import ErrorCode, ExecutorConfig, ExecutorContext
 	from one_bpmn.agents.executor.direct_api import DirectApiExecutor
 
+	# WI-001655: credentials carry no default model — test with any catalog
+	# model linked to this record.
+	test_model = frappe.db.get_value("AI Model", {"ai_provider_credentials": provider_name}, "name")
+	if not test_model:
+		return {
+			"ok": False,
+			"error_code": "NO_MODEL_LINKED",
+			"message": _(
+				"No AI Model in the catalog links these credentials. "
+				"Create/link an AI Model record first, then test."
+			),
+		}
 	config = ExecutorConfig(
 		backend="direct_api",
 		provider_name=provider_name,
-		model=provider.default_model or "",
+		model=test_model,
 		system_prompt="",
 		user_prompt="ping",
 		max_tokens=5,

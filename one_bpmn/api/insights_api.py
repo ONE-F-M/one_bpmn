@@ -27,17 +27,32 @@ def _default_dates(from_date: Optional[str], to_date: Optional[str], days: int =
 	return from_d, to_d
 
 
+def _origin_condition(Run, origin: str):
+	"""qb criterion for the run-origin segment (WI-001751).
+
+	"production" (default) excludes eval-origin runs — rows created before the
+	origin field existed are NULL and count as production. "eval" selects only
+	eval-origin runs. "all" applies no filter.
+	"""
+	if origin == "eval":
+		return Run.origin == "eval"
+	if origin == "all":
+		return Run.name.notnull()
+	return fn.Coalesce(Run.origin, "production") != "eval"
+
+
 # ---------------------------------------------------------------------------
 # 1. Overview cards
 # ---------------------------------------------------------------------------
 
 @frappe.whitelist()
-def get_agent_overview(days: int = 7, agent_configuration: str = None) -> dict:
+def get_agent_overview(days: int = 7, agent_configuration: str = None, origin: str = "production") -> dict:
 	"""Return 6 headline metrics for the overview number cards.
 
 	Pass *agent_configuration* to scope every metric to one agent's runs
 	(WI-001636). Deeper per-agent filtering across the other reports ships
-	with the observability feature story (WI-001608).
+	with the observability feature story (WI-001608). *origin* segments the
+	metrics: "production" (default), "eval", or "all" (WI-001751).
 	"""
 	frappe.only_for("System Manager")
 	days = cint(days) or 7
@@ -52,6 +67,7 @@ def get_agent_overview(days: int = 7, agent_configuration: str = None) -> dict:
 		.select(fn.Count("*"))
 		.where(fn.Date(Run.started_at) == today_date)
 		.where(Run.agent_configuration == agent_configuration if agent_configuration else Run.name.notnull())
+		.where(_origin_condition(Run, origin))
 		.run()[0][0]
 	)
 
@@ -65,6 +81,7 @@ def get_agent_overview(days: int = 7, agent_configuration: str = None) -> dict:
 		.where(fn.Date(Run.started_at) >= range_start)
 		.where(fn.Date(Run.started_at) <= today_date)
 		.where(Run.agent_configuration == agent_configuration if agent_configuration else Run.name.notnull())
+		.where(_origin_condition(Run, origin))
 		.where(Run.status != "Running")
 		.run(as_dict=True)
 	)[0]
@@ -80,6 +97,7 @@ def get_agent_overview(days: int = 7, agent_configuration: str = None) -> dict:
 		.where(fn.Date(Run.started_at) >= range_start)
 		.where(fn.Date(Run.started_at) <= today_date)
 		.where(Run.agent_configuration == agent_configuration if agent_configuration else Run.name.notnull())
+		.where(_origin_condition(Run, origin))
 		.run()[0][0],
 		4,
 	)
@@ -90,6 +108,7 @@ def get_agent_overview(days: int = 7, agent_configuration: str = None) -> dict:
 		.select(fn.Count("*"))
 		.where(fn.Date(Run.started_at) == today_date)
 		.where(Run.agent_configuration == agent_configuration if agent_configuration else Run.name.notnull())
+		.where(_origin_condition(Run, origin))
 		.where(Run.status == "Error")
 		.run()[0][0]
 	)
@@ -101,6 +120,7 @@ def get_agent_overview(days: int = 7, agent_configuration: str = None) -> dict:
 		.where(fn.Date(Run.started_at) >= range_start)
 		.where(fn.Date(Run.started_at) <= today_date)
 		.where(Run.agent_configuration == agent_configuration if agent_configuration else Run.name.notnull())
+		.where(_origin_condition(Run, origin))
 		.where(Run.status == "Success")
 		.run()[0][0]
 	)
@@ -112,6 +132,7 @@ def get_agent_overview(days: int = 7, agent_configuration: str = None) -> dict:
 		.where(fn.Date(Run.started_at) >= range_start)
 		.where(fn.Date(Run.started_at) <= today_date)
 		.where(Run.agent_configuration == agent_configuration if agent_configuration else Run.name.notnull())
+		.where(_origin_condition(Run, origin))
 		.run()[0][0]
 	)
 
@@ -137,18 +158,27 @@ def get_cost_token_report(
 	provider: str = None,
 	process_model: str = None,
 	agent_configuration: str = None,
+	origin: str = "production",
+	group_by: str = "model",
 ) -> dict:
-	"""Return daily cost/token data grouped by date and model."""
+	"""Return daily cost/token data grouped by date and model — or, since
+	AI tasks are done by AI Agents (WI-001608), grouped by the run's
+	AI Agent Configuration when ``group_by="agent"``. Runs recorded before
+	agent attribution existed appear as "Unattributed"."""
 	frappe.only_for("System Manager")
+	group_by = group_by if group_by in ("model", "agent") else "model"
 	from_d, to_d = _default_dates(from_date, to_date)
 
 	Run = DocType("AI Agent Run")
+
+	# The series dimension: model (classic) or the run's agent (WI-001608).
+	group_field = Run.agent_configuration if group_by == "agent" else Run.model
 
 	query = (
 		frappe.qb.from_(Run)
 		.select(
 			fn.Date(Run.started_at).as_("date"),
-			Run.model,
+			group_field.as_("group_key"),
 			Run.provider,
 			fn.Count("*").as_("total_runs"),
 			fn.Sum(Run.total_tokens).as_("total_tokens"),
@@ -160,10 +190,15 @@ def get_cost_token_report(
 		)
 		.where(fn.Date(Run.started_at) >= from_d)
 		.where(fn.Date(Run.started_at) <= to_d)
-		.where(Run.status != "Running")
-		.groupby(fn.Date(Run.started_at), Run.model, Run.provider)
+		.where(_origin_condition(Run, origin))
+		# Running runs ARE included: selector runs stay "Running" for the
+		# whole life of their subprocess and their token/cost rollups are
+		# refreshed after every decision — excluding them hid all selector
+		# spend until (if ever) the subprocess completed. Success-rate and
+		# reliability reports still exclude Running, correctly.
 		.orderby(fn.Date(Run.started_at))
 	)
+	query = query.groupby(fn.Date(Run.started_at), group_field, Run.provider)
 
 	if model:
 		query = query.where(Run.model == model)
@@ -176,12 +211,17 @@ def get_cost_token_report(
 
 	raw_rows = query.run(as_dict=True)
 
-	# Build rows with safe number conversions
+	# Build rows with safe number conversions. "series" is the grouped
+	# dimension's display value; "model" keeps carrying it too so the
+	# existing frontend bindings keep working in both modes.
+	unattributed = "Unattributed"
 	rows = []
 	for r in raw_rows:
+		series = cstr(r.get("group_key")) or (unattributed if group_by == "agent" else "")
 		rows.append({
 			"date": cstr(r.get("date")),
-			"model": cstr(r.get("model")),
+			"series": series,
+			"model": series,
 			"provider": cstr(r.get("provider")),
 			"total_runs": cint(r.get("total_runs")),
 			"total_tokens": cint(r.get("total_tokens")),
@@ -192,24 +232,25 @@ def get_cost_token_report(
 			"output_cost": flt(r.get("output_cost"), 6),
 		})
 
-	# Build chart_data — pivot by model per day
+	# Build chart_data — pivot by the grouped dimension per day
 	all_dates = []
 	d = from_d
 	while d <= to_d:
 		all_dates.append(cstr(d))
 		d = getdate(add_days(cstr(d), 1))
 
-	model_day_cost = defaultdict(lambda: defaultdict(float))
-	models_seen = set()
+	series_day_cost = defaultdict(lambda: defaultdict(float))
+	series_seen = set()
 	for r in rows:
-		model_day_cost[r["model"]][r["date"]] += r["total_cost"]
-		models_seen.add(r["model"])
+		series_day_cost[r["series"]][r["date"]] += r["total_cost"]
+		series_seen.add(r["series"])
 
 	datasets = []
-	for m in sorted(models_seen):
+	for m in sorted(series_seen):
 		datasets.append({
-			"model": m,
-			"values": [flt(model_day_cost[m].get(d, 0), 6) for d in all_dates],
+			"model": m,  # legacy key the chart legend binds to
+			"label": m,
+			"values": [flt(series_day_cost[m].get(d, 0), 6) for d in all_dates],
 		})
 
 	# Summary
@@ -243,18 +284,23 @@ def get_error_report(
 	error_code: str = None,
 	process_model: str = None,
 	agent_configuration: str = None,
+	origin: str = "production",
+	group_by: str = "model",
 ) -> dict:
-	"""Return error analysis grouped by model and bpmn_id."""
+	"""Return error analysis grouped by model + bpmn_id — or by the run's
+	AI Agent Configuration + bpmn_id when ``group_by="agent"`` (WI-001608)."""
 	frappe.only_for("System Manager")
+	group_by = group_by if group_by in ("model", "agent") else "model"
 	from_d, to_d = _default_dates(from_date, to_date)
 
 	Run = DocType("AI Agent Run")
+	group_field = Run.agent_configuration if group_by == "agent" else Run.model
 
-	# --- Main rows: group by model + bpmn_id ---
+	# --- Main rows: group by (model | agent) + bpmn_id ---
 	query = (
 		frappe.qb.from_(Run)
 		.select(
-			Run.model,
+			group_field.as_("group_key"),
 			Run.bpmn_id,
 			fn.Max(Run.bpmn_label).as_("bpmn_label"),
 			fn.Count("*").as_("total_runs"),
@@ -271,7 +317,8 @@ def get_error_report(
 		.where(fn.Date(Run.started_at) >= from_d)
 		.where(fn.Date(Run.started_at) <= to_d)
 		.where(Run.status != "Running")
-		.groupby(Run.model, Run.bpmn_id)
+		.where(_origin_condition(Run, origin))
+		.groupby(group_field, Run.bpmn_id)
 		.orderby(fn.Sum(Case().when(Run.status == "Error", 1).else_(0)), order=frappe.qb.desc)
 	)
 
@@ -291,8 +338,9 @@ def get_error_report(
 		total = cint(r.get("total_runs"))
 		errors = cint(r.get("errors"))
 		retried = cint(r.get("retried"))
+		series = cstr(r.get("group_key")) or ("Unattributed" if group_by == "agent" else "")
 		rows.append({
-			"model": cstr(r.get("model")),
+			"model": series,
 			"bpmn_id": cstr(r.get("bpmn_id")),
 			"bpmn_label": cstr(r.get("bpmn_label")) or cstr(r.get("bpmn_id")),
 			"total_runs": total,
@@ -312,6 +360,7 @@ def get_error_report(
 		.where(fn.Date(Run.started_at) <= to_d)
 		.where(Run.status == "Error")
 		.where(Run.error_code.isnotnull())
+		.where(_origin_condition(Run, origin))
 		.groupby(Run.error_code)
 		.orderby(fn.Count("*"), order=frappe.qb.desc)
 	)
@@ -371,22 +420,30 @@ def get_performance_report(
 	bpmn_id: str = None,
 	process_model: str = None,
 	agent_configuration: str = None,
+	origin: str = "production",
+	group_by: str = "model",
 ) -> dict:
-	"""Return latency/throughput data with percentiles."""
+	"""Return latency/throughput data with percentiles, grouped by model +
+	bpmn_id — or by the run's AI Agent Configuration + bpmn_id when
+	``group_by="agent"`` (WI-001608)."""
 	frappe.only_for("System Manager")
+	group_by = group_by if group_by in ("model", "agent") else "model"
 	from_d, to_d = _default_dates(from_date, to_date)
 
 	Run = DocType("AI Agent Run")
 	Step = DocType("AI Agent Step")
+	group_field = Run.agent_configuration if group_by == "agent" else Run.model
+	unattributed = "Unattributed" if group_by == "agent" else ""
 
 	# --- Fetch all successful run durations for percentile calculation ---
 	duration_query = (
 		frappe.qb.from_(Run)
-		.select(Run.model, Run.bpmn_id, Run.bpmn_label, Run.duration_ms, Run.total_tokens, fn.Date(Run.started_at).as_("date"))
+		.select(group_field.as_("group_key"), Run.bpmn_id, Run.bpmn_label, Run.duration_ms, Run.total_tokens, fn.Date(Run.started_at).as_("date"))
 		.where(fn.Date(Run.started_at) >= from_d)
 		.where(fn.Date(Run.started_at) <= to_d)
 		.where(Run.status == "Success")
 		.where(Run.duration_ms.isnotnull())
+		.where(_origin_condition(Run, origin))
 		.orderby(Run.model, Run.bpmn_id)
 	)
 	if model:
@@ -404,11 +461,12 @@ def get_performance_report(
 	step_counts_query = (
 		frappe.qb.from_(Step)
 		.join(Run).on(Step.run == Run.name)
-		.select(Run.model, Run.bpmn_id, Step.run, fn.Count("*").as_("step_count"))
+		.select(group_field.as_("group_key"), Run.bpmn_id, Step.run, fn.Count("*").as_("step_count"))
 		.where(fn.Date(Run.started_at) >= from_d)
 		.where(fn.Date(Run.started_at) <= to_d)
 		.where(Run.status == "Success")
-		.groupby(Step.run, Run.model, Run.bpmn_id)
+		.where(_origin_condition(Run, origin))
+		.groupby(Step.run, group_field, Run.bpmn_id)
 	)
 	if model:
 		step_counts_query = step_counts_query.where(Run.model == model)
@@ -418,18 +476,18 @@ def get_performance_report(
 		step_counts_query = step_counts_query.where(Run.process_model == process_model)
 
 	step_count_rows = step_counts_query.run(as_dict=True)
-	# Build map: (model, bpmn_id) -> list of step counts
+	# Build map: (series, bpmn_id) -> list of step counts
 	step_map = defaultdict(list)
 	for s in step_count_rows:
-		key = (cstr(s.get("model")), cstr(s.get("bpmn_id")))
+		key = (cstr(s.get("group_key")) or unattributed, cstr(s.get("bpmn_id")))
 		step_map[key].append(cint(s.get("step_count")))
 
-	# --- Group durations by model+bpmn_id, compute percentiles ---
+	# --- Group durations by the series dimension + bpmn_id, compute percentiles ---
 	grouped = defaultdict(list)
 	token_grouped = defaultdict(list)
 	label_map = {}
 	for r in raw_durations:
-		key = (cstr(r.get("model")), cstr(r.get("bpmn_id")))
+		key = (cstr(r.get("group_key")) or unattributed, cstr(r.get("bpmn_id")))
 		grouped[key].append(cint(r.get("duration_ms")))
 		token_grouped[key].append(cint(r.get("total_tokens")))
 		# Keep first non-empty label per key
@@ -492,16 +550,74 @@ def get_performance_report(
 
 @frappe.whitelist()
 def get_run_steps(run_name: str) -> list:
-	"""Return steps for a single AI Agent Run."""
+	"""Return steps for a single AI Agent Run.
+
+	WI-001360: each step carries its AI Agent Tool Call child rows so the
+	instance detail view can render subprocess runs as Run → expandable
+	Steps (one per LLM turn) → the individual tool calls that turn made —
+	instead of the flat single-call view built for plain AI Agent Tasks.
+	Per-tool analytics must aggregate through these rows, not the flat
+	tool_name column (a single turn can contain several calls).
+	"""
 	frappe.only_for("System Manager")
 
-	return frappe.get_list(
+	steps = frappe.get_list(
 		"AI Agent Step",
 		filters={"run": run_name},
 		fields=[
-			"step_index", "role", "tool_name",
+			"name", "step_index", "role", "tool_name", "content",
 			"latency_ms", "prompt_tokens", "completion_tokens", "cost",
 		],
 		order_by="step_index asc",
 		limit_page_length=100,
 	)
+
+	step_names = [s.name for s in steps]
+	calls_by_step = {}
+	if step_names and frappe.db.exists("DocType", "AI Agent Tool Call"):
+		for call in frappe.get_all(
+			"AI Agent Tool Call",
+			filters={"parent": ["in", step_names], "parenttype": "AI Agent Step"},
+			fields=["parent", "tool_name", "tool_source", "tool_args", "tool_result", "status"],
+			order_by="idx asc",
+		):
+			calls_by_step.setdefault(call.pop("parent"), []).append(call)
+
+	for step in steps:
+		step["tool_calls"] = calls_by_step.get(step.name, [])
+	return steps
+
+
+@frappe.whitelist()
+def get_run_totals_crosscheck(run_name: str) -> dict:
+	"""WI-001360 Scenario 4: verify a run's rolled-up totals against the sum
+	of its Step rows — cross-checked, not just trusted."""
+	frappe.only_for("System Manager")
+
+	run = frappe.db.get_value(
+		"AI Agent Run", run_name, ["total_tokens", "estimated_cost"], as_dict=True
+	)
+	if not run:
+		frappe.throw(_("AI Agent Run '{0}' not found").format(run_name))
+
+	Step = DocType("AI Agent Step")
+	sums = (
+		frappe.qb.from_(Step)
+		.select(
+			fn.Sum(Step.prompt_tokens + Step.completion_tokens).as_("tokens"),
+			fn.Sum(Step.cost).as_("cost"),
+		)
+		.where(Step.run == run_name)
+		.run(as_dict=True)
+	)[0]
+
+	step_tokens = cint(sums.get("tokens"))
+	step_cost = flt(sums.get("cost"), 4)
+	return {
+		"run_total_tokens": cint(run.total_tokens),
+		"step_total_tokens": step_tokens,
+		"tokens_match": cint(run.total_tokens) == step_tokens,
+		"run_estimated_cost": flt(run.estimated_cost, 4),
+		"step_total_cost": step_cost,
+		"cost_match": abs(flt(run.estimated_cost, 4) - step_cost) < 0.0001,
+	}

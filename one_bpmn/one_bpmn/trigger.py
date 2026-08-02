@@ -217,14 +217,17 @@ def _maybe_send_message(doc, message_suffix: str):
 			instance = frappe.get_doc("BPMN Process Instance", instance_name)
 
 			# Pass _old_status so scripts can detect status transitions
-			# (by on_update time, the DB already has the new value)
+			# (by on_update time, the DB already has the new value).
+			# Not every doctype has a `status` field (e.g. AI Agent
+			# Configuration uses lifecycle_status) — use .get(), or the
+			# delivery dies with AttributeError before receive_message.
 			prev_doc = getattr(doc, "_doc_before_save", None)
 			payload = {
 				"triggered_by": frappe.session.user,
 				"trigger_event": message_suffix,
 			}
 			if prev_doc:
-				payload["_old_status"] = prev_doc.status
+				payload["_old_status"] = prev_doc.get("status")
 
 			instance.receive_message(
 				message_name=message_name,
