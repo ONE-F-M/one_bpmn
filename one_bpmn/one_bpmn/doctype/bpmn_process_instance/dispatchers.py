@@ -1118,6 +1118,13 @@ def dispatch_ai_agent(instance, task, task_cfg: dict, bpmn_id: str, resume_run: 
 	# ── Executor ───────────────────────────────────────────────────────
 	import time as _time
 	_exec_start = _time.time()
+
+	# WI-001645: publish which agent is running so the tool-policy interceptor
+	# can apply that agent's tool grant — including for tools a Server Script
+	# constructs for its own sub-agent call, which never see this frame.
+	from one_bpmn.security.tool_policy import reset_current_agent, set_current_agent
+
+	_policy_token = set_current_agent(task_cfg.get("aiAgentConfig"))
 	try:
 		executor_cls = get_executor(config.backend)
 		result = executor_cls().run(config, context)
@@ -1135,6 +1142,10 @@ def dispatch_ai_agent(instance, task, task_cfg: dict, bpmn_id: str, resume_run: 
 		except Exception:
 			pass
 		return
+	finally:
+		# Must clear on BOTH paths — a leaked agent id would apply this agent's
+		# tool grant to whatever runs next in this worker.
+		reset_current_agent(_policy_token)
 	_exec_latency_ms = int((_time.time() - _exec_start) * 1000)
 
 	# ── Durable HITL: token totals are cumulative across suspensions ───

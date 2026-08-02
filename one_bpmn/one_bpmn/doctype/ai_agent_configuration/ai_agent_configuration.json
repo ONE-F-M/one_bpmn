@@ -28,6 +28,9 @@
   "behaviour_section",
   "examples",
   "guardrails",
+  "tool_policy_section",
+  "restrict_tools",
+  "allowed_tools",
   "sub_prompts_section",
   "sub_prompts",
   "constants_section",
@@ -187,6 +190,26 @@
    "fieldtype": "Table",
    "label": "Guard Rails",
    "options": "AI Agent Guard Rail"
+  },
+  {
+   "description": "A runtime restriction on which tools this agent may call, enforced independently of what its diagram grants. If the map is later edited to add a risky shape, this still holds.",
+   "fieldname": "tool_policy_section",
+   "fieldtype": "Section Break",
+   "label": "Tool Policy"
+  },
+  {
+   "default": "0",
+   "description": "Off means the agent may call every tool its diagram grants. On means it may call ONLY the tools listed below — an empty list then blocks everything, which is deliberate.",
+   "fieldname": "restrict_tools",
+   "fieldtype": "Check",
+   "label": "Restrict To Listed Tools"
+  },
+  {
+   "depends_on": "restrict_tools",
+   "fieldname": "allowed_tools",
+   "fieldtype": "Table",
+   "label": "Allowed Tools",
+   "options": "AI Agent Allowed Tool"
   },
   {
    "description": "For agents with multiple sub-agents (e.g., Report Query Agent)",

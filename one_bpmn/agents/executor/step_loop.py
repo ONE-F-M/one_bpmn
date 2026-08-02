@@ -30,6 +30,7 @@ from one_bpmn.agents.llm_provider.base import (
 	ToolSpec,
 	TurnRecord,
 )
+from one_bpmn.security.tool_policy import REQUIRE_HUMAN, PolicyViolation
 
 # Tool result handed to the model when it requests a second human tool in the
 # same turn — v1 supports one human pause at a time.
@@ -176,6 +177,17 @@ async def run_agent_loop(
 			else:
 				try:
 					result = str(tool.fn(**call.arguments))
+				except PolicyViolation as violation:
+					# WI-001645: the interceptor refused the call BEFORE the
+					# tool ran. A rule asking for human approval reuses the
+					# existing suspension path rather than a second mechanism:
+					# the call becomes the turn's pending human decision.
+					if violation.decision.outcome == REQUIRE_HUMAN and pending_call is None:
+						pending_call = {
+							"id": call.id, "name": call.name, "arguments": call.arguments
+						}
+						continue
+					result = violation.decision.as_tool_result()
 				except Exception as exc:
 					result = f"Error calling {call.name}: {exc}"
 

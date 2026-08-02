@@ -264,6 +264,11 @@ def dispatch_ai_task_selector(instance, sp, task_cfg: dict, bpmn_id: str) -> tup
 			message=frappe.get_traceback(),
 		)
 
+	# WI-001645: the selector runs tools too — publish the agent so its tool
+	# grant applies here as well, not only on AI Agent Tasks.
+	from one_bpmn.security.tool_policy import reset_current_agent, set_current_agent
+
+	_policy_token = set_current_agent(task_cfg.get("aiAgentConfig"))
 	try:
 		executor_cls = get_executor(config.backend)
 		result = executor_cls().run(config, context)
@@ -275,6 +280,8 @@ def dispatch_ai_task_selector(instance, sp, task_cfg: dict, bpmn_id: str) -> tup
 		sp.data[f"{bpmn_id}_error_code"] = "UNEXPECTED_ERROR"
 		sp.data[f"{bpmn_id}_error_message"] = "See Frappe Error Log for details."
 		return ("error", None, None)
+	finally:
+		reset_current_agent(_policy_token)
 
 	# One Step per LLM turn, one Tool Call row per call within a turn.
 	try:

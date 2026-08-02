@@ -397,6 +397,21 @@ def get_or_create_selector_run(instance, bpmn_id: str, config, bpmn_label: str =
 	)
 
 
+def _tool_call_status(result) -> str:
+	"""Classify a tool result string into a Tool Call status.
+
+	Three outcomes, not two: a call the policy interceptor refused (WI-001645)
+	never executed, so calling it "Error" would conflate a blocked action with
+	a broken tool and make policy activity impossible to query.
+	"""
+	text = str(result or "")
+	if text.startswith("Blocked by policy:"):
+		return "Denied"
+	if text.startswith(("Error calling", "Unknown tool:")):
+		return "Error"
+	return "Success"
+
+
 def record_selector_turns(run, trace: list, source_map: dict | None = None) -> int:
 	"""Append one AI Agent Step per turn of an executor trace to *run*.
 
@@ -424,9 +439,10 @@ def record_selector_turns(run, trace: list, source_map: dict | None = None) -> i
 				"tool_source": source_map.get(call.get("name", ""), ""),
 				"arguments": call.get("arguments") or {},
 				"result": call.get("result", ""),
-				"status": "Error" if str(call.get("result", "")).startswith(
-					("Error calling", "Unknown tool:")
-				) else "Success",
+				# WI-001645: a policy refusal is neither a success nor a tool
+				# error — the tool never ran. Recording it distinctly is what
+				# makes "what has the policy blocked this week" answerable.
+				"status": _tool_call_status(call.get("result", "")),
 			}
 			for call in turn.get("tool_calls") or []
 		]

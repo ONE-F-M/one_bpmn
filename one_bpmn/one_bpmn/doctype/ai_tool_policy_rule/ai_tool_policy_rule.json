@@ -1,0 +1,135 @@
+{
+ "actions": [],
+ "allow_rename": 1,
+ "autoname": "field:rule_name",
+ "creation": "2026-08-02 12:00:00.000000",
+ "doctype": "DocType",
+ "editable_grid": 1,
+ "engine": "InnoDB",
+ "field_order": [
+  "rule_name",
+  "enabled",
+  "column_break_head",
+  "category",
+  "action",
+  "section_match",
+  "restricted_doctypes",
+  "column_break_match",
+  "restricted_tools",
+  "section_response",
+  "violation_message",
+  "section_exemptions",
+  "exempt_agents"
+ ],
+ "fields": [
+  {
+   "fieldname": "rule_name",
+   "fieldtype": "Data",
+   "in_list_view": 1,
+   "label": "Rule Name",
+   "reqd": 1,
+   "unique": 1
+  },
+  {
+   "default": "1",
+   "description": "A disabled rule is kept for reference but never evaluated.",
+   "fieldname": "enabled",
+   "fieldtype": "Check",
+   "in_list_view": 1,
+   "in_standard_filter": 1,
+   "label": "Enabled"
+  },
+  {
+   "fieldname": "column_break_head",
+   "fieldtype": "Column Break"
+  },
+  {
+   "default": "Other",
+   "description": "Grouping only — it does not change how the rule is enforced.",
+   "fieldname": "category",
+   "fieldtype": "Select",
+   "in_list_view": 1,
+   "in_standard_filter": 1,
+   "label": "Category",
+   "options": "Identity & Permissions\nCode Execution\nPayroll & Financial\nDestructive & Bulk\nOther"
+  },
+  {
+   "default": "Deny",
+   "description": "Deny refuses the call and tells the model why. Require Human Approval suspends the agent until a person decides — supported in the step loop; in an adapter's own tool loop it degrades to Deny, which is the safe direction.",
+   "fieldname": "action",
+   "fieldtype": "Select",
+   "in_list_view": 1,
+   "label": "Action",
+   "options": "Deny\nRequire Human Approval",
+   "reqd": 1
+  },
+  {
+   "fieldname": "section_match",
+   "fieldtype": "Section Break",
+   "label": "What this rule matches"
+  },
+  {
+   "description": "One protected DocType per line. The rule fires when any argument of the tool call names one of these, at any depth — matched whole and case-insensitively, never as a substring.",
+   "fieldname": "restricted_doctypes",
+   "fieldtype": "Small Text",
+   "label": "Restricted DocTypes"
+  },
+  {
+   "fieldname": "column_break_match",
+   "fieldtype": "Column Break"
+  },
+  {
+   "description": "One tool name per line to scope this rule to those tools only. LEAVE EMPTY to apply it to every tool — that is the safer default.",
+   "fieldname": "restricted_tools",
+   "fieldtype": "Small Text",
+   "label": "Only These Tools"
+  },
+  {
+   "fieldname": "section_response",
+   "fieldtype": "Section Break",
+   "label": "Response"
+  },
+  {
+   "description": "What the agent is told when the call is refused. Say what was blocked, not how the rule works. Leave empty for a generated message.",
+   "fieldname": "violation_message",
+   "fieldtype": "Small Text",
+   "label": "Violation Message"
+  },
+  {
+   "fieldname": "section_exemptions",
+   "fieldtype": "Section Break",
+   "label": "Exemptions"
+  },
+  {
+   "description": "Agents this rule does NOT apply to. Use sparingly — an exemption is a hole in the control. Example: Logix authors Server Scripts for a living, so the Code Execution rule must exempt it.",
+   "fieldname": "exempt_agents",
+   "fieldtype": "Table",
+   "label": "Exempt Agents",
+   "options": "AI Tool Policy Exempt Agent"
+  }
+ ],
+ "links": [],
+ "modified": "2026-08-02 12:00:00.000000",
+ "modified_by": "Administrator",
+ "module": "ONE BPMN",
+ "name": "AI Tool Policy Rule",
+ "owner": "Administrator",
+ "permissions": [
+  {
+   "create": 1,
+   "delete": 1,
+   "email": 1,
+   "export": 1,
+   "print": 1,
+   "read": 1,
+   "report": 1,
+   "role": "System Manager",
+   "share": 1,
+   "write": 1
+  }
+ ],
+ "sort_field": "modified",
+ "sort_order": "DESC",
+ "states": [],
+ "track_changes": 1
+}

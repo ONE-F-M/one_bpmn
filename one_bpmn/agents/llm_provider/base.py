@@ -21,6 +21,31 @@ class ToolSpec:
     required: list = field(default_factory=list)
     human: bool = False
 
+    def __post_init__(self):
+        """Wrap ``fn`` with the deterministic policy interceptor (WI-001645).
+
+        Guarding here rather than in an execution loop is deliberate: tools run
+        in FOUR loops (the step loop plus the Anthropic/OpenAI/Gemini adapters'
+        own), and some ToolSpecs are built inside Server Script bodies rather
+        than by compile_shape_tools. Construction is the single point all of
+        them pass through, so a new loop — or a new in-script tool — is covered
+        without anyone remembering to add a check.
+
+        Human tools are skipped: their fn is a stub that must never run (the
+        loop suspends instead), so there is nothing to intercept.
+        """
+        if self.human or getattr(self.fn, "__wrapped__", None) is not None:
+            return
+        try:
+            from one_bpmn.security.tool_policy import guard
+
+            object.__setattr__(self, "fn", guard(self.fn, self.name))
+        except Exception:
+            # A broken interceptor must not make every agent unconstructable.
+            # The failure is loud in the Error Log via guard() itself; here we
+            # only protect the dataclass from an import-time problem.
+            pass
+
 
 def build_parameter_schema(tool: "ToolSpec") -> dict:
     """Provider-agnostic JSON Schema ``parameters`` object for a tool spec.
