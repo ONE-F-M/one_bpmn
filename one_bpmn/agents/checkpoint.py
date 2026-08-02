@@ -34,6 +34,8 @@ def save_checkpoint(
 	steps_recorded: int = 0,
 	prior_prompt_tokens: int = 0,
 	prior_completion_tokens: int = 0,
+	prior_cache_read_tokens: int = 0,
+	prior_cache_write_tokens: int = 0,
 ):
 	"""Persist a suspension on its AI Agent Run (status="Suspended").
 
@@ -63,12 +65,21 @@ def save_checkpoint(
 		# segment's usage is added on top so run totals stay cumulative.
 		"prompt_tokens_so_far": prior_prompt_tokens + int(suspension.get("prompt_tokens") or 0),
 		"completion_tokens_so_far": prior_completion_tokens + int(suspension.get("completion_tokens") or 0),
+		# The cache breakdown of prompt_tokens_so_far, carried the same way so
+		# cost stays accurate across a multi-suspension run (WI-001643).
+		"cache_read_tokens_so_far": prior_cache_read_tokens + int(suspension.get("cache_read_tokens") or 0),
+		"cache_write_tokens_so_far": prior_cache_write_tokens + int(suspension.get("cache_write_tokens") or 0),
 	}
 	run.db_set(
 		{
 			"status": "Suspended",
 			"checkpoint": json.dumps(payload, default=str),
 			"pending_human_task": human_row_id,
+			# WI-001643: stamp when the wait began so claim_for_resume can add
+			# the elapsed time to human_wait_ms. Without this the run's
+			# duration_ms silently absorbs the human wait (potentially days) and
+			# stops being usable as an agent-latency metric.
+			"suspended_at": now_datetime(),
 		},
 		update_modified=True,
 	)
@@ -110,7 +121,17 @@ def claim_for_resume(run_name: str) -> dict | None:
 	if run.status != "Suspended":
 		return None
 	payload = json.loads(run.checkpoint or "{}")
-	run.db_set({"status": "Running", "pending_human_task": ""}, update_modified=True)
+	# WI-001643: bank the time this suspension waited on a person before
+	# reopening the run. Accumulates across repeated suspensions; suspended_at is
+	# cleared so a later resume can never double-count the same wait.
+	update = {"status": "Running", "pending_human_task": ""}
+	if run.get("suspended_at"):
+		waited_ms = int(
+			(now_datetime() - frappe.utils.get_datetime(run.suspended_at)).total_seconds() * 1000
+		)
+		update["human_wait_ms"] = int(run.get("human_wait_ms") or 0) + max(0, waited_ms)
+		update["suspended_at"] = None
+	run.db_set(update, update_modified=True)
 	return payload
 
 

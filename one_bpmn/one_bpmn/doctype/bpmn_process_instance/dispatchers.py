@@ -1141,6 +1141,15 @@ def dispatch_ai_agent(instance, task, task_cfg: dict, bpmn_id: str, resume_run: 
 	if resume_payload and result.token_usage:
 		result.token_usage.prompt_tokens += int(resume_payload.get("prompt_tokens_so_far") or 0)
 		result.token_usage.completion_tokens += int(resume_payload.get("completion_tokens_so_far") or 0)
+		# WI-001643: the cache breakdown must accumulate alongside the prompt
+		# total it is a breakdown OF — otherwise the final segment's small cache
+		# figures would be costed against every earlier segment's prompt tokens.
+		result.token_usage.cache_read_tokens += int(
+			resume_payload.get("cache_read_tokens_so_far") or 0
+		)
+		result.token_usage.cache_write_tokens += int(
+			resume_payload.get("cache_write_tokens_so_far") or 0
+		)
 		result.token_usage.total_tokens = (
 			result.token_usage.prompt_tokens + result.token_usage.completion_tokens
 		)
@@ -1172,6 +1181,11 @@ def dispatch_ai_agent(instance, task, task_cfg: dict, bpmn_id: str, resume_run: 
 				record_ai_step(
 					run, 2, "user", user_prompt,
 					prompt_tokens=usage.prompt_tokens if usage else 0,
+					# The cache breakdown rides with the prompt tokens it splits,
+					# so the user step is costed at the real blend of rates
+					# rather than all-input (WI-001643).
+					cache_read_tokens=getattr(usage, "cache_read_tokens", 0) if usage else 0,
+					cache_write_tokens=getattr(usage, "cache_write_tokens", 0) if usage else 0,
 				)
 				if result.error_code == ErrorCode.SUCCESS:
 					record_ai_step(
@@ -1216,6 +1230,8 @@ def dispatch_ai_agent(instance, task, task_cfg: dict, bpmn_id: str, resume_run: 
 			human_row_id="",
 			prior_prompt_tokens=int((resume_payload or {}).get("prompt_tokens_so_far") or 0),
 			prior_completion_tokens=int((resume_payload or {}).get("completion_tokens_so_far") or 0),
+			prior_cache_read_tokens=int((resume_payload or {}).get("cache_read_tokens_so_far") or 0),
+			prior_cache_write_tokens=int((resume_payload or {}).get("cache_write_tokens_so_far") or 0),
 		)
 		pending = (result.suspension or {}).get("pending_call") or {}
 		pending_name = pending.get("name") or ""
