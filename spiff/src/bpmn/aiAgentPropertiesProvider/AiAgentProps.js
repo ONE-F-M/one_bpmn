@@ -11,7 +11,7 @@ import { useService } from "bpmn-js-properties-panel";
 import { getBusinessObject } from "bpmn-js/lib/util/ModelUtil";
 import { h } from "preact";
 import { FrappeAutocomplete } from "../shared/FrappeAutocomplete";
-import { frappeGet } from "../shared/frappeResource";
+import { frappeGet, frappePost } from "../shared/frappeResource";
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -48,6 +48,11 @@ export function AiAgentProps(props) {
 
 	const entries = [
 		{ id: "ai-agent-launch", element, component: LaunchEditorButton },
+		{
+			id: "spiffworkflow-aiAgentConfig",
+			element,
+			component: AgentConfigComponent,
+		},
 		{
 			id: "spiffworkflow-aiProvider",
 			element,
@@ -142,44 +147,45 @@ function LaunchEditorButton(props) {
 }
 
 // ---------------------------------------------------------------------------
-// AI Provider — autocomplete backed by the AI Provider Credentials doctype (enabled only).
+// AI Agent Configuration — optional. Selecting one SEEDS this task's fields
+// (provider, model, system prompt, params) as a one-time copy the designer can
+// then edit here. Edits stay on the shape; the configuration is never changed
+// from the diagram, and its tools are NOT imported — the toolkit is always the
+// diagram's own ad-hoc shapes (WI-001637).
 // ---------------------------------------------------------------------------
-function ProviderComponent(props) {
+function AgentConfigComponent(props) {
 	const { element, id } = props;
-	const modeling  = useService("modeling");
+	const modeling = useService("modeling");
 	const translate = useService("translate");
-	const bo        = getBusinessObject(element);
+	const bo = getBusinessObject(element);
 
-	const currentValue = getAttr(bo, "aiProvider");
+	const currentValue = getAttr(bo, "aiAgentConfig");
 
-	const fetchProviders = (txt) => {
-		const params = {
-			fields: '["name","provider_name","default_model"]',
+	const fetchConfigs = (txt) =>
+		frappeGet("/api/resource/AI Agent Configuration", {
+			fields: '["name","agent_id"]',
 			filters: JSON.stringify([
 				["enabled", "=", 1],
-				...(txt ? [["provider_name", "like", `%${txt}%`]] : []),
+				...(txt ? [["name", "like", `%${txt}%`]] : []),
 			]),
 			limit_page_length: 50,
-			order_by: "provider_name asc",
-		};
-		return frappeGet("/api/resource/AI Provider Credentials", params);
-	};
+			order_by: "name asc",
+		});
 
-	// On provider change, auto-fill the Model from the provider's default_model
-	// — same behaviour as the dedicated editor modal (onProviderChange).
-	const onProviderSelect = (value) => {
-		setAttr(modeling, element, bo, "aiProvider", value);
+	// On select: record the reference, then seed each mapped field into the
+	// shape's own attributes (one-time copy — see module note).
+	const onConfigSelect = (value) => {
+		setAttr(modeling, element, bo, "aiAgentConfig", value);
 		if (!value) return;
-		frappeGet("/api/resource/AI Provider Credentials", {
-			filters: JSON.stringify([["name", "=", value]]),
-			fields: '["default_model"]',
-			limit_page_length: 1,
-		})
-			.then((rows) => {
-				const defaultModel = Array.isArray(rows) && rows[0] ? rows[0].default_model : "";
-				if (defaultModel) {
-					setAttr(modeling, element, bo, "aiModel", defaultModel);
-				}
+		frappePost(
+			"/api/method/one_bpmn.agents.agent_config_resolver.get_agent_config_for_shape",
+			{ config_name: value },
+		)
+			.then((res) => {
+				const fields = (res && res.message) || {};
+				Object.entries(fields).forEach(([attr, val]) => {
+					setAttr(modeling, element, bo, attr, val);
+				});
 			})
 			.catch(() => {});
 	};
@@ -193,18 +199,62 @@ function ProviderComponent(props) {
 				{
 					class: "bio-properties-panel-label",
 					title: translate(
-						"The LLM provider this agent calls. References an AI Provider Credentials record — the API key lives on that record, never on the diagram."
+						"Optionally link this task to a saved AI Agent Configuration. At run time the configuration is authoritative for prompt, provider, model and params; the fields below show its current values and act as the fallback if it is deleted. Tools are not imported — the toolkit stays this diagram's ad-hoc shapes."
 					),
 				},
-				translate("AI Provider")
+				translate("Linked AI Agent Configuration")
 			),
 			h(FrappeAutocomplete, {
 				value: currentValue,
-				placeholder: translate("Select an AI Provider…"),
-				fetchApi: fetchProviders,
+				placeholder: translate("Select a configuration to link…"),
+				fetchApi: fetchConfigs,
 				valueField: "name",
-				renderOption: (opt) => opt.provider_name || opt.name,
-				onChange: onProviderSelect,
+				renderOption: (opt) => opt.name,
+				onChange: onConfigSelect,
+			}),
+			currentValue
+				? h(
+						"div",
+						{ class: "bio-properties-panel-description" },
+						translate("Linked to: {{config}} — prompt, provider, model and params resolve from this configuration at run time. The task dialog's Save writes edits back to it.").replace(
+							"{{config}}",
+							currentValue
+						)
+				  )
+				: null,
+		])
+	);
+}
+
+// ---------------------------------------------------------------------------
+// AI Provider — autocomplete backed by the AI Provider Credentials doctype (enabled only).
+// ---------------------------------------------------------------------------
+// WI-001650: read-only. The provider is an agent property, resolved from the
+// linked AI Agent Configuration at run time — raw provider setup is retired.
+function ProviderComponent(props) {
+	const { element, id } = props;
+	const translate = useService("translate");
+	const bo        = getBusinessObject(element);
+
+	return h(
+		"div",
+		{ class: "bio-properties-panel-entry", "data-entry-id": id },
+		h("div", { class: "bio-properties-panel-textfield" }, [
+			h(
+				"label",
+				{
+					class: "bio-properties-panel-label",
+					title: translate(
+						"Resolved from the linked AI Agent Configuration at run time. Raw provider setup is retired (WI-001650) — link an agent configuration above to set the provider."
+					),
+				},
+				translate("AI Provider (from linked configuration)")
+			),
+			h("input", {
+				class: "bio-properties-panel-input",
+				value: getAttr(bo, "aiProvider") || "",
+				disabled: true,
+				placeholder: translate("link an agent configuration"),
 			}),
 		])
 	);
@@ -238,25 +288,34 @@ function BackendComponent(props) {
 // ---------------------------------------------------------------------------
 // Model override
 // ---------------------------------------------------------------------------
+// WI-001650: read-only — resolved from the linked configuration's credentials.
 function ModelComponent(props) {
 	const { element, id } = props;
-	const modeling  = useService("modeling");
 	const translate = useService("translate");
-	const debounce  = useService("debounceInput");
 	const bo        = getBusinessObject(element);
 
-	return h(TextFieldEntry, {
-		element,
-		id,
-		label: translate("Model"),
-		description: translate("Overrides the provider's default model"),
-		tooltip: translate(
-			"Model id to send the request to (e.g. claude-haiku-4-5). Leave blank to use the provider's default model."
-		),
-		getValue: () => getAttr(bo, "aiModel"),
-		setValue: (value) => setAttr(modeling, element, bo, "aiModel", value),
-		debounce,
-	});
+	return h(
+		"div",
+		{ class: "bio-properties-panel-entry", "data-entry-id": id },
+		h("div", { class: "bio-properties-panel-textfield" }, [
+			h(
+				"label",
+				{
+					class: "bio-properties-panel-label",
+					title: translate(
+						"Resolved from the linked AI Agent Configuration's credentials (default model) at run time."
+					),
+				},
+				translate("Model (from linked configuration)")
+			),
+			h("input", {
+				class: "bio-properties-panel-input",
+				value: getAttr(bo, "aiModel") || "",
+				disabled: true,
+				placeholder: translate("resolved from the linked agent"),
+			}),
+		])
+	);
 }
 
 // ---------------------------------------------------------------------------

@@ -40,12 +40,17 @@ def _read_template() -> str:
 	return xml
 
 
-def render_chat_map_xml(chat_mode_label: str, system_prompt: str) -> str:
+def render_chat_map_xml(chat_mode_label: str, system_prompt: str, config_name: str = None) -> str:
 	"""Return deployable BPMN XML for a chat agent with this label + prompt.
 
 	Both values are XML-attribute-escaped: the label lands inside a
 	<bpmn:condition> string literal and the prompt inside the
 	aiSystemPrompt="" attribute, so quotes/newlines must not break the XML.
+
+	WI-001637 (live link): when ``config_name`` is given, every ai_agent task
+	in the clone also gets ``aiAgentConfig`` pointing at its configuration,
+	so the live chat resolves prompt/provider/params from the record at run
+	time. The baked prompt stays as the visible copy and the fallback.
 	"""
 	if not chat_mode_label:
 		frappe.throw(frappe._("A chat mode label is required to build the chat map."))
@@ -59,6 +64,14 @@ def render_chat_map_xml(chat_mode_label: str, system_prompt: str) -> str:
 		.replace("\r", "&#10;")
 	)
 	xml = xml.replace("{{ SYSTEM_PROMPT }}", prompt_attr)
+	# Link every ai_agent task in the clone to its configuration. String-level
+	# insertion next to the serviceType attribute keeps namespaces untouched;
+	# skipped if the template already carries an aiAgentConfig of its own.
+	if config_name and 'spiffworkflow:aiAgentConfig="' not in xml:
+		xml = xml.replace(
+			'spiffworkflow:serviceType="ai_agent"',
+			f'spiffworkflow:serviceType="ai_agent" spiffworkflow:aiAgentConfig="{escape_html(config_name)}"',
+		)
 	return xml
 
 
@@ -71,7 +84,7 @@ def clone_chat_map_for_agent(config_name: str) -> str:
 	"""
 	config = frappe.get_doc("AI Agent Configuration", config_name)
 	label = config.chat_mode_label or config.agent_id
-	xml = render_chat_map_xml(label, config.system_prompt or "")
+	xml = render_chat_map_xml(label, config.system_prompt or "", config_name=config.name)
 
 	# BPMN Process Model autonames from `title`; process_id + version are also
 	# required. Derive a stable process_id from the agent_id.

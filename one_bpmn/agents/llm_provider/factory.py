@@ -87,14 +87,19 @@ def _get_provider_credentials(provider: str) -> tuple[str, str]:
         names = frappe.get_all(
             "AI Provider Credentials",
             filters={"provider_type": ptype, "enabled": 1},
-            fields=["name", "default_model"],
+            fields=["name"],
         )
         canonical = {"gemini": "Gemini", "anthropic": "Anthropic", "claude": "Anthropic", "openai": "OpenAI"}.get(provider)
         names.sort(key=lambda r: (r.name != canonical))
         for rec in names:
             key = get_decrypted_password("AI Provider Credentials", rec.name, "api_key", raise_exception=False)
             if key:
-                return key, rec.default_model or ""
+                # WI-001655: credentials no longer carry a default model — the
+                # fallback is any catalog model linked to this record.
+                model = frappe.db.get_value(
+                    "AI Model", {"ai_provider_credentials": rec.name}, "name"
+                ) or ""
+                return key, model
     except Exception:
         frappe.log_error(title="LLM Factory - AI Provider Credentials", message=frappe.get_traceback())
     return "", ""
@@ -147,8 +152,10 @@ def get_llm_adapter_from_settings(agent_config: dict | None = None) -> BaseLLMAd
     agent_id = cfg.get("agent_id", "")
 
     # ── WI-001615: the config's linked credentials record wins outright ─────
-    # No per-agent overrides exist; provider, key and model all come from the
-    # AI Provider Credentials record the configuration references.
+    # WI-001655: the MODEL is the agent's own catalog pick (cfg["ai_model"],
+    # whose record name is the model id); the credentials record supplies the
+    # connection (key, adapter routing via provider_type). The old
+    # credentials-level default_model no longer exists.
     linked = cfg.get("ai_provider_credentials")
     if linked:
         try:
@@ -165,7 +172,8 @@ def get_llm_adapter_from_settings(agent_config: dict | None = None) -> BaseLLMAd
                     title="LLM Factory - Disabled Credentials",
                     message=f"AI Provider Credentials '{linked}' is disabled.",
                 )
-            return get_llm_adapter(provider=adapter_key, model=rec.default_model or _PROVIDER_DEFAULTS.get(adapter_key, ""), api_key=api_key or "")
+            model = cfg.get("ai_model") or _PROVIDER_DEFAULTS.get(adapter_key, "")
+            return get_llm_adapter(provider=adapter_key, model=model, api_key=api_key or "")
         except frappe.DoesNotExistError:
             frappe.log_error(
                 title="LLM Factory - Missing Credentials",

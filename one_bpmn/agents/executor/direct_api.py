@@ -130,7 +130,12 @@ class DirectApiExecutor(Executor):
         if not endpoint:
             endpoint = self._DEFAULT_ENDPOINTS.get(provider_type, "")
 
-        model = config.model or provider.default_model or ""
+        # WI-001655: credentials no longer carry a default model. The model
+        # comes from the config (the agent's catalog pick, resolved upstream);
+        # the last-resort fallback is any catalog model linked to this record.
+        model = config.model or frappe.db.get_value(
+            "AI Model", {"ai_provider_credentials": provider.name}, "name"
+        ) or ""
 
         if provider_type == "Anthropic":
             url, payload, headers = self._build_anthropic_request(
@@ -363,6 +368,29 @@ class DirectApiExecutor(Executor):
             if isinstance(validation_result, ExecutorResult):
                 validation_result.token_usage = token_usage
                 validation_result.trace = trace
+                # Say what actually came back. A tool-using agent that narrates
+                # instead of answering ("Now I'll add the test cases:") fails
+                # here AFTER its tool calls have committed their writes, so the
+                # bare parser error left no way to tell a malformed object from
+                # ordinary prose — or to see that real work had been done.
+                said = (completion.text or "").strip()
+                executed = [
+                    call.get("name")
+                    for turn in trace
+                    for call in (turn.get("tool_calls") or [])
+                ]
+                validation_result.error_message = (
+                    f"{validation_result.error_message} "
+                    f"Model returned {len(said)} chars of non-JSON text"
+                    f"{': ' + repr(said[:160]) if said else ''}."
+                    + (
+                        f" {len(executed)} tool call(s) had already run this turn "
+                        f"({', '.join(dict.fromkeys(executed))}), so their writes are "
+                        "committed even though this turn failed."
+                        if executed
+                        else ""
+                    )
+                )
                 return validation_result
             return ExecutorResult(
                 output=validation_result,

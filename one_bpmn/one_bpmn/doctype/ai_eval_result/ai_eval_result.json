@@ -8,6 +8,8 @@
  "field_order": [
   "eval_case",
   "status",
+  "input_user_prompt",
+  "expected_output",
   "actual_output",
   "assertion_results",
   "error_message",
@@ -34,6 +36,18 @@
    "label": "Status",
    "options": "Passed\nFailed\nError",
    "reqd": 1
+  },
+  {
+   "fieldname": "input_user_prompt",
+   "fieldtype": "Long Text",
+   "label": "Input User Prompt",
+   "description": "Snapshot of the prompt as it was when this run executed, so later edits to the case don't rewrite history."
+  },
+  {
+   "fieldname": "expected_output",
+   "fieldtype": "Long Text",
+   "label": "Expected Output",
+   "description": "Snapshot of the case's expected output at execution time."
   },
   {
    "fieldname": "actual_output",

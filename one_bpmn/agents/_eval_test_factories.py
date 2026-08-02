@@ -28,15 +28,54 @@ from one_bpmn.agents.executor import ErrorCode, ExecutorResult, TokenUsage
 # Document factories
 # ---------------------------------------------------------------------------
 
+def make_agent_configuration(**kwargs) -> "frappe.model.document.Document":
+    """Create and insert a minimal AI Agent Configuration for a suite to test.
+
+    WI-001751 made the agent the subject of an eval: AI Eval Suite.agent_configuration
+    is mandatory, and the runner reads the agent for the provider, model and system
+    prompt a case runs against. A suite without one cannot execute at all — every
+    case comes back Error("The suite has no agent configuration to test.").
+
+    agent_id and chat_mode_label are hashed per call because
+    validate_unique_chat_mode_label rejects two enabled Chat agents sharing a
+    label, which would otherwise make these fixtures collide with each other.
+    """
+    suffix = frappe.generate_hash(length=8)
+    defaults = {
+        "doctype": "AI Agent Configuration",
+        "agent_name": f"_Test Eval Agent {suffix}",
+        "agent_id": f"_test_eval_agent_{suffix}",
+        "agent_framework": "Direct API",
+        "agent_type": "Chat",
+        "chat_mode_label": f"_Test Eval Agent {suffix}",
+        "enabled": 1,
+        "lifecycle_status": "Live",
+        "system_prompt": "You are a test agent.",
+    }
+    defaults.update(kwargs)
+    doc = frappe.get_doc(defaults)
+    doc.flags.ignore_mandatory = True
+    doc.flags.ignore_links = True
+    return doc.insert(ignore_permissions=True)
+
+
 def make_eval_suite(**kwargs) -> "frappe.model.document.Document":
-    """Create and insert an AI Eval Suite with sensible test defaults."""
+    """Create and insert an AI Eval Suite with sensible test defaults.
+
+    An agent configuration is created and linked unless the caller supplies
+    ``agent_configuration`` — pass ``agent_configuration=None`` explicitly to
+    build the agent-less suite the runner is supposed to refuse.
+    """
     defaults = {
         "doctype": "AI Eval Suite",
         "title": "_Test Eval Suite " + frappe.generate_hash(length=8),
         "process_model": "_Test BPMN Model",
+        "eval_type": "Direct",
         "gate_deployment": 0,
     }
     defaults.update(kwargs)
+    if "agent_configuration" not in kwargs:
+        defaults["agent_configuration"] = make_agent_configuration().name
     doc = frappe.get_doc(defaults)
     doc.flags.ignore_mandatory = True
     doc.flags.ignore_links = True
@@ -51,13 +90,12 @@ def make_eval_case(assertions=None, **kwargs) -> "frappe.model.document.Document
     ``assertions`` child table, e.g. ``[{"assertion_type": "contains",
     "value": "approved"}]``.
     """
+    # WI-001751 removed provider / model / backend from AI Eval Case — those now
+    # come from the suite's agent — so a case carries only the test itself.
     defaults = {
         "doctype": "AI Eval Case",
         "title": "_Test Eval Case " + frappe.generate_hash(length=8),
         "input_user_prompt": "Say the magic word.",
-        "provider": "",
-        "model": "test-model",
-        "backend": "direct_api",
     }
     defaults.update(kwargs)
     doc = frappe.get_doc(defaults)

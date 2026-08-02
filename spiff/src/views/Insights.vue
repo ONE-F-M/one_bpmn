@@ -2,7 +2,21 @@
 	<div class="h-full flex flex-col bg-gray-50">
 		<!-- Header -->
 		<header class="bg-white border-b px-6 py-4 flex items-center justify-between">
-			<h1 class="text-xl font-semibold text-gray-900">AI Insights</h1>
+			<div class="flex items-center gap-4">
+				<h1 class="text-xl font-semibold text-gray-900">AI Insights</h1>
+				<!-- Origin segment: production traffic vs eval runs (WI-001751) -->
+				<div class="flex rounded-lg border border-gray-200 overflow-hidden">
+					<button
+						v-for="seg in originSegments"
+						:key="seg.value"
+						@click="origin = seg.value"
+						class="px-3 py-1.5 text-xs font-medium transition-colors"
+						:class="origin === seg.value ? 'bg-gray-900 text-white' : 'bg-white text-gray-600 hover:bg-gray-50'"
+					>
+						{{ seg.label }}
+					</button>
+				</div>
+			</div>
 			<div class="flex items-center gap-3">
 				<FormControl
 					type="date"
@@ -21,7 +35,7 @@
 		<!-- Content -->
 		<main class="flex-1 p-6 overflow-auto space-y-6">
 			<!-- Overview Cards -->
-			<OverviewCards />
+			<OverviewCards :origin="origin" />
 
 			<!-- Tabs + Report Content -->
 			<div class="bg-white rounded-lg shadow-sm">
@@ -53,16 +67,19 @@
 						v-if="activeTab === 'cost'"
 						:from-date="fromDate"
 						:to-date="toDate"
+						:origin="origin"
 					/>
 					<ErrorReport
 						v-if="activeTab === 'errors'"
 						:from-date="fromDate"
 						:to-date="toDate"
+						:origin="origin"
 					/>
 					<PerformanceReport
 						v-if="activeTab === 'performance'"
 						:from-date="fromDate"
 						:to-date="toDate"
+						:origin="origin"
 					/>
 				</div>
 			</div>
@@ -85,6 +102,14 @@ const activeTab = ref("cost")
 
 const fromDate = ref(dayjs().subtract(6, "day").format("YYYY-MM-DD"))
 const toDate = ref(dayjs().format("YYYY-MM-DD"))
+
+// Run-origin segment (WI-001751): production traffic, eval runs, or both.
+const origin = ref("production")
+const originSegments = [
+	{ label: "Production", value: "production" },
+	{ label: "Evals", value: "eval" },
+	{ label: "All", value: "all" },
+]
 
 const tabs = [
 	{ key: "cost", label: "Cost & Tokens", icon: "lucide:credit-card" },

@@ -6,7 +6,7 @@
 
 import frappe
 from frappe import _
-from frappe.utils import now_datetime
+from frappe.utils import add_to_date, now_datetime
 
 
 # 1. Timer Start Events — create new instances on schedule
@@ -280,4 +280,64 @@ def _refresh_timer_tasks(instance_name: str):
 				doctype=instance.context_doctype,
 				docname=instance.context_docname,
 				after_commit=True,
+			)
+
+
+# 3. Stale chat instance cleanup — close abandoned chat conversations
+
+
+# A chat instance's `modified` timestamp advances on every engine pass
+# (message received, AI reply, close). An instance untouched for this many
+# hours is an abandoned conversation whose panel never sent the close call
+# (tab closed mid-session, or a fire-and-forget close request that died).
+STALE_CHAT_HOURS = 24
+
+
+def close_stale_chat_instances():
+	"""
+	Deliver ``ChatConversation_Close_Action`` to chat-driven BPMN Process
+	Instances that have been idle past ``STALE_CHAT_HOURS``, so their diagram
+	runs the close branch (Cleanup → Conversation Ended) and completes.
+
+	Called hourly by the Frappe scheduler.
+
+	Chat process maps park at an event-based gateway waiting for the next
+	user message or a close message. The close message normally comes from
+	the UI (end_chat_conversation) when the panel closes — this sweep is the
+	backstop for instances the UI orphaned.
+
+	Instances mid-engine-pass or waiting on an AI job are skipped; if one is
+	parked somewhere other than the close catch event (e.g. suspended for
+	human input), the "no task waiting" error is swallowed and it is left
+	untouched.
+
+	The message is delivered to each stale instance directly — NOT via
+	close_conversation(), whose by-conversation get_value lookup picks an
+	arbitrary Active instance when several share one conversation and could
+	close a fresh sibling instead of the stale one.
+	"""
+	cutoff = add_to_date(now_datetime(), hours=-STALE_CHAT_HOURS)
+
+	stale = frappe.get_all(
+		"BPMN Process Instance",
+		filters={
+			"status": "Active",
+			"context_doctype": "Chat Conversation",
+			"engine_in_progress": 0,
+			"waiting_for_ai": 0,
+			"modified": ["<", cutoff],
+		},
+		pluck="name",
+	)
+
+	for instance_name in stale:
+		try:
+			instance = frappe.get_doc("BPMN Process Instance", instance_name)
+			instance.receive_message("ChatConversation_Close_Action", payload={})
+		except frappe.ValidationError:
+			pass  # not parked at the close catch event — leave it alone
+		except Exception:
+			frappe.log_error(
+				title=f"BPMN stale chat cleanup failed: {instance_name}",
+				message=frappe.get_traceback(),
 			)

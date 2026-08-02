@@ -127,13 +127,18 @@ after_install = "one_bpmn.install.after_install"
 # -----------
 # Permissions evaluated in scripted ways
 
-# permission_query_conditions = {
-# 	"Event": "frappe.desk.doctype.event.event.get_permission_query_conditions",
-# }
-#
-# has_permission = {
-# 	"Event": "frappe.desk.doctype.event.event.has_permission",
-# }
+# WI-001744: scope AI Evals doctypes to the process owner (System Manager sees all).
+permission_query_conditions = {
+	"AI Eval Suite": "one_bpmn.agents.eval_permissions.eval_suite_query_conditions",
+	"AI Eval Case": "one_bpmn.agents.eval_permissions.eval_case_query_conditions",
+	"AI Eval Run": "one_bpmn.agents.eval_permissions.eval_run_query_conditions",
+}
+
+has_permission = {
+	"AI Eval Suite": "one_bpmn.agents.eval_permissions.eval_suite_has_permission",
+	"AI Eval Case": "one_bpmn.agents.eval_permissions.eval_case_has_permission",
+	"AI Eval Run": "one_bpmn.agents.eval_permissions.eval_run_has_permission",
+}
 
 # DocType Class
 # ---------------
@@ -196,6 +201,9 @@ scheduler_events = {
 		"* * * * *": [
 			"one_bpmn.tasks.process_timer_start_events",
 			"one_bpmn.tasks.process_timer_catch_events",
+		],
+		"0 * * * *": [
+			"one_bpmn.tasks.close_stale_chat_instances",
 		],
 	}
 }
