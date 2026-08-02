@@ -12,6 +12,24 @@ from frappe import _
 from one_bpmn.one_bpmn import engine as bpmn_engine
 
 
+def split_users(assigned_user: str) -> list:
+	"""Split a stored ``assigned_user`` value into individual user ids.
+
+	A task row holds either a single user or a comma-separated list of users
+	(multi-assignee tasks — see ``resolve_assignment``). Returns an
+	order-preserving, de-duplicated list of non-empty user ids; ``[]`` for a
+	blank/None value.
+	"""
+	if not assigned_user:
+		return []
+	seen = []
+	for u in str(assigned_user).split(","):
+		u = u.strip()
+		if u and u not in seen:
+			seen.append(u)
+	return seen
+
+
 def _decode_html_attr(value: str) -> str:
 	"""Decode a base64-encoded HTML attribute back to its original HTML.
 

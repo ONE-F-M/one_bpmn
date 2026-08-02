@@ -378,7 +378,6 @@ class FrappeScriptEngine(PythonScriptEngine):
 		local_vars.update(
 			{
 				"frappe": _frappe,
-				"task_data": task_data,
 				"context_doctype": self._context_doctype or "",
 				"context_docname": self._context_docname or "",
 				"result": result_dict,
@@ -386,7 +385,7 @@ class FrappeScriptEngine(PythonScriptEngine):
 				# can safely read OPTIONAL vars — e.g. task_data.get("x", default)
 				# — without resorting to locals()/globals() (blocked by the
 				# script-security validator).
-				"task_data": dict(task.data),
+				"task_data": task_data,
 			}
 		)
 		if self._context_doctype and self._context_docname:
@@ -809,6 +808,7 @@ def send_message(wf: BpmnWorkflow, message_name: str, payload: dict = None) -> b
 		# No task is currently waiting for this message
 		return False
 	except Exception:
+		import frappe
 		frappe.log_error(
 			title="BPMN send_message error",
 			message=frappe.get_traceback(),
