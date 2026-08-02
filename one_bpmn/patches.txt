@@ -60,3 +60,4 @@ one_bpmn.one_bpmn.patches.v1_0.seed_logix_code_guardrails #02-08-2026 WI-001639
 one_bpmn.one_bpmn.patches.v1_0.inline_docu_tool_scripts #03-08-2026 rerun for self-contained bodies
 one_bpmn.one_bpmn.patches.v1_0.fix_assistant_tool_gateway #02-08-2026 WI-001751 follow-up
 one_bpmn.one_bpmn.patches.v1_0.add_eval_suite_inline_cases #02-08-2026 WI-001751 follow-up
+one_bpmn.one_bpmn.patches.v1_0.fix_assistant_prompt_routing #02-08-2026 WI-001751 follow-up
