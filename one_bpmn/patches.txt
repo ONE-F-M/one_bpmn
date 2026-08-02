@@ -61,3 +61,4 @@ one_bpmn.one_bpmn.patches.v1_0.inline_docu_tool_scripts #03-08-2026 rerun for se
 one_bpmn.one_bpmn.patches.v1_0.fix_assistant_tool_gateway #02-08-2026 WI-001751 follow-up
 one_bpmn.one_bpmn.patches.v1_0.add_eval_suite_inline_cases #02-08-2026 WI-001751 follow-up
 one_bpmn.one_bpmn.patches.v1_0.fix_assistant_prompt_routing #02-08-2026 WI-001751 follow-up
+one_bpmn.one_bpmn.patches.v1_0.raise_assistant_token_ceiling #02-08-2026 WI-001751 follow-up

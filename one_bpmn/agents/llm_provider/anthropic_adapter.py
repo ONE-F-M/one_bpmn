@@ -4,6 +4,7 @@ import time
 from .base import (
     BaseLLMAdapter,
     CompletionResult,
+    LLMTruncatedError,
     StepResult,
     StepToolCall,
     ToolCallRecord,
@@ -173,6 +174,17 @@ class AnthropicAdapter(BaseLLMAdapter):
                 prompt_tokens, completion_tokens,
             )
             text_parts = [b.text for b in response.content if hasattr(b, "text")]
+
+            # A reply cut off at the token ceiling is not a reply: JSON and
+            # tool arguments end mid-token, so every consumer downstream sees
+            # garbage and reports "could not generate a response" while the run
+            # is recorded as a success. Say what actually happened instead.
+            if response.stop_reason == "max_tokens":
+                raise LLMTruncatedError(
+                    f"The model hit its {max_tokens}-token output limit before "
+                    "finishing. Raise Max Tokens on the agent configuration (or "
+                    "the task shape) and try again."
+                )
 
             if response.stop_reason != "tool_use":
                 content = "\n".join(text_parts)

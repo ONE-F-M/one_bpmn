@@ -3,6 +3,17 @@ from dataclasses import dataclass, field
 from typing import Callable
 
 
+class LLMTruncatedError(RuntimeError):
+	"""The model stopped because it hit its output-token ceiling.
+
+	Raised rather than returned: a truncated reply ends mid-token, so its JSON
+	and tool arguments are unparseable. Every consumer downstream would report
+	some variant of "could not generate a response" while the run was recorded
+	as a success — which sends the reader looking for a bug in the prompt
+	instead of at the limit that actually caused it.
+	"""
+
+
 @dataclass
 class ToolSpec:
     """Provider-agnostic tool definition.
