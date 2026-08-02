@@ -136,6 +136,10 @@
 								<span class="text-sm font-medium text-gray-800">{{ a.assertion_type }}</span>
 								<span v-if="a.score !== undefined" class="text-xs text-gray-500">score {{ a.score }}</span>
 							</div>
+							<div v-if="a.value" class="mt-1 flex items-baseline gap-2">
+								<span class="text-xs text-gray-500 shrink-0">{{ assertionValueLabel(a.assertion_type) }}:</span>
+								<pre class="text-xs text-gray-700 bg-gray-50 rounded px-2 py-1 m-0 whitespace-pre-wrap break-words max-h-24 overflow-auto grow">{{ a.value }}</pre>
+							</div>
 							<p v-if="a.explanation" class="text-sm text-gray-600 mt-1">Judge: {{ a.explanation }}</p>
 							<p v-else-if="a.message" class="text-sm text-gray-500 mt-1">{{ a.message }}</p>
 						</div>
@@ -179,6 +183,22 @@ const caseBaselines = ref({})
 // "" = auto: compare each case against the most recent earlier run that covered
 // it. A run name pins every case to that one run instead.
 const baseline = ref("")
+
+// What an assertion's `value` means depends on its type, so it is labelled
+// rather than shown bare. "Substring not found." on its own forced the reader
+// to open the case to learn WHICH substring — the value is already in the
+// result payload, it just was not rendered.
+const ASSERTION_VALUE_LABELS = {
+	contains: "Expected substring",
+	regex: "Pattern",
+	equals: "Expected output",
+	schema_valid: "Schema",
+	llm_judge: "Rubric",
+}
+
+function assertionValueLabel(type) {
+	return ASSERTION_VALUE_LABELS[type] || "Expected"
+}
 
 function runPill(status) {
 	if (status === "Passed") return "bg-green-50 text-green-700"
