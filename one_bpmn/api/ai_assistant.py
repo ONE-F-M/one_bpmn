@@ -622,10 +622,11 @@ _PROPOSAL_FIELDS = {
 
 
 def _sanitize_proposed_config(proposed) -> dict | None:
-	"""Keep only the create-payload fields from a model proposal; normalize
-	sample prompts to {prompt, expected_behaviour} rows. None when there is
-	no usable proposal — including a proposal to create an agent that already
-	exists (Create & link would only ever fail with a duplicate error)."""
+	"""Keep only the create-payload fields from a model proposal; normalize the
+	row lists — sample prompts, and (WI-001639) examples and guard rails — to
+	their child-table shapes. None when there is no usable proposal — including
+	a proposal to create an agent that already exists (Create & link would only
+	ever fail with a duplicate error)."""
 	if not isinstance(proposed, dict):
 		return None
 	agent_name = str(proposed.get("agent_name") or "").strip()
@@ -648,6 +649,31 @@ def _sanitize_proposed_config(proposed) -> dict | None:
 			})
 	if samples:
 		clean["sample_prompts"] = samples
+
+	# WI-001639: the agent's frozen static context. Both are row lists, so they
+	# skip the scalar filter above and are normalized here — dropping rows whose
+	# mandatory field is empty rather than letting them fail at insert.
+	examples = []
+	for row in proposed.get("examples") or []:
+		if isinstance(row, dict) and str(row.get("input") or "").strip():
+			examples.append({
+				"input": str(row["input"]),
+				"expected_output": str(row.get("expected_output") or ""),
+				"note": str(row.get("note") or ""),
+			})
+	if examples:
+		clean["examples"] = examples
+
+	guardrails = []
+	for row in proposed.get("guardrails") or []:
+		if isinstance(row, dict) and str(row.get("guardrail") or "").strip():
+			guardrails.append({
+				"guardrail": str(row["guardrail"]),
+				"category": str(row.get("category") or "Other"),
+			})
+	if guardrails:
+		clean["guardrails"] = guardrails
+
 	return clean or None
 
 
