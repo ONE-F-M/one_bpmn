@@ -69,3 +69,4 @@ one_bpmn.one_bpmn.patches.v1_0.degoogle_connector_field_types #29-07-2026 Drive 
 one_bpmn.one_bpmn.patches.v1_0.set_connector_credential_source #29-07-2026 connector holds its own credential
 one_bpmn.one_bpmn.patches.v1_0.add_missing_connector_operations #03-08-2026 operations added to shipped manifests reach already-imported sites
 one_bpmn.one_bpmn.patches.v1_0.google_connectors_to_http #03-08-2026 WI-001811
+one_bpmn.one_bpmn.patches.v1_0.move_google_credential_to_connectors #04-08-2026 WI-001811 per-connector Google credentials

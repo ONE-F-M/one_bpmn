@@ -36,22 +36,29 @@ class GoogleDriveConfigError(Exception):
 	"""Raised for missing/invalid configuration — not a transient API failure."""
 
 
-def _get_credentials():
+def _get_credentials(connector_id=None):
 	# Credentials now come from the shared loader (Processa Settings → AI Chat
 	# Settings → site_config → gcp.json). Re-raise as GoogleDriveConfigError so
 	# existing Script Tasks that catch that type keep working unchanged.
 	from one_bpmn.one_bpmn.integrations import google_common as _gc
 
 	try:
-		return _gc.get_credentials(SCOPES)
+		return _gc.get_credentials(SCOPES, connector_id=connector_id)
 	except _gc.GoogleConfigError as e:
 		raise GoogleDriveConfigError(str(e))
 
 
-def _get_service():
+def _get_service(connector_id="google_drive"):
+	"""Drive client, authenticated as the connector's own service account.
+
+	Defaults to the google_drive connector so the Script Tasks that import these
+	functions directly keep working without knowing about connectors at all.
+	"""
 	from googleapiclient.discovery import build
 
-	return build("drive", "v3", credentials=_get_credentials(), cache_discovery=False)
+	return build(
+		"drive", "v3", credentials=_get_credentials(connector_id), cache_discovery=False
+	)
 
 
 def create_file(

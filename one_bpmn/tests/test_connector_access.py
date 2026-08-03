@@ -293,3 +293,86 @@ class TestGoogleConnectorsAreConfigured(unittest.TestCase):
 						spec.body_template, {"params": frappe._dict(params)}, "body"
 					)
 					json.loads(rendered)  # raises if the template produced junk
+
+
+class TestCredentialsLiveOnTheConnector(unittest.TestCase):
+	"""The Processa Settings key is deprecated; the connector owns its own.
+
+	What these guard is that the fallback ORDER is right. Getting it wrong is
+	invisible — everything keeps working, because both places currently hold the
+	same key — right up until someone points one connector at a second Google
+	account and it silently keeps using the old one.
+	"""
+
+	def setUp(self):
+		from one_bpmn.one_bpmn.integrations import google_common
+
+		self.gc = google_common
+
+	def test_a_named_connector_uses_its_own_key(self):
+		with patch.object(
+			self.gc, "_connector_service_account",
+			side_effect=lambda cid: '{"client_email": "%s@x"}' % cid if cid else None,
+		):
+			self.assertEqual(
+				self.gc.load_service_account_info("google_docs")["client_email"], "google_docs@x"
+			)
+
+	def test_a_caller_with_no_connector_falls_back_to_drive(self):
+		"""Script Tasks import the Drive integration directly and know nothing
+		about connectors — they must still resolve to a real key."""
+		with patch.object(
+			self.gc, "_connector_service_account",
+			side_effect=lambda cid: '{"client_email": "drive@x"}' if cid == "google_drive" else None,
+		):
+			self.assertEqual(self.gc.load_service_account_info()["client_email"], "drive@x")
+
+	def test_the_connector_wins_over_the_deprecated_setting(self):
+		"""The whole point. If this inverts, per-connector accounts stop working
+		and nothing looks broken."""
+		with patch.object(
+			self.gc, "_connector_service_account", return_value='{"client_email": "connector@x"}'
+		), patch.object(self.gc, "_read_setting_secret", return_value='{"client_email": "settings@x"}'):
+			self.assertEqual(
+				self.gc.load_service_account_info("google_drive")["client_email"], "connector@x"
+			)
+
+	def test_the_deprecated_setting_still_works_and_says_so(self):
+		"""A site that has not migrated must keep running — loudly."""
+		frappe.flags._bpmn_legacy_google_credential_warned = False
+		with patch.object(self.gc, "_connector_service_account", return_value=None), patch.object(
+			self.gc, "_read_setting_secret", return_value='{"client_email": "legacy@x"}'
+		), patch.object(self.gc, "_warn_legacy_credential") as warned:
+			info = self.gc.load_service_account_info("google_drive")
+
+		self.assertEqual(info["client_email"], "legacy@x")
+		warned.assert_called_once()
+
+	def test_no_credential_anywhere_points_at_the_connector_form(self):
+		"""The error has to say where to put the key, not just that it is absent."""
+		with patch.object(self.gc, "_connector_service_account", return_value=None), patch.object(
+			self.gc, "_read_setting_secret", return_value=None
+		), patch.dict(frappe.conf, {"google_drive_service_account_json": None}), patch(
+			"builtins.open", side_effect=FileNotFoundError
+		):
+			with self.assertRaises(self.gc.GoogleConfigError) as ctx:
+				self.gc.load_service_account_info("google_sheets")
+
+		self.assertIn("google_sheets", str(ctx.exception))
+		self.assertIn("Secret", str(ctx.exception))
+
+	def test_every_google_connector_carries_its_own_key(self):
+		for connector_id in ("google_drive", "google_docs", "google_sheets", "google_slides"):
+			with self.subTest(connector=connector_id):
+				doc = frappe.get_doc("BPMN Connector", connector_id)
+				self.assertTrue(
+					doc.get_password("auth_secret", raise_exception=False),
+					"the migration patch should have copied the key here",
+				)
+
+	def test_the_settings_field_is_read_only_so_it_stops_being_used(self):
+		field = frappe.get_meta("Processa Settings").get_field(
+			"google_drive_service_account_json"
+		)
+		self.assertTrue(field.read_only)
+		self.assertIn("DEPRECATED", field.description)

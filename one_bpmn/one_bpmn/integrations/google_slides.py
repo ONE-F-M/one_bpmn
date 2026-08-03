@@ -13,12 +13,12 @@ from one_bpmn.one_bpmn.integrations import google_common as gc
 SLIDES_MIME = "application/vnd.google-apps.presentation"
 
 
-def _svc():
-    return gc.get_service("slides", "v1", scopes=[gc.SLIDES_SCOPE, gc.DRIVE_SCOPE])
+def _svc(connector_id="google_slides"):
+    return gc.get_service("slides", "v1", scopes=[gc.SLIDES_SCOPE, gc.DRIVE_SCOPE], connector_id=connector_id)
 
 
-def _drive():
-    return gc.get_service("drive", "v3", scopes=[gc.DRIVE_SCOPE])
+def _drive(connector_id="google_slides"):
+    return gc.get_service("drive", "v3", scopes=[gc.DRIVE_SCOPE], connector_id=connector_id)
 
 
 def _run(request):

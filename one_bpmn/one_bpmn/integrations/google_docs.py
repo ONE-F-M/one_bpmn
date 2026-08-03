@@ -16,12 +16,12 @@ from one_bpmn.one_bpmn.integrations import google_common as gc
 DOC_MIME = "application/vnd.google-apps.document"
 
 
-def _svc():
-    return gc.get_service("docs", "v1", scopes=[gc.DOCS_SCOPE, gc.DRIVE_SCOPE])
+def _svc(connector_id="google_docs"):
+    return gc.get_service("docs", "v1", scopes=[gc.DOCS_SCOPE, gc.DRIVE_SCOPE], connector_id=connector_id)
 
 
-def _drive():
-    return gc.get_service("drive", "v3", scopes=[gc.DRIVE_SCOPE])
+def _drive(connector_id="google_docs"):
+    return gc.get_service("drive", "v3", scopes=[gc.DRIVE_SCOPE], connector_id=connector_id)
 
 
 def _run(request):
