@@ -21,7 +21,6 @@ class AIProviderCredentials(Document):
 
         api_endpoint: DF.Data | None
         api_key: DF.Password
-        default_model: DF.Data | None
         enabled: DF.Check
         provider_name: DF.Data
         provider_type: DF.Literal["OpenAI", "Anthropic", "Google", "Bedrock", "OpenAI-compatible", "Antigravity"]

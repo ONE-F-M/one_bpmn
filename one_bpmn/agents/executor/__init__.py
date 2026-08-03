@@ -23,6 +23,21 @@ from enum import Enum
 from typing import Any, Dict, Optional
 
 
+# Ceiling on output tokens when a task shape leaves "Max Tokens" empty.
+#
+# This mirrors the default every adapter in agents/llm_provider already
+# declares on complete()/step(). It is duplicated rather than imported because
+# this package deliberately has NO dependency on agents/llm_provider (see the
+# module docstring); keep the two in step.
+#
+# It is a CEILING, not an allocation — a call is billed for the tokens it
+# actually produces, so raising it costs nothing for replies that were already
+# finishing. What it changes is replies that were not: the previous value of
+# 1024 silently truncated them mid-token, and a truncated reply is unusable
+# rather than merely short (its JSON and tool arguments end partway through).
+DEFAULT_MAX_OUTPUT_TOKENS = 16384
+
+
 # ---------------------------------------------------------------------------
 # Error codes
 # ---------------------------------------------------------------------------
@@ -99,13 +114,17 @@ class ExecutorConfig:
     user_prompt: str = ""
     temperature: float = 0.7
     top_p: float = 1.0
-    max_tokens: int = 1024
+    max_tokens: int = DEFAULT_MAX_OUTPUT_TOKENS
     # 30s was set when models answered without thinking. Every current Claude
     # model reasons before it writes, and a task like drafting a full bilingual
     # policy routinely spends 30-60s thinking before the first output token — so
     # the old default cut off work that was progressing normally, and did it
-    # twice more on retry. Measured: a successful Policy draft took 29s and
+    # twice more on retry. Measured: a successful Policy draft took 31.1s and
     # regularly crossed 30s; Update-path drafts land in 11-14s.
+    #
+    # Raising DEFAULT_MAX_OUTPUT_TOKENS alone is not enough: a bigger ceiling
+    # means the model has room to write more, which takes longer, so the two
+    # limits have to move together.
     #
     # Note this multiplies by retries, so the worst case is timeout x (retries+1).
     timeout_seconds: int = 180
