@@ -140,6 +140,17 @@ def invoke_agent(agent_id: str, message: str, conversation: str = None, context:
 	config = _resolve_config(agent_id)
 	_authorize(config, conversation)
 
+	# ── PII input screening (WI-001644) ──────────────────────────────────
+	# Every agent invocation passes through here, so this is the one place
+	# that can guarantee no user-supplied PII reaches a third-party model.
+	# Detected values become stable tokens; the mapping lives for this turn
+	# only and is swapped back at the tool boundary so lookups still resolve.
+	from one_bpmn.security import pii as _pii
+
+	screened = _pii.screen_input(message, config)
+	message = screened.text
+	_pii_turn = _pii.begin_turn(screened, enabled=screened.enabled)
+
 	if not conversation:
 		from one_bpmn.utils.chat_persistence import create_agent_conversation
 
@@ -148,7 +159,10 @@ def invoke_agent(agent_id: str, message: str, conversation: str = None, context:
 		)
 
 	runner = _runner_for(config)
-	result = _RUNNERS[runner](config, conversation, message, context or {})
+	try:
+		result = _RUNNERS[runner](config, conversation, message, context or {})
+	finally:
+		_pii.end_turn(_pii_turn)
 	if not isinstance(result, dict):
 		result = {"response": str(result or "")}
 	result.setdefault("conversation", conversation)
