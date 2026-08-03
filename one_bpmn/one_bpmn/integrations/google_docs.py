@@ -56,6 +56,56 @@ def replace_all_text(document_id: str, find: str, replace: str, match_case: bool
     return {"documentId": document_id, "occurrencesChanged": changed}
 
 
+def fill_template(document_id: str, values: dict, match_case: bool = True) -> dict:
+	"""Substitute every placeholder in one ``batchUpdate`` call.
+
+	``values`` maps placeholder text to replacement, e.g.
+	``{"{{title}}": "Leave Policy", "{{owner}}": "HR"}``.
+
+	One call rather than one per field, for two reasons: a template has ten-odd
+	placeholders and ten round-trips is wasteful, and — more importantly —
+	batchUpdate is atomic. Filling field by field can leave a document half
+	populated if the fourth call fails, and a half-filled policy published to
+	the domain is worse than one that failed outright.
+
+	Returns a per-placeholder count of what was actually substituted. That
+	detail matters: ``replaceAllText`` only matches text inside a single
+	formatting run, so a placeholder someone part-bolded while editing the
+	template is silently skipped. A zero in this result is the only signal that
+	happened — callers should treat unfilled placeholders as a failure rather
+	than shipping a document with ``{{owner}}`` still visible in it.
+	"""
+	pairs = [(str(k), "" if v is None else str(v)) for k, v in (values or {}).items() if str(k)]
+	if not pairs:
+		return {"documentId": document_id, "filled": {}, "unfilled": [], "total": 0}
+
+	res = batch_update(
+		document_id,
+		[
+			{
+				"replaceAllText": {
+					"containsText": {"text": find, "matchCase": bool(match_case)},
+					"replaceText": replace,
+				}
+			}
+			for find, replace in pairs
+		],
+	)
+
+	replies = res.get("replies", []) or []
+	filled = {}
+	for i, (find, _) in enumerate(pairs):
+		reply = replies[i] if i < len(replies) else {}
+		filled[find] = (reply.get("replaceAllText", {}) or {}).get("occurrencesChanged", 0) or 0
+
+	return {
+		"documentId": document_id,
+		"filled": filled,
+		"unfilled": [k for k, n in filled.items() if not n],
+		"total": sum(filled.values()),
+	}
+
+
 def _extract_text(doc: dict) -> str:
     out = []
     for el in doc.get("body", {}).get("content", []) or []:

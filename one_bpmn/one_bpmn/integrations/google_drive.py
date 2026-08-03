@@ -88,6 +88,39 @@ def create_file(
 	)
 
 
+def copy_file(file_id: str, filename: str = None, folder_id: str = None) -> dict:
+	"""``files.copy`` — instantiate a template by cloning it.
+
+	This is the only way to produce a document that keeps a template's *design*:
+	logos, table borders, named styles, bilingual column layout and RTL runs all
+	survive, because nothing is re-rendered — Drive duplicates the file.
+
+	The alternative the process used before — export the template to plain text,
+	have a model imitate it, and upload markdown — cannot preserve any of that,
+	since the result is built from the model's output rather than the template.
+
+	``filename`` defaults to Drive's own "Copy of X"; pass the real document
+	title instead. ``folder_id`` sets the copy's parent — omit it and the copy
+	lands beside the template, which is almost never wanted.
+
+	Returns the copy's metadata: {"id", "name", "webViewLink"} — deliberately
+	the same shape ``create_file`` returns, so a map can swap one for the other
+	without touching anything downstream.
+	"""
+	body = {}
+	if filename:
+		body["name"] = filename
+	if folder_id:
+		body["parents"] = [folder_id]
+
+	service = _get_service()
+	return (
+		service.files()
+		.copy(fileId=file_id, body=body, fields="id,name,webViewLink", supportsAllDrives=True)
+		.execute()
+	)
+
+
 def update_file_content(file_id: str, content: str, source_mime_type: str = "text/markdown") -> dict:
 	"""
 	Replace an existing file's content — used to push finalized content into
@@ -128,6 +161,81 @@ def set_permissions(file_id: str, grants: list) -> list:
 			.execute()
 		)
 	return results
+
+
+# Roles that express who *owns or structures* a file rather than who was granted
+# access to read it. On a Shared Drive there is no "owner" role at all —
+# ownership is the drive itself, surfaced as organizer/fileOrganizer — so
+# skipping "owner" alone would have us trying to strip the drive's own
+# management of the file. Drive refuses those deletions (403
+# cannotDeletePermission), and it is right to: a file nobody organizes is
+# orphaned.
+STRUCTURAL_ROLES = ("owner", "organizer", "fileOrganizer")
+
+
+def revoke_permissions(file_id: str, scope: str = "all", match: str = None) -> dict:
+	"""Remove sharing grants from a file — the inverse of ``set_permissions``.
+
+	This is what actually takes a document out of circulation. Marking a record
+	inactive in Frappe hides it from Frappe; it does nothing about the
+	domain-wide reader grant that ``set_permissions`` applied, so every employee
+	holding the link still opens it. Revoking the grant is the part users see.
+
+	``scope`` selects what to remove:
+	  ``all``    — every access grant (the default: withdraw it from everyone)
+	  ``domain`` — domain grants only, optionally just the one in ``match``
+	  ``user``   — user grants only, optionally just the address in ``match``
+
+	Returns ``{"removed": [...], "skipped": [...]}``. Two kinds of grant end up
+	in ``skipped`` rather than failing the call:
+
+	  * structural roles (see ``STRUCTURAL_ROLES``), which must not be removed;
+	  * grants **inherited** from a parent folder, which Drive will not let you
+	    delete on the item — they have to be changed where they are defined.
+
+	Nothing is abandoned partway. Each deletion is attempted independently,
+	because the alternative is what a single 403 produced here in practice: the
+	domain grant stripped, the loop aborted, and a caller told the revocation
+	failed when the important half had in fact succeeded. A partial withdrawal
+	reported as a failure is far more dangerous than a complete one, so the
+	caller gets the full picture instead.
+	"""
+	service = _get_service()
+	listed = (
+		service.permissions()
+		.list(
+			fileId=file_id,
+			fields="permissions(id,type,role,emailAddress,domain,permissionDetails(inherited,inheritedFrom))",
+			supportsAllDrives=True,
+		)
+		.execute()
+	)
+
+	removed = []
+	skipped = []
+	for perm in listed.get("permissions", []):
+		if perm.get("role") in STRUCTURAL_ROLES:
+			skipped.append(dict(perm, reason="structural role"))
+			continue
+		if any(d.get("inherited") for d in (perm.get("permissionDetails") or [])):
+			skipped.append(dict(perm, reason="inherited from a parent folder"))
+			continue
+		if scope in ("domain", "user") and perm.get("type") != scope:
+			continue
+		if match:
+			target = perm.get("domain") if perm.get("type") == "domain" else perm.get("emailAddress")
+			if (target or "").lower() != match.lower():
+				continue
+
+		try:
+			service.permissions().delete(
+				fileId=file_id, permissionId=perm["id"], supportsAllDrives=True
+			).execute()
+			removed.append(perm)
+		except Exception as e:
+			skipped.append(dict(perm, reason=str(e)))
+
+	return {"removed": removed, "skipped": skipped}
 
 
 def delete_file(file_id: str, permanent: bool = False) -> None:

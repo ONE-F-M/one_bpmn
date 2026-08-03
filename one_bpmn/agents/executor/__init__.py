@@ -115,7 +115,19 @@ class ExecutorConfig:
     temperature: float = 0.7
     top_p: float = 1.0
     max_tokens: int = DEFAULT_MAX_OUTPUT_TOKENS
-    timeout_seconds: int = 30
+    # 30s was set when models answered without thinking. Every current Claude
+    # model reasons before it writes, and a task like drafting a full bilingual
+    # policy routinely spends 30-60s thinking before the first output token — so
+    # the old default cut off work that was progressing normally, and did it
+    # twice more on retry. Measured: a successful Policy draft took 31.1s and
+    # regularly crossed 30s; Update-path drafts land in 11-14s.
+    #
+    # Raising DEFAULT_MAX_OUTPUT_TOKENS alone is not enough: a bigger ceiling
+    # means the model has room to write more, which takes longer, so the two
+    # limits have to move together.
+    #
+    # Note this multiplies by retries, so the worst case is timeout x (retries+1).
+    timeout_seconds: int = 180
     response_format: str = "text"        # "text" | "json"
     response_schema: Optional[str] = None  # JSON Schema string
     max_retries: int = 2
