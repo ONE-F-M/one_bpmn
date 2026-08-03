@@ -19,6 +19,7 @@ from __future__ import annotations
 
 import asyncio
 import concurrent.futures
+import contextvars
 
 import frappe
 
@@ -58,11 +59,26 @@ def run_sync(coro):
     loop is running), so a plain ``asyncio.run`` would raise "cannot be called
     from a running event loop". When a loop is running we run the coroutine on a
     dedicated thread with its own loop; otherwise ``asyncio.run`` is fine.
+
+    The thread must inherit the caller's context. ``frappe.local`` is a
+    ContextVar-backed werkzeug Local (werkzeug ≥ 2.0), so a bare thread starts
+    with no site, no ``frappe.db`` and no session: every frappe call inside
+    *coro* then dies with "RuntimeError: object is not bound". That is invisible
+    from the outside, because a sub-agent's read tools catch their own
+    exceptions and hand the LLM an empty result — so the model silently goes
+    blind to the live schema instead of failing loudly.
+
+    Copying the context across fixes it and keeps one transaction: the thread
+    shares the parent's database connection, which is safe because the parent
+    blocks on ``.result()`` for the whole call, so the two never touch it
+    concurrently. Writes the coroutine makes land in the caller's transaction,
+    exactly as they do on the non-threaded path.
     """
     try:
         asyncio.get_running_loop()
     except RuntimeError:
         return asyncio.run(coro)
 
+    ctx = contextvars.copy_context()
     with concurrent.futures.ThreadPoolExecutor(max_workers=1) as pool:
-        return pool.submit(asyncio.run, coro).result()
+        return pool.submit(ctx.run, asyncio.run, coro).result()
