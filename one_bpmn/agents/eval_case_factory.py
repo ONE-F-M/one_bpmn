@@ -200,3 +200,66 @@ def create_eval_case_from_run(
 	case.flags.ignore_mandatory = True
 	case.insert()
 	return case.name
+
+
+@frappe.whitelist()
+def list_runs_for_case_picker(suite: str, limit: int = 40) -> list:
+	"""Runs the suite's agent has produced, newest first, for the "From run" picker.
+
+	The dialog used to ask for an AI Agent Run name as free text, which meant
+	knowing a hash id before you could use the feature at all. The candidates
+	are knowable: a suite tests one agent (AI Eval Suite.agent_configuration,
+	mandatory since WI-001743), so the runs worth turning into a case are that
+	agent's runs and no others.
+
+	Returns ``[]`` — not an error — for a suite with no agent, so the dialog can
+	say so plainly instead of failing.
+
+	Eval-origin runs are excluded: they were produced BY the eval system, so
+	turning one into a case would be a test of a test. Failed runs are kept —
+	capturing an Error as a regression case is the point of WI-001363.
+
+	Visibility follows _assert_may_read_run rather than the doctype: AI Agent
+	Run is System-Manager-only and holds every prompt on the platform, so a
+	process owner sees only runs of a process they own. Ownership is resolved
+	once per process model rather than once per run.
+	"""
+	from one_bpmn.agents.eval_permissions import _is_system_manager, _process_model_owned_by
+
+	suite_doc = frappe.get_doc("AI Eval Suite", suite)  # 404s if missing
+	suite_doc.check_permission("read")
+
+	agent = suite_doc.agent_configuration
+	if not agent:
+		return []
+
+	runs = frappe.get_all(
+		"AI Agent Run",
+		filters={"agent_configuration": agent, "origin": ("!=", "eval")},
+		fields=[
+			"name", "status", "started_at", "creation",
+			"bpmn_label", "bpmn_id", "process_model",
+		],
+		order_by="COALESCE(started_at, creation) desc",
+		limit_page_length=frappe.utils.cint(limit) or 40,
+	)
+
+	if not _is_system_manager(frappe.session.user):
+		owned = {
+			pm
+			for pm in {r.process_model for r in runs if r.process_model}
+			if _process_model_owned_by(pm, frappe.session.user)
+		}
+		runs = [r for r in runs if r.process_model in owned]
+
+	return [
+		{
+			"name": r.name,
+			"status": r.status,
+			"when": frappe.utils.format_datetime(r.started_at or r.creation, "d MMM, HH:mm"),
+			# What produced it, most specific first. A direct (map-less) run has
+			# none of these, and "Direct call" beats a blank column.
+			"source": r.bpmn_label or r.bpmn_id or r.process_model or _("Direct call"),
+		}
+		for r in runs
+	]
