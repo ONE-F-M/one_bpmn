@@ -12,7 +12,16 @@
 					<span class="inline-block px-2 py-0.5 rounded-full text-xs" :class="runPill(run.status)">
 						{{ run.status }}
 					</span>
-					<span class="text-xs text-gray-400">{{ run.backend }}</span>
+					<span
+						v-if="run.backend"
+						class="text-xs"
+						:class="run.backend === 'replay'
+							? 'px-2 py-0.5 rounded-full bg-amber-50 text-amber-700'
+							: 'text-gray-400'"
+						:title="run.backend === 'replay'
+							? 'Assertions were re-checked against each case\'s stored answer — the agent was not called'
+							: 'The agent was called for every case in this run'"
+					>{{ run.backend }}</span>
 				</div>
 				<div class="flex items-center gap-4">
 					<label v-if="baselines.length" class="flex items-center gap-2 text-xs text-gray-500">
@@ -136,6 +145,10 @@
 								<span class="text-sm font-medium text-gray-800">{{ a.assertion_type }}</span>
 								<span v-if="a.score !== undefined" class="text-xs text-gray-500">score {{ a.score }}</span>
 							</div>
+							<div v-if="a.value" class="mt-1 flex items-baseline gap-2">
+								<span class="text-xs text-gray-500 shrink-0">{{ assertionValueLabel(a.assertion_type) }}:</span>
+								<pre class="text-xs text-gray-700 bg-gray-50 rounded px-2 py-1 m-0 whitespace-pre-wrap break-words max-h-24 overflow-auto grow">{{ a.value }}</pre>
+							</div>
 							<p v-if="a.explanation" class="text-sm text-gray-600 mt-1">Judge: {{ a.explanation }}</p>
 							<p v-else-if="a.message" class="text-sm text-gray-500 mt-1">{{ a.message }}</p>
 						</div>
@@ -179,6 +192,22 @@ const caseBaselines = ref({})
 // "" = auto: compare each case against the most recent earlier run that covered
 // it. A run name pins every case to that one run instead.
 const baseline = ref("")
+
+// What an assertion's `value` means depends on its type, so it is labelled
+// rather than shown bare. "Substring not found." on its own forced the reader
+// to open the case to learn WHICH substring — the value is already in the
+// result payload, it just was not rendered.
+const ASSERTION_VALUE_LABELS = {
+	contains: "Expected substring",
+	regex: "Pattern",
+	equals: "Expected output",
+	schema_valid: "Schema",
+	llm_judge: "Rubric",
+}
+
+function assertionValueLabel(type) {
+	return ASSERTION_VALUE_LABELS[type] || "Expected"
+}
 
 function runPill(status) {
 	if (status === "Passed") return "bg-green-50 text-green-700"
