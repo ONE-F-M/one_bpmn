@@ -57,3 +57,4 @@ one_bpmn.one_bpmn.patches.v1_0.migrate_lucrusher_agent_to_generic_path #29-07-20
 one_bpmn.one_bpmn.patches.v1_0.merge_lumina_general_chat_config #30-07-2026 WI-001630
 one_bpmn.one_bpmn.patches.v1_0.repair_agent_memory_threads #30-07-2026 WI-001630
 one_bpmn.one_bpmn.patches.v1_0.seed_logix_code_guardrails #02-08-2026 WI-001639
+one_bpmn.one_bpmn.patches.v1_0.inline_docu_tool_scripts #03-08-2026 rerun for self-contained bodies
