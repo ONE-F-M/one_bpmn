@@ -180,7 +180,7 @@
   },
   {
    "default": "On this connector",
-   "depends_on": "eval:doc.auth_type && doc.auth_type!='None' && doc.auth_type!='Service Account JSON'",
+   "depends_on": "eval:doc.auth_type && doc.auth_type!='None'",
    "description": "<b>On this connector</b> — type the secret below; it is encrypted and never leaves the server. <b>From a settings DocType</b> — read it from a Password field elsewhere, for a credential several connectors share (how the Google connectors reuse one service account).",
    "fieldname": "credential_source",
    "fieldtype": "Select",
@@ -188,11 +188,12 @@
    "options": "On this connector\nFrom a settings DocType"
   },
   {
-   "depends_on": "eval:doc.credential_source!='From a settings DocType' && doc.auth_type && doc.auth_type!='None' && doc.auth_type!='Service Account JSON'",
-   "description": "Stored encrypted, excluded from exports, and never sent to the browser.",
+   "depends_on": "eval:doc.auth_type && doc.auth_type!='None' && doc.credential_source!='From a settings DocType'",
+   "description": "For Service Account JSON, paste the whole key file Google issued. Stored encrypted and never returned by the API, an export, or the modeler manifest.",
    "fieldname": "auth_secret",
    "fieldtype": "Password",
-   "label": "Secret"
+   "label": "Secret",
+   "mandatory_depends_on": "eval:doc.auth_type=='Service Account JSON' && doc.credential_source!='From a settings DocType'"
   },
   {
    "depends_on": "eval:doc.credential_source=='From a settings DocType'",
