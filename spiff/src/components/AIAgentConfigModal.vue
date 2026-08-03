@@ -787,17 +787,13 @@ const providerLabel = computed(() => {
   return p ? p.provider_name : form.value.aiProvider;
 });
 
-// When a provider is selected, fill the Model field from its Default Model.
-// If the provider has no Default Model, leave the field untouched — the empty
-// state is caught (and blocked) at save time.
-// WI-001655: dead since the provider select became read-only and models
-// come from the catalog; kept as a no-op guard in case of stale bindings.
-function onProviderChange() {
-  const p = providers.value.find((x) => x.name === form.value.aiProvider);
-  if (p && p.default_model) {
-    form.value.aiModel = p.default_model;
-  }
-}
+// (WI-001655) onProviderChange lived here: picking a provider copied its
+// Default Model into the Model field. Removed rather than rewritten — the
+// direction it encoded is now backwards. The MODEL is the agent's pick and the
+// provider is derived from that model's credentials link, so a provider can no
+// longer choose a model for you. AI Provider Credentials.default_model was
+// deleted with the same change, the provider select is disabled, and nothing
+// called this function; it read a field that no longer exists.
 
 function makeId() {
   return Date.now() + "_" + Math.random().toString(36).slice(2, 8);
