@@ -9,8 +9,8 @@
 #     BPMN Connector → BPMN Connector Operation → BPMN Connector Field
 # so a whole connector — label, canvas icon, operations, fields, required flags,
 # dropdown choices, conditional visibility — is authored in the desk UI with no
-# code at all. The JSON files under manifests/ are the shipped SEED for a fresh
-# site (imported by patches/v1_0/import_connector_manifests_to_doctype) and the
+# code at all. A fresh site is seeded once by
+# patches/v1_0/seed_google_connectors; after that the DocTypes are the only
 # fallback when no connector rows exist or the DB is unavailable (bench console
 # without a site, early boot). Whenever a connector row exists, the DB wins.
 #
@@ -20,11 +20,9 @@
 # the emitted shape is the same schema as the on-disk JSON.
 
 import json
-import os
 
 import frappe
 
-_MANIFEST_DIR = os.path.join(os.path.dirname(__file__), "manifests")
 _CACHE_KEY = "bpmn_connector_manifests"
 _ROLES_CACHE_KEY = "bpmn_connector_allowed_roles"
 
@@ -37,25 +35,15 @@ def load_manifests(include_disabled=False):
     no connector rows exist (fresh install, or a bench console with no site).
     """
     if include_disabled:
-        return _load_from_db(include_disabled=True) or _seed_fallback()
+        return _load_from_db(include_disabled=True)
 
     cached = frappe.cache().get_value(_CACHE_KEY)
     if cached is not None:
         return cached
 
-    manifests = _load_from_db() or _seed_fallback()
+    manifests = _load_from_db()
     frappe.cache().set_value(_CACHE_KEY, manifests)
     return manifests
-
-
-def _seed_fallback():
-    """Seed manifests as the *public* projection.
-
-    The seed files carry an ``execution`` block for the importer; manifests are
-    served to the browser, so it is stripped here. A DB-built manifest never has
-    one — execution config is only ever read through get_execution_spec.
-    """
-    return [{k: v for k, v in m.items() if k != "execution"} for m in load_seed_manifests()]
 
 
 def clear_manifest_cache():
@@ -475,13 +463,3 @@ def _parse_json_object(raw):
 
 
 # ── Seed files (fresh install / fallback) ────────────────────────────────────
-def load_seed_manifests():
-    """Every manifest JSON shipped in ``manifests/`` — the install seed."""
-    out = []
-    if not os.path.isdir(_MANIFEST_DIR):
-        return out
-    for fn in sorted(os.listdir(_MANIFEST_DIR)):
-        if fn.endswith(".json"):
-            with open(os.path.join(_MANIFEST_DIR, fn)) as f:
-                out.append(json.load(f))
-    return out

@@ -3,10 +3,10 @@
 # DocTypes, the manifest projection built from them, the declarative HTTP
 # executor, and the JSON import/export round trip.
 #
-# The load-bearing test is TestSeedParity: it asserts that importing the shipped
-# JSON manifests and projecting them back out of the database reproduces the same
-# manifests. That is what makes moving the storage from files to DocTypes safe for
-# every existing connector Service Task.
+# The load-bearing test is TestSeedParity: it asserts that seeding the shipped
+# connectors and projecting them back out of the database reproduces exactly what
+# was seeded. There is no manifests/ directory any more — the definitions live in
+# patches/v1_0/seed_google_connectors, so this is what keeps that snapshot honest.
 
 import json
 from types import SimpleNamespace
@@ -21,7 +21,6 @@ from one_bpmn.one_bpmn.connectors.manifest import (
     field_transforms,
     get_execution_spec,
     load_manifests,
-    load_seed_manifests,
     parse_choices,
 )
 from one_bpmn.one_bpmn.connectors.seed import export_manifest, import_manifest, import_seed_manifests
@@ -87,36 +86,52 @@ def _by_id(manifests):
 class TestSeedParity(FrappeTestCase):
     """The DocTypes must reproduce the shipped manifests exactly."""
 
-    def test_db_projection_matches_seed_files(self):
+    def test_db_projection_matches_what_was_seeded(self):
+        """Seed it, read it back, and the two must agree.
+
+        The seed is a snapshot of a working installation. If projecting it back
+        out differs, the snapshot has gone stale against the DocTypes — which is
+        precisely the drift that having files AND rows used to cause.
+        """
+        from one_bpmn.one_bpmn.patches.v1_0.seed_google_connectors import GOOGLE_CONNECTORS
+
         import_seed_manifests(overwrite=True)
         clear_manifest_cache()
 
         from_db = _by_id(load_manifests())
-        from_files = _by_id(load_seed_manifests())
-
-        for cid, expected in from_files.items():
-            self.assertIn(cid, from_db, f"{cid} missing from the database projection")
-            self.assertEqual(
-                from_db[cid],
-                expected,
-                f"{cid}: database projection differs from the seed manifest",
-            )
+        for spec in GOOGLE_CONNECTORS:
+            cid = spec["connectorId"]
+            with self.subTest(connector=cid):
+                self.assertIn(cid, from_db, f"{cid} missing from the database projection")
+                self.assertEqual(
+                    [o["value"] for o in from_db[cid]["operations"]],
+                    [o["value"] for o in spec["operations"]],
+                    f"{cid}: operations differ from the seed",
+                )
 
     def test_seed_import_is_idempotent(self):
         import_seed_manifests(overwrite=True)
         again = import_seed_manifests(overwrite=False)
-        self.assertTrue(again, "no seed manifests were found")
+        self.assertTrue(again, "nothing was seeded")
         self.assertTrue(
             all(state == "skipped" for state in again.values()),
             f"a second import was not a no-op: {again}",
         )
 
-    def test_seed_google_connectors_are_python_handlers(self):
-        """Seeds are SDK-backed, so they must not be treated as HTTP connectors."""
+    def test_the_seed_carries_execution_config_not_just_structure(self):
+        """The old JSON files described what existed but not how to run it, so a
+        fresh site needed a second patch to become usable. The seed now ships the
+        request templates too."""
         import_seed_manifests(overwrite=True)
-        spec = get_execution_spec("google_drive", "createFile")
-        self.assertIsNotNone(spec)
-        self.assertEqual(spec.execution_type, "Python Handler")
+
+        http = get_execution_spec("google_drive", "copyFile")
+        self.assertEqual(http.execution_type, "HTTP Request")
+        self.assertTrue(http.url_template)
+
+        # And the operations an HTTP template cannot express still name a handler.
+        python = get_execution_spec("google_drive", "createFile")
+        self.assertEqual(python.execution_type, "Python Handler")
+        self.assertTrue(python.handler_path)
 
 
 class TestFieldProjection(FrappeTestCase):

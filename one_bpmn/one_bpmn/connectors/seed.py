@@ -3,7 +3,7 @@
 # the BPMN Connector / Operation / Field rows that now hold connectors.
 #
 # It runs in three situations:
-#   install/patch — seed the four shipped Google manifests into a fresh site
+#   install/patch — seed the four shipped Google connectors into a fresh site
 #   import        — bring a connector authored on another site in, as JSON
 #   export        — hand a connector back out as JSON, so connectors move
 #                   between sites as data instead of as patches
@@ -19,7 +19,6 @@ import frappe
 from one_bpmn.one_bpmn.connectors.manifest import (
     clear_manifest_cache,
     format_choices,
-    load_seed_manifests,
     parse_choices,
 )
 
@@ -28,16 +27,21 @@ _EXEC_KEY = "execution"
 
 
 def import_seed_manifests(overwrite=False):
-    """Import every JSON manifest shipped in ``manifests/``.
+    """Import the shipped Google connectors.
 
-    Returns {connector_id: "created" | "updated" | "skipped"}.
+    The definitions live in patches/v1_0/seed_google_connectors — there is no
+    longer a manifests/ directory, because the same connector existing as both
+    files and rows meant the two drifted apart the moment anyone edited a row.
+
+    Kept as a function because the tests and the install path both want "put
+    the shipped set into an empty site" without caring where it is written down.
     """
-    out = {}
-    for manifest in load_seed_manifests():
-        cid = manifest.get("connectorId")
-        if cid:
-            out[cid] = import_manifest(manifest, overwrite=overwrite)
-    return out
+    from one_bpmn.one_bpmn.patches.v1_0.seed_google_connectors import GOOGLE_CONNECTORS
+
+    return {
+        manifest["connectorId"]: import_manifest(manifest, overwrite=overwrite)
+        for manifest in GOOGLE_CONNECTORS
+    }
 
 
 def import_manifest(manifest, overwrite=False):
@@ -95,6 +99,7 @@ def import_manifest(manifest, overwrite=False):
     if auth.get("headerName"):
         conn.auth_header_name = auth["headerName"]
     conn.auth_query_param = auth.get("queryParam")
+    conn.auth_scopes = auth.get("scopes")
 
     conn.flags.ignore_permissions = True
     conn.save(ignore_permissions=True)
@@ -121,7 +126,7 @@ def import_manifest(manifest, overwrite=False):
 def _infer_execution_type(connector_id, manifest):
     """A manifest with registered @connector handlers is a Python connector.
 
-    Seed manifests carry no execution block; the four Google ones are backed by
+    Seeded definitions carry their execution config inline; the Google ones are backed by
     handler functions, so they must not be treated as HTTP connectors.
     """
     from one_bpmn.one_bpmn.connectors.registry import CONNECTORS
@@ -287,6 +292,11 @@ def export_manifest(connector_id):
                 ("secretField", conn.auth_secret_field),
                 ("headerName", conn.auth_header_name),
                 ("queryParam", conn.auth_query_param),
+                # Scopes decide what a minted token may do. Configuration, not
+                # a secret — and without them a Service Account connector
+                # cannot get a token at all, so an export that dropped them
+                # would import as a connector that looks right and never works.
+                ("scopes", conn.auth_scopes),
             )
             if v
         }

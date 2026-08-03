@@ -1,8 +1,7 @@
 # Copyright (c) 2026, one-fm and contributors
 # Add shipped operations that a site's already-imported connectors are missing.
 #
-# `import_connector_manifests_to_doctype` seeds the Connector doctypes from the
-# JSON manifests, but deliberately **skips a connector that already exists** so
+# The seed patch deliberately **skips a connector that already exists** so
 # re-running it can never clobber a site's own edits to a shipped connector. That
 # is the right call for the connector as a whole, and it leaves a gap: when a
 # later release adds an *operation* to a shipped manifest, sites that already
@@ -17,7 +16,7 @@
 # label or disabled an operation keeps those choices.
 #
 # Written when merging brought `copyFile`, `revokePermissions` and `fillTemplate`
-# into the Google manifests, but it is not specific to them — it will pick up
+# into the shipped Google set, but it is not specific to them — it will pick up
 # whatever a future manifest adds.
 
 import frappe
@@ -27,11 +26,11 @@ def execute():
 	for doctype in ("BPMN Connector", "BPMN Connector Operation", "BPMN Connector Field"):
 		frappe.reload_doctype(doctype)
 
-	from one_bpmn.one_bpmn.connectors.manifest import load_seed_manifests
+	from one_bpmn.one_bpmn.patches.v1_0.seed_google_connectors import GOOGLE_CONNECTORS
 	from one_bpmn.one_bpmn.connectors.seed import _import_operation
 
 	added = []
-	for manifest in load_seed_manifests():
+	for manifest in GOOGLE_CONNECTORS:
 		cid = (manifest.get("connectorId") or "").strip()
 		# A connector that was never imported is the other patch's job; creating
 		# a bare operation here would leave it parented to nothing.
