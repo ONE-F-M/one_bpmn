@@ -193,6 +193,12 @@ doc_events = {
 	"Server Script": {
 		"validate": "one_bpmn.security.script_gate.validate_server_script_on_save",
 	},
+	# WI-001644: PII input screening. The map-driven agents read the user's
+	# text back off the stored Chat Message, so redacting the in-flight
+	# message is not enough — the stored row has to be redacted too.
+	"Chat Message": {
+		"before_insert": "one_bpmn.security.pii.screen_chat_message",
+	},
 }
 
 # Scheduled Tasks

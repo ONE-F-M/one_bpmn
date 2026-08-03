@@ -21,6 +21,29 @@ class ToolSpec:
     required: list = field(default_factory=list)
     human: bool = False
 
+    def __post_init__(self):
+        """Restore redacted PII at the tool boundary (WI-001644).
+
+        Input screening replaced the user's Civil ID with ``[CIVIL_ID_1]``
+        before the model saw it, so the model calls tools with the TOKEN. The
+        lookup has to run against the real value, and every tool — whether it
+        came from a shape, the tool pool, or a Server Script body — is built as
+        a ToolSpec, so wrapping here is the only place that covers all of them.
+
+        Human tools are skipped: they are never executed by the loop, and a
+        person completing the task should see the token, not the raw value.
+        """
+        if self.human or getattr(self.fn, "__pii_wrapped__", None) is not None:
+            return
+        try:
+            from one_bpmn.security.pii import wrap_tool
+
+            object.__setattr__(self, "fn", wrap_tool(self.fn))
+        except Exception:
+            # A broken import here must not take the whole agent down; the
+            # cost is that a tokenised argument reaches the tool unresolved.
+            pass
+
 
 def build_parameter_schema(tool: "ToolSpec") -> dict:
     """Provider-agnostic JSON Schema ``parameters`` object for a tool spec.
