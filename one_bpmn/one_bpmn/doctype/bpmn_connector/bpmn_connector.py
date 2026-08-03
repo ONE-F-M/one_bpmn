@@ -142,9 +142,13 @@ class BPMNConnector(Document):
 
 	def on_update(self):
 		_clear_cache()
+		# A rotated key or a changed scope must not keep working off the old
+		# access token for up to an hour.
+		_clear_token(self.connector_id)
 
 	def on_trash(self):
 		_clear_cache()
+		_clear_token(self.connector_id)
 
 	@frappe.whitelist()
 	def validate_configuration(self):
@@ -164,3 +168,11 @@ def _clear_cache():
 	from one_bpmn.one_bpmn.connectors.manifest import clear_manifest_cache
 
 	clear_manifest_cache()
+
+
+def _clear_token(connector_id):
+	if not connector_id:
+		return
+	from one_bpmn.one_bpmn.connectors.http_ops import clear_service_account_token
+
+	clear_service_account_token(connector_id)

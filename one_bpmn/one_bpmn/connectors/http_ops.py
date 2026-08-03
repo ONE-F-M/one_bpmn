@@ -30,6 +30,10 @@ from one_bpmn.one_bpmn.integrations.retry import call_with_retry
 # the instance document.
 _MAX_RESPONSE_BYTES = 2 * 1024 * 1024
 
+# Google access tokens last an hour; expire our cached copy early so one is never
+# handed out with seconds left on it.
+_TOKEN_TTL_SECONDS = 55 * 60
+
 
 class ConnectorHTTPError(Exception):
     """A connector's HTTP call failed, or its configuration is unusable."""
@@ -221,9 +225,11 @@ def _render_body(spec, render_ctx):
 def _apply_auth(spec, headers, query):
     """Attach the connector's credential to the outgoing request."""
     auth_type = spec.auth_type or "None"
-    if auth_type in ("None", "Service Account JSON"):
-        # Service accounts are the Python integrations' business (google_common),
-        # not something this executor can present as a header.
+    if auth_type == "None":
+        return
+
+    if auth_type == "Service Account JSON":
+        headers["Authorization"] = f"Bearer {_service_account_token(spec)}"
         return
 
     secret = _read_secret(spec)
@@ -249,6 +255,79 @@ def _apply_auth(spec, headers, query):
         # The secret holds "user:password"; encode it as the scheme requires.
         token = base64.b64encode(secret.encode("utf-8")).decode("ascii")
         headers["Authorization"] = f"Basic {token}"
+
+
+def _service_account_token(spec):
+    """Exchange a service-account key for an OAuth2 access token.
+
+    This is what lets a Google connector be *configuration*. Every other auth
+    type is a secret copied into a header; a service account is not — the key
+    signs a JWT, Google exchanges it for a short-lived access token, and that
+    token is the Bearer credential. Without this step the only way to call a
+    Google API was a Python handler holding an SDK client, which is exactly the
+    coupling this removes.
+
+    Tokens are cached until shortly before they expire. A token lasts an hour
+    and the exchange is a network round-trip and an RSA signature, so minting
+    one per operation would add a second call to every single connector task.
+
+    Scopes come from the connector's own configuration, so two connectors can
+    use the same key with different scopes, or different keys entirely.
+    """
+    secret = _read_secret(spec)
+    if not secret:
+        where = (
+            f"{spec.auth_settings_doctype}.{spec.auth_secret_field}"
+            if spec.credential_source == "From a settings DocType"
+            else f"the Secret field on connector {spec.connector_id}"
+        )
+        raise ConnectorHTTPError(
+            f"Auth Type Service Account JSON is set but no key was found at {where}."
+        )
+
+    try:
+        info = json.loads(secret) if isinstance(secret, str) else secret
+    except ValueError as e:
+        raise ConnectorHTTPError(
+            f"The credential for connector {spec.connector_id} is not valid JSON — a "
+            "service account key is the whole JSON file Google issued."
+        ) from e
+
+    scopes = [s.strip() for s in (getattr(spec, "auth_scopes", "") or "").split("\n") if s.strip()]
+    if not scopes:
+        raise ConnectorHTTPError(
+            f"Connector {spec.connector_id} uses a service account but declares no Scopes. "
+            "Google refuses a token request with no scope, so this must be set."
+        )
+
+    cache_key = f"bpmn_connector_sa_token:{spec.connector_id}"
+    # expires=True matters. Without it a miss is written into frappe.local.cache
+    # as None, while set_value(expires_in_sec=...) writes only to Redis — so the
+    # next read in the same request finds the poisoned local None and re-mints.
+    # The caching silently did nothing until this was passed.
+    cached = frappe.cache().get_value(cache_key, expires=True)
+    if cached:
+        return cached
+
+    try:
+        from google.auth.transport.requests import Request
+        from google.oauth2 import service_account
+
+        creds = service_account.Credentials.from_service_account_info(info, scopes=scopes)
+        creds.refresh(Request())
+    except Exception as e:
+        raise ConnectorHTTPError(
+            f"Could not obtain a Google access token for {spec.connector_id}: {e}"
+        ) from e
+
+    # Expire our copy a minute early so a token never goes stale mid-request.
+    frappe.cache().set_value(cache_key, creds.token, expires_in_sec=_TOKEN_TTL_SECONDS)
+    return creds.token
+
+
+def clear_service_account_token(connector_id):
+    """Drop a cached access token — called when a connector's auth changes."""
+    frappe.cache().delete_value(f"bpmn_connector_sa_token:{connector_id}")
 
 
 def _read_secret(spec):

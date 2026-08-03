@@ -363,6 +363,23 @@ def dispatch_connector(instance, task, task_cfg: dict, bpmn_id: str) -> None:
 	result_var = (task_cfg.get("resultVariable") or "").strip()
 	fail_on_error = _cfg_truthy(task_cfg.get("failOnError"))
 
+	# Role gate. Hiding a restricted connector in the modeler is convenience;
+	# this is the control. A diagram authored before the restriction — or by
+	# someone who had the role and has since lost it — must not still run it.
+	# Checked against the user the instance is running as, which for a chat or
+	# form-triggered process is the person who caused it.
+	if not _manifest.user_may_use_connector(connector_id):
+		frappe.log_error(
+			title=f"BPMN ServiceTask: connector not permitted ({bpmn_id})",
+			message=(
+				f"{frappe.session.user} lacks a role allowed to use connector "
+				f"{connector_id!r} (operation {operation!r})."
+			),
+		)
+		if fail_on_error:
+			frappe.throw(f"Not permitted to use connector {connector_id}")
+		return
+
 	handler = _resolve_connector_handler(connector_id, operation)
 	if not handler:
 		frappe.log_error(

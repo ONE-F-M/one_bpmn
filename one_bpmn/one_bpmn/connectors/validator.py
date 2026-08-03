@@ -131,6 +131,7 @@ def _validate_executability(cid, ov):
                 )
         if not spec.http_method:
             issues.append(f"{cid}/{ov}: HTTP operation has no Method")
+        issues += _shadowed_field_access(cid, ov, spec)
         return issues
 
     # Python Handler with no explicit path — the registry must supply one.
@@ -140,6 +141,38 @@ def _validate_executability(cid, ov):
             f"registered handler nor a Handler Path"
         ]
     return []
+
+
+def _shadowed_field_access(cid, ov, spec):
+    """Catch `params.values` — dot access to a field that shadows a dict method.
+
+    Templates read fields off a dict, so a field named ``values``, ``items`` or
+    ``get`` accessed as ``params.values`` silently resolves to the dict METHOD.
+    Nothing raises: the body just renders as "<built-in method values>" and
+    Google rejects it with something unrelated-looking. It cost real debugging
+    time on google_sheets/updateValues.
+
+    Flagged only when a template actually uses dot access on such a field —
+    the field NAME is fine (renaming one breaks every diagram already using it)
+    and bracket access works. So this stays silent for correct configuration
+    and fires exactly on the mistake.
+    """
+    from one_bpmn.one_bpmn.connectors.manifest import field_specs
+
+    shadowed = [n for n in field_specs(cid, ov) if hasattr({}, n)]
+    if not shadowed:
+        return []
+
+    templates = " ".join(
+        str(getattr(spec, attr, "") or "")
+        for attr in ("url_template", "query_params_json", "headers_json", "body_template")
+    )
+    return [
+        f'{cid}/{ov}: template uses params.{name} — that resolves to the dict method, '
+        f'not the field. Use params["{name}"].'
+        for name in shadowed
+        if f"params.{name}" in templates
+    ]
 
 
 def _validate_fields(cid, ov, fields):
@@ -159,6 +192,7 @@ def _validate_fields(cid, ov, fields):
             issues.append(f"{cid}/{ov}/{name}: unknown field type {ftype!r}")
         if ftype == "Dropdown" and not f.get("choices") and not f.get("dynamicChoices"):
             issues.append(f"{cid}/{ov}/{name}: Dropdown field has no choices or Choices From path")
+
 
         cond = f.get("condition")
         if cond is not None:

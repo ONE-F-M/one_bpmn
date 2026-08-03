@@ -28,18 +28,6 @@ def _run(request):
     return gc.call_with_retry(request.execute)
 
 
-def create_document(title: str, folder: str) -> dict:
-    """Create an empty Google Doc inside a Drive folder (Shared-Drive safe)."""
-    if not folder:
-        raise gc.GoogleConfigError(
-            "createDocument requires a Folder — a service account has no My Drive "
-            "quota, so the document must be created inside a Shared Drive folder."
-        )
-    body = {"name": title or "Untitled Document", "mimeType": DOC_MIME, "parents": [folder]}
-    f = _run(_drive().files().create(body=body, fields="id,name,webViewLink", supportsAllDrives=True))
-    return {"documentId": f.get("id"), "title": f.get("name"), "url": f.get("webViewLink")}
-
-
 def batch_update(document_id: str, requests: list) -> dict:
     """documents.batchUpdate — apply a list of Docs API request objects."""
     return _run(_svc().documents().batchUpdate(documentId=document_id, body={"requests": requests}))
@@ -61,19 +49,6 @@ def append_text(document_id: str, text: str) -> dict:
     end_index = content[-1].get("endIndex", 2) if content else 2
     insert_text(document_id, text, index=max(1, end_index - 1))
     return {"documentId": document_id}
-
-
-def replace_all_text(document_id: str, find: str, replace: str, match_case: bool = False) -> dict:
-    """documents.batchUpdate → replaceAllText (template placeholder fill)."""
-    res = batch_update(document_id, [{
-        "replaceAllText": {
-            "containsText": {"text": find, "matchCase": bool(match_case)},
-            "replaceText": replace or "",
-        }
-    }])
-    changed = sum((r.get("replaceAllText", {}) or {}).get("occurrencesChanged", 0) or 0
-                  for r in res.get("replies", []) or [])
-    return {"documentId": document_id, "occurrencesChanged": changed}
 
 
 def fill_template(document_id: str, values: dict, match_case: bool = True) -> dict:

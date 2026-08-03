@@ -68,3 +68,4 @@ one_bpmn.one_bpmn.patches.v1_0.import_connector_manifests_to_doctype #29-07-2026
 one_bpmn.one_bpmn.patches.v1_0.degoogle_connector_field_types #29-07-2026 Drive field types -> configurable Value Transform
 one_bpmn.one_bpmn.patches.v1_0.set_connector_credential_source #29-07-2026 connector holds its own credential
 one_bpmn.one_bpmn.patches.v1_0.add_missing_connector_operations #03-08-2026 operations added to shipped manifests reach already-imported sites
+one_bpmn.one_bpmn.patches.v1_0.google_connectors_to_http #03-08-2026 WI-001811

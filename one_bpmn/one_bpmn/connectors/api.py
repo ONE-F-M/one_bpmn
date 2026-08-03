@@ -17,8 +17,22 @@ from one_bpmn.one_bpmn.connectors.manifest import load_manifests
 
 @frappe.whitelist()
 def get_connector_manifests():
-    """Return all connector manifests for the Service Task properties panel."""
-    return load_manifests()
+    """Connector manifests for the Service Task properties panel.
+
+    Filtered to what the calling user may actually use. The filtering happens
+    here rather than in ``load_manifests`` on purpose: that result is cached
+    once and shared by every request, so applying a per-user rule inside it
+    would serve the first caller's permissions to everyone after them.
+
+    Hiding a connector is a convenience, not the control — dispatch enforces the
+    same rule at runtime, so a diagram that already names a restricted connector
+    still cannot run it.
+    """
+    return [
+        m
+        for m in load_manifests()
+        if manifest.user_may_use_connector(m.get("connectorId"))
+    ]
 
 
 @frappe.whitelist()

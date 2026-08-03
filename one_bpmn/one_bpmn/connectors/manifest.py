@@ -26,6 +26,7 @@ import frappe
 
 _MANIFEST_DIR = os.path.join(os.path.dirname(__file__), "manifests")
 _CACHE_KEY = "bpmn_connector_manifests"
+_ROLES_CACHE_KEY = "bpmn_connector_allowed_roles"
 
 
 # ── Public API ───────────────────────────────────────────────────────────────
@@ -60,6 +61,67 @@ def _seed_fallback():
 def clear_manifest_cache():
     """Drop the cached manifests — called whenever a connector row changes."""
     frappe.cache().delete_value(_CACHE_KEY)
+    frappe.cache().delete_value(_ROLES_CACHE_KEY)
+
+
+def allowed_roles_by_connector():
+    """{connector_id: {role, ...}} — only connectors that restrict themselves.
+
+    Deliberately NOT part of the manifest. The manifest is cached once and
+    served to everyone, so anything user-specific has to be applied outside it —
+    a role-filtered manifest in a shared cache would hand the first caller's
+    permissions to the next one. Callers filter with this; the cache stays
+    identical for every user.
+    """
+    cached = frappe.cache().get_value(_ROLES_CACHE_KEY)
+    if cached is not None:
+        return {k: set(v) for k, v in cached.items()}
+
+    mapping = {}
+    try:
+        if frappe.db and frappe.db.table_exists("BPMN Connector Role"):
+            rows = frappe.get_all(
+                "BPMN Connector Role",
+                filters={"parenttype": "BPMN Connector"},
+                fields=["parent", "role"],
+            )
+            by_parent = {}
+            for row in rows:
+                if row.role:
+                    by_parent.setdefault(row.parent, set()).add(row.role)
+            # parent is the DocType name; connector_id is what callers know it by.
+            ids = {
+                c.name: c.connector_id
+                for c in frappe.get_all(
+                    "BPMN Connector",
+                    filters={"name": ["in", list(by_parent)]} if by_parent else {"name": ""},
+                    fields=["name", "connector_id"],
+                )
+            }
+            mapping = {ids[p]: r for p, r in by_parent.items() if p in ids}
+    except Exception:
+        # Never fail the modeler over a gate lookup; an unreadable table means
+        # no restrictions are known, and the runtime check still applies.
+        return {}
+
+    frappe.cache().set_value(_ROLES_CACHE_KEY, {k: sorted(v) for k, v in mapping.items()})
+    return mapping
+
+
+def user_may_use_connector(connector_id, user=None):
+    """Is ``user`` allowed to use this connector?
+
+    A connector with no Allowed Roles is open to anyone who can reach the
+    modeler — the default, and what every existing connector is. Administrator
+    is never locked out, so a misconfigured gate can always be undone.
+    """
+    required = allowed_roles_by_connector().get(connector_id)
+    if not required:
+        return True
+    user = user or frappe.session.user
+    if user == "Administrator":
+        return True
+    return bool(required & set(frappe.get_roles(user)))
 
 
 def get_manifest(connector_id):
@@ -187,6 +249,10 @@ def get_execution_spec(connector_id, operation):
         auth_secret_field=conn.auth_secret_field,
         auth_header_name=conn.auth_header_name,
         auth_query_param=conn.auth_query_param,
+        # Scopes are configuration, not a secret — they decide what the minted
+        # access token is allowed to do, so two connectors can share one key and
+        # still be limited differently.
+        auth_scopes=conn.auth_scopes,
     )
 
 
@@ -333,7 +399,17 @@ def _field_spec_from_row(row):
         "expression": bool(row.expression),
     }
     if row.default_value not in (None, ""):
-        spec["default"] = row.default_value
+        # default_value is a Data column, so a Boolean field's default comes back
+        # as the string "true"/"false". It has to be coerced here, not left to
+        # the browser: in JS both "true" AND "false" are truthy, so a field
+        # defaulting to false would render as a ticked checkbox. Coercing also
+        # keeps the DB projection identical to the seed manifests, which is what
+        # the seed-parity test compares.
+        spec["default"] = (
+            str(row.default_value).strip().lower() in ("1", "true", "yes", "on")
+            if (row.field_type or "String") == "Boolean"
+            else row.default_value
+        )
     if row.choices_source_path:
         # The panel only needs to know the dropdown is populated live; the dotted
         # path stays server-side (it is resolved from the DB when the panel asks

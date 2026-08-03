@@ -12,6 +12,8 @@
   "enabled",
   "column_break_basics",
   "description",
+  "access_section",
+  "allowed_roles",
   "icon_section",
   "icon_svg_path",
   "icon_color",
@@ -30,6 +32,7 @@
   "auth_secret",
   "auth_settings_doctype",
   "auth_secret_field",
+  "auth_scopes",
   "column_break_auth",
   "auth_header_name",
   "auth_query_param",
@@ -75,12 +78,24 @@
    "label": "Description"
   },
   {
+   "fieldname": "access_section",
+   "fieldtype": "Section Break",
+   "label": "Access"
+  },
+  {
+   "description": "Who may use this connector. Leave empty to allow every user who can open the modeler. Restricting it hides the connector from the Service Task panel and refuses it at runtime.",
+   "fieldname": "allowed_roles",
+   "fieldtype": "Table MultiSelect",
+   "label": "Allowed Roles",
+   "options": "BPMN Connector Role"
+  },
+  {
    "fieldname": "icon_section",
    "fieldtype": "Section Break",
    "label": "Canvas Icon"
   },
   {
-   "description": "The <code>d</code> attribute of a single SVG path on a <b>24\u00d724 viewBox</b> (e.g. paste from an MDI icon). Drawn on the Service Task in place of the gear. Leave blank for the default plug.",
+   "description": "The <code>d</code> attribute of a single SVG path on a <b>24×24 viewBox</b> (e.g. paste from an MDI icon). Drawn on the Service Task in place of the gear. Leave blank for the default plug.",
    "fieldname": "icon_svg_path",
    "fieldtype": "Small Text",
    "label": "Icon SVG Path"
@@ -114,7 +129,7 @@
   },
   {
    "default": "HTTP Request",
-   "description": "<b>HTTP Request</b> \u2014 fully configured here, no Python needed. <b>Python Handler</b> \u2014 dispatch to a registered @connector handler (or an operation's Handler Path); use for SDK-based providers.",
+   "description": "<b>HTTP Request</b> — fully configured here, no Python needed. <b>Python Handler</b> — dispatch to a registered @connector handler (or an operation's Handler Path); use for SDK-based providers.",
    "fieldname": "execution_type",
    "fieldtype": "Select",
    "in_list_view": 1,
@@ -166,7 +181,7 @@
   {
    "default": "On this connector",
    "depends_on": "eval:doc.auth_type && doc.auth_type!='None' && doc.auth_type!='Service Account JSON'",
-   "description": "<b>On this connector</b> \u2014 type the secret below; it is encrypted and never leaves the server. <b>From a settings DocType</b> \u2014 read it from a Password field elsewhere, for a credential several connectors share (how the Google connectors reuse one service account).",
+   "description": "<b>On this connector</b> — type the secret below; it is encrypted and never leaves the server. <b>From a settings DocType</b> — read it from a Password field elsewhere, for a credential several connectors share (how the Google connectors reuse one service account).",
    "fieldname": "credential_source",
    "fieldtype": "Select",
    "label": "Credential Source",
@@ -193,6 +208,14 @@
    "fieldname": "auth_secret_field",
    "fieldtype": "Data",
    "label": "Secret Fieldname"
+  },
+  {
+   "depends_on": "eval:doc.auth_type=='Service Account JSON'",
+   "description": "One OAuth scope per line. Google refuses a token request with no scope, so this is required for a service account. Two connectors may share a key and ask for different scopes.",
+   "fieldname": "auth_scopes",
+   "fieldtype": "Small Text",
+   "label": "Scopes",
+   "mandatory_depends_on": "eval:doc.auth_type=='Service Account JSON'"
   },
   {
    "fieldname": "column_break_auth",
@@ -233,7 +256,7 @@
    "fieldtype": "Column Break"
   },
   {
-   "description": "Reference only \u2014 never fetched at runtime.",
+   "description": "Reference only — never fetched at runtime.",
    "fieldname": "discovery_url",
    "fieldtype": "Data",
    "label": "Discovery Document URL"

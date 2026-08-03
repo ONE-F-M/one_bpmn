@@ -88,39 +88,6 @@ def create_file(
 	)
 
 
-def copy_file(file_id: str, filename: str = None, folder_id: str = None) -> dict:
-	"""``files.copy`` — instantiate a template by cloning it.
-
-	This is the only way to produce a document that keeps a template's *design*:
-	logos, table borders, named styles, bilingual column layout and RTL runs all
-	survive, because nothing is re-rendered — Drive duplicates the file.
-
-	The alternative the process used before — export the template to plain text,
-	have a model imitate it, and upload markdown — cannot preserve any of that,
-	since the result is built from the model's output rather than the template.
-
-	``filename`` defaults to Drive's own "Copy of X"; pass the real document
-	title instead. ``folder_id`` sets the copy's parent — omit it and the copy
-	lands beside the template, which is almost never wanted.
-
-	Returns the copy's metadata: {"id", "name", "webViewLink"} — deliberately
-	the same shape ``create_file`` returns, so a map can swap one for the other
-	without touching anything downstream.
-	"""
-	body = {}
-	if filename:
-		body["name"] = filename
-	if folder_id:
-		body["parents"] = [folder_id]
-
-	service = _get_service()
-	return (
-		service.files()
-		.copy(fileId=file_id, body=body, fields="id,name,webViewLink", supportsAllDrives=True)
-		.execute()
-	)
-
-
 def update_file_content(file_id: str, content: str, source_mime_type: str = "text/markdown") -> dict:
 	"""
 	Replace an existing file's content — used to push finalized content into
@@ -236,20 +203,6 @@ def revoke_permissions(file_id: str, scope: str = "all", match: str = None) -> d
 			skipped.append(dict(perm, reason=str(e)))
 
 	return {"removed": removed, "skipped": skipped}
-
-
-def delete_file(file_id: str, permanent: bool = False) -> None:
-	"""
-	Remove a file from Drive. Trashes it (recoverable from the Drive trash)
-	by default; pass permanent=True to bypass the trash entirely.
-	"""
-	service = _get_service()
-	if permanent:
-		service.files().delete(fileId=file_id, supportsAllDrives=True).execute()
-	else:
-		service.files().update(
-			fileId=file_id, body={"trashed": True}, fields="id", supportsAllDrives=True
-		).execute()
 
 
 def list_files(folder_id: str, page_size: int = 20) -> list:
