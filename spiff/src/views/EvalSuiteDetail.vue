@@ -138,6 +138,14 @@
 								<router-link :to="`/processa/evals/run/${encodeURIComponent(r.name)}`" class="text-gray-900 hover:underline">
 									{{ r.display_title || r.name }}
 								</router-link>
+								<!-- Only replay is marked. "live" is the norm and labelling every
+								     row would bury the one distinction that changes how the
+								     result should be read. -->
+								<span
+									v-if="r.backend === 'replay'"
+									class="ml-2 inline-block px-2 py-0.5 rounded-full text-xs bg-amber-50 text-amber-700"
+									title="Assertions were re-checked against each case's stored answer — the agent was not called"
+								>replay</span>
 							</td>
 							<td class="px-6 py-3 text-gray-600" :title="(r.case_names || []).join(', ')">
 								{{ r.case_label }}

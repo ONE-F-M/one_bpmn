@@ -12,7 +12,16 @@
 					<span class="inline-block px-2 py-0.5 rounded-full text-xs" :class="runPill(run.status)">
 						{{ run.status }}
 					</span>
-					<span class="text-xs text-gray-400">{{ run.backend }}</span>
+					<span
+						v-if="run.backend"
+						class="text-xs"
+						:class="run.backend === 'replay'
+							? 'px-2 py-0.5 rounded-full bg-amber-50 text-amber-700'
+							: 'text-gray-400'"
+						:title="run.backend === 'replay'
+							? 'Assertions were re-checked against each case\'s stored answer — the agent was not called'
+							: 'The agent was called for every case in this run'"
+					>{{ run.backend }}</span>
 				</div>
 				<div class="flex items-center gap-4">
 					<label v-if="baselines.length" class="flex items-center gap-2 text-xs text-gray-500">
