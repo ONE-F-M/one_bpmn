@@ -514,7 +514,20 @@ def _run_direct_eval(cfg, case) -> tuple:
     system prompt. Records a standalone eval-origin AI Agent Run so the call
     shows in Insights alongside process (agent) evals."""
     provider = cfg.ai_provider_credentials or ""
-    model = frappe.db.get_value("AI Provider Credentials", provider, "default_model") or ""
+    # WI-001655: the MODEL is the agent's own catalog pick and the credentials
+    # record carries the connection only — default_model was removed from that
+    # doctype. Reading it here did one of two wrong things depending on whether
+    # the site's column survived the field removal: returned a stale orphan
+    # value (so the eval silently tested a model the agent does not use, and
+    # priced the run against it), or raised Unknown column, turning every
+    # Direct case into an Error result. Either way the agent's real model was
+    # never exercised.
+    #
+    # Last-resort fallback mirrors DirectApiExecutor: any catalog model linked
+    # to these credentials, for a legacy agent with no ai_model set.
+    model = cfg.get("ai_model") or frappe.db.get_value(
+        "AI Model", {"ai_provider_credentials": provider}, "name"
+    ) or ""
 
     started = now_datetime()
     config = ExecutorConfig(

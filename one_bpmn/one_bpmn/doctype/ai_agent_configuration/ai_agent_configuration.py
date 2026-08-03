@@ -18,9 +18,11 @@ class AIAgentConfiguration(Document):
 		from one_bpmn.one_bpmn.doctype.ai_agent_constant.ai_agent_constant import AIAgentConstant
 		from one_bpmn.one_bpmn.doctype.ai_agent_sub_prompt.ai_agent_sub_prompt import AIAgentSubPrompt
 
+		agent_creation_process: DF.Link | None
 		agent_framework: DF.Literal["", "Google ADK", "LangGraph", "Direct API", "Anthropic"]
 		agent_id: DF.Data
 		agent_name: DF.Data
+		can_create_agents: DF.Check
 		constants: DF.Table[AIAgentConstant]
 		description: DF.SmallText | None
 		enabled: DF.Check
@@ -40,7 +42,43 @@ class AIAgentConfiguration(Document):
 		self.derive_provider_from_model()
 		self.validate_required_variables()
 		self.validate_unique_chat_mode_label()
+		self.validate_agent_creation_grant()
 		self.apply_background_lifecycle()
+
+	def validate_agent_creation_grant(self):
+		"""At most one configuration may hold the agent-creation grant, and it
+		must link the process that carries a new agent Draft -> Live.
+
+		The grant replaces the hardcoded "AI Agent Creation Process" name that
+		agent_config_resolver used to assume: the process is whatever THIS
+		field points at. Keeping it unique means the lookup can never be
+		ambiguous — there is one answer or none.
+		"""
+		if not self.can_create_agents:
+			return
+
+		# mandatory_depends_on covers the form; this covers every other write
+		# path (endpoint, patch, bulk edit), where mandatory_depends_on is not
+		# evaluated.
+		if not self.agent_creation_process:
+			frappe.throw(
+				_("Link an Agent Creation Process before granting this agent the right to create agents."),
+				title=_("Agent Creation Process required"),
+			)
+
+		clash = frappe.db.get_value(
+			"AI Agent Configuration",
+			{"can_create_agents": 1, "name": ("!=", self.name)},
+			"name",
+		)
+		if clash:
+			frappe.throw(
+				_(
+					"'{0}' already holds the agent-creation grant. Only one AI Agent "
+					"Configuration may create agents — clear the checkbox on '{0}' first."
+				).format(clash),
+				title=_("Agent-creation grant already held"),
+			)
 
 	def derive_provider_from_model(self):
 		"""WI-001655: the model is the pick, the provider is derived. When an
@@ -252,8 +290,9 @@ def get_agent_config(agent_id: str) -> dict | None:
 	Load agent configuration from AI Agent Configuration DocType.
 
 	Returns a dict with: system_prompt, temperature, max_tokens,
-	ai_provider_credentials, langsmith_project, sub_prompts, and
-	constants. There is no per-agent override mechanism (WI-001615):
+	ai_provider_credentials, langsmith_project, sub_prompts,
+	constants, and — for the frozen static context layer (WI-001639) —
+	examples and guardrails. There is no per-agent override mechanism (WI-001615):
 	provider, key and model come from the linked AI Provider
 	Credentials record.
 
@@ -275,7 +314,7 @@ def get_agent_config(agent_id: str) -> dict | None:
 			"name", "agent_id", "system_prompt", "temperature", "max_tokens",
 			"ai_model", "ai_provider_credentials", "langsmith_project",
 			"agent_framework", "process_model", "chat_mode_label",
-			"lifecycle_status", "agent_type",
+			"lifecycle_status", "agent_type", "pii_screening",
 		],
 		as_dict=True,
 	)
@@ -295,6 +334,24 @@ def get_agent_config(agent_id: str) -> dict | None:
 			"prompt": sp.prompt_text,
 			"temperature": sp.temperature,
 		}
+
+	# WI-001639: examples + guard rails are the non-Instructions half of the
+	# agent's FROZEN static context. Ordered by idx so the assembled prompt is
+	# byte-stable across calls; disabled rows are carried through and filtered
+	# by the assembler, keeping the "what is configured" and "what is sent"
+	# decisions in one place.
+	examples = frappe.get_all(
+		"AI Agent Example",
+		filters={"parent": config.name, "parenttype": "AI Agent Configuration"},
+		fields=["input", "expected_output", "note", "enabled"],
+		order_by="idx asc",
+	)
+	guardrails = frappe.get_all(
+		"AI Agent Guard Rail",
+		filters={"parent": config.name, "parenttype": "AI Agent Configuration"},
+		fields=["guardrail", "category", "enabled"],
+		order_by="idx asc",
+	)
 
 	# Load constants keyed by constant_name, cast to proper types
 	constants = {}
@@ -319,6 +376,8 @@ def get_agent_config(agent_id: str) -> dict | None:
 		"agent_type": config.agent_type,
 		"sub_prompts": sub_prompts,
 		"constants": constants,
+		"examples": examples,
+		"guardrails": guardrails,
 	}
 
 	frappe.cache.set_value(cache_key, result)

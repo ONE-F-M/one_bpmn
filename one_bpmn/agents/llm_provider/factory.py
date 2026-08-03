@@ -72,8 +72,10 @@ _PROVIDER_TYPE_MAP = {
 
 def _get_provider_credentials(provider: str) -> tuple[str, str]:
     """
-    Return (api_key, default_model) for *provider* from AI Provider
-    Credentials — the single credential store (WI-001614). Prefers the
+    Return (api_key, model) for *provider* from AI Provider Credentials —
+    the single credential store (WI-001614). The model is any catalog model
+    linked to the chosen record, NOT a credentials-level default: WI-001655
+    removed default_model from that doctype. Prefers the
     canonical record name, else the first enabled record of the matching
     provider_type that holds a key. Returns ("", "") when none qualifies
     so callers can fall back to the legacy AI Chat Settings fields.

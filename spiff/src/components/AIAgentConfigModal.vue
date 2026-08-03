@@ -787,17 +787,13 @@ const providerLabel = computed(() => {
   return p ? p.provider_name : form.value.aiProvider;
 });
 
-// When a provider is selected, fill the Model field from its Default Model.
-// If the provider has no Default Model, leave the field untouched — the empty
-// state is caught (and blocked) at save time.
-// WI-001655: dead since the provider select became read-only and models
-// come from the catalog; kept as a no-op guard in case of stale bindings.
-function onProviderChange() {
-  const p = providers.value.find((x) => x.name === form.value.aiProvider);
-  if (p && p.default_model) {
-    form.value.aiModel = p.default_model;
-  }
-}
+// (WI-001655) onProviderChange lived here: picking a provider copied its
+// Default Model into the Model field. Removed rather than rewritten — the
+// direction it encoded is now backwards. The MODEL is the agent's pick and the
+// provider is derived from that model's credentials link, so a provider can no
+// longer choose a model for you. AI Provider Credentials.default_model was
+// deleted with the same change, the provider select is disabled, and nothing
+// called this function; it read a field that no longer exists.
 
 function makeId() {
   return Date.now() + "_" + Math.random().toString(36).slice(2, 8);
@@ -1117,6 +1113,17 @@ function proposalRows(proposal) {
   }
   if (Array.isArray(proposal.sample_prompts) && proposal.sample_prompts.length) {
     rows["Sample prompts"] = proposal.sample_prompts.map((sp) => sp.prompt).join(" • ");
+  }
+  // WI-001639: examples and guard rails become part of the agent's frozen
+  // static context, so the designer must SEE them before confirming — a
+  // proposal card that hides them would create rules nobody agreed to.
+  if (Array.isArray(proposal.examples) && proposal.examples.length) {
+    rows["Examples"] = proposal.examples.map((ex) => ex.input).join(" • ");
+  }
+  if (Array.isArray(proposal.guardrails) && proposal.guardrails.length) {
+    rows["Guard rails"] = proposal.guardrails
+      .map((g) => (g.category ? `[${g.category}] ${g.guardrail}` : g.guardrail))
+      .join(" • ");
   }
   return rows;
 }

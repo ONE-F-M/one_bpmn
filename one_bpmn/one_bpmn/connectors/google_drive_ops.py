@@ -63,6 +63,25 @@ def create_file(params, ctx):
     }
 
 
+@connector("google_drive", "copyFile")
+def copy_file(params, ctx):
+    """files.copy — instantiate a branded template, design intact.
+
+    Returns the same {id, name, webViewLink} shape as createFile so a map can
+    swap one for the other without changing anything downstream.
+
+    NOTE for anyone wiring this into a process: do not follow it with
+    ``updateFileContent``. That replaces the whole file body with an upload,
+    which destroys every part of the template this operation exists to keep.
+    Fill the copy with google_docs/fillTemplate instead.
+    """
+    return gd.copy_file(
+        params["file"],
+        filename=params.get("filename") or None,
+        folder_id=params.get("folder") or None,
+    )
+
+
 @connector("google_drive", "updateFileContent")
 def update_file_content(params, ctx):
     """files.update — replace an existing file's content."""
@@ -104,6 +123,31 @@ def list_files(params, ctx):
     """files.list — non-trashed files directly inside a folder."""
     files = gd.list_files(params["folder"], page_size=int(params.get("pageSize") or 20))
     return {"files": files, "count": len(files)}
+
+
+@connector("google_drive", "revokePermissions")
+def revoke_permissions(params, ctx):
+    """permissions.list + permissions.delete — withdraw sharing without touching content.
+
+    The counterpart to setPermissions. Used to take a document out of
+    circulation: the file and its history stay exactly as they are, but the
+    people who could open it no longer can.
+    """
+    outcome = gd.revoke_permissions(
+        params["file"],
+        scope=(params.get("scope") or "all").strip(),
+        match=(params.get("match") or "").strip() or None,
+    )
+    # `skipped` is reported, not hidden: on a Shared Drive some grants cannot be
+    # removed on the item at all, and a caller reading only a count would take
+    # "revoked: 1" as "nobody can see it now".
+    return {
+        "revoked": len(outcome["removed"]),
+        "skipped": len(outcome["skipped"]),
+        "grants": outcome["removed"],
+        "skipped_grants": outcome["skipped"],
+        "file": params["file"],
+    }
 
 
 @connector("google_drive", "deleteFile")

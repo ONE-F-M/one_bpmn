@@ -30,10 +30,13 @@ def _runner_for(config: dict) -> str:
 	if config.get("process_model"):
 		return "bpmn_map"
 	framework = (config.get("agent_framework") or "").strip().lower()
+	# "anthropic" has no legacy runner left: every Anthropic-framework agent
+	# (Docu, Logix, ProsAlly, LuCrusher) is map-driven and takes the branch
+	# above, so a config claiming Anthropic without a map is a misconfiguration
+	# and falls through to the single-shot path rather than a dead import.
 	return {
 		"google adk": "adk_stage_agent",
 		"langgraph": "langgraph",
-		"anthropic": "anthropic_tool_loop",
 		"direct api": "direct_api",
 	}.get(framework, "direct_api")
 
@@ -70,8 +73,10 @@ def list_available_agents(include_legacy: int = 1) -> list:
 	The list is a query over enabled, Live, Chat-type AI Agent
 	Configurations, filtered by each agent's allowed_roles (empty = all
 	logged-in users). During the transition — until the legacy Lumina-page
-	agents (General Chat, BA Agent, LuCrusher) are migrated to Live configs —
-	the hardcoded set is unioned in so the chat dropdown never empties.
+	agents (General Chat, BA Agent) are migrated to Live configs — the
+	hardcoded set is unioned in so the chat dropdown never empties. LuCrusher
+	left that set in WI-001634: it is a Live, map-driven config now and is
+	listed from the query like every other migrated agent.
 	Each entry: {value (chat mode label), label, icon, agent_id}.
 	"""
 	user_roles = set(frappe.get_roles(frappe.session.user))
@@ -108,7 +113,7 @@ def list_available_agents(include_legacy: int = 1) -> list:
 		seen.add(cfg.chat_mode_label)
 
 	if int(include_legacy or 0):
-		for label, icon in (("General Chat", "💬"), ("BA Agent", "📋"), ("LuCrusher", "💥")):
+		for label, icon in (("General Chat", "💬"), ("BA Agent", "📋")):
 			if label not in seen:
 				agents.append({"value": label, "label": label, "icon": icon, "agent_id": None, "legacy": True})
 
@@ -135,6 +140,17 @@ def invoke_agent(agent_id: str, message: str, conversation: str = None, context:
 	config = _resolve_config(agent_id)
 	_authorize(config, conversation)
 
+	# ── PII input screening (WI-001644) ──────────────────────────────────
+	# Every agent invocation passes through here, so this is the one place
+	# that can guarantee no user-supplied PII reaches a third-party model.
+	# Detected values become stable tokens; the mapping lives for this turn
+	# only and is swapped back at the tool boundary so lookups still resolve.
+	from one_bpmn.security import pii as _pii
+
+	screened = _pii.screen_input(message, config)
+	message = screened.text
+	_pii_turn = _pii.begin_turn(screened, enabled=screened.enabled)
+
 	if not conversation:
 		from one_bpmn.utils.chat_persistence import create_agent_conversation
 
@@ -143,7 +159,10 @@ def invoke_agent(agent_id: str, message: str, conversation: str = None, context:
 		)
 
 	runner = _runner_for(config)
-	result = _RUNNERS[runner](config, conversation, message, context or {})
+	try:
+		result = _RUNNERS[runner](config, conversation, message, context or {})
+	finally:
+		_pii.end_turn(_pii_turn)
 	if not isinstance(result, dict):
 		result = {"response": str(result or "")}
 	result.setdefault("conversation", conversation)
@@ -194,16 +213,6 @@ def _run_langgraph(config, conversation, message, context):
 	return resp if isinstance(resp, dict) else {"response": str(resp or "")}
 
 
-def _run_anthropic_tool_loop(config, conversation, message, context):
-	"""LuCrusher. Bespoke Anthropic loop in onefm_mcp until converted."""
-	try:
-		from onefm_mcp.onefm_mcp.page.lumina.lumina import send_message_with_agent
-	except Exception:
-		frappe.throw(_("The runner for '{0}' is unavailable.").format(config["agent_id"]))
-	resp = send_message_with_agent(conversation, message, stream=False)
-	return resp if isinstance(resp, dict) else {"response": str(resp or "")}
-
-
 def _run_direct_api(config, conversation, message, context):
 	"""Single-shot / general chat. Persists the turn and calls the adapter's
 	own (async) tool-calling loop for one exchange."""
@@ -224,6 +233,5 @@ _RUNNERS = {
 	"bpmn_map": _run_bpmn_map,
 	"adk_stage_agent": _run_adk_stage_agent,
 	"langgraph": _run_langgraph,
-	"anthropic_tool_loop": _run_anthropic_tool_loop,
 	"direct_api": _run_direct_api,
 }

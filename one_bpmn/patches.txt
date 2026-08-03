@@ -53,6 +53,16 @@ one_bpmn.one_bpmn.patches.v1_0.harden_logix_modify_existing_script_prompts #28-0
 one_bpmn.one_bpmn.patches.v1_0.add_assistant_eval_authoring_tools #27-07-2026
 one_bpmn.one_bpmn.patches.v1_0.add_assistant_agent_creation_tool #28-07-2026
 one_bpmn.one_bpmn.patches.v1_0.fix_assistant_response_contract #28-07-2026
+one_bpmn.one_bpmn.patches.v1_0.migrate_lucrusher_agent_to_generic_path #29-07-2026 WI-001634
+one_bpmn.one_bpmn.patches.v1_0.merge_lumina_general_chat_config #30-07-2026 WI-001630
+one_bpmn.one_bpmn.patches.v1_0.repair_agent_memory_threads #30-07-2026 WI-001630
+one_bpmn.one_bpmn.patches.v1_0.seed_logix_code_guardrails #02-08-2026 WI-001639
+one_bpmn.one_bpmn.patches.v1_0.deprecate_document_generation_processes #03-08-2026 WI-001844
+one_bpmn.one_bpmn.patches.v1_0.inline_docu_tool_scripts #03-08-2026 rerun for self-contained bodies
+one_bpmn.one_bpmn.patches.v1_0.fix_assistant_tool_gateway #02-08-2026 WI-001751 follow-up
+one_bpmn.one_bpmn.patches.v1_0.add_eval_suite_inline_cases #02-08-2026 WI-001751 follow-up
+one_bpmn.one_bpmn.patches.v1_0.fix_assistant_prompt_routing #02-08-2026 WI-001751 follow-up
+one_bpmn.one_bpmn.patches.v1_0.raise_assistant_token_ceiling #02-08-2026 WI-001751 follow-up
 
 one_bpmn.one_bpmn.patches.v1_0.import_connector_manifests_to_doctype #29-07-2026 connectors become configuration
 one_bpmn.one_bpmn.patches.v1_0.degoogle_connector_field_types #29-07-2026 Drive field types -> configurable Value Transform

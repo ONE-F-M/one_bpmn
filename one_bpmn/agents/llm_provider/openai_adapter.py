@@ -17,11 +17,40 @@ from .base import (
 _MAX_TOOL_TURNS = 10
 
 
+# OpenAI's reasoning families reject `max_tokens` outright — the request 400s with
+# "Unsupported parameter: 'max_tokens' is not supported with this model. Use
+# 'max_completion_tokens' instead." Sending the wrong one makes EVERY call fail, so
+# the token cap has to be named per model family, not once for the provider.
+_REASONING_MODEL_PREFIXES = ("gpt-5", "o1", "o3", "o4")
+
+
+def _is_reasoning_model(model: str) -> bool:
+    name = (model or "").strip().lower()
+    return any(name.startswith(prefix) for prefix in _REASONING_MODEL_PREFIXES)
+
+
+def _token_cap(model: str, max_tokens: int) -> dict:
+    """The output-cap kwarg under the name this model actually accepts."""
+    key = "max_completion_tokens" if _is_reasoning_model(model) else "max_tokens"
+    return {key: max_tokens}
+
+
 def _usage_tokens(response) -> tuple:
+    """Returns ``(prompt, completion, cache_read, cache_write)``.
+
+    Unlike Anthropic, OpenAI's ``prompt_tokens`` ALREADY includes the cached
+    portion, so cache_read is read out of ``prompt_tokens_details`` purely as a
+    breakdown — nothing is added to the prompt total. OpenAI does not bill a
+    cache-write premium, so cache_write is always 0 (WI-001643).
+    """
     usage = getattr(response, "usage", None)
+    details = getattr(usage, "prompt_tokens_details", None)
+    cache_read = getattr(details, "cached_tokens", 0) or 0
     return (
         getattr(usage, "prompt_tokens", 0) or 0,
         getattr(usage, "completion_tokens", 0) or 0,
+        cache_read,
+        0,
     )
 
 
@@ -57,7 +86,8 @@ class OpenAIAdapter(BaseLLMAdapter):
         tool_defs = [_build_tool_def(t) for t in tools] if tools else []
         tool_map = {t.name: t for t in tools} if tools else {}
 
-        kwargs: dict = {"model": self._model, "messages": messages, "max_tokens": max_tokens}
+        kwargs: dict = {"model": self._model, "messages": messages}
+        kwargs.update(_token_cap(self._model, max_tokens))
         if tool_defs:
             kwargs["tools"] = tool_defs
 
@@ -66,7 +96,7 @@ class OpenAIAdapter(BaseLLMAdapter):
             _turn_t0 = time.perf_counter()
             response = await self._client.chat.completions.create(**kwargs)
             choice = response.choices[0]
-            prompt_tokens, completion_tokens = _usage_tokens(response)
+            prompt_tokens, completion_tokens, cache_read, cache_write = _usage_tokens(response)
 
             if choice.finish_reason != "tool_calls":
                 content = choice.message.content or ""
@@ -84,6 +114,8 @@ class OpenAIAdapter(BaseLLMAdapter):
                         content=content,
                         prompt_tokens=prompt_tokens,
                         completion_tokens=completion_tokens,
+                        cache_read_tokens=cache_read,
+                        cache_write_tokens=cache_write,
                         latency_ms=int((time.perf_counter() - _turn_t0) * 1000),
                     )
                 )
@@ -99,6 +131,8 @@ class OpenAIAdapter(BaseLLMAdapter):
                 content=choice.message.content or "",
                 prompt_tokens=prompt_tokens,
                 completion_tokens=completion_tokens,
+                cache_read_tokens=cache_read,
+                cache_write_tokens=cache_write,
             )
             for tc in choice.message.tool_calls:
                 tool = tool_map.get(tc.function.name)
@@ -166,13 +200,14 @@ class OpenAIAdapter(BaseLLMAdapter):
                         "content": r.get("content", ""),
                     })
 
-        kwargs: dict = {"model": self._model, "messages": messages, "max_tokens": max_tokens}
+        kwargs: dict = {"model": self._model, "messages": messages}
+        kwargs.update(_token_cap(self._model, max_tokens))
         if tools:
             kwargs["tools"] = [_build_tool_def(t) for t in tools]
 
         response = await self._client.chat.completions.create(**kwargs)
         choice = response.choices[0]
-        prompt_tokens, completion_tokens = _usage_tokens(response)
+        prompt_tokens, completion_tokens, cache_read, cache_write = _usage_tokens(response)
 
         tool_calls = []
         if choice.finish_reason == "tool_calls":
@@ -198,4 +233,6 @@ class OpenAIAdapter(BaseLLMAdapter):
             tool_calls=tool_calls,
             prompt_tokens=prompt_tokens,
             completion_tokens=completion_tokens,
+            cache_read_tokens=cache_read,
+            cache_write_tokens=cache_write,
         )

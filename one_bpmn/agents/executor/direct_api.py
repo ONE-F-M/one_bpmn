@@ -42,17 +42,24 @@ def _run_coro_blocking(coro):
     context (socketio bridge, future ASGI deployment), fall back to running
     the coroutine on a dedicated thread with its own loop instead of
     crashing.
+
+    The fallback copies the caller's contextvars into that thread, or the
+    coroutine would run without ``frappe.local`` (site/db/session) — see
+    ``turn_state.run_sync``, which carries the same contract for the nested
+    call the stage tools make.
     """
     import asyncio
     import concurrent.futures
+    import contextvars
 
     try:
         asyncio.get_running_loop()
     except RuntimeError:
         return asyncio.run(coro)
 
+    ctx = contextvars.copy_context()
     with concurrent.futures.ThreadPoolExecutor(max_workers=1) as pool:
-        return pool.submit(asyncio.run, coro).result()
+        return pool.submit(ctx.run, asyncio.run, coro).result()
 
 
 def _strip_code_fences(content: str) -> str:
@@ -354,6 +361,8 @@ class DirectApiExecutor(Executor):
                     prompt_tokens=suspension.prompt_tokens,
                     completion_tokens=suspension.completion_tokens,
                     total_tokens=suspension.prompt_tokens + suspension.completion_tokens,
+                    cache_read_tokens=getattr(suspension, "cache_read_tokens", 0) or 0,
+                    cache_write_tokens=getattr(suspension, "cache_write_tokens", 0) or 0,
                 ),
                 trace=list(suspension.trace),
                 suspension=asdict(suspension),
@@ -363,6 +372,8 @@ class DirectApiExecutor(Executor):
             prompt_tokens=completion.prompt_tokens,
             completion_tokens=completion.completion_tokens,
             total_tokens=completion.prompt_tokens + completion.completion_tokens,
+            cache_read_tokens=completion.cache_read_tokens,
+            cache_write_tokens=completion.cache_write_tokens,
         )
         trace = [asdict(turn) for turn in completion.trace]
         latency_ms = int((time.time() - start) * 1000)
@@ -582,19 +593,36 @@ class DirectApiExecutor(Executor):
 
     @staticmethod
     def _parse_token_usage(usage_raw: dict) -> TokenUsage:
+        """Normalise a raw provider usage dict into a TokenUsage.
+
+        Anthropic reports cached portions separately from ``input_tokens``, so
+        they are added to reach the full consumed context. OpenAI-shaped
+        payloads already include cached tokens in ``prompt_tokens`` and expose
+        the breakdown under ``prompt_tokens_details.cached_tokens`` — so that
+        one is read, never added. Either way the cache counts are also carried
+        on the TokenUsage so pricing can bill them at their own rates
+        (WI-001643); previously they were folded in and discarded, which billed
+        every cached token at the full input rate.
+        """
         prompt = usage_raw.get("prompt_tokens") or usage_raw.get("input_tokens") or 0
-        # Anthropic reports cached portions separately from input_tokens.
-        # Cache read/creation tokens ARE consumed context — just billed
-        # differently — so include them in the prompt count (mirrors
-        # llm_provider.anthropic_adapter._usage_tokens; pricing handles cost).
-        prompt += (usage_raw.get("cache_read_input_tokens") or 0)
-        prompt += (usage_raw.get("cache_creation_input_tokens") or 0)
+        anthropic_read = usage_raw.get("cache_read_input_tokens") or 0
+        cache_write = usage_raw.get("cache_creation_input_tokens") or 0
+        if anthropic_read or cache_write:
+            # Anthropic shape: input_tokens EXCLUDES the cached portions.
+            prompt += anthropic_read + cache_write
+            cache_read = anthropic_read
+        else:
+            # OpenAI shape: prompt_tokens already INCLUDES the cached portion.
+            details = usage_raw.get("prompt_tokens_details") or {}
+            cache_read = (details or {}).get("cached_tokens") or 0
         completion = usage_raw.get("completion_tokens") or usage_raw.get("output_tokens") or 0
         total = usage_raw.get("total_tokens") or (prompt + completion)
         return TokenUsage(
             prompt_tokens=int(prompt),
             completion_tokens=int(completion),
             total_tokens=int(total),
+            cache_read_tokens=int(cache_read),
+            cache_write_tokens=int(cache_write),
         )
 
     @staticmethod

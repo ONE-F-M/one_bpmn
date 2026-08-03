@@ -3,6 +3,17 @@ from dataclasses import dataclass, field
 from typing import Callable
 
 
+class LLMTruncatedError(RuntimeError):
+	"""The model stopped because it hit its output-token ceiling.
+
+	Raised rather than returned: a truncated reply ends mid-token, so its JSON
+	and tool arguments are unparseable. Every consumer downstream would report
+	some variant of "could not generate a response" while the run was recorded
+	as a success — which sends the reader looking for a bug in the prompt
+	instead of at the limit that actually caused it.
+	"""
+
+
 @dataclass
 class ToolSpec:
     """Provider-agnostic tool definition.
@@ -20,6 +31,29 @@ class ToolSpec:
     parameters: dict = field(default_factory=dict)
     required: list = field(default_factory=list)
     human: bool = False
+
+    def __post_init__(self):
+        """Restore redacted PII at the tool boundary (WI-001644).
+
+        Input screening replaced the user's Civil ID with ``[CIVIL_ID_1]``
+        before the model saw it, so the model calls tools with the TOKEN. The
+        lookup has to run against the real value, and every tool — whether it
+        came from a shape, the tool pool, or a Server Script body — is built as
+        a ToolSpec, so wrapping here is the only place that covers all of them.
+
+        Human tools are skipped: they are never executed by the loop, and a
+        person completing the task should see the token, not the raw value.
+        """
+        if self.human or getattr(self.fn, "__pii_wrapped__", None) is not None:
+            return
+        try:
+            from one_bpmn.security.pii import wrap_tool
+
+            object.__setattr__(self, "fn", wrap_tool(self.fn))
+        except Exception:
+            # A broken import here must not take the whole agent down; the
+            # cost is that a tokenised argument reaches the tool unresolved.
+            pass
 
 
 def build_parameter_schema(tool: "ToolSpec") -> dict:
@@ -70,6 +104,9 @@ class StepResult:
     tool_calls: list = field(default_factory=list)  # list[StepToolCall]
     prompt_tokens: int = 0
     completion_tokens: int = 0
+    # Breakdown of prompt_tokens by billing rate (WI-001643) — see TurnRecord.
+    cache_read_tokens: int = 0
+    cache_write_tokens: int = 0
 
 
 @dataclass
@@ -87,6 +124,13 @@ class TurnRecord:
     tool_calls: list = field(default_factory=list)  # list[ToolCallRecord]
     prompt_tokens: int = 0
     completion_tokens: int = 0
+    # Breakdown of prompt_tokens by billing rate (WI-001643). INCLUSIVE: these
+    # are part of prompt_tokens, not extra on top of it, so the turn's consumed
+    # context stays one number while cost can be split three ways (uncached
+    # input / cache read / cache write). Providers that charge nothing extra for
+    # cache writes (OpenAI, Gemini) report reads only and leave writes at 0.
+    cache_read_tokens: int = 0
+    cache_write_tokens: int = 0
     # Wall-clock for this turn: the provider API round-trip plus any inline
     # tool executions. Decision latency — NOT the runtime of an activated
     # diagram task (that happens later in the engine).
@@ -112,6 +156,14 @@ class CompletionResult:
     @property
     def completion_tokens(self) -> int:
         return sum(t.completion_tokens for t in self.trace)
+
+    @property
+    def cache_read_tokens(self) -> int:
+        return sum(getattr(t, "cache_read_tokens", 0) or 0 for t in self.trace)
+
+    @property
+    def cache_write_tokens(self) -> int:
+        return sum(getattr(t, "cache_write_tokens", 0) or 0 for t in self.trace)
 
 
 class BaseLLMAdapter(ABC):

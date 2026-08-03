@@ -52,9 +52,52 @@ _SHAPE_TO_CONFIG = {
 	"aiModel": "ai_model",
 }
 
-# The platform process that carries an agent Draft -> Live. Used to re-provision
-# a Live agent after a write-back; missing model = skip with a log, never block.
-CREATION_PROCESS_MODEL = "AI Agent Creation Process"
+# Guard rail categories, mirroring the AI Agent Guard Rail Select options
+# (WI-001639). Kept here so the create endpoint can reject a bogus category
+# before doc validation turns it into a hard failure.
+_GUARDRAIL_CATEGORIES = (
+	"Code Quality",
+	"Performance",
+	"Cost & Tokens",
+	"Safety",
+	"Output Format",
+	"Other",
+)
+
+# The platform process that carries an agent Draft -> Live is no longer assumed
+# by name. It is whatever the single grant-holding AI Agent Configuration
+# (can_create_agents = 1) links in agent_creation_process, so a site is free to
+# name and rebuild that map without touching code. The doctype's
+# validate_agent_creation_grant keeps the grant unique, so this lookup returns
+# one answer or none.
+
+
+def get_creation_process_model() -> str | None:
+	"""Return the active agent-creation process map, or None when no agent
+	holds the creation grant (or its linked map is missing/inactive).
+
+	None is a first-class answer, not an error: a site with no grant simply
+	cannot create agents yet, and every caller degrades rather than blocks.
+	"""
+	model = frappe.db.get_value(
+		"AI Agent Configuration",
+		{"can_create_agents": 1, "enabled": 1},
+		"agent_creation_process",
+	)
+	if not model:
+		return None
+	return model if frappe.db.get_value("BPMN Process Model", model, "is_active") else None
+
+
+def get_creation_grant_holder() -> str | None:
+	"""Name of the configuration holding the agent-creation grant, or None.
+
+	Distinct from get_creation_process_model: a grant can be held while its
+	map is inactive, and the two failures need different messages.
+	"""
+	return frappe.db.get_value(
+		"AI Agent Configuration", {"can_create_agents": 1, "enabled": 1}, "name"
+	)
 
 
 def config_field_map(config_name: str) -> dict:
@@ -186,6 +229,19 @@ CREATE_PAYLOAD_CONTRACT = {
 	"system_prompt": "The agent's system prompt; leave empty to have the creation process generate one from the description.",
 	"description": "What the agent does — feeds prompt auto-generation.",
 	"sample_prompts": 'Optional list of {"prompt", "expected_behaviour"} rows; becomes the baseline eval suite.',
+	"examples": (
+		'Optional list of {"input", "expected_output", "note"} rows — worked few-shot '
+		"examples that DEMONSTRATE the behaviour. Rendered into the agent's frozen static "
+		"context after the system prompt. Use these to show a format or a judgement call "
+		"that is hard to state as a rule."
+	),
+	"guardrails": (
+		'Optional list of {"guardrail", "category"} rows — rules the agent must obey on '
+		"every turn, each stated imperatively. category is one of: Code Quality, "
+		"Performance, Cost & Tokens, Safety, Output Format, Other. Rendered LAST in the "
+		"frozen static context. Use these for constraints (limits, checks, prohibitions); "
+		"use examples for demonstrations."
+	),
 }
 
 
@@ -206,6 +262,28 @@ def create_agent_configuration(payload: str | dict) -> dict:
 	if isinstance(payload, str):
 		payload = frappe.parse_json(payload) or {}
 	frappe.has_permission("AI Agent Configuration", "create", throw=True)
+
+	# Without a creation process there is no path from Draft to Live for a Chat
+	# agent (apply_background_lifecycle only auto-lives Background agents), so
+	# creating one would strand it as a permanent Draft. Refuse up front and say
+	# why, rather than leave a record nobody can finish.
+	creation_model = get_creation_process_model()
+	if not creation_model:
+		holder = get_creation_grant_holder()
+		frappe.throw(
+			_(
+				"The agent-creation process has not been linked, so new agents cannot be "
+				"created yet. '{0}' holds the creation grant but its Agent Creation Process "
+				"is missing or not deployed."
+			).format(holder)
+			if holder
+			else _(
+				"The agent-creation process has not been linked, so new agents cannot be "
+				"created yet. Tick 'Can Create Agents' on one AI Agent Configuration and "
+				"link the process map that takes an agent from Draft to Live."
+			),
+			title=_("Agent creation unavailable"),
+		)
 
 	agent_name = (payload.get("agent_name") or "").strip()
 	if not agent_name:
@@ -250,17 +328,38 @@ def create_agent_configuration(payload: str | dict) -> dict:
 				"prompt": row["prompt"],
 				"expected_behaviour": row.get("expected_behaviour") or "",
 			})
+	# WI-001639: the agent's frozen static context. Row order is the order the
+	# proposer gave them — it is the order they reach the model.
+	for row in payload.get("examples") or []:
+		if (row.get("input") or "").strip():
+			doc.append("examples", {
+				"input": row["input"],
+				"expected_output": row.get("expected_output") or "",
+				"note": row.get("note") or "",
+				"enabled": 1,
+			})
+	for row in payload.get("guardrails") or []:
+		if (row.get("guardrail") or "").strip():
+			doc.append("guardrails", {
+				"guardrail": row["guardrail"],
+				# An unrecognised category would fail Select validation and lose
+				# the whole agent; fall back rather than reject the rule.
+				"category": row.get("category") if row.get("category") in _GUARDRAIL_CATEGORIES else "Other",
+				"enabled": 1,
+			})
 	doc.insert()  # caller's permissions; the After-Insert trigger starts the process
 
-	creation_instance = frappe.db.get_value(
-		"BPMN Process Instance",
-		{
-			"process_model": CREATION_PROCESS_MODEL,
-			"context_doctype": "AI Agent Configuration",
-			"context_docname": doc.name,
-		},
-		"name",
-	)
+	creation_instance = None
+	if creation_model:
+		creation_instance = frappe.db.get_value(
+			"BPMN Process Instance",
+			{
+				"process_model": creation_model,
+				"context_doctype": "AI Agent Configuration",
+				"context_docname": doc.name,
+			},
+			"name",
+		)
 	return {"name": doc.name, "agent_id": doc.agent_id, "creation_instance": creation_instance}
 
 
@@ -268,21 +367,30 @@ def _start_reprovision(config_name: str) -> bool:
 	"""Send a Live agent back through the creation process after a write-back.
 
 	The process's start event is After-Insert only, so an existing record
-	needs an explicit instance start. Skipped (with a log) when the creation
-	model is missing/inactive or an instance is already running for this
-	agent — the running one will pick up the saved values itself.
+	needs an explicit instance start. Skipped (with a log) when no agent holds
+	the creation grant, its linked map is missing/inactive, or an instance is
+	already running for this agent — the running one will pick up the saved
+	values itself.
 	"""
-	if not frappe.db.get_value("BPMN Process Model", CREATION_PROCESS_MODEL, "is_active"):
+	creation_model = get_creation_process_model()
+	if not creation_model:
+		holder = get_creation_grant_holder()
 		frappe.log_error(
 			title=f"Re-provision skipped for {config_name}",
-			message=f"'{CREATION_PROCESS_MODEL}' is missing or inactive.",
+			message=(
+				f"'{holder}' holds the agent-creation grant but its linked "
+				"Agent Creation Process is missing or inactive."
+				if holder
+				else "No AI Agent Configuration holds the agent-creation grant "
+				"(can_create_agents), so there is no creation process to run."
+			),
 		)
 		return False
 
 	already_running = frappe.db.exists(
 		"BPMN Process Instance",
 		{
-			"process_model": CREATION_PROCESS_MODEL,
+			"process_model": creation_model,
 			"context_doctype": "AI Agent Configuration",
 			"context_docname": config_name,
 			"status": ("in", ["Active", "Errored"]),
@@ -295,7 +403,7 @@ def _start_reprovision(config_name: str) -> bool:
 		from one_bpmn.api.instance_api import start_process
 
 		start_process(
-			CREATION_PROCESS_MODEL,
+			creation_model,
 			context_doctype="AI Agent Configuration",
 			context_docname=config_name,
 		)

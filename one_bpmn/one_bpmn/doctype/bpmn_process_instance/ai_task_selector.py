@@ -102,7 +102,15 @@ def dispatch_ai_task_selector(instance, sp, task_cfg: dict, bpmn_id: str) -> tup
 	                                              (final answer or registry-only)
 	    ("error", None, None)                   — executor failure
 	"""
-	from one_bpmn.agents.executor import ErrorCode, ExecutorConfig, ExecutorContext, get_executor
+	from frappe.utils import cint
+
+	from one_bpmn.agents.executor import (
+		DEFAULT_MAX_OUTPUT_TOKENS,
+		ErrorCode,
+		ExecutorConfig,
+		ExecutorContext,
+		get_executor,
+	)
 	from one_bpmn.agents.executor.direct_api import DirectApiExecutor
 	from one_bpmn.agents.llm_provider.base import ToolSpec
 	from one_bpmn.agents.tool_pool import DIAGRAM_TASK, resolve_tool_pool
@@ -210,13 +218,35 @@ def dispatch_ai_task_selector(instance, sp, task_cfg: dict, bpmn_id: str) -> tup
 		"activate nothing and give your final answer."
 	)
 
+	# Static context layer (WI-001639): a selector driven by a linked AI Agent
+	# Configuration gets that agent's examples + guard rails too — otherwise
+	# rules an author entered on the agent would silently not apply here.
+	# Selector-specific dynamic text (progress, the improvisation rule above)
+	# stays on the user prompt where it belongs.
+	from one_bpmn.agents.context_assembler import build_static_context, load_agent_behaviour
+
+	behaviour = {}
+	if task_cfg.get("aiAgentConfig"):
+		try:
+			behaviour = load_agent_behaviour(task_cfg["aiAgentConfig"])
+		except Exception:
+			frappe.log_error(
+				title=f"AI Task Selector: static context load failed ({bpmn_id})",
+				message=frappe.get_traceback(),
+			)
+
 	config = ExecutorConfig(
 		backend="direct_api",
 		provider_name=task_cfg.get("aiProvider", ""),
 		model=task_cfg.get("aiModel", ""),
-		system_prompt=render(task_cfg.get("aiSystemPrompt", "")),
+		system_prompt=build_static_context(
+			system_prompt=render(task_cfg.get("aiSystemPrompt", "")),
+			examples=behaviour.get("examples"),
+			guardrails=behaviour.get("guardrails"),
+		),
 		user_prompt=user_prompt,
-		max_tokens=int(task_cfg.get("aiMaxTokens", 1024) or 1024),
+		# cint first — a shape attribute is a string and "0" is truthy.
+		max_tokens=cint(task_cfg.get("aiMaxTokens")) or DEFAULT_MAX_OUTPUT_TOKENS,
 		timeout_seconds=int(task_cfg.get("aiTimeout", 60) or 60),
 		tools=tools,
 	)

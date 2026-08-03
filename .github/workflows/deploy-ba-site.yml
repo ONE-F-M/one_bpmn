@@ -23,14 +23,15 @@ jobs:
           username: ${{ secrets.USERNAME }}
           key: ${{ secrets.BA_KEY }}
           port: 22
-          script_stop: true
           script: |
+            set -e
             export NVM_DIR="$HOME/.nvm"
             [ -s "$NVM_DIR/nvm.sh" ] && . "$NVM_DIR/nvm.sh"
             node -v
             cd /home/ubuntu/sandbox-bench/apps/one_bpmn
             git pull upstream staging
             cd /home/ubuntu/sandbox-bench
+            rm -rf env/lib/python*/site-packages/one_bpmn-*.dist-info
             bench setup requirements one_bpmn
             cd /home/ubuntu/sandbox-bench/apps/one_bpmn/spiff
             yarn install

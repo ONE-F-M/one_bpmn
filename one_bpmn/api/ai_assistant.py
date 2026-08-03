@@ -509,12 +509,72 @@ def _creation_prerequisites_block() -> str:
 	return "\n".join(lines)
 
 
+def _update_contract_block() -> str:
+	"""The proposed_update contract. Shared by both capability blocks: changing
+	an existing agent needs no creation process, so it stays available on a site
+	that cannot create agents at all."""
+	return (
+		"UPDATE-AGENT RESPONSE CONTRACT:\n"
+		"When the designer asks to CHANGE an existing AI Agent Configuration, "
+		"add a \"proposed_update\" object to your JSON reply (alongside "
+		"\"message\"): {\"config_name\": \"<exact record name>\", \"fields\": "
+		"{...}} where fields may only contain \"aiModel\" (an EXACT AI Model "
+		"catalog name — the agent's provider follows from the model "
+		"automatically), \"aiSystemPrompt\", \"aiTemperature\" and/or "
+		"\"aiMaxTokens\". There is no direct provider change: to change the "
+		"provider, change the model. Include ONLY the fields being changed. "
+		"When the conversation refers to \"this agent\" or \"the "
+		"configuration\", it means the LINKED AGENT CONFIGURATION context below "
+		"when present; ask only if genuinely ambiguous. The designer confirms "
+		"the proposal in the UI before anything is applied."
+	)
+
+
+def _creation_unavailable_block() -> str:
+	"""Told to the assistant when no agent holds the creation grant.
+
+	Creating an agent without a creation process would strand it as a permanent
+	Draft, so the endpoint refuses. The assistant has to know that BEFORE it
+	starts interviewing the designer, or it gathers a full specification and
+	then fails at the last step.
+	"""
+	from one_bpmn.agents.agent_config_resolver import get_creation_grant_holder
+
+	holder = get_creation_grant_holder()
+	detail = (
+		f"'{holder}' holds the creation grant, but its Agent Creation Process is "
+		"missing or not deployed."
+		if holder
+		else "No AI Agent Configuration has 'Can Create Agents' ticked with a process linked."
+	)
+	return (
+		"CREATING AGENTS IS UNAVAILABLE ON THIS SITE:\n"
+		f"{detail}\n"
+		"If the designer asks you to create an agent, tell them plainly that the "
+		"process for creating agents has not been linked, so you cannot create "
+		"one yet, and that an administrator needs to tick 'Can Create Agents' on "
+		"an AI Agent Configuration and link the agent-creation process map. Do "
+		"NOT interview them for agent details, do NOT emit \"proposed_config\", "
+		"and do not imply the agent will be created later. You can still help "
+		"with this task's own fields and with changes to existing agents."
+	)
+
+
 def _creation_capability_block() -> str:
 	"""WI-001649: the response contract for proposing a new agent, plus the
 	live prerequisites data. This is interface plumbing (like the JSON shape
 	the recommendations contract defines) — the assistant's persona and
 	behavior live in its AI Agent Configuration record, not here.
+
+	When no agent holds the creation grant the create half is replaced by a
+	plain statement that creation is unavailable; the update half still
+	applies, since changing an existing agent needs no creation process.
 	"""
+	from one_bpmn.agents.agent_config_resolver import get_creation_process_model
+
+	if not get_creation_process_model():
+		return _creation_unavailable_block() + "\n\n" + _update_contract_block()
+
 	return (
 		_creation_prerequisites_block()
 		+ "\n\nCREATE-AGENT RESPONSE CONTRACT:\n"
@@ -526,20 +586,8 @@ def _creation_capability_block() -> str:
 		"provider names, and never include \"proposed_config\" until the "
 		"proposal is complete. The designer confirms the proposal in the UI "
 		"before anything is created.\n\n"
-		"UPDATE-AGENT RESPONSE CONTRACT:\n"
-		"When the designer asks to CHANGE an existing AI Agent Configuration, "
-		"add a \"proposed_update\" object to your JSON reply (alongside "
-		"\"message\"): {\"config_name\": \"<exact record name>\", \"fields\": "
-		"{...}} where fields may only contain \"aiModel\" (an EXACT AI Model "
-		"catalog name from the list above — the agent's provider follows from "
-		"the model automatically), \"aiSystemPrompt\", \"aiTemperature\" and/or "
-		"\"aiMaxTokens\". There is no direct provider change: to change the "
-		"provider, change the model. Include ONLY the fields being changed. "
-		"When the conversation refers to \"this agent\" or \"the "
-		"configuration\", it means the LINKED AGENT CONFIGURATION context below "
-		"when present; ask only if genuinely ambiguous. The designer confirms "
-		"the proposal in the UI before anything is applied.\n\n"
-		"CAPABILITY LIMITS (hard, non-negotiable):\n"
+		+ _update_contract_block()
+		+ "\n\nCAPABILITY LIMITS (hard, non-negotiable):\n"
 		"You cannot write to ANY record yourself. Your only side-effect paths "
 		"are \"proposed_config\" and \"proposed_update\", both of which take "
 		"effect only after the designer confirms them in the UI. Changes outside "
@@ -622,12 +670,21 @@ _PROPOSAL_FIELDS = {
 
 
 def _sanitize_proposed_config(proposed) -> dict | None:
-	"""Keep only the create-payload fields from a model proposal; normalize
-	sample prompts to {prompt, expected_behaviour} rows. None when there is
-	no usable proposal — including a proposal to create an agent that already
-	exists (Create & link would only ever fail with a duplicate error)."""
+	"""Keep only the create-payload fields from a model proposal; normalize the
+	row lists — sample prompts, and (WI-001639) examples and guard rails — to
+	their child-table shapes. None when there is no usable proposal — including
+	a proposal to create an agent that already exists (Create & link would only
+	ever fail with a duplicate error), or any proposal at all on a site with no
+	agent-creation process linked — the confirm button would only hit the
+	endpoint's refusal, so the card must never render."""
 	if not isinstance(proposed, dict):
 		return None
+
+	from one_bpmn.agents.agent_config_resolver import get_creation_process_model
+
+	if not get_creation_process_model():
+		return None
+
 	agent_name = str(proposed.get("agent_name") or "").strip()
 	agent_id = str(proposed.get("agent_id") or "").strip() or (frappe.scrub(agent_name) if agent_name else "")
 	if agent_name and frappe.db.exists("AI Agent Configuration", {"agent_name": agent_name}):
@@ -648,6 +705,31 @@ def _sanitize_proposed_config(proposed) -> dict | None:
 			})
 	if samples:
 		clean["sample_prompts"] = samples
+
+	# WI-001639: the agent's frozen static context. Both are row lists, so they
+	# skip the scalar filter above and are normalized here — dropping rows whose
+	# mandatory field is empty rather than letting them fail at insert.
+	examples = []
+	for row in proposed.get("examples") or []:
+		if isinstance(row, dict) and str(row.get("input") or "").strip():
+			examples.append({
+				"input": str(row["input"]),
+				"expected_output": str(row.get("expected_output") or ""),
+				"note": str(row.get("note") or ""),
+			})
+	if examples:
+		clean["examples"] = examples
+
+	guardrails = []
+	for row in proposed.get("guardrails") or []:
+		if isinstance(row, dict) and str(row.get("guardrail") or "").strip():
+			guardrails.append({
+				"guardrail": str(row["guardrail"]),
+				"category": str(row.get("category") or "Other"),
+			})
+	if guardrails:
+		clean["guardrails"] = guardrails
+
 	return clean or None
 
 

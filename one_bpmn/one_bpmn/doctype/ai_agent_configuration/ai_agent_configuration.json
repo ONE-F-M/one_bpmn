@@ -15,6 +15,8 @@
   "column_break_basics",
   "description",
   "process_model",
+  "can_create_agents",
+  "agent_creation_process",
   "ai_model",
   "ai_provider_credentials",
   "llm_settings_section",
@@ -25,6 +27,9 @@
   "required_variables",
   "required_variables_html",
   "system_prompt",
+  "behaviour_section",
+  "examples",
+  "guardrails",
   "sub_prompts_section",
   "sub_prompts",
   "constants_section",
@@ -37,6 +42,8 @@
   "chat_cb",
   "chat_description",
   "allowed_roles",
+  "security_section",
+  "pii_screening",
   "evaluation_section",
   "sample_prompts",
   "needs_attention_reason"
@@ -166,6 +173,26 @@
    "options": "Markdown"
   },
   {
+   "description": "Worked examples and non-negotiable rules. Both are part of the frozen static context layer: examples demonstrate, guard rails constrain, and neither changes between turns of a conversation.",
+   "fieldname": "behaviour_section",
+   "fieldtype": "Section Break",
+   "label": "Examples & Guard Rails"
+  },
+  {
+   "description": "Few-shot examples. Rendered after the system prompt, in row order, into the immutable static context layer.",
+   "fieldname": "examples",
+   "fieldtype": "Table",
+   "label": "Examples",
+   "options": "AI Agent Example"
+  },
+  {
+   "description": "Rules the agent must obey on every turn. Rendered last in the static context layer so they are the final word.",
+   "fieldname": "guardrails",
+   "fieldtype": "Table",
+   "label": "Guard Rails",
+   "options": "AI Agent Guard Rail"
+  },
+  {
    "description": "For agents with multiple sub-agents (e.g., Report Query Agent)",
    "fieldname": "sub_prompts_section",
    "fieldtype": "Section Break",
@@ -208,7 +235,23 @@
    "options": "BPMN Process Model"
   },
   {
-   "description": "The agent's model, picked from the catalog (WI-001655). The provider below follows from this model's credentials link.",
+   "default": "0",
+   "description": "Grants this agent the right to create other AI Agent Configurations. Exactly one configuration on the site may hold the grant, and it must link the process below.",
+   "fieldname": "can_create_agents",
+   "fieldtype": "Check",
+   "label": "Can Create Agents"
+  },
+  {
+   "depends_on": "eval:doc.can_create_agents",
+   "description": "The BPMN process map that carries a newly created agent from Draft to Live. Looked up from this field — its name is never assumed.",
+   "fieldname": "agent_creation_process",
+   "fieldtype": "Link",
+   "label": "Agent Creation Process",
+   "mandatory_depends_on": "eval:doc.can_create_agents",
+   "options": "BPMN Process Model"
+  },
+  {
+   "description": "The agent's model, picked from the catalog. The provider below follows from this model's credentials link.",
    "fieldname": "ai_model",
    "fieldtype": "Link",
    "in_standard_filter": 1,
@@ -256,6 +299,20 @@
    "fieldtype": "Table",
    "label": "Allowed Roles",
    "options": "AI Agent Allowed Role"
+  },
+  {
+   "fieldname": "security_section",
+   "fieldtype": "Section Break",
+   "label": "Security",
+   "description": "Controls applied to this agent's traffic before it reaches a model provider."
+  },
+  {
+   "default": "Enabled",
+   "description": "Screens the user's message for Kuwait Civil IDs, contact details, passport and travel document numbers, and bank or payment details, replacing each with a token (e.g. [CIVIL_ID_1]) before the text reaches the model or the conversation log. Tokens are swapped back for the real value when the agent calls a tool, so lookups still work. Disable only for an agent whose work genuinely needs the raw values in the prompt — and record why.",
+   "fieldname": "pii_screening",
+   "fieldtype": "Select",
+   "label": "PII Input Screening",
+   "options": "Enabled\nDisabled"
   },
   {
    "fieldname": "evaluation_section",

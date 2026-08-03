@@ -6,7 +6,7 @@
     "color": "#1a73e8",
     "label": "Google Docs"
   },
-  "description": "Create and edit Google Docs \u2014 insert/replace/append text, read content.",
+  "description": "Create and edit Google Docs — insert/replace/append text, read content.",
   "api": {
     "name": "docs",
     "version": "v1",
@@ -16,7 +16,7 @@
     {
       "value": "createDocument",
       "label": "Create document",
-      "method": "files.create (Drive) \u2014 see google_docs.create_document",
+      "method": "files.create (Drive) — see google_docs.create_document",
       "fields": [
         {
           "name": "folder",
@@ -25,7 +25,7 @@
           "transform": "one_bpmn.one_bpmn.integrations.google_common.normalize_drive_id",
           "required": true,
           "expression": true,
-          "help": "Destination Drive folder \u2014 paste a folder link or id. Must be a Shared Drive folder the service account can write to: a service account has no My Drive quota of its own."
+          "help": "Destination Drive folder — paste a folder link or id. Must be a Shared Drive folder the service account can write to: a service account has no My Drive quota of its own."
         },
         {
           "name": "title",
@@ -44,7 +44,7 @@
     {
       "value": "insertText",
       "label": "Insert text",
-      "method": "documents.batchUpdate \u2192 insertText",
+      "method": "documents.batchUpdate → insertText",
       "fields": [
         {
           "name": "document",
@@ -76,7 +76,7 @@
     {
       "value": "appendText",
       "label": "Append text",
-      "method": "documents.batchUpdate \u2192 insertText (at end)",
+      "method": "documents.batchUpdate → insertText (at end)",
       "fields": [
         {
           "name": "document",
@@ -101,7 +101,7 @@
     {
       "value": "replaceAllText",
       "label": "Replace all text (template fill)",
-      "method": "documents.batchUpdate \u2192 replaceAllText",
+      "method": "documents.batchUpdate → replaceAllText",
       "fields": [
         {
           "name": "document",
@@ -134,6 +134,49 @@
       "output": {
         "documentId": "Document id",
         "occurrencesChanged": "Number of replacements"
+      }
+    },
+    {
+      "value": "fillTemplate",
+      "label": "Fill template",
+      "method": "documents.batchUpdate",
+      "help": "Substitutes every placeholder in one atomic call. Pair it with Drive → Copy file to produce a branded document.",
+      "fields": [
+        {
+          "name": "document",
+          "label": "Document",
+          "type": "String",
+          "transform": "one_bpmn.one_bpmn.integrations.google_common.normalize_drive_id",
+          "required": true,
+          "expression": true,
+          "help": "The copied template to fill."
+        },
+        {
+          "name": "values",
+          "label": "Placeholder values",
+          "type": "Text",
+          "required": true,
+          "expression": true,
+          "help": "JSON object of placeholder → replacement, e.g. {\"{{title}}\": \"Leave Policy\", \"{{owner}}\": \"HR\"}."
+        },
+        {
+          "name": "matchCase",
+          "label": "Match case",
+          "type": "Boolean",
+          "default": true
+        },
+        {
+          "name": "failIfUnfilled",
+          "label": "Fail if a placeholder is not found",
+          "type": "Boolean",
+          "default": true,
+          "help": "A placeholder split across formatting runs will not match. Leaving this on stops a document going out with “{{owner}}” still printed in it."
+        }
+      ],
+      "output": {
+        "filled": "Per-placeholder substitution counts",
+        "unfilled": "Placeholders that matched nothing",
+        "total": "Total substitutions made"
       }
     },
     {
