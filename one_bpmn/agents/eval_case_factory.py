@@ -114,25 +114,42 @@ _MAX_REFERENCE_CHARS = 2000
 _STARTER_PASS_THRESHOLD = 4
 
 
-def _starter_judge_assertion(expected_output: str, suite: str | None) -> dict | None:
-	"""A first llm_judge assertion scoring a reply against the run's own output.
+def _starter_judge_assertion(
+	expected_output: str, suite: str | None, run_status: str = "Success"
+) -> dict | None:
+	"""A baseline llm_judge assertion pinning the behaviour the run showed.
 
 	Without this, a case built from a run has NO assertions — and a case with no
 	assertions passes trivially, so "create case from run" produced a green tick
 	that proved nothing. The reference answer is already the useful half of what
 	the run gives us; turning it into a rubric is what makes the case a test.
 
+	What this asserts, stated plainly because it is easy to misread: it is a
+	CHARACTERIZATION check, not a correctness one. It treats the captured output
+	as the standard, which is right when the run was captured BECAUSE it was
+	good ("don't let a prompt change degrade this") and wrong when it was not.
+	The rubric text says so, so the designer is asked to decide rather than
+	inheriting the assumption silently — otherwise a flaw nobody noticed becomes
+	the thing the suite defends.
+
 	llm_judge rather than equals: the reference is one sampling of a
 	non-deterministic model, so demanding byte equality would fail on a
-	rewording that is just as correct. The judge is asked for equivalence, and
-	the designer is expected to sharpen the rubric afterwards.
+	rewording that is just as correct.
 
-	Returns None when there is nothing to judge (no reference output) or no way
-	to judge it (no agent to borrow a judge model from) — better a case the
-	designer must finish than an assertion that errors on every run.
+	Returns None when there is nothing to judge (no reference output), no way to
+	judge it (no agent to borrow a judge model from), or when the run did not
+	succeed — better a case the designer must finish than an assertion that
+	errors on every run, or one that certifies a failure as correct.
 	"""
 	reference = (expected_output or "").strip()
 	if not reference or not suite:
+		return None
+
+	# A case built from a FAILED run is a regression test: the point is that the
+	# captured behaviour must not recur. "Match the reference" would assert the
+	# opposite — that the failure is the standard. Only the designer knows what
+	# should have happened instead, so nothing is guessed here.
+	if (run_status or "") != "Success":
 		return None
 
 	agent = frappe.db.get_value("AI Eval Suite", suite, "agent_configuration")
@@ -159,10 +176,15 @@ def _starter_judge_assertion(expected_output: str, suite: str | None) -> dict | 
 		reference = reference[:_MAX_REFERENCE_CHARS].rstrip()
 
 	rubric = (
-		"The reply should convey the same information as the reference answer "
-		"below, which is what the agent actually produced on the run this case "
-		"was captured from. Wording may differ; the facts, and any figures or "
-		"names, must not.\n\n"
+		"BASELINE CHECK — replace this rubric if the reference below is not the "
+		"behaviour you actually want.\n\n"
+		"The reference is simply what the agent produced when this case was "
+		"captured. It has not been reviewed for correctness. Judged as written, "
+		"this assertion pins current behaviour so a prompt or model change that "
+		"alters it shows up; it does not check that the behaviour is right.\n\n"
+		"Score against this: the reply should convey the same information as the "
+		"reference. Wording may differ; the facts, and any figures or names, "
+		"must not.\n\n"
 		"Reference answer:\n"
 		f"{reference}"
 	)
@@ -201,9 +223,12 @@ def create_eval_case_from_run(
 	Returns the new AI Eval Case name; source_run links back to the
 	originating Run (Scenario 4).
 
-	The case is seeded with ONE llm_judge assertion scoring a future reply
-	against the captured output (see _starter_judge_assertion), so it is a real
-	test on creation rather than an assertion-less case that passes trivially.
+	A case from a SUCCESSFUL run is seeded with one llm_judge assertion pinning
+	the behaviour that run showed, so it is a real test on creation rather than
+	an assertion-less case that passes trivially. It is a baseline check, not a
+	correctness one, and its rubric says so — see _starter_judge_assertion. A
+	case from a FAILED run gets no assertion: what should have happened instead
+	is the designer's call, and "match the reference" would certify the failure.
 	Pass ``add_starter_assertion=False`` for the bare pre-fill.
 
 	Requires read on the run, plus write on ``suite`` when one is given —
@@ -281,7 +306,7 @@ def create_eval_case_from_run(
 		}
 	)
 	if add_starter_assertion:
-		starter = _starter_judge_assertion(expected_output, suite)
+		starter = _starter_judge_assertion(expected_output, suite, run.status)
 		if starter:
 			case.append("assertions", starter)
 	case.flags.ignore_mandatory = True

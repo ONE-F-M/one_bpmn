@@ -141,6 +141,31 @@ class TestStarterAssertion(FrappeTestCase):
         self.assertIsNone(_starter_judge_assertion("", suite))
         self.assertIsNone(_starter_judge_assertion("   ", suite))
 
+    def test_none_for_a_failed_run(self):
+        """A case from a FAILED run is a regression test: the captured behaviour
+        must not recur. "Match the reference" would assert the opposite."""
+        self._make_model()
+        suite = self._suite_for()
+
+        self.assertIsNone(
+            _starter_judge_assertion("a broken answer", suite, run_status="Error")
+        )
+        # Success is what earns the baseline rubric.
+        self.assertIsNotNone(
+            _starter_judge_assertion("a good answer", suite, run_status="Success")
+        )
+
+    def test_rubric_says_it_is_only_a_baseline(self):
+        """The rubric treats the captured output as the standard. Left unsaid,
+        that reads as a correctness check and quietly enshrines any flaw."""
+        self._make_model()
+        suite = self._suite_for()
+
+        rubric = _starter_judge_assertion("some answer", suite)["value"]
+
+        self.assertIn("BASELINE CHECK", rubric)
+        self.assertIn("not been reviewed for correctness", rubric)
+
     def test_none_without_a_suite(self):
         """A suite-less case has no agent to borrow a judge model from."""
         self.assertIsNone(_starter_judge_assertion("something", None))
