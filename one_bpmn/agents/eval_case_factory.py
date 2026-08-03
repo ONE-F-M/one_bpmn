@@ -103,12 +103,91 @@ def get_run_steps_for_case_picker(run_name: str) -> list:
 	return steps
 
 
+# A judge rubric quoting a 64KB final_output is a prompt nobody can afford and
+# no judge reads carefully. Long references are cut, and the rubric says so —
+# a silently truncated reference would have the judge scoring against half a
+# expectation without anyone knowing.
+_MAX_REFERENCE_CHARS = 2000
+
+# 1-5 scale (see JUDGE_PROMPT_TEMPLATE); 4 = "mostly meets expectation", the
+# same bar generate_eval_suite_for_agent sets for baseline suites.
+_STARTER_PASS_THRESHOLD = 4
+
+
+def _starter_judge_assertion(expected_output: str, suite: str | None) -> dict | None:
+	"""A first llm_judge assertion scoring a reply against the run's own output.
+
+	Without this, a case built from a run has NO assertions — and a case with no
+	assertions passes trivially, so "create case from run" produced a green tick
+	that proved nothing. The reference answer is already the useful half of what
+	the run gives us; turning it into a rubric is what makes the case a test.
+
+	llm_judge rather than equals: the reference is one sampling of a
+	non-deterministic model, so demanding byte equality would fail on a
+	rewording that is just as correct. The judge is asked for equivalence, and
+	the designer is expected to sharpen the rubric afterwards.
+
+	Returns None when there is nothing to judge (no reference output) or no way
+	to judge it (no agent to borrow a judge model from) — better a case the
+	designer must finish than an assertion that errors on every run.
+	"""
+	reference = (expected_output or "").strip()
+	if not reference or not suite:
+		return None
+
+	agent = frappe.db.get_value("AI Eval Suite", suite, "agent_configuration")
+	if not agent:
+		return None
+	# WI-001655: judge_model is a Link into the AI Model catalog, and the agent's
+	# own pick is a catalog record name — exactly what the field wants.
+	judge_provider, judge_model = frappe.db.get_value(
+		"AI Agent Configuration", agent, ["ai_provider_credentials", "ai_model"]
+	) or (None, None)
+	if not judge_model and judge_provider:
+		# A legacy agent predating WI-001655 has no ai_model, and those are
+		# exactly the agents whose cases most need an assertion. The judge does
+		# not have to be the agent's own model — any usable one will score a
+		# reply — so fall back the same way DirectApiExecutor does.
+		judge_model = frappe.db.get_value(
+			"AI Model", {"ai_provider_credentials": judge_provider}, "name"
+		)
+	if not judge_model:
+		return None
+
+	truncated = len(reference) > _MAX_REFERENCE_CHARS
+	if truncated:
+		reference = reference[:_MAX_REFERENCE_CHARS].rstrip()
+
+	rubric = (
+		"The reply should convey the same information as the reference answer "
+		"below, which is what the agent actually produced on the run this case "
+		"was captured from. Wording may differ; the facts, and any figures or "
+		"names, must not.\n\n"
+		"Reference answer:\n"
+		f"{reference}"
+	)
+	if truncated:
+		rubric += (
+			"\n\n[Reference truncated. Judge only what is shown above, and "
+			"narrow this rubric to the part that actually matters.]"
+		)
+
+	return {
+		"assertion_type": "llm_judge",
+		"value": rubric,
+		"judge_provider": judge_provider,
+		"judge_model": judge_model,
+		"pass_threshold": _STARTER_PASS_THRESHOLD,
+	}
+
+
 @frappe.whitelist()
 def create_eval_case_from_run(
 	run_name: str,
 	step_name: str | None = None,
 	tool_call_name: str | None = None,
 	suite: str | None = None,
+	add_starter_assertion: bool = True,
 ) -> str:
 	"""
 	Create an AI Eval Case pre-filled from an AI Agent Run (Scenario 1).
@@ -120,8 +199,12 @@ def create_eval_case_from_run(
 	designer a starting point for an "equals" or "llm_judge" assertion.
 
 	Returns the new AI Eval Case name; source_run links back to the
-	originating Run (Scenario 4). No assertions are auto-generated beyond
-	the expected_output pre-fill.
+	originating Run (Scenario 4).
+
+	The case is seeded with ONE llm_judge assertion scoring a future reply
+	against the captured output (see _starter_judge_assertion), so it is a real
+	test on creation rather than an assertion-less case that passes trivially.
+	Pass ``add_starter_assertion=False`` for the bare pre-fill.
 
 	Requires read on the run, plus write on ``suite`` when one is given —
 	System Manager only when it is not. See _assert_may_author_case.
@@ -197,6 +280,10 @@ def create_eval_case_from_run(
 			"expected_output": expected_output,
 		}
 	)
+	if add_starter_assertion:
+		starter = _starter_judge_assertion(expected_output, suite)
+		if starter:
+			case.append("assertions", starter)
 	case.flags.ignore_mandatory = True
 	case.insert()
 	return case.name
