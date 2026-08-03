@@ -929,7 +929,15 @@ def dispatch_ai_agent(instance, task, task_cfg: dict, bpmn_id: str, resume_run: 
 	failures are caught and logged — they never block the executor call.
 	A suspended run stays open (status="Suspended") instead of finalizing.
 	"""
-	from one_bpmn.agents.executor import ExecutorConfig, ExecutorContext, ErrorCode, get_executor
+	from frappe.utils import cint
+
+	from one_bpmn.agents.executor import (
+		DEFAULT_MAX_OUTPUT_TOKENS,
+		ErrorCode,
+		ExecutorConfig,
+		ExecutorContext,
+		get_executor,
+	)
 	from one_bpmn.agents.executor.direct_api import DirectApiExecutor  # noqa
 	from one_bpmn.agents.executor.antigravity import AntigravityExecutor  # noqa
 	from one_bpmn.agents import checkpoint as _checkpoint
@@ -1052,7 +1060,10 @@ def dispatch_ai_agent(instance, task, task_cfg: dict, bpmn_id: str, resume_run: 
 		user_prompt      = user_prompt,
 		temperature      = float(task_cfg.get("aiTemperature", 0.7) or 0.7),
 		top_p            = float(task_cfg.get("aiTopP", 1.0) or 1.0),
-		max_tokens       = int(task_cfg.get("aiMaxTokens", 1024) or 1024),
+		# cint FIRST, then fall back: a shape attribute arrives as a string, and
+		# "0" is truthy — `"0" or DEFAULT` would yield a zero budget. cint also
+		# absorbs "", "  " and junk, which int() would raise on.
+		max_tokens       = cint(task_cfg.get("aiMaxTokens")) or DEFAULT_MAX_OUTPUT_TOKENS,
 		timeout_seconds  = int(task_cfg.get("aiTimeout", 30) or 30),
 		response_format  = task_cfg.get("aiResponseFormat", "text") or "text",
 		response_schema  = task_cfg.get("aiResponseSchema") or None,
