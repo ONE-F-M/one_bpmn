@@ -187,6 +187,36 @@ class TestEvalCaseFactory(FrappeTestCase):
 		case_name = create_eval_case_from_run(run.name)
 		self.assertTrue(frappe.db.exists("AI Eval Case", case_name))
 
+	def test_case_carries_the_runs_context_document(self):
+		"""A map-path eval starts the map against the document the case names, so
+		capture must carry the source run's instance context onto the case —
+		otherwise every captured case errors asking for an input_context."""
+		todo = frappe.get_doc(
+			{
+				"doctype": "ToDo",
+				"description": "_Test factory subject",
+				"allocated_to": frappe.session.user,
+			}
+		).insert(ignore_permissions=True)
+		run = _run()
+		frappe.db.set_value(
+			"BPMN Process Instance", run.instance,
+			{"context_doctype": "ToDo", "context_docname": todo.name},
+			update_modified=False,
+		)
+
+		case = frappe.get_doc("AI Eval Case", create_eval_case_from_run(run.name))
+		self.assertEqual(
+			frappe.parse_json(case.input_context),
+			{"context_doctype": "ToDo", "context_docname": todo.name},
+		)
+
+	def test_case_from_a_run_with_no_instance_context_has_no_input_context(self):
+		"""A standalone run (no document behind it) must not invent one."""
+		run = _run()
+		case = frappe.get_doc("AI Eval Case", create_eval_case_from_run(run.name))
+		self.assertFalse(case.input_context)
+
 	def test_running_run_rejected(self):
 		run = _run(status="Running", with_steps=False)
 		with self.assertRaises(frappe.ValidationError):
