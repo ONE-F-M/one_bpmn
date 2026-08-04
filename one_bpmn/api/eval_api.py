@@ -394,6 +394,105 @@ def update_eval_case(
 	return case.name
 
 
+def _agent_transcripts_for_eval_run(eval_run: str) -> dict:
+	"""Per-case agent transcripts for one AI Eval Run, keyed by eval case.
+
+	Answers "which tools did this eval actually call?" without leaving the review
+	screen. Before AI Agent Run carried ``eval_run`` / ``eval_case`` this could
+	only be reconstructed by filtering runs on origin="eval" and matching a time
+	window, then opening each AI Agent Step to read its ``tool_calls`` table.
+
+	Judge runs are excluded: they are the assertion's own LLM call, already
+	reported per assertion, and carry no steps. Their spend still shows in the
+	Result row's totals.
+
+	Three queries regardless of how many runs, steps or tool calls there are —
+	the rows are grouped in Python rather than queried per parent.
+
+	Permission: the caller has already passed ``check_permission("read")`` on the
+	eval run. This is that run's own execution detail, the same class of data as
+	the outputs and judge rubrics the review already shows, so it is not gated
+	again on AI Agent Run (which is System-Manager-only at the doctype level and
+	would hide it from the process owners this screen is built for).
+	"""
+	# Imported here rather than at module level: eval_api is loaded on every
+	# Processa request, and eval_runner pulls in the executor backends.
+	from one_bpmn.agents.eval_runner import EVAL_RUN_JUDGE
+
+	runs = frappe.get_all(
+		"AI Agent Run",
+		filters={"eval_run": eval_run, "bpmn_id": ["!=", EVAL_RUN_JUDGE]},
+		fields=[
+			"name", "eval_case", "bpmn_id", "bpmn_label", "element_type", "instance",
+			"process_model", "status", "model", "provider", "total_tokens",
+			"estimated_cost", "error_message", "creation",
+		],
+		order_by="creation asc",
+		limit_page_length=0,
+	)
+	if not runs:
+		return {}
+
+	run_names = [r["name"] for r in runs]
+	steps = frappe.get_all(
+		"AI Agent Step",
+		filters={"run": ["in", run_names]},
+		fields=["name", "run", "step_index", "role", "content"],
+		order_by="run asc, step_index asc",
+		limit_page_length=0,
+	)
+	calls_by_step = {}
+	if steps:
+		for call in frappe.get_all(
+			"AI Agent Tool Call",
+			filters={"parent": ["in", [s["name"] for s in steps]]},
+			fields=["parent", "tool_name", "tool_source", "status", "tool_args",
+			        "tool_result", "outcome", "idx"],
+			order_by="parent asc, idx asc",
+			limit_page_length=0,
+		):
+			calls_by_step.setdefault(call["parent"], []).append({
+				"tool_name": call["tool_name"],
+				"tool_source": call["tool_source"],
+				# A shape that returns {"error": ...} is still a Success here —
+				# execute_shape never raises — so the result is what to read.
+				"status": call["status"],
+				"tool_args": call["tool_args"],
+				"tool_result": call["tool_result"],
+				"outcome": call["outcome"],
+			})
+
+	steps_by_run = {}
+	for s in steps:
+		steps_by_run.setdefault(s["run"], []).append({
+			"step_index": s["step_index"],
+			"role": s["role"],
+			"content": s["content"],
+			"tool_calls": calls_by_step.get(s["name"], []),
+		})
+
+	by_case = {}
+	for r in runs:
+		run_steps = steps_by_run.get(r["name"], [])
+		by_case.setdefault(r["eval_case"] or "", []).append({
+			"name": r["name"],
+			"bpmn_id": r["bpmn_id"],
+			"bpmn_label": r["bpmn_label"],
+			"element_type": r["element_type"],
+			"instance": r["instance"],
+			"process_model": r["process_model"],
+			"status": r["status"],
+			"model": r["model"],
+			"provider": r["provider"],
+			"total_tokens": r["total_tokens"],
+			"estimated_cost": r["estimated_cost"],
+			"error_message": r["error_message"],
+			"steps": run_steps,
+			"tool_call_count": sum(len(s["tool_calls"]) for s in run_steps),
+		})
+	return by_case
+
+
 @frappe.whitelist()
 def get_run_review(run: str, baseline: str = None) -> dict:
 	"""Full result of one AI Eval Run for the run-review view (WI-001747):
@@ -425,6 +524,8 @@ def get_run_review(run: str, baseline: str = None) -> dict:
 		)
 	}
 
+	transcripts = _agent_transcripts_for_eval_run(doc.name)
+
 	results = []
 	for r in doc.results:
 		info = case_info.get(r.eval_case) or {}
@@ -442,6 +543,9 @@ def get_run_review(run: str, baseline: str = None) -> dict:
 			"tokens_used": r.tokens_used,
 			"cost": r.cost,
 			"assertions": frappe.parse_json(r.assertion_results) or [],
+			# What the agent actually did: its steps, and the tools each step
+			# called with their arguments and results (WI: eval tool visibility).
+			"agent_runs": transcripts.get(r.eval_case, []),
 		})
 
 	# Comparison baseline. Every finished run of the suite, oldest first, so the

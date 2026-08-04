@@ -240,7 +240,7 @@ def _execute_eval_suite(run_name: str, case_names: list | None = None) -> None:
             if run.backend == "replay":
                 result_row = _execute_case_replay(run, case)
             else:
-                result_row = _execute_case(case)
+                result_row = _execute_case(case, run.name)
             # Snapshot what was evaluated, so later edits to the case don't
             # rewrite this run's history. Set centrally so every path (live,
             # replay, error) records it.
@@ -293,6 +293,19 @@ def _execute_case_replay(run, case) -> dict:
     actual_output. total tokens/cost stay 0 for case execution; llm_judge
     assertions still make (and count) a real judge call.
     """
+    # Replay makes no execution call, but its llm_judge assertions still spend
+    # real tokens through _record_eval_run — stamp them with this case and run so
+    # replay spend is attributable too.
+    prev_origin = getattr(frappe.flags, "eval_origin", None)
+    frappe.flags.eval_origin = _eval_origin_flag(case, run.name)
+    try:
+        return _execute_case_replay_inner(run, case)
+    finally:
+        frappe.flags.eval_origin = prev_origin
+
+
+def _execute_case_replay_inner(run, case) -> dict:
+    """The body of ``_execute_case_replay``, with ``eval_origin`` already set."""
     prior = frappe.get_all(
         "AI Eval Result",
         filters={
@@ -345,7 +358,17 @@ def _execute_case_replay(run, case) -> dict:
     }
 
 
-def _execute_case(case) -> dict:
+def _eval_origin_flag(case, eval_run: str = None) -> dict:
+    """The ``frappe.flags.eval_origin`` payload for one case's execution.
+
+    Both creators of eval-origin AI Agent Runs read it — ``observability.create_ai_run``
+    for the agent's own runs, and ``_record_eval_run`` for the direct call and each
+    judge call — so the back-links cannot drift between them.
+    """
+    return {"eval_case": case.name, "eval_run": eval_run or ""}
+
+
+def _execute_case(case, eval_run: str = None) -> dict:
     """
     Evaluate a case against the suite's AI Agent Configuration (WI-001751).
 
@@ -362,7 +385,21 @@ def _execute_case(case) -> dict:
 
     Any unexpected exception is captured as an Error result so the suite can
     continue.
+
+    ``eval_origin`` is set for the WHOLE case, not just the agent call, so the
+    judge calls made while evaluating assertions are stamped with the same case
+    and run as the execution they are judging.
     """
+    prev_origin = getattr(frappe.flags, "eval_origin", None)
+    frappe.flags.eval_origin = _eval_origin_flag(case, eval_run)
+    try:
+        return _execute_case_inner(case, eval_run)
+    finally:
+        frappe.flags.eval_origin = prev_origin
+
+
+def _execute_case_inner(case, eval_run: str = None) -> dict:
+    """The body of ``_execute_case``, with ``frappe.flags.eval_origin`` already set."""
     try:
         agent_cfg = frappe.db.get_value("AI Eval Suite", case.suite, "agent_configuration")
         if not agent_cfg:
@@ -374,7 +411,7 @@ def _execute_case(case) -> dict:
         cfg = frappe.get_cached_doc("AI Agent Configuration", agent_cfg)
 
         if eval_type == "Agent":
-            output, usage = _run_agent_eval(cfg, case)
+            output, usage = _run_agent_eval(cfg, case, eval_run)
         else:
             output, usage = _run_direct_eval(cfg, case)
 
@@ -447,11 +484,18 @@ def _record_eval_run(
     double-count evals. Never raises — failing to record usage must not fail the
     eval itself.
     """
+    origin = getattr(frappe.flags, "eval_origin", None)
+    if not isinstance(origin, dict):
+        origin = {}
     try:
         frappe.get_doc({
             "doctype": "AI Agent Run",
             "bpmn_id": bpmn_id,
             "agent_configuration": agent_configuration,
+            # Same linkage as the agent's own runs, so the direct call and every
+            # judge call are attributable to the case that paid for them.
+            "eval_case": origin.get("eval_case") or None,
+            "eval_run": origin.get("eval_run") or None,
             "backend": "direct_api",
             "provider": provider or "",
             "model": model or "",
@@ -652,7 +696,7 @@ def _run_map_eval(cfg, case) -> tuple:
     return output, usage
 
 
-def _run_agent_eval(cfg, case) -> tuple:
+def _run_agent_eval(cfg, case, eval_run: str = None) -> tuple:
     """Agent (process) eval: run the full agent; tokens/cost from its runs.
 
     Two shapes, chosen by whether the agent can be driven through chat:
@@ -667,7 +711,7 @@ def _run_agent_eval(cfg, case) -> tuple:
         getattr(frappe.flags, "eval_origin", None),
         getattr(frappe.flags, "bpmn_disable_ai_parking", False),
     )
-    frappe.flags.eval_origin = {"eval_case": case.name}
+    frappe.flags.eval_origin = _eval_origin_flag(case, eval_run)
     frappe.flags.bpmn_disable_ai_parking = True
     try:
         if _needs_map_eval(cfg):
