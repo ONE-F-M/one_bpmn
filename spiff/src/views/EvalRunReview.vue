@@ -118,9 +118,47 @@
 					<span class="text-xs text-gray-400">{{ res.tokens_used }} tok · ${{ (res.cost || 0).toFixed(4) }}</span>
 				</div>
 				<div class="px-6 py-4 space-y-4">
+					<!-- What was actually under test. On the map path this is the
+					     document, NOT the case's prompt: the map's own shape prompt is
+					     what reaches the model, rendered against this record. Showing
+					     the prompt alone let a case name one record while the agent was
+					     asked about another. -->
+					<div v-if="res.runs_map && res.subject_docname">
+						<div class="text-xs uppercase tracking-wide text-gray-500 font-medium mb-2">
+							Document under test
+						</div>
+						<div class="flex items-center gap-2 flex-wrap">
+							<code class="text-xs bg-gray-50 rounded px-2 py-1">
+								{{ res.subject_doctype }} / {{ res.subject_docname }}
+							</code>
+							<span
+								v-if="res.subject_source === 'source_run'"
+								class="text-xs text-gray-400"
+								title="Inherited from the run this case was captured from, because the case does not name a document itself"
+							>from source run</span>
+						</div>
+					</div>
+
 					<!-- Prompt under test -->
 					<div v-if="res.input_user_prompt">
-						<div class="text-xs uppercase tracking-wide text-gray-500 font-medium mb-2">Prompt</div>
+						<div class="text-xs uppercase tracking-wide text-gray-500 font-medium mb-2">
+							Prompt
+							<span v-if="res.runs_map" class="normal-case tracking-normal text-gray-400 font-normal">
+								— not sent; the map's own prompt is used
+							</span>
+						</div>
+						<div
+							v-if="promptDocMismatch(res)"
+							class="mb-2 flex items-start gap-2 rounded border border-amber-200 bg-amber-50 px-3 py-2"
+						>
+							<Icon icon="lucide:alert-triangle" class="w-4 h-4 text-amber-600 shrink-0 mt-0.5" />
+							<p class="text-xs text-amber-800">
+								This prompt names <code>{{ promptDocMismatch(res).inPrompt }}</code>, but the case
+								ran against <code>{{ promptDocMismatch(res).ranAgainst }}</code>. On the map path
+								the prompt is ignored — edit the case's <code>input_context.context_docname</code>
+								to change which record is tested.
+							</p>
+						</div>
 						<pre class="text-xs bg-gray-50 rounded p-3 whitespace-pre-wrap overflow-auto max-h-40">{{ res.input_user_prompt }}</pre>
 						<details v-if="res.expected_output" class="mt-2">
 							<summary class="text-xs text-gray-500 cursor-pointer">Expected output</summary>
@@ -310,6 +348,20 @@ const ASSERTION_VALUE_LABELS = {
 
 function assertionValueLabel(type) {
 	return ASSERTION_VALUE_LABELS[type] || "Expected"
+}
+
+// Editing a captured case's PROMPT is the intuitive way to point it at another
+// record, and on the map path it does nothing at all — the prompt is not sent, and
+// the document comes from input_context. Catch the mismatch and say so, rather
+// than leaving the reader to notice that two record ids differ.
+const DOCNAME_PATTERN = /\b[A-Z][A-Z0-9]*(?:-[A-Z0-9]+)*-\d{3,}\b/g
+
+function promptDocMismatch(res) {
+	if (!res.runs_map || !res.subject_docname || !res.input_user_prompt) return null
+	const mentioned = res.input_user_prompt.match(DOCNAME_PATTERN) || []
+	if (!mentioned.length) return null
+	if (mentioned.includes(res.subject_docname)) return null
+	return { inPrompt: mentioned[0], ranAgainst: res.subject_docname }
 }
 
 // Every tool call across a run's steps, flattened and tagged with the step it

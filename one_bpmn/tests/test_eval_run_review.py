@@ -157,6 +157,68 @@ class TestRunReviewTranscript(FrappeTestCase):
 		run, review = self._review({self.case_a: "Passed"})
 		self.assertEqual(review["results"][0]["agent_runs"], [])
 
+	def test_subject_document_comes_from_the_cases_input_context(self):
+		"""The review must report the DOCUMENT a case tested, not just its prompt:
+		on the map path the prompt is never sent."""
+		case = make_eval_case(
+			suite=self.suite,
+			process_model="some-map",
+			input_context=frappe.as_json({
+				"context_doctype": "Leave Application",
+				"context_docname": "HR-LAP-2026-00359",
+			}),
+			input_user_prompt="Summarise Leave Application HR-LAP-2026-00348",
+		)
+		run = _run_with_results(self.suite, {case.name: "Failed"}, minutes_ago=1)
+
+		res = get_run_review(run)["results"][0]
+		self.assertTrue(res["runs_map"])
+		self.assertEqual(res["subject_doctype"], "Leave Application")
+		# The prompt says 00348; the case actually ran 00359. Reporting the
+		# document is what makes that discoverable.
+		self.assertEqual(res["subject_docname"], "HR-LAP-2026-00359")
+		self.assertEqual(res["subject_source"], "case")
+		self.assertIn("HR-LAP-2026-00348", res["input_user_prompt"])
+
+	def test_subject_falls_back_to_the_source_run_and_is_labelled(self):
+		instance = frappe.get_doc({
+			"doctype": "BPMN Process Instance",
+			"status": "Completed",
+			"context_doctype": "ToDo",
+			"context_docname": "some-todo",
+		})
+		instance.flags.ignore_mandatory = True
+		instance.flags.ignore_links = True
+		instance.insert(ignore_permissions=True)
+		agent_run = frappe.get_doc({
+			"doctype": "AI Agent Run", "instance": instance.name,
+			"bpmn_id": "ai_agent_task", "status": "Success",
+		})
+		agent_run.flags.ignore_mandatory = True
+		agent_run.flags.ignore_links = True
+		agent_run.insert(ignore_permissions=True)
+
+		case = make_eval_case(
+			suite=self.suite, process_model="some-map",
+			input_context=None, source_run=agent_run.name,
+		)
+		run = _run_with_results(self.suite, {case.name: "Passed"}, minutes_ago=1)
+
+		res = get_run_review(run)["results"][0]
+		self.assertEqual(res["subject_docname"], "some-todo")
+		self.assertEqual(res["subject_source"], "source_run")
+
+	def test_case_without_a_map_reports_no_subject(self):
+		"""A Direct case has no document under test; runs_map must be False so the
+		view keeps presenting its prompt as the thing evaluated."""
+		case = make_eval_case(suite=self.suite, process_model=None,
+		                       input_user_prompt="Say the magic word.")
+		run = _run_with_results(self.suite, {case.name: "Passed"}, minutes_ago=1)
+
+		res = get_run_review(run)["results"][0]
+		self.assertFalse(res["runs_map"])
+		self.assertEqual(res["subject_docname"], "")
+
 	def test_runs_from_another_eval_run_are_not_included(self):
 		run_one, _ = self._review({self.case_a: "Passed"})
 		run_two = _run_with_results(self.suite, {self.case_a: "Passed"}, minutes_ago=2)

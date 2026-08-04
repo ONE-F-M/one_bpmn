@@ -170,6 +170,41 @@
 						— its provider, model and system prompt are used.
 					</div>
 					<FormControl label="Title" v-model="caseForm.title" />
+
+					<!-- The document under test. On a map-driven suite this is what the
+					     case actually tests: the map renders its OWN prompt against this
+					     record, so putting the record id in the prompt below does nothing.
+					     Without this field there was no way to point a hand-made case at a
+					     record, and every run failed asking for it. -->
+					<div v-if="suite.process_model" class="border rounded-md p-3 bg-gray-50 space-y-2">
+						<div class="text-sm font-semibold text-gray-700">Document under test</div>
+						<p class="text-xs text-gray-500">
+							This suite runs process map
+							<code>{{ suite.process_model }}</code>, which renders its own prompt
+							against the record named here. The user prompt below is not sent on
+							that path — change this to change what the case tests.
+						</p>
+						<div class="grid grid-cols-2 gap-2">
+							<FormControl
+								label="DocType"
+								placeholder="e.g. Leave Application"
+								v-model="caseForm.context_doctype"
+							/>
+							<FormControl
+								label="Name"
+								placeholder="e.g. HR-LAP-2026-00342"
+								v-model="caseForm.context_docname"
+							/>
+						</div>
+						<p
+							v-if="caseForm.context_source === 'source_run'"
+							class="text-xs text-amber-700"
+						>
+							Inherited from the run this case was captured from. Edit it here to
+							test a different record.
+						</p>
+					</div>
+
 					<FormControl type="textarea" label="User prompt" v-model="caseForm.input_user_prompt" />
 					<FormControl type="textarea" label="Expected output (optional)" v-model="caseForm.expected_output" />
 
@@ -285,6 +320,7 @@ const incompleteAssertion = computed(() =>
 )
 const caseForm = reactive({
 	name: "", title: "", input_user_prompt: "", expected_output: "", assertions: [],
+	context_doctype: "", context_docname: "", context_source: "",
 })
 
 const showFromRun = ref(false)
@@ -479,7 +515,8 @@ async function runCase(c) {
 
 // ── Case editor (new + edit) ─────────────────────────────────────────────
 function resetCaseForm() {
-	Object.assign(caseForm, { name: "", title: "", input_user_prompt: "", expected_output: "", assertions: [] })
+	Object.assign(caseForm, { name: "", title: "", input_user_prompt: "", expected_output: "", assertions: [],
+		context_doctype: "", context_docname: "", context_source: "" })
 }
 function addAssertion() {
 	caseForm.assertions.push({ assertion_type: "contains", value: "", judge_provider: "", judge_model: "", pass_threshold: 4 })
@@ -508,6 +545,9 @@ async function openEditCase(c) {
 			name: res.name, title: res.title,
 			input_user_prompt: res.input_user_prompt || "",
 			expected_output: res.expected_output || "",
+			context_doctype: res.context_doctype || "",
+			context_docname: res.context_docname || "",
+			context_source: res.context_source || "",
 			assertions: (res.assertions || []).map((a) => ({
 				assertion_type: a.assertion_type, value: a.value || "",
 				judge_provider: a.judge_provider || "", judge_model: a.judge_model || "",
@@ -525,6 +565,8 @@ async function saveCase() {
 		const payload = {
 			title: caseForm.title, input_user_prompt: caseForm.input_user_prompt,
 			expected_output: caseForm.expected_output, assertions: JSON.stringify(caseForm.assertions),
+			context_doctype: caseForm.context_doctype || "",
+			context_docname: caseForm.context_docname || "",
 		}
 		if (caseMode.value === "edit") {
 			await frappeRequest({ url: "/api/method/one_bpmn.api.eval_api.update_eval_case", method: "POST", params: { name: caseForm.name, ...payload } })

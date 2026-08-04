@@ -326,6 +326,58 @@ def _ensure_ai_model(model_name: str, judge_provider: str = None) -> str:
 	return model_name
 
 
+def _context_json(context_doctype: str = None, context_docname: str = None) -> str | None:
+	"""``input_context`` for a case that names the document it runs against.
+
+	Returns None — never "" — when nothing is named: input_context is a JSON
+	column with a CHECK constraint, so an empty string is not a legal value.
+	"""
+	doctype = (context_doctype or "").strip()
+	docname = (context_docname or "").strip()
+	if not (doctype and docname):
+		return None
+	if not frappe.db.exists(doctype, docname):
+		frappe.throw(_("No {0} named '{1}'.").format(doctype, docname))
+	return frappe.as_json({"context_doctype": doctype, "context_docname": docname})
+
+
+def _assert_subject_when_map_driven(case) -> None:
+	"""A map-driven case must name the document it runs against.
+
+	The map renders its own prompt against that document — the case's
+	``input_user_prompt`` never reaches the model — so without one the run dies at
+	execution time with a traceback. Saying so at SAVE time is the difference
+	between a clear form error and a failed run.
+
+	Only fires for cases that really take the map path: an Agent-type suite whose
+	agent cannot be driven through chat.
+	"""
+	from one_bpmn.agents.eval_runner import _eval_context_document, _needs_map_eval
+
+	if not (case.process_model or "").strip():
+		return
+	suite = frappe.get_cached_doc("AI Eval Suite", case.suite)
+	if (suite.eval_type or "Direct") != "Agent" or not suite.agent_configuration:
+		return
+	try:
+		cfg = frappe.get_cached_doc("AI Agent Configuration", suite.agent_configuration)
+	except Exception:
+		return
+	if not _needs_map_eval(cfg):
+		return
+	if any(_eval_context_document(case)):
+		return
+	frappe.throw(
+		_(
+			"This case runs process map '{0}', which needs the document to test. Set "
+			"the Document under test (doctype and name). Putting the record's id in "
+			"the prompt has no effect: the map renders its own prompt against the "
+			"document, so the case's prompt is never sent."
+		).format(case.process_model),
+		title=_("Document under test required"),
+	)
+
+
 @frappe.whitelist()
 def create_eval_case(
 	suite: str,
@@ -333,10 +385,17 @@ def create_eval_case(
 	input_user_prompt: str,
 	expected_output: str = "",
 	assertions=None,
+	context_doctype: str = None,
+	context_docname: str = None,
 ) -> str:
 	"""Create a manual AI Eval Case in ``suite`` with optional assertions
 	(WI-001746). Provider/model/system prompt come from the suite's agent
-	(WI-001751). The current user must be able to write the suite (owner / SM)."""
+	(WI-001751). The current user must be able to write the suite (owner / SM).
+
+	``context_doctype`` / ``context_docname`` name the document a map-driven case
+	runs against — required for those cases, since the map's own prompt (not this
+	case's) is what reaches the model.
+	"""
 	suite_doc = frappe.get_doc("AI Eval Suite", suite)
 	suite_doc.check_permission("write")
 
@@ -347,8 +406,10 @@ def create_eval_case(
 		"process_model": suite_doc.process_model or None,
 		"input_user_prompt": input_user_prompt,
 		"expected_output": expected_output,
+		"input_context": _context_json(context_doctype, context_docname),
 	})
 	_set_assertions(case, assertions)
+	_assert_subject_when_map_driven(case)
 	case.insert()
 	return case.name
 
@@ -358,12 +419,23 @@ def get_eval_case(name: str) -> dict:
 	"""Full case (fields + assertions) for the edit form (WI-001746)."""
 	case = frappe.get_doc("AI Eval Case", name)
 	frappe.get_doc("AI Eval Suite", case.suite).check_permission("read")
+	subject = _case_subject({
+		"process_model": case.process_model,
+		"input_context": case.input_context,
+		"source_run": case.source_run,
+	})
 	return {
 		"name": case.name,
 		"title": case.title,
 		"input_user_prompt": case.input_user_prompt,
 		"expected_output": case.expected_output,
 		"assertions": [{k: a.get(k) for k in _ASSERTION_FIELDS} for a in case.assertions],
+		# The document under test round-trips, so editing the case can re-point it
+		# instead of silently keeping whatever it was captured with.
+		"runs_map": bool(subject.get("process_model")),
+		"context_doctype": subject.get("doctype") or "",
+		"context_docname": subject.get("docname") or "",
+		"context_source": subject.get("source") or "",
 	}
 
 
@@ -374,9 +446,15 @@ def update_eval_case(
 	input_user_prompt: str = None,
 	expected_output: str = None,
 	assertions=None,
+	context_doctype: str = None,
+	context_docname: str = None,
 ) -> str:
 	"""Edit an existing case, including its assertions (WI-001746). Gated by the
-	suite's write permission."""
+	suite's write permission.
+
+	Passing ``context_docname`` re-points a map-driven case at another document.
+	That — not the prompt — is what changes which record the case tests.
+	"""
 	case = frappe.get_doc("AI Eval Case", name)
 	frappe.get_doc("AI Eval Suite", case.suite).check_permission("write")
 
@@ -387,11 +465,61 @@ def update_eval_case(
 	):
 		if val is not None:
 			case.set(field, val)
+	if context_docname is not None or context_doctype is not None:
+		case.input_context = _context_json(context_doctype, context_docname)
 	if assertions is not None:
 		_set_assertions(case, assertions)
 
+	_assert_subject_when_map_driven(case)
 	case.save()
 	return case.name
+
+
+def _case_subject(case_info: dict) -> dict:
+	"""The document a case actually runs against, and where that came from.
+
+	On the map path the case's ``input_user_prompt`` never reaches the model — the
+	map's own shape prompt does, rendered against THIS document. Showing the
+	document is therefore the only honest way to say what a case tested; a review
+	that shows only the prompt can name one record while the agent was asked about
+	another (exactly what happens after editing the prompt of a captured case).
+
+	Resolution is delegated to the runner's own ``_eval_context_document`` so the
+	review can never disagree with what the runner did.
+	"""
+	from one_bpmn.agents.eval_runner import _eval_context_document
+
+	process_model = (case_info.get("process_model") or "").strip()
+	stub = frappe._dict(
+		input_context=case_info.get("input_context"),
+		source_run=case_info.get("source_run"),
+	)
+	try:
+		doctype, docname = _eval_context_document(stub)
+	except Exception:
+		doctype, docname = "", ""
+
+	# Which of the two routes supplied it — the case's own input_context, or the
+	# run it was captured from. Worth showing: a captured case that nobody edited
+	# silently inherits its source run's document.
+	source = ""
+	if docname:
+		explicit = {}
+		try:
+			explicit = frappe.parse_json(case_info.get("input_context") or "{}") or {}
+		except Exception:
+			explicit = {}
+		if isinstance(explicit, dict) and explicit.get("context_docname"):
+			source = "case"
+		elif case_info.get("source_run"):
+			source = "source_run"
+
+	return {
+		"process_model": process_model,
+		"doctype": doctype,
+		"docname": docname,
+		"source": source,
+	}
 
 
 def _agent_transcripts_for_eval_run(eval_run: str) -> dict:
@@ -520,9 +648,11 @@ def get_run_review(run: str, baseline: str = None) -> dict:
 		for c in frappe.get_all(
 			"AI Eval Case",
 			filters={"name": ["in", case_names]} if case_names else {"name": ""},
-			fields=["name", "title", "input_user_prompt", "expected_output"],
+			fields=["name", "title", "input_user_prompt", "expected_output",
+			        "process_model", "input_context", "source_run"],
 		)
 	}
+	subjects = {name: _case_subject(info) for name, info in case_info.items()}
 
 	transcripts = _agent_transcripts_for_eval_run(doc.name)
 
@@ -531,10 +661,18 @@ def get_run_review(run: str, baseline: str = None) -> dict:
 		info = case_info.get(r.eval_case) or {}
 		# Prefer the snapshot taken when the run executed; fall back to the
 		# case's current values for runs recorded before snapshots existed.
+		subject = subjects.get(r.eval_case) or {}
 		results.append({
 			"eval_case": r.eval_case,
 			"case_title": info.get("title") or r.eval_case,
 			"input_user_prompt": r.input_user_prompt or info.get("input_user_prompt") or "",
+			# On the map path the case's prompt is NOT what reaches the model: the
+			# map's own shape prompt is, rendered against the document below. The
+			# view needs to know, or it presents a prompt that was never sent.
+			"runs_map": bool(subject.get("process_model")),
+			"subject_doctype": subject.get("doctype") or "",
+			"subject_docname": subject.get("docname") or "",
+			"subject_source": subject.get("source") or "",
 			"expected_output": r.expected_output or info.get("expected_output") or "",
 			"prompt_is_snapshot": bool(r.input_user_prompt),
 			"status": r.status,
