@@ -162,6 +162,44 @@ class TestContextDocument(FrappeTestCase):
                 msg=f"input_context={value!r} should yield no context document",
             )
 
+    def test_falls_back_to_the_source_runs_instance_context(self):
+        """A case captured from a real run carries no input_context, but its
+        source_run's instance already recorded the document — use that rather
+        than making the author retype it."""
+        todo = frappe.get_doc({
+            "doctype": "ToDo", "description": "_Test subject",
+            "allocated_to": frappe.session.user,
+        }).insert(ignore_permissions=True)
+        instance = frappe.get_doc({
+            "doctype": "BPMN Process Instance",
+            "status": "Completed",
+            "context_doctype": "ToDo",
+            "context_docname": todo.name,
+        })
+        instance.flags.ignore_mandatory = True
+        instance.flags.ignore_links = True
+        instance.insert(ignore_permissions=True)
+        run = frappe.get_doc({
+            "doctype": "AI Agent Run", "instance": instance.name,
+            "bpmn_id": "ai_agent_task", "status": "Success",
+        })
+        run.flags.ignore_mandatory = True
+        run.flags.ignore_links = True
+        run.insert(ignore_permissions=True)
+
+        case = make_eval_case(source_run=run.name, input_context=None)
+        self.assertEqual(_eval_context_document(case), ("ToDo", todo.name))
+
+    def test_explicit_context_wins_over_source_run(self):
+        """Editing a captured case must re-point it, not be silently ignored."""
+        case = frappe._dict(
+            input_context=json.dumps(
+                {"context_doctype": "ToDo", "context_docname": "chosen-by-hand"}
+            ),
+            source_run="some-run",
+        )
+        self.assertEqual(_eval_context_document(case), ("ToDo", "chosen-by-hand"))
+
 
 class TestRunMapEval(FrappeTestCase):
     def _agent_and_case(self, **case_kwargs):

@@ -519,9 +519,14 @@ def _eval_context_document(case) -> tuple:
 
     A record-triggered map takes its subject from the instance context — the
     shape's prompts render ``{{ doc.* }}`` against it and its start condition is
-    evaluated on it — so the case has to name one::
+    evaluated on it — so the case names one::
 
         {"context_doctype": "Leave Application", "context_docname": "HR-LAP-2026-00586"}
+
+    A case captured from a real run needs no such hand-editing: it already links
+    its ``source_run``, whose instance recorded the document the agent ran
+    against, so that is used when input_context does not name one. Explicit
+    input_context always wins, so a captured case can be re-pointed by editing it.
     """
     ctx = {}
     if case.input_context:
@@ -531,10 +536,22 @@ def _eval_context_document(case) -> tuple:
             ctx = {}
     if not isinstance(ctx, dict):
         ctx = {}
-    return (
-        (ctx.get("context_doctype") or "").strip(),
-        (ctx.get("context_docname") or "").strip(),
-    )
+    doctype = (ctx.get("context_doctype") or "").strip()
+    docname = (ctx.get("context_docname") or "").strip()
+    if doctype and docname:
+        return doctype, docname
+
+    source_run = (case.get("source_run") or "").strip()
+    if source_run:
+        instance = frappe.db.get_value("AI Agent Run", source_run, "instance")
+        if instance:
+            row = frappe.db.get_value(
+                "BPMN Process Instance", instance,
+                ["context_doctype", "context_docname"], as_dict=True,
+            )
+            if row and row.context_doctype and row.context_docname:
+                return row.context_doctype, row.context_docname
+    return "", ""
 
 
 def _run_map_eval(cfg, case) -> tuple:
@@ -566,8 +583,9 @@ def _run_map_eval(cfg, case) -> tuple:
     doctype, docname = _eval_context_document(case)
     if not doctype or not docname:
         raise ValueError(
-            f"Case runs process map '{model_name}', so its input_context must name the "
-            'document to run against: {"context_doctype": "…", "context_docname": "…"}.'
+            f"Case runs process map '{model_name}', so it must name the document to run "
+            'against — either input_context {"context_doctype": "…", "context_docname": '
+            '"…"}, or a source_run whose instance recorded one.'
         )
     if not frappe.db.exists(doctype, docname):
         raise ValueError(
