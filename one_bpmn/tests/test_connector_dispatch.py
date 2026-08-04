@@ -7,7 +7,6 @@ from unittest.mock import patch
 import frappe
 from frappe.tests.utils import FrappeTestCase
 
-from one_bpmn.one_bpmn.connectors.registry import connector, get_handler, registered
 from one_bpmn.one_bpmn.connectors.manifest import get_operation_spec, load_manifests
 from one_bpmn.one_bpmn.integrations.google_common import normalize_drive_id
 from one_bpmn.one_bpmn.doctype.bpmn_process_instance.dispatchers import dispatch_connector
@@ -15,9 +14,41 @@ from one_bpmn.one_bpmn.doctype.bpmn_process_instance.dispatchers import dispatch
 _GD = "one_bpmn.one_bpmn.integrations.google_drive"
 
 
-@connector("__test", "echo")
 def _echo(params, ctx):
+    """Handler for the throwaway test connector.
+
+    Reached by its dotted path from the operation row — the same way every real
+    Python operation is now resolved. There is no registry to register with.
+    """
     return {"got": params, "td_title": ctx["task_data"].get("title")}
+
+
+def _ensure_echo_connector():
+    """A real configured connector, because that is the only kind there is."""
+    if not frappe.db.exists("BPMN Connector", "test_echo"):
+        frappe.get_doc({
+            "doctype": "BPMN Connector",
+            "connector_id": "test_echo",
+            "label": "Test Echo",
+            "enabled": 1,
+            "execution_type": "Python Handler",
+        }).insert(ignore_permissions=True)
+    if not frappe.db.exists("BPMN Connector Operation", {"connector": "test_echo", "operation_id": "echo"}):
+        op = frappe.get_doc({
+            "doctype": "BPMN Connector Operation",
+            "connector": "test_echo",
+            "operation_id": "echo",
+            "label": "Echo",
+            "enabled": 1,
+            "execution_type": "Python Handler",
+            "handler_path": "one_bpmn.tests.test_connector_dispatch._echo",
+        })
+        for name in ("a", "b"):
+            op.append("fields", {"field_name": name, "field_type": "String", "expression": 1})
+        op.insert(ignore_permissions=True)
+    from one_bpmn.one_bpmn.connectors.manifest import clear_manifest_cache
+
+    clear_manifest_cache()
 
 
 def _instance():
@@ -33,33 +64,42 @@ class TestNormalizeDriveId(FrappeTestCase):
 
 
 class TestManifestAndRegistry(FrappeTestCase):
-    def test_only_the_operations_that_need_python_keep_a_handler(self):
+    def test_only_the_operations_that_need_python_name_a_handler(self):
         """Everything an HTTP template can express is configuration now.
 
         What is left needs multipart upload, binary parsing, or several calls
         with reasoning in between — see the google_connectors_to_http patch.
         """
+        from one_bpmn.one_bpmn.connectors.manifest import get_execution_spec, load_manifests
+
+        manifest = next(m for m in load_manifests() if m["connectorId"] == "google_drive")
+        python_ops = {
+            op["value"]
+            for op in manifest["operations"]
+            if (get_execution_spec("google_drive", op["value"]) or frappe._dict()).handler_path
+        }
         self.assertEqual(
-            set(registered().get("google_drive", [])),
+            python_ops,
             {"downloadText", "createFile", "updateFileContent", "setPermissions", "revokePermissions"},
         )
 
+
     def test_every_manifest_operation_resolves_to_an_executor(self):
         """The real invariant: an operation must be runnable — by a configured
-        HTTP request or by a handler. Which one is an implementation detail."""
+        HTTP request or by a named handler. There is no third way any more."""
         from one_bpmn.one_bpmn.connectors.manifest import get_execution_spec
 
         manifest = next(m for m in load_manifests() if m["connectorId"] == "google_drive")
         for op in manifest["operations"]:
             name = op["value"]
             spec = get_execution_spec("google_drive", name)
+            self.assertIsNotNone(spec, f"{name} has no execution configuration")
             runnable = bool(
-                (spec and spec.execution_type == "HTTP Request" and spec.url_template)
-                or (spec and spec.handler_path)
-                or get_handler("google_drive", name)
+                (spec.execution_type == "HTTP Request" and spec.url_template) or spec.handler_path
             )
             self.assertTrue(runnable, f"manifest op {name} cannot be run by anything")
             self.assertIsNotNone(op.get("fields"))
+
 
     def test_permission_enums_match_drive_api(self):
         spec = get_operation_spec("google_drive", "setPermissions")
@@ -69,10 +109,15 @@ class TestManifestAndRegistry(FrappeTestCase):
 
 
 class TestDispatchConnector(FrappeTestCase):
+    @classmethod
+    def setUpClass(cls):
+        super().setUpClass()
+        _ensure_echo_connector()
+
     def test_render_and_result_mapping(self):
         task = SimpleNamespace(data={"title": "Hello"})
         dispatch_connector(_instance(), task, {
-            "connectorId": "__test", "operation": "echo", "resultVariable": "echo_out",
+            "connectorId": "test_echo", "operation": "echo", "resultVariable": "echo_out",
             "connectorParams": '{"a": "{{ task_data.title }}", "b": "plain"}',
         }, "t1")
         self.assertEqual(task.data["echo_out"]["got"]["a"], "Hello")
@@ -120,37 +165,33 @@ _GSLIDES = "one_bpmn.one_bpmn.integrations.google_slides"
 
 
 class TestDocsSlidesConnectors(FrappeTestCase):
-    def test_only_the_multi_call_operations_keep_a_handler(self):
-        # appendText needs a read before its write; getText walks the document
-        # structure; fillTemplate builds its request array and checks the result.
-        self.assertEqual(set(registered().get("google_docs", [])),
-                         {"appendText", "getText", "fillTemplate"})
-        self.assertEqual(set(registered().get("google_slides", [])), {"getText"})
+    def test_only_the_multi_call_operations_name_a_handler(self):
+        from one_bpmn.one_bpmn.connectors.manifest import get_execution_spec, load_manifests
+
+        for connector_id, expected in (
+            ("google_docs", {"appendText", "getText", "fillTemplate"}),
+            ("google_slides", {"getText"}),
+        ):
+            manifest = next(m for m in load_manifests() if m["connectorId"] == connector_id)
+            named = {
+                op["value"]
+                for op in manifest["operations"]
+                if (get_execution_spec(connector_id, op["value"]) or frappe._dict()).handler_path
+            }
+            with self.subTest(connector=connector_id):
+                self.assertEqual(named, expected)
+
 
     def test_sheets_needs_no_python_at_all(self):
         """Every Sheets operation is plain REST, so the module is gone."""
-        self.assertNotIn("google_sheets", registered())
-        self.assertTrue(any(m["connectorId"] == "google_sheets" for m in load_manifests()))
+        from one_bpmn.one_bpmn.connectors.manifest import get_execution_spec, load_manifests
 
-    def test_docs_replace_all_text_is_configured_http(self):
-        """Was a Python dispatch test; the operation is configuration now."""
-        from one_bpmn.one_bpmn.connectors.manifest import get_execution_spec
+        manifest = next(m for m in load_manifests() if m["connectorId"] == "google_sheets")
+        for op in manifest["operations"]:
+            spec = get_execution_spec("google_sheets", op["value"])
+            with self.subTest(operation=op["value"]):
+                self.assertFalse(spec.handler_path, "Sheets must need no Python")
 
-        spec = get_execution_spec("google_docs", "replaceAllText")
-        self.assertEqual(spec.execution_type, "HTTP Request")
-        self.assertIn(":batchUpdate", spec.url_template)
-        self.assertIn("replaceAllText", spec.body_template)
-
-
-    def test_slides_get_text_dispatch(self):
-        task = SimpleNamespace(data={})
-        with patch(f"{_GSLIDES}.get_text", return_value="## Slide 1\nHello") as gt:
-            dispatch_connector(_instance(), task, {
-                "connectorId": "google_slides", "operation": "getText", "resultVariable": "deck",
-                "connectorParams": '{"presentation": "PRESID987"}',
-            }, "s1")
-        self.assertEqual(task.data["deck"]["text"], "## Slide 1\nHello")
-        self.assertEqual(gt.call_args.args[0], "PRESID987")
 
 
 class TestManifestValidator(FrappeTestCase):

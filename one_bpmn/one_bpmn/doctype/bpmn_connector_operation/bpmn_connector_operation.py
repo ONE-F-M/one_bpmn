@@ -162,20 +162,16 @@ class BPMNConnectorOperation(Document):
 					frappe.bold(self.handler_path), str(e)))
 			return
 
-		# No explicit path — the @connector registry must supply one. Warn rather
-		# than block, so an operation can be configured before its handler ships.
-		from one_bpmn.one_bpmn.connectors.registry import get_handler
-		import one_bpmn.one_bpmn.connectors  # noqa: F401 — runs @connector registration
-
-		if not get_handler(self.connector, self.operation_id):
-			frappe.msgprint(
-				_(
-					"No registered Python handler for {0}/{1} and no Handler Path set — "
-					"this operation will fail at runtime until one exists."
-				).format(frappe.bold(self.connector), frappe.bold(self.operation_id)),
-				indicator="orange",
-				title=_("Handler missing"),
-			)
+		# No path at all. Warned rather than blocked, so an operation can be
+		# configured before the function it will call has shipped.
+		frappe.msgprint(
+			_(
+				"{0}/{1} runs a Python Handler but no Handler Path is set — it will "
+				"fail at runtime until one is filled in."
+			).format(frappe.bold(self.connector), frappe.bold(self.operation_id)),
+			indicator="orange",
+			title=_("Handler Path missing"),
+		)
 
 	def _validate_url_target(self):
 		"""A relative URL Template needs the connector to carry a Base URL."""

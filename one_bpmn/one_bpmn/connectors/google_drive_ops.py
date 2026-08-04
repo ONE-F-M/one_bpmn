@@ -8,7 +8,6 @@
 
 import json
 
-from one_bpmn.one_bpmn.connectors.registry import connector
 from one_bpmn.one_bpmn.integrations import google_drive as gd
 
 
@@ -34,13 +33,11 @@ def list_file_choices(folder=None, **_ignored):
     return [{"label": f.get("name") or f.get("id"), "value": f.get("id")} for f in files]
 
 
-@connector("google_drive", "downloadText")
 def download_text(params, ctx):
     """files.export / get_media → plain text of a Doc/Slides/pptx/docx/txt."""
     return {"text": gd.download_file_text(params["file"])}
 
 
-@connector("google_drive", "createFile")
 def create_file(params, ctx):
     """files.create — upload content, optionally converting to a native Google type.
 
@@ -63,7 +60,6 @@ def create_file(params, ctx):
     }
 
 
-@connector("google_drive", "updateFileContent")
 def update_file_content(params, ctx):
     """files.update — replace an existing file's content."""
     updated = gd.update_file_content(
@@ -78,7 +74,6 @@ def update_file_content(params, ctx):
     }
 
 
-@connector("google_drive", "setPermissions")
 def set_permissions(params, ctx):
     """permissions.create — share a file.
 
@@ -99,7 +94,6 @@ def set_permissions(params, ctx):
     return {"granted": len(results)}
 
 
-@connector("google_drive", "revokePermissions")
 def revoke_permissions(params, ctx):
     """permissions.list + permissions.delete — withdraw sharing without touching content.
 

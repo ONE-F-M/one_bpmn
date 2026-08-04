@@ -81,7 +81,10 @@ def import_manifest(manifest, overwrite=False):
     conn.api_version = api.get("version")
     conn.discovery_url = api.get("discovery")
 
-    conn.execution_type = execution.get("type") or _infer_execution_type(cid, manifest)
+    # A manifest that does not say how it executes is an HTTP connector: that
+    # is the default a hand-authored REST connector wants, and the shipped
+    # definitions all state their type explicitly.
+    conn.execution_type = execution.get("type") or "HTTP Request"
     conn.base_url = execution.get("baseUrl")
     if execution.get("timeout"):
         conn.request_timeout = int(execution["timeout"])
@@ -122,17 +125,6 @@ def import_manifest(manifest, overwrite=False):
     clear_manifest_cache()
     return "updated" if exists else "created"
 
-
-def _infer_execution_type(connector_id, manifest):
-    """A manifest with registered @connector handlers is a Python connector.
-
-    Seeded definitions carry their execution config inline; the Google ones are backed by
-    handler functions, so they must not be treated as HTTP connectors.
-    """
-    from one_bpmn.one_bpmn.connectors.registry import CONNECTORS
-    import one_bpmn.one_bpmn.connectors  # noqa: F401 — runs @connector registration
-
-    return "Python Handler" if CONNECTORS.get(connector_id) else "HTTP Request"
 
 
 def _import_operation(connector_id, op, idx, overwrite=False):

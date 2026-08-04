@@ -3,7 +3,6 @@
 
 import json
 
-from one_bpmn.one_bpmn.connectors.registry import connector
 from one_bpmn.one_bpmn.integrations import google_docs as gdocs
 
 
@@ -11,12 +10,10 @@ def _truthy(v):
     return v is True or str(v or "").strip().lower() in ("1", "true", "yes", "on")
 
 
-@connector("google_docs", "appendText")
 def append_text(params, ctx):
     return gdocs.append_text(params["document"], params.get("text") or "")
 
 
-@connector("google_docs", "fillTemplate")
 def fill_template(params, ctx):
     """Fill every placeholder in a copied template with one atomic batchUpdate.
 
@@ -49,6 +46,5 @@ def fill_template(params, ctx):
     return result
 
 
-@connector("google_docs", "getText")
 def get_text(params, ctx):
     return {"text": gdocs.get_text(params["document"])}

@@ -288,20 +288,16 @@ def _resolve_connector_handler(connector_id: str, operation: str):
 	Find the callable that runs a (connectorId, operation), or None.
 
 	Connectors are configuration (BPMN Connector / Operation / Field DocTypes),
-	so resolution consults that configuration first, in this order:
+	so the configuration is the only thing consulted:
 
 	  1. the operation's Handler Path — an explicit dotted path
 	  2. execution type "HTTP Request" — the declarative executor, no Python
-	  3. the @connector registry — the shipped SDK-backed handlers (Google)
 
-	Step 3 also covers the case where no configuration row exists at all, which
-	keeps a code-only connector (and the seed fallback) working unchanged.
+	There is deliberately no implicit lookup behind these. Every operation says
+	how it runs, so an unconfigured one fails loudly instead of resolving to
+	whatever function happened to register that name.
 	"""
 	from one_bpmn.one_bpmn.connectors import manifest as _manifest
-	from one_bpmn.one_bpmn.connectors import registry as _registry
-
-	# Importing the package runs every @connector registration (idempotent).
-	import one_bpmn.one_bpmn.connectors  # noqa: F401
 
 	try:
 		spec = _manifest.get_execution_spec(connector_id, operation)
@@ -328,7 +324,10 @@ def _resolve_connector_handler(connector_id: str, operation: str):
 
 			return lambda params, ctx: http_ops.execute(spec, params, ctx)
 
-	return _registry.get_handler(connector_id, operation)
+	# No third path. An operation that names neither an HTTP request nor a
+	# handler is unconfigured, and saying so beats silently finding a function
+	# that happens to share its name.
+	return None
 
 
 def dispatch_connector(instance, task, task_cfg: dict, bpmn_id: str) -> None:
@@ -353,10 +352,6 @@ def dispatch_connector(instance, task, task_cfg: dict, bpmn_id: str) -> None:
 	import json as _json
 
 	from one_bpmn.one_bpmn.connectors import manifest as _manifest
-	from one_bpmn.one_bpmn.connectors import registry as _registry
-
-	# Importing the package runs every @connector registration (idempotent).
-	import one_bpmn.one_bpmn.connectors  # noqa: F401
 
 	connector_id = (task_cfg.get("connectorId") or "").strip()
 	operation = (task_cfg.get("operation") or "").strip()
@@ -385,9 +380,9 @@ def dispatch_connector(instance, task, task_cfg: dict, bpmn_id: str) -> None:
 		frappe.log_error(
 			title=f"BPMN ServiceTask: connector unknown ({bpmn_id})",
 			message=(
-				f"No handler for connectorId={connector_id!r} operation={operation!r}. "
-				f"Not configured as a BPMN Connector Operation (or it is disabled), and "
-				f"no registered Python handler. Registered: {_registry.registered()}"
+				f"No executor for connectorId={connector_id!r} operation={operation!r}. "
+				f"Either it is not a BPMN Connector Operation, it is disabled, or its "
+				f"row names neither an HTTP request nor a Handler Path."
 			),
 		)
 		if fail_on_error:

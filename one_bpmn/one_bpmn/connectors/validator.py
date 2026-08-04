@@ -7,9 +7,9 @@
 # into a state that only fails at runtime.
 #
 # Since connectors became configuration, "executable" has three legitimate
-# shapes — an explicit handler path, a declarative HTTP request, or a registered
+# shapes — an explicit handler path or a declarative HTTP request
 # @connector handler — so the old "every operation needs a Python handler" rule
-# is now "every operation must resolve to an executor". A registered handler with
+# is "every operation must resolve to an executor". A handler with
 # no configuration row is still reported, because it is unreachable from the
 # modeler.
 #
@@ -23,7 +23,6 @@ import frappe
 
 import one_bpmn.one_bpmn.connectors  # noqa: F401 — ensures handlers are registered
 from one_bpmn.one_bpmn.connectors.manifest import get_execution_spec, load_manifests
-from one_bpmn.one_bpmn.connectors.registry import CONNECTORS
 
 # Provider-neutral on purpose: DriveFile/DriveFolder used to live here, which put
 # a Google Drive concept in the generic layer. Input normalisation is now a
@@ -35,7 +34,6 @@ def validate_manifests():
     """Return a list of human-readable issue strings (empty == all good)."""
     issues = []
     # Disabled rows are included so an operation a site has switched off is not
-    # misreported as "registered handler with no configuration".
     manifests = load_manifests(include_disabled=True)
 
     seen = set()
@@ -65,19 +63,9 @@ def validate_manifests():
             issues.extend(_validate_executability(cid, ov))
             issues.extend(_validate_fields(cid, ov, op.get("fields") or []))
 
-        # every registered handler must be reachable from the configuration
-        for ov in CONNECTORS.get(cid, {}):
-            if ov not in manifest_ops:
-                issues.append(
-                    f"{cid}/{ov}: registered handler is not configured as a BPMN "
-                    f"Connector Operation, so no modeler can select it"
-                )
 
     # connectors with handlers but no configuration at all
     manifest_ids = {m.get("connectorId") for m in manifests}
-    for cid in CONNECTORS:
-        if cid not in manifest_ids and not cid.startswith("__"):
-            issues.append(f"{cid}: handlers registered but no connector configured")
 
     return issues
 
@@ -104,14 +92,14 @@ def _validate_executability(cid, ov):
     except Exception as e:
         return [f"{cid}/{ov}: execution config could not be read ({e})"]
 
-    registry_handler = CONNECTORS.get(cid, {}).get(ov)
 
     if not spec:
-        # No configuration row — seed-file fallback, or the operation is
-        # disabled. The registry is then the only possible executor.
-        if not registry_handler:
-            return [f"{cid}/{ov}: no execution configuration and no registered handler"]
-        return []
+        # In the manifest but with no execution row behind it — the operation
+        # was deleted or disabled after the manifest cache was built.
+        return [
+            f"{cid}/{ov}: appears in the manifest but has no execution configuration "
+            f"(the operation row is missing or disabled)"
+        ]
 
     if spec.handler_path:
         try:
@@ -134,13 +122,10 @@ def _validate_executability(cid, ov):
         issues += _shadowed_field_access(cid, ov, spec)
         return issues
 
-    # Python Handler with no explicit path — the registry must supply one.
-    if not registry_handler:
-        return [
-            f"{cid}/{ov}: execution type is Python Handler but there is neither a "
-            f"registered handler nor a Handler Path"
-        ]
-    return []
+    # Python Handler with no path names nothing to call.
+    return [
+        f"{cid}/{ov}: execution type is Python Handler but no Handler Path is set"
+    ]
 
 
 def _shadowed_field_access(cid, ov, spec):

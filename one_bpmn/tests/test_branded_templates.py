@@ -28,7 +28,7 @@ from unittest.mock import MagicMock, patch
 
 import frappe
 
-from one_bpmn.one_bpmn.connectors.registry import get_handler
+from one_bpmn.one_bpmn.connectors.google_docs_ops import fill_template as _fill_template
 
 TEMPLATE_ID = "_TestBrandedTemplateId"
 COPY_ID = "_TestCopyId"
@@ -96,9 +96,8 @@ class TestFillTemplateOperation(unittest.TestCase):
 		return service
 
 	def _fill(self, service, params):
-		handler = get_handler("google_docs", "fillTemplate")
 		with patch("one_bpmn.one_bpmn.integrations.google_docs._svc", return_value=service):
-			return handler(params, {})
+			return _fill_template(params, {})
 
 	def test_every_placeholder_goes_in_one_call(self):
 		"""Ten fields must not be ten round-trips — and must not be able to half
