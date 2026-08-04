@@ -27,9 +27,7 @@
   "script_block_lambda",
   "script_strict_builtins",
   "script_strict_frappe_attrs",
-  "script_block_all_imports",
-  "section_break_google",
-  "google_drive_service_account_json"
+  "script_block_all_imports"
  ],
  "fields": [
   {
@@ -188,19 +186,6 @@
    "fieldname": "script_block_all_imports",
    "fieldtype": "Check",
    "label": "Block All Imports"
-  },
-  {
-   "collapsible": 1,
-   "fieldname": "section_break_google",
-   "fieldtype": "Section Break",
-   "label": "Google Integration (legacy)"
-  },
-  {
-   "description": "DEPRECATED — the credential now lives on each BPMN Connector, under Authentication → Secret, so connectors can use different Google accounts and a key can be rotated for one without touching the others. This field is read-only and kept only as a fallback for sites whose key has not been moved yet; anything still reading it is logged as deprecated. Clear it once every Google connector carries its own key.",
-   "fieldname": "google_drive_service_account_json",
-   "fieldtype": "Password",
-   "label": "Service Account JSON (deprecated)",
-   "read_only": 1
   }
  ],
  "issingle": 1,

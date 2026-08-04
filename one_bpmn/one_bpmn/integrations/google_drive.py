@@ -1,18 +1,17 @@
 # Copyright (c) 2026, one-fm and contributors
 # Google Drive integration for Processa document storage (DMS).
 #
-# Credentials + config live on the "Processa Settings" singleton (one_bpmn),
-# under its "Google Integration" section, resolved via
+# The credential lives on the BPMN Connector that uses it — Authentication >
+# Secret, holding the whole service-account key file — and is resolved via
 # integrations/google_common (shared with the Docs/Slides integrations and the
-# connector layer):
-#   google_drive_service_account_json  - service account JSON (Password field)
+# connector layer). Callers here name no connector, so they get the
+# google_drive connector's key; see google_common.load_service_account_info.
+#
+# There is no settings-level or site_config fallback: a key nobody can see on a
+# connector form is a key nobody can rotate per connector.
 #
 # (Destination folders are configured on the connector element / passed by the
 # caller, not in settings.)
-#
-# Lookup order (google_common): Processa Settings -> AI Chat Settings (legacy
-# fallback) -> frappe.conf -> <site>/private/files/gcp.json, so this also works
-# from a bare bench console without the doctype populated.
 #
 # The backing GCP project must have the Drive API enabled, and the service
 # account must be a member of the target Shared Drive (Content Manager or
@@ -37,9 +36,9 @@ class GoogleDriveConfigError(Exception):
 
 
 def _get_credentials(connector_id=None):
-	# Credentials now come from the shared loader (Processa Settings → AI Chat
-	# Settings → site_config → gcp.json). Re-raise as GoogleDriveConfigError so
-	# existing Script Tasks that catch that type keep working unchanged.
+	# Credentials come from the shared loader, i.e. the connector's own Secret.
+	# Re-raise as GoogleDriveConfigError so existing Script Tasks that catch that
+	# type keep working unchanged.
 	from one_bpmn.one_bpmn.integrations import google_common as _gc
 
 	try:
@@ -59,6 +58,19 @@ def _get_service(connector_id="google_drive"):
 	return build(
 		"drive", "v3", credentials=_get_credentials(connector_id), cache_discovery=False
 	)
+
+
+# Every read/share helper below takes an optional ``service``, so a caller that
+# owns a different Google identity can reuse this module's Drive logic without
+# borrowing a connector's credential.
+#
+# That logic is worth reusing and worth not duplicating: download_file_text
+# alone handles native-Docs export, .docx and .pptx parsing, and mimetypes that
+# lie (WPS Office reports "application/wps-office.docx"), falling back to
+# sniffing the ZIP container. A second copy of it elsewhere would drift.
+#
+# ``service=None`` keeps the connector as the default, so nothing that calls
+# these without an argument changes behaviour.
 
 
 def create_file(
@@ -112,7 +124,7 @@ def update_file_content(file_id: str, content: str, source_mime_type: str = "tex
 	)
 
 
-def set_permissions(file_id: str, grants: list) -> list:
+def set_permissions(file_id: str, grants: list, service=None) -> list:
 	"""
 	Apply a list of Drive permission grants to a file.
 
@@ -120,7 +132,7 @@ def set_permissions(file_id: str, grants: list) -> list:
 	  {"type": "domain", "domain": "one-fm.com", "role": "reader"}
 	  {"type": "user", "emailAddress": "x@one-fm.com", "role": "writer"}
 	"""
-	service = _get_service()
+	service = service or _get_service()
 	results = []
 	for grant in grants:
 		results.append(
@@ -147,7 +159,7 @@ def set_permissions(file_id: str, grants: list) -> list:
 STRUCTURAL_ROLES = ("owner", "organizer", "fileOrganizer")
 
 
-def revoke_permissions(file_id: str, scope: str = "all", match: str = None) -> dict:
+def revoke_permissions(file_id: str, scope: str = "all", match: str = None, service=None) -> dict:
 	"""Remove sharing grants from a file — the inverse of ``set_permissions``.
 
 	This is what actually takes a document out of circulation. Marking a record
@@ -174,7 +186,7 @@ def revoke_permissions(file_id: str, scope: str = "all", match: str = None) -> d
 	reported as a failure is far more dangerous than a complete one, so the
 	caller gets the full picture instead.
 	"""
-	service = _get_service()
+	service = service or _get_service()
 	listed = (
 		service.permissions()
 		.list(
@@ -212,9 +224,9 @@ def revoke_permissions(file_id: str, scope: str = "all", match: str = None) -> d
 	return {"removed": removed, "skipped": skipped}
 
 
-def list_files(folder_id: str, page_size: int = 20) -> list:
+def list_files(folder_id: str, page_size: int = 20, service=None) -> list:
 	"""List non-trashed files directly inside a Drive folder."""
-	service = _get_service()
+	service = service or _get_service()
 	resp = (
 		service.files()
 		.list(
@@ -276,7 +288,7 @@ def _extract_docx_text(raw: bytes) -> str:
 	return "\n".join(blocks)
 
 
-def download_file_text(file_id: str, mime_type: str = None) -> str:
+def download_file_text(file_id: str, mime_type: str = None, service=None) -> str:
 	"""
 	Fetch a file's text content, converting to plain text regardless of
 	source format:
@@ -289,7 +301,7 @@ def download_file_text(file_id: str, mime_type: str = None) -> str:
 	pass it explicitly only if the caller already has it on hand (e.g. from
 	a prior list_files() call) to save the extra round trip.
 	"""
-	service = _get_service()
+	service = service or _get_service()
 	if mime_type is None:
 		mime_type = (
 			service.files()

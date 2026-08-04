@@ -702,7 +702,7 @@ class TestCredentialOnConnector(FrappeTestCase):
         conn = frappe.get_doc("BPMN Connector", "cred_test")
         conn.credential_source = "From a settings DocType"
         conn.auth_settings_doctype = "Processa Settings"
-        conn.auth_secret_field = "google_drive_service_account_json"
+        conn.auth_secret_field = "github_token"
         conn.save(ignore_permissions=True)
         clear_manifest_cache()
 

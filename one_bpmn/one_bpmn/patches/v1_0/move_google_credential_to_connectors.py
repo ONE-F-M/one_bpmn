@@ -11,25 +11,30 @@ without affecting the rest.
 The key now belongs to the connector that uses it (BPMN Connector →
 Authentication → Secret). This patch copies the existing key onto any Google
 connector that does not already carry one, so nothing has to be re-entered by
-hand, and leaves the old field in place but read-only.
+hand.
 
-WHY THE OLD FIELD IS NOT DELETED
---------------------------------
-Five Server Scripts import the Drive integration directly and know nothing about
-connectors. They keep working because the loader falls back to the *Drive
-connector's* key when no connector is named — but a site that has not run this
-patch, or whose connectors have no key, still needs somewhere to read from.
-Removing the field would break those sites silently. It is marked deprecated,
-made read-only, and every read of it is logged.
+THIS IS THE ONLY PLACE THAT STILL KNOWS THE OLD LOCATIONS
+---------------------------------------------------------
+A migration is allowed to know about the world it is migrating from; runtime
+code is not. ``google_common.load_service_account_info`` reads the connector's
+Secret and nothing else, so this patch is the last reader of the four historical
+locations. ``drop_legacy_google_credential_field`` runs after it and removes
+what it leaves behind.
 
-Clear it once every Google connector shows its own Secret.
+The reads go through ``get_decrypted_password`` against the ``__Auth`` store
+rather than a DocField, because by the time post_model_sync patches run the same
+migrate has already removed the fields — but the stored secret is still there.
 """
 
 import json
 
 import frappe
+from frappe.utils.password import get_decrypted_password
 
 GOOGLE_CONNECTORS = ("google_drive", "google_docs", "google_sheets", "google_slides")
+
+# Where the one global key used to be kept, newest first.
+LEGACY_SETTINGS = ("Processa Settings", "AI Chat Settings")
 
 
 def execute():
@@ -59,12 +64,7 @@ def execute():
 		print(f"Copied the Google service account onto: {', '.join(copied)}")
 	if already:
 		print(f"Already had their own key: {', '.join(already)}")
-	if legacy and len(already) + len(copied) == len(GOOGLE_CONNECTORS):
-		print(
-			"Every Google connector now carries its own key. The Processa Settings "
-			"field is deprecated and read-only — clear it when you are satisfied."
-		)
-	elif not legacy and not already:
+	if not legacy and not already:
 		print(
 			"No Google credential found anywhere. Paste the key on each BPMN "
 			"Connector under Authentication > Secret."
@@ -72,11 +72,16 @@ def execute():
 
 
 def _legacy_key():
-	"""The key from wherever it used to live, or None."""
-	for doctype in ("Processa Settings", "AI Chat Settings"):
+	"""The key from wherever it used to live, or None.
+
+	Read from ``__Auth`` by fieldname, not through the DocType's meta: the
+	settings fields that used to hold this are gone by the time this runs, while
+	the encrypted value they stored is not.
+	"""
+	for doctype in LEGACY_SETTINGS:
 		try:
-			value = frappe.get_single(doctype).get_password(
-				"google_drive_service_account_json", raise_exception=False
+			value = get_decrypted_password(
+				doctype, doctype, "google_drive_service_account_json", raise_exception=False
 			)
 		except Exception:
 			value = None

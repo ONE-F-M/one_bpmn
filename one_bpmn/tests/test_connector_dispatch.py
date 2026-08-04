@@ -169,7 +169,7 @@ class TestDocsSlidesConnectors(FrappeTestCase):
         from one_bpmn.one_bpmn.connectors.manifest import get_execution_spec, load_manifests
 
         for connector_id, expected in (
-            ("google_docs", {"appendText", "getText", "fillTemplate"}),
+            ("google_docs", {"appendText", "getText", "fillTemplate", "fillBrandedTemplate"}),
             ("google_slides", {"getText"}),
         ):
             manifest = next(m for m in load_manifests() if m["connectorId"] == connector_id)
