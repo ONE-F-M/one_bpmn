@@ -1019,6 +1019,7 @@ def dispatch_ai_agent(instance, task, task_cfg: dict, bpmn_id: str, resume_run: 
 
 	from one_bpmn.agents.executor import (
 		DEFAULT_MAX_OUTPUT_TOKENS,
+		DEFAULT_TIMEOUT_SECONDS,
 		ErrorCode,
 		ExecutorConfig,
 		ExecutorContext,
@@ -1150,7 +1151,10 @@ def dispatch_ai_agent(instance, task, task_cfg: dict, bpmn_id: str, resume_run: 
 		# "0" is truthy — `"0" or DEFAULT` would yield a zero budget. cint also
 		# absorbs "", "  " and junk, which int() would raise on.
 		max_tokens       = cint(task_cfg.get("aiMaxTokens")) or DEFAULT_MAX_OUTPUT_TOKENS,
-		timeout_seconds  = int(task_cfg.get("aiTimeout", 30) or 30),
+		# Defer to the shared default rather than repeating a number here. The
+		# hardcoded 30 that used to sit in this line silently overrode it, so
+		# raising the default had no effect on any AI task in any process map.
+		timeout_seconds  = cint(task_cfg.get("aiTimeout")) or DEFAULT_TIMEOUT_SECONDS,
 		response_format  = task_cfg.get("aiResponseFormat", "text") or "text",
 		response_schema  = task_cfg.get("aiResponseSchema") or None,
 		max_retries      = int(task_cfg.get("aiMaxRetries", 2) or 2),

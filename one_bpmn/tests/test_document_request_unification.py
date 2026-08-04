@@ -36,9 +36,17 @@ DEPRECATED_PROCESSES = (
 
 
 def _template_expression() -> str:
-	"""The Jinja document_type -> Drive template id map, off the live diagram."""
+	"""The Jinja document_type -> Drive template id map, off the live diagram.
+
+	It lives on ``create_file`` now. It used to be on a ``fetch_template`` task
+	that downloaded the template as PLAIN TEXT to put in the drafting prompt —
+	which is what flattened the templates' bilingual tables into pipe characters
+	and got them printed in published documents. The map moved to the task that
+	COPIES the template instead, and fetch_template is gone; the lookup itself is
+	unchanged, and so is what these tests are checking.
+	"""
 	xml = frappe.db.get_value("BPMN Process Model", MODEL, "bpmn_xml") or ""
-	match = re.search(r'id="fetch_template".*?connectorParams="([^"]*)"', xml, re.S)
+	match = re.search(r'id="create_file".*?connectorParams="([^"]*)"', xml, re.S)
 	return html.unescape(match.group(1)) if match else ""
 
 
@@ -105,7 +113,7 @@ class TestDocumentTypeIsAParameter(unittest.TestCase):
 		from frappe.utils.jinja import render_template
 
 		expression = _template_expression()
-		self.assertTrue(expression, "fetch_template must carry the per-type map")
+		self.assertTrue(expression, "create_file must carry the per-type map")
 
 		for document_type in DOCUMENT_TYPES:
 			with self.subTest(document_type=document_type):
@@ -125,12 +133,17 @@ class TestDocumentTypeIsAParameter(unittest.TestCase):
 				)
 				self.assertTrue(
 					frappe.parse_json(rendered).get("file"),
-					f"{document_type} drafts against a canonical template; it cannot be blank",
+					f"{document_type} is copied from a canonical template; it cannot be blank",
 				)
 
 	def test_an_unknown_type_degrades_instead_of_raising(self):
 		"""Adding an option to Document Request.document_type without adding a
-		template must not crash the process — it fetches nothing."""
+		template must resolve to blank rather than raising here.
+
+		Note that a BLANK id is not a working Create: copying a template is now
+		how the file is made, so a type with no template cannot produce one. That
+		is a deliberate limitation of having only three templates, recorded by
+		test_guideline_has_no_template_on_purpose below."""
 		from frappe.utils.jinja import render_template
 
 		# The expression is the whole connectorParams JSON, so what must be
@@ -138,6 +151,24 @@ class TestDocumentTypeIsAParameter(unittest.TestCase):
 		rendered = render_template(
 			_template_expression(), {"task_data": {"document_type": "Not A Real Type"}}
 		)
+		self.assertEqual(frappe.parse_json(rendered).get("file"), "")
+
+	def test_guideline_has_no_template_on_purpose(self):
+		"""A Guideline is a SOURCE document, not one this process generates.
+
+		It is mapped explicitly to "" rather than left out, so the omission reads
+		as a decision instead of an oversight. The consequence is real and worth
+		stating: request_action="Create" with document_type="Guideline" has no
+		template to copy and cannot produce a branded document. Either a
+		Guideline template gets provided, or the option should not be offered for
+		Create.
+		"""
+		from frappe.utils.jinja import render_template
+
+		expression = _template_expression()
+		self.assertIn("'Guideline'", expression,
+		              "map Guideline explicitly, so the gap is visible in the diagram")
+		rendered = render_template(expression, {"task_data": {"document_type": "Guideline"}})
 		self.assertEqual(frappe.parse_json(rendered).get("file"), "")
 
 	def test_document_type_options_are_all_known_to_the_template_map(self):

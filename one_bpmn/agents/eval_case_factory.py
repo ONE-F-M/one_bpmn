@@ -4,9 +4,37 @@
 # system. AI Eval Case.source_run was designed for exactly this; until now
 # nothing populated it.
 
+import json
+
 import frappe
 from frappe import _
 from frappe.utils import get_datetime
+
+
+def _run_context_json(run) -> str | None:
+	"""The document *run* executed against, shaped as a case's ``input_context``.
+
+	A map-path eval (``eval_runner._run_map_eval``) starts the map against the
+	document the case names, so carrying the source run's context onto the case
+	makes a captured case re-runnable without hand-editing.
+
+	Returns None — never "" — when the run had no instance context (a standalone
+	eval-origin LLM call): input_context is a JSON column with a CHECK constraint,
+	and an empty string is not valid JSON, so it has to stay NULL.
+	"""
+	instance = getattr(run, "instance", None)
+	if not instance:
+		return None
+	row = frappe.db.get_value(
+		"BPMN Process Instance", instance,
+		["context_doctype", "context_docname"], as_dict=True,
+	)
+	if not row or not row.context_doctype or not row.context_docname:
+		return None
+	return json.dumps({
+		"context_doctype": row.context_doctype,
+		"context_docname": row.context_docname,
+	})
 
 
 def _assert_may_read_run(run_name: str):
@@ -303,6 +331,9 @@ def create_eval_case_from_run(
 			# the agent). ``system_prompt`` above is no longer stored on the case.
 			"input_user_prompt": user_prompt,
 			"expected_output": expected_output,
+			# The document the run executed against, so a captured case can be
+			# re-run through the map path as-is.
+			"input_context": _run_context_json(run),
 		}
 	)
 	if add_starter_assertion:

@@ -155,6 +155,109 @@
 						<p v-if="!res.assertions.length" class="text-sm text-gray-400">No assertions.</p>
 					</div>
 
+					<!-- What the agent did: steps, and the tools each one called.
+					     Answering "which tools ran?" used to mean leaving this screen
+					     and opening each AI Agent Step record by hand. -->
+					<div v-if="res.agent_runs && res.agent_runs.length">
+						<div class="text-xs uppercase tracking-wide text-gray-500 font-medium mb-2">
+							Agent activity
+						</div>
+						<div
+							v-for="ar in res.agent_runs"
+							:key="ar.name"
+							class="border border-gray-100 rounded-md mb-2"
+						>
+							<div class="px-3 py-2 flex items-center gap-3 flex-wrap border-b border-gray-100">
+								<span class="text-sm font-medium text-gray-800">
+									{{ ar.bpmn_label || ar.bpmn_id || ar.name }}
+								</span>
+								<span class="inline-block px-2 py-0.5 rounded-full text-xs" :class="runPill(ar.status)">
+									{{ ar.status }}
+								</span>
+								<span
+									class="text-xs px-2 py-0.5 rounded-full"
+									:class="ar.tool_call_count
+										? 'bg-indigo-50 text-indigo-700'
+										: 'bg-gray-100 text-gray-500'"
+								>
+									{{ ar.tool_call_count }} tool call{{ ar.tool_call_count === 1 ? "" : "s" }}
+								</span>
+								<span v-if="ar.model" class="text-xs text-gray-400">{{ ar.model }}</span>
+								<span class="text-xs text-gray-400 ml-auto">
+									{{ ar.total_tokens || 0 }} tok · ${{ (ar.estimated_cost || 0).toFixed(4) }}
+								</span>
+								<a
+									:href="`/app/ai-agent-run/${encodeURIComponent(ar.name)}`"
+									target="_blank"
+									rel="noopener"
+									class="text-xs text-blue-600 hover:underline"
+								>full run ↗</a>
+							</div>
+
+							<p v-if="ar.error_message" class="px-3 py-2 text-sm text-red-600">
+								{{ ar.error_message }}
+							</p>
+
+							<!-- Tool calls first: they are what this section is for. The
+							     whole step transcript sits behind a disclosure so a long
+							     conversation does not bury them. -->
+							<div v-if="ar.tool_call_count" class="px-3 py-2 space-y-2">
+								<div
+									v-for="(tc, i) in toolCalls(ar)"
+									:key="i"
+									class="border border-gray-100 rounded p-2"
+								>
+									<div class="flex items-center gap-2 flex-wrap">
+										<Icon icon="lucide:wrench" class="w-3.5 h-3.5 text-indigo-600" />
+										<code class="text-xs font-medium text-gray-800">{{ tc.tool_name }}</code>
+										<span class="text-xs text-gray-400">step #{{ tc.step_index }}</span>
+										<span v-if="tc.tool_source" class="text-xs text-gray-400">
+											{{ tc.tool_source }}
+										</span>
+										<span
+											v-if="toolFailed(tc)"
+											class="text-xs px-1.5 py-0.5 rounded bg-red-50 text-red-700"
+											title="The shape ran, but returned an error payload to the model"
+										>returned an error</span>
+									</div>
+									<div v-if="tc.tool_args" class="mt-1 flex items-baseline gap-2">
+										<span class="text-xs text-gray-500 shrink-0">Arguments:</span>
+										<pre class="text-xs text-gray-700 bg-gray-50 rounded px-2 py-1 m-0 whitespace-pre-wrap break-words max-h-24 overflow-auto grow">{{ pretty(tc.tool_args) }}</pre>
+									</div>
+									<div v-if="tc.tool_result" class="mt-1 flex items-baseline gap-2">
+										<span class="text-xs text-gray-500 shrink-0">Result:</span>
+										<pre class="text-xs text-gray-700 bg-gray-50 rounded px-2 py-1 m-0 whitespace-pre-wrap break-words max-h-40 overflow-auto grow">{{ pretty(tc.tool_result) }}</pre>
+									</div>
+								</div>
+							</div>
+							<p v-else class="px-3 py-2 text-sm text-gray-400">
+								The agent called no tools in this run.
+							</p>
+
+							<details v-if="ar.steps && ar.steps.length" class="px-3 pb-2">
+								<summary class="text-xs text-gray-500 cursor-pointer">
+									Full transcript ({{ ar.steps.length }} steps)
+								</summary>
+								<div
+									v-for="s in ar.steps"
+									:key="s.step_index"
+									class="mt-2 border-l-2 border-gray-100 pl-3"
+								>
+									<div class="text-xs text-gray-500">
+										#{{ s.step_index }} · {{ s.role }}
+										<span v-if="s.tool_calls.length" class="text-indigo-600">
+											· {{ s.tool_calls.length }} tool call{{ s.tool_calls.length === 1 ? "" : "s" }}
+										</span>
+									</div>
+									<pre
+										v-if="s.content"
+										class="text-xs bg-gray-50 rounded p-2 mt-1 whitespace-pre-wrap overflow-auto max-h-40"
+									>{{ s.content }}</pre>
+								</div>
+							</details>
+						</div>
+					</div>
+
 					<!-- Actual output -->
 					<div v-if="res.error_message" class="text-sm text-red-600">{{ res.error_message }}</div>
 					<details v-if="res.actual_output">
@@ -207,6 +310,46 @@ const ASSERTION_VALUE_LABELS = {
 
 function assertionValueLabel(type) {
 	return ASSERTION_VALUE_LABELS[type] || "Expected"
+}
+
+// Every tool call across a run's steps, flattened and tagged with the step it
+// belongs to. Tool calls are the answer people come to this screen for, so they
+// are listed together rather than hidden one level down inside each step.
+function toolCalls(agentRun) {
+	const out = []
+	for (const step of agentRun.steps || []) {
+		for (const tc of step.tool_calls || []) {
+			out.push({ ...tc, step_index: step.step_index })
+		}
+	}
+	return out
+}
+
+// A shape tool never raises — execute_shape returns {"error": ...} to the model
+// instead — so `status` stays "Success" even when the lookup failed. The result
+// payload is the only place that shows it, so flag it explicitly.
+function toolFailed(tc) {
+	if (tc.status === "Error") return true
+	const raw = tc.tool_result
+	if (!raw) return false
+	try {
+		const parsed = typeof raw === "string" ? JSON.parse(raw) : raw
+		return Boolean(parsed && typeof parsed === "object" && parsed.error)
+	} catch {
+		return false
+	}
+}
+
+// JSON payloads read far better indented; anything that is not JSON is shown
+// exactly as stored.
+function pretty(raw) {
+	if (raw === null || raw === undefined) return ""
+	if (typeof raw === "object") return JSON.stringify(raw, null, 2)
+	try {
+		return JSON.stringify(JSON.parse(raw), null, 2)
+	} catch {
+		return String(raw)
+	}
 }
 
 function runPill(status) {
