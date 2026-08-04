@@ -15,6 +15,8 @@
 
 import BaseRenderer from "diagram-js/lib/draw/BaseRenderer";
 
+import { ensureManifests, getConnectorIcon } from "../bpmn/shared/connectorManifests";
+
 // Must beat the default BpmnRenderer (priority 1000)
 const HIGH_PRIORITY = 1500;
 
@@ -71,11 +73,18 @@ const SERVICE_ICONS = {
 	},
 };
 
+// The built-in service types above are code; a *connector's* icon is
+// configuration (BPMN Connector → Icon SVG Path / Icon Colour), so it is looked
+// up per connectorId from the shared manifest cache and only falls back to the
+// generic teal plug when the connector sets no icon of its own.
 function getServiceIcon(element) {
 	const bo = element.businessObject;
 	if (!bo) return null;
 	const serviceType = bo.get("spiffworkflow:serviceType") || "";
-	return SERVICE_ICONS[serviceType] || null;
+	if (serviceType !== "connector") return SERVICE_ICONS[serviceType] || null;
+
+	const connectorId = bo.get("spiffworkflow:connectorId") || "";
+	return (connectorId && getConnectorIcon(connectorId)) || SERVICE_ICONS.connector;
 }
 
 function roundRectPath(x, y, width, height, r) {
@@ -97,9 +106,29 @@ function roundRectPath(x, y, width, height, r) {
 // Renderer
 // ---------------------------------------------------------------------------
 export default class ServiceTaskIconRenderer extends BaseRenderer {
-	constructor(eventBus, bpmnRenderer) {
+	constructor(eventBus, bpmnRenderer, elementRegistry) {
 		super(eventBus, HIGH_PRIORITY);
 		this.bpmnRenderer = bpmnRenderer;
+		this.eventBus = eventBus;
+		this.elementRegistry = elementRegistry;
+
+		// Connector icons come from the backend, so a diagram may draw before the
+		// manifests arrive. Redraw the connector tasks once they do — otherwise a
+		// configured icon only appears after the next unrelated change.
+		ensureManifests(() => this.redrawConnectorTasks());
+	}
+
+	redrawConnectorTasks() {
+		if (!this.elementRegistry) return;
+		const elements = this.elementRegistry.filter(
+			(el) =>
+				el.type === "bpmn:ServiceTask" &&
+				el.businessObject &&
+				el.businessObject.get("spiffworkflow:serviceType") === "connector",
+		);
+		if (elements.length) {
+			this.eventBus.fire("elements.changed", { elements });
+		}
 	}
 
 	canRender(element) {
@@ -149,7 +178,7 @@ export default class ServiceTaskIconRenderer extends BaseRenderer {
 	}
 }
 
-ServiceTaskIconRenderer.$inject = ["eventBus", "bpmnRenderer"];
+ServiceTaskIconRenderer.$inject = ["eventBus", "bpmnRenderer", "elementRegistry"];
 
 // Module definition for bpmn-js
 export const serviceTaskIconModule = {

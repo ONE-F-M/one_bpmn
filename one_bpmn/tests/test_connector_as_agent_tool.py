@@ -21,6 +21,7 @@ from __future__ import annotations
 
 import json
 
+import frappe
 from frappe.tests.utils import FrappeTestCase
 
 from one_bpmn.agents.shape_tools import compile_shape_tools
@@ -28,7 +29,6 @@ from one_bpmn.api.compilation import (
 	_extract_service_task_config,
 	_extract_tool_shapes,
 )
-from one_bpmn.one_bpmn.connectors.registry import connector, get_handler
 
 BPMN_NS = "http://www.omg.org/spec/BPMN/20100524/MODEL"
 SPIFF_NS = "http://spiffworkflow.org/bpmn/schema/1.0/core"
@@ -60,7 +60,6 @@ XML = f"""<?xml version="1.0" encoding="UTF-8"?>
 _CALLS = []
 
 
-@connector("spike_vector", "search")
 def _spike_search(params, ctx):
 	"""Stand-in for a vector-DB search operation."""
 	_CALLS.append(params)
@@ -92,7 +91,46 @@ class _FakeInstance:
 		return True
 
 
+def _ensure_spike_connector():
+	"""The spike's connector, configured the only way connectors exist now.
+
+	It used to register itself with an @connector decorator; that registry is
+	gone, so the operation names its handler on its row like every other one.
+	"""
+	if not frappe.db.exists("BPMN Connector", "spike_vector"):
+		frappe.get_doc({
+			"doctype": "BPMN Connector",
+			"connector_id": "spike_vector",
+			"label": "Spike Vector Search",
+			"enabled": 1,
+			"execution_type": "Python Handler",
+		}).insert(ignore_permissions=True)
+	if not frappe.db.exists(
+		"BPMN Connector Operation", {"connector": "spike_vector", "operation_id": "search"}
+	):
+		op = frappe.get_doc({
+			"doctype": "BPMN Connector Operation",
+			"connector": "spike_vector",
+			"operation_id": "search",
+			"label": "Search",
+			"enabled": 1,
+			"execution_type": "Python Handler",
+			"handler_path": "one_bpmn.tests.test_connector_as_agent_tool._spike_search",
+		})
+		for name in ("query", "top_k"):
+			op.append("fields", {"field_name": name, "field_type": "String", "expression": 1})
+		op.insert(ignore_permissions=True)
+	from one_bpmn.one_bpmn.connectors.manifest import clear_manifest_cache
+
+	clear_manifest_cache()
+
+
 class TestConnectorAsAgentTool(FrappeTestCase):
+	@classmethod
+	def setUpClass(cls):
+		super().setUpClass()
+		_ensure_spike_connector()
+
 	def setUp(self):
 		_CALLS.clear()
 
@@ -163,5 +201,12 @@ class TestConnectorAsAgentTool(FrappeTestCase):
 		self.assertIn("memory_hits", out)
 		self.assertEqual(out["memory_hits"]["chunks"], ["chunk about overdue invoice policy"])
 
-	def test_registry_binding_is_present(self):
-		self.assertIsNotNone(get_handler("spike_vector", "search"))
+	def test_the_connector_is_configuration_the_dispatcher_can_resolve(self):
+		"""The operation is reached by the dotted path on its row — the same way
+		every real connector operation is."""
+		from one_bpmn.one_bpmn.connectors.manifest import get_execution_spec
+
+		spec = get_execution_spec("spike_vector", "search")
+		self.assertIsNotNone(spec, "the spike connector must be configured, not registered")
+		self.assertTrue(spec.handler_path)
+		self.assertTrue(callable(frappe.get_attr(spec.handler_path)))

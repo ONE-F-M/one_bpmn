@@ -36,22 +36,29 @@ class GoogleDriveConfigError(Exception):
 	"""Raised for missing/invalid configuration — not a transient API failure."""
 
 
-def _get_credentials():
+def _get_credentials(connector_id=None):
 	# Credentials now come from the shared loader (Processa Settings → AI Chat
 	# Settings → site_config → gcp.json). Re-raise as GoogleDriveConfigError so
 	# existing Script Tasks that catch that type keep working unchanged.
 	from one_bpmn.one_bpmn.integrations import google_common as _gc
 
 	try:
-		return _gc.get_credentials(SCOPES)
+		return _gc.get_credentials(SCOPES, connector_id=connector_id)
 	except _gc.GoogleConfigError as e:
 		raise GoogleDriveConfigError(str(e))
 
 
-def _get_service():
+def _get_service(connector_id="google_drive"):
+	"""Drive client, authenticated as the connector's own service account.
+
+	Defaults to the google_drive connector so the Script Tasks that import these
+	functions directly keep working without knowing about connectors at all.
+	"""
 	from googleapiclient.discovery import build
 
-	return build("drive", "v3", credentials=_get_credentials(), cache_discovery=False)
+	return build(
+		"drive", "v3", credentials=_get_credentials(connector_id), cache_discovery=False
+	)
 
 
 def create_file(
@@ -84,39 +91,6 @@ def create_file(
 			fields="id,name,webViewLink",
 			supportsAllDrives=True,
 		)
-		.execute()
-	)
-
-
-def copy_file(file_id: str, filename: str = None, folder_id: str = None) -> dict:
-	"""``files.copy`` — instantiate a template by cloning it.
-
-	This is the only way to produce a document that keeps a template's *design*:
-	logos, table borders, named styles, bilingual column layout and RTL runs all
-	survive, because nothing is re-rendered — Drive duplicates the file.
-
-	The alternative the process used before — export the template to plain text,
-	have a model imitate it, and upload markdown — cannot preserve any of that,
-	since the result is built from the model's output rather than the template.
-
-	``filename`` defaults to Drive's own "Copy of X"; pass the real document
-	title instead. ``folder_id`` sets the copy's parent — omit it and the copy
-	lands beside the template, which is almost never wanted.
-
-	Returns the copy's metadata: {"id", "name", "webViewLink"} — deliberately
-	the same shape ``create_file`` returns, so a map can swap one for the other
-	without touching anything downstream.
-	"""
-	body = {}
-	if filename:
-		body["name"] = filename
-	if folder_id:
-		body["parents"] = [folder_id]
-
-	service = _get_service()
-	return (
-		service.files()
-		.copy(fileId=file_id, body=body, fields="id,name,webViewLink", supportsAllDrives=True)
 		.execute()
 	)
 
@@ -236,20 +210,6 @@ def revoke_permissions(file_id: str, scope: str = "all", match: str = None) -> d
 			skipped.append(dict(perm, reason=str(e)))
 
 	return {"removed": removed, "skipped": skipped}
-
-
-def delete_file(file_id: str, permanent: bool = False) -> None:
-	"""
-	Remove a file from Drive. Trashes it (recoverable from the Drive trash)
-	by default; pass permanent=True to bypass the trash entirely.
-	"""
-	service = _get_service()
-	if permanent:
-		service.files().delete(fileId=file_id, supportsAllDrives=True).execute()
-	else:
-		service.files().update(
-			fileId=file_id, body={"trashed": True}, fields="id", supportsAllDrives=True
-		).execute()
 
 
 def list_files(folder_id: str, page_size: int = 20) -> list:

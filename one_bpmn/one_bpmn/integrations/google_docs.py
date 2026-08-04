@@ -2,22 +2,24 @@
 # Google Docs integration (Docs API v1), used by the google_docs connector.
 # Shares credentials/plumbing with google_common; all calls go through
 # call_with_retry so transient 429/5xx are retried.
+#
+# create_document goes through the DRIVE API (files.create with the document
+# mimeType + a parent folder) rather than documents.create, for the same reason
+# google_sheets does: documents.create cannot target a folder, so the new file
+# lands in the service account's My Drive — which has zero quota — and fails with
+# storageQuotaExceeded. Creating it in a Shared Drive folder the service account
+# belongs to is the only thing that works. Structural edits then use the Docs API
+# on that id.
 
 from one_bpmn.one_bpmn.integrations import google_common as gc
 
 
-def _svc():
-    return gc.get_service("docs", "v1", scopes=[gc.DOCS_SCOPE, gc.DRIVE_SCOPE])
+def _svc(connector_id="google_docs"):
+    return gc.get_service("docs", "v1", scopes=[gc.DOCS_SCOPE, gc.DRIVE_SCOPE], connector_id=connector_id)
 
 
 def _run(request):
     return gc.call_with_retry(request.execute)
-
-
-def create_document(title: str) -> dict:
-    """documents.create — a new empty Google Doc."""
-    doc = _run(_svc().documents().create(body={"title": title or "Untitled Document"}))
-    return {"documentId": doc.get("documentId"), "title": doc.get("title")}
 
 
 def batch_update(document_id: str, requests: list) -> dict:
@@ -41,19 +43,6 @@ def append_text(document_id: str, text: str) -> dict:
     end_index = content[-1].get("endIndex", 2) if content else 2
     insert_text(document_id, text, index=max(1, end_index - 1))
     return {"documentId": document_id}
-
-
-def replace_all_text(document_id: str, find: str, replace: str, match_case: bool = False) -> dict:
-    """documents.batchUpdate → replaceAllText (template placeholder fill)."""
-    res = batch_update(document_id, [{
-        "replaceAllText": {
-            "containsText": {"text": find, "matchCase": bool(match_case)},
-            "replaceText": replace or "",
-        }
-    }])
-    changed = sum((r.get("replaceAllText", {}) or {}).get("occurrencesChanged", 0) or 0
-                  for r in res.get("replies", []) or [])
-    return {"documentId": document_id, "occurrencesChanged": changed}
 
 
 def fill_template(document_id: str, values: dict, match_case: bool = True) -> dict:

@@ -193,13 +193,14 @@
    "collapsible": 1,
    "fieldname": "section_break_google",
    "fieldtype": "Section Break",
-   "label": "Google Integration"
+   "label": "Google Integration (legacy)"
   },
   {
-   "description": "Service account JSON (type: service_account) used by the BPMN Google connectors and Drive Script Tasks. Enable the Drive/Docs/Slides APIs on the backing GCP project and add this service account to the target Shared Drive.",
+   "description": "DEPRECATED — the credential now lives on each BPMN Connector, under Authentication → Secret, so connectors can use different Google accounts and a key can be rotated for one without touching the others. This field is read-only and kept only as a fallback for sites whose key has not been moved yet; anything still reading it is logged as deprecated. Clear it once every Google connector carries its own key.",
    "fieldname": "google_drive_service_account_json",
    "fieldtype": "Password",
-   "label": "Service Account JSON"
+   "label": "Service Account JSON (deprecated)",
+   "read_only": 1
   }
  ],
  "issingle": 1,

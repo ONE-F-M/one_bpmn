@@ -1,9 +1,12 @@
 // Connector service-task panel — renders fields dynamically from the connector
-// manifests served by the backend (one_bpmn.one_bpmn.connectors.api.get_connector_manifests).
+// configuration served by the backend (BPMN Connector / Operation / Field
+// DocTypes, projected by connectors/api.get_connector_manifests).
 //
-// The properties panel builds its entry list synchronously, so manifests are
-// fetched once into a module-level cache; when the fetch resolves we fire
-// elements.changed to re-render the panel with the real fields.
+// The panel builds its entry list synchronously, so manifests come from the
+// shared module-level cache in ../shared/connectorManifests (also used by the
+// canvas icon renderer); when the fetch resolves it fires elements.changed to
+// re-render the panel with the real fields. Nothing about a connector is
+// hardcoded here — this file renders whatever the configuration declares.
 
 import {
 	SelectEntry,
@@ -18,56 +21,13 @@ import {
 import { useService } from "bpmn-js-properties-panel";
 import { getBusinessObject } from "bpmn-js/lib/util/ModelUtil";
 import { h } from "preact";
-import { frappeGet } from "../shared/frappeResource";
-
-const MANIFEST_ENDPOINT = "/api/method/one_bpmn.one_bpmn.connectors.api.get_connector_manifests";
-const CHOICES_ENDPOINT = "/api/method/one_bpmn.one_bpmn.connectors.api.get_connector_field_choices";
-
-let MANIFESTS = null; // null = not loaded yet; array once loaded
-let LOADING = null;
-
-const CHOICES = {}; // source -> [{label,value}]
-const CHOICES_LOADING = {};
-
-function ensureChoices(source, eventBus, element) {
-	if (CHOICES[source]) return;
-	if (!CHOICES_LOADING[source]) {
-		CHOICES_LOADING[source] = frappeGet(CHOICES_ENDPOINT, { source })
-			.then((res) => {
-				CHOICES[source] = Array.isArray(res) ? res : (res && res.message) || [];
-			})
-			.catch(() => {
-				CHOICES[source] = [];
-			});
-	}
-	CHOICES_LOADING[source].then(() => {
-		try {
-			eventBus && eventBus.fire("elements.changed", { elements: [element] });
-		} catch (e) {
-			/* next render picks up the cache */
-		}
-	});
-}
-
-function ensureManifests(eventBus, element) {
-	if (MANIFESTS !== null) return;
-	if (!LOADING) {
-		LOADING = frappeGet(MANIFEST_ENDPOINT)
-			.then((res) => {
-				MANIFESTS = Array.isArray(res) ? res : (res && res.message) || [];
-			})
-			.catch(() => {
-				MANIFESTS = [];
-			});
-	}
-	LOADING.then(() => {
-		try {
-			eventBus && eventBus.fire("elements.changed", { elements: [element] });
-		} catch (e) {
-			/* panel not mounted — next render picks up the cache */
-		}
-	});
-}
+import {
+	ensureChoices,
+	ensureManifestsForElement,
+	findManifest,
+	getChoices,
+	getManifests,
+} from "../shared/connectorManifests";
 
 function getAttr(bo, attr) {
 	return bo.get(`spiffworkflow:${attr}`) ?? "";
@@ -95,10 +55,6 @@ function setParam(modeling, element, bo, key, val) {
 	modeling.updateModdleProperties(element, bo, {
 		"spiffworkflow:connectorParams": Object.keys(p).length ? JSON.stringify(p) : undefined,
 	});
-}
-
-function findManifest(connectorId) {
-	return (MANIFESTS || []).find((m) => m.connectorId === connectorId) || null;
 }
 
 function fieldVisible(field, bo, operation) {
@@ -144,7 +100,7 @@ function ConnectorIdComponent(props) {
 	const translate = useService("translate");
 	const eventBus = useService("eventBus");
 	const bo = getBusinessObject(element);
-	ensureManifests(eventBus, element);
+	ensureManifestsForElement(eventBus, element);
 
 	return h(SelectEntry, {
 		element,
@@ -158,8 +114,9 @@ function ConnectorIdComponent(props) {
 				"spiffworkflow:connectorParams": undefined,
 			}),
 		getOptions: () => {
-			const opts = [{ label: translate(MANIFESTS === null ? "Loading…" : "-- Select Connector --"), value: "" }];
-			(MANIFESTS || []).forEach((m) => opts.push({ label: m.label || m.connectorId, value: m.connectorId }));
+			const manifests = getManifests();
+			const opts = [{ label: translate(manifests === null ? "Loading…" : "-- Select Connector --"), value: "" }];
+			(manifests || []).forEach((m) => opts.push({ label: m.label || m.connectorId, value: m.connectorId }));
 			return opts;
 		},
 	});
@@ -216,10 +173,19 @@ function FieldComponent(props) {
 		return v === undefined ? field.default ?? "" : v;
 	};
 
-	// Dynamic dropdown sourced from the backend (choicesFrom)
-	if (field.choicesFrom) {
-		ensureChoices(field.choicesFrom, eventBus, element);
-		const loaded = CHOICES[field.choicesFrom];
+	// Dynamic dropdown: options come from the field's configured Choices From
+	// path, resolved server-side. Sibling field values travel as context, so a
+	// dependent dropdown re-fetches when the field it depends on changes.
+	if (field.dynamicChoices) {
+		const key = ensureChoices(
+			getAttr(bo, "connectorId"),
+			getAttr(bo, "operation"),
+			field.name,
+			getParams(bo),
+			eventBus,
+			element,
+		);
+		const loaded = getChoices(key);
 		return h(SelectEntry, {
 			element,
 			id,

@@ -259,6 +259,77 @@ def dispatch_update_field(instance, task, task_cfg: dict, bpmn_id: str) -> None:
 	)
 
 
+def _apply_value_transform(path: str, value, field_name: str, bpmn_id: str):
+	"""
+	Run a field's configured Value Transform over a rendered input value.
+
+	The transform is a dotted path to ``fn(value) -> value`` declared on the
+	BPMN Connector Field row, which is how provider-specific input handling stays
+	out of this generic dispatcher — e.g. the Google connectors point their file
+	and folder fields at ``google_common.normalize_drive_id`` so a pasted share
+	link becomes a bare id. A transform that raises is logged and the original
+	value is used, so a bad transform degrades rather than killing the workflow.
+	"""
+	path = (path or "").strip()
+	if not path or value in (None, ""):
+		return value
+	try:
+		return frappe.get_attr(path)(value)
+	except Exception:
+		frappe.log_error(
+			title=f"BPMN ServiceTask: connector value transform failed ({bpmn_id})",
+			message=f"field={field_name!r} transform={path!r}\n\n{frappe.get_traceback()}",
+		)
+		return value
+
+
+def _resolve_connector_handler(connector_id: str, operation: str):
+	"""
+	Find the callable that runs a (connectorId, operation), or None.
+
+	Connectors are configuration (BPMN Connector / Operation / Field DocTypes),
+	so the configuration is the only thing consulted:
+
+	  1. the operation's Handler Path — an explicit dotted path
+	  2. execution type "HTTP Request" — the declarative executor, no Python
+
+	There is deliberately no implicit lookup behind these. Every operation says
+	how it runs, so an unconfigured one fails loudly instead of resolving to
+	whatever function happened to register that name.
+	"""
+	from one_bpmn.one_bpmn.connectors import manifest as _manifest
+
+	try:
+		spec = _manifest.get_execution_spec(connector_id, operation)
+	except Exception:
+		frappe.log_error(
+			title=f"BPMN ServiceTask: connector config unreadable ({connector_id}/{operation})",
+			message=frappe.get_traceback(),
+		)
+		spec = None
+
+	if spec:
+		if spec.handler_path:
+			try:
+				return frappe.get_attr(spec.handler_path)
+			except Exception:
+				frappe.log_error(
+					title=f"BPMN ServiceTask: connector handler path failed ({connector_id}/{operation})",
+					message=f"handler_path={spec.handler_path!r}\n\n{frappe.get_traceback()}",
+				)
+				return None
+
+		if spec.execution_type == "HTTP Request":
+			from one_bpmn.one_bpmn.connectors import http_ops
+
+			return lambda params, ctx: http_ops.execute(spec, params, ctx)
+
+	# No third path. An operation that names neither an HTTP request nor a
+	# handler is unconfigured, and saying so beats silently finding a function
+	# that happens to share its name.
+	return None
+
+
 def dispatch_connector(instance, task, task_cfg: dict, bpmn_id: str) -> None:
 	"""
 	Execute a Service Task with serviceType='connector'.
@@ -272,31 +343,46 @@ def dispatch_connector(instance, task, task_cfg: dict, bpmn_id: str) -> None:
 	                      otherwise errors are logged and the workflow continues.
 
 	Input values flagged as expressions in the manifest are Jinja2-rendered
-	against {doc, instance, frappe, task_data}; DriveFile/DriveFolder fields are
-	link-or-ID normalized. The handler's dict return is written to
+	against {doc, instance, frappe, task_data}, then passed through the field's
+	configured Value Transform if it declares one (that is how, for example, a
+	Google Drive field accepts either a share link or a bare id — nothing about
+	any specific provider is known here). The handler's dict return is written to
 	task.data[resultVariable] so downstream tasks/gateways can use it.
 	"""
 	import json as _json
 
 	from one_bpmn.one_bpmn.connectors import manifest as _manifest
-	from one_bpmn.one_bpmn.connectors import registry as _registry
-	from one_bpmn.one_bpmn.integrations.google_common import normalize_drive_id
-
-	# Importing the package runs every @connector registration (idempotent).
-	import one_bpmn.one_bpmn.connectors  # noqa: F401
 
 	connector_id = (task_cfg.get("connectorId") or "").strip()
 	operation = (task_cfg.get("operation") or "").strip()
 	result_var = (task_cfg.get("resultVariable") or "").strip()
 	fail_on_error = _cfg_truthy(task_cfg.get("failOnError"))
 
-	handler = _registry.get_handler(connector_id, operation)
+	# Role gate. Hiding a restricted connector in the modeler is convenience;
+	# this is the control. A diagram authored before the restriction — or by
+	# someone who had the role and has since lost it — must not still run it.
+	# Checked against the user the instance is running as, which for a chat or
+	# form-triggered process is the person who caused it.
+	if not _manifest.user_may_use_connector(connector_id):
+		frappe.log_error(
+			title=f"BPMN ServiceTask: connector not permitted ({bpmn_id})",
+			message=(
+				f"{frappe.session.user} lacks a role allowed to use connector "
+				f"{connector_id!r} (operation {operation!r})."
+			),
+		)
+		if fail_on_error:
+			frappe.throw(f"Not permitted to use connector {connector_id}")
+		return
+
+	handler = _resolve_connector_handler(connector_id, operation)
 	if not handler:
 		frappe.log_error(
 			title=f"BPMN ServiceTask: connector unknown ({bpmn_id})",
 			message=(
-				f"No handler for connectorId={connector_id!r} operation={operation!r}. "
-				f"Registered: {_registry.registered()}"
+				f"No executor for connectorId={connector_id!r} operation={operation!r}. "
+				f"Either it is not a BPMN Connector Operation, it is disabled, or its "
+				f"row names neither an HTTP request nor a Handler Path."
 			),
 		)
 		if fail_on_error:
@@ -317,7 +403,7 @@ def dispatch_connector(instance, task, task_cfg: dict, bpmn_id: str) -> None:
 			raise
 		return
 
-	# ── Resolve field values: Jinja render (expressions) + link/ID normalize ──
+	# ── Resolve field values: Jinja render (expressions) + Value Transform ──
 	doc = (
 		frappe.get_doc(instance.context_doctype, instance.context_docname)
 		if (instance.context_doctype and instance.context_docname)
@@ -325,6 +411,7 @@ def dispatch_connector(instance, task, task_cfg: dict, bpmn_id: str) -> None:
 	)
 	render_ctx = {"doc": doc, "instance": instance, "frappe": frappe, "task_data": dict(task.data)}
 	specs = _manifest.field_specs(connector_id, operation)
+	transforms = _manifest.field_transforms(connector_id, operation)
 
 	resolved = {}
 	for key, value in params.items():
@@ -345,8 +432,7 @@ def dispatch_connector(instance, task, task_cfg: dict, bpmn_id: str) -> None:
 					title=f"BPMN ServiceTask: connector Jinja render failed ({bpmn_id})",
 					message=f"field={key!r}\n\n{frappe.get_traceback()}",
 				)
-		if spec.get("type") in ("DriveFile", "DriveFolder") and isinstance(val, str):
-			val = normalize_drive_id(val)
+		val = _apply_value_transform(transforms.get(key), val, key, bpmn_id)
 		resolved[key] = val
 
 	ctx = {"instance": instance, "task": task, "doc": doc, "task_data": dict(task.data)}

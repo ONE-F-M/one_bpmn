@@ -8,7 +8,6 @@
 
 import json
 
-from one_bpmn.one_bpmn.connectors.registry import connector
 from one_bpmn.one_bpmn.integrations import google_drive as gd
 
 
@@ -18,13 +17,27 @@ def _truthy(v):
     return str(v or "").strip().lower() in ("1", "true", "yes", "on")
 
 
-@connector("google_drive", "downloadText")
+def list_file_choices(folder=None, **_ignored):
+    """Dropdown choices for a field configured with this as its Choices From path.
+
+    Point a field's ``choices_source_path`` here to let the modeler pick a file
+    from the folder chosen in a sibling ``folder`` field, instead of pasting an
+    id. Lives with the Drive connector rather than in connectors/api.py so the
+    generic choices endpoint knows nothing about Google.
+    """
+    from one_bpmn.one_bpmn.integrations import google_common as gc
+
+    if not folder:
+        return []
+    files = gd.list_files(gc.normalize_drive_id(folder))
+    return [{"label": f.get("name") or f.get("id"), "value": f.get("id")} for f in files]
+
+
 def download_text(params, ctx):
     """files.export / get_media → plain text of a Doc/Slides/pptx/docx/txt."""
     return {"text": gd.download_file_text(params["file"])}
 
 
-@connector("google_drive", "createFile")
 def create_file(params, ctx):
     """files.create — upload content, optionally converting to a native Google type.
 
@@ -47,26 +60,6 @@ def create_file(params, ctx):
     }
 
 
-@connector("google_drive", "copyFile")
-def copy_file(params, ctx):
-    """files.copy — instantiate a branded template, design intact.
-
-    Returns the same {id, name, webViewLink} shape as createFile so a map can
-    swap one for the other without changing anything downstream.
-
-    NOTE for anyone wiring this into a process: do not follow it with
-    ``updateFileContent``. That replaces the whole file body with an upload,
-    which destroys every part of the template this operation exists to keep.
-    Fill the copy with google_docs/fillTemplate instead.
-    """
-    return gd.copy_file(
-        params["file"],
-        filename=params.get("filename") or None,
-        folder_id=params.get("folder") or None,
-    )
-
-
-@connector("google_drive", "updateFileContent")
 def update_file_content(params, ctx):
     """files.update — replace an existing file's content."""
     updated = gd.update_file_content(
@@ -81,7 +74,6 @@ def update_file_content(params, ctx):
     }
 
 
-@connector("google_drive", "setPermissions")
 def set_permissions(params, ctx):
     """permissions.create — share a file.
 
@@ -102,14 +94,6 @@ def set_permissions(params, ctx):
     return {"granted": len(results)}
 
 
-@connector("google_drive", "listFiles")
-def list_files(params, ctx):
-    """files.list — non-trashed files directly inside a folder."""
-    files = gd.list_files(params["folder"], page_size=int(params.get("pageSize") or 20))
-    return {"files": files, "count": len(files)}
-
-
-@connector("google_drive", "revokePermissions")
 def revoke_permissions(params, ctx):
     """permissions.list + permissions.delete — withdraw sharing without touching content.
 
@@ -132,10 +116,3 @@ def revoke_permissions(params, ctx):
         "skipped_grants": outcome["skipped"],
         "file": params["file"],
     }
-
-
-@connector("google_drive", "deleteFile")
-def delete_file(params, ctx):
-    """files.delete / files.update(trashed) — trash (default) or permanently delete."""
-    gd.delete_file(params["file"], permanent=_truthy(params.get("permanent")))
-    return {"deleted": params["file"], "permanent": _truthy(params.get("permanent"))}

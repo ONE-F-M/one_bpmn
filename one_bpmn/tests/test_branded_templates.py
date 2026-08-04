@@ -28,7 +28,7 @@ from unittest.mock import MagicMock, patch
 
 import frappe
 
-from one_bpmn.one_bpmn.connectors.registry import get_handler
+from one_bpmn.one_bpmn.connectors.google_docs_ops import fill_template as _fill_template
 
 TEMPLATE_ID = "_TestBrandedTemplateId"
 COPY_ID = "_TestCopyId"
@@ -36,61 +36,50 @@ FOLDER_ID = "_TestDestinationFolder"
 
 
 class TestCopyFileOperation(unittest.TestCase):
-	"""``files.copy`` — the only way to keep a template's design."""
+    """``files.copy`` — the only way to keep a template's design.
 
-	def _drive(self):
-		"""A fake Drive service that records the copy request it was given."""
-		service = MagicMock()
-		service.files.return_value.copy.return_value.execute.return_value = {
-			"id": COPY_ID,
-			"name": "Leave Policy",
-			"webViewLink": f"https://docs.google.com/document/d/{COPY_ID}/edit",
-		}
-		return service
+    Configuration, not code: the operation carries its URL, query and body as
+    templates on its row, so these assert the configuration and the rendered
+    request rather than a Python handler that no longer exists.
+    """
 
-	def test_copies_into_the_destination_folder_under_the_real_title(self):
-		service = self._drive()
-		handler = get_handler("google_drive", "copyFile")
+    def _spec(self):
+        from one_bpmn.one_bpmn.connectors.manifest import get_execution_spec
 
-		with patch(
-			"one_bpmn.one_bpmn.integrations.google_drive._get_service", return_value=service
-		):
-			out = handler(
-				{"file": TEMPLATE_ID, "filename": "Leave Policy", "folder": FOLDER_ID}, {}
-			)
+        return get_execution_spec("google_drive", "copyFile")
 
-		kwargs = service.files.return_value.copy.call_args.kwargs
-		self.assertEqual(kwargs["fileId"], TEMPLATE_ID)
-		self.assertEqual(kwargs["body"]["name"], "Leave Policy")
-		self.assertEqual(kwargs["body"]["parents"], [FOLDER_ID])
-		# Shared Drives are the normal case here — the templates live in one.
-		self.assertTrue(kwargs["supportsAllDrives"])
-		self.assertEqual(out["id"], COPY_ID)
+    def _render_body(self, params):
+        from one_bpmn.one_bpmn.connectors import http_ops
 
-	def test_output_shape_matches_create_file(self):
-		"""So a map can swap createFile for copyFile with no downstream edits —
-		`drive_file.id` / `.webViewLink` are what every later node reads."""
-		service = self._drive()
-		handler = get_handler("google_drive", "copyFile")
+        return json.loads(
+            http_ops._render(self._spec().body_template, {"params": frappe._dict(params)}, "body")
+        )
 
-		with patch(
-			"one_bpmn.one_bpmn.integrations.google_drive._get_service", return_value=service
-		):
-			out = handler({"file": TEMPLATE_ID}, {})
+    def test_it_is_configured_as_an_http_request(self):
+        spec = self._spec()
+        self.assertEqual(spec.execution_type, "HTTP Request")
+        self.assertEqual(spec.http_method, "POST")
+        self.assertIn("/copy", spec.url_template)
 
-		self.assertEqual(sorted(out), ["id", "name", "webViewLink"])
+    def test_it_copies_into_the_destination_folder_under_the_real_title(self):
+        body = self._render_body({"file": TEMPLATE_ID, "filename": "Leave Policy", "folder": FOLDER_ID})
+        self.assertEqual(body["name"], "Leave Policy")
+        self.assertEqual(body["parents"], [FOLDER_ID])
 
-	def test_omitted_name_and_folder_are_not_sent(self):
-		"""An empty body means Drive's own defaults, not a file named ''."""
-		service = self._drive()
-		handler = get_handler("google_drive", "copyFile")
+    def test_omitted_name_and_folder_are_not_sent(self):
+        """An empty body means Drive's own defaults, not a file named ''."""
+        self.assertEqual(self._render_body({"file": TEMPLATE_ID, "filename": "", "folder": ""}), {})
 
-		with patch(
-			"one_bpmn.one_bpmn.integrations.google_drive._get_service", return_value=service
-		):
-			handler({"file": TEMPLATE_ID, "filename": "", "folder": ""}, {})
+    def test_shared_drives_are_supported(self):
+        """The templates live in a Shared Drive; without this the copy 404s."""
+        self.assertIn("supportsAllDrives", self._spec().query_params_json)
 
-		self.assertEqual(service.files.return_value.copy.call_args.kwargs["body"], {})
+    def test_output_shape_matches_create_file(self):
+        """So a map can swap createFile for copyFile with no downstream edits —
+        `drive_file.id` / `.webViewLink` are what every later node reads."""
+        self.assertEqual(
+            sorted(json.loads(self._spec().response_map_json)), ["id", "name", "webViewLink"]
+        )
 
 
 class TestFillTemplateOperation(unittest.TestCase):
@@ -107,9 +96,8 @@ class TestFillTemplateOperation(unittest.TestCase):
 		return service
 
 	def _fill(self, service, params):
-		handler = get_handler("google_docs", "fillTemplate")
 		with patch("one_bpmn.one_bpmn.integrations.google_docs._svc", return_value=service):
-			return handler(params, {})
+			return _fill_template(params, {})
 
 	def test_every_placeholder_goes_in_one_call(self):
 		"""Ten fields must not be ten round-trips — and must not be able to half
@@ -219,10 +207,13 @@ class TestTheDestructiveCombination(unittest.TestCase):
 		self.assertIn("media_body", kwargs)
 		self.assertEqual(kwargs["fileId"], COPY_ID)
 
-	def test_the_copy_handler_warns_against_it(self):
-		"""The only place a modeler will look is the operation's own docstring."""
-		handler = get_handler("google_drive", "copyFile")
-		self.assertIn("updateFileContent", handler.__doc__)
+	def test_the_copy_operation_warns_against_it(self):
+		"""There is no API-level guard, so the warning has to live where a
+		modeler will actually see it: the operation's help in the panel."""
+		from one_bpmn.one_bpmn.connectors.manifest import get_operation_spec
+
+		shown_in_panel = (get_operation_spec("google_drive", "copyFile") or {}).get("description") or ""
+		self.assertIn("Update file content", shown_in_panel)
 
 
 class TestManifestsStayHonest(unittest.TestCase):
@@ -242,15 +233,32 @@ class TestManifestsStayHonest(unittest.TestCase):
 			["document", "failIfUnfilled", "matchCase", "values"],
 		)
 
-	def test_template_and_destination_fields_are_drive_typed(self):
-		"""So a pasted share link is normalised to an id before the handler runs
-		— people paste URLs, the API wants bare ids."""
+	def test_drive_id_fields_normalise_a_pasted_share_link(self):
+		"""People paste URLs; the API wants bare ids.
+
+		Field *types* are only widgets now — normalisation is a per-field value
+		transform, resolved server-side and deliberately absent from the manifest
+		served to the browser. So this asserts the transform, not the type.
+		"""
+		from one_bpmn.one_bpmn.connectors.manifest import field_transforms
+
+		normalise = "one_bpmn.one_bpmn.integrations.google_common.normalize_drive_id"
+
+		drive = field_transforms("google_drive", "copyFile")
+		self.assertEqual(drive.get("file"), normalise, "the template id must accept a share link")
+		self.assertEqual(drive.get("folder"), normalise, "so must the destination folder")
+
+		docs = field_transforms("google_docs", "fillTemplate")
+		self.assertEqual(docs.get("document"), normalise)
+
+	def test_the_transform_is_not_leaked_to_the_browser(self):
+		"""A dotted path in the manifest would be a call-any-function primitive
+		once the panel echoed it back."""
 		from one_bpmn.one_bpmn.connectors.manifest import field_specs
 
-		drive = field_specs("google_drive", "copyFile")
-		self.assertEqual(drive["file"]["type"], "DriveFile")
-		self.assertEqual(drive["folder"]["type"], "DriveFolder")
-		self.assertEqual(field_specs("google_docs", "fillTemplate")["document"]["type"], "DriveFile")
+		for spec in field_specs("google_drive", "copyFile").values():
+			self.assertNotIn("valueTransform", spec)
+			self.assertNotIn("value_transform", spec)
 
 	def test_values_is_an_expression_field(self):
 		"""It carries rendered Jinja holding the AI task's structured output."""
