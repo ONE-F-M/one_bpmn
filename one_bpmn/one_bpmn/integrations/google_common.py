@@ -45,22 +45,6 @@ def normalize_drive_id(value):
     return m.group(1) if m else s
 
 
-# Google config now lives on Processa Settings (this app). AI Chat Settings is
-# kept as a read fallback for sites that configured it there before the move.
-_SETTINGS_DOCTYPES = ("Processa Settings", "AI Chat Settings")
-
-
-def _read_setting_secret(fieldname):
-    for doctype in _SETTINGS_DOCTYPES:
-        try:
-            val = frappe.get_single(doctype).get_password(fieldname, raise_exception=False)
-        except Exception:
-            val = None
-        if val:
-            return val
-    return None
-
-
 # Where a credential is looked for when the caller names no connector. The Drive
 # connector is the de facto default: the Server Scripts that import this module
 # directly are all Drive scripts, and every Google connector historically shared
@@ -71,9 +55,8 @@ _DEFAULT_CONNECTOR = "google_drive"
 def _connector_service_account(connector_id):
     """The key stored on a BPMN Connector, or None.
 
-    This is the source of truth. A connector owns its credential, so two of them
-    can talk to two different Google accounts — which is the whole reason the
-    key moved off a single global setting.
+    Raises nothing: a missing connector, a missing table and an empty Secret are
+    all "no key here", and the caller turns that into one actionable error.
     """
     if not connector_id:
         return None
@@ -87,64 +70,47 @@ def _connector_service_account(connector_id):
         )
         return secret or None
     except Exception:
-        # A credential lookup must never be the thing that breaks a workflow;
-        # fall through to the legacy chain and let that report the real problem.
         return None
 
 
 def load_service_account_info(connector_id=None):
-    """Return the service account key, preferring the connector that owns it.
+    """Return the service account key from the connector that owns it.
 
     Order:
       1. the named connector's own Secret
       2. the Drive connector's Secret — for callers with no connector context
          (Script Tasks importing the integration directly)
-      3. DEPRECATED: Processa Settings → AI Chat Settings → site_config →
-         private/files/gcp.json
 
-    Step 3 exists only so a site that has not yet moved its key keeps working.
-    Anything reaching it is logged, because a key there is invisible to the
-    connector form and cannot be rotated per connector.
+    There is deliberately no third step. A connector's Secret is the whole
+    definition of its credential: that is what makes two connectors able to talk
+    to two different Google accounts, and what makes rotating one key a single
+    edit on one form. Every global fallback that used to sit behind this
+    (Processa Settings, AI Chat Settings, ``site_config.json``,
+    ``private/files/gcp.json``) held a key that no connector form could show and
+    no one could rotate per connector, so a site could look correctly configured
+    while every connector quietly shared one account. Reading them is now an
+    error that names the form to fix.
     """
     sa_json = _connector_service_account(connector_id) or _connector_service_account(
         _DEFAULT_CONNECTOR
     )
-    if sa_json:
-        return sa_json if isinstance(sa_json, dict) else json.loads(sa_json)
-
-    sa_json = _read_setting_secret("google_drive_service_account_json") or frappe.conf.get(
-        "google_drive_service_account_json"
-    )
-    if sa_json:
-        _warn_legacy_credential(connector_id, "a settings DocType or site_config")
-        return sa_json if isinstance(sa_json, dict) else json.loads(sa_json)
-
-    try:
-        with open(frappe.get_site_path("private", "files", "gcp.json")) as f:
-            info = json.load(f)
-        _warn_legacy_credential(connector_id, "private/files/gcp.json")
-        return info
-    except FileNotFoundError:
+    if not sa_json:
         raise GoogleConfigError(
-            "No Google service account configured. Paste the key on the BPMN "
-            f"Connector ({connector_id or _DEFAULT_CONNECTOR}) > Authentication > Secret."
+            "No Google service account configured for connector "
+            f"{connector_id or _DEFAULT_CONNECTOR}. Paste the key file Google issued "
+            f"on BPMN Connector {connector_id or _DEFAULT_CONNECTOR} > Authentication "
+            "> Secret."
         )
-
-
-def _warn_legacy_credential(connector_id, where):
-    """Say so, once per request, when a deprecated location is still in play."""
-    flag = "_bpmn_legacy_google_credential_warned"
-    if getattr(frappe.flags, flag, False):
-        return
-    setattr(frappe.flags, flag, True)
+    if isinstance(sa_json, dict):
+        return sa_json
     try:
-        frappe.logger("connectors").warning(
-            f"Google credential came from {where} — deprecated. Paste it on BPMN "
-            f"Connector {connector_id or _DEFAULT_CONNECTOR} > Authentication > Secret "
-            "so it can be rotated per connector."
-        )
-    except Exception:
-        pass
+        return json.loads(sa_json)
+    except ValueError as e:
+        raise GoogleConfigError(
+            f"The Secret on BPMN Connector {connector_id or _DEFAULT_CONNECTOR} is not "
+            "valid JSON — it must be the whole key file Google issued, not just the "
+            f"private key or an API token ({e})."
+        ) from e
 
 
 def get_credentials(scopes=None, connector_id=None):

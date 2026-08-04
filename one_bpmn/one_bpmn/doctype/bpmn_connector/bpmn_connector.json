@@ -190,9 +190,11 @@
   {
    "depends_on": "eval:doc.auth_type && doc.auth_type!='None' && doc.credential_source!='From a settings DocType'",
    "description": "For Service Account JSON, paste the whole key file Google issued. Stored encrypted and never returned by the API, an export, or the modeler manifest.",
+   "description": "For <b>Service Account JSON</b>, paste the whole key file Google issued — every brace, the full <code>private_key</code>, nothing trimmed. For the other auth types this is the token, API key, or <code>user:password</code>.",
    "fieldname": "auth_secret",
    "fieldtype": "Password",
    "label": "Secret",
+   "length": 10000,
    "mandatory_depends_on": "eval:doc.auth_type=='Service Account JSON' && doc.credential_source!='From a settings DocType'"
   },
   {
@@ -205,7 +207,7 @@
   },
   {
    "depends_on": "eval:doc.credential_source=='From a settings DocType'",
-   "description": "Password fieldname on that settings DocType, e.g. <code>google_drive_service_account_json</code>.",
+   "description": "Password fieldname on that settings DocType, e.g. <code>github_token</code>. It must be a Password field, so the secret is stored encrypted.",
    "fieldname": "auth_secret_field",
    "fieldtype": "Data",
    "label": "Secret Fieldname"

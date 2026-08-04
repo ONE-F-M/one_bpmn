@@ -17,7 +17,10 @@ modeler is convenience, and the runtime check is the actual control. A test
 that only proved the panel filtered would be testing the cosmetic half.
 """
 
+import ast
+import inspect
 import json
+import textwrap
 import unittest
 from types import SimpleNamespace
 from unittest.mock import MagicMock, patch
@@ -296,12 +299,13 @@ class TestGoogleConnectorsAreConfigured(unittest.TestCase):
 
 
 class TestCredentialsLiveOnTheConnector(unittest.TestCase):
-	"""The Processa Settings key is deprecated; the connector owns its own.
+	"""A connector's Secret is the only place a Google key is read from.
 
-	What these guard is that the fallback ORDER is right. Getting it wrong is
-	invisible — everything keeps working, because both places currently hold the
-	same key — right up until someone points one connector at a second Google
-	account and it silently keeps using the old one.
+	These guard the absence of a fallback, which is harder to keep than it
+	sounds: a global default is invisible when it works. With one in place every
+	connector silently shares one account, so pointing one at a second Google
+	project looks configured and changes nothing — and nobody finds out until an
+	audit asks which account touched a file.
 	"""
 
 	def setUp(self):
@@ -327,39 +331,53 @@ class TestCredentialsLiveOnTheConnector(unittest.TestCase):
 		):
 			self.assertEqual(self.gc.load_service_account_info()["client_email"], "drive@x")
 
-	def test_the_connector_wins_over_the_deprecated_setting(self):
-		"""The whole point. If this inverts, per-connector accounts stop working
-		and nothing looks broken."""
-		with patch.object(
-			self.gc, "_connector_service_account", return_value='{"client_email": "connector@x"}'
-		), patch.object(self.gc, "_read_setting_secret", return_value='{"client_email": "settings@x"}'):
-			self.assertEqual(
-				self.gc.load_service_account_info("google_drive")["client_email"], "connector@x"
-			)
-
-	def test_the_deprecated_setting_still_works_and_says_so(self):
-		"""A site that has not migrated must keep running — loudly."""
-		frappe.flags._bpmn_legacy_google_credential_warned = False
-		with patch.object(self.gc, "_connector_service_account", return_value=None), patch.object(
-			self.gc, "_read_setting_secret", return_value='{"client_email": "legacy@x"}'
-		), patch.object(self.gc, "_warn_legacy_credential") as warned:
-			info = self.gc.load_service_account_info("google_drive")
-
-		self.assertEqual(info["client_email"], "legacy@x")
-		warned.assert_called_once()
-
-	def test_no_credential_anywhere_points_at_the_connector_form(self):
-		"""The error has to say where to put the key, not just that it is absent."""
-		with patch.object(self.gc, "_connector_service_account", return_value=None), patch.object(
-			self.gc, "_read_setting_secret", return_value=None
-		), patch.dict(frappe.conf, {"google_drive_service_account_json": None}), patch(
-			"builtins.open", side_effect=FileNotFoundError
-		):
+	def test_no_connector_key_is_an_error_not_a_global_default(self):
+		"""The point of the whole change. If a fallback ever comes back, this is
+		what catches it — nothing else would, because a fallback that works looks
+		exactly like a correct configuration."""
+		with patch.object(self.gc, "_connector_service_account", return_value=None):
 			with self.assertRaises(self.gc.GoogleConfigError) as ctx:
 				self.gc.load_service_account_info("google_sheets")
 
+		# The error has to say where to put the key, not just that it is absent.
 		self.assertIn("google_sheets", str(ctx.exception))
 		self.assertIn("Secret", str(ctx.exception))
+
+	def test_the_loader_reads_no_settings_doctype_at_all(self):
+		"""A settings read would resurrect the shared-account problem even if the
+		order put the connector first, because it still lets a site run with no
+		key on any connector."""
+		self.assertFalse(hasattr(self.gc, "_read_setting_secret"))
+		self.assertFalse(hasattr(self.gc, "_warn_legacy_credential"))
+
+		# Read the code, not the docstring — the docstring names the old locations
+		# on purpose, to say why they are gone.
+		tree = ast.parse(textwrap.dedent(inspect.getsource(self.gc.load_service_account_info)))
+		body = tree.body[0].body
+		if isinstance(body[0], ast.Expr) and isinstance(body[0].value, ast.Constant):
+			body = body[1:]
+		code = "\n".join(ast.unparse(node) for node in body)
+
+		for gone in ("frappe.conf", "gcp.json", "Processa Settings", "AI Chat Settings", "open("):
+			self.assertNotIn(gone, code, f"{gone} is back in the credential lookup")
+
+	def test_a_site_config_key_is_ignored(self):
+		"""Belt and braces for the above: even with the old site_config key
+		present, an empty connector Secret must still fail."""
+		with patch.object(self.gc, "_connector_service_account", return_value=None), patch.dict(
+			frappe.conf, {"google_drive_service_account_json": '{"client_email": "legacy@x"}'}
+		):
+			with self.assertRaises(self.gc.GoogleConfigError):
+				self.gc.load_service_account_info("google_drive")
+
+	def test_a_secret_that_is_not_a_whole_key_file_says_so(self):
+		"""Pasting just the private key, or an API token, is the likely mistake
+		now that the field is the only input — the error must name it."""
+		with patch.object(self.gc, "_connector_service_account", return_value="not-json"):
+			with self.assertRaises(self.gc.GoogleConfigError) as ctx:
+				self.gc.load_service_account_info("google_docs")
+
+		self.assertIn("whole key file", str(ctx.exception))
 
 	def test_every_google_connector_carries_its_own_key(self):
 		for connector_id in ("google_drive", "google_docs", "google_sheets", "google_slides"):
@@ -370,9 +388,22 @@ class TestCredentialsLiveOnTheConnector(unittest.TestCase):
 					"the migration patch should have copied the key here",
 				)
 
-	def test_the_settings_field_is_read_only_so_it_stops_being_used(self):
-		field = frappe.get_meta("Processa Settings").get_field(
-			"google_drive_service_account_json"
+	def test_the_settings_field_is_gone(self):
+		self.assertIsNone(
+			frappe.get_meta("Processa Settings").get_field("google_drive_service_account_json")
 		)
-		self.assertTrue(field.read_only)
-		self.assertIn("DEPRECATED", field.description)
+
+	def test_the_secret_field_accepts_a_whole_service_account_key(self):
+		"""A Password control caps its input at ``df.length`` or 140 characters.
+		At 140 a service-account key — ~2.3kB, mostly the PEM private key —
+		cannot be pasted in at all, which made the field that is now the *only*
+		credential input unusable for its main purpose.
+		"""
+		field = frappe.get_meta("BPMN Connector").get_field("auth_secret")
+		self.assertGreaterEqual(field.length, 10000)
+
+		live = frappe.get_doc("BPMN Connector", "google_drive").get_password(
+			"auth_secret", raise_exception=False
+		)
+		self.assertGreater(len(live), 140, "sanity: a real key is longer than the old default cap")
+		self.assertLess(len(live), field.length)

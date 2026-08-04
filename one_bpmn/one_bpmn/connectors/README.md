@@ -163,23 +163,32 @@ when no connector rows exist (fresh install, bench console with no site).
 
 ## Credentials
 
-A single service-account JSON on **Processa Settings → Google Integration**
-(lookup order: Processa Settings → AI Chat Settings legacy fallback →
-`site_config.json` → `private/files/gcp.json`) — see
-`google_common.load_service_account_info`. That credential is the *only* Google
-config in settings. All business config — destination **folders**, files,
-templates — is entered **on the connector element**, never in settings.
-
-Other providers keep their credential **on the connector**: an encrypted
+Every connector keeps its credential **on the connector**: an encrypted
 `Password` field in its Auth section (`Credential Source = On this connector`).
 The value goes to Frappe's `__Auth` store, not the doctype column, and appears in
 neither the manifest served to the browser nor an export — only the *fact* that a
 credential is expected travels.
 
+Google is no exception. Each Google connector holds its own service-account key —
+the whole JSON file Google issued, pasted into **Secret** — and
+`google_common.load_service_account_info` reads that and nothing else. A caller
+that names no connector (the Script Tasks importing `integrations/google_drive`
+directly) gets the `google_drive` connector's key. There is **no** settings-level,
+`site_config.json` or `private/files/gcp.json` fallback: a global default is
+invisible while it works, and with one in place four connectors silently share one
+account so pointing one at a second Google project changes nothing. A missing key
+is an error naming the connector to fix. That is also why `Secret` is a
+10,000-character field — a service-account key is ~2.3kB, and Frappe's Password
+control otherwise caps input at 140.
+
+The credential is the *only* Google config anywhere. All business config —
+destination **folders**, files, templates — is entered **on the connector
+element**, never in settings.
+
 Set `Credential Source = From a settings DocType` instead when several connectors
-share one key — which is exactly the Google case above, where four connectors read
-one service account so rotating it is a single edit. The target must be a
-`Password` field; a plain `Data` field is refused on save.
+genuinely share one key and one rotation is worth losing per-connector accounts
+for. The target must be a `Password` field; a plain `Data` field is refused on
+save.
 
 **Google needs a Shared Drive.** A service account has no My Drive quota, so
 anything that creates a file (`createFile`, `createDocument`,

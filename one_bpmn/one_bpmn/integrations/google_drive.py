@@ -1,18 +1,17 @@
 # Copyright (c) 2026, one-fm and contributors
 # Google Drive integration for Processa document storage (DMS).
 #
-# Credentials + config live on the "Processa Settings" singleton (one_bpmn),
-# under its "Google Integration" section, resolved via
+# The credential lives on the BPMN Connector that uses it — Authentication >
+# Secret, holding the whole service-account key file — and is resolved via
 # integrations/google_common (shared with the Docs/Slides integrations and the
-# connector layer):
-#   google_drive_service_account_json  - service account JSON (Password field)
+# connector layer). Callers here name no connector, so they get the
+# google_drive connector's key; see google_common.load_service_account_info.
+#
+# There is no settings-level or site_config fallback: a key nobody can see on a
+# connector form is a key nobody can rotate per connector.
 #
 # (Destination folders are configured on the connector element / passed by the
 # caller, not in settings.)
-#
-# Lookup order (google_common): Processa Settings -> AI Chat Settings (legacy
-# fallback) -> frappe.conf -> <site>/private/files/gcp.json, so this also works
-# from a bare bench console without the doctype populated.
 #
 # The backing GCP project must have the Drive API enabled, and the service
 # account must be a member of the target Shared Drive (Content Manager or
@@ -37,9 +36,9 @@ class GoogleDriveConfigError(Exception):
 
 
 def _get_credentials(connector_id=None):
-	# Credentials now come from the shared loader (Processa Settings → AI Chat
-	# Settings → site_config → gcp.json). Re-raise as GoogleDriveConfigError so
-	# existing Script Tasks that catch that type keep working unchanged.
+	# Credentials come from the shared loader, i.e. the connector's own Secret.
+	# Re-raise as GoogleDriveConfigError so existing Script Tasks that catch that
+	# type keep working unchanged.
 	from one_bpmn.one_bpmn.integrations import google_common as _gc
 
 	try:
