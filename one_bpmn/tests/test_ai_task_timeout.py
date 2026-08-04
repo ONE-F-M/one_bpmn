@@ -146,5 +146,16 @@ class TestDraftingFailureCannotPublish(FrappeTestCase):
 
 	def test_the_drafting_task_declares_where_its_output_goes(self):
 		"""The downstream steps read this name; if it drifts they silently see
-		nothing, which is the same failure by another route."""
-		self.assertEqual(self._draft_task_attrs().get("aiOutputVariable"), "document_markdown")
+		nothing, which is the same failure by another route.
+
+		It is ``document_sections`` rather than the old ``document_markdown``
+		because the task no longer returns a formatted document. It returns named
+		bilingual fields, and the branded template is filled from them — asking a
+		model to reproduce a bilingual Google Docs table as markdown produced pipe
+		characters in published Policies."""
+		self.assertEqual(self._draft_task_attrs().get("aiOutputVariable"), "document_sections")
+
+	def test_the_drafting_task_returns_json_not_prose(self):
+		"""The fill reads named fields off this output. Under "text" it would get
+		a string, and every field would be missing."""
+		self.assertEqual(self._draft_task_attrs().get("aiResponseFormat"), "json")

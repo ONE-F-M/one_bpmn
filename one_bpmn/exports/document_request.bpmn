@@ -1,0 +1,581 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<bpmn:definitions xmlns:bpmn="http://www.omg.org/spec/BPMN/20100524/MODEL" xmlns:bpmndi="http://www.omg.org/spec/BPMN/20100524/DI" xmlns:dc="http://www.omg.org/spec/DD/20100524/DC" xmlns:di="http://www.omg.org/spec/DD/20100524/DI" xmlns:spiffworkflow="http://spiffworkflow.org/bpmn/schema/1.0/core" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" id="Definitions_DocumentRequest" targetNamespace="http://bpmn.io/schema/bpmn">
+  <bpmn:process id="document_request_process" name="Document Request" isExecutable="true">
+    <bpmn:documentation>Single entry point for every controlled-document request (Policy, SOP, Guideline, Manual) and every action (Create, Update, Delete) — document_type selects the template, request_action selects the branch. Two-phase approval: (1) the request is approved first — that approval fixes document_type/folder — and the file is created immediately, before any content exists; (2) the Author then writes/finalizes the document (AI-assisted draft available, but manual editing works exactly the same way — "either way"), and goes back through a second approval on the finished content before it's published. Publishing is versioned: every approved publish increments the document's version and stores a snapshot of the text, and because each revision overwrites the same Drive file, the link handed to staff never changes. Nothing in this process deletes a document — a Delete request withdraws it (marks it Inactive and revokes its Drive sharing) while keeping the file, its content and its full version history, and a System Manager can reactivate it.</bpmn:documentation>
+    <bpmn:laneSet id="LaneSet_1">
+      <bpmn:lane id="lane_author" name="Employee">
+        <bpmn:flowNodeRef>write_document</bpmn:flowNodeRef>
+        <bpmn:flowNodeRef>notify_content_rejected</bpmn:flowNodeRef>
+        <bpmn:flowNodeRef>set_status_content_rejected</bpmn:flowNodeRef>
+        <bpmn:flowNodeRef>Gateway_0lo7hq2</bpmn:flowNodeRef>
+        <bpmn:flowNodeRef>start1</bpmn:flowNodeRef>
+      </bpmn:lane>
+      <bpmn:lane id="lane_approver" name="Projects Manager">
+        <bpmn:flowNodeRef>request_approval</bpmn:flowNodeRef>
+        <bpmn:flowNodeRef>set_status_rejected</bpmn:flowNodeRef>
+        <bpmn:flowNodeRef>notify_request_rejected</bpmn:flowNodeRef>
+        <bpmn:flowNodeRef>content_approval</bpmn:flowNodeRef>
+        <bpmn:flowNodeRef>gw_request</bpmn:flowNodeRef>
+        <bpmn:flowNodeRef>end_rejected</bpmn:flowNodeRef>
+        <bpmn:flowNodeRef>gw_content</bpmn:flowNodeRef>
+      </bpmn:lane>
+      <bpmn:lane id="lane_controller" name="System Manager">
+        <bpmn:flowNodeRef>notify_request_approved</bpmn:flowNodeRef>
+        <bpmn:flowNodeRef>notify_content_approved</bpmn:flowNodeRef>
+        <bpmn:flowNodeRef>set_status_approved</bpmn:flowNodeRef>
+        <bpmn:flowNodeRef>set_status_drafting</bpmn:flowNodeRef>
+        <bpmn:flowNodeRef>create_file</bpmn:flowNodeRef>
+        <bpmn:flowNodeRef>gw_action</bpmn:flowNodeRef>
+        <bpmn:flowNodeRef>locate_existing_file</bpmn:flowNodeRef>
+        <bpmn:flowNodeRef>fetch_update_source</bpmn:flowNodeRef>
+        <bpmn:flowNodeRef>gw_action_merge</bpmn:flowNodeRef>
+        <bpmn:flowNodeRef>delete_file</bpmn:flowNodeRef>
+        <bpmn:flowNodeRef>revoke_sharing</bpmn:flowNodeRef>
+        <bpmn:flowNodeRef>end_deleted</bpmn:flowNodeRef>
+        <bpmn:flowNodeRef>set_status_deleted</bpmn:flowNodeRef>
+        <bpmn:flowNodeRef>end_published</bpmn:flowNodeRef>
+        <bpmn:flowNodeRef>set_status_published</bpmn:flowNodeRef>
+        <bpmn:flowNodeRef>index_doc</bpmn:flowNodeRef>
+        <bpmn:flowNodeRef>set_perms</bpmn:flowNodeRef>
+        <bpmn:flowNodeRef>fetch_published_text</bpmn:flowNodeRef>
+      </bpmn:lane>
+      <bpmn:lane id="lane_ai_system" name="Agent">
+        <bpmn:flowNodeRef>fetch_guideline</bpmn:flowNodeRef>
+        <bpmn:flowNodeRef>gather_context</bpmn:flowNodeRef>
+        <bpmn:flowNodeRef>draft_task</bpmn:flowNodeRef>
+        <bpmn:flowNodeRef>fill_document</bpmn:flowNodeRef>
+      </bpmn:lane>
+    </bpmn:laneSet>
+    <bpmn:startEvent id="start1" name="Request Submitted" spiffworkflow:triggerDoctype="Document Request" spiffworkflow:triggerType="After Insert">
+      <bpmn:outgoing>f1</bpmn:outgoing>
+      <bpmn:conditionalEventDefinition id="CondDef_Start" spiffworkflow:triggerDoctype="Document Request" spiffworkflow:triggerType="After Insert">
+        <bpmn:condition xsi:type="bpmn:tFormalExpression">True</bpmn:condition>
+      </bpmn:conditionalEventDefinition>
+    </bpmn:startEvent>
+    <bpmn:userTask id="request_approval" name="Approve Request and defining the file location" spiffworkflow:assigneeMode="DocField" spiffworkflow:targetDoctype="Document Request" spiffworkflow:assigneeDocfield="approver_user" spiffworkflow:taskActions="[{&#34;action&#34;:&#34;Approve&#34;,&#34;confirmTransition&#34;:&#34;true&#34;},{&#34;action&#34;:&#34;Reject&#34;,&#34;confirmTransition&#34;:&#34;true&#34;}]">
+      <bpmn:documentation>Approver confirms document_type and the destination folder for this request, before any content exists.</bpmn:documentation>
+      <bpmn:incoming>f1</bpmn:incoming>
+      <bpmn:outgoing>f2</bpmn:outgoing>
+    </bpmn:userTask>
+    <bpmn:exclusiveGateway id="gw_request" name="Request Approved?" default="f4">
+      <bpmn:incoming>f2</bpmn:incoming>
+      <bpmn:outgoing>f3</bpmn:outgoing>
+      <bpmn:outgoing>f4</bpmn:outgoing>
+    </bpmn:exclusiveGateway>
+    <bpmn:endEvent id="end_rejected" name="Request Rejected">
+      <bpmn:incoming>Flow_0mot6rw</bpmn:incoming>
+    </bpmn:endEvent>
+    <bpmn:serviceTask id="notify_request_approved" name="Notify: Request Approved" spiffworkflow:serviceType="send_email" spiffworkflow:emailSubject="Your document request has been approved" spiffworkflow:emailToDocFields="requester_user" spiffworkflow:emailBody="SGksCgpZb3VyIHJlcXVlc3QgZm9yICd7eyBkb2MudGl0bGUgfX0nICh7eyBkb2MuZG9jdW1lbnRfdHlwZSB9fSkgaGFzIGJlZW4gYXBwcm92ZWQgYnkge3sgZG9jLmFwcHJvdmVyIH19LiBUaGUgZG9jdW1lbnQgaXMgbm93IGJlaW5nIGRyYWZ0ZWQuCgrigJQgUHJvY2Vzc2E=">
+      <bpmn:incoming>f3</bpmn:incoming>
+      <bpmn:outgoing>f3b</bpmn:outgoing>
+    </bpmn:serviceTask>
+    <bpmn:serviceTask id="set_status_drafting" name="Set Status: Drafting" spiffworkflow:serviceType="update_field" spiffworkflow:updateFieldRows="[{&#34;field&#34;: &#34;status&#34;, &#34;value&#34;: &#34;Drafting&#34;}]">
+      <bpmn:incoming>f3b</bpmn:incoming>
+      <bpmn:outgoing>f3c</bpmn:outgoing>
+    </bpmn:serviceTask>
+    <bpmn:serviceTask id="notify_request_rejected" name="Notify: Request Rejected" spiffworkflow:serviceType="send_email" spiffworkflow:emailSubject="Your document request has been rejected" spiffworkflow:emailToDocFields="requester_user" spiffworkflow:emailBody="SGksCgpZb3VyIHJlcXVlc3QgZm9yICd7eyBkb2MudGl0bGUgfX0nICh7eyBkb2MuZG9jdW1lbnRfdHlwZSB9fSkgaGFzIGJlZW4gcmVqZWN0ZWQgYnkge3sgZG9jLmFwcHJvdmVyIH19LgoK4oCUIFByb2Nlc3Nh">
+      <bpmn:incoming>f4</bpmn:incoming>
+      <bpmn:outgoing>Flow_04sgar6</bpmn:outgoing>
+    </bpmn:serviceTask>
+    <bpmn:serviceTask id="set_status_rejected" name="Set Status: Request Rejected" spiffworkflow:serviceType="update_field" spiffworkflow:updateFieldDoctype="Document Request" spiffworkflow:updateFieldRows="[{&#34;field&#34;: &#34;status&#34;, &#34;value&#34;: &#34;Request Rejected&#34;}]">
+      <bpmn:incoming>Flow_04sgar6</bpmn:incoming>
+      <bpmn:outgoing>Flow_0mot6rw</bpmn:outgoing>
+    </bpmn:serviceTask>
+    <bpmn:serviceTask id="notify_content_approved" name="Notify: Document Approved" spiffworkflow:serviceType="send_email" spiffworkflow:emailSubject="Your document has been approved" spiffworkflow:emailToDocFields="requester_user" spiffworkflow:emailBody="SGksCgpUaGUgZmluaXNoZWQgZG9jdW1lbnQgZm9yICd7eyBkb2MudGl0bGUgfX0nIGhhcyBiZWVuIGFwcHJvdmVkIGJ5IHt7IGRvYy5hcHByb3ZlciB9fSBhbmQgaXMgYmVpbmcgcHVibGlzaGVkLgoK4oCUIFByb2Nlc3Nh">
+      <bpmn:incoming>f11</bpmn:incoming>
+      <bpmn:outgoing>f11e</bpmn:outgoing>
+    </bpmn:serviceTask>
+    <bpmn:serviceTask id="set_status_approved" name="Set Status: Approved" spiffworkflow:serviceType="update_field" spiffworkflow:updateFieldRows="[{&#34;field&#34;: &#34;status&#34;, &#34;value&#34;: &#34;Approved&#34;}]">
+      <bpmn:incoming>f11e</bpmn:incoming>
+      <bpmn:outgoing>f11c</bpmn:outgoing>
+    </bpmn:serviceTask>
+    <bpmn:serviceTask id="notify_content_rejected" name="Notify: Document Rejected" spiffworkflow:serviceType="send_email" spiffworkflow:emailSubject="Your document was not approved" spiffworkflow:emailToDocFields="requester_user" spiffworkflow:emailBody="SGksCgpUaGUgZmluaXNoZWQgZG9jdW1lbnQgZm9yICd7eyBkb2MudGl0bGUgfX0nIHdhcyBub3QgYXBwcm92ZWQgYnkge3sgZG9jLmFwcHJvdmVyIH19IGFuZCBuZWVkcyByZXZpc2lvbi4gUGxlYXNlIGNoZWNrIHRoZSByZXZpZXdlcidzIGNvbW1lbnRzIGFuZCByZXN1Ym1pdC4KCuKAlCBQcm9jZXNzYQ==">
+      <bpmn:incoming>f12</bpmn:incoming>
+      <bpmn:outgoing>f12d</bpmn:outgoing>
+    </bpmn:serviceTask>
+    <bpmn:serviceTask id="set_status_content_rejected" name="Set Status: Content Rejected" spiffworkflow:serviceType="update_field" spiffworkflow:updateFieldRows="[{&#34;field&#34;: &#34;status&#34;, &#34;value&#34;: &#34;Content Rejected&#34;}]">
+      <bpmn:incoming>f12d</bpmn:incoming>
+      <bpmn:outgoing>f12b</bpmn:outgoing>
+    </bpmn:serviceTask>
+    <bpmn:exclusiveGateway id="gw_action" name="Action?" default="f3d">
+      <bpmn:incoming>f3c</bpmn:incoming>
+      <bpmn:outgoing>f3d</bpmn:outgoing>
+      <bpmn:outgoing>f3e</bpmn:outgoing>
+    </bpmn:exclusiveGateway>
+    <bpmn:scriptTask id="locate_existing_file" name="Locate Existing File in Drive" spiffworkflow:serverScript="Drive — Locate Existing File" spiffworkflow:scriptType="Server Script" spiffworkflow:scriptName="Drive — Locate Existing File">
+      <bpmn:documentation>Update path: pulls the Drive file id/link off the linked Document Register record (reference_document) instead of creating a new file, so the rest of the pipeline (draft, approve, save, index) acts on the existing document.</bpmn:documentation>
+      <bpmn:incoming>f3e</bpmn:incoming>
+      <bpmn:outgoing>f5b</bpmn:outgoing>
+    </bpmn:scriptTask>
+    <bpmn:scriptTask id="delete_file" name="Deactivate Document (nothing is deleted)" spiffworkflow:serverScript="Drive — Deactivate Document" spiffworkflow:scriptType="Server Script" spiffworkflow:scriptName="Drive — Deactivate Document">
+      <bpmn:documentation>Withdrawal path. This step used to trash the Drive file; it no longer deletes anything. The document is marked Inactive and stamped with who withdrew it, when, and why, while the file, its content and every version snapshot are kept — a superseded controlled document still has to be producible on request. Access is removed by the Revoke Drive Sharing step that follows. Reversible: a System Manager can reactivate the document from the register.</bpmn:documentation>
+      <bpmn:incoming>fpd</bpmn:incoming>
+      <bpmn:outgoing>f_del0</bpmn:outgoing>
+    </bpmn:scriptTask>
+    <bpmn:serviceTask id="revoke_sharing" name="Revoke Drive Sharing" spiffworkflow:serviceType="connector" spiffworkflow:connectorId="google_drive" spiffworkflow:operation="revokePermissions" spiffworkflow:connectorParams="{&#34;file&#34;: &#34;{{ (task_data.get(&#39;drive_file&#39;) or {}).get(&#39;id&#39;,&#39;&#39;) }}&#34;, &#34;scope&#34;: &#34;all&#34;}" spiffworkflow:resultVariable="revoke_result">
+      <bpmn:documentation>Removes every sharing grant except the owner's — the counterpart to Set Drive Sharing Permissions. This is the step staff actually notice: marking a document Inactive hides it inside Processa, but the domain-wide reader grant applied at publish would otherwise leave it open to anyone holding the link. The file and its content are untouched, so reactivation just re-grants.</bpmn:documentation>
+      <bpmn:incoming>f_del0</bpmn:incoming>
+      <bpmn:outgoing>f_del1</bpmn:outgoing>
+    </bpmn:serviceTask>
+    <bpmn:serviceTask id="set_status_deleted" name="Set Status: Deleted (= withdrawn)" spiffworkflow:serviceType="update_field" spiffworkflow:updateFieldDoctype="Document Request" spiffworkflow:updateFieldRows="[{&#34;field&#34;: &#34;status&#34;, &#34;value&#34;: &#34;Deleted&#34;}]">
+      <bpmn:incoming>f_del1</bpmn:incoming>
+      <bpmn:outgoing>f_del2</bpmn:outgoing>
+    </bpmn:serviceTask>
+    <bpmn:endEvent id="end_deleted" name="Document Withdrawn (Inactive)">
+      <bpmn:incoming>f_del2</bpmn:incoming>
+    </bpmn:endEvent>
+    <bpmn:serviceTask id="fetch_update_source" name="Fetch New Content (Drive)" spiffworkflow:serviceType="connector" spiffworkflow:connectorId="google_drive" spiffworkflow:operation="downloadText" spiffworkflow:connectorParams="{&#34;file&#34;: &#34;{{ task_data.get(&#39;update_source&#39;) or &#39;&#39; }}&#34;}" spiffworkflow:resultVariable="update_source_content">
+      <bpmn:documentation>Update path only. Extracts the text of the New Content Document the requester picked — the document holding what the revision should say. That text is authoritative: the drafting task reformats it into the official template and is forbidden from changing its wording. Reading it fresh from Drive rather than from the catalogued copy means a last-minute edit to the source document is picked up. The index entry is named by its Drive file id, so update_source is the file id.</bpmn:documentation>
+      <bpmn:incoming>fpu</bpmn:incoming>
+      <bpmn:outgoing>f_upd</bpmn:outgoing>
+    </bpmn:serviceTask>
+    <bpmn:exclusiveGateway id="gw_action_merge">
+      <bpmn:incoming>f5a</bpmn:incoming>
+      <bpmn:incoming>fpu</bpmn:incoming>
+      <bpmn:outgoing>f5</bpmn:outgoing>
+    </bpmn:exclusiveGateway>
+    <bpmn:serviceTask id="create_file" name="Copy Branded Template to Drive" spiffworkflow:serviceType="connector" spiffworkflow:connectorId="google_drive" spiffworkflow:operation="copyFile" spiffworkflow:connectorParams="{&quot;file&quot;: &quot;{{ {'Policy': '1L56WyVDx2U3g7IvIEluHXgxRZ2CK1RpjPA3stsbUTK0', 'SOP': '1Ooe4EqceHf3e9DDyuXEjk_zWO5WfKbfAzqR4amunl2k', 'Manual': '1NMZP1EPZC-7ZeJcIi2Hq7B4d_h9sSPeSOzhmVrBoFz8', 'Guideline': ''}.get(task_data.get('document_type',''), '') }}&quot;, &quot;filename&quot;: &quot;{{ task_data.get('title') or 'Untitled Document' }}&quot;, &quot;folder&quot;: &quot;14Jvc5hrTT550ugXv6wwT84wJCo4gxVoE&quot;}" spiffworkflow:resultVariable="drive_file" spiffworkflow:failOnError="true">
+      <bpmn:documentation>Copies the branded ONE-FM template for this document_type into the Shared Drive folder. This copy is what preserves the design: Drive files.copy keeps the logos, the bilingual EN/AR tables, the named styles and the RTL runs byte for byte, and every step after this one fills cells inside it. It must never be followed by Drive &quot;Update file content&quot; — that replaces the whole body and throws the branding away, which is precisely what the previous version of this process did. The per-type template ids are on this element's File field; a new document type needs a row there and nothing else.&#10;&#10;A Guideline is mapped to no template on purpose: it is a SOURCE document, not one this process generates, and no branded Guideline template exists. The consequence is worth knowing — Create with document_type=Guideline has nothing to copy and cannot produce a document. Either a template gets provided or the option should not be offered for Create.</bpmn:documentation>
+      <bpmn:incoming>f3d</bpmn:incoming>
+      <bpmn:outgoing>f5a</bpmn:outgoing>
+    </bpmn:serviceTask>
+    <bpmn:scriptTask id="gather_context" name="Gather Reference Context (Drive)" spiffworkflow:serverScript="Drive — Gather Reference" spiffworkflow:scriptType="Server Script" spiffworkflow:scriptName="Drive — Gather Reference">
+      <bpmn:documentation>Lists + extracts text from Guideline/Policy files in the configured Drive folders (task variable drive_folder_ids, comma-separated), keyword-matches against requirement_text, writes the top matches into reference_context. drive_folder_ids is empty until real Shared Drive folder IDs for Guidelines/Policies are supplied — until then this safely no-ops (reference_context stays "").</bpmn:documentation>
+      <bpmn:incoming>f5</bpmn:incoming>
+      <bpmn:outgoing>f6</bpmn:outgoing>
+    </bpmn:scriptTask>
+    <bpmn:scriptTask id="fetch_guideline" name="Fetch Guideline Content (Drive)" spiffworkflow:serverScript="Drive — Fetch Guideline Content" spiffworkflow:scriptType="Server Script" spiffworkflow:scriptName="Drive — Fetch Guideline Content">
+      <bpmn:documentation>Extracts the real text/slide content of the guideline document picked on the request (source_guideline, an existing Document Register entry) — no AI drafting here, this is the actual existing guideline converted to a format the drafting task can read.</bpmn:documentation>
+      <bpmn:incoming>f6</bpmn:incoming>
+      <bpmn:outgoing>f7</bpmn:outgoing>
+    </bpmn:scriptTask>
+    <bpmn:serviceTask id="draft_task" name="AI Agent Task: Draft Document Content" spiffworkflow:serviceType="ai_agent" spiffworkflow:aiStopOnError="true" spiffworkflow:aiBackend="direct_api" spiffworkflow:aiProvider="Anthropic Sonnet" spiffworkflow:aiModel="claude-sonnet-4-5-20250929" spiffworkflow:aiOutputVariable="document_sections" spiffworkflow:aiSystemPrompt="You produce the CONTENT of a ONE-FM {{document_type}} from an internal ONE-FM guideline. You do not produce a document, a layout, or markdown.&#10;&#10;The document already exists. It is a branded ONE-FM template — bilingual English/Arabic tables, ONE-FM logos, a fixed approval matrix — and it is filled in programmatically from the fields you return. Return one JSON object and nothing else.&#10;&#10;Write both languages. The Arabic is not optional and not an afterthought: every English field has an Arabic twin that must say the same thing, and a missing twin leaves a visibly half-empty document.&#10;&#10;Never emit markdown, headings, asterisks, or pipe characters. There is nothing for them to format — any layout you invent is discarded, and pipes end up printed literally in the published document.&#10;&#10;When the user message carries a NEW CONTENT section you are revising an existing document, not writing one. That content is authoritative: reproduce it faithfully in these fields and change nothing about its meaning, wording or completeness." spiffworkflow:aiUserPrompt="Document type: {{document_type}}&#10;&#10;Return a JSON object with exactly these keys:&#10;&#10;  title      the document title in English. No document code, no &quot;Policy:&quot; prefix.&#10;  title_ar   the same title in Arabic&#10;{% if document_type == 'Manual' %}  intro      one or two sentences saying what this manual covers&#10;  intro_ar   the same in Arabic&#10;{% else %}  purpose    why this {{document_type}} exists, one to three sentences&#10;  purpose_ar the same in Arabic&#10;{% endif %}{% if document_type == 'Policy' %}  laws           the laws, regulations or internal standards this policy rests on&#10;  laws_ar        the same in Arabic&#10;  definitions    terms the reader needs defined, as running text&#10;  definitions_ar the same in Arabic&#10;{% endif %}  items      the numbered {% if document_type == 'SOP' %}procedure steps{% elif document_type == 'Manual' %}instructions{% else %}policy clauses{% endif %}, a list of {&quot;en&quot;: &quot;...&quot;, &quot;ar&quot;: &quot;...&quot;}&#10;&#10;Each item is ONE {% if document_type == 'SOP' %}step{% else %}clause{% endif %} and gets its own numbered row in the document. Do not number them yourself — the numbering is written for you, in both scripts. Do not return the whole document as a single item, and do not pad the list to a round number.&#10;&#10;{% if update_source_content %}NEW CONTENT — AUTHORITATIVE. This is what the revised document must say. Put it into the fields above and change nothing else: do not add, remove, reword, summarise, reorder or improve any of it. If something reads oddly or looks incomplete, reproduce it as given — the requester chose these words deliberately.&#10;&#10;{{update_source_content.text}}&#10;&#10;CURRENT VERSION (reference ONLY — for tone and coverage; its wording is NOT what you publish):&#10;&#10;{{existing_content}}&#10;&#10;{% else %}Guideline document (existing, extracted from Drive):&#10;&#10;{{guideline_content}}&#10;&#10;Additional related context (if any):&#10;&#10;{{reference_context}}&#10;&#10;{% endif %}Revision feedback (if any): {{review_feedback}}" spiffworkflow:aiResponseFormat="json" spiffworkflow:aiResponseSchema="{&quot;type&quot;: &quot;object&quot;, &quot;required&quot;: [&quot;title&quot;, &quot;title_ar&quot;, &quot;items&quot;], &quot;properties&quot;: {&quot;title&quot;: {&quot;type&quot;: &quot;string&quot;, &quot;minLength&quot;: 1}, &quot;title_ar&quot;: {&quot;type&quot;: &quot;string&quot;, &quot;minLength&quot;: 1}, &quot;intro&quot;: {&quot;type&quot;: &quot;string&quot;}, &quot;intro_ar&quot;: {&quot;type&quot;: &quot;string&quot;}, &quot;purpose&quot;: {&quot;type&quot;: &quot;string&quot;}, &quot;purpose_ar&quot;: {&quot;type&quot;: &quot;string&quot;}, &quot;laws&quot;: {&quot;type&quot;: &quot;string&quot;}, &quot;laws_ar&quot;: {&quot;type&quot;: &quot;string&quot;}, &quot;definitions&quot;: {&quot;type&quot;: &quot;string&quot;}, &quot;definitions_ar&quot;: {&quot;type&quot;: &quot;string&quot;}, &quot;items&quot;: {&quot;type&quot;: &quot;array&quot;, &quot;minItems&quot;: 1, &quot;items&quot;: {&quot;type&quot;: &quot;object&quot;, &quot;required&quot;: [&quot;en&quot;, &quot;ar&quot;], &quot;properties&quot;: {&quot;en&quot;: {&quot;type&quot;: &quot;string&quot;, &quot;minLength&quot;: 1}, &quot;ar&quot;: {&quot;type&quot;: &quot;string&quot;}}}}}}" spiffworkflow:aiMaxRetries="1" spiffworkflow:aiAgentConfig="Document Request Agent">
+      <bpmn:documentation>Returns the document as named bilingual FIELDS — title, purpose, and the numbered clauses — not as a formatted document. The layout is the template's own and is never regenerated.&#10;&#10;This replaced a task that was handed the template as flattened plain text and asked to reproduce its structure in markdown. It could not: a bilingual Google Docs table has no markdown equivalent, so the model emitted pipe characters and the published Policy opened with &quot;| Workflow States Definition Policy | ...&quot;. Structure was being destroyed before the model ever saw it, so no prompt could have fixed this.&#10;&#10;The section keys asked for vary by document type because the three templates differ — only Policy has Laws and Definitions tables, and only Manual has a free opening statement instead of a Purpose table.</bpmn:documentation>
+      <bpmn:incoming>f7</bpmn:incoming>
+      <bpmn:outgoing>f8</bpmn:outgoing>
+    </bpmn:serviceTask>
+    <bpmn:serviceTask id="fill_document" name="Fill Branded Template" spiffworkflow:serviceType="connector" spiffworkflow:connectorId="google_docs" spiffworkflow:operation="fillBrandedTemplate" spiffworkflow:connectorParams="{&quot;document&quot;: &quot;{{ (task_data.get('drive_file') or {}).get('id','') }}&quot;, &quot;content&quot;: &quot;{% set s = task_data.get('document_sections') or {} %}{{ {'title': s.get('title'), 'title_ar': s.get('title_ar'), 'intro': s.get('intro'), 'intro_ar': s.get('intro_ar'), 'sections': {'Purpose': s.get('purpose'), 'الغرض': s.get('purpose_ar'), 'Laws': s.get('laws'), 'القانون': s.get('laws_ar'), 'Definitions': s.get('definitions'), 'تعريفات': s.get('definitions_ar')}, 'items': s.get('items') or [] } | tojson }}&quot;}" spiffworkflow:resultVariable="fill_result" spiffworkflow:failOnError="true">
+      <bpmn:documentation>Writes the drafted fields into the cells of the copied template, leaving everything else exactly as the template had it.&#10;&#10;The template carries no &#123;&#123;placeholders&#125;&#125; and cannot be given any, so the targets are found in what is already printed: the instruction text (&quot;Add  the title of the Policy&quot;), the empty cell under each label (&quot;Purpose:&quot;), and the numbered bilingual clause table. Rows are added to that table to fit the number of clauses and each row is numbered in both Latin and Arabic-Indic digits, because the template ships with one example row and does not number itself.&#10;&#10;Re-running it replaces the content rather than appending to it, which is what lets an Update revise the same Drive file — and the versioning depends on one file per document for its whole life.&#10;&#10;The section keys here are the labels PRINTED IN THE TEMPLATE, in both languages; that is the whole mapping from what the model returns to where it lands. A key that a given type has no home for (Manual has no Purpose table) is reported in fill_result.unmatched and skipped, so unmatched being non-empty on a Policy is a real alarm.</bpmn:documentation>
+      <bpmn:incoming>f8</bpmn:incoming>
+      <bpmn:outgoing>f8b</bpmn:outgoing>
+    </bpmn:serviceTask>
+    <bpmn:userTask id="write_document" name="Write / Finalize Document" spiffworkflow:assigneeMode="DocField" spiffworkflow:targetDoctype="Document Request" spiffworkflow:assigneeDocfield="owner" spiffworkflow:taskActions="[{&#34;action&#34;:&#34;Submit&#34;}]">
+      <bpmn:documentation>Last chance to correct the document before it goes for approval — and on an Update, the place to check the draft reproduced the New Content Document faithfully rather than paraphrasing it.&#10;&#10;The author works IN the Drive document, which by this point is the real branded ONE-FM document with the drafted content already in its cells — open it with View Document on the request. Edits made there are final: nothing downstream writes to the file again.</bpmn:documentation>
+      <bpmn:incoming>Flow_0f2r7ad</bpmn:incoming>
+      <bpmn:outgoing>f9</bpmn:outgoing>
+    </bpmn:userTask>
+    <bpmn:userTask id="content_approval" name="Approve Final Document" spiffworkflow:assigneeMode="DocField" spiffworkflow:targetDoctype="Document Request" spiffworkflow:assigneeDocfield="approver_user" spiffworkflow:taskActions="[{&#34;action&#34;:&#34;Approve&#34;,&#34;confirmTransition&#34;:&#34;true&#34;},{&#34;action&#34;:&#34;Reject&#34;,&#34;confirmTransition&#34;:&#34;true&#34;}]">
+      <bpmn:documentation>Second, separate approval — on the finished content this time, not the original request.</bpmn:documentation>
+      <bpmn:incoming>f9</bpmn:incoming>
+      <bpmn:outgoing>f10</bpmn:outgoing>
+    </bpmn:userTask>
+    <bpmn:exclusiveGateway id="gw_content" name="Content Approved?" default="f12">
+      <bpmn:incoming>f10</bpmn:incoming>
+      <bpmn:outgoing>f11</bpmn:outgoing>
+      <bpmn:outgoing>f12</bpmn:outgoing>
+    </bpmn:exclusiveGateway>
+    <bpmn:serviceTask id="fetch_published_text" name="Read Published Text (Drive)" spiffworkflow:serviceType="connector" spiffworkflow:connectorId="google_drive" spiffworkflow:operation="downloadText" spiffworkflow:connectorParams="{&quot;file&quot;: &quot;{{ (task_data.get('drive_file') or {}).get('id','') }}&quot;}" spiffworkflow:resultVariable="published_content" spiffworkflow:failOnError="true">
+      <bpmn:documentation>Reads back the text of the document being published, so the next step can store it as this version's snapshot.&#10;&#10;This replaced &quot;Save Final Content to Drive&quot;, which pushed the AI markdown into the file with Drive &quot;Update file content&quot;. That call replaces the entire body: it destroyed the template's branding, and because it ran AFTER the author had finalized the document it also overwrote every correction they had made in Drive. Nothing writes to the file at publish time any more — the document IS the content, and this only reads it.</bpmn:documentation>
+      <bpmn:incoming>f11c</bpmn:incoming>
+      <bpmn:outgoing>f11b</bpmn:outgoing>
+    </bpmn:serviceTask>
+    <bpmn:serviceTask id="set_perms" name="Set Drive Sharing Permissions" spiffworkflow:serviceType="connector" spiffworkflow:connectorId="google_drive" spiffworkflow:operation="setPermissions" spiffworkflow:connectorParams="{&#34;file&#34;: &#34;{{ (task_data.get(&#39;drive_file&#39;) or {}).get(&#39;id&#39;,&#39;&#39;) }}&#34;, &#34;grants&#34;: &#34;[{\&#34;type\&#34;:\&#34;domain\&#34;,\&#34;domain\&#34;:\&#34;one-fm.com\&#34;,\&#34;role\&#34;:\&#34;reader\&#34;}]&#34;}" spiffworkflow:resultVariable="perm_result">
+      <bpmn:documentation>Starter grant: domain-wide reader for one-fm.com (override via task variable drive_grants, a JSON string). Should eventually be derived from Frappe Role/User Permissions on the Controlled Document record rather than this fixed default.</bpmn:documentation>
+      <bpmn:incoming>f11b</bpmn:incoming>
+      <bpmn:outgoing>f13</bpmn:outgoing>
+    </bpmn:serviceTask>
+    <bpmn:scriptTask id="index_doc" name="Index Document for AI Reference" spiffworkflow:serverScript="Drive — Index Document" spiffworkflow:scriptType="Server Script" spiffworkflow:scriptName="Drive — Index Document">
+      <bpmn:documentation>Registers the published document and records this publish as a numbered version. Creates/updates the Document Register record (keyed on the Drive file id, so one record per document for its whole life) with the title, type, link and current content, allocates the readable document code (POL-0001, SOP-0004) on first publish, increments the version, and writes an Document Revision row holding the exact text just published. That snapshot is the only surviving copy of a superseded revision — every version shares one Drive file, so Drive keeps only the newest. This is keyword-searchable cataloging, not semantic/vector indexing — real RAG embeddings are still a separate, larger build. Purging this record on disposal is required for compliance (see the Deletion &amp; Disposal process design).</bpmn:documentation>
+      <bpmn:incoming>f13</bpmn:incoming>
+      <bpmn:outgoing>f14</bpmn:outgoing>
+    </bpmn:scriptTask>
+    <bpmn:serviceTask id="set_status_published" name="Set Status: Published" spiffworkflow:serviceType="update_field" spiffworkflow:updateFieldRows="[{&#34;field&#34;: &#34;status&#34;, &#34;value&#34;: &#34;Published&#34;}]">
+      <bpmn:incoming>f14</bpmn:incoming>
+      <bpmn:outgoing>f14b</bpmn:outgoing>
+    </bpmn:serviceTask>
+    <bpmn:endEvent id="end_published" name="Document Published">
+      <bpmn:incoming>f14b</bpmn:incoming>
+    </bpmn:endEvent>
+    <bpmn:sequenceFlow id="f1" sourceRef="start1" targetRef="request_approval" />
+    <bpmn:sequenceFlow id="f2" sourceRef="request_approval" targetRef="gw_request" />
+    <bpmn:sequenceFlow id="f3" name="Approved" sourceRef="gw_request" targetRef="notify_request_approved">
+      <bpmn:conditionExpression>action == "Approve"</bpmn:conditionExpression>
+    </bpmn:sequenceFlow>
+    <bpmn:sequenceFlow id="f3b" sourceRef="notify_request_approved" targetRef="set_status_drafting" />
+    <bpmn:sequenceFlow id="f3c" sourceRef="set_status_drafting" targetRef="gw_action" />
+    <bpmn:sequenceFlow id="f3d" sourceRef="gw_action" targetRef="create_file" />
+    <bpmn:sequenceFlow id="f3e" name="Locate Existing file" sourceRef="gw_action" targetRef="locate_existing_file">
+      <bpmn:conditionExpression>request_action != "Create"</bpmn:conditionExpression>
+    </bpmn:sequenceFlow>
+    <bpmn:sequenceFlow id="f5a" sourceRef="create_file" targetRef="gw_action_merge" />
+    <bpmn:sequenceFlow id="f5b" sourceRef="locate_existing_file" targetRef="gw_post_locate" />
+    <bpmn:sequenceFlow id="f_del0" sourceRef="delete_file" targetRef="revoke_sharing" />
+    <bpmn:sequenceFlow id="f_del1" sourceRef="revoke_sharing" targetRef="set_status_deleted" />
+    <bpmn:sequenceFlow id="f_del2" sourceRef="set_status_deleted" targetRef="end_deleted" />
+    <bpmn:sequenceFlow id="f4" sourceRef="gw_request" targetRef="notify_request_rejected" />
+    <bpmn:sequenceFlow id="f5" sourceRef="gw_action_merge" targetRef="gather_context" />
+    <bpmn:sequenceFlow id="f6" sourceRef="gather_context" targetRef="fetch_guideline" />
+    <bpmn:sequenceFlow id="f7" sourceRef="fetch_guideline" targetRef="draft_task" />
+    <bpmn:sequenceFlow id="f8" sourceRef="draft_task" targetRef="fill_document" />
+    <bpmn:sequenceFlow id="f8b" sourceRef="fill_document" targetRef="Gateway_0lo7hq2" />
+    <bpmn:sequenceFlow id="f9" sourceRef="write_document" targetRef="content_approval" />
+    <bpmn:sequenceFlow id="f10" sourceRef="content_approval" targetRef="gw_content" />
+    <bpmn:sequenceFlow id="f11" name="Approved?" sourceRef="gw_content" targetRef="notify_content_approved">
+      <bpmn:conditionExpression>action == "Approve"</bpmn:conditionExpression>
+    </bpmn:sequenceFlow>
+    <bpmn:sequenceFlow id="f11e" sourceRef="notify_content_approved" targetRef="set_status_approved" />
+    <bpmn:sequenceFlow id="f11c" sourceRef="set_status_approved" targetRef="fetch_published_text" />
+    <bpmn:sequenceFlow id="f11b" sourceRef="fetch_published_text" targetRef="set_perms" />
+    <bpmn:sequenceFlow id="f12" sourceRef="gw_content" targetRef="notify_content_rejected" />
+    <bpmn:sequenceFlow id="f12d" sourceRef="notify_content_rejected" targetRef="set_status_content_rejected" />
+    <bpmn:sequenceFlow id="f12b" sourceRef="set_status_content_rejected" targetRef="Gateway_0lo7hq2" />
+    <bpmn:sequenceFlow id="f13" sourceRef="set_perms" targetRef="index_doc" />
+    <bpmn:sequenceFlow id="f14" sourceRef="index_doc" targetRef="set_status_published" />
+    <bpmn:sequenceFlow id="f14b" sourceRef="set_status_published" targetRef="end_published" />
+    <bpmn:exclusiveGateway id="Gateway_0lo7hq2">
+      <bpmn:incoming>f8</bpmn:incoming>
+      <bpmn:incoming>f12b</bpmn:incoming>
+      <bpmn:outgoing>Flow_0f2r7ad</bpmn:outgoing>
+    </bpmn:exclusiveGateway>
+    <bpmn:sequenceFlow id="Flow_0f2r7ad" sourceRef="Gateway_0lo7hq2" targetRef="write_document" />
+    <bpmn:sequenceFlow id="Flow_0mot6rw" sourceRef="set_status_rejected" targetRef="end_rejected" />
+    <bpmn:sequenceFlow id="Flow_04sgar6" sourceRef="notify_request_rejected" targetRef="set_status_rejected" />
+    <bpmn:exclusiveGateway id="gw_post_locate" name="Update or Delete?" default="fpu">
+      <bpmn:incoming>f5b</bpmn:incoming>
+      <bpmn:outgoing>fpu</bpmn:outgoing>
+      <bpmn:outgoing>fpd</bpmn:outgoing>
+    </bpmn:exclusiveGateway>
+    <bpmn:sequenceFlow id="fpu" name="Update" sourceRef="gw_post_locate" targetRef="fetch_update_source" />
+    <bpmn:sequenceFlow id="f_upd" sourceRef="fetch_update_source" targetRef="gw_action_merge" />
+    <bpmn:sequenceFlow id="fpd" name="Delete" sourceRef="gw_post_locate" targetRef="delete_file">
+      <bpmn:conditionExpression>request_action == "Delete"</bpmn:conditionExpression>
+    </bpmn:sequenceFlow>
+  </bpmn:process>
+  <bpmndi:BPMNDiagram id="Diagram_1">
+    <bpmndi:BPMNPlane id="Plane_1" bpmnElement="document_request_process">
+      <bpmndi:BPMNShape id="lane_ai_system_di" bpmnElement="lane_ai_system" isHorizontal="true">
+        <dc:Bounds x="0" y="650" width="2660" height="380" />
+        <bpmndi:BPMNLabel />
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="lane_controller_di" bpmnElement="lane_controller" isHorizontal="true">
+        <dc:Bounds x="0" y="280" width="2660" height="370" />
+        <bpmndi:BPMNLabel />
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="lane_approver_di" bpmnElement="lane_approver" isHorizontal="true">
+        <dc:Bounds x="0" y="-30" width="2660" height="310" />
+        <bpmndi:BPMNLabel />
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="lane_author_di" bpmnElement="lane_author" isHorizontal="true">
+        <dc:Bounds x="0" y="-390" width="2660" height="360" />
+        <bpmndi:BPMNLabel />
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="start1_di" bpmnElement="start1">
+        <dc:Bounds x="55" y="-318" width="36" height="36" />
+        <bpmndi:BPMNLabel>
+          <dc:Bounds x="45" y="-355.5" width="55" height="27" />
+        </bpmndi:BPMNLabel>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="request_approval_di" bpmnElement="request_approval">
+        <dc:Bounds x="215" y="50" width="150" height="80" />
+        <bpmndi:BPMNLabel />
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="gw_request_di" bpmnElement="gw_request" isMarkerVisible="true">
+        <dc:Bounds x="450" y="65" width="50" height="50" />
+        <bpmndi:BPMNLabel>
+          <dc:Bounds x="401.5" y="45.5" width="57" height="27" />
+        </bpmndi:BPMNLabel>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="end_rejected_di" bpmnElement="end_rejected">
+        <dc:Bounds x="797" y="72" width="36" height="36" />
+        <bpmndi:BPMNLabel>
+          <dc:Bounds x="791" y="36" width="47" height="27" />
+        </bpmndi:BPMNLabel>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="notify_request_approved_di" bpmnElement="notify_request_approved">
+        <dc:Bounds x="420" y="305" width="110" height="70" />
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="set_status_drafting_di" bpmnElement="set_status_drafting">
+        <dc:Bounds x="414" y="490" width="100" height="60" />
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="notify_request_rejected_di" bpmnElement="notify_request_rejected">
+        <dc:Bounds x="525" y="55" width="110" height="70" />
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="set_status_rejected_di" bpmnElement="set_status_rejected">
+        <dc:Bounds x="668" y="60" width="100" height="60" />
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="notify_content_approved_di" bpmnElement="notify_content_approved">
+        <dc:Bounds x="1735" y="315" width="110" height="70" />
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="set_status_approved_di" bpmnElement="set_status_approved">
+        <dc:Bounds x="1980" y="325" width="100" height="50" />
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="notify_content_rejected_di" bpmnElement="notify_content_rejected">
+        <dc:Bounds x="1715" y="-295" width="110" height="70" />
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="set_status_content_rejected_di" bpmnElement="set_status_content_rejected">
+        <dc:Bounds x="2050" y="-210" width="100" height="60" />
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="gw_action_di" bpmnElement="gw_action" isMarkerVisible="true">
+        <dc:Bounds x="605" y="498" width="50" height="50" />
+        <bpmndi:BPMNLabel>
+          <dc:Bounds x="580" y="486" width="40" height="14" />
+        </bpmndi:BPMNLabel>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="locate_existing_file_di" bpmnElement="locate_existing_file">
+        <dc:Bounds x="725" y="481" width="150" height="70" />
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="delete_file_di" bpmnElement="delete_file">
+        <dc:Bounds x="1010" y="565" width="150" height="80" />
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="revoke_sharing_di" bpmnElement="revoke_sharing">
+        <dc:Bounds x="1210" y="565" width="150" height="80" />
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="set_status_deleted_di" bpmnElement="set_status_deleted">
+        <dc:Bounds x="1420" y="575" width="100" height="60" />
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="end_deleted_di" bpmnElement="end_deleted">
+        <dc:Bounds x="1600" y="587" width="36" height="36" />
+        <bpmndi:BPMNLabel>
+          <dc:Bounds x="1578" y="628" width="80" height="27" />
+        </bpmndi:BPMNLabel>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="fetch_update_source_di" bpmnElement="fetch_update_source">
+        <dc:Bounds x="1010" y="476" width="150" height="80" />
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="gw_action_merge_di" bpmnElement="gw_action_merge" isMarkerVisible="true">
+        <dc:Bounds x="1230" y="491" width="50" height="50" />
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="create_file_di" bpmnElement="create_file">
+        <dc:Bounds x="555" y="300" width="150" height="80" />
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="gather_context_di" bpmnElement="gather_context">
+        <dc:Bounds x="870" y="830" width="140" height="80" />
+        <bpmndi:BPMNLabel />
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="fetch_guideline_di" bpmnElement="fetch_guideline">
+        <dc:Bounds x="1170" y="830" width="140" height="80" />
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="draft_task_di" bpmnElement="draft_task">
+        <dc:Bounds x="1540" y="830" width="140" height="80" />
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="fill_document_di" bpmnElement="fill_document">
+        <dc:Bounds x="1740" y="830" width="140" height="80" />
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="write_document_di" bpmnElement="write_document">
+        <dc:Bounds x="995" y="-340" width="150" height="80" />
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="content_approval_di" bpmnElement="content_approval">
+        <dc:Bounds x="1365" y="50" width="150" height="80" />
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="gw_content_di" bpmnElement="gw_content" isMarkerVisible="true">
+        <dc:Bounds x="1635" y="65" width="50" height="50" />
+        <bpmndi:BPMNLabel>
+          <dc:Bounds x="1695" y="76" width="57" height="27" />
+        </bpmndi:BPMNLabel>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="fetch_published_text_di" bpmnElement="fetch_published_text">
+        <dc:Bounds x="1810" y="483" width="140" height="80" />
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="set_perms_di" bpmnElement="set_perms">
+        <dc:Bounds x="2025" y="490" width="150" height="80" />
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="index_doc_di" bpmnElement="index_doc">
+        <dc:Bounds x="2210" y="500" width="140" height="80" />
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="set_status_published_di" bpmnElement="set_status_published">
+        <dc:Bounds x="2410" y="498" width="100" height="50" />
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="end_published_di" bpmnElement="end_published">
+        <dc:Bounds x="2592" y="522" width="36" height="36" />
+        <bpmndi:BPMNLabel>
+          <dc:Bounds x="2584" y="485" width="53" height="27" />
+        </bpmndi:BPMNLabel>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Gateway_0lo7hq2_di" bpmnElement="Gateway_0lo7hq2" isMarkerVisible="true">
+        <dc:Bounds x="905" y="-205" width="50" height="50" />
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="gw_post_locate_di" bpmnElement="gw_post_locate" isMarkerVisible="true">
+        <dc:Bounds x="910" y="491" width="50" height="50" />
+        <bpmndi:BPMNLabel>
+          <dc:Bounds x="893" y="455" width="84" height="27" />
+        </bpmndi:BPMNLabel>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNEdge id="f1_di" bpmnElement="f1">
+        <di:waypoint x="73" y="-282" />
+        <di:waypoint x="73" y="90" />
+        <di:waypoint x="215" y="90" />
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="f2_di" bpmnElement="f2">
+        <di:waypoint x="365" y="90" />
+        <di:waypoint x="450" y="90" />
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="f3_di" bpmnElement="f3">
+        <di:waypoint x="475" y="115" />
+        <di:waypoint x="475" y="305" />
+        <bpmndi:BPMNLabel>
+          <dc:Bounds x="470" y="256" width="49" height="14" />
+        </bpmndi:BPMNLabel>
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="f3b_di" bpmnElement="f3b">
+        <di:waypoint x="475" y="375" />
+        <di:waypoint x="475" y="490" />
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="f3c_di" bpmnElement="f3c">
+        <di:waypoint x="514" y="520" />
+        <di:waypoint x="608" y="520" />
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="f3d_di" bpmnElement="f3d">
+        <di:waypoint x="630" y="498" />
+        <di:waypoint x="630" y="380" />
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="f3e_di" bpmnElement="f3e">
+        <di:waypoint x="655" y="523" />
+        <di:waypoint x="725" y="523" />
+        <bpmndi:BPMNLabel>
+          <dc:Bounds x="651" y="505" width="80" height="27" />
+        </bpmndi:BPMNLabel>
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="f5a_di" bpmnElement="f5a">
+        <di:waypoint x="705" y="340" />
+        <di:waypoint x="1255" y="340" />
+        <di:waypoint x="1255" y="491" />
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="f5b_di" bpmnElement="f5b">
+        <di:waypoint x="875" y="516" />
+        <di:waypoint x="910" y="516" />
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="f_del0_di" bpmnElement="f_del0">
+        <di:waypoint x="1160" y="610" />
+        <di:waypoint x="1210" y="610" />
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="f_del1_di" bpmnElement="f_del1">
+        <di:waypoint x="1360" y="610" />
+        <di:waypoint x="1420" y="610" />
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="f_del2_di" bpmnElement="f_del2">
+        <di:waypoint x="1520" y="610" />
+        <di:waypoint x="1600" y="610" />
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="f4_di" bpmnElement="f4">
+        <di:waypoint x="500" y="90" />
+        <di:waypoint x="525" y="90" />
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="f5_di" bpmnElement="f5">
+        <di:waypoint x="1255" y="541" />
+        <di:waypoint x="1255" y="700" />
+        <di:waypoint x="940" y="700" />
+        <di:waypoint x="940" y="830" />
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="f6_di" bpmnElement="f6">
+        <di:waypoint x="1010" y="870" />
+        <di:waypoint x="1170" y="870" />
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="f7_di" bpmnElement="f7">
+        <di:waypoint x="1310" y="870" />
+        <di:waypoint x="1540" y="870" />
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="f8_di" bpmnElement="f8">
+        <di:waypoint x="1680" y="870" />
+        <di:waypoint x="1740" y="870" />
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="f8b_di" bpmnElement="f8b">
+        <di:waypoint x="1810" y="830" />
+        <di:waypoint x="1810" y="270" />
+        <di:waypoint x="930" y="270" />
+        <di:waypoint x="930" y="-155" />
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="f9_di" bpmnElement="f9">
+        <di:waypoint x="1145" y="-300" />
+        <di:waypoint x="1318" y="-300" />
+        <di:waypoint x="1318" y="90" />
+        <di:waypoint x="1365" y="90" />
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="f10_di" bpmnElement="f10">
+        <di:waypoint x="1515" y="90" />
+        <di:waypoint x="1635" y="90" />
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="f11_di" bpmnElement="f11">
+        <di:waypoint x="1660" y="115" />
+        <di:waypoint x="1660" y="350" />
+        <di:waypoint x="1735" y="350" />
+        <bpmndi:BPMNLabel>
+          <dc:Bounds x="1671" y="218" width="57" height="14" />
+        </bpmndi:BPMNLabel>
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="f11e_di" bpmnElement="f11e">
+        <di:waypoint x="1845" y="350" />
+        <di:waypoint x="1980" y="350" />
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="f11c_di" bpmnElement="f11c">
+        <di:waypoint x="2030" y="375" />
+        <di:waypoint x="2030" y="430" />
+        <di:waypoint x="1880" y="430" />
+        <di:waypoint x="1880" y="483" />
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="f11b_di" bpmnElement="f11b">
+        <di:waypoint x="1950" y="523" />
+        <di:waypoint x="1988" y="523" />
+        <di:waypoint x="1988" y="530" />
+        <di:waypoint x="2025" y="530" />
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="f12_di" bpmnElement="f12">
+        <di:waypoint x="1660" y="65" />
+        <di:waypoint x="1660" y="-260" />
+        <di:waypoint x="1715" y="-260" />
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="f12d_di" bpmnElement="f12d">
+        <di:waypoint x="1825" y="-255" />
+        <di:waypoint x="2100" y="-255" />
+        <di:waypoint x="2100" y="-210" />
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="f12b_di" bpmnElement="f12b">
+        <di:waypoint x="2050" y="-180" />
+        <di:waypoint x="955" y="-180" />
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="f13_di" bpmnElement="f13">
+        <di:waypoint x="2175" y="530" />
+        <di:waypoint x="2193" y="530" />
+        <di:waypoint x="2193" y="540" />
+        <di:waypoint x="2210" y="540" />
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="f14_di" bpmnElement="f14">
+        <di:waypoint x="2350" y="540" />
+        <di:waypoint x="2380" y="540" />
+        <di:waypoint x="2380" y="523" />
+        <di:waypoint x="2410" y="523" />
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="f14b_di" bpmnElement="f14b">
+        <di:waypoint x="2510" y="523" />
+        <di:waypoint x="2551" y="523" />
+        <di:waypoint x="2551" y="540" />
+        <di:waypoint x="2592" y="540" />
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Flow_0f2r7ad_di" bpmnElement="Flow_0f2r7ad">
+        <di:waypoint x="930" y="-205" />
+        <di:waypoint x="930" y="-300" />
+        <di:waypoint x="995" y="-300" />
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Flow_0mot6rw_di" bpmnElement="Flow_0mot6rw">
+        <di:waypoint x="768" y="90" />
+        <di:waypoint x="797" y="90" />
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Flow_04sgar6_di" bpmnElement="Flow_04sgar6">
+        <di:waypoint x="635" y="90" />
+        <di:waypoint x="668" y="90" />
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="fpu_di" bpmnElement="fpu">
+        <di:waypoint x="960" y="516" />
+        <di:waypoint x="1010" y="516" />
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="f_upd_di" bpmnElement="f_upd">
+        <di:waypoint x="1160" y="516" />
+        <di:waypoint x="1230" y="516" />
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="fpd_di" bpmnElement="fpd">
+        <di:waypoint x="935" y="541" />
+        <di:waypoint x="935" y="610" />
+        <di:waypoint x="1010" y="610" />
+      </bpmndi:BPMNEdge>
+    </bpmndi:BPMNPlane>
+  </bpmndi:BPMNDiagram>
+</bpmn:definitions>
