@@ -399,6 +399,37 @@ GOOGLE_CONNECTORS = \
                   'output': {'filled': 'Per-placeholder substitution counts',
                              'unfilled': 'Placeholders that matched nothing',
                              'total': 'Total substitutions made'}},
+                 {'value': 'fillBrandedTemplate',
+                  'label': 'Fill branded template (no placeholders)',
+                  'method': 'documents.batchUpdate',
+                  'executionType': 'Python Handler',
+                  'handlerPath': 'one_bpmn.one_bpmn.connectors.google_docs_ops.fill_branded_template',
+                  'fields': [{'name': 'document',
+                              'label': 'Document',
+                              'type': 'String',
+                              'required': True,
+                              'transform': 'one_bpmn.one_bpmn.integrations.google_common.normalize_drive_id',
+                              'help': 'The copy of the template to fill. Copy it with Drive '
+                                      '“Copy file” first — that is what preserves the branding.'},
+                             {'name': 'content',
+                              'label': 'Document content (JSON)',
+                              'type': 'Text',
+                              'required': True,
+                              'help': 'The document as fields, not prose: {"title": …, '
+                                      '"title_ar": …, "intro": …, "sections": {"Purpose": …, '
+                                      '"الغرض": …}, "items": [{"en": …, "ar": …}]}. Rows are '
+                                      'added to the numbered table to fit the items.'},
+                             {'name': 'failIfUnmatched',
+                              'label': 'Fail if a target is not found',
+                              'type': 'Boolean',
+                              'default': 'false',
+                              'help': 'Off by default because the templates differ — Manual has '
+                                      'no “Purpose:” table and SOP has no “Definitions:”, so a '
+                                      'section the type does not own is an expected miss. '
+                                      'Misses are always reported in “unmatched”.'}],
+                  'output': {'filled': 'What was written: items, sections, replacements',
+                             'unmatched': 'Targets not found in this template',
+                             'rows_added': 'Rows added to the numbered table'}},
                  {'value': 'replaceAllText',
                   'label': 'Replace all text (template fill)',
                   'method': 'documents.batchUpdate → replaceAllText',

@@ -37,6 +37,11 @@ from typing import Any, Dict, Optional
 # rather than merely short (its JSON and tool arguments end partway through).
 DEFAULT_MAX_OUTPUT_TOKENS = 16384
 
+# Exported so the BPMN dispatcher can defer to it. It used to hardcode its own
+# 30 instead, which meant raising the value below changed nothing for any AI
+# task in any process map — the fix was dead on arrival. See dispatch_ai_agent.
+DEFAULT_TIMEOUT_SECONDS = 180
+
 
 # ---------------------------------------------------------------------------
 # Error codes
@@ -127,7 +132,7 @@ class ExecutorConfig:
     # limits have to move together.
     #
     # Note this multiplies by retries, so the worst case is timeout x (retries+1).
-    timeout_seconds: int = 180
+    timeout_seconds: int = DEFAULT_TIMEOUT_SECONDS
     response_format: str = "text"        # "text" | "json"
     response_schema: Optional[str] = None  # JSON Schema string
     max_retries: int = 2
