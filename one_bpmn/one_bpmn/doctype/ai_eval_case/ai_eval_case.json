@@ -10,6 +10,7 @@
   "title",
   "suite",
   "source_run",
+  "source_security_event",
   "process_model",
   "bpmn_id",
   "input_user_prompt",
@@ -75,6 +76,14 @@
    "fieldtype": "Table",
    "label": "Assertions",
    "options": "AI Eval Assertion"
+  },
+  {
+   "description": "The AI Security Event this adversarial case was promoted from. Also what makes promotion idempotent — the link lives here because the event itself is immutable (WI-001967).",
+   "fieldname": "source_security_event",
+   "fieldtype": "Link",
+   "label": "Source Security Event",
+   "options": "AI Security Event",
+   "read_only": 1
   }
  ],
  "index_web_pages_for_search": 1,

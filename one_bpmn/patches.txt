@@ -71,3 +71,4 @@ one_bpmn.one_bpmn.patches.v1_0.google_connectors_to_http #03-08-2026 WI-001811
 one_bpmn.one_bpmn.patches.v1_0.move_google_credential_to_connectors #04-08-2026 WI-001811 per-connector Google credentials
 one_bpmn.one_bpmn.patches.v1_0.seed_google_connectors #04-08-2026 WI-001811 connector definitions live in the patch, not JSON files
 one_bpmn.one_bpmn.patches.v1_0.drop_legacy_google_credential_field #04-08-2026 the connector's own Secret is the only credential
+one_bpmn.one_bpmn.patches.v1_0.seed_ai_injection_patterns #05-08-2026 WI-001967 prompt-injection rule pack ships as data

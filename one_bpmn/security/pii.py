@@ -370,6 +370,16 @@ def screen_input(text: str, agent_config=None) -> RedactionResult:
 		if result.redacted:
 			label = agent_config.get("agent_id") if isinstance(agent_config, dict) else agent_config
 			frappe.logger("pii").info(f"PII screened for agent={label or '-'}: {result.summary()}")
+			# WI-001967: the verdict belongs in AI Security Event, not only in a
+			# log file. record_pii_events fails open, so this cannot stop the turn.
+			from one_bpmn.security.events import record_pii_events
+
+			record_pii_events(
+				result,
+				boundary="input",
+				agent_configuration=_config_name(agent_config),
+				original_text=text,
+			)
 		return result
 	except Exception:
 		try:
@@ -405,7 +415,8 @@ def screen_chat_message(doc, method=None):
 	try:
 		if getattr(doc, "message_type", None) != "User" or not screening_on():
 			return
-		result = redact(doc.text or "")
+		original = doc.text or ""
+		result = redact(original)
 		if not result.redacted:
 			return
 		doc.text = result.text
@@ -415,6 +426,16 @@ def screen_chat_message(doc, method=None):
 		frappe.logger("pii").info(
 			f"PII screened in Chat Message for {doc.get('conversation') or '-'}: {result.summary()}"
 		)
+		# WI-001967: same verdict, same place. Recorded against the conversation
+		# because this path has no agent config to hand.
+		from one_bpmn.security.events import record_pii_events
+
+		record_pii_events(
+			result,
+			boundary="input",
+			conversation=doc.get("conversation"),
+			original_text=original,
+		)
 	except Exception:
 		try:
 			frappe.log_error(
@@ -423,6 +444,21 @@ def screen_chat_message(doc, method=None):
 			)
 		except Exception:
 			pass
+
+
+def _config_name(agent_config) -> str | None:
+	"""The AI Agent Configuration record name, whichever form the caller passed.
+
+	``screen_input`` accepts either a resolved config dict or a record name; the
+	security event wants the record name so its Link resolves. A dict that does
+	not carry one yields None rather than a guess — an event with no agent is
+	still a useful event.
+	"""
+	if not agent_config:
+		return None
+	if isinstance(agent_config, dict):
+		return agent_config.get("name") or agent_config.get("aiAgentConfig") or None
+	return agent_config if isinstance(agent_config, str) else None
 
 
 def _screening_enabled(agent_config) -> bool:
