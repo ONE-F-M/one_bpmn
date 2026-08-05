@@ -11,10 +11,18 @@ from one_bpmn.api.utils import _is_bpmn_super_user
 
 @frappe.whitelist()
 def list_process_instances(
-	filters=None, limit_start=0, limit_page_length=20, order_by="creation desc"
+	filters=None,
+	limit_start=0,
+	limit_page_length=20,
+	order_by="creation desc",
+	pending_action_by=None,
 ) -> list:
 	"""
 	List BPMN process instances with their active tasks joined as 'current_step'.
+
+	``pending_action_by`` is not a field on the instance — it is resolved from
+	the active task rows (see ``_instances_pending_on``) and narrows the list to
+	Active instances that user still has to act on.
 	"""
 
 	if isinstance(filters, str):
@@ -24,6 +32,19 @@ def list_process_instances(
 		limit_start = int(limit_start)
 	if isinstance(limit_page_length, str):
 		limit_page_length = int(limit_page_length)
+
+	if pending_action_by:
+		pending = _instances_pending_on(pending_action_by)
+		if not pending:
+			return []
+		# A Waiting row can outlive its instance (Cancelled/Errored runs keep
+		# their rows), so pin to Active — nothing else is actionable.
+		if isinstance(filters, list):
+			filters = filters + [["name", "in", pending], ["status", "=", "Active"]]
+		else:
+			filters = dict(filters or {})
+			filters["name"] = ["in", pending]
+			filters["status"] = "Active"
 
 	instances = frappe.get_list(
 		"BPMN Process Instance",
@@ -83,6 +104,49 @@ def list_process_instances(
 					d.current_step = derived.get(d.name, "")
 
 	return instances
+
+
+def _instances_pending_on(user: str) -> list:
+	"""Names of process instances holding a Waiting task ``user`` must act on.
+
+	Mirrors the authorization rule in ``complete_user_task``: a task reaches
+	someone either because
+
+	1. ``assigned_user`` names them. In multi-assignee ("Table Field") mode that
+	   field is a comma-joined list, so membership goes through ``split_users``
+	   — ``=`` would miss those rows, and a bare LIKE would match a user whose
+	   email is a substring of someone else's. The LIKE is only a coarse
+	   pre-filter; the real test happens in Python below.
+	2. ``assigned_role`` names a role they hold and no user has been resolved
+	   onto the row — an unclaimed role task is pending on every member. Once
+	   ``assigned_user`` is set, that field alone decides who owes the action.
+	"""
+	# Imported lazily for the same reason as in complete_user_task: assignment.py
+	# pulls in engine.py, which is fragile across SpiffWorkflow versions.
+	from one_bpmn.one_bpmn.doctype.bpmn_process_instance.assignment import split_users
+
+	roles = frappe.get_roles(user)
+
+	or_filters = {"assigned_user": ["like", f"%{user}%"]}
+	if roles:
+		or_filters["assigned_role"] = ["in", roles]
+
+	rows = frappe.get_all(
+		"BPMN Active Task",
+		filters={"parenttype": "BPMN Process Instance", "status": "Waiting"},
+		or_filters=or_filters,
+		fields=["parent", "assigned_user", "assigned_role"],
+	)
+
+	role_set = set(roles)
+	return list(
+		{
+			row.parent
+			for row in rows
+			if user in split_users(row.assigned_user)
+			or (not (row.assigned_user or "").strip() and row.assigned_role in role_set)
+		}
+	)
 
 
 def _derive_current_step(workflow_state: str) -> str:
