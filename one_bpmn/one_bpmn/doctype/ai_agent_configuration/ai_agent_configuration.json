@@ -42,6 +42,17 @@
   "chat_cb",
   "chat_description",
   "allowed_roles",
+  "memory_section",
+  "conversation_store",
+  "context_max_messages",
+  "column_break_memory",
+  "long_term_memory",
+  "memory_scope",
+  "memory_write_mode",
+  "memory_models_section",
+  "memory_distill_model",
+  "column_break_memory_models",
+  "memory_reconcile_model",
   "security_section",
   "pii_screening",
   "evaluation_section",
@@ -67,7 +78,7 @@
   },
   {
    "depends_on": "eval:!doc.process_model",
-   "description": "Which legacy execution style runs this agent's turns while it has no process map. Ignored the moment a Process Model is linked \u2014 the map runs the agent. Removed entirely once all agents are map-driven.",
+   "description": "Which legacy execution style runs this agent's turns while it has no process map. Ignored the moment a Process Model is linked — the map runs the agent. Removed entirely once all agents are map-driven.",
    "fieldname": "agent_framework",
    "fieldtype": "Select",
    "in_list_view": 1,
@@ -92,7 +103,7 @@
   },
   {
    "default": "Draft",
-   "description": "Owned by the agent-creation process \u2014 stamped as each stage completes.",
+   "description": "Owned by the agent-creation process — stamped as each stage completes.",
    "fieldname": "lifecycle_status",
    "fieldtype": "Select",
    "in_list_view": 1,
@@ -102,7 +113,7 @@
    "read_only": 1
   },
   {
-   "description": "Why the last go-live attempt parked this agent \u2014 surfaced as a form intro banner, not a field. Cleared automatically when the agent leaves Needs Attention.",
+   "description": "Why the last go-live attempt parked this agent — surfaced as a form intro banner, not a field. Cleared automatically when the agent leaves Needs Attention.",
    "fieldname": "needs_attention_reason",
    "fieldtype": "Small Text",
    "hidden": 1,
@@ -228,7 +239,7 @@
    "label": "LangSmith Project"
   },
   {
-   "description": "The BPMN process map that runs this agent. Tools are granted by the shapes drawn in this diagram \u2014 never listed on this document.",
+   "description": "The BPMN process map that runs this agent. Tools are granted by the shapes drawn in this diagram — never listed on this document.",
    "fieldname": "process_model",
    "fieldtype": "Link",
    "label": "Process Model",
@@ -259,7 +270,7 @@
    "options": "AI Model"
   },
   {
-   "description": "Derived from the chosen AI Model's credentials link \u2014 pick a model to change it.",
+   "description": "Derived from the chosen AI Model's credentials link — pick a model to change it.",
    "fieldname": "ai_provider_credentials",
    "fieldtype": "Link",
    "label": "AI Provider Credentials",
@@ -326,6 +337,82 @@
    "fieldtype": "Table",
    "label": "Sample Prompts",
    "options": "AI Agent Sample Prompt"
+  },
+  {
+   "fieldname": "memory_section",
+   "fieldtype": "Section Break",
+   "label": "Memory",
+   "description": "How this agent remembers. These settings are authoritative at dispatch — the BPMN shape no longer stores them (WI-001793); an older diagram's values are still honoured until the agent is configured here."
+  },
+  {
+   "fieldname": "conversation_store",
+   "fieldtype": "Select",
+   "label": "Conversation Store",
+   "options": "\nprocess_variable\ndocument_store\ncustom",
+   "default": "",
+   "description": "Where this agent's message thread is kept. Process Variable lives in the instance and is discarded with it; Document Store persists. Blank inherits the diagram's value."
+  },
+  {
+   "fieldname": "context_max_messages",
+   "fieldtype": "Int",
+   "label": "Context Window (max messages)",
+   "description": "Most recent messages kept when priming a call; the system prompt is always retained. 0 inherits the diagram's value."
+  },
+  {
+   "fieldname": "column_break_memory",
+   "fieldtype": "Column Break"
+  },
+  {
+   "fieldname": "long_term_memory",
+   "fieldtype": "Select",
+   "label": "Long-Term Memory",
+   "options": "\nEnabled\nDisabled",
+   "default": "",
+   "description": "Recall relevant saved memories before the call, and optionally save one after. Blank inherits the diagram's value."
+  },
+  {
+   "fieldname": "memory_scope",
+   "fieldtype": "Select",
+   "label": "Memory Scope",
+   "options": "\nAgent\nProcess\nEntity",
+   "default": "",
+   "depends_on": "eval:doc.long_term_memory=='Enabled'",
+   "description": "Agent — this task; Process — this process model; Entity — the task's context document."
+  },
+  {
+   "fieldname": "memory_write_mode",
+   "fieldtype": "Select",
+   "label": "Memory Write Mode",
+   "options": "\noff\ndistilled\nraw",
+   "default": "",
+   "depends_on": "eval:doc.long_term_memory=='Enabled'",
+   "description": "Distilled extracts durable, deduplicated facts; Raw stores the agent output verbatim (legacy); Off recalls only."
+  },
+  {
+   "fieldname": "memory_models_section",
+   "fieldtype": "Section Break",
+   "label": "Memory Models",
+   "description": "Which model does the memory writes. Falls back to the Processa Settings default, then to this agent's own AI Model — so leaving both blank keeps today's behaviour."
+  },
+  {
+   "fieldname": "memory_distill_model",
+   "fieldtype": "Link",
+   "label": "Distillation Model",
+   "options": "AI Model",
+   "depends_on": "eval:doc.long_term_memory=='Enabled'",
+   "description": "Model that extracts durable facts from a run. A cheaper/faster model is usually fine here."
+  },
+  {
+   "fieldname": "column_break_memory_models",
+   "fieldtype": "Column Break"
+  },
+  {
+   "fieldname": "memory_reconcile_model",
+   "fieldtype": "Link",
+   "label": "Reconciliation Model",
+   "options": "AI Model",
+   "depends_on": "eval:doc.long_term_memory=='Enabled'",
+   "description": "Model that decides add / update / replace against existing memories. Raise this one when reconciliations are poor."
   }
  ],
  "index_web_pages_for_search": 1,
