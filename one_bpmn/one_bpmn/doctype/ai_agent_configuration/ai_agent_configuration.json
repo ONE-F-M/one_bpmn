@@ -392,26 +392,28 @@
    "fieldname": "memory_models_section",
    "fieldtype": "Section Break",
    "label": "Memory Models",
-   "description": "Which model does the memory writes. Falls back to the Processa Settings default, then to this agent's own AI Model — so leaving both blank keeps today's behaviour."
+   "description": "Which model does the memory writes. Falls back to the Processa Settings default, then to this agent's own AI Model — so leaving both blank keeps today's behaviour.",
+   "depends_on": "eval:doc.long_term_memory=='Enabled' && doc.memory_write_mode=='distilled'"
   },
   {
    "fieldname": "memory_distill_model",
    "fieldtype": "Link",
    "label": "Distillation Model",
    "options": "AI Model",
-   "depends_on": "eval:doc.long_term_memory=='Enabled'",
+   "depends_on": "eval:doc.long_term_memory=='Enabled' && doc.memory_write_mode=='distilled'",
    "description": "Model that extracts durable facts from a run. A cheaper/faster model is usually fine here."
   },
   {
    "fieldname": "column_break_memory_models",
-   "fieldtype": "Column Break"
+   "fieldtype": "Column Break",
+   "depends_on": "eval:doc.long_term_memory=='Enabled' && doc.memory_write_mode=='distilled'"
   },
   {
    "fieldname": "memory_reconcile_model",
    "fieldtype": "Link",
    "label": "Reconciliation Model",
    "options": "AI Model",
-   "depends_on": "eval:doc.long_term_memory=='Enabled'",
+   "depends_on": "eval:doc.long_term_memory=='Enabled' && doc.memory_write_mode=='distilled'",
    "description": "Model that decides add / update / replace against existing memories. Raise this one when reconciliations are poor."
   }
  ],

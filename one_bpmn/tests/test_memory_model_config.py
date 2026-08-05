@@ -197,6 +197,28 @@ class TestMemoryModelConfig(FrappeTestCase):
 		self.assertEqual(captured["reconcile_ctx"]["backend"], "direct_api")
 
 	# ------------------------------------------------------------------
+	# Migration: the effective write mode, so the model fields stay visible
+	# ------------------------------------------------------------------
+	def test_legacy_auto_write_migrates_to_distilled(self):
+		"""A diagram predating aiMemoryWriteMode carries aiMemoryAutoWrite.
+
+		The dispatcher reads that as "distilled", so the agent must record the
+		same — the Memory Models fields only surface on the distilled path, and a
+		blank mode would hide a distillation model that is actually in use.
+		"""
+		from one_bpmn.one_bpmn.patches.v1_0 import move_memory_config_to_agent as patch
+
+		field, coerce = patch._ATTR_TO_FIELD["aiMemoryAutoWrite"]
+		self.assertEqual(field, "memory_write_mode")
+		self.assertEqual(coerce("true"), "distilled")
+		self.assertEqual(coerce("enabled"), "distilled")
+		self.assertEqual(coerce("false"), "")
+
+		# An explicit mode must win over the legacy flag, so it is applied first.
+		order = patch._ATTR_ORDER
+		self.assertLess(order.index("aiMemoryWriteMode"), order.index("aiMemoryAutoWrite"))
+
+	# ------------------------------------------------------------------
 	# End to end: the agent's setting is the model the write actually uses
 	# ------------------------------------------------------------------
 	def test_changing_the_agent_changes_the_model_the_write_calls(self):

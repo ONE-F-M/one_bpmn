@@ -45,7 +45,26 @@ _ATTR_TO_FIELD = {
 	"aiMemoryScope": ("memory_scope", lambda v: v.strip()),
 	"aiMemoryWriteMode": ("memory_write_mode", lambda v: v.strip()),
 	"aiMemoryDistillModel": ("memory_distill_model", lambda v: v.strip()),
+	# Legacy: diagrams predating aiMemoryWriteMode carry aiMemoryAutoWrite, which
+	# the dispatcher reads as "distilled". Record the EFFECTIVE mode so the agent
+	# shows what actually runs — the Memory Models fields only surface on the
+	# distilled path, so a blank mode would hide a distill model that is in use.
+	"aiMemoryAutoWrite": (
+		"memory_write_mode",
+		lambda v: "distilled" if v.strip().lower() in ("1", "true", "yes", "on", "enabled") else "",
+	),
 }
+
+# When both are present the explicit mode wins, so it must be applied first.
+_ATTR_ORDER = (
+	"aiConversationStore",
+	"aiContextMaxMessages",
+	"aiLongTermMemory",
+	"aiMemoryScope",
+	"aiMemoryWriteMode",
+	"aiMemoryAutoWrite",
+	"aiMemoryDistillModel",
+)
 
 # Attributes that name an AI Model and therefore need a catalog record.
 _MODEL_ATTRS = ("aiMemoryDistillModel",)
@@ -157,7 +176,10 @@ def _apply_to_agent(shape: dict) -> bool:
 
 	doc = frappe.get_doc("AI Agent Configuration", shape["config"])
 	changed = []
-	for attr, raw in shape["values"].items():
+	for attr in _ATTR_ORDER:
+		if attr not in shape["values"]:
+			continue
+		raw = shape["values"][attr]
 		field, coerce = _ATTR_TO_FIELD[attr]
 		# Never overwrite a value an admin has already set on the agent.
 		if doc.get(field) not in (None, "", 0):
