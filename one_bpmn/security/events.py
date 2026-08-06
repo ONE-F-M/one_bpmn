@@ -50,6 +50,7 @@ def record_event(
 	conversation: str | None = None,
 	run: str | None = None,
 	bpmn_id: str | None = None,
+	correlation_id: str | None = None,
 	detail: str | None = None,
 ) -> str | None:
 	"""Record one screening verdict. Returns the event name, or None if it failed.
@@ -86,6 +87,12 @@ def record_event(
 		doc.conversation = conversation
 		doc.run = run if run and frappe.db.exists("AI Agent Run", run) else None
 		doc.bpmn_id = bpmn_id
+		# Input screening runs before the AI Agent Run exists, so the run cannot be
+		# named here and the event cannot be edited later to add it. The turn's
+		# correlation id is stamped on both records instead (WI-001967).
+		from one_bpmn.security.turn import current_correlation_id
+
+		doc.correlation_id = correlation_id or current_correlation_id()
 		doc.content_hash = content_hash(content)
 		doc.content_length = len(content) if isinstance(content, str) else 0
 		doc.detail = _trim(detail, MAX_DETAIL_LENGTH)

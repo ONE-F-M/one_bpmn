@@ -27,6 +27,7 @@
   "column_break_where",
   "run",
   "bpmn_id",
+  "correlation_id",
   "section_content",
   "content_hash",
   "content_length",
@@ -157,6 +158,14 @@
    "fieldname": "bpmn_id",
    "fieldtype": "Data",
    "label": "BPMN ID"
+  },
+  {
+   "description": "Shared with the AI Agent Run for the same turn. Input screening runs before the run exists, so this is how an event is joined to the run it preceded (WI-001967).",
+   "fieldname": "correlation_id",
+   "fieldtype": "Data",
+   "in_standard_filter": 1,
+   "label": "Correlation ID",
+   "read_only": 1
   },
   {
    "fieldname": "section_content",

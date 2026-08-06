@@ -82,6 +82,20 @@ def _sum_step_metrics(run_name: str) -> Dict[str, Any]:
 	return totals
 
 
+def _turn_correlation_id():
+	"""The current turn's correlation id, if a screened turn is in progress.
+
+	Imported lazily and defensively: observability must never fail because the
+	security package is unavailable or misbehaving.
+	"""
+	try:
+		from one_bpmn.security.turn import current_correlation_id
+
+		return current_correlation_id()
+	except Exception:
+		return None
+
+
 def create_ai_run(
 	instance,
 	bpmn_id: str,
@@ -155,7 +169,10 @@ def create_ai_run(
 		"status": "Running",
 		"started_at": now_datetime(),
 		"max_retries": config.max_retries,
-		"correlation_id": frappe.generate_hash(length=16),
+		# WI-001967: reuse the turn's correlation id when one was minted upstream,
+		# so a security event recorded before this run existed can be joined to it.
+		# Falls back to a fresh id for runs that start outside a screened turn.
+		"correlation_id": _turn_correlation_id() or frappe.generate_hash(length=16),
 	})
 	try:
 		run.insert(ignore_permissions=True)
