@@ -533,3 +533,93 @@ class TestPerTurnEnforcement(FrappeTestCase):
 				self.assertIsNotNone(agent_id, f"{label} must yield an agent id")
 			finally:
 				frappe.db.delete("Chat Conversation", {"name": conv})
+
+
+class TestRefusalReachesTheUser(FrappeTestCase):
+	"""A refusal must say why, on every chat surface.
+
+	RateLimited subclasses ValidationError, and each chat endpoint catches that
+	broadly to mean "the BPMN instance is dead — tell them to reopen the chat".
+	So a working throttle was reported to the user as "The ProsAlly process
+	orchestration isn't running for this conversation", which is both wrong and
+	unactionable. These pin the real message to each surface.
+	"""
+
+	SURFACES = ("ProsAlly", "Logix", "Docu")
+
+	def setUp(self):
+		frappe.set_user("Administrator")
+		self._settings(rate_limit_enabled=1, rate_limit_messages=1,
+		               rate_limit_window_seconds=300, lock_after_blocks=0)
+
+	def tearDown(self):
+		frappe.set_user("Administrator")
+		self._settings(rate_limit_messages=20, rate_limit_window_seconds=60, lock_after_blocks=3)
+		frappe.db.delete("AI Security Event", {"stage": "rate-limit"})
+		for label in ("prosally_agent", "logix_agent", "docu_agent"):
+			try:
+				frappe.cache().delete(RL._window_key("Administrator", label))
+			except Exception:
+				pass
+		frappe.db.commit()
+
+	def _settings(self, **values):
+		for k, v in values.items():
+			frappe.db.set_single_value("Processa Settings", k, v)
+		frappe.clear_document_cache("Processa Settings", "Processa Settings")
+
+	def _exhaust(self, agent_label):
+		"""Fill the window past the limit without making a model call."""
+		key = RL._window_key("Administrator", agent_label)
+		now = time.time()
+		frappe.cache().zadd(key, {f"{now}:a": now, f"{now}:b": now})
+
+	def _conversation(self, label):
+		conv = frappe.db.get_value("Chat Conversation", {"agent_mode": label}, "name")
+		if conv:
+			return conv
+		return frappe.get_doc({
+			"doctype": "Chat Conversation", "agent_mode": label, "title": f"{PREFIX} {label}",
+		}).insert(ignore_permissions=True).name
+
+	def test_prosally_reports_the_refusal_not_a_dead_instance(self):
+		from one_bpmn.api.server_script_api import prosally_chat
+
+		self._exhaust("prosally_agent")
+		r = prosally_chat(message="hi", session_id="t", conversation_name=self._conversation("ProsAlly")) or {}
+		self.assertEqual(r.get("intent"), "BLOCKED")
+		self.assertIn("too quickly", r.get("response", ""))
+		self.assertNotIn("orchestration", r.get("response", ""))
+
+	def test_logix_reports_the_refusal_not_a_dead_instance(self):
+		from one_bpmn.api.server_script_api import process_logix_message
+
+		self._exhaust("logix_agent")
+		r = process_logix_message(message="hi", session_id="t", conversation_name=self._conversation("Logix")) or {}
+		self.assertEqual(r.get("intent"), "BLOCKED")
+		self.assertIn("too quickly", r.get("response", ""))
+		self.assertNotIn("orchestration", r.get("response", ""))
+
+	def test_docu_reports_the_refusal_not_a_dead_instance(self):
+		from one_bpmn.api.docu_api import docu_chat
+
+		self._exhaust("docu_agent")
+		r = docu_chat(message="hi", conversation_name=self._conversation("Docu")) or {}
+		self.assertEqual(r.get("intent"), "BLOCKED")
+		self.assertIn("too quickly", r.get("response", ""))
+		self.assertNotIn("orchestration", r.get("response", ""))
+
+	def test_a_frozen_conversation_says_so_rather_than_blaming_the_instance(self):
+		from one_bpmn.api.server_script_api import prosally_chat
+
+		agent = frappe.db.get_value("AI Agent Configuration", {"chat_mode_label": "ProsAlly"}, "name")
+		conv = self._conversation("ProsAlly")
+		lock = RL.raise_lock("Administrator", agent, conv, reason="Manual", blocked_count=3)
+		try:
+			r = prosally_chat(message="hi", session_id="t", conversation_name=conv) or {}
+			self.assertEqual(r.get("intent"), "BLOCKED")
+			self.assertIn("frozen", r.get("response", "").lower())
+			self.assertIn("reviewer", r.get("response", "").lower())
+		finally:
+			frappe.db.delete("AI Conversation Lock", {"name": lock})
+			frappe.db.commit()

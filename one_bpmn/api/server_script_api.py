@@ -5,6 +5,8 @@ import json
 import re
 
 import frappe
+
+from one_bpmn.security.rate_limit import RateLimited
 from frappe import _
 
 
@@ -432,6 +434,17 @@ def process_logix_message(
 					"process_context": process_context,
 				},
 			)
+		except RateLimited as exc:
+			# WI-001968: a throttle or a conversation freeze is a real, explainable
+			# refusal — not a dead instance. RateLimited subclasses ValidationError,
+			# so without this branch the handler below rewrites it as "orchestration
+			# isn't running" and the user is told to reopen a chat that is working
+			# perfectly. Surface what actually happened, in the chat bubble.
+			return {
+				"intent": "BLOCKED",
+				"response": str(exc),
+				"conversation_name": conversation_name,
+			}
 		except frappe.ValidationError:
 			# No instance is driving this conversation (map never armed or the
 			# instance died) — the generic runner throws; surface the same
@@ -562,6 +575,17 @@ def prosally_chat(
 					"current_xml": current_xml or "",
 				},
 			)
+		except RateLimited as exc:
+			# WI-001968: a throttle or a conversation freeze is a real, explainable
+			# refusal — not a dead instance. RateLimited subclasses ValidationError,
+			# so without this branch the handler below rewrites it as "orchestration
+			# isn't running" and the user is told to reopen a chat that is working
+			# perfectly. Surface what actually happened, in the chat bubble.
+			return {
+				"intent": "BLOCKED",
+				"response": str(exc),
+				"conversation_name": conversation_name,
+			}
 		except frappe.ValidationError:
 			# No instance is driving this conversation (map never armed or the
 			# instance died) — the generic runner throws; surface the same reopen
