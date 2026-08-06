@@ -27,7 +27,15 @@
   "script_block_lambda",
   "script_strict_builtins",
   "script_strict_frappe_attrs",
-  "script_block_all_imports"
+  "script_block_all_imports",
+  "section_break_ai_rate_limit",
+  "rate_limit_enabled",
+  "rate_limit_messages",
+  "rate_limit_window_seconds",
+  "column_break_ai_rate_limit",
+  "lock_after_blocks",
+  "lock_block_window_seconds",
+  "lock_release_roles"
  ],
  "fields": [
   {
@@ -186,6 +194,57 @@
    "fieldname": "script_block_all_imports",
    "fieldtype": "Check",
    "label": "Block All Imports"
+  },
+  {
+   "fieldname": "section_break_ai_rate_limit",
+   "fieldtype": "Section Break",
+   "label": "AI Rate Limiting",
+   "description": "Throttles how fast one user can talk to one agent, and freezes a conversation that keeps producing blocked attempts. Enforced at the invocation entry point, so it applies to every agent surface at once."
+  },
+  {
+   "fieldname": "rate_limit_enabled",
+   "fieldtype": "Check",
+   "default": "1",
+   "label": "Enable Rate Limiting",
+   "description": "Unticking this stops both the throttle and the automatic freeze. Existing locks stay until a reviewer releases them."
+  },
+  {
+   "fieldname": "rate_limit_messages",
+   "fieldtype": "Int",
+   "default": "20",
+   "label": "Messages Per Window",
+   "description": "How many messages one user may send to one agent inside the window. 0 disables the throttle but leaves the freeze active."
+  },
+  {
+   "fieldname": "rate_limit_window_seconds",
+   "fieldtype": "Int",
+   "default": "60",
+   "label": "Window (seconds)",
+   "description": "Length of the sliding window. It slides continuously rather than resetting on a clock boundary, so a burst cannot be hidden by straddling two fixed buckets."
+  },
+  {
+   "fieldname": "column_break_ai_rate_limit",
+   "fieldtype": "Column Break"
+  },
+  {
+   "fieldname": "lock_after_blocks",
+   "fieldtype": "Int",
+   "default": "3",
+   "label": "Freeze After N Blocked Attempts",
+   "description": "Blocked attempts by one user against one agent before the conversation is frozen. 0 disables the freeze. A frozen conversation refuses every message until a reviewer releases it."
+  },
+  {
+   "fieldname": "lock_block_window_seconds",
+   "fieldtype": "Int",
+   "default": "3600",
+   "label": "Blocked-Attempt Window (seconds)",
+   "description": "How far back blocked attempts are counted. Older ones age out, so an occasional false positive months apart never accumulates into a freeze."
+  },
+  {
+   "fieldname": "lock_release_roles",
+   "fieldtype": "Small Text",
+   "default": "AI Security Reviewer",
+   "description": "Comma-separated roles allowed to release a frozen conversation. System Manager is always allowed. The locked user can never release their own conversation, whatever roles they hold."
   }
  ],
  "issingle": 1,
