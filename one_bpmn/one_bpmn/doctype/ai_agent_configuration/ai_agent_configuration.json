@@ -342,7 +342,7 @@
    "fieldname": "memory_section",
    "fieldtype": "Section Break",
    "label": "Memory",
-   "description": "How this agent remembers. These settings are authoritative at dispatch — the BPMN shape no longer stores them (WI-001793); an older diagram's values are still honoured until the agent is configured here."
+   "description": "How this agent remembers. These settings are authoritative at dispatch — the BPMN shape no longer stores them; an older diagram's values are still honoured until the agent is configured here."
   },
   {
    "fieldname": "conversation_store",

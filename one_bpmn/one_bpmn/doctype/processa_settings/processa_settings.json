@@ -195,7 +195,7 @@
    "fieldname": "section_break_ai_memory",
    "fieldtype": "Section Break",
    "label": "AI Memory",
-   "description": "Site-wide defaults for the models that write long-term memory. An agent's own Memory Models override these; with both blank, memory writes use the agent's own AI Model, exactly as before (WI-001793)."
+   "description": "Site-wide defaults for the models that write long-term memory. An agent's own Memory Models override these; with both blank, memory writes use the agent's own AI Model, exactly as before."
   },
   {
    "fieldname": "default_memory_distill_model",

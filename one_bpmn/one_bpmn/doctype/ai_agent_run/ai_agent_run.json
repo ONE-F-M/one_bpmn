@@ -57,7 +57,7 @@
    "in_list_view": 1,
    "label": "BPMN Process Instance",
    "options": "BPMN Process Instance",
-   "description": "Empty for direct (non-process) eval runs (WI-001751)."
+   "description": "Empty for direct (non-process) eval runs."
   },
   {
    "description": "The BPMN Process Model this run belongs to",
@@ -73,7 +73,7 @@
    "options": "AI Agent Configuration",
    "in_standard_filter": 1,
    "read_only": 1,
-   "description": "The AI Agent Configuration that owns the process model this run executed under (WI-001636)."
+   "description": "The AI Agent Configuration that owns the process model this run executed under."
   },
   {
    "description": "The element ID on the diagram (e.g. Activity_1a2b3c)",
@@ -210,7 +210,7 @@
    "fieldname": "agent_latency_ms",
    "fieldtype": "Int",
    "label": "Agent Latency (ms)",
-   "description": "Time the AGENT actually spent working: the sum of every step's latency (provider round-trips plus inline tool execution). Excludes time parked waiting for a human, so unlike Duration this is comparable across runs and is the figure to use for A/B experiments (WI-001643)."
+   "description": "Time the AGENT actually spent working: the sum of every step's latency (provider round-trips plus inline tool execution). Excludes time parked waiting for a human, so unlike Duration this is comparable across runs and is the figure to use for A/B experiments."
   },
   {
    "fieldname": "human_wait_ms",
@@ -249,7 +249,7 @@
    "fieldname": "total_cache_read_tokens",
    "fieldtype": "Int",
    "label": "Cache Read Tokens",
-   "description": "Part of Prompt Tokens served from the prompt cache, summed across steps. Billed at the cache-read rate (WI-001643)."
+   "description": "Part of Prompt Tokens served from the prompt cache, summed across steps. Billed at the cache-read rate."
   },
   {
    "fieldname": "total_cache_write_tokens",
