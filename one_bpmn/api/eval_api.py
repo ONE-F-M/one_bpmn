@@ -736,3 +736,309 @@ def create_suite(
 	})
 	doc.insert()
 	return doc.name
+
+
+# ── A/B comparison of two runs (WI-001821) ────────────────────────────────────
+# A comparison is INFORMATIONAL. It deliberately has nothing to do with
+# AI Eval Suite.gate_deployment: the gate decides whether a suite blocks a
+# deploy, while this only helps a designer choose between two agents. Wiring
+# the two together would let a losing variant block a release nobody asked it to.
+
+# Below this many shared cases the numbers are anecdote, not evidence. The site
+# runs eight cases per adversarial suite, so this fires often — which is the
+# point: a two-case difference on eight cases is one case changing its mind.
+SMALL_SAMPLE_CASES = 10
+
+
+def _run_agent_totals(run_names: list) -> dict:
+	"""Per-run latency and the four-way cost split, aggregated from the
+	AI Agent Runs each eval run produced (WI-001643 fields).
+
+	Read from AI Agent Run rather than AI Eval Result because the result row
+	stores only a single rolled-up cost — the cache-read/write split and the
+	latency live on the agent run. A Direct eval records a lightweight agent run
+	too, so both eval types are covered.
+	"""
+	if not run_names:
+		return {}
+	rows = frappe.get_all(
+		"AI Agent Run",
+		filters={"eval_run": ["in", run_names]},
+		fields=[
+			"eval_run", "agent_latency_ms", "total_input_cost", "total_output_cost",
+			"total_cache_read_cost", "total_cache_write_cost", "estimated_cost",
+			"total_cache_read_tokens", "total_cache_write_tokens", "total_tokens",
+		],
+		limit_page_length=0,
+	)
+	out = {}
+	for r in rows:
+		acc = out.setdefault(r["eval_run"], {
+			"agent_run_count": 0, "latencies": [],
+			"input_cost": 0.0, "output_cost": 0.0,
+			"cache_read_cost": 0.0, "cache_write_cost": 0.0, "estimated_cost": 0.0,
+			"cache_read_tokens": 0, "cache_write_tokens": 0, "tokens": 0,
+		})
+		acc["agent_run_count"] += 1
+		# 0 means "not measured" on older runs, not "instant" — averaging those
+		# in would quietly drag the mean towards zero.
+		if r["agent_latency_ms"]:
+			acc["latencies"].append(r["agent_latency_ms"])
+		acc["input_cost"] += flt(r["total_input_cost"])
+		acc["output_cost"] += flt(r["total_output_cost"])
+		acc["cache_read_cost"] += flt(r["total_cache_read_cost"])
+		acc["cache_write_cost"] += flt(r["total_cache_write_cost"])
+		acc["estimated_cost"] += flt(r["estimated_cost"])
+		acc["cache_read_tokens"] += (r["total_cache_read_tokens"] or 0)
+		acc["cache_write_tokens"] += (r["total_cache_write_tokens"] or 0)
+		acc["tokens"] += (r["total_tokens"] or 0)
+	for acc in out.values():
+		lat = acc.pop("latencies")
+		acc["mean_latency_ms"] = round(sum(lat) / len(lat)) if lat else None
+		acc["latency_samples"] = len(lat)
+	return out
+
+
+def _side(doc, totals: dict, statuses: dict, shared: list) -> dict:
+	"""One column of the comparison.
+
+	Pass rate is computed over the SHARED cases only, not over the run's own
+	totals — otherwise a run that happened to cover an extra case would be
+	compared on a different denominator to the one beside it.
+	"""
+	agent = doc.get("agent_configuration")
+	passed = sum(1 for c in shared if statuses.get(c) == "Passed")
+	errored = sum(1 for c in shared if statuses.get(c) == "Error")
+	t = totals.get(doc.name) or {}
+	return {
+		"run": doc.name,
+		"agent": agent,
+		"agent_name": frappe.db.get_value("AI Agent Configuration", agent, "agent_name") if agent else None,
+		"status": doc.status,
+		"backend": doc.backend,
+		"started_at": doc.started_at,
+		"ended_at": doc.ended_at,
+		"cases_compared": len(shared),
+		"passed": passed,
+		"failed": len(shared) - passed - errored,
+		"errored": errored,
+		"pass_rate": round(passed / len(shared) * 100, 1) if shared else None,
+		"mean_latency_ms": t.get("mean_latency_ms"),
+		"latency_samples": t.get("latency_samples", 0),
+		# Suite cost is the eval-result total (it includes judge calls, which
+		# are not the agent's own spend); the split beneath it is the agent's.
+		"total_cost": flt(doc.total_cost),
+		"total_tokens": doc.total_tokens,
+		"cost_split": {
+			"input": t.get("input_cost", 0.0),
+			"output": t.get("output_cost", 0.0),
+			"cache_read": t.get("cache_read_cost", 0.0),
+			"cache_write": t.get("cache_write_cost", 0.0),
+			"agent_total": t.get("estimated_cost", 0.0),
+		},
+		"cache_tokens": {
+			"read": t.get("cache_read_tokens", 0),
+			"write": t.get("cache_write_tokens", 0),
+		},
+	}
+
+
+def _comparability(a, b, cases_a: set, cases_b: set, shared: list) -> list:
+	"""Everything that makes this comparison less than apples-to-apples.
+
+	Returned as a list of {level, message} rather than raised, because most of
+	these are worth SEEING alongside the numbers — a designer who knows one run
+	errored partway can still read the cases that did complete. Only the
+	genuinely meaningless comparisons are refused, by the caller.
+	"""
+	notes = []
+
+	def note(level, message):
+		notes.append({"level": level, "message": message})
+
+	for doc in (a, b):
+		if doc.status == "Running":
+			note("blocking", _("Run {0} is still running — its numbers are incomplete.").format(doc.name))
+		elif doc.status == "Error":
+			note("warning", _(
+				"Run {0} errored partway through, so it covers fewer cases than it set out to. "
+				"Only the cases both runs completed are compared."
+			).format(doc.name))
+
+	only_a = sorted(cases_a - cases_b)
+	only_b = sorted(cases_b - cases_a)
+	if only_a or only_b:
+		note("warning", _(
+			"The two runs did not cover the same cases: {0} ran only in the first, {1} only in the "
+			"second. Those are excluded and the {2} shared cases are compared."
+		).format(len(only_a), len(only_b), len(shared)))
+
+	if a.get("agent_configuration") and a.get("agent_configuration") == b.get("agent_configuration"):
+		note("warning", _(
+			"Both runs tested the same agent ({0}), so any difference is run-to-run variance "
+			"rather than a difference between agents."
+		).format(a.get("agent_configuration")))
+	if not a.get("agent_configuration") or not b.get("agent_configuration"):
+		note("warning", _(
+			"At least one run does not record which agent it tested — it predates run-level agent "
+			"tracking. It used whatever the suite pointed at when it ran, which may have changed since."
+		))
+
+	if a.backend != b.backend:
+		note("warning", _(
+			"One run is '{0}' and the other '{1}'. A replay re-scores stored answers without "
+			"calling the agent, so its latency and cost are not the agent's."
+		).format(a.backend, b.backend))
+
+	if shared and len(shared) < SMALL_SAMPLE_CASES:
+		note("caution", _(
+			"Only {0} cases were compared. That is a small sample — a one-case difference is "
+			"{1:.0f} percentage points, so treat a narrow gap as noise."
+		).format(len(shared), 100.0 / len(shared)))
+
+	if not shared:
+		note("blocking", _("The two runs share no cases, so there is nothing to compare."))
+
+	return notes
+
+
+@frappe.whitelist()
+def get_run_comparison(run_a: str, run_b: str = None) -> dict:
+	"""Two runs of one suite, side by side (WI-001821).
+
+	``run_b`` may be omitted for a run created by ``run_eval_comparison`` — the
+	other side is found through the shared ``comparison_group``.
+
+	Per agent: pass rate, mean agent latency, cost with the cache-read/write
+	split visible. Per case: win / loss / tie. Plus ``notes`` saying plainly
+	where the comparison is weak, and ``blocked`` when it cannot be made at all.
+	"""
+	a = frappe.get_doc("AI Eval Run", run_a)
+	a.check_permission("read")
+
+	if not run_b:
+		if not a.get("comparison_group"):
+			frappe.throw(_(
+				"Run {0} is not part of an A/B pair, so there is no other side to show. "
+				"Pick a run to compare it against."
+			).format(run_a))
+		peer = frappe.get_all(
+			"AI Eval Run",
+			filters={"comparison_group": a.comparison_group, "name": ["!=", a.name]},
+			pluck="name",
+			limit_page_length=1,
+		)
+		if not peer:
+			frappe.throw(_("The other half of this comparison no longer exists."))
+		run_b = peer[0]
+
+	b = frappe.get_doc("AI Eval Run", run_b)
+	b.check_permission("read")
+
+	# Same suite is the one hard requirement: different suites mean different
+	# cases and different assertions, and no amount of flagging rescues that.
+	if a.suite != b.suite:
+		frappe.throw(_(
+			"These runs are of different suites ({0} and {1}). Only runs of the same suite "
+			"can be compared — the cases and assertions differ otherwise."
+		).format(a.suite, b.suite))
+
+	statuses_a = {r.eval_case: r.status for r in a.results if r.eval_case}
+	statuses_b = {r.eval_case: r.status for r in b.results if r.eval_case}
+	cases_a, cases_b = set(statuses_a), set(statuses_b)
+
+	suite_title = frappe.db.get_value("AI Eval Suite", a.suite, "title")
+	case_titles = {
+		c["name"]: c["title"]
+		for c in frappe.get_all(
+			"AI Eval Case",
+			filters={"name": ["in", list(cases_a | cases_b)]} if (cases_a | cases_b) else {"name": ""},
+			fields=["name", "title"],
+		)
+	}
+	# Suite order, so the table reads the same way as the suite page.
+	order = frappe.get_all(
+		"AI Eval Case", filters={"suite": a.suite}, pluck="name", order_by="creation asc"
+	)
+	shared = [c for c in order if c in cases_a and c in cases_b]
+	# A case moved out of the suite still belongs in the comparison.
+	shared += sorted((cases_a & cases_b) - set(order))
+
+	notes = _comparability(a, b, cases_a, cases_b, shared)
+	blocked = [n for n in notes if n["level"] == "blocking"]
+
+	totals = _run_agent_totals([a.name, b.name])
+	cases = []
+	for c in shared:
+		sa, sb = statuses_a[c], statuses_b[c]
+		if sa == sb:
+			outcome = "tie"
+		elif sa == "Passed":
+			outcome = "a"
+		elif sb == "Passed":
+			outcome = "b"
+		else:
+			# Neither passed but they differ (Failed vs Error) — not a win for
+			# either side, and calling it one would overstate the loser.
+			outcome = "tie"
+		cases.append({
+			"eval_case": c,
+			"case_title": case_titles.get(c) or c,
+			"status_a": sa,
+			"status_b": sb,
+			"outcome": outcome,
+		})
+
+	return {
+		"suite": a.suite,
+		"suite_title": suite_title,
+		"comparison_group": a.get("comparison_group") or None,
+		"a": _side(a, totals, statuses_a, shared),
+		"b": _side(b, totals, statuses_b, shared),
+		"cases": cases,
+		"tally": {
+			"a_wins": sum(1 for c in cases if c["outcome"] == "a"),
+			"b_wins": sum(1 for c in cases if c["outcome"] == "b"),
+			"ties": sum(1 for c in cases if c["outcome"] == "tie"),
+		},
+		"only_in_a": sorted(cases_a - cases_b),
+		"only_in_b": sorted(cases_b - cases_a),
+		"notes": notes,
+		"blocked": bool(blocked),
+	}
+
+
+@frappe.whitelist()
+def list_comparable_runs(run: str) -> list:
+	"""Finished runs of the same suite that ``run`` could be compared against,
+	newest first. Errored runs are included — they are flagged, not hidden,
+	because the cases they did finish are still worth reading."""
+	doc = frappe.get_doc("AI Eval Run", run)
+	doc.check_permission("read")
+
+	suite_title = frappe.db.get_value("AI Eval Suite", doc.suite, "title")
+	history = frappe.get_all(
+		"AI Eval Run",
+		filters={"suite": doc.suite, "status": ["in", ["Passed", "Failed", "Error"]]},
+		fields=["name", "started_at", "status", "agent_configuration", "creation"],
+		order_by="creation asc",
+		limit_page_length=0,
+	)
+	out = []
+	for i, r in enumerate(history):
+		if r["name"] == doc.name:
+			continue
+		out.append({
+			"name": r["name"],
+			"display_title": _run_title(suite_title, i + 1, r["started_at"]),
+			"status": r["status"],
+			"agent": r["agent_configuration"],
+			"started_at": r["started_at"],
+			# The interesting comparison is against a DIFFERENT agent; same-agent
+			# runs stay selectable but the UI can de-emphasise them.
+			"same_agent": bool(
+				r["agent_configuration"]
+				and r["agent_configuration"] == doc.get("agent_configuration")
+			),
+		})
+	return list(reversed(out))
