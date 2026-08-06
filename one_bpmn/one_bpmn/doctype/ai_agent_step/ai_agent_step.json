@@ -67,7 +67,7 @@
    "fieldtype": "Table",
    "label": "Tool Calls",
    "options": "AI Agent Tool Call",
-   "description": "One row per tool actually called in this turn (WI-001358). A single LLM turn can contain several calls; they share the turn's token/cost figures."
+   "description": "One row per tool actually called in this turn. A single LLM turn can contain several calls; they share the turn's token/cost figures."
   },
   {
    "fieldname": "section_break_metrics",
@@ -88,7 +88,7 @@
    "fieldname": "cache_read_tokens",
    "fieldtype": "Int",
    "label": "Cache Read Tokens",
-   "description": "Part of Prompt Tokens served from the prompt cache — billed at the cache-read rate, not the input rate (WI-001643)."
+   "description": "Part of Prompt Tokens served from the prompt cache — billed at the cache-read rate, not the input rate."
   },
   {
    "fieldname": "cache_write_tokens",

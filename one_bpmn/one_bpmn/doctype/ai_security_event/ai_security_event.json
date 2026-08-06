@@ -160,7 +160,7 @@
    "label": "BPMN ID"
   },
   {
-   "description": "Shared with the AI Agent Run for the same turn. Input screening runs before the run exists, so this is how an event is joined to the run it preceded (WI-001967).",
+   "description": "Shared with the AI Agent Run for the same turn. Input screening runs before the run exists, so this is how an event is joined to the run it preceded.",
    "fieldname": "correlation_id",
    "fieldtype": "Data",
    "in_standard_filter": 1,

@@ -78,7 +78,7 @@
    "options": "AI Eval Assertion"
   },
   {
-   "description": "The AI Security Event this adversarial case was promoted from. Also what makes promotion idempotent — the link lives here because the event itself is immutable (WI-001967).",
+   "description": "The AI Security Event this adversarial case was promoted from. Also what makes promotion idempotent — the link lives here because the event itself is immutable.",
    "fieldname": "source_security_event",
    "fieldtype": "Link",
    "label": "Source Security Event",
