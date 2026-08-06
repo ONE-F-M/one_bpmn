@@ -147,6 +147,34 @@ def provision_agent(config_name: str):
 				)
 				return
 
+		# WI-001969: the release gate. A conversational agent is reachable by
+		# anyone who can open a chat box, so it does not ship untested against
+		# injection, jailbreak, exfiltration and tool coercion — and it does not
+		# ship on a map with the screening stage removed. Both fail CLOSED:
+		# unlike the runtime screens, this authorises a release, and "cannot
+		# prove it is safe" must mean no.
+		from one_bpmn.agents.adversarial_gate import check as adversarial_check
+		from one_bpmn.agents.conformance import validate_chat_map
+
+		gate = adversarial_check(config_name)
+		if not gate["ok"]:
+			_set_status(config_name, "Needs Attention", reason=gate["reason"])
+			frappe.log_error(
+				title=f"Agent go-live blocked: adversarial gate ({cfg.agent_id})",
+				message=gate["reason"],
+			)
+			return
+
+		conformance = validate_chat_map(cfg.process_model)
+		if not conformance["ok"]:
+			reason = "; ".join(conformance["errors"])
+			_set_status(config_name, "Needs Attention", reason=reason)
+			frappe.log_error(
+				title=f"Agent go-live blocked: map not conforming ({cfg.agent_id})",
+				message=reason,
+			)
+			return
+
 		_set_status(config_name, "Live")
 	except Exception:
 		_set_status(
