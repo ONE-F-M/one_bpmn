@@ -64,6 +64,86 @@ _GUARDRAIL_CATEGORIES = (
 	"Other",
 )
 
+# The two child tables that make up the agent's frozen static context
+# (WI-001639), and the shape attributes the modal carries them under. Unlike
+# the scalar maps above these are LISTS, so they are read and written whole:
+# the modal always sends the full table, and a missing key means "leave it
+# alone" rather than "empty it".
+_EXAMPLE_SHAPE_ATTR = "aiExamples"
+_GUARDRAIL_SHAPE_ATTR = "aiGuardrails"
+_EXAMPLE_FIELDS = ("input", "expected_output", "note", "enabled")
+_GUARDRAIL_FIELDS = ("guardrail", "category", "enabled")
+
+
+def _clean_example_rows(rows) -> list[dict]:
+	"""Normalise few-shot example rows from any caller (the assistant's create
+	payload or the editor modal) into what doc.append expects.
+
+	Rows with a blank input are dropped — ``input`` is the mandatory field, and
+	letting one through turns a whole save into a validation failure over a row
+	the user probably just started typing.
+	"""
+	out = []
+	for row in rows or []:
+		if not (row.get("input") or "").strip():
+			continue
+		out.append(
+			{
+				"input": row["input"],
+				"expected_output": row.get("expected_output") or "",
+				"note": row.get("note") or "",
+				# Absent means on: the assistant's proposals carry no flag, and a
+				# new row is meant to take effect.
+				"enabled": 0 if row.get("enabled") in (0, False, "0", "false") else 1,
+			}
+		)
+	return out
+
+
+def _clean_guardrail_rows(rows) -> list[dict]:
+	"""Normalise guard rail rows. Blank rules are dropped for the same reason
+	blank example inputs are."""
+	out = []
+	for row in rows or []:
+		if not (row.get("guardrail") or "").strip():
+			continue
+		category = row.get("category")
+		out.append(
+			{
+				"guardrail": row["guardrail"],
+				# An unrecognised category would fail Select validation and lose
+				# the whole save; fall back rather than reject the rule.
+				"category": category if category in _GUARDRAIL_CATEGORIES else "Other",
+				"enabled": 0 if row.get("enabled") in (0, False, "0", "false") else 1,
+			}
+		)
+	return out
+
+
+def _rows_for_shape(doc, table: str, fields: tuple[str, ...]) -> list[dict]:
+	"""The table's rows as plain dicts, in document order — the order they
+	reach the model."""
+	return [{f: (r.get(f) or "") if f != "enabled" else int(r.get("enabled") or 0) for f in fields} for r in doc.get(table) or []]
+
+
+def config_static_context(config_name: str) -> dict:
+	"""Examples + guard rails for a configuration, keyed by shape attribute.
+
+	Deliberately NOT part of ``config_field_map``: that map is overlaid onto
+	shape attributes at dispatch, and these two tables are agent-owned with no
+	shape equivalent to override. The editor reads them through
+	``get_agent_config_for_shape``; dispatch reads them through
+	``load_agent_behaviour``.
+	"""
+	if not config_name or not frappe.db.exists("AI Agent Configuration", config_name):
+		return {}
+	cfg = frappe.get_doc("AI Agent Configuration", config_name)
+	return {
+		_EXAMPLE_SHAPE_ATTR: _rows_for_shape(cfg, "examples", _EXAMPLE_FIELDS),
+		_GUARDRAIL_SHAPE_ATTR: _rows_for_shape(cfg, "guardrails", _GUARDRAIL_FIELDS),
+	}
+
+
 # The platform process that carries an agent Draft -> Live is no longer assumed
 # by name. It is whatever the single grant-holding AI Agent Configuration
 # (can_create_agents = 1) links in agent_creation_process, so a site is free to
@@ -152,7 +232,10 @@ def get_agent_config_for_shape(config_name: str) -> dict:
 	"""Whitelisted: the editor calls this on selecting a config to copy its
 	current values into the shape's fields (the designer's editing view)."""
 	frappe.has_permission("AI Agent Configuration", "read", throw=True)
-	return config_field_map(config_name)
+	# WI-001639: the static-context tables ride along so the modal can edit
+	# them, but they stay out of config_field_map so dispatch's overlay is
+	# unchanged.
+	return {**config_field_map(config_name), **config_static_context(config_name)}
 
 
 @frappe.whitelist()
@@ -201,6 +284,30 @@ def update_agent_config_from_shape(config_name: str, fields: str | dict) -> dict
 		if doc.get(cfield) != value:
 			doc.set(cfield, value)
 			changed.append(cfield)
+
+	# WI-001639: the static-context tables are replaced whole. The modal sends
+	# the complete table or omits the key entirely, so "present" means the user
+	# was editing it and "absent" means leave it be — there is no per-row diff
+	# to apply, and row ORDER is meaningful (it is the order they reach the
+	# model), which a merge would not preserve.
+	for sattr, table, cleaner, row_fields in (
+		(_EXAMPLE_SHAPE_ATTR, "examples", _clean_example_rows, _EXAMPLE_FIELDS),
+		(_GUARDRAIL_SHAPE_ATTR, "guardrails", _clean_guardrail_rows, _GUARDRAIL_FIELDS),
+	):
+		if sattr not in fields:
+			continue
+		rows = fields[sattr]
+		if isinstance(rows, str):
+			rows = frappe.parse_json(rows) or []
+		wanted = cleaner(rows)
+		# Compare against the same shape we hand out, so a modal round-trip with
+		# no edits is a no-op and cannot needlessly re-provision a Live agent.
+		if wanted == _rows_for_shape(doc, table, row_fields):
+			continue
+		doc.set(table, [])
+		for row in wanted:
+			doc.append(table, row)
+		changed.append(table)
 
 	if not changed:
 		return {"ok": True, "updated": [], "reprovisioned": False}
@@ -330,23 +437,10 @@ def create_agent_configuration(payload: str | dict) -> dict:
 			})
 	# WI-001639: the agent's frozen static context. Row order is the order the
 	# proposer gave them — it is the order they reach the model.
-	for row in payload.get("examples") or []:
-		if (row.get("input") or "").strip():
-			doc.append("examples", {
-				"input": row["input"],
-				"expected_output": row.get("expected_output") or "",
-				"note": row.get("note") or "",
-				"enabled": 1,
-			})
-	for row in payload.get("guardrails") or []:
-		if (row.get("guardrail") or "").strip():
-			doc.append("guardrails", {
-				"guardrail": row["guardrail"],
-				# An unrecognised category would fail Select validation and lose
-				# the whole agent; fall back rather than reject the rule.
-				"category": row.get("category") if row.get("category") in _GUARDRAIL_CATEGORIES else "Other",
-				"enabled": 1,
-			})
+	for row in _clean_example_rows(payload.get("examples")):
+		doc.append("examples", row)
+	for row in _clean_guardrail_rows(payload.get("guardrails")):
+		doc.append("guardrails", row)
 	doc.insert()  # caller's permissions; the After-Insert trigger starts the process
 
 	creation_instance = None
