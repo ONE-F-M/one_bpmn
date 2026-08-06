@@ -148,11 +148,16 @@ def invoke_agent(agent_id: str, message: str, conversation: str = None, context:
 	from one_bpmn.security import rate_limit as _rate_limit
 	from one_bpmn.security.pii import _config_name
 
+	# A Chat agent's turn is counted when its Chat Message is written, which is
+	# the boundary that fires on EVERY message; counting here as well would make
+	# one message cost two. Agents that never write a Chat Message are counted
+	# here instead, or they would never be throttled at all.
 	_rate_limit.enforce(
 		user=frappe.session.user,
 		agent=_config_name(config),
 		agent_label=config.get("agent_id") or agent_id,
 		conversation=conversation,
+		count=(config.get("agent_type") != "Chat"),
 	)
 
 	# ── PII input screening (WI-001644) ──────────────────────────────────

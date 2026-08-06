@@ -114,6 +114,21 @@ def record_and_count(user: str, agent: str, window_seconds: int, member: str | N
 		return -1
 
 
+def peek_count(user: str, agent: str, window_seconds: int) -> int:
+	"""How many attempts are in the window, without adding one.
+
+	Used by the gate that checks but does not count, so a turn passing two gates
+	is still one attempt. Returns -1 on failure, which callers read as "do not
+	throttle" — the same fail-open posture as record_and_count.
+	"""
+	try:
+		key = _window_key(user, agent)
+		cutoff = time.time() - max(int(window_seconds or 0), 1)
+		return int(frappe.cache().zcount(key, cutoff, "+inf"))
+	except Exception:
+		return -1
+
+
 def blocked_attempts(user: str, agent: str | None, window_seconds: int) -> int:
 	"""Blocked attempts by this user against this agent inside the window.
 
@@ -189,12 +204,26 @@ def raise_lock(
 		return None
 
 
-def enforce(user: str, agent: str | None, agent_label: str, conversation: str | None) -> None:
+def enforce(
+	user: str,
+	agent: str | None,
+	agent_label: str,
+	conversation: str | None,
+	count: bool = True,
+) -> None:
 	"""Gate one turn. Raises RateLimited when the turn must not proceed.
 
 	Order matters. An existing lock is checked FIRST and is the one thing here
 	that does not fail open — a frozen conversation stays frozen even if every
 	other part of this module is having a bad day.
+
+	``count`` decides whether this call ADDS the turn to the window or merely
+	reads it. A chat turn passes two gates — the API entry point and the write
+	of its Chat Message — and must be counted once. Correlation-id dedup cannot
+	do that job: the map runs the turn in a worker thread and a ContextVar does
+	not cross threads, so each gate minted its own id and one message consumed
+	two of the user's allowance. Counting is therefore pinned to exactly one
+	gate per turn, chosen by the caller.
 	"""
 	from one_bpmn.one_bpmn.doctype.ai_conversation_lock.ai_conversation_lock import active_lock
 	from one_bpmn.security.events import record_event
@@ -225,13 +254,13 @@ def enforce(user: str, agent: str | None, agent_label: str, conversation: str | 
 	limit = int(cfg.get("rate_limit_messages") or 0)
 	window = int(cfg.get("rate_limit_window_seconds") or 60)
 	if limit > 0:
-		count = record_and_count(user, agent_label, window)
-		if count > limit:
+		observed = record_and_count(user, agent_label, window) if count else peek_count(user, agent_label, window)
+		if observed > limit:
 			event = record_event(
 				boundary="input", stage="rate-limit", action="Block",
 				agent_configuration=agent, conversation=conversation,
 				severity="Medium", classifier="rate-limit",
-				detail=f"refused: {count} messages in {window}s, limit {limit}",
+				detail=f"refused: {observed} messages in {window}s, limit {limit}",
 			)
 			_maybe_freeze(user, agent, conversation, cfg, trigger_event=event)
 			frappe.throw(

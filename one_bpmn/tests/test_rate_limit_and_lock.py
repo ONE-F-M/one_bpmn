@@ -75,9 +75,31 @@ class TestRateLimitAndLock(FrappeTestCase):
 		return email
 
 	def _settings(self, **values):
-		for k, v in values.items():
-			frappe.db.set_single_value("Processa Settings", k, v)
-		frappe.clear_document_cache("Processa Settings", "Processa Settings")
+		"""Override the rate-limit settings for this test ONLY.
+
+		Deliberately does NOT write to Processa Settings. These tests used to set
+		the live singleton and restore it in tearDown, so any interrupted run
+		left the real site throttled at a test's values — which is exactly what
+		happened: a user hit "limit 1" in normal use. Patching the reader keeps
+		the blast radius inside the test.
+		"""
+		from one_bpmn.security import rate_limit as _RL
+
+		current = dict(_RL._DEFAULTS)
+		current.update(getattr(self, "_override", {}))
+		current.update(values)
+		self._override = current
+
+		if getattr(self, "_settings_patch", None) is None:
+			self._settings_patch = patch.object(_RL, "settings", lambda: dict(self._override))
+			self._settings_patch.start()
+			self.addCleanup(self._stop_settings_patch)
+
+	def _stop_settings_patch(self):
+		if getattr(self, "_settings_patch", None) is not None:
+			self._settings_patch.stop()
+			self._settings_patch = None
+		self._override = {}
 
 	def _flush_window(self):
 		try:
@@ -370,6 +392,9 @@ class TestRateLimitAndLock(FrappeTestCase):
 				self._enforce()
 
 	def test_unreadable_settings_fall_back_to_defaults(self):
+		# _settings() patches RL.settings for isolation, so reach past it to the
+		# real implementation — this test is about that function's own behaviour.
+		self._stop_settings_patch()
 		with patch("frappe.get_cached_doc", side_effect=RuntimeError("no settings")):
 			cfg = RL.settings()
 		self.assertEqual(cfg["rate_limit_messages"], 20)
@@ -419,14 +444,35 @@ class TestPerTurnEnforcement(FrappeTestCase):
 		frappe.db.delete("AI Agent Configuration", {"agent_name": ("like", f"{PREFIX}%")})
 		frappe.db.delete("AI Security Event", {"stage": ("in", ["rate-limit", "conversation-lock"])})
 		frappe.db.delete("AI Conversation Lock", {"user": "Administrator"})
-		self._settings(rate_limit_messages=20, lock_after_blocks=3)
 		self._flush()
 		frappe.db.commit()
 
 	def _settings(self, **values):
-		for k, v in values.items():
-			frappe.db.set_single_value("Processa Settings", k, v)
-		frappe.clear_document_cache("Processa Settings", "Processa Settings")
+		"""Override the rate-limit settings for this test ONLY.
+
+		Deliberately does NOT write to Processa Settings. These tests used to set
+		the live singleton and restore it in tearDown, so any interrupted run
+		left the real site throttled at a test's values — which is exactly what
+		happened: a user hit "limit 1" in normal use. Patching the reader keeps
+		the blast radius inside the test.
+		"""
+		from one_bpmn.security import rate_limit as _RL
+
+		current = dict(_RL._DEFAULTS)
+		current.update(getattr(self, "_override", {}))
+		current.update(values)
+		self._override = current
+
+		if getattr(self, "_settings_patch", None) is None:
+			self._settings_patch = patch.object(_RL, "settings", lambda: dict(self._override))
+			self._settings_patch.start()
+			self.addCleanup(self._stop_settings_patch)
+
+	def _stop_settings_patch(self):
+		if getattr(self, "_settings_patch", None) is not None:
+			self._settings_patch.stop()
+			self._settings_patch = None
+		self._override = {}
 
 	def _flush(self):
 		try:
@@ -554,7 +600,6 @@ class TestRefusalReachesTheUser(FrappeTestCase):
 
 	def tearDown(self):
 		frappe.set_user("Administrator")
-		self._settings(rate_limit_messages=20, rate_limit_window_seconds=60, lock_after_blocks=3)
 		frappe.db.delete("AI Security Event", {"stage": "rate-limit"})
 		for label in ("prosally_agent", "logix_agent", "docu_agent"):
 			try:
@@ -564,9 +609,31 @@ class TestRefusalReachesTheUser(FrappeTestCase):
 		frappe.db.commit()
 
 	def _settings(self, **values):
-		for k, v in values.items():
-			frappe.db.set_single_value("Processa Settings", k, v)
-		frappe.clear_document_cache("Processa Settings", "Processa Settings")
+		"""Override the rate-limit settings for this test ONLY.
+
+		Deliberately does NOT write to Processa Settings. These tests used to set
+		the live singleton and restore it in tearDown, so any interrupted run
+		left the real site throttled at a test's values — which is exactly what
+		happened: a user hit "limit 1" in normal use. Patching the reader keeps
+		the blast radius inside the test.
+		"""
+		from one_bpmn.security import rate_limit as _RL
+
+		current = dict(_RL._DEFAULTS)
+		current.update(getattr(self, "_override", {}))
+		current.update(values)
+		self._override = current
+
+		if getattr(self, "_settings_patch", None) is None:
+			self._settings_patch = patch.object(_RL, "settings", lambda: dict(self._override))
+			self._settings_patch.start()
+			self.addCleanup(self._stop_settings_patch)
+
+	def _stop_settings_patch(self):
+		if getattr(self, "_settings_patch", None) is not None:
+			self._settings_patch.stop()
+			self._settings_patch = None
+		self._override = {}
 
 	def _exhaust(self, agent_label):
 		"""Fill the window past the limit without making a model call."""
@@ -623,3 +690,70 @@ class TestRefusalReachesTheUser(FrappeTestCase):
 		finally:
 			frappe.db.delete("AI Conversation Lock", {"name": lock})
 			frappe.db.commit()
+
+
+class TestOneTurnCostsOneSlot(FrappeTestCase):
+	"""A chat turn passes two gates and must consume one slot, not two.
+
+	Correlation-id dedup was supposed to handle this, but the map runs the turn
+	in a worker thread and a ContextVar does not cross threads — each gate minted
+	its own id, so every message cost two of the allowance. With the shipped
+	limit that halves it silently; the user who reported it was on limit 1 and
+	could not send anything at all.
+	"""
+
+	AGENT_LABEL = "zz_wi1968_slots"
+
+	def setUp(self):
+		frappe.set_user("Administrator")
+		self._flush()
+
+	def tearDown(self):
+		self._flush()
+		frappe.db.delete("AI Security Event", {"stage": "rate-limit"})
+		frappe.db.commit()
+
+	def _flush(self):
+		try:
+			frappe.cache().delete(RL._window_key("Administrator", self.AGENT_LABEL))
+		except Exception:
+			pass
+
+	def _window_size(self):
+		return int(frappe.cache().zcard(RL._window_key("Administrator", self.AGENT_LABEL)))
+
+	def test_a_checking_gate_does_not_add_to_the_window(self):
+		RL.enforce(user="Administrator", agent=None, agent_label=self.AGENT_LABEL,
+		           conversation="X", count=False)
+		self.assertEqual(self._window_size(), 0, "a check must not consume allowance")
+
+	def test_a_turn_through_both_gates_counts_once(self):
+		for _ in range(3):
+			RL.enforce(user="Administrator", agent=None, agent_label=self.AGENT_LABEL,
+			           conversation="X", count=False)   # API gate
+			RL.enforce(user="Administrator", agent=None, agent_label=self.AGENT_LABEL,
+			           conversation="X", count=True)    # Chat Message gate
+		self.assertEqual(self._window_size(), 3, "three turns must cost three slots")
+
+	def test_counting_does_not_depend_on_the_turn_id(self):
+		"""The original bug in one line.
+
+		Dedup used to rely on the turn's correlation id, which lives in a
+		ContextVar — and the map runs the turn in a worker thread, so the second
+		gate saw no id and minted its own. Counting is now pinned to a single
+		gate instead, so it holds even when the two gates share nothing at all.
+		Clearing the id between them stands in for that thread boundary.
+		"""
+		from one_bpmn.security import turn as T
+
+		T.begin_turn()
+		RL.enforce(user="Administrator", agent=None, agent_label=self.AGENT_LABEL,
+		           conversation="X", count=False)   # API gate, one context
+		T.end_turn()                                # the worker thread sees none of it
+		RL.enforce(user="Administrator", agent=None, agent_label=self.AGENT_LABEL,
+		           conversation="X", count=True)    # Chat Message gate, another
+		self.assertEqual(self._window_size(), 1, "one turn, one slot, whatever the id")
+
+	def test_peek_never_throttles_when_the_cache_is_broken(self):
+		with patch("frappe.cache", side_effect=RuntimeError("redis down")):
+			self.assertEqual(RL.peek_count("Administrator", self.AGENT_LABEL, 60), -1)
