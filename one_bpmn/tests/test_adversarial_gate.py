@@ -294,3 +294,78 @@ class TestReReviewGoesThroughTheGate(FrappeTestCase):
 		doc._adversarial_block_reason()  # would report a problem, must not act on it
 		after = frappe.db.get_value("AI Agent Configuration", doc.name, "lifecycle_status")
 		self.assertEqual(before, after, "the gate must not demote a running agent")
+
+
+class TestAdversarialPack(FrappeTestCase):
+	"""The shipped case pack. A gate is only real if writing the suite is easy."""
+
+	def setUp(self):
+		frappe.set_user("Administrator")
+		self._cleanup()
+		self.agent = frappe.get_doc({
+			"doctype": "AI Agent Configuration", "agent_name": f"{PREFIX} pack agent",
+			"agent_id": "zz_wi1969_pack", "agent_type": "Chat",
+			"agent_framework": "Direct API", "chat_mode_label": f"{PREFIX} Pack", "enabled": 1,
+		}).insert(ignore_permissions=True).name
+
+	def tearDown(self):
+		self._cleanup()
+		frappe.db.commit()
+
+	def _cleanup(self):
+		suites = frappe.get_all("AI Eval Suite", filters={"title": ("like", f"%{PREFIX}%")}, pluck="name")
+		if suites:
+			frappe.db.delete("AI Eval Case", {"suite": ("in", suites)})
+			frappe.db.delete("AI Eval Suite", {"name": ("in", suites)})
+		frappe.db.delete("AI Agent Configuration", {"agent_name": ("like", f"{PREFIX}%")})
+
+	def test_building_a_suite_covers_every_attack_family(self):
+		from one_bpmn.agents.adversarial_pack import CASES, build_suite_for_agent
+
+		result = build_suite_for_agent(self.agent)
+		self.assertTrue(result["created_suite"])
+		self.assertEqual(result["cases_total"], len(CASES))
+
+		titles = " ".join(frappe.get_all("AI Eval Case", filters={"suite": result["suite"]}, pluck="title")).lower()
+		for family in ("instruction override", "system prompt extraction", "jailbreak",
+		               "delimiter injection", "exfiltration", "tool coercion"):
+			self.assertIn(family, titles, f"the pack must cover {family}")
+
+	def test_the_suite_is_marked_adversarial_and_gates_deployment(self):
+		from one_bpmn.agents.adversarial_pack import build_suite_for_agent
+
+		suite = build_suite_for_agent(self.agent)["suite"]
+		row = frappe.db.get_value("AI Eval Suite", suite, ["suite_type", "gate_deployment"], as_dict=True)
+		self.assertEqual(row.suite_type, "Adversarial")
+		self.assertTrue(row.gate_deployment)
+
+	def test_every_case_is_judged_rather_than_keyword_matched(self):
+		"""A refusal has a thousand phrasings; 'contains' would be fragile."""
+		from one_bpmn.agents.adversarial_pack import build_suite_for_agent
+
+		suite = build_suite_for_agent(self.agent)["suite"]
+		for case in frappe.get_all("AI Eval Case", filters={"suite": suite}, pluck="name"):
+			doc = frappe.get_doc("AI Eval Case", case)
+			self.assertTrue(doc.assertions, f"{doc.title} has no assertion")
+			for a in doc.assertions:
+				self.assertEqual(a.assertion_type, "llm_judge")
+				self.assertTrue(a.judge_model, "an llm_judge assertion needs a judge model")
+				self.assertTrue(1 <= a.pass_threshold <= 5)
+
+	def test_building_twice_adds_nothing(self):
+		from one_bpmn.agents.adversarial_pack import build_suite_for_agent
+
+		first = build_suite_for_agent(self.agent)
+		second = build_suite_for_agent(self.agent)
+		self.assertEqual(first["suite"], second["suite"])
+		self.assertEqual(second["cases_added"], 0)
+		self.assertEqual(second["cases_total"], first["cases_total"])
+
+	def test_building_a_suite_does_not_make_the_agent_pass(self):
+		"""A gate satisfied by a result nobody produced is not a gate."""
+		from one_bpmn.agents.adversarial_pack import build_suite_for_agent
+
+		build_suite_for_agent(self.agent)
+		result = check(self.agent)
+		self.assertFalse(result["ok"])
+		self.assertIn("never run", result["reason"].lower())
