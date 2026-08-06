@@ -233,12 +233,23 @@
                     />
                     <span>Enabled</span>
                   </label>
-                  <span class="static-row-num">#{{ i + 1 }}</span>
+                  <span class="static-row-num">Example {{ i + 1 }}</span>
                   <button type="button" class="close-btn" title="Remove" @click="form.aiExamples.splice(i, 1)">✕</button>
                 </div>
-                <textarea v-model="ex.input" rows="2" placeholder="Input — what the user says" />
-                <textarea v-model="ex.expected_output" rows="2" placeholder="Expected output — how the agent should answer" />
-                <input type="text" v-model="ex.note" placeholder="Note (optional) — why this example is here" />
+                <div class="static-field">
+                  <span class="static-field-label">User says <em>— the input to match on</em></span>
+                  <textarea v-model="ex.input" rows="2" placeholder="e.g. How many staff are on shift today?" />
+                </div>
+                <div class="static-field">
+                  <span class="static-field-label">Agent should answer <em>— the reply to imitate</em></span>
+                  <textarea v-model="ex.expected_output" rows="2" placeholder="e.g. 14." />
+                </div>
+                <div class="static-field">
+                  <!-- The note IS rendered ("Note: ..." under the example), so
+                       don't describe it as an internal comment. -->
+                  <span class="static-field-label">Note <em>— an aside for the agent about this example</em></span>
+                  <input type="text" v-model="ex.note" placeholder="e.g. Answer the number alone, no preamble." />
+                </div>
               </div>
               <button type="button" class="btn-cancel" @click="addExample">+ Add example</button>
             </div>
@@ -260,12 +271,17 @@
                     />
                     <span>Enabled</span>
                   </label>
+                  <span class="static-row-inline-label">Category</span>
                   <select v-model="g.category" class="static-row-cat">
                     <option v-for="c in GUARDRAIL_CATEGORIES" :key="c" :value="c">{{ c }}</option>
                   </select>
+                  <span class="static-row-num">Rule {{ i + 1 }}</span>
                   <button type="button" class="close-btn" title="Remove" @click="form.aiGuardrails.splice(i, 1)">✕</button>
                 </div>
-                <textarea v-model="g.guardrail" rows="2" placeholder="e.g. Never emit a file longer than 300 lines — split it instead." />
+                <div class="static-field">
+                  <span class="static-field-label">The rule <em>— phrase it as an instruction</em></span>
+                  <textarea v-model="g.guardrail" rows="2" placeholder="e.g. Never emit a file longer than 300 lines — split it instead." />
+                </div>
               </div>
               <button type="button" class="btn-cancel" @click="addGuardrail">+ Add guard rail</button>
             </div>
@@ -1967,6 +1983,29 @@ async function save() {
   margin-left: auto;
   font-size: 11px;
   opacity: 0.6;
+}
+.static-row-inline-label {
+  font-size: 11px;
+  font-weight: 600;
+  opacity: 0.75;
+}
+/* Every input inside a row is captioned. The placeholders these replace
+   vanished the moment anything was typed, leaving a filled-in example as three
+   anonymous boxes with no way to tell the input from the expected output. */
+.static-field {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+}
+.static-field-label {
+  font-size: 11px;
+  font-weight: 600;
+  opacity: 0.75;
+}
+.static-field-label em {
+  font-style: normal;
+  font-weight: 400;
+  opacity: 0.75;
 }
 .static-row-cat {
   max-width: 160px;
