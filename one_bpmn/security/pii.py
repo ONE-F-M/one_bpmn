@@ -412,8 +412,24 @@ def screen_chat_message(doc, method=None):
 	"""
 	import frappe
 
+	if getattr(doc, "message_type", None) != "User":
+		return
+
+	# WI-001968: the real per-turn gate for map-driven chat agents. Those
+	# conversations run one long-lived BPMN instance — invoke_agent opens it and
+	# every later message RESUMES it, so a gate at the API entry point only ever
+	# sees the first message of a conversation. A Chat Message row is written for
+	# every turn, which makes this the boundary that actually fires.
+	#
+	# Deliberately ABOVE the try below: that block exists to swallow PII failures
+	# so a broken detector cannot stop a conversation, and a refusal put inside it
+	# is silently discarded — the message stores and the turn proceeds. A refusal
+	# has to propagate; rate_limit already fails open on its own for everything
+	# that is not an actual refusal.
+	_enforce_limits_for_message(doc)
+
 	try:
-		if getattr(doc, "message_type", None) != "User" or not screening_on():
+		if not screening_on():
 			return
 		original = doc.text or ""
 		result = redact(original)
@@ -444,6 +460,57 @@ def screen_chat_message(doc, method=None):
 			)
 		except Exception:
 			pass
+
+
+def _enforce_limits_for_message(doc) -> None:
+	"""Apply the rate limit / conversation freeze to one stored user message.
+
+	Deliberately OUTSIDE the try/except that wraps PII screening: a refusal has
+	to propagate and stop the turn, whereas a PII failure must not. Only a
+	RateLimited error escapes; anything else is swallowed by rate_limit itself,
+	which fails open by design.
+	"""
+	import frappe
+
+	from one_bpmn.security.rate_limit import enforce
+
+	conversation = doc.get("conversation")
+	agent_name, agent_label = _agent_for_conversation(conversation)
+	enforce(
+		user=frappe.session.user,
+		agent=agent_name,
+		agent_label=agent_label or agent_name or "agent",
+		conversation=conversation,
+	)
+
+
+def _agent_for_conversation(conversation):
+	"""(AI Agent Configuration name, agent_id) behind a conversation.
+
+	A Chat Conversation stores the agent's chat mode LABEL, not its id, so the
+	configuration is looked up by label. Returns (None, None) when it cannot be
+	resolved — the limit then applies per user rather than per user/agent, which
+	is stricter, not looser.
+	"""
+	import frappe
+
+	if not conversation:
+		return None, None
+	try:
+		label = frappe.db.get_value("Chat Conversation", conversation, "agent_mode")
+		if not label:
+			return None, None
+		row = frappe.db.get_value(
+			"AI Agent Configuration",
+			{"chat_mode_label": label},
+			["name", "agent_id"],
+			as_dict=True,
+		) or frappe.db.get_value(
+			"AI Agent Configuration", {"agent_id": label}, ["name", "agent_id"], as_dict=True
+		)
+		return (row.name, row.agent_id) if row else (None, None)
+	except Exception:
+		return None, None
 
 
 def _config_name(agent_config) -> str | None:

@@ -73,8 +73,14 @@ def _window_key(user: str, agent: str) -> bytes:
 	return frappe.cache().make_key(f"ai_rate_limit:{user}:{agent}")
 
 
-def record_and_count(user: str, agent: str, window_seconds: int) -> int:
+def record_and_count(user: str, agent: str, window_seconds: int, member: str | None = None) -> int:
 	"""Add this attempt to the window and return how many are in it now.
+
+	``member`` makes the entry idempotent: one turn can reach enforcement twice
+	(once at the API entry point, once when its Chat Message is written), and
+	passing the turn's correlation id both times means the sorted set overwrites
+	rather than double-counts. Without it a single message would burn two of the
+	user's allowance.
 
 	Returns -1 when the count could not be taken, which callers read as "do not
 	throttle" rather than "zero" — a cache failure must not silently look like a
@@ -86,11 +92,17 @@ def record_and_count(user: str, agent: str, window_seconds: int) -> int:
 		now = time.time()
 		cutoff = now - max(int(window_seconds or 0), 1)
 
+		if not member:
+			from one_bpmn.security.turn import current_correlation_id
+
+			member = current_correlation_id()
+		# Without a turn id, fall back to a unique member — two messages in the
+		# same millisecond must not collapse into one.
+		member = member or f"{now:.6f}:{frappe.generate_hash(length=6)}"
+
 		pipe = cache.pipeline()
 		pipe.zremrangebyscore(key, 0, cutoff)
-		# Member must be unique or two messages in the same millisecond collapse
-		# into one; the score is what the window actually reads.
-		pipe.zadd(key, {f"{now:.6f}:{frappe.generate_hash(length=6)}": now})
+		pipe.zadd(key, {member: now})
 		pipe.zcard(key)
 		pipe.expire(key, max(int(window_seconds or 0), 1) * 2)
 		return int(pipe.execute()[2])

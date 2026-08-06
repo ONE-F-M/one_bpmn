@@ -386,3 +386,110 @@ class TestRateLimitAndLock(FrappeTestCase):
 		with patch.object(RL, "settings", side_effect=RuntimeError("settings gone")):
 			with self.assertRaises(RL.RateLimited):
 				self._enforce(conversation="CONV-1")
+
+
+class TestPerTurnEnforcement(FrappeTestCase):
+	"""The gate has to fire on EVERY message, not just the first of a chat.
+
+	Map-driven chat agents run one long-lived BPMN instance: invoke_agent opens
+	it and every later message resumes it, so a gate at the API entry point sees
+	message #1 and nothing after. Found in testing — 15 runs on one instance,
+	one trip through invoke_agent. These pin the Chat Message boundary, which is
+	the one that actually fires per turn.
+	"""
+
+	def setUp(self):
+		frappe.set_user("Administrator")
+		self.agent = frappe.get_doc({
+			"doctype": "AI Agent Configuration", "agent_name": f"{PREFIX} turn agent",
+			"agent_id": "zz_wi1968_turn", "agent_type": "Chat", "agent_framework": "Direct API",
+			"chat_mode_label": f"{PREFIX} Turn", "enabled": 1,
+		}).insert(ignore_permissions=True).name
+		self.conv = frappe.get_doc({
+			"doctype": "Chat Conversation", "agent_mode": f"{PREFIX} Turn", "title": f"{PREFIX} chat",
+		}).insert(ignore_permissions=True).name
+		self._settings(rate_limit_enabled=1, rate_limit_messages=3,
+		               rate_limit_window_seconds=60, lock_after_blocks=0)
+		self._flush()
+
+	def tearDown(self):
+		frappe.set_user("Administrator")
+		frappe.db.delete("Chat Message", {"conversation": self.conv})
+		frappe.db.delete("Chat Conversation", {"name": self.conv})
+		frappe.db.delete("AI Agent Configuration", {"agent_name": ("like", f"{PREFIX}%")})
+		frappe.db.delete("AI Security Event", {"stage": ("in", ["rate-limit", "conversation-lock"])})
+		frappe.db.delete("AI Conversation Lock", {"user": "Administrator"})
+		self._settings(rate_limit_messages=20, lock_after_blocks=3)
+		self._flush()
+		frappe.db.commit()
+
+	def _settings(self, **values):
+		for k, v in values.items():
+			frappe.db.set_single_value("Processa Settings", k, v)
+		frappe.clear_document_cache("Processa Settings", "Processa Settings")
+
+	def _flush(self):
+		try:
+			frappe.cache().delete(RL._window_key("Administrator", "zz_wi1968_turn"))
+		except Exception:
+			pass
+
+	def _send(self, text):
+		from one_bpmn.security import turn as T
+
+		T.begin_turn()  # one correlation id per turn, as invoke_agent does
+		try:
+			return frappe.get_doc({
+				"doctype": "Chat Message", "conversation": self.conv,
+				"message_type": "User", "text": text,
+			}).insert(ignore_permissions=True)
+		finally:
+			T.end_turn()
+
+	def test_the_limit_applies_to_every_message_not_just_the_first(self):
+		for i in range(3):
+			self._send(f"message {i}")
+		with self.assertRaises(RL.RateLimited):
+			self._send("one too many")
+
+	def test_a_refused_message_is_not_stored(self):
+		"""The refusal must abort the insert, not merely log alongside it."""
+		for i in range(3):
+			self._send(f"message {i}")
+		try:
+			self._send("should not persist")
+		except RL.RateLimited:
+			pass
+		self.assertEqual(
+			frappe.db.count("Chat Message", {"conversation": self.conv, "text": "should not persist"}),
+			0,
+			"a refused turn must leave no message behind",
+		)
+
+	def test_the_agent_is_resolved_from_the_conversation(self):
+		"""The conversation stores a chat-mode label, not the agent's id."""
+		from one_bpmn.security.pii import _agent_for_conversation
+
+		self.assertEqual(_agent_for_conversation(self.conv), (self.agent, "zz_wi1968_turn"))
+		self.assertEqual(_agent_for_conversation(None), (None, None))
+		self.assertEqual(_agent_for_conversation("no-such-conversation"), (None, None))
+
+	def test_bot_messages_are_not_counted_against_the_user(self):
+		for i in range(5):
+			frappe.get_doc({
+				"doctype": "Chat Message", "conversation": self.conv,
+				"message_type": "Bot", "text": f"reply {i}",
+			}).insert(ignore_permissions=True)
+		self._send("still my first message")  # must not raise
+
+	def test_one_turn_counts_once_even_if_gated_twice(self):
+		"""invoke_agent and the Chat Message hook both fire on the first turn."""
+		from one_bpmn.security import turn as T
+
+		T.begin_turn()
+		try:
+			for _ in range(4):  # same turn id, four enforcement passes
+				RL.enforce(user="Administrator", agent=self.agent,
+				           agent_label="zz_wi1968_turn", conversation=self.conv)
+		finally:
+			T.end_turn()
