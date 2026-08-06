@@ -237,3 +237,60 @@ class TestAdversarialGate(FrappeTestCase):
 		self._touch_agent(add_to_date(now_datetime(), minutes=-10))
 		self._run(self._suite(), failed=0, status="Running")
 		self.assertFalse(check(self.agent)["ok"])
+
+
+class TestReReviewGoesThroughTheGate(FrappeTestCase):
+	"""Disable / re-enable must not be a way around the gate.
+
+	provision_agent is only reachable through the agent-creation process, which
+	is not active on every site. The path a human actually takes — save the
+	config, watch it heal from Needs Attention back to Live — ran on credentials
+	alone. That is the "re-review" the story names, and it bypassed the gate
+	entirely until this was added.
+	"""
+
+	def setUp(self):
+		frappe.set_user("Administrator")
+		self._cleanup()
+		frappe.flags.test_agent_revalidation = True
+
+	def tearDown(self):
+		frappe.flags.test_agent_revalidation = False
+		self._cleanup()
+		frappe.db.commit()
+
+	def _cleanup(self):
+		frappe.db.delete("AI Agent Configuration", {"agent_name": ("like", f"{PREFIX}%")})
+
+	def _agent(self, agent_type="Chat", status="Needs Attention"):
+		doc = frappe.get_doc({
+			"doctype": "AI Agent Configuration", "agent_name": f"{PREFIX} rr agent",
+			"agent_id": "zz_wi1969_rr", "agent_type": agent_type,
+			"agent_framework": "Direct API", "chat_mode_label": f"{PREFIX} RR", "enabled": 1,
+		}).insert(ignore_permissions=True)
+		frappe.db.set_value("AI Agent Configuration", doc.name, "lifecycle_status", status,
+		                    update_modified=False)
+		doc.reload()
+		return doc
+
+	def test_a_chat_agent_cannot_heal_to_live_without_the_gate(self):
+		doc = self._agent()
+		self.assertEqual(doc._adversarial_block_reason()[:9], "No advers")
+
+	def test_a_background_agent_is_not_gated(self):
+		"""The gate is about conversational exposure, not every agent."""
+		doc = self._agent(agent_type="Background")
+		self.assertEqual(doc._adversarial_block_reason(), "")
+
+	def test_the_gate_fails_closed_during_re_review(self):
+		doc = self._agent()
+		with patch("one_bpmn.agents.adversarial_gate.check", side_effect=RuntimeError("boom")):
+			self.assertIn("could not be evaluated", doc._adversarial_block_reason())
+
+	def test_an_already_live_agent_is_never_parked_by_the_gate(self):
+		"""It governs entering Live, not staying there."""
+		doc = self._agent(status="Live")
+		before = frappe.db.get_value("AI Agent Configuration", doc.name, "lifecycle_status")
+		doc._adversarial_block_reason()  # would report a problem, must not act on it
+		after = frappe.db.get_value("AI Agent Configuration", doc.name, "lifecycle_status")
+		self.assertEqual(before, after, "the gate must not demote a running agent")
