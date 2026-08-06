@@ -151,6 +151,21 @@ def invoke_agent(agent_id: str, message: str, conversation: str = None, context:
 	message = screened.text
 	_pii_turn = _pii.begin_turn(screened, enabled=screened.enabled)
 
+	# ── Injection screening (WI-001967) ──────────────────────────────────
+	# Record-only: every rule in the pack that matches becomes an AI Security
+	# Event, but nothing is altered and nothing is stopped — choosing what a
+	# match should DO is 15.1. Hooked here rather than on Chat Message so it
+	# runs exactly once per turn, with the agent and conversation to hand.
+	# Never raises; a failure leaves the turn untouched.
+	from one_bpmn.security.injection import screen_for_injection
+
+	screen_for_injection(
+		message,
+		boundary="input",
+		agent_configuration=_pii._config_name(config),
+		conversation=conversation,
+	)
+
 	if not conversation:
 		from one_bpmn.utils.chat_persistence import create_agent_conversation
 

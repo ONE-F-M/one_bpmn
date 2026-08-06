@@ -449,16 +449,28 @@ def screen_chat_message(doc, method=None):
 def _config_name(agent_config) -> str | None:
 	"""The AI Agent Configuration record name, whichever form the caller passed.
 
-	``screen_input`` accepts either a resolved config dict or a record name; the
-	security event wants the record name so its Link resolves. A dict that does
-	not carry one yields None rather than a guess — an event with no agent is
-	still a useful event.
+	``screen_input`` accepts either a resolved config dict or a record name, and
+	the security event wants the record name so its Link resolves. The resolved
+	dict from ``get_agent_config`` carries ``agent_id`` but NOT ``name``, so the
+	id is looked up — without this the Agent field on every event stays empty,
+	which is most of the point of recording one.
 	"""
+	import frappe
+
 	if not agent_config:
 		return None
-	if isinstance(agent_config, dict):
-		return agent_config.get("name") or agent_config.get("aiAgentConfig") or None
-	return agent_config if isinstance(agent_config, str) else None
+	if not isinstance(agent_config, dict):
+		return agent_config if isinstance(agent_config, str) else None
+
+	if agent_config.get("name"):
+		return agent_config["name"]
+	agent_id = agent_config.get("agent_id")
+	if not agent_id:
+		return None
+	try:
+		return frappe.db.get_value("AI Agent Configuration", {"agent_id": agent_id}, "name")
+	except Exception:
+		return None
 
 
 def _screening_enabled(agent_config) -> bool:
