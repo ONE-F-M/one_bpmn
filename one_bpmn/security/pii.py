@@ -476,10 +476,20 @@ def _enforce_limits_for_message(doc) -> None:
 
 	conversation = doc.get("conversation")
 	agent_name, agent_label = _agent_for_conversation(conversation)
+
+	# Only genuine user-facing agent chats are throttled. A conversation that
+	# does not resolve to a Chat configuration is internal plumbing — memory
+	# distillation opens its own "one_bpmn:agent-memory" conversation and writes
+	# a User message on every turn — and throttling that would refuse the
+	# system's own bookkeeping and break the turn it belongs to. The user's real
+	# message is gated a fraction of a second earlier, so nothing escapes.
+	if not agent_name:
+		return
+
 	enforce(
 		user=frappe.session.user,
 		agent=agent_name,
-		agent_label=agent_label or agent_name or "agent",
+		agent_label=agent_label or agent_name,
 		conversation=conversation,
 	)
 

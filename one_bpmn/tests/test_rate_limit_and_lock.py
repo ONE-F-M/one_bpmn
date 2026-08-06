@@ -493,3 +493,43 @@ class TestPerTurnEnforcement(FrappeTestCase):
 				           agent_label="zz_wi1968_turn", conversation=self.conv)
 		finally:
 			T.end_turn()
+
+	def test_internal_conversations_are_not_throttled(self):
+		"""Memory distillation writes a User message per turn into its own
+		conversation. Throttling that would refuse the system's own bookkeeping
+		and break the very turn it belongs to."""
+		internal = frappe.get_doc({
+			"doctype": "Chat Conversation", "agent_mode": "one_bpmn:agent-memory",
+			"title": f"{PREFIX} internal",
+		}).insert(ignore_permissions=True).name
+		try:
+			from one_bpmn.security import turn as T
+
+			for i in range(10):  # far past the limit of 3
+				T.begin_turn()
+				frappe.get_doc({
+					"doctype": "Chat Message", "conversation": internal,
+					"message_type": "User", "text": f"Conversation so far: {i}",
+				}).insert(ignore_permissions=True)
+				T.end_turn()
+		finally:
+			frappe.db.delete("Chat Message", {"conversation": internal})
+			frappe.db.delete("Chat Conversation", {"name": internal})
+
+	def test_every_live_chat_agent_resolves(self):
+		"""The gate is useless for an agent whose conversation label does not
+		resolve — it would silently skip that agent entirely."""
+		from one_bpmn.security.pii import _agent_for_conversation
+
+		for label in ("Logix", "Docu", "ProsAlly", "LuCrusher", "General Chat"):
+			if not frappe.db.exists("AI Agent Configuration", {"chat_mode_label": label}):
+				continue  # agent not installed on this site
+			conv = frappe.get_doc({
+				"doctype": "Chat Conversation", "agent_mode": label, "title": f"{PREFIX} {label}",
+			}).insert(ignore_permissions=True).name
+			try:
+				name, agent_id = _agent_for_conversation(conv)
+				self.assertIsNotNone(name, f"{label} must resolve or it is never gated")
+				self.assertIsNotNone(agent_id, f"{label} must yield an agent id")
+			finally:
+				frappe.db.delete("Chat Conversation", {"name": conv})
