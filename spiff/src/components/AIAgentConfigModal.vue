@@ -206,6 +206,76 @@
             <span class="field-hint">If checked, the process instance will halt when this AI task fails.</span>
           </div>
 
+          <!-- ============ Static context (WI-001639) ============ -->
+          <!-- Examples and guard rails live on the linked agent, not on this
+               diagram, and they are FROZEN: identical on every loop iteration
+               of every turn. Editing them here edits the agent.
+               They close out Advanced Settings rather than forming groups of
+               their own — they tune how one agent behaves, the same as the
+               sampling params above, and Memory below is the next real
+               section. -->
+          <template v-if="!isSelector && form.aiAgentConfig">
+            <div class="field-row">
+              <label>Examples <span class="hint">(optional)</span></label>
+              <span class="field-hint">
+                Worked examples that <em>demonstrate</em> the behaviour — a format, or a
+                judgement call that is hard to state as a rule. Rendered after the system
+                prompt, in this order.
+              </span>
+              <div v-for="(ex, i) in form.aiExamples" :key="'ex-' + i" class="static-row">
+                <div class="static-row-head">
+                  <label class="checkbox-row">
+                    <input
+                      type="checkbox"
+                      class="checkbox-input"
+                      :checked="ex.enabled !== 0"
+                      @change="ex.enabled = $event.target.checked ? 1 : 0"
+                    />
+                    <span>Enabled</span>
+                  </label>
+                  <span class="static-row-num">#{{ i + 1 }}</span>
+                  <button type="button" class="close-btn" title="Remove" @click="form.aiExamples.splice(i, 1)">✕</button>
+                </div>
+                <textarea v-model="ex.input" rows="2" placeholder="Input — what the user says" />
+                <textarea v-model="ex.expected_output" rows="2" placeholder="Expected output — how the agent should answer" />
+                <input type="text" v-model="ex.note" placeholder="Note (optional) — why this example is here" />
+              </div>
+              <button type="button" class="btn-cancel" @click="addExample">+ Add example</button>
+            </div>
+
+            <div class="field-row">
+              <label>Guard Rails <span class="hint">(optional)</span></label>
+              <span class="field-hint">
+                Rules the agent must obey on every turn, each stated imperatively.
+                Rendered last in the static context, grouped by category.
+              </span>
+              <div v-for="(g, i) in form.aiGuardrails" :key="'gr-' + i" class="static-row">
+                <div class="static-row-head">
+                  <label class="checkbox-row">
+                    <input
+                      type="checkbox"
+                      class="checkbox-input"
+                      :checked="g.enabled !== 0"
+                      @change="g.enabled = $event.target.checked ? 1 : 0"
+                    />
+                    <span>Enabled</span>
+                  </label>
+                  <select v-model="g.category" class="static-row-cat">
+                    <option v-for="c in GUARDRAIL_CATEGORIES" :key="c" :value="c">{{ c }}</option>
+                  </select>
+                  <button type="button" class="close-btn" title="Remove" @click="form.aiGuardrails.splice(i, 1)">✕</button>
+                </div>
+                <textarea v-model="g.guardrail" rows="2" placeholder="e.g. Never emit a file longer than 300 lines — split it instead." />
+              </div>
+              <button type="button" class="btn-cancel" @click="addGuardrail">+ Add guard rail</button>
+            </div>
+
+            <p class="field-hint" style="margin-top: 10px;">
+              Examples and guard rails are stored on the linked AI Agent Configuration, not on
+              this diagram, and apply to every task that links it.
+            </p>
+          </template>
+
           <!-- ============ Memory ============ -->
           <div class="field-group-title" v-if="!isSelector">Memory</div>
 
@@ -263,71 +333,6 @@
             </span>
           </div>
 
-          <!-- ============ Static context (WI-001639) ============ -->
-          <!-- Examples and guard rails live on the linked agent, not on this
-               diagram, and they are FROZEN: identical on every loop iteration
-               of every turn. Editing them here edits the agent. -->
-          <template v-if="!isSelector && form.aiAgentConfig">
-            <div class="field-group-title">Examples</div>
-            <div class="field-row">
-              <span class="field-hint">
-                Worked examples that <em>demonstrate</em> the behaviour — a format, or a
-                judgement call that is hard to state as a rule. Rendered after the system
-                prompt, in this order.
-              </span>
-              <div v-for="(ex, i) in form.aiExamples" :key="'ex-' + i" class="static-row">
-                <div class="static-row-head">
-                  <label class="checkbox-row">
-                    <input
-                      type="checkbox"
-                      class="checkbox-input"
-                      :checked="ex.enabled !== 0"
-                      @change="ex.enabled = $event.target.checked ? 1 : 0"
-                    />
-                    <span>Enabled</span>
-                  </label>
-                  <span class="static-row-num">#{{ i + 1 }}</span>
-                  <button type="button" class="close-btn" title="Remove" @click="form.aiExamples.splice(i, 1)">✕</button>
-                </div>
-                <textarea v-model="ex.input" rows="2" placeholder="Input — what the user says" />
-                <textarea v-model="ex.expected_output" rows="2" placeholder="Expected output — how the agent should answer" />
-                <input type="text" v-model="ex.note" placeholder="Note (optional) — why this example is here" />
-              </div>
-              <button type="button" class="btn-cancel" @click="addExample">+ Add example</button>
-            </div>
-
-            <div class="field-group-title">Guard Rails</div>
-            <div class="field-row">
-              <span class="field-hint">
-                Rules the agent must obey on every turn, each stated imperatively.
-                Rendered last in the static context, grouped by category.
-              </span>
-              <div v-for="(g, i) in form.aiGuardrails" :key="'gr-' + i" class="static-row">
-                <div class="static-row-head">
-                  <label class="checkbox-row">
-                    <input
-                      type="checkbox"
-                      class="checkbox-input"
-                      :checked="g.enabled !== 0"
-                      @change="g.enabled = $event.target.checked ? 1 : 0"
-                    />
-                    <span>Enabled</span>
-                  </label>
-                  <select v-model="g.category" class="static-row-cat">
-                    <option v-for="c in GUARDRAIL_CATEGORIES" :key="c" :value="c">{{ c }}</option>
-                  </select>
-                  <button type="button" class="close-btn" title="Remove" @click="form.aiGuardrails.splice(i, 1)">✕</button>
-                </div>
-                <textarea v-model="g.guardrail" rows="2" placeholder="e.g. Never emit a file longer than 300 lines — split it instead." />
-              </div>
-              <button type="button" class="btn-cancel" @click="addGuardrail">+ Add guard rail</button>
-            </div>
-
-            <p class="field-hint" style="margin-top: 10px;">
-              Examples and guard rails are stored on the linked AI Agent Configuration, not on
-              this diagram, and apply to every task that links it.
-            </p>
-          </template>
         </div>
 
         <div class="modal-footer">
