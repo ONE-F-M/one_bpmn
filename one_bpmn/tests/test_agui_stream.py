@@ -282,6 +282,7 @@ class TestBpmnMapResumeRearm(FrappeTestCase):
 			patch("one_bpmn.api.server_script_api.delegate_chat_turn", side_effect=fake_delegate),
 			patch("one_bpmn.one_bpmn.trigger._maybe_start_instance", side_effect=rearm) as spawn,
 			patch("frappe.get_doc", return_value=object()),
+			patch("time.sleep"),  # the first-turn settle loop must not slow tests
 		):
 			from one_bpmn.api.agent_invocation import _run_bpmn_map
 
@@ -291,10 +292,19 @@ class TestBpmnMapResumeRearm(FrappeTestCase):
 				return calls, spawn, e
 			return calls, spawn, result
 
-	def test_dead_instance_rearms_and_retries(self):
-		calls, spawn, result = self._invoke([None, {"response": "back from the dead"}], lambda *a: None)
-		self.assertEqual(result["response"], "back from the dead")
+	def test_settle_loop_recovers_a_racing_first_turn(self):
+		# None once (instance still Queued mid-start), then delivered — no re-arm
+		calls, spawn, result = self._invoke([None, {"response": "settled"}], lambda *a: None)
+		self.assertEqual(result["response"], "settled")
 		self.assertEqual(calls["delegate"], 2)
+		spawn.assert_not_called()
+
+	def test_dead_instance_rearms_and_retries(self):
+		# None through the whole settle loop (1+8), then the re-arm retry lands
+		results = [None] * 9 + [{"response": "back from the dead"}]
+		calls, spawn, result = self._invoke(results, lambda *a: None)
+		self.assertEqual(result["response"], "back from the dead")
+		self.assertEqual(calls["delegate"], 10)
 		spawn.assert_called_once()
 
 	def test_live_instance_never_rearms(self):
@@ -306,6 +316,6 @@ class TestBpmnMapResumeRearm(FrappeTestCase):
 	def test_failed_rearm_surfaces_the_reopen_error(self):
 		import frappe as _frappe
 
-		calls, spawn, err = self._invoke([None, None], lambda *a: None)
+		calls, spawn, err = self._invoke([None], lambda *a: None)
 		self.assertIsInstance(err, _frappe.ValidationError)
-		self.assertEqual(calls["delegate"], 2)
+		self.assertEqual(calls["delegate"], 10)  # settle loop (1+8) + re-arm retry

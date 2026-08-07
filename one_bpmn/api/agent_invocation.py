@@ -264,9 +264,28 @@ def _run_bpmn_map(config, conversation, message, context, stream=False):
 	gate the insert hook uses (_maybe_start_instance evaluates the map's own
 	start condition and dedups), then retry the turn once.
 	"""
+	import time
+
 	from one_bpmn.api.server_script_api import delegate_chat_turn
 
 	result = delegate_chat_turn(conversation, message, context=context)
+
+	# First-turn race (diagnosed live, 2026-08-08): the insert hook spawns the
+	# instance and enqueues its first engine pass on the worker; a fast first
+	# message can catch it Queued mid-start — the inline starter loses the
+	# row-lock race and reads a not-yet-Active status one beat before the
+	# worker commits. The production Lumina page solved this with a
+	# wait-then-stream loop; same idea here, bounded: the SSE connection is
+	# already streaming, so a few seconds of settling costs nothing visible.
+	if result is None:
+		# NB: not `for _ in range(...)` — that would shadow gettext's _ and
+		# turn the throw below into `int(...)`.
+		for _attempt in range(8):
+			time.sleep(0.75)
+			result = delegate_chat_turn(conversation, message, context=context)
+			if result is not None:
+				break
+
 	if result is None and config.get("process_model"):
 		try:
 			from one_bpmn.one_bpmn.trigger import _maybe_start_instance
