@@ -324,10 +324,12 @@
 
       <!-- ============ RIGHT: assistant chat panel ============ -->
       <div class="assistant-panel">
-        <div class="assistant-header">
+        <!-- WI-001674 mockup parity: in agent mode the panel's own titlebar
+             (avatar + name + config-driven badge) is the header; the legacy
+             purple header remains for selector mode only. "runs on its own
+             credentials" now comes from chat_description (WI-001996). -->
+        <div v-if="isSelector" class="assistant-header">
           <span class="assistant-title">✦ AI Assistant</span>
-          <!-- WI-001623: the assistant runs on its own configuration's
-               credentials, not the task's — don't imply otherwise. -->
           <span class="assistant-sub">runs on its own credentials</span>
         </div>
 
@@ -337,7 +339,7 @@
              (No wrapper <template> here: a bare template element is native
              HTML and Vue does not render its children.) -->
         <!-- Context controls -->
-        <div class="assistant-context">
+        <div class="assistant-context" :class="{ 'assistant-context--gray': !isSelector }">
             <div class="ctx-row">
               <label>Context DocType <span class="hint">(optional)</span></label>
               <div class="ctx-autocomplete">
@@ -1752,6 +1754,12 @@ async function save() {
   border-radius: 4px;
   z-index: 10;
 }
+
+.assistant-context--gray { background: #f8f8f8; border-bottom: 1px solid #e2e2e2; }
+.assistant-context--gray label { color: #7c7c7c; }
+.assistant-context--gray input { background: #f3f3f3; border: 1px solid #f3f3f3; border-radius: 8px; color: #383838; }
+.assistant-context--gray input:focus { background: #fff; border-color: #e2e2e2; }
+.assistant-context--gray .hint { color: #999; }
 
 .assistant-agui-panel {
   flex: 1;

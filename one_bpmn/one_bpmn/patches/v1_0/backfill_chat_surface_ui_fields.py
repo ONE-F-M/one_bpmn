@@ -22,6 +22,7 @@ import frappe
 
 BACKFILL = {
 	"ai_agent_assistant": {
+		"chat_description": "runs on its own credentials",
 		"greeting": "Describe what this AI Agent Task should do, and I'll recommend field values you can apply one by one.",
 		"composer_placeholder": "Describe what this task should do…",
 		"surface_type": "Form",

@@ -5,6 +5,7 @@
 			<div class="acp-avatar">{{ avatarInitials }}</div>
 			<div class="acp-title">{{ conversationTitle || surface.label || agentId }}</div>
 			<span v-if="modeChip" class="acp-chip acp-chip--blue">{{ modeChip }}</span>
+			<span v-if="surfaceBadge" class="acp-chip acp-chip--right">{{ surfaceBadge }}</span>
 			<slot name="header-actions" />
 		</div>
 
@@ -40,6 +41,8 @@
 					v-else-if="item.kind === 'custom' && cards[item.name]"
 					:value="item.value"
 					:busy="busy"
+					:surface-type="surface.surface_type"
+					:artifact-type="surface.artifact_type"
 					@action="(action, payload) => onCardAction(item, action, payload)"
 				/>
 				<!-- safe fallback: unknown custom events never break the transcript -->
@@ -176,6 +179,16 @@ const avatarInitials = computed(() => {
 	if (surface.value.icon) return surface.value.icon;
 	const label = surface.value.label || props.agentId || "?";
 	return label.replace(/[^A-Za-z ]/g, "").split(/\s+/).map((w) => w[0]).join("").slice(0, 2).toUpperCase() || "?";
+});
+// The header badge is configuration, not code: chat_description verbatim
+// when the agent has one, else a human descriptor of its surface_type —
+// how this agent hands work over (WI-001996).
+const surfaceBadge = computed(() => {
+	if (surface.value.description) return surface.value.description;
+	return {
+		Document: __("proposes changes you review, then apply"),
+		Form: __("fills in fields for you to confirm"),
+	}[surface.value.surface_type] || "";
 });
 const showStarters = computed(
 	() => !busy.value && (surface.value.sample_prompts || []).length && !items.value.some((i) => i.kind === "user")
@@ -418,6 +431,8 @@ defineExpose({ send, conversationName });
 .acp-chip { margin-left: auto; height: 20px; padding: 0 8px; border-radius: 99px; font-size: 12px;
 	display: inline-flex; align-items: center; background: var(--sg2); color: var(--ig6); }
 .acp-chip--blue { background: var(--blue-bg); color: var(--blue-ink); }
+.acp-chip--right { margin-left: auto; }
+.acp-chip--blue + .acp-chip--right { margin-left: 8px; }
 
 .acp-log { flex: 1; min-height: 0; overflow-y: auto; padding: 14px; display: flex; flex-direction: column;
 	gap: 10px; background: var(--sg1); }
