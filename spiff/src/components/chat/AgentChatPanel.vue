@@ -448,6 +448,12 @@ defineExpose({ send, conversationName });
 
 .acp-log { flex: 1; min-height: 0; overflow-y: auto; padding: 14px; display: flex; flex-direction: column;
 	gap: 10px; background: var(--sg1); }
+/* Transcript items must never flex-shrink: a card whose root has
+   overflow:hidden gets an automatic minimum size of ZERO in a flex column,
+   so it absorbed all the shrink and rendered 2px tall — buttons present in
+   the DOM, invisible on screen (diagnosed live, 2026-08-08). Vue applies
+   this scope to child component roots, so cards are covered. */
+.acp-log > * { flex-shrink: 0; }
 .acp-msg { max-width: 90%; border-radius: 10px; padding: 8px 12px; }
 .acp-msg--user { align-self: flex-end; background: var(--sg4); color: var(--ig9); white-space: pre-wrap; }
 .acp-msg--agent { align-self: flex-start; background: var(--sw); border: 1px solid var(--og2); }
