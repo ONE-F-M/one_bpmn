@@ -78,3 +78,52 @@ def validate_examples() -> list[str]:
 	for name, entry in _contract()["events"].items():
 		problems.extend(validate_event(name, entry.get("example", {})))
 	return problems
+
+
+def validate_stream(chunks: list, agent_id: str = "") -> list[str]:
+	"""Validate one turn's encoded SSE chunks as a conformant AG-UI stream
+	(WI-001680). Returns human-readable problems, each naming the agent and
+	the offending event — empty when conformant.
+
+	Rules enforced:
+	* RUN_STARTED is the first event; nothing precedes it.
+	* Exactly one terminal RUN_FINISHED, and it is the last event.
+	* At most one RUN_ERROR, and only before the terminal event.
+	* Every CUSTOM event name is namespaced ``onefm.*`` and validates
+	  against its contract schema.
+	"""
+	who = f"[{agent_id}] " if agent_id else ""
+	events = []
+	for chunk in chunks:
+		for line in str(chunk).splitlines():
+			if line.startswith("data: "):
+				try:
+					events.append(json.loads(line[len("data: ") :]))
+				except Exception:
+					events.append({"type": "__UNPARSEABLE__", "raw": line[:120]})
+
+	problems: list[str] = []
+	if not events:
+		return [f"{who}stream produced no events"]
+
+	types = [(e.get("type") or "").upper() for e in events]
+	if types[0] != "RUN_STARTED":
+		problems.append(f"{who}first event is {types[0]}, expected RUN_STARTED")
+	if types.count("RUN_STARTED") != 1:
+		problems.append(f"{who}{types.count('RUN_STARTED')} RUN_STARTED events, expected exactly 1")
+	if types.count("RUN_FINISHED") != 1:
+		problems.append(f"{who}{types.count('RUN_FINISHED')} RUN_FINISHED events, expected exactly 1")
+	elif types[-1] != "RUN_FINISHED":
+		problems.append(f"{who}last event is {types[-1]}, expected RUN_FINISHED")
+	if types.count("RUN_ERROR") > 1:
+		problems.append(f"{who}{types.count('RUN_ERROR')} RUN_ERROR events, expected at most 1")
+	if "__UNPARSEABLE__" in types:
+		problems.append(f"{who}stream carried an unparseable data line")
+
+	for event in events:
+		if (event.get("type") or "").upper() != "CUSTOM":
+			continue
+		name = event.get("name") or ""
+		for problem in validate_event(name, event.get("value") or {}):
+			problems.append(f"{who}{problem}")
+	return problems

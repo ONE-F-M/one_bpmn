@@ -185,6 +185,25 @@ def _relay_child_stream(child, encoder, message_id):
 			continue
 
 		event_type = (event.get("type") or "").upper()
+		if event_type == "CUSTOM":
+			# WI-001680: legacy child event names adopt their contract names
+			# at the relay boundary, so every CUSTOM event on the wire is
+			# namespaced (MODE_TRANSITION had no consumer before this;
+			# LUCRUSHER_RESULT keeps its payload, envelope renamed).
+			renames = {
+				"MODE_TRANSITION": "onefm.mode_transition",
+				"LUCRUSHER_RESULT": "onefm.lucrusher_result",
+				"HEARTBEAT": None,  # keep-alives are transport, never events
+			}
+			raw_name = event.get("name") or event.get("event") or ""
+			if raw_name in renames:
+				new_name = renames[raw_name]
+				if new_name is None:
+					continue
+				event = {**event, "name": new_name}
+				event.pop("event", None)
+			yield f"data: {json.dumps(event, default=str)}\n\n"
+			continue
 		if event_type in ("RUN_STARTED", "RUN_FINISHED"):
 			continue
 		if event_type == "RUN_ERROR":
