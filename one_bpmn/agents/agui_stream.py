@@ -90,6 +90,30 @@ def _extension_events(result: dict):
 			frappe.log_error(title="agui extension translator error", message=frappe.get_traceback())
 
 
+
+# ── Per-agent hooks (WI-001674) ──────────────────────────────────────────────
+# Context builders enrich the raw grounding a surface sends into the turn
+# context an agent's map expects (e.g. the assistant's dialog_context).
+# Reply shapers post-process a buffered reply BEFORE its text is emitted —
+# the seam that keeps structured JSON out of chat bubbles for agents whose
+# maps still answer in the legacy text contract.
+
+_CONTEXT_BUILDERS = {}
+_REPLY_SHAPERS = {}
+
+
+def register_context_builder(agent_id, fn):
+	"""fn(context: dict) -> dict, applied before invoke_agent."""
+	_CONTEXT_BUILDERS[agent_id] = fn
+	return fn
+
+
+def register_reply_shaper(agent_id, fn):
+	"""fn(result: dict) -> dict, applied to buffered replies before text emission."""
+	_REPLY_SHAPERS[agent_id] = fn
+	return fn
+
+
 # ── The stream ───────────────────────────────────────────────────────────────
 
 
@@ -109,6 +133,10 @@ def agent_event_stream(agent_id: str, message: str, conversation: str, context: 
 	try:
 		from one_bpmn.api.agent_invocation import invoke_agent
 
+		builder = _CONTEXT_BUILDERS.get(agent_id)
+		if builder:
+			context = builder(context or {})
+
 		result = invoke_agent(
 			agent_id, message, conversation=conversation, context=context or {}, stream=True
 		)
@@ -116,6 +144,12 @@ def agent_event_stream(agent_id: str, message: str, conversation: str, context: 
 		if result.get("streaming"):
 			yield from _relay_child_stream(result["stream"], encoder, message_id)
 		else:
+			shaper = _REPLY_SHAPERS.get(agent_id)
+			if shaper:
+				try:
+					result = shaper(result) or result
+				except Exception:
+					frappe.log_error(title="agui reply shaper error", message=frappe.get_traceback())
 			text = result.get("response") or ""
 			yield encoder.encode(TextMessageStartEvent(message_id=message_id, role="assistant"))
 			yield encoder.encode(TextMessageContentEvent(message_id=message_id, delta=text))
@@ -180,3 +214,10 @@ try:
 	from one_bpmn.agents.agui_contract import translators as _contract_translators  # noqa: F401,E402
 except Exception:
 	frappe.log_error(title="agui contract translators failed to load", message=frappe.get_traceback())
+
+# The assistant registers its context builder + reply shaper on import
+# (WI-001674). Same degrade-to-text guarantee as the translators.
+try:
+	import one_bpmn.api.ai_assistant  # noqa: F401,E402
+except Exception:
+	frappe.log_error(title="agui assistant hooks failed to load", message=frappe.get_traceback())

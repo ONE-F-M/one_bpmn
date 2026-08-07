@@ -1189,3 +1189,78 @@ def _extract_json(text: str):
 		except Exception:
 			return None
 	return None
+
+
+# ── Shared-endpoint integration (WI-001674) ──────────────────────────────────
+# The dialog's chat is served through the AG-UI endpoint: the modal sends its
+# raw grounding refs as context.assistant_dialog, the builder below turns them
+# into the dialog_context the assistant's map renders, and the shaper parses
+# the map's JSON contract out of the reply BEFORE any text reaches a bubble —
+# which is what makes the raw-JSON-in-the-transcript failure structurally
+# impossible. recommend_ai_task_config stays as the deprecated alias for the
+# legacy modal path until WI-001679 retires it.
+
+
+def build_assistant_turn_context(context: dict) -> dict:
+	"""Turn the modal's raw grounding into the map's dialog_context."""
+	grounding = (context or {}).pop("assistant_dialog", None)
+	if not isinstance(grounding, dict):
+		return context or {}
+
+	catalog = _catalog_for_mode("agent")
+	dialog_context_parts = [
+		_creation_capability_block(),
+		_linked_config_block(grounding.get("linked_config") or ""),
+		_build_full_diagram_block(grounding.get("bpmn_xml") or "", grounding.get("element_id") or ""),
+		_build_context_block(
+			grounding.get("context_doctype") or "", grounding.get("context_docname") or ""
+		),
+		_build_current_config_block(
+			grounding.get("current_config") or "{}", catalog
+		),
+	]
+	out = dict(context or {})
+	out["dialog_context"] = "\n\n".join(p for p in dialog_context_parts if p)
+	out["source"] = "task_dialog"
+	return out
+
+
+def shape_assistant_reply(result: dict) -> dict:
+	"""Parse the assistant map's JSON reply contract into typed keys.
+
+	The human message becomes the visible response; recommendations are
+	catalog-filtered and proposals sanitized exactly as the legacy path did
+	— the WI-001671 translators then lift them into onefm.* events."""
+	raw = result.get("response") or ""
+	parsed = _extract_json(raw if isinstance(raw, str) else json.dumps(raw))
+	if not isinstance(parsed, dict):
+		return result
+
+	catalog = _catalog_for_mode("agent")
+	message = str(parsed.get("message", "")).strip()
+	recommendations = {
+		key: value
+		for key, value in (parsed.get("recommendations") or {}).items()
+		if key in catalog and value not in (None, "")
+	}
+	shaped = dict(result)
+	shaped["response"] = message or (raw if not recommendations else "")
+	if recommendations:
+		shaped["recommendations"] = recommendations
+	proposed_config = _sanitize_proposed_config(parsed.get("proposed_config"))
+	if proposed_config:
+		shaped["proposed_config"] = proposed_config
+	proposed_update = _sanitize_proposed_update(parsed.get("proposed_update"))
+	if proposed_update:
+		shaped["proposed_update"] = proposed_update
+	return shaped
+
+
+def _register_agui_hooks():
+	from one_bpmn.agents.agui_stream import register_context_builder, register_reply_shaper
+
+	register_context_builder("ai_agent_assistant", build_assistant_turn_context)
+	register_reply_shaper("ai_agent_assistant", shape_assistant_reply)
+
+
+_register_agui_hooks()

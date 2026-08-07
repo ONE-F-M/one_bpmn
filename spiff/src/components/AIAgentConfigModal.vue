@@ -397,8 +397,27 @@
             </div>
           </div>
 
-          <!-- Messages -->
-          <div ref="messagesEl" class="assistant-messages">
+          <!-- WI-001674: agent mode rides the shared AgentChatPanel — one
+               transport (the AG-UI endpoint), typed events, cards from the
+               registry. Replies can never render as raw JSON: the assistant's
+               reply shaper parses the contract server-side. The legacy
+               transcript below now serves ONLY selector mode, whose direct
+               LLM path never went through invoke_agent. -->
+          <AgentChatPanel
+            v-if="!isSelector"
+            ref="chatPanel"
+            class="assistant-agui-panel"
+            :agent-id="'ai_agent_assistant'"
+            :conversation="assistantConversation"
+            :context="assistantTurnContext"
+            :cards="cardRegistry"
+            variant="docked"
+            @conversation="(c) => (assistantConversation = c)"
+            @card-action="onAssistantCardAction"
+          />
+
+          <!-- Messages (selector mode only) -->
+          <div v-if="isSelector" ref="messagesEl" class="assistant-messages">
             <div v-if="!messages.length" class="assistant-empty">
               <template v-if="isSelector">
                 Describe the flow like you'd brief a new colleague — no technical
@@ -496,8 +515,8 @@
             </div>
           </div>
 
-          <!-- Input -->
-          <div class="assistant-input-wrap">
+          <!-- Input (selector mode only — the panel owns the agent-mode composer) -->
+          <div v-if="isSelector" class="assistant-input-wrap">
             <!-- Tips popover, toggled by the bulb below -->
             <div v-if="showTips" class="assistant-tips assistant-tips-popover">
               <div class="assistant-tips-title">
@@ -553,6 +572,9 @@
 import { ref, computed, onMounted, onUnmounted, nextTick, toRaw } from "vue";
 import { Dialog, frappeRequest } from "frappe-ui";
 import { frappeGet } from "@/bpmn/shared/frappeResource";
+// WI-001674: agent mode chats through the shared panel + card registry.
+import { AgentChatPanel } from "@/components/chat";
+import { cardRegistry } from "@/components/chat/cards/registry";
 
 // bpmn-js elements must never be touched as Vue reactive proxies — the renderer
 // reads non-configurable properties (e.g. labels) that a Proxy cannot return,
@@ -687,6 +709,49 @@ function serverMessage(e) {
 // ── Assistant state ───────────────────────────────────────────────────────
 const messages = ref([]);
 const assistantConversation = ref(""); // Chat Conversation driving the dialog (WI-001623)          // { id, role, content, recommendations? }
+const chatPanel = ref(null);
+
+// WI-001674: the modal sends RAW grounding refs; the server-side context
+// builder (ai_assistant.build_assistant_turn_context) assembles the map's
+// dialog_context from them — schema/sample reads stay permission-checked
+// server-side, exactly as the legacy path did.
+const assistantTurnContext = computed(() => ({
+  assistant_dialog: {
+    context_doctype: (contextDoctype.value || "").trim(),
+    context_docname: (contextDocname.value || "").trim(),
+    linked_config: form.value.aiAgentConfig || "",
+    current_config: JSON.stringify({
+      aiModel: form.value.aiModel,
+      aiSystemPrompt: form.value.aiSystemPrompt,
+      aiUserPrompt: form.value.aiUserPrompt,
+      aiOutputVariable: form.value.aiOutputVariable,
+      aiResponseFormat: form.value.aiResponseFormat,
+    }),
+  },
+}));
+
+// WI-001674: cards render and request — the HOST applies. The panel re-emits
+// card actions here; each maps onto the SAME handlers/endpoints the legacy
+// cards used, so permission checks and the creation process are identical.
+async function onAssistantCardAction({ name, action, value }) {
+  if (action === "dismiss") return;
+  if (action === "confirm-create" && name === "onefm.proposed_config") {
+    await createProposedAgent({ proposal: value.proposal, proposalState: null });
+    return;
+  }
+  if (action === "apply-fields" && name === "onefm.proposed_update") {
+    const fields = value.fields || {};
+    // A proposed update to an EXISTING config goes through the WI-001637
+    // write-back; plain recommendations apply onto the open form.
+    if (fields.config_name) {
+      await applyProposedUpdate({ update: fields, updateState: null });
+    } else {
+      for (const [key, val] of Object.entries(fields)) {
+        applyRecommendation(null, key, val);
+      }
+    }
+  }
+}
 
 // Close the assistant's Chat Conversation on the backend so its BPMN
 // orchestration runs the close branch (Cleanup → Conversation Ended) and the
@@ -1688,6 +1753,11 @@ async function save() {
   z-index: 10;
 }
 
+.assistant-agui-panel {
+  flex: 1;
+  min-height: 0;
+  border-left: none; /* the pane already draws the divider */
+}
 .assistant-messages {
   flex: 1;
   overflow-y: auto;

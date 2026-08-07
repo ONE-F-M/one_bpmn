@@ -82,23 +82,25 @@ def _doctype_schema(result: dict):
 
 @register_extension_translator
 def _assistant_proposals(result: dict):
-	"""AI Assistant: a whole new agent, or values for the open form."""
-	if result.get("proposal"):
+	"""AI Assistant: a whole new agent, or values for the open form.
+
+	Accepts both the legacy key (proposal) and the shaped-reply keys the
+	WI-001674 shaper produces (proposed_config / proposed_update /
+	recommendations)."""
+	summary = result.get("message") or result.get("summary") or ""
+	proposal = result.get("proposed_config") or result.get("proposal")
+	if proposal:
 		yield CustomEvent(
 			name="onefm.proposed_config",
-			value={
-				"proposal": result["proposal"],
-				**({"summary": result["message"]} if result.get("message") else {}),
-			},
+			value={"proposal": proposal, **({"summary": summary} if summary else {})},
 		)
-	recommendations = result.get("recommendations")
-	if isinstance(recommendations, dict) and recommendations:
+	fields = result.get("recommendations")
+	if not (isinstance(fields, dict) and fields):
+		fields = result.get("proposed_update")
+	if isinstance(fields, dict) and fields:
 		yield CustomEvent(
 			name="onefm.proposed_update",
-			value={
-				"fields": recommendations,
-				**({"summary": result["message"]} if result.get("message") else {}),
-			},
+			value={"fields": fields, **({"summary": summary} if summary else {})},
 		)
 
 
