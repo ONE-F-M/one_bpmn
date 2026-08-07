@@ -119,13 +119,11 @@ function onConversation(name) {
 .oa-picker { height: 28px; border-radius: 8px; border: 1px solid #e2e2e2; background: #fff; font-size: 13px;
 	color: #383838; padding: 0 8px; }
 .oa-main :deep(.acp) { flex: 1; min-height: 0; }
-@media (prefers-color-scheme: dark) {
-	.oa-root { background: #1c1c1c; border-color: #343434; }
-	.oa-sidebar { background: #232323; border-color: #343434; }
-	.oa-new { background: #f8f8f8; color: #0f0f0f; }
-	.oa-sb-item:hover, .oa-sb-item.active { background: #343434; }
-	.oa-sb-item-title { color: #d4d4d4; }
-	.oa-head { border-color: #343434; }
-	.oa-picker { background: #1c1c1c; border-color: #343434; color: #d4d4d4; }
-}
+:global([data-theme="dark"]) .oa-root { background: #1c1c1c; border-color: #343434; }
+:global([data-theme="dark"]) .oa-sidebar { background: #232323; border-color: #343434; }
+:global([data-theme="dark"]) .oa-new { background: #f8f8f8; color: #0f0f0f; }
+:global([data-theme="dark"]) .oa-sb-item:hover, :global([data-theme="dark"]) .oa-sb-item.active { background: #343434; }
+:global([data-theme="dark"]) .oa-sb-item-title { color: #d4d4d4; }
+:global([data-theme="dark"]) .oa-head { border-color: #343434; }
+:global([data-theme="dark"]) .oa-picker { background: #1c1c1c; border-color: #343434; color: #d4d4d4; }
 </style>

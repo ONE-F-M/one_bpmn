@@ -36,5 +36,5 @@ onBeforeUnmount(() => viewer && viewer.destroy());
 .prim-thumb { border: 1px solid #e2e2e2; border-radius: 8px; background: #f8f8f8;
 	min-height: 120px; max-height: 190px; overflow: hidden; }
 .prim-thumb-wait { padding: 24px; text-align: center; color: #999; font-size: 12px; }
-@media (prefers-color-scheme: dark) { .prim-thumb { border-color: #343434; background: #232323; } }
+:global([data-theme="dark"]) .prim-thumb { border-color: #343434; background: #232323; }
 </style>

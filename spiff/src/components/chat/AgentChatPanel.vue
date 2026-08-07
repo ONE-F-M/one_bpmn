@@ -403,14 +403,10 @@ defineExpose({ send, conversationName });
 	display: flex; flex-direction: column; min-height: 0; background: var(--sw);
 	color: var(--ig8); font-size: 13px;
 }
-@media (prefers-color-scheme: dark) {
-	.acp {
-		--sw: #1c1c1c; --sg1: #232323; --sg2: #2b2b2b; --sg3: #343434; --sg4: #424242; --sg7: #f8f8f8;
+:global([data-theme="dark"]) .acp { --sw: #1c1c1c; --sg1: #232323; --sg2: #2b2b2b; --sg3: #343434; --sg4: #424242; --sg7: #f8f8f8;
 		--iw: #0f0f0f; --ig9: #f8f8f8; --ig8: #d4d4d4; --ig6: #999; --ig5: #808080; --ig4: #717171;
 		--og1: #232323; --og2: #343434; --blue-bg: #052b53; --blue-ink: #5aaef2;
-		--green-ink: #58c08e; --red-ink: #fc7474;
-	}
-}
+		--green-ink: #58c08e; --red-ink: #fc7474; }
 .acp--docked { height: 100%; border-left: 1px solid var(--og2); }
 .acp--modal { height: 520px; }
 .acp--page { height: 100%; }

@@ -91,5 +91,5 @@ function onCardAction({ name, action, value }) {
 .pa-wrap { display: flex; flex-direction: column; height: 100%; min-height: 0; }
 .pa-wrap :deep(.acp) { height: 100%; }
 .pa-close { border: none; background: none; color: #7c7c7c; cursor: pointer; font-size: 14px; margin-left: 8px; }
-@media (prefers-color-scheme: dark) { .pa-close { color: #808080; } }
+:global([data-theme="dark"]) .pa-close { color: #808080; }
 </style>

@@ -23,7 +23,6 @@ function describe(f) {
 .prim-fields td { padding: 4px 6px; border-bottom: 1px solid #ededed; vertical-align: top; }
 .prim-fields tr:last-child td { border-bottom: none; }
 .prim-fields-name { color: #278f5e; white-space: nowrap; width: 42%; }
-@media (prefers-color-scheme: dark) {
-	.prim-fields td { border-color: #232323; } .prim-fields-name { color: #58c08e; }
-}
+:global([data-theme="dark"]) .prim-fields td { border-color: #232323; }
+:global([data-theme="dark"]) .prim-fields-name { color: #58c08e; }
 </style>

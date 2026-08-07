@@ -46,7 +46,6 @@ import ActionButton from "./ActionButton.vue";
 .prim-dt td { padding: 5px 8px; border-bottom: 1px solid #ededed; font-variant-numeric: tabular-nums; }
 .prim-dt tr:last-child td { border-bottom: none; }
 .prim-dt-act { width: 1%; }
-@media (prefers-color-scheme: dark) {
-	.prim-dt th { background: #2b2b2b; color: #afafaf; } .prim-dt td { border-color: #232323; }
-}
+:global([data-theme="dark"]) .prim-dt th { background: #2b2b2b; color: #afafaf; }
+:global([data-theme="dark"]) .prim-dt td { border-color: #232323; }
 </style>

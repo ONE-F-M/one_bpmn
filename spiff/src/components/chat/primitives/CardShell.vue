@@ -21,10 +21,8 @@ defineProps({ title: { type: String, default: "" } });
 .prim-shell-title { font-size: 12px; font-weight: 600; color: #171717; }
 .prim-shell-body { padding: 10px 12px; font-size: 13px; }
 .prim-shell-actions { display: flex; gap: 8px; padding: 10px 12px; border-top: 1px solid #ededed; }
-@media (prefers-color-scheme: dark) {
-	.prim-shell { background: #1c1c1c; border-color: #343434; }
-	.prim-shell-head { background: #232323; border-color: #232323; }
-	.prim-shell-title { color: #f8f8f8; }
-	.prim-shell-actions { border-color: #232323; }
-}
+:global([data-theme="dark"]) .prim-shell { background: #1c1c1c; border-color: #343434; }
+:global([data-theme="dark"]) .prim-shell-head { background: #232323; border-color: #232323; }
+:global([data-theme="dark"]) .prim-shell-title { color: #f8f8f8; }
+:global([data-theme="dark"]) .prim-shell-actions { border-color: #232323; }
 </style>

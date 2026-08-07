@@ -22,7 +22,6 @@ function format(value) {
 .prim-kv td { padding: 4px 6px; border-bottom: 1px solid #ededed; vertical-align: top; }
 .prim-kv tr:last-child td { border-bottom: none; }
 .prim-kv-key { color: #7c7c7c; white-space: nowrap; width: 38%; }
-@media (prefers-color-scheme: dark) {
-	.prim-kv td { border-color: #232323; } .prim-kv-key { color: #808080; }
-}
+:global([data-theme="dark"]) .prim-kv td { border-color: #232323; }
+:global([data-theme="dark"]) .prim-kv-key { color: #808080; }
 </style>

@@ -27,10 +27,8 @@ const raw = computed(() => (typeof props.diff === "string" ? props.diff : ""));
 .prim-diff--deleted .prim-diff-left, .prim-diff--changed .prim-diff-left { background: #ffe7e7; }
 .prim-diff--added .prim-diff-right, .prim-diff--changed .prim-diff-right { background: #e4faeb; }
 .prim-diff-raw { margin: 0; padding: 8px; white-space: pre-wrap; }
-@media (prefers-color-scheme: dark) {
-	.prim-diff { border-color: #343434; }
-	.prim-diff--hunk .prim-diff-cell { background: #2b2b2b; color: #808080; }
-	.prim-diff--deleted .prim-diff-left, .prim-diff--changed .prim-diff-left { background: #361515; }
-	.prim-diff--added .prim-diff-right, .prim-diff--changed .prim-diff-right { background: #0a3f27; }
-}
+:global([data-theme="dark"]) .prim-diff { border-color: #343434; }
+:global([data-theme="dark"]) .prim-diff--hunk .prim-diff-cell { background: #2b2b2b; color: #808080; }
+:global([data-theme="dark"]) .prim-diff--deleted .prim-diff-left, :global([data-theme="dark"]) .prim-diff--changed .prim-diff-left { background: #361515; }
+:global([data-theme="dark"]) .prim-diff--added .prim-diff-right, :global([data-theme="dark"]) .prim-diff--changed .prim-diff-right { background: #0a3f27; }
 </style>

@@ -23,5 +23,5 @@ defineEmits(["action"]);
 <style scoped>
 .dt-card { align-self: flex-start; width: 94%; background: #fff; border: 1px solid #e2e2e2;
 	border-radius: 10px; padding: 10px 12px; }
-@media (prefers-color-scheme: dark) { .dt-card { background: #1c1c1c; border-color: #343434; } }
+:global([data-theme="dark"]) .dt-card { background: #1c1c1c; border-color: #343434; }
 </style>

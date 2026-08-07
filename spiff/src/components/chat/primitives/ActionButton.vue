@@ -20,9 +20,7 @@ defineEmits(["press"]);
 .prim-btn--ghost { background: transparent; }
 .prim-btn--outline { background: #fff; border: 1px solid #e2e2e2; }
 .prim-btn:disabled { opacity: 0.55; cursor: default; }
-@media (prefers-color-scheme: dark) {
-	.prim-btn { background: #2b2b2b; color: #d4d4d4; }
-	.prim-btn--solid { background: #f8f8f8; color: #0f0f0f; }
-	.prim-btn--outline { background: #1c1c1c; border-color: #343434; }
-}
+:global([data-theme="dark"]) .prim-btn { background: #2b2b2b; color: #d4d4d4; }
+:global([data-theme="dark"]) .prim-btn--solid { background: #f8f8f8; color: #0f0f0f; }
+:global([data-theme="dark"]) .prim-btn--outline { background: #1c1c1c; border-color: #343434; }
 </style>
