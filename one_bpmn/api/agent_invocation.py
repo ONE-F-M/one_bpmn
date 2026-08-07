@@ -121,7 +121,9 @@ def list_available_agents(include_legacy: int = 1) -> list:
 
 
 @frappe.whitelist()
-def invoke_agent(agent_id: str, message: str, conversation: str = None, context: dict = None):
+def invoke_agent(
+	agent_id: str, message: str, conversation: str = None, context: dict = None, stream: bool = False
+):
 	"""Invoke a configured agent with a single message; return its reply.
 
 	Args:
@@ -130,11 +132,29 @@ def invoke_agent(agent_id: str, message: str, conversation: str = None, context:
 	    conversation: existing Chat Conversation to continue; a new one is
 	        created (stamped with the agent's chat mode label) when omitted.
 	    context: optional dict merged into the turn payload (editor state, etc.).
+	    stream: internal callers only (the AG-UI endpoint, WI-001670). When
+	        true, a runner that can stream returns its event generator instead
+	        of a buffered reply; runners that cannot stream ignore the flag.
 
 	Returns:
 	    dict with at least ``response`` (the agent's reply text) and
 	    ``conversation`` (the conversation name), plus runner-specific extras.
+	    With ``stream=True`` and a streaming-capable runner, the dict instead
+	    carries ``streaming=True`` and ``stream`` (the event generator) — a
+	    shape that cannot ride a JSON response, hence the HTTP guard below.
 	"""
+	from frappe.utils import sbool
+
+	stream = bool(sbool(stream))
+	if stream and getattr(frappe.local, "request", None) is not None:
+		cmd = (frappe.form_dict or {}).get("cmd") or ""
+		if cmd.endswith("invoke_agent"):
+			frappe.throw(
+				_(
+					"stream=True cannot be requested over HTTP on this method — use "
+					"one_bpmn.api.agui.stream_agent_turn, which speaks Server-Sent Events."
+				)
+			)
 	if isinstance(context, str):
 		context = frappe.parse_json(context)
 	config = _resolve_config(agent_id)
@@ -180,13 +200,25 @@ def invoke_agent(agent_id: str, message: str, conversation: str = None, context:
 		)
 
 	runner = _runner_for(config)
+	result = None
 	try:
-		result = _RUNNERS[runner](config, conversation, message, context or {})
+		result = _RUNNERS[runner](config, conversation, message, context or {}, stream=stream)
 	finally:
-		_pii.end_turn(_pii_turn)
+		# Streaming replies are consumed after this function returns, so the
+		# PII turn must survive until the generator is exhausted — the wrapper
+		# below owns the teardown in that case.
+		if not _is_stream(result):
+			_pii.end_turn(_pii_turn)
 		# Clear the correlation id too, or a pooled worker leaks it into the
 		# next turn and two unrelated turns look like one.
 		_turn.end_turn()
+	if _is_stream(result):
+		return {
+			"streaming": True,
+			"stream": _stream_with_pii_teardown(result, _pii_turn),
+			"conversation": conversation,
+			"agent_id": agent_id,
+		}
 	if not isinstance(result, dict):
 		result = {"response": str(result or "")}
 	result.setdefault("conversation", conversation)
@@ -194,12 +226,34 @@ def invoke_agent(agent_id: str, message: str, conversation: str = None, context:
 	return result
 
 
+def _is_stream(value) -> bool:
+	"""True for the iterator shapes a streaming runner may hand back."""
+	import inspect
+
+	return inspect.isgenerator(value) or (hasattr(value, "__next__") and not isinstance(value, dict))
+
+
+def _stream_with_pii_teardown(gen, pii_turn):
+	"""Relay a runner's event stream, ending the PII turn only once the
+	stream is exhausted (or abandoned) — mirrors the try/finally the buffered
+	path gets inline."""
+	from one_bpmn.security import pii as _pii
+
+	try:
+		yield from gen
+	finally:
+		_pii.end_turn(pii_turn)
+
+
 # ── Runners ──────────────────────────────────────────────────────────────────
-# Each takes (config, conversation_name, message, context) and returns a dict
-# with a "response" key. They wrap today's execution styles behind one contract.
+# Each takes (config, conversation_name, message, context, stream=False) and
+# returns a dict with a "response" key. A runner that can stream may instead
+# return an event generator when stream=True; runners that cannot simply
+# ignore the flag (WI-001670). They wrap today's execution styles behind one
+# contract.
 
 
-def _run_bpmn_map(config, conversation, message, context):
+def _run_bpmn_map(config, conversation, message, context, stream=False):
 	"""Converted agents: the linked process map owns the whole turn."""
 	from one_bpmn.api.server_script_api import delegate_chat_turn
 
@@ -213,7 +267,7 @@ def _run_bpmn_map(config, conversation, message, context):
 	return result
 
 
-def _run_adk_stage_agent(config, conversation, message, context):
+def _run_adk_stage_agent(config, conversation, message, context, stream=False):
 	"""ProsAlly / Logix / Docu today. Until their maps drive them (their own
 	migration stories), prefer an already-running instance if one exists,
 	else surface a clear message rather than silently forking execution."""
@@ -227,17 +281,25 @@ def _run_adk_stage_agent(config, conversation, message, context):
 	)
 
 
-def _run_langgraph(config, conversation, message, context):
-	"""BA Agent. Its graph runner lives in onefm_mcp; call through when present."""
+def _run_langgraph(config, conversation, message, context, stream=False):
+	"""BA Agent. Its graph runner lives in onefm_mcp; call through when present.
+
+	WI-001670: the ``stream`` flag now passes through instead of being forced
+	to False. That hard-coded False made this runner unable to run the BA
+	agent at all — ``send_message_with_agent`` throws "BA Agent only supports
+	streaming mode" on non-streaming calls. With stream=True the runner hands
+	back the agent's event generator for the shared AG-UI stream to relay."""
 	try:
 		from onefm_mcp.onefm_mcp.page.lumina.lumina import send_message_with_agent
 	except Exception:
 		frappe.throw(_("The LangGraph runner for '{0}' is unavailable.").format(config["agent_id"]))
-	resp = send_message_with_agent(conversation, message, stream=False)
+	resp = send_message_with_agent(conversation, message, stream=stream)
+	if _is_stream(resp):
+		return resp
 	return resp if isinstance(resp, dict) else {"response": str(resp or "")}
 
 
-def _run_direct_api(config, conversation, message, context):
+def _run_direct_api(config, conversation, message, context, stream=False):
 	"""Single-shot / general chat. Persists the turn and calls the adapter's
 	own (async) tool-calling loop for one exchange."""
 	from one_bpmn.agents.executor.direct_api import _run_coro_blocking
