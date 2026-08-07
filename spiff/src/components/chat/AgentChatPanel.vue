@@ -133,7 +133,7 @@
 // conversation — the fix for this week's orphaned Active instances.
 import MarkdownIt from "markdown-it";
 import { Dialog, frappeRequest } from "frappe-ui";
-import { computed, nextTick, onBeforeUnmount, onMounted, ref } from "vue";
+import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from "vue";
 import { streamAgentTurn } from "./aguiClient";
 
 const props = defineProps({
@@ -173,6 +173,18 @@ const errorOpen = ref(false);
 const errorMessage = ref("");
 const log = ref(null);
 const input = ref(null);
+
+// The composer grows with its content (up to ~6 lines) and shrinks back
+// after a send — a fixed-height textarea hides everything above the last
+// line the moment Shift+Enter adds a second one.
+watch(draft, () => {
+	nextTick(() => {
+		const el = input.value;
+		if (!el) return;
+		el.style.height = "auto";
+		el.style.height = `${Math.min(el.scrollHeight, 132)}px`;
+	});
+});
 let activeStream = null;
 
 const avatarInitials = computed(() => {
@@ -461,7 +473,8 @@ defineExpose({ send, conversationName });
 .acp-toolbar { display: flex; gap: 12px; padding: 8px 14px 0; border-top: 1px solid var(--og2); background: var(--sw); }
 .acp-tb { border: none; background: none; color: var(--ig5); cursor: pointer; font-size: 12px; padding: 0; }
 .acp-composer { display: flex; gap: 8px; padding: 6px 14px 12px; background: var(--sw); }
-.acp-input { flex: 1; resize: none; height: 28px; min-height: 28px; border-radius: 8px; padding: 4px 10px;
+.acp-input { flex: 1; resize: none; height: 28px; min-height: 28px; max-height: 132px; overflow-y: auto;
+	border-radius: 8px; padding: 4px 10px;
 	font-size: 14px; font-family: inherit; color: var(--ig8); background: var(--sg2);
 	border: 1px solid var(--sg2); }
 .acp-input::placeholder { color: var(--ig4); }
