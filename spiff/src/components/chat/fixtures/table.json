@@ -1,0 +1,28 @@
+{
+ "type": "CUSTOM",
+ "name": "onefm.table",
+ "value": {
+  "title": "Pending leave \u2014 Site B",
+  "columns": [
+   {
+    "key": "employee",
+    "label": "Employee"
+   },
+   {
+    "key": "days",
+    "label": "Days",
+    "align": "right"
+   }
+  ],
+  "rows": [
+   {
+    "employee": "A. Rahman",
+    "days": 5
+   },
+   {
+    "employee": "J. Okoro",
+    "days": 3
+   }
+  ]
+ }
+}

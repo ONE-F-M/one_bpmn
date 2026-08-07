@@ -3,3 +3,4 @@
 // docked beside a work surface, inside a modal, or as a full page.
 export { default as AgentChatPanel } from "./AgentChatPanel.vue";
 export { streamAgentTurn } from "./aguiClient";
+export { cardRegistry } from "./cards/registry";
