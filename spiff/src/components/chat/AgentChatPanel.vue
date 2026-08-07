@@ -128,9 +128,12 @@ const props = defineProps({
 	hostContextLine: { type: String, default: "" },
 	// event name → card component (WI-001673 registry)
 	cards: { type: Object, default: () => ({}) },
+	// async host hook called at send time; its result merges over `context`
+	// (WI-001675: live canvas XML must be read per turn, not at mount)
+	contextProvider: { type: Function, default: null },
 });
 
-const emit = defineEmits(["card-action", "conversation", "title"]);
+const emit = defineEmits(["card-action", "conversation", "title", "choice", "turn-complete"]);
 
 const __ = (window.__ && typeof window.__ === "function") ? window.__ : (s) => s;
 
@@ -221,7 +224,7 @@ onBeforeUnmount(() => {
 
 // ── sending ─────────────────────────────────────────────────────────────────
 
-function send(text) {
+async function send(text) {
 	const message = (text ?? draft.value).trim();
 	if (!message || busy.value) return;
 	draft.value = "";
@@ -231,11 +234,20 @@ function send(text) {
 	streamingText.value = "";
 	scrollDown();
 
+	let turnContext = { ...props.context };
+	if (props.contextProvider) {
+		try {
+			turnContext = { ...turnContext, ...((await props.contextProvider()) || {}) };
+		} catch (e) {
+			/* a failing provider must not block the turn */
+		}
+	}
+
 	activeStream = streamAgentTurn({
 		agentId: props.agentId,
 		message,
 		conversation: conversationName.value || undefined,
-		context: props.context,
+		context: turnContext,
 		onEvent: handleEvent,
 		onError: (msg) => {
 			status.value = "error";
@@ -250,6 +262,7 @@ function send(text) {
 			busy.value = false;
 			if (status.value !== "error") status.value = "done";
 			activeStream = null;
+			emit("turn-complete");
 			scrollDown();
 		},
 	});
@@ -296,6 +309,9 @@ function handleCustom(name, value) {
 
 function answerChoice(item, option) {
 	item.answered = option;
+	// Synchronous emit BEFORE the send: the host can stage per-turn context
+	// (e.g. ProsAlly's confirmed_action) and the send below reads it.
+	emit("choice", { option, actionIntent: item.value.action_intent || "" });
 	send(option);
 }
 
