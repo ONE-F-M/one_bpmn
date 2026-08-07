@@ -57,3 +57,17 @@ def stream_agent_turn(
 		mimetype="text/event-stream",
 		headers={"X-Accel-Buffering": "no", "Cache-Control": "no-cache"},
 	)
+
+
+@frappe.whitelist()
+def conversation_history(conversation: str, limit: int = 30) -> list:
+	"""Prior turns for the shared panel's resume-or-create lifecycle
+	(WI-001672). load_history already enforces owner-only access — an
+	unknown or foreign conversation reads as empty, never as an error."""
+	from frappe.utils import cint
+
+	from one_bpmn.utils.chat_persistence import load_history
+
+	if frappe.session.user == "Guest":
+		frappe.throw(_("Authentication required"))
+	return load_history(conversation, limit=min(cint(limit) or 30, 100))
