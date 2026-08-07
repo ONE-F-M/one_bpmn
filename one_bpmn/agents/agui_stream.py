@@ -65,6 +65,11 @@ def _choice_translator(result: dict):
 	and ProsAlly CONFIRM / CONFIRM_REMOVAL payloads."""
 	intent = (result.get("intent") or "").upper()
 	options = result.get("options") or []
+	# A removal gate that carries the diagram is NOT loose buttons: the
+	# confirm belongs inside the DiagramPreviewCard (WI-001671), so the
+	# bpmn_preview translator owns that payload.
+	if intent == "CONFIRM_REMOVAL" and result.get("pending_xml"):
+		return
 	if intent in ("DISAMBIGUATE", "CONFIRM", "CONFIRM_REMOVAL") and options:
 		yield CustomEvent(
 			name="onefm.choice",
@@ -165,3 +170,13 @@ def _relay_child_stream(child, encoder, message_id):
 		# Everything else — TEXT_MESSAGE_START/END, TOOL_CALL_*, STATE_*,
 		# CUSTOM — passes through as a data line, exactly as Lumina does.
 		yield f"data: {json.dumps(event, default=str)}\n\n"
+
+
+# ── Contract translators (WI-001671) ─────────────────────────────────────────
+# Importing the contract package registers the full onefm.* payload mapping.
+# Guarded so a broken contract module degrades to text-only streams instead of
+# killing every chat endpoint at import time.
+try:
+	from one_bpmn.agents.agui_contract import translators as _contract_translators  # noqa: F401,E402
+except Exception:
+	frappe.log_error(title="agui contract translators failed to load", message=frappe.get_traceback())

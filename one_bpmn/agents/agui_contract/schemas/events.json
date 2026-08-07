@@ -1,0 +1,215 @@
+{
+	"$comment": "ONE-FM AG-UI extension event contract (WI-001671). Every non-text thing an agent may send. Each entry: producer(s), JSON Schema for the CustomEvent value, and one recorded example. The AG-UI protocol itself ships 26 standard event types and no UI components; everything here rides CustomEvent with a namespaced name. Cards render and request; the host surface applies.",
+	"version": 1,
+	"events": {
+		"onefm.choice": {
+			"producers": ["any agent"],
+			"rendered_as": "Option buttons under the message (panel feature, not a card)",
+			"notes": "Supersedes Logix DISAMBIGUATE and ProsAlly CONFIRM / CONFIRM_REMOVAL private payloads. Works without a host surface: the chosen option returns into the conversation as the next turn.",
+			"schema": {
+				"type": "object",
+				"required": ["prompt", "options"],
+				"additionalProperties": false,
+				"properties": {
+					"prompt": {"type": "string"},
+					"options": {"type": "array", "minItems": 1, "items": {"type": "string"}},
+					"action_intent": {"type": "string"}
+				}
+			},
+			"example": {
+				"prompt": "Which script do you mean?",
+				"options": ["Onboarding Validate", "Dept Rollup"],
+				"action_intent": "DISAMBIGUATE"
+			}
+		},
+		"onefm.proposed_config": {
+			"producers": ["ai_agent_assistant"],
+			"rendered_as": "ProposalCard",
+			"notes": "A whole new agent configuration to create. Confirming calls the existing create-and-link endpoint; the card never creates anything itself.",
+			"schema": {
+				"type": "object",
+				"required": ["proposal"],
+				"additionalProperties": false,
+				"properties": {
+					"proposal": {"type": "object"},
+					"summary": {"type": "string"}
+				}
+			},
+			"example": {
+				"summary": "Create this agent?",
+				"proposal": {
+					"agent_name": "Leave Summarizer",
+					"provider": "Anthropic",
+					"model": "claude-sonnet-5",
+					"sample_prompts": [{"prompt": "Summarize this leave request"}]
+				}
+			}
+		},
+		"onefm.proposed_update": {
+			"producers": ["ai_agent_assistant"],
+			"rendered_as": "ProposalCard (field-values variant)",
+			"notes": "Recommended values for the host form. Applying writes to the form via the panel event bus — the card never mutates the form directly.",
+			"schema": {
+				"type": "object",
+				"required": ["fields"],
+				"additionalProperties": false,
+				"properties": {
+					"fields": {"type": "object", "minProperties": 1},
+					"summary": {"type": "string"}
+				}
+			},
+			"example": {
+				"summary": "Recommended task configuration",
+				"fields": {"model": "claude-haiku-4-5-20251001", "output_variable": "agent_decision"}
+			}
+		},
+		"onefm.script_diff": {
+			"producers": ["logix_agent"],
+			"rendered_as": "ScriptDiffCard",
+			"notes": "Before/after script change. Apply writes to the host's script editor; the card only renders and requests. mode mirrors the Logix CREATE/MODIFY intents.",
+			"schema": {
+				"type": "object",
+				"required": ["mode", "modified_script"],
+				"additionalProperties": false,
+				"properties": {
+					"mode": {"type": "string", "enum": ["CREATE", "MODIFY"]},
+					"diff": {},
+					"modified_script": {"type": "string"},
+					"apply_target": {"type": "string"},
+					"suggested_name": {"type": "string"},
+					"summary": {"type": "string"}
+				}
+			},
+			"example": {
+				"mode": "MODIFY",
+				"apply_target": "Dept Rollup",
+				"modified_script": "def get_department(employee):\n    if not employee:\n        return None\n    return employee.department",
+				"diff": [{"type": "changed", "left": "dept = employee.department", "right": "if not employee: return None"}],
+				"summary": "Add a null check before reading employee.department"
+			}
+		},
+		"onefm.bpmn_preview": {
+			"producers": ["prosally_agent"],
+			"rendered_as": "DiagramPreviewCard",
+			"notes": "One event with a mode field supersedes the BPMN_GENERATED / BPMN_MODIFIED intents and the pending_xml removal gate; the destructive-change confirm lives inside the card. Deliberate behavior change: the canvas no longer updates sight-unseen — the user reviews the preview, then applies.",
+			"schema": {
+				"type": "object",
+				"required": ["mode", "bpmn_xml"],
+				"additionalProperties": false,
+				"properties": {
+					"mode": {"type": "string", "enum": ["generated", "modified", "pending_removal"]},
+					"bpmn_xml": {"type": "string"},
+					"summary": {"type": "string"}
+				}
+			},
+			"example": {
+				"mode": "modified",
+				"bpmn_xml": "<bpmn:definitions>…</bpmn:definitions>",
+				"summary": "Adds Manager Approval and removes the auto-approve path"
+			}
+		},
+		"onefm.doctype_schema": {
+			"producers": ["docu_agent"],
+			"rendered_as": "DocTypeSchemaCard",
+			"notes": "The whole doctype IR travels in one event; the card shows the human summary, the host's loadIr() applies it. Replaces the docu_chat_async/docu_chat_status polling loop.",
+			"schema": {
+				"type": "object",
+				"required": ["doctype_ir"],
+				"additionalProperties": false,
+				"properties": {
+					"doctype_ir": {"type": "object"},
+					"exists": {"type": "boolean"},
+					"custom": {"type": "boolean"},
+					"summary": {"type": "string"}
+				}
+			},
+			"example": {
+				"exists": true,
+				"custom": true,
+				"doctype_ir": {"name": "Employee Onboarding", "fields": [{"fieldname": "contact_name", "fieldtype": "Data", "reqd": 1}]},
+				"summary": "Adds an Emergency Contact section"
+			}
+		},
+		"onefm.table": {
+			"producers": ["any agent"],
+			"rendered_as": "DataTable primitive (direct binding, no CardShell)",
+			"notes": "For tables the UI must understand — alignment, row actions, selection. Display-only tables need no event: agents emit a markdown table inside ordinary TextMessageContent and the panel renders it.",
+			"schema": {
+				"type": "object",
+				"required": ["columns", "rows"],
+				"additionalProperties": false,
+				"properties": {
+					"title": {"type": "string"},
+					"columns": {
+						"type": "array",
+						"minItems": 1,
+						"items": {
+							"type": "object",
+							"required": ["key", "label"],
+							"additionalProperties": false,
+							"properties": {
+								"key": {"type": "string"},
+								"label": {"type": "string"},
+								"align": {"type": "string", "enum": ["left", "right", "center"]}
+							}
+						}
+					},
+					"rows": {"type": "array", "items": {"type": "object"}},
+					"row_action": {
+						"type": "object",
+						"required": ["label", "action"],
+						"additionalProperties": false,
+						"properties": {
+							"label": {"type": "string"},
+							"action": {"type": "string"}
+						}
+					}
+				}
+			},
+			"example": {
+				"title": "Pending leave — Site B",
+				"columns": [
+					{"key": "employee", "label": "Employee"},
+					{"key": "days", "label": "Days", "align": "right"}
+				],
+				"rows": [{"employee": "A. Rahman", "days": 5}, {"employee": "J. Okoro", "days": 3}]
+			}
+		},
+		"onefm.conversation_title": {
+			"producers": ["any agent (server-side title generation)"],
+			"rendered_as": "Panel chrome: the header title",
+			"notes": "Replaces Lumina's bare `event: updated_title` SSE line, which no standard AG-UI client could see.",
+			"schema": {
+				"type": "object",
+				"required": ["title"],
+				"additionalProperties": false,
+				"properties": {"title": {"type": "string"}}
+			},
+			"example": {"title": "Leave policy Q&A"}
+		},
+		"onefm.mode_transition": {
+			"producers": ["lumina modes (user_planning_agent)"],
+			"rendered_as": "Panel chrome: the mode chip",
+			"notes": "Adopts the existing MODE_TRANSITION CustomEvent, which was emitted with no UI consumer; renamed at the Lumina migration (WI-001678). This gives it a consumer for the first time.",
+			"schema": {
+				"type": "object",
+				"required": ["new_mode"],
+				"additionalProperties": false,
+				"properties": {"new_mode": {"type": "string"}}
+			},
+			"example": {"new_mode": "Planning"}
+		},
+		"onefm.lucrusher_result": {
+			"producers": ["lucrusher_agent"],
+			"rendered_as": "Handled by the one-ai surface (Lumina successor)",
+			"notes": "The existing LUCRUSHER_RESULT event, documented and renamed at the Lumina migration (WI-001678). Payload shape is owned by the LuCrusher worker; the contract pins only the envelope.",
+			"schema": {"type": "object"},
+			"example": {"status": "done", "result": {"summary": "…"}}
+		}
+	},
+	"not_contract_events": {
+		"$comment": "Explicitly excluded, with reasons — so nobody re-adds them as customs.",
+		"heartbeat / keep-alive": "Transport plumbing. Stays an SSE comment line inside the shared generator, never an event.",
+		"get_page_snapshot": "A server→client tool request. Moves to the standard AG-UI tool-call mechanism (ToolCallStart/Args/End with a client-side tool), not a custom event."
+	}
+}
