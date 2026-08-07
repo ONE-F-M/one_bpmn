@@ -15,41 +15,21 @@
 
 				<div class="dc-root">
 
-					<!-- ── LEFT: Chat ──────────────────────────────────── -->
+					<!-- ── LEFT: Chat (WI-001676: the shared AgentChatPanel) ──
+					     The docu_chat_async / docu_chat_status polling loop is
+					     gone — the reply streams over SSE. Proposed schemas
+					     arrive as onefm.doctype_schema and render as a card;
+					     Apply hands the IR to loadIr() below, exactly the
+					     mutation the polling path performed silently. -->
 					<div class="dc-chat-panel">
-						<div class="dc-messages" ref="messagesEl">
-							<div v-for="msg in messages" :key="msg.id" :class="['dc-msg-row', msg.role]">
-								<div class="dc-msg-body">
-									<div :class="msg.role === 'user' ? 'dc-bubble-user' : 'dc-bubble-bot'">
-										<div v-html="renderMarkdown(msg.content)"></div>
-									</div>
-									<div v-if="msg.options?.length" class="dc-options">
-										<button
-											v-for="(opt, oi) in msg.options"
-											:key="oi"
-											class="dc-option-btn"
-											@click="selectOption(opt)"
-										>{{ opt }}</button>
-									</div>
-									<div class="dc-msg-time">{{ msg.time }}</div>
-								</div>
-							</div>
-							<div v-if="isTyping" class="dc-msg-row assistant">
-								<div class="dc-bubble-bot"><AgentThinkingIndicator /></div>
-							</div>
-						</div>
-
-						<div class="dc-input-area">
-							<textarea
-								ref="inputEl"
-								v-model="inputText"
-								class="dc-input"
-								rows="2"
-								placeholder="Describe the DocType you need… (Enter to send)"
-								@keydown="onKeydown"
-							></textarea>
-							<button class="dc-send-btn" :disabled="!inputText.trim() || isTyping" @click="sendMessage()">➤</button>
-						</div>
+						<AgentChatPanel
+							agent-id="docu_agent"
+							variant="docked"
+							:context="docuTurnContext"
+							:host-context-line="hostContextLine"
+							:cards="cardRegistry"
+							@card-action="onDocuCardAction"
+						/>
 					</div>
 
 					<!-- ── MIDDLE: Visual form builder ─────────────────── -->
@@ -362,12 +342,11 @@
 <script setup>
 import { ref, reactive, computed, watch, onMounted, onBeforeUnmount, nextTick } from "vue";
 import { frappeRequest } from "frappe-ui";
-import { marked } from "marked";
-import DOMPurify from "dompurify";
 import draggable from "vuedraggable";
-import AgentThinkingIndicator from "./AgentThinkingIndicator.vue";
+// WI-001676: the chat half is the shared panel; schemas arrive as cards.
+import { AgentChatPanel } from "@/components/chat";
+import { cardRegistry } from "@/components/chat/cards/registry";
 
-marked.setOptions({ gfm: true, breaks: true });
 
 const props = defineProps({
 	element:        { type: Object, default: null },
@@ -435,16 +414,9 @@ function previewPlaceholder(df) {
 	return "";
 }
 
-// ── Chat state ─────────────────────────────────────────────────────────
-const messages   = ref([]);
-const isTyping    = ref(false);
-const inputText   = ref("");
-const messagesEl  = ref(null);
-const inputEl     = ref(null);
-const sessionId   = ref(`docu-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`);
-const conversationName = ref(null);  // set by the backend on the first turn; reused after
-let pollTimer = null;                 // setTimeout handle for the status poll loop
-let pollCancelled = false;            // set on close/unmount to stop polling
+// ── Chat (WI-001676: the shared AgentChatPanel owns transcript, composer,
+//     conversation lifecycle and history — see @/components/chat) ─────────
+const conversationName = ref(null);   // mirrored from the panel for close()
 
 // ── DocType state ──────────────────────────────────────────────────────
 const dtName     = ref(props.doctype || "");
@@ -525,11 +497,7 @@ let snapTimer   = null;
 const canUndo = computed(() => histIndex.value > 0);
 const canRedo = computed(() => histIndex.value < history.value.length - 1);
 
-let msgSeq = 0;
-const makeId = () => `m${++msgSeq}`;
-const nowTime = () => new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
 
-function renderMarkdown(text) { return DOMPurify.sanitize(marked.parse(text || "")); }
 function capitalize(s) { return s ? s[0].toUpperCase() + s.slice(1) : s; }
 function optionsHint(t) {
 	if (t === "Link" || t === "Table" || t === "Table MultiSelect") return "Target DocType";
@@ -664,14 +632,6 @@ const settingsSections = computed(() => {
 		.map((s) => ({ ...s, fields: s.fields.filter((f) => f.show !== false) }))
 		.filter((s) => s.fields.length);
 });
-
-function pushMsg(role, content, extra = {}) {
-	messages.value.push({ id: makeId(), role, content, time: nowTime(), ...extra });
-	scrollDown();
-}
-function scrollDown() {
-	nextTick(() => { if (messagesEl.value) messagesEl.value.scrollTop = messagesEl.value.scrollHeight; });
-}
 
 // ── Tree node factories ────────────────────────────────────────────────
 function normalizeDf(f) {
@@ -1022,105 +982,25 @@ async function loadModules() {
 	} catch (e) { /* fall back to the current module only */ }
 }
 
-function chatHistoryPayload() {
-	return messages.value
-		.filter((m) => m.role === "user" || m.role === "assistant")
-		.slice(-10)
-		.map((m) => ({ role: m.role, content: m.content }));
-}
+// WI-001676: chatHistoryPayload / sendMessage / pollTurn / selectOption /
+// onKeydown deleted — the shared panel streams the turn over SSE, so the
+// docu_chat_async enqueue + docu_chat_status poll loop has no client. The
+// backend endpoints stay as deprecated aliases until WI-001679.
+const docuTurnContext = computed(() => ({
+	doctype: dtName.value || props.doctype || "",
+	target_module: dtModule.value || "",
+	process_context: props.processContext || null,
+}));
 
-function errText(e) {
-	return e && (e.message || e._server_messages) ? String(e.message || e._server_messages) : "";
-}
+const hostContextLine = computed(() =>
+	props.doctype
+		? `Happy to help with changes to **${props.doctype}** doctype. How would you like me to assist in redefining it or its fields?`
+		: ""
+);
 
-// A Docu turn runs a 25–50s multi-stage LLM pipeline. Rather than block one HTTP
-// request that long (it times out → "Something went wrong"), we enqueue the turn
-// on the backend and poll docu_chat_status until it finishes.
-async function sendMessage(preset) {
-	const text = (preset ?? inputText.value).trim();
-	if (!text || isTyping.value) return;
-	pushMsg("user", text);
-	inputText.value = "";
-	isTyping.value = true;
-	try {
-		const res = await frappeRequest({
-			url: `${API}docu_chat_async`,
-			method: "POST",
-			params: {
-				message: text,
-				session_id: sessionId.value,
-				conversation_name: conversationName.value || null,
-				// chat_history is JSON-encoded (backend takes str) — matches ProsAlly;
-				// process_context is sent as a raw object (backend takes dict) — matches Logix.
-				chat_history: JSON.stringify(chatHistoryPayload()),
-				doctype: dtName.value || props.doctype || "",
-				target_module: dtModule.value || "",
-				process_context: props.processContext || null,
-			},
-		});
-		if (res?.conversation_name) conversationName.value = res.conversation_name;
-		if (!res?.turn_id) throw new Error("Could not start the request.");
-		pollTurn(res.turn_id);  // resolves the reply asynchronously; keeps the typing indicator up
-	} catch (e) {
-		pushMsg("assistant", errText(e) || "Something went wrong. Please try again.");
-		isTyping.value = false;
-	}
-}
-
-// Poll a backgrounded turn to completion. Cancellable (close/unmount).
-function pollTurn(turnId) {
-	const startedAt = Date.now();
-	const MAX_MS = 600000;   // match the backend job timeout (docu_chat_async enqueue timeout=600s)
-	const INTERVAL = 1800;
-	pollCancelled = false;
-
-	const finish = (fn) => { if (pollCancelled) return; fn(); isTyping.value = false; };
-
-	const tick = async () => {
-		if (pollCancelled) return;
-		try {
-			const st = await frappeRequest({
-				url: `${API}docu_chat_status`,
-				params: { turn_id: turnId },
-			});
-			if (pollCancelled) return;
-
-			if (st?.status === "done") {
-				const r = st.result || {};
-				return finish(() => {
-					if (r.conversation_name) conversationName.value = r.conversation_name;
-					pushMsg("assistant", r.response || "Sorry, I couldn't process that.", { options: r.options || null });
-					if (r.doctype_ir) loadIr(r.doctype_ir);
-				});
-			}
-			if (st?.status === "error") {
-				return finish(() => pushMsg("assistant", `⚠️ ${st.error || "Something went wrong. Please try again."}`));
-			}
-			// 'unknown' right after start = worker hasn't written yet; only treat as lost after a grace period.
-			if (st?.status === "unknown" && Date.now() - startedAt > 15000) {
-				return finish(() => pushMsg("assistant", "I lost track of that request. Please try again."));
-			}
-			if (Date.now() - startedAt > MAX_MS) {
-				return finish(() => pushMsg("assistant", "This is taking longer than usual — it may still finish. Please wait a moment or try again."));
-			}
-			pollTimer = setTimeout(tick, INTERVAL);
-		} catch (e) {
-			// transient network blip — keep polling until the ceiling
-			if (Date.now() - startedAt > MAX_MS) {
-				return finish(() => pushMsg("assistant", errText(e) || "Something went wrong. Please try again."));
-			}
-			pollTimer = setTimeout(tick, INTERVAL);
-		}
-	};
-	tick();
-}
-
-function selectOption(opt) { sendMessage(opt); }
-
-function onKeydown(e) {
-	if (e.key === "Enter" && !e.shiftKey) {
-		e.preventDefault();
-		sendMessage();
+function onDocuCardAction({ name, action, value }) {
+	if (name === "onefm.doctype_schema" && action === "apply-schema" && value.doctype_ir) {
+		loadIr(value.doctype_ir);
 	}
 }
 
@@ -1197,8 +1077,6 @@ function onGlobalKeydown(e) {
 }
 
 function stopPolling() {
-	pollCancelled = true;
-	if (pollTimer) { clearTimeout(pollTimer); pollTimer = null; }
 	if (snapTimer) { clearTimeout(snapTimer); snapTimer = null; }
 	if (autosaveTimer) { clearTimeout(autosaveTimer); autosaveTimer = null; }
 	window.removeEventListener("keydown", onGlobalKeydown, true);
@@ -1225,27 +1103,11 @@ onMounted(async () => {
 	selectForm();
 	loadModules();  // populate the module picker (fire-and-forget)
 	if (props.doctype) {
-		// A doctype is already selected on the shape — load its form builder view
-		// and greet with a change-focused message.
+		// A doctype is already selected on the shape — load its form builder
+		// view. The greeting comes from the docu_agent configuration
+		// (WI-001996); the change-focused line rides as host context.
 		await loadSchema(props.doctype);
-		const dt = props.doctype;
-		pushMsg(
-			"assistant",
-			`Hello, I am **Docu**.\n` +
-			`Happy to help with changes to **${dt}** doctype.\n` +
-			`How would you like me to assist in redefining the **${dt}** doctype or its fields?`,
-		);
-	} else {
-		// No doctype selected on the shape — greet with a create-focused message.
-		pushMsg(
-			"assistant",
-			`Hello, I am **Docu**.\n` +
-			`Happy to help with creating doctypes.\n` +
-			`If the doctype already exists and you just want to make changes, please close this window, ` +
-			`select the doctype in the relevant shape's property panel and click on the "Launch Docu" button again.`,
-		);
 	}
-	nextTick(() => inputEl.value?.focus());
 
 	// Undo/redo: seed the baseline snapshot, then record on every edit.
 	nextTick(() => {
