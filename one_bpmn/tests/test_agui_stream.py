@@ -261,3 +261,51 @@ class TestInvokeAgentStreamSeam(FrappeTestCase):
 		finally:
 			for p in patches:
 				p.stop()
+
+
+class TestBpmnMapResumeRearm(FrappeTestCase):
+	"""WI-001672 resume, map-driven half: a conversation whose instance has
+	completed re-arms through the conditional-start gate and retries — the
+	'reopen the chat' dead end fires only when re-arming genuinely fails."""
+
+	def _invoke(self, delegate_results, rearm):
+		from one_bpmn.api import agent_invocation as ai
+
+		calls = {"delegate": 0}
+
+		def fake_delegate(conversation, message, context=None):
+			calls["delegate"] += 1
+			return delegate_results[min(calls["delegate"], len(delegate_results)) - 1]
+
+		config = {"agent_id": "x", "name": "X", "process_model": "X — Chat"}
+		with (
+			patch("one_bpmn.api.server_script_api.delegate_chat_turn", side_effect=fake_delegate),
+			patch("one_bpmn.one_bpmn.trigger._maybe_start_instance", side_effect=rearm) as spawn,
+			patch("frappe.get_doc", return_value=object()),
+		):
+			from one_bpmn.api.agent_invocation import _run_bpmn_map
+
+			try:
+				result = _run_bpmn_map(config, "CONV-1", "msg", {})
+			except Exception as e:
+				return calls, spawn, e
+			return calls, spawn, result
+
+	def test_dead_instance_rearms_and_retries(self):
+		calls, spawn, result = self._invoke([None, {"response": "back from the dead"}], lambda *a: None)
+		self.assertEqual(result["response"], "back from the dead")
+		self.assertEqual(calls["delegate"], 2)
+		spawn.assert_called_once()
+
+	def test_live_instance_never_rearms(self):
+		calls, spawn, result = self._invoke([{"response": "fine"}], lambda *a: None)
+		self.assertEqual(result["response"], "fine")
+		self.assertEqual(calls["delegate"], 1)
+		spawn.assert_not_called()
+
+	def test_failed_rearm_surfaces_the_reopen_error(self):
+		import frappe as _frappe
+
+		calls, spawn, err = self._invoke([None, None], lambda *a: None)
+		self.assertIsInstance(err, _frappe.ValidationError)
+		self.assertEqual(calls["delegate"], 2)

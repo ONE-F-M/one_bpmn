@@ -40,6 +40,33 @@ def _script_diff(result: dict):
 
 
 @register_extension_translator
+def _test_cases(result: dict):
+	"""Logix: the plain-English test checklist that rides CREATE replies.
+
+	Legacy items carry {scenario, when, expect, inputs, expect_success};
+	the contract keeps the renderable subset — expect_success was never
+	consumed (pass/fail comes from actually running the case)."""
+	checklist = result.get("tests_checklist")
+	if not isinstance(checklist, list):
+		return
+	cases = []
+	for item in checklist:
+		if not isinstance(item, dict):
+			continue
+		inputs = item.get("inputs")
+		case = {"inputs": inputs if isinstance(inputs, dict) else {}}
+		if item.get("scenario"):
+			case["scenario"] = str(item["scenario"])
+		if item.get("when"):
+			case["when"] = str(item["when"])
+		if item.get("expect"):
+			case["expected"] = str(item["expect"])
+		cases.append(case)
+	if cases:
+		yield CustomEvent(name="onefm.test_cases", value={"cases": cases})
+
+
+@register_extension_translator
 def _bpmn_preview(result: dict):
 	"""ProsAlly: generated / modified diagrams, and the removal gate.
 

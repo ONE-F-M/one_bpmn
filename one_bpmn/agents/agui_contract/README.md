@@ -32,6 +32,7 @@ a recorded example, and rendering notes. Summary:
 | `onefm.choice` | any agent | option buttons (panel) |
 | `onefm.proposed_config` / `onefm.proposed_update` | AI Assistant | ProposalCard |
 | `onefm.script_diff` | Logix | ScriptDiffCard |
+| `onefm.test_cases` | Logix | TestCaseCard |
 | `onefm.bpmn_preview` | ProsAlly | DiagramPreviewCard |
 | `onefm.doctype_schema` | Docu | DocTypeSchemaCard |
 | `onefm.table` | any agent | DataTable |

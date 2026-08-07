@@ -254,10 +254,31 @@ def _stream_with_pii_teardown(gen, pii_turn):
 
 
 def _run_bpmn_map(config, conversation, message, context, stream=False):
-	"""Converted agents: the linked process map owns the whole turn."""
+	"""Converted agents: the linked process map owns the whole turn.
+
+	Resume re-arm (WI-001672 "confirm during build", confirmed broken): the
+	insert hook spawns an instance for a NEW conversation, but a resumed
+	conversation's instance has Completed with the map's close branch — so
+	the first turn after a resume used to dead-end on "reopen the chat".
+	When no live instance answers, re-arm through the SAME conditional-start
+	gate the insert hook uses (_maybe_start_instance evaluates the map's own
+	start condition and dedups), then retry the turn once.
+	"""
 	from one_bpmn.api.server_script_api import delegate_chat_turn
 
 	result = delegate_chat_turn(conversation, message, context=context)
+	if result is None and config.get("process_model"):
+		try:
+			from one_bpmn.one_bpmn.trigger import _maybe_start_instance
+
+			_maybe_start_instance(
+				frappe.get_doc("Chat Conversation", conversation), config["process_model"]
+			)
+			result = delegate_chat_turn(conversation, message, context=context)
+		except Exception:
+			frappe.log_error(
+				title="bpmn_map resume re-arm failed", message=frappe.get_traceback()
+			)
 	if result is None:
 		frappe.throw(
 			_("The process for agent '{0}' is not running for this conversation. Please reopen the chat.").format(

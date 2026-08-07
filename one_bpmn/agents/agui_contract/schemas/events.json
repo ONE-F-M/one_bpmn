@@ -88,6 +88,51 @@
 				"summary": "Add a null check before reading employee.department"
 			}
 		},
+		"onefm.test_cases": {
+			"producers": ["logix_agent"],
+			"rendered_as": "TestCaseCard",
+			"notes": "Supersedes the Logix tests_checklist private payload (the transcript-embedded runner LogixCanvas carried before WI-001677). Run calls run_logix_test_case via the host, which owns the linked-script name; the card only renders cases and reports pass/fail. inputs is the exact form_dict the runner replays.",
+			"schema": {
+				"type": "object",
+				"required": ["cases"],
+				"additionalProperties": false,
+				"properties": {
+					"summary": {"type": "string"},
+					"cases": {
+						"type": "array",
+						"minItems": 1,
+						"items": {
+							"type": "object",
+							"required": ["inputs"],
+							"additionalProperties": false,
+							"properties": {
+								"scenario": {"type": "string"},
+								"when": {"type": "string"},
+								"expected": {"type": "string"},
+								"inputs": {"type": "object"}
+							}
+						}
+					}
+				}
+			},
+			"example": {
+				"summary": "Quick checks to confirm the leave validation works",
+				"cases": [
+					{
+						"scenario": "Approves a normal request",
+						"when": "An employee with enough remaining days asks for 5 days of leave",
+						"expected": "The request goes through without complaints",
+						"inputs": {"context_doctype": "Leave Application", "context_docname": "LA-0001", "days_requested": 5}
+					},
+					{
+						"scenario": "Stops an over-limit request",
+						"when": "An employee asks for more days than they have left",
+						"expected": "The script stops and explains the balance is too low",
+						"inputs": {"context_doctype": "Leave Application", "context_docname": "LA-0002", "days_requested": 30}
+					}
+				]
+			}
+		},
 		"onefm.bpmn_preview": {
 			"producers": ["prosally_agent"],
 			"rendered_as": "DiagramPreviewCard",
