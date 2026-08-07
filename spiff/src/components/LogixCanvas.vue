@@ -1,177 +1,20 @@
 <template>
 	<div class="lc-root">
 
-		<!-- ── LEFT: Chat Panel ──────────────────────────────────────── -->
+		<!-- ── LEFT: Chat (WI-001677: the shared AgentChatPanel) ──────────
+		     Both Logix surfaces (this split view and the LogixChat modal) now
+		     embed one implementation. Script changes arrive as
+		     onefm.script_diff cards — CREATE and MODIFY both round-trip; the
+		     apply-target wiring into the editor below is preserved in
+		     onLogixCardAction. DISAMBIGUATE rides the shared onefm.choice. -->
 		<div class="lc-chat-panel">
-
-			<!-- Chat header -->
-			<div class="lc-chat-header">
-				<div class="lc-chat-header-left">
-					<span class="lc-header-avatar">
-						<svg viewBox="0 0 24 24" fill="currentColor" width="16" height="16">
-							<path d="M13 2L3 14h9l-1 8 10-12h-9l1-8z"/>
-						</svg>
-					</span>
-					<span class="lc-header-title">Logix Assistant</span>
-					<span v-if="elementLabel" class="lc-header-chip" :title="elementLabel">{{ elementLabel }}</span>
-				</div>
-				<button class="lc-header-btn" @click="resetChat" title="New conversation">
-					<svg viewBox="0 0 24 24" fill="currentColor" width="15" height="15">
-						<path d="M17.65 6.35A7.958 7.958 0 0 0 12 4c-4.42 0-7.99 3.58-7.99 8s3.57 8 7.99 8c3.73 0 6.84-2.55 7.73-6h-2.08A5.99 5.99 0 0 1 12 18c-3.31 0-6-2.69-6-6s2.69-6 6-6c1.66 0 3.14.69 4.22 1.78L13 11h7V4l-2.35 2.35z"/>
-					</svg>
-				</button>
-			</div>
-
-			<!-- Messages -->
-			<div class="lc-messages" ref="messagesEl">
-				<div v-if="messages.length === 0" class="lc-welcome">
-					<div class="lc-welcome-title">Hello, I am Logix</div>
-					<div class="lc-welcome-sub">Your AI assistant for server scripts</div>
-				</div>
-
-				<div v-for="msg in messages" :key="msg.id" :class="['lc-msg-row', msg.role]">
-					<div v-if="msg.role === 'assistant'" class="lc-avatar">
-						<svg viewBox="0 0 24 24" fill="currentColor">
-							<path d="M13 2L3 14h9l-1 8 10-12h-9l1-8z"/>
-						</svg>
-					</div>
-					<div class="lc-msg-body">
-						<div :class="msg.role === 'user' ? 'lc-bubble-user' : 'lc-bubble-bot'">
-							<template v-for="(part, pi) in parseMessage(msg.content)" :key="pi">
-								<div v-if="part.type === 'text'" v-html="renderMarkdown(part.content)" class="lc-text-part"></div>
-								<div v-else-if="part.type === 'code'" class="lc-code-block">
-									<div class="lc-code-header">
-										<span class="lc-code-lang">{{ part.lang || 'python' }}</span>
-										<button class="lc-copy-btn" @click="copyCode(part.content, `${msg.id}-${pi}`)">
-											<svg viewBox="0 0 24 24" fill="currentColor" width="12" height="12">
-												<path d="M16 1H4c-1.1 0-2 .9-2 2v14h2V3h12V1zm3 4H8c-1.1 0-2 .9-2 2v14c0 1.1.9 2 2 2h11c1.1 0 2-.9 2-2V7c0-1.1-.9-2-2-2zm0 16H8V7h11v14z"/>
-											</svg>
-											{{ copiedIndex === `${msg.id}-${pi}` ? 'Copied!' : 'Copy' }}
-										</button>
-									</div>
-									<pre class="lc-code-pre"><code>{{ part.content }}</code></pre>
-								</div>
-							</template>
-							<div v-if="msg.role === 'assistant'" class="lc-message-actions">
-								<button class="lc-copy-msg-btn" @click="copyMsg(msg.content)" title="Copy">
-									<svg xmlns="http://www.w3.org/2000/svg" width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
-										<rect width="14" height="14" x="8" y="8" rx="2" ry="2"/>
-										<path d="M4 16c-1.1 0-2-.9-2-2V4c0-1.1.9-2 2-2h10c1.1 0 2 .9 2 2"/>
-									</svg>
-								</button>
-							</div>
-						</div>
-						<!-- Diff view for MODIFY -->
-						<div v-if="msg.diffRows?.length" class="lc-split-diff">
-							<div class="lc-split-header">
-								<div class="lc-split-col-label">Original</div>
-								<div class="lc-split-divider-head"></div>
-								<div class="lc-split-col-label">Proposed</div>
-							</div>
-							<div class="lc-split-body">
-								<div v-for="(row, ri) in msg.diffRows" :key="ri" class="lc-split-row">
-									<pre :class="['lc-split-cell', splitCellClass(row, 'left')]">{{ row.left ?? '' }}</pre>
-									<div class="lc-split-divider"></div>
-									<pre :class="['lc-split-cell', splitCellClass(row, 'right')]">{{ row.right ?? '' }}</pre>
-								</div>
-							</div>
-						</div>
-
-						<!-- Tests panel for CREATE -->
-						<div v-if="msg.testsChecklist?.length" class="lc-tests-panel">
-							<div class="lc-tests-header">
-								<svg viewBox="0 0 24 24" fill="currentColor" width="13" height="13"><path d="M9 16.17L4.83 12l-1.42 1.41L9 19 21 7l-1.41-1.41z"/></svg>
-								Let's verify it works
-							</div>
-							<div class="lc-tests-intro">Click "Try this" on each scenario to confirm the script does what you expect.</div>
-							<div class="lc-tests-checklist">
-								<div v-for="(t, ti) in msg.testsChecklist" :key="ti" class="lc-test-item">
-									<div class="lc-test-scenario">{{ t.scenario }}</div>
-									<div class="lc-test-row"><span class="lc-test-label">When</span><span>{{ t.when }}</span></div>
-									<div class="lc-test-row"><span class="lc-test-label">Expect</span><span>{{ t.expect }}</span></div>
-									<div class="lc-test-actions">
-										<button
-											v-if="t.inputs && savedScriptName"
-											class="lc-run-test-btn"
-											:disabled="testRunResults[`${msg.id}-${ti}`]?.loading"
-											@click="runTest(msg.id, ti, t.inputs)"
-										>
-											<span v-if="testRunResults[`${msg.id}-${ti}`]?.loading" class="lc-test-spinner"></span>
-											<span v-else>▶ Try this</span>
-										</button>
-										<div v-if="testRunResults[`${msg.id}-${ti}`] && !testRunResults[`${msg.id}-${ti}`].loading" class="lc-test-result">
-											<span :class="testRunResults[`${msg.id}-${ti}`].passed ? 'lc-test-pass' : 'lc-test-fail'">
-												{{ testRunResults[`${msg.id}-${ti}`].passed ? '✓' : '✗' }}
-												{{ testRunResults[`${msg.id}-${ti}`].summary }}
-											</span>
-										</div>
-									</div>
-								</div>
-							</div>
-						</div>
-
-						<!-- Action buttons -->
-						<div v-if="msg.actions?.length" class="lc-msg-actions">
-							<button
-								v-for="action in msg.actions"
-								:key="action.handler + action.label"
-								:class="['lc-action-btn', action.handler === 'reject_modify' ? 'lc-action-btn--reject' : '']"
-								@click="handleAction(action, msg.id)"
-							>{{ action.label }}</button>
-						</div>
-						<div class="lc-msg-time" :class="msg.role === 'user' ? 'lc-time-right' : 'lc-time-left'">{{ msg.time }}</div>
-					</div>
-				</div>
-
-				<!-- Typing indicator -->
-				<div v-if="isTyping" class="lc-msg-row assistant">
-					<div class="lc-avatar">
-						<svg viewBox="0 0 24 24" fill="currentColor">
-							<path d="M13 2L3 14h9l-1 8 10-12h-9l1-8z"/>
-						</svg>
-					</div>
-					<div class="lc-msg-body">
-						<div class="lc-bubble-bot lc-typing-bubble">
-							<AgentThinkingIndicator />
-						</div>
-					</div>
-				</div>
-			</div>
-
-			<!-- Input (Lumina style) -->
-			<div class="lc-input-area">
-				<div class="lc-toolbar-row">
-					<div class="lc-toolbar">
-						<button class="lc-toolbar-btn" @mousedown.prevent="execCmd('bold')" title="Bold"><b>B</b></button>
-						<button class="lc-toolbar-btn" @mousedown.prevent="execCmd('italic')" title="Italic"><i>I</i></button>
-						<button class="lc-toolbar-btn" @mousedown.prevent="execCmd('underline')" title="Underline"><u>U</u></button>
-						<button class="lc-toolbar-btn" @mousedown.prevent="insertLink" title="Link">
-							<svg viewBox="0 0 24 24" fill="currentColor" width="13" height="13"><path d="M3.9 12c0-1.71 1.39-3.1 3.1-3.1h4V7H7c-2.76 0-5 2.24-5 5s2.24 5 5 5h4v-1.9H7c-1.71 0-3.1-1.39-3.1-3.1zM8 13h8v-2H8v2zm9-6h-4v1.9h4c1.71 0 3.1 1.39 3.1 3.1s-1.39 3.1-3.1 3.1h-4V17h4c2.76 0 5-2.24 5-5s-2.24-5-5-5z"/></svg>
-						</button>
-						<button class="lc-toolbar-btn" @mousedown.prevent="execCmd('insertUnorderedList')" title="Bulleted list">
-							<svg viewBox="0 0 24 24" fill="currentColor" width="13" height="13"><path d="M4 10.5c-.83 0-1.5.67-1.5 1.5s.67 1.5 1.5 1.5 1.5-.67 1.5-1.5-.67-1.5-1.5-1.5zm0-6c-.83 0-1.5.67-1.5 1.5S3.17 7.5 4 7.5 5.5 6.83 5.5 6 4.83 4.5 4 4.5zm0 12c-.83 0-1.5.68-1.5 1.5s.68 1.5 1.5 1.5 1.5-.68 1.5-1.5-.67-1.5-1.5-1.5zM7 19h14v-2H7v2zm0-6h14v-2H7v2zm0-8v2h14V5H7z"/></svg>
-						</button>
-						<button class="lc-toolbar-btn" @mousedown.prevent="execCmd('insertOrderedList')" title="Numbered list">
-							<svg viewBox="0 0 24 24" fill="currentColor" width="13" height="13"><path d="M2 17h2v.5H3v1h1v.5H2v1h3v-4H2v1zm1-9h1V4H2v1h1v3zm-1 3h1.8L2 13.1v.9h3v-1H3.2L5 10.9V10H2v1zm5-6v2h14V5H7zm0 14h14v-2H7v2zm0-6h14v-2H7v2z"/></svg>
-						</button>
-					</div>
-				</div>
-				<div class="lc-editor-row">
-					<div
-						ref="inputEl"
-						class="lc-editor"
-						contenteditable="true"
-						data-placeholder="Describe the script you need… (Enter to send)"
-						@keydown="handleKeydown"
-						@input="onEditorInput"
-					></div>
-					<button class="lc-send-btn" @click="sendMessage" :disabled="!editorHasContent || isTyping" title="Send">
-						<svg viewBox="0 0 24 24" fill="currentColor" width="18" height="18">
-							<path d="M2.01 21L23 12 2.01 3 2 10l15 2-15 2z"/>
-						</svg>
-					</button>
-				</div>
-			</div>
+			<AgentChatPanel
+				agent-id="logix_agent"
+				variant="docked"
+				:context="logixTurnContext"
+				:cards="cardRegistry"
+				@card-action="onLogixCardAction"
+			/>
 		</div>
 
 		<!-- ── CENTER: Code Editor Panel ────────────────────────────── -->
@@ -474,6 +317,10 @@ import { marked } from "marked";
 import CodeMirrorEditor from "./CodeMirrorEditor.vue";
 import AgentThinkingIndicator from "./AgentThinkingIndicator.vue";
 import { frappeRequest } from "frappe-ui";
+// WI-001677: the chat half is the shared AgentChatPanel; script changes
+// arrive as onefm.script_diff cards and apply into the editor below.
+import { AgentChatPanel } from "@/components/chat";
+import { cardRegistry } from "@/components/chat/cards/registry";
 
 marked.setOptions({ gfm: true, breaks: true });
 
@@ -688,6 +535,36 @@ async function linkExistingScript(name) {
 }
 
 // ── Chat state ────────────────────────────────────────────────────────
+// WI-001677: the shared panel owns transcript/composer/lifecycle. The state
+// and handlers below it are the LEGACY chat machinery — template-orphaned as
+// of this migration and retained only until the transcript-embedded
+// test-case runner has a contract event (recorded follow-up); nothing calls
+// sendMessage/handleChatAction from the template any more.
+
+const logixTurnContext = computed(() => ({
+	element_name: elementLabel.value || canvasScriptName.value || "",
+	current_script: props.currentScript || "",
+	process_context: props.processContext || null,
+}));
+
+async function onLogixCardAction({ name, action, value }) {
+	if (name !== "onefm.script_diff" || action !== "apply-script") return;
+	const code = value.modified_script || "";
+	if (!code) return;
+	// Same editor handoff as the legacy approve_modify / approve_create
+	// handlers: set the canvas, mark dirty, save through the one path that
+	// owns naming, linking and version history.
+	if (value.mode === "CREATE" && value.suggested_name && !canvasScriptName.value) {
+		canvasScriptName.value = value.suggested_name;
+	}
+	canvasCode.value = code;
+	editorHasContent.value = true;
+	isDirty.value = true;
+	isSaved.value = false;
+	pendingLogixDescription = value.summary || "Modified by Logix";
+	await saveScript();
+}
+
 const messages          = ref([]);
 const editorHasContent  = ref(false);
 const isTyping          = ref(false);

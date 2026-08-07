@@ -32,155 +32,21 @@
 					</div>
 				</div>
 
-				<!-- ── Messages ───────────────────────────────────────────── -->
-				<div class="lx-messages" ref="messagesEl">
+				<!-- ── Chat (WI-001677: the shared AgentChatPanel) ──────────
+				     Same implementation as the LogixCanvas split view — the two
+				     surfaces now share one panel. Script changes arrive as
+				     onefm.script_diff cards; the create-and-link naming dialog
+				     below is this surface's apply target. -->
+				<AgentChatPanel
+					v-if="modelValue"
+					class="lx-agui-panel"
+					agent-id="logix_agent"
+					variant="modal"
+					:context="logixTurnContext"
+					:cards="cardRegistry"
+					@card-action="onLogixCardAction"
+				/>
 
-					<!-- Welcome state (shown before first message) -->
-					<div v-if="messages.length === 0" class="lx-welcome">
-						<div class="lx-welcome-title">Hello, I am Logix</div>
-						<div class="lx-welcome-sub">Your AI assistant for server scripts</div>
-					</div>
-
-					<div
-						v-for="msg in messages"
-						:key="msg.id"
-						:class="['lx-msg-row', msg.role]"
-					>
-						<!-- Avatar for assistant messages -->
-						<div v-if="msg.role === 'assistant'" class="lx-avatar">
-							<svg viewBox="0 0 24 24" fill="currentColor">
-								<path d="M13 2L3 14h9l-1 8 10-12h-9l1-8z"/>
-							</svg>
-						</div>
-
-						<div class="lx-msg-body">
-							<div :class="msg.role === 'user' ? 'lx-bubble-user' : 'lx-bubble-bot'">
-								<!-- Render parsed parts -->
-								<template v-for="(part, pi) in parseMessage(msg.content)" :key="pi">
-									<div v-if="part.type === 'text'" v-html="renderMarkdown(part.content)" class="lx-text-part"></div>
-									<div v-else-if="part.type === 'code'" class="lx-code-block">
-										<div class="lx-code-header">
-											<span class="lx-code-lang">{{ part.lang || 'python' }}</span>
-											<div class="lx-code-actions">
-												<button class="lx-copy-btn" @click="copyCode(part.content, `${msg.id}-${pi}`)" title="Copy">
-													<svg viewBox="0 0 24 24" fill="currentColor" width="14" height="14">
-														<path d="M16 1H4c-1.1 0-2 .9-2 2v14h2V3h12V1zm3 4H8c-1.1 0-2 .9-2 2v14c0 1.1.9 2 2 2h11c1.1 0 2-.9 2-2V7c0-1.1-.9-2-2-2zm0 16H8V7h11v14z"/>
-													</svg>
-													{{ copiedIndex === `${msg.id}-${pi}` ? 'Copied!' : 'Copy' }}
-												</button>
-												<button
-													v-if="msg.role === 'assistant' && !['CREATE','MODIFY'].includes(msg.intent)"
-													class="lx-apply-btn"
-													@click="openApplyDialog(part.content)"
-												>
-													<svg viewBox="0 0 24 24" fill="currentColor" width="14" height="14">
-														<path d="M9 16.17L4.83 12l-1.42 1.41L9 19 21 7l-1.41-1.41z"/>
-													</svg>
-													Apply Script
-												</button>
-											</div>
-										</div>
-										<pre class="lx-code-pre"><code>{{ part.content }}</code></pre>
-									</div>
-								</template>
-								<!-- Copy button on assistant messages (shows on hover) -->
-								<div v-if="msg.role === 'assistant'" class="lx-message-actions">
-									<button class="lx-copy-msg-btn" @click="copyMessage(msg.content)" title="Copy message">
-										<svg xmlns="http://www.w3.org/2000/svg" width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
-											<rect width="14" height="14" x="8" y="8" rx="2" ry="2"/>
-											<path d="M4 16c-1.1 0-2-.9-2-2V4c0-1.1.9-2 2-2h10c1.1 0 2 .9 2 2"/>
-										</svg>
-									</button>
-								</div>
-							</div>
-							<div class="lx-msg-time" :class="msg.role === 'user' ? 'lx-time-right' : 'lx-time-left'">{{ msg.time }}</div>
-						</div>
-
-						<!-- Split diff view for MODIFY intent -->
-						<div v-if="msg.diffRows?.length" class="lx-split-diff">
-							<div class="lx-split-header">
-								<div class="lx-split-col-label">Original</div>
-								<div class="lx-split-header-divider"></div>
-								<div class="lx-split-col-label">Proposed</div>
-							</div>
-							<div class="lx-split-body">
-								<div v-for="(row, ri) in msg.diffRows" :key="ri" class="lx-split-row">
-									<pre :class="['lx-split-cell', splitCellClass(row, 'left')]">{{ row.left ?? '' }}</pre>
-									<div class="lx-split-divider"></div>
-									<pre :class="['lx-split-cell', splitCellClass(row, 'right')]">{{ row.right ?? '' }}</pre>
-								</div>
-							</div>
-						</div>
-
-						<!-- Inline action buttons -->
-						<div v-if="msg.actions?.length" class="lx-msg-actions">
-							<button
-								v-for="action in msg.actions"
-								:key="action.handler + action.label"
-								class="lx-action-btn"
-								@click="handleMessageAction(action.handler, msg.id, action.value || '')"
-							>{{ action.label }}</button>
-						</div>
-					</div>
-
-					<!-- Typing indicator -->
-					<div v-if="isTyping" class="lx-msg-row assistant">
-						<div class="lx-avatar">
-							<svg viewBox="0 0 24 24" fill="currentColor">
-								<path d="M13 2L3 14h9l-1 8 10-12h-9l1-8z"/>
-							</svg>
-						</div>
-						<div class="lx-msg-body">
-							<div class="lx-bubble-bot lx-typing-bubble">
-								<AgentThinkingIndicator />
-							</div>
-						</div>
-					</div>
-				</div>
-
-				<!-- ── Input area (Lumina style) ──────────────────────────── -->
-				<div class="lx-input-area">
-					<div class="lx-toolbar-row">
-						<div class="lx-toolbar">
-							<button class="lx-toolbar-btn" @mousedown.prevent="execCmd('bold')" title="Bold"><b>B</b></button>
-							<button class="lx-toolbar-btn" @mousedown.prevent="execCmd('italic')" title="Italic"><i>I</i></button>
-							<button class="lx-toolbar-btn" @mousedown.prevent="execCmd('underline')" title="Underline"><u>U</u></button>
-							<button class="lx-toolbar-btn" @mousedown.prevent="insertLink" title="Link">
-								<svg viewBox="0 0 24 24" fill="currentColor" width="14" height="14"><path d="M3.9 12c0-1.71 1.39-3.1 3.1-3.1h4V7H7c-2.76 0-5 2.24-5 5s2.24 5 5 5h4v-1.9H7c-1.71 0-3.1-1.39-3.1-3.1zM8 13h8v-2H8v2zm9-6h-4v1.9h4c1.71 0 3.1 1.39 3.1 3.1s-1.39 3.1-3.1 3.1h-4V17h4c2.76 0 5-2.24 5-5s-2.24-5-5-5z"/></svg>
-							</button>
-							<button class="lx-toolbar-btn" @mousedown.prevent="execCmd('insertUnorderedList')" title="Bulleted list">
-								<svg viewBox="0 0 24 24" fill="currentColor" width="14" height="14"><path d="M4 10.5c-.83 0-1.5.67-1.5 1.5s.67 1.5 1.5 1.5 1.5-.67 1.5-1.5-.67-1.5-1.5-1.5zm0-6c-.83 0-1.5.67-1.5 1.5S3.17 7.5 4 7.5 5.5 6.83 5.5 6 4.83 4.5 4 4.5zm0 12c-.83 0-1.5.68-1.5 1.5s.68 1.5 1.5 1.5 1.5-.68 1.5-1.5-.67-1.5-1.5-1.5zM7 19h14v-2H7v2zm0-6h14v-2H7v2zm0-8v2h14V5H7z"/></svg>
-							</button>
-							<button class="lx-toolbar-btn" @mousedown.prevent="execCmd('insertOrderedList')" title="Numbered list">
-								<svg viewBox="0 0 24 24" fill="currentColor" width="14" height="14"><path d="M2 17h2v.5H3v1h1v.5H2v1h3v-4H2v1zm1-9h1V4H2v1h1v3zm-1 3h1.8L2 13.1v.9h3v-1H3.2L5 10.9V10H2v1zm5-6v2h14V5H7zm0 14h14v-2H7v2zm0-6h14v-2H7v2z"/></svg>
-							</button>
-						</div>
-					</div>
-					<div class="lx-editor-row">
-						<div
-							ref="inputEl"
-							class="lx-editor"
-							contenteditable="true"
-							data-placeholder="Describe the script you need… (Enter to send, Shift+Enter for new line)"
-							@keydown="handleKeydown"
-							@input="onEditorInput"
-						></div>
-						<button
-							class="lx-send-btn"
-							@click="sendMessage"
-							:disabled="!editorHasContent || isTyping"
-							title="Send"
-						>
-							<svg viewBox="0 0 24 24" fill="currentColor" width="20" height="20">
-								<path d="M2.01 21L23 12 2.01 3 2 10l15 2-15 2z"/>
-							</svg>
-						</button>
-					</div>
-				</div>
-			</div>
-		</div>
-
-		<!-- ── Apply Script dialog ─────────────────────────────────────── -->
 		<div v-if="showApplyDialog" class="lx-scrim lx-apply-scrim" @click.self="showApplyDialog = false">
 			<div class="lx-apply-window" role="dialog" aria-modal="true">
 				<div class="lx-apply-header">
@@ -223,6 +89,9 @@ import { ref, computed, watch, nextTick, onUnmounted } from "vue";
 import DOMPurify from "dompurify";
 import { marked } from "marked";
 import { frappeRequest } from "frappe-ui";
+// WI-001677: both Logix surfaces share the panel + card registry.
+import { AgentChatPanel } from "@/components/chat";
+import { cardRegistry } from "@/components/chat/cards/registry";
 import AgentThinkingIndicator from "./AgentThinkingIndicator.vue";
 
 marked.setOptions({ gfm: true, breaks: true });
@@ -244,6 +113,47 @@ const isTyping         = ref(false);
 const sessionId        = ref(generateSessionId());
 const messagesEl       = ref(null);
 const inputEl          = ref(null);
+
+// WI-001677 wiring — the panel owns transcript/composer/lifecycle; this
+// surface owns what "apply" means: CREATE opens the create-and-link naming
+// dialog (prefilled from the card's suggested name), MODIFY updates the
+// linked script in place, both ending on the same eventBus handoff the
+// legacy handlers used. The chat machinery below this block is
+// template-orphaned by the migration and slated for deletion with
+// WI-001679's alias cleanup.
+const logixTurnContext = computed(() => ({
+	element_name: elementLabel.value || "",
+	current_script: localCurrentScript.value || props.currentScript || "",
+	process_context: null,
+}));
+
+async function onLogixCardAction({ name, action, value }) {
+	if (name !== "onefm.script_diff" || action !== "apply-script") return;
+	const code = value.modified_script || "";
+	if (!code) return;
+	const linked = localCurrentScript.value || props.currentScript || "";
+	if (value.mode === "MODIFY" && linked) {
+		try {
+			await frappeRequest({
+				url: "/api/method/one_bpmn.api.server_script_api.update_server_script",
+				params: { script_name: linked, script: code },
+			});
+			if (props.eventBus) {
+				props.eventBus.fire("spiff.script.update", {
+					element: props.element, scriptType: props.scriptType, script: linked,
+				});
+			}
+		} catch (e) {
+			applyError.value = e?.message || String(e);
+		}
+		return;
+	}
+	// CREATE (or MODIFY with nothing linked): the naming dialog is the
+	// apply target — same endpoint, same permission checks as before.
+	applyScriptCode.value = code;
+	applyScriptName.value = value.suggested_name || "";
+	showApplyDialog.value = true;
+}
 
 const showApplyDialog = ref(false);
 const applyScriptName = ref("");
