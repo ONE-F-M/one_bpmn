@@ -321,3 +321,56 @@ _RUNNERS = {
 	"langgraph": _run_langgraph,
 	"direct_api": _run_direct_api,
 }
+
+
+@frappe.whitelist()
+def get_agent_surface(agent_id: str) -> dict:
+	"""Everything the shared AgentChatPanel needs to draw an agent's chat
+	surface, read from AI Agent Configuration (WI-001996) — greeting,
+	composer placeholder, surface classification, starter prompts, label and
+	icon. No agent-specific strings live in components.
+
+	Enforces the same allowed_roles gate as invoking the agent.
+	"""
+	config = _resolve_config(agent_id)
+	_authorize(config, None)
+
+	name = config.get("name") or frappe.db.get_value(
+		"AI Agent Configuration", {"agent_id": agent_id, "enabled": 1}
+	)
+	row = (
+		frappe.db.get_value(
+			"AI Agent Configuration",
+			name,
+			[
+				"agent_name",
+				"chat_mode_label",
+				"icon",
+				"chat_description",
+				"greeting",
+				"composer_placeholder",
+				"surface_type",
+				"artifact_type",
+			],
+			as_dict=True,
+		)
+		or {}
+	)
+	sample_prompts = frappe.get_all(
+		"AI Agent Sample Prompt",
+		filters={"parenttype": "AI Agent Configuration", "parent": name},
+		pluck="prompt",
+		order_by="idx asc",
+		limit=6,
+	)
+	return {
+		"agent_id": agent_id,
+		"label": row.get("chat_mode_label") or row.get("agent_name") or agent_id,
+		"icon": row.get("icon") or "",
+		"description": row.get("chat_description") or "",
+		"greeting": row.get("greeting") or "",
+		"composer_placeholder": row.get("composer_placeholder") or "",
+		"surface_type": row.get("surface_type") or "Conversation",
+		"artifact_type": row.get("artifact_type") or "None",
+		"sample_prompts": sample_prompts,
+	}
