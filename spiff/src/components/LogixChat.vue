@@ -285,7 +285,7 @@ function handleClose() {
 	align-items: center;
 	justify-content: space-between;
 	padding: 12px 16px;
-	background: linear-gradient(135deg, #6c3fe0 0%, #9b59b6 100%);
+	background: linear-gradient(135deg, #171717 0%, #525252 100%);
 	flex-shrink: 0;
 }
 
@@ -373,7 +373,7 @@ function handleClose() {
 }
 
 .lx-apply-header { padding: 20px 24px 0; }
-.lx-apply-title { font-size: 17px; font-weight: 600; color: #1c1b1f; }
+.lx-apply-title { font-size: 17px; font-weight: 600; color: #171717; }
 
 .lx-apply-body {
 	padding: 14px 24px;
@@ -395,12 +395,12 @@ function handleClose() {
 	font-family: inherit;
 	outline: none;
 	background: #fff;
-	color: #1c1b1f;
+	color: #171717;
 	transition: border-color 0.15s;
 }
 
 .lx-apply-input:focus {
-	border-color: #6c3fe0;
+	border-color: #171717;
 	box-shadow: 0 0 0 2px rgba(108,63,224,.15);
 }
 
@@ -422,7 +422,7 @@ function handleClose() {
 .lx-btn-text {
 	border: none;
 	background: transparent;
-	color: #6c3fe0;
+	color: #171717;
 	font-size: 14px;
 	font-weight: 500;
 	font-family: inherit;
@@ -439,7 +439,7 @@ function handleClose() {
 	align-items: center;
 	gap: 6px;
 	border: none;
-	background: linear-gradient(135deg, #6c3fe0 0%, #9b59b6 100%);
+	background: linear-gradient(135deg, #171717 0%, #525252 100%);
 	color: #fff;
 	font-size: 14px;
 	font-weight: 500;

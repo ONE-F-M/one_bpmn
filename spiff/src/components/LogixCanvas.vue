@@ -893,7 +893,7 @@ async function saveScript() {
 .lc-filename {
 	font-size: 13px;
 	font-weight: 500;
-	color: #1c1b1f;
+	color: #171717;
 	white-space: nowrap;
 	overflow: hidden;
 	text-overflow: ellipsis;
@@ -904,12 +904,12 @@ async function saveScript() {
 
 .lc-name-input {
 	flex: 1;
-	border: 1px solid #6c3fe0;
+	border: 1px solid #171717;
 	border-radius: 4px;
 	padding: 2px 8px;
 	font-size: 13px;
 	font-weight: 500;
-	color: #1c1b1f;
+	color: #171717;
 	outline: none;
 	background: #fff;
 }
@@ -945,7 +945,7 @@ async function saveScript() {
 }
 
 .lc-file-btn:hover { background: #f5f5f5; border-color: #ccc; }
-.lc-file-btn--active { background: #f0ebff; border-color: #6c3fe0; color: #6c3fe0; }
+.lc-file-btn--active { background: #f3f3f3; border-color: #171717; color: #171717; }
 
 /* ── Save status in file bar ────────────────────────────────────────── */
 .lc-save-status {
@@ -1033,12 +1033,12 @@ async function saveScript() {
 	padding: 4px 8px;
 	font-size: 12px;
 	outline: none;
-	color: #1c1b1f;
+	color: #171717;
 	background: #fff;
 	box-sizing: border-box;
 }
 
-.lc-script-search-input:focus { border-color: #6c3fe0; box-shadow: 0 0 0 2px rgba(108,63,224,.1); }
+.lc-script-search-input:focus { border-color: #171717; box-shadow: 0 0 0 2px rgba(108,63,224,.1); }
 
 .lc-script-dropdown-list {
 	max-height: 220px;
@@ -1063,11 +1063,11 @@ async function saveScript() {
 }
 
 .lc-script-dropdown-item:last-child { border-bottom: none; }
-.lc-script-dropdown-item:hover { background: #f5f0ff; }
-.lc-script-dropdown-item--active { background: #f0ebff; }
+.lc-script-dropdown-item:hover { background: #f8f8f8; }
+.lc-script-dropdown-item--active { background: #f3f3f3; }
 
 .lc-script-item-icon { flex-shrink: 0; color: #888; }
-.lc-script-item-check { flex-shrink: 0; color: #6c3fe0; margin-left: auto; }
+.lc-script-item-check { flex-shrink: 0; color: #171717; margin-left: auto; }
 
 .lc-script-item-info {
 	flex: 1;
@@ -1077,7 +1077,7 @@ async function saveScript() {
 .lc-script-item-name {
 	font-size: 12px;
 	font-weight: 500;
-	color: #1c1b1f;
+	color: #171717;
 	white-space: nowrap;
 	overflow: hidden;
 	text-overflow: ellipsis;
@@ -1132,12 +1132,12 @@ async function saveScript() {
 	border: 1px solid #ddd;
 	border-radius: 6px;
 	background: #fff;
-	color: #1c1b1f;
+	color: #171717;
 	outline: none;
 	width: 100%;
 }
 .lc-settings-input:focus,
-.lc-settings-select:focus { border-color: #6c3fe0; box-shadow: 0 0 0 2px rgba(108,63,224,.1); }
+.lc-settings-select:focus { border-color: #171717; box-shadow: 0 0 0 2px rgba(108,63,224,.1); }
 .lc-dropdown-backdrop {
 	position: fixed;
 	inset: 0;
@@ -1162,10 +1162,10 @@ async function saveScript() {
 	padding: 5px 10px;
 	font-size: 12px;
 	cursor: pointer;
-	color: #1c1b1f;
+	color: #171717;
 }
-.lc-settings-dropdown-item:hover { background: #f0ebff; color: #6c3fe0; }
-.lc-settings-checkbox { width: 14px; height: 14px; accent-color: #6c3fe0; cursor: pointer; }
+.lc-settings-dropdown-item:hover { background: #f3f3f3; color: #171717; }
+.lc-settings-checkbox { width: 14px; height: 14px; accent-color: #171717; cursor: pointer; }
 
 .lc-settings-slide-enter-active,
 .lc-settings-slide-leave-active { transition: max-height 0.2s ease, opacity 0.2s ease; max-height: 200px; overflow: hidden; }
@@ -1211,7 +1211,7 @@ async function saveScript() {
 	padding: 10px 14px;
 	font-size: 13px;
 	font-weight: 600;
-	color: #1c1b1f;
+	color: #171717;
 	border-bottom: 1px solid #eee;
 	flex-shrink: 0;
 	display: flex;
@@ -1225,7 +1225,7 @@ async function saveScript() {
 	border-radius: 50%;
 	border: none;
 	background: transparent;
-	color: #6c3fe0;
+	color: #171717;
 	cursor: pointer;
 	display: flex;
 	align-items: center;
@@ -1239,7 +1239,7 @@ async function saveScript() {
 	width: 22px;
 	height: 22px;
 	border: 2.5px solid #e0d6f7;
-	border-top-color: #6c3fe0;
+	border-top-color: #171717;
 	border-radius: 50%;
 	animation: lc-spin 0.7s linear infinite;
 }
@@ -1285,8 +1285,8 @@ async function saveScript() {
 .lc-version-item:hover { background: #fafafa; }
 
 .lc-version-active {
-	border-left: 3px solid #6c3fe0;
-	background: #f5f0ff;
+	border-left: 3px solid #171717;
+	background: #f8f8f8;
 }
 
 .lc-version-top {
@@ -1305,11 +1305,11 @@ async function saveScript() {
 .lc-version-num {
 	font-size: 12px;
 	font-weight: 600;
-	color: #1c1b1f;
+	color: #171717;
 }
 
 .lc-active-badge {
-	background: linear-gradient(135deg, #6c3fe0 0%, #9b59b6 100%);
+	background: linear-gradient(135deg, #171717 0%, #525252 100%);
 	color: #fff;
 	font-size: 10px;
 	font-weight: 600;
@@ -1345,7 +1345,7 @@ async function saveScript() {
 	border: none;
 	padding: 0;
 	font-size: 11px;
-	color: #6c3fe0;
+	color: #171717;
 	cursor: pointer;
 	font-family: inherit;
 	text-decoration: underline;
@@ -1378,7 +1378,7 @@ async function saveScript() {
 .lc-inline-diff-header span:first-child { border-right: 1px solid #e0e0e0; }
 
 .lc-inline-diff-body {
-	background: #1c1b1f;
+	background: #171717;
 	max-height: 180px;
 	overflow-y: auto;
 }

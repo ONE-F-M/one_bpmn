@@ -1128,18 +1128,18 @@ onMounted(async () => {
    these so the whole panel reads as one system.
    ══════════════════════════════════════════════════════════════════════ */
 .dc-overlay {
-	--md-primary: #4f46e5;
+	--md-primary: #171717;
 	--md-on-primary: #ffffff;
-	--md-primary-container: #e0e7ff;
-	--md-on-primary-container: #26235f;
-	--md-secondary-container: #e3e2f4;
-	--md-on-secondary-container: #3b3a56;
-	--md-surface: #fdfcff;
+	--md-primary-container: #f3f3f3;
+	--md-on-primary-container: #171717;
+	--md-secondary-container: #ededed;
+	--md-on-secondary-container: #383838;
+	--md-surface: #ffffff;
 	--md-surface-container-lowest: #ffffff;
-	--md-surface-container-low: #f6f5fc;
-	--md-surface-container: #f1f0f8;
-	--md-surface-container-high: #ebeaf3;
-	--md-surface-container-highest: #e5e4ee;
+	--md-surface-container-low: #f8f8f8;
+	--md-surface-container: #f3f3f3;
+	--md-surface-container-high: #ededed;
+	--md-surface-container-highest: #e2e2e2;
 	--md-surface-variant: #e5e1ec;
 	--md-on-surface: #1b1b21;
 	--md-on-surface-variant: #47464f;
@@ -1248,7 +1248,7 @@ onMounted(async () => {
 .dc-settings-title { font-size: 15px; font-weight: 600; color: var(--md-on-surface); margin-bottom: 14px; }
 .dc-settings-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 12px 28px; align-items: start; }
 .dc-settings-grid .dc-prop { margin-bottom: 0; gap: 6px; }
-.dc-settings-grid .dc-prop label { font-size: 13px; font-weight: 600; color: #44546a; }
+.dc-settings-grid .dc-prop label { font-size: 13px; font-weight: 600; color: #525252; }
 .dc-settings-grid .dc-prop-input { border: 1px solid var(--md-outline); border-radius: 8px; background: var(--md-surface-container-lowest); padding: 9px 12px; font-size: 14px; }
 .dc-settings-grid .dc-prop-input:focus { outline: none; border-color: var(--md-primary); box-shadow: inset 0 0 0 1px var(--md-primary); }
 .dc-settings-grid .fb-prop-check { align-self: center; }
@@ -1383,14 +1383,14 @@ onMounted(async () => {
 .fb-props-body { display: flex; flex-direction: column; padding-bottom: 4px; }
 /* Frappe controls: bold-ish label above a soft filled field */
 .fb-props-body .dc-prop { gap: 6px; margin-bottom: 16px; }
-.fb-props-body .dc-prop label { font-size: 13px; font-weight: 600; color: #44546a; }
+.fb-props-body .dc-prop label { font-size: 13px; font-weight: 600; color: #525252; }
 .fb-props-body .dc-prop-input { border: 1px solid transparent; background: var(--md-surface-container-high); border-radius: 8px; padding: 8px 10px; font-size: 13px; }
 .fb-props-body .dc-prop-input:hover { background: color-mix(in srgb, var(--md-on-surface) 3%, var(--md-surface-container-high)); }
 .fb-props-body .dc-prop-input:focus { background: var(--md-surface-container-lowest); border-color: var(--md-primary); box-shadow: inset 0 0 0 1px var(--md-primary); }
 .fb-props-body textarea.dc-prop-input { resize: vertical; min-height: 40px; }
 /* Code / *_depends_on fields read as a small code box */
 .fb-props-body textarea.dc-prop-input.dc-mono { min-height: 54px; background: var(--md-surface-container-high); line-height: 1.5; }
-.fb-prop-check { display: flex; align-items: center; gap: 10px; padding: 7px 4px; font-size: 13px; font-weight: 600; color: #44546a; cursor: pointer; border-radius: 6px; }
+.fb-prop-check { display: flex; align-items: center; gap: 10px; padding: 7px 4px; font-size: 13px; font-weight: 600; color: #525252; cursor: pointer; border-radius: 6px; }
 .fb-prop-check:hover { background: rgba(71,70,79,var(--md-state-hover)); }
 .fb-prop-check input[type="checkbox"] { width: 16px; height: 16px; accent-color: var(--md-primary); cursor: pointer; flex: none; }
 .fb-prop-hint { font-size: 12px; color: #6b7684; line-height: 1.45; margin: 5px 0 0; }
