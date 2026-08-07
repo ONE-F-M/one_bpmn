@@ -1219,6 +1219,23 @@ def build_assistant_turn_context(context: dict) -> dict:
 			grounding.get("current_config") or "{}", catalog
 		),
 	]
+	# Recency wins with LLMs: the emission rules go LAST, after every
+	# reference block. Diagnosed on a live thread (f0llmt6v4c): with the
+	# contract mid-context, the approval turn answered message-only and
+	# claimed it had created the agent — which it cannot do.
+	dialog_context_parts.append(
+		"FINAL OUTPUT RULES (these override anything above):\n"
+		"- You can NEVER create, update or submit anything yourself. Never say "
+		"you created or updated an agent, and never describe a proposal as "
+		"submitted or in validation.\n"
+		"- While details are missing, ask for them via \"message\" only.\n"
+		"- The turn in which the designer APPROVES a complete new-agent "
+		"proposal MUST include \"proposed_config\" in your JSON reply (and "
+		"changes to an existing agent MUST use \"proposed_update\"). The UI "
+		"renders it as a card; creation happens only when the designer "
+		"confirms there. A reply that promises creation without "
+		"\"proposed_config\" is a contract violation."
+	)
 	out = dict(context or {})
 	out["dialog_context"] = "\n\n".join(p for p in dialog_context_parts if p)
 	out["source"] = "task_dialog"
