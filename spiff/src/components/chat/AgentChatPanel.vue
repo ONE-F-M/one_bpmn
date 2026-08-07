@@ -41,6 +41,8 @@
 					v-else-if="item.kind === 'custom' && cards[item.name]"
 					:value="item.value"
 					:busy="busy"
+					:done="!!item.doneAction"
+					:done-action="item.doneAction || ''"
 					:surface-type="surface.surface_type"
 					:artifact-type="surface.artifact_type"
 					@action="(action, payload) => onCardAction(item, action, payload)"
@@ -396,6 +398,9 @@ function answerChoice(item, option) {
 }
 
 function onCardAction(item, action, payload) {
+	// A decision made retires the card's buttons (WI-001673 done-state):
+	// the host applies exactly once, and a stale card cannot re-fire.
+	item.doneAction = action;
 	emit("card-action", { name: item.name, action, value: item.value, payload });
 }
 

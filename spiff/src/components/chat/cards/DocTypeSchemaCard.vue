@@ -1,5 +1,5 @@
 <template>
-	<CardShell :title="title">
+	<CardShell :title="title" :done="done || !!doneAction" :done-text="doneText">
 		<FieldList :fields="fields" />
 		<template #actions>
 			<ActionButton label="Apply to builder" kind="solid" :disabled="busy || done"
@@ -20,7 +20,11 @@ const props = defineProps({
 	value: { type: Object, required: true },
 	busy: { type: Boolean, default: false },
 	done: { type: Boolean, default: false },
+	doneAction: { type: String, default: "" },
+	surfaceType: { type: String, default: "" },
+	artifactType: { type: String, default: "" },
 });
+const doneText = computed(() => ({ "apply-schema": "Applied — builder updated", dismiss: "Discarded — nothing was changed" })[props.doneAction] || (props.done ? "Done" : ""));
 defineEmits(["action"]);
 const fields = computed(() => (props.value.doctype_ir || {}).fields || []);
 const title = computed(() => {

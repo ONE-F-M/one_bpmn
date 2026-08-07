@@ -5,13 +5,20 @@
 			<slot name="head-extra" />
 		</div>
 		<div class="prim-shell-body"><slot /></div>
-		<div v-if="$slots.actions" class="prim-shell-actions"><slot name="actions" /></div>
+		<div v-if="$slots.actions && !done" class="prim-shell-actions"><slot name="actions" /></div>
+		<div v-if="done && doneText" class="prim-shell-done">✓ {{ doneText }}</div>
 	</div>
 </template>
 <script setup>
 // Container primitive (WI-001673): header + body + action bar. Every
-// Document/Form card is CardShell[Heading, body, Row[actions]].
-defineProps({ title: { type: String, default: "" } });
+// Document/Form card is CardShell[Heading, body, Row[actions]]. Once a
+// card's action is taken the buttons retire and a result line takes their
+// place — a decision made cannot be re-made from a stale card.
+defineProps({
+	title: { type: String, default: "" },
+	done: { type: Boolean, default: false },
+	doneText: { type: String, default: "" },
+});
 </script>
 <style scoped>
 .prim-shell { align-self: flex-start; width: 94%; background: var(--shell-bg, #fff);
@@ -21,6 +28,7 @@ defineProps({ title: { type: String, default: "" } });
 .prim-shell-title { font-size: 12px; font-weight: 600; color: #171717; }
 .prim-shell-body { padding: 10px 12px; font-size: 13px; }
 .prim-shell-actions { display: flex; gap: 8px; padding: 10px 12px; border-top: 1px solid #ededed; }
+.prim-shell-done { padding: 10px 12px; border-top: 1px solid #ededed; font-size: 12px; color: #278f5e; }
 :global([data-theme="dark"]) .prim-shell { background: #1c1c1c; border-color: #343434; }
 :global([data-theme="dark"]) .prim-shell-head { background: #232323; border-color: #232323; }
 :global([data-theme="dark"]) .prim-shell-title { color: #f8f8f8; }

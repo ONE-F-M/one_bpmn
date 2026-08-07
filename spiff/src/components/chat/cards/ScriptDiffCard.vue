@@ -1,5 +1,5 @@
 <template>
-	<CardShell :title="title">
+	<CardShell :title="title" :done="done || !!doneAction" :done-text="doneText">
 		<DiffView v-if="value.diff" :diff="value.diff" />
 		<CodeBlock v-else :code="value.modified_script" />
 		<template #actions>
@@ -22,7 +22,11 @@ const props = defineProps({
 	value: { type: Object, required: true },
 	busy: { type: Boolean, default: false },
 	done: { type: Boolean, default: false },
+	doneAction: { type: String, default: "" },
+	surfaceType: { type: String, default: "" },
+	artifactType: { type: String, default: "" },
 });
+const doneText = computed(() => ({ "apply-script": "Applied — editor updated", dismiss: "Discarded — the script is unchanged" })[props.doneAction] || (props.done ? "Done" : ""));
 defineEmits(["action"]);
 const title = computed(() => {
 	const target = props.value.apply_target || props.value.suggested_name;

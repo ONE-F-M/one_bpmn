@@ -1,5 +1,5 @@
 <template>
-	<CardShell :title="isConfig ? 'Create this agent?' : 'Apply these values?'">
+	<CardShell :title="isConfig ? 'Create this agent?' : 'Apply these values?'" :done="done || !!doneAction" :done-text="doneText">
 		<KeyValueTable :rows="rows" />
 		<template #actions>
 			<ActionButton
@@ -25,7 +25,11 @@ const props = defineProps({
 	value: { type: Object, required: true },
 	busy: { type: Boolean, default: false },
 	done: { type: Boolean, default: false },
+	doneAction: { type: String, default: "" },
+	surfaceType: { type: String, default: "" },
+	artifactType: { type: String, default: "" },
 });
+const doneText = computed(() => ({ "confirm-create": "Created and linked", "apply-fields": "Applied to the form", dismiss: "Dismissed — nothing was created" })[props.doneAction] || (props.done ? "Done" : ""));
 defineEmits(["action"]);
 const isConfig = computed(() => !!props.value.proposal);
 const rows = computed(() => props.value.proposal || props.value.fields || {});

@@ -1,5 +1,5 @@
 <template>
-	<CardShell :title="title">
+	<CardShell :title="title" :done="done || !!doneAction" :done-text="doneText">
 		<DiagramThumb :xml="value.bpmn_xml" />
 		<template #actions>
 			<ActionButton :label="applyLabel" kind="solid" :disabled="busy || done"
@@ -23,7 +23,11 @@ const props = defineProps({
 	value: { type: Object, required: true },
 	busy: { type: Boolean, default: false },
 	done: { type: Boolean, default: false },
+	doneAction: { type: String, default: "" },
+	surfaceType: { type: String, default: "" },
+	artifactType: { type: String, default: "" },
 });
+const doneText = computed(() => ({ "apply-diagram": "Applied — canvas updated", dismiss: "Discarded — the diagram is unchanged" })[props.doneAction] || (props.done ? "Done" : ""));
 defineEmits(["action"]);
 const title = computed(() => {
 	const summary = props.value.summary ? ` — ${props.value.summary}` : "";
