@@ -141,8 +141,19 @@ def agent_event_stream(agent_id: str, message: str, conversation: str, context: 
 			agent_id, message, conversation=conversation, context=context or {}, stream=True
 		)
 
+		# SSE has no request-success commit: the whitelisted handler returned
+		# the moment the Response was constructed, so everything the turn
+		# wrote — bot message, workflow state, run rollups — would silently
+		# roll back when the connection closes. Commit inside the stream,
+		# exactly as the production Lumina generator does. (Guarded for the
+		# test runner's transaction isolation.)
+		def _commit_turn():
+			if not frappe.flags.in_test:
+				frappe.db.commit()
+
 		if result.get("streaming"):
 			yield from _relay_child_stream(result["stream"], encoder, message_id)
+			_commit_turn()
 		else:
 			shaper = _REPLY_SHAPERS.get(agent_id)
 			if shaper:
@@ -156,7 +167,10 @@ def agent_event_stream(agent_id: str, message: str, conversation: str, context: 
 			yield encoder.encode(TextMessageEndEvent(message_id=message_id))
 			for event in _extension_events(result):
 				yield encoder.encode(event)
+			_commit_turn()
 	except Exception as e:
+		if not frappe.flags.in_test:
+			frappe.db.rollback()
 		frappe.log_error(title="agui stream error", message=frappe.get_traceback())
 		yield encoder.encode(RunErrorEvent(message=str(e)))
 	finally:
