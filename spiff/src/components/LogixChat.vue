@@ -39,6 +39,7 @@
 				     below is this surface's apply target. -->
 				<AgentChatPanel
 					v-if="modelValue"
+					:key="panelKey"
 					class="lx-agui-panel"
 					agent-id="logix_agent"
 					variant="modal"
@@ -85,16 +86,11 @@
 </template>
 
 <script setup>
-import { ref, computed, watch, nextTick, onUnmounted } from "vue";
-import DOMPurify from "dompurify";
-import { marked } from "marked";
+import { ref, computed, watch } from "vue";
 import { frappeRequest } from "frappe-ui";
 // WI-001677: both Logix surfaces share the panel + card registry.
 import { AgentChatPanel } from "@/components/chat";
 import { cardRegistry } from "@/components/chat/cards/registry";
-import AgentThinkingIndicator from "./AgentThinkingIndicator.vue";
-
-marked.setOptions({ gfm: true, breaks: true });
 
 const props = defineProps({
 	modelValue:    { type: Boolean, default: false },
@@ -106,28 +102,28 @@ const props = defineProps({
 
 const emit = defineEmits(["update:modelValue"]);
 
-// ── State ─────────────────────────────────────────────────────────────
-const messages         = ref([]);
-const editorHasContent = ref(false);
-const isTyping         = ref(false);
-const sessionId        = ref(generateSessionId());
-const messagesEl       = ref(null);
-const inputEl          = ref(null);
+// ── WI-001677 wiring ──────────────────────────────────────────────────
+// The shared panel owns transcript/composer/lifecycle; this surface owns
+// what card actions mean: CREATE opens the create-and-link naming dialog
+// (prefilled from the card's suggested name), MODIFY updates the linked
+// script in place — both ending on the same eventBus handoff the legacy
+// handlers used — and test cases run against the linked script.
 
-// WI-001677 wiring — the panel owns transcript/composer/lifecycle; this
-// surface owns what "apply" means: CREATE opens the create-and-link naming
-// dialog (prefilled from the card's suggested name), MODIFY updates the
-// linked script in place, both ending on the same eventBus handoff the
-// legacy handlers used. The chat machinery below this block is
-// template-orphaned by the migration and slated for deletion with
-// WI-001679's alias cleanup.
+// Bumping the key remounts the panel: the unmount ends the old conversation
+// (panel-owned lifecycle) and the fresh mount greets a new one.
+const panelKey = ref(0);
+
 const logixTurnContext = computed(() => ({
 	element_name: elementLabel.value || "",
 	current_script: localCurrentScript.value || props.currentScript || "",
 	process_context: null,
 }));
 
-async function onLogixCardAction({ name, action, value }) {
+async function onLogixCardAction({ name, action, value, payload }) {
+	if (name === "onefm.test_cases" && action === "run-test") {
+		await runTestCase(payload);
+		return;
+	}
 	if (name !== "onefm.script_diff" || action !== "apply-script") return;
 	const code = value.modified_script || "";
 	if (!code) return;
@@ -155,6 +151,33 @@ async function onLogixCardAction({ name, action, value }) {
 	showApplyDialog.value = true;
 }
 
+// The TestCaseCard renders and requests; the host runs — it owns the
+// linked-script name, so the endpoint call lives here, not in the card.
+async function runTestCase(payload) {
+	const report = payload && typeof payload.onResult === "function" ? payload.onResult : () => {};
+	const linked = localCurrentScript.value || props.currentScript || "";
+	if (!linked) {
+		report({ passed: false, summary: "Create and link the script first — there is nothing to run yet." });
+		return;
+	}
+	try {
+		const result = await frappeRequest({
+			url: "/api/method/one_bpmn.api.server_script_api.run_logix_test_case",
+			method: "POST",
+			params: {
+				script_name: linked,
+				inputs: JSON.stringify(payload.inputs || {}),
+			},
+		});
+		report({
+			passed: result?.passed ?? false,
+			summary: result?.summary || (result?.passed ? "Test passed." : "Test failed."),
+		});
+	} catch (err) {
+		report({ passed: false, summary: "Could not run the test — network error." });
+	}
+}
+
 const showApplyDialog = ref(false);
 const applyScriptName = ref("");
 const applyScriptCode = ref("");
@@ -162,10 +185,7 @@ const applyError      = ref("");
 const applyLoading    = ref(false);
 const applyNameInput  = ref(null);
 
-const copiedIndex        = ref(null);
-const pendingScriptName  = ref("");
 const localCurrentScript = ref("");
-const conversationName   = ref(null);   // persisted Chat Conversation name
 
 // ── Computed helpers ──────────────────────────────────────────────────
 const elementLabel = computed(() => {
@@ -175,396 +195,17 @@ const elementLabel = computed(() => {
 });
 
 // ── Lifecycle ─────────────────────────────────────────────────────────
-watch(() => props.modelValue, (open) => {
-	if (open) {
-		if (messages.value.length === 0) initGreeting();
-		nextTick(() => inputEl.value?.focus());
-	}
-});
-
+// A different BPMN element while the modal is open means a different
+// subject — start a fresh conversation for it.
 watch(
-	() => [props.element?.id, props.currentScript],
-	([newId], [oldId]) => {
-		if (newId && newId !== oldId) {
-			sessionId.value        = generateSessionId();
-			conversationName.value = null;
-			messages.value         = [];
-			initGreeting();
+	() => props.element?.id,
+	(newId, oldId) => {
+		if (newId && oldId && newId !== oldId) {
+			localCurrentScript.value = "";
+			panelKey.value++;
 		}
 	},
 );
-
-// ── Helpers ───────────────────────────────────────────────────────────
-function generateSessionId() {
-	return "logix_" + Date.now() + "_" + Math.random().toString(36).slice(2, 9);
-}
-
-function formatTime(d) {
-	return d.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
-}
-
-function makeId() {
-	return Date.now() + "_" + Math.random().toString(36).slice(2, 7);
-}
-
-function scrollBottom() {
-	nextTick(() => {
-		if (messagesEl.value)
-			messagesEl.value.scrollTop = messagesEl.value.scrollHeight;
-	});
-}
-
-// ── Editor helpers ────────────────────────────────────────────────────
-function onEditorInput() {
-	editorHasContent.value = !!(inputEl.value?.innerText?.trim());
-}
-
-function getEditorText() {
-	return (inputEl.value?.innerText || inputEl.value?.textContent || "").trim();
-}
-
-function clearEditor() {
-	if (inputEl.value) {
-		inputEl.value.innerHTML = "";
-		editorHasContent.value = false;
-	}
-}
-
-function execCmd(cmd) {
-	document.execCommand(cmd, false, null);
-	inputEl.value?.focus();
-}
-
-function insertLink() {
-	const url = prompt("Enter URL:");
-	if (url) document.execCommand("createLink", false, url);
-	inputEl.value?.focus();
-}
-
-// ── Markdown rendering ────────────────────────────────────────────────
-function renderMarkdown(text) {
-	if (!text) return "";
-	const html = marked.parse(text);
-	return DOMPurify.sanitize(html, {
-		ALLOWED_TAGS: ["b","i","u","s","strong","em","strike","del","a","p","br","div","span",
-			"ul","ol","li","h1","h2","h3","h4","h5","h6","code","pre","blockquote","hr",
-			"table","thead","tbody","tr","th","td"],
-		ALLOWED_ATTR: ["href","title","target","rel","src","alt","width","height","class","align"],
-		ALLOWED_URI_REGEXP: /^(?:(?:https?|mailto):)/i,
-	});
-}
-
-// ── Greeting ──────────────────────────────────────────────────────────
-async function initGreeting() {
-	const label = elementLabel.value;
-
-	if (props.currentScript) {
-		messages.value = [{
-			id: makeId(), role: "assistant", time: formatTime(new Date()),
-			content: `Hello, I am Logix.\nHappy to help with the server scripts\nHow would you like me to assist in redefining the **${props.currentScript}** server script?`,
-		}];
-		return;
-	}
-
-	if (label) {
-		try {
-			const data = await frappeRequest({
-				url: "/api/method/one_bpmn.api.server_script_api.check_server_script_exists",
-				params: { script_name: label },
-			});
-			if (data?.exists) {
-				messages.value = [{
-					id: makeId(), role: "assistant", time: formatTime(new Date()),
-					content: `Hello, I am Logix.\nHappy to help with the server scripts\nI found an existing server script named **${label}**. Would you like to link it to this Script Task instead of creating a new one?`,
-					actions: [
-						{ label: "Link existing script", handler: "link_existing" },
-						{ label: "Create new script",    handler: "create_new"    },
-					],
-				}];
-				return;
-			}
-		} catch (_) { /* fall through */ }
-
-		messages.value = [{
-			id: makeId(), role: "assistant", time: formatTime(new Date()),
-			content: `Hello, I am Logix.\nHappy to help with the server scripts\nHow would you like me to assist in defining the **${label}** server script?`,
-		}];
-		return;
-	}
-
-	messages.value = [{
-		id: makeId(), role: "assistant", time: formatTime(new Date()),
-		content: `Hello, I am Logix.\nHappy to help with the server scripts\nDescribe what you'd like the new server script to do and I'll write it for you.`,
-	}];
-}
-
-// ── Message actions ───────────────────────────────────────────────────
-async function handleMessageAction(handler, msgId, value = "") {
-	const label = elementLabel.value;
-	const msg   = messages.value.find(m => m.id === msgId);
-
-	if (handler === "link_existing") {
-		if (props.eventBus) {
-			props.eventBus.fire("spiff.script.update", {
-				element: props.element, scriptType: props.scriptType, script: label,
-			});
-		}
-		if (msg) { msg.actions = null; msg.content += `\n\n**${label}** has been linked to this Script Task.`; }
-		scrollBottom();
-		setTimeout(() => handleClose(), 1200);
-
-	} else if (handler === "create_new") {
-		if (msg) msg.actions = null;
-		messages.value.push({
-			id: makeId(), role: "assistant", time: formatTime(new Date()),
-			content: `How would you like me to assist in defining the **${label}** server script?`,
-		});
-		scrollBottom();
-		nextTick(() => inputEl.value?.focus());
-
-	} else if (handler === "clarify") {
-		if (msg) msg.actions = null;
-		if (inputEl.value) {
-			inputEl.value.innerText = value;
-			editorHasContent.value = true;
-		}
-		sendMessage();
-
-	} else if (handler === "approve_create") {
-		const name = pendingScriptName.value || label;
-		const code = msg?.modified_script || "";
-		if (!name || !code) return;
-		if (msg) msg.actions = null;
-
-		try {
-			const data = await frappeRequest({
-				url: "/api/method/one_bpmn.api.server_script_api.create_server_script",
-				params: { script_name: name, script_type: "API", script: code },
-			});
-			const scriptName = data?.name    || name;
-			const apiUrl     = data?.api_url || "";
-
-			if (props.eventBus) {
-				props.eventBus.fire("spiff.script.update", {
-					element: props.element, scriptType: props.scriptType, script: scriptName,
-				});
-			}
-			pendingScriptName.value  = "";
-			localCurrentScript.value = scriptName;
-			const urlNote = apiUrl ? `\nReachable at \`${apiUrl}\`` : "";
-			messages.value.push({
-				id: makeId(), role: "assistant", time: formatTime(new Date()),
-				content: `Script **${scriptName}** has been created and linked to this task.${urlNote}\n\nYou can now ask me to modify it and I'll show you the changes before saving.`,
-			});
-			scrollBottom();
-			setTimeout(() => handleClose(), 1400);
-		} catch (err) {
-			if (msg) msg.actions = [{ label: "Approve", handler: "approve_create" }];
-			messages.value.push({ id: makeId(), role: "assistant", time: formatTime(new Date()), content: `Failed to create script: ${err.message}` });
-			scrollBottom();
-		}
-
-	} else if (handler === "approve_modify") {
-		const scriptName = props.currentScript;
-		const code       = msg?.modified_script || "";
-		if (!scriptName || !code) return;
-		if (msg) msg.actions = null;
-
-		try {
-			await frappeRequest({
-				url: "/api/method/one_bpmn.api.server_script_api.update_server_script",
-				params: { script_name: scriptName, script: code },
-			});
-			messages.value.push({
-				id: makeId(), role: "assistant", time: formatTime(new Date()),
-				content: `**${scriptName}** has been updated successfully.`,
-			});
-			scrollBottom();
-			setTimeout(() => handleClose(), 1400);
-		} catch (err) {
-			if (msg) msg.actions = [
-				{ label: "Approve & Save", handler: "approve_modify" },
-				{ label: "Reject",         handler: "reject_modify"  },
-			];
-			messages.value.push({ id: makeId(), role: "assistant", time: formatTime(new Date()), content: `Failed to update script: ${err.message}` });
-			scrollBottom();
-		}
-
-	} else if (handler === "reject_modify") {
-		if (msg) { msg.actions = null; msg.diffRows = null; }
-		messages.value.push({
-			id: makeId(), role: "assistant", time: formatTime(new Date()),
-			content: "Changes rejected. The existing script remains unchanged. Let me know if you'd like a different approach.",
-		});
-		scrollBottom();
-		nextTick(() => inputEl.value?.focus());
-	}
-}
-
-// ── Message parsing ───────────────────────────────────────────────────
-function parseMessage(content) {
-	const parts = [];
-	const codeBlockRe = /```(\w*)\n?([\s\S]*?)```/g;
-	let last = 0;
-	let match;
-	while ((match = codeBlockRe.exec(content)) !== null) {
-		if (match.index > last)
-			parts.push({ type: "text", content: content.slice(last, match.index) });
-		parts.push({ type: "code", lang: match[1] || "python", content: match[2].trim() });
-		last = match.index + match[0].length;
-	}
-	if (last < content.length)
-		parts.push({ type: "text", content: content.slice(last) });
-	return parts;
-}
-
-// ── Send / receive ────────────────────────────────────────────────────
-function handleKeydown(e) {
-	if (e.key === "Enter" && !e.shiftKey) {
-		e.preventDefault();
-		sendMessage();
-	}
-}
-
-async function sendMessage() {
-	const text = getEditorText();
-	if (!text || isTyping.value) return;
-
-	clearEditor();
-	messages.value.push({ id: makeId(), role: "user", content: text, time: formatTime(new Date()) });
-	scrollBottom();
-	isTyping.value = true;
-
-	try {
-		const history = messages.value
-			.slice(-10)
-			.map(m => ({ type: m.role, content: m.content }));
-
-		const result = await frappeRequest({
-			url: "/api/method/one_bpmn.api.server_script_api.process_logix_message",
-			params: {
-				message:           text,
-				session_id:        sessionId.value,
-				conversation_name: conversationName.value || null,
-				chat_history:      JSON.stringify(history),
-				element_name:      elementLabel.value || "",
-				current_script:    localCurrentScript.value || props.currentScript || "",
-			},
-		});
-
-		// Capture the conversation name returned by the backend
-		if (result?.conversation_name) conversationName.value = result.conversation_name;
-
-		const reply  = result?.response || "Sorry, I couldn't process that.";
-		const intent = result?.intent;
-		const diff   = result?.diff   || null;
-		const options = result?.options || null;
-
-		if (intent === "CREATE" && result?.suggested_name) {
-			pendingScriptName.value = result.suggested_name;
-		}
-
-		const msg = { id: makeId(), role: "assistant", content: reply, time: formatTime(new Date()), intent };
-
-		if (intent === "DISAMBIGUATE" && options?.length) {
-			msg.actions = options.map(o => ({ label: o, handler: "clarify", value: o }));
-		} else if (intent === "MODIFY") {
-			msg.modified_script = result?.modified_script || extractCode(reply);
-			if (diff) msg.diffRows = parseSplitDiff(diff);
-			msg.actions = [
-				{ label: "Approve & Save", handler: "approve_modify" },
-				{ label: "Reject",         handler: "reject_modify"  },
-			];
-		} else if (intent === "CREATE") {
-			msg.modified_script = result?.modified_script || extractCode(reply);
-			msg.actions = [{ label: "Approve", handler: "approve_create" }];
-		}
-
-		messages.value.push(msg);
-	} catch (err) {
-		console.error("Logix error:", err);
-		messages.value.push({
-			id:      makeId(),
-			role:    "assistant",
-			content: "Sorry, I encountered an error. Please try again.",
-			time:    formatTime(new Date()),
-		});
-	} finally {
-		isTyping.value = false;
-		scrollBottom();
-		nextTick(() => inputEl.value?.focus());
-	}
-}
-
-// ── Diff helpers ──────────────────────────────────────────────────────
-function extractCode(text) {
-	const m = (text || "").match(/```python\s*\n([\s\S]*?)```/);
-	return m ? m[1].trim() : (text || "").trim();
-}
-
-function parseSplitDiff(unifiedDiff) {
-	const rows  = [];
-	const lines = (unifiedDiff || "").split("\n");
-	let i = 0;
-	while (i < lines.length && (lines[i].startsWith("---") || lines[i].startsWith("+++"))) i++;
-	while (i < lines.length) {
-		const line = lines[i];
-		if (!line || line.startsWith("\\")) { i++; continue; }
-		if (line.startsWith("@@")) {
-			rows.push({ type: "hunk", left: line, right: line });
-			i++; continue;
-		}
-		if (line.startsWith("-")) {
-			const left = line.slice(1);
-			if (i + 1 < lines.length && lines[i + 1].startsWith("+")) {
-				rows.push({ type: "changed", left, right: lines[i + 1].slice(1) });
-				i += 2;
-			} else {
-				rows.push({ type: "deleted", left, right: null });
-				i++;
-			}
-		} else if (line.startsWith("+")) {
-			rows.push({ type: "added", left: null, right: line.slice(1) });
-			i++;
-		} else {
-			const text = line.startsWith(" ") ? line.slice(1) : line;
-			rows.push({ type: "unchanged", left: text, right: text });
-			i++;
-		}
-	}
-	return rows;
-}
-
-function splitCellClass(row, side) {
-	if (row.type === "hunk")      return "lx-sdiff-hunk";
-	if (row.type === "unchanged") return "";
-	if (row.type === "deleted")   return side === "left"  ? "lx-sdiff-del"  : "lx-sdiff-empty";
-	if (row.type === "added")     return side === "right" ? "lx-sdiff-add"  : "lx-sdiff-empty";
-	if (row.type === "changed")   return side === "left"  ? "lx-sdiff-del"  : "lx-sdiff-add";
-	return "";
-}
-
-// ── Copy helpers ──────────────────────────────────────────────────────
-async function copyCode(code, index) {
-	try {
-		await navigator.clipboard.writeText(code);
-		copiedIndex.value = index;
-		setTimeout(() => { copiedIndex.value = null; }, 2000);
-	} catch { /* fallback */ }
-}
-
-async function copyMessage(content) {
-	try { await navigator.clipboard.writeText(content); } catch { /* fallback */ }
-}
-
-// ── Apply script ──────────────────────────────────────────────────────
-function openApplyDialog(code) {
-	applyScriptCode.value = code;
-	applyScriptName.value = pendingScriptName.value || "";
-	applyError.value      = "";
-	showApplyDialog.value = true;
-	nextTick(() => applyNameInput.value?.focus());
-}
 
 async function applyScript() {
 	const name = applyScriptName.value.trim();
@@ -578,8 +219,7 @@ async function applyScript() {
 			url: "/api/method/one_bpmn.api.server_script_api.create_server_script",
 			params: { script_name: name, script_type: "API", script: applyScriptCode.value },
 		});
-		const scriptName = data?.name    || name;
-		const apiUrl     = data?.api_url || "";
+		const scriptName = data?.name || name;
 
 		if (props.eventBus) {
 			props.eventBus.fire("spiff.script.update", {
@@ -589,17 +229,8 @@ async function applyScript() {
 			});
 		}
 
-		pendingScriptName.value = "";
-		showApplyDialog.value   = false;
-
-		const urlNote = apiUrl ? `\nReachable at \`${apiUrl}\`` : "";
-		messages.value.push({
-			id:      makeId(),
-			role:    "assistant",
-			content: `Script **${scriptName}** has been created and linked to this task.${urlNote}`,
-			time:    formatTime(new Date()),
-		});
-		scrollBottom();
+		localCurrentScript.value = scriptName;
+		showApplyDialog.value    = false;
 		setTimeout(() => handleClose(), 1400);
 	} catch (err) {
 		applyError.value = err.message || "Failed to create script. Please try again.";
@@ -609,36 +240,17 @@ async function applyScript() {
 }
 
 // ── Reset / close ─────────────────────────────────────────────────────
-// Close the active Chat Conversation on the backend so its BPMN orchestration
-// runs the close branch (Cleanup → Conversation Ended). Fire-and-forget.
-function endConversation() {
-	const convName = conversationName.value;
-	if (!convName) return;
-	conversationName.value = null;
-	frappeRequest({
-		url: "/api/method/one_bpmn.api.server_script_api.end_chat_conversation",
-		params: { conversation_name: convName },
-	}).catch(() => {});
-}
-
+// Conversation teardown is panel-owned: unmounting the AgentChatPanel ends
+// the active Chat Conversation on the backend, so closing the modal (v-if)
+// or remounting via panelKey covers both paths.
 function resetConversation() {
-	endConversation();
-	sessionId.value          = generateSessionId();
-	conversationName.value   = null;
-	messages.value           = [];
 	localCurrentScript.value = "";
-	clearEditor();
-	initGreeting();
+	panelKey.value++;
 }
 
 function handleClose() {
-	endConversation();
 	emit("update:modelValue", false);
 }
-
-onUnmounted(() => {
-	endConversation();
-});
 </script>
 
 <style scoped>
@@ -747,349 +359,6 @@ onUnmounted(() => {
 .lx-icon-btn:hover { background: rgba(255,255,255,0.28); }
 .lx-icon-btn svg { display: block; }
 
-/* ── Messages area ──────────────────────────────────────────────────── */
-.lx-messages {
-	flex: 1;
-	overflow-y: auto;
-	padding: 24px;
-	background: #fff;
-	display: flex;
-	flex-direction: column;
-	gap: 18px;
-}
-
-.lx-messages::-webkit-scrollbar { width: 6px; }
-.lx-messages::-webkit-scrollbar-track { background: transparent; }
-.lx-messages::-webkit-scrollbar-thumb { background: #ddd; border-radius: 3px; }
-
-/* ── Welcome state ──────────────────────────────────────────────────── */
-.lx-welcome {
-	display: flex;
-	flex-direction: column;
-	align-items: center;
-	justify-content: center;
-	flex: 1;
-	text-align: center;
-	padding-top: 60px;
-}
-
-.lx-welcome-title {
-	font-size: 1.4em;
-	color: #444;
-	font-weight: 500;
-	margin-bottom: 8px;
-}
-
-.lx-welcome-sub {
-	font-size: 1em;
-	color: #888;
-}
-
-/* ── Individual message row ─────────────────────────────────────────── */
-.lx-msg-row {
-	display: flex;
-	flex-direction: row;
-	gap: 10px;
-	align-items: flex-start;
-	width: 100%;
-}
-
-.lx-msg-row.user      { flex-direction: row-reverse; }
-.lx-msg-row.assistant { /* full width by default */ }
-
-/* ── Avatar ─────────────────────────────────────────────────────────── */
-.lx-avatar {
-	width: 32px;
-	height: 32px;
-	border-radius: 50%;
-	background: linear-gradient(135deg, #6c3fe0 0%, #9b59b6 100%);
-	display: flex;
-	align-items: center;
-	justify-content: center;
-	flex-shrink: 0;
-	margin-top: 2px;
-	color: #fff;
-}
-
-.lx-avatar svg {
-	width: 16px;
-	height: 16px;
-	fill: #fff;
-}
-
-.lx-msg-body {
-	display: flex;
-	flex-direction: column;
-	gap: 4px;
-	min-width: 0;
-}
-
-.lx-msg-row.user .lx-msg-body      { align-items: flex-end; max-width: 75%; }
-.lx-msg-row.assistant .lx-msg-body { align-items: flex-start; max-width: calc(100% - 44px); }
-
-/* ── Bubbles (Lumina style) ─────────────────────────────────────────── */
-.lx-bubble-user {
-	background: linear-gradient(135deg, #6c3fe0 0%, #9b59b6 100%);
-	color: #fff;
-	padding: 12px 18px;
-	border-radius: 18px 18px 4px 18px;
-	font-size: 1em;
-	box-shadow: 0 2px 8px rgba(108, 63, 224, 0.25);
-	overflow-wrap: break-word;
-	word-break: break-word;
-	position: relative;
-}
-
-.lx-bubble-bot {
-	background: #f7f7fa;
-	color: #000;
-	padding: 12px 18px;
-	border-radius: 18px 18px 18px 4px;
-	font-size: 1em;
-	box-shadow: 0 2px 8px rgba(0, 0, 0, 0.04);
-	overflow-wrap: break-word;
-	word-break: break-word;
-	position: relative;
-	display: flex;
-	flex-direction: column;
-}
-
-/* ── Text parts ─────────────────────────────────────────────────────── */
-.lx-text-part {
-	margin: 0;
-	line-height: 1.55;
-}
-
-.lx-text-part :deep(p) { margin: 0 0 6px; }
-.lx-text-part :deep(p:last-child) { margin-bottom: 0; }
-.lx-text-part :deep(ul), .lx-text-part :deep(ol) { margin: 4px 0 4px 1.2em; }
-.lx-text-part :deep(code) {
-	background: #f0f0f0;
-	border-radius: 3px;
-	padding: 1px 4px;
-	font-family: monospace;
-	font-size: 0.9em;
-}
-
-/* ── Timestamp ──────────────────────────────────────────────────────── */
-.lx-msg-time {
-	font-size: 0.82em;
-	color: #888;
-	margin-top: 3px;
-}
-
-.lx-time-right { text-align: right; }
-.lx-time-left  { text-align: left; }
-
-/* ── Message copy button (appears on hover) ─────────────────────────── */
-.lx-message-actions {
-	margin-top: 8px;
-	display: flex;
-	gap: 8px;
-	opacity: 0.5;
-	transition: opacity 0.2s;
-}
-
-.lx-bubble-bot:hover .lx-message-actions { opacity: 1; }
-
-.lx-copy-msg-btn {
-	background: transparent;
-	border: none;
-	padding: 3px;
-	cursor: pointer;
-	color: #777;
-	display: flex;
-	align-items: center;
-	border-radius: 4px;
-	transition: background 0.18s, color 0.18s;
-}
-
-.lx-copy-msg-btn:hover {
-	background: rgba(0, 0, 0, 0.08);
-	color: #333;
-}
-
-/* ── Inline code ────────────────────────────────────────────────────── */
-:deep(.lx-inline-code) {
-	background: #f0f0f0;
-	border-radius: 4px;
-	padding: 1px 5px;
-	font-family: monospace;
-	font-size: 0.9em;
-}
-
-/* ── Code block ─────────────────────────────────────────────────────── */
-.lx-code-block {
-	margin: 8px -4px 4px;
-	border-radius: 8px;
-	overflow: hidden;
-	border: 1px solid #e0e0e0;
-}
-
-.lx-code-header {
-	display: flex;
-	align-items: center;
-	justify-content: space-between;
-	padding: 6px 12px;
-	background: #f5f5f5;
-}
-
-.lx-code-lang {
-	font-size: 11px;
-	font-weight: 600;
-	color: #555;
-	text-transform: uppercase;
-	letter-spacing: .5px;
-	font-family: monospace;
-}
-
-.lx-code-actions {
-	display: flex;
-	align-items: center;
-	gap: 6px;
-}
-
-.lx-copy-btn,
-.lx-apply-btn {
-	display: flex;
-	align-items: center;
-	gap: 4px;
-	border: none;
-	border-radius: 6px;
-	padding: 4px 10px;
-	font-size: 12px;
-	font-weight: 500;
-	cursor: pointer;
-	transition: background 0.18s;
-	font-family: inherit;
-}
-
-.lx-copy-btn {
-	background: rgba(0,0,0,.06);
-	color: #444;
-}
-
-.lx-copy-btn:hover { background: rgba(0,0,0,.12); }
-
-.lx-apply-btn {
-	background: linear-gradient(135deg, #6c3fe0 0%, #9b59b6 100%);
-	color: #fff;
-}
-
-.lx-apply-btn:hover { opacity: 0.88; }
-
-.lx-code-pre {
-	margin: 0;
-	padding: 14px 16px;
-	background: #1c1b1f;
-	color: #e6e1e5;
-	font-family: "JetBrains Mono", "Cascadia Code", "Fira Code", monospace;
-	font-size: 13px;
-	line-height: 1.6;
-	overflow-x: auto;
-	white-space: pre;
-}
-
-/* ── Typing indicator ───────────────────────────────────────────────── */
-.lx-typing-bubble {
-	padding: 14px 18px !important;
-}
-
-/* ── Input area ─────────────────────────────────────────────────────── */
-.lx-input-area {
-	background: #fff;
-	border-top: 1px solid #eee;
-	flex-shrink: 0;
-	padding: 8px 16px 12px;
-}
-
-.lx-toolbar-row {
-	margin-bottom: 6px;
-}
-
-.lx-toolbar {
-	display: flex;
-	align-items: center;
-	gap: 2px;
-}
-
-.lx-toolbar-btn {
-	background: transparent;
-	border: 1px solid transparent;
-	border-radius: 4px;
-	padding: 3px 7px;
-	font-size: 13px;
-	color: #444;
-	cursor: pointer;
-	line-height: 1;
-	display: flex;
-	align-items: center;
-	justify-content: center;
-	min-width: 28px;
-	min-height: 26px;
-	transition: background 0.15s, border-color 0.15s;
-}
-
-.lx-toolbar-btn:hover {
-	background: #f0f0f0;
-	border-color: #ddd;
-}
-
-.lx-editor-row {
-	display: flex;
-	align-items: flex-start;
-	gap: 10px;
-	padding-bottom: 4px;
-}
-
-.lx-editor {
-	flex: 1;
-	border: 1px solid #d1d8dd;
-	border-radius: 6px;
-	padding: 8px 12px;
-	font-size: 14px;
-	font-family: inherit;
-	min-height: 40px;
-	max-height: 120px;
-	overflow-y: auto;
-	outline: none;
-	line-height: 1.5;
-	color: #1c1b1f;
-	background: #fff;
-	transition: border-color 0.15s, box-shadow 0.15s;
-	word-break: break-word;
-}
-
-.lx-editor:focus {
-	border-color: #80bdff;
-	box-shadow: 0 0 0 0.2rem rgba(0, 123, 255, 0.2);
-}
-
-.lx-editor:empty::before {
-	content: attr(data-placeholder);
-	color: #6c757d;
-	pointer-events: none;
-	display: block;
-}
-
-.lx-send-btn {
-	width: 40px;
-	height: 40px;
-	border-radius: 50%;
-	background: linear-gradient(135deg, #6c3fe0 0%, #9b59b6 100%);
-	border: none;
-	color: #fff;
-	display: flex;
-	align-items: center;
-	justify-content: center;
-	cursor: pointer;
-	flex-shrink: 0;
-	transition: opacity 0.18s, transform 0.12s;
-}
-
-.lx-send-btn:hover:not(:disabled) { opacity: 0.88; transform: scale(1.06); }
-.lx-send-btn:active:not(:disabled) { opacity: 0.75; transform: scale(.97); }
-.lx-send-btn:disabled { background: #ccc; cursor: not-allowed; }
 
 /* ── Apply dialog ───────────────────────────────────────────────────── */
 .lx-apply-scrim { z-index: 10000; }
@@ -1197,97 +466,5 @@ onUnmounted(() => {
 
 @keyframes lx-spin { to { transform: rotate(360deg); } }
 
-/* ── Inline message action buttons ───────────────────────────────── */
-.lx-msg-actions {
-	display: flex;
-	gap: 8px;
-	margin-top: 8px;
-	flex-wrap: wrap;
-}
-
-.lx-action-btn {
-	padding: 5px 14px;
-	border-radius: 20px;
-	border: 1.5px solid #6c3fe0;
-	background: transparent;
-	color: #6c3fe0;
-	font-size: 13px;
-	font-weight: 500;
-	cursor: pointer;
-	transition: background 0.15s, color 0.15s, border-color 0.15s;
-}
-
-.lx-action-btn:hover {
-	background: linear-gradient(135deg, #6c3fe0 0%, #9b59b6 100%);
-	color: #fff;
-	border-color: transparent;
-}
-
-/* ── Split diff view (MODIFY intent) ──────────────────────────────── */
-.lx-split-diff {
-	margin-top: 10px;
-	border: 1px solid #e0e0e0;
-	border-radius: 8px;
-	overflow: hidden;
-	width: 100%;
-}
-
-.lx-split-header {
-	display: grid;
-	grid-template-columns: minmax(0, 1fr) 2px minmax(0, 1fr);
-	background: #f5f5f5;
-	border-bottom: 1px solid #d0d0d0;
-}
-
-.lx-split-col-label {
-	padding: 6px 12px;
-	font-weight: 600;
-	font-size: 11px;
-	color: #555;
-	letter-spacing: 0.05em;
-	text-transform: uppercase;
-}
-
-.lx-split-header-divider {
-	background: #d0d0d0;
-	width: 2px;
-}
-
-.lx-split-body {
-	background: #1c1b1f;
-	max-height: 420px;
-	overflow-y: auto;
-	overflow-x: hidden;
-}
-
-.lx-split-row {
-	display: grid;
-	grid-template-columns: minmax(0, 1fr) 2px minmax(0, 1fr);
-	border-bottom: 1px solid rgba(255,255,255,0.04);
-	min-height: 22px;
-}
-
-.lx-split-divider {
-	background: #444;
-	width: 2px;
-	flex-shrink: 0;
-}
-
-.lx-split-cell {
-	margin: 0;
-	padding: 2px 12px;
-	font-family: "JetBrains Mono", "Fira Code", monospace;
-	font-size: 12px;
-	line-height: 1.6;
-	color: #e6e1e5;
-	white-space: pre;
-	overflow: hidden;
-	text-overflow: ellipsis;
-	min-width: 0;
-}
-
-.lx-sdiff-del   { background: rgba(240,80,80,0.22);   color: #ff9a9a; }
-.lx-sdiff-add   { background: rgba(80,200,80,0.18);   color: #7ee89e; }
-.lx-sdiff-hunk  { background: rgba(144,202,249,0.10); color: #90caf9; font-style: italic; }
 .lx-sdiff-empty { background: rgba(255,255,255,0.02); }
 </style>

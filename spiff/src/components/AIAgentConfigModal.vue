@@ -1669,11 +1669,14 @@ async function save() {
 
 /* Right column — assistant */
 .assistant-panel {
+  /* Consistent-side decision (2026-08-08): chat LEFT, work surface RIGHT
+     on every agent surface — Logix and Docu already sat this way. */
+  order: -1;
   flex: 0 0 340px;
   display: flex;
   flex-direction: column;
   background: #f8f8f8;
-  border-left: 1px solid #e2e2e2;
+  border-right: 1px solid #e2e2e2;
   max-height: 90vh;
 }
 

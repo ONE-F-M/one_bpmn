@@ -11,11 +11,13 @@ import DiagramPreviewCard from "./DiagramPreviewCard.vue";
 import DocTypeSchemaCard from "./DocTypeSchemaCard.vue";
 import ProposalCard from "./ProposalCard.vue";
 import ScriptDiffCard from "./ScriptDiffCard.vue";
+import TestCaseCard from "./TestCaseCard.vue";
 
 export const cardRegistry = {
 	"onefm.proposed_config": ProposalCard,
 	"onefm.proposed_update": ProposalCard,
 	"onefm.script_diff": ScriptDiffCard,
+	"onefm.test_cases": TestCaseCard,
 	"onefm.bpmn_preview": DiagramPreviewCard,
 	"onefm.doctype_schema": DocTypeSchemaCard,
 	"onefm.table": DataTableCard,

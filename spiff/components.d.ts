@@ -60,6 +60,7 @@ declare module 'vue' {
     Row: typeof import('./src/components/chat/primitives/Row.vue')['default']
     ScriptDiffCard: typeof import('./src/components/chat/cards/ScriptDiffCard.vue')['default']
     Stack: typeof import('./src/components/chat/primitives/Stack.vue')['default']
+    TestCaseCard: typeof import('./src/components/chat/cards/TestCaseCard.vue')['default']
     TextBlock: typeof import('./src/components/chat/primitives/TextBlock.vue')['default']
     UserFilter: typeof import('./src/components/UserFilter.vue')['default']
     VersionDiffDialog: typeof import('./src/components/VersionDiffDialog.vue')['default']
