@@ -339,7 +339,11 @@
              (No wrapper <template> here: a bare template element is native
              HTML and Vue does not render its children.) -->
         <!-- Context controls -->
-        <div class="assistant-context" :class="{ 'assistant-context--gray': !isSelector }">
+        <!-- WI-001674 follow-up: the assistant's toolbox includes schema and
+             record lookups, so the manual Context DocType / Sample Record
+             grounding is redundant in agent mode — it asks the platform
+             itself. Selector mode still uses the manual grounding. -->
+        <div v-if="isSelector" class="assistant-context">
             <div class="ctx-row">
               <label>Context DocType <span class="hint">(optional)</span></label>
               <div class="ctx-autocomplete">
@@ -719,8 +723,6 @@ const chatPanel = ref(null);
 // server-side, exactly as the legacy path did.
 const assistantTurnContext = computed(() => ({
   assistant_dialog: {
-    context_doctype: (contextDoctype.value || "").trim(),
-    context_docname: (contextDocname.value || "").trim(),
     linked_config: form.value.aiAgentConfig || "",
     current_config: JSON.stringify({
       aiModel: form.value.aiModel,
@@ -1568,15 +1570,15 @@ async function save() {
 
 .modal-header {
   padding: 16px 20px;
-  border-bottom: 1px solid #e2e8f0;
+  border-bottom: 1px solid #e2e2e2;
   display: flex;
   justify-content: space-between;
   align-items: center;
 }
 
 .modal-header h3 { margin: 0; font-size: 1rem; font-weight: 600; }
-.close-btn { background: none; border: none; font-size: 1.1rem; cursor: pointer; color: #64748b; }
-.close-btn:hover { color: #0f172a; }
+.close-btn { background: none; border: none; font-size: 1.1rem; cursor: pointer; color: #7c7c7c; }
+.close-btn:hover { color: #171717; }
 
 .modal-body {
   padding: 20px;
@@ -1617,7 +1619,7 @@ async function save() {
 .checkbox-input {
   width: 16px;
   height: 16px;
-  accent-color: #6366f1;
+  accent-color: #171717;
   cursor: pointer;
   flex-shrink: 0;
 }
@@ -1631,7 +1633,7 @@ async function save() {
 .field-row select:focus,
 .field-row textarea:focus {
   outline: none;
-  border-color: #6366f1;
+  border-color: #171717;
   box-shadow: 0 0 0 2px rgba(99, 102, 241, 0.15);
 }
 
@@ -1647,7 +1649,7 @@ async function save() {
 
 .modal-footer {
   padding: 12px 20px;
-  border-top: 1px solid #e2e8f0;
+  border-top: 1px solid #e2e2e2;
   display: flex;
   justify-content: flex-end;
   gap: 8px;
@@ -1660,35 +1662,35 @@ async function save() {
   cursor: pointer;
   border: none;
 }
-.btn-cancel { background: #f1f5f9; color: #475569; }
-.btn-cancel:hover { background: #e2e8f0; }
-.btn-save { background: #6366f1; color: white; }
-.btn-save:hover { background: #4f46e5; }
+.btn-cancel { background: #f3f3f3; color: #525252; }
+.btn-cancel:hover { background: #e2e2e2; }
+.btn-save { background: #171717; color: white; }
+.btn-save:hover { background: #171717; }
 
 /* Right column — assistant */
 .assistant-panel {
   flex: 0 0 340px;
   display: flex;
   flex-direction: column;
-  background: #f8fafc;
-  border-left: 1px solid #e2e8f0;
+  background: #f8f8f8;
+  border-left: 1px solid #e2e2e2;
   max-height: 90vh;
 }
 
 .assistant-header {
   padding: 16px 18px;
-  border-bottom: 1px solid #e2e8f0;
+  border-bottom: 1px solid #e2e2e2;
   display: flex;
   align-items: baseline;
   gap: 8px;
 }
-.assistant-title { font-size: 0.92rem; font-weight: 600; color: #4338ca; }
-.assistant-sub { font-size: 0.72rem; color: #94a3b8; }
+.assistant-title { font-size: 0.92rem; font-weight: 600; color: #383838; }
+.assistant-sub { font-size: 0.72rem; color: #999999; }
 
 .assistant-disabled {
   padding: 24px 18px;
   font-size: 0.82rem;
-  color: #64748b;
+  color: #7c7c7c;
   line-height: 1.5;
 }
 
@@ -1700,7 +1702,7 @@ async function save() {
   gap: 8px;
 }
 .ctx-row { display: flex; flex-direction: column; gap: 3px; }
-.ctx-row label { font-size: 0.72rem; font-weight: 500; color: #475569; }
+.ctx-row label { font-size: 0.72rem; font-weight: 500; color: #525252; }
 .ctx-row .hint { font-weight: 400; color: #9ca3af; }
 .ctx-row input {
   padding: 5px 7px;
@@ -1709,13 +1711,13 @@ async function save() {
   font-size: 0.8rem;
   font-family: inherit;
 }
-.ctx-hint { font-size: 0.68rem; color: #94a3b8; line-height: 1.4; }
+.ctx-hint { font-size: 0.68rem; color: #999999; line-height: 1.4; }
 
 .ctx-autocomplete { position: relative; }
 .ctx-autocomplete input { width: 100%; box-sizing: border-box; }
 .ctx-autocomplete input:disabled {
-  background: #f1f5f9;
-  color: #94a3b8;
+  background: #f3f3f3;
+  color: #999999;
   cursor: not-allowed;
 }
 .ctx-dropdown {
@@ -1737,10 +1739,10 @@ async function save() {
 .ctx-dropdown li {
   padding: 5px 9px;
   font-size: 0.8rem;
-  color: #334155;
+  color: #383838;
   cursor: pointer;
 }
-.ctx-dropdown li:hover { background: #eef2ff; color: #4338ca; }
+.ctx-dropdown li:hover { background: #f3f3f3; color: #383838; }
 .ctx-dropdown-status {
   position: absolute;
   top: calc(100% + 2px);
@@ -1748,18 +1750,12 @@ async function save() {
   right: 0;
   padding: 6px 9px;
   font-size: 0.78rem;
-  color: #94a3b8;
+  color: #999999;
   background: #fff;
   border: 1px solid #d1d5db;
   border-radius: 4px;
   z-index: 10;
 }
-
-.assistant-context--gray { background: #f8f8f8; border-bottom: 1px solid #e2e2e2; }
-.assistant-context--gray label { color: #7c7c7c; }
-.assistant-context--gray input { background: #f3f3f3; border: 1px solid #f3f3f3; border-radius: 8px; color: #383838; }
-.assistant-context--gray input:focus { background: #fff; border-color: #e2e2e2; }
-.assistant-context--gray .hint { color: #999; }
 
 .assistant-agui-panel {
   flex: 1;
@@ -1774,15 +1770,15 @@ async function save() {
   flex-direction: column;
   gap: 12px;
 }
-.assistant-empty { font-size: 0.8rem; color: #94a3b8; line-height: 1.5; }
+.assistant-empty { font-size: 0.8rem; color: #999999; line-height: 1.5; }
 
 /* "Tips for a good prompt" callout — opened from the 💡 toggle by the input */
 .assistant-tips {
   padding: 10px 12px;
-  background: #f8fafc;
-  border: 1px solid #e2e8f0;
+  background: #f8f8f8;
+  border: 1px solid #e2e2e2;
   border-radius: 8px;
-  color: #64748b;
+  color: #7c7c7c;
   font-size: 0.8rem;
   line-height: 1.5;
 }
@@ -1800,27 +1796,27 @@ async function save() {
   float: right;
   border: none;
   background: transparent;
-  color: #94a3b8;
+  color: #999999;
   cursor: pointer;
   font-size: 0.75rem;
   padding: 0 2px;
 }
-.assistant-tips-close:hover { color: #475569; }
+.assistant-tips-close:hover { color: #525252; }
 .assistant-tips-toggle {
   align-self: flex-end;
-  border: 1px solid #e2e8f0;
-  background: #f8fafc;
+  border: 1px solid #e2e2e2;
+  background: #f8f8f8;
   border-radius: 8px;
   padding: 6px 8px;
   cursor: pointer;
   font-size: 0.85rem;
   line-height: 1;
 }
-.assistant-tips-toggle:hover { background: #f1f5f9; }
+.assistant-tips-toggle:hover { background: #f3f3f3; }
 .assistant-tips-toggle.active { background: #ede9fe; border-color: #c4b5fd; }
 .assistant-tips-title {
   font-weight: 600;
-  color: #475569;
+  color: #525252;
   margin-bottom: 6px;
 }
 .assistant-tips ul {
@@ -1830,7 +1826,7 @@ async function save() {
   flex-direction: column;
   gap: 4px;
 }
-.assistant-tips li strong { color: #475569; }
+.assistant-tips li strong { color: #525252; }
 
 .msg { max-width: 100%; }
 .msg-text {
@@ -1840,7 +1836,7 @@ async function save() {
   word-break: break-word;
 }
 .msg-user .msg-text {
-  background: #6366f1;
+  background: #171717;
   color: #fff;
   padding: 8px 10px;
   border-radius: 8px 8px 2px 8px;
@@ -1853,43 +1849,43 @@ async function save() {
   background: #fff;
   color: #1f2937;
   padding: 8px 10px;
-  border: 1px solid #e2e8f0;
+  border: 1px solid #e2e2e2;
   border-radius: 8px 8px 8px 2px;
   width: fit-content;
   max-width: 95%;
 }
-.msg-text.typing { color: #94a3b8; font-style: italic; }
+.msg-text.typing { color: #999999; font-style: italic; }
 
 .recs { display: flex; flex-direction: column; gap: 6px; margin-top: 8px; }
 .rec {
   background: #fff;
-  border: 1px solid #e2e8f0;
+  border: 1px solid #e2e2e2;
   border-radius: 6px;
   padding: 7px 9px;
 }
 .rec-head { display: flex; justify-content: space-between; align-items: center; gap: 8px; }
-.rec-field { font-size: 0.72rem; font-weight: 600; text-transform: uppercase; letter-spacing: 0.03em; color: #6366f1; }
+.rec-field { font-size: 0.72rem; font-weight: 600; text-transform: uppercase; letter-spacing: 0.03em; color: #171717; }
 .rec-apply {
   border: none;
-  background: #6366f1;
+  background: #171717;
   color: #fff;
   font-size: 0.72rem;
   padding: 3px 10px;
   border-radius: 4px;
   cursor: pointer;
 }
-.rec-apply:hover { background: #4f46e5; }
-.rec-apply:disabled { background: #cbd5e1; cursor: default; }
+.rec-apply:hover { background: #171717; }
+.rec-apply:disabled { background: #c7c7c7; cursor: default; }
 .rec-value {
   font-size: 0.78rem;
-  color: #334155;
+  color: #383838;
   margin-top: 4px;
   white-space: pre-wrap;
   word-break: break-word;
 }
 
 .assistant-input {
-  border-top: 1px solid #e2e8f0;
+  border-top: 1px solid #e2e2e2;
   padding: 10px 12px;
   display: flex;
   gap: 8px;
@@ -1904,18 +1900,18 @@ async function save() {
   font-size: 0.82rem;
   font-family: inherit;
 }
-.assistant-input textarea:focus { outline: none; border-color: #6366f1; }
+.assistant-input textarea:focus { outline: none; border-color: #171717; }
 .assistant-send {
   border: none;
-  background: #6366f1;
+  background: #171717;
   color: #fff;
   padding: 8px 14px;
   border-radius: 5px;
   font-size: 0.82rem;
   cursor: pointer;
 }
-.assistant-send:hover { background: #4f46e5; }
-.assistant-send:disabled { background: #cbd5e1; cursor: default; }
+.assistant-send:hover { background: #171717; }
+.assistant-send:disabled { background: #c7c7c7; cursor: default; }
 
 /* ── Linked agent lifecycle badge (WI-001652) ── */
 .agent-status {
@@ -1936,7 +1932,7 @@ async function save() {
   padding: 10px;
   border: 1px solid #c7d2fe;
   border-radius: 8px;
-  background: #eef2ff;
+  background: #f3f3f3;
 }
 .proposal-title {
   font-weight: 600;
@@ -1950,7 +1946,7 @@ async function save() {
   border-collapse: collapse;
 }
 .proposal-key {
-  color: #6366f1;
+  color: #171717;
   font-weight: 600;
   padding: 2px 8px 2px 0;
   white-space: nowrap;
@@ -1981,9 +1977,9 @@ async function save() {
   gap: 10px;
   padding: 12px;
   margin-bottom: 12px;
-  border: 1px solid #e2e8f0;
+  border: 1px solid #e2e2e2;
   border-radius: 8px;
-  background: #f8fafc;
+  background: #f8f8f8;
 }
 .sample-prompt-row {
   display: grid;
