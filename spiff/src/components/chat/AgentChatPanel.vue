@@ -12,7 +12,7 @@
 		<div ref="log" class="acp-log">
 			<template v-for="(item, i) in items" :key="i">
 				<!-- plain text bubbles -->
-				<div v-if="item.kind === 'user'" class="acp-msg acp-msg--user">{{ item.text }}</div>
+				<div v-if="item.kind === 'user'" class="acp-msg acp-msg--user">{{ item.text }}<span v-if="item.file" class="acp-filechip">📎 {{ item.file }}</span></div>
 				<div
 					v-else-if="item.kind === 'agent'"
 					class="acp-msg acp-msg--agent"
@@ -77,7 +77,21 @@
 			<button class="acp-tb" :title="__('Italic')" @click="wrapSelection('*')"><i>I</i></button>
 			<button class="acp-tb" :title="__('List')" @click="prefixLine('- ')">≣</button>
 		</div>
+		<div v-if="pendingFile" class="acp-pending-file">
+			<span class="acp-filechip">📎 {{ pendingFile.file_name }}</span>
+			<button class="acp-tb" :title="__('Remove')" @click="pendingFile = null">✕</button>
+		</div>
 		<div class="acp-composer">
+			<button
+				v-if="allowUploads"
+				class="acp-btn acp-btn--outline"
+				:disabled="busy || uploading"
+				:title="__('Attach a file')"
+				@click="fileInput && fileInput.click()"
+			>
+				{{ uploading ? "…" : "📎" }}
+			</button>
+			<input ref="fileInput" type="file" class="acp-hidden" @change="onFilePicked" />
 			<textarea
 				ref="input"
 				v-model="draft"
@@ -131,6 +145,10 @@ const props = defineProps({
 	// async host hook called at send time; its result merges over `context`
 	// (WI-001675: live canvas XML must be read per turn, not at mount)
 	contextProvider: { type: Function, default: null },
+	// WI-001678: file uploads (one-ai parity). The file uploads through
+	// frappe's standard upload_file and its file_url rides the next turn's
+	// context — the transport itself stays a plain SSE GET.
+	allowUploads: { type: Boolean, default: false },
 });
 
 const emit = defineEmits(["card-action", "conversation", "title", "choice", "turn-complete"]);
@@ -222,6 +240,38 @@ onBeforeUnmount(() => {
 	}
 });
 
+// ── uploads (WI-001678) ─────────────────────────────────────────────────────
+
+const pendingFile = ref(null); // { file_url, file_name }
+const uploading = ref(false);
+const fileInput = ref(null);
+
+async function onFilePicked(event) {
+	const file = event.target.files && event.target.files[0];
+	if (!file) return;
+	uploading.value = true;
+	try {
+		const body = new FormData();
+		body.append("file", file);
+		body.append("is_private", "0");
+		const res = await fetch("/api/method/upload_file", {
+			method: "POST",
+			headers: { "X-Frappe-CSRF-Token": window.csrf_token || "" },
+			body,
+			credentials: "include",
+		});
+		const data = await res.json();
+		const url = data.message && data.message.file_url;
+		if (url) pendingFile.value = { file_url: url, file_name: file.name };
+	} catch (e) {
+		errorMessage.value = __("The file could not be uploaded.");
+		errorOpen.value = true;
+	} finally {
+		uploading.value = false;
+		if (fileInput.value) fileInput.value.value = "";
+	}
+}
+
 // ── sending ─────────────────────────────────────────────────────────────────
 
 async function send(text) {
@@ -235,6 +285,11 @@ async function send(text) {
 	scrollDown();
 
 	let turnContext = { ...props.context };
+	if (pendingFile.value) {
+		turnContext.file = pendingFile.value.file_url;
+		items.value[items.value.length - 1].file = pendingFile.value.file_name;
+		pendingFile.value = null;
+	}
 	if (props.contextProvider) {
 		try {
 			turnContext = { ...turnContext, ...((await props.contextProvider()) || {}) };
@@ -408,4 +463,8 @@ defineExpose({ send, conversationName });
 .acp-btn--outline { background: var(--sw); border: 1px solid var(--og2); }
 .acp-btn:disabled { opacity: 0.55; cursor: default; }
 .acp-error-text { color: var(--ig8); }
+.acp-filechip { display: inline-flex; align-items: center; gap: 4px; margin-left: 8px; font-size: 11.5px;
+	background: var(--sg2); border-radius: 6px; padding: 1px 7px; color: var(--ig6); }
+.acp-pending-file { display: flex; align-items: center; gap: 6px; padding: 4px 14px 0; background: var(--sw); }
+.acp-hidden { display: none; }
 </style>

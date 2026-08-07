@@ -71,3 +71,20 @@ def conversation_history(conversation: str, limit: int = 30) -> list:
 	if frappe.session.user == "Guest":
 		frappe.throw(_("Authentication required"))
 	return load_history(conversation, limit=min(cint(limit) or 30, 100))
+
+
+@frappe.whitelist()
+def list_conversations(limit: int = 30) -> list:
+	"""The current user's chat conversations for the one-ai history sidebar
+	(WI-001678), newest first. Owner-scoped by construction."""
+	from frappe.utils import cint
+
+	if frappe.session.user == "Guest":
+		frappe.throw(_("Authentication required"))
+	return frappe.get_all(
+		"Chat Conversation",
+		filters={"owner": frappe.session.user},
+		fields=["name", "title", "agent_mode", "last_updated", "status"],
+		order_by="last_updated desc",
+		limit=min(cint(limit) or 30, 100),
+	)

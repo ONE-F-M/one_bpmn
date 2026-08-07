@@ -47,6 +47,7 @@ declare module 'vue' {
     LogixChat: typeof import('./src/components/LogixChat.vue')['default']
     NotificationLinkDialog: typeof import('./src/components/NotificationLinkDialog.vue')['default']
     NotifyAssigneeEditorDialog: typeof import('./src/components/NotifyAssigneeEditorDialog.vue')['default']
+    OneAiApp: typeof import('./src/components/chat/OneAiApp.vue')['default']
     OverviewCards: typeof import('./src/components/insights/OverviewCards.vue')['default']
     PendingActions: typeof import('./src/components/process_instance/PendingActions.vue')['default']
     PerformanceReport: typeof import('./src/components/insights/PerformanceReport.vue')['default']
