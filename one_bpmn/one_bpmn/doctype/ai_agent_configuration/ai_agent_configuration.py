@@ -314,7 +314,7 @@ def get_agent_config(agent_id: str) -> dict | None:
 			"name", "agent_id", "system_prompt", "temperature", "max_tokens",
 			"ai_model", "ai_provider_credentials", "langsmith_project",
 			"agent_framework", "process_model", "chat_mode_label",
-			"lifecycle_status", "agent_type", "pii_screening",
+			"lifecycle_status", "agent_type",
 		],
 		as_dict=True,
 	)

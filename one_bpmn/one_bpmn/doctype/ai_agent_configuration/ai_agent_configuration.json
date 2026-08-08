@@ -42,8 +42,6 @@
   "chat_cb",
   "chat_description",
   "allowed_roles",
-  "security_section",
-  "pii_screening",
   "evaluation_section",
   "sample_prompts",
   "needs_attention_reason"
@@ -299,20 +297,6 @@
    "fieldtype": "Table",
    "label": "Allowed Roles",
    "options": "AI Agent Allowed Role"
-  },
-  {
-   "fieldname": "security_section",
-   "fieldtype": "Section Break",
-   "label": "Security",
-   "description": "Controls applied to this agent's traffic before it reaches a model provider."
-  },
-  {
-   "default": "Enabled",
-   "description": "Screens the user's message for Kuwait Civil IDs, contact details, passport and travel document numbers, and bank or payment details, replacing each with a token (e.g. [CIVIL_ID_1]) before the text reaches the model or the conversation log. Tokens are swapped back for the real value when the agent calls a tool, so lookups still work. Disable only for an agent whose work genuinely needs the raw values in the prompt — and record why.",
-   "fieldname": "pii_screening",
-   "fieldtype": "Select",
-   "label": "PII Input Screening",
-   "options": "Enabled\nDisabled"
   },
   {
    "fieldname": "evaluation_section",
