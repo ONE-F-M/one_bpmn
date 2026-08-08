@@ -807,64 +807,6 @@ def get_instances_for_document(doctype: str, docname: str) -> list:
 # BPMN Form Actions API — used by the global bpmn_form_actions.js injector
 # ============================================================================
 
-# Cache key for the doctype-level "is this run via Processa?" lookup.
-PROCESSA_DOCTYPES_CACHE_KEY = "one_bpmn_processa_controlled_doctypes"
-
-
-@frappe.whitelist()
-def get_processa_controlled_doctypes() -> list:
-	"""
-	Return every DocType whose lifecycle is driven by Processa.
-
-	A DocType qualifies when an **active** BPMN Process Model references it
-	either as a DocType-Event start trigger (BPMN Start Event Config) or as a
-	target document (BPMN Process DocType).  These are exactly the two sources
-	trigger._find_matching_models() uses to decide whether a document event
-	starts a process, so this list mirrors reality rather than guessing.
-
-	bpmn_form_actions.js uses it to suppress native Frappe controls that
-	Processa owns — the Submit button, the "Submit this document to confirm"
-	banner, and the no-op Save button on an unchanged document — for every
-	document of the DocType, not just those with a live process instance.
-
-	Cached in Redis; invalidated by clear_processa_doctype_cache() whenever a
-	BPMN Process Model is saved or deleted.
-	"""
-	cached = frappe.cache().get_value(PROCESSA_DOCTYPES_CACHE_KEY)
-	if cached is not None:
-		return cached
-
-	rows = frappe.get_all(
-		"BPMN Start Event Config",
-		filters={"trigger_type": "DocType Event", "parenttype": "BPMN Process Model"},
-		fields=["parent", "trigger_doctype as doctype_name"],
-	)
-	rows += frappe.get_all(
-		"BPMN Process DocType",
-		filters={"parenttype": "BPMN Process Model"},
-		fields=["parent", "doctype_name"],
-	)
-	rows = [r for r in rows if r.doctype_name and r.parent]
-
-	doctypes = []
-	if rows:
-		active_models = set(
-			frappe.get_all(
-				"BPMN Process Model",
-				filters={"name": ["in", list({r.parent for r in rows})], "is_active": 1},
-				pluck="name",
-			)
-		)
-		doctypes = sorted({r.doctype_name for r in rows if r.parent in active_models})
-
-	frappe.cache().set_value(PROCESSA_DOCTYPES_CACHE_KEY, doctypes)
-	return doctypes
-
-
-def clear_processa_doctype_cache(doc=None, method=None):
-	"""Drop the cached Processa-controlled DocType list (doc_events hook)."""
-	frappe.cache().delete_value(PROCESSA_DOCTYPES_CACHE_KEY)
-
 
 @frappe.whitelist()
 def get_active_bpmn_tasks(doctype: str, docname: str) -> list:

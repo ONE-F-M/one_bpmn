@@ -39,7 +39,7 @@ app_include_js = [
 	# versioning from Frappe, and this file has a 12h Cache-Control on
 	# /assets/ — without a version bump, browsers can keep serving a
 	# stale copy indefinitely even across hard reloads.
-	"/assets/one_bpmn/js/bpmn_form_actions.js?v=3",
+	"/assets/one_bpmn/js/bpmn_form_actions.js?v=2",
 	"/assets/one_bpmn/js/bpmn_list_indicator.js",
 ]
 
@@ -198,13 +198,6 @@ doc_events = {
 	# message is not enough — the stored row has to be redacted too.
 	"Chat Message": {
 		"before_insert": "one_bpmn.security.pii.screen_chat_message",
-	},
-	# WI-001813: the list of Processa-controlled doctypes (used by
-	# bpmn_form_actions.js to suppress native Submit/Save/banner) is cached in
-	# Redis — drop it whenever a process model is (de)activated or retargeted.
-	"BPMN Process Model": {
-		"on_update": "one_bpmn.api.instance_api.clear_processa_doctype_cache",
-		"after_delete": "one_bpmn.api.instance_api.clear_processa_doctype_cache",
 	},
 }
 

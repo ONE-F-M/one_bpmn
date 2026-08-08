@@ -8,18 +8,6 @@
  *   instance level. This means ANY toolbar instance checks our flag first,
  *   then delegates to the original logic. This avoids all timing issues.
  *
- * TWO LEVELS OF CONTROL (WI-001813):
- *   1. DOCTYPE level — the doctype is run via Processa (an active BPMN
- *      Process Model triggers on it or targets it). Native controls that
- *      Processa owns are suppressed on EVERY document of that doctype:
- *        · the Submit button + "Submit this document to confirm" banner
- *        · the Save button while the document has no unsaved changes
- *      Cancel/Amend and Frappe Workflow buttons are deliberately NOT
- *      suppressed at this level — only per document (level 2).
- *   2. DOCUMENT level — this specific document has a live process instance.
- *      Adds the BPMN action buttons and suppresses Cancel/Amend + native
- *      Frappe Workflow controls.
- *
  * Loaded globally via app_include_js in hooks.py.
  */
 
@@ -43,58 +31,6 @@ frappe.provide('one_bpmn');
 	/* ── Track which doctypes+docnames have an active BPMN process ── */
 	const _bpmn_controlled_forms = new Set();
 
-	/* ── Doctypes run via Processa (resolved once per page load) ── */
-	const _processa_doctypes = new Set();
-	let _processa_doctypes_promise = null;
-
-	/**
-	 * Fetch the Processa-controlled doctype list once per page load.
-	 * Cached server-side in Redis, so this is a single cheap call.
-	 */
-	function _load_processa_doctypes() {
-		if (_processa_doctypes_promise) return _processa_doctypes_promise;
-
-		_processa_doctypes_promise = frappe
-			.call({
-				method: 'one_bpmn.api.instance_api.get_processa_controlled_doctypes',
-				freeze: false,
-			})
-			.then(function (r) {
-				(r && r.message ? r.message : []).forEach(function (dt) {
-					_processa_doctypes.add(dt);
-				});
-				return _processa_doctypes;
-			})
-			.catch(function (err) {
-				console.warn('[one_bpmn] Failed to load Processa doctypes:', err);
-				// Allow a later form refresh to retry rather than caching the failure.
-				_processa_doctypes_promise = null;
-				return _processa_doctypes;
-			});
-
-		return _processa_doctypes_promise;
-	}
-
-	/** Is this doctype run via Processa? (doctype-level control) */
-	function _is_processa_doctype(doctype) {
-		return _processa_doctypes.has(doctype);
-	}
-
-	/**
-	 * Is this form under Processa control at either level?
-	 * Doctype-level covers documents with no live instance (never started,
-	 * completed or cancelled); document-level covers instances whose process
-	 * model has since been deactivated.
-	 */
-	function _is_processa_governed(frm) {
-		if (!frm || !frm.doctype) return false;
-		if (BPMN_INTERNAL_DOCTYPES.has(frm.doctype)) return false;
-		return (
-			_processa_doctypes.has(frm.doctype) ||
-			_bpmn_controlled_forms.has(_form_key_from_frm(frm))
-		);
-	}
-
 	// Override Toolbar PROTOTYPE methods.
 	// By wrapping prototype methods we intercept every can_submit / can_cancel / can_amend call,
 	// regardless of when Frappe invokes them — far more reliable than patching individual instances.
@@ -103,31 +39,12 @@ frappe.provide('one_bpmn');
 	const _orig_can_submit = ToolbarProto.can_submit;
 	const _orig_can_cancel = ToolbarProto.can_cancel;
 	const _orig_can_amend  = ToolbarProto.can_amend;
-	const _orig_can_save   = ToolbarProto.can_save;
 
 	ToolbarProto.can_submit = function () {
-		// Processa drives submission through its own action buttons — the
-		// native Submit button is never the right control on these doctypes.
-		if (_is_processa_governed(this.frm)) {
+		if (this.frm && _bpmn_controlled_forms.has(_form_key_from_frm(this.frm))) {
 			return false;
 		}
 		return _orig_can_submit.call(this);
-	};
-
-	ToolbarProto.can_save = function () {
-		// A saved, unchanged document has nothing to save — the button is a
-		// no-op that competes with the Processa actions for attention.
-		// New documents keep Save (it is the only way to create them), and a
-		// dirty document keeps Save so edits can always be persisted.
-		if (
-			this.frm &&
-			!this.frm.is_new() &&
-			!this.frm.is_dirty() &&
-			_is_processa_governed(this.frm)
-		) {
-			return false;
-		}
-		return _orig_can_save.call(this);
 	};
 
 	ToolbarProto.can_cancel = function () {
@@ -144,68 +61,11 @@ frappe.provide('one_bpmn');
 		return _orig_can_amend.call(this);
 	};
 
-	/* ── Never render the "Submit this document to confirm" banner on a
-	     Processa-controlled doctype. Suppressing it at the source beats
-	     removing it afterwards: no flash, and no dependence on refresh order. ── */
-	const FormProto = frappe.ui.form.Form.prototype;
-	const _orig_show_submit_message = FormProto.show_submit_message;
-
-	FormProto.show_submit_message = function () {
-		if (_is_processa_governed(this)) return;
-		return _orig_show_submit_message.call(this);
-	};
-
 	/**
 	 * Generate a unique key for tracking BPMN-controlled forms.
 	 */
 	function _form_key_from_frm(frm) {
 		return frm.doctype + ':' + frm.docname;
-	}
-
-	/**
-	 * Remove an already-rendered "Submit this document to confirm" banner.
-	 *
-	 * Frappe renders it via frm.dashboard.add_comment() → layout.show_message(),
-	 * which appends a `.form-message` block into `.form-message-container` —
-	 * NOT into the dashboard wrapper. Needed for the first form of a page load,
-	 * which can render before the Processa doctype list arrives.
-	 */
-	function _hide_submit_banner(frm) {
-		if (!frm || !frm.layout || !frm.layout.message) return;
-
-		const needle = __('Submit this document to confirm');
-		const $container = frm.layout.message;
-
-		$container.find('.form-message').each(function () {
-			if (($(this).text() || '').indexOf(needle) !== -1) {
-				$(this).remove();
-			}
-		});
-
-		// Re-hide the container if that was the only message in it
-		if (!$container.children().length) {
-			$container.addClass('hidden');
-		}
-	}
-
-	/**
-	 * Re-run Frappe's own primary-action logic — but ONLY when the button on
-	 * screen is the native Submit / no-op Save we mean to remove.
-	 *
-	 * Calling set_primary_action() unconditionally would wipe custom primary
-	 * actions set by a doctype's own script ("Update", "Get Items", …) — the
-	 * pitfall the no-tasks branch below already warns about.
-	 */
-	function _resync_native_primary_action(frm) {
-		if (!frm || !frm.toolbar || !frm.page || !frm.page.btn_primary) return;
-
-		const label = (frm.page.btn_primary.text() || '').trim();
-		const is_native_submit = label === __('Submit');
-		const is_noop_save = label === __('Save') && !frm.is_dirty();
-
-		if (is_native_submit || is_noop_save) {
-			frm.toolbar.set_primary_action();
-		}
 	}
 
 	// load_bpmn_actions — fires on every form-refresh
@@ -219,16 +79,6 @@ frappe.provide('one_bpmn');
 
 		// Always clear previously injected items first
 		_clear_bpmn_actions(frm);
-
-		// ── Level 1: doctype-level control ──
-		// Resolved once per page load. The first form of a page load can render
-		// before this call returns, so clean up whatever already rendered.
-		await _load_processa_doctypes();
-
-		if (_is_processa_doctype(frm.doctype)) {
-			_hide_submit_banner(frm);
-			_resync_native_primary_action(frm);
-		}
 
 		try {
 			const response = await frappe.call({
@@ -351,8 +201,15 @@ frappe.provide('one_bpmn');
 	function _hide_native_frappe_ui(frm) {
 		if (!frm) return;
 
-		// 1. Hide the "Submit this document to confirm" banner
-		_hide_submit_banner(frm);
+		// 1. Hide the "Submit this document to confirm" dashboard comment
+		if (frm.dashboard && frm.dashboard.wrapper) {
+			$(frm.dashboard.wrapper).find('.comment-box .alert, .form-message').each(function () {
+				let text = $(this).text() || '';
+				if (text.includes('Submit this document to confirm')) {
+					$(this).remove();
+				}
+			});
+		}
 
 		// 2. Hide Frappe Workflow action buttons
 		if (frm.$wrapper) {
