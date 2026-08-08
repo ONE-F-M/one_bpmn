@@ -212,12 +212,17 @@ function runPill(status) {
 	return "bg-gray-100 text-gray-600"
 }
 
+// "Can't compare" must mean the user has something to fix. A run that is simply
+// still going resolves itself, so it gets its own neutral level — the same red
+// banner for both makes an ordinary wait look like a failure.
 function noteClass(level) {
+	if (level === "pending") return "bg-gray-50 border-gray-300 text-gray-700"
 	if (level === "blocking") return "bg-red-50 border-red-500 text-red-900"
 	if (level === "warning") return "bg-amber-50 border-amber-500 text-amber-900"
 	return "bg-blue-50 border-blue-400 text-blue-900"
 }
 function noteLabel(level) {
+	if (level === "pending") return "Still running:"
 	if (level === "blocking") return "Can't compare:"
 	if (level === "warning") return "Not like for like:"
 	return "Bear in mind:"
@@ -303,6 +308,7 @@ function pickB(name) {
 // read is ALWAYS "still running". Without this the page sits on that message
 // until the user thinks to refresh — which reads as broken, not as pending.
 const stillRunning = computed(() =>
+	Boolean(data.value.pending) ||
 	[data.value.a, data.value.b].some((s) => s && s.status === "Running")
 )
 const startedWatching = ref(0)

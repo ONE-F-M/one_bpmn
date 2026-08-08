@@ -229,7 +229,7 @@ class TestEvalComparison(FrappeTestCase):
 			any("share no cases" in n["message"] for n in out["notes"]),
 			out["notes"],
 		)
-		self.assertTrue(any("still running" in n["message"] for n in out["notes"]))
+		self.assertTrue(any(n["level"] == "pending" for n in out["notes"]), out["notes"])
 
 	def test_an_errored_run_with_no_results_does_report_no_shared_cases(self):
 		"""The suppression above is scoped to RUNNING. A finished run that
@@ -241,6 +241,32 @@ class TestEvalComparison(FrappeTestCase):
 		out = get_run_comparison(a.name, b.name)
 
 		self.assertTrue(any("share no cases" in n["message"] for n in out["notes"]), out["notes"])
+
+	def test_a_running_run_is_pending_not_a_refusal(self):
+		"""'Can't compare' must mean the user has something to fix. A run that is
+		simply still going resolves itself, so it must not wear the same label."""
+		a = self._finished(self.agent_a, {self.cases[0]: "Passed"})
+		b = make_eval_run(self.suite.name, agent_configuration=self.agent_b, status="Running")
+
+		out = get_run_comparison(a.name, b.name)
+
+		self.assertTrue(out["pending"])
+		self.assertTrue(out["blocked"], "there is still nothing to show")
+		self.assertFalse(
+			any(n["level"] == "blocking" for n in out["notes"]),
+			"a run in flight is not a refusal: " + str(out["notes"]),
+		)
+
+	def test_a_real_refusal_is_not_marked_pending(self):
+		c0, c1 = self.cases[0], self.cases[1]
+		a = self._finished(self.agent_a, {c0: "Passed"})
+		b = self._finished(self.agent_b, {c1: "Passed"})
+
+		out = get_run_comparison(a.name, b.name)
+
+		self.assertFalse(out["pending"])
+		self.assertTrue(out["blocked"])
+		self.assertTrue(any(n["level"] == "blocking" for n in out["notes"]))
 
 	def test_a_still_running_run_blocks_the_comparison(self):
 		a = self._finished(self.agent_a, {self.cases[0]: "Passed"})

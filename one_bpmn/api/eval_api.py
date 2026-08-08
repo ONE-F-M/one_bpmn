@@ -876,6 +876,16 @@ def _comparability(a, b, cases_a: set, cases_b: set, shared: list) -> list:
 	these are worth SEEING alongside the numbers — a designer who knows one run
 	errored partway can still read the cases that did complete. Only the
 	genuinely meaningless comparisons are refused, by the caller.
+
+	Levels, in the order they demand attention:
+
+	* ``pending``  — nothing to show YET, and nothing for the user to do. It
+	  resolves on its own. Kept distinct from ``blocking`` because presenting a
+	  run that is merely still going as "can't compare" reads as a failure the
+	  user has to act on, when the correct response is to wait.
+	* ``blocking`` — the comparison cannot be produced and will not fix itself.
+	* ``warning``  — produced, but not like for like.
+	* ``caution``  — produced and sound, but read it carefully.
 	"""
 	notes = []
 
@@ -885,7 +895,12 @@ def _comparability(a, b, cases_a: set, cases_b: set, shared: list) -> list:
 	still_running = any(doc.status == "Running" for doc in (a, b))
 	for doc in (a, b):
 		if doc.status == "Running":
-			note("blocking", _("Run {0} is still running — its numbers are incomplete.").format(doc.name))
+			# A run writes its results in one go when it finishes, so a run in
+			# flight has nothing readable at all — not partial numbers.
+			note("pending", _(
+				"Run {0} is still working through its cases. Results are written when a run "
+				"finishes, so there is nothing to show for it yet."
+			).format(doc.name))
 		elif doc.status == "Error":
 			note("warning", _(
 				"Run {0} errored partway through, so it covers fewer cases than it set out to. "
@@ -998,6 +1013,8 @@ def get_run_comparison(run_a: str, run_b: str = None) -> dict:
 	shared += sorted((cases_a & cases_b) - set(order))
 
 	notes = _comparability(a, b, cases_a, cases_b, shared)
+	# Both levels hide the figures; only one of them is the user's problem.
+	pending = [n for n in notes if n["level"] == "pending"]
 	blocked = [n for n in notes if n["level"] == "blocking"]
 
 	totals = _run_agent_totals({
@@ -1040,7 +1057,9 @@ def get_run_comparison(run_a: str, run_b: str = None) -> dict:
 		"only_in_a": sorted(cases_a - cases_b),
 		"only_in_b": sorted(cases_b - cases_a),
 		"notes": notes,
-		"blocked": bool(blocked),
+		# blocked = no figures to show. pending = ...and that is temporary.
+		"blocked": bool(blocked or pending),
+		"pending": bool(pending),
 	}
 
 
