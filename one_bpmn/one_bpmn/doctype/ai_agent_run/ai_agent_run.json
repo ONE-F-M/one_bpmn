@@ -28,21 +28,14 @@
   "started_at",
   "ended_at",
   "duration_ms",
-  "agent_latency_ms",
-  "human_wait_ms",
-  "suspended_at",
   "section_break_tokens",
   "total_prompt_tokens",
   "total_completion_tokens",
   "total_tokens",
-  "total_cache_read_tokens",
-  "total_cache_write_tokens",
   "column_break_cost",
   "estimated_cost",
   "total_input_cost",
   "total_output_cost",
-  "total_cache_read_cost",
-  "total_cache_write_cost",
   "section_break_checkpoint",
   "pending_human_task",
   "checkpoint",
@@ -203,27 +196,7 @@
   {
    "fieldname": "duration_ms",
    "fieldtype": "Int",
-   "label": "Duration (ms)",
-   "description": "Wall-clock from Started At to Ended At. For human-in-the-loop runs this INCLUDES the time spent waiting for a person — use Agent Latency to measure agent performance."
-  },
-  {
-   "fieldname": "agent_latency_ms",
-   "fieldtype": "Int",
-   "label": "Agent Latency (ms)",
-   "description": "Time the AGENT actually spent working: the sum of every step's latency (provider round-trips plus inline tool execution). Excludes time parked waiting for a human, so unlike Duration this is comparable across runs and is the figure to use for A/B experiments (WI-001643)."
-  },
-  {
-   "fieldname": "human_wait_ms",
-   "fieldtype": "Int",
-   "label": "Human Wait (ms)",
-   "description": "Accumulated time this run sat Suspended waiting for a person to complete a human task. Duration = Agent Latency + Human Wait + engine/queue overhead."
-  },
-  {
-   "fieldname": "suspended_at",
-   "fieldtype": "Datetime",
-   "label": "Suspended At",
-   "read_only": 1,
-   "description": "When the current suspension began; cleared on resume after its elapsed time is added to Human Wait. Internal bookkeeping."
+   "label": "Duration (ms)"
   },
   {
    "fieldname": "section_break_tokens",
@@ -246,18 +219,6 @@
    "label": "Total Tokens"
   },
   {
-   "fieldname": "total_cache_read_tokens",
-   "fieldtype": "Int",
-   "label": "Cache Read Tokens",
-   "description": "Part of Prompt Tokens served from the prompt cache, summed across steps. Billed at the cache-read rate (WI-001643)."
-  },
-  {
-   "fieldname": "total_cache_write_tokens",
-   "fieldtype": "Int",
-   "label": "Cache Write Tokens",
-   "description": "Part of Prompt Tokens written into the prompt cache, summed across steps."
-  },
-  {
    "fieldname": "column_break_cost",
    "fieldtype": "Column Break"
   },
@@ -268,7 +229,7 @@
    "precision": "6"
   },
   {
-   "description": "Total cost of the UNCACHED prompt tokens across all steps, billed at the input rate. Cache portions are costed separately.",
+   "description": "Total cost of prompt/input tokens across all steps",
    "fieldname": "total_input_cost",
    "fieldtype": "Currency",
    "label": "Input Cost",
@@ -280,20 +241,6 @@
    "fieldtype": "Currency",
    "label": "Output Cost",
    "precision": "6"
-  },
-  {
-   "fieldname": "total_cache_read_cost",
-   "fieldtype": "Currency",
-   "label": "Cache Read Cost",
-   "precision": "6",
-   "description": "Total cost of cache-read tokens across all steps."
-  },
-  {
-   "fieldname": "total_cache_write_cost",
-   "fieldtype": "Currency",
-   "label": "Cache Write Cost",
-   "precision": "6",
-   "description": "Total cost of cache-write tokens across all steps."
   },
   {
    "fieldname": "section_break_output",

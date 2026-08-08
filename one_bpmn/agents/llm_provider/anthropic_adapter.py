@@ -19,22 +19,16 @@ logger = logging.getLogger(__name__)
 
 
 def _usage_tokens(response) -> tuple:
-    """Real token counts for the turn.
-
-    Returns ``(prompt, completion, cache_read, cache_write)``. Anthropic reports
-    ``input_tokens`` EXCLUDING the cached portions, so prompt is the sum of all
-    three — cache_read/cache_creation tokens ARE consumed context, just billed
-    differently. The cache counts are returned alongside (rather than folded in
-    and forgotten) so pricing can actually apply the different rates: before
-    WI-001643 this function's docstring promised "pricing.py handles the cost
-    split" while discarding the only numbers that made it possible, and every
-    cached token was billed at the full input rate.
-    """
+    """Real prompt/completion counts for the turn. Prompt tokens include the
+    cached portions — cache_read/cache_creation tokens ARE consumed context,
+    just billed differently; pricing.py handles the cost split."""
     usage = getattr(response, "usage", None)
-    cache_read = getattr(usage, "cache_read_input_tokens", 0) or 0
-    cache_write = getattr(usage, "cache_creation_input_tokens", 0) or 0
-    prompt = (getattr(usage, "input_tokens", 0) or 0) + cache_read + cache_write
-    return prompt, getattr(usage, "output_tokens", 0) or 0, cache_read, cache_write
+    prompt = (
+        (getattr(usage, "input_tokens", 0) or 0)
+        + (getattr(usage, "cache_read_input_tokens", 0) or 0)
+        + (getattr(usage, "cache_creation_input_tokens", 0) or 0)
+    )
+    return prompt, getattr(usage, "output_tokens", 0) or 0
 
 
 def _build_tool_def(tool: ToolSpec) -> dict:
@@ -165,14 +159,20 @@ class AnthropicAdapter(BaseLLMAdapter):
             async with self._client.messages.stream(**kwargs) as stream:
                 response = await stream.get_final_message()
 
-            prompt_tokens, completion_tokens, cache_read, cache_write = _usage_tokens(response)
+            # ── Log cache metrics ─────────────────────────────────────────────
+            usage = response.usage
+            cache_read = getattr(usage, "cache_read_input_tokens", 0) or 0
+            cache_write = getattr(usage, "cache_creation_input_tokens", 0) or 0
+            uncached = getattr(usage, "input_tokens", 0) or 0
             logger.debug(
                 "Anthropic cache [model=%s turn=%d]: "
                 "read=%d write=%d uncached=%d total_in=%d out=%d",
                 self._model, turn,
-                cache_read, cache_write, prompt_tokens - cache_read - cache_write,
-                prompt_tokens, completion_tokens,
+                cache_read, cache_write, uncached,
+                cache_read + cache_write + uncached,
+                getattr(usage, "output_tokens", 0) or 0,
             )
+            prompt_tokens, completion_tokens = _usage_tokens(response)
             text_parts = [b.text for b in response.content if hasattr(b, "text")]
 
             # A reply cut off at the token ceiling is not a reply: JSON and
@@ -194,8 +194,6 @@ class AnthropicAdapter(BaseLLMAdapter):
                         content=content,
                         prompt_tokens=prompt_tokens,
                         completion_tokens=completion_tokens,
-                        cache_read_tokens=cache_read,
-                        cache_write_tokens=cache_write,
                         latency_ms=int((time.perf_counter() - _turn_t0) * 1000),
                     )
                 )
@@ -212,8 +210,6 @@ class AnthropicAdapter(BaseLLMAdapter):
                 content="\n".join(text_parts),
                 prompt_tokens=prompt_tokens,
                 completion_tokens=completion_tokens,
-                cache_read_tokens=cache_read,
-                cache_write_tokens=cache_write,
             )
             tool_results = []
             for block in response.content:
@@ -328,7 +324,7 @@ class AnthropicAdapter(BaseLLMAdapter):
         async with self._client.messages.stream(**kwargs) as stream:
             response = await stream.get_final_message()
 
-        prompt_tokens, completion_tokens, cache_read, cache_write = _usage_tokens(response)
+        prompt_tokens, completion_tokens = _usage_tokens(response)
         text_parts = [b.text for b in response.content if hasattr(b, "text")]
         tool_calls = [
             StepToolCall(id=b.id, name=b.name, arguments=dict(b.input or {}))
@@ -341,6 +337,4 @@ class AnthropicAdapter(BaseLLMAdapter):
             tool_calls=tool_calls if response.stop_reason == "tool_use" else [],
             prompt_tokens=prompt_tokens,
             completion_tokens=completion_tokens,
-            cache_read_tokens=cache_read,
-            cache_write_tokens=cache_write,
         )

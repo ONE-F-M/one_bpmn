@@ -61,9 +61,6 @@ class AgentSuspension:
 	turns_used        — model calls consumed so far, cumulative across
 	                    suspensions. The turn cap is a total, not per-segment.
 	prompt_tokens / completion_tokens — token totals for this segment.
-	cache_read_tokens / cache_write_tokens — the part of prompt_tokens billed at
-	                    the cache rates rather than the full input rate
-	                    (WI-001643). Inclusive of prompt_tokens, not extra.
 	"""
 	transcript: list = field(default_factory=list)
 	pending_call: dict = field(default_factory=dict)
@@ -72,8 +69,6 @@ class AgentSuspension:
 	turns_used: int = 0
 	prompt_tokens: int = 0
 	completion_tokens: int = 0
-	cache_read_tokens: int = 0
-	cache_write_tokens: int = 0
 
 
 async def run_agent_loop(
@@ -132,8 +127,6 @@ async def run_agent_loop(
 					content=step.content,
 					prompt_tokens=step.prompt_tokens,
 					completion_tokens=step.completion_tokens,
-					cache_read_tokens=getattr(step, "cache_read_tokens", 0) or 0,
-					cache_write_tokens=getattr(step, "cache_write_tokens", 0) or 0,
 					latency_ms=int((time.perf_counter() - _turn_t0) * 1000),
 				)
 			)
@@ -155,8 +148,6 @@ async def run_agent_loop(
 			content=step.content,
 			prompt_tokens=step.prompt_tokens,
 			completion_tokens=step.completion_tokens,
-			cache_read_tokens=getattr(step, "cache_read_tokens", 0) or 0,
-			cache_write_tokens=getattr(step, "cache_write_tokens", 0) or 0,
 		)
 		results = []
 		pending_call = None
@@ -198,8 +189,6 @@ async def run_agent_loop(
 				turns_used=turns_used,
 				prompt_tokens=sum(t.prompt_tokens for t in trace),
 				completion_tokens=sum(t.completion_tokens for t in trace),
-				cache_read_tokens=sum(t.cache_read_tokens for t in trace),
-				cache_write_tokens=sum(t.cache_write_tokens for t in trace),
 			)
 
 		transcript.append({"role": "tool_results", "results": results})
