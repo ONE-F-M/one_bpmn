@@ -550,7 +550,6 @@
 					@select-tab="onSelectTab"
 					@add-tab="showAddDiagramDialog"
 					@rename-tab="renameProcessModel"
-					@duplicate-tab="handleDuplicateTab"
 					@delete-tab="handleDeleteTab"
 					@select-version="selectVersion"
 					@compare="openCompareDialog"
@@ -2678,85 +2677,6 @@ async function createDiagram() {
 	} catch (error) {
 		console.error("Failed to create diagram:", error);
 		showNotification("Error", "Failed to create: " + (error.message || error), "red");
-	} finally {
-		creating.value = false;
-	}
-}
-
-async function ensureDiagramContentCached(diagramName) {
-	if (diagramDataCache.value[diagramName]) {
-		return diagramDataCache.value[diagramName];
-	}
-
-	const response = await frappeRequest({
-		url: "/api/method/one_bpmn.api.process_map_api.get_process_model",
-		params: {
-			name: diagramName,
-		},
-	});
-
-	const result = response.message || response;
-	const xmlContent = result?.xml_content || "";
-
-	if (xmlContent) {
-		diagramDataCache.value[diagramName] = xmlContent;
-	}
-
-	return xmlContent;
-}
-
-async function handleDuplicateTab(tab) {
-	if (!isEditable.value) return;
-	
-	const newName = `Copy of ${tab.model_name}`;
-	
-	// Get XML content (from editor if active, otherwise from cache/backend)
-	let xmlContent;
-	if (activeDiagramName.value === tab.name && editorRef.value) {
-		xmlContent = await editorRef.value.getXML();
-	} else {
-		xmlContent = await ensureDiagramContentCached(tab.name);
-	}
-
-	if (!xmlContent) {
-		showNotification("Error", "Could not read diagram content for duplication", "red");
-		return;
-	}
-
-	// Generate a new unique process ID so the duplicate doesn't share the
-	// original's identity (critical for import/deploy disambiguation).
-	const slug = (props.process || "process").trim().toLowerCase().replace(/[^a-z0-9]+/g, "_").replace(/^_|_$/g, "") || "process";
-	const hex = Array.from(crypto.getRandomValues(new Uint8Array(4)), b => b.toString(16).padStart(2, "0")).join("");
-	const newProcessId = `${slug}_${hex}`;
-
-	// Replace the old process id in the XML:
-	//   <bpmn:process id="OLD_ID" ...>  →  <bpmn:process id="NEW_ID" ...>
-	//   bpmnElement="OLD_ID"            →  bpmnElement="NEW_ID"
-	const processIdMatch = xmlContent.match(/<bpmn:process\s[^>]*id=["']([^"']+)["']/);
-	if (processIdMatch) {
-		const oldId = processIdMatch[1];
-		xmlContent = xmlContent.replaceAll(oldId, newProcessId);
-	}
-
-	creating.value = true;
-	try {
-		const response = await frappeRequest({
-			url: "/api/method/one_bpmn.api.process_map_api.save_process_model",
-			params: {
-				process: props.process,
-				model_name: newName,
-				xml_content: xmlContent,
-				description: tab.description || "",
-			},
-		});
-
-		const result = response.message || response;
-		await loadProcess();
-		selectDiagram(result.name);
-		showNotification("Success", `Diagram duplicated as "${newName}"`, "green");
-	} catch (error) {
-		console.error("Duplication failed:", error);
-		showNotification("Error", "Failed to duplicate diagram: " + (error.message || error), "red");
 	} finally {
 		creating.value = false;
 	}
