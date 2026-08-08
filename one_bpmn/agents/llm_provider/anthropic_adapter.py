@@ -1,5 +1,4 @@
 import logging
-import time
 
 from .base import (
     BaseLLMAdapter,
@@ -16,19 +15,6 @@ from .base import (
 _MAX_TOOL_TURNS = 10
 
 logger = logging.getLogger(__name__)
-
-
-def _usage_tokens(response) -> tuple:
-    """Real prompt/completion counts for the turn. Prompt tokens include the
-    cached portions — cache_read/cache_creation tokens ARE consumed context,
-    just billed differently; pricing.py handles the cost split."""
-    usage = getattr(response, "usage", None)
-    prompt = (
-        (getattr(usage, "input_tokens", 0) or 0)
-        + (getattr(usage, "cache_read_input_tokens", 0) or 0)
-        + (getattr(usage, "cache_creation_input_tokens", 0) or 0)
-    )
-    return prompt, getattr(usage, "output_tokens", 0) or 0
 
 
 def _build_tool_def(tool: ToolSpec) -> dict:
@@ -103,12 +89,6 @@ class AnthropicAdapter(BaseLLMAdapter):
         # gets its own cache_control so that on a cache miss at the automatic
         # breakpoint, the lookback still finds this earlier write.
         user_blocks = []
-        # ``conv_marker`` tracks the single block that currently carries the
-        # moving conversation cache_control marker.  As the conversation grows
-        # we relocate this marker to the latest tool_result rather than adding a
-        # new one, so the total number of markers stays fixed at 3 (tools +
-        # system + conversation) — well within Anthropic's limit of 4.
-        conv_marker: dict | None = None
         split_match = re.search(
             r"(\n+(?:User message|User request|User prompt|Request):\s*)(.*)$",
             user,
@@ -118,12 +98,11 @@ class AnthropicAdapter(BaseLLMAdapter):
             prefix_text = user[:split_match.start()].strip()
             suffix_text = (split_match.group(1) + split_match.group(2)).strip()
             if prefix_text:
-                conv_marker = {
+                user_blocks.append({
                     "type": "text",
                     "text": prefix_text,
                     "cache_control": {"type": "ephemeral"},
-                }
-                user_blocks.append(conv_marker)
+                })
             user_blocks.append({
                 "type": "text",
                 "text": suffix_text,
@@ -172,8 +151,6 @@ class AnthropicAdapter(BaseLLMAdapter):
                 cache_read + cache_write + uncached,
                 getattr(usage, "output_tokens", 0) or 0,
             )
-            prompt_tokens, completion_tokens = _usage_tokens(response)
-            text_parts = [b.text for b in response.content if hasattr(b, "text")]
 
             # A reply cut off at the token ceiling is not a reply: JSON and
             # tool arguments end mid-token, so every consumer downstream sees
@@ -187,66 +164,41 @@ class AnthropicAdapter(BaseLLMAdapter):
                 )
 
             if response.stop_reason != "tool_use":
-                content = "\n".join(text_parts)
-                trace.append(
-                    TurnRecord(
-                        role="assistant",
-                        content=content,
-                        prompt_tokens=prompt_tokens,
-                        completion_tokens=completion_tokens,
-                        latency_ms=int((time.perf_counter() - _turn_t0) * 1000),
-                    )
-                )
-                return CompletionResult(text=content, trace=trace)
+                # Collect all text blocks
+                text_parts = [b.text for b in response.content if hasattr(b, "text")]
+                return "\n".join(text_parts)
 
             # Append assistant turn (content includes tool_use blocks)
             messages.append({"role": "assistant", "content": response.content})
 
-            # Execute tool calls and build tool_result blocks; all calls of
-            # this response stay grouped under ONE TurnRecord with the turn's
-            # real token usage.
-            turn_record = TurnRecord(
-                role="tool",
-                content="\n".join(text_parts),
-                prompt_tokens=prompt_tokens,
-                completion_tokens=completion_tokens,
-            )
+            # Execute tool calls and build tool_result blocks
             tool_results = []
             for block in response.content:
                 if block.type != "tool_use":
                     continue
                 tool = tool_map.get(block.name)
-                arguments = dict(block.input or {})
                 if tool:
                     try:
-                        result = str(tool.fn(**arguments))
+                        result = str(tool.fn(**block.input))
                     except Exception as exc:
                         result = f"Error calling {block.name}: {exc}"
                 else:
                     result = f"Unknown tool: {block.name}"
 
-                turn_record.tool_calls.append(
-                    ToolCallRecord(name=block.name, arguments=arguments, result=result)
-                )
                 tool_results.append({
                     "type": "tool_result",
                     "tool_use_id": block.id,
                     "content": result,
                 })
-            # API round-trip + inline tool execution = this turn's decision latency
-            turn_record.latency_ms = int((time.perf_counter() - _turn_t0) * 1000)
-            trace.append(turn_record)
 
-            # Relocate the single conversation cache_control marker to the last
-            # tool_result so the entire conversation prefix (tools + system +
-            # all prior messages + this tool result) is cached for the next
-            # turn.  We remove the marker from its previous location first so
-            # markers never accumulate beyond the Anthropic limit of 4.
+            # Mark the last tool_result with cache_control so the entire
+            # conversation prefix (tools + system + all prior messages +
+            # this tool result) is cached for the next turn.  This gives
+            # the lookback window an explicit write point close to the end
+            # of the growing conversation, ensuring cache hits even when
+            # the conversation exceeds 20 blocks.
             if tool_results:
-                if conv_marker is not None:
-                    conv_marker.pop("cache_control", None)
                 tool_results[-1]["cache_control"] = {"type": "ephemeral"}
-                conv_marker = tool_results[-1]
 
             messages.append({"role": "user", "content": tool_results})
             kwargs["messages"] = messages

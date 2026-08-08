@@ -12,26 +12,22 @@ from frappe import _
 from one_bpmn.one_bpmn import engine as bpmn_engine
 
 
-def split_users(value: str) -> list:
-	"""
-	Split a possibly comma-separated ``assigned_user`` value into individual
-	user names, trimmed and de-duplicated (order preserved).
+def split_users(assigned_user: str) -> list:
+	"""Split a stored ``assigned_user`` value into individual user ids.
 
-	``assigned_user`` is normally a single user, but "Table Field" mode
-	(multi-assignee) stores a comma-joined list — every caller that treats
-	``assigned_user`` as a set of members (permission checks, ToDo sync)
-	must go through this instead of comparing/splitting ad hoc.
+	A task row holds either a single user or a comma-separated list of users
+	(multi-assignee tasks — see ``resolve_assignment``). Returns an
+	order-preserving, de-duplicated list of non-empty user ids; ``[]`` for a
+	blank/None value.
 	"""
-	if not value:
+	if not assigned_user:
 		return []
-	seen = set()
-	users = []
-	for part in value.split(","):
-		user = part.strip()
-		if user and user not in seen:
-			seen.add(user)
-			users.append(user)
-	return users
+	seen = []
+	for u in str(assigned_user).split(","):
+		u = u.strip()
+		if u and u not in seen:
+			seen.append(u)
+	return seen
 
 
 def _decode_html_attr(value: str) -> str:
@@ -116,19 +112,10 @@ def resolve_assignment(instance, task) -> str:
 	        Assigns to the user in ``assigneeUsers`` with the fewest open
 	        BPMN Process Instance active tasks.  Ties are broken by list order.
 
-	    Table Field
-	        Reads every row of a Table MultiSelect field on the context
-	        document (``assigneeTableField``) and pulls a user out of each
-	        row via ``assigneeTableUserField`` (e.g. Task.custom_assigned_to,
-	        row field "user"). Any one of the resolved users may complete
-	        the task. Returned as a comma-joined string — callers that treat
-	        an assignment as a single user must go through ``split_users()``.
-
 	For all modes, if the resolved assignee is on approved leave today the
 	task is redirected to the reliever named in their Leave Application.
 
-	Returns the resolved user email/name (or comma-joined list for Table
-	Field mode), or empty string if unresolvable.
+	Returns the resolved user email/name, or empty string if unresolvable.
 	"""
 	extensions = getattr(instance, "_user_task_extensions", {})
 	bpmn_id = getattr(task.task_spec, "bpmn_id", None) or ""
@@ -232,31 +219,6 @@ def resolve_assignment(instance, task) -> str:
 				message=frappe.get_traceback(),
 			)
 			return get_reliever_if_on_leave(users[0]) if users else ""
-
-	# ── Table Field ────────────────────────────────────────────────────────
-	if mode == "Table Field":
-		doctype = task_cfg.get("targetDoctype") or instance.context_doctype
-		table_field = task_cfg.get("assigneeTableField", "")
-		user_field = task_cfg.get("assigneeTableUserField", "") or "user"
-		if not (doctype and table_field and instance.context_docname):
-			return ""
-		try:
-			parent_doc = frappe.get_doc(doctype, instance.context_docname)
-			rows = parent_doc.get(table_field) or []
-			users = []
-			seen = set()
-			for row in rows:
-				u = row.get(user_field)
-				if u and u not in seen:
-					seen.add(u)
-					users.append(get_reliever_if_on_leave(u))
-			return ",".join(users)
-		except Exception:
-			frappe.log_error(
-				title="BPMN: Table Field assignment failed",
-				message=frappe.get_traceback(),
-			)
-			return ""
 
 	return ""
 
@@ -480,20 +442,15 @@ def add_frappe_assignment(
 		)
 
 
-def remove_frappe_assignment(instance, user: str, status: str = "Closed") -> None:
+def remove_frappe_assignment(instance, user: str) -> None:
 	"""
 	Close the Frappe Assignment (ToDo) on the context document when
 	the User Task is completed.
 
-	Defaults to "Closed" (task finished) — not "Cancelled" (task removed).
-	Uses ``set_status`` directly instead of ``close()`` because ``close()``
-	asserts ``session.user == assignee``, which fails when the engine runs
-	under a different user context.
-
-	``status`` lets a specific process override the close status (e.g. a
-	process that wants "Cancelled" for a specific transition) via
-	``_sync_active_tasks()``'s ``task.data["todo_close_status"]`` hint —
-	every other caller keeps the default and is unaffected.
+	Sets the ToDo status to "Closed" (task finished) — not "Cancelled"
+	(task removed).  Uses ``set_status`` directly instead of ``close()``
+	because ``close()`` asserts ``session.user == assignee``, which fails
+	when the engine runs under a different user context.
 
 	Failures are logged but never break the workflow.
 	"""
@@ -507,7 +464,7 @@ def remove_frappe_assignment(instance, user: str, status: str = "Closed") -> Non
 			instance.context_doctype,
 			instance.context_docname,
 			assign_to=user,
-			status=status,
+			status="Closed",
 			ignore_permissions=True,
 		)
 	except Exception:

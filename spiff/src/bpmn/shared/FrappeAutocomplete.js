@@ -24,7 +24,6 @@
 
 import { h, Component } from "preact";
 import { frappeGet } from "./frappeResource";
-import { fixedDropdownStyle } from "./dropdownPosition";
 import "./bpmn-panel.css";
 
 export class FrappeAutocomplete extends Component {
@@ -37,34 +36,17 @@ export class FrappeAutocomplete extends Component {
 			searchTxt: props.value || "",
 		};
 		this.containerRef = null;
-		this.inputRef = null;
-		this.listRef = null;
 		this.debounceTimer = null;
 		this.handleDocumentClick = this.handleDocumentClick.bind(this);
-		this.handleScroll = this.handleScroll.bind(this);
 	}
 
 	componentDidMount() {
 		document.addEventListener("mousedown", this.handleDocumentClick);
-		// The list is position:fixed so it can escape the panel's overflow
-		// clipping — reposition it when anything scrolls (capture phase
-		// catches the panel's inner scroll containers too).
-		document.addEventListener("scroll", this.handleScroll, true);
-		window.addEventListener("resize", this.handleScroll);
 	}
 
 	componentWillUnmount() {
 		document.removeEventListener("mousedown", this.handleDocumentClick);
-		document.removeEventListener("scroll", this.handleScroll, true);
-		window.removeEventListener("resize", this.handleScroll);
 		if (this.debounceTimer) clearTimeout(this.debounceTimer);
-	}
-
-	handleScroll(e) {
-		if (!this.state.isOpen) return;
-		// Scrolling inside the dropdown itself must not trigger a reposition
-		if (this.listRef && e.target && this.listRef.contains(e.target)) return;
-		this.forceUpdate();
 	}
 
 	componentDidUpdate(prevProps) {
@@ -141,11 +123,6 @@ export class FrappeAutocomplete extends Component {
 	// -----------------------------------------------------------------
 	// Render
 	// -----------------------------------------------------------------
-
-	_listStyle() {
-		return fixedDropdownStyle(this.inputRef);
-	}
-
 	render() {
 		const { label, id, renderOption, valueField = "name", noResultsText } = this.props;
 		const { isOpen, options, loading, searchTxt } = this.state;
@@ -164,7 +141,6 @@ export class FrappeAutocomplete extends Component {
 						type: "text",
 						class: "bio-properties-panel-input",
 						value: searchTxt,
-						ref: (el) => (this.inputRef = el),
 						onInput: (e) => this.onInput(e),
 						onFocus: () => this.onFocus(),
 						autoComplete: "off",
@@ -173,11 +149,7 @@ export class FrappeAutocomplete extends Component {
 					isOpen &&
 						h(
 							"ul",
-							{
-								class: "bpmn-dropdown-list",
-								style: this._listStyle(),
-								ref: (el) => (this.listRef = el),
-							},
+							{ class: "bpmn-dropdown-list" },
 							[
 								loading && h("li", { class: "bpmn-dropdown-loading" }, "Loading..."),
 								!loading &&

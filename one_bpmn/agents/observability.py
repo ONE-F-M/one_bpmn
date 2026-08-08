@@ -120,7 +120,9 @@ def record_ai_step(
 	prompt_tokens: int = 0,
 	completion_tokens: int = 0,
 	latency_ms: int = 0,
-	tool_calls: list | None = None,
+	tool_name: str = None,
+	tool_args: dict = None,
+	tool_result: str = None,
 	error_code: str = None,
 	error_message: str = None,
 ) -> Optional["frappe.Document"]:
@@ -162,6 +164,9 @@ def record_ai_step(
 		"step_index": step_index,
 		"role": role,
 		"content": content,
+		"tool_name": tool_name,
+		"tool_args": tool_args if tool_args else None,
+		"tool_result": tool_result,
 		"prompt_tokens": prompt_tokens,
 		"completion_tokens": completion_tokens,
 		"cost": input_cost + output_cost,
@@ -171,22 +176,6 @@ def record_ai_step(
 		"error_code": error_code or None,
 		"error_message": error_message or None,
 	})
-	# WI-001358: one child row per tool actually called in this turn. A
-	# single LLM turn can contain several calls — they stay grouped under
-	# this Step with its one shared token/cost figure. (The legacy flat
-	# tool_name/tool_args/tool_result fields were removed 2026-07-04 —
-	# the child table is the sole record of tool calls.)
-	for call in tool_calls or []:
-		step.append(
-			"tool_calls",
-			{
-				"tool_name": call.get("name") or call.get("tool_name") or "",
-				"tool_source": call.get("tool_source") or "",
-				"tool_args": call.get("arguments") or call.get("tool_args") or None,
-				"tool_result": call.get("result") or call.get("tool_result") or "",
-				"status": call.get("status") or "Success",
-			},
-		)
 	try:
 		step.insert(ignore_permissions=True)
 		return step

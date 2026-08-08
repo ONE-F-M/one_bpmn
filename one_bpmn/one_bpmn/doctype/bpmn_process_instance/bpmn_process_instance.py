@@ -20,7 +20,6 @@ from .dispatchers import (
 	dispatch_email,
 	dispatch_google_chat,
 	dispatch_push_notification,
-	dispatch_send_notification,
 	dispatch_update_field,
 )
 from .assignment import (
@@ -252,10 +251,11 @@ class BPMNProcessInstance(Document):
 
 		# Capture current assignments BEFORE marking task completed,
 		# so the diff in _sync_active_tasks knows who was previously assigned.
-		prev_assigned = set()
-		for row in self.active_tasks:
-			if row.status == "Waiting" and row.assigned_user:
-				prev_assigned.update(split_users(row.assigned_user))
+		prev_assigned = {
+			row.assigned_user
+			for row in self.active_tasks
+			if row.status == "Waiting" and row.assigned_user
+		}
 
 		# Mark the active_tasks row as Completed and record timing
 		# (Frappe assignment cleanup is handled by _sync_active_tasks
@@ -422,10 +422,12 @@ class BPMNProcessInstance(Document):
 		                  a task variable usable in gateway conditions.
 
 		Returns:
-		    list of dicts describing the next active tasks
+		    list of dicts describing the next active tasks. If no task is waiting
+		    for the message, it is a benign no-op: the current active tasks are
+		    returned unchanged (no exception).
 
 		Raises:
-		    frappe.ValidationError: if instance is not Active or message not caught
+		    frappe.ValidationError: if the instance is not Active
 		"""
 		if self.status in ("Completed", "Cancelled"):
 			frappe.throw(
@@ -460,21 +462,25 @@ class BPMNProcessInstance(Document):
 			bpmn_engine.refresh_context_doc(wf, self.context_doctype, self.context_docname)
 
 		# Capture current assignments BEFORE message delivery
-		prev_assigned = set()
-		for row in self.active_tasks:
-			if row.status == "Waiting" and row.assigned_user:
-				prev_assigned.update(split_users(row.assigned_user))
+		prev_assigned = {
+			row.assigned_user
+			for row in self.active_tasks
+			if row.status == "Waiting" and row.assigned_user
+		}
 
 		# ── Deliver the message ──────────────────────────────────────────────
 		caught = bpmn_engine.send_message(wf, message_name, payload=payload)
 
 		if not caught:
-			# No task is waiting for this message (e.g. a document event fired
-			# while the instance isn't parked at a matching catch node). This is
-			# benign, so skip quietly and return the unchanged task summary rather
-			# than surfacing an alarming error to the user.
-			frappe.logger("one_bpmn").debug(
-				f'No task in instance "{self.name}" is waiting for message "{message_name}".'
+			# An active instance that isn't currently parked at a catch event for
+			# this message simply ignores it. This is a normal, benign condition
+			# for the auto doc-event messages (e.g. WorkItem_Edit_Action fired on
+			# every save): most instances have no catch event for the event at
+			# their current position. Never raise — a non-match must not surface a
+			# user-facing error or block the triggering document's save.
+			frappe.logger("bpmn").debug(
+				f'receive_message: no task waiting for "{message_name}" '
+				f'in instance "{self.name}"; ignoring.'
 			)
 			return self.get_active_tasks_summary()
 
@@ -1104,12 +1110,9 @@ class BPMNProcessInstance(Document):
 	def _run_engine_inner(self, wf):
 		wf.refresh_waiting_tasks()
 
-		cap_hit = True
 		for _ in range(20):  # safety cap — no real workflow needs > 20 passes
-			bpmn_engine.do_engine_steps_gated(
-				wf,
+			wf.do_engine_steps(
 				did_complete_task=self._on_engine_task_complete,
-				did_complete_adhoc_task=self._on_adhoc_task_complete,
 			)
 
 			# Find non-manual tasks left in STARTED state.  These are
@@ -1145,7 +1148,6 @@ class BPMNProcessInstance(Document):
 				started_tasks = [t for t in started_tasks if t not in parked]
 
 			if not started_tasks:
-				cap_hit = False
 				break  # nothing left to advance — we're done
 
 			for task in started_tasks:
@@ -1158,105 +1160,11 @@ class BPMNProcessInstance(Document):
 					continue
 				self._on_engine_task_complete(task)
 				task.complete()
-				# Ad-hoc inner tasks: refresh the context doc and record the
-				# activation outcome AFTER the dispatch's writes landed —
-				# doc-based completion conditions evaluate right after this.
-				if isinstance(
-					getattr(task.workflow, "spec", None), bpmn_engine.AdHocSubprocessSpec
-				) and getattr(task.task_spec, "bpmn_id", None):
-					self._on_adhoc_task_complete(task)
-
-		if cap_hit:
-			# Flag — don't raise. State serializes correctly and the next
-			# advance() resumes from here; ad-hoc subprocesses with many inner
-			# tasks may legitimately need more passes per call (WI-001350).
-			pending_adhoc = bpmn_engine.adhoc_pending_head_tasks(wf)
-			frappe.log_error(
-				title="BPMN _run_engine pass cap reached",
-				message=(
-					f"Instance {self.name}: 20-pass cap hit with work remaining. "
-					f"Parked ad-hoc heads: {[t.task_spec.name for t in pending_adhoc]}. "
-					"Execution resumes on the next advance() call."
-				),
-			)
 
 		# Final refresh catches conditional events that became true after
 		# the engine steps ran (e.g. script task updated a doc field that
 		# a downstream catch event now matches).
 		wf.refresh_waiting_tasks()
-
-	def _on_adhoc_task_complete(self, task):
-		"""
-		Fired after each ad-hoc inner task completes (WI-001350 Scenario 7).
-
-		Inline <bpmn:script> tasks read the context doc from the shared
-		script-engine environment, which is populated once per API call.
-		Refreshing after every inner completion lets a later inline script
-		see values an earlier one just wrote via frappe.db.set_value().
-		Server-Script-backed tasks are unaffected either way — they call
-		frappe.get_doc() fresh on every execution.
-		"""
-		if self.context_doctype and self.context_docname:
-			bpmn_engine.refresh_context_doc(
-				task.workflow.top_workflow, self.context_doctype, self.context_docname
-			)
-
-		# If the AI Task Selector activated this task, attach what it actually
-		# produced to the recording (AI Agent Tool Call.outcome). No-op when no
-		# matching outcome-less tool call exists (plain adhoc, chained tasks).
-		try:
-			from one_bpmn.agents.observability import record_activation_outcome
-
-			bpmn_id = getattr(task.task_spec, "bpmn_id", None) or task.task_spec.name
-			outcome = self._compose_task_outcome(task, bpmn_id)
-			record_activation_outcome(self.name, bpmn_id, outcome)
-		except Exception:
-			frappe.log_error(
-				title="BPMN: activation outcome recording failed",
-				message=frappe.get_traceback(),
-			)
-
-	def _compose_task_outcome(self, task, bpmn_id: str) -> str:
-		"""One-line, factual summary of what a completed ad-hoc inner task did,
-		derived from its compile-time config and the data it wrote."""
-		svc_cfg = getattr(self, "_service_task_extensions", {}).get(bpmn_id) or {}
-		script_cfg = getattr(self, "_script_task_extensions", {}).get(bpmn_id) or {}
-		parts = []
-
-		if svc_cfg.get("serviceType") == "update_field":
-			target = svc_cfg.get("updateFieldDoctype") or self.context_doctype or "document"
-			try:
-				for row in json.loads(svc_cfg.get("updateFieldRows") or "[]"):
-					parts.append(f'set {target}.{row.get("field")} = "{row.get("value")}"')
-			except Exception:
-				pass
-
-		script_name = script_cfg.get("serverScript") or svc_cfg.get("serverScript")
-		if script_name:
-			written = {}
-			try:
-				from one_bpmn.api.ai_assistant import _server_script_result_keys
-
-				for key in _server_script_result_keys(script_name):
-					if key in (task.data or {}):
-						written[key] = task.data[key]
-			except Exception:
-				pass
-			if written:
-				values = ", ".join(f"{k} = {v!r}" for k, v in written.items())
-				parts.append(f'ran Server Script "{script_name}" → {values}')
-			else:
-				parts.append(f'ran Server Script "{script_name}"')
-
-		if svc_cfg.get("notificationName"):
-			parts.append(f'sent notification "{svc_cfg["notificationName"]}"')
-
-		task_type = type(task.task_spec).__name__
-		if not parts and "UserTask" in task_type:
-			parts.append(f"completed by {frappe.session.user}")
-
-		summary = "; ".join(parts) if parts else "completed"
-		return f"Completed {now_datetime().strftime('%H:%M:%S')} — {summary}"
 
 	def _on_engine_task_complete(self, task):
 		"""
@@ -1273,26 +1181,6 @@ class BPMNProcessInstance(Document):
 		# Skip engine-internal tasks that don't correspond to BPMN elements
 		if not bpmn_id and (spec_name in ("Start", "End") or spec_name.endswith(".EndJoin")):
 			return
-
-		# Send Tasks complete inside the engine sweep (they never sit in
-		# STARTED like service tasks), so this callback is where their
-		# real-world action happens. Guarded by state: the STARTED dispatch
-		# loop also calls this hook pre-complete for service tasks, which a
-		# SendTask can never be.
-		if isinstance(task_spec, bpmn_engine.SendTask) and bpmn_id:
-			task_cfg = getattr(self, "_service_task_extensions", {}).get(bpmn_id, {})
-			if task_cfg.get("notificationName"):
-				dispatch_send_notification(self, task, task_cfg, bpmn_id)
-
-		# A completed subprocess parent ends its AI Task Selector run (if
-		# one exists) — the only moment a selector run is genuinely over.
-		if isinstance(task_spec, SubWorkflowTask):
-			try:
-				from one_bpmn.agents.observability import finalize_open_selector_runs
-
-				finalize_open_selector_runs(self.name, bpmn_id or spec_name)
-			except Exception:
-				pass
 
 		self._log_task(
 			task_id=str(task.id),
@@ -1450,10 +1338,11 @@ class BPMNProcessInstance(Document):
 
 		# Snapshot: which users have Open assignments before this rebuild
 		if prev_assigned is None:
-			prev_assigned = set()
-			for row in self.active_tasks:
-				if row.status == "Waiting" and row.assigned_user:
-					prev_assigned.update(split_users(row.assigned_user))
+			prev_assigned = {
+				row.assigned_user
+				for row in self.active_tasks
+				if row.status == "Waiting" and row.assigned_user
+			}
 
 		# Keep completed rows + rows still waiting that are still ready.
 		# AI human-task rows are synthetic (no engine task behind them) — a
@@ -1518,11 +1407,9 @@ class BPMNProcessInstance(Document):
 			# add_frappe_assignment to read the user_task_extensions config.
 			self.active_tasks[-1]._bpmn_id = bpmn_id_key
 
-			# Track the task_cfg so we can pass notification settings below.
-			# assigned_user may be a comma-joined list (Table Field mode) —
-			# every one of those users gets the same task_cfg for notifications.
-			for u in split_users(assigned_user):
-				new_user_task_cfgs[u] = (task_name, task_cfg)
+			# Track the task_cfg so we can pass notification settings below
+			if assigned_user:
+				new_user_task_cfgs[assigned_user] = (task_name, task_cfg)
 
 			self._log_task(
 				task_id=tid,
@@ -1530,45 +1417,19 @@ class BPMNProcessInstance(Document):
 				action="Started",
 			)
 
-		# Diff: which users are now assigned across all Waiting tasks.
-		# A Waiting row's assigned_user may list multiple people (Table Field
-		# mode) — any one of them can complete it, so each gets its own entry.
+		# Diff: which users are now assigned across all Waiting tasks
 		curr_assigned = {}
 		for row in self.active_tasks:
 			if row.status == "Waiting" and row.assigned_user:
-				for u in split_users(row.assigned_user):
-					curr_assigned[u] = {
-						"task_name": row.task_name,
-						"bpmn_id": getattr(row, "_bpmn_id", ""),
-						"task_id": row.task_id,
-					}
+				curr_assigned[row.assigned_user] = {
+					"task_name": row.task_name,
+					"bpmn_id": getattr(row, "_bpmn_id", ""),
+					"task_id": row.task_id,
+				}
 
 		# Close ToDos for users who were assigned but no longer are
-		# A preceding script task can override the close status via
-		# task.data["todo_close_status"] (same pattern as assigned_role) —
-		# defaults to "Closed" for every process that never sets it.
-		#
-		# wf.task_tree.data is the workflow ROOT's data and is never updated
-		# by downstream script tasks (verified: it stays {} for the whole
-		# run) — task.data only inherits forward along the execution path,
-		# so the hint must be read off a task that's actually downstream of
-		# the script that set it. ready_user_tasks (computed above) are the
-		# tasks immediately following wherever the engine just stopped, so
-		# they carry the current data forward; wf.last_task is a fallback
-		# for the case where nothing is left ready (e.g. process about to
-		# complete).
-		todo_close_status = "Closed"
-		for _t in ready_user_tasks:
-			_hint = _t.data.get("todo_close_status")
-			if _hint:
-				todo_close_status = _hint
-				break
-		else:
-			_last_task = getattr(wf, "last_task", None)
-			if _last_task is not None:
-				todo_close_status = _last_task.data.get("todo_close_status") or "Closed"
 		for user in prev_assigned - set(curr_assigned.keys()):
-			remove_frappe_assignment(self, user, status=todo_close_status)
+			remove_frappe_assignment(self, user)
 
 		# Create ToDos for users who are newly assigned
 		for user, info in curr_assigned.items():

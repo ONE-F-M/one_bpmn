@@ -128,11 +128,8 @@ class CompletionResult:
 class BaseLLMAdapter(ABC):
     """Single async entry-point for any LLM provider.
 
-    Each provider subclass handles its own tool-calling loop internally.
-    complete() returns a CompletionResult carrying both the final answer
-    text and the full turn-by-turn trace — earlier versions returned a bare
-    string and discarded every intermediate turn's tool calls and token
-    usage (contract change made explicitly in scope by WI-001356).
+    Each provider subclass handles its own tool-calling loop internally so
+    callers always receive a plain text string back.
     """
 
     @abstractmethod

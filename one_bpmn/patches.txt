@@ -2,7 +2,6 @@
 # Patches added in this section will be executed before doctypes are migrated
 # Read docs to understand patches: https://frappeframework.com/docs/v14/user/en/database-migrations
 one_bpmn.one_bpmn.patches.v1_0.drop_process_id_unique_index
-one_bpmn.one_bpmn.patches.v1_0.create_process_designer_role
 
 one_bpmn.one_bpmn.patches.v1_0.rename_ai_provider_to_ai_provider_credentials #16-07-2026
 one_bpmn.one_bpmn.patches.v1_0.move_agent_chat_doctypes_to_one_bpmn #16-07-2026
@@ -12,22 +11,24 @@ one_bpmn.one_bpmn.patches.v1_0.set_existing_models_inactive
 one_bpmn.one_bpmn.patches.v1_0.migrate_processa_comments
 one_bpmn.one_bpmn.patches.v1_0.migrate_dmn_xml_to_child_table
 one_bpmn.one_bpmn.patches.v1_0.seed_ai_providers
-one_bpmn.one_bpmn.patches.v1_0.seed_agent_prompts #20-07-2026-v4
+one_bpmn.one_bpmn.patches.v1_0.seed_agent_prompts #05-07-2026-v3
 one_bpmn.one_bpmn.patches.v1_0.cleanup_onefm_mcp_ai_model_pricing
 one_bpmn.one_bpmn.patches.v1_0.seed_ai_model_pricing #1
 one_bpmn.one_bpmn.patches.v1_0.backfill_ai_run_label_and_model
 one_bpmn.one_bpmn.patches.v1_0.remove_ai_agent_tool_registry
 one_bpmn.one_bpmn.patches.v1_0.shift_ai_step_index_to_one_based #09-07-2026
 one_bpmn.one_bpmn.patches.v1_0.seed_docu_agent_config #12-07-2026
-one_bpmn.one_bpmn.patches.v1_0.fix_logix_script_task_injected_vars #15-07-2026
-one_bpmn.one_bpmn.patches.v1_0.optimize_logix_generated_scripts #16-07-2026
-one_bpmn.one_bpmn.patches.v1_0.create_process_implementations_from_pathfinder_logs #16-07-2026
-one_bpmn.one_bpmn.patches.v1_0.remove_schema_sync_doctypes #19-07-2026
-one_bpmn.one_bpmn.patches.v1_0.add_logix_agent_tool_authoring #19-07-2026
 one_bpmn.one_bpmn.patches.v1_0.migrate_llm_credentials_to_ai_provider_credentials #16-07-2026
 one_bpmn.one_bpmn.patches.v1_0.backfill_agent_provider_credentials_links #16-07-2026
 one_bpmn.one_bpmn.patches.v1_0.seed_ai_assistant_agent #16-07-2026
 one_bpmn.one_bpmn.patches.v1_0.refresh_ai_assistant_prompt #16-07-2026
+one_bpmn.one_bpmn.patches.v1_0.repair_empty_workflow_state_instances #22-07-2026
+one_bpmn.one_bpmn.patches.v1_0.release_stale_engine_gates #22-07-2026
+one_bpmn.one_bpmn.patches.v1_0.optimize_logix_generated_scripts #16-07-2026
+one_bpmn.one_bpmn.patches.v1_0.create_process_implementations_from_pathfinder_logs #16-07-2026
+one_bpmn.one_bpmn.patches.v1_0.remove_schema_sync_doctypes #19-07-2026
+one_bpmn.one_bpmn.patches.v1_0.change_process_implementation_to_data #24-07-2026
+one_bpmn.one_bpmn.patches.v1_0.seed_processa_instance_type #27-07-2026
 one_bpmn.one_bpmn.patches.v1_0.refresh_ai_assistant_prompt #19-07-2026 WI-001649 creation behavior
 one_bpmn.one_bpmn.patches.v1_0.enforce_agent_config_on_ai_shapes #19-07-2026 WI-001650
 one_bpmn.one_bpmn.patches.v1_0.background_agents_go_live #19-07-2026 WI-001652
@@ -44,7 +45,6 @@ one_bpmn.one_bpmn.patches.v1_0.migrate_prosally_agent_to_generic_path #23-07-202
 one_bpmn.one_bpmn.patches.v1_0.inline_prosally_tool_scripts #23-07-2026
 one_bpmn.one_bpmn.patches.v1_0.migrate_docu_agent_to_generic_path #23-07-2026
 one_bpmn.one_bpmn.patches.v1_0.inline_docu_tool_scripts #23-07-2026
-one_bpmn.one_bpmn.patches.v1_0.change_process_implementation_to_data #24-07-2026
 one_bpmn.one_bpmn.patches.v1_0.fix_logix_http_helper_qualified_path #24-07-2026
 one_bpmn.one_bpmn.patches.v1_0.move_eval_suite_link_to_suite #24-07-2026
 one_bpmn.one_bpmn.patches.v1_0.evals_test_agent_configuration #25-07-2026

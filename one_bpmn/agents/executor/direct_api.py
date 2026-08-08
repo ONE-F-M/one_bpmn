@@ -15,7 +15,7 @@ from __future__ import annotations
 import json
 import random
 import time
-from typing import Any, ClassVar, Optional
+from typing import Any, Optional
 
 import frappe
 from frappe.utils.password import get_decrypted_password
@@ -166,12 +166,6 @@ class DirectApiExecutor(Executor):
         model = config.model or frappe.db.get_value(
             "AI Model", {"ai_provider_credentials": provider.name}, "name"
         ) or ""
-
-        # WI-001356: with tools present, delegate to the matching
-        # agents/llm_provider adapter's multi-turn tool-calling loop. With
-        # tools=None (the default) the raw HTTP path below is untouched.
-        if config.tools:
-            return self._run_with_tools(config, provider_type, api_key, model)
 
         if provider_type == "Anthropic":
             url, payload, headers = self._build_anthropic_request(
@@ -450,10 +444,6 @@ class DirectApiExecutor(Executor):
         messages = []
         if config.system_prompt:
             messages.append({"role": "system", "content": config.system_prompt})
-        # Prior history (if any) precedes the rendered user_prompt. Empty by
-        # default, so the payload is identical to before when unused.
-        if config.messages:
-            messages.extend(config.messages)
         messages.append({"role": "user", "content": config.user_prompt})
 
         payload = {
@@ -486,38 +476,7 @@ class DirectApiExecutor(Executor):
         url = f"{endpoint}/v1/messages"
 
         # Anthropic uses a top-level "system" field, not a system message.
-        # Prior history (if any) precedes the rendered user_prompt. Empty by
-        # default, so the payload is identical to before when unused.
-        messages = list(config.messages) if config.messages else []
-        messages.append({"role": "user", "content": config.user_prompt})
-
-        # ── Prompt caching (2 explicit breakpoints, max 4 allowed) ────────────
-        # Caching is a prefix match on the rendered prompt bytes. AI Agent Task
-        # system prompts and stage sub-prompts are identical across every turn
-        # of a conversation, so marking them cuts repeat-input cost by ~90%.
-        # 1. System prompt — sent as a content block so it can carry
-        #    cache_control (a plain string cannot). Prompts below the model's
-        #    minimum cacheable length are silently not cached — harmless.
-        # 2. Conversation prefix — when prior history is present, the last
-        #    history message gets a marker so the whole growing prefix
-        #    (system + all prior turns) is a single cache read next turn.
-        #    The final user_prompt stays after the marker: it varies per turn.
-        if messages and config.messages:
-            idx = len(config.messages) - 1
-            last = dict(messages[idx])  # copy — never mutate the caller's dicts
-            content = last.get("content")
-            if isinstance(content, str):
-                last["content"] = [{
-                    "type": "text",
-                    "text": content,
-                    "cache_control": {"type": "ephemeral"},
-                }]
-                messages[idx] = last
-            elif isinstance(content, list) and content and isinstance(content[-1], dict):
-                new_content = list(content)
-                new_content[-1] = {**content[-1], "cache_control": {"type": "ephemeral"}}
-                last["content"] = new_content
-                messages[idx] = last
+        messages = [{"role": "user", "content": config.user_prompt}]
 
         payload: dict = {
             "model": model,
@@ -525,11 +484,7 @@ class DirectApiExecutor(Executor):
             "max_tokens": config.max_tokens,
         }
         if config.system_prompt:
-            payload["system"] = [{
-                "type": "text",
-                "text": config.system_prompt,
-                "cache_control": {"type": "ephemeral"},
-            }]
+            payload["system"] = config.system_prompt
 
         # Anthropic does not allow both temperature and top_p simultaneously.
         # Send temperature by default; only send top_p if it was explicitly
@@ -590,12 +545,6 @@ class DirectApiExecutor(Executor):
     @staticmethod
     def _parse_token_usage(usage_raw: dict) -> TokenUsage:
         prompt = usage_raw.get("prompt_tokens") or usage_raw.get("input_tokens") or 0
-        # Anthropic reports cached portions separately from input_tokens.
-        # Cache read/creation tokens ARE consumed context — just billed
-        # differently — so include them in the prompt count (mirrors
-        # llm_provider.anthropic_adapter._usage_tokens; pricing handles cost).
-        prompt += (usage_raw.get("cache_read_input_tokens") or 0)
-        prompt += (usage_raw.get("cache_creation_input_tokens") or 0)
         completion = usage_raw.get("completion_tokens") or usage_raw.get("output_tokens") or 0
         total = usage_raw.get("total_tokens") or (prompt + completion)
         return TokenUsage(
