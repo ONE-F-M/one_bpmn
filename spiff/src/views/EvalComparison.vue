@@ -121,9 +121,22 @@
 									<div class="flex justify-between"><dt class="text-gray-500">Cache read</dt><dd>{{ money(side.cost_split.cache_read) }}</dd></div>
 									<div class="flex justify-between"><dt class="text-gray-500">Cache write</dt><dd>{{ money(side.cost_split.cache_write) }}</dd></div>
 								</dl>
+								<div
+									v-if="side.judge_cost"
+									class="flex justify-between text-xs mt-1 pt-1 border-t border-dashed"
+								>
+									<dt class="text-gray-500">
+										Judging
+										<span class="text-gray-400">(not the agent's spend)</span>
+									</dt>
+									<dd>{{ money(side.judge_cost) }}</dd>
+								</div>
 								<div class="mt-2 text-xs text-gray-400">
 									{{ (side.cache_tokens.read || 0).toLocaleString() }} cache-read /
 									{{ (side.cache_tokens.write || 0).toLocaleString() }} cache-write tokens
+									<template v-if="side.agent_calls">
+										· {{ side.agent_calls }} agent call{{ side.agent_calls === 1 ? "" : "s" }}
+									</template>
 								</div>
 							</div>
 						</div>

@@ -622,6 +622,11 @@ def _record_eval_run(
     origin = getattr(frappe.flags, "eval_origin", None)
     if not isinstance(origin, dict):
         origin = {}
+    ended = now_datetime()
+    try:
+        elapsed_ms = int((ended - started).total_seconds() * 1000) if started else 0
+    except Exception:
+        elapsed_ms = 0
     try:
         frappe.get_doc({
             "doctype": "AI Agent Run",
@@ -637,7 +642,14 @@ def _record_eval_run(
             "origin": "eval",
             "status": "Success",
             "started_at": started,
-            "ended_at": now_datetime(),
+            "ended_at": ended,
+            # WI-001821: an eval call is a single provider round-trip with no
+            # human wait and no inter-step gap, so its wall time IS the agent
+            # latency WI-001643 defines. Leaving these unset made every eval-origin
+            # run report "latency not measured", which is what an A/B comparison
+            # most needs to show.
+            "duration_ms": elapsed_ms,
+            "agent_latency_ms": elapsed_ms,
             "total_prompt_tokens": prompt_tokens,
             "total_completion_tokens": completion_tokens,
             "total_tokens": prompt_tokens + completion_tokens,

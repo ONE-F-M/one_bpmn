@@ -750,22 +750,32 @@ def create_suite(
 SMALL_SAMPLE_CASES = 10
 
 
-def _run_agent_totals(run_names: list) -> dict:
+def _run_agent_totals(run_agents: dict) -> dict:
 	"""Per-run latency and the four-way cost split, aggregated from the
 	AI Agent Runs each eval run produced (WI-001643 fields).
+
+	``run_agents`` maps eval-run name -> the agent that run tested.
 
 	Read from AI Agent Run rather than AI Eval Result because the result row
 	stores only a single rolled-up cost — the cache-read/write split and the
 	latency live on the agent run. A Direct eval records a lightweight agent run
 	too, so both eval types are covered.
+
+	An eval run also produces agent runs for its llm_judge calls, and those are
+	NOT the agent under test: the judge is the examiner. Counting its round-trips
+	in "mean agent latency" measures the wrong model entirely, and counting its
+	spend in the agent's cost split makes a cheap agent look expensive because it
+	was marked by an expensive judge. Judge rows are separated out and reported
+	as their own figure, so the parts still reconcile with the suite total.
 	"""
-	if not run_names:
+	if not run_agents:
 		return {}
 	rows = frappe.get_all(
 		"AI Agent Run",
-		filters={"eval_run": ["in", run_names]},
+		filters={"eval_run": ["in", list(run_agents)]},
 		fields=[
-			"eval_run", "agent_latency_ms", "total_input_cost", "total_output_cost",
+			"eval_run", "agent_configuration", "agent_latency_ms",
+			"total_input_cost", "total_output_cost",
 			"total_cache_read_cost", "total_cache_write_cost", "estimated_cost",
 			"total_cache_read_tokens", "total_cache_write_tokens", "total_tokens",
 		],
@@ -778,7 +788,19 @@ def _run_agent_totals(run_names: list) -> dict:
 			"input_cost": 0.0, "output_cost": 0.0,
 			"cache_read_cost": 0.0, "cache_write_cost": 0.0, "estimated_cost": 0.0,
 			"cache_read_tokens": 0, "cache_write_tokens": 0, "tokens": 0,
+			"judge_cost": 0.0, "judge_call_count": 0,
 		})
+		# Judge calls carry no agent_configuration. When the eval run itself
+		# predates agent tracking, "has an agent at all" is the best available
+		# discriminator and still separates the judge correctly.
+		expected = run_agents.get(r["eval_run"])
+		is_agent_call = (
+			r["agent_configuration"] == expected if expected else bool(r["agent_configuration"])
+		)
+		if not is_agent_call:
+			acc["judge_cost"] += flt(r["estimated_cost"])
+			acc["judge_call_count"] += 1
+			continue
 		acc["agent_run_count"] += 1
 		# 0 means "not measured" on older runs, not "instant" — averaging those
 		# in would quietly drag the mean towards zero.
@@ -840,6 +862,10 @@ def _side(doc, totals: dict, statuses: dict, shared: list) -> dict:
 			"read": t.get("cache_read_tokens", 0),
 			"write": t.get("cache_write_tokens", 0),
 		},
+		# Marking cost, not the agent's. Shown separately so the agent split plus
+		# this reconciles with the suite total rather than silently disagreeing.
+		"judge_cost": t.get("judge_cost", 0.0),
+		"agent_calls": t.get("agent_run_count", 0),
 	}
 
 
@@ -974,7 +1000,10 @@ def get_run_comparison(run_a: str, run_b: str = None) -> dict:
 	notes = _comparability(a, b, cases_a, cases_b, shared)
 	blocked = [n for n in notes if n["level"] == "blocking"]
 
-	totals = _run_agent_totals([a.name, b.name])
+	totals = _run_agent_totals({
+		a.name: a.get("agent_configuration"),
+		b.name: b.get("agent_configuration"),
+	})
 	cases = []
 	for c in shared:
 		sa, sb = statuses_a[c], statuses_b[c]

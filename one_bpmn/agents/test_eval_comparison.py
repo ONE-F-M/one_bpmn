@@ -351,6 +351,26 @@ class TestEvalComparison(FrappeTestCase):
 		self.assertAlmostEqual(out["b"]["cost_split"]["cache_read"], 0.05)
 		self.assertAlmostEqual(out["a"]["cost_split"]["input"], 0.04)
 
+	def test_judge_calls_are_kept_out_of_the_agents_latency_and_cost(self):
+		"""The judge is the examiner, not the subject. Averaging its round-trips
+		into "mean agent latency" measures the wrong model, and folding its spend
+		into the agent's split makes a cheap agent look expensive because an
+		expensive judge marked it."""
+		c0 = self.cases[0]
+		a = self._finished(self.agent_a, {c0: "Passed"})
+		b = self._finished(self.agent_b, {c0: "Passed"})
+		self._agent_run(a, self.agent_a, agent_latency_ms=500,
+		                total_input_cost=0.001, estimated_cost=0.001)
+		# A judge call: no agent_configuration, slow and expensive.
+		self._agent_run(a, None, agent_latency_ms=9000, estimated_cost=0.75)
+
+		out = get_run_comparison(a.name, b.name)
+
+		self.assertEqual(out["a"]["mean_latency_ms"], 500)
+		self.assertEqual(out["a"]["agent_calls"], 1)
+		self.assertAlmostEqual(out["a"]["cost_split"]["input"], 0.001)
+		self.assertAlmostEqual(out["a"]["judge_cost"], 0.75)
+
 	def test_unmeasured_latency_does_not_drag_the_mean_to_zero(self):
 		c0 = self.cases[0]
 		a = self._finished(self.agent_a, {c0: "Passed"})
