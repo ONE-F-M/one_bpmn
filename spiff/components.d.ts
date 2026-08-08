@@ -41,6 +41,7 @@ declare module 'vue' {
     ReadinessChecklistDialog: typeof import('./src/components/ReadinessChecklistDialog.vue')['default']
     RouterLink: typeof import('vue-router')['RouterLink']
     RouterView: typeof import('vue-router')['RouterView']
+    UserFilter: typeof import('./src/components/UserFilter.vue')['default']
     VersionDiffDialog: typeof import('./src/components/VersionDiffDialog.vue')['default']
     VersionHistoryPanel: typeof import('./src/components/VersionHistoryPanel.vue')['default']
   }
