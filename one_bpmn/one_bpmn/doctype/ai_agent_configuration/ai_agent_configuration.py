@@ -290,9 +290,8 @@ def get_agent_config(agent_id: str) -> dict | None:
 	Load agent configuration from AI Agent Configuration DocType.
 
 	Returns a dict with: system_prompt, temperature, max_tokens,
-	ai_provider_credentials, langsmith_project, sub_prompts,
-	constants, and — for the frozen static context layer (WI-001639) —
-	examples and guardrails. There is no per-agent override mechanism (WI-001615):
+	ai_provider_credentials, langsmith_project, sub_prompts, and
+	constants. There is no per-agent override mechanism (WI-001615):
 	provider, key and model come from the linked AI Provider
 	Credentials record.
 
@@ -335,24 +334,6 @@ def get_agent_config(agent_id: str) -> dict | None:
 			"temperature": sp.temperature,
 		}
 
-	# WI-001639: examples + guard rails are the non-Instructions half of the
-	# agent's FROZEN static context. Ordered by idx so the assembled prompt is
-	# byte-stable across calls; disabled rows are carried through and filtered
-	# by the assembler, keeping the "what is configured" and "what is sent"
-	# decisions in one place.
-	examples = frappe.get_all(
-		"AI Agent Example",
-		filters={"parent": config.name, "parenttype": "AI Agent Configuration"},
-		fields=["input", "expected_output", "note", "enabled"],
-		order_by="idx asc",
-	)
-	guardrails = frappe.get_all(
-		"AI Agent Guard Rail",
-		filters={"parent": config.name, "parenttype": "AI Agent Configuration"},
-		fields=["guardrail", "category", "enabled"],
-		order_by="idx asc",
-	)
-
 	# Load constants keyed by constant_name, cast to proper types
 	constants = {}
 	for c in frappe.get_all(
@@ -376,8 +357,6 @@ def get_agent_config(agent_id: str) -> dict | None:
 		"agent_type": config.agent_type,
 		"sub_prompts": sub_prompts,
 		"constants": constants,
-		"examples": examples,
-		"guardrails": guardrails,
 	}
 
 	frappe.cache.set_value(cache_key, result)

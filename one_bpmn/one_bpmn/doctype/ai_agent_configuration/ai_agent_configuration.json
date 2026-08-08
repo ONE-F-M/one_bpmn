@@ -27,9 +27,6 @@
   "required_variables",
   "required_variables_html",
   "system_prompt",
-  "behaviour_section",
-  "examples",
-  "guardrails",
   "sub_prompts_section",
   "sub_prompts",
   "constants_section",
@@ -169,26 +166,6 @@
    "fieldtype": "Code",
    "label": "System Prompt",
    "options": "Markdown"
-  },
-  {
-   "description": "Worked examples and non-negotiable rules. Both are part of the frozen static context layer: examples demonstrate, guard rails constrain, and neither changes between turns of a conversation.",
-   "fieldname": "behaviour_section",
-   "fieldtype": "Section Break",
-   "label": "Examples & Guard Rails"
-  },
-  {
-   "description": "Few-shot examples. Rendered after the system prompt, in row order, into the immutable static context layer.",
-   "fieldname": "examples",
-   "fieldtype": "Table",
-   "label": "Examples",
-   "options": "AI Agent Example"
-  },
-  {
-   "description": "Rules the agent must obey on every turn. Rendered last in the static context layer so they are the final word.",
-   "fieldname": "guardrails",
-   "fieldtype": "Table",
-   "label": "Guard Rails",
-   "options": "AI Agent Guard Rail"
   },
   {
    "description": "For agents with multiple sub-agents (e.g., Report Query Agent)",

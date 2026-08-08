@@ -98,14 +98,9 @@ class TestDispatcherMemory(FrappeTestCase):
 		args, _ = ms.call_args
 		self.assertEqual(args[0], "Agent")   # scope
 		self.assertEqual(args[1], "Act_9")   # scope key defaults to bpmn_id
-		# WI-001639: retrieved memory is DYNAMIC (it is searched per turn with
-		# the current user prompt), so it goes into the user message, ahead of
-		# the user's text — never onto the frozen system prompt.
-		self.assertEqual(_CAPTURED["config"].system_prompt, "SYS")
-		up = _CAPTURED["config"].user_prompt
-		self.assertIn("Relevant memory:", up)
-		self.assertIn("net-30 rule", up)
-		self.assertLess(up.index("Relevant memory:"), up.index("handle order"))
+		sp = _CAPTURED["config"].system_prompt
+		self.assertIn("Relevant memory:", sp)
+		self.assertIn("net-30 rule", sp)
 
 	def test_empty_search_no_injection(self):
 		with patch("one_bpmn.agents.memory.tools.memory_search", return_value=[]), patch(
@@ -125,8 +120,6 @@ class TestDispatcherMemory(FrappeTestCase):
 			)
 		self.assertEqual(_CAPTURED["config"].system_prompt, "SYS")
 		self.assertNotIn("Relevant memory:", _CAPTURED["config"].system_prompt)
-		# Nothing found — the user prompt is untouched, no marker introduced.
-		self.assertEqual(_CAPTURED["config"].user_prompt, "q")
 
 	def test_raw_write_mode_stores_output_verbatim(self):
 		with patch("one_bpmn.agents.memory.tools.memory_write") as mw:
