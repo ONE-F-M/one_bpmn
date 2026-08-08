@@ -215,6 +215,33 @@ class TestEvalComparison(FrappeTestCase):
 		self.assertTrue(out["blocked"])
 		self.assertIn("blocking", self._levels(out))
 
+	def test_a_running_pair_is_not_told_it_shares_no_cases(self):
+		"""A queued run has no result rows yet, so the shared-case set is
+		trivially empty. Reporting that alongside "still running" reads as a
+		structural incompatibility rather than as "not finished yet"."""
+		a = make_eval_run(self.suite.name, agent_configuration=self.agent_a, status="Running")
+		b = make_eval_run(self.suite.name, agent_configuration=self.agent_b, status="Running")
+
+		out = get_run_comparison(a.name, b.name)
+
+		self.assertTrue(out["blocked"], "a running pair still has nothing to show")
+		self.assertFalse(
+			any("share no cases" in n["message"] for n in out["notes"]),
+			out["notes"],
+		)
+		self.assertTrue(any("still running" in n["message"] for n in out["notes"]))
+
+	def test_an_errored_run_with_no_results_does_report_no_shared_cases(self):
+		"""The suppression above is scoped to RUNNING. A finished run that
+		produced nothing genuinely has nothing to compare, and saying so is the
+		only signal the user gets."""
+		a = self._finished(self.agent_a, {self.cases[0]: "Passed"})
+		b = make_eval_run(self.suite.name, agent_configuration=self.agent_b, status="Error")
+
+		out = get_run_comparison(a.name, b.name)
+
+		self.assertTrue(any("share no cases" in n["message"] for n in out["notes"]), out["notes"])
+
 	def test_a_still_running_run_blocks_the_comparison(self):
 		a = self._finished(self.agent_a, {self.cases[0]: "Passed"})
 		b = make_eval_run(self.suite.name, agent_configuration=self.agent_b, status="Running")

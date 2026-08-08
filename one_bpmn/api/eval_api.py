@@ -856,6 +856,7 @@ def _comparability(a, b, cases_a: set, cases_b: set, shared: list) -> list:
 	def note(level, message):
 		notes.append({"level": level, "message": message})
 
+	still_running = any(doc.status == "Running" for doc in (a, b))
 	for doc in (a, b):
 		if doc.status == "Running":
 			note("blocking", _("Run {0} is still running — its numbers are incomplete.").format(doc.name))
@@ -896,7 +897,13 @@ def _comparability(a, b, cases_a: set, cases_b: set, shared: list) -> list:
 			"{1:.0f} percentage points, so treat a narrow gap as noise."
 		).format(len(shared), 100.0 / len(shared)))
 
-	if not shared:
+	# Only meaningful once both runs have finished. A run still executing has no
+	# result rows yet, so "shared" is trivially empty — reporting that as its own
+	# blocking reason reads as "these two runs have nothing in common" when the
+	# truth is "neither has produced anything yet", which the running note above
+	# already says. An ERRORED run with no results is a real instance of this and
+	# still reports it.
+	if not shared and not still_running:
 		note("blocking", _("The two runs share no cases, so there is nothing to compare."))
 
 	return notes
