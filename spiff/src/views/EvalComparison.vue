@@ -51,8 +51,16 @@
 					v-if="data.blocked"
 					class="bg-white rounded-lg shadow-sm p-6 text-sm text-gray-600"
 				>
-					The per-agent figures are hidden because the two runs can't be compared —
-					see the reason above. Fix that and the comparison will appear here.
+					<template v-if="stillRunning">
+						<span class="inline-block animate-pulse">●</span>
+						Both agents are working through the cases now. This page is watching and will
+						fill in as soon as they finish — no need to refresh.
+						<span v-if="waitedFor" class="text-gray-400">({{ waitedFor }} elapsed)</span>
+					</template>
+					<template v-else>
+						The per-agent figures are hidden because the two runs can't be compared —
+						see the reason above. Fix that and the comparison will appear here.
+					</template>
 				</div>
 
 				<template v-else>
@@ -156,7 +164,7 @@
 // WI-001821: two runs of one suite, side by side, so an agent can be chosen on
 // evidence instead of on impression. Reads only — the runs themselves were
 // produced by run_eval_comparison (or by two ordinary runs the user pairs here).
-import { computed, h, onMounted, ref, watch } from "vue"
+import { computed, h, onBeforeUnmount, onMounted, ref, watch } from "vue"
 import { useRouter } from "vue-router"
 import { frappeRequest } from "frappe-ui"
 
@@ -241,8 +249,8 @@ function outcomeClass(o) {
 	return o === "tie" ? "bg-gray-100 text-gray-600" : "bg-green-50 text-green-700"
 }
 
-async function fetchComparison() {
-	loading.value = true
+async function fetchComparison({ quiet = false } = {}) {
+	if (!quiet) loading.value = true
 	error.value = ""
 	try {
 		data.value = await frappeRequest({
@@ -278,10 +286,51 @@ function pickB(name) {
 	)
 }
 
+// A comparison is normally opened the moment both runs are queued, so the first
+// read is ALWAYS "still running". Without this the page sits on that message
+// until the user thinks to refresh — which reads as broken, not as pending.
+const stillRunning = computed(() =>
+	[data.value.a, data.value.b].some((s) => s && s.status === "Running")
+)
+const startedWatching = ref(0)
+const waitedFor = ref("")
+let poll = null
+
+function stopPolling() {
+	if (poll) { clearInterval(poll); poll = null }
+}
+
+function startPolling() {
+	if (poll) return
+	startedWatching.value = Date.now()
+	poll = setInterval(async () => {
+		const secs = Math.round((Date.now() - startedWatching.value) / 1000)
+		waitedFor.value = secs < 60 ? `${secs}s` : `${Math.floor(secs / 60)}m ${secs % 60}s`
+		// Give up after 15 minutes rather than polling forever: a run whose job
+		// died never leaves "Running", and a page that retries all day hides that.
+		if (secs > 900) {
+			stopPolling()
+			error.value =
+				"These runs have been going for over 15 minutes without finishing. " +
+				"That usually means the background job stopped. Open either run to check it, " +
+				"or start the comparison again."
+			return
+		}
+		await fetchComparison({ quiet: true })
+	}, 5000)
+}
+
+watch(stillRunning, (running) => {
+	if (running) startPolling()
+	else stopPolling()
+})
+
 watch(() => props.runB, (v) => { runB.value = v || ""; fetchComparison() })
 
 onMounted(() => {
 	fetchComparison()
 	fetchCandidates()
 })
+
+onBeforeUnmount(stopPolling)
 </script>
