@@ -396,11 +396,16 @@ function handleCustom(name, value) {
 	scrollDown();
 }
 
-function answerChoice(item, option) {
+async function answerChoice(item, option) {
 	item.answered = option;
-	// Synchronous emit BEFORE the send: the host can stage per-turn context
-	// (e.g. ProsAlly's confirmed_action) and the send below reads it.
+	// Emit BEFORE the send so the host can stage per-turn context (e.g.
+	// ProsAlly's confirmed_action) — then wait one tick so the staged value
+	// actually reaches the context PROP before send() copies it. Without the
+	// tick the prop is still the previous render's object and the staged
+	// action never rides the turn (observed live 2026-08-09: every
+	// "Yes, proceed" re-classified as unconfirmed and looped on confirm).
 	emit("choice", { option, actionIntent: item.value.action_intent || "" });
+	await nextTick();
 	send(option);
 }
 
