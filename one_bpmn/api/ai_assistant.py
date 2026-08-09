@@ -664,8 +664,8 @@ def _sanitize_proposed_update(proposed) -> dict | None:
 
 
 _PROPOSAL_FIELDS = {
-	"agent_name", "agent_id", "chat_mode_label",
-	"ai_model", "system_prompt", "description",
+	"agent_name", "agent_id", "agent_type", "chat_mode_label",
+	"process_model", "ai_model", "system_prompt", "description",
 }
 
 
@@ -682,7 +682,11 @@ def _sanitize_proposed_config(proposed) -> dict | None:
 
 	from one_bpmn.agents.agent_config_resolver import get_creation_process_model
 
-	if not get_creation_process_model():
+	# Only CHAT agents need the creation process (Background agents auto-live
+	# on insert), so only their proposals are suppressed when no process is
+	# linked on the site.
+	agent_type = str(proposed.get("agent_type") or "Chat").strip().capitalize()
+	if agent_type != "Background" and not get_creation_process_model():
 		return None
 
 	agent_name = str(proposed.get("agent_name") or "").strip()
