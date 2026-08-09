@@ -32,6 +32,8 @@ import frappe
 from frappe import _
 from frappe.utils import cint
 
+from one_bpmn.agents.agent_provisioning import is_chat_startable_map
+
 # Which config field feeds which shape attribute. Only executable fields
 # with a task-shape equivalent are mapped; chat-only metadata (chat mode
 # label, icon, roles, lifecycle, eval suite, sample prompts) has no shape
@@ -259,7 +261,15 @@ def update_agent_config_from_shape(config_name: str, fields: str | dict) -> dict
 CREATE_PAYLOAD_CONTRACT = {
 	"agent_name": "Human-readable agent name (required).",
 	"agent_id": "Machine id; auto-derived from the name when omitted.",
-	"chat_mode_label": "Label shown in chat mode pickers (required, must be unique).",
+	"chat_mode_label": (
+		"Label shown in chat mode pickers (must be unique). Required, EXCEPT when "
+		"process_model names a non-chat map — a process-embedded agent never appears in chat."
+	),
+	"process_model": (
+		"Name of the BPMN Process Model this agent is mapped to (WI-001997). When the agent "
+		"is being created from a task dialog, propose the process currently open in the "
+		"editor; ask the designer rather than guessing. Omit for a mapless Direct-API chat agent."
+	),
 	"ai_model": "Name of an AI Model catalog record — the agent's provider follows from this model's credentials link (WI-001655).",
 	"system_prompt": "The agent's system prompt; leave empty to have the creation process generate one from the description.",
 	"description": "What the agent does — feeds prompt auto-generation.",
@@ -324,9 +334,20 @@ def create_agent_configuration(payload: str | dict) -> dict:
 	if not agent_name:
 		frappe.throw(_("Agent name is required."))
 	chat_mode_label = (payload.get("chat_mode_label") or "").strip()
-	if not chat_mode_label:
-		# The creation process's Validate step rejects chat agents without a
-		# label — fail fast here instead of guaranteeing a Needs Attention.
+	process_model = (payload.get("process_model") or "").strip()
+	if process_model and not frappe.db.exists("BPMN Process Model", process_model):
+		frappe.throw(
+			_(
+				"BPMN Process Model '{0}' does not exist — pass the exact name of the "
+				"process this agent is mapped to, or omit it."
+			).format(process_model)
+		)
+	if not chat_mode_label and is_chat_startable_map(process_model) is not False:
+		# WI-001997: only an agent mapped to a NON-chat process map may skip the
+		# label — it never appears in the chat picker. Everything else (chat map,
+		# or no map at all → Direct-API chat) fails fast here, because the
+		# creation process's Validate step rejects label-less chat agents and
+		# failing later guarantees a Needs Attention.
 		frappe.throw(_("A chat mode label is required for a chat agent."))
 
 	# Friendly duplicate guard — a raw DuplicateEntryError helps nobody.
@@ -350,6 +371,10 @@ def create_agent_configuration(payload: str | dict) -> dict:
 	doc.lifecycle_status = "Draft"
 	doc.enabled = 1
 	doc.chat_mode_label = chat_mode_label
+	# WI-001997: the map is a designer-chosen link at creation — usually the
+	# process the agent is being created inside. Nothing clones or overwrites
+	# it; the map stays the designer's own.
+	doc.process_model = process_model or None
 	# WI-001655: the model is the pick; the provider derives from its
 	# credentials link on save. A directly-passed credentials value is kept
 	# only as legacy fallback for model-less payloads.
