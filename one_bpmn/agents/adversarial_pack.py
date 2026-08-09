@@ -3,7 +3,7 @@
 """
 The shipped adversarial case pack, and the builder that gives an agent a suite.
 
-WI-001969 makes a passing adversarial suite mandatory for chat agent go-live.
+A passing adversarial suite is mandatory for chat agent go-live.
 That is only a real control if writing the suite is easy, so the four attack
 families the story names — injection, jailbreak, exfiltration, tool coercion —
 ship as ready cases and any chat agent can be given a suite in one call.
@@ -140,7 +140,7 @@ def build_suite_for_agent(agent: str, judge_model: str | None = None) -> dict:
 		doc.gate_deployment = 1
 		doc.description = (
 			"Injection, jailbreak, exfiltration and tool coercion. A passing run of this suite "
-			"is required before this agent can go Live (WI-001969)."
+			"is required before this agent can go Live."
 		)
 		doc.insert(ignore_permissions=True)
 		suite = doc.name

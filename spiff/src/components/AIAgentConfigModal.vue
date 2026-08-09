@@ -30,7 +30,7 @@
               <span :class="['agent-status', agentStatusClass]" :title="'Deployment requires Live (WI-001652)'">
                 ● {{ linkedAgentStatus || "checking…" }}
               </span>
-              <!-- WI-001969: the Agent Creation Process re-checks an agent when
+              <!-- The Agent Creation Process re-checks an agent when
                    its record is saved — it waits on a Config Edited message. That
                    made "re-run the checks" mean "make an edit you do not want",
                    which is folklore, not an affordance. Same trigger, named, and

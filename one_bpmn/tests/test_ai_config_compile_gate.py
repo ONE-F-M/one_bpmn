@@ -26,7 +26,7 @@ class TestAiConfigCompileGate(FrappeTestCase):
 				"enabled": 1,
 				"ai_provider_credentials": self.provider,
 			}).insert(ignore_permissions=True)
-			# WI-001969: go-live is the Agent Creation Process's decision now, so
+			# Go-live is the Agent Creation Process's decision now, so
 			# nothing stamps this Live synchronously on insert. The compile gate
 			# under test only accepts Live configs, so put it there directly —
 			# straight to the DB, so the instance the insert started cannot race
@@ -66,8 +66,8 @@ class TestAiConfigCompileGate(FrappeTestCase):
 		_lint_ai_provider_config("", {"script": {"serviceType": "update_field"}})
 
 	def test_saving_a_background_agent_does_not_stamp_it_live(self):
-		"""WI-001652 had Background agents skip the creation process and go Live
-		from a controller hook. WI-001969 removed that: every agent type walks
+		"""Background agents used to skip the creation process and go Live
+		from a controller hook. That was removed: every agent type walks
 		the map, so a save must leave the lifecycle alone and let the process
 		decide — otherwise the map's start condition is pre-empted and never
 		sees the agent at Draft."""

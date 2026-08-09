@@ -92,7 +92,7 @@ def promote_to_eval_case(
 	case.expected_output = DEFAULT_ASSERTION_TEXT
 	case.insert()
 
-	# WI-001969: a suite holding an attack promoted from a real security event
+	# A suite holding an attack promoted from a real security event
 	# IS an adversarial suite. Marking it here means the go-live gate recognises
 	# it without anyone remembering to set the field, which is the difference
 	# between a gate that works and one that is bypassed by an oversight.

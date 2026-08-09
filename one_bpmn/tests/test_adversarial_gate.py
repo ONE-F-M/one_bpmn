@@ -1,5 +1,5 @@
 # Copyright (c) 2026, one-fm and contributors
-# WI-001969: no chat agent goes Live without a passing adversarial suite and a
+# No chat agent goes Live without a passing adversarial suite and a
 # map that still contains the screening stage.
 #
 # The gate fails CLOSED, unlike the runtime screens around it. Those observe
@@ -191,7 +191,7 @@ class TestAdversarialGate(FrappeTestCase):
 		self.assertTrue(has_screening_stage(xml))
 
 	def test_a_chat_map_without_a_screening_stage_still_conforms(self):
-		"""WI-001997 retired the cloned template this check was written against,
+		"""The cloned template this check was written against was retired,
 		and screening was never a map step — it runs centrally on every turn. No
 		map on the site has ever carried the marker, so requiring one failed every
 		agent for a declaration nothing produces."""
@@ -240,7 +240,7 @@ class TestAdversarialGate(FrappeTestCase):
 
 	def test_no_map_at_all_conforms(self):
 		"""A chat agent may legitimately have no map — that is the Direct API
-		path WI-001997 left in place — and screening does not live there anyway."""
+		path that was left in place — and screening does not live there anyway."""
 		self.assertTrue(validate_chat_map(None)["ok"])
 
 	def test_a_map_that_is_missing_or_empty_does_not_conform(self):
@@ -396,7 +396,7 @@ class TestReReviewGoesThroughTheGate(FrappeTestCase):
 		return doc
 
 	def test_re_review_does_not_promote_from_the_controller(self):
-		"""WI-001969 amendment: going Live is the MAP's decision.
+		"""Going Live is the MAP's decision.
 
 		The controller used to stamp Live itself when credentials revalidated,
 		which made disable/re-enable a way around the adversarial gate. It now

@@ -140,7 +140,7 @@ def provision_agent(config_name: str):
 	"""
 	cfg = frappe.get_doc("AI Agent Configuration", config_name)
 	if cfg.agent_type != "Chat":
-		# WI-001969: Background agents used to go Live from a controller hook
+		# Background agents used to go Live from a controller hook
 		# (apply_background_lifecycle), which pre-empted the creation process —
 		# they were already Live before its Draft start condition was evaluated.
 		# Every agent type now walks the map; this path stays chat-only because
@@ -176,7 +176,7 @@ def provision_agent(config_name: str):
 				)
 				return
 
-		# WI-001969: the release gate. A conversational agent is reachable by
+		# The release gate. A conversational agent is reachable by
 		# anyone who can open a chat box, so it does not ship untested against
 		# injection, jailbreak, exfiltration and tool coercion — and it does not
 		# ship on a map with the screening stage removed. Both fail CLOSED:
@@ -366,7 +366,7 @@ def _provider_test_call(cfg) -> tuple[bool, str]:
 		return (False, str(exc)[:200])
 
 
-# ── Re-run the creation process from the form (WI-001969) ────────────────────
+# ── Re-run the creation process from the form ───────────────────────────────
 
 @frappe.whitelist()
 def rerun_creation_process(agent: str) -> dict:

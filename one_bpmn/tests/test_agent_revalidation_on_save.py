@@ -51,7 +51,7 @@ class TestAgentRevalidationOnSave(FrappeTestCase):
 		# Insert with a passing provider so setup state is deterministic.
 		with patch(TEST_CALL, return_value=(True, "OK")):
 			doc = frappe.get_doc(values).insert(ignore_permissions=True)
-		# WI-001969: Background agents used to be stamped Live by a controller
+		# Background agents used to be stamped Live by a controller
 		# hook on save. Go-live is the Agent Creation Process's decision now, so
 		# the starting state is set here rather than assumed — and set straight to
 		# the DB so the process instance the insert started cannot race the test
@@ -77,7 +77,7 @@ class TestAgentRevalidationOnSave(FrappeTestCase):
 		)
 
 	def test_a_parked_agent_is_handed_back_to_the_map_not_promoted(self):
-		"""WI-001969: credentials working again is not a go-live. The controller
+		"""Credentials working again is not a go-live. The controller
 		used to stamp Live here, which made disable/re-enable a way around the
 		adversarial gate; it now hands the agent to the Agent Creation Process,
 		which runs that gate as a step in the diagram."""
@@ -101,7 +101,7 @@ class TestAgentRevalidationOnSave(FrappeTestCase):
 	def test_retired_is_untouched(self):
 		# Retired is a deliberate manual state: the on-save revalidation may
 		# neither resurrect nor park it. (Draft belongs to the creation process,
-		# which every agent type walks since WI-001969, and the revalidation
+		# which every agent type now walks, and the revalidation
 		# guard skips that state too.)
 		agent = self._make_agent()
 		frappe.db.set_value("AI Agent Configuration", agent.name, "lifecycle_status", "Retired")

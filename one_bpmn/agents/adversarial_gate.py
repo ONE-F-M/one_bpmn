@@ -1,7 +1,7 @@
 # Copyright (c) 2026, one-fm and contributors
 # For license information, please see license.txt
 """
-The adversarial go-live gate for chat agents (WI-001969).
+The adversarial go-live gate for chat agents.
 
 A conversational agent is reachable by anyone who can open a chat box, so it is
 the one surface where an untested prompt is an exposed prompt. This module

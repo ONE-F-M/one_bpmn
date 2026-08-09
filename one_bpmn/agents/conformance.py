@@ -1,7 +1,7 @@
 # Copyright (c) 2026, one-fm and contributors
 # For license information, please see license.txt
 """
-Conformance validator for chat agents (WI-001969, retargeted after WI-001997).
+Conformance validator for chat agents.
 
 A passing adversarial suite proves the agent resisted the attacks it was shown.
 It does not prove the shipped agent still screens anything. This closes that gap:
@@ -16,7 +16,7 @@ stage deleted and that agent would silently stop being screened.
 
 Two things then made that check false rather than strict:
 
-  * WI-001997 retired the template and the cloning. A map is now a designer's own
+  * The template and the cloning were retired. A map is now a designer's own
     link, and a chat agent may legitimately have no map at all (the Direct API
     path), so "the cloned map" it guarded no longer exists.
   * Screening was never built as a map step. It runs centrally, on every turn of

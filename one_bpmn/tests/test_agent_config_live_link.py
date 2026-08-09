@@ -23,7 +23,7 @@ class TestAgentConfigLiveLink(FrappeTestCase):
 				"agent_id": "zz_live_link_test_agent",
 				"agent_framework": "Direct API",
 				"agent_type": "Background",
-				# WI-001969: every agent type now walks the Agent Creation Process,
+				# Every agent type now walks the Agent Creation Process,
 				# whose start condition is lifecycle_status == "Draft". This fixture
 				# is a settled agent, not one being created — inserting it Live keeps
 				# the process out of it, which matters because that process ASSESSES

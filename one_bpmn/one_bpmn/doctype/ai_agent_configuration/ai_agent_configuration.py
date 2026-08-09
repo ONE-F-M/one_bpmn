@@ -261,7 +261,7 @@ class AIAgentConfiguration(Document):
 			frappe.flags._agent_revalidation_running = False
 
 		if result["ok"] and self.lifecycle_status == "Needs Attention":
-			# WI-001969: going Live is the MAP's decision, not this controller's.
+			# Going Live is the MAP's decision, not this controller's.
 			# Credentials working again does not mean the agent has been tested
 			# against injection, jailbreak, exfiltration and tool coercion — the
 			# Agent Creation Process runs that gate, and promoting from here would
