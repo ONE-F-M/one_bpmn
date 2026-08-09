@@ -116,7 +116,12 @@ def provision_agent(config_name: str):
 	"""
 	cfg = frappe.get_doc("AI Agent Configuration", config_name)
 	if cfg.agent_type != "Chat":
-		return  # Background agents go Live on save (apply_background_lifecycle)
+		# WI-001969: Background agents used to go Live from a controller hook
+		# (apply_background_lifecycle), which pre-empted the creation process —
+		# they were already Live before its Draft start condition was evaluated.
+		# Every agent type now walks the map; this path stays chat-only because
+		# nothing calls it, and the map is where go-live is decided.
+		return
 
 	try:
 		_set_status(config_name, "Validating")

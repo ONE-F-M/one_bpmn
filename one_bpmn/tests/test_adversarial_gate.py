@@ -321,27 +321,22 @@ class TestReReviewGoesThroughTheGate(FrappeTestCase):
 	def test_a_chat_agent_is_conversational(self):
 		self.assertTrue(is_conversational(self._agent().name))
 
-	def test_a_background_agent_with_a_chat_label_is_conversational(self):
-		"""The hole a type-only test leaves open: a Background agent handed a
-		chat mode label is in the picker, reachable by anyone who can open a
-		chat box, and must not walk past the gate on its declared type."""
-		doc = self._agent(agent_type="Background")
-		frappe.db.set_value("AI Agent Configuration", doc.name, "chat_mode_label",
-		                    f"{PREFIX} exposed", update_modified=False)
-		self.assertTrue(is_conversational(doc.name))
-
 	def test_a_chat_agent_without_a_label_yet_is_still_conversational(self):
-		"""The hole a label-only test leaves open: a label can be added after
-		go-live, so a Chat agent is gated before it has one."""
+		"""Agent type is the signal, not the label — a chat agent is gated
+		before it has been given one."""
 		doc = self._agent()
 		frappe.db.set_value("AI Agent Configuration", doc.name, "chat_mode_label", "",
 		                    update_modified=False)
 		self.assertTrue(is_conversational(doc.name))
 
-	def test_a_plain_background_agent_is_not_conversational(self):
+	def test_a_background_agent_is_not_conversational_even_with_a_label(self):
+		"""Every agent type walks the creation map now, so the gate step is what
+		scopes this to chat. A label on a Background agent is not a dependable
+		signal — the doctype only enforces label uniqueness for chat agents — so
+		it must not drag one into a gate about chat exposure."""
 		doc = self._agent(agent_type="Background")
-		frappe.db.set_value("AI Agent Configuration", doc.name, "chat_mode_label", "",
-		                    update_modified=False)
+		frappe.db.set_value("AI Agent Configuration", doc.name, "chat_mode_label",
+		                    f"{PREFIX} label", update_modified=False)
 		self.assertFalse(is_conversational(doc.name))
 
 	def test_an_unreadable_agent_is_treated_as_conversational(self):

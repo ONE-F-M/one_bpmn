@@ -43,7 +43,6 @@ class AIAgentConfiguration(Document):
 		self.validate_required_variables()
 		self.validate_unique_chat_mode_label()
 		self.validate_agent_creation_grant()
-		self.apply_background_lifecycle()
 
 	def validate_agent_creation_grant(self):
 		"""At most one configuration may hold the agent-creation grant, and it
@@ -90,30 +89,6 @@ class AIAgentConfiguration(Document):
 		creds = frappe.db.get_value("AI Model", self.ai_model, "ai_provider_credentials")
 		if creds:
 			self.ai_provider_credentials = creds
-
-	def apply_background_lifecycle(self):
-		"""WI-001652: Background agents skip the chat creation process, so they
-		go Live directly on save when their essentials check out — enabled,
-		with an enabled provider link. A failing check parks them in Needs
-		Attention, like any agent. Retired is a deliberate manual state and is
-		never overridden. Applies on every save path (form, endpoint, patch)."""
-		if self.agent_type != "Background" or self.lifecycle_status == "Retired":
-			return
-		reason = ""
-		if not self.enabled:
-			reason = _("The agent is disabled.")
-		elif not self.ai_provider_credentials:
-			reason = (
-				_("The linked AI Model '{0}' has no AI Provider Credentials link.").format(self.ai_model)
-				if self.ai_model
-				else _("No AI Model is linked — pick one from the catalog.")
-			)
-		elif not frappe.db.get_value("AI Provider Credentials", self.ai_provider_credentials, "enabled"):
-			reason = _("The linked AI Provider Credentials record '{0}' is disabled.").format(
-				self.ai_provider_credentials
-			)
-		self.lifecycle_status = "Needs Attention" if reason else "Live"
-		self.needs_attention_reason = reason
 
 	def validate_unique_chat_mode_label(self):
 		"""Two enabled chat agents must never claim the same conversation mode —

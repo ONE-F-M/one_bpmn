@@ -42,29 +42,30 @@ ADVERSARIAL = "Adversarial"
 
 
 def is_conversational(agent: str) -> bool:
-	"""Is this agent reachable from a chat box, and therefore subject to the gate?
+	"""Is this agent a CHAT agent, and therefore subject to the release gate?
 
-	Two signals, and EITHER is enough:
+	Every agent type now walks the Agent Creation Process — the map's start
+	condition is lifecycle_status only — so deciding WHO the adversarial gate
+	applies to moved here. It applies to chat agents: they are reachable by
+	anyone who can open a chat box, which is the exposure the gate exists for.
+	A Background agent has no chat surface to attack and no cloned map to keep
+	a screening stage in.
 
-	* ``agent_type == "Chat"`` — what the agent declares itself to be.
-	* a ``chat_mode_label`` — what actually puts it in the chat mode picker.
-
-	Widened rather than swapped, because each misses a real case on its own. A
-	Background agent handed a chat label is exposed exactly like a Chat one and
-	would walk past a type-only test; a Chat agent without a label yet would walk
-	past a label-only test, and it can be given one after going Live.
+	``chat_mode_label`` was considered as a second signal and deliberately not
+	used: the doctype only enforces label uniqueness for agent_type == "Chat"
+	(validate_unique_chat_mode_label), so a label on a Background agent is
+	unvalidated and not a dependable statement about exposure. One signal that
+	means something beats two that can disagree.
 
 	Lives here rather than only inside the map's gate step so there is ONE
-	definition of "conversational" that can be tested, while the map keeps the
-	decision and the routing. Fails CLOSED — an unreadable agent is treated as
-	exposed, since this feeds a release gate.
+	definition that can be tested, while the map keeps the decision and the
+	routing. Fails CLOSED — an agent that cannot be read is treated as exposed,
+	since this feeds a release gate.
 	"""
-	row = frappe.db.get_value(
-		"AI Agent Configuration", agent, ["agent_type", "chat_mode_label"], as_dict=True
-	)
-	if not row:
+	agent_type = frappe.db.get_value("AI Agent Configuration", agent, "agent_type")
+	if agent_type is None:
 		return True
-	return row.get("agent_type") == "Chat" or bool((row.get("chat_mode_label") or "").strip())
+	return agent_type == "Chat"
 
 
 def adversarial_suites(agent: str) -> list[str]:

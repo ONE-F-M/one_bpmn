@@ -46,14 +46,25 @@ class TestAgentRevalidationOnSave(FrappeTestCase):
 			"ai_model": self.model.name,
 			"enabled": 1,
 		}
+		status = values.pop("lifecycle_status", "Live")
 		values.update(overrides)
 		# Insert with a passing provider so setup state is deterministic.
 		with patch(TEST_CALL, return_value=(True, "OK")):
-			return frappe.get_doc(values).insert(ignore_permissions=True)
+			doc = frappe.get_doc(values).insert(ignore_permissions=True)
+		# WI-001969: Background agents used to be stamped Live by a controller
+		# hook on save. Go-live is the Agent Creation Process's decision now, so
+		# the starting state is set here rather than assumed — and set straight to
+		# the DB so the process instance the insert started cannot race the test
+		# for the document's timestamp.
+		frappe.db.set_value(
+			"AI Agent Configuration", doc.name, "lifecycle_status", status, update_modified=False
+		)
+		doc.reload()
+		return doc
 
 	def test_live_agent_parks_when_provider_call_fails(self):
 		agent = self._make_agent()
-		self.assertEqual(agent.lifecycle_status, "Live")  # Background auto-live
+		self.assertEqual(agent.lifecycle_status, "Live")
 
 		with patch(TEST_CALL, return_value=(False, "401 invalid api key")):
 			agent.save(ignore_permissions=True)
@@ -65,23 +76,33 @@ class TestAgentRevalidationOnSave(FrappeTestCase):
 			"Needs Attention",
 		)
 
-	def test_parked_agent_self_heals_when_provider_call_passes(self):
+	def test_a_parked_agent_is_handed_back_to_the_map_not_promoted(self):
+		"""WI-001969: credentials working again is not a go-live. The controller
+		used to stamp Live here, which made disable/re-enable a way around the
+		adversarial gate; it now hands the agent to the Agent Creation Process,
+		which runs that gate as a step in the diagram."""
 		agent = self._make_agent()
 		with patch(TEST_CALL, return_value=(False, "down")):
 			agent.save(ignore_permissions=True)
 		self.assertEqual(agent.lifecycle_status, "Needs Attention")
 
-		with patch(TEST_CALL, return_value=(True, "OK")):
+		with patch(TEST_CALL, return_value=(True, "OK")), patch(
+			"one_bpmn.agents.agent_config_resolver._start_reprovision", return_value=True
+		) as handoff:
 			agent.save(ignore_permissions=True)
 
-		self.assertEqual(agent.lifecycle_status, "Live")
-		self.assertFalse(agent.needs_attention_reason)
+		self.assertTrue(handoff.called, "the map must be asked to re-review it")
+		self.assertEqual(
+			frappe.db.get_value("AI Agent Configuration", agent.name, "lifecycle_status"),
+			"Needs Attention",
+			"only the map may promote",
+		)
 
 	def test_retired_is_untouched(self):
-		# Retired is a deliberate manual state: neither the Background
-		# auto-lifecycle nor the on-save revalidation may resurrect or park it.
-		# (Draft is only reachable for Chat agents mid-creation; the creation
-		# process owns that transition and the revalidation guard skips it.)
+		# Retired is a deliberate manual state: the on-save revalidation may
+		# neither resurrect nor park it. (Draft belongs to the creation process,
+		# which every agent type walks since WI-001969, and the revalidation
+		# guard skips that state too.)
 		agent = self._make_agent()
 		frappe.db.set_value("AI Agent Configuration", agent.name, "lifecycle_status", "Retired")
 		agent.reload()
