@@ -255,9 +255,16 @@ try:
 except Exception:
 	frappe.log_error(title="agui assistant hooks failed to load", message=frappe.get_traceback())
 
-# Logix registers its context builder (script content loading) on import
-# (WI-001677 follow-up from live testing).
+# Logix and ProsAlly register their context builders + reply shapers on import
+# (WI-001677 / WI-001675 follow-ups from live testing).
 try:
 	import one_bpmn.api.server_script_api  # noqa: F401,E402
 except Exception:
 	frappe.log_error(title="agui logix hooks failed to load", message=frappe.get_traceback())
+
+# Docu registers its context builder (current-IR loading) + reply shaper on
+# import (WI-001676 follow-up). Same degrade-to-text guarantee.
+try:
+	import one_bpmn.api.docu_api  # noqa: F401,E402
+except Exception:
+	frappe.log_error(title="agui docu hooks failed to load", message=frappe.get_traceback())
