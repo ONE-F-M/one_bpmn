@@ -62,6 +62,14 @@ const routes = [
 		props: true,
 	},
 	{
+		// WI-001821: run B is optional — a run created as half of an A/B pair
+		// finds its own other side, so the pair is reachable from one id.
+		path: "/processa/evals/compare/:runA/:runB?",
+		name: "EvalComparison",
+		component: () => import("@/views/EvalComparison.vue"),
+		props: true,
+	},
+	{
 		path: "/:pathMatch(.*)*",
 		redirect: "/processa",
 	},

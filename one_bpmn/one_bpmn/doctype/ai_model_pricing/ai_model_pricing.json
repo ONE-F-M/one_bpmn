@@ -86,7 +86,7 @@
    "fieldname": "section_break_cache",
    "fieldtype": "Section Break",
    "label": "Prompt Cache Pricing (USD)",
-   "description": "Optional. Leave at 0 to derive from the input rate using the standard Anthropic ratios — cache reads at 10% and cache writes at 125% of input. Set explicitly for providers or tiers whose cache ratios differ (WI-001643)."
+   "description": "Optional. Leave at 0 to derive from the input rate using the standard Anthropic ratios — cache reads at 10% and cache writes at 125% of input. Set explicitly for providers or tiers whose cache ratios differ."
   },
   {
    "fieldname": "cache_read_cost_per_1k",

@@ -8,12 +8,13 @@ A shape may set ``aiAgentConfig`` (a link to an AI Agent Configuration) as
 an alternative to entering a raw provider. The link is LIVE:
 
 * **At dispatch, the configuration is authoritative** for agent-level
-  fields (system prompt, provider, model, temperature, max tokens) —
-  ``resolve_dispatch_overrides`` supplies them and the dispatchers overlay
-  them onto the shape's attributes. The shape's copies are an editing view
-  and the fallback when the configuration has been deleted. Shape-only
-  fields (output variable, response format/schema, retries, memory, tool
-  wiring) describe the task, not the agent, and stay shape-owned.
+  fields (system prompt, provider, model, temperature, max tokens, and —
+  since WI-001793 — every memory setting) — ``resolve_dispatch_overrides``
+  supplies them and the dispatchers overlay them onto the shape's
+  attributes. The shape's copies are an editing view and the fallback when
+  the configuration has been deleted. Remaining shape-only fields (output
+  variable, response format/schema, retries, tool wiring) describe the
+  task, not the agent, and stay shape-owned.
 * **Selecting a configuration in the editor** copies its current values
   into the shape's fields (``get_agent_config_for_shape``) so the designer
   sees and can edit what will run.
@@ -29,6 +30,9 @@ the toolkit.
 
 import frappe
 from frappe import _
+from frappe.utils import cint
+
+from one_bpmn.agents.agent_provisioning import is_chat_startable_map
 
 # Which config field feeds which shape attribute. Only executable fields
 # with a task-shape equivalent are mapped; chat-only metadata (chat mode
@@ -38,6 +42,17 @@ _CONFIG_TO_SHAPE = {
 	"system_prompt": "aiSystemPrompt",
 	"temperature": "aiTemperature",
 	"max_tokens": "aiMaxTokens",
+	# WI-001793: memory settings live on the agent, not the diagram. Every value
+	# here is blank-by-default so an unset field falls through to the shape's
+	# older XML copy rather than silently overriding it with a default.
+	# ``long_term_memory`` needs no translation — the dispatcher's _cfg_truthy
+	# already reads "Enabled" as true and "Disabled" as false.
+	"conversation_store": "aiConversationStore",
+	"long_term_memory": "aiLongTermMemory",
+	"memory_scope": "aiMemoryScope",
+	"memory_write_mode": "aiMemoryWriteMode",
+	"memory_distill_model": "aiMemoryDistillModel",
+	"memory_reconcile_model": "aiMemoryReconcileModel",
 }
 
 # Shape attributes the modal may write back, and the config fields they land
@@ -50,6 +65,15 @@ _SHAPE_TO_CONFIG = {
 	"aiTemperature": "temperature",
 	"aiMaxTokens": "max_tokens",
 	"aiModel": "ai_model",
+	# WI-001793: the modal's Memory section now persists here instead of onto
+	# the BPMN XML, so the agent is the single place memory is configured.
+	"aiConversationStore": "conversation_store",
+	"aiContextMaxMessages": "context_max_messages",
+	"aiLongTermMemory": "long_term_memory",
+	"aiMemoryScope": "memory_scope",
+	"aiMemoryWriteMode": "memory_write_mode",
+	"aiMemoryDistillModel": "memory_distill_model",
+	"aiMemoryReconcileModel": "memory_reconcile_model",
 }
 
 # Guard rail categories, mirroring the AI Agent Guard Rail Select options
@@ -191,6 +215,11 @@ def config_field_map(config_name: str) -> dict:
 		val = cfg.get(cfield)
 		if val not in (None, ""):
 			out[sattr] = val
+
+	# Int fields have no blank state — 0 means "not configured here", so it must
+	# not override the shape's value the way a real setting would (WI-001793).
+	if cint(cfg.get("context_max_messages")):
+		out["aiContextMaxMessages"] = cfg.context_max_messages
 	if cfg.ai_provider_credentials:
 		out["aiProvider"] = cfg.ai_provider_credentials
 	# WI-001655: the model is the agent's own pick from the AI Model catalog
@@ -270,11 +299,19 @@ def update_agent_config_from_shape(config_name: str, fields: str | dict) -> dict
 			value = frappe.utils.flt(value)
 		if cfield == "max_tokens" and value not in (None, ""):
 			value = frappe.utils.cint(value)
+		# WI-001793: the modal's number input hands back a string; 0/blank means
+		# "not set here" and must stay 0 so dispatch falls through to the shape.
+		if cfield == "context_max_messages":
+			value = frappe.utils.cint(value)
 		# Old diagrams carry model ids baked into the shape before the AI Model
 		# catalog existed (WI-001655). Letting doc.save() hit the Link
 		# validation surfaces a raw LinkValidationError — say what is actually
 		# wrong instead.
-		if cfield == "ai_model" and value and not frappe.db.exists("AI Model", value):
+		if (
+			cfield in ("ai_model", "memory_distill_model", "memory_reconcile_model")
+			and value
+			and not frappe.db.exists("AI Model", value)
+		):
 			frappe.throw(
 				_(
 					"'{0}' is not in the AI Model catalog — the task shape carries an "
@@ -331,7 +368,15 @@ def update_agent_config_from_shape(config_name: str, fields: str | dict) -> dict
 CREATE_PAYLOAD_CONTRACT = {
 	"agent_name": "Human-readable agent name (required).",
 	"agent_id": "Machine id; auto-derived from the name when omitted.",
-	"chat_mode_label": "Label shown in chat mode pickers (required, must be unique).",
+	"chat_mode_label": (
+		"Label shown in chat mode pickers (must be unique). Required, EXCEPT when "
+		"process_model names a non-chat map — a process-embedded agent never appears in chat."
+	),
+	"process_model": (
+		"Name of the BPMN Process Model this agent is mapped to (WI-001997). When the agent "
+		"is being created from a task dialog, propose the process currently open in the "
+		"editor; ask the designer rather than guessing. Omit for a mapless Direct-API chat agent."
+	),
 	"ai_model": "Name of an AI Model catalog record — the agent's provider follows from this model's credentials link (WI-001655).",
 	"system_prompt": "The agent's system prompt; leave empty to have the creation process generate one from the description.",
 	"description": "What the agent does — feeds prompt auto-generation.",
@@ -396,9 +441,20 @@ def create_agent_configuration(payload: str | dict) -> dict:
 	if not agent_name:
 		frappe.throw(_("Agent name is required."))
 	chat_mode_label = (payload.get("chat_mode_label") or "").strip()
-	if not chat_mode_label:
-		# The creation process's Validate step rejects chat agents without a
-		# label — fail fast here instead of guaranteeing a Needs Attention.
+	process_model = (payload.get("process_model") or "").strip()
+	if process_model and not frappe.db.exists("BPMN Process Model", process_model):
+		frappe.throw(
+			_(
+				"BPMN Process Model '{0}' does not exist — pass the exact name of the "
+				"process this agent is mapped to, or omit it."
+			).format(process_model)
+		)
+	if not chat_mode_label and is_chat_startable_map(process_model) is not False:
+		# WI-001997: only an agent mapped to a NON-chat process map may skip the
+		# label — it never appears in the chat picker. Everything else (chat map,
+		# or no map at all → Direct-API chat) fails fast here, because the
+		# creation process's Validate step rejects label-less chat agents and
+		# failing later guarantees a Needs Attention.
 		frappe.throw(_("A chat mode label is required for a chat agent."))
 
 	# Friendly duplicate guard — a raw DuplicateEntryError helps nobody.
@@ -422,6 +478,10 @@ def create_agent_configuration(payload: str | dict) -> dict:
 	doc.lifecycle_status = "Draft"
 	doc.enabled = 1
 	doc.chat_mode_label = chat_mode_label
+	# WI-001997: the map is a designer-chosen link at creation — usually the
+	# process the agent is being created inside. Nothing clones or overwrites
+	# it; the map stays the designer's own.
+	doc.process_model = process_model or None
 	# WI-001655: the model is the pick; the provider derives from its
 	# credentials link on save. A directly-passed credentials value is kept
 	# only as legacy fallback for model-less payloads.
