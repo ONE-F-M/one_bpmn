@@ -171,7 +171,11 @@ def agent_event_stream(agent_id: str, message: str, conversation: str, context: 
 	except Exception as e:
 		if not frappe.flags.in_test:
 			frappe.db.rollback()
-		frappe.log_error(title="agui stream error", message=frappe.get_traceback())
+		frappe.log_error(
+			title="agui stream error",
+			message=f"agent={agent_id} conversation={conversation} user={frappe.session.user}\n\n"
+			+ frappe.get_traceback(),
+		)
 		yield encoder.encode(RunErrorEvent(message=str(e)))
 	finally:
 		yield encoder.encode(RunFinishedEvent(run_id=run_id, thread_id=conversation))
