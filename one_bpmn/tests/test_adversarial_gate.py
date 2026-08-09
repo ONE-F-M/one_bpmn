@@ -110,6 +110,26 @@ class TestAdversarialGate(FrappeTestCase):
 		self._run(self._suite(), failed=0, total=0)
 		self.assertFalse(check(self.agent)["ok"])
 
+	def test_a_pass_older_than_the_suites_last_change_is_stale(self):
+		"""A suite can be edited, or reassigned to a different agent. Either way
+		the earlier run is no longer evidence about what is in front of you —
+		without this, moving a reusable suite from a tested agent to an untested
+		one carries the pass across and opens the gate for an agent nothing has
+		ever attacked."""
+		suite = self._suite()
+		self._run(suite)  # a clean pass
+		self.assertTrue(check(self.agent)["ok"], "a fresh pass should open the gate")
+
+		# Touch the suite the way reassign_suite does (db_set bumps modified).
+		frappe.db.set_value(
+			"AI Eval Suite", suite, "modified",
+			add_to_date(now_datetime(), minutes=5), update_modified=False,
+		)
+
+		gate = check(self.agent)
+		self.assertFalse(gate["ok"])
+		self.assertIn("before the suite was changed", gate["reason"])
+
 	def test_a_pass_older_than_the_agents_last_change_is_stale(self):
 		"""The clause that closes the real hole: change the prompt, retest."""
 		suite = self._suite()

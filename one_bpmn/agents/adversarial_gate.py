@@ -121,10 +121,18 @@ def check(agent: str) -> dict:
 				"suites": [],
 			}
 
-		changed_at = frappe.db.get_value("AI Agent Configuration", agent, "modified")
+		agent_changed = frappe.db.get_value("AI Agent Configuration", agent, "modified")
 		stale, failed = [], []
 
 		for suite in suites:
+			# A run is evidence only if it is newer than BOTH the agent and the
+			# suite. The suite's own timestamp matters because a suite can be
+			# edited — or reassigned to a different agent entirely. Without this,
+			# moving a generic suite from a tested agent to an untested one would
+			# carry the old pass across and open the gate for an agent nothing
+			# has ever attacked.
+			suite_changed = frappe.db.get_value("AI Eval Suite", suite, "modified")
+			changed_at = max([d for d in (agent_changed, suite_changed) if d], default=None)
 			run = latest_run(suite)
 			if not run:
 				stale.append(f"{suite} (never run)")
@@ -137,7 +145,8 @@ def check(agent: str) -> dict:
 				continue
 			ran_at = run.get("ended_at") or run.get("creation")
 			if changed_at and ran_at and get_datetime(ran_at) < get_datetime(changed_at):
-				stale.append(f"{suite} (last passed before the agent was changed)")
+				what = "the agent" if changed_at == agent_changed else "the suite"
+				stale.append(f"{suite} (last passed before {what} was changed)")
 				continue
 			return {"ok": True, "reason": "", "suite": suite, "run": run.get("name")}
 
