@@ -92,7 +92,25 @@ def promote_to_eval_case(
 	case.expected_output = DEFAULT_ASSERTION_TEXT
 	case.insert()
 
+	# A suite holding an attack promoted from a real security event
+	# IS an adversarial suite. Marking it here means the go-live gate recognises
+	# it without anyone remembering to set the field, which is the difference
+	# between a gate that works and one that is bypassed by an oversight.
+	_mark_suite_adversarial(suite)
+
 	return {"eval_case": case.name, "created": True, "suite": suite}
+
+
+def _mark_suite_adversarial(suite: str) -> None:
+	"""Flip a suite to Adversarial. Never raises — promotion must still succeed."""
+	try:
+		if frappe.db.get_value("AI Eval Suite", suite, "suite_type") != "Adversarial":
+			frappe.db.set_value("AI Eval Suite", suite, "suite_type", "Adversarial")
+	except Exception:
+		frappe.log_error(
+			title=f"Could not mark eval suite as adversarial ({suite})",
+			message=frappe.get_traceback(),
+		)
 
 
 def _default_suite(evt) -> str | None:
