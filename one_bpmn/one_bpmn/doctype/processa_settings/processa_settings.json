@@ -27,9 +27,7 @@
   "script_block_lambda",
   "script_strict_builtins",
   "script_strict_frappe_attrs",
-  "script_block_all_imports",
-  "section_break_google",
-  "google_drive_service_account_json"
+  "script_block_all_imports"
  ],
  "fields": [
   {
@@ -188,18 +186,6 @@
    "fieldname": "script_block_all_imports",
    "fieldtype": "Check",
    "label": "Block All Imports"
-  },
-  {
-   "collapsible": 1,
-   "fieldname": "section_break_google",
-   "fieldtype": "Section Break",
-   "label": "Google Integration"
-  },
-  {
-   "description": "Service account JSON (type: service_account) used by the BPMN Google connectors and Drive Script Tasks. Enable the Drive/Docs/Slides APIs on the backing GCP project and add this service account to the target Shared Drive.",
-   "fieldname": "google_drive_service_account_json",
-   "fieldtype": "Password",
-   "label": "Service Account JSON"
   }
  ],
  "issingle": 1,

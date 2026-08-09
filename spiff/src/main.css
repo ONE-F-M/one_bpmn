@@ -44,3 +44,21 @@
 		padding-bottom: env(safe-area-inset-bottom, 16px);
 	}
 }
+
+/* Popovers must clear the Dialog overlay.
+ *
+ * frappe-ui's Autocomplete/Select render through reka-ui's PopoverPortal,
+ * which appends the floating element to <body> with an inline `z-index: auto`.
+ * frappe-ui's Dialog overlay is `fixed` at `z-index: 50`. A fixed element
+ * creates its own stacking context even at `z-index: auto` (reka also sets a
+ * transform, which does the same), so nothing inside the popover can paint
+ * above the overlay whatever its own z-index or DOM order — a dropdown opened
+ * inside a dialog renders *behind* the backdrop: blurred, unclickable, and
+ * with no console error to explain it.
+ *
+ * Lift the wrapper itself above the overlay. `!important` is required because
+ * reka writes `z-index: auto` inline on this element.
+ */
+[data-reka-popper-content-wrapper] {
+	z-index: 60 !important;
+}

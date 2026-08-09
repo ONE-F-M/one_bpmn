@@ -1,0 +1,8 @@
+# patches.txt is an append-only list: every branch adds its own stamp, so
+# concurrent branches conflict on it constantly even though the additions
+# never actually disagree. The union strategy keeps both sides' lines.
+#
+# Caveat: union preserves "ours then theirs" per hunk, so a merged entry can
+# land out of date order. Frappe runs patches in file order, so if a new patch
+# depends on another landing first, check the resulting order before pushing.
+one_bpmn/patches.txt merge=union

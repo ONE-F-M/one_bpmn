@@ -91,7 +91,12 @@ def execute():
 			doc.provider_name = name
 			doc.provider_type = ptype
 		doc.api_key = api_key
-		if default_model and not doc.default_model:
+		# WI-001655 dropped default_model from AI Provider Credentials (the model
+		# is now the agent's own AI Model pick). Only carry the legacy value over
+		# on sites whose schema still has the field: on a new_doc, an attribute
+		# for a field that is not in the meta raises AttributeError rather than
+		# returning None.
+		if default_model and doc.meta.has_field("default_model") and not doc.get("default_model"):
 			doc.default_model = default_model
 		doc.enabled = 1
 		doc.save(ignore_permissions=True)

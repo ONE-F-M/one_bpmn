@@ -9,7 +9,6 @@
 
 import json
 import re
-import time
 
 import frappe
 
@@ -46,88 +45,102 @@ def normalize_drive_id(value):
     return m.group(1) if m else s
 
 
-# Google config now lives on Processa Settings (this app). AI Chat Settings is
-# kept as a read fallback for sites that configured it there before the move.
-_SETTINGS_DOCTYPES = ("Processa Settings", "AI Chat Settings")
+# Where a credential is looked for when the caller names no connector. The Drive
+# connector is the de facto default: the Server Scripts that import this module
+# directly are all Drive scripts, and every Google connector historically shared
+# one key anyway.
+_DEFAULT_CONNECTOR = "google_drive"
 
 
-def _read_setting_secret(fieldname):
-    for doctype in _SETTINGS_DOCTYPES:
-        try:
-            val = frappe.get_single(doctype).get_password(fieldname, raise_exception=False)
-        except Exception:
-            val = None
-        if val:
-            return val
-    return None
+def _connector_service_account(connector_id):
+    """The key stored on a BPMN Connector, or None.
 
-
-def load_service_account_info():
-    """Lookup order: Processa Settings → AI Chat Settings → site_config → gcp.json."""
-    sa_json = _read_setting_secret("google_drive_service_account_json")
-
-    if not sa_json:
-        sa_json = frappe.conf.get("google_drive_service_account_json")
-
-    if sa_json:
-        return sa_json if isinstance(sa_json, dict) else json.loads(sa_json)
-
+    Raises nothing: a missing connector, a missing table and an empty Secret are
+    all "no key here", and the caller turns that into one actionable error.
+    """
+    if not connector_id:
+        return None
     try:
-        with open(frappe.get_site_path("private", "files", "gcp.json")) as f:
-            return json.load(f)
-    except FileNotFoundError:
-        raise GoogleConfigError(
-            "No Google service account configured — set it on Processa Settings > "
-            "Google Integration, or google_drive_service_account_json in "
-            "site_config.json, or place credentials at private/files/gcp.json."
+        if not frappe.db or not frappe.db.table_exists("BPMN Connector"):
+            return None
+        if not frappe.db.exists("BPMN Connector", connector_id):
+            return None
+        secret = frappe.get_cached_doc("BPMN Connector", connector_id).get_password(
+            "auth_secret", raise_exception=False
         )
+        return secret or None
+    except Exception:
+        return None
 
 
-def get_credentials(scopes=None):
+def load_service_account_info(connector_id=None):
+    """Return the service account key from the connector that owns it.
+
+    Order:
+      1. the named connector's own Secret
+      2. the Drive connector's Secret — for callers with no connector context
+         (Script Tasks importing the integration directly)
+
+    There is deliberately no third step. A connector's Secret is the whole
+    definition of its credential: that is what makes two connectors able to talk
+    to two different Google accounts, and what makes rotating one key a single
+    edit on one form. Every global fallback that used to sit behind this
+    (Processa Settings, AI Chat Settings, ``site_config.json``,
+    ``private/files/gcp.json``) held a key that no connector form could show and
+    no one could rotate per connector, so a site could look correctly configured
+    while every connector quietly shared one account. Reading them is now an
+    error that names the form to fix.
+    """
+    sa_json = _connector_service_account(connector_id) or _connector_service_account(
+        _DEFAULT_CONNECTOR
+    )
+    if not sa_json:
+        raise GoogleConfigError(
+            "No Google service account configured for connector "
+            f"{connector_id or _DEFAULT_CONNECTOR}. Paste the key file Google issued "
+            f"on BPMN Connector {connector_id or _DEFAULT_CONNECTOR} > Authentication "
+            "> Secret."
+        )
+    if isinstance(sa_json, dict):
+        return sa_json
+    try:
+        return json.loads(sa_json)
+    except ValueError as e:
+        raise GoogleConfigError(
+            f"The Secret on BPMN Connector {connector_id or _DEFAULT_CONNECTOR} is not "
+            "valid JSON — it must be the whole key file Google issued, not just the "
+            f"private key or an API token ({e})."
+        ) from e
+
+
+def get_credentials(scopes=None, connector_id=None):
     from google.oauth2 import service_account
 
     return service_account.Credentials.from_service_account_info(
-        load_service_account_info(), scopes=scopes or DEFAULT_SCOPES
+        load_service_account_info(connector_id), scopes=scopes or DEFAULT_SCOPES
     )
 
 
-def get_service(api, version, scopes=None):
-    """Build a googleapiclient service, e.g. get_service('docs', 'v1')."""
+def get_service(api, version, scopes=None, connector_id=None):
+    """Build a googleapiclient service, e.g. get_service('docs', 'v1').
+
+    ``connector_id`` selects whose credential to use, so a handler runs against
+    the account configured on its own connector.
+    """
     from googleapiclient.discovery import build
 
-    return build(api, version, credentials=get_credentials(scopes), cache_discovery=False)
+    return build(
+        api, version, credentials=get_credentials(scopes, connector_id), cache_discovery=False
+    )
 
 
 # ── Transient-failure retry ─────────────────────────────────────────────────
-# Google APIs surface transient failures as HTTP 429 (rate limit) and 5xx.
-# Retry those a few times with exponential backoff; anything else propagates.
-_TRANSIENT_STATUS = {429, 500, 502, 503, 504}
+# The implementation is provider-neutral and lives in integrations/retry.py (the
+# connector HTTP executor uses it too). Re-exported here so existing Google
+# integrations and Script Tasks that import it from google_common keep working.
 
-
-def _http_status(exc):
-    resp = getattr(exc, "resp", None)  # googleapiclient.errors.HttpError
-    if resp is not None:
-        try:
-            return int(getattr(resp, "status", None))
-        except (TypeError, ValueError):
-            pass
-    return getattr(exc, "status_code", None)
-
-
-def call_with_retry(fn, *args, attempts=3, base_delay=0.5, **kwargs):
-    """Call ``fn(*args, **kwargs)``, retrying transient Google errors.
-
-    Pass the request's bound ``.execute`` so each retry re-issues the call, e.g.
-    ``call_with_retry(service.documents().get(documentId=x).execute)``.
-    """
-    last = None
-    for i in range(attempts):
-        try:
-            return fn(*args, **kwargs)
-        except Exception as exc:  # noqa: BLE001 — we re-raise unless transient
-            last = exc
-            if _http_status(exc) in _TRANSIENT_STATUS and i < attempts - 1:
-                time.sleep(base_delay * (2 ** i))
-                continue
-            raise
-    raise last
+from one_bpmn.one_bpmn.integrations.retry import (  # noqa: E402,F401
+    _TRANSIENT_STATUS,
+    call_with_retry,
+)
+from one_bpmn.one_bpmn.integrations.retry import http_status as _http_status  # noqa: E402,F401

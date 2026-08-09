@@ -32,6 +32,36 @@ from . import (
 )
 
 
+def _run_coro_blocking(coro):
+    """
+    Run *coro* to completion from synchronous code (WI-001356 review fix).
+
+    asyncio.run() raises RuntimeError when the calling thread already has a
+    running event loop. Frappe's request handlers and RQ workers are
+    synchronous today, but if this executor is ever reached from an async
+    context (socketio bridge, future ASGI deployment), fall back to running
+    the coroutine on a dedicated thread with its own loop instead of
+    crashing.
+
+    The fallback copies the caller's contextvars into that thread, or the
+    coroutine would run without ``frappe.local`` (site/db/session) — see
+    ``turn_state.run_sync``, which carries the same contract for the nested
+    call the stage tools make.
+    """
+    import asyncio
+    import concurrent.futures
+    import contextvars
+
+    try:
+        asyncio.get_running_loop()
+    except RuntimeError:
+        return asyncio.run(coro)
+
+    ctx = contextvars.copy_context()
+    with concurrent.futures.ThreadPoolExecutor(max_workers=1) as pool:
+        return pool.submit(ctx.run, asyncio.run, coro).result()
+
+
 def _strip_code_fences(content: str) -> str:
     """
     Remove a surrounding Markdown code fence from *content*, if present.
