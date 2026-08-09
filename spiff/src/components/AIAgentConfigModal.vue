@@ -30,6 +30,20 @@
               <span :class="['agent-status', agentStatusClass]" :title="'Deployment requires Live (WI-001652)'">
                 ● {{ linkedAgentStatus || "checking…" }}
               </span>
+              <!-- WI-001969: the Agent Creation Process re-checks an agent when
+                   its record is saved — it waits on a Config Edited message. That
+                   made "re-run the checks" mean "make an edit you do not want",
+                   which is folklore, not an affordance. Same trigger, named, and
+                   only where the process can still act: Live is already past it,
+                   Retired is deliberate. -->
+              <button
+                v-if="['Draft', 'Needs Attention'].includes(linkedAgentStatus)"
+                type="button"
+                class="agent-rerun"
+                :disabled="rerunning"
+                :title="'Run the agent\'s validations and adversarial suite again'"
+                @click="rerunChecks"
+              >{{ rerunning ? "Re-running…" : "Re-run checks" }}</button>
               Prompt, provider, model and params resolve from this configuration
               when the process runs. Saving writes your edits back to it.
               Deploying this diagram requires the agent to be Live.
@@ -586,6 +600,45 @@ async function refreshLinkedAgentStatus() {
     linkedAgentStatus.value = (r && r.lifecycle_status) || "";
   } catch (e) {
     /* badge stays blank */
+  }
+}
+
+const rerunning = ref(false);
+
+// Hand the agent back to the Agent Creation Process. Decides nothing itself —
+// whether it may go Live stays the map's call; this only asks it to look again,
+// which is what re-runs the adversarial suite and the other validations.
+async function rerunChecks() {
+  const name = form.value.aiAgentConfig;
+  if (!name || rerunning.value) return;
+  rerunning.value = true;
+  try {
+    await frappeRequest({
+      url: "/api/method/one_bpmn.agents.agent_provisioning.rerun_creation_process",
+      method: "POST",
+      params: { agent: name },
+    });
+    // The process runs in the background, so the badge will not be right yet.
+    // Poll a few times rather than leave a stale status on screen — and say so,
+    // because a checks run makes real model calls and takes a minute or two.
+    showNotice(
+      "Re-running the agent's checks",
+      "The Agent Creation Process is validating the configuration and running the " +
+        "agent's adversarial suite. This makes real model calls, so give it a minute — " +
+        "the status beside the agent updates on its own."
+    );
+    for (let i = 0; i < 30; i++) {
+      await new Promise((r) => setTimeout(r, 4000));
+      const before = linkedAgentStatus.value;
+      await refreshLinkedAgentStatus();
+      if (linkedAgentStatus.value === "Live") break;
+      if (before !== linkedAgentStatus.value && linkedAgentStatus.value === "Needs Attention") break;
+    }
+  } catch (e) {
+    showNotice("Couldn't re-run the checks", serverMessage(e));
+  } finally {
+    rerunning.value = false;
+    refreshLinkedAgentStatus();
   }
 }
 
@@ -1727,6 +1780,23 @@ async function save() {
 }
 .assistant-send:hover { background: #4f46e5; }
 .assistant-send:disabled { background: #cbd5e1; cursor: default; }
+
+.agent-rerun {
+  margin-left: 6px;
+  padding: 1px 8px;
+  font-size: 11px;
+  border: 1px solid var(--border-color, #d1d8dd);
+  border-radius: 10px;
+  background: #fff;
+  cursor: pointer;
+}
+.agent-rerun:hover:not(:disabled) {
+  background: var(--fg-hover-color, #f4f5f6);
+}
+.agent-rerun:disabled {
+  opacity: 0.6;
+  cursor: default;
+}
 
 /* ── Linked agent lifecycle badge (WI-001652) ── */
 .agent-status {
