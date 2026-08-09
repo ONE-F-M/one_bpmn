@@ -2983,6 +2983,24 @@ async function getXML() {
 		console.warn("Could not complete active direct editing:", e);
 	}
 
+	// bpmn-js's bpmnDiOrdering rewrites every root's DI on saveXML.start and
+	// crashes with "Cannot read properties of undefined (reading 'set')" when
+	// a root has none — canvas.clear() during a re-import (e.g. ProsAlly's
+	// Apply to canvas) can leave a transient implicit root without DI, and a
+	// debounced auto-save can land inside that window (observed live
+	// 2026-08-09). Drop DI-less roots before serializing; they carry nothing
+	// the XML needs.
+	try {
+		const canvas = modeler.get("canvas");
+		for (const root of canvas.getRootElements()) {
+			if (!root.di && typeof canvas.removeRootElement === "function") {
+				canvas.removeRootElement(root);
+			}
+		}
+	} catch (e) {
+		console.warn("Could not prune DI-less roots before save:", e);
+	}
+
 	const { xml } = await modeler.saveXML({ format: true });
 	return xml;
 }
