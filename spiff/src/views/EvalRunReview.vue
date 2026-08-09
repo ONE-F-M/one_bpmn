@@ -39,6 +39,15 @@
 						</select>
 						<span v-if="comparing" class="text-gray-400">comparing…</span>
 					</label>
+					<!-- WI-001821: the baseline picker beside this compares case
+					     STATUSES against an earlier run. This goes further — pass
+					     rate, latency and cost per agent — so it is a link out, not
+					     another control in the same row. -->
+					<router-link
+						:to="`/processa/evals/compare/${encodeURIComponent(runName)}`"
+						class="text-xs text-blue-600 hover:underline"
+						title="Compare this run against another run of the same suite, side by side"
+					>A/B compare →</router-link>
 					<router-link
 						v-if="previous"
 						:to="`/processa/evals/run/${encodeURIComponent(previous.name)}`"
