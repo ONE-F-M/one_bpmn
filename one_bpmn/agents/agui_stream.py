@@ -254,3 +254,10 @@ try:
 	import one_bpmn.api.ai_assistant  # noqa: F401,E402
 except Exception:
 	frappe.log_error(title="agui assistant hooks failed to load", message=frappe.get_traceback())
+
+# Logix registers its context builder (script content loading) on import
+# (WI-001677 follow-up from live testing).
+try:
+	import one_bpmn.api.server_script_api  # noqa: F401,E402
+except Exception:
+	frappe.log_error(title="agui logix hooks failed to load", message=frappe.get_traceback())

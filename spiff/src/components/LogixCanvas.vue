@@ -525,7 +525,11 @@ async function linkExistingScript(name) {
 
 const logixTurnContext = computed(() => ({
 	element_name: elementLabel.value || canvasScriptName.value || "",
-	current_script: props.currentScript || "",
+	// The launch paths differ: the properties-panel launcher loads the script
+	// into canvas state without setting the prop — the canvas's own state is
+	// the truth (fixed after a live turn where the map couldn't see the
+	// script and asked the user to paste it).
+	current_script: savedScriptName.value || canvasScriptName.value || props.currentScript || "",
 	process_context: props.processContext || null,
 }));
 

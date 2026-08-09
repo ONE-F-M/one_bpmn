@@ -631,3 +631,81 @@ def toggle_server_script(script_name: str, disabled: int) -> dict:
 	)
 
 	return {"name": script_name, "disabled": int(disabled)}
+
+
+# ── Shared-endpoint integration (WI-001677) ──────────────────────────────────
+def build_logix_turn_context(context: dict) -> dict:
+	"""Load the linked script's content for a Logix turn (context builder for
+	the AG-UI endpoint). The legacy process_logix_message did this inline —
+	permission-checked — before invoking; through the shared endpoint the
+	panel sends only the script NAME, and without the content the map's
+	prompt renders empty and the model asks the user to paste their script
+	(observed live, 2026-08-08)."""
+	out = dict(context or {})
+	script = out.get("current_script") or ""
+	if not script:
+		return out
+	if not frappe.db.exists("Server Script", script):
+		out["current_script"] = ""
+		return out
+	if not frappe.has_permission("Server Script", "read", doc=script):
+		frappe.log_error(
+			title="Logix: script read denied for turn context",
+			message=f"user={frappe.session.user} script={script}",
+		)
+		out["current_script"] = ""
+		return out
+	content = frappe.get_doc("Server Script", script).script or ""
+	out["original_script_content"] = content
+
+	# Two map generations exist: the purpose-built Logix map renders the
+	# original_script_content variable directly, while a generic
+	# chat-template clone renders only {{ dialog_context }}. Folding the
+	# script and the reply contract into dialog_context serves both — the
+	# purpose-built map just sees it twice, harmlessly.
+	contract = (
+		"CURRENT SERVER SCRIPT ('%s'):\n```python\n%s\n```\n\n"
+		"LOGIX REPLY CONTRACT: respond ONLY with a JSON object: "
+		'{"intent": "CREATE"|"MODIFY"|"DISAMBIGUATE"|"GENERAL", '
+		'"response": "<short human explanation>", '
+		'"modified_script": "<the full updated script when intent is CREATE or MODIFY>", '
+		'"suggested_name": "<script name for CREATE>", '
+		'"options": ["..."] }. '
+		"Never claim you saved or applied anything — the designer applies your "
+		"proposal from a review card in the UI."
+	) % (script, content)
+	existing = out.get("dialog_context") or ""
+	out["dialog_context"] = (existing + "\n\n" + contract).strip()
+	return out
+
+
+def shape_logix_reply(result: dict) -> dict:
+	"""Lift the Logix JSON contract out of a text reply (reply shaper).
+
+	The purpose-built map returns structured keys already — then this is a
+	no-op. A generic-template map returns the contract as text; parse it so
+	the translator can emit onefm.script_diff and no JSON reaches a bubble."""
+	if result.get("modified_script") or result.get("intent"):
+		return result
+	from one_bpmn.api.ai_assistant import _extract_json
+
+	raw = result.get("response") or ""
+	parsed = _extract_json(raw if isinstance(raw, str) else "")
+	if not isinstance(parsed, dict) or not (parsed.get("intent") or parsed.get("modified_script")):
+		return result
+	shaped = dict(result)
+	shaped["response"] = str(parsed.get("response") or "").strip() or raw
+	for key in ("intent", "modified_script", "suggested_name", "options", "apply_target"):
+		if parsed.get(key):
+			shaped[key] = parsed[key]
+	return shaped
+
+
+def _register_agui_hooks():
+	from one_bpmn.agents.agui_stream import register_context_builder, register_reply_shaper
+
+	register_context_builder("logix_agent", build_logix_turn_context)
+	register_reply_shaper("logix_agent", shape_logix_reply)
+
+
+_register_agui_hooks()
