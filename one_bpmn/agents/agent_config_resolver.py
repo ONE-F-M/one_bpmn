@@ -261,12 +261,18 @@ def update_agent_config_from_shape(config_name: str, fields: str | dict) -> dict
 CREATE_PAYLOAD_CONTRACT = {
 	"agent_name": "Human-readable agent name (required).",
 	"agent_id": "Machine id; auto-derived from the name when omitted.",
+	"agent_type": (
+		"'Chat' (default) or 'Background'. Use 'Background' for a process-embedded agent "
+		"that only runs inside AI Agent Task shapes and never talks to users in chat — it "
+		"needs no chat_mode_label and no creation process, and goes Live automatically once "
+		"its model/credentials check out."
+	),
 	"chat_mode_label": (
-		"Label shown in chat mode pickers (must be unique). Required, EXCEPT when the "
-		"payload's process_model carries a valid non-chat map — the exception only applies "
-		"when process_model is actually INCLUDED in proposed_config and names a real BPMN "
-		"Process Model record. If you are not including a valid process_model, "
-		"chat_mode_label is REQUIRED and creation fails without it."
+		"CHAT AGENTS ONLY: label shown in chat mode pickers (must be unique). Required for "
+		"a Chat agent, EXCEPT when the payload's process_model carries a valid non-chat map "
+		"— the exception only applies when process_model is actually INCLUDED in "
+		"proposed_config and names a real BPMN Process Model record. Never needed for "
+		"agent_type 'Background'."
 	),
 	"process_model": (
 		"EXACT BPMN Process Model record name this agent is mapped to (WI-001997) — take it "
@@ -313,12 +319,17 @@ def create_agent_configuration(payload: str | dict) -> dict:
 		payload = frappe.parse_json(payload) or {}
 	frappe.has_permission("AI Agent Configuration", "create", throw=True)
 
+	agent_type = (payload.get("agent_type") or "Chat").strip().capitalize()
+	if agent_type not in ("Chat", "Background"):
+		frappe.throw(_("agent_type must be 'Chat' or 'Background'."))
+
 	# Without a creation process there is no path from Draft to Live for a Chat
 	# agent (apply_background_lifecycle only auto-lives Background agents), so
 	# creating one would strand it as a permanent Draft. Refuse up front and say
-	# why, rather than leave a record nobody can finish.
+	# why, rather than leave a record nobody can finish. Background agents skip
+	# the process entirely, so they are never blocked by its absence.
 	creation_model = get_creation_process_model()
-	if not creation_model:
+	if agent_type == "Chat" and not creation_model:
 		holder = get_creation_grant_holder()
 		frappe.throw(
 			_(
@@ -347,12 +358,17 @@ def create_agent_configuration(payload: str | dict) -> dict:
 				"process this agent is mapped to, or omit it."
 			).format(process_model)
 		)
-	if not chat_mode_label and is_chat_startable_map(process_model) is not False:
-		# WI-001997: only an agent mapped to a NON-chat process map may skip the
-		# label — it never appears in the chat picker. Everything else (chat map,
-		# or no map at all → Direct-API chat) fails fast here, because the
-		# creation process's Validate step rejects label-less chat agents and
-		# failing later guarantees a Needs Attention.
+	if (
+		agent_type == "Chat"
+		and not chat_mode_label
+		and is_chat_startable_map(process_model) is not False
+	):
+		# WI-001997: only a CHAT agent needs a label, and even then an agent
+		# mapped to a NON-chat process map may skip it — it never appears in
+		# the chat picker. Everything else (chat map, or no map at all →
+		# Direct-API chat) fails fast here, because the creation process's
+		# Validate step rejects label-less chat agents and failing later
+		# guarantees a Needs Attention. Background agents never need one.
 		frappe.throw(_("A chat mode label is required for a chat agent."))
 
 	# Friendly duplicate guard — a raw DuplicateEntryError helps nobody.
@@ -372,7 +388,7 @@ def create_agent_configuration(payload: str | dict) -> dict:
 	doc.agent_name = agent_name
 	doc.agent_id = agent_id
 	doc.agent_framework = payload.get("agent_framework") or "Direct API"
-	doc.agent_type = "Chat"
+	doc.agent_type = agent_type
 	doc.lifecycle_status = "Draft"
 	doc.enabled = 1
 	doc.chat_mode_label = chat_mode_label
