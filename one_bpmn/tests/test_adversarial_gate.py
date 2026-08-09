@@ -183,16 +183,51 @@ class TestAdversarialGate(FrappeTestCase):
 			"process_id": f"zz_wi1969_{frappe.generate_hash(length=6)}",
 		}).insert(ignore_permissions=True).name
 
-	def test_a_map_with_the_marker_conforms(self):
+	def test_the_marker_is_still_honoured_on_a_map_that_carries_it(self):
+		"""Conformance no longer HUNTS for the marker, but an author who does put
+		screening in a map keeps the recognition — the constants remain the
+		published contract."""
 		xml = f'<bpmn:definitions><bpmn:serviceTask id="a" spiffworkflow:{SCREENING_MARKER}="true" /></bpmn:definitions>'
 		self.assertTrue(has_screening_stage(xml))
+
+	def test_a_chat_map_without_a_screening_stage_still_conforms(self):
+		"""WI-001997 retired the cloned template this check was written against,
+		and screening was never a map step — it runs centrally on every turn. No
+		map on the site has ever carried the marker, so requiring one failed every
+		agent for a declaration nothing produces."""
+		xml = (
+			'<bpmn:definitions><bpmn:startEvent id="s">'
+			'<bpmn:conditionalEventDefinition spiffworkflow:triggerDoctype="Chat Conversation" />'
+			"</bpmn:startEvent></bpmn:definitions>"
+		)
+		self.assertFalse(has_screening_stage(xml))
 		self.assertTrue(validate_chat_map(self._map(xml))["ok"])
 
-	def test_a_map_without_a_screening_stage_does_not_conform(self):
-		xml = '<bpmn:definitions><bpmn:serviceTask id="run_agent" name="Call Agent" /></bpmn:definitions>'
+	def test_a_map_that_is_not_a_chat_map_does_not_conform(self):
+		"""The thing a linked map can still get wrong: an agent with a chat mode
+		label pointed at a business process can never receive a turn."""
+		xml = '<bpmn:definitions><bpmn:startEvent id="s" /></bpmn:definitions>'
 		result = validate_chat_map(self._map(xml))
 		self.assertFalse(result["ok"])
-		self.assertIn("screening stage", result["errors"][0])
+		self.assertIn("not a chat map", result["errors"][0])
+
+	def test_conformance_fails_closed_when_the_pack_is_empty(self):
+		"""Screening that matches nothing is not screening."""
+		from one_bpmn.agents.conformance import screening_status
+
+		with patch.object(frappe.db, "count", return_value=0):
+			result = screening_status()
+		self.assertFalse(result["ok"])
+		self.assertIn("no enabled rules", result["errors"][0])
+
+	def test_conformance_fails_closed_when_the_hook_is_unwired(self):
+		from one_bpmn.agents.conformance import screening_status
+		from one_bpmn import hooks
+
+		with patch.object(hooks, "doc_events", {"Chat Message": {"before_insert": "something.else"}}):
+			result = screening_status()
+		self.assertFalse(result["ok"])
+		self.assertIn("not wired", result["errors"][0])
 
 	def test_older_maps_are_recognised_by_element_id(self):
 		"""Maps authored before the marker existed still conform."""
@@ -203,8 +238,13 @@ class TestAdversarialGate(FrappeTestCase):
 		xml = f'<bpmn:definitions><bpmn:serviceTask id="a" spiffworkflow:{SCREENING_MARKER}="false" /></bpmn:definitions>'
 		self.assertFalse(has_screening_stage(xml))
 
-	def test_a_missing_or_empty_map_does_not_conform(self):
-		self.assertFalse(validate_chat_map(None)["ok"])
+	def test_no_map_at_all_conforms(self):
+		"""A chat agent may legitimately have no map — that is the Direct API
+		path WI-001997 left in place — and screening does not live there anyway."""
+		self.assertTrue(validate_chat_map(None)["ok"])
+
+	def test_a_map_that_is_missing_or_empty_does_not_conform(self):
+		"""Linking one and getting it wrong is still an error, unlike linking none."""
 		self.assertFalse(validate_chat_map("no-such-map")["ok"])
 		self.assertFalse(validate_chat_map(self._map("  "))["ok"])
 

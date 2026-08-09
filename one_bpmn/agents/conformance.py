@@ -1,33 +1,48 @@
 # Copyright (c) 2026, one-fm and contributors
 # For license information, please see license.txt
 """
-Conformance validator for chat-agent maps (WI-001969).
+Conformance validator for chat agents (WI-001969, retargeted after WI-001997).
 
 A passing adversarial suite proves the agent resisted the attacks it was shown.
-It does not prove the shipped map still screens anything — an agent can pass its
-suite and then go Live on a clone with the screening stage deleted. This closes
-that gap: no conforming agent can skip the screen.
+It does not prove the shipped agent still screens anything. This closes that gap:
+no conforming agent can skip the screen.
 
-WHAT "CONFORMING" MEANS
------------------------
-A chat agent's map must contain a screening stage: an element the runtime
-recognises as the point where an incoming message is screened before it reaches
-the model. It is identified structurally rather than by position, so authors can
-move it, rename its label, or wrap it in a subprocess without breaking
-conformance:
+WHY THIS NO LONGER LOOKS INSIDE THE MAP
+---------------------------------------
+It originally required a screening stage as an element in the agent's map,
+marked ``spiffworkflow:aiScreeningStage``. The reasoning was sound at the time:
+the creation process CLONED a template map per agent, so a clone could have the
+stage deleted and that agent would silently stop being screened.
 
-  * an element carrying ``spiffworkflow:aiScreeningStage="true"``; or
-  * an element whose id or name matches SCREENING_ID_HINTS, which covers the
-    maps authored before the marker existed.
+Two things then made that check false rather than strict:
 
-THE MARKER IS THE CONTRACT
---------------------------
-``aiScreeningStage`` is defined HERE, by this story, because the gate needs
-something to check and the template that will carry it is authored elsewhere.
-The story that builds the screening stage should set this marker on it. Until a
-template exists, ``validate_chat_map`` reports a clear, actionable failure
-rather than passing an unscreened agent by default — the direction a security
-gate should fail.
+  * WI-001997 retired the template and the cloning. A map is now a designer's own
+    link, and a chat agent may legitimately have no map at all (the Direct API
+    path), so "the cloned map" it guarded no longer exists.
+  * Screening was never built as a map step. It runs centrally, on every turn of
+    every agent: ``security.pii.screen_chat_message`` on Chat Message insert, and
+    ``security.injection.screen_for_injection`` inside the invocation path. No map
+    on this site has ever carried the marker.
+
+So the check was hunting for a declaration that nothing produces, while the thing
+it was meant to guarantee was already true everywhere — failing every agent, and
+teaching a reader that the gate is noise.
+
+WHAT "CONFORMING" MEANS NOW
+---------------------------
+That the screen an agent's messages pass through is actually armed:
+
+  * the Chat Message screening hook is registered, so stored messages are
+    screened — this one is load-bearing, because every map-driven agent re-reads
+    the stored row; and
+  * the injection pack has at least one enabled rule, since a pack with nothing
+    in it matches nothing and would pass silently.
+
+Both fail CLOSED. A map, when one is linked, must still be a chat map — an agent
+with a chat mode label pointed at a business process can never receive a turn.
+
+The marker is kept and still honoured: an author who does put screening in a map
+gets credit for it, and the constants stay the published contract.
 """
 
 from __future__ import annotations
@@ -73,36 +88,69 @@ def has_screening_stage(xml: str) -> bool:
 	return False
 
 
-def validate_chat_map(model_name: str) -> dict:
-	"""Is this chat agent's map conforming? {"ok": bool, "errors": [...]}.
+def screening_status() -> dict:
+	"""Is the platform's message screening armed? {"ok": bool, "errors": [...]}.
 
-	Fails closed on every uncertain answer — a map that cannot be read cannot be
-	shown to screen, and a release gate should refuse rather than assume.
+	Fails closed on every uncertain answer: a screen that cannot be shown to be
+	wired is treated as absent, because this authorises a release.
 	"""
 	errors = []
 
-	if not model_name:
-		return {
-			"ok": False,
-			"errors": [
-				_("The agent has no process map linked, so its screening stage cannot be verified.")
-			],
-		}
+	try:
+		from one_bpmn import hooks
 
-	if not frappe.db.exists("BPMN Process Model", model_name):
-		return {"ok": False, "errors": [_("Process map '{0}' does not exist.").format(model_name)]}
+		hooked = ((hooks.doc_events or {}).get("Chat Message") or {}).get("before_insert") or ""
+		if "screen_chat_message" not in hooked:
+			errors.append(
+				_(
+					"Chat Message screening is not wired: no before_insert hook runs "
+					"security.pii.screen_chat_message, so stored messages reach the agent "
+					"unscreened."
+				)
+			)
+	except Exception:
+		errors.append(_("The screening hook could not be read, so it cannot be shown to be active."))
 
-	xml = frappe.db.get_value("BPMN Process Model", model_name, "bpmn_xml") or ""
-	if not xml.strip():
-		errors.append(_("Process map '{0}' is empty.").format(model_name))
-	elif not has_screening_stage(xml):
-		errors.append(
-			_(
-				"Process map '{0}' has no screening stage. A chat agent's map must contain an "
-				"element marked spiffworkflow:{1}=\"true\" so every incoming message is screened "
-				"before it reaches the model."
-			).format(model_name, SCREENING_MARKER)
-		)
+	try:
+		if not frappe.db.count("AI Injection Pattern", {"enabled": 1}):
+			errors.append(
+				_(
+					"The injection pattern pack has no enabled rules, so screening would "
+					"match nothing. Enable the seeded rules under AI Injection Pattern."
+				)
+			)
+	except Exception:
+		errors.append(_("The injection pattern pack could not be read, so screening cannot be verified."))
+
+	return {"ok": not errors, "errors": errors}
+
+
+def validate_chat_map(model_name: str) -> dict:
+	"""Is this chat agent conforming? {"ok": bool, "errors": [...]}.
+
+	Named for the map it used to inspect; it now verifies the screen an agent's
+	messages actually pass through, and checks the map only for the thing a map
+	can still get wrong. A chat agent with NO map is fine — that is the Direct
+	API path — so a missing link is no longer an error.
+	"""
+	errors = list(screening_status()["errors"])
+
+	if model_name:
+		if not frappe.db.exists("BPMN Process Model", model_name):
+			errors.append(_("Process map '{0}' does not exist.").format(model_name))
+		else:
+			xml = frappe.db.get_value("BPMN Process Model", model_name, "bpmn_xml") or ""
+			if not xml.strip():
+				errors.append(_("Process map '{0}' is empty.").format(model_name))
+			elif 'triggerDoctype="Chat Conversation"' not in xml:
+				# The same rule validate_agent_config applies, said here too: a
+				# chat agent pointed at a business process can never take a turn.
+				errors.append(
+					_(
+						"Process map '{0}' is not a chat map — it has no start event on Chat "
+						"Conversation insert, so this agent can never receive a message."
+					).format(model_name)
+				)
 
 	return {"ok": not errors, "errors": errors}
 
