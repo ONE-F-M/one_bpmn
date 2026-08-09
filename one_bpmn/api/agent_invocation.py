@@ -146,10 +146,31 @@ def invoke_agent(agent_id: str, message: str, conversation: str = None, context:
 	# Detected values become stable tokens; the mapping lives for this turn
 	# only and is swapped back at the tool boundary so lookups still resolve.
 	from one_bpmn.security import pii as _pii
+	from one_bpmn.security import turn as _turn
+
+	# WI-001967: one id for everything this turn records. The security event is
+	# written before the AI Agent Run exists and can never be edited afterwards,
+	# so both are stamped with this instead of linked to each other.
+	_turn.begin_turn()
 
 	screened = _pii.screen_input(message, config)
 	message = screened.text
 	_pii_turn = _pii.begin_turn(screened, enabled=screened.enabled)
+
+	# ── Injection screening (WI-001967) ──────────────────────────────────
+	# Record-only: every rule in the pack that matches becomes an AI Security
+	# Event, but nothing is altered and nothing is stopped — choosing what a
+	# match should DO is 15.1. Hooked here rather than on Chat Message so it
+	# runs exactly once per turn, with the agent and conversation to hand.
+	# Never raises; a failure leaves the turn untouched.
+	from one_bpmn.security.injection import screen_for_injection
+
+	screen_for_injection(
+		message,
+		boundary="input",
+		agent_configuration=_pii._config_name(config),
+		conversation=conversation,
+	)
 
 	if not conversation:
 		from one_bpmn.utils.chat_persistence import create_agent_conversation
@@ -163,6 +184,9 @@ def invoke_agent(agent_id: str, message: str, conversation: str = None, context:
 		result = _RUNNERS[runner](config, conversation, message, context or {})
 	finally:
 		_pii.end_turn(_pii_turn)
+		# Clear the correlation id too, or a pooled worker leaks it into the
+		# next turn and two unrelated turns look like one.
+		_turn.end_turn()
 	if not isinstance(result, dict):
 		result = {"response": str(result or "")}
 	result.setdefault("conversation", conversation)
