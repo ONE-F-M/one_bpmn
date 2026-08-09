@@ -846,7 +846,7 @@ async function saveScript() {
    CHAT PANEL (left)
 ══════════════════════════════════════════════════════════════════ */
 .lc-chat-panel {
-	width: 580px;
+	width: var(--agui-chat-pane, 460px);
 	flex-shrink: 0;
 	display: flex;
 	flex-direction: column;

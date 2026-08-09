@@ -1201,7 +1201,7 @@ onMounted(async () => {
 .dc-root { flex: 1; display: flex; min-height: 0; }
 
 /* ── Chat (left) ── */
-.dc-chat-panel { width: clamp(320px, 30%, 460px); flex: none; display: flex; flex-direction: column; background: var(--md-surface-container-low); border-right: 1px solid var(--md-outline-variant); min-width: 0; }
+.dc-chat-panel { width: var(--agui-chat-pane, 460px); flex: none; display: flex; flex-direction: column; background: var(--md-surface-container-low); border-right: 1px solid var(--md-outline-variant); min-width: 0; }
 .dc-messages { flex: 1; overflow-y: auto; padding: 16px; display: flex; flex-direction: column; gap: 12px; }
 .dc-msg-row { display: flex; }
 .dc-msg-row.user { justify-content: flex-end; }

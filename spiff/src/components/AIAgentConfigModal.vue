@@ -1550,7 +1550,8 @@ async function save() {
 .ai-agent-modal {
   background: white;
   border-radius: 8px;
-  width: 920px;
+  /* 560px form + the shared chat pane (WI-001672 sizing token) */
+  width: calc(560px + var(--agui-chat-pane, 420px));
   max-width: 95vw;
   max-height: 90vh;
   display: flex;
@@ -1672,7 +1673,7 @@ async function save() {
   /* Consistent-side decision (2026-08-08): chat LEFT, work surface RIGHT
      on every agent surface — Logix and Docu already sat this way. */
   order: -1;
-  flex: 0 0 340px;
+  flex: 0 0 var(--agui-chat-pane, 340px);
   display: flex;
   flex-direction: column;
   background: #f8f8f8;
