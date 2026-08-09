@@ -27,7 +27,11 @@
   "script_block_lambda",
   "script_strict_builtins",
   "script_strict_frappe_attrs",
-  "script_block_all_imports"
+  "script_block_all_imports",
+  "section_break_ai_memory",
+  "default_memory_distill_model",
+  "column_break_ai_memory",
+  "default_memory_reconcile_model"
  ],
  "fields": [
   {
@@ -186,6 +190,30 @@
    "fieldname": "script_block_all_imports",
    "fieldtype": "Check",
    "label": "Block All Imports"
+  },
+  {
+   "fieldname": "section_break_ai_memory",
+   "fieldtype": "Section Break",
+   "label": "AI Memory",
+   "description": "Site-wide defaults for the models that write long-term memory. An agent's own Memory Models override these; with both blank, memory writes use the agent's own AI Model, exactly as before."
+  },
+  {
+   "fieldname": "default_memory_distill_model",
+   "fieldtype": "Link",
+   "label": "Default Distillation Model",
+   "options": "AI Model",
+   "description": "Used when an agent has no Distillation Model of its own."
+  },
+  {
+   "fieldname": "column_break_ai_memory",
+   "fieldtype": "Column Break"
+  },
+  {
+   "fieldname": "default_memory_reconcile_model",
+   "fieldtype": "Link",
+   "label": "Default Reconciliation Model",
+   "options": "AI Model",
+   "description": "Used when an agent has no Reconciliation Model of its own. Tune here to fix poor reconciliations across every agent at once."
   }
  ],
  "issingle": 1,

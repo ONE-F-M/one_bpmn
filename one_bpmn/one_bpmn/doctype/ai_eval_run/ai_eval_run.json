@@ -8,6 +8,8 @@
  "engine": "InnoDB",
  "field_order": [
   "suite",
+  "agent_configuration",
+  "comparison_group",
   "status",
   "scope",
   "requested_cases",
@@ -35,6 +37,22 @@
    "label": "Suite",
    "options": "AI Eval Suite",
    "reqd": 1
+  },
+  {
+   "fieldname": "agent_configuration",
+   "fieldtype": "Link",
+   "label": "Agent Tested",
+   "options": "AI Agent Configuration",
+   "in_list_view": 1,
+   "read_only": 1,
+   "description": "Which agent produced this run's results. Normally the suite's own agent; an A/B comparison run nominates a different one WITHOUT rebinding the suite. Empty on runs recorded before this was tracked \u2014 those used the suite's agent at the time, which may since have changed."
+  },
+  {
+   "fieldname": "comparison_group",
+   "fieldtype": "Data",
+   "label": "Comparison Group",
+   "read_only": 1,
+   "description": "Shared id of an A/B pair. Both runs of a comparison carry the same value, which is how the comparison view finds the other side. Empty on an ordinary run."
   },
   {
    "fieldname": "status",
