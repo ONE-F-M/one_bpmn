@@ -385,6 +385,21 @@ class BPMNProcessInstance(Document):
 		Record the failure (halt + deep log) then raise a sanitized, Reference-ID
 		error for the caller. Never returns. Call from inside an ``except`` block.
 		"""
+		# A rate limit or a conversation freeze is a DECISION the platform made,
+		# not a fault in the process. Two things go wrong if it is treated as one:
+		# the instance is marked Errored, so the conversation stays broken even
+		# after a reviewer releases the lock; and an explainable refusal is
+		# replaced by "quote this reference id", which the user can do nothing
+		# with. Let it through untouched — the chat surface knows how to say it.
+		import sys
+
+		in_flight = sys.exc_info()[1]
+		if in_flight is not None:
+			from one_bpmn.security.rate_limit import RateLimited
+
+			if isinstance(in_flight, RateLimited):
+				raise in_flight
+
 		ref_id = self._record_runtime_failure(phase)
 		frappe.throw(
 			_(
