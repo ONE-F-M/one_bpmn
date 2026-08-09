@@ -21,7 +21,7 @@
 				/>
 				<!-- choice buttons (panel feature, onefm.choice) -->
 				<div v-else-if="item.kind === 'choice'" class="acp-card">
-					<div class="acp-card-head">{{ item.value.prompt }}</div>
+					<div v-if="item.value.prompt" class="acp-card-head" v-html="renderMarkdown(item.value.prompt)" />
 					<div class="acp-card-opts">
 						<button
 							v-for="opt in item.value.options"
@@ -382,6 +382,13 @@ function handleCustom(name, value) {
 	} else if (name === "onefm.mode_transition") {
 		modeChip.value = value.new_mode || "";
 	} else if (name === "onefm.choice") {
+		// The translator copies the reply text into the card's prompt; when the
+		// same text already streamed as the preceding bubble, showing it twice
+		// reads as a broken duplicate — keep only the buttons in that case.
+		const last = items.value[items.value.length - 1];
+		if (last && last.kind === "agent" && (value.prompt || "").trim() === (last.text || "").trim()) {
+			value = { ...value, prompt: "" };
+		}
 		items.value.push({ kind: "choice", value, answered: "" });
 	} else {
 		items.value.push({ kind: "custom", name, value });
