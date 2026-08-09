@@ -35,7 +35,7 @@ from __future__ import annotations
 
 import frappe
 from frappe import _
-from frappe.utils import get_datetime
+from frappe.utils import get_datetime, now_datetime
 
 # The suite type that satisfies the gate.
 ADVERSARIAL = "Adversarial"
@@ -99,6 +99,74 @@ def latest_run(suite: str) -> dict | None:
 	return rows[0] if rows else None
 
 
+def _cutoff(agent: str, suite: str):
+	"""The moment a run has to be newer than to count as evidence: whichever of
+	the agent or the suite changed last. Shared by check() and ensure_fresh_runs
+	so "is this stale?" has one answer."""
+	stamps = [
+		frappe.db.get_value("AI Agent Configuration", agent, "modified"),
+		frappe.db.get_value("AI Eval Suite", suite, "modified"),
+	]
+	stamps = [d for d in stamps if d]
+	return max(stamps) if stamps else None
+
+
+def has_fresh_run(agent: str, suite: str) -> bool:
+	"""Has this suite been executed since the agent and the suite last changed?"""
+	run = latest_run(suite)
+	if not run:
+		return False
+	ran_at = run.get("ended_at") or run.get("creation")
+	cut = _cutoff(agent, suite)
+	if not (cut and ran_at):
+		return True
+	return get_datetime(ran_at) >= get_datetime(cut)
+
+
+def ensure_fresh_runs(agent: str) -> list[str]:
+	"""Execute any adversarial suite that has no run newer than the last change.
+
+	The gate reads runs; it never used to make them, so an agent could be parked
+	for a suite the process was perfectly able to execute itself — the designer
+	had to go and press Run, then come back. This closes that.
+
+	Runs SYNCHRONOUSLY and deliberately: the caller is a script task deciding
+	whether to open a release gate, and a verdict read before the run finished
+	would be worse than a slow one. Enqueuing would return immediately and the
+	gate would judge a run still in flight.
+
+	A suite that already has a fresh run is left alone, so clicking again after a
+	pass costs nothing. Never raises — a suite that cannot be run stays without a
+	fresh result and the gate refuses on that, which is the safe direction.
+
+	Returns the suites it actually ran.
+	"""
+	from one_bpmn.agents.eval_runner import _execute_eval_suite
+
+	ran = []
+	for suite in adversarial_suites(agent):
+		if has_fresh_run(agent, suite):
+			continue
+		try:
+			run = frappe.new_doc("AI Eval Run")
+			run.suite = suite
+			run.status = "Running"
+			run.backend = "live"
+			run.scope = "Suite"
+			run.started_at = now_datetime()
+			# System-written record of an action the process is already
+			# authorised for, exactly as the other eval entry points do.
+			run.insert(ignore_permissions=True)
+			_execute_eval_suite(run.name)
+			ran.append(suite)
+		except Exception:
+			frappe.log_error(
+				title=f"Adversarial suite could not be run ({suite})",
+				message=frappe.get_traceback(),
+			)
+	return ran
+
+
 def check(agent: str) -> dict:
 	"""Can this chat agent go Live? Returns {"ok": bool, "reason": str, ...}.
 
@@ -131,8 +199,7 @@ def check(agent: str) -> dict:
 			# moving a generic suite from a tested agent to an untested one would
 			# carry the old pass across and open the gate for an agent nothing
 			# has ever attacked.
-			suite_changed = frappe.db.get_value("AI Eval Suite", suite, "modified")
-			changed_at = max([d for d in (agent_changed, suite_changed) if d], default=None)
+			changed_at = _cutoff(agent, suite)
 			run = latest_run(suite)
 			if not run:
 				stale.append(f"{suite} (never run)")

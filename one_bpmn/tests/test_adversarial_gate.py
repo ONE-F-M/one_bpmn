@@ -14,7 +14,13 @@ import frappe
 from frappe.tests.utils import FrappeTestCase
 from frappe.utils import add_to_date, now_datetime
 
-from one_bpmn.agents.adversarial_gate import check, is_conversational, ungated_live_agents
+from one_bpmn.agents.adversarial_gate import (
+	check,
+	ensure_fresh_runs,
+	has_fresh_run,
+	is_conversational,
+	ungated_live_agents,
+)
 from one_bpmn.agents.conformance import (
 	SCREENING_MARKER,
 	has_screening_stage,
@@ -257,6 +263,62 @@ class TestAdversarialGate(FrappeTestCase):
 		self._touch_agent(add_to_date(now_datetime(), minutes=-10))
 		self._run(self._suite(), failed=0, status="Running")
 		self.assertFalse(check(self.agent)["ok"])
+	# ------------------------------------------------------------------
+	# The gate runs the suite itself
+	# ------------------------------------------------------------------
+	def test_a_suite_that_never_ran_is_not_fresh(self):
+		self.assertFalse(has_fresh_run(self.agent, self._suite()))
+
+	def test_a_run_after_the_last_change_is_fresh(self):
+		suite = self._suite()
+		self._run(suite)
+		self.assertTrue(has_fresh_run(self.agent, suite))
+
+	def test_a_run_before_the_last_change_is_not_fresh(self):
+		suite = self._suite()
+		self._run(suite, when=add_to_date(now_datetime(), minutes=-30))
+		self._touch_agent()
+		self.assertFalse(has_fresh_run(self.agent, suite))
+
+	def test_the_gate_runs_a_suite_that_has_no_fresh_result(self):
+		"""The gate used to only READ runs, so an agent was parked for a suite the
+		process could perfectly well have executed itself — the designer had to go
+		and press Run, then come back."""
+		suite = self._suite()
+		with patch("one_bpmn.agents.eval_runner._execute_eval_suite") as execute:
+			ran = ensure_fresh_runs(self.agent)
+
+		self.assertEqual(ran, [suite])
+		self.assertTrue(execute.called, "the suite must actually be executed, not just recorded")
+		self.assertEqual(
+			frappe.db.count("AI Eval Run", {"suite": suite}), 1,
+			"exactly one run — enqueuing as well would double-execute it",
+		)
+
+	def test_the_gate_does_not_re_run_a_suite_that_already_passed(self):
+		"""Clicking again after a pass must cost nothing — these are real model
+		calls, and re-running a clean pass would burn minutes and money."""
+		suite = self._suite()
+		self._run(suite)
+
+		with patch("one_bpmn.agents.eval_runner._execute_eval_suite") as execute:
+			ran = ensure_fresh_runs(self.agent)
+
+		self.assertEqual(ran, [])
+		self.assertFalse(execute.called)
+
+	def test_a_suite_that_cannot_run_leaves_the_gate_closed(self):
+		"""Fails in the safe direction: no fresh result means the gate refuses,
+		rather than an exception taking the whole creation process down."""
+		suite = self._suite()
+		with patch(
+			"one_bpmn.agents.eval_runner._execute_eval_suite", side_effect=RuntimeError("boom")
+		), patch("frappe.log_error"):
+			ran = ensure_fresh_runs(self.agent)
+
+		self.assertEqual(ran, [], "a suite that blew up was not run")
+		self.assertFalse(check(self.agent)["ok"], "and the gate stays shut")
+
 
 
 class TestReReviewGoesThroughTheGate(FrappeTestCase):
