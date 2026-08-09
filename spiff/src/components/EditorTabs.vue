@@ -149,13 +149,6 @@
 				Rename
 			</button>
 			<button
-				@click.stop="duplicateTab(activeMenuTab)"
-				class="w-full flex items-center gap-2 px-3 py-1.5 text-xs text-gray-700 hover:bg-gray-50 transition-colors"
-			>
-				<Icon icon="lucide:copy" class="w-3.5 h-3.5" />
-				Duplicate
-			</button>
-			<button
 				@click.stop="deleteTab(activeMenuTab)"
 				class="w-full flex items-center gap-2 px-3 py-1.5 text-xs text-red-600 hover:bg-red-50 transition-colors"
 			>
@@ -205,7 +198,6 @@ const emit = defineEmits([
 	"select-tab",
 	"add-tab",
 	"rename-tab",
-	"duplicate-tab",
 	"delete-tab",
 	"select-version",
 	"compare",
@@ -287,11 +279,6 @@ function startEditing(tab) {
 
 function startEditingFromMenu(tab) {
 	startEditing(tab)
-}
-
-function duplicateTab(tab) {
-	activeMenu.value = null
-	emit("duplicate-tab", tab)
 }
 
 function deleteTab(tab) {

@@ -88,6 +88,18 @@
 				</template>
 			</Popover>
 
+			<!-- Who started it / who owes the next action -->
+			<UserFilter
+				v-model="initiatedBy"
+				placeholder="Initiated By..."
+				@change="applyFilters"
+			/>
+			<UserFilter
+				v-model="pendingActionBy"
+				placeholder="Pending Action By..."
+				@change="applyFilters"
+			/>
+
 			<!-- Configurable page size -->
 			<div class="flex items-center gap-2 ml-auto">
 				<span class="text-sm text-gray-600">Page Size:</span>
@@ -287,6 +299,7 @@ import {
 import { Icon } from "@iconify/vue"
 import { dayjs } from "@/dayjs"
 import { useWindowSize } from "@/composables/useWindowSize"
+import UserFilter from "@/components/UserFilter.vue"
 
 const { isMobile } = useWindowSize()
 
@@ -306,6 +319,12 @@ const filters = ref({
 	process_model: "",
 	status: "",
 })
+
+// User filters — each holds the selected { label, value } option or null.
+// initiated_by is a field on the instance; pending_action_by is derived from
+// the active task rows on the backend, so it travels as its own parameter.
+const initiatedBy = ref(null)
+const pendingActionBy = ref(null)
 
 // Unified Context State
 const activeContext = ref({ doctype: null, docname: null })
@@ -447,6 +466,9 @@ async function loadInstances() {
 		if (activeContext.value.docname) {
 			apiFilters.context_docname = activeContext.value.docname.value
 		}
+		if (initiatedBy.value?.value) {
+			apiFilters.initiated_by = initiatedBy.value.value
+		}
 
 		// Use custom endpoint to fetch joined current_step data
 		const response = await frappeRequest({
@@ -456,7 +478,8 @@ async function loadInstances() {
 				filters: JSON.stringify(apiFilters),
 				limit_start: limitStart.value,
 				limit_page_length: pageLengthNum.value,
-				order_by: "creation desc"
+				order_by: "creation desc",
+				pending_action_by: pendingActionBy.value?.value || ""
 			}
 		})
 		
