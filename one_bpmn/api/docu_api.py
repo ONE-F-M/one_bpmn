@@ -905,18 +905,11 @@ def build_docu_turn_context(context: dict) -> dict:
 	"""Load the target DocType's current IR for a Docu turn (context builder
 	for the AG-UI endpoint) and fold it, with the Docu reply contract, into
 	dialog_context — the same dual-generation strategy as Logix/ProsAlly:
-	a generic chat-template clone renders only {{ dialog_context }} and would
-	otherwise never see the schema or the contract.
-
-	A tool-driven Docu map (Tools ad-hoc sub-process) owns its contract and
-	its Classify tool loads current_ir itself — injecting the contract there
-	derails its tool loop (see agent_map_runs_tools), so the builder steps
-	aside completely."""
-	from one_bpmn.agents.agui_stream import agent_map_runs_tools
-
+	the purpose-built map's Classify tool loads current_ir itself and renders
+	its own variables, while a generic chat-template clone renders only
+	{{ dialog_context }} and would otherwise never see the schema or the
+	contract."""
 	out = dict(context or {})
-	if agent_map_runs_tools("docu_agent"):
-		return out
 	doctype = out.get("doctype") or ""
 
 	schema_block = ""

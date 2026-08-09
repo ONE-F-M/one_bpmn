@@ -658,16 +658,11 @@ def build_logix_turn_context(context: dict) -> dict:
 	content = frappe.get_doc("Server Script", script).script or ""
 	out["original_script_content"] = content
 
-	# A tool-driven Logix map owns its own reply contract and reads the
-	# script from the raw context — injecting a "respond ONLY with JSON"
-	# contract into {{ dialog_context }} derails its tool loop (see
-	# agent_map_runs_tools). Only generic chat-template clones, which render
-	# nothing but {{ dialog_context }}, need the fold below.
-	from one_bpmn.agents.agui_stream import agent_map_runs_tools
-
-	if agent_map_runs_tools("logix_agent"):
-		return out
-
+	# Two map generations exist: the purpose-built Logix map renders the
+	# original_script_content variable directly, while a generic
+	# chat-template clone renders only {{ dialog_context }}. Folding the
+	# script and the reply contract into dialog_context serves both — the
+	# purpose-built map just sees it twice, harmlessly.
 	contract = (
 		"CURRENT SERVER SCRIPT ('%s'):\n```python\n%s\n```\n\n"
 		"LOGIX REPLY CONTRACT: respond ONLY with a JSON object: "
@@ -708,19 +703,10 @@ def shape_logix_reply(result: dict) -> dict:
 
 def build_prosally_turn_context(context: dict) -> dict:
 	"""Fold the live canvas XML and the ProsAlly reply contract into
-	dialog_context (context builder, WI-001675) — for generic chat-template
-	clones, which render only {{ dialog_context }} and would otherwise never
-	see the contract.
-
-	A tool-driven ProsAlly map (Tools ad-hoc sub-process) owns its contract
-	and reads current_xml / confirmed_action straight from the raw context —
-	injecting the contract there derails its tool loop (2026-08-09 live
-	clarify-loop), so the builder steps aside completely."""
-	from one_bpmn.agents.agui_stream import agent_map_runs_tools
-
+	dialog_context (context builder, WI-001675) — same dual-generation
+	strategy as Logix: the purpose-built map renders its own variables, a
+	generic chat-template clone renders only {{ dialog_context }}."""
 	out = dict(context or {})
-	if agent_map_runs_tools("prosally_agent"):
-		return out
 	current_xml = out.get("current_xml") or ""
 	contract = (
 		("CURRENT PROCESS DIAGRAM (BPMN XML):\n```xml\n%s\n```\n\n" % current_xml if current_xml else "")

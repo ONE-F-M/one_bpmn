@@ -102,38 +102,6 @@ _CONTEXT_BUILDERS = {}
 _REPLY_SHAPERS = {}
 
 
-def agent_map_runs_tools(agent_id: str) -> bool:
-	"""True when the agent's linked process model drives an AI Agent tool
-	loop itself (a Tools ad-hoc sub-process in its BPMN).
-
-	Such a map owns its own reply contract: its agent prompt renders
-	{{ dialog_context }} as PLATFORM CONTEXT, so a context builder that
-	injects a "respond ONLY with JSON" contract derails the orchestrating
-	model — after classify it answers inline instead of calling the routed
-	tool, and the turn falls through to finalize's fallback (observed live:
-	ProsAlly clarify-loop, 2026-08-09). Builders must skip contract
-	injection for these maps and only pass raw context through.
-
-	On any detection failure this errs toward True (skip injection): a
-	generic clone missing its contract degrades to a chat that asks for
-	details, while an injected tool map breaks outright.
-	"""
-	try:
-		from one_bpmn.one_bpmn.doctype.ai_agent_configuration.ai_agent_configuration import (
-			get_agent_config,
-		)
-
-		cfg = get_agent_config(agent_id) or {}
-		process_model = cfg.get("process_model")
-		if not process_model:
-			return False  # no map at all — direct-API agent, builder may enrich freely
-		xml = frappe.db.get_value("BPMN Process Model", process_model, "bpmn_xml") or ""
-		return "adHocSubProcess" in xml
-	except Exception:
-		frappe.log_error(title="agui agent_map_runs_tools failed", message=frappe.get_traceback())
-		return True
-
-
 def register_context_builder(agent_id, fn):
 	"""fn(context: dict) -> dict, applied before invoke_agent."""
 	_CONTEXT_BUILDERS[agent_id] = fn
