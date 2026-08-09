@@ -479,7 +479,13 @@ defineExpose({ send, conversationName });
 .acp-status { font-size: 11px; color: var(--ig5); display: flex; gap: 6px; align-items: center; }
 .acp-dot { width: 7px; height: 7px; border-radius: 99px; background: var(--green-ink); }
 .acp-dot--err { background: var(--red-ink); }
-.acp-starters { display: flex; gap: 8px; flex-wrap: wrap; margin-top: auto; }
+.acp-starters { display: flex; flex-direction: column; align-items: stretch; gap: 6px;
+	margin-top: auto; padding-bottom: 4px; }
+/* Starter chips carry full sentences: they must grow with their text
+   instead of overflowing the fixed 28px button height into the composer
+   (reported 2026-08-08). */
+.acp-starters .acp-btn { height: auto; min-height: 28px; white-space: normal; text-align: left;
+	justify-content: flex-start; padding: 6px 10px; line-height: 1.4; }
 
 .acp-toolbar { display: flex; gap: 12px; padding: 8px 14px 0; border-top: 1px solid var(--og2); background: var(--sw); }
 .acp-tb { border: none; background: none; color: var(--ig5); cursor: pointer; font-size: 12px; padding: 0; }
