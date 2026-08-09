@@ -22,6 +22,7 @@ def distill_and_write(
 	backend: str,
 	model,
 	source_run,
+	reconcile_model=None,
 ) -> list[str]:
 	"""Distill ``agent_output`` into durable facts and ``memory_write`` each one.
 
@@ -32,6 +33,13 @@ def distill_and_write(
 	(so history is kept via Frappe Versions). ``source_run`` records provenance and
 	``metadata`` tags the fact as distilled. Returns the names of the written AI
 	Memory records (for tests / observability).
+
+	``model`` distills; ``reconcile_model`` decides add/update/replace. They are
+	independent (WI-001793) so reconciliation can be tuned — usually upward —
+	without paying for the stronger model on every extraction. Both are resolved
+	on the dispatch thread and passed in as arguments; this runs in a background
+	worker and must not look configuration up itself. ``reconcile_model`` defaults
+	to ``model``, which is the behaviour that predates the split.
 	"""
 	try:
 		from one_bpmn.agents.memory.distill import distill_memories
@@ -46,9 +54,14 @@ def distill_and_write(
 			backend=backend,
 			model=model,
 		)
-		# The reconciler reuses the task's own provider + chat model — no embedding
-		# model, nothing hardcoded. Passed as reconcile_ctx to memory_write.
-		reconcile_ctx = {"provider_name": provider_name, "backend": backend, "model": model}
+		# The reconciler runs on the same provider/backend as distillation — the
+		# credentials are the task's — but on its own model, so the two can be
+		# tuned apart. No embedding model, nothing hardcoded.
+		reconcile_ctx = {
+			"provider_name": provider_name,
+			"backend": backend,
+			"model": reconcile_model or model,
+		}
 		written: list[str] = []
 		for f in facts:
 			rec = memory_write(

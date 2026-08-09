@@ -262,6 +262,58 @@
               Raw stores the full agent output verbatim.
             </span>
           </div>
+
+          <!-- WI-001793: the models that do the memory writes, independent of
+               the agent's chat model and of each other. Only shown for the
+               distilled path — raw writes call no model at all. -->
+          <div
+            class="field-row"
+            v-if="!isSelector && form.aiLongTermMemory && form.aiMemoryWriteMode === 'distilled'"
+          >
+            <label>Distillation Model <span class="hint">(optional)</span></label>
+            <select v-model="form.aiMemoryDistillModel">
+              <option value="">-- Use the default --</option>
+              <option
+                v-if="form.aiMemoryDistillModel && !catalogModels.some(m => m.name === form.aiMemoryDistillModel)"
+                :value="form.aiMemoryDistillModel"
+              >
+                {{ form.aiMemoryDistillModel }} (not in catalog)
+              </option>
+              <option v-for="m in catalogModels" :key="'distill-' + m.name" :value="m.name">
+                {{ m.name }} — via {{ m.ai_provider_credentials }}
+              </option>
+            </select>
+            <span class="field-hint">
+              Extracts durable facts from the run. A cheaper, faster model is usually enough.
+              Left blank this falls back to the site default in Processa Settings, then to the agent's own model.
+            </span>
+          </div>
+
+          <div
+            class="field-row"
+            v-if="!isSelector && form.aiLongTermMemory && form.aiMemoryWriteMode === 'distilled'"
+          >
+            <label>Reconciliation Model <span class="hint">(optional)</span></label>
+            <select v-model="form.aiMemoryReconcileModel">
+              <option value="">-- Use the default --</option>
+              <option
+                v-if="form.aiMemoryReconcileModel && !catalogModels.some(m => m.name === form.aiMemoryReconcileModel)"
+                :value="form.aiMemoryReconcileModel"
+              >
+                {{ form.aiMemoryReconcileModel }} (not in catalog)
+              </option>
+              <option v-for="m in catalogModels" :key="'reconcile-' + m.name" :value="m.name">
+                {{ m.name }} — via {{ m.ai_provider_credentials }}
+              </option>
+            </select>
+            <span class="field-hint">
+              Decides add / update / replace against existing memories. Raise this one when reconciliations are poor.
+            </span>
+          </div>
+
+          <p class="field-hint" style="margin-top: 10px;" v-if="!isSelector">
+            Memory settings are stored on the linked AI Agent Configuration, not on this diagram.
+          </p>
         </div>
 
         <div class="modal-footer">
@@ -612,6 +664,9 @@ const form = ref({
   aiLongTermMemory: false,
   aiMemoryScope: "Agent",
   aiMemoryWriteMode: "off",
+  // WI-001793: blank means "inherit" — site default, then the agent's own model.
+  aiMemoryDistillModel: "",
+  aiMemoryReconcileModel: "",
 });
 
 // ── Notices ───────────────────────────────────────────────────────────────
@@ -1029,6 +1084,12 @@ onMounted(async () => {
     aiMemoryWriteMode:
       get("aiMemoryWriteMode") ||
       (get("aiMemoryAutoWrite") === "true" ? "distilled" : "off"),
+    // WI-001793: these two live on the agent, but seed them from the diagram so
+    // a map whose agent has not been migrated still shows its real setting.
+    // They must exist on the form object — loadMemoryFromConfig only overlays
+    // keys already present, and this assignment replaces form.value wholesale.
+    aiMemoryDistillModel: get("aiMemoryDistillModel") || "",
+    aiMemoryReconcileModel: get("aiMemoryReconcileModel") || "",
   };
 
   // Pre-fill the assistant's context DocType from the diagram's start-event
@@ -1055,6 +1116,10 @@ onMounted(async () => {
   // WI-001652: show the linked agent's lifecycle so "why can't I deploy"
   // is visible before the compile error says it.
   refreshLinkedAgentStatus();
+
+  // WI-001793: the agent owns the memory settings — show its values, not the
+  // diagram's stale copies, so Save can't write yesterday's config back.
+  await loadMemoryFromConfig();
 });
 
 // Pull the linked configuration's current values into the form (WI-001637
@@ -1062,6 +1127,51 @@ onMounted(async () => {
 // aiProvider, aiModel, aiTemperature, aiMaxTokens) that map directly onto our
 // form fields. At run time the configuration is authoritative for these
 // fields; editing them here and saving writes the changes back to it.
+// WI-001793: memory settings are stored on the agent, not the diagram, so a
+// linked configuration is the source of truth for them. The resolver hands back
+// shape-attribute keys; only the toggle needs translating, because the doctype
+// models it as Enabled / Disabled / blank (blank = inherit the diagram's older
+// value) while the modal binds a checkbox.
+const MEMORY_FORM_KEYS = [
+  "aiConversationStore",
+  "aiContextMaxMessages",
+  "aiLongTermMemory",
+  "aiMemoryScope",
+  "aiMemoryWriteMode",
+  "aiMemoryDistillModel",
+  "aiMemoryReconcileModel",
+];
+
+function configValueToForm(key, val) {
+  if (key !== "aiLongTermMemory") return val;
+  return val === true || val === 1 || ["enabled", "true", "1"].includes(String(val).toLowerCase());
+}
+
+function applyConfigFields(fields, onlyKeys = null) {
+  Object.entries(fields || {}).forEach(([key, val]) => {
+    if (onlyKeys && !onlyKeys.includes(key)) return;
+    if (key in form.value) form.value[key] = configValueToForm(key, val);
+  });
+}
+
+// On open, overlay the linked agent's memory settings so the panel shows what
+// will actually run. Scoped to memory on purpose: the other agent-level fields
+// keep their existing "shape copy is the editing view" behaviour.
+async function loadMemoryFromConfig() {
+  if (!form.value.aiAgentConfig) return;
+  try {
+    const fields = await frappeRequest({
+      url: "/api/method/one_bpmn.agents.agent_config_resolver.get_agent_config_for_shape",
+      method: "POST",
+      params: { config_name: form.value.aiAgentConfig },
+    });
+    applyConfigFields(fields, MEMORY_FORM_KEYS);
+  } catch (e) {
+    // Unreadable config — the shape's older values stay on screen, which is
+    // also what dispatch will fall back to.
+  }
+}
+
 async function onAgentConfigSelect() {
   const value = form.value.aiAgentConfig;
   if (value === "__create__") {
@@ -1089,9 +1199,7 @@ async function onAgentConfigSelect() {
       method: "POST",
       params: { config_name: value },
     });
-    Object.entries(fields || {}).forEach(([key, val]) => {
-      if (key in form.value) form.value[key] = val;
-    });
+    applyConfigFields(fields);
   } catch (e) {
     /* leave the current field values as-is if the seed lookup fails */
   }
@@ -1246,6 +1354,18 @@ async function writeBackToConfig() {
     aiMaxTokens: form.value.aiMaxTokens,
   };
   if (!isSelector.value) fields.aiTemperature = form.value.aiTemperature;
+  // WI-001793: memory is agent-level now, so it persists here rather than onto
+  // the BPMN XML. The selector dialog has no memory section — sending its form
+  // defaults would clobber the agent's real settings.
+  if (!isSelector.value) {
+    fields.aiConversationStore = form.value.aiConversationStore;
+    fields.aiContextMaxMessages = form.value.aiContextMaxMessages;
+    fields.aiLongTermMemory = form.value.aiLongTermMemory ? "Enabled" : "Disabled";
+    fields.aiMemoryScope = form.value.aiLongTermMemory ? form.value.aiMemoryScope : "";
+    fields.aiMemoryWriteMode = form.value.aiLongTermMemory ? form.value.aiMemoryWriteMode : "";
+    fields.aiMemoryDistillModel = form.value.aiMemoryDistillModel || "";
+    fields.aiMemoryReconcileModel = form.value.aiMemoryReconcileModel || "";
+  }
   try {
     await frappeRequest({
       url: "/api/method/one_bpmn.agents.agent_config_resolver.update_agent_config_from_shape",
@@ -1334,20 +1454,11 @@ async function save() {
     "spiffworkflow:aiTimeout": String(form.value.aiTimeout),
     "spiffworkflow:aiMaxRetries": String(form.value.aiMaxRetries),
     "spiffworkflow:aiStopOnError": form.value.aiStopOnError ? "true" : undefined,
-    // Memory
-    "spiffworkflow:aiConversationStore": form.value.aiConversationStore || undefined,
-    "spiffworkflow:aiContextMaxMessages": String(form.value.aiContextMaxMessages),
-    "spiffworkflow:aiLongTermMemory": form.value.aiLongTermMemory ? "true" : undefined,
-    // Scope + write mode only apply when long-term memory is on; clear them otherwise.
-    "spiffworkflow:aiMemoryWriteMode":
-      form.value.aiLongTermMemory &&
-      form.value.aiMemoryWriteMode &&
-      form.value.aiMemoryWriteMode !== "off"
-        ? form.value.aiMemoryWriteMode
-        : undefined,
-    "spiffworkflow:aiMemoryScope": form.value.aiLongTermMemory
-      ? (form.value.aiMemoryScope || undefined)
-      : undefined,
+    // WI-001793: memory settings are NOT written here any more — they live on
+    // the linked AI Agent Configuration (see writeBackToConfig). Existing
+    // diagrams keep their aiMemory* / aiConversationStore attributes untouched;
+    // dispatch reads the agent first and only falls through to them when the
+    // agent leaves a field blank.
   };
 
   modeling.updateModdleProperties(element, bo, patch);

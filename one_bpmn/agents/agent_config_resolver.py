@@ -8,12 +8,13 @@ A shape may set ``aiAgentConfig`` (a link to an AI Agent Configuration) as
 an alternative to entering a raw provider. The link is LIVE:
 
 * **At dispatch, the configuration is authoritative** for agent-level
-  fields (system prompt, provider, model, temperature, max tokens) —
-  ``resolve_dispatch_overrides`` supplies them and the dispatchers overlay
-  them onto the shape's attributes. The shape's copies are an editing view
-  and the fallback when the configuration has been deleted. Shape-only
-  fields (output variable, response format/schema, retries, memory, tool
-  wiring) describe the task, not the agent, and stay shape-owned.
+  fields (system prompt, provider, model, temperature, max tokens, and —
+  since WI-001793 — every memory setting) — ``resolve_dispatch_overrides``
+  supplies them and the dispatchers overlay them onto the shape's
+  attributes. The shape's copies are an editing view and the fallback when
+  the configuration has been deleted. Remaining shape-only fields (output
+  variable, response format/schema, retries, tool wiring) describe the
+  task, not the agent, and stay shape-owned.
 * **Selecting a configuration in the editor** copies its current values
   into the shape's fields (``get_agent_config_for_shape``) so the designer
   sees and can edit what will run.
@@ -29,6 +30,7 @@ the toolkit.
 
 import frappe
 from frappe import _
+from frappe.utils import cint
 
 # Which config field feeds which shape attribute. Only executable fields
 # with a task-shape equivalent are mapped; chat-only metadata (chat mode
@@ -38,6 +40,17 @@ _CONFIG_TO_SHAPE = {
 	"system_prompt": "aiSystemPrompt",
 	"temperature": "aiTemperature",
 	"max_tokens": "aiMaxTokens",
+	# WI-001793: memory settings live on the agent, not the diagram. Every value
+	# here is blank-by-default so an unset field falls through to the shape's
+	# older XML copy rather than silently overriding it with a default.
+	# ``long_term_memory`` needs no translation — the dispatcher's _cfg_truthy
+	# already reads "Enabled" as true and "Disabled" as false.
+	"conversation_store": "aiConversationStore",
+	"long_term_memory": "aiLongTermMemory",
+	"memory_scope": "aiMemoryScope",
+	"memory_write_mode": "aiMemoryWriteMode",
+	"memory_distill_model": "aiMemoryDistillModel",
+	"memory_reconcile_model": "aiMemoryReconcileModel",
 }
 
 # Shape attributes the modal may write back, and the config fields they land
@@ -50,6 +63,15 @@ _SHAPE_TO_CONFIG = {
 	"aiTemperature": "temperature",
 	"aiMaxTokens": "max_tokens",
 	"aiModel": "ai_model",
+	# WI-001793: the modal's Memory section now persists here instead of onto
+	# the BPMN XML, so the agent is the single place memory is configured.
+	"aiConversationStore": "conversation_store",
+	"aiContextMaxMessages": "context_max_messages",
+	"aiLongTermMemory": "long_term_memory",
+	"aiMemoryScope": "memory_scope",
+	"aiMemoryWriteMode": "memory_write_mode",
+	"aiMemoryDistillModel": "memory_distill_model",
+	"aiMemoryReconcileModel": "memory_reconcile_model",
 }
 
 # Guard rail categories, mirroring the AI Agent Guard Rail Select options
@@ -111,6 +133,11 @@ def config_field_map(config_name: str) -> dict:
 		val = cfg.get(cfield)
 		if val not in (None, ""):
 			out[sattr] = val
+
+	# Int fields have no blank state — 0 means "not configured here", so it must
+	# not override the shape's value the way a real setting would (WI-001793).
+	if cint(cfg.get("context_max_messages")):
+		out["aiContextMaxMessages"] = cfg.context_max_messages
 	if cfg.ai_provider_credentials:
 		out["aiProvider"] = cfg.ai_provider_credentials
 	# WI-001655: the model is the agent's own pick from the AI Model catalog
@@ -187,11 +214,19 @@ def update_agent_config_from_shape(config_name: str, fields: str | dict) -> dict
 			value = frappe.utils.flt(value)
 		if cfield == "max_tokens" and value not in (None, ""):
 			value = frappe.utils.cint(value)
+		# WI-001793: the modal's number input hands back a string; 0/blank means
+		# "not set here" and must stay 0 so dispatch falls through to the shape.
+		if cfield == "context_max_messages":
+			value = frappe.utils.cint(value)
 		# Old diagrams carry model ids baked into the shape before the AI Model
 		# catalog existed (WI-001655). Letting doc.save() hit the Link
 		# validation surfaces a raw LinkValidationError — say what is actually
 		# wrong instead.
-		if cfield == "ai_model" and value and not frappe.db.exists("AI Model", value):
+		if (
+			cfield in ("ai_model", "memory_distill_model", "memory_reconcile_model")
+			and value
+			and not frappe.db.exists("AI Model", value)
+		):
 			frappe.throw(
 				_(
 					"'{0}' is not in the AI Model catalog — the task shape carries an "
