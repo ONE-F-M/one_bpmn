@@ -262,47 +262,22 @@ class AIAgentConfiguration(Document):
 			frappe.flags._agent_revalidation_running = False
 
 		if result["ok"] and self.lifecycle_status == "Needs Attention":
-			# WI-001969: this self-healing promotion IS a go-live, and it is the
-			# "re-review" the story names. Credentials working again does not mean
-			# the agent has been tested against injection, jailbreak, exfiltration
-			# and tool coercion, so a chat agent has to clear the same gate here as
-			# it does on the way out of Draft — otherwise disable/re-enable is a
-			# way around it.
-			blocked = self._adversarial_block_reason()
-			if blocked:
-				self._stamp_lifecycle("Needs Attention", blocked)
-				return
-			self._stamp_lifecycle("Live", "")
+			# WI-001969: going Live is the MAP's decision, not this controller's.
+			# Credentials working again does not mean the agent has been tested
+			# against injection, jailbreak, exfiltration and tool coercion — the
+			# Agent Creation Process runs that gate, and promoting from here would
+			# make disable/re-enable a way around it.
+			#
+			# An agent the map parked already has an instance waiting on the
+			# Config Edited message, which this save fires; one parked from here
+			# (credentials broke while Live) has no instance, so it needs an
+			# explicit start or it could never return to Live at all. Starting one
+			# is a no-op when the map is already waiting.
+			from one_bpmn.agents.agent_config_resolver import _start_reprovision
+
+			_start_reprovision(self.name)
 		elif not result["ok"] and self.lifecycle_status == "Live":
 			self._stamp_lifecycle("Needs Attention", "; ".join(result["errors"]))
-
-	def _adversarial_block_reason(self) -> str:
-		"""Why this chat agent may not go Live, or "" when it may.
-
-		Chat agents only. An already-Live agent is never parked by this — the
-		gate governs entering Live, not staying there, so agents that went Live
-		before the gate existed keep serving until something re-reviews them.
-		"""
-		if self.agent_type != "Chat":
-			return ""
-		try:
-			from one_bpmn.agents.adversarial_gate import check as adversarial_check
-			from one_bpmn.agents.conformance import validate_chat_map
-
-			gate = adversarial_check(self.name)
-			if not gate["ok"]:
-				return gate["reason"]
-			conformance = validate_chat_map(self.process_model)
-			if not conformance["ok"]:
-				return "; ".join(conformance["errors"])
-			return ""
-		except Exception:
-			frappe.log_error(
-				title=f"Adversarial gate failed during re-review ({self.name})",
-				message=frappe.get_traceback(),
-			)
-			# Fails closed: this authorises a release.
-			return _("The adversarial gate could not be evaluated, so go-live is refused.")
 
 	def _stamp_lifecycle(self, status: str, reason: str):
 		"""Post-save lifecycle stamp: the doc row is already written, so this

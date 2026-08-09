@@ -273,27 +273,60 @@ class TestReReviewGoesThroughTheGate(FrappeTestCase):
 		doc.reload()
 		return doc
 
-	def test_a_chat_agent_cannot_heal_to_live_without_the_gate(self):
-		doc = self._agent()
-		self.assertEqual(doc._adversarial_block_reason()[:9], "No advers")
+	def test_re_review_does_not_promote_from_the_controller(self):
+		"""WI-001969 amendment: going Live is the MAP's decision.
 
-	def test_a_background_agent_is_not_gated(self):
-		"""The gate is about conversational exposure, not every agent."""
-		doc = self._agent(agent_type="Background")
-		self.assertEqual(doc._adversarial_block_reason(), "")
-
-	def test_the_gate_fails_closed_during_re_review(self):
+		The controller used to stamp Live itself when credentials revalidated,
+		which made disable/re-enable a way around the adversarial gate. It now
+		hands the agent back to the Agent Creation Process, which runs the gate
+		as a step you can see in the diagram.
+		"""
 		doc = self._agent()
-		with patch("one_bpmn.agents.adversarial_gate.check", side_effect=RuntimeError("boom")):
-			self.assertIn("could not be evaluated", doc._adversarial_block_reason())
+		frappe.flags.test_agent_revalidation = True
+		try:
+			with patch(
+				"one_bpmn.agents.agent_provisioning.validate_agent_config",
+				return_value={"ok": True, "errors": []},
+			), patch(
+				"one_bpmn.agents.agent_config_resolver._start_reprovision", return_value=True
+			) as handoff:
+				doc.revalidate_credentials_on_save()
+		finally:
+			frappe.flags.test_agent_revalidation = False
+
+		self.assertEqual(
+			frappe.db.get_value("AI Agent Configuration", doc.name, "lifecycle_status"),
+			"Needs Attention",
+			"the controller must not promote — only the map may",
+		)
+		self.assertTrue(handoff.called, "the agent must be handed to the creation process")
+
+	def test_the_controller_no_longer_carries_a_gate_of_its_own(self):
+		"""Two gates that can disagree is worse than one. The check lives in the
+		map's Adversarial Gate step; the controller must not grow a second copy."""
+		doc = self._agent()
+		self.assertFalse(
+			hasattr(doc, "_adversarial_block_reason"),
+			"the doctype gate was removed on purpose — enforcement belongs in the map",
+		)
 
 	def test_an_already_live_agent_is_never_parked_by_the_gate(self):
 		"""It governs entering Live, not staying there."""
 		doc = self._agent(status="Live")
 		before = frappe.db.get_value("AI Agent Configuration", doc.name, "lifecycle_status")
-		doc._adversarial_block_reason()  # would report a problem, must not act on it
+		check(doc.name)  # would report a problem, must not act on it
 		after = frappe.db.get_value("AI Agent Configuration", doc.name, "lifecycle_status")
 		self.assertEqual(before, after, "the gate must not demote a running agent")
+
+	def test_the_gate_library_does_not_second_guess_agent_type(self):
+		"""Conversational exposure is what the gate is about, but WHICH agents
+		are subject to it is the map's call — its start condition is
+		agent_type=="Chat", so a Background agent never enters the process.
+		check() stays agent-type-agnostic so that decision lives in one place
+		(the diagram) instead of being duplicated here and silently diverging.
+		"""
+		doc = self._agent(agent_type="Background")
+		self.assertFalse(check(doc.name)["ok"])
 
 
 class TestAdversarialPack(FrappeTestCase):
