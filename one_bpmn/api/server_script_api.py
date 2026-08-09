@@ -701,11 +701,60 @@ def shape_logix_reply(result: dict) -> dict:
 	return shaped
 
 
+def build_prosally_turn_context(context: dict) -> dict:
+	"""Fold the live canvas XML and the ProsAlly reply contract into
+	dialog_context (context builder, WI-001675) — same dual-generation
+	strategy as Logix: the purpose-built map renders its own variables, a
+	generic chat-template clone renders only {{ dialog_context }}."""
+	out = dict(context or {})
+	current_xml = out.get("current_xml") or ""
+	contract = (
+		("CURRENT PROCESS DIAGRAM (BPMN XML):\n```xml\n%s\n```\n\n" % current_xml if current_xml else "")
+		+ "PROSALLY REPLY CONTRACT: respond ONLY with a JSON object: "
+		'{"intent": "BPMN_GENERATED"|"BPMN_MODIFIED"|"CONFIRM_REMOVAL"|"CONFIRM"|"GENERAL", '
+		'"response": "<short human explanation>", '
+		'"bpmn_xml": "<the FULL updated BPMN XML when intent is BPMN_GENERATED or BPMN_MODIFIED>", '
+		'"pending_xml": "<the full XML awaiting approval when intent is CONFIRM_REMOVAL>", '
+		'"options": ["..."], "action_intent": "<the action a CONFIRM approves>" }. '
+		"Never claim you changed the canvas — the designer reviews your "
+		"proposal on a preview card and applies it from there."
+	)
+	existing = out.get("dialog_context") or ""
+	out["dialog_context"] = (existing + "\n\n" + contract).strip()
+	return out
+
+
+def shape_prosally_reply(result: dict) -> dict:
+	"""Lift the ProsAlly JSON contract out of a text reply (reply shaper);
+	no-op when the purpose-built map already returned structured keys."""
+	if result.get("bpmn_xml") or result.get("pending_xml") or result.get("intent"):
+		return result
+	from one_bpmn.api.ai_assistant import _extract_json
+
+	raw = result.get("response") or ""
+	parsed = _extract_json(raw if isinstance(raw, str) else "")
+	if not isinstance(parsed, dict) or not (
+		parsed.get("intent") or parsed.get("bpmn_xml") or parsed.get("pending_xml")
+	):
+		return result
+	shaped = dict(result)
+	shaped["response"] = str(parsed.get("response") or "").strip() or raw
+	for key in ("intent", "bpmn_xml", "pending_xml", "options", "action_intent"):
+		if parsed.get(key):
+			shaped[key] = parsed[key]
+	return shaped
+
+
 def _register_agui_hooks():
-	from one_bpmn.agents.agui_stream import register_context_builder, register_reply_shaper
+	from one_bpmn.agents.agui_stream import (
+		register_context_builder,
+		register_reply_shaper,
+	)
 
 	register_context_builder("logix_agent", build_logix_turn_context)
 	register_reply_shaper("logix_agent", shape_logix_reply)
+	register_context_builder("prosally_agent", build_prosally_turn_context)
+	register_reply_shaper("prosally_agent", shape_prosally_reply)
 
 
 _register_agui_hooks()
