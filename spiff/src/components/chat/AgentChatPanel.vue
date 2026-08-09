@@ -27,7 +27,7 @@
 							v-for="opt in item.value.options"
 							:key="opt"
 							class="acp-btn acp-btn--subtle"
-							:disabled="busy || item.answered"
+							:disabled="busy || !!item.answered"
 							:class="{ 'acp-btn--solid': item.answered === opt }"
 							@click="answerChoice(item, opt)"
 						>
