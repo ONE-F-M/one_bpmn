@@ -66,6 +66,7 @@ CREATE_AGENT_CONFIGURATION_SCRIPT = '''# Tool: create an AI Agent Configuration 
 _name = (task_data.get("agent_name") or "").strip()
 _label = (task_data.get("chat_mode_label") or "").strip()
 _model = (task_data.get("ai_model") or "").strip()
+_process_map = (task_data.get("process_model") or "").strip()
 _system_prompt = (task_data.get("system_prompt") or "").strip()
 _description = (task_data.get("description") or "").strip()
 
@@ -75,8 +76,13 @@ if _model and frappe.db.exists("AI Model", _model):
 
 if not _name:
     result["error"] = "No agent_name given."
-elif not _label:
-    result["error"] = "No chat_mode_label given - a chat agent needs one."
+elif not _label and not _process_map:
+    result["error"] = (
+        "No chat_mode_label given - required unless the agent is mapped to a "
+        "process (pass process_model for a process-embedded agent)."
+    )
+elif _process_map and not frappe.db.exists("BPMN Process Model", _process_map):
+    result["error"] = "Unknown BPMN Process Model: " + _process_map
 elif not _model:
     result["error"] = "No ai_model given - pass the exact name of an AI Model catalog record."
 elif not frappe.db.exists("AI Model", _model):
@@ -105,6 +111,9 @@ else:
         "agent_name": _name,
         "chat_mode_label": _label,
         "ai_model": _model,
+        # WI-001997: the designer-chosen map the agent belongs to — usually
+        # the process open in the editor. Nothing clones or overwrites it.
+        "process_model": _process_map,
         "system_prompt": _system_prompt,
         "description": _description,
     }
@@ -156,7 +165,18 @@ _TOOL_SHAPE = {
 				"type": "string",
 				"description": (
 					"Label the agent appears under in the chat picker. Must differ from every "
-					"label already taken (they are listed in the prerequisites)."
+					"label already taken (they are listed in the prerequisites). ONLY for agents "
+					"that should appear in chat — omit it for an agent mapped to an ordinary "
+					"business process, which never chats."
+				),
+			},
+			"process_model": {
+				"type": "string",
+				"description": (
+					"Exact name of the BPMN Process Model this agent is mapped to — usually the "
+					"process currently open in the editor. Ask the designer which process the "
+					"agent belongs to and propose the open one as the default; never invent a "
+					"model name. Omit only for a chat-only agent with no process."
 				),
 			},
 			"ai_model": {
@@ -188,7 +208,7 @@ _TOOL_SHAPE = {
 				"description": "Execution framework. Omit for the Direct API default.",
 			},
 		},
-		"required": ["agent_name", "chat_mode_label", "ai_model"],
+		"required": ["agent_name", "ai_model"],
 	},
 	# Free slot on the lumina_tools grid (x 700-1400, y 290-850); the eval tools
 	# took 750/910/1070 on the y=730 row.
@@ -265,11 +285,26 @@ _STALE_PHRASES = {
 		"  - Gather every one of those in conversation first, asking for what is missing "
 		"rather than guessing."
 	),
+	# WI-001997: the map is a designer-chosen link at creation, and the chat
+	# mode label became conditional on it — repair the shipped bullet in place.
+	(
+		"It needs an agent name, a chat mode label that is not already taken, and an exact "
+		"name from the AI Model catalog listed in the prerequisites. Give it a system prompt, "
+		"or a description for the creation process to generate the prompt from."
+	): (
+		"It needs an agent name, an exact name from the AI Model catalog listed in the "
+		"prerequisites, and the BPMN process map the agent belongs to — ask which process the "
+		"agent is mapped to (process_model) and propose the process currently open in the "
+		"editor as the default. Add a chat mode label (not already taken) ONLY when the agent "
+		"should appear in chat; an agent mapped to an ordinary business process needs no "
+		"label. Give it a system prompt, or a description for the creation process to "
+		"generate the prompt from."
+	),
 }
 _PROMPT_SECTION = """
 
 CREATING AN AGENT THROUGH YOUR TOOLS:
-  - You can create an AI Agent Configuration yourself with create_agent_configuration. It needs an agent name, a chat mode label that is not already taken, and an exact name from the AI Model catalog listed in the prerequisites. Give it a system prompt, or a description for the creation process to generate the prompt from.
+  - You can create an AI Agent Configuration yourself with create_agent_configuration. It needs an agent name, an exact name from the AI Model catalog listed in the prerequisites, and the BPMN process map the agent belongs to — ask which process the agent is mapped to (process_model) and propose the process currently open in the editor as the default. Add a chat mode label (not already taken) ONLY when the agent should appear in chat; an agent mapped to an ordinary business process needs no label. Give it a system prompt, or a description for the creation process to generate the prompt from.
   - The agent's PROVIDER is derived from the model's credentials link — pick a model, never a provider, and never invent a model name.
   - Gather every one of those in conversation first, asking for what is missing rather than guessing.
   - CONFIRM BEFORE CREATING. Summarise the agent you are about to create and wait for the designer to agree. The tool writes a real record and starts the process that takes the agent Live — there is no confirmation step after you call it.

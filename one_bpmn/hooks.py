@@ -254,6 +254,19 @@ scheduler_events = {
 
 # ignore_links_on_delete = ["Communication", "ToDo"]
 
+# Cache keys that survive frappe.clear_cache()
+# --------------------------------------------
+# A Docu turn is enqueued on a worker and the browser polls docu_chat_status
+# for its result, keyed on a `docu_turn::<id>` cache entry. That entry is the
+# only handle the client has on a running turn — if it disappears, the poll
+# reports "unknown" and the chat gives up with "I lost track of that request"
+# even though the worker completed the turn successfully. A global cache wipe
+# (bench clear-cache, bench migrate) deletes every key for the site, so the
+# turn handles must be exempted.
+persistent_cache_keys = [
+	"docu_turn::*",
+]
+
 # Request Events
 # ----------------
 # before_request = ["one_bpmn.utils.before_request"]

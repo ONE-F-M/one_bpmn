@@ -72,3 +72,6 @@ one_bpmn.one_bpmn.patches.v1_0.move_google_credential_to_connectors #04-08-2026 
 one_bpmn.one_bpmn.patches.v1_0.seed_google_connectors #04-08-2026 WI-001811 connector definitions live in the patch, not JSON files
 one_bpmn.one_bpmn.patches.v1_0.drop_legacy_google_credential_field #04-08-2026 the connector's own Secret is the only credential
 one_bpmn.one_bpmn.patches.v1_0.seed_ai_injection_patterns #05-08-2026 WI-001967 prompt-injection rule pack ships as data
+one_bpmn.one_bpmn.patches.v1_0.move_memory_config_to_agent #05-08-2026 WI-001793 memory settings move from the diagram to the agent
+one_bpmn.one_bpmn.patches.v1_0.retire_chat_agent_template #09-08-2026 WI-001997 agents own their maps, the clone template is gone
+one_bpmn.one_bpmn.patches.v1_0.add_assistant_agent_creation_tool #09-08-2026 WI-001997 creation asks which process the agent is mapped to

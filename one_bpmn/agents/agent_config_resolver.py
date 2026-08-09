@@ -8,12 +8,13 @@ A shape may set ``aiAgentConfig`` (a link to an AI Agent Configuration) as
 an alternative to entering a raw provider. The link is LIVE:
 
 * **At dispatch, the configuration is authoritative** for agent-level
-  fields (system prompt, provider, model, temperature, max tokens) —
-  ``resolve_dispatch_overrides`` supplies them and the dispatchers overlay
-  them onto the shape's attributes. The shape's copies are an editing view
-  and the fallback when the configuration has been deleted. Shape-only
-  fields (output variable, response format/schema, retries, memory, tool
-  wiring) describe the task, not the agent, and stay shape-owned.
+  fields (system prompt, provider, model, temperature, max tokens, and —
+  since WI-001793 — every memory setting) — ``resolve_dispatch_overrides``
+  supplies them and the dispatchers overlay them onto the shape's
+  attributes. The shape's copies are an editing view and the fallback when
+  the configuration has been deleted. Remaining shape-only fields (output
+  variable, response format/schema, retries, tool wiring) describe the
+  task, not the agent, and stay shape-owned.
 * **Selecting a configuration in the editor** copies its current values
   into the shape's fields (``get_agent_config_for_shape``) so the designer
   sees and can edit what will run.
@@ -29,6 +30,9 @@ the toolkit.
 
 import frappe
 from frappe import _
+from frappe.utils import cint
+
+from one_bpmn.agents.agent_provisioning import is_chat_startable_map
 
 # Which config field feeds which shape attribute. Only executable fields
 # with a task-shape equivalent are mapped; chat-only metadata (chat mode
@@ -38,6 +42,17 @@ _CONFIG_TO_SHAPE = {
 	"system_prompt": "aiSystemPrompt",
 	"temperature": "aiTemperature",
 	"max_tokens": "aiMaxTokens",
+	# WI-001793: memory settings live on the agent, not the diagram. Every value
+	# here is blank-by-default so an unset field falls through to the shape's
+	# older XML copy rather than silently overriding it with a default.
+	# ``long_term_memory`` needs no translation — the dispatcher's _cfg_truthy
+	# already reads "Enabled" as true and "Disabled" as false.
+	"conversation_store": "aiConversationStore",
+	"long_term_memory": "aiLongTermMemory",
+	"memory_scope": "aiMemoryScope",
+	"memory_write_mode": "aiMemoryWriteMode",
+	"memory_distill_model": "aiMemoryDistillModel",
+	"memory_reconcile_model": "aiMemoryReconcileModel",
 }
 
 # Shape attributes the modal may write back, and the config fields they land
@@ -50,6 +65,15 @@ _SHAPE_TO_CONFIG = {
 	"aiTemperature": "temperature",
 	"aiMaxTokens": "max_tokens",
 	"aiModel": "ai_model",
+	# WI-001793: the modal's Memory section now persists here instead of onto
+	# the BPMN XML, so the agent is the single place memory is configured.
+	"aiConversationStore": "conversation_store",
+	"aiContextMaxMessages": "context_max_messages",
+	"aiLongTermMemory": "long_term_memory",
+	"aiMemoryScope": "memory_scope",
+	"aiMemoryWriteMode": "memory_write_mode",
+	"aiMemoryDistillModel": "memory_distill_model",
+	"aiMemoryReconcileModel": "memory_reconcile_model",
 }
 
 # Guard rail categories, mirroring the AI Agent Guard Rail Select options
@@ -63,6 +87,86 @@ _GUARDRAIL_CATEGORIES = (
 	"Output Format",
 	"Other",
 )
+
+# The two child tables that make up the agent's frozen static context
+# (WI-001639), and the shape attributes the modal carries them under. Unlike
+# the scalar maps above these are LISTS, so they are read and written whole:
+# the modal always sends the full table, and a missing key means "leave it
+# alone" rather than "empty it".
+_EXAMPLE_SHAPE_ATTR = "aiExamples"
+_GUARDRAIL_SHAPE_ATTR = "aiGuardrails"
+_EXAMPLE_FIELDS = ("input", "expected_output", "note", "enabled")
+_GUARDRAIL_FIELDS = ("guardrail", "category", "enabled")
+
+
+def _clean_example_rows(rows) -> list[dict]:
+	"""Normalise few-shot example rows from any caller (the assistant's create
+	payload or the editor modal) into what doc.append expects.
+
+	Rows with a blank input are dropped — ``input`` is the mandatory field, and
+	letting one through turns a whole save into a validation failure over a row
+	the user probably just started typing.
+	"""
+	out = []
+	for row in rows or []:
+		if not (row.get("input") or "").strip():
+			continue
+		out.append(
+			{
+				"input": row["input"],
+				"expected_output": row.get("expected_output") or "",
+				"note": row.get("note") or "",
+				# Absent means on: the assistant's proposals carry no flag, and a
+				# new row is meant to take effect.
+				"enabled": 0 if row.get("enabled") in (0, False, "0", "false") else 1,
+			}
+		)
+	return out
+
+
+def _clean_guardrail_rows(rows) -> list[dict]:
+	"""Normalise guard rail rows. Blank rules are dropped for the same reason
+	blank example inputs are."""
+	out = []
+	for row in rows or []:
+		if not (row.get("guardrail") or "").strip():
+			continue
+		category = row.get("category")
+		out.append(
+			{
+				"guardrail": row["guardrail"],
+				# An unrecognised category would fail Select validation and lose
+				# the whole save; fall back rather than reject the rule.
+				"category": category if category in _GUARDRAIL_CATEGORIES else "Other",
+				"enabled": 0 if row.get("enabled") in (0, False, "0", "false") else 1,
+			}
+		)
+	return out
+
+
+def _rows_for_shape(doc, table: str, fields: tuple[str, ...]) -> list[dict]:
+	"""The table's rows as plain dicts, in document order — the order they
+	reach the model."""
+	return [{f: (r.get(f) or "") if f != "enabled" else int(r.get("enabled") or 0) for f in fields} for r in doc.get(table) or []]
+
+
+def config_static_context(config_name: str) -> dict:
+	"""Examples + guard rails for a configuration, keyed by shape attribute.
+
+	Deliberately NOT part of ``config_field_map``: that map is overlaid onto
+	shape attributes at dispatch, and these two tables are agent-owned with no
+	shape equivalent to override. The editor reads them through
+	``get_agent_config_for_shape``; dispatch reads them through
+	``load_agent_behaviour``.
+	"""
+	if not config_name or not frappe.db.exists("AI Agent Configuration", config_name):
+		return {}
+	cfg = frappe.get_doc("AI Agent Configuration", config_name)
+	return {
+		_EXAMPLE_SHAPE_ATTR: _rows_for_shape(cfg, "examples", _EXAMPLE_FIELDS),
+		_GUARDRAIL_SHAPE_ATTR: _rows_for_shape(cfg, "guardrails", _GUARDRAIL_FIELDS),
+	}
+
 
 # The platform process that carries an agent Draft -> Live is no longer assumed
 # by name. It is whatever the single grant-holding AI Agent Configuration
@@ -111,6 +215,11 @@ def config_field_map(config_name: str) -> dict:
 		val = cfg.get(cfield)
 		if val not in (None, ""):
 			out[sattr] = val
+
+	# Int fields have no blank state — 0 means "not configured here", so it must
+	# not override the shape's value the way a real setting would (WI-001793).
+	if cint(cfg.get("context_max_messages")):
+		out["aiContextMaxMessages"] = cfg.context_max_messages
 	if cfg.ai_provider_credentials:
 		out["aiProvider"] = cfg.ai_provider_credentials
 	# WI-001655: the model is the agent's own pick from the AI Model catalog
@@ -152,7 +261,10 @@ def get_agent_config_for_shape(config_name: str) -> dict:
 	"""Whitelisted: the editor calls this on selecting a config to copy its
 	current values into the shape's fields (the designer's editing view)."""
 	frappe.has_permission("AI Agent Configuration", "read", throw=True)
-	return config_field_map(config_name)
+	# WI-001639: the static-context tables ride along so the modal can edit
+	# them, but they stay out of config_field_map so dispatch's overlay is
+	# unchanged.
+	return {**config_field_map(config_name), **config_static_context(config_name)}
 
 
 @frappe.whitelist()
@@ -187,11 +299,19 @@ def update_agent_config_from_shape(config_name: str, fields: str | dict) -> dict
 			value = frappe.utils.flt(value)
 		if cfield == "max_tokens" and value not in (None, ""):
 			value = frappe.utils.cint(value)
+		# WI-001793: the modal's number input hands back a string; 0/blank means
+		# "not set here" and must stay 0 so dispatch falls through to the shape.
+		if cfield == "context_max_messages":
+			value = frappe.utils.cint(value)
 		# Old diagrams carry model ids baked into the shape before the AI Model
 		# catalog existed (WI-001655). Letting doc.save() hit the Link
 		# validation surfaces a raw LinkValidationError — say what is actually
 		# wrong instead.
-		if cfield == "ai_model" and value and not frappe.db.exists("AI Model", value):
+		if (
+			cfield in ("ai_model", "memory_distill_model", "memory_reconcile_model")
+			and value
+			and not frappe.db.exists("AI Model", value)
+		):
 			frappe.throw(
 				_(
 					"'{0}' is not in the AI Model catalog — the task shape carries an "
@@ -201,6 +321,30 @@ def update_agent_config_from_shape(config_name: str, fields: str | dict) -> dict
 		if doc.get(cfield) != value:
 			doc.set(cfield, value)
 			changed.append(cfield)
+
+	# WI-001639: the static-context tables are replaced whole. The modal sends
+	# the complete table or omits the key entirely, so "present" means the user
+	# was editing it and "absent" means leave it be — there is no per-row diff
+	# to apply, and row ORDER is meaningful (it is the order they reach the
+	# model), which a merge would not preserve.
+	for sattr, table, cleaner, row_fields in (
+		(_EXAMPLE_SHAPE_ATTR, "examples", _clean_example_rows, _EXAMPLE_FIELDS),
+		(_GUARDRAIL_SHAPE_ATTR, "guardrails", _clean_guardrail_rows, _GUARDRAIL_FIELDS),
+	):
+		if sattr not in fields:
+			continue
+		rows = fields[sattr]
+		if isinstance(rows, str):
+			rows = frappe.parse_json(rows) or []
+		wanted = cleaner(rows)
+		# Compare against the same shape we hand out, so a modal round-trip with
+		# no edits is a no-op and cannot needlessly re-provision a Live agent.
+		if wanted == _rows_for_shape(doc, table, row_fields):
+			continue
+		doc.set(table, [])
+		for row in wanted:
+			doc.append(table, row)
+		changed.append(table)
 
 	if not changed:
 		return {"ok": True, "updated": [], "reprovisioned": False}
@@ -224,7 +368,15 @@ def update_agent_config_from_shape(config_name: str, fields: str | dict) -> dict
 CREATE_PAYLOAD_CONTRACT = {
 	"agent_name": "Human-readable agent name (required).",
 	"agent_id": "Machine id; auto-derived from the name when omitted.",
-	"chat_mode_label": "Label shown in chat mode pickers (required, must be unique).",
+	"chat_mode_label": (
+		"Label shown in chat mode pickers (must be unique). Required, EXCEPT when "
+		"process_model names a non-chat map — a process-embedded agent never appears in chat."
+	),
+	"process_model": (
+		"Name of the BPMN Process Model this agent is mapped to (WI-001997). When the agent "
+		"is being created from a task dialog, propose the process currently open in the "
+		"editor; ask the designer rather than guessing. Omit for a mapless Direct-API chat agent."
+	),
 	"ai_model": "Name of an AI Model catalog record — the agent's provider follows from this model's credentials link (WI-001655).",
 	"system_prompt": "The agent's system prompt; leave empty to have the creation process generate one from the description.",
 	"description": "What the agent does — feeds prompt auto-generation.",
@@ -289,9 +441,20 @@ def create_agent_configuration(payload: str | dict) -> dict:
 	if not agent_name:
 		frappe.throw(_("Agent name is required."))
 	chat_mode_label = (payload.get("chat_mode_label") or "").strip()
-	if not chat_mode_label:
-		# The creation process's Validate step rejects chat agents without a
-		# label — fail fast here instead of guaranteeing a Needs Attention.
+	process_model = (payload.get("process_model") or "").strip()
+	if process_model and not frappe.db.exists("BPMN Process Model", process_model):
+		frappe.throw(
+			_(
+				"BPMN Process Model '{0}' does not exist — pass the exact name of the "
+				"process this agent is mapped to, or omit it."
+			).format(process_model)
+		)
+	if not chat_mode_label and is_chat_startable_map(process_model) is not False:
+		# WI-001997: only an agent mapped to a NON-chat process map may skip the
+		# label — it never appears in the chat picker. Everything else (chat map,
+		# or no map at all → Direct-API chat) fails fast here, because the
+		# creation process's Validate step rejects label-less chat agents and
+		# failing later guarantees a Needs Attention.
 		frappe.throw(_("A chat mode label is required for a chat agent."))
 
 	# Friendly duplicate guard — a raw DuplicateEntryError helps nobody.
@@ -315,6 +478,10 @@ def create_agent_configuration(payload: str | dict) -> dict:
 	doc.lifecycle_status = "Draft"
 	doc.enabled = 1
 	doc.chat_mode_label = chat_mode_label
+	# WI-001997: the map is a designer-chosen link at creation — usually the
+	# process the agent is being created inside. Nothing clones or overwrites
+	# it; the map stays the designer's own.
+	doc.process_model = process_model or None
 	# WI-001655: the model is the pick; the provider derives from its
 	# credentials link on save. A directly-passed credentials value is kept
 	# only as legacy fallback for model-less payloads.
@@ -330,23 +497,10 @@ def create_agent_configuration(payload: str | dict) -> dict:
 			})
 	# WI-001639: the agent's frozen static context. Row order is the order the
 	# proposer gave them — it is the order they reach the model.
-	for row in payload.get("examples") or []:
-		if (row.get("input") or "").strip():
-			doc.append("examples", {
-				"input": row["input"],
-				"expected_output": row.get("expected_output") or "",
-				"note": row.get("note") or "",
-				"enabled": 1,
-			})
-	for row in payload.get("guardrails") or []:
-		if (row.get("guardrail") or "").strip():
-			doc.append("guardrails", {
-				"guardrail": row["guardrail"],
-				# An unrecognised category would fail Select validation and lose
-				# the whole agent; fall back rather than reject the rule.
-				"category": row.get("category") if row.get("category") in _GUARDRAIL_CATEGORIES else "Other",
-				"enabled": 1,
-			})
+	for row in _clean_example_rows(payload.get("examples")):
+		doc.append("examples", row)
+	for row in _clean_guardrail_rows(payload.get("guardrails")):
+		doc.append("guardrails", row)
 	doc.insert()  # caller's permissions; the After-Insert trigger starts the process
 
 	creation_instance = None

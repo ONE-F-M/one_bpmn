@@ -129,16 +129,22 @@ def get_users_by_role(role: str) -> list:
 
 
 @frappe.whitelist()
-def get_system_users(query: str = "") -> list:
+def get_system_users(query: str = "", limit: int = 0) -> list:
 	"""
 	Fetch active system users for the @mention autocomplete in the BPMN
 	comment dialog. Any authenticated (non-Guest) user may call this.
-	When query is empty, returns all active system users (up to limit).
+	When query is empty, returns all active system users.
+
+	``limit`` caps the number of rows returned — for a picker that re-queries
+	per keystroke and only ever shows the first page, sending every enabled
+	user (this site has ~1700) is pure waste. Omitted, the result is unbounded
+	as before.
 	"""
 	if frappe.session.user == "Guest":
 		frappe.throw(_("You must be logged in to fetch system users"))
 
 	normalized_query = (query or "").strip()
+	limit = int(limit or 0)
 
 	filters = {
 		"enabled": 1,
@@ -157,6 +163,7 @@ def get_system_users(query: str = "") -> list:
 		or_filters=or_filters,
 		fields=["name", "full_name"],
 		order_by="full_name asc",
+		limit_page_length=limit or None,
 	)
 
 
