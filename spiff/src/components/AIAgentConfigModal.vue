@@ -206,6 +206,92 @@
             <span class="field-hint">If checked, the process instance will halt when this AI task fails.</span>
           </div>
 
+          <!-- ============ Static context (WI-001639) ============ -->
+          <!-- Examples and guard rails live on the linked agent, not on this
+               diagram, and they are FROZEN: identical on every loop iteration
+               of every turn. Editing them here edits the agent.
+               They close out Advanced Settings rather than forming groups of
+               their own — they tune how one agent behaves, the same as the
+               sampling params above, and Memory below is the next real
+               section. -->
+          <template v-if="!isSelector && form.aiAgentConfig">
+            <div class="field-row">
+              <label>Examples <span class="hint">(optional)</span></label>
+              <span class="field-hint">
+                Worked examples that <em>demonstrate</em> the behaviour — a format, or a
+                judgement call that is hard to state as a rule. Rendered after the system
+                prompt, in this order.
+              </span>
+              <div v-for="(ex, i) in form.aiExamples" :key="'ex-' + i" class="static-row">
+                <div class="static-row-head">
+                  <label class="checkbox-row">
+                    <input
+                      type="checkbox"
+                      class="checkbox-input"
+                      :checked="ex.enabled !== 0"
+                      @change="ex.enabled = $event.target.checked ? 1 : 0"
+                    />
+                    <span>Enabled</span>
+                  </label>
+                  <span class="static-row-num">Example {{ i + 1 }}</span>
+                  <button type="button" class="close-btn" title="Remove" @click="form.aiExamples.splice(i, 1)">✕</button>
+                </div>
+                <div class="static-field">
+                  <span class="static-field-label">User says <em>— the input to match on</em></span>
+                  <textarea v-model="ex.input" rows="2" placeholder="e.g. How many staff are on shift today?" />
+                </div>
+                <div class="static-field">
+                  <span class="static-field-label">Agent should answer <em>— the reply to imitate</em></span>
+                  <textarea v-model="ex.expected_output" rows="2" placeholder="e.g. 14." />
+                </div>
+                <div class="static-field">
+                  <!-- The note IS rendered ("Note: ..." under the example), so
+                       don't describe it as an internal comment. -->
+                  <span class="static-field-label">Note <em>— an aside for the agent about this example</em></span>
+                  <input type="text" v-model="ex.note" placeholder="e.g. Answer the number alone, no preamble." />
+                </div>
+              </div>
+              <button type="button" class="btn-cancel" @click="addExample">+ Add example</button>
+            </div>
+
+            <div class="field-row">
+              <label>Guard Rails <span class="hint">(optional)</span></label>
+              <span class="field-hint">
+                Rules the agent must obey on every turn, each stated imperatively.
+                Rendered last in the static context, grouped by category.
+              </span>
+              <div v-for="(g, i) in form.aiGuardrails" :key="'gr-' + i" class="static-row">
+                <div class="static-row-head">
+                  <label class="checkbox-row">
+                    <input
+                      type="checkbox"
+                      class="checkbox-input"
+                      :checked="g.enabled !== 0"
+                      @change="g.enabled = $event.target.checked ? 1 : 0"
+                    />
+                    <span>Enabled</span>
+                  </label>
+                  <span class="static-row-inline-label">Category</span>
+                  <select v-model="g.category" class="static-row-cat">
+                    <option v-for="c in GUARDRAIL_CATEGORIES" :key="c" :value="c">{{ c }}</option>
+                  </select>
+                  <span class="static-row-num">Rule {{ i + 1 }}</span>
+                  <button type="button" class="close-btn" title="Remove" @click="form.aiGuardrails.splice(i, 1)">✕</button>
+                </div>
+                <div class="static-field">
+                  <span class="static-field-label">The rule <em>— phrase it as an instruction</em></span>
+                  <textarea v-model="g.guardrail" rows="2" placeholder="e.g. Never emit a file longer than 300 lines — split it instead." />
+                </div>
+              </div>
+              <button type="button" class="btn-cancel" @click="addGuardrail">+ Add guard rail</button>
+            </div>
+
+            <p class="field-hint" style="margin-top: 10px;">
+              Examples and guard rails are stored on the linked AI Agent Configuration, not on
+              this diagram, and apply to every task that links it.
+            </p>
+          </template>
+
           <!-- ============ Memory ============ -->
           <div class="field-group-title" v-if="!isSelector">Memory</div>
 
@@ -667,7 +753,56 @@ const form = ref({
   // WI-001793: blank means "inherit" — site default, then the agent's own model.
   aiMemoryDistillModel: "",
   aiMemoryReconcileModel: "",
+  // WI-001639: the agent's frozen static context. Always arrays — they are
+  // replaced wholesale by loadStaticContextFromConfig once the agent is read.
+  aiExamples: [],
+  aiGuardrails: [],
 });
+
+// Mirrors the AI Agent Guard Rail Select options; the backend rejects anything
+// else back to "Other".
+const GUARDRAIL_CATEGORIES = [
+  "Code Quality",
+  "Performance",
+  "Cost & Tokens",
+  "Safety",
+  "Output Format",
+  "Other",
+];
+
+// True once the linked agent's examples/guard rails have actually been read.
+// Save only writes the two tables back when this is set: an unread agent leaves
+// the form arrays empty, and sending those would silently wipe its static
+// context.
+const staticContextLoaded = ref(false);
+
+function addExample() {
+  form.value.aiExamples.push({ input: "", expected_output: "", note: "", enabled: 1 });
+}
+
+function addGuardrail() {
+  form.value.aiGuardrails.push({ guardrail: "", category: "Other", enabled: 1 });
+}
+
+// Overlay the linked agent's static-context tables onto the form. Called on
+// open and whenever the linked agent changes, so what is on screen is what the
+// agent will actually be primed with.
+async function loadStaticContextFromConfig() {
+  staticContextLoaded.value = false;
+  if (!form.value.aiAgentConfig) return;
+  try {
+    const fields = await frappeRequest({
+      url: "/api/method/one_bpmn.agents.agent_config_resolver.get_agent_config_for_shape",
+      method: "POST",
+      params: { config_name: form.value.aiAgentConfig },
+    });
+    form.value.aiExamples = Array.isArray(fields?.aiExamples) ? fields.aiExamples : [];
+    form.value.aiGuardrails = Array.isArray(fields?.aiGuardrails) ? fields.aiGuardrails : [];
+    staticContextLoaded.value = true;
+  } catch (e) {
+    // Unreadable agent — the sections stay empty and Save leaves them alone.
+  }
+}
 
 // ── Notices ───────────────────────────────────────────────────────────────
 // Standard frappe-ui dialog for errors and confirmations — never a bare
@@ -1090,6 +1225,12 @@ onMounted(async () => {
     // keys already present, and this assignment replaces form.value wholesale.
     aiMemoryDistillModel: get("aiMemoryDistillModel") || "",
     aiMemoryReconcileModel: get("aiMemoryReconcileModel") || "",
+    // WI-001639: agent-owned, with no diagram fallback — this assignment
+    // replaces form.value wholesale, so the keys must exist here or
+    // loadStaticContextFromConfig has nothing to fill and the template binds
+    // to undefined.
+    aiExamples: [],
+    aiGuardrails: [],
   };
 
   // Pre-fill the assistant's context DocType from the diagram's start-event
@@ -1120,6 +1261,10 @@ onMounted(async () => {
   // WI-001793: the agent owns the memory settings — show its values, not the
   // diagram's stale copies, so Save can't write yesterday's config back.
   await loadMemoryFromConfig();
+
+  // WI-001639: the agent owns examples and guard rails — show its rows, not an
+  // empty pair of sections, so Save can't write a blank static context back.
+  await loadStaticContextFromConfig();
 });
 
 // Pull the linked configuration's current values into the form (WI-001637
@@ -1200,6 +1345,12 @@ async function onAgentConfigSelect() {
       params: { config_name: value },
     });
     applyConfigFields(fields);
+    // WI-001639: the same read carries the static-context tables, so the
+    // sections follow the newly linked agent rather than keeping the old
+    // agent's rows on screen.
+    form.value.aiExamples = Array.isArray(fields?.aiExamples) ? fields.aiExamples : [];
+    form.value.aiGuardrails = Array.isArray(fields?.aiGuardrails) ? fields.aiGuardrails : [];
+    staticContextLoaded.value = true;
   } catch (e) {
     /* leave the current field values as-is if the seed lookup fails */
   }
@@ -1365,6 +1516,13 @@ async function writeBackToConfig() {
     fields.aiMemoryWriteMode = form.value.aiLongTermMemory ? form.value.aiMemoryWriteMode : "";
     fields.aiMemoryDistillModel = form.value.aiMemoryDistillModel || "";
     fields.aiMemoryReconcileModel = form.value.aiMemoryReconcileModel || "";
+  }
+  // WI-001639: examples and guard rails are agent-level, so they persist here
+  // rather than onto the BPMN XML. Sent whole (the backend replaces the tables)
+  // and only when they were read first — omitting the keys means "leave them".
+  if (staticContextLoaded.value) {
+    fields.aiExamples = form.value.aiExamples;
+    fields.aiGuardrails = form.value.aiGuardrails;
   }
   try {
     await frappeRequest({
@@ -1913,6 +2071,54 @@ async function save() {
   gap: 8px;
   align-items: center;
   margin-bottom: 6px;
+}
+/* WI-001639: one editable row of the agent's static context. Stacked rather
+   than the grid the sample-prompt rows use — these fields are prose, and a
+   guard rail or a worked example needs the full width to be readable. */
+.static-row {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 8px;
+  margin-bottom: 8px;
+  border: 1px solid var(--border-color, #d1d8dd);
+  border-radius: 6px;
+}
+.static-row-head {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+.static-row-num {
+  margin-left: auto;
+  font-size: 11px;
+  opacity: 0.6;
+}
+.static-row-inline-label {
+  font-size: 11px;
+  font-weight: 600;
+  opacity: 0.75;
+}
+/* Every input inside a row is captioned. The placeholders these replace
+   vanished the moment anything was typed, leaving a filled-in example as three
+   anonymous boxes with no way to tell the input from the expected output. */
+.static-field {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+}
+.static-field-label {
+  font-size: 11px;
+  font-weight: 600;
+  opacity: 0.75;
+}
+.static-field-label em {
+  font-style: normal;
+  font-weight: 400;
+  opacity: 0.75;
+}
+.static-row-cat {
+  max-width: 160px;
 }
 .create-agent-actions {
   flex-direction: row;
