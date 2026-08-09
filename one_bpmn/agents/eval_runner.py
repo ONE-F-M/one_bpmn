@@ -119,15 +119,22 @@ def run_eval_suite(suite_name: str, backend: str = "live") -> str:
     return run.name
 
 
-def _assert_agent_evaluatable(agent_cfg: str, eval_type: str) -> None:
+def _assert_agent_evaluatable(agent_cfg: str, eval_type: str, suite_map: str = "") -> None:
     """Block a live run whose agent can't be evaluated, with a clear message
     (WI-001751). Only "Agent" (process) evals need a map — a Google ADK agent
     needs a process map to run and cannot be invoked standalone. "Direct" evals
     are a plain LLM call and work for any agent.
+
+    ``suite_map`` is the map the suite itself names. When set, the run takes the
+    map path (see ``_run_map_eval``), which starts that map directly instead of
+    going through the agent's own chat map — so the agent not having one of its
+    own is no longer a blocker.
     """
     if not agent_cfg:
         frappe.throw(_("This suite has no agent configuration. Assign an agent before running evals."))
     if (eval_type or "Direct") != "Agent":
+        return
+    if (suite_map or "").strip():
         return
     fw, pm = frappe.db.get_value(
         "AI Agent Configuration", agent_cfg, ["agent_framework", "process_model"]
@@ -135,7 +142,8 @@ def _assert_agent_evaluatable(agent_cfg: str, eval_type: str) -> None:
     if (fw or "").strip().lower() == "google adk" and not pm:
         frappe.throw(_(
             "Agent '{0}' can't run an Agent (process) eval yet: it needs a process map. "
-            "Give the agent a process map, or use a Direct eval suite instead."
+            "Give the agent a process map, name one on the suite, or use a Direct eval "
+            "suite instead."
         ).format(agent_cfg))
 
 
@@ -155,7 +163,9 @@ def run_eval_cases(suite_name: str, case_names=None, backend: str = "live") -> s
     suite.check_permission("read")  # owner / System Manager gate
 
     if backend == "live":
-        _assert_agent_evaluatable(suite.agent_configuration, suite.eval_type)
+        _assert_agent_evaluatable(
+            suite.agent_configuration, suite.eval_type, suite.process_model
+        )
 
     if isinstance(case_names, str):
         case_names = frappe.parse_json(case_names) or None
@@ -230,7 +240,7 @@ def _execute_eval_suite(run_name: str, case_names: list | None = None) -> None:
             if run.backend == "replay":
                 result_row = _execute_case_replay(run, case)
             else:
-                result_row = _execute_case(case)
+                result_row = _execute_case(case, run.name)
             # Snapshot what was evaluated, so later edits to the case don't
             # rewrite this run's history. Set centrally so every path (live,
             # replay, error) records it.
@@ -283,6 +293,19 @@ def _execute_case_replay(run, case) -> dict:
     actual_output. total tokens/cost stay 0 for case execution; llm_judge
     assertions still make (and count) a real judge call.
     """
+    # Replay makes no execution call, but its llm_judge assertions still spend
+    # real tokens through _record_eval_run — stamp them with this case and run so
+    # replay spend is attributable too.
+    prev_origin = getattr(frappe.flags, "eval_origin", None)
+    frappe.flags.eval_origin = _eval_origin_flag(case, run.name)
+    try:
+        return _execute_case_replay_inner(run, case)
+    finally:
+        frappe.flags.eval_origin = prev_origin
+
+
+def _execute_case_replay_inner(run, case) -> dict:
+    """The body of ``_execute_case_replay``, with ``eval_origin`` already set."""
     prior = frappe.get_all(
         "AI Eval Result",
         filters={
@@ -335,21 +358,48 @@ def _execute_case_replay(run, case) -> dict:
     }
 
 
-def _execute_case(case) -> dict:
+def _eval_origin_flag(case, eval_run: str = None) -> dict:
+    """The ``frappe.flags.eval_origin`` payload for one case's execution.
+
+    Both creators of eval-origin AI Agent Runs read it — ``observability.create_ai_run``
+    for the agent's own runs, and ``_record_eval_run`` for the direct call and each
+    judge call — so the back-links cannot drift between them.
+    """
+    return {"eval_case": case.name, "eval_run": eval_run or ""}
+
+
+def _execute_case(case, eval_run: str = None) -> dict:
     """
     Evaluate a case against the suite's AI Agent Configuration (WI-001751).
 
     The suite's ``eval_type`` selects how the agent runs:
-      - "Agent":  invoke the full agent through its process map (invoke_agent);
-                  the AI Agent Runs it produces are tagged eval-origin and supply
-                  the case's tokens/cost.
+      - "Agent":  run the full agent through its process map, so its tools run
+                  too. When the case or suite names a ``process_model`` that map
+                  is started directly (the only path that works for a Background
+                  or otherwise non-chat agent); otherwise the turn goes through
+                  the chat-shaped ``invoke_agent``. Either way the AI Agent Runs
+                  produced are tagged eval-origin and supply tokens/cost.
       - "Direct": a plain LLM call using the agent's provider/model/system prompt
-                  (no map needed); a lightweight eval-origin AI Agent Run is
-                  recorded so the call still shows in Insights.
+                  (no map needed, and NO tools); a lightweight eval-origin AI
+                  Agent Run is recorded so the call still shows in Insights.
 
     Any unexpected exception is captured as an Error result so the suite can
     continue.
+
+    ``eval_origin`` is set for the WHOLE case, not just the agent call, so the
+    judge calls made while evaluating assertions are stamped with the same case
+    and run as the execution they are judging.
     """
+    prev_origin = getattr(frappe.flags, "eval_origin", None)
+    frappe.flags.eval_origin = _eval_origin_flag(case, eval_run)
+    try:
+        return _execute_case_inner(case, eval_run)
+    finally:
+        frappe.flags.eval_origin = prev_origin
+
+
+def _execute_case_inner(case, eval_run: str = None) -> dict:
+    """The body of ``_execute_case``, with ``frappe.flags.eval_origin`` already set."""
     try:
         agent_cfg = frappe.db.get_value("AI Eval Suite", case.suite, "agent_configuration")
         if not agent_cfg:
@@ -361,7 +411,7 @@ def _execute_case(case) -> dict:
         cfg = frappe.get_cached_doc("AI Agent Configuration", agent_cfg)
 
         if eval_type == "Agent":
-            output, usage = _run_agent_eval(cfg, case)
+            output, usage = _run_agent_eval(cfg, case, eval_run)
         else:
             output, usage = _run_direct_eval(cfg, case)
 
@@ -434,11 +484,18 @@ def _record_eval_run(
     double-count evals. Never raises — failing to record usage must not fail the
     eval itself.
     """
+    origin = getattr(frappe.flags, "eval_origin", None)
+    if not isinstance(origin, dict):
+        origin = {}
     try:
         frappe.get_doc({
             "doctype": "AI Agent Run",
             "bpmn_id": bpmn_id,
             "agent_configuration": agent_configuration,
+            # Same linkage as the agent's own runs, so the direct call and every
+            # judge call are attributable to the case that paid for them.
+            "eval_case": origin.get("eval_case") or None,
+            "eval_run": origin.get("eval_run") or None,
             "backend": "direct_api",
             "provider": provider or "",
             "model": model or "",
@@ -460,11 +517,215 @@ def _record_eval_run(
         )
 
 
-def _run_agent_eval(cfg, case) -> tuple:
-    """Agent (process) eval: invoke the full agent; tokens/cost from its runs.
+def _map_is_chat_startable(model_name: str) -> bool:
+    """True when *model_name*'s start event triggers on Chat Conversation.
+
+    ``invoke_agent`` can only drive such a map: it delivers the turn to an
+    instance already running for the conversation it just created, and only a
+    Chat-Conversation start event produces one.
+    """
+    if not model_name:
+        return False
+    xml = frappe.db.get_value("BPMN Process Model", model_name, "bpmn_xml") or ""
+    return 'triggerDoctype="Chat Conversation"' in xml
+
+
+def _needs_map_eval(cfg) -> bool:
+    """True when this agent cannot be driven through the chat-shaped eval path.
+
+    A Background agent has no chat map by definition, and a Chat agent whose
+    linked map is record-triggered is in the same position — ``invoke_agent``
+    throws "not running for this conversation" for both. An agent with no map at
+    all keeps today's legacy single-shot behaviour, so existing suites that rely
+    on it are unaffected.
+    """
+    if (cfg.get("agent_type") or "Chat") == "Background":
+        return True
+    linked = (cfg.get("process_model") or "").strip()
+    return bool(linked) and not _map_is_chat_startable(linked)
+
+
+def _eval_map_for_case(cfg, case) -> str:
+    """The map a map-path eval starts: the case's, else the suite's, else the
+    agent's own. Naming it on the case lets one suite cover several maps."""
+    for candidate in (
+        (case.process_model or "").strip(),
+        (frappe.db.get_value("AI Eval Suite", case.suite, "process_model") or "").strip(),
+        (cfg.get("process_model") or "").strip(),
+    ):
+        if candidate:
+            return candidate
+    return ""
+
+
+def _eval_context_document(case) -> tuple:
+    """The document a map eval runs against, read from the case's input_context.
+
+    A record-triggered map takes its subject from the instance context — the
+    shape's prompts render ``{{ doc.* }}`` against it and its start condition is
+    evaluated on it — so the case names one::
+
+        {"context_doctype": "Leave Application", "context_docname": "HR-LAP-2026-00586"}
+
+    A case captured from a real run needs no such hand-editing: it already links
+    its ``source_run``, whose instance recorded the document the agent ran
+    against, so that is used when input_context does not name one. Explicit
+    input_context always wins, so a captured case can be re-pointed by editing it.
+    """
+    ctx = {}
+    if case.input_context:
+        try:
+            ctx = frappe.parse_json(case.input_context) or {}
+        except Exception:
+            ctx = {}
+    if not isinstance(ctx, dict):
+        ctx = {}
+    doctype = (ctx.get("context_doctype") or "").strip()
+    docname = (ctx.get("context_docname") or "").strip()
+    if doctype and docname:
+        return doctype, docname
+
+    source_run = (case.get("source_run") or "").strip()
+    if source_run:
+        instance = frappe.db.get_value("AI Agent Run", source_run, "instance")
+        if instance:
+            row = frappe.db.get_value(
+                "BPMN Process Instance", instance,
+                ["context_doctype", "context_docname"], as_dict=True,
+            )
+            if row and row.context_doctype and row.context_docname:
+                return row.context_doctype, row.context_docname
+    return "", ""
+
+
+def _run_map_eval(cfg, case) -> tuple:
+    """Agent eval for an agent whose map is not chat-startable.
+
+    ``invoke_agent`` is chat-shaped: it mints a Chat Conversation and hands the
+    turn to an ALREADY-RUNNING instance, so it can only drive a map whose start
+    event triggers on Chat Conversation. A Background agent — or any agent whose
+    map is record-triggered — has no such map, which left its tools (the shapes
+    of its AI Agent Task's ad-hoc sub-process) impossible to exercise from an
+    eval: the Agent path threw, and the Direct path never attaches tools at all.
+
+    This path starts the map the case names, against the document the case names,
+    exactly as the record trigger would, then reads back the AI Agent Run the
+    pass produced. Tool calls land on that Run's Steps, so the transcript shows
+    which tools were called with which arguments.
+
+    The caller has already set ``frappe.flags.bpmn_disable_ai_parking``, so the
+    AI work runs INLINE rather than being enqueued to ``bpmn_ai_agent`` — the Run
+    and its tool calls exist by the time ``instance.start()`` returns.
+    """
+    model_name = _eval_map_for_case(cfg, case)
+    if not model_name:
+        raise ValueError(
+            f"Agent '{cfg.name}' has no chat-startable map, so its Agent eval must be "
+            f"told which process map to run. Name one on the case or on the suite "
+            f"(process_model)."
+        )
+    doctype, docname = _eval_context_document(case)
+    if not doctype or not docname:
+        raise ValueError(
+            f"Case runs process map '{model_name}', so it must name the document to run "
+            'against — either input_context {"context_doctype": "…", "context_docname": '
+            '"…"}, or a source_run whose instance recorded one.'
+        )
+    if not frappe.db.exists(doctype, docname):
+        raise ValueError(
+            f"No {doctype} named '{docname}' — check the case's input_context."
+        )
+
+    instance = frappe.new_doc("BPMN Process Instance")
+    instance.process_model = model_name
+    instance.context_doctype = doctype
+    instance.context_docname = docname
+    instance.status = "Active"
+    instance.initiated_by = frappe.session.user
+    instance.started_at = now_datetime()
+    instance.insert(ignore_permissions=True)
+
+    try:
+        instance.start(
+            initial_data={
+                "triggered_by": frappe.session.user,
+                "trigger_doctype": doctype,
+                "trigger_docname": docname,
+            }
+        )
+    finally:
+        # An eval must never leave a live instance parked on a human task. The
+        # AI Agent Run — with its Steps and tool calls — is a separate record and
+        # survives cancellation, so the transcript stays reviewable.
+        if frappe.db.get_value("BPMN Process Instance", instance.name, "status") == "Active":
+            frappe.db.set_value(
+                "BPMN Process Instance", instance.name, "status", "Cancelled",
+                update_modified=False,
+            )
+
+    filters = {"instance": instance.name}
+    if case.bpmn_id:
+        filters["bpmn_id"] = case.bpmn_id
+    else:
+        # Judge runs carry no instance, but be explicit rather than rely on that.
+        filters["bpmn_id"] = ["!=", EVAL_RUN_JUDGE]
+    runs = frappe.get_all(
+        "AI Agent Run",
+        filters=filters,
+        fields=["final_output", "total_prompt_tokens", "total_completion_tokens",
+                "total_tokens", "estimated_cost"],
+        order_by="creation asc",
+    )
+    if not runs:
+        shape = f" for shape '{case.bpmn_id}'" if case.bpmn_id else ""
+        raise ValueError(
+            f"Process map '{model_name}' ran but produced no AI Agent Run{shape}. Check "
+            f"that the map reaches its AI Agent Task for this document — a conditional "
+            f"start event that does not match leaves the process with nothing to do."
+        )
+
+    # The last run is the agent's answer; earlier ones (retries, other AI shapes)
+    # still count toward spend.
+    output = runs[-1].get("final_output") or ""
+    usage = {
+        "prompt_tokens": sum((r.get("total_prompt_tokens") or 0) for r in runs),
+        "completion_tokens": sum((r.get("total_completion_tokens") or 0) for r in runs),
+        "tokens": sum((r.get("total_tokens") or 0) for r in runs),
+        "cost": sum(flt(r.get("estimated_cost")) for r in runs),
+    }
+    return output, usage
+
+
+def _run_agent_eval(cfg, case, eval_run: str = None) -> tuple:
+    """Agent (process) eval: run the full agent; tokens/cost from its runs.
+
+    Two shapes, chosen by whether the agent can be driven through chat:
+      - non-chat agent (Background, or a record-triggered map) -> ``_run_map_eval``
+        starts the named map directly. The only path that exercises their tools.
+      - chat agent -> ``invoke_agent``, the chat-shaped path, unchanged.
 
     Returns ``(output, usage)`` where usage carries the prompt/completion split
     so the Result row's numbers add up.
+    """
+    prev = (
+        getattr(frappe.flags, "eval_origin", None),
+        getattr(frappe.flags, "bpmn_disable_ai_parking", False),
+    )
+    frappe.flags.eval_origin = _eval_origin_flag(case, eval_run)
+    frappe.flags.bpmn_disable_ai_parking = True
+    try:
+        if _needs_map_eval(cfg):
+            return _run_map_eval(cfg, case)
+        return _run_chat_agent_eval(cfg, case)
+    finally:
+        frappe.flags.eval_origin, frappe.flags.bpmn_disable_ai_parking = prev
+
+
+def _run_chat_agent_eval(cfg, case) -> tuple:
+    """The chat-shaped Agent eval: hand the turn to ``invoke_agent``.
+
+    Only drives a map whose start event triggers on Chat Conversation; for
+    anything else use ``_run_map_eval``. Eval flags are set by the caller.
     """
     from one_bpmn.api.agent_invocation import invoke_agent
 
@@ -479,13 +740,7 @@ def _run_agent_eval(cfg, case) -> tuple:
             context = {}
 
     started = now_datetime()
-    prev = (getattr(frappe.flags, "eval_origin", None), getattr(frappe.flags, "bpmn_disable_ai_parking", False))
-    frappe.flags.eval_origin = {"eval_case": case.name}
-    frappe.flags.bpmn_disable_ai_parking = True
-    try:
-        reply = invoke_agent(cfg.agent_id, case.input_user_prompt or "", context=context)
-    finally:
-        frappe.flags.eval_origin, frappe.flags.bpmn_disable_ai_parking = prev
+    reply = invoke_agent(cfg.agent_id, case.input_user_prompt or "", context=context)
 
     output = (reply or {}).get("response") or ""
     runs = frappe.get_all(
@@ -514,7 +769,20 @@ def _run_direct_eval(cfg, case) -> tuple:
     system prompt. Records a standalone eval-origin AI Agent Run so the call
     shows in Insights alongside process (agent) evals."""
     provider = cfg.ai_provider_credentials or ""
-    model = frappe.db.get_value("AI Provider Credentials", provider, "default_model") or ""
+    # WI-001655: the MODEL is the agent's own catalog pick and the credentials
+    # record carries the connection only — default_model was removed from that
+    # doctype. Reading it here did one of two wrong things depending on whether
+    # the site's column survived the field removal: returned a stale orphan
+    # value (so the eval silently tested a model the agent does not use, and
+    # priced the run against it), or raised Unknown column, turning every
+    # Direct case into an Error result. Either way the agent's real model was
+    # never exercised.
+    #
+    # Last-resort fallback mirrors DirectApiExecutor: any catalog model linked
+    # to these credentials, for a legacy agent with no ai_model set.
+    model = cfg.get("ai_model") or frappe.db.get_value(
+        "AI Model", {"ai_provider_credentials": provider}, "name"
+    ) or ""
 
     started = now_datetime()
     config = ExecutorConfig(

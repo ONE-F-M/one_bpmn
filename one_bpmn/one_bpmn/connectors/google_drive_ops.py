@@ -8,7 +8,6 @@
 
 import json
 
-from one_bpmn.one_bpmn.connectors.registry import connector
 from one_bpmn.one_bpmn.integrations import google_drive as gd
 
 
@@ -18,13 +17,27 @@ def _truthy(v):
     return str(v or "").strip().lower() in ("1", "true", "yes", "on")
 
 
-@connector("google_drive", "downloadText")
+def list_file_choices(folder=None, **_ignored):
+    """Dropdown choices for a field configured with this as its Choices From path.
+
+    Point a field's ``choices_source_path`` here to let the modeler pick a file
+    from the folder chosen in a sibling ``folder`` field, instead of pasting an
+    id. Lives with the Drive connector rather than in connectors/api.py so the
+    generic choices endpoint knows nothing about Google.
+    """
+    from one_bpmn.one_bpmn.integrations import google_common as gc
+
+    if not folder:
+        return []
+    files = gd.list_files(gc.normalize_drive_id(folder))
+    return [{"label": f.get("name") or f.get("id"), "value": f.get("id")} for f in files]
+
+
 def download_text(params, ctx):
     """files.export / get_media → plain text of a Doc/Slides/pptx/docx/txt."""
     return {"text": gd.download_file_text(params["file"])}
 
 
-@connector("google_drive", "createFile")
 def create_file(params, ctx):
     """files.create — upload content, optionally converting to a native Google type.
 
@@ -47,7 +60,6 @@ def create_file(params, ctx):
     }
 
 
-@connector("google_drive", "updateFileContent")
 def update_file_content(params, ctx):
     """files.update — replace an existing file's content."""
     updated = gd.update_file_content(
@@ -62,7 +74,6 @@ def update_file_content(params, ctx):
     }
 
 
-@connector("google_drive", "setPermissions")
 def set_permissions(params, ctx):
     """permissions.create — share a file.
 
@@ -83,15 +94,25 @@ def set_permissions(params, ctx):
     return {"granted": len(results)}
 
 
-@connector("google_drive", "listFiles")
-def list_files(params, ctx):
-    """files.list — non-trashed files directly inside a folder."""
-    files = gd.list_files(params["folder"], page_size=int(params.get("pageSize") or 20))
-    return {"files": files, "count": len(files)}
+def revoke_permissions(params, ctx):
+    """permissions.list + permissions.delete — withdraw sharing without touching content.
 
-
-@connector("google_drive", "deleteFile")
-def delete_file(params, ctx):
-    """files.delete / files.update(trashed) — trash (default) or permanently delete."""
-    gd.delete_file(params["file"], permanent=_truthy(params.get("permanent")))
-    return {"deleted": params["file"], "permanent": _truthy(params.get("permanent"))}
+    The counterpart to setPermissions. Used to take a document out of
+    circulation: the file and its history stay exactly as they are, but the
+    people who could open it no longer can.
+    """
+    outcome = gd.revoke_permissions(
+        params["file"],
+        scope=(params.get("scope") or "all").strip(),
+        match=(params.get("match") or "").strip() or None,
+    )
+    # `skipped` is reported, not hidden: on a Shared Drive some grants cannot be
+    # removed on the item at all, and a caller reading only a count would take
+    # "revoked: 1" as "nobody can see it now".
+    return {
+        "revoked": len(outcome["removed"]),
+        "skipped": len(outcome["skipped"]),
+        "grants": outcome["removed"],
+        "skipped_grants": outcome["skipped"],
+        "file": params["file"],
+    }

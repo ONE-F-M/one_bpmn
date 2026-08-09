@@ -7,7 +7,6 @@ from unittest.mock import patch
 import frappe
 from frappe.tests.utils import FrappeTestCase
 
-from one_bpmn.one_bpmn.connectors.registry import connector, get_handler, registered
 from one_bpmn.one_bpmn.connectors.manifest import get_operation_spec, load_manifests
 from one_bpmn.one_bpmn.integrations.google_common import normalize_drive_id
 from one_bpmn.one_bpmn.doctype.bpmn_process_instance.dispatchers import dispatch_connector
@@ -15,9 +14,41 @@ from one_bpmn.one_bpmn.doctype.bpmn_process_instance.dispatchers import dispatch
 _GD = "one_bpmn.one_bpmn.integrations.google_drive"
 
 
-@connector("__test", "echo")
 def _echo(params, ctx):
+    """Handler for the throwaway test connector.
+
+    Reached by its dotted path from the operation row — the same way every real
+    Python operation is now resolved. There is no registry to register with.
+    """
     return {"got": params, "td_title": ctx["task_data"].get("title")}
+
+
+def _ensure_echo_connector():
+    """A real configured connector, because that is the only kind there is."""
+    if not frappe.db.exists("BPMN Connector", "test_echo"):
+        frappe.get_doc({
+            "doctype": "BPMN Connector",
+            "connector_id": "test_echo",
+            "label": "Test Echo",
+            "enabled": 1,
+            "execution_type": "Python Handler",
+        }).insert(ignore_permissions=True)
+    if not frappe.db.exists("BPMN Connector Operation", {"connector": "test_echo", "operation_id": "echo"}):
+        op = frappe.get_doc({
+            "doctype": "BPMN Connector Operation",
+            "connector": "test_echo",
+            "operation_id": "echo",
+            "label": "Echo",
+            "enabled": 1,
+            "execution_type": "Python Handler",
+            "handler_path": "one_bpmn.tests.test_connector_dispatch._echo",
+        })
+        for name in ("a", "b"):
+            op.append("fields", {"field_name": name, "field_type": "String", "expression": 1})
+        op.insert(ignore_permissions=True)
+    from one_bpmn.one_bpmn.connectors.manifest import clear_manifest_cache
+
+    clear_manifest_cache()
 
 
 def _instance():
@@ -33,17 +64,42 @@ class TestNormalizeDriveId(FrappeTestCase):
 
 
 class TestManifestAndRegistry(FrappeTestCase):
-    def test_google_drive_registered(self):
-        self.assertIn("google_drive", registered())
-        for op in ("downloadText", "createFile", "updateFileContent", "setPermissions", "listFiles", "deleteFile"):
-            self.assertIsNotNone(get_handler("google_drive", op), f"missing handler {op}")
+    def test_only_the_operations_that_need_python_name_a_handler(self):
+        """Everything an HTTP template can express is configuration now.
 
-    def test_manifest_matches_handlers(self):
+        What is left needs multipart upload, binary parsing, or several calls
+        with reasoning in between — see the google_connectors_to_http patch.
+        """
+        from one_bpmn.one_bpmn.connectors.manifest import get_execution_spec, load_manifests
+
+        manifest = next(m for m in load_manifests() if m["connectorId"] == "google_drive")
+        python_ops = {
+            op["value"]
+            for op in manifest["operations"]
+            if (get_execution_spec("google_drive", op["value"]) or frappe._dict()).handler_path
+        }
+        self.assertEqual(
+            python_ops,
+            {"downloadText", "createFile", "updateFileContent", "setPermissions", "revokePermissions"},
+        )
+
+
+    def test_every_manifest_operation_resolves_to_an_executor(self):
+        """The real invariant: an operation must be runnable — by a configured
+        HTTP request or by a named handler. There is no third way any more."""
+        from one_bpmn.one_bpmn.connectors.manifest import get_execution_spec
+
         manifest = next(m for m in load_manifests() if m["connectorId"] == "google_drive")
         for op in manifest["operations"]:
-            self.assertIsNotNone(get_handler("google_drive", op["value"]),
-                                 f"manifest op {op['value']} has no handler")
-            self.assertTrue(op.get("fields") is not None)
+            name = op["value"]
+            spec = get_execution_spec("google_drive", name)
+            self.assertIsNotNone(spec, f"{name} has no execution configuration")
+            runnable = bool(
+                (spec.execution_type == "HTTP Request" and spec.url_template) or spec.handler_path
+            )
+            self.assertTrue(runnable, f"manifest op {name} cannot be run by anything")
+            self.assertIsNotNone(op.get("fields"))
+
 
     def test_permission_enums_match_drive_api(self):
         spec = get_operation_spec("google_drive", "setPermissions")
@@ -53,10 +109,15 @@ class TestManifestAndRegistry(FrappeTestCase):
 
 
 class TestDispatchConnector(FrappeTestCase):
+    @classmethod
+    def setUpClass(cls):
+        super().setUpClass()
+        _ensure_echo_connector()
+
     def test_render_and_result_mapping(self):
         task = SimpleNamespace(data={"title": "Hello"})
         dispatch_connector(_instance(), task, {
-            "connectorId": "__test", "operation": "echo", "resultVariable": "echo_out",
+            "connectorId": "test_echo", "operation": "echo", "resultVariable": "echo_out",
             "connectorParams": '{"a": "{{ task_data.title }}", "b": "plain"}',
         }, "t1")
         self.assertEqual(task.data["echo_out"]["got"]["a"], "Hello")
@@ -104,34 +165,33 @@ _GSLIDES = "one_bpmn.one_bpmn.integrations.google_slides"
 
 
 class TestDocsSlidesConnectors(FrappeTestCase):
-    def test_docs_and_slides_registered(self):
-        for op in ("createDocument", "insertText", "appendText", "replaceAllText", "getText"):
-            self.assertIsNotNone(get_handler("google_docs", op), f"missing docs {op}")
-        for op in ("createPresentation", "replaceAllText", "createSlide", "duplicateSlide", "getText"):
-            self.assertIsNotNone(get_handler("google_slides", op), f"missing slides {op}")
+    def test_only_the_multi_call_operations_name_a_handler(self):
+        from one_bpmn.one_bpmn.connectors.manifest import get_execution_spec, load_manifests
 
-    def test_docs_replace_all_text_dispatch(self):
-        task = SimpleNamespace(data={"doc_id": "D1", "name": "Acme"})
-        with patch(f"{_GDOCS}.replace_all_text", return_value={"documentId": "D1", "occurrencesChanged": 3}) as rp:
-            dispatch_connector(_instance(), task, {
-                "connectorId": "google_docs", "operation": "replaceAllText", "resultVariable": "r",
-                "connectorParams": '{"document": "https://docs.google.com/document/d/DOCID12345/edit", '
-                                   '"find": "{{name}}", "replace": "{{ task_data.name }}"}',
-            }, "d1")
-        self.assertEqual(task.data["r"]["occurrencesChanged"], 3)
-        # DriveFile normalized, expression rendered
-        self.assertEqual(rp.call_args.args[0], "DOCID12345")
-        self.assertEqual(rp.call_args.args[2], "Acme")
+        for connector_id, expected in (
+            ("google_docs", {"appendText", "getText", "fillTemplate", "fillBrandedTemplate"}),
+            ("google_slides", {"getText"}),
+        ):
+            manifest = next(m for m in load_manifests() if m["connectorId"] == connector_id)
+            named = {
+                op["value"]
+                for op in manifest["operations"]
+                if (get_execution_spec(connector_id, op["value"]) or frappe._dict()).handler_path
+            }
+            with self.subTest(connector=connector_id):
+                self.assertEqual(named, expected)
 
-    def test_slides_get_text_dispatch(self):
-        task = SimpleNamespace(data={})
-        with patch(f"{_GSLIDES}.get_text", return_value="## Slide 1\nHello") as gt:
-            dispatch_connector(_instance(), task, {
-                "connectorId": "google_slides", "operation": "getText", "resultVariable": "deck",
-                "connectorParams": '{"presentation": "PRESID987"}',
-            }, "s1")
-        self.assertEqual(task.data["deck"]["text"], "## Slide 1\nHello")
-        self.assertEqual(gt.call_args.args[0], "PRESID987")
+
+    def test_sheets_needs_no_python_at_all(self):
+        """Every Sheets operation is plain REST, so the module is gone."""
+        from one_bpmn.one_bpmn.connectors.manifest import get_execution_spec, load_manifests
+
+        manifest = next(m for m in load_manifests() if m["connectorId"] == "google_sheets")
+        for op in manifest["operations"]:
+            spec = get_execution_spec("google_sheets", op["value"])
+            with self.subTest(operation=op["value"]):
+                self.assertFalse(spec.handler_path, "Sheets must need no Python")
+
 
 
 class TestManifestValidator(FrappeTestCase):
@@ -143,7 +203,7 @@ class TestManifestValidator(FrappeTestCase):
 
 class TestRetryAndChoices(FrappeTestCase):
     def test_call_with_retry_retries_transient(self):
-        from one_bpmn.one_bpmn.integrations.google_common import call_with_retry
+        from one_bpmn.one_bpmn.integrations.retry import call_with_retry
         calls = {"n": 0}
 
         class _Err(Exception):
@@ -159,7 +219,7 @@ class TestRetryAndChoices(FrappeTestCase):
         self.assertEqual(calls["n"], 3)
 
     def test_call_with_retry_reraises_non_transient(self):
-        from one_bpmn.one_bpmn.integrations.google_common import call_with_retry
+        from one_bpmn.one_bpmn.integrations.retry import call_with_retry
 
         class _Err(Exception):
             resp = SimpleNamespace(status=404)
@@ -170,42 +230,56 @@ class TestRetryAndChoices(FrappeTestCase):
         with self.assertRaises(_Err):
             call_with_retry(boom, attempts=3, base_delay=0)
 
-    def test_field_choices_unknown_source_empty(self):
+    def test_field_choices_unconfigured_is_empty(self):
+        """A field with no Choices From path yields [] rather than an error."""
         from one_bpmn.one_bpmn.connectors.api import get_connector_field_choices
-        # driveDocumentTypes was removed with the folder map; unknown sources → []
-        self.assertEqual(get_connector_field_choices("driveDocumentTypes"), [])
-        self.assertEqual(get_connector_field_choices("__unknown__"), [])
+        self.assertEqual(get_connector_field_choices("google_drive", "createFile", "folder"), [])
+        self.assertEqual(get_connector_field_choices("__nope__", "__nope__", "__nope__"), [])
 
 
-_GSHEETS = "one_bpmn.one_bpmn.integrations.google_sheets"
+class TestSheetsIsPureConfiguration(FrappeTestCase):
+    """Sheets was the proof that a whole provider can be configuration.
 
+    Its Python module is gone: every operation is a Jinja-templated REST call on
+    its own row. These assert the templates, because there is nothing else left
+    to assert — and a broken template is exactly what would otherwise reach
+    Google as a malformed body.
+    """
 
-class TestSheetsConnector(FrappeTestCase):
-    def test_sheets_registered(self):
-        for op in ("createSpreadsheet", "getValues", "updateValues", "appendValues", "clearValues", "addSheet"):
-            self.assertIsNotNone(get_handler("google_sheets", op), f"missing sheets {op}")
+    def _spec(self, operation):
+        from one_bpmn.one_bpmn.connectors.manifest import get_execution_spec
 
-    def test_create_spreadsheet_folder_normalized(self):
-        task = SimpleNamespace(data={"title": "Metrics"})
-        with patch(f"{_GSHEETS}.create_spreadsheet",
-                   return_value={"spreadsheetId": "SS1", "title": "Metrics", "url": "http://x"}) as cs:
-            dispatch_connector(_instance(), task, {
-                "connectorId": "google_sheets", "operation": "createSpreadsheet", "resultVariable": "ss",
-                "connectorParams": ('{"title": "{{task_data.title}}", '
-                                    '"folder": "https://drive.google.com/drive/folders/FOLDER_XYZ12345"}'),
-            }, "s1")
-        self.assertEqual(task.data["ss"]["spreadsheetId"], "SS1")
-        self.assertEqual(cs.call_args.args[0], "Metrics")           # title rendered
-        self.assertEqual(cs.call_args.args[1], "FOLDER_XYZ12345")   # folder link normalized
+        spec = get_execution_spec("google_sheets", operation)
+        self.assertIsNotNone(spec, f"{operation} has no execution configuration")
+        self.assertEqual(spec.execution_type, "HTTP Request")
+        return spec
 
-    def test_update_values_parses_json_grid(self):
-        task = SimpleNamespace(data={})
-        with patch(f"{_GSHEETS}.update_values", return_value={"updatedRange": "A1:B2", "updatedCells": 4}) as uv:
-            dispatch_connector(_instance(), task, {
-                "connectorId": "google_sheets", "operation": "updateValues", "resultVariable": "res",
-                "connectorParams": ('{"spreadsheet": "SS1", "range": "A1", '
-                                    '"values": "[[\\"Name\\",\\"Score\\"],[\\"Ann\\",42]]"}'),
-            }, "s2")
-        self.assertEqual(task.data["res"]["updatedCells"], 4)
-        # values JSON string parsed into a 2D list before reaching the API
-        self.assertEqual(uv.call_args.args[2], [["Name", "Score"], ["Ann", 42]])
+    def test_every_sheets_operation_is_http(self):
+        for op in ("createSpreadsheet", "getValues", "updateValues",
+                   "appendValues", "clearValues", "addSheet"):
+            with self.subTest(operation=op):
+                self.assertTrue(self._spec(op).url_template)
+
+    def test_create_spreadsheet_posts_to_drive_not_sheets(self):
+        """sheets.create puts the file in the service account's own storage,
+        which has no quota — it must go through Drive with a parent folder."""
+        spec = self._spec("createSpreadsheet")
+        self.assertTrue(spec.url_template.startswith("https://www.googleapis.com/drive/v3/files"))
+        self.assertIn("vnd.google-apps.spreadsheet", spec.body_template)
+        self.assertIn("parents", spec.body_template)
+
+    def test_update_values_uses_bracket_access_for_the_values_field(self):
+        """`values` shadows dict.values(), so params.values would render the
+        METHOD into the body. This is the regression guard for that."""
+        spec = self._spec("updateValues")
+        self.assertIn('params["values"]', spec.body_template)
+        self.assertNotIn("params.values", spec.body_template)
+
+    def test_the_validator_catches_that_mistake(self):
+        from one_bpmn.one_bpmn.connectors.validator import _shadowed_field_access
+
+        broken = frappe._dict(body_template='{"values": {{ params.values }}}',
+                              url_template="x", query_params_json="", headers_json="")
+        self.assertTrue(_shadowed_field_access("google_sheets", "updateValues", broken))
+        self.assertFalse(_shadowed_field_access("google_sheets", "updateValues", self._spec("updateValues")))
+

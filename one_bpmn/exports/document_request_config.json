@@ -1,0 +1,95 @@
+{
+  "export_metadata": {
+    "source_site": "one_fm.15",
+    "export_date": "2026-08-04 12:33:01.912240",
+    "exported_by": "Administrator",
+    "version": "1.0"
+  },
+  "server_scripts": [
+    {
+      "name": "Drive — Deactivate Document",
+      "script_type": "API",
+      "reference_doctype": "",
+      "doctype_event": "Before Insert",
+      "script": "# Withdraw a document from use. Nothing is deleted.\n#\n# This replaced a step that trashed the Drive file. A controlled document that\n# has been superseded or retired still has to be producible: an auditor asking\n# \"what did the 2026 policy say, and who withdrew it?\" needs the text, not a\n# tombstone. So the file, its content and every version snapshot are kept, and\n# the document is marked Inactive instead.\n#\n# The Drive sharing is revoked by the \"Revoke Sharing\" connector task that runs\n# straight after this one — hence revoke=False here. That call lives on the\n# diagram rather than in this script so that a reader of the map can see that\n# access is withdrawn, and so the scope of the revocation stays configurable\n# without a code change.\nfrom one_fm.one_fm.doctype.document_register.document_register import deactivate\n\nreference_document = task_data.get(\"reference_document\")\n\nrequest = None\nif task_data.get(\"context_doctype\") == \"Document Request\":\n\trequest = task_data.get(\"context_docname\")\n\nif not reference_document:\n\tfrappe.log_error(\n\t\ttitle=\"Drive Script: deactivate_document — missing reference_document\",\n\t\tmessage=f\"task_data keys: {list(task_data.keys())}\",\n\t)\nelse:\n\ttry:\n\t\toutcome = deactivate(\n\t\t\treference_document,\n\t\t\treason=task_data.get(\"requirement_text\"),\n\t\t\tvia_request=request,\n\t\t\trevoke=False,\n\t\t)\n\t\tresult[\"deactivated_document\"] = reference_document\n\t\tresult[\"deactivated\"] = outcome.get(\"ok\")\n\n\t\t# Downstream needs the file id to revoke sharing on. Publishing it under\n\t\t# the same `drive_file` contract the rest of the pipeline uses means the\n\t\t# revoke task reads it exactly the way every other Drive task does.\n\t\tfile_link = frappe.db.get_value(\"Document Register\", reference_document, \"drive_file_link\")\n\t\tresult[\"drive_file\"] = {\"id\": reference_document, \"webViewLink\": file_link or \"\"}\n\texcept Exception:\n\t\tfrappe.log_error(\n\t\t\ttitle=\"Drive Script: deactivate_document failed\", message=frappe.get_traceback()\n\t\t)\n\t\tresult[\"deactivated\"] = False\n",
+      "api_method": "",
+      "allow_guest": 0,
+      "event_frequency": "All",
+      "cron_format": "",
+      "module": "",
+      "disabled": 0
+    },
+    {
+      "name": "Drive — Fetch Guideline Content",
+      "script_type": "API",
+      "reference_doctype": "",
+      "doctype_event": "Before Insert",
+      "script": "from one_bpmn.one_bpmn.integrations.google_drive import (\n\tGoogleDriveConfigError,\n\tdownload_file_text,\n)\n\nsource_guideline = task_data.get(\"source_guideline\")\n\nif not source_guideline:\n\tfrappe.log_error(\n\t\ttitle=\"Drive Script: fetch_guideline_content — missing source_guideline\",\n\t\tmessage=f\"task_data keys: {list(task_data.keys())}\",\n\t)\nelse:\n\ttry:\n\t\tentry = frappe.get_doc(\"Document Register\", source_guideline)\n\t\tresult[\"guideline_content\"] = download_file_text(entry.drive_file_id)\n\texcept GoogleDriveConfigError as e:\n\t\tfrappe.log_error(title=\"Drive Script: fetch_guideline_content config error\", message=str(e))\n\texcept Exception:\n\t\tfrappe.log_error(title=\"Drive Script: fetch_guideline_content failed\", message=frappe.get_traceback())\n",
+      "api_method": "",
+      "allow_guest": 0,
+      "event_frequency": "All",
+      "cron_format": "",
+      "module": "",
+      "disabled": 0
+    },
+    {
+      "name": "Drive — Gather Reference",
+      "script_type": "API",
+      "reference_doctype": "",
+      "doctype_event": "Before Insert",
+      "script": "import re as _re\n\nfrom one_bpmn.one_bpmn.integrations.google_drive import (\n\tGoogleDriveConfigError,\n\tdownload_file_text,\n\tlist_files,\n)\n\nfolder_ids_raw = task_data.get(\"drive_folder_ids\") or \"\"\nfolder_ids = [f.strip() for f in folder_ids_raw.split(\",\") if f.strip()]\nrequirement_var = \"requirement_text\"\noutput_var = \"reference_context\"\n\nrequirement_text = task_data.get(requirement_var) or \"\"\nstopwords = {\n\t\"the\", \"a\", \"an\", \"for\", \"and\", \"or\", \"of\", \"to\", \"in\", \"on\", \"with\",\n\t\"is\", \"are\", \"be\", \"as\", \"that\", \"this\", \"we\", \"need\", \"procedure\", \"document\",\n}\nkeywords = [\n\tw for w in _re.findall(r\"[a-zA-Z]{4,}\", requirement_text.lower())\n\tif w not in stopwords\n]\n\nif not folder_ids:\n\tresult[output_var] = \"\"\nelse:\n\tcandidates = []\n\ttry:\n\t\tfor folder_id in folder_ids:\n\t\t\tfor f in list_files(folder_id):\n\t\t\t\ttry:\n\t\t\t\t\ttext = download_file_text(f[\"id\"], f.get(\"mimeType\", \"\"))\n\t\t\t\texcept Exception:\n\t\t\t\t\tcontinue\n\t\t\t\thaystack = (f[\"name\"] + \"\\n\" + text).lower()\n\t\t\t\tscore = sum(haystack.count(kw) for kw in keywords)\n\t\t\t\tif score > 0:\n\t\t\t\t\tcandidates.append((score, f[\"name\"], text))\n\texcept GoogleDriveConfigError as e:\n\t\tfrappe.log_error(title=\"Drive Script: gather_reference config error\", message=str(e))\n\t\tcandidates = []\n\texcept Exception:\n\t\tfrappe.log_error(title=\"Drive Script: gather_reference failed\", message=frappe.get_traceback())\n\t\tcandidates = []\n\n\tcandidates.sort(key=lambda c: c[0], reverse=True)\n\ttop = candidates[:2]\n\tif top:\n\t\tblocks = []\n\t\tfor _score, fname, text in top:\n\t\t\tsnippet = text.strip()\n\t\t\tif len(snippet) > 2000:\n\t\t\t\tsnippet = snippet[:2000] + \"\\n...[truncated]\"\n\t\t\tblocks.append(f\"## {fname}\\n\\n{snippet}\")\n\t\tresult[output_var] = \"\\n\\n\".join(blocks)\n\telse:\n\t\tresult[output_var] = \"\"\n",
+      "api_method": "",
+      "allow_guest": 0,
+      "event_frequency": "All",
+      "cron_format": "",
+      "module": "",
+      "disabled": 0
+    },
+    {
+      "name": "Drive — Index Document",
+      "script_type": "API",
+      "reference_doctype": "",
+      "doctype_event": "Before Insert",
+      "script": "# Register the published document and record this publish as a version.\n#\n# Runs at publish, after the finalized content has been pushed to Drive. Two\n# things happen here, and the order matters: the version record is written from\n# the content that was just published, and only then does the register's own\n# `content` field move on to it.\n#\n# Every revision shares one Drive file, so Drive holds only the newest text —\n# the moment \"Save Final Content to Drive\" runs, the previous revision is gone\n# from Drive for good. The Document Revision row created below is therefore\n# the only surviving copy of what each revision said, which is what makes\n# \"version 2 changed X\" answerable at all.\nfrom one_fm.one_fm.doctype.document_register.document_register import allocate_document_code\n\ndrive_file = task_data.get(\"drive_file\") or {}\nfile_id = drive_file.get(\"id\") or task_data.get(\"create_file_file_id\")\nlink = drive_file.get(\"webViewLink\") or task_data.get(\"create_file_file_link\") or \"\"\n\ntitle = task_data.get(\"document_title\") or task_data.get(\"title\") or \"Untitled\"\ndocument_type = task_data.get(\"document_type\") or \"\"\n\n# The snapshot is read back FROM THE DOCUMENT, not from what the AI drafted.\n#\n# It used to come from task data (`document_markdown`, and `sop_markdown` before\n# the Document Request unification renamed it). That was wrong twice over once\n# the process started filling a branded template: the author does their final\n# corrections in the Drive document, so task data holds the pre-review draft, and\n# a document assembled by filling template cells has no markdown to hold in the\n# first place. \"Read Published Text (Drive)\" now supplies it.\n#\n# The old names are still read as a fallback so an instance that started before\n# this change still publishes its content rather than an empty string.\ncontent = (\n\t(task_data.get(\"published_content\") or {}).get(\"text\")\n\tor task_data.get(\"document_markdown\")\n\tor task_data.get(\"sop_markdown\")\n\tor \"\"\n)\n# A Drive text export always starts with a BOM. Left in, it makes an otherwise\n# empty snapshot look like content to every truthiness check downstream.\ncontent = content.lstrip(\"\\ufeff\")\n\nrequest = None\nif task_data.get(\"context_doctype\") == \"Document Request\":\n\trequest = task_data.get(\"context_docname\")\n\nif not file_id:\n\tfrappe.log_error(\n\t\ttitle=\"Drive Script: index_document — no file id\",\n\t\tmessage=f\"task_data keys: {list(task_data.keys())}\",\n\t)\nelse:\n\ttry:\n\t\tis_existing = frappe.db.exists(\"Document Register\", file_id)\n\t\tif is_existing:\n\t\t\tentry = frappe.get_doc(\"Document Register\", file_id)\n\t\telse:\n\t\t\tentry = frappe.get_doc({\n\t\t\t\t\"doctype\": \"Document Register\",\n\t\t\t\t\"drive_file_id\": file_id,\n\t\t\t\t\"source_process\": task_data.get(\"process_model\") or \"\",\n\t\t\t})\n\n\t\tif not entry.document_code:\n\t\t\tentry.document_code = allocate_document_code(document_type)\n\n\t\tpublished_version = (entry.current_version or 0) + 1\n\n\t\t# The engine can dispatch one service task twice (the do_engine_steps\n\t\t# callback and the STARTED loop both fire on completion). Bumping the\n\t\t# version again would invent a revision nobody authored, so a repeat of\n\t\t# the same content is recognised and left alone.\n\t\talready = frappe.db.get_value(\n\t\t\t\"Document Revision\",\n\t\t\t{\"document\": file_id, \"version\": entry.current_version or 0},\n\t\t\t[\"name\", \"content_snapshot\"],\n\t\t\tas_dict=True,\n\t\t)\n\t\tis_repeat = bool(already) and (already.get(\"content_snapshot\") or \"\") == content\n\t\tif is_repeat:\n\t\t\tpublished_version = entry.current_version or 0\n\n\t\tentry.title = title\n\t\tentry.document_type = document_type\n\t\tentry.drive_file_link = link\n\t\tentry.content = content\n\t\tentry.current_version = published_version\n\t\t# Publishing is by definition putting a document into use. This matters\n\t\t# for a document withdrawn and later revised: the register must not still\n\t\t# claim it is out of use once a new revision has been approved.\n\t\tentry.lifecycle_state = \"Active\"\n\t\tentry.save()\n\n\t\tif not is_repeat:\n\t\t\tversion = frappe.get_doc({\n\t\t\t\t\"doctype\": \"Document Revision\",\n\t\t\t\t\"document\": entry.name,\n\t\t\t\t\"document_code\": entry.document_code,\n\t\t\t\t\"version\": published_version,\n\t\t\t\t\"title_at_version\": title,\n\t\t\t\t\"document_type\": document_type,\n\t\t\t\t\"drive_file_link\": link,\n\t\t\t\t\"content_snapshot\": content,\n\t\t\t\t\"published_on\": frappe.utils.now_datetime(),\n\t\t\t\t\"published_by\": frappe.session.user,\n\t\t\t\t# The second approval is assigned from approver_user, so that is\n\t\t\t\t# who signed the content off.\n\t\t\t\t\"approved_by\": task_data.get(\"approver_user\"),\n\t\t\t\t\"change_reason\": task_data.get(\"requirement_text\"),\n\t\t\t\t\"document_request\": request,\n\t\t\t})\n\t\t\tversion.insert()\n\t\t\tresult[\"version_record\"] = version.name\n\n\t\tresult[\"indexed\"] = True\n\t\tresult[\"document_code\"] = entry.document_code\n\t\tresult[\"document_version\"] = published_version\n\n\t\t# Stamp the document back onto the request that asked for it, so the\n\t\t# requester can open it from the form they raised. Nothing else can do\n\t\t# this: \"Set Status: Published\" is an update_field task using\n\t\t# frappe.db.set_value, so no doc hook fires at publish and the request's\n\t\t# own app never learns what was created.\n\t\t#\n\t\t# Written straight to the database because all three fields are read-only\n\t\t# and derived — bumping `modified` would hand a stale-document error to\n\t\t# anyone with the form open, in exchange for a URL nobody typed.\n\t\tif request and frappe.db.exists(\"Document Request\", request):\n\t\t\tfrappe.db.set_value(\n\t\t\t\t\"Document Request\",\n\t\t\t\trequest,\n\t\t\t\t{\n\t\t\t\t\t\"document_link\": link,\n\t\t\t\t\t\"reference_document\": entry.name,\n\t\t\t\t\t\"document_version\": published_version,\n\t\t\t\t},\n\t\t\t\tupdate_modified=False,\n\t\t\t)\n\t\t\tresult[\"document_link\"] = link\n\texcept Exception:\n\t\tfrappe.log_error(title=\"Drive Script: index_document failed\", message=frappe.get_traceback())\n\t\tresult[\"indexed\"] = False\n",
+      "api_method": "",
+      "allow_guest": 0,
+      "event_frequency": "All",
+      "cron_format": "",
+      "module": "",
+      "disabled": 0
+    },
+    {
+      "name": "Drive — Locate Existing File",
+      "script_type": "API",
+      "reference_doctype": "",
+      "doctype_event": "Before Insert",
+      "script": "reference_document = task_data.get(\"reference_document\")\nif not reference_document:\n\tfrappe.log_error(\n\t\ttitle=\"Drive Script: locate_existing_file — missing reference_document\",\n\t\tmessage=f\"task_data keys: {list(task_data.keys())}\",\n\t)\nelse:\n\ttry:\n\t\tentry = frappe.get_doc(\"Document Register\", reference_document)\n\t\tresult[\"create_file_file_id\"] = entry.drive_file_id\n\t\tresult[\"create_file_file_link\"] = entry.drive_file_link\n\t\t# unified contract for downstream connector/script tasks\n\t\tresult[\"drive_file\"] = {\"id\": entry.drive_file_id, \"webViewLink\": entry.drive_file_link}\n\n\t\t# The revision needs to know what it is revising. The drafting task is\n\t\t# shown this as *reference only* — it matches the existing structure and\n\t\t# tone against it, while the content itself comes from the New Content\n\t\t# Document the requester supplied. Without it the AI would be asked to\n\t\t# reformat a document it has never seen.\n\t\tresult[\"existing_content\"] = entry.content or \"\"\n\t\tresult[\"existing_version\"] = entry.current_version or 0\n\t\tresult[\"existing_document_code\"] = entry.document_code or \"\"\n\texcept Exception:\n\t\tfrappe.log_error(title=\"Drive Script: locate_existing_file failed\", message=frappe.get_traceback())\n",
+      "api_method": "",
+      "allow_guest": 0,
+      "event_frequency": "All",
+      "cron_format": "",
+      "module": "",
+      "disabled": 0
+    }
+  ],
+  "workflow_states": [],
+  "workflow_action_masters": [
+    {
+      "name": "Approve",
+      "workflow_action_name": "Approve"
+    },
+    {
+      "name": "Reject",
+      "workflow_action_name": "Reject"
+    },
+    {
+      "name": "Submit",
+      "workflow_action_name": "Submit"
+    }
+  ],
+  "counts": {
+    "server_scripts": 5,
+    "workflow_states": 0,
+    "workflow_action_masters": 3
+  }
+}

@@ -48,6 +48,124 @@ def _run_with_results(suite: str, case_statuses: dict, minutes_ago: int):
 	return run.name
 
 
+def _agent_run(eval_run: str, eval_case: str, bpmn_id: str = "ai_agent_task", steps=None):
+	"""An eval-origin AI Agent Run with optional steps and tool calls.
+
+	``steps`` is a list of (role, [tool_name, ...]) so a test can describe the
+	shape it cares about without spelling out child rows.
+	"""
+	run = frappe.get_doc({
+		"doctype": "AI Agent Run",
+		"bpmn_id": bpmn_id,
+		"element_type": "task",
+		"origin": "eval",
+		"status": "Success",
+		"eval_case": eval_case,
+		"eval_run": eval_run,
+		"total_tokens": 100,
+		"estimated_cost": 0.25,
+	})
+	run.flags.ignore_mandatory = True
+	run.flags.ignore_links = True
+	run.insert(ignore_permissions=True)
+
+	for idx, (role, tools) in enumerate(steps or []):
+		step = frappe.get_doc({
+			"doctype": "AI Agent Step",
+			"run": run.name,
+			"step_index": idx,
+			"role": role,
+			"content": f"{role} content",
+			"cost": 0,
+			"tool_calls": [
+				{
+					"tool_name": t,
+					"tool_source": "diagram_task",
+					"status": "Success",
+					"tool_args": '{"a": 1}',
+					"tool_result": '{"ok": true}',
+				}
+				for t in tools
+			],
+		})
+		step.flags.ignore_mandatory = True
+		step.insert(ignore_permissions=True)
+	return run.name
+
+
+class TestRunReviewTranscript(FrappeTestCase):
+	"""The review payload carries what the agent DID, not just what it answered.
+
+	Before this, "which tools did the eval call?" could only be answered by
+	filtering AI Agent Run on origin="eval", matching the run's time window, then
+	opening each AI Agent Step to read its tool_calls table.
+	"""
+
+	def setUp(self):
+		frappe.set_user("Administrator")
+		self.suite = make_eval_suite().name
+		self.case_a = make_eval_case(suite=self.suite).name
+		self.case_b = make_eval_case(suite=self.suite).name
+
+	def _review(self, statuses):
+		run = _run_with_results(self.suite, statuses, minutes_ago=1)
+		return run, get_run_review(run)
+
+	def test_tool_calls_are_grouped_under_their_case(self):
+		run, _ = self._review({self.case_a: "Passed", self.case_b: "Passed"})
+		_agent_run(run, self.case_a, steps=[
+			("system", []), ("user", []),
+			("tool", ["get_leave_application"]),
+			("tool", ["calculate_leave_duration"]),
+			("assistant", []),
+		])
+		_agent_run(run, self.case_b, steps=[("assistant", [])])
+
+		review = get_run_review(run)
+		by_case = {r["eval_case"]: r for r in review["results"]}
+
+		a = by_case[self.case_a]["agent_runs"]
+		self.assertEqual(len(a), 1)
+		self.assertEqual(a[0]["tool_call_count"], 2)
+		self.assertEqual(len(a[0]["steps"]), 5)
+		names = [tc["tool_name"] for s in a[0]["steps"] for tc in s["tool_calls"]]
+		self.assertEqual(names, ["get_leave_application", "calculate_leave_duration"])
+		# Arguments and results travel with the call — the whole point.
+		call = next(tc for s in a[0]["steps"] for tc in s["tool_calls"])
+		self.assertEqual(call["tool_args"], '{"a": 1}')
+		self.assertEqual(call["tool_result"], '{"ok": true}')
+		self.assertEqual(call["tool_source"], "diagram_task")
+
+		b = by_case[self.case_b]["agent_runs"]
+		self.assertEqual(len(b), 1)
+		self.assertEqual(b[0]["tool_call_count"], 0)
+
+	def test_judge_runs_are_excluded(self):
+		"""A judge call is the assertion's own LLM call, already reported per
+		assertion, and has no steps — it must not appear as agent activity."""
+		run, _ = self._review({self.case_a: "Passed"})
+		_agent_run(run, self.case_a, bpmn_id="eval-judge")
+		_agent_run(run, self.case_a, bpmn_id="ai_agent_task", steps=[("assistant", [])])
+
+		review = get_run_review(run)
+		runs = review["results"][0]["agent_runs"]
+		self.assertEqual([r["bpmn_id"] for r in runs], ["ai_agent_task"])
+
+	def test_no_agent_runs_yields_an_empty_list(self):
+		"""A Direct eval records no step-bearing run; the key must still exist so
+		the view can branch on it without null checks."""
+		run, review = self._review({self.case_a: "Passed"})
+		self.assertEqual(review["results"][0]["agent_runs"], [])
+
+	def test_runs_from_another_eval_run_are_not_included(self):
+		run_one, _ = self._review({self.case_a: "Passed"})
+		run_two = _run_with_results(self.suite, {self.case_a: "Passed"}, minutes_ago=2)
+		_agent_run(run_two, self.case_a, steps=[("tool", ["other_tool"])])
+
+		review = get_run_review(run_one)
+		self.assertEqual(review["results"][0]["agent_runs"], [])
+
+
 class TestEvalRunReviewBaseline(FrappeTestCase):
 	def setUp(self):
 		frappe.set_user("Administrator")

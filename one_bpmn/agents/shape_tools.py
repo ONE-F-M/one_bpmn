@@ -185,6 +185,11 @@ def _run_server_script(instance, script_name: str, task, bpmn_id: str) -> None:
 			# read their inputs bundled under `task_data` (the LLM-supplied
 			# arguments, here) instead of as bare locals.
 			"task_data": dict(task.data),
+			# WHICH shape is running. The tool name the LLM called IS the shape's
+			# bpmn_id, so a family of same-shaped tools can share ONE Server
+			# Script and dispatch on this instead of duplicating a body per tool
+			# (Lumina General Chat fans 32 MCP tools out of a single script).
+			"bpmn_id": bpmn_id,
 		}
 	)
 	if getattr(instance, "context_doctype", None) and getattr(instance, "context_docname", None):

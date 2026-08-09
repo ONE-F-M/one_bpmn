@@ -70,6 +70,12 @@ def create_ai_run(
 		except Exception:
 			agent_configuration = None
 
+	# A non-dict flag (or none) means this is not an eval run; guard rather than
+	# trust the flag's shape, since any caller can set it.
+	eval_origin = getattr(frappe.flags, "eval_origin", None)
+	if not isinstance(eval_origin, dict):
+		eval_origin = {} if not eval_origin else {"eval_case": None, "eval_run": None}
+
 	run = frappe.get_doc({
 		"doctype": "AI Agent Run",
 		"instance": instance.name,
@@ -83,7 +89,11 @@ def create_ai_run(
 		"model": config.model,
 		# WI-001751: runs produced while an eval is invoking the agent are
 		# tagged so Insights can show them under a separate "Evals" segment.
-		"origin": "eval" if getattr(frappe.flags, "eval_origin", None) else "production",
+		# The flag also names WHICH case and run, so reviewing an eval no longer
+		# means filtering by origin and matching on a time window.
+		"origin": "eval" if eval_origin else "production",
+		"eval_case": eval_origin.get("eval_case") or None,
+		"eval_run": eval_origin.get("eval_run") or None,
 		"status": "Running",
 		"started_at": now_datetime(),
 		"max_retries": config.max_retries,

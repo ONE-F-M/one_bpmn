@@ -19,7 +19,7 @@ import json
 import frappe
 from frappe import _
 
-from one_bpmn.agents.google_adk.docu_agent.tools import (
+from one_bpmn.tools.tool_for_server_scripts import (
 	diff_ir,
 	DOCFIELD_ATTRS,
 	DOCFIELD_FLAGS,

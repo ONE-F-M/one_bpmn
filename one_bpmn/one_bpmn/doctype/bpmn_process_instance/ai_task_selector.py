@@ -102,7 +102,15 @@ def dispatch_ai_task_selector(instance, sp, task_cfg: dict, bpmn_id: str) -> tup
 	                                              (final answer or registry-only)
 	    ("error", None, None)                   — executor failure
 	"""
-	from one_bpmn.agents.executor import ErrorCode, ExecutorConfig, ExecutorContext, get_executor
+	from frappe.utils import cint
+
+	from one_bpmn.agents.executor import (
+		DEFAULT_MAX_OUTPUT_TOKENS,
+		ErrorCode,
+		ExecutorConfig,
+		ExecutorContext,
+		get_executor,
+	)
 	from one_bpmn.agents.executor.direct_api import DirectApiExecutor
 	from one_bpmn.agents.llm_provider.base import ToolSpec
 	from one_bpmn.agents.tool_pool import DIAGRAM_TASK, resolve_tool_pool
@@ -216,7 +224,8 @@ def dispatch_ai_task_selector(instance, sp, task_cfg: dict, bpmn_id: str) -> tup
 		model=task_cfg.get("aiModel", ""),
 		system_prompt=render(task_cfg.get("aiSystemPrompt", "")),
 		user_prompt=user_prompt,
-		max_tokens=int(task_cfg.get("aiMaxTokens", 1024) or 1024),
+		# cint first — a shape attribute is a string and "0" is truthy.
+		max_tokens=cint(task_cfg.get("aiMaxTokens")) or DEFAULT_MAX_OUTPUT_TOKENS,
 		timeout_seconds=int(task_cfg.get("aiTimeout", 60) or 60),
 		tools=tools,
 	)
