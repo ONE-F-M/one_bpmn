@@ -14,7 +14,7 @@ import frappe
 from frappe.tests.utils import FrappeTestCase
 from frappe.utils import add_to_date, now_datetime
 
-from one_bpmn.agents.adversarial_gate import check, ungated_live_agents
+from one_bpmn.agents.adversarial_gate import check, is_conversational, ungated_live_agents
 from one_bpmn.agents.conformance import (
 	SCREENING_MARKER,
 	has_screening_stage,
@@ -317,6 +317,36 @@ class TestReReviewGoesThroughTheGate(FrappeTestCase):
 		check(doc.name)  # would report a problem, must not act on it
 		after = frappe.db.get_value("AI Agent Configuration", doc.name, "lifecycle_status")
 		self.assertEqual(before, after, "the gate must not demote a running agent")
+
+	def test_a_chat_agent_is_conversational(self):
+		self.assertTrue(is_conversational(self._agent().name))
+
+	def test_a_background_agent_with_a_chat_label_is_conversational(self):
+		"""The hole a type-only test leaves open: a Background agent handed a
+		chat mode label is in the picker, reachable by anyone who can open a
+		chat box, and must not walk past the gate on its declared type."""
+		doc = self._agent(agent_type="Background")
+		frappe.db.set_value("AI Agent Configuration", doc.name, "chat_mode_label",
+		                    f"{PREFIX} exposed", update_modified=False)
+		self.assertTrue(is_conversational(doc.name))
+
+	def test_a_chat_agent_without_a_label_yet_is_still_conversational(self):
+		"""The hole a label-only test leaves open: a label can be added after
+		go-live, so a Chat agent is gated before it has one."""
+		doc = self._agent()
+		frappe.db.set_value("AI Agent Configuration", doc.name, "chat_mode_label", "",
+		                    update_modified=False)
+		self.assertTrue(is_conversational(doc.name))
+
+	def test_a_plain_background_agent_is_not_conversational(self):
+		doc = self._agent(agent_type="Background")
+		frappe.db.set_value("AI Agent Configuration", doc.name, "chat_mode_label", "",
+		                    update_modified=False)
+		self.assertFalse(is_conversational(doc.name))
+
+	def test_an_unreadable_agent_is_treated_as_conversational(self):
+		"""Fails closed: this feeds a release gate."""
+		self.assertTrue(is_conversational("ZZ no such agent"))
 
 	def test_the_gate_library_does_not_second_guess_agent_type(self):
 		"""Conversational exposure is what the gate is about, but WHICH agents
