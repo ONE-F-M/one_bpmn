@@ -262,13 +262,18 @@ CREATE_PAYLOAD_CONTRACT = {
 	"agent_name": "Human-readable agent name (required).",
 	"agent_id": "Machine id; auto-derived from the name when omitted.",
 	"chat_mode_label": (
-		"Label shown in chat mode pickers (must be unique). Required, EXCEPT when "
-		"process_model names a non-chat map — a process-embedded agent never appears in chat."
+		"Label shown in chat mode pickers (must be unique). Required, EXCEPT when the "
+		"payload's process_model carries a valid non-chat map — the exception only applies "
+		"when process_model is actually INCLUDED in proposed_config and names a real BPMN "
+		"Process Model record. If you are not including a valid process_model, "
+		"chat_mode_label is REQUIRED and creation fails without it."
 	),
 	"process_model": (
-		"Name of the BPMN Process Model this agent is mapped to (WI-001997). When the agent "
-		"is being created from a task dialog, propose the process currently open in the "
-		"editor; ask the designer rather than guessing. Omit for a mapless Direct-API chat agent."
+		"EXACT BPMN Process Model record name this agent is mapped to (WI-001997) — take it "
+		"verbatim from the platform context line 'PROCESS MODEL OPEN IN THE EDITOR'; the "
+		"human-facing process or diagram title is a DIFFERENT string and will be rejected. "
+		"Never invent or abbreviate it; if the context does not provide it, ask the designer. "
+		"Omit for a mapless Direct-API chat agent (then chat_mode_label is required)."
 	),
 	"ai_model": "Name of an AI Model catalog record — the agent's provider follows from this model's credentials link (WI-001655).",
 	"system_prompt": "The agent's system prompt; leave empty to have the creation process generate one from the description.",

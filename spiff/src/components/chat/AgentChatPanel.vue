@@ -411,9 +411,25 @@ async function answerChoice(item, option) {
 
 function onCardAction(item, action, payload) {
 	// A decision made retires the card's buttons (WI-001673 done-state):
-	// the host applies exactly once, and a stale card cannot re-fire.
+	// the host applies exactly once, and a stale card cannot re-fire. The
+	// done state is optimistic — an async host that FAILS to apply must call
+	// fail(message) so the card un-retires and the transcript says what went
+	// wrong (observed live 2026-08-09: 'Created and linked' shown while the
+	// create endpoint had rejected the proposal into an invisible log).
 	item.doneAction = action;
-	emit("card-action", { name: item.name, action, value: item.value, payload });
+	emit("card-action", {
+		name: item.name,
+		action,
+		value: item.value,
+		payload,
+		fail: (message) => {
+			item.doneAction = "";
+			if (message) {
+				items.value.push({ kind: "agent", text: message });
+				scrollDown();
+			}
+		},
+	});
 }
 
 // ── composer toolbar (markdown markers, kept deliberately simple) ───────────

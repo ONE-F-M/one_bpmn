@@ -1210,6 +1210,15 @@ def build_assistant_turn_context(context: dict) -> dict:
 	catalog = _catalog_for_mode("agent")
 	dialog_context_parts = [
 		_creation_capability_block(),
+		(
+			"PROCESS MODEL OPEN IN THE EDITOR: '{0}' — this is the exact BPMN "
+			"Process Model record name. Use it VERBATIM as "
+			"proposed_config.process_model when the agent should be mapped to "
+			"this process; the human-facing process or diagram title is a "
+			"different string and will be rejected.".format(grounding["process_model"])
+			if grounding.get("process_model")
+			else ""
+		),
 		_linked_config_block(grounding.get("linked_config") or ""),
 		_build_full_diagram_block(grounding.get("bpmn_xml") or "", grounding.get("element_id") or ""),
 		_build_context_block(

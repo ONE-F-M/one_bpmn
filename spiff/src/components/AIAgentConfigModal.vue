@@ -724,6 +724,10 @@ const chatPanel = ref(null);
 const assistantTurnContext = computed(() => ({
   assistant_dialog: {
     linked_config: form.value.aiAgentConfig || "",
+    // The EXACT open BPMN Process Model record name — the assistant needs it
+    // verbatim for proposed_config.process_model (the human-facing process
+    // title is a different string and fails the WI-001997 creation gate).
+    process_model: window.__ONE_BPMN_CURRENT_MODEL__ || "",
     current_config: JSON.stringify({
       aiModel: form.value.aiModel,
       aiSystemPrompt: form.value.aiSystemPrompt,
@@ -737,10 +741,10 @@ const assistantTurnContext = computed(() => ({
 // WI-001674: cards render and request — the HOST applies. The panel re-emits
 // card actions here; each maps onto the SAME handlers/endpoints the legacy
 // cards used, so permission checks and the creation process are identical.
-async function onAssistantCardAction({ name, action, value }) {
+async function onAssistantCardAction({ name, action, value, fail }) {
   if (action === "dismiss") return;
   if (action === "confirm-create" && name === "onefm.proposed_config") {
-    await createProposedAgent({ proposal: value.proposal, proposalState: null });
+    await createProposedAgent({ proposal: value.proposal, proposalState: null }, fail);
     return;
   }
   if (action === "apply-fields" && name === "onefm.proposed_update") {
@@ -748,7 +752,7 @@ async function onAssistantCardAction({ name, action, value }) {
     // A proposed update to an EXISTING config goes through the WI-001637
     // write-back; plain recommendations apply onto the open form.
     if (fields.config_name) {
-      await applyProposedUpdate({ update: fields, updateState: null });
+      await applyProposedUpdate({ update: fields, updateState: null }, fail);
     } else {
       for (const [key, val] of Object.entries(fields)) {
         applyRecommendation(null, key, val);
@@ -1309,7 +1313,7 @@ function proposalRows(proposal) {
 // "+ Create new…" panel, so permission checks and the Chat+Draft insert (which
 // starts the creation process) are identical. On success the new agent is
 // linked on this shape and its values pulled into the form.
-async function createProposedAgent(m) {
+async function createProposedAgent(m, onFail) {
   if (m.proposalState === "creating") return;
   m.proposalState = "creating";
   try {
@@ -1325,12 +1329,19 @@ async function createProposedAgent(m) {
     m.proposalResult = res;
   } catch (e) {
     m.proposalState = null;
-    messages.value.push({
-      id: makeId(),
-      role: "assistant",
-      content: "⚠️ Could not create the agent: " + (e?.message || e),
-    });
-    scrollBottom();
+    // The server's throw is the ground truth ("chat mode label required",
+    // "model does not exist", duplicate name…). Surface it where the user is
+    // looking: the shared panel's transcript, un-retiring the card (fail),
+    // falling back to the legacy transcript for the old card path.
+    const text =
+      "⚠️ Could not create the agent: " +
+      ((e?.messages && e.messages.length && e.messages.join("\n")) || e?.message || e);
+    if (onFail) {
+      onFail(text);
+    } else {
+      messages.value.push({ id: makeId(), role: "assistant", content: text });
+      scrollBottom();
+    }
   }
 }
 
@@ -1339,7 +1350,7 @@ async function createProposedAgent(m) {
 // a Needs-Attention agent's waiting instance resumes on save, a Live chat
 // agent re-provisions. If the changed config is the one linked on this shape,
 // its fresh values are pulled back into the form and the badge refreshed.
-async function applyProposedUpdate(m) {
+async function applyProposedUpdate(m, onFail) {
   if (m.updateState === "applying") return;
   m.updateState = "applying";
   try {
@@ -1358,12 +1369,15 @@ async function applyProposedUpdate(m) {
     }
   } catch (e) {
     m.updateState = null;
-    messages.value.push({
-      id: makeId(),
-      role: "assistant",
-      content: "⚠️ Could not apply the change: " + (e?.message || e),
-    });
-    scrollBottom();
+    const text =
+      "⚠️ Could not apply the change: " +
+      ((e?.messages && e.messages.length && e.messages.join("\n")) || e?.message || e);
+    if (onFail) {
+      onFail(text);
+    } else {
+      messages.value.push({ id: makeId(), role: "assistant", content: text });
+      scrollBottom();
+    }
   }
 }
 
