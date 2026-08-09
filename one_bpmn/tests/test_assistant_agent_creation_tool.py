@@ -64,16 +64,20 @@ class TestAssistantAgentCreationTool(FrappeTestCase):
 				"ai_model",
 				"chat_mode_label",
 				"description",
+				"process_model",
 				"system_prompt",
 			],
 		)
 		# What the creation process's Validate step demands has to be mandatory
 		# here, or the model calls the tool and gets an error back instead of
 		# asking the designer. system_prompt is NOT required: the process
-		# generates it from description when empty.
+		# generates it from description when empty. chat_mode_label is NOT
+		# required either (WI-001997): a process-embedded agent (non-chat
+		# process_model) needs no label, so the tool script and the endpoint
+		# enforce the label conditionally instead of the schema.
 		self.assertEqual(
 			sorted(shape["required"]),
-			["agent_name", "ai_model", "chat_mode_label"],
+			["agent_name", "ai_model"],
 		)
 
 	def test_contract_asks_for_a_model_not_a_provider(self):
@@ -139,10 +143,15 @@ class TestAssistantAgentCreationTool(FrappeTestCase):
 
 		rule_fields = {r["field"] for r in VALIDATION_RULES}
 		shape = _extract_tool_shapes(_adhoc(), BPMN_NS, SPIFF_NS)[0]
-		# ai_model and chat_mode_label are validated and must be collected up front.
-		for field in ("ai_model", "chat_mode_label"):
-			self.assertIn(field, rule_fields)
-			self.assertIn(field, shape["required"])
+		# ai_model is validated unconditionally and must be collected up front.
+		self.assertIn("ai_model", rule_fields)
+		self.assertIn("ai_model", shape["required"])
+		# chat_mode_label is validated CONDITIONALLY (WI-001997: waived for
+		# agents mapped to a non-chat process), so it stays in the schema but
+		# out of required — the tool script enforces it when no map is given.
+		self.assertIn("chat_mode_label", rule_fields)
+		self.assertIn("chat_mode_label", shape["parameters"])
+		self.assertNotIn("chat_mode_label", shape["required"])
 		# The provider is derived, never supplied.
 		self.assertIn("ai_provider_credentials", rule_fields)
 		self.assertNotIn("ai_provider_credentials", shape["parameters"])

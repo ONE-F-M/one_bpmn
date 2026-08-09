@@ -42,7 +42,31 @@ class AIAgentConfiguration(Document):
 		self.derive_provider_from_model()
 		self.validate_required_variables()
 		self.validate_unique_chat_mode_label()
+		self.validate_chat_label_against_map()
 		self.validate_agent_creation_grant()
+
+	def validate_chat_label_against_map(self):
+		"""WI-001997: a chat mode label promises the agent appears in chat,
+		which only works when its linked map has the chat start pattern (a
+		start event conditioned on Chat Conversation insert). A label on an
+		agent mapped to any other process is a false promise — reject it and
+		say why. Agents with no linked map keep their label: mapless Chat
+		agents chat through the direct path."""
+		if self.agent_type != "Chat" or not self.chat_mode_label or not self.process_model:
+			return
+
+		from one_bpmn.agents.agent_provisioning import is_chat_startable_map
+
+		if is_chat_startable_map(self.process_model) is False:
+			frappe.throw(
+				_(
+					"'{0}' is not a chat-startable map — it has no start event conditioned "
+					"on Chat Conversation insert, so this agent can never appear in chat. "
+					"Clear the Chat Mode Label (the agent still runs inside its process), "
+					"or link a map that starts on Chat Conversation."
+				).format(self.process_model),
+				title=_("Map is not chat-startable"),
+			)
 
 	def validate_agent_creation_grant(self):
 		"""At most one configuration may hold the agent-creation grant, and it

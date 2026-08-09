@@ -26,8 +26,29 @@ VALIDATION_RULES = (
 	{"field": "system_prompt", "rule": "must be non-empty (or a description provided so the creation process can generate one)"},
 	{"field": "ai_model", "rule": "must link an AI Model catalog record — the provider is derived from the model's credentials link (WI-001655)"},
 	{"field": "ai_provider_credentials", "rule": "derived from the model; the derived record must exist and be ENABLED; a live test call is made against it"},
-	{"field": "chat_mode_label", "rule": "required for Chat agents; must be unique across agents"},
+	{"field": "chat_mode_label", "rule": "required for Chat agents unless the agent is mapped to a non-chat process map (WI-001997); must be unique across agents"},
 )
+
+
+def is_chat_startable_map(model_name: str) -> bool | None:
+	"""Whether a BPMN Process Model can serve a chat surface (WI-001997).
+
+	A chat-startable map begins with the chat pattern: a start event whose
+	conditionalEventDefinition triggers on Chat Conversation insert
+	(``spiffworkflow:triggerDoctype="Chat Conversation"``). Any other map — a
+	record-triggered business process, a manually started one — runs fine as a
+	process but can never receive a chat turn.
+
+	Returns True/False for a map that exists, and None when the model is
+	missing or has no XML, so callers can distinguish "not a chat map" from
+	"no map at all" (a mapless Chat agent chats through the direct path).
+	"""
+	if not model_name:
+		return None
+	xml = frappe.db.get_value("BPMN Process Model", model_name, "bpmn_xml")
+	if not xml:
+		return None
+	return 'triggerDoctype="Chat Conversation"' in xml
 
 
 def validate_agent_config(config_name: str, test_provider: bool = True, require_prompt: bool = True) -> dict:
@@ -72,9 +93,12 @@ def validate_agent_config(config_name: str, test_provider: bool = True, require_
 	elif not frappe.db.get_value("AI Provider Credentials", cfg.ai_provider_credentials, "enabled"):
 		errors.append(_("The linked AI Provider Credentials record is disabled."))
 
-	# 4. Chat-type essentials
+	# 4. Chat-type essentials — a label, unless the agent is mapped to a
+	# non-chat process map (WI-001997: a process-embedded agent never appears
+	# in the chat picker, so it needs no label).
 	if cfg.agent_type == "Chat" and not cfg.chat_mode_label:
-		errors.append(_("Chat agents need a chat mode label."))
+		if is_chat_startable_map(cfg.process_model) is not False:
+			errors.append(_("Chat agents need a chat mode label."))
 
 	# 5. Live provider test call
 	if test_provider and cfg.ai_provider_credentials and not errors:

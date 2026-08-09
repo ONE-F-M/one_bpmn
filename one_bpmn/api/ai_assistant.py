@@ -174,7 +174,7 @@ def recommend_ai_task_config(
 		dialog_context_parts = [
 			_creation_capability_block(),
 			_linked_config_block(linked_config),
-			_build_full_diagram_block(bpmn_xml, element_id),
+			_build_full_diagram_block(bpmn_xml, element_id, process_model=process_model),
 			context_block,
 			_build_current_config_block(current_config, catalog),
 		]
@@ -837,7 +837,7 @@ def _build_current_config_block(current_config: str, catalog: dict) -> str:
 _MAX_DIAGRAM_CHARS = 24000
 
 
-def _build_full_diagram_block(bpmn_xml: str, element_id: str = "") -> str:
+def _build_full_diagram_block(bpmn_xml: str, element_id: str = "", process_model: str = "") -> str:
 	"""Read-only full-diagram grounding for agent mode (WI-001625).
 
 	Passes the complete BPMN XML so the assistant's recommendations can
@@ -845,17 +845,28 @@ def _build_full_diagram_block(bpmn_xml: str, element_id: str = "") -> str:
 	rather than the shape in isolation. Read-only: the assistant proposes
 	field values; it never edits the diagram. Oversized diagrams are
 	truncated with an explicit marker so the prompt stays bounded.
+
+	``process_model`` names the BPMN Process Model open in the editor —
+	WI-001997: agent creation asks which process the agent is mapped to, and
+	this name is the default the assistant should propose.
 	"""
 	xml = (bpmn_xml or "").strip()
+	model_line = (
+		f"CURRENT PROCESS MODEL: '{process_model}' — the process open in the editor, "
+		"and the default process_model when creating an agent from this dialog.\n"
+		if (process_model or "").strip()
+		else ""
+	)
 	if not xml:
-		return ""
+		return model_line.strip()
 	truncated = ""
 	if len(xml) > _MAX_DIAGRAM_CHARS:
 		xml = xml[:_MAX_DIAGRAM_CHARS]
 		truncated = "\n<!-- … diagram truncated for length … -->"
 	focus = f" The AI task being configured is element id '{element_id}'." if element_id else ""
 	return (
-		"FULL PROCESS DIAGRAM (read-only context)."
+		model_line
+		+ "FULL PROCESS DIAGRAM (read-only context)."
 		+ focus
 		+ " Use it to ground your recommendations in the surrounding shapes, "
 		"sequence flows and process variables; do not propose edits to the "
