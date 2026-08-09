@@ -24,6 +24,7 @@ class TestContractData(FrappeTestCase):
 			"onefm.proposed_config",
 			"onefm.proposed_update",
 			"onefm.script_diff",
+			"onefm.test_cases",
 			"onefm.bpmn_preview",
 			"onefm.doctype_schema",
 			"onefm.table",
