@@ -593,6 +593,35 @@ class TestRefusalReachesTheUser(FrappeTestCase):
 
 	SURFACES = ("ProsAlly", "Logix", "Docu")
 
+	def test_the_delegation_layer_lets_a_refusal_through(self):
+		"""Where the wrong message really came from.
+
+		A map-driven agent raises the refusal deep inside the map: its "Save User
+		Message" task inserts the Chat Message, and that insert's before_insert
+		hook enforces the limit. The exception surfaced at
+		_delegate_to_bpmn_instance, which caught ValidationError to mean "the
+		instance is not waiting" and returned None — and the caller turned None
+		into "the process is not running, please reopen the chat". Every endpoint
+		below already had an `except RateLimited` branch; none of them could ever
+		be reached, because the refusal was swallowed a layer earlier.
+		"""
+		from unittest.mock import patch
+
+		from one_bpmn.api import server_script_api as SSA
+		from one_bpmn.security.rate_limit import RateLimited
+
+		class Instance:
+			def receive_message(self, *args, **kwargs):
+				frappe.throw("too quickly", RateLimited, title="Rate Limit Reached")
+
+		with patch.object(
+			frappe.db, "get_value",
+			side_effect=lambda dt, *a, **k: frappe._dict({"name": "ZZ-INST", "status": "Active"})
+			if dt == "BPMN Process Instance" else None,
+		), patch.object(frappe, "get_doc", return_value=Instance()):
+			with self.assertRaises(RateLimited):
+				SSA._delegate_to_bpmn_instance("ZZ-CONV", "hello", {})
+
 	def setUp(self):
 		frappe.set_user("Administrator")
 		self._settings(rate_limit_enabled=1, rate_limit_messages=1,

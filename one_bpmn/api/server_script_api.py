@@ -95,6 +95,17 @@ def _delegate_to_bpmn_instance(conversation_name: str, message: str, context: di
 	try:
 		instance = frappe.get_doc("BPMN Process Instance", inst_name)
 		instance.receive_message("ChatConversation_Message_Action", payload=payload)
+	except RateLimited:
+		# A throttle or a conversation freeze is a decision, not a dead instance.
+		# It is raised deep inside the map — the "Save User Message" task inserts
+		# the Chat Message, whose before_insert hook enforces the limit — and
+		# RateLimited subclasses ValidationError, so without this it was caught
+		# just below, turned into None, and the caller then reported "the process
+		# is not running for this conversation. Please reopen the chat." The user
+		# was told to reopen a chat that was working perfectly, and the real
+		# reason never reached them. Every map-driven agent came through here, so
+		# one re-raise fixes all of them.
+		raise
 	except frappe.ValidationError:
 		# Instance is not currently waiting for a message.
 		return None
