@@ -306,6 +306,30 @@
             </p>
           </template>
 
+          <!-- ============ Screening (WI-001970) ============ -->
+          <!-- Rendered from the agent's OWN fields, not a hard-coded list. The
+               output mode (15.1) and the injection mode (WI-001840) do not exist
+               yet; when those stories add them the control appears here on its
+               own, with the doctype's label, options and description. A screen
+               that assumed them would offer a control writing nowhere. -->
+          <template v-if="!isSelector && form.aiAgentConfig && screeningControls.length">
+            <div class="field-group-title">Screening</div>
+            <div class="field-row" v-for="c in screeningControls" :key="c.fieldname">
+              <label>{{ c.label }}</label>
+              <select v-if="c.fieldtype === 'Select'" v-model="c.value">
+                <option v-for="o in c.options" :key="o" :value="o">{{ o }}</option>
+              </select>
+              <input v-else-if="c.fieldtype === 'Check'" type="checkbox" class="checkbox-input"
+                     :checked="c.value == 1" @change="c.value = $event.target.checked ? 1 : 0" />
+              <input v-else type="text" v-model="c.value" />
+              <span class="field-hint" v-if="c.description">{{ c.description }}</span>
+            </div>
+            <p class="field-hint" style="margin-top: 6px;">
+              Screening settings are stored on the linked AI Agent Configuration and apply
+              wherever this agent runs.
+            </p>
+          </template>
+
           <!-- ============ Memory ============ -->
           <div class="field-group-title" v-if="!isSelector">Memory</div>
 
@@ -742,6 +766,43 @@ async function refreshLinkedAgentStatus() {
 }
 
 const rerunning = ref(false);
+
+// ── Per-agent screening (WI-001970) ─────────────────────────────────────────
+// The list comes from the server, which reads the doctype's real fields, so this
+// component never has to know which screening stories have shipped.
+const screeningControls = ref([]);
+
+async function loadScreening() {
+  screeningControls.value = [];
+  const name = form.value.aiAgentConfig;
+  if (!name || name === "__create__") return;
+  try {
+    const r = await frappeRequest({
+      url: "/api/method/one_bpmn.api.security_api.agent_screening",
+      method: "POST",
+      params: { agent: name },
+    });
+    screeningControls.value = (r && r.controls) || [];
+  } catch (e) {
+    /* an unreadable agent simply shows no screening section */
+  }
+}
+
+async function saveScreening() {
+  const name = form.value.aiAgentConfig;
+  if (!name || !screeningControls.value.length) return;
+  const values = {};
+  screeningControls.value.forEach((c) => { values[c.fieldname] = c.value; });
+  try {
+    await frappeRequest({
+      url: "/api/method/one_bpmn.api.security_api.save_agent_screening",
+      method: "POST",
+      params: { agent: name, values: JSON.stringify(values) },
+    });
+  } catch (e) {
+    showNotice("Screening settings not saved", serverMessage(e));
+  }
+}
 
 // Hand the agent back to the Agent Creation Process. Decides nothing itself —
 // whether it may go Live stays the map's call; this only asks it to look again,
@@ -1318,6 +1379,7 @@ onMounted(async () => {
   // WI-001639: the agent owns examples and guard rails — show its rows, not an
   // empty pair of sections, so Save can't write a blank static context back.
   await loadStaticContextFromConfig();
+  await loadScreening();
 });
 
 // Pull the linked configuration's current values into the form (WI-001637
@@ -1404,6 +1466,7 @@ async function onAgentConfigSelect() {
     form.value.aiExamples = Array.isArray(fields?.aiExamples) ? fields.aiExamples : [];
     form.value.aiGuardrails = Array.isArray(fields?.aiGuardrails) ? fields.aiGuardrails : [];
     staticContextLoaded.value = true;
+    await loadScreening();
   } catch (e) {
     /* leave the current field values as-is if the seed lookup fails */
   }
@@ -1577,6 +1640,9 @@ async function writeBackToConfig() {
     fields.aiExamples = form.value.aiExamples;
     fields.aiGuardrails = form.value.aiGuardrails;
   }
+  // Screening goes through security_api, which accepts ONLY screening fields —
+  // keeping this endpoint from becoming a general writer for the whole agent.
+  await saveScreening();
   try {
     await frappeRequest({
       url: "/api/method/one_bpmn.agents.agent_config_resolver.update_agent_config_from_shape",

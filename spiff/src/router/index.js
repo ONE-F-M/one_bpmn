@@ -70,6 +70,11 @@ const routes = [
 		props: true,
 	},
 	{
+		path: "/processa/security",
+		name: "Security",
+		component: () => import("@/views/Security.vue"),
+	},
+	{
 		path: "/:pathMatch(.*)*",
 		redirect: "/processa",
 	},
