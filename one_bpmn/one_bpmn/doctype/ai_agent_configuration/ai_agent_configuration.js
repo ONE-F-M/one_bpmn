@@ -23,6 +23,41 @@ frappe.ui.form.on("AI Agent Configuration", {
 		frm.events.render_required_variables(frm);
 		frm.events.set_lifecycle_indicator(frm);
 		frm.events.show_needs_attention_reason(frm);
+		frm.events.add_rerun_button(frm);
+	},
+
+	add_rerun_button(frm) {
+		// WI-001969: the Agent Creation Process re-checks an agent when the
+		// record is saved — it waits on the Config Edited message. That works,
+		// but it means "make a change you do not want, so the checks run again",
+		// which nobody should have to know. This is the same trigger, named.
+		//
+		// Draft and Needs Attention only: Live is already past this, and Retired
+		// is a deliberate state the process must not resurrect.
+		if (frm.is_new()) return;
+		if (!["Draft", "Needs Attention"].includes(frm.doc.lifecycle_status)) return;
+
+		frm.add_custom_button(__("Re-run Checks"), () => {
+			frappe.dom.freeze(__("Handing the agent back to the creation process…"));
+			frappe.call({
+				method: "one_bpmn.agents.agent_provisioning.rerun_creation_process",
+				args: { agent: frm.doc.name },
+				callback(r) {
+					frappe.dom.unfreeze();
+					if (!r.message || !r.message.ok) return;
+					frappe.show_alert({
+						message: __(
+							"Sent back through the creation process. It runs in the background — "
+							+ "refresh in a moment to see the result."
+						),
+						indicator: "blue",
+					}, 8);
+				},
+				error() {
+					frappe.dom.unfreeze();
+				},
+			});
+		}).addClass("btn-primary");
 	},
 
 	set_lifecycle_indicator(frm) {

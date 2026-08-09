@@ -343,6 +343,54 @@ class TestReReviewGoesThroughTheGate(FrappeTestCase):
 		"""Fails closed: this feeds a release gate."""
 		self.assertTrue(is_conversational("ZZ no such agent"))
 
+	# ------------------------------------------------------------------
+	# Re-running the checks without a sham edit
+	# ------------------------------------------------------------------
+	def test_rerun_refuses_an_agent_the_process_is_past(self):
+		"""Live is already through, and Retired is a deliberate state the
+		creation process must not resurrect."""
+		from one_bpmn.agents.agent_provisioning import rerun_creation_process
+
+		for status in ("Live", "Retired"):
+			doc = self._agent(status=status)
+			with self.assertRaises(frappe.ValidationError):
+				rerun_creation_process(doc.name)
+			self._cleanup()
+
+	def test_rerun_hands_a_parked_agent_back_to_the_map(self):
+		"""It decides nothing — whether the agent may go Live stays the map's
+		call. This only asks the map to look again."""
+		from one_bpmn.agents import agent_provisioning as AP
+
+		doc = self._agent()
+		with patch("one_bpmn.one_bpmn.trigger._maybe_send_message"), patch(
+			"one_bpmn.agents.agent_config_resolver.get_creation_process_model",
+			return_value="Some Creation Map",
+		), patch(
+			"one_bpmn.agents.agent_config_resolver._start_reprovision", return_value=True
+		) as start:
+			res = AP.rerun_creation_process(doc.name)
+
+		self.assertTrue(res["ok"])
+		self.assertEqual(res["action"], "started")
+		self.assertTrue(start.called)
+		self.assertEqual(
+			frappe.db.get_value("AI Agent Configuration", doc.name, "lifecycle_status"),
+			"Needs Attention",
+			"asking for a re-run must not itself change the lifecycle",
+		)
+
+	def test_rerun_refuses_when_no_creation_process_is_deployed(self):
+		from one_bpmn.agents import agent_provisioning as AP
+
+		doc = self._agent()
+		with patch(
+			"one_bpmn.agents.agent_config_resolver.get_creation_process_model",
+			return_value=None,
+		):
+			with self.assertRaises(frappe.ValidationError):
+				AP.rerun_creation_process(doc.name)
+
 	def test_the_gate_library_does_not_second_guess_agent_type(self):
 		"""Conversational exposure is what the gate is about, but WHICH agents
 		are subject to it is the map's call — its start condition is
