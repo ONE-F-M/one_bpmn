@@ -125,12 +125,8 @@
 					<div v-if="events.length" class="flex items-center justify-between border-t px-4 py-2 text-xs text-gray-500">
 						<span>Showing {{ start + 1 }}–{{ start + events.length }} of {{ total }}</span>
 						<span class="flex gap-2">
-							<button class="px-2 py-1 border rounded disabled:opacity-40" :disabled="start === 0" @click="loadEvents(start - pageSize)">
-								Previous
-							</button>
-							<button class="px-2 py-1 border rounded disabled:opacity-40" :disabled="start + pageSize >= total" @click="loadEvents(start + pageSize)">
-								Next
-							</button>
+							<Button variant="subtle" :disabled="start === 0" @click="loadEvents(start - pageSize)">Previous</Button>
+							<Button variant="subtle" :disabled="start + pageSize >= total" @click="loadEvents(start + pageSize)">Next</Button>
 						</span>
 					</div>
 				</div>
@@ -145,7 +141,10 @@
 							You can read the pack; editing it is restricted to System Manager.
 						</span>
 					</p>
-					<button v-if="can.edit_patterns" class="btn-primary" @click="editPattern(null)">＋ New rule</button>
+					<Button v-if="can.edit_patterns" variant="solid" @click="editPattern(null)">
+						<template #prefix><FeatherIcon name="plus" class="w-4 h-4" /></template>
+						New rule
+					</Button>
 				</div>
 
 				<div class="bg-white rounded-lg shadow-sm overflow-hidden">
@@ -181,7 +180,7 @@
 								</td>
 								<td class="px-4 py-2 text-gray-500">{{ p.action }}</td>
 								<td class="px-4 py-2 text-right">
-									<button v-if="can.edit_patterns" class="text-xs text-blue-600 hover:underline" @click="editPattern(p)">Edit</button>
+									<Button v-if="can.edit_patterns" variant="ghost" @click="editPattern(p)">Edit</Button>
 								</td>
 							</tr>
 						</tbody>
@@ -226,7 +225,7 @@
 									<div v-else-if="l.user === me" class="text-xs text-gray-500">
 										You cannot release your own — another reviewer has to.
 									</div>
-									<button v-else class="text-xs text-blue-600 hover:underline" @click="openRelease(l)">Release…</button>
+									<Button v-else variant="subtle" @click="openRelease(l)">Release…</Button>
 								</td>
 							</tr>
 						</tbody>
@@ -295,98 +294,79 @@
 		</div>
 
 		<!-- ── Pattern editor ─────────────────────────────────────────────── -->
-		<div v-if="patternDraft" class="fixed inset-0 bg-black/30 flex items-center justify-center z-50 p-6" @click.self="patternDraft = null">
-			<div class="bg-white rounded-lg shadow-xl max-w-xl w-full max-h-[85vh] overflow-auto">
-				<div class="flex items-center justify-between border-b px-5 py-3">
-					<h2 class="font-semibold text-gray-900">{{ patternDraft.name ? "Edit rule" : "New rule" }}</h2>
-					<button class="text-gray-400 hover:text-gray-700" @click="patternDraft = null">✕</button>
-				</div>
-				<div class="p-5 space-y-3">
-					<label class="block">
-						<span class="text-xs text-gray-500">Rule name</span>
-						<input v-model="patternDraft.pattern_name" type="text" class="border rounded px-2 py-1 text-sm w-full" />
-					</label>
-					<label class="block">
-						<span class="text-xs text-gray-500">Pattern</span>
-						<textarea v-model="patternDraft.pattern" rows="3" class="border rounded px-2 py-1 text-sm w-full font-mono"></textarea>
-					</label>
-					<div class="grid grid-cols-2 gap-3">
-						<label class="block">
-							<span class="text-xs text-gray-500">Type</span>
-							<select v-model="patternDraft.pattern_type" class="border rounded px-2 py-1 text-sm w-full">
-								<option v-for="o in enums.pattern_type" :key="o" :value="o">{{ o }}</option>
-							</select>
-						</label>
-						<label class="block">
-							<span class="text-xs text-gray-500">Match mode</span>
-							<select v-model="patternDraft.match_mode" class="border rounded px-2 py-1 text-sm w-full">
-								<option v-for="o in enums.match_mode" :key="o" :value="o">{{ o }}</option>
-							</select>
-						</label>
-						<label class="block">
-							<span class="text-xs text-gray-500">Severity</span>
-							<select v-model="patternDraft.severity" class="border rounded px-2 py-1 text-sm w-full">
-								<option v-for="o in enums.severity" :key="o" :value="o">{{ o }}</option>
-							</select>
-						</label>
-						<label class="block">
-							<span class="text-xs text-gray-500">Action</span>
-							<select v-model="patternDraft.action" class="border rounded px-2 py-1 text-sm w-full">
-								<option v-for="o in enums.action" :key="o" :value="o">{{ o }}</option>
-							</select>
-						</label>
-						<label class="block col-span-2">
-							<span class="text-xs text-gray-500">Boundary scope</span>
-							<select v-model="patternDraft.boundary_scope" class="border rounded px-2 py-1 text-sm w-full">
-								<option v-for="o in enums.boundary_scope" :key="o" :value="o">{{ o }}</option>
-							</select>
-						</label>
+		<Dialog
+			:modelValue="!!patternDraft"
+			:options="{ title: patternDraft && patternDraft.name ? 'Edit rule' : 'New rule', size: 'xl' }"
+			@update:modelValue="(v) => { if (!v) patternDraft = null }"
+		>
+			<template #body-content>
+				<div v-if="patternDraft" class="space-y-4">
+					<FormControl type="text" label="Rule name" v-model="patternDraft.pattern_name" />
+					<FormControl
+						type="textarea"
+						label="Pattern"
+						:rows="3"
+						v-model="patternDraft.pattern"
+						class="font-mono"
+					/>
+					<div class="grid grid-cols-2 gap-4">
+						<FormControl type="select" label="Type" v-model="patternDraft.pattern_type" :options="enumOptions.pattern_type" />
+						<FormControl type="select" label="Match mode" v-model="patternDraft.match_mode" :options="enumOptions.match_mode" />
+						<FormControl type="select" label="Severity" v-model="patternDraft.severity" :options="enumOptions.severity" />
+						<FormControl type="select" label="Action" v-model="patternDraft.action" :options="enumOptions.action" />
+						<div class="col-span-2">
+							<FormControl type="select" label="Boundary scope" v-model="patternDraft.boundary_scope" :options="enumOptions.boundary_scope" />
+						</div>
 					</div>
-					<label class="block">
-						<span class="text-xs text-gray-500">Notes</span>
-						<textarea v-model="patternDraft.notes" rows="2" class="border rounded px-2 py-1 text-sm w-full"></textarea>
-					</label>
-					<label class="flex items-center gap-2 text-sm">
-						<input type="checkbox" v-model="patternDraft.enabled" :true-value="1" :false-value="0" />
-						Enabled
-					</label>
-					<p v-if="patternError" class="text-sm text-red-600 whitespace-pre-line">{{ patternError }}</p>
+					<FormControl type="textarea" label="Notes" :rows="2" v-model="patternDraft.notes" />
+					<FormControl type="checkbox" label="Enabled" v-model="patternEnabled" />
+					<ErrorMessage :message="patternError" />
 				</div>
-				<div class="flex justify-end gap-2 border-t px-5 py-3">
-					<button class="btn-plain" @click="patternDraft = null">Cancel</button>
-					<button class="btn-primary" :disabled="savingPattern" @click="savePattern">
-						{{ savingPattern ? "Saving…" : "Save rule" }}
-					</button>
+			</template>
+			<template #actions>
+				<div class="flex justify-end gap-2">
+					<Button variant="subtle" @click="patternDraft = null">Cancel</Button>
+					<Button variant="solid" :loading="savingPattern" @click="savePattern">Save rule</Button>
 				</div>
-			</div>
-		</div>
+			</template>
+		</Dialog>
 
 		<!-- ── Release dialog ─────────────────────────────────────────────── -->
-		<div v-if="releasing" class="fixed inset-0 bg-black/30 flex items-center justify-center z-50 p-6" @click.self="releasing = null">
-			<div class="bg-white rounded-lg shadow-xl max-w-lg w-full">
-				<div class="border-b px-5 py-3 font-semibold text-gray-900">Release this conversation</div>
-				<div class="p-5 space-y-3 text-sm">
-					<p class="text-gray-600">
+		<Dialog
+			:modelValue="!!releasing"
+			:options="{ title: 'Release this conversation', size: 'lg' }"
+			@update:modelValue="(v) => { if (!v) releasing = null }"
+		>
+			<template #body-content>
+				<div v-if="releasing" class="space-y-4">
+					<p class="text-sm text-gray-600">
 						Releasing lets <span class="font-medium">{{ releasing.user }}</span> talk to
 						<span class="font-medium">{{ releasing.agent_configuration }}</span> again.
 						Your note is kept as the audit trail.
 					</p>
-					<textarea
+					<FormControl
+						type="textarea"
+						label="Reason"
+						:rows="3"
 						v-model="releaseNotes"
-						rows="3"
-						class="border rounded px-2 py-1 text-sm w-full"
 						placeholder="Why is this being released?"
-					></textarea>
-					<p v-if="releaseError" class="text-red-600 whitespace-pre-line">{{ releaseError }}</p>
+					/>
+					<ErrorMessage :message="releaseError" />
 				</div>
-				<div class="flex justify-end gap-2 border-t px-5 py-3">
-					<button class="btn-plain" @click="releasing = null">Cancel</button>
-					<button class="btn-primary" :disabled="releaseBusy || !releaseNotes.trim()" @click="doRelease">
-						{{ releaseBusy ? "Releasing…" : "Release" }}
-					</button>
+			</template>
+			<template #actions>
+				<div class="flex justify-end gap-2">
+					<Button variant="subtle" @click="releasing = null">Cancel</Button>
+					<Button
+						variant="solid"
+						theme="red"
+						:loading="releaseBusy"
+						:disabled="!releaseNotes.trim()"
+						@click="doRelease"
+					>Release</Button>
 				</div>
-			</div>
-		</div>
+			</template>
+		</Dialog>
 	</div>
 </template>
 
@@ -398,7 +378,7 @@
 // action — so this screen can never become a second, divergent implementation
 // of the rules it displays.
 import { computed, onMounted, reactive, ref } from "vue"
-import { Button, FormControl, frappeRequest } from "frappe-ui"
+import { Button, Dialog, ErrorMessage, FeatherIcon, FormControl, frappeRequest } from "frappe-ui"
 
 const API = "/api/method/one_bpmn.api.security_api."
 
@@ -464,6 +444,21 @@ const releaseError = ref("")
 const enums = ref({
 	pattern_type: [], match_mode: [], severity: [],
 	action: [], boundary_scope: [], source_taxonomy: [],
+})
+
+// FormControl wants {label, value}; pattern_options serves bare strings.
+const enumOptions = computed(() => {
+	const out = {}
+	for (const [key, values] of Object.entries(enums.value)) {
+		out[key] = (values || []).map((v) => ({ label: v, value: v }))
+	}
+	return out
+})
+
+// The doctype stores enabled as 1/0; a checkbox is a boolean.
+const patternEnabled = computed({
+	get: () => Boolean(patternDraft.value && patternDraft.value.enabled),
+	set: (v) => { if (patternDraft.value) patternDraft.value.enabled = v ? 1 : 0 },
 })
 
 // AC2 is "everything recorded", so the panel shows whatever get_event returned
@@ -624,11 +619,24 @@ async function toggle(p, enabled) {
 
 function editPattern(p) {
 	patternError.value = ""
+	// Defaults come from the options the doctype actually serves. They used to be
+	// written out here, and two of the five were values it rejects — pattern_type
+	// "Regex" (that is a match_mode) and match_mode "Case Insensitive" (not an
+	// option at all). A new rule saved without touching those two dropdowns
+	// failed validation, so "＋ New rule" → "Save rule" could not succeed.
+	const first = (key, fallback) => (enums.value[key] || [])[0] || fallback
 	patternDraft.value = p
 		? { ...p }
 		: {
-				pattern_name: "", pattern: "", pattern_type: "Regex", match_mode: "Case Insensitive",
-				severity: "Medium", action: "Log", boundary_scope: "input", notes: "", enabled: 1,
+				pattern_name: "",
+				pattern: "",
+				pattern_type: first("pattern_type", "Other"),
+				match_mode: first("match_mode", "regex"),
+				severity: "Medium",
+				action: first("action", "Log"),
+				boundary_scope: "input",
+				notes: "",
+				enabled: 1,
 			}
 }
 
