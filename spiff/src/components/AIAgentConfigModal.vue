@@ -100,6 +100,29 @@
                 + Add sample prompt
               </button>
             </div>
+            <div class="field-row two-col">
+              <div>
+                <label>PII Input Screening</label>
+                <select v-model="newAgent.pii_screening">
+                  <option value="">Default (Enabled)</option>
+                  <option value="Enabled">Enabled</option>
+                  <option value="Disabled">Disabled</option>
+                </select>
+              </div>
+              <div>
+                <label>Output Screening</label>
+                <select v-model="newAgent.output_screening_mode">
+                  <option value="">Default (Flag)</option>
+                  <option value="Log">Log — record only</option>
+                  <option value="Flag">Flag — redact the offending text</option>
+                  <option value="Block">Block — withhold the reply</option>
+                </select>
+              </div>
+            </div>
+            <span class="field-hint">
+              Screening applies to what the user sends in and what the agent says back.
+              Both can be changed later on the agent.
+            </span>
             <div class="field-row create-agent-actions">
               <button type="button" class="btn-cancel" @click="showCreateAgent = false">Cancel</button>
               <button type="button" class="btn-save" :disabled="creatingAgent" @click="createAgent">
@@ -306,12 +329,16 @@
             </p>
           </template>
 
-          <!-- ============ Screening (WI-001970) ============ -->
-          <!-- Rendered from the agent's OWN fields, not a hard-coded list. The
-               output mode (15.1) and the injection mode (WI-001840) do not exist
-               yet; when those stories add them the control appears here on its
-               own, with the doctype's label, options and description. A screen
-               that assumed them would offer a control writing nowhere. -->
+          <!-- ============ Screening ============ -->
+          <!-- Agent-level, like Memory below: what an agent may say is a property
+               of the agent, not of the task that happens to call it.
+
+               Rendered from the agent's OWN fields rather than a hard-coded list.
+               15.1 has since added the output mode and it now appears here by
+               itself, which is what this was built for; the injection mode
+               (WI-001840) will do the same. Labels, options and the explanatory
+               text all come from the doctype, so there is nothing here to drift
+               out of step with what the field actually accepts. -->
           <template v-if="!isSelector && form.aiAgentConfig && screeningControls.length">
             <div class="field-group-title">Screening</div>
             <div class="field-row" v-for="c in screeningControls" :key="c.fieldname">
@@ -727,6 +754,11 @@ const emptyNewAgent = () => ({
   system_prompt: "",
   description: "",
   sample_prompts: [],
+  // WI-001644: chosen at creation rather than left to a later visit to the desk
+  // form. Blank means "take the doctype default", so the panel never has to
+  // restate what that default is.
+  pii_screening: "",
+  output_screening_mode: "",
 });
 const newAgent = ref(emptyNewAgent());
 const scrubbedAgentId = computed(() =>
@@ -1621,6 +1653,13 @@ async function writeBackToConfig() {
     aiMaxTokens: form.value.aiMaxTokens,
   };
   if (!isSelector.value) fields.aiTemperature = form.value.aiTemperature;
+  // Screening is NOT sent here. It has its own writer (saveScreening, below),
+  // and sending it from both places meant the resolver write landed second and
+  // put the stale form value back — silently undoing whatever the user had just
+  // picked in the Screening section. The editable copy lives on
+  // screeningControls, not on form, so this endpoint has nothing current to say
+  // about it. Creation is different and still goes through the resolver: the
+  // agent has no record to read controls off yet.
   // WI-001793: memory is agent-level now, so it persists here rather than onto
   // the BPMN XML. The selector dialog has no memory section — sending its form
   // defaults would clobber the agent's real settings.

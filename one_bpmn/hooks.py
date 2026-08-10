@@ -197,7 +197,14 @@ doc_events = {
 	# text back off the stored Chat Message, so redacting the in-flight
 	# message is not enough — the stored row has to be redacted too.
 	"Chat Message": {
-		"before_insert": "one_bpmn.security.pii.screen_chat_message",
+		"before_insert": [
+			"one_bpmn.security.pii.screen_chat_message",
+			# The output half: the same argument as above, in the other direction.
+			# A map-driven agent writes its reply as a Chat Message and the surface
+			# reads it back from there, so screening only the in-flight string would
+			# be undone by the stored row.
+			"one_bpmn.security.output_screening.screen_chat_response",
+		],
 	},
 	# WI-001813: the list of Processa-controlled doctypes (used by
 	# bpmn_form_actions.js to suppress native Submit/Save/banner) is cached in

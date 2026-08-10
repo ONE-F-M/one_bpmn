@@ -218,6 +218,34 @@ class TestSecurityApi(FrappeTestCase):
 		)
 		self.assertEqual(frappe.db.get_value("AI Agent Configuration", self.agent, "enabled"), 1)
 
-	def test_an_unknown_screening_field_is_ignored_not_created(self):
+	def test_a_screening_field_whose_story_has_not_landed_is_ignored_not_created(self):
+		"""SCREENING_FIELDS names fields ahead of the stories that add them, so
+		the endpoint has to skip the ones not yet on the doctype rather than
+		inventing them.
+
+		The list is patched with a name that will never exist instead of naming a
+		real pending field. This test previously used output_screening_mode as
+		its example and started failing the moment 15.1 added it — asserting
+		against which stories have shipped dates the test, while asserting
+		against the code path does not.
+		"""
+		with patch.object(S, "SCREENING_FIELDS", (*S.SCREENING_FIELDS, "zz_not_a_real_field")):
+			out = S.save_agent_screening(self.agent, {"zz_not_a_real_field": "Block"})
+
+		self.assertEqual(out["updated"], [])
+		self.assertFalse(
+			frappe.get_meta("AI Agent Configuration").get_field("zz_not_a_real_field"),
+			"the endpoint must not create the field it was asked to write",
+		)
+
+	def test_the_output_mode_is_writable_now_that_15_1_has_added_it(self):
+		"""The other half of the above: a field that HAS landed goes through,
+		with no change to this module — which is the point of driving the list
+		off the doctype."""
 		out = S.save_agent_screening(self.agent, {"output_screening_mode": "Block"})
-		self.assertEqual(out["updated"], [], "a field 15.1 has not added yet cannot be written")
+
+		self.assertEqual(out["updated"], ["output_screening_mode"])
+		self.assertEqual(
+			frappe.db.get_value("AI Agent Configuration", self.agent, "output_screening_mode"),
+			"Block",
+		)
