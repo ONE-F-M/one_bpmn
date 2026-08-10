@@ -219,6 +219,7 @@ def recommend_ai_task_config(
 			"recommendations": recommendations,
 			"proposed_config": _sanitize_proposed_config(parsed.get("proposed_config")),
 			"proposed_update": _sanitize_proposed_update(parsed.get("proposed_update")),
+			"created_config": _sanitize_created_config(parsed.get("created_config")),
 			"conversation": (turn or {}).get("conversation"),
 		}
 
@@ -577,24 +578,37 @@ def _creation_capability_block() -> str:
 
 	return (
 		_creation_prerequisites_block()
-		+ "\n\nCREATE-AGENT RESPONSE CONTRACT:\n"
-		"When the designer asks to create a NEW agent and every required detail "
-		"above has been gathered from the conversation, add a \"proposed_config\" "
-		"object to your JSON reply (alongside \"message\") using exactly the "
-		"creation payload fields. While anything required is still missing, ask "
-		"for it via \"message\" instead — do not guess values, do not invent "
-		"provider names, and never include \"proposed_config\" until the "
-		"proposal is complete. The designer confirms the proposal in the UI "
-		"before anything is created.\n\n"
+		+ "\n\nCREATE-AGENT RESPONSE CONTRACT (two phases, never one):\n"
+		"PHASE 1 — PROPOSE. When the designer asks to create a NEW agent and "
+		"every required detail above has been gathered from the conversation, "
+		"add a \"proposed_config\" object to your JSON reply (alongside "
+		"\"message\") using exactly the creation payload fields. While anything "
+		"required is still missing, ask for it via \"message\" instead — do not "
+		"guess values, do not invent provider names, and never include "
+		"\"proposed_config\" until the proposal is complete. NEVER call the "
+		"create_agent_configuration tool in the same turn you present a "
+		"proposal.\n"
+		"PHASE 2 — CREATE ON APPROVAL. Only when the designer's LATEST message "
+		"explicitly approves a proposal you presented earlier in this "
+		"conversation (e.g. \"approved\", \"yes, create it\", \"go ahead\"), "
+		"call your create_agent_configuration tool with exactly the approved "
+		"values. When the tool succeeds, reply with \"created_config\": "
+		"{\"name\": <its agent_configuration value>, \"agent_id\": <its "
+		"agent_id value>} alongside a short \"message\" — and do not repeat "
+		"\"proposed_config\". When the tool returns an error, relay it via "
+		"\"message\" and keep the proposal open.\n\n"
 		+ _update_contract_block()
 		+ "\n\nCAPABILITY LIMITS (hard, non-negotiable):\n"
-		"You cannot write to ANY record yourself. Your only side-effect paths "
-		"are \"proposed_config\" and \"proposed_update\", both of which take "
-		"effect only after the designer confirms them in the UI. Changes outside "
-		"the updatable fields above (agent id, chat mode label, enabled, "
-		"lifecycle, roles…) must be made on the record in the desk — say so. "
-		"NEVER state or imply that you performed an action — reporting an "
-		"update you did not make is the worst possible answer.\n\n"
+		"Records are written ONLY by your tools, and the "
+		"create_agent_configuration tool ONLY in phase 2 — after the designer's "
+		"explicit approval of a complete proposal from this conversation. "
+		"\"proposed_update\" still takes effect only after the designer confirms "
+		"it in the UI. Changes outside the updatable fields above (agent id, "
+		"chat mode label, enabled, lifecycle, roles…) must be made on the record "
+		"in the desk — say so. NEVER state or imply that you created or changed "
+		"anything without a successful tool result in this conversation — "
+		"reporting an action you did not perform is the worst possible "
+		"answer.\n\n"
 		"ROUTING RULES:\n"
 		"- The USER PROMPT is a property of the TASK SHAPE, not of an agent "
 		"configuration (agents have no user prompt). A request to write or "
@@ -661,6 +675,22 @@ def _sanitize_proposed_update(proposed) -> dict | None:
 	if not clean:
 		return None
 	return {"config_name": config_name, "fields": clean}
+
+
+def _sanitize_created_config(created) -> dict | None:
+	"""Trust nothing the model CLAIMS it created: only a name that resolves to
+	a real AI Agent Configuration record survives, and agent_id is read from
+	the record rather than the reply. None means no onefm.created_config event
+	and no host-side linking — the message text stands alone."""
+	if not isinstance(created, dict):
+		return None
+	name = str(created.get("name") or "").strip()
+	if not name or not frappe.db.exists("AI Agent Configuration", name):
+		return None
+	return {
+		"name": name,
+		"agent_id": frappe.db.get_value("AI Agent Configuration", name, "agent_id") or "",
+	}
 
 
 _PROPOSAL_FIELDS = {
@@ -1235,19 +1265,23 @@ def build_assistant_turn_context(context: dict) -> dict:
 	# Recency wins with LLMs: the emission rules go LAST, after every
 	# reference block. Diagnosed on a live thread (f0llmt6v4c): with the
 	# contract mid-context, the approval turn answered message-only and
-	# claimed it had created the agent — which it cannot do.
+	# claimed it had created the agent — which it had not.
 	dialog_context_parts.append(
 		"FINAL OUTPUT RULES (these override anything above):\n"
-		"- You can NEVER create, update or submit anything yourself. Never say "
-		"you created or updated an agent, and never describe a proposal as "
-		"submitted or in validation.\n"
 		"- While details are missing, ask for them via \"message\" only.\n"
-		"- The turn in which the designer APPROVES a complete new-agent "
-		"proposal MUST include \"proposed_config\" in your JSON reply (and "
-		"changes to an existing agent MUST use \"proposed_update\"). The UI "
-		"renders it as a card; creation happens only when the designer "
-		"confirms there. A reply that promises creation without "
-		"\"proposed_config\" is a contract violation."
+		"- The turn in which a new-agent proposal becomes complete MUST "
+		"include \"proposed_config\" in your JSON reply (changes to an "
+		"existing agent MUST use \"proposed_update\"). The UI renders it as a "
+		"card for the designer to review. Never call the "
+		"create_agent_configuration tool in that same turn.\n"
+		"- Only a turn whose LATEST designer message explicitly approves that "
+		"proposal calls the create_agent_configuration tool — then reply with "
+		"\"created_config\" as the contract above describes.\n"
+		"- Never say you created or changed anything without a successful "
+		"tool result in this conversation, and never describe a proposal as "
+		"submitted or in validation. A reply that promises creation without "
+		"either \"proposed_config\" (phase 1) or a create tool call (phase 2) "
+		"is a contract violation."
 	)
 	out = dict(context or {})
 	out["dialog_context"] = "\n\n".join(p for p in dialog_context_parts if p)
@@ -1283,6 +1317,9 @@ def shape_assistant_reply(result: dict) -> dict:
 	proposed_update = _sanitize_proposed_update(parsed.get("proposed_update"))
 	if proposed_update:
 		shaped["proposed_update"] = proposed_update
+	created_config = _sanitize_created_config(parsed.get("created_config"))
+	if created_config:
+		shaped["created_config"] = created_config
 	return shaped
 
 

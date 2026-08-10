@@ -69,6 +69,32 @@ class TestAssistantCreatesConfig(FrappeTestCase):
 		self.assertIsNone(_sanitize_proposed_config("a string"))
 		self.assertIsNone(_sanitize_proposed_config({"unknown": "x"}))
 
+	def test_sanitize_created_config_requires_a_real_record(self):
+		# The event is proof of a row, not of the model's claim: a name that
+		# resolves nothing (or junk input) yields None — no event, no linking.
+		from one_bpmn.api.ai_assistant import _sanitize_created_config
+
+		self.assertIsNone(_sanitize_created_config(None))
+		self.assertIsNone(_sanitize_created_config("a string"))
+		self.assertIsNone(_sanitize_created_config({"name": ""}))
+		self.assertIsNone(_sanitize_created_config({"name": "ZZ Does Not Exist"}))
+
+	def test_sanitize_created_config_reads_agent_id_from_the_record(self):
+		from one_bpmn.api.ai_assistant import _sanitize_created_config
+
+		doc = frappe.get_doc({
+			"doctype": "AI Agent Configuration",
+			"agent_name": "ZZ Created Config Probe",
+			"agent_id": "zz_created_config_probe",
+			"agent_type": "Background",
+			"agent_framework": "Direct API",
+		}).insert(ignore_permissions=True)
+		clean = _sanitize_created_config({
+			"name": doc.name,
+			"agent_id": "whatever_the_model_claimed",
+		})
+		self.assertEqual(clean, {"name": doc.name, "agent_id": "zz_created_config_probe"})
+
 	def test_extract_json_tolerates_literal_newlines_in_strings(self):
 		# Models routinely emit raw newlines inside JSON string values —
 		# invalid per spec, but strict parsing dropped the whole reply, so
