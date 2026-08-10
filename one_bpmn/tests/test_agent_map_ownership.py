@@ -41,6 +41,25 @@ CHAT_XML = (
 BUSINESS_XML = CHAT_XML.replace("Chat Conversation", "ToDo")
 
 
+def _chat_xml_with_condition(cond: str, field_value: str = None) -> str:
+	"""The chat-start fixture with an explicit start condition — the shape
+	every real chat map carries (agent_mode == "<label>") — and optionally
+	the legacy triggerFieldName/Value filter, the second copy of the gate
+	that survives cloning invisibly."""
+	attrs = ""
+	if field_value is not None:
+		attrs = (
+			' spiffworkflow:triggerFieldName="agent_mode"'
+			f' spiffworkflow:triggerFieldValue="{field_value}"'
+		)
+	return CHAT_XML.replace(
+		' spiffworkflow:triggerType="After Insert" />',
+		f' spiffworkflow:triggerType="After Insert"{attrs}>'
+		f"<bpmn:condition>{cond}</bpmn:condition>"
+		"</bpmn:conditionalEventDefinition>",
+	)
+
+
 def _model_fixture(xml: str, slug: str) -> str:
 	name = f"ZZ WI1997 {slug}"
 	if frappe.db.exists("BPMN Process Model", name):
@@ -120,6 +139,79 @@ class TestChatLabelAgainstMap(FrappeTestCase):
 			validate_agent_config(doc.name, test_provider=False)["errors"]
 		)
 		self.assertIn("chat mode label", errors)
+
+	def test_label_mismatching_map_condition_is_rejected(self):
+		# A cloned map keeps the ORIGINAL agent's start condition, so its
+		# chats stamp one agent_mode while the map waits for another and no
+		# instance ever spawns (diagnosed live 2026-08-10: Todo King 2 linked
+		# a ProsAlly clone and every chat answered "process not running").
+		other = _model_fixture(
+			_chat_xml_with_condition('agent_mode=="ZZ WI1997 Other"'), "cond_other"
+		)
+		with self.assertRaises(frappe.ValidationError):
+			self._config(
+				"wrong_condition", label="ZZ WI1997 Mine", process_model=other
+			).insert()
+
+	def test_label_matching_map_condition_saves(self):
+		mine = _model_fixture(
+			_chat_xml_with_condition('agent_mode=="ZZ WI1997 Matched"'), "cond_mine"
+		)
+		doc = self._config(
+			"right_condition", label="ZZ WI1997 Matched", process_model=mine
+		)
+		doc.insert()
+		self.assertTrue(frappe.db.exists("AI Agent Configuration", doc.name))
+
+	def test_stale_field_filter_disagreeing_with_condition_is_rejected(self):
+		# The live 2026-08-10 shape exactly: the author fixed the visible
+		# condition but the clone's invisible field filter still named the
+		# original agent — the two gates can never both pass.
+		stale = _model_fixture(
+			_chat_xml_with_condition(
+				'agent_mode=="ZZ WI1997 FF"', field_value="ZZ WI1997 Original"
+			),
+			"ff_stale",
+		)
+		with self.assertRaises(frappe.ValidationError):
+			self._config("ff_stale", label="ZZ WI1997 FF", process_model=stale).insert()
+
+	def test_field_filter_alone_mismatching_label_is_rejected(self):
+		# Complex condition (unenforceable) but the field filter still names
+		# another agent — the filter alone is enough to block the spawn.
+		filtered = _model_fixture(
+			_chat_xml_with_condition(
+				'agent_mode in ("ZZ X",)', field_value="ZZ WI1997 Original"
+			),
+			"ff_only",
+		)
+		with self.assertRaises(frappe.ValidationError):
+			self._config("ff_only", label="ZZ WI1997 FFO", process_model=filtered).insert()
+
+	def test_aligned_gates_save(self):
+		aligned = _model_fixture(
+			_chat_xml_with_condition(
+				'agent_mode=="ZZ WI1997 Aligned"', field_value="ZZ WI1997 Aligned"
+			),
+			"ff_aligned",
+		)
+		doc = self._config(
+			"ff_aligned", label="ZZ WI1997 Aligned", process_model=aligned
+		)
+		doc.insert()
+		self.assertTrue(frappe.db.exists("AI Agent Configuration", doc.name))
+
+	def test_complex_condition_is_left_to_the_author(self):
+		# Only the simple agent_mode == "<label>" shape is enforced — a
+		# condition the validator cannot reason about must never block a save.
+		multi = _model_fixture(
+			_chat_xml_with_condition('agent_mode in ("ZZ A", "ZZ B")'), "cond_multi"
+		)
+		doc = self._config(
+			"complex_condition", label="ZZ WI1997 Complex", process_model=multi
+		)
+		doc.insert()
+		self.assertTrue(frappe.db.exists("AI Agent Configuration", doc.name))
 
 
 class TestCreateAgentWithProcessModel(FrappeTestCase):
