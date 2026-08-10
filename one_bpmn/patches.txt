@@ -76,3 +76,4 @@ one_bpmn.one_bpmn.patches.v1_0.move_memory_config_to_agent #05-08-2026 WI-001793
 one_bpmn.one_bpmn.patches.v1_0.retire_chat_agent_template #09-08-2026 WI-001997 agents own their maps, the clone template is gone
 one_bpmn.one_bpmn.patches.v1_0.add_assistant_agent_creation_tool #09-08-2026 WI-001997 creation asks which process the agent is mapped to
 one_bpmn.one_bpmn.patches.v1_0.set_output_screening_default #10-08-2026 WI-001644 existing agents get an explicit output screening mode
+one_bpmn.one_bpmn.patches.v1_0.drop_user_task_assignment_log #10-08-2026 WI-001998 the map's version history is the only record of a reassignment
