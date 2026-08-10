@@ -76,3 +76,4 @@ one_bpmn.one_bpmn.patches.v1_0.move_memory_config_to_agent #05-08-2026 WI-001793
 one_bpmn.one_bpmn.patches.v1_0.retire_chat_agent_template #09-08-2026 WI-001997 agents own their maps, the clone template is gone
 one_bpmn.one_bpmn.patches.v1_0.add_assistant_agent_creation_tool #09-08-2026 WI-001997 creation asks which process the agent is mapped to
 one_bpmn.one_bpmn.patches.v1_0.backfill_chat_surface_ui_fields #07-08-2026 WI-001996 chat-surface UI comes from configuration
+one_bpmn.one_bpmn.patches.v1_0.harden_logix_pipeline_driver #09-08-2026 the pipeline map's agent must end every turn with finalize
