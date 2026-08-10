@@ -11,6 +11,8 @@
 			<AgentChatPanel
 				agent-id="logix_agent"
 				variant="docked"
+				layout="conversation"
+				:apply-targets="['apply-script', 'run-test']"
 				:context="logixTurnContext"
 				:cards="cardRegistry"
 				@card-action="onLogixCardAction"

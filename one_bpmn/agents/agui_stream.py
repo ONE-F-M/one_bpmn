@@ -90,6 +90,21 @@ def _extension_events(result: dict):
 			frappe.log_error(title="agui extension translator error", message=frappe.get_traceback())
 
 
+def _agent_artifact_type(agent_id: str) -> str:
+	"""The agent's configured Artifact Type (WI-001996), for the generic
+	artifact translator. Empty string when unset/unreadable — the translator
+	then stands down, same as artifact_type 'None'."""
+	try:
+		return (
+			frappe.db.get_value(
+				"AI Agent Configuration", {"agent_id": agent_id, "enabled": 1}, "artifact_type"
+			)
+			or ""
+		)
+	except Exception:
+		return ""
+
+
 
 # ── Per-agent hooks (WI-001674) ──────────────────────────────────────────────
 # Context builders enrich the raw grounding a surface sends into the turn
@@ -161,6 +176,13 @@ def agent_event_stream(agent_id: str, message: str, conversation: str, context: 
 					result = shaper(result) or result
 				except Exception:
 					frappe.log_error(title="agui reply shaper error", message=frappe.get_traceback())
+			# WI-001996 wiring: a generic `artifact` reply renders through the
+			# typed event named by the agent's configured Artifact Type. The
+			# type is resolved here — the only layer that knows agent_id — so
+			# the translator itself stays agent-blind. A reply's own
+			# artifact_type key wins, letting one map serve several kinds.
+			if result.get("artifact") is not None and not result.get("artifact_type"):
+				result["artifact_type"] = _agent_artifact_type(agent_id)
 			text = result.get("response") or ""
 			yield encoder.encode(TextMessageStartEvent(message_id=message_id, role="assistant"))
 			yield encoder.encode(TextMessageContentEvent(message_id=message_id, delta=text))

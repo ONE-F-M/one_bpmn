@@ -132,8 +132,105 @@ def _assistant_proposals(result: dict):
 
 
 @register_extension_translator
+def _assistant_created(result: dict):
+	"""AI Assistant: its create tool ran and the shaper verified the record.
+
+	The shaper only sets created_config after frappe.db.exists confirms the
+	record, so this event is evidence of a real row — hosts may link it on
+	the open shape without re-checking."""
+	created = result.get("created_config")
+	if isinstance(created, dict) and created.get("name"):
+		summary = result.get("message") or result.get("summary") or ""
+		yield CustomEvent(
+			name="onefm.created_config",
+			value={
+				"name": created["name"],
+				**({"agent_id": created["agent_id"]} if created.get("agent_id") else {}),
+				**({"summary": summary} if summary else {}),
+			},
+		)
+
+
+@register_extension_translator
 def _table(result: dict):
 	"""Any agent returning a structured table under the ``table`` key."""
 	table = result.get("table")
 	if isinstance(table, dict) and table.get("columns") and "rows" in table:
 		yield CustomEvent(name="onefm.table", value=table)
+
+
+# Keys the bespoke translators above already own. A reply carrying any of
+# them gets its card from its own translator — the generic artifact path
+# stands down so one reply can never render two cards for the same thing.
+_BESPOKE_ARTIFACT_KEYS = (
+	"modified_script",
+	"bpmn_xml",
+	"pending_xml",
+	"doctype_ir",
+	"recommendations",
+	"proposed_update",
+	"proposed_config",
+)
+
+
+@register_extension_translator
+def _typed_artifact(result: dict):
+	"""Any agent: a generic ``artifact`` reply becomes the typed event its
+	configuration's Artifact Type names (the WI-001996 field, wired).
+
+	This is what lets an agent WITHOUT a bespoke translator still get the
+	right preview renderer and apply target: the stream stamps
+	``artifact_type`` from the AI Agent Configuration (an agent's own reply
+	key wins when present), and the mapping below picks the same typed
+	events the purpose-built agents emit — so the card registry, the host
+	apply wiring, and the conformance build all stay single-sourced.
+
+	``artifact`` may be the bare content (script text, BPMN XML, IR/field
+	dict) or a dict with ``content`` plus per-kind extras (``name``/``mode``).
+	"""
+	artifact = result.get("artifact")
+	kind = result.get("artifact_type") or ""
+	if artifact in (None, "", {}) or kind in ("", "None"):
+		return
+	if any(result.get(key) for key in _BESPOKE_ARTIFACT_KEYS):
+		return
+
+	# A dict with a "content" key is the wrapped form (content + extras);
+	# anything else — script text, XML, a bare IR or field dict — IS the content.
+	if isinstance(artifact, dict) and "content" in artifact:
+		wrapped, content = artifact, artifact.get("content")
+	else:
+		wrapped, content = {}, artifact
+	summary = result.get("message") or result.get("summary") or result.get("response") or ""
+
+	if kind == "Script" and isinstance(content, str) and content.strip():
+		mode = str(wrapped.get("mode") or "CREATE").upper()
+		yield CustomEvent(
+			name="onefm.script_diff",
+			value={
+				"mode": mode if mode in ("CREATE", "MODIFY") else "CREATE",
+				"modified_script": content,
+				**({"suggested_name": wrapped["name"]} if wrapped.get("name") else {}),
+				**({"summary": summary} if summary else {}),
+			},
+		)
+	elif kind == "Diagram" and isinstance(content, str) and content.strip():
+		mode = str(wrapped.get("mode") or "generated").lower()
+		yield CustomEvent(
+			name="onefm.bpmn_preview",
+			value={
+				"mode": mode if mode in ("generated", "modified") else "generated",
+				"bpmn_xml": content,
+				**({"summary": summary} if summary else {}),
+			},
+		)
+	elif kind == "Schema" and isinstance(content, dict) and content:
+		yield CustomEvent(
+			name="onefm.doctype_schema",
+			value={"doctype_ir": content, **({"summary": summary} if summary else {})},
+		)
+	elif kind == "Record" and isinstance(content, dict) and content:
+		yield CustomEvent(
+			name="onefm.proposed_update",
+			value={"fields": content, **({"summary": summary} if summary else {})},
+		)

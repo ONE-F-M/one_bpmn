@@ -53,6 +53,7 @@ declare module 'vue' {
     PerformanceReport: typeof import('./src/components/insights/PerformanceReport.vue')['default']
     ProcessFilter: typeof import('./src/components/ProcessFilter.vue')['default']
     ProposalCard: typeof import('./src/components/chat/cards/ProposalCard.vue')['default']
+    ProposedFieldsTray: typeof import('./src/components/chat/ProposedFieldsTray.vue')['default']
     ProsAllyPanel: typeof import('./src/components/ProsAllyPanel.vue')['default']
     ReadinessChecklistDialog: typeof import('./src/components/ReadinessChecklistDialog.vue')['default']
     RouterLink: typeof import('vue-router')['RouterLink']

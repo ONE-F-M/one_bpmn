@@ -2,7 +2,7 @@
 	<CardShell :title="title" :done="done || !!doneAction" :done-text="doneText">
 		<DiagramThumb :xml="value.bpmn_xml" />
 		<template #actions>
-			<ActionButton :label="applyLabel" kind="solid" :disabled="busy || done"
+			<ActionButton v-if="canApply" :label="applyLabel" kind="solid" :disabled="busy || done"
 				@press="$emit('action', 'apply-diagram', value)" />
 			<ActionButton :label="value.mode === 'pending_removal' ? 'No, keep it' : 'Discard'" kind="ghost"
 				:disabled="busy || done" @press="$emit('action', 'dismiss')" />
@@ -26,6 +26,8 @@ const props = defineProps({
 	doneAction: { type: String, default: "" },
 	surfaceType: { type: String, default: "" },
 	artifactType: { type: String, default: "" },
+	// Apply-capability handshake: false = no canvas in this host, preview only.
+	canApply: { type: Boolean, default: true },
 });
 const doneText = computed(() => ({ "apply-diagram": "Applied — canvas updated", dismiss: "Discarded — the diagram is unchanged" })[props.doneAction] || (props.done ? "Done" : ""));
 defineEmits(["action"]);

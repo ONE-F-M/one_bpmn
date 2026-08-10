@@ -2,7 +2,7 @@
 	<CardShell :title="title" :done="done || !!doneAction" :done-text="doneText">
 		<FieldList :fields="fields" />
 		<template #actions>
-			<ActionButton label="Apply to builder" kind="solid" :disabled="busy || done"
+			<ActionButton v-if="canApply" label="Apply to builder" kind="solid" :disabled="busy || done"
 				@press="$emit('action', 'apply-schema', value)" />
 			<ActionButton label="Discard" kind="ghost" :disabled="busy || done" @press="$emit('action', 'dismiss')" />
 		</template>
@@ -23,6 +23,8 @@ const props = defineProps({
 	doneAction: { type: String, default: "" },
 	surfaceType: { type: String, default: "" },
 	artifactType: { type: String, default: "" },
+	// Apply-capability handshake: false = no schema builder here, preview only.
+	canApply: { type: Boolean, default: true },
 });
 const doneText = computed(() => ({ "apply-schema": "Applied — builder updated", dismiss: "Discarded — nothing was changed" })[props.doneAction] || (props.done ? "Done" : ""));
 defineEmits(["action"]);

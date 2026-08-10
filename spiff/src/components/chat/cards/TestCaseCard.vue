@@ -7,6 +7,7 @@
 				<TextBlock v-if="c.expected" class="tc-line"><span class="tc-label">Expect</span>{{ c.expected }}</TextBlock>
 				<Row :gap="8" class="tc-run-row">
 					<ActionButton
+						v-if="canApply"
 						:label="results[i] && results[i].loading ? 'Running…' : 'Run this check'"
 						kind="outline"
 						:disabled="busy || (results[i] && results[i].loading)"
@@ -46,6 +47,9 @@ const props = defineProps({
 	value: { type: Object, required: true },
 	busy: { type: Boolean, default: false },
 	done: { type: Boolean, default: false },
+	// Apply-capability handshake: false = this host has no test runner
+	// (it owns no linked script), so the checklist is read-only.
+	canApply: { type: Boolean, default: true },
 });
 const emit = defineEmits(["action"]);
 

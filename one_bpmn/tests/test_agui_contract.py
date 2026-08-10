@@ -23,6 +23,7 @@ class TestContractData(FrappeTestCase):
 			"onefm.choice",
 			"onefm.proposed_config",
 			"onefm.proposed_update",
+			"onefm.created_config",
 			"onefm.script_diff",
 			"onefm.test_cases",
 			"onefm.bpmn_preview",
@@ -104,6 +105,22 @@ class TestTranslators(FrappeTestCase):
 		for name, value in events.items():
 			self.assertEqual(agui_contract.validate_event(name, value), [], name)
 
+	def test_verified_creation_becomes_created_config(self):
+		reply = {
+			"message": "Created Leave Summarizer",
+			"created_config": {"name": "Leave Summarizer", "agent_id": "leave_summarizer"},
+		}
+		events = _named(translators._assistant_created(reply))
+		value = events["onefm.created_config"]
+		self.assertEqual(value["name"], "Leave Summarizer")
+		self.assertEqual(value["summary"], "Created Leave Summarizer")
+		self.assertEqual(agui_contract.validate_event("onefm.created_config", value), [])
+
+	def test_created_config_without_name_produces_nothing(self):
+		# The shaper only sets created_config after verifying the record, but
+		# the translator still refuses a nameless dict — no event, no linking.
+		self.assertEqual(list(translators._assistant_created({"created_config": {}})), [])
+
 	def test_table_key_becomes_onefm_table(self):
 		reply = {
 			"response": "here",
@@ -122,9 +139,71 @@ class TestTranslators(FrappeTestCase):
 			translators._bpmn_preview,
 			translators._doctype_schema,
 			translators._assistant_proposals,
+			translators._assistant_created,
 			translators._table,
+			translators._typed_artifact,
 		):
 			self.assertEqual(list(fn(reply)), [], fn.__name__)
+
+
+class TestTypedArtifact(FrappeTestCase):
+	"""The generic `artifact` reply key renders through the typed event the
+	agent's Artifact Type names (WI-001996, wired)."""
+
+	def test_script_artifact_becomes_script_diff(self):
+		reply = {
+			"response": "Here you go",
+			"artifact": "def x():\n    return 1",
+			"artifact_type": "Script",
+		}
+		events = _named(translators._typed_artifact(reply))
+		value = events["onefm.script_diff"]
+		self.assertEqual(value["mode"], "CREATE")
+		self.assertEqual(value["modified_script"], "def x():\n    return 1")
+		self.assertEqual(agui_contract.validate_event("onefm.script_diff", value), [])
+
+	def test_wrapped_script_artifact_carries_name_and_mode(self):
+		reply = {
+			"artifact": {"content": "def x(): ...", "name": "Dept Rollup", "mode": "MODIFY"},
+			"artifact_type": "Script",
+		}
+		value = _named(translators._typed_artifact(reply))["onefm.script_diff"]
+		self.assertEqual(value["mode"], "MODIFY")
+		self.assertEqual(value["suggested_name"], "Dept Rollup")
+
+	def test_diagram_artifact_becomes_bpmn_preview(self):
+		reply = {"artifact": "<bpmn:definitions/>", "artifact_type": "Diagram", "response": "drawn"}
+		value = _named(translators._typed_artifact(reply))["onefm.bpmn_preview"]
+		self.assertEqual(value["mode"], "generated")
+		self.assertEqual(agui_contract.validate_event("onefm.bpmn_preview", value), [])
+
+	def test_schema_artifact_becomes_doctype_schema(self):
+		reply = {"artifact": {"name": "X", "fields": []}, "artifact_type": "Schema"}
+		value = _named(translators._typed_artifact(reply))["onefm.doctype_schema"]
+		self.assertEqual(value["doctype_ir"], {"name": "X", "fields": []})
+		self.assertEqual(agui_contract.validate_event("onefm.doctype_schema", value), [])
+
+	def test_record_artifact_becomes_proposed_update(self):
+		reply = {"artifact": {"status": "Approved"}, "artifact_type": "Record"}
+		value = _named(translators._typed_artifact(reply))["onefm.proposed_update"]
+		self.assertEqual(value["fields"], {"status": "Approved"})
+		self.assertEqual(agui_contract.validate_event("onefm.proposed_update", value), [])
+
+	def test_no_or_none_artifact_type_stands_down(self):
+		self.assertEqual(list(translators._typed_artifact({"artifact": "code"})), [])
+		self.assertEqual(
+			list(translators._typed_artifact({"artifact": "code", "artifact_type": "None"})), []
+		)
+
+	def test_bespoke_reply_keys_win(self):
+		# A reply its own translator already handles never double-renders.
+		reply = {
+			"artifact": "def x(): ...",
+			"artifact_type": "Script",
+			"modified_script": "def x(): ...",
+			"intent": "CREATE",
+		}
+		self.assertEqual(list(translators._typed_artifact(reply)), [])
 
 
 class TestEndToEndTranslation(FrappeTestCase):
@@ -155,3 +234,30 @@ class TestEndToEndTranslation(FrappeTestCase):
 		self.assertIn("onefm.script_diff", names)
 		for c in customs:
 			self.assertEqual(agui_contract.validate_event(c["name"], c["value"]), [], c["name"])
+
+	def test_stream_resolves_artifact_type_from_the_agent_config(self):
+		import json
+		from unittest.mock import patch
+
+		from one_bpmn.agents import agui_stream
+
+		# A generic agent: no bespoke keys, just `artifact` — the stream must
+		# stamp artifact_type from the configuration and emit the typed event.
+		reply = {"response": "wrote it", "artifact": "def y(): ...", "conversation": "CONV-2"}
+		with (
+			patch("one_bpmn.api.agent_invocation.invoke_agent", return_value=reply),
+			patch.object(agui_stream, "_agent_artifact_type", return_value="Script"),
+		):
+			chunks = list(agui_stream.agent_event_stream("generic", "m", "CONV-2"))
+		customs = []
+		for chunk in chunks:
+			for line in chunk.splitlines():
+				if line.startswith("data: "):
+					e = json.loads(line[6:])
+					if e.get("type") == "CUSTOM":
+						customs.append(e)
+		names = [c["name"] for c in customs]
+		self.assertIn("onefm.script_diff", names)
+		value = next(c["value"] for c in customs if c["name"] == "onefm.script_diff")
+		self.assertEqual(value["modified_script"], "def y(): ...")
+		self.assertEqual(agui_contract.validate_event("onefm.script_diff", value), [])

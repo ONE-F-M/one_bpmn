@@ -1,5 +1,5 @@
 <template>
-	<div class="acp" :class="`acp--${variant}`">
+	<div ref="rootEl" class="acp" :class="`acp--${variant}`">
 		<!-- ── header ─────────────────────────────────────────────────── -->
 		<div class="acp-head">
 			<div class="acp-avatar">{{ avatarInitials }}</div>
@@ -9,9 +9,13 @@
 			<slot name="header-actions" />
 		</div>
 
+		<!-- ── body: transcript column, plus the workspace pane when the
+		     surface layout asks for it (chat-surface-layout scope) ────── -->
+		<div class="acp-body">
+		<div class="acp-main">
 		<!-- ── transcript ─────────────────────────────────────────────── -->
 		<div ref="log" class="acp-log">
-			<template v-for="(item, i) in items" :key="i">
+			<template v-for="(item, i) in transcriptItems" :key="i">
 				<!-- plain text bubbles -->
 				<div v-if="item.kind === 'user'" class="acp-msg acp-msg--user">{{ item.text }}<span v-if="item.file" class="acp-filechip">📎 {{ item.file }}</span></div>
 				<div
@@ -45,8 +49,12 @@
 					:done-action="item.doneAction || ''"
 					:surface-type="surface.surface_type"
 					:artifact-type="surface.artifact_type"
+					:can-apply="cardCanApply(item.name)"
 					@action="(action, payload) => onCardAction(item, action, payload)"
 				/>
+				<!-- an artifact event routed to the workspace or tray leaves a
+				     small marker so the transcript still reads chronologically -->
+				<div v-else-if="item.kind === 'routed'" class="acp-routed">{{ item.label }}</div>
 				<!-- safe fallback: unknown custom events never break the transcript -->
 				<div v-else-if="item.kind === 'custom'" class="acp-card">
 					<div class="acp-card-head acp-card-head--muted">{{ item.name }}</div>
@@ -75,6 +83,15 @@
 				</button>
 			</div>
 		</div>
+
+		<!-- ── pinned tray: the Form surface's hand-over strip ──────────── -->
+		<ProposedFieldsTray
+			v-if="trayItem"
+			:item="trayItem"
+			:busy="busy"
+			:can-apply="cardCanApply('onefm.proposed_update')"
+			@action="(action, payload) => onCardAction(trayItem, action, payload)"
+		/>
 
 		<!-- ── composer ───────────────────────────────────────────────── -->
 		<div class="acp-toolbar">
@@ -110,6 +127,30 @@
 				{{ __("Send") }}
 			</button>
 		</div>
+		</div>
+
+		<!-- ── workspace pane: the Document surface's always-visible
+		     hand-over area; the latest artifact renders here through the
+		     SAME card registry the transcript uses ─────────────────────── -->
+		<aside v-if="layoutMode === 'document'" class="acp-workspace">
+			<div class="acp-ws-head">{{ __("Workspace") }}</div>
+			<div class="acp-ws-body">
+				<component
+					:is="cards[workspaceItem.name]"
+					v-if="workspaceItem"
+					:value="workspaceItem.value"
+					:busy="busy"
+					:done="!!workspaceItem.doneAction"
+					:done-action="workspaceItem.doneAction || ''"
+					:surface-type="surface.surface_type"
+					:artifact-type="surface.artifact_type"
+					:can-apply="cardCanApply(workspaceItem.name)"
+					@action="(action, payload) => onCardAction(workspaceItem, action, payload)"
+				/>
+				<div v-else class="acp-ws-empty">{{ workspaceEmptyText }}</div>
+			</div>
+		</aside>
+		</div>
 
 		<Dialog v-model="errorOpen" :options="{ title: __('Something went wrong'), size: 'sm' }">
 			<template #body-content>
@@ -129,6 +170,14 @@
 // prop (WI-001673) or the safe fallback. Cards render and request — the
 // HOST applies: card actions re-emit upward as `card-action`.
 //
+// Layout is configuration too (chat-surface-layout scope, 2026-08-10):
+// surface_type picks conversation (single column, the legacy look),
+// document (split view with an always-visible workspace pane hosting the
+// latest artifact card), or form (a pinned proposed-values tray above the
+// composer). Hosts may override via the `layout` prop; a too-narrow panel
+// degrades document → conversation. Bespoke agent surfaces stay untouched
+// until the user green-lights their removal.
+//
 // Lifecycle: resume-or-create. Given a conversation, prior turns load
 // before the composer activates; without one, the first send creates it
 // (the id arrives on RUN_STARTED as thread_id). Unmount ends the
@@ -137,6 +186,7 @@ import MarkdownIt from "markdown-it";
 import { Dialog, frappeRequest } from "frappe-ui";
 import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from "vue";
 import { streamAgentTurn } from "./aguiClient";
+import ProposedFieldsTray from "./ProposedFieldsTray.vue";
 
 const props = defineProps({
 	agentId: { type: String, required: true },
@@ -154,9 +204,18 @@ const props = defineProps({
 	// frappe's standard upload_file and its file_url rides the next turn's
 	// context — the transport itself stays a plain SSE GET.
 	allowUploads: { type: Boolean, default: false },
+	// chat-surface-layout scope: hosts may force a layout regardless of the
+	// agent's surface_type — a cramped modal passes "conversation" to refuse
+	// the split. Empty = derive from configuration.
+	layout: { type: String, default: "" }, // "" | conversation | document | form
+	// Apply-capability handshake (chat-surface-layout scope, decision 3):
+	// the actions this host can actually perform. Cards hide their primary
+	// button when the host lacks its target — a preview with no dead Apply.
+	// null (the default) = legacy allow-all, [] = a pure chat host.
+	applyTargets: { type: Array, default: null },
 });
 
-const emit = defineEmits(["card-action", "conversation", "title", "choice", "turn-complete"]);
+const emit = defineEmits(["card-action", "conversation", "title", "choice", "turn-complete", "agent-event"]);
 
 const __ = (window.__ && typeof window.__ === "function") ? window.__ : (s) => s;
 
@@ -175,6 +234,100 @@ const errorOpen = ref(false);
 const errorMessage = ref("");
 const log = ref(null);
 const input = ref(null);
+const rootEl = ref(null);
+
+// ── Surface layout engine (chat-surface-layout scope, 2026-08-10) ─────────
+// surface_type picks the layout; the host's `layout` prop overrides it; a
+// Document split that physically can't fit degrades to conversation. The
+// legacy default (no surface_type / Conversation) renders EXACTLY as before.
+const MIN_SPLIT_WIDTH = 640;
+const panelWidth = ref(0);
+let resizeObserver = null;
+
+const layoutMode = computed(() => {
+	const mode =
+		props.layout ||
+		{ Document: "document", Form: "form" }[surface.value.surface_type] ||
+		"conversation";
+	if (mode === "document" && panelWidth.value > 0 && panelWidth.value < MIN_SPLIT_WIDTH) {
+		return "conversation";
+	}
+	return mode;
+});
+
+// The artifact events a Document workspace hosts — exactly the four kinds
+// artifact_type names (see agui_contract "Generic artifacts").
+const WORKSPACE_EVENTS = new Set([
+	"onefm.script_diff",
+	"onefm.bpmn_preview",
+	"onefm.doctype_schema",
+	"onefm.proposed_update",
+]);
+
+// Each card's PRIMARY action — the one that needs a host-side target.
+// Dismiss never needs one and always stays visible.
+const PRIMARY_ACTIONS = {
+	"onefm.script_diff": "apply-script",
+	"onefm.bpmn_preview": "apply-diagram",
+	"onefm.doctype_schema": "apply-schema",
+	"onefm.proposed_update": "apply-fields",
+	"onefm.proposed_config": "confirm-create",
+	"onefm.test_cases": "run-test",
+};
+
+function cardCanApply(name) {
+	if (props.applyTargets === null) return true; // legacy host: allow all
+	const action = PRIMARY_ACTIONS[name];
+	return !action || props.applyTargets.includes(action);
+}
+
+// Latest artifact event wins the workspace; older ones stay inline in the
+// transcript so history remains reviewable. The registry guard means an
+// event the host has no card for never blanks the pane.
+const workspaceItem = computed(() => {
+	if (layoutMode.value !== "document") return null;
+	for (let i = items.value.length - 1; i >= 0; i--) {
+		const item = items.value[i];
+		if (item.kind === "custom" && WORKSPACE_EVENTS.has(item.name) && props.cards[item.name]) {
+			return item;
+		}
+	}
+	return null;
+});
+
+const trayItem = computed(() => {
+	if (layoutMode.value !== "form") return null;
+	for (let i = items.value.length - 1; i >= 0; i--) {
+		const item = items.value[i];
+		if (item.kind === "custom" && item.name === "onefm.proposed_update") return item;
+	}
+	return null;
+});
+
+// The transcript in document/form mode replaces the routed item with a
+// small marker, keeping chronology readable without rendering it twice.
+const transcriptItems = computed(() => {
+	if (layoutMode.value === "conversation") return items.value;
+	return items.value.map((item) => {
+		if (item === workspaceItem.value) {
+			return { kind: "routed", label: __("Shown in the workspace") };
+		}
+		if (item === trayItem.value) {
+			return { kind: "routed", label: __("Shown in proposed values, below") };
+		}
+		return item;
+	});
+});
+
+const workspaceEmptyText = computed(
+	() =>
+		({
+			Script: __("The script will appear here once the agent proposes one."),
+			Diagram: __("The diagram preview will appear here once the agent draws one."),
+			Schema: __("The doctype schema will appear here once the agent designs one."),
+			Record: __("Proposed field values will appear here."),
+		})[surface.value.artifact_type] || __("The agent's work will appear here.")
+);
 
 // The composer grows with its content (up to ~6 lines) and shrinks back
 // after a send — a fixed-height textarea hides everything above the last
@@ -254,9 +407,20 @@ onMounted(async () => {
 		if (greeting) items.value.push({ kind: "agent", text: greeting });
 	}
 	scrollDown();
+
+	// The Document split degrades to conversation when the panel is too
+	// narrow — measured, not assumed, because the same component serves the
+	// docked editor rail, dialogs, and full pages.
+	if (rootEl.value && typeof ResizeObserver !== "undefined") {
+		resizeObserver = new ResizeObserver((entries) => {
+			panelWidth.value = entries[0]?.contentRect?.width || 0;
+		});
+		resizeObserver.observe(rootEl.value);
+	}
 });
 
 onBeforeUnmount(() => {
+	if (resizeObserver) resizeObserver.disconnect();
 	if (activeStream) activeStream.close();
 	if (conversationName.value) {
 		// fire-and-forget: safe to call repeatedly, never raises (staging contract)
@@ -301,7 +465,7 @@ async function onFilePicked(event) {
 
 // ── sending ─────────────────────────────────────────────────────────────────
 
-async function send(text) {
+async function send(text, extraContext = null) {
 	const message = (text ?? draft.value).trim();
 	if (!message || busy.value) return;
 	draft.value = "";
@@ -311,7 +475,12 @@ async function send(text) {
 	streamingText.value = "";
 	scrollDown();
 
-	let turnContext = { ...props.context };
+	// extraContext = per-turn keys the PANEL stages itself (today: the
+	// confirmed_action a choice button approves). It merges OVER the host
+	// context: a host that wires its own staging sends the same value, and
+	// a host that doesn't (the desk Chat dialog) must not clobber it with
+	// an empty placeholder.
+	let turnContext = { ...props.context, ...(extraContext || {}) };
 	if (pendingFile.value) {
 		turnContext.file = pendingFile.value.file_url;
 		items.value[items.value.length - 1].file = pendingFile.value.file_name;
@@ -371,6 +540,11 @@ function handleEvent(event) {
 }
 
 function handleCustom(name, value) {
+	// Hosts get every typed event as it arrives — cards render and request,
+	// but some events exist FOR the host (onefm.created_config links the new
+	// agent on the open shape). Emitted before transcript handling so a host
+	// reaction can never depend on how (or whether) the event renders.
+	emit("agent-event", { name, value });
 	// flush any streamed text so events land after the words they follow
 	if (streamingText.value) {
 		items.value.push({ kind: "agent", text: streamingText.value });
@@ -406,7 +580,15 @@ async function answerChoice(item, option) {
 	// "Yes, proceed" re-classified as unconfirmed and looped on confirm).
 	emit("choice", { option, actionIntent: item.value.action_intent || "" });
 	await nextTick();
-	send(option);
+	// The panel ALSO stages the confirmation itself: hosts without @choice
+	// wiring (the desk Chat dialog) otherwise never deliver confirmed_action,
+	// and a strict tool-pipeline agent loops on confirm forever (diagnosed
+	// live 2026-08-10 — Todo King 2 re-proposed after every "Yes, proceed").
+	// Dismissive options must NOT confirm: only the first option of a choice
+	// card carries approval semantics ("Yes, proceed" is always emitted
+	// first by the confirm tools; "No, let me adjust" follows it).
+	const isApproval = item.value.action_intent && item.value.options[0] === option;
+	send(option, isApproval ? { confirmed_action: item.value.action_intent } : null);
 }
 
 function onCardAction(item, action, payload) {
@@ -416,7 +598,9 @@ function onCardAction(item, action, payload) {
 	// fail(message) so the card un-retires and the transcript says what went
 	// wrong (observed live 2026-08-09: 'Created and linked' shown while the
 	// create endpoint had rejected the proposal into an invisible log).
-	item.doneAction = action;
+	// A `partial` payload (the tray's per-field Apply) is NOT terminal —
+	// the tray stays open so the remaining fields keep their buttons.
+	if (!(payload && payload.partial)) item.doneAction = action;
 	emit("card-action", {
 		name: item.name,
 		action,
@@ -478,6 +662,20 @@ defineExpose({ send, conversationName });
 .acp-chip--blue { background: var(--blue-bg); color: var(--blue-ink); }
 .acp-chip--right { margin-left: auto; }
 .acp-chip--blue + .acp-chip--right { margin-left: 8px; }
+
+/* ── surface layout engine: transcript column + optional workspace pane.
+   In conversation mode .acp-body holds only .acp-main, whose flex column
+   reproduces the old single-column geometry exactly. */
+.acp-body { display: flex; flex: 1; min-height: 0; }
+.acp-main { flex: 1; min-width: 0; display: flex; flex-direction: column; min-height: 0; }
+.acp-workspace { width: 42%; min-width: 260px; border-left: 1px solid var(--og2);
+	display: flex; flex-direction: column; min-height: 0; background: var(--sw); }
+.acp-ws-head { padding: 9px 14px; border-bottom: 1px solid var(--og1); font-weight: 600;
+	font-size: 12px; color: var(--ig6); }
+.acp-ws-body { flex: 1; min-height: 0; overflow-y: auto; padding: 12px; }
+.acp-ws-body > * { width: 100%; }
+.acp-ws-empty { color: var(--ig4); font-size: 12px; text-align: center; padding: 32px 12px; }
+.acp-routed { align-self: flex-start; color: var(--ig5); font-size: 11px; font-style: italic; }
 
 .acp-log { flex: 1; min-height: 0; overflow-y: auto; padding: 14px; display: flex; flex-direction: column;
 	gap: 10px; background: var(--sg1); }

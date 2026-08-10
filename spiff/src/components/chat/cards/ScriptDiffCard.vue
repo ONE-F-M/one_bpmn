@@ -3,7 +3,7 @@
 		<DiffView v-if="value.diff" :diff="value.diff" />
 		<CodeBlock v-else :code="value.modified_script" />
 		<template #actions>
-			<ActionButton label="Apply to editor" kind="solid" :disabled="busy || done"
+			<ActionButton v-if="canApply" label="Apply to editor" kind="solid" :disabled="busy || done"
 				@press="$emit('action', 'apply-script', value)" />
 			<ActionButton label="Discard" kind="ghost" :disabled="busy || done" @press="$emit('action', 'dismiss')" />
 		</template>
@@ -25,6 +25,9 @@ const props = defineProps({
 	doneAction: { type: String, default: "" },
 	surfaceType: { type: String, default: "" },
 	artifactType: { type: String, default: "" },
+	// Apply-capability handshake: false = this host has no script editor,
+	// so the card is a preview (Discard stays; Apply would be a dead end).
+	canApply: { type: Boolean, default: true },
 });
 const doneText = computed(() => ({ "apply-script": "Applied — editor updated", dismiss: "Discarded — the script is unchanged" })[props.doneAction] || (props.done ? "Done" : ""));
 defineEmits(["action"]);

@@ -10,6 +10,18 @@ import AgentChatPanel from "./components/chat/AgentChatPanel.vue";
 import OneAiApp from "./components/chat/OneAiApp.vue";
 import { cardRegistry } from "./components/chat/cards/registry";
 
+// Desk provides the CSRF token on the frappe global; frappe-ui's request
+// helper reads window.csrf_token, which only the SPA's index.html sets.
+// Without this bridge every POST from this bundle (get_agent_surface,
+// conversation_history, …) fails CSRF on Desk while the SSE GET stream
+// works — so chat answered but the agent's surface config never loaded
+// (diagnosed live 2026-08-10: the Chat dialog fell back to the raw
+// agent_id label and the conversation layout, whatever the configuration
+// said).
+if (!window.csrf_token && window.frappe && window.frappe.csrf_token) {
+	window.csrf_token = window.frappe.csrf_token;
+}
+
 function mount(el) {
 	const app = createApp(OneAiApp);
 	app.mount(el);
@@ -33,6 +45,10 @@ function openAgentChat({ agent_id: agentId, conversation = "" } = {}) {
 				variant: "modal",
 				cards: cardRegistry,
 				allowUploads: true,
+				// Pure chat host: no editor, canvas, builder, or form behind
+				// this dialog — artifact cards render as previews (decision 3,
+				// chat-surface-layout scope: hide Apply, keep Dismiss).
+				applyTargets: [],
 			});
 		},
 	});
@@ -49,7 +65,7 @@ function openAgentChat({ agent_id: agentId, conversation = "" } = {}) {
 const styles = `
 .oneai-dialog-scrim { position: fixed; inset: 0; background: rgba(23,23,23,.45); z-index: 1050;
 	display: flex; align-items: flex-start; justify-content: center; padding-top: 48px; }
-.oneai-dialog-box { width: min(560px, 92vw); background: var(--card-bg, #fff); border-radius: 12px;
+.oneai-dialog-box { width: min(960px, 92vw); background: var(--card-bg, #fff); border-radius: 12px;
 	overflow: hidden; box-shadow: 0 12px 32px rgba(0,0,0,.18); }
 `;
 const styleEl = document.createElement("style");

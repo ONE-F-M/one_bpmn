@@ -3,6 +3,8 @@
 		<AgentChatPanel
 			agent-id="prosally_agent"
 			variant="docked"
+			layout="conversation"
+			:apply-targets="['apply-diagram']"
 			:context="turnContext"
 			:context-provider="withCanvasXml"
 			:host-context-line="hostContextLine"

@@ -43,6 +43,26 @@ a recorded example, and rendering notes. Summary:
 Explicitly **not** contract events: heartbeats (transport comments) and
 `get_page_snapshot` (becomes a standard AG-UI client-side tool call).
 
+## Generic artifacts (Artifact Type, wired)
+
+An agent **without** a bespoke translator still gets the right preview
+renderer: return the produced thing under the reply key `artifact`, and the
+stream maps it to a typed event using the agent's configured **Artifact
+Type** (AI Agent Configuration → Chat Surface, WI-001996):
+
+| Artifact Type | `artifact` content | Emitted as | Rendered as |
+|---|---|---|---|
+| Script | script text | `onefm.script_diff` | ScriptDiffCard → editor |
+| Diagram | BPMN XML | `onefm.bpmn_preview` | DiagramPreviewCard → canvas |
+| Schema | doctype IR dict | `onefm.doctype_schema` | DocTypeSchemaCard → builder |
+| Record | field-value dict | `onefm.proposed_update` | ProposalCard → form |
+
+`artifact` is either the bare content or `{"content": ..., "name": ...,
+"mode": ...}`. A reply's own `artifact_type` key overrides the configured
+one. Replies already carrying a bespoke key (`modified_script`, `bpmn_xml`,
+`doctype_ir`, `proposed_update`…) are left to their own translators — one
+reply never renders two cards for the same thing.
+
 ## Using it
 
 ```python

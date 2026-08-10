@@ -25,7 +25,7 @@
 		"onefm.proposed_config": {
 			"producers": ["ai_agent_assistant"],
 			"rendered_as": "ProposalCard",
-			"notes": "A whole new agent configuration to create. Confirming calls the existing create-and-link endpoint; the card never creates anything itself.",
+			"notes": "A whole new agent configuration to create. Confirming relays the designer's approval into the conversation as the next turn; the AGENT then calls its create_agent_configuration tool. Neither the card nor the host creates anything directly.",
 			"schema": {
 				"type": "object",
 				"required": ["proposal"],
@@ -46,7 +46,7 @@
 			}
 		},
 		"onefm.proposed_update": {
-			"producers": ["ai_agent_assistant"],
+			"producers": ["ai_agent_assistant", "any agent with artifact_type=Record (generic `artifact` reply)"],
 			"rendered_as": "ProposalCard (field-values variant)",
 			"notes": "Recommended values for the host form. Applying writes to the form via the panel event bus — the card never mutates the form directly.",
 			"schema": {
@@ -63,8 +63,28 @@
 				"fields": {"model": "claude-haiku-4-5-20251001", "output_variable": "agent_decision"}
 			}
 		},
+		"onefm.created_config": {
+			"producers": ["ai_agent_assistant"],
+			"rendered_as": "No card — the agent's own reply text announces it; hosts listen to link the new agent on the open shape",
+			"notes": "Emitted after the assistant's create_agent_configuration TOOL ran and the reply shaper verified the record exists. The shaper reads agent_id from the record, never from the model's claim — an event is proof of a real row, not of the model saying so.",
+			"schema": {
+				"type": "object",
+				"required": ["name"],
+				"additionalProperties": false,
+				"properties": {
+					"name": {"type": "string"},
+					"agent_id": {"type": "string"},
+					"summary": {"type": "string"}
+				}
+			},
+			"example": {
+				"name": "Leave Summarizer",
+				"agent_id": "leave_summarizer",
+				"summary": "Created Leave Summarizer and started its creation process"
+			}
+		},
 		"onefm.script_diff": {
-			"producers": ["logix_agent"],
+			"producers": ["logix_agent", "any agent with artifact_type=Script (generic `artifact` reply)"],
 			"rendered_as": "ScriptDiffCard",
 			"notes": "Before/after script change. Apply writes to the host's script editor; the card only renders and requests. mode mirrors the Logix CREATE/MODIFY intents.",
 			"schema": {
@@ -134,7 +154,7 @@
 			}
 		},
 		"onefm.bpmn_preview": {
-			"producers": ["prosally_agent"],
+			"producers": ["prosally_agent", "any agent with artifact_type=Diagram (generic `artifact` reply)"],
 			"rendered_as": "DiagramPreviewCard",
 			"notes": "One event with a mode field supersedes the BPMN_GENERATED / BPMN_MODIFIED intents and the pending_xml removal gate; the destructive-change confirm lives inside the card. Deliberate behavior change: the canvas no longer updates sight-unseen — the user reviews the preview, then applies.",
 			"schema": {
@@ -154,7 +174,7 @@
 			}
 		},
 		"onefm.doctype_schema": {
-			"producers": ["docu_agent"],
+			"producers": ["docu_agent", "any agent with artifact_type=Schema (generic `artifact` reply)"],
 			"rendered_as": "DocTypeSchemaCard",
 			"notes": "The whole doctype IR travels in one event; the card shows the human summary, the host's loadIr() applies it. Replaces the docu_chat_async/docu_chat_status polling loop.",
 			"schema": {

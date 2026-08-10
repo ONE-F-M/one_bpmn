@@ -25,6 +25,8 @@
 						<AgentChatPanel
 							agent-id="docu_agent"
 							variant="docked"
+							layout="conversation"
+							:apply-targets="['apply-schema']"
 							:context="docuTurnContext"
 							:host-context-line="hostContextLine"
 							:cards="cardRegistry"

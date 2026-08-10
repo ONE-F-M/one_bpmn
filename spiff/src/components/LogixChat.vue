@@ -43,6 +43,8 @@
 					class="lx-agui-panel"
 					agent-id="logix_agent"
 					variant="modal"
+					layout="conversation"
+					:apply-targets="['apply-script', 'run-test']"
 					:context="logixTurnContext"
 					:cards="cardRegistry"
 					@card-action="onLogixCardAction"

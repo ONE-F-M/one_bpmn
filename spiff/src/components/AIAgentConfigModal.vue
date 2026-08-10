@@ -417,9 +417,11 @@
             :conversation="assistantConversation"
             :context="assistantTurnContext"
             :cards="cardRegistry"
+            :apply-targets="['apply-fields', 'confirm-create']"
             variant="docked"
             @conversation="(c) => (assistantConversation = c)"
             @card-action="onAssistantCardAction"
+            @agent-event="onAssistantAgentEvent"
           />
 
           <!-- Messages (selector mode only) -->
@@ -741,14 +743,17 @@ const assistantTurnContext = computed(() => ({
 // WI-001674: cards render and request — the HOST applies. The panel re-emits
 // card actions here; each maps onto the SAME handlers/endpoints the legacy
 // cards used, so permission checks and the creation process are identical.
-async function onAssistantCardAction({ name, action, value, fail }) {
+async function onAssistantCardAction({ name, action, value, payload, fail }) {
   if (action === "dismiss") return;
   if (action === "confirm-create" && name === "onefm.proposed_config") {
     await createProposedAgent({ proposal: value.proposal, proposalState: null }, fail);
     return;
   }
   if (action === "apply-fields" && name === "onefm.proposed_update") {
-    const fields = value.fields || {};
+    // The Form-surface tray sends per-field subsets in the PAYLOAD
+    // (partial applies); the full-card Apply carries no payload and falls
+    // back to the event's complete field set as before.
+    const fields = (payload && payload.fields) || value.fields || {};
     // A proposed update to an EXISTING config goes through the WI-001637
     // write-back; plain recommendations apply onto the open form.
     if (fields.config_name) {
@@ -1309,40 +1314,40 @@ function proposalRows(proposal) {
   return rows;
 }
 
-// WI-001649: confirm the assistant's proposal — same endpoint as the manual
-// "+ Create new…" panel, so permission checks and the Chat+Draft insert (which
-// starts the creation process) are identical. On success the new agent is
-// linked on this shape and its values pulled into the form.
+// The designer's confirm no longer creates anything itself: it relays the
+// approval into the conversation, and the AGENT calls its
+// create_agent_configuration tool — so every creation is audited as a tool
+// call on its AI Agent Run, and a chat approval typed in plain words works
+// exactly the same way. The onefm.created_config event that follows a
+// verified creation links the new agent on this shape (onAssistantAgentEvent).
 async function createProposedAgent(m, onFail) {
-  if (m.proposalState === "creating") return;
-  m.proposalState = "creating";
-  try {
-    const res = await frappeRequest({
-      url: "/api/method/one_bpmn.agents.agent_config_resolver.create_agent_configuration",
-      method: "POST",
-      params: { payload: JSON.stringify(m.proposal) },
-    });
-    agentConfigs.value.push({ name: res.name, agent_id: res.agent_id });
-    form.value.aiAgentConfig = res.name;
-    await onAgentConfigSelect();
-    m.proposalState = "created";
-    m.proposalResult = res;
-  } catch (e) {
-    m.proposalState = null;
-    // The server's throw is the ground truth ("chat mode label required",
-    // "model does not exist", duplicate name…). Surface it where the user is
-    // looking: the shared panel's transcript, un-retiring the card (fail),
-    // falling back to the legacy transcript for the old card path.
+  const panel = chatPanel.value;
+  if (!panel) {
     const text =
-      "⚠️ Could not create the agent: " +
-      ((e?.messages && e.messages.length && e.messages.join("\n")) || e?.message || e);
+      "⚠️ The assistant chat is not open — approve the proposal by replying in the chat instead.";
     if (onFail) {
       onFail(text);
     } else {
       messages.value.push({ id: makeId(), role: "assistant", content: text });
       scrollBottom();
     }
+    return;
   }
+  // Legacy transcript path only — the shared panel's card retires itself.
+  if (m && m.proposalState !== undefined) m.proposalState = "created";
+  panel.send("Approved — create the agent exactly as proposed.");
+}
+
+// onefm.created_config is proof of a verified record (the reply shaper only
+// emits it after frappe.db.exists confirms the row): link it on this shape
+// and pull its values into the form, same as picking it from the dropdown.
+async function onAssistantAgentEvent({ name, value }) {
+  if (name !== "onefm.created_config" || !value?.name) return;
+  if (!agentConfigs.value.some((c) => c.name === value.name)) {
+    agentConfigs.value.push({ name: value.name, agent_id: value.agent_id || "" });
+  }
+  form.value.aiAgentConfig = value.name;
+  await onAgentConfigSelect();
 }
 
 // WI-001649 amendment: confirm the assistant's update proposal — same

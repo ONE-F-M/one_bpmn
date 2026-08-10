@@ -32,6 +32,7 @@
 				:conversation="activeConversation"
 				variant="page"
 				:cards="cardRegistry"
+				:apply-targets="[]"
 				allow-uploads
 				@conversation="onConversation"
 				@title="refreshList"
