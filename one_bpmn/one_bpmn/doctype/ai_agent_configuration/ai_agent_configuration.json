@@ -59,6 +59,7 @@
   "memory_reconcile_model",
   "security_section",
   "pii_screening",
+  "output_screening_mode",
   "evaluation_section",
   "sample_prompts",
   "needs_attention_reason"
@@ -82,7 +83,7 @@
   },
   {
    "depends_on": "eval:!doc.process_model",
-   "description": "Which legacy execution style runs this agent's turns while it has no process map. Ignored the moment a Process Model is linked — the map runs the agent. Removed entirely once all agents are map-driven.",
+   "description": "Which legacy execution style runs this agent's turns while it has no process map. Ignored the moment a Process Model is linked \u2014 the map runs the agent. Removed entirely once all agents are map-driven.",
    "fieldname": "agent_framework",
    "fieldtype": "Select",
    "in_list_view": 1,
@@ -107,7 +108,7 @@
   },
   {
    "default": "Draft",
-   "description": "Owned by the agent-creation process — stamped as each stage completes.",
+   "description": "Owned by the agent-creation process \u2014 stamped as each stage completes.",
    "fieldname": "lifecycle_status",
    "fieldtype": "Select",
    "in_list_view": 1,
@@ -117,7 +118,7 @@
    "read_only": 1
   },
   {
-   "description": "Why the last go-live attempt parked this agent — surfaced as a form intro banner, not a field. Cleared automatically when the agent leaves Needs Attention.",
+   "description": "Why the last go-live attempt parked this agent \u2014 surfaced as a form intro banner, not a field. Cleared automatically when the agent leaves Needs Attention.",
    "fieldname": "needs_attention_reason",
    "fieldtype": "Small Text",
    "hidden": 1,
@@ -243,7 +244,7 @@
    "label": "LangSmith Project"
   },
   {
-   "description": "The BPMN process map that runs this agent. Tools are granted by the shapes drawn in this diagram — never listed on this document.",
+   "description": "The BPMN process map that runs this agent. Tools are granted by the shapes drawn in this diagram \u2014 never listed on this document.",
    "fieldname": "process_model",
    "fieldtype": "Link",
    "label": "Process Model",
@@ -274,7 +275,7 @@
    "options": "AI Model"
   },
   {
-   "description": "Derived from the chosen AI Model's credentials link — pick a model to change it.",
+   "description": "Derived from the chosen AI Model's credentials link \u2014 pick a model to change it.",
    "fieldname": "ai_provider_credentials",
    "fieldtype": "Link",
    "label": "AI Provider Credentials",
@@ -362,6 +363,14 @@
    "options": "Enabled\nDisabled"
   },
   {
+   "fieldname": "output_screening_mode",
+   "fieldtype": "Select",
+   "label": "Output Screening Mode",
+   "options": "Log\nFlag\nBlock",
+   "default": "Flag",
+   "description": "What to do when the agent's OWN response contains a credential, personal data, or a stretch of its own instructions. Flag (the default) records it and replaces the offending text with a token, so the reply still reads. Log records it and sends the reply untouched \u2014 use it to watch a new agent before tightening. Block replaces the whole reply with a refusal."
+  },
+  {
    "fieldname": "evaluation_section",
    "fieldtype": "Section Break",
    "label": "Evaluation",
@@ -378,7 +387,7 @@
    "fieldname": "memory_section",
    "fieldtype": "Section Break",
    "label": "Memory",
-   "description": "How this agent remembers. These settings are authoritative at dispatch — the BPMN shape no longer stores them; an older diagram's values are still honoured until the agent is configured here."
+   "description": "How this agent remembers. These settings are authoritative at dispatch \u2014 the BPMN shape no longer stores them; an older diagram's values are still honoured until the agent is configured here."
   },
   {
    "fieldname": "conversation_store",
@@ -413,7 +422,7 @@
    "options": "\nAgent\nProcess\nEntity",
    "default": "",
    "depends_on": "eval:doc.long_term_memory=='Enabled'",
-   "description": "Agent — this task; Process — this process model; Entity — the task's context document."
+   "description": "Agent \u2014 this task; Process \u2014 this process model; Entity \u2014 the task's context document."
   },
   {
    "fieldname": "memory_write_mode",
@@ -428,7 +437,7 @@
    "fieldname": "memory_models_section",
    "fieldtype": "Section Break",
    "label": "Memory Models",
-   "description": "Which model does the memory writes. Falls back to the Processa Settings default, then to this agent's own AI Model — so leaving both blank keeps today's behaviour.",
+   "description": "Which model does the memory writes. Falls back to the Processa Settings default, then to this agent's own AI Model \u2014 so leaving both blank keeps today's behaviour.",
    "depends_on": "eval:doc.long_term_memory=='Enabled' && doc.memory_write_mode=='distilled'"
   },
   {

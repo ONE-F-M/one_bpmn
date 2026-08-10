@@ -78,3 +78,5 @@ one_bpmn.one_bpmn.patches.v1_0.add_assistant_agent_creation_tool #09-08-2026 WI-
 one_bpmn.one_bpmn.patches.v1_0.backfill_chat_surface_ui_fields #07-08-2026 WI-001996 chat-surface UI comes from configuration
 one_bpmn.one_bpmn.patches.v1_0.harden_logix_pipeline_driver #09-08-2026 the pipeline map's agent must end every turn with finalize
 one_bpmn.one_bpmn.patches.v1_0.remove_one_ai_page #10-08-2026 the one-ai desk page is removed — openAgentChat keeps serving the Chat button
+one_bpmn.one_bpmn.patches.v1_0.set_output_screening_default #10-08-2026 WI-001644 existing agents get an explicit output screening mode
+one_bpmn.one_bpmn.patches.v1_0.drop_user_task_assignment_log #10-08-2026 WI-001998 the map's version history is the only record of a reassignment

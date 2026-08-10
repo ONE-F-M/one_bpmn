@@ -234,11 +234,25 @@ class TestChatMessageHook(unittest.TestCase):
 		reread = frappe.get_doc("Chat Message", doc.name).text
 		self.assertNotIn(CIVIL_ID, reread)
 
-	def test_bot_messages_are_not_touched(self):
-		# Output screening is a separate control; this one must not silently
-		# half-apply to the response path.
-		doc = self._message(f"the id on file is {CIVIL_ID}", message_type="Bot")
-		self.assertIn(CIVIL_ID, frappe.db.get_value("Chat Message", doc.name, "text"))
+	def test_the_input_hook_does_not_touch_bot_messages(self):
+		# The response path belongs to output screening. This hook must not
+		# half-apply to it, or the same reply gets screened twice under two
+		# different modes and the agent's configured action stops meaning anything.
+		#
+		# Asserted against the hook directly rather than through an insert: both
+		# hooks are wired to before_insert, so a stored Bot message is redacted —
+		# by output screening — and going through the insert would prove nothing
+		# about which of the two did it.
+		doc = frappe.get_doc(
+			{
+				"doctype": "Chat Message",
+				"conversation": self.conversation,
+				"message_type": "Bot",
+				"text": f"the id on file is {CIVIL_ID}",
+			}
+		)
+		pii.screen_chat_message(doc)
+		self.assertIn(CIVIL_ID, doc.text)
 
 	def test_token_matches_the_entry_point_token(self):
 		# redact() is deterministic, so the hook and screen_input agree — the

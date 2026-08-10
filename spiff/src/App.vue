@@ -133,6 +133,28 @@
 						Evals
 					</span>
 				</router-link>
+				<!-- WI-001970: the event stream shows which agents were attacked and
+				     how, so the entry is hidden from anyone who cannot read it rather
+				     than advertising a console they will be refused. -->
+				<router-link
+					v-if="canSeeSecurity"
+					to="/processa/security"
+					class="flex items-center rounded-lg transition-all duration-200"
+					:class="[
+						collapsed ? 'justify-center p-2.5' : 'gap-3 px-4 py-2.5',
+						$route.path.startsWith('/processa/security') ? 'bg-gray-900 text-white shadow-md' : 'text-gray-600 hover:bg-gray-100 hover:text-gray-900'
+					]"
+					@click="isMobileMenuOpen = false"
+					:title="collapsed ? 'Security' : ''"
+				>
+					<Icon icon="lucide:shield-check" class="w-5 h-5 shrink-0" />
+					<span
+						class="text-sm font-semibold whitespace-nowrap transition-opacity duration-200 overflow-hidden"
+						:class="collapsed ? 'opacity-0 w-0' : 'opacity-100 w-auto'"
+					>
+						Security
+					</span>
+				</router-link>
 			</nav>
 
 			<!-- Collapse Toggle -->
@@ -170,6 +192,7 @@
 import { ref, computed, onMounted, provide } from "vue"
 import { useRoute } from "vue-router"
 import { Icon } from "@iconify/vue"
+import { frappeRequest } from "frappe-ui"
 
 const route = useRoute()
 const collapsed = ref(false)
@@ -185,7 +208,23 @@ const isEditorRoute = computed(() => {
 	return route.name === "ProcessEditor" || route.name === "DiagramEditor"
 })
 
+// Asked once, from the same endpoint the screen itself uses, so the sidebar and
+// the view can never disagree about whether this user has security access.
+const canSeeSecurity = ref(false)
+async function checkSecurityAccess() {
+	try {
+		const r = await frappeRequest({
+			url: "/api/method/one_bpmn.api.security_api.can_manage",
+			method: "POST",
+		})
+		canSeeSecurity.value = Boolean(r && r.read_events)
+	} catch (e) {
+		canSeeSecurity.value = false
+	}
+}
+
 onMounted(() => {
+	checkSecurityAccess()
 	const saved = localStorage.getItem("one_bpmn_sidebar_collapsed")
 	if (saved === "true") {
 		collapsed.value = true

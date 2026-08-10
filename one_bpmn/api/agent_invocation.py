@@ -160,6 +160,26 @@ def invoke_agent(
 	config = _resolve_config(agent_id)
 	_authorize(config, conversation)
 
+	# ── Rate limit + conversation freeze (WI-001968) ─────────────────────
+	# Before any screening or model work: a refused turn should cost nothing,
+	# and a frozen conversation must not reach the provider at all. Raises
+	# RateLimited (a ValidationError) which surfaces to the caller as the
+	# refusal message; everything else in here fails open.
+	from one_bpmn.security import rate_limit as _rate_limit
+	from one_bpmn.security.pii import _config_name
+
+	# A Chat agent's turn is counted when its Chat Message is written, which is
+	# the boundary that fires on EVERY message; counting here as well would make
+	# one message cost two. Agents that never write a Chat Message are counted
+	# here instead, or they would never be throttled at all.
+	_rate_limit.enforce(
+		user=frappe.session.user,
+		agent=_config_name(config),
+		agent_label=config.get("agent_id") or agent_id,
+		conversation=conversation,
+		count=(config.get("agent_type") != "Chat"),
+	)
+
 	# ── PII input screening (WI-001644) ──────────────────────────────────
 	# Every agent invocation passes through here, so this is the one place
 	# that can guarantee no user-supplied PII reaches a third-party model.
@@ -221,6 +241,26 @@ def invoke_agent(
 		}
 	if not isinstance(result, dict):
 		result = {"response": str(result or "")}
+
+	# Output screening, before send. The Chat Message hook covers what is
+	# PERSISTED; this covers what is RETURNED, and the two are not the same
+	# thing — a direct-path agent answers without ever writing a Bot message,
+	# and a blocked response must not reach the caller even when the transcript
+	# already holds the redacted version.
+	try:
+		from one_bpmn.security.output_screening import screen_output
+
+		screened = screen_output(result.get("response") or "", config, conversation=conversation)
+		if screened.changed:
+			result["response"] = screened.text
+			result["output_screened"] = screened.summary()
+			result["output_blocked"] = screened.blocked
+	except Exception:
+		frappe.log_error(
+			title="Output screening skipped — response returned unchanged",
+			message=frappe.get_traceback(),
+		)
+
 	result.setdefault("conversation", conversation)
 	result.setdefault("agent_id", agent_id)
 	return result

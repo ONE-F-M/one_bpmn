@@ -30,6 +30,20 @@
               <span :class="['agent-status', agentStatusClass]" :title="'Deployment requires Live (WI-001652)'">
                 ● {{ linkedAgentStatus || "checking…" }}
               </span>
+              <!-- The Agent Creation Process re-checks an agent when
+                   its record is saved — it waits on a Config Edited message. That
+                   made "re-run the checks" mean "make an edit you do not want",
+                   which is folklore, not an affordance. Same trigger, named, and
+                   only where the process can still act: Live is already past it,
+                   Retired is deliberate. -->
+              <button
+                v-if="['Draft', 'Needs Attention'].includes(linkedAgentStatus)"
+                type="button"
+                class="agent-rerun"
+                :disabled="rerunning"
+                :title="'Run the agent\'s validations and adversarial suite again'"
+                @click="rerunChecks"
+              >{{ rerunning ? "Re-running…" : "Re-run checks" }}</button>
               Prompt, provider, model and params resolve from this configuration
               when the process runs. Saving writes your edits back to it.
               Deploying this diagram requires the agent to be Live.
@@ -86,6 +100,29 @@
                 + Add sample prompt
               </button>
             </div>
+            <div class="field-row two-col">
+              <div>
+                <label>PII Input Screening</label>
+                <select v-model="newAgent.pii_screening">
+                  <option value="">Default (Enabled)</option>
+                  <option value="Enabled">Enabled</option>
+                  <option value="Disabled">Disabled</option>
+                </select>
+              </div>
+              <div>
+                <label>Output Screening</label>
+                <select v-model="newAgent.output_screening_mode">
+                  <option value="">Default (Flag)</option>
+                  <option value="Log">Log — record only</option>
+                  <option value="Flag">Flag — redact the offending text</option>
+                  <option value="Block">Block — withhold the reply</option>
+                </select>
+              </div>
+            </div>
+            <span class="field-hint">
+              Screening applies to what the user sends in and what the agent says back.
+              Both can be changed later on the agent.
+            </span>
             <div class="field-row create-agent-actions">
               <button type="button" class="btn-cancel" @click="showCreateAgent = false">Cancel</button>
               <button type="button" class="btn-save" :disabled="creatingAgent" @click="createAgent">
@@ -205,6 +242,120 @@
             </label>
             <span class="field-hint">If checked, the process instance will halt when this AI task fails.</span>
           </div>
+
+          <!-- ============ Static context (WI-001639) ============ -->
+          <!-- Examples and guard rails live on the linked agent, not on this
+               diagram, and they are FROZEN: identical on every loop iteration
+               of every turn. Editing them here edits the agent.
+               They close out Advanced Settings rather than forming groups of
+               their own — they tune how one agent behaves, the same as the
+               sampling params above, and Memory below is the next real
+               section. -->
+          <template v-if="!isSelector && form.aiAgentConfig">
+            <div class="field-row">
+              <label>Examples <span class="hint">(optional)</span></label>
+              <span class="field-hint">
+                Worked examples that <em>demonstrate</em> the behaviour — a format, or a
+                judgement call that is hard to state as a rule. Rendered after the system
+                prompt, in this order.
+              </span>
+              <div v-for="(ex, i) in form.aiExamples" :key="'ex-' + i" class="static-row">
+                <div class="static-row-head">
+                  <label class="checkbox-row">
+                    <input
+                      type="checkbox"
+                      class="checkbox-input"
+                      :checked="ex.enabled !== 0"
+                      @change="ex.enabled = $event.target.checked ? 1 : 0"
+                    />
+                    <span>Enabled</span>
+                  </label>
+                  <span class="static-row-num">Example {{ i + 1 }}</span>
+                  <button type="button" class="close-btn" title="Remove" @click="form.aiExamples.splice(i, 1)">✕</button>
+                </div>
+                <div class="static-field">
+                  <span class="static-field-label">User says <em>— the input to match on</em></span>
+                  <textarea v-model="ex.input" rows="2" placeholder="e.g. How many staff are on shift today?" />
+                </div>
+                <div class="static-field">
+                  <span class="static-field-label">Agent should answer <em>— the reply to imitate</em></span>
+                  <textarea v-model="ex.expected_output" rows="2" placeholder="e.g. 14." />
+                </div>
+                <div class="static-field">
+                  <!-- The note IS rendered ("Note: ..." under the example), so
+                       don't describe it as an internal comment. -->
+                  <span class="static-field-label">Note <em>— an aside for the agent about this example</em></span>
+                  <input type="text" v-model="ex.note" placeholder="e.g. Answer the number alone, no preamble." />
+                </div>
+              </div>
+              <button type="button" class="btn-cancel" @click="addExample">+ Add example</button>
+            </div>
+
+            <div class="field-row">
+              <label>Guard Rails <span class="hint">(optional)</span></label>
+              <span class="field-hint">
+                Rules the agent must obey on every turn, each stated imperatively.
+                Rendered last in the static context, grouped by category.
+              </span>
+              <div v-for="(g, i) in form.aiGuardrails" :key="'gr-' + i" class="static-row">
+                <div class="static-row-head">
+                  <label class="checkbox-row">
+                    <input
+                      type="checkbox"
+                      class="checkbox-input"
+                      :checked="g.enabled !== 0"
+                      @change="g.enabled = $event.target.checked ? 1 : 0"
+                    />
+                    <span>Enabled</span>
+                  </label>
+                  <span class="static-row-inline-label">Category</span>
+                  <select v-model="g.category" class="static-row-cat">
+                    <option v-for="c in GUARDRAIL_CATEGORIES" :key="c" :value="c">{{ c }}</option>
+                  </select>
+                  <span class="static-row-num">Rule {{ i + 1 }}</span>
+                  <button type="button" class="close-btn" title="Remove" @click="form.aiGuardrails.splice(i, 1)">✕</button>
+                </div>
+                <div class="static-field">
+                  <span class="static-field-label">The rule <em>— phrase it as an instruction</em></span>
+                  <textarea v-model="g.guardrail" rows="2" placeholder="e.g. Never emit a file longer than 300 lines — split it instead." />
+                </div>
+              </div>
+              <button type="button" class="btn-cancel" @click="addGuardrail">+ Add guard rail</button>
+            </div>
+
+            <p class="field-hint" style="margin-top: 10px;">
+              Examples and guard rails are stored on the linked AI Agent Configuration, not on
+              this diagram, and apply to every task that links it.
+            </p>
+          </template>
+
+          <!-- ============ Screening ============ -->
+          <!-- Agent-level, like Memory below: what an agent may say is a property
+               of the agent, not of the task that happens to call it.
+
+               Rendered from the agent's OWN fields rather than a hard-coded list.
+               15.1 has since added the output mode and it now appears here by
+               itself, which is what this was built for; the injection mode
+               (WI-001840) will do the same. Labels, options and the explanatory
+               text all come from the doctype, so there is nothing here to drift
+               out of step with what the field actually accepts. -->
+          <template v-if="!isSelector && form.aiAgentConfig && screeningControls.length">
+            <div class="field-group-title">Screening</div>
+            <div class="field-row" v-for="c in screeningControls" :key="c.fieldname">
+              <label>{{ c.label }}</label>
+              <select v-if="c.fieldtype === 'Select'" v-model="c.value">
+                <option v-for="o in c.options" :key="o" :value="o">{{ o }}</option>
+              </select>
+              <input v-else-if="c.fieldtype === 'Check'" type="checkbox" class="checkbox-input"
+                     :checked="c.value == 1" @change="c.value = $event.target.checked ? 1 : 0" />
+              <input v-else type="text" v-model="c.value" />
+              <span class="field-hint" v-if="c.description">{{ c.description }}</span>
+            </div>
+            <p class="field-hint" style="margin-top: 6px;">
+              Screening settings are stored on the linked AI Agent Configuration and apply
+              wherever this agent runs.
+            </p>
+          </template>
 
           <!-- ============ Memory ============ -->
           <div class="field-group-title" v-if="!isSelector">Memory</div>
@@ -633,6 +784,11 @@ const emptyNewAgent = () => ({
   system_prompt: "",
   description: "",
   sample_prompts: [],
+  // WI-001644: chosen at creation rather than left to a later visit to the desk
+  // form. Blank means "take the doctype default", so the panel never has to
+  // restate what that default is.
+  pii_screening: "",
+  output_screening_mode: "",
 });
 const newAgent = ref(emptyNewAgent());
 const scrubbedAgentId = computed(() =>
@@ -671,6 +827,82 @@ async function refreshLinkedAgentStatus() {
   }
 }
 
+const rerunning = ref(false);
+
+// ── Per-agent screening (WI-001970) ─────────────────────────────────────────
+// The list comes from the server, which reads the doctype's real fields, so this
+// component never has to know which screening stories have shipped.
+const screeningControls = ref([]);
+
+async function loadScreening() {
+  screeningControls.value = [];
+  const name = form.value.aiAgentConfig;
+  if (!name || name === "__create__") return;
+  try {
+    const r = await frappeRequest({
+      url: "/api/method/one_bpmn.api.security_api.agent_screening",
+      method: "POST",
+      params: { agent: name },
+    });
+    screeningControls.value = (r && r.controls) || [];
+  } catch (e) {
+    /* an unreadable agent simply shows no screening section */
+  }
+}
+
+async function saveScreening() {
+  const name = form.value.aiAgentConfig;
+  if (!name || !screeningControls.value.length) return;
+  const values = {};
+  screeningControls.value.forEach((c) => { values[c.fieldname] = c.value; });
+  try {
+    await frappeRequest({
+      url: "/api/method/one_bpmn.api.security_api.save_agent_screening",
+      method: "POST",
+      params: { agent: name, values: JSON.stringify(values) },
+    });
+  } catch (e) {
+    showNotice("Screening settings not saved", serverMessage(e));
+  }
+}
+
+// Hand the agent back to the Agent Creation Process. Decides nothing itself —
+// whether it may go Live stays the map's call; this only asks it to look again,
+// which is what re-runs the adversarial suite and the other validations.
+async function rerunChecks() {
+  const name = form.value.aiAgentConfig;
+  if (!name || rerunning.value) return;
+  rerunning.value = true;
+  try {
+    await frappeRequest({
+      url: "/api/method/one_bpmn.agents.agent_provisioning.rerun_creation_process",
+      method: "POST",
+      params: { agent: name },
+    });
+    // The process runs in the background, so the badge will not be right yet.
+    // Poll a few times rather than leave a stale status on screen — and say so,
+    // because a checks run makes real model calls and takes a minute or two.
+    showNotice(
+      "Re-running the agent's checks",
+      "The Agent Creation Process is validating the configuration and running the " +
+        "agent's adversarial suite. This makes real model calls, so give it a minute — " +
+        "the status beside the agent updates on its own."
+    );
+    for (let i = 0; i < 30; i++) {
+      await new Promise((r) => setTimeout(r, 4000));
+      const before = linkedAgentStatus.value;
+      await refreshLinkedAgentStatus();
+      if (linkedAgentStatus.value === "Live") break;
+      if (before !== linkedAgentStatus.value && linkedAgentStatus.value === "Needs Attention") break;
+    }
+  } catch (e) {
+    showNotice("Couldn't re-run the checks", serverMessage(e));
+  } finally {
+    rerunning.value = false;
+    refreshLinkedAgentStatus();
+  }
+}
+
 // Form state — defaults
 const form = ref({
   aiAgentConfig: "",
@@ -697,7 +929,56 @@ const form = ref({
   // WI-001793: blank means "inherit" — site default, then the agent's own model.
   aiMemoryDistillModel: "",
   aiMemoryReconcileModel: "",
+  // WI-001639: the agent's frozen static context. Always arrays — they are
+  // replaced wholesale by loadStaticContextFromConfig once the agent is read.
+  aiExamples: [],
+  aiGuardrails: [],
 });
+
+// Mirrors the AI Agent Guard Rail Select options; the backend rejects anything
+// else back to "Other".
+const GUARDRAIL_CATEGORIES = [
+  "Code Quality",
+  "Performance",
+  "Cost & Tokens",
+  "Safety",
+  "Output Format",
+  "Other",
+];
+
+// True once the linked agent's examples/guard rails have actually been read.
+// Save only writes the two tables back when this is set: an unread agent leaves
+// the form arrays empty, and sending those would silently wipe its static
+// context.
+const staticContextLoaded = ref(false);
+
+function addExample() {
+  form.value.aiExamples.push({ input: "", expected_output: "", note: "", enabled: 1 });
+}
+
+function addGuardrail() {
+  form.value.aiGuardrails.push({ guardrail: "", category: "Other", enabled: 1 });
+}
+
+// Overlay the linked agent's static-context tables onto the form. Called on
+// open and whenever the linked agent changes, so what is on screen is what the
+// agent will actually be primed with.
+async function loadStaticContextFromConfig() {
+  staticContextLoaded.value = false;
+  if (!form.value.aiAgentConfig) return;
+  try {
+    const fields = await frappeRequest({
+      url: "/api/method/one_bpmn.agents.agent_config_resolver.get_agent_config_for_shape",
+      method: "POST",
+      params: { config_name: form.value.aiAgentConfig },
+    });
+    form.value.aiExamples = Array.isArray(fields?.aiExamples) ? fields.aiExamples : [];
+    form.value.aiGuardrails = Array.isArray(fields?.aiGuardrails) ? fields.aiGuardrails : [];
+    staticContextLoaded.value = true;
+  } catch (e) {
+    // Unreadable agent — the sections stay empty and Save leaves them alone.
+  }
+}
 
 // ── Notices ───────────────────────────────────────────────────────────────
 // Standard frappe-ui dialog for errors and confirmations — never a bare
@@ -1168,6 +1449,12 @@ onMounted(async () => {
     // keys already present, and this assignment replaces form.value wholesale.
     aiMemoryDistillModel: get("aiMemoryDistillModel") || "",
     aiMemoryReconcileModel: get("aiMemoryReconcileModel") || "",
+    // WI-001639: agent-owned, with no diagram fallback — this assignment
+    // replaces form.value wholesale, so the keys must exist here or
+    // loadStaticContextFromConfig has nothing to fill and the template binds
+    // to undefined.
+    aiExamples: [],
+    aiGuardrails: [],
   };
 
   // Pre-fill the assistant's context DocType from the diagram's start-event
@@ -1198,6 +1485,11 @@ onMounted(async () => {
   // WI-001793: the agent owns the memory settings — show its values, not the
   // diagram's stale copies, so Save can't write yesterday's config back.
   await loadMemoryFromConfig();
+
+  // WI-001639: the agent owns examples and guard rails — show its rows, not an
+  // empty pair of sections, so Save can't write a blank static context back.
+  await loadStaticContextFromConfig();
+  await loadScreening();
 });
 
 // Pull the linked configuration's current values into the form (WI-001637
@@ -1278,6 +1570,13 @@ async function onAgentConfigSelect() {
       params: { config_name: value },
     });
     applyConfigFields(fields);
+    // WI-001639: the same read carries the static-context tables, so the
+    // sections follow the newly linked agent rather than keeping the old
+    // agent's rows on screen.
+    form.value.aiExamples = Array.isArray(fields?.aiExamples) ? fields.aiExamples : [];
+    form.value.aiGuardrails = Array.isArray(fields?.aiGuardrails) ? fields.aiGuardrails : [];
+    staticContextLoaded.value = true;
+    await loadScreening();
   } catch (e) {
     /* leave the current field values as-is if the seed lookup fails */
   }
@@ -1442,6 +1741,13 @@ async function writeBackToConfig() {
     aiMaxTokens: form.value.aiMaxTokens,
   };
   if (!isSelector.value) fields.aiTemperature = form.value.aiTemperature;
+  // Screening is NOT sent here. It has its own writer (saveScreening, below),
+  // and sending it from both places meant the resolver write landed second and
+  // put the stale form value back — silently undoing whatever the user had just
+  // picked in the Screening section. The editable copy lives on
+  // screeningControls, not on form, so this endpoint has nothing current to say
+  // about it. Creation is different and still goes through the resolver: the
+  // agent has no record to read controls off yet.
   // WI-001793: memory is agent-level now, so it persists here rather than onto
   // the BPMN XML. The selector dialog has no memory section — sending its form
   // defaults would clobber the agent's real settings.
@@ -1454,6 +1760,16 @@ async function writeBackToConfig() {
     fields.aiMemoryDistillModel = form.value.aiMemoryDistillModel || "";
     fields.aiMemoryReconcileModel = form.value.aiMemoryReconcileModel || "";
   }
+  // WI-001639: examples and guard rails are agent-level, so they persist here
+  // rather than onto the BPMN XML. Sent whole (the backend replaces the tables)
+  // and only when they were read first — omitting the keys means "leave them".
+  if (staticContextLoaded.value) {
+    fields.aiExamples = form.value.aiExamples;
+    fields.aiGuardrails = form.value.aiGuardrails;
+  }
+  // Screening goes through security_api, which accepts ONLY screening fields —
+  // keeping this endpoint from becoming a general writer for the whole agent.
+  await saveScreening();
   try {
     await frappeRequest({
       url: "/api/method/one_bpmn.agents.agent_config_resolver.update_agent_config_from_shape",
@@ -1936,6 +2252,23 @@ async function save() {
 .assistant-send:hover { background: #171717; }
 .assistant-send:disabled { background: #c7c7c7; cursor: default; }
 
+.agent-rerun {
+  margin-left: 6px;
+  padding: 1px 8px;
+  font-size: 11px;
+  border: 1px solid var(--border-color, #d1d8dd);
+  border-radius: 10px;
+  background: #fff;
+  cursor: pointer;
+}
+.agent-rerun:hover:not(:disabled) {
+  background: var(--fg-hover-color, #f4f5f6);
+}
+.agent-rerun:disabled {
+  opacity: 0.6;
+  cursor: default;
+}
+
 /* ── Linked agent lifecycle badge (WI-001652) ── */
 .agent-status {
   display: inline-block;
@@ -2010,6 +2343,54 @@ async function save() {
   gap: 8px;
   align-items: center;
   margin-bottom: 6px;
+}
+/* WI-001639: one editable row of the agent's static context. Stacked rather
+   than the grid the sample-prompt rows use — these fields are prose, and a
+   guard rail or a worked example needs the full width to be readable. */
+.static-row {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 8px;
+  margin-bottom: 8px;
+  border: 1px solid var(--border-color, #d1d8dd);
+  border-radius: 6px;
+}
+.static-row-head {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+.static-row-num {
+  margin-left: auto;
+  font-size: 11px;
+  opacity: 0.6;
+}
+.static-row-inline-label {
+  font-size: 11px;
+  font-weight: 600;
+  opacity: 0.75;
+}
+/* Every input inside a row is captioned. The placeholders these replace
+   vanished the moment anything was typed, leaving a filled-in example as three
+   anonymous boxes with no way to tell the input from the expected output. */
+.static-field {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+}
+.static-field-label {
+  font-size: 11px;
+  font-weight: 600;
+  opacity: 0.75;
+}
+.static-field-label em {
+  font-style: normal;
+  font-weight: 400;
+  opacity: 0.75;
+}
+.static-row-cat {
+  max-width: 160px;
 }
 .create-agent-actions {
   flex-direction: row;
