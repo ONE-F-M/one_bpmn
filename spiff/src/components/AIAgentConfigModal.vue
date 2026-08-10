@@ -475,10 +475,12 @@
 
       <!-- ============ RIGHT: assistant chat panel ============ -->
       <div class="assistant-panel">
-        <div class="assistant-header">
+        <!-- WI-001674 mockup parity: in agent mode the panel's own titlebar
+             (avatar + name + config-driven badge) is the header; the legacy
+             purple header remains for selector mode only. "runs on its own
+             credentials" now comes from chat_description (WI-001996). -->
+        <div v-if="isSelector" class="assistant-header">
           <span class="assistant-title">✦ AI Assistant</span>
-          <!-- WI-001623: the assistant runs on its own configuration's
-               credentials, not the task's — don't imply otherwise. -->
           <span class="assistant-sub">runs on its own credentials</span>
         </div>
 
@@ -488,7 +490,11 @@
              (No wrapper <template> here: a bare template element is native
              HTML and Vue does not render its children.) -->
         <!-- Context controls -->
-        <div class="assistant-context">
+        <!-- WI-001674 follow-up: the assistant's toolbox includes schema and
+             record lookups, so the manual Context DocType / Sample Record
+             grounding is redundant in agent mode — it asks the platform
+             itself. Selector mode still uses the manual grounding. -->
+        <div v-if="isSelector" class="assistant-context">
             <div class="ctx-row">
               <label>Context DocType <span class="hint">(optional)</span></label>
               <div class="ctx-autocomplete">
@@ -548,8 +554,29 @@
             </div>
           </div>
 
-          <!-- Messages -->
-          <div ref="messagesEl" class="assistant-messages">
+          <!-- WI-001674: agent mode rides the shared AgentChatPanel — one
+               transport (the AG-UI endpoint), typed events, cards from the
+               registry. Replies can never render as raw JSON: the assistant's
+               reply shaper parses the contract server-side. The legacy
+               transcript below now serves ONLY selector mode, whose direct
+               LLM path never went through invoke_agent. -->
+          <AgentChatPanel
+            v-if="!isSelector"
+            ref="chatPanel"
+            class="assistant-agui-panel"
+            :agent-id="'ai_agent_assistant'"
+            :conversation="assistantConversation"
+            :context="assistantTurnContext"
+            :cards="cardRegistry"
+            :apply-targets="['apply-fields', 'confirm-create']"
+            variant="docked"
+            @conversation="(c) => (assistantConversation = c)"
+            @card-action="onAssistantCardAction"
+            @agent-event="onAssistantAgentEvent"
+          />
+
+          <!-- Messages (selector mode only) -->
+          <div v-if="isSelector" ref="messagesEl" class="assistant-messages">
             <div v-if="!messages.length" class="assistant-empty">
               <template v-if="isSelector">
                 Describe the flow like you'd brief a new colleague — no technical
@@ -647,8 +674,8 @@
             </div>
           </div>
 
-          <!-- Input -->
-          <div class="assistant-input-wrap">
+          <!-- Input (selector mode only — the panel owns the agent-mode composer) -->
+          <div v-if="isSelector" class="assistant-input-wrap">
             <!-- Tips popover, toggled by the bulb below -->
             <div v-if="showTips" class="assistant-tips assistant-tips-popover">
               <div class="assistant-tips-title">
@@ -704,6 +731,9 @@
 import { ref, computed, onMounted, onUnmounted, nextTick, toRaw } from "vue";
 import { Dialog, frappeRequest } from "frappe-ui";
 import { frappeGet } from "@/bpmn/shared/frappeResource";
+// WI-001674: agent mode chats through the shared panel + card registry.
+import { AgentChatPanel } from "@/components/chat";
+import { cardRegistry } from "@/components/chat/cards/registry";
 
 // bpmn-js elements must never be touched as Vue reactive proxies — the renderer
 // reads non-configurable properties (e.g. labels) that a Proxy cannot return,
@@ -968,6 +998,54 @@ function serverMessage(e) {
 // ── Assistant state ───────────────────────────────────────────────────────
 const messages = ref([]);
 const assistantConversation = ref(""); // Chat Conversation driving the dialog (WI-001623)          // { id, role, content, recommendations? }
+const chatPanel = ref(null);
+
+// WI-001674: the modal sends RAW grounding refs; the server-side context
+// builder (ai_assistant.build_assistant_turn_context) assembles the map's
+// dialog_context from them — schema/sample reads stay permission-checked
+// server-side, exactly as the legacy path did.
+const assistantTurnContext = computed(() => ({
+  assistant_dialog: {
+    linked_config: form.value.aiAgentConfig || "",
+    // The EXACT open BPMN Process Model record name — the assistant needs it
+    // verbatim for proposed_config.process_model (the human-facing process
+    // title is a different string and fails the WI-001997 creation gate).
+    process_model: window.__ONE_BPMN_CURRENT_MODEL__ || "",
+    current_config: JSON.stringify({
+      aiModel: form.value.aiModel,
+      aiSystemPrompt: form.value.aiSystemPrompt,
+      aiUserPrompt: form.value.aiUserPrompt,
+      aiOutputVariable: form.value.aiOutputVariable,
+      aiResponseFormat: form.value.aiResponseFormat,
+    }),
+  },
+}));
+
+// WI-001674: cards render and request — the HOST applies. The panel re-emits
+// card actions here; each maps onto the SAME handlers/endpoints the legacy
+// cards used, so permission checks and the creation process are identical.
+async function onAssistantCardAction({ name, action, value, payload, fail }) {
+  if (action === "dismiss") return;
+  if (action === "confirm-create" && name === "onefm.proposed_config") {
+    await createProposedAgent({ proposal: value.proposal, proposalState: null }, fail);
+    return;
+  }
+  if (action === "apply-fields" && name === "onefm.proposed_update") {
+    // The Form-surface tray sends per-field subsets in the PAYLOAD
+    // (partial applies); the full-card Apply carries no payload and falls
+    // back to the event's complete field set as before.
+    const fields = (payload && payload.fields) || value.fields || {};
+    // A proposed update to an EXISTING config goes through the WI-001637
+    // write-back; plain recommendations apply onto the open form.
+    if (fields.config_name) {
+      await applyProposedUpdate({ update: fields, updateState: null }, fail);
+    } else {
+      for (const [key, val] of Object.entries(fields)) {
+        applyRecommendation(null, key, val);
+      }
+    }
+  }
+}
 
 // Close the assistant's Chat Conversation on the backend so its BPMN
 // orchestration runs the close branch (Cleanup → Conversation Ended) and the
@@ -1535,33 +1613,40 @@ function proposalRows(proposal) {
   return rows;
 }
 
-// WI-001649: confirm the assistant's proposal — same endpoint as the manual
-// "+ Create new…" panel, so permission checks and the Chat+Draft insert (which
-// starts the creation process) are identical. On success the new agent is
-// linked on this shape and its values pulled into the form.
-async function createProposedAgent(m) {
-  if (m.proposalState === "creating") return;
-  m.proposalState = "creating";
-  try {
-    const res = await frappeRequest({
-      url: "/api/method/one_bpmn.agents.agent_config_resolver.create_agent_configuration",
-      method: "POST",
-      params: { payload: JSON.stringify(m.proposal) },
-    });
-    agentConfigs.value.push({ name: res.name, agent_id: res.agent_id });
-    form.value.aiAgentConfig = res.name;
-    await onAgentConfigSelect();
-    m.proposalState = "created";
-    m.proposalResult = res;
-  } catch (e) {
-    m.proposalState = null;
-    messages.value.push({
-      id: makeId(),
-      role: "assistant",
-      content: "⚠️ Could not create the agent: " + (e?.message || e),
-    });
-    scrollBottom();
+// The designer's confirm no longer creates anything itself: it relays the
+// approval into the conversation, and the AGENT calls its
+// create_agent_configuration tool — so every creation is audited as a tool
+// call on its AI Agent Run, and a chat approval typed in plain words works
+// exactly the same way. The onefm.created_config event that follows a
+// verified creation links the new agent on this shape (onAssistantAgentEvent).
+async function createProposedAgent(m, onFail) {
+  const panel = chatPanel.value;
+  if (!panel) {
+    const text =
+      "⚠️ The assistant chat is not open — approve the proposal by replying in the chat instead.";
+    if (onFail) {
+      onFail(text);
+    } else {
+      messages.value.push({ id: makeId(), role: "assistant", content: text });
+      scrollBottom();
+    }
+    return;
   }
+  // Legacy transcript path only — the shared panel's card retires itself.
+  if (m && m.proposalState !== undefined) m.proposalState = "created";
+  panel.send("Approved — create the agent exactly as proposed.");
+}
+
+// onefm.created_config is proof of a verified record (the reply shaper only
+// emits it after frappe.db.exists confirms the row): link it on this shape
+// and pull its values into the form, same as picking it from the dropdown.
+async function onAssistantAgentEvent({ name, value }) {
+  if (name !== "onefm.created_config" || !value?.name) return;
+  if (!agentConfigs.value.some((c) => c.name === value.name)) {
+    agentConfigs.value.push({ name: value.name, agent_id: value.agent_id || "" });
+  }
+  form.value.aiAgentConfig = value.name;
+  await onAgentConfigSelect();
 }
 
 // WI-001649 amendment: confirm the assistant's update proposal — same
@@ -1569,7 +1654,7 @@ async function createProposedAgent(m) {
 // a Needs-Attention agent's waiting instance resumes on save, a Live chat
 // agent re-provisions. If the changed config is the one linked on this shape,
 // its fresh values are pulled back into the form and the badge refreshed.
-async function applyProposedUpdate(m) {
+async function applyProposedUpdate(m, onFail) {
   if (m.updateState === "applying") return;
   m.updateState = "applying";
   try {
@@ -1588,12 +1673,15 @@ async function applyProposedUpdate(m) {
     }
   } catch (e) {
     m.updateState = null;
-    messages.value.push({
-      id: makeId(),
-      role: "assistant",
-      content: "⚠️ Could not apply the change: " + (e?.message || e),
-    });
-    scrollBottom();
+    const text =
+      "⚠️ Could not apply the change: " +
+      ((e?.messages && e.messages.length && e.messages.join("\n")) || e?.message || e);
+    if (onFail) {
+      onFail(text);
+    } else {
+      messages.value.push({ id: makeId(), role: "assistant", content: text });
+      scrollBottom();
+    }
   }
 }
 
@@ -1797,7 +1885,8 @@ async function save() {
 .ai-agent-modal {
   background: white;
   border-radius: 8px;
-  width: 920px;
+  /* 560px form + the shared chat pane (WI-001672 sizing token) */
+  width: calc(560px + var(--agui-chat-pane, 420px));
   max-width: 95vw;
   max-height: 90vh;
   display: flex;
@@ -1817,15 +1906,15 @@ async function save() {
 
 .modal-header {
   padding: 16px 20px;
-  border-bottom: 1px solid #e2e8f0;
+  border-bottom: 1px solid #e2e2e2;
   display: flex;
   justify-content: space-between;
   align-items: center;
 }
 
 .modal-header h3 { margin: 0; font-size: 1rem; font-weight: 600; }
-.close-btn { background: none; border: none; font-size: 1.1rem; cursor: pointer; color: #64748b; }
-.close-btn:hover { color: #0f172a; }
+.close-btn { background: none; border: none; font-size: 1.1rem; cursor: pointer; color: #7c7c7c; }
+.close-btn:hover { color: #171717; }
 
 .modal-body {
   padding: 20px;
@@ -1866,7 +1955,7 @@ async function save() {
 .checkbox-input {
   width: 16px;
   height: 16px;
-  accent-color: #6366f1;
+  accent-color: #171717;
   cursor: pointer;
   flex-shrink: 0;
 }
@@ -1880,7 +1969,7 @@ async function save() {
 .field-row select:focus,
 .field-row textarea:focus {
   outline: none;
-  border-color: #6366f1;
+  border-color: #171717;
   box-shadow: 0 0 0 2px rgba(99, 102, 241, 0.15);
 }
 
@@ -1896,7 +1985,7 @@ async function save() {
 
 .modal-footer {
   padding: 12px 20px;
-  border-top: 1px solid #e2e8f0;
+  border-top: 1px solid #e2e2e2;
   display: flex;
   justify-content: flex-end;
   gap: 8px;
@@ -1909,35 +1998,38 @@ async function save() {
   cursor: pointer;
   border: none;
 }
-.btn-cancel { background: #f1f5f9; color: #475569; }
-.btn-cancel:hover { background: #e2e8f0; }
-.btn-save { background: #6366f1; color: white; }
-.btn-save:hover { background: #4f46e5; }
+.btn-cancel { background: #f3f3f3; color: #525252; }
+.btn-cancel:hover { background: #e2e2e2; }
+.btn-save { background: #171717; color: white; }
+.btn-save:hover { background: #171717; }
 
 /* Right column — assistant */
 .assistant-panel {
-  flex: 0 0 340px;
+  /* Consistent-side decision (2026-08-08): chat LEFT, work surface RIGHT
+     on every agent surface — Logix and Docu already sat this way. */
+  order: -1;
+  flex: 0 0 var(--agui-chat-pane, 340px);
   display: flex;
   flex-direction: column;
-  background: #f8fafc;
-  border-left: 1px solid #e2e8f0;
+  background: #f8f8f8;
+  border-right: 1px solid #e2e2e2;
   max-height: 90vh;
 }
 
 .assistant-header {
   padding: 16px 18px;
-  border-bottom: 1px solid #e2e8f0;
+  border-bottom: 1px solid #e2e2e2;
   display: flex;
   align-items: baseline;
   gap: 8px;
 }
-.assistant-title { font-size: 0.92rem; font-weight: 600; color: #4338ca; }
-.assistant-sub { font-size: 0.72rem; color: #94a3b8; }
+.assistant-title { font-size: 0.92rem; font-weight: 600; color: #383838; }
+.assistant-sub { font-size: 0.72rem; color: #999999; }
 
 .assistant-disabled {
   padding: 24px 18px;
   font-size: 0.82rem;
-  color: #64748b;
+  color: #7c7c7c;
   line-height: 1.5;
 }
 
@@ -1949,7 +2041,7 @@ async function save() {
   gap: 8px;
 }
 .ctx-row { display: flex; flex-direction: column; gap: 3px; }
-.ctx-row label { font-size: 0.72rem; font-weight: 500; color: #475569; }
+.ctx-row label { font-size: 0.72rem; font-weight: 500; color: #525252; }
 .ctx-row .hint { font-weight: 400; color: #9ca3af; }
 .ctx-row input {
   padding: 5px 7px;
@@ -1958,13 +2050,13 @@ async function save() {
   font-size: 0.8rem;
   font-family: inherit;
 }
-.ctx-hint { font-size: 0.68rem; color: #94a3b8; line-height: 1.4; }
+.ctx-hint { font-size: 0.68rem; color: #999999; line-height: 1.4; }
 
 .ctx-autocomplete { position: relative; }
 .ctx-autocomplete input { width: 100%; box-sizing: border-box; }
 .ctx-autocomplete input:disabled {
-  background: #f1f5f9;
-  color: #94a3b8;
+  background: #f3f3f3;
+  color: #999999;
   cursor: not-allowed;
 }
 .ctx-dropdown {
@@ -1986,10 +2078,10 @@ async function save() {
 .ctx-dropdown li {
   padding: 5px 9px;
   font-size: 0.8rem;
-  color: #334155;
+  color: #383838;
   cursor: pointer;
 }
-.ctx-dropdown li:hover { background: #eef2ff; color: #4338ca; }
+.ctx-dropdown li:hover { background: #f3f3f3; color: #383838; }
 .ctx-dropdown-status {
   position: absolute;
   top: calc(100% + 2px);
@@ -1997,13 +2089,18 @@ async function save() {
   right: 0;
   padding: 6px 9px;
   font-size: 0.78rem;
-  color: #94a3b8;
+  color: #999999;
   background: #fff;
   border: 1px solid #d1d5db;
   border-radius: 4px;
   z-index: 10;
 }
 
+.assistant-agui-panel {
+  flex: 1;
+  min-height: 0;
+  border-left: none; /* the pane already draws the divider */
+}
 .assistant-messages {
   flex: 1;
   overflow-y: auto;
@@ -2012,15 +2109,15 @@ async function save() {
   flex-direction: column;
   gap: 12px;
 }
-.assistant-empty { font-size: 0.8rem; color: #94a3b8; line-height: 1.5; }
+.assistant-empty { font-size: 0.8rem; color: #999999; line-height: 1.5; }
 
 /* "Tips for a good prompt" callout — opened from the 💡 toggle by the input */
 .assistant-tips {
   padding: 10px 12px;
-  background: #f8fafc;
-  border: 1px solid #e2e8f0;
+  background: #f8f8f8;
+  border: 1px solid #e2e2e2;
   border-radius: 8px;
-  color: #64748b;
+  color: #7c7c7c;
   font-size: 0.8rem;
   line-height: 1.5;
 }
@@ -2038,27 +2135,27 @@ async function save() {
   float: right;
   border: none;
   background: transparent;
-  color: #94a3b8;
+  color: #999999;
   cursor: pointer;
   font-size: 0.75rem;
   padding: 0 2px;
 }
-.assistant-tips-close:hover { color: #475569; }
+.assistant-tips-close:hover { color: #525252; }
 .assistant-tips-toggle {
   align-self: flex-end;
-  border: 1px solid #e2e8f0;
-  background: #f8fafc;
+  border: 1px solid #e2e2e2;
+  background: #f8f8f8;
   border-radius: 8px;
   padding: 6px 8px;
   cursor: pointer;
   font-size: 0.85rem;
   line-height: 1;
 }
-.assistant-tips-toggle:hover { background: #f1f5f9; }
+.assistant-tips-toggle:hover { background: #f3f3f3; }
 .assistant-tips-toggle.active { background: #ede9fe; border-color: #c4b5fd; }
 .assistant-tips-title {
   font-weight: 600;
-  color: #475569;
+  color: #525252;
   margin-bottom: 6px;
 }
 .assistant-tips ul {
@@ -2068,7 +2165,7 @@ async function save() {
   flex-direction: column;
   gap: 4px;
 }
-.assistant-tips li strong { color: #475569; }
+.assistant-tips li strong { color: #525252; }
 
 .msg { max-width: 100%; }
 .msg-text {
@@ -2078,7 +2175,7 @@ async function save() {
   word-break: break-word;
 }
 .msg-user .msg-text {
-  background: #6366f1;
+  background: #171717;
   color: #fff;
   padding: 8px 10px;
   border-radius: 8px 8px 2px 8px;
@@ -2091,43 +2188,43 @@ async function save() {
   background: #fff;
   color: #1f2937;
   padding: 8px 10px;
-  border: 1px solid #e2e8f0;
+  border: 1px solid #e2e2e2;
   border-radius: 8px 8px 8px 2px;
   width: fit-content;
   max-width: 95%;
 }
-.msg-text.typing { color: #94a3b8; font-style: italic; }
+.msg-text.typing { color: #999999; font-style: italic; }
 
 .recs { display: flex; flex-direction: column; gap: 6px; margin-top: 8px; }
 .rec {
   background: #fff;
-  border: 1px solid #e2e8f0;
+  border: 1px solid #e2e2e2;
   border-radius: 6px;
   padding: 7px 9px;
 }
 .rec-head { display: flex; justify-content: space-between; align-items: center; gap: 8px; }
-.rec-field { font-size: 0.72rem; font-weight: 600; text-transform: uppercase; letter-spacing: 0.03em; color: #6366f1; }
+.rec-field { font-size: 0.72rem; font-weight: 600; text-transform: uppercase; letter-spacing: 0.03em; color: #171717; }
 .rec-apply {
   border: none;
-  background: #6366f1;
+  background: #171717;
   color: #fff;
   font-size: 0.72rem;
   padding: 3px 10px;
   border-radius: 4px;
   cursor: pointer;
 }
-.rec-apply:hover { background: #4f46e5; }
-.rec-apply:disabled { background: #cbd5e1; cursor: default; }
+.rec-apply:hover { background: #171717; }
+.rec-apply:disabled { background: #c7c7c7; cursor: default; }
 .rec-value {
   font-size: 0.78rem;
-  color: #334155;
+  color: #383838;
   margin-top: 4px;
   white-space: pre-wrap;
   word-break: break-word;
 }
 
 .assistant-input {
-  border-top: 1px solid #e2e8f0;
+  border-top: 1px solid #e2e2e2;
   padding: 10px 12px;
   display: flex;
   gap: 8px;
@@ -2142,18 +2239,18 @@ async function save() {
   font-size: 0.82rem;
   font-family: inherit;
 }
-.assistant-input textarea:focus { outline: none; border-color: #6366f1; }
+.assistant-input textarea:focus { outline: none; border-color: #171717; }
 .assistant-send {
   border: none;
-  background: #6366f1;
+  background: #171717;
   color: #fff;
   padding: 8px 14px;
   border-radius: 5px;
   font-size: 0.82rem;
   cursor: pointer;
 }
-.assistant-send:hover { background: #4f46e5; }
-.assistant-send:disabled { background: #cbd5e1; cursor: default; }
+.assistant-send:hover { background: #171717; }
+.assistant-send:disabled { background: #c7c7c7; cursor: default; }
 
 .agent-rerun {
   margin-left: 6px;
@@ -2191,7 +2288,7 @@ async function save() {
   padding: 10px;
   border: 1px solid #c7d2fe;
   border-radius: 8px;
-  background: #eef2ff;
+  background: #f3f3f3;
 }
 .proposal-title {
   font-weight: 600;
@@ -2205,7 +2302,7 @@ async function save() {
   border-collapse: collapse;
 }
 .proposal-key {
-  color: #6366f1;
+  color: #171717;
   font-weight: 600;
   padding: 2px 8px 2px 0;
   white-space: nowrap;
@@ -2236,9 +2333,9 @@ async function save() {
   gap: 10px;
   padding: 12px;
   margin-bottom: 12px;
-  border: 1px solid #e2e8f0;
+  border: 1px solid #e2e2e2;
   border-radius: 8px;
-  background: #f8fafc;
+  background: #f8f8f8;
 }
 .sample-prompt-row {
   display: grid;

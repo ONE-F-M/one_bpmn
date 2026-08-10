@@ -219,6 +219,7 @@ def recommend_ai_task_config(
 			"recommendations": recommendations,
 			"proposed_config": _sanitize_proposed_config(parsed.get("proposed_config")),
 			"proposed_update": _sanitize_proposed_update(parsed.get("proposed_update")),
+			"created_config": _sanitize_created_config(parsed.get("created_config")),
 			"conversation": (turn or {}).get("conversation"),
 		}
 
@@ -577,24 +578,37 @@ def _creation_capability_block() -> str:
 
 	return (
 		_creation_prerequisites_block()
-		+ "\n\nCREATE-AGENT RESPONSE CONTRACT:\n"
-		"When the designer asks to create a NEW agent and every required detail "
-		"above has been gathered from the conversation, add a \"proposed_config\" "
-		"object to your JSON reply (alongside \"message\") using exactly the "
-		"creation payload fields. While anything required is still missing, ask "
-		"for it via \"message\" instead — do not guess values, do not invent "
-		"provider names, and never include \"proposed_config\" until the "
-		"proposal is complete. The designer confirms the proposal in the UI "
-		"before anything is created.\n\n"
+		+ "\n\nCREATE-AGENT RESPONSE CONTRACT (two phases, never one):\n"
+		"PHASE 1 — PROPOSE. When the designer asks to create a NEW agent and "
+		"every required detail above has been gathered from the conversation, "
+		"add a \"proposed_config\" object to your JSON reply (alongside "
+		"\"message\") using exactly the creation payload fields. While anything "
+		"required is still missing, ask for it via \"message\" instead — do not "
+		"guess values, do not invent provider names, and never include "
+		"\"proposed_config\" until the proposal is complete. NEVER call the "
+		"create_agent_configuration tool in the same turn you present a "
+		"proposal.\n"
+		"PHASE 2 — CREATE ON APPROVAL. Only when the designer's LATEST message "
+		"explicitly approves a proposal you presented earlier in this "
+		"conversation (e.g. \"approved\", \"yes, create it\", \"go ahead\"), "
+		"call your create_agent_configuration tool with exactly the approved "
+		"values. When the tool succeeds, reply with \"created_config\": "
+		"{\"name\": <its agent_configuration value>, \"agent_id\": <its "
+		"agent_id value>} alongside a short \"message\" — and do not repeat "
+		"\"proposed_config\". When the tool returns an error, relay it via "
+		"\"message\" and keep the proposal open.\n\n"
 		+ _update_contract_block()
 		+ "\n\nCAPABILITY LIMITS (hard, non-negotiable):\n"
-		"You cannot write to ANY record yourself. Your only side-effect paths "
-		"are \"proposed_config\" and \"proposed_update\", both of which take "
-		"effect only after the designer confirms them in the UI. Changes outside "
-		"the updatable fields above (agent id, chat mode label, enabled, "
-		"lifecycle, roles…) must be made on the record in the desk — say so. "
-		"NEVER state or imply that you performed an action — reporting an "
-		"update you did not make is the worst possible answer.\n\n"
+		"Records are written ONLY by your tools, and the "
+		"create_agent_configuration tool ONLY in phase 2 — after the designer's "
+		"explicit approval of a complete proposal from this conversation. "
+		"\"proposed_update\" still takes effect only after the designer confirms "
+		"it in the UI. Changes outside the updatable fields above (agent id, "
+		"chat mode label, enabled, lifecycle, roles…) must be made on the record "
+		"in the desk — say so. NEVER state or imply that you created or changed "
+		"anything without a successful tool result in this conversation — "
+		"reporting an action you did not perform is the worst possible "
+		"answer.\n\n"
 		"ROUTING RULES:\n"
 		"- The USER PROMPT is a property of the TASK SHAPE, not of an agent "
 		"configuration (agents have no user prompt). A request to write or "
@@ -663,9 +677,25 @@ def _sanitize_proposed_update(proposed) -> dict | None:
 	return {"config_name": config_name, "fields": clean}
 
 
+def _sanitize_created_config(created) -> dict | None:
+	"""Trust nothing the model CLAIMS it created: only a name that resolves to
+	a real AI Agent Configuration record survives, and agent_id is read from
+	the record rather than the reply. None means no onefm.created_config event
+	and no host-side linking — the message text stands alone."""
+	if not isinstance(created, dict):
+		return None
+	name = str(created.get("name") or "").strip()
+	if not name or not frappe.db.exists("AI Agent Configuration", name):
+		return None
+	return {
+		"name": name,
+		"agent_id": frappe.db.get_value("AI Agent Configuration", name, "agent_id") or "",
+	}
+
+
 _PROPOSAL_FIELDS = {
-	"agent_name", "agent_id", "chat_mode_label",
-	"ai_model", "system_prompt", "description",
+	"agent_name", "agent_id", "agent_type", "chat_mode_label",
+	"process_model", "ai_model", "system_prompt", "description",
 }
 
 
@@ -682,7 +712,11 @@ def _sanitize_proposed_config(proposed) -> dict | None:
 
 	from one_bpmn.agents.agent_config_resolver import get_creation_process_model
 
-	if not get_creation_process_model():
+	# Only CHAT agents need the creation process (Background agents auto-live
+	# on insert), so only their proposals are suppressed when no process is
+	# linked on the site.
+	agent_type = str(proposed.get("agent_type") or "Chat").strip().capitalize()
+	if agent_type != "Background" and not get_creation_process_model():
 		return None
 
 	agent_name = str(proposed.get("agent_name") or "").strip()
@@ -1189,3 +1223,111 @@ def _extract_json(text: str):
 		except Exception:
 			return None
 	return None
+
+
+# ── Shared-endpoint integration (WI-001674) ──────────────────────────────────
+# The dialog's chat is served through the AG-UI endpoint: the modal sends its
+# raw grounding refs as context.assistant_dialog, the builder below turns them
+# into the dialog_context the assistant's map renders, and the shaper parses
+# the map's JSON contract out of the reply BEFORE any text reaches a bubble —
+# which is what makes the raw-JSON-in-the-transcript failure structurally
+# impossible. recommend_ai_task_config stays as the deprecated alias for the
+# legacy modal path until WI-001679 retires it.
+
+
+def build_assistant_turn_context(context: dict) -> dict:
+	"""Turn the modal's raw grounding into the map's dialog_context."""
+	grounding = (context or {}).pop("assistant_dialog", None)
+	if not isinstance(grounding, dict):
+		return context or {}
+
+	catalog = _catalog_for_mode("agent")
+	dialog_context_parts = [
+		_creation_capability_block(),
+		(
+			"PROCESS MODEL OPEN IN THE EDITOR: '{0}' — this is the exact BPMN "
+			"Process Model record name. Use it VERBATIM as "
+			"proposed_config.process_model when the agent should be mapped to "
+			"this process; the human-facing process or diagram title is a "
+			"different string and will be rejected.".format(grounding["process_model"])
+			if grounding.get("process_model")
+			else ""
+		),
+		_linked_config_block(grounding.get("linked_config") or ""),
+		_build_full_diagram_block(grounding.get("bpmn_xml") or "", grounding.get("element_id") or ""),
+		_build_context_block(
+			grounding.get("context_doctype") or "", grounding.get("context_docname") or ""
+		),
+		_build_current_config_block(
+			grounding.get("current_config") or "{}", catalog
+		),
+	]
+	# Recency wins with LLMs: the emission rules go LAST, after every
+	# reference block. Diagnosed on a live thread (f0llmt6v4c): with the
+	# contract mid-context, the approval turn answered message-only and
+	# claimed it had created the agent — which it had not.
+	dialog_context_parts.append(
+		"FINAL OUTPUT RULES (these override anything above):\n"
+		"- While details are missing, ask for them via \"message\" only.\n"
+		"- The turn in which a new-agent proposal becomes complete MUST "
+		"include \"proposed_config\" in your JSON reply (changes to an "
+		"existing agent MUST use \"proposed_update\"). The UI renders it as a "
+		"card for the designer to review. Never call the "
+		"create_agent_configuration tool in that same turn.\n"
+		"- Only a turn whose LATEST designer message explicitly approves that "
+		"proposal calls the create_agent_configuration tool — then reply with "
+		"\"created_config\" as the contract above describes.\n"
+		"- Never say you created or changed anything without a successful "
+		"tool result in this conversation, and never describe a proposal as "
+		"submitted or in validation. A reply that promises creation without "
+		"either \"proposed_config\" (phase 1) or a create tool call (phase 2) "
+		"is a contract violation."
+	)
+	out = dict(context or {})
+	out["dialog_context"] = "\n\n".join(p for p in dialog_context_parts if p)
+	out["source"] = "task_dialog"
+	return out
+
+
+def shape_assistant_reply(result: dict) -> dict:
+	"""Parse the assistant map's JSON reply contract into typed keys.
+
+	The human message becomes the visible response; recommendations are
+	catalog-filtered and proposals sanitized exactly as the legacy path did
+	— the WI-001671 translators then lift them into onefm.* events."""
+	raw = result.get("response") or ""
+	parsed = _extract_json(raw if isinstance(raw, str) else json.dumps(raw))
+	if not isinstance(parsed, dict):
+		return result
+
+	catalog = _catalog_for_mode("agent")
+	message = str(parsed.get("message", "")).strip()
+	recommendations = {
+		key: value
+		for key, value in (parsed.get("recommendations") or {}).items()
+		if key in catalog and value not in (None, "")
+	}
+	shaped = dict(result)
+	shaped["response"] = message or (raw if not recommendations else "")
+	if recommendations:
+		shaped["recommendations"] = recommendations
+	proposed_config = _sanitize_proposed_config(parsed.get("proposed_config"))
+	if proposed_config:
+		shaped["proposed_config"] = proposed_config
+	proposed_update = _sanitize_proposed_update(parsed.get("proposed_update"))
+	if proposed_update:
+		shaped["proposed_update"] = proposed_update
+	created_config = _sanitize_created_config(parsed.get("created_config"))
+	if created_config:
+		shaped["created_config"] = created_config
+	return shaped
+
+
+def _register_agui_hooks():
+	from one_bpmn.agents.agui_stream import register_context_builder, register_reply_shaper
+
+	register_context_builder("ai_agent_assistant", build_assistant_turn_context)
+	register_reply_shaper("ai_agent_assistant", shape_assistant_reply)
+
+
+_register_agui_hooks()
