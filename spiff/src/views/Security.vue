@@ -422,11 +422,36 @@ const enums = ref({
 	action: [], boundary_scope: [], source_taxonomy: [],
 })
 
-const detailFields = [
+// AC2 is "everything recorded", so the panel shows whatever get_event returned
+// rather than keeping its own list of fields to show. A second hard-coded list
+// only has to agree with the server's, and it already did not — `creation` was
+// being returned and silently never displayed. The server still names the
+// fields it will hand out, deliberately, so a field added to the doctype cannot
+// start leaking through here; this just stops the screen hiding what it was
+// given.
+//
+// DETAIL_ORDER is presentation only: these first, in this order, then anything
+// else the server sent. A new field appears at the end rather than not at all.
+const DETAIL_ORDER = [
 	"name", "detected_at", "agent_configuration", "conversation", "boundary", "stage",
 	"action", "severity", "rule", "rule_type", "classifier", "matched_pattern",
 	"correlation_id", "run", "bpmn_id", "owner", "detail",
 ]
+
+// Rendered elsewhere in the dialog, so listing them again would duplicate them:
+// the hash and length have their own block, and the rest are UI state rather
+// than things the boundary recorded.
+const DETAIL_RENDERED_SEPARATELY = ["content_hash", "content_length", "content_stored", "promoted_case"]
+
+const detailFields = computed(() => {
+	const ev = openedEvent.value
+	if (!ev) return []
+	const present = Object.keys(ev).filter((k) => !DETAIL_RENDERED_SEPARATELY.includes(k))
+	return [
+		...DETAIL_ORDER.filter((f) => present.includes(f)),
+		...present.filter((f) => !DETAIL_ORDER.includes(f)),
+	]
+})
 
 const tabs = computed(() => [
 	{ key: "events", label: "Events", count: total.value || null },

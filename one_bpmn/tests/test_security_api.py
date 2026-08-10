@@ -94,6 +94,21 @@ class TestSecurityApi(FrappeTestCase):
 		"""An unbounded page_length is a way to pull the whole log in one request."""
 		self.assertEqual(S.list_events(page_length=100000)["page_length"], 200)
 
+	def test_the_total_counts_the_search_too_not_just_the_filters(self):
+		"""The total is aggregated in SQL rather than by fetching every row and
+		taking len(), so it has to keep agreeing with the rows under a search —
+		that is the one filter that goes through or_filters, and an aggregate
+		that dropped it would overcount the moment a reviewer typed anything."""
+		self._event(detail="needle in here")
+		self._event(detail="another needle")
+		self._event(detail="nothing of interest")
+
+		hit = S.list_events(agent=self.agent, search="needle", page_length=1)
+		self.assertEqual(len(hit["events"]), 1, "page_length still limits the rows")
+		self.assertEqual(hit["total"], 2, "but the total counts every match")
+
+		self.assertEqual(S.list_events(agent=self.agent, search="zzz-no-match")["total"], 0)
+
 	# ------------------------------------------------------------------
 	# AC 2 — everything recorded, and nothing that was not
 	# ------------------------------------------------------------------

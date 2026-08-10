@@ -149,15 +149,18 @@ def list_events(
 	# Counted through get_list, not db.count, so the same permission scoping that
 	# produced the rows produces the total — otherwise the screen reports a
 	# number the reader is not allowed to see the contents of.
-	total = len(
-		frappe.get_list(
-			"AI Security Event",
-			filters=filters,
-			or_filters=or_filters,
-			fields=["name"],
-			limit_page_length=0,
-		)
+	#
+	# Aggregated in SQL rather than by fetching every row and taking len(): this
+	# is the one query that grows without bound as the log fills, and it runs on
+	# every page turn. The permission conditions still apply — that is the whole
+	# reason for going through get_list — but only one row comes back.
+	count_row = frappe.get_list(
+		"AI Security Event",
+		filters=filters,
+		or_filters=or_filters,
+		fields=["count(name) as total"],
 	)
+	total = (count_row[0].get("total") if count_row else 0) or 0
 	return {"events": rows, "total": total, "start": start, "page_length": page_length}
 
 
