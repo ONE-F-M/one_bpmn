@@ -23,46 +23,52 @@
 			</div>
 		</header>
 
+		<!-- Toolbar / Filters — same shape as the Instances toolbar: a flush bar
+		     under the header, frappe-ui controls, and no labels stacked above.
+		     Each control's first option names the filter, so the row reads as one
+		     line of pills instead of four little labelled boxes. -->
+		<div
+			v-show="tab === 'events'"
+			class="bg-white px-6 py-3 border-b flex flex-wrap gap-4 items-center"
+		>
+			<FormControl
+				type="select"
+				v-model="filters.agent"
+				:options="agentOptions"
+				class="w-56"
+				@change="loadEvents(0)"
+			/>
+			<FormControl
+				type="select"
+				v-model="filters.boundary"
+				:options="boundaryOptions"
+				class="w-44"
+				@change="loadEvents(0)"
+			/>
+			<FormControl
+				type="select"
+				v-model="filters.action"
+				:options="actionOptions"
+				class="w-44"
+				@change="loadEvents(0)"
+			/>
+			<!-- Searches on Enter rather than on every keystroke: this one hits the
+			     database with a LIKE across three columns. -->
+			<FormControl
+				type="text"
+				v-model="filters.search"
+				placeholder="Search rule, classifier or detail…"
+				class="w-72"
+				@keyup.enter="loadEvents(0)"
+			/>
+			<Button v-if="anyFilter" variant="ghost" class="ml-auto" @click="resetFilters">
+				Clear filters
+			</Button>
+		</div>
+
 		<main class="flex-1 overflow-auto p-6">
 			<!-- ── Events ─────────────────────────────────────────────────── -->
 			<section v-show="tab === 'events'" class="space-y-4">
-				<div class="bg-white rounded-lg shadow-sm p-4 flex flex-wrap items-end gap-3">
-					<label class="flex flex-col gap-1">
-						<span class="text-xs text-gray-500">Agent</span>
-						<select v-model="filters.agent" class="border rounded px-2 py-1 text-sm min-w-[10rem]" @change="loadEvents(0)">
-							<option value="">All agents</option>
-							<option v-for="a in options.agents" :key="a" :value="a">{{ a }}</option>
-						</select>
-					</label>
-					<label class="flex flex-col gap-1">
-						<span class="text-xs text-gray-500">Boundary</span>
-						<select v-model="filters.boundary" class="border rounded px-2 py-1 text-sm" @change="loadEvents(0)">
-							<option value="">Any</option>
-							<option v-for="b in options.boundaries" :key="b" :value="b">{{ b }}</option>
-						</select>
-					</label>
-					<label class="flex flex-col gap-1">
-						<span class="text-xs text-gray-500">Action</span>
-						<select v-model="filters.action" class="border rounded px-2 py-1 text-sm" @change="loadEvents(0)">
-							<option value="">Any</option>
-							<option v-for="a in options.actions" :key="a" :value="a">{{ a }}</option>
-						</select>
-					</label>
-					<label class="flex flex-col gap-1 flex-1 min-w-[12rem]">
-						<span class="text-xs text-gray-500">Search rule, classifier or detail</span>
-						<input
-							v-model="filters.search"
-							type="text"
-							class="border rounded px-2 py-1 text-sm w-full"
-							placeholder="e.g. ignore-previous"
-							@keyup.enter="loadEvents(0)"
-						/>
-					</label>
-					<button class="text-xs text-gray-500 hover:text-gray-900 underline pb-1.5" @click="resetFilters">
-						Clear
-					</button>
-				</div>
-
 				<div class="bg-white rounded-lg shadow-sm overflow-hidden">
 					<div v-if="loading.events" class="p-6 text-sm text-gray-500">Loading events…</div>
 					<div v-else-if="!events.length" class="p-6 text-sm text-gray-500">
@@ -378,7 +384,7 @@
 // action — so this screen can never become a second, divergent implementation
 // of the rules it displays.
 import { computed, onMounted, reactive, ref } from "vue"
-import { frappeRequest } from "frappe-ui"
+import { Button, FormControl, frappeRequest } from "frappe-ui"
 
 const API = "/api/method/one_bpmn.api.security_api."
 
@@ -392,6 +398,17 @@ const start = ref(0)
 const pageLength = 50
 const options = ref({ agents: [], boundaries: [], actions: [], severities: [] })
 const filters = reactive({ agent: "", boundary: "", action: "", search: "" })
+
+// The empty option carries the filter's name, so the control reads as a label
+// until it is set — the pattern the Instances toolbar uses. Values still come
+// from event_filter_options, which returns what is actually in the log rather
+// than every value the schema allows.
+function selectOptions(all, allLabel) {
+	return [{ label: allLabel, value: "" }, ...all.map((v) => ({ label: v, value: v }))]
+}
+const agentOptions = computed(() => selectOptions(options.value.agents, "All agents"))
+const boundaryOptions = computed(() => selectOptions(options.value.boundaries, "All boundaries"))
+const actionOptions = computed(() => selectOptions(options.value.actions, "All actions"))
 
 const patterns = ref([])
 const locks = ref([])
