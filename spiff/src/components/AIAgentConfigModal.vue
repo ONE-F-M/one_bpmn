@@ -100,6 +100,29 @@
                 + Add sample prompt
               </button>
             </div>
+            <div class="field-row two-col">
+              <div>
+                <label>PII Input Screening</label>
+                <select v-model="newAgent.pii_screening">
+                  <option value="">Default (Enabled)</option>
+                  <option value="Enabled">Enabled</option>
+                  <option value="Disabled">Disabled</option>
+                </select>
+              </div>
+              <div>
+                <label>Output Screening</label>
+                <select v-model="newAgent.output_screening_mode">
+                  <option value="">Default (Flag)</option>
+                  <option value="Log">Log — record only</option>
+                  <option value="Flag">Flag — redact the offending text</option>
+                  <option value="Block">Block — withhold the reply</option>
+                </select>
+              </div>
+            </div>
+            <span class="field-hint">
+              Screening applies to what the user sends in and what the agent says back.
+              Both can be changed later on the agent.
+            </span>
             <div class="field-row create-agent-actions">
               <button type="button" class="btn-cancel" @click="showCreateAgent = false">Cancel</button>
               <button type="button" class="btn-save" :disabled="creatingAgent" @click="createAgent">
@@ -304,6 +327,35 @@
               Examples and guard rails are stored on the linked AI Agent Configuration, not on
               this diagram, and apply to every task that links it.
             </p>
+          </template>
+
+          <!-- ============ Screening (WI-001644) ============ -->
+          <!-- Agent-level, like Memory below: what an agent may say is a property
+               of the agent, not of the task that happens to call it. -->
+          <template v-if="!isSelector && form.aiAgentConfig">
+            <div class="field-group-title">Screening</div>
+            <div class="field-row two-col">
+              <div>
+                <label>PII Input Screening</label>
+                <select v-model="form.aiPiiScreening">
+                  <option value="Enabled">Enabled</option>
+                  <option value="Disabled">Disabled</option>
+                </select>
+              </div>
+              <div>
+                <label>Output Screening</label>
+                <select v-model="form.aiOutputScreeningMode">
+                  <option value="Log">Log — record only</option>
+                  <option value="Flag">Flag — redact the offending text</option>
+                  <option value="Block">Block — withhold the reply</option>
+                </select>
+              </div>
+            </div>
+            <span class="field-hint">
+              Output screening checks the agent's OWN reply for credentials, personal data,
+              and stretches of its own instructions. Flag redacts and keeps the reply
+              readable; Log records without changing anything; Block withholds it entirely.
+            </span>
           </template>
 
           <!-- ============ Memory ============ -->
@@ -703,6 +755,11 @@ const emptyNewAgent = () => ({
   system_prompt: "",
   description: "",
   sample_prompts: [],
+  // WI-001644: chosen at creation rather than left to a later visit to the desk
+  // form. Blank means "take the doctype default", so the panel never has to
+  // restate what that default is.
+  pii_screening: "",
+  output_screening_mode: "",
 });
 const newAgent = ref(emptyNewAgent());
 const scrubbedAgentId = computed(() =>
@@ -810,6 +867,8 @@ const form = ref({
   // replaced wholesale by loadStaticContextFromConfig once the agent is read.
   aiExamples: [],
   aiGuardrails: [],
+  aiPiiScreening: "Enabled",
+  aiOutputScreeningMode: "Flag",
 });
 
 // Mirrors the AI Agent Guard Rail Select options; the backend rejects anything
@@ -1284,6 +1343,9 @@ onMounted(async () => {
     // to undefined.
     aiExamples: [],
     aiGuardrails: [],
+    // Agent-owned, with no diagram fallback — filled by the config read below.
+    aiPiiScreening: "Enabled",
+    aiOutputScreeningMode: "Flag",
   };
 
   // Pre-fill the assistant's context DocType from the diagram's start-event
@@ -1558,6 +1620,13 @@ async function writeBackToConfig() {
     aiMaxTokens: form.value.aiMaxTokens,
   };
   if (!isSelector.value) fields.aiTemperature = form.value.aiTemperature;
+  // WI-001644: screening persists to the agent, like memory above. The selector
+  // dialog has no screening section, so sending its defaults would clobber the
+  // agent's real settings.
+  if (!isSelector.value) {
+    fields.aiPiiScreening = form.value.aiPiiScreening;
+    fields.aiOutputScreeningMode = form.value.aiOutputScreeningMode;
+  }
   // WI-001793: memory is agent-level now, so it persists here rather than onto
   // the BPMN XML. The selector dialog has no memory section — sending its form
   // defaults would clobber the agent's real settings.

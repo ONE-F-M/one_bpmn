@@ -331,8 +331,8 @@
    "fieldtype": "Select",
    "label": "Output Screening Mode",
    "options": "Log\nFlag\nBlock",
-   "default": "Log",
-   "description": "What to do when the agent's OWN response contains a credential, personal data, or a stretch of its own instructions. Log records it and sends the reply untouched. Flag records it and replaces the offending text with a token, so the reply still reads. Block replaces the whole reply with a refusal. Starts at Log on purpose: a screen introduced in blocking mode gets switched off the first time it misfires."
+   "default": "Flag",
+   "description": "What to do when the agent's OWN response contains a credential, personal data, or a stretch of its own instructions. Flag (the default) records it and replaces the offending text with a token, so the reply still reads. Log records it and sends the reply untouched \u2014 use it to watch a new agent before tightening. Block replaces the whole reply with a refusal."
   },
   {
    "fieldname": "evaluation_section",

@@ -104,15 +104,22 @@ class TestOutputScreening(FrappeTestCase):
 			self.assertEqual(result.text, clean, f"{mode} altered a clean response")
 			self.assertFalse(result.findings)
 
-	def test_the_mode_defaults_to_log_when_unset_or_unreadable(self):
-		"""An agent predating the field, or one whose value cannot be read, must
-		not silently start blocking on upgrade."""
+	def test_the_mode_defaults_to_flag_when_unset_or_unreadable(self):
+		"""An agent predating the field, or one whose value cannot be read, gets
+		Flag: it redacts but never refuses, so an upgrade cannot become an outage
+		the way a Block default could — while a Log default would let a real leak
+		reach the user with nothing but a log line to show for it."""
 		frappe.db.set_value("AI Agent Configuration", self.agent, "output_screening_mode", "")
 		frappe.clear_document_cache("AI Agent Configuration", self.agent)
 		text = "api_key = sk_live_A1b2C3d4E5f6G7h8"
 
-		self.assertEqual(screen_output(text, self.agent).text, text)
-		self.assertEqual(screen_output(text, "ZZ no such agent").text, text)
+		unset = screen_output(text, self.agent)
+		self.assertIn("[API_KEY_REDACTED]", unset.text)
+		self.assertFalse(unset.blocked, "the default must never refuse to answer")
+
+		unknown = screen_output(text, "ZZ no such agent")
+		self.assertIn("[API_KEY_REDACTED]", unknown.text)
+		self.assertFalse(unknown.blocked)
 
 	# ------------------------------------------------------------------
 	# What it catches

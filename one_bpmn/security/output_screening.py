@@ -19,10 +19,12 @@ THE ACTION IS THE AGENT'S TO CHOOSE
 
 ``output_screening_mode`` is Log, Flag or Block, and it defaults to Log:
 
-* **Log** — recorded, response untouched. Observation, so the screen can be
-  introduced without anyone's agent suddenly refusing to answer.
-* **Flag** — recorded, offending text replaced with a token. The reply still
-  reads and the reader can see something was removed.
+* **Flag** (the default) — recorded, offending text replaced with a token. The
+  reply still reads and the reader can see something was removed. Chosen as the
+  default because a leak that is merely *logged* has still reached the user, and
+  redaction stops that without ever refusing to answer.
+* **Log** — recorded, response untouched. Observation, for watching a new agent
+  before tightening.
 * **Block** — recorded, whole response replaced. For an agent where a leak is
   worse than silence.
 
@@ -118,11 +120,12 @@ BLOCKED_REPLACEMENT = (
 
 
 def _mode(agent_config) -> str:
-	"""The agent's configured action, defaulting to Log.
+	"""The agent's configured action, defaulting to Flag.
 
-	Log for an agent that predates the field, and for one whose value is
-	unreadable: a screen that silently starts blocking on upgrade is how an
-	upgrade becomes an outage.
+	Flag for an agent that predates the field and for one whose value cannot be
+	read. It redacts but never refuses, so an upgrade cannot turn into an outage
+	the way a Block default could — while a Log default would leave a real leak
+	reaching the user with nothing but a log line to show for it.
 	"""
 	import frappe
 
@@ -139,7 +142,7 @@ def _mode(agent_config) -> str:
 			value = frappe.db.get_value("AI Agent Configuration", name, "output_screening_mode")
 		except Exception:
 			value = None
-	return value if value in ("Log", "Flag", "Block") else "Log"
+	return value if value in ("Log", "Flag", "Block") else "Flag"
 
 
 def _static_context_for(agent_config) -> str:
