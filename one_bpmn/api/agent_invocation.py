@@ -209,6 +209,26 @@ def invoke_agent(agent_id: str, message: str, conversation: str = None, context:
 		_turn.end_turn()
 	if not isinstance(result, dict):
 		result = {"response": str(result or "")}
+
+	# Output screening, before send. The Chat Message hook covers what is
+	# PERSISTED; this covers what is RETURNED, and the two are not the same
+	# thing — a direct-path agent answers without ever writing a Bot message,
+	# and a blocked response must not reach the caller even when the transcript
+	# already holds the redacted version.
+	try:
+		from one_bpmn.security.output_screening import screen_output
+
+		screened = screen_output(result.get("response") or "", config, conversation=conversation)
+		if screened.changed:
+			result["response"] = screened.text
+			result["output_screened"] = screened.summary()
+			result["output_blocked"] = screened.blocked
+	except Exception:
+		frappe.log_error(
+			title="Output screening skipped — response returned unchanged",
+			message=frappe.get_traceback(),
+		)
+
 	result.setdefault("conversation", conversation)
 	result.setdefault("agent_id", agent_id)
 	return result

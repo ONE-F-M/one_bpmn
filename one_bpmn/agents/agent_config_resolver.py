@@ -74,6 +74,18 @@ _SHAPE_TO_CONFIG = {
 	"aiMemoryWriteMode": "memory_write_mode",
 	"aiMemoryDistillModel": "memory_distill_model",
 	"aiMemoryReconcileModel": "memory_reconcile_model",
+	# WI-001644: screening is agent-level too — what an agent may say is a
+	# property of the agent, not of the task that happens to call it.
+	"aiPiiScreening": "pii_screening",
+	"aiOutputScreeningMode": "output_screening_mode",
+}
+
+# The inverse, for the editor read. Not folded into _CONFIG_TO_SHAPE because
+# that map is overlaid onto the SHAPE at dispatch and screening has no shape
+# meaning; putting it there would write agent policy onto every diagram.
+_SCREENING_TO_SHAPE = {
+	"pii_screening": "aiPiiScreening",
+	"output_screening_mode": "aiOutputScreeningMode",
 }
 
 # Guard rail categories, mirroring the AI Agent Guard Rail Select options
@@ -148,6 +160,31 @@ def _rows_for_shape(doc, table: str, fields: tuple[str, ...]) -> list[dict]:
 	"""The table's rows as plain dicts, in document order — the order they
 	reach the model."""
 	return [{f: (r.get(f) or "") if f != "enabled" else int(r.get("enabled") or 0) for f in fields} for r in doc.get(table) or []]
+
+
+# The agent's screening settings. Agent-owned with no shape equivalent, so —
+# exactly like the static-context tables below — they are readable by the editor
+# but kept OUT of config_field_map, whose job is overlaying shape attributes at
+# dispatch. Screening is not a property of a task.
+_SCREENING_FIELDS = ("pii_screening", "output_screening_mode")
+
+
+def config_screening(config_name: str) -> dict:
+	"""Screening settings for a configuration, keyed by shape attribute.
+
+	Only fields the doctype really has are returned, so this keeps working on a
+	site where a screening story has not landed yet — and the modal renders one
+	control per key it gets back rather than assuming both exist.
+	"""
+	if not config_name or not frappe.db.exists("AI Agent Configuration", config_name):
+		return {}
+	cfg = frappe.get_doc("AI Agent Configuration", config_name)
+	meta = frappe.get_meta("AI Agent Configuration")
+	out = {}
+	for fieldname in _SCREENING_FIELDS:
+		if meta.get_field(fieldname):
+			out[_SCREENING_TO_SHAPE[fieldname]] = cfg.get(fieldname)
+	return out
 
 
 def config_static_context(config_name: str) -> dict:
@@ -264,7 +301,11 @@ def get_agent_config_for_shape(config_name: str) -> dict:
 	# WI-001639: the static-context tables ride along so the modal can edit
 	# them, but they stay out of config_field_map so dispatch's overlay is
 	# unchanged.
-	return {**config_field_map(config_name), **config_static_context(config_name)}
+	return {
+		**config_field_map(config_name),
+		**config_static_context(config_name),
+		**config_screening(config_name),
+	}
 
 
 @frappe.whitelist()
@@ -394,6 +435,18 @@ CREATE_PAYLOAD_CONTRACT = {
 		"frozen static context. Use these for constraints (limits, checks, prohibitions); "
 		"use examples for demonstrations."
 	),
+	"pii_screening": (
+		"Optional. Enabled or Disabled — screens the USER's message for personal data "
+		"before it reaches the model. Defaults to Enabled; disable only for an agent "
+		"whose work genuinely needs the raw values."
+	),
+	"output_screening_mode": (
+		"Optional. Log, Flag or Block — what to do when the AGENT's own response "
+		"contains a credential, personal data, or a stretch of its own instructions. "
+		"Defaults to Flag, which records it and redacts the offending text so the reply "
+		"still reads. Log records and sends untouched — use it to watch a new agent "
+		"before tightening. Block withholds the whole reply."
+	),
 }
 
 
@@ -489,6 +542,21 @@ def create_agent_configuration(payload: str | dict) -> dict:
 	doc.ai_provider_credentials = payload.get("ai_provider_credentials") or None
 	doc.system_prompt = payload.get("system_prompt") or ""
 	doc.description = payload.get("description") or ""
+	# WI-001644: screening chosen at creation rather than left to a later visit
+	# to the desk form. Set only when the field exists on this site and the
+	# value is one the doctype accepts — an unknown value would fail the whole
+	# insert over a setting the agent could perfectly well start with its
+	# default. Absent means "leave the doctype default", which is Log.
+	_meta = frappe.get_meta("AI Agent Configuration")
+	for fieldname in _SCREENING_FIELDS:
+		value = payload.get(fieldname)
+		df = _meta.get_field(fieldname)
+		if not value or not df:
+			continue
+		allowed = [o for o in (df.options or "").split("\n") if o]
+		if allowed and value not in allowed:
+			continue
+		doc.set(fieldname, value)
 	for row in payload.get("sample_prompts") or []:
 		if (row.get("prompt") or "").strip():
 			doc.append("sample_prompts", {
