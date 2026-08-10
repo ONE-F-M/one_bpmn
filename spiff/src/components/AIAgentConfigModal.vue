@@ -329,33 +329,32 @@
             </p>
           </template>
 
-          <!-- ============ Screening (WI-001644) ============ -->
+          <!-- ============ Screening ============ -->
           <!-- Agent-level, like Memory below: what an agent may say is a property
-               of the agent, not of the task that happens to call it. -->
-          <template v-if="!isSelector && form.aiAgentConfig">
+               of the agent, not of the task that happens to call it.
+
+               Rendered from the agent's OWN fields rather than a hard-coded list.
+               15.1 has since added the output mode and it now appears here by
+               itself, which is what this was built for; the injection mode
+               (WI-001840) will do the same. Labels, options and the explanatory
+               text all come from the doctype, so there is nothing here to drift
+               out of step with what the field actually accepts. -->
+          <template v-if="!isSelector && form.aiAgentConfig && screeningControls.length">
             <div class="field-group-title">Screening</div>
-            <div class="field-row two-col">
-              <div>
-                <label>PII Input Screening</label>
-                <select v-model="form.aiPiiScreening">
-                  <option value="Enabled">Enabled</option>
-                  <option value="Disabled">Disabled</option>
-                </select>
-              </div>
-              <div>
-                <label>Output Screening</label>
-                <select v-model="form.aiOutputScreeningMode">
-                  <option value="Log">Log — record only</option>
-                  <option value="Flag">Flag — redact the offending text</option>
-                  <option value="Block">Block — withhold the reply</option>
-                </select>
-              </div>
+            <div class="field-row" v-for="c in screeningControls" :key="c.fieldname">
+              <label>{{ c.label }}</label>
+              <select v-if="c.fieldtype === 'Select'" v-model="c.value">
+                <option v-for="o in c.options" :key="o" :value="o">{{ o }}</option>
+              </select>
+              <input v-else-if="c.fieldtype === 'Check'" type="checkbox" class="checkbox-input"
+                     :checked="c.value == 1" @change="c.value = $event.target.checked ? 1 : 0" />
+              <input v-else type="text" v-model="c.value" />
+              <span class="field-hint" v-if="c.description">{{ c.description }}</span>
             </div>
-            <span class="field-hint">
-              Output screening checks the agent's OWN reply for credentials, personal data,
-              and stretches of its own instructions. Flag redacts and keeps the reply
-              readable; Log records without changing anything; Block withholds it entirely.
-            </span>
+            <p class="field-hint" style="margin-top: 6px;">
+              Screening settings are stored on the linked AI Agent Configuration and apply
+              wherever this agent runs.
+            </p>
           </template>
 
           <!-- ============ Memory ============ -->
@@ -800,6 +799,43 @@ async function refreshLinkedAgentStatus() {
 
 const rerunning = ref(false);
 
+// ── Per-agent screening (WI-001970) ─────────────────────────────────────────
+// The list comes from the server, which reads the doctype's real fields, so this
+// component never has to know which screening stories have shipped.
+const screeningControls = ref([]);
+
+async function loadScreening() {
+  screeningControls.value = [];
+  const name = form.value.aiAgentConfig;
+  if (!name || name === "__create__") return;
+  try {
+    const r = await frappeRequest({
+      url: "/api/method/one_bpmn.api.security_api.agent_screening",
+      method: "POST",
+      params: { agent: name },
+    });
+    screeningControls.value = (r && r.controls) || [];
+  } catch (e) {
+    /* an unreadable agent simply shows no screening section */
+  }
+}
+
+async function saveScreening() {
+  const name = form.value.aiAgentConfig;
+  if (!name || !screeningControls.value.length) return;
+  const values = {};
+  screeningControls.value.forEach((c) => { values[c.fieldname] = c.value; });
+  try {
+    await frappeRequest({
+      url: "/api/method/one_bpmn.api.security_api.save_agent_screening",
+      method: "POST",
+      params: { agent: name, values: JSON.stringify(values) },
+    });
+  } catch (e) {
+    showNotice("Screening settings not saved", serverMessage(e));
+  }
+}
+
 // Hand the agent back to the Agent Creation Process. Decides nothing itself —
 // whether it may go Live stays the map's call; this only asks it to look again,
 // which is what re-runs the adversarial suite and the other validations.
@@ -867,8 +903,6 @@ const form = ref({
   // replaced wholesale by loadStaticContextFromConfig once the agent is read.
   aiExamples: [],
   aiGuardrails: [],
-  aiPiiScreening: "Enabled",
-  aiOutputScreeningMode: "Flag",
 });
 
 // Mirrors the AI Agent Guard Rail Select options; the backend rejects anything
@@ -1343,9 +1377,6 @@ onMounted(async () => {
     // to undefined.
     aiExamples: [],
     aiGuardrails: [],
-    // Agent-owned, with no diagram fallback — filled by the config read below.
-    aiPiiScreening: "Enabled",
-    aiOutputScreeningMode: "Flag",
   };
 
   // Pre-fill the assistant's context DocType from the diagram's start-event
@@ -1380,6 +1411,7 @@ onMounted(async () => {
   // WI-001639: the agent owns examples and guard rails — show its rows, not an
   // empty pair of sections, so Save can't write a blank static context back.
   await loadStaticContextFromConfig();
+  await loadScreening();
 });
 
 // Pull the linked configuration's current values into the form (WI-001637
@@ -1466,6 +1498,7 @@ async function onAgentConfigSelect() {
     form.value.aiExamples = Array.isArray(fields?.aiExamples) ? fields.aiExamples : [];
     form.value.aiGuardrails = Array.isArray(fields?.aiGuardrails) ? fields.aiGuardrails : [];
     staticContextLoaded.value = true;
+    await loadScreening();
   } catch (e) {
     /* leave the current field values as-is if the seed lookup fails */
   }
@@ -1620,13 +1653,13 @@ async function writeBackToConfig() {
     aiMaxTokens: form.value.aiMaxTokens,
   };
   if (!isSelector.value) fields.aiTemperature = form.value.aiTemperature;
-  // WI-001644: screening persists to the agent, like memory above. The selector
-  // dialog has no screening section, so sending its defaults would clobber the
-  // agent's real settings.
-  if (!isSelector.value) {
-    fields.aiPiiScreening = form.value.aiPiiScreening;
-    fields.aiOutputScreeningMode = form.value.aiOutputScreeningMode;
-  }
+  // Screening is NOT sent here. It has its own writer (saveScreening, below),
+  // and sending it from both places meant the resolver write landed second and
+  // put the stale form value back — silently undoing whatever the user had just
+  // picked in the Screening section. The editable copy lives on
+  // screeningControls, not on form, so this endpoint has nothing current to say
+  // about it. Creation is different and still goes through the resolver: the
+  // agent has no record to read controls off yet.
   // WI-001793: memory is agent-level now, so it persists here rather than onto
   // the BPMN XML. The selector dialog has no memory section — sending its form
   // defaults would clobber the agent's real settings.
@@ -1646,6 +1679,9 @@ async function writeBackToConfig() {
     fields.aiExamples = form.value.aiExamples;
     fields.aiGuardrails = form.value.aiGuardrails;
   }
+  // Screening goes through security_api, which accepts ONLY screening fields —
+  // keeping this endpoint from becoming a general writer for the whole agent.
+  await saveScreening();
   try {
     await frappeRequest({
       url: "/api/method/one_bpmn.agents.agent_config_resolver.update_agent_config_from_shape",
