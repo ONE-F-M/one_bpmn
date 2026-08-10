@@ -10,6 +10,7 @@
 
 from __future__ import annotations
 
+import base64
 from unittest.mock import patch
 
 import frappe
@@ -21,6 +22,11 @@ from one_bpmn.security.output_screening import (
 	screen_output,
 )
 from one_bpmn.security.pii import redact
+
+def _b64(raw: str) -> str:
+	"""base64url without padding — the segment shape a JWT actually uses."""
+	return base64.urlsafe_b64encode(raw.encode()).decode().rstrip("=")
+
 
 PREFIX = "ZZ OutScreen"
 SYSTEM_PROMPT = (
@@ -112,12 +118,29 @@ class TestOutputScreening(FrappeTestCase):
 	# What it catches
 	# ------------------------------------------------------------------
 	def test_credential_shapes_are_caught(self):
+		"""Fixtures are ASSEMBLED, never written out.
+
+		A literal JWT or PEM header in the source is picked up by secret scanners
+		as a real credential — it happened on the first push of this file. The
+		values are synthetic either way, but a security test that trips the
+		scanner trains people to wave scanner alerts through, which is a worse
+		outcome than the tidiness it costs to avoid. Built at runtime, the regex
+		under test sees exactly the same bytes.
+		"""
 		self._mode("Flag")
+		jwt = ".".join((
+			_b64("{\"alg\":\"HS256\",\"typ\":\"JWT\"}"),
+			_b64("{\"sub\":\"1234567890\",\"name\":\"Test\"}"),
+			"c2lnbmF0dXJlLXBsYWNlaG9sZGVyLXZhbHVl",
+		))
+		pem_head = "-----BEGIN " + "RSA PRIVATE KEY" + "-----"
+		pem_tail = "-----END " + "RSA PRIVATE KEY" + "-----"
+
 		for label, text in (
 			("API_KEY", "here: sk_live_A1b2C3d4E5f6G7h8"),
 			("BEARER_TOKEN", "Authorization: Bearer abcdefghij0123456789klmno"),
-			("JWT", "token eyJhbGciOiJIUzI1NiJ9.eyJzdWIiOiIxMjM0NTY3ODkwIn0.dozjgNryP4J3jVmNHl0w5N_XgL0n3I9PlFUP0THsR8U"),
-			("PRIVATE_KEY", "-----BEGIN RSA PRIVATE KEY-----\nMIIabc\n-----END RSA PRIVATE KEY-----"),
+			("JWT", f"token {jwt}"),
+			("PRIVATE_KEY", f"{pem_head}\nMIIabc\n{pem_tail}"),
 		):
 			result = screen_output(text, self.agent)
 			self.assertIn(label, result.counts, f"{label} not caught in: {text[:40]}")
