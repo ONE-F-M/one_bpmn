@@ -177,20 +177,28 @@ def invoke_agent(agent_id: str, message: str, conversation: str = None, context:
 	message = screened.text
 	_pii_turn = _pii.begin_turn(screened, enabled=screened.enabled)
 
-	# ── Injection screening (WI-001967) ──────────────────────────────────
-	# Record-only: every rule in the pack that matches becomes an AI Security
-	# Event, but nothing is altered and nothing is stopped — choosing what a
-	# match should DO is 15.1. Hooked here rather than on Chat Message so it
-	# runs exactly once per turn, with the agent and conversation to hand.
-	# Never raises; a failure leaves the turn untouched.
-	from one_bpmn.security.injection import screen_for_injection
+	# ── Injection screening (WI-001967 detect, WI-001840 act) ────────────
+	# Hooked here rather than on Chat Message so it runs exactly once per turn,
+	# with the agent and conversation to hand. What a match DOES is the agent's
+	# own setting: Log passes through, Flag removes the matched phrase and lets
+	# the rest of the request stand, Block refuses the turn.
+	#
+	# Runs AFTER PII redaction on purpose. The rules match on instruction-shaped
+	# phrasing, not on personal data, so they are unaffected by tokenisation —
+	# while screening first would put the raw Civil ID into the security event's
+	# hash input and undo the point of redacting it.
+	#
+	# Only a Block raises, and it raises an AgentRefusal so the caller reports
+	# it as a decision. Every other failure path leaves the turn untouched.
+	from one_bpmn.security.injection import screen_input as _screen_injection
 
-	screen_for_injection(
+	_injection = _screen_injection(
 		message,
+		config,
 		boundary="input",
-		agent_configuration=_pii._config_name(config),
 		conversation=conversation,
 	)
+	message = _injection.text
 
 	if not conversation:
 		from one_bpmn.utils.chat_persistence import create_agent_conversation

@@ -24,6 +24,7 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 import time
 
+from one_bpmn.security.provenance import wrap_tool_result
 from one_bpmn.agents.llm_provider.base import (
 	CompletionResult,
 	ToolCallRecord,
@@ -182,7 +183,15 @@ async def run_agent_loop(
 			turn_record.tool_calls.append(
 				ToolCallRecord(name=call.name, arguments=call.arguments, result=result)
 			)
-			results.append({"id": call.id, "name": call.name, "content": result})
+			# WI-001840 AC1: what the model sees is marked with the tool that
+			# produced it, so the guard rail in its frozen instructions has
+			# something to refer to. The ToolCallRecord above keeps the raw
+			# result — markers are for the model, not for the audit trail.
+			results.append({
+				"id": call.id,
+				"name": call.name,
+				"content": wrap_tool_result(result, call.name),
+			})
 
 		turn_record.latency_ms = int((time.perf_counter() - _turn_t0) * 1000)
 		trace.append(turn_record)

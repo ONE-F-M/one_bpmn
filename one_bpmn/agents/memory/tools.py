@@ -246,6 +246,44 @@ def _reconcile_and_invalidate(scope, scope_key, content, ctx, *, ignore_permissi
 	return decision.get("action")
 
 
+def _screen_memory_content(content: str, scope: str, keys_source=None) -> str | None:
+	"""Screen a memory before it is stored. ``None`` means do not store it.
+
+	Screened against the site default rather than a specific agent's setting:
+	this layer is reached from the distiller, the memory tool and direct server
+	calls, and only some of those know which agent configuration is in play.
+	Erring towards the default is the safe direction — the default is Flag, so
+	the fact is still stored, minus the payload.
+
+	Never raises. A screening fault must not lose a memory that would otherwise
+	have been written.
+	"""
+	try:
+		from one_bpmn.security.injection import screen_input
+
+		result = screen_input(
+			content,
+			None,
+			boundary="memory-write",
+			raise_on_block=False,
+		)
+		if result.fired and result.action == "Block":
+			frappe.logger("injection").warning(
+				f"memory write dropped for scope={scope}: {result.summary()}"
+			)
+			return None
+		return result.text
+	except Exception:
+		try:
+			frappe.log_error(
+				title="Memory write screening failed — memory stored unscreened",
+				message=frappe.get_traceback(),
+			)
+		except Exception:
+			pass
+		return content
+
+
 def memory_write(
 	scope: str,
 	scope_key,
@@ -282,6 +320,21 @@ def memory_write(
 
 	Returns the resulting record as ``{name, content, metadata}``.
 	"""
+	# ── Injection screening before persistence (WI-001840) ───────────────
+	# A memory is re-read on every later turn for its scope, so a payload that
+	# reaches this function stops being a one-off message and becomes a standing
+	# instruction — the one carrier where a single success buys the attacker
+	# persistence. Screened here rather than in the distiller because THIS is the
+	# function every write path goes through, including the memory tool.
+	#
+	# Nobody is waiting on a background writeback, so a Block drops the write
+	# instead of raising: refusing here would surface as a failed job, not as an
+	# answer to a person. Flag stores the fact with the payload cut out, because
+	# a distilled memory usually carries something worth keeping alongside it.
+	content = _screen_memory_content(content, scope, keys_source=scope_key)
+	if content is None:
+		return {}
+
 	keys = _resolve_scope(scope, scope_key)
 
 	# Write-time reconciliation supersedes the string-dedup mechanism: it never

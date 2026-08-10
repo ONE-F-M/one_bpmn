@@ -385,19 +385,25 @@ class BPMNProcessInstance(Document):
 		Record the failure (halt + deep log) then raise a sanitized, Reference-ID
 		error for the caller. Never returns. Call from inside an ``except`` block.
 		"""
-		# A rate limit or a conversation freeze is a DECISION the platform made,
-		# not a fault in the process. Two things go wrong if it is treated as one:
-		# the instance is marked Errored, so the conversation stays broken even
-		# after a reviewer releases the lock; and an explainable refusal is
-		# replaced by "quote this reference id", which the user can do nothing
-		# with. Let it through untouched — the chat surface knows how to say it.
+		# A refusal by a security control — a rate limit, a conversation freeze, a
+		# blocked injection attempt — is a DECISION the platform made, not a fault
+		# in the process. Two things go wrong if it is treated as one: the instance
+		# is marked Errored, so the conversation stays broken even after a reviewer
+		# releases the lock; and an explainable refusal is replaced by "quote this
+		# reference id", which the user can do nothing with. Let it through
+		# untouched — the chat surface knows how to say it.
+		#
+		# WI-001840: matched on the AgentRefusal CATEGORY, not on each control's
+		# own class. Naming them one by one put the security module's class list
+		# inside the engine, and guaranteed the next control would forget to
+		# register itself and silently start halting instances again.
 		import sys
 
 		in_flight = sys.exc_info()[1]
 		if in_flight is not None:
-			from one_bpmn.security.rate_limit import RateLimited
+			from one_bpmn.security.refusal import AgentRefusal
 
-			if isinstance(in_flight, RateLimited):
+			if isinstance(in_flight, AgentRefusal):
 				raise in_flight
 
 		ref_id = self._record_runtime_failure(phase)

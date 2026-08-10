@@ -39,6 +39,8 @@ import time
 import frappe
 from frappe import _
 
+from one_bpmn.security.refusal import AgentRefusal
+
 # Settings and their defaults, read together so one query serves a whole turn.
 _DEFAULTS = {
 	"rate_limit_enabled": 1,
@@ -50,8 +52,13 @@ _DEFAULTS = {
 }
 
 
-class RateLimited(frappe.ValidationError):
-	"""Raised when a turn is refused. Carries why, so the caller can say so."""
+class RateLimited(AgentRefusal):
+	"""Raised when a turn is refused. Carries why, so the caller can say so.
+
+	Derives from AgentRefusal (WI-001840) so the engine's "a refusal is not a
+	fault" rule covers every control by category rather than by name. Still a
+	ValidationError, so existing handlers are unaffected.
+	"""
 
 
 def settings() -> dict:

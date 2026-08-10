@@ -56,6 +56,8 @@
   "security_section",
   "pii_screening",
   "output_screening_mode",
+  "injection_screening",
+  "injection_action",
   "evaluation_section",
   "sample_prompts",
   "needs_attention_reason"
@@ -333,6 +335,23 @@
    "options": "Log\nFlag\nBlock",
    "default": "Flag",
    "description": "What to do when the agent's OWN response contains a credential, personal data, or a stretch of its own instructions. Flag (the default) records it and replaces the offending text with a token, so the reply still reads. Log records it and sends the reply untouched \u2014 use it to watch a new agent before tightening. Block replaces the whole reply with a refusal."
+  },
+  {
+   "default": "Enabled",
+   "description": "Screens the user's message against the AI Injection Pattern rule pack before it reaches the model \u2014 instruction overrides (\"ignore your previous instructions\"), jailbreak personas, attempts to extract the system prompt, and tool-abuse phrasing. Disable only for an agent whose ordinary traffic trips the pack constantly, and record why: a disabled screen still lets the turn run, but nothing is watched.",
+   "fieldname": "injection_screening",
+   "fieldtype": "Select",
+   "label": "Injection Screening",
+   "options": "Enabled\nDisabled"
+  },
+  {
+   "default": "Flag",
+   "depends_on": "eval:doc.injection_screening != 'Disabled'",
+   "description": "What to do when a rule fires on the user's message. Flag (the default) removes the matched phrase and lets the turn continue on the rest \u2014 the attack is defused without the user losing their request. Log records it and sends the message through untouched; use it to watch a new agent before tightening. Block refuses the turn and tells the user why. Every outcome is recorded as an AI Security Event either way.",
+   "fieldname": "injection_action",
+   "fieldtype": "Select",
+   "label": "Injection Action",
+   "options": "Log\nFlag\nBlock"
   },
   {
    "fieldname": "evaluation_section",
