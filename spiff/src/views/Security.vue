@@ -61,9 +61,23 @@
 				class="w-72"
 				@keyup.enter="loadEvents(0)"
 			/>
-			<Button v-if="anyFilter" variant="ghost" class="ml-auto" @click="resetFilters">
+			<Button v-if="anyFilter" variant="ghost" @click="resetFilters">
 				Clear filters
 			</Button>
+
+			<!-- Page size, right-aligned like the Instances toolbar. This log grows
+			     without bound, so how much of it to pull at once is the reviewer's
+			     call rather than a fixed 50. -->
+			<div class="flex items-center gap-2 ml-auto">
+				<span class="text-sm text-gray-600 whitespace-nowrap">Page Size:</span>
+				<FormControl
+					type="select"
+					v-model="pageLength"
+					:options="PAGE_SIZES"
+					class="w-20"
+					@change="changePageSize"
+				/>
+			</div>
 		</div>
 
 		<main class="flex-1 overflow-auto p-6">
@@ -111,10 +125,10 @@
 					<div v-if="events.length" class="flex items-center justify-between border-t px-4 py-2 text-xs text-gray-500">
 						<span>Showing {{ start + 1 }}–{{ start + events.length }} of {{ total }}</span>
 						<span class="flex gap-2">
-							<button class="px-2 py-1 border rounded disabled:opacity-40" :disabled="start === 0" @click="loadEvents(start - pageLength)">
+							<button class="px-2 py-1 border rounded disabled:opacity-40" :disabled="start === 0" @click="loadEvents(start - pageSize)">
 								Previous
 							</button>
-							<button class="px-2 py-1 border rounded disabled:opacity-40" :disabled="start + pageLength >= total" @click="loadEvents(start + pageLength)">
+							<button class="px-2 py-1 border rounded disabled:opacity-40" :disabled="start + pageSize >= total" @click="loadEvents(start + pageSize)">
 								Next
 							</button>
 						</span>
@@ -395,7 +409,20 @@ const loading = reactive({ events: false, patterns: false, locks: false })
 const events = ref([])
 const total = ref(0)
 const start = ref(0)
-const pageLength = 50
+// Reactive so the toolbar can change it. 200 is the server's own cap on
+// page_length, so the options stop short of it rather than asking for a page
+// the endpoint will silently shrink.
+const pageLength = ref(50)
+const PAGE_SIZES = [
+	{ label: "20", value: 20 },
+	{ label: "50", value: 50 },
+	{ label: "100", value: 100 },
+	{ label: "200", value: 200 },
+]
+// The select hands back a string, and the pager does arithmetic on this
+// ("start + pageLength"), which would silently concatenate. Everything numeric
+// reads pageSize rather than the raw model.
+const pageSize = computed(() => Number(pageLength.value) || 50)
 const options = ref({ agents: [], boundaries: [], actions: [], severities: [] })
 const filters = reactive({ agent: "", boundary: "", action: "", search: "" })
 
@@ -510,7 +537,7 @@ async function loadEvents(from = 0) {
 			action: filters.action || undefined,
 			search: filters.search || undefined,
 			start: Math.max(0, from),
-			page_length: pageLength,
+			page_length: pageSize.value,
 		})
 		events.value = r.events || []
 		total.value = r.total || 0
@@ -518,6 +545,12 @@ async function loadEvents(from = 0) {
 	} finally {
 		loading.events = false
 	}
+}
+
+function changePageSize() {
+	// Back to the first page: the old offset means something different under a
+	// new page size, and on a big jump it can land past the end of the results.
+	loadEvents(0)
 }
 
 function resetFilters() {
