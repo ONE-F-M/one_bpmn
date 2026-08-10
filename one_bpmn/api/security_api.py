@@ -111,7 +111,7 @@ def list_events(
 	start: int = 0,
 	page_length: int = 50,
 ) -> dict:
-	"""The event stream, newest first, filtered and paged.
+	"""The event stream, most recently updated first, filtered and paged.
 
 	Returns ``total`` alongside the rows so the screen can show how much it is
 	looking at — a security console that silently truncates is worse than one
@@ -142,7 +142,10 @@ def list_events(
 		filters=filters,
 		or_filters=or_filters,
 		fields=list(EVENT_FIELDS),
-		order_by="creation desc",
+		# Last updated, like every other list on this screen. An event is never
+		# edited after it is written — deletion is blocked and there is no edit
+		# path — so for events this is the same thing as newest-first.
+		order_by="modified desc",
 		start=start,
 		page_length=page_length,
 	)
@@ -262,7 +265,10 @@ def list_patterns(enabled_only: int = 0) -> dict:
 				"match_mode", "boundary_scope", "action", "source_taxonomy",
 				"source_reference", "source_event", "notes", "modified",
 			],
-			order_by="enabled desc, severity desc, pattern_name asc",
+			# Last updated: a reviewer who has just tuned a rule wants to see it,
+			# and the pack is small enough to scan. This replaced grouping by
+			# enabled-then-severity, which buried a rule you had just edited.
+			order_by="modified desc",
 			limit_page_length=0,
 		),
 		"can_edit": _can_edit_patterns(),
@@ -326,8 +332,9 @@ def set_pattern_enabled(name: str, enabled: int) -> dict:
 
 @frappe.whitelist()
 def list_locks(status: str = None) -> dict:
-	"""Locked conversations, newest first, with the release audit attached so the
-	list answers "who released this and why" without opening each one."""
+	"""Locked conversations, most recently updated first, with the release audit
+	attached so the list answers "who released this and why" without opening each
+	one. A release counts as an update, so acting on a lock moves it to the top."""
 	frappe.has_permission("AI Conversation Lock", "read", throw=True)
 	filters = {"status": status} if status else {}
 	return {
@@ -339,7 +346,10 @@ def list_locks(status: str = None) -> dict:
 				"blocked_count", "locked_at", "trigger_event", "detail",
 				"released_by", "released_at", "release_notes",
 			],
-			order_by="locked_at desc",
+			# Last updated rather than locked_at, so a release floats its lock to
+			# the top — releasing IS the activity a reviewer is tracking, and a
+			# lock released this morning matters more than one opened last week.
+			order_by="modified desc",
 			limit_page_length=0,
 		),
 		"me": frappe.session.user,

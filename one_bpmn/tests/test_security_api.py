@@ -14,6 +14,7 @@ from unittest.mock import patch
 
 import frappe
 from frappe.tests.utils import FrappeTestCase
+from frappe.utils import now_datetime
 
 from one_bpmn.api import security_api as S
 
@@ -42,6 +43,41 @@ class TestSecurityApi(FrappeTestCase):
 		frappe.db.delete("AI Security Event", {"conversation": ("like", f"{PREFIX}%")})
 		frappe.db.delete("AI Conversation Lock", {"conversation": ("like", f"{PREFIX}%")})
 		frappe.db.delete("AI Agent Configuration", {"agent_name": ("like", f"{PREFIX}%")})
+		frappe.db.delete("AI Injection Pattern", {"pattern_name": ("like", f"{PREFIX}%")})
+		# After the locks that link to them, or the delete is refused.
+		for email in frappe.get_all("User", filters={"first_name": PREFIX}, pluck="name"):
+			frappe.delete_doc("User", email, force=True, ignore_permissions=True)
+
+	def _user(self, email):
+		"""`AI Conversation Lock.user` is a Link, so the user has to exist. Made
+		here rather than borrowing a real one off the site — a test that depends on
+		who happens to be registered passes or fails for the wrong reason."""
+		if not frappe.db.exists("User", email):
+			frappe.get_doc({
+				"doctype": "User",
+				"email": email,
+				"first_name": PREFIX,
+				"send_welcome_email": 0,
+				"enabled": 1,
+			}).insert(ignore_permissions=True)
+		return email
+
+	def _lock(self, **kw):
+		"""A locked conversation. Inserted directly rather than through the
+		screening path: this suite is about the window, not about what decides to
+		freeze someone."""
+		values = {
+			"doctype": "AI Conversation Lock",
+			"status": "Locked",
+			"user": self._user("zz-locked@example.com"),
+			"agent_configuration": self.agent,
+			"conversation": f"{PREFIX}-lock-{frappe.generate_hash(length=6)}",
+			"reason": "Repeated Blocked Attempts",
+			"blocked_count": 3,
+			"locked_at": now_datetime(),
+		}
+		values.update(kw)
+		return frappe.get_doc(values).insert(ignore_permissions=True).name
 
 	def _event(self, **kw):
 		values = {
@@ -189,6 +225,49 @@ class TestSecurityApi(FrappeTestCase):
 		out = S.list_locks()
 		self.assertIn("locks", out)
 		self.assertEqual(out["me"], frappe.session.user)
+
+	# ------------------------------------------------------------------
+	# Ordering — every list is most-recently-updated first
+	# ------------------------------------------------------------------
+	def test_editing_a_pattern_moves_it_to_the_top_of_the_pack(self):
+		"""The list is ordered by last update, and for patterns that genuinely
+		differs from creation order — which is the whole point. A reviewer who
+		has just tuned a rule should not have to hunt for it.
+
+		Asserted on a pattern rather than an event because an event is written
+		once and never touched, so modified and creation never diverge there and
+		the assertion would hold under either ordering.
+		"""
+		older = S.save_pattern({"pattern_name": f"{PREFIX} older", "pattern": r"\bzz-older\b"})["name"]
+		newer = S.save_pattern({"pattern_name": f"{PREFIX} newer", "pattern": r"\bzz-newer\b"})["name"]
+
+		names = [p["name"] for p in S.list_patterns()["patterns"]]
+		self.assertLess(names.index(newer), names.index(older), "newest edit first")
+
+		# Touch the older one; it must overtake.
+		S.set_pattern_enabled(older, 0)
+		names = [p["name"] for p in S.list_patterns()["patterns"]]
+		self.assertLess(
+			names.index(older), names.index(newer),
+			"editing a rule must float it to the top, not leave it where it was",
+		)
+
+	def test_releasing_a_lock_moves_it_to_the_top(self):
+		"""A release is the activity a reviewer is tracking, so it counts as the
+		lock's last update — a lock released this morning outranks one merely
+		opened last week."""
+		first = self._lock(user=self._user("zz-a@example.com"))
+		second = self._lock(user=self._user("zz-b@example.com"))
+
+		names = [l["name"] for l in S.list_locks()["locks"]]
+		self.assertLess(names.index(second), names.index(first))
+
+		S.release(first, notes="Reviewed, false positive.")
+		names = [l["name"] for l in S.list_locks()["locks"]]
+		self.assertLess(
+			names.index(first), names.index(second),
+			"the released lock must surface above the one nothing has happened to",
+		)
 
 	# ------------------------------------------------------------------
 	# AC 5 — per-agent screening, built from the fields that exist
