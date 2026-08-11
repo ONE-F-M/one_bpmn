@@ -1,177 +1,22 @@
 <template>
 	<div class="lc-root">
 
-		<!-- ── LEFT: Chat Panel ──────────────────────────────────────── -->
+		<!-- ── LEFT: Chat (WI-001677: the shared AgentChatPanel) ──────────
+		     Both Logix surfaces (this split view and the LogixChat modal) now
+		     embed one implementation. Script changes arrive as
+		     onefm.script_diff cards — CREATE and MODIFY both round-trip; the
+		     apply-target wiring into the editor below is preserved in
+		     onLogixCardAction. DISAMBIGUATE rides the shared onefm.choice. -->
 		<div class="lc-chat-panel">
-
-			<!-- Chat header -->
-			<div class="lc-chat-header">
-				<div class="lc-chat-header-left">
-					<span class="lc-header-avatar">
-						<svg viewBox="0 0 24 24" fill="currentColor" width="16" height="16">
-							<path d="M13 2L3 14h9l-1 8 10-12h-9l1-8z"/>
-						</svg>
-					</span>
-					<span class="lc-header-title">Logix Assistant</span>
-					<span v-if="elementLabel" class="lc-header-chip" :title="elementLabel">{{ elementLabel }}</span>
-				</div>
-				<button class="lc-header-btn" @click="resetChat" title="New conversation">
-					<svg viewBox="0 0 24 24" fill="currentColor" width="15" height="15">
-						<path d="M17.65 6.35A7.958 7.958 0 0 0 12 4c-4.42 0-7.99 3.58-7.99 8s3.57 8 7.99 8c3.73 0 6.84-2.55 7.73-6h-2.08A5.99 5.99 0 0 1 12 18c-3.31 0-6-2.69-6-6s2.69-6 6-6c1.66 0 3.14.69 4.22 1.78L13 11h7V4l-2.35 2.35z"/>
-					</svg>
-				</button>
-			</div>
-
-			<!-- Messages -->
-			<div class="lc-messages" ref="messagesEl">
-				<div v-if="messages.length === 0" class="lc-welcome">
-					<div class="lc-welcome-title">Hello, I am Logix</div>
-					<div class="lc-welcome-sub">Your AI assistant for server scripts</div>
-				</div>
-
-				<div v-for="msg in messages" :key="msg.id" :class="['lc-msg-row', msg.role]">
-					<div v-if="msg.role === 'assistant'" class="lc-avatar">
-						<svg viewBox="0 0 24 24" fill="currentColor">
-							<path d="M13 2L3 14h9l-1 8 10-12h-9l1-8z"/>
-						</svg>
-					</div>
-					<div class="lc-msg-body">
-						<div :class="msg.role === 'user' ? 'lc-bubble-user' : 'lc-bubble-bot'">
-							<template v-for="(part, pi) in parseMessage(msg.content)" :key="pi">
-								<div v-if="part.type === 'text'" v-html="renderMarkdown(part.content)" class="lc-text-part"></div>
-								<div v-else-if="part.type === 'code'" class="lc-code-block">
-									<div class="lc-code-header">
-										<span class="lc-code-lang">{{ part.lang || 'python' }}</span>
-										<button class="lc-copy-btn" @click="copyCode(part.content, `${msg.id}-${pi}`)">
-											<svg viewBox="0 0 24 24" fill="currentColor" width="12" height="12">
-												<path d="M16 1H4c-1.1 0-2 .9-2 2v14h2V3h12V1zm3 4H8c-1.1 0-2 .9-2 2v14c0 1.1.9 2 2 2h11c1.1 0 2-.9 2-2V7c0-1.1-.9-2-2-2zm0 16H8V7h11v14z"/>
-											</svg>
-											{{ copiedIndex === `${msg.id}-${pi}` ? 'Copied!' : 'Copy' }}
-										</button>
-									</div>
-									<pre class="lc-code-pre"><code>{{ part.content }}</code></pre>
-								</div>
-							</template>
-							<div v-if="msg.role === 'assistant'" class="lc-message-actions">
-								<button class="lc-copy-msg-btn" @click="copyMsg(msg.content)" title="Copy">
-									<svg xmlns="http://www.w3.org/2000/svg" width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
-										<rect width="14" height="14" x="8" y="8" rx="2" ry="2"/>
-										<path d="M4 16c-1.1 0-2-.9-2-2V4c0-1.1.9-2 2-2h10c1.1 0 2 .9 2 2"/>
-									</svg>
-								</button>
-							</div>
-						</div>
-						<!-- Diff view for MODIFY -->
-						<div v-if="msg.diffRows?.length" class="lc-split-diff">
-							<div class="lc-split-header">
-								<div class="lc-split-col-label">Original</div>
-								<div class="lc-split-divider-head"></div>
-								<div class="lc-split-col-label">Proposed</div>
-							</div>
-							<div class="lc-split-body">
-								<div v-for="(row, ri) in msg.diffRows" :key="ri" class="lc-split-row">
-									<pre :class="['lc-split-cell', splitCellClass(row, 'left')]">{{ row.left ?? '' }}</pre>
-									<div class="lc-split-divider"></div>
-									<pre :class="['lc-split-cell', splitCellClass(row, 'right')]">{{ row.right ?? '' }}</pre>
-								</div>
-							</div>
-						</div>
-
-						<!-- Tests panel for CREATE -->
-						<div v-if="msg.testsChecklist?.length" class="lc-tests-panel">
-							<div class="lc-tests-header">
-								<svg viewBox="0 0 24 24" fill="currentColor" width="13" height="13"><path d="M9 16.17L4.83 12l-1.42 1.41L9 19 21 7l-1.41-1.41z"/></svg>
-								Let's verify it works
-							</div>
-							<div class="lc-tests-intro">Click "Try this" on each scenario to confirm the script does what you expect.</div>
-							<div class="lc-tests-checklist">
-								<div v-for="(t, ti) in msg.testsChecklist" :key="ti" class="lc-test-item">
-									<div class="lc-test-scenario">{{ t.scenario }}</div>
-									<div class="lc-test-row"><span class="lc-test-label">When</span><span>{{ t.when }}</span></div>
-									<div class="lc-test-row"><span class="lc-test-label">Expect</span><span>{{ t.expect }}</span></div>
-									<div class="lc-test-actions">
-										<button
-											v-if="t.inputs && savedScriptName"
-											class="lc-run-test-btn"
-											:disabled="testRunResults[`${msg.id}-${ti}`]?.loading"
-											@click="runTest(msg.id, ti, t.inputs)"
-										>
-											<span v-if="testRunResults[`${msg.id}-${ti}`]?.loading" class="lc-test-spinner"></span>
-											<span v-else>▶ Try this</span>
-										</button>
-										<div v-if="testRunResults[`${msg.id}-${ti}`] && !testRunResults[`${msg.id}-${ti}`].loading" class="lc-test-result">
-											<span :class="testRunResults[`${msg.id}-${ti}`].passed ? 'lc-test-pass' : 'lc-test-fail'">
-												{{ testRunResults[`${msg.id}-${ti}`].passed ? '✓' : '✗' }}
-												{{ testRunResults[`${msg.id}-${ti}`].summary }}
-											</span>
-										</div>
-									</div>
-								</div>
-							</div>
-						</div>
-
-						<!-- Action buttons -->
-						<div v-if="msg.actions?.length" class="lc-msg-actions">
-							<button
-								v-for="action in msg.actions"
-								:key="action.handler + action.label"
-								:class="['lc-action-btn', action.handler === 'reject_modify' ? 'lc-action-btn--reject' : '']"
-								@click="handleAction(action, msg.id)"
-							>{{ action.label }}</button>
-						</div>
-						<div class="lc-msg-time" :class="msg.role === 'user' ? 'lc-time-right' : 'lc-time-left'">{{ msg.time }}</div>
-					</div>
-				</div>
-
-				<!-- Typing indicator -->
-				<div v-if="isTyping" class="lc-msg-row assistant">
-					<div class="lc-avatar">
-						<svg viewBox="0 0 24 24" fill="currentColor">
-							<path d="M13 2L3 14h9l-1 8 10-12h-9l1-8z"/>
-						</svg>
-					</div>
-					<div class="lc-msg-body">
-						<div class="lc-bubble-bot lc-typing-bubble">
-							<AgentThinkingIndicator />
-						</div>
-					</div>
-				</div>
-			</div>
-
-			<!-- Input (Lumina style) -->
-			<div class="lc-input-area">
-				<div class="lc-toolbar-row">
-					<div class="lc-toolbar">
-						<button class="lc-toolbar-btn" @mousedown.prevent="execCmd('bold')" title="Bold"><b>B</b></button>
-						<button class="lc-toolbar-btn" @mousedown.prevent="execCmd('italic')" title="Italic"><i>I</i></button>
-						<button class="lc-toolbar-btn" @mousedown.prevent="execCmd('underline')" title="Underline"><u>U</u></button>
-						<button class="lc-toolbar-btn" @mousedown.prevent="insertLink" title="Link">
-							<svg viewBox="0 0 24 24" fill="currentColor" width="13" height="13"><path d="M3.9 12c0-1.71 1.39-3.1 3.1-3.1h4V7H7c-2.76 0-5 2.24-5 5s2.24 5 5 5h4v-1.9H7c-1.71 0-3.1-1.39-3.1-3.1zM8 13h8v-2H8v2zm9-6h-4v1.9h4c1.71 0 3.1 1.39 3.1 3.1s-1.39 3.1-3.1 3.1h-4V17h4c2.76 0 5-2.24 5-5s-2.24-5-5-5z"/></svg>
-						</button>
-						<button class="lc-toolbar-btn" @mousedown.prevent="execCmd('insertUnorderedList')" title="Bulleted list">
-							<svg viewBox="0 0 24 24" fill="currentColor" width="13" height="13"><path d="M4 10.5c-.83 0-1.5.67-1.5 1.5s.67 1.5 1.5 1.5 1.5-.67 1.5-1.5-.67-1.5-1.5-1.5zm0-6c-.83 0-1.5.67-1.5 1.5S3.17 7.5 4 7.5 5.5 6.83 5.5 6 4.83 4.5 4 4.5zm0 12c-.83 0-1.5.68-1.5 1.5s.68 1.5 1.5 1.5 1.5-.68 1.5-1.5-.67-1.5-1.5-1.5zM7 19h14v-2H7v2zm0-6h14v-2H7v2zm0-8v2h14V5H7z"/></svg>
-						</button>
-						<button class="lc-toolbar-btn" @mousedown.prevent="execCmd('insertOrderedList')" title="Numbered list">
-							<svg viewBox="0 0 24 24" fill="currentColor" width="13" height="13"><path d="M2 17h2v.5H3v1h1v.5H2v1h3v-4H2v1zm1-9h1V4H2v1h1v3zm-1 3h1.8L2 13.1v.9h3v-1H3.2L5 10.9V10H2v1zm5-6v2h14V5H7zm0 14h14v-2H7v2zm0-6h14v-2H7v2z"/></svg>
-						</button>
-					</div>
-				</div>
-				<div class="lc-editor-row">
-					<div
-						ref="inputEl"
-						class="lc-editor"
-						contenteditable="true"
-						data-placeholder="Describe the script you need… (Enter to send)"
-						@keydown="handleKeydown"
-						@input="onEditorInput"
-					></div>
-					<button class="lc-send-btn" @click="sendMessage" :disabled="!editorHasContent || isTyping" title="Send">
-						<svg viewBox="0 0 24 24" fill="currentColor" width="18" height="18">
-							<path d="M2.01 21L23 12 2.01 3 2 10l15 2-15 2z"/>
-						</svg>
-					</button>
-				</div>
-			</div>
+			<AgentChatPanel
+				agent-id="logix_agent"
+				variant="docked"
+				layout="conversation"
+				:apply-targets="['apply-script', 'run-test']"
+				:context="logixTurnContext"
+				:cards="cardRegistry"
+				@card-action="onLogixCardAction"
+			/>
 		</div>
 
 		<!-- ── CENTER: Code Editor Panel ────────────────────────────── -->
@@ -468,20 +313,14 @@
 </template>
 
 <script setup>
-import { ref, reactive, computed, nextTick, onMounted, onUnmounted, watch } from "vue";
-import DOMPurify from "dompurify";
-import { marked } from "marked";
+import { ref, computed, nextTick, onMounted, watch } from "vue";
 import CodeMirrorEditor from "./CodeMirrorEditor.vue";
-import AgentThinkingIndicator from "./AgentThinkingIndicator.vue";
 import { frappeRequest } from "frappe-ui";
-
-marked.setOptions({ gfm: true, breaks: true });
-
-// getCsrfToken removed — frappeRequest handles CSRF automatically
-
-function getCurrentUser() {
-	return window.frappe?.session?.user_fullname || window.frappe?.session?.user || "You";
-}
+// WI-001677: the chat half is the shared AgentChatPanel; script changes
+// arrive as onefm.script_diff cards and apply into the editor below,
+// test cases as onefm.test_cases cards that run against the linked script.
+import { AgentChatPanel } from "@/components/chat";
+import { cardRegistry } from "@/components/chat/cards/registry";
 
 const props = defineProps({
 	element:        { type: Object,  default: null },
@@ -674,11 +513,6 @@ async function linkExistingScript(name) {
 		isDirty.value = false;
 		isSaved.value = false;
 		await fetchVersionHistory();
-		messages.value.push({
-			id: makeId(), role: "assistant", time: formatTime(new Date()),
-			content: `Loaded **${name}** into the canvas. What changes would you like to make?`,
-		});
-		scrollBottom();
 	} catch (e) {
 		console.error("Failed to link script:", e);
 	} finally {
@@ -687,21 +521,65 @@ async function linkExistingScript(name) {
 	}
 }
 
-// ── Chat state ────────────────────────────────────────────────────────
-const messages          = ref([]);
-const editorHasContent  = ref(false);
-const isTyping          = ref(false);
-const sessionId         = ref(generateSessionId());
-const conversationName  = ref(null);   // persisted Chat Conversation name
-const messagesEl        = ref(null);
-const inputEl           = ref(null);
-const copiedIndex       = ref(null);
-const testRunResults    = reactive({});  // key: `${msgId}-${ti}` → { loading, passed, summary }
-let   pendingLogixDescription = "";
-let   pendingScriptName       = "";
+// ── Chat wiring (WI-001677) ───────────────────────────────────────────
+// The shared AgentChatPanel owns transcript/composer/lifecycle; this host
+// owns what card actions mean.
 
-// ── Code editor refs ──────────────────────────────────────────────────
-const codeAreaEl = ref(null);
+const logixTurnContext = computed(() => ({
+	element_name: elementLabel.value || canvasScriptName.value || "",
+	// The launch paths differ: the properties-panel launcher loads the script
+	// into canvas state without setting the prop — the canvas's own state is
+	// the truth (fixed after a live turn where the map couldn't see the
+	// script and asked the user to paste it).
+	current_script: savedScriptName.value || canvasScriptName.value || props.currentScript || "",
+	process_context: props.processContext || null,
+}));
+
+async function onLogixCardAction({ name, action, value, payload }) {
+	if (name === "onefm.test_cases" && action === "run-test") {
+		await runTestCase(payload);
+		return;
+	}
+	if (name !== "onefm.script_diff" || action !== "apply-script") return;
+	const code = value.modified_script || "";
+	if (!code) return;
+	// Same editor handoff as the legacy approve_modify / approve_create
+	// handlers: set the canvas, mark dirty, save through the one path that
+	// owns naming, linking and version history.
+	if (value.mode === "CREATE" && value.suggested_name && !canvasScriptName.value) {
+		canvasScriptName.value = value.suggested_name;
+	}
+	canvasCode.value = code;
+	isDirty.value = true;
+	isSaved.value = false;
+	await saveScript();
+}
+
+// The TestCaseCard renders and requests; the host runs — it owns the
+// linked-script name, so the endpoint call lives here, not in the card.
+async function runTestCase(payload) {
+	const report = payload && typeof payload.onResult === "function" ? payload.onResult : () => {};
+	if (!savedScriptName.value) {
+		report({ passed: false, summary: "Save the script first — there is nothing to run yet." });
+		return;
+	}
+	try {
+		const result = await frappeRequest({
+			url: "/api/method/one_bpmn.api.server_script_api.run_logix_test_case",
+			method: "POST",
+			params: {
+				script_name: savedScriptName.value,
+				inputs: JSON.stringify(payload.inputs || {}),
+			},
+		});
+		report({
+			passed: result?.passed ?? false,
+			summary: result?.summary || (result?.passed ? "Test passed." : "Test failed."),
+		});
+	} catch (err) {
+		report({ passed: false, summary: "Could not run the test — network error." });
+	}
+}
 
 // ── Element label ─────────────────────────────────────────────────────
 const elementLabel = computed(() => {
@@ -715,8 +593,6 @@ onMounted(async () => {
 	loadDoctypeOptions();
 	loadModuleOptions();
 	await initCanvas();
-	initGreeting();
-	nextTick(() => inputEl.value?.focus());
 });
 
 async function initCanvas() {
@@ -763,132 +639,6 @@ async function initCanvas() {
 	}
 }
 
-// ── Greeting ──────────────────────────────────────────────────────────
-function buildContextSentence() {
-	const ctx = props.processContext;
-	if (!ctx) return "";
-	const parts = [];
-	if (ctx.incoming?.length) {
-		const names = ctx.incoming.map(n => `**${n.name}**`).join(" and ");
-		parts.push(`runs after ${names}`);
-	}
-	if (ctx.outgoing?.length) {
-		const names = ctx.outgoing.map(n => `**${n.name}**`).join(" and ");
-		parts.push(`leads to ${names}`);
-	}
-	if (!parts.length) return "";
-	return " I can see this task " + parts.join(", and ") + ".";
-}
-
-async function initGreeting() {
-	const label   = canvasScriptName.value || elementLabel.value;
-	const ctxLine = buildContextSentence();
-
-	// Already linked to a known script — offer to help modify it
-	if (props.currentScript) {
-		messages.value = [{
-			id: makeId(), role: "assistant", time: formatTime(new Date()),
-			content: `Hello, I am Logix — your process automation assistant.${ctxLine}\n\nI can see **${props.currentScript}** is already linked here. How would you like to change it? Just describe what you need in plain language.`,
-		}];
-		return;
-	}
-
-	if (label) {
-		// Check whether a Server Script with the same name already exists
-		try {
-			const data = await frappeRequest({
-				url: "/api/method/one_bpmn.api.server_script_api.check_server_script_exists",
-				params: { script_name: label },
-			});
-			if (data?.exists) {
-					messages.value = [{
-						id: makeId(), role: "assistant", time: formatTime(new Date()),
-						content: `Hello, I am Logix — your process automation assistant.${ctxLine}\n\nI found an existing script named **${label}**. Would you like to link it here, or start fresh with a new one?`,
-						actions: [
-							{ label: "Link to script task", handler: "link_existing" },
-							{ label: "Create new",           handler: "start_fresh"  },
-						],
-					}];
-					return;
-				}
-		} catch (_) { /* fall through */ }
-
-		const contextHint = ctxLine
-			? `\n\nTell me in plain language what should happen at this step — for example, what data needs to be checked, what approval is needed, or what records should be updated.`
-			: `\n\nDescribe what you'd like the script to do and I'll write it for you.`;
-		messages.value = [{
-			id: makeId(), role: "assistant", time: formatTime(new Date()),
-			content: `Hello, I am Logix — your process automation assistant.${ctxLine}${contextHint}`,
-		}];
-		return;
-	}
-
-	messages.value = [{
-		id: makeId(), role: "assistant", time: formatTime(new Date()),
-		content: "Hello, I am Logix — your process automation assistant.\n\nDescribe what you'd like the script to do and I'll write it for you. You don't need to know any code — just tell me what the business logic should be.",
-	}];
-}
-
-// ── Helpers ───────────────────────────────────────────────────────────
-function generateSessionId() {
-	return "logix_canvas_" + Date.now() + "_" + Math.random().toString(36).slice(2, 9);
-}
-
-function formatTime(d) {
-	return d.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
-}
-
-function makeId() {
-	return Date.now() + "_" + Math.random().toString(36).slice(2, 7);
-}
-
-function scrollBottom() {
-	nextTick(() => {
-		if (messagesEl.value)
-			messagesEl.value.scrollTop = messagesEl.value.scrollHeight;
-	});
-}
-
-// ── Markdown ──────────────────────────────────────────────────────────
-function renderMarkdown(text) {
-	if (!text) return "";
-	const html = marked.parse(text);
-	return DOMPurify.sanitize(html, {
-		ALLOWED_TAGS: ["b","i","u","s","strong","em","strike","del","a","p","br","div","span",
-			"ul","ol","li","h1","h2","h3","h4","h5","h6","code","pre","blockquote","hr",
-			"table","thead","tbody","tr","th","td"],
-		ALLOWED_ATTR: ["href","title","target","rel","src","alt","width","height","class","align"],
-		ALLOWED_URI_REGEXP: /^(?:(?:https?|mailto):)/i,
-	});
-}
-
-// ── Chat editor helpers ───────────────────────────────────────────────
-function onEditorInput() {
-	editorHasContent.value = !!(inputEl.value?.innerText?.trim());
-}
-
-function getEditorText() {
-	return (inputEl.value?.innerText || inputEl.value?.textContent || "").trim();
-}
-
-function clearEditor() {
-	if (inputEl.value) {
-		inputEl.value.innerHTML = "";
-		editorHasContent.value = false;
-	}
-}
-
-function execCmd(cmd) {
-	document.execCommand(cmd, false, null);
-	inputEl.value?.focus();
-}
-
-function insertLink() {
-	const url = prompt("Enter URL:");
-	if (url) document.execCommand("createLink", false, url);
-	inputEl.value?.focus();
-}
-
 // ── Code editor helpers ───────────────────────────────────────────────
 function onCodeInput() {
 	isDirty.value = true;
@@ -917,316 +667,6 @@ async function stopEditName() {
 
 async function copyCanvas() {
 	try { await navigator.clipboard.writeText(canvasCode.value); } catch { /* fallback */ }
-}
-
-// ── Message action handler ────────────────────────────────────────────
-async function handleAction(action, msgId) {
-	const msg = messages.value.find(m => m.id === msgId);
-
-	if (action.handler === "link_existing") {
-		if (msg) msg.actions = null;
-		// Load the script content into the canvas
-		await initCanvas();
-		// Fire the BPMN event to link the existing script to the element
-		if (props.eventBus && props.element) {
-			props.eventBus.fire("spiff.script.update", {
-				element:    props.element,
-				scriptType: props.scriptType,
-				script:     canvasScriptName.value,
-			});
-		}
-		messages.value.push({
-			id: makeId(), role: "assistant", time: formatTime(new Date()),
-			content: `**${canvasScriptName.value}** has been linked to this script task. What changes would you like to make?`,
-		});
-		scrollBottom();
-
-	} else if (action.handler === "start_fresh") {
-		if (msg) msg.actions = null;
-		canvasCode.value = "";
-		messages.value.push({
-			id: makeId(), role: "assistant", time: formatTime(new Date()),
-			content: "Canvas cleared. Describe what the script should do and I'll write it for you.",
-		});
-		scrollBottom();
-		nextTick(() => inputEl.value?.focus());
-
-	} else if (action.handler === "clarify") {
-		if (msg) msg.actions = null;
-		if (inputEl.value) {
-			inputEl.value.innerText = action.value || "";
-			editorHasContent.value = true;
-		}
-		sendMessage();
-
-	} else if (action.handler === "approve_modify") {
-		if (msg) msg.actions = null;
-		const code = msg?.pendingCode || "";
-		if (code) {
-			canvasCode.value = code;
-			isDirty.value = true;
-			isSaved.value = false;
-			pendingLogixDescription = msg?.pendingDescription || "Modified by Logix";
-			const saveResult = await saveScript();
-			if (isDirty.value) {
-				messages.value.push({
-					id: makeId(), role: "assistant", time: formatTime(new Date()),
-					content: "Changes applied but save failed — check the script name and try again.",
-				});
-			} else {
-				messages.value.push({
-					id: makeId(), role: "assistant", time: formatTime(new Date()),
-					content: "Changes approved and saved ✓",
-				});
-			}
-		} else {
-			messages.value.push({
-				id: makeId(), role: "assistant", time: formatTime(new Date()),
-				content: "Changes approved ✓",
-			});
-		}
-		scrollBottom();
-
-	} else if (action.handler === "reject_modify") {
-		if (msg) msg.actions = null;
-		messages.value.push({
-			id: makeId(), role: "assistant", time: formatTime(new Date()),
-			content: "Changes rejected. The existing script is unchanged. Let me know how you'd like to adjust the modification.",
-		});
-		scrollBottom();
-
-	} else if (action.handler === "approve_create") {
-		if (msg) msg.actions = null;
-		const code = msg?.pendingCode || "";
-		if (code) {
-			canvasCode.value = code;
-			isDirty.value = true;
-			isSaved.value = false;
-			pendingLogixDescription = msg?.pendingDescription || "Created by Logix";
-			if (msg?.pendingName && !props.currentScript) {
-				canvasScriptName.value = msg.pendingName;
-			}
-			await saveScript();
-		}
-		const savedOk = !isDirty.value;
-		messages.value.push({
-			id: makeId(), role: "assistant", time: formatTime(new Date()),
-			content: savedOk
-				? "Your automation is saved and ready ✓\n\nHere are a few quick checks you can run to make sure it does exactly what you need — no coding required."
-				: "Script applied but save failed — check the script name and try again.",
-		});
-
-		// Show tests panel if we have them
-		const checklist = msg?.testsChecklist || [];
-		if (savedOk && checklist.length) {
-			messages.value.push({
-				id: makeId(), role: "assistant", time: formatTime(new Date()),
-				content: "",
-				testsChecklist: checklist,
-			});
-		}
-		scrollBottom();
-
-	} else if (action.handler === "apply_to_canvas") {
-		if (msg) msg.actions = null;
-		const code = msg?.pendingCode || "";
-		if (code) {
-			canvasCode.value = code;
-			isDirty.value = true;
-			isSaved.value = false;
-			pendingLogixDescription = msg?.pendingDescription || "Updated by Logix";
-			if (msg?.pendingName && !props.currentScript) {
-				canvasScriptName.value = msg.pendingName;
-			}
-			scheduleAutoSave();
-		}
-		messages.value.push({
-			id: makeId(), role: "assistant", time: formatTime(new Date()),
-			content: "Script applied to the canvas ✓\nReview the code on the right and edit if needed — it will auto-save shortly.",
-		});
-		scrollBottom();
-	}
-}
-
-// ── Send / receive ────────────────────────────────────────────────────
-function handleKeydown(e) {
-	if (e.key === "Enter" && !e.shiftKey) {
-		e.preventDefault();
-		sendMessage();
-	}
-}
-
-async function sendMessage() {
-	const text = getEditorText();
-	if (!text || isTyping.value) return;
-
-	clearEditor();
-	messages.value.push({ id: makeId(), role: "user", content: text, time: formatTime(new Date()) });
-	scrollBottom();
-	isTyping.value = true;
-
-	try {
-		const history = messages.value
-			.slice(-10)
-			.map(m => ({ type: m.role, content: m.content }));
-
-		const result = await frappeRequest({
-			url: "/api/method/one_bpmn.api.server_script_api.process_logix_message",
-			method: "POST",
-			params: {
-				message:           text,
-				session_id:        sessionId.value,
-				conversation_name: conversationName.value || null,
-				element_name:      elementLabel.value || canvasScriptName.value || "",
-				current_script:    props.currentScript || "",
-				process_context:   props.processContext || null,
-			},
-		});
-
-		// Capture the conversation name returned by the backend
-		if (result?.conversation_name) conversationName.value = result.conversation_name;
-
-		const reply  = result?.response || result?.message || "Sorry, I couldn't process that.";
-		const intent = result?.intent;
-		const diff   = result?.diff || null;
-		const options = result?.options || null;
-
-		const msg = {
-			id: makeId(), role: "assistant", content: reply,
-			time: formatTime(new Date()), intent,
-		};
-
-		if (intent === "DISAMBIGUATE" && options?.length) {
-			msg.actions = options.map(o => ({ label: o, handler: "clarify", value: o }));
-
-		} else if (intent === "MODIFY") {
-			const proposedCode = result?.modified_script || extractCode(reply);
-			if (diff) msg.diffRows = parseSplitDiff(diff);
-			msg.pendingCode = proposedCode;
-			msg.pendingDescription = "Modified by Logix";
-			if (/```python[\s\S]*?```/.test(reply)) {
-				msg.actions = [
-					{ label: "Approve & Save", handler: "approve_modify" },
-					{ label: "Reject",         handler: "reject_modify"  },
-				];
-			}
-
-		} else if (intent === "CREATE") {
-			const proposedCode = result?.modified_script || extractCode(reply);
-			msg.pendingCode = proposedCode;
-			msg.pendingName = result?.suggested_name || "";
-			msg.pendingDescription = `Created by Logix${result?.suggested_name ? ': ' + result.suggested_name : ''}`;
-			msg.testsChecklist = result?.tests_checklist || [];
-			if (/```python[\s\S]*?```/.test(reply)) {
-				msg.actions = [{ label: "Approve & Save", handler: "approve_create" }];
-			}
-		}
-
-		messages.value.push(msg);
-	} catch (err) {
-		console.error("Logix error:", err);
-		messages.value.push({
-			id: makeId(), role: "assistant",
-			content: "Sorry, I encountered an error. Please try again.",
-			time: formatTime(new Date()),
-		});
-	} finally {
-		isTyping.value = false;
-		scrollBottom();
-		nextTick(() => inputEl.value?.focus());
-	}
-}
-
-// ── Parse message & format ────────────────────────────────────────────
-function parseMessage(content) {
-	const parts = [];
-	const re    = /```(\w*)\n?([\s\S]*?)```/g;
-	let last = 0, match;
-	while ((match = re.exec(content)) !== null) {
-		if (match.index > last)
-			parts.push({ type: "text", content: content.slice(last, match.index) });
-		parts.push({ type: "code", lang: match[1] || "python", content: match[2].trim() });
-		last = match.index + match[0].length;
-	}
-	if (last < content.length)
-		parts.push({ type: "text", content: content.slice(last) });
-	return parts;
-}
-
-function extractCode(text) {
-	const m = (text || "").match(/```python\s*\n([\s\S]*?)```/);
-	return m ? m[1].trim() : (text || "").trim();
-}
-
-// ── Chat copy ─────────────────────────────────────────────────────────
-async function copyCode(code, index) {
-	try {
-		await navigator.clipboard.writeText(code);
-		copiedIndex.value = index;
-		setTimeout(() => { copiedIndex.value = null; }, 2000);
-	} catch { /* fallback */ }
-}
-
-async function copyMsg(content) {
-	try { await navigator.clipboard.writeText(content); } catch { /* fallback */ }
-}
-
-// ── Test runner ───────────────────────────────────────────────────────
-async function runTest(msgId, ti, inputs) {
-	const key = `${msgId}-${ti}`;
-	testRunResults[key] = { loading: true, passed: null, summary: "" };
-	try {
-		const result = await frappeRequest({
-			url: "/api/method/one_bpmn.api.server_script_api.run_logix_test_case",
-			method: "POST",
-			params: {
-				script_name: savedScriptName.value,
-				inputs:      JSON.stringify(inputs || {}),
-			},
-		});
-		testRunResults[key] = {
-			loading: false,
-			passed:  result?.passed ?? false,
-			summary: result?.summary || (result?.passed ? "Test passed." : "Test failed."),
-		};
-	} catch (err) {
-		testRunResults[key] = { loading: false, passed: false, summary: "Could not run the test — network error." };
-	}
-}
-
-// ── Diff helpers ──────────────────────────────────────────────────────
-function parseSplitDiff(unifiedDiff) {
-	const rows  = [];
-	const lines = (unifiedDiff || "").split("\n");
-	let i = 0;
-	while (i < lines.length && (lines[i].startsWith("---") || lines[i].startsWith("+++"))) i++;
-	while (i < lines.length) {
-		const line = lines[i];
-		if (!line || line.startsWith("\\")) { i++; continue; }
-		if (line.startsWith("@@")) { rows.push({ type: "hunk", left: line, right: line }); i++; continue; }
-		if (line.startsWith("-")) {
-			const left = line.slice(1);
-			if (i + 1 < lines.length && lines[i + 1].startsWith("+")) {
-				rows.push({ type: "changed", left, right: lines[i + 1].slice(1) });
-				i += 2;
-			} else { rows.push({ type: "deleted", left, right: null }); i++; }
-		} else if (line.startsWith("+")) {
-			rows.push({ type: "added", left: null, right: line.slice(1) }); i++;
-		} else {
-			rows.push({ type: "unchanged", left: line.startsWith(" ") ? line.slice(1) : line, right: line.startsWith(" ") ? line.slice(1) : line });
-			i++;
-		}
-	}
-	return rows;
-}
-
-function splitCellClass(row, side) {
-	if (row.type === "hunk")      return "lc-sdiff-hunk";
-	if (row.type === "unchanged") return "";
-	if (row.type === "deleted")   return side === "left"  ? "lc-sdiff-del"  : "lc-sdiff-empty";
-	if (row.type === "added")     return side === "right" ? "lc-sdiff-add"  : "lc-sdiff-empty";
-	if (row.type === "changed")   return side === "left"  ? "lc-sdiff-del"  : "lc-sdiff-add";
-	return "";
 }
 
 // ── Version history (real API) ───────────────────────────────────────
@@ -1289,18 +729,11 @@ function diffCellClass(row, side) {
 }
 
 async function restoreVersion(version) {
-	const versionNum = versions.value.length - versions.value.indexOf(version);
 	canvasCode.value  = version.script || "";
 	isDirty.value     = true;
 	isSaved.value     = false;
 	diffVersion.value = null;
-	pendingLogixDescription = `Restored to V${versionNum}`;
-	messages.value.push({
-		id: makeId(), role: "assistant", time: formatTime(new Date()),
-		content: `Restored canvas to V${versionNum}. Auto-saving…`,
-	});
 	scheduleAutoSave();
-	scrollBottom();
 }
 
 // ── Auto-save scheduler ───────────────────────────────────────────────
@@ -1386,7 +819,6 @@ async function saveScript() {
 		isSaved.value = true;
 		setTimeout(() => { isSaved.value = false; }, 3000);
 
-		pendingLogixDescription = "";
 		emit("script-saved", scriptName);
 		await fetchVersionHistory();
 	} catch (err) {
@@ -1396,34 +828,8 @@ async function saveScript() {
 	}
 }
 
-// ── Reset / close ─────────────────────────────────────────────────────
-// Close the active Chat Conversation on the backend so its BPMN orchestration
-// runs the close branch (Cleanup → Conversation Ended), the same way ProsAlly
-// ends its own conversation when its panel closes. Fire-and-forget.
-function endConversation() {
-	const convName = conversationName.value;
-	if (!convName) return;
-	conversationName.value = null;
-	frappeRequest({
-		url: "/api/method/one_bpmn.api.server_script_api.end_chat_conversation",
-		params: { conversation_name: convName },
-	}).catch(() => {});
-}
-
-function resetChat() {
-	endConversation();
-	sessionId.value        = generateSessionId();
-	conversationName.value = null;
-	messages.value         = [];
-	initGreeting();
-}
-
-// The Logix Canvas is mounted inside a Dialog; closing the dialog unmounts it.
-// End the conversation here so its BPMN instance completes instead of lingering
-// in the Active state.
-onUnmounted(() => {
-	endConversation();
-});
+// Conversation lifecycle (create / resume / end-on-unmount) is owned by the
+// shared AgentChatPanel — no chat teardown left to do here.
 </script>
 
 <style scoped>
@@ -1442,7 +848,7 @@ onUnmounted(() => {
    CHAT PANEL (left)
 ══════════════════════════════════════════════════════════════════ */
 .lc-chat-panel {
-	width: 580px;
+	width: var(--agui-chat-pane, 460px);
 	flex-shrink: 0;
 	display: flex;
 	flex-direction: column;
@@ -1451,479 +857,11 @@ onUnmounted(() => {
 	min-width: 0;
 }
 
-/* ── Chat header ────────────────────────────────────────────────── */
-.lc-chat-header {
-	display: flex;
-	align-items: center;
-	justify-content: space-between;
-	padding: 10px 14px;
-	background: linear-gradient(135deg, #6c3fe0 0%, #9b59b6 100%);
-	flex-shrink: 0;
-}
-
-.lc-chat-header-left {
-	display: flex;
-	align-items: center;
-	gap: 8px;
-	min-width: 0;
-}
-
-
-.lc-header-avatar {
-	width: 26px;
-	height: 26px;
-	border-radius: 50%;
-	background: rgba(255,255,255,0.2);
-	display: flex;
-	align-items: center;
-	justify-content: center;
-	flex-shrink: 0;
-	color: #fff;
-}
-
-.lc-header-title {
-	font-size: 13px;
-	font-weight: 600;
-	color: #fff;
-}
-
-.lc-header-chip {
-	background: rgba(255,255,255,0.2);
-	border: 1px solid rgba(255,255,255,0.3);
-	border-radius: 4px;
-	padding: 1px 7px;
-	font-size: 11px;
-	color: rgba(255,255,255,0.9);
-	max-width: 100px;
-	overflow: hidden;
-	text-overflow: ellipsis;
-	white-space: nowrap;
-}
-
-.lc-header-btn {
-	width: 26px;
-	height: 26px;
-	border: none;
-	border-radius: 50%;
-	background: rgba(255,255,255,0.15);
-	color: #fff;
-	cursor: pointer;
-	display: flex;
-	align-items: center;
-	justify-content: center;
-	transition: background 0.15s;
-}
-
-.lc-header-btn:hover { background: rgba(255,255,255,0.28); }
-
-/* ── Messages ───────────────────────────────────────────────────── */
-.lc-messages {
-	flex: 1;
-	overflow-y: auto;
-	padding: 14px 12px 8px;
-	background: #fff;
-	display: flex;
-	flex-direction: column;
-	gap: 12px;
-}
-
-.lc-messages::-webkit-scrollbar { width: 4px; }
-.lc-messages::-webkit-scrollbar-track { background: transparent; }
-.lc-messages::-webkit-scrollbar-thumb { background: #ddd; border-radius: 2px; }
-
-/* ── Welcome ────────────────────────────────────────────────────── */
-.lc-welcome {
-	display: flex;
-	flex-direction: column;
-	align-items: center;
-	justify-content: center;
-	flex: 1;
-	text-align: center;
-	padding-top: 40px;
-}
-
-.lc-welcome-title { font-size: 1.1em; color: #444; font-weight: 500; margin-bottom: 6px; }
-.lc-welcome-sub   { font-size: 0.88em; color: #888; }
-
-/* ── Message rows ───────────────────────────────────────────────── */
-.lc-msg-row {
-	display: flex;
-	flex-direction: row;
-	gap: 7px;
-	align-items: flex-start;
-	width: 100%;
-}
-
-.lc-msg-row.user      { flex-direction: row-reverse; }
-.lc-msg-row.assistant { /* stretches to full width by default */ }
-
-/* ── Avatar ─────────────────────────────────────────────────────── */
-.lc-avatar {
-	width: 26px;
-	height: 26px;
-	border-radius: 50%;
-	background: linear-gradient(135deg, #6c3fe0 0%, #9b59b6 100%);
-	display: flex;
-	align-items: center;
-	justify-content: center;
-	flex-shrink: 0;
-	margin-top: 2px;
-	color: #fff;
-}
-
-.lc-avatar svg { width: 13px; height: 13px; fill: #fff; }
-
-/* ── Message body ───────────────────────────────────────────────── */
-.lc-msg-body {
-	display: flex;
-	flex-direction: column;
-	gap: 2px;
-	min-width: 0;
-}
-
-.lc-msg-row.user .lc-msg-body      { align-items: flex-end; max-width: 80%; }
-.lc-msg-row.assistant .lc-msg-body { align-items: flex-start; max-width: calc(100% - 36px); }
-
-/* ── Bubbles (Lumina style) ─────────────────────────────────────── */
-.lc-bubble-user {
-	background: linear-gradient(135deg, #6c3fe0 0%, #9b59b6 100%);
-	color: #fff;
-	padding: 9px 13px;
-	border-radius: 16px 16px 4px 16px;
-	font-size: 0.88em;
-	box-shadow: 0 2px 8px rgba(108,63,224,.25);
-	overflow-wrap: break-word;
-	word-break: break-word;
-}
-
-.lc-bubble-bot {
-	background: #f7f7fa;
-	color: #000;
-	padding: 9px 13px;
-	border-radius: 16px 16px 16px 4px;
-	font-size: 0.88em;
-	box-shadow: 0 1px 4px rgba(0,0,0,.04);
-	overflow-wrap: break-word;
-	word-break: break-word;
-	display: flex;
-	flex-direction: column;
-}
-
-/* ── Text parts ─────────────────────────────────────────────────── */
-.lc-text-part { margin: 0; line-height: 1.55; }
-.lc-text-part :deep(p) { margin: 0 0 4px; }
-.lc-text-part :deep(p:last-child) { margin-bottom: 0; }
-.lc-text-part :deep(ul), .lc-text-part :deep(ol) { margin: 3px 0 3px 1.2em; }
-.lc-text-part :deep(code) { background: #ebebeb; border-radius: 3px; padding: 1px 4px; font-family: monospace; font-size: 0.88em; color: #333; }
-.lc-bubble-user .lc-text-part :deep(code) { background: rgba(255,255,255,0.2); color: #fff; }
-
-/* ── Timestamp ──────────────────────────────────────────────────── */
-.lc-msg-time { font-size: 0.76em; color: #888; margin-top: 1px; }
-.lc-time-right { text-align: right; }
-.lc-time-left  { text-align: left; }
-
-/* ── Copy button on bot messages ────────────────────────────────── */
-.lc-message-actions {
-	margin-top: 5px;
-	display: flex;
-	gap: 4px;
-	opacity: 0.5;
-	transition: opacity 0.18s;
-}
-
-.lc-bubble-bot:hover .lc-message-actions { opacity: 1; }
-
-.lc-copy-msg-btn {
-	background: transparent;
-	border: none;
-	padding: 2px;
-	cursor: pointer;
-	color: #777;
-	display: flex;
-	align-items: center;
-	border-radius: 3px;
-	transition: background 0.15s;
-}
-
-.lc-copy-msg-btn:hover { background: rgba(0,0,0,.08); color: #333; }
-
-/* ── Code block in messages ─────────────────────────────────────── */
-.lc-code-block {
-	margin: 6px -2px 3px;
-	border-radius: 6px;
-	overflow: hidden;
-	border: 1px solid #e0e0e0;
-}
-
-.lc-code-header {
-	display: flex;
-	align-items: center;
-	justify-content: space-between;
-	padding: 4px 10px;
-	background: #f5f5f5;
-}
-
-.lc-code-lang {
-	font-size: 10px;
-	font-weight: 600;
-	color: #666;
-	text-transform: uppercase;
-	letter-spacing: .4px;
-	font-family: monospace;
-}
-
-.lc-copy-btn {
-	display: flex;
-	align-items: center;
-	gap: 3px;
-	border: none;
-	border-radius: 4px;
-	padding: 3px 7px;
-	font-size: 11px;
-	font-weight: 500;
-	cursor: pointer;
-	background: rgba(0,0,0,.06);
-	color: #444;
-	transition: background 0.15s;
-	font-family: inherit;
-}
-
-.lc-copy-btn:hover { background: rgba(0,0,0,.12); }
-
-.lc-code-pre {
-	margin: 0;
-	padding: 10px 12px;
-	background: #1c1b1f;
-	color: #e6e1e5;
-	font-family: "JetBrains Mono", "Fira Code", monospace;
-	font-size: 12px;
-	line-height: 1.5;
-	overflow-x: auto;
-	white-space: pre;
-}
-
-/* ── Typing indicator ───────────────────────────────────────────── */
-.lc-typing-bubble { padding: 11px 14px !important; }
-
-/* ── Diff viewer ─────────────────────────────────────────────────────── */
-.lc-split-diff {
-	margin-top: 8px;
-	border: 1px solid #e0e0e0;
-	border-radius: 6px;
-	overflow: hidden;
-	width: 100%;
-}
-.lc-split-header {
-	display: grid;
-	grid-template-columns: minmax(0, 1fr) 2px minmax(0, 1fr);
-	background: #f5f5f5;
-	border-bottom: 1px solid #d0d0d0;
-}
-.lc-split-col-label { padding: 4px 10px; font-weight: 600; font-size: 10px; color: #555; letter-spacing: .04em; text-transform: uppercase; min-width: 0; }
-.lc-split-divider-head { background: #d0d0d0; }
-.lc-split-body { background: #1c1b1f; max-height: 260px; overflow-y: auto; overflow-x: hidden; }
-.lc-split-row {
-	display: grid;
-	grid-template-columns: minmax(0, 1fr) 2px minmax(0, 1fr);
-	border-bottom: 1px solid rgba(255,255,255,.04);
-	min-height: 20px;
-}
-.lc-split-divider { background: #444; }
-.lc-split-cell { margin: 0; padding: 2px 10px; font-family: "JetBrains Mono", "Fira Code", monospace; font-size: 11px; line-height: 1.6; color: #e6e1e5; white-space: pre; overflow: hidden; min-width: 0; }
+/* ── Diff cell colors (version-panel inline diff) ────────────────── */
 .lc-sdiff-del   { background: rgba(240,80,80,.2);    color: #ff8a8a; }
 .lc-sdiff-add   { background: rgba(100,220,100,.18); color: #6ee68e; }
 .lc-sdiff-hunk  { background: rgba(144,202,249,.08); color: #90caf9; font-style: italic; }
 .lc-sdiff-empty { background: rgba(255,255,255,.03); }
-
-/* ── Tests panel ─────────────────────────────────────────────────────── */
-.lc-tests-panel {
-	margin-top: 10px;
-	border: 1px solid #c8e6c9;
-	border-radius: 10px;
-	overflow: hidden;
-	font-size: 12.5px;
-	background: #fff;
-}
-.lc-tests-header {
-	background: #e8f5e9;
-	border-bottom: 1px solid #c8e6c9;
-	padding: 8px 14px;
-	font-weight: 700;
-	font-size: 11.5px;
-	color: #1b5e20;
-	letter-spacing: .02em;
-	display: flex;
-	align-items: center;
-	gap: 6px;
-}
-.lc-tests-intro {
-	padding: 8px 14px 4px;
-	font-size: 11.5px;
-	color: #666;
-	border-bottom: 1px solid #f0f0f0;
-}
-.lc-tests-checklist { padding: 10px 12px; display: flex; flex-direction: column; gap: 10px; }
-.lc-test-item {
-	background: #fafafa;
-	border: 1px solid #e8e8e8;
-	border-radius: 8px;
-	padding: 10px 12px;
-}
-.lc-test-scenario { font-weight: 700; color: #222; margin-bottom: 6px; font-size: 12.5px; }
-.lc-test-row { display: flex; gap: 8px; color: #555; margin-top: 3px; line-height: 1.45; }
-.lc-test-label {
-	flex-shrink: 0;
-	font-weight: 700;
-	font-size: 10px;
-	text-transform: uppercase;
-	letter-spacing: .05em;
-	color: #4caf50;
-	padding-top: 2px;
-	min-width: 40px;
-}
-.lc-test-actions {
-	display: flex;
-	align-items: center;
-	gap: 8px;
-	margin-top: 8px;
-	flex-wrap: wrap;
-}
-.lc-run-test-btn {
-	padding: 3px 10px;
-	font-size: 11px;
-	font-weight: 600;
-	border: 1px solid #4caf50;
-	border-radius: 12px;
-	background: #f0faf0;
-	color: #2d6a2d;
-	cursor: pointer;
-	display: flex;
-	align-items: center;
-	gap: 5px;
-	transition: background .15s, opacity .15s;
-}
-.lc-run-test-btn:hover:not(:disabled) { background: #e0f5e0; }
-.lc-run-test-btn:disabled { opacity: .55; cursor: default; }
-.lc-test-spinner {
-	display: inline-block;
-	width: 10px; height: 10px;
-	border: 2px solid #4caf50;
-	border-top-color: transparent;
-	border-radius: 50%;
-	animation: lc-spin .7s linear infinite;
-}
-@keyframes lc-spin { to { transform: rotate(360deg); } }
-.lc-test-result { font-size: 11.5px; line-height: 1.4; flex: 1; min-width: 0; }
-.lc-test-pass { color: #2d6a2d; }
-.lc-test-fail { color: #b33; }
-
-
-/* ── Action buttons (Apply to Canvas, Clarify) ──────────────────── */
-.lc-msg-actions {
-	display: flex;
-	gap: 6px;
-	margin-top: 6px;
-	flex-wrap: wrap;
-}
-
-.lc-action-btn {
-	padding: 4px 12px;
-	border-radius: 16px;
-	border: 1.5px solid #6c3fe0;
-	background: transparent;
-	color: #6c3fe0;
-	font-size: 12px;
-	font-weight: 500;
-	cursor: pointer;
-	transition: background 0.15s, color 0.15s;
-	font-family: inherit;
-}
-
-.lc-action-btn:hover { background: linear-gradient(135deg, #6c3fe0 0%, #9b59b6 100%); color: #fff; border-color: transparent; }
-
-.lc-action-btn--reject { border-color: #c62828; color: #c62828; }
-.lc-action-btn--reject:hover { background: #c62828; color: #fff; border-color: transparent; }
-
-/* ── Input area ─────────────────────────────────────────────────── */
-.lc-input-area {
-	background: #fff;
-	border-top: 1px solid #eee;
-	flex-shrink: 0;
-	padding: 6px 12px 10px;
-}
-
-.lc-toolbar-row { margin-bottom: 4px; }
-
-.lc-toolbar {
-	display: flex;
-	align-items: center;
-	gap: 2px;
-}
-
-.lc-toolbar-btn {
-	background: transparent;
-	border: 1px solid transparent;
-	border-radius: 3px;
-	padding: 2px 5px;
-	font-size: 12px;
-	color: #555;
-	cursor: pointer;
-	display: flex;
-	align-items: center;
-	justify-content: center;
-	min-width: 22px;
-	min-height: 20px;
-	transition: background 0.12s, border-color 0.12s;
-}
-
-.lc-toolbar-btn:hover { background: #f0f0f0; border-color: #ddd; }
-
-
-.lc-editor-row {
-	display: flex;
-	align-items: flex-start;
-	gap: 8px;
-}
-
-.lc-editor {
-	flex: 1;
-	border: 1px solid #d1d8dd;
-	border-radius: 6px;
-	padding: 7px 10px;
-	font-size: 13px;
-	font-family: inherit;
-	min-height: 36px;
-	max-height: 90px;
-	overflow-y: auto;
-	outline: none;
-	line-height: 1.5;
-	color: #1c1b1f;
-	background: #fff;
-	transition: border-color 0.15s, box-shadow 0.15s;
-	word-break: break-word;
-}
-
-.lc-editor:focus { border-color: #80bdff; box-shadow: 0 0 0 .15rem rgba(0,123,255,.18); }
-.lc-editor:empty::before { content: attr(data-placeholder); color: #6c757d; pointer-events: none; display: block; }
-
-.lc-send-btn {
-	width: 34px;
-	height: 34px;
-	border-radius: 50%;
-	background: linear-gradient(135deg, #6c3fe0 0%, #9b59b6 100%);
-	border: none;
-	color: #fff;
-	display: flex;
-	align-items: center;
-	justify-content: center;
-	cursor: pointer;
-	flex-shrink: 0;
-	transition: opacity 0.15s, transform 0.1s;
-}
-
-.lc-send-btn:hover:not(:disabled)  { opacity: 0.88; transform: scale(1.06); }
-.lc-send-btn:active:not(:disabled) { opacity: 0.75; transform: scale(.97); }
-.lc-send-btn:disabled { background: #ccc; cursor: not-allowed; }
 
 /* ═══════════════════════════════════════════════════════════════════
    CODE EDITOR PANEL (center)
@@ -1961,7 +899,7 @@ onUnmounted(() => {
 .lc-filename {
 	font-size: 13px;
 	font-weight: 500;
-	color: #1c1b1f;
+	color: #171717;
 	white-space: nowrap;
 	overflow: hidden;
 	text-overflow: ellipsis;
@@ -1972,12 +910,12 @@ onUnmounted(() => {
 
 .lc-name-input {
 	flex: 1;
-	border: 1px solid #6c3fe0;
+	border: 1px solid #171717;
 	border-radius: 4px;
 	padding: 2px 8px;
 	font-size: 13px;
 	font-weight: 500;
-	color: #1c1b1f;
+	color: #171717;
 	outline: none;
 	background: #fff;
 }
@@ -2013,7 +951,7 @@ onUnmounted(() => {
 }
 
 .lc-file-btn:hover { background: #f5f5f5; border-color: #ccc; }
-.lc-file-btn--active { background: #f0ebff; border-color: #6c3fe0; color: #6c3fe0; }
+.lc-file-btn--active { background: #f3f3f3; border-color: #171717; color: #171717; }
 
 /* ── Save status in file bar ────────────────────────────────────────── */
 .lc-save-status {
@@ -2101,12 +1039,12 @@ onUnmounted(() => {
 	padding: 4px 8px;
 	font-size: 12px;
 	outline: none;
-	color: #1c1b1f;
+	color: #171717;
 	background: #fff;
 	box-sizing: border-box;
 }
 
-.lc-script-search-input:focus { border-color: #6c3fe0; box-shadow: 0 0 0 2px rgba(108,63,224,.1); }
+.lc-script-search-input:focus { border-color: #171717; box-shadow: 0 0 0 2px rgba(108,63,224,.1); }
 
 .lc-script-dropdown-list {
 	max-height: 220px;
@@ -2131,11 +1069,11 @@ onUnmounted(() => {
 }
 
 .lc-script-dropdown-item:last-child { border-bottom: none; }
-.lc-script-dropdown-item:hover { background: #f5f0ff; }
-.lc-script-dropdown-item--active { background: #f0ebff; }
+.lc-script-dropdown-item:hover { background: #f8f8f8; }
+.lc-script-dropdown-item--active { background: #f3f3f3; }
 
 .lc-script-item-icon { flex-shrink: 0; color: #888; }
-.lc-script-item-check { flex-shrink: 0; color: #6c3fe0; margin-left: auto; }
+.lc-script-item-check { flex-shrink: 0; color: #171717; margin-left: auto; }
 
 .lc-script-item-info {
 	flex: 1;
@@ -2145,7 +1083,7 @@ onUnmounted(() => {
 .lc-script-item-name {
 	font-size: 12px;
 	font-weight: 500;
-	color: #1c1b1f;
+	color: #171717;
 	white-space: nowrap;
 	overflow: hidden;
 	text-overflow: ellipsis;
@@ -2200,12 +1138,12 @@ onUnmounted(() => {
 	border: 1px solid #ddd;
 	border-radius: 6px;
 	background: #fff;
-	color: #1c1b1f;
+	color: #171717;
 	outline: none;
 	width: 100%;
 }
 .lc-settings-input:focus,
-.lc-settings-select:focus { border-color: #6c3fe0; box-shadow: 0 0 0 2px rgba(108,63,224,.1); }
+.lc-settings-select:focus { border-color: #171717; box-shadow: 0 0 0 2px rgba(108,63,224,.1); }
 .lc-dropdown-backdrop {
 	position: fixed;
 	inset: 0;
@@ -2230,10 +1168,10 @@ onUnmounted(() => {
 	padding: 5px 10px;
 	font-size: 12px;
 	cursor: pointer;
-	color: #1c1b1f;
+	color: #171717;
 }
-.lc-settings-dropdown-item:hover { background: #f0ebff; color: #6c3fe0; }
-.lc-settings-checkbox { width: 14px; height: 14px; accent-color: #6c3fe0; cursor: pointer; }
+.lc-settings-dropdown-item:hover { background: #f3f3f3; color: #171717; }
+.lc-settings-checkbox { width: 14px; height: 14px; accent-color: #171717; cursor: pointer; }
 
 .lc-settings-slide-enter-active,
 .lc-settings-slide-leave-active { transition: max-height 0.2s ease, opacity 0.2s ease; max-height: 200px; overflow: hidden; }
@@ -2260,8 +1198,6 @@ onUnmounted(() => {
 	display: inline-block;
 }
 
-.lc-spinner-white { border-color: rgba(255,255,255,.4); border-top-color: #fff; }
-
 @keyframes lc-spin { to { transform: rotate(360deg); } }
 
 /* ═══════════════════════════════════════════════════════════════════
@@ -2281,7 +1217,7 @@ onUnmounted(() => {
 	padding: 10px 14px;
 	font-size: 13px;
 	font-weight: 600;
-	color: #1c1b1f;
+	color: #171717;
 	border-bottom: 1px solid #eee;
 	flex-shrink: 0;
 	display: flex;
@@ -2295,7 +1231,7 @@ onUnmounted(() => {
 	border-radius: 50%;
 	border: none;
 	background: transparent;
-	color: #6c3fe0;
+	color: #171717;
 	cursor: pointer;
 	display: flex;
 	align-items: center;
@@ -2309,7 +1245,7 @@ onUnmounted(() => {
 	width: 22px;
 	height: 22px;
 	border: 2.5px solid #e0d6f7;
-	border-top-color: #6c3fe0;
+	border-top-color: #171717;
 	border-radius: 50%;
 	animation: lc-spin 0.7s linear infinite;
 }
@@ -2355,8 +1291,8 @@ onUnmounted(() => {
 .lc-version-item:hover { background: #fafafa; }
 
 .lc-version-active {
-	border-left: 3px solid #6c3fe0;
-	background: #f5f0ff;
+	border-left: 3px solid #171717;
+	background: #f8f8f8;
 }
 
 .lc-version-top {
@@ -2375,11 +1311,11 @@ onUnmounted(() => {
 .lc-version-num {
 	font-size: 12px;
 	font-weight: 600;
-	color: #1c1b1f;
+	color: #171717;
 }
 
 .lc-active-badge {
-	background: linear-gradient(135deg, #6c3fe0 0%, #9b59b6 100%);
+	background: linear-gradient(135deg, #171717 0%, #525252 100%);
 	color: #fff;
 	font-size: 10px;
 	font-weight: 600;
@@ -2415,7 +1351,7 @@ onUnmounted(() => {
 	border: none;
 	padding: 0;
 	font-size: 11px;
-	color: #6c3fe0;
+	color: #171717;
 	cursor: pointer;
 	font-family: inherit;
 	text-decoration: underline;
@@ -2448,7 +1384,7 @@ onUnmounted(() => {
 .lc-inline-diff-header span:first-child { border-right: 1px solid #e0e0e0; }
 
 .lc-inline-diff-body {
-	background: #1c1b1f;
+	background: #171717;
 	max-height: 180px;
 	overflow-y: auto;
 }

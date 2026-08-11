@@ -39,8 +39,12 @@
   "chat_section",
   "chat_mode_label",
   "icon",
+  "greeting",
+  "composer_placeholder",
   "chat_cb",
   "chat_description",
+  "surface_type",
+  "artifact_type",
   "allowed_roles",
   "memory_section",
   "conversation_store",
@@ -299,6 +303,20 @@
    "label": "Icon"
   },
   {
+   "fieldname": "greeting",
+   "fieldtype": "Small Text",
+   "label": "Greeting",
+   "description": "Opening message the shared chat panel shows for this agent. Markdown allowed. Empty = no greeting bubble.",
+   "depends_on": "eval:doc.agent_type=='Chat'"
+  },
+  {
+   "fieldname": "composer_placeholder",
+   "fieldtype": "Data",
+   "label": "Composer Placeholder",
+   "description": "Input hint in the chat composer, e.g. \"Describe the script change\u2026\".",
+   "depends_on": "eval:doc.agent_type=='Chat'"
+  },
+  {
    "fieldname": "chat_cb",
    "fieldtype": "Column Break"
   },
@@ -306,6 +324,24 @@
    "fieldname": "chat_description",
    "fieldtype": "Small Text",
    "label": "Chat Description"
+  },
+  {
+   "fieldname": "surface_type",
+   "fieldtype": "Select",
+   "label": "Surface Type",
+   "options": "Conversation\nDocument\nForm",
+   "default": "Conversation",
+   "description": "How the agent hands work over: Conversation = it only talks, nothing to apply. Document = offers a new version of something to accept or reject. Form = fills in fields to confirm. (Not the runner \u2014 that is Agent Framework.)",
+   "depends_on": "eval:doc.agent_type=='Chat'"
+  },
+  {
+   "fieldname": "artifact_type",
+   "fieldtype": "Select",
+   "label": "Artifact Type",
+   "options": "None\nScript\nDiagram\nSchema\nRecord",
+   "default": "None",
+   "description": "What the thing it produces actually is \u2014 selects the preview renderer and the apply target (Script\u2192editor, Diagram\u2192canvas, Schema\u2192builder, Record\u2192form).",
+   "depends_on": "eval:doc.agent_type=='Chat'"
   },
   {
    "description": "Leave empty to allow every logged-in user.",

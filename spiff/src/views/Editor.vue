@@ -1350,8 +1350,10 @@ async function runSync() {
 const reassignMode = ref(false);
 const pendingReassignments = new Map(); // taskId → { modelName, assignment }
 let reassignSaveTimer = null;
-// Logs created this session, grouped by model, awaiting the batched deploy.
-const savedReassignLogs = []; // [{ modelName, log }]
+// Models actually changed this session, awaiting the batched deploy. This used
+// to carry audit-log names too; the log is gone, but the set still decides
+// whether to deploy at all and which maps to recompile.
+const touchedReassignModels = new Set(); // modelName
 
 function toggleReassignMode() {
 	if (reassignMode.value) {
@@ -1361,10 +1363,10 @@ function toggleReassignMode() {
 		finalizeReassignments();
 	} else {
 		reassignMode.value = true;
-		savedReassignLogs.length = 0;
+		touchedReassignModels.clear();
 		showNotification(
 			"Reassign mode enabled",
-			"Assignment Configuration fields (Assignment Mode, User, DocField, Users, Table Field, Row User Field) on User Tasks are now editable. Changes are logged as you make them, and the map is redeployed once when you exit reassign mode.",
+			"Assignment Configuration fields (Assignment Mode, User, DocField, Users, Table Field, Row User Field) on User Tasks are now editable. Changes are saved as you make them and recorded in the map's version history, and the map is redeployed once when you exit reassign mode.",
 			"blue"
 		);
 	}
@@ -1389,8 +1391,9 @@ function onReassignChanged({ taskId, assignment }) {
 	reassignSaveTimer = setTimeout(flushReassignments, 1200);
 }
 
-// Persist pending per-task changes (attribute write + audit log). Does NOT
-// deploy — that is batched into finalizeReassignments().
+// Persist pending per-task changes. Saving is what records them in the map's
+// version history. Does NOT deploy — that is batched into
+// finalizeReassignments().
 async function flushReassignments() {
 	if (reassignSaveTimer) {
 		clearTimeout(reassignSaveTimer);
@@ -1409,7 +1412,7 @@ async function flushReassignments() {
 					assignment: JSON.stringify(assignment),
 				},
 			});
-			if (res && res.updated && res.log) savedReassignLogs.push({ modelName, log: res.log });
+			if (res && res.updated) touchedReassignModels.add(modelName);
 		} catch (err) {
 			const msg =
 				err.messages && err.messages.length
@@ -1423,22 +1426,18 @@ async function flushReassignments() {
 // Flush any pending change, then recompile each touched model exactly once.
 async function finalizeReassignments() {
 	await flushReassignments();
-	if (!savedReassignLogs.length) return;
+	if (!touchedReassignModels.size) return;
 
-	const byModel = new Map(); // modelName → [logName]
-	for (const { modelName, log } of savedReassignLogs) {
-		if (!byModel.has(modelName)) byModel.set(modelName, []);
-		byModel.get(modelName).push(log);
-	}
-	savedReassignLogs.length = 0;
+	const models = [...touchedReassignModels];
+	touchedReassignModels.clear();
 
 	let deployFailed = false;
-	for (const [modelName, logs] of byModel.entries()) {
+	for (const modelName of models) {
 		try {
 			const res = await frappeRequest({
 				url: "/api/method/one_bpmn.api.reassignment.deploy_reassignments",
 				method: "POST",
-				params: { model_name: modelName, logs: JSON.stringify(logs) },
+				params: { model_name: modelName },
 			});
 			if (!res || res.redeployed === false) deployFailed = true;
 		} catch (err) {
@@ -1449,14 +1448,14 @@ async function finalizeReassignments() {
 	if (deployFailed) {
 		showNotification(
 			"Reassignments saved — redeploy pending",
-			"Assignment changes were logged, but automatic redeploy failed. Click Deploy to apply them to new instances.",
+			"Assignment changes were saved and recorded in the version history, but automatic redeploy failed. Click Deploy to apply them to new instances.",
 			"red",
 			true
 		);
 	} else {
 		showNotification(
 			"Reassignments saved & redeployed",
-			"All assignment changes were logged and the map was redeployed once. New process instances use the new assignment; already-running tasks keep their current assignee.",
+			"All assignment changes were saved to the map's version history and the map was redeployed once. New process instances use the new assignment; already-running tasks keep their current assignee.",
 			"green"
 		);
 	}
