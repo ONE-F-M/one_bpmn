@@ -54,9 +54,22 @@ def _resolve_memory_target(task_cfg: dict, instance, bpmn_id: str):
 
 
 def _format_memory_block(memories: list) -> str:
-	"""Render retrieved memories as a clearly delimited block that is appended
-	to the system prompt. Stable format — see ``MEMORY_BLOCK_HEADER``."""
-	lines = [MEMORY_BLOCK_HEADER]
+	"""Render retrieved memories as a clearly delimited block for the dynamic
+	prompt layer. Stable format — see ``MEMORY_BLOCK_HEADER``.
+
+	The provenance line is load-bearing: memories are recalled across
+	conversations, and past final responses ("✅ Complete! … generated")
+	presented bare read as THIS conversation's history — observed live
+	(2026-08-09): the ProsAlly orchestrator concluded the requested process
+	already existed, skipped its confirm tool, and every turn fell through
+	to finalize's fallback question."""
+	lines = [
+		MEMORY_BLOCK_HEADER,
+		"(Background notes recalled from PAST, separate conversations. "
+		"They are context only — nothing below has happened in the current "
+		"conversation, and none of it counts as work already done for the "
+		"current request.)",
+	]
 	for m in memories:
 		content = (m.get("content") or "").strip()
 		if content:
