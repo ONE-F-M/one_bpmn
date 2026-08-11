@@ -39,23 +39,23 @@ import time
 import frappe
 from frappe import _
 
-# Site-wide settings — the FREEZE and who may undo it. Deliberately not the
-# throttle: how fast one user may talk to an agent is a property of the agent
-# (see _THROTTLE_DEFAULTS), while "how many blocked attempts before we contain
-# someone" and "who is allowed to let them back in" are a site's security
-# posture and mean nothing per agent.
+# The one genuinely site-wide setting left: WHO may release a frozen
+# conversation. That is a statement about roles on this site and means nothing
+# per agent — everything else about how hard an agent pushes back is the
+# agent's own (see _AGENT_DEFAULTS).
 _DEFAULTS = {
-	"lock_after_blocks": 3,
-	"lock_block_window_seconds": 3600,
 	"lock_release_roles": "AI Security Reviewer",
 }
 
-# The throttle, per agent. Used when the agent cannot be read at all — a normal
-# agent gets its own values, which the doctype defaults to the same numbers.
-_THROTTLE_DEFAULTS = {
+# Per-agent limits: the throttle, and the freeze thresholds. Used only when the
+# agent cannot be read at all — a normal agent carries its own values, which the
+# doctype defaults to these same numbers.
+_AGENT_DEFAULTS = {
 	"rate_limit_enabled": 1,
 	"rate_limit_messages": 20,
 	"rate_limit_window_seconds": 60,
+	"lock_after_blocks": 3,
+	"lock_block_window_seconds": 3600,
 }
 
 
@@ -77,11 +77,16 @@ def settings() -> dict:
 	return out
 
 
-def throttle_for(agent) -> dict:
-	"""The throttle settings for one agent.
+def limits_for(agent) -> dict:
+	"""The throttle and freeze thresholds for one agent.
 
-	A limit that suits a chat assistant throttles a batch agent to a standstill,
-	so this is the agent's own setting rather than one number for the whole site.
+	Both are the agent's own rather than one number for the whole site: a limit
+	that suits a chat assistant throttles a batch agent to a standstill, and an
+	agent that fields adversarial traffic all day should not freeze users at the
+	same threshold as one that never sees any.
+
+	Read together in a single query because a turn needs both and they are asked
+	for in the same breath.
 
 	``agent`` may be an AI Agent Configuration name or the resolved config dict.
 	The dict is CURATED — it carries agent_id but not these fields — so it is
@@ -89,10 +94,10 @@ def throttle_for(agent) -> dict:
 	mistake that made output screening silently fall back to its default.
 
 	Falls back to the defaults on any read failure, matching the module's
-	fail-open stance: an unreadable agent gets throttled at the ordinary rate,
-	not left unprotected and not taken offline.
+	fail-open stance: an unreadable agent gets the ordinary limits, neither left
+	unprotected nor taken offline.
 	"""
-	out = dict(_THROTTLE_DEFAULTS)
+	out = dict(_AGENT_DEFAULTS)
 	try:
 		from one_bpmn.security.pii import _config_name
 
@@ -100,14 +105,14 @@ def throttle_for(agent) -> dict:
 		if not name:
 			return out
 		row = frappe.db.get_value(
-			"AI Agent Configuration", name, list(_THROTTLE_DEFAULTS), as_dict=True
+			"AI Agent Configuration", name, list(_AGENT_DEFAULTS), as_dict=True
 		)
 		if not row:
 			return out
-		for key in _THROTTLE_DEFAULTS:
+		for key in _AGENT_DEFAULTS:
 			value = row.get(key)
-			# 0 is a real answer for all three — "off", "no allowance" — so only
-			# a genuinely absent value falls through to the default.
+			# 0 is a real answer for every one of these — "off", "no allowance",
+			# "never freeze" — so only a genuinely absent value falls through.
 			if value not in (None, ""):
 				out[key] = value
 	except Exception:
@@ -293,14 +298,14 @@ def enforce(
 			title=_("Conversation Frozen"),
 		)
 
-	cfg = settings()
+	# Both the throttle and the freeze thresholds are the agent's, read once.
+	limits = limits_for(agent or agent_label)
 
 	# 2. Throttle — the agent's own allowance.
-	throttle = throttle_for(agent or agent_label)
-	if not int(throttle.get("rate_limit_enabled") or 0):
+	if not int(limits.get("rate_limit_enabled") or 0):
 		# The freeze still applies. Exempting an agent from the throttle says
 		# "this one is chatty", not "stop containing people who probe it".
-		if _maybe_freeze(user, agent, conversation, cfg):
+		if _maybe_freeze(user, agent, conversation, limits):
 			frappe.throw(
 				_(
 					"This conversation has been frozen after repeated blocked attempts. "
@@ -311,8 +316,8 @@ def enforce(
 			)
 		return
 
-	limit = int(throttle.get("rate_limit_messages") or 0)
-	window = int(throttle.get("rate_limit_window_seconds") or 60)
+	limit = int(limits.get("rate_limit_messages") or 0)
+	window = int(limits.get("rate_limit_window_seconds") or 60)
 	if limit > 0:
 		observed = record_and_count(user, agent_label, window) if count else peek_count(user, agent_label, window)
 		if observed > limit:
@@ -322,7 +327,7 @@ def enforce(
 				severity="Medium", classifier="rate-limit",
 				detail=f"refused: {observed} messages in {window}s, limit {limit}",
 			)
-			_maybe_freeze(user, agent, conversation, cfg, trigger_event=event)
+			_maybe_freeze(user, agent, conversation, limits, trigger_event=event)
 			frappe.throw(
 				_("You are sending messages to this agent too quickly. Wait a moment and try again."),
 				RateLimited,
@@ -332,7 +337,7 @@ def enforce(
 	# 3. Enough blocked attempts to warrant containment? A freeze raised now
 	#    refuses THIS message too — having decided the user is probing, letting
 	#    the message that tipped the scale through is a strange place to stop.
-	if _maybe_freeze(user, agent, conversation, cfg):
+	if _maybe_freeze(user, agent, conversation, limits):
 		frappe.throw(
 			_(
 				"This conversation has been frozen after repeated blocked attempts. "
@@ -343,17 +348,17 @@ def enforce(
 		)
 
 
-def _maybe_freeze(user, agent, conversation, cfg, trigger_event=None) -> str | None:
+def _maybe_freeze(user, agent, conversation, limits, trigger_event=None) -> str | None:
 	"""Freeze when blocked attempts have reached the threshold. Never raises.
 
 	Returns the lock name when one was raised, so the caller can refuse the turn;
 	None when the threshold was not met.
 	"""
-	threshold = int(cfg.get("lock_after_blocks") or 0)
+	threshold = int(limits.get("lock_after_blocks") or 0)
 	if threshold <= 0:
 		return None
 
-	window = int(cfg.get("lock_block_window_seconds") or 3600)
+	window = int(limits.get("lock_block_window_seconds") or 3600)
 	count = blocked_attempts(user, agent, window)
 	if count < threshold:
 		return None

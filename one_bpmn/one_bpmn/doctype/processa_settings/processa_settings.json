@@ -30,8 +30,6 @@
   "script_block_all_imports",
   "section_break_ai_rate_limit",
   "column_break_ai_rate_limit",
-  "lock_after_blocks",
-  "lock_block_window_seconds",
   "lock_release_roles",
   "section_break_ai_memory",
   "default_memory_distill_model",
@@ -202,25 +200,11 @@
    "fieldname": "section_break_ai_rate_limit",
    "fieldtype": "Section Break",
    "label": "AI Conversation Freeze",
-   "description": "Containment for repeated blocked attempts, and who may undo it. Site-wide on purpose. The message throttle moved onto each AI Agent Configuration \u2014 one ceiling could not suit a chat assistant and a batch agent at once."
+   "description": "Who may release a frozen conversation. Site-wide because it is a statement about roles here, not about any one agent. The thresholds that DECIDE a freeze, and the message throttle, live on each AI Agent Configuration."
   },
   {
    "fieldname": "column_break_ai_rate_limit",
    "fieldtype": "Column Break"
-  },
-  {
-   "fieldname": "lock_after_blocks",
-   "fieldtype": "Int",
-   "default": "3",
-   "label": "Freeze After N Blocked Attempts",
-   "description": "Blocked attempts by one user against one agent before the conversation is frozen. 0 disables the freeze. A frozen conversation refuses every message until a reviewer releases it."
-  },
-  {
-   "fieldname": "lock_block_window_seconds",
-   "fieldtype": "Int",
-   "default": "3600",
-   "label": "Blocked-Attempt Window (seconds)",
-   "description": "How far back blocked attempts are counted. Older ones age out, so an occasional false positive months apart never accumulates into a freeze."
   },
   {
    "fieldname": "lock_release_roles",

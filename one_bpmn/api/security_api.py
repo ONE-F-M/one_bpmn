@@ -54,12 +54,17 @@ RATE_LIMIT_FIELDS = (
 	"rate_limit_enabled",
 	"rate_limit_messages",
 	"rate_limit_window_seconds",
+	# The freeze thresholds sit here too: same family, same question — how hard
+	# does this agent push back. Who may RELEASE a freeze stays on Processa
+	# Settings, because that is about roles on the site, not about the agent.
+	"lock_after_blocks",
+	"lock_block_window_seconds",
 )
 
 # Everything this endpoint may read and write on an agent, in render order.
 AGENT_CONTROL_GROUPS = (
 	("Screening", SCREENING_FIELDS),
-	("Rate limiting", RATE_LIMIT_FIELDS),
+	("Rate limiting & freeze", RATE_LIMIT_FIELDS),
 )
 
 EVENT_FIELDS = (

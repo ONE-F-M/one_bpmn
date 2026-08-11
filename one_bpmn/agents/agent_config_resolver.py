@@ -84,6 +84,8 @@ _SHAPE_TO_CONFIG = {
 	"aiRateLimitEnabled": "rate_limit_enabled",
 	"aiRateLimitMessages": "rate_limit_messages",
 	"aiRateLimitWindowSeconds": "rate_limit_window_seconds",
+	"aiLockAfterBlocks": "lock_after_blocks",
+	"aiLockBlockWindowSeconds": "lock_block_window_seconds",
 }
 
 # The inverse, for the editor read. Not folded into _CONFIG_TO_SHAPE because
@@ -95,6 +97,8 @@ _SCREENING_TO_SHAPE = {
 	"rate_limit_enabled": "aiRateLimitEnabled",
 	"rate_limit_messages": "aiRateLimitMessages",
 	"rate_limit_window_seconds": "aiRateLimitWindowSeconds",
+	"lock_after_blocks": "aiLockAfterBlocks",
+	"lock_block_window_seconds": "aiLockBlockWindowSeconds",
 }
 
 # Guard rail categories, mirroring the AI Agent Guard Rail Select options
@@ -181,6 +185,8 @@ _SCREENING_FIELDS = (
 	"rate_limit_enabled",
 	"rate_limit_messages",
 	"rate_limit_window_seconds",
+	"lock_after_blocks",
+	"lock_block_window_seconds",
 )
 
 
@@ -476,6 +482,15 @@ CREATE_PAYLOAD_CONTRACT = {
 	),
 	"rate_limit_window_seconds": (
 		"Optional. Length of the sliding window in seconds. Defaults to 60."
+	),
+	"lock_after_blocks": (
+		"Optional. Blocked attempts by one user against THIS agent before the "
+		"conversation is frozen and a reviewer has to release it. Defaults to 3; "
+		"0 disables the freeze for this agent."
+	),
+	"lock_block_window_seconds": (
+		"Optional. How far back blocked attempts are counted, in seconds. Defaults "
+		"to 3600."
 	),
 	"output_screening_mode": (
 		"Optional. Log, Flag or Block — what to do when the AGENT's own response "

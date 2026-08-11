@@ -65,6 +65,8 @@
   "rate_limit_messages",
   "column_break_rate_limit",
   "rate_limit_window_seconds",
+  "lock_after_blocks",
+  "lock_block_window_seconds",
   "evaluation_section",
   "sample_prompts",
   "needs_attention_reason"
@@ -378,8 +380,8 @@
   {
    "fieldname": "section_rate_limit",
    "fieldtype": "Section Break",
-   "label": "Rate Limiting",
-   "description": "How fast one user may talk to THIS agent. A limit that suits a chat assistant throttles a batch agent to a standstill, which is why it is set here rather than once for the whole site."
+   "label": "Rate Limiting & Freeze",
+   "description": "How hard this agent pushes back: how fast one user may talk to it, and how many blocked attempts it tolerates before freezing the conversation. Both are per-agent \u2014 a limit that suits a chat assistant throttles a batch agent to a standstill. Who may RELEASE a freeze stays site-wide, on Processa Settings."
   },
   {
    "fieldname": "rate_limit_enabled",
@@ -407,6 +409,20 @@
    "default": "60",
    "description": "The window slides continuously rather than resetting on a clock boundary, so a full allowance cannot be sent twice either side of one.",
    "depends_on": "eval:doc.rate_limit_enabled"
+  },
+  {
+   "fieldname": "lock_after_blocks",
+   "fieldtype": "Int",
+   "label": "Freeze After N Blocked Attempts",
+   "default": "3",
+   "description": "Blocked attempts by one user against THIS agent before the conversation is frozen and a reviewer has to release it. 0 disables the freeze for this agent. Independent of the throttle above \u2014 an agent exempt from rate limiting can still freeze a prober."
+  },
+  {
+   "fieldname": "lock_block_window_seconds",
+   "fieldtype": "Int",
+   "label": "Blocked-Attempt Window (seconds)",
+   "default": "3600",
+   "description": "How far back blocked attempts are counted. Defaults to an hour."
   },
   {
    "fieldname": "evaluation_section",
