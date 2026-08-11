@@ -25,6 +25,9 @@ REVIEWER = "zz-wi1968-reviewer@example.com"
 
 class TestRateLimitAndLock(FrappeTestCase):
 	def setUp(self):
+		from frappe.utils import now_datetime
+
+		self._started_at = now_datetime()
 		self._cleanup()
 		self.agent = self._agent()
 		self._settings(rate_limit_enabled=1, rate_limit_messages=3, rate_limit_window_seconds=60,
@@ -33,8 +36,29 @@ class TestRateLimitAndLock(FrappeTestCase):
 
 	def tearDown(self):
 		self._cleanup()
+		self._purge_injected_error_logs()
 		frappe.set_user("Administrator")
 		frappe.db.commit()
+
+	def _purge_injected_error_logs(self):
+		"""Drop the Error Log rows this suite's fault injection caused.
+
+		Several tests break frappe.db.count or the cache on purpose to prove the
+		controls fail open, and the fail-open handlers do the right thing: they
+		write an Error Log row saying a security control just failed. Left
+		behind, those rows are indistinguishable from a real outage — 54 of them
+		had accumulated on this site, which is how a log stops being read.
+
+		Scoped by title AND to rows created during this test, so a genuine
+		failure logged by something else is never swept up. The production code
+		is untouched: it should keep logging loudly when this happens for real.
+		"""
+		frappe.db.sql(
+			"""DELETE FROM `tabError Log`
+			   WHERE creation >= %(since)s
+			     AND (method LIKE 'AI rate limit:%%' OR method LIKE 'AI conversation lock:%%')""",
+			{"since": self._started_at},
+		)
 
 	def _cleanup(self):
 		frappe.set_user("Administrator")
