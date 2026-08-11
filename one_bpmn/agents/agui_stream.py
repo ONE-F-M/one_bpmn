@@ -42,6 +42,9 @@ from ag_ui.core import (
 	TextMessageStartEvent,
 )
 from ag_ui.encoder import EventEncoder
+from frappe import _
+
+from one_bpmn.security.rate_limit import RateLimited
 
 # ── Extension translators (payload dict → list of CustomEvent) ──────────────
 # Registered callables receive the runner's reply dict and return an iterable
@@ -190,6 +193,22 @@ def agent_event_stream(agent_id: str, message: str, conversation: str, context: 
 			for event in _extension_events(result):
 				yield encoder.encode(event)
 			_commit_turn()
+	except RateLimited as refusal:
+		# A throttle or a conversation freeze is a DECISION, not a fault. Every
+		# older surface already knew that; this shared stream did not, so a
+		# refusal arrived as RUN_ERROR and the panel showed "Something went
+		# wrong" over a message that explains itself perfectly well.
+		#
+		# Delivered as an ordinary assistant message so it lands in the thread
+		# where the user is reading, and NOT logged as an error: the control
+		# working as designed is not an incident, and a traceback per refusal
+		# fills the log with false alarms.
+		if not frappe.flags.in_test:
+			frappe.db.rollback()
+		text = str(refusal) or _("You are sending messages to this agent too quickly.")
+		yield encoder.encode(TextMessageStartEvent(message_id=message_id, role="assistant"))
+		yield encoder.encode(TextMessageContentEvent(message_id=message_id, delta=text))
+		yield encoder.encode(TextMessageEndEvent(message_id=message_id))
 	except Exception as e:
 		if not frappe.flags.in_test:
 			frappe.db.rollback()

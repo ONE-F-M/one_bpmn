@@ -768,6 +768,76 @@ class TestRefusalReachesTheUser(FrappeTestCase):
 
 	SURFACES = ("ProsAlly", "Logix", "Docu")
 
+	def test_the_shared_agui_stream_delivers_a_refusal_as_a_message(self):
+		"""The AG-UI panel is a fourth surface and it reintroduced the bug.
+
+		It caught bare Exception, so a throttle arrived as RUN_ERROR and the
+		panel put "Something went wrong" over a message that explains itself.
+		Reported from ProsAlly after five messages.
+		"""
+		import json
+		from unittest.mock import patch
+
+		import one_bpmn.agents.agui_stream as A
+
+		conversation = frappe.get_doc({
+			"doctype": "Chat Conversation",
+			"title": "zz-wi1968 agui refusal",
+			"user": frappe.session.user,
+		}).insert(ignore_permissions=True).name
+		self.addCleanup(
+			frappe.delete_doc, "Chat Conversation", conversation, force=True, ignore_permissions=True
+		)
+
+		refusal = "You are sending messages to this agent too quickly. Wait a moment and try again."
+		kinds, texts = [], []
+		with patch(
+			"one_bpmn.api.agent_invocation.invoke_agent", side_effect=RL.RateLimited(refusal)
+		):
+			for chunk in A.agent_event_stream("prosally_agent", "hi", conversation, None):
+				for line in str(chunk).splitlines():
+					if not line.startswith("data: "):
+						continue
+					event = json.loads(line[6:])
+					kinds.append(event.get("type"))
+					if event.get("delta"):
+						texts.append(event["delta"])
+
+		self.assertNotIn("RUN_ERROR", kinds, "a refusal is a decision, not a failure")
+		self.assertIn("TEXT_MESSAGE_CONTENT", kinds)
+		self.assertIn("too quickly", " ".join(texts))
+
+	def test_the_shared_stream_still_reports_a_real_failure_as_one(self):
+		"""The other half: quietly turning every exception into a chat bubble
+		would hide genuine breakage behind a polite sentence."""
+		import json
+		from unittest.mock import patch
+
+		import one_bpmn.agents.agui_stream as A
+
+		conversation = frappe.get_doc({
+			"doctype": "Chat Conversation",
+			"title": "zz-wi1968 agui failure",
+			"user": frappe.session.user,
+		}).insert(ignore_permissions=True).name
+		self.addCleanup(
+			frappe.delete_doc, "Chat Conversation", conversation, force=True, ignore_permissions=True
+		)
+
+		kinds = []
+		with patch(
+			"one_bpmn.api.agent_invocation.invoke_agent", side_effect=RuntimeError("provider exploded")
+		):
+			for chunk in A.agent_event_stream("prosally_agent", "hi", conversation, None):
+				for line in str(chunk).splitlines():
+					if line.startswith("data: "):
+						kinds.append(json.loads(line[6:]).get("type"))
+
+		self.assertIn("RUN_ERROR", kinds)
+		frappe.db.sql(
+			"DELETE FROM `tabError Log` WHERE method='agui stream error' AND error LIKE '%%provider exploded%%'"
+		)
+
 	def test_the_engine_does_not_halt_the_instance_for_a_refusal(self):
 		"""A refusal is a decision, not a fault.
 
