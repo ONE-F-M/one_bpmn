@@ -526,6 +526,75 @@ class TestRateLimitAndLock(FrappeTestCase):
 		)
 		self.assertEqual(after_one_refusal, 2, "only the two allowed messages are in the window")
 
+	def test_releasing_a_lock_lets_the_user_talk_again_immediately(self):
+		"""A release that leaves the throttle full is barely a release.
+
+		The window that was full when the freeze happened is still full, so the
+		released user's next message is refused and they are told to wait — for
+		up to the whole window — after a human has just decided they may carry
+		on. Both halves are needed: clear the window AND stop counting strikes a
+		reviewer has already answered.
+		"""
+		from one_bpmn.api.conversation_locks import release_lock
+
+		self._settings(rate_limit_messages=2, rate_limit_window_seconds=900, lock_after_blocks=2)
+		agent = self._agent()
+		agent_id = frappe.db.get_value("AI Agent Configuration", agent, "agent_id") or agent
+		RL.clear_window(PROBER, agent)
+
+		# The throttled user must BE the session user: blocked_attempts counts
+		# events by owner, so strikes raised as somebody else never accrue.
+		frappe.set_user(PROBER)
+		try:
+			for _ in range(6):
+				try:
+					RL.enforce(user=PROBER, agent=agent, agent_label=agent_id,
+					           conversation="zz-release", count=True)
+				except RL.RateLimited:
+					pass
+				frappe.db.commit()
+		finally:
+			frappe.set_user("Administrator")
+
+		lock = frappe.db.get_value("AI Conversation Lock", {"user": PROBER, "status": "Locked"}, "name")
+		self.addCleanup(frappe.db.sql, "DELETE FROM `tabAI Conversation Lock` WHERE user=%s", PROBER)
+		self.addCleanup(frappe.db.sql, "DELETE FROM `tabAI Security Event` WHERE conversation='zz-release'")
+		self.assertTrue(lock, "the probe should have frozen the conversation")
+		self.assertGreater(RL.peek_count(PROBER, agent_id, 900), 0)
+		self.assertGreaterEqual(RL.blocked_attempts(PROBER, agent, 3600), 2)
+
+		release_lock(lock, notes="Reviewed — letting them continue.")
+		frappe.db.commit()
+
+		self.assertEqual(RL.peek_count(PROBER, agent_id, 900), 0, "the throttle window must be cleared")
+		self.assertEqual(
+			RL.blocked_attempts(PROBER, agent, 3600), 0,
+			"strikes a reviewer has answered must not re-freeze the conversation",
+		)
+		# Forgiven, not deleted — the log still carries what happened.
+		self.assertGreater(frappe.db.count("AI Security Event", {"conversation": "zz-release"}), 0)
+
+		frappe.set_user(PROBER)
+		try:
+			RL.enforce(user=PROBER, agent=agent, agent_label=agent_id,
+			           conversation="zz-release", count=True)
+		finally:
+			frappe.set_user("Administrator")
+
+	def test_clearing_a_window_uses_the_key_the_counter_actually_wrote(self):
+		"""_window_key already applies make_key. Letting delete_value prefix it a
+		second time deletes a key that does not exist and reports success — the
+		release looked clean while the window stayed full."""
+		agent = self._agent()
+		agent_id = frappe.db.get_value("AI Agent Configuration", agent, "agent_id") or agent
+		RL.clear_window(PROBER, agent)
+		RL.record_and_count(PROBER, agent_id, 60, member="one")
+		self.assertEqual(RL.peek_count(PROBER, agent_id, 60), 1)
+
+		RL.clear_window(PROBER, agent)
+
+		self.assertEqual(RL.peek_count(PROBER, agent_id, 60), 0)
+
 	def test_a_zero_allowance_is_a_real_answer_not_a_missing_one(self):
 		"""0 means "no allowance" and 0 means "off". Treating either as absent
 		would silently restore the default and reopen the agent."""

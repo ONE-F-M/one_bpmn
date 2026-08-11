@@ -181,6 +181,67 @@ def peek_count(user: str, agent: str, window_seconds: int) -> int:
 		return -1
 
 
+def clear_window(user: str, agent) -> int:
+	"""Forget this user's throttle history for one agent. Returns keys cleared.
+
+	Called when a reviewer releases a frozen conversation. Without it a release
+	does almost nothing: the window that was full when the freeze happened is
+	still full, so the released user's very next message is refused and they are
+	told to wait — for up to the whole window — despite a human having just
+	decided they may carry on.
+
+	Clears under both labels the window can be keyed by. Enforcement keys on the
+	agent_id (``prosally_agent``), while a lock records the configuration name
+	(``prosally``), and callers reach this with either.
+	"""
+	labels = {str(agent)} if agent else set()
+	try:
+		agent_id = frappe.db.get_value("AI Agent Configuration", agent, "agent_id")
+		if agent_id:
+			labels.add(agent_id)
+	except Exception:
+		pass
+
+	cleared = 0
+	for label in labels:
+		try:
+			# make_keys=False because _window_key already applied make_key.
+			# Letting delete_value prefix it a second time deletes a key that
+			# does not exist and reports success, which is exactly what happened:
+			# the release looked clean and the window was still full.
+			frappe.cache().delete_value(_window_key(user, label), make_keys=False)
+			cleared += 1
+		except Exception:
+			# A cache that cannot be cleared leaves the user waiting out the
+			# window — worse than instant, but not a reason to fail the release.
+			pass
+	return cleared
+
+
+def _strikes_reset_at(user: str, agent: str | None):
+	"""When this user's blocked attempts against this agent were last forgiven.
+
+	A release draws a line. Strikes from before it have been reviewed and
+	answered by a human decision, so counting them again would re-freeze the
+	conversation on the released user's next refusal — which is the same as not
+	having released it.
+
+	Nothing is deleted: the events stay in the log for audit, they simply stop
+	counting toward the NEXT freeze.
+	"""
+	if not agent:
+		return None
+	try:
+		return frappe.db.get_value(
+			"AI Conversation Lock",
+			{"user": user, "agent_configuration": agent, "status": "Released"},
+			"released_at",
+			order_by="released_at desc",
+		)
+	except Exception:
+		return None
+
+
 def blocked_attempts(user: str, agent: str | None, window_seconds: int) -> int:
 	"""Blocked attempts by this user against this agent inside the window.
 
@@ -197,6 +258,11 @@ def blocked_attempts(user: str, agent: str | None, window_seconds: int) -> int:
 
 	try:
 		since = add_to_date(now_datetime(), seconds=-max(int(window_seconds or 0), 1))
+		# A release forgives everything before it, so the count starts there
+		# rather than at the top of the window.
+		forgiven_until = _strikes_reset_at(user, agent)
+		if forgiven_until and forgiven_until > since:
+			since = forgiven_until
 		filters = {"owner": user, "creation": (">=", since)}
 		if agent:
 			filters["agent_configuration"] = agent
