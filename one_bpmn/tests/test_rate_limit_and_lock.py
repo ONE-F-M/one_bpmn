@@ -86,18 +86,32 @@ class TestRateLimitAndLock(FrappeTestCase):
 		from one_bpmn.security import rate_limit as _RL
 
 		current = dict(_RL._DEFAULTS)
+		current.update(_RL._THROTTLE_DEFAULTS)
 		current.update(getattr(self, "_override", {}))
 		current.update(values)
 		self._override = current
 
 		if getattr(self, "_settings_patch", None) is None:
+			# Two readers now, because the throttle moved onto the agent while the
+			# freeze stayed site-wide. Both are patched from the same override dict
+			# so a test still says `self._settings(rate_limit_messages=3)` and means
+			# it, wherever the value happens to live.
 			self._settings_patch = patch.object(_RL, "settings", lambda: dict(self._override))
+			self._throttle_patch = patch.object(
+				_RL,
+				"throttle_for",
+				lambda _agent=None: {k: self._override[k] for k in _RL._THROTTLE_DEFAULTS},
+			)
 			self._settings_patch.start()
+			self._throttle_patch.start()
 			self.addCleanup(self._stop_settings_patch)
 
 	def _stop_settings_patch(self):
 		if getattr(self, "_settings_patch", None) is not None:
 			self._settings_patch.stop()
+		if getattr(self, "_throttle_patch", None) is not None:
+			self._throttle_patch.stop()
+			self._throttle_patch = None
 			self._settings_patch = None
 		self._override = {}
 
@@ -392,13 +406,75 @@ class TestRateLimitAndLock(FrappeTestCase):
 				self._enforce()
 
 	def test_unreadable_settings_fall_back_to_defaults(self):
-		# _settings() patches RL.settings for isolation, so reach past it to the
-		# real implementation — this test is about that function's own behaviour.
+		"""Both readers fail soft, and they read different things now: the freeze
+		is still the site's, the throttle is the agent's."""
+		# _settings() patches both for isolation, so reach past it to the real
+		# implementations — this test is about their own behaviour.
 		self._stop_settings_patch()
+
 		with patch("frappe.get_cached_doc", side_effect=RuntimeError("no settings")):
 			cfg = RL.settings()
-		self.assertEqual(cfg["rate_limit_messages"], 20)
 		self.assertEqual(cfg["lock_after_blocks"], 3)
+
+		with patch("frappe.db.get_value", side_effect=RuntimeError("no agent")):
+			throttle = RL.throttle_for("whatever")
+		self.assertEqual(throttle["rate_limit_messages"], 20)
+		self.assertEqual(throttle["rate_limit_window_seconds"], 60)
+		self.assertTrue(
+			throttle["rate_limit_enabled"],
+			"an unreadable agent is throttled at the ordinary rate, not left unprotected",
+		)
+
+	def test_the_throttle_is_read_from_the_agent_not_the_site(self):
+		"""The point of the move: two agents, two allowances, one site."""
+		self._stop_settings_patch()
+		agent = self._agent()
+		frappe.db.set_value(
+			"AI Agent Configuration",
+			agent,
+			{"rate_limit_enabled": 1, "rate_limit_messages": 7, "rate_limit_window_seconds": 30},
+			update_modified=False,
+		)
+		frappe.clear_document_cache("AI Agent Configuration", agent)
+
+		throttle = RL.throttle_for(agent)
+
+		self.assertEqual(throttle["rate_limit_messages"], 7)
+		self.assertEqual(throttle["rate_limit_window_seconds"], 30)
+
+	def test_a_zero_allowance_is_a_real_answer_not_a_missing_one(self):
+		"""0 means "no allowance" and 0 means "off". Treating either as absent
+		would silently restore the default and reopen the agent."""
+		self._stop_settings_patch()
+		agent = self._agent()
+		frappe.db.set_value(
+			"AI Agent Configuration",
+			agent,
+			{"rate_limit_enabled": 0, "rate_limit_messages": 0},
+			update_modified=False,
+		)
+		frappe.clear_document_cache("AI Agent Configuration", agent)
+
+		throttle = RL.throttle_for(agent)
+
+		self.assertEqual(throttle["rate_limit_enabled"], 0)
+		self.assertEqual(throttle["rate_limit_messages"], 0)
+
+	def test_turning_the_throttle_off_does_not_turn_off_the_freeze(self):
+		"""Exempting a chatty agent from the throttle says nothing about whether
+		someone probing it should still be contained."""
+		self._stop_settings_patch()
+		agent = self._agent()
+		frappe.db.set_value(
+			"AI Agent Configuration", agent, {"rate_limit_enabled": 0}, update_modified=False
+		)
+		frappe.clear_document_cache("AI Agent Configuration", agent)
+
+		with patch.object(RL, "_maybe_freeze", return_value="LOCK-1") as freeze:
+			with self.assertRaises(RL.RateLimited):
+				RL.enforce(user=PROBER, agent=agent, agent_label=agent, conversation="zz-conv", count=True)
+
+		freeze.assert_called()
 
 	def test_a_failed_block_count_raises_no_freeze(self):
 		with patch("frappe.db.count", side_effect=RuntimeError("db down")):
@@ -459,18 +535,32 @@ class TestPerTurnEnforcement(FrappeTestCase):
 		from one_bpmn.security import rate_limit as _RL
 
 		current = dict(_RL._DEFAULTS)
+		current.update(_RL._THROTTLE_DEFAULTS)
 		current.update(getattr(self, "_override", {}))
 		current.update(values)
 		self._override = current
 
 		if getattr(self, "_settings_patch", None) is None:
+			# Two readers now, because the throttle moved onto the agent while the
+			# freeze stayed site-wide. Both are patched from the same override dict
+			# so a test still says `self._settings(rate_limit_messages=3)` and means
+			# it, wherever the value happens to live.
 			self._settings_patch = patch.object(_RL, "settings", lambda: dict(self._override))
+			self._throttle_patch = patch.object(
+				_RL,
+				"throttle_for",
+				lambda _agent=None: {k: self._override[k] for k in _RL._THROTTLE_DEFAULTS},
+			)
 			self._settings_patch.start()
+			self._throttle_patch.start()
 			self.addCleanup(self._stop_settings_patch)
 
 	def _stop_settings_patch(self):
 		if getattr(self, "_settings_patch", None) is not None:
 			self._settings_patch.stop()
+		if getattr(self, "_throttle_patch", None) is not None:
+			self._throttle_patch.stop()
+			self._throttle_patch = None
 			self._settings_patch = None
 		self._override = {}
 
@@ -692,18 +782,32 @@ class TestRefusalReachesTheUser(FrappeTestCase):
 		from one_bpmn.security import rate_limit as _RL
 
 		current = dict(_RL._DEFAULTS)
+		current.update(_RL._THROTTLE_DEFAULTS)
 		current.update(getattr(self, "_override", {}))
 		current.update(values)
 		self._override = current
 
 		if getattr(self, "_settings_patch", None) is None:
+			# Two readers now, because the throttle moved onto the agent while the
+			# freeze stayed site-wide. Both are patched from the same override dict
+			# so a test still says `self._settings(rate_limit_messages=3)` and means
+			# it, wherever the value happens to live.
 			self._settings_patch = patch.object(_RL, "settings", lambda: dict(self._override))
+			self._throttle_patch = patch.object(
+				_RL,
+				"throttle_for",
+				lambda _agent=None: {k: self._override[k] for k in _RL._THROTTLE_DEFAULTS},
+			)
 			self._settings_patch.start()
+			self._throttle_patch.start()
 			self.addCleanup(self._stop_settings_patch)
 
 	def _stop_settings_patch(self):
 		if getattr(self, "_settings_patch", None) is not None:
 			self._settings_patch.stop()
+		if getattr(self, "_throttle_patch", None) is not None:
+			self._throttle_patch.stop()
+			self._throttle_patch = None
 			self._settings_patch = None
 		self._override = {}
 

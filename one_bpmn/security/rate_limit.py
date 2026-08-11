@@ -39,14 +39,23 @@ import time
 import frappe
 from frappe import _
 
-# Settings and their defaults, read together so one query serves a whole turn.
+# Site-wide settings — the FREEZE and who may undo it. Deliberately not the
+# throttle: how fast one user may talk to an agent is a property of the agent
+# (see _THROTTLE_DEFAULTS), while "how many blocked attempts before we contain
+# someone" and "who is allowed to let them back in" are a site's security
+# posture and mean nothing per agent.
 _DEFAULTS = {
-	"rate_limit_enabled": 1,
-	"rate_limit_messages": 20,
-	"rate_limit_window_seconds": 60,
 	"lock_after_blocks": 3,
 	"lock_block_window_seconds": 3600,
 	"lock_release_roles": "AI Security Reviewer",
+}
+
+# The throttle, per agent. Used when the agent cannot be read at all — a normal
+# agent gets its own values, which the doctype defaults to the same numbers.
+_THROTTLE_DEFAULTS = {
+	"rate_limit_enabled": 1,
+	"rate_limit_messages": 20,
+	"rate_limit_window_seconds": 60,
 }
 
 
@@ -61,6 +70,44 @@ def settings() -> dict:
 		doc = frappe.get_cached_doc("Processa Settings")
 		for key in _DEFAULTS:
 			value = doc.get(key)
+			if value not in (None, ""):
+				out[key] = value
+	except Exception:
+		pass
+	return out
+
+
+def throttle_for(agent) -> dict:
+	"""The throttle settings for one agent.
+
+	A limit that suits a chat assistant throttles a batch agent to a standstill,
+	so this is the agent's own setting rather than one number for the whole site.
+
+	``agent`` may be an AI Agent Configuration name or the resolved config dict.
+	The dict is CURATED — it carries agent_id but not these fields — so it is
+	resolved back to the record rather than read from directly, which is the
+	mistake that made output screening silently fall back to its default.
+
+	Falls back to the defaults on any read failure, matching the module's
+	fail-open stance: an unreadable agent gets throttled at the ordinary rate,
+	not left unprotected and not taken offline.
+	"""
+	out = dict(_THROTTLE_DEFAULTS)
+	try:
+		from one_bpmn.security.pii import _config_name
+
+		name = _config_name(agent)
+		if not name:
+			return out
+		row = frappe.db.get_value(
+			"AI Agent Configuration", name, list(_THROTTLE_DEFAULTS), as_dict=True
+		)
+		if not row:
+			return out
+		for key in _THROTTLE_DEFAULTS:
+			value = row.get(key)
+			# 0 is a real answer for all three — "off", "no allowance" — so only
+			# a genuinely absent value falls through to the default.
 			if value not in (None, ""):
 				out[key] = value
 	except Exception:
@@ -247,12 +294,25 @@ def enforce(
 		)
 
 	cfg = settings()
-	if not int(cfg.get("rate_limit_enabled") or 0):
+
+	# 2. Throttle — the agent's own allowance.
+	throttle = throttle_for(agent or agent_label)
+	if not int(throttle.get("rate_limit_enabled") or 0):
+		# The freeze still applies. Exempting an agent from the throttle says
+		# "this one is chatty", not "stop containing people who probe it".
+		if _maybe_freeze(user, agent, conversation, cfg):
+			frappe.throw(
+				_(
+					"This conversation has been frozen after repeated blocked attempts. "
+					"A reviewer needs to release it before you can continue."
+				),
+				RateLimited,
+				title=_("Conversation Frozen"),
+			)
 		return
 
-	# 2. Throttle.
-	limit = int(cfg.get("rate_limit_messages") or 0)
-	window = int(cfg.get("rate_limit_window_seconds") or 60)
+	limit = int(throttle.get("rate_limit_messages") or 0)
+	window = int(throttle.get("rate_limit_window_seconds") or 60)
 	if limit > 0:
 		observed = record_and_count(user, agent_label, window) if count else peek_count(user, agent_label, window)
 		if observed > limit:

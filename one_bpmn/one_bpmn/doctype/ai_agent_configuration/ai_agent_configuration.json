@@ -60,6 +60,11 @@
   "security_section",
   "pii_screening",
   "output_screening_mode",
+  "section_rate_limit",
+  "rate_limit_enabled",
+  "rate_limit_messages",
+  "column_break_rate_limit",
+  "rate_limit_window_seconds",
   "evaluation_section",
   "sample_prompts",
   "needs_attention_reason"
@@ -369,6 +374,39 @@
    "options": "Log\nFlag\nBlock",
    "default": "Flag",
    "description": "What to do when the agent's OWN response contains a credential, personal data, or a stretch of its own instructions. Flag (the default) records it and replaces the offending text with a token, so the reply still reads. Log records it and sends the reply untouched \u2014 use it to watch a new agent before tightening. Block replaces the whole reply with a refusal."
+  },
+  {
+   "fieldname": "section_rate_limit",
+   "fieldtype": "Section Break",
+   "label": "Rate Limiting",
+   "description": "How fast one user may talk to THIS agent. A limit that suits a chat assistant throttles a batch agent to a standstill, which is why it is set here rather than once for the whole site."
+  },
+  {
+   "fieldname": "rate_limit_enabled",
+   "fieldtype": "Check",
+   "label": "Enable Rate Limiting",
+   "default": "1",
+   "description": "Off exempts this agent only, not the site."
+  },
+  {
+   "fieldname": "rate_limit_messages",
+   "fieldtype": "Int",
+   "label": "Messages Per Window",
+   "default": "20",
+   "description": "Messages one user may send this agent inside the window. 0 disables the throttle.",
+   "depends_on": "eval:doc.rate_limit_enabled"
+  },
+  {
+   "fieldname": "column_break_rate_limit",
+   "fieldtype": "Column Break"
+  },
+  {
+   "fieldname": "rate_limit_window_seconds",
+   "fieldtype": "Int",
+   "label": "Window (seconds)",
+   "default": "60",
+   "description": "The window slides continuously rather than resetting on a clock boundary, so a full allowance cannot be sent twice either side of one.",
+   "depends_on": "eval:doc.rate_limit_enabled"
   },
   {
    "fieldname": "evaluation_section",

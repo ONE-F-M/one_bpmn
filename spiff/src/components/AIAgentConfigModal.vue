@@ -340,20 +340,27 @@
                text all come from the doctype, so there is nothing here to drift
                out of step with what the field actually accepts. -->
           <template v-if="!isSelector && form.aiAgentConfig && screeningControls.length">
-            <div class="field-group-title">Screening</div>
-            <div class="field-row" v-for="c in screeningControls" :key="c.fieldname">
-              <label>{{ c.label }}</label>
-              <select v-if="c.fieldtype === 'Select'" v-model="c.value">
-                <option v-for="o in c.options" :key="o" :value="o">{{ o }}</option>
-              </select>
-              <input v-else-if="c.fieldtype === 'Check'" type="checkbox" class="checkbox-input"
-                     :checked="c.value == 1" @change="c.value = $event.target.checked ? 1 : 0" />
-              <input v-else type="text" v-model="c.value" />
-              <span class="field-hint" v-if="c.description">{{ c.description }}</span>
-            </div>
+            <!-- Grouped by what the control actually does. The throttle is
+                 agent-owned like the screens, but it limits how OFTEN someone
+                 may talk to the agent rather than what may pass — filing it
+                 under "Screening" would misdescribe it. -->
+            <template v-for="g in controlGroups" :key="g.name">
+              <div class="field-group-title">{{ g.name }}</div>
+              <div class="field-row" v-for="c in g.controls" :key="c.fieldname">
+                <label>{{ c.label }}</label>
+                <select v-if="c.fieldtype === 'Select'" v-model="c.value">
+                  <option v-for="o in c.options" :key="o" :value="o">{{ o }}</option>
+                </select>
+                <input v-else-if="c.fieldtype === 'Check'" type="checkbox" class="checkbox-input"
+                       :checked="c.value == 1" @change="c.value = $event.target.checked ? 1 : 0" />
+                <input v-else-if="c.fieldtype === 'Int'" type="number" min="0" v-model.number="c.value" />
+                <input v-else type="text" v-model="c.value" />
+                <span class="field-hint" v-if="c.description">{{ c.description }}</span>
+              </div>
+            </template>
             <p class="field-hint" style="margin-top: 6px;">
-              Screening settings are stored on the linked AI Agent Configuration and apply
-              wherever this agent runs.
+              These are stored on the linked AI Agent Configuration and apply wherever
+              this agent runs.
             </p>
           </template>
 
@@ -833,6 +840,20 @@ const rerunning = ref(false);
 // The list comes from the server, which reads the doctype's real fields, so this
 // component never has to know which screening stories have shipped.
 const screeningControls = ref([]);
+
+// Rendered group by group, in the order the server sent them. Grouping comes
+// from the server rather than a list here, for the same reason the controls
+// themselves do: a second copy in the Vue is one more thing to fall out of step.
+const controlGroups = computed(() => {
+  const out = [];
+  for (const c of screeningControls.value) {
+    const name = c.group || "Screening";
+    let g = out.find((x) => x.name === name);
+    if (!g) out.push((g = { name, controls: [] }));
+    g.controls.push(c);
+  }
+  return out;
+});
 
 async function loadScreening() {
   screeningControls.value = [];
