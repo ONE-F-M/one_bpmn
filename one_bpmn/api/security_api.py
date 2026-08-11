@@ -206,12 +206,16 @@ def event_filter_options() -> dict:
 
 @frappe.whitelist()
 def suites_for_event(event: str) -> list:
-	"""Eval suites the event's agent could be promoted into.
+	"""Adversarial eval suites the event's agent could be promoted into.
 
-	15.2 refuses to choose when an agent has more than one suite — guessing
-	would quietly file an attack in the wrong place. That refusal is right, but
-	it leaves the reviewer holding an error with no way forward, so the screen
-	offers the candidates and asks.
+	Promotion picks the agent's adversarial suite by itself, and creates one when
+	there is none, so this is only needed for the case it still refuses: an agent
+	with more than one adversarial suite, where choosing would risk filing the
+	attack into the wrong gate. The screen offers the candidates and asks.
+
+	Filtered to Adversarial because that is the only kind promotion targets —
+	offering a Baseline suite would invite the reviewer to convert it into a
+	go-live gate by accident.
 	"""
 	frappe.has_permission("AI Security Event", "read", throw=True)
 	agent = frappe.db.get_value("AI Security Event", event, "agent_configuration")
@@ -219,9 +223,9 @@ def suites_for_event(event: str) -> list:
 		return []
 	return frappe.get_list(
 		"AI Eval Suite",
-		filters={"agent_configuration": agent},
+		filters={"agent_configuration": agent, "suite_type": "Adversarial"},
 		fields=["name", "title", "suite_type"],
-		order_by="suite_type asc, title asc",
+		order_by="title asc",
 		limit_page_length=0,
 	)
 
@@ -245,6 +249,12 @@ def promote_event(event: str, suite: str = None) -> dict:
 		"case": result.get("eval_case"),
 		"already_promoted": not result.get("created", True),
 		"suite": result.get("suite"),
+		# The agent may not have had an adversarial suite until this click. Say so
+		# rather than letting a new suite appear silently.
+		"suite_created": bool(result.get("suite_created")),
+		"suite_title": frappe.db.get_value("AI Eval Suite", result.get("suite"), "title")
+		if result.get("suite")
+		else None,
 	}
 
 
