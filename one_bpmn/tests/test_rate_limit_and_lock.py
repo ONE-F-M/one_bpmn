@@ -471,6 +471,37 @@ class TestRateLimitAndLock(FrappeTestCase):
 		self.assertEqual(limits["lock_after_blocks"], 9)
 		self.assertEqual(limits["lock_block_window_seconds"], 120)
 
+	def test_a_refused_attempt_does_not_consume_the_allowance(self):
+		"""Reported from the chat surface: the refusal never cleared.
+
+		The window used to be written before it was checked, so a refused
+		attempt landed in it with a fresh timestamp. Every retry pushed the
+		window forward and it could not drain while the user kept trying — doing
+		the obvious thing made the refusal permanent.
+		"""
+		self._settings(rate_limit_messages=2, rate_limit_window_seconds=60, lock_after_blocks=0)
+		agent = self._agent()
+		RL.frappe.cache().delete_value(RL._window_key(PROBER, agent))
+
+		for _ in range(2):
+			RL.enforce(user=PROBER, agent=agent, agent_label=agent, conversation="zz-c", count=True)
+		with self.assertRaises(RL.RateLimited):
+			RL.enforce(user=PROBER, agent=agent, agent_label=agent, conversation="zz-c", count=True)
+
+		after_one_refusal = RL.peek_count(PROBER, agent, 60)
+
+		# Retry several times, as a real user would.
+		for _ in range(4):
+			with self.assertRaises(RL.RateLimited):
+				RL.enforce(user=PROBER, agent=agent, agent_label=agent, conversation="zz-c", count=True)
+
+		self.assertEqual(
+			RL.peek_count(PROBER, agent, 60),
+			after_one_refusal,
+			"retrying must not push more into the window, or it can never drain",
+		)
+		self.assertEqual(after_one_refusal, 2, "only the two allowed messages are in the window")
+
 	def test_a_zero_allowance_is_a_real_answer_not_a_missing_one(self):
 		"""0 means "no allowance" and 0 means "off". Treating either as absent
 		would silently restore the default and reopen the agent."""

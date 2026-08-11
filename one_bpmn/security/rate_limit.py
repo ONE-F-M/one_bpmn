@@ -319,13 +319,27 @@ def enforce(
 	limit = int(limits.get("rate_limit_messages") or 0)
 	window = int(limits.get("rate_limit_window_seconds") or 60)
 	if limit > 0:
-		observed = record_and_count(user, agent_label, window) if count else peek_count(user, agent_label, window)
-		if observed > limit:
+		# READ FIRST, and record only what is actually allowed through.
+		#
+		# The window used to be written before it was checked, so a REFUSED
+		# attempt landed in it too. Every retry then pushed a fresh entry with a
+		# fresh timestamp, and the window could not drain while the user kept
+		# trying — the refusal became permanent for anyone who did the obvious
+		# thing and tried again. Someone on 3-in-180s retrying every 20 seconds
+		# would never get back in.
+		#
+		# A rejected message is not a message the agent handled, so it does not
+		# spend the allowance. It is still recorded as a security event below:
+		# the attempt is auditable and still counts toward a freeze, which is the
+		# control meant to deal with someone hammering the door.
+		observed = peek_count(user, agent_label, window)
+		# -1 means the count could not be taken; fail open rather than refuse.
+		if observed >= limit and observed >= 0:
 			event = record_event(
 				boundary="input", stage="rate-limit", action="Block",
 				agent_configuration=agent, conversation=conversation,
 				severity="Medium", classifier="rate-limit",
-				detail=f"refused: {observed} messages in {window}s, limit {limit}",
+				detail=f"refused: {observed} messages already in {window}s, limit {limit}",
 			)
 			_maybe_freeze(user, agent, conversation, limits, trigger_event=event)
 			frappe.throw(
@@ -333,6 +347,11 @@ def enforce(
 				RateLimited,
 				title=_("Rate Limit Reached"),
 			)
+
+		# Allowed. Now it counts — and only at the gate designated to count, so a
+		# turn crossing two gates spends one of the allowance rather than two.
+		if count:
+			record_and_count(user, agent_label, window)
 
 	# 3. Enough blocked attempts to warrant containment? A freeze raised now
 	#    refuses THIS message too — having decided the user is probing, letting
