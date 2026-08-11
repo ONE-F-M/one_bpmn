@@ -209,7 +209,13 @@ class TestSecurityApi(FrappeTestCase):
 		) as owner:
 			created = S.promote_event("EV-1")
 		owner.assert_called_once()
-		self.assertEqual(created, {"case": "CASE-1", "already_promoted": False, "suite": "SUITE-1"})
+		# Asserted field by field rather than as a whole dict: this endpoint
+		# reports what the owning method decided, and pinning the exact shape
+		# makes adding a field to that report look like a regression.
+		self.assertEqual(created["case"], "CASE-1")
+		self.assertFalse(created["already_promoted"])
+		self.assertEqual(created["suite"], "SUITE-1")
+		self.assertFalse(created["suite_created"], "no suite was created in this call")
 
 		with patch(
 			"one_bpmn.api.security_events.promote_to_eval_case",

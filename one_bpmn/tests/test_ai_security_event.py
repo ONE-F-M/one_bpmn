@@ -22,6 +22,7 @@ from one_bpmn.one_bpmn.doctype.ai_injection_pattern.ai_injection_pattern import 
 )
 from one_bpmn.one_bpmn.doctype.ai_security_event.ai_security_event import content_hash
 from one_bpmn.security.events import MAX_DETAIL_LENGTH, record_event
+from one_bpmn.security.turn import begin_turn, end_turn
 
 PREFIX = "ZZ-wi1967"
 
@@ -49,6 +50,25 @@ class TestAISecurityEvent(FrappeTestCase):
 		frappe.db.delete("AI Injection Pattern", {"pattern_name": ("like", f"{PREFIX}%")})
 		frappe.db.delete("AI Security Event", {"stage": f"{PREFIX}-stage"})
 		frappe.db.delete("AI Agent Configuration", {"agent_name": ("like", f"{PREFIX}%")})
+
+	def _pattern(self, slug):
+		"""record_event drops a rule that does not exist, and a dropped rule would
+		make the two injection events identical — which is the very thing the test
+		is checking does not happen."""
+		name = f"{PREFIX}-{slug}"
+		if not frappe.db.exists("AI Injection Pattern", name):
+			frappe.get_doc({
+				"doctype": "AI Injection Pattern",
+				"pattern_name": name,
+				"pattern": rf"\b{slug}\b",
+				"pattern_type": "Instruction Override",
+				"match_mode": "regex",
+				"severity": "Medium",
+				"action": "Flag",
+				"boundary_scope": "input",
+				"enabled": 1,
+			}).insert(ignore_permissions=True)
+		return name
 
 	def _event(self, **kw):
 		kw.setdefault("boundary", "input")
@@ -364,6 +384,73 @@ class TestAISecurityEvent(FrappeTestCase):
 		with self.assertRaises(frappe.ValidationError):
 			promote_to_eval_case(event=evt.name)
 
+	def test_promoting_creates_an_adversarial_suite_when_the_agent_has_none(self):
+		"""A reviewer with a real attack in front of them should never be told
+		there is nowhere to put it. The suite made here is shaped like the one
+		adversarial_pack builds, so the go-live gate recognises it."""
+		agent = self._agent()
+		evt = self._event(agent_configuration=agent, rule_type="Injection")
+
+		out = promote_to_eval_case(event=evt.name)
+
+		self.assertTrue(out["suite_created"])
+		suite = frappe.get_doc("AI Eval Suite", out["suite"])
+		self.assertEqual(suite.suite_type, "Adversarial")
+		self.assertEqual(suite.agent_configuration, agent)
+		self.assertTrue(suite.gate_deployment, "a promoted attack must gate go-live")
+
+	def test_promoting_reuses_the_agents_adversarial_suite(self):
+		"""Second promotion must land in the same suite, not spawn another."""
+		agent = self._agent()
+		first = promote_to_eval_case(event=self._event(agent_configuration=agent).name)
+		second = promote_to_eval_case(event=self._event(agent_configuration=agent).name)
+
+		self.assertTrue(first["suite_created"])
+		self.assertFalse(second["suite_created"])
+		self.assertEqual(first["suite"], second["suite"])
+		self.assertEqual(
+			len(frappe.get_all("AI Eval Suite", filters={"agent_configuration": agent, "suite_type": "Adversarial"})),
+			1,
+		)
+
+	def test_promoting_does_not_hijack_a_baseline_suite(self):
+		"""The old rule took the agent's only suite whatever its type, then
+		_mark_suite_adversarial flipped it — quietly turning someone's baseline
+		into a deployment gate. Selecting by type is what stops that."""
+		agent = self._agent()
+		baseline = frappe.get_doc({
+			"doctype": "AI Eval Suite",
+			"title": f"{PREFIX} baseline",
+			"eval_type": "Agent",
+			"suite_type": "Baseline",
+			"agent_configuration": agent,
+		}).insert(ignore_permissions=True).name
+
+		out = promote_to_eval_case(event=self._event(agent_configuration=agent).name)
+
+		self.assertNotEqual(out["suite"], baseline)
+		self.assertEqual(
+			frappe.db.get_value("AI Eval Suite", baseline, "suite_type"),
+			"Baseline",
+			"the reviewer's baseline suite must be left alone",
+		)
+
+	def test_two_adversarial_suites_is_still_a_question_not_a_guess(self):
+		"""Creation covers the empty case, so the only remaining ambiguity is a
+		real one — and filing an attack into the wrong gate is worse than asking."""
+		agent = self._agent()
+		for i in (1, 2):
+			frappe.get_doc({
+				"doctype": "AI Eval Suite",
+				"title": f"{PREFIX} adversarial {i}",
+				"eval_type": "Agent",
+				"suite_type": "Adversarial",
+				"agent_configuration": agent,
+			}).insert(ignore_permissions=True)
+
+		with self.assertRaises(frappe.ValidationError):
+			promote_to_eval_case(event=self._event(agent_configuration=agent).name)
+
 	# ------------------------------------------------------------------
 	# AC6 — the log fails open
 	# ------------------------------------------------------------------
@@ -513,6 +600,132 @@ class TestAISecurityEvent(FrappeTestCase):
 
 		second = turn.begin_turn()
 		turn.end_turn()
+		self.assertNotEqual(first, second)
+
+	# ------------------------------------------------------------------
+	# One verdict, one event — even when two screens see the same message
+	# ------------------------------------------------------------------
+	def test_the_same_verdict_recorded_twice_in_a_turn_is_one_event(self):
+		"""PII screens the same message at two boundaries that are each
+		load-bearing: the API entry point, and again on the stored Chat Message
+		(map-driven agents re-read the stored row, so redaction has to reach it).
+		Both were writing an event for one finding."""
+		agent = self._agent()
+		begin_turn()
+		try:
+			first = record_event(
+				boundary="input", stage=f"{PREFIX}-stage", action="Log", classifier="EMAIL",
+				content="mail me at x@one-fm.com", agent_configuration=agent,
+			)
+			second = record_event(
+				boundary="input", stage=f"{PREFIX}-stage", action="Log", classifier="EMAIL",
+				content="mail me at x@one-fm.com", conversation="ZZ-conv",
+			)
+		finally:
+			end_turn()
+
+		self.assertEqual(first, second, "the second call must return the surviving event")
+
+	def test_the_surviving_event_keeps_both_halves_of_the_turn(self):
+		"""Suppressing one of the two would throw away whichever half lost: the
+		entry point knows the agent but runs before the conversation exists, and
+		the Chat Message hook knows the conversation but has no agent to hand."""
+		agent = self._agent()
+		begin_turn()
+		try:
+			name = record_event(
+				boundary="input", stage=f"{PREFIX}-stage", action="Log", classifier="EMAIL",
+				content="mail me at x@one-fm.com", agent_configuration=agent,
+			)
+			record_event(
+				boundary="input", stage=f"{PREFIX}-stage", action="Log", classifier="EMAIL",
+				content="mail me at x@one-fm.com", conversation="ZZ-conv",
+			)
+		finally:
+			end_turn()
+
+		evt = frappe.get_doc("AI Security Event", name)
+		self.assertEqual(evt.agent_configuration, agent)
+		self.assertEqual(evt.conversation, "ZZ-conv")
+
+	def test_completing_an_event_never_overwrites_what_was_recorded(self):
+		"""Filling a blank inside the turn is completing a record. Changing a
+		value that was already written would be editing an audited fact."""
+		agent = self._agent()
+		begin_turn()
+		try:
+			name = record_event(
+				boundary="input", stage=f"{PREFIX}-stage", action="Log", classifier="EMAIL",
+				content="x@one-fm.com", agent_configuration=agent, conversation="first-conv",
+			)
+			record_event(
+				boundary="input", stage=f"{PREFIX}-stage", action="Log", classifier="EMAIL",
+				content="x@one-fm.com", conversation="second-conv",
+			)
+		finally:
+			end_turn()
+
+		self.assertEqual(frappe.db.get_value("AI Security Event", name, "conversation"), "first-conv")
+
+	def test_completing_an_event_does_not_disturb_the_log_order(self):
+		"""The Security view orders by last-updated on the understanding that an
+		event is written once. A fill must not reshuffle the stream."""
+		begin_turn()
+		try:
+			name = record_event(boundary="input", stage=f"{PREFIX}-stage", action="Log", classifier="EMAIL", content="x@one-fm.com")
+			record_event(
+				boundary="input", stage=f"{PREFIX}-stage", action="Log", classifier="EMAIL",
+				content="x@one-fm.com", conversation="ZZ-conv",
+			)
+		finally:
+			end_turn()
+
+		row = frappe.db.get_value("AI Security Event", name, ["creation", "modified"], as_dict=True)
+		self.assertEqual(row.creation, row.modified)
+
+	def test_two_rules_matching_one_message_stay_two_events(self):
+		"""Injection records one event per matching pattern — same text, same
+		stage, classifier None on both. Collapsing them would under-report a
+		multi-rule attack, so `rule` is part of what makes a verdict distinct."""
+		begin_turn()
+		try:
+			a = record_event(boundary="input", stage=f"{PREFIX}-stage", action="Flag",
+			                 rule=self._pattern("zz-rule-a"), content="one message")
+			b = record_event(boundary="input", stage=f"{PREFIX}-stage", action="Flag",
+			                 rule=self._pattern("zz-rule-b"), content="one message")
+		finally:
+			end_turn()
+
+		self.assertNotEqual(a, b)
+
+	def test_the_same_finding_in_a_later_turn_is_its_own_event(self):
+		"""Dedupe is scoped to the turn. Two identical messages a minute apart
+		are two facts, and a security log that hid the second would be lying
+		about how often something is being attempted."""
+		begin_turn()
+		try:
+			first = record_event(boundary="input", stage=f"{PREFIX}-stage", action="Log",
+			                     classifier="EMAIL", content="x@one-fm.com")
+		finally:
+			end_turn()
+		begin_turn()
+		try:
+			second = record_event(boundary="input", stage=f"{PREFIX}-stage", action="Log",
+			                      classifier="EMAIL", content="x@one-fm.com")
+		finally:
+			end_turn()
+
+		self.assertNotEqual(first, second)
+
+	def test_outside_a_turn_nothing_is_collapsed(self):
+		"""With no correlation id there is no turn to scope to, so the check is
+		skipped rather than guessing across unrelated records."""
+		end_turn()
+		first = record_event(boundary="input", stage=f"{PREFIX}-stage", action="Log",
+		                     classifier="EMAIL", content="x@one-fm.com")
+		second = record_event(boundary="input", stage=f"{PREFIX}-stage", action="Log",
+		                      classifier="EMAIL", content="x@one-fm.com")
+
 		self.assertNotEqual(first, second)
 
 	def test_an_event_outside_a_turn_simply_has_no_correlation_id(self):

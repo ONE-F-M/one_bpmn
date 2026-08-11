@@ -574,9 +574,17 @@ async function promote() {
 		suiteChoices.value = []
 		// Saying WHICH of the two happened matters: clicking twice otherwise looks
 		// like the first click failed.
+		// A new adversarial suite may have been made for this agent on the way
+		// through. That is a new go-live gate, so it is said out loud rather than
+		// left for the reviewer to discover in the Evals screen.
+		const where = r.suite_created
+			? ` in a new adversarial suite, ${r.suite_title || r.suite}.`
+			: r.suite_title
+				? ` in ${r.suite_title}.`
+				: "."
 		promoteNote.value = r.already_promoted
 			? "Already promoted — showing the existing case."
-			: `Created eval case ${r.case}.`
+			: `Created eval case ${r.case}${where}`
 	} catch (e) {
 		promoteError.value = true
 		promoteNote.value = e?.messages?.join("\n") || e?.message || String(e)
@@ -585,7 +593,7 @@ async function promote() {
 		if (/suite/i.test(promoteNote.value) && !suiteChoices.value.length) {
 			suiteChoices.value = (await call("suites_for_event", { event: openedEvent.value.name }).catch(() => [])) || []
 			if (suiteChoices.value.length) {
-				promoteNote.value = "This agent has more than one suite — choose which one to add the case to."
+				promoteNote.value = "This agent has more than one adversarial suite — choose which one to add the case to."
 				promoteError.value = false
 			}
 		}

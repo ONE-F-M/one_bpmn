@@ -99,8 +99,15 @@ def screening_status() -> dict:
 	try:
 		from one_bpmn import hooks
 
+		# before_insert is a STRING when one handler is wired and a LIST when
+		# several are. Both forms are normal Frappe, and the substring test that
+		# worked on the string form silently became an element-equality test when
+		# the output screen was added alongside this one — the list holds the full
+		# dotted path, which never equals the bare function name, so the gate
+		# reported PII screening as absent while it was running fine.
 		hooked = ((hooks.doc_events or {}).get("Chat Message") or {}).get("before_insert") or ""
-		if "screen_chat_message" not in hooked:
+		handlers = [hooked] if isinstance(hooked, str) else list(hooked or [])
+		if not any("screen_chat_message" in str(h) for h in handlers):
 			errors.append(
 				_(
 					"Chat Message screening is not wired: no before_insert hook runs "
