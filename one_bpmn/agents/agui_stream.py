@@ -203,8 +203,19 @@ def agent_event_stream(agent_id: str, message: str, conversation: str, context: 
 		# where the user is reading, and NOT logged as an error: the control
 		# working as designed is not an incident, and a traceback per refusal
 		# fills the log with false alarms.
+		# COMMIT, not rollback. Nothing of this turn has been written — enforce
+		# raises before the runner is reached — so the only thing in the
+		# transaction is the AI Security Event recording the blocked attempt, and
+		# that is the one thing that must survive.
+		#
+		# Rolling back here (copied from the generic handler below, where it is
+		# right) threw that record away. It cost the audit trail, and it silently
+		# disabled the freeze on this surface: blocked_attempts counts those
+		# events, so the count could never rise and containment could never
+		# trigger no matter how hard someone hammered the door. Six refusals in a
+		# row had logged exactly one attempt.
 		if not frappe.flags.in_test:
-			frappe.db.rollback()
+			frappe.db.commit()
 		text = str(refusal) or _("You are sending messages to this agent too quickly.")
 		yield encoder.encode(TextMessageStartEvent(message_id=message_id, role="assistant"))
 		yield encoder.encode(TextMessageContentEvent(message_id=message_id, delta=text))

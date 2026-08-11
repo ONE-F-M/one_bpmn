@@ -807,6 +807,55 @@ class TestRefusalReachesTheUser(FrappeTestCase):
 		self.assertIn("TEXT_MESSAGE_CONTENT", kinds)
 		self.assertIn("too quickly", " ".join(texts))
 
+	def test_a_refusal_on_the_stream_keeps_its_audit_record(self):
+		"""The refusal branch must COMMIT, not roll back.
+
+		Nothing of the turn has been written when enforce raises, so the only
+		thing in the transaction is the AI Security Event recording the blocked
+		attempt. Rolling back threw it away — which cost the audit trail and
+		silently disabled the freeze on this surface, because blocked_attempts
+		counts exactly those events. Six refusals had logged one attempt.
+		"""
+		import json
+		from unittest.mock import patch
+
+		import one_bpmn.agents.agui_stream as A
+
+		conversation = frappe.get_doc({
+			"doctype": "Chat Conversation",
+			"title": "zz-wi1968 agui audit",
+			"user": frappe.session.user,
+		}).insert(ignore_permissions=True).name
+		self.addCleanup(
+			frappe.delete_doc, "Chat Conversation", conversation, force=True, ignore_permissions=True
+		)
+
+		def refuse_and_record(*args, **kwargs):
+			from one_bpmn.security.events import record_event
+
+			# No agent link: this class has no agent fixture, and record_event
+			# drops a dangling one anyway. What is being tested is whether the
+			# row survives the refusal, not what it points at.
+			record_event(
+				boundary="input", stage="rate-limit", action="Block",
+				conversation=conversation, severity="Medium",
+				classifier="rate-limit", detail="refused",
+			)
+			raise RL.RateLimited("You are sending messages to this agent too quickly.")
+
+		before = frappe.db.count("AI Security Event", {"stage": "rate-limit", "action": "Block"})
+		with patch("one_bpmn.api.agent_invocation.invoke_agent", side_effect=refuse_and_record):
+			for chunk in A.agent_event_stream("prosally_agent", "hi", conversation, None):
+				for line in str(chunk).splitlines():
+					if line.startswith("data: "):
+						json.loads(line[6:])
+
+		self.assertGreater(
+			frappe.db.count("AI Security Event", {"stage": "rate-limit", "action": "Block"}),
+			before,
+			"the blocked attempt must survive the refusal, or the freeze can never trigger",
+		)
+
 	def test_the_shared_stream_still_reports_a_real_failure_as_one(self):
 		"""The other half: quietly turning every exception into a chat bubble
 		would hide genuine breakage behind a polite sentence."""
