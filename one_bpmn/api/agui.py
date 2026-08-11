@@ -21,9 +21,14 @@ from one_bpmn.agents.agui_stream import agent_event_stream
 
 @frappe.whitelist()
 def stream_agent_turn(
-	agent_id: str, message: str, conversation: str = None, context: str = None
+	agent_id: str, message: str, conversation: str = None, context: str | dict = None
 ):
 	"""Stream one agent turn as AG-UI events (SSE).
+
+	Called as a streamed POST (fetch + body), not an EventSource GET: the
+	turn context carries real payloads — ProsAlly's live canvas XML broke
+	nginx's URI limit the first time a genuine diagram rode a turn (414,
+	observed live on staging 2026-08-11). GET still works for small turns.
 
 	Args:
 	    agent_id: AI Agent Configuration.agent_id to run.
@@ -31,7 +36,8 @@ def stream_agent_turn(
 	    conversation: existing Chat Conversation to continue; created from
 	        the agent's configuration when omitted (WI-001619 path).
 	    context: optional JSON dict merged into the turn payload
-	        (editor state, dialog grounding, etc.).
+	        (editor state, dialog grounding, etc.) — a dict when the body
+	        is JSON, a string when it rides the query string.
 
 	Returns:
 	    text/event-stream response: RunStarted → content events →
