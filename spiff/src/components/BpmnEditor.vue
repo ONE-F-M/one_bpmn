@@ -123,7 +123,7 @@
 			<transition name="prosally-slide">
 				<div
 					v-if="showProsAllyPanel && !isMobile"
-					class="prosally-panel-container order-first w-[var(--agui-chat-pane,420px)] shrink-0 border-r border-gray-200 flex flex-col z-[50]"
+					class="prosally-panel-container w-[var(--agui-chat-pane,420px)] shrink-0 border-l border-gray-200 flex flex-col z-[50]"
 				>
 					<ProsAllyPanel
 						:process-name="processNameForPanel"
