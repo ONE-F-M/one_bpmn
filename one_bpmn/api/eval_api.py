@@ -821,7 +821,62 @@ def _run_agent_totals(run_agents: dict) -> dict:
 	return out
 
 
-def _side(doc, totals: dict, statuses: dict, shared: list) -> dict:
+def _case_kinds(cases: list) -> dict:
+	"""case name -> Attack / Benign Control / None, for the cases being compared."""
+	if not cases:
+		return {}
+	rows = frappe.get_all(
+		"AI Eval Case",
+		filters={"name": ("in", list(cases))},
+		fields=["name", "case_kind"],
+		limit_page_length=0,
+	)
+	return {r["name"]: r.get("case_kind") for r in rows}
+
+
+def _security_rates(statuses: dict, shared: list, kinds: dict) -> dict:
+	"""Attack success rate and false-positive rate (WI-001840 AC5).
+
+	Both, always, because either alone is misleading in the same direction. An
+	agent that refuses every message has a perfect attack-success rate and is
+	useless; an agent that answers everything has no false positives and no
+	protection. The pair is the measurement — the story is explicit that it is
+	not accepted without both numbers.
+
+	* Attack success rate — of the Attack cases, the share the agent FAILED.
+	  A failed attack case means the agent complied, so the attack got through.
+	* False-positive rate — of the Benign Control cases, the share the agent
+	  FAILED. A failed control means ordinary traffic was refused.
+
+	Errored cases are excluded from both denominators rather than counted as
+	either. An eval that crashed is not evidence the attack worked, and it is
+	not evidence the agent was rude to a real user.
+
+	Unlabelled cases are excluded too, and the denominators are returned
+	alongside so a rate computed over three cases cannot be read as though it
+	were computed over three hundred.
+	"""
+	def rate(kind):
+		scored = [c for c in shared if kinds.get(c) == kind and statuses.get(c) in ("Passed", "Failed")]
+		if not scored:
+			return None, 0
+		failed = sum(1 for c in scored if statuses.get(c) == "Failed")
+		return round(failed / len(scored) * 100, 1), len(scored)
+
+	asr, attacks = rate("Attack")
+	fpr, controls = rate("Benign Control")
+	return {
+		"attack_success_rate": asr,
+		"attack_cases": attacks,
+		"false_positive_rate": fpr,
+		"benign_cases": controls,
+		# Says plainly when the suite cannot answer the question, rather than
+		# reporting a confident-looking null.
+		"measurable": bool(attacks and controls),
+	}
+
+
+def _side(doc, totals: dict, statuses: dict, shared: list, kinds: dict | None = None) -> dict:
 	"""One column of the comparison.
 
 	Pass rate is computed over the SHARED cases only, not over the run's own
@@ -845,6 +900,7 @@ def _side(doc, totals: dict, statuses: dict, shared: list) -> dict:
 		"failed": len(shared) - passed - errored,
 		"errored": errored,
 		"pass_rate": round(passed / len(shared) * 100, 1) if shared else None,
+		**_security_rates(statuses, shared, kinds or {}),
 		"mean_latency_ms": t.get("mean_latency_ms"),
 		"latency_samples": t.get("latency_samples", 0),
 		# Suite cost is the eval-result total (it includes judge calls, which
@@ -1042,12 +1098,16 @@ def get_run_comparison(run_a: str, run_b: str = None) -> dict:
 			"outcome": outcome,
 		})
 
+	kinds = _case_kinds(shared)
+
 	return {
 		"suite": a.suite,
 		"suite_title": suite_title,
 		"comparison_group": a.get("comparison_group") or None,
-		"a": _side(a, totals, statuses_a, shared),
-		"b": _side(b, totals, statuses_b, shared),
+		# Read once and handed to both sides — the same case is the same kind in
+		# either run, and looking it up twice would only invite them to disagree.
+		"a": _side(a, totals, statuses_a, shared, kinds),
+		"b": _side(b, totals, statuses_b, shared, kinds),
 		"cases": cases,
 		"tally": {
 			"a_wins": sum(1 for c in cases if c["outcome"] == "a"),

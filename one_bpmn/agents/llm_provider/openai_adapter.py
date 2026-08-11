@@ -151,10 +151,17 @@ class OpenAIAdapter(BaseLLMAdapter):
                 turn.tool_calls.append(
                     ToolCallRecord(name=tc.function.name, arguments=args, result=result)
                 )
+                # WI-001840 AC1: the model reads tool output through the same
+                # channel as its own instructions, so it is marked with the tool
+                # that produced it — that marker is what the seeded guard rail
+                # refers to. The ToolCallRecord above keeps the raw result; the
+                # wrapper is for the model, not the audit trail.
+                from one_bpmn.security.provenance import wrap_tool_result
+
                 messages.append({
                     "role": "tool",
                     "tool_call_id": tc.id,
-                    "content": result,
+                    "content": wrap_tool_result(result, tc.function.name),
                 })
             # API round-trip + inline tool execution = this turn's decision latency
             turn.latency_ms = int((time.perf_counter() - _turn_t0) * 1000)

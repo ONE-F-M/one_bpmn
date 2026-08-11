@@ -107,10 +107,14 @@ async def run_agent_loop(
 		turns_used = int(resume.get("turns_used") or 0)
 		pending = resume.get("pending_call") or {}
 		results = list(resume.get("deferred_results") or [])
+		# Marked like any other tool result. A human task's answer is still
+		# content from outside the platform arriving on the tool channel — a
+		# reviewer can paste anything into it — and it was the one path that
+		# reached the model unmarked.
 		results.append({
 			"id": pending.get("id") or "",
 			"name": pending.get("name") or "",
-			"content": str(resume.get("human_result") or ""),
+			"content": wrap_tool_result(str(resume.get("human_result") or ""), pending.get("name") or "human task"),
 		})
 		transcript.append({"role": "tool_results", "results": results})
 	else:

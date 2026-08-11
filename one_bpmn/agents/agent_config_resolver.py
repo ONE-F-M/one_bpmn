@@ -77,6 +77,7 @@ _SHAPE_TO_CONFIG = {
 	# WI-001644: screening is agent-level too — what an agent may say is a
 	# property of the agent, not of the task that happens to call it.
 	"aiPiiScreening": "pii_screening",
+	"aiInjectionScreening": "injection_screening",
 	"aiOutputScreeningMode": "output_screening_mode",
 }
 
@@ -85,6 +86,7 @@ _SHAPE_TO_CONFIG = {
 # meaning; putting it there would write agent policy onto every diagram.
 _SCREENING_TO_SHAPE = {
 	"pii_screening": "aiPiiScreening",
+	"injection_screening": "aiInjectionScreening",
 	"output_screening_mode": "aiOutputScreeningMode",
 }
 
@@ -166,7 +168,7 @@ def _rows_for_shape(doc, table: str, fields: tuple[str, ...]) -> list[dict]:
 # exactly like the static-context tables below — they are readable by the editor
 # but kept OUT of config_field_map, whose job is overlaying shape attributes at
 # dispatch. Screening is not a property of a task.
-_SCREENING_FIELDS = ("pii_screening", "output_screening_mode")
+_SCREENING_FIELDS = ("pii_screening", "injection_screening", "output_screening_mode")
 
 
 def config_screening(config_name: str) -> dict:
@@ -451,6 +453,12 @@ CREATE_PAYLOAD_CONTRACT = {
 		"before it reaches the model. Defaults to Enabled; disable only for an agent "
 		"whose work genuinely needs the raw values."
 	),
+	"injection_screening": (
+		"Optional. Enabled or Disabled — screens the USER's message for prompt-injection "
+		"and jailbreak patterns before it reaches the model. Defaults to Enabled; disable "
+		"only for an agent whose legitimate traffic trips the pack often enough to be "
+		"noisy, and record why. Disabling it here exempts one agent, not the site."
+	),
 	"output_screening_mode": (
 		"Optional. Log, Flag or Block — what to do when the AGENT's own response "
 		"contains a credential, personal data, or a stretch of its own instructions. "
@@ -567,7 +575,8 @@ def create_agent_configuration(payload: str | dict) -> dict:
 	# to the desk form. Set only when the field exists on this site and the
 	# value is one the doctype accepts — an unknown value would fail the whole
 	# insert over a setting the agent could perfectly well start with its
-	# default. Absent means "leave the doctype default", which is Log.
+	# default. Absent means "leave the doctype default" — Enabled for the two
+	# on/off screens, Flag for the output mode.
 	_meta = frappe.get_meta("AI Agent Configuration")
 	for fieldname in _SCREENING_FIELDS:
 		value = payload.get(fieldname)
