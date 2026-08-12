@@ -39,12 +39,7 @@ import json
 from one_bpmn.agents.turn_state import get_turn, run_sync, update_turn
 from one_bpmn.agents.llm_provider import get_llm_adapter_from_settings
 from one_bpmn.one_bpmn.doctype.ai_agent_configuration.ai_agent_configuration import get_agent_config
-from one_bpmn.agents.llm_provider.base import ToolSpec
-from one_bpmn.tools.tool_for_server_scripts import (
-    doctype_exists,
-    list_doctypes,
-    read_doctype_definition,
-)
+from one_bpmn.tools.tool_for_server_scripts import read_doctype_definition
 
 turn = get_turn(context_docname)
 _cfg = get_agent_config("docu_agent") or {}
@@ -52,17 +47,11 @@ _cfg.setdefault("agent_id", "docu_agent")
 _subs = _cfg.get("sub_prompts") or {}
 _adapter = get_llm_adapter_from_settings(_cfg)
 
-_classifier_tools = [
-    ToolSpec(fn=doctype_exists, name="doctype_exists",
-             description=("Check whether a DocType exists and whether it is a custom DocType. Returns {exists, custom}. "
-                          "Call this on the 'options' of every Link/Table field to confirm the target really exists."),
-             parameters={"doctype": {"type": "string", "description": "The DocType name to check."}},
-             required=["doctype"]),
-    ToolSpec(fn=list_doctypes, name="list_doctypes",
-             description="List existing DocTypes (name, module, custom flag). Optionally filter by a search term.",
-             parameters={"search": {"type": "string", "description": "Optional substring to filter DocType names."}},
-             required=[]),
-]
+# No tools here on purpose. The only thing the model decides is whether the
+# request is ambiguous — CREATE vs MODIFY is settled below from frappe.db.exists,
+# and the caller already knows the selected DocType. Handing this call a tool set
+# turned one round trip into an agentic loop (up to _MAX_TOOL_TURNS) for an
+# answer that is three words long.
 
 doctype = turn.get("doctype", "")
 exists = bool(doctype) and bool(frappe.db.exists("DocType", doctype))
@@ -121,7 +110,7 @@ _parts.append("User request: " + message)
 prompt = "\n".join(_parts)
 
 _system = (_subs.get("intent_classifier") or {}).get("prompt") or ""
-raw = run_sync(_adapter.complete(system=_system, user=prompt, tools=_classifier_tools)).text
+raw = run_sync(_adapter.complete(system=_system, user=prompt)).text
 
 intent = "MODIFY" if exists else "CREATE"
 try:
@@ -165,7 +154,9 @@ _clarifier_tools = [
              required=[]),
     ToolSpec(fn=doctype_exists, name="doctype_exists",
              description=("Check whether a DocType exists and whether it is a custom DocType. Returns {exists, custom}. "
-                          "Call this on the 'options' of every Link/Table field to confirm the target really exists."),
+                          "Use it only for a link/table target you are genuinely unsure about — each call is a "
+                          "round trip. Do not sweep every field, and do not re-check a target you already looked up; "
+                          "unresolvable targets are caught by the schema-safety gate anyway."),
              parameters={"doctype": {"type": "string", "description": "The DocType name to check."}},
              required=["doctype"]),
 ]
@@ -276,7 +267,9 @@ _writer_tools = [
              required=["doctype"]),
     ToolSpec(fn=doctype_exists, name="doctype_exists",
              description=("Check whether a DocType exists and whether it is a custom DocType. Returns {exists, custom}. "
-                          "Call this on the 'options' of every Link/Table field to confirm the target really exists."),
+                          "Use it only for a link/table target you are genuinely unsure about — each call is a "
+                          "round trip. Do not sweep every field, and do not re-check a target you already looked up; "
+                          "unresolvable targets are caught by the schema-safety gate anyway."),
              parameters={"doctype": {"type": "string", "description": "The DocType name to check."}},
              required=["doctype"]),
     ToolSpec(fn=list_doctypes, name="list_doctypes",
@@ -285,8 +278,9 @@ _writer_tools = [
              required=[]),
     ToolSpec(fn=validate_doctype_json, name="validate_doctype",
              description=("Validate a DocType definition (JSON) against the schema-safety rules. "
-                          "Returns {valid, violations, fix_hints}. Call this on your design before you finalize it, "
-                          "and fix any violations it reports."),
+                          "Returns {valid, violations, fix_hints}. Call it at most once, only if you are unsure your "
+                          "design is valid — the same gate runs automatically after you return, so a clean design "
+                          "needs no call at all."),
              parameters={"ir": {"type": "string", "description": "The DocType definition as a JSON object string."}},
              required=["ir"]),
 ]
@@ -450,13 +444,16 @@ _reviewer_tools = [
              required=["doctype"]),
     ToolSpec(fn=doctype_exists, name="doctype_exists",
              description=("Check whether a DocType exists and whether it is a custom DocType. Returns {exists, custom}. "
-                          "Call this on the 'options' of every Link/Table field to confirm the target really exists."),
+                          "Use it only for a link/table target you are genuinely unsure about — each call is a "
+                          "round trip. Do not sweep every field, and do not re-check a target you already looked up; "
+                          "unresolvable targets are caught by the schema-safety gate anyway."),
              parameters={"doctype": {"type": "string", "description": "The DocType name to check."}},
              required=["doctype"]),
     ToolSpec(fn=validate_doctype_json, name="validate_doctype",
              description=("Validate a DocType definition (JSON) against the schema-safety rules. "
-                          "Returns {valid, violations, fix_hints}. Call this on your design before you finalize it, "
-                          "and fix any violations it reports."),
+                          "Returns {valid, violations, fix_hints}. Call it at most once, only if you are unsure your "
+                          "design is valid — the same gate runs automatically after you return, so a clean design "
+                          "needs no call at all."),
              parameters={"ir": {"type": "string", "description": "The DocType definition as a JSON object string."}},
              required=["ir"]),
 ]
@@ -472,21 +469,42 @@ if not draft_ir:
     result["approved"] = True
     result["is_question"] = True
 else:
-    _system = (_subs.get("schema_reviewer") or {}).get("prompt") or ""
-    review_raw = run_sync(_adapter.complete(system=_system, user=json.dumps(draft_ir), tools=_reviewer_tools)).text
-
-    # ── apply review (inline) ──
+    # The gate is validate_doctype_ir, not the model — so run the gate FIRST and
+    # only pay for the reviewer when the draft actually fails it. A draft that
+    # passes was going to be approved either way, so the LLM pass on the happy
+    # path bought nothing and cost a full agentic loop.
     candidate = draft_ir
-    if review_raw:
-        try:
-            _review = json.loads(review_raw.strip())
-            if (not _review.get("approved")) and isinstance(_review.get("revised_ir"), dict):
-                candidate = _review["revised_ir"]
-        except (json.JSONDecodeError, TypeError, KeyError):
-            pass
     candidate.setdefault("module", turn.get("target_module") or "ONE BPMN")
-
     validation = validate_doctype_ir(candidate)
+
+    if not validation["valid"]:
+        # Repair path: hand the reviewer the violations it has to fix, not just
+        # the raw IR — it previously had to rediscover them itself.
+        _system = (_subs.get("schema_reviewer") or {}).get("prompt") or ""
+        _v_lines = []
+        for _v in validation["violations"]:
+            _v_lines.append("- " + str(_v))
+        _review_user = (
+            json.dumps(candidate)
+            + "\n\nThis definition FAILED the schema-safety gate with "
+            + str(len(validation["violations"])) + " violation(s):\n"
+            + "\n".join(_v_lines)
+            + "\n\nReturn the corrected definition as revised_ir."
+        )
+        review_raw = run_sync(_adapter.complete(system=_system, user=_review_user, tools=_reviewer_tools)).text
+
+        # ── apply review (inline) ──
+        if review_raw:
+            try:
+                _review = json.loads(review_raw.strip())
+                if (not _review.get("approved")) and isinstance(_review.get("revised_ir"), dict):
+                    candidate = _review["revised_ir"]
+                    candidate.setdefault("module", turn.get("target_module") or "ONE BPMN")
+            except (json.JSONDecodeError, TypeError, KeyError):
+                pass
+        # Re-run the gate on whatever the reviewer handed back.
+        validation = validate_doctype_ir(candidate)
+
     if validation["valid"]:
         update_turn(
             context_docname, final_ir=candidate, final_text=turn.get("draft_text", ""),
