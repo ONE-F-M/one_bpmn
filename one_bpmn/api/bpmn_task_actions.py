@@ -7,11 +7,11 @@ instance points to. The request carries an HMAC-signed token — no
 Frappe session cookie or CSRF token is present.
 
 (Formerly ``todo_actions.py`` — renamed since the module has no
-connection to the Frappe ``ToDo`` doctype; ``todo_actions.py`` still
-exists as a thin backward-compatible re-export so any AMP email sent
-before this rename keeps working. See ``one_bpmn.api.workflow_actions``
-for the equivalent endpoint used by documents with no BPMN engine
-behind them at all.)
+connection to the Frappe ``ToDo`` doctype. No AMP email has ever been
+sent from production referencing the old path, so it was removed
+outright rather than kept as a compatibility shim. See
+``one_bpmn.api.workflow_actions`` for the equivalent endpoint used by
+documents with no BPMN engine behind them at all.)
 
 Flow::
 
