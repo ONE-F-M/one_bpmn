@@ -2,7 +2,7 @@
 
 Provides a whitelisted Frappe endpoint that allows submitting a comment on
 a document directly from an AMP-powered email. Mirrors
-``one_bpmn.api.todo_actions.handle_amp_action`` — Gmail's AMP XHR carries
+``one_bpmn.api.bpmn_task_actions.handle_amp_action`` — Gmail's AMP XHR carries
 no Frappe session, so an HMAC token (generated with
 :func:`~one_bpmn.utils.token.generate_doc_action_token`, action=
 ``"Comment"``) is the sole trust anchor and the source of *which* document
@@ -39,7 +39,7 @@ def submit_comment(token: str | None = None, comment: str | None = None) -> dict
 		dict with ``message`` (success) or ``error`` (failure) key, shaped
 		like the other AMP action endpoints for consistency.
 	"""
-	from one_bpmn.api.todo_actions import _set_amp_cors_headers
+	from one_bpmn.api.bpmn_task_actions import _set_amp_cors_headers
 
 	_set_amp_cors_headers()
 

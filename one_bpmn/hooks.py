@@ -280,7 +280,7 @@ persistent_cache_keys = [
 # Request Events
 # ----------------
 # before_request = ["one_bpmn.utils.before_request"]
-after_request = ["one_bpmn.api.todo_actions.apply_amp_headers"]
+after_request = ["one_bpmn.api.bpmn_task_actions.apply_amp_headers"]
 
 # Job Events
 # ----------
