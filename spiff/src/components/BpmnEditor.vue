@@ -91,8 +91,10 @@
 					{{ saveStatusText }}
 				</div>
 
-				<!-- ProsAlly Toggle Button -->
+				<!-- ProsAlly Toggle Button — hidden while read-only, since any
+				     diagram it generates would be discarded by the change guard. -->
 				<button
+					v-if="!readonly"
 					@click="showProsAllyPanel = !showProsAllyPanel"
 					title="ProsAlly AI Assistant"
 					:class="[
@@ -122,7 +124,7 @@
 			<!-- ProsAlly Panel — flex sibling so canvas shrinks instead of being covered -->
 			<transition name="prosally-slide">
 				<div
-					v-if="showProsAllyPanel && !isMobile"
+					v-if="showProsAllyPanel && !readonly && !isMobile"
 					class="prosally-panel-container w-[var(--agui-chat-pane,420px)] shrink-0 border-l border-gray-200 flex flex-col z-[50]"
 				>
 					<ProsAllyPanel
@@ -137,7 +139,7 @@
 			<!-- Mobile: ProsAlly as bottom sheet -->
 			<transition name="slide-up">
 				<div
-					v-if="showProsAllyPanel && isMobile"
+					v-if="showProsAllyPanel && !readonly && isMobile"
 					class="fixed inset-x-0 bottom-0 rounded-t-2xl shadow-2xl border-t border-gray-200 bg-white z-[65] flex flex-col"
 					style="height: 70vh;"
 				>
@@ -1468,6 +1470,16 @@ const showProsAllyPanel = ref(false);
 const internalProcessName = ref("");
 const dragHandleRef = ref(null);
 const { dragOffset, isDragging, attach: attachBottomSheet } = useBottomSheet();
+
+// This component is a single long-lived instance that survives switching
+// diagrams and entering version preview, so reset the panel when the editor
+// flips to read-only — otherwise it would stay open with its toggle gone.
+watch(
+	() => props.readonly,
+	(isReadonly) => {
+		if (isReadonly) showProsAllyPanel.value = false;
+	}
+);
 
 // Attach swipe-to-dismiss when the properties panel opens on mobile
 watch([showPropertiesPanel, isMobile], () => {

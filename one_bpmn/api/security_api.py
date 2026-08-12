@@ -46,6 +46,27 @@ SCREENING_FIELDS = (
 	"output_screening_mode",
 )
 
+# The message throttle. Agent-owned like the screens, but a different control —
+# it limits how OFTEN someone may talk to the agent, not what may pass. Kept in
+# its own group so the modal does not file it under "Screening", which would be
+# a lie about what it does.
+RATE_LIMIT_FIELDS = (
+	"rate_limit_enabled",
+	"rate_limit_messages",
+	"rate_limit_window_seconds",
+	# The freeze thresholds sit here too: same family, same question — how hard
+	# does this agent push back. Who may RELEASE a freeze stays on Processa
+	# Settings, because that is about roles on the site, not about the agent.
+	"lock_after_blocks",
+	"lock_block_window_seconds",
+)
+
+# Everything this endpoint may read and write on an agent, in render order.
+AGENT_CONTROL_GROUPS = (
+	("Screening", SCREENING_FIELDS),
+	("Rate limiting & freeze", RATE_LIMIT_FIELDS),
+)
+
 EVENT_FIELDS = (
 	"name",
 	"boundary",
@@ -393,18 +414,20 @@ def agent_screening(agent: str) -> dict:
 	meta = frappe.get_meta("AI Agent Configuration")
 
 	controls = []
-	for fieldname in SCREENING_FIELDS:
-		df = meta.get_field(fieldname)
-		if not df:
-			continue
-		controls.append({
-			"fieldname": fieldname,
-			"label": df.label or fieldname,
-			"fieldtype": df.fieldtype,
-			"options": [o for o in (df.options or "").split("\n") if o] if df.fieldtype == "Select" else None,
-			"description": df.description,
-			"value": doc.get(fieldname),
-		})
+	for group, fieldnames in AGENT_CONTROL_GROUPS:
+		for fieldname in fieldnames:
+			df = meta.get_field(fieldname)
+			if not df:
+				continue
+			controls.append({
+				"fieldname": fieldname,
+				"group": group,
+				"label": df.label or fieldname,
+				"fieldtype": df.fieldtype,
+				"options": [o for o in (df.options or "").split("\n") if o] if df.fieldtype == "Select" else None,
+				"description": df.description,
+				"value": doc.get(fieldname),
+			})
 	return {
 		"agent": doc.name,
 		"agent_name": doc.get("agent_name"),
@@ -415,11 +438,11 @@ def agent_screening(agent: str) -> dict:
 
 @frappe.whitelist()
 def save_agent_screening(agent: str, values: str | dict) -> dict:
-	"""Write the screening modes back to the agent.
+	"""Write the screening modes and the throttle back to the agent.
 
-	Only fields in SCREENING_FIELDS that exist on the doctype are accepted, so
-	this endpoint can never become a general-purpose writer for the whole
-	configuration — the rest of the agent is edited where it always was.
+	Only fields named in AGENT_CONTROL_GROUPS that exist on the doctype are
+	accepted, so this endpoint can never become a general-purpose writer for the
+	whole configuration — the rest of the agent is edited where it always was.
 	"""
 	if isinstance(values, str):
 		values = frappe.parse_json(values) or {}
@@ -429,8 +452,10 @@ def save_agent_screening(agent: str, values: str | dict) -> dict:
 	doc.check_permission("write")
 	meta = frappe.get_meta("AI Agent Configuration")
 
+	writable = [f for _group, fields in AGENT_CONTROL_GROUPS for f in fields]
+
 	changed = []
-	for fieldname in SCREENING_FIELDS:
+	for fieldname in writable:
 		if fieldname not in values or not meta.get_field(fieldname):
 			continue
 		if doc.get(fieldname) != values[fieldname]:
