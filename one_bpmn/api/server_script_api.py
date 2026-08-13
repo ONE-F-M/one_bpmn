@@ -116,10 +116,16 @@ def _delegate_to_bpmn_instance(conversation_name: str, message: str, context: di
 		frappe.flags.bpmn_disable_ai_parking = prev_parking_flag
 
 	# Read back the bot message the instance produced during Call Agent → Save Response.
+	#
+	# `name` is selected because the reply has to be identifiable afterwards
+	# (WI-001641). Without it the row's id never left this function, the AG-UI
+	# stream minted a throwaway uuid for the message instead, and nothing the
+	# user later says about a specific reply — a rating, a report — had anything
+	# durable to point at.
 	rows = frappe.get_all(
 		"Chat Message",
 		filters={"conversation": conversation_name, "message_type": "Bot"},
-		fields=["text", "metadata"],
+		fields=["name", "text", "metadata"],
 		order_by="creation desc",
 		limit=1,
 	)
@@ -138,6 +144,21 @@ def _delegate_to_bpmn_instance(conversation_name: str, message: str, context: di
 	result.setdefault("response", rows[0]["text"])
 	result.setdefault("intent", meta.get("intent"))
 	result["bpmn_driven"] = True
+	result["message_name"] = rows[0]["name"]
+
+	# The AI Agent Run this turn produced, so cost and latency can be joined to
+	# whatever the user says about the reply. Derived here rather than threaded
+	# through the map: the map's Server Scripts travel by Processa export, and a
+	# read that the engine already makes cheap is not worth an export dependency.
+	run = frappe.get_all(
+		"AI Agent Run",
+		filters={"instance": inst_name},
+		fields=["name"],
+		order_by="creation desc",
+		limit=1,
+	)
+	if run:
+		result["agent_run"] = run[0]["name"]
 	return result
 
 
