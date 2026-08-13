@@ -369,3 +369,103 @@ class TestTheReplyCarriesItsOwnId(FrappeTestCase):
 		ids = {e["messageId"] for e in events if e.get("type", "").startswith("TEXT_MESSAGE")}
 		self.assertEqual(len(ids), 1, "the text events of one reply must share one id")
 		self.assertTrue(next(iter(ids)))
+
+
+class TestWhereTheCaseIsFiled(FeedbackFixture):
+	"""Nobody should have to know a suite name to file a regression — and the
+	suite it lands in must not be one that gets wiped."""
+
+	AGENT = "prosally_agent"
+
+	def setUp(self):
+		super().setUp()
+		if not frappe.db.exists("AI Agent Configuration", {"agent_id": self.AGENT, "enabled": 1}):
+			self.skipTest(f"{self.AGENT} is not configured on this site")
+		self.config = frappe.db.get_value(
+			"AI Agent Configuration", {"agent_id": self.AGENT, "enabled": 1}
+		)
+		self.agent_name = frappe.db.get_value("AI Agent Configuration", self.config, "agent_name")
+		self.addCleanup(self._drop_regression_suites)
+
+	def _drop_regression_suites(self):
+		frappe.set_user("Administrator")
+		for name in frappe.get_all(
+			"AI Eval Suite",
+			filters={"title": f"{self.agent_name} — Regressions", "agent_configuration": self.config},
+			pluck="name",
+		):
+			for case in frappe.get_all("AI Eval Case", filters={"suite": name}, pluck="name"):
+				frappe.delete_doc("AI Eval Case", case, force=True, ignore_permissions=True)
+			frappe.delete_doc("AI Eval Suite", name, force=True, ignore_permissions=True)
+
+	def test_a_suite_is_created_on_first_use(self):
+		suite = feedback._resolve_regression_suite(self.config)
+		doc = frappe.get_doc("AI Eval Suite", suite)
+		self.assertEqual(doc.title, f"{self.agent_name} — Regressions")
+		self.assertEqual(doc.agent_configuration, self.config)
+
+	def test_the_same_suite_is_reused_forever_after(self):
+		first = feedback._resolve_regression_suite(self.config)
+		second = feedback._resolve_regression_suite(self.config)
+		self.assertEqual(first, second, "a second complaint created a second suite")
+		self.assertEqual(
+			frappe.db.count(
+				"AI Eval Suite",
+				{"title": f"{self.agent_name} — Regressions", "agent_configuration": self.config},
+			),
+			1,
+		)
+
+	def test_it_is_never_the_provisioned_baseline_suite(self):
+		"""agent_provisioning rebuilds "<agent> — Baseline" from sample prompts on
+		every re-provision, and rebuilding DELETES every case in it. A regression
+		parked there would quietly disappear."""
+		suite = feedback._resolve_regression_suite(self.config)
+		title = frappe.db.get_value("AI Eval Suite", suite, "title")
+		self.assertNotEqual(title, f"{self.agent_name} — Baseline")
+
+	def test_the_replay_matches_how_the_agent_actually_runs(self):
+		"""A failure that happened through the map has to be replayed through the
+		map, or the tools that produced it never run."""
+		suite = feedback._resolve_regression_suite(self.config)
+		doc = frappe.get_doc("AI Eval Suite", suite)
+		has_map = bool(frappe.db.get_value("AI Agent Configuration", self.config, "process_model"))
+		self.assertEqual(doc.eval_type, "Agent" if has_map else "Direct")
+
+	def test_a_regression_suite_does_not_gate_deployment_by_itself(self):
+		suite = feedback._resolve_regression_suite(self.config)
+		self.assertFalse(frappe.db.get_value("AI Eval Suite", suite, "gate_deployment"))
+
+	def test_conversion_needs_no_suite_argument(self):
+		run = self._run("filed")
+		reply = self._message("Bot", "Wrong", metadata={"agent_run": run})
+		name = feedback.rate_response(reply.name, "Negative")["name"]
+		frappe.db.set_value("AI Response Feedback", name, "agent_configuration", self.config)
+		frappe.db.set_value("AI Response Feedback", name, "status", "Reviewed")
+
+		with patch(
+			"one_bpmn.agents.eval_case_factory.create_eval_case_from_run",
+			return_value="EVAL-CASE-FILED",
+		) as factory:
+			out = feedback.create_eval_case_from_feedback(name)
+
+		self.assertTrue(out["created"])
+		filed_to = factory.call_args.kwargs["suite"]
+		self.assertTrue(filed_to, "the case was filed with no suite at all")
+		self.assertEqual(
+			frappe.db.get_value("AI Eval Suite", filed_to, "title"),
+			f"{self.agent_name} — Regressions",
+		)
+
+	def test_feedback_with_no_agent_cannot_be_filed(self):
+		name = self._negative_no_agent()
+		with self.assertRaises(frappe.ValidationError):
+			feedback.create_eval_case_from_feedback(name)
+
+	def _negative_no_agent(self):
+		run = self._run("orphan")
+		reply = self._message("Bot", "Wrong", metadata={"agent_run": run})
+		name = feedback.rate_response(reply.name, "Negative")["name"]
+		frappe.db.set_value("AI Response Feedback", name, "agent_configuration", None)
+		frappe.db.set_value("AI Response Feedback", name, "status", "Reviewed")
+		return name

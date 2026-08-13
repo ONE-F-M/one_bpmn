@@ -274,6 +274,59 @@ def get_conversation_ratings(conversation: str) -> dict:
 	return {r.message: r.rating for r in rows if r.message}
 
 
+def _resolve_regression_suite(agent_configuration: str) -> str:
+	"""The agent's regression suite, created on first use.
+
+	Deliberately NOT the provisioned "<agent> — Baseline" suite. That one is
+	rebuilt from the agent's sample prompts every time the agent is
+	re-provisioned, and rebuilding DELETES every case in it
+	(agent_provisioning._generate_baseline_suite). A regression case parked there
+	would survive until the next re-provision and then vanish — silently
+	destroying the very tests this whole feature exists to keep. So complaints
+	get their own suite, which nothing else rewrites.
+
+	eval_type mirrors how the agent actually ran: "Agent" replays the turn
+	through its process map so the tools run too, which is what the production
+	failure did. Only an agent with no map falls back to a plain "Direct" call.
+
+	gate_deployment is left off. A suite of real past failures gating go-live is
+	a defensible policy, but it is a policy decision — turning it on by itself,
+	from a thumbs-down, would block a release nobody agreed to block.
+	"""
+	cfg = frappe.get_doc("AI Agent Configuration", agent_configuration)
+	title = f"{cfg.agent_name} — Regressions"
+
+	# AI Eval Suite is autoname:hash, so the docname is never the title — look it
+	# up by field, scoped to the agent, oldest first so repeated calls converge
+	# on one suite even if duplicates were somehow created.
+	existing = frappe.get_all(
+		"AI Eval Suite",
+		filters={"title": title, "agent_configuration": cfg.name},
+		pluck="name",
+		order_by="creation asc",
+		limit=1,
+	)
+	if existing:
+		return existing[0]
+
+	suite = frappe.get_doc(
+		{
+			"doctype": "AI Eval Suite",
+			"title": title,
+			"agent_configuration": cfg.name,
+			"process_model": cfg.process_model or None,
+			"eval_type": "Agent" if cfg.process_model else "Direct",
+			"suite_type": "Baseline",
+			"gate_deployment": 0,
+			"description": _(
+				"Regressions replayed from real complaints about {0}'s replies. "
+				"Each case was reviewed by a person before it was added."
+			).format(cfg.agent_name),
+		}
+	).insert(ignore_permissions=True)
+	return suite.name
+
+
 @frappe.whitelist()
 def create_eval_case_from_feedback(feedback: str, suite: str = None) -> dict:
 	"""Turn a reviewed complaint into a permanent regression test.
@@ -311,6 +364,15 @@ def create_eval_case_from_feedback(feedback: str, suite: str = None) -> dict:
 		frappe.throw(
 			_("This feedback has no agent run behind it, so there is no prompt or context to build a case from.")
 		)
+
+	# Nobody should have to know a suite name to file a regression. Left unset,
+	# the agent's own regression suite is found, or created the first time.
+	if not suite:
+		if not doc.agent_configuration:
+			frappe.throw(
+				_("This feedback is not attached to an agent configuration, so there is no suite to file it under.")
+			)
+		suite = _resolve_regression_suite(doc.agent_configuration)
 
 	from one_bpmn.agents.eval_case_factory import create_eval_case_from_run
 
