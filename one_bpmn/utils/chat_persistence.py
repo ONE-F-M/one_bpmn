@@ -171,7 +171,9 @@ def _save_message(
 def load_history(conversation_name: str, limit: int = 30) -> list[dict]:
 	"""
 	Return the last *limit* User/Bot messages as a list of
-	{"role": "user"|"assistant", "content": "..."} dicts, oldest first.
+	{"role": "user"|"assistant", "content": "...", "timestamp": "..."} dicts,
+	oldest first.  ``timestamp`` is the row's ``creation`` datetime as a string
+	(site timezone, WI-002047).
 
 	Reads from the Chat Message table (same DocType Lumina uses).
 	"""
@@ -183,7 +185,7 @@ def load_history(conversation_name: str, limit: int = 30) -> list[dict]:
 
 	messages = frappe.db.get_all(
 		"Chat Message",
-		fields=["message_type", "text"],
+		fields=["message_type", "text", "creation"],
 		filters={
 			"conversation": conversation_name,
 			"message_type": ["in", ["User", "Bot"]],
@@ -199,6 +201,7 @@ def load_history(conversation_name: str, limit: int = 30) -> list[dict]:
 		{
 			"role": "user" if m["message_type"] == "User" else "assistant",
 			"content": m["text"] or "",
+			"timestamp": str(m["creation"]) if m["creation"] else None,
 		}
 		for m in messages
 	]
