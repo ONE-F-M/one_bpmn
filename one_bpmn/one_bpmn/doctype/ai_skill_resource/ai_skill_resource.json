@@ -1,0 +1,51 @@
+{
+ "actions": [],
+ "allow_rename": 1,
+ "creation": "2026-08-12 20:49:02.445966",
+ "doctype": "DocType",
+ "editable_grid": 1,
+ "engine": "InnoDB",
+ "field_order": [
+  "resource_type",
+  "resource_name",
+  "resource_value"
+ ],
+ "fields": [
+  {
+   "fieldname": "resource_type",
+   "fieldtype": "Select",
+   "in_list_view": 1,
+   "label": "Resource Type",
+   "options": "Script\nReference\nAsset",
+   "reqd": 1
+  },
+  {
+   "fieldname": "resource_name",
+   "fieldtype": "Data",
+   "in_list_view": 1,
+   "label": "Resource Name",
+   "reqd": 1
+  },
+  {
+   "fieldname": "resource_value",
+   "fieldtype": "Text",
+   "label": "Resource Value",
+   "reqd": 1
+  }
+ ],
+ "grid_page_length": 50,
+ "index_web_pages_for_search": 1,
+ "istable": 1,
+ "links": [],
+ "modified": "2026-08-12 20:49:02.445966",
+ "modified_by": "Administrator",
+ "module": "ONE BPMN",
+ "name": "AI Skill Resource",
+ "owner": "Administrator",
+ "permissions": [],
+ "row_format": "Dynamic",
+ "rows_threshold_for_grid_search": 20,
+ "sort_field": "modified",
+ "sort_order": "DESC",
+ "states": []
+}
