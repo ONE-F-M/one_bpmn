@@ -30,8 +30,17 @@ class TestChatPersistence(FrappeTestCase):
         # 3. Load history
         history = load_history(conv_name, limit=5)
         self.assertEqual(len(history), 2)
-        self.assertEqual(history[0], {"role": "user", "content": "Hello assistant"})
-        self.assertEqual(history[1], {"role": "assistant", "content": "Hello human"})
+        # Compared field by field rather than as whole dicts: load_history also
+        # returns the Chat Message name now (WI-001822), because a resumed
+        # conversation has to be able to rate the reply it redraws. A strict
+        # equality here would fail on that id and invite someone to "fix" it by
+        # deleting it.
+        self.assertEqual(history[0]["role"], "user")
+        self.assertEqual(history[0]["content"], "Hello assistant")
+        self.assertEqual(history[1]["role"], "assistant")
+        self.assertEqual(history[1]["content"], "Hello human")
+        self.assertEqual(history[0]["message"], msg1)
+        self.assertEqual(history[1]["message"], msg2)
         
         # 4. State management
         state = get_or_create_state(conv_name, initial_data={"step": "start"})

@@ -171,7 +171,13 @@ def _save_message(
 def load_history(conversation_name: str, limit: int = 30) -> list[dict]:
 	"""
 	Return the last *limit* User/Bot messages as a list of
-	{"role": "user"|"assistant", "content": "..."} dicts, oldest first.
+	{"role": "user"|"assistant", "content": "...", "message": "<row name>"}
+	dicts, oldest first.
+
+	``message`` is the Chat Message name (WI-001822). A resumed conversation
+	otherwise redraws its replies with no identity, so a rating the user left
+	before reloading could not be shown back to them — and they would rate the
+	same reply twice, seeing an empty control each time.
 
 	Reads from the Chat Message table (same DocType Lumina uses).
 	"""
@@ -183,7 +189,7 @@ def load_history(conversation_name: str, limit: int = 30) -> list[dict]:
 
 	messages = frappe.db.get_all(
 		"Chat Message",
-		fields=["message_type", "text"],
+		fields=["name", "message_type", "text"],
 		filters={
 			"conversation": conversation_name,
 			"message_type": ["in", ["User", "Bot"]],
@@ -199,6 +205,7 @@ def load_history(conversation_name: str, limit: int = 30) -> list[dict]:
 		{
 			"role": "user" if m["message_type"] == "User" else "assistant",
 			"content": m["text"] or "",
+			"message": m["name"],
 		}
 		for m in messages
 	]

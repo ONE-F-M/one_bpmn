@@ -257,6 +257,24 @@ def clear_response_rating(message: str) -> dict:
 
 
 @frappe.whitelist()
+def get_conversation_ratings(conversation: str) -> dict:
+	"""Every rating this user has left in one conversation, as {message: rating}.
+
+	One call, not one per reply. A resumed conversation redraws thirty bubbles at
+	once, and asking per bubble would put thirty requests on the wire to render a
+	transcript the user has already read. Ratings by OTHER participants are not
+	returned — the control shows you your own answer, not a tally.
+	"""
+	_assert_participant(conversation)
+	rows = frappe.get_all(
+		"AI Response Feedback",
+		filters={"conversation": conversation, "rated_by": frappe.session.user},
+		fields=["message", "rating"],
+	)
+	return {r.message: r.rating for r in rows if r.message}
+
+
+@frappe.whitelist()
 def create_eval_case_from_feedback(feedback: str, suite: str = None) -> dict:
 	"""Turn a reviewed complaint into a permanent regression test.
 
