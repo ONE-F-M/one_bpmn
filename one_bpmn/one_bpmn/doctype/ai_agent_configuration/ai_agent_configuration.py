@@ -48,26 +48,22 @@ class AIAgentConfiguration(Document):
 		self.validate_delegation_grant()
 
 	def validate_delegation_grant(self):
-		"""The toggle and the list must agree. Untick it with sub-agents still
-		listed and the fields vanish from the form while the delegation rules
-		stay live — a hidden allow-list is worse than a visible one.
+		"""Say so when the list is inert.
 
-		Deliberately independent of a2a_exposed: exposure is who may call THIS
-		agent, delegation is who this agent calls. An orchestrator normally
-		delegates without being exposed at all.
+		Exposure is what grants an agent delegated work; this list only
+		narrows the set, and only while the restriction is on. Rows sitting
+		under an unticked restriction do nothing — which is easy to
+		misread as "delegation is locked down" when it is not.
 		"""
-		if self.delegates_to_agents or not self.allowed_delegates:
-			return
-		# The list is the truth — it is what the delegation gate reads — so the
-		# toggle follows it rather than the other way round. Correcting instead
-		# of throwing also keeps seeds and patches (which set rows directly)
-		# working without having to know about a UI-only flag.
-		self.delegates_to_agents = 1
-		frappe.msgprint(
-			_("This agent lists sub-agents, so 'Delegates to Other Agents' stayed on. Clear the list to turn it off."),
-			alert=True,
-			indicator="orange",
-		)
+		if self.allowed_delegates and not self.restrict_delegates:
+			frappe.msgprint(
+				_(
+					"This list is ignored while 'Restrict Delegation to Specific Agents' is off — "
+					"the agent may currently hand work to any agent exposed over A2A."
+				),
+				alert=True,
+				indicator="orange",
+			)
 
 	def validate_a2a_exposure(self):
 		"""WI-001931: exposure is an admin grant on an operating agent. A
