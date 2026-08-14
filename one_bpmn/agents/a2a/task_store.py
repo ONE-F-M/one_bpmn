@@ -120,6 +120,7 @@ def _set_state(task, state: str, **extra) -> None:
 	task.db_set(changed, update_modified=True)
 	for field, value in changed.items():
 		task.set(field, value)
+	_notify(task)
 
 
 def find_instance(conversation: str) -> str | None:
@@ -205,3 +206,18 @@ def store_result(task, text: str) -> None:
 		update_modified=True,
 	)
 	task.reload()
+	_notify(task)
+
+
+def _notify(task) -> None:
+	"""Tell an inbound caller their task moved, if they asked to be told.
+	Best-effort: they can always poll, so this must never raise into the
+	agent's work."""
+	if task.direction != "Inbound":
+		return
+	try:
+		from one_bpmn.agents.a2a.push import notify_caller
+
+		notify_caller(task)
+	except Exception:
+		frappe.log_error(title="A2A push notify skipped", message=frappe.get_traceback())

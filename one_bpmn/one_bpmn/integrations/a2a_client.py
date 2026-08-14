@@ -127,6 +127,22 @@ def tasks_cancel(agent, remote_task_id: str) -> dict:
 	return _rpc(agent, "tasks/cancel", {"id": remote_task_id})
 
 
+def set_push_config(agent, remote_task_id: str, url: str, token: str) -> dict:
+	"""Ask a remote to call us when this task changes (WI-001933 follow-up).
+
+	The token is echoed back to us on every callback and is the only thing
+	authenticating it, so it is minted per task and never reused.
+	"""
+	return _rpc(
+		agent,
+		"tasks/pushNotificationConfig/set",
+		{
+			"taskId": remote_task_id,
+			"pushNotificationConfig": {"url": url, "token": token},
+		},
+	)
+
+
 def _rpc(agent, method: str, params: dict) -> dict:
 	doc = require_approved(agent)
 	url = (doc.endpoint_url or "").rstrip("/")

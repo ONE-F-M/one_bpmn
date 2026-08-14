@@ -44,7 +44,10 @@ def build_agent_card(agent_id: str) -> dict | None:
 		"version": str(frappe.db.get_value("AI Agent Configuration", config_name, "modified")),
 		"capabilities": {
 			"streaming": False,
-			"pushNotifications": False,
+			# We accept a caller's callback and POST task changes to it, so a
+			# caller with slow work need not poll. Streaming stays off: holding
+			# a connection open for hours is the wrong shape for long work.
+			"pushNotifications": True,
 			"stateTransitionHistory": False,
 		},
 		"securitySchemes": {

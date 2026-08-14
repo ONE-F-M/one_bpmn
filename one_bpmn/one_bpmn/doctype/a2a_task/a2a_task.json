@@ -46,7 +46,14 @@
   "column_break_polling",
   "next_poll_at",
   "poll_attempts",
-  "last_polled_at"
+  "last_polled_at",
+  "section_push",
+  "push_registered",
+  "callback_token",
+  "column_break_push",
+  "push_callback_url",
+  "push_callback_token",
+  "push_failures"
  ],
  "fields": [
   {
@@ -296,6 +303,53 @@
    "fieldname": "last_polled_at",
    "fieldtype": "Datetime",
    "label": "Last Polled At"
+  },
+  {
+   "collapsible": 1,
+   "fieldname": "section_push",
+   "fieldtype": "Section Break",
+   "label": "Push Notifications"
+  },
+  {
+   "default": "0",
+   "description": "Outbound: the remote agreed to call us when this task changes, so polling drops back to a slow reconciliation.",
+   "fieldname": "push_registered",
+   "fieldtype": "Check",
+   "label": "Push Registered",
+   "read_only": 1
+  },
+  {
+   "description": "Outbound: the secret the remote must present on our callback. It is the only gate on that endpoint.",
+   "fieldname": "callback_token",
+   "fieldtype": "Password",
+   "label": "Our Callback Token",
+   "read_only": 1
+  },
+  {
+   "fieldname": "column_break_push",
+   "fieldtype": "Column Break"
+  },
+  {
+   "description": "Inbound: where this caller asked to be told about state changes.",
+   "fieldname": "push_callback_url",
+   "fieldtype": "Data",
+   "label": "Caller Callback URL",
+   "read_only": 1
+  },
+  {
+   "description": "Inbound: the token the caller gave us to present on their callback.",
+   "fieldname": "push_callback_token",
+   "fieldtype": "Password",
+   "label": "Caller Callback Token",
+   "read_only": 1
+  },
+  {
+   "default": "0",
+   "description": "Inbound: consecutive failed callback attempts. The caller can always fall back to polling.",
+   "fieldname": "push_failures",
+   "fieldtype": "Int",
+   "label": "Push Failures",
+   "read_only": 1
   }
  ],
  "links": [],

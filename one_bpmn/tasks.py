@@ -366,6 +366,7 @@ def poll_a2a_tasks():
 	"""
 	from frappe.utils import cint
 
+	from one_bpmn.agents.a2a.push import PUSH_RECONCILE_SECONDS
 	from one_bpmn.one_bpmn.doctype.bpmn_process_instance.bpmn_process_instance import (
 		_enqueue_a2a_resume,
 	)
@@ -379,7 +380,16 @@ def poll_a2a_tasks():
 			"state": ["in", ("submitted", "working", "auth-required")],
 			"next_poll_at": ["<=", now],
 		},
-		fields=["name", "remote_agent", "remote_task_id", "instance", "wf_task_id", "deadline", "poll_attempts"],
+		fields=[
+			"name",
+			"remote_agent",
+			"remote_task_id",
+			"instance",
+			"wf_task_id",
+			"deadline",
+			"poll_attempts",
+			"push_registered",
+		],
 		limit=100,
 	)
 
@@ -389,6 +399,13 @@ def poll_a2a_tasks():
 			attempts = cint(row.poll_attempts) + 1
 			base = cint(remote.poll_base_interval) or 60
 			ceiling = cint(remote.poll_max_interval) or 900
+			# A remote that pushes gets reconciled, not chased: the callback is
+			# the primary signal and this is only the safety net that catches a
+			# dropped one.
+			if row.push_registered:
+				interval = PUSH_RECONCILE_SECONDS
+			else:
+				interval = min(base * (2 ** (attempts - 1)), ceiling)
 			# Claim before the network call.
 			frappe.db.set_value(
 				"A2A Task",
@@ -396,7 +413,7 @@ def poll_a2a_tasks():
 				{
 					"poll_attempts": attempts,
 					"last_polled_at": now,
-					"next_poll_at": add_to_date(now, seconds=min(base * (2 ** (attempts - 1)), ceiling)),
+					"next_poll_at": add_to_date(now, seconds=interval),
 				},
 				update_modified=False,
 			)
