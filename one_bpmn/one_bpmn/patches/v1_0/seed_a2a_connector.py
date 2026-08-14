@@ -18,8 +18,11 @@ from one_bpmn.one_bpmn.connectors.seed import import_manifest
 
 A2A_CONNECTOR = {
 	"connectorId": "a2a",
-	"label": "A2A Remote Agent",
-	"description": "Delegate a task to an approved remote agent over the A2A protocol.",
+	"label": "Agent to Agent (A2A)",
+	"description": (
+		"Hand a task to another agent — one on this site, or an approved remote agent "
+		"over the A2A protocol."
+	),
 	"icon": {
 		"path": "M12 2 2 7l10 5 10-5zM2 17l10 5 10-5M2 12l10 5 10-5",
 		"color": "#7c3aed",
