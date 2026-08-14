@@ -1,0 +1,324 @@
+{
+ "actions": [],
+ "autoname": "format:A2A-{#####}",
+ "creation": "2026-08-13 21:00:00.000000",
+ "doctype": "DocType",
+ "engine": "InnoDB",
+ "field_order": [
+  "section_task",
+  "task_id",
+  "direction",
+  "state",
+  "column_break_task",
+  "context_id",
+  "remote_task_id",
+  "completed_at",
+  "section_parties",
+  "client",
+  "principal",
+  "column_break_parties",
+  "agent_configuration",
+  "section_execution",
+  "conversation",
+  "instance",
+  "agent_run",
+  "column_break_execution",
+  "wf_task_id",
+  "bpmn_id",
+  "pending_human_task",
+  "section_trace",
+  "task_execution_id",
+  "column_break_trace",
+  "delegation_depth",
+  "handoff_count",
+  "section_payloads",
+  "status_message",
+  "request_payload",
+  "result",
+  "artifacts",
+  "error_code",
+  "error_message",
+  "section_polling",
+  "input_assignee",
+  "input_role",
+  "deadline",
+  "column_break_polling",
+  "next_poll_at",
+  "poll_attempts",
+  "last_polled_at"
+ ],
+ "fields": [
+  {
+   "fieldname": "section_task",
+   "fieldtype": "Section Break",
+   "label": "Task"
+  },
+  {
+   "description": "The wire Task.id. Minted on insert for Inbound tasks; never edited.",
+   "fieldname": "task_id",
+   "fieldtype": "Data",
+   "in_list_view": 1,
+   "label": "Task ID",
+   "read_only": 1,
+   "unique": 1
+  },
+  {
+   "fieldname": "direction",
+   "fieldtype": "Select",
+   "in_list_view": 1,
+   "in_standard_filter": 1,
+   "label": "Direction",
+   "options": "Inbound\nOutbound",
+   "reqd": 1
+  },
+  {
+   "default": "submitted",
+   "fieldname": "state",
+   "fieldtype": "Select",
+   "in_list_view": 1,
+   "in_standard_filter": 1,
+   "label": "State",
+   "options": "submitted\nworking\ninput-required\ncompleted\ncanceled\nfailed\nrejected\nauth-required\ntimed-out"
+  },
+  {
+   "fieldname": "column_break_task",
+   "fieldtype": "Column Break"
+  },
+  {
+   "fieldname": "context_id",
+   "fieldtype": "Data",
+   "label": "Context ID"
+  },
+  {
+   "description": "The remote server's task id (Outbound only).",
+   "fieldname": "remote_task_id",
+   "fieldtype": "Data",
+   "label": "Remote Task ID"
+  },
+  {
+   "fieldname": "completed_at",
+   "fieldtype": "Datetime",
+   "label": "Completed At",
+   "read_only": 1
+  },
+  {
+   "fieldname": "section_parties",
+   "fieldtype": "Section Break",
+   "label": "Parties"
+  },
+  {
+   "description": "The approved caller (Inbound only) — who asked.",
+   "fieldname": "client",
+   "fieldtype": "Link",
+   "label": "A2A Client",
+   "options": "A2A Client"
+  },
+  {
+   "description": "The user this task executes as.",
+   "fieldname": "principal",
+   "fieldtype": "Link",
+   "label": "Principal",
+   "options": "User",
+   "read_only": 1
+  },
+  {
+   "fieldname": "column_break_parties",
+   "fieldtype": "Column Break"
+  },
+  {
+   "description": "The local agent doing the work (Inbound) or delegating it (Outbound).",
+   "fieldname": "agent_configuration",
+   "fieldtype": "Link",
+   "in_standard_filter": 1,
+   "label": "Agent Configuration",
+   "options": "AI Agent Configuration"
+  },
+  {
+   "fieldname": "section_execution",
+   "fieldtype": "Section Break",
+   "label": "Execution"
+  },
+  {
+   "fieldname": "conversation",
+   "fieldtype": "Link",
+   "label": "Conversation",
+   "options": "Chat Conversation"
+  },
+  {
+   "fieldname": "instance",
+   "fieldtype": "Link",
+   "label": "Process Instance",
+   "options": "BPMN Process Instance"
+  },
+  {
+   "fieldname": "agent_run",
+   "fieldtype": "Link",
+   "label": "Agent Run",
+   "options": "AI Agent Run"
+  },
+  {
+   "fieldname": "column_break_execution",
+   "fieldtype": "Column Break"
+  },
+  {
+   "description": "Spiff task UUID of the parked Service Task (Outbound only).",
+   "fieldname": "wf_task_id",
+   "fieldtype": "Data",
+   "label": "Workflow Task ID"
+  },
+  {
+   "fieldname": "bpmn_id",
+   "fieldtype": "Data",
+   "label": "BPMN Element"
+  },
+  {
+   "description": "The human task row this task is waiting on: an aihuman:: row (Inbound) or a2ahuman:: row (Outbound).",
+   "fieldname": "pending_human_task",
+   "fieldtype": "Data",
+   "label": "Pending Human Task"
+  },
+  {
+   "fieldname": "section_trace",
+   "fieldtype": "Section Break",
+   "label": "Delegation Trace"
+  },
+  {
+   "description": "One id per top-level request; every delegation in its chain carries it (WI-002008).",
+   "fieldname": "task_execution_id",
+   "fieldtype": "Data",
+   "label": "Task Execution ID"
+  },
+  {
+   "fieldname": "column_break_trace",
+   "fieldtype": "Column Break"
+  },
+  {
+   "default": "0",
+   "description": "How deep this task is nested (A → B → C = 3). Enforced locally against the agent's max_recursion_depth.",
+   "fieldname": "delegation_depth",
+   "fieldtype": "Int",
+   "label": "Delegation Depth"
+  },
+  {
+   "default": "0",
+   "description": "Total handoffs in this execution chain. Enforced locally against the agent's max_task_handoffs.",
+   "fieldname": "handoff_count",
+   "fieldtype": "Int",
+   "label": "Handoff Count"
+  },
+  {
+   "fieldname": "section_payloads",
+   "fieldtype": "Section Break",
+   "label": "Payloads"
+  },
+  {
+   "fieldname": "status_message",
+   "fieldtype": "Small Text",
+   "label": "Status Message"
+  },
+  {
+   "fieldname": "request_payload",
+   "fieldtype": "Code",
+   "label": "Request Payload",
+   "options": "JSON"
+  },
+  {
+   "fieldname": "result",
+   "fieldtype": "Code",
+   "label": "Result",
+   "options": "JSON"
+  },
+  {
+   "fieldname": "artifacts",
+   "fieldtype": "Code",
+   "label": "Artifacts",
+   "options": "JSON"
+  },
+  {
+   "fieldname": "error_code",
+   "fieldtype": "Data",
+   "label": "Error Code"
+  },
+  {
+   "fieldname": "error_message",
+   "fieldtype": "Small Text",
+   "label": "Error Message"
+  },
+  {
+   "collapsible": 1,
+   "fieldname": "section_polling",
+   "fieldtype": "Section Break",
+   "label": "Outbound Polling"
+  },
+  {
+   "description": "Who answers when the remote agent asks a question. Falls back to the instance initiator.",
+   "fieldname": "input_assignee",
+   "fieldtype": "Data",
+   "label": "Input Assignee"
+  },
+  {
+   "fieldname": "input_role",
+   "fieldtype": "Link",
+   "label": "Input Role",
+   "options": "Role"
+  },
+  {
+   "description": "Past this moment the delegation is timed out: best-effort remote cancel, then the normal BPMN error path.",
+   "fieldname": "deadline",
+   "fieldtype": "Datetime",
+   "label": "Deadline"
+  },
+  {
+   "fieldname": "column_break_polling",
+   "fieldtype": "Column Break"
+  },
+  {
+   "fieldname": "next_poll_at",
+   "fieldtype": "Datetime",
+   "label": "Next Poll At"
+  },
+  {
+   "default": "0",
+   "fieldname": "poll_attempts",
+   "fieldtype": "Int",
+   "label": "Poll Attempts"
+  },
+  {
+   "fieldname": "last_polled_at",
+   "fieldtype": "Datetime",
+   "label": "Last Polled At"
+  }
+ ],
+ "links": [],
+ "modified": "2026-08-13 21:00:00.000000",
+ "modified_by": "Administrator",
+ "module": "ONE BPMN",
+ "name": "A2A Task",
+ "owner": "Administrator",
+ "permissions": [
+  {
+   "create": 1,
+   "delete": 1,
+   "email": 1,
+   "export": 1,
+   "print": 1,
+   "read": 1,
+   "report": 1,
+   "role": "System Manager",
+   "share": 1,
+   "write": 1
+  },
+  {
+   "create": 1,
+   "if_owner": 1,
+   "read": 1,
+   "role": "A2A Client",
+   "write": 1
+  }
+ ],
+ "sort_field": "modified",
+ "sort_order": "DESC",
+ "states": [],
+ "title_field": "task_id",
+ "track_changes": 1
+}
