@@ -68,6 +68,32 @@ def stub_client(**overrides):
 
 
 class TestA2APoller(FrappeTestCase):
+	"""The poller commits — it has to, so a claim is durable before the
+	network call — which means FrappeTestCase's rollback cannot undo the rows
+	these tests create. Every fixture is therefore deleted explicitly, or the
+	suite would leave registry entries and tasks behind on whatever site it
+	runs against (they showed up in the modeler's remote-agent dropdown)."""
+
+	def setUp(self):
+		super().setUp()
+		self.made: list[tuple[str, str]] = []
+
+	def tearDown(self):
+		for doctype, name in reversed(self.made):
+			frappe.delete_doc(doctype, name, force=True, ignore_permissions=True, ignore_missing=True)
+		frappe.db.commit()
+		super().tearDown()
+
+	def remote(self, **kwargs):
+		doc = make_remote(**kwargs)
+		self.made.append(("A2A Remote Agent", doc.name))
+		return doc
+
+	def outbound(self, remote, **kwargs):
+		doc = make_outbound(remote, **kwargs)
+		self.made.append(("A2A Task", doc.name))
+		return doc
+
 	def _run_poller(self, patches, enqueue=None):
 		enqueue = enqueue or MagicMock()
 		with patch.multiple(a2a_client, **patches), patch(
@@ -78,8 +104,8 @@ class TestA2APoller(FrappeTestCase):
 		return enqueue
 
 	def test_completed_remote_stores_result_and_wakes_the_process(self):
-		remote = make_remote()
-		task = make_outbound(remote)
+		remote = self.remote()
+		task = self.outbound(remote)
 		enqueue = self._run_poller(
 			stub_client(
 				tasks_get=MagicMock(return_value=wire_task(state="completed", text="remote answer"))
@@ -92,8 +118,8 @@ class TestA2APoller(FrappeTestCase):
 		enqueue.assert_called_once()
 
 	def test_failed_remote_wakes_the_process_too(self):
-		remote = make_remote()
-		task = make_outbound(remote)
+		remote = self.remote()
+		task = self.outbound(remote)
 		enqueue = self._run_poller(
 			stub_client(tasks_get=MagicMock(return_value=wire_task(state="failed")))
 		)
@@ -102,8 +128,8 @@ class TestA2APoller(FrappeTestCase):
 		enqueue.assert_called_once()
 
 	def test_still_working_backs_off_and_does_not_wake(self):
-		remote = make_remote()
-		task = make_outbound(remote)
+		remote = self.remote()
+		task = self.outbound(remote)
 		before = get_datetime(task.next_poll_at)
 		enqueue = self._run_poller(stub_client())
 		task.reload()
@@ -114,8 +140,8 @@ class TestA2APoller(FrappeTestCase):
 		enqueue.assert_not_called()
 
 	def test_backoff_is_capped(self):
-		remote = make_remote(poll_base_interval=60, poll_max_interval=120)
-		task = make_outbound(remote, poll_attempts=10)
+		remote = self.remote(poll_base_interval=60, poll_max_interval=120)
+		task = self.outbound(remote, poll_attempts=10)
 		self._run_poller(stub_client())
 		task.reload()
 		self.assertLessEqual(
@@ -123,8 +149,8 @@ class TestA2APoller(FrappeTestCase):
 		)
 
 	def test_deadline_cancels_remotely_and_times_out(self):
-		remote = make_remote()
-		task = make_outbound(remote, deadline=add_to_date(now_datetime(), minutes=-1))
+		remote = self.remote()
+		task = self.outbound(remote, deadline=add_to_date(now_datetime(), minutes=-1))
 		cancel = MagicMock(return_value=wire_task(state="canceled"))
 		enqueue = self._run_poller(stub_client(tasks_cancel=cancel))
 		task.reload()
@@ -134,8 +160,8 @@ class TestA2APoller(FrappeTestCase):
 		enqueue.assert_called_once()
 
 	def test_revoked_mid_flight_fails_closed(self):
-		remote = make_remote()
-		task = make_outbound(remote)
+		remote = self.remote()
+		task = self.outbound(remote)
 		enqueue = self._run_poller(
 			stub_client(
 				tasks_get=MagicMock(
@@ -149,8 +175,8 @@ class TestA2APoller(FrappeTestCase):
 		enqueue.assert_called_once()
 
 	def test_input_required_asks_a_person_and_stops_polling(self):
-		remote = make_remote()
-		task = make_outbound(remote, instance="FAKE-INSTANCE")
+		remote = self.remote()
+		task = self.outbound(remote, instance="FAKE-INSTANCE")
 		asked = MagicMock()
 		instance = MagicMock()
 		instance._on_a2a_input_required = asked
@@ -179,8 +205,8 @@ class TestA2APoller(FrappeTestCase):
 		self.assertIn("which repo", asked.call_args[0][1])
 
 	def test_terminal_tasks_are_not_polled(self):
-		remote = make_remote()
-		make_outbound(remote, state="completed")
+		remote = self.remote()
+		self.outbound(remote, state="completed")
 		polled = MagicMock(return_value=wire_task())
 		self._run_poller(stub_client(tasks_get=polled))
 		polled.assert_not_called()

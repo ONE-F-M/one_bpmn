@@ -28,7 +28,10 @@ A2A_CONNECTOR = {
 	"execution": {"type": "Python Handler"},
 	"operations": [
 		{
-			"operationId": "delegate_task",
+			# The importer reads an operation's id from "value" (see
+			# connectors/seed.py::_import_operation) — an "operationId" key is
+			# silently skipped, which leaves a connector with no operations.
+			"value": "delegate_task",
 			"label": "Delegate task to remote agent",
 			"description": (
 				"Send a task to an approved remote A2A agent. A fast reply comes back "
@@ -97,9 +100,20 @@ A2A_CONNECTOR = {
 
 
 def execute():
-	state = import_manifest(A2A_CONNECTOR)
-	if state == "skipped":
-		print("a2a connector already present, left as configured")
-	else:
-		print(f"a2a connector {state}")
+	# overwrite=True on purpose: the connector carries no site-owned settings
+	# (no base URL, no credential — those live on each A2A Remote Agent row),
+	# so re-applying cannot undo local configuration, and it repairs a row
+	# seeded before the operation-key fix. allowed_roles is a child table the
+	# import does not touch.
+	state = import_manifest(A2A_CONNECTOR, overwrite=True)
+	print(f"a2a connector {state}")
+
+	operations = frappe.get_all(
+		"BPMN Connector Operation", filters={"connector": "a2a"}, pluck="operation_id"
+	)
+	if not operations:
+		frappe.throw(
+			"The a2a connector seeded with no operations — the modeler would show it as unusable."
+		)
+	print(f"  operations: {', '.join(operations)}")
 	frappe.clear_cache()
