@@ -28,6 +28,76 @@ A2A_CONNECTOR = {
 	"execution": {"type": "Python Handler"},
 	"operations": [
 		{
+			# The primary case: both agents live in this bench, so there is no
+			# trust boundary to cross — no registry entry, no approved client,
+			# no HTTP, and the target needs no exposure flag. Only the
+			# delegating agent's allowed-delegates list and its guardrails
+			# apply, because those are about scope and loops.
+			"value": "delegate_to_local_agent",
+			"label": "Delegate task to an agent on this site",
+			"description": (
+				"Hand a task to another agent in this bench. A fast agent answers inline; "
+				"a slower one parks this step until it finishes or asks a question."
+			),
+			"executionType": "Python Handler",
+			"handlerPath": "one_bpmn.one_bpmn.connectors.a2a_client_ops.delegate_to_local_agent",
+			"fields": [
+				{
+					"name": "agent",
+					"label": "Agent",
+					"type": "Dropdown",
+					"required": True,
+					"choicesSourcePath": "one_bpmn.one_bpmn.connectors.a2a_client_ops.local_agent_choices",
+					"help": "Any live agent on this site. It does not need to be exposed over A2A.",
+				},
+				{
+					"name": "instruction",
+					"label": "Instruction",
+					"type": "Text",
+					"required": True,
+					"help": "What the agent should do. Jinja is allowed, e.g. {{ doc.subject }}.",
+				},
+				{
+					"name": "delegating_agent",
+					"label": "Delegating agent",
+					"type": "String",
+					"help": (
+						"Whose allowed-delegates list and limits apply. Leave blank on an "
+						"agent's own map — the agent is derived from it."
+					),
+				},
+				{
+					"name": "parent_task",
+					"label": "Parent A2A task",
+					"type": "String",
+					"help": "Continues an existing delegation chain; blank starts a new one.",
+				},
+				{
+					"name": "timeout_minutes",
+					"label": "Deadline (minutes)",
+					"type": "String",
+					"help": "How long the agent may take before the step fails. Default 240.",
+				},
+				{
+					"name": "input_assignee",
+					"label": "Answer questions as",
+					"type": "String",
+					"help": "Who is asked when the agent needs clarification.",
+				},
+				{
+					"name": "input_role",
+					"label": "Answer questions role",
+					"type": "String",
+					"help": "Role assigned when no specific user is named.",
+				},
+			],
+			"output": {
+				"a2a_task": "The A2A Task record tracking this delegation",
+				"state": "Final state: completed, failed, canceled or timed-out",
+				"text": "The agent's reply text",
+			},
+		},
+		{
 			# The importer reads an operation's id from "value" (see
 			# connectors/seed.py::_import_operation) — an "operationId" key is
 			# silently skipped, which leaves a connector with no operations.

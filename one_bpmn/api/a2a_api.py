@@ -18,7 +18,7 @@ import json
 import frappe
 from frappe import _
 
-from one_bpmn.agents.a2a import protocol, push, task_store
+from one_bpmn.agents.a2a import execute, protocol, push, task_store
 from one_bpmn.agents.a2a.card import build_agent_card
 from one_bpmn.agents.a2a.principal import client_may_invoke, get_client_for_user
 from one_bpmn.agents.a2a.protocol import A2AError
@@ -207,101 +207,12 @@ def _message_send(client: str, agent_id: str, params: dict) -> dict:
 	if caller_push:
 		push.store_caller_config(task, caller_push)
 
-	if config.agent_type == "Background":
-		_start_background(task, config, text)
-	else:
-		_run_chat_turn(task, config, text)
+	# One implementation of "run this agent for this task", shared with the
+	# same-site path in agents/a2a/local.
+	execute.run_for_task(task, config, text)
 
 	task_store.refresh_state(task)
 	return protocol.task_to_wire(task)
-
-
-def _run_chat_turn(task, config, text: str) -> None:
-	"""Chat path: the whole existing turn machinery, screening included,
-	via the standard invocation entry point."""
-	from one_bpmn.api.agent_invocation import invoke_agent
-	from one_bpmn.security.rate_limit import RateLimited
-
-	try:
-		result = invoke_agent(config["agent_id"], text)
-	except RateLimited as refusal:
-		task.db_set({"state": "rejected", "error_message": str(refusal)[:500]}, update_modified=True)
-		task.reload()
-		return
-	except Exception:
-		frappe.log_error(title="A2A message/send turn failed", message=frappe.get_traceback())
-		task.db_set(
-			{"state": "failed", "error_message": "the agent's turn failed"}, update_modified=True
-		)
-		task.reload()
-		return
-
-	conversation = result.get("conversation")
-	updates = {"conversation": conversation}
-	instance = task_store.find_instance(conversation) if conversation else None
-	if instance:
-		updates["instance"] = instance
-	task.db_set(updates, update_modified=False)
-	task.reload()
-
-	suspended = None
-	if instance:
-		from one_bpmn.agents.checkpoint import get_suspended_run
-
-		suspended = get_suspended_run(instance)
-	if suspended:
-		pending = frappe.db.get_value("AI Agent Run", suspended, "pending_human_task")
-		task.db_set(
-			{
-				"state": "input-required",
-				"agent_run": suspended,
-				"pending_human_task": pending,
-				"status_message": (result.get("response") or "")[:500],
-			},
-			update_modified=True,
-		)
-		task.reload()
-	else:
-		task_store.store_result(task, result.get("response") or "")
-
-
-def _start_background(task, config, text: str) -> None:
-	"""Background path (WI-001932 revision): no Chat Conversation. The
-	A2A Task row itself is the trigger document — an A2A-startable map
-	(start event on A2A Task insert) has already started on insert; here
-	we just find and bind the instance."""
-	from one_bpmn.agents.agent_provisioning import is_a2a_startable_map
-
-	if not is_a2a_startable_map(config.process_model):
-		task.db_set(
-			{"state": "rejected", "error_message": "agent not available to this caller"},
-			update_modified=True,
-		)
-		task.reload()
-		return
-
-	instance = task_store.find_instance_for_task(task.name)
-	if not instance:
-		# The insert happened before agent_configuration could be matched by
-		# a map whose start condition needs it — re-fire the same conditional
-		# gate the universal trigger uses.
-		try:
-			from one_bpmn.one_bpmn.trigger import _maybe_start_instance
-
-			_maybe_start_instance(frappe.get_doc("A2A Task", task.name), config.process_model)
-			instance = task_store.find_instance_for_task(task.name)
-		except Exception:
-			frappe.log_error(title="A2A background start failed", message=frappe.get_traceback())
-
-	if not instance:
-		task.db_set(
-			{"state": "failed", "error_message": "no process started for this task"},
-			update_modified=True,
-		)
-		task.reload()
-		return
-	task.db_set({"instance": instance, "state": "working"}, update_modified=True)
-	task.reload()
 
 
 def _continue_task(message: dict, text: str) -> dict:
