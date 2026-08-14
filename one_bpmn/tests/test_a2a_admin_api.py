@@ -95,6 +95,54 @@ class TestA2AAdminRegistries(FrappeTestCase):
 			a2a_admin_api.set_client_approval(client.name, "Whatever")
 
 
+class TestA2AAgentCatalogue(FrappeTestCase):
+	"""Our own exposed agents and their cards. The cards are public; this
+	catalogue is not — an outsider must not get a directory of our agents."""
+
+	def test_lists_exposed_agents_with_their_cards(self):
+		exposed = make_agent_configuration(a2a_exposed=1, a2a_skill_tags="backend, frappe")
+		rows = a2a_admin_api.list_agent_cards()
+		row = next(r for r in rows if r["agent_id"] == exposed.agent_id)
+		self.assertEqual(row["tags"], ["backend", "frappe"])
+		self.assertIn(exposed.agent_id, row["card_url"])
+		self.assertEqual(row["card"]["skills"][0]["id"], exposed.agent_id)
+		self.assertNotIn("system_prompt", frappe.as_json(row["card"]))
+
+	def test_unexposed_and_draft_agents_are_absent(self):
+		unexposed = make_agent_configuration()
+		draft = make_agent_configuration(a2a_exposed=1, lifecycle_status="Draft")
+		ids = {r["agent_id"] for r in a2a_admin_api.list_agent_cards()}
+		self.assertNotIn(unexposed.agent_id, ids)
+		self.assertNotIn(draft.agent_id, ids)
+
+	def test_shows_which_approved_clients_can_reach_an_agent(self):
+		agent = make_agent_configuration(a2a_exposed=1)
+		lonely = make_agent_configuration(a2a_exposed=1)
+		client = approve(make_client(agents=[agent.name]))
+
+		rows = {r["agent_id"]: r for r in a2a_admin_api.list_agent_cards()}
+		self.assertEqual(rows[agent.name and agent.agent_id]["reachable_by"], [client.name])
+		self.assertEqual(
+			rows[lonely.agent_id]["reachable_by"],
+			[],
+			"exposed with a public card, but no approved client lists it",
+		)
+
+	def test_a_revoked_client_no_longer_counts_as_reach(self):
+		agent = make_agent_configuration(a2a_exposed=1)
+		client = approve(make_client(agents=[agent.name]))
+		client.approval_status = "Revoked"
+		client.save(ignore_permissions=True)
+		rows = {r["agent_id"]: r for r in a2a_admin_api.list_agent_cards()}
+		self.assertEqual(rows[agent.agent_id]["reachable_by"], [])
+
+	def test_catalogue_is_admin_only(self):
+		nobody = make_nobody()
+		with self.set_user(nobody.name):
+			with self.assertRaises(frappe.PermissionError):
+				a2a_admin_api.list_agent_cards()
+
+
 class TestA2AAdminTaskMonitor(FrappeTestCase):
 	def test_lists_both_directions_with_counters(self):
 		make_task(direction="Inbound", state="working", delegation_depth=1, handoff_count=1)

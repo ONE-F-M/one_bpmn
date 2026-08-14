@@ -19,6 +19,7 @@ from __future__ import annotations
 
 import frappe
 from frappe import _
+from frappe.utils import get_url
 
 MAX_PAGE_LENGTH = 200
 
@@ -149,6 +150,68 @@ def exposed_agents() -> list[dict]:
 		filters={"enabled": 1, "lifecycle_status": "Live", "a2a_exposed": 1},
 		fields=["name", "agent_id", "agent_name", "agent_type"],
 		order_by="agent_name asc",
+	)
+
+
+@frappe.whitelist()
+def list_agent_cards() -> list[dict]:
+	"""Our own exposed agents, each with the card the world would fetch.
+
+	Admin only, deliberately. Individual cards are public because the spec
+	expects an unauthenticated fetch, but a public INDEX of every agent
+	would hand an outsider an enumeration list for free — so the catalogue
+	is not the same thing as the cards it lists.
+
+	Cards are built here rather than read from anywhere, for the same reason
+	the endpoint builds them: there is no stored copy to drift.
+	"""
+	_require_admin()
+	from one_bpmn.agents.a2a.card import RPC_PATH, build_agent_card
+
+	rows = []
+	for agent in frappe.get_all(
+		"AI Agent Configuration",
+		filters={"enabled": 1, "lifecycle_status": "Live", "a2a_exposed": 1},
+		fields=["name", "agent_id", "agent_name", "agent_type", "a2a_skill_tags", "modified"],
+		order_by="agent_name asc",
+	):
+		card = build_agent_card(agent.agent_id)
+		if not card:
+			continue
+		skill = (card.get("skills") or [{}])[0]
+		rows.append(
+			{
+				"name": agent.name,
+				"agent_id": agent.agent_id,
+				"agent_name": agent.agent_name,
+				"agent_type": agent.agent_type,
+				"description": card.get("description"),
+				"tags": skill.get("tags") or [],
+				"examples": skill.get("examples") or [],
+				"card_url": get_url(f"/api/method/one_bpmn.api.a2a_api.agent_card?agent_id={agent.agent_id}"),
+				"rpc_url": card.get("url"),
+				"sub_agents": card.get("subAgents") or [],
+				"reachable_by": _clients_that_may_reach(agent.name),
+				"card": card,
+			}
+		)
+	return rows
+
+
+def _clients_that_may_reach(agent_configuration: str) -> list[str]:
+	"""Which approved callers list this agent. Empty means: exposed, with a
+	public card, but no outside caller can actually reach it yet."""
+	parents = frappe.get_all(
+		"A2A Client Allowed Agent",
+		filters={"agent_configuration": agent_configuration, "parenttype": "A2A Client"},
+		pluck="parent",
+	)
+	if not parents:
+		return []
+	return frappe.get_all(
+		"A2A Client",
+		filters={"name": ("in", parents), "enabled": 1, "approval_status": "Approved"},
+		pluck="name",
 	)
 
 
