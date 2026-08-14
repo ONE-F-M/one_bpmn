@@ -70,9 +70,10 @@ class TestA2ALoopback(FrappeTestCase):
 		super().setUp()
 		# The exposed worker — receives work through the server side.
 		self.worker = make_agent_configuration(a2a_exposed=1, a2a_skill_tags="backend")
-		# The orchestrator — delegates through the client side, and may only
-		# delegate to the worker.
-		self.orchestrator = make_agent_configuration()
+		# The orchestrator — delegates through the client side. It restricts
+		# delegation on purpose, so the off-the-list refusal below is exercised;
+		# an unrestricted agent could reach any exposed agent.
+		self.orchestrator = make_agent_configuration(restrict_delegates=1)
 		self.orchestrator.append("allowed_delegates", {"agent_configuration": self.worker.name})
 		self.orchestrator.save(ignore_permissions=True)
 		# We are our own approved caller, allowed to reach the worker.
