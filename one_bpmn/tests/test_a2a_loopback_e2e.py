@@ -73,7 +73,7 @@ class TestA2ALoopback(FrappeTestCase):
 		# The orchestrator — delegates through the client side, and may only
 		# delegate to the worker.
 		self.orchestrator = make_agent_configuration()
-		self.orchestrator.append("allowed_sub_agents", {"agent_configuration": self.worker.name})
+		self.orchestrator.append("allowed_delegates", {"agent_configuration": self.worker.name})
 		self.orchestrator.save(ignore_permissions=True)
 		# We are our own approved caller, allowed to reach the worker.
 		self.client = approve(make_client(agents=[self.worker.name]))
@@ -177,7 +177,7 @@ class TestA2ALoopback(FrappeTestCase):
 	def test_delegation_to_an_agent_off_the_list_never_reaches_the_wire(self):
 		from one_bpmn.agents.a2a.guardrails import DelegationRefused
 
-		self.orchestrator.allowed_sub_agents = []
+		self.orchestrator.allowed_delegates = []
 		self.orchestrator.save(ignore_permissions=True)
 		with self.assertRaises(DelegationRefused):
 			self._delegate(self._ctx())
