@@ -29,7 +29,7 @@ class TestDelegationToggle(FrappeTestCase):
 	def test_listing_a_sub_agent_turns_the_toggle_on(self):
 		worker = make_agent_configuration()
 		agent = make_agent_configuration()
-		agent.append("allowed_sub_agents", {"agent_configuration": worker.name})
+		agent.append("allowed_delegates", {"agent_configuration": worker.name})
 		agent.save(ignore_permissions=True)
 		self.assertTrue(
 			agent.delegates_to_agents,
@@ -39,7 +39,7 @@ class TestDelegationToggle(FrappeTestCase):
 	def test_toggle_cannot_be_turned_off_while_sub_agents_remain(self):
 		worker = make_agent_configuration()
 		agent = make_agent_configuration()
-		agent.append("allowed_sub_agents", {"agent_configuration": worker.name})
+		agent.append("allowed_delegates", {"agent_configuration": worker.name})
 		agent.save(ignore_permissions=True)
 
 		agent.delegates_to_agents = 0
@@ -51,10 +51,10 @@ class TestDelegationToggle(FrappeTestCase):
 	def test_clearing_the_list_lets_the_toggle_go_off(self):
 		worker = make_agent_configuration()
 		agent = make_agent_configuration()
-		agent.append("allowed_sub_agents", {"agent_configuration": worker.name})
+		agent.append("allowed_delegates", {"agent_configuration": worker.name})
 		agent.save(ignore_permissions=True)
 
-		agent.allowed_sub_agents = []
+		agent.allowed_delegates = []
 		agent.delegates_to_agents = 0
 		agent.save(ignore_permissions=True)
 		agent.reload()
@@ -66,7 +66,7 @@ class TestDelegationToggle(FrappeTestCase):
 		workers = [make_agent_configuration() for _ in range(2)]
 		orchestrator = make_agent_configuration(delegates_to_agents=1)
 		for worker in workers:
-			orchestrator.append("allowed_sub_agents", {"agent_configuration": worker.name})
+			orchestrator.append("allowed_delegates", {"agent_configuration": worker.name})
 		orchestrator.save(ignore_permissions=True)
 
 		self.assertFalse(orchestrator.a2a_exposed)

@@ -18,7 +18,7 @@ from one_bpmn.agents.a2a import guardrails
 
 def with_sub_agents(parent, subs, **limits):
 	for sub in subs:
-		parent.append("allowed_sub_agents", {"agent_configuration": sub.name})
+		parent.append("allowed_delegates", {"agent_configuration": sub.name})
 	for field, value in limits.items():
 		parent.set(field, value)
 	parent.save(ignore_permissions=True)
@@ -61,8 +61,8 @@ class TestSubAgentAllowList(FrappeTestCase):
 		swapped_in = make_agent_configuration()
 		orchestrator = with_sub_agents(make_agent_configuration(), [worker])
 
-		orchestrator.allowed_sub_agents = []
-		orchestrator.append("allowed_sub_agents", {"agent_configuration": swapped_in.name})
+		orchestrator.allowed_delegates = []
+		orchestrator.append("allowed_delegates", {"agent_configuration": swapped_in.name})
 		orchestrator.save(ignore_permissions=True)
 
 		self.assertFalse(guardrails.may_delegate_to(orchestrator.name, worker.name))

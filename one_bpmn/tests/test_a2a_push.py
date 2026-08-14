@@ -221,7 +221,7 @@ class TestOutboundRegistration(FrappeTestCase):
 		super().setUp()
 		self.worker = make_agent_configuration()
 		self.orchestrator = make_agent_configuration()
-		self.orchestrator.append("allowed_sub_agents", {"agent_configuration": self.worker.name})
+		self.orchestrator.append("allowed_delegates", {"agent_configuration": self.worker.name})
 		self.orchestrator.save(ignore_permissions=True)
 
 	def _delegate(self, remote, session):

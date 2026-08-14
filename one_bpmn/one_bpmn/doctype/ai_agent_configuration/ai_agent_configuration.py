@@ -56,7 +56,7 @@ class AIAgentConfiguration(Document):
 		agent, delegation is who this agent calls. An orchestrator normally
 		delegates without being exposed at all.
 		"""
-		if self.delegates_to_agents or not self.allowed_sub_agents:
+		if self.delegates_to_agents or not self.allowed_delegates:
 			return
 		# The list is the truth — it is what the delegation gate reads — so the
 		# toggle follows it rather than the other way round. Correcting instead
