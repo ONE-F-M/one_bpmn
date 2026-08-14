@@ -200,7 +200,11 @@ class TestA2ALoopback(FrappeTestCase):
 		"""The slow path: the worker is still working, so the Service Task
 		parks; when the worker finishes, the poller wakes it."""
 		# Force the server to answer "working" so the client parks.
-		with patch.object(a2a_api, "_run_chat_turn", lambda task, config, text: None):
+		# Execution now lives in agents/a2a/execute, shared with the same-site
+		# path — stub it there so the server answers "working" and we park.
+		with patch(
+			"one_bpmn.agents.a2a.execute.run_for_task", lambda task, config, text: None
+		):
 			ctx = self._ctx()
 			result = self._delegate(ctx)
 
