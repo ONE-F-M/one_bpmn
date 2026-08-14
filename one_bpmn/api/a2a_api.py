@@ -18,7 +18,7 @@ import json
 import frappe
 from frappe import _
 
-from one_bpmn.agents.a2a import protocol, task_store
+from one_bpmn.agents.a2a import protocol, push, task_store
 from one_bpmn.agents.a2a.card import build_agent_card
 from one_bpmn.agents.a2a.principal import client_may_invoke, get_client_for_user
 from one_bpmn.agents.a2a.protocol import A2AError
@@ -31,6 +31,98 @@ def agent_card(agent_id: str) -> dict:
 	if card is None:
 		raise frappe.DoesNotExistError
 	return card
+
+
+# ── Push callback: a remote telling us a delegated task moved ─────────────────
+
+
+@frappe.whitelist(allow_guest=True, methods=["POST"])
+def push_callback() -> dict:
+	"""A remote agent reports that a task we delegated has changed.
+
+	Reachable without a Frappe session — the remote has no user here — so
+	the per-task token IS the gate. Every failure returns the same opaque
+	answer: a caller must not be able to use this endpoint to learn which
+	task ids exist. Nothing here trusts the body beyond the state field;
+	the payload is a claim, and the row is the record.
+
+	Idempotent and forward-only: a replayed or late callback for a task that
+	already reached a terminal state changes nothing.
+	"""
+	from one_bpmn.agents.a2a_contract import terminal_states
+	from one_bpmn.one_bpmn.doctype.bpmn_process_instance.bpmn_process_instance import (
+		_enqueue_a2a_resume,
+	)
+	from one_bpmn.one_bpmn.integrations import a2a_client
+
+	opaque = {"accepted": False}
+	if push.callback_throttled():
+		return opaque
+	try:
+		payload = json.loads(frappe.request.data or b"{}")
+	except Exception:
+		return opaque
+	if not isinstance(payload, dict):
+		return opaque
+
+	remote_task_id = payload.get("id") or payload.get("taskId")
+	presented = (frappe.get_request_header(push.TOKEN_HEADER) or "").strip()
+	if not remote_task_id:
+		return opaque
+
+	name = frappe.db.get_value(
+		"A2A Task",
+		{"direction": "Outbound", "remote_task_id": remote_task_id, "push_registered": 1},
+		"name",
+	)
+	if not name:
+		return opaque
+
+	task = frappe.get_doc("A2A Task", name)
+	if not push.token_matches(task, presented):
+		# Deliberately indistinguishable from "no such task".
+		frappe.log_error(
+			title="A2A push callback rejected — token mismatch",
+			message=f"task={task.name} remote_task_id={remote_task_id}",
+		)
+		return opaque
+
+	if task.state in terminal_states():
+		return {"accepted": True}  # already settled — replay is a no-op
+
+	state = a2a_client.remote_state(payload) or "working"
+	text = a2a_client.remote_text(payload)
+
+	if state == "completed":
+		task.db_set(
+			{
+				"state": "completed",
+				"result": frappe.as_json({"text": text}),
+				"status_message": text[:500],
+				"completed_at": frappe.utils.now_datetime(),
+			},
+			update_modified=True,
+		)
+		_enqueue_a2a_resume(task.instance, task.wf_task_id, task.name)
+	elif state in ("failed", "canceled", "rejected"):
+		task.db_set(
+			{
+				"state": state,
+				"error_message": (text or state)[:500],
+				"completed_at": frappe.utils.now_datetime(),
+			},
+			update_modified=True,
+		)
+		_enqueue_a2a_resume(task.instance, task.wf_task_id, task.name)
+	elif state == "input-required":
+		task.db_set({"state": "input-required"}, update_modified=True)
+		if task.instance:
+			instance = frappe.get_doc("BPMN Process Instance", task.instance)
+			instance._on_a2a_input_required(task.name, text)
+	else:
+		task.db_set({"state": state}, update_modified=True)
+
+	return {"accepted": True}
 
 
 # ── The JSON-RPC door (WI-001932) ─────────────────────────────────────────────
@@ -64,6 +156,8 @@ def rpc(agent_id: str = None, **kwargs):
 			result = _tasks_get(params)
 		elif method == "tasks/cancel":
 			result = _tasks_cancel(params)
+		elif method == "tasks/pushNotificationConfig/set":
+			result = _set_push_config(params)
 		else:
 			raise A2AError("UNSUPPORTED_OPERATION", f"'{method}' is not supported by this agent")
 
@@ -107,6 +201,11 @@ def _message_send(client: str, agent_id: str, params: dict) -> dict:
 	config = _gate_agent(client, agent_id)
 	trace = protocol.read_trace(message)
 	task = task_store.create_inbound_task(config, client, message, text, trace)
+
+	# A caller may ask to be told rather than poll, right in the send.
+	caller_push = ((params or {}).get("configuration") or {}).get("pushNotificationConfig")
+	if caller_push:
+		push.store_caller_config(task, caller_push)
 
 	if config.agent_type == "Background":
 		_start_background(task, config, text)
@@ -260,6 +359,18 @@ def _tasks_get(params: dict) -> dict:
 	task_store.refresh_state(task)
 	history = task_store.build_history(task, (params or {}).get("historyLength"))
 	return protocol.task_to_wire(task, history=history)
+
+
+def _set_push_config(params: dict) -> dict:
+	"""A caller asks us to tell them when their task changes, instead of
+	polling for it. Their URL is SSRF-checked because we will be calling it."""
+	task = task_store.get_task_for_principal((params or {}).get("taskId"))
+	config = (params or {}).get("pushNotificationConfig") or {}
+	push.store_caller_config(task, config)
+	return {
+		"taskId": task.task_id,
+		"pushNotificationConfig": {"url": task.push_callback_url},
+	}
 
 
 def _tasks_cancel(params: dict) -> dict:

@@ -23,7 +23,7 @@ from __future__ import annotations
 import frappe
 from frappe.utils import add_to_date, cint, now_datetime
 
-from one_bpmn.agents.a2a import guardrails
+from one_bpmn.agents.a2a import guardrails, push
 from one_bpmn.one_bpmn.integrations import a2a_client
 
 A2A_WAITING_KEY = "_bpmn_a2a_waiting"
@@ -97,8 +97,17 @@ def delegate_task(params: dict, ctx: dict) -> dict | None:
 		)
 		return {"a2a_task": a2a_task.name, "state": state}
 
-	# Slow path: park this Service Task; the poller owns it from here.
+	# Slow path: park this Service Task. The poller owns it from here — and if
+	# the remote can call us back instead, register that and let the poller
+	# drop to a slow reconciliation (push complements polling, never replaces
+	# it: a dropped callback must cost latency, not a hung process).
 	a2a_task.db_set({"state": state}, update_modified=True)
+	if push.register_with_remote(a2a_task, remote):
+		a2a_task.db_set(
+			"next_poll_at",
+			add_to_date(now_datetime(), seconds=push.PUSH_RECONCILE_SECONDS),
+			update_modified=False,
+		)
 	if task is not None:
 		task.data[A2A_WAITING_KEY] = {
 			"a2a_task": a2a_task.name,

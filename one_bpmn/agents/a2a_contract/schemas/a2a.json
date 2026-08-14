@@ -39,7 +39,13 @@
         "id": { "type": ["string", "number"] },
         "method": {
           "type": "string",
-          "enum": ["message/send", "message/stream", "tasks/get", "tasks/cancel"]
+          "enum": [
+            "message/send",
+            "message/stream",
+            "tasks/get",
+            "tasks/cancel",
+            "tasks/pushNotificationConfig/set"
+          ]
         },
         "params": { "type": "object" }
       },
@@ -67,6 +73,15 @@
         "contextId": { "type": "string" },
         "kind": { "const": "message" },
         "metadata": { "type": "object" }
+      }
+    },
+    "push_notification_config": {
+      "type": "object",
+      "required": ["url"],
+      "properties": {
+        "id": { "type": "string" },
+        "url": { "type": "string" },
+        "token": { "type": "string" }
       }
     },
     "task": {
