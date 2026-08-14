@@ -12,6 +12,7 @@
 #   script_version_history — server script version history and restore
 #   version_history    — diagram XML version history
 #   a2a_api            — A2A protocol: agent card discovery, JSON-RPC task endpoint
+#   a2a_admin_api      — A2A admin: remote/client registries and the task monitor
 #   utils              — shared helpers (role checks, field lookups)
 from one_bpmn.api.instance_api import complete_task, get_active_bpmn_tasks, send_message
 

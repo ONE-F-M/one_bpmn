@@ -155,6 +155,28 @@
 						Security
 					</span>
 				</router-link>
+				<!-- WI-001934: the registries decide who may reach our agents and who
+				     we may reach, so the entry is hidden from anyone who cannot
+				     administer them. -->
+				<router-link
+					v-if="canSeeA2A"
+					to="/processa/a2a"
+					class="flex items-center rounded-lg transition-all duration-200"
+					:class="[
+						collapsed ? 'justify-center p-2.5' : 'gap-3 px-4 py-2.5',
+						$route.path.startsWith('/processa/a2a') ? 'bg-gray-900 text-white shadow-md' : 'text-gray-600 hover:bg-gray-100 hover:text-gray-900'
+					]"
+					@click="isMobileMenuOpen = false"
+					:title="collapsed ? 'Agent Collaboration' : ''"
+				>
+					<Icon icon="lucide:share-2" class="w-5 h-5 shrink-0" />
+					<span
+						class="text-sm font-semibold whitespace-nowrap transition-opacity duration-200 overflow-hidden"
+						:class="collapsed ? 'opacity-0 w-0' : 'opacity-100 w-auto'"
+					>
+						Agent Collaboration
+					</span>
+				</router-link>
 			</nav>
 
 			<!-- Collapse Toggle -->
@@ -223,8 +245,22 @@ async function checkSecurityAccess() {
 	}
 }
 
+// Same idea for the A2A registries, asked from the endpoint that screen uses.
+const canSeeA2A = ref(false)
+async function checkA2AAccess() {
+	try {
+		const r = await frappeRequest({
+			url: "/api/method/one_bpmn.api.a2a_admin_api.get_permissions",
+		})
+		canSeeA2A.value = Boolean(r && r.administer)
+	} catch (e) {
+		canSeeA2A.value = false
+	}
+}
+
 onMounted(() => {
 	checkSecurityAccess()
+	checkA2AAccess()
 	const saved = localStorage.getItem("one_bpmn_sidebar_collapsed")
 	if (saved === "true") {
 		collapsed.value = true
