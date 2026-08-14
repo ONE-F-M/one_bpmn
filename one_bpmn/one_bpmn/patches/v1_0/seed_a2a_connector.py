@@ -61,37 +61,13 @@ A2A_CONNECTOR = {
 					"help": "What the agent should do. Jinja is allowed, e.g. {{ doc.subject }}.",
 				},
 				{
-					"name": "delegating_agent",
-					"label": "Delegating agent",
+					"name": "timeout_minutes",
+					"label": "Deadline override (minutes)",
 					"type": "String",
 					"help": (
-						"Whose allowed-delegates list and limits apply. Leave blank on an "
-						"agent's own map — the agent is derived from it."
+						"Usually leave blank: the deadline comes from the agent you are "
+						"delegating to. Set this only to override it for this step."
 					),
-				},
-				{
-					"name": "parent_task",
-					"label": "Parent A2A task",
-					"type": "String",
-					"help": "Continues an existing delegation chain; blank starts a new one.",
-				},
-				{
-					"name": "timeout_minutes",
-					"label": "Deadline (minutes)",
-					"type": "String",
-					"help": "How long the agent may take before the step fails. Default 240.",
-				},
-				{
-					"name": "input_assignee",
-					"label": "Answer questions as",
-					"type": "String",
-					"help": "Who is asked when the agent needs clarification.",
-				},
-				{
-					"name": "input_role",
-					"label": "Answer questions role",
-					"type": "String",
-					"help": "Role assigned when no specific user is named.",
 				},
 			],
 			"output": {
@@ -127,21 +103,6 @@ A2A_CONNECTOR = {
 					"type": "Text",
 					"required": True,
 					"help": "What the remote agent should do. Jinja is allowed, e.g. {{ doc.subject }}.",
-				},
-				{
-					"name": "delegating_agent",
-					"label": "Delegating agent",
-					"type": "String",
-					"help": (
-						"Whose sub-agent list and delegation limits apply. Leave blank on an "
-						"agent's own map — the agent is derived from it."
-					),
-				},
-				{
-					"name": "parent_task",
-					"label": "Parent A2A task",
-					"type": "String",
-					"help": "Continues an existing delegation chain; blank starts a new one.",
 				},
 				{
 					"name": "timeout_minutes",

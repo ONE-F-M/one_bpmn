@@ -16,7 +16,7 @@ from unittest.mock import MagicMock, patch
 
 import frappe
 from frappe.tests.utils import FrappeTestCase
-from frappe.utils import add_to_date, now_datetime
+from frappe.utils import add_to_date, get_datetime, now_datetime
 
 from one_bpmn import tasks as scheduled_tasks
 from one_bpmn.agents._eval_test_factories import make_agent_configuration
@@ -132,6 +132,64 @@ class TestLocalDelegation(LocalDelegationCase):
 		):
 			result = a2a_client_ops.delegate_to_local_agent(self.params(), self.ctx())
 		self.assertEqual(result["state"], "failed")
+
+
+class TestDerivedFields(LocalDelegationCase):
+	"""Things a designer should not have to type, because getting them wrong
+	is silent: an unset parent restarts the depth count and defeats the loop
+	guards, and an unset delegating agent drops that agent's limits."""
+
+	def test_the_chain_is_followed_without_naming_a_parent(self):
+		with stub_turn():
+			first = a2a_client_ops.delegate_to_local_agent(self.params(), self.ctx())
+		parent = frappe.get_doc("A2A Task", first["a2a_task"])
+
+		# A second delegation from INSIDE the instance doing that work — the
+		# panel has no parent field, so this must be derived.
+		ctx = self.ctx()
+		ctx["instance"] = SimpleNamespace(
+			name=parent.instance or "INSTANCE-X", initiated_by="Administrator", process_model=None
+		)
+		parent.db_set("instance", ctx["instance"].name, update_modified=False)
+
+		with stub_turn():
+			second = a2a_client_ops.delegate_to_local_agent(self.params(), ctx)
+		child = frappe.get_doc("A2A Task", second["a2a_task"])
+		self.assertEqual(child.task_execution_id, parent.task_execution_id)
+		self.assertEqual(child.delegation_depth, 2, "the chain must keep counting")
+
+	def test_a_top_level_step_still_starts_a_fresh_chain(self):
+		with stub_turn():
+			result = a2a_client_ops.delegate_to_local_agent(self.params(), self.ctx())
+		row = frappe.get_doc("A2A Task", result["a2a_task"])
+		self.assertEqual(row.delegation_depth, 1)
+
+	def test_deadline_comes_from_the_agent_doing_the_work(self):
+		self.worker.delegation_deadline_minutes = 30
+		self.worker.save(ignore_permissions=True)
+		with stub_turn():
+			result = a2a_client_ops.delegate_to_local_agent(self.params(), self.ctx())
+		row = frappe.get_doc("A2A Task", result["a2a_task"])
+		minutes = (get_datetime(row.deadline) - now_datetime()).total_seconds() / 60
+		self.assertAlmostEqual(minutes, 30, delta=2)
+
+	def test_a_step_may_override_the_agents_deadline(self):
+		self.worker.delegation_deadline_minutes = 30
+		self.worker.save(ignore_permissions=True)
+		with stub_turn():
+			result = a2a_client_ops.delegate_to_local_agent(
+				self.params(timeout_minutes="5"), self.ctx()
+			)
+		row = frappe.get_doc("A2A Task", result["a2a_task"])
+		minutes = (get_datetime(row.deadline) - now_datetime()).total_seconds() / 60
+		self.assertAlmostEqual(minutes, 5, delta=2)
+
+	def test_unset_deadlines_fall_back_to_the_default(self):
+		with stub_turn():
+			result = a2a_client_ops.delegate_to_local_agent(self.params(), self.ctx())
+		row = frappe.get_doc("A2A Task", result["a2a_task"])
+		minutes = (get_datetime(row.deadline) - now_datetime()).total_seconds() / 60
+		self.assertAlmostEqual(minutes, 240, delta=2)
 
 
 class TestLocalDelegationGuards(LocalDelegationCase):
