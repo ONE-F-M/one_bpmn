@@ -82,6 +82,28 @@ class TestA2ALoopback(FrappeTestCase):
 		self.remote = self._register_self()
 		self.transport = LoopbackTransport(self.worker.agent_id, self.client.user)
 
+	def tearDown(self):
+		# The poller commits, so rollback cannot undo this suite's fixtures — and
+		# a committed worker stays EXPOSED, publishing a public card and showing
+		# in the agent catalogue. Clear the agents, the client and its user.
+		for agent in (getattr(self, "worker", None), getattr(self, "orchestrator", None)):
+			if agent:
+				frappe.delete_doc(
+					"AI Agent Configuration", agent.name, force=True,
+					ignore_permissions=True, ignore_missing=True,
+				)
+		client = getattr(self, "client", None)
+		if client:
+			user = frappe.db.get_value("A2A Client", client.name, "user")
+			frappe.delete_doc("A2A Client", client.name, force=True, ignore_permissions=True, ignore_missing=True)
+			if user and frappe.db.exists("User", user):
+				frappe.delete_doc("User", user, force=True, ignore_permissions=True, ignore_missing=True)
+		remote = getattr(self, "remote", None)
+		if remote:
+			frappe.delete_doc("A2A Remote Agent", remote.name, force=True, ignore_permissions=True, ignore_missing=True)
+		frappe.db.commit()
+		super().tearDown()
+
 	def _register_self(self):
 		from one_bpmn.agents.a2a.card import build_agent_card
 
