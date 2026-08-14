@@ -56,18 +56,15 @@ def delegate_to_local_agent(params: dict, ctx: dict) -> dict | None:
 	if not target:
 		raise a2a_client.A2AClientError("delegate_to_local_agent needs an agent to hand work to.")
 
-	deadline_minutes = cint(params.get("timeout_minutes")) or 240
 	a2a_task = local.delegate(
 		_delegating_agent(instance, params),
 		target,
 		instruction,
-		parent_task=params.get("parent_task"),
+		parent_task=_parent_task(instance, params),
 		instance=getattr(instance, "name", None),
 		wf_task_id=str(task.id) if task is not None else None,
 		bpmn_id=_bpmn_id(task),
-		input_assignee=params.get("input_assignee") or getattr(instance, "initiated_by", None),
-		input_role=params.get("input_role"),
-		deadline=add_to_date(now_datetime(), minutes=deadline_minutes),
+		deadline_minutes=cint(params.get("timeout_minutes")) or None,
 	)
 
 	if a2a_task.state in ("completed", "failed", "canceled", "rejected"):
@@ -123,7 +120,7 @@ def delegate_task(params: dict, ctx: dict) -> dict | None:
 
 	agent_configuration = _delegating_agent(instance, params)
 	sub_agent = _local_agent_for(remote)
-	counters = guardrails.next_counters(params.get("parent_task"))
+	counters = guardrails.next_counters(_parent_task(instance, params))
 
 	# The gate. A refusal is a plain-language failure, not a crash: it
 	# reaches whoever is watching the process.
@@ -217,6 +214,14 @@ def _create_outbound_task(remote, instance, task, agent_configuration, instructi
 	doc.flags.ignore_links = True
 	doc.insert(ignore_permissions=True)
 	return doc
+
+
+def _parent_task(instance, params: dict) -> str | None:
+	"""Which delegation this one continues. Derived, not typed: an instance
+	already doing delegated work is linked from the task that handed it that
+	work. A blank field here would restart the depth count on every nested
+	step and quietly defeat the loop guards."""
+	return params.get("parent_task") or local.parent_task_for(instance)
 
 
 def _delegating_agent(instance, params: dict) -> str | None:

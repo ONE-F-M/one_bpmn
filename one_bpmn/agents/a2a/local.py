@@ -32,7 +32,18 @@ from frappe import _
 
 from one_bpmn.agents.a2a import execute, guardrails
 
-TARGET_FIELDS = ("name", "agent_id", "agent_name", "enabled", "lifecycle_status", "agent_type", "process_model")
+TARGET_FIELDS = (
+	"name",
+	"agent_id",
+	"agent_name",
+	"enabled",
+	"lifecycle_status",
+	"agent_type",
+	"process_model",
+	"delegation_deadline_minutes",
+)
+
+DEFAULT_DEADLINE_MINUTES = 240
 
 
 def local_agent_choices() -> list[str]:
@@ -84,7 +95,7 @@ def delegate(
 	bpmn_id: str | None = None,
 	input_assignee: str | None = None,
 	input_role: str | None = None,
-	deadline=None,
+	deadline_minutes: int | None = None,
 ):
 	"""Hand a task to a local agent. Returns the A2A Task row.
 
@@ -93,6 +104,13 @@ def delegate(
 	"""
 	config = resolve_target(target)
 	counters = guardrails.next_counters(parent_task)
+	# The agent doing the work knows best how long it needs; a step may still
+	# override, and 240 minutes is the backstop.
+	minutes = (
+		frappe.utils.cint(deadline_minutes)
+		or frappe.utils.cint(config.get("delegation_deadline_minutes"))
+		or DEFAULT_DEADLINE_MINUTES
+	)
 	# Always enforced, even with no delegating agent to attribute it to: the
 	# target still has to be one that accepts agent-to-agent work.
 	guardrails.enforce(delegating_agent, config.name, counters)
@@ -113,7 +131,7 @@ def delegate(
 			"handoff_count": counters.get("handoff_count"),
 			"input_assignee": input_assignee,
 			"input_role": input_role,
-			"deadline": deadline,
+			"deadline": frappe.utils.add_to_date(frappe.utils.now_datetime(), minutes=minutes),
 		}
 	)
 	task.flags.ignore_links = True
@@ -130,3 +148,26 @@ def refresh(task) -> None:
 	from one_bpmn.agents.a2a import task_store
 
 	task_store.refresh_state(task)
+
+
+def parent_task_for(instance) -> str | None:
+	"""The delegation this instance is already part of, if any.
+
+	Nobody should have to type this in the modeler: an instance that is doing
+	delegated work is linked from the A2A Task that handed it that work, so
+	the chain can be followed from where we already are. Getting it wrong the
+	other way — a blank field on a nested step — would silently restart the
+	depth count and defeat the loop guards.
+	"""
+	name = getattr(instance, "name", None)
+	if not name:
+		return None
+	rows = frappe.get_all(
+		"A2A Task", filters={"instance": name}, order_by="creation desc", limit=1, pluck="name"
+	)
+	if rows:
+		return rows[0]
+	# Background agents run with the task row itself as their context document.
+	if getattr(instance, "context_doctype", None) == "A2A Task":
+		return getattr(instance, "context_docname", None)
+	return None

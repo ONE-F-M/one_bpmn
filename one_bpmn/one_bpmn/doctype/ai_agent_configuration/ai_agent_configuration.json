@@ -76,6 +76,7 @@
   "section_guardrails",
   "max_recursion_depth",
   "max_task_handoffs",
+  "delegation_deadline_minutes",
   "column_break_guardrails",
   "max_delegation_retries",
   "evaluation_section",
@@ -588,6 +589,14 @@
    "fieldname": "max_task_handoffs",
    "fieldtype": "Int",
    "label": "Max Task Handoffs",
+   "non_negative": 1
+  },
+  {
+   "default": "240",
+   "description": "How long this agent may take on work handed to it before the delegating step gives up. A step can override it; blank falls back to 240.",
+   "fieldname": "delegation_deadline_minutes",
+   "fieldtype": "Int",
+   "label": "Deadline When Delegated To (minutes)",
    "non_negative": 1
   },
   {
