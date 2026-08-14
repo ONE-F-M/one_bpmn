@@ -67,6 +67,9 @@
   "rate_limit_window_seconds",
   "lock_after_blocks",
   "lock_block_window_seconds",
+  "a2a_section",
+  "a2a_exposed",
+  "a2a_skill_tags",
   "evaluation_section",
   "sample_prompts",
   "needs_attention_reason"
@@ -514,6 +517,27 @@
    "options": "AI Model",
    "depends_on": "eval:doc.long_term_memory=='Enabled' && doc.memory_write_mode=='distilled'",
    "description": "Model that decides add / update / replace against existing memories. Raise this one when reconciliations are poor."
+  },
+  {
+   "collapsible": 1,
+   "fieldname": "a2a_section",
+   "fieldtype": "Section Break",
+   "label": "A2A Exposure"
+  },
+  {
+   "default": "0",
+   "depends_on": "eval:doc.enabled",
+   "description": "Expose this agent to approved A2A clients. The agent card is served publicly only while the agent is enabled and Live.",
+   "fieldname": "a2a_exposed",
+   "fieldtype": "Check",
+   "label": "Exposed over A2A"
+  },
+  {
+   "depends_on": "eval:doc.a2a_exposed",
+   "description": "Comma-separated tags advertised on the agent card, e.g. backend, frappe, python.",
+   "fieldname": "a2a_skill_tags",
+   "fieldtype": "Small Text",
+   "label": "A2A Skill Tags"
   }
  ],
  "index_web_pages_for_search": 1,
@@ -529,7 +553,7 @@
    "link_fieldname": "agent_configuration"
   }
  ],
- "modified": "2026-07-20 17:09:46.590099",
+ "modified": "2026-08-13 21:00:00.000000",
  "modified_by": "c.akeru@one-fm.com",
  "module": "ONE BPMN",
  "name": "AI Agent Configuration",

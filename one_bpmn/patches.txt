@@ -84,3 +84,4 @@ one_bpmn.one_bpmn.patches.v1_0.move_rate_limit_to_agents #11-08-2026 the message
 one_bpmn.one_bpmn.patches.v1_0.move_freeze_thresholds_to_agents #11-08-2026 the freeze thresholds are the agent's too; only who may release stays site-wide
 one_bpmn.one_bpmn.patches.v1_0.stop_prosally_reconfirm_loop #12-08-2026 WI-002001 the orchestrator must go straight to finalize after its stage tool
 one_bpmn.one_bpmn.patches.v1_0.prosally_lane_fidelity #13-08-2026 WI-002042 designer-named lanes are authoritative; rework converges on one re-entry
+one_bpmn.one_bpmn.patches.v1_0.add_a2a_client_role #13-08-2026 WI-001931 approved callers get a minimal badge role

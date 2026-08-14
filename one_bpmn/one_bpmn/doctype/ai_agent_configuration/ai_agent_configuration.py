@@ -44,6 +44,17 @@ class AIAgentConfiguration(Document):
 		self.validate_unique_chat_mode_label()
 		self.validate_chat_label_against_map()
 		self.validate_agent_creation_grant()
+		self.validate_a2a_exposure()
+
+	def validate_a2a_exposure(self):
+		"""WI-001931: exposure is an admin grant on an operating agent. A
+		disabled agent cannot be exposed — the card and the A2A door both
+		additionally require Live, so the flag may be set pre-Live harmlessly."""
+		if self.a2a_exposed and not self.enabled:
+			frappe.throw(
+				_("This agent is disabled. Enable it before exposing it over A2A."),
+				title=_("A2A Exposure"),
+			)
 
 	def validate_chat_label_against_map(self):
 		"""WI-001997: a chat mode label promises the agent appears in chat,
