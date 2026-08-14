@@ -90,9 +90,9 @@ def _skill(config) -> dict:
 
 
 def _public_sub_agents(config) -> list[str]:
-	"""agent_ids from allowed_sub_agents (WI-002010) that are themselves
+	"""agent_ids from allowed_delegates (WI-002010) that are themselves
 	publicly discoverable — a private sub-agent is nobody's business."""
-	rows = config.get("allowed_sub_agents") or []
+	rows = config.get("allowed_delegates") or []
 	public: list[str] = []
 	for row in rows:
 		fields = frappe.db.get_value(

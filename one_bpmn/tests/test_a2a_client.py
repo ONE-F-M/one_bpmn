@@ -209,7 +209,7 @@ class TestDelegateTask(FrappeTestCase):
 		self.worker = make_agent_configuration()
 		self.remote = make_remote_for(self.worker)
 		self.orchestrator = make_agent_configuration()
-		self.orchestrator.append("allowed_sub_agents", {"agent_configuration": self.worker.name})
+		self.orchestrator.append("allowed_delegates", {"agent_configuration": self.worker.name})
 		self.orchestrator.save(ignore_permissions=True)
 
 	def _ctx(self):

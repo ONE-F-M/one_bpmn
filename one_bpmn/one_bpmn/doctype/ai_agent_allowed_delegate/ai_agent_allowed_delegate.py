@@ -4,5 +4,5 @@
 from frappe.model.document import Document
 
 
-class AIAgentAllowedSubAgent(Document):
+class AIAgentAllowedDelegate(Document):
 	pass

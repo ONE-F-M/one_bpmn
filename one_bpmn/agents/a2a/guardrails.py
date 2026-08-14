@@ -4,7 +4,7 @@
 
 One enforcement point for every hand-off, whichever direction it goes:
 
-- **Who** may receive work — ``allowed_sub_agents`` on the delegating
+- **Who** may receive work — ``allowed_delegates`` on the delegating
   agent. It governs BOTH A2A delegation and internal composition, so
   there is a single answer to "who may this agent hand work to".
 - **How much** hand-off is allowed — nesting depth and total handoffs in
@@ -66,7 +66,7 @@ def may_delegate_to(agent_configuration: str, sub_agent: str) -> bool:
 		return False
 	return bool(
 		frappe.db.exists(
-			"AI Agent Allowed Sub Agent",
+			"AI Agent Allowed Delegate",
 			{
 				"parent": agent_configuration,
 				"parenttype": "AI Agent Configuration",
