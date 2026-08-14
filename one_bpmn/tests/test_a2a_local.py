@@ -198,10 +198,19 @@ class TestLocalDelegationParking(LocalDelegationCase):
 	"""
 
 	def tearDown(self):
+		# The reconciler commits, so rollback cannot undo this test's rows —
+		# and a committed agent would be left EXPOSED, publishing a public card
+		# and appearing in the delegation dropdown. Clear both.
 		for name in frappe.get_all(
 			"A2A Task", filters={"direction": "Internal", "bpmn_id": "ServiceTask_Local"}, pluck="name"
 		):
 			frappe.delete_doc("A2A Task", name, force=True, ignore_permissions=True, ignore_missing=True)
+		for agent in (getattr(self, "worker", None), getattr(self, "orchestrator", None)):
+			if agent:
+				frappe.delete_doc(
+					"AI Agent Configuration", agent.name, force=True,
+					ignore_permissions=True, ignore_missing=True,
+				)
 		frappe.db.commit()
 		super().tearDown()
 
