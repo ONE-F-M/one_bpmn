@@ -373,6 +373,10 @@ def poll_a2a_tasks():
 	from one_bpmn.one_bpmn.integrations import a2a_client
 
 	now = now_datetime()
+	# Same-site delegations first: no network involved, so they are cheap and
+	# should never wait behind a remote's timeout.
+	_reconcile_internal_tasks(now)
+
 	due = frappe.get_all(
 		"A2A Task",
 		filters={
@@ -507,3 +511,89 @@ def _time_out_task(row, remote) -> None:
 	)
 	_enqueue_a2a_resume(row.instance, row.wf_task_id, row.name)
 	frappe.db.commit()
+
+
+def _reconcile_internal_tasks(now) -> None:
+	"""Same-site delegations (WI-001933): the target agent runs in this bench,
+	so there is nothing to call — just re-derive the state from the run or
+	instance doing the work and wake the parked step when it settles.
+
+	Deadlines still apply: a local agent can hang on a human task or a stuck
+	map exactly like a remote can.
+	"""
+	from frappe.utils import cint
+
+	from one_bpmn.agents.a2a import local
+	from one_bpmn.one_bpmn.doctype.bpmn_process_instance.bpmn_process_instance import (
+		_enqueue_a2a_resume,
+	)
+
+	terminal = ("completed", "canceled", "failed", "rejected", "timed-out")
+	# Deliberately NOT filtered by state: a local agent can finish between two
+	# checks, and such a row is already terminal while its caller is still
+	# parked. resume_enqueued is what says "this step has been woken".
+	rows = frappe.get_all(
+		"A2A Task",
+		filters={
+			"direction": "Internal",
+			"resume_enqueued": 0,
+			"wf_task_id": ["is", "set"],
+			"next_poll_at": ["<=", now],
+		},
+		fields=["name", "instance", "wf_task_id", "deadline", "poll_attempts", "state"],
+		limit=100,
+	)
+	for row in rows:
+		try:
+			attempts = cint(row.poll_attempts) + 1
+			frappe.db.set_value(
+				"A2A Task",
+				row.name,
+				{
+					"poll_attempts": attempts,
+					"last_polled_at": now,
+					# Local work is cheap to check, so the interval stays short
+					# and flat rather than backing off into minutes.
+					"next_poll_at": add_to_date(now, seconds=30),
+				},
+				update_modified=False,
+			)
+
+			task = frappe.get_doc("A2A Task", row.name)
+			if task.state in terminal:
+				# Finished in the gap between checks — wake the caller now.
+				_enqueue_a2a_resume(row.instance, row.wf_task_id, row.name)
+				_mark_resumed(row.name)
+				frappe.db.commit()
+				continue
+			if row.deadline and now_datetime() > frappe.utils.get_datetime(row.deadline):
+				task.db_set(
+					{
+						"state": "timed-out",
+						"error_message": "the delegated task passed its deadline",
+						"completed_at": now_datetime(),
+					},
+					update_modified=True,
+				)
+				_enqueue_a2a_resume(row.instance, row.wf_task_id, row.name)
+				_mark_resumed(row.name)
+				frappe.db.commit()
+				continue
+
+			local.refresh(task)
+			task.reload()
+			if task.state in terminal:
+				_enqueue_a2a_resume(row.instance, row.wf_task_id, row.name)
+				_mark_resumed(row.name)
+			frappe.db.commit()
+		except Exception:
+			frappe.log_error(
+				title=f"A2A internal reconcile failed: {row.name}", message=frappe.get_traceback()
+			)
+
+
+def _mark_resumed(a2a_task: str) -> None:
+	"""Belt and braces beside _enqueue_a2a_resume's own stamp: the reconciler
+	must never hand the same finished task to the engine twice, even if the
+	enqueue helper changes or fails."""
+	frappe.db.set_value("A2A Task", a2a_task, "resume_enqueued", 1, update_modified=False)

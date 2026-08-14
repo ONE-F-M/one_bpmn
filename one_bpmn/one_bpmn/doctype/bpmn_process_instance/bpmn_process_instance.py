@@ -1985,6 +1985,12 @@ def _enqueue_a2a_resume(instance_name: str, wf_task_id: str, a2a_task_name: str)
 	Errored-on-exhaustion all come for free."""
 	if not (instance_name and wf_task_id):
 		return
+	# Record that this task's step has been handed a resume job. The local
+	# reconciler uses it to tell "finished and already woken" from "finished
+	# between two checks and still parked" — without it, an agent that
+	# completes in the gap leaves its caller parked forever.
+	if a2a_task_name and frappe.db.exists("A2A Task", a2a_task_name):
+		frappe.db.set_value("A2A Task", a2a_task_name, "resume_enqueued", 1, update_modified=False)
 	frappe.enqueue(
 		"one_bpmn.one_bpmn.doctype.bpmn_process_instance"
 		".bpmn_process_instance.run_parked_ai_task",

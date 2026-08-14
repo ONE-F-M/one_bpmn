@@ -23,10 +23,79 @@ from __future__ import annotations
 import frappe
 from frappe.utils import add_to_date, cint, now_datetime
 
-from one_bpmn.agents.a2a import guardrails, push
+from one_bpmn.agents.a2a import guardrails, local, push
 from one_bpmn.one_bpmn.integrations import a2a_client
 
 A2A_WAITING_KEY = "_bpmn_a2a_waiting"
+
+
+def local_agent_choices() -> list[str]:
+	"""Dropdown source for same-site delegation — every live agent, with no
+	registry entry and no exposure needed."""
+	return local.local_agent_choices()
+
+
+def delegate_to_local_agent(params: dict, ctx: dict) -> dict | None:
+	"""Hand a task to an agent on THIS site (WI-001933, the primary case).
+
+	No registry, no approved client, no HTTP: the target agent runs here.
+	The delegating agent's allowed-delegates list and its guardrails still
+	apply, because those are about scope and loops rather than
+	authentication.
+
+	Returns a result dict when the agent answered inside the call, or None
+	after parking the Service Task for the poller to reconcile.
+	"""
+	instance = ctx.get("instance")
+	task = ctx.get("task")
+	instruction = (params.get("instruction") or "").strip()
+	if not instruction:
+		raise a2a_client.A2AClientError("delegate_to_local_agent needs an instruction to send.")
+
+	target = params.get("agent") or params.get("remote_agent")
+	if not target:
+		raise a2a_client.A2AClientError("delegate_to_local_agent needs an agent to hand work to.")
+
+	deadline_minutes = cint(params.get("timeout_minutes")) or 240
+	a2a_task = local.delegate(
+		_delegating_agent(instance, params),
+		target,
+		instruction,
+		parent_task=params.get("parent_task"),
+		instance=getattr(instance, "name", None),
+		wf_task_id=str(task.id) if task is not None else None,
+		bpmn_id=_bpmn_id(task),
+		input_assignee=params.get("input_assignee") or getattr(instance, "initiated_by", None),
+		input_role=params.get("input_role"),
+		deadline=add_to_date(now_datetime(), minutes=deadline_minutes),
+	)
+
+	if a2a_task.state in ("completed", "failed", "canceled", "rejected"):
+		# Answered inside the call: nothing parked, so nothing needs waking and
+		# the reconciler must not later try.
+		a2a_task.db_set("resume_enqueued", 1, update_modified=False)
+		if a2a_task.state == "completed":
+			payload = frappe.parse_json(a2a_task.result or "{}") or {}
+			return {
+				"a2a_task": a2a_task.name,
+				"state": "completed",
+				"text": payload.get("text") or a2a_task.status_message or "",
+			}
+		return {"a2a_task": a2a_task.name, "state": a2a_task.state, "error": a2a_task.error_message or ""}
+
+	# Still working (or waiting on a person): park exactly as the remote path
+	# does, so one resume seam serves both.
+	if task is not None:
+		task.data[A2A_WAITING_KEY] = {
+			"a2a_task": a2a_task.name,
+			"remote_task_id": None,
+			"remote_agent": None,
+			"label": f"Delegated to {a2a_task.agent_configuration}",
+		}
+	a2a_task.db_set(
+		"next_poll_at", add_to_date(now_datetime(), seconds=15), update_modified=False
+	)
+	return None
 
 
 def remote_agent_choices() -> list[str]:
