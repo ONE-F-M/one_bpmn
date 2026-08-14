@@ -34,12 +34,12 @@ def stub_turn(text="local reply", conversation=None):
 class LocalDelegationCase(FrappeTestCase):
 	def setUp(self):
 		super().setUp()
-		# The specialist. Deliberately NOT exposed over A2A — a local hand-off
-		# is not an outside call, so exposure is irrelevant to it.
-		self.worker = make_agent_configuration()
-		self.orchestrator = make_agent_configuration(delegates_to_agents=1)
-		self.orchestrator.append("allowed_delegates", {"agent_configuration": self.worker.name})
-		self.orchestrator.save(ignore_permissions=True)
+		# The specialist. Exposed over A2A — that flag is what marks an agent
+		# as taking part in agent-to-agent work, local or remote.
+		self.worker = make_agent_configuration(a2a_exposed=1)
+		# The orchestrator needs no list: the tools on its map decide who it
+		# calls. Tests that want a refusal tick restrict_delegates themselves.
+		self.orchestrator = make_agent_configuration()
 
 	def ctx(self):
 		task = SimpleNamespace(
@@ -61,9 +61,12 @@ class LocalDelegationCase(FrappeTestCase):
 
 
 class TestLocalDelegation(LocalDelegationCase):
-	def test_unexposed_agent_can_receive_local_work(self):
-		"""The headline requirement: no exposure, no registry, no client."""
-		self.assertFalse(self.worker.a2a_exposed)
+	def test_exposed_agent_receives_local_work_with_no_registry_or_client(self):
+		"""The headline requirement: exposure alone is enough on this site —
+		no registry entry, no client record, no list to maintain."""
+		self.assertTrue(self.worker.a2a_exposed)
+		self.assertFalse(self.orchestrator.restrict_delegates)
+		self.assertFalse(self.orchestrator.allowed_delegates)
 		with stub_turn("done locally"):
 			result = a2a_client_ops.delegate_to_local_agent(self.params(), self.ctx())
 
@@ -132,12 +135,21 @@ class TestLocalDelegation(LocalDelegationCase):
 
 
 class TestLocalDelegationGuards(LocalDelegationCase):
-	def test_agent_off_the_allowed_list_is_refused(self):
-		stranger = make_agent_configuration()
+	def test_unexposed_agent_cannot_receive_work(self):
+		unexposed = make_agent_configuration()
+		with self.assertRaises(guardrails.DelegationRefused) as caught:
+			a2a_client_ops.delegate_to_local_agent(self.params(agent=unexposed.name), self.ctx())
+		self.assertEqual(caught.exception.reason_code, "target_not_exposed")
+
+	def test_agent_off_the_list_is_refused_when_restricted(self):
+		stranger = make_agent_configuration(a2a_exposed=1)
+		self.orchestrator.restrict_delegates = 1
+		self.orchestrator.append("allowed_delegates", {"agent_configuration": self.worker.name})
+		self.orchestrator.save(ignore_permissions=True)
 
 		with self.assertRaises(guardrails.DelegationRefused) as caught:
 			a2a_client_ops.delegate_to_local_agent(self.params(agent=stranger.name), self.ctx())
-		self.assertEqual(caught.exception.reason_code, "sub_agent_not_allowed")
+		self.assertEqual(caught.exception.reason_code, "target_not_allowed")
 		self.assertFalse(
 			frappe.db.exists("A2A Task", {"agent_configuration": stranger.name}),
 			"a refused delegation leaves no task row",
@@ -155,9 +167,7 @@ class TestLocalDelegationGuards(LocalDelegationCase):
 		self.assertEqual(caught.exception.reason_code, "max_recursion_depth")
 
 	def test_a_draft_agent_cannot_receive_work(self):
-		draft = make_agent_configuration(lifecycle_status="Draft")
-		self.orchestrator.append("allowed_delegates", {"agent_configuration": draft.name})
-		self.orchestrator.save(ignore_permissions=True)
+		draft = make_agent_configuration(lifecycle_status="Draft", a2a_exposed=1)
 		with self.assertRaises(guardrails.DelegationRefused) as caught:
 			a2a_client_ops.delegate_to_local_agent(self.params(agent=draft.name), self.ctx())
 		self.assertEqual(caught.exception.reason_code, "target_not_live")

@@ -17,6 +17,8 @@ from one_bpmn.agents.a2a import guardrails
 
 
 def with_sub_agents(parent, subs, **limits):
+	"""An agent that restricts delegation to exactly these agents."""
+	parent.restrict_delegates = 1
 	for sub in subs:
 		parent.append("allowed_delegates", {"agent_configuration": sub.name})
 	for field, value in limits.items():
@@ -42,8 +44,8 @@ def make_task(execution_id, depth=1, handoffs=1):
 
 class TestSubAgentAllowList(FrappeTestCase):
 	def test_only_listed_sub_agents_are_allowed(self):
-		worker = make_agent_configuration()
-		stranger = make_agent_configuration()
+		worker = make_agent_configuration(a2a_exposed=1)
+		stranger = make_agent_configuration(a2a_exposed=1)
 		orchestrator = with_sub_agents(make_agent_configuration(), [worker])
 
 		self.assertTrue(guardrails.may_delegate_to(orchestrator.name, worker.name))
@@ -51,14 +53,22 @@ class TestSubAgentAllowList(FrappeTestCase):
 		with self.assertRaises(guardrails.DelegationRefused):
 			guardrails.check_allowed(orchestrator.name, stranger.name)
 
-	def test_empty_list_delegates_to_nobody(self):
-		orchestrator = make_agent_configuration()
-		worker = make_agent_configuration()
+	def test_restriction_with_an_empty_list_delegates_to_nobody(self):
+		orchestrator = make_agent_configuration(restrict_delegates=1)
+		worker = make_agent_configuration(a2a_exposed=1)
 		self.assertFalse(guardrails.may_delegate_to(orchestrator.name, worker.name))
 
+	def test_unrestricted_agent_may_delegate_to_any_exposed_agent(self):
+		"""The default: exposure is the grant, no list to maintain."""
+		orchestrator = make_agent_configuration()
+		exposed = make_agent_configuration(a2a_exposed=1)
+		unexposed = make_agent_configuration()
+		self.assertTrue(guardrails.may_delegate_to(orchestrator.name, exposed.name))
+		self.assertFalse(guardrails.may_delegate_to(orchestrator.name, unexposed.name))
+
 	def test_list_edits_take_effect_immediately(self):
-		worker = make_agent_configuration()
-		swapped_in = make_agent_configuration()
+		worker = make_agent_configuration(a2a_exposed=1)
+		swapped_in = make_agent_configuration(a2a_exposed=1)
 		orchestrator = with_sub_agents(make_agent_configuration(), [worker])
 
 		orchestrator.allowed_delegates = []
@@ -84,7 +94,7 @@ class TestDelegationLimits(FrappeTestCase):
 		self.assertEqual(limits["max_task_handoffs"], 3)
 
 	def test_depth_limit_stops_the_chain(self):
-		worker = make_agent_configuration()
+		worker = make_agent_configuration(a2a_exposed=1)
 		orchestrator = with_sub_agents(
 			make_agent_configuration(), [worker], max_recursion_depth=2
 		)
@@ -97,7 +107,7 @@ class TestDelegationLimits(FrappeTestCase):
 		self.assertIn("nested", str(caught.exception))
 
 	def test_handoff_limit_stops_sideways_loops(self):
-		worker = make_agent_configuration()
+		worker = make_agent_configuration(a2a_exposed=1)
 		orchestrator = with_sub_agents(make_agent_configuration(), [worker], max_task_handoffs=2)
 		with self.assertRaises(guardrails.DelegationRefused) as caught:
 			guardrails.enforce(

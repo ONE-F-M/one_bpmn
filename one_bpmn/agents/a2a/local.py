@@ -38,12 +38,12 @@ TARGET_FIELDS = ("name", "agent_id", "agent_name", "enabled", "lifecycle_status"
 def local_agent_choices() -> list[str]:
 	"""Dropdown source: agents that can actually be handed work today.
 
-	Deliberately NOT filtered by a2a_exposed — exposure is about who may
-	call us from outside, and a local hand-off is not from outside.
+	Filtered by a2a_exposed: that flag is what marks an agent as taking part
+	in agent-to-agent work at all, local or remote.
 	"""
 	return frappe.get_all(
 		"AI Agent Configuration",
-		filters={"enabled": 1, "lifecycle_status": "Live"},
+		filters={"enabled": 1, "lifecycle_status": "Live", "a2a_exposed": 1},
 		order_by="agent_name asc",
 		pluck="name",
 	)
@@ -68,6 +68,8 @@ def resolve_target(agent: str):
 			_("Agent '{0}' is not live, so work cannot be handed to it.").format(target.agent_name),
 			reason_code="target_not_live",
 		)
+	# Whether it may RECEIVE work is guardrails' call (exposure, plus any
+	# restriction the delegating agent sets) — checked in delegate().
 	return target
 
 
@@ -91,8 +93,9 @@ def delegate(
 	"""
 	config = resolve_target(target)
 	counters = guardrails.next_counters(parent_task)
-	if delegating_agent:
-		guardrails.enforce(delegating_agent, config.name, counters)
+	# Always enforced, even with no delegating agent to attribute it to: the
+	# target still has to be one that accepts agent-to-agent work.
+	guardrails.enforce(delegating_agent, config.name, counters)
 
 	task = frappe.get_doc(
 		{

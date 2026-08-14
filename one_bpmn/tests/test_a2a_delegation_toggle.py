@@ -1,88 +1,126 @@
 # Copyright (c) 2026, one-fm and contributors
 # For license information, please see license.txt
-"""The Delegates to Other Agents toggle.
+"""Who may receive delegated work (WI-002010).
 
-Exposure and delegation are independent: exposure is who may call THIS
-agent, delegation is who this agent calls. An orchestrator normally
-delegates without being exposed at all, so the toggle exists to keep the
-delegation fields off every other agent's form without tying them to
-exposure.
+The rule, in one line: **exposure is the grant, the list only narrows it.**
 
-The toggle is presentation; the sub-agent list is the truth the
-delegation gate actually reads. These tests pin that relationship down.
+Marking an agent Exposed over A2A is what makes it available for
+agent-to-agent work. The delegating agent needs no list, because the tools
+drawn on its process map already decide who it actually calls — a second
+copy of that decision on the configuration would be bookkeeping that has
+to be updated every time an agent is added.
+
+Ticking Restrict Delegation narrows the set to named agents, for the cases
+where the map is not a tight enough boundary on its own.
 """
 
 from __future__ import annotations
 
-import frappe
 from frappe.tests.utils import FrappeTestCase
 
 from one_bpmn.agents._eval_test_factories import make_agent_configuration
 from one_bpmn.agents.a2a import guardrails
 
 
-class TestDelegationToggle(FrappeTestCase):
-	def test_new_agent_does_not_delegate(self):
-		agent = make_agent_configuration()
-		self.assertFalse(agent.delegates_to_agents)
+class TestExposureIsTheGrant(FrappeTestCase):
+	def test_any_exposed_agent_may_receive_work_by_default(self):
+		orchestrator = make_agent_configuration()
+		exposed = make_agent_configuration(a2a_exposed=1)
 
-	def test_listing_a_sub_agent_turns_the_toggle_on(self):
-		worker = make_agent_configuration()
-		agent = make_agent_configuration()
-		agent.append("allowed_delegates", {"agent_configuration": worker.name})
-		agent.save(ignore_permissions=True)
-		self.assertTrue(
-			agent.delegates_to_agents,
-			"the list is the truth — the toggle follows it, so a live allow-list is never hidden",
-		)
+		self.assertFalse(orchestrator.restrict_delegates, "restriction is off by default")
+		self.assertTrue(guardrails.may_delegate_to(orchestrator.name, exposed.name))
 
-	def test_toggle_cannot_be_turned_off_while_sub_agents_remain(self):
-		worker = make_agent_configuration()
-		agent = make_agent_configuration()
-		agent.append("allowed_delegates", {"agent_configuration": worker.name})
-		agent.save(ignore_permissions=True)
+	def test_an_unexposed_agent_never_receives_work(self):
+		orchestrator = make_agent_configuration()
+		unexposed = make_agent_configuration()
 
-		agent.delegates_to_agents = 0
-		agent.save(ignore_permissions=True)
-		agent.reload()
-		self.assertTrue(agent.delegates_to_agents)
-		self.assertTrue(guardrails.may_delegate_to(agent.name, worker.name))
+		self.assertFalse(guardrails.may_delegate_to(orchestrator.name, unexposed.name))
+		with self.assertRaises(guardrails.DelegationRefused) as caught:
+			guardrails.check_allowed(orchestrator.name, unexposed.name)
+		self.assertEqual(caught.exception.reason_code, "target_not_exposed")
+		self.assertIn("Exposed over A2A", str(caught.exception))
 
-	def test_clearing_the_list_lets_the_toggle_go_off(self):
-		worker = make_agent_configuration()
-		agent = make_agent_configuration()
-		agent.append("allowed_delegates", {"agent_configuration": worker.name})
-		agent.save(ignore_permissions=True)
+	def test_a_draft_agent_never_receives_work(self):
+		orchestrator = make_agent_configuration()
+		draft = make_agent_configuration(a2a_exposed=1, lifecycle_status="Draft")
+		self.assertFalse(guardrails.may_delegate_to(orchestrator.name, draft.name))
 
-		agent.allowed_delegates = []
-		agent.delegates_to_agents = 0
-		agent.save(ignore_permissions=True)
-		agent.reload()
-		self.assertFalse(agent.delegates_to_agents)
-		self.assertFalse(guardrails.may_delegate_to(agent.name, worker.name))
+	def test_adding_an_agent_needs_no_edit_anywhere_else(self):
+		"""The point of the design: a new specialist is one tick, not N edits."""
+		orchestrator = make_agent_configuration()
+		for _ in range(3):
+			newcomer = make_agent_configuration(a2a_exposed=1)
+			self.assertTrue(guardrails.may_delegate_to(orchestrator.name, newcomer.name))
 
-	def test_delegation_does_not_require_exposure(self):
-		"""The orchestrator case: delegates to four workers, exposed to nobody."""
-		workers = [make_agent_configuration() for _ in range(2)]
-		orchestrator = make_agent_configuration(delegates_to_agents=1)
-		for worker in workers:
-			orchestrator.append("allowed_delegates", {"agent_configuration": worker.name})
+
+class TestOptionalRestriction(FrappeTestCase):
+	def test_restriction_limits_to_the_listed_agents(self):
+		listed = make_agent_configuration(a2a_exposed=1)
+		unlisted = make_agent_configuration(a2a_exposed=1)
+		orchestrator = make_agent_configuration(restrict_delegates=1)
+		orchestrator.append("allowed_delegates", {"agent_configuration": listed.name})
 		orchestrator.save(ignore_permissions=True)
 
-		self.assertFalse(orchestrator.a2a_exposed)
-		self.assertTrue(orchestrator.delegates_to_agents)
-		for worker in workers:
-			self.assertTrue(guardrails.may_delegate_to(orchestrator.name, worker.name))
+		self.assertTrue(guardrails.may_delegate_to(orchestrator.name, listed.name))
+		self.assertFalse(guardrails.may_delegate_to(orchestrator.name, unlisted.name))
+		with self.assertRaises(guardrails.DelegationRefused) as caught:
+			guardrails.check_allowed(orchestrator.name, unlisted.name)
+		self.assertEqual(caught.exception.reason_code, "target_not_allowed")
 
-	def test_exposure_does_not_require_delegation(self):
-		"""And the worker case: reachable over A2A, delegates to nobody."""
-		worker = make_agent_configuration(a2a_exposed=1)
-		self.assertTrue(worker.a2a_exposed)
-		self.assertFalse(worker.delegates_to_agents)
+	def test_restriction_with_an_empty_list_allows_nothing(self):
+		orchestrator = make_agent_configuration(restrict_delegates=1)
+		exposed = make_agent_configuration(a2a_exposed=1)
+		self.assertFalse(guardrails.may_delegate_to(orchestrator.name, exposed.name))
 
-	def test_guardrail_defaults_survive_the_toggle(self):
-		agent = make_agent_configuration(delegates_to_agents=1)
-		limits = guardrails.guardrails_for(agent.name)
-		self.assertEqual(limits["max_recursion_depth"], 5)
-		self.assertEqual(limits["max_task_handoffs"], 10)
-		self.assertEqual(limits["max_delegation_retries"], 3)
+	def test_a_listed_agent_still_has_to_be_exposed(self):
+		"""The list narrows the grant; it cannot substitute for it."""
+		unexposed = make_agent_configuration()
+		orchestrator = make_agent_configuration(restrict_delegates=1)
+		orchestrator.append("allowed_delegates", {"agent_configuration": unexposed.name})
+		orchestrator.save(ignore_permissions=True)
+		self.assertFalse(guardrails.may_delegate_to(orchestrator.name, unexposed.name))
+
+	def test_list_edits_take_effect_immediately(self):
+		first = make_agent_configuration(a2a_exposed=1)
+		second = make_agent_configuration(a2a_exposed=1)
+		orchestrator = make_agent_configuration(restrict_delegates=1)
+		orchestrator.append("allowed_delegates", {"agent_configuration": first.name})
+		orchestrator.save(ignore_permissions=True)
+
+		orchestrator.allowed_delegates = []
+		orchestrator.append("allowed_delegates", {"agent_configuration": second.name})
+		orchestrator.save(ignore_permissions=True)
+
+		self.assertFalse(guardrails.may_delegate_to(orchestrator.name, first.name))
+		self.assertTrue(guardrails.may_delegate_to(orchestrator.name, second.name))
+
+	def test_a_list_left_under_an_unticked_restriction_is_inert(self):
+		"""Saving in that state is allowed — it just does not restrict, and the
+		form says so rather than letting it look locked down."""
+		listed = make_agent_configuration(a2a_exposed=1)
+		other = make_agent_configuration(a2a_exposed=1)
+		orchestrator = make_agent_configuration(restrict_delegates=1)
+		orchestrator.append("allowed_delegates", {"agent_configuration": listed.name})
+		orchestrator.save(ignore_permissions=True)
+
+		orchestrator.restrict_delegates = 0
+		orchestrator.save(ignore_permissions=True)
+		orchestrator.reload()
+
+		self.assertTrue(orchestrator.allowed_delegates, "the rows are kept")
+		self.assertTrue(
+			guardrails.may_delegate_to(orchestrator.name, other.name),
+			"but they no longer narrow anything",
+		)
+
+
+class TestGuardrailsAreIndependent(FrappeTestCase):
+	def test_limits_apply_whether_or_not_delegation_is_restricted(self):
+		"""Depth and handoff caps are loop protection, not an allow-list, so
+		they are not gated behind the restriction."""
+		for restricted in (0, 1):
+			agent = make_agent_configuration(restrict_delegates=restricted)
+			limits = guardrails.guardrails_for(agent.name)
+			self.assertEqual(limits["max_recursion_depth"], 5)
+			self.assertEqual(limits["max_task_handoffs"], 10)
+			self.assertEqual(limits["max_delegation_retries"], 3)

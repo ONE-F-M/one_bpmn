@@ -60,28 +60,63 @@ def guardrails_for(agent_configuration: str) -> dict:
 	return {field: cint(values.get(field)) or default for field, default in DEFAULTS.items()}
 
 
-def may_delegate_to(agent_configuration: str, sub_agent: str) -> bool:
-	"""Is this sub-agent on the delegating agent's list? (WI-002010)"""
-	if not (agent_configuration and sub_agent):
+def may_delegate_to(agent_configuration: str, target: str) -> bool:
+	"""May this agent hand work to that one? (WI-002010)
+
+	**Exposure is the grant, the list only narrows it.** An agent marked
+	Exposed over A2A participates in agent-to-agent work and can receive a
+	delegated task; the tools drawn on the delegating agent's process map
+	already decide who it actually calls, so a second copy of that decision
+	on the configuration would be bookkeeping rather than control.
+
+	Ticking Restrict Delegation on the delegating agent narrows the set to
+	the agents it names — for the cases where the map is not a tight enough
+	boundary on its own.
+	"""
+	if not target:
 		return False
+	if not _participates_in_a2a(target):
+		return False
+	if not agent_configuration:
+		return True
+	if not frappe.db.get_value("AI Agent Configuration", agent_configuration, "restrict_delegates"):
+		return True
 	return bool(
 		frappe.db.exists(
 			"AI Agent Allowed Delegate",
 			{
 				"parent": agent_configuration,
 				"parenttype": "AI Agent Configuration",
-				"agent_configuration": sub_agent,
+				"agent_configuration": target,
 			},
 		)
 	)
 
 
-def check_allowed(agent_configuration: str, sub_agent: str) -> None:
-	if not may_delegate_to(agent_configuration, sub_agent):
+def _participates_in_a2a(target: str) -> bool:
+	fields = frappe.db.get_value(
+		"AI Agent Configuration", target, ["enabled", "lifecycle_status", "a2a_exposed"], as_dict=True
+	)
+	return bool(
+		fields and fields.enabled and fields.lifecycle_status == "Live" and fields.a2a_exposed
+	)
+
+
+def check_allowed(agent_configuration: str, target: str) -> None:
+	if may_delegate_to(agent_configuration, target):
+		return
+	if not _participates_in_a2a(target):
 		raise DelegationRefused(
-			_("This agent is not allowed to delegate to '{0}'.").format(sub_agent),
-			reason_code="sub_agent_not_allowed",
+			_(
+				"Agent '{0}' is not available for agent-to-agent work. Tick 'Exposed over A2A' "
+				"on it (it must also be enabled and Live)."
+			).format(target),
+			reason_code="target_not_exposed",
 		)
+	raise DelegationRefused(
+		_("This agent restricts delegation and '{0}' is not on its list.").format(target),
+		reason_code="target_not_allowed",
+	)
 
 
 def next_counters(parent_task: str | None) -> dict:
