@@ -532,6 +532,20 @@ def complete_task(
 	# behind them). They pass the exact same checks above as real User Tasks;
 	# completion stores the person's output on the agent's checkpoint and
 	# enqueues the resume job instead of running an engine pass here.
+	# WI-001933: the same shape for a question asked by a REMOTE agent — the
+	# answer goes back over A2A instead of onto a local checkpoint.
+	if task_id.startswith(instance.A2A_HUMAN_PREFIX):
+		instance.complete_a2a_human_task(task_id, parsed_data)
+		instance.reload()
+		return {
+			"instance": instance_name,
+			"status": instance.status,
+			"queued": True,
+			"waiting_for_ai": instance.waiting_for_ai,
+			"waiting_for_human": instance.waiting_for_human,
+			"active_tasks": instance.get_active_tasks_summary(),
+		}
+
 	if task_id.startswith(instance.AI_HUMAN_PREFIX):
 		instance.complete_ai_human_task(task_id, parsed_data)
 		instance.reload()

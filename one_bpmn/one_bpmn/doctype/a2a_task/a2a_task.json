@@ -17,6 +17,7 @@
   "client",
   "principal",
   "column_break_parties",
+  "remote_agent",
   "agent_configuration",
   "section_execution",
   "conversation",
@@ -124,6 +125,14 @@
   {
    "fieldname": "column_break_parties",
    "fieldtype": "Column Break"
+  },
+  {
+   "description": "The remote agent this task was delegated to (Outbound only) — who was asked.",
+   "fieldname": "remote_agent",
+   "fieldtype": "Link",
+   "in_standard_filter": 1,
+   "label": "Remote Agent",
+   "options": "A2A Remote Agent"
   },
   {
    "description": "The local agent doing the work (Inbound) or delegating it (Outbound).",

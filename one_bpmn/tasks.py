@@ -350,3 +350,143 @@ def close_stale_chat_instances():
 				title=f"BPMN stale chat cleanup failed: {instance_name}",
 				message=frappe.get_traceback(),
 			)
+
+
+# 4. A2A delegated tasks — poll remote agents and wake parked processes
+
+
+def poll_a2a_tasks():
+	"""WI-001933: check on delegated A2A tasks and wake what is waiting.
+
+	Called every minute by the scheduler. Claim-first: next_poll_at is
+	pushed forward BEFORE the network call, so a slow remote cannot have
+	two pollers on the same task. Per-task exponential backoff keeps a
+	long delegation cheap, and a task past its deadline is cancelled
+	best-effort and failed through the normal BPMN error path.
+	"""
+	from frappe.utils import cint
+
+	from one_bpmn.one_bpmn.doctype.bpmn_process_instance.bpmn_process_instance import (
+		_enqueue_a2a_resume,
+	)
+	from one_bpmn.one_bpmn.integrations import a2a_client
+
+	now = now_datetime()
+	due = frappe.get_all(
+		"A2A Task",
+		filters={
+			"direction": "Outbound",
+			"state": ["in", ("submitted", "working", "auth-required")],
+			"next_poll_at": ["<=", now],
+		},
+		fields=["name", "remote_agent", "remote_task_id", "instance", "wf_task_id", "deadline", "poll_attempts"],
+		limit=100,
+	)
+
+	for row in due:
+		try:
+			remote = frappe.get_doc("A2A Remote Agent", row.remote_agent)
+			attempts = cint(row.poll_attempts) + 1
+			base = cint(remote.poll_base_interval) or 60
+			ceiling = cint(remote.poll_max_interval) or 900
+			# Claim before the network call.
+			frappe.db.set_value(
+				"A2A Task",
+				row.name,
+				{
+					"poll_attempts": attempts,
+					"last_polled_at": now,
+					"next_poll_at": add_to_date(now, seconds=min(base * (2 ** (attempts - 1)), ceiling)),
+				},
+				update_modified=False,
+			)
+			frappe.db.commit()
+
+			if row.deadline and now_datetime() > frappe.utils.get_datetime(row.deadline):
+				_time_out_task(row, remote)
+				continue
+
+			if not row.remote_task_id:
+				continue  # nothing to poll yet — the send did not return a task id
+
+			result = a2a_client.tasks_get(remote, row.remote_task_id)
+			state = a2a_client.remote_state(result) or "working"
+
+			if state == "completed":
+				text = a2a_client.remote_text(result)
+				frappe.db.set_value(
+					"A2A Task",
+					row.name,
+					{
+						"state": "completed",
+						"result": frappe.as_json({"text": text}),
+						"status_message": text[:500],
+						"completed_at": now_datetime(),
+					},
+					update_modified=True,
+				)
+				_enqueue_a2a_resume(row.instance, row.wf_task_id, row.name)
+			elif state in ("failed", "canceled", "rejected"):
+				frappe.db.set_value(
+					"A2A Task",
+					row.name,
+					{
+						"state": state,
+						"error_message": (a2a_client.remote_text(result) or state)[:500],
+						"completed_at": now_datetime(),
+					},
+					update_modified=True,
+				)
+				_enqueue_a2a_resume(row.instance, row.wf_task_id, row.name)
+			elif state == "input-required":
+				# Stop polling and ask a person. The remote is waiting on us.
+				frappe.db.set_value(
+					"A2A Task", row.name, {"state": "input-required"}, update_modified=True
+				)
+				if row.instance:
+					instance = frappe.get_doc("BPMN Process Instance", row.instance)
+					instance._on_a2a_input_required(row.name, a2a_client.remote_text(result))
+			else:
+				frappe.db.set_value("A2A Task", row.name, {"state": state}, update_modified=True)
+			frappe.db.commit()
+		except a2a_client.A2ANotApprovedError as exc:
+			# Revoked mid-flight: fail closed rather than keep talking to it.
+			frappe.db.set_value(
+				"A2A Task",
+				row.name,
+				{"state": "failed", "error_message": str(exc)[:500], "completed_at": now_datetime()},
+				update_modified=True,
+			)
+			_enqueue_a2a_resume(row.instance, row.wf_task_id, row.name)
+			frappe.db.commit()
+		except Exception:
+			frappe.log_error(
+				title=f"A2A poll failed: {row.name}", message=frappe.get_traceback()
+			)
+
+
+def _time_out_task(row, remote) -> None:
+	"""Past the deadline: tell the remote to stop if it will listen, then
+	fail through the normal BPMN error path."""
+	from one_bpmn.one_bpmn.doctype.bpmn_process_instance.bpmn_process_instance import (
+		_enqueue_a2a_resume,
+	)
+	from one_bpmn.one_bpmn.integrations import a2a_client
+
+	if row.remote_task_id:
+		try:
+			a2a_client.tasks_cancel(remote, row.remote_task_id)
+		except Exception:
+			pass  # best effort — the deadline stands either way
+	frappe.db.set_value(
+		"A2A Task",
+		row.name,
+		{
+			"state": "timed-out",
+			"error_message": "the delegated task passed its deadline",
+			"completed_at": now_datetime(),
+		},
+		update_modified=True,
+	)
+	_enqueue_a2a_resume(row.instance, row.wf_task_id, row.name)
+	frappe.db.commit()
