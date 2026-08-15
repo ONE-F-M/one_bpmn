@@ -93,15 +93,39 @@ def _caller_xml() -> str:
 	)
 
 
+def _upsert_process(name: str) -> str:
+	"""Processa lists maps THROUGH their Process record, so a map with no
+	process_name is invisible in the UI even though it runs perfectly well.
+
+	One Process EACH, not one shared: deploying a map deactivates every
+	sibling under the same Process (that is how versions work), so grouping
+	the three would leave only the last one compiled active.
+	"""
+	if frappe.db.exists("Process", name):
+		return name
+	doc = frappe.get_doc(
+		{
+			"doctype": "Process",
+			"process_name": name,
+			"description": "Maps for testing agent-to-agent delegation by hand. Safe to delete.",
+			"process_owner": frappe.session.user if frappe.session.user != "Guest" else "Administrator",
+		}
+	)
+	doc.flags.ignore_permissions = True
+	doc.insert(ignore_permissions=True)
+	return doc.name
+
+
 def _upsert_model(name: str, process_id: str, xml: str) -> str:
-	"""The model is named by its title; process_name links to a Process record
-	and is left unset — these fixtures are not part of any process hierarchy."""
+	"""Named by its title, and linked to the fixtures' Process so it shows up
+	in Processa."""
 	if frappe.db.exists("BPMN Process Model", name):
 		model = frappe.get_doc("BPMN Process Model", name)
 	else:
 		model = frappe.new_doc("BPMN Process Model")
 		model.title = name
 	model.process_id = process_id
+	model.process_name = _upsert_process(name)
 	model.version = model.version or 1
 	model.bpmn_xml = xml
 	model.flags.ignore_permissions = True
@@ -155,6 +179,7 @@ def execute():
 	frappe.db.commit()
 	print("Created / refreshed:")
 	print(f"  maps   : {fast_map} | {slow_map} | {caller_map}")
+	print("  each map has its own Process of the same name — open /processa to see them")
 	print(f"  agents : {WORKER_FAST} | {WORKER_SLOW} | {ORCHESTRATOR}")
 	print("\nRun the FAST scenario:")
 	print(
@@ -179,5 +204,6 @@ def teardown():
 		frappe.delete_doc(
 			"BPMN Process Model", name, force=True, ignore_permissions=True, ignore_missing=True
 		)
+		frappe.delete_doc("Process", name, force=True, ignore_permissions=True, ignore_missing=True)
 	frappe.db.commit()
 	print("Removed the A2A test fixtures.")
