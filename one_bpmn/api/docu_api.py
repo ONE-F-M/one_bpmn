@@ -17,8 +17,6 @@ template (narrow ``set_user('Administrator')`` inside try/finally).
 import json
 
 import frappe
-
-from one_bpmn.security.rate_limit import RateLimited
 from frappe import _
 
 from one_bpmn.tools.tool_for_server_scripts import (
@@ -118,18 +116,6 @@ def docu_chat(
 					"process_context": _parse(process_context, {}),
 				},
 			)
-		except RateLimited as exc:
-			# WI-001968: a throttle or a conversation freeze is a real, explainable
-			# refusal — not a dead instance. RateLimited subclasses ValidationError,
-			# so without this branch the handler below rewrites it as "orchestration
-			# isn't running" and the user is told to reopen a chat that is working
-			# perfectly. Surface what actually happened, in the chat bubble.
-			return {
-				"intent": "BLOCKED",
-				"response": str(exc),
-				"conversation_name": conversation_name,
-				"doctype_ir": None, "diff": None, "options": None, "suggested_name": None,
-			}
 		except frappe.ValidationError:
 			# No instance is driving this conversation (map never armed or the
 			# instance died) — the generic runner throws; surface the same reopen
@@ -260,18 +246,6 @@ def _run_docu_turn(turn_id: str, conversation_name: str, message: str, context: 
 		try:
 			result = invoke_agent("docu_agent", message, conversation=conversation_name, context=context)
 			result["conversation_name"] = result.get("conversation") or conversation_name
-		except RateLimited as exc:
-			# WI-001968: a throttle or a conversation freeze is a real, explainable
-			# refusal — not a dead instance. RateLimited subclasses ValidationError,
-			# so without this branch the handler below rewrites it as "orchestration
-			# isn't running" and the user is told to reopen a chat that is working
-			# perfectly. Surface what actually happened, in the chat bubble.
-			result = {
-				"intent": "BLOCKED",
-				"response": str(exc),
-				"conversation_name": conversation_name,
-				"doctype_ir": None, "diff": None, "options": None, "suggested_name": None,
-			}
 		except frappe.ValidationError:
 			result = {
 				"intent": "ERROR",
