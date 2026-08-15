@@ -35,71 +35,6 @@ from one_bpmn.one_bpmn.doctype.ai_security_event.ai_security_event import conten
 MAX_DETAIL_LENGTH = 500
 
 
-# What makes two calls the SAME verdict rather than two findings.
-#
-# `rule` is in here and matters: injection screening records one event per
-# matching pattern, all with the same text, the same stage and classifier=None.
-# Without `rule` those would collapse into one and the log would under-report a
-# multi-rule attack.
-#
-# `action` is in here too — a finding that was Logged and a finding that was
-# Blocked are different verdicts even on identical text.
-_IDENTITY_FIELDS = ("stage", "boundary", "action", "classifier", "rule", "content_hash")
-
-# Filled in on the surviving event if the second caller knew something the first
-# did not. Never overwritten — only blanks.
-_COMPLETABLE_FIELDS = ("agent_configuration", "conversation", "run", "bpmn_id")
-
-
-def _same_verdict_this_turn(correlation_id: str, identity: dict) -> str | None:
-	"""An event already recorded for this exact verdict in this turn.
-
-	Scoped to the turn's correlation id, so it can only ever collapse records
-	written by one message passing through more than one screen. Two identical
-	messages sent a minute apart are different turns and stay two events.
-	"""
-	if not correlation_id:
-		return None
-	filters = {"correlation_id": correlation_id}
-	for field in _IDENTITY_FIELDS:
-		value = identity.get(field)
-		# A dict filter of None does not reliably mean IS NULL across backends.
-		filters[field] = value if value not in (None, "") else ("is", "not set")
-	try:
-		return frappe.db.get_value("AI Security Event", filters, "name")
-	except Exception:
-		return None
-
-
-def _complete_event(name: str, values: dict) -> None:
-	"""Fill fields the first recording of this verdict could not know.
-
-	The two PII screens see different halves of the same turn: the API entry
-	point knows the agent but runs before the conversation exists, and the Chat
-	Message hook knows the conversation but has no agent config to hand. Writing
-	both events produced two half-records; suppressing one alone would have
-	thrown away whichever half lost.
-
-	This is completing a record inside the turn that produced it, not editing an
-	audited fact — only NULL/empty fields are touched, never a value that was
-	already recorded. ``update_modified`` stays off so `modified` keeps matching
-	`creation`: the Security view orders by last-updated on the understanding
-	that events are written once, and a fill would otherwise reshuffle the log.
-	"""
-	patch = {f: v for f, v in values.items() if v}
-	if not patch:
-		return
-	try:
-		current = frappe.db.get_value("AI Security Event", name, list(patch), as_dict=True) or {}
-		blanks = {f: v for f, v in patch.items() if not current.get(f)}
-		if blanks:
-			frappe.db.set_value("AI Security Event", name, blanks, update_modified=False)
-	except Exception:
-		# A record that stays half-filled is still a record; losing the whole
-		# turn over it would be worse.
-		pass
-
-
 def record_event(
 	*,
 	boundary: str,
@@ -133,48 +68,8 @@ def record_event(
 
 	A None return means the event was not recorded and the caller should carry
 	on regardless — that is the contract, not an error to handle.
-
-	Calling this twice for the same verdict in the same turn records ONE event.
-	A message can pass more than one screen on its way through — PII runs both at
-	the API entry point and again on the stored Chat Message, because each is
-	load-bearing on its own — and both were writing a row. The returned name is
-	the surviving event either way, so a caller cannot tell the difference.
 	"""
 	try:
-		from one_bpmn.security.turn import current_correlation_id
-
-		resolved_correlation = correlation_id or current_correlation_id()
-		resolved_agent = (
-			agent_configuration
-			if agent_configuration and frappe.db.exists("AI Agent Configuration", agent_configuration)
-			else None
-		)
-		resolved_run = run if run and frappe.db.exists("AI Agent Run", run) else None
-		resolved_hash = content_hash(content)
-
-		duplicate = _same_verdict_this_turn(
-			resolved_correlation,
-			{
-				"stage": stage,
-				"boundary": boundary,
-				"action": action or "Log",
-				"classifier": classifier,
-				"rule": rule if rule and frappe.db.exists("AI Injection Pattern", rule) else None,
-				"content_hash": resolved_hash,
-			},
-		)
-		if duplicate:
-			_complete_event(
-				duplicate,
-				{
-					"agent_configuration": resolved_agent,
-					"conversation": conversation,
-					"run": resolved_run,
-					"bpmn_id": bpmn_id,
-				},
-			)
-			return duplicate
-
 		doc = frappe.new_doc("AI Security Event")
 		doc.boundary = boundary
 		doc.stage = stage
@@ -184,16 +79,21 @@ def record_event(
 		doc.rule_type = rule_type
 		doc.matched_pattern = _trim(matched_pattern, MAX_DETAIL_LENGTH)
 		doc.classifier = classifier
-		doc.agent_configuration = resolved_agent
+		doc.agent_configuration = (
+			agent_configuration
+			if agent_configuration and frappe.db.exists("AI Agent Configuration", agent_configuration)
+			else None
+		)
 		doc.conversation = conversation
-		doc.run = resolved_run
+		doc.run = run if run and frappe.db.exists("AI Agent Run", run) else None
 		doc.bpmn_id = bpmn_id
 		# Input screening runs before the AI Agent Run exists, so the run cannot be
-		# named here. The turn's correlation id is stamped on both records instead
-		# (WI-001967), which is also what lets the duplicate check above scope
-		# itself to a single turn.
-		doc.correlation_id = resolved_correlation
-		doc.content_hash = resolved_hash
+		# named here and the event cannot be edited later to add it. The turn's
+		# correlation id is stamped on both records instead (WI-001967).
+		from one_bpmn.security.turn import current_correlation_id
+
+		doc.correlation_id = correlation_id or current_correlation_id()
+		doc.content_hash = content_hash(content)
 		doc.content_length = len(content) if isinstance(content, str) else 0
 		doc.detail = _trim(detail, MAX_DETAIL_LENGTH)
 		doc.insert(ignore_permissions=True)
