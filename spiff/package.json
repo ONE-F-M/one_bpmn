@@ -5,8 +5,7 @@
 	"type": "module",
 	"scripts": {
 		"dev": "vite",
-		"build": "NODE_OPTIONS='--max-old-space-size=8192' vite build",
-		"build:oneai": "vite build --config vite.oneai.config.js"
+		"build": "NODE_OPTIONS='--max-old-space-size=8192' vite build"
 	},
 	"dependencies": {
 		"@bpmn-io/properties-panel": "^3.36.0",
@@ -62,6 +61,6 @@
 		"@lezer/highlight": "1.2.3"
 	},
 	"_comments": {
-		"resolutions/@iconify/utils": "Pinned to 2.2.1 \u2014 frappe-ui ships a nested @iconify/utils@3.x which uses node:util styleText (Node 20+ only). This pin forces v2 for Node 18 compatibility."
+		"resolutions/@iconify/utils": "Pinned to 2.2.1 — frappe-ui ships a nested @iconify/utils@3.x which uses node:util styleText (Node 20+ only). This pin forces v2 for Node 18 compatibility."
 	}
 }

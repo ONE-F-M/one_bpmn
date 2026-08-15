@@ -34,9 +34,6 @@ website_route_rules = [
 # app_include_css = "/assets/one_bpmn/css/one_bpmn.css"
 app_include_js = [
 	"/assets/one_bpmn/js/bpmn_json_prettify.js",
-	# WI-001678: tiny stub defining window.oneAI.openAgentChat — surfaces like
-	# the AI Agent Configuration Chat button lazy-load the real bundle on use.
-	"/assets/one_bpmn/js/one_ai_loader.js",
 	# ?v= is a manual cache-buster — bump it any time this file changes.
 	# Plain app_include_js paths (not *.bundle.js) get no automatic
 	# versioning from Frappe, and this file has a 12h Cache-Control on
