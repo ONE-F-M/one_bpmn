@@ -28,11 +28,42 @@ _HEAD = (
 	'<bpmn:definitions xmlns:bpmn="http://www.omg.org/spec/BPMN/20100524/MODEL" '
 	'xmlns:bpmndi="http://www.omg.org/spec/BPMN/20100524/DI" '
 	'xmlns:dc="http://www.omg.org/spec/DD/20100524/DC" '
+	'xmlns:di="http://www.omg.org/spec/DD/20100524/DI" '
 	'xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" '
 	'xmlns:spiffworkflow="http://spiffworkflow.org/bpmn/schema/1.0/core" '
 	'id="Definitions_{pid}" targetNamespace="http://bpmn.io/schema/bpmn">\n'
 )
 _TAIL = "</bpmn:definitions>\n"
+
+
+def _di(process_id: str, shapes: list, edges: list) -> str:
+	"""The diagram interchange section — coordinates for every element.
+
+	Without this the map is still valid and still runs, but bpmn-js has
+	nothing to draw and the canvas opens blank.
+
+	shapes: (id, x, y, width, height). edges: (id, source_id, target_id).
+	"""
+	box = {s[0]: s[1:] for s in shapes}
+	out = [
+		f'  <bpmndi:BPMNDiagram id="BPMNDiagram_{process_id}">',
+		f'    <bpmndi:BPMNPlane id="BPMNPlane_{process_id}" bpmnElement="{process_id}">',
+	]
+	for element, x, y, w, h in shapes:
+		out.append(f'      <bpmndi:BPMNShape id="{element}_di" bpmnElement="{element}">')
+		out.append(f'        <dc:Bounds x="{x}" y="{y}" width="{w}" height="{h}" />')
+		out.append("      </bpmndi:BPMNShape>")
+	for element, source, target in edges:
+		sx, sy, sw, sh = box[source]
+		tx, ty, tw, th = box[target]
+		out.append(
+			f'      <bpmndi:BPMNEdge id="{element}_di" bpmnElement="{element}">'
+		)
+		out.append(f'        <di:waypoint x="{sx + sw}" y="{sy + sh // 2}" />')
+		out.append(f'        <di:waypoint x="{tx}" y="{ty + th // 2}" />')
+		out.append("      </bpmndi:BPMNEdge>")
+	out += ["    </bpmndi:BPMNPlane>", "  </bpmndi:BPMNDiagram>", ""]
+	return "\n".join(out)
 
 
 def _worker_xml(process_id: str, agent_name: str, with_user_task: bool) -> str:
@@ -61,6 +92,19 @@ def _worker_xml(process_id: str, agent_name: str, with_user_task: bool) -> str:
 		+ steps
 		+ '    <bpmn:endEvent id="end" name="Done" />\n'
 		+ "  </bpmn:process>\n"
+		+ (
+			_di(
+				process_id,
+				[("start", 160, 180, 36, 36), ("review", 260, 158, 120, 80), ("end", 440, 180, 36, 36)],
+				[("f1", "start", "review"), ("f2", "review", "end")],
+			)
+			if with_user_task
+			else _di(
+				process_id,
+				[("start", 160, 180, 36, 36), ("end", 300, 180, 36, 36)],
+				[("f1", "start", "end")],
+			)
+		)
 		+ _TAIL
 	)
 
@@ -89,6 +133,11 @@ def _caller_xml() -> str:
 		+ '    <bpmn:sequenceFlow id="f2" sourceRef="delegate" targetRef="end" />\n'
 		+ '    <bpmn:endEvent id="end" name="Delegation finished" />\n'
 		+ "  </bpmn:process>\n"
+		+ _di(
+			"a2a_test_caller",
+			[("start", 160, 180, 36, 36), ("delegate", 260, 158, 140, 80), ("end", 460, 180, 36, 36)],
+			[("f1", "start", "delegate"), ("f2", "delegate", "end")],
+		)
 		+ _TAIL
 	)
 
