@@ -90,8 +90,8 @@ def delegate(
 	instruction: str,
 	*,
 	parent_task: str | None = None,
-	instance: str | None = None,
-	wf_task_id: str | None = None,
+	caller_instance: str | None = None,
+	caller_wf_task_id: str | None = None,
 	bpmn_id: str | None = None,
 	input_assignee: str | None = None,
 	input_role: str | None = None,
@@ -122,8 +122,11 @@ def delegate(
 			"state": "submitted",
 			"agent_configuration": config.name,
 			"delegated_by": delegating_agent or None,
-			"instance": instance,
-			"wf_task_id": wf_task_id,
+			# The caller is recorded separately: running the agent sets
+			# `instance` to the instance DOING the work, and a resume has to
+			# target the step that is WAITING, which is a different process.
+			"caller_instance": caller_instance,
+			"caller_wf_task_id": caller_wf_task_id,
 			"bpmn_id": bpmn_id,
 			"request_payload": frappe.as_json({"instruction": instruction}),
 			"task_execution_id": counters.get("task_execution_id"),

@@ -25,6 +25,8 @@
   "instance",
   "agent_run",
   "column_break_execution",
+  "caller_instance",
+  "caller_wf_task_id",
   "wf_task_id",
   "bpmn_id",
   "pending_human_task",
@@ -184,6 +186,19 @@
   {
    "fieldname": "column_break_execution",
    "fieldtype": "Column Break"
+  },
+  {
+   "description": "The instance WAITING on this task — the one whose step parked. Distinct from `instance`, which is the instance DOING the work; for a same-site delegation those are two different processes.",
+   "fieldname": "caller_instance",
+   "fieldtype": "Link",
+   "label": "Caller Instance",
+   "options": "BPMN Process Instance"
+  },
+  {
+   "description": "Spiff task UUID of the parked Service Task in the caller's instance. This is what a resume targets.",
+   "fieldname": "caller_wf_task_id",
+   "fieldtype": "Data",
+   "label": "Caller Workflow Task ID"
   },
   {
    "description": "Spiff task UUID of the parked Service Task (Outbound only).",

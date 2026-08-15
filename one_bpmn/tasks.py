@@ -537,10 +537,17 @@ def _reconcile_internal_tasks(now) -> None:
 		filters={
 			"direction": "Internal",
 			"resume_enqueued": 0,
-			"wf_task_id": ["is", "set"],
+			"caller_wf_task_id": ["is", "set"],
 			"next_poll_at": ["<=", now],
 		},
-		fields=["name", "instance", "wf_task_id", "deadline", "poll_attempts", "state"],
+		fields=[
+			"name",
+			"caller_instance",
+			"caller_wf_task_id",
+			"deadline",
+			"poll_attempts",
+			"state",
+		],
 		limit=100,
 	)
 	for row in rows:
@@ -562,7 +569,7 @@ def _reconcile_internal_tasks(now) -> None:
 			task = frappe.get_doc("A2A Task", row.name)
 			if task.state in terminal:
 				# Finished in the gap between checks — wake the caller now.
-				_enqueue_a2a_resume(row.instance, row.wf_task_id, row.name)
+				_enqueue_a2a_resume(row.caller_instance, row.caller_wf_task_id, row.name)
 				_mark_resumed(row.name)
 				frappe.db.commit()
 				continue
@@ -575,7 +582,7 @@ def _reconcile_internal_tasks(now) -> None:
 					},
 					update_modified=True,
 				)
-				_enqueue_a2a_resume(row.instance, row.wf_task_id, row.name)
+				_enqueue_a2a_resume(row.caller_instance, row.caller_wf_task_id, row.name)
 				_mark_resumed(row.name)
 				frappe.db.commit()
 				continue
@@ -583,7 +590,7 @@ def _reconcile_internal_tasks(now) -> None:
 			local.refresh(task)
 			task.reload()
 			if task.state in terminal:
-				_enqueue_a2a_resume(row.instance, row.wf_task_id, row.name)
+				_enqueue_a2a_resume(row.caller_instance, row.caller_wf_task_id, row.name)
 				_mark_resumed(row.name)
 			frappe.db.commit()
 		except Exception:
