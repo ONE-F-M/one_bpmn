@@ -124,3 +124,8 @@ def run_background(task, config, text: str) -> None:
 		return
 	task.db_set({"instance": instance, "state": "working"}, update_modified=True)
 	task.reload()
+	# A short map can finish inside the same request. Reading the instance now
+	# means such a worker answers inline instead of parking the caller for a
+	# reconciler tick it does not need.
+	task_store.refresh_state(task)
+	task.reload()
