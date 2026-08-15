@@ -11,7 +11,6 @@
   "process_model",
   "agent_configuration",
   "eval_type",
-  "suite_type",
   "gate_deployment",
   "description"
  ],
@@ -62,17 +61,6 @@
    "fieldtype": "Text",
    "label": "Description",
    "description": "Optional notes about the suite."
-  },
-  {
-   "fieldname": "suite_type",
-   "fieldtype": "Select",
-   "label": "Suite Type",
-   "default": "Baseline",
-   "options": "Baseline\nAdversarial",
-   "reqd": 1,
-   "in_list_view": 1,
-   "in_standard_filter": 1,
-   "description": "Baseline checks the agent does its job. Adversarial checks it resists injection, jailbreak, exfiltration and tool coercion. A chat agent cannot go Live without a passing Adversarial suite. A suite marks itself Adversarial automatically when a case promoted from an AI Security Event is added to it."
   }
  ],
  "index_web_pages_for_search": 1,

@@ -44,6 +44,7 @@ class AIAgentConfiguration(Document):
 		self.validate_unique_chat_mode_label()
 		self.validate_chat_label_against_map()
 		self.validate_agent_creation_grant()
+		self.apply_background_lifecycle()
 
 	def validate_chat_label_against_map(self):
 		"""WI-001997: a chat mode label promises the agent appears in chat,
@@ -178,6 +179,30 @@ class AIAgentConfiguration(Document):
 		creds = frappe.db.get_value("AI Model", self.ai_model, "ai_provider_credentials")
 		if creds:
 			self.ai_provider_credentials = creds
+
+	def apply_background_lifecycle(self):
+		"""WI-001652: Background agents skip the chat creation process, so they
+		go Live directly on save when their essentials check out — enabled,
+		with an enabled provider link. A failing check parks them in Needs
+		Attention, like any agent. Retired is a deliberate manual state and is
+		never overridden. Applies on every save path (form, endpoint, patch)."""
+		if self.agent_type != "Background" or self.lifecycle_status == "Retired":
+			return
+		reason = ""
+		if not self.enabled:
+			reason = _("The agent is disabled.")
+		elif not self.ai_provider_credentials:
+			reason = (
+				_("The linked AI Model '{0}' has no AI Provider Credentials link.").format(self.ai_model)
+				if self.ai_model
+				else _("No AI Model is linked — pick one from the catalog.")
+			)
+		elif not frappe.db.get_value("AI Provider Credentials", self.ai_provider_credentials, "enabled"):
+			reason = _("The linked AI Provider Credentials record '{0}' is disabled.").format(
+				self.ai_provider_credentials
+			)
+		self.lifecycle_status = "Needs Attention" if reason else "Live"
+		self.needs_attention_reason = reason
 
 	def validate_unique_chat_mode_label(self):
 		"""Two enabled chat agents must never claim the same conversation mode —
@@ -326,20 +351,7 @@ class AIAgentConfiguration(Document):
 			frappe.flags._agent_revalidation_running = False
 
 		if result["ok"] and self.lifecycle_status == "Needs Attention":
-			# Going Live is the MAP's decision, not this controller's.
-			# Credentials working again does not mean the agent has been tested
-			# against injection, jailbreak, exfiltration and tool coercion — the
-			# Agent Creation Process runs that gate, and promoting from here would
-			# make disable/re-enable a way around it.
-			#
-			# An agent the map parked already has an instance waiting on the
-			# Config Edited message, which this save fires; one parked from here
-			# (credentials broke while Live) has no instance, so it needs an
-			# explicit start or it could never return to Live at all. Starting one
-			# is a no-op when the map is already waiting.
-			from one_bpmn.agents.agent_config_resolver import _start_reprovision
-
-			_start_reprovision(self.name)
+			self._stamp_lifecycle("Live", "")
 		elif not result["ok"] and self.lifecycle_status == "Live":
 			self._stamp_lifecycle("Needs Attention", "; ".join(result["errors"]))
 
