@@ -74,18 +74,6 @@ def release_lock(lock: str, notes: str | None = None) -> dict:
 		update_modified=True,
 	)
 
-	# Let them straight back in. A release that leaves the throttle window full
-	# is barely a release: the user's next message is refused and they are told
-	# to wait, sometimes for the whole window, after a reviewer has just decided
-	# they may carry on. Clearing the window is what makes "released" mean it.
-	#
-	# Their earlier blocked attempts stop counting toward the next freeze too —
-	# that is handled where the strikes are counted, so the events stay in the
-	# log for audit rather than being deleted.
-	from one_bpmn.security.rate_limit import clear_window
-
-	clear_window(doc.user, doc.agent_configuration)
-
 	# The release belongs in the same log as the lockout it undoes.
 	from one_bpmn.security.events import record_event
 

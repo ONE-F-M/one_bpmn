@@ -39,23 +39,14 @@ import time
 import frappe
 from frappe import _
 
-# The one genuinely site-wide setting left: WHO may release a frozen
-# conversation. That is a statement about roles on this site and means nothing
-# per agent — everything else about how hard an agent pushes back is the
-# agent's own (see _AGENT_DEFAULTS).
+# Settings and their defaults, read together so one query serves a whole turn.
 _DEFAULTS = {
-	"lock_release_roles": "AI Security Reviewer",
-}
-
-# Per-agent limits: the throttle, and the freeze thresholds. Used only when the
-# agent cannot be read at all — a normal agent carries its own values, which the
-# doctype defaults to these same numbers.
-_AGENT_DEFAULTS = {
 	"rate_limit_enabled": 1,
 	"rate_limit_messages": 20,
 	"rate_limit_window_seconds": 60,
 	"lock_after_blocks": 3,
 	"lock_block_window_seconds": 3600,
+	"lock_release_roles": "AI Security Reviewer",
 }
 
 
@@ -70,49 +61,6 @@ def settings() -> dict:
 		doc = frappe.get_cached_doc("Processa Settings")
 		for key in _DEFAULTS:
 			value = doc.get(key)
-			if value not in (None, ""):
-				out[key] = value
-	except Exception:
-		pass
-	return out
-
-
-def limits_for(agent) -> dict:
-	"""The throttle and freeze thresholds for one agent.
-
-	Both are the agent's own rather than one number for the whole site: a limit
-	that suits a chat assistant throttles a batch agent to a standstill, and an
-	agent that fields adversarial traffic all day should not freeze users at the
-	same threshold as one that never sees any.
-
-	Read together in a single query because a turn needs both and they are asked
-	for in the same breath.
-
-	``agent`` may be an AI Agent Configuration name or the resolved config dict.
-	The dict is CURATED — it carries agent_id but not these fields — so it is
-	resolved back to the record rather than read from directly, which is the
-	mistake that made output screening silently fall back to its default.
-
-	Falls back to the defaults on any read failure, matching the module's
-	fail-open stance: an unreadable agent gets the ordinary limits, neither left
-	unprotected nor taken offline.
-	"""
-	out = dict(_AGENT_DEFAULTS)
-	try:
-		from one_bpmn.security.pii import _config_name
-
-		name = _config_name(agent)
-		if not name:
-			return out
-		row = frappe.db.get_value(
-			"AI Agent Configuration", name, list(_AGENT_DEFAULTS), as_dict=True
-		)
-		if not row:
-			return out
-		for key in _AGENT_DEFAULTS:
-			value = row.get(key)
-			# 0 is a real answer for every one of these — "off", "no allowance",
-			# "never freeze" — so only a genuinely absent value falls through.
 			if value not in (None, ""):
 				out[key] = value
 	except Exception:
@@ -181,67 +129,6 @@ def peek_count(user: str, agent: str, window_seconds: int) -> int:
 		return -1
 
 
-def clear_window(user: str, agent) -> int:
-	"""Forget this user's throttle history for one agent. Returns keys cleared.
-
-	Called when a reviewer releases a frozen conversation. Without it a release
-	does almost nothing: the window that was full when the freeze happened is
-	still full, so the released user's very next message is refused and they are
-	told to wait — for up to the whole window — despite a human having just
-	decided they may carry on.
-
-	Clears under both labels the window can be keyed by. Enforcement keys on the
-	agent_id (``prosally_agent``), while a lock records the configuration name
-	(``prosally``), and callers reach this with either.
-	"""
-	labels = {str(agent)} if agent else set()
-	try:
-		agent_id = frappe.db.get_value("AI Agent Configuration", agent, "agent_id")
-		if agent_id:
-			labels.add(agent_id)
-	except Exception:
-		pass
-
-	cleared = 0
-	for label in labels:
-		try:
-			# make_keys=False because _window_key already applied make_key.
-			# Letting delete_value prefix it a second time deletes a key that
-			# does not exist and reports success, which is exactly what happened:
-			# the release looked clean and the window was still full.
-			frappe.cache().delete_value(_window_key(user, label), make_keys=False)
-			cleared += 1
-		except Exception:
-			# A cache that cannot be cleared leaves the user waiting out the
-			# window — worse than instant, but not a reason to fail the release.
-			pass
-	return cleared
-
-
-def _strikes_reset_at(user: str, agent: str | None):
-	"""When this user's blocked attempts against this agent were last forgiven.
-
-	A release draws a line. Strikes from before it have been reviewed and
-	answered by a human decision, so counting them again would re-freeze the
-	conversation on the released user's next refusal — which is the same as not
-	having released it.
-
-	Nothing is deleted: the events stay in the log for audit, they simply stop
-	counting toward the NEXT freeze.
-	"""
-	if not agent:
-		return None
-	try:
-		return frappe.db.get_value(
-			"AI Conversation Lock",
-			{"user": user, "agent_configuration": agent, "status": "Released"},
-			"released_at",
-			order_by="released_at desc",
-		)
-	except Exception:
-		return None
-
-
 def blocked_attempts(user: str, agent: str | None, window_seconds: int) -> int:
 	"""Blocked attempts by this user against this agent inside the window.
 
@@ -258,11 +145,6 @@ def blocked_attempts(user: str, agent: str | None, window_seconds: int) -> int:
 
 	try:
 		since = add_to_date(now_datetime(), seconds=-max(int(window_seconds or 0), 1))
-		# A release forgives everything before it, so the count starts there
-		# rather than at the top of the window.
-		forgiven_until = _strikes_reset_at(user, agent)
-		if forgiven_until and forgiven_until > since:
-			since = forgiven_until
 		filters = {"owner": user, "creation": (">=", since)}
 		if agent:
 			filters["agent_configuration"] = agent
@@ -364,65 +246,33 @@ def enforce(
 			title=_("Conversation Frozen"),
 		)
 
-	# Both the throttle and the freeze thresholds are the agent's, read once.
-	limits = limits_for(agent or agent_label)
-
-	# 2. Throttle — the agent's own allowance.
-	if not int(limits.get("rate_limit_enabled") or 0):
-		# The freeze still applies. Exempting an agent from the throttle says
-		# "this one is chatty", not "stop containing people who probe it".
-		if _maybe_freeze(user, agent, conversation, limits):
-			frappe.throw(
-				_(
-					"This conversation has been frozen after repeated blocked attempts. "
-					"A reviewer needs to release it before you can continue."
-				),
-				RateLimited,
-				title=_("Conversation Frozen"),
-			)
+	cfg = settings()
+	if not int(cfg.get("rate_limit_enabled") or 0):
 		return
 
-	limit = int(limits.get("rate_limit_messages") or 0)
-	window = int(limits.get("rate_limit_window_seconds") or 60)
+	# 2. Throttle.
+	limit = int(cfg.get("rate_limit_messages") or 0)
+	window = int(cfg.get("rate_limit_window_seconds") or 60)
 	if limit > 0:
-		# READ FIRST, and record only what is actually allowed through.
-		#
-		# The window used to be written before it was checked, so a REFUSED
-		# attempt landed in it too. Every retry then pushed a fresh entry with a
-		# fresh timestamp, and the window could not drain while the user kept
-		# trying — the refusal became permanent for anyone who did the obvious
-		# thing and tried again. Someone on 3-in-180s retrying every 20 seconds
-		# would never get back in.
-		#
-		# A rejected message is not a message the agent handled, so it does not
-		# spend the allowance. It is still recorded as a security event below:
-		# the attempt is auditable and still counts toward a freeze, which is the
-		# control meant to deal with someone hammering the door.
-		observed = peek_count(user, agent_label, window)
-		# -1 means the count could not be taken; fail open rather than refuse.
-		if observed >= limit and observed >= 0:
+		observed = record_and_count(user, agent_label, window) if count else peek_count(user, agent_label, window)
+		if observed > limit:
 			event = record_event(
 				boundary="input", stage="rate-limit", action="Block",
 				agent_configuration=agent, conversation=conversation,
 				severity="Medium", classifier="rate-limit",
-				detail=f"refused: {observed} messages already in {window}s, limit {limit}",
+				detail=f"refused: {observed} messages in {window}s, limit {limit}",
 			)
-			_maybe_freeze(user, agent, conversation, limits, trigger_event=event)
+			_maybe_freeze(user, agent, conversation, cfg, trigger_event=event)
 			frappe.throw(
 				_("You are sending messages to this agent too quickly. Wait a moment and try again."),
 				RateLimited,
 				title=_("Rate Limit Reached"),
 			)
 
-		# Allowed. Now it counts — and only at the gate designated to count, so a
-		# turn crossing two gates spends one of the allowance rather than two.
-		if count:
-			record_and_count(user, agent_label, window)
-
 	# 3. Enough blocked attempts to warrant containment? A freeze raised now
 	#    refuses THIS message too — having decided the user is probing, letting
 	#    the message that tipped the scale through is a strange place to stop.
-	if _maybe_freeze(user, agent, conversation, limits):
+	if _maybe_freeze(user, agent, conversation, cfg):
 		frappe.throw(
 			_(
 				"This conversation has been frozen after repeated blocked attempts. "
@@ -433,17 +283,17 @@ def enforce(
 		)
 
 
-def _maybe_freeze(user, agent, conversation, limits, trigger_event=None) -> str | None:
+def _maybe_freeze(user, agent, conversation, cfg, trigger_event=None) -> str | None:
 	"""Freeze when blocked attempts have reached the threshold. Never raises.
 
 	Returns the lock name when one was raised, so the caller can refuse the turn;
 	None when the threshold was not met.
 	"""
-	threshold = int(limits.get("lock_after_blocks") or 0)
+	threshold = int(cfg.get("lock_after_blocks") or 0)
 	if threshold <= 0:
 		return None
 
-	window = int(limits.get("lock_block_window_seconds") or 3600)
+	window = int(cfg.get("lock_block_window_seconds") or 3600)
 	count = blocked_attempts(user, agent, window)
 	if count < threshold:
 		return None

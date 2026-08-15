@@ -78,14 +78,6 @@ _SHAPE_TO_CONFIG = {
 	# property of the agent, not of the task that happens to call it.
 	"aiPiiScreening": "pii_screening",
 	"aiOutputScreeningMode": "output_screening_mode",
-	# The message throttle is the agent's too, and for the same reason: how fast
-	# one user may talk to it is a property of the agent, not of the task that
-	# happens to call it.
-	"aiRateLimitEnabled": "rate_limit_enabled",
-	"aiRateLimitMessages": "rate_limit_messages",
-	"aiRateLimitWindowSeconds": "rate_limit_window_seconds",
-	"aiLockAfterBlocks": "lock_after_blocks",
-	"aiLockBlockWindowSeconds": "lock_block_window_seconds",
 }
 
 # The inverse, for the editor read. Not folded into _CONFIG_TO_SHAPE because
@@ -94,11 +86,6 @@ _SHAPE_TO_CONFIG = {
 _SCREENING_TO_SHAPE = {
 	"pii_screening": "aiPiiScreening",
 	"output_screening_mode": "aiOutputScreeningMode",
-	"rate_limit_enabled": "aiRateLimitEnabled",
-	"rate_limit_messages": "aiRateLimitMessages",
-	"rate_limit_window_seconds": "aiRateLimitWindowSeconds",
-	"lock_after_blocks": "aiLockAfterBlocks",
-	"lock_block_window_seconds": "aiLockBlockWindowSeconds",
 }
 
 # Guard rail categories, mirroring the AI Agent Guard Rail Select options
@@ -179,15 +166,7 @@ def _rows_for_shape(doc, table: str, fields: tuple[str, ...]) -> list[dict]:
 # exactly like the static-context tables below — they are readable by the editor
 # but kept OUT of config_field_map, whose job is overlaying shape attributes at
 # dispatch. Screening is not a property of a task.
-_SCREENING_FIELDS = (
-	"pii_screening",
-	"output_screening_mode",
-	"rate_limit_enabled",
-	"rate_limit_messages",
-	"rate_limit_window_seconds",
-	"lock_after_blocks",
-	"lock_block_window_seconds",
-)
+_SCREENING_FIELDS = ("pii_screening", "output_screening_mode")
 
 
 def config_screening(config_name: str) -> dict:
@@ -472,26 +451,6 @@ CREATE_PAYLOAD_CONTRACT = {
 		"before it reaches the model. Defaults to Enabled; disable only for an agent "
 		"whose work genuinely needs the raw values."
 	),
-	"rate_limit_enabled": (
-		"Optional. 1 or 0 — throttle how fast one user may message THIS agent. "
-		"Defaults to on. Turning it off exempts this agent only, not the site."
-	),
-	"rate_limit_messages": (
-		"Optional. Messages one user may send this agent inside the window before "
-		"being asked to slow down. Defaults to 20; 0 disables the throttle."
-	),
-	"rate_limit_window_seconds": (
-		"Optional. Length of the sliding window in seconds. Defaults to 60."
-	),
-	"lock_after_blocks": (
-		"Optional. Blocked attempts by one user against THIS agent before the "
-		"conversation is frozen and a reviewer has to release it. Defaults to 3; "
-		"0 disables the freeze for this agent."
-	),
-	"lock_block_window_seconds": (
-		"Optional. How far back blocked attempts are counted, in seconds. Defaults "
-		"to 3600."
-	),
 	"output_screening_mode": (
 		"Optional. Log, Flag or Block — what to do when the AGENT's own response "
 		"contains a credential, personal data, or a stretch of its own instructions. "
@@ -604,19 +563,16 @@ def create_agent_configuration(payload: str | dict) -> dict:
 	doc.ai_provider_credentials = payload.get("ai_provider_credentials") or None
 	doc.system_prompt = payload.get("system_prompt") or ""
 	doc.description = payload.get("description") or ""
-	# WI-001644: screening and the throttle chosen at creation rather than left
-	# to a later visit to the desk form. Set only when the field exists on this
-	# site and the value is one the doctype accepts — an unknown value would fail
-	# the whole insert over a setting the agent could perfectly well start with
-	# its default. Absent means "leave the doctype default".
+	# WI-001644: screening chosen at creation rather than left to a later visit
+	# to the desk form. Set only when the field exists on this site and the
+	# value is one the doctype accepts — an unknown value would fail the whole
+	# insert over a setting the agent could perfectly well start with its
+	# default. Absent means "leave the doctype default", which is Log.
 	_meta = frappe.get_meta("AI Agent Configuration")
 	for fieldname in _SCREENING_FIELDS:
 		value = payload.get(fieldname)
 		df = _meta.get_field(fieldname)
-		# Absent, not falsy. The throttle fields are Check and Int, where 0 is a
-		# real answer — "off", "no allowance" — and skipping it would make an
-		# agent impossible to create with the throttle turned off.
-		if value in (None, "") or not df:
+		if not value or not df:
 			continue
 		allowed = [o for o in (df.options or "").split("\n") if o]
 		if allowed and value not in allowed:

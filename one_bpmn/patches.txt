@@ -79,5 +79,3 @@ one_bpmn.one_bpmn.patches.v1_0.backfill_chat_surface_ui_fields #07-08-2026 WI-00
 one_bpmn.one_bpmn.patches.v1_0.harden_logix_pipeline_driver #09-08-2026 the pipeline map's agent must end every turn with finalize
 one_bpmn.one_bpmn.patches.v1_0.set_output_screening_default #10-08-2026 WI-001644 existing agents get an explicit output screening mode
 one_bpmn.one_bpmn.patches.v1_0.drop_user_task_assignment_log #10-08-2026 WI-001998 the map's version history is the only record of a reassignment
-one_bpmn.one_bpmn.patches.v1_0.move_rate_limit_to_agents #11-08-2026 the message throttle is the agent's, not the site's
-one_bpmn.one_bpmn.patches.v1_0.move_freeze_thresholds_to_agents #11-08-2026 the freeze thresholds are the agent's too; only who may release stays site-wide
