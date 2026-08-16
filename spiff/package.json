@@ -5,7 +5,8 @@
 	"type": "module",
 	"scripts": {
 		"dev": "vite",
-		"build": "NODE_OPTIONS='--max-old-space-size=8192' vite build",
+		"build": "npm run build:spa && npm run build:oneai",
+		"build:spa": "NODE_OPTIONS='--max-old-space-size=8192' vite build",
 		"build:oneai": "vite build --config vite.oneai.config.js"
 	},
 	"dependencies": {
