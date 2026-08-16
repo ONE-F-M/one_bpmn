@@ -450,6 +450,10 @@ onMounted(async () => {
 					ts: m.timestamp,
 				});
 			}
+			// A resumed conversation opens where the user left off — at the
+			// newest message. Without this it opened at the very first line of
+			// a months-old transcript and looked stuck (reported 2026-08-16).
+			scrollDown();
 			// One call for the whole transcript, not one per bubble: a resumed
 			// conversation redraws thirty replies at once, and a rating the user
 			// left before reloading has to still be showing.

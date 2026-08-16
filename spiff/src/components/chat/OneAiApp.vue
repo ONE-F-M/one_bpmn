@@ -152,10 +152,20 @@ function onConversation(name) {
 
 <style scoped>
 /* The host owns the box: the standalone /one-ai page gives it the whole
-   viewport, an embedding host gives it whatever it has (WI-001678). */
-.oa-root { display: grid; grid-template-columns: 230px minmax(0, 1fr); height: 100%;
+   viewport, an embedding host gives it whatever it has (WI-001678).
+   grid-template-rows is load-bearing: an implicit row is auto-sized, so it
+   grew to the transcript's full height, the panel's `height: 100%` followed
+   the ROW rather than this box, and the log never became scrollable — a long
+   conversation pushed the composer thousands of pixels below a viewport that
+   would not scroll (reported 2026-08-16). box-sizing keeps the 1px border
+   inside the 100%, which was overflowing the page by 2px. */
+.oa-root { display: grid; grid-template-columns: 230px minmax(0, 1fr);
+	grid-template-rows: minmax(0, 1fr); box-sizing: border-box; height: 100%;
 	min-height: 480px; background: #fff; border: 1px solid #e2e2e2; overflow: hidden; }
-.oa-sidebar { border-right: 1px solid #e2e2e2; background: #f8f8f8; padding: 10px; overflow-y: auto; }
+/* min-height: 0 on both columns — a grid item's automatic minimum size is
+   its content, which would defeat the bounded row above. */
+.oa-sidebar { border-right: 1px solid #e2e2e2; background: #f8f8f8; padding: 10px;
+	overflow-y: auto; min-height: 0; }
 .oa-new { width: 100%; height: 28px; border: none; border-radius: 8px; background: #171717; color: #fff;
 	font-size: 14px; cursor: pointer; margin-bottom: 12px; }
 .oa-sb-title { font-size: 11px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.12em;
@@ -165,7 +175,7 @@ function onConversation(name) {
 .oa-sb-item.active { background: #ededed; }
 .oa-sb-item-title { font-size: 12.5px; color: #383838; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .oa-sb-item-sub { font-size: 11px; color: #999; }
-.oa-main { display: flex; flex-direction: column; min-width: 0; }
+.oa-main { display: flex; flex-direction: column; min-width: 0; min-height: 0; }
 .oa-head { display: flex; align-items: center; gap: 10px; padding: 8px 14px; border-bottom: 1px solid #e2e2e2; }
 .oa-brand { font-size: 13px; font-weight: 600; color: #171717; }
 .oa-picker { height: 28px; border-radius: 8px; border: 1px solid #e2e2e2; background: #fff; font-size: 13px;
