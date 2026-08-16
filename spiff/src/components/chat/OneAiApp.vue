@@ -20,14 +20,18 @@
 		<div class="oa-main">
 			<div class="oa-head">
 				<span class="oa-brand">{{ __("ONE AI") }}</span>
-				<select v-model="activeAgent" class="oa-picker" :title="__('Agent')">
+				<select class="oa-picker" :title="__('Agent')" :value="activeAgent" @change="pickAgent($event.target.value)">
 					<option v-for="a in agents" :key="a.agent_id || a.value" :value="a.agent_id || a.value">
 						{{ a.icon ? `${a.icon} ` : "" }}{{ a.label }}
 					</option>
 				</select>
 			</div>
+			<div v-if="unavailable" class="oa-unavailable">
+				{{ __("This conversation was held with") }} <b>{{ unavailable }}</b
+				>{{ __(", which is not one of the agents available to you here. Open it from that agent's own surface, or start a new chat.") }}
+			</div>
 			<AgentChatPanel
-				v-if="activeAgent"
+				v-else-if="activeAgent"
 				:key="panelKey"
 				:agent-id="activeAgent"
 				:conversation="activeConversation"
@@ -60,6 +64,9 @@ const conversations = ref([]);
 const activeAgent = ref("");
 const activeConversation = ref("");
 const panelKey = ref(0);
+// Set when a history item belongs to an agent this page cannot run — the
+// conversation is NOT opened in that case (see open()).
+const unavailable = ref("");
 
 // agent_mode label → agent_id, so resuming a conversation picks its agent
 const modeToAgent = ref({});
@@ -71,7 +78,16 @@ onMounted(async () => {
 			params: { include_legacy: 0 },
 		}) || [];
 		agents.value = list;
-		for (const a of list) if (a.value && a.agent_id) modeToAgent.value[a.value] = a.agent_id;
+		// A conversation stores agent_mode, which is the chat_mode_label for
+		// most rows but the bare agent_id for others — index both, or opening
+		// such a conversation silently resumes it under whichever agent the
+		// picker happens to show (seen live 2026-08-16).
+		for (const a of list) {
+			if (a.agent_id) {
+				if (a.value) modeToAgent.value[a.value] = a.agent_id;
+				modeToAgent.value[a.agent_id] = a.agent_id;
+			}
+		}
 		if (list.length) activeAgent.value = list[0].agent_id || list[0].value;
 	} catch (e) { /* empty picker renders; the page stays usable */ }
 	refreshList();
@@ -86,14 +102,34 @@ async function refreshList() {
 }
 
 function open(c) {
-	activeConversation.value = c.name;
 	const agent = modeToAgent.value[c.agent_mode];
-	if (agent) activeAgent.value = agent;
+	if (!agent) {
+		// Refusing to open beats opening it under the wrong agent: the next
+		// message would go to whoever the picker shows, carrying someone
+		// else's transcript.
+		activeConversation.value = c.name;
+		unavailable.value = c.agent_mode || __("an unknown agent");
+		return;
+	}
+	unavailable.value = "";
+	activeConversation.value = c.name;
+	activeAgent.value = agent;
 	panelKey.value++; // remount so the panel resumes this conversation
+}
+
+// Switching agent starts a fresh conversation. Keeping the open one would
+// hand the next turn to a different agent under the same conversation id —
+// the same cross-agent contamination the legacy page avoided by LOCKING its
+// mode dropdown once a conversation had messages.
+function pickAgent(agentId) {
+	if (agentId === activeAgent.value) return;
+	activeAgent.value = agentId;
+	startNew();
 }
 
 function startNew() {
 	activeConversation.value = "";
+	unavailable.value = "";
 	panelKey.value++;
 }
 
@@ -124,6 +160,8 @@ function onConversation(name) {
 .oa-picker { height: 28px; border-radius: 8px; border: 1px solid #e2e2e2; background: #fff; font-size: 13px;
 	color: #383838; padding: 0 8px; }
 .oa-main :deep(.acp) { flex: 1; min-height: 0; }
+.oa-unavailable { margin: 16px; padding: 10px 12px; border: 1px solid #e2e2e2; border-radius: 8px;
+	font-size: 12.5px; color: #525252; background: #f8f8f8; }
 :global([data-theme="dark"]) .oa-root { background: #1c1c1c; border-color: #343434; }
 :global([data-theme="dark"]) .oa-sidebar { background: #232323; border-color: #343434; }
 :global([data-theme="dark"]) .oa-new { background: #f8f8f8; color: #0f0f0f; }
@@ -131,5 +169,6 @@ function onConversation(name) {
 :global([data-theme="dark"]) .oa-sb-item-title { color: #d4d4d4; }
 :global([data-theme="dark"]) .oa-head { border-color: #343434; }
 :global([data-theme="dark"]) .oa-brand { color: #f8f8f8; }
+:global([data-theme="dark"]) .oa-unavailable { background: #232323; border-color: #343434; color: #999; }
 :global([data-theme="dark"]) .oa-picker { background: #1c1c1c; border-color: #343434; color: #d4d4d4; }
 </style>
