@@ -100,11 +100,6 @@ def run_eval_suite(suite_name: str, backend: str = "live") -> str:
     run.backend = backend
     run.started_at = now_datetime()
     run.scope = "Suite"  # this entry point always runs the whole suite
-    # WI-001821: record which agent this run tested. Without it a later
-    # comparison has to assume the suite still points where it did at run time.
-    run.agent_configuration = frappe.db.get_value(
-        "AI Eval Suite", suite_name, "agent_configuration"
-    )
     # The caller is already authorised above (suite read gate + evaluatable
     # check, or System Manager). The AI Eval Run is a system-written record of
     # that action, so it must not additionally demand write rights on the Run
@@ -193,7 +188,6 @@ def run_eval_cases(suite_name: str, case_names=None, backend: str = "live") -> s
     # even while Running, or if it errors before producing any result.
     run.scope = "Subset" if case_names else "Suite"
     run.requested_cases = json.dumps(case_names) if case_names else None
-    run.agent_configuration = suite.agent_configuration  # WI-001821
     # The caller is already authorised above (suite read gate + evaluatable
     # check, or System Manager). The AI Eval Run is a system-written record of
     # that action, so it must not additionally demand write rights on the Run
@@ -209,124 +203,6 @@ def run_eval_cases(suite_name: str, case_names=None, backend: str = "live") -> s
         timeout=1800,
     )
     return run.name
-
-
-# ---------------------------------------------------------------------------
-# A/B comparison (WI-001821)
-# ---------------------------------------------------------------------------
-
-@frappe.whitelist()
-def run_eval_comparison(
-    suite_name: str,
-    agent_b: str,
-    agent_a: str = None,
-    case_names=None,
-    backend: str = "live",
-) -> dict:
-    """Run one suite against two agents and return both AI Eval Runs.
-
-    This is the answer to "which of these two agents should I ship?" — the same
-    cases, the same assertions, executed twice, once per agent. Neither run
-    touches the suite: the agent each one tested is recorded on the RUN
-    (``agent_configuration``), so the suite stays bound to whatever it was bound
-    to before and after. Duplicating the suite would work too, but duplicates
-    drift and then the comparison means nothing.
-
-    The two runs share a ``comparison_group``; that is how the comparison view
-    finds the other side.
-
-    The case list is FROZEN here rather than resolved per run. Both sides must
-    execute exactly the same cases for the comparison to say anything, and a
-    case added between the two runs starting would otherwise appear on one side
-    only.
-
-    ``agent_a`` defaults to the suite's own agent — the usual "is the challenger
-    better than what I have?" shape.
-
-    Returns both run names immediately; the cases run in background jobs.
-    """
-    if backend not in ("live", "replay"):
-        frappe.throw(_("backend must be 'live' or 'replay', not '{0}'.").format(backend))
-
-    suite = frappe.get_doc("AI Eval Suite", suite_name)  # 404s if missing
-    suite.check_permission("read")  # same gate as run_eval_cases
-
-    agent_a = agent_a or suite.agent_configuration
-    if not agent_a:
-        frappe.throw(
-            _(
-                "This suite has no agent, so there is nothing to compare against. "
-                "Assign one, or nominate both sides explicitly."
-            )
-        )
-    if agent_a == agent_b:
-        frappe.throw(
-            _("Both sides name the same agent ('{0}') — a comparison needs two.").format(agent_a)
-        )
-    for agent in (agent_a, agent_b):
-        if not frappe.db.exists("AI Agent Configuration", agent):
-            frappe.throw(_("AI Agent Configuration '{0}' not found.").format(agent))
-        if backend == "live":
-            _assert_agent_evaluatable(agent, suite.eval_type, suite.process_model)
-
-    # Freeze the case list, and validate a requested subset the same way
-    # run_eval_cases does.
-    if isinstance(case_names, str):
-        case_names = frappe.parse_json(case_names) or None
-    suite_cases = frappe.get_all(
-        "AI Eval Case", filters={"suite": suite_name}, pluck="name", order_by="creation asc"
-    )
-    if case_names:
-        invalid = [c for c in case_names if c not in set(suite_cases)]
-        if invalid:
-            frappe.throw(_("Cases do not belong to this suite: {0}").format(", ".join(invalid)))
-        scope = "Subset"
-    else:
-        case_names = suite_cases
-        scope = "Suite"
-
-    if not case_names:
-        frappe.throw(
-            _("This suite has no cases, so a comparison would compare nothing. Add a case first.")
-        )
-
-    group = frappe.generate_hash(length=12)
-    runs = []
-    for agent in (agent_a, agent_b):
-        run = frappe.new_doc("AI Eval Run")
-        run.suite = suite_name
-        run.agent_configuration = agent
-        run.comparison_group = group
-        run.status = "Running"
-        run.backend = backend
-        run.started_at = now_datetime()
-        run.scope = scope
-        # Always recorded, even for a whole-suite comparison: it is the frozen
-        # list both sides ran, and it is what makes the two provably comparable
-        # later even if the suite gains cases in between.
-        run.requested_cases = json.dumps(case_names)
-        # System-written record of an action the caller is already authorised
-        # for — see run_eval_cases.
-        run.insert(ignore_permissions=True)
-        runs.append(run.name)
-
-    for run_name in runs:
-        frappe.enqueue(
-            "one_bpmn.agents.eval_runner._execute_eval_suite",
-            queue="bpmn_ai_agent",
-            run_name=run_name,
-            case_names=case_names,
-            timeout=1800,
-        )
-
-    return {
-        "comparison_group": group,
-        "run_a": runs[0],
-        "run_b": runs[1],
-        "agent_a": agent_a,
-        "agent_b": agent_b,
-        "total_cases": len(case_names),
-    }
 
 
 # ---------------------------------------------------------------------------
@@ -359,17 +235,12 @@ def _execute_eval_suite(run_name: str, case_names: list | None = None) -> None:
         passed = failed = 0
         total_cost = 0.0
         total_tokens = 0
-        # WI-001821: a run may nominate an agent other than the suite's, so an
-        # A/B comparison never has to rebind the suite. Resolved once here
-        # rather than per case, so every case in a run is judged against the
-        # same agent even if the suite is reassigned mid-run.
-        agent_cfg = run.get("agent_configuration") or None
         for case_name in case_names:
             case = frappe.get_doc("AI Eval Case", case_name)
             if run.backend == "replay":
                 result_row = _execute_case_replay(run, case)
             else:
-                result_row = _execute_case(case, run.name, agent_cfg)
+                result_row = _execute_case(case, run.name)
             # Snapshot what was evaluated, so later edits to the case don't
             # rewrite this run's history. Set centrally so every path (live,
             # replay, error) records it.
@@ -497,7 +368,7 @@ def _eval_origin_flag(case, eval_run: str = None) -> dict:
     return {"eval_case": case.name, "eval_run": eval_run or ""}
 
 
-def _execute_case(case, eval_run: str = None, agent_cfg: str = None) -> dict:
+def _execute_case(case, eval_run: str = None) -> dict:
     """
     Evaluate a case against the suite's AI Agent Configuration (WI-001751).
 
@@ -522,21 +393,15 @@ def _execute_case(case, eval_run: str = None, agent_cfg: str = None) -> dict:
     prev_origin = getattr(frappe.flags, "eval_origin", None)
     frappe.flags.eval_origin = _eval_origin_flag(case, eval_run)
     try:
-        return _execute_case_inner(case, eval_run, agent_cfg)
+        return _execute_case_inner(case, eval_run)
     finally:
         frappe.flags.eval_origin = prev_origin
 
 
-def _execute_case_inner(case, eval_run: str = None, agent_cfg: str = None) -> dict:
-    """The body of ``_execute_case``, with ``frappe.flags.eval_origin`` already set.
-
-    ``agent_cfg`` overrides the suite's own agent for this execution (WI-001821).
-    The suite is left untouched — the override lives on the AI Eval Run.
-    """
+def _execute_case_inner(case, eval_run: str = None) -> dict:
+    """The body of ``_execute_case``, with ``frappe.flags.eval_origin`` already set."""
     try:
-        agent_cfg = agent_cfg or frappe.db.get_value(
-            "AI Eval Suite", case.suite, "agent_configuration"
-        )
+        agent_cfg = frappe.db.get_value("AI Eval Suite", case.suite, "agent_configuration")
         if not agent_cfg:
             return {
                 "eval_case": case.name, "status": "Error",
@@ -622,11 +487,6 @@ def _record_eval_run(
     origin = getattr(frappe.flags, "eval_origin", None)
     if not isinstance(origin, dict):
         origin = {}
-    ended = now_datetime()
-    try:
-        elapsed_ms = int((ended - started).total_seconds() * 1000) if started else 0
-    except Exception:
-        elapsed_ms = 0
     try:
         frappe.get_doc({
             "doctype": "AI Agent Run",
@@ -642,14 +502,7 @@ def _record_eval_run(
             "origin": "eval",
             "status": "Success",
             "started_at": started,
-            "ended_at": ended,
-            # WI-001821: an eval call is a single provider round-trip with no
-            # human wait and no inter-step gap, so its wall time IS the agent
-            # latency WI-001643 defines. Leaving these unset made every eval-origin
-            # run report "latency not measured", which is what an A/B comparison
-            # most needs to show.
-            "duration_ms": elapsed_ms,
-            "agent_latency_ms": elapsed_ms,
+            "ended_at": now_datetime(),
             "total_prompt_tokens": prompt_tokens,
             "total_completion_tokens": completion_tokens,
             "total_tokens": prompt_tokens + completion_tokens,

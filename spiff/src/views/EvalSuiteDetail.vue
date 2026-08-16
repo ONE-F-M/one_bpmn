@@ -34,12 +34,6 @@
 						:title="canRecheck ? 'Re-evaluate assertions against the last stored answers — no new agent calls' : 'Run the suite once before re-checking'"
 						@click="recheckSuite"
 					>Re-check</Button>
-					<Button
-						icon-left="columns"
-						:disabled="!cases.length"
-						:title="cases.length ? 'Run these cases against a second agent and compare the two side by side' : 'Add a case first'"
-						@click="openCompare"
-					>A/B compare</Button>
 					<Button variant="solid" icon-left="play" :loading="runningSuite" @click="runWholeSuite">Run suite</Button>
 				</div>
 			</div>
@@ -227,42 +221,6 @@
 		</Dialog>
 
 		<!-- From run modal -->
-		<!-- WI-001821: pick a challenger and run the suite twice. The suite's own
-		     agent stays bound to the suite throughout — the nominated agent is
-		     recorded on the RUN, not on the suite. -->
-		<Dialog v-model="showCompare" :options="{ title: 'Compare against another agent' }">
-			<template #body-content>
-				<div class="space-y-4">
-					<p class="text-sm text-gray-600">
-						Runs all {{ cases.length }} case{{ cases.length === 1 ? "" : "s" }} twice — once
-						against <span class="font-medium">{{ suite.agent_name || suite.agent_configuration || "this suite's agent" }}</span>,
-						once against the agent you pick — then shows the two side by side.
-						This suite stays assigned to its current agent.
-					</p>
-					<FormControl
-						type="select"
-						label="Compare against"
-						:options="challengerOptions"
-						v-model="challenger"
-					/>
-					<p v-if="cases.length < 10" class="text-xs text-amber-700 bg-amber-50 rounded p-2">
-						{{ cases.length }} case{{ cases.length === 1 ? "" : "s" }} is a small sample — one case
-						changing its mind moves the pass rate by {{ Math.round(100 / cases.length) }} points.
-						Useful as a signal, not as proof.
-					</p>
-					<p v-if="compareError" class="text-sm text-red-600">{{ compareError }}</p>
-				</div>
-			</template>
-			<template #actions>
-				<Button
-					variant="solid"
-					:loading="startingCompare"
-					:disabled="!challenger"
-					@click="startComparison"
-				>Run both</Button>
-			</template>
-		</Dialog>
-
 		<Dialog v-model="showFromRun" :options="{ title: 'Create case from a run' }">
 			<template #body-content>
 				<div class="space-y-3">
@@ -292,11 +250,10 @@
 
 <script setup>
 import { ref, reactive, computed, onMounted, watch } from "vue"
-import { useRoute, useRouter } from "vue-router"
+import { useRoute } from "vue-router"
 import { frappeRequest, Button, Dialog, FormControl } from "frappe-ui"
 
 const route = useRoute()
-const router = useRouter()
 const suiteName = route.params.suite
 
 const ASSERTION_TYPES = ["contains", "regex", "equals", "schema_valid", "llm_judge"]
@@ -487,56 +444,6 @@ async function runCases(caseNames, flag, backend = "live") {
 watch(showFromRun, (open) => {
 	if (open) loadAgentRuns()
 })
-
-// ── A/B comparison (WI-001821) ───────────────────────────────────────────────
-const showCompare = ref(false)
-const challenger = ref("")
-const challengerOptions = ref([])
-const startingCompare = ref(false)
-const compareError = ref("")
-
-async function openCompare() {
-	compareError.value = ""
-	challenger.value = ""
-	showCompare.value = true
-	try {
-		const res = await frappeRequest({
-			url: "/api/method/one_bpmn.api.eval_api.list_assignable_agents",
-			method: "GET",
-		})
-		// The suite's own agent is side A, so offering it as the challenger would
-		// only produce the "both sides are the same agent" refusal.
-		challengerOptions.value = (res || [])
-			.filter((a) => a.name !== suite.value.agent_configuration)
-			.map((a) => ({ label: a.agent_name || a.name, value: a.name }))
-	} catch (e) {
-		challengerOptions.value = []
-		compareError.value = errorText(e, "Couldn't load the list of agents.")
-	}
-}
-
-async function startComparison() {
-	startingCompare.value = true
-	compareError.value = ""
-	try {
-		const res = await frappeRequest({
-			url: "/api/method/one_bpmn.agents.eval_runner.run_eval_comparison",
-			method: "POST",
-			params: { suite_name: suiteName, agent_b: challenger.value },
-		})
-		showCompare.value = false
-		// Both runs are queued, not finished — the comparison page opens on a
-		// pair that is still running and says so, rather than making the user
-		// watch a spinner here and then find the page themselves.
-		router.push(
-			`/processa/evals/compare/${encodeURIComponent(res.run_a)}/${encodeURIComponent(res.run_b)}`
-		)
-	} catch (e) {
-		compareError.value = errorText(e, "Couldn't start the comparison.")
-	} finally {
-		startingCompare.value = false
-	}
-}
 
 function runWholeSuite() { return runCases(null, runningSuite) }
 function runSelected() { return runCases(selected.value, runningSelected) }
