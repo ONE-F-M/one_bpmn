@@ -431,6 +431,7 @@ def get_agent_surface(agent_id: str) -> dict:
 				"composer_placeholder",
 				"surface_type",
 				"artifact_type",
+				"collect_feedback",
 			],
 			as_dict=True,
 		)
@@ -452,5 +453,11 @@ def get_agent_surface(agent_id: str) -> dict:
 		"composer_placeholder": row.get("composer_placeholder") or "",
 		"surface_type": row.get("surface_type") or "Conversation",
 		"artifact_type": row.get("artifact_type") or "None",
+		# Whether this agent's replies carry a rating control (WI-001822). The
+		# panel reads it from here for the same reason it reads the greeting and
+		# the icon from here: no agent-specific behaviour is hardcoded in a
+		# component. Defaults on, so an agent configured before the field existed
+		# collects feedback rather than silently not collecting it.
+		"collect_feedback": bool(row.get("collect_feedback", 1)),
 		"sample_prompts": sample_prompts,
 	}

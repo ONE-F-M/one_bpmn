@@ -18,11 +18,17 @@
 			<template v-for="(item, i) in transcriptItems" :key="i">
 				<!-- plain text bubbles -->
 				<div v-if="item.kind === 'user'" class="acp-msg acp-msg--user">{{ item.text }}<span v-if="item.file" class="acp-filechip">📎 {{ item.file }}</span></div>
-				<div
-					v-else-if="item.kind === 'agent'"
-					class="acp-msg acp-msg--agent"
-					v-html="renderMarkdown(item.text)"
-				/>
+				<div v-else-if="item.kind === 'agent'" class="acp-agent-block">
+					<div class="acp-msg acp-msg--agent" v-html="renderMarkdown(item.text)" />
+					<!-- Rating lives on agent replies only, and only where the
+					     reply has a real id to attach an answer to. -->
+					<ResponseFeedback
+						v-if="feedbackOn && item.message"
+						:message="item.message"
+						:initial-rating="ratings[item.message] || ''"
+						@rated="onRated"
+					/>
+				</div>
 				<!-- choice buttons (panel feature, onefm.choice) -->
 				<div v-else-if="item.kind === 'choice'" class="acp-card">
 					<div v-if="item.value.prompt" class="acp-card-head" v-html="renderMarkdown(item.value.prompt)" />
@@ -190,6 +196,7 @@ import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from "vue"
 import { dayjs } from "@/dayjs";
 import { streamAgentTurn } from "./aguiClient";
 import ProposedFieldsTray from "./ProposedFieldsTray.vue";
+import ResponseFeedback from "./ResponseFeedback.vue";
 
 const props = defineProps({
 	agentId: { type: String, required: true },
@@ -230,6 +237,32 @@ const draft = ref("");
 const busy = ref(false);
 const status = ref("idle");
 const streamingText = ref("");
+// The id of the reply currently streaming, and this user's ratings keyed by
+// message id (WI-001822). Ratings are the user's own — the control shows what
+// you said, not a tally.
+const streamingMessageId = ref("");
+const ratings = ref({});
+
+// Whether this agent collects feedback at all. Configuration, like the greeting
+// and the icon: no agent-specific behaviour is hardcoded in a component.
+const feedbackOn = computed(() => surface.value.collect_feedback !== false);
+
+function agentItem(text) {
+	// Both things a finished agent bubble needs: the row id it can be rated by
+	// (WI-001822) and when it arrived (WI-002047). Built in one place so a new
+	// flush site cannot forget either.
+	return { kind: "agent", text, message: streamingMessageId.value || "", ts: stampNow() };
+}
+
+function onRated({ message, rating }) {
+	if (!message) return;
+	if (rating) ratings.value = { ...ratings.value, [message]: rating };
+	else {
+		const next = { ...ratings.value };
+		delete next[message];
+		ratings.value = next;
+	}
+}
 const conversationName = ref(props.conversation || "");
 const conversationTitle = ref("");
 const modeChip = ref("");
@@ -410,7 +443,27 @@ onMounted(async () => {
 				params: { conversation: conversationName.value },
 			}) || [];
 			for (const m of history) {
-				items.value.push({ kind: m.role === "user" ? "user" : "agent", text: m.content, ts: m.timestamp });
+				items.value.push({
+					kind: m.role === "user" ? "user" : "agent",
+					text: m.content,
+					message: m.message || "",
+					ts: m.timestamp,
+				});
+			}
+			// One call for the whole transcript, not one per bubble: a resumed
+			// conversation redraws thirty replies at once, and a rating the user
+			// left before reloading has to still be showing.
+			if (feedbackOn.value) {
+				try {
+					ratings.value =
+						(await frappeRequest({
+							url: "/api/method/one_bpmn.api.feedback.get_conversation_ratings",
+							params: { conversation: conversationName.value },
+						})) || {};
+				} catch (e) {
+					/* no ratings is a normal state, never an error */
+				}
+
 			}
 		} catch (e) {
 			/* an unreadable conversation resumes as empty, never as an error */
@@ -522,9 +575,10 @@ async function send(text, extraContext = null) {
 		},
 		onDone: () => {
 			if (streamingText.value) {
-				items.value.push({ kind: "agent", text: streamingText.value, ts: stampNow() });
+				items.value.push(agentItem(streamingText.value));
 				streamingText.value = "";
 			}
+			streamingMessageId.value = "";
 			busy.value = false;
 			if (status.value !== "error") status.value = "done";
 			activeStream = null;
@@ -544,8 +598,16 @@ function handleEvent(event) {
 				emit("conversation", conv);
 			}
 		}
+	} else if (type === "TEXT_MESSAGE_START") {
+		// The reply's identity, straight off the protocol (WI-001641 made this
+		// the persisted Chat Message name). Held until the buffer is flushed so
+		// the finished bubble carries it and can be rated.
+		streamingMessageId.value = event.messageId || event.message_id || "";
 	} else if (type === "TEXT_MESSAGE_CONTENT") {
 		streamingText.value += event.delta || "";
+		if (!streamingMessageId.value) {
+			streamingMessageId.value = event.messageId || event.message_id || "";
+		}
 		scrollDown();
 	} else if (type === "CUSTOM") {
 		handleCustom(event.name || "", event.value || {});
@@ -562,7 +624,7 @@ function handleCustom(name, value) {
 	emit("agent-event", { name, value });
 	// flush any streamed text so events land after the words they follow
 	if (streamingText.value) {
-		items.value.push({ kind: "agent", text: streamingText.value, ts: stampNow() });
+		items.value.push(agentItem(streamingText.value));
 		streamingText.value = "";
 	}
 	if (name === "onefm.conversation_title") {

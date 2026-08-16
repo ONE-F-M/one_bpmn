@@ -171,9 +171,16 @@ def _save_message(
 def load_history(conversation_name: str, limit: int = 30) -> list[dict]:
 	"""
 	Return the last *limit* User/Bot messages as a list of
-	{"role": "user"|"assistant", "content": "...", "timestamp": "..."} dicts,
-	oldest first.  ``timestamp`` is the row's ``creation`` datetime as a string
-	(site timezone, WI-002047).
+	{"role": "user"|"assistant", "content": "...", "message": "<row name>",
+	"timestamp": "..."} dicts, oldest first.
+
+	``message`` is the Chat Message name (WI-001822). A resumed conversation
+	otherwise redraws its replies with no identity, so a rating the user left
+	before reloading could not be shown back to them — and they would rate the
+	same reply twice, seeing an empty control each time.
+
+	``timestamp`` is the row's ``creation`` datetime as a string (site timezone,
+	WI-002047).
 
 	Reads from the Chat Message table (same DocType Lumina uses).
 	"""
@@ -185,7 +192,7 @@ def load_history(conversation_name: str, limit: int = 30) -> list[dict]:
 
 	messages = frappe.db.get_all(
 		"Chat Message",
-		fields=["message_type", "text", "creation"],
+		fields=["name", "message_type", "text", "creation"],
 		filters={
 			"conversation": conversation_name,
 			"message_type": ["in", ["User", "Bot"]],
@@ -201,6 +208,7 @@ def load_history(conversation_name: str, limit: int = 30) -> list[dict]:
 		{
 			"role": "user" if m["message_type"] == "User" else "assistant",
 			"content": m["text"] or "",
+			"message": m["name"],
 			"timestamp": str(m["creation"]) if m["creation"] else None,
 		}
 		for m in messages
