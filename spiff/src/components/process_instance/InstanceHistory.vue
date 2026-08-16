@@ -14,12 +14,9 @@
 					v-for="node in taskList"
 					:key="node.id"
 					@click="$emit('select', node)"
-					class="flex items-center gap-2 py-2 pr-3 cursor-pointer transition-colors text-[13px]"
+					class="flex items-center gap-2 px-3 py-2 cursor-pointer transition-colors text-[13px]"
 					:class="isSelected(node) ? 'border-l-2 border-gray-500' : 'hover:bg-gray-50 border-l-2 border-transparent'"
-					:style="{
-						paddingLeft: (12 + (node.depth || 0) * 20) + 'px',
-						...(isSelected(node) ? { backgroundColor: 'rgba(107, 114, 128, 0.12)' } : {}),
-					}"
+					:style="isSelected(node) ? { backgroundColor: 'rgba(107, 114, 128, 0.12)' } : {}"
 				>
 					<!-- Nesting marker for tasks inside a subprocess -->
 					<Icon

@@ -20,28 +20,83 @@ SOURCE_BULK_CHECK = "one_bpmn.api.editability.bulk_check_process_editable"
 SOURCE_IMPLEMENTATIONS_EDITABLE = "one_bpmn.api.editability.check_implementations_editable"
 
 
+# Processa Settings → Instance Type.  UNKNOWN ("") is reserved for "the setting
+# could not be read" so every gate can fail closed on it; an *unset* value is
+# not unknown — it resolves to the field default (Local).
+INSTANCE_LOCAL = "Local"
+INSTANCE_PRODUCTION = "Production"
+INSTANCE_STAGING = "Staging"
+INSTANCE_BA = "BA"
+INSTANCE_UNKNOWN = ""
+
+
 def get_instance_type() -> str:
-	"""Return Processa Settings → Instance Type ("Local" / "Production" /
-	"Staging" / "BA"), or "" if unset / unavailable."""
+	"""Return Processa Settings → Instance Type.
+
+	An **unset** value resolves to ``INSTANCE_LOCAL`` — the DocType field
+	default, and the only safe reading for a site nobody has configured
+	(``ensure_instance_type_seeded`` backfills existing sites on migrate).
+
+	A **read failure** returns ``INSTANCE_UNKNOWN``.  Callers must never treat
+	Unknown as permission to do something: the production lock treats it as
+	locked, and the Production/BA action gates treat it as denied.
+	"""
 	try:
-		return frappe.db.get_single_value("Processa Settings", "instance_type") or ""
+		return frappe.db.get_single_value("Processa Settings", "instance_type") or INSTANCE_LOCAL
 	except Exception:
-		return ""
+		# Deliberately not frappe.log_error() — that writes to the database,
+		# which is exactly what just failed.
+		frappe.logger("one_bpmn").warning(
+			"Could not read Processa Settings → Instance Type; treating instance as Unknown",
+			exc_info=True,
+		)
+		return INSTANCE_UNKNOWN
+
+
+def ensure_instance_type_seeded() -> str:
+	"""Give Processa Settings → Instance Type a value if it has none.
+
+	Frappe does not backfill a Single field's default onto an existing
+	``tabSingles`` row, so without this the setting reads as unset on every
+	site that predates it.  The value is derived from the signals the gates
+	used *before* Instance Type existed, so behaviour carries over:
+
+	  * ONEFM General Setting → is_production      →  "Production"
+	  * Processa Settings → connect_to_production  →  "BA" (authoring site
+	    pointed at Production)
+	  * otherwise                                  →  "Local"
+
+	Called from the ``seed_processa_instance_type`` patch (existing sites) and
+	from ``after_install`` (fresh sites, where patches are marked complete
+	without running).  Idempotent — never overwrites an existing value.
+	"""
+	current = frappe.db.get_single_value("Processa Settings", "instance_type")
+	if current:
+		return current
+
+	instance_type = INSTANCE_LOCAL
+	try:
+		if frappe.db.get_single_value("ONEFM General Setting", "is_production"):
+			instance_type = INSTANCE_PRODUCTION
+		elif frappe.db.get_single_value("Processa Settings", "connect_to_production"):
+			instance_type = INSTANCE_BA
+	except Exception:
+		# ONEFM General Setting may not exist on this bench — fall back to Local.
+		frappe.logger("one_bpmn").warning("Could not derive Instance Type; defaulting to Local", exc_info=True)
+
+	frappe.db.set_single_value("Processa Settings", "instance_type", instance_type)
+	frappe.clear_cache(doctype="Processa Settings")
+	return instance_type
 
 
 def _is_production_instance() -> bool:
-	"""Return True if Processa Settings → Instance Type is "Production".
-
-	This is the **highest-priority** editability gate.  When this site is
-	marked as a Production instance, ALL process models are unconditionally
-	read-only — even if editable Process Implementations exist.
-	"""
-	return get_instance_type() == "Production"
+	"""Return True if Processa Settings → Instance Type is "Production"."""
+	return get_instance_type() == INSTANCE_PRODUCTION
 
 
 def _is_ba_instance() -> bool:
 	"""Return True if Processa Settings → Instance Type is "BA"."""
-	return get_instance_type() == "BA"
+	return get_instance_type() == INSTANCE_BA
 
 
 def _is_production_site() -> bool:
@@ -73,17 +128,28 @@ def _site_lock_override() -> dict | None:
 	Process Implementation check should run.
 
 	Priority chain:
-	  1. Processa Settings → Instance Type = "Production"  →  always read-only
+	  1. Processa Settings → Instance Type = "Production" (or unreadable)
+	                                             →  always read-only
 	  2. site_config.json → bypass_process_lock  →  always editable (dev)
 	  3. Processa Settings → connect_to_production + URL match → read-only
 	"""
-	if _is_production_instance():
+	instance_type = get_instance_type()
+
+	# Unknown means the setting could not be read — this gate is the production
+	# lock, so it fails closed rather than handing out edit rights on a site we
+	# cannot identify.
+	if instance_type in (INSTANCE_PRODUCTION, INSTANCE_UNKNOWN):
+		reason = (
+			"This is a Production instance (Processa Settings → Instance Type). Process models are read-only."
+			if instance_type == INSTANCE_PRODUCTION
+			else "Processa Settings → Instance Type could not be read. Process models stay read-only until it is set."
+		)
 		return {
 			"editable": False,
 			"process_implementation": None,
 			"workflow_state": None,
 			"override": True,
-			"reason": "This is a Production instance (Processa Settings → Instance Type). Process models are read-only.",
+			"reason": reason,
 		}
 
 	# Local dev bypass — set `"bypass_process_lock": true` in site_config.json
@@ -484,7 +550,8 @@ def check_process_editable(process_name: str) -> dict:
 	Check if a single process is editable.
 
 	Priority chain (first match wins):
-	  1. Processa Settings → Instance Type = "Production"  →  always read-only
+	  1. Processa Settings → Instance Type = "Production" (or unreadable)
+	                                             →  always read-only
 	  2. site_config.json  → bypass_process_lock →  always editable (dev)
 	  3. Process Implementation check — an editable (Active) implementation
 	     must exist for the process:

@@ -10,18 +10,16 @@
   "role",
   "content",
   "column_break_tool",
-  "tool_calls",
+  "tool_name",
+  "tool_args",
+  "tool_result",
   "section_break_metrics",
   "prompt_tokens",
   "completion_tokens",
-  "cache_read_tokens",
-  "cache_write_tokens",
   "column_break_cost",
   "cost",
   "input_cost",
   "output_cost",
-  "cache_read_cost",
-  "cache_write_cost",
   "latency_ms",
   "section_break_error",
   "error_code",
@@ -85,18 +83,6 @@
    "label": "Completion Tokens"
   },
   {
-   "fieldname": "cache_read_tokens",
-   "fieldtype": "Int",
-   "label": "Cache Read Tokens",
-   "description": "Part of Prompt Tokens served from the prompt cache — billed at the cache-read rate, not the input rate."
-  },
-  {
-   "fieldname": "cache_write_tokens",
-   "fieldtype": "Int",
-   "label": "Cache Write Tokens",
-   "description": "Part of Prompt Tokens written into the prompt cache — billed at the cache-write rate. 0 for providers with no write premium."
-  },
-  {
    "fieldname": "column_break_cost",
    "fieldtype": "Column Break"
   },
@@ -111,7 +97,7 @@
    "fieldtype": "Currency",
    "label": "Input Cost",
    "precision": "6",
-   "description": "Cost of the UNCACHED prompt tokens only (prompt - cache_read - cache_write), billed at the input rate. Cache portions are costed separately."
+   "description": "Cost of prompt/input tokens for this step"
   },
   {
    "fieldname": "output_cost",
@@ -119,20 +105,6 @@
    "label": "Output Cost",
    "precision": "6",
    "description": "Cost of completion/output tokens for this step"
-  },
-  {
-   "fieldname": "cache_read_cost",
-   "fieldtype": "Currency",
-   "label": "Cache Read Cost",
-   "precision": "6",
-   "description": "Cost of the cache-read portion of this step's prompt."
-  },
-  {
-   "fieldname": "cache_write_cost",
-   "fieldtype": "Currency",
-   "label": "Cache Write Cost",
-   "precision": "6",
-   "description": "Cost of the cache-write portion of this step's prompt."
   },
   {
    "fieldname": "latency_ms",
@@ -159,16 +131,11 @@
   }
  ],
  "indexes": [
-  [
-   "run"
-  ],
-  [
-   "run",
-   "step_index"
-  ]
+   ["run"],
+   ["run", "step_index"]
  ],
  "links": [],
- "modified": "2026-07-29 12:00:00.000000",
+ "modified": "2026-06-24 22:20:00.000000",
  "modified_by": "Administrator",
  "module": "ONE BPMN",
  "name": "AI Agent Step",

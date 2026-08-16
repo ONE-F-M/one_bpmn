@@ -68,7 +68,7 @@ def distill_and_write(
 				scope,
 				scope_key,
 				f["content"],
-				dedup_key=None,
+				dedup_key=f["dedup_key"],
 				metadata={
 					"topic": f["topic"],
 					"learned_from": agent,
@@ -77,8 +77,6 @@ def distill_and_write(
 				},
 				source_run=source_run,
 				ignore_permissions=True,
-				reconcile=True,
-				reconcile_ctx=reconcile_ctx,
 			)
 			written.append(rec.get("name"))
 		return written

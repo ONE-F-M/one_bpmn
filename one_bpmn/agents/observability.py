@@ -18,68 +18,10 @@ import frappe
 from frappe.utils import flt, now_datetime
 
 from one_bpmn.agents.executor import ErrorCode, ExecutorConfig, ExecutorResult
-from one_bpmn.agents.pricing import compute_token_cost
+from one_bpmn.agents.pricing import get_model_pricing
 
 # Max size for final_output stored on the Run (64 KB)
 _MAX_OUTPUT_CHARS = 64 * 1024
-
-_STEP_METRIC_KEYS = (
-	"prompt_tokens",
-	"completion_tokens",
-	"cache_read_tokens",
-	"cache_write_tokens",
-	"cost",
-	"input_cost",
-	"output_cost",
-	"cache_read_cost",
-	"cache_write_cost",
-	"agent_latency_ms",
-)
-
-
-def _sum_step_metrics(run_name: str) -> Dict[str, Any]:
-	"""Sum every per-step metric of *run_name* in one query.
-
-	``agent_latency_ms`` is the sum of the steps' own latencies — the time the
-	agent was actually working (provider round-trips plus inline tool calls).
-	It deliberately excludes wall-clock gaps between steps, which for a
-	human-in-the-loop run can be days of waiting (WI-001643).
-
-	Never raises: a failed rollup returns zeros rather than blocking finalize.
-	"""
-	zeros = {k: 0 for k in _STEP_METRIC_KEYS}
-	try:
-		row = frappe.db.sql(
-			"""
-			select
-				coalesce(sum(prompt_tokens), 0),
-				coalesce(sum(completion_tokens), 0),
-				coalesce(sum(cache_read_tokens), 0),
-				coalesce(sum(cache_write_tokens), 0),
-				coalesce(sum(cost), 0),
-				coalesce(sum(input_cost), 0),
-				coalesce(sum(output_cost), 0),
-				coalesce(sum(cache_read_cost), 0),
-				coalesce(sum(cache_write_cost), 0),
-				coalesce(sum(latency_ms), 0)
-			from `tabAI Agent Step` where run = %s
-			""",
-			run_name,
-		)[0]
-	except Exception:
-		frappe.log_error(
-			title=f"AI Observability: step metric rollup failed ({run_name})",
-			message=frappe.get_traceback(),
-		)
-		return zeros
-
-	totals = dict(zip(_STEP_METRIC_KEYS, row))
-	for key in ("prompt_tokens", "completion_tokens", "cache_read_tokens",
-	            "cache_write_tokens", "agent_latency_ms"):
-		totals[key] = int(totals[key] or 0)
-	for key in ("cost", "input_cost", "output_cost", "cache_read_cost", "cache_write_cost"):
-		totals[key] = flt(totals[key])
-	return totals
 
 
 def _turn_correlation_id():
@@ -194,28 +136,24 @@ def record_ai_step(
 	*,
 	prompt_tokens: int = 0,
 	completion_tokens: int = 0,
-	cache_read_tokens: int = 0,
-	cache_write_tokens: int = 0,
 	latency_ms: int = 0,
-	tool_calls: list | None = None,
+	tool_name: str = None,
+	tool_args: dict = None,
+	tool_result: str = None,
 	error_code: str = None,
 	error_message: str = None,
 ) -> Optional["frappe.Document"]:
 	"""Record a single AI Agent Step linked to *run*.
 
-	Computes cost if pricing data is available for the run's model, splitting the
-	prompt across its three billing rates (WI-001643).
+	Computes cost if pricing data is available for the run's model.
 
 	Args:
 	    run: AI Agent Run document
 	    step_index: 0-based step index
 	    role: "system", "user", "assistant", or "tool"
 	    content: The rendered prompt text or response text
-	    prompt_tokens: FULL consumed input context for this step — inclusive of
-	        the two cache figures below, never exclusive of them
+	    prompt_tokens: Token count for this step's prompt
 	    completion_tokens: Token count for this step's completion
-	    cache_read_tokens: Part of prompt_tokens served from the prompt cache
-	    cache_write_tokens: Part of prompt_tokens written into the prompt cache
 	    latency_ms: Step latency in milliseconds
 	    error_code: Error code if this step is a failed retry attempt
 	    error_message: Error details for failed retry attempts
@@ -226,16 +164,16 @@ def record_ai_step(
 	if getattr(run, "stub", False):
 		return None
 
-	# Cost split by billing rate: uncached input / cache read / cache write /
-	# output. Charging the whole prompt at the input rate (pre-WI-001643)
-	# overstated spend wherever prompt caching was active.
-	costs = compute_token_cost(
-		getattr(run, "model", None) or "",
-		prompt_tokens=prompt_tokens,
-		completion_tokens=completion_tokens,
-		cache_read_tokens=cache_read_tokens,
-		cache_write_tokens=cache_write_tokens,
-	)
+	# Compute cost (split into input vs output)
+	input_cost = 0.0
+	output_cost = 0.0
+	if getattr(run, "model", None):
+		pricing = get_model_pricing(run.model)
+		if pricing:
+			input_rate = flt(pricing.get("input_cost_per_1k", 0))
+			output_rate = flt(pricing.get("output_cost_per_1k", 0))
+			input_cost = (prompt_tokens / 1000.0) * input_rate
+			output_cost = (completion_tokens / 1000.0) * output_rate
 
 	step = frappe.get_doc({
 		"doctype": "AI Agent Step",
@@ -243,35 +181,18 @@ def record_ai_step(
 		"step_index": step_index,
 		"role": role,
 		"content": content,
+		"tool_name": tool_name,
+		"tool_args": tool_args if tool_args else None,
+		"tool_result": tool_result,
 		"prompt_tokens": prompt_tokens,
 		"completion_tokens": completion_tokens,
-		"cache_read_tokens": cache_read_tokens,
-		"cache_write_tokens": cache_write_tokens,
-		"cost": costs["total_cost"],
-		"input_cost": costs["input_cost"],
-		"output_cost": costs["output_cost"],
-		"cache_read_cost": costs["cache_read_cost"],
-		"cache_write_cost": costs["cache_write_cost"],
+		"cost": input_cost + output_cost,
+		"input_cost": input_cost,
+		"output_cost": output_cost,
 		"latency_ms": latency_ms,
 		"error_code": error_code or None,
 		"error_message": error_message or None,
 	})
-	# WI-001358: one child row per tool actually called in this turn. A
-	# single LLM turn can contain several calls — they stay grouped under
-	# this Step with its one shared token/cost figure. (The legacy flat
-	# tool_name/tool_args/tool_result fields were removed 2026-07-04 —
-	# the child table is the sole record of tool calls.)
-	for call in tool_calls or []:
-		step.append(
-			"tool_calls",
-			{
-				"tool_name": call.get("name") or call.get("tool_name") or "",
-				"tool_source": call.get("tool_source") or "",
-				"tool_args": call.get("arguments") or call.get("tool_args") or None,
-				"tool_result": call.get("result") or call.get("tool_result") or "",
-				"status": call.get("status") or "Success",
-			},
-		)
 	try:
 		step.insert(ignore_permissions=True)
 		return step
@@ -305,43 +226,57 @@ def finalize_ai_run(run, result: ExecutorResult) -> None:
 	else:
 		duration = 0
 
-	# Cost + agent-latency rollups come from the recorded Steps either way — a
-	# failed run still consumed tokens and still spent real time.
-	step_totals = _sum_step_metrics(run.name)
-
-	update = {
-		"ended_at": ended,
-		"duration_ms": int(duration),
-		"agent_latency_ms": step_totals["agent_latency_ms"],
-		"estimated_cost": step_totals["cost"],
-		"total_input_cost": step_totals["input_cost"],
-		"total_output_cost": step_totals["output_cost"],
-		"total_cache_read_cost": step_totals["cache_read_cost"],
-		"total_cache_write_cost": step_totals["cache_write_cost"],
-		"retry_count": len(result.attempts),
-	}
-
 	if result.error_code == ErrorCode.SUCCESS:
+		# Sum step costs from the database
+		step_cost_rows = frappe.get_all(
+			"AI Agent Step",
+			filters={"run": run.name},
+			fields=["cost", "input_cost", "output_cost"],
+		)
+		estimated_cost = flt(sum(flt(r.get("cost")) for r in step_cost_rows))
+		total_input_cost = flt(sum(flt(r.get("input_cost")) for r in step_cost_rows))
+		total_output_cost = flt(sum(flt(r.get("output_cost")) for r in step_cost_rows))
+
 		# Final output (truncated)
 		output = str(result.output or "")
 		if len(output) > _MAX_OUTPUT_CHARS:
 			output = output[:_MAX_OUTPUT_CHARS]
-		update["status"] = "Success"
-		update["final_output"] = output
+
+		update = {
+			"ended_at": ended,
+			"duration_ms": int(duration),
+			"status": "Success",
+			"estimated_cost": estimated_cost,
+			"total_input_cost": total_input_cost,
+			"total_output_cost": total_output_cost,
+			"final_output": output,
+			"retry_count": len(result.attempts),
+		}
+
+		# Token totals from the result
+		if result.token_usage:
+			update["total_prompt_tokens"] = result.token_usage.prompt_tokens
+			update["total_completion_tokens"] = result.token_usage.completion_tokens
+			update["total_tokens"] = result.token_usage.total_tokens
+
+		run.db_set(update)
 	else:
-		update["status"] = "Error"
-		update["error_code"] = result.error_code.value
-		update["error_message"] = (result.error_message or "")[:_MAX_OUTPUT_CHARS]
+		update = {
+			"ended_at": ended,
+			"duration_ms": int(duration),
+			"status": "Error",
+			"error_code": result.error_code.value,
+			"error_message": (result.error_message or "")[:_MAX_OUTPUT_CHARS],
+			"retry_count": len(result.attempts),
+		}
 
-	# Token totals from the result (partial tokens are recorded on error too).
-	if result.token_usage:
-		update["total_prompt_tokens"] = result.token_usage.prompt_tokens
-		update["total_completion_tokens"] = result.token_usage.completion_tokens
-		update["total_tokens"] = result.token_usage.total_tokens
-		update["total_cache_read_tokens"] = getattr(result.token_usage, "cache_read_tokens", 0) or 0
-		update["total_cache_write_tokens"] = getattr(result.token_usage, "cache_write_tokens", 0) or 0
+		# Record partial tokens on error too
+		if result.token_usage:
+			update["total_prompt_tokens"] = result.token_usage.prompt_tokens
+			update["total_completion_tokens"] = result.token_usage.completion_tokens
+			update["total_tokens"] = result.token_usage.total_tokens
 
-	run.db_set(update)
+		run.db_set(update)
 
 
 def finalize_ai_run_on_exception(run, exception: Exception) -> None:
@@ -368,7 +303,6 @@ def finalize_ai_run_on_exception(run, exception: Exception) -> None:
 		run.db_set({
 			"ended_at": ended,
 			"duration_ms": int(duration),
-			"agent_latency_ms": _sum_step_metrics(run.name)["agent_latency_ms"],
 			"status": "Error",
 			"error_code": "UNEXPECTED_ERROR",
 			"error_message": str(exception)[:_MAX_OUTPUT_CHARS],
@@ -464,8 +398,6 @@ def record_selector_turns(run, trace: list, source_map: dict | None = None) -> i
 			turn.get("content") or "",
 			prompt_tokens=turn.get("prompt_tokens", 0),
 			completion_tokens=turn.get("completion_tokens", 0),
-			cache_read_tokens=turn.get("cache_read_tokens", 0),
-			cache_write_tokens=turn.get("cache_write_tokens", 0),
 			latency_ms=turn.get("latency_ms", 0),
 			tool_calls=tool_calls,
 		)
@@ -528,7 +460,18 @@ def update_selector_run_rollups(run) -> None:
 	if getattr(run, "stub", False):
 		return
 	try:
-		totals = _sum_step_metrics(run.name)
+		totals = frappe.db.sql(
+			"""
+			select
+				coalesce(sum(prompt_tokens), 0),
+				coalesce(sum(completion_tokens), 0),
+				coalesce(sum(cost), 0),
+				coalesce(sum(input_cost), 0),
+				coalesce(sum(output_cost), 0)
+			from `tabAI Agent Step` where run = %s
+			""",
+			run.name,
+		)[0]
 		duration_ms = 0
 		if getattr(run, "started_at", None):
 			duration_ms = int(
@@ -536,18 +479,13 @@ def update_selector_run_rollups(run) -> None:
 			)
 		run.db_set(
 			{
-				"total_prompt_tokens": totals["prompt_tokens"],
-				"total_completion_tokens": totals["completion_tokens"],
-				"total_tokens": totals["prompt_tokens"] + totals["completion_tokens"],
-				"total_cache_read_tokens": totals["cache_read_tokens"],
-				"total_cache_write_tokens": totals["cache_write_tokens"],
-				"estimated_cost": totals["cost"],
-				"total_input_cost": totals["input_cost"],
-				"total_output_cost": totals["output_cost"],
-				"total_cache_read_cost": totals["cache_read_cost"],
-				"total_cache_write_cost": totals["cache_write_cost"],
+				"total_prompt_tokens": int(totals[0]),
+				"total_completion_tokens": int(totals[1]),
+				"total_tokens": int(totals[0]) + int(totals[1]),
+				"estimated_cost": flt(totals[2]),
+				"total_input_cost": flt(totals[3]),
+				"total_output_cost": flt(totals[4]),
 				"duration_ms": duration_ms,
-				"agent_latency_ms": totals["agent_latency_ms"],
 			},
 			update_modified=False,
 		)
@@ -619,7 +557,6 @@ def finalize_selector_run(run) -> None:
 				"status": "Success",
 				"ended_at": ended,
 				"duration_ms": duration_ms,
-				"agent_latency_ms": _sum_step_metrics(run.name)["agent_latency_ms"],
 				"final_output": final_output,
 			},
 			update_modified=True,

@@ -1566,23 +1566,6 @@ def compile_process_model(model_name: str) -> dict:
 	model.flags.skip_script_security_check = True
 	model.save(ignore_permissions=True)
 
-	# ── Backend Code Removal readiness warning (non-blocking) ─────────────
-	# Frappe runs controller validate()/on_submit() BEFORE our BPMN hooks, so
-	# old native controller code can still reject or mutate a document even
-	# after the BPMN process is active. Warn — but never block — if the
-	# designer hasn't confirmed the backend code was removed on Production.
-	# Absent field (pre-schema-change records) or "Removed on Production"
-	# suppresses the warning.
-	removal_status = model.get("backend_code_removal_status")
-	if removal_status and removal_status not in ("Removed on Production",):
-		deploy_warnings.append({
-			"label": "Backend Code Removal",
-			"icon": "code-2",
-			"type": "warning",
-			"detail": _("Backend code removal not yet confirmed on production — "
-			            "confirm before go-live"),
-		})
-
 	result = {
 		"success": True,
 		"model": model_name,

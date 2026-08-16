@@ -1,5 +1,4 @@
 import logging
-import time
 
 from .base import (
     BaseLLMAdapter,
@@ -16,25 +15,6 @@ from .base import (
 _MAX_TOOL_TURNS = 10
 
 logger = logging.getLogger(__name__)
-
-
-def _usage_tokens(response) -> tuple:
-    """Real token counts for the turn.
-
-    Returns ``(prompt, completion, cache_read, cache_write)``. Anthropic reports
-    ``input_tokens`` EXCLUDING the cached portions, so prompt is the sum of all
-    three — cache_read/cache_creation tokens ARE consumed context, just billed
-    differently. The cache counts are returned alongside (rather than folded in
-    and forgotten) so pricing can actually apply the different rates: before
-    WI-001643 this function's docstring promised "pricing.py handles the cost
-    split" while discarding the only numbers that made it possible, and every
-    cached token was billed at the full input rate.
-    """
-    usage = getattr(response, "usage", None)
-    cache_read = getattr(usage, "cache_read_input_tokens", 0) or 0
-    cache_write = getattr(usage, "cache_creation_input_tokens", 0) or 0
-    prompt = (getattr(usage, "input_tokens", 0) or 0) + cache_read + cache_write
-    return prompt, getattr(usage, "output_tokens", 0) or 0, cache_read, cache_write
 
 
 def _build_tool_def(tool: ToolSpec) -> dict:
@@ -109,12 +89,6 @@ class AnthropicAdapter(BaseLLMAdapter):
         # gets its own cache_control so that on a cache miss at the automatic
         # breakpoint, the lookback still finds this earlier write.
         user_blocks = []
-        # ``conv_marker`` tracks the single block that currently carries the
-        # moving conversation cache_control marker.  As the conversation grows
-        # we relocate this marker to the latest tool_result rather than adding a
-        # new one, so the total number of markers stays fixed at 3 (tools +
-        # system + conversation) — well within Anthropic's limit of 4.
-        conv_marker: dict | None = None
         split_match = re.search(
             r"(\n+(?:User message|User request|User prompt|Request):\s*)(.*)$",
             user,
@@ -124,12 +98,11 @@ class AnthropicAdapter(BaseLLMAdapter):
             prefix_text = user[:split_match.start()].strip()
             suffix_text = (split_match.group(1) + split_match.group(2)).strip()
             if prefix_text:
-                conv_marker = {
+                user_blocks.append({
                     "type": "text",
                     "text": prefix_text,
                     "cache_control": {"type": "ephemeral"},
-                }
-                user_blocks.append(conv_marker)
+                })
             user_blocks.append({
                 "type": "text",
                 "text": suffix_text,
@@ -165,15 +138,19 @@ class AnthropicAdapter(BaseLLMAdapter):
             async with self._client.messages.stream(**kwargs) as stream:
                 response = await stream.get_final_message()
 
-            prompt_tokens, completion_tokens, cache_read, cache_write = _usage_tokens(response)
+            # ── Log cache metrics ─────────────────────────────────────────────
+            usage = response.usage
+            cache_read = getattr(usage, "cache_read_input_tokens", 0) or 0
+            cache_write = getattr(usage, "cache_creation_input_tokens", 0) or 0
+            uncached = getattr(usage, "input_tokens", 0) or 0
             logger.debug(
                 "Anthropic cache [model=%s turn=%d]: "
                 "read=%d write=%d uncached=%d total_in=%d out=%d",
                 self._model, turn,
-                cache_read, cache_write, prompt_tokens - cache_read - cache_write,
-                prompt_tokens, completion_tokens,
+                cache_read, cache_write, uncached,
+                cache_read + cache_write + uncached,
+                getattr(usage, "output_tokens", 0) or 0,
             )
-            text_parts = [b.text for b in response.content if hasattr(b, "text")]
 
             # A reply cut off at the token ceiling is not a reply: JSON and
             # tool arguments end mid-token, so every consumer downstream sees
@@ -187,70 +164,41 @@ class AnthropicAdapter(BaseLLMAdapter):
                 )
 
             if response.stop_reason != "tool_use":
-                content = "\n".join(text_parts)
-                trace.append(
-                    TurnRecord(
-                        role="assistant",
-                        content=content,
-                        prompt_tokens=prompt_tokens,
-                        completion_tokens=completion_tokens,
-                        cache_read_tokens=cache_read,
-                        cache_write_tokens=cache_write,
-                        latency_ms=int((time.perf_counter() - _turn_t0) * 1000),
-                    )
-                )
-                return CompletionResult(text=content, trace=trace)
+                # Collect all text blocks
+                text_parts = [b.text for b in response.content if hasattr(b, "text")]
+                return "\n".join(text_parts)
 
             # Append assistant turn (content includes tool_use blocks)
             messages.append({"role": "assistant", "content": response.content})
 
-            # Execute tool calls and build tool_result blocks; all calls of
-            # this response stay grouped under ONE TurnRecord with the turn's
-            # real token usage.
-            turn_record = TurnRecord(
-                role="tool",
-                content="\n".join(text_parts),
-                prompt_tokens=prompt_tokens,
-                completion_tokens=completion_tokens,
-                cache_read_tokens=cache_read,
-                cache_write_tokens=cache_write,
-            )
+            # Execute tool calls and build tool_result blocks
             tool_results = []
             for block in response.content:
                 if block.type != "tool_use":
                     continue
                 tool = tool_map.get(block.name)
-                arguments = dict(block.input or {})
                 if tool:
                     try:
-                        result = str(tool.fn(**arguments))
+                        result = str(tool.fn(**block.input))
                     except Exception as exc:
                         result = f"Error calling {block.name}: {exc}"
                 else:
                     result = f"Unknown tool: {block.name}"
 
-                turn_record.tool_calls.append(
-                    ToolCallRecord(name=block.name, arguments=arguments, result=result)
-                )
                 tool_results.append({
                     "type": "tool_result",
                     "tool_use_id": block.id,
                     "content": result,
                 })
-            # API round-trip + inline tool execution = this turn's decision latency
-            turn_record.latency_ms = int((time.perf_counter() - _turn_t0) * 1000)
-            trace.append(turn_record)
 
-            # Relocate the single conversation cache_control marker to the last
-            # tool_result so the entire conversation prefix (tools + system +
-            # all prior messages + this tool result) is cached for the next
-            # turn.  We remove the marker from its previous location first so
-            # markers never accumulate beyond the Anthropic limit of 4.
+            # Mark the last tool_result with cache_control so the entire
+            # conversation prefix (tools + system + all prior messages +
+            # this tool result) is cached for the next turn.  This gives
+            # the lookback window an explicit write point close to the end
+            # of the growing conversation, ensuring cache hits even when
+            # the conversation exceeds 20 blocks.
             if tool_results:
-                if conv_marker is not None:
-                    conv_marker.pop("cache_control", None)
                 tool_results[-1]["cache_control"] = {"type": "ephemeral"}
-                conv_marker = tool_results[-1]
 
             messages.append({"role": "user", "content": tool_results})
             kwargs["messages"] = messages
@@ -328,7 +276,7 @@ class AnthropicAdapter(BaseLLMAdapter):
         async with self._client.messages.stream(**kwargs) as stream:
             response = await stream.get_final_message()
 
-        prompt_tokens, completion_tokens, cache_read, cache_write = _usage_tokens(response)
+        prompt_tokens, completion_tokens = _usage_tokens(response)
         text_parts = [b.text for b in response.content if hasattr(b, "text")]
         tool_calls = [
             StepToolCall(id=b.id, name=b.name, arguments=dict(b.input or {}))
@@ -341,6 +289,4 @@ class AnthropicAdapter(BaseLLMAdapter):
             tool_calls=tool_calls if response.stop_reason == "tool_use" else [],
             prompt_tokens=prompt_tokens,
             completion_tokens=completion_tokens,
-            cache_read_tokens=cache_read,
-            cache_write_tokens=cache_write,
         )

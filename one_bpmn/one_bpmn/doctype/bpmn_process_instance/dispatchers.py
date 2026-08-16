@@ -85,37 +85,6 @@ def _extract_memory_content(output, content_field: str) -> str:
 	return str(output or "")
 
 
-def _memory_output_from_trace(trace) -> str:
-	"""Distillable text for a tool-protocol agent whose assistant text is empty.
-
-	Agents instructed to "never reply in prose, always call tools" (e.g. the Docu
-	orchestrator) put their user-facing answer in tool-call arguments and RESULTS
-	(e.g. the Docu stage tools are zero-arg and return the draft/response as their
-	result) — so ``result.output`` is legitimately blank and the note-taker would
-	see nothing. Reconstruct what the agent said/did from the trace's tool calls
-	instead. Most recent turn first, so the terminal tools' payloads (the final
-	response) survive the distiller's input cap.
-	"""
-	parts = []
-	for turn in reversed(trace or []):
-		for call in turn.get("tool_calls") or []:
-			name = call.get("name") or ""
-			call_result = call.get("result") or ""
-			if str(call_result).startswith("Unknown tool:"):
-				continue
-			args = call.get("arguments")
-			rendered = ""
-			if args:
-				try:
-					rendered = json.dumps(args, default=str)
-				except (TypeError, ValueError):
-					rendered = str(args)
-			payload = " ".join(p for p in (rendered, str(call_result)) if p).strip()
-			if payload:
-				parts.append(f"{name}: {payload[:2000]}")
-	return "\n".join(parts)
-
-
 def _memory_write_mode(task_cfg: dict) -> str:
 	"""Resolve the long-term memory write mode: "off" | "raw" | "distilled".
 
@@ -1116,54 +1085,23 @@ def dispatch_ai_agent(instance, task, task_cfg: dict, bpmn_id: str, resume_run: 
 			return text
 
 	if resume_payload:
-		# The conversation continues — the checkpointed system prompt must be
-		# reused verbatim. The static layer is frozen for the whole run, so a
-		# resumed segment sees exactly the context the first segment saw.
+		# The conversation continues — the checkpointed system prompt (incl.
+		# any memory block injected at dispatch time) must be reused verbatim.
 		system_prompt = resume_payload.get("system_prompt") or ""
 		user_prompt = ""
 	else:
-		# ── Static context layer (WI-001639) ──────────────────────────────
-		# Instructions -> Examples -> Guard Rails, assembled once and frozen
-		# for the rest of the run. Examples and guard rails come from the
-		# linked AI Agent Configuration; a shape with no linked config renders
-		# its own prompt alone, exactly as before.
-		from one_bpmn.agents.context_assembler import build_static_context, load_agent_behaviour
-
-		instructions = render(task_cfg.get("aiSystemPrompt", ""))
-		agent_config = {}
-		if task_cfg.get("aiAgentConfig"):
-			try:
-				agent_config = load_agent_behaviour(task_cfg["aiAgentConfig"])
-			except Exception:
-				# Behaviour rows are additive: a failure here must degrade to
-				# the plain prompt, never take the agent down.
-				frappe.log_error(
-					title=f"BPMN AI Agent Task: static context load failed ({bpmn_id})",
-					message=frappe.get_traceback(),
-				)
-		system_prompt = build_static_context(
-			system_prompt=instructions,
-			examples=agent_config.get("examples"),
-			guardrails=agent_config.get("guardrails"),
-		)
-		user_prompt = render(task_cfg.get("aiUserPrompt", ""))
+		system_prompt = render(task_cfg.get("aiSystemPrompt", ""))
+		user_prompt   = render(task_cfg.get("aiUserPrompt", ""))
 
 	# ── Long-term memory: search + inject (config-gated; safe when off) ──
 	# When aiLongTermMemory is enabled, recall memories for the task's scope
-	# using the rendered user prompt as the query.
-	#
-	# WI-001639: the retrieved block goes into the DYNAMIC layer (ahead of the
-	# user's text), not onto the system prompt. Memory is searched per turn, so
-	# appending it to the system prompt made the "immutable" layer differ on
-	# every call — the drift this story exists to remove — and invalidated the
-	# provider's system-prompt cache breakpoint each time.
-	# Failures never block the call.
+	# using the rendered user prompt as the query and append them to the system
+	# prompt as a stable "Relevant memory:" block. Failures never block the call.
 	memory_target = None
 	if not resume_payload and _cfg_truthy(task_cfg.get("aiLongTermMemory")):
 		try:
 			memory_target = _resolve_memory_target(task_cfg, instance, bpmn_id)
 			if memory_target and user_prompt:
-				from one_bpmn.agents.context_assembler import build_dynamic_preamble
 				from one_bpmn.agents.memory.tools import memory_search
 				scope, scope_key = memory_target
 				limit = int(task_cfg.get("aiMemoryLimit", 5) or 5)
@@ -1171,10 +1109,8 @@ def dispatch_ai_agent(instance, task, task_cfg: dict, bpmn_id: str, resume_run: 
 					scope, scope_key, user_prompt, limit=limit, ignore_permissions=True
 				)
 				if memories:
-					user_prompt = build_dynamic_preamble(
-						memory_block=_format_memory_block(memories),
-						user_prompt=user_prompt,
-					)
+					block = _format_memory_block(memories)
+					system_prompt = f"{system_prompt}\n\n{block}" if system_prompt else block
 		except Exception:
 			frappe.log_error(
 				title=f"BPMN AI Agent Task: memory_search failed ({bpmn_id})",
@@ -1294,15 +1230,6 @@ def dispatch_ai_agent(instance, task, task_cfg: dict, bpmn_id: str, resume_run: 
 	if resume_payload and result.token_usage:
 		result.token_usage.prompt_tokens += int(resume_payload.get("prompt_tokens_so_far") or 0)
 		result.token_usage.completion_tokens += int(resume_payload.get("completion_tokens_so_far") or 0)
-		# WI-001643: the cache breakdown must accumulate alongside the prompt
-		# total it is a breakdown OF — otherwise the final segment's small cache
-		# figures would be costed against every earlier segment's prompt tokens.
-		result.token_usage.cache_read_tokens += int(
-			resume_payload.get("cache_read_tokens_so_far") or 0
-		)
-		result.token_usage.cache_write_tokens += int(
-			resume_payload.get("cache_write_tokens_so_far") or 0
-		)
 		result.token_usage.total_tokens = (
 			result.token_usage.prompt_tokens + result.token_usage.completion_tokens
 		)
@@ -1334,11 +1261,6 @@ def dispatch_ai_agent(instance, task, task_cfg: dict, bpmn_id: str, resume_run: 
 				record_ai_step(
 					run, 2, "user", user_prompt,
 					prompt_tokens=usage.prompt_tokens if usage else 0,
-					# The cache breakdown rides with the prompt tokens it splits,
-					# so the user step is costed at the real blend of rates
-					# rather than all-input (WI-001643).
-					cache_read_tokens=getattr(usage, "cache_read_tokens", 0) if usage else 0,
-					cache_write_tokens=getattr(usage, "cache_write_tokens", 0) if usage else 0,
 				)
 				if result.error_code == ErrorCode.SUCCESS:
 					record_ai_step(
@@ -1355,11 +1277,7 @@ def dispatch_ai_agent(instance, task, task_cfg: dict, bpmn_id: str, resume_run: 
 
 		# Commit observability data so AI runs + steps survive even if a
 		# downstream aiStopOnError raise rolls back the outer transaction.
-		# Never inside tests: a mid-test commit also persists the test's
-		# fixture docs, defeating FrappeTestCase rollback and leaking
-		# orphan "Active" instances into the shared dev DB.
-		if not frappe.flags.in_test:
-			frappe.db.commit()
+		frappe.db.commit()
 	except Exception:
 		frappe.log_error(
 			title=f"AI Observability: instrumentation error ({bpmn_id})",
@@ -1383,8 +1301,6 @@ def dispatch_ai_agent(instance, task, task_cfg: dict, bpmn_id: str, resume_run: 
 			human_row_id="",
 			prior_prompt_tokens=int((resume_payload or {}).get("prompt_tokens_so_far") or 0),
 			prior_completion_tokens=int((resume_payload or {}).get("completion_tokens_so_far") or 0),
-			prior_cache_read_tokens=int((resume_payload or {}).get("cache_read_tokens_so_far") or 0),
-			prior_cache_write_tokens=int((resume_payload or {}).get("cache_write_tokens_so_far") or 0),
 		)
 		pending = (result.suspension or {}).get("pending_call") or {}
 		pending_name = pending.get("name") or ""
@@ -1503,7 +1419,7 @@ def dispatch_ai_agent(instance, task, task_cfg: dict, bpmn_id: str, resume_run: 
 									f"[Agent tool activity]\n{trace_text}"
 								)
 						_enqueue_distill(
-							agent_output=memory_src,
+							agent_output=result.output,
 							agent=(task_cfg.get("aiMemoryAgentElement") or bpmn_id),
 							scope=scope,
 							scope_key=scope_key,

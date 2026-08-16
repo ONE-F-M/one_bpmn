@@ -15,10 +15,6 @@
   "input_cost_per_1k",
   "column_break_output",
   "output_cost_per_1k",
-  "section_break_cache",
-  "cache_read_cost_per_1k",
-  "column_break_cache",
-  "cache_write_cost_per_1k",
   "section_break_notes",
   "notes"
  ],
@@ -36,9 +32,10 @@
    "fieldtype": "Data",
    "in_list_view": 1,
    "label": "Model Name",
+   "read_only": 1,
+   "fetch_from": "provider.default_model",
    "reqd": 1,
-   "description": "The model these rates apply to, e.g. claude-sonnet-5. Matched against the model name the agent actually calls (a trailing date suffix such as -20250929 is stripped when no exact row exists).",
-   "in_standard_filter": 1
+   "description": "Fetched from the AI Provider Credentials's Default Model"
   },
   {
    "fieldname": "column_break_status",
@@ -83,30 +80,6 @@
    "reqd": 1
   },
   {
-   "fieldname": "section_break_cache",
-   "fieldtype": "Section Break",
-   "label": "Prompt Cache Pricing (USD)",
-   "description": "Optional. Leave at 0 to derive from the input rate using the standard Anthropic ratios — cache reads at 10% and cache writes at 125% of input. Set explicitly for providers or tiers whose cache ratios differ."
-  },
-  {
-   "fieldname": "cache_read_cost_per_1k",
-   "fieldtype": "Currency",
-   "label": "Cache Read Cost per 1k Tokens",
-   "precision": "6",
-   "description": "Rate for tokens served from the prompt cache. 0 = derive as 10% of the input rate."
-  },
-  {
-   "fieldname": "column_break_cache",
-   "fieldtype": "Column Break"
-  },
-  {
-   "fieldname": "cache_write_cost_per_1k",
-   "fieldtype": "Currency",
-   "label": "Cache Write Cost per 1k Tokens",
-   "precision": "6",
-   "description": "Rate for tokens written into the prompt cache. 0 = derive as 125% of the input rate. Providers with no write premium (OpenAI, Gemini) report no cache-write tokens, so this rate is never applied to them."
-  },
-  {
    "fieldname": "section_break_notes",
    "fieldtype": "Section Break",
    "label": "Notes",
@@ -119,15 +92,12 @@
   }
  ],
  "indexes": [
-  [
-   "model_name",
-   "is_active"
-  ]
+   ["model_name", "is_active"]
  ],
  "grid_page_length": 50,
  "index_web_pages_for_search": 1,
  "links": [],
- "modified": "2026-07-29 12:00:00.000000",
+ "modified": "2026-06-29 00:00:00.000000",
  "modified_by": "Administrator",
  "module": "ONE BPMN",
  "name": "AI Model Pricing",

@@ -190,17 +190,8 @@ def process_timer_catch_events():
 
 def _refresh_timer_tasks(instance_name: str):
 	"""
-	Restore a process instance's LIVE engine state, refresh waiting timer
-	tasks, and if any became READY, run the engine forward and save.
-
-	Field contract (same as start()/advance()): ``workflow_state`` holds the
-	live serialized workflow; ``serialized_spec`` is the compiled spec
-	snapshot — a pristine, never-run workflow plus the compile-time
-	extension dicts. This function previously restored the SNAPSHOT as if
-	it were live state: at best a silent no-op (a fresh workflow has no
-	waiting timers, so timer catch events never actually resumed), and had
-	a fresh copy ever produced fired timers it would have re-run the
-	process from scratch and overwritten the real progress.
+	Restore a process instance, refresh waiting timer tasks, and if any
+	became READY, run the engine forward and save.
 	"""
 	from SpiffWorkflow.util.task import TaskState
 	from one_bpmn.one_bpmn import engine as bpmn_engine
@@ -208,23 +199,18 @@ def _refresh_timer_tasks(instance_name: str):
 
 	instance = frappe.get_doc("BPMN Process Instance", instance_name)
 
-	if not instance.workflow_state:
+	if not instance.serialized_spec:
 		return
 
+	# Restore the workflow
 	spec_data = (
 		json.loads(instance.serialized_spec)
 		if isinstance(instance.serialized_spec, str)
-		else (instance.serialized_spec or {})
-	) or {}
-
-	workflow_state = (
-		json.loads(instance.workflow_state)
-		if isinstance(instance.workflow_state, str)
-		else instance.workflow_state
+		else instance.serialized_spec
 	)
 
 	wf = bpmn_engine.restore_workflow(
-		workflow_state=workflow_state,
+		workflow_state=spec_data,
 		context_doctype=instance.context_doctype,
 		context_docname=instance.context_docname,
 		script_task_extensions=spec_data.get("script_task_extensions"),
@@ -238,34 +224,39 @@ def _refresh_timer_tasks(instance_name: str):
 
 	waiting_after = len(wf.get_tasks(state=TaskState.WAITING))
 
-	# If any timers fired, run the engine forward through the full dispatch
-	# pipeline (gated ad-hoc stepping, service/AI dispatch, activity
-	# logging) — exactly like advance() does after a user task completes.
+	# If any tasks transitioned, run the engine forward
 	if waiting_after < waiting_before:
-		instance._service_task_extensions = spec_data.get("service_task_extensions", {})
-		instance._user_task_extensions = spec_data.get("user_task_extensions", {})
-		try:
-			instance._refresh_user_task_extensions_from_model()
-		except Exception:
-			pass
+		# Some timers fired — run the engine to process newly READY tasks
+		ready_tasks = wf.get_tasks(state=TaskState.READY)
+		for task in ready_tasks:
+			# Only auto-complete non-manual tasks (service, script, etc.)
+			# User Tasks still require human action
+			if not task.task_spec.manual:
+				task.run()
 
-		frappe.flags.bpmn_engine_action = True
-		try:
-			instance._run_engine(wf)
-		finally:
-			frappe.flags.bpmn_engine_action = False
+		wf.do_engine_steps()
 
-		# Persist the LIVE state to workflow_state; serialized_spec (the
-		# compiled snapshot) is never touched here.
+		# Serialize and save
 		bpmn_engine.clean_doc_from_wf_data(wf)
-		instance.workflow_state = json.dumps(bpmn_engine.serialize_workflow(wf))
+		serialized = bpmn_engine.serialize_workflow(wf)
+
+		# Merge extensions back
+		model_spec = (
+			json.loads(instance.serialized_spec)
+			if isinstance(instance.serialized_spec, str)
+			else instance.serialized_spec
+		)
+		for key in ("service_task_extensions", "script_task_extensions", "user_task_extensions"):
+			if key in model_spec:
+				serialized[key] = model_spec[key]
+
+		instance.serialized_spec = json.dumps(serialized)
 
 		instance._sync_active_tasks(wf)
 		instance._check_completion(wf)
 
 		instance.save(ignore_permissions=True)
-		if not frappe.flags.in_test:
-			frappe.db.commit()
+		frappe.db.commit()
 
 		# Publish realtime for auto-refresh
 		frappe.publish_realtime(

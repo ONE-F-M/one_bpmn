@@ -21,7 +21,6 @@ declare module 'vue' {
     CodeMirrorEditor: typeof import('./src/components/CodeMirrorEditor.vue')['default']
     CompareDialog: typeof import('./src/components/CompareDialog.vue')['default']
     ConfigImportResultsDialog: typeof import('./src/components/ConfigImportResultsDialog.vue')['default']
-    CostAllocationReport: typeof import('./src/components/insights/CostAllocationReport.vue')['default']
     CostTokenReport: typeof import('./src/components/insights/CostTokenReport.vue')['default']
     DataTable: typeof import('./src/components/chat/primitives/DataTable.vue')['default']
     DataTableCard: typeof import('./src/components/chat/cards/DataTableCard.vue')['default']

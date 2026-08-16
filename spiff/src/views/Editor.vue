@@ -1767,17 +1767,10 @@ function extractProcessContext(element) {
 	const incoming = (bo.incoming || []).map(f => mapNode(f.sourceRef)).filter(Boolean);
 	const outgoing  = (bo.outgoing  || []).map(f => mapNode(f.targetRef)).filter(Boolean);
 	const process   = bo.$parent;
-	// An element parented by an ad-hoc sub-process is an Agent Tool (it runs via
-	// shape_tools' synthetic-task path, not the engine's Script Task path) — the
-	// two have different script contracts, so Logix must know which it is writing.
-	const parentType = process?.$type || "";
 	return {
 		element_id:   bo.id,
 		element_name: bo.name || bo.id,
-		element_type: (bo.$type || "").replace("bpmn:", ""),
 		process_name: process?.name || process?.id || "",
-		parent_type:  parentType.replace("bpmn:", ""),
-		shape_kind:   parentType === "bpmn:AdHocSubProcess" ? "agent_tool" : "script_task",
 		incoming,
 		outgoing,
 	};
@@ -2034,17 +2027,10 @@ async function executeDeployment() {
 				"green"
 			);
 
-			// Show deploy readiness warnings (non-blocking). Warnings may be
-			// plain strings (eval suite gating) or structured objects with
-			// { label, detail, type, icon } (e.g. backend code removal).
+			// Show eval suite gating warnings (non-blocking)
 			if (response.warnings && response.warnings.length > 0) {
 				for (const warning of response.warnings) {
-					if (warning && typeof warning === "object") {
-						const title = warning.label ? `${warning.label} Warning` : "Deploy Warning";
-						showNotification(title, warning.detail || warning.label || "", "orange");
-					} else {
-						showNotification("Eval Suite Warning", warning, "orange");
-					}
+					showNotification("Eval Suite Warning", warning, "orange");
 				}
 			}
 

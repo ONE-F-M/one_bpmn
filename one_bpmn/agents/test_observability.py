@@ -25,65 +25,17 @@ class TestObservability(FrappeTestCase):
 		defaults.update(kwargs)
 		return ExecutorConfig(**defaults)
 
-	def _make_instance(self):
-		"""A real BPMN Process Instance to link runs to.
-
-		AI Agent Run.instance is a validated Link, so the fake names these tests
-		used ("inst", "test-instance") made create_ai_run fall back to its stub
-		and every downstream assertion see None. Cached per test-class run so the
-		model/instance pair is only built once.
-		"""
-		if getattr(self.__class__, "_instance_name", None):
-			return self.__class__._instance_name
-
-		model = frappe.get_doc({
-			"doctype": "BPMN Process Model",
-			"title": f"test-model-{frappe.generate_hash(length=8)}",
-			"process_id": f"test_proc_{frappe.generate_hash(length=8)}",
-			"version": 1,
-		})
-		model.flags.skip_editability_check = True
-		model.flags.skip_script_security_check = True
-		model.insert(ignore_permissions=True)
-
-		instance = frappe.get_doc({
-			"doctype": "BPMN Process Instance",
-			"process_model": model.name,
-			"status": "Active",
-		}).insert(ignore_permissions=True)
-		self.__class__._instance_name = instance.name
-		return instance.name
-
-	def _make_provider(self):
-		"""An enabled AI Provider Credentials record to hang pricing off.
-
-		Created per test rather than assuming a fixture name exists — these
-		tests previously hard-coded provider="openai", which does not exist on
-		every site and made the whole module fail at setup.
-		"""
-		name = f"test-provider-{frappe.generate_hash(length=8)}"
-		frappe.get_doc({
-			"doctype": "AI Provider Credentials",
-			"provider_name": name,
-			"provider_type": "OpenAI",
-			"api_key": "test-key-not-used",
-			"enabled": 1,
-		}).insert(ignore_permissions=True)
-		return name
-
-	def _make_pricing(self, model, input_cost_per_1k, output_cost_per_1k, **cache_rates):
+	def _make_pricing(self, model, input_cost_per_1k, output_cost_per_1k):
 		"""Create an active AI Model Pricing record for *model*."""
-		row = {
+		doc = frappe.get_doc({
 			"doctype": "AI Model Pricing",
 			"model_name": model,
-			"provider": self._make_provider(),
+			"provider": "openai",
 			"input_cost_per_1k": input_cost_per_1k,
 			"output_cost_per_1k": output_cost_per_1k,
 			"effective_from": "2025-01-01",
 			"is_active": 1,
-		}
-		row.update(cache_rates)
-		doc = frappe.get_doc(row)
+		})
 		doc.insert(ignore_permissions=True)
 		return doc
 
@@ -92,12 +44,12 @@ class TestObservability(FrappeTestCase):
 		from one_bpmn.agents.observability import create_ai_run
 
 		config = self._make_config()
-		instance = frappe._dict({"name": self._make_instance()})
+		instance = frappe._dict({"name": "test-instance"})
 		run = create_ai_run(instance, "Activity_Test", "task", config)
 
 		self.assertTrue(frappe.db.exists("AI Agent Run", run.name))
 		self.assertEqual(run.status, "Running")
-		self.assertEqual(run.instance, instance.name)
+		self.assertEqual(run.instance, "test-instance")
 		self.assertEqual(run.bpmn_id, "Activity_Test")
 		self.assertEqual(run.model, "gpt-4o")
 
@@ -106,7 +58,7 @@ class TestObservability(FrappeTestCase):
 		from one_bpmn.agents.observability import create_ai_run, record_ai_step
 
 		config = self._make_config()
-		run = create_ai_run(frappe._dict({"name": self._make_instance()}), "A1", "task", config)
+		run = create_ai_run(frappe._dict({"name": "inst"}), "A1", "task", config)
 
 		step = record_ai_step(run, 0, "system", "System prompt here")
 		self.assertIsNotNone(step)
@@ -123,7 +75,7 @@ class TestObservability(FrappeTestCase):
 		self._make_pricing(model, input_cost_per_1k=0.01, output_cost_per_1k=0.03)
 
 		config = self._make_config(model=model)
-		run = create_ai_run(frappe._dict({"name": self._make_instance()}), "A1", "task", config)
+		run = create_ai_run(frappe._dict({"name": "inst"}), "A1", "task", config)
 
 		step = record_ai_step(
 			run, 0, "assistant", "response",
@@ -139,7 +91,7 @@ class TestObservability(FrappeTestCase):
 		from one_bpmn.agents.observability import create_ai_run, record_ai_step
 
 		config = self._make_config()
-		run = create_ai_run(frappe._dict({"name": self._make_instance()}), "A1", "task", config)
+		run = create_ai_run(frappe._dict({"name": "inst"}), "A1", "task", config)
 
 		step = record_ai_step(run, 0, "assistant", "response", latency_ms=350)
 		self.assertIsNotNone(step)
@@ -158,7 +110,7 @@ class TestObservability(FrappeTestCase):
 
 		config = self._make_config(model=model)
 		# Simulate a run that started 1 second ago
-		run = create_ai_run(frappe._dict({"name": self._make_instance()}), "A1", "task", config)
+		run = create_ai_run(frappe._dict({"name": "inst"}), "A1", "task", config)
 
 		# Speed: cheat by setting started_at to 1s ago
 		import datetime
@@ -195,7 +147,7 @@ class TestObservability(FrappeTestCase):
 		from one_bpmn.agents.observability import create_ai_run, finalize_ai_run
 
 		config = self._make_config()
-		run = create_ai_run(frappe._dict({"name": self._make_instance()}), "A1", "task", config)
+		run = create_ai_run(frappe._dict({"name": "inst"}), "A1", "task", config)
 
 		result = ExecutorResult(
 			output=None,
@@ -217,7 +169,7 @@ class TestObservability(FrappeTestCase):
 		)
 
 		config = self._make_config()
-		run = create_ai_run(frappe._dict({"name": self._make_instance()}), "A1", "task", config)
+		run = create_ai_run(frappe._dict({"name": "inst"}), "A1", "task", config)
 
 		finalize_ai_run_on_exception(run, RuntimeError("Something went wrong"))
 
@@ -235,7 +187,7 @@ class TestObservability(FrappeTestCase):
 		)
 
 		config = self._make_config(model="invented-model-no-pricing")
-		run = create_ai_run(frappe._dict({"name": self._make_instance()}), "A1", "task", config)
+		run = create_ai_run(frappe._dict({"name": "inst"}), "A1", "task", config)
 
 		step = record_ai_step(
 			run, 0, "user", "test",
@@ -263,7 +215,7 @@ class TestObservability(FrappeTestCase):
 		from one_bpmn.agents.observability import create_ai_run
 
 		config = self._make_config()
-		instance = frappe._dict({"name": self._make_instance()})
+		instance = frappe._dict({"name": "inst"})
 
 		# Simulate a database failure during run.insert()
 		with patch("frappe.log_error") as mock_log, \
@@ -291,119 +243,3 @@ class TestObservability(FrappeTestCase):
 
 		# Must not raise
 		finalize_ai_run_on_exception(None, RuntimeError("test"))
-
-	# ── WI-001643: cache-aware cost + latency that excludes human wait ──
-
-	def _priced_run(self, **rates):
-		"""A Running AI Agent Run whose model has pricing."""
-		from one_bpmn.agents.observability import create_ai_run
-
-		model = f"priced-{frappe.generate_hash(length=6)}"
-		self._make_pricing(
-			model,
-			rates.get("input_rate", 0.01),
-			rates.get("output_rate", 0.03),
-			cache_read_cost_per_1k=rates.get("cache_read", 0.001),
-			cache_write_cost_per_1k=rates.get("cache_write", 0.0125),
-		)
-		return create_ai_run(
-			frappe._dict({"name": self._make_instance()}), "A1", "task", self._make_config(model=model)
-		)
-
-	def test_record_ai_step_splits_cache_cost(self):
-		"""A step's prompt is costed across uncached / cache-read / cache-write."""
-		from one_bpmn.agents.observability import record_ai_step
-
-		run = self._priced_run()
-		step = record_ai_step(
-			run, 0, "assistant", "response",
-			prompt_tokens=10_000,       # inclusive of the two below
-			cache_read_tokens=6_000,
-			cache_write_tokens=1_000,
-			completion_tokens=2_000,
-		)
-		self.assertIsNotNone(step)
-		self.assertEqual(step.cache_read_tokens, 6_000)
-		self.assertEqual(step.cache_write_tokens, 1_000)
-		# 3k uncached @0.01, 6k read @0.001, 1k write @0.0125, 2k out @0.03
-		self.assertAlmostEqual(step.input_cost, 0.03, places=6)
-		self.assertAlmostEqual(step.cache_read_cost, 0.006, places=6)
-		self.assertAlmostEqual(step.cache_write_cost, 0.0125, places=6)
-		self.assertAlmostEqual(step.output_cost, 0.06, places=6)
-		self.assertAlmostEqual(step.cost, 0.1085, places=6)
-
-	def test_record_ai_step_without_cache_bills_whole_prompt_at_input_rate(self):
-		"""Backward compatibility: no cache tokens → unchanged cost."""
-		from one_bpmn.agents.observability import record_ai_step
-
-		run = self._priced_run()
-		step = record_ai_step(
-			run, 0, "assistant", "r", prompt_tokens=1_000, completion_tokens=1_000
-		)
-		self.assertAlmostEqual(step.input_cost, 0.01, places=6)
-		self.assertAlmostEqual(step.cost, 0.04, places=6)
-		self.assertEqual(step.cache_read_tokens, 0)
-		self.assertEqual(step.cache_write_cost, 0.0)
-
-	def test_finalize_rolls_up_cache_tokens_and_costs(self):
-		"""Run totals include the cache breakdown summed across steps."""
-		from one_bpmn.agents.observability import record_ai_step, finalize_ai_run
-
-		run = self._priced_run()
-		for i in range(2):
-			record_ai_step(
-				run, i, "assistant", "r",
-				prompt_tokens=5_000, cache_read_tokens=4_000,
-				cache_write_tokens=500, completion_tokens=1_000,
-			)
-		finalize_ai_run(run, ExecutorResult(
-			output="done",
-			error_code=ErrorCode.SUCCESS,
-			token_usage=TokenUsage(
-				prompt_tokens=10_000, completion_tokens=2_000, total_tokens=12_000,
-				cache_read_tokens=8_000, cache_write_tokens=1_000,
-			),
-		))
-		run.reload()
-		self.assertEqual(run.total_cache_read_tokens, 8_000)
-		self.assertEqual(run.total_cache_write_tokens, 1_000)
-		# per step: 500 uncached @0.01 = 0.005; 4k read @0.001 = 0.004;
-		#           500 write @0.0125 = 0.00625; 1k out @0.03 = 0.03
-		self.assertAlmostEqual(run.total_cache_read_cost, 0.008, places=6)
-		self.assertAlmostEqual(run.total_cache_write_cost, 0.0125, places=6)
-		self.assertAlmostEqual(run.total_input_cost, 0.01, places=6)
-		self.assertAlmostEqual(run.estimated_cost, 2 * 0.04525, places=6)
-
-	def test_agent_latency_is_step_time_not_wall_clock(self):
-		"""agent_latency_ms measures work done, so it excludes idle wall-clock.
-
-		This is the metric A/B experiments need: a run parked for a person has a
-		huge duration_ms but the same agent latency as one that was not.
-		"""
-		import datetime
-		from one_bpmn.agents.observability import record_ai_step, finalize_ai_run
-
-		run = self._priced_run()
-		# Pretend the run began an hour ago (a human sat on it).
-		run.db_set("started_at", now_datetime() - datetime.timedelta(hours=1))
-		record_ai_step(run, 0, "assistant", "r", latency_ms=200)
-		record_ai_step(run, 1, "assistant", "r", latency_ms=300)
-
-		finalize_ai_run(run, ExecutorResult(output="ok", error_code=ErrorCode.SUCCESS))
-		run.reload()
-		self.assertEqual(run.agent_latency_ms, 500)
-		self.assertGreater(run.duration_ms, 60 * 60 * 1000 - 5_000)
-		self.assertLess(run.agent_latency_ms, run.duration_ms)
-
-	def test_agent_latency_recorded_on_error_too(self):
-		"""A failed run still spent real time; the metric must not be lost."""
-		from one_bpmn.agents.observability import record_ai_step, finalize_ai_run
-
-		run = self._priced_run()
-		record_ai_step(run, 0, "assistant", "r", latency_ms=120)
-		finalize_ai_run(run, ExecutorResult(
-			error_code=ErrorCode.FAILED_MODEL_CALL, error_message="boom",
-		))
-		run.reload()
-		self.assertEqual(run.status, "Error")
-		self.assertEqual(run.agent_latency_ms, 120)
