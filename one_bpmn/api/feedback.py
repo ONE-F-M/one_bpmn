@@ -274,6 +274,30 @@ def get_conversation_ratings(conversation: str) -> dict:
 	return {r.message: r.rating for r in rows if r.message}
 
 
+@frappe.whitelist()
+def set_feedback_status(feedback: str, status: str) -> dict:
+	"""Record the triage decision (WI-002068).
+
+	Reviewed and Dismissed are the two honest outcomes, and Dismissed must be as
+	easy to reach as Reviewed — most thumbs-down are not regressions, and a queue
+	that only offers "turn this into a test" gets one.
+
+	Converted is not settable by hand: it is what creating the case does, and
+	letting it be typed would leave rows claiming a test that does not exist.
+	"""
+	if status not in ("New", "Reviewed", "Dismissed"):
+		frappe.throw(_("Status must be New, Reviewed or Dismissed."))
+
+	doc = frappe.get_doc("AI Response Feedback", feedback)
+	doc.check_permission("write")
+	if doc.status == "Converted":
+		frappe.throw(_("This feedback already produced an eval case; its status is settled."))
+
+	doc.db_set("status", status)
+	frappe.db.commit()
+	return {"feedback": doc.name, "status": status}
+
+
 def _resolve_regression_suite(agent_configuration: str) -> str:
 	"""The agent's regression suite, created on first use.
 
