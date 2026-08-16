@@ -1,0 +1,36 @@
+<template>
+	<CardShell :title="title" :done="done || !!doneAction" :done-text="doneText">
+		<FieldList :fields="fields" />
+		<template #actions>
+			<ActionButton v-if="canApply" label="Apply to builder" kind="solid" :disabled="busy || done"
+				@press="$emit('action', 'apply-schema', value)" />
+			<ActionButton label="Discard" kind="ghost" :disabled="busy || done" @press="$emit('action', 'dismiss')" />
+		</template>
+	</CardShell>
+</template>
+<script setup>
+// DocTypeSchemaCard (WI-001673) = CardShell[Heading, FieldList, Actions].
+// Renders onefm.doctype_schema; the host's loadIr() applies the IR.
+import { computed } from "vue";
+import ActionButton from "../primitives/ActionButton.vue";
+import CardShell from "../primitives/CardShell.vue";
+import FieldList from "../primitives/FieldList.vue";
+
+const props = defineProps({
+	value: { type: Object, required: true },
+	busy: { type: Boolean, default: false },
+	done: { type: Boolean, default: false },
+	doneAction: { type: String, default: "" },
+	surfaceType: { type: String, default: "" },
+	artifactType: { type: String, default: "" },
+	// Apply-capability handshake: false = no schema builder here, preview only.
+	canApply: { type: Boolean, default: true },
+});
+const doneText = computed(() => ({ "apply-schema": "Applied — builder updated", dismiss: "Discarded — nothing was changed" })[props.doneAction] || (props.done ? "Done" : ""));
+defineEmits(["action"]);
+const fields = computed(() => (props.value.doctype_ir || {}).fields || []);
+const title = computed(() => {
+	const name = (props.value.doctype_ir || {}).name;
+	return `Proposed fields${name ? ` — ${name}` : ""}`;
+});
+</script>

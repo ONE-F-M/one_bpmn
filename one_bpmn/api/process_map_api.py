@@ -122,8 +122,8 @@ def save_process_model(
 		doc.is_active = 0
 
 		doc.check_permission("create")
-		# The caller (Processa editor or handleDuplicateTab) already
-		# embeds a unique process_id in the XML — skip re-generation.
+		# The Processa editor's blank-create flow already embeds a unique
+		# process_id in the XML — skip re-generation.
 		doc.flags.skip_process_id_regeneration = True
 		doc.insert()
 

@@ -111,6 +111,65 @@ class TestImports(unittest.TestCase):
 		self.assertTrue(_flags("from datetime import datetime", block_all_imports=True))
 
 
+class TestBuiltinsModuleEscape(unittest.TestCase):
+	"""``exec`` is blocked as a bare name; it must not come back via a module.
+
+	The call check inspects bare names only, so once ``exec`` is bound to an
+	attribute of anything the rule stops applying. That made every module
+	holding a reference to it a way straight through the gate.
+	"""
+
+	def test_the_builtins_module_cannot_be_imported(self):
+		for code in (
+			"import builtins\nbuiltins.exec('x=1')",
+			"import builtins as b\nb.eval('1+1')",
+			"from builtins import exec\nexec('x=1')",
+			# Aliased on the way in, so the resulting call is not a banned NAME
+			# either — the import is the only place left to catch it.
+			"from builtins import exec as e\ne('x=1')",
+			"import builtins\nbuiltins.__import__('os').system('id')",
+		):
+			with self.subTest(code=code):
+				self.assertTrue(_flags(code), f"builtins escape not caught: {code!r}")
+
+	def test_modules_that_execute_a_string_cannot_be_imported(self):
+		"""Same hole as builtins, different spelling. Each of these turns a
+		string into running code without ever naming exec."""
+		for code in (
+			"import runpy\nrunpy.run_path('/tmp/x.py')",
+			"import code\ncode.InteractiveInterpreter().runsource('x=1')",
+			"import codeop\ncodeop.compile_command('x=1')",
+			"import timeit\ntimeit.timeit('1')",
+			"import pdb\npdb.run('x=1')",
+			"import bdb\nbdb.Bdb().run('x=1')",
+			# attrgetter is getattr spelled differently, and getattr is always
+			# banned precisely because it defeats the attribute blacklist.
+			"import operator\noperator.attrgetter('__globals__')(frappe)",
+			# Shell access that never touches subprocess by name.
+			"import asyncio\nasyncio.create_subprocess_shell('id')",
+			"import platform\nplatform.popen('id')",
+			"import webbrowser\nwebbrowser.open('x')",
+		):
+			with self.subTest(code=code):
+				self.assertTrue(_flags(code), f"code-execution module allowed: {code!r}")
+
+	def test_exec_as_an_attribute_is_caught_whatever_holds_it(self):
+		"""The backstop for the module blacklist, which can only name modules
+		someone thought of. A stdlib module nobody blacklisted is still caught
+		at the call site, because the verb is what matters."""
+		self.assertTrue(_flags("import json\njson.exec('x=1')"))
+		self.assertTrue(_flags("obj.eval('1+1')"))
+		self.assertTrue(_flags("m.__import__('os')"))
+
+	def test_ordinary_attribute_calls_that_share_a_name_still_pass(self):
+		"""The attribute rule covers exec/eval/__import__ only, NOT all of
+		BANNED_BUILTINS: re.compile() and .open() are everyday code, and
+		banning them here would reject real scripts to no benefit."""
+		self.assertEqual(_flags("import re\nre.compile('x')"), [])
+		self.assertEqual(_flags("import json\nx = json.dumps({'a': 1})"), [])
+		self.assertEqual(_flags("rows = frappe.db.get_all('User')\nresult = [r.name for r in rows]"), [])
+
+
 class TestControlFlowGated(unittest.TestCase):
 	def test_while_gate(self):
 		self.assertEqual(_flags("while True:\n    break"), [])

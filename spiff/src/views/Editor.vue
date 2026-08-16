@@ -550,7 +550,6 @@
 					@select-tab="onSelectTab"
 					@add-tab="showAddDiagramDialog"
 					@rename-tab="renameProcessModel"
-					@duplicate-tab="handleDuplicateTab"
 					@delete-tab="handleDeleteTab"
 					@select-version="selectVersion"
 					@compare="openCompareDialog"
@@ -1351,8 +1350,10 @@ async function runSync() {
 const reassignMode = ref(false);
 const pendingReassignments = new Map(); // taskId → { modelName, assignment }
 let reassignSaveTimer = null;
-// Logs created this session, grouped by model, awaiting the batched deploy.
-const savedReassignLogs = []; // [{ modelName, log }]
+// Models actually changed this session, awaiting the batched deploy. This used
+// to carry audit-log names too; the log is gone, but the set still decides
+// whether to deploy at all and which maps to recompile.
+const touchedReassignModels = new Set(); // modelName
 
 function toggleReassignMode() {
 	if (reassignMode.value) {
@@ -1362,10 +1363,10 @@ function toggleReassignMode() {
 		finalizeReassignments();
 	} else {
 		reassignMode.value = true;
-		savedReassignLogs.length = 0;
+		touchedReassignModels.clear();
 		showNotification(
 			"Reassign mode enabled",
-			"Assignment Configuration fields (Assignment Mode, User, DocField, Users, Table Field, Row User Field) on User Tasks are now editable. Changes are logged as you make them, and the map is redeployed once when you exit reassign mode.",
+			"Assignment Configuration fields (Assignment Mode, User, DocField, Users, Table Field, Row User Field) on User Tasks are now editable. Changes are saved as you make them and recorded in the map's version history, and the map is redeployed once when you exit reassign mode.",
 			"blue"
 		);
 	}
@@ -1390,8 +1391,9 @@ function onReassignChanged({ taskId, assignment }) {
 	reassignSaveTimer = setTimeout(flushReassignments, 1200);
 }
 
-// Persist pending per-task changes (attribute write + audit log). Does NOT
-// deploy — that is batched into finalizeReassignments().
+// Persist pending per-task changes. Saving is what records them in the map's
+// version history. Does NOT deploy — that is batched into
+// finalizeReassignments().
 async function flushReassignments() {
 	if (reassignSaveTimer) {
 		clearTimeout(reassignSaveTimer);
@@ -1410,7 +1412,7 @@ async function flushReassignments() {
 					assignment: JSON.stringify(assignment),
 				},
 			});
-			if (res && res.updated && res.log) savedReassignLogs.push({ modelName, log: res.log });
+			if (res && res.updated) touchedReassignModels.add(modelName);
 		} catch (err) {
 			const msg =
 				err.messages && err.messages.length
@@ -1424,22 +1426,18 @@ async function flushReassignments() {
 // Flush any pending change, then recompile each touched model exactly once.
 async function finalizeReassignments() {
 	await flushReassignments();
-	if (!savedReassignLogs.length) return;
+	if (!touchedReassignModels.size) return;
 
-	const byModel = new Map(); // modelName → [logName]
-	for (const { modelName, log } of savedReassignLogs) {
-		if (!byModel.has(modelName)) byModel.set(modelName, []);
-		byModel.get(modelName).push(log);
-	}
-	savedReassignLogs.length = 0;
+	const models = [...touchedReassignModels];
+	touchedReassignModels.clear();
 
 	let deployFailed = false;
-	for (const [modelName, logs] of byModel.entries()) {
+	for (const modelName of models) {
 		try {
 			const res = await frappeRequest({
 				url: "/api/method/one_bpmn.api.reassignment.deploy_reassignments",
 				method: "POST",
-				params: { model_name: modelName, logs: JSON.stringify(logs) },
+				params: { model_name: modelName },
 			});
 			if (!res || res.redeployed === false) deployFailed = true;
 		} catch (err) {
@@ -1450,14 +1448,14 @@ async function finalizeReassignments() {
 	if (deployFailed) {
 		showNotification(
 			"Reassignments saved — redeploy pending",
-			"Assignment changes were logged, but automatic redeploy failed. Click Deploy to apply them to new instances.",
+			"Assignment changes were saved and recorded in the version history, but automatic redeploy failed. Click Deploy to apply them to new instances.",
 			"red",
 			true
 		);
 	} else {
 		showNotification(
 			"Reassignments saved & redeployed",
-			"All assignment changes were logged and the map was redeployed once. New process instances use the new assignment; already-running tasks keep their current assignee.",
+			"All assignment changes were saved to the map's version history and the map was redeployed once. New process instances use the new assignment; already-running tasks keep their current assignee.",
 			"green"
 		);
 	}
@@ -2664,85 +2662,6 @@ async function createDiagram() {
 	} catch (error) {
 		console.error("Failed to create diagram:", error);
 		showNotification("Error", "Failed to create: " + (error.message || error), "red");
-	} finally {
-		creating.value = false;
-	}
-}
-
-async function ensureDiagramContentCached(diagramName) {
-	if (diagramDataCache.value[diagramName]) {
-		return diagramDataCache.value[diagramName];
-	}
-
-	const response = await frappeRequest({
-		url: "/api/method/one_bpmn.api.process_map_api.get_process_model",
-		params: {
-			name: diagramName,
-		},
-	});
-
-	const result = response.message || response;
-	const xmlContent = result?.xml_content || "";
-
-	if (xmlContent) {
-		diagramDataCache.value[diagramName] = xmlContent;
-	}
-
-	return xmlContent;
-}
-
-async function handleDuplicateTab(tab) {
-	if (!isEditable.value) return;
-	
-	const newName = `Copy of ${tab.model_name}`;
-	
-	// Get XML content (from editor if active, otherwise from cache/backend)
-	let xmlContent;
-	if (activeDiagramName.value === tab.name && editorRef.value) {
-		xmlContent = await editorRef.value.getXML();
-	} else {
-		xmlContent = await ensureDiagramContentCached(tab.name);
-	}
-
-	if (!xmlContent) {
-		showNotification("Error", "Could not read diagram content for duplication", "red");
-		return;
-	}
-
-	// Generate a new unique process ID so the duplicate doesn't share the
-	// original's identity (critical for import/deploy disambiguation).
-	const slug = (props.process || "process").trim().toLowerCase().replace(/[^a-z0-9]+/g, "_").replace(/^_|_$/g, "") || "process";
-	const hex = Array.from(crypto.getRandomValues(new Uint8Array(4)), b => b.toString(16).padStart(2, "0")).join("");
-	const newProcessId = `${slug}_${hex}`;
-
-	// Replace the old process id in the XML:
-	//   <bpmn:process id="OLD_ID" ...>  →  <bpmn:process id="NEW_ID" ...>
-	//   bpmnElement="OLD_ID"            →  bpmnElement="NEW_ID"
-	const processIdMatch = xmlContent.match(/<bpmn:process\s[^>]*id=["']([^"']+)["']/);
-	if (processIdMatch) {
-		const oldId = processIdMatch[1];
-		xmlContent = xmlContent.replaceAll(oldId, newProcessId);
-	}
-
-	creating.value = true;
-	try {
-		const response = await frappeRequest({
-			url: "/api/method/one_bpmn.api.process_map_api.save_process_model",
-			params: {
-				process: props.process,
-				model_name: newName,
-				xml_content: xmlContent,
-				description: tab.description || "",
-			},
-		});
-
-		const result = response.message || response;
-		await loadProcess();
-		selectDiagram(result.name);
-		showNotification("Success", `Diagram duplicated as "${newName}"`, "green");
-	} catch (error) {
-		console.error("Duplication failed:", error);
-		showNotification("Error", "Failed to duplicate diagram: " + (error.message || error), "red");
 	} finally {
 		creating.value = false;
 	}

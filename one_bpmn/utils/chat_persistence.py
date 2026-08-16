@@ -63,8 +63,14 @@ def close_conversation(conversation_name: str) -> None:
 
 	This delivers ``ChatConversation_Close_Action`` to the BPMN Process Instance
 	driving the conversation; the diagram's close branch (Cleanup → Conversation
-	Ended) is what actually marks the conversation Closed and finalises it. No
-	conversation state is mutated here — all of that lives in the process map.
+	Ended) is what actually marks the conversation Closed and finalises it.
+
+	Orphaned conversations — no live instance, e.g. inserted while no map with
+	the matching start trigger was active, or the instance later Errored — are
+	closed directly instead: with no map to run the close branch they would
+	otherwise stay Open forever, and a panel that resumes the newest Open
+	conversation re-enters them every time (observed live 2026-08-09, after a
+	map retirement window left ProsAlly conversations instance-less).
 	"""
 	if not frappe.db.exists("Chat Conversation", conversation_name):
 		return
@@ -79,7 +85,10 @@ def close_conversation(conversation_name: str) -> None:
 		"name",
 	)
 	if not inst_name:
-		return  # No orchestration is running for this conversation — nothing to do.
+		# No orchestration is running — close the conversation record itself so
+		# it can't be resumed into the same dead end.
+		frappe.db.set_value("Chat Conversation", conversation_name, "status", "Closed")
+		return
 
 	try:
 		instance = frappe.get_doc("BPMN Process Instance", inst_name)

@@ -1,0 +1,17 @@
+{
+ "type": "CUSTOM",
+ "name": "onefm.proposed_config",
+ "value": {
+  "summary": "Create this agent?",
+  "proposal": {
+   "agent_name": "Leave Summarizer",
+   "provider": "Anthropic",
+   "model": "claude-sonnet-5",
+   "sample_prompts": [
+    {
+     "prompt": "Summarize this leave request"
+    }
+   ]
+  }
+ }
+}

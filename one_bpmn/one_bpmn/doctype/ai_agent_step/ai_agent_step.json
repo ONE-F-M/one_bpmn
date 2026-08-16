@@ -61,20 +61,11 @@
    "fieldtype": "Column Break"
   },
   {
-   "fieldname": "tool_name",
-   "fieldtype": "Data",
-   "label": "Tool Name",
-   "description": "Null for non-tool steps"
-  },
-  {
-   "fieldname": "tool_args",
-   "fieldtype": "JSON",
-   "label": "Tool Arguments"
-  },
-  {
-   "fieldname": "tool_result",
-   "fieldtype": "Long Text",
-   "label": "Tool Result"
+   "fieldname": "tool_calls",
+   "fieldtype": "Table",
+   "label": "Tool Calls",
+   "options": "AI Agent Tool Call",
+   "description": "One row per tool actually called in this turn. A single LLM turn can contain several calls; they share the turn's token/cost figures."
   },
   {
    "fieldname": "section_break_metrics",

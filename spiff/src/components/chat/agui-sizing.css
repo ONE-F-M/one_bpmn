@@ -1,0 +1,14 @@
+/* Copyright (c) 2026, one-fm and contributors
+   Shared sizing tokens for agent chat surfaces (WI-001672).
+
+   Every surface that pairs the AgentChatPanel with a work surface (config
+   form, code editor, form builder, BPMN canvas) sizes its chat pane with the
+   same token, so the chat section is the SAME width on every agent surface.
+   The middle term is viewport-relative (not parent-relative) on purpose:
+   hosts differ in width, so a % of the host would give every agent a
+   different chat pane — 30vw resolves identically everywhere. On desktop
+   (≥1400px) every pane is exactly 420px; below that they all shrink in
+   lockstep to the 320px floor. */
+:root {
+	--agui-chat-pane: clamp(320px, 30vw, 420px);
+}

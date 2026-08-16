@@ -54,9 +54,22 @@ def _resolve_memory_target(task_cfg: dict, instance, bpmn_id: str):
 
 
 def _format_memory_block(memories: list) -> str:
-	"""Render retrieved memories as a clearly delimited block that is appended
-	to the system prompt. Stable format — see ``MEMORY_BLOCK_HEADER``."""
-	lines = [MEMORY_BLOCK_HEADER]
+	"""Render retrieved memories as a clearly delimited block for the dynamic
+	prompt layer. Stable format — see ``MEMORY_BLOCK_HEADER``.
+
+	The provenance line is load-bearing: memories are recalled across
+	conversations, and past final responses ("✅ Complete! … generated")
+	presented bare read as THIS conversation's history — observed live
+	(2026-08-09): the ProsAlly orchestrator concluded the requested process
+	already existed, skipped its confirm tool, and every turn fell through
+	to finalize's fallback question."""
+	lines = [
+		MEMORY_BLOCK_HEADER,
+		"(Background notes recalled from PAST, separate conversations. "
+		"They are context only — nothing below has happened in the current "
+		"conversation, and none of it counts as work already done for the "
+		"current request.)",
+	]
 	for m in memories:
 		content = (m.get("content") or "").strip()
 		if content:
@@ -83,6 +96,45 @@ def _memory_write_mode(task_cfg: dict) -> str:
 	if mode in ("off", "raw", "distilled"):
 		return mode
 	return "distilled" if _cfg_truthy(task_cfg.get("aiMemoryAutoWrite")) else "off"
+
+
+def _memory_model(task_cfg: dict, key: str, fallback: str | None) -> str | None:
+	"""Resolve the model for a memory write, in precedence order (WI-001793).
+
+	``task_cfg`` already carries the linked AI Agent Configuration's values —
+	``resolve_dispatch_overrides`` overlaid them before dispatch — with the
+	shape's older XML attribute showing through when the agent leaves the field
+	blank. After that comes the site-wide Processa Settings default, and finally
+	``fallback``, the agent's own chat model, which is what ran before this
+	story. Returning None is safe and expected: distillation skips with a log
+	and reconciliation degrades to a plain "add".
+
+	Resolution happens here, on the dispatch thread, because the distiller runs
+	in a background RQ worker that must be handed the model as a job argument
+	rather than looking it up itself.
+	"""
+	model = (task_cfg.get(key) or "").strip() if isinstance(task_cfg.get(key), str) else task_cfg.get(key)
+	if model:
+		return model
+
+	setting = _MEMORY_MODEL_SETTINGS.get(key)
+	if setting:
+		try:
+			default = frappe.db.get_single_value("Processa Settings", setting)
+			if default:
+				return default
+		except Exception:
+			# A missing/unreadable setting must never break a memory write.
+			pass
+
+	return fallback or None
+
+
+# Shape attribute -> the Processa Settings field holding its site-wide default.
+_MEMORY_MODEL_SETTINGS = {
+	"aiMemoryDistillModel": "default_memory_distill_model",
+	"aiMemoryReconcileModel": "default_memory_reconcile_model",
+}
 
 
 def _enqueue_distill(**kwargs) -> None:
@@ -1345,9 +1397,27 @@ def dispatch_ai_agent(instance, task, task_cfg: dict, bpmn_id: str, resume_run: 
 								ignore_permissions=True,
 							)
 					else:  # distilled
-						# Distill with the task's own provider/model so the
-						# extraction call is always valid for the configured
-						# provider; aiMemoryDistillModel overrides when set.
+						# Distill and reconcile with the models the admin chose
+						# (agent -> Processa Settings -> the agent's own model),
+						# resolved here on the dispatch thread and handed to the
+						# background job. The provider/backend still come from
+						# the task so the extraction call is always valid.
+						# Tool-protocol agents leave result.output empty (their
+						# answer lives in tool arguments/results) — distill the
+						# interaction instead: the user message (where standing
+						# rules are stated) plus the trace's tool activity. The
+						# user part leads so a durable rule survives the
+						# distiller's input cap even when the tool payloads are
+						# long; without any tool activity there was no agent
+						# interaction, so memory is skipped as before.
+						memory_src = result.output
+						if not str(memory_src or "").strip():
+							trace_text = _memory_output_from_trace(result.trace)
+							if trace_text:
+								memory_src = (
+									f"[User message]\n{str(user_prompt or '')[:3000]}\n\n"
+									f"[Agent tool activity]\n{trace_text}"
+								)
 						_enqueue_distill(
 							agent_output=result.output,
 							agent=(task_cfg.get("aiMemoryAgentElement") or bpmn_id),
@@ -1355,7 +1425,10 @@ def dispatch_ai_agent(instance, task, task_cfg: dict, bpmn_id: str, resume_run: 
 							scope_key=scope_key,
 							provider_name=config.provider_name,
 							backend=config.backend,
-							model=(task_cfg.get("aiMemoryDistillModel") or config.model or None),
+							model=_memory_model(task_cfg, "aiMemoryDistillModel", config.model),
+							reconcile_model=_memory_model(
+								task_cfg, "aiMemoryReconcileModel", config.model
+							),
 							source_run=src,
 						)
 			except Exception:

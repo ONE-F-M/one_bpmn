@@ -1,0 +1,62 @@
+{
+ "actions": [],
+ "allow_rename": 1,
+ "autoname": "hash",
+ "creation": "2026-08-02 09:00:00.000000",
+ "doctype": "DocType",
+ "editable_grid": 1,
+ "engine": "InnoDB",
+ "field_order": [
+  "input",
+  "expected_output",
+  "note",
+  "enabled"
+ ],
+ "fields": [
+  {
+   "columns": 4,
+   "description": "A representative user input.",
+   "fieldname": "input",
+   "fieldtype": "Small Text",
+   "in_list_view": 1,
+   "label": "Input",
+   "reqd": 1
+  },
+  {
+   "columns": 4,
+   "description": "The response the agent should give for that input — shown to the model as a worked example, not as a rule.",
+   "fieldname": "expected_output",
+   "fieldtype": "Text",
+   "in_list_view": 1,
+   "label": "Expected Output"
+  },
+  {
+   "columns": 2,
+   "description": "Optional aside explaining WHY this is the right answer.",
+   "fieldname": "note",
+   "fieldtype": "Small Text",
+   "in_list_view": 1,
+   "label": "Note"
+  },
+  {
+   "columns": 1,
+   "default": "1",
+   "description": "Unchecked rows are kept for reference but are never sent to the model.",
+   "fieldname": "enabled",
+   "fieldtype": "Check",
+   "in_list_view": 1,
+   "label": "Enabled"
+  }
+ ],
+ "istable": 1,
+ "links": [],
+ "modified": "2026-08-02 09:00:00.000000",
+ "modified_by": "Administrator",
+ "module": "ONE BPMN",
+ "name": "AI Agent Example",
+ "owner": "Administrator",
+ "permissions": [],
+ "sort_field": "modified",
+ "sort_order": "DESC",
+ "states": []
+}

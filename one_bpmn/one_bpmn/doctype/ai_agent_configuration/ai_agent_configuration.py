@@ -42,8 +42,97 @@ class AIAgentConfiguration(Document):
 		self.derive_provider_from_model()
 		self.validate_required_variables()
 		self.validate_unique_chat_mode_label()
+		self.validate_chat_label_against_map()
 		self.validate_agent_creation_grant()
 		self.apply_background_lifecycle()
+
+	def validate_chat_label_against_map(self):
+		"""WI-001997: a chat mode label promises the agent appears in chat,
+		which only works when its linked map has the chat start pattern (a
+		start event conditioned on Chat Conversation insert). A label on an
+		agent mapped to any other process is a false promise — reject it and
+		say why. Agents with no linked map keep their label: mapless Chat
+		agents chat through the direct path."""
+		if self.agent_type != "Chat" or not self.chat_mode_label or not self.process_model:
+			return
+
+		from one_bpmn.agents.agent_provisioning import is_chat_startable_map
+
+		if is_chat_startable_map(self.process_model) is False:
+			frappe.throw(
+				_(
+					"'{0}' is not a chat-startable map — it has no start event conditioned "
+					"on Chat Conversation insert, so this agent can never appear in chat. "
+					"Clear the Chat Mode Label (the agent still runs inside its process), "
+					"or link a map that starts on Chat Conversation."
+				).format(self.process_model),
+				title=_("Map is not chat-startable"),
+			)
+
+		# A chat-startable map is not enough: its start CONDITION must match
+		# THIS agent's label, or the conversation stamps one agent_mode while
+		# the map waits for another and no instance ever spawns — the chat
+		# answers "process not running" forever. Cloned maps keep the
+		# original's condition, which is exactly how this bit live
+		# (2026-08-10: Todo King 2 linked a ProsAlly clone). Only the simple
+		# agent_mode == "<label>" shape is enforced; a condition too complex
+		# to reason about is left to the author.
+		self._validate_map_condition_matches_label()
+
+	def _validate_map_condition_matches_label(self):
+		import re
+
+		from one_bpmn.one_bpmn.trigger import (
+			_get_conditional_start_condition,
+			_get_trigger_field_condition,
+		)
+
+		xml = frappe.db.get_value("BPMN Process Model", self.process_model, "bpmn_xml") or ""
+		condition = _get_conditional_start_condition(xml) or ""
+		match = re.fullmatch(
+			r"""\s*agent_mode\s*==\s*["']([^"']+)["']\s*""", condition
+		)
+		expected = match.group(1) if match else None
+
+		# The legacy field filter (triggerFieldName/triggerFieldValue) is a
+		# SECOND copy of the same gate, and the sneakier one: it is invisible
+		# in the condition editor, survives cloning, and vetoes the spawn
+		# silently AFTER the visible condition passes (diagnosed live
+		# 2026-08-10 — a fixed condition still spawned nothing).
+		field_cond = _get_trigger_field_condition(xml)
+		if not expected and field_cond and field_cond[0] == "agent_mode":
+			expected = field_cond[1]
+
+		if expected and expected != self.chat_mode_label:
+			frappe.throw(
+				_(
+					"'{0}' only starts conversations whose agent mode is '{1}' "
+					"(its start condition or trigger field filter), but this "
+					"agent's Chat Mode Label is '{2}' — its chats would never "
+					"start the process. Update the map's start condition AND "
+					"its trigger field filter to '{2}' (then save the map), or "
+					"link a map made for this agent."
+				).format(self.process_model, expected, self.chat_mode_label),
+				title=_("Map starts a different agent's chats"),
+			)
+
+		# Both gates present but DISAGREEING is broken for every label — the
+		# spawn can never pass the two gates at once.
+		if (
+			match
+			and field_cond
+			and field_cond[0] == "agent_mode"
+			and field_cond[1] != match.group(1)
+		):
+			frappe.throw(
+				_(
+					"'{0}' carries two start gates that disagree: its condition "
+					"expects agent_mode '{1}' but its trigger field filter "
+					"expects '{2}'. No conversation can pass both — align them "
+					"on the map and save it."
+				).format(self.process_model, match.group(1), field_cond[1]),
+				title=_("Map start gates disagree"),
+			)
 
 	def validate_agent_creation_grant(self):
 		"""At most one configuration may hold the agent-creation grant, and it

@@ -1,0 +1,19 @@
+{
+ "type": "CUSTOM",
+ "name": "onefm.doctype_schema",
+ "value": {
+  "exists": true,
+  "custom": true,
+  "doctype_ir": {
+   "name": "Employee Onboarding",
+   "fields": [
+    {
+     "fieldname": "contact_name",
+     "fieldtype": "Data",
+     "reqd": 1
+    }
+   ]
+  },
+  "summary": "Adds an Emergency Contact section"
+ }
+}
