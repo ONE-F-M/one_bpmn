@@ -65,8 +65,22 @@ class ToolSpec:
         if self.human:
             return
 
+        # Both markers are looked for along the WHOLE wrapper chain, not just on
+        # the outermost callable. With two wrappers each hides the other's
+        # marker, so an already-wrapped fn passed through ToolSpec again would be
+        # wrapped a second time — evaluating the policy twice and restoring PII
+        # over already-restored values.
+        def already(marker):
+            fn, hops = self.fn, 0
+            while fn is not None and hops < 10:
+                if getattr(fn, marker, None) is not None:
+                    return True
+                fn = getattr(fn, "__policy_guarded__", None) or getattr(fn, "__pii_wrapped__", None)
+                hops += 1
+            return False
+
         # Innermost first: the policy check must run against restored values.
-        if getattr(self.fn, "__policy_guarded__", None) is None:
+        if not already("__policy_guarded__"):
             try:
                 from one_bpmn.security.tool_policy import guard
 
@@ -77,7 +91,7 @@ class ToolSpec:
                 # only protects the dataclass from an import-time problem.
                 pass
 
-        if getattr(self.fn, "__pii_wrapped__", None) is None:
+        if not already("__pii_wrapped__"):
             try:
                 from one_bpmn.security.pii import wrap_tool
 

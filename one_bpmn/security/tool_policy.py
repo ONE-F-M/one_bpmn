@@ -40,6 +40,8 @@ import json
 from contextvars import ContextVar
 from dataclasses import dataclass, field
 
+import re
+
 import frappe
 
 # ── Decision vocabulary ─────────────────────────────────────────────────────
@@ -138,7 +140,7 @@ def load_rules() -> list[dict]:
 				"AI Tool Policy Rule",
 				filters={"enabled": 1},
 				fields=["name", "action", "restricted_doctypes", "restricted_tools",
-				        "violation_message", "category"],
+				        "parameter_limits", "violation_message", "category"],
 			):
 				exempt = frappe.get_all(
 					"AI Tool Policy Exempt Agent",
@@ -151,6 +153,7 @@ def load_rules() -> list[dict]:
 					"category": row.category or "",
 					"doctypes": {d.lower() for d in _split_lines(row.restricted_doctypes)},
 					"tools": {t.lower() for t in _split_lines(row.restricted_tools)},
+					"limits": _parse_limits(row.parameter_limits, row.name),
 					"message": (row.violation_message or "").strip(),
 					"exempt_agents": {a for a in exempt if a},
 				})
@@ -199,6 +202,89 @@ def _argument_values(arguments) -> list[str]:
 	return found
 
 
+_LIMIT_RE = re.compile(r"^\s*([A-Za-z_][\w.]*)\s*(<=|>=|<|>)\s*(-?\d+(?:\.\d+)?)\s*$")
+
+_LIMIT_OPS = {
+	"<=": lambda value, bound: value <= bound,
+	"<": lambda value, bound: value < bound,
+	">=": lambda value, bound: value >= bound,
+	">": lambda value, bound: value > bound,
+}
+
+
+def _parse_limits(raw, rule_name: str) -> list[tuple]:
+	"""``amount <= 5000`` lines into (parameter, operator, bound) triples.
+
+	Deliberately a tiny grammar rather than an expression: a rule is data a
+	non-engineer edits in a form, and anything evaluable there is a way to run
+	code from a database row.
+
+	A malformed line is skipped AND logged. Silently ignoring it would leave a
+	rule that reads as enforcing a ceiling while enforcing nothing — the worst
+	outcome available, because the control looks present.
+	"""
+	limits = []
+	for line in _split_lines(raw):
+		match = _LIMIT_RE.match(line)
+		if not match:
+			frappe.log_error(
+				title=f"AI Tool Policy: unreadable parameter limit ({rule_name})",
+				message=f"Ignoring {line!r}. Expected `parameter <= number` using <=, <, >= or >.",
+			)
+			continue
+		parameter, operator, bound = match.groups()
+		limits.append((parameter.lower(), operator, float(bound)))
+	return limits
+
+
+def _numeric_candidates(arguments, parameter: str) -> list:
+	"""Every value the payload carries under ``parameter``, at any depth.
+
+	Same reasoning as _argument_values: an amount arrives as ``amount``, or
+	inside ``doc``, or inside a filters dict, and matching only the top level
+	would miss most of them.
+	"""
+	found = []
+
+	def walk(value, depth=0):
+		if depth > 6 or len(found) > 50:
+			return
+		if isinstance(value, dict):
+			for key, inner in value.items():
+				if isinstance(key, str) and key.strip().lower() == parameter:
+					found.append(inner)
+				walk(inner, depth + 1)
+		elif isinstance(value, (list, tuple, set)):
+			for inner in value:
+				walk(inner, depth + 1)
+
+	walk(arguments)
+	return found
+
+
+def _breaches_parameter_limit(arguments, limits: list) -> str | None:
+	"""The bound an argument crosses, described, or None.
+
+	An absent parameter is not a breach: the rule simply does not apply to this
+	call. A parameter that is PRESENT but unreadable as a number IS a breach —
+	an amount nobody can verify is not an amount within the ceiling, and the
+	alternative is a ceiling that a string walks straight through.
+	"""
+	for parameter, operator, bound in limits:
+		for raw in _numeric_candidates(arguments, parameter):
+			if isinstance(raw, bool) or raw is None:
+				return f"'{parameter}' is not a number, so the limit could not be checked"
+			try:
+				value = float(raw)
+			except (TypeError, ValueError):
+				return f"'{parameter}' is not a number, so the limit could not be checked"
+			if not _LIMIT_OPS[operator](value, bound):
+				pretty = int(bound) if bound == int(bound) else bound
+				actual = int(value) if value == int(value) else value
+				return f"'{parameter}' is {actual}, which breaks the limit {parameter} {operator} {pretty}"
+	return None
+
+
 def _hits_restricted_doctype(arguments, doctypes: set) -> str | None:
 	"""Return the restricted DocType an argument payload names, if any.
 
@@ -240,6 +326,14 @@ def evaluate(tool_name: str, arguments: dict, agent_config: str | None = None) -
 			continue
 		if rule["tools"] and tool_lower not in rule["tools"]:
 			continue  # rule is scoped to other tools
+		# 2a. Numeric bounds on the arguments themselves — the transaction
+		#     ceiling half of the control. Checked before the DocType match so a
+		#     rule may carry either, or both.
+		breach = _breaches_parameter_limit(arguments, rule.get("limits") or [])
+		if breach:
+			reason = rule["message"] or f"{breach}."
+			return PolicyDecision(outcome=rule["action"] or DENY, reason=reason, rule=rule["name"])
+
 		hit = _hits_restricted_doctype(arguments, rule["doctypes"])
 		if not hit:
 			continue

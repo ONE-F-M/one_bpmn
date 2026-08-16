@@ -230,3 +230,164 @@ class TestObservability(FrappeTestCase):
 		self.assertEqual(_tool_call_status("Error calling x: boom"), "Error")
 		self.assertEqual(_tool_call_status("Unknown tool: x"), "Error")
 		self.assertEqual(_tool_call_status("42"), "Success")
+
+
+class TestParameterCeilings(FrappeTestCase):
+	"""The transaction-ceiling half of WI-001645: bounds on the argument VALUES,
+	not just on which tool may run or which record types it may touch.
+
+	Everything here goes through the pure evaluator, so no agent, workflow or
+	model is involved.
+	"""
+
+	def setUp(self):
+		from one_bpmn.security import tool_policy
+
+		self.tp = tool_policy
+		tool_policy.clear_rule_cache()
+		self.addCleanup(tool_policy.clear_rule_cache)
+
+	def _rule(self, limits, tools=None, action="Deny", message=""):
+		"""Install one rule directly in the cache — the evaluator reads rules
+		through load_rules(), so seeding the cache exercises the real path
+		without writing rows the rest of the suite would see."""
+		import frappe
+
+		frappe.cache.set_value(
+			self.tp._RULE_CACHE_KEY,
+			[{
+				"name": "TEST-CEILING",
+				"action": self.tp._ACTION_BY_LABEL.get(action.lower(), self.tp.DENY),
+				"category": "",
+				"doctypes": set(),
+				"tools": {t.lower() for t in (tools or [])},
+				"limits": self.tp._parse_limits(limits, "TEST-CEILING"),
+				"message": message,
+				"exempt_agents": set(),
+			}],
+		)
+
+	# ── the grammar ──────────────────────────────────────────────────────────
+
+	def test_limits_parse_into_triples(self):
+		parsed = self.tp._parse_limits("amount <= 5000\nquantity < 10", "R")
+		self.assertEqual(parsed, [("amount", "<=", 5000.0), ("quantity", "<", 10.0)])
+
+	def test_a_malformed_limit_is_skipped_and_not_silently_enforced_as_nothing(self):
+		"""A typo'd rule that reads as a ceiling but enforces nothing is the
+		worst outcome available, so it is skipped loudly rather than quietly."""
+		parsed = self.tp._parse_limits("amount =< 5000\namount <= 900", "R")
+		self.assertEqual(parsed, [("amount", "<=", 900.0)])
+
+	def test_an_expression_is_not_a_limit(self):
+		"""The grammar is deliberately tiny — a rule is data a non-engineer edits
+		in a form, and anything evaluable there is a way to run code."""
+		self.assertEqual(self.tp._parse_limits("__import__('os').system('x') <= 1", "R"), [])
+
+	# ── the decision ─────────────────────────────────────────────────────────
+
+	def test_a_call_within_the_ceiling_is_allowed(self):
+		self._rule("amount <= 5000")
+		self.assertTrue(self.tp.evaluate("pay_supplier", {"amount": 4999}).allowed)
+
+	def test_a_call_over_the_ceiling_is_refused(self):
+		self._rule("amount <= 5000")
+		decision = self.tp.evaluate("pay_supplier", {"amount": 5001})
+		self.assertFalse(decision.allowed)
+		self.assertIn("5001", decision.reason)
+		self.assertIn("5000", decision.reason)
+
+	def test_exactly_on_the_ceiling_is_allowed(self):
+		self._rule("amount <= 5000")
+		self.assertTrue(self.tp.evaluate("pay_supplier", {"amount": 5000}).allowed)
+
+	def test_a_nested_amount_is_found(self):
+		"""An amount arrives inside doc, or inside filters — checking only the
+		top level would miss most real calls."""
+		self._rule("amount <= 5000")
+		decision = self.tp.evaluate("create_doc", {"doc": {"amount": 9000}})
+		self.assertFalse(decision.allowed)
+
+	def test_a_string_amount_is_still_compared(self):
+		self._rule("amount <= 5000")
+		self.assertFalse(self.tp.evaluate("pay", {"amount": "9000"}).allowed)
+
+	def test_an_unreadable_amount_is_refused_not_waved_through(self):
+		"""An amount nobody can verify is not an amount within the ceiling."""
+		self._rule("amount <= 5000")
+		decision = self.tp.evaluate("pay", {"amount": "lots"})
+		self.assertFalse(decision.allowed)
+		self.assertIn("not a number", decision.reason)
+
+	def test_a_boolean_does_not_sneak_through_as_one(self):
+		"""True == 1 in Python, so a bool would silently pass a ceiling of 5000."""
+		self._rule("amount <= 5000")
+		self.assertFalse(self.tp.evaluate("pay", {"amount": True}).allowed)
+
+	def test_an_absent_parameter_means_the_rule_does_not_apply(self):
+		self._rule("amount <= 5000")
+		self.assertTrue(self.tp.evaluate("pay", {"supplier": "ACME"}).allowed)
+
+	def test_a_floor_works_as_well_as_a_ceiling(self):
+		self._rule("quantity >= 1")
+		self.assertFalse(self.tp.evaluate("order", {"quantity": 0}).allowed)
+		self.assertTrue(self.tp.evaluate("order", {"quantity": 1}).allowed)
+
+	def test_a_rule_scoped_to_other_tools_does_not_fire(self):
+		self._rule("amount <= 5000", tools=["pay_supplier"])
+		self.assertTrue(self.tp.evaluate("read_report", {"amount": 999999}).allowed)
+		self.assertFalse(self.tp.evaluate("pay_supplier", {"amount": 999999}).allowed)
+
+	def test_the_rule_message_replaces_the_generated_reason(self):
+		self._rule("amount <= 5000", message="Payments above KD 5,000 need a human.")
+		self.assertEqual(
+			self.tp.evaluate("pay", {"amount": 6000}).reason,
+			"Payments above KD 5,000 need a human.",
+		)
+
+	def test_a_breach_can_require_a_human_instead_of_refusing(self):
+		self._rule("amount <= 5000", action="Require Human Approval")
+		decision = self.tp.evaluate("pay", {"amount": 6000})
+		self.assertFalse(decision.allowed)
+		self.assertEqual(decision.outcome, self.tp.REQUIRE_HUMAN)
+
+	# ── the interceptor actually stops the call ──────────────────────────────
+
+	def test_the_guard_aborts_the_tool_before_it_runs(self):
+		"""The point of the whole control: the tool body must never execute."""
+		self._rule("amount <= 5000")
+		ran = []
+
+		def pay(**kwargs):
+			ran.append(kwargs)
+			return "paid"
+
+		guarded = self.tp.guard(pay, "pay")
+		with self.assertRaises(self.tp.PolicyViolation):
+			guarded(amount=9000)
+		self.assertEqual(ran, [], "the tool ran despite breaking the ceiling")
+
+		self.assertEqual(guarded(amount=10), "paid")
+		self.assertEqual(len(ran), 1)
+
+	def test_a_decorated_tool_is_still_guarded(self):
+		"""guard() used __wrapped__ as its already-guarded marker, which
+		functools.wraps sets on ANY decorated function — so a decorated tool
+		read as already guarded and was silently left unprotected."""
+		import functools
+
+		from one_bpmn.agents.llm_provider.base import ToolSpec
+
+		def raw(**kwargs):
+			return "ran"
+
+		@functools.wraps(raw)
+		def decorated(**kwargs):
+			return raw(**kwargs)
+
+		spec = ToolSpec(fn=decorated, name="pay", description="d")
+		self.assertIsNotNone(
+			getattr(spec.fn, "__policy_guarded__", None)
+			or getattr(getattr(spec.fn, "__pii_wrapped__", None), "__policy_guarded__", None),
+			"a decorated tool was not wrapped by the policy interceptor",
+		)

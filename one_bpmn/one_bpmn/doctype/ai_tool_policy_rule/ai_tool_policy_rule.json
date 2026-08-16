@@ -16,6 +16,7 @@
   "restricted_doctypes",
   "column_break_match",
   "restricted_tools",
+  "parameter_limits",
   "section_response",
   "violation_message",
   "section_exemptions",
@@ -45,7 +46,7 @@
   },
   {
    "default": "Other",
-   "description": "Grouping only — it does not change how the rule is enforced.",
+   "description": "Grouping only \u2014 it does not change how the rule is enforced.",
    "fieldname": "category",
    "fieldtype": "Select",
    "in_list_view": 1,
@@ -55,7 +56,7 @@
   },
   {
    "default": "Deny",
-   "description": "Deny refuses the call and tells the model why. Require Human Approval suspends the agent until a person decides — supported in the step loop; in an adapter's own tool loop it degrades to Deny, which is the safe direction.",
+   "description": "Deny refuses the call and tells the model why. Require Human Approval suspends the agent until a person decides \u2014 supported in the step loop; in an adapter's own tool loop it degrades to Deny, which is the safe direction.",
    "fieldname": "action",
    "fieldtype": "Select",
    "in_list_view": 1,
@@ -69,7 +70,7 @@
    "label": "What this rule matches"
   },
   {
-   "description": "One protected DocType per line. The rule fires when any argument of the tool call names one of these, at any depth — matched whole and case-insensitively, never as a substring.",
+   "description": "One protected DocType per line. The rule fires when any argument of the tool call names one of these, at any depth \u2014 matched whole and case-insensitively, never as a substring.",
    "fieldname": "restricted_doctypes",
    "fieldtype": "Small Text",
    "label": "Restricted DocTypes"
@@ -79,10 +80,16 @@
    "fieldtype": "Column Break"
   },
   {
-   "description": "One tool name per line to scope this rule to those tools only. LEAVE EMPTY to apply it to every tool — that is the safer default.",
+   "description": "One tool name per line to scope this rule to those tools only. LEAVE EMPTY to apply it to every tool \u2014 that is the safer default.",
    "fieldname": "restricted_tools",
    "fieldtype": "Small Text",
    "label": "Only These Tools"
+  },
+  {
+   "description": "Numeric bounds on the arguments a tool is called with, one per line, as `parameter <op> number` \u2014 e.g. `amount <= 5000`. Operators: <=, <, >=, >. A rule with no bounds here checks nothing numeric. If the argument is present but cannot be read as a number the call is refused: an unverifiable amount is not a safe one.",
+   "fieldname": "parameter_limits",
+   "fieldtype": "Small Text",
+   "label": "Parameter Limits"
   },
   {
    "fieldname": "section_response",
@@ -101,7 +108,7 @@
    "label": "Exemptions"
   },
   {
-   "description": "Agents this rule does NOT apply to. Use sparingly — an exemption is a hole in the control. Example: Logix authors Server Scripts for a living, so the Code Execution rule must exempt it.",
+   "description": "Agents this rule does NOT apply to. Use sparingly \u2014 an exemption is a hole in the control. Example: Logix authors Server Scripts for a living, so the Code Execution rule must exempt it.",
    "fieldname": "exempt_agents",
    "fieldtype": "Table",
    "label": "Exempt Agents",
