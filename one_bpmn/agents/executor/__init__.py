@@ -181,6 +181,11 @@ class ExecutorResult:
     # if and only if error_code == ErrorCode.SUSPENDED. This is what the
     # checkpoint layer persists.
     suspension: dict | None = None
+    # WI-001823: the tool-calling loop ran out of turns without reaching a final
+    # answer. It arrives as a FAILED_MODEL_CALL like any other model failure, but
+    # it is a distinct outcome — the agent was still working, not broken — and
+    # goal completion needs to tell them apart without matching on message text.
+    hit_turn_cap: bool = False
 
 
 # ---------------------------------------------------------------------------
