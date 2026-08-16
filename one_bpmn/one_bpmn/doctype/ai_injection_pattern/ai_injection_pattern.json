@@ -1,0 +1,192 @@
+{
+ "actions": [],
+ "allow_rename": 1,
+ "autoname": "field:pattern_name",
+ "creation": "2026-08-05 00:00:00.000000",
+ "description": "One rule in the prompt-injection pack. The pack is data: adding, editing or disabling a rule needs no code change and no deploy.",
+ "doctype": "DocType",
+ "editable_grid": 0,
+ "engine": "InnoDB",
+ "field_order": [
+  "pattern_name",
+  "enabled",
+  "column_break_head",
+  "pattern_type",
+  "severity",
+  "section_pattern",
+  "pattern",
+  "match_mode",
+  "column_break_pattern",
+  "boundary_scope",
+  "action",
+  "section_provenance",
+  "source_taxonomy",
+  "source_reference",
+  "column_break_provenance",
+  "source_event",
+  "notes"
+ ],
+ "fields": [
+  {
+   "description": "Short, stable identifier for the rule. Also the record name, so an event's snapshot of it stays readable.",
+   "fieldname": "pattern_name",
+   "fieldtype": "Data",
+   "in_list_view": 1,
+   "label": "Pattern Name",
+   "reqd": 1,
+   "unique": 1
+  },
+  {
+   "default": "1",
+   "description": "Unticking this retires the rule immediately, with no deploy. Disabled rules stay for the audit trail.",
+   "fieldname": "enabled",
+   "fieldtype": "Check",
+   "in_list_view": 1,
+   "in_standard_filter": 1,
+   "label": "Enabled"
+  },
+  {
+   "fieldname": "column_break_head",
+   "fieldtype": "Column Break"
+  },
+  {
+   "description": "The attack family this rule belongs to.",
+   "fieldname": "pattern_type",
+   "fieldtype": "Select",
+   "in_list_view": 1,
+   "in_standard_filter": 1,
+   "label": "Pattern Type",
+   "options": "Instruction Override\nRole Manipulation\nSystem Prompt Extraction\nDelimiter Injection\nEncoding Evasion\nExfiltration\nTool Abuse\nJailbreak Persona\nOther",
+   "reqd": 1
+  },
+  {
+   "default": "Medium",
+   "fieldname": "severity",
+   "fieldtype": "Select",
+   "in_list_view": 1,
+   "in_standard_filter": 1,
+   "label": "Severity",
+   "options": "Low\nMedium\nHigh\nCritical",
+   "reqd": 1
+  },
+  {
+   "fieldname": "section_pattern",
+   "fieldtype": "Section Break",
+   "label": "Rule"
+  },
+  {
+   "description": "The expression to match. Validated on save — an unparseable regex is rejected rather than breaking screening at runtime. Write angle brackets as \\x3c and \\x3e: Frappe's mandatory check strips anything shaped like an HTML tag, so a literal &lt;|im_start|&gt; would be read as an empty pattern and refused.",
+   "fieldname": "pattern",
+   "fieldtype": "Code",
+   "label": "Pattern",
+   "reqd": 1
+  },
+  {
+   "default": "regex",
+   "description": "regex — a case-insensitive regular expression; substring — a plain case-insensitive containment test, for rules where a regex is needless ceremony.",
+   "fieldname": "match_mode",
+   "fieldtype": "Select",
+   "label": "Match Mode",
+   "options": "regex\nsubstring",
+   "reqd": 1
+  },
+  {
+   "fieldname": "column_break_pattern",
+   "fieldtype": "Column Break"
+  },
+  {
+   "default": "input",
+   "description": "Which boundary this rule is screened at. \"any\" applies it everywhere.",
+   "fieldname": "boundary_scope",
+   "fieldtype": "Select",
+   "label": "Boundary Scope",
+   "options": "any\ninput\noutput\ntool-result\nmemory-write",
+   "reqd": 1
+  },
+  {
+   "default": "Flag",
+   "description": "What a match should do. The screening stage decides whether to honour it; the pack states the intent.",
+   "fieldname": "action",
+   "fieldtype": "Select",
+   "label": "Action",
+   "options": "Log\nFlag\nBlock",
+   "reqd": 1
+  },
+  {
+   "fieldname": "section_provenance",
+   "fieldtype": "Section Break",
+   "label": "Provenance"
+  },
+  {
+   "default": "ONE-FM",
+   "description": "Where the rule came from. Public taxonomies are shipped seeded; ONE-FM entries are rules promoted from our own confirmed events.",
+   "fieldname": "source_taxonomy",
+   "fieldtype": "Select",
+   "in_standard_filter": 1,
+   "label": "Source Taxonomy",
+   "options": "OWASP LLM Top 10\nMITRE ATLAS\nNIST AI RMF\nGarak\nONE-FM",
+   "reqd": 1
+  },
+  {
+   "description": "Identifier within the taxonomy, e.g. LLM01:2025.",
+   "fieldname": "source_reference",
+   "fieldtype": "Data",
+   "label": "Source Reference"
+  },
+  {
+   "fieldname": "column_break_provenance",
+   "fieldtype": "Column Break"
+  },
+  {
+   "description": "Set when this rule was promoted from one of our own recorded events.",
+   "fieldname": "source_event",
+   "fieldtype": "Link",
+   "label": "Source Event",
+   "options": "AI Security Event"
+  },
+  {
+   "fieldname": "notes",
+   "fieldtype": "Small Text",
+   "label": "Notes"
+  }
+ ],
+ "index_web_pages_for_search": 0,
+ "links": [],
+ "modified": "2026-08-05 00:00:00.000000",
+ "modified_by": "Administrator",
+ "module": "ONE BPMN",
+ "name": "AI Injection Pattern",
+ "naming_rule": "By fieldname",
+ "owner": "Administrator",
+ "permissions": [
+  {
+   "create": 1,
+   "delete": 1,
+   "email": 1,
+   "export": 1,
+   "print": 1,
+   "read": 1,
+   "report": 1,
+   "role": "System Manager",
+   "share": 1,
+   "write": 1
+  },
+  {
+   "create": 1,
+   "delete": 1,
+   "email": 1,
+   "export": 1,
+   "print": 1,
+   "read": 1,
+   "report": 1,
+   "role": "Process Owner",
+   "share": 1,
+   "write": 1
+  }
+ ],
+ "sort_field": "modified",
+ "sort_order": "DESC",
+ "states": [],
+ "title_field": "pattern_name",
+ "track_changes": 1
+}

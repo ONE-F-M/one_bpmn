@@ -19,7 +19,7 @@
    "unique": 1
   },
   {
-   "description": "The connection this model is callable through (WI-001655). Agents pick a model; the provider follows from this link.",
+   "description": "The connection this model is callable through. Agents pick a model; the provider follows from this link.",
    "fieldname": "ai_provider_credentials",
    "fieldtype": "Link",
    "in_list_view": 1,

@@ -18,6 +18,9 @@ dependencies = [
     "bleach>=6.0",
     "python-pptx>=0.6.23",
     "python-docx>=1.0.0",
+    # AG-UI protocol events + SSE encoder (WI-001670). Same pin as onefm_mcp
+    # so one bench env carries a single version while both apps are installed.
+    "ag-ui-protocol==0.1.10",
 ]
 
 

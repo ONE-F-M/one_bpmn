@@ -884,3 +884,101 @@ def _force_property_setter(doctype: str, fieldname: str, prop: str, value, prope
 			},
 			is_system_generated=False,
 		)
+
+
+# ── Shared-endpoint integration (WI-001676 follow-up, after 54e9ead/73e7d89) ──
+def _compact_ir(ir: dict) -> dict:
+	"""Strip empty/zero attributes from a round-tripped IR before it rides in
+	dialog_context — the reader emits every DocField attribute (a plain ToDo
+	is ~35KB verbatim), but absent keys mean defaults on the apply path, so
+	the model only needs the truthy ones."""
+	compact = {k: v for k, v in ir.items() if k != "fields" and v not in ("", 0, None, [])}
+	compact["fields"] = [
+		{k: v for k, v in f.items() if k in ("fieldname", "fieldtype") or v not in ("", 0, None)}
+		for f in ir.get("fields") or []
+		if isinstance(f, dict)
+	]
+	return compact
+
+
+def build_docu_turn_context(context: dict) -> dict:
+	"""Load the target DocType's current IR for a Docu turn (context builder
+	for the AG-UI endpoint) and fold it, with the Docu reply contract, into
+	dialog_context — the same dual-generation strategy as Logix/ProsAlly:
+	the purpose-built map's Classify tool loads current_ir itself and renders
+	its own variables, while a generic chat-template clone renders only
+	{{ dialog_context }} and would otherwise never see the schema or the
+	contract."""
+	out = dict(context or {})
+	doctype = out.get("doctype") or ""
+
+	schema_block = ""
+	if doctype and frappe.db.exists("DocType", doctype):
+		if frappe.has_permission("DocType", "read"):
+			ir = _read_doctype_ir(doctype)
+			if ir:
+				schema_block = (
+					"CURRENT DOCTYPE ('%s') AS IR:\n```json\n%s\n```\n"
+					"This form exists — treat the request as a MODIFY of this IR "
+					"unless the user clearly asks for a new form.\n\n"
+				) % (doctype, json.dumps(_compact_ir(ir), indent=1, default=str))
+		else:
+			frappe.log_error(
+				title="Docu: DocType read denied for turn context",
+				message=f"user={frappe.session.user} doctype={doctype}",
+			)
+	elif doctype:
+		schema_block = (
+			"Named form: '%s' — it does not exist yet, so this is likely a CREATE.\n\n" % doctype
+		)
+
+	contract = (
+		schema_block
+		+ "DOCU REPLY CONTRACT: respond ONLY with a JSON object: "
+		'{"intent": "CREATE"|"MODIFY"|"DISAMBIGUATE", '
+		'"response": "<short human explanation>", '
+		'"doctype_ir": <the FULL DocType definition when proposing a schema: '
+		'{"doctype_name": "Title Case Name", "fields": [{"fieldname": "snake_case", '
+		'"label": "Title Case", "fieldtype": "<a real Frappe fieldtype>", '
+		'"options": "<Link/Select target when applicable>", "reqd": 0|1}, ...]}>, '
+		'"suggested_name": "<the doctype_name>", '
+		'"options": ["..."] <only when intent is DISAMBIGUATE> }. '
+		"For MODIFY return the complete updated IR, not just the changed fields. "
+		"Never claim you created or changed anything — the designer reviews your "
+		"proposal on a schema card and applies it from there."
+	)
+	existing = out.get("dialog_context") or ""
+	out["dialog_context"] = (existing + "\n\n" + contract).strip()
+	return out
+
+
+def shape_docu_reply(result: dict) -> dict:
+	"""Lift the Docu JSON contract out of a text reply (reply shaper); a
+	no-op when the purpose-built map already returned structured keys."""
+	if result.get("doctype_ir") or result.get("intent"):
+		return result
+	from one_bpmn.api.ai_assistant import _extract_json
+
+	raw = result.get("response") or ""
+	parsed = _extract_json(raw if isinstance(raw, str) else "")
+	if not isinstance(parsed, dict) or not (parsed.get("intent") or parsed.get("doctype_ir")):
+		return result
+	shaped = dict(result)
+	shaped["response"] = str(parsed.get("response") or "").strip() or raw
+	for key in ("intent", "doctype_ir", "diff", "suggested_name", "options"):
+		if parsed.get(key):
+			shaped[key] = parsed[key]
+	return shaped
+
+
+def _register_agui_hooks():
+	from one_bpmn.agents.agui_stream import (
+		register_context_builder,
+		register_reply_shaper,
+	)
+
+	register_context_builder("docu_agent", build_docu_turn_context)
+	register_reply_shaper("docu_agent", shape_docu_reply)
+
+
+_register_agui_hooks()
