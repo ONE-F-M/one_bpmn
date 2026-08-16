@@ -16,6 +16,9 @@
 				<FormControl type="date" v-model="fromDate" class="w-36" />
 				<span class="text-sm text-gray-400">to</span>
 				<FormControl type="date" v-model="toDate" class="w-36" />
+				<Button icon-left="message-square" @click="$router.push('/processa/evals/feedback')">
+					Feedback
+				</Button>
 				<Button icon-left="plus" @click="openNewSuite">New suite</Button>
 				<Button icon-left="refresh-cw" @click="refreshAll" :loading="loading">Refresh</Button>
 			</div>

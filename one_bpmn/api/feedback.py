@@ -274,6 +274,30 @@ def get_conversation_ratings(conversation: str) -> dict:
 	return {r.message: r.rating for r in rows if r.message}
 
 
+@frappe.whitelist()
+def set_feedback_status(feedback: str, status: str) -> dict:
+	"""Record the triage decision (WI-002068).
+
+	Reviewed and Dismissed are the two honest outcomes, and Dismissed must be as
+	easy to reach as Reviewed — most thumbs-down are not regressions, and a queue
+	that only offers "turn this into a test" gets one.
+
+	Converted is not settable by hand: it is what creating the case does, and
+	letting it be typed would leave rows claiming a test that does not exist.
+	"""
+	if status not in ("New", "Reviewed", "Dismissed"):
+		frappe.throw(_("Status must be New, Reviewed or Dismissed."))
+
+	doc = frappe.get_doc("AI Response Feedback", feedback)
+	doc.check_permission("write")
+	if doc.status == "Converted":
+		frappe.throw(_("This feedback already produced an eval case; its status is settled."))
+
+	doc.db_set("status", status)
+	frappe.db.commit()
+	return {"feedback": doc.name, "status": status}
+
+
 def _resolve_regression_suite(agent_configuration: str) -> str:
 	"""The agent's regression suite, created on first use.
 
@@ -359,7 +383,12 @@ def create_eval_case_from_feedback(feedback: str, suite: str = None) -> dict:
 			_("Review this feedback first — a case is only created from feedback a person has looked at.")
 		)
 	if doc.eval_case and frappe.db.exists("AI Eval Case", doc.eval_case):
-		return {"feedback": doc.name, "eval_case": doc.eval_case, "created": False}
+		return {
+			"feedback": doc.name,
+			"eval_case": doc.eval_case,
+			"suite": frappe.db.get_value("AI Eval Case", doc.eval_case, "suite"),
+			"created": False,
+		}
 	if not doc.agent_run:
 		frappe.throw(
 			_("This feedback has no agent run behind it, so there is no prompt or context to build a case from.")
@@ -386,7 +415,10 @@ def create_eval_case_from_feedback(feedback: str, suite: str = None) -> dict:
 	doc.db_set("status", "Converted")
 	frappe.db.commit()
 
-	return {"feedback": doc.name, "eval_case": case, "created": True}
+	# The suite comes back so the caller can go straight to the case in Processa
+	# — the eval case editor lives on the suite page, and sending a reviewer to
+	# the desk to finish a Processa job is a jarring hand-off.
+	return {"feedback": doc.name, "eval_case": case, "suite": suite, "created": True}
 
 
 @frappe.whitelist()
