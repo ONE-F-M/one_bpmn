@@ -46,6 +46,9 @@
   "section_break_checkpoint",
   "pending_human_task",
   "checkpoint",
+  "section_break_goal",
+  "goal_completion",
+  "completion_basis",
   "section_break_output",
   "final_output",
   "correlation_id"
@@ -204,7 +207,7 @@
    "fieldname": "duration_ms",
    "fieldtype": "Int",
    "label": "Duration (ms)",
-   "description": "Wall-clock from Started At to Ended At. For human-in-the-loop runs this INCLUDES the time spent waiting for a person — use Agent Latency to measure agent performance."
+   "description": "Wall-clock from Started At to Ended At. For human-in-the-loop runs this INCLUDES the time spent waiting for a person \u2014 use Agent Latency to measure agent performance."
   },
   {
    "fieldname": "agent_latency_ms",
@@ -299,6 +302,28 @@
    "fieldname": "section_break_output",
    "fieldtype": "Section Break",
    "label": "Output"
+  },
+  {
+   "fieldname": "section_break_goal",
+   "fieldtype": "Section Break",
+   "label": "Outcome"
+  },
+  {
+   "default": "Unknown",
+   "description": "Did the run achieve what it was asked to do? Unknown is a real answer and is never coerced to either of the others \u2014 counting an undetermined run as a success or a failure would bias every comparison built on this.",
+   "fieldname": "goal_completion",
+   "fieldtype": "Select",
+   "in_standard_filter": 1,
+   "label": "Goal Completion",
+   "options": "Unknown\nAchieved\nNot Achieved",
+   "read_only": 1
+  },
+  {
+   "description": "Which signal decided it, in plain words \u2014 so a number in a report can always be traced back to the evidence behind it.",
+   "fieldname": "completion_basis",
+   "fieldtype": "Small Text",
+   "label": "Completion Basis",
+   "read_only": 1
   },
   {
    "description": "Truncated to 64KB; full content on the last AI Agent Step",

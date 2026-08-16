@@ -364,6 +364,7 @@ class BPMNProcessInstance(Document):
 				update_modified=False,
 			)
 			self.status = "Errored"
+			self._settle_goal_completion("Errored")
 			self._log_task(
 				task_id=f"runtime-failure::{ref_id}",
 				task_name=f"Runtime failure ({phase})",
@@ -1646,6 +1647,7 @@ class BPMNProcessInstance(Document):
 		if wf.is_completed():
 			self.status = "Completed"
 			self.completed_at = now_datetime()
+			self._settle_goal_completion("Completed")
 		elif (
 			not wf.get_tasks(state=TaskState.READY)
 			and not wf.get_tasks(state=TaskState.WAITING)
@@ -1655,6 +1657,27 @@ class BPMNProcessInstance(Document):
 			# False.  Treat as complete to avoid a forever-stuck instance.
 			self.status = "Completed"
 			self.completed_at = now_datetime()
+			self._settle_goal_completion("Completed")
+
+	def _settle_goal_completion(self, instance_status: str):
+		"""Whether the map reached its end event is the strongest evidence of
+		whether its agents achieved their goals (WI-001823) — and it can only be
+		read here, because a run finishes long before the instance does.
+
+		Only fills in runs that could not decide for themselves; it never
+		overwrites an outcome the executor already established. Never raises:
+		recording an outcome must not be able to break the process that produced
+		it.
+		"""
+		try:
+			from one_bpmn.agents.goal_completion import settle_for_instance
+
+			settle_for_instance(self.name, instance_status)
+		except Exception:
+			frappe.log_error(
+				title="goal completion settle failed",
+				message=frappe.get_traceback(),
+			)
 
 	def _log_task(self, task_id: str, task_name: str, action: str, data: dict = None):
 		"""

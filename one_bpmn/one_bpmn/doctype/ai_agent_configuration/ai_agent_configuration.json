@@ -45,6 +45,7 @@
   "chat_description",
   "surface_type",
   "artifact_type",
+  "collect_feedback",
   "allowed_roles",
   "memory_section",
   "conversation_store",
@@ -347,6 +348,13 @@
    "default": "None",
    "description": "What the thing it produces actually is \u2014 selects the preview renderer and the apply target (Script\u2192editor, Diagram\u2192canvas, Schema\u2192builder, Record\u2192form).",
    "depends_on": "eval:doc.agent_type=='Chat'"
+  },
+  {
+   "default": "1",
+   "description": "Show thumbs up / down on this agent's replies. Turn off for agents whose answers are not a judgement call, where a rating would only be noise.",
+   "fieldname": "collect_feedback",
+   "fieldtype": "Check",
+   "label": "Collect Response Feedback"
   },
   {
    "description": "Leave empty to allow every logged-in user.",
