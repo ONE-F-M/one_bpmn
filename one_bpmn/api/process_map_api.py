@@ -718,7 +718,6 @@ def _extract_ai_shapes(xml_content: str) -> list:
 	return shapes
 
 
-@frappe.whitelist()
 def _connector_tools_without_result_variable(xml_content: str) -> list:
 	"""Connector tool shapes that will run but can return nothing to the agent.
 
@@ -773,6 +772,7 @@ def _connector_tools_without_result_variable(xml_content: str) -> list:
 	return findings
 
 
+@frappe.whitelist()
 def validate_bpmn_readiness(xml_content: str, model_name: str = None) -> dict:
 	"""
 	Parse BPMN XML and check all prerequisites against the database.

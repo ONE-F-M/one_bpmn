@@ -16,6 +16,7 @@ from __future__ import annotations
 import json
 from unittest.mock import patch
 
+import frappe
 from frappe.tests.utils import FrappeTestCase
 
 from one_bpmn.agents.shape_tools import execute_shape
@@ -122,6 +123,23 @@ class TestNotPermittedIsNotTheSameAsNoData(FrappeTestCase):
 			res = _run(CONNECTOR_CFG, lambda task: task.data.update({"connector_result": {"id": "x"}}))
 
 		self.assertEqual(res, {"connector_result": {"id": "x"}})
+
+
+class TestTheEndpointStaysReachable(FrappeTestCase):
+	"""Inserting a helper between @frappe.whitelist() and its function moves the
+	decorator onto the helper. Everything still passes in-process — whitelisting
+	only matters over HTTP — while the Deploy button dies with "not whitelisted".
+	"""
+
+	def test_validate_bpmn_readiness_is_whitelisted(self):
+		from one_bpmn.api.process_map_api import validate_bpmn_readiness
+
+		self.assertIn(validate_bpmn_readiness, frappe.whitelisted)
+
+	def test_the_private_helper_is_not_exposed_over_http(self):
+		from one_bpmn.api.process_map_api import _connector_tools_without_result_variable
+
+		self.assertNotIn(_connector_tools_without_result_variable, frappe.whitelisted)
 
 
 class TestDeployReadinessFlagsTheGap(FrappeTestCase):
