@@ -391,3 +391,64 @@ class TestParameterCeilings(FrappeTestCase):
 			or getattr(getattr(spec.fn, "__pii_wrapped__", None), "__policy_guarded__", None),
 			"a decorated tool was not wrapped by the policy interceptor",
 		)
+
+
+class TestTheRuleFormWillSave(FrappeTestCase):
+	"""A ceiling nobody can save is not a control. The save-time validation
+	predated parameter limits and demanded a Restricted DocType, which made a
+	pure transaction ceiling unsavable."""
+
+	def _rule(self, **kwargs):
+		values = {
+			"doctype": "AI Tool Policy Rule",
+			"rule_name": kwargs.pop("rule_name", "ZZ test ceiling"),
+			"enabled": 1,
+			"action": "Deny",
+		}
+		values.update(kwargs)
+		doc = frappe.get_doc(values)
+		self.addCleanup(
+			lambda n=values["rule_name"]: frappe.db.exists("AI Tool Policy Rule", n)
+			and frappe.delete_doc("AI Tool Policy Rule", n, force=True, ignore_permissions=True)
+		)
+		return doc
+
+	def test_a_rule_with_only_a_parameter_limit_saves(self):
+		doc = self._rule(parameter_limits="amount <= 5000", restricted_tools="pay")
+		doc.insert(ignore_permissions=True)
+		self.assertTrue(frappe.db.exists("AI Tool Policy Rule", doc.name))
+
+	def test_a_rule_with_only_a_doctype_still_saves(self):
+		doc = self._rule(rule_name="ZZ test doctype only", restricted_doctypes="Salary Slip")
+		doc.insert(ignore_permissions=True)
+		self.assertTrue(frappe.db.exists("AI Tool Policy Rule", doc.name))
+
+	def test_a_rule_that_matches_nothing_is_still_refused(self):
+		doc = self._rule(rule_name="ZZ test empty")
+		with self.assertRaises(frappe.ValidationError):
+			doc.insert(ignore_permissions=True)
+
+	def test_an_unreadable_limit_is_refused_at_save_rather_than_skipped(self):
+		"""At runtime a bad line is skipped and logged — it must be, or one bad
+		character takes the whole policy down. But while a person is here to fix
+		it, a silently-skipped ceiling reads as enforced and is not."""
+		doc = self._rule(rule_name="ZZ test bad limit", parameter_limits="amount is big")
+		with self.assertRaises(frappe.ValidationError):
+			doc.insert(ignore_permissions=True)
+
+	def test_an_expression_is_refused_at_save(self):
+		doc = self._rule(
+			rule_name="ZZ test expression",
+			parameter_limits="__import__('os').system('id') <= 1",
+		)
+		with self.assertRaises(frappe.ValidationError):
+			doc.insert(ignore_permissions=True)
+
+	def test_blank_lines_and_spacing_do_not_trip_the_check(self):
+		doc = self._rule(
+			rule_name="ZZ test spacing",
+			parameter_limits="\n  amount <= 5000  \n\n quantity >= 1 \n",
+			restricted_tools="pay",
+		)
+		doc.insert(ignore_permissions=True)
+		self.assertTrue(frappe.db.exists("AI Tool Policy Rule", doc.name))

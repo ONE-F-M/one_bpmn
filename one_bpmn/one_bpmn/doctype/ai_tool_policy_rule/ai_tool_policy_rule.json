@@ -70,7 +70,7 @@
    "label": "What this rule matches"
   },
   {
-   "description": "One protected DocType per line. The rule fires when any argument of the tool call names one of these, at any depth \u2014 matched whole and case-insensitively, never as a substring.",
+   "description": "One protected DocType per line. The rule fires when any argument of the tool call names one of these, at any depth \u2014 matched whole and case-insensitively, never as a substring. Optional if Parameter Limits is set.",
    "fieldname": "restricted_doctypes",
    "fieldtype": "Small Text",
    "label": "Restricted DocTypes"
