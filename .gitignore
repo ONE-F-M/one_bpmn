@@ -32,6 +32,8 @@ share/python-wheels/
 
 # Frontend build output (equivalent to helpdesk's public/frontend)
 one_bpmn/public/processa
+# one-ai desk bundle (WI-001678) — built by `npm run build:oneai` in spiff/
+one_bpmn/public/one_ai
 one_bpmn/www/processa/index.html
 
 # Auto-generated type declarations

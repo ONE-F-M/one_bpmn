@@ -26,8 +26,29 @@ VALIDATION_RULES = (
 	{"field": "system_prompt", "rule": "must be non-empty (or a description provided so the creation process can generate one)"},
 	{"field": "ai_model", "rule": "must link an AI Model catalog record — the provider is derived from the model's credentials link (WI-001655)"},
 	{"field": "ai_provider_credentials", "rule": "derived from the model; the derived record must exist and be ENABLED; a live test call is made against it"},
-	{"field": "chat_mode_label", "rule": "required for Chat agents; must be unique across agents"},
+	{"field": "chat_mode_label", "rule": "required for Chat agents unless the agent is mapped to a non-chat process map (WI-001997); must be unique across agents"},
 )
+
+
+def is_chat_startable_map(model_name: str) -> bool | None:
+	"""Whether a BPMN Process Model can serve a chat surface (WI-001997).
+
+	A chat-startable map begins with the chat pattern: a start event whose
+	conditionalEventDefinition triggers on Chat Conversation insert
+	(``spiffworkflow:triggerDoctype="Chat Conversation"``). Any other map — a
+	record-triggered business process, a manually started one — runs fine as a
+	process but can never receive a chat turn.
+
+	Returns True/False for a map that exists, and None when the model is
+	missing or has no XML, so callers can distinguish "not a chat map" from
+	"no map at all" (a mapless Chat agent chats through the direct path).
+	"""
+	if not model_name:
+		return None
+	xml = frappe.db.get_value("BPMN Process Model", model_name, "bpmn_xml")
+	if not xml:
+		return None
+	return 'triggerDoctype="Chat Conversation"' in xml
 
 
 def validate_agent_config(config_name: str, test_provider: bool = True, require_prompt: bool = True) -> dict:
@@ -72,9 +93,12 @@ def validate_agent_config(config_name: str, test_provider: bool = True, require_
 	elif not frappe.db.get_value("AI Provider Credentials", cfg.ai_provider_credentials, "enabled"):
 		errors.append(_("The linked AI Provider Credentials record is disabled."))
 
-	# 4. Chat-type essentials
+	# 4. Chat-type essentials — a label, unless the agent is mapped to a
+	# non-chat process map (WI-001997: a process-embedded agent never appears
+	# in the chat picker, so it needs no label).
 	if cfg.agent_type == "Chat" and not cfg.chat_mode_label:
-		errors.append(_("Chat agents need a chat mode label."))
+		if is_chat_startable_map(cfg.process_model) is not False:
+			errors.append(_("Chat agents need a chat mode label."))
 
 	# 5. Live provider test call
 	if test_provider and cfg.ai_provider_credentials and not errors:
@@ -116,7 +140,12 @@ def provision_agent(config_name: str):
 	"""
 	cfg = frappe.get_doc("AI Agent Configuration", config_name)
 	if cfg.agent_type != "Chat":
-		return  # Background agents go Live on save (apply_background_lifecycle)
+		# Background agents used to go Live from a controller hook
+		# (apply_background_lifecycle), which pre-empted the creation process —
+		# they were already Live before its Draft start condition was evaluated.
+		# Every agent type now walks the map; this path stays chat-only because
+		# nothing calls it, and the map is where go-live is decided.
+		return
 
 	try:
 		_set_status(config_name, "Validating")
@@ -146,6 +175,34 @@ def provision_agent(config_name: str):
 					message=f"Baseline suite {suite_name} did not pass and gates deployment.",
 				)
 				return
+
+		# The release gate. A conversational agent is reachable by
+		# anyone who can open a chat box, so it does not ship untested against
+		# injection, jailbreak, exfiltration and tool coercion — and it does not
+		# ship on a map with the screening stage removed. Both fail CLOSED:
+		# unlike the runtime screens, this authorises a release, and "cannot
+		# prove it is safe" must mean no.
+		from one_bpmn.agents.adversarial_gate import check as adversarial_check
+		from one_bpmn.agents.conformance import validate_chat_map
+
+		gate = adversarial_check(config_name)
+		if not gate["ok"]:
+			_set_status(config_name, "Needs Attention", reason=gate["reason"])
+			frappe.log_error(
+				title=f"Agent go-live blocked: adversarial gate ({cfg.agent_id})",
+				message=gate["reason"],
+			)
+			return
+
+		conformance = validate_chat_map(cfg.process_model)
+		if not conformance["ok"]:
+			reason = "; ".join(conformance["errors"])
+			_set_status(config_name, "Needs Attention", reason=reason)
+			frappe.log_error(
+				title=f"Agent go-live blocked: map not conforming ({cfg.agent_id})",
+				message=reason,
+			)
+			return
 
 		_set_status(config_name, "Live")
 	except Exception:
@@ -307,3 +364,70 @@ def _provider_test_call(cfg) -> tuple[bool, str]:
 		return (bool(text and text.strip()), text.strip()[:80] or "empty response")
 	except Exception as exc:
 		return (False, str(exc)[:200])
+
+
+# ── Re-run the creation process from the form ───────────────────────────────
+
+@frappe.whitelist()
+def rerun_creation_process(agent: str) -> dict:
+	"""Put an agent back through the Agent Creation Process.
+
+	Editing the record already does this — the map waits on the Config Edited
+	message and any save delivers it — but "make a change you do not want in
+	order to re-run a check" is a poor thing to have to know. This is the same
+	trigger behind a button.
+
+	It decides NOTHING. Whether the agent may go Live is the map's call, exactly
+	as before; this only asks the map to look again. Two cases:
+
+	* the map is already parked on Config Edited — deliver that message;
+	* nothing is running (a Draft that never started, or an agent parked from
+	  outside the process) — start a fresh instance.
+
+	Restricted to Draft and Needs Attention: a Live agent is already past this,
+	and Retired is a deliberate state the process must not resurrect.
+	"""
+	doc = frappe.get_doc("AI Agent Configuration", agent)
+	doc.check_permission("write")
+
+	if doc.lifecycle_status not in ("Draft", "Needs Attention"):
+		frappe.throw(
+			_(
+				"'{0}' is {1}. Re-running the creation process applies to agents in "
+				"Draft or Needs Attention."
+			).format(doc.name, doc.lifecycle_status)
+		)
+
+	from one_bpmn.agents.agent_config_resolver import get_creation_process_model
+	from one_bpmn.one_bpmn.trigger import _maybe_send_message
+
+	if not get_creation_process_model():
+		frappe.throw(
+			_(
+				"No Agent Creation Process is deployed, so there is nothing to re-run. "
+				"Tick 'Can Create Agents' on one agent and link the process map."
+			)
+		)
+
+	creation_model = get_creation_process_model()
+	waiting = frappe.db.exists(
+		"BPMN Process Instance",
+		{
+			"process_model": creation_model,
+			"context_doctype": "AI Agent Configuration",
+			"context_docname": doc.name,
+			"status": ("in", ["Active", "Errored"]),
+		},
+	)
+
+	if waiting:
+		# The dedup flag is per-request and would swallow this if the same
+		# request already delivered one; clear it so an explicit ask is honoured.
+		frappe.flags._bpmn_message_sent = None
+		_maybe_send_message(doc, "Edit_Action")
+		return {"ok": True, "action": "resumed", "instance": waiting}
+
+	from one_bpmn.agents.agent_config_resolver import _start_reprovision
+
+	started = _start_reprovision(doc.name)
+	return {"ok": True, "action": "started" if started else "skipped"}

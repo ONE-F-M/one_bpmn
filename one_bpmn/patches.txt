@@ -48,7 +48,6 @@ one_bpmn.one_bpmn.patches.v1_0.change_process_implementation_to_data #24-07-2026
 one_bpmn.one_bpmn.patches.v1_0.fix_logix_http_helper_qualified_path #24-07-2026
 one_bpmn.one_bpmn.patches.v1_0.move_eval_suite_link_to_suite #24-07-2026
 one_bpmn.one_bpmn.patches.v1_0.evals_test_agent_configuration #25-07-2026
-one_bpmn.one_bpmn.patches.v1_0.move_google_settings_to_processa #25-07-2026
 one_bpmn.one_bpmn.patches.v1_0.harden_logix_modify_existing_script_prompts #28-07-2026
 one_bpmn.one_bpmn.patches.v1_0.add_assistant_eval_authoring_tools #27-07-2026
 one_bpmn.one_bpmn.patches.v1_0.add_assistant_agent_creation_tool #28-07-2026
@@ -58,3 +57,31 @@ one_bpmn.one_bpmn.patches.v1_0.merge_lumina_general_chat_config #30-07-2026 WI-0
 one_bpmn.one_bpmn.patches.v1_0.repair_agent_memory_threads #30-07-2026 WI-001630
 one_bpmn.one_bpmn.patches.v1_0.seed_logix_code_guardrails #02-08-2026 WI-001639
 one_bpmn.one_bpmn.patches.v1_0.seed_ai_tool_policy_rules #02-08-2026 WI-001645
+one_bpmn.one_bpmn.patches.v1_0.deprecate_document_generation_processes #03-08-2026 WI-001844
+one_bpmn.one_bpmn.patches.v1_0.inline_docu_tool_scripts #03-08-2026 rerun for self-contained bodies
+one_bpmn.one_bpmn.patches.v1_0.fix_assistant_tool_gateway #02-08-2026 WI-001751 follow-up
+one_bpmn.one_bpmn.patches.v1_0.add_eval_suite_inline_cases #02-08-2026 WI-001751 follow-up
+one_bpmn.one_bpmn.patches.v1_0.fix_assistant_prompt_routing #02-08-2026 WI-001751 follow-up
+one_bpmn.one_bpmn.patches.v1_0.raise_assistant_token_ceiling #02-08-2026 WI-001751 follow-up
+
+one_bpmn.one_bpmn.patches.v1_0.import_connector_manifests_to_doctype #29-07-2026 connectors become configuration
+one_bpmn.one_bpmn.patches.v1_0.degoogle_connector_field_types #29-07-2026 Drive field types -> configurable Value Transform
+one_bpmn.one_bpmn.patches.v1_0.set_connector_credential_source #29-07-2026 connector holds its own credential
+one_bpmn.one_bpmn.patches.v1_0.add_missing_connector_operations #03-08-2026 operations added to shipped manifests reach already-imported sites
+one_bpmn.one_bpmn.patches.v1_0.google_connectors_to_http #03-08-2026 WI-001811
+one_bpmn.one_bpmn.patches.v1_0.move_google_credential_to_connectors #04-08-2026 WI-001811 per-connector Google credentials
+one_bpmn.one_bpmn.patches.v1_0.seed_google_connectors #04-08-2026 WI-001811 connector definitions live in the patch, not JSON files
+one_bpmn.one_bpmn.patches.v1_0.drop_legacy_google_credential_field #04-08-2026 the connector's own Secret is the only credential
+one_bpmn.one_bpmn.patches.v1_0.seed_ai_injection_patterns #05-08-2026 WI-001967 prompt-injection rule pack ships as data
+one_bpmn.one_bpmn.patches.v1_0.move_memory_config_to_agent #05-08-2026 WI-001793 memory settings move from the diagram to the agent
+one_bpmn.one_bpmn.patches.v1_0.retire_chat_agent_template #09-08-2026 WI-001997 agents own their maps, the clone template is gone
+one_bpmn.one_bpmn.patches.v1_0.add_assistant_agent_creation_tool #09-08-2026 WI-001997 creation asks which process the agent is mapped to
+one_bpmn.one_bpmn.patches.v1_0.backfill_chat_surface_ui_fields #07-08-2026 WI-001996 chat-surface UI comes from configuration
+one_bpmn.one_bpmn.patches.v1_0.harden_logix_pipeline_driver #09-08-2026 the pipeline map's agent must end every turn with finalize
+one_bpmn.one_bpmn.patches.v1_0.remove_one_ai_page #10-08-2026 the one-ai desk page is removed — openAgentChat keeps serving the Chat button
+one_bpmn.one_bpmn.patches.v1_0.set_output_screening_default #10-08-2026 WI-001644 existing agents get an explicit output screening mode
+one_bpmn.one_bpmn.patches.v1_0.drop_user_task_assignment_log #10-08-2026 WI-001998 the map's version history is the only record of a reassignment
+one_bpmn.one_bpmn.patches.v1_0.move_rate_limit_to_agents #11-08-2026 the message throttle is the agent's, not the site's
+one_bpmn.one_bpmn.patches.v1_0.move_freeze_thresholds_to_agents #11-08-2026 the freeze thresholds are the agent's too; only who may release stays site-wide
+one_bpmn.one_bpmn.patches.v1_0.stop_prosally_reconfirm_loop #12-08-2026 WI-002001 the orchestrator must go straight to finalize after its stage tool
+one_bpmn.one_bpmn.patches.v1_0.prosally_lane_fidelity #13-08-2026 WI-002042 designer-named lanes are authoritative; rework converges on one re-entry

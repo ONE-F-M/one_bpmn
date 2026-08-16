@@ -15,9 +15,10 @@ authored/saved and again when a model is deployed — never at execution time.
 The intent is to prevent an unsafe script from ever being added or deployed.
 
 Tuning (per the agreed decisions):
-  * Unambiguous escape vectors are ALWAYS blocked (exec/eval/getattr,
-    frame-walking dunders, __globals__, subscript dunder lookups, imports of
-    dangerous modules, memory-bomb multiplication, permission-bypass kwargs).
+  * Unambiguous escape vectors are ALWAYS blocked (exec/eval/getattr as bare
+    names AND as attribute calls, frame-walking dunders, __globals__, subscript
+    dunder lookups, imports of dangerous modules, memory-bomb multiplication,
+    permission-bypass kwargs).
   * Constructs that also have legitimate uses are CONFIG-GATED and default to
     ALLOW, so the gate does not reject ordinary Frappe scripts wholesale:
         - control flow: while / def / lambda   (block_while / block_functiondef / block_lambda)
@@ -61,6 +62,20 @@ FORBIDDEN_MODULES = frozenset({
 	"inspect", "dis", "gc", "traceback",
 	# File-system helpers
 	"tempfile", "shutil", "pathlib", "glob",
+	# The banned builtins, reachable as an ordinary module attribute.
+	# `exec` as a bare name is blocked; `import builtins; builtins.exec(...)`
+	# is an attribute call that no other rule matches.
+	"builtins",
+	# Modules that execute a string of source. Same hole as builtins, different
+	# spelling: runpy.run_path, code.InteractiveInterpreter().runsource,
+	# codeop.compile_command, timeit.timeit, pdb.run, bdb.Bdb().run.
+	"runpy", "code", "codeop", "timeit", "pdb", "bdb",
+	# operator.attrgetter is getattr by another name, and getattr is always
+	# blocked precisely because it defeats the attribute blacklist.
+	"operator",
+	# Shell out by other means: asyncio.create_subprocess_shell, and platform /
+	# webbrowser both invoke system commands underneath.
+	"asyncio", "platform", "webbrowser",
 })
 
 # ── Builtins that are pure escape/reflection vectors — ALWAYS blocked ─────────
@@ -71,6 +86,19 @@ BANNED_BUILTINS = frozenset({
 	"globals", "locals", "vars", "dir",
 	"getattr", "setattr", "delattr",
 })
+
+# The same verbs reached as an ATTRIBUTE — ``anything.exec(...)`` — always blocked.
+#
+# A module blacklist can only ever name the modules someone thought of, and the
+# call check above sees bare names only, so every module holding a reference to
+# exec is a bypass waiting to be found. Catching the verb at the call site closes
+# the shape instead of the instances.
+#
+# Deliberately NOT all of BANNED_BUILTINS: ``re.compile()`` and ``Path.open()``
+# are ordinary code and banning them as attributes would reject real scripts.
+# These three have no legitimate attribute form in a Server Script — confirmed
+# against the 235 currently on this site, none of which call any of them.
+BANNED_CALL_ATTRIBUTES = frozenset({"exec", "eval", "__import__"})
 
 # Builtins with common legitimate uses — blocked only when strict_builtins is on.
 SOFT_BANNED_BUILTINS = frozenset({
@@ -226,6 +254,9 @@ class _SecurityVisitor(ast.NodeVisitor):
 				self.violations.append(f"{name}() is not allowed")
 			elif name in SOFT_BANNED_BUILTINS and self.options.strict_builtins:
 				self.violations.append(f"{name}() is not allowed (strict mode)")
+		elif isinstance(func, ast.Attribute) and func.attr in BANNED_CALL_ATTRIBUTES:
+			# builtins.exec(...), or any other object that happens to hold it.
+			self.violations.append(f".{func.attr}() is not allowed")
 
 		# explicit  save(ignore_permissions=True)
 		for kw in node.keywords:

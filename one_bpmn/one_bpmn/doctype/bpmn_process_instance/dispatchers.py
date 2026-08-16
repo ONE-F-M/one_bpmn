@@ -54,9 +54,22 @@ def _resolve_memory_target(task_cfg: dict, instance, bpmn_id: str):
 
 
 def _format_memory_block(memories: list) -> str:
-	"""Render retrieved memories as a clearly delimited block that is appended
-	to the system prompt. Stable format — see ``MEMORY_BLOCK_HEADER``."""
-	lines = [MEMORY_BLOCK_HEADER]
+	"""Render retrieved memories as a clearly delimited block for the dynamic
+	prompt layer. Stable format — see ``MEMORY_BLOCK_HEADER``.
+
+	The provenance line is load-bearing: memories are recalled across
+	conversations, and past final responses ("✅ Complete! … generated")
+	presented bare read as THIS conversation's history — observed live
+	(2026-08-09): the ProsAlly orchestrator concluded the requested process
+	already existed, skipped its confirm tool, and every turn fell through
+	to finalize's fallback question."""
+	lines = [
+		MEMORY_BLOCK_HEADER,
+		"(Background notes recalled from PAST, separate conversations. "
+		"They are context only — nothing below has happened in the current "
+		"conversation, and none of it counts as work already done for the "
+		"current request.)",
+	]
 	for m in memories:
 		content = (m.get("content") or "").strip()
 		if content:
@@ -114,6 +127,45 @@ def _memory_write_mode(task_cfg: dict) -> str:
 	if mode in ("off", "raw", "distilled"):
 		return mode
 	return "distilled" if _cfg_truthy(task_cfg.get("aiMemoryAutoWrite")) else "off"
+
+
+def _memory_model(task_cfg: dict, key: str, fallback: str | None) -> str | None:
+	"""Resolve the model for a memory write, in precedence order (WI-001793).
+
+	``task_cfg`` already carries the linked AI Agent Configuration's values —
+	``resolve_dispatch_overrides`` overlaid them before dispatch — with the
+	shape's older XML attribute showing through when the agent leaves the field
+	blank. After that comes the site-wide Processa Settings default, and finally
+	``fallback``, the agent's own chat model, which is what ran before this
+	story. Returning None is safe and expected: distillation skips with a log
+	and reconciliation degrades to a plain "add".
+
+	Resolution happens here, on the dispatch thread, because the distiller runs
+	in a background RQ worker that must be handed the model as a job argument
+	rather than looking it up itself.
+	"""
+	model = (task_cfg.get(key) or "").strip() if isinstance(task_cfg.get(key), str) else task_cfg.get(key)
+	if model:
+		return model
+
+	setting = _MEMORY_MODEL_SETTINGS.get(key)
+	if setting:
+		try:
+			default = frappe.db.get_single_value("Processa Settings", setting)
+			if default:
+				return default
+		except Exception:
+			# A missing/unreadable setting must never break a memory write.
+			pass
+
+	return fallback or None
+
+
+# Shape attribute -> the Processa Settings field holding its site-wide default.
+_MEMORY_MODEL_SETTINGS = {
+	"aiMemoryDistillModel": "default_memory_distill_model",
+	"aiMemoryReconcileModel": "default_memory_reconcile_model",
+}
 
 
 def _enqueue_distill(**kwargs) -> None:
@@ -259,6 +311,77 @@ def dispatch_update_field(instance, task, task_cfg: dict, bpmn_id: str) -> None:
 	)
 
 
+def _apply_value_transform(path: str, value, field_name: str, bpmn_id: str):
+	"""
+	Run a field's configured Value Transform over a rendered input value.
+
+	The transform is a dotted path to ``fn(value) -> value`` declared on the
+	BPMN Connector Field row, which is how provider-specific input handling stays
+	out of this generic dispatcher — e.g. the Google connectors point their file
+	and folder fields at ``google_common.normalize_drive_id`` so a pasted share
+	link becomes a bare id. A transform that raises is logged and the original
+	value is used, so a bad transform degrades rather than killing the workflow.
+	"""
+	path = (path or "").strip()
+	if not path or value in (None, ""):
+		return value
+	try:
+		return frappe.get_attr(path)(value)
+	except Exception:
+		frappe.log_error(
+			title=f"BPMN ServiceTask: connector value transform failed ({bpmn_id})",
+			message=f"field={field_name!r} transform={path!r}\n\n{frappe.get_traceback()}",
+		)
+		return value
+
+
+def _resolve_connector_handler(connector_id: str, operation: str):
+	"""
+	Find the callable that runs a (connectorId, operation), or None.
+
+	Connectors are configuration (BPMN Connector / Operation / Field DocTypes),
+	so the configuration is the only thing consulted:
+
+	  1. the operation's Handler Path — an explicit dotted path
+	  2. execution type "HTTP Request" — the declarative executor, no Python
+
+	There is deliberately no implicit lookup behind these. Every operation says
+	how it runs, so an unconfigured one fails loudly instead of resolving to
+	whatever function happened to register that name.
+	"""
+	from one_bpmn.one_bpmn.connectors import manifest as _manifest
+
+	try:
+		spec = _manifest.get_execution_spec(connector_id, operation)
+	except Exception:
+		frappe.log_error(
+			title=f"BPMN ServiceTask: connector config unreadable ({connector_id}/{operation})",
+			message=frappe.get_traceback(),
+		)
+		spec = None
+
+	if spec:
+		if spec.handler_path:
+			try:
+				return frappe.get_attr(spec.handler_path)
+			except Exception:
+				frappe.log_error(
+					title=f"BPMN ServiceTask: connector handler path failed ({connector_id}/{operation})",
+					message=f"handler_path={spec.handler_path!r}\n\n{frappe.get_traceback()}",
+				)
+				return None
+
+		if spec.execution_type == "HTTP Request":
+			from one_bpmn.one_bpmn.connectors import http_ops
+
+			return lambda params, ctx: http_ops.execute(spec, params, ctx)
+
+	# No third path. An operation that names neither an HTTP request nor a
+	# handler is unconfigured, and saying so beats silently finding a function
+	# that happens to share its name.
+	return None
+
+
 def dispatch_connector(instance, task, task_cfg: dict, bpmn_id: str) -> None:
 	"""
 	Execute a Service Task with serviceType='connector'.
@@ -272,31 +395,46 @@ def dispatch_connector(instance, task, task_cfg: dict, bpmn_id: str) -> None:
 	                      otherwise errors are logged and the workflow continues.
 
 	Input values flagged as expressions in the manifest are Jinja2-rendered
-	against {doc, instance, frappe, task_data}; DriveFile/DriveFolder fields are
-	link-or-ID normalized. The handler's dict return is written to
+	against {doc, instance, frappe, task_data}, then passed through the field's
+	configured Value Transform if it declares one (that is how, for example, a
+	Google Drive field accepts either a share link or a bare id — nothing about
+	any specific provider is known here). The handler's dict return is written to
 	task.data[resultVariable] so downstream tasks/gateways can use it.
 	"""
 	import json as _json
 
 	from one_bpmn.one_bpmn.connectors import manifest as _manifest
-	from one_bpmn.one_bpmn.connectors import registry as _registry
-	from one_bpmn.one_bpmn.integrations.google_common import normalize_drive_id
-
-	# Importing the package runs every @connector registration (idempotent).
-	import one_bpmn.one_bpmn.connectors  # noqa: F401
 
 	connector_id = (task_cfg.get("connectorId") or "").strip()
 	operation = (task_cfg.get("operation") or "").strip()
 	result_var = (task_cfg.get("resultVariable") or "").strip()
 	fail_on_error = _cfg_truthy(task_cfg.get("failOnError"))
 
-	handler = _registry.get_handler(connector_id, operation)
+	# Role gate. Hiding a restricted connector in the modeler is convenience;
+	# this is the control. A diagram authored before the restriction — or by
+	# someone who had the role and has since lost it — must not still run it.
+	# Checked against the user the instance is running as, which for a chat or
+	# form-triggered process is the person who caused it.
+	if not _manifest.user_may_use_connector(connector_id):
+		frappe.log_error(
+			title=f"BPMN ServiceTask: connector not permitted ({bpmn_id})",
+			message=(
+				f"{frappe.session.user} lacks a role allowed to use connector "
+				f"{connector_id!r} (operation {operation!r})."
+			),
+		)
+		if fail_on_error:
+			frappe.throw(f"Not permitted to use connector {connector_id}")
+		return
+
+	handler = _resolve_connector_handler(connector_id, operation)
 	if not handler:
 		frappe.log_error(
 			title=f"BPMN ServiceTask: connector unknown ({bpmn_id})",
 			message=(
-				f"No handler for connectorId={connector_id!r} operation={operation!r}. "
-				f"Registered: {_registry.registered()}"
+				f"No executor for connectorId={connector_id!r} operation={operation!r}. "
+				f"Either it is not a BPMN Connector Operation, it is disabled, or its "
+				f"row names neither an HTTP request nor a Handler Path."
 			),
 		)
 		if fail_on_error:
@@ -317,7 +455,7 @@ def dispatch_connector(instance, task, task_cfg: dict, bpmn_id: str) -> None:
 			raise
 		return
 
-	# ── Resolve field values: Jinja render (expressions) + link/ID normalize ──
+	# ── Resolve field values: Jinja render (expressions) + Value Transform ──
 	doc = (
 		frappe.get_doc(instance.context_doctype, instance.context_docname)
 		if (instance.context_doctype and instance.context_docname)
@@ -325,6 +463,7 @@ def dispatch_connector(instance, task, task_cfg: dict, bpmn_id: str) -> None:
 	)
 	render_ctx = {"doc": doc, "instance": instance, "frappe": frappe, "task_data": dict(task.data)}
 	specs = _manifest.field_specs(connector_id, operation)
+	transforms = _manifest.field_transforms(connector_id, operation)
 
 	resolved = {}
 	for key, value in params.items():
@@ -345,8 +484,7 @@ def dispatch_connector(instance, task, task_cfg: dict, bpmn_id: str) -> None:
 					title=f"BPMN ServiceTask: connector Jinja render failed ({bpmn_id})",
 					message=f"field={key!r}\n\n{frappe.get_traceback()}",
 				)
-		if spec.get("type") in ("DriveFile", "DriveFolder") and isinstance(val, str):
-			val = normalize_drive_id(val)
+		val = _apply_value_transform(transforms.get(key), val, key, bpmn_id)
 		resolved[key] = val
 
 	ctx = {"instance": instance, "task": task, "doc": doc, "task_data": dict(task.data)}
@@ -929,7 +1067,16 @@ def dispatch_ai_agent(instance, task, task_cfg: dict, bpmn_id: str, resume_run: 
 	failures are caught and logged — they never block the executor call.
 	A suspended run stays open (status="Suspended") instead of finalizing.
 	"""
-	from one_bpmn.agents.executor import ExecutorConfig, ExecutorContext, ErrorCode, get_executor
+	from frappe.utils import cint
+
+	from one_bpmn.agents.executor import (
+		DEFAULT_MAX_OUTPUT_TOKENS,
+		DEFAULT_TIMEOUT_SECONDS,
+		ErrorCode,
+		ExecutorConfig,
+		ExecutorContext,
+		get_executor,
+	)
 	from one_bpmn.agents.executor.direct_api import DirectApiExecutor  # noqa
 	from one_bpmn.agents.executor.antigravity import AntigravityExecutor  # noqa
 	from one_bpmn.agents import checkpoint as _checkpoint
@@ -1052,8 +1199,14 @@ def dispatch_ai_agent(instance, task, task_cfg: dict, bpmn_id: str, resume_run: 
 		user_prompt      = user_prompt,
 		temperature      = float(task_cfg.get("aiTemperature", 0.7) or 0.7),
 		top_p            = float(task_cfg.get("aiTopP", 1.0) or 1.0),
-		max_tokens       = int(task_cfg.get("aiMaxTokens", 1024) or 1024),
-		timeout_seconds  = int(task_cfg.get("aiTimeout", 30) or 30),
+		# cint FIRST, then fall back: a shape attribute arrives as a string, and
+		# "0" is truthy — `"0" or DEFAULT` would yield a zero budget. cint also
+		# absorbs "", "  " and junk, which int() would raise on.
+		max_tokens       = cint(task_cfg.get("aiMaxTokens")) or DEFAULT_MAX_OUTPUT_TOKENS,
+		# Defer to the shared default rather than repeating a number here. The
+		# hardcoded 30 that used to sit in this line silently overrode it, so
+		# raising the default had no effect on any AI task in any process map.
+		timeout_seconds  = cint(task_cfg.get("aiTimeout")) or DEFAULT_TIMEOUT_SECONDS,
 		response_format  = task_cfg.get("aiResponseFormat", "text") or "text",
 		response_schema  = task_cfg.get("aiResponseSchema") or None,
 		max_retries      = int(task_cfg.get("aiMaxRetries", 2) or 2),
@@ -1209,7 +1362,11 @@ def dispatch_ai_agent(instance, task, task_cfg: dict, bpmn_id: str, resume_run: 
 		# A suspension is not an outcome — the run stays open ("Suspended",
 		# set by save_checkpoint below) until the final answer or a failure.
 		if result.error_code != ErrorCode.SUSPENDED:
-			finalize_ai_run(run, result)
+			# WI-001823: a map may declare what "done" means for this shape by
+			# naming the reply key that proves it — Logix finishes when it has a
+			# script, ProsAlly when it has a diagram. Left unset, completion
+			# falls back to the generic error/turn-cap/output signals.
+			finalize_ai_run(run, result, goal_key=(task_cfg.get("aiGoalOutputKey") or "").strip() or None)
 
 		# Commit observability data so AI runs + steps survive even if a
 		# downstream aiStopOnError raise rolls back the outer transaction.
@@ -1339,9 +1496,11 @@ def dispatch_ai_agent(instance, task, task_cfg: dict, bpmn_id: str, resume_run: 
 								ignore_permissions=True,
 							)
 					else:  # distilled
-						# Distill with the task's own provider/model so the
-						# extraction call is always valid for the configured
-						# provider; aiMemoryDistillModel overrides when set.
+						# Distill and reconcile with the models the admin chose
+						# (agent -> Processa Settings -> the agent's own model),
+						# resolved here on the dispatch thread and handed to the
+						# background job. The provider/backend still come from
+						# the task so the extraction call is always valid.
 						# Tool-protocol agents leave result.output empty (their
 						# answer lives in tool arguments/results) — distill the
 						# interaction instead: the user message (where standing
@@ -1365,7 +1524,10 @@ def dispatch_ai_agent(instance, task, task_cfg: dict, bpmn_id: str, resume_run: 
 							scope_key=scope_key,
 							provider_name=config.provider_name,
 							backend=config.backend,
-							model=(task_cfg.get("aiMemoryDistillModel") or config.model or None),
+							model=_memory_model(task_cfg, "aiMemoryDistillModel", config.model),
+							reconcile_model=_memory_model(
+								task_cfg, "aiMemoryReconcileModel", config.model
+							),
 							source_run=src,
 						)
 			except Exception:

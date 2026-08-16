@@ -520,14 +520,10 @@
 								<Icon icon="lucide:layout-grid" class="w-20 h-20 mx-auto" />
 							</div>
 							<p class="text-gray-500 text-lg mb-6">No process map selected</p>
-							<button
-								v-if="isEditable"
-								@click="showAddDiagramDialog"
-								class="inline-flex items-center gap-2 px-5 py-3 bg-gray-700 hover:bg-gray-800 text-white rounded-lg transition-colors font-medium"
-							>
-								<Icon icon="lucide:plus" class="w-5 h-5" />
-								Add Process Map
-							</button>
+							<p v-if="isEditable" class="text-sm text-gray-400 max-w-sm mx-auto">
+								Process maps are created through the Process Implementation
+								process — they cannot be added from the editor.
+							</p>
 							<p v-else class="text-sm text-gray-400">
 								<Icon icon="lucide:lock" class="w-4 h-4 inline mr-1" />
 								Process is locked. Create a Process Implementation and get it actioned to "Active" state to enable editing.
@@ -548,9 +544,7 @@
 					:versions="namedVersionTabs"
 					:activeVersion="activeVersionName"
 					@select-tab="onSelectTab"
-					@add-tab="showAddDiagramDialog"
 					@rename-tab="renameProcessModel"
-					@duplicate-tab="handleDuplicateTab"
 					@delete-tab="handleDeleteTab"
 					@select-version="selectVersion"
 					@compare="openCompareDialog"
@@ -591,69 +585,6 @@
 			</div>
 		</div>
 
-		<!-- Add Process Map / New Version Dialog -->
-		<Dialog
-			v-model="showNewDiagramDialog"
-			:options="{ title: newDiagramMode === 'version' ? 'Create New Version' : 'New Process Map' }"
-		>
-			<template #body-content>
-				<div class="space-y-4">
-					<!-- Base version picker — only when the process already has a map -->
-					<div v-if="newDiagramMode === 'version'">
-						<label class="block text-sm font-medium text-gray-700 mb-1">
-							Base version <span class="text-red-500">*</span>
-						</label>
-						<p class="text-xs text-gray-500 mb-2">
-							Pick a named version from the history to use as the starting template for the new version.
-						</p>
-						<div v-if="loadingNamedVersions" class="text-sm text-gray-400 py-2">
-							Loading named versions…
-						</div>
-						<div
-							v-else-if="namedVersions.length === 0"
-							class="text-sm text-amber-700 bg-amber-50 border border-amber-200 rounded-md px-3 py-2"
-						>
-							No named versions found in the current map's history. Name a version in the history
-							panel first, then create a new version from it.
-						</div>
-						<select
-							v-else
-							v-model="selectedBaseVersion"
-							class="w-full text-sm border border-gray-300 rounded-md px-3 py-2 bg-white text-gray-800 focus:outline-none focus:ring-1 focus:ring-blue-500"
-						>
-							<option v-for="v in namedVersions" :key="v.name" :value="v.name">
-								{{ v.version_name }} — {{ formatVersionTime(v.timestamp) }}
-							</option>
-						</select>
-					</div>
-
-					<FormControl
-						:label="newDiagramMode === 'version' ? 'New Version Name' : 'Process Map Name'"
-						v-model="newDiagramName"
-						:required="true"
-						placeholder="Enter a unique name"
-					/>
-					<FormControl
-						label="Description"
-						type="textarea"
-						v-model="newDiagramDescription"
-						placeholder="Optional description"
-					/>
-
-				</div>
-			</template>
-			<template #actions>
-				<div class="flex gap-2">
-					<Button variant="subtle" @click="showNewDiagramDialog = false">Cancel</Button>
-					<Button
-						variant="solid"
-						@click="createDiagram"
-						:loading="creating"
-						:disabled="newDiagramMode === 'version' && (loadingNamedVersions || namedVersions.length === 0)"
-					>Create</Button>
-				</div>
-			</template>
-		</Dialog>
 
 		<!-- Server Script Selector/Creator Dialog -->
 		<Dialog v-model="showScriptEditorDialog" :options="{ title: scriptEditorTitle, size: '5xl' }">
@@ -1204,7 +1135,6 @@ const isAnyDialogOpen = computed(() => {
 		showLogixCanvas.value ||
 		showDeleteScriptConfirm.value ||
 		showMarkdownEditorDialog.value ||
-		showNewDiagramDialog.value ||
 		showUnsavedNavigationWarning.value ||
 		showCallActivitySearchDialog.value ||
 		showReadinessDialog.value ||
@@ -1221,7 +1151,6 @@ const isAnyDialogOpen = computed(() => {
 
 // --- Lifecycle ---
 const saving = ref(false);
-const creating = ref(false);
 const importing = ref(false);
 const editorReady = ref(false);
 const hasUnsavedChanges = ref(false);
@@ -1351,8 +1280,10 @@ async function runSync() {
 const reassignMode = ref(false);
 const pendingReassignments = new Map(); // taskId → { modelName, assignment }
 let reassignSaveTimer = null;
-// Logs created this session, grouped by model, awaiting the batched deploy.
-const savedReassignLogs = []; // [{ modelName, log }]
+// Models actually changed this session, awaiting the batched deploy. This used
+// to carry audit-log names too; the log is gone, but the set still decides
+// whether to deploy at all and which maps to recompile.
+const touchedReassignModels = new Set(); // modelName
 
 function toggleReassignMode() {
 	if (reassignMode.value) {
@@ -1362,10 +1293,10 @@ function toggleReassignMode() {
 		finalizeReassignments();
 	} else {
 		reassignMode.value = true;
-		savedReassignLogs.length = 0;
+		touchedReassignModels.clear();
 		showNotification(
 			"Reassign mode enabled",
-			"Assignment Configuration fields (Assignment Mode, User, DocField, Users, Table Field, Row User Field) on User Tasks are now editable. Changes are logged as you make them, and the map is redeployed once when you exit reassign mode.",
+			"Assignment Configuration fields (Assignment Mode, User, DocField, Users, Table Field, Row User Field) on User Tasks are now editable. Changes are saved as you make them and recorded in the map's version history, and the map is redeployed once when you exit reassign mode.",
 			"blue"
 		);
 	}
@@ -1390,8 +1321,9 @@ function onReassignChanged({ taskId, assignment }) {
 	reassignSaveTimer = setTimeout(flushReassignments, 1200);
 }
 
-// Persist pending per-task changes (attribute write + audit log). Does NOT
-// deploy — that is batched into finalizeReassignments().
+// Persist pending per-task changes. Saving is what records them in the map's
+// version history. Does NOT deploy — that is batched into
+// finalizeReassignments().
 async function flushReassignments() {
 	if (reassignSaveTimer) {
 		clearTimeout(reassignSaveTimer);
@@ -1410,7 +1342,7 @@ async function flushReassignments() {
 					assignment: JSON.stringify(assignment),
 				},
 			});
-			if (res && res.updated && res.log) savedReassignLogs.push({ modelName, log: res.log });
+			if (res && res.updated) touchedReassignModels.add(modelName);
 		} catch (err) {
 			const msg =
 				err.messages && err.messages.length
@@ -1424,22 +1356,18 @@ async function flushReassignments() {
 // Flush any pending change, then recompile each touched model exactly once.
 async function finalizeReassignments() {
 	await flushReassignments();
-	if (!savedReassignLogs.length) return;
+	if (!touchedReassignModels.size) return;
 
-	const byModel = new Map(); // modelName → [logName]
-	for (const { modelName, log } of savedReassignLogs) {
-		if (!byModel.has(modelName)) byModel.set(modelName, []);
-		byModel.get(modelName).push(log);
-	}
-	savedReassignLogs.length = 0;
+	const models = [...touchedReassignModels];
+	touchedReassignModels.clear();
 
 	let deployFailed = false;
-	for (const [modelName, logs] of byModel.entries()) {
+	for (const modelName of models) {
 		try {
 			const res = await frappeRequest({
 				url: "/api/method/one_bpmn.api.reassignment.deploy_reassignments",
 				method: "POST",
-				params: { model_name: modelName, logs: JSON.stringify(logs) },
+				params: { model_name: modelName },
 			});
 			if (!res || res.redeployed === false) deployFailed = true;
 		} catch (err) {
@@ -1450,14 +1378,14 @@ async function finalizeReassignments() {
 	if (deployFailed) {
 		showNotification(
 			"Reassignments saved — redeploy pending",
-			"Assignment changes were logged, but automatic redeploy failed. Click Deploy to apply them to new instances.",
+			"Assignment changes were saved and recorded in the version history, but automatic redeploy failed. Click Deploy to apply them to new instances.",
 			"red",
 			true
 		);
 	} else {
 		showNotification(
 			"Reassignments saved & redeployed",
-			"All assignment changes were logged and the map was redeployed once. New process instances use the new assignment; already-running tasks keep their current assignee.",
+			"All assignment changes were saved to the map's version history and the map was redeployed once. New process instances use the new assignment; already-running tasks keep their current assignee.",
 			"green"
 		);
 	}
@@ -1666,18 +1594,9 @@ const notification = ref({
 const showUnsavedNavigationWarning = ref(false);
 let pendingNavigationNext = null;
 
-// New diagram dialog
-const showNewDiagramDialog = ref(false);
-const newDiagramName = ref("");
-const newDiagramDescription = ref("");
-// "blank" when the process has no map yet (create from scratch); "version" once
-// a map exists (create a new version seeded from a chosen named version).
-const newDiagramMode = ref("blank");
-// Named versions from the active map's history, used as base-template choices.
-const namedVersions = ref([]);
-const loadingNamedVersions = ref(false);
-const selectedBaseVersion = ref("");
-
+// WI-002041: there is no new-diagram dialog. Process maps are created only by
+// the Process Implementation process, so the editor has no creation path — the
+// version history (named + restorable) covers everything it used to offer.
 
 // Track loaded diagram data
 const diagramDataCache = ref({});
@@ -2544,223 +2463,6 @@ function showNotification(title, message, theme = "green", stay = false) {
 	}
 }
 
-async function showAddDiagramDialog() {
-	if (!isEditable.value) return; // Guard: process is locked
-	newDiagramName.value = "";
-	newDiagramDescription.value = "";
-	selectedBaseVersion.value = "";
-
-	// First map in the process → blank create. Once a map exists, the "+" flow
-	// becomes "create a new version" seeded from a chosen named version.
-	if (diagrams.value.length > 0) {
-		newDiagramMode.value = "version";
-		showNewDiagramDialog.value = true;
-		await loadNamedVersionsForBase();
-	} else {
-		newDiagramMode.value = "blank";
-		showNewDiagramDialog.value = true;
-	}
-}
-
-// Load the named versions from the active map's history to offer as base
-// templates for the new version.
-async function loadNamedVersionsForBase() {
-	loadingNamedVersions.value = true;
-	namedVersions.value = [];
-	try {
-		const baseModel = activeDiagramName.value || (diagrams.value[0] && diagrams.value[0].name);
-		if (!baseModel) return;
-		const res = await frappeRequest({
-			url: "/api/method/one_bpmn.api.version_history.get_edit_history",
-			params: { model_name: baseModel },
-		});
-		const groups = res.message || res || [];
-		namedVersions.value = groups
-			.filter((g) => g.is_named)
-			.map((g) => ({
-				name: g.head,
-				version_name: g.version_name,
-				timestamp: g.timestamp,
-				author: g.author,
-			}));
-		// Pre-select the most recent named version for convenience.
-		if (namedVersions.value.length) selectedBaseVersion.value = namedVersions.value[0].name;
-	} catch (error) {
-		console.error("Failed to load named versions:", error);
-		showNotification("Error", "Failed to load named versions.", "red");
-	} finally {
-		loadingNamedVersions.value = false;
-	}
-}
-
-function formatVersionTime(ts) {
-	if (!ts) return "";
-	return dayjs(ts).format("MMM D, h:mm A");
-}
-
-async function createDiagram() {
-	if (!isEditable.value) return; // Guard: process is locked
-	const name = newDiagramName.value.trim();
-	if (!name) {
-		showNotification("Name required", "Please enter a name.", "red");
-		return;
-	}
-
-	// Name must be unique: different from existing process maps and from the
-	// named versions it could be based on.
-	const lower = name.toLowerCase();
-	const dupMap = diagrams.value.some(
-		(d) => (d.model_name || d.title || "").trim().toLowerCase() === lower
-	);
-	const dupVersion = namedVersions.value.some(
-		(v) => (v.version_name || "").trim().toLowerCase() === lower
-	);
-	if (dupMap || dupVersion) {
-		showNotification(
-			"Name already used",
-			"Choose a name different from existing process maps and named versions.",
-			"red"
-		);
-		return;
-	}
-
-	creating.value = true;
-	try {
-		let result;
-		if (newDiagramMode.value === "version") {
-			if (!selectedBaseVersion.value) {
-				showNotification("Select a base version", "Please choose a named version to build from.", "red");
-				return;
-			}
-			const response = await frappeRequest({
-				url: "/api/method/one_bpmn.api.process_map_api.create_map_from_version",
-				params: {
-					process: props.process,
-					model_name: name,
-					base_version: selectedBaseVersion.value,
-					description: newDiagramDescription.value || "",
-				},
-			});
-			result = response.message || response;
-		} else {
-			// Blank create — first map in the process.
-			const slug = (props.process || "process").trim().toLowerCase().replace(/[^a-z0-9]+/g, "_").replace(/^_|_$/g, "") || "process";
-			const hex = Array.from(crypto.getRandomValues(new Uint8Array(4)), b => b.toString(16).padStart(2, "0")).join("");
-			const processId = `${slug}_${hex}`;
-			const xmlContent = `<?xml version="1.0" encoding="UTF-8"?>
-<bpmn:definitions xmlns:bpmn="http://www.omg.org/spec/BPMN/20100524/MODEL"
-                  xmlns:bpmndi="http://www.omg.org/spec/BPMN/20100524/DI"
-                  id="Definitions_1"
-                  targetNamespace="http://bpmn.io/schema/bpmn">
-  <bpmn:process id="${processId}" isExecutable="false" />
-  <bpmndi:BPMNDiagram id="BPMNDiagram_1">
-    <bpmndi:BPMNPlane id="BPMNPlane_1" bpmnElement="${processId}" />
-  </bpmndi:BPMNDiagram>
-</bpmn:definitions>`;
-
-			const response = await frappeRequest({
-				url: "/api/method/one_bpmn.api.process_map_api.save_process_model",
-				params: {
-					process: props.process,
-					model_name: name,
-					xml_content: xmlContent,
-					description: newDiagramDescription.value || "",
-				},
-			});
-			result = response.message || response;
-		}
-
-		showNewDiagramDialog.value = false;
-
-		// Reload process and open the new map.
-		await loadProcess();
-		selectDiagram(result.name);
-	} catch (error) {
-		console.error("Failed to create diagram:", error);
-		showNotification("Error", "Failed to create: " + (error.message || error), "red");
-	} finally {
-		creating.value = false;
-	}
-}
-
-async function ensureDiagramContentCached(diagramName) {
-	if (diagramDataCache.value[diagramName]) {
-		return diagramDataCache.value[diagramName];
-	}
-
-	const response = await frappeRequest({
-		url: "/api/method/one_bpmn.api.process_map_api.get_process_model",
-		params: {
-			name: diagramName,
-		},
-	});
-
-	const result = response.message || response;
-	const xmlContent = result?.xml_content || "";
-
-	if (xmlContent) {
-		diagramDataCache.value[diagramName] = xmlContent;
-	}
-
-	return xmlContent;
-}
-
-async function handleDuplicateTab(tab) {
-	if (!isEditable.value) return;
-	
-	const newName = `Copy of ${tab.model_name}`;
-	
-	// Get XML content (from editor if active, otherwise from cache/backend)
-	let xmlContent;
-	if (activeDiagramName.value === tab.name && editorRef.value) {
-		xmlContent = await editorRef.value.getXML();
-	} else {
-		xmlContent = await ensureDiagramContentCached(tab.name);
-	}
-
-	if (!xmlContent) {
-		showNotification("Error", "Could not read diagram content for duplication", "red");
-		return;
-	}
-
-	// Generate a new unique process ID so the duplicate doesn't share the
-	// original's identity (critical for import/deploy disambiguation).
-	const slug = (props.process || "process").trim().toLowerCase().replace(/[^a-z0-9]+/g, "_").replace(/^_|_$/g, "") || "process";
-	const hex = Array.from(crypto.getRandomValues(new Uint8Array(4)), b => b.toString(16).padStart(2, "0")).join("");
-	const newProcessId = `${slug}_${hex}`;
-
-	// Replace the old process id in the XML:
-	//   <bpmn:process id="OLD_ID" ...>  →  <bpmn:process id="NEW_ID" ...>
-	//   bpmnElement="OLD_ID"            →  bpmnElement="NEW_ID"
-	const processIdMatch = xmlContent.match(/<bpmn:process\s[^>]*id=["']([^"']+)["']/);
-	if (processIdMatch) {
-		const oldId = processIdMatch[1];
-		xmlContent = xmlContent.replaceAll(oldId, newProcessId);
-	}
-
-	creating.value = true;
-	try {
-		const response = await frappeRequest({
-			url: "/api/method/one_bpmn.api.process_map_api.save_process_model",
-			params: {
-				process: props.process,
-				model_name: newName,
-				xml_content: xmlContent,
-				description: tab.description || "",
-			},
-		});
-
-		const result = response.message || response;
-		await loadProcess();
-		selectDiagram(result.name);
-		showNotification("Success", `Diagram duplicated as "${newName}"`, "green");
-	} catch (error) {
-		console.error("Duplication failed:", error);
-		showNotification("Error", "Failed to duplicate diagram: " + (error.message || error), "red");
-	} finally {
-		creating.value = false;
-	}
-}
 
 async function handleDeleteTab(tab) {
 	if (!isEditable.value) return;

@@ -35,7 +35,7 @@ class TestAssistantCreatesConfig(FrappeTestCase):
 			"chat_mode_label": "HR Helper",
 			"ai_model": "claude-haiku-4-5-20251001",
 			"lifecycle_status": "Live",          # not proposable — dropped
-			"agent_type": "Background",          # not proposable — dropped
+			"agent_type": "Background",          # proposable since the label became Chat-only
 			"sample_prompts": [
 				{"prompt": "hi", "expected_behaviour": "greets"},
 				{"prompt": "", "expected_behaviour": "blank dropped"},
@@ -44,13 +44,56 @@ class TestAssistantCreatesConfig(FrappeTestCase):
 		})
 		self.assertEqual(clean["agent_name"], "HR Helper")
 		self.assertNotIn("lifecycle_status", clean)
-		self.assertNotIn("agent_type", clean)
+		# agent_type rides the proposal so a Background (process-embedded)
+		# agent is not silently downgraded to Chat, where the label gate fires.
+		self.assertEqual(clean["agent_type"], "Background")
 		self.assertEqual(len(clean["sample_prompts"]), 1)
+
+	def test_sanitize_keeps_background_proposal_without_creation_process(self):
+		# Background agents auto-live on insert — a missing creation process
+		# must not suppress their proposal card (it only blocks Chat agents).
+		from unittest.mock import patch
+
+		with patch(
+			"one_bpmn.agents.agent_config_resolver.get_creation_process_model",
+			return_value=None,
+		):
+			chat = _sanitize_proposed_config({"agent_name": "ZZ Chatty", "chat_mode_label": "ZZ Chatty"})
+			background = _sanitize_proposed_config({"agent_name": "ZZ Worker", "agent_type": "Background"})
+		self.assertIsNone(chat)
+		self.assertIsNotNone(background)
+		self.assertEqual(background["agent_type"], "Background")
 
 	def test_sanitize_rejects_junk(self):
 		self.assertIsNone(_sanitize_proposed_config(None))
 		self.assertIsNone(_sanitize_proposed_config("a string"))
 		self.assertIsNone(_sanitize_proposed_config({"unknown": "x"}))
+
+	def test_sanitize_created_config_requires_a_real_record(self):
+		# The event is proof of a row, not of the model's claim: a name that
+		# resolves nothing (or junk input) yields None — no event, no linking.
+		from one_bpmn.api.ai_assistant import _sanitize_created_config
+
+		self.assertIsNone(_sanitize_created_config(None))
+		self.assertIsNone(_sanitize_created_config("a string"))
+		self.assertIsNone(_sanitize_created_config({"name": ""}))
+		self.assertIsNone(_sanitize_created_config({"name": "ZZ Does Not Exist"}))
+
+	def test_sanitize_created_config_reads_agent_id_from_the_record(self):
+		from one_bpmn.api.ai_assistant import _sanitize_created_config
+
+		doc = frappe.get_doc({
+			"doctype": "AI Agent Configuration",
+			"agent_name": "ZZ Created Config Probe",
+			"agent_id": "zz_created_config_probe",
+			"agent_type": "Background",
+			"agent_framework": "Direct API",
+		}).insert(ignore_permissions=True)
+		clean = _sanitize_created_config({
+			"name": doc.name,
+			"agent_id": "whatever_the_model_claimed",
+		})
+		self.assertEqual(clean, {"name": doc.name, "agent_id": "zz_created_config_probe"})
 
 	def test_extract_json_tolerates_literal_newlines_in_strings(self):
 		# Models routinely emit raw newlines inside JSON string values —

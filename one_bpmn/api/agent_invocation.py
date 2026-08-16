@@ -121,7 +121,9 @@ def list_available_agents(include_legacy: int = 1) -> list:
 
 
 @frappe.whitelist()
-def invoke_agent(agent_id: str, message: str, conversation: str = None, context: dict = None):
+def invoke_agent(
+	agent_id: str, message: str, conversation: str = None, context: dict = None, stream: bool = False
+):
 	"""Invoke a configured agent with a single message; return its reply.
 
 	Args:
@@ -130,15 +132,85 @@ def invoke_agent(agent_id: str, message: str, conversation: str = None, context:
 	    conversation: existing Chat Conversation to continue; a new one is
 	        created (stamped with the agent's chat mode label) when omitted.
 	    context: optional dict merged into the turn payload (editor state, etc.).
+	    stream: internal callers only (the AG-UI endpoint, WI-001670). When
+	        true, a runner that can stream returns its event generator instead
+	        of a buffered reply; runners that cannot stream ignore the flag.
 
 	Returns:
 	    dict with at least ``response`` (the agent's reply text) and
 	    ``conversation`` (the conversation name), plus runner-specific extras.
+	    With ``stream=True`` and a streaming-capable runner, the dict instead
+	    carries ``streaming=True`` and ``stream`` (the event generator) — a
+	    shape that cannot ride a JSON response, hence the HTTP guard below.
 	"""
+	from frappe.utils import sbool
+
+	stream = bool(sbool(stream))
+	if stream and getattr(frappe.local, "request", None) is not None:
+		cmd = (frappe.form_dict or {}).get("cmd") or ""
+		if cmd.endswith("invoke_agent"):
+			frappe.throw(
+				_(
+					"stream=True cannot be requested over HTTP on this method — use "
+					"one_bpmn.api.agui.stream_agent_turn, which speaks Server-Sent Events."
+				)
+			)
 	if isinstance(context, str):
 		context = frappe.parse_json(context)
 	config = _resolve_config(agent_id)
 	_authorize(config, conversation)
+
+	# ── Rate limit + conversation freeze (WI-001968) ─────────────────────
+	# Before any screening or model work: a refused turn should cost nothing,
+	# and a frozen conversation must not reach the provider at all. Raises
+	# RateLimited (a ValidationError) which surfaces to the caller as the
+	# refusal message; everything else in here fails open.
+	from one_bpmn.security import rate_limit as _rate_limit
+	from one_bpmn.security.pii import _config_name
+
+	# A Chat agent's turn is counted when its Chat Message is written, which is
+	# the boundary that fires on EVERY message; counting here as well would make
+	# one message cost two. Agents that never write a Chat Message are counted
+	# here instead, or they would never be throttled at all.
+	_rate_limit.enforce(
+		user=frappe.session.user,
+		agent=_config_name(config),
+		agent_label=config.get("agent_id") or agent_id,
+		conversation=conversation,
+		count=(config.get("agent_type") != "Chat"),
+	)
+
+	# ── PII input screening (WI-001644) ──────────────────────────────────
+	# Every agent invocation passes through here, so this is the one place
+	# that can guarantee no user-supplied PII reaches a third-party model.
+	# Detected values become stable tokens; the mapping lives for this turn
+	# only and is swapped back at the tool boundary so lookups still resolve.
+	from one_bpmn.security import pii as _pii
+	from one_bpmn.security import turn as _turn
+
+	# WI-001967: one id for everything this turn records. The security event is
+	# written before the AI Agent Run exists and can never be edited afterwards,
+	# so both are stamped with this instead of linked to each other.
+	_turn.begin_turn()
+
+	screened = _pii.screen_input(message, config)
+	message = screened.text
+	_pii_turn = _pii.begin_turn(screened, enabled=screened.enabled)
+
+	# ── Injection screening (WI-001967) ──────────────────────────────────
+	# Record-only: every rule in the pack that matches becomes an AI Security
+	# Event, but nothing is altered and nothing is stopped — choosing what a
+	# match should DO is 15.1. Hooked here rather than on Chat Message so it
+	# runs exactly once per turn, with the agent and conversation to hand.
+	# Never raises; a failure leaves the turn untouched.
+	from one_bpmn.security.injection import screen_for_injection
+
+	screen_for_injection(
+		message,
+		boundary="input",
+		agent_configuration=_pii._config_name(config),
+		conversation=conversation,
+	)
 
 	if not conversation:
 		from one_bpmn.utils.chat_persistence import create_agent_conversation
@@ -148,24 +220,124 @@ def invoke_agent(agent_id: str, message: str, conversation: str = None, context:
 		)
 
 	runner = _runner_for(config)
-	result = _RUNNERS[runner](config, conversation, message, context or {})
+	result = None
+	try:
+		result = _RUNNERS[runner](config, conversation, message, context or {}, stream=stream)
+	finally:
+		# Streaming replies are consumed after this function returns, so the
+		# PII turn must survive until the generator is exhausted — the wrapper
+		# below owns the teardown in that case.
+		if not _is_stream(result):
+			_pii.end_turn(_pii_turn)
+		# Clear the correlation id too, or a pooled worker leaks it into the
+		# next turn and two unrelated turns look like one.
+		_turn.end_turn()
+	if _is_stream(result):
+		return {
+			"streaming": True,
+			"stream": _stream_with_pii_teardown(result, _pii_turn),
+			"conversation": conversation,
+			"agent_id": agent_id,
+		}
 	if not isinstance(result, dict):
 		result = {"response": str(result or "")}
+
+	# Output screening, before send. The Chat Message hook covers what is
+	# PERSISTED; this covers what is RETURNED, and the two are not the same
+	# thing — a direct-path agent answers without ever writing a Bot message,
+	# and a blocked response must not reach the caller even when the transcript
+	# already holds the redacted version.
+	try:
+		from one_bpmn.security.output_screening import screen_output
+
+		screened = screen_output(result.get("response") or "", config, conversation=conversation)
+		if screened.changed:
+			result["response"] = screened.text
+			result["output_screened"] = screened.summary()
+			result["output_blocked"] = screened.blocked
+	except Exception:
+		frappe.log_error(
+			title="Output screening skipped — response returned unchanged",
+			message=frappe.get_traceback(),
+		)
+
 	result.setdefault("conversation", conversation)
 	result.setdefault("agent_id", agent_id)
 	return result
 
 
+def _is_stream(value) -> bool:
+	"""True for the iterator shapes a streaming runner may hand back."""
+	import inspect
+
+	return inspect.isgenerator(value) or (hasattr(value, "__next__") and not isinstance(value, dict))
+
+
+def _stream_with_pii_teardown(gen, pii_turn):
+	"""Relay a runner's event stream, ending the PII turn only once the
+	stream is exhausted (or abandoned) — mirrors the try/finally the buffered
+	path gets inline."""
+	from one_bpmn.security import pii as _pii
+
+	try:
+		yield from gen
+	finally:
+		_pii.end_turn(pii_turn)
+
+
 # ── Runners ──────────────────────────────────────────────────────────────────
-# Each takes (config, conversation_name, message, context) and returns a dict
-# with a "response" key. They wrap today's execution styles behind one contract.
+# Each takes (config, conversation_name, message, context, stream=False) and
+# returns a dict with a "response" key. A runner that can stream may instead
+# return an event generator when stream=True; runners that cannot simply
+# ignore the flag (WI-001670). They wrap today's execution styles behind one
+# contract.
 
 
-def _run_bpmn_map(config, conversation, message, context):
-	"""Converted agents: the linked process map owns the whole turn."""
+def _run_bpmn_map(config, conversation, message, context, stream=False):
+	"""Converted agents: the linked process map owns the whole turn.
+
+	Resume re-arm (WI-001672 "confirm during build", confirmed broken): the
+	insert hook spawns an instance for a NEW conversation, but a resumed
+	conversation's instance has Completed with the map's close branch — so
+	the first turn after a resume used to dead-end on "reopen the chat".
+	When no live instance answers, re-arm through the SAME conditional-start
+	gate the insert hook uses (_maybe_start_instance evaluates the map's own
+	start condition and dedups), then retry the turn once.
+	"""
+	import time
+
 	from one_bpmn.api.server_script_api import delegate_chat_turn
 
 	result = delegate_chat_turn(conversation, message, context=context)
+
+	# First-turn race (diagnosed live, 2026-08-08): the insert hook spawns the
+	# instance and enqueues its first engine pass on the worker; a fast first
+	# message can catch it Queued mid-start — the inline starter loses the
+	# row-lock race and reads a not-yet-Active status one beat before the
+	# worker commits. The production Lumina page solved this with a
+	# wait-then-stream loop; same idea here, bounded: the SSE connection is
+	# already streaming, so a few seconds of settling costs nothing visible.
+	if result is None:
+		# NB: not `for _ in range(...)` — that would shadow gettext's _ and
+		# turn the throw below into `int(...)`.
+		for _attempt in range(8):
+			time.sleep(0.75)
+			result = delegate_chat_turn(conversation, message, context=context)
+			if result is not None:
+				break
+
+	if result is None and config.get("process_model"):
+		try:
+			from one_bpmn.one_bpmn.trigger import _maybe_start_instance
+
+			_maybe_start_instance(
+				frappe.get_doc("Chat Conversation", conversation), config["process_model"]
+			)
+			result = delegate_chat_turn(conversation, message, context=context)
+		except Exception:
+			frappe.log_error(
+				title="bpmn_map resume re-arm failed", message=frappe.get_traceback()
+			)
 	if result is None:
 		frappe.throw(
 			_("The process for agent '{0}' is not running for this conversation. Please reopen the chat.").format(
@@ -175,7 +347,7 @@ def _run_bpmn_map(config, conversation, message, context):
 	return result
 
 
-def _run_adk_stage_agent(config, conversation, message, context):
+def _run_adk_stage_agent(config, conversation, message, context, stream=False):
 	"""ProsAlly / Logix / Docu today. Until their maps drive them (their own
 	migration stories), prefer an already-running instance if one exists,
 	else surface a clear message rather than silently forking execution."""
@@ -189,17 +361,25 @@ def _run_adk_stage_agent(config, conversation, message, context):
 	)
 
 
-def _run_langgraph(config, conversation, message, context):
-	"""BA Agent. Its graph runner lives in onefm_mcp; call through when present."""
+def _run_langgraph(config, conversation, message, context, stream=False):
+	"""BA Agent. Its graph runner lives in onefm_mcp; call through when present.
+
+	WI-001670: the ``stream`` flag now passes through instead of being forced
+	to False. That hard-coded False made this runner unable to run the BA
+	agent at all — ``send_message_with_agent`` throws "BA Agent only supports
+	streaming mode" on non-streaming calls. With stream=True the runner hands
+	back the agent's event generator for the shared AG-UI stream to relay."""
 	try:
 		from onefm_mcp.onefm_mcp.page.lumina.lumina import send_message_with_agent
 	except Exception:
 		frappe.throw(_("The LangGraph runner for '{0}' is unavailable.").format(config["agent_id"]))
-	resp = send_message_with_agent(conversation, message, stream=False)
+	resp = send_message_with_agent(conversation, message, stream=stream)
+	if _is_stream(resp):
+		return resp
 	return resp if isinstance(resp, dict) else {"response": str(resp or "")}
 
 
-def _run_direct_api(config, conversation, message, context):
+def _run_direct_api(config, conversation, message, context, stream=False):
 	"""Single-shot / general chat. Persists the turn and calls the adapter's
 	own (async) tool-calling loop for one exchange."""
 	from one_bpmn.agents.executor.direct_api import _run_coro_blocking
@@ -221,3 +401,63 @@ _RUNNERS = {
 	"langgraph": _run_langgraph,
 	"direct_api": _run_direct_api,
 }
+
+
+@frappe.whitelist()
+def get_agent_surface(agent_id: str) -> dict:
+	"""Everything the shared AgentChatPanel needs to draw an agent's chat
+	surface, read from AI Agent Configuration (WI-001996) — greeting,
+	composer placeholder, surface classification, starter prompts, label and
+	icon. No agent-specific strings live in components.
+
+	Enforces the same allowed_roles gate as invoking the agent.
+	"""
+	config = _resolve_config(agent_id)
+	_authorize(config, None)
+
+	name = config.get("name") or frappe.db.get_value(
+		"AI Agent Configuration", {"agent_id": agent_id, "enabled": 1}
+	)
+	row = (
+		frappe.db.get_value(
+			"AI Agent Configuration",
+			name,
+			[
+				"agent_name",
+				"chat_mode_label",
+				"icon",
+				"chat_description",
+				"greeting",
+				"composer_placeholder",
+				"surface_type",
+				"artifact_type",
+				"collect_feedback",
+			],
+			as_dict=True,
+		)
+		or {}
+	)
+	sample_prompts = frappe.get_all(
+		"AI Agent Sample Prompt",
+		filters={"parenttype": "AI Agent Configuration", "parent": name},
+		pluck="prompt",
+		order_by="idx asc",
+		limit=6,
+	)
+	return {
+		"agent_id": agent_id,
+		"label": row.get("chat_mode_label") or row.get("agent_name") or agent_id,
+		"icon": row.get("icon") or "",
+		"description": row.get("chat_description") or "",
+		"greeting": row.get("greeting") or "",
+		"composer_placeholder": row.get("composer_placeholder") or "",
+		"surface_type": row.get("surface_type") or "Conversation",
+		"artifact_type": row.get("artifact_type") or "None",
+		# Whether this agent's replies carry a rating control (WI-001822). The
+		# panel reads it from here for the same reason it reads the greeting and
+		# the icon from here: no agent-specific behaviour is hardcoded in a
+		# component. Defaults on, so an agent configured before the field existed
+		# collects feedback rather than silently not collecting it.
+		"collect_feedback": bool(row.get("collect_feedback", 1)),
+		"sample_prompts": sample_prompts,
+	}

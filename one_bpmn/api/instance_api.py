@@ -11,10 +11,18 @@ from one_bpmn.api.utils import _is_bpmn_super_user
 
 @frappe.whitelist()
 def list_process_instances(
-	filters=None, limit_start=0, limit_page_length=20, order_by="creation desc"
+	filters=None,
+	limit_start=0,
+	limit_page_length=20,
+	order_by="creation desc",
+	pending_action_by=None,
 ) -> list:
 	"""
 	List BPMN process instances with their active tasks joined as 'current_step'.
+
+	``pending_action_by`` is not a field on the instance — it is resolved from
+	the active task rows (see ``_instances_pending_on``) and narrows the list to
+	Active instances that user still has to act on.
 	"""
 
 	if isinstance(filters, str):
@@ -24,6 +32,19 @@ def list_process_instances(
 		limit_start = int(limit_start)
 	if isinstance(limit_page_length, str):
 		limit_page_length = int(limit_page_length)
+
+	if pending_action_by:
+		pending = _instances_pending_on(pending_action_by)
+		if not pending:
+			return []
+		# A Waiting row can outlive its instance (Cancelled/Errored runs keep
+		# their rows), so pin to Active — nothing else is actionable.
+		if isinstance(filters, list):
+			filters = filters + [["name", "in", pending], ["status", "=", "Active"]]
+		else:
+			filters = dict(filters or {})
+			filters["name"] = ["in", pending]
+			filters["status"] = "Active"
 
 	instances = frappe.get_list(
 		"BPMN Process Instance",
@@ -83,6 +104,49 @@ def list_process_instances(
 					d.current_step = derived.get(d.name, "")
 
 	return instances
+
+
+def _instances_pending_on(user: str) -> list:
+	"""Names of process instances holding a Waiting task ``user`` must act on.
+
+	Mirrors the authorization rule in ``complete_user_task``: a task reaches
+	someone either because
+
+	1. ``assigned_user`` names them. In multi-assignee ("Table Field") mode that
+	   field is a comma-joined list, so membership goes through ``split_users``
+	   — ``=`` would miss those rows, and a bare LIKE would match a user whose
+	   email is a substring of someone else's. The LIKE is only a coarse
+	   pre-filter; the real test happens in Python below.
+	2. ``assigned_role`` names a role they hold and no user has been resolved
+	   onto the row — an unclaimed role task is pending on every member. Once
+	   ``assigned_user`` is set, that field alone decides who owes the action.
+	"""
+	# Imported lazily for the same reason as in complete_user_task: assignment.py
+	# pulls in engine.py, which is fragile across SpiffWorkflow versions.
+	from one_bpmn.one_bpmn.doctype.bpmn_process_instance.assignment import split_users
+
+	roles = frappe.get_roles(user)
+
+	or_filters = {"assigned_user": ["like", f"%{user}%"]}
+	if roles:
+		or_filters["assigned_role"] = ["in", roles]
+
+	rows = frappe.get_all(
+		"BPMN Active Task",
+		filters={"parenttype": "BPMN Process Instance", "status": "Waiting"},
+		or_filters=or_filters,
+		fields=["parent", "assigned_user", "assigned_role"],
+	)
+
+	role_set = set(roles)
+	return list(
+		{
+			row.parent
+			for row in rows
+			if user in split_users(row.assigned_user)
+			or (not (row.assigned_user or "").strip() and row.assigned_role in role_set)
+		}
+	)
 
 
 def _derive_current_step(workflow_state: str) -> str:
@@ -806,6 +870,64 @@ def get_instances_for_document(doctype: str, docname: str) -> list:
 # ============================================================================
 # BPMN Form Actions API — used by the global bpmn_form_actions.js injector
 # ============================================================================
+
+# Cache key for the doctype-level "is this run via Processa?" lookup.
+PROCESSA_DOCTYPES_CACHE_KEY = "one_bpmn_processa_controlled_doctypes"
+
+
+@frappe.whitelist()
+def get_processa_controlled_doctypes() -> list:
+	"""
+	Return every DocType whose lifecycle is driven by Processa.
+
+	A DocType qualifies when an **active** BPMN Process Model references it
+	either as a DocType-Event start trigger (BPMN Start Event Config) or as a
+	target document (BPMN Process DocType).  These are exactly the two sources
+	trigger._find_matching_models() uses to decide whether a document event
+	starts a process, so this list mirrors reality rather than guessing.
+
+	bpmn_form_actions.js uses it to suppress native Frappe controls that
+	Processa owns — the Submit button, the "Submit this document to confirm"
+	banner, and the no-op Save button on an unchanged document — for every
+	document of the DocType, not just those with a live process instance.
+
+	Cached in Redis; invalidated by clear_processa_doctype_cache() whenever a
+	BPMN Process Model is saved or deleted.
+	"""
+	cached = frappe.cache().get_value(PROCESSA_DOCTYPES_CACHE_KEY)
+	if cached is not None:
+		return cached
+
+	rows = frappe.get_all(
+		"BPMN Start Event Config",
+		filters={"trigger_type": "DocType Event", "parenttype": "BPMN Process Model"},
+		fields=["parent", "trigger_doctype as doctype_name"],
+	)
+	rows += frappe.get_all(
+		"BPMN Process DocType",
+		filters={"parenttype": "BPMN Process Model"},
+		fields=["parent", "doctype_name"],
+	)
+	rows = [r for r in rows if r.doctype_name and r.parent]
+
+	doctypes = []
+	if rows:
+		active_models = set(
+			frappe.get_all(
+				"BPMN Process Model",
+				filters={"name": ["in", list({r.parent for r in rows})], "is_active": 1},
+				pluck="name",
+			)
+		)
+		doctypes = sorted({r.doctype_name for r in rows if r.parent in active_models})
+
+	frappe.cache().set_value(PROCESSA_DOCTYPES_CACHE_KEY, doctypes)
+	return doctypes
+
+
+def clear_processa_doctype_cache(doc=None, method=None):
+	"""Drop the cached Processa-controlled DocType list (doc_events hook)."""
+	frappe.cache().delete_value(PROCESSA_DOCTYPES_CACHE_KEY)
 
 
 @frappe.whitelist()

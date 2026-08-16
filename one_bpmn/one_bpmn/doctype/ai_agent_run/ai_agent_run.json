@@ -12,6 +12,8 @@
   "bpmn_label",
   "element_type",
   "origin",
+  "eval_case",
+  "eval_run",
   "column_break_config",
   "backend",
   "provider",
@@ -44,6 +46,9 @@
   "section_break_checkpoint",
   "pending_human_task",
   "checkpoint",
+  "section_break_goal",
+  "goal_completion",
+  "completion_basis",
   "section_break_output",
   "final_output",
   "correlation_id"
@@ -55,7 +60,7 @@
    "in_list_view": 1,
    "label": "BPMN Process Instance",
    "options": "BPMN Process Instance",
-   "description": "Empty for direct (non-process) eval runs (WI-001751)."
+   "description": "Empty for direct (non-process) eval runs."
   },
   {
    "description": "The BPMN Process Model this run belongs to",
@@ -71,7 +76,7 @@
    "options": "AI Agent Configuration",
    "in_standard_filter": 1,
    "read_only": 1,
-   "description": "The AI Agent Configuration that owns the process model this run executed under (WI-001636)."
+   "description": "The AI Agent Configuration that owns the process model this run executed under."
   },
   {
    "description": "The element ID on the diagram (e.g. Activity_1a2b3c)",
@@ -102,6 +107,26 @@
    "label": "Origin",
    "options": "production\neval",
    "description": "Runs produced by an eval invocation are tagged 'eval' so Insights can show them separately."
+  },
+  {
+   "depends_on": "eval:doc.origin==\"eval\"",
+   "description": "The eval case this run was produced for. Stamped automatically when an eval invokes the agent; empty on production runs.",
+   "fieldname": "eval_case",
+   "fieldtype": "Link",
+   "in_standard_filter": 1,
+   "label": "Eval Case",
+   "options": "AI Eval Case",
+   "read_only": 1
+  },
+  {
+   "depends_on": "eval:doc.origin==\"eval\"",
+   "description": "The eval run this run was produced for, so an eval's execution and judge calls can be found without matching on a time window.",
+   "fieldname": "eval_run",
+   "fieldtype": "Link",
+   "in_standard_filter": 1,
+   "label": "Eval Run",
+   "options": "AI Eval Run",
+   "read_only": 1
   },
   {
    "fieldname": "column_break_config",
@@ -182,13 +207,13 @@
    "fieldname": "duration_ms",
    "fieldtype": "Int",
    "label": "Duration (ms)",
-   "description": "Wall-clock from Started At to Ended At. For human-in-the-loop runs this INCLUDES the time spent waiting for a person — use Agent Latency to measure agent performance."
+   "description": "Wall-clock from Started At to Ended At. For human-in-the-loop runs this INCLUDES the time spent waiting for a person \u2014 use Agent Latency to measure agent performance."
   },
   {
    "fieldname": "agent_latency_ms",
    "fieldtype": "Int",
    "label": "Agent Latency (ms)",
-   "description": "Time the AGENT actually spent working: the sum of every step's latency (provider round-trips plus inline tool execution). Excludes time parked waiting for a human, so unlike Duration this is comparable across runs and is the figure to use for A/B experiments (WI-001643)."
+   "description": "Time the AGENT actually spent working: the sum of every step's latency (provider round-trips plus inline tool execution). Excludes time parked waiting for a human, so unlike Duration this is comparable across runs and is the figure to use for A/B experiments."
   },
   {
    "fieldname": "human_wait_ms",
@@ -227,7 +252,7 @@
    "fieldname": "total_cache_read_tokens",
    "fieldtype": "Int",
    "label": "Cache Read Tokens",
-   "description": "Part of Prompt Tokens served from the prompt cache, summed across steps. Billed at the cache-read rate (WI-001643)."
+   "description": "Part of Prompt Tokens served from the prompt cache, summed across steps. Billed at the cache-read rate."
   },
   {
    "fieldname": "total_cache_write_tokens",
@@ -279,6 +304,28 @@
    "label": "Output"
   },
   {
+   "fieldname": "section_break_goal",
+   "fieldtype": "Section Break",
+   "label": "Outcome"
+  },
+  {
+   "default": "Unknown",
+   "description": "Did the run achieve what it was asked to do? Unknown is a real answer and is never coerced to either of the others \u2014 counting an undetermined run as a success or a failure would bias every comparison built on this.",
+   "fieldname": "goal_completion",
+   "fieldtype": "Select",
+   "in_standard_filter": 1,
+   "label": "Goal Completion",
+   "options": "Unknown\nAchieved\nNot Achieved",
+   "read_only": 1
+  },
+  {
+   "description": "Which signal decided it, in plain words \u2014 so a number in a report can always be traced back to the evidence behind it.",
+   "fieldname": "completion_basis",
+   "fieldtype": "Small Text",
+   "label": "Completion Basis",
+   "read_only": 1
+  },
+  {
    "description": "Truncated to 64KB; full content on the last AI Agent Step",
    "fieldname": "final_output",
    "fieldtype": "Long Text",
@@ -324,7 +371,7 @@
   ]
  ],
  "links": [],
- "modified": "2026-07-29 12:00:00.000000",
+ "modified": "2026-08-04 12:00:00.000000",
  "modified_by": "Administrator",
  "module": "ONE BPMN",
  "name": "AI Agent Run",

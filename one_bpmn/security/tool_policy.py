@@ -322,6 +322,11 @@ def guard(fn, tool_name: str):
 		return fn(**kwargs)
 
 	guarded.__name__ = getattr(fn, "__name__", "guarded_tool")
+	# A dedicated sentinel, NOT ``__wrapped__``: functools.wraps sets that on any
+	# decorated function, so a tool whose fn happened to be decorated would have
+	# looked already-guarded and been skipped — silently unprotected, which is
+	# the worst way for a security control to fail.
+	guarded.__policy_guarded__ = fn
 	guarded.__wrapped__ = fn
 	return guarded
 

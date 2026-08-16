@@ -3,6 +3,17 @@ from dataclasses import dataclass, field
 from typing import Callable
 
 
+class LLMTruncatedError(RuntimeError):
+	"""The model stopped because it hit its output-token ceiling.
+
+	Raised rather than returned: a truncated reply ends mid-token, so its JSON
+	and tool arguments are unparseable. Every consumer downstream would report
+	some variant of "could not generate a response" while the run was recorded
+	as a success — which sends the reader looking for a bug in the prompt
+	instead of at the limit that actually caused it.
+	"""
+
+
 @dataclass
 class ToolSpec:
     """Provider-agnostic tool definition.
@@ -22,29 +33,59 @@ class ToolSpec:
     human: bool = False
 
     def __post_init__(self):
-        """Wrap ``fn`` with the deterministic policy interceptor (WI-001645).
+        """Wrap ``fn`` with the two controls every tool call passes through.
 
-        Guarding here rather than in an execution loop is deliberate: tools run
-        in FOUR loops (the step loop plus the Anthropic/OpenAI/Gemini adapters'
-        own), and some ToolSpecs are built inside Server Script bodies rather
-        than by compile_shape_tools. Construction is the single point all of
-        them pass through, so a new loop — or a new in-script tool — is covered
-        without anyone remembering to add a check.
+        Both were added at this same point, independently, and both are needed:
+        PII restoration (WI-001644) turns tokenised arguments back into real
+        values, and the policy interceptor (WI-001645) refuses a call whose
+        arguments cross a hard limit.
 
-        Human tools are skipped: their fn is a stub that must never run (the
-        loop suspends instead), so there is nothing to intercept.
+        ORDER IS A SECURITY PROPERTY. Restoration is the OUTER wrapper and the
+        interceptor the INNER one, so a call runs
+
+            restore PII  ->  evaluate policy  ->  the tool
+
+        and the policy sees the real values the tool will actually receive.
+        Checking the tokenised form instead would let a limit be bypassed by
+        whatever the redactor happened to mask: a rule on an id the redactor had
+        replaced with ``[CIVIL_ID_1]`` would compare against the placeholder and
+        wave the call through.
+
+        Guarding at construction rather than in an execution loop is deliberate:
+        tools run in FOUR loops (the step loop plus the Anthropic/OpenAI/Gemini
+        adapters' own), and some ToolSpecs are built inside Server Script bodies
+        rather than by compile_shape_tools. Construction is the single point all
+        of them pass through, so a new loop — or a new in-script tool — is
+        covered without anyone remembering to add a check.
+
+        Human tools are skipped by both: their fn is a stub the loop never
+        executes (it suspends instead), and a person completing the task should
+        see the token, not the raw value.
         """
-        if self.human or getattr(self.fn, "__wrapped__", None) is not None:
+        if self.human:
             return
-        try:
-            from one_bpmn.security.tool_policy import guard
 
-            object.__setattr__(self, "fn", guard(self.fn, self.name))
-        except Exception:
-            # A broken interceptor must not make every agent unconstructable.
-            # The failure is loud in the Error Log via guard() itself; here we
-            # only protect the dataclass from an import-time problem.
-            pass
+        # Innermost first: the policy check must run against restored values.
+        if getattr(self.fn, "__policy_guarded__", None) is None:
+            try:
+                from one_bpmn.security.tool_policy import guard
+
+                object.__setattr__(self, "fn", guard(self.fn, self.name))
+            except Exception:
+                # A broken interceptor must not make every agent
+                # unconstructable. guard() logs its own failures loudly; this
+                # only protects the dataclass from an import-time problem.
+                pass
+
+        if getattr(self.fn, "__pii_wrapped__", None) is None:
+            try:
+                from one_bpmn.security.pii import wrap_tool
+
+                object.__setattr__(self, "fn", wrap_tool(self.fn))
+            except Exception:
+                # A broken import here must not take the whole agent down; the
+                # cost is that a tokenised argument reaches the tool unresolved.
+                pass
 
 
 def build_parameter_schema(tool: "ToolSpec") -> dict:

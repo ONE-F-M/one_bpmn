@@ -1,0 +1,351 @@
+# Copyright (c) 2026, one-fm and contributors
+# The Processa Security view's API.
+#
+# Two properties matter more than the rest and are tested hardest. Raw screened
+# content must never come back — it is not stored, and the reader is written so
+# that stays true even if the doctype grows a field. And this module must stay a
+# window: every write delegates to the module that owns the behaviour, so there
+# is one implementation of the security rules to audit rather than two that can
+# disagree.
+
+from __future__ import annotations
+
+from unittest.mock import patch
+
+import frappe
+from frappe.tests.utils import FrappeTestCase
+from frappe.utils import now_datetime
+
+from one_bpmn.api import security_api as S
+
+PREFIX = "ZZ SecAPI"
+
+
+class TestSecurityApi(FrappeTestCase):
+	def setUp(self):
+		frappe.set_user("Administrator")
+		self._cleanup()
+		self.agent = frappe.get_doc({
+			"doctype": "AI Agent Configuration",
+			"agent_name": f"{PREFIX} agent",
+			"agent_id": "zz_secapi_agent",
+			"agent_type": "Chat",
+			"agent_framework": "Direct API",
+			"chat_mode_label": f"{PREFIX}",
+			"enabled": 1,
+		}).insert(ignore_permissions=True).name
+
+	def tearDown(self):
+		self._cleanup()
+		frappe.db.commit()
+
+	def _cleanup(self):
+		frappe.db.delete("AI Security Event", {"conversation": ("like", f"{PREFIX}%")})
+		frappe.db.delete("AI Conversation Lock", {"conversation": ("like", f"{PREFIX}%")})
+		frappe.db.delete("AI Agent Configuration", {"agent_name": ("like", f"{PREFIX}%")})
+		frappe.db.delete("AI Injection Pattern", {"pattern_name": ("like", f"{PREFIX}%")})
+		# After the locks that link to them, or the delete is refused.
+		for email in frappe.get_all("User", filters={"first_name": PREFIX}, pluck="name"):
+			frappe.delete_doc("User", email, force=True, ignore_permissions=True)
+
+	def _user(self, email):
+		"""`AI Conversation Lock.user` is a Link, so the user has to exist. Made
+		here rather than borrowing a real one off the site — a test that depends on
+		who happens to be registered passes or fails for the wrong reason."""
+		if not frappe.db.exists("User", email):
+			frappe.get_doc({
+				"doctype": "User",
+				"email": email,
+				"first_name": PREFIX,
+				"send_welcome_email": 0,
+				"enabled": 1,
+			}).insert(ignore_permissions=True)
+		return email
+
+	def _lock(self, **kw):
+		"""A locked conversation. Inserted directly rather than through the
+		screening path: this suite is about the window, not about what decides to
+		freeze someone."""
+		values = {
+			"doctype": "AI Conversation Lock",
+			"status": "Locked",
+			"user": self._user("zz-locked@example.com"),
+			"agent_configuration": self.agent,
+			"conversation": f"{PREFIX}-lock-{frappe.generate_hash(length=6)}",
+			"reason": "Repeated Blocked Attempts",
+			"blocked_count": 3,
+			"locked_at": now_datetime(),
+		}
+		values.update(kw)
+		return frappe.get_doc(values).insert(ignore_permissions=True).name
+
+	def _event(self, **kw):
+		values = {
+			"doctype": "AI Security Event",
+			"boundary": "input",
+			"stage": "injection",
+			"action": "Flag",
+			"severity": "High",
+			"agent_configuration": self.agent,
+			"conversation": f"{PREFIX}-conv",
+			"content_hash": "abc123",
+			"content_length": 42,
+			"detail": "matched a rule",
+		}
+		values.update(kw)
+		return frappe.get_doc(values).insert(ignore_permissions=True).name
+
+	# ------------------------------------------------------------------
+	# AC 1 — the stream, filtered and paged
+	# ------------------------------------------------------------------
+	def test_events_come_back_newest_first(self):
+		first = self._event(detail="older")
+		second = self._event(detail="newer")
+		names = [e["name"] for e in S.list_events(agent=self.agent)["events"]]
+		self.assertEqual(names[:2], [second, first])
+
+	def test_filters_narrow_the_stream(self):
+		self._event(action="Flag", boundary="input")
+		blocked = self._event(action="Block", boundary="output")
+
+		by_action = S.list_events(agent=self.agent, action="Block")
+		self.assertEqual([e["name"] for e in by_action["events"]], [blocked])
+		by_boundary = S.list_events(agent=self.agent, boundary="output")
+		self.assertEqual([e["name"] for e in by_boundary["events"]], [blocked])
+
+	def test_paging_reports_the_whole_size_not_the_page(self):
+		"""A console that silently truncates is worse than one that says
+		"50 of 4,312" — the total is what tells a reviewer to filter."""
+		for i in range(3):
+			self._event(detail=f"e{i}")
+
+		page = S.list_events(agent=self.agent, page_length=2)
+
+		self.assertEqual(len(page["events"]), 2)
+		self.assertEqual(page["total"], 3)
+		second = S.list_events(agent=self.agent, page_length=2, start=2)
+		self.assertEqual(len(second["events"]), 1)
+
+	def test_page_length_is_capped(self):
+		"""An unbounded page_length is a way to pull the whole log in one request."""
+		self.assertEqual(S.list_events(page_length=100000)["page_length"], 200)
+
+	def test_the_total_counts_the_search_too_not_just_the_filters(self):
+		"""The total is aggregated in SQL rather than by fetching every row and
+		taking len(), so it has to keep agreeing with the rows under a search —
+		that is the one filter that goes through or_filters, and an aggregate
+		that dropped it would overcount the moment a reviewer typed anything."""
+		self._event(detail="needle in here")
+		self._event(detail="another needle")
+		self._event(detail="nothing of interest")
+
+		hit = S.list_events(agent=self.agent, search="needle", page_length=1)
+		self.assertEqual(len(hit["events"]), 1, "page_length still limits the rows")
+		self.assertEqual(hit["total"], 2, "but the total counts every match")
+
+		self.assertEqual(S.list_events(agent=self.agent, search="zzz-no-match")["total"], 0)
+
+	# ------------------------------------------------------------------
+	# AC 2 — everything recorded, and nothing that was not
+	# ------------------------------------------------------------------
+	def test_an_event_opens_with_its_hash_and_no_raw_content(self):
+		name = self._event()
+
+		out = S.get_event(name)
+
+		self.assertEqual(out["content_hash"], "abc123")
+		self.assertEqual(out["content_length"], 42)
+		self.assertFalse(out["content_stored"])
+		for leaky in ("content", "text", "message", "raw", "prompt"):
+			self.assertNotIn(leaky, out, f"{leaky} must never be returned — it is never stored")
+
+	def test_the_reader_names_its_fields_rather_than_dumping_the_doc(self):
+		"""So a field added to the doctype later cannot start leaking by default."""
+		name = self._event()
+		out = S.get_event(name)
+		self.assertEqual(set(out) - {"content_stored", "promoted_case"}, set(S.EVENT_FIELDS))
+
+	# ------------------------------------------------------------------
+	# AC 3 — the pack is System-Manager-writable, readable by others
+	# ------------------------------------------------------------------
+	def test_pattern_writes_are_refused_without_the_role(self):
+		with patch.object(S, "_can_edit_patterns", return_value=False):
+			with self.assertRaises(frappe.PermissionError):
+				S.save_pattern({"pattern_name": f"{PREFIX} rule", "pattern": "x"})
+			with self.assertRaises(frappe.PermissionError):
+				S.set_pattern_enabled("whatever", 0)
+
+	def test_the_pack_reports_whether_this_user_may_edit_it(self):
+		"""So the screen renders read-only without a second round trip."""
+		out = S.list_patterns()
+		self.assertIn("can_edit", out)
+		self.assertIsInstance(out["patterns"], list)
+
+	def test_pattern_options_come_from_the_doctype(self):
+		"""Hand-copied option lists rot silently; these are read from the schema."""
+		opts = S.pattern_options()
+		meta = frappe.get_meta("AI Injection Pattern")
+		self.assertEqual(
+			opts["severity"], [o for o in (meta.get_field("severity").options or "").split("\n") if o]
+		)
+		self.assertIn("Block", opts["action"])
+
+	# ------------------------------------------------------------------
+	# AC 4 / AC 7 — writes delegate, they are not reimplemented
+	# ------------------------------------------------------------------
+	def test_release_delegates_to_the_owning_action(self):
+		"""15.3 owns the reviewer rule, the note requirement and the refusal to
+		self-release. A second copy here would be one more thing to keep in step."""
+		with patch("one_bpmn.api.conversation_locks.release_lock", return_value={"ok": True}) as owner:
+			S.release("ZZ-LOCK", notes="reviewed")
+
+		owner.assert_called_once()
+		self.assertEqual(owner.call_args.kwargs.get("notes"), "reviewed")
+
+	def test_promote_delegates_and_reports_which_outcome(self):
+		with patch(
+			"one_bpmn.api.security_events.promote_to_eval_case",
+			return_value={"eval_case": "CASE-1", "created": True, "suite": "SUITE-1"},
+		) as owner:
+			created = S.promote_event("EV-1")
+		owner.assert_called_once()
+		# Asserted field by field rather than as a whole dict: this endpoint
+		# reports what the owning method decided, and pinning the exact shape
+		# makes adding a field to that report look like a regression.
+		self.assertEqual(created["case"], "CASE-1")
+		self.assertFalse(created["already_promoted"])
+		self.assertEqual(created["suite"], "SUITE-1")
+		self.assertFalse(created["suite_created"], "no suite was created in this call")
+
+		with patch(
+			"one_bpmn.api.security_events.promote_to_eval_case",
+			return_value={"eval_case": "CASE-1", "created": False, "suite": "SUITE-1"},
+		):
+			again = S.promote_event("EV-1")
+		self.assertTrue(
+			again["already_promoted"],
+			"clicking twice must be distinguishable from the first click failing",
+		)
+
+	def test_locks_come_back_with_their_release_audit(self):
+		out = S.list_locks()
+		self.assertIn("locks", out)
+		self.assertEqual(out["me"], frappe.session.user)
+
+	# ------------------------------------------------------------------
+	# Ordering — every list is most-recently-updated first
+	# ------------------------------------------------------------------
+	def test_editing_a_pattern_moves_it_to_the_top_of_the_pack(self):
+		"""The list is ordered by last update, and for patterns that genuinely
+		differs from creation order — which is the whole point. A reviewer who
+		has just tuned a rule should not have to hunt for it.
+
+		Asserted on a pattern rather than an event because an event is written
+		once and never touched, so modified and creation never diverge there and
+		the assertion would hold under either ordering.
+		"""
+		older = S.save_pattern({"pattern_name": f"{PREFIX} older", "pattern": r"\bzz-older\b"})["name"]
+		newer = S.save_pattern({"pattern_name": f"{PREFIX} newer", "pattern": r"\bzz-newer\b"})["name"]
+
+		names = [p["name"] for p in S.list_patterns()["patterns"]]
+		self.assertLess(names.index(newer), names.index(older), "newest edit first")
+
+		# Touch the older one; it must overtake.
+		S.set_pattern_enabled(older, 0)
+		names = [p["name"] for p in S.list_patterns()["patterns"]]
+		self.assertLess(
+			names.index(older), names.index(newer),
+			"editing a rule must float it to the top, not leave it where it was",
+		)
+
+	def test_releasing_a_lock_moves_it_to_the_top(self):
+		"""A release is the activity a reviewer is tracking, so it counts as the
+		lock's last update — a lock released this morning outranks one merely
+		opened last week."""
+		first = self._lock(user=self._user("zz-a@example.com"))
+		second = self._lock(user=self._user("zz-b@example.com"))
+
+		names = [l["name"] for l in S.list_locks()["locks"]]
+		self.assertLess(names.index(second), names.index(first))
+
+		S.release(first, notes="Reviewed, false positive.")
+		names = [l["name"] for l in S.list_locks()["locks"]]
+		self.assertLess(
+			names.index(first), names.index(second),
+			"the released lock must surface above the one nothing has happened to",
+		)
+
+	# ------------------------------------------------------------------
+	# AC 5 — per-agent screening, built from the fields that exist
+	# ------------------------------------------------------------------
+	def test_screening_renders_only_fields_the_doctype_really_has(self):
+		"""output_screening_mode is 15.1's and does not exist yet. A screen that
+		assumed it would offer a control writing nowhere."""
+		out = S.agent_screening(self.agent)
+
+		names = [c["fieldname"] for c in out["controls"]]
+		self.assertIn("pii_screening", names)
+		meta = frappe.get_meta("AI Agent Configuration")
+		for fieldname in names:
+			self.assertIsNotNone(meta.get_field(fieldname))
+
+	def test_a_control_carries_the_doctypes_own_label_and_options(self):
+		control = next(c for c in S.agent_screening(self.agent)["controls"] if c["fieldname"] == "pii_screening")
+		self.assertEqual(control["label"], "PII Input Screening")
+		self.assertEqual(control["options"], ["Enabled", "Disabled"])
+		self.assertTrue(control["description"])
+
+	def test_saving_screening_writes_the_agent(self):
+		S.save_agent_screening(self.agent, {"pii_screening": "Disabled"})
+		self.assertEqual(
+			frappe.db.get_value("AI Agent Configuration", self.agent, "pii_screening"), "Disabled"
+		)
+
+	def test_saving_screening_refuses_to_write_anything_else(self):
+		"""This endpoint must never become a general writer for the whole agent —
+		the rest of the configuration is edited where it always was."""
+		before = frappe.db.get_value("AI Agent Configuration", self.agent, "system_prompt")
+
+		# A value that really differs, so "updated" reflects the write rather than
+		# a no-op — writing the same value back is correctly reported as no change.
+		out = S.save_agent_screening(
+			self.agent, {"pii_screening": "Disabled", "system_prompt": "OWNED", "enabled": 0}
+		)
+
+		self.assertEqual(out["updated"], ["pii_screening"])
+		self.assertEqual(
+			frappe.db.get_value("AI Agent Configuration", self.agent, "system_prompt"), before
+		)
+		self.assertEqual(frappe.db.get_value("AI Agent Configuration", self.agent, "enabled"), 1)
+
+	def test_a_screening_field_whose_story_has_not_landed_is_ignored_not_created(self):
+		"""SCREENING_FIELDS names fields ahead of the stories that add them, so
+		the endpoint has to skip the ones not yet on the doctype rather than
+		inventing them.
+
+		The list is patched with a name that will never exist instead of naming a
+		real pending field. This test previously used output_screening_mode as
+		its example and started failing the moment 15.1 added it — asserting
+		against which stories have shipped dates the test, while asserting
+		against the code path does not.
+		"""
+		with patch.object(S, "SCREENING_FIELDS", (*S.SCREENING_FIELDS, "zz_not_a_real_field")):
+			out = S.save_agent_screening(self.agent, {"zz_not_a_real_field": "Block"})
+
+		self.assertEqual(out["updated"], [])
+		self.assertFalse(
+			frappe.get_meta("AI Agent Configuration").get_field("zz_not_a_real_field"),
+			"the endpoint must not create the field it was asked to write",
+		)
+
+	def test_the_output_mode_is_writable_now_that_15_1_has_added_it(self):
+		"""The other half of the above: a field that HAS landed goes through,
+		with no change to this module — which is the point of driving the list
+		off the doctype."""
+		out = S.save_agent_screening(self.agent, {"output_screening_mode": "Block"})
+
+		self.assertEqual(out["updated"], ["output_screening_mode"])
+		self.assertEqual(
+			frappe.db.get_value("AI Agent Configuration", self.agent, "output_screening_mode"),
+			"Block",
+		)

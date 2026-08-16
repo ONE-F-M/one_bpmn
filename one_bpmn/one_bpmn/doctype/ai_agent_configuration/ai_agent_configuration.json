@@ -15,6 +15,8 @@
   "column_break_basics",
   "description",
   "process_model",
+  "can_create_agents",
+  "agent_creation_process",
   "ai_model",
   "ai_provider_credentials",
   "llm_settings_section",
@@ -40,9 +42,35 @@
   "chat_section",
   "chat_mode_label",
   "icon",
+  "greeting",
+  "composer_placeholder",
   "chat_cb",
   "chat_description",
+  "surface_type",
+  "artifact_type",
+  "collect_feedback",
   "allowed_roles",
+  "memory_section",
+  "conversation_store",
+  "context_max_messages",
+  "column_break_memory",
+  "long_term_memory",
+  "memory_scope",
+  "memory_write_mode",
+  "memory_models_section",
+  "memory_distill_model",
+  "column_break_memory_models",
+  "memory_reconcile_model",
+  "security_section",
+  "pii_screening",
+  "output_screening_mode",
+  "section_rate_limit",
+  "rate_limit_enabled",
+  "rate_limit_messages",
+  "column_break_rate_limit",
+  "rate_limit_window_seconds",
+  "lock_after_blocks",
+  "lock_block_window_seconds",
   "evaluation_section",
   "sample_prompts",
   "needs_attention_reason"
@@ -254,6 +282,22 @@
    "options": "BPMN Process Model"
   },
   {
+   "default": "0",
+   "description": "Grants this agent the right to create other AI Agent Configurations. Exactly one configuration on the site may hold the grant, and it must link the process below.",
+   "fieldname": "can_create_agents",
+   "fieldtype": "Check",
+   "label": "Can Create Agents"
+  },
+  {
+   "depends_on": "eval:doc.can_create_agents",
+   "description": "The BPMN process map that carries a newly created agent from Draft to Live. Looked up from this field \u2014 its name is never assumed.",
+   "fieldname": "agent_creation_process",
+   "fieldtype": "Link",
+   "label": "Agent Creation Process",
+   "mandatory_depends_on": "eval:doc.can_create_agents",
+   "options": "BPMN Process Model"
+  },
+  {
    "description": "The agent's model, picked from the catalog. The provider below follows from this model's credentials link.",
    "fieldname": "ai_model",
    "fieldtype": "Link",
@@ -288,6 +332,20 @@
    "label": "Icon"
   },
   {
+   "fieldname": "greeting",
+   "fieldtype": "Small Text",
+   "label": "Greeting",
+   "description": "Opening message the shared chat panel shows for this agent. Markdown allowed. Empty = no greeting bubble.",
+   "depends_on": "eval:doc.agent_type=='Chat'"
+  },
+  {
+   "fieldname": "composer_placeholder",
+   "fieldtype": "Data",
+   "label": "Composer Placeholder",
+   "description": "Input hint in the chat composer, e.g. \"Describe the script change\u2026\".",
+   "depends_on": "eval:doc.agent_type=='Chat'"
+  },
+  {
    "fieldname": "chat_cb",
    "fieldtype": "Column Break"
   },
@@ -297,6 +355,31 @@
    "label": "Chat Description"
   },
   {
+   "fieldname": "surface_type",
+   "fieldtype": "Select",
+   "label": "Surface Type",
+   "options": "Conversation\nDocument\nForm",
+   "default": "Conversation",
+   "description": "How the agent hands work over: Conversation = it only talks, nothing to apply. Document = offers a new version of something to accept or reject. Form = fills in fields to confirm. (Not the runner \u2014 that is Agent Framework.)",
+   "depends_on": "eval:doc.agent_type=='Chat'"
+  },
+  {
+   "fieldname": "artifact_type",
+   "fieldtype": "Select",
+   "label": "Artifact Type",
+   "options": "None\nScript\nDiagram\nSchema\nRecord",
+   "default": "None",
+   "description": "What the thing it produces actually is \u2014 selects the preview renderer and the apply target (Script\u2192editor, Diagram\u2192canvas, Schema\u2192builder, Record\u2192form).",
+   "depends_on": "eval:doc.agent_type=='Chat'"
+  },
+  {
+   "default": "1",
+   "description": "Show thumbs up / down on this agent's replies. Turn off for agents whose answers are not a judgement call, where a rating would only be noise.",
+   "fieldname": "collect_feedback",
+   "fieldtype": "Check",
+   "label": "Collect Response Feedback"
+  },
+  {
    "description": "Leave empty to allow every logged-in user.",
    "fieldname": "allowed_roles",
    "fieldtype": "Table",
@@ -304,10 +387,79 @@
    "options": "AI Agent Allowed Role"
   },
   {
+   "fieldname": "security_section",
+   "fieldtype": "Section Break",
+   "label": "Security",
+   "description": "Controls applied to this agent's traffic before it reaches a model provider."
+  },
+  {
+   "default": "Enabled",
+   "description": "Screens the user's message for Kuwait Civil IDs, contact details, passport and travel document numbers, and bank or payment details, replacing each with a token (e.g. [CIVIL_ID_1]) before the text reaches the model or the conversation log. Tokens are swapped back for the real value when the agent calls a tool, so lookups still work. Disable only for an agent whose work genuinely needs the raw values in the prompt \u2014 and record why.",
+   "fieldname": "pii_screening",
+   "fieldtype": "Select",
+   "label": "PII Input Screening",
+   "options": "Enabled\nDisabled"
+  },
+  {
+   "fieldname": "output_screening_mode",
+   "fieldtype": "Select",
+   "label": "Output Screening Mode",
+   "options": "Log\nFlag\nBlock",
+   "default": "Flag",
+   "description": "What to do when the agent's OWN response contains a credential, personal data, or a stretch of its own instructions. Flag (the default) records it and replaces the offending text with a token, so the reply still reads. Log records it and sends the reply untouched \u2014 use it to watch a new agent before tightening. Block replaces the whole reply with a refusal."
+  },
+  {
+   "fieldname": "section_rate_limit",
+   "fieldtype": "Section Break",
+   "label": "Rate Limiting & Freeze",
+   "description": "How hard this agent pushes back: how fast one user may talk to it, and how many blocked attempts it tolerates before freezing the conversation. Both are per-agent \u2014 a limit that suits a chat assistant throttles a batch agent to a standstill. Who may RELEASE a freeze stays site-wide, on Processa Settings."
+  },
+  {
+   "fieldname": "rate_limit_enabled",
+   "fieldtype": "Check",
+   "label": "Enable Rate Limiting",
+   "default": "1",
+   "description": "Off exempts this agent only, not the site."
+  },
+  {
+   "fieldname": "rate_limit_messages",
+   "fieldtype": "Int",
+   "label": "Messages Per Window",
+   "default": "20",
+   "description": "Messages one user may send this agent inside the window. 0 disables the throttle.",
+   "depends_on": "eval:doc.rate_limit_enabled"
+  },
+  {
+   "fieldname": "column_break_rate_limit",
+   "fieldtype": "Column Break"
+  },
+  {
+   "fieldname": "rate_limit_window_seconds",
+   "fieldtype": "Int",
+   "label": "Window (seconds)",
+   "default": "60",
+   "description": "The window slides continuously rather than resetting on a clock boundary, so a full allowance cannot be sent twice either side of one.",
+   "depends_on": "eval:doc.rate_limit_enabled"
+  },
+  {
+   "fieldname": "lock_after_blocks",
+   "fieldtype": "Int",
+   "label": "Freeze After N Blocked Attempts",
+   "default": "3",
+   "description": "Blocked attempts by one user against THIS agent before the conversation is frozen and a reviewer has to release it. 0 disables the freeze for this agent. Independent of the throttle above \u2014 an agent exempt from rate limiting can still freeze a prober."
+  },
+  {
+   "fieldname": "lock_block_window_seconds",
+   "fieldtype": "Int",
+   "label": "Blocked-Attempt Window (seconds)",
+   "default": "3600",
+   "description": "How far back blocked attempts are counted. Defaults to an hour."
+  },
+  {
    "fieldname": "evaluation_section",
    "fieldtype": "Section Break",
    "label": "Evaluation",
-   "description": "Eval suites now link to this agent from the suite side — see the Evaluation group in the Connections panel above to view or add suites. (The former Evaluation Suite field was removed.)"
+   "description": "Eval suites now link to this agent from the suite side \u2014 see the Evaluation group in the Connections panel above to view or add suites. (The former Evaluation Suite field was removed.)"
   },
   {
    "description": "Baseline evaluation cases are generated from these.",
@@ -315,6 +467,84 @@
    "fieldtype": "Table",
    "label": "Sample Prompts",
    "options": "AI Agent Sample Prompt"
+  },
+  {
+   "fieldname": "memory_section",
+   "fieldtype": "Section Break",
+   "label": "Memory",
+   "description": "How this agent remembers. These settings are authoritative at dispatch \u2014 the BPMN shape no longer stores them; an older diagram's values are still honoured until the agent is configured here."
+  },
+  {
+   "fieldname": "conversation_store",
+   "fieldtype": "Select",
+   "label": "Conversation Store",
+   "options": "\nprocess_variable\ndocument_store\ncustom",
+   "default": "",
+   "description": "Where this agent's message thread is kept. Process Variable lives in the instance and is discarded with it; Document Store persists. Blank inherits the diagram's value."
+  },
+  {
+   "fieldname": "context_max_messages",
+   "fieldtype": "Int",
+   "label": "Context Window (max messages)",
+   "description": "Most recent messages kept when priming a call; the system prompt is always retained. 0 inherits the diagram's value."
+  },
+  {
+   "fieldname": "column_break_memory",
+   "fieldtype": "Column Break"
+  },
+  {
+   "fieldname": "long_term_memory",
+   "fieldtype": "Select",
+   "label": "Long-Term Memory",
+   "options": "\nEnabled\nDisabled",
+   "default": "",
+   "description": "Recall relevant saved memories before the call, and optionally save one after. Blank inherits the diagram's value."
+  },
+  {
+   "fieldname": "memory_scope",
+   "fieldtype": "Select",
+   "label": "Memory Scope",
+   "options": "\nAgent\nProcess\nEntity",
+   "default": "",
+   "depends_on": "eval:doc.long_term_memory=='Enabled'",
+   "description": "Agent \u2014 this task; Process \u2014 this process model; Entity \u2014 the task's context document."
+  },
+  {
+   "fieldname": "memory_write_mode",
+   "fieldtype": "Select",
+   "label": "Memory Write Mode",
+   "options": "\noff\ndistilled\nraw",
+   "default": "",
+   "depends_on": "eval:doc.long_term_memory=='Enabled'",
+   "description": "Distilled extracts durable, deduplicated facts; Raw stores the agent output verbatim (legacy); Off recalls only."
+  },
+  {
+   "fieldname": "memory_models_section",
+   "fieldtype": "Section Break",
+   "label": "Memory Models",
+   "description": "Which model does the memory writes. Falls back to the Processa Settings default, then to this agent's own AI Model \u2014 so leaving both blank keeps today's behaviour.",
+   "depends_on": "eval:doc.long_term_memory=='Enabled' && doc.memory_write_mode=='distilled'"
+  },
+  {
+   "fieldname": "memory_distill_model",
+   "fieldtype": "Link",
+   "label": "Distillation Model",
+   "options": "AI Model",
+   "depends_on": "eval:doc.long_term_memory=='Enabled' && doc.memory_write_mode=='distilled'",
+   "description": "Model that extracts durable facts from a run. A cheaper/faster model is usually fine here."
+  },
+  {
+   "fieldname": "column_break_memory_models",
+   "fieldtype": "Column Break",
+   "depends_on": "eval:doc.long_term_memory=='Enabled' && doc.memory_write_mode=='distilled'"
+  },
+  {
+   "fieldname": "memory_reconcile_model",
+   "fieldtype": "Link",
+   "label": "Reconciliation Model",
+   "options": "AI Model",
+   "depends_on": "eval:doc.long_term_memory=='Enabled' && doc.memory_write_mode=='distilled'",
+   "description": "Model that decides add / update / replace against existing memories. Raise this one when reconciliations are poor."
   }
  ],
  "index_web_pages_for_search": 1,

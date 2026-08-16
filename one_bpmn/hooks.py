@@ -34,12 +34,15 @@ website_route_rules = [
 # app_include_css = "/assets/one_bpmn/css/one_bpmn.css"
 app_include_js = [
 	"/assets/one_bpmn/js/bpmn_json_prettify.js",
+	# WI-001678: tiny stub defining window.oneAI.openAgentChat — surfaces like
+	# the AI Agent Configuration Chat button lazy-load the real bundle on use.
+	"/assets/one_bpmn/js/one_ai_loader.js",
 	# ?v= is a manual cache-buster — bump it any time this file changes.
 	# Plain app_include_js paths (not *.bundle.js) get no automatic
 	# versioning from Frappe, and this file has a 12h Cache-Control on
 	# /assets/ — without a version bump, browsers can keep serving a
 	# stale copy indefinitely even across hard reloads.
-	"/assets/one_bpmn/js/bpmn_form_actions.js?v=2",
+	"/assets/one_bpmn/js/bpmn_form_actions.js?v=3",
 	"/assets/one_bpmn/js/bpmn_list_indicator.js",
 ]
 
@@ -193,6 +196,26 @@ doc_events = {
 	"Server Script": {
 		"validate": "one_bpmn.security.script_gate.validate_server_script_on_save",
 	},
+	# WI-001644: PII input screening. The map-driven agents read the user's
+	# text back off the stored Chat Message, so redacting the in-flight
+	# message is not enough — the stored row has to be redacted too.
+	"Chat Message": {
+		"before_insert": [
+			"one_bpmn.security.pii.screen_chat_message",
+			# The output half: the same argument as above, in the other direction.
+			# A map-driven agent writes its reply as a Chat Message and the surface
+			# reads it back from there, so screening only the in-flight string would
+			# be undone by the stored row.
+			"one_bpmn.security.output_screening.screen_chat_response",
+		],
+	},
+	# WI-001813: the list of Processa-controlled doctypes (used by
+	# bpmn_form_actions.js to suppress native Submit/Save/banner) is cached in
+	# Redis — drop it whenever a process model is (de)activated or retargeted.
+	"BPMN Process Model": {
+		"on_update": "one_bpmn.api.instance_api.clear_processa_doctype_cache",
+		"after_delete": "one_bpmn.api.instance_api.clear_processa_doctype_cache",
+	},
 }
 
 # Scheduled Tasks
@@ -240,6 +263,19 @@ scheduler_events = {
 # -----------------------------------------------------------
 
 # ignore_links_on_delete = ["Communication", "ToDo"]
+
+# Cache keys that survive frappe.clear_cache()
+# --------------------------------------------
+# A Docu turn is enqueued on a worker and the browser polls docu_chat_status
+# for its result, keyed on a `docu_turn::<id>` cache entry. That entry is the
+# only handle the client has on a running turn — if it disappears, the poll
+# reports "unknown" and the chat gives up with "I lost track of that request"
+# even though the worker completed the turn successfully. A global cache wipe
+# (bench clear-cache, bench migrate) deletes every key for the site, so the
+# turn handles must be exempted.
+persistent_cache_keys = [
+	"docu_turn::*",
+]
 
 # Request Events
 # ----------------

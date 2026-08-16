@@ -1,14 +1,8 @@
 <template>
 	<div class="h-10 sm:h-12 flex items-center px-3 gap-1 relative">
-		<!-- Add tab button (hidden in read-only mode) -->
-		<button
-			v-if="!readonly"
-			@click="$emit('add-tab')"
-			class="p-2 rounded hover:bg-gray-300 text-gray-600 shrink-0"
-			title="Create new version"
-		>
-			<Icon icon="lucide:plus" class="w-5 h-5" />
-		</button>
+		<!-- WI-002041: no add button. Process maps are created only by the Process
+		     Implementation process, so the editor offers no creation path — which
+		     also removes the old ability to create a version while viewing one. -->
 
 		<!-- Compare button (Material Design 3 'compare' icon) -->
 		<button
@@ -149,13 +143,6 @@
 				Rename
 			</button>
 			<button
-				@click.stop="duplicateTab(activeMenuTab)"
-				class="w-full flex items-center gap-2 px-3 py-1.5 text-xs text-gray-700 hover:bg-gray-50 transition-colors"
-			>
-				<Icon icon="lucide:copy" class="w-3.5 h-3.5" />
-				Duplicate
-			</button>
-			<button
 				@click.stop="deleteTab(activeMenuTab)"
 				class="w-full flex items-center gap-2 px-3 py-1.5 text-xs text-red-600 hover:bg-red-50 transition-colors"
 			>
@@ -203,9 +190,7 @@ const props = defineProps({
 
 const emit = defineEmits([
 	"select-tab",
-	"add-tab",
 	"rename-tab",
-	"duplicate-tab",
 	"delete-tab",
 	"select-version",
 	"compare",
@@ -287,11 +272,6 @@ function startEditing(tab) {
 
 function startEditingFromMenu(tab) {
 	startEditing(tab)
-}
-
-function duplicateTab(tab) {
-	activeMenu.value = null
-	emit("duplicate-tab", tab)
 }
 
 function deleteTab(tab) {

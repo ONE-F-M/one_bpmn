@@ -26,6 +26,20 @@
 					<Button variant="subtle" icon-left="play" :disabled="!selected.length" :loading="runningSelected" @click="runSelected">
 						Run selected ({{ selected.length }})
 					</Button>
+					<Button
+						variant="subtle"
+						icon-left="refresh-cw"
+						:disabled="!canRecheck"
+						:loading="rechecking"
+						:title="canRecheck ? 'Re-evaluate assertions against the last stored answers — no new agent calls' : 'Run the suite once before re-checking'"
+						@click="recheckSuite"
+					>Re-check</Button>
+					<Button
+						icon-left="columns"
+						:disabled="!cases.length"
+						:title="cases.length ? 'Run these cases against a second agent and compare the two side by side' : 'Add a case first'"
+						@click="openCompare"
+					>A/B compare</Button>
 					<Button variant="solid" icon-left="play" :loading="runningSuite" @click="runWholeSuite">Run suite</Button>
 				</div>
 			</div>
@@ -104,6 +118,14 @@
 							</td>
 							<td class="px-4 py-3 text-right whitespace-nowrap">
 								<Button variant="ghost" icon-left="pencil" @click="openEditCase(c)">Edit</Button>
+								<Button
+									variant="ghost"
+									icon-left="refresh-cw"
+									:disabled="!canRecheck"
+									:loading="recheckingCase[c.name]"
+									:title="canRecheck ? 'Re-evaluate this case\'s assertions against its last stored answer' : 'Run this case once before re-checking'"
+									@click="recheckCase(c)"
+								>Re-check</Button>
 								<Button icon-left="play" :loading="runningCase[c.name]" @click="runCase(c)">Run</Button>
 							</td>
 						</tr>
@@ -122,6 +144,14 @@
 								<router-link :to="`/processa/evals/run/${encodeURIComponent(r.name)}`" class="text-gray-900 hover:underline">
 									{{ r.display_title || r.name }}
 								</router-link>
+								<!-- Only replay is marked. "live" is the norm and labelling every
+								     row would bury the one distinction that changes how the
+								     result should be read. -->
+								<span
+									v-if="r.backend === 'replay'"
+									class="ml-2 inline-block px-2 py-0.5 rounded-full text-xs bg-amber-50 text-amber-700"
+									title="Assertions were re-checked against each case's stored answer — the agent was not called"
+								>replay</span>
 							</td>
 							<td class="px-6 py-3 text-gray-600" :title="(r.case_names || []).join(', ')">
 								{{ r.case_label }}
@@ -197,11 +227,59 @@
 		</Dialog>
 
 		<!-- From run modal -->
+		<!-- WI-001821: pick a challenger and run the suite twice. The suite's own
+		     agent stays bound to the suite throughout — the nominated agent is
+		     recorded on the RUN, not on the suite. -->
+		<Dialog v-model="showCompare" :options="{ title: 'Compare against another agent' }">
+			<template #body-content>
+				<div class="space-y-4">
+					<p class="text-sm text-gray-600">
+						Runs all {{ cases.length }} case{{ cases.length === 1 ? "" : "s" }} twice — once
+						against <span class="font-medium">{{ suite.agent_name || suite.agent_configuration || "this suite's agent" }}</span>,
+						once against the agent you pick — then shows the two side by side.
+						This suite stays assigned to its current agent.
+					</p>
+					<FormControl
+						type="select"
+						label="Compare against"
+						:options="challengerOptions"
+						v-model="challenger"
+					/>
+					<p v-if="cases.length < 10" class="text-xs text-amber-700 bg-amber-50 rounded p-2">
+						{{ cases.length }} case{{ cases.length === 1 ? "" : "s" }} is a small sample — one case
+						changing its mind moves the pass rate by {{ Math.round(100 / cases.length) }} points.
+						Useful as a signal, not as proof.
+					</p>
+					<p v-if="compareError" class="text-sm text-red-600">{{ compareError }}</p>
+				</div>
+			</template>
+			<template #actions>
+				<Button
+					variant="solid"
+					:loading="startingCompare"
+					:disabled="!challenger"
+					@click="startComparison"
+				>Run both</Button>
+			</template>
+		</Dialog>
+
 		<Dialog v-model="showFromRun" :options="{ title: 'Create case from a run' }">
 			<template #body-content>
 				<div class="space-y-3">
-					<FormControl label="AI Agent Run" v-model="fromRun.run_name" placeholder="AI Agent Run name" />
-					<Button variant="subtle" :loading="loadingSteps" @click="loadSteps">Load steps</Button>
+					<p v-if="loadingAgentRuns" class="text-sm text-gray-500">Loading runs…</p>
+					<p v-else-if="!agentRuns.length" class="text-sm text-gray-500">
+						No runs to build a case from yet — this suite's agent has not run outside
+						the eval system.
+					</p>
+					<FormControl
+						v-else
+						type="select"
+						label="AI Agent Run"
+						:options="agentRunOptions"
+						v-model="fromRun.run_name"
+						@change="onRunPicked"
+					/>
+					<p v-if="loadingSteps" class="text-xs text-gray-500">Loading steps…</p>
 					<FormControl v-if="runSteps.length" type="select" label="Step (optional)" :options="stepOptions" v-model="fromRun.step_name" />
 				</div>
 			</template>
@@ -213,11 +291,12 @@
 </template>
 
 <script setup>
-import { ref, reactive, computed, onMounted } from "vue"
-import { useRoute } from "vue-router"
+import { ref, reactive, computed, onMounted, watch } from "vue"
+import { useRoute, useRouter } from "vue-router"
 import { frappeRequest, Button, Dialog, FormControl } from "frappe-ui"
 
 const route = useRoute()
+const router = useRouter()
 const suiteName = route.params.suite
 
 const ASSERTION_TYPES = ["contains", "regex", "equals", "schema_valid", "llm_judge"]
@@ -257,6 +336,19 @@ const savingFromRun = ref(false)
 const runSteps = ref([])
 const fromRun = reactive({ run_name: "", step_name: "" })
 
+// Candidate AI Agent Runs for the "From run" picker. Distinct from `runs`
+// above, which is this suite's own EVAL runs.
+const agentRuns = ref([])
+const loadingAgentRuns = ref(false)
+
+// Re-check (replay) re-evaluates assertions against each case's last stored
+// answer instead of calling the agent again — what you want after editing an
+// assertion. It needs a prior result to read, so it is offered only once the
+// suite has been run at least once.
+const rechecking = ref(false)
+const recheckingCase = reactive({})
+const canRecheck = computed(() => runs.value.length > 0)
+
 const _fmt = new Intl.NumberFormat("en-US")
 const _fmtCost = new Intl.NumberFormat("en-US", { style: "currency", currency: "USD", minimumFractionDigits: 2, maximumFractionDigits: 4 })
 function fmt(n) { return _fmt.format(n || 0) }
@@ -265,6 +357,16 @@ function fmtCost(n) { return _fmtCost.format(n || 0) }
 const allSelected = computed(() => cases.value.length > 0 && selected.value.length === cases.value.length)
 const stepOptions = computed(() =>
 	[{ label: "(whole run)", value: "" }].concat(runSteps.value.map((s) => ({ label: s.label || s.name, value: s.name })))
+)
+// "2 Aug, 15:29 · Notify Assignee · Success" — when it ran, what produced it,
+// and whether it worked. Enough to tell two runs apart without a second column.
+const agentRunOptions = computed(() =>
+	[{ label: "Select a run…", value: "" }].concat(
+		agentRuns.value.map((r) => ({
+			label: `${r.when} · ${r.source} · ${r.status}`,
+			value: r.name,
+		}))
+	)
 )
 const sparkPoints = computed(() => {
 	const s = metrics.value.sparkline
@@ -359,14 +461,18 @@ function optimisticRun(runName, totalCases) {
 	})
 }
 
-async function runCases(caseNames, flag) {
+async function runCases(caseNames, flag, backend = "live") {
 	flag.value = true
 	loadError.value = ""
 	try {
 		const runName = await frappeRequest({
 			url: "/api/method/one_bpmn.agents.eval_runner.run_eval_cases",
 			method: "POST",
-			params: { suite_name: suiteName, case_names: caseNames ? JSON.stringify(caseNames) : null },
+			params: {
+				suite_name: suiteName,
+				case_names: caseNames ? JSON.stringify(caseNames) : null,
+				backend,
+			},
 		})
 		optimisticRun(runName, caseNames ? caseNames.length : cases.value.length)
 		pollRun(runName)
@@ -378,8 +484,74 @@ async function runCases(caseNames, flag) {
 	}
 }
 
+watch(showFromRun, (open) => {
+	if (open) loadAgentRuns()
+})
+
+// ── A/B comparison (WI-001821) ───────────────────────────────────────────────
+const showCompare = ref(false)
+const challenger = ref("")
+const challengerOptions = ref([])
+const startingCompare = ref(false)
+const compareError = ref("")
+
+async function openCompare() {
+	compareError.value = ""
+	challenger.value = ""
+	showCompare.value = true
+	try {
+		const res = await frappeRequest({
+			url: "/api/method/one_bpmn.api.eval_api.list_assignable_agents",
+			method: "GET",
+		})
+		// The suite's own agent is side A, so offering it as the challenger would
+		// only produce the "both sides are the same agent" refusal.
+		challengerOptions.value = (res || [])
+			.filter((a) => a.name !== suite.value.agent_configuration)
+			.map((a) => ({ label: a.agent_name || a.name, value: a.name }))
+	} catch (e) {
+		challengerOptions.value = []
+		compareError.value = errorText(e, "Couldn't load the list of agents.")
+	}
+}
+
+async function startComparison() {
+	startingCompare.value = true
+	compareError.value = ""
+	try {
+		const res = await frappeRequest({
+			url: "/api/method/one_bpmn.agents.eval_runner.run_eval_comparison",
+			method: "POST",
+			params: { suite_name: suiteName, agent_b: challenger.value },
+		})
+		showCompare.value = false
+		// Both runs are queued, not finished — the comparison page opens on a
+		// pair that is still running and says so, rather than making the user
+		// watch a spinner here and then find the page themselves.
+		router.push(
+			`/processa/evals/compare/${encodeURIComponent(res.run_a)}/${encodeURIComponent(res.run_b)}`
+		)
+	} catch (e) {
+		compareError.value = errorText(e, "Couldn't start the comparison.")
+	} finally {
+		startingCompare.value = false
+	}
+}
+
 function runWholeSuite() { return runCases(null, runningSuite) }
 function runSelected() { return runCases(selected.value, runningSelected) }
+
+// Re-check = the replay backend: no new agent call, assertions re-evaluated
+// against each case's last stored answer.
+function recheckSuite() { return runCases(null, rechecking, "replay") }
+async function recheckCase(c) {
+	recheckingCase[c.name] = true
+	try {
+		await runCases([c.name], { value: false }, "replay")
+	} finally {
+		recheckingCase[c.name] = false
+	}
+}
 async function runCase(c) {
 	runningCase[c.name] = true
 	try {
@@ -479,6 +651,31 @@ function serverMessage(e) {
 	}
 }
 
+async function loadAgentRuns() {
+	loadingAgentRuns.value = true
+	agentRuns.value = []
+	try {
+		agentRuns.value = await frappeRequest({
+			url: "/api/method/one_bpmn.agents.eval_case_factory.list_runs_for_case_picker",
+			method: "GET",
+			params: { suite: suiteName },
+		}) || []
+	} catch (e) {
+		console.error("Loading runs failed:", e)
+		agentRuns.value = []
+	} finally {
+		loadingAgentRuns.value = false
+	}
+}
+
+// Picking a run immediately offers its steps — the old dialog made you press
+// "Load steps" as a separate action, which only ever had one sensible moment.
+function onRunPicked() {
+	fromRun.step_name = ""
+	runSteps.value = []
+	if (fromRun.run_name) loadSteps()
+}
+
 async function loadSteps() {
 	loadingSteps.value = true
 	try {
@@ -515,9 +712,21 @@ async function createFromRun() {
 	}
 }
 
-onMounted(() => {
-	fetchDetail()
+onMounted(async () => {
+	await fetchDetail()
 	fetchProviders()
 	fetchAiModels()
+
+	// Arriving with ?case=<name> opens that case straight into the editor.
+	// Converting a complaint in the Feedback queue lands here, and the next
+	// thing the reviewer has to do is write what SHOULD have happened — so the
+	// editor is the destination, not the suite's case list with the new row
+	// somewhere in it.
+	const wanted = route.query.case
+	if (wanted) {
+		const found = (cases.value || []).find((c) => c.name === wanted)
+		if (found) openEditCase(found)
+		else openEditCase({ name: wanted })
+	}
 })
 </script>

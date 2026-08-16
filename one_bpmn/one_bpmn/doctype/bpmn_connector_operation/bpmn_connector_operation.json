@@ -1,0 +1,224 @@
+{
+ "actions": [],
+ "autoname": "format:{connector}-{operation_id}",
+ "creation": "2026-07-29 08:00:00",
+ "description": "One operation of a connector, with the fields the modeler fills in. Either dispatches to a registered Python handler or performs a fully declarative HTTP request.",
+ "doctype": "DocType",
+ "engine": "InnoDB",
+ "field_order": [
+  "connector",
+  "operation_id",
+  "label",
+  "column_break_basics",
+  "enabled",
+  "sort_order",
+  "api_method",
+  "description",
+  "fields_section",
+  "fields",
+  "execution_section",
+  "execution_type",
+  "handler_path",
+  "http_section",
+  "http_method",
+  "url_template",
+  "query_params_json",
+  "headers_json",
+  "body_section",
+  "body_content_type",
+  "body_template",
+  "response_section",
+  "response_map_json",
+  "output_section",
+  "output_json"
+ ],
+ "fields": [
+  {
+   "fieldname": "connector",
+   "fieldtype": "Link",
+   "in_list_view": 1,
+   "in_standard_filter": 1,
+   "label": "Connector",
+   "options": "BPMN Connector",
+   "reqd": 1
+  },
+  {
+   "description": "Stable id used in the BPMN XML (spiffworkflow:operation), e.g. <code>createFile</code>.",
+   "fieldname": "operation_id",
+   "fieldtype": "Data",
+   "in_list_view": 1,
+   "label": "Operation ID",
+   "reqd": 1
+  },
+  {
+   "description": "Shown in the Operation dropdown in the modeler.",
+   "fieldname": "label",
+   "fieldtype": "Data",
+   "in_list_view": 1,
+   "label": "Label",
+   "reqd": 1
+  },
+  {
+   "fieldname": "column_break_basics",
+   "fieldtype": "Column Break"
+  },
+  {
+   "default": "1",
+   "fieldname": "enabled",
+   "fieldtype": "Check",
+   "in_list_view": 1,
+   "label": "Enabled"
+  },
+  {
+   "description": "Position in the Operation dropdown (ascending).",
+   "fieldname": "sort_order",
+   "fieldtype": "Int",
+   "label": "Sort Order"
+  },
+  {
+   "description": "The provider's own API method, for documentation, e.g. <code>files.create</code>.",
+   "fieldname": "api_method",
+   "fieldtype": "Data",
+   "label": "API Method"
+  },
+  {
+   "fieldname": "description",
+   "fieldtype": "Small Text",
+   "label": "Description"
+  },
+  {
+   "fieldname": "fields_section",
+   "fieldtype": "Section Break",
+   "label": "Fields Shown In The Modeler"
+  },
+  {
+   "description": "Each row becomes an input in the Service Task properties panel, in this order.",
+   "fieldname": "fields",
+   "fieldtype": "Table",
+   "label": "Fields",
+   "options": "BPMN Connector Field"
+  },
+  {
+   "fieldname": "execution_section",
+   "fieldtype": "Section Break",
+   "label": "Execution"
+  },
+  {
+   "description": "Leave blank to inherit the connector's execution type.",
+   "fieldname": "execution_type",
+   "fieldtype": "Select",
+   "label": "Execution Type",
+   "options": "\nHTTP Request\nPython Handler"
+  },
+  {
+   "description": "Dotted path to a <code>handler(params, ctx) -> dict</code> function. Blank falls back to the @connector registry entry for (connector, operation).",
+   "fieldname": "handler_path",
+   "fieldtype": "Data",
+   "label": "Handler Path",
+   "mandatory_depends_on": "eval:0"
+  },
+  {
+   "fieldname": "http_section",
+   "fieldtype": "Section Break",
+   "label": "HTTP Request"
+  },
+  {
+   "default": "POST",
+   "fieldname": "http_method",
+   "fieldtype": "Select",
+   "label": "Method",
+   "options": "GET\nPOST\nPUT\nPATCH\nDELETE"
+  },
+  {
+   "description": "Absolute, or relative to the connector's Base URL. Jinja is available, e.g. <code>/files/{{ params.file }}/content</code>. Field values live under <code>params</code>; <code>doc</code>, <code>task_data</code>, <code>instance</code> and <code>frappe</code> are also in scope.",
+   "fieldname": "url_template",
+   "fieldtype": "Small Text",
+   "label": "URL Template"
+  },
+  {
+   "description": "JSON object of query-string parameters; values are Jinja-rendered. Empty values are dropped.",
+   "fieldname": "query_params_json",
+   "fieldtype": "Code",
+   "label": "Query Parameters (JSON)",
+   "options": "JSON"
+  },
+  {
+   "description": "JSON object of request headers; values are Jinja-rendered. Auth headers are added automatically.",
+   "fieldname": "headers_json",
+   "fieldtype": "Code",
+   "label": "Headers (JSON)",
+   "options": "JSON"
+  },
+  {
+   "fieldname": "body_section",
+   "fieldtype": "Section Break",
+   "label": "Request Body"
+  },
+  {
+   "default": "application/json",
+   "fieldname": "body_content_type",
+   "fieldtype": "Select",
+   "label": "Content Type",
+   "options": "application/json\napplication/x-www-form-urlencoded\ntext/plain"
+  },
+  {
+   "description": "Jinja-rendered, then parsed as JSON when Content Type is JSON. Example: <code>{\"name\": \"{{ params.filename }}\"}</code>.",
+   "fieldname": "body_template",
+   "fieldtype": "Code",
+   "label": "Body Template"
+  },
+  {
+   "fieldname": "response_section",
+   "fieldtype": "Section Break",
+   "label": "Response Mapping"
+  },
+  {
+   "description": "JSON object mapping output keys to dotted paths in the response, e.g. <code>{\"id\": \"data.id\", \"link\": \"data.webViewLink\"}</code>. Use <code>[0]</code> for list indices. Blank returns the whole response under <code>{\"response\": …}</code>.",
+   "fieldname": "response_map_json",
+   "fieldtype": "Code",
+   "label": "Response Map (JSON)",
+   "options": "JSON"
+  },
+  {
+   "collapsible": 1,
+   "fieldname": "output_section",
+   "fieldtype": "Section Break",
+   "label": "Documented Output"
+  },
+  {
+   "description": "JSON object documenting what this operation returns, e.g. <code>{\"id\": \"File id\"}</code>. Shown to modelers; not used at runtime.",
+   "fieldname": "output_json",
+   "fieldtype": "Code",
+   "label": "Output (JSON)",
+   "options": "JSON"
+  }
+ ],
+ "index_web_pages_for_search": 1,
+ "links": [],
+ "modified": "2026-07-29 08:00:00",
+ "modified_by": "Administrator",
+ "module": "ONE BPMN",
+ "name": "BPMN Connector Operation",
+ "naming_rule": "Expression",
+ "owner": "Administrator",
+ "permissions": [
+  {
+   "create": 1,
+   "delete": 1,
+   "email": 1,
+   "export": 1,
+   "print": 1,
+   "read": 1,
+   "report": 1,
+   "role": "System Manager",
+   "share": 1,
+   "write": 1
+  }
+ ],
+ "row_format": "Dynamic",
+ "sort_field": "modified",
+ "sort_order": "DESC",
+ "states": [],
+ "title_field": "label",
+ "track_changes": 1
+}

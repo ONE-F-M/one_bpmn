@@ -13,6 +13,7 @@ Prompt rendering (Jinja) is performed by the dispatcher BEFORE calling run().
 from __future__ import annotations
 
 import json
+import re
 import random
 import time
 from typing import Any, ClassVar, Optional
@@ -42,17 +43,24 @@ def _run_coro_blocking(coro):
     context (socketio bridge, future ASGI deployment), fall back to running
     the coroutine on a dedicated thread with its own loop instead of
     crashing.
+
+    The fallback copies the caller's contextvars into that thread, or the
+    coroutine would run without ``frappe.local`` (site/db/session) — see
+    ``turn_state.run_sync``, which carries the same contract for the nested
+    call the stage tools make.
     """
     import asyncio
     import concurrent.futures
+    import contextvars
 
     try:
         asyncio.get_running_loop()
     except RuntimeError:
         return asyncio.run(coro)
 
+    ctx = contextvars.copy_context()
     with concurrent.futures.ThreadPoolExecutor(max_workers=1) as pool:
-        return pool.submit(asyncio.run, coro).result()
+        return pool.submit(ctx.run, asyncio.run, coro).result()
 
 
 def _strip_code_fences(content: str) -> str:
@@ -99,6 +107,19 @@ def _extract_json_object(text: str) -> Optional[dict]:
 
 
 _TRANSIENT_STATUS_CODES = frozenset({429, 500, 502, 503})
+
+
+
+# Anthropic 5-series ids: claude-sonnet-5, claude-opus-5, claude-haiku-5 and
+# their dated variants. Deliberately anchored on "-<tier>-5" so it does NOT
+# catch claude-sonnet-4-5 or claude-haiku-4-5, which still accept sampling
+# params — verified against the live API.
+_NO_SAMPLING_PARAMS = re.compile(r"-(?:sonnet|opus|haiku)-5(?:$|[^0-9])")
+
+
+def _rejects_sampling_params(model: str) -> bool:
+    """True for models whose API refuses temperature / top_p."""
+    return bool(_NO_SAMPLING_PARAMS.search((model or "").lower()))
 
 
 class DirectApiExecutor(Executor):
@@ -375,6 +396,7 @@ class DirectApiExecutor(Executor):
             # Partial progress is not lost: the trace collected so far ships
             # with the error result.
             return ExecutorResult(
+                hit_turn_cap=True,
                 error_code=ErrorCode.FAILED_MODEL_CALL,
                 error_message=(
                     f"Tool-calling loop hit the adapter's turn cap without a final answer "
@@ -531,10 +553,16 @@ class DirectApiExecutor(Executor):
         # Anthropic does not allow both temperature and top_p simultaneously.
         # Send temperature by default; only send top_p if it was explicitly
         # changed from the default (1.0).
-        if config.top_p < 1.0:
-            payload["top_p"] = config.top_p
-        else:
-            payload["temperature"] = config.temperature
+        #
+        # The 5-series models reject sampling params outright — the API answers
+        # 400 "`temperature` is deprecated for this model" — so they get neither.
+        # Sending one anyway does not degrade the call, it fails it, which shows
+        # up as an empty AI task output or an eval assertion that never scored.
+        if not _rejects_sampling_params(config.model):
+            if config.top_p < 1.0:
+                payload["top_p"] = config.top_p
+            else:
+                payload["temperature"] = config.temperature
 
         headers = {
             "x-api-key": api_key,

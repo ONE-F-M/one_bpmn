@@ -85,6 +85,17 @@ def _clean(record: dict) -> dict:
 	return {k: v for k, v in record.items() if k not in _META_KEYS}
 
 
+def _clean_docfield(record: dict) -> dict:
+	"""Like ``_clean`` but also drops ``name``.
+
+	A DocField's name is a random hash minted per site when the DocType is
+	installed, so the same field is called something different on BA and on
+	Production. Comparing it would make every field look changed — which is
+	why DocFields are keyed by ``fieldname`` in the snapshot, not by name.
+	"""
+	return {k: v for k, v in record.items() if k not in _META_KEYS and k != "name"}
+
+
 def _canonical_record(doctype: str, name: str, fields: list) -> dict | None:
 	if not frappe.db.exists(doctype, name):
 		return None
@@ -243,6 +254,17 @@ def _upsert_record(dt: str, rec: dict, results: dict) -> None:
 
 
 def _build_doctype_snapshot(doctypes: list) -> dict:
+	"""Snapshot a DocType's schema surface for BA → Production comparison.
+
+	Custom Fields and Property Setters cover everything done through Customize
+	Form. They do NOT cover an edit made to a STANDARD DocType directly: Frappe
+	writes that straight onto the DocField row and mints no Property Setter, so
+	a change such as a Link field's ``link_filters`` was invisible here and the
+	review reported "no changes" while real drift sat unsynced.
+
+	``docfields`` closes that hole. It is keyed by ``fieldname`` rather than by
+	row name — see ``_clean_docfield``.
+	"""
 	snap = {}
 	for dt in doctypes:
 		exists = bool(frappe.db.exists("DocType", dt))
@@ -257,6 +279,11 @@ def _build_doctype_snapshot(doctypes: list) -> dict:
 				r["name"]: _clean(r)
 				for r in frappe.get_all("Property Setter", filters={"doc_type": dt}, fields=["*"])
 			},
+			"docfields": {
+				r["fieldname"]: _clean_docfield(r)
+				for r in frappe.get_all("DocField", filters={"parent": dt}, fields=["*"], order_by="idx")
+				if r.get("fieldname")
+			} if exists else {},
 		}
 	return snap
 
@@ -279,6 +306,23 @@ def _diff_doctypes(local: dict, remote: dict) -> list:
 				elif rrec != lrec:
 					diffk = [k for k in lrec if lrec.get(k) != (rrec or {}).get(k)]
 					changes.append({"object_type": otype, "name": name, "doctype": dt,
+					                "action": "Update", "detail": ", ".join(diffk[:6])})
+
+		# DocField drift — a standard DocType edited directly rather than through
+		# Customize Form. Only compared when Production actually reports the key:
+		# an older Production predates it, and treating "absent" as "empty" would
+		# announce every field on every DocType as missing there.
+		if "docfields" in rsnap:
+			lfields = lsnap.get("docfields") or {}
+			rfields = rsnap.get("docfields") or {}
+			for fieldname, lrec in lfields.items():
+				rrec = rfields.get(fieldname)
+				if rrec is None:
+					changes.append({"object_type": "DocField", "name": f"{dt}-{fieldname}", "doctype": dt,
+					                "action": "Create", "detail": _("Field is not on Production")})
+				elif rrec != lrec:
+					diffk = [k for k in lrec if lrec.get(k) != rrec.get(k)]
+					changes.append({"object_type": "DocField", "name": f"{dt}-{fieldname}", "doctype": dt,
 					                "action": "Update", "detail": ", ".join(diffk[:6])})
 	return changes
 
@@ -307,7 +351,38 @@ def sync_doctypes(model_name: str) -> dict:
 	if not changes:
 		return {"synced": False, "message": _("No changes seen in the relevant doctype(s)")}
 
-	changed_doctypes = sorted({c["doctype"] for c in changes})
+	# A customization file carries Custom Fields, Property Setters, perms and
+	# links. It cannot express an edit made to a standard DocType's own field,
+	# so those are reported back instead of being quietly dropped from the PR.
+	docfield_changes = [c for c in changes if c["object_type"] == "DocField"]
+	syncable = [c for c in changes if c["object_type"] != "DocField"]
+
+	source_edits = []
+	by_dt = {}
+	for c in docfield_changes:
+		by_dt.setdefault(c["doctype"], []).append(c["name"])
+	for dt, names in sorted(by_dt.items()):
+		source_edits.append({
+			"doctype": dt,
+			"fields": sorted(names),
+			"reason": _(
+				"Changed on the DocType itself rather than through Customize Form, so no Property "
+				"Setter exists to carry it. Either change {0} in its owning app's source and deploy, "
+				"or re-apply the change through Customize Form."
+			).format(dt),
+		})
+
+	if not syncable:
+		return {
+			"synced": False,
+			"source_edits": source_edits,
+			"message": _(
+				"The only differences are direct DocType edits, which cannot be synced as "
+				"customizations. See the details for what to do with them."
+			),
+		}
+
+	changed_doctypes = sorted({c["doctype"] for c in syncable})
 
 	token = frappe.get_cached_doc("Processa Settings").get_password("github_token")
 
@@ -350,12 +425,12 @@ def sync_doctypes(model_name: str) -> dict:
 		)
 		prs.append({"app": app, "repository": repo, "pr_url": pr_url, "doctypes": dts})
 
-	return {"synced": bool(prs), "prs": prs, "skipped": skipped}
+	return {"synced": bool(prs), "prs": prs, "skipped": skipped, "source_edits": source_edits}
 
 
 @frappe.whitelist()
 def snapshot_doctype_schema(doctypes: str) -> dict:
-	"""Return Custom Fields + Property Setters per DocType (Production)."""
+	"""Return Custom Fields + Property Setters + DocFields per DocType (Production)."""
 	frappe.only_for("System Manager")
 	return _build_doctype_snapshot(_parse(doctypes) or [])
 

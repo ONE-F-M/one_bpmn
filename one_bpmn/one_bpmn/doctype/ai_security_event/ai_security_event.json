@@ -1,0 +1,232 @@
+{
+ "actions": [],
+ "allow_rename": 0,
+ "autoname": "hash",
+ "creation": "2026-08-05 00:00:00.000000",
+ "description": "One screening verdict. Append-only: the raw content is never stored, only a hash of it, so the record is safe to keep forever and safe to share with a reviewer.",
+ "doctype": "DocType",
+ "editable_grid": 0,
+ "engine": "InnoDB",
+ "field_order": [
+  "section_what",
+  "boundary",
+  "stage",
+  "action",
+  "column_break_what",
+  "severity",
+  "detected_at",
+  "section_rule",
+  "rule",
+  "rule_type",
+  "column_break_rule",
+  "matched_pattern",
+  "classifier",
+  "section_where",
+  "agent_configuration",
+  "conversation",
+  "column_break_where",
+  "run",
+  "bpmn_id",
+  "correlation_id",
+  "section_content",
+  "content_hash",
+  "content_length",
+  "column_break_content",
+  "detail"
+ ],
+ "fields": [
+  {
+   "fieldname": "section_what",
+   "fieldtype": "Section Break",
+   "label": "Verdict"
+  },
+  {
+   "description": "Where in the turn this verdict was reached.",
+   "fieldname": "boundary",
+   "fieldtype": "Select",
+   "in_list_view": 1,
+   "in_standard_filter": 1,
+   "label": "Boundary",
+   "options": "input\noutput\ntool-result\nmemory-write",
+   "reqd": 1
+  },
+  {
+   "description": "The screening stage that produced the verdict, e.g. pii, injection, tool-policy.",
+   "fieldname": "stage",
+   "fieldtype": "Data",
+   "in_list_view": 1,
+   "in_standard_filter": 1,
+   "label": "Stage",
+   "reqd": 1
+  },
+  {
+   "default": "Log",
+   "description": "What the screen actually did. Log = recorded only; Flag = recorded and surfaced for review; Block = the content was stopped.",
+   "fieldname": "action",
+   "fieldtype": "Select",
+   "in_list_view": 1,
+   "in_standard_filter": 1,
+   "label": "Action",
+   "options": "Log\nFlag\nBlock",
+   "reqd": 1
+  },
+  {
+   "fieldname": "column_break_what",
+   "fieldtype": "Column Break"
+  },
+  {
+   "fieldname": "severity",
+   "fieldtype": "Select",
+   "in_standard_filter": 1,
+   "label": "Severity",
+   "options": "\nLow\nMedium\nHigh\nCritical"
+  },
+  {
+   "description": "Set on insert; the creation timestamp is the audit trail.",
+   "fieldname": "detected_at",
+   "fieldtype": "Datetime",
+   "label": "Detected At",
+   "read_only": 1
+  },
+  {
+   "fieldname": "section_rule",
+   "fieldtype": "Section Break",
+   "label": "What Fired"
+  },
+  {
+   "description": "The rule pack entry that fired, when the detection came from the pack.",
+   "fieldname": "rule",
+   "fieldtype": "Link",
+   "in_standard_filter": 1,
+   "label": "Rule",
+   "options": "AI Injection Pattern"
+  },
+  {
+   "description": "Snapshot of the rule's type, kept so the event still reads correctly after the rule is edited or removed.",
+   "fieldname": "rule_type",
+   "fieldtype": "Data",
+   "label": "Rule Type"
+  },
+  {
+   "fieldname": "column_break_rule",
+   "fieldtype": "Column Break"
+  },
+  {
+   "description": "The pattern expression that matched — the rule's signature, never the user's text.",
+   "fieldname": "matched_pattern",
+   "fieldtype": "Small Text",
+   "label": "Matched Pattern",
+   "ignore_xss_filter": 1
+  },
+  {
+   "description": "Name of the classifier or detector that fired when the detection did not come from the rule pack, e.g. a PII detector label.",
+   "fieldname": "classifier",
+   "fieldtype": "Data",
+   "in_standard_filter": 1,
+   "label": "Classifier"
+  },
+  {
+   "fieldname": "section_where",
+   "fieldtype": "Section Break",
+   "label": "Where"
+  },
+  {
+   "fieldname": "agent_configuration",
+   "fieldtype": "Link",
+   "in_list_view": 1,
+   "in_standard_filter": 1,
+   "label": "Agent",
+   "options": "AI Agent Configuration"
+  },
+  {
+   "fieldname": "conversation",
+   "fieldtype": "Data",
+   "in_standard_filter": 1,
+   "label": "Conversation"
+  },
+  {
+   "fieldname": "column_break_where",
+   "fieldtype": "Column Break"
+  },
+  {
+   "fieldname": "run",
+   "fieldtype": "Link",
+   "label": "Run",
+   "options": "AI Agent Run"
+  },
+  {
+   "fieldname": "bpmn_id",
+   "fieldtype": "Data",
+   "label": "BPMN ID"
+  },
+  {
+   "description": "Shared with the AI Agent Run for the same turn. Input screening runs before the run exists, so this is how an event is joined to the run it preceded.",
+   "fieldname": "correlation_id",
+   "fieldtype": "Data",
+   "in_standard_filter": 1,
+   "label": "Correlation ID",
+   "read_only": 1
+  },
+  {
+   "fieldname": "section_content",
+   "fieldtype": "Section Break",
+   "label": "Content Fingerprint"
+  },
+  {
+   "description": "SHA-256 of the screened content. Lets two events be recognised as the same input without keeping the input.",
+   "fieldname": "content_hash",
+   "fieldtype": "Data",
+   "label": "Content Hash",
+   "read_only": 1
+  },
+  {
+   "description": "Character count of the screened content — useful for triage, reveals nothing.",
+   "fieldname": "content_length",
+   "fieldtype": "Int",
+   "label": "Content Length",
+   "read_only": 1
+  },
+  {
+   "fieldname": "column_break_content",
+   "fieldtype": "Column Break"
+  },
+  {
+   "description": "Non-identifying summary, e.g. \"2x CIVIL_ID\". Must never contain the screened text — the controller rejects an event whose detail looks like raw content.",
+   "fieldname": "detail",
+   "fieldtype": "Small Text",
+   "label": "Detail"
+  }
+ ],
+ "index_web_pages_for_search": 0,
+ "links": [],
+ "modified": "2026-08-05 00:00:00.000000",
+ "modified_by": "Administrator",
+ "module": "ONE BPMN",
+ "name": "AI Security Event",
+ "naming_rule": "Random",
+ "owner": "Administrator",
+ "permissions": [
+  {
+   "create": 1,
+   "email": 1,
+   "export": 1,
+   "print": 1,
+   "read": 1,
+   "report": 1,
+   "role": "System Manager",
+   "share": 1
+  },
+  {
+   "create": 1,
+   "export": 1,
+   "print": 1,
+   "read": 1,
+   "report": 1,
+   "role": "Process Owner"
+  }
+ ],
+ "sort_field": "creation",
+ "sort_order": "DESC",
+ "states": [],
+ "track_changes": 0
+}

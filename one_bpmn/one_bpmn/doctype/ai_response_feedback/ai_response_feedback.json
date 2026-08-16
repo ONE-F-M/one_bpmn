@@ -1,0 +1,185 @@
+{
+ "actions": [],
+ "allow_rename": 0,
+ "autoname": "hash",
+ "creation": "2026-08-13 00:00:00.000000",
+ "description": "What a user said about one agent reply. Its own record rather than a key in Chat Message.metadata, because the question this data exists to answer — every negative rating for one agent over a date range — is a query, and metadata is an unindexed Code blob.",
+ "doctype": "DocType",
+ "editable_grid": 0,
+ "engine": "InnoDB",
+ "field_order": [
+  "section_what",
+  "rating",
+  "reasons",
+  "comment",
+  "column_break_what",
+  "rated_by",
+  "rated_on",
+  "status",
+  "section_subject",
+  "message",
+  "conversation",
+  "column_break_subject",
+  "agent_run",
+  "agent_configuration",
+  "section_outcome",
+  "eval_case",
+  "dedup_key"
+ ],
+ "fields": [
+  {
+   "fieldname": "section_what",
+   "fieldtype": "Section Break",
+   "label": "Rating"
+  },
+  {
+   "fieldname": "rating",
+   "fieldtype": "Select",
+   "in_list_view": 1,
+   "in_standard_filter": 1,
+   "label": "Rating",
+   "options": "Positive\nNegative",
+   "reqd": 1
+  },
+  {
+   "description": "Why. Chips the user clicked; empty is normal — a single click is a complete rating.",
+   "fieldname": "reasons",
+   "fieldtype": "Table",
+   "label": "Reasons",
+   "options": "AI Response Feedback Reason"
+  },
+  {
+   "description": "Optional free text. Screened for PII and prompt injection on the way in, like any other user-entered chat text.",
+   "fieldname": "comment",
+   "fieldtype": "Small Text",
+   "label": "Comment"
+  },
+  {
+   "fieldname": "column_break_what",
+   "fieldtype": "Column Break"
+  },
+  {
+   "fieldname": "rated_by",
+   "fieldtype": "Link",
+   "in_standard_filter": 1,
+   "label": "Rated By",
+   "options": "User",
+   "read_only": 1,
+   "reqd": 1
+  },
+  {
+   "fieldname": "rated_on",
+   "fieldtype": "Datetime",
+   "label": "Rated On",
+   "read_only": 1
+  },
+  {
+   "default": "New",
+   "description": "Triage state. An eval case is only ever created from Reviewed feedback — every thumbs-down is not a regression.",
+   "fieldname": "status",
+   "fieldtype": "Select",
+   "in_list_view": 1,
+   "in_standard_filter": 1,
+   "label": "Status",
+   "options": "New\nReviewed\nConverted\nDismissed"
+  },
+  {
+   "fieldname": "section_subject",
+   "fieldtype": "Section Break",
+   "label": "What was rated"
+  },
+  {
+   "fieldname": "message",
+   "fieldtype": "Link",
+   "in_list_view": 1,
+   "label": "Message",
+   "options": "Chat Message",
+   "read_only": 1,
+   "reqd": 1
+  },
+  {
+   "fieldname": "conversation",
+   "fieldtype": "Link",
+   "label": "Conversation",
+   "options": "Chat Conversation",
+   "read_only": 1
+  },
+  {
+   "fieldname": "column_break_subject",
+   "fieldtype": "Column Break"
+  },
+  {
+   "description": "The run that produced the reply — this is the join to cost, latency and the trace.",
+   "fieldname": "agent_run",
+   "fieldtype": "Link",
+   "label": "Agent Run",
+   "options": "AI Agent Run",
+   "read_only": 1
+  },
+  {
+   "fieldname": "agent_configuration",
+   "fieldtype": "Link",
+   "in_standard_filter": 1,
+   "label": "Agent Configuration",
+   "options": "AI Agent Configuration",
+   "read_only": 1
+  },
+  {
+   "fieldname": "section_outcome",
+   "fieldtype": "Section Break",
+   "label": "Outcome"
+  },
+  {
+   "description": "The regression test this complaint became, if any.",
+   "fieldname": "eval_case",
+   "fieldtype": "Link",
+   "label": "Eval Case",
+   "options": "AI Eval Case",
+   "read_only": 1
+  },
+  {
+   "description": "message|user. Unique, so one person cannot hold two ratings on one reply — re-rating updates in place.",
+   "fieldname": "dedup_key",
+   "fieldtype": "Data",
+   "hidden": 1,
+   "label": "Dedup Key",
+   "read_only": 1,
+   "unique": 1
+  }
+ ],
+ "index_web_pages_for_search": 0,
+ "links": [],
+ "modified": "2026-08-13 00:00:00.000000",
+ "modified_by": "Administrator",
+ "module": "ONE BPMN",
+ "name": "AI Response Feedback",
+ "naming_rule": "Random",
+ "owner": "Administrator",
+ "permissions": [
+  {
+   "create": 1,
+   "delete": 1,
+   "email": 1,
+   "export": 1,
+   "print": 1,
+   "read": 1,
+   "report": 1,
+   "role": "System Manager",
+   "share": 1,
+   "write": 1
+  },
+  {
+   "create": 1,
+   "export": 1,
+   "print": 1,
+   "read": 1,
+   "report": 1,
+   "role": "Process Owner",
+   "write": 1
+  }
+ ],
+ "sort_field": "creation",
+ "sort_order": "DESC",
+ "states": [],
+ "track_changes": 1
+}

@@ -82,6 +82,20 @@ def _sum_step_metrics(run_name: str) -> Dict[str, Any]:
 	return totals
 
 
+def _turn_correlation_id():
+	"""The current turn's correlation id, if a screened turn is in progress.
+
+	Imported lazily and defensively: observability must never fail because the
+	security package is unavailable or misbehaving.
+	"""
+	try:
+		from one_bpmn.security.turn import current_correlation_id
+
+		return current_correlation_id()
+	except Exception:
+		return None
+
+
 def create_ai_run(
 	instance,
 	bpmn_id: str,
@@ -128,6 +142,12 @@ def create_ai_run(
 		except Exception:
 			agent_configuration = None
 
+	# A non-dict flag (or none) means this is not an eval run; guard rather than
+	# trust the flag's shape, since any caller can set it.
+	eval_origin = getattr(frappe.flags, "eval_origin", None)
+	if not isinstance(eval_origin, dict):
+		eval_origin = {} if not eval_origin else {"eval_case": None, "eval_run": None}
+
 	run = frappe.get_doc({
 		"doctype": "AI Agent Run",
 		"instance": instance.name,
@@ -141,11 +161,18 @@ def create_ai_run(
 		"model": config.model,
 		# WI-001751: runs produced while an eval is invoking the agent are
 		# tagged so Insights can show them under a separate "Evals" segment.
-		"origin": "eval" if getattr(frappe.flags, "eval_origin", None) else "production",
+		# The flag also names WHICH case and run, so reviewing an eval no longer
+		# means filtering by origin and matching on a time window.
+		"origin": "eval" if eval_origin else "production",
+		"eval_case": eval_origin.get("eval_case") or None,
+		"eval_run": eval_origin.get("eval_run") or None,
 		"status": "Running",
 		"started_at": now_datetime(),
 		"max_retries": config.max_retries,
-		"correlation_id": frappe.generate_hash(length=16),
+		# WI-001967: reuse the turn's correlation id when one was minted upstream,
+		# so a security event recorded before this run existed can be joined to it.
+		# Falls back to a fresh id for runs that start outside a screened turn.
+		"correlation_id": _turn_correlation_id() or frappe.generate_hash(length=16),
 	})
 	try:
 		run.insert(ignore_permissions=True)
@@ -256,7 +283,7 @@ def record_ai_step(
 		return None
 
 
-def finalize_ai_run(run, result: ExecutorResult) -> None:
+def finalize_ai_run(run, result: ExecutorResult, goal_key: str | None = None) -> None:
 	"""Finalize an AI Agent Run after executor completion.
 
 	On SUCCESS: sets status, duration, tokens, cost, output.
@@ -265,6 +292,9 @@ def finalize_ai_run(run, result: ExecutorResult) -> None:
 	Args:
 	    run:  AI Agent Run document (status="Running")
 	    result: ExecutorResult from the executor call
+	    goal_key: optional reply key the map declares as its definition of done
+	        (WI-001823). When absent, completion falls back to error/turn-cap/
+	        output signals; either way the run never records a guess.
 	"""
 	if run is None or getattr(run, "stub", False):
 		return
@@ -306,6 +336,15 @@ def finalize_ai_run(run, result: ExecutorResult) -> None:
 		update["error_code"] = result.error_code.value
 		update["error_message"] = (result.error_message or "")[:_MAX_OUTPUT_CHARS]
 
+	# WI-001823: what the executor itself knows about the outcome, folded into
+	# the same write. The stronger signal — whether the map reached its end
+	# event — arrives later, from settle_for_instance.
+	from one_bpmn.agents import goal_completion
+
+	state, basis = goal_completion.determine(result, goal_key)
+	update["goal_completion"] = state
+	update["completion_basis"] = basis
+
 	# Token totals from the result (partial tokens are recorded on error too).
 	if result.token_usage:
 		update["total_prompt_tokens"] = result.token_usage.prompt_tokens
@@ -340,6 +379,8 @@ def finalize_ai_run_on_exception(run, exception: Exception) -> None:
 	try:
 		run.db_set({
 			"ended_at": ended,
+			"goal_completion": "Not Achieved",
+			"completion_basis": "The run raised an unhandled exception.",
 			"duration_ms": int(duration),
 			"agent_latency_ms": _sum_step_metrics(run.name)["agent_latency_ms"],
 			"status": "Error",

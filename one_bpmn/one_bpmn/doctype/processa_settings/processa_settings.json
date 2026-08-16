@@ -28,8 +28,13 @@
   "script_strict_builtins",
   "script_strict_frappe_attrs",
   "script_block_all_imports",
-  "section_break_google",
-  "google_drive_service_account_json"
+  "section_break_ai_rate_limit",
+  "column_break_ai_rate_limit",
+  "lock_release_roles",
+  "section_break_ai_memory",
+  "default_memory_distill_model",
+  "column_break_ai_memory",
+  "default_memory_reconcile_model"
  ],
  "fields": [
   {
@@ -120,12 +125,13 @@
    "label": "GitHub Integration"
   },
   {
-   "description": "Personal (or fine-grained) access token able to push branches and open pull requests. Used by \"Review Doctypes\" → \"Sync\" to raise a PR with the DocType schema changes. The repository is derived from each referenced DocType's owning app (its git remote), and the PR targets that repository's default branch.",
+   "description": "Personal (or fine-grained) access token able to push branches and open pull requests. Used by \"Review Doctypes\" \u2192 \"Sync\" to raise a PR with the DocType schema changes. The repository is derived from each referenced DocType's owning app (its git remote), and the PR targets that repository's default branch.",
    "fieldname": "github_token",
    "fieldtype": "Password",
    "label": "GitHub Access Token"
   },
   {
+   "collapsible": 1,
    "fieldname": "section_break_script_security",
    "fieldtype": "Section Break",
    "label": "Script Task Security"
@@ -191,15 +197,45 @@
   },
   {
    "collapsible": 1,
-   "fieldname": "section_break_google",
+   "fieldname": "section_break_ai_rate_limit",
    "fieldtype": "Section Break",
-   "label": "Google Integration"
+   "label": "AI Conversation Freeze",
+   "description": "Who may release a frozen conversation. Site-wide because it is a statement about roles here, not about any one agent. The thresholds that DECIDE a freeze, and the message throttle, live on each AI Agent Configuration."
   },
   {
-   "description": "Service account JSON (type: service_account) used by the BPMN Google connectors and Drive Script Tasks. Enable the Drive/Docs/Slides APIs on the backing GCP project and add this service account to the target Shared Drive.",
-   "fieldname": "google_drive_service_account_json",
-   "fieldtype": "Password",
-   "label": "Service Account JSON"
+   "fieldname": "column_break_ai_rate_limit",
+   "fieldtype": "Column Break"
+  },
+  {
+   "fieldname": "lock_release_roles",
+   "fieldtype": "Small Text",
+   "default": "AI Security Reviewer",
+   "description": "Comma-separated roles allowed to release a frozen conversation. System Manager is always allowed. The locked user can never release their own conversation, whatever roles they hold."
+  },
+  {
+   "collapsible": 1,
+   "fieldname": "section_break_ai_memory",
+   "fieldtype": "Section Break",
+   "label": "AI Memory",
+   "description": "Site-wide defaults for the models that write long-term memory. An agent's own Memory Models override these; with both blank, memory writes use the agent's own AI Model, exactly as before."
+  },
+  {
+   "fieldname": "default_memory_distill_model",
+   "fieldtype": "Link",
+   "label": "Default Distillation Model",
+   "options": "AI Model",
+   "description": "Used when an agent has no Distillation Model of its own."
+  },
+  {
+   "fieldname": "column_break_ai_memory",
+   "fieldtype": "Column Break"
+  },
+  {
+   "fieldname": "default_memory_reconcile_model",
+   "fieldtype": "Link",
+   "label": "Default Reconciliation Model",
+   "options": "AI Model",
+   "description": "Used when an agent has no Reconciliation Model of its own. Tune here to fix poor reconciliations across every agent at once."
   }
  ],
  "issingle": 1,

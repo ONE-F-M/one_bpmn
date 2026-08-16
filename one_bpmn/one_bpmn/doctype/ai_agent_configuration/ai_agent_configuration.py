@@ -18,9 +18,11 @@ class AIAgentConfiguration(Document):
 		from one_bpmn.one_bpmn.doctype.ai_agent_constant.ai_agent_constant import AIAgentConstant
 		from one_bpmn.one_bpmn.doctype.ai_agent_sub_prompt.ai_agent_sub_prompt import AIAgentSubPrompt
 
+		agent_creation_process: DF.Link | None
 		agent_framework: DF.Literal["", "Google ADK", "LangGraph", "Direct API", "Anthropic"]
 		agent_id: DF.Data
 		agent_name: DF.Data
+		can_create_agents: DF.Check
 		constants: DF.Table[AIAgentConstant]
 		description: DF.SmallText | None
 		enabled: DF.Check
@@ -40,7 +42,131 @@ class AIAgentConfiguration(Document):
 		self.derive_provider_from_model()
 		self.validate_required_variables()
 		self.validate_unique_chat_mode_label()
-		self.apply_background_lifecycle()
+		self.validate_chat_label_against_map()
+		self.validate_agent_creation_grant()
+
+	def validate_chat_label_against_map(self):
+		"""WI-001997: a chat mode label promises the agent appears in chat,
+		which only works when its linked map has the chat start pattern (a
+		start event conditioned on Chat Conversation insert). A label on an
+		agent mapped to any other process is a false promise — reject it and
+		say why. Agents with no linked map keep their label: mapless Chat
+		agents chat through the direct path."""
+		if self.agent_type != "Chat" or not self.chat_mode_label or not self.process_model:
+			return
+
+		from one_bpmn.agents.agent_provisioning import is_chat_startable_map
+
+		if is_chat_startable_map(self.process_model) is False:
+			frappe.throw(
+				_(
+					"'{0}' is not a chat-startable map — it has no start event conditioned "
+					"on Chat Conversation insert, so this agent can never appear in chat. "
+					"Clear the Chat Mode Label (the agent still runs inside its process), "
+					"or link a map that starts on Chat Conversation."
+				).format(self.process_model),
+				title=_("Map is not chat-startable"),
+			)
+
+		# A chat-startable map is not enough: its start CONDITION must match
+		# THIS agent's label, or the conversation stamps one agent_mode while
+		# the map waits for another and no instance ever spawns — the chat
+		# answers "process not running" forever. Cloned maps keep the
+		# original's condition, which is exactly how this bit live
+		# (2026-08-10: Todo King 2 linked a ProsAlly clone). Only the simple
+		# agent_mode == "<label>" shape is enforced; a condition too complex
+		# to reason about is left to the author.
+		self._validate_map_condition_matches_label()
+
+	def _validate_map_condition_matches_label(self):
+		import re
+
+		from one_bpmn.one_bpmn.trigger import (
+			_get_conditional_start_condition,
+			_get_trigger_field_condition,
+		)
+
+		xml = frappe.db.get_value("BPMN Process Model", self.process_model, "bpmn_xml") or ""
+		condition = _get_conditional_start_condition(xml) or ""
+		match = re.fullmatch(
+			r"""\s*agent_mode\s*==\s*["']([^"']+)["']\s*""", condition
+		)
+		expected = match.group(1) if match else None
+
+		# The legacy field filter (triggerFieldName/triggerFieldValue) is a
+		# SECOND copy of the same gate, and the sneakier one: it is invisible
+		# in the condition editor, survives cloning, and vetoes the spawn
+		# silently AFTER the visible condition passes (diagnosed live
+		# 2026-08-10 — a fixed condition still spawned nothing).
+		field_cond = _get_trigger_field_condition(xml)
+		if not expected and field_cond and field_cond[0] == "agent_mode":
+			expected = field_cond[1]
+
+		if expected and expected != self.chat_mode_label:
+			frappe.throw(
+				_(
+					"'{0}' only starts conversations whose agent mode is '{1}' "
+					"(its start condition or trigger field filter), but this "
+					"agent's Chat Mode Label is '{2}' — its chats would never "
+					"start the process. Update the map's start condition AND "
+					"its trigger field filter to '{2}' (then save the map), or "
+					"link a map made for this agent."
+				).format(self.process_model, expected, self.chat_mode_label),
+				title=_("Map starts a different agent's chats"),
+			)
+
+		# Both gates present but DISAGREEING is broken for every label — the
+		# spawn can never pass the two gates at once.
+		if (
+			match
+			and field_cond
+			and field_cond[0] == "agent_mode"
+			and field_cond[1] != match.group(1)
+		):
+			frappe.throw(
+				_(
+					"'{0}' carries two start gates that disagree: its condition "
+					"expects agent_mode '{1}' but its trigger field filter "
+					"expects '{2}'. No conversation can pass both — align them "
+					"on the map and save it."
+				).format(self.process_model, match.group(1), field_cond[1]),
+				title=_("Map start gates disagree"),
+			)
+
+	def validate_agent_creation_grant(self):
+		"""At most one configuration may hold the agent-creation grant, and it
+		must link the process that carries a new agent Draft -> Live.
+
+		The grant replaces the hardcoded "AI Agent Creation Process" name that
+		agent_config_resolver used to assume: the process is whatever THIS
+		field points at. Keeping it unique means the lookup can never be
+		ambiguous — there is one answer or none.
+		"""
+		if not self.can_create_agents:
+			return
+
+		# mandatory_depends_on covers the form; this covers every other write
+		# path (endpoint, patch, bulk edit), where mandatory_depends_on is not
+		# evaluated.
+		if not self.agent_creation_process:
+			frappe.throw(
+				_("Link an Agent Creation Process before granting this agent the right to create agents."),
+				title=_("Agent Creation Process required"),
+			)
+
+		clash = frappe.db.get_value(
+			"AI Agent Configuration",
+			{"can_create_agents": 1, "name": ("!=", self.name)},
+			"name",
+		)
+		if clash:
+			frappe.throw(
+				_(
+					"'{0}' already holds the agent-creation grant. Only one AI Agent "
+					"Configuration may create agents — clear the checkbox on '{0}' first."
+				).format(clash),
+				title=_("Agent-creation grant already held"),
+			)
 
 	def derive_provider_from_model(self):
 		"""WI-001655: the model is the pick, the provider is derived. When an
@@ -52,30 +178,6 @@ class AIAgentConfiguration(Document):
 		creds = frappe.db.get_value("AI Model", self.ai_model, "ai_provider_credentials")
 		if creds:
 			self.ai_provider_credentials = creds
-
-	def apply_background_lifecycle(self):
-		"""WI-001652: Background agents skip the chat creation process, so they
-		go Live directly on save when their essentials check out — enabled,
-		with an enabled provider link. A failing check parks them in Needs
-		Attention, like any agent. Retired is a deliberate manual state and is
-		never overridden. Applies on every save path (form, endpoint, patch)."""
-		if self.agent_type != "Background" or self.lifecycle_status == "Retired":
-			return
-		reason = ""
-		if not self.enabled:
-			reason = _("The agent is disabled.")
-		elif not self.ai_provider_credentials:
-			reason = (
-				_("The linked AI Model '{0}' has no AI Provider Credentials link.").format(self.ai_model)
-				if self.ai_model
-				else _("No AI Model is linked — pick one from the catalog.")
-			)
-		elif not frappe.db.get_value("AI Provider Credentials", self.ai_provider_credentials, "enabled"):
-			reason = _("The linked AI Provider Credentials record '{0}' is disabled.").format(
-				self.ai_provider_credentials
-			)
-		self.lifecycle_status = "Needs Attention" if reason else "Live"
-		self.needs_attention_reason = reason
 
 	def validate_unique_chat_mode_label(self):
 		"""Two enabled chat agents must never claim the same conversation mode —
@@ -224,7 +326,20 @@ class AIAgentConfiguration(Document):
 			frappe.flags._agent_revalidation_running = False
 
 		if result["ok"] and self.lifecycle_status == "Needs Attention":
-			self._stamp_lifecycle("Live", "")
+			# Going Live is the MAP's decision, not this controller's.
+			# Credentials working again does not mean the agent has been tested
+			# against injection, jailbreak, exfiltration and tool coercion — the
+			# Agent Creation Process runs that gate, and promoting from here would
+			# make disable/re-enable a way around it.
+			#
+			# An agent the map parked already has an instance waiting on the
+			# Config Edited message, which this save fires; one parked from here
+			# (credentials broke while Live) has no instance, so it needs an
+			# explicit start or it could never return to Live at all. Starting one
+			# is a no-op when the map is already waiting.
+			from one_bpmn.agents.agent_config_resolver import _start_reprovision
+
+			_start_reprovision(self.name)
 		elif not result["ok"] and self.lifecycle_status == "Live":
 			self._stamp_lifecycle("Needs Attention", "; ".join(result["errors"]))
 
@@ -276,7 +391,7 @@ def get_agent_config(agent_id: str) -> dict | None:
 			"name", "agent_id", "system_prompt", "temperature", "max_tokens",
 			"ai_model", "ai_provider_credentials", "langsmith_project",
 			"agent_framework", "process_model", "chat_mode_label",
-			"lifecycle_status", "agent_type",
+			"lifecycle_status", "agent_type", "pii_screening",
 		],
 		as_dict=True,
 	)

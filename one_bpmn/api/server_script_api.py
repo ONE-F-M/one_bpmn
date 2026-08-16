@@ -5,6 +5,8 @@ import json
 import re
 
 import frappe
+
+from one_bpmn.security.rate_limit import RateLimited
 from frappe import _
 
 
@@ -93,6 +95,17 @@ def _delegate_to_bpmn_instance(conversation_name: str, message: str, context: di
 	try:
 		instance = frappe.get_doc("BPMN Process Instance", inst_name)
 		instance.receive_message("ChatConversation_Message_Action", payload=payload)
+	except RateLimited:
+		# A throttle or a conversation freeze is a decision, not a dead instance.
+		# It is raised deep inside the map — the "Save User Message" task inserts
+		# the Chat Message, whose before_insert hook enforces the limit — and
+		# RateLimited subclasses ValidationError, so without this it was caught
+		# just below, turned into None, and the caller then reported "the process
+		# is not running for this conversation. Please reopen the chat." The user
+		# was told to reopen a chat that was working perfectly, and the real
+		# reason never reached them. Every map-driven agent came through here, so
+		# one re-raise fixes all of them.
+		raise
 	except frappe.ValidationError:
 		# Instance is not currently waiting for a message.
 		return None
@@ -103,10 +116,16 @@ def _delegate_to_bpmn_instance(conversation_name: str, message: str, context: di
 		frappe.flags.bpmn_disable_ai_parking = prev_parking_flag
 
 	# Read back the bot message the instance produced during Call Agent → Save Response.
+	#
+	# `name` is selected because the reply has to be identifiable afterwards
+	# (WI-001641). Without it the row's id never left this function, the AG-UI
+	# stream minted a throwaway uuid for the message instead, and nothing the
+	# user later says about a specific reply — a rating, a report — had anything
+	# durable to point at.
 	rows = frappe.get_all(
 		"Chat Message",
 		filters={"conversation": conversation_name, "message_type": "Bot"},
-		fields=["text", "metadata"],
+		fields=["name", "text", "metadata"],
 		order_by="creation desc",
 		limit=1,
 	)
@@ -125,6 +144,21 @@ def _delegate_to_bpmn_instance(conversation_name: str, message: str, context: di
 	result.setdefault("response", rows[0]["text"])
 	result.setdefault("intent", meta.get("intent"))
 	result["bpmn_driven"] = True
+	result["message_name"] = rows[0]["name"]
+
+	# The AI Agent Run this turn produced, so cost and latency can be joined to
+	# whatever the user says about the reply. Derived here rather than threaded
+	# through the map: the map's Server Scripts travel by Processa export, and a
+	# read that the engine already makes cheap is not worth an export dependency.
+	run = frappe.get_all(
+		"AI Agent Run",
+		filters={"instance": inst_name},
+		fields=["name"],
+		order_by="creation desc",
+		limit=1,
+	)
+	if run:
+		result["agent_run"] = run[0]["name"]
 	return result
 
 
@@ -432,6 +466,17 @@ def process_logix_message(
 					"process_context": process_context,
 				},
 			)
+		except RateLimited as exc:
+			# WI-001968: a throttle or a conversation freeze is a real, explainable
+			# refusal — not a dead instance. RateLimited subclasses ValidationError,
+			# so without this branch the handler below rewrites it as "orchestration
+			# isn't running" and the user is told to reopen a chat that is working
+			# perfectly. Surface what actually happened, in the chat bubble.
+			return {
+				"intent": "BLOCKED",
+				"response": str(exc),
+				"conversation_name": conversation_name,
+			}
 		except frappe.ValidationError:
 			# No instance is driving this conversation (map never armed or the
 			# instance died) — the generic runner throws; surface the same
@@ -453,35 +498,74 @@ def process_logix_message(
 
 @frappe.whitelist()
 def run_logix_test_case(script_name: str, inputs: str = "{}") -> dict:
-	"""Execute a Server Script with test inputs and return a plain-English pass/fail result."""
+	"""Execute a Server Script the way the BPMN engine runs a Script Task and
+	return a plain-English pass/fail result.
+
+	Logix scripts are written against the engine's injected-variable contract
+	(doc / task_data / result; form_dict always empty — see
+	fix_logix_script_task_injected_vars), so the earlier execute_method()
+	replay failed EVERY check with a NameError on `doc` before the script's
+	logic ever ran. The namespace below mirrors engine._run_server_script;
+	the one deliberate difference is the savepoint — a check is a dry run,
+	so its writes are rolled back instead of landing a real record per click.
+	"""
 	if frappe.session.user == "Guest":
 		frappe.throw(_("Authentication required"))
 
 	try:
 		import json as _json
 		test_inputs = _json.loads(inputs) if isinstance(inputs, str) else (inputs or {})
+		if not isinstance(test_inputs, dict):
+			test_inputs = {}
 
-		doc = frappe.get_doc("Server Script", script_name)
-		if doc.script_type != "API":
+		script_doc = frappe.get_doc("Server Script", script_name)
+		if script_doc.script_type != "API":
 			return {"passed": False, "result": None, "summary": "This script is not an API-type script and cannot be run as a test."}
 
-		# Save and replace frappe.form_dict with test inputs
-		original_form_dict = dict(frappe.form_dict)
-		frappe.form_dict.clear()
-		frappe.form_dict.update(test_inputs)
+		from one_bpmn.one_bpmn.engine import _check_script_permissions
 
-		# Clear any previous message so we can detect what the script sets
-		frappe.response.pop("message", None)
+		_check_script_permissions(script_doc.script, script_name)
 
+		context_doctype = str(test_inputs.get("context_doctype") or "")
+		context_docname = str(test_inputs.get("context_docname") or "")
+		doc_obj = frappe._dict()
+		if context_doctype and context_docname:
+			try:
+				doc_obj = frappe.get_doc(context_doctype, context_docname)
+			except Exception:
+				doc_obj = frappe._dict()
+		# A case may carry sample field values instead of a real record —
+		# inputs["doc"] becomes the context document, so negative paths
+		# ("employee missing") are testable without seeding the site.
+		if isinstance(test_inputs.get("doc"), dict):
+			doc_obj = frappe._dict(test_inputs["doc"])
+
+		task_data = {k: v for k, v in test_inputs.items() if k != "doc"}
+		result_dict = {}
+		# ONE namespace for globals and locals, same as the engine — separate
+		# dicts break scripts whose top-level functions call each other.
+		exec_ns = {"frappe": frappe, "__builtins__": __builtins__}
+		exec_ns.update(task_data)
+		exec_ns.update(
+			{
+				"frappe": frappe,
+				"task_data": dict(task_data),
+				"context_doctype": context_doctype,
+				"context_docname": context_docname,
+				"result": result_dict,
+				"doc": doc_obj,
+			}
+		)
+
+		frappe.db.savepoint("logix_check")
 		try:
-			doc.execute_method()
-			result = frappe.response.get("message")
+			exec(script_doc.script, exec_ns)  # noqa: S102
 			summary = "It worked — the script ran without any problems."
-			if result and isinstance(result, dict) and result:
+			if result_dict:
 				# Describe the result in plain English without exposing key names
-				count = len(result)
+				count = len(result_dict)
 				summary = f"It worked — the script completed and sent back {count} piece{'s' if count != 1 else ''} of information."
-			return {"passed": True, "result": result, "summary": summary}
+			return {"passed": True, "result": result_dict, "summary": summary}
 
 		except Exception as exc:
 			error_msg = str(exc)
@@ -499,8 +583,8 @@ def run_logix_test_case(script_name: str, inputs: str = "{}") -> dict:
 				"summary": "Something went wrong while running the script. You can ask Logix \"why did this test fail?\" for help.",
 			}
 		finally:
-			frappe.form_dict.clear()
-			frappe.form_dict.update(original_form_dict)
+			# Dry run: whatever the script inserted or updated is undone.
+			frappe.db.rollback(save_point="logix_check")
 
 	except Exception:
 		frappe.log_error(title="Logix Test Runner error", message=frappe.get_traceback())
@@ -562,6 +646,17 @@ def prosally_chat(
 					"current_xml": current_xml or "",
 				},
 			)
+		except RateLimited as exc:
+			# WI-001968: a throttle or a conversation freeze is a real, explainable
+			# refusal — not a dead instance. RateLimited subclasses ValidationError,
+			# so without this branch the handler below rewrites it as "orchestration
+			# isn't running" and the user is told to reopen a chat that is working
+			# perfectly. Surface what actually happened, in the chat bubble.
+			return {
+				"intent": "BLOCKED",
+				"response": str(exc),
+				"conversation_name": conversation_name,
+			}
 		except frappe.ValidationError:
 			# No instance is driving this conversation (map never armed or the
 			# instance died) — the generic runner throws; surface the same reopen
@@ -631,3 +726,138 @@ def toggle_server_script(script_name: str, disabled: int) -> dict:
 	)
 
 	return {"name": script_name, "disabled": int(disabled)}
+
+
+# ── Shared-endpoint integration (WI-001677) ──────────────────────────────────
+def build_logix_turn_context(context: dict) -> dict:
+	"""Load the linked script's content for a Logix turn (context builder for
+	the AG-UI endpoint). The legacy process_logix_message did this inline —
+	permission-checked — before invoking; through the shared endpoint the
+	panel sends only the script NAME, and without the content the map's
+	prompt renders empty and the model asks the user to paste their script
+	(observed live, 2026-08-08).
+
+	The reply contract is appended on EVERY turn, linked script or not: the
+	agent's seeded system prompt does not carry it, and the CREATE-from-
+	scratch turn (no script linked yet) is exactly where the model must know
+	to answer in JSON — an early return here left it replying in prose, so
+	no onefm.script_diff card and no Apply button (observed live,
+	2026-08-09)."""
+	out = dict(context or {})
+	script = out.get("current_script") or ""
+	content = None
+	if script:
+		if not frappe.db.exists("Server Script", script):
+			out["current_script"] = ""
+		elif not frappe.has_permission("Server Script", "read", doc=script):
+			frappe.log_error(
+				title="Logix: script read denied for turn context",
+				message=f"user={frappe.session.user} script={script}",
+			)
+			out["current_script"] = ""
+		else:
+			content = frappe.get_doc("Server Script", script).script or ""
+			out["original_script_content"] = content
+
+	# Two map generations exist: the purpose-built Logix map renders the
+	# original_script_content variable directly, while a generic
+	# chat-template clone renders only {{ dialog_context }}. Folding the
+	# script and the reply contract into dialog_context serves both — the
+	# purpose-built map just sees it twice, harmlessly.
+	parts = []
+	if content is not None:
+		parts.append("CURRENT SERVER SCRIPT ('%s'):\n```python\n%s\n```" % (script, content))
+	parts.append(
+		"LOGIX REPLY CONTRACT: respond ONLY with a JSON object: "
+		'{"intent": "CREATE"|"MODIFY"|"DISAMBIGUATE"|"GENERAL", '
+		'"response": "<short human explanation>", '
+		'"modified_script": "<the full updated script when intent is CREATE or MODIFY>", '
+		'"suggested_name": "<script name for CREATE>", '
+		'"options": ["..."] }. '
+		"Never claim you saved or applied anything — the designer applies your "
+		"proposal from a review card in the UI."
+	)
+	existing = out.get("dialog_context") or ""
+	out["dialog_context"] = (existing + "\n\n" + "\n\n".join(parts)).strip()
+	return out
+
+
+def shape_logix_reply(result: dict) -> dict:
+	"""Lift the Logix JSON contract out of a text reply (reply shaper).
+
+	The purpose-built map returns structured keys already — then this is a
+	no-op. A generic-template map returns the contract as text; parse it so
+	the translator can emit onefm.script_diff and no JSON reaches a bubble."""
+	if result.get("modified_script") or result.get("intent"):
+		return result
+	from one_bpmn.api.ai_assistant import _extract_json
+
+	raw = result.get("response") or ""
+	parsed = _extract_json(raw if isinstance(raw, str) else "")
+	if not isinstance(parsed, dict) or not (parsed.get("intent") or parsed.get("modified_script")):
+		return result
+	shaped = dict(result)
+	shaped["response"] = str(parsed.get("response") or "").strip() or raw
+	for key in ("intent", "modified_script", "suggested_name", "options", "apply_target"):
+		if parsed.get(key):
+			shaped[key] = parsed[key]
+	return shaped
+
+
+def build_prosally_turn_context(context: dict) -> dict:
+	"""Fold the live canvas XML and the ProsAlly reply contract into
+	dialog_context (context builder, WI-001675) — same dual-generation
+	strategy as Logix: the purpose-built map renders its own variables, a
+	generic chat-template clone renders only {{ dialog_context }}."""
+	out = dict(context or {})
+	current_xml = out.get("current_xml") or ""
+	contract = (
+		("CURRENT PROCESS DIAGRAM (BPMN XML):\n```xml\n%s\n```\n\n" % current_xml if current_xml else "")
+		+ "PROSALLY REPLY CONTRACT: respond ONLY with a JSON object: "
+		'{"intent": "BPMN_GENERATED"|"BPMN_MODIFIED"|"CONFIRM_REMOVAL"|"CONFIRM"|"GENERAL", '
+		'"response": "<short human explanation>", '
+		'"bpmn_xml": "<the FULL updated BPMN XML when intent is BPMN_GENERATED or BPMN_MODIFIED>", '
+		'"pending_xml": "<the full XML awaiting approval when intent is CONFIRM_REMOVAL>", '
+		'"options": ["..."], "action_intent": "<the action a CONFIRM approves>" }. '
+		"Never claim you changed the canvas — the designer reviews your "
+		"proposal on a preview card and applies it from there."
+	)
+	existing = out.get("dialog_context") or ""
+	out["dialog_context"] = (existing + "\n\n" + contract).strip()
+	return out
+
+
+def shape_prosally_reply(result: dict) -> dict:
+	"""Lift the ProsAlly JSON contract out of a text reply (reply shaper);
+	no-op when the purpose-built map already returned structured keys."""
+	if result.get("bpmn_xml") or result.get("pending_xml") or result.get("intent"):
+		return result
+	from one_bpmn.api.ai_assistant import _extract_json
+
+	raw = result.get("response") or ""
+	parsed = _extract_json(raw if isinstance(raw, str) else "")
+	if not isinstance(parsed, dict) or not (
+		parsed.get("intent") or parsed.get("bpmn_xml") or parsed.get("pending_xml")
+	):
+		return result
+	shaped = dict(result)
+	shaped["response"] = str(parsed.get("response") or "").strip() or raw
+	for key in ("intent", "bpmn_xml", "pending_xml", "options", "action_intent"):
+		if parsed.get(key):
+			shaped[key] = parsed[key]
+	return shaped
+
+
+def _register_agui_hooks():
+	from one_bpmn.agents.agui_stream import (
+		register_context_builder,
+		register_reply_shaper,
+	)
+
+	register_context_builder("logix_agent", build_logix_turn_context)
+	register_reply_shaper("logix_agent", shape_logix_reply)
+	register_context_builder("prosally_agent", build_prosally_turn_context)
+	register_reply_shaper("prosally_agent", shape_prosally_reply)
+
+
+_register_agui_hooks()

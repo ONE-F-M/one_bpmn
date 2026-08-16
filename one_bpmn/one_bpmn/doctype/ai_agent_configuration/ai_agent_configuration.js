@@ -23,6 +23,25 @@ frappe.ui.form.on("AI Agent Configuration", {
 		frm.events.render_required_variables(frm);
 		frm.events.set_lifecycle_indicator(frm);
 		frm.events.show_needs_attention_reason(frm);
+		frm.events.add_chat_surface_buttons(frm);
+	},
+
+	add_chat_surface_buttons(frm) {
+		// WI-001996: the configuration form is where a builder tests their
+		// agent. Chat opens the shared AgentChatPanel in a dialog for THIS
+		// record (Chat-type only). The Provision Chat Map button is gone —
+		// WI-001997 retired the template clone; the agent's map is its own
+		// designer-chosen process_model link.
+		if (frm.is_new() || frm.doc.agent_type !== "Chat") return;
+
+		// Chat rides the panel bundle WI-001678 ships into Desk. Until that
+		// bundle is loaded the button would dead-end, so it only appears
+		// when the mount function exists.
+		if (window.oneAI && typeof window.oneAI.openAgentChat === "function") {
+			frm.add_custom_button(__("Chat"), () => {
+				window.oneAI.openAgentChat({ agent_id: frm.doc.agent_id });
+			});
+		}
 	},
 
 	set_lifecycle_indicator(frm) {
