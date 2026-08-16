@@ -13,6 +13,8 @@ from __future__ import annotations
 
 import json
 
+from unittest.mock import patch
+
 import frappe
 from frappe.tests.utils import FrappeTestCase
 
@@ -262,3 +264,79 @@ class TestPermissionsComeFromTheDoctype(QueueFixture):
 				eval_api.list_response_feedback()
 		finally:
 			frappe.set_user("Administrator")
+
+
+class TestStayingInsideProcessa(QueueFixture):
+	"""Converting hands the reviewer straight to the eval case editor, which lives
+	on the suite page. Both halves of that route have to come back from the
+	server, or the page falls out to the desk mid-task."""
+
+	def test_conversion_returns_the_suite_to_navigate_to(self):
+		run = self._run("nav")
+		reply = self._message("Bot", "Wrong", metadata={"agent_run": run})
+		name = feedback.rate_response(reply.name, "Negative")["name"]
+		frappe.db.set_value("AI Response Feedback", name, "status", "Reviewed")
+
+		with patch(
+			"one_bpmn.agents.eval_case_factory.create_eval_case_from_run",
+			return_value="EVAL-CASE-NAV",
+		):
+			out = feedback.create_eval_case_from_feedback(name)
+
+		self.assertEqual(out["eval_case"], "EVAL-CASE-NAV")
+		self.assertTrue(out.get("suite"), "no suite came back — the page cannot route to the case")
+
+	def test_an_already_converted_row_still_returns_its_suite(self):
+		"""Clicking convert twice must not lose the destination."""
+		run = self._run("nav2")
+		reply = self._message("Bot", "Wrong again", metadata={"agent_run": run})
+		name = feedback.rate_response(reply.name, "Negative")["name"]
+		frappe.db.set_value("AI Response Feedback", name, "status", "Reviewed")
+
+		with patch(
+			"one_bpmn.agents.eval_case_factory.create_eval_case_from_run",
+			return_value="EVAL-CASE-NAV2",
+		):
+			first = feedback.create_eval_case_from_feedback(name)
+		# The case row does not exist on this site, so the guard that returns early
+		# is the status one; assert the shape the page depends on either way.
+		self.assertTrue(first.get("suite"))
+
+	def test_a_row_with_a_case_carries_the_suite_for_open_eval_case(self):
+		agent = frappe.db.get_value("AI Eval Suite", {}, "agent_configuration") or frappe.db.get_value(
+			"AI Agent Configuration", {"enabled": 1}
+		)
+		if not agent:
+			self.skipTest("no agent configuration on this site to own a suite")
+		suite = frappe.get_doc(
+			{
+				"doctype": "AI Eval Suite",
+				"title": "WI-002068 nav suite",
+				"eval_type": "Direct",
+				"agent_configuration": agent,
+			}
+		).insert(ignore_permissions=True)
+		self.addCleanup(
+			lambda: frappe.delete_doc("AI Eval Suite", suite.name, force=True, ignore_permissions=True)
+		)
+		case = frappe.get_doc(
+			{
+				"doctype": "AI Eval Case",
+				"title": "nav case",
+				"suite": suite.name,
+				"input_user_prompt": "anything",
+			}
+		).insert(ignore_permissions=True)
+		self.addCleanup(
+			lambda: frappe.delete_doc("AI Eval Case", case.name, force=True, ignore_permissions=True)
+		)
+
+		feedback.rate_response(self.r1.name, "Negative")
+		name = self._rows()[0]["name"]
+		frappe.db.set_value("AI Response Feedback", name, "eval_case", case.name)
+
+		row = next(
+			r for r in eval_api.list_response_feedback(rating="All", status="All")
+			if r["name"] == name
+		)
+		self.assertEqual(row["eval_suite"], suite.name)

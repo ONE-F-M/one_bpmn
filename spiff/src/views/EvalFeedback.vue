@@ -197,9 +197,12 @@
 // is shown above the reply, why Dismiss sits beside Mark reviewed rather than
 // hidden behind a menu, and why the counts never become a percentage.
 import { computed, onMounted, reactive, ref, watch } from "vue";
+import { useRouter } from "vue-router";
 import { Button, Dialog, FormControl, frappeRequest } from "frappe-ui";
 import { Icon } from "@iconify/vue";
 import dayjs from "dayjs";
+
+const router = useRouter();
 
 const loading = ref(false);
 const rows = ref([]);
@@ -374,14 +377,33 @@ async function convert(row) {
 			params: { feedback: row.name },
 		});
 		await refreshAll();
-		if (out && out.eval_case) window.open(`/app/ai-eval-case/${encodeURIComponent(out.eval_case)}`, "_blank");
+		// Stay inside Processa. The reviewer's next job is to write what SHOULD
+		// have happened, and the eval case editor lives on the suite page — so go
+		// there with the case already open, rather than handing them off to the
+		// desk mid-task.
+		if (out && out.eval_case) goToCase(out.suite, out.eval_case);
 	} finally {
 		busy[row.name] = false;
 	}
 }
 
 function openCase(row) {
-	window.open(`/app/ai-eval-case/${encodeURIComponent(row.eval_case)}`, "_blank");
+	goToCase(row.eval_suite, row.eval_case);
+}
+
+function goToCase(suite, evalCase) {
+	if (!evalCase) return;
+	// Without the suite there is no Processa page that shows a case, so the desk
+	// form is the only honest fallback — it should never happen, since every case
+	// is created into a suite.
+	if (!suite) {
+		window.open(`/app/ai-eval-case/${encodeURIComponent(evalCase)}`, "_blank");
+		return;
+	}
+	router.push({
+		path: `/processa/evals/suite/${encodeURIComponent(suite)}`,
+		query: { case: evalCase },
+	});
 }
 
 watch([rating, status, agent, fromDate, toDate], refreshAll);

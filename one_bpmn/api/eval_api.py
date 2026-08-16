@@ -1238,6 +1238,19 @@ def list_response_feedback(
 
 	labels = _agent_labels([r.get("agent_configuration") for r in rows])
 
+	# The suite each existing case belongs to, so "Open eval case" can go to it
+	# inside Processa rather than out to the desk.
+	case_suites = {}
+	case_names = [r["eval_case"] for r in rows if r.get("eval_case")]
+	if case_names:
+		case_suites = {
+			c["name"]: c["suite"]
+			for c in frappe.get_all(
+				"AI Eval Case", filters={"name": ["in", case_names]}, fields=["name", "suite"],
+				limit_page_length=0,
+			)
+		}
+
 	out = []
 	for row in rows:
 		reply = replies.get(row.get("message")) or {}
@@ -1257,6 +1270,7 @@ def list_response_feedback(
 			"reasons": reasons.get(row["name"], []),
 			"reply_text": reply.get("text") or "",
 			"prompt_text": prompts.get(row.get("message"), ""),
+			"eval_suite": case_suites.get(row.get("eval_case")) or "",
 			"can_convert": blocked is None and not row.get("eval_case"),
 			"blocked_reason": blocked,
 		})

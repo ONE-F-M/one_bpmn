@@ -383,7 +383,12 @@ def create_eval_case_from_feedback(feedback: str, suite: str = None) -> dict:
 			_("Review this feedback first — a case is only created from feedback a person has looked at.")
 		)
 	if doc.eval_case and frappe.db.exists("AI Eval Case", doc.eval_case):
-		return {"feedback": doc.name, "eval_case": doc.eval_case, "created": False}
+		return {
+			"feedback": doc.name,
+			"eval_case": doc.eval_case,
+			"suite": frappe.db.get_value("AI Eval Case", doc.eval_case, "suite"),
+			"created": False,
+		}
 	if not doc.agent_run:
 		frappe.throw(
 			_("This feedback has no agent run behind it, so there is no prompt or context to build a case from.")
@@ -410,7 +415,10 @@ def create_eval_case_from_feedback(feedback: str, suite: str = None) -> dict:
 	doc.db_set("status", "Converted")
 	frappe.db.commit()
 
-	return {"feedback": doc.name, "eval_case": case, "created": True}
+	# The suite comes back so the caller can go straight to the case in Processa
+	# — the eval case editor lives on the suite page, and sending a reviewer to
+	# the desk to finish a Processa job is a jarring hand-off.
+	return {"feedback": doc.name, "eval_case": case, "suite": suite, "created": True}
 
 
 @frappe.whitelist()

@@ -712,9 +712,21 @@ async function createFromRun() {
 	}
 }
 
-onMounted(() => {
-	fetchDetail()
+onMounted(async () => {
+	await fetchDetail()
 	fetchProviders()
 	fetchAiModels()
+
+	// Arriving with ?case=<name> opens that case straight into the editor.
+	// Converting a complaint in the Feedback queue lands here, and the next
+	// thing the reviewer has to do is write what SHOULD have happened — so the
+	// editor is the destination, not the suite's case list with the new row
+	// somewhere in it.
+	const wanted = route.query.case
+	if (wanted) {
+		const found = (cases.value || []).find((c) => c.name === wanted)
+		if (found) openEditCase(found)
+		else openEditCase({ name: wanted })
+	}
 })
 </script>
