@@ -1,5 +1,8 @@
 <template>
-	<CardShell :title="title">
+	<!-- Phases like CLARIFY or NO_MATCH carry no panel, no stage action and no
+	     next step — their whole answer is the reply text, so the card renders
+	     nothing rather than an empty shell above it. -->
+	<CardShell v-if="hasContent" :title="title">
 		<Stack :gap="10">
 			<!-- EXACT_MATCH_FOUND / MULTIPLE_MATCHES ─────────────────────── -->
 			<Stack v-if="panel === 'matches'" :gap="6">
@@ -313,6 +316,10 @@ const confirmedLabel = computed(() => __((STAGE_ACTIONS[panel.value] || {}).conf
 // Suggestions are live-stream chrome: a replayed transcript shows the panel
 // without re-offering next steps that have already been taken.
 const suggestions = computed(() => SUGGESTIONS[intent.value] || []);
+
+const hasContent = computed(
+	() => !!panel.value || !!stageActions.value.length || !!suggestions.value.length
+);
 
 const copied = ref(-1);
 
