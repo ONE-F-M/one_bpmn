@@ -1351,7 +1351,11 @@ def dispatch_ai_agent(instance, task, task_cfg: dict, bpmn_id: str, resume_run: 
 		# A suspension is not an outcome — the run stays open ("Suspended",
 		# set by save_checkpoint below) until the final answer or a failure.
 		if result.error_code != ErrorCode.SUSPENDED:
-			finalize_ai_run(run, result)
+			# WI-001823: a map may declare what "done" means for this shape by
+			# naming the reply key that proves it — Logix finishes when it has a
+			# script, ProsAlly when it has a diagram. Left unset, completion
+			# falls back to the generic error/turn-cap/output signals.
+			finalize_ai_run(run, result, goal_key=(task_cfg.get("aiGoalOutputKey") or "").strip() or None)
 
 		# Commit observability data so AI runs + steps survive even if a
 		# downstream aiStopOnError raise rolls back the outer transaction.
