@@ -30,6 +30,9 @@
 				{{ __("This conversation was held with") }} <b>{{ unavailable }}</b
 				>{{ __(", which is not one of the agents available to you here. Open it from that agent's own surface, or start a new chat.") }}
 			</div>
+			<div v-else-if="loaded && !agents.length" class="oa-unavailable">
+				{{ __("None of this page's agents are configured on this site yet.") }}
+			</div>
 			<AgentChatPanel
 				v-else-if="activeAgent"
 				:key="panelKey"
@@ -48,10 +51,13 @@
 
 <script setup>
 // one-ai (WI-001678) — the Lumina successor, hosted in one_bpmn. The page is
-// deliberately thin: the history sidebar and the registry-driven agent
-// picker are the only things the desk page owns; everything conversational
-// is the same shared panel every other surface embeds. All modes ride the
-// shared endpoint; onefm.conversation_title updates the header and the list.
+// deliberately thin: the history sidebar and the agent picker are the only
+// things it owns; everything conversational is the same shared panel every
+// other surface embeds. It offers the Lumina page's own fixed set of modes
+// (General Chat, BA Agent, LuCrusher — see ONE_AI_AGENT_IDS) and lists only
+// those conversations, so another surface's chats never appear here. All
+// modes ride the shared endpoint; onefm.conversation_title updates the
+// header and the list.
 import { onMounted, ref } from "vue";
 import { frappeRequest } from "frappe-ui";
 import AgentChatPanel from "./AgentChatPanel.vue";
@@ -67,15 +73,18 @@ const panelKey = ref(0);
 // Set when a history item belongs to an agent this page cannot run — the
 // conversation is NOT opened in that case (see open()).
 const unavailable = ref("");
+const loaded = ref(false); // the agent list has come back (empty state vs. still loading)
 
 // agent_mode label → agent_id, so resuming a conversation picks its agent
 const modeToAgent = ref({});
 
 onMounted(async () => {
 	try {
+		// The page offers Lumina's own modes and nothing else — the fixed list
+		// lives on the server (ONE_AI_AGENT_IDS), not here, so the picker and
+		// the sidebar filter can never disagree.
 		const list = await frappeRequest({
-			url: "/api/method/one_bpmn.api.agent_invocation.list_available_agents",
-			params: { include_legacy: 0 },
+			url: "/api/method/one_bpmn.api.agent_invocation.list_one_ai_agents",
 		}) || [];
 		agents.value = list;
 		// A conversation stores agent_mode, which is the chat_mode_label for
@@ -89,7 +98,9 @@ onMounted(async () => {
 			}
 		}
 		if (list.length) activeAgent.value = list[0].agent_id || list[0].value;
-	} catch (e) { /* empty picker renders; the page stays usable */ }
+	} catch (e) { /* empty picker renders; the page stays usable */ } finally {
+		loaded.value = true;
+	}
 	refreshList();
 });
 
