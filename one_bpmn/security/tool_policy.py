@@ -75,6 +75,12 @@ class PolicyDecision:
 	outcome: str = ALLOW
 	reason: str = ""
 	rule: str = ""
+	# Who may release a REQUIRE_HUMAN decision. Carried on the decision rather
+	# than looked up later: by the time the suspension reaches the engine the
+	# rule that fired is just a name, and an approval task with no assignee is
+	# one nobody can ever complete.
+	approver_user: str = ""
+	approver_role: str = ""
 
 	@property
 	def allowed(self) -> bool:
@@ -140,7 +146,8 @@ def load_rules() -> list[dict]:
 				"AI Tool Policy Rule",
 				filters={"enabled": 1},
 				fields=["name", "action", "restricted_doctypes", "restricted_tools",
-				        "parameter_limits", "violation_message", "category"],
+				        "parameter_limits", "violation_message", "category",
+				        "approver_user", "approver_role"],
 			):
 				exempt = frappe.get_all(
 					"AI Tool Policy Exempt Agent",
@@ -155,6 +162,8 @@ def load_rules() -> list[dict]:
 					"tools": {t.lower() for t in _split_lines(row.restricted_tools)},
 					"limits": _parse_limits(row.parameter_limits, row.name),
 					"message": (row.violation_message or "").strip(),
+					"approver_user": (row.approver_user or "").strip(),
+					"approver_role": (row.approver_role or "").strip(),
 					"exempt_agents": {a for a in exempt if a},
 				})
 	except Exception:
@@ -332,7 +341,7 @@ def evaluate(tool_name: str, arguments: dict, agent_config: str | None = None) -
 		breach = _breaches_parameter_limit(arguments, rule.get("limits") or [])
 		if breach:
 			reason = rule["message"] or f"{breach}."
-			return PolicyDecision(outcome=rule["action"] or DENY, reason=reason, rule=rule["name"])
+			return _decide(rule, reason)
 
 		hit = _hits_restricted_doctype(arguments, rule["doctypes"])
 		if not hit:
@@ -340,9 +349,42 @@ def evaluate(tool_name: str, arguments: dict, agent_config: str | None = None) -
 		reason = rule["message"] or (
 			f"'{hit}' is a protected record type and agents may not act on it."
 		)
-		return PolicyDecision(outcome=rule["action"] or DENY, reason=reason, rule=rule["name"])
+		return _decide(rule, reason)
 
 	return PolicyDecision(outcome=ALLOW)
+
+
+def _decide(rule: dict, reason: str) -> PolicyDecision:
+	"""A rule fired. Build the decision, carrying the approver when the action
+	needs one.
+
+	A REQUIRE_HUMAN rule with no approver is downgraded to DENY. It is the
+	stricter reading, and the alternative is far worse: the engine spawns an
+	approval task with no assignee and no actions, which nobody can complete,
+	so the agent parks forever and — on a chat agent — the conversation dies.
+	Observed live. The doctype refuses to save such a rule now, but rules
+	predating that validation are still in the database.
+	"""
+	action = rule["action"] or DENY
+	approver_user = rule.get("approver_user") or ""
+	approver_role = rule.get("approver_role") or ""
+	if action == REQUIRE_HUMAN and not (approver_user or approver_role):
+		frappe.log_error(
+			title=f"AI Tool Policy: approval rule has no approver ({rule['name']})",
+			message=(
+				"Action is 'Require Human Approval' but neither Approver User nor "
+				"Approver Role is set, so the approval task would be unassignable. "
+				"Refusing the call instead."
+			),
+		)
+		action = DENY
+	return PolicyDecision(
+		outcome=action,
+		reason=reason,
+		rule=rule["name"],
+		approver_user=approver_user,
+		approver_role=approver_role,
+	)
 
 
 def _agent_allowlist(agent_config: str | None) -> set | None:
@@ -373,6 +415,45 @@ def _agent_allowlist(agent_config: str | None) -> set | None:
 		return set()
 
 
+# One call, already approved by a person, may pass. Consumed on first match so
+# an approval releases exactly the call it was granted for and nothing after it.
+_approved_call: ContextVar[str | None] = ContextVar("ai_tool_policy_approved", default=None)
+
+
+class approved_call:
+	"""Context manager: release ONE call to *tool_name* from policy.
+
+	Used when a person has approved a REQUIRE_HUMAN call and the loop is about
+	to run it for real. It suppresses the check rather than calling around the
+	guard, because the guard is not the outermost wrapper — PII restoration
+	sits above it, and skipping that would hand the tool redacted arguments.
+	"""
+
+	def __init__(self, tool_name: str):
+		self.tool_name = (tool_name or "").lower()
+		self.token = None
+
+	def __enter__(self):
+		self.token = _approved_call.set(self.tool_name)
+		return self
+
+	def __exit__(self, *exc):
+		try:
+			_approved_call.reset(self.token)
+		except (ValueError, LookupError):
+			_approved_call.set(None)
+		return False
+
+
+def _consume_approval(tool_name: str) -> bool:
+	"""True if this exact call was pre-approved. Clears the grant either way."""
+	granted = _approved_call.get()
+	if granted is None:
+		return False
+	_approved_call.set(None)
+	return granted == (tool_name or "").lower()
+
+
 # ── The interceptor itself ──────────────────────────────────────────────────
 class PolicyViolation(Exception):
 	"""Raised in place of running a denied tool.
@@ -397,6 +478,8 @@ def guard(fn, tool_name: str):
 	"""
 
 	def guarded(**kwargs):
+		if _consume_approval(tool_name):
+			return fn(**kwargs)
 		try:
 			decision = evaluate(tool_name, kwargs)
 		except Exception:

@@ -1412,12 +1412,19 @@ def dispatch_ai_agent(instance, task, task_cfg: dict, bpmn_id: str, resume_run: 
 					break
 		except Exception:
 			pass
-		task.data["_bpmn_ai_waiting_human"] = {
+		marker = {
 			"run": run.name,
 			"tool": pending_name,
 			"label": label,
 			"arguments": pending.get("arguments") or {},
 		}
+		# A policy approval has no diagram shape behind it, so it carries its
+		# own label, approver and actions (WI-001645). Without this the task
+		# below is built from an empty shape config: no assignee, no actions,
+		# unreleasable.
+		if pending.get("policy"):
+			marker["policy"] = pending["policy"]
+		task.data["_bpmn_ai_waiting_human"] = marker
 		if not frappe.flags.in_test:
 			frappe.db.commit()
 		return

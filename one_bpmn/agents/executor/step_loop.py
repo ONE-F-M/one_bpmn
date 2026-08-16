@@ -40,6 +40,54 @@ _SECOND_HUMAN_RESULT = (
 )
 
 
+# What counts as "yes" when a person releases a policy approval. Matched
+# case-insensitively against the action they chose.
+_APPROVAL_WORDS = {"approve", "approved", "yes", "allow", "accept", "ok", "proceed"}
+
+
+def _resumed_result(pending: dict, human_result, tool_map: dict) -> str:
+	"""The tool result to inject when a suspended turn resumes.
+
+	Two different things arrive here and they must not be conflated:
+
+	* a DESIGNER-MARKED human tool — the person IS the tool. Their answer is
+	  the result and nothing executes.
+	* a POLICY APPROVAL (WI-001645) — the tool was blocked before it ran and
+	  the person is deciding whether it may. Approving has to actually CALL it;
+	  handing the model the word "Approve" as the tool's output would be a
+	  fabricated result, and the work the user authorised would never happen.
+	"""
+	policy = pending.get("policy")
+	if not policy:
+		return str(human_result or "")
+
+	answer = human_result if isinstance(human_result, dict) else {}
+	action = str(answer.get("action") or human_result or "").strip().lower()
+	if action not in _APPROVAL_WORDS:
+		note = str(answer.get("comment") or "").strip()
+		return (
+			f"A person reviewed this call and did not approve it{': ' + note if note else '.'} "
+			"The action was not performed. Do not retry it."
+		)
+
+	name = pending.get("name") or ""
+	tool = tool_map.get(name)
+	if tool is None:
+		return f"Unknown tool: {name}"
+	try:
+		# Approved: run the tool for real. Released through the policy module's
+		# own one-shot grant rather than by reaching past the guard — the guard
+		# is NOT the outermost wrapper (PII restoration sits above it), so
+		# calling the inner function directly would hand the tool its redacted
+		# arguments. The grant covers this one call and is consumed on use.
+		from one_bpmn.security.tool_policy import approved_call
+
+		with approved_call(name):
+			return str(tool.fn(**(pending.get("arguments") or {})))
+	except Exception as exc:
+		return f"Error calling {name}: {exc}"
+
+
 @dataclass
 class AgentSuspension:
 	"""The loop stopped because the model called a human tool.
@@ -110,7 +158,7 @@ async def run_agent_loop(
 		results.append({
 			"id": pending.get("id") or "",
 			"name": pending.get("name") or "",
-			"content": str(resume.get("human_result") or ""),
+			"content": _resumed_result(pending, resume.get("human_result"), tool_map),
 		})
 		transcript.append({"role": "tool_results", "results": results})
 	else:
@@ -183,8 +231,23 @@ async def run_agent_loop(
 					# existing suspension path rather than a second mechanism:
 					# the call becomes the turn's pending human decision.
 					if violation.decision.outcome == REQUIRE_HUMAN and pending_call is None:
+						# The ``policy`` block is what tells the engine this is an
+						# APPROVAL, not a designer-marked human tool. The two are
+						# not interchangeable: a human tool has a diagram shape
+						# carrying its label, assignee and actions, and a policy
+						# rule has none of that — without this the engine spawned
+						# a task with no assignee and no actions that nobody could
+						# ever complete. It also changes what resuming MEANS: a
+						# human tool's answer replaces the call, an approval lets
+						# the call proceed.
 						pending_call = {
-							"id": call.id, "name": call.name, "arguments": call.arguments
+							"id": call.id, "name": call.name, "arguments": call.arguments,
+							"policy": {
+								"rule": violation.decision.rule,
+								"reason": violation.decision.reason,
+								"approver_user": violation.decision.approver_user,
+								"approver_role": violation.decision.approver_role,
+							},
 						}
 						continue
 					result = violation.decision.as_tool_result()

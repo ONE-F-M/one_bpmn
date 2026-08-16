@@ -82,7 +82,7 @@ class TestPolicyEvaluation(FrappeTestCase):
 		"""The doctype stores 'Require Human Approval'; the loop compares
 		against the internal constant. If these ever diverge the suspension
 		branch silently never fires."""
-		_make_rule(action="Require Human Approval")
+		_make_rule(action="Require Human Approval", approver_user="Administrator")
 		self.assertEqual(
 			tp.evaluate("get_list", {"doctype": "ZZ Protected Alpha"}).outcome, tp.REQUIRE_HUMAN
 		)
@@ -192,7 +192,7 @@ class TestLoopIntegration(FrappeTestCase):
 	def test_require_human_suspends_instead_of_denying(self):
 		"""Reuses the durable-HITL suspension path rather than a second
 		mechanism — the call becomes the turn's pending human decision."""
-		_make_rule(action="Require Human Approval")
+		_make_rule(action="Require Human Approval", approver_user="Administrator")
 		tool = ToolSpec(fn=lambda **kw: "SHOULD NOT RUN", name="get_list", description="d")
 		adapter = _FakeAdapter([
 			StepResult(content="", tool_calls=[
@@ -205,6 +205,11 @@ class TestLoopIntegration(FrappeTestCase):
 		self.assertIsNone(completion)
 		self.assertIsNotNone(suspension)
 		self.assertEqual(suspension.pending_call["name"], "get_list")
+		# The policy block is what distinguishes this from a designer-marked
+		# human tool, and it is what carries the approver through to the task.
+		self.assertEqual(
+			suspension.pending_call["policy"]["approver_user"], "Administrator"
+		)
 
 	def test_allowed_call_is_completely_unaffected(self):
 		"""The regression guard: anything the policy does not match must behave
@@ -247,7 +252,7 @@ class TestParameterCeilings(FrappeTestCase):
 		tool_policy.clear_rule_cache()
 		self.addCleanup(tool_policy.clear_rule_cache)
 
-	def _rule(self, limits, tools=None, action="Deny", message=""):
+	def _rule(self, limits, tools=None, action="Deny", message="", approver="Administrator"):
 		"""Install one rule directly in the cache — the evaluator reads rules
 		through load_rules(), so seeding the cache exercises the real path
 		without writing rows the rest of the suite would see."""
@@ -263,6 +268,11 @@ class TestParameterCeilings(FrappeTestCase):
 				"tools": {t.lower() for t in (tools or [])},
 				"limits": self.tp._parse_limits(limits, "TEST-CEILING"),
 				"message": message,
+				# A Require Human Approval rule needs somebody to approve it, or
+				# the evaluator downgrades it to Deny — see
+				# TestApprovalIsResolvable for why that downgrade exists.
+				"approver_user": approver,
+				"approver_role": "",
 				"exempt_agents": set(),
 			}],
 		)
@@ -452,3 +462,144 @@ class TestTheRuleFormWillSave(FrappeTestCase):
 		)
 		doc.insert(ignore_permissions=True)
 		self.assertTrue(frappe.db.exists("AI Tool Policy Rule", doc.name))
+
+
+class TestApprovalIsResolvable(FrappeTestCase):
+	"""Require Human Approval parked the agent on a task nobody could complete.
+
+	Observed live on Lumina General Chat: the rule fired, the run suspended, and
+	the engine built the approval from the diagram shape config — which for a
+	policy rule does not exist. No assignee, no role, no actions. The run stayed
+	Suspended forever and the conversation dead-ended on "the process is not
+	running, please reopen the chat" while a fresh instance was spawned per retry.
+	"""
+
+	def _seed(self, **over):
+		rule = {
+			"name": "Approval rule",
+			"action": tp.REQUIRE_HUMAN,
+			"category": "",
+			"doctypes": set(),
+			"tools": {"pay"},
+			"limits": [("amount", "<=", 100.0)],
+			"message": "Payments above 100 need approval.",
+			"approver_user": "Administrator",
+			"approver_role": "",
+			"exempt_agents": set(),
+		}
+		rule.update(over)
+		frappe.cache.set_value("ai_tool_policy_rules", [rule])
+		self.addCleanup(tp.clear_rule_cache)
+
+	def test_the_decision_carries_the_approver(self):
+		self._seed()
+		decision = tp.evaluate("pay", {"amount": 9000})
+		self.assertEqual(decision.outcome, tp.REQUIRE_HUMAN)
+		self.assertEqual(decision.approver_user, "Administrator")
+
+	def test_a_role_approver_also_reaches_the_decision(self):
+		self._seed(approver_user="", approver_role="System Manager")
+		self.assertEqual(tp.evaluate("pay", {"amount": 9000}).approver_role, "System Manager")
+
+	def test_an_approval_rule_with_nobody_to_approve_is_downgraded_to_deny(self):
+		"""The stricter reading, and the only safe one: the alternative is a
+		task with no assignee, which suspends the agent permanently."""
+		self._seed(approver_user="", approver_role="")
+		decision = tp.evaluate("pay", {"amount": 9000})
+		self.assertEqual(decision.outcome, tp.DENY)
+
+	def test_the_form_refuses_an_approval_rule_with_no_approver(self):
+		doc = frappe.get_doc({
+			"doctype": "AI Tool Policy Rule",
+			"rule_name": "ZZ approval no approver",
+			"enabled": 1,
+			"action": "Require Human Approval",
+			"restricted_tools": "pay",
+			"parameter_limits": "amount <= 100",
+		})
+		self.addCleanup(
+			lambda: frappe.db.exists("AI Tool Policy Rule", "ZZ approval no approver")
+			and frappe.delete_doc("AI Tool Policy Rule", "ZZ approval no approver", force=True)
+		)
+		with self.assertRaises(frappe.ValidationError):
+			doc.insert(ignore_permissions=True)
+
+	def test_the_form_accepts_one_with_an_approver(self):
+		doc = frappe.get_doc({
+			"doctype": "AI Tool Policy Rule",
+			"rule_name": "ZZ approval with approver",
+			"enabled": 1,
+			"action": "Require Human Approval",
+			"restricted_tools": "pay",
+			"parameter_limits": "amount <= 100",
+			"approver_user": "Administrator",
+		})
+		self.addCleanup(
+			lambda: frappe.db.exists("AI Tool Policy Rule", "ZZ approval with approver")
+			and frappe.delete_doc("AI Tool Policy Rule", "ZZ approval with approver", force=True)
+		)
+		doc.insert(ignore_permissions=True)
+		self.assertTrue(frappe.db.exists("AI Tool Policy Rule", doc.name))
+
+
+class TestResumingAnApproval(FrappeTestCase):
+	"""What "approved" MEANS. A designer-marked human tool is answered by the
+	person; an approved policy call has to actually run, or the user authorised
+	work that then never happened."""
+
+	def setUp(self):
+		from one_bpmn.agents.executor.step_loop import _resumed_result
+
+		self.resume = _resumed_result
+		self.ran = []
+
+		def pay(**kwargs):
+			self.ran.append(kwargs)
+			return "paid"
+
+		from one_bpmn.agents.llm_provider.base import ToolSpec
+
+		frappe.cache.set_value("ai_tool_policy_rules", [{
+			"name": "Approval rule", "action": tp.REQUIRE_HUMAN, "category": "",
+			"doctypes": set(), "tools": {"pay"}, "limits": [("amount", "<=", 100.0)],
+			"message": "Needs approval.", "approver_user": "Administrator",
+			"approver_role": "", "exempt_agents": set(),
+		}])
+		self.addCleanup(tp.clear_rule_cache)
+		self.tool_map = {"pay": ToolSpec(fn=pay, name="pay", description="d")}
+		self.pending = {
+			"id": "1", "name": "pay", "arguments": {"amount": 9000},
+			"policy": {"rule": "Approval rule", "reason": "Needs approval."},
+		}
+
+	def test_approving_actually_runs_the_tool(self):
+		out = self.resume(self.pending, {"action": "Approve"}, self.tool_map)
+		self.assertEqual(out, "paid")
+		self.assertEqual(self.ran, [{"amount": 9000}])
+
+	def test_rejecting_does_not_run_it(self):
+		out = self.resume(self.pending, {"action": "Reject", "comment": "too much"}, self.tool_map)
+		self.assertEqual(self.ran, [])
+		self.assertIn("did not approve", out)
+		self.assertIn("too much", out)
+
+	def test_anything_that_is_not_an_approval_is_a_rejection(self):
+		"""Fail closed: an unrecognised answer must not release the call."""
+		for answer in ({"action": "Escalate"}, {}, None, {"action": ""}):
+			with self.subTest(answer=answer):
+				self.resume(self.pending, answer, self.tool_map)
+		self.assertEqual(self.ran, [])
+
+	def test_the_approval_releases_exactly_one_call(self):
+		"""The grant is consumed on use — a second call goes back through the
+		policy, so an approval cannot be reused for a follow-up."""
+		self.resume(self.pending, {"action": "Approve"}, self.tool_map)
+		with self.assertRaises(tp.PolicyViolation):
+			self.tool_map["pay"].fn(amount=9000)
+
+	def test_a_designer_human_tool_still_substitutes_the_answer(self):
+		"""No policy block: the person IS the tool, nothing executes."""
+		plain = {"id": "1", "name": "pay", "arguments": {"amount": 9000}}
+		self.assertEqual(self.resume(plain, "the person's answer", self.tool_map),
+		                 "the person's answer")
+		self.assertEqual(self.ran, [])

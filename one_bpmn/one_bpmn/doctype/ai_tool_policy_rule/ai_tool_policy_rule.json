@@ -12,6 +12,9 @@
   "column_break_head",
   "category",
   "action",
+  "section_approval",
+  "approver_user",
+  "approver_role",
   "section_match",
   "restricted_doctypes",
   "column_break_match",
@@ -63,6 +66,28 @@
    "label": "Action",
    "options": "Deny\nRequire Human Approval",
    "reqd": 1
+  },
+  {
+   "depends_on": "eval:doc.action=='Require Human Approval'",
+   "fieldname": "section_approval",
+   "fieldtype": "Section Break",
+   "label": "Who approves"
+  },
+  {
+   "depends_on": "eval:doc.action=='Require Human Approval'",
+   "description": "Who the approval task is assigned to. Required when the action is Require Human Approval \u2014 an approval nobody is assigned is one nobody can complete, and the agent parks forever.",
+   "fieldname": "approver_user",
+   "fieldtype": "Link",
+   "label": "Approver User",
+   "options": "User"
+  },
+  {
+   "depends_on": "eval:doc.action=='Require Human Approval'",
+   "description": "Alternative to a named user: anyone holding this role may approve. Set at least one of the two.",
+   "fieldname": "approver_role",
+   "fieldtype": "Link",
+   "label": "Approver Role",
+   "options": "Role"
   },
   {
    "fieldname": "section_match",

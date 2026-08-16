@@ -932,6 +932,20 @@ class BPMNProcessInstance(Document):
 		shape_cfg = getattr(self, "_user_task_extensions", {}).get(shape_id, {}) or {}
 		label = marker.get("label") or shape_cfg.get("label") or shape_id
 
+		# A policy approval (WI-001645) is not a designer-marked human tool: no
+		# diagram shape carries its label, assignee or actions, so shape_cfg is
+		# empty and the resolver below has nothing to resolve. Left that way it
+		# produced a task assigned to nobody with no actions — nothing could
+		# complete it, the run stayed Suspended, and a chat conversation parked
+		# on it dead-ended. The rule supplies all three instead.
+		policy = marker.get("policy") or {}
+		if policy:
+			shape_cfg = {
+				"assigneeRole": policy.get("approver_role") or "",
+				"taskActions": "Approve,Reject",
+			}
+			label = _("Approve: {0}").format(shape_id)
+
 		row_id = f"{self.AI_HUMAN_PREFIX}{frappe.generate_hash(length=10)}"
 
 		# Assignment: same resolver as real user tasks — the synthetic task
@@ -941,9 +955,9 @@ class BPMNProcessInstance(Document):
 			task_spec=frappe._dict(bpmn_id=shape_id, name=shape_id, description=label),
 			workflow=frappe._dict(data={}),
 		)
-		assigned_user = ""
+		assigned_user = policy.get("approver_user") or ""
 		try:
-			assigned_user = resolve_assignment(self, synthetic) or ""
+			assigned_user = assigned_user or resolve_assignment(self, synthetic) or ""
 		except Exception:
 			frappe.log_error(
 				title=f"AI HITL: assignment resolution failed ({shape_id})",
