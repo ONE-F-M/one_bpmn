@@ -69,6 +69,8 @@
 						<pre>{{ JSON.stringify(item.value, null, 2) }}</pre>
 					</details>
 				</div>
+				<!-- WI-002047: every stamped entry shows when it happened -->
+				<div v-if="item.ts" class="acp-time" :class="{ 'acp-time--user': item.kind === 'user' }">{{ formatTime(item.ts) }}</div>
 			</template>
 
 			<div v-if="busy" class="acp-thinking">{{ streamingText ? "" : __("Thinking…") }}</div>
@@ -191,6 +193,7 @@
 import MarkdownIt from "markdown-it";
 import { Dialog, frappeRequest } from "frappe-ui";
 import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from "vue";
+import { dayjs } from "@/dayjs";
 import { streamAgentTurn } from "./aguiClient";
 import ProposedFieldsTray from "./ProposedFieldsTray.vue";
 import ResponseFeedback from "./ResponseFeedback.vue";
@@ -245,7 +248,10 @@ const ratings = ref({});
 const feedbackOn = computed(() => surface.value.collect_feedback !== false);
 
 function agentItem(text) {
-	return { kind: "agent", text, message: streamingMessageId.value || "" };
+	// Both things a finished agent bubble needs: the row id it can be rated by
+	// (WI-001822) and when it arrived (WI-002047). Built in one place so a new
+	// flush site cannot forget either.
+	return { kind: "agent", text, message: streamingMessageId.value || "", ts: stampNow() };
 }
 
 function onRated({ message, rating }) {
@@ -340,10 +346,10 @@ const transcriptItems = computed(() => {
 	if (layoutMode.value === "conversation") return items.value;
 	return items.value.map((item) => {
 		if (item === workspaceItem.value) {
-			return { kind: "routed", label: __("Shown in the workspace") };
+			return { kind: "routed", label: __("Shown in the workspace"), ts: item.ts };
 		}
 		if (item === trayItem.value) {
-			return { kind: "routed", label: __("Shown in proposed values, below") };
+			return { kind: "routed", label: __("Shown in proposed values, below"), ts: item.ts };
 		}
 		return item;
 	});
@@ -400,6 +406,18 @@ function renderMarkdown(text) {
 	return md.render(text || "");
 }
 
+// WI-002047: transcript timestamps. Live entries are stamped with the client
+// clock as they land; resumed entries carry the row's `creation` from
+// conversation_history, displayed as-is (site timezone, no conversion).
+function stampNow() {
+	return new Date();
+}
+
+function formatTime(ts) {
+	const t = dayjs(ts);
+	return t.isValid() ? t.short() : "";
+}
+
 function scrollDown() {
 	nextTick(() => {
 		if (log.value) log.value.scrollTop = log.value.scrollHeight;
@@ -429,6 +447,7 @@ onMounted(async () => {
 					kind: m.role === "user" ? "user" : "agent",
 					text: m.content,
 					message: m.message || "",
+					ts: m.timestamp,
 				});
 			}
 			// One call for the whole transcript, not one per bubble: a resumed
@@ -444,6 +463,7 @@ onMounted(async () => {
 				} catch (e) {
 					/* no ratings is a normal state, never an error */
 				}
+
 			}
 		} catch (e) {
 			/* an unreadable conversation resumes as empty, never as an error */
@@ -452,7 +472,7 @@ onMounted(async () => {
 
 	if (!items.value.length) {
 		const greeting = [surface.value.greeting, props.hostContextLine].filter(Boolean).join("\n\n");
-		if (greeting) items.value.push({ kind: "agent", text: greeting });
+		if (greeting) items.value.push({ kind: "agent", text: greeting, ts: stampNow() });
 	}
 	scrollDown();
 
@@ -517,7 +537,7 @@ async function send(text, extraContext = null) {
 	const message = (text ?? draft.value).trim();
 	if (!message || busy.value) return;
 	draft.value = "";
-	items.value.push({ kind: "user", text: message });
+	items.value.push({ kind: "user", text: message, ts: stampNow() });
 	busy.value = true;
 	status.value = "streaming";
 	streamingText.value = "";
@@ -620,9 +640,9 @@ function handleCustom(name, value) {
 		if (last && last.kind === "agent" && (value.prompt || "").trim() === (last.text || "").trim()) {
 			value = { ...value, prompt: "" };
 		}
-		items.value.push({ kind: "choice", value, answered: "" });
+		items.value.push({ kind: "choice", value, answered: "", ts: stampNow() });
 	} else {
-		items.value.push({ kind: "custom", name, value });
+		items.value.push({ kind: "custom", name, value, ts: stampNow() });
 	}
 	scrollDown();
 }
@@ -666,7 +686,7 @@ function onCardAction(item, action, payload) {
 		fail: (message) => {
 			item.doneAction = "";
 			if (message) {
-				items.value.push({ kind: "agent", text: message });
+				items.value.push({ kind: "agent", text: message, ts: stampNow() });
 				scrollDown();
 			}
 		},
@@ -743,6 +763,10 @@ defineExpose({ send, conversationName });
    this scope to child component roots, so cards are covered. */
 .acp-log > * { flex-shrink: 0; }
 .acp-msg { max-width: 90%; border-radius: 10px; padding: 8px 12px; }
+/* WI-002047: timestamp caption; negative margin closes the log's 10px gap
+   so the time hugs the entry it belongs to */
+.acp-time { align-self: flex-start; margin: -7px 2px 0; color: var(--ig5); font-size: 10.5px; }
+.acp-time--user { align-self: flex-end; }
 .acp-msg--user { align-self: flex-end; background: var(--sg4); color: var(--ig9); white-space: pre-wrap; }
 .acp-msg--agent { align-self: flex-start; background: var(--sw); border: 1px solid var(--og2); }
 .acp-msg--agent :deep(p) { margin: 0 0 6px; } .acp-msg--agent :deep(p:last-child) { margin: 0; }
