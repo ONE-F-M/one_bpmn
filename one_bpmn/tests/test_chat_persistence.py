@@ -30,8 +30,13 @@ class TestChatPersistence(FrappeTestCase):
         # 3. Load history
         history = load_history(conv_name, limit=5)
         self.assertEqual(len(history), 2)
-        self.assertEqual(history[0], {"role": "user", "content": "Hello assistant"})
-        self.assertEqual(history[1], {"role": "assistant", "content": "Hello human"})
+        self.assertEqual(history[0]["role"], "user")
+        self.assertEqual(history[0]["content"], "Hello assistant")
+        self.assertEqual(history[1]["role"], "assistant")
+        self.assertEqual(history[1]["content"], "Hello human")
+        # WI-002047: every history row carries the message's creation timestamp
+        for row in history:
+            self.assertTrue(row["timestamp"])
         
         # 4. State management
         state = get_or_create_state(conv_name, initial_data={"step": "start"})
