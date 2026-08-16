@@ -187,6 +187,14 @@ def agent_event_stream(agent_id: str, message: str, conversation: str, context: 
 			if result.get("artifact") is not None and not result.get("artifact_type"):
 				result["artifact_type"] = _agent_artifact_type(agent_id)
 			text = result.get("response") or ""
+			# The AG-UI message_id IS the persisted Chat Message name whenever the
+			# runner saved one (WI-001641). `message_id` exists in the protocol to
+			# identify a message; minting a uuid for it and throwing it away left
+			# the client unable to name the reply it had just been shown, so a
+			# rating or a report had nothing durable to point at. Runners that
+			# persist nothing keep the generated id, which is still unique per
+			# turn and still correct for grouping the text events.
+			message_id = result.get("message_name") or message_id
 			yield encoder.encode(TextMessageStartEvent(message_id=message_id, role="assistant"))
 			yield encoder.encode(TextMessageContentEvent(message_id=message_id, delta=text))
 			yield encoder.encode(TextMessageEndEvent(message_id=message_id))
