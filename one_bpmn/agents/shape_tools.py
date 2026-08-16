@@ -126,10 +126,28 @@ def execute_shape(instance, bpmn_id: str, task_cfg: dict, kwargs: dict) -> str:
 		if server_script:
 			_run_server_script(instance, server_script, task, bpmn_id)
 		elif service_type:
+			# WI-002007: a connector reports its own outcome. Everything below
+			# reads state the dispatcher already produces — how the connector
+			# runs is untouched.
+			# The descriptor carries only what identifies the shape as a tool;
+			# connectorId / resultVariable live in the instance's service-task
+			# extensions, which is also what the dispatcher itself reads.
+			connector_cfg = {
+				**task_cfg,
+				**((getattr(instance, "_service_task_extensions", None) or {}).get(bpmn_id) or {}),
+			}
+			if service_type == "connector":
+				refused = _connector_not_permitted(connector_cfg)
+				if refused:
+					return json.dumps(refused)
+
 			# Reuse the instance's own router — it reads
 			# instance._service_task_extensions and dispatches by serviceType,
 			# writing outputs onto task.data exactly as in a normal run.
 			instance._dispatch_service_task(task)
+
+			if service_type == "connector":
+				return json.dumps(_connector_tool_result(task, connector_cfg, kwargs), default=str)
 		else:
 			return json.dumps(
 				{"error": f"Shape '{bpmn_id}' has no Server Script or serviceType — not executable as a tool."}
@@ -144,6 +162,86 @@ def execute_shape(instance, bpmn_id: str, task_cfg: dict, kwargs: dict) -> str:
 			message=frappe.get_traceback(),
 		)
 		return json.dumps({"error": f"Shape '{bpmn_id}' failed — see Error Log for details."})
+
+
+def _connector_not_permitted(task_cfg: dict) -> dict | None:
+	"""The role gate, asked BEFORE dispatch so the answer can be reported.
+
+	``dispatch_connector`` already enforces this — it logs and returns, which is
+	correct as a control but reaches the model as an ordinary empty result,
+	indistinguishable from a connector that simply returned nothing. Asking the
+	same question here changes no behaviour; it only lets the tool result say
+	which of the two happened (WI-002007). Returns None when permitted.
+	"""
+	from one_bpmn.one_bpmn.connectors import manifest as _manifest
+
+	connector_id = (task_cfg.get("connectorId") or "").strip()
+	if not connector_id or _manifest.user_may_use_connector(connector_id):
+		return None
+	return {
+		"error": "not_permitted",
+		"connector": connector_id,
+		"message": (
+			f"You are not permitted to use the '{connector_id}' connector, so it was not called. "
+			"This is a permission decision, not a failure of the integration — do not retry it, "
+			"and say so rather than reporting that the data is unavailable."
+		),
+	}
+
+
+def _connector_tool_result(task, task_cfg: dict, kwargs: dict) -> dict:
+	"""What a connector tool call should tell the model.
+
+	Read entirely from what ``dispatch_connector`` leaves behind, because it
+	swallows failures unless ``failOnError`` is set and the model was therefore
+	being told a failed call succeeded:
+
+	  * no resultVariable  → the key is never written. The connector ran and its
+	    side effect happened, but nothing can come back. Previously this reached
+	    the model as ``{"ok": true}``.
+	  * key absent         → dispatch returned early (unknown connector, or
+	    connectorParams that are not a JSON object). Both are logged there.
+	  * key present, None  → the handler raised and the error was swallowed.
+	    ``output`` stays None and is written anyway.
+	"""
+	result_var = (task_cfg.get("resultVariable") or "").strip()
+	connector_id = (task_cfg.get("connectorId") or "").strip()
+	operation = (task_cfg.get("operation") or "").strip()
+	called = f"{connector_id}/{operation}".strip("/")
+
+	if not result_var:
+		return {
+			"error": "no_result_variable",
+			"connector": called,
+			"message": (
+				f"The '{called}' connector ran, but this shape has no Result Variable set, so it "
+				"cannot return anything to you. Treat its output as unknown — do not assume the "
+				"call produced data, and do not retry. The process map needs fixing."
+			),
+		}
+
+	if result_var not in task.data:
+		return {
+			"error": "call_did_not_complete",
+			"connector": called,
+			"message": (
+				f"The '{called}' connector did not run to completion — it is unknown or disabled, "
+				"or its parameters were not valid. See the Error Log. Retrying will not help."
+			),
+		}
+
+	if task.data[result_var] is None:
+		return {
+			"error": "connector_failed",
+			"connector": called,
+			"message": (
+				f"The '{called}' connector was called and failed; the error was logged and the "
+				"process was allowed to continue. You did NOT receive its data — do not report "
+				"this call as successful."
+			),
+		}
+
+	return {k: v for k, v in task.data.items() if k not in kwargs}
 
 
 def _synthetic_task(bpmn_id: str, kwargs: dict):
