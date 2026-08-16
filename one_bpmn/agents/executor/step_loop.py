@@ -22,6 +22,7 @@ payload that gets persisted to the database (story 2).
 from __future__ import annotations
 
 from dataclasses import dataclass, field
+import json
 import time
 
 from one_bpmn.agents.llm_provider.base import (
@@ -61,8 +62,20 @@ def _resumed_result(pending: dict, human_result, tool_map: dict) -> str:
 	if not policy:
 		return str(human_result or "")
 
-	answer = human_result if isinstance(human_result, dict) else {}
-	action = str(answer.get("action") or human_result or "").strip().lower()
+	# The checkpoint stores the person's answer as a dict and hands it to the
+	# loop JSON-ENCODED (checkpoint._human_result_str), because a designer-marked
+	# human tool wants the raw text as its result. A policy approval needs the
+	# structure back — read as a bare string, '{"action": "Approve"}' matches no
+	# approval word and an approved call was silently treated as refused.
+	answer = human_result
+	if isinstance(answer, str):
+		try:
+			answer = json.loads(answer)
+		except (ValueError, TypeError):
+			pass
+	if not isinstance(answer, dict):
+		answer = {}
+	action = str(answer.get("action") or (human_result if isinstance(human_result, str) else "") or "").strip().lower()
 	if action not in _APPROVAL_WORDS:
 		note = str(answer.get("comment") or "").strip()
 		return (

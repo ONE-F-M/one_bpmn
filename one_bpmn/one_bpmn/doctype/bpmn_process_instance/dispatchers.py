@@ -1090,11 +1090,24 @@ def dispatch_ai_agent(instance, task, task_cfg: dict, bpmn_id: str, resume_run: 
 	# WI-001637 (live link): a linked AI Agent Configuration is authoritative at
 	# dispatch for agent-level fields (prompt, provider, model, temperature,
 	# max tokens) — the shape's copies are the editing view and the fallback
-	# when the config is missing. Resume paths skip this: the checkpointed
-	# transcript already holds the prompts the run started with.
-	if not resume_payload and task_cfg.get("aiAgentConfig"):
+	# when the config is missing.
+	#
+	# The resume path used to skip this overlay entirely, reasoning that the
+	# checkpointed transcript already holds the prompts. True of the prompts,
+	# and false of everything else in it: the overlay is also where the PROVIDER
+	# and MODEL come from for any shape that carries no copies of its own.
+	# Without them a resumed run reached the executor with provider_name="" and
+	# died on "AI Provider Credentials '' not found" — so every human step on
+	# such an agent could be approved and never continued (found while testing
+	# WI-001645's approval action; it broke designer-marked human tools the same
+	# way). The prompt is the one key held back, because the checkpoint's copy
+	# is authoritative for a conversation already in flight.
+	if task_cfg.get("aiAgentConfig"):
 		from one_bpmn.agents.agent_config_resolver import resolve_dispatch_overrides
-		task_cfg = {**task_cfg, **resolve_dispatch_overrides(task_cfg["aiAgentConfig"])}
+		_overrides = resolve_dispatch_overrides(task_cfg["aiAgentConfig"])
+		if resume_payload:
+			_overrides = {k: v for k, v in _overrides.items() if k != "aiSystemPrompt"}
+		task_cfg = {**task_cfg, **_overrides}
 
 	doc = frappe._dict()
 	if instance.context_doctype and instance.context_docname:
@@ -1560,6 +1573,14 @@ def dispatch_ai_agent(instance, task, task_cfg: dict, bpmn_id: str, resume_run: 
 				)
 	else:
 		error_code_name = result.error_code.value
+		# The run FAILED, so it is no longer waiting for anybody. Clearing the
+		# marker matters most on a resume: the marker survives from the original
+		# suspension, and leaving it made the caller re-spawn the human task off
+		# it — a second approval row bound to a run that is now Errored, not
+		# Suspended, so releasing it answered "No suspended AI agent is waiting
+		# on this task" and the flow could never move. Observed live.
+		if isinstance(task.data, dict):
+			task.data.pop("_bpmn_ai_waiting_human", None)
 		frappe.log_error(
 			title=f"BPMN AI Agent Task: {error_code_name} ({bpmn_id})",
 			message=(

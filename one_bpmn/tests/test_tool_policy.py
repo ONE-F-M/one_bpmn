@@ -548,9 +548,13 @@ class TestResumingAnApproval(FrappeTestCase):
 	work that then never happened."""
 
 	def setUp(self):
+		from one_bpmn.agents.checkpoint import _human_result_str
 		from one_bpmn.agents.executor.step_loop import _resumed_result
 
 		self.resume = _resumed_result
+		# Route every answer through the real encoder rather than hand-writing
+		# the string, so the test cannot drift from what the checkpoint stores.
+		self.as_stored = _human_result_str
 		self.ran = []
 
 		def pay(**kwargs):
@@ -573,27 +577,41 @@ class TestResumingAnApproval(FrappeTestCase):
 		}
 
 	def test_approving_actually_runs_the_tool(self):
-		out = self.resume(self.pending, {"action": "Approve"}, self.tool_map)
+		out = self.resume(self.pending, self.as_stored({"action": "Approve"}), self.tool_map)
 		self.assertEqual(out, "paid")
 		self.assertEqual(self.ran, [{"amount": 9000}])
 
+	def test_the_answer_arrives_json_encoded_and_is_still_read(self):
+		"""The shape that actually reaches here. checkpoint._human_result_str
+		JSON-encodes the person's answer before the loop sees it, because a
+		designer human tool wants the raw text. Tested with a dict instead, this
+		passed while production silently treated every approval as a refusal."""
+		self.assertEqual(self.as_stored({"action": "Approve"}), '{"action": "Approve"}')
+		self.assertEqual(self.resume(self.pending, '{"action": "Approve"}', self.tool_map), "paid")
+
 	def test_rejecting_does_not_run_it(self):
-		out = self.resume(self.pending, {"action": "Reject", "comment": "too much"}, self.tool_map)
+		out = self.resume(
+			self.pending, self.as_stored({"action": "Reject", "comment": "too much"}), self.tool_map
+		)
 		self.assertEqual(self.ran, [])
 		self.assertIn("did not approve", out)
 		self.assertIn("too much", out)
 
 	def test_anything_that_is_not_an_approval_is_a_rejection(self):
 		"""Fail closed: an unrecognised answer must not release the call."""
-		for answer in ({"action": "Escalate"}, {}, None, {"action": ""}):
+		for answer in ({"action": "Escalate"}, {}, None, {"action": ""}, "yes please maybe"):
 			with self.subTest(answer=answer):
-				self.resume(self.pending, answer, self.tool_map)
+				self.resume(
+					self.pending,
+					answer if isinstance(answer, str) or answer is None else self.as_stored(answer),
+					self.tool_map,
+				)
 		self.assertEqual(self.ran, [])
 
 	def test_the_approval_releases_exactly_one_call(self):
 		"""The grant is consumed on use — a second call goes back through the
 		policy, so an approval cannot be reused for a follow-up."""
-		self.resume(self.pending, {"action": "Approve"}, self.tool_map)
+		self.resume(self.pending, self.as_stored({"action": "Approve"}), self.tool_map)
 		with self.assertRaises(tp.PolicyViolation):
 			self.tool_map["pay"].fn(amount=9000)
 
