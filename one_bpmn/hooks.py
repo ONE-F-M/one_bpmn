@@ -9,6 +9,10 @@ app_license = "mit"
 website_route_rules = [
 	{"from_route": "/processa/<path:app_path>", "to_route": "processa"},
 	{"from_route": "/processa", "to_route": "processa"},
+	# WI-001678: the ONE AI chat page. The template folder must stay
+	# importable (www/one_ai/index.py), so the pretty route is mapped here
+	# rather than named with a hyphen on disk.
+	{"from_route": "/one-ai", "to_route": "one_ai"},
 ]
 
 # Apps

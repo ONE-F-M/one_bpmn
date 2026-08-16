@@ -19,6 +19,7 @@
 		<!-- ── the panel ───────────────────────────────────────────────── -->
 		<div class="oa-main">
 			<div class="oa-head">
+				<span class="oa-brand">{{ __("ONE AI") }}</span>
 				<select v-model="activeAgent" class="oa-picker" :title="__('Agent')">
 					<option v-for="a in agents" :key="a.agent_id || a.value" :value="a.agent_id || a.value">
 						{{ a.icon ? `${a.icon} ` : "" }}{{ a.label }}
@@ -103,8 +104,10 @@ function onConversation(name) {
 </script>
 
 <style scoped>
-.oa-root { display: grid; grid-template-columns: 230px minmax(0, 1fr); height: calc(100vh - 120px);
-	min-height: 480px; background: #fff; border: 1px solid #e2e2e2; border-radius: 12px; overflow: hidden; }
+/* The host owns the box: the standalone /one-ai page gives it the whole
+   viewport, an embedding host gives it whatever it has (WI-001678). */
+.oa-root { display: grid; grid-template-columns: 230px minmax(0, 1fr); height: 100%;
+	min-height: 480px; background: #fff; border: 1px solid #e2e2e2; overflow: hidden; }
 .oa-sidebar { border-right: 1px solid #e2e2e2; background: #f8f8f8; padding: 10px; overflow-y: auto; }
 .oa-new { width: 100%; height: 28px; border: none; border-radius: 8px; background: #171717; color: #fff;
 	font-size: 14px; cursor: pointer; margin-bottom: 12px; }
@@ -116,7 +119,8 @@ function onConversation(name) {
 .oa-sb-item-title { font-size: 12.5px; color: #383838; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .oa-sb-item-sub { font-size: 11px; color: #999; }
 .oa-main { display: flex; flex-direction: column; min-width: 0; }
-.oa-head { display: flex; align-items: center; padding: 8px 14px; border-bottom: 1px solid #e2e2e2; }
+.oa-head { display: flex; align-items: center; gap: 10px; padding: 8px 14px; border-bottom: 1px solid #e2e2e2; }
+.oa-brand { font-size: 13px; font-weight: 600; color: #171717; }
 .oa-picker { height: 28px; border-radius: 8px; border: 1px solid #e2e2e2; background: #fff; font-size: 13px;
 	color: #383838; padding: 0 8px; }
 .oa-main :deep(.acp) { flex: 1; min-height: 0; }
@@ -126,5 +130,6 @@ function onConversation(name) {
 :global([data-theme="dark"]) .oa-sb-item:hover, :global([data-theme="dark"]) .oa-sb-item.active { background: #343434; }
 :global([data-theme="dark"]) .oa-sb-item-title { color: #d4d4d4; }
 :global([data-theme="dark"]) .oa-head { border-color: #343434; }
+:global([data-theme="dark"]) .oa-brand { color: #f8f8f8; }
 :global([data-theme="dark"]) .oa-picker { background: #1c1c1c; border-color: #343434; color: #d4d4d4; }
 </style>

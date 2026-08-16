@@ -592,6 +592,15 @@ async function answerChoice(item, option) {
 }
 
 function onCardAction(item, action, payload) {
+	// "quick-send" is the card asking to say something on the user's behalf —
+	// LuCrusher's Select / Approve / next-step buttons are all shorthand for a
+	// sentence the user would otherwise type (WI-001678). The panel answers it
+	// itself: no host can apply a sentence, and the card must NOT retire —
+	// lumina.js left its panels intact and clickable after every send.
+	if (action === "quick-send") {
+		send((payload && payload.message) || "");
+		return;
+	}
 	// A decision made retires the card's buttons (WI-001673 done-state):
 	// the host applies exactly once, and a stale card cannot re-fire. The
 	// done state is optimistic — an async host that FAILS to apply must call
