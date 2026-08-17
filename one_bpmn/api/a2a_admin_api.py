@@ -254,3 +254,132 @@ def get_client_credentials(name: str) -> dict:
 	"""The caller's API key and secret, for handing over out of band."""
 	_require_admin()
 	return frappe.get_doc("A2A Client", name).get_credentials()
+
+
+# ── Registering and editing, so the whole lifecycle lives on this screen ──────
+#
+# WI-001934 asks for "register an endpoint" here. Everything below exists so
+# nobody has to open Desk to add a partner or a caller: the fields a person
+# fills in are the fields these accept, and the doctype controllers still own
+# every rule (approval needs a card, an endpoint change resets approval, an
+# approved client gets its key).
+
+REMOTE_EDITABLE = (
+	"endpoint_url",
+	"enabled",
+	"auth_scheme",
+	"auth_header_name",
+	"credential",
+	"allow_internal_hosts",
+	"request_timeout",
+	"default_task_timeout_minutes",
+	"poll_base_interval",
+	"poll_max_interval",
+)
+
+
+def _clean_endpoint(url: str) -> str:
+	"""A typo caught here is cheaper than a card fetch that fails later."""
+	url = (url or "").strip()
+	if not url:
+		frappe.throw(_("An endpoint URL is required."), title=_("Remote Agent"))
+	if not url.lower().startswith(("http://", "https://")):
+		frappe.throw(
+			_("The endpoint URL must start with http:// or https://."), title=_("Remote Agent")
+		)
+	return url
+
+
+@frappe.whitelist()
+def create_remote_agent(agent_name: str, endpoint_url: str, **fields) -> dict:
+	"""Register a remote agent. It starts in Draft: fetching its card and
+	approving it are separate, deliberate steps."""
+	_require_admin()
+	agent_name = (agent_name or "").strip()
+	if not agent_name:
+		frappe.throw(_("A name is required."), title=_("Remote Agent"))
+	if frappe.db.exists("A2A Remote Agent", agent_name):
+		frappe.throw(_("A remote agent called '{0}' already exists.").format(agent_name))
+
+	doc = frappe.new_doc("A2A Remote Agent")
+	doc.agent_name = agent_name
+	doc.endpoint_url = _clean_endpoint(endpoint_url)
+	doc.approval_status = "Draft"
+	for field in REMOTE_EDITABLE:
+		if field in fields and fields[field] not in (None, ""):
+			doc.set(field, fields[field])
+	doc.insert()
+	return {"name": doc.name, "approval_status": doc.approval_status}
+
+
+@frappe.whitelist()
+def update_remote_agent(name: str, **fields) -> dict:
+	"""Edit a registered remote. Changing the endpoint sends it back to Draft —
+	the controller does that, not this endpoint."""
+	_require_admin()
+	doc = frappe.get_doc("A2A Remote Agent", name)
+	if "endpoint_url" in fields:
+		fields["endpoint_url"] = _clean_endpoint(fields["endpoint_url"])
+	for field in REMOTE_EDITABLE:
+		if field in fields:
+			doc.set(field, fields[field])
+	doc.save()
+	return {"name": doc.name, "approval_status": doc.approval_status}
+
+
+@frappe.whitelist()
+def create_client(client_name: str, description: str = None, allowed_agents=None) -> dict:
+	"""Register a caller. Draft until approved, because approval is what issues
+	its credentials."""
+	_require_admin()
+	client_name = (client_name or "").strip()
+	if not client_name:
+		frappe.throw(_("A name is required."), title=_("A2A Client"))
+	if frappe.db.exists("A2A Client", client_name):
+		frappe.throw(_("A client called '{0}' already exists.").format(client_name))
+
+	doc = frappe.new_doc("A2A Client")
+	doc.client_name = client_name
+	doc.description = description
+	doc.approval_status = "Draft"
+	for agent in _agent_list(allowed_agents):
+		doc.append("allowed_agents", {"agent_configuration": agent})
+	doc.insert()
+	return {"name": doc.name, "approval_status": doc.approval_status}
+
+
+@frappe.whitelist()
+def set_client_agents(name: str, allowed_agents=None) -> dict:
+	"""Replace which agents a caller may reach. Takes effect immediately — the
+	door reads this list on every call."""
+	_require_admin()
+	doc = frappe.get_doc("A2A Client", name)
+	doc.allowed_agents = []
+	for agent in _agent_list(allowed_agents):
+		doc.append("allowed_agents", {"agent_configuration": agent})
+	doc.save()
+	return {
+		"name": doc.name,
+		"allowed_agents": [row.agent_configuration for row in doc.allowed_agents],
+	}
+
+
+def _agent_list(value) -> list[str]:
+	"""Accept a JSON string (what the browser sends) or a list, and keep only
+	agents that are actually exposed — a client cannot be granted an agent that
+	does not take part in A2A."""
+	if isinstance(value, str):
+		value = frappe.parse_json(value or "[]")
+	names = [str(v) for v in (value or []) if v]
+	if not names:
+		return []
+	return frappe.get_all(
+		"AI Agent Configuration",
+		filters={
+			"name": ("in", names),
+			"enabled": 1,
+			"lifecycle_status": "Live",
+			"a2a_exposed": 1,
+		},
+		pluck="name",
+	)

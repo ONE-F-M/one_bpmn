@@ -162,3 +162,89 @@ class TestA2AAdminTaskMonitor(FrappeTestCase):
 	def test_page_length_is_capped(self):
 		result = a2a_admin_api.list_tasks(page_length=5000)
 		self.assertLessEqual(result["page_length"], a2a_admin_api.MAX_PAGE_LENGTH)
+
+
+class TestRegisteringFromProcessa(FrappeTestCase):
+	"""WI-001934 asks for 'register an endpoint' on this screen, so the whole
+	lifecycle has to be reachable without opening Desk: create, edit, and
+	choose which agents a caller may reach."""
+
+	def test_a_remote_agent_can_be_registered_and_starts_in_draft(self):
+		name = f"_Test New Remote {frappe.generate_hash(length=6)}"
+		result = a2a_admin_api.create_remote_agent(
+			agent_name=name,
+			endpoint_url="https://partner.example.com/a2a",
+			auth_scheme="Bearer",
+			credential="s3cret",
+			request_timeout=15,
+		)
+		self.assertEqual(result["approval_status"], "Draft", "approval must stay a deliberate step")
+		doc = frappe.get_doc("A2A Remote Agent", result["name"])
+		self.assertEqual(doc.endpoint_url, "https://partner.example.com/a2a")
+		self.assertEqual(doc.auth_scheme, "Bearer")
+		self.assertEqual(doc.get_password("credential", raise_exception=False), "s3cret")
+		self.assertEqual(doc.request_timeout, 15)
+
+	def test_a_bad_endpoint_is_refused_before_anything_is_created(self):
+		name = f"_Test Bad Remote {frappe.generate_hash(length=6)}"
+		with self.assertRaises(frappe.ValidationError):
+			a2a_admin_api.create_remote_agent(agent_name=name, endpoint_url="partner.example.com")
+		self.assertFalse(frappe.db.exists("A2A Remote Agent", name))
+
+	def test_a_duplicate_name_is_refused(self):
+		name = f"_Test Dup Remote {frappe.generate_hash(length=6)}"
+		a2a_admin_api.create_remote_agent(agent_name=name, endpoint_url="https://a.example.com/a2a")
+		with self.assertRaises(frappe.ValidationError):
+			a2a_admin_api.create_remote_agent(agent_name=name, endpoint_url="https://b.example.com/a2a")
+
+	def test_editing_the_endpoint_sends_an_approved_entry_back_to_draft(self):
+		remote = make_remote_for(make_agent_configuration())
+		self.assertEqual(remote.approval_status, "Approved")
+		result = a2a_admin_api.update_remote_agent(
+			remote.name, endpoint_url="https://moved.example.com/a2a"
+		)
+		self.assertEqual(result["approval_status"], "Draft", "a new address has not been reviewed")
+
+	def test_a_client_can_be_registered_with_its_agents(self):
+		agent = make_agent_configuration(a2a_exposed=1)
+		name = f"_Test New Client {frappe.generate_hash(length=6)}"
+		result = a2a_admin_api.create_client(
+			client_name=name, description="A partner.", allowed_agents=frappe.as_json([agent.name])
+		)
+		self.assertEqual(result["approval_status"], "Draft", "approval is what issues the key")
+		doc = frappe.get_doc("A2A Client", result["name"])
+		self.assertEqual([r.agent_configuration for r in doc.allowed_agents], [agent.name])
+		self.assertFalse(doc.user, "no key until it is approved")
+
+	def test_only_exposed_agents_can_be_granted(self):
+		exposed = make_agent_configuration(a2a_exposed=1)
+		unexposed = make_agent_configuration()
+		name = f"_Test Grant Client {frappe.generate_hash(length=6)}"
+		result = a2a_admin_api.create_client(
+			client_name=name, allowed_agents=frappe.as_json([exposed.name, unexposed.name])
+		)
+		doc = frappe.get_doc("A2A Client", result["name"])
+		self.assertEqual(
+			[r.agent_configuration for r in doc.allowed_agents],
+			[exposed.name],
+			"an agent that does not take part in A2A cannot be granted",
+		)
+
+	def test_a_clients_agents_can_be_replaced(self):
+		first = make_agent_configuration(a2a_exposed=1)
+		second = make_agent_configuration(a2a_exposed=1)
+		client = make_client(agents=[first.name])
+		result = a2a_admin_api.set_client_agents(client.name, frappe.as_json([second.name]))
+		self.assertEqual(result["allowed_agents"], [second.name])
+
+	def test_registering_is_admin_only(self):
+		nobody = make_nobody()
+		with self.set_user(nobody.name):
+			for call, kwargs in (
+				(a2a_admin_api.create_remote_agent, {"agent_name": "x", "endpoint_url": "https://x.example.com"}),
+				(a2a_admin_api.update_remote_agent, {"name": "x"}),
+				(a2a_admin_api.create_client, {"client_name": "x"}),
+				(a2a_admin_api.set_client_agents, {"name": "x"}),
+			):
+				with self.assertRaises(frappe.PermissionError):
+					call(**kwargs)

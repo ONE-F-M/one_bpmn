@@ -86,11 +86,14 @@
 
 		<!-- Remote agents (outbound) -->
 		<div v-else-if="tab === 'remotes'" class="flex-1 overflow-auto px-6 py-4">
-			<p class="text-sm text-gray-600 mb-3">
-				Our processes may delegate only to an entry that is enabled and approved. Fetch the
-				card first — the card is what you are approving. Changing an endpoint sends the
-				entry back to Draft.
-			</p>
+			<div class="flex items-start justify-between gap-4 mb-3">
+				<p class="text-sm text-gray-600">
+					Our processes may delegate only to an entry that is enabled and approved. Fetch the
+					card first — the card is what you are approving. Changing an endpoint sends the
+					entry back to Draft.
+				</p>
+				<Button variant="solid" @click="openRemoteForm()">New remote agent</Button>
+			</div>
 			<div v-if="loading.remotes" class="text-sm text-gray-500">Loading…</div>
 			<table v-else class="w-full text-sm bg-white rounded-lg overflow-hidden">
 				<thead class="bg-gray-100 text-left text-xs uppercase text-gray-500">
@@ -117,6 +120,7 @@
 							<Badge :theme="statusTheme(r.approval_status)">{{ r.approval_status }}</Badge>
 						</td>
 						<td class="px-4 py-2 text-right whitespace-nowrap">
+							<Button variant="ghost" @click="openRemoteForm(r)">Edit</Button>
 							<Button variant="ghost" @click="fetchCard(r)">Fetch card</Button>
 							<Button
 								v-if="r.approval_status !== 'Approved'"
@@ -140,10 +144,13 @@
 
 		<!-- Clients (inbound) -->
 		<div v-else-if="tab === 'clients'" class="flex-1 overflow-auto px-6 py-4">
-			<p class="text-sm text-gray-600 mb-3">
-				Every caller is one entry with its own key and its own list of agents. Approving
-				issues the key; revoking stops that caller alone.
-			</p>
+			<div class="flex items-start justify-between gap-4 mb-3">
+				<p class="text-sm text-gray-600">
+					Every caller is one entry with its own key and its own list of agents. Approving
+					issues the key; revoking stops that caller alone.
+				</p>
+				<Button variant="solid" @click="openClientForm()">New client</Button>
+			</div>
 			<div v-if="loading.clients" class="text-sm text-gray-500">Loading…</div>
 			<table v-else class="w-full text-sm bg-white rounded-lg overflow-hidden">
 				<thead class="bg-gray-100 text-left text-xs uppercase text-gray-500">
@@ -172,6 +179,7 @@
 							<Badge :theme="statusTheme(c.approval_status)">{{ c.approval_status }}</Badge>
 						</td>
 						<td class="px-4 py-2 text-right whitespace-nowrap">
+							<Button variant="ghost" @click="openClientAgents(c)">Agents</Button>
 							<Button
 								v-if="c.approval_status !== 'Approved'"
 								variant="ghost"
@@ -284,6 +292,104 @@
 			</div>
 		</template>
 
+		<Dialog v-model="remoteFormOpen" :options="{ title: remoteForm.name ? 'Edit remote agent' : 'New remote agent' }">
+			<template #body-content>
+				<div class="flex flex-col gap-3">
+					<FormControl
+						label="Name"
+						v-model="remoteForm.agent_name"
+						:disabled="!!remoteForm.name"
+						placeholder="Partner Support Agent"
+					/>
+					<FormControl
+						label="Endpoint URL"
+						v-model="remoteForm.endpoint_url"
+						placeholder="https://partner.example.com/a2a"
+						description="Where its A2A endpoint lives. Changing this later sends the entry back to Draft."
+					/>
+					<FormControl
+						type="select"
+						label="Auth scheme"
+						v-model="remoteForm.auth_scheme"
+						:options="authSchemes"
+					/>
+					<FormControl
+						v-if="remoteForm.auth_scheme === 'API Key Header'"
+						label="Auth header name"
+						v-model="remoteForm.auth_header_name"
+						placeholder="Authorization"
+					/>
+					<FormControl
+						v-if="remoteForm.auth_scheme !== 'None'"
+						type="password"
+						label="Credential"
+						v-model="remoteForm.credential"
+						description="Stored encrypted and read only when a call is made."
+					/>
+					<div class="grid grid-cols-2 gap-3">
+						<FormControl label="Request timeout (s)" v-model="remoteForm.request_timeout" placeholder="30" />
+						<FormControl label="Task deadline (min)" v-model="remoteForm.default_task_timeout_minutes" placeholder="240" />
+						<FormControl label="Poll base (s)" v-model="remoteForm.poll_base_interval" placeholder="60" />
+						<FormControl label="Poll max (s)" v-model="remoteForm.poll_max_interval" placeholder="900" />
+					</div>
+					<FormControl
+						type="checkbox"
+						label="Allow internal hosts"
+						v-model="remoteForm.allow_internal_hosts"
+						description="Only for pointing at this site itself. Leave off for real partners."
+					/>
+					<ErrorMessage v-if="formError" :message="formError" />
+					<p class="text-xs text-gray-500">
+						Saved as Draft. Fetch its card and approve it before any process can use it.
+					</p>
+				</div>
+			</template>
+			<template #actions>
+				<Button variant="solid" :loading="saving" @click="saveRemote">
+					{{ remoteForm.name ? "Save" : "Create" }}
+				</Button>
+			</template>
+		</Dialog>
+
+		<Dialog v-model="clientFormOpen" :options="{ title: 'New client' }">
+			<template #body-content>
+				<div class="flex flex-col gap-3">
+					<FormControl label="Name" v-model="clientForm.client_name" placeholder="Partner A" />
+					<FormControl
+						type="textarea"
+						label="Description"
+						v-model="clientForm.description"
+						placeholder="Who this caller is, and why they have access."
+					/>
+					<div>
+						<div class="text-xs text-gray-600 mb-1">May call these agents</div>
+						<AgentPicker v-model="clientForm.allowed_agents" :agents="ourAgents" />
+					</div>
+					<ErrorMessage v-if="formError" :message="formError" />
+					<p class="text-xs text-gray-500">
+						Saved as Draft. Approving it creates its service user and issues the key.
+					</p>
+				</div>
+			</template>
+			<template #actions>
+				<Button variant="solid" :loading="saving" @click="saveClient">Create</Button>
+			</template>
+		</Dialog>
+
+		<Dialog v-model="clientAgentsOpen" :options="{ title: 'Which agents this client may call' }">
+			<template #body-content>
+				<p class="text-sm text-gray-600 mb-2">
+					Takes effect immediately — the door reads this list on every call. Only exposed
+					agents can be granted.
+				</p>
+				<AgentPicker v-model="agentsForm.allowed_agents" :agents="ourAgents" />
+				<ErrorMessage v-if="formError" :message="formError" class="mt-2" />
+			</template>
+			<template #actions>
+				<Button variant="solid" :loading="saving" @click="saveClientAgents">Save</Button>
+			</template>
+		</Dialog>
+
 		<Dialog v-model="cardOpen" :options="{ title: 'Agent card', size: '2xl' }">
 			<template #body-content>
 				<div v-if="openCard">
@@ -329,6 +435,7 @@
 // implementation of them.
 import { computed, onMounted, reactive, ref } from "vue"
 import { Badge, Button, Dialog, ErrorMessage, FormControl, frappeRequest } from "frappe-ui"
+import AgentPicker from "@/components/a2a/AgentPicker.vue"
 
 const API = "/api/method/one_bpmn.api.a2a_admin_api."
 const TERMINAL = ["completed", "canceled", "failed", "rejected", "timed-out"]
@@ -393,6 +500,135 @@ function stateTheme(state) {
 	if (state === "input-required") return "orange"
 	if (state === "canceled") return "gray"
 	return "blue"
+}
+
+
+// ── Registering and editing (WI-001934) ─────────────────────────────────────
+const authSchemes = [
+	{ label: "None", value: "None" },
+	{ label: "Bearer", value: "Bearer" },
+	{ label: "API Key Header", value: "API Key Header" },
+]
+const saving = ref(false)
+const formError = ref("")
+const remoteFormOpen = ref(false)
+const clientFormOpen = ref(false)
+const clientAgentsOpen = ref(false)
+const remoteForm = ref(blankRemote())
+const clientForm = ref({ client_name: "", description: "", allowed_agents: [] })
+const agentsForm = ref({ name: "", allowed_agents: [] })
+
+function blankRemote() {
+	return {
+		name: "",
+		agent_name: "",
+		endpoint_url: "",
+		auth_scheme: "None",
+		auth_header_name: "Authorization",
+		credential: "",
+		allow_internal_hosts: false,
+		request_timeout: "",
+		default_task_timeout_minutes: "",
+		poll_base_interval: "",
+		poll_max_interval: "",
+	}
+}
+
+function openRemoteForm(remote) {
+	formError.value = ""
+	remoteForm.value = remote
+		? {
+				...blankRemote(),
+				name: remote.name,
+				agent_name: remote.agent_name,
+				endpoint_url: remote.endpoint_url,
+				auth_scheme: remote.auth_scheme || "None",
+				allow_internal_hosts: Boolean(remote.allow_internal_hosts),
+				request_timeout: remote.request_timeout || "",
+				default_task_timeout_minutes: remote.default_task_timeout_minutes || "",
+				poll_base_interval: remote.poll_base_interval || "",
+				poll_max_interval: remote.poll_max_interval || "",
+			}
+		: blankRemote()
+	remoteFormOpen.value = true
+}
+
+async function saveRemote() {
+	formError.value = ""
+	saving.value = true
+	const f = remoteForm.value
+	const payload = {
+		endpoint_url: f.endpoint_url,
+		auth_scheme: f.auth_scheme,
+		auth_header_name: f.auth_header_name,
+		allow_internal_hosts: f.allow_internal_hosts ? 1 : 0,
+		request_timeout: f.request_timeout || undefined,
+		default_task_timeout_minutes: f.default_task_timeout_minutes || undefined,
+		poll_base_interval: f.poll_base_interval || undefined,
+		poll_max_interval: f.poll_max_interval || undefined,
+	}
+	// An empty credential on edit means "leave the stored one alone".
+	if (f.credential) payload.credential = f.credential
+	try {
+		if (f.name) {
+			await call("update_remote_agent", { name: f.name, ...payload })
+		} else {
+			await call("create_remote_agent", { agent_name: f.agent_name, ...payload })
+		}
+		remoteFormOpen.value = false
+		await loadRemotes()
+	} catch (e) {
+		formError.value = e.message || String(e)
+	} finally {
+		saving.value = false
+	}
+}
+
+function openClientForm() {
+	formError.value = ""
+	clientForm.value = { client_name: "", description: "", allowed_agents: [] }
+	clientFormOpen.value = true
+}
+
+async function saveClient() {
+	formError.value = ""
+	saving.value = true
+	try {
+		await call("create_client", {
+			client_name: clientForm.value.client_name,
+			description: clientForm.value.description,
+			allowed_agents: JSON.stringify(clientForm.value.allowed_agents),
+		})
+		clientFormOpen.value = false
+		await loadClients()
+	} catch (e) {
+		formError.value = e.message || String(e)
+	} finally {
+		saving.value = false
+	}
+}
+
+function openClientAgents(client) {
+	formError.value = ""
+	agentsForm.value = { name: client.name, allowed_agents: [...(client.allowed_agents || [])] }
+	clientAgentsOpen.value = true
+}
+
+async function saveClientAgents() {
+	formError.value = ""
+	saving.value = true
+	try {
+		await call("set_client_agents", {
+			name: agentsForm.value.name,
+			allowed_agents: JSON.stringify(agentsForm.value.allowed_agents),
+		})
+		clientAgentsOpen.value = false
+		await loadClients()
+	} catch (e) {
+		formError.value = e.message || String(e)
+	} finally {
+		saving.value = false
+	}
 }
 
 async function call(method, params) {
