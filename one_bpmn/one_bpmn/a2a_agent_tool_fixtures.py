@@ -66,20 +66,23 @@ is there to read. Visible in the outcome: the assessor answers "Critical"
 for the flooding incident where an empty brief had it answering
 "Routine".
 
-**Open issue (selector, 2026-08-17).** Triggering, grounding and both
-delegations work: the Issue insert starts the process, the assessor
-answers "Critical" from the document, maintenance parks and is reconciled
-back with "Technician assigned; parts on order." But the ad-hoc decision
-loop then stops asking — ``close_incident`` never runs, so the Issue stays
-Open and the instance stays Active. No error is logged and no flag is
-stuck (``engine_in_progress`` 0, ``waiting_for_ai`` 0); re-entering
-``run_parked_ai_task(kind="adhoc_decision")`` by hand does not advance it
-either, which points at the gate finding no promotable head rather than a
-lost job. A manually started run of the same map DID complete earlier, so
-the trigger is not the cause. Concrete lead: in the activity log the
-assessor has both "Ad-Hoc Task Activated" and "Completed" while
-maintenance has only "Completed" — the second activation skipped the hook
-that the loop's re-entry depends on.
+**Closing out is structural, not a decision (2026-08-17).** Both maps
+used to depend on the model choosing a ``close_incident`` tool, and it
+would not reliably do it — on the selector it ended its turn narrating
+("*My final answer: the incident was correctly escalated…*") while naming
+close_incident as available. The instance then sat Active forever: no
+error, no timeout, nothing in the activity log, because a selector that
+activates nothing while its completion condition is false simply stops.
+Three rounds of prompt work did not fix it, and the failure mode is worse
+than the miss.
+
+So the model now only routes. The Agent Task closes the incident in a
+step after its turn, and the selector's sub-process completes when a
+specialist has ANSWERED (``dispatch != 0 or logged != 0``, seeded to 0
+before it starts so the condition is answerable from the first child
+completion) with the close as a step after it. Both still offer
+close_incident as a tool and the script is idempotent, so an agent that
+does close early costs nothing.
 
 Depends on ``a2a_scenario_fixtures`` for the worker agents — run its
 ``execute()`` first. Unlike that module this one really does call an LLM,
@@ -103,6 +106,7 @@ from one_bpmn.one_bpmn.a2a_scenario_fixtures import (
 	ASSESSOR,
 	DISPATCHER,
 	LOGGER,
+	_script_step,
 	_upsert_agent,
 	_upsert_model,
 	_upsert_script,
@@ -235,10 +239,24 @@ def _tool_shape(element: str, agent: str, variable: str, description: str) -> st
 
 
 CLOSE_SCRIPT = "A2A Tool Test: Close Incident"
+SEED_SCRIPT = "A2A Tool Test: Seed Progress"
 
+# Idempotent on purpose: it runs as a step at the end of the flow AND is still
+# offered as a tool, so closing twice must be a no-op.
 _CLOSE_INCIDENT = '''
 frappe.db.set_value(context_doctype, context_docname, "status", "Closed")
 result["incident_closed"] = 1
+'''
+
+# The completion condition is evaluated with the process data as its namespace,
+# so a name it mentions must already exist — an unset one raises rather than
+# reading as false and takes the whole engine pass down with it. Seeding both
+# to 0 before the sub-process starts means the condition is answerable from the
+# first child completion, and each delegation's resultVariable overwrites its
+# own flag with a dict when the answer lands.
+_SEED_PROGRESS = '''
+result["dispatch"] = 0
+result["logged"] = 0
 '''
 
 
@@ -308,7 +326,18 @@ def _agent_task_xml() -> str:
 		+ 'spiffworkflow:aiMaxToolCalls="6">\n'
 		+ "      <bpmn:documentation>Decides which specialist agent should handle this.</bpmn:documentation>\n"
 		+ "    </bpmn:serviceTask>\n"
-		+ '    <bpmn:sequenceFlow id="f2" sourceRef="triage" targetRef="end" />\n'
+		+ '    <bpmn:sequenceFlow id="f2" sourceRef="triage" targetRef="close" />\n'
+		# Closing is a STEP, not a decision. The agent may still call
+		# close_incident itself — the script is idempotent — but the incident
+		# no longer stays open just because the model ended its turn talking
+		# instead of acting.
+		+ _script_step(
+			"close",
+			"Close the incident",
+			CLOSE_SCRIPT,
+			"Signs the incident off once the agent's turn is done.",
+		)
+		+ '    <bpmn:sequenceFlow id="f3" sourceRef="close" targetRef="end" />\n'
 		+ '    <bpmn:endEvent id="end" name="Triaged" />\n'
 		+ '    <bpmn:adHocSubProcess id="a2a_tools" name="Delegation tools (A2A)">\n'
 		+ "      <bpmn:documentation>The agents this one may hand work to. Referenced by the "
@@ -322,10 +351,15 @@ def _agent_task_xml() -> str:
 			[
 				("start", 160, 180, 36, 36),
 				("triage", 260, 158, 160, 80),
-				("end", 480, 180, 36, 36),
+				("close", 470, 158, 140, 80),
+				("end", 670, 180, 36, 36),
 			]
 			+ _tool_di(with_close=True),
-			[("f1", "start", "triage"), ("f2", "triage", "end")],
+			[
+				("f1", "start", "triage"),
+				("f2", "triage", "close"),
+				("f3", "close", "end"),
+			],
 			expanded={"a2a_tools"},
 		)
 		+ _TAIL
@@ -392,7 +426,14 @@ def _selector_xml() -> str:
 		_HEAD.format(pid="a2a_tool_selector")
 		+ '  <bpmn:process id="a2a_tool_selector" isExecutable="true">\n'
 		+ _incident_start(ISSUE_TYPE_SELECTOR)
-		+ '    <bpmn:sequenceFlow id="f1" sourceRef="start" targetRef="a2a_tools" />\n'
+		+ '    <bpmn:sequenceFlow id="f1" sourceRef="start" targetRef="seed" />\n'
+		+ _script_step(
+			"seed",
+			"Start the triage record",
+			SEED_SCRIPT,
+			"Sets the progress flags the completion condition reads.",
+		)
+		+ '    <bpmn:sequenceFlow id="f1b" sourceRef="seed" targetRef="a2a_tools" />\n'
 		+ '    <bpmn:adHocSubProcess id="a2a_tools" name="Delegation tools (A2A)" '
 		+ 'cancelRemainingInstances="false" '
 		+ 'spiffworkflow:serviceType="ai_task_selector" '
@@ -407,17 +448,40 @@ def _selector_xml() -> str:
 		# decision activated nothing and the sub-process stalled with no error.
 		+ 'spiffworkflow:aiMaxTokens="2000" '
 		+ 'spiffworkflow:aiTimeout="120">\n'
+		# The loop ends when a specialist has ANSWERED, not when the model
+		# decides to say so. Tying it to doc.status meant the sub-process only
+		# finished if the model chose close_incident — and when it ended its
+		# turn narrating instead, the instance sat Active forever with no
+		# error, no timeout and nothing in the log.
 		+ '      <bpmn:completionCondition xsi:type="bpmn:tFormalExpression">'
-		+ 'doc.status == "Closed"</bpmn:completionCondition>\n'
+		+ "dispatch != 0 or logged != 0</bpmn:completionCondition>\n"
 		+ _tool_shapes(with_close=True)
 		+ "    </bpmn:adHocSubProcess>\n"
-		+ '    <bpmn:sequenceFlow id="f2" sourceRef="a2a_tools" targetRef="end" />\n'
+		+ '    <bpmn:sequenceFlow id="f2" sourceRef="a2a_tools" targetRef="close" />\n'
+		+ _script_step(
+			"close",
+			"Close the incident",
+			CLOSE_SCRIPT,
+			"Signs the incident off once triage is done.",
+		)
+		+ '    <bpmn:sequenceFlow id="f3" sourceRef="close" targetRef="end" />\n'
 		+ '    <bpmn:endEvent id="end" name="Triaged" />\n'
 		+ "  </bpmn:process>\n"
 		+ _di(
 			"a2a_tool_selector",
-			[("start", 160, 400, 36, 36), ("end", 1060, 400, 36, 36)] + _tool_di(with_close=True),
-			[("f1", "start", "a2a_tools"), ("f2", "a2a_tools", "end")],
+			[
+				("start", 160, 400, 36, 36),
+				("seed", 240, 378, 140, 80),
+				("close", 1080, 378, 140, 80),
+				("end", 1280, 400, 36, 36),
+			]
+			+ _tool_di(with_close=True),
+			[
+				("f1", "start", "seed"),
+				("f1b", "seed", "a2a_tools"),
+				("f2", "a2a_tools", "close"),
+				("f3", "close", "end"),
+			],
 			expanded={"a2a_tools"},
 		)
 		+ _TAIL
@@ -476,6 +540,7 @@ def execute():
 	_upsert_issue_type(ISSUE_TYPE_AGENT)
 	_upsert_issue_type(ISSUE_TYPE_SELECTOR)
 	_upsert_script(CLOSE_SCRIPT, _CLOSE_INCIDENT)
+	_upsert_script(SEED_SCRIPT, _SEED_PROGRESS)
 	_reserve_agent(AGENT_TASK_AGENT, "a2a_incident_intake_agent")
 	_reserve_agent(SELECTOR_AGENT, "a2a_incident_triage_selector")
 
@@ -654,7 +719,8 @@ def teardown():
 		)
 		frappe.delete_doc("BPMN Process Model", name, force=True, ignore_permissions=True, ignore_missing=True)
 		frappe.delete_doc("Process", name, force=True, ignore_permissions=True, ignore_missing=True)
-	frappe.delete_doc("Server Script", CLOSE_SCRIPT, force=True, ignore_permissions=True, ignore_missing=True)
+	for script in (CLOSE_SCRIPT, SEED_SCRIPT):
+		frappe.delete_doc("Server Script", script, force=True, ignore_permissions=True, ignore_missing=True)
 	for issue_type in (ISSUE_TYPE_AGENT, ISSUE_TYPE_SELECTOR):
 		for issue in frappe.get_all("Issue", filters={"issue_type": issue_type}, pluck="name"):
 			frappe.delete_doc("Issue", issue, force=True, ignore_permissions=True, ignore_missing=True)
