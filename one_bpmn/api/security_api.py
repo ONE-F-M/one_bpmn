@@ -67,9 +67,17 @@ RATE_LIMIT_FIELDS = (
 )
 
 # Everything this endpoint may read and write on an agent, in render order.
+# Whether the agent's replies carry a thumbs up/down. Not a screen and not a
+# throttle — it is the other thing about an agent an operator changes without
+# touching its diagram, and it was editable only from the desk form. Its own
+# group so the modal does not file it under "Screening", which would be a lie
+# about what it does.
+FEEDBACK_FIELDS = ("collect_feedback",)
+
 AGENT_CONTROL_GROUPS = (
 	("Screening", SCREENING_FIELDS),
 	("Rate limiting & freeze", RATE_LIMIT_FIELDS),
+	("Feedback", FEEDBACK_FIELDS),
 )
 
 EVENT_FIELDS = (
