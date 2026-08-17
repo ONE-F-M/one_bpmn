@@ -83,6 +83,10 @@ LOGGER = "Compliance Logger"
 
 ALL_AGENTS = (COORDINATOR, ASSESSOR, DISPATCHER, PARTS, LOGGER)
 
+# Only the dispatcher calls a model; the rest stay deterministic on purpose.
+PROVIDER = "Claude"
+MODEL = "claude-haiku-4-5-20251001"
+
 # ── The decision logic, as Server Scripts ────────────────────────────────────
 #
 # A BPMN script task runs a Server Script with the workflow's variables, the
@@ -167,11 +171,13 @@ result["parts_available"] = availability
 '''
 
 _CONFIRM_DISPATCH = '''
-parts = task_data.get("parts") or {}
-availability = parts.get("text") or "unknown"
+# The dispatcher is an AGENT now: it decided for itself whether to check parts,
+# so its answer comes from the turn rather than from a fixed step's result.
+note = (task_data.get("dispatch_summary") or "").strip()
+if not note:
+	note = "Technician assigned."
 
-note = "Technician assigned; parts " + availability + "."
-answer = {"text": note, "parts": availability, "dispatched": True}
+answer = {"text": note, "dispatched": True}
 frappe.db.set_value(
 	"A2A Task",
 	context_docname,
@@ -393,9 +399,38 @@ def _single_step_worker_xml(process_id: str, agent_name: str, step_name: str, sc
 	)
 
 
+DISPATCHER_PROMPT = (
+	"You are the maintenance dispatcher for a facilities-management company. A "
+	"technician has just been assigned to an incident and you are deciding what "
+	"the caller needs to be told.\n\n"
+	"Before you answer, check whether the parts the repair needs are available — "
+	"you have a tool for that, and the answer changes what you promise. Do not "
+	"guess at stock.\n\n"
+	"Then reply with ONE short sentence stating that a technician is assigned and "
+	"what the parts situation is. No preamble, no bullet points."
+)
+
+
 def _dispatcher_xml() -> str:
-	"""The slow worker, and the only one that delegates onward: a person
-	assigns the technician, then parts are checked at depth 2."""
+	"""The slow worker, and the only real AGENT among the specialists.
+
+	The others are script maps on purpose — deterministic, so a test proves the
+	delegation machinery rather than a model's mood. This one is an AI Agent
+	Task with its own toolbox, so at least one hop in every scenario is a
+	genuine agent-to-agent call rather than an agent calling a script: the
+	caller delegates to this agent, and this agent DECIDES to delegate onward
+	to the parts checker from inside its own turn.
+	"""
+	prompt = DISPATCHER_PROMPT.replace("\n", "&#10;").replace('"', "&#34;")
+	params = (
+		f"{{&#34;agent&#34;: &#34;{PARTS}&#34;, "
+		"&#34;instruction&#34;: &#34;{{ task_data.instruction }}&#34;}"
+	)
+	tool_args = (
+		"{&#34;properties&#34;: {&#34;instruction&#34;: {&#34;type&#34;: &#34;string&#34;, "
+		"&#34;description&#34;: &#34;What parts to check for, in plain words.&#34;}}, "
+		"&#34;required&#34;: [&#34;instruction&#34;]}"
+	)
 	return (
 		_HEAD.format(pid="a2a_maintenance_dispatcher")
 		+ '  <bpmn:process id="a2a_maintenance_dispatcher" isExecutable="true">\n'
@@ -413,23 +448,52 @@ def _dispatcher_xml() -> str:
 		+ "While it is open the caller is parked, which is the state the reconciler settles."
 		+ "</bpmn:documentation>\n"
 		+ "    </bpmn:userTask>\n"
-		+ _flow("f3", "assign", "check_parts")
-		+ _delegation_task(
-			"check_parts",
-			"Check parts availability",
-			PARTS,
-			"Parts needed for: {{ task_data.report }}",
-			"parts",
-		)
-		+ _flow("f4", "check_parts", "confirm")
+		+ _flow("f3", "assign", "dispatch_agent")
+		+ '    <bpmn:serviceTask id="dispatch_agent" name="Work out what to tell the caller" '
+		+ 'spiffworkflow:serviceType="ai_agent" '
+		+ 'spiffworkflow:aiBackend="direct_api" '
+		+ f'spiffworkflow:aiProvider="{PROVIDER}" '
+		+ f'spiffworkflow:aiModel="{MODEL}" '
+		+ f'spiffworkflow:aiAgentConfig="{DISPATCHER}" '
+		+ f'spiffworkflow:aiSystemPrompt="{prompt}" '
+		# Bare `report`, NOT task_data.report. An AI prompt renders workflow
+		# variables as top-level names (dispatchers.py builds its Jinja context
+		# with jinja_ctx.update(task.data)); only a CONNECTOR's params get the
+		# task_data wrapper. Using the connector spelling here left the model
+		# with an empty brief, and it replied asking for the incident details.
+		+ 'spiffworkflow:aiUserPrompt="Incident: {{ report }}" '
+		+ 'spiffworkflow:aiOutputVariable="dispatch_summary" '
+		+ 'spiffworkflow:aiResponseFormat="text" '
+		+ 'spiffworkflow:aiTemperature="0" '
+		+ 'spiffworkflow:aiMaxTokens="1024" '
+		+ 'spiffworkflow:aiTimeout="120" '
+		+ 'spiffworkflow:aiToolsAdhoc="dispatch_tools" '
+		+ 'spiffworkflow:aiMaxToolCalls="4">\n'
+		+ "      <bpmn:documentation>Decides whether it needs the parts checker before "
+		+ "answering the caller.</bpmn:documentation>\n"
+		+ "    </bpmn:serviceTask>\n"
+		+ _flow("f4", "dispatch_agent", "confirm")
 		+ _script_step(
 			"confirm",
 			"Confirm the dispatch",
 			"A2A Scenario: Confirm Dispatch",
-			"Writes the answer the coordinator is waiting for.",
+			"Writes the answer the caller is waiting for.",
 		)
 		+ _flow("f5", "confirm", "end")
 		+ '    <bpmn:endEvent id="end" name="Dispatched" />\n'
+		+ '    <bpmn:adHocSubProcess id="dispatch_tools" name="Dispatcher tools (A2A)">\n'
+		+ "      <bpmn:documentation>The agents the dispatcher may call. Referenced as "
+		+ "its toolbox, so it is not wired into the sequence flow.</bpmn:documentation>\n"
+		+ f'      <bpmn:serviceTask id="check_parts" name="A2A → {PARTS}" '
+		+ 'spiffworkflow:serviceType="connector" spiffworkflow:connectorId="a2a" '
+		+ 'spiffworkflow:operation="delegate_to_local_agent" '
+		+ f'spiffworkflow:connectorParams="{params}" '
+		+ 'spiffworkflow:resultVariable="parts" '
+		+ f'spiffworkflow:aiToolParams="{tool_args}">\n'
+		+ "        <bpmn:documentation>Ask the parts checker whether what this repair "
+		+ "needs is in stock or has to be ordered.</bpmn:documentation>\n"
+		+ "      </bpmn:serviceTask>\n"
+		+ "    </bpmn:adHocSubProcess>\n"
 		+ "  </bpmn:process>\n"
 		+ _di(
 			"a2a_maintenance_dispatcher",
@@ -437,17 +501,20 @@ def _dispatcher_xml() -> str:
 				("start", 160, 180, 36, 36),
 				("read_order", 250, 158, 140, 80),
 				("assign", 440, 158, 140, 80),
-				("check_parts", 630, 158, 140, 80),
-				("confirm", 820, 158, 140, 80),
-				("end", 1020, 180, 36, 36),
+				("dispatch_agent", 630, 158, 160, 80),
+				("confirm", 840, 158, 140, 80),
+				("end", 1040, 180, 36, 36),
+				("dispatch_tools", 440, 330, 300, 180),
+				("check_parts", 480, 380, 200, 80),
 			],
 			[
 				("f1", "start", "read_order"),
 				("f2", "read_order", "assign"),
-				("f3", "assign", "check_parts"),
-				("f4", "check_parts", "confirm"),
+				("f3", "assign", "dispatch_agent"),
+				("f4", "dispatch_agent", "confirm"),
 				("f5", "confirm", "end"),
 			],
+			expanded={"dispatch_tools"},
 		)
 		+ _TAIL
 	)
@@ -512,9 +579,39 @@ def _upsert_agent(
 	return agent.name
 
 
+def _reserve_dispatcher() -> None:
+	"""The dispatcher's configuration must exist, be Live, and have credentials
+	BEFORE its map compiles: the map names it in aiAgentConfig and the deploy
+	gate refuses a shape whose agent is missing or still Draft. The map then
+	fills in the rest."""
+	if not frappe.db.exists("AI Agent Configuration", DISPATCHER):
+		agent = frappe.new_doc("AI Agent Configuration")
+		agent.agent_name = DISPATCHER
+		agent.agent_id = "a2a_test_maintenance_dispatcher"
+		agent.agent_type = "Background"
+		agent.agent_framework = "Direct API"
+		agent.enabled = 1
+		agent.flags.ignore_permissions = True
+		agent.flags.ignore_mandatory = True
+		agent.flags.ignore_links = True
+		agent.insert(ignore_permissions=True)
+	frappe.db.set_value(
+		"AI Agent Configuration",
+		DISPATCHER,
+		{
+			"ai_provider_credentials": PROVIDER,
+			"ai_model": MODEL,
+			"system_prompt": DISPATCHER_PROMPT,
+			"lifecycle_status": "Live",
+		},
+		update_modified=False,
+	)
+
+
 def execute():
 	for name, body in SCRIPTS.items():
 		_upsert_script(name, body)
+	_reserve_dispatcher()
 
 	assessor_map = _upsert_model(
 		ASSESSOR,
@@ -578,14 +675,28 @@ def execute():
 	)
 	_upsert_agent(
 		DISPATCHER,
-		"a2a_maintenance_dispatcher",
+		"a2a_test_maintenance_dispatcher",
 		dispatcher_map,
-		"Assigns a technician to a critical incident and confirms parts before dispatch.",
+		"Assigns a technician to a critical incident and decides what the caller needs "
+		"to know, checking parts when it matters.",
 		exposed=True,
 		tags="maintenance, dispatch",
 		# Shorter than the 240-minute backstop, so a step that names no deadline
 		# still gets this agent's own answer to "how long do I need".
 		deadline_minutes=60,
+	)
+	# _upsert_agent writes the fixture's generic prompt over everything; the
+	# dispatcher is the one agent here that actually calls a model, so put its
+	# own prompt and credentials back.
+	frappe.db.set_value(
+		"AI Agent Configuration",
+		DISPATCHER,
+		{
+			"ai_provider_credentials": PROVIDER,
+			"ai_model": MODEL,
+			"system_prompt": DISPATCHER_PROMPT,
+		},
+		update_modified=False,
 	)
 	_upsert_agent(
 		COORDINATOR,

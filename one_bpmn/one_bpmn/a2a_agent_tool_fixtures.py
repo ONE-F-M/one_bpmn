@@ -150,6 +150,8 @@ SYSTEM_PROMPT = (
 	"Always ask the safety assessor first — its verdict is either Critical or "
 	"Routine. A Critical incident must then go to maintenance. A Routine one "
 	"must be logged for compliance instead. Never do both.\n\n"
+	"Once that specialist has answered, call close_incident. An incident record "
+	"stays open until you do, so the work you arranged is never signed off.\n\n"
 	"When you are finished, reply with one plain sentence saying what you did "
 	"and what the specialists told you."
 )
@@ -312,7 +314,7 @@ def _agent_task_xml() -> str:
 		+ "      <bpmn:documentation>The agents this one may hand work to. Referenced by the "
 		+ "AI Agent Task as its toolbox, so it is not wired into the sequence flow: the model "
 		+ "calls these, the engine does not run them in order.</bpmn:documentation>\n"
-		+ _tool_shapes()
+		+ _tool_shapes(with_close=True)
 		+ "    </bpmn:adHocSubProcess>\n"
 		+ "  </bpmn:process>\n"
 		+ _di(
@@ -322,7 +324,7 @@ def _agent_task_xml() -> str:
 				("triage", 260, 158, 160, 80),
 				("end", 480, 180, 36, 36),
 			]
-			+ _tool_di(),
+			+ _tool_di(with_close=True),
 			[("f1", "start", "triage"), ("f2", "triage", "end")],
 			expanded={"a2a_tools"},
 		)
