@@ -450,6 +450,10 @@ onMounted(async () => {
 					ts: m.timestamp,
 				});
 			}
+			// A resumed conversation opens where the user left off — at the
+			// newest message. Without this it opened at the very first line of
+			// a months-old transcript and looked stuck (reported 2026-08-16).
+			scrollDown();
 			// One call for the whole transcript, not one per bubble: a resumed
 			// conversation redraws thirty replies at once, and a rating the user
 			// left before reloading has to still be showing.
@@ -669,6 +673,15 @@ async function answerChoice(item, option) {
 }
 
 function onCardAction(item, action, payload) {
+	// "quick-send" is the card asking to say something on the user's behalf —
+	// LuCrusher's Select / Approve / next-step buttons are all shorthand for a
+	// sentence the user would otherwise type (WI-001678). The panel answers it
+	// itself: no host can apply a sentence, and the card must NOT retire —
+	// lumina.js left its panels intact and clickable after every send.
+	if (action === "quick-send") {
+		send((payload && payload.message) || "");
+		return;
+	}
 	// A decision made retires the card's buttons (WI-001673 done-state):
 	// the host applies exactly once, and a stale card cannot re-fire. The
 	// done state is optimistic — an async host that FAILS to apply must call

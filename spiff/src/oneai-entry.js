@@ -1,7 +1,9 @@
 // Copyright (c) 2026, one-fm and contributors
-// one-ai desk bundle entry (WI-001678). Built as a self-contained IIFE (Vue
-// included) so a Frappe Desk page can mount the shared chat surface without
-// the SPA. Exposes:
+// one-ai bundle entry (WI-001678). Built as a self-contained IIFE (Vue
+// included) so a page outside the SPA can mount the shared chat surface.
+// Two hosts share it, which is why it stays one artifact: the standalone
+// /one-ai website page (www/one_ai) and, inside Desk, the Chat button's
+// dialog. Exposes:
 //   window.oneAI.mount(el)              — the full one-ai page app
 //   window.oneAI.openAgentChat(opts)    — the panel in a dialog for one agent
 //                                          (the WI-001996 Chat button target)
