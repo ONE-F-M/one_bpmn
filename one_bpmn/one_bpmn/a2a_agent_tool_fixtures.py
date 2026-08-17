@@ -353,16 +353,29 @@ def _selector_xml() -> str:
 	prompt = (
 		"You triage facility incidents for a facilities-management company. You do not "
 		"judge severity yourself and you do not do repairs: other agents do that.\n\n"
-		"At each decision you ACTIVATE exactly one task, by calling it — or none, when "
-		"the work is done. You never answer conversationally and you never ask questions; "
-		"activating a task IS your answer.\n\n"
-		"The order is fixed:\n"
-		"1. Nothing assessed yet → activate ask_safety_assessor.\n"
-		"2. The verdict says Critical → activate send_to_maintenance.\n"
-		"3. The verdict says Routine → activate log_for_compliance.\n"
-		"4. Maintenance or compliance has already answered → activate close_incident.\n\n"
+		"At every decision you ACTIVATE EXACTLY ONE task by calling it. Activating a "
+		"task IS your answer — you never reply conversationally, never explain your "
+		"reasoning instead of acting, and never ask questions.\n\n"
+		"Work down this list and activate the FIRST rule that matches:\n"
+		"1. Assessor verdict is NOT ASSESSED YET → activate ask_safety_assessor.\n"
+		"2. Verdict is Critical and maintenance is 'not sent' → activate "
+		"send_to_maintenance.\n"
+		"3. Verdict is Routine and compliance is 'not logged' → activate "
+		"log_for_compliance.\n"
+		"4. Otherwise — one of them has answered — activate close_incident.\n\n"
+		"Rule 4 is not optional and it is not a formality. An incident stays open until "
+		"close_incident runs, so if you activate nothing the work you just arranged is "
+		"never signed off and this incident hangs unresolved. Deciding that the job is "
+		"done is precisely when you MUST activate close_incident.\n\n"
+		"Only ONE of maintenance and compliance ever runs, and rule 4 does not care "
+		"which: seeing maintenance answered is a reason to close, never a reason to "
+		"stop.\n\n"
 		"You have no memory between decisions. The evidence below is what has already "
-		"run and what it returned — trust it over anything you think you remember."
+		"run and what it returned — trust it over anything you think you remember.\n\n"
+		"Call the task FIRST, before any explanation. Do not restate the evidence, do "
+		"not tick items off, do not summarise what has happened: a decision that spends "
+		"its words describing the situation runs out of room before it acts, and an "
+		"unspoken decision does nothing at all. One short sentence at most."
 	).replace("\n", "&#10;").replace('"', "&#34;")
 	user_prompt = (
 		"Incident: {{ doc.subject }} — {{ doc.description }}&#10;&#10;"
@@ -387,7 +400,10 @@ def _selector_xml() -> str:
 		+ f'spiffworkflow:aiSystemPrompt="{prompt}" '
 		+ f'spiffworkflow:aiUserPrompt="{user_prompt}" '
 		+ 'spiffworkflow:aiToolSources="diagram" '
-		+ 'spiffworkflow:aiMaxTokens="800" '
+		# 800 was not enough: the model narrated its reasoning, hit the ceiling
+		# mid-sentence, and the truncated reply carried no tool call — so the
+		# decision activated nothing and the sub-process stalled with no error.
+		+ 'spiffworkflow:aiMaxTokens="2000" '
 		+ 'spiffworkflow:aiTimeout="120">\n'
 		+ '      <bpmn:completionCondition xsi:type="bpmn:tFormalExpression">'
 		+ 'doc.status == "Closed"</bpmn:completionCondition>\n'
