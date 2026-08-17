@@ -146,7 +146,11 @@ Element dimensions used by the layout:
 | `confirmed_action` | `str` | Set to the `action_intent` when user confirms; bypasses classification |
 | `current_xml` | `str` | Full canvas BPMN XML; required for `MODIFY_EXISTING` confirmed actions |
 
-Endpoint: `one_bpmn.api.prosally_chat` (POST, `@frappe.whitelist()`). Raises 403 for Guest users.
+Endpoint: `one_bpmn.api.agui.stream_agent_turn` (POST, `@frappe.whitelist()`), with
+`agent_id="prosally_agent"` and the fields above riding the turn `context`; the
+`build_prosally_turn_context` hook in `api/server_script_api.py` assembles them.
+Raises 403 for Guest users. (The per-agent `prosally_chat` endpoint was deleted
+by WI-001679 — every agent uses the one shared door.)
 
 ## Agent Configuration
 

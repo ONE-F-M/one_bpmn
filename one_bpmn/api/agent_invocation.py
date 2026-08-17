@@ -120,6 +120,81 @@ def list_available_agents(include_legacy: int = 1) -> list:
 	return agents
 
 
+# The ONE AI page is the Lumina page's successor, so it offers the Lumina
+# page's own modes and nothing else — LUMINA_NATIVE_MODES in onefm_mcp's
+# lumina.py, expressed here as agent ids. Order is the picker's order.
+ONE_AI_AGENT_IDS = ("lumina_general_chat", "ba_agent", "lucrusher_agent")
+
+
+@frappe.whitelist()
+def list_one_ai_agents() -> list:
+	"""The fixed agent list for the ONE AI page (WI-001678).
+
+	Every field the picker shows comes from the agent's own AI Agent
+	Configuration — never from a copy kept here. That is WI-001634's lesson
+	the hard way: LuCrusher's label IS its map's start trigger, the record
+	said "lucrusher" while a hardcoded list said "LuCrusher", and no
+	conversation ever spawned a process instance. An agent that is missing,
+	disabled or not Live on this site is simply not offered.
+
+	Returns:
+	    list of {value (chat mode label), label, icon, agent_id}, in
+	    ONE_AI_AGENT_IDS order.
+	"""
+	user_roles = set(frappe.get_roles(frappe.session.user))
+	agents = []
+
+	for agent_id in ONE_AI_AGENT_IDS:
+		cfg = frappe.db.get_value(
+			"AI Agent Configuration",
+			{"agent_id": agent_id, "enabled": 1, "agent_type": "Chat", "lifecycle_status": "Live"},
+			["name", "agent_id", "chat_mode_label", "icon", "process_model"],
+			as_dict=True,
+		)
+		if not cfg or not cfg.chat_mode_label:
+			continue
+		# The deployed-diagram gate applies only to map-driven agents: these
+		# modes may run on the langgraph or direct-api runner, which need no
+		# diagram at all (see _runner_for).
+		if cfg.process_model and not frappe.db.get_value(
+			"BPMN Process Model", cfg.process_model, "is_active"
+		):
+			continue
+		allowed = frappe.get_all(
+			"AI Agent Allowed Role",
+			filters={"parent": cfg.name, "parenttype": "AI Agent Configuration"},
+			pluck="role",
+		)
+		if allowed and not (user_roles & set(allowed)):
+			continue
+		agents.append({
+			"value": cfg.chat_mode_label,
+			"label": cfg.chat_mode_label,
+			"icon": cfg.icon or "🤖",
+			"agent_id": cfg.agent_id,
+		})
+
+	return agents
+
+
+def one_ai_conversation_modes() -> list:
+	"""agent_mode values that belong to the ONE AI page's own conversations.
+
+	Conversations record either the chat label or the bare agent id, so both
+	are returned. Used to keep other surfaces' chats (Logix, ProsAlly, Docu,
+	every future agent) out of the page's history sidebar — the same rule
+	Lumina applies with _registry_only_agent_modes.
+	"""
+	modes = list(ONE_AI_AGENT_IDS)
+	labels = frappe.get_all(
+		"AI Agent Configuration",
+		filters={"agent_id": ["in", ONE_AI_AGENT_IDS]},
+		pluck="chat_mode_label",
+	)
+	modes.extend(label for label in labels if label)
+	return modes
+
+
 @frappe.whitelist()
 def invoke_agent(
 	agent_id: str, message: str, conversation: str = None, context: dict = None, stream: bool = False
