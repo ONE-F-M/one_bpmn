@@ -173,7 +173,7 @@
 					     see seed_a2a_connector.py), so the sidebar entry and the shapes
 					     it monitors read as one thing. -->
 					<Icon
-						icon="lucide:layers"
+						icon="lucide:arrow-right-left"
 						class="w-5 h-5 shrink-0"
 						:class="$route.path.startsWith('/processa/a2a') ? '' : 'text-[#7c3aed]'"
 					/>
