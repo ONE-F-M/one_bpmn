@@ -10,7 +10,6 @@ from one_bpmn.api.ai_assistant import (
 	_creation_prerequisites_block,
 	_extract_json,
 	_sanitize_proposed_config,
-	recommend_ai_task_config,
 )
 
 
@@ -117,16 +116,15 @@ class TestAssistantCreatesConfig(FrappeTestCase):
 		self.assertIsNone(_extract_json("no json here"))
 		self.assertIsNone(_extract_json(""))
 
-	def test_missing_assistant_record_is_explicit(self):
-		# WI-001623/WI-001649: never a hardcoded persona fallback.
-		provider = frappe.db.get_value("AI Provider Credentials", {"enabled": 1}, "name")
-		if not provider:
-			self.skipTest("no enabled AI Provider Credentials on this site")
-		original = ai_assistant._assistant_system_prompt
-		ai_assistant._assistant_system_prompt = lambda: ""
-		try:
-			res = recommend_ai_task_config(provider=provider, requirement="anything")
-		finally:
-			ai_assistant._assistant_system_prompt = original
-		self.assertFalse(res["ok"])
-		self.assertEqual(res["error_code"], "ASSISTANT_NOT_CONFIGURED")
+	def test_the_dialogs_private_chat_endpoint_stays_retired(self):
+		"""WI-001679: recommend_ai_task_config was this dialog's own chat door.
+
+		It also carried the ASSISTANT_NOT_CONFIGURED guard that this case used
+		to pin — the guard against a hardcoded persona fallback (WI-001623).
+		That property is structural now rather than checked: both dialog modes
+		run on the assistant's own configuration through the shared stream, so
+		there is no code path left that could substitute a persona. What is
+		worth pinning is that the private door does not come back, because a
+		re-added endpoint quietly rebuilds the fragmentation this epic removed.
+		"""
+		self.assertFalse(hasattr(ai_assistant, "recommend_ai_task_config"))

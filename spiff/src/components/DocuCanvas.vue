@@ -986,8 +986,8 @@ async function loadModules() {
 
 // WI-001676: chatHistoryPayload / sendMessage / pollTurn / selectOption /
 // onKeydown deleted — the shared panel streams the turn over SSE, so the
-// docu_chat_async enqueue + docu_chat_status poll loop has no client. The
-// backend endpoints stay as deprecated aliases until WI-001679.
+// docu_chat_async enqueue + docu_chat_status poll loop has no client.
+// WI-001679 deleted those backend endpoints too.
 const docuTurnContext = computed(() => ({
 	doctype: dtName.value || props.doctype || "",
 	target_module: dtModule.value || "",

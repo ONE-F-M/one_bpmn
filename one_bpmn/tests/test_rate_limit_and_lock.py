@@ -828,11 +828,12 @@ class TestPerTurnEnforcement(FrappeTestCase):
 class TestRefusalReachesTheUser(FrappeTestCase):
 	"""A refusal must say why, on every chat surface.
 
-	RateLimited subclasses ValidationError, and each chat endpoint catches that
-	broadly to mean "the BPMN instance is dead — tell them to reopen the chat".
-	So a working throttle was reported to the user as "The ProsAlly process
-	orchestration isn't running for this conversation", which is both wrong and
-	unactionable. These pin the real message to each surface.
+	RateLimited subclasses ValidationError, and every chat path used to catch
+	that broadly to mean "the BPMN instance is dead — tell them to reopen the
+	chat". So a working throttle was reported to the user as "The ProsAlly
+	process orchestration isn't running for this conversation", which is both
+	wrong and unactionable. These pin the real message to each surface — all of
+	which are now the one shared stream (WI-001679).
 	"""
 
 	SURFACES = ("ProsAlly", "Logix", "Docu")
@@ -1099,44 +1100,50 @@ class TestRefusalReachesTheUser(FrappeTestCase):
 			"doctype": "Chat Conversation", "agent_mode": label, "title": f"{PREFIX} {label}",
 		}).insert(ignore_permissions=True).name
 
-	def test_prosally_reports_the_refusal_not_a_dead_instance(self):
-		from one_bpmn.api.server_script_api import prosally_chat
+	# WI-001679: these used to call one per-agent chat endpoint each — the very
+	# endpoints that carried the "orchestration isn't running" mistranslation.
+	# Those endpoints are gone, so the surfaces are asserted where they now
+	# actually live: the shared stream, once per agent.
+	AGENTS = ("prosally_agent", "logix_agent", "docu_agent")
+	LABELS = {"prosally_agent": "ProsAlly", "logix_agent": "Logix", "docu_agent": "Docu"}
 
-		self._exhaust("prosally_agent")
-		r = prosally_chat(message="hi", session_id="t", conversation_name=self._conversation("ProsAlly")) or {}
-		self.assertEqual(r.get("intent"), "BLOCKED")
-		self.assertIn("too quickly", r.get("response", ""))
-		self.assertNotIn("orchestration", r.get("response", ""))
+	def _stream_text(self, agent_id, conversation):
+		"""Run one turn through the shared stream; return (event kinds, text)."""
+		import json
 
-	def test_logix_reports_the_refusal_not_a_dead_instance(self):
-		from one_bpmn.api.server_script_api import process_logix_message
+		import one_bpmn.agents.agui_stream as A
 
-		self._exhaust("logix_agent")
-		r = process_logix_message(message="hi", session_id="t", conversation_name=self._conversation("Logix")) or {}
-		self.assertEqual(r.get("intent"), "BLOCKED")
-		self.assertIn("too quickly", r.get("response", ""))
-		self.assertNotIn("orchestration", r.get("response", ""))
+		kinds, texts = [], []
+		for chunk in A.agent_event_stream(agent_id, "hi", conversation, None):
+			for line in str(chunk).splitlines():
+				if not line.startswith("data: "):
+					continue
+				event = json.loads(line[6:])
+				kinds.append(event.get("type"))
+				if event.get("delta"):
+					texts.append(event["delta"])
+		return kinds, " ".join(texts)
 
-	def test_docu_reports_the_refusal_not_a_dead_instance(self):
-		from one_bpmn.api.docu_api import docu_chat
-
-		self._exhaust("docu_agent")
-		r = docu_chat(message="hi", conversation_name=self._conversation("Docu")) or {}
-		self.assertEqual(r.get("intent"), "BLOCKED")
-		self.assertIn("too quickly", r.get("response", ""))
-		self.assertNotIn("orchestration", r.get("response", ""))
+	def test_every_surface_reports_the_refusal_not_a_dead_instance(self):
+		for agent_id in self.AGENTS:
+			with self.subTest(agent=agent_id):
+				self._exhaust(agent_id)
+				kinds, text = self._stream_text(
+					agent_id, self._conversation(self.LABELS[agent_id])
+				)
+				self.assertNotIn("RUN_ERROR", kinds, "a refusal is a decision, not a failure")
+				self.assertIn("too quickly", text)
+				self.assertNotIn("orchestration", text)
 
 	def test_a_frozen_conversation_says_so_rather_than_blaming_the_instance(self):
-		from one_bpmn.api.server_script_api import prosally_chat
-
 		agent = frappe.db.get_value("AI Agent Configuration", {"chat_mode_label": "ProsAlly"}, "name")
 		conv = self._conversation("ProsAlly")
 		lock = RL.raise_lock("Administrator", agent, conv, reason="Manual", blocked_count=3)
 		try:
-			r = prosally_chat(message="hi", session_id="t", conversation_name=conv) or {}
-			self.assertEqual(r.get("intent"), "BLOCKED")
-			self.assertIn("frozen", r.get("response", "").lower())
-			self.assertIn("reviewer", r.get("response", "").lower())
+			kinds, text = self._stream_text("prosally_agent", conv)
+			self.assertNotIn("RUN_ERROR", kinds)
+			self.assertIn("frozen", text.lower())
+			self.assertIn("reviewer", text.lower())
 		finally:
 			frappe.db.delete("AI Conversation Lock", {"name": lock})
 			frappe.db.commit()
