@@ -414,17 +414,22 @@ def enforce(
 
 	# 2. Throttle — the agent's own allowance.
 	if not int(limits.get("rate_limit_enabled") or 0):
-		# The freeze still applies. Exempting an agent from the throttle says
-		# "this one is chatty", not "stop containing people who probe it".
-		if _maybe_freeze(user, agent, conversation, limits):
-			frappe.throw(
-				_(
-					"This conversation has been frozen after repeated blocked attempts. "
-					"A reviewer needs to release it before you can continue."
-				),
-				RateLimited,
-				title=_("Conversation Frozen"),
-			)
+		# Off means OFF: no throttle and no freeze.
+		#
+		# This was the other way round — the freeze survived the switch, on the
+		# reasoning that exempting a chatty agent from the throttle should not
+		# stop it containing a prober. In practice that made the control
+		# unpredictable: an operator who had unticked "Enable Rate Limiting" had
+		# every reason to believe the section was off, and conversations froze
+		# anyway with nothing on the form to explain it. A control whose
+		# behaviour contradicts its own switch gets distrusted, and a distrusted
+		# control gets disabled entirely.
+		#
+		# One switch now governs the whole "how hard does this agent push back"
+		# section, which is what the form has always looked like it meant. An
+		# agent that needs containment without a throttle keeps rate limiting on
+		# and sets Messages Per Window to 0 — that disables the allowance while
+		# leaving the freeze armed.
 		return
 
 	limit = int(limits.get("rate_limit_messages") or 0)

@@ -408,14 +408,14 @@
    "fieldname": "section_rate_limit",
    "fieldtype": "Section Break",
    "label": "Rate Limiting & Freeze",
-   "description": "How hard this agent pushes back: how fast one user may talk to it, and how many blocked attempts it tolerates before freezing the conversation. Both are per-agent \u2014 a limit that suits a chat assistant throttles a batch agent to a standstill. Who may RELEASE a freeze stays site-wide, on Processa Settings."
+   "description": "How hard this agent pushes back: how fast one user may talk to it, and how many blocked attempts it tolerates before freezing the conversation. Both are per-agent \u2014 a limit that suits a chat assistant throttles a batch agent to a standstill \u2014 and both are governed by the one switch below. Who may RELEASE a freeze stays site-wide, on Processa Settings."
   },
   {
    "fieldname": "rate_limit_enabled",
    "fieldtype": "Check",
    "label": "Enable Rate Limiting",
    "default": "1",
-   "description": "Off exempts this agent only, not the site."
+   "description": "The switch for this whole section \u2014 both the throttle and the freeze. Off exempts this agent only, not the site, and means no throttling AND no freezing. A conversation already frozen stays frozen until a reviewer releases it."
   },
   {
    "fieldname": "rate_limit_messages",
@@ -438,13 +438,15 @@
    "depends_on": "eval:doc.rate_limit_enabled"
   },
   {
+   "depends_on": "eval:doc.rate_limit_enabled",
    "fieldname": "lock_after_blocks",
    "fieldtype": "Int",
    "label": "Freeze After N Blocked Attempts",
    "default": "3",
-   "description": "Blocked attempts by one user against THIS agent before the conversation is frozen and a reviewer has to release it. 0 disables the freeze for this agent. Independent of the throttle above \u2014 an agent exempt from rate limiting can still freeze a prober."
+   "description": "Blocked attempts by one user against THIS agent before the conversation is frozen and a reviewer has to release it. Counted per ATTEMPT: one message that trips several rules is one strike. 0 disables the freeze while leaving the throttle on. To keep the freeze WITHOUT a throttle, set Messages Per Window to 0 instead of unticking Enable Rate Limiting."
   },
   {
+   "depends_on": "eval:doc.rate_limit_enabled",
    "fieldname": "lock_block_window_seconds",
    "fieldtype": "Int",
    "label": "Blocked-Attempt Window (seconds)",
@@ -556,7 +558,7 @@
    "link_fieldname": "agent_configuration"
   }
  ],
- "modified": "2026-08-17 11:45:00.000000",
+ "modified": "2026-08-17 18:30:00.000000",
  "modified_by": "c.akeru@one-fm.com",
  "module": "ONE BPMN",
  "name": "AI Agent Configuration",

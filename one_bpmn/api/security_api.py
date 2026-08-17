@@ -26,6 +26,8 @@ event reader is written so that stays true by construction — it names the fiel
 it returns rather than handing back the document.
 """
 
+import re
+
 import frappe
 from frappe import _
 
@@ -602,6 +604,23 @@ def release(lock: str, notes: str = None) -> dict:
 
 # ── Per-agent screening ──────────────────────────────────────────────────────
 
+_SIMPLE_DEPENDS = re.compile(r"^eval:doc\.([a-z0-9_]+)$")
+
+
+def _simple_dependency(depends_on: str | None) -> str | None:
+	"""The fieldname a control hangs off, when the rule is simply "this is set".
+
+	Anything more complicated returns None and the control renders
+	unconditionally — showing a control that should have been hidden is a much
+	smaller problem than hiding one that should have been shown, and guessing at
+	an expression we cannot evaluate would risk the second.
+	"""
+	if not depends_on:
+		return None
+	match = _SIMPLE_DEPENDS.match(depends_on.strip())
+	return match.group(1) if match else None
+
+
 @frappe.whitelist()
 def agent_screening(agent: str) -> dict:
 	"""The screening controls this agent actually has, with their current values.
@@ -630,6 +649,13 @@ def agent_screening(agent: str) -> dict:
 				"options": [o for o in (df.options or "").split("\n") if o] if df.fieldtype == "Select" else None,
 				"description": df.description,
 				"value": doc.get(fieldname),
+				# Which other control this one hangs off, as a plain fieldname.
+				# The desk form hides the freeze thresholds when rate limiting is
+				# off; Processa has to do the same or the two forms disagree about
+				# what is even in effect. Reduced to a fieldname here rather than
+				# shipping the raw "eval:" expression, so the browser never needs
+				# an expression evaluator and cannot be handed one to run.
+				"depends_on_field": _simple_dependency(df.depends_on),
 			})
 	return {
 		"agent": doc.name,
