@@ -40,9 +40,18 @@ What this covers that the fast/slow pair does not:
   errored instance and the missing row say it happened. (A breached depth
   or handoff LIMIT does leave a failed task; the allow-list does not.)
 
-Everything is deterministic and LLM-free: the maps do the work and the
-verdicts come from keywords in the incident text, so the same input gives
-the same route every time.
+Every specialist here is a real agent: its map contains an AI Agent Task
+and a model does the judging. They were script maps at first, for
+reproducibility — but an "agent" with no AI task in it is a script wearing
+an agent record, and every A2A check accepts one (the gate reads enabled,
+Live and a2a_exposed, and nothing else), so a delegation to one was
+agent-to-script dressed up as agent-to-agent.
+
+The cost of honesty: a run makes four to six model calls and the wording
+of an answer varies, so read the A2A Task rows rather than expecting fixed
+strings. And none of them answers inline any more — a model call is slow
+enough that the caller parks and waits for the reconciler on EVERY hop,
+including the nested one, so a run needs a few reconciler ticks to settle.
 
 Usage::
 
@@ -99,32 +108,6 @@ MODEL = "claude-haiku-4-5-20251001"
 # the state from the instance a moment later, and a worker fighting it for the
 # field would make the row's history depend on timing.
 
-_CLASSIFY_INCIDENT = '''
-payload = frappe.parse_json(doc.request_payload or "{}") or {}
-report = (payload.get("instruction") or "").lower()
-
-# Anything that can hurt someone or spread goes straight to maintenance.
-severity = "Routine"
-for word in (
-	"fire", "smoke", "gas", "flood", "leak", "burst", "spill",
-	"injury", "shock", "trapped", "collapse", "outage",
-):
-	if word in report:
-		severity = "Critical"
-
-answer = {
-	"text": severity,
-	"severity": severity,
-	"assessed_by": "Site Safety Assessor",
-}
-frappe.db.set_value(
-	"A2A Task",
-	context_docname,
-	{"result": frappe.as_json(answer), "status_message": severity},
-	update_modified=True,
-)
-result["severity"] = severity
-'''
 
 _READ_WORK_ORDER = '''
 # A worker starts with an empty slate: the caller's workflow variables are the
@@ -146,29 +129,6 @@ if severity not in ("Critical", "Routine"):
 result["severity"] = severity
 '''
 
-_CHECK_PARTS = '''
-payload = frappe.parse_json(doc.request_payload or "{}") or {}
-report = (payload.get("instruction") or "").lower()
-
-# The store carries consumables; anything mechanical has to be ordered in.
-in_stock = True
-for word in ("pump", "compressor", "motor", "chiller"):
-	if word in report:
-		in_stock = False
-
-availability = "in stock"
-if not in_stock:
-	availability = "on order"
-
-answer = {"text": availability, "in_stock": in_stock}
-frappe.db.set_value(
-	"A2A Task",
-	context_docname,
-	{"result": frappe.as_json(answer), "status_message": availability},
-	update_modified=True,
-)
-result["parts_available"] = availability
-'''
 
 _CONFIRM_DISPATCH = '''
 # The dispatcher is an AGENT now: it decided for itself whether to check parts,
@@ -187,28 +147,79 @@ frappe.db.set_value(
 result["dispatch_note"] = note
 '''
 
-_COMPLIANCE_NOTE = '''
-payload = frappe.parse_json(doc.request_payload or "{}") or {}
-report = payload.get("instruction") or ""
 
-note = "Logged for compliance, no maintenance raised: " + report
-answer = {"text": note, "logged": True}
+ASSESSOR_PROMPT = (
+	"You are a site safety assessor for a facilities-management company. You are "
+	"given one incident report and you judge how serious it is.\n\n"
+	"Critical means it can hurt someone or spread if left: fire, smoke, gas, "
+	"flooding, a burst pipe, a spill, an injury, an electrical fault, someone "
+	"trapped, a structural failure, or a power loss that takes safety systems "
+	"with it. Routine means damage or wear that can wait for the normal repair "
+	"round.\n\n"
+	"Answer with exactly one word: Critical or Routine. Nothing else."
+)
+
+PARTS_PROMPT = (
+	"You keep the parts store for a facilities-management company. Given a repair, "
+	"you say whether what it needs is on the shelf.\n\n"
+	"The store carries consumables and small fittings — sealant, tape, filters, "
+	"fixings, tiles, lamps, small valves and pipe sections. Anything mechanical or "
+	"major has to be ordered in: pumps, compressors, motors, chillers, fans, "
+	"control boards.\n\n"
+	"Answer in one short sentence saying whether it is in stock or on order, and "
+	"which part you mean."
+)
+
+LOGGER_PROMPT = (
+	"You keep the compliance record for a facilities-management company. You are "
+	"given an incident that needed no maintenance, and you write the line that "
+	"goes in the register.\n\n"
+	"One sentence: what was reported, where, and that no repair was raised. Plain "
+	"and factual, no preamble."
+)
+
+# One recorder per answer shape. Both write onto the A2A Task the caller is
+# waiting on — `doc` here IS that task, because a worker instance's context
+# document is the task that asked for the work.
+_RECORD_VERDICT = '''
+# The coordinator's gateway routes on this, so the verdict has to be one of two
+# words no matter how the model phrased it.
+said = (task_data.get("answer_text") or "").strip().lower()
+severity = "Routine"
+if "critical" in said:
+	severity = "Critical"
+
+answer = {"text": severity, "severity": severity, "said": said[:200]}
 frappe.db.set_value(
 	"A2A Task",
 	context_docname,
-	{"result": frappe.as_json(answer), "status_message": note[:140]},
+	{"result": frappe.as_json(answer), "status_message": severity},
 	update_modified=True,
 )
-result["compliance_note"] = note
+result["severity"] = severity
+'''
+
+_RECORD_ANSWER = '''
+said = (task_data.get("answer_text") or "").strip()
+if not said:
+	said = "the agent gave no answer"
+
+answer = {"text": said}
+frappe.db.set_value(
+	"A2A Task",
+	context_docname,
+	{"result": frappe.as_json(answer), "status_message": said[:140]},
+	update_modified=True,
+)
+result["answer"] = said
 '''
 
 SCRIPTS = {
 	"A2A Scenario: Read Work Order": _READ_WORK_ORDER,
-	"A2A Scenario: Classify Incident": _CLASSIFY_INCIDENT,
 	"A2A Scenario: Read Assessment": _READ_ASSESSMENT,
-	"A2A Scenario: Check Parts": _CHECK_PARTS,
 	"A2A Scenario: Confirm Dispatch": _CONFIRM_DISPATCH,
-	"A2A Scenario: Compliance Note": _COMPLIANCE_NOTE,
+	"A2A Scenario: Record Verdict": _RECORD_VERDICT,
+	"A2A Scenario: Record Answer": _RECORD_ANSWER,
 }
 
 
@@ -379,21 +390,82 @@ def _coordinator_xml() -> str:
 	)
 
 
-def _single_step_worker_xml(process_id: str, agent_name: str, step_name: str, script: str, documentation: str) -> str:
-	"""A worker that answers inside the caller's call: one script task, done."""
+def _llm_worker_xml(
+	process_id: str,
+	agent_name: str,
+	step_name: str,
+	prompt: str,
+	record_script: str,
+	documentation: str,
+) -> str:
+	"""A specialist that thinks for itself.
+
+	These used to be a single script task. That made a test reproducible, but it
+	also meant an "agent" with no AI task in it — a script wearing an agent
+	record, which every A2A check happily accepts (the gate reads enabled,
+	Live and a2a_exposed, and nothing more). A delegation to one of those was
+	agent-to-script dressed as agent-to-agent, so the map now contains a real
+	AI Agent Task and the model does the judging.
+
+	Shape: lift the brief off this agent's own task → let the agent answer →
+	write the answer back where the caller will read it.
+	"""
+	system = prompt.replace("\n", "&#10;").replace('"', "&#34;")
 	return (
 		_HEAD.format(pid=process_id)
 		+ f'  <bpmn:process id="{process_id}" isExecutable="true">\n'
 		+ _a2a_start(agent_name)
-		+ _flow("f1", "start", "work")
-		+ _script_step("work", step_name, script, documentation)
-		+ _flow("f2", "work", "end")
+		+ _flow("f1", "start", "read_order")
+		+ _script_step(
+			"read_order",
+			"Read the work order",
+			"A2A Scenario: Read Work Order",
+			"Lifts the brief off this agent's own task into workflow data.",
+		)
+		+ _flow("f2", "read_order", "think")
+		+ f'    <bpmn:serviceTask id="think" name="{step_name}" '
+		+ 'spiffworkflow:serviceType="ai_agent" '
+		+ 'spiffworkflow:aiBackend="direct_api" '
+		+ f'spiffworkflow:aiProvider="{PROVIDER}" '
+		+ f'spiffworkflow:aiModel="{MODEL}" '
+		+ f'spiffworkflow:aiAgentConfig="{agent_name}" '
+		+ f'spiffworkflow:aiSystemPrompt="{system}" '
+		# Bare `report`, not task_data.report — an AI prompt gets workflow
+		# variables as top-level names; only connector params are wrapped.
+		+ 'spiffworkflow:aiUserPrompt="{{ report }}" '
+		+ 'spiffworkflow:aiOutputVariable="answer_text" '
+		+ 'spiffworkflow:aiResponseFormat="text" '
+		+ 'spiffworkflow:aiTemperature="0" '
+		+ 'spiffworkflow:aiMaxTokens="1024" '
+		+ 'spiffworkflow:aiTimeout="120" '
+		+ 'spiffworkflow:aiMaxRetries="1">\n'
+		+ f"      <bpmn:documentation>{documentation}</bpmn:documentation>\n"
+		+ "    </bpmn:serviceTask>\n"
+		+ _flow("f3", "think", "record")
+		+ _script_step(
+			"record",
+			"Answer the caller",
+			record_script,
+			"Writes the agent's answer onto the task the caller is waiting on.",
+		)
+		+ _flow("f4", "record", "end")
 		+ '    <bpmn:endEvent id="end" name="Answered" />\n'
 		+ "  </bpmn:process>\n"
 		+ _di(
 			process_id,
-			[("start", 160, 180, 36, 36), ("work", 260, 158, 160, 80), ("end", 480, 180, 36, 36)],
-			[("f1", "start", "work"), ("f2", "work", "end")],
+			[
+				("start", 160, 180, 36, 36),
+				("read_order", 250, 158, 140, 80),
+				("think", 440, 158, 160, 80),
+				("record", 650, 158, 140, 80),
+				("end", 850, 180, 36, 36),
+			],
+			[
+				("f1", "start", "read_order"),
+				("f2", "read_order", "think"),
+				("f3", "think", "record"),
+				("f4", "record", "end"),
+			],
 		)
 		+ _TAIL
 	)
@@ -579,15 +651,24 @@ def _upsert_agent(
 	return agent.name
 
 
-def _reserve_dispatcher() -> None:
-	"""The dispatcher's configuration must exist, be Live, and have credentials
-	BEFORE its map compiles: the map names it in aiAgentConfig and the deploy
-	gate refuses a shape whose agent is missing or still Draft. The map then
-	fills in the rest."""
-	if not frappe.db.exists("AI Agent Configuration", DISPATCHER):
+# Every specialist that calls a model. Each needs its configuration to exist,
+# be Live and carry credentials BEFORE its map compiles — the map names it in
+# aiAgentConfig and the deploy gate refuses a shape whose agent is missing or
+# still Draft.
+LLM_AGENTS = (
+	(ASSESSOR, "a2a_test_safety_assessor", "ASSESSOR_PROMPT"),
+	(PARTS, "a2a_test_parts_checker", "PARTS_PROMPT"),
+	(LOGGER, "a2a_test_compliance_logger", "LOGGER_PROMPT"),
+	(DISPATCHER, "a2a_test_maintenance_dispatcher", "DISPATCHER_PROMPT"),
+)
+
+
+def _reserve_llm_agent(name: str, agent_id: str, prompt_name: str) -> None:
+	prompt = globals()[prompt_name]
+	if not frappe.db.exists("AI Agent Configuration", name):
 		agent = frappe.new_doc("AI Agent Configuration")
-		agent.agent_name = DISPATCHER
-		agent.agent_id = "a2a_test_maintenance_dispatcher"
+		agent.agent_name = name
+		agent.agent_id = agent_id
 		agent.agent_type = "Background"
 		agent.agent_framework = "Direct API"
 		agent.enabled = 1
@@ -597,11 +678,11 @@ def _reserve_dispatcher() -> None:
 		agent.insert(ignore_permissions=True)
 	frappe.db.set_value(
 		"AI Agent Configuration",
-		DISPATCHER,
+		name,
 		{
 			"ai_provider_credentials": PROVIDER,
 			"ai_model": MODEL,
-			"system_prompt": DISPATCHER_PROMPT,
+			"system_prompt": prompt,
 			"lifecycle_status": "Live",
 		},
 		update_modified=False,
@@ -611,38 +692,42 @@ def _reserve_dispatcher() -> None:
 def execute():
 	for name, body in SCRIPTS.items():
 		_upsert_script(name, body)
-	_reserve_dispatcher()
+	for agent_name, agent_id, prompt in LLM_AGENTS:
+		_reserve_llm_agent(agent_name, agent_id, prompt)
 
 	assessor_map = _upsert_model(
 		ASSESSOR,
 		"a2a_safety_assessor",
-		_single_step_worker_xml(
+		_llm_worker_xml(
 			"a2a_safety_assessor",
 			ASSESSOR,
-			"Classify the incident",
-			"A2A Scenario: Classify Incident",
+			"Judge how serious it is",
+			ASSESSOR_PROMPT,
+			"A2A Scenario: Record Verdict",
 			"Reads the report and returns Critical or Routine.",
 		),
 	)
 	parts_map = _upsert_model(
 		PARTS,
 		"a2a_parts_checker",
-		_single_step_worker_xml(
+		_llm_worker_xml(
 			"a2a_parts_checker",
 			PARTS,
 			"Check the store",
-			"A2A Scenario: Check Parts",
+			PARTS_PROMPT,
+			"A2A Scenario: Record Answer",
 			"Says whether the parts are in stock or have to be ordered.",
 		),
 	)
 	logger_map = _upsert_model(
 		LOGGER,
 		"a2a_compliance_logger",
-		_single_step_worker_xml(
+		_llm_worker_xml(
 			"a2a_compliance_logger",
 			LOGGER,
 			"Write the compliance note",
-			"A2A Scenario: Compliance Note",
+			LOGGER_PROMPT,
+			"A2A Scenario: Record Answer",
 			"Records a routine incident with no maintenance raised.",
 		),
 	)
@@ -685,19 +770,10 @@ def execute():
 		# still gets this agent's own answer to "how long do I need".
 		deadline_minutes=60,
 	)
-	# _upsert_agent writes the fixture's generic prompt over everything; the
-	# dispatcher is the one agent here that actually calls a model, so put its
-	# own prompt and credentials back.
-	frappe.db.set_value(
-		"AI Agent Configuration",
-		DISPATCHER,
-		{
-			"ai_provider_credentials": PROVIDER,
-			"ai_model": MODEL,
-			"system_prompt": DISPATCHER_PROMPT,
-		},
-		update_modified=False,
-	)
+	# _upsert_agent writes the fixture's generic prompt over everything, so every
+	# specialist that calls a model needs its own prompt and credentials put back.
+	for agent_name, agent_id, prompt_name in LLM_AGENTS:
+		_reserve_llm_agent(agent_name, agent_id, prompt_name)
 	_upsert_agent(
 		COORDINATOR,
 		"a2a_incident_coordinator",
