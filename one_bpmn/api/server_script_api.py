@@ -77,6 +77,20 @@ def _delegate_to_bpmn_instance(conversation_name: str, message: str, context: di
 			# caller surfaces the "reopen the chat" message rather than guessing.
 			return None
 
+	# What the conversation looked like BEFORE this turn, so we can tell what
+	# this turn actually produced. Without it the read-back below cannot
+	# distinguish "the map replied" from "the map produced nothing and the last
+	# reply is still the newest row" — and the second case silently re-served a
+	# previous answer as though it were this turn's.
+	_before = frappe.get_all(
+		"Chat Message",
+		filters={"conversation": conversation_name, "message_type": "Bot"},
+		fields=["name"],
+		order_by="creation desc",
+		limit=1,
+	)
+	reply_before = _before[0]["name"] if _before else None
+
 	payload = {
 		"user_text": message,
 		"sender": frappe.session.user,
@@ -129,7 +143,17 @@ def _delegate_to_bpmn_instance(conversation_name: str, message: str, context: di
 		order_by="creation desc",
 		limit=1,
 	)
-	if not rows:
+	if not rows or rows[0]["name"] == reply_before:
+		# This turn produced no reply of its own. Before reporting a dead
+		# process, check whether it PARKED: a designer-marked human tool
+		# suspends the run mid-turn. The instance is alive and correct — it is
+		# waiting for a person. Reported as "the process is not running, please
+		# reopen the chat" it read as a fault, and the caller's retry-then-re-arm
+		# recovery spawned a fresh process instance for every attempt
+		# (found under WI-001645).
+		parked = _parked_for_human(inst_name, conversation_name)
+		if parked:
+			return parked
 		return None
 
 	meta = {}
@@ -160,6 +184,48 @@ def _delegate_to_bpmn_instance(conversation_name: str, message: str, context: di
 	if run:
 		result["agent_run"] = run[0]["name"]
 	return result
+
+
+def _parked_for_human(inst_name: str, conversation_name: str) -> dict | None:
+	"""A reply describing the human step this turn is waiting on, or None.
+
+	Says what is pending and who has it, so the person in the chat knows the
+	work was not lost and does not sit re-sending the message.
+	"""
+	run = frappe.get_all(
+		"AI Agent Run",
+		filters={"instance": inst_name, "status": "Suspended"},
+		fields=["name", "pending_human_task"],
+		order_by="creation desc",
+		limit=1,
+	)
+	if not run:
+		return None
+
+	waiting = frappe.db.get_value("BPMN Process Instance", inst_name, "waiting_for_human") or ""
+	task = frappe.get_all(
+		"BPMN Active Task",
+		filters={"parent": inst_name, "status": "Waiting", "task_type": "AI Human Task"},
+		fields=["task_name", "assigned_user", "assigned_role"],
+		order_by="creation desc",
+		limit=1,
+	)
+	label = (task[0]["task_name"] if task else "") or waiting or _("a human step")
+	who = ""
+	if task:
+		who = task[0]["assigned_user"] or task[0]["assigned_role"] or ""
+
+	text = _("This needs a person to complete a step before I can continue: {0}.").format(label)
+	if who:
+		text += " " + _("It is waiting with {0}.").format(who)
+	text += " " + _("Your message is saved — I will carry on once it is released.")
+
+	return {
+		"response": text,
+		"bpmn_driven": True,
+		"awaiting_human": True,
+		"agent_run": run[0]["name"],
+	}
 
 
 def delegate_chat_turn(conversation_name: str, message: str, context: dict = None):

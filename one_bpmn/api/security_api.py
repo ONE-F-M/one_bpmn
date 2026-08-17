@@ -115,6 +115,7 @@ def can_manage() -> dict:
 	roles = set(frappe.get_roles())
 	return {
 		"edit_patterns": _can_edit_patterns(),
+		"edit_policies": _can_edit_policies(),
 		"release_locks": bool(roles & set(reviewer_roles() or [])) or "System Manager" in roles,
 		"read_events": bool(frappe.has_permission("AI Security Event", "read")),
 	}
@@ -357,6 +358,195 @@ def set_pattern_enabled(name: str, enabled: int) -> dict:
 	doc.enabled = 1 if int(enabled or 0) else 0
 	doc.save()
 	return {"name": doc.name, "enabled": int(doc.enabled)}
+
+
+# ── Tool policy rules (WI-001645) ────────────────────────────────────────────
+#
+# The pattern pack screens what is SAID to an agent. These rules govern what an
+# agent may DO — which tools it may call, which record types its arguments may
+# name, and what numeric bounds those arguments must respect. Same operation,
+# same screen, deliberately: a reviewer tuning one almost always wants to see
+# the other, and splitting them across two apps is how one of them stops being
+# maintained.
+
+def _can_edit_policies() -> bool:
+	return any(r in set(frappe.get_roles()) for r in PATTERN_EDIT_ROLES)
+
+
+def _require_policy_editor():
+	if not _can_edit_policies():
+		frappe.throw(
+			_("Editing tool policy rules is restricted to {0}.").format(
+				", ".join(PATTERN_EDIT_ROLES)
+			),
+			frappe.PermissionError,
+		)
+
+
+POLICY_FIELDS = (
+	"rule_name", "enabled", "category", "action",
+	"restricted_doctypes", "restricted_tools", "parameter_limits", "violation_message",
+)
+
+
+@frappe.whitelist()
+def list_policies(enabled_only: int = 0) -> dict:
+	"""Every rule with its full definition, plus the caller's edit right.
+
+	The whole rule travels, not a summary: the editor opens from this list and a
+	second fetch per row would buy nothing — the pack is small and a rule is a
+	handful of short text fields.
+	"""
+	frappe.has_permission("AI Tool Policy Rule", "read", throw=True)
+	filters = {"enabled": 1} if int(enabled_only or 0) else {}
+	rules = frappe.get_list(
+		"AI Tool Policy Rule",
+		filters=filters,
+		fields=["name", *POLICY_FIELDS, "modified"],
+		order_by="modified desc",
+		limit_page_length=0,
+	)
+	# Exemptions are a child table, so they need their own read. Fetched for the
+	# whole page in one query rather than per row.
+	names = [r["name"] for r in rules]
+	exempt = {}
+	if names:
+		for row in frappe.get_all(
+			"AI Tool Policy Exempt Agent",
+			filters={"parent": ["in", names], "parenttype": "AI Tool Policy Rule"},
+			fields=["parent", "agent_configuration", "reason"],
+			limit_page_length=0,
+		):
+			exempt.setdefault(row["parent"], []).append(
+				{"agent_configuration": row["agent_configuration"], "reason": row.get("reason") or ""}
+			)
+	for rule in rules:
+		rule["exempt_agents"] = exempt.get(rule["name"], [])
+	return {"policies": rules, "can_edit": _can_edit_policies()}
+
+
+@frappe.whitelist()
+def policy_options() -> dict:
+	"""Select options, agent names for the exemption picker, and the limit
+	grammar — served rather than mirrored in the Vue, for the same reason
+	pattern_options is: a hand-copied list rots silently.
+	"""
+	frappe.has_permission("AI Tool Policy Rule", "read", throw=True)
+	meta = frappe.get_meta("AI Tool Policy Rule")
+	out = {}
+	for fieldname in ("category", "action"):
+		df = meta.get_field(fieldname)
+		out[fieldname] = [o for o in ((df.options or "").split("\n") if df else []) if o]
+	out["agents"] = frappe.get_all(
+		"AI Agent Configuration", pluck="name", order_by="name", limit_page_length=0
+	)
+	out["limit_operators"] = ["<=", "<", ">=", ">"]
+	return out
+
+
+@frappe.whitelist()
+def save_policy(policy: str | dict = None, name: str = None) -> dict:
+	"""Create or update one rule. System Manager only.
+
+	Written through the document so the doctype's OWN validation runs — the
+	limit grammar is checked and a rule that matches nothing is refused. Those
+	checks are the reason the screen cannot store a rule that reads as enforcing
+	something it does not, so bypassing them with a db_set here would defeat the
+	control.
+	"""
+	_require_policy_editor()
+	if isinstance(policy, str):
+		policy = frappe.parse_json(policy) or {}
+	policy = policy or {}
+	name = name or policy.get("name")
+
+	doc = (
+		frappe.get_doc("AI Tool Policy Rule", name)
+		if name
+		else frappe.new_doc("AI Tool Policy Rule")
+	)
+	for field in POLICY_FIELDS:
+		if field in policy:
+			doc.set(field, policy[field])
+
+	if "exempt_agents" in policy:
+		doc.set("exempt_agents", [])
+		for row in policy.get("exempt_agents") or []:
+			agent = (row or {}).get("agent_configuration")
+			if agent:
+				doc.append(
+					"exempt_agents",
+					{"agent_configuration": agent, "reason": (row.get("reason") or "").strip()},
+				)
+	doc.save()
+	return {"name": doc.name, "enabled": int(doc.enabled or 0)}
+
+
+@frappe.whitelist()
+def set_policy_enabled(name: str, enabled: int) -> dict:
+	"""Enable or disable one rule without sending the whole thing back — the
+	action a reviewer reaches for most.
+
+	Goes through save() rather than db_set so the doctype clears the rule cache;
+	rules are read on every tool call, and a toggle that took effect at the next
+	cache expiry would look like it had not worked.
+	"""
+	_require_policy_editor()
+	doc = frappe.get_doc("AI Tool Policy Rule", name)
+	doc.enabled = 1 if int(enabled or 0) else 0
+	doc.save()
+	return {"name": doc.name, "enabled": int(doc.enabled)}
+
+
+@frappe.whitelist()
+def delete_policy(name: str) -> dict:
+	"""Remove a rule. Deliberately available: a rule that can only be disabled
+	accumulates, and a long list of dead rules is how a live one gets missed."""
+	_require_policy_editor()
+	frappe.delete_doc("AI Tool Policy Rule", name)
+	return {"deleted": name}
+
+
+@frappe.whitelist()
+def policy_violations(limit: int = 20) -> dict:
+	"""Recent blocks, so the tab answers "is any of this actually firing?".
+
+	Read from the Error Log the interceptor already writes to. It is not a
+	purpose-built store and this does not pretend otherwise — it is a tail, not
+	a report, and it is honest about being one.
+
+	Two lists, because they are two different things and mixing them made a
+	misconfigured rule read as a working one. A refusal is the control doing its
+	job. An "unreadable parameter limit" is a ceiling that reads as enforced and
+	is NOT — nothing was blocked, and somebody has to go and fix the rule.
+	"""
+	frappe.has_permission("AI Tool Policy Rule", "read", throw=True)
+	try:
+		limit = max(1, min(int(limit or 20), 100))
+	except (TypeError, ValueError):
+		limit = 20
+
+	def tail(patterns, cap):
+		rows = frappe.get_all(
+			"Error Log",
+			filters={"method": ["like", patterns]},
+			fields=["name", "method", "creation", "error"],
+			order_by="creation desc",
+			limit_page_length=cap,
+		)
+		return rows
+
+	return {
+		"blocks": tail("AI Tool Policy: deny%", limit),
+		# Everything else the module logs is a rule that could not be applied:
+		# an unreadable limit line, a failed rule load, an evaluation error. All
+		# of them mean less enforcement than the list above implies.
+		"problems": [
+			r
+			for r in tail("AI Tool Policy:%", limit * 3)
+			if not r["method"].startswith("AI Tool Policy: deny")
+		][:limit],
+	}
 
 
 # ── Locked conversations ─────────────────────────────────────────────────────
