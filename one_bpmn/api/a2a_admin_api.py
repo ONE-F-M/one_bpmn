@@ -125,6 +125,10 @@ def list_tasks(
 			"delegated_by",
 			"agent_configuration",
 			"instance",
+			# The whole story of one handoff, for the expandable row: what was
+			# asked, what came back, and the two instances involved.
+			"caller_instance",
+			"request_payload",
 			"delegation_depth",
 			"handoff_count",
 			"task_execution_id",

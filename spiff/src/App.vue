@@ -167,14 +167,16 @@
 						$route.path.startsWith('/processa/a2a') ? 'bg-gray-900 text-white shadow-md' : 'text-gray-600 hover:bg-gray-100 hover:text-gray-900'
 					]"
 					@click="isMobileMenuOpen = false"
-					:title="collapsed ? 'Agent Collaboration' : ''"
+					:title="collapsed ? 'A2A' : ''"
 				>
 					<Icon icon="lucide:share-2" class="w-5 h-5 shrink-0" />
+					<!-- "A2A", not "Agent Collaboration": the long label was clipped
+					     by the sidebar width, and A2A is what everyone calls it. -->
 					<span
 						class="text-sm font-semibold whitespace-nowrap transition-opacity duration-200 overflow-hidden"
 						:class="collapsed ? 'opacity-0 w-0' : 'opacity-100 w-auto'"
 					>
-						Agent Collaboration
+						A2A
 					</span>
 				</router-link>
 			</nav>

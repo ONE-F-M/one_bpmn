@@ -243,30 +243,70 @@
 						</tr>
 					</thead>
 					<tbody>
-						<tr v-for="t in a2aTasks" :key="t.name" class="border-t">
-							<td class="px-4 py-2">
-								<Badge :theme="directionTheme(t.direction)">{{ t.direction }}</Badge>
-							</td>
-							<td class="px-4 py-2 text-gray-600">{{ initiator(t) }}</td>
-							<td class="px-4 py-2 text-gray-600">{{ t.agent_configuration || "—" }}</td>
-							<td class="px-4 py-2">
-								<Badge :theme="stateTheme(t.state)">{{ t.state }}</Badge>
-								<div v-if="t.error_message" class="text-xs text-red-600 mt-0.5">
-									{{ t.error_message }}
-								</div>
-							</td>
-							<td class="px-4 py-2 text-gray-600">
-								{{ t.delegation_depth }} / {{ t.handoff_count }}
-							</td>
-							<td class="px-4 py-2 text-gray-600 text-xs">
-								<span v-if="t.pending_human_task">a person</span>
-								<span v-else-if="t.next_poll_at && !isTerminal(t.state)">
-									next check {{ t.next_poll_at }}
-								</span>
-								<span v-else class="text-gray-400">—</span>
-							</td>
-							<td class="px-4 py-2 text-gray-500 text-xs">{{ t.creation }}</td>
-						</tr>
+						<template v-for="t in a2aTasks" :key="t.name">
+							<tr
+								class="border-t cursor-pointer hover:bg-gray-50"
+								@click="expandedTask = expandedTask === t.name ? '' : t.name"
+							>
+								<td class="px-4 py-2">
+									<Badge :theme="directionTheme(t.direction)">{{ t.direction }}</Badge>
+								</td>
+								<td class="px-4 py-2 text-gray-600">{{ initiator(t) }}</td>
+								<td class="px-4 py-2 text-gray-600">{{ t.agent_configuration || "—" }}</td>
+								<td class="px-4 py-2">
+									<Badge :theme="stateTheme(t.state)">{{ t.state }}</Badge>
+									<div v-if="t.error_message" class="text-xs text-red-600 mt-0.5">
+										{{ t.error_message }}
+									</div>
+								</td>
+								<td class="px-4 py-2 text-gray-600">
+									{{ t.delegation_depth }} / {{ t.handoff_count }}
+								</td>
+								<td class="px-4 py-2 text-gray-600 text-xs">
+									<span v-if="t.pending_human_task">a person</span>
+									<span v-else-if="t.next_poll_at && !isTerminal(t.state)">
+										next check {{ t.next_poll_at }}
+									</span>
+									<span v-else class="text-gray-400">—</span>
+								</td>
+								<td class="px-4 py-2 text-gray-500 text-xs">{{ t.creation }}</td>
+							</tr>
+							<!-- The full story of one handoff. Click the row to open. -->
+							<tr v-if="expandedTask === t.name" class="border-t bg-gray-50">
+								<td colspan="7" class="px-6 py-4">
+									<div class="grid gap-3 md:grid-cols-2 text-sm">
+										<div>
+											<div class="text-xs uppercase text-gray-400 mb-1">What was asked</div>
+											<div class="text-gray-800 whitespace-pre-wrap">{{ taskBrief(t) || "—" }}</div>
+										</div>
+										<div>
+											<div class="text-xs uppercase text-gray-400 mb-1">Answer</div>
+											<div class="text-gray-800 whitespace-pre-wrap">
+												{{ t.status_message || t.error_message || "no answer yet" }}
+											</div>
+										</div>
+									</div>
+									<div class="flex flex-wrap gap-x-6 gap-y-1 mt-4 text-xs text-gray-600">
+										<span>
+											Task:
+											<a :href="`/app/a2a-task/${t.name}`" target="_blank" class="text-blue-600 hover:underline">{{ t.name }}</a>
+										</span>
+										<span v-if="t.instance">
+											Doing the work:
+											<router-link :to="`/processa/instances/${t.instance}`" class="text-blue-600 hover:underline">{{ t.instance }}</router-link>
+										</span>
+										<span v-if="t.caller_instance">
+											Waiting for it:
+											<router-link :to="`/processa/instances/${t.caller_instance}`" class="text-blue-600 hover:underline">{{ t.caller_instance }}</router-link>
+										</span>
+										<span v-if="t.task_execution_id">Chain: {{ t.task_execution_id }}</span>
+										<span>Started: {{ t.creation }}</span>
+										<span v-if="t.completed_at">Finished: {{ t.completed_at }}</span>
+										<span v-if="t.deadline && !isTerminal(t.state)">Deadline: {{ t.deadline }}</span>
+									</div>
+								</td>
+							</tr>
+						</template>
 						<tr v-if="!a2aTasks.length">
 							<td colspan="7" class="px-4 py-6 text-center text-gray-500">
 								No tasks yet.
@@ -509,6 +549,18 @@ function directionTheme(direction) {
 	if (direction === "Inbound") return "blue"
 	if (direction === "Outbound") return "green"
 	return "gray" // Internal — never crossed a trust boundary
+}
+
+const expandedTask = ref("")
+
+function taskBrief(task) {
+	// The instruction the caller sent, stored as JSON on the row.
+	try {
+		const payload = JSON.parse(task.request_payload || "{}")
+		return payload.instruction || payload.text || ""
+	} catch (e) {
+		return task.request_payload || ""
+	}
 }
 
 function initiator(task) {
