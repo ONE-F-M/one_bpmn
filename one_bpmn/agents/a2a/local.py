@@ -113,7 +113,29 @@ def delegate(
 	)
 	# Always enforced, even with no delegating agent to attribute it to: the
 	# target still has to be one that accepts agent-to-agent work.
-	guardrails.enforce(delegating_agent, config.name, counters)
+	try:
+		guardrails.enforce(delegating_agent, config.name, counters)
+	except guardrails.DelegationRefused as refusal:
+		# A limit breach leaves a failed task and tells a person (WI-002008);
+		# an off-the-list target is a configuration mistake that never became
+		# work, so it just refuses.
+		breach = guardrails.record_limit_breach(
+			refusal,
+			delegating_agent=delegating_agent,
+			target=config.name,
+			instance=caller_instance,
+			caller_wf_task_id=caller_wf_task_id,
+			bpmn_id=bpmn_id,
+			counters=counters,
+		)
+		if breach:
+			guardrails.notify_refusal(
+				refusal,
+				delegating_agent=delegating_agent,
+				instance=caller_instance,
+				a2a_task=breach,
+			)
+		raise
 
 	task = frappe.get_doc(
 		{

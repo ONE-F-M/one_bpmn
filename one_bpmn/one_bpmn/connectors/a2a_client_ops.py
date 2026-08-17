@@ -125,7 +125,26 @@ def delegate_task(params: dict, ctx: dict) -> dict | None:
 	# The gate. A refusal is a plain-language failure, not a crash: it
 	# reaches whoever is watching the process.
 	if agent_configuration:
-		guardrails.enforce(agent_configuration, sub_agent, counters)
+		try:
+			guardrails.enforce(agent_configuration, sub_agent, counters)
+		except guardrails.DelegationRefused as refusal:
+			breach = guardrails.record_limit_breach(
+				refusal,
+				delegating_agent=agent_configuration,
+				target=sub_agent,
+				instance=getattr(instance, "name", None),
+				caller_wf_task_id=str(task.id) if task is not None else None,
+				bpmn_id=_bpmn_id(task),
+				counters=counters,
+			)
+			if breach:
+				guardrails.notify_refusal(
+					refusal,
+					delegating_agent=agent_configuration,
+					instance=getattr(instance, "name", None),
+					a2a_task=breach,
+				)
+			raise
 
 	a2a_task = _create_outbound_task(
 		remote, instance, task, agent_configuration, instruction, counters, params
