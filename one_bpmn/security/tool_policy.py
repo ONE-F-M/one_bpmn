@@ -8,17 +8,18 @@ question — "should the AGENT do it" — and answers it *before* the tool runs,
 from rules that are data, not prompt text. An agent that has been talked into
 calling a dangerous tool is stopped by code, not by its own good judgement.
 
-Three rule groups:
+Two rule groups, both carried by AI Tool Policy Rule:
 
   * **Restricted targets** — a call whose arguments name a protected DocType
     (identity/permissions, code-execution surface, payroll, …) is refused.
   * **Parameter limits** — numeric bounds on the argument VALUES themselves
     ("amount <= 5000"), so a permitted tool cannot be called with any figure at
     all.
-  * **Per-agent tool grant** — an agent may be restricted to an explicit list of
-    tools, enforced at runtime and therefore independent of what its diagram
-    happens to grant. If someone adds a risky shape to the map, policy still
-    holds.
+
+Which tools an agent may call at all is NOT policy's concern: that is what the
+agent's diagram grants, and duplicating it here as a second list meant two
+places to keep in step, with a runtime denial of a tool the map legitimately
+offers looking like a bug rather than a decision.
 
 REFUSING IS THE ONLY ACTION
 ---------------------------
@@ -99,14 +100,25 @@ class PolicyDecision:
 	def as_tool_result(self) -> str:
 		"""The string handed back to the model in place of the tool's output.
 
-		Deliberately says WHAT was refused and WHY, without naming the rule's
-		internals — enough for the model to choose a different approach, not
-		enough to help it probe the policy.
+		Says WHAT was refused and WHY, without naming the rule's internals —
+		enough for the model to explain itself, not enough to help it probe the
+		policy.
+
+		Telling the user is MANDATORY, and working around the block is
+		forbidden. The earlier wording offered "either take a different approach
+		or tell the user", and a model handed a blocked `add_numbers(9000, 1)`
+		took the first branch: it did the arithmetic itself and replied "9001"
+		with no mention that anything had been refused. The control had worked —
+		the tool never ran — and the person reading the chat could not tell.
+		A block nobody is told about is indistinguishable from no block at all,
+		and on a real tool the substitute answer would be a fabricated result.
 		"""
 		return (
 			f"Blocked by policy: {self.reason} "
-			"This action was not performed. Do not retry it; either take a "
-			"different approach or tell the user it requires a person."
+			"This action was NOT performed. Do not retry it, and do not work "
+			"around it — you must not perform this action yourself by another "
+			"means, or answer as if it had succeeded. Tell the user plainly "
+			"that it was blocked and repeat the reason above."
 		)
 
 
@@ -326,25 +338,14 @@ def evaluate(tool_name: str, arguments: dict, agent_config: str | None = None) -
 	agent_config = agent_config or current_agent()
 	tool_lower = (tool_name or "").lower()
 
-	# 1. Per-agent tool grant (rule group 2). Enforced at runtime, so it holds
-	#    even if the agent's diagram is edited to grant something extra.
-	allowlist = _agent_allowlist(agent_config)
-	if allowlist is not None and tool_lower not in allowlist:
-		return PolicyDecision(
-			outcome=DENY,
-			reason=f"the agent is not permitted to use the '{tool_name}' tool.",
-			rule=f"agent-tool-grant:{agent_config}",
-		)
-
-	# 2. Restricted targets (rule group 1).
 	for rule in load_rules():
 		if agent_config and agent_config in rule["exempt_agents"]:
 			continue
 		if rule["tools"] and tool_lower not in rule["tools"]:
 			continue  # rule is scoped to other tools
-		# 2a. Numeric bounds on the arguments themselves — the transaction
-		#     ceiling half of the control. Checked before the DocType match so a
-		#     rule may carry either, or both.
+		# Numeric bounds on the arguments themselves — the transaction ceiling
+		# half of the control. Checked before the DocType match so a rule may
+		# carry either, or both.
 		breach = _breaches_parameter_limit(arguments, rule.get("limits") or [])
 		if breach:
 			reason = rule["message"] or f"{breach}."
@@ -375,34 +376,6 @@ def _decide(rule: dict, reason: str) -> PolicyDecision:
 		reason=reason,
 		rule=rule["name"],
 	)
-
-
-def _agent_allowlist(agent_config: str | None) -> set | None:
-	"""Lower-cased allowed tool names for an agent, or None when unrestricted.
-
-	None (not an empty set) means "no restriction configured" — an empty set
-	would mean "this agent may call nothing", which is a very different thing.
-	"""
-	if not agent_config:
-		return None
-	try:
-		if not frappe.db.exists("AI Agent Configuration", agent_config):
-			return None
-		if not frappe.db.get_value("AI Agent Configuration", agent_config, "restrict_tools"):
-			return None
-		names = frappe.get_all(
-			"AI Agent Allowed Tool",
-			filters={"parent": agent_config, "parenttype": "AI Agent Configuration"},
-			pluck="tool_name",
-		)
-		return {n.strip().lower() for n in names if n and n.strip()}
-	except Exception:
-		frappe.log_error(
-			title=f"AI Tool Policy: allowlist load failed ({agent_config})",
-			message=frappe.get_traceback(),
-		)
-		# Fail closed for this agent rather than silently granting everything.
-		return set()
 
 
 # ── The interceptor itself ──────────────────────────────────────────────────

@@ -92,6 +92,34 @@ class TestPolicyEvaluation(FrappeTestCase):
 		self.assertEqual(tp._ACTION_BY_LABEL.get("anything at all", tp.DENY), tp.DENY)
 
 
+class TestWhatTheModelIsTold(FrappeTestCase):
+	"""The refusal text is the only thing standing between a block and a user
+	who never learns about it."""
+
+	def test_the_reason_travels_to_the_model(self):
+		decision = tp.PolicyDecision(outcome=tp.DENY, reason="payments need a person.", rule="R")
+		self.assertIn("payments need a person.", decision.as_tool_result())
+
+	def test_it_forbids_working_around_the_block(self):
+		"""Observed live: handed a blocked add_numbers(9000, 1), the model did
+		the arithmetic itself and answered "9001" without mentioning that
+		anything had been refused. The tool never ran — the control worked — but
+		nobody reading the chat could tell, and on a real tool the substitute
+		would be a fabricated result."""
+		text = tp.PolicyDecision(outcome=tp.DENY, reason="nope.", rule="R").as_tool_result().lower()
+		self.assertIn("not performed", text)
+		self.assertIn("do not work", text)
+		self.assertIn("tell the user", text)
+
+	def test_it_does_not_leak_the_rule_internals(self):
+		"""Enough for the model to explain itself, not enough to probe the
+		policy: the rule name, the bound and the matched DocType stay out."""
+		decision = tp.PolicyDecision(
+			outcome=tp.DENY, reason="that is not allowed.", rule="Secret Rule Name"
+		)
+		self.assertNotIn("Secret Rule Name", decision.as_tool_result())
+
+
 class TestAgentScoping(FrappeTestCase):
 	def setUp(self):
 		_make_rule()
