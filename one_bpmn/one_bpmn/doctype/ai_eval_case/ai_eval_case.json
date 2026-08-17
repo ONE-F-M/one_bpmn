@@ -12,6 +12,7 @@
   "case_kind",
   "source_run",
   "source_security_event",
+  "source_feedback",
   "process_model",
   "bpmn_id",
   "input_user_prompt",
@@ -91,6 +92,14 @@
    "fieldtype": "Link",
    "label": "Source Security Event",
    "options": "AI Security Event",
+   "read_only": 1
+  },
+  {
+   "description": "The user complaint this test came from. Same pattern as source_run and source_security_event: a production signal, kept traceable to the case it produced.",
+   "fieldname": "source_feedback",
+   "fieldtype": "Link",
+   "label": "Source Feedback",
+   "options": "AI Response Feedback",
    "read_only": 1
   }
  ],

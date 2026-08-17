@@ -188,6 +188,135 @@
 				</div>
 			</section>
 
+			<!-- ── Tool policy ────────────────────────────────────────────── -->
+			<section v-show="tab === 'policies'" class="space-y-4">
+				<div class="bg-white rounded-lg shadow-sm p-4 flex items-start justify-between gap-4">
+					<p class="text-sm text-gray-600">
+						What an agent may <span class="font-medium">do</span>. Every tool call is checked
+						against these before it runs — which tools the agent may use, which record types
+						its arguments may name, and the numeric bounds those arguments must respect.
+						<span v-if="!can.edit_policies" class="text-gray-500">
+							You can read the rules; editing them is restricted to System Manager.
+						</span>
+					</p>
+					<Button v-if="can.edit_policies" variant="solid" class="shrink-0" @click="editPolicy(null)">
+						<template #prefix><FeatherIcon name="plus" class="w-4 h-4" /></template>
+						New policy
+					</Button>
+				</div>
+
+				<div class="bg-white rounded-lg shadow-sm overflow-hidden">
+					<div v-if="loading.policies" class="p-6 text-sm text-gray-500">Loading policies…</div>
+					<div v-else-if="!policies.length" class="p-6 text-sm text-gray-500">
+						No policy rules yet. Until one exists, agents are limited only by what their
+						diagrams grant them.
+					</div>
+					<table v-else class="w-full text-sm">
+						<thead class="bg-gray-50 text-xs text-gray-500 uppercase tracking-wide">
+							<tr>
+								<th class="text-left px-4 py-2 font-medium w-20">Enabled</th>
+								<th class="text-left px-4 py-2 font-medium">Rule</th>
+								<th class="text-left px-4 py-2 font-medium">Applies to</th>
+								<th class="text-left px-4 py-2 font-medium">Bounds</th>
+								<th class="text-left px-4 py-2 font-medium">Action</th>
+								<th class="text-left px-4 py-2 font-medium"></th>
+							</tr>
+						</thead>
+						<tbody>
+							<tr v-for="p in policies" :key="p.name" class="border-t align-top">
+								<td class="px-4 py-2">
+									<input
+										type="checkbox"
+										:checked="p.enabled"
+										:disabled="!can.edit_policies || busyPolicy === p.name"
+										@change="togglePolicy(p, $event.target.checked)"
+									/>
+								</td>
+								<td class="px-4 py-2">
+									<div class="text-gray-900">{{ p.rule_name }}</div>
+									<div v-if="p.category" class="text-xs text-gray-400">{{ p.category }}</div>
+									<div v-if="p.exempt_agents && p.exempt_agents.length" class="text-xs text-amber-700 mt-0.5">
+										Exempt: {{ p.exempt_agents.map((a) => a.agent_configuration).join(", ") }}
+									</div>
+								</td>
+								<td class="px-4 py-2 text-gray-600">
+									<!-- An empty tool scope means EVERY tool, which is the one thing a
+									     reviewer must not have to infer from a blank cell. -->
+									<div v-if="lines(p.restricted_tools).length" class="font-mono text-xs">
+										{{ lines(p.restricted_tools).join(", ") }}
+									</div>
+									<div v-else class="text-xs text-amber-700">every tool</div>
+									<div v-if="lines(p.restricted_doctypes).length" class="text-xs text-gray-500 mt-0.5">
+										on {{ lines(p.restricted_doctypes).join(", ") }}
+									</div>
+								</td>
+								<td class="px-4 py-2">
+									<div
+										v-for="l in lines(p.parameter_limits)"
+										:key="l"
+										class="font-mono text-xs text-gray-700"
+									>{{ l }}</div>
+									<span v-if="!lines(p.parameter_limits).length" class="text-xs text-gray-400">—</span>
+								</td>
+								<td class="px-4 py-2">
+									<span class="text-xs px-2 py-0.5 rounded-full bg-red-50 text-red-700">Deny</span>
+								</td>
+								<td class="px-4 py-2 text-right whitespace-nowrap">
+									<Button v-if="can.edit_policies" variant="ghost" @click="editPolicy(p)">Edit</Button>
+								</td>
+							</tr>
+						</tbody>
+					</table>
+				</div>
+
+				<!-- Proof the rules are live. Without it the tab shows intent and
+				     never evidence, and a rule that silently matches nothing looks
+				     exactly like one that is working. -->
+				<!-- A rule that could not be APPLIED is not the same as a rule
+				     firing, and showing them in one list made a broken ceiling
+				     read as a working one. This one goes first because it is
+				     the one that needs somebody. -->
+				<div v-if="policyProblems.length" class="bg-white rounded-lg shadow-sm overflow-hidden border border-amber-200">
+					<div class="px-4 py-3 border-b bg-amber-50">
+						<h3 class="text-sm font-medium text-amber-900">Rules that could not be applied</h3>
+						<p class="text-xs text-amber-800">
+							Nothing was blocked by these. A limit line the interceptor cannot read is a
+							ceiling that looks enforced and is not — open the rule and fix it.
+						</p>
+					</div>
+					<div v-for="v in policyProblems" :key="v.name" class="border-t px-4 py-2">
+						<div class="flex items-baseline gap-2">
+							<span class="text-xs text-gray-400 whitespace-nowrap">{{ shortTime(v.creation) }}</span>
+							<span class="text-sm text-gray-900">{{ v.method }}</span>
+						</div>
+						<pre class="text-xs text-gray-500 whitespace-pre-wrap mt-1 max-h-20 overflow-auto">{{ v.error }}</pre>
+					</div>
+				</div>
+
+				<div class="bg-white rounded-lg shadow-sm overflow-hidden">
+					<div class="px-4 py-3 border-b flex items-center justify-between">
+						<div>
+							<h3 class="text-sm font-medium text-gray-900">Recent blocks</h3>
+							<p class="text-xs text-gray-500">
+								The last calls these rules stopped. Read from the Error Log the interceptor
+								writes to — a tail, not a report.
+							</p>
+						</div>
+						<Button variant="ghost" @click="loadViolations">Refresh</Button>
+					</div>
+					<div v-if="!policyBlocks.length" class="p-4 text-sm text-gray-500">
+						Nothing has been blocked yet.
+					</div>
+					<div v-for="v in policyBlocks" :key="v.name" class="border-t px-4 py-2">
+						<div class="flex items-baseline gap-2">
+							<span class="text-xs text-gray-400 whitespace-nowrap">{{ shortTime(v.creation) }}</span>
+							<span class="text-sm text-gray-900">{{ v.method }}</span>
+						</div>
+						<pre class="text-xs text-gray-500 whitespace-pre-wrap mt-1 max-h-24 overflow-auto">{{ v.error }}</pre>
+					</div>
+				</div>
+			</section>
+
 			<!-- ── Locked conversations ───────────────────────────────────── -->
 			<section v-show="tab === 'locks'" class="space-y-4">
 				<div class="bg-white rounded-lg shadow-sm overflow-hidden">
@@ -331,6 +460,149 @@
 			</template>
 		</Dialog>
 
+		<!-- ── Policy editor ──────────────────────────────────────────────── -->
+		<Dialog
+			:modelValue="!!policyDraft"
+			:options="{ title: policyDraft && policyDraft.name ? 'Edit policy' : 'New policy', size: '3xl' }"
+			@update:modelValue="(v) => { if (!v) policyDraft = null }"
+		>
+			<template #body-content>
+				<div v-if="policyDraft" class="space-y-5">
+					<div class="grid grid-cols-2 gap-4">
+						<FormControl type="text" label="Rule name" v-model="policyDraft.rule_name" />
+						<FormControl type="select" label="Category" v-model="policyDraft.category" :options="policyEnumOptions.category" />
+					</div>
+
+					<!-- What it matches. Either criterion is enough — a rule may bound
+					     WHAT a tool acts on, HOW MUCH it acts with, or both. -->
+					<div class="border rounded-lg p-4 space-y-4">
+						<div>
+							<h4 class="text-sm font-medium text-gray-900">What this rule matches</h4>
+							<p class="text-xs text-gray-500">
+								Set at least one. A rule that matches nothing cannot be saved.
+							</p>
+						</div>
+						<FormControl
+							type="textarea"
+							label="Only these tools"
+							:rows="2"
+							v-model="policyDraft.restricted_tools"
+							class="font-mono"
+							placeholder="add_numbers"
+						/>
+						<p class="-mt-2 text-xs" :class="policyDraft.restricted_tools ? 'text-gray-500' : 'text-amber-700'">
+							One tool name per line.
+							{{ policyDraft.restricted_tools
+								? "Only these tools are checked."
+								: "Empty means EVERY tool every agent calls — usually not what you want alongside a numeric bound." }}
+						</p>
+						<div class="grid grid-cols-2 gap-4">
+							<FormControl
+								type="textarea"
+								label="Restricted DocTypes"
+								:rows="3"
+								v-model="policyDraft.restricted_doctypes"
+								placeholder="Salary Slip"
+							/>
+							<FormControl
+								type="textarea"
+								label="Parameter limits"
+								:rows="3"
+								v-model="policyDraft.parameter_limits"
+								class="font-mono"
+								placeholder="amount <= 5000"
+							/>
+						</div>
+						<p class="-mt-2 text-xs text-gray-500">
+							One per line. DocTypes are matched whole, at any depth in the arguments.
+							Limits are written <code>parameter &lt;= number</code> using
+							{{ (policyOptions.limit_operators || []).join(", ") }} — nothing else is
+							evaluated, so a rule can never run code.
+						</p>
+					</div>
+
+					<!-- What happens. Refusing is the only action, so this is a
+					     statement rather than a choice — a one-option dropdown
+					     implies alternatives that do not exist. -->
+					<div class="border rounded-lg p-4 space-y-4">
+						<div>
+							<h4 class="text-sm font-medium text-gray-900">What happens when it matches</h4>
+							<p class="text-xs text-gray-500">
+								The call is aborted before the tool runs and the agent is told why, so it
+								can take a different approach or tell the user.
+							</p>
+						</div>
+						<FormControl
+							type="textarea"
+							label="Violation message"
+							:rows="2"
+							v-model="policyDraft.violation_message"
+							placeholder="Payments above KD 5,000 need a person."
+						/>
+						<p class="-mt-2 text-xs text-gray-500">
+							What the agent is told, and what it repeats to the user. Leave empty for a
+							generated one.
+						</p>
+					</div>
+
+					<!-- Exemptions. -->
+					<div class="border rounded-lg p-4 space-y-3">
+						<div class="flex items-center justify-between">
+							<div>
+								<h4 class="text-sm font-medium text-gray-900">Exempt agents</h4>
+								<p class="text-xs text-gray-500">Agents this rule does not apply to.</p>
+							</div>
+							<Button variant="subtle" @click="addExempt">
+								<template #prefix><FeatherIcon name="plus" class="w-4 h-4" /></template>
+								Add
+							</Button>
+						</div>
+						<div
+							v-for="(row, i) in policyDraft.exempt_agents"
+							:key="i"
+							class="flex gap-2 items-start"
+						>
+							<FormControl
+								type="autocomplete"
+								class="flex-1"
+								:options="agentOptionsForPolicy"
+								:modelValue="row.agent_configuration"
+								@update:modelValue="(v) => (row.agent_configuration = v?.value ?? v ?? '')"
+							/>
+							<FormControl
+								type="text"
+								class="flex-1"
+								v-model="row.reason"
+								placeholder="Why is it exempt?"
+							/>
+							<Button variant="ghost" @click="policyDraft.exempt_agents.splice(i, 1)">
+								<FeatherIcon name="x" class="w-4 h-4" />
+							</Button>
+						</div>
+					</div>
+
+					<FormControl type="checkbox" label="Enabled" v-model="policyEnabled" />
+					<ErrorMessage :message="policyError" />
+				</div>
+			</template>
+			<template #actions>
+				<div class="flex justify-between gap-2">
+					<Button
+						v-if="policyDraft && policyDraft.name"
+						variant="subtle"
+						theme="red"
+						:loading="deletingPolicy"
+						@click="deletePolicy"
+					>Delete</Button>
+					<span v-else></span>
+					<span class="flex gap-2">
+						<Button variant="subtle" @click="policyDraft = null">Cancel</Button>
+						<Button variant="solid" :loading="savingPolicy" @click="savePolicy">Save policy</Button>
+					</span>
+				</div>
+			</template>
+		</Dialog>
+
 		<!-- ── Release dialog ─────────────────────────────────────────────── -->
 		<Dialog
 			:modelValue="!!releasing"
@@ -383,8 +655,8 @@ import { Button, Dialog, ErrorMessage, FeatherIcon, FormControl, frappeRequest }
 const API = "/api/method/one_bpmn.api.security_api."
 
 const tab = ref("events")
-const can = ref({ edit_patterns: false, release_locks: false, read_events: true })
-const loading = reactive({ events: false, patterns: false, locks: false })
+const can = ref({ edit_patterns: false, edit_policies: false, release_locks: false, read_events: true })
+const loading = reactive({ events: false, patterns: false, locks: false, policies: false })
 
 const events = ref([])
 const total = ref(0)
@@ -432,6 +704,17 @@ const patternDraft = ref(null)
 const savingPattern = ref(false)
 const patternError = ref("")
 const busyPattern = ref("")
+
+// WI-001645: what an agent may DO, alongside what may be said to it.
+const policies = ref([])
+const policyDraft = ref(null)
+const savingPolicy = ref(false)
+const deletingPolicy = ref(false)
+const policyError = ref("")
+const busyPolicy = ref("")
+const policyOptions = ref({ category: [], agents: [], limit_operators: [] })
+const policyBlocks = ref([])
+const policyProblems = ref([])
 
 const releasing = ref(null)
 const releaseNotes = ref("")
@@ -492,9 +775,22 @@ const detailFields = computed(() => {
 	]
 })
 
+const policyEnumOptions = computed(() => ({
+	category: (policyOptions.value.category || []).map((v) => ({ label: v, value: v })),
+}))
+const agentOptionsForPolicy = computed(() =>
+	(policyOptions.value.agents || []).map((v) => ({ label: v, value: v }))
+)
+// The doctype stores enabled as 1/0; a checkbox is a boolean.
+const policyEnabled = computed({
+	get: () => Boolean(policyDraft.value && policyDraft.value.enabled),
+	set: (v) => { if (policyDraft.value) policyDraft.value.enabled = v ? 1 : 0 },
+})
+
 const tabs = computed(() => [
 	{ key: "events", label: "Events", count: total.value || null },
 	{ key: "patterns", label: "Pattern pack", count: patterns.value.length || null },
+	{ key: "policies", label: "Tool policy", count: policies.value.filter((p) => p.enabled).length || null },
 	{ key: "locks", label: "Locked conversations", count: locks.value.filter((l) => l.status === "Locked").length || null },
 ])
 
@@ -511,6 +807,14 @@ function actionClass(a) {
 	if (a === "Block") return "bg-red-50 text-red-700"
 	if (a === "Flag") return "bg-amber-50 text-amber-700"
 	return "bg-gray-100 text-gray-600"
+}
+// The doctype stores these as newline-separated text; every cell that shows one
+// needs the same split, so it lives here rather than in five templates.
+function lines(v) {
+	return String(v || "")
+		.split("\n")
+		.map((x) => x.trim())
+		.filter(Boolean)
 }
 function sevClass(s) {
 	if (s === "Critical") return "bg-red-50 text-red-700"
@@ -574,9 +878,17 @@ async function promote() {
 		suiteChoices.value = []
 		// Saying WHICH of the two happened matters: clicking twice otherwise looks
 		// like the first click failed.
+		// A new adversarial suite may have been made for this agent on the way
+		// through. That is a new go-live gate, so it is said out loud rather than
+		// left for the reviewer to discover in the Evals screen.
+		const where = r.suite_created
+			? ` in a new adversarial suite, ${r.suite_title || r.suite}.`
+			: r.suite_title
+				? ` in ${r.suite_title}.`
+				: "."
 		promoteNote.value = r.already_promoted
 			? "Already promoted — showing the existing case."
-			: `Created eval case ${r.case}.`
+			: `Created eval case ${r.case}${where}`
 	} catch (e) {
 		promoteError.value = true
 		promoteNote.value = e?.messages?.join("\n") || e?.message || String(e)
@@ -585,7 +897,7 @@ async function promote() {
 		if (/suite/i.test(promoteNote.value) && !suiteChoices.value.length) {
 			suiteChoices.value = (await call("suites_for_event", { event: openedEvent.value.name }).catch(() => [])) || []
 			if (suiteChoices.value.length) {
-				promoteNote.value = "This agent has more than one suite — choose which one to add the case to."
+				promoteNote.value = "This agent has more than one adversarial suite — choose which one to add the case to."
 				promoteError.value = false
 			}
 		}
@@ -656,6 +968,96 @@ async function savePattern() {
 	}
 }
 
+async function loadPolicies() {
+	loading.policies = true
+	try {
+		const r = await call("list_policies")
+		policies.value = r.policies || []
+		can.value.edit_policies = r.can_edit
+	} finally {
+		loading.policies = false
+	}
+}
+
+async function loadViolations() {
+	const r = (await call("policy_violations", { limit: 20 }).catch(() => null)) || {}
+	policyBlocks.value = r.blocks || []
+	policyProblems.value = r.problems || []
+}
+
+async function togglePolicy(p, enabled) {
+	busyPolicy.value = p.name
+	try {
+		const r = await call("set_policy_enabled", { name: p.name, enabled: enabled ? 1 : 0 })
+		p.enabled = r.enabled
+	} catch (e) {
+		p.enabled = p.enabled ? 0 : 1 // put the checkbox back
+	} finally {
+		busyPolicy.value = ""
+	}
+}
+
+function editPolicy(p) {
+	policyError.value = ""
+	policyDraft.value = p
+		? { ...p, exempt_agents: (p.exempt_agents || []).map((r) => ({ ...r })) }
+		: {
+				rule_name: "",
+				// "Other", not the first option: a category is a label for the
+				// reviewer, and defaulting to "Identity & Permissions" quietly
+				// mislabels every rule somebody does not think to change.
+				category: "Other",
+				// The only action there is; sent explicitly so the field is never
+				// left to the doctype default by accident.
+				action: "Deny",
+				restricted_tools: "",
+				restricted_doctypes: "",
+				parameter_limits: "",
+				violation_message: "",
+				exempt_agents: [],
+				enabled: 1,
+			}
+}
+
+function addExempt() {
+	if (policyDraft.value) policyDraft.value.exempt_agents.push({ agent_configuration: "", reason: "" })
+}
+
+async function savePolicy() {
+	savingPolicy.value = true
+	policyError.value = ""
+	try {
+		await call("save_policy", {
+			policy: JSON.stringify(policyDraft.value),
+			name: policyDraft.value.name || undefined,
+		})
+		policyDraft.value = null
+		await loadPolicies()
+	} catch (e) {
+		// The doctype refuses a rule that matches nothing and an unreadable
+		// limit line. Those messages are the useful part — show them here rather
+		// than closing on a rule that never saved.
+		policyError.value = e?.messages?.join("\n") || e?.message || String(e)
+	} finally {
+		savingPolicy.value = false
+	}
+}
+
+async function deletePolicy() {
+	if (!window.confirm(`Delete the policy "${policyDraft.value.rule_name}"? Agents stop being checked against it immediately.`)) return
+	deletingPolicy.value = true
+	policyError.value = ""
+	try {
+		await call("delete_policy", { name: policyDraft.value.name })
+		policyDraft.value = null
+		await loadPolicies()
+	} catch (e) {
+		policyError.value = e?.messages?.join("\n") || e?.message || String(e)
+	} finally {
+		deletingPolicy.value = false
+	}
+}
+
 async function loadLocks() {
 	loading.locks = true
 	try {
@@ -695,7 +1097,8 @@ onMounted(async () => {
 	}
 	options.value = await call("event_filter_options").catch(() => options.value)
 	enums.value = await call("pattern_options").catch(() => enums.value)
-	await Promise.all([loadEvents(0), loadPatterns(), loadLocks()])
+	policyOptions.value = await call("policy_options").catch(() => policyOptions.value)
+	await Promise.all([loadEvents(0), loadPatterns(), loadPolicies(), loadLocks(), loadViolations()])
 })
 </script>
 

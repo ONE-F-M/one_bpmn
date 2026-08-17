@@ -31,6 +31,7 @@ from one_bpmn.agents.llm_provider.base import (
 	ToolSpec,
 	TurnRecord,
 )
+from one_bpmn.security.tool_policy import PolicyViolation
 
 # Tool result handed to the model when it requests a second human tool in the
 # same turn — v1 supports one human pause at a time.
@@ -181,6 +182,12 @@ async def run_agent_loop(
 			else:
 				try:
 					result = str(tool.fn(**call.arguments))
+				except PolicyViolation as violation:
+					# The interceptor refused the call BEFORE the tool ran
+					# (WI-001645). Handed back as an ordinary tool result, so the
+					# model is told why and can take a different approach —
+					# exactly how every loop already treats a tool that failed.
+					result = violation.decision.as_tool_result()
 				except Exception as exc:
 					result = f"Error calling {call.name}: {exc}"
 

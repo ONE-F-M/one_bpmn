@@ -132,7 +132,7 @@ All endpoints are `@frappe.whitelist()` methods organized into domain submodules
 
 | Module | Responsibility | Representative endpoints |
 | ------ | -------------- | ------------------------ |
-| `server_script_api` | Server-script CRUD + Logix/ProsAlly chat | `create_server_script`, `update_server_script`, `toggle_server_script`, `process_logix_message`, `run_logix_test_case`, `prosally_chat` |
+| `server_script_api` | Server-script CRUD + Logix tooling (chat itself goes through `agui.stream_agent_turn`) | `create_server_script`, `update_server_script`, `toggle_server_script`, `run_logix_test_case`, `end_chat_conversation` |
 | `canvas_comments` | Canvas comments & element assets | `get_canvas_comments`, `post_canvas_comment`, `update_comment_status`, `delete_canvas_element_assets` |
 | `editability` | Cross-site editor lock / edit checks | `check_and_update_editor_lock`, `check_process_editable`, `bulk_check_processes_editable` |
 | `version_history` | Diagram XML version history | `get_diagram_versions`, `get_diagram_version_xml` |

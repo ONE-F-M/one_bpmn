@@ -25,6 +25,9 @@ REVIEWER = "zz-wi1968-reviewer@example.com"
 
 class TestRateLimitAndLock(FrappeTestCase):
 	def setUp(self):
+		from frappe.utils import now_datetime
+
+		self._started_at = now_datetime()
 		self._cleanup()
 		self.agent = self._agent()
 		self._settings(rate_limit_enabled=1, rate_limit_messages=3, rate_limit_window_seconds=60,
@@ -33,8 +36,29 @@ class TestRateLimitAndLock(FrappeTestCase):
 
 	def tearDown(self):
 		self._cleanup()
+		self._purge_injected_error_logs()
 		frappe.set_user("Administrator")
 		frappe.db.commit()
+
+	def _purge_injected_error_logs(self):
+		"""Drop the Error Log rows this suite's fault injection caused.
+
+		Several tests break frappe.db.count or the cache on purpose to prove the
+		controls fail open, and the fail-open handlers do the right thing: they
+		write an Error Log row saying a security control just failed. Left
+		behind, those rows are indistinguishable from a real outage — 54 of them
+		had accumulated on this site, which is how a log stops being read.
+
+		Scoped by title AND to rows created during this test, so a genuine
+		failure logged by something else is never swept up. The production code
+		is untouched: it should keep logging loudly when this happens for real.
+		"""
+		frappe.db.sql(
+			"""DELETE FROM `tabError Log`
+			   WHERE creation >= %(since)s
+			     AND (method LIKE 'AI rate limit:%%' OR method LIKE 'AI conversation lock:%%')""",
+			{"since": self._started_at},
+		)
 
 	def _cleanup(self):
 		frappe.set_user("Administrator")
@@ -86,18 +110,33 @@ class TestRateLimitAndLock(FrappeTestCase):
 		from one_bpmn.security import rate_limit as _RL
 
 		current = dict(_RL._DEFAULTS)
+		current.update(_RL._AGENT_DEFAULTS)
 		current.update(getattr(self, "_override", {}))
 		current.update(values)
 		self._override = current
 
 		if getattr(self, "_settings_patch", None) is None:
+			# Two readers now: limits_for is the agent's (throttle AND freeze
+			# thresholds), settings() is what is left site-wide. Both come from the
+			# same override dict so a test still says
+			# `self._settings(rate_limit_messages=3)` and means it, wherever the
+			# value happens to live.
 			self._settings_patch = patch.object(_RL, "settings", lambda: dict(self._override))
+			self._limits_patch = patch.object(
+				_RL,
+				"limits_for",
+				lambda _agent=None: {k: self._override[k] for k in _RL._AGENT_DEFAULTS},
+			)
 			self._settings_patch.start()
+			self._limits_patch.start()
 			self.addCleanup(self._stop_settings_patch)
 
 	def _stop_settings_patch(self):
 		if getattr(self, "_settings_patch", None) is not None:
 			self._settings_patch.stop()
+		if getattr(self, "_limits_patch", None) is not None:
+			self._limits_patch.stop()
+			self._limits_patch = None
 			self._settings_patch = None
 		self._override = {}
 
@@ -392,13 +431,203 @@ class TestRateLimitAndLock(FrappeTestCase):
 				self._enforce()
 
 	def test_unreadable_settings_fall_back_to_defaults(self):
-		# _settings() patches RL.settings for isolation, so reach past it to the
-		# real implementation — this test is about that function's own behaviour.
+		"""Both readers fail soft, and they read different things now.
+
+		Everything about how hard an agent pushes back — the throttle AND the
+		freeze thresholds — is the agent's. All that is left site-wide is who may
+		release a freeze, which is a statement about roles here rather than about
+		any one agent.
+		"""
+		# _settings() patches both for isolation, so reach past it to the real
+		# implementations — this test is about their own behaviour.
 		self._stop_settings_patch()
+
 		with patch("frappe.get_cached_doc", side_effect=RuntimeError("no settings")):
 			cfg = RL.settings()
-		self.assertEqual(cfg["rate_limit_messages"], 20)
-		self.assertEqual(cfg["lock_after_blocks"], 3)
+		self.assertEqual(cfg["lock_release_roles"], "AI Security Reviewer")
+		self.assertNotIn(
+			"lock_after_blocks", cfg, "the freeze thresholds belong to the agent now"
+		)
+
+		with patch("frappe.db.get_value", side_effect=RuntimeError("no agent")):
+			limits = RL.limits_for("whatever")
+		self.assertEqual(limits["rate_limit_messages"], 20)
+		self.assertEqual(limits["rate_limit_window_seconds"], 60)
+		self.assertEqual(limits["lock_after_blocks"], 3)
+		self.assertEqual(limits["lock_block_window_seconds"], 3600)
+		self.assertTrue(
+			limits["rate_limit_enabled"],
+			"an unreadable agent gets the ordinary limits, not left unprotected",
+		)
+
+	def test_the_throttle_is_read_from_the_agent_not_the_site(self):
+		"""The point of the move: two agents, two allowances, one site."""
+		self._stop_settings_patch()
+		agent = self._agent()
+		frappe.db.set_value(
+			"AI Agent Configuration",
+			agent,
+			{"rate_limit_enabled": 1, "rate_limit_messages": 7, "rate_limit_window_seconds": 30},
+			update_modified=False,
+		)
+		frappe.clear_document_cache("AI Agent Configuration", agent)
+
+		throttle = RL.limits_for(agent)
+
+		self.assertEqual(throttle["rate_limit_messages"], 7)
+		self.assertEqual(throttle["rate_limit_window_seconds"], 30)
+
+	def test_the_freeze_threshold_is_read_from_the_agent_too(self):
+		"""An agent that fields adversarial traffic all day should not freeze
+		users at the same threshold as one that never sees any."""
+		self._stop_settings_patch()
+		agent = self._agent()
+		frappe.db.set_value(
+			"AI Agent Configuration",
+			agent,
+			{"lock_after_blocks": 9, "lock_block_window_seconds": 120},
+			update_modified=False,
+		)
+		frappe.clear_document_cache("AI Agent Configuration", agent)
+
+		limits = RL.limits_for(agent)
+
+		self.assertEqual(limits["lock_after_blocks"], 9)
+		self.assertEqual(limits["lock_block_window_seconds"], 120)
+
+	def test_a_refused_attempt_does_not_consume_the_allowance(self):
+		"""Reported from the chat surface: the refusal never cleared.
+
+		The window used to be written before it was checked, so a refused
+		attempt landed in it with a fresh timestamp. Every retry pushed the
+		window forward and it could not drain while the user kept trying — doing
+		the obvious thing made the refusal permanent.
+		"""
+		self._settings(rate_limit_messages=2, rate_limit_window_seconds=60, lock_after_blocks=0)
+		agent = self._agent()
+		RL.frappe.cache().delete_value(RL._window_key(PROBER, agent))
+
+		for _ in range(2):
+			RL.enforce(user=PROBER, agent=agent, agent_label=agent, conversation="zz-c", count=True)
+		with self.assertRaises(RL.RateLimited):
+			RL.enforce(user=PROBER, agent=agent, agent_label=agent, conversation="zz-c", count=True)
+
+		after_one_refusal = RL.peek_count(PROBER, agent, 60)
+
+		# Retry several times, as a real user would.
+		for _ in range(4):
+			with self.assertRaises(RL.RateLimited):
+				RL.enforce(user=PROBER, agent=agent, agent_label=agent, conversation="zz-c", count=True)
+
+		self.assertEqual(
+			RL.peek_count(PROBER, agent, 60),
+			after_one_refusal,
+			"retrying must not push more into the window, or it can never drain",
+		)
+		self.assertEqual(after_one_refusal, 2, "only the two allowed messages are in the window")
+
+	def test_releasing_a_lock_lets_the_user_talk_again_immediately(self):
+		"""A release that leaves the throttle full is barely a release.
+
+		The window that was full when the freeze happened is still full, so the
+		released user's next message is refused and they are told to wait — for
+		up to the whole window — after a human has just decided they may carry
+		on. Both halves are needed: clear the window AND stop counting strikes a
+		reviewer has already answered.
+		"""
+		from one_bpmn.api.conversation_locks import release_lock
+
+		self._settings(rate_limit_messages=2, rate_limit_window_seconds=900, lock_after_blocks=2)
+		agent = self._agent()
+		agent_id = frappe.db.get_value("AI Agent Configuration", agent, "agent_id") or agent
+		RL.clear_window(PROBER, agent)
+
+		# The throttled user must BE the session user: blocked_attempts counts
+		# events by owner, so strikes raised as somebody else never accrue.
+		frappe.set_user(PROBER)
+		try:
+			for _ in range(6):
+				try:
+					RL.enforce(user=PROBER, agent=agent, agent_label=agent_id,
+					           conversation="zz-release", count=True)
+				except RL.RateLimited:
+					pass
+				frappe.db.commit()
+		finally:
+			frappe.set_user("Administrator")
+
+		lock = frappe.db.get_value("AI Conversation Lock", {"user": PROBER, "status": "Locked"}, "name")
+		self.addCleanup(frappe.db.sql, "DELETE FROM `tabAI Conversation Lock` WHERE user=%s", PROBER)
+		self.addCleanup(frappe.db.sql, "DELETE FROM `tabAI Security Event` WHERE conversation='zz-release'")
+		self.assertTrue(lock, "the probe should have frozen the conversation")
+		self.assertGreater(RL.peek_count(PROBER, agent_id, 900), 0)
+		self.assertGreaterEqual(RL.blocked_attempts(PROBER, agent, 3600), 2)
+
+		release_lock(lock, notes="Reviewed — letting them continue.")
+		frappe.db.commit()
+
+		self.assertEqual(RL.peek_count(PROBER, agent_id, 900), 0, "the throttle window must be cleared")
+		self.assertEqual(
+			RL.blocked_attempts(PROBER, agent, 3600), 0,
+			"strikes a reviewer has answered must not re-freeze the conversation",
+		)
+		# Forgiven, not deleted — the log still carries what happened.
+		self.assertGreater(frappe.db.count("AI Security Event", {"conversation": "zz-release"}), 0)
+
+		frappe.set_user(PROBER)
+		try:
+			RL.enforce(user=PROBER, agent=agent, agent_label=agent_id,
+			           conversation="zz-release", count=True)
+		finally:
+			frappe.set_user("Administrator")
+
+	def test_clearing_a_window_uses_the_key_the_counter_actually_wrote(self):
+		"""_window_key already applies make_key. Letting delete_value prefix it a
+		second time deletes a key that does not exist and reports success — the
+		release looked clean while the window stayed full."""
+		agent = self._agent()
+		agent_id = frappe.db.get_value("AI Agent Configuration", agent, "agent_id") or agent
+		RL.clear_window(PROBER, agent)
+		RL.record_and_count(PROBER, agent_id, 60, member="one")
+		self.assertEqual(RL.peek_count(PROBER, agent_id, 60), 1)
+
+		RL.clear_window(PROBER, agent)
+
+		self.assertEqual(RL.peek_count(PROBER, agent_id, 60), 0)
+
+	def test_a_zero_allowance_is_a_real_answer_not_a_missing_one(self):
+		"""0 means "no allowance" and 0 means "off". Treating either as absent
+		would silently restore the default and reopen the agent."""
+		self._stop_settings_patch()
+		agent = self._agent()
+		frappe.db.set_value(
+			"AI Agent Configuration",
+			agent,
+			{"rate_limit_enabled": 0, "rate_limit_messages": 0},
+			update_modified=False,
+		)
+		frappe.clear_document_cache("AI Agent Configuration", agent)
+
+		throttle = RL.limits_for(agent)
+
+		self.assertEqual(throttle["rate_limit_enabled"], 0)
+		self.assertEqual(throttle["rate_limit_messages"], 0)
+
+	def test_turning_the_throttle_off_does_not_turn_off_the_freeze(self):
+		"""Exempting a chatty agent from the throttle says nothing about whether
+		someone probing it should still be contained."""
+		self._stop_settings_patch()
+		agent = self._agent()
+		frappe.db.set_value(
+			"AI Agent Configuration", agent, {"rate_limit_enabled": 0}, update_modified=False
+		)
+		frappe.clear_document_cache("AI Agent Configuration", agent)
+
+		with patch.object(RL, "_maybe_freeze", return_value="LOCK-1") as freeze:
+			with self.assertRaises(RL.RateLimited):
+				RL.enforce(user=PROBER, agent=agent, agent_label=agent, conversation="zz-conv", count=True)
+
+		freeze.assert_called()
 
 	def test_a_failed_block_count_raises_no_freeze(self):
 		with patch("frappe.db.count", side_effect=RuntimeError("db down")):
@@ -459,18 +688,33 @@ class TestPerTurnEnforcement(FrappeTestCase):
 		from one_bpmn.security import rate_limit as _RL
 
 		current = dict(_RL._DEFAULTS)
+		current.update(_RL._AGENT_DEFAULTS)
 		current.update(getattr(self, "_override", {}))
 		current.update(values)
 		self._override = current
 
 		if getattr(self, "_settings_patch", None) is None:
+			# Two readers now: limits_for is the agent's (throttle AND freeze
+			# thresholds), settings() is what is left site-wide. Both come from the
+			# same override dict so a test still says
+			# `self._settings(rate_limit_messages=3)` and means it, wherever the
+			# value happens to live.
 			self._settings_patch = patch.object(_RL, "settings", lambda: dict(self._override))
+			self._limits_patch = patch.object(
+				_RL,
+				"limits_for",
+				lambda _agent=None: {k: self._override[k] for k in _RL._AGENT_DEFAULTS},
+			)
 			self._settings_patch.start()
+			self._limits_patch.start()
 			self.addCleanup(self._stop_settings_patch)
 
 	def _stop_settings_patch(self):
 		if getattr(self, "_settings_patch", None) is not None:
 			self._settings_patch.stop()
+		if getattr(self, "_limits_patch", None) is not None:
+			self._limits_patch.stop()
+			self._limits_patch = None
 			self._settings_patch = None
 		self._override = {}
 
@@ -584,14 +828,134 @@ class TestPerTurnEnforcement(FrappeTestCase):
 class TestRefusalReachesTheUser(FrappeTestCase):
 	"""A refusal must say why, on every chat surface.
 
-	RateLimited subclasses ValidationError, and each chat endpoint catches that
-	broadly to mean "the BPMN instance is dead — tell them to reopen the chat".
-	So a working throttle was reported to the user as "The ProsAlly process
-	orchestration isn't running for this conversation", which is both wrong and
-	unactionable. These pin the real message to each surface.
+	RateLimited subclasses ValidationError, and every chat path used to catch
+	that broadly to mean "the BPMN instance is dead — tell them to reopen the
+	chat". So a working throttle was reported to the user as "The ProsAlly
+	process orchestration isn't running for this conversation", which is both
+	wrong and unactionable. These pin the real message to each surface — all of
+	which are now the one shared stream (WI-001679).
 	"""
 
 	SURFACES = ("ProsAlly", "Logix", "Docu")
+
+	def test_the_shared_agui_stream_delivers_a_refusal_as_a_message(self):
+		"""The AG-UI panel is a fourth surface and it reintroduced the bug.
+
+		It caught bare Exception, so a throttle arrived as RUN_ERROR and the
+		panel put "Something went wrong" over a message that explains itself.
+		Reported from ProsAlly after five messages.
+		"""
+		import json
+		from unittest.mock import patch
+
+		import one_bpmn.agents.agui_stream as A
+
+		conversation = frappe.get_doc({
+			"doctype": "Chat Conversation",
+			"title": "zz-wi1968 agui refusal",
+			"user": frappe.session.user,
+		}).insert(ignore_permissions=True).name
+		self.addCleanup(
+			frappe.delete_doc, "Chat Conversation", conversation, force=True, ignore_permissions=True
+		)
+
+		refusal = "You are sending messages to this agent too quickly. Wait a moment and try again."
+		kinds, texts = [], []
+		with patch(
+			"one_bpmn.api.agent_invocation.invoke_agent", side_effect=RL.RateLimited(refusal)
+		):
+			for chunk in A.agent_event_stream("prosally_agent", "hi", conversation, None):
+				for line in str(chunk).splitlines():
+					if not line.startswith("data: "):
+						continue
+					event = json.loads(line[6:])
+					kinds.append(event.get("type"))
+					if event.get("delta"):
+						texts.append(event["delta"])
+
+		self.assertNotIn("RUN_ERROR", kinds, "a refusal is a decision, not a failure")
+		self.assertIn("TEXT_MESSAGE_CONTENT", kinds)
+		self.assertIn("too quickly", " ".join(texts))
+
+	def test_a_refusal_on_the_stream_keeps_its_audit_record(self):
+		"""The refusal branch must COMMIT, not roll back.
+
+		Nothing of the turn has been written when enforce raises, so the only
+		thing in the transaction is the AI Security Event recording the blocked
+		attempt. Rolling back threw it away — which cost the audit trail and
+		silently disabled the freeze on this surface, because blocked_attempts
+		counts exactly those events. Six refusals had logged one attempt.
+		"""
+		import json
+		from unittest.mock import patch
+
+		import one_bpmn.agents.agui_stream as A
+
+		conversation = frappe.get_doc({
+			"doctype": "Chat Conversation",
+			"title": "zz-wi1968 agui audit",
+			"user": frappe.session.user,
+		}).insert(ignore_permissions=True).name
+		self.addCleanup(
+			frappe.delete_doc, "Chat Conversation", conversation, force=True, ignore_permissions=True
+		)
+
+		def refuse_and_record(*args, **kwargs):
+			from one_bpmn.security.events import record_event
+
+			# No agent link: this class has no agent fixture, and record_event
+			# drops a dangling one anyway. What is being tested is whether the
+			# row survives the refusal, not what it points at.
+			record_event(
+				boundary="input", stage="rate-limit", action="Block",
+				conversation=conversation, severity="Medium",
+				classifier="rate-limit", detail="refused",
+			)
+			raise RL.RateLimited("You are sending messages to this agent too quickly.")
+
+		before = frappe.db.count("AI Security Event", {"stage": "rate-limit", "action": "Block"})
+		with patch("one_bpmn.api.agent_invocation.invoke_agent", side_effect=refuse_and_record):
+			for chunk in A.agent_event_stream("prosally_agent", "hi", conversation, None):
+				for line in str(chunk).splitlines():
+					if line.startswith("data: "):
+						json.loads(line[6:])
+
+		self.assertGreater(
+			frappe.db.count("AI Security Event", {"stage": "rate-limit", "action": "Block"}),
+			before,
+			"the blocked attempt must survive the refusal, or the freeze can never trigger",
+		)
+
+	def test_the_shared_stream_still_reports_a_real_failure_as_one(self):
+		"""The other half: quietly turning every exception into a chat bubble
+		would hide genuine breakage behind a polite sentence."""
+		import json
+		from unittest.mock import patch
+
+		import one_bpmn.agents.agui_stream as A
+
+		conversation = frappe.get_doc({
+			"doctype": "Chat Conversation",
+			"title": "zz-wi1968 agui failure",
+			"user": frappe.session.user,
+		}).insert(ignore_permissions=True).name
+		self.addCleanup(
+			frappe.delete_doc, "Chat Conversation", conversation, force=True, ignore_permissions=True
+		)
+
+		kinds = []
+		with patch(
+			"one_bpmn.api.agent_invocation.invoke_agent", side_effect=RuntimeError("provider exploded")
+		):
+			for chunk in A.agent_event_stream("prosally_agent", "hi", conversation, None):
+				for line in str(chunk).splitlines():
+					if line.startswith("data: "):
+						kinds.append(json.loads(line[6:]).get("type"))
+
+		self.assertIn("RUN_ERROR", kinds)
+		frappe.db.sql(
+			"DELETE FROM `tabError Log` WHERE method='agui stream error' AND error LIKE '%%provider exploded%%'"
+		)
 
 	def test_the_engine_does_not_halt_the_instance_for_a_refusal(self):
 		"""A refusal is a decision, not a fault.
@@ -692,18 +1056,33 @@ class TestRefusalReachesTheUser(FrappeTestCase):
 		from one_bpmn.security import rate_limit as _RL
 
 		current = dict(_RL._DEFAULTS)
+		current.update(_RL._AGENT_DEFAULTS)
 		current.update(getattr(self, "_override", {}))
 		current.update(values)
 		self._override = current
 
 		if getattr(self, "_settings_patch", None) is None:
+			# Two readers now: limits_for is the agent's (throttle AND freeze
+			# thresholds), settings() is what is left site-wide. Both come from the
+			# same override dict so a test still says
+			# `self._settings(rate_limit_messages=3)` and means it, wherever the
+			# value happens to live.
 			self._settings_patch = patch.object(_RL, "settings", lambda: dict(self._override))
+			self._limits_patch = patch.object(
+				_RL,
+				"limits_for",
+				lambda _agent=None: {k: self._override[k] for k in _RL._AGENT_DEFAULTS},
+			)
 			self._settings_patch.start()
+			self._limits_patch.start()
 			self.addCleanup(self._stop_settings_patch)
 
 	def _stop_settings_patch(self):
 		if getattr(self, "_settings_patch", None) is not None:
 			self._settings_patch.stop()
+		if getattr(self, "_limits_patch", None) is not None:
+			self._limits_patch.stop()
+			self._limits_patch = None
 			self._settings_patch = None
 		self._override = {}
 
@@ -721,44 +1100,50 @@ class TestRefusalReachesTheUser(FrappeTestCase):
 			"doctype": "Chat Conversation", "agent_mode": label, "title": f"{PREFIX} {label}",
 		}).insert(ignore_permissions=True).name
 
-	def test_prosally_reports_the_refusal_not_a_dead_instance(self):
-		from one_bpmn.api.server_script_api import prosally_chat
+	# WI-001679: these used to call one per-agent chat endpoint each — the very
+	# endpoints that carried the "orchestration isn't running" mistranslation.
+	# Those endpoints are gone, so the surfaces are asserted where they now
+	# actually live: the shared stream, once per agent.
+	AGENTS = ("prosally_agent", "logix_agent", "docu_agent")
+	LABELS = {"prosally_agent": "ProsAlly", "logix_agent": "Logix", "docu_agent": "Docu"}
 
-		self._exhaust("prosally_agent")
-		r = prosally_chat(message="hi", session_id="t", conversation_name=self._conversation("ProsAlly")) or {}
-		self.assertEqual(r.get("intent"), "BLOCKED")
-		self.assertIn("too quickly", r.get("response", ""))
-		self.assertNotIn("orchestration", r.get("response", ""))
+	def _stream_text(self, agent_id, conversation):
+		"""Run one turn through the shared stream; return (event kinds, text)."""
+		import json
 
-	def test_logix_reports_the_refusal_not_a_dead_instance(self):
-		from one_bpmn.api.server_script_api import process_logix_message
+		import one_bpmn.agents.agui_stream as A
 
-		self._exhaust("logix_agent")
-		r = process_logix_message(message="hi", session_id="t", conversation_name=self._conversation("Logix")) or {}
-		self.assertEqual(r.get("intent"), "BLOCKED")
-		self.assertIn("too quickly", r.get("response", ""))
-		self.assertNotIn("orchestration", r.get("response", ""))
+		kinds, texts = [], []
+		for chunk in A.agent_event_stream(agent_id, "hi", conversation, None):
+			for line in str(chunk).splitlines():
+				if not line.startswith("data: "):
+					continue
+				event = json.loads(line[6:])
+				kinds.append(event.get("type"))
+				if event.get("delta"):
+					texts.append(event["delta"])
+		return kinds, " ".join(texts)
 
-	def test_docu_reports_the_refusal_not_a_dead_instance(self):
-		from one_bpmn.api.docu_api import docu_chat
-
-		self._exhaust("docu_agent")
-		r = docu_chat(message="hi", conversation_name=self._conversation("Docu")) or {}
-		self.assertEqual(r.get("intent"), "BLOCKED")
-		self.assertIn("too quickly", r.get("response", ""))
-		self.assertNotIn("orchestration", r.get("response", ""))
+	def test_every_surface_reports_the_refusal_not_a_dead_instance(self):
+		for agent_id in self.AGENTS:
+			with self.subTest(agent=agent_id):
+				self._exhaust(agent_id)
+				kinds, text = self._stream_text(
+					agent_id, self._conversation(self.LABELS[agent_id])
+				)
+				self.assertNotIn("RUN_ERROR", kinds, "a refusal is a decision, not a failure")
+				self.assertIn("too quickly", text)
+				self.assertNotIn("orchestration", text)
 
 	def test_a_frozen_conversation_says_so_rather_than_blaming_the_instance(self):
-		from one_bpmn.api.server_script_api import prosally_chat
-
 		agent = frappe.db.get_value("AI Agent Configuration", {"chat_mode_label": "ProsAlly"}, "name")
 		conv = self._conversation("ProsAlly")
 		lock = RL.raise_lock("Administrator", agent, conv, reason="Manual", blocked_count=3)
 		try:
-			r = prosally_chat(message="hi", session_id="t", conversation_name=conv) or {}
-			self.assertEqual(r.get("intent"), "BLOCKED")
-			self.assertIn("frozen", r.get("response", "").lower())
-			self.assertIn("reviewer", r.get("response", "").lower())
+			kinds, text = self._stream_text("prosally_agent", conv)
+			self.assertNotIn("RUN_ERROR", kinds)
+			self.assertIn("frozen", text.lower())
+			self.assertIn("reviewer", text.lower())
 		finally:
 			frappe.db.delete("AI Conversation Lock", {"name": lock})
 			frappe.db.commit()

@@ -50,6 +50,11 @@ const routes = [
 		component: () => import("@/views/Evals.vue"),
 	},
 	{
+		path: "/processa/evals/feedback",
+		name: "EvalFeedback",
+		component: () => import("@/views/EvalFeedback.vue"),
+	},
+	{
 		path: "/processa/evals/suite/:suite",
 		name: "EvalSuiteDetail",
 		component: () => import("@/views/EvalSuiteDetail.vue"),
