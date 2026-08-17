@@ -169,7 +169,14 @@
 					@click="isMobileMenuOpen = false"
 					:title="collapsed ? 'A2A' : ''"
 				>
-					<Icon icon="lucide:share-2" class="w-5 h-5 shrink-0" />
+					<!-- Same mark as the a2a connector on the diagrams (purple layers,
+					     see seed_a2a_connector.py), so the sidebar entry and the shapes
+					     it monitors read as one thing. -->
+					<Icon
+						icon="lucide:layers"
+						class="w-5 h-5 shrink-0"
+						:class="$route.path.startsWith('/processa/a2a') ? '' : 'text-[#7c3aed]'"
+					/>
 					<!-- "A2A", not "Agent Collaboration": the long label was clipped
 					     by the sidebar width, and A2A is what everyone calls it. -->
 					<span
