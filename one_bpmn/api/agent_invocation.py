@@ -110,7 +110,7 @@ def _authorize(config: dict, conversation_name: str = None):
 	- **Not yet Live** — its author or a System Manager only, so an agent can be
 	  exercised before go-live without being reachable by end users.
 	- **Live** — the agent's allowed_roles, enforced HERE and not merely in the
-	  picker (WI-001840). ``invoke_agent`` is whitelisted, so anything reachable
+	  picker. ``invoke_agent`` is whitelisted, so anything reachable
 	  from a browser can name an agent_id directly; a filter applied only to the
 	  dropdown decided what was offered and stopped nothing.
 	"""
@@ -342,7 +342,7 @@ def invoke_agent(
 	message = screened.text
 	_pii_turn = _pii.begin_turn(screened, enabled=screened.enabled)
 
-	# ── Injection screening (WI-001967 detect, WI-001840 act) ────────────
+	# ── Injection screening: detect, then act ────────────────────────────
 	# Hooked here rather than on Chat Message so it runs exactly once per turn,
 	# with the agent and conversation to hand. What a match DOES is the agent's
 	# own setting: Log passes through, Flag removes the matched phrase and lets

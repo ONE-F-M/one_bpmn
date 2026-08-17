@@ -1,7 +1,7 @@
 # Copyright (c) 2026, one-fm and contributors
 # For license information, please see license.txt
 """
-Mark tool output as data rather than instruction (WI-001840, AC1).
+Mark tool output as data rather than instruction.
 
 THE PROBLEM
 -----------

@@ -1,7 +1,7 @@
 # Copyright (c) 2026, one-fm and contributors
 # For license information, please see license.txt
 """
-Run the injection rule pack over a message, record what fires, and act (WI-001840).
+Run the injection rule pack over a message, record what fires, and act.
 
 WHAT CHANGED
 ------------
@@ -276,7 +276,7 @@ def screen_input(
 	bpmn_id: str | None = None,
 	raise_on_block: bool = True,
 ) -> InjectionScreeningResult:
-	"""Screen a message and APPLY the agent's configured action (WI-001840).
+	"""Screen a message and APPLY the agent's configured action.
 
 	Raises :class:`InjectionBlocked` when the agent is set to Block and a rule
 	fired — the one case where this function does not return. That exception is

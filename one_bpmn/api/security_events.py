@@ -102,7 +102,7 @@ def promote_to_eval_case(
 	case.title = (title or "").strip() or _title_for(evt)
 	case.suite = suite
 	case.source_security_event = event
-	# WI-001840 AC5: a case promoted from a real attack is an Attack case, so it
+	# A case promoted from a real attack is an Attack case, so it
 	# counts toward the attack-success rate rather than sitting unclassified.
 	if frappe.get_meta("AI Eval Case").get_field("case_kind"):
 		case.case_kind = "Attack"

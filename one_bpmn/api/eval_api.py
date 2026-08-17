@@ -835,7 +835,7 @@ def _case_kinds(cases: list) -> dict:
 
 
 def _security_rates(statuses: dict, shared: list, kinds: dict) -> dict:
-	"""Attack success rate and false-positive rate (WI-001840 AC5).
+	"""Attack success rate and false-positive rate.
 
 	Both, always, because either alone is misleading in the same direction. An
 	agent that refuses every message has a perfect attack-success rate and is

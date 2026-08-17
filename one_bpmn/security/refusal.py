@@ -1,7 +1,7 @@
 # Copyright (c) 2026, one-fm and contributors
 # For license information, please see license.txt
 """
-The one exception type that means "we decided not to do this" (WI-001840).
+The one exception type that means "we decided not to do this".
 
 WHY THIS EXISTS
 ---------------

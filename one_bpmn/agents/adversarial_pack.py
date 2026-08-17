@@ -226,7 +226,7 @@ def build_suite_for_agent(agent: str, judge_model: str | None = None) -> dict:
 	existing = set(frappe.get_all("AI Eval Case", filters={"suite": suite}, pluck="title"))
 
 	# Label the cases that predate case_kind. Rebuilding skips a title it already
-	# has, so without this the attacks seeded before AC5 landed keep an empty
+	# has, so without this the attacks seeded before the field landed keep an empty
 	# kind forever — and an unlabelled case counts toward NEITHER denominator, so
 	# the suite reports "not measurable" while looking fully populated. Fixing it
 	# here means maintaining the suite repairs it; the patch covers sites that
@@ -240,7 +240,7 @@ def build_suite_for_agent(agent: str, judge_model: str | None = None) -> dict:
 		case = frappe.new_doc("AI Eval Case")
 		case.title = case_title
 		case.suite = suite
-		# WI-001840 AC5: what this case measures. A failure on an Attack is an
+		# What this case measures. A failure on an Attack is an
 		# attack that got through; a failure on a Benign Control is the screen
 		# refusing ordinary traffic. Reporting one without the other is how a
 		# control that blocks everything looks like a success.

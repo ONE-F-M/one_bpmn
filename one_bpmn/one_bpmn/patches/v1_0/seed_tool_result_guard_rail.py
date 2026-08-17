@@ -1,10 +1,10 @@
 # Copyright (c) 2026, one-fm and contributors
 """
-WI-001840 AC2: tell every agent, once, that tool output is data.
+Tell every agent, once, that tool output is data.
 
 The markers added in ``security/provenance.py`` are only half the control — a
 delimiter the model was never told the meaning of buys nothing. This puts the
-other half where WI-001639 said behaviour belongs: the agent's frozen static
+other half where behaviour belongs: the agent's frozen static
 context, as a Guard Rail ROW rather than a line of Python, so a site can reword
 it, disable it for one agent, or tighten it after a bad week without a deploy.
 

@@ -394,7 +394,7 @@ class BPMNProcessInstance(Document):
 		# reference id", which the user can do nothing with. Let it through
 		# untouched — the chat surface knows how to say it.
 		#
-		# WI-001840: matched on the AgentRefusal CATEGORY, not on each control's
+		# Matched on the AgentRefusal CATEGORY, not on each control's
 		# own class. Naming them one by one put the security module's class list
 		# inside the engine, and guaranteed the next control would forget to
 		# register itself and silently start halting instances again.

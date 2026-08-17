@@ -109,7 +109,7 @@
 								<template v-if="side.latency_samples === 0"> · latency not measured</template>
 							</div>
 
-							<!-- WI-001840 AC5. Shown as a pair, always. Either number on its
+							<!-- Shown as a pair, always. Either number on its
 							     own points the same wrong way: refuse everything and the
 							     attack rate looks perfect, answer everything and there are no
 							     false positives. Both, or the suite has not measured anything. -->

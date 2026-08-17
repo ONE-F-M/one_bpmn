@@ -1,14 +1,14 @@
 # Copyright (c) 2026, one-fm and contributors
-"""Give the adversarial pack's existing cases their kind (WI-001840, AC5).
+"""Give the adversarial pack's existing cases their kind.
 
-AC5 asks for two numbers: attack success rate, and false-positive rate. Both are
+The suite reports two numbers: attack success rate, and false-positive rate. Both are
 computed from `case_kind` on AI Eval Case, and an unlabelled case counts toward
 NEITHER denominator — deliberately, because guessing what a case measures would
 put an untraceable number into a rate somebody acts on.
 
-Every attack case seeded before this story predates the field. Left alone, a
+Every attack case seeded before the field existed predates it. Left alone, a
 site's adversarial suites look fully populated and report "not measurable", which
-is the one outcome AC5 says is not acceptable.
+is the one outcome the suite must never report while fully populated.
 
 This is a migration, not configuration: these rows were written by the platform's
 own pack, and this brings them up to the schema the pack now writes. It does not

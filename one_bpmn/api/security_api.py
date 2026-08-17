@@ -44,7 +44,7 @@ PATTERN_EDIT_ROLES = ("System Manager",)
 # doctype, so the section grows by itself as those stories land.
 SCREENING_FIELDS = (
 	"pii_screening",
-	# WI-001840 named this `injection_screening` (Enabled/Disabled, the same
+	# The field is named `injection_screening` (Enabled/Disabled, the same
 	# shape as pii_screening) rather than the `injection_screening_mode` this
 	# list guessed at while the story was still open. Naming it wrong here meant
 	# the control never rendered: the section only shows fields the doctype

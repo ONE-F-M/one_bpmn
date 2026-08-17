@@ -166,7 +166,7 @@ class GeminiAdapter(BaseLLMAdapter):
                 turn.tool_calls.append(
                     ToolCallRecord(name=fc.name, arguments=args, result=result)
                 )
-                # WI-001840 AC1: same marking as the other adapters, so the
+                # Same marking as the other adapters, so the
                 # guard rail means the same thing whichever provider an agent
                 # happens to run on.
                 from one_bpmn.security.provenance import wrap_tool_result

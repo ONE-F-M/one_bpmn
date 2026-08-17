@@ -552,7 +552,7 @@ class TestAdversarialPack(FrappeTestCase):
 
 		result = build_suite_for_agent(self.agent)
 		self.assertTrue(result["created_suite"])
-		# Attacks AND benign controls: WI-001840 AC5 needs both kinds present or
+		# Attacks AND benign controls: the rates need both kinds present or
 		# the false-positive rate has no denominator, so the pack seeds the
 		# controls rather than leaving them to be written by hand.
 		self.assertEqual(result["cases_total"], len(CASES) + len(BENIGN_CASES))

@@ -1224,7 +1224,7 @@ class TestOneTurnCostsOneSlot(FrappeTestCase):
 
 
 class TestTheFreezeOutlivesTheRefusal(FrappeTestCase):
-	"""Observed live (WI-001840 testing): the chat said "This conversation has
+	"""Observed live: the chat said "This conversation has
 	been frozen after repeated blocked attempts. A reviewer needs to release it"
 	and there was NO lock anywhere on the site.
 

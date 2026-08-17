@@ -1,7 +1,7 @@
 # Copyright (c) 2026, one-fm and contributors
 # See license.txt
 """
-allowed_roles is a control, not a filter (WI-001840).
+allowed_roles is a control, not a filter.
 
 The field existed and was applied only when building the chat picker, so it
 decided what a user was OFFERED and placed no limit on what they could CALL.

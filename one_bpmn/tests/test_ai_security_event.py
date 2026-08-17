@@ -537,7 +537,7 @@ class TestAISecurityEvent(FrappeTestCase):
 	def test_ac7_the_log_records_the_action_taken_not_the_rules_ambition(self):
 		"""A Block-intent rule on a Flag-mode agent must be logged as Flag.
 
-		WI-001967 asserted this while nothing was enforced at all. WI-001840 made
+		This was asserted while nothing was enforced at all. Acting on a detection made
 		the action configurable per agent, so the reason survives but the wording
 		changes: the log states what the platform DID, and the rule's own
 		ambition is kept in detail. An audit log that overstates is worse than
@@ -787,7 +787,7 @@ class TestTheInstructionOverrideRuleCoversItsVariants(FrappeTestCase):
 	and "previous" and nothing else; ``disregard-your-instructions`` allowed
 	"your" but did not list "ignore" as a verb. The gap sat exactly between
 	them, so "ignore YOUR previous instructions" matched neither and went into
-	long-term memory verbatim (found testing WI-001840 AC4).
+	long-term memory verbatim (found testing the memory-write screen).
 	"""
 
 	CAUGHT = (

@@ -113,7 +113,7 @@ class TestStepLoopAutomatic(FrappeTestCase):
 		self.assertEqual(
 			[e["role"] for e in second], ["user", "assistant", "tool_results"]
 		)
-		# WI-001840 AC1: what reaches the MODEL is marked with its provenance.
+		# What reaches the MODEL is marked with its provenance.
 		# Asserted by containment rather than by an exact string — the marker has
 		# already gained one attribute (source), and pinning its full text makes
 		# every future attribute look like a regression here.
@@ -225,7 +225,7 @@ class TestStepLoopSuspension(FrappeTestCase):
 		# verbatim — wrapping it again here would double-mark it.
 		self.assertEqual(results[0]["content"], "42")
 		# The human's answer is content from outside the platform arriving on the
-		# tool channel, so it IS marked on the way in (WI-001840 AC1).
+		# tool channel, so it IS marked on the way in.
 		self.assertIn('{"action": "Approve"}', results[1]["content"])
 		self.assertIn('tool="approval"', results[1]["content"])
 

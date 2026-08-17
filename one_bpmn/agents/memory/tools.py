@@ -320,7 +320,7 @@ def memory_write(
 
 	Returns the resulting record as ``{name, content, metadata}``.
 	"""
-	# ── Injection screening before persistence (WI-001840) ───────────────
+	# ── Injection screening before persistence ───────────────────────────
 	# A memory is re-read on every later turn for its scope, so a payload that
 	# reaches this function stops being a one-off message and becomes a standing
 	# instruction — the one carrier where a single success buys the attacker

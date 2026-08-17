@@ -64,7 +64,7 @@ _AGENT_DEFAULTS = {
 class RateLimited(AgentRefusal):
 	"""Raised when a turn is refused. Carries why, so the caller can say so.
 
-	Derives from AgentRefusal (WI-001840) so the engine's "a refusal is not a
+	Derives from AgentRefusal so the engine's "a refusal is not a
 	fault" rule covers every control by category rather than by name. Still a
 	ValidationError, so existing handlers are unaffected.
 	"""
@@ -265,9 +265,9 @@ def blocked_attempts(user: str, agent: str | None, window_seconds: int) -> int:
 	each match writes its own AI Security Event — so counting rows made a single
 	message worth two or three strikes and burn the whole budget at once. The
 	setting is called "Freeze After N Blocked Attempts" and it now means that:
-	events are collapsed by correlation id, which is one per turn (WI-001967).
+	events are collapsed by correlation id, which is one per turn.
 
-	Observed live on WI-001840: one message matched ignore-previous-instructions
+	Observed live: one message matched ignore-previous-instructions
 	AND reveal-system-prompt, scored 2 against a threshold of 2, and froze the
 	conversation on the user's FIRST attempt — with the message itself allowed
 	through, because the action was only Flag.
@@ -295,7 +295,7 @@ def blocked_attempts(user: str, agent: str | None, window_seconds: int) -> int:
 			fields=["name", "correlation_id"],
 			limit_page_length=0,
 		)
-		# Collapse by turn. An event with no correlation id predates WI-001967 or
+		# Collapse by turn. An event with no correlation id predates the turn id or
 		# was written outside a turn; each of those counts once on its own rather
 		# than all collapsing into a single phantom attempt.
 		turns = {r["correlation_id"] for r in rows if r["correlation_id"]}
@@ -345,7 +345,7 @@ def raise_lock(
 		# rolls the whole request back — so without this the freeze was told to
 		# the user and then undone: "a reviewer needs to release it" with no lock
 		# for anyone to release, and the very next message going straight
-		# through. Observed live (WI-001840 testing).
+		# through. Observed live.
 		#
 		# Same rule the streamed refusal already follows: a refusal is a
 		# DECISION, and the record of it has to outlive the exception that

@@ -1,5 +1,5 @@
 # Copyright (c) 2026, one-fm and contributors
-"""Close the one-word hole in the instruction-override rules (WI-001840).
+"""Close the one-word hole in the instruction-override rules.
 
 Two rules were meant to cover "make the model drop its instructions", and there
 was a gap exactly between them:
@@ -12,7 +12,8 @@ was a gap exactly between them:
 So "ignore all previous instructions" was caught and **"ignore your previous
 instructions" was not**. One word defeated the flagship rule of the pack, and it
 is the phrasing a model is at least as likely to be given. Found while testing
-AC4: the payload went into long-term memory verbatim, which is precisely the
+the memory-write screen: the payload went into long-term memory verbatim, which
+is precisely the
 "standing instruction that outlives the conversation" that criterion exists to
 stop.
 

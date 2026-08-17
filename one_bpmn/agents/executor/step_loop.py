@@ -198,7 +198,7 @@ async def run_agent_loop(
 			turn_record.tool_calls.append(
 				ToolCallRecord(name=call.name, arguments=call.arguments, result=result)
 			)
-			# WI-001840 AC1: what the model sees is marked with the tool that
+			# What the model sees is marked with the tool that
 			# produced it, so the guard rail in its frozen instructions has
 			# something to refer to. The ToolCallRecord above keeps the raw
 			# result — markers are for the model, not for the audit trail.
