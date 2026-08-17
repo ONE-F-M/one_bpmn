@@ -72,15 +72,35 @@ def screening_enabled(agent_config) -> bool:
 	Mirrors the PII escape hatch, and for the same reason: a screen that cannot
 	be turned off gets worked around instead of reported when it misfires. An
 	agent created before the field existed is screened.
+
+	The setting is read from the RECORD, not off the dict the caller passed.
+	The dict branch used to read ``agent_config["injection_screening"]`` — and
+	the resolved config from get_agent_config does not carry that key, so the
+	lookup always missed, always defaulted to "Enabled", and the switch did
+	nothing on the live chat path. It read as working because a direct call
+	passing the record NAME took the other branch and behaved correctly.
+	resolve_action, immediately below, already resolved the name properly; this
+	now does the same thing, which is also why the two can no longer disagree
+	about which agent they are talking about.
 	"""
 	if not agent_config:
 		return True
-	if isinstance(agent_config, dict):
-		return (agent_config.get("injection_screening") or "Enabled") != "Disabled"
 	try:
-		value = frappe.db.get_value("AI Agent Configuration", agent_config, "injection_screening")
+		if isinstance(agent_config, dict) and agent_config.get("injection_screening"):
+			# An explicit value on the payload wins — the agent-creation path
+			# passes a not-yet-saved config this way.
+			return agent_config["injection_screening"] != "Disabled"
+
+		from one_bpmn.security.pii import _config_name
+
+		name = _config_name(agent_config)
+		if not name:
+			return True
+		value = frappe.db.get_value("AI Agent Configuration", name, "injection_screening")
 		return (value or "Enabled") != "Disabled"
 	except Exception:
+		# Fail towards screening: a lookup failure must not silently exempt an
+		# agent from the control.
 		return True
 
 

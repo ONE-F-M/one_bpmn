@@ -1214,3 +1214,62 @@ class TestOneTurnCostsOneSlot(FrappeTestCase):
 	def test_peek_never_throttles_when_the_cache_is_broken(self):
 		with patch("frappe.cache", side_effect=RuntimeError("redis down")):
 			self.assertEqual(RL.peek_count("Administrator", self.AGENT_LABEL, 60), -1)
+
+
+class TestTheFreezeOutlivesTheRefusal(FrappeTestCase):
+	"""Observed live (WI-001840 testing): the chat said "This conversation has
+	been frozen after repeated blocked attempts. A reviewer needs to release it"
+	and there was NO lock anywhere on the site.
+
+	raise_lock inserts the row and the caller's next act is frappe.throw, which
+	rolls the whole request back — taking the insert with it. So the user was
+	told they were frozen, no reviewer had anything to release, and their next
+	message went straight through. A refusal is a DECISION; the record of it has
+	to outlive the exception that carries it.
+	"""
+
+	def setUp(self):
+		self.conversation = "ZZ-FREEZE-OUTLIVES"
+		frappe.db.delete("AI Conversation Lock", {"conversation": self.conversation})
+		frappe.db.commit()
+		self.addCleanup(self._purge)
+
+	def _purge(self):
+		frappe.db.delete("AI Conversation Lock", {"conversation": self.conversation})
+		frappe.db.commit()
+
+	def test_the_lock_is_committed_not_left_in_the_transaction(self):
+		"""in_test suppresses the commit itself — FrappeTestCase rolls back on
+		purpose and a real commit here would leak fixtures — so this pins the
+		CODE PATH instead: the commit must sit between the insert and the return,
+		which is the only place that survives the caller's throw."""
+		import ast
+		import inspect
+
+		from one_bpmn.security import rate_limit
+
+		tree = ast.parse(inspect.getsource(rate_limit))
+		fn = next(
+			n for n in ast.walk(tree)
+			if isinstance(n, ast.FunctionDef) and n.name == "raise_lock"
+		)
+		body = ast.dump(fn)
+		self.assertIn("commit", body, "raise_lock must commit; a rolled-back freeze is a lie")
+		# and it must come after the insert, not before it
+		src = inspect.getsource(rate_limit).split("def raise_lock", 1)[1].split("\ndef ", 1)[0]
+		self.assertLess(
+			src.index("insert("), src.index("commit()"),
+			"the commit has to follow the insert it is protecting",
+		)
+
+	def test_the_already_locked_refusal_records_before_it_throws(self):
+		"""Same trap one branch up: an existing lock records a Block event and
+		then throws. Uncommitted, that event vanishes and a refused turn leaves
+		no trace."""
+		import inspect
+
+		from one_bpmn.security import rate_limit
+
+		src = inspect.getsource(rate_limit.enforce)
+		locked = src.split("if lock:", 1)[1].split("frappe.throw", 1)[0]
+		self.assertIn("commit()", locked, "the refusal event must survive the throw")

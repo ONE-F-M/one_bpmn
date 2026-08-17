@@ -320,6 +320,18 @@ def raise_lock(
 		doc.trigger_event = trigger_event
 		doc.detail = detail
 		doc.insert(ignore_permissions=True)
+		# COMMIT before returning. The caller's next act is frappe.throw, which
+		# rolls the whole request back — so without this the freeze was told to
+		# the user and then undone: "a reviewer needs to release it" with no lock
+		# for anyone to release, and the very next message going straight
+		# through. Observed live (WI-001840 testing).
+		#
+		# Same rule the streamed refusal already follows: a refusal is a
+		# DECISION, and the record of it has to outlive the exception that
+		# carries it. in_test is excepted because FrappeTestCase rolls back
+		# deliberately and a commit here would leak fixtures between tests.
+		if not frappe.flags.in_test:
+			frappe.db.commit()
 		return doc.name
 	except Exception:
 		frappe.log_error(
@@ -362,6 +374,11 @@ def enforce(
 			severity="High", classifier="locked",
 			detail=f"refused: conversation frozen by lock {lock}",
 		)
+		# Same reason as raise_lock: the throw below rolls this back otherwise,
+		# and a refusal nobody can see afterwards is indistinguishable from one
+		# that never happened.
+		if not frappe.flags.in_test:
+			frappe.db.commit()
 		frappe.throw(
 			_(
 				"This conversation has been frozen after repeated blocked attempts. "
