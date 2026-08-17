@@ -66,6 +66,21 @@ is there to read. Visible in the outcome: the assessor answers "Critical"
 for the flooding incident where an empty brief had it answering
 "Routine".
 
+**Open issue (selector, 2026-08-17).** Triggering, grounding and both
+delegations work: the Issue insert starts the process, the assessor
+answers "Critical" from the document, maintenance parks and is reconciled
+back with "Technician assigned; parts on order." But the ad-hoc decision
+loop then stops asking — ``close_incident`` never runs, so the Issue stays
+Open and the instance stays Active. No error is logged and no flag is
+stuck (``engine_in_progress`` 0, ``waiting_for_ai`` 0); re-entering
+``run_parked_ai_task(kind="adhoc_decision")`` by hand does not advance it
+either, which points at the gate finding no promotable head rather than a
+lost job. A manually started run of the same map DID complete earlier, so
+the trigger is not the cause. Concrete lead: in the activity log the
+assessor has both "Ad-Hoc Task Activated" and "Completed" while
+maintenance has only "Completed" — the second activation skipped the hook
+that the loop's re-entry depends on.
+
 Depends on ``a2a_scenario_fixtures`` for the worker agents — run its
 ``execute()`` first. Unlike that module this one really does call an LLM,
 so it needs working Claude credentials.
@@ -101,6 +116,27 @@ ALL_AGENTS = (AGENT_TASK_AGENT, SELECTOR_AGENT)
 
 PROVIDER = "Claude"
 MODEL = "claude-haiku-4-5-20251001"
+
+# ── What raises an incident ──────────────────────────────────────────────────
+#
+# Both maps start when an Issue of their own type is created. Issue was picked
+# over the alternatives after checking what it actually costs to create one on
+# this bench:
+#
+#   ToDo       — 2 fields (description + allocated_to). Cheapest to create, but
+#                UNSAFE to trigger on: Frappe creates a ToDo for every
+#                assignment, including the ones these agents' own human steps
+#                create, so an After Insert trigger would feed itself.
+#   HD Ticket  — cannot be created at all here: it sends an acknowledgement
+#                email on insert and throws without a default outgoing account.
+#   Issue      — 2 fields (subject + issue_type), and issue_type gives a clean
+#                scope so only records deliberately marked as ours start a
+#                process. Same friction as ToDo, none of the feedback loop.
+#
+# One type per map, so each can be exercised on its own — creating one Issue
+# must not start both processes.
+ISSUE_TYPE_AGENT = "Facilities Incident (Agent)"
+ISSUE_TYPE_SELECTOR = "Facilities Incident (Selector)"
 
 INCIDENT = "Flooding from a burst pipe in the basement plant room at Al Rai Tower; the chiller pump has stopped."
 
@@ -152,6 +188,25 @@ TOOLS = (
 		"Record a ROUTINE incident for the compliance trail. Use this when no maintenance is needed.",
 	),
 )
+
+
+def _incident_start(issue_type: str) -> str:
+	"""A start event that fires when an Issue of THIS type is created.
+
+	Scoped by issue_type on purpose. The universal trigger is registered on
+	every DocType, so an unscoped Issue trigger would start this process for
+	every issue anyone raises on the site.
+	"""
+	return (
+		'    <bpmn:startEvent id="start" name="Incident reported">\n'
+		"      <bpmn:outgoing>f1</bpmn:outgoing>\n"
+		'      <bpmn:conditionalEventDefinition id="cond_start" '
+		'spiffworkflow:triggerDoctype="Issue" spiffworkflow:triggerType="After Insert" '
+		f'spiffworkflow:triggerFieldName="issue_type" spiffworkflow:triggerFieldValue="{issue_type}">\n'
+		f'        <bpmn:condition>issue_type == "{issue_type}"</bpmn:condition>\n'
+		"      </bpmn:conditionalEventDefinition>\n"
+		"    </bpmn:startEvent>\n"
+	)
 
 
 def _tool_shape(element: str, agent: str, variable: str, description: str) -> str:
@@ -227,9 +282,7 @@ def _agent_task_xml() -> str:
 	return (
 		_HEAD.format(pid="a2a_tool_agent_task")
 		+ '  <bpmn:process id="a2a_tool_agent_task" isExecutable="true">\n'
-		+ '    <bpmn:startEvent id="start" name="Incident reported">\n'
-		+ "      <bpmn:outgoing>f1</bpmn:outgoing>\n"
-		+ "    </bpmn:startEvent>\n"
+		+ _incident_start(ISSUE_TYPE_AGENT)
 		+ '    <bpmn:sequenceFlow id="f1" sourceRef="start" targetRef="triage" />\n'
 		+ '    <bpmn:serviceTask id="triage" name="Triage the incident" '
 		+ 'spiffworkflow:serviceType="ai_agent" '
@@ -238,7 +291,11 @@ def _agent_task_xml() -> str:
 		+ f'spiffworkflow:aiModel="{MODEL}" '
 		+ f'spiffworkflow:aiAgentConfig="{AGENT_TASK_AGENT}" '
 		+ f'spiffworkflow:aiSystemPrompt="{prompt}" '
-		+ 'spiffworkflow:aiUserPrompt="{{ incident }}" '
+		# The incident record IS the trigger, so the brief comes off the
+		# document. It used to read {{ incident }} from initial_data, which does
+		# not exist on a triggered run — the model would have received the
+		# literal placeholder.
+		+ 'spiffworkflow:aiUserPrompt="Incident raised: {{ doc.subject }}&#10;&#10;{{ doc.description }}" '
 		+ 'spiffworkflow:aiOutputVariable="triage_summary" '
 		+ 'spiffworkflow:aiResponseFormat="text" '
 		+ 'spiffworkflow:aiTemperature="0" '
@@ -308,7 +365,7 @@ def _selector_xml() -> str:
 		"run and what it returned — trust it over anything you think you remember."
 	).replace("\n", "&#10;").replace('"', "&#34;")
 	user_prompt = (
-		"Incident: {{ doc.description }}&#10;&#10;"
+		"Incident: {{ doc.subject }} — {{ doc.description }}&#10;&#10;"
 		"Assessor verdict so far: {% if assessment %}{{ assessment }}"
 		"{% else %}NOT ASSESSED YET{% endif %}&#10;"
 		"Maintenance result so far: {% if dispatch %}{{ dispatch }}"
@@ -319,9 +376,7 @@ def _selector_xml() -> str:
 	return (
 		_HEAD.format(pid="a2a_tool_selector")
 		+ '  <bpmn:process id="a2a_tool_selector" isExecutable="true">\n'
-		+ '    <bpmn:startEvent id="start" name="Incident reported">\n'
-		+ "      <bpmn:outgoing>f1</bpmn:outgoing>\n"
-		+ "    </bpmn:startEvent>\n"
+		+ _incident_start(ISSUE_TYPE_SELECTOR)
 		+ '    <bpmn:sequenceFlow id="f1" sourceRef="start" targetRef="a2a_tools" />\n'
 		+ '    <bpmn:adHocSubProcess id="a2a_tools" name="Delegation tools (A2A)" '
 		+ 'cancelRemainingInstances="false" '
@@ -400,6 +455,8 @@ def execute():
 		print("  bench execute one_bpmn.one_bpmn.a2a_scenario_fixtures.execute")
 		return
 
+	_upsert_issue_type(ISSUE_TYPE_AGENT)
+	_upsert_issue_type(ISSUE_TYPE_SELECTOR)
 	_upsert_script(CLOSE_SCRIPT, _CLOSE_INCIDENT)
 	_reserve_agent(AGENT_TASK_AGENT, "a2a_incident_intake_agent")
 	_reserve_agent(SELECTOR_AGENT, "a2a_incident_triage_selector")
@@ -425,6 +482,9 @@ def execute():
 	print("  AI Agent Task    : " + AGENT_TASK_AGENT)
 	print("  AI Task Selector : " + SELECTOR_AGENT)
 	print("  tools in both    : " + ", ".join(tool[0] for tool in TOOLS))
+	print("\nBoth start when an Issue of their own type is created:")
+	print(f"  {ISSUE_TYPE_AGENT}")
+	print(f"  {ISSUE_TYPE_SELECTOR}")
 	print("\nRun them:")
 	print("  bench execute one_bpmn.one_bpmn.a2a_agent_tool_fixtures.run_agent_task")
 	print("  bench execute one_bpmn.one_bpmn.a2a_agent_tool_fixtures.run_task_selector")
@@ -433,43 +493,55 @@ def execute():
 # ── Running ──────────────────────────────────────────────────────────────────
 
 
-def _start(model_name: str, context: tuple | None = None) -> str:
-	from one_bpmn.api.instance_api import start_process
-
-	result = start_process(
-		model_name=model_name,
-		context_doctype=context[0] if context else None,
-		context_docname=context[1] if context else None,
-		initial_data=frappe.as_json({"incident": INCIDENT}),
-	)
-	frappe.db.commit()
-	instance = result.get("instance") or result.get("name")
-	print(f"Started {instance} on {model_name}")
-	return instance
+def _upsert_issue_type(name: str) -> str:
+	if not frappe.db.exists("Issue Type", name):
+		doc = frappe.get_doc({"doctype": "Issue Type", "name": name})
+		doc.flags.ignore_permissions = True
+		doc.insert(ignore_permissions=True)
+	return name
 
 
-def _incident_record() -> tuple:
-	"""The incident as a document the selector can read.
+def raise_incident(issue_type: str) -> str:
+	"""Report an incident, the way a person would.
 
-	A ToDo stands in for whatever a real site would use — an HD Ticket, a
-	maintenance request. What matters is that there IS a context document:
-	a selector's prompt can reach ``doc`` but not the parent process's
-	workflow variables.
+	Creating the record IS the start — the map's conditional start event fires
+	on the insert. Nothing here calls start_process, which is the point: this
+	exercises the trigger, not a hand-built instance.
 	"""
-	todo = frappe.get_doc(
+	issue = frappe.get_doc(
 		{
-			"doctype": "ToDo",
+			"doctype": "Issue",
+			"subject": "Flooding in the basement plant room, Al Rai Tower",
 			"description": INCIDENT,
+			"issue_type": issue_type,
 			"status": "Open",
-			"allocated_to": frappe.session.user
-			if frappe.session.user != "Guest"
-			else "Administrator",
 		}
 	)
-	todo.flags.ignore_permissions = True
-	todo.insert(ignore_permissions=True)
+	issue.flags.ignore_permissions = True
+	issue.insert(ignore_permissions=True)
 	frappe.db.commit()
-	return ("ToDo", todo.name)
+	print(f"Raised {issue.name} ({issue_type})")
+	return issue.name
+
+
+def _instance_for(issue: str, seconds: int = 30) -> str | None:
+	"""The instance the trigger started for this incident, once it appears."""
+	import time
+
+	for _ in range(seconds):
+		frappe.db.rollback()
+		rows = frappe.get_all(
+			"BPMN Process Instance",
+			filters={"context_doctype": "Issue", "context_docname": issue},
+			order_by="creation desc",
+			limit=1,
+			pluck="name",
+		)
+		if rows:
+			return rows[0]
+		time.sleep(1)
+	print(f"  no process started for {issue} — is the map deployed and the agent Live?")
+	return None
 
 
 def _wait(instance: str, seconds: int = 180) -> str:
@@ -490,7 +562,10 @@ def _wait(instance: str, seconds: int = 180) -> str:
 
 def run_agent_task():
 	"""Surface 1: tools executed inline inside the LLM's tool loop."""
-	instance = _start(AGENT_TASK_AGENT)
+	issue = raise_incident(ISSUE_TYPE_AGENT)
+	instance = _instance_for(issue)
+	if not instance:
+		return None
 	_wait(instance)
 	show_tool_calls(instance)
 	return instance
@@ -498,7 +573,10 @@ def run_agent_task():
 
 def run_task_selector():
 	"""Surface 2: the LLM activates a shape as a real process step."""
-	instance = _start(SELECTOR_AGENT, context=_incident_record())
+	issue = raise_incident(ISSUE_TYPE_SELECTOR)
+	instance = _instance_for(issue)
+	if not instance:
+		return None
 	_wait(instance)
 	show_tool_calls(instance)
 	return instance
@@ -559,5 +637,11 @@ def teardown():
 		frappe.delete_doc("BPMN Process Model", name, force=True, ignore_permissions=True, ignore_missing=True)
 		frappe.delete_doc("Process", name, force=True, ignore_permissions=True, ignore_missing=True)
 	frappe.delete_doc("Server Script", CLOSE_SCRIPT, force=True, ignore_permissions=True, ignore_missing=True)
+	for issue_type in (ISSUE_TYPE_AGENT, ISSUE_TYPE_SELECTOR):
+		for issue in frappe.get_all("Issue", filters={"issue_type": issue_type}, pluck="name"):
+			frappe.delete_doc("Issue", issue, force=True, ignore_permissions=True, ignore_missing=True)
+		frappe.delete_doc(
+			"Issue Type", issue_type, force=True, ignore_permissions=True, ignore_missing=True
+		)
 	frappe.db.commit()
 	print("Removed the A2A agent-tool fixtures.")
