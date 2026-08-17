@@ -257,9 +257,20 @@ def blocked_attempts(user: str, agent: str | None, window_seconds: int) -> int:
 
 	What counts as "blocked": an event whose action is Block — a refusal that
 	actually happened — or a High/Critical injection match. The second is
-	included deliberately: injection screening is record-only until 15.1, so
-	without it a determined prober would never accumulate a single strike, and
-	the freeze in this story would be unreachable in practice.
+	included deliberately: a defused attempt is still an attempt, and with the
+	default action set to Flag a determined prober would otherwise never
+	accumulate a single strike.
+
+	Counted as ATTEMPTS, not as events. One message can match several rules and
+	each match writes its own AI Security Event — so counting rows made a single
+	message worth two or three strikes and burn the whole budget at once. The
+	setting is called "Freeze After N Blocked Attempts" and it now means that:
+	events are collapsed by correlation id, which is one per turn (WI-001967).
+
+	Observed live on WI-001840: one message matched ignore-previous-instructions
+	AND reveal-system-prompt, scored 2 against a threshold of 2, and froze the
+	conversation on the user's FIRST attempt — with the message itself allowed
+	through, because the action was only Flag.
 	"""
 	from frappe.utils import add_to_date, now_datetime
 
@@ -274,12 +285,22 @@ def blocked_attempts(user: str, agent: str | None, window_seconds: int) -> int:
 		if agent:
 			filters["agent_configuration"] = agent
 
-		blocks = frappe.db.count("AI Security Event", {**filters, "action": "Block"})
-		serious = frappe.db.count(
+		rows = frappe.get_all(
 			"AI Security Event",
-			{**filters, "stage": "injection", "severity": ("in", ["High", "Critical"])},
+			or_filters=[
+				{"action": "Block"},
+				{"stage": "injection", "severity": ("in", ["High", "Critical"])},
+			],
+			filters=filters,
+			fields=["name", "correlation_id"],
+			limit_page_length=0,
 		)
-		return blocks + serious
+		# Collapse by turn. An event with no correlation id predates WI-001967 or
+		# was written outside a turn; each of those counts once on its own rather
+		# than all collapsing into a single phantom attempt.
+		turns = {r["correlation_id"] for r in rows if r["correlation_id"]}
+		loose = sum(1 for r in rows if not r["correlation_id"])
+		return len(turns) + loose
 	except Exception:
 		frappe.log_error(
 			title="AI rate limit: blocked-attempt count failed — no freeze raised",
