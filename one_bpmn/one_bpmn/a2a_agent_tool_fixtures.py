@@ -121,17 +121,22 @@ _TOOL_ARGS = (
 	"Include the site and what happened.&#34;}}, &#34;required&#34;: [&#34;instruction&#34;]}"
 )
 
+# (tool id, target agent, result variable, description shown to the LLM).
+#
+# The shape's DISPLAY name is derived from the target agent rather than the
+# action, because an A2A hop has two ends and a reader of the diagram needs to
+# see both: the AI Agent Task is the agent initiating, and each tool names the
+# agent receiving. Naming these "Ask the safety assessor" hid half of that
+# behind the properties panel.
 TOOLS = (
 	(
 		"ask_safety_assessor",
-		"Ask the safety assessor",
 		ASSESSOR,
 		"assessment",
 		"Ask the site safety assessor how serious an incident is. Returns Critical or Routine.",
 	),
 	(
 		"send_to_maintenance",
-		"Send it to maintenance",
 		DISPATCHER,
 		"dispatch",
 		"Hand a CRITICAL incident to maintenance. They assign a technician and check parts, "
@@ -139,7 +144,6 @@ TOOLS = (
 	),
 	(
 		"log_for_compliance",
-		"Log it for compliance",
 		LOGGER,
 		"logged",
 		"Record a ROUTINE incident for the compliance trail. Use this when no maintenance is needed.",
@@ -147,7 +151,7 @@ TOOLS = (
 )
 
 
-def _tool_shape(element: str, name: str, agent: str, variable: str, description: str) -> str:
+def _tool_shape(element: str, agent: str, variable: str, description: str) -> str:
 	"""One delegation, offered to the LLM as a function tool.
 
 	``instruction`` is the LLM's own argument reaching the connector's input
@@ -159,7 +163,7 @@ def _tool_shape(element: str, name: str, agent: str, variable: str, description:
 		"&#34;instruction&#34;: &#34;{{ task_data.instruction }}&#34;}"
 	)
 	return (
-		f'      <bpmn:serviceTask id="{element}" name="{name}" '
+		f'      <bpmn:serviceTask id="{element}" name="A2A → {agent}" '
 		'spiffworkflow:serviceType="connector" spiffworkflow:connectorId="a2a" '
 		'spiffworkflow:operation="delegate_to_local_agent" '
 		f'spiffworkflow:connectorParams="{params}" '
@@ -244,7 +248,10 @@ def _agent_task_xml() -> str:
 		+ "    </bpmn:serviceTask>\n"
 		+ '    <bpmn:sequenceFlow id="f2" sourceRef="triage" targetRef="end" />\n'
 		+ '    <bpmn:endEvent id="end" name="Triaged" />\n'
-		+ '    <bpmn:adHocSubProcess id="a2a_tools" name="Delegation tools">\n'
+		+ '    <bpmn:adHocSubProcess id="a2a_tools" name="Delegation tools (A2A)">\n'
+		+ "      <bpmn:documentation>The agents this one may hand work to. Referenced by the "
+		+ "AI Agent Task as its toolbox, so it is not wired into the sequence flow: the model "
+		+ "calls these, the engine does not run them in order.</bpmn:documentation>\n"
 		+ _tool_shapes()
 		+ "    </bpmn:adHocSubProcess>\n"
 		+ "  </bpmn:process>\n"
@@ -257,6 +264,7 @@ def _agent_task_xml() -> str:
 			]
 			+ _tool_di(),
 			[("f1", "start", "triage"), ("f2", "triage", "end")],
+			expanded={"a2a_tools"},
 		)
 		+ _TAIL
 	)
@@ -312,7 +320,7 @@ def _selector_xml() -> str:
 		+ "      <bpmn:outgoing>f1</bpmn:outgoing>\n"
 		+ "    </bpmn:startEvent>\n"
 		+ '    <bpmn:sequenceFlow id="f1" sourceRef="start" targetRef="a2a_tools" />\n'
-		+ '    <bpmn:adHocSubProcess id="a2a_tools" name="Delegation tools" '
+		+ '    <bpmn:adHocSubProcess id="a2a_tools" name="Delegation tools (A2A)" '
 		+ 'cancelRemainingInstances="false" '
 		+ 'spiffworkflow:serviceType="ai_task_selector" '
 		+ f'spiffworkflow:aiProvider="{PROVIDER}" '
@@ -334,6 +342,7 @@ def _selector_xml() -> str:
 			"a2a_tool_selector",
 			[("start", 160, 400, 36, 36), ("end", 1060, 400, 36, 36)] + _tool_di(with_close=True),
 			[("f1", "start", "a2a_tools"), ("f2", "a2a_tools", "end")],
+			expanded={"a2a_tools"},
 		)
 		+ _TAIL
 	)
@@ -519,13 +528,14 @@ def show_tool_calls(instance: str = None):
 		print("  no delegation happened — the agent never called a tool")
 		return rows
 
-	print(f"\n  {'state':<16}{'agent':<28}{'caller task id':<22}answer")
-	print("  " + "-" * 104)
+	print(f"\n  {'state':<16}{'delegated by':<26}{'handled by':<28}{'caller task id':<22}answer")
+	print("  " + "-" * 126)
 	for row in rows:
 		answer = row.status_message or row.error_message or ""
 		print(
-			f"  {row.state:<16}{row.agent_configuration[:26]:<28}"
-			f"{str(row.caller_wf_task_id)[:20]:<22}{answer[:40]}"
+			f"  {row.state:<16}{(row.delegated_by or '—')[:24]:<26}"
+			f"{row.agent_configuration[:26]:<28}"
+			f"{str(row.caller_wf_task_id)[:20]:<22}{answer[:36]}"
 		)
 
 	if instance:

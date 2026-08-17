@@ -67,7 +67,13 @@ import frappe
 
 # The map/agent/process plumbing is identical to the minimal fixtures —
 # only the story differs, so it is imported rather than copied.
-from one_bpmn.one_bpmn.a2a_test_fixtures import _HEAD, _TAIL, _di, _upsert_process
+from one_bpmn.one_bpmn.a2a_test_fixtures import (
+	_HEAD,
+	_TAIL,
+	_di,
+	_upsert_process,
+	add_flow_refs,
+)
 
 COORDINATOR = "Incident Coordinator"
 ASSESSOR = "Site Safety Assessor"
@@ -459,7 +465,7 @@ def _upsert_model(name: str, process_id: str, xml: str) -> str:
 	model.process_id = process_id
 	model.process_name = _upsert_process(name)
 	model.version = model.version or 1
-	model.bpmn_xml = xml
+	model.bpmn_xml = add_flow_refs(xml)
 	model.flags.ignore_permissions = True
 	model.flags.ignore_mandatory = True
 	model.save(ignore_permissions=True)

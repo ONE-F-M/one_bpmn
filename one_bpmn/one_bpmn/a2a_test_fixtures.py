@@ -36,21 +36,31 @@ _HEAD = (
 _TAIL = "</bpmn:definitions>\n"
 
 
-def _di(process_id: str, shapes: list, edges: list) -> str:
+def _di(process_id: str, shapes: list, edges: list, expanded: set | None = None) -> str:
 	"""The diagram interchange section — coordinates for every element.
 
 	Without this the map is still valid and still runs, but bpmn-js has
 	nothing to draw and the canvas opens blank.
 
+	``expanded`` names the container shapes (sub-processes) to draw OPEN.
+	A sub-process shape without ``isExpanded`` renders collapsed — a bare
+	box with a [+] marker — and its children are hidden even though they
+	are right there in the XML and run perfectly well. For a toolbox
+	sub-process that is the whole point of the picture, so it must be set.
+
 	shapes: (id, x, y, width, height). edges: (id, source_id, target_id).
 	"""
+	expanded = expanded or set()
 	box = {s[0]: s[1:] for s in shapes}
 	out = [
 		f'  <bpmndi:BPMNDiagram id="BPMNDiagram_{process_id}">',
 		f'    <bpmndi:BPMNPlane id="BPMNPlane_{process_id}" bpmnElement="{process_id}">',
 	]
 	for element, x, y, w, h in shapes:
-		out.append(f'      <bpmndi:BPMNShape id="{element}_di" bpmnElement="{element}">')
+		open_attr = ' isExpanded="true"' if element in expanded else ""
+		out.append(
+			f'      <bpmndi:BPMNShape id="{element}_di" bpmnElement="{element}"{open_attr}>'
+		)
 		out.append(f'        <dc:Bounds x="{x}" y="{y}" width="{w}" height="{h}" />')
 		out.append("      </bpmndi:BPMNShape>")
 	for element, source, target in edges:
@@ -64,6 +74,72 @@ def _di(process_id: str, shapes: list, edges: list) -> str:
 		out.append("      </bpmndi:BPMNEdge>")
 	out += ["    </bpmndi:BPMNPlane>", "  </bpmndi:BPMNDiagram>", ""]
 	return "\n".join(out)
+
+
+_NS = {
+	"bpmn": "http://www.omg.org/spec/BPMN/20100524/MODEL",
+	"bpmndi": "http://www.omg.org/spec/BPMN/20100524/DI",
+	"dc": "http://www.omg.org/spec/DD/20100524/DC",
+	"di": "http://www.omg.org/spec/DD/20100524/DI",
+	"xsi": "http://www.w3.org/2001/XMLSchema-instance",
+	"spiffworkflow": "http://spiffworkflow.org/bpmn/schema/1.0/core",
+}
+
+
+def add_flow_refs(xml: str) -> str:
+	"""Give every node the ``<bpmn:incoming>``/``<bpmn:outgoing>`` children
+	the editor expects.
+
+	SpiffWorkflow builds the graph from each sequence flow's sourceRef and
+	targetRef, so a map without these runs exactly right — which is why it is
+	easy to miss. bpmn-js does NOT infer them: it reads a node's own child
+	refs, so every node comes up "disconnected" in the linter and the diagram
+	is flagged with errors it does not really have.
+
+	Idempotent: refs already present are left alone.
+	"""
+	import xml.etree.ElementTree as ET
+
+	for prefix, uri in _NS.items():
+		ET.register_namespace(prefix, uri)
+
+	bpmn = _NS["bpmn"]
+	try:
+		root = ET.fromstring(xml)
+	except ET.ParseError:
+		return xml
+
+	incoming: dict = {}
+	outgoing: dict = {}
+	for flow in root.iter(f"{{{bpmn}}}sequenceFlow"):
+		flow_id = flow.get("id")
+		outgoing.setdefault(flow.get("sourceRef"), []).append(flow_id)
+		incoming.setdefault(flow.get("targetRef"), []).append(flow_id)
+
+	for element in root.iter():
+		element_id = element.get("id")
+		if not element_id or element.tag == f"{{{bpmn}}}sequenceFlow":
+			continue
+		if element_id not in incoming and element_id not in outgoing:
+			continue
+		present = {
+			(child.tag, (child.text or "").strip())
+			for child in element
+			if child.tag in (f"{{{bpmn}}}incoming", f"{{{bpmn}}}outgoing")
+		}
+		# Documentation must stay first — the schema orders it before the refs,
+		# and the editor shows it as the element's description.
+		index = 1 if element.find(f"{{{bpmn}}}documentation") is not None else 0
+		for tag, flows in ((f"{{{bpmn}}}incoming", incoming), (f"{{{bpmn}}}outgoing", outgoing)):
+			for flow_id in flows.get(element_id, []):
+				if (tag, flow_id) in present:
+					continue
+				ref = ET.Element(tag)
+				ref.text = flow_id
+				element.insert(index, ref)
+				index += 1
+
+	return ET.tostring(root, encoding="unicode", xml_declaration=True)
 
 
 def _worker_xml(process_id: str, agent_name: str, with_user_task: bool) -> str:
