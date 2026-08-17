@@ -143,3 +143,124 @@ class TestDelegationLimits(FrappeTestCase):
 		metadata = guardrails.trace_metadata(counters)
 		self.assertEqual(metadata[a2a_contract.trace_key("delegationDepth")], 3)
 		self.assertEqual(read_trace({"metadata": metadata}), counters)
+
+
+class TestRefusalIsSurfaced(FrappeTestCase):
+	"""WI-002008: a limit breach must not fail silently — it leaves a failed
+	task behind and tells a person, choosing the most accountable one it can
+	find."""
+
+	def _user(self, tag: str) -> str:
+		return frappe.get_doc(
+			{
+				"doctype": "User",
+				"email": f"a2a-{tag}-{frappe.generate_hash(length=6)}@example.com",
+				"first_name": tag.title(),
+				"send_welcome_email": 0,
+			}
+		).insert(ignore_permissions=True).name
+
+	def _breach(self, agent, target):
+		return guardrails.DelegationRefused(
+			"Delegation stopped: agents have nested 3 levels deep, and this agent allows 1.",
+			reason_code="max_recursion_depth",
+		)
+
+	def test_a_limit_breach_leaves_a_failed_task(self):
+		worker = make_agent_configuration(a2a_exposed=1)
+		orchestrator = with_sub_agents(make_agent_configuration(), [worker], max_recursion_depth=1)
+		refusal = self._breach(orchestrator, worker)
+
+		name = guardrails.record_limit_breach(
+			refusal,
+			delegating_agent=orchestrator.name,
+			target=worker.name,
+			counters={"delegation_depth": 3, "handoff_count": 1},
+		)
+		self.assertTrue(name)
+		row = frappe.get_doc("A2A Task", name)
+		self.assertEqual(row.state, "failed")
+		self.assertEqual(row.error_code, "max_recursion_depth")
+		self.assertIn("nested", row.error_message)
+		self.assertTrue(row.resume_enqueued, "nothing parked, so nothing should be woken")
+		frappe.delete_doc("A2A Task", name, force=True, ignore_permissions=True)
+
+	def test_an_off_the_list_refusal_records_nothing(self):
+		"""That is a configuration mistake, not a runaway chain."""
+		refusal = guardrails.DelegationRefused("not on the list", reason_code="target_not_allowed")
+		self.assertIsNone(guardrails.record_limit_breach(refusal, delegating_agent=None, target=None))
+
+	def test_the_process_owner_is_told_first(self):
+		owner = self._user("process-owner")
+		process = frappe.get_doc(
+			{
+				"doctype": "Process",
+				"process_name": f"_Test Refusal Process {frappe.generate_hash(length=6)}",
+				"description": "Fixture.",
+				"process_owner": owner,
+			}
+		).insert(ignore_permissions=True)
+		model = frappe.get_doc(
+			{
+				"doctype": "BPMN Process Model",
+				"title": f"_Test Refusal Map {frappe.generate_hash(length=6)}",
+				"process_id": "refusal_map",
+				"process_name": process.name,
+				"version": 1,
+			}
+		)
+		model.flags.ignore_mandatory = True
+		model.insert(ignore_permissions=True)
+		instance = frappe.get_doc(
+			{
+				"doctype": "BPMN Process Instance",
+				"process_model": model.name,
+				"status": "Active",
+				"initiated_by": "Administrator",
+			}
+		)
+		instance.flags.ignore_mandatory = True
+		instance.insert(ignore_permissions=True)
+
+		self.assertEqual(guardrails.refusal_recipient(instance=instance.name), owner)
+
+	def test_the_agents_process_owner_is_next(self):
+		owner = self._user("agent-owner")
+		agent = make_agent_configuration(process_owner=owner)
+		self.assertEqual(guardrails.refusal_recipient(delegating_agent=agent.name), owner)
+
+	def test_whoever_set_the_agent_up_is_next(self):
+		agent = make_agent_configuration()
+		agent.db_set("owner", "test@example.com", update_modified=False)
+		self.assertEqual(guardrails.refusal_recipient(delegating_agent=agent.name), "test@example.com")
+
+	def test_the_person_who_started_the_run_is_the_last_resort(self):
+		starter = self._user("starter")
+		instance = frappe.get_doc(
+			{
+				"doctype": "BPMN Process Instance",
+				"status": "Active",
+				"initiated_by": starter,
+			}
+		)
+		instance.flags.ignore_mandatory = True
+		instance.flags.ignore_links = True
+		instance.insert(ignore_permissions=True)
+		self.assertEqual(guardrails.refusal_recipient(instance=instance.name), starter)
+
+	def test_the_alert_reaches_that_person(self):
+		owner = self._user("notified")
+		agent = make_agent_configuration(process_owner=owner)
+		refusal = guardrails.DelegationRefused("chain stopped", reason_code="max_task_handoffs")
+
+		told = guardrails.notify_refusal(refusal, delegating_agent=agent.name)
+		self.assertEqual(told, owner)
+		note = frappe.get_all(
+			"Notification Log", filters={"for_user": owner}, fields=["subject", "email_content"], limit=1
+		)
+		self.assertTrue(note)
+		self.assertIn("stopped", note[0].email_content)
+
+	def test_a_missing_recipient_is_not_an_error(self):
+		refusal = guardrails.DelegationRefused("chain stopped", reason_code="max_task_handoffs")
+		self.assertIsNone(guardrails.notify_refusal(refusal))

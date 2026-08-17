@@ -193,3 +193,132 @@ def trace_metadata(counters: dict) -> dict:
 	if counters.get("task_execution_id"):
 		metadata[a2a_contract.trace_key("taskExecutionId")] = counters["task_execution_id"]
 	return metadata
+
+
+# ── When a limit stops a chain, tell someone (WI-002008) ─────────────────────
+
+
+def refusal_recipient(delegating_agent: str | None = None, instance: str | None = None) -> str | None:
+	"""Who hears about a stopped delegation chain.
+
+	Preference order, most accountable first:
+
+	1. the **process owner** of the process this instance is running — the
+	   person who owns the thing that misbehaved;
+	2. the delegating **agent's** process owner, when the running process has
+	   none (a map with no Process record behind it);
+	3. whoever **set the agent up**, as the last person who touched its
+	   configuration;
+	4. whoever **started the run**, so the alert always lands somewhere.
+	"""
+	if instance:
+		model = frappe.db.get_value("BPMN Process Instance", instance, "process_model")
+		process = (
+			frappe.db.get_value("BPMN Process Model", model, "process_name") if model else None
+		)
+		owner = frappe.db.get_value("Process", process, "process_owner") if process else None
+		if owner:
+			return owner
+
+	if delegating_agent:
+		fields = (
+			frappe.db.get_value(
+				"AI Agent Configuration", delegating_agent, ["process_owner", "owner"], as_dict=True
+			)
+			or {}
+		)
+		if fields.get("process_owner"):
+			return fields["process_owner"]
+		if fields.get("owner") and fields["owner"] != "Administrator":
+			return fields["owner"]
+
+	if instance:
+		started_by = frappe.db.get_value("BPMN Process Instance", instance, "initiated_by")
+		if started_by:
+			return started_by
+	return None
+
+
+def notify_refusal(
+	refusal: DelegationRefused,
+	*,
+	delegating_agent: str | None = None,
+	instance: str | None = None,
+	a2a_task: str | None = None,
+) -> str | None:
+	"""Put the plain-language reason in front of a person, and return who got
+	it. Never raises: a failed alert must not also break the process."""
+	recipient = refusal_recipient(delegating_agent, instance)
+	if not recipient:
+		return None
+	try:
+		note = frappe.new_doc("Notification Log")
+		note.for_user = recipient
+		note.type = "Alert"
+		note.subject = _("An agent delegation was stopped")
+		note.email_content = str(refusal)
+		if a2a_task:
+			note.document_type = "A2A Task"
+			note.document_name = a2a_task
+		elif instance:
+			note.document_type = "BPMN Process Instance"
+			note.document_name = instance
+		note.insert(ignore_permissions=True)
+		return recipient
+	except Exception:
+		frappe.log_error(
+			title="A2A delegation refusal: notification failed", message=frappe.get_traceback()
+		)
+		return None
+
+
+# A limit breach is worth a record; an off-the-list target is a configuration
+# mistake that never became work, so it leaves nothing behind.
+LIMIT_REASONS = ("max_recursion_depth", "max_task_handoffs")
+
+
+def record_limit_breach(
+	refusal: DelegationRefused,
+	*,
+	delegating_agent: str | None = None,
+	target: str | None = None,
+	instance: str | None = None,
+	caller_wf_task_id: str | None = None,
+	bpmn_id: str | None = None,
+	counters: dict | None = None,
+) -> str | None:
+	"""Leave a failed task behind when a LIMIT stopped the chain, so the
+	monitor shows what happened and the alert has something to point at."""
+	if refusal.reason_code not in LIMIT_REASONS:
+		return None
+	counters = counters or {}
+	try:
+		doc = frappe.get_doc(
+			{
+				"doctype": "A2A Task",
+				"direction": "Internal",
+				"state": "failed",
+				"agent_configuration": target,
+				"delegated_by": delegating_agent,
+				"caller_instance": instance,
+				"caller_wf_task_id": caller_wf_task_id,
+				"bpmn_id": bpmn_id,
+				"error_code": refusal.reason_code,
+				"error_message": str(refusal)[:500],
+				"task_execution_id": counters.get("task_execution_id"),
+				"delegation_depth": counters.get("delegation_depth"),
+				"handoff_count": counters.get("handoff_count"),
+				# Nothing parked, so nothing is waiting to be woken.
+				"resume_enqueued": 1,
+				"completed_at": frappe.utils.now_datetime(),
+			}
+		)
+		doc.flags.ignore_links = True
+		doc.insert(ignore_permissions=True)
+		return doc.name
+	except Exception:
+		frappe.log_error(
+			title="A2A delegation refusal: could not record the breach",
+			message=frappe.get_traceback(),
+		)
+		return None
