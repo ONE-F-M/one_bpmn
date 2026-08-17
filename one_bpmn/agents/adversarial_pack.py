@@ -158,6 +158,33 @@ def _judge() -> tuple[str, str]:
 
 
 @frappe.whitelist()
+def _label_legacy_cases(suite: str) -> int:
+	"""Give the pack's own unlabelled cases their kind. Returns how many.
+
+	Titles are the identity the pack works by, so they are also how a legacy row
+	is recognised: a case whose title is one this module seeds is that case, and
+	its kind is known. Anything else in the suite is somebody's own addition and
+	is left alone — guessing a kind for a case we did not write would put a
+	number nobody can trace into a rate somebody will act on.
+	"""
+	kinds = {t: "Attack" for t, _a, _r in CASES}
+	kinds.update({t: "Benign Control" for t, _p, _r in BENIGN_CASES})
+	rows = frappe.get_all(
+		"AI Eval Case",
+		filters={"suite": suite, "case_kind": ["in", ["", None]]},
+		fields=["name", "title"],
+		limit_page_length=0,
+	)
+	fixed = 0
+	for row in rows:
+		kind = kinds.get(row["title"])
+		if not kind:
+			continue
+		frappe.db.set_value("AI Eval Case", row["name"], "case_kind", kind, update_modified=False)
+		fixed += 1
+	return fixed
+
+
 def build_suite_for_agent(agent: str, judge_model: str | None = None) -> dict:
 	"""Create (or top up) an Adversarial suite for one chat agent.
 
@@ -197,6 +224,15 @@ def build_suite_for_agent(agent: str, judge_model: str | None = None) -> dict:
 		created_suite = True
 
 	existing = set(frappe.get_all("AI Eval Case", filters={"suite": suite}, pluck="title"))
+
+	# Label the cases that predate case_kind. Rebuilding skips a title it already
+	# has, so without this the attacks seeded before AC5 landed keep an empty
+	# kind forever — and an unlabelled case counts toward NEITHER denominator, so
+	# the suite reports "not measurable" while looking fully populated. Fixing it
+	# here means maintaining the suite repairs it; the patch covers sites that
+	# never rebuild.
+	relabelled = _label_legacy_cases(suite)
+
 	added = []
 	for case_title, attack, rubric in CASES:
 		if case_title in existing:
@@ -258,6 +294,7 @@ def build_suite_for_agent(agent: str, judge_model: str | None = None) -> dict:
 		"suite": suite,
 		"created_suite": created_suite,
 		"cases_added": len(added),
+		"cases_relabelled": relabelled,
 		"cases_total": frappe.db.count("AI Eval Case", {"suite": suite}),
 		"judge_model": model,
 	}

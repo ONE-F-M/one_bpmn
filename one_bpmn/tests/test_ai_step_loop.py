@@ -113,9 +113,15 @@ class TestStepLoopAutomatic(FrappeTestCase):
 		self.assertEqual(
 			[e["role"] for e in second], ["user", "assistant", "tool_results"]
 		)
-		self.assertEqual(
-			second[2]["results"], [{"id": "c1", "name": "lookup", "content": "42"}]
-		)
+		# WI-001840 AC1: what reaches the MODEL is marked with its provenance.
+		# Asserted by containment rather than by an exact string — the marker has
+		# already gained one attribute (source), and pinning its full text makes
+		# every future attribute look like a regression here.
+		self.assertEqual(len(second[2]["results"]), 1)
+		sent = second[2]["results"][0]
+		self.assertEqual((sent["id"], sent["name"]), ("c1", "lookup"))
+		self.assertIn("42", sent["content"])
+		self.assertIn('tool="lookup"', sent["content"])
 
 	def test_unknown_tool_and_tool_error_strings(self):
 		def boom(**kw):
@@ -132,8 +138,8 @@ class TestStepLoopAutomatic(FrappeTestCase):
 		])
 		completion, _ = _run(adapter, [_auto_tool(fn=boom)])
 		results = adapter.seen_transcripts[1][2]["results"]
-		self.assertEqual(results[0]["content"], "Unknown tool: ghost")
-		self.assertEqual(results[1]["content"], "Error calling lookup: nope")
+		self.assertIn("Unknown tool: ghost", results[0]["content"])
+		self.assertIn("Error calling lookup: nope", results[1]["content"])
 		self.assertEqual(completion.text, "ok")
 
 	def test_turn_cap_sets_flag_with_partial_trace(self):
@@ -174,7 +180,7 @@ class TestStepLoopSuspension(FrappeTestCase):
 		self.assertEqual(suspension.turns_used, 1)
 		# automatic sibling executed; the SECOND human call was refused inline
 		contents = {r["id"]: r["content"] for r in suspension.deferred_results}
-		self.assertEqual(contents["a1"], "lookup-result")
+		self.assertIn("lookup-result", contents["a1"])
 		self.assertIn("only one human task", contents["h2"])
 		# transcript ends on the assistant entry that requested the calls
 		self.assertEqual(suspension.transcript[-1]["role"], "assistant")
@@ -212,13 +218,16 @@ class TestStepLoopSuspension(FrappeTestCase):
 		# the model saw the completed turn: deferred result + human result
 		seen = adapter.seen_transcripts[0]
 		self.assertEqual(seen[-1]["role"], "tool_results")
-		self.assertEqual(
-			seen[-1]["results"],
-			[
-				{"id": "a1", "name": "lookup", "content": "42"},
-				{"id": "h1", "name": "approval", "content": '{"action": "Approve"}'},
-			],
-		)
+		results = seen[-1]["results"]
+		self.assertEqual([(r["id"], r["name"]) for r in results],
+		                 [("a1", "lookup"), ("h1", "approval")])
+		# The deferred result was wrapped when it was produced and is replayed
+		# verbatim — wrapping it again here would double-mark it.
+		self.assertEqual(results[0]["content"], "42")
+		# The human's answer is content from outside the platform arriving on the
+		# tool channel, so it IS marked on the way in (WI-001840 AC1).
+		self.assertIn('{"action": "Approve"}', results[1]["content"])
+		self.assertIn('tool="approval"', results[1]["content"])
 
 	def test_turn_cap_is_cumulative_across_suspension(self):
 		adapter = FakeStepAdapter([])  # must never be called

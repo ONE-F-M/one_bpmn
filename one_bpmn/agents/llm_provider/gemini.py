@@ -175,7 +175,7 @@ class GeminiAdapter(BaseLLMAdapter):
                     types.Part(
                         function_response=types.FunctionResponse(
                             name=fc.name,
-                            response={"output": wrap_tool_result(result, fc.name)},
+                            response={"output": wrap_tool_result(result, fc.name, args)},
                         )
                     )
                 )

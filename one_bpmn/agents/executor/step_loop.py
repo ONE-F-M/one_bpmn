@@ -115,7 +115,11 @@ async def run_agent_loop(
 		results.append({
 			"id": pending.get("id") or "",
 			"name": pending.get("name") or "",
-			"content": wrap_tool_result(str(resume.get("human_result") or ""), pending.get("name") or "human task"),
+			"content": wrap_tool_result(
+				str(resume.get("human_result") or ""),
+				pending.get("name") or "human task",
+				pending.get("arguments"),
+			),
 		})
 		transcript.append({"role": "tool_results", "results": results})
 	else:
@@ -201,7 +205,7 @@ async def run_agent_loop(
 			results.append({
 				"id": call.id,
 				"name": call.name,
-				"content": wrap_tool_result(result, call.name),
+				"content": wrap_tool_result(result, call.name, call.arguments),
 			})
 
 		turn_record.latency_ms = int((time.perf_counter() - _turn_t0) * 1000)

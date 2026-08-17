@@ -161,7 +161,7 @@ class OpenAIAdapter(BaseLLMAdapter):
                 messages.append({
                     "role": "tool",
                     "tool_call_id": tc.id,
-                    "content": wrap_tool_result(result, tc.function.name),
+                    "content": wrap_tool_result(result, tc.function.name, args),
                 })
             # API round-trip + inline tool execution = this turn's decision latency
             turn.latency_ms = int((time.perf_counter() - _turn_t0) * 1000)

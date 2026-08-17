@@ -383,3 +383,90 @@ class TestScreeningEffectivenessRates(FrappeTestCase):
 
 		self.assertTrue(CASES)
 		self.assertTrue(BENIGN_CASES, "a false-positive rate needs benign traffic to measure against")
+
+
+class TestToolResultSaysWhatItRead(FrappeTestCase):
+	"""AC1 asks for two things: which tool produced the content, and what it
+	read. The marker carried only the tool name.
+
+	The source is the half that matters. "get_list said this" is weaker than
+	"get_list said this, reading Work Item" — the second is what lets the model
+	notice an instruction is arriving from a record somebody can edit, which is
+	the shape of the attack.
+	"""
+
+	def test_the_source_is_named_when_the_call_says_so(self):
+		out = wrap_tool_result("do X", "get_list", {"doctype": "Work Item"})
+		self.assertIn('tool="get_list"', out)
+		self.assertIn('source="Work Item"', out)
+
+	def test_a_record_is_identified_not_just_its_type(self):
+		out = wrap_tool_result("body", "get_doc", {"doctype": "Work Item", "name": "WI-001840"})
+		self.assertIn("Work Item", out)
+		self.assertIn("WI-001840", out)
+
+	def test_a_search_reports_what_was_searched_for(self):
+		self.assertIn('source="leave policy"',
+		              wrap_tool_result("hits", "search_company_wiki", {"query": "leave policy"}))
+
+	def test_no_source_attribute_when_the_payload_does_not_say(self):
+		"""Inventing a provenance nobody can check is worse than admitting there
+		is none, so a tool with no recognisable source key is marked with its
+		name alone."""
+		out = wrap_tool_result("42", "add_numbers", {"a": 1, "b": 2})
+		self.assertIn('tool="add_numbers"', out)
+		self.assertNotIn("source=", out)
+
+	def test_arguments_are_optional(self):
+		"""Callers that have none must still produce a valid marker."""
+		self.assertIn('tool="counter"', wrap_tool_result("42", "counter"))
+
+	def test_the_source_cannot_break_out_of_its_attribute(self):
+		"""It is written by the MODEL, so it is exactly the string that would try
+		to close the quote and add an attribute of its own."""
+		out = wrap_tool_result("x", "get_list", {"doctype": '" onload="evil'})
+		self.assertNotIn('onload="evil"', out)
+		self.assertEqual(out.count('tool="get_list"'), 1)
+
+	def test_a_long_source_is_a_label_not_a_payload(self):
+		out = wrap_tool_result("x", "get_list", {"query": "A" * 500})
+		source = out.split('source="', 1)[1].split('"', 1)[0]
+		self.assertLessEqual(len(source), 80)
+
+	def test_a_broken_payload_never_costs_the_result(self):
+		class Hostile(dict):
+			def get(self, *a, **k):
+				raise RuntimeError("boom")
+
+		self.assertIn("the answer", wrap_tool_result("the answer", "t", Hostile()))
+
+	def test_every_call_site_passes_the_arguments(self):
+		"""Threading it through one adapter and not the others is how AC1 was
+		half-met the first time.
+
+		Parsed rather than grepped: the step-loop call spans four lines, and a
+		line-based check called that a violation while it was perfectly correct.
+		"""
+		import ast
+		import inspect
+
+		from one_bpmn.agents.executor import step_loop
+		from one_bpmn.agents.llm_provider import anthropic_adapter, gemini, openai_adapter
+
+		for module in (anthropic_adapter, openai_adapter, gemini, step_loop):
+			with self.subTest(module=module.__name__):
+				tree = ast.parse(inspect.getsource(module))
+				calls = [
+					node for node in ast.walk(tree)
+					if isinstance(node, ast.Call)
+					and getattr(node.func, "id", None) == "wrap_tool_result"
+				]
+				self.assertTrue(calls, f"{module.__name__} no longer wraps tool output at all")
+				for call in calls:
+					supplied = len(call.args) + len(call.keywords)
+					self.assertGreaterEqual(
+						supplied, 3,
+						f"{module.__name__} wraps with {supplied} argument(s) — the "
+						"call payload is not being passed, so the marker cannot say "
+						"what was read",
+					)

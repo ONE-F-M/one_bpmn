@@ -243,7 +243,7 @@ class AnthropicAdapter(BaseLLMAdapter):
                 tool_results.append({
                     "type": "tool_result",
                     "tool_use_id": block.id,
-                    "content": wrap_tool_result(result, block.name),
+                    "content": wrap_tool_result(result, block.name, arguments),
                 })
             # API round-trip + inline tool execution = this turn's decision latency
             turn_record.latency_ms = int((time.perf_counter() - _turn_t0) * 1000)
