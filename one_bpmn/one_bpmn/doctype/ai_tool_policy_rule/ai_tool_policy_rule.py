@@ -10,7 +10,6 @@ class AIToolPolicyRule(Document):
 	def validate(self):
 		self.require_something_to_match()
 		self.check_parameter_limits_parse()
-		self.require_an_approver()
 
 	def require_something_to_match(self):
 		"""A rule with no match criteria would either never fire or refuse
@@ -46,28 +45,6 @@ class AIToolPolicyRule(Document):
 				  "for example <code>amount &lt;= 5000</code>.").format(
 					", ".join(f"<b>{frappe.utils.escape_html(line)}</b>" for line in bad)
 				)
-			)
-
-	def require_an_approver(self):
-		"""An approval nobody is assigned is one nobody can complete.
-
-		Observed live: a Require Human Approval rule with no approver suspended
-		the agent onto a human task with no assignee, no role and no actions.
-		Nothing could release it, so the run stayed parked; on a chat agent the
-		conversation itself then dead-ended on "the process is not running,
-		please reopen the chat" while duplicate instances piled up behind it.
-
-		The interceptor also downgrades an approver-less rule to Deny at
-		runtime, for rules that predate this check. Both are needed: this one
-		stops it being created, that one contains the ones already stored.
-		"""
-		if self.action != "Require Human Approval":
-			return
-		if not (self.approver_user or self.approver_role):
-			frappe.throw(
-				_("A rule that requires human approval needs an Approver User or an "
-				  "Approver Role. Without one the approval task is assigned to nobody, "
-				  "so the agent would wait forever.")
 			)
 
 	def on_update(self):

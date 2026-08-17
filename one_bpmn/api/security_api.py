@@ -384,7 +384,7 @@ def _require_policy_editor():
 
 
 POLICY_FIELDS = (
-	"rule_name", "enabled", "category", "action", "approver_user", "approver_role",
+	"rule_name", "enabled", "category", "action",
 	"restricted_doctypes", "restricted_tools", "parameter_limits", "violation_message",
 )
 
@@ -441,23 +441,6 @@ def policy_options() -> dict:
 		"AI Agent Configuration", pluck="name", order_by="name", limit_page_length=0
 	)
 	out["limit_operators"] = ["<=", "<", ">=", ">"]
-	# Approver pickers. Enabled humans only — a disabled account or the system
-	# users cannot approve anything, and offering them is how a rule ends up
-	# assigned to somebody who will never see it.
-	out["users"] = frappe.get_all(
-		"User",
-		filters={"enabled": 1, "user_type": "System User"},
-		pluck="name",
-		order_by="name",
-		limit_page_length=0,
-	)
-	out["roles"] = frappe.get_all(
-		"Role",
-		filters={"disabled": 0},
-		pluck="name",
-		order_by="name",
-		limit_page_length=0,
-	)
 	return out
 
 
@@ -466,10 +449,10 @@ def save_policy(policy: str | dict = None, name: str = None) -> dict:
 	"""Create or update one rule. System Manager only.
 
 	Written through the document so the doctype's OWN validation runs — the
-	limit grammar is checked, a rule that matches nothing is refused, and an
-	approval rule without an approver is refused. Those checks are the reason
-	the screen cannot store a rule that reads as enforcing something it does
-	not, so bypassing them with a db_set here would defeat the control.
+	limit grammar is checked and a rule that matches nothing is refused. Those
+	checks are the reason the screen cannot store a rule that reads as enforcing
+	something it does not, so bypassing them with a db_set here would defeat the
+	control.
 	"""
 	_require_policy_editor()
 	if isinstance(policy, str):
@@ -533,7 +516,7 @@ def policy_violations(limit: int = 20) -> dict:
 	a report, and it is honest about being one.
 
 	Two lists, because they are two different things and mixing them made a
-	misconfigured rule read as a working one. A DENY is the control doing its
+	misconfigured rule read as a working one. A refusal is the control doing its
 	job. An "unreadable parameter limit" is a ceiling that reads as enforced and
 	is NOT — nothing was blocked, and somebody has to go and fix the rule.
 	"""
@@ -554,17 +537,14 @@ def policy_violations(limit: int = 20) -> dict:
 		return rows
 
 	return {
-		"blocks": (
-			tail("AI Tool Policy: deny%", limit)
-			+ tail("AI Tool Policy: require_human%", limit)
-		),
+		"blocks": tail("AI Tool Policy: deny%", limit),
 		# Everything else the module logs is a rule that could not be applied:
-		# an unreadable limit line, an approval rule with no approver, a failed
-		# rule load. All of them mean less enforcement than the list implies.
+		# an unreadable limit line, a failed rule load, an evaluation error. All
+		# of them mean less enforcement than the list above implies.
 		"problems": [
 			r
 			for r in tail("AI Tool Policy:%", limit * 3)
-			if not r["method"].startswith(("AI Tool Policy: deny", "AI Tool Policy: require_human"))
+			if not r["method"].startswith("AI Tool Policy: deny")
 		][:limit],
 	}
 

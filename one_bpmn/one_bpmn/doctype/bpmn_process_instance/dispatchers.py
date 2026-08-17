@@ -1097,11 +1097,10 @@ def dispatch_ai_agent(instance, task, task_cfg: dict, bpmn_id: str, resume_run: 
 	# and false of everything else in it: the overlay is also where the PROVIDER
 	# and MODEL come from for any shape that carries no copies of its own.
 	# Without them a resumed run reached the executor with provider_name="" and
-	# died on "AI Provider Credentials '' not found" — so every human step on
-	# such an agent could be approved and never continued (found while testing
-	# WI-001645's approval action; it broke designer-marked human tools the same
-	# way). The prompt is the one key held back, because the checkpoint's copy
-	# is authoritative for a conversation already in flight.
+	# died on "AI Provider Credentials '' not found" — so a human step on such an
+	# agent could be completed and never continued. The prompt is the one key
+	# held back, because the checkpoint's copy is authoritative for a
+	# conversation already in flight.
 	if task_cfg.get("aiAgentConfig"):
 		from one_bpmn.agents.agent_config_resolver import resolve_dispatch_overrides
 		_overrides = resolve_dispatch_overrides(task_cfg["aiAgentConfig"])
@@ -1425,19 +1424,12 @@ def dispatch_ai_agent(instance, task, task_cfg: dict, bpmn_id: str, resume_run: 
 					break
 		except Exception:
 			pass
-		marker = {
+		task.data["_bpmn_ai_waiting_human"] = {
 			"run": run.name,
 			"tool": pending_name,
 			"label": label,
 			"arguments": pending.get("arguments") or {},
 		}
-		# A policy approval has no diagram shape behind it, so it carries its
-		# own label, approver and actions (WI-001645). Without this the task
-		# below is built from an empty shape config: no assignee, no actions,
-		# unreleasable.
-		if pending.get("policy"):
-			marker["policy"] = pending["policy"]
-		task.data["_bpmn_ai_waiting_human"] = marker
 		if not frappe.flags.in_test:
 			frappe.db.commit()
 		return
@@ -1576,9 +1568,9 @@ def dispatch_ai_agent(instance, task, task_cfg: dict, bpmn_id: str, resume_run: 
 		# The run FAILED, so it is no longer waiting for anybody. Clearing the
 		# marker matters most on a resume: the marker survives from the original
 		# suspension, and leaving it made the caller re-spawn the human task off
-		# it — a second approval row bound to a run that is now Errored, not
-		# Suspended, so releasing it answered "No suspended AI agent is waiting
-		# on this task" and the flow could never move. Observed live.
+		# it — a second row bound to a run that is now Errored, not Suspended, so
+		# completing it answered "No suspended AI agent is waiting on this task"
+		# and the flow could never move. Observed live.
 		if isinstance(task.data, dict):
 			task.data.pop("_bpmn_ai_waiting_human", None)
 		frappe.log_error(

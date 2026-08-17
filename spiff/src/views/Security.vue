@@ -259,12 +259,7 @@
 									<span v-if="!lines(p.parameter_limits).length" class="text-xs text-gray-400">—</span>
 								</td>
 								<td class="px-4 py-2">
-									<span class="text-xs px-2 py-0.5 rounded-full" :class="policyActionClass(p.action)">
-										{{ p.action }}
-									</span>
-									<div v-if="p.action === 'Require Human Approval'" class="text-xs text-gray-500 mt-0.5">
-										{{ p.approver_user || p.approver_role || "no approver" }}
-									</div>
+									<span class="text-xs px-2 py-0.5 rounded-full bg-red-50 text-red-700">Deny</span>
 								</td>
 								<td class="px-4 py-2 text-right whitespace-nowrap">
 									<Button v-if="can.edit_policies" variant="ghost" @click="editPolicy(p)">Edit</Button>
@@ -526,28 +521,15 @@
 						</p>
 					</div>
 
-					<!-- What happens. -->
+					<!-- What happens. Refusing is the only action, so this is a
+					     statement rather than a choice — a one-option dropdown
+					     implies alternatives that do not exist. -->
 					<div class="border rounded-lg p-4 space-y-4">
-						<h4 class="text-sm font-medium text-gray-900">What happens when it matches</h4>
-						<FormControl type="select" label="Action" v-model="policyDraft.action" :options="policyEnumOptions.action" />
-						<div v-if="policyDraft.action === 'Require Human Approval'" class="grid grid-cols-2 gap-4">
-							<FormControl
-								type="autocomplete"
-								label="Approver user"
-								:options="userOptions"
-								:modelValue="policyDraft.approver_user"
-								@update:modelValue="(v) => (policyDraft.approver_user = v?.value ?? v ?? '')"
-							/>
-							<FormControl
-								type="autocomplete"
-								label="Approver role"
-								:options="roleOptions"
-								:modelValue="policyDraft.approver_role"
-								@update:modelValue="(v) => (policyDraft.approver_role = v?.value ?? v ?? '')"
-							/>
-							<p class="col-span-2 -mt-2 text-xs text-gray-500">
-								Set at least one. An approval assigned to nobody is one nobody can give,
-								and the agent waits for it forever.
+						<div>
+							<h4 class="text-sm font-medium text-gray-900">What happens when it matches</h4>
+							<p class="text-xs text-gray-500">
+								The call is aborted before the tool runs and the agent is told why, so it
+								can take a different approach or tell the user.
 							</p>
 						</div>
 						<FormControl
@@ -730,7 +712,7 @@ const savingPolicy = ref(false)
 const deletingPolicy = ref(false)
 const policyError = ref("")
 const busyPolicy = ref("")
-const policyOptions = ref({ category: [], action: [], agents: [], limit_operators: [], users: [], roles: [] })
+const policyOptions = ref({ category: [], agents: [], limit_operators: [] })
 const policyBlocks = ref([])
 const policyProblems = ref([])
 
@@ -795,20 +777,10 @@ const detailFields = computed(() => {
 
 const policyEnumOptions = computed(() => ({
 	category: (policyOptions.value.category || []).map((v) => ({ label: v, value: v })),
-	action: (policyOptions.value.action || []).map((v) => ({ label: v, value: v })),
 }))
 const agentOptionsForPolicy = computed(() =>
 	(policyOptions.value.agents || []).map((v) => ({ label: v, value: v }))
 )
-const userOptions = computed(() => [
-	{ label: "— none —", value: "" },
-	...(policyOptions.value.users || []).map((v) => ({ label: v, value: v })),
-])
-const roleOptions = computed(() => [
-	{ label: "— none —", value: "" },
-	...(policyOptions.value.roles || []).map((v) => ({ label: v, value: v })),
-])
-
 // The doctype stores enabled as 1/0; a checkbox is a boolean.
 const policyEnabled = computed({
 	get: () => Boolean(policyDraft.value && policyDraft.value.enabled),
@@ -843,11 +815,6 @@ function lines(v) {
 		.split("\n")
 		.map((x) => x.trim())
 		.filter(Boolean)
-}
-function policyActionClass(a) {
-	if (a === "Deny") return "bg-red-50 text-red-700"
-	if (a === "Require Human Approval") return "bg-amber-50 text-amber-700"
-	return "bg-gray-100 text-gray-600"
 }
 function sevClass(s) {
 	if (s === "Critical") return "bg-red-50 text-red-700"
@@ -1040,11 +1007,9 @@ function editPolicy(p) {
 				// reviewer, and defaulting to "Identity & Permissions" quietly
 				// mislabels every rule somebody does not think to change.
 				category: "Other",
-				// Deny rather than Require Human Approval: the default has to be
-				// the one that is safe when the rest of the form is left alone.
+				// The only action there is; sent explicitly so the field is never
+				// left to the doctype default by accident.
 				action: "Deny",
-				approver_user: "",
-				approver_role: "",
 				restricted_tools: "",
 				restricted_doctypes: "",
 				parameter_limits: "",
@@ -1069,9 +1034,9 @@ async function savePolicy() {
 		policyDraft.value = null
 		await loadPolicies()
 	} catch (e) {
-		// The doctype refuses a rule that matches nothing, an unreadable limit
-		// line, and an approval with no approver. Those messages are the useful
-		// part — show them here rather than closing on a rule that never saved.
+		// The doctype refuses a rule that matches nothing and an unreadable
+		// limit line. Those messages are the useful part — show them here rather
+		// than closing on a rule that never saved.
 		policyError.value = e?.messages?.join("\n") || e?.message || String(e)
 	} finally {
 		savingPolicy.value = false

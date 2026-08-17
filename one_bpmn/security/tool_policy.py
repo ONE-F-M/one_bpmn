@@ -8,14 +8,31 @@ question — "should the AGENT do it" — and answers it *before* the tool runs,
 from rules that are data, not prompt text. An agent that has been talked into
 calling a dangerous tool is stopped by code, not by its own good judgement.
 
-Two rule groups ship in this story:
+Three rule groups:
 
   * **Restricted targets** — a call whose arguments name a protected DocType
     (identity/permissions, code-execution surface, payroll, …) is refused.
+  * **Parameter limits** — numeric bounds on the argument VALUES themselves
+    ("amount <= 5000"), so a permitted tool cannot be called with any figure at
+    all.
   * **Per-agent tool grant** — an agent may be restricted to an explicit list of
     tools, enforced at runtime and therefore independent of what its diagram
     happens to grant. If someone adds a risky shape to the map, policy still
     holds.
+
+REFUSING IS THE ONLY ACTION
+---------------------------
+A rule that matches aborts the call. There was briefly a second action, "Require
+Human Approval", which suspended the agent onto a human task; it is gone. It
+reused the durable-HITL suspension path, which is built for a tool the DESIGNER
+marked human and reads its label, assignee and actions from that tool's diagram
+shape. A policy rule names an ordinary tool and has no shape, so the approval it
+produced was labelled after the tool, assigned to nobody and carried no actions
+— unreleasable, and on a chat agent it killed the conversation. Making it work
+meant an approver on every rule, a second resume semantics (approving RUNS the
+tool, where a human tool's answer REPLACES it) and a one-shot release grant:
+a lot of machinery for a decision a person can make by re-running the action
+themselves. One action, always enforced, is the honest version.
 
 WHERE THIS RUNS
 ---------------
@@ -47,18 +64,17 @@ import frappe
 # ── Decision vocabulary ─────────────────────────────────────────────────────
 ALLOW = "allow"
 DENY = "deny"
-REQUIRE_HUMAN = "require_human"
 
 # Cache key for the compiled rule set. Cleared whenever a rule is saved.
 _RULE_CACHE_KEY = "ai_tool_policy_rules"
 
-# The doctype's Action Select stores human-readable labels; the loop and the
-# guard compare against the constants above. Normalising at load time keeps the
-# comparison in one place — an unmapped label falls back to DENY rather than
-# silently evaluating as "not a deny, therefore allowed".
+# The doctype's Action Select stores a human-readable label; the guard compares
+# against the constants above. Refusing is the only action, so the map has one
+# entry — but the lookup stays, because an unmapped label MUST fall back to DENY
+# rather than evaluating as "not a deny, therefore allowed". Rows written before
+# "Require Human Approval" was removed still carry that label and land here.
 _ACTION_BY_LABEL = {
 	"deny": DENY,
-	"require human approval": REQUIRE_HUMAN,
 }
 
 # The agent whose turn is currently running. Set by the dispatchers so that a
@@ -75,12 +91,6 @@ class PolicyDecision:
 	outcome: str = ALLOW
 	reason: str = ""
 	rule: str = ""
-	# Who may release a REQUIRE_HUMAN decision. Carried on the decision rather
-	# than looked up later: by the time the suspension reaches the engine the
-	# rule that fired is just a name, and an approval task with no assignee is
-	# one nobody can ever complete.
-	approver_user: str = ""
-	approver_role: str = ""
 
 	@property
 	def allowed(self) -> bool:
@@ -146,8 +156,7 @@ def load_rules() -> list[dict]:
 				"AI Tool Policy Rule",
 				filters={"enabled": 1},
 				fields=["name", "action", "restricted_doctypes", "restricted_tools",
-				        "parameter_limits", "violation_message", "category",
-				        "approver_user", "approver_role"],
+				        "parameter_limits", "violation_message", "category"],
 			):
 				exempt = frappe.get_all(
 					"AI Tool Policy Exempt Agent",
@@ -162,8 +171,6 @@ def load_rules() -> list[dict]:
 					"tools": {t.lower() for t in _split_lines(row.restricted_tools)},
 					"limits": _parse_limits(row.parameter_limits, row.name),
 					"message": (row.violation_message or "").strip(),
-					"approver_user": (row.approver_user or "").strip(),
-					"approver_role": (row.approver_role or "").strip(),
 					"exempt_agents": {a for a in exempt if a},
 				})
 	except Exception:
@@ -355,35 +362,18 @@ def evaluate(tool_name: str, arguments: dict, agent_config: str | None = None) -
 
 
 def _decide(rule: dict, reason: str) -> PolicyDecision:
-	"""A rule fired. Build the decision, carrying the approver when the action
-	needs one.
+	"""A rule fired. Refusing is the only action a rule can take.
 
-	A REQUIRE_HUMAN rule with no approver is downgraded to DENY. It is the
-	stricter reading, and the alternative is far worse: the engine spawns an
-	approval task with no assignee and no actions, which nobody can complete,
-	so the agent parks forever and — on a chat agent — the conversation dies.
-	Observed live. The doctype refuses to save such a rule now, but rules
-	predating that validation are still in the database.
+	``rule["action"]`` is still read rather than assumed: a row written before
+	"Require Human Approval" was removed still carries that label, and
+	_ACTION_BY_LABEL maps anything it does not recognise to DENY. So a legacy
+	approval rule now refuses, which is the stricter reading and the only one
+	available — there is no longer anywhere for it to park.
 	"""
-	action = rule["action"] or DENY
-	approver_user = rule.get("approver_user") or ""
-	approver_role = rule.get("approver_role") or ""
-	if action == REQUIRE_HUMAN and not (approver_user or approver_role):
-		frappe.log_error(
-			title=f"AI Tool Policy: approval rule has no approver ({rule['name']})",
-			message=(
-				"Action is 'Require Human Approval' but neither Approver User nor "
-				"Approver Role is set, so the approval task would be unassignable. "
-				"Refusing the call instead."
-			),
-		)
-		action = DENY
 	return PolicyDecision(
-		outcome=action,
+		outcome=rule["action"] or DENY,
 		reason=reason,
 		rule=rule["name"],
-		approver_user=approver_user,
-		approver_role=approver_role,
 	)
 
 
@@ -415,53 +405,13 @@ def _agent_allowlist(agent_config: str | None) -> set | None:
 		return set()
 
 
-# One call, already approved by a person, may pass. Consumed on first match so
-# an approval releases exactly the call it was granted for and nothing after it.
-_approved_call: ContextVar[str | None] = ContextVar("ai_tool_policy_approved", default=None)
-
-
-class approved_call:
-	"""Context manager: release ONE call to *tool_name* from policy.
-
-	Used when a person has approved a REQUIRE_HUMAN call and the loop is about
-	to run it for real. It suppresses the check rather than calling around the
-	guard, because the guard is not the outermost wrapper — PII restoration
-	sits above it, and skipping that would hand the tool redacted arguments.
-	"""
-
-	def __init__(self, tool_name: str):
-		self.tool_name = (tool_name or "").lower()
-		self.token = None
-
-	def __enter__(self):
-		self.token = _approved_call.set(self.tool_name)
-		return self
-
-	def __exit__(self, *exc):
-		try:
-			_approved_call.reset(self.token)
-		except (ValueError, LookupError):
-			_approved_call.set(None)
-		return False
-
-
-def _consume_approval(tool_name: str) -> bool:
-	"""True if this exact call was pre-approved. Clears the grant either way."""
-	granted = _approved_call.get()
-	if granted is None:
-		return False
-	_approved_call.set(None)
-	return granted == (tool_name or "").lower()
-
-
 # ── The interceptor itself ──────────────────────────────────────────────────
 class PolicyViolation(Exception):
 	"""Raised in place of running a denied tool.
 
-	Carries the decision so the step loop can route REQUIRE_HUMAN into the
-	existing suspension path. Adapter loops that cannot suspend catch this the
-	same way they catch any tool exception, which degrades REQUIRE_HUMAN to a
-	refusal — the safe direction.
+	Carries the decision so a loop can report WHY rather than just that the tool
+	failed. Every loop already handles it the same way it handles any tool
+	exception: the refusal becomes the tool's result and the model carries on.
 	"""
 
 	def __init__(self, decision: PolicyDecision):
@@ -478,8 +428,6 @@ def guard(fn, tool_name: str):
 	"""
 
 	def guarded(**kwargs):
-		if _consume_approval(tool_name):
-			return fn(**kwargs)
 		try:
 			decision = evaluate(tool_name, kwargs)
 		except Exception:
