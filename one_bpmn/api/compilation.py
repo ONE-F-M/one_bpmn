@@ -1315,14 +1315,36 @@ def _index_adhoc_subprocesses(bpmn_xml: str, bpmn_ns: str):
 	return {el.get("id"): el for el in root.iter(f"{{{bpmn_ns}}}adHocSubProcess") if el.get("id")}
 
 
+def _ai_selectors_with_tools(service_extensions: dict) -> dict:
+	"""AI Task Selectors, keyed by their own bpmn_id.
+
+	A selector's config lives ON the ad-hoc sub-process, so unlike an AI Agent
+	Task it does not point at a toolbox elsewhere — it IS the toolbox, and its
+	own id is the lookup.
+	"""
+	return {
+		bid: cfg
+		for bid, cfg in (service_extensions or {}).items()
+		if cfg.get("serviceType") == "ai_task_selector"
+	}
+
+
 def _resolve_ai_agent_tool_shapes(bpmn_xml: str, service_extensions: dict) -> None:
-	"""Embed each AI Agent Task's tool shapes (from its referenced ad-hoc
-	sub-process) into the agent's config as ``aiToolShapes`` (JSON)."""
+	"""Embed tool-shape descriptors for both AI surfaces as ``aiToolShapes``.
+
+	An AI Agent Task takes them from the ad-hoc sub-process it references; an AI
+	Task Selector takes them from its own children. One extraction serves both
+	so the two surfaces cannot drift on what a tool looks like — notably the
+	argument schema (``aiToolParams``), which the selector previously had no
+	way to read, leaving the model unable to pass anything to the step it
+	activated.
+	"""
 	BPMN_NS = "http://www.omg.org/spec/BPMN/20100524/MODEL"
 	SPIFF_NS = "http://spiffworkflow.org/bpmn/schema/1.0/core"
 
 	agents = _ai_agents_with_tools(service_extensions)
-	if not agents:
+	selectors = _ai_selectors_with_tools(service_extensions)
+	if not agents and not selectors:
 		return
 	adhocs = _index_adhoc_subprocesses(bpmn_xml, BPMN_NS)
 	if adhocs is None:
@@ -1331,6 +1353,11 @@ def _resolve_ai_agent_tool_shapes(bpmn_xml: str, service_extensions: dict) -> No
 		adhoc = adhocs.get((cfg.get("aiToolsAdhoc") or "").strip())
 		if adhoc is None:
 			continue  # _validate_ai_agent_tools reports the missing reference
+		cfg["aiToolShapes"] = json.dumps(_extract_tool_shapes(adhoc, BPMN_NS, SPIFF_NS))
+	for bpmn_id, cfg in selectors.items():
+		adhoc = adhocs.get(bpmn_id)
+		if adhoc is None:
+			continue
 		cfg["aiToolShapes"] = json.dumps(_extract_tool_shapes(adhoc, BPMN_NS, SPIFF_NS))
 
 

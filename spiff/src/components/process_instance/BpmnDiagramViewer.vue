@@ -81,6 +81,13 @@ import { setupCanvasTouchHandler } from "@/utils/canvasTouchHandler"
 // ── AI Agent Task renderer — replaces Service Task gear icon with sparkle ──
 import aiAgentRendererModule from "@/bpmn/aiAgentRenderer"
 import aiTaskSelectorRendererModule from "@/bpmn/aiTaskSelectorRenderer"
+// A running instance must look like the diagram the designer drew. Without
+// this the viewer falls back to bpmn-js's generic gear, so a Service Task
+// whose connector has its own icon in the modeler loses it here — the same
+// shape reads as a different kind of step depending on which screen you are
+// on. The renderer primes the connector manifest cache itself and redraws
+// once it arrives, so adding the module is all it needs.
+import { serviceTaskIconModule } from "@/renderers"
 
 // ── Viewer-side moddle extension ──
 // The BPMN XML produced by the editor uses custom spiffworkflow:* attributes
@@ -203,6 +210,7 @@ async function initViewer() {
 			additionalModules: [
 				aiAgentRendererModule,
 				aiTaskSelectorRendererModule,
+				serviceTaskIconModule,
 			],
 			moddleExtensions: {
 				spiffworkflow: viewerModdleExtension,

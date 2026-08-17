@@ -27,6 +27,7 @@
   "column_break_execution",
   "caller_instance",
   "caller_wf_task_id",
+  "caller_agent_run",
   "wf_task_id",
   "bpmn_id",
   "pending_human_task",
@@ -142,7 +143,9 @@
    "fieldname": "delegated_by",
    "fieldtype": "Link",
    "label": "Delegated By",
-   "options": "AI Agent Configuration"
+   "options": "AI Agent Configuration",
+   "in_list_view": 1,
+   "in_standard_filter": 1
   },
   {
    "description": "The remote agent this task was delegated to (Outbound only) — who was asked.",
@@ -158,7 +161,8 @@
    "fieldtype": "Link",
    "in_standard_filter": 1,
    "label": "Agent Configuration",
-   "options": "AI Agent Configuration"
+   "options": "AI Agent Configuration",
+   "in_list_view": 1
   },
   {
    "fieldname": "section_execution",
@@ -199,6 +203,14 @@
    "fieldname": "caller_wf_task_id",
    "fieldtype": "Data",
    "label": "Caller Workflow Task ID"
+  },
+  {
+   "fieldname": "caller_agent_run",
+   "fieldtype": "Link",
+   "label": "Caller Agent Run",
+   "options": "AI Agent Run",
+   "read_only": 1,
+   "description": "The suspended agent run WAITING on this task — set when an agent delegated from inside a tool call, so there is no parked Service Task to resume. Distinct from `agent_run`, which is the run DOING the work and is what derives this task's state."
   },
   {
    "description": "Spiff task UUID of the parked Service Task (Outbound only).",
