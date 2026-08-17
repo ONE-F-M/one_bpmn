@@ -95,10 +95,16 @@ def list_tasks(
 	start: int = 0,
 	page_length: int = 50,
 ) -> dict:
-	"""Inbound and outbound tasks with their states, counters and deadlines."""
+	"""Every delegation with its state, counters and deadline.
+
+	Internal — one local agent handing work to another — is the primary case
+	and belongs here with the rest. Leaving it out of the accepted directions
+	silently dropped the filter and listed everything, which read as a broken
+	filter rather than an unsupported one.
+	"""
 	_require_admin()
 	filters: dict = {}
-	if direction in ("Inbound", "Outbound"):
+	if direction in ("Inbound", "Outbound", "Internal"):
 		filters["direction"] = direction
 	if state:
 		filters["state"] = state
@@ -114,6 +120,9 @@ def list_tasks(
 			"state",
 			"client",
 			"remote_agent",
+			# Both ends of the hop: who asked, and who is doing it. Without
+			# delegated_by an Internal row has no visible initiator at all.
+			"delegated_by",
 			"agent_configuration",
 			"instance",
 			"delegation_depth",

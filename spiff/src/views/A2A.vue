@@ -230,8 +230,10 @@
 					<thead class="bg-gray-100 text-left text-xs uppercase text-gray-500">
 						<tr>
 							<th class="px-4 py-2">Direction</th>
-							<th class="px-4 py-2">Who</th>
-							<th class="px-4 py-2">Agent</th>
+							<th class="px-4 py-2" title="The agent or caller that asked for this work">
+								Delegated by
+							</th>
+							<th class="px-4 py-2" title="The agent doing the work">Handled by</th>
 							<th class="px-4 py-2">State</th>
 							<th class="px-4 py-2" title="Nesting depth / total handoffs in this chain">
 								Depth / handoffs
@@ -243,11 +245,9 @@
 					<tbody>
 						<tr v-for="t in a2aTasks" :key="t.name" class="border-t">
 							<td class="px-4 py-2">
-								<Badge :theme="t.direction === 'Inbound' ? 'blue' : 'green'">
-									{{ t.direction }}
-								</Badge>
+								<Badge :theme="directionTheme(t.direction)">{{ t.direction }}</Badge>
 							</td>
-							<td class="px-4 py-2 text-gray-600">{{ t.client || t.remote_agent || "—" }}</td>
+							<td class="px-4 py-2 text-gray-600">{{ initiator(t) }}</td>
 							<td class="px-4 py-2 text-gray-600">{{ t.agent_configuration || "—" }}</td>
 							<td class="px-4 py-2">
 								<Badge :theme="stateTheme(t.state)">{{ t.state }}</Badge>
@@ -467,8 +467,11 @@ const tabs = computed(() => [
 	{ key: "tasks", label: "Tasks", count: total.value || null },
 ])
 
+// Internal — one of our agents handing work to another on this site — is the
+// most common direction, so it has to be filterable like the other two.
 const directionOptions = [
 	{ label: "All directions", value: "" },
+	{ label: "Internal (same site)", value: "Internal" },
 	{ label: "Inbound", value: "Inbound" },
 	{ label: "Outbound", value: "Outbound" },
 ]
@@ -500,6 +503,19 @@ function stateTheme(state) {
 	if (state === "input-required") return "orange"
 	if (state === "canceled") return "gray"
 	return "blue"
+}
+
+function directionTheme(direction) {
+	if (direction === "Inbound") return "blue"
+	if (direction === "Outbound") return "green"
+	return "gray" // Internal — never crossed a trust boundary
+}
+
+function initiator(task) {
+	// Who asked for the work. An Internal hop has no client and no remote
+	// agent — its initiator is the delegating agent, which is exactly the
+	// case the old client-or-remote fallback rendered as a dash.
+	return task.delegated_by || task.client || task.remote_agent || "—"
 }
 
 
