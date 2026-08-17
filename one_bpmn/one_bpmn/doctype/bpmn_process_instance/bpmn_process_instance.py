@@ -1173,7 +1173,12 @@ class BPMNProcessInstance(Document):
 				title=f"A2A: could not bind the delegation to its waiting agent ({a2a_task})",
 				message=frappe.get_traceback(),
 			)
-		self.waiting_for_human = marker.get("label") or ""
+		# Deliberately NOT waiting_for_human: nobody is being asked for anything.
+		# That field drives the "AI agent waiting for a human task" banner, and
+		# setting it here had a delegation to another AGENT telling the viewer a
+		# person was holding it up — sending someone to look for a task that
+		# does not exist. A banner of its own needs a field of its own; until
+		# then, saying nothing beats saying something false.
 		self._log_task(
 			# Its own prefix: a2ahuman:: means "a person must answer a remote's
 			# question" and is an active-task row; this is only an audit entry
