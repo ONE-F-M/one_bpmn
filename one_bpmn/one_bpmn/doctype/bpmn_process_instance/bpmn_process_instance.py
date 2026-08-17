@@ -959,6 +959,14 @@ class BPMNProcessInstance(Document):
 		run_name = marker.get("run") or ""
 		arguments = marker.get("arguments") or {}
 
+		# WI-001933: the pause may be on another AGENT rather than a person.
+		# Nothing to assign and nobody to notify — the delegated task is the
+		# thing being waited on, so bind it to the run and let the reconciler
+		# wake this one when it answers.
+		if marker.get("waits_on") == "a2a":
+			self._bind_a2a_wait(task, marker)
+			return
+
 		# The human shape's designer config (assignment mode, actions, label)
 		# comes from the same user_task_extensions every real User Task uses.
 		if not hasattr(self, "_user_task_extensions"):
@@ -1123,6 +1131,62 @@ class BPMNProcessInstance(Document):
 			kind="human_resume",
 			task_id=payload.get("wf_task_id") or "",
 			run_as_user=frappe.session.user,
+		)
+
+	def _bind_a2a_wait(self, task, marker: dict) -> None:
+		"""Bind a suspended agent to the delegation it is waiting on.
+
+		The agent's run holds the checkpoint; the A2A Task row is what will go
+		terminal. Linking them (``agent_run`` on the row, ``wf_task_id`` so the
+		resume knows which step to wake) is what lets the local reconciler
+		finish the job — without it the answer arrives with nobody waiting,
+		which is exactly the bug this closes.
+		"""
+		a2a_task = marker.get("a2a_task")
+		run_name = marker.get("run") or ""
+		if not a2a_task:
+			return
+		try:
+			frappe.db.set_value(
+				"A2A Task",
+				a2a_task,
+				{
+					# caller_agent_run, NOT agent_run: that one is the run DOING
+					# the work and is what derives this task's state, so writing
+					# the waiting caller there made a finished delegation report
+					# the CALLER's suspension back as "input-required" and it
+					# never looked terminal. Same trap as instance vs
+					# caller_instance, one field along.
+					"caller_agent_run": run_name or None,
+					"caller_instance": self.name,
+					# Deliberately NOT caller_wf_task_id: that field means "a
+					# parked Service Task with this SpiffWorkflow id", and the
+					# reconciler resumes it directly. Here the waiting thing is
+					# an agent mid-turn, which resumes through its checkpoint.
+					"wf_task_id": str(getattr(task, "id", "") or ""),
+					"resume_enqueued": 0,
+				},
+				update_modified=False,
+			)
+		except Exception:
+			frappe.log_error(
+				title=f"A2A: could not bind the delegation to its waiting agent ({a2a_task})",
+				message=frappe.get_traceback(),
+			)
+		self.waiting_for_human = marker.get("label") or ""
+		self._log_task(
+			# Its own prefix: a2ahuman:: means "a person must answer a remote's
+			# question" and is an active-task row; this is only an audit entry
+			# for an agent waiting on another agent.
+			task_id=f"a2await::{a2a_task}",
+			task_name=marker.get("label") or marker.get("tool") or "",
+			action="Started",
+			data={
+				"source": "ai_agent_a2a_tool",
+				"agent_bpmn_id": getattr(task.task_spec, "bpmn_id", None) or task.task_spec.name,
+				"a2a_task": a2a_task,
+				"arguments": marker.get("arguments") or {},
+			},
 		)
 
 	# ── WI-001933: delegated-task results and remote questions ───────────────

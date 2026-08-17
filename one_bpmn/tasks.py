@@ -524,26 +524,35 @@ def _reconcile_internal_tasks(now) -> None:
 	from frappe.utils import cint
 
 	from one_bpmn.agents.a2a import local
-	from one_bpmn.one_bpmn.doctype.bpmn_process_instance.bpmn_process_instance import (
-		_enqueue_a2a_resume,
-	)
 
 	terminal = ("completed", "canceled", "failed", "rejected", "timed-out")
 	# Deliberately NOT filtered by state: a local agent can finish between two
 	# checks, and such a row is already terminal while its caller is still
 	# parked. resume_enqueued is what says "this step has been woken".
+	#
+	# Two kinds of caller can be waiting, and both must be picked up:
+	#   caller_wf_task_id — a parked Service Task on the diagram;
+	#   caller_agent_run  — an AGENT suspended mid-turn, because it delegated
+	#                       from inside a tool call (WI-001933). It has no
+	#                       parked step of its own, so filtering on
+	#                       caller_wf_task_id alone left it waiting forever.
 	rows = frappe.get_all(
 		"A2A Task",
 		filters={
 			"direction": "Internal",
 			"resume_enqueued": 0,
-			"caller_wf_task_id": ["is", "set"],
 			"next_poll_at": ["<=", now],
+		},
+		or_filters={
+			"caller_wf_task_id": ["is", "set"],
+			"caller_agent_run": ["is", "set"],
 		},
 		fields=[
 			"name",
 			"caller_instance",
 			"caller_wf_task_id",
+			"caller_agent_run",
+			"wf_task_id",
 			"deadline",
 			"poll_attempts",
 			"state",
@@ -569,7 +578,7 @@ def _reconcile_internal_tasks(now) -> None:
 			task = frappe.get_doc("A2A Task", row.name)
 			if task.state in terminal:
 				# Finished in the gap between checks — wake the caller now.
-				_enqueue_a2a_resume(row.caller_instance, row.caller_wf_task_id, row.name)
+				_wake_a2a_caller(row)
 				_mark_resumed(row.name)
 				frappe.db.commit()
 				continue
@@ -582,7 +591,7 @@ def _reconcile_internal_tasks(now) -> None:
 					},
 					update_modified=True,
 				)
-				_enqueue_a2a_resume(row.caller_instance, row.caller_wf_task_id, row.name)
+				_wake_a2a_caller(row)
 				_mark_resumed(row.name)
 				frappe.db.commit()
 				continue
@@ -590,13 +599,89 @@ def _reconcile_internal_tasks(now) -> None:
 			local.refresh(task)
 			task.reload()
 			if task.state in terminal:
-				_enqueue_a2a_resume(row.caller_instance, row.caller_wf_task_id, row.name)
+				_wake_a2a_caller(row)
 				_mark_resumed(row.name)
 			frappe.db.commit()
 		except Exception:
 			frappe.log_error(
 				title=f"A2A internal reconcile failed: {row.name}", message=frappe.get_traceback()
 			)
+
+
+def _wake_a2a_caller(row) -> None:
+	"""Wake whatever is waiting on a finished delegation.
+
+	Two shapes of caller, one entry point so every wake path (finished early,
+	timed out, finished on this check) treats them alike:
+
+	- a parked Service Task on the diagram → resume that step;
+	- an agent suspended mid-turn because it delegated from inside a tool call
+	  → hand the answer to its checkpoint and resume the agent.
+	"""
+	from one_bpmn.one_bpmn.doctype.bpmn_process_instance.bpmn_process_instance import (
+		_enqueue_a2a_resume,
+	)
+
+	if row.caller_wf_task_id:
+		_enqueue_a2a_resume(row.caller_instance, row.caller_wf_task_id, row.name)
+		return
+	_resume_waiting_agent(row)
+
+
+def _resume_waiting_agent(row) -> None:
+	"""Give a delegated answer to the agent that is suspended waiting for it.
+
+	Mirrors what completing a human task does — store the result on the
+	checkpoint, then resume in the AI worker — because to the agent these are
+	the same event: the tool call it paused on finally has an answer.
+	"""
+	import json
+
+	from one_bpmn.agents import checkpoint as _checkpoint
+
+	run = row.caller_agent_run
+	if not (run and row.caller_instance):
+		return
+	if frappe.db.get_value("AI Agent Run", run, "status") != "Suspended":
+		return  # already resumed or failed — nothing is waiting
+
+	task = frappe.get_doc("A2A Task", row.name)
+	_checkpoint.store_human_result(run, _delegation_answer(task))
+
+	payload = json.loads(frappe.db.get_value("AI Agent Run", run, "checkpoint") or "{}")
+	frappe.enqueue(
+		"one_bpmn.one_bpmn.doctype.bpmn_process_instance"
+		".bpmn_process_instance.run_parked_ai_task",
+		queue="bpmn_ai_agent",
+		timeout=600,
+		enqueue_after_commit=True,
+		job_id=f"bpmn-ai-{row.caller_instance}-a2ares-{row.name}",
+		deduplicate=True,
+		instance_name=row.caller_instance,
+		# The agent resumes through its checkpoint exactly as it does after a
+		# person answers; only the source of the answer differs.
+		kind="human_resume",
+		task_id=payload.get("wf_task_id") or row.wf_task_id or "",
+		run_as_user="Administrator",
+	)
+
+
+def _delegation_answer(task) -> str:
+	"""What the model is told the delegated agent said.
+
+	A failure is reported in words rather than hidden: the agent asked another
+	agent to do something and deserves to know it did not happen, so it can
+	say so or try something else.
+	"""
+	if task.state == "completed":
+		payload = frappe.parse_json(task.result or "{}") or {}
+		return (
+			payload.get("text")
+			or task.status_message
+			or "The other agent finished but sent no reply."
+		)
+	reason = task.error_message or "no reason given"
+	return f"The other agent did not complete this ({task.state}): {reason}"
 
 
 def _mark_resumed(a2a_task: str) -> None:

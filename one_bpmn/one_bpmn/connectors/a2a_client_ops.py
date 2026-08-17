@@ -62,7 +62,7 @@ def delegate_to_local_agent(params: dict, ctx: dict) -> dict | None:
 		instruction,
 		parent_task=_parent_task(instance, params),
 		caller_instance=getattr(instance, "name", None),
-		caller_wf_task_id=str(task.id) if task is not None else None,
+		caller_wf_task_id=_caller_task_id(task),
 		bpmn_id=_bpmn_id(task),
 		deadline_minutes=cint(params.get("timeout_minutes")) or None,
 	)
@@ -235,6 +235,19 @@ def _create_outbound_task(remote, instance, task, agent_configuration, instructi
 	doc.flags.ignore_links = True
 	doc.insert(ignore_permissions=True)
 	return doc
+
+
+def _caller_task_id(task) -> str | None:
+	"""The SpiffWorkflow id of the step to wake, or None when there is no step.
+
+	A shape called as an agent's TOOL runs against a synthetic task that exists
+	only for that call and has no id. Stringifying it wrote the literal "None"
+	into the row, so the reconciler would later try to resume a step by that
+	name. Such a delegation is woken through the agent's checkpoint instead —
+	see ``_bind_a2a_wait``.
+	"""
+	task_id = getattr(task, "id", None) if task is not None else None
+	return str(task_id) if task_id else None
 
 
 def _parent_task(instance, params: dict) -> str | None:

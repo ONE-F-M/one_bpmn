@@ -24,9 +24,10 @@ The difference matters for A2A specifically, and it is the whole reason
 this module exists. A tool shape runs against a SYNTHETIC task
 (``shape_tools._synthetic_task``) that exists only for the duration of
 the call; an activated shape runs against a real SpiffWorkflow task. A
-fast delegation answers inside the call and neither cares. A slow one
-parks the calling Service Task and waits for the reconciler to wake it —
-and there is nothing to wake when the task was synthetic.
+fast delegation answers inside the call and neither cares. A slow one has
+nothing to park on the tool path, so that path suspends the AGENT instead
+and resumes it through its checkpoint — the same pause a human tool
+produces, with another agent supplying the answer instead of a person.
 
 So both surfaces get both kinds of target here, on purpose:
 
@@ -34,34 +35,36 @@ So both surfaces get both kinds of target here, on purpose:
     send_to_maintenance  → Maintenance Dispatcher  slow, parks on a person
     log_for_compliance   → Compliance Logger       fast, answers inline
 
-**What the runs showed (2026-08-17, prod-backup, claude-haiku-4.5).**
-Both surfaces do delegate — the model reaches a specialist agent on
-merit, unprompted about which one. Each has one gap, and they are not
-the same gap:
+**Verified on both surfaces (2026-08-17, prod-backup, claude-haiku-4.5).**
+The model reaches a specialist agent on merit, unprompted about which
+one; it writes its own brief; and a slow delegate parks the caller until
+the answer arrives. On the Agent Task the final answer read:
 
-*AI Agent Task.* The model's own words reach the delegate: it wrote
-"Assess the severity of flooding from a burst pipe…" and that arrived as
-the A2A Task's instruction. But a SLOW target is lost. The tool runs on a
-synthetic task, so ``caller_wf_task_id`` is recorded as the string
-``"None"``, nothing is parked, and the tool returns the parking marker to
-the model as if it were an answer. The process then COMPLETES while the
-delegate is still working — it finishes, correctly, into nothing. Fast
-targets are unaffected.
+    "I assessed the flooding and stopped chiller pump at Al Rai Tower as
+     Critical, and maintenance has assigned a technician and ordered parts."
 
-*AI Task Selector.* The slow target is handled properly: the chosen shape
-is activated as a real process step, so it parks with a real task id, the
-instance stays Active, and the reconciler resumes it when the delegate
-answers. But the model cannot pass ARGUMENTS —
-``tool_pool._diagram_candidates`` builds every candidate with
-``parameters={}``, ignoring the shape's ``aiToolParams`` (only the Agent
-Task path reads it). A connector input written as
-``{{ task_data.instruction }}`` therefore renders as the literal
-``{{ no such element: dict object['instruction'] }}`` and the delegate is
-briefed with nonsense.
+— which the agent could only know after a person assigned the technician,
+so it genuinely waited and was woken.
 
-So today: use the Agent Task when the delegate answers immediately and
-the brief matters; use the Selector when the delegate is slow and a fixed
-brief will do. Neither covers both.
+Both surfaces were broken when this module was written, in different
+places, and each is now fixed:
+
+*AI Agent Task* lost any SLOW delegate. Tool shapes run on a synthetic
+task, so nothing was parked, and the connector's waiting marker was
+handed back to the model as though it were the answer; the process
+completed while the other agent was still working. Now a parked
+delegation raises ``ToolDeferred``, the loop suspends on it exactly as it
+does for a human tool, and the reconciler feeds the answer back through
+the agent's checkpoint.
+
+*AI Task Selector* could not pass ARGUMENTS: every candidate was built
+with ``parameters={}``, so the model could say which step to run but not
+what to run it on, and ``{{ task_data.instruction }}`` reached the
+delegate as an unresolved placeholder. Compilation now embeds the same
+tool descriptors for selectors as for Agent Tasks, so the argument schema
+is there to read. Visible in the outcome: the assessor answers "Critical"
+for the flooding incident where an empty brief had it answering
+"Routine".
 
 Depends on ``a2a_scenario_fixtures`` for the worker agents — run its
 ``execute()`` first. Unlike that module this one really does call an LLM,
