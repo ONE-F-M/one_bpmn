@@ -80,9 +80,10 @@ So the model now only routes. The Agent Task closes the incident in a
 step after its turn, and the selector's sub-process completes when a
 specialist has ANSWERED (``dispatch != 0 or logged != 0``, seeded to 0
 before it starts so the condition is answerable from the first child
-completion) with the close as a step after it. Both still offer
-close_incident as a tool and the script is idempotent, so an agent that
-does close early costs nothing.
+completion) with the close as a step after it. Neither toolbox offers a
+close tool any more: with the step guaranteeing it, a second box that
+closes the same incident only invited the model to do a job the process
+already does.
 
 Depends on ``a2a_scenario_fixtures`` for the worker agents — run its
 ``execute()`` first. Unlike that module this one really does call an LLM,
@@ -154,8 +155,8 @@ SYSTEM_PROMPT = (
 	"Always ask the safety assessor first — its verdict is either Critical or "
 	"Routine. A Critical incident must then go to maintenance. A Routine one "
 	"must be logged for compliance instead. Never do both.\n\n"
-	"Once that specialist has answered, call close_incident. An incident record "
-	"stays open until you do, so the work you arranged is never signed off.\n\n"
+	"Once that specialist has answered you are done — signing the incident off "
+	"is not your job and happens on its own.\n\n"
 	"When you are finished, reply with one plain sentence saying what you did "
 	"and what the specialists told you."
 )
@@ -260,33 +261,20 @@ result["logged"] = 0
 '''
 
 
-def _close_shape() -> str:
-	"""The selector's way of saying "done".
+def _tool_shapes() -> str:
+	"""The toolbox is delegations only.
 
-	An ad-hoc sub-process needs a completionCondition — SpiffWorkflow evaluates
-	it every time a child completes, and a missing one raises rather than
-	defaulting to "never". Tying the condition to the incident record means the
-	loop ends because the selector DECIDED it was finished, which is the
-	behaviour worth testing, rather than because it ran out of shapes.
+	Closing used to be offered here too, back when the model was expected to
+	choose it. It is a step in the flow now, so leaving it in the toolbox would
+	give the diagram two boxes that close the same incident and invite the
+	model to do a job the process already guarantees.
 	"""
-	return (
-		f'      <bpmn:scriptTask id="close_incident" name="Close the incident" '
-		f'spiffworkflow:serverScript="{CLOSE_SCRIPT}" '
-		'spiffworkflow:aiToolParams="{&#34;properties&#34;: {}, &#34;required&#34;: []}">\n'
-		"        <bpmn:documentation>Close the incident. Use this once a specialist has "
-		"answered and there is nothing left to hand out.</bpmn:documentation>\n"
-		"      </bpmn:scriptTask>\n"
-	)
+	return "".join(_tool_shape(*tool) for tool in TOOLS)
 
 
-def _tool_shapes(with_close: bool = False) -> str:
-	shapes = "".join(_tool_shape(*tool) for tool in TOOLS)
-	return shapes + _close_shape() if with_close else shapes
-
-
-def _tool_di(with_close: bool = False) -> list:
+def _tool_di() -> list:
 	"""Coordinates for the ad-hoc container and the tools sitting inside it."""
-	names = [tool[0] for tool in TOOLS] + (["close_incident"] if with_close else [])
+	names = [tool[0] for tool in TOOLS]
 	shapes = [("a2a_tools", 200, 320, 190 * len(names) + 40, 200)]
 	for index, name in enumerate(names):
 		shapes.append((name, 240 + index * 190, 370, 160, 80))
@@ -343,7 +331,7 @@ def _agent_task_xml() -> str:
 		+ "      <bpmn:documentation>The agents this one may hand work to. Referenced by the "
 		+ "AI Agent Task as its toolbox, so it is not wired into the sequence flow: the model "
 		+ "calls these, the engine does not run them in order.</bpmn:documentation>\n"
-		+ _tool_shapes(with_close=True)
+		+ _tool_shapes()
 		+ "    </bpmn:adHocSubProcess>\n"
 		+ "  </bpmn:process>\n"
 		+ _di(
@@ -354,7 +342,7 @@ def _agent_task_xml() -> str:
 				("close", 470, 158, 140, 80),
 				("end", 670, 180, 36, 36),
 			]
-			+ _tool_di(with_close=True),
+			+ _tool_di(),
 			[
 				("f1", "start", "triage"),
 				("f2", "triage", "close"),
@@ -398,14 +386,10 @@ def _selector_xml() -> str:
 		"send_to_maintenance.\n"
 		"3. Verdict is Routine and compliance is 'not logged' → activate "
 		"log_for_compliance.\n"
-		"4. Otherwise — one of them has answered — activate close_incident.\n\n"
-		"Rule 4 is not optional and it is not a formality. An incident stays open until "
-		"close_incident runs, so if you activate nothing the work you just arranged is "
-		"never signed off and this incident hangs unresolved. Deciding that the job is "
-		"done is precisely when you MUST activate close_incident.\n\n"
-		"Only ONE of maintenance and compliance ever runs, and rule 4 does not care "
-		"which: seeing maintenance answered is a reason to close, never a reason to "
-		"stop.\n\n"
+		"4. Otherwise — one of them has answered — activate nothing. The triage is "
+		"over and the incident is signed off for you.\n\n"
+		"Only ONE of maintenance and compliance ever runs. Seeing one of them already "
+		"answered means rule 4 applies, not that you should run the other.\n\n"
 		"You have no memory between decisions. The evidence below is what has already "
 		"run and what it returned — trust it over anything you think you remember.\n\n"
 		"Call the task FIRST, before any explanation. Do not restate the evidence, do "
@@ -455,7 +439,7 @@ def _selector_xml() -> str:
 		# error, no timeout and nothing in the log.
 		+ '      <bpmn:completionCondition xsi:type="bpmn:tFormalExpression">'
 		+ "dispatch != 0 or logged != 0</bpmn:completionCondition>\n"
-		+ _tool_shapes(with_close=True)
+		+ _tool_shapes()
 		+ "    </bpmn:adHocSubProcess>\n"
 		+ '    <bpmn:sequenceFlow id="f2" sourceRef="a2a_tools" targetRef="close" />\n'
 		+ _script_step(
@@ -469,13 +453,17 @@ def _selector_xml() -> str:
 		+ "  </bpmn:process>\n"
 		+ _di(
 			"a2a_tool_selector",
+			# The flow runs ABOVE the toolbox, never through it. A shape whose
+			# bounds fall inside a container it is not a child of renders as if
+			# it belonged there and the editor flags it — which is exactly what
+			# putting the seed step at the toolbox's own y did.
 			[
-				("start", 160, 400, 36, 36),
-				("seed", 240, 378, 140, 80),
-				("close", 1080, 378, 140, 80),
-				("end", 1280, 400, 36, 36),
+				("start", 160, 180, 36, 36),
+				("seed", 250, 158, 140, 80),
+				("close", 460, 158, 140, 80),
+				("end", 670, 180, 36, 36),
 			]
-			+ _tool_di(with_close=True),
+			+ _tool_di(),
 			[
 				("f1", "start", "seed"),
 				("f1b", "seed", "a2a_tools"),
