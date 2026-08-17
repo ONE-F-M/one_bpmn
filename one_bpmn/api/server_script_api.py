@@ -145,12 +145,12 @@ def _delegate_to_bpmn_instance(conversation_name: str, message: str, context: di
 	)
 	if not rows or rows[0]["name"] == reply_before:
 		# This turn produced no reply of its own. Before reporting a dead
-		# process, check whether it PARKED: a policy rule requiring human
-		# approval, or a designer-marked human tool, suspends the run mid-turn
-		# (WI-001645). The instance is alive and correct — it is waiting for a
-		# person. Reported as "the process is not running, please reopen the
-		# chat" it read as a fault, and the caller's retry-then-re-arm recovery
-		# spawned a fresh process instance for every attempt.
+		# process, check whether it PARKED: a designer-marked human tool
+		# suspends the run mid-turn. The instance is alive and correct — it is
+		# waiting for a person. Reported as "the process is not running, please
+		# reopen the chat" it read as a fault, and the caller's retry-then-re-arm
+		# recovery spawned a fresh process instance for every attempt
+		# (found under WI-001645).
 		parked = _parked_for_human(inst_name, conversation_name)
 		if parked:
 			return parked
@@ -215,7 +215,7 @@ def _parked_for_human(inst_name: str, conversation_name: str) -> dict | None:
 	if task:
 		who = task[0]["assigned_user"] or task[0]["assigned_role"] or ""
 
-	text = _("This needs a person to approve it before I can continue: {0}.").format(label)
+	text = _("This needs a person to complete a step before I can continue: {0}.").format(label)
 	if who:
 		text += " " + _("It is waiting with {0}.").format(who)
 	text += " " + _("Your message is saved — I will carry on once it is released.")
