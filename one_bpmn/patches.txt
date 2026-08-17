@@ -87,3 +87,4 @@ one_bpmn.one_bpmn.patches.v1_0.stop_prosally_reconfirm_loop #12-08-2026 WI-00200
 one_bpmn.one_bpmn.patches.v1_0.prosally_lane_fidelity #13-08-2026 WI-002042 designer-named lanes are authoritative; rework converges on one re-entry
 one_bpmn.one_bpmn.patches.v1_0.label_adversarial_case_kinds #17-08-2026 both rate denominators need labels; attack cases predating case_kind get them
 one_bpmn.one_bpmn.patches.v1_0.widen_instruction_override_pattern #17-08-2026 "ignore YOUR previous instructions" walked through the flagship rule
+one_bpmn.one_bpmn.patches.v1_0.set_customization_owner_app #17-08-2026 route customization PRs at one_fm, not the upstream repo owning the doctype

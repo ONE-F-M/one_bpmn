@@ -386,12 +386,14 @@ def sync_doctypes(model_name: str) -> dict:
 
 	token = frappe.get_cached_doc("Processa Settings").get_password("github_token")
 
-	# Group the changed doctypes by their owning app.
+	# Group by the app whose SOURCE carries the customization, which is not the
+	# app that owns the DocType — see _customization_app_for_doctype.
 	by_app = {}
 	for dt in changed_doctypes:
-		app = _app_for_doctype(dt)
+		app = _customization_app_for_doctype(dt)
 		by_app.setdefault(app, []).append(dt)
 
+	allowed_owners = _allowed_repo_owners()
 	prs, skipped = [], []
 	for app, dts in by_app.items():
 		repo = _repo_for_app(app) if app else None
@@ -399,19 +401,12 @@ def sync_doctypes(model_name: str) -> dict:
 			skipped.append({"app": app, "doctypes": dts,
 			                "reason": _("No GitHub token, or no GitHub remote resolved for app '{0}'.").format(app or "?")})
 			continue
-		files = {}
-		for dt in dts:
-			path, content = _customization_file(dt, app)
-			files[path] = content
-		head_branch = f"processa/sync-{frappe.scrub(model_name)}-{frappe.generate_hash(length=6)}"
+
+		stamp = frappe.generate_hash(length=6)
+		head_branch = f"processa/sync-{frappe.scrub(model_name)}-{stamp}"
 		title = f"Processa: sync customizations for {', '.join(dts)}"
-		body = (
-			"Automated by Processa (Review Doctypes → Sync).\n\n"
-			f"Process map: `{model_name}`\n"
-			f"DocTypes: {', '.join(dts)}\n\n"
-			"These Custom Field / Property Setter changes exist on the authoring (BA) "
-			"site but not yet on Production. Merging and deploying this branch migrates them."
-		)
+		files, build_files, artefacts = _customization_pr_files(app, dts, model_name, stamp)
+		body = _pr_body(app, dts, model_name, artefacts)
 		# base_branch=None → github_sync targets the repository's default branch.
 		pr_url = open_customization_pr(
 			token=token,
@@ -419,13 +414,119 @@ def sync_doctypes(model_name: str) -> dict:
 			base_branch=None,
 			head_branch=head_branch,
 			files=files,
+			build_files=build_files,
 			commit_message=title,
 			pr_title=title,
 			pr_body=body,
+			allowed_owners=allowed_owners,
 		)
-		prs.append({"app": app, "repository": repo, "pr_url": pr_url, "doctypes": dts})
+		prs.append({"app": app, "repository": repo, "pr_url": pr_url,
+		            "doctypes": dts, "files": artefacts})
 
 	return {"synced": bool(prs), "prs": prs, "skipped": skipped, "source_edits": source_edits}
+
+
+def _customization_pr_files(app: str, dts: list, model_name: str, stamp: str):
+	"""Build the PR's file set in the customization app's own convention.
+
+	Returns ``(files, build_files, artefacts)``:
+	  * ``files``      — paths written whole (the generated data modules + patch).
+	  * ``build_files`` — a callback run once the branch exists, for the paths that
+	    must be READ and appended to: the two setup/ aggregators, patches.txt, and
+	    the shared custom/<dt>.json. Those cannot be built up front.
+	  * ``artefacts``  — every path touched, for the PR body and the API response.
+	"""
+	from one_bpmn.api import onefm_customization_codegen as gen
+
+	files, artefacts = {}, []
+	snapshots = {}
+	for dt in dts:
+		cfs = frappe.get_all("Custom Field", filters={"dt": dt}, fields=["*"], order_by="name")
+		pss = frappe.get_all("Property Setter", filters={"doc_type": dt}, fields=["*"], order_by="name")
+		snapshots[dt] = (cfs, pss)
+
+		cf_path = gen.module_path(app, dt, "custom_field")
+		ps_path = gen.module_path(app, dt, "property_setter")
+		files[cf_path] = gen.render_custom_field_module(dt, cfs)
+		files[ps_path] = gen.render_property_setter_module(dt, pss)
+		artefacts += [cf_path, ps_path]
+
+	patch_path = gen.patch_path(app, model_name, stamp)
+	files[patch_path] = gen.render_patch(app, model_name, dts, stamp)
+	artefacts.append(patch_path)
+
+	spliced = [gen.aggregator_path(app, k) for k in ("custom_field", "property_setter")]
+	spliced.append(gen.patches_txt_path(app))
+	# Under the CUSTOMIZATION app's module, not the DocType's owning module. The
+	# latter is what the previous implementation used, and for a foreign DocType it
+	# resolves outside this repo entirely (../hrms/hrms/hr/custom/interview.json).
+	json_paths = {dt: gen.customization_json_path(app, dt) for dt in dts}
+	artefacts += spliced + sorted(json_paths.values())
+
+	today = frappe.utils.today()
+
+	def build_files(reader):
+		out = {}
+		for kind in ("custom_field", "property_setter"):
+			path = gen.aggregator_path(app, kind)
+			text = reader(path)
+			if text is None:
+				raise ValueError(
+					f"{path} is not in the repository, so the generated getter cannot be registered. "
+					f"Is '{app}' the right customization owner app?"
+				)
+			for dt in dts:
+				text = gen.splice_aggregator(text, app, dt, kind)
+			out[path] = text
+
+		pt_path = gen.patches_txt_path(app)
+		pt_text = reader(pt_path)
+		if pt_text is None:
+			raise ValueError(f"{pt_path} is not in the repository; the patch would never run.")
+		out[pt_path] = gen.splice_patches_txt(
+			pt_text, app, model_name, stamp, today, note=f"Processa sync: {', '.join(dts)}"
+		)
+
+		# The Frappe-native customizations file is merged, never regenerated: it
+		# carries customizations beyond the ones this run happens to know about.
+		for dt in dts:
+			path = json_paths[dt]
+			cfs, pss = snapshots[dt]
+			incoming = {
+				"doctype": dt,
+				"custom_fields": [_clean(r) for r in cfs],
+				"property_setters": [_clean(r) for r in pss],
+				"custom_perms": [],
+				"links": frappe.get_all("DocType Link", fields="*", filters={"parent": dt}, order_by="name"),
+				"sync_on_migrate": 1,
+			}
+			out[path] = gen.merge_customization_json(reader(path) or "", incoming)
+		return out
+
+	return files, build_files, artefacts
+
+
+def _pr_body(app: str, dts: list, model_name: str, artefacts: list) -> str:
+	listed = "\n".join(f"- `{p}`" for p in artefacts)
+	return (
+		"Automated by Processa (Review Doctypes → Sync).\n\n"
+		f"Process map: `{model_name}`\n"
+		f"DocTypes: {', '.join(dts)}\n"
+		f"Customization owner app: `{app}`\n\n"
+		"These Custom Field / Property Setter changes exist on the authoring (BA) "
+		"site but not yet on Production.\n\n"
+		f"Written in {app}'s own convention, so the change lands on both a fresh "
+		"install and an existing site:\n\n"
+		"- the `custom/custom_field/` and `custom/property_setter/` data modules hold the content\n"
+		"- `setup/custom_field.py` and `setup/property_setter.py` register them for **fresh installs** "
+		"(via `after_install`, which never runs on an existing site)\n"
+		"- the patch under `patches/v15_0/` applies them to **existing sites** on `bench migrate`\n"
+		"- `custom/*.json` is updated too, and is **merged** rather than regenerated, so "
+		"customizations outside this sync are preserved\n\n"
+		f"Files touched:\n{listed}\n\n"
+		"The data modules are regenerated from the BA site's current state, so any hand edit "
+		"made to those two files will be replaced — review that hunk with care."
+	)
 
 
 @frappe.whitelist()
@@ -440,6 +541,52 @@ def _app_for_doctype(dt: str) -> str | None:
 	if not module:
 		return None
 	return frappe.local.module_app.get(frappe.scrub(module))
+
+
+def _customization_app_for_doctype(dt: str) -> str | None:
+	"""The app whose SOURCE should carry this DocType's customizations.
+
+	Not the same question as "who owns the DocType". A Custom Field on Employee is
+	owned by one_fm — erpnext knows nothing about it — and every one of the 108
+	customization modules in one_fm targets a DocType belonging to erpnext, hrms,
+	frappe, helpdesk or lending. Routing by owning app therefore aimed every
+	customization PR at an upstream repository (``frappe/erpnext``,
+	``frappe/hrms``): not a fork, the public project.
+
+	So the customization app from Processa Settings wins, EXCEPT where the DocType
+	belongs to an app that is itself ours — one_bpmn's own doctypes are customized
+	in one_bpmn, not exported into one_fm. "Ours" is decided by the configured
+	app's git owner, so this needs no hardcoded list of repositories.
+
+	Falls back to the owning app when nothing is configured, preserving the old
+	behaviour for a site that has not filled the field in.
+	"""
+	owning = _app_for_doctype(dt)
+	configured = (frappe.get_cached_value("Processa Settings", None, "customization_app") or "").strip()
+	if not configured:
+		return owning
+	if owning and owning != configured and _same_owner(owning, configured):
+		return owning
+	return configured
+
+
+def _same_owner(app_a: str, app_b: str) -> bool:
+	"""True when both apps' git remotes sit under the same GitHub owner."""
+	repo_a, repo_b = _repo_for_app(app_a), _repo_for_app(app_b)
+	if not repo_a or not repo_b:
+		return False
+	return repo_a.split("/")[0].lower() == repo_b.split("/")[0].lower()
+
+
+def _allowed_repo_owners() -> tuple:
+	"""The GitHub owner(s) a customization PR may target.
+
+	Derived from the configured customization app's own remote rather than
+	hardcoded, so a fork or a renamed organisation needs no code change.
+	"""
+	configured = (frappe.get_cached_value("Processa Settings", None, "customization_app") or "").strip()
+	repo = _repo_for_app(configured) if configured else None
+	return (repo.split("/")[0],) if repo else ()
 
 
 def _repo_for_app(app: str) -> str | None:
@@ -480,29 +627,11 @@ def _parse_github_repo(url: str) -> str | None:
 	return f"{m.group(1)}/{m.group(2)}" if m else None
 
 
-def _customization_file(dt: str, app: str) -> tuple[str, str]:
-	"""Build the app-source customization JSON for a DocType (path, content).
-
-	Mirrors ``frappe.modules.utils.export_customizations`` but in-memory and
-	without the developer-mode guard/msgprint, so the content can be pushed to
-	GitHub. ``sync_on_migrate`` is set so Production applies it on migrate.
-	"""
-	module = frappe.db.get_value("DocType", dt, "module")
-	custom = {
-		"custom_fields": frappe.get_all("Custom Field", fields="*", filters={"dt": dt}, order_by="name"),
-		"property_setters": frappe.get_all("Property Setter", fields="*", filters={"doc_type": dt}, order_by="name"),
-		"custom_perms": [],
-		"links": frappe.get_all("DocType Link", fields="*", filters={"parent": dt}, order_by="name"),
-		"doctype": dt,
-		"sync_on_migrate": 1,
-	}
-	content = frappe.as_json(custom)
-
-	module_path = frappe.get_module_path(module)
-	file_abs = os.path.join(module_path, "custom", frappe.scrub(dt) + ".json")
-	repo_root = os.path.dirname(frappe.get_app_path(app))
-	rel_path = os.path.relpath(file_abs, repo_root)
-	return rel_path, content
+# ``_customization_file`` lived here: it built the single customizations JSON that
+# used to be the whole PR, pathed from the DocType's OWNING module. Both halves are
+# gone — the file set now follows the customization app's own convention
+# (onefm_customization_codegen), and the JSON's path comes from
+# ``customization_json_path``, under a module of the app the PR actually targets.
 
 
 # ─────────────────────────────────────────────────────────────────────────────
