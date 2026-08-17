@@ -169,13 +169,13 @@
 					@click="isMobileMenuOpen = false"
 					:title="collapsed ? 'A2A' : ''"
 				>
-					<!-- Same mark as the a2a connector on the diagrams (purple layers,
-					     see seed_a2a_connector.py), so the sidebar entry and the shapes
+					<!-- Same mark and colour as the a2a connector on the diagrams
+					     (see seed_a2a_connector.py), so the sidebar entry and the shapes
 					     it monitors read as one thing. -->
 					<Icon
 						icon="lucide:arrow-right-left"
 						class="w-5 h-5 shrink-0"
-						:class="$route.path.startsWith('/processa/a2a') ? '' : 'text-[#7c3aed]'"
+						:class="$route.path.startsWith('/processa/a2a') ? '' : 'text-[#8b5cf6]'"
 					/>
 					<!-- "A2A", not "Agent Collaboration": the long label was clipped
 					     by the sidebar width, and A2A is what everyone calls it. -->

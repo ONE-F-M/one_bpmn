@@ -28,7 +28,10 @@ A2A_CONNECTOR = {
 	# about an exchange — it read as "a pile of things".
 	"icon": {
 		"path": "m16 3l4 4l-4 4m4-4H4m4 14l-4-4l4-4m-4 4h16",
-		"color": "#7c3aed",
+		# violet-500, to sit at the same weight as the other service icons
+		# (indigo-500, sky-500, amber-500, green-500, teal-500). The 600 shade
+		# it used before read as heavier and darker than everything around it.
+		"color": "#8b5cf6",
 		"label": "A2A",
 		"stroke": True,
 	},
