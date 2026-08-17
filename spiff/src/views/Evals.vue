@@ -272,12 +272,18 @@ watch([fromDate, toDate], fetchOverview)
 async function fetchAgents() {
 	try {
 		const res = await frappeRequest({ url: "/api/method/one_bpmn.api.eval_api.list_assignable_agents", method: "GET" })
-		// Only Live agents come back; a suite always needs one, so there is no
-		// "none" entry. `description` shows how the agent runs.
+		// EVERY agent comes back now, not just the Live ones — evaluating an
+		// agent is how it stops being a Draft. The lifecycle rides in the
+		// description so the list says what it is offering instead of quietly
+		// filtering. A suite always needs an agent, so there is no "none" entry.
 		agentOptions.value = (res || []).map((a) => ({
 			label: a.agent_name || a.name,
 			value: a.name,
-			description: a.process_model ? `${a.agent_framework} · has process map` : a.agent_framework,
+			description: [
+				a.lifecycle_status && a.lifecycle_status !== "Live" ? a.lifecycle_status : null,
+				a.enabled === 0 ? "disabled" : null,
+				a.process_model ? `${a.agent_framework} · has process map` : a.agent_framework,
+			].filter(Boolean).join(" · "),
 		}))
 	} catch (e) {
 		agentOptions.value = []

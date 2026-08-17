@@ -656,13 +656,26 @@ def _assert_process_owned(process_model: str) -> None:
 
 @frappe.whitelist()
 def list_assignable_agents() -> list:
-	"""Agent configurations offered in the assign/reassign picker: only Live,
-	enabled agents, since a Draft or disabled agent cannot be evaluated."""
+	"""Every agent configuration, for the assign/reassign pickers.
+
+	This used to offer only Live, enabled agents on the reasoning that a Draft
+	one cannot be evaluated. That confused cause and effect: evaluating an agent
+	is how it stops being a Draft. An adversarial suite is most useful pointed at
+	something that is NOT yet Live, and an agent in Needs Attention is precisely
+	the one somebody wants to test.
+
+	Lifecycle and enabled travel with each row so the picker can say what it is
+	offering. Filtering here would have been this function deciding for the user
+	with less information than the user has.
+	"""
 	return frappe.get_all(
 		"AI Agent Configuration",
-		filters={"lifecycle_status": "Live", "enabled": 1},
-		fields=["name", "agent_name", "agent_framework", "process_model"],
+		fields=[
+			"name", "agent_name", "agent_framework", "process_model",
+			"lifecycle_status", "enabled",
+		],
 		order_by="agent_name asc",
+		limit_page_length=0,
 	)
 
 

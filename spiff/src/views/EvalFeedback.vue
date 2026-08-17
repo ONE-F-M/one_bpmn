@@ -340,7 +340,16 @@ async function loadAgents() {
 		})) || [];
 		agentOptions.value = [
 			{ label: "All agents", value: "" },
-			...list.map((a) => ({ label: a.label || a.agent_name || a.name, value: a.name })),
+			// Every agent, Draft and Needs Attention included — this is a filter
+			// over feedback that already exists, and feedback arrives against
+			// agents long before they are Live.
+			...list.map((a) => ({
+				label:
+					a.lifecycle_status && a.lifecycle_status !== "Live"
+						? `${a.label || a.agent_name || a.name} — ${a.lifecycle_status}`
+						: a.label || a.agent_name || a.name,
+				value: a.name,
+			})),
 		];
 	} catch (e) {
 		/* the filter degrades to "All agents", never to a broken page */

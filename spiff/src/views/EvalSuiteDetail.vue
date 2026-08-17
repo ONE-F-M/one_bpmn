@@ -320,8 +320,8 @@
 						@update:modelValue="(v) => (reassignAgent = v?.value ?? v ?? '')"
 					/>
 					<p class="text-xs text-gray-500">
-						Leave it empty to detach the suite from any agent — useful for a template
-						pack that is copied rather than run directly.
+						Every agent is listed, including Draft and Needs Attention ones — running
+						a suite is how an agent earns its way to Live.
 					</p>
 					<ErrorMessage :message="reassignError" />
 				</div>
@@ -329,7 +329,12 @@
 			<template #actions>
 				<div class="flex justify-end gap-2">
 					<Button variant="subtle" @click="showReassign = false">Cancel</Button>
-					<Button variant="solid" :loading="savingReassign" @click="doReassign">Save</Button>
+					<Button
+						variant="solid"
+						:loading="savingReassign"
+						:disabled="!reassignAgent"
+						@click="doReassign"
+					>Save</Button>
 				</div>
 			</template>
 		</Dialog>
@@ -554,11 +559,23 @@ async function openCompare() {
 		// only produce the "both sides are the same agent" refusal.
 		challengerOptions.value = (res || [])
 			.filter((a) => a.name !== suite.value.agent_configuration)
-			.map((a) => ({ label: a.agent_name || a.name, value: a.name }))
+			.map((a) => ({ label: agentLabel(a), value: a.name }))
 	} catch (e) {
 		challengerOptions.value = []
 		compareError.value = errorText(e, "Couldn't load the list of agents.")
 	}
+}
+
+// Every agent is offered, not just the Live ones — evaluating an agent is how
+// it stops being a Draft, and one in Needs Attention is precisely the one
+// somebody wants to test. The state rides in the label so the choice is
+// informed rather than quietly filtered.
+function agentLabel(a) {
+	const name = a.agent_name || a.name
+	const bits = []
+	if (a.lifecycle_status && a.lifecycle_status !== "Live") bits.push(a.lifecycle_status)
+	if (a.enabled === 0) bits.push("disabled")
+	return bits.length ? `${name} — ${bits.join(", ")}` : name
 }
 
 // ── Reassigning the suite's agent ─────────────────────────────────────────
@@ -587,10 +604,10 @@ async function openReassign() {
 			url: "/api/method/one_bpmn.api.eval_api.list_assignable_agents",
 			method: "GET",
 		})
-		reassignOptions.value = [
-			{ label: "— no agent —", value: "" },
-			...(res || []).map((a) => ({ label: a.agent_name || a.name, value: a.name })),
-		]
+		// No "— no agent —" entry. Detaching is a different intent from
+		// reassigning, and an empty row in a picker is far too easy to land on
+		// by accident for something that silently unhooks the suite.
+		reassignOptions.value = (res || []).map((a) => ({ label: agentLabel(a), value: a.name }))
 	} catch (e) {
 		reassignOptions.value = []
 		reassignError.value = errorText(e, "Couldn't load the list of agents.")
@@ -598,6 +615,11 @@ async function openReassign() {
 }
 
 async function doReassign() {
+	// Belt and braces with the disabled button: this dialog reassigns, it never
+	// detaches. reassign_suite still accepts an empty value — the Evals list
+	// uses that deliberately — so the guard belongs here rather than in the
+	// endpoint, where it would remove a capability another screen relies on.
+	if (!reassignAgent.value) return
 	savingReassign.value = true
 	reassignError.value = ""
 	try {
