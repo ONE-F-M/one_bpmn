@@ -104,3 +104,53 @@ def _public_sub_agents(config) -> list[str]:
 		if fields and fields.enabled and fields.lifecycle_status == "Live" and fields.a2a_exposed:
 			public.append(fields.agent_id)
 	return public
+
+
+def tool_description(agent_configuration: str, fallback: str = "") -> str | None:
+	"""The tool description a model should see for a shape that delegates to
+	this agent — the agent's own card, rendered as prose (WI-001933).
+
+	A delegation shape used to be described by whatever the designer typed in
+	its documentation, so which specialist the model picked came down to how
+	well someone wrote that sentence, in every map that reached the agent.
+	The card is the description the agent gives of itself, in one place, and
+	it is what a person reads on the A2A page — so the model and the person
+	choose on the same evidence.
+
+	Read at run time rather than baked in at deploy: editing an agent's
+	description or tags takes effect for every caller immediately, instead of
+	going stale until each calling map happens to be redeployed. The read is
+	one cached-doc lookup per delegation shape per turn.
+
+	Returns None when the agent has no card — unknown, disabled, not Live or
+	not exposed. That is the same set the delegation itself would refuse, so
+	a shape pointing at one keeps its documentation and the model is not told
+	about a specialist it cannot reach.
+	"""
+	agent_id = frappe.db.get_value("AI Agent Configuration", agent_configuration, "agent_id")
+	if not agent_id:
+		return None
+	card = build_agent_card(agent_id)
+	if not card:
+		return None
+
+	skill = (card.get("skills") or [{}])[0]
+	lines = [f"{card.get('name')} — {card.get('description')}".strip(" —")]
+
+	tags = [t for t in (skill.get("tags") or []) if t]
+	if tags:
+		lines.append(f"Good for: {', '.join(tags)}")
+
+	examples = [e.strip() for e in (skill.get("examples") or []) if e and e.strip()][:3]
+	if examples:
+		lines.append("For example: " + " / ".join(f'"{e}"' for e in examples))
+
+	# Whatever the designer wrote is kept BELOW the card, not instead of it.
+	# The card says what the agent is; the documentation is where a map says
+	# something true only here ("only for site incidents"), which the agent
+	# cannot know about itself.
+	note = (fallback or "").strip()
+	if note:
+		lines.append(f"In this process: {note}")
+
+	return "\n".join(lines)

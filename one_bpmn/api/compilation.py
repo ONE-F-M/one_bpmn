@@ -1227,6 +1227,13 @@ _AI_AGENT_AUTO_TAGS = frozenset({"scriptTask", "serviceTask"})
 _AI_AGENT_HUMAN_TAGS = frozenset({"userTask", "manualTask"})
 _AI_AGENT_TOOL_TAGS = _AI_AGENT_AUTO_TAGS | _AI_AGENT_HUMAN_TAGS
 
+# Connector operations that hand a task to one of OUR agents. A shape using
+# one of these is described to the model by the TARGET AGENT'S CARD rather
+# than by the shape's documentation (WI-001933), so which specialist gets
+# picked follows what the agent says it does, not how well a sentence was
+# written on the shape.
+_A2A_DELEGATION_OPERATIONS = frozenset({"delegate_to_local_agent"})
+
 # Argument schema a human tool exposes when the designer sets no
 # aiToolParams: the model states what it needs from the person.
 _DEFAULT_HUMAN_TOOL_PARAMS = {
@@ -1277,6 +1284,9 @@ def _extract_tool_shapes(adhoc_el, bpmn_ns: str, spiff_ns: str) -> list:
 			shape["serverScript"] = server_script
 		if service_type:
 			shape["serviceType"] = service_type
+		delegates_to = _a2a_delegation_target(child, spiff_ns)
+		if delegates_to:
+			shape["a2aAgent"] = delegates_to
 		tool_params_raw = child.get(f"{{{spiff_ns}}}aiToolParams", "")
 		if tool_params_raw:
 			try:
@@ -1295,6 +1305,34 @@ def _extract_tool_shapes(adhoc_el, bpmn_ns: str, spiff_ns: str) -> list:
 			shape["required"] = ["request"]
 		shapes.append(shape)
 	return shapes
+
+
+def _a2a_delegation_target(el, spiff_ns: str) -> str | None:
+	"""The agent a shape hands work to, when the shape is an A2A delegation.
+
+	Captured at extraction so the runtime can describe the tool with that
+	agent's card. Only a LITERAL target can be resolved here: an agent chosen
+	by expression (``{{ ... }}``) is not known until the step runs, and a card
+	cannot be read for an agent whose name does not exist yet — those shapes
+	keep their documentation.
+	"""
+	if el.get(f"{{{spiff_ns}}}connectorId") != "a2a":
+		return None
+	if el.get(f"{{{spiff_ns}}}operation") not in _A2A_DELEGATION_OPERATIONS:
+		return None
+	raw = el.get(f"{{{spiff_ns}}}connectorParams", "")
+	if not raw:
+		return None
+	try:
+		params = json.loads(raw)
+	except Exception:
+		return None
+	if not isinstance(params, dict):
+		return None
+	target = (params.get("agent") or "").strip()
+	if not target or "{{" in target:
+		return None
+	return target
 
 
 def _ai_agents_with_tools(service_extensions: dict) -> dict:
