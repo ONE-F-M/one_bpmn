@@ -100,6 +100,24 @@
                 + Add sample prompt
               </button>
             </div>
+            <div class="field-row">
+              <label>Skills <span class="hint">(optional)</span></label>
+              <div v-for="(s, i) in newAgent.ai_skills" :key="'newsk-' + i" class="static-row">
+                <div class="static-row-head">
+                  <span class="static-row-inline-label">Skill</span>
+                  <select v-model="s.skill" class="static-row-cat">
+                    <option v-for="c in availableSkills" :key="c.name" :value="c.name">{{ c.name }}</option>
+                  </select>
+                  <span class="static-row-inline-label">Version pin</span>
+                  <input v-model="s.version_pin" type="text" placeholder="e.g. 1.0.0 (optional)" class="static-row-cat" />
+                  <button type="button" class="close-btn" title="Remove" @click="newAgent.ai_skills.splice(i, 1)">✕</button>
+                </div>
+              </div>
+              <button type="button" class="btn-cancel" @click="newAgent.ai_skills.push({ skill: '', version_pin: '' })">
+                + Add skill
+              </button>
+            </div>
+
             <div class="field-row two-col">
               <div>
                 <label>PII Input Screening</label>
@@ -327,6 +345,25 @@
               Examples and guard rails are stored on the linked AI Agent Configuration, not on
               this diagram, and apply to every task that links it.
             </p>
+            <div class="field-row">
+              <label>Skills <span class="hint">(optional)</span></label>
+              <span class="field-hint">
+                Skills enabled for this agent.
+              </span>
+              <div v-for="(s, i) in form.aiSkills" :key="'sk-' + i" class="static-row">
+                <div class="static-row-head">
+                  <span class="static-row-inline-label">Skill</span>
+                  <select v-model="s.skill" class="static-row-cat">
+                    <option v-for="c in availableSkills" :key="c.name" :value="c.name">{{ c.name }}</option>
+                  </select>
+                  <span class="static-row-inline-label">Version pin</span>
+                  <input v-model="s.version_pin" type="text" placeholder="e.g. 1.0.0 (optional)" class="static-row-cat" />
+                  <button type="button" class="close-btn" title="Remove" @click="form.aiSkills.splice(i, 1)">✕</button>
+                </div>
+              </div>
+              <button type="button" class="btn-cancel" @click="addSkill">+ Add skill</button>
+            </div>
+
           </template>
 
           <!-- ============ Screening ============ -->
@@ -537,6 +574,9 @@ import { frappeGet } from "@/bpmn/shared/frappeResource";
 // WI-001674: agent mode chats through the shared panel + card registry.
 import { AgentChatPanel } from "@/components/chat";
 import { cardRegistry } from "@/components/chat/cards/registry";
+const availableSkills = ref([]);
+function addSkill() { form.value.aiSkills.push({ skill: '', version_pin: '' }); }
+
 
 // bpmn-js elements must never be touched as Vue reactive proxies — the renderer
 // reads non-configurable properties (e.g. labels) that a Proxy cannot return,
@@ -576,6 +616,7 @@ const emptyNewAgent = () => ({
   system_prompt: "",
   description: "",
   sample_prompts: [],
+  ai_skills: [],
   // WI-001644: chosen at creation rather than left to a later visit to the desk
   // form. Blank means "take the doctype default", so the panel never has to
   // restate what that default is.
@@ -724,6 +765,7 @@ async function rerunChecks() {
 
 // Form state — defaults
 const form = ref({
+  aiSkills: [],
   aiAgentConfig: "",
   aiBackend: "direct_api",
   aiProvider: "",
@@ -792,7 +834,9 @@ async function loadStaticContextFromConfig() {
       params: { config_name: form.value.aiAgentConfig },
     });
     form.value.aiExamples = Array.isArray(fields?.aiExamples) ? fields.aiExamples : [];
-    form.value.aiGuardrails = Array.isArray(fields?.aiGuardrails) ? fields.aiGuardrails : [];
+    
+    form.value.aiSkills = Array.isArray(fields?.aiSkills) ? fields.aiSkills : [];
+form.value.aiGuardrails = Array.isArray(fields?.aiGuardrails) ? fields.aiGuardrails : [];
     staticContextLoaded.value = true;
   } catch (e) {
     // Unreadable agent — the sections stay empty and Save leaves them alone.
@@ -952,6 +996,17 @@ function applyRecommendation(key, value) {
 
 // ── Load providers + existing element config ────────────────────────────────
 onMounted(async () => {
+  try {
+    const skills = await frappeGet("/api/resource/AI Skill", { 
+      fields: JSON.stringify(["name"]),
+      filters: JSON.stringify([["status", "in", ["Active", "Published"]]]), 
+      limit_page_length: 100 
+    });
+    availableSkills.value = skills || [];
+  } catch (e) {
+    console.error("Failed to load skills", e);
+  }
+
   try {
     const data = await frappeGet("/api/resource/AI Provider Credentials", {
       fields: JSON.stringify(["name", "provider_name"]),
@@ -1264,6 +1319,7 @@ async function createAgent() {
       ...newAgent.value,
       agent_id: newAgent.value.agent_id.trim() || scrubbedAgentId.value,
       sample_prompts: newAgent.value.sample_prompts.filter((sp) => (sp.prompt || "").trim()),
+      enabled_skills: newAgent.value.ai_skills.filter((sk) => (sk.skill || "").trim()),
     };
     const res = await frappeRequest({
       url: "/api/method/one_bpmn.agents.agent_config_resolver.create_agent_configuration",
@@ -1328,6 +1384,7 @@ async function writeBackToConfig() {
   // rather than onto the BPMN XML. Sent whole (the backend replaces the tables)
   // and only when they were read first — omitting the keys means "leave them".
   if (staticContextLoaded.value) {
+    fields.aiSkills = form.value.aiSkills;
     fields.aiExamples = form.value.aiExamples;
     fields.aiGuardrails = form.value.aiGuardrails;
   }

@@ -8,6 +8,8 @@
  "engine": "InnoDB",
  "field_order": [
   "title",
+  "case_type",
+  "target_skill",
   "suite",
   "case_kind",
   "source_run",
@@ -27,6 +29,20 @@
    "in_list_view": 1,
    "label": "Title",
    "reqd": 1
+  },
+  {
+   "fieldname": "case_type",
+   "fieldtype": "Select",
+   "label": "Case Type",
+   "options": "Generation\nTrigger Positive\nTrigger Negative\nCo-Load Budget",
+   "default": "Generation"
+  },
+  {
+   "fieldname": "target_skill",
+   "fieldtype": "Link",
+   "label": "Target Skill",
+   "options": "AI Skill",
+   "depends_on": "eval:in_list(['Trigger Positive', 'Trigger Negative', 'Co-Load Budget'], doc.case_type)"
   },
   {
    "fieldname": "suite",

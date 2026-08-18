@@ -34,6 +34,7 @@ from __future__ import annotations
 # prompt — do not edit them casually.
 EXAMPLES_HEADER = "## Examples"
 GUARDRAILS_HEADER = "## Guard Rails"
+SKILLS_HEADER = "## AI Skills"
 
 # Prefix for the retrieved-memory block in the DYNAMIC layer. The old
 # system-prompt header lives on as dispatchers.MEMORY_BLOCK_HEADER, which the
@@ -81,6 +82,19 @@ def _render_examples(rows) -> str:
 	return EXAMPLES_HEADER + "\n\n" + _SECTION_GAP.join(blocks)
 
 
+
+def _render_skills_index(skills) -> str:
+	if not skills:
+		return ""
+	lines = [SKILLS_HEADER, "You have the following skills available. Use the load_skill tool to read a skill's full instructions when needed."]
+	for skill in skills:
+		name = skill.get("name", "")
+		desc = skill.get("description", "")
+		if name:
+			lines.append(f"- **{name}**: {desc}")
+	return "\n".join(lines)
+
+
 def _render_guardrails(rows) -> str:
 	"""Guard rails as a numbered list, grouped under their category.
 
@@ -117,6 +131,7 @@ def build_static_context(
 	system_prompt: str = "",
 	examples=None,
 	guardrails=None,
+	skills=None,
 ) -> str:
 	"""Assemble the immutable static context layer.
 
@@ -134,6 +149,7 @@ def build_static_context(
 	    system_prompt: the agent's Instructions (already Jinja-rendered).
 	    examples: AI Agent Example rows, or dicts of the same shape.
 	    guardrails: AI Agent Guard Rail rows, or dicts of the same shape.
+	    skills: List of dicts with name and description.
 
 	Returns:
 	    The system prompt string to send. Deterministic: identical inputs
@@ -141,6 +157,7 @@ def build_static_context(
 	"""
 	sections = [
 		str(system_prompt or "").strip(),
+		_render_skills_index(skills),
 		_render_examples(examples),
 		_render_guardrails(guardrails),
 	]
@@ -186,7 +203,7 @@ def load_agent_behaviour(config_name: str) -> dict:
 	return get_agent_config(agent_id) or {}
 
 
-def build_dynamic_preamble(memory_block: str = "", user_prompt: str = "") -> str:
+def build_dynamic_preamble(memory_block: str = "", user_prompt: str = "", active_skills: list[str] = None) -> str:
 	"""Compose the DYNAMIC layer's opening message.
 
 	Retrieved long-term memory is dynamic — it is searched with this turn's
@@ -203,8 +220,21 @@ def build_dynamic_preamble(memory_block: str = "", user_prompt: str = "") -> str
 	"""
 	memory_block = str(memory_block or "").strip()
 	user_prompt = str(user_prompt or "")
-	if not memory_block:
+	skills_block = ""
+	if active_skills:
+		skills_block = "\n\n".join(str(s).strip() for s in active_skills if s)
+
+	parts = []
+	if skills_block:
+		parts.append(skills_block)
+	if memory_block:
+		parts.append(memory_block)
+	
+	combined_prefix = _SECTION_GAP.join(parts)
+	
+	if not combined_prefix:
 		return user_prompt
 	if not user_prompt.strip():
-		return memory_block
-	return f"{memory_block}{_SECTION_GAP}User message: {user_prompt}"
+		return combined_prefix
+	return f"{combined_prefix}{_SECTION_GAP}User message: {user_prompt}"
+

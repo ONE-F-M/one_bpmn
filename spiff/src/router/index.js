@@ -80,6 +80,11 @@ const routes = [
 		component: () => import("@/views/Security.vue"),
 	},
 	{
+		path: '/processa/skills',
+		name: 'Skills',
+		component: () => import('../views/skills/SkillsManager.vue'),
+	},
+	{
 		path: "/processa/a2a",
 		name: "A2A",
 		component: () => import("@/views/A2A.vue"),
@@ -96,5 +101,3 @@ const router = createRouter({
 })
 
 export default router
-
-

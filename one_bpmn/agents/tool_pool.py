@@ -10,7 +10,10 @@ from SpiffWorkflow.bpmn.specs.control import BpmnStartTask, SimpleBpmnTask, _End
 from SpiffWorkflow.bpmn.specs.mixins.subworkflow_task import SubWorkflowTask
 from SpiffWorkflow.specs import MultiChoice
 
+
 from one_bpmn.agents.llm_provider.base import ToolSpec
+from one_bpmn.api.skill_tools import get_skill_tools
+
 
 DIAGRAM_TASK = "diagram_task"
 
@@ -28,7 +31,7 @@ class ToolCandidate:
 	source: str
 
 
-def resolve_tool_pool(subworkflow, task_cfg: dict = None, process_model: str | None = None) -> list:
+def resolve_tool_pool(subworkflow, task_cfg: dict = None, process_model: str | None = None, instance=None) -> list:
 	"""
 	Build the candidate list an AI Task Selector chooses from: the ad-hoc
 	sub-process's own inner head shapes, in diagram order. Each shape's
@@ -42,7 +45,17 @@ def resolve_tool_pool(subworkflow, task_cfg: dict = None, process_model: str | N
 	Returns:
 	    list[ToolCandidate]
 	"""
-	return _diagram_candidates(subworkflow, task_cfg)
+	candidates = _diagram_candidates(subworkflow, task_cfg)
+
+	if task_cfg and task_cfg.get("aiAgentConfig"):
+		import frappe
+		agent_name = task_cfg["aiAgentConfig"]
+		has_skills = frappe.db.count("AI Agent Enabled Skill", {"parent": task_cfg["aiAgentConfig"]}) > 0
+		if has_skills:
+			for spec in get_skill_tools(agent_name, instance):
+				candidates.append(ToolCandidate(spec=spec, source="PYTHON_FUNCTION"))
+
+	return candidates
 
 
 def _tool_arguments(task_cfg: dict | None) -> dict:

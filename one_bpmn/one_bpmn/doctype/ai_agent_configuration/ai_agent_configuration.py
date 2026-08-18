@@ -460,6 +460,22 @@ def get_agent_config(agent_id: str) -> dict | None:
 		order_by="idx asc",
 	)
 
+	
+	# Load enabled skills
+	enabled_skills = []
+	for skill in frappe.get_all(
+		"AI Agent Enabled Skill",
+		filters={"parent": config.name, "parenttype": "AI Agent Configuration"},
+		fields=["skill"],
+		order_by="idx asc",
+	):
+		skill_doc = frappe.db.get_value("AI Skill", skill.skill, ["skill_name", "description", "status"], as_dict=True)
+		if skill_doc and skill_doc.status != "Draft":
+			enabled_skills.append({
+				"name": skill_doc.skill_name,
+				"description": skill_doc.description,
+			})
+
 	# Load constants keyed by constant_name, cast to proper types
 	constants = {}
 	for c in frappe.get_all(
@@ -485,6 +501,7 @@ def get_agent_config(agent_id: str) -> dict | None:
 		"constants": constants,
 		"examples": examples,
 		"guardrails": guardrails,
+		"enabled_skills": enabled_skills,
 	}
 
 	frappe.cache.set_value(cache_key, result)
