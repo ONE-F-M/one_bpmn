@@ -91,6 +91,24 @@ def compile_shape_tools(tool_shapes, instance) -> list:
 	return tools
 
 
+class ToolDeferred(Exception):
+	"""A tool started work that finishes later, so it has no result yet.
+
+	Raised instead of returning, because there is no answer to return: the
+	shape handed work to something outside this turn (today, an agent on this
+	site that parks on a person) and the model must not be told anything until
+	that work reports back.
+
+	It carries the waiting marker the dispatch left on the task, which names
+	what to wait for. The step loop turns this into the same suspension a
+	human tool produces — the only difference is who supplies the answer.
+	"""
+
+	def __init__(self, marker: dict):
+		super().__init__("tool deferred — waiting on work outside this turn")
+		self.marker = marker or {}
+
+
 def _make_human_stub(bpmn_id: str):
 	def fn(**kwargs):
 		raise RuntimeError(
@@ -115,8 +133,10 @@ def execute_shape(instance, bpmn_id: str, task_cfg: dict, kwargs: dict) -> str:
 	that is its ``result`` dict; for a Service Task it is whatever the dispatch
 	handler wrote to ``task.data`` — excluding the arguments the LLM supplied.
 
-	Never raises: failures are logged and returned as a structured
-	``{"error": ...}`` payload so the tool-calling loop stays alive.
+	Never raises, with one exception: ``ToolDeferred``, which is not a failure
+	but "no answer yet" and must reach the loop so it can suspend. Ordinary
+	failures are logged and returned as a structured ``{"error": ...}`` payload
+	so the tool-calling loop stays alive.
 	"""
 	try:
 		task = _synthetic_task(bpmn_id, kwargs)
@@ -135,15 +155,36 @@ def execute_shape(instance, bpmn_id: str, task_cfg: dict, kwargs: dict) -> str:
 				{"error": f"Shape '{bpmn_id}' has no Server Script or serviceType — not executable as a tool."}
 			)
 
+		# A shape that parked did not answer. Returning its waiting marker as if
+		# it were a result is how a slow delegation used to be lost: the model
+		# read "still working" as the outcome, said so, and the process finished
+		# while the other agent was still going.
+		waiting = _waiting_marker(task)
+		if waiting:
+			raise ToolDeferred(waiting)
+
 		# The tool result is what the shape produced, not the args we injected.
 		produced = {k: v for k, v in task.data.items() if k not in kwargs}
 		return json.dumps(produced or {"ok": True}, default=str)
+	except ToolDeferred:
+		raise
 	except Exception:
 		frappe.log_error(
 			title=f"AI Agent shape tool '{bpmn_id}' failed",
 			message=frappe.get_traceback(),
 		)
 		return json.dumps({"error": f"Shape '{bpmn_id}' failed — see Error Log for details."})
+
+
+def _waiting_marker(task) -> dict | None:
+	"""The marker a dispatch leaves when it parked instead of answering."""
+	from one_bpmn.one_bpmn.connectors.a2a_client_ops import A2A_WAITING_KEY
+
+	data = getattr(task, "data", None)
+	if not isinstance(data, dict):
+		return None
+	marker = data.get(A2A_WAITING_KEY)
+	return marker if isinstance(marker, dict) else None
 
 
 def _synthetic_task(bpmn_id: str, kwargs: dict):

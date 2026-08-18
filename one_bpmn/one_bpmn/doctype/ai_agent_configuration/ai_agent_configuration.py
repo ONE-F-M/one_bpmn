@@ -45,6 +45,25 @@ class AIAgentConfiguration(Document):
 		self.validate_chat_label_against_map()
 		self.validate_agent_creation_grant()
 		self.validate_a2a_exposure()
+		self.validate_delegation_grant()
+
+	def validate_delegation_grant(self):
+		"""Say so when the list is inert.
+
+		Exposure is what grants an agent delegated work; this list only
+		narrows the set, and only while the restriction is on. Rows sitting
+		under an unticked restriction do nothing — which is easy to
+		misread as "delegation is locked down" when it is not.
+		"""
+		if self.allowed_delegates and not self.restrict_delegates:
+			frappe.msgprint(
+				_(
+					"This list is ignored while 'Restrict Delegation to Specific Agents' is off — "
+					"the agent may currently hand work to any agent exposed over A2A."
+				),
+				alert=True,
+				indicator="orange",
+			)
 
 	def validate_a2a_exposure(self):
 		"""WI-001931: exposure is an admin grant on an operating agent. A
