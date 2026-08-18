@@ -31,11 +31,14 @@
 
 		<!-- Our agents (what we publish) -->
 		<div v-else-if="tab === 'ours'" class="flex-1 overflow-auto px-6 py-4">
-			<p class="text-sm text-gray-600 mb-3">
+			<div class="flex items-start justify-between gap-4 mb-3">
+			<p class="text-sm text-gray-600">
 				Every agent ticked <strong>Exposed over A2A</strong>, with the card the world would
 				fetch. A card is public; this list is not — it stays behind admin access so nobody
 				outside gets a directory of our agents.
 			</p>
+				<Button variant="solid" @click="openExposeDialog()">Expose an agent</Button>
+			</div>
 			<div v-if="loading.ours" class="text-sm text-gray-500">Loading…</div>
 			<table v-else class="w-full text-sm bg-white rounded-lg overflow-hidden">
 				<thead class="bg-gray-100 text-left text-xs uppercase text-gray-500">
@@ -69,6 +72,8 @@
 							</span>
 						</td>
 						<td class="px-4 py-2 text-right whitespace-nowrap">
+							<Button variant="ghost" @click="openTagsDialog(a)">Tags</Button>
+							<Button variant="ghost" @click="unexpose(a)">Unexpose</Button>
 							<Button variant="ghost" @click="copyCardUrl(a)">
 								{{ copied === a.agent_id ? "Copied" : "Copy link" }}
 							</Button>
@@ -332,6 +337,48 @@
 			</div>
 		</template>
 
+		<Dialog v-model="exposeOpen" :options="{ title: 'Expose an agent over A2A' }">
+			<template #body-content>
+				<p class="text-sm text-gray-600 mb-3">
+					Exposing an agent lets other agents hand it work, and publishes its card. It does
+					not let anyone outside call it — an approved client has to list it as well.
+				</p>
+				<div class="border rounded-lg divide-y max-h-64 overflow-auto">
+					<div
+						v-for="a in exposableCandidates"
+						:key="a.name"
+						class="flex items-center justify-between gap-3 px-3 py-2"
+					>
+						<div>
+							<div class="text-sm text-gray-900">{{ a.agent_name }}</div>
+							<div class="text-xs text-gray-500">{{ a.agent_id }} · {{ a.agent_type }}</div>
+						</div>
+						<Button variant="subtle" :loading="saving" @click="expose(a)">Expose</Button>
+					</div>
+					<p v-if="!exposableCandidates.length" class="px-3 py-3 text-sm text-gray-500">
+						Every enabled, Live agent is already exposed. An agent must be enabled and Live
+						before it can take part at all.
+					</p>
+				</div>
+				<ErrorMessage v-if="formError" :message="formError" class="mt-2" />
+			</template>
+		</Dialog>
+
+		<Dialog v-model="tagsOpen" :options="{ title: 'Skill tags' }">
+			<template #body-content>
+				<FormControl
+					label="Tags"
+					v-model="tagsForm.skill_tags"
+					placeholder="safety, assessment, triage"
+					description="Comma separated. They appear on the public card and are how another agent recognises what this one is for."
+				/>
+				<ErrorMessage v-if="formError" :message="formError" class="mt-2" />
+			</template>
+			<template #actions>
+				<Button variant="solid" :loading="saving" @click="saveTags">Save</Button>
+			</template>
+		</Dialog>
+
 		<Dialog v-model="remoteFormOpen" :options="{ title: remoteForm.name ? 'Edit remote agent' : 'New remote agent' }">
 			<template #body-content>
 				<div class="flex flex-col gap-3">
@@ -570,6 +617,77 @@ function initiator(task) {
 	return task.delegated_by || task.client || task.remote_agent || "—"
 }
 
+
+
+// ── Exposing an agent from here (WI-001934) ─────────────────────────────────
+const exposeOpen = ref(false)
+const tagsOpen = ref(false)
+const exposable = ref([])
+const tagsForm = ref({ agent: "", skill_tags: "" })
+
+// Candidates are the ones not yet exposed; the table above already shows the rest.
+const exposableCandidates = computed(() => exposable.value.filter((a) => !a.a2a_exposed))
+
+async function loadExposable() {
+	try {
+		exposable.value = (await call("exposable_agents")) || []
+	} catch (e) {
+		error.value = e.message || String(e)
+	}
+}
+
+async function openExposeDialog() {
+	formError.value = ""
+	await loadExposable()
+	exposeOpen.value = true
+}
+
+async function expose(agent) {
+	formError.value = ""
+	saving.value = true
+	try {
+		await call("set_agent_exposure", { agent: agent.name, exposed: 1 })
+		await Promise.all([loadOurAgents(), loadExposable()])
+		if (!exposableCandidates.value.length) exposeOpen.value = false
+	} catch (e) {
+		formError.value = e.message || String(e)
+	} finally {
+		saving.value = false
+	}
+}
+
+async function unexpose(agent) {
+	error.value = ""
+	try {
+		await call("set_agent_exposure", { agent: agent.name, exposed: 0 })
+		await loadOurAgents()
+	} catch (e) {
+		error.value = e.message || String(e)
+	}
+}
+
+function openTagsDialog(agent) {
+	formError.value = ""
+	tagsForm.value = { agent: agent.name, skill_tags: (agent.tags || []).join(", ") }
+	tagsOpen.value = true
+}
+
+async function saveTags() {
+	formError.value = ""
+	saving.value = true
+	try {
+		await call("set_agent_exposure", {
+			agent: tagsForm.value.agent,
+			skill_tags: tagsForm.value.skill_tags,
+		})
+		tagsOpen.value = false
+		await loadOurAgents()
+	} catch (e) {
+		formError.value = e.message || String(e)
+	} finally {
+		saving.value = false
+	}
+}
 
 // ── Registering and editing (WI-001934) ─────────────────────────────────────
 const authSchemes = [

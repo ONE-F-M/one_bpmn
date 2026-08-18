@@ -396,3 +396,69 @@ def _agent_list(value) -> list[str]:
 		},
 		pluck="name",
 	)
+
+
+# ── Exposing an agent, from Processa (WI-001934) ───────────────────────────────
+
+
+@frappe.whitelist()
+def exposable_agents() -> list[dict]:
+	"""Every agent that COULD take part in A2A, with its current state.
+
+	The dialog needs the not-yet-exposed ones too, so this is deliberately
+	wider than ``exposed_agents``: enabled and Live is the bar for taking
+	part at all, and exposure is the tick this screen sets.
+	"""
+	_require_admin()
+	return frappe.get_all(
+		"AI Agent Configuration",
+		filters={"enabled": 1, "lifecycle_status": "Live"},
+		fields=["name", "agent_id", "agent_name", "agent_type", "a2a_exposed", "a2a_skill_tags"],
+		order_by="a2a_exposed desc, agent_name asc",
+	)
+
+
+@frappe.whitelist()
+def set_agent_exposure(agent: str, exposed=None, skill_tags: str = None) -> dict:
+	"""Tick or untick 'Exposed over A2A', and set the card's tags.
+
+	Written with db_set rather than a document save, on purpose. Saving an
+	AI Agent Configuration re-runs the full validation including a live
+	provider call, and a Live agent whose provider is briefly unhappy gets
+	parked as Needs Attention — losing its Live badge as a side effect of an
+	unrelated tick. Exposure is a flag, not a claim about the agent working,
+	so it must not be able to demote one.
+
+	The rule the controller enforces on save is kept by hand here: a disabled
+	agent cannot be exposed.
+	"""
+	_require_admin()
+	fields = frappe.db.get_value(
+		"AI Agent Configuration", agent, ["enabled", "lifecycle_status", "agent_id"], as_dict=True
+	)
+	if not fields:
+		frappe.throw(_("No agent called '{0}'.").format(agent))
+
+	values = {}
+	if exposed is not None:
+		wanted = frappe.utils.cint(exposed)
+		if wanted and not fields.enabled:
+			frappe.throw(
+				_("'{0}' is disabled. Enable it before exposing it over A2A.").format(agent),
+				title=_("A2A Exposure"),
+			)
+		values["a2a_exposed"] = wanted
+	if skill_tags is not None:
+		values["a2a_skill_tags"] = skill_tags.strip()
+	if not values:
+		frappe.throw(_("Nothing to change."))
+
+	frappe.db.set_value("AI Agent Configuration", agent, values, update_modified=True)
+	# on_update normally busts this; a db_set has to do it itself or the door
+	# and the card builder keep reading the old flag.
+	frappe.cache.delete_value(f"agent_config:{fields.agent_id}")
+
+	out = frappe.db.get_value(
+		"AI Agent Configuration", agent, ["a2a_exposed", "a2a_skill_tags", "lifecycle_status"], as_dict=True
+	)
+	return {"name": agent, **out}
