@@ -85,6 +85,11 @@ const routes = [
 		component: () => import('../views/skills/SkillsManager.vue'),
 	},
 	{
+		path: "/processa/a2a",
+		name: "A2A",
+		component: () => import("@/views/A2A.vue"),
+	},
+	{
 		path: "/:pathMatch(.*)*",
 		redirect: "/processa",
 	},

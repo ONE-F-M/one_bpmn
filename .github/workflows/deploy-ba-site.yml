@@ -25,19 +25,23 @@ jobs:
           port: 22
           script: |
             set -e
+            export PATH="/home/frappe/.local/bin:$PATH"
+            command -v bench
+            bench --version
+
             export NVM_DIR="$HOME/.nvm"
             [ -s "$NVM_DIR/nvm.sh" ] && . "$NVM_DIR/nvm.sh"
             node -v
-            cd /home/ubuntu/sandbox-bench/apps/one_bpmn
+            cd /home/frappe/sandbox-bench/apps/one_bpmn
             git pull upstream staging
-            cd /home/ubuntu/sandbox-bench
+            cd /home/frappe/sandbox-bench
             rm -rf env/lib/python*/site-packages/one_bpmn-*.dist-info
             bench setup requirements one_bpmn
-            cd /home/ubuntu/sandbox-bench/apps/one_bpmn/spiff
+            cd /home/frappe/sandbox-bench/apps/one_bpmn/spiff
             yarn install
             export NODE_OPTIONS="--max-old-space-size=8192"
             yarn build
-            cd /home/ubuntu/sandbox-bench
+            cd /home/frappe/sandbox-bench
             bench --site business-analyst.one-fm.com migrate
             bench --site business-analyst.one-fm.com build --app one_bpmn
             bench --site business-analyst.one-fm.com clear-cache

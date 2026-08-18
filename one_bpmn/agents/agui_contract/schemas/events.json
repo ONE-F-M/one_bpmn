@@ -266,15 +266,40 @@
 		},
 		"onefm.lucrusher_result": {
 			"producers": ["lucrusher_agent"],
-			"rendered_as": "Handled by the one-ai surface (Lumina successor)",
-			"notes": "The existing LUCRUSHER_RESULT event, documented and renamed at the Lumina migration (WI-001678). Payload shape is owned by the LuCrusher worker; the contract pins only the envelope.",
-			"schema": {"type": "object"},
-			"example": {"status": "done", "result": {"summary": "…"}}
+			"rendered_as": "LuCrusherResultCard — one panel per intent (matches, document, scan, topology, tasks, prompts)",
+			"notes": "The existing LUCRUSHER_RESULT event, documented and renamed at the Lumina migration (WI-001678). The worker still owns the payload's inner shape; the contract pins the envelope and the `intent` that selects the panel. The worker emits its keys FLAT on the event — the relay folds them into `value` (WI-001678), so consumers only ever see the contract shape.",
+			"schema": {
+				"type": "object",
+				"required": ["intent"],
+				"properties": {"intent": {"type": "string"}}
+			},
+			"example": {
+				"intent": "TOPOLOGY_PROPOSAL",
+				"matches": [],
+				"topology": {
+					"recommendation": "Split into two processes",
+					"summary": "The chart mixes onboarding and access provisioning; they have different owners and SLAs.",
+					"processes": [
+						{
+							"name": "Employee Onboarding",
+							"type": "Core",
+							"reason": "Owned by HR end to end.",
+							"shapes": ["Offer accepted", "Collect documents", "Create employee record"]
+						},
+						{
+							"name": "System Access Provisioning",
+							"type": "Supporting",
+							"reason": "Runs on IT's SLA and can start before day one.",
+							"shapes": ["Raise access request", "Approve", "Grant access"]
+						}
+					]
+				}
+			}
 		}
 	},
 	"not_contract_events": {
 		"$comment": "Explicitly excluded, with reasons — so nobody re-adds them as customs.",
 		"heartbeat / keep-alive": "Transport plumbing. Stays an SSE comment line inside the shared generator, never an event.",
-		"get_page_snapshot": "A server→client tool request. Moves to the standard AG-UI tool-call mechanism (ToolCallStart/Args/End with a client-side tool), not a custom event."
+		"get_page_snapshot": "A server→client tool request. Belongs on the standard AG-UI tool-call mechanism (ToolCallStart/Args/End with a client-side tool), never a custom event. NOT part of WI-001678: it was never a Lumina PAGE feature — lumina.js has no handler, the only client implementation is onefm_mcp's floating chat_widget.js, and the server side is an MCP placeholder. It ports with the embedded widget, which has a host page worth snapshotting."
 	}
 }

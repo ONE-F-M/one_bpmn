@@ -124,5 +124,6 @@ export function getConnectorIcon(connectorId) {
 		path: icon.path,
 		color: icon.color || "#14b8a6",
 		label: icon.label || manifest.label || connectorId,
+		stroke: !!icon.stroke,
 	};
 }

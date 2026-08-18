@@ -15,9 +15,20 @@
 							{{ suite.eval_type }} eval
 						</span>
 					</div>
-					<div class="text-xs text-gray-400">
-						{{ suite.agent_name || suite.agent_configuration || "no agent" }} ·
-						{{ suite.process_model || "no process" }}
+					<!-- The agent is editable here, not just on the Evals list. A
+					     suite is reassigned far more often than it is created —
+					     an adversarial pack is written once and pointed at each
+					     agent in turn — and this is the screen you are on when
+					     you discover it is aimed at the wrong one. -->
+					<div class="text-xs text-gray-400 flex items-center gap-1">
+						<button
+							v-if="canReassign"
+							class="underline decoration-dotted underline-offset-2 hover:text-gray-700"
+							:title="'Run this suite against a different agent'"
+							@click="openReassign"
+						>{{ suite.agent_name || suite.agent_configuration || "no agent" }}</button>
+						<span v-else>{{ suite.agent_name || suite.agent_configuration || "no agent" }}</span>
+						<span>· {{ suite.process_model || "no process" }}</span>
 					</div>
 				</div>
 				<div class="flex items-center gap-2">
@@ -288,12 +299,48 @@
 			</template>
 		</Dialog>
 	</div>
+		<!-- ── Reassign the suite's agent ──────────────────────────────── -->
+		<Dialog
+			:modelValue="showReassign"
+			:options="{ title: 'Run this suite against', size: 'lg' }"
+			@update:modelValue="(v) => { if (!v) showReassign = false }"
+		>
+			<template #body-content>
+				<div class="space-y-4">
+					<p class="text-sm text-gray-600">
+						Changes which agent this suite's cases are run against. The cases, their
+						assertions and every past run stay exactly as they are — a run records the
+						agent it used, so the history stays readable after a reassignment.
+					</p>
+					<FormControl
+						type="autocomplete"
+						label="Agent"
+						:options="reassignOptions"
+						:modelValue="reassignAgent"
+						@update:modelValue="(v) => (reassignAgent = v?.value ?? v ?? '')"
+					/>
+					<p class="text-xs text-gray-500">
+						Every agent is listed, including Draft and Needs Attention ones — running
+						a suite is how an agent earns its way to Live. Choosing "none" detaches
+						the suite instead, for a template pack that is copied rather than run.
+					</p>
+					<ErrorMessage :message="reassignError" />
+				</div>
+			</template>
+			<template #actions>
+				<div class="flex justify-end gap-2">
+					<Button variant="subtle" @click="showReassign = false">Cancel</Button>
+					<Button variant="solid" :loading="savingReassign" @click="doReassign">Save</Button>
+				</div>
+			</template>
+		</Dialog>
+
 </template>
 
 <script setup>
 import { ref, reactive, computed, onMounted, watch } from "vue"
 import { useRoute, useRouter } from "vue-router"
-import { frappeRequest, Button, Dialog, FormControl } from "frappe-ui"
+import { frappeRequest, Button, Dialog, ErrorMessage, FormControl } from "frappe-ui"
 
 const route = useRoute()
 const router = useRouter()
@@ -503,15 +550,95 @@ async function openCompare() {
 		const res = await frappeRequest({
 			url: "/api/method/one_bpmn.api.eval_api.list_assignable_agents",
 			method: "GET",
+			// Draft and Needs Attention agents included: evaluating an agent is
+			// how it stops being a Draft. The endpoint defaults to Live-only so
+			// other callers are untouched.
+			params: { include_all: 1 },
 		})
 		// The suite's own agent is side A, so offering it as the challenger would
 		// only produce the "both sides are the same agent" refusal.
 		challengerOptions.value = (res || [])
 			.filter((a) => a.name !== suite.value.agent_configuration)
-			.map((a) => ({ label: a.agent_name || a.name, value: a.name }))
+			.map((a) => ({ label: agentLabel(a), value: a.name }))
 	} catch (e) {
 		challengerOptions.value = []
 		compareError.value = errorText(e, "Couldn't load the list of agents.")
+	}
+}
+
+// Every agent is offered, not just the Live ones — evaluating an agent is how
+// it stops being a Draft, and one in Needs Attention is precisely the one
+// somebody wants to test. The state rides in the label so the choice is
+// informed rather than quietly filtered.
+function agentLabel(a) {
+	const name = a.agent_name || a.name
+	const bits = []
+	if (a.lifecycle_status && a.lifecycle_status !== "Live") bits.push(a.lifecycle_status)
+	if (a.enabled === 0) bits.push("disabled")
+	return bits.length ? `${name} — ${bits.join(", ")}` : name
+}
+
+// ── Reassigning the suite's agent ─────────────────────────────────────────
+// The endpoint already existed and the Evals LIST already used it; the detail
+// screen — the one you are on when you notice the suite is aimed at the wrong
+// agent — did not offer it.
+const showReassign = ref(false)
+const reassignAgent = ref("")
+const reassignOptions = ref([])
+const reassignError = ref("")
+const savingReassign = ref(false)
+
+// get_suite_detail does not report an edit right, and reassign_suite enforces
+// write permission itself. Rather than invent a second, guessable rule here that
+// could disagree with the server's, the control is offered and a refusal comes
+// back as the dialog's error — which names the real reason instead of a button
+// that is mysteriously missing.
+const canReassign = computed(() => true)
+
+async function openReassign() {
+	reassignError.value = ""
+	reassignAgent.value = suite.value.agent_configuration || ""
+	showReassign.value = true
+	try {
+		const res = await frappeRequest({
+			url: "/api/method/one_bpmn.api.eval_api.list_assignable_agents",
+			method: "GET",
+			// Draft and Needs Attention agents included: evaluating an agent is
+			// how it stops being a Draft. The endpoint defaults to Live-only so
+			// other callers are untouched.
+			params: { include_all: 1 },
+		})
+		// Detaching is offered here as well as on the Evals list. It is a real
+		// thing to want — a template pack that is copied rather than run — and
+		// the endpoint has always supported it. Named for what it does rather
+		// than shown as an empty row, so landing on it is a choice.
+		reassignOptions.value = [
+			{ label: "— none (detach this suite) —", value: "" },
+			...(res || []).map((a) => ({ label: agentLabel(a), value: a.name })),
+		]
+	} catch (e) {
+		reassignOptions.value = []
+		reassignError.value = errorText(e, "Couldn't load the list of agents.")
+	}
+}
+
+async function doReassign() {
+	savingReassign.value = true
+	reassignError.value = ""
+	try {
+		await frappeRequest({
+			url: "/api/method/one_bpmn.api.eval_api.reassign_suite",
+			method: "POST",
+			params: { suite: suiteName, agent_configuration: reassignAgent.value || null },
+		})
+		showReassign.value = false
+		// Reload rather than patching the local copy: the header also shows the
+		// agent's display NAME, which only the server can resolve.
+		await fetchDetail()
+	} catch (e) {
+		reassignError.value = errorText(e, "Couldn't reassign the suite.")
+	} finally {
+		savingReassign.value = false
 	}
 }
 
