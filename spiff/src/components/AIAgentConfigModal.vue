@@ -346,7 +346,11 @@
                  under "Screening" would misdescribe it. -->
             <template v-for="g in controlGroups" :key="g.name">
               <div class="field-group-title">{{ g.name }}</div>
-              <div class="field-row" v-for="c in g.controls" :key="c.fieldname">
+              <!-- Hidden when the control it hangs off is unticked, matching the
+                   desk form. Otherwise the two forms disagree about what is in
+                   effect: the freeze thresholds stayed visible here with rate
+                   limiting off, reading as settings that do something. -->
+              <div class="field-row" v-for="c in visibleIn(g)" :key="c.fieldname">
                 <label>{{ c.label }}</label>
                 <select v-if="c.fieldtype === 'Select'" v-model="c.value">
                   <option v-for="o in c.options" :key="o" :value="o">{{ o }}</option>
@@ -621,6 +625,19 @@ const rerunning = ref(false);
 // The list comes from the server, which reads the doctype's real fields, so this
 // component never has to know which screening stories have shipped.
 const screeningControls = ref([]);
+
+// A control is hidden when the control it depends on is off. The server sends a
+// plain fieldname rather than the doctype's "eval:" expression, so nothing here
+// has to evaluate anything — and a dependency we could not reduce arrives as
+// null and the control simply renders, which is the safe direction.
+function isOn(fieldname) {
+  const dep = screeningControls.value.find((c) => c.fieldname === fieldname);
+  if (!dep) return true;
+  return !(dep.value === 0 || dep.value === "0" || dep.value === false || dep.value == null);
+}
+function visibleIn(group) {
+  return group.controls.filter((c) => !c.depends_on_field || isOn(c.depends_on_field));
+}
 
 // Rendered group by group, in the order the server sent them. Grouping comes
 // from the server rather than a list here, for the same reason the controls

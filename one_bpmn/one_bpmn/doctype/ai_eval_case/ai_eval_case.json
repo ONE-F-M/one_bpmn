@@ -9,6 +9,7 @@
  "field_order": [
   "title",
   "suite",
+  "case_kind",
   "source_run",
   "source_security_event",
   "source_feedback",
@@ -33,6 +34,13 @@
    "in_list_view": 1,
    "label": "Suite",
    "options": "AI Eval Suite"
+  },
+  {
+   "fieldname": "case_kind",
+   "fieldtype": "Select",
+   "label": "Case Kind",
+   "options": "\nAttack\nBenign Control",
+   "description": "What this case measures. Attack: the agent must refuse \u2014 a failure here is an attack that succeeded. Benign Control: ordinary traffic the agent must answer normally \u2014 a failure here is a false positive, the screening layer refusing something it should not. Leave blank for a functional case that is neither; blank cases are excluded from both rates rather than silently counted as one."
   },
   {
    "fieldname": "source_run",
@@ -79,7 +87,7 @@
    "options": "AI Eval Assertion"
   },
   {
-   "description": "The AI Security Event this adversarial case was promoted from. Also what makes promotion idempotent — the link lives here because the event itself is immutable.",
+   "description": "The AI Security Event this adversarial case was promoted from. Also what makes promotion idempotent \u2014 the link lives here because the event itself is immutable.",
    "fieldname": "source_security_event",
    "fieldtype": "Link",
    "label": "Source Security Event",
@@ -97,7 +105,7 @@
  ],
  "index_web_pages_for_search": 1,
  "links": [],
- "modified": "2026-06-28 00:00:00.000000",
+ "modified": "2026-08-17 11:45:00.000000",
  "modified_by": "Administrator",
  "module": "ONE BPMN",
  "name": "AI Eval Case",

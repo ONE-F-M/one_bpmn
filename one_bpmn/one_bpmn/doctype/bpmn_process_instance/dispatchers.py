@@ -129,6 +129,35 @@ def _memory_write_mode(task_cfg: dict) -> str:
 	return "distilled" if _cfg_truthy(task_cfg.get("aiMemoryAutoWrite")) else "off"
 
 
+def _provider_for_model(model: str | None, fallback: str) -> str:
+	"""The AI Provider Credentials that actually serves *model*.
+
+	The dispatcher used to send the AGENT's provider with whatever memory model
+	was configured, on the stated assumption that "the provider/backend still
+	come from the task so the extraction call is always valid". That holds only
+	while the memory model belongs to the same provider as the agent's own.
+
+	Observed live: Lumina runs gpt-5-nano on an OpenAI provider and had its
+	distill model set to claude-haiku-4-5. The extraction call asked the OpenAI
+	endpoint for an Anthropic model, got nothing usable back, and distillation
+	returned an empty list — so the agent said "I'll remember that" and NOTHING
+	was ever written. Silently, because a memory failure must never break a
+	turn. Agents whose memory model happened to match their provider (Docu,
+	Logix) wrote memories perfectly, which is what made it look agent-specific.
+
+	Falls back to the agent's provider when the model has no record or no
+	credentials link — that is the old behaviour, and it is right for a model
+	the agent already runs.
+	"""
+	if not model:
+		return fallback
+	try:
+		owner = frappe.db.get_value("AI Model", model, "ai_provider_credentials")
+		return owner or fallback
+	except Exception:
+		return fallback
+
+
 def _memory_model(task_cfg: dict, key: str, fallback: str | None) -> str | None:
 	"""Resolve the model for a memory write, in precedence order (WI-001793).
 
@@ -1529,16 +1558,29 @@ def dispatch_ai_agent(instance, task, task_cfg: dict, bpmn_id: str, resume_run: 
 									f"[User message]\n{str(user_prompt or '')[:3000]}\n\n"
 									f"[Agent tool activity]\n{trace_text}"
 								)
+						_distill_model = _memory_model(
+							task_cfg, "aiMemoryDistillModel", config.model
+						)
+						_reconcile_model = _memory_model(
+							task_cfg, "aiMemoryReconcileModel", config.model
+						)
 						_enqueue_distill(
 							agent_output=memory_src,
 							agent=(task_cfg.get("aiMemoryAgentElement") or bpmn_id),
 							scope=scope,
 							scope_key=scope_key,
-							provider_name=config.provider_name,
+							# The provider that serves the DISTILL model, not the
+							# agent's — they are the same for an agent using its
+							# own model and different the moment somebody picks a
+							# memory model from another provider.
+							provider_name=_provider_for_model(
+								_distill_model, config.provider_name
+							),
 							backend=config.backend,
-							model=_memory_model(task_cfg, "aiMemoryDistillModel", config.model),
-							reconcile_model=_memory_model(
-								task_cfg, "aiMemoryReconcileModel", config.model
+							model=_distill_model,
+							reconcile_model=_reconcile_model,
+							reconcile_provider=_provider_for_model(
+								_reconcile_model, config.provider_name
 							),
 							source_run=src,
 						)

@@ -613,9 +613,16 @@ class TestRateLimitAndLock(FrappeTestCase):
 		self.assertEqual(throttle["rate_limit_enabled"], 0)
 		self.assertEqual(throttle["rate_limit_messages"], 0)
 
-	def test_turning_the_throttle_off_does_not_turn_off_the_freeze(self):
-		"""Exempting a chatty agent from the throttle says nothing about whether
-		someone probing it should still be contained."""
+	def test_turning_the_throttle_off_turns_off_the_freeze_too(self):
+		"""Reversed deliberately. This used to assert that a chatty agent exempt
+		from the throttle could still freeze a prober — defensible in isolation,
+		and unpredictable in use: an operator who had unticked Enable Rate
+		Limiting had every reason to think the section was off, and conversations
+		froze anyway with nothing on the form to explain it. One switch now
+		governs the whole section.
+
+		An agent that needs containment without a throttle keeps rate limiting on
+		and sets Messages Per Window to 0."""
 		self._stop_settings_patch()
 		agent = self._agent()
 		frappe.db.set_value(
@@ -624,10 +631,10 @@ class TestRateLimitAndLock(FrappeTestCase):
 		frappe.clear_document_cache("AI Agent Configuration", agent)
 
 		with patch.object(RL, "_maybe_freeze", return_value="LOCK-1") as freeze:
-			with self.assertRaises(RL.RateLimited):
-				RL.enforce(user=PROBER, agent=agent, agent_label=agent, conversation="zz-conv", count=True)
+			# No raise: off means off.
+			RL.enforce(user=PROBER, agent=agent, agent_label=agent, conversation="zz-conv", count=True)
 
-		freeze.assert_called()
+		freeze.assert_not_called()
 
 	def test_a_failed_block_count_raises_no_freeze(self):
 		with patch("frappe.db.count", side_effect=RuntimeError("db down")):
@@ -1214,3 +1221,149 @@ class TestOneTurnCostsOneSlot(FrappeTestCase):
 	def test_peek_never_throttles_when_the_cache_is_broken(self):
 		with patch("frappe.cache", side_effect=RuntimeError("redis down")):
 			self.assertEqual(RL.peek_count("Administrator", self.AGENT_LABEL, 60), -1)
+
+
+class TestTheFreezeOutlivesTheRefusal(FrappeTestCase):
+	"""Observed live: the chat said "This conversation has
+	been frozen after repeated blocked attempts. A reviewer needs to release it"
+	and there was NO lock anywhere on the site.
+
+	raise_lock inserts the row and the caller's next act is frappe.throw, which
+	rolls the whole request back — taking the insert with it. So the user was
+	told they were frozen, no reviewer had anything to release, and their next
+	message went straight through. A refusal is a DECISION; the record of it has
+	to outlive the exception that carries it.
+	"""
+
+	def setUp(self):
+		self.conversation = "ZZ-FREEZE-OUTLIVES"
+		frappe.db.delete("AI Conversation Lock", {"conversation": self.conversation})
+		frappe.db.commit()
+		self.addCleanup(self._purge)
+
+	def _purge(self):
+		frappe.db.delete("AI Conversation Lock", {"conversation": self.conversation})
+		frappe.db.commit()
+
+	def test_the_lock_is_committed_not_left_in_the_transaction(self):
+		"""in_test suppresses the commit itself — FrappeTestCase rolls back on
+		purpose and a real commit here would leak fixtures — so this pins the
+		CODE PATH instead: the commit must sit between the insert and the return,
+		which is the only place that survives the caller's throw."""
+		import ast
+		import inspect
+
+		from one_bpmn.security import rate_limit
+
+		tree = ast.parse(inspect.getsource(rate_limit))
+		fn = next(
+			n for n in ast.walk(tree)
+			if isinstance(n, ast.FunctionDef) and n.name == "raise_lock"
+		)
+		body = ast.dump(fn)
+		self.assertIn("commit", body, "raise_lock must commit; a rolled-back freeze is a lie")
+		# and it must come after the insert, not before it
+		src = inspect.getsource(rate_limit).split("def raise_lock", 1)[1].split("\ndef ", 1)[0]
+		self.assertLess(
+			src.index("insert("), src.index("commit()"),
+			"the commit has to follow the insert it is protecting",
+		)
+
+	def test_the_already_locked_refusal_records_before_it_throws(self):
+		"""Same trap one branch up: an existing lock records a Block event and
+		then throws. Uncommitted, that event vanishes and a refused turn leaves
+		no trace."""
+		import inspect
+
+		from one_bpmn.security import rate_limit
+
+		src = inspect.getsource(rate_limit.enforce)
+		locked = src.split("if lock:", 1)[1].split("frappe.throw", 1)[0]
+		self.assertIn("commit()", locked, "the refusal event must survive the throw")
+
+
+class TestOneSwitchGovernsTheWholeSection(FrappeTestCase):
+	"""Reported from the form: "why am I having blocked attempts when rate limit
+	is not even enabled".
+
+	The freeze used to survive the switch, on the reasoning that exempting a
+	chatty agent from the throttle should not stop it containing a prober. In
+	practice that made the control unpredictable — an operator who had unticked
+	Enable Rate Limiting had every reason to believe the section was off, and
+	conversations froze anyway with nothing on the form to explain it.
+	"""
+
+	AGENT = "ZZ Switch Governs"
+
+	def setUp(self):
+		if frappe.db.exists("AI Agent Configuration", self.AGENT):
+			frappe.delete_doc("AI Agent Configuration", self.AGENT, force=True)
+		frappe.get_doc({
+			"doctype": "AI Agent Configuration",
+			"agent_name": self.AGENT,
+			"agent_id": "zz_switch_governs",
+			"agent_type": "Background",
+			"agent_framework": "Direct API",
+			"enabled": 1,
+			"rate_limit_enabled": 0,
+			"lock_after_blocks": 1,
+		}).insert(ignore_permissions=True)
+		frappe.db.commit()
+		self.addCleanup(self._purge)
+
+	def _purge(self):
+		if frappe.db.exists("AI Agent Configuration", self.AGENT):
+			frappe.delete_doc("AI Agent Configuration", self.AGENT, force=True)
+		frappe.db.commit()
+
+	def test_with_the_switch_off_the_freeze_is_unreachable(self):
+		"""Pinned on the code path: the off-branch must return before it can
+		freeze anything."""
+		import inspect
+
+		src = inspect.getsource(RL.enforce)
+		off_branch = src.split(
+			'if not int(limits.get("rate_limit_enabled") or 0):', 1
+		)[1].split("return", 1)[0]
+		self.assertNotIn(
+			"_maybe_freeze", off_branch,
+			"unticking Enable Rate Limiting must switch off the freeze too",
+		)
+
+	def test_the_form_hides_what_the_switch_governs(self):
+		"""The two forms have to agree about what is in effect."""
+		meta = frappe.get_meta("AI Agent Configuration")
+		for fieldname in (
+			"rate_limit_messages", "rate_limit_window_seconds",
+			"lock_after_blocks", "lock_block_window_seconds",
+		):
+			with self.subTest(fieldname=fieldname):
+				self.assertEqual(
+					meta.get_field(fieldname).depends_on, "eval:doc.rate_limit_enabled"
+				)
+
+	def test_processa_is_told_which_control_each_one_hangs_off(self):
+		"""The modal renders from the API, so it needs the dependency too — as a
+		plain fieldname, never an expression for a browser to evaluate."""
+		from one_bpmn.api.security_api import agent_screening
+
+		deps = {
+			c["fieldname"]: c.get("depends_on_field")
+			for c in agent_screening(self.AGENT)["controls"]
+		}
+		self.assertEqual(deps["lock_after_blocks"], "rate_limit_enabled")
+		self.assertIsNone(deps["rate_limit_enabled"], "the switch cannot depend on itself")
+		self.assertIsNone(deps["pii_screening"], "screening is not governed by the throttle")
+
+	def test_an_existing_freeze_is_not_released_by_unticking_a_box(self):
+		"""Deliberately NOT gated. A lock is lifted by a reviewer, with a note —
+		if the switch released them, unticking one checkbox would silently
+		unfreeze every contained conversation on the agent."""
+		import inspect
+
+		src = inspect.getsource(RL.enforce)
+		before_limits = src.split("limits = limits_for(", 1)[0]
+		self.assertIn(
+			"active_lock", before_limits,
+			"the existing-lock check must run before the switch is even read",
+		)
