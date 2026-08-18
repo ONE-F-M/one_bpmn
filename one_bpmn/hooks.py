@@ -219,13 +219,6 @@ doc_events = {
 		"on_update": "one_bpmn.api.instance_api.clear_processa_doctype_cache",
 		"after_delete": "one_bpmn.api.instance_api.clear_processa_doctype_cache",
 	},
-	# WI-001813: the list of Processa-controlled doctypes (used by
-	# bpmn_form_actions.js to suppress native Submit/Save/banner) is cached in
-	# Redis — drop it whenever a process model is (de)activated or retargeted.
-	"BPMN Process Model": {
-		"on_update": "one_bpmn.api.instance_api.clear_processa_doctype_cache",
-		"after_delete": "one_bpmn.api.instance_api.clear_processa_doctype_cache",
-	},
 }
 
 # Scheduled Tasks
