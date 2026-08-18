@@ -321,7 +321,8 @@
 					/>
 					<p class="text-xs text-gray-500">
 						Every agent is listed, including Draft and Needs Attention ones — running
-						a suite is how an agent earns its way to Live.
+						a suite is how an agent earns its way to Live. Choosing "none" detaches
+						the suite instead, for a template pack that is copied rather than run.
 					</p>
 					<ErrorMessage :message="reassignError" />
 				</div>
@@ -329,12 +330,7 @@
 			<template #actions>
 				<div class="flex justify-end gap-2">
 					<Button variant="subtle" @click="showReassign = false">Cancel</Button>
-					<Button
-						variant="solid"
-						:loading="savingReassign"
-						:disabled="!reassignAgent"
-						@click="doReassign"
-					>Save</Button>
+					<Button variant="solid" :loading="savingReassign" @click="doReassign">Save</Button>
 				</div>
 			</template>
 		</Dialog>
@@ -554,6 +550,10 @@ async function openCompare() {
 		const res = await frappeRequest({
 			url: "/api/method/one_bpmn.api.eval_api.list_assignable_agents",
 			method: "GET",
+			// Draft and Needs Attention agents included: evaluating an agent is
+			// how it stops being a Draft. The endpoint defaults to Live-only so
+			// other callers are untouched.
+			params: { include_all: 1 },
 		})
 		// The suite's own agent is side A, so offering it as the challenger would
 		// only produce the "both sides are the same agent" refusal.
@@ -603,11 +603,19 @@ async function openReassign() {
 		const res = await frappeRequest({
 			url: "/api/method/one_bpmn.api.eval_api.list_assignable_agents",
 			method: "GET",
+			// Draft and Needs Attention agents included: evaluating an agent is
+			// how it stops being a Draft. The endpoint defaults to Live-only so
+			// other callers are untouched.
+			params: { include_all: 1 },
 		})
-		// No "— no agent —" entry. Detaching is a different intent from
-		// reassigning, and an empty row in a picker is far too easy to land on
-		// by accident for something that silently unhooks the suite.
-		reassignOptions.value = (res || []).map((a) => ({ label: agentLabel(a), value: a.name }))
+		// Detaching is offered here as well as on the Evals list. It is a real
+		// thing to want — a template pack that is copied rather than run — and
+		// the endpoint has always supported it. Named for what it does rather
+		// than shown as an empty row, so landing on it is a choice.
+		reassignOptions.value = [
+			{ label: "— none (detach this suite) —", value: "" },
+			...(res || []).map((a) => ({ label: agentLabel(a), value: a.name })),
+		]
 	} catch (e) {
 		reassignOptions.value = []
 		reassignError.value = errorText(e, "Couldn't load the list of agents.")
@@ -615,11 +623,6 @@ async function openReassign() {
 }
 
 async function doReassign() {
-	// Belt and braces with the disabled button: this dialog reassigns, it never
-	// detaches. reassign_suite still accepts an empty value — the Evals list
-	// uses that deliberately — so the guard belongs here rather than in the
-	// endpoint, where it would remove a capability another screen relies on.
-	if (!reassignAgent.value) return
 	savingReassign.value = true
 	reassignError.value = ""
 	try {

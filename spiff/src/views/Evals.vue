@@ -271,7 +271,7 @@ watch([fromDate, toDate], fetchOverview)
 
 async function fetchAgents() {
 	try {
-		const res = await frappeRequest({ url: "/api/method/one_bpmn.api.eval_api.list_assignable_agents", method: "GET" })
+		const res = await frappeRequest({ url: "/api/method/one_bpmn.api.eval_api.list_assignable_agents", method: "GET", params: { include_all: 1 } })
 		// EVERY agent comes back now, not just the Live ones — evaluating an
 		// agent is how it stops being a Draft. The lifecycle rides in the
 		// description so the list says what it is offering instead of quietly

@@ -337,6 +337,9 @@ async function loadAgents() {
 	try {
 		const list = (await frappeRequest({
 			url: "/api/method/one_bpmn.api.eval_api.list_assignable_agents",
+			// The endpoint defaults to Live-only so other callers are untouched;
+			// this screen asks for everything.
+			params: { include_all: 1 },
 		})) || [];
 		agentOptions.value = [
 			{ label: "All agents", value: "" },
