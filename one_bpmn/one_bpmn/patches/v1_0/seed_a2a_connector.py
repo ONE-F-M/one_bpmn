@@ -23,10 +23,17 @@ A2A_CONNECTOR = {
 		"Hand a task to another agent — one on this site, or an approved remote agent "
 		"over the A2A protocol."
 	),
+	# Two arrows passing each other (lucide arrow-right-left): work goes over,
+	# an answer comes back. The stacked-layers mark this replaced said nothing
+	# about an exchange — it read as "a pile of things".
 	"icon": {
-		"path": "M12 2 2 7l10 5 10-5zM2 17l10 5 10-5M2 12l10 5 10-5",
-		"color": "#7c3aed",
+		"path": "m16 3l4 4l-4 4m4-4H4m4 14l-4-4l4-4m-4 4h16",
+		# violet-500, to sit at the same weight as the other service icons
+		# (indigo-500, sky-500, amber-500, green-500, teal-500). The 600 shade
+		# it used before read as heavier and darker than everything around it.
+		"color": "#8b5cf6",
 		"label": "A2A",
+		"stroke": True,
 	},
 	"execution": {"type": "Python Handler"},
 	"operations": [

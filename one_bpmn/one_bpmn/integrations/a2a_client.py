@@ -202,16 +202,21 @@ def remote_text(result: dict) -> str:
 			part.get("text") or "" for part in result.get("parts") or [] if part.get("kind") == "text"
 		).strip()
 
-	status_message = (result.get("status") or {}).get("message") or {}
-	texts = [
-		part.get("text") or ""
-		for part in status_message.get("parts") or []
-		if part.get("kind") == "text"
-	]
+	# Artifacts ARE the result; status.message is a progress note that often
+	# repeats it. Prefer artifacts and fall back — reading both concatenates
+	# the same answer twice against any server that fills in both.
+	texts: list[str] = []
 	for artifact in result.get("artifacts") or []:
 		texts += [
 			part.get("text") or ""
 			for part in artifact.get("parts") or []
+			if part.get("kind") == "text"
+		]
+	if not any(texts):
+		status_message = (result.get("status") or {}).get("message") or {}
+		texts = [
+			part.get("text") or ""
+			for part in status_message.get("parts") or []
 			if part.get("kind") == "text"
 		]
 	return "\n".join(t for t in texts if t).strip()
