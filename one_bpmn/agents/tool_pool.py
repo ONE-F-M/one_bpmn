@@ -10,6 +10,7 @@ from SpiffWorkflow.bpmn.specs.control import BpmnStartTask, SimpleBpmnTask, _End
 from SpiffWorkflow.bpmn.specs.mixins.subworkflow_task import SubWorkflowTask
 from SpiffWorkflow.specs import MultiChoice
 
+from one_bpmn.agents import shape_tools
 from one_bpmn.agents.llm_provider.base import ToolSpec
 
 DIAGRAM_TASK = "diagram_task"
@@ -75,8 +76,17 @@ def _diagram_candidates(subworkflow, task_cfg: dict | None = None) -> list:
 	candidates = []
 	for spec in _candidate_task_specs(subworkflow.spec):
 		bpmn_id = getattr(spec, "bpmn_id", None) or spec.name
-		description = (spec.documentation or "").strip() or spec.description or bpmn_id
 		descriptor = arguments.get(bpmn_id) or {}
+		# Same rule as the AI Agent Task surface: a step that delegates to one
+		# of our agents is described by that agent's card, so the two surfaces
+		# cannot disagree about what a delegation is for (WI-001933).
+		description = (
+			shape_tools._tool_description(
+				{**descriptor, "description": (spec.documentation or "").strip()}
+			)
+			or spec.description
+			or bpmn_id
+		)
 		candidates.append(
 			ToolCandidate(
 				spec=ToolSpec(

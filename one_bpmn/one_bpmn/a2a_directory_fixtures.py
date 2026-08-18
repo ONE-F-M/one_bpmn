@@ -1,37 +1,32 @@
 # Copyright (c) 2026, one-fm and contributors
 # For license information, please see license.txt
-"""Can an agent FIND who to delegate to? The agent directory as a tool.
+"""Does an agent pick the right specialist from the CARDS alone?
 
-``a2a_agent_tool_fixtures`` proves an agent will choose to delegate — but
-its toolbox names the targets: one shape per specialist, each with the
-agent baked into ``connectorParams``. The model picks a box; the diagram
-already decided who is behind it. Adding a specialist means editing the
-map of every agent that might want it.
+``a2a_agent_tool_fixtures`` proves an agent will choose to delegate, but it
+leans on prose: each delegation shape carries a ``<documentation>`` sentence
+someone wrote, and that sentence is what the model reads. So the routing was
+only ever as good as the writing on the diagram, and every map that reached
+an agent had to describe that agent again — differently, and going stale on
+its own schedule.
 
-This map has no specialist in it at all. The toolbox is two generic
-tools:
+Here the delegation shapes carry NO documentation at all. Each one is
+described to the model by its target agent's card (WI-001933) — the same
+card a person reads on the A2A page — assembled at run time:
 
-    find_specialists       list_delegatable_agents  — who is available
-    delegate_to_specialist delegate_to_local_agent  — hand work to one
+    Site Safety Assessor — Classifies a reported site incident ...
+    Good for: safety, triage, assessment
+    For example: "Water is coming through a ceiling ..."
 
-The first returns exactly what a person sees on the A2A page: each
-agent's card — name, what it is for, its tags. The model reads that,
-picks one, and passes the ``agent`` value straight back as an argument to
-the second. So the roster is data at run time, not shapes at design time,
-and exposing a new agent on the A2A page is enough to put it in front of
-every agent that can delegate.
-
-The scoping matters as much as the listing: the directory is filtered by
-the same guardrail that would refuse the delegation
-(``guardrails.may_delegate_to``), so an agent can never read about a
-specialist it is not allowed to reach. Tick Restrict Delegation on the
-router and the directory shrinks with it — same map, smaller world.
+So the diagram says only WHO is reachable; what each one is FOR comes from
+the agent itself. Edit an agent's description or tags on the A2A page and
+every caller describes it the new way on its next turn, with nothing to
+redeploy.
 
 The specialists come from ``a2a_scenario_fixtures`` (assessor, parts
 checker, compliance logger, maintenance dispatcher — all exposed, all
-carrying descriptions and tags because that is what the model reads).
-Run that module's ``execute()`` first. This one calls a real model, so it
-needs working Claude credentials.
+carrying descriptions and tags, because that is now the only thing the model
+has to go on). Run that module's ``execute()`` first. This one calls a real
+model, so it needs working Claude credentials.
 
 Usage::
 
@@ -53,6 +48,9 @@ from one_bpmn.one_bpmn.a2a_agent_tool_fixtures import (
 )
 from one_bpmn.one_bpmn.a2a_scenario_fixtures import (
 	ASSESSOR,
+	DISPATCHER,
+	LOGGER,
+	PARTS,
 	_script_step,
 	_upsert_model,
 	_upsert_script,
@@ -74,40 +72,36 @@ INCIDENT = (
 	"the chiller pump has stopped."
 )
 
-# The prompt names NO agent. It cannot: the whole point is that the router
-# does not know who exists until it asks. It is told the shape of the job
-# (assess first, then act on the verdict) and that the roster is something to
-# look up — the same brief a new coordinator would get on their first day.
+# The prompt names NO agent and describes none of them. It cannot: the whole
+# point is that what each specialist is for reaches the model as a tool
+# description built from that agent's card, never as prose written here. All
+# the prompt supplies is the SHAPE of the job — assess first, then act on the
+# verdict — which is the one thing no single agent's card can tell it.
 SYSTEM_PROMPT = (
 	"You route facility incidents for a facilities-management company. You do not "
 	"judge severity yourself and you do not do repairs — other agents do that.\n\n"
-	"You do not know in advance which agents exist. Start by calling "
-	"find_specialists to see who is available and what each one is for, then use "
-	"delegate_to_specialist, passing the 'agent' value exactly as the directory "
-	"gave it to you.\n\n"
+	"Your tools are the specialists you may hand work to. Read what each one says "
+	"it is for and pick on that alone.\n\n"
 	"Get the incident assessed first — the verdict comes back as Critical or "
-	"Routine. A Critical incident then goes to whichever agent handles repairs "
-	"and technicians. A Routine one goes to whichever agent keeps the compliance "
-	"record instead. Never both.\n\n"
-	"Choose from what the directory tells you. If nobody suitable is listed, say "
-	"so rather than inventing an agent name.\n\n"
+	"Routine. A Critical incident then goes to whichever specialist handles repairs "
+	"and technicians. A Routine one goes to whichever keeps the compliance record "
+	"instead. Never both.\n\n"
+	"If no tool suits, say so rather than forcing one.\n\n"
 	"Once that second specialist has answered you are done — signing the incident "
 	"off is not your job and happens on its own.\n\n"
 	"Finish with one plain sentence: who you picked, why, and what they said."
 )
 
-# The delegate tool's arguments. `agent` is the interesting one — it is the
-# value the model copied out of the directory, so the two tools are joined by
-# the model's own reasoning rather than by anything on the diagram.
+# What the model supplies when it calls a delegation tool. Only the
+# instruction: WHICH agent is the tool it chose, baked into that shape's
+# connectorParams, so the choice is the tool call itself rather than a string
+# the model has to copy correctly from somewhere else.
 _DELEGATE_ARGS = (
 	"{&#34;properties&#34;: {"
-	"&#34;agent&#34;: {&#34;type&#34;: &#34;string&#34;, &#34;description&#34;: "
-	"&#34;Which agent to hand this to. Use the 'agent' value exactly as "
-	"find_specialists returned it.&#34;}, "
 	"&#34;instruction&#34;: {&#34;type&#34;: &#34;string&#34;, &#34;description&#34;: "
-	"&#34;What you want that agent to do, in plain words. Include the site and "
-	"what happened.&#34;}}, "
-	"&#34;required&#34;: [&#34;agent&#34;, &#34;instruction&#34;]}"
+	"&#34;What you want this specialist to do, in plain words. Include the site "
+	"and what happened.&#34;}}, "
+	"&#34;required&#34;: [&#34;instruction&#34;]}"
 )
 
 CLOSE_SCRIPT = "A2A Directory Test: Close Incident"
@@ -133,38 +127,42 @@ def _start_event() -> str:
 	)
 
 
-def _tool_shapes() -> str:
-	"""Two tools, neither naming an agent.
+# One shape per reachable specialist. The bpmn_id is a neutral slot name on
+# purpose — delegate_1, not delegate_to_the_safety_assessor — so that if the
+# card ever failed to load, the model would be choosing between meaningless
+# names and the failure would be obvious instead of quietly working from the
+# shape id.
+SPECIALISTS = (
+	("delegate_1", ASSESSOR),
+	("delegate_2", DISPATCHER),
+	("delegate_3", LOGGER),
+	("delegate_4", PARTS),
+)
 
-	``find_specialists`` declares no aiToolParams at all: a tool with no
-	declared parameters is called with zero arguments, which is right — asking
-	who is available takes no input, and giving the model a filter to fill in
-	would only let it narrow the roster by guessing.
+
+def _tool_shapes() -> str:
+	"""One delegation shape per specialist, each carrying NO documentation.
+
+	That absence is the fixture. With no documentation the model has only the
+	description built from the target's agent card, so a correct route proves
+	the card carried the meaning — if it did not, the model is picking between
+	four indistinguishable tools called delegate_1..4 and will route wrongly.
 	"""
-	delegate_params = (
-		"{&#34;agent&#34;: &#34;{{ task_data.agent }}&#34;, "
-		"&#34;instruction&#34;: &#34;{{ task_data.instruction }}&#34;}"
-	)
-	return (
-		'      <bpmn:serviceTask id="find_specialists" name="A2A → who can I delegate to?" '
-		'spiffworkflow:serviceType="connector" spiffworkflow:connectorId="a2a" '
-		'spiffworkflow:operation="list_delegatable_agents" '
-		'spiffworkflow:connectorParams="{}" '
-		'spiffworkflow:resultVariable="directory">\n'
-		"        <bpmn:documentation>Lists the agents you may hand work to, with what each one "
-		"is for and its tags. Call this before delegating so you know who exists.</bpmn:documentation>\n"
-		"      </bpmn:serviceTask>\n"
-		'      <bpmn:serviceTask id="delegate_to_specialist" name="A2A → delegate to the agent you picked" '
-		'spiffworkflow:serviceType="connector" spiffworkflow:connectorId="a2a" '
-		'spiffworkflow:operation="delegate_to_local_agent" '
-		f'spiffworkflow:connectorParams="{delegate_params}" '
-		'spiffworkflow:resultVariable="delegation" '
-		f'spiffworkflow:aiToolParams="{_DELEGATE_ARGS}">\n'
-		"        <bpmn:documentation>Hands a task to one of the agents from find_specialists and "
-		"waits for its answer. Some agents answer at once; some involve a person and take "
-		"longer.</bpmn:documentation>\n"
-		"      </bpmn:serviceTask>\n"
-	)
+	shapes = []
+	for element, agent in SPECIALISTS:
+		params = (
+			f"{{&#34;agent&#34;: &#34;{agent}&#34;, "
+			"&#34;instruction&#34;: &#34;{{ task_data.instruction }}&#34;}"
+		)
+		shapes.append(
+			f'      <bpmn:serviceTask id="{element}" name="A2A → {agent}" '
+			'spiffworkflow:serviceType="connector" spiffworkflow:connectorId="a2a" '
+			'spiffworkflow:operation="delegate_to_local_agent" '
+			f'spiffworkflow:connectorParams="{params}" '
+			f'spiffworkflow:resultVariable="{element}_result" '
+			f'spiffworkflow:aiToolParams="{_DELEGATE_ARGS}" />\n'
+		)
+	return "".join(shapes)
 
 
 def _router_xml() -> str:
@@ -189,12 +187,12 @@ def _router_xml() -> str:
 		+ 'spiffworkflow:aiTimeout="120" '
 		+ 'spiffworkflow:aiMaxRetries="1" '
 		+ 'spiffworkflow:aiToolsAdhoc="a2a_tools" '
-		# One lookup plus two delegations is three calls; the ceiling leaves
-		# room for a re-read of the directory without letting a confused model
-		# delegate all afternoon.
-		+ 'spiffworkflow:aiMaxToolCalls="6">\n'
-		+ "      <bpmn:documentation>Looks up which specialist agents exist, then hands the "
-		+ "incident to the right ones.</bpmn:documentation>\n"
+		# Two delegations is the whole job now that no lookup call is needed.
+		# The ceiling leaves room for one wrong turn without letting a confused
+		# model work through the whole roster.
+		+ 'spiffworkflow:aiMaxToolCalls="4">\n'
+		+ "      <bpmn:documentation>Hands the incident to the right specialists, chosen "
+		+ "from what each one's card says it does.</bpmn:documentation>\n"
 		+ "    </bpmn:serviceTask>\n"
 		+ '    <bpmn:sequenceFlow id="f2" sourceRef="route" targetRef="close" />\n'
 		+ _script_step(
@@ -206,9 +204,9 @@ def _router_xml() -> str:
 		+ '    <bpmn:sequenceFlow id="f3" sourceRef="close" targetRef="end" />\n'
 		+ '    <bpmn:endEvent id="end" name="Routed" />\n'
 		+ '    <bpmn:adHocSubProcess id="a2a_tools" name="Delegation tools (A2A)">\n'
-		+ "      <bpmn:documentation>Two generic tools: one asks who is available, the other "
-		+ "delegates to whichever agent the model picked. No specialist is named on this "
-		+ "diagram — exposing an agent on the A2A page is what puts it in reach.</bpmn:documentation>\n"
+		+ "      <bpmn:documentation>One delegation per reachable specialist. None of them "
+		+ "carries a description: what each is for is read from that agent's own card at run "
+		+ "time, so this diagram never restates it.</bpmn:documentation>\n"
 		+ _tool_shapes()
 		+ "    </bpmn:adHocSubProcess>\n"
 		+ "  </bpmn:process>\n"
@@ -219,9 +217,11 @@ def _router_xml() -> str:
 				("route", 260, 158, 160, 80),
 				("close", 470, 158, 140, 80),
 				("end", 670, 180, 36, 36),
-				("a2a_tools", 200, 320, 420, 200),
-				("find_specialists", 240, 370, 160, 80),
-				("delegate_to_specialist", 430, 370, 160, 80),
+				("a2a_tools", 200, 320, 800, 200),
+				("delegate_1", 240, 370, 160, 80),
+				("delegate_2", 430, 370, 160, 80),
+				("delegate_3", 620, 370, 160, 80),
+				("delegate_4", 810, 370, 160, 80),
 			],
 			[
 				("f1", "start", "route"),
@@ -290,30 +290,39 @@ def execute():
 
 	print("Directory-driven delegation fixture is ready.\n")
 	print(f"  agent : {ROUTER_AGENT}")
-	print("  tools : find_specialists, delegate_to_specialist  (no agent named on the map)")
-	print("\nWhat the router will be shown when it asks:")
+	print(f"  tools : {len(SPECIALISTS)} delegations, none of them described on the map")
+	print("\nWhat the router is shown for each tool — cards only:")
 	show_directory()
 	print("\nRun it — creating the Issue is the trigger:")
 	print("  bench execute one_bpmn.one_bpmn.a2a_directory_fixtures.run")
 
 
 def show_directory():
-	"""The roster as the router sees it — the same cards the A2A page shows.
+	"""Exactly what the model will be shown for each delegation tool.
 
-	Worth running on its own: if this is empty or missing a specialist, the
-	model has nothing to pick and the run proves nothing.
+	Worth running before a scenario: this is the model's whole basis for
+	choosing, so if a specialist prints as just its slot name, its card did
+	not build — it is not exposed, not Live, or has no description — and the
+	run would prove nothing about card-driven routing.
 	"""
-	from one_bpmn.one_bpmn.connectors.a2a_client_ops import list_delegatable_agents
+	from one_bpmn.agents.a2a.card import tool_description
 
-	result = list_delegatable_agents({"delegating_agent": ROUTER_AGENT}, {})
-	if not result["agents"]:
-		print("  nobody is exposed over A2A — the router would have nobody to delegate to")
-		return result
-	print(f"\n  {'agent':<30}{'tags':<30}what it is for")
-	print("  " + "-" * 110)
-	for row in result["agents"]:
-		print(f"  {row['agent'][:28]:<30}{', '.join(row['tags'])[:28]:<30}{row['description'][:48]}")
-	return result
+	print(f"\n  What {ROUTER_AGENT} sees:\n")
+	missing = []
+	for element, agent in SPECIALISTS:
+		text = tool_description(agent)
+		if not text:
+			missing.append(agent)
+			print(f"  {element}  —  NO CARD ({agent}): not exposed, not Live, or no description")
+			continue
+		first, *rest = text.split("\n")
+		print(f"  {element}  —  {first}")
+		for line in rest:
+			print(f"  {' ' * len(element)}     {line}")
+		print()
+	if missing:
+		print("  Fix those before running: the model cannot tell them apart.")
+	return missing
 
 
 def raise_incident() -> str:
