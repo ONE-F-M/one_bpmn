@@ -114,6 +114,8 @@ class AttemptRecord:
 class ExecutorConfig:
     backend: str = "direct_api"
     provider_name: str = ""
+    agent_config_name: str = ""
+    active_skill_name: str = ""
     model: str = ""
     system_prompt: str = ""
     user_prompt: str = ""

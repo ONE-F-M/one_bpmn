@@ -141,7 +141,7 @@ def dispatch_ai_task_selector(instance, sp, task_cfg: dict, bpmn_id: str) -> tup
 		except Exception:
 			return text
 
-	pool = resolve_tool_pool(sp, task_cfg, instance.process_model or "")
+	pool = resolve_tool_pool(sp, task_cfg, instance.process_model or "", instance)
 
 	# Runtime availability: the pool is spec-derived (every candidate on the
 	# diagram), but at a decision point only PARKED heads can actually be
@@ -243,6 +243,7 @@ def dispatch_ai_task_selector(instance, sp, task_cfg: dict, bpmn_id: str) -> tup
 			system_prompt=render(task_cfg.get("aiSystemPrompt", "")),
 			examples=behaviour.get("examples"),
 			guardrails=behaviour.get("guardrails"),
+			skills=behaviour.get("enabled_skills"),
 		),
 		user_prompt=user_prompt,
 		# cint first — a shape attribute is a string and "0" is truthy.

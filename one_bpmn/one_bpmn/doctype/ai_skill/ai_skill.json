@@ -39,7 +39,7 @@
    "fieldname": "tier",
    "fieldtype": "Select",
    "label": "Tier",
-   "options": "Tier 1\nTier 2\nTier 3"
+   "options": "Draft-Only\nRead-Only\nAction-Allowed"
   },
   {
    "fieldname": "owner_team",
@@ -82,12 +82,37 @@
  "grid_page_length": 50,
  "index_web_pages_for_search": 1,
  "links": [],
- "modified": "2026-08-12 20:55:52.466606",
+ "modified": "2026-08-16 15:34:33.958106",
  "modified_by": "Administrator",
  "module": "ONE BPMN",
  "name": "AI Skill",
  "owner": "Administrator",
- "permissions": [],
+ "permissions": [
+  {
+   "create": 1,
+   "delete": 1,
+   "email": 1,
+   "export": 1,
+   "print": 1,
+   "read": 1,
+   "report": 1,
+   "role": "System Manager",
+   "share": 1,
+   "write": 1
+  },
+  {
+   "create": 1,
+   "delete": 1,
+   "email": 1,
+   "export": 1,
+   "print": 1,
+   "read": 1,
+   "report": 1,
+   "role": "Process Owner",
+   "share": 1,
+   "write": 1
+  }
+ ],
  "row_format": "Dynamic",
  "rows_threshold_for_grid_search": 20,
  "sort_field": "modified",

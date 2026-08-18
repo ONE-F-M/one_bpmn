@@ -123,6 +123,18 @@ _GUARDRAIL_SHAPE_ATTR = "aiGuardrails"
 _EXAMPLE_FIELDS = ("input", "expected_output", "note", "enabled")
 _GUARDRAIL_FIELDS = ("guardrail", "category", "enabled")
 
+_SKILL_SHAPE_ATTR = "aiSkills"
+_SKILL_FIELDS = ("skill", "version_pin")
+
+def _clean_skill_rows(rows: list[dict]) -> list[dict]:
+	out = []
+	for r in rows:
+		skill = (r.get("skill") or "").strip()
+		if skill:
+			out.append({"skill": skill, "version_pin": (r.get("version_pin") or "").strip()})
+	return out
+
+
 
 def _clean_example_rows(rows) -> list[dict]:
 	"""Normalise few-shot example rows from any caller (the assistant's create
@@ -218,7 +230,11 @@ def config_static_context(config_name: str) -> dict:
 	``load_agent_behaviour``.
 	"""
 	if not config_name or not frappe.db.exists("AI Agent Configuration", config_name):
-		return {}
+		return {
+		_EXAMPLE_SHAPE_ATTR: _rows_for_shape(doc, "examples", _EXAMPLE_FIELDS),
+		_GUARDRAIL_SHAPE_ATTR: _rows_for_shape(doc, "guardrails", _GUARDRAIL_FIELDS),
+		_SKILL_SHAPE_ATTR: _rows_for_shape(doc, "enabled_skills", _SKILL_FIELDS),
+	}
 	cfg = frappe.get_doc("AI Agent Configuration", config_name)
 	return {
 		_EXAMPLE_SHAPE_ATTR: _rows_for_shape(cfg, "examples", _EXAMPLE_FIELDS),
@@ -390,7 +406,8 @@ def update_agent_config_from_shape(config_name: str, fields: str | dict) -> dict
 	# to apply, and row ORDER is meaningful (it is the order they reach the
 	# model), which a merge would not preserve.
 	for sattr, table, cleaner, row_fields in (
-		(_EXAMPLE_SHAPE_ATTR, "examples", _clean_example_rows, _EXAMPLE_FIELDS),
+				(_SKILL_SHAPE_ATTR, "enabled_skills", _clean_skill_rows, _SKILL_FIELDS),
+(_EXAMPLE_SHAPE_ATTR, "examples", _clean_example_rows, _EXAMPLE_FIELDS),
 		(_GUARDRAIL_SHAPE_ATTR, "guardrails", _clean_guardrail_rows, _GUARDRAIL_FIELDS),
 	):
 		if sattr not in fields:
@@ -634,6 +651,8 @@ def create_agent_configuration(payload: str | dict) -> dict:
 		doc.append("examples", row)
 	for row in _clean_guardrail_rows(payload.get("guardrails")):
 		doc.append("guardrails", row)
+	for row in _clean_skill_rows(payload.get("enabled_skills")):
+		doc.append("enabled_skills", row)
 	doc.insert()  # caller's permissions; the After-Insert trigger starts the process
 
 	creation_instance = None

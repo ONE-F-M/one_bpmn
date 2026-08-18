@@ -11,9 +11,10 @@
  "fields": [
   {
    "fieldname": "tool",
-   "fieldtype": "Data",
+   "fieldtype": "Link",
    "in_list_view": 1,
    "label": "Tool",
+   "options": "AI Agent Tool",
    "reqd": 1
   }
  ],
@@ -21,7 +22,7 @@
  "index_web_pages_for_search": 1,
  "istable": 1,
  "links": [],
- "modified": "2026-08-12 20:55:52.273291",
+ "modified": "2026-08-18 06:30:54.611778",
  "modified_by": "Administrator",
  "module": "ONE BPMN",
  "name": "AI Skill Allowed Tool",

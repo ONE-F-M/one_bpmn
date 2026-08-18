@@ -1145,6 +1145,7 @@ def dispatch_ai_agent(instance, task, task_cfg: dict, bpmn_id: str, resume_run: 
 			system_prompt=instructions,
 			examples=agent_config.get("examples"),
 			guardrails=agent_config.get("guardrails"),
+			skills=agent_config.get("enabled_skills"),
 		)
 		user_prompt = render(task_cfg.get("aiUserPrompt", ""))
 
@@ -1185,11 +1186,93 @@ def dispatch_ai_agent(instance, task, task_cfg: dict, bpmn_id: str, resume_run: 
 	# are the shapes"). aiToolShapes was embedded at compile time (WI-001421);
 	# each becomes a function-tool the LLM can call, whose result feeds back into
 	# the loop. Empty/absent → a plain LLM call (tools stays None).
-	tool_specs = None
+
+	tool_specs = []
 	tool_shapes = task_cfg.get("aiToolShapes")
 	if tool_shapes:
 		from one_bpmn.agents.shape_tools import compile_shape_tools
-		tool_specs = compile_shape_tools(tool_shapes, instance) or None
+		tool_specs = compile_shape_tools(tool_shapes, instance) or []
+
+	# WI-001425: AI Skills Tool Injection
+	from one_bpmn.api.skill_tools import get_skill_tools
+	agent_name = task_cfg.get("aiAgentConfig")
+	if agent_name:
+		skill_tool_specs = get_skill_tools(agent_name, instance)
+		if skill_tool_specs:
+			tool_specs.extend(skill_tool_specs)
+			
+	# Inject tools for dynamically loaded skills!
+	if instance:
+		active_skill_names = frappe.cache().get_value(f"active_skill_names_{instance.name}") or []
+		if active_skill_names:
+			import json
+			from one_bpmn.agents.llm_provider.base import ToolSpec
+			
+			def make_dynamic_tool_fn(script_name, tool_name):
+				def fn(**kwargs):
+					from one_bpmn.agents.shape_tools import _synthetic_task, _run_server_script
+					task = _synthetic_task(tool_name, kwargs)
+					try:
+						_run_server_script(instance, script_name, task, tool_name)
+						produced = {k: v for k, v in task.data.items() if k not in kwargs}
+						return json.dumps(produced or {"ok": True}, default=str)
+					except Exception as e:
+						return json.dumps({"error": str(e)})
+				return fn
+
+			for skill_name in active_skill_names:
+				allowed_tools = frappe.get_all("AI Skill Allowed Tool", filters={"parent": skill_name}, fields=["tool"])
+				for allowed in allowed_tools:
+					tool_name = allowed.tool
+					# Check if we already have it to avoid duplicates
+					if any(t.name == tool_name for t in tool_specs):
+						continue
+						
+					tool_doc = frappe.db.get_value("AI Agent Tool", tool_name, ["description", "json_schema", "script"], as_dict=True)
+					if tool_doc:
+						try:
+							schema = json.loads(tool_doc.json_schema)
+							parameters = schema.get("properties", {})
+							required = schema.get("required", [])
+						except Exception:
+							parameters = {}
+							required = []
+							
+						tool_specs.append(ToolSpec(
+							fn=make_dynamic_tool_fn(tool_doc.script, tool_name),
+							name=tool_name,
+							description=tool_doc.description or tool_name,
+							parameters=parameters,
+							required=required
+						))
+
+			# WI-001425 (US4): a skill narrows the tool pool, it never widens it.
+			# A skill with no Allowed Tools rows "changes nothing" - only skills
+			# that actually declare an allow-list restrict the turn. The LLM
+			# adapters call ToolSpec.fn directly by name, so swapping it here is
+			# sufficient to intercept.
+			restrictive_allowed_names = set()
+			has_restrictive_skill = False
+			for skill_name in active_skill_names:
+				skill_allowed = frappe.get_all("AI Skill Allowed Tool", filters={"parent": skill_name}, pluck="tool")
+				if skill_allowed:
+					has_restrictive_skill = True
+					restrictive_allowed_names.update(skill_allowed)
+
+			def make_blocked_fn(tool_name):
+				def blocked_fn(**kwargs):
+					return "Error: Tool not allowed by active skill."
+				return blocked_fn
+
+			if has_restrictive_skill:
+				allowed_tool_names = restrictive_allowed_names | {"load_skill", "load_skill_resource"}
+				for t in tool_specs:
+					if t.name not in allowed_tool_names:
+						t.fn = make_blocked_fn(t.name)
+
+	if not tool_specs:
+		tool_specs = None
+
 
 	config = ExecutorConfig(
 		backend          = task_cfg.get("aiBackend", "direct_api"),

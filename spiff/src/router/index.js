@@ -80,6 +80,11 @@ const routes = [
 		component: () => import("@/views/Security.vue"),
 	},
 	{
+		path: '/processa/skills',
+		name: 'Skills',
+		component: () => import('../views/skills/SkillsManager.vue'),
+	},
+	{
 		path: "/:pathMatch(.*)*",
 		redirect: "/processa",
 	},
@@ -91,5 +96,3 @@ const router = createRouter({
 })
 
 export default router
-
-

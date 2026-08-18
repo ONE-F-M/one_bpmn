@@ -83,7 +83,7 @@ def create_ai_skill_doctypes():
                     "fieldname": "tier",
                     "fieldtype": "Select",
                     "label": "Tier",
-                    "options": "Tier 1\nTier 2\nTier 3"
+                    "options": "Draft-Only\nRead-Only\nAction-Allowed"
                 },
                 {
                     "fieldname": "owner_team",
