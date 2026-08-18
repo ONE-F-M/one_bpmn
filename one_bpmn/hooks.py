@@ -34,7 +34,18 @@ website_route_rules = [
 # app_include_css = "/assets/one_bpmn/css/one_bpmn.css"
 app_include_js = [
 	"/assets/one_bpmn/js/bpmn_json_prettify.js",
-	"/assets/one_bpmn/js/bpmn_form_actions.js",
+	# ?v= is a manual cache-buster — bump it any time this file changes.
+	# Plain app_include_js paths (not *.bundle.js) get no automatic
+	# versioning from Frappe, and this file has a 12h Cache-Control on
+	# /assets/ — without a version bump, browsers can keep serving a
+	# stale copy indefinitely even across hard reloads.
+	#
+	# v=4, not back to the v=3 this feature originally shipped as: version-15
+	# has been serving the URL with no query string at all since the revert, so
+	# every desk that has loaded it holds a cached copy under that bare URL. A
+	# value nobody has served before is what guarantees the browser fetches the
+	# restored file rather than the one that produced the bug.
+	"/assets/one_bpmn/js/bpmn_form_actions.js?v=4",
 	"/assets/one_bpmn/js/bpmn_list_indicator.js",
 ]
 
@@ -200,6 +211,13 @@ doc_events = {
 			# be undone by the stored row.
 			"one_bpmn.security.output_screening.screen_chat_response",
 		],
+	},
+	# WI-001813: the list of Processa-controlled doctypes (used by
+	# bpmn_form_actions.js to suppress native Submit/Save/banner) is cached in
+	# Redis — drop it whenever a process model is (de)activated or retargeted.
+	"BPMN Process Model": {
+		"on_update": "one_bpmn.api.instance_api.clear_processa_doctype_cache",
+		"after_delete": "one_bpmn.api.instance_api.clear_processa_doctype_cache",
 	},
 	# WI-001813: the list of Processa-controlled doctypes (used by
 	# bpmn_form_actions.js to suppress native Submit/Save/banner) is cached in
