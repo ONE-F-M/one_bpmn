@@ -8,7 +8,7 @@ System Manager sees all.
 
 import frappe
 from frappe import _
-from frappe.utils import flt
+from frappe.utils import cint, flt
 from frappe.utils import get_datetime
 
 
@@ -655,14 +655,36 @@ def _assert_process_owned(process_model: str) -> None:
 
 
 @frappe.whitelist()
-def list_assignable_agents() -> list:
-	"""Agent configurations offered in the assign/reassign picker: only Live,
-	enabled agents, since a Draft or disabled agent cannot be evaluated."""
+def list_assignable_agents(include_all: int = 0) -> list:
+	"""Agent configurations for the assign/reassign pickers.
+
+	``include_all`` decides the scope, and it DEFAULTS TO OFF so this keeps
+	returning exactly what it always returned — Live and enabled only. Widening
+	the default would have changed what every existing caller sees without any
+	of them asking, and callers outside this file cannot be assumed to want it.
+	The eval screens opt in explicitly.
+
+	With it on, every configuration is returned. The old filter rested on "a
+	Draft agent cannot be evaluated", which confuses cause and effect:
+	evaluating an agent is how it stops being a Draft. An adversarial suite is
+	most useful pointed at something NOT yet Live, and an agent in Needs
+	Attention is precisely the one somebody wants to test.
+
+	Lifecycle and enabled travel with every row either way — additive, so a
+	caller that ignores them is unaffected, and one that wants to label what it
+	is offering has what it needs. Filtering silently would be this function
+	deciding for the user with less information than the user has.
+	"""
+	filters = {} if cint(include_all) else {"lifecycle_status": "Live", "enabled": 1}
 	return frappe.get_all(
 		"AI Agent Configuration",
-		filters={"lifecycle_status": "Live", "enabled": 1},
-		fields=["name", "agent_name", "agent_framework", "process_model"],
+		filters=filters,
+		fields=[
+			"name", "agent_name", "agent_framework", "process_model",
+			"lifecycle_status", "enabled",
+		],
 		order_by="agent_name asc",
+		limit_page_length=0,
 	)
 
 

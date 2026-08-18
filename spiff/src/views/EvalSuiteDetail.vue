@@ -320,8 +320,9 @@
 						@update:modelValue="(v) => (reassignAgent = v?.value ?? v ?? '')"
 					/>
 					<p class="text-xs text-gray-500">
-						Leave it empty to detach the suite from any agent — useful for a template
-						pack that is copied rather than run directly.
+						Every agent is listed, including Draft and Needs Attention ones — running
+						a suite is how an agent earns its way to Live. Choosing "none" detaches
+						the suite instead, for a template pack that is copied rather than run.
 					</p>
 					<ErrorMessage :message="reassignError" />
 				</div>
@@ -549,16 +550,32 @@ async function openCompare() {
 		const res = await frappeRequest({
 			url: "/api/method/one_bpmn.api.eval_api.list_assignable_agents",
 			method: "GET",
+			// Draft and Needs Attention agents included: evaluating an agent is
+			// how it stops being a Draft. The endpoint defaults to Live-only so
+			// other callers are untouched.
+			params: { include_all: 1 },
 		})
 		// The suite's own agent is side A, so offering it as the challenger would
 		// only produce the "both sides are the same agent" refusal.
 		challengerOptions.value = (res || [])
 			.filter((a) => a.name !== suite.value.agent_configuration)
-			.map((a) => ({ label: a.agent_name || a.name, value: a.name }))
+			.map((a) => ({ label: agentLabel(a), value: a.name }))
 	} catch (e) {
 		challengerOptions.value = []
 		compareError.value = errorText(e, "Couldn't load the list of agents.")
 	}
+}
+
+// Every agent is offered, not just the Live ones — evaluating an agent is how
+// it stops being a Draft, and one in Needs Attention is precisely the one
+// somebody wants to test. The state rides in the label so the choice is
+// informed rather than quietly filtered.
+function agentLabel(a) {
+	const name = a.agent_name || a.name
+	const bits = []
+	if (a.lifecycle_status && a.lifecycle_status !== "Live") bits.push(a.lifecycle_status)
+	if (a.enabled === 0) bits.push("disabled")
+	return bits.length ? `${name} — ${bits.join(", ")}` : name
 }
 
 // ── Reassigning the suite's agent ─────────────────────────────────────────
@@ -586,10 +603,18 @@ async function openReassign() {
 		const res = await frappeRequest({
 			url: "/api/method/one_bpmn.api.eval_api.list_assignable_agents",
 			method: "GET",
+			// Draft and Needs Attention agents included: evaluating an agent is
+			// how it stops being a Draft. The endpoint defaults to Live-only so
+			// other callers are untouched.
+			params: { include_all: 1 },
 		})
+		// Detaching is offered here as well as on the Evals list. It is a real
+		// thing to want — a template pack that is copied rather than run — and
+		// the endpoint has always supported it. Named for what it does rather
+		// than shown as an empty row, so landing on it is a choice.
 		reassignOptions.value = [
-			{ label: "— no agent —", value: "" },
-			...(res || []).map((a) => ({ label: a.agent_name || a.name, value: a.name })),
+			{ label: "— none (detach this suite) —", value: "" },
+			...(res || []).map((a) => ({ label: agentLabel(a), value: a.name })),
 		]
 	} catch (e) {
 		reassignOptions.value = []
