@@ -46,6 +46,7 @@ declare module 'vue' {
     KeyValueTable: typeof import('./src/components/chat/primitives/KeyValueTable.vue')['default']
     LogixCanvas: typeof import('./src/components/LogixCanvas.vue')['default']
     LogixChat: typeof import('./src/components/LogixChat.vue')['default']
+    LuCrusherResultCard: typeof import('./src/components/chat/cards/LuCrusherResultCard.vue')['default']
     NotificationLinkDialog: typeof import('./src/components/NotificationLinkDialog.vue')['default']
     NotifyAssigneeEditorDialog: typeof import('./src/components/NotifyAssigneeEditorDialog.vue')['default']
     OneAiApp: typeof import('./src/components/chat/OneAiApp.vue')['default']
