@@ -581,7 +581,25 @@ class BPMNProcessInstance(Document):
 
 		frappe.flags.bpmn_engine_action = True
 		try:
-			if kind in ("service_task", "human_resume"):
+			if kind == "a2a_result":
+				# WI-001933: a delegated task reached a terminal state. Apply
+				# the remote's answer to the parked Service Task and carry on;
+				# a still-running delegation leaves the task parked.
+				try:
+					task = wf.get_task_from_id(uuid.UUID(task_id))
+				except Exception:
+					task = None
+				if task is None or task.state != TaskState.STARTED:
+					return  # already resolved elsewhere — idempotent no-op
+				marker = self._task_waiting_a2a(task)
+				if not marker:
+					return
+				if not self._apply_a2a_result(task, marker):
+					return  # not terminal yet — stay parked
+				self.waiting_for_ai = 0
+				self._on_engine_task_complete(task)
+				task.complete()
+			elif kind in ("service_task", "human_resume"):
 				try:
 					task = wf.get_task_from_id(uuid.UUID(task_id))
 				except Exception:
@@ -829,6 +847,25 @@ class BPMNProcessInstance(Document):
 	# their ids carry this prefix so completion routes to the resume path.
 	AI_HUMAN_PREFIX = "aihuman::"
 
+	# WI-001933: a Service Task that delegated to a remote A2A agent and is
+	# waiting for the answer. Deliberately NOT the AI human marker: that one
+	# means "a person must act" and is bound to AI Agent Run checkpoints,
+	# while this task is waiting on a machine somewhere else. Rows spawned
+	# when the REMOTE asks a question carry the a2ahuman:: prefix.
+	A2A_WAITING_KEY = "_bpmn_a2a_waiting"
+	A2A_HUMAN_PREFIX = "a2ahuman::"
+
+	@staticmethod
+	def _task_waiting_a2a(task) -> dict | None:
+		"""The waiting-for-delegate marker delegate_task left on task.data,
+		or None. A marked task must not be re-dispatched or completed — it
+		leaves this state only through the a2a_result resume path."""
+		data = getattr(task, "data", None)
+		if not isinstance(data, dict):
+			return None
+		marker = data.get(BPMNProcessInstance.A2A_WAITING_KEY)
+		return marker if isinstance(marker, dict) else None
+
 	@staticmethod
 	def _task_waiting_human(task) -> dict | None:
 		"""The waiting-for-human marker a suspended ai_agent dispatch left on
@@ -928,6 +965,14 @@ class BPMNProcessInstance(Document):
 		shape_id = marker.get("tool") or ""
 		run_name = marker.get("run") or ""
 		arguments = marker.get("arguments") or {}
+
+		# WI-001933: the pause may be on another AGENT rather than a person.
+		# Nothing to assign and nobody to notify — the delegated task is the
+		# thing being waited on, so bind it to the run and let the reconciler
+		# wake this one when it answers.
+		if marker.get("waits_on") == "a2a":
+			self._bind_a2a_wait(task, marker)
+			return
 
 		# The human shape's designer config (assignment mode, actions, label)
 		# comes from the same user_task_extensions every real User Task uses.
@@ -1095,6 +1140,271 @@ class BPMNProcessInstance(Document):
 			run_as_user=frappe.session.user,
 		)
 
+	def _bind_a2a_wait(self, task, marker: dict) -> None:
+		"""Bind a suspended agent to the delegation it is waiting on.
+
+		The agent's run holds the checkpoint; the A2A Task row is what will go
+		terminal. Linking them (``agent_run`` on the row, ``wf_task_id`` so the
+		resume knows which step to wake) is what lets the local reconciler
+		finish the job — without it the answer arrives with nobody waiting,
+		which is exactly the bug this closes.
+		"""
+		a2a_task = marker.get("a2a_task")
+		run_name = marker.get("run") or ""
+		if not a2a_task:
+			return
+		try:
+			frappe.db.set_value(
+				"A2A Task",
+				a2a_task,
+				{
+					# caller_agent_run, NOT agent_run: that one is the run DOING
+					# the work and is what derives this task's state, so writing
+					# the waiting caller there made a finished delegation report
+					# the CALLER's suspension back as "input-required" and it
+					# never looked terminal. Same trap as instance vs
+					# caller_instance, one field along.
+					"caller_agent_run": run_name or None,
+					"caller_instance": self.name,
+					# Deliberately NOT caller_wf_task_id: that field means "a
+					# parked Service Task with this SpiffWorkflow id", and the
+					# reconciler resumes it directly. Here the waiting thing is
+					# an agent mid-turn, which resumes through its checkpoint.
+					"wf_task_id": str(getattr(task, "id", "") or ""),
+					"resume_enqueued": 0,
+				},
+				update_modified=False,
+			)
+		except Exception:
+			frappe.log_error(
+				title=f"A2A: could not bind the delegation to its waiting agent ({a2a_task})",
+				message=frappe.get_traceback(),
+			)
+		# Deliberately NOT waiting_for_human: nobody is being asked for anything.
+		# That field drives the "AI agent waiting for a human task" banner, and
+		# setting it here had a delegation to another AGENT telling the viewer a
+		# person was holding it up — sending someone to look for a task that
+		# does not exist. A banner of its own needs a field of its own; until
+		# then, saying nothing beats saying something false.
+		self._log_task(
+			# Its own prefix: a2ahuman:: means "a person must answer a remote's
+			# question" and is an active-task row; this is only an audit entry
+			# for an agent waiting on another agent.
+			task_id=f"a2await::{a2a_task}",
+			task_name=marker.get("label") or marker.get("tool") or "",
+			action="Started",
+			data={
+				"source": "ai_agent_a2a_tool",
+				"agent_bpmn_id": getattr(task.task_spec, "bpmn_id", None) or task.task_spec.name,
+				"a2a_task": a2a_task,
+				"arguments": marker.get("arguments") or {},
+			},
+		)
+
+	# ── WI-001933: delegated-task results and remote questions ───────────────
+
+	def _apply_a2a_result(self, task, marker: dict) -> bool:
+		"""Apply a delegated task's outcome to its parked Service Task.
+
+		Returns True when the task may now complete, False while the
+		delegation is still running (it stays parked). A terminal failure
+		with failOnError raises, so it lands on the existing bounded-retry →
+		Errored path rather than a new failure mechanism.
+		"""
+		from one_bpmn.one_bpmn.connectors.a2a_client_ops import A2A_WAITING_KEY
+		from one_bpmn.one_bpmn.integrations.a2a_client import A2ARemoteError
+
+		a2a_task_name = marker.get("a2a_task")
+		row = (
+			frappe.db.get_value(
+				"A2A Task",
+				a2a_task_name,
+				["state", "result", "error_message", "bpmn_id"],
+				as_dict=True,
+			)
+			if a2a_task_name
+			else None
+		)
+		if not row:
+			return False
+
+		terminal = {"completed", "failed", "canceled", "rejected", "timed-out"}
+		if row.state not in terminal:
+			return False
+
+		bpmn_id = getattr(task.task_spec, "bpmn_id", None) or task.task_spec.name
+		task_cfg = getattr(self, "_service_task_extensions", {}).get(bpmn_id) or {}
+		result_var = task_cfg.get("resultVariable")
+		fail_on_error = str(task_cfg.get("failOnError") or "").lower() in ("1", "true", "yes")
+
+		task.data.pop(A2A_WAITING_KEY, None)
+
+		if row.state == "completed":
+			payload = frappe.parse_json(row.result or "{}") or {}
+			if result_var:
+				task.data[result_var] = payload
+			return True
+
+		if fail_on_error:
+			raise A2ARemoteError(
+				row.state, row.error_message or f"delegated task {row.state}"
+			)
+		if result_var:
+			task.data[result_var] = {
+				"a2a_state": row.state,
+				"a2a_error": row.error_message or "",
+			}
+		return True
+
+	def _on_a2a_input_required(self, a2a_task_name: str, prompt: str) -> None:
+		"""The REMOTE agent asked a question. Spawn a human task to answer it.
+
+		A simpler sibling of _on_ai_agent_suspended on purpose: that one is
+		bound to a shape's user_task_extensions and an AI Agent Run
+		checkpoint, while this pause lives entirely on the A2A Task row.
+		"""
+		row_data = frappe.db.get_value(
+			"A2A Task",
+			a2a_task_name,
+			["input_assignee", "input_role", "remote_agent", "instance"],
+			as_dict=True,
+		)
+		if not row_data:
+			return
+		label = f"Answer {row_data.remote_agent}: {(prompt or '').strip()[:80]}"
+		row_id = f"{self.A2A_HUMAN_PREFIX}{frappe.generate_hash(length=10)}"
+		assigned_user = row_data.input_assignee or self.initiated_by or ""
+
+		self.append(
+			"active_tasks",
+			{
+				"task_id": row_id,
+				"task_name": label,
+				"task_type": "A2A Human Task",
+				"status": "Waiting",
+				"started_at": now_datetime(),
+				"assigned_user": assigned_user,
+				"assigned_role": row_data.input_role or "",
+				"target_doctype": self.context_doctype,
+				"target_docname": self.context_docname,
+			},
+		)
+		for user in split_users(assigned_user):
+			try:
+				add_frappe_assignment(self, user, label, a2a_task_name, task_id=row_id)
+			except Exception:
+				frappe.log_error(
+					title=f"A2A HITL: assignment creation failed ({a2a_task_name})",
+					message=frappe.get_traceback(),
+				)
+		self._log_task(
+			task_id=row_id,
+			task_name=label,
+			action="Started",
+			data={"source": "a2a_input_required", "a2a_task": a2a_task_name},
+		)
+		frappe.db.set_value(
+			"A2A Task", a2a_task_name, "pending_human_task", row_id, update_modified=False
+		)
+		self.waiting_for_human = label
+		self.modified = frappe.utils.now()
+		self.db_update()
+		self.update_children()
+
+	def complete_a2a_human_task(self, task_id: str, data: dict = None) -> None:
+		"""Send a person's answer back to the remote agent that asked.
+
+		Mirror of complete_ai_human_task: the caller (instance_api.
+		complete_task) has already validated assignment and permissions.
+		"""
+		from one_bpmn.one_bpmn.integrations import a2a_client
+
+		data = data or {}
+		row = next((r for r in self.active_tasks if r.task_id == task_id), None)
+		if row is None or row.status != "Waiting":
+			frappe.throw(_("Task '{0}' is not waiting for completion.").format(task_id))
+
+		a2a_task_name = frappe.db.get_value(
+			"A2A Task", {"pending_human_task": task_id, "state": "input-required"}, "name"
+		)
+		if not a2a_task_name:
+			frappe.throw(_("No delegated task is waiting on '{0}'.").format(task_id))
+		a2a_task = frappe.get_doc("A2A Task", a2a_task_name)
+
+		answer = data.get("response") or data.get("answer") or ""
+		_completed_at = now_datetime()
+		prev_assigned = {
+			u
+			for r in self.active_tasks
+			if r.status == "Waiting" and r.assigned_user
+			for u in split_users(r.assigned_user)
+		}
+		row.status = "Completed"
+		row.end_time = _completed_at
+		if row.started_at:
+			row.timer_duration = int(
+				frappe.utils.time_diff_in_seconds(_completed_at, row.started_at)
+			)
+		self._log_task(task_id=task_id, task_name=row.task_name, action="Completed", data=data)
+
+		still_assigned = {
+			u
+			for r in self.active_tasks
+			if r.status == "Waiting" and r.assigned_user
+			for u in split_users(r.assigned_user)
+		}
+		for user in prev_assigned - still_assigned:
+			remove_frappe_assignment(self, user, status="Closed")
+
+		self.waiting_for_human = ""
+		self.modified = frappe.utils.now()
+		self.modified_by = frappe.session.user
+		self.db_update()
+		self.update_children()
+
+		try:
+			result = a2a_client.message_send(
+				a2a_task.remote_agent,
+				answer,
+				task_id=a2a_task.remote_task_id,
+				context_id=a2a_task.context_id,
+			)
+		except Exception as exc:  # noqa: BLE001 — a dead remote fails the task
+			a2a_task.db_set(
+				{"state": "failed", "error_message": str(exc)[:500], "pending_human_task": ""},
+				update_modified=True,
+			)
+			_enqueue_a2a_resume(self.name, a2a_task.wf_task_id, a2a_task.name)
+			return
+
+		state = a2a_client.remote_state(result) or "working"
+		updates = {"pending_human_task": "", "state": state}
+		if state == "completed":
+			text = a2a_client.remote_text(result)
+			updates.update(
+				{
+					"result": frappe.as_json({"text": text}),
+					"status_message": text[:500],
+					"completed_at": now_datetime(),
+				}
+			)
+		a2a_task.db_set(updates, update_modified=True)
+
+		if state in ("completed", "failed", "canceled", "rejected", "timed-out"):
+			_enqueue_a2a_resume(self.name, a2a_task.wf_task_id, a2a_task.name)
+		else:
+			# Back to waiting: reset the backoff so the next poll is prompt.
+			remote = frappe.get_doc("A2A Remote Agent", a2a_task.remote_agent)
+			a2a_task.db_set(
+				{
+					"poll_attempts": 0,
+					"next_poll_at": frappe.utils.add_to_date(
+						now_datetime(), seconds=frappe.utils.cint(remote.poll_base_interval) or 60
+					),
+				},
+				update_modified=False,
+			)
+
 	def _log_adhoc_activation(self, sp, task):
 		"""WI-001359: 'Ad-Hoc Task Activated' audit entry. The existing
 		instance+task_id+action dedup in _log_task prevents duplicates on
@@ -1152,6 +1462,7 @@ class BPMNProcessInstance(Document):
 				if not getattr(t.task_spec, "manual", False)
 				and not isinstance(t.task_spec, SubWorkflowTask)
 				and not self._task_waiting_human(t)
+				and not self._task_waiting_a2a(t)
 			]
 
 			# WI-001495: AI service tasks never dispatch inline — leave them
@@ -1177,6 +1488,12 @@ class BPMNProcessInstance(Document):
 				# STARTED. The next pass excludes it via the marker.
 				if self._task_waiting_human(task):
 					self._on_ai_agent_suspended(task)
+					continue
+				# WI-001933: the dispatch delegated to a remote agent that has
+				# not answered yet. Leave the task STARTED; the poller resumes
+				# it through kind="a2a_result".
+				if self._task_waiting_a2a(task):
+					self.waiting_for_ai = 1
 					continue
 				self._on_engine_task_complete(task)
 				task.complete()
@@ -1796,6 +2113,33 @@ def _job_retry_cap(instance, kind: str, task_id: str) -> int:
 		return int(cfg.get("aiMaxRetries", 2) or 2)
 	except Exception:
 		return 2
+
+
+def _enqueue_a2a_resume(instance_name: str, wf_task_id: str, a2a_task_name: str) -> None:
+	"""WI-001933: resume a parked delegation through the SAME worker path AI
+	tasks use — row lock, engine_in_progress gate, bounded retries and
+	Errored-on-exhaustion all come for free."""
+	if not (instance_name and wf_task_id):
+		return
+	# Record that this task's step has been handed a resume job. The local
+	# reconciler uses it to tell "finished and already woken" from "finished
+	# between two checks and still parked" — without it, an agent that
+	# completes in the gap leaves its caller parked forever.
+	if a2a_task_name and frappe.db.exists("A2A Task", a2a_task_name):
+		frappe.db.set_value("A2A Task", a2a_task_name, "resume_enqueued", 1, update_modified=False)
+	frappe.enqueue(
+		"one_bpmn.one_bpmn.doctype.bpmn_process_instance"
+		".bpmn_process_instance.run_parked_ai_task",
+		queue="bpmn_ai_agent",
+		timeout=600,
+		enqueue_after_commit=True,
+		job_id=f"bpmn-ai-{instance_name}-a2a-{a2a_task_name}",
+		deduplicate=True,
+		instance_name=instance_name,
+		kind="a2a_result",
+		task_id=wf_task_id,
+		run_as_user=frappe.session.user,
+	)
 
 
 def run_parked_ai_task(

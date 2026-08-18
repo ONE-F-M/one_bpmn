@@ -233,6 +233,7 @@ scheduler_events = {
 		"* * * * *": [
 			"one_bpmn.tasks.process_timer_start_events",
 			"one_bpmn.tasks.process_timer_catch_events",
+			"one_bpmn.tasks.poll_a2a_tasks",
 		],
 		"0 * * * *": [
 			"one_bpmn.tasks.close_stale_chat_instances",

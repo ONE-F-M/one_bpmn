@@ -51,6 +51,21 @@ def is_chat_startable_map(model_name: str) -> bool | None:
 	return 'triggerDoctype="Chat Conversation"' in xml
 
 
+def is_a2a_startable_map(model_name: str) -> bool | None:
+	"""Whether a BPMN Process Model can be started by an inbound A2A task
+	(WI-001932): a start event whose conditionalEventDefinition triggers on
+	A2A Task insert (``spiffworkflow:triggerDoctype="A2A Task"``). This is
+	the Background-agent door — the A2A Task row is the trigger document
+	and the instance's context, no Chat Conversation involved. Same
+	substring test and same None semantics as is_chat_startable_map."""
+	if not model_name:
+		return None
+	xml = frappe.db.get_value("BPMN Process Model", model_name, "bpmn_xml")
+	if not xml:
+		return None
+	return 'triggerDoctype="A2A Task"' in xml
+
+
 def validate_agent_config(config_name: str, test_provider: bool = True, require_prompt: bool = True) -> dict:
 	"""Validate the six essentials of a chat agent configuration (WI-001621).
 

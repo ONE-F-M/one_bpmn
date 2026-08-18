@@ -10,6 +10,7 @@ declare module 'vue' {
   export interface GlobalComponents {
     ActionButton: typeof import('./src/components/chat/primitives/ActionButton.vue')['default']
     AgentChatPanel: typeof import('./src/components/chat/AgentChatPanel.vue')['default']
+    AgentPicker: typeof import('./src/components/a2a/AgentPicker.vue')['default']
     AgentThinkingIndicator: typeof import('./src/components/AgentThinkingIndicator.vue')['default']
     AIAgentConfigModal: typeof import('./src/components/AIAgentConfigModal.vue')['default']
     BpmnDiagramViewer: typeof import('./src/components/process_instance/BpmnDiagramViewer.vue')['default']

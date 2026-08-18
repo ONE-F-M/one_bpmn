@@ -6,6 +6,8 @@ one_bpmn.one_bpmn.patches.v1_0.create_process_designer_role
 
 one_bpmn.one_bpmn.patches.v1_0.rename_ai_provider_to_ai_provider_credentials #16-07-2026
 one_bpmn.one_bpmn.patches.v1_0.move_agent_chat_doctypes_to_one_bpmn #16-07-2026
+one_bpmn.one_bpmn.patches.v1_0.rename_allowed_sub_agents_to_delegates #13-08-2026 WI-002010 entries are independent agents, not sub-agents
+one_bpmn.one_bpmn.patches.v1_0.drop_delegates_to_agents_flag #13-08-2026 WI-002010 exposure grants delegation; the list only narrows it
 [post_model_sync]
 one_bpmn.one_bpmn.patches.v1_0.create_process_owner_role
 one_bpmn.one_bpmn.patches.v1_0.set_existing_models_inactive
@@ -85,6 +87,8 @@ one_bpmn.one_bpmn.patches.v1_0.move_rate_limit_to_agents #11-08-2026 the message
 one_bpmn.one_bpmn.patches.v1_0.move_freeze_thresholds_to_agents #11-08-2026 the freeze thresholds are the agent's too; only who may release stays site-wide
 one_bpmn.one_bpmn.patches.v1_0.stop_prosally_reconfirm_loop #12-08-2026 WI-002001 the orchestrator must go straight to finalize after its stage tool
 one_bpmn.one_bpmn.patches.v1_0.prosally_lane_fidelity #13-08-2026 WI-002042 designer-named lanes are authoritative; rework converges on one re-entry
+one_bpmn.one_bpmn.patches.v1_0.add_a2a_client_role #13-08-2026 WI-001931 approved callers get a minimal badge role
+one_bpmn.one_bpmn.patches.v1_0.seed_a2a_connector #13-08-2026 WI-001933 one generic a2a connector; which remote is a parameter
 one_bpmn.one_bpmn.patches.v1_0.label_adversarial_case_kinds #17-08-2026 both rate denominators need labels; attack cases predating case_kind get them
 one_bpmn.one_bpmn.patches.v1_0.widen_instruction_override_pattern #17-08-2026 "ignore YOUR previous instructions" walked through the flagship rule
 one_bpmn.one_bpmn.patches.v1_0.set_customization_owner_app #17-08-2026 route customization PRs at one_fm, not the upstream repo owning the doctype
