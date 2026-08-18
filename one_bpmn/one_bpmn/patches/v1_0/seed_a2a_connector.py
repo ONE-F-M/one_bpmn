@@ -31,6 +31,25 @@ A2A_CONNECTOR = {
 	"execution": {"type": "Python Handler"},
 	"operations": [
 		{
+			# The directory. Given to a delegating agent as a TOOL, it can read
+			# the roster at run time instead of having its targets written into
+			# the diagram — the same card data the A2A page shows a person.
+			"value": "list_delegatable_agents",
+			"label": "Look up agents you can delegate to",
+			"description": (
+				"Returns the agents this agent may hand work to, with what each one is for. "
+				"Use it before delegating when the right specialist is not obvious."
+			),
+			"executionType": "Python Handler",
+			"handlerPath": "one_bpmn.one_bpmn.connectors.a2a_client_ops.list_delegatable_agents",
+			"fields": [],
+			"output": {
+				"agents": "One entry per agent: agent, name, description, tags, examples",
+				"count": "How many are available",
+				"note": "How to use the result",
+			},
+		},
+		{
 			# The primary case: both agents live in this bench, so there is no
 			# trust boundary to cross — no registry entry, no approved client,
 			# no HTTP, and the target needs no exposure flag. Only the
