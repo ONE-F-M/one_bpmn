@@ -3,6 +3,7 @@
 # own shapes are the tools. The AI Agent Tool registry was removed in WI-001423
 # (both the AI Agent Task and the AI Task Selector are shapes-only now).
 
+import json
 from dataclasses import dataclass
 
 from SpiffWorkflow.bpmn.specs.control import BpmnStartTask, SimpleBpmnTask, _EndJoin
@@ -34,19 +35,48 @@ def resolve_tool_pool(subworkflow, task_cfg: dict = None, process_model: str | N
 	documentation doubles as its tool description (Camunda's model).
 
 	The AI Agent Tool registry was removed (WI-001423) — tools are the shapes.
-	``task_cfg`` and ``process_model`` are retained for signature compatibility.
+	``task_cfg`` carries the compiled ``aiToolShapes`` descriptors, which is
+	where a shape's argument schema comes from. ``process_model`` is retained
+	for signature compatibility.
 
 	Returns:
 	    list[ToolCandidate]
 	"""
-	return _diagram_candidates(subworkflow)
+	return _diagram_candidates(subworkflow, task_cfg)
 
 
-def _diagram_candidates(subworkflow) -> list:
+def _tool_arguments(task_cfg: dict | None) -> dict:
+	"""Argument schema per shape, from the compiled tool descriptors.
+
+	Without this every candidate was offered to the model as a no-argument
+	function, so it could say WHICH step to run but never what to run it on.
+	Any connector input written as ``{{ task_data.<arg> }}`` then rendered as
+	an unresolved placeholder and the activated step did its work on nothing.
+	"""
+	shapes = (task_cfg or {}).get("aiToolShapes")
+	if isinstance(shapes, str):
+		try:
+			shapes = json.loads(shapes or "[]")
+		except Exception:
+			return {}
+	if not isinstance(shapes, list):
+		return {}
+	return {
+		shape["bpmn_id"]: shape
+		for shape in shapes
+		if isinstance(shape, dict) and shape.get("bpmn_id")
+	}
+
+
+def _diagram_candidates(subworkflow, task_cfg: dict | None = None) -> list:
+	# Candidates are still discovered from the spec, so diagram order and
+	# eligibility are unchanged; the descriptors only supply the arguments.
+	arguments = _tool_arguments(task_cfg)
 	candidates = []
 	for spec in _candidate_task_specs(subworkflow.spec):
 		bpmn_id = getattr(spec, "bpmn_id", None) or spec.name
 		description = (spec.documentation or "").strip() or spec.description or bpmn_id
+		descriptor = arguments.get(bpmn_id) or {}
 		candidates.append(
 			ToolCandidate(
 				spec=ToolSpec(
@@ -55,8 +85,8 @@ def _diagram_candidates(subworkflow) -> list:
 					fn=None,
 					name=bpmn_id,
 					description=description,
-					parameters={},
-					required=[],
+					parameters=descriptor.get("parameters") or {},
+					required=descriptor.get("required") or [],
 				),
 				source=DIAGRAM_TASK,
 			)

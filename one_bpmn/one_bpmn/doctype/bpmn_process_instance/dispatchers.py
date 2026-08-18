@@ -1397,12 +1397,23 @@ def dispatch_ai_agent(instance, task, task_cfg: dict, bpmn_id: str, resume_run: 
 					break
 		except Exception:
 			pass
-		task.data["_bpmn_ai_waiting_human"] = {
+		# One marker, because the engine's parking gates all key off it: this AI
+		# task is STARTED and cannot produce its own result yet. `waits_on` says
+		# who owes it — a person (the original case, and the default) or another
+		# agent this one delegated to from inside a tool call (WI-001933). Only
+		# the human case spawns a task for someone to do.
+		waiting_marker = {
 			"run": run.name,
 			"tool": pending_name,
 			"label": label,
 			"arguments": pending.get("arguments") or {},
 		}
+		deferred_wait = (result.suspension or {}).get("deferred_wait") or {}
+		if deferred_wait.get("a2a_task"):
+			waiting_marker["waits_on"] = "a2a"
+			waiting_marker["a2a_task"] = deferred_wait["a2a_task"]
+			waiting_marker["label"] = label or deferred_wait.get("label") or pending_name
+		task.data["_bpmn_ai_waiting_human"] = waiting_marker
 		if not frappe.flags.in_test:
 			frappe.db.commit()
 		return

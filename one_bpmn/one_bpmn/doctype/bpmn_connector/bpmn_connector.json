@@ -19,6 +19,7 @@
   "icon_color",
   "column_break_icon",
   "icon_label",
+  "icon_stroke",
   "icon_preview",
   "execution_section",
   "execution_type",
@@ -118,6 +119,13 @@
    "label": "Icon Label"
   },
   {
+   "fieldname": "icon_stroke",
+   "fieldtype": "Check",
+   "label": "Icon Is Outline (Stroked)",
+   "default": "0",
+   "description": "Tick for an outline icon whose path is drawn as lines rather than a solid shape — lucide's whole set is like this. Left unticked the path is filled, which is right for Material Design icons and turns an outline icon into unreadable slivers."
+  },
+  {
    "fieldname": "icon_preview",
    "fieldtype": "HTML",
    "label": "Preview"
@@ -189,7 +197,6 @@
   },
   {
    "depends_on": "eval:doc.auth_type && doc.auth_type!='None' && doc.credential_source!='From a settings DocType'",
-   "description": "For Service Account JSON, paste the whole key file Google issued. Stored encrypted and never returned by the API, an export, or the modeler manifest.",
    "description": "For <b>Service Account JSON</b>, paste the whole key file Google issued — every brace, the full <code>private_key</code>, nothing trimmed. For the other auth types this is the token, API key, or <code>user:password</code>.",
    "fieldname": "auth_secret",
    "fieldtype": "Password",
