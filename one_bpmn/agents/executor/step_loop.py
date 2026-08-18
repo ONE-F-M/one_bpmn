@@ -30,6 +30,7 @@ from one_bpmn.agents.llm_provider.base import (
 	ToolSpec,
 	TurnRecord,
 )
+from one_bpmn.agents.shape_tools import ToolDeferred
 
 # Tool result handed to the model when it requests a second human tool in the
 # same turn — v1 supports one human pause at a time.
@@ -64,10 +65,16 @@ class AgentSuspension:
 	cache_read_tokens / cache_write_tokens — the part of prompt_tokens billed at
 	                    the cache rates rather than the full input rate
 	                    (WI-001643). Inclusive of prompt_tokens, not extra.
+	deferred_wait      — set only when the pause is NOT a person: the waiting
+	                    marker of a tool that handed work outside this turn
+	                    (WI-001933, an agent delegating to another agent). The
+	                    dispatcher reads it to decide who is being waited on —
+	                    empty means a human tool, as before.
 	"""
 	transcript: list = field(default_factory=list)
 	pending_call: dict = field(default_factory=dict)
 	deferred_results: list = field(default_factory=list)
+	deferred_wait: dict = field(default_factory=dict)
 	trace: list = field(default_factory=list)
 	turns_used: int = 0
 	prompt_tokens: int = 0
@@ -160,6 +167,7 @@ async def run_agent_loop(
 		)
 		results = []
 		pending_call = None
+		deferred_wait: dict = {}
 		for call in step.tool_calls:
 			tool = tool_map.get(call.name)
 			if tool is not None and tool.human:
@@ -176,6 +184,18 @@ async def run_agent_loop(
 			else:
 				try:
 					result = str(tool.fn(**call.arguments))
+				except ToolDeferred as deferred:
+					# The tool ran, but its work outlives this turn. Same pause
+					# as a human tool — the answer arrives from elsewhere — so
+					# it takes the same slot, and the marker rides along so the
+					# dispatcher knows what is being waited on.
+					if pending_call is None:
+						pending_call = {
+							"id": call.id, "name": call.name, "arguments": call.arguments
+						}
+						deferred_wait = deferred.marker or {}
+						continue
+					result = _SECOND_HUMAN_RESULT
 				except Exception as exc:
 					result = f"Error calling {call.name}: {exc}"
 
@@ -194,6 +214,7 @@ async def run_agent_loop(
 				transcript=transcript,
 				pending_call=pending_call,
 				deferred_results=results,
+				deferred_wait=deferred_wait,
 				trace=[asdict(t) for t in trace],
 				turns_used=turns_used,
 				prompt_tokens=sum(t.prompt_tokens for t in trace),

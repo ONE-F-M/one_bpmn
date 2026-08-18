@@ -262,6 +262,7 @@ def _load_from_db(include_disabled=False):
                 "icon_svg_path",
                 "icon_color",
                 "icon_label",
+                "icon_stroke",
                 "api_name",
                 "api_version",
                 "discovery_url",
@@ -374,6 +375,9 @@ def _icon_from_row(row):
         "path": row.icon_svg_path.strip(),
         "color": (row.icon_color or "#14b8a6").strip(),
         "label": row.icon_label or row.label or row.connector_id,
+        # Outline icons are drawn as lines, not a solid shape. Fill one and it
+        # comes out as unreadable slivers, so the renderer has to be told.
+        "stroke": bool(row.icon_stroke),
     }
 
 

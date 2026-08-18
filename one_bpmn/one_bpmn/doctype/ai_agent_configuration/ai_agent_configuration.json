@@ -70,6 +70,15 @@
   "a2a_section",
   "a2a_exposed",
   "a2a_skill_tags",
+  "section_delegation",
+  "restrict_delegates",
+  "allowed_delegates",
+  "section_guardrails",
+  "max_recursion_depth",
+  "max_task_handoffs",
+  "delegation_deadline_minutes",
+  "column_break_guardrails",
+  "max_delegation_retries",
   "evaluation_section",
   "sample_prompts",
   "needs_attention_reason"
@@ -538,6 +547,69 @@
    "fieldname": "a2a_skill_tags",
    "fieldtype": "Small Text",
    "label": "A2A Skill Tags"
+  },
+  {
+   "collapsible": 1,
+   "fieldname": "section_delegation",
+   "fieldtype": "Section Break",
+   "label": "Delegation"
+  },
+  {
+   "default": "0",
+   "description": "Leave off and this agent may hand work to any agent exposed over A2A — normally what you want, since the tools drawn on its process map already decide who it actually calls. Tick it only to narrow that to a named few.",
+   "fieldname": "restrict_delegates",
+   "fieldtype": "Check",
+   "label": "Restrict Delegation to Specific Agents"
+  },
+  {
+   "depends_on": "eval:doc.restrict_delegates",
+   "description": "The only agents this agent may hand work to while the restriction above is on. Each entry is an INDEPENDENT agent with its own configuration, map and lifecycle — this list grants permission to delegate, it does not create or own a child agent. Add, remove or reorder freely; the change takes effect immediately, with no code push and no restart.",
+   "fieldname": "allowed_delegates",
+   "fieldtype": "Table",
+   "label": "Allowed Delegates",
+   "options": "AI Agent Allowed Delegate"
+  },
+  {
+   "collapsible": 1,
+   "fieldname": "section_guardrails",
+   "fieldtype": "Section Break",
+   "label": "A2A Delegation Guardrails"
+  },
+  {
+   "default": "5",
+   "description": "Maximum parent-to-sub-agent nesting level (A → B → C = 3). Exceeding it stops the chain instead of looping.",
+   "fieldname": "max_recursion_depth",
+   "fieldtype": "Int",
+   "label": "Max Recursion Depth",
+   "non_negative": 1
+  },
+  {
+   "default": "10",
+   "description": "Maximum total handoffs in one task chain. Catches sideways loops that nesting depth alone misses. A bulk request counts as one delegation.",
+   "fieldname": "max_task_handoffs",
+   "fieldtype": "Int",
+   "label": "Max Task Handoffs",
+   "non_negative": 1
+  },
+  {
+   "default": "240",
+   "description": "How long this agent may take on work handed to it before the delegating step gives up. A step can override it; blank falls back to 240.",
+   "fieldname": "delegation_deadline_minutes",
+   "fieldtype": "Int",
+   "label": "Deadline When Delegated To (minutes)",
+   "non_negative": 1
+  },
+  {
+   "fieldname": "column_break_guardrails",
+   "fieldtype": "Column Break"
+  },
+  {
+   "default": "3",
+   "description": "Retry attempts for a failed sub-agent call before the delegation is marked failed.",
+   "fieldname": "max_delegation_retries",
+   "fieldtype": "Int",
+   "label": "Max Delegation Retries",
+   "non_negative": 1
   }
  ],
  "index_web_pages_for_search": 1,

@@ -41,7 +41,10 @@ class TestA2AAgentCard(FrappeTestCase):
 		self.assertEqual(a2a_contract.validate("agent_card", card), [])
 		self.assertEqual(card["protocolVersion"], a2a_contract.PROTOCOL_VERSION)
 		self.assertFalse(card["capabilities"]["streaming"])
-		self.assertFalse(card["capabilities"]["pushNotifications"])
+		# Push IS advertised: a caller with slow work can register a callback
+		# instead of polling us. Streaming stays off — holding a connection for
+		# hours is the wrong shape for long work.
+		self.assertTrue(card["capabilities"]["pushNotifications"])
 		self.assertIn(config.agent_id, card["url"])
 
 	def test_skill_comes_from_config_data(self):
