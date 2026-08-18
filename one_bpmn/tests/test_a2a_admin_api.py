@@ -248,3 +248,93 @@ class TestRegisteringFromProcessa(FrappeTestCase):
 			):
 				with self.assertRaises(frappe.PermissionError):
 					call(**kwargs)
+
+
+class TestExposingFromProcessa(FrappeTestCase):
+	"""WI-001934: exposing an agent has to be doable on this screen too.
+
+	Before this, ticking 'Exposed over A2A' meant opening the agent in Desk —
+	so the page that decides who may reach our agents could not decide which
+	agents there are.
+	"""
+
+	def test_candidates_include_the_not_yet_exposed(self):
+		exposed = make_agent_configuration(a2a_exposed=1)
+		waiting = make_agent_configuration()
+		names = {a["name"] for a in a2a_admin_api.exposable_agents()}
+		self.assertIn(exposed.name, names)
+		self.assertIn(waiting.name, names, "the dialog needs something to offer")
+
+	def test_candidates_exclude_agents_that_cannot_take_part(self):
+		draft = make_agent_configuration(lifecycle_status="Draft")
+		off = make_agent_configuration(enabled=0)
+		names = {a["name"] for a in a2a_admin_api.exposable_agents()}
+		self.assertNotIn(draft.name, names)
+		self.assertNotIn(off.name, names)
+
+	def test_exposed_ones_sort_first(self):
+		make_agent_configuration(a2a_exposed=1)
+		rows = a2a_admin_api.exposable_agents()
+		flags = [frappe.utils.cint(r["a2a_exposed"]) for r in rows]
+		self.assertEqual(flags, sorted(flags, reverse=True))
+
+	def test_exposing_makes_the_agent_reachable_and_carries_its_tags(self):
+		agent = make_agent_configuration()
+		result = a2a_admin_api.set_agent_exposure(agent.name, exposed=1, skill_tags="safety, hse")
+		self.assertEqual(frappe.utils.cint(result["a2a_exposed"]), 1)
+		self.assertEqual(result["a2a_skill_tags"], "safety, hse")
+
+		card = next(
+			r for r in a2a_admin_api.list_agent_cards() if r["agent_id"] == agent.agent_id
+		)
+		self.assertEqual(card["tags"], ["safety", "hse"], "the card picks the tags up straight away")
+
+	def test_unexposing_removes_it_from_the_catalogue(self):
+		agent = make_agent_configuration(a2a_exposed=1)
+		a2a_admin_api.set_agent_exposure(agent.name, exposed=0)
+		ids = {r["agent_id"] for r in a2a_admin_api.list_agent_cards()}
+		self.assertNotIn(agent.agent_id, ids)
+
+	def test_tags_can_be_changed_without_touching_exposure(self):
+		agent = make_agent_configuration(a2a_exposed=1)
+		result = a2a_admin_api.set_agent_exposure(agent.name, skill_tags="rewritten")
+		self.assertEqual(frappe.utils.cint(result["a2a_exposed"]), 1, "still exposed")
+		self.assertEqual(result["a2a_skill_tags"], "rewritten")
+
+	def test_a_live_agent_keeps_its_badge(self):
+		"""The reason this writes with db_set: a save re-validates the agent
+		against its provider, so a tick here could park a working agent as
+		Needs Attention."""
+		agent = make_agent_configuration(a2a_exposed=1)
+		a2a_admin_api.set_agent_exposure(agent.name, exposed=0)
+		self.assertEqual(
+			frappe.db.get_value("AI Agent Configuration", agent.name, "lifecycle_status"), "Live"
+		)
+
+	def test_a_disabled_agent_cannot_be_exposed(self):
+		agent = make_agent_configuration(enabled=0)
+		with self.assertRaises(frappe.ValidationError):
+			a2a_admin_api.set_agent_exposure(agent.name, exposed=1)
+		self.assertFalse(
+			frappe.utils.cint(
+				frappe.db.get_value("AI Agent Configuration", agent.name, "a2a_exposed")
+			)
+		)
+
+	def test_an_unknown_agent_is_refused(self):
+		with self.assertRaises(frappe.ValidationError):
+			a2a_admin_api.set_agent_exposure("_Test No Such Agent", exposed=1)
+
+	def test_a_call_that_changes_nothing_is_refused(self):
+		agent = make_agent_configuration()
+		with self.assertRaises(frappe.ValidationError):
+			a2a_admin_api.set_agent_exposure(agent.name)
+
+	def test_exposing_is_admin_only(self):
+		agent = make_agent_configuration()
+		nobody = make_nobody()
+		with self.set_user(nobody.name):
+			with self.assertRaises(frappe.PermissionError):
+				a2a_admin_api.exposable_agents()
+			with self.assertRaises(frappe.PermissionError):
+				a2a_admin_api.set_agent_exposure(agent.name, exposed=1)

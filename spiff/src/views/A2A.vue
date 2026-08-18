@@ -31,11 +31,9 @@
 
 		<!-- Our agents (what we publish) -->
 		<div v-else-if="tab === 'ours'" class="flex-1 overflow-auto px-6 py-4">
-			<p class="text-sm text-gray-600 mb-3">
-				Every agent ticked <strong>Exposed over A2A</strong>, with the card the world would
-				fetch. A card is public; this list is not — it stays behind admin access so nobody
-				outside gets a directory of our agents.
-			</p>
+			<div class="flex items-start justify-end gap-4 mb-3">
+				<Button variant="solid" @click="openExposeDialog()">Expose an agent</Button>
+			</div>
 			<div v-if="loading.ours" class="text-sm text-gray-500">Loading…</div>
 			<table v-else class="w-full text-sm bg-white rounded-lg overflow-hidden">
 				<thead class="bg-gray-100 text-left text-xs uppercase text-gray-500">
@@ -43,7 +41,7 @@
 						<th class="px-4 py-2">Agent</th>
 						<th class="px-4 py-2">Tags</th>
 						<th class="px-4 py-2">Reachable by</th>
-						<th class="px-4 py-2 text-right">Card</th>
+						<th class="px-4 py-2 text-right">Actions</th>
 					</tr>
 				</thead>
 				<tbody>
@@ -69,10 +67,14 @@
 							</span>
 						</td>
 						<td class="px-4 py-2 text-right whitespace-nowrap">
-							<Button variant="ghost" @click="copyCardUrl(a)">
-								{{ copied === a.agent_id ? "Copied" : "Copy link" }}
-							</Button>
-							<Button variant="ghost" @click="showCard(a)">View</Button>
+							<!-- The menu closes on click, so the copy confirmation cannot live
+							     on the item that triggered it. -->
+							<span v-if="copied === a.agent_id" class="mr-2 text-xs text-green-600">
+								Link copied
+							</span>
+							<Dropdown :options="ourAgentActions(a)" placement="right">
+								<Button variant="ghost" icon="more-horizontal" aria-label="Actions" />
+							</Dropdown>
 						</td>
 					</tr>
 					<tr v-if="!ourAgents.length">
@@ -120,17 +122,9 @@
 							<Badge :theme="statusTheme(r.approval_status)">{{ r.approval_status }}</Badge>
 						</td>
 						<td class="px-4 py-2 text-right whitespace-nowrap">
-							<Button variant="ghost" @click="openRemoteForm(r)">Edit</Button>
-							<Button variant="ghost" @click="fetchCard(r)">Fetch card</Button>
-							<Button
-								v-if="r.approval_status !== 'Approved'"
-								variant="ghost"
-								:disabled="!r.card_name"
-								@click="setRemote(r, 'Approved')"
-							>
-								Approve
-							</Button>
-							<Button v-else variant="ghost" @click="setRemote(r, 'Revoked')">Revoke</Button>
+							<Dropdown :options="remoteActions(r)" placement="right">
+								<Button variant="ghost" icon="more-horizontal" aria-label="Actions" />
+							</Dropdown>
 						</td>
 					</tr>
 					<tr v-if="!remotes.length">
@@ -179,18 +173,9 @@
 							<Badge :theme="statusTheme(c.approval_status)">{{ c.approval_status }}</Badge>
 						</td>
 						<td class="px-4 py-2 text-right whitespace-nowrap">
-							<Button variant="ghost" @click="openClientAgents(c)">Agents</Button>
-							<Button
-								v-if="c.approval_status !== 'Approved'"
-								variant="ghost"
-								@click="setClient(c, 'Approved')"
-							>
-								Approve
-							</Button>
-							<template v-else>
-								<Button variant="ghost" @click="showCredentials(c)">Credentials</Button>
-								<Button variant="ghost" @click="setClient(c, 'Revoked')">Revoke</Button>
-							</template>
+							<Dropdown :options="clientActions(c)" placement="right">
+								<Button variant="ghost" icon="more-horizontal" aria-label="Actions" />
+							</Dropdown>
 						</td>
 					</tr>
 					<tr v-if="!clients.length">
@@ -331,6 +316,48 @@
 				</div>
 			</div>
 		</template>
+
+		<Dialog v-model="exposeOpen" :options="{ title: 'Expose an agent over A2A' }">
+			<template #body-content>
+				<p class="text-sm text-gray-600 mb-3">
+					Exposing an agent lets other agents hand it work, and publishes its card. It does
+					not let anyone outside call it — an approved client has to list it as well.
+				</p>
+				<div class="border rounded-lg divide-y max-h-64 overflow-auto">
+					<div
+						v-for="a in exposableCandidates"
+						:key="a.name"
+						class="flex items-center justify-between gap-3 px-3 py-2"
+					>
+						<div>
+							<div class="text-sm text-gray-900">{{ a.agent_name }}</div>
+							<div class="text-xs text-gray-500">{{ a.agent_id }} · {{ a.agent_type }}</div>
+						</div>
+						<Button variant="subtle" :loading="saving" @click="expose(a)">Expose</Button>
+					</div>
+					<p v-if="!exposableCandidates.length" class="px-3 py-3 text-sm text-gray-500">
+						Every enabled, Live agent is already exposed. An agent must be enabled and Live
+						before it can take part at all.
+					</p>
+				</div>
+				<ErrorMessage v-if="formError" :message="formError" class="mt-2" />
+			</template>
+		</Dialog>
+
+		<Dialog v-model="tagsOpen" :options="{ title: 'Skill tags' }">
+			<template #body-content>
+				<FormControl
+					label="Tags"
+					v-model="tagsForm.skill_tags"
+					placeholder="safety, assessment, triage"
+					description="Comma separated. They appear on the public card and are how another agent recognises what this one is for."
+				/>
+				<ErrorMessage v-if="formError" :message="formError" class="mt-2" />
+			</template>
+			<template #actions>
+				<Button variant="solid" :loading="saving" @click="saveTags">Save</Button>
+			</template>
+		</Dialog>
 
 		<Dialog v-model="remoteFormOpen" :options="{ title: remoteForm.name ? 'Edit remote agent' : 'New remote agent' }">
 			<template #body-content>
@@ -474,7 +501,7 @@
 // modules that own those rules, so this screen cannot become a second
 // implementation of them.
 import { computed, onMounted, reactive, ref } from "vue"
-import { Badge, Button, Dialog, ErrorMessage, FormControl, frappeRequest } from "frappe-ui"
+import { Badge, Button, Dialog, Dropdown, ErrorMessage, FormControl, frappeRequest } from "frappe-ui"
 import AgentPicker from "@/components/a2a/AgentPicker.vue"
 
 const API = "/api/method/one_bpmn.api.a2a_admin_api."
@@ -570,6 +597,77 @@ function initiator(task) {
 	return task.delegated_by || task.client || task.remote_agent || "—"
 }
 
+
+
+// ── Exposing an agent from here (WI-001934) ─────────────────────────────────
+const exposeOpen = ref(false)
+const tagsOpen = ref(false)
+const exposable = ref([])
+const tagsForm = ref({ agent: "", skill_tags: "" })
+
+// Candidates are the ones not yet exposed; the table above already shows the rest.
+const exposableCandidates = computed(() => exposable.value.filter((a) => !a.a2a_exposed))
+
+async function loadExposable() {
+	try {
+		exposable.value = (await call("exposable_agents")) || []
+	} catch (e) {
+		error.value = e.message || String(e)
+	}
+}
+
+async function openExposeDialog() {
+	formError.value = ""
+	await loadExposable()
+	exposeOpen.value = true
+}
+
+async function expose(agent) {
+	formError.value = ""
+	saving.value = true
+	try {
+		await call("set_agent_exposure", { agent: agent.name, exposed: 1 })
+		await Promise.all([loadOurAgents(), loadExposable()])
+		if (!exposableCandidates.value.length) exposeOpen.value = false
+	} catch (e) {
+		formError.value = e.message || String(e)
+	} finally {
+		saving.value = false
+	}
+}
+
+async function unexpose(agent) {
+	error.value = ""
+	try {
+		await call("set_agent_exposure", { agent: agent.name, exposed: 0 })
+		await loadOurAgents()
+	} catch (e) {
+		error.value = e.message || String(e)
+	}
+}
+
+function openTagsDialog(agent) {
+	formError.value = ""
+	tagsForm.value = { agent: agent.name, skill_tags: (agent.tags || []).join(", ") }
+	tagsOpen.value = true
+}
+
+async function saveTags() {
+	formError.value = ""
+	saving.value = true
+	try {
+		await call("set_agent_exposure", {
+			agent: tagsForm.value.agent,
+			skill_tags: tagsForm.value.skill_tags,
+		})
+		tagsOpen.value = false
+		await loadOurAgents()
+	} catch (e) {
+		formError.value = e.message || String(e)
+	} finally {
+		saving.value = false
+	}
+}
 
 // ── Registering and editing (WI-001934) ─────────────────────────────────────
 const authSchemes = [
@@ -789,6 +887,74 @@ async function setClient(client, status) {
 	} catch (e) {
 		error.value = e.message || String(e)
 	}
+}
+
+// ── Row actions ──────────────────────────────────────────────────────────────
+// One menu per row rather than a rank of ghost buttons. Four repeated words on
+// every line read as a wall and made the data itself hard to scan, which is
+// what these tables are for.
+//
+// Nothing is shown as disabled: a menu item that cannot be used is left out by
+// `condition`, so what the menu offers is what will actually happen. The
+// prerequisite is always sitting directly above it — you cannot approve a
+// remote agent until you have fetched the card you would be approving.
+
+function ourAgentActions(agent) {
+	return [
+		{ label: "View card", icon: "eye", onClick: () => showCard(agent) },
+		{ label: "Copy card link", icon: "link", onClick: () => copyCardUrl(agent) },
+		{ label: "Skill tags", icon: "tag", onClick: () => openTagsDialog(agent) },
+		{ label: "Unexpose", icon: "eye-off", theme: "red", onClick: () => unexpose(agent) },
+	]
+}
+
+function remoteActions(remote) {
+	return [
+		{ label: "Edit", icon: "edit-2", onClick: () => openRemoteForm(remote) },
+		{ label: "Fetch card", icon: "download", onClick: () => fetchCard(remote) },
+		{
+			label: "Approve",
+			icon: "check-circle",
+			// Approving IS approving the card, so there is nothing to approve
+			// until one has been fetched.
+			condition: () => remote.approval_status !== "Approved" && !!remote.card_name,
+			onClick: () => setRemote(remote, "Approved"),
+		},
+		{
+			label: "Revoke",
+			icon: "slash",
+			theme: "red",
+			condition: () => remote.approval_status === "Approved",
+			onClick: () => setRemote(remote, "Revoked"),
+		},
+	]
+}
+
+function clientActions(client) {
+	const approved = client.approval_status === "Approved"
+	return [
+		{ label: "Which agents it may call", icon: "users", onClick: () => openClientAgents(client) },
+		{
+			label: "Approve",
+			icon: "check-circle",
+			condition: () => !approved,
+			onClick: () => setClient(client, "Approved"),
+		},
+		{
+			label: "Credentials",
+			icon: "key",
+			// The key only exists once approval issued it.
+			condition: () => approved,
+			onClick: () => showCredentials(client),
+		},
+		{
+			label: "Revoke",
+			icon: "slash",
+			theme: "red",
+			condition: () => approved,
+			onClick: () => setClient(client, "Revoked"),
+		},
+	]
 }
 
 function showCard(agent) {
