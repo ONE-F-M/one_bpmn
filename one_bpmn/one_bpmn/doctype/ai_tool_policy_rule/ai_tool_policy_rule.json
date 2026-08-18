@@ -14,6 +14,7 @@
   "action",
   "section_match",
   "restricted_doctypes",
+  "respect_user_permissions",
   "column_break_match",
   "restricted_tools",
   "parameter_limits",
@@ -46,7 +47,7 @@
   },
   {
    "default": "Other",
-   "description": "Grouping only \u2014 it does not change how the rule is enforced.",
+   "description": "Grouping only — it does not change how the rule is enforced.",
    "fieldname": "category",
    "fieldtype": "Select",
    "in_list_view": 1,
@@ -70,23 +71,30 @@
    "label": "What this rule matches"
   },
   {
-   "description": "One protected DocType per line. The rule fires when any argument of the tool call names one of these, at any depth \u2014 matched whole and case-insensitively, never as a substring. Optional if Parameter Limits is set.",
+   "description": "One protected DocType per line. The rule fires when any argument of the tool call names one of these, at any depth — matched whole and case-insensitively, never as a substring. Optional if Parameter Limits is set.",
    "fieldname": "restricted_doctypes",
    "fieldtype": "Small Text",
    "label": "Restricted DocTypes"
+  },
+  {
+   "default": "0",
+   "description": "When ticked, a restricted-DocType match is waived for a user who already holds the matching Frappe permission on that DocType — read for a read-only tool, write for anything else. Leave OFF for rules that must hold regardless of who is asking: this control exists to stop an agent that has been talked into an action, and a privileged user's session is exactly the one worth hijacking. Never waives Parameter Limits, and never applies to Guest.",
+   "fieldname": "respect_user_permissions",
+   "fieldtype": "Check",
+   "label": "Respect User Permissions"
   },
   {
    "fieldname": "column_break_match",
    "fieldtype": "Column Break"
   },
   {
-   "description": "One tool name per line to scope this rule to those tools only. LEAVE EMPTY to apply it to every tool \u2014 that is the safer default.",
+   "description": "One tool name per line to scope this rule to those tools only. LEAVE EMPTY to apply it to every tool — that is the safer default.",
    "fieldname": "restricted_tools",
    "fieldtype": "Small Text",
    "label": "Only These Tools"
   },
   {
-   "description": "Numeric bounds on the arguments a tool is called with, one per line, as `parameter <op> number` \u2014 e.g. `amount <= 5000`. Operators: <=, <, >=, >. A rule with no bounds here checks nothing numeric. If the argument is present but cannot be read as a number the call is refused: an unverifiable amount is not a safe one.",
+   "description": "Numeric bounds on the arguments a tool is called with, one per line, as `parameter <op> number` — e.g. `amount <= 5000`. Operators: <=, <, >=, >. A rule with no bounds here checks nothing numeric. If the argument is present but cannot be read as a number the call is refused: an unverifiable amount is not a safe one.",
    "fieldname": "parameter_limits",
    "fieldtype": "Small Text",
    "label": "Parameter Limits"
@@ -108,7 +116,7 @@
    "label": "Exemptions"
   },
   {
-   "description": "Agents this rule does NOT apply to. Use sparingly \u2014 an exemption is a hole in the control. Example: Logix authors Server Scripts for a living, so the Code Execution rule must exempt it.",
+   "description": "Agents this rule does NOT apply to. Use sparingly — an exemption is a hole in the control. Example: Logix authors Server Scripts for a living, so the Code Execution rule must exempt it.",
    "fieldname": "exempt_agents",
    "fieldtype": "Table",
    "label": "Exempt Agents",
@@ -116,7 +124,7 @@
   }
  ],
  "links": [],
- "modified": "2026-08-02 12:00:00.000000",
+ "modified": "2026-08-18 13:10:00.000000",
  "modified_by": "Administrator",
  "module": "ONE BPMN",
  "name": "AI Tool Policy Rule",
