@@ -151,3 +151,37 @@ class TestWhatTheModelIsShown(FrappeTestCase):
 		frappe.db.set_value("AI Agent Configuration", worker.name, "description", "Books contractors.")
 		frappe.clear_document_cache("AI Agent Configuration", worker.name)
 		self.assertIn("contractors", shape_tools.compile_shape_tools(shapes, None)[0].description.lower())
+
+
+class TestTheSelectorSurfaceAgrees(FrappeTestCase):
+	"""The AI Task Selector reads the same helper as the AI Agent Task.
+
+	Worth its own test rather than trusting the shared call: the two surfaces
+	build their tool lists in different modules, and the selector's used to be
+	the one that quietly lost information the other had.
+	"""
+
+	def _subworkflow(self):
+		from pathlib import Path
+
+		from one_bpmn.one_bpmn import engine
+
+		xml = (Path(__file__).parent / "fixtures" / "adhoc_three_tasks.bpmn").read_text()
+		spec_dict, sp_specs = engine.parse_bpmn(xml, "Process_AdhocThree")
+		wf = engine.create_workflow(spec_dict, sp_specs, initial_data={"done": False})
+		wf.do_engine_steps()
+		return next(iter(wf.subprocesses.values()))
+
+	def test_a_delegating_step_is_described_by_its_card(self):
+		from one_bpmn.agents.tool_pool import resolve_tool_pool
+
+		worker = make_agent_configuration(a2a_exposed=1, description="Assesses site safety.")
+		task_cfg = {"aiToolShapes": json.dumps([{"bpmn_id": "task_a", "a2aAgent": worker.name}])}
+		by_name = {c.spec.name: c for c in resolve_tool_pool(self._subworkflow(), task_cfg)}
+		self.assertIn("site safety", by_name["task_a"].spec.description.lower())
+
+	def test_an_ordinary_step_keeps_its_documentation(self):
+		from one_bpmn.agents.tool_pool import resolve_tool_pool
+
+		by_name = {c.spec.name: c for c in resolve_tool_pool(self._subworkflow(), {})}
+		self.assertNotIn("Good for:", by_name["task_a"].spec.description)

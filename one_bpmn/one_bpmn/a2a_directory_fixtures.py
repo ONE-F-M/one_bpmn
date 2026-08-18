@@ -13,9 +13,13 @@ Here the delegation shapes carry NO documentation at all. Each one is
 described to the model by its target agent's card (WI-001933) — the same
 card a person reads on the A2A page — assembled at run time:
 
-    Site Safety Assessor — Classifies a reported site incident ...
-    Good for: safety, triage, assessment
-    For example: "Water is coming through a ceiling ..."
+    Site Safety Assessor — Judges how serious a reported site incident is,
+    and returns Critical or Routine.
+    Good for: safety, assessment, triage
+
+(A third line, "For example: ...", appears too when the agent has sample
+prompts. None of these fixtures set any, so run ``show_directory`` rather
+than trusting this sample.)
 
 So the diagram says only WHO is reachable; what each one is FOR comes from
 the agent itself. Edit an agent's description or tags on the A2A page and

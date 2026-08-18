@@ -127,15 +127,22 @@ def tool_description(agent_configuration: str, fallback: str = "") -> str | None
 	a shape pointing at one keeps its documentation and the model is not told
 	about a specialist it cannot reach.
 	"""
-	agent_id = frappe.db.get_value("AI Agent Configuration", agent_configuration, "agent_id")
-	if not agent_id:
+	try:
+		config = frappe.get_cached_doc("AI Agent Configuration", agent_configuration)
+	except frappe.DoesNotExistError:
+		# A diagram naming an agent that no longer exists is the same to the
+		# model as one naming a private agent: it is told nothing either way.
 		return None
-	card = build_agent_card(agent_id)
-	if not card:
+	if not (config.enabled and config.lifecycle_status == "Live" and config.a2a_exposed):
 		return None
 
-	skill = (card.get("skills") or [{}])[0]
-	lines = [f"{card.get('name')} — {card.get('description')}".strip(" —")]
+	# The same gate and the same skill the public card is built from, but not
+	# the card itself: building one costs three uncached reads (docname to
+	# agent_id and back, plus `modified` for a version string) and a query per
+	# allowed delegate, then this would throw away the url, the security
+	# schemes and the sub-agents. A tool description needs the skill only.
+	skill = _skill(config)
+	lines = [f"{skill.get('name')} — {skill.get('description')}".strip(" —")]
 
 	tags = [t for t in (skill.get("tags") or []) if t]
 	if tags:
