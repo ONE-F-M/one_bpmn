@@ -78,7 +78,7 @@ def compile_shape_tools(tool_shapes, instance) -> list:
 		# Server Script or dispatches a service/send action.
 		if not (shape.get("serverScript") or shape.get("serviceType")):
 			continue
-		description = (shape.get("description") or "").strip() or bpmn_id
+		description = _tool_description(shape) or bpmn_id
 		tools.append(
 			ToolSpec(
 				fn=_make_shape_fn(instance, bpmn_id, shape),
@@ -89,6 +89,37 @@ def compile_shape_tools(tool_shapes, instance) -> list:
 			)
 		)
 	return tools
+
+
+def _tool_description(shape: dict) -> str:
+	"""What the model is told this tool is for.
+
+	Normally the shape's own documentation. A shape that delegates to one of
+	our agents is described by THAT AGENT'S CARD instead (WI-001933) — the
+	same card a person reads on the A2A page — so the model chooses a
+	specialist on what the specialist says it does, and a map does not have
+	to re-describe an agent it merely calls.
+
+	The card is read now, not at deploy, so editing an agent updates every
+	caller at once. If it has no card the documentation stands: that is the
+	same set of agents the delegation would refuse, and the model should not
+	be handed a description of something it cannot reach.
+	"""
+	documentation = (shape.get("description") or "").strip()
+	target = shape.get("a2aAgent")
+	if not target:
+		return documentation
+	from one_bpmn.agents.a2a.card import tool_description
+
+	try:
+		return tool_description(target, fallback=documentation) or documentation
+	except Exception:
+		# A tool that cannot describe itself is still a working tool.
+		frappe.log_error(
+			title="A2A tool card",
+			message=f"Could not read the card for '{target}'; using the shape documentation.",
+		)
+		return documentation
 
 
 class ToolDeferred(Exception):
