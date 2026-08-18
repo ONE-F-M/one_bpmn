@@ -332,3 +332,85 @@ class TestMemoryModelConfig(FrappeTestCase):
 			)
 
 		self.assertEqual(captured["ctx"]["model"], MODEL_DISTILL)
+
+
+class TestTheMemoryModelBringsItsOwnProvider(FrappeTestCase):
+	"""An agent said "I'll remember that" and nothing was ever written.
+
+	The dispatcher sent the AGENT's provider with whatever memory model was
+	configured, on the stated assumption that "the provider/backend still come
+	from the task so the extraction call is always valid". That holds only while
+	the memory model belongs to the same provider as the agent's own.
+
+	Observed live: Lumina runs gpt-5-nano on an OpenAI provider with its distill
+	model set to claude-haiku-4-5. The extraction call asked the OpenAI endpoint
+	for an Anthropic model, got nothing usable back, and distillation returned an
+	empty list — silently, because a memory failure must never break a turn.
+	Agents whose memory model happened to match their provider wrote memories
+	perfectly, which is what made it look agent-specific rather than structural.
+	"""
+
+	MODEL = "zz-probe-model"
+
+	def setUp(self):
+		from one_bpmn.one_bpmn.doctype.bpmn_process_instance.dispatchers import (
+			_provider_for_model,
+		)
+
+		self.resolve = _provider_for_model
+		# An existing provider rather than a fabricated one: AI Provider
+		# Credentials carries mandatory connection fields, and this test is about
+		# which provider a MODEL points at, not about credentials.
+		self.provider = frappe.db.get_value("AI Provider Credentials", {}, "name")
+		if not self.provider:
+			self.skipTest("no AI Provider Credentials on this site")
+		if not frappe.db.exists("AI Model", self.MODEL):
+			frappe.get_doc({
+				"doctype": "AI Model",
+				"model_name": self.MODEL,
+				"ai_provider_credentials": self.provider,
+			}).insert(ignore_permissions=True)
+			frappe.db.commit()
+		self.addCleanup(self._purge)
+
+	def _purge(self):
+		if frappe.db.exists("AI Model", self.MODEL):
+			frappe.delete_doc("AI Model", self.MODEL, force=True)
+		frappe.db.commit()
+
+	def test_a_model_from_another_provider_resolves_to_that_provider(self):
+		"""The whole bug in one assertion."""
+		self.assertEqual(self.resolve(self.MODEL, "zz-some-other-provider"), self.provider)
+
+	def test_the_agents_own_provider_is_kept_when_the_model_is_unknown(self):
+		"""Old behaviour, and right for a model the agent already runs."""
+		self.assertEqual(self.resolve("zz-no-such-model", "agent-provider"), "agent-provider")
+
+	def test_no_model_means_no_change(self):
+		self.assertEqual(self.resolve(None, "agent-provider"), "agent-provider")
+		self.assertEqual(self.resolve("", "agent-provider"), "agent-provider")
+
+	def test_a_lookup_failure_does_not_lose_the_write(self):
+		"""Memory must degrade, never explode."""
+		with patch("frappe.db.get_value", side_effect=RuntimeError("db down")):
+			self.assertEqual(self.resolve(self.MODEL, "agent-provider"), "agent-provider")
+
+	def test_the_reconciler_gets_its_own_provider_too(self):
+		"""Same trap one step later: reconcile_model can come from a third
+		provider, and it used to inherit distillation's credentials."""
+		import inspect
+
+		from one_bpmn.agents.memory import writeback
+
+		self.assertIn("reconcile_provider", inspect.signature(writeback.distill_and_write).parameters)
+		src = inspect.getsource(writeback.distill_and_write)
+		self.assertIn('"provider_name": reconcile_provider or provider_name', src)
+
+	def test_the_dispatcher_resolves_both(self):
+		import inspect
+
+		from one_bpmn.one_bpmn.doctype.bpmn_process_instance import dispatchers
+
+		src = inspect.getsource(dispatchers)
+		self.assertIn("provider_name=_provider_for_model(", src)
+		self.assertIn("reconcile_provider=_provider_for_model(", src)

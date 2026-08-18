@@ -24,6 +24,7 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 import time
 
+from one_bpmn.security.provenance import wrap_tool_result
 from one_bpmn.agents.llm_provider.base import (
 	CompletionResult,
 	ToolCallRecord,
@@ -31,6 +32,7 @@ from one_bpmn.agents.llm_provider.base import (
 	TurnRecord,
 )
 from one_bpmn.agents.shape_tools import ToolDeferred
+from one_bpmn.security.tool_policy import PolicyViolation
 
 # Tool result handed to the model when it requests a second human tool in the
 # same turn — v1 supports one human pause at a time.
@@ -113,10 +115,18 @@ async def run_agent_loop(
 		turns_used = int(resume.get("turns_used") or 0)
 		pending = resume.get("pending_call") or {}
 		results = list(resume.get("deferred_results") or [])
+		# Marked like any other tool result. A human task's answer is still
+		# content from outside the platform arriving on the tool channel — a
+		# reviewer can paste anything into it — and it was the one path that
+		# reached the model unmarked.
 		results.append({
 			"id": pending.get("id") or "",
 			"name": pending.get("name") or "",
-			"content": str(resume.get("human_result") or ""),
+			"content": wrap_tool_result(
+				str(resume.get("human_result") or ""),
+				pending.get("name") or "human task",
+				pending.get("arguments"),
+			),
 		})
 		transcript.append({"role": "tool_results", "results": results})
 	else:
@@ -196,13 +206,27 @@ async def run_agent_loop(
 						deferred_wait = deferred.marker or {}
 						continue
 					result = _SECOND_HUMAN_RESULT
+				except PolicyViolation as violation:
+					# The interceptor refused the call BEFORE the tool ran
+					# (WI-001645). Handed back as an ordinary tool result, so the
+					# model is told why and can take a different approach —
+					# exactly how every loop already treats a tool that failed.
+					result = violation.decision.as_tool_result()
 				except Exception as exc:
 					result = f"Error calling {call.name}: {exc}"
 
 			turn_record.tool_calls.append(
 				ToolCallRecord(name=call.name, arguments=call.arguments, result=result)
 			)
-			results.append({"id": call.id, "name": call.name, "content": result})
+			# What the model sees is marked with the tool that
+			# produced it, so the guard rail in its frozen instructions has
+			# something to refer to. The ToolCallRecord above keeps the raw
+			# result — markers are for the model, not for the audit trail.
+			results.append({
+				"id": call.id,
+				"name": call.name,
+				"content": wrap_tool_result(result, call.name, call.arguments),
+			})
 
 		turn_record.latency_ms = int((time.perf_counter() - _turn_t0) * 1000)
 		trace.append(turn_record)

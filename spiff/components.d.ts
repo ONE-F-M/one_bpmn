@@ -57,6 +57,7 @@ declare module 'vue' {
     ProposedFieldsTray: typeof import('./src/components/chat/ProposedFieldsTray.vue')['default']
     ProsAllyPanel: typeof import('./src/components/ProsAllyPanel.vue')['default']
     ReadinessChecklistDialog: typeof import('./src/components/ReadinessChecklistDialog.vue')['default']
+    ResponseFeedback: typeof import('./src/components/chat/ResponseFeedback.vue')['default']
     RouterLink: typeof import('vue-router')['RouterLink']
     RouterView: typeof import('vue-router')['RouterView']
     Row: typeof import('./src/components/chat/primitives/Row.vue')['default']

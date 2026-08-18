@@ -77,6 +77,20 @@ def _delegate_to_bpmn_instance(conversation_name: str, message: str, context: di
 			# caller surfaces the "reopen the chat" message rather than guessing.
 			return None
 
+	# What the conversation looked like BEFORE this turn, so we can tell what
+	# this turn actually produced. Without it the read-back below cannot
+	# distinguish "the map replied" from "the map produced nothing and the last
+	# reply is still the newest row" — and the second case silently re-served a
+	# previous answer as though it were this turn's.
+	_before = frappe.get_all(
+		"Chat Message",
+		filters={"conversation": conversation_name, "message_type": "Bot"},
+		fields=["name"],
+		order_by="creation desc",
+		limit=1,
+	)
+	reply_before = _before[0]["name"] if _before else None
+
 	payload = {
 		"user_text": message,
 		"sender": frappe.session.user,
@@ -116,14 +130,30 @@ def _delegate_to_bpmn_instance(conversation_name: str, message: str, context: di
 		frappe.flags.bpmn_disable_ai_parking = prev_parking_flag
 
 	# Read back the bot message the instance produced during Call Agent → Save Response.
+	#
+	# `name` is selected because the reply has to be identifiable afterwards
+	# (WI-001641). Without it the row's id never left this function, the AG-UI
+	# stream minted a throwaway uuid for the message instead, and nothing the
+	# user later says about a specific reply — a rating, a report — had anything
+	# durable to point at.
 	rows = frappe.get_all(
 		"Chat Message",
 		filters={"conversation": conversation_name, "message_type": "Bot"},
-		fields=["text", "metadata"],
+		fields=["name", "text", "metadata"],
 		order_by="creation desc",
 		limit=1,
 	)
-	if not rows:
+	if not rows or rows[0]["name"] == reply_before:
+		# This turn produced no reply of its own. Before reporting a dead
+		# process, check whether it PARKED: a designer-marked human tool
+		# suspends the run mid-turn. The instance is alive and correct — it is
+		# waiting for a person. Reported as "the process is not running, please
+		# reopen the chat" it read as a fault, and the caller's retry-then-re-arm
+		# recovery spawned a fresh process instance for every attempt
+		# (found under WI-001645).
+		parked = _parked_for_human(inst_name, conversation_name)
+		if parked:
+			return parked
 		return None
 
 	meta = {}
@@ -138,7 +168,64 @@ def _delegate_to_bpmn_instance(conversation_name: str, message: str, context: di
 	result.setdefault("response", rows[0]["text"])
 	result.setdefault("intent", meta.get("intent"))
 	result["bpmn_driven"] = True
+	result["message_name"] = rows[0]["name"]
+
+	# The AI Agent Run this turn produced, so cost and latency can be joined to
+	# whatever the user says about the reply. Derived here rather than threaded
+	# through the map: the map's Server Scripts travel by Processa export, and a
+	# read that the engine already makes cheap is not worth an export dependency.
+	run = frappe.get_all(
+		"AI Agent Run",
+		filters={"instance": inst_name},
+		fields=["name"],
+		order_by="creation desc",
+		limit=1,
+	)
+	if run:
+		result["agent_run"] = run[0]["name"]
 	return result
+
+
+def _parked_for_human(inst_name: str, conversation_name: str) -> dict | None:
+	"""A reply describing the human step this turn is waiting on, or None.
+
+	Says what is pending and who has it, so the person in the chat knows the
+	work was not lost and does not sit re-sending the message.
+	"""
+	run = frappe.get_all(
+		"AI Agent Run",
+		filters={"instance": inst_name, "status": "Suspended"},
+		fields=["name", "pending_human_task"],
+		order_by="creation desc",
+		limit=1,
+	)
+	if not run:
+		return None
+
+	waiting = frappe.db.get_value("BPMN Process Instance", inst_name, "waiting_for_human") or ""
+	task = frappe.get_all(
+		"BPMN Active Task",
+		filters={"parent": inst_name, "status": "Waiting", "task_type": "AI Human Task"},
+		fields=["task_name", "assigned_user", "assigned_role"],
+		order_by="creation desc",
+		limit=1,
+	)
+	label = (task[0]["task_name"] if task else "") or waiting or _("a human step")
+	who = ""
+	if task:
+		who = task[0]["assigned_user"] or task[0]["assigned_role"] or ""
+
+	text = _("This needs a person to complete a step before I can continue: {0}.").format(label)
+	if who:
+		text += " " + _("It is waiting with {0}.").format(who)
+	text += " " + _("Your message is saved — I will carry on once it is released.")
+
+	return {
+		"response": text,
+		"bpmn_driven": True,
+		"awaiting_human": True,
+		"agent_run": run[0]["name"],
+	}
 
 
 def delegate_chat_turn(conversation_name: str, message: str, context: dict = None):
@@ -315,167 +402,6 @@ def check_server_script_exists(script_name: str) -> dict:
 
 
 @frappe.whitelist()
-def process_logix_message(
-	message: str,
-	session_id: str,
-	conversation_name: str = None,
-	chat_history: str = None,
-	element_name: str = None,
-	current_script: str = None,
-	process_context: dict = None,
-) -> dict:
-	"""Route a Logix chat turn through the generic agent path (WI-001539).
-
-	Logix chat is no longer orchestrated here: this endpoint is a thin alias
-	that opens the conversation with ``create_agent_conversation`` and hands the
-	turn to ``invoke_agent("logix_agent", …)``, exactly like every other
-	configured agent. Its only remaining job is the editor's request/response
-	contract — the parameters the LogixCanvas panel sends and the
-	``{intent, response, conversation_name}`` reply it consumes. Because the
-	``logix`` configuration links the Logix process map, ``invoke_agent`` selects
-	the ``bpmn_map`` runner and the map still performs all the work (Save User
-	Message → Call Agent → Save Response), so behavior is unchanged.
-
-	The Server Script CRUD + test-runner endpoints in this module are Logix
-	*tooling*, not chat, and are intentionally left untouched.
-	"""
-	if frappe.session.user == "Guest":
-		frappe.throw(_("Authentication required"))
-
-	try:
-		from one_bpmn.api.agent_invocation import invoke_agent
-		from one_bpmn.utils.chat_persistence import create_agent_conversation
-
-		# Open the conversation on the first turn. Inserting the Chat Conversation
-		# (stamped with the agent's chat mode label — "Logix") arms the process
-		# map's conditional start trigger, which spawns the orchestrating BPMN
-		# instance parked at "Waiting for User Message". Created here (rather than
-		# letting invoke_agent create it) to preserve the "Logix: <label>" title.
-		if not conversation_name:
-			label = element_name or "Script Task"
-			conversation_name = create_agent_conversation(
-				"logix_agent", title=f"Logix: {label}", user=frappe.session.user
-			)
-
-		# Gather the editor inputs the Logix agent needs (the original script body
-		# is used for MODIFY diffs). These are delivered to the map as context.
-		# A linked script that cannot be READ must NOT be silently swallowed — that
-		# leaves the agent with no code and it fabricates a fresh, unrelated one.
-		# Surface the real reason to the user instead. (frappe.get_doc does not
-		# enforce read permission, so check it explicitly; Server Script read is
-		# limited to Script Manager — System Manager is allowed too, matching the
-		# create/update endpoints above.)
-		original_content = ""
-		if current_script:
-			if not (
-				frappe.has_permission("Server Script", "read", doc=current_script)
-				or "System Manager" in frappe.get_roles()
-			):
-				frappe.log_error(
-					title="Logix: no permission to read linked Server Script",
-					message=f"user={frappe.session.user} script={current_script}",
-				)
-				return {
-					"intent": "ERROR",
-					"response": _(
-						"A script named '{0}' is linked here, but you don't have permission to read it, "
-						"so I can't safely modify it. You likely need the Script Manager role (or an admin's "
-						"help) to let Logix access it."
-					).format(current_script),
-					"conversation_name": conversation_name,
-				}
-			try:
-				original_content = frappe.get_doc("Server Script", current_script).script or ""
-			except frappe.DoesNotExistError:
-				frappe.log_error(
-					title="Logix: linked Server Script not found",
-					message=f"script={current_script}",
-				)
-				return {
-					"intent": "ERROR",
-					"response": _(
-						"I couldn't find the linked script '{0}' — it may not be saved yet. "
-						"Please save it first, then ask me to modify it."
-					).format(current_script),
-					"conversation_name": conversation_name,
-				}
-			except Exception:
-				frappe.log_error(
-					title="Logix: failed to load linked Server Script",
-					message=frappe.get_traceback(),
-				)
-				return {
-					"intent": "ERROR",
-					"response": _(
-						"I couldn't load the existing script to modify it. Please try again; if it keeps "
-						"happening, ask an admin to check the Error Log."
-					),
-					"conversation_name": conversation_name,
-				}
-
-		# Normalise shape_kind server-side. The editor labels the element, but the
-		# authoritative rule is the parent shape's type: an element inside an
-		# ad-hoc sub-process is an Agent Tool (shape_tools synthetic-task contract),
-		# anything else is a Script Task (engine contract). Re-derive from
-		# parent_type when available so a stale client label can't mislabel the
-		# script contract Logix writes to.
-		process_context = process_context or {}
-		if isinstance(process_context, str):
-			try:
-				process_context = json.loads(process_context)
-			except Exception:
-				process_context = {}
-		parent_type = (process_context.get("parent_type") or "").strip()
-		if parent_type:
-			process_context["shape_kind"] = (
-				"agent_tool" if parent_type == "AdHocSubProcess" else "script_task"
-			)
-		elif process_context.get("shape_kind") not in ("agent_tool", "script_task"):
-			process_context["shape_kind"] = "script_task"
-
-		try:
-			result = invoke_agent(
-				"logix_agent",
-				message,
-				conversation=conversation_name,
-				context={
-					"element_name": element_name or "",
-					"current_script": current_script or "",
-					"original_script_content": original_content,
-					"process_context": process_context,
-				},
-			)
-		except RateLimited as exc:
-			# WI-001968: a throttle or a conversation freeze is a real, explainable
-			# refusal — not a dead instance. RateLimited subclasses ValidationError,
-			# so without this branch the handler below rewrites it as "orchestration
-			# isn't running" and the user is told to reopen a chat that is working
-			# perfectly. Surface what actually happened, in the chat bubble.
-			return {
-				"intent": "BLOCKED",
-				"response": str(exc),
-				"conversation_name": conversation_name,
-			}
-		except frappe.ValidationError:
-			# No instance is driving this conversation (map never armed or the
-			# instance died) — the generic runner throws; surface the same
-			# reopen guidance the editor showed before, over a 200 response.
-			return {
-				"intent": "ERROR",
-				"response": "The Logix process orchestration isn't running for this conversation. Please reopen the chat.",
-				"conversation_name": conversation_name,
-			}
-
-		# The editor keys on ``conversation_name``; invoke_agent returns ``conversation``.
-		result["conversation_name"] = result.get("conversation") or conversation_name
-		return result
-
-	except Exception:
-		frappe.log_error(title="Logix Agent error", message=frappe.get_traceback())
-		return {"intent": "ERROR", "response": "An unexpected error occurred. Please try again."}
-
-
-@frappe.whitelist()
 def run_logix_test_case(script_name: str, inputs: str = "{}") -> dict:
 	"""Execute a Server Script the way the BPMN engine runs a Script Task and
 	return a plain-English pass/fail result.
@@ -571,91 +497,6 @@ def run_logix_test_case(script_name: str, inputs: str = "{}") -> dict:
 
 
 @frappe.whitelist()
-def prosally_chat(
-	message: str,
-	session_id: str,
-	conversation_name: str = None,
-	chat_history: str = None,
-	process_name: str = "",
-	diagram_name: str = "",
-	confirmed_action: str = "",
-	current_xml: str = "",
-) -> dict:
-	"""Route a ProsAlly chat turn through the generic agent path (WI-001539).
-
-	ProsAlly chat is no longer orchestrated here: this endpoint is a thin alias
-	that opens the conversation with ``create_agent_conversation`` and hands the
-	turn to ``invoke_agent("prosally_agent", …)``, exactly like every other
-	configured agent (and like ``process_logix_message``). Its only remaining job
-	is the ProsAlly panel's request/response contract — the editor state it sends
-	and the ``{intent, response, conversation_name, bpmn_xml, …}`` reply it
-	consumes. Because the ``prosally`` configuration links the ProsAlly process
-	map, ``invoke_agent`` selects the ``bpmn_map`` runner and the map still
-	performs all the work (Save User Message → Call Agent → Save Response), so
-	behavior is unchanged. All ProsAlly tools live in the map's ad-hoc Tools
-	sub-process; no backend agent code remains.
-	"""
-	if frappe.session.user == "Guest":
-		frappe.throw(_("Authentication required"))
-
-	try:
-		from one_bpmn.api.agent_invocation import invoke_agent
-		from one_bpmn.utils.chat_persistence import create_agent_conversation
-
-		# Open the conversation on the first turn. Inserting the Chat Conversation
-		# (stamped with the agent's chat mode label — "ProsAlly") arms the process
-		# map's conditional start trigger, which spawns the orchestrating BPMN
-		# instance parked at "Waiting for User Message". Created here (rather than
-		# letting invoke_agent create it) to preserve the "ProsAlly: <label>" title.
-		if not conversation_name:
-			label = process_name or diagram_name or "Process"
-			conversation_name = create_agent_conversation(
-				"prosally_agent", title=f"ProsAlly: {label}", user=frappe.session.user
-			)
-
-		try:
-			result = invoke_agent(
-				"prosally_agent",
-				message,
-				conversation=conversation_name,
-				context={
-					"process_name": process_name or "",
-					"diagram_name": diagram_name or "",
-					"confirmed_action": confirmed_action or "",
-					"current_xml": current_xml or "",
-				},
-			)
-		except RateLimited as exc:
-			# WI-001968: a throttle or a conversation freeze is a real, explainable
-			# refusal — not a dead instance. RateLimited subclasses ValidationError,
-			# so without this branch the handler below rewrites it as "orchestration
-			# isn't running" and the user is told to reopen a chat that is working
-			# perfectly. Surface what actually happened, in the chat bubble.
-			return {
-				"intent": "BLOCKED",
-				"response": str(exc),
-				"conversation_name": conversation_name,
-			}
-		except frappe.ValidationError:
-			# No instance is driving this conversation (map never armed or the
-			# instance died) — the generic runner throws; surface the same reopen
-			# guidance the panel showed before, over a 200 response.
-			return {
-				"intent": "ERROR",
-				"response": "The ProsAlly process orchestration isn't running for this conversation. Please reopen the chat.",
-				"conversation_name": conversation_name,
-			}
-
-		# The panel keys on ``conversation_name``; invoke_agent returns ``conversation``.
-		result["conversation_name"] = result.get("conversation") or conversation_name
-		return result
-
-	except Exception:
-		frappe.log_error(title="ProsAlly Agent error", message=frappe.get_traceback())
-		return {"intent": "ERROR", "response": "An unexpected error occurred. Please try again."}
-
-
-@frappe.whitelist()
 def end_chat_conversation(conversation_name: str) -> dict:
 	"""Close a Logix/ProsAlly chat conversation when its panel is closed.
 
@@ -707,7 +548,12 @@ def toggle_server_script(script_name: str, disabled: int) -> dict:
 	return {"name": script_name, "disabled": int(disabled)}
 
 
-# ── Shared-endpoint integration (WI-001677) ──────────────────────────────────
+# ── Shared-endpoint integration (WI-001677, completed by WI-001679) ──────────
+# Logix and ProsAlly chat through the shared AG-UI endpoint; these hooks carry
+# the editor state their maps need. The process_logix_message / prosally_chat
+# aliases that used to sit above were deleted by WI-001679 — no caller was
+# left. The Server Script CRUD and test-runner endpoints in this module are
+# Logix TOOLING, not chat, and stay exactly where they are.
 def build_logix_turn_context(context: dict) -> dict:
 	"""Load the linked script's content for a Logix turn (context builder for
 	the AG-UI endpoint). The legacy process_logix_message did this inline —

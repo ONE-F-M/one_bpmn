@@ -18,6 +18,7 @@
   "ba_api_secret",
   "section_break_github",
   "github_token",
+  "customization_app",
   "section_break_script_security",
   "script_security_intro",
   "script_binop_multiply_threshold",
@@ -125,10 +126,17 @@
    "label": "GitHub Integration"
   },
   {
-   "description": "Personal (or fine-grained) access token able to push branches and open pull requests. Used by \"Review Doctypes\" \u2192 \"Sync\" to raise a PR with the DocType schema changes. The repository is derived from each referenced DocType's owning app (its git remote), and the PR targets that repository's default branch.",
+   "description": "Personal (or fine-grained) access token able to push branches and open pull requests. Used by \"Review Doctypes\" \u2192 \"Sync\" to raise a PR with the DocType schema changes. The PR targets the repository of the app named in \"Customization Owner App\" below (or the DocType's own app when that app owns it), on that repository's default branch.",
    "fieldname": "github_token",
    "fieldtype": "Password",
    "label": "GitHub Access Token"
+  },
+  {
+   "default": "one_fm",
+   "description": "App whose source carries customizations made to <i>other</i> apps' DocTypes. A Custom Field on Employee belongs to this app, not to erpnext \u2014 so \"Sync\" writes it here, following this app's own convention (a data module under <code>custom/custom_field/</code> plus <code>custom/property_setter/</code>, registered in <code>setup/</code>, applied by a patch). A DocType owned by an app that is itself a ONE-F-M repo is written to that app instead. Leave blank to fall back to the DocType's owning app.",
+   "fieldname": "customization_app",
+   "fieldtype": "Data",
+   "label": "Customization Owner App"
   },
   {
    "collapsible": 1,
@@ -240,7 +248,7 @@
  ],
  "issingle": 1,
  "links": [],
- "modified": "2026-06-14 10:40:00.000000",
+ "modified": "2026-08-17 12:00:00.000000",
  "modified_by": "Administrator",
  "module": "ONE BPMN",
  "name": "Processa Settings",

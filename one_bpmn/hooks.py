@@ -9,6 +9,10 @@ app_license = "mit"
 website_route_rules = [
 	{"from_route": "/processa/<path:app_path>", "to_route": "processa"},
 	{"from_route": "/processa", "to_route": "processa"},
+	# WI-001678: the ONE AI chat page. The template folder must stay
+	# importable (www/one_ai/index.py), so the pretty route is mapped here
+	# rather than named with a hyphen on disk.
+	{"from_route": "/one-ai", "to_route": "one_ai"},
 ]
 
 # Apps
@@ -267,16 +271,11 @@ scheduler_events = {
 
 # Cache keys that survive frappe.clear_cache()
 # --------------------------------------------
-# A Docu turn is enqueued on a worker and the browser polls docu_chat_status
-# for its result, keyed on a `docu_turn::<id>` cache entry. That entry is the
-# only handle the client has on a running turn — if it disappears, the poll
-# reports "unknown" and the chat gives up with "I lost track of that request"
-# even though the worker completed the turn successfully. A global cache wipe
-# (bench clear-cache, bench migrate) deletes every key for the site, so the
-# turn handles must be exempted.
-persistent_cache_keys = [
-	"docu_turn::*",
-]
+# `docu_turn::*` lived here: Docu's enqueue-and-poll chat kept each running
+# turn's result in a cache entry that a global wipe would destroy mid-turn.
+# WI-001679 deleted that endpoint pair — Docu streams over the shared AG-UI
+# endpoint now, and a stream needs no handle to survive a cache wipe — so
+# nothing in this app requires an exemption any more.
 
 # Request Events
 # ----------------

@@ -45,18 +45,35 @@ def _request(method: str, url: str, token: str, ok=(200, 201), **kwargs):
 	return resp.json() if resp.text else {}
 
 
+def read_file(*, token: str, repo: str, path: str, ref: str) -> str | None:
+	"""Return the decoded text of ``path`` at ``ref``, or None if absent.
+
+	Needed by callers that have to modify a file they do not own outright — an
+	aggregator or patches.txt is appended to, not replaced, so its current content
+	has to come back from the branch before the new content can be written.
+	"""
+	existing = _request(
+		"GET", f"{_API}/repos/{repo}/contents/{path}?ref={ref}", token, ok=(200, 404)
+	)
+	if not existing or not existing.get("content"):
+		return None
+	return base64.b64decode(existing["content"]).decode("utf-8")
+
+
 def open_customization_pr(
 	*,
 	token: str,
 	repo: str,
 	base_branch: str | None,
 	head_branch: str,
-	files: dict,
+	files: dict = None,
 	commit_message: str,
 	pr_title: str,
 	pr_body: str,
+	build_files=None,
+	allowed_owners: tuple = (),
 ) -> str:
-	"""Create ``head_branch`` off ``base_branch``, commit ``files``, open a PR.
+	"""Create ``head_branch`` off ``base_branch``, commit files, open a PR.
 
 	Args:
 		token: GitHub access token with contents:write + pull_requests:write.
@@ -64,9 +81,19 @@ def open_customization_pr(
 		base_branch: branch the PR targets. When falsy, the repository's default
 			branch is used.
 		head_branch: new branch name to create and push to.
-		files: mapping of repo-relative path → file text content.
+		files: mapping of repo-relative path → file text content. Use this when
+			every file is written whole.
 		commit_message: message for each file commit.
 		pr_title / pr_body: pull request title and body.
+		build_files: optional ``fn(reader) -> dict`` called AFTER the head branch
+			exists, where ``reader(path)`` returns that path's current text on the
+			branch or None. For files that must be appended to rather than
+			replaced, which cannot be built before the branch is there to read.
+			Its result is merged over ``files``.
+		allowed_owners: when non-empty, the repository owner must appear here or
+			nothing is pushed. A customization PR is meant for a repo the
+			organisation controls; routing one at a third-party upstream would
+			put internal schema in someone else's pull request queue.
 
 	Returns:
 		The html_url of the created pull request.
@@ -75,8 +102,20 @@ def open_customization_pr(
 		frappe.throw(_("GitHub Access Token is not configured in Processa Settings."))
 	if not repo or "/" not in repo:
 		frappe.throw(_("Invalid GitHub repository (expected owner/repo): {0}").format(repo))
-	if not files:
+	if not files and not build_files:
 		frappe.throw(_("No files to push."))
+
+	if allowed_owners:
+		owner = repo.split("/")[0].lower()
+		if owner not in {o.lower() for o in allowed_owners}:
+			frappe.throw(
+				_(
+					"Refusing to open a pull request against '{0}': its owner is not one of {1}. "
+					"Set the customization owner app in Processa Settings so the change is routed "
+					"to a repository you control."
+				).format(repo, ", ".join(allowed_owners)),
+				title=_("Unexpected Repository"),
+			)
 
 	# 0) Default the PR base to the repository's default branch.
 	if not base_branch:
@@ -96,8 +135,19 @@ def open_customization_pr(
 		json={"ref": f"refs/heads/{head_branch}", "sha": base_sha},
 	)
 
-	# 3) Commit each file to the head branch via the Contents API.
-	for path, content in files.items():
+	# 3) Files that are edits rather than whole writes are built now, against the
+	#    branch that finally exists.
+	to_write = dict(files or {})
+	if build_files:
+		def _reader(path: str):
+			return read_file(token=token, repo=repo, path=path, ref=head_branch)
+
+		to_write.update(build_files(_reader) or {})
+	if not to_write:
+		frappe.throw(_("No files to push."))
+
+	# 4) Commit each file to the head branch via the Contents API.
+	for path, content in to_write.items():
 		existing = _request(
 			"GET",
 			f"{_API}/repos/{repo}/contents/{path}?ref={head_branch}",
@@ -113,7 +163,7 @@ def open_customization_pr(
 			payload["sha"] = existing["sha"]
 		_request("PUT", f"{_API}/repos/{repo}/contents/{path}", token, json=payload)
 
-	# 4) Open the pull request.
+	# 5) Open the pull request.
 	pr = _request(
 		"POST",
 		f"{_API}/repos/{repo}/pulls",

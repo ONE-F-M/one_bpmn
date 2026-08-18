@@ -129,6 +129,35 @@ def _memory_write_mode(task_cfg: dict) -> str:
 	return "distilled" if _cfg_truthy(task_cfg.get("aiMemoryAutoWrite")) else "off"
 
 
+def _provider_for_model(model: str | None, fallback: str) -> str:
+	"""The AI Provider Credentials that actually serves *model*.
+
+	The dispatcher used to send the AGENT's provider with whatever memory model
+	was configured, on the stated assumption that "the provider/backend still
+	come from the task so the extraction call is always valid". That holds only
+	while the memory model belongs to the same provider as the agent's own.
+
+	Observed live: Lumina runs gpt-5-nano on an OpenAI provider and had its
+	distill model set to claude-haiku-4-5. The extraction call asked the OpenAI
+	endpoint for an Anthropic model, got nothing usable back, and distillation
+	returned an empty list — so the agent said "I'll remember that" and NOTHING
+	was ever written. Silently, because a memory failure must never break a
+	turn. Agents whose memory model happened to match their provider (Docu,
+	Logix) wrote memories perfectly, which is what made it look agent-specific.
+
+	Falls back to the agent's provider when the model has no record or no
+	credentials link — that is the old behaviour, and it is right for a model
+	the agent already runs.
+	"""
+	if not model:
+		return fallback
+	try:
+		owner = frappe.db.get_value("AI Model", model, "ai_provider_credentials")
+		return owner or fallback
+	except Exception:
+		return fallback
+
+
 def _memory_model(task_cfg: dict, key: str, fallback: str | None) -> str | None:
 	"""Resolve the model for a memory write, in precedence order (WI-001793).
 
@@ -1090,11 +1119,23 @@ def dispatch_ai_agent(instance, task, task_cfg: dict, bpmn_id: str, resume_run: 
 	# WI-001637 (live link): a linked AI Agent Configuration is authoritative at
 	# dispatch for agent-level fields (prompt, provider, model, temperature,
 	# max tokens) — the shape's copies are the editing view and the fallback
-	# when the config is missing. Resume paths skip this: the checkpointed
-	# transcript already holds the prompts the run started with.
-	if not resume_payload and task_cfg.get("aiAgentConfig"):
+	# when the config is missing.
+	#
+	# The resume path used to skip this overlay entirely, reasoning that the
+	# checkpointed transcript already holds the prompts. True of the prompts,
+	# and false of everything else in it: the overlay is also where the PROVIDER
+	# and MODEL come from for any shape that carries no copies of its own.
+	# Without them a resumed run reached the executor with provider_name="" and
+	# died on "AI Provider Credentials '' not found" — so a human step on such an
+	# agent could be completed and never continued. The prompt is the one key
+	# held back, because the checkpoint's copy is authoritative for a
+	# conversation already in flight.
+	if task_cfg.get("aiAgentConfig"):
 		from one_bpmn.agents.agent_config_resolver import resolve_dispatch_overrides
-		task_cfg = {**task_cfg, **resolve_dispatch_overrides(task_cfg["aiAgentConfig"])}
+		_overrides = resolve_dispatch_overrides(task_cfg["aiAgentConfig"])
+		if resume_payload:
+			_overrides = {k: v for k, v in _overrides.items() if k != "aiSystemPrompt"}
+		task_cfg = {**task_cfg, **_overrides}
 
 	doc = frappe._dict()
 	if instance.context_doctype and instance.context_docname:
@@ -1271,6 +1312,13 @@ def dispatch_ai_agent(instance, task, task_cfg: dict, bpmn_id: str, resume_run: 
 	# ── Executor ───────────────────────────────────────────────────────
 	import time as _time
 	_exec_start = _time.time()
+
+	# WI-001645: publish which agent is running so the tool-policy interceptor
+	# can apply that agent's tool grant — including for tools a Server Script
+	# constructs for its own sub-agent call, which never see this frame.
+	from one_bpmn.security.tool_policy import reset_current_agent, set_current_agent
+
+	_policy_token = set_current_agent(task_cfg.get("aiAgentConfig"))
 	try:
 		executor_cls = get_executor(config.backend)
 		result = executor_cls().run(config, context)
@@ -1288,6 +1336,10 @@ def dispatch_ai_agent(instance, task, task_cfg: dict, bpmn_id: str, resume_run: 
 		except Exception:
 			pass
 		return
+	finally:
+		# Must clear on BOTH paths — a leaked agent id would apply this agent's
+		# tool grant to whatever runs next in this worker.
+		reset_current_agent(_policy_token)
 	_exec_latency_ms = int((_time.time() - _exec_start) * 1000)
 
 	# ── Durable HITL: token totals are cumulative across suspensions ───
@@ -1351,7 +1403,11 @@ def dispatch_ai_agent(instance, task, task_cfg: dict, bpmn_id: str, resume_run: 
 		# A suspension is not an outcome — the run stays open ("Suspended",
 		# set by save_checkpoint below) until the final answer or a failure.
 		if result.error_code != ErrorCode.SUSPENDED:
-			finalize_ai_run(run, result)
+			# WI-001823: a map may declare what "done" means for this shape by
+			# naming the reply key that proves it — Logix finishes when it has a
+			# script, ProsAlly when it has a diagram. Left unset, completion
+			# falls back to the generic error/turn-cap/output signals.
+			finalize_ai_run(run, result, goal_key=(task_cfg.get("aiGoalOutputKey") or "").strip() or None)
 
 		# Commit observability data so AI runs + steps survive even if a
 		# downstream aiStopOnError raise rolls back the outer transaction.
@@ -1513,16 +1569,29 @@ def dispatch_ai_agent(instance, task, task_cfg: dict, bpmn_id: str, resume_run: 
 									f"[User message]\n{str(user_prompt or '')[:3000]}\n\n"
 									f"[Agent tool activity]\n{trace_text}"
 								)
+						_distill_model = _memory_model(
+							task_cfg, "aiMemoryDistillModel", config.model
+						)
+						_reconcile_model = _memory_model(
+							task_cfg, "aiMemoryReconcileModel", config.model
+						)
 						_enqueue_distill(
 							agent_output=memory_src,
 							agent=(task_cfg.get("aiMemoryAgentElement") or bpmn_id),
 							scope=scope,
 							scope_key=scope_key,
-							provider_name=config.provider_name,
+							# The provider that serves the DISTILL model, not the
+							# agent's — they are the same for an agent using its
+							# own model and different the moment somebody picks a
+							# memory model from another provider.
+							provider_name=_provider_for_model(
+								_distill_model, config.provider_name
+							),
 							backend=config.backend,
-							model=_memory_model(task_cfg, "aiMemoryDistillModel", config.model),
-							reconcile_model=_memory_model(
-								task_cfg, "aiMemoryReconcileModel", config.model
+							model=_distill_model,
+							reconcile_model=_reconcile_model,
+							reconcile_provider=_provider_for_model(
+								_reconcile_model, config.provider_name
 							),
 							source_run=src,
 						)
@@ -1549,6 +1618,14 @@ def dispatch_ai_agent(instance, task, task_cfg: dict, bpmn_id: str, resume_run: 
 				)
 	else:
 		error_code_name = result.error_code.value
+		# The run FAILED, so it is no longer waiting for anybody. Clearing the
+		# marker matters most on a resume: the marker survives from the original
+		# suspension, and leaving it made the caller re-spawn the human task off
+		# it — a second row bound to a run that is now Errored, not Suspended, so
+		# completing it answered "No suspended AI agent is waiting on this task"
+		# and the flow could never move. Observed live.
+		if isinstance(task.data, dict):
+			task.data.pop("_bpmn_ai_waiting_human", None)
 		frappe.log_error(
 			title=f"BPMN AI Agent Task: {error_code_name} ({bpmn_id})",
 			message=(

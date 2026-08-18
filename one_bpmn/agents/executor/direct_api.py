@@ -396,6 +396,7 @@ class DirectApiExecutor(Executor):
             # Partial progress is not lost: the trace collected so far ships
             # with the error result.
             return ExecutorResult(
+                hit_turn_cap=True,
                 error_code=ErrorCode.FAILED_MODEL_CALL,
                 error_message=(
                     f"Tool-calling loop hit the adapter's turn cap without a final answer "

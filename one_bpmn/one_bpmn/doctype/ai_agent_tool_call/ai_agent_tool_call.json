@@ -30,11 +30,12 @@
   },
   {
    "default": "Success",
+   "description": "Denied means the tool policy refused the call before it ran — the tool never executed.",
    "fieldname": "status",
    "fieldtype": "Select",
    "in_list_view": 1,
    "label": "Status",
-   "options": "Success\nError"
+   "options": "Success\nError\nDenied"
   },
   {
    "fieldname": "tool_args",

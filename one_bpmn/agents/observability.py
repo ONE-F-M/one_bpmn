@@ -283,7 +283,7 @@ def record_ai_step(
 		return None
 
 
-def finalize_ai_run(run, result: ExecutorResult) -> None:
+def finalize_ai_run(run, result: ExecutorResult, goal_key: str | None = None) -> None:
 	"""Finalize an AI Agent Run after executor completion.
 
 	On SUCCESS: sets status, duration, tokens, cost, output.
@@ -292,6 +292,9 @@ def finalize_ai_run(run, result: ExecutorResult) -> None:
 	Args:
 	    run:  AI Agent Run document (status="Running")
 	    result: ExecutorResult from the executor call
+	    goal_key: optional reply key the map declares as its definition of done
+	        (WI-001823). When absent, completion falls back to error/turn-cap/
+	        output signals; either way the run never records a guess.
 	"""
 	if run is None or getattr(run, "stub", False):
 		return
@@ -333,6 +336,15 @@ def finalize_ai_run(run, result: ExecutorResult) -> None:
 		update["error_code"] = result.error_code.value
 		update["error_message"] = (result.error_message or "")[:_MAX_OUTPUT_CHARS]
 
+	# WI-001823: what the executor itself knows about the outcome, folded into
+	# the same write. The stronger signal — whether the map reached its end
+	# event — arrives later, from settle_for_instance.
+	from one_bpmn.agents import goal_completion
+
+	state, basis = goal_completion.determine(result, goal_key)
+	update["goal_completion"] = state
+	update["completion_basis"] = basis
+
 	# Token totals from the result (partial tokens are recorded on error too).
 	if result.token_usage:
 		update["total_prompt_tokens"] = result.token_usage.prompt_tokens
@@ -367,6 +379,8 @@ def finalize_ai_run_on_exception(run, exception: Exception) -> None:
 	try:
 		run.db_set({
 			"ended_at": ended,
+			"goal_completion": "Not Achieved",
+			"completion_basis": "The run raised an unhandled exception.",
 			"duration_ms": int(duration),
 			"agent_latency_ms": _sum_step_metrics(run.name)["agent_latency_ms"],
 			"status": "Error",
@@ -424,6 +438,21 @@ def get_or_create_selector_run(instance, bpmn_id: str, config, bpmn_label: str =
 	)
 
 
+def _tool_call_status(result) -> str:
+	"""Classify a tool result string into a Tool Call status.
+
+	Three outcomes, not two: a call the policy interceptor refused (WI-001645)
+	never executed, so calling it "Error" would conflate a blocked action with
+	a broken tool and make policy activity impossible to query.
+	"""
+	text = str(result or "")
+	if text.startswith("Blocked by policy:"):
+		return "Denied"
+	if text.startswith(("Error calling", "Unknown tool:")):
+		return "Error"
+	return "Success"
+
+
 def record_selector_turns(run, trace: list, source_map: dict | None = None) -> int:
 	"""Append one AI Agent Step per turn of an executor trace to *run*.
 
@@ -451,9 +480,10 @@ def record_selector_turns(run, trace: list, source_map: dict | None = None) -> i
 				"tool_source": source_map.get(call.get("name", ""), ""),
 				"arguments": call.get("arguments") or {},
 				"result": call.get("result", ""),
-				"status": "Error" if str(call.get("result", "")).startswith(
-					("Error calling", "Unknown tool:")
-				) else "Success",
+				# WI-001645: a policy refusal is neither a success nor a tool
+				# error — the tool never ran. Recording it distinctly is what
+				# makes "what has the policy blocked this week" answerable.
+				"status": _tool_call_status(call.get("result", "")),
 			}
 			for call in turn.get("tool_calls") or []
 		]

@@ -187,6 +187,14 @@ def agent_event_stream(agent_id: str, message: str, conversation: str, context: 
 			if result.get("artifact") is not None and not result.get("artifact_type"):
 				result["artifact_type"] = _agent_artifact_type(agent_id)
 			text = result.get("response") or ""
+			# The AG-UI message_id IS the persisted Chat Message name whenever the
+			# runner saved one (WI-001641). `message_id` exists in the protocol to
+			# identify a message; minting a uuid for it and throwing it away left
+			# the client unable to name the reply it had just been shown, so a
+			# rating or a report had nothing durable to point at. Runners that
+			# persist nothing keep the generated id, which is still unique per
+			# turn and still correct for grouping the text events.
+			message_id = result.get("message_name") or message_id
 			yield encoder.encode(TextMessageStartEvent(message_id=message_id, role="assistant"))
 			yield encoder.encode(TextMessageContentEvent(message_id=message_id, delta=text))
 			yield encoder.encode(TextMessageEndEvent(message_id=message_id))
@@ -234,6 +242,11 @@ def agent_event_stream(agent_id: str, message: str, conversation: str, context: 
 		yield "\n"
 
 
+# Keys that belong to the CUSTOM envelope itself; everything else a legacy
+# producer puts on the event is payload (see _relay_child_stream).
+_CUSTOM_ENVELOPE_KEYS = {"type", "name", "event", "value", "timestamp", "raw_event", "rawEvent"}
+
+
 def _relay_child_stream(child, encoder, message_id):
 	"""Relay a streaming runner's events into the parent stream.
 
@@ -270,7 +283,20 @@ def _relay_child_stream(child, encoder, message_id):
 				new_name = renames[raw_name]
 				if new_name is None:
 					continue
-				event = {**event, "name": new_name}
+				# The legacy producers put their payload FLAT on the event —
+				# lumina.py yields intent/matches/topology/… as siblings of
+				# "type", and user_planning_agent yields new_mode the same way
+				# — while an AG-UI CustomEvent carries it under `value`, which
+				# is all the panel reads. Renaming alone therefore delivered
+				# an EMPTY event to every consumer (WI-001678): fold the
+				# producer's own keys into value, preferring an explicit
+				# `value` when the producer already speaks the contract.
+				value = dict(event.get("value") or {})
+				for key, val in event.items():
+					if key not in _CUSTOM_ENVELOPE_KEYS:
+						value.setdefault(key, val)
+				event = {k: v for k, v in event.items() if k in _CUSTOM_ENVELOPE_KEYS}
+				event.update({"name": new_name, "value": value})
 				event.pop("event", None)
 			yield f"data: {json.dumps(event, default=str)}\n\n"
 			continue

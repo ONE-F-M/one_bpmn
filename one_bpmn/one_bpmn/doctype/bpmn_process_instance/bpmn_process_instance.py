@@ -364,6 +364,7 @@ class BPMNProcessInstance(Document):
 				update_modified=False,
 			)
 			self.status = "Errored"
+			self._settle_goal_completion("Errored")
 			self._log_task(
 				task_id=f"runtime-failure::{ref_id}",
 				task_name=f"Runtime failure ({phase})",
@@ -385,19 +386,25 @@ class BPMNProcessInstance(Document):
 		Record the failure (halt + deep log) then raise a sanitized, Reference-ID
 		error for the caller. Never returns. Call from inside an ``except`` block.
 		"""
-		# A rate limit or a conversation freeze is a DECISION the platform made,
-		# not a fault in the process. Two things go wrong if it is treated as one:
-		# the instance is marked Errored, so the conversation stays broken even
-		# after a reviewer releases the lock; and an explainable refusal is
-		# replaced by "quote this reference id", which the user can do nothing
-		# with. Let it through untouched — the chat surface knows how to say it.
+		# A refusal by a security control — a rate limit, a conversation freeze, a
+		# blocked injection attempt — is a DECISION the platform made, not a fault
+		# in the process. Two things go wrong if it is treated as one: the instance
+		# is marked Errored, so the conversation stays broken even after a reviewer
+		# releases the lock; and an explainable refusal is replaced by "quote this
+		# reference id", which the user can do nothing with. Let it through
+		# untouched — the chat surface knows how to say it.
+		#
+		# Matched on the AgentRefusal CATEGORY, not on each control's
+		# own class. Naming them one by one put the security module's class list
+		# inside the engine, and guaranteed the next control would forget to
+		# register itself and silently start halting instances again.
 		import sys
 
 		in_flight = sys.exc_info()[1]
 		if in_flight is not None:
-			from one_bpmn.security.rate_limit import RateLimited
+			from one_bpmn.security.refusal import AgentRefusal
 
-			if isinstance(in_flight, RateLimited):
+			if isinstance(in_flight, AgentRefusal):
 				raise in_flight
 
 		ref_id = self._record_runtime_failure(phase)
@@ -1742,22 +1749,60 @@ class BPMNProcessInstance(Document):
 			dispatch_ai_agent(self, task, task_cfg, bpmn_id)
 
 		elif service_type == "langgraph_node":
-			from one_bpmn.one_bpmn import bpmn_bridge
-
-			agent_node = task_cfg.get("agentNode", "")
-			try:
-				if agent_node == "tools":
-					bpmn_bridge.run_tools(self, task)
-				else:
-					bpmn_bridge.run_node(self, task, agent_node)
-			except Exception:
-				frappe.log_error(
-					title=f"BPMN ServiceTask: langgraph_node failed for task {bpmn_id}",
-					message=frappe.get_traceback(),
-				)
-				raise  # bubble up so the instance can be marked Errored
+			self._dispatch_langgraph_node(task, task_cfg, bpmn_id)
 
 		return True  # default: complete the task
+
+	def _dispatch_langgraph_node(self, task, task_cfg, bpmn_id):
+		"""Run one LangGraph node as a BPMN service task (BA Agent).
+
+		The graph itself lives in onefm_mcp — this branch used to import
+		``one_bpmn.one_bpmn.bpmn_bridge``, a module that has never existed in
+		this app, so every BA Agent turn died on ImportError before reaching
+		a node (WI-001678). The real bridge exposes ONE entry point built for
+		this dispatcher: ``run_turn_step`` owns state (de)serialisation, node
+		dispatch and end-of-turn persistence; all we do is shuttle its dict
+		in and out of task.data and bridge sync/async.
+
+		``lg_next_node`` is what the map's gateways read to route
+		architect → tools → product_manager → output, so it must land in
+		task.data even on the turn's last step (where it reads "END").
+		"""
+		try:
+			from onefm_mcp.agents.langgraph.user_planning_agent import bpmn_bridge
+		except ImportError:
+			frappe.throw(
+				_("This agent's graph lives in onefm_mcp, which is not installed on this site."),
+				title=_("LangGraph bridge unavailable"),
+			)
+
+		from one_bpmn.agents.executor.direct_api import _run_coro_blocking
+
+		if self.context_doctype != "Chat Conversation" or not self.context_docname:
+			frappe.throw(
+				_("A LangGraph node runs against a Chat Conversation; this instance has {0}.").format(
+					self.context_doctype or _("no context document")
+				)
+			)
+
+		data = task.data if isinstance(task.data, dict) else {}
+		try:
+			updates = _run_coro_blocking(
+				bpmn_bridge.run_turn_step(
+					self.context_docname,
+					self.initiated_by or frappe.session.user,
+					task_cfg.get("agentNode", ""),
+					data,
+				)
+			)
+		except Exception:
+			frappe.log_error(
+				title=f"BPMN ServiceTask: langgraph_node failed for task {bpmn_id}",
+				message=frappe.get_traceback(),
+			)
+			raise  # bubble up so the instance can be marked Errored
+
+		task.data.update(updates or {})
 
 	def _sync_active_tasks(self, wf, prev_assigned=None):
 		"""
@@ -1925,6 +1970,7 @@ class BPMNProcessInstance(Document):
 		if wf.is_completed():
 			self.status = "Completed"
 			self.completed_at = now_datetime()
+			self._settle_goal_completion("Completed")
 		elif (
 			not wf.get_tasks(state=TaskState.READY)
 			and not wf.get_tasks(state=TaskState.WAITING)
@@ -1934,6 +1980,27 @@ class BPMNProcessInstance(Document):
 			# False.  Treat as complete to avoid a forever-stuck instance.
 			self.status = "Completed"
 			self.completed_at = now_datetime()
+			self._settle_goal_completion("Completed")
+
+	def _settle_goal_completion(self, instance_status: str):
+		"""Whether the map reached its end event is the strongest evidence of
+		whether its agents achieved their goals (WI-001823) — and it can only be
+		read here, because a run finishes long before the instance does.
+
+		Only fills in runs that could not decide for themselves; it never
+		overwrites an outcome the executor already established. Never raises:
+		recording an outcome must not be able to break the process that produced
+		it.
+		"""
+		try:
+			from one_bpmn.agents.goal_completion import settle_for_instance
+
+			settle_for_instance(self.name, instance_status)
+		except Exception:
+			frappe.log_error(
+				title="goal completion settle failed",
+				message=frappe.get_traceback(),
+			)
 
 	def _log_task(self, task_id: str, task_name: str, action: str, data: dict = None):
 		"""
