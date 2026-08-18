@@ -41,7 +41,7 @@
 						<th class="px-4 py-2">Agent</th>
 						<th class="px-4 py-2">Tags</th>
 						<th class="px-4 py-2">Reachable by</th>
-						<th class="px-4 py-2 text-right">Card</th>
+						<th class="px-4 py-2 text-right">Actions</th>
 					</tr>
 				</thead>
 				<tbody>
@@ -67,12 +67,14 @@
 							</span>
 						</td>
 						<td class="px-4 py-2 text-right whitespace-nowrap">
-							<Button variant="ghost" @click="openTagsDialog(a)">Tags</Button>
-							<Button variant="ghost" @click="unexpose(a)">Unexpose</Button>
-							<Button variant="ghost" @click="copyCardUrl(a)">
-								{{ copied === a.agent_id ? "Copied" : "Copy link" }}
-							</Button>
-							<Button variant="ghost" @click="showCard(a)">View</Button>
+							<!-- The menu closes on click, so the copy confirmation cannot live
+							     on the item that triggered it. -->
+							<span v-if="copied === a.agent_id" class="mr-2 text-xs text-green-600">
+								Link copied
+							</span>
+							<Dropdown :options="ourAgentActions(a)" placement="right">
+								<Button variant="ghost" icon="more-horizontal" aria-label="Actions" />
+							</Dropdown>
 						</td>
 					</tr>
 					<tr v-if="!ourAgents.length">
@@ -120,17 +122,9 @@
 							<Badge :theme="statusTheme(r.approval_status)">{{ r.approval_status }}</Badge>
 						</td>
 						<td class="px-4 py-2 text-right whitespace-nowrap">
-							<Button variant="ghost" @click="openRemoteForm(r)">Edit</Button>
-							<Button variant="ghost" @click="fetchCard(r)">Fetch card</Button>
-							<Button
-								v-if="r.approval_status !== 'Approved'"
-								variant="ghost"
-								:disabled="!r.card_name"
-								@click="setRemote(r, 'Approved')"
-							>
-								Approve
-							</Button>
-							<Button v-else variant="ghost" @click="setRemote(r, 'Revoked')">Revoke</Button>
+							<Dropdown :options="remoteActions(r)" placement="right">
+								<Button variant="ghost" icon="more-horizontal" aria-label="Actions" />
+							</Dropdown>
 						</td>
 					</tr>
 					<tr v-if="!remotes.length">
@@ -179,18 +173,9 @@
 							<Badge :theme="statusTheme(c.approval_status)">{{ c.approval_status }}</Badge>
 						</td>
 						<td class="px-4 py-2 text-right whitespace-nowrap">
-							<Button variant="ghost" @click="openClientAgents(c)">Agents</Button>
-							<Button
-								v-if="c.approval_status !== 'Approved'"
-								variant="ghost"
-								@click="setClient(c, 'Approved')"
-							>
-								Approve
-							</Button>
-							<template v-else>
-								<Button variant="ghost" @click="showCredentials(c)">Credentials</Button>
-								<Button variant="ghost" @click="setClient(c, 'Revoked')">Revoke</Button>
-							</template>
+							<Dropdown :options="clientActions(c)" placement="right">
+								<Button variant="ghost" icon="more-horizontal" aria-label="Actions" />
+							</Dropdown>
 						</td>
 					</tr>
 					<tr v-if="!clients.length">
@@ -516,7 +501,7 @@
 // modules that own those rules, so this screen cannot become a second
 // implementation of them.
 import { computed, onMounted, reactive, ref } from "vue"
-import { Badge, Button, Dialog, ErrorMessage, FormControl, frappeRequest } from "frappe-ui"
+import { Badge, Button, Dialog, Dropdown, ErrorMessage, FormControl, frappeRequest } from "frappe-ui"
 import AgentPicker from "@/components/a2a/AgentPicker.vue"
 
 const API = "/api/method/one_bpmn.api.a2a_admin_api."
@@ -902,6 +887,74 @@ async function setClient(client, status) {
 	} catch (e) {
 		error.value = e.message || String(e)
 	}
+}
+
+// ── Row actions ──────────────────────────────────────────────────────────────
+// One menu per row rather than a rank of ghost buttons. Four repeated words on
+// every line read as a wall and made the data itself hard to scan, which is
+// what these tables are for.
+//
+// Nothing is shown as disabled: a menu item that cannot be used is left out by
+// `condition`, so what the menu offers is what will actually happen. The
+// prerequisite is always sitting directly above it — you cannot approve a
+// remote agent until you have fetched the card you would be approving.
+
+function ourAgentActions(agent) {
+	return [
+		{ label: "View card", icon: "eye", onClick: () => showCard(agent) },
+		{ label: "Copy card link", icon: "link", onClick: () => copyCardUrl(agent) },
+		{ label: "Skill tags", icon: "tag", onClick: () => openTagsDialog(agent) },
+		{ label: "Unexpose", icon: "eye-off", theme: "red", onClick: () => unexpose(agent) },
+	]
+}
+
+function remoteActions(remote) {
+	return [
+		{ label: "Edit", icon: "edit-2", onClick: () => openRemoteForm(remote) },
+		{ label: "Fetch card", icon: "download", onClick: () => fetchCard(remote) },
+		{
+			label: "Approve",
+			icon: "check-circle",
+			// Approving IS approving the card, so there is nothing to approve
+			// until one has been fetched.
+			condition: () => remote.approval_status !== "Approved" && !!remote.card_name,
+			onClick: () => setRemote(remote, "Approved"),
+		},
+		{
+			label: "Revoke",
+			icon: "slash",
+			theme: "red",
+			condition: () => remote.approval_status === "Approved",
+			onClick: () => setRemote(remote, "Revoked"),
+		},
+	]
+}
+
+function clientActions(client) {
+	const approved = client.approval_status === "Approved"
+	return [
+		{ label: "Which agents it may call", icon: "users", onClick: () => openClientAgents(client) },
+		{
+			label: "Approve",
+			icon: "check-circle",
+			condition: () => !approved,
+			onClick: () => setClient(client, "Approved"),
+		},
+		{
+			label: "Credentials",
+			icon: "key",
+			// The key only exists once approval issued it.
+			condition: () => approved,
+			onClick: () => showCredentials(client),
+		},
+		{
+			label: "Revoke",
+			icon: "slash",
+			theme: "red",
+			condition: () => approved,
+			onClick: () => setClient(client, "Revoked"),
+		},
+	]
 }
 
 function showCard(agent) {
