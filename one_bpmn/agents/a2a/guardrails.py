@@ -119,15 +119,29 @@ def check_allowed(agent_configuration: str, target: str) -> None:
 	)
 
 
-def next_counters(parent_task: str | None) -> dict:
+def next_counters(parent_task: str | None, caller_instance: str | None = None) -> dict:
 	"""The trace one step further down the chain.
 
-	No parent means this is a top-level request: the chain starts at
-	depth 1 with one hand-off and a fresh execution id, so counting never
-	carries over from an earlier request.
+	A chain is one REQUEST, not one hop. A nested delegation inherits its
+	parent's id; a TOP-LEVEL one joins the chain its own caller already
+	started, which is what the field has always claimed ("one id per
+	top-level request; every delegation in its chain carries it").
+
+	It did not do that. With no parent it returned no id, the A2A Task
+	controller minted a fresh one, and so every delegation an agent made from
+	the same request landed in a chain of its own. Since handoff_count is
+	measured by counting the rows that share an id, it read 1 every time —
+	which meant max_task_handoffs, the limit on how often one request may be
+	passed around, could never be reached outside a nested chain. An agent
+	could delegate fifty times from one incident and every row still said 1.
 	"""
 	if not parent_task:
-		return {"task_execution_id": None, "delegation_depth": 1, "handoff_count": 1}
+		chain = _chain_for_caller(caller_instance)
+		return {
+			"task_execution_id": chain,
+			"delegation_depth": 1,
+			"handoff_count": chain_handoffs(chain) + 1,
+		}
 
 	parent = (
 		frappe.db.get_value(
@@ -143,6 +157,24 @@ def next_counters(parent_task: str | None) -> dict:
 		"delegation_depth": cint(parent.get("delegation_depth")) + 1,
 		"handoff_count": chain_handoffs(parent.get("task_execution_id")) + 1,
 	}
+
+
+def _chain_for_caller(caller_instance: str | None) -> str | None:
+	"""The chain this caller's request is already using.
+
+	None means this is its first delegation — the A2A Task controller mints
+	the id then, so a request still gets one without this function inventing
+	it. Oldest row first, so every later hop joins the id the first one
+	established rather than the most recent.
+	"""
+	if not caller_instance:
+		return None
+	return frappe.db.get_value(
+		"A2A Task",
+		{"caller_instance": caller_instance, "task_execution_id": ("is", "set")},
+		"task_execution_id",
+		order_by="creation asc",
+	)
 
 
 def chain_handoffs(task_execution_id: str | None) -> int:
