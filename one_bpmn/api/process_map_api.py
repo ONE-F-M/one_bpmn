@@ -718,6 +718,60 @@ def _extract_ai_shapes(xml_content: str) -> list:
 	return shapes
 
 
+def _connector_tools_without_result_variable(xml_content: str) -> list:
+	"""Connector tool shapes that will run but can return nothing to the agent.
+
+	A Connector Service Task modelled inside an AI Agent Task's ad-hoc Tools
+	sub-process only reaches the model through its Result Variable: the
+	dispatcher writes the handler's return to ``task.data[resultVariable]`` and
+	does nothing at all when it is empty. Without it the connector still fires
+	and its side effect still happens — the agent is simply told nothing, which
+	looks exactly like an integration that is broken (WI-002007).
+
+	Only shapes inside a Tools sub-process an agent actually references are
+	reported; a connector elsewhere in the map is an ordinary process step whose
+	output is genuinely optional.
+	"""
+	import xml.etree.ElementTree as _ET
+
+	BPMN_NS = "http://www.omg.org/spec/BPMN/20100524/MODEL"
+	SPIFF_NS = "http://spiffworkflow.org/bpmn/schema/1.0/core"
+
+	try:
+		root = _ET.fromstring(xml_content.strip().encode("utf-8"))
+	except Exception:
+		return []  # unparseable XML is already reported by the caller's own checks
+
+	adhocs = {el.get("id"): el for el in root.iter(f"{{{BPMN_NS}}}adHocSubProcess") if el.get("id")}
+	if not adhocs:
+		return []
+
+	findings = []
+	for st in root.iter(f"{{{BPMN_NS}}}serviceTask"):
+		if st.get(f"{{{SPIFF_NS}}}serviceType") != "ai_agent":
+			continue
+		adhoc = adhocs.get((st.get(f"{{{SPIFF_NS}}}aiToolsAdhoc") or "").strip())
+		if adhoc is None:
+			continue  # missing reference is reported by the compiler's own check
+		agent_label = (st.get("name") or st.get("id") or "").strip()
+		for child in list(adhoc):
+			if child.tag.split("}")[-1] != "serviceTask":
+				continue
+			if child.get(f"{{{SPIFF_NS}}}serviceType") != "connector":
+				continue
+			if (child.get(f"{{{SPIFF_NS}}}resultVariable") or "").strip():
+				continue
+			connector = (child.get(f"{{{SPIFF_NS}}}connectorId") or "").strip()
+			operation = (child.get(f"{{{SPIFF_NS}}}operation") or "").strip()
+			findings.append({
+				"shape": (child.get("name") or child.get("id") or "").strip(),
+				"bpmn_id": child.get("id") or "",
+				"agent": agent_label,
+				"connector": f"{connector}/{operation}".strip("/"),
+			})
+	return findings
+
+
 @frappe.whitelist()
 def validate_bpmn_readiness(xml_content: str, model_name: str = None) -> dict:
 	"""
@@ -1108,6 +1162,29 @@ def validate_bpmn_readiness(xml_content: str, model_name: str = None) -> dict:
 				"icon": "code-2",
 				"items": backend_items,
 			})
+
+	# 13. Connector Tools (deploy readiness — non-blocking warnings)
+	# A Connector Service Task inside an AI Agent Task's Tools sub-process
+	# reaches the model only through its Result Variable. Without one the
+	# connector runs, its side effect happens, and the agent is told nothing —
+	# the one way this path fails invisibly (WI-002007).
+	connector_tool_gaps = _connector_tools_without_result_variable(xml_content)
+	if connector_tool_gaps:
+		categories.append({
+			"label": "Connector Tools",
+			"icon": "plug",
+			"items": [{
+				"name": g["shape"] or g["bpmn_id"],
+				"exists": True,
+				"type": "warning",
+				"detail": _(
+					"No Result Variable. The {0} connector will run and its side effect will "
+					"happen, but nothing is returned to the '{1}' agent — which is "
+					"indistinguishable from a broken integration. Set a Result Variable on "
+					"this shape."
+				).format(g["connector"] or _("connector"), g["agent"]),
+			} for g in connector_tool_gaps],
+		})
 
 	# ── Compute summary ──────────────────────────────────────────────────
 	total_checked = 0
