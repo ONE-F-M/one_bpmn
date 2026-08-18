@@ -168,7 +168,8 @@ def load_rules() -> list[dict]:
 				"AI Tool Policy Rule",
 				filters={"enabled": 1},
 				fields=["name", "action", "restricted_doctypes", "restricted_tools",
-				        "parameter_limits", "violation_message", "category"],
+				        "parameter_limits", "violation_message", "category",
+				        "respect_user_permissions"],
 			):
 				exempt = frappe.get_all(
 					"AI Tool Policy Exempt Agent",
@@ -184,6 +185,7 @@ def load_rules() -> list[dict]:
 					"limits": _parse_limits(row.parameter_limits, row.name),
 					"message": (row.violation_message or "").strip(),
 					"exempt_agents": {a for a in exempt if a},
+					"respect_user_permissions": bool(row.respect_user_permissions),
 				})
 	except Exception:
 		# Never let rule loading break a turn; log and treat as "no rules".
@@ -313,6 +315,64 @@ def _breaches_parameter_limit(arguments, limits: list) -> str | None:
 	return None
 
 
+# Tools that only ever READ. Anything not named here is treated as mutating, so
+# a tool added later is checked against "write" until someone says otherwise —
+# the same fail-closed reading the story applies to an unrecognised action label.
+READ_ONLY_TOOLS = {
+	"get_list",
+	"get_count",
+	"get_doctype_schema",
+	"get_report_data",
+	"query_documents",
+	"query_doctypes",
+	"check_doctype_exists",
+	"check_permission",
+	"reference_database",
+	"search_processes_on_production",
+}
+
+
+def permission_type_for(tool_name: str) -> str:
+	"""Which Frappe permission a call through ``tool_name`` should require."""
+	return "read" if (tool_name or "").strip().lower() in READ_ONLY_TOOLS else "write"
+
+
+def _user_may(doctype: str, ptype: str, user: str) -> bool:
+	"""Does ``user`` hold ``ptype`` on ``doctype``?
+
+	False on every uncertain answer, because a True here WAIVES a policy rule.
+	A DocType named in a rule but absent from the site raises DoesNotExistError
+	from frappe.has_permission — the seeded code-execution rule names
+	"Custom Script", which no longer exists — and a missing DocType must read as
+	"no permission to waive with", never as an exception that escapes the guard.
+	"""
+	if not doctype or not user or user == "Guest":
+		return False
+	try:
+		if not frappe.db.exists("DocType", doctype):
+			return False
+		return bool(frappe.has_permission(doctype, ptype, user=user))
+	except Exception:
+		frappe.log_error(
+			title=f"AI Tool Policy: permission check failed ({doctype})",
+			message=frappe.get_traceback(),
+		)
+		return False
+
+
+def _restricted_hits(arguments, doctypes: set) -> list[str]:
+	"""Every restricted DocType the payload names, in the order encountered."""
+	if not doctypes:
+		return []
+	seen, hits = set(), []
+	for value in _argument_values(arguments):
+		v = value.strip()
+		if v.lower() in doctypes and v.lower() not in seen:
+			seen.add(v.lower())
+			hits.append(v)
+	return hits
+
+
 def _hits_restricted_doctype(arguments, doctypes: set) -> str | None:
 	"""Return the restricted DocType an argument payload names, if any.
 
@@ -351,11 +411,28 @@ def evaluate(tool_name: str, arguments: dict, agent_config: str | None = None) -
 			reason = rule["message"] or f"{breach}."
 			return _decide(rule, reason)
 
-		hit = _hits_restricted_doctype(arguments, rule["doctypes"])
-		if not hit:
+		hits = _restricted_hits(arguments, rule["doctypes"])
+		if not hits:
 			continue
+
+		# A rule may defer to the asker's own Frappe permissions. Opt-in per
+		# rule, because deferring is a real relaxation: a System Manager holds
+		# write on most of what the seeded pack protects, and their session is
+		# the one an injected instruction most wants. Rules that must hold
+		# regardless simply leave the box unticked.
+		#
+		# EVERY named DocType must clear the check, not just the first. A payload
+		# naming both a doctype the user may write and one they may not is not a
+		# call they could have made themselves, so it is not one the agent gets
+		# to make on their behalf.
+		if rule.get("respect_user_permissions"):
+			ptype = permission_type_for(tool_name)
+			user = frappe.session.user
+			if all(_user_may(hit, ptype, user) for hit in hits):
+				continue  # this rule stands down; later rules still apply
+
 		reason = rule["message"] or (
-			f"'{hit}' is a protected record type and agents may not act on it."
+			f"'{hits[0]}' is a protected record type and agents may not act on it."
 		)
 		return _decide(rule, reason)
 

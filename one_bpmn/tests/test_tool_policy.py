@@ -491,3 +491,134 @@ class TestTheRuleFormWillSave(FrappeTestCase):
 		)
 		doc.insert(ignore_permissions=True)
 		self.assertTrue(frappe.db.exists("AI Tool Policy Rule", doc.name))
+
+
+class TestRespectUserPermissions(FrappeTestCase):
+	"""A rule may stand down for a user who already holds the permission.
+
+	Opt-in per rule, because deferring is a genuine relaxation: a System Manager
+	holds write on most of what the seeded pack protects. The default stays
+	absolute so no existing rule changes meaning when the field appears.
+	"""
+
+	DT = "ZZ Permission Probe"
+
+	def setUp(self):
+		self.addCleanup(tp.clear_rule_cache)
+		self.addCleanup(frappe.set_user, "Administrator")
+		# A real DocType, so frappe.has_permission has something to answer about.
+		if not frappe.db.exists("DocType", self.DT):
+			frappe.get_doc({
+				"doctype": "DocType",
+				"name": self.DT,
+				"module": "ONE BPMN",
+				"custom": 1,
+				"fields": [{"fieldname": "title", "fieldtype": "Data", "label": "Title"}],
+				"permissions": [{"role": "System Manager", "read": 1, "write": 1}],
+			}).insert(ignore_permissions=True)
+		self.addCleanup(
+			frappe.delete_doc, "DocType", self.DT, force=True, ignore_permissions=True
+		)
+
+	def _rule(self, respect):
+		return _make_rule(
+			restricted_doctypes=self.DT,
+			respect_user_permissions=1 if respect else 0,
+		)
+
+	# ── the default is unchanged ────────────────────────────────────────────
+	def test_a_rule_that_does_not_opt_in_still_refuses_a_permitted_user(self):
+		"""The whole point of the control: an agent talked into an action is
+		stopped even when the person asking could do it themselves."""
+		self._rule(respect=False)
+		self.assertEqual(tp.evaluate("get_list", {"doctype": self.DT}).outcome, tp.DENY)
+
+	# ── opting in ───────────────────────────────────────────────────────────
+	def test_a_permitted_user_passes_when_the_rule_opts_in(self):
+		self._rule(respect=True)
+		self.assertEqual(tp.evaluate("get_list", {"doctype": self.DT}).outcome, tp.ALLOW)
+
+	def test_a_user_without_the_permission_is_still_refused(self):
+		self._rule(respect=True)
+		user = _plain_user()
+		frappe.set_user(user)
+		self.assertEqual(tp.evaluate("get_list", {"doctype": self.DT}).outcome, tp.DENY)
+
+	def test_guest_never_benefits(self):
+		self._rule(respect=True)
+		frappe.set_user("Guest")
+		self.assertEqual(tp.evaluate("get_list", {"doctype": self.DT}).outcome, tp.DENY)
+
+	# ── which permission ────────────────────────────────────────────────────
+	def test_a_read_only_tool_checks_read(self):
+		self.assertEqual(tp.permission_type_for("get_list"), "read")
+		self.assertEqual(tp.permission_type_for("query_documents"), "read")
+
+	def test_anything_else_checks_write(self):
+		self.assertEqual(tp.permission_type_for("transition_workflow"), "write")
+
+	def test_an_unknown_tool_checks_write_rather_than_read(self):
+		"""Fails closed, the same reading the story gives an unrecognised action
+		label: a tool nobody has classified must not be assumed harmless."""
+		self.assertEqual(tp.permission_type_for("some_tool_added_next_sprint"), "write")
+
+	def test_read_permission_does_not_unlock_a_mutating_tool(self):
+		"""Read-but-not-write must not let the agent change the record."""
+		self._rule(respect=True)
+		user = _plain_user()
+		frappe.set_user("Administrator")
+		frappe.get_doc({
+			"doctype": "Custom DocPerm", "parent": self.DT, "parenttype": "DocType",
+			"parentfield": "permissions", "role": "Blogger", "read": 1, "write": 0,
+		}).insert(ignore_permissions=True)
+		frappe.clear_cache(doctype=self.DT)
+		frappe.set_user(user)
+		self.assertEqual(tp.evaluate("get_list", {"doctype": self.DT}).outcome, tp.ALLOW)
+		self.assertEqual(tp.evaluate("update_document", {"doctype": self.DT}).outcome, tp.DENY)
+
+	# ── every named DocType must clear, not just the first ──────────────────
+	def test_one_permitted_doctype_does_not_carry_an_unpermitted_one(self):
+		_make_rule(
+			restricted_doctypes=f"{self.DT}\nZZ Protected Alpha",
+			respect_user_permissions=1,
+		)
+		decision = tp.evaluate("get_list", {"doctype": self.DT, "filters": {"x": "ZZ Protected Alpha"}})
+		self.assertEqual(decision.outcome, tp.DENY)
+
+	# ── a rule naming a DocType that no longer exists ───────────────────────
+	def test_a_missing_doctype_is_not_a_waiver(self):
+		"""The seeded code-execution rule names "Custom Script", which does not
+		exist here. frappe.has_permission raises on a missing DocType, and that
+		must read as "nothing to waive with" rather than escaping the guard."""
+		self._rule(respect=True)
+		self.assertFalse(tp._user_may("ZZ No Such DocType At All", "read", "Administrator"))
+		_make_rule(restricted_doctypes="ZZ No Such DocType At All", respect_user_permissions=1)
+		self.assertEqual(
+			tp.evaluate("get_list", {"doctype": "ZZ No Such DocType At All"}).outcome, tp.DENY
+		)
+
+	# ── the relaxation is bounded ───────────────────────────────────────────
+	def test_parameter_limits_are_never_waived(self):
+		"""The story asked for permissions to qualify restricted DocTypes. A
+		ceiling is a different bound and holds whoever is asking."""
+		_make_rule(
+			restricted_doctypes=self.DT,
+			parameter_limits="limit <= 20",
+			respect_user_permissions=1,
+		)
+		self.assertEqual(
+			tp.evaluate("get_list", {"doctype": self.DT, "limit": 500}).outcome, tp.DENY
+		)
+
+
+def _plain_user():
+	"""A System User with no System Manager role, created once and reused."""
+	email = "zz-policy-probe@example.com"
+	if not frappe.db.exists("User", email):
+		u = frappe.get_doc({
+			"doctype": "User", "email": email, "first_name": "ZZ Probe",
+			"send_welcome_email": 0, "user_type": "System User",
+		})
+		u.insert(ignore_permissions=True)
+		u.add_roles("Blogger")
+	return email

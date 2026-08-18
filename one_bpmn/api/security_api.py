@@ -401,6 +401,11 @@ def _require_policy_editor():
 POLICY_FIELDS = (
 	"rule_name", "enabled", "category", "action",
 	"restricted_doctypes", "restricted_tools", "parameter_limits", "violation_message",
+	# Whether this rule stands down for a user who already holds the matching
+	# Frappe permission. It travels with the rule because a reader cannot judge
+	# what a rule enforces without it — the same row means two different things
+	# depending on this flag.
+	"respect_user_permissions",
 )
 
 

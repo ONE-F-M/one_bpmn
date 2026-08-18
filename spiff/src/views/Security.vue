@@ -249,6 +249,12 @@
 									<div v-if="lines(p.restricted_doctypes).length" class="text-xs text-gray-500 mt-0.5">
 										on {{ lines(p.restricted_doctypes).join(", ") }}
 									</div>
+									<div
+										v-if="lines(p.restricted_doctypes).length && p.respect_user_permissions"
+										class="text-xs text-amber-700 mt-0.5"
+									>
+										waived for users who already hold the permission
+									</div>
 								</td>
 								<td class="px-4 py-2">
 									<div
@@ -497,13 +503,26 @@
 								: "Empty means EVERY tool every agent calls — usually not what you want alongside a numeric bound." }}
 						</p>
 						<div class="grid grid-cols-2 gap-4">
-							<FormControl
-								type="textarea"
-								label="Restricted DocTypes"
-								:rows="3"
-								v-model="policyDraft.restricted_doctypes"
-								placeholder="Salary Slip"
-							/>
+							<div>
+								<FormControl
+									type="textarea"
+									label="Restricted DocTypes"
+									:rows="3"
+									v-model="policyDraft.restricted_doctypes"
+									placeholder="Salary Slip"
+								/>
+								<FormControl
+									type="checkbox"
+									class="mt-2"
+									label="Respect user permissions"
+									v-model="policyDraft.respect_user_permissions"
+								/>
+								<p class="mt-1 text-xs" :class="policyDraft.respect_user_permissions ? 'text-amber-700' : 'text-gray-500'">
+									{{ policyDraft.respect_user_permissions
+										? "This rule stands down for anyone who already holds the matching Frappe permission — read for a read-only tool, write for anything else. Leave off for rules that must hold whoever is asking."
+										: "This rule applies to everyone, whatever permissions they hold." }}
+								</p>
+							</div>
 							<FormControl
 								type="textarea"
 								label="Parameter limits"
@@ -1012,6 +1031,9 @@ function editPolicy(p) {
 				action: "Deny",
 				restricted_tools: "",
 				restricted_doctypes: "",
+				// Off by default. Deferring to the asker's permissions is a
+				// relaxation, so it is something a person turns on deliberately.
+				respect_user_permissions: 0,
 				parameter_limits: "",
 				violation_message: "",
 				exempt_agents: [],
