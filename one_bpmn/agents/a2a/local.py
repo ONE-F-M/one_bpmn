@@ -103,7 +103,7 @@ def delegate(
 	leaves no trace of work that never started.
 	"""
 	config = resolve_target(target)
-	counters = guardrails.next_counters(parent_task)
+	counters = guardrails.next_counters(parent_task, caller_instance=caller_instance)
 	# The agent doing the work knows best how long it needs; a step may still
 	# override, and 240 minutes is the backstop.
 	minutes = (

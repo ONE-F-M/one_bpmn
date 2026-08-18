@@ -27,7 +27,7 @@ def with_sub_agents(parent, subs, **limits):
 	return parent
 
 
-def make_task(execution_id, depth=1, handoffs=1):
+def make_task(execution_id, depth=1, handoffs=1, caller_instance=None):
 	task = frappe.get_doc(
 		{
 			"doctype": "A2A Task",
@@ -36,6 +36,7 @@ def make_task(execution_id, depth=1, handoffs=1):
 			"task_execution_id": execution_id,
 			"delegation_depth": depth,
 			"handoff_count": handoffs,
+			"caller_instance": caller_instance,
 		}
 	)
 	task.flags.ignore_links = True
@@ -120,6 +121,33 @@ class TestDelegationLimits(FrappeTestCase):
 		self.assertEqual(counters["delegation_depth"], 1)
 		self.assertEqual(counters["handoff_count"], 1)
 		self.assertIsNone(counters["task_execution_id"])
+
+	def test_a_caller_second_delegation_joins_its_first_chain(self):
+		"""One request, one chain. Every top-level hop used to mint its own id,
+		so handoff_count read 1 forever and max_task_handoffs could not fire
+		outside a nested chain."""
+		caller = f"INST-{frappe.generate_hash(length=8)}"
+		execution_id = f"exec-{frappe.generate_hash(length=6)}"
+		make_task(execution_id, caller_instance=caller)
+
+		counters = guardrails.next_counters(None, caller_instance=caller)
+		self.assertEqual(counters["task_execution_id"], execution_id)
+		self.assertEqual(counters["delegation_depth"], 1, "a sibling hop is still top level")
+		self.assertEqual(counters["handoff_count"], 2, "the chain has now been handed on twice")
+
+	def test_a_caller_first_delegation_still_starts_a_chain(self):
+		caller = f"INST-{frappe.generate_hash(length=8)}"
+		counters = guardrails.next_counters(None, caller_instance=caller)
+		self.assertIsNone(counters["task_execution_id"], "the A2A Task controller mints it")
+		self.assertEqual(counters["handoff_count"], 1)
+
+	def test_chains_do_not_leak_between_callers(self):
+		mine = f"INST-{frappe.generate_hash(length=8)}"
+		theirs = f"INST-{frappe.generate_hash(length=8)}"
+		make_task(f"exec-{frappe.generate_hash(length=6)}", caller_instance=theirs)
+		counters = guardrails.next_counters(None, caller_instance=mine)
+		self.assertIsNone(counters["task_execution_id"])
+		self.assertEqual(counters["handoff_count"], 1)
 
 	def test_counters_advance_down_the_chain(self):
 		execution_id = f"exec-{frappe.generate_hash(length=6)}"

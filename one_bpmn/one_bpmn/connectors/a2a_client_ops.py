@@ -120,7 +120,9 @@ def delegate_task(params: dict, ctx: dict) -> dict | None:
 
 	agent_configuration = _delegating_agent(instance, params)
 	sub_agent = _local_agent_for(remote)
-	counters = guardrails.next_counters(_parent_task(instance, params))
+	counters = guardrails.next_counters(
+		_parent_task(instance, params), caller_instance=getattr(instance, "name", None)
+	)
 
 	# The gate. A refusal is a plain-language failure, not a crash: it
 	# reaches whoever is watching the process.
