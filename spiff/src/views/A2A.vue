@@ -31,12 +31,7 @@
 
 		<!-- Our agents (what we publish) -->
 		<div v-else-if="tab === 'ours'" class="flex-1 overflow-auto px-6 py-4">
-			<div class="flex items-start justify-between gap-4 mb-3">
-			<p class="text-sm text-gray-600">
-				Every agent ticked <strong>Exposed over A2A</strong>, with the card the world would
-				fetch. A card is public; this list is not — it stays behind admin access so nobody
-				outside gets a directory of our agents.
-			</p>
+			<div class="flex items-start justify-end gap-4 mb-3">
 				<Button variant="solid" @click="openExposeDialog()">Expose an agent</Button>
 			</div>
 			<div v-if="loading.ours" class="text-sm text-gray-500">Loading…</div>
