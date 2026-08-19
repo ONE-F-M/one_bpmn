@@ -140,6 +140,64 @@ from any icon set), with `Icon Colour` as a hex value. The Service Task shows it
 in place of the gear; connectors with no icon get the default teal plug. The form
 renders a live preview, and the diagram picks it up on the next load — no rebuild.
 
+## Letting the Connector Agent build one
+
+A connector is configuration, which means an agent can author it. The **Connector
+Agent** (`connector_agent`) is a *background* agent: an orchestrator
+delegates a work order to it over A2A and it builds the connector on its own.
+
+```
+orchestrator's ad-hoc sub-process
+  └─ Service Task  serviceType=connector  connectorId=a2a
+                   operation=delegate_to_local_agent
+                   connectorParams={"agent": "Connector Agent",
+                                    "instruction": "<what to build, in words>"}
+```
+
+`a2a/local.delegate` creates the A2A Task, which starts the agent's own
+A2A-startable map (BPMN Process Model **Connector Agent**). Its answer comes back
+on the task's `result`, and the connector rows appear in the desk.
+
+The work order is plain English. It may name an **OpenAPI/Swagger URL**, a
+**documentation page**, an example **curl**, or simply describe the API — the agent
+uses whichever it is given.
+
+The agent's tool shapes live in the map; the mechanics live in `authoring.py`:
+
+| Tool | Does |
+|---|---|
+| `read_api_reference` | fetches the spec or docs page, guarded exactly like a connector call (https only, no internal hosts, size-capped) |
+| `draft_connector` | with a spec, builds the manifest **mechanically** — path parameters become required fields and the URL template is generated to reference exactly those fields; without one, drafts from the prose via the `connector_writer` sub-prompt |
+| `review_connector` | `validate_manifest` — the deterministic gate, see below |
+| `write_connector` | imports the manifest **disabled** |
+| `test_operation` | runs ONE operation through the real `http_ops.execute`, so "it works" is observed rather than claimed |
+
+Two properties make an agent-authored connector safe to accept:
+
+- **It is written disabled.** The rows are real, so a person can read, test and fix
+  them in the desk, but the modeler will not offer the connector and dispatch
+  refuses it until a human ticks **Enabled**. A draft never carries a secret, so
+  enabling is also the moment someone has to supply the credential — the review is
+  structurally unavoidable rather than merely recommended.
+- **The review is deterministic, not another LLM.** `validate_manifest` checks a
+  draft *before* it is written and catches what an LLM-authored connector actually
+  gets wrong: a template referencing a field that was never declared,
+  `params.values` resolving to the dict method, a relative URL with no Base URL, a
+  body that stops being JSON once the expressions are filled in, a `{{ doc.x }}`
+  that will render the literal `None`, and a secret that has no business being in a
+  manifest at all.
+
+`validate_manifest` and the importer must agree about the manifest dialect — the
+executable half of an operation is a nested `http` block (`url`, `query`, `headers`,
+`contentType`, `body`, `responseMap`), never a parallel spelling. If they drift,
+review approves a draft that then fails to import, and the agent re-drafts a
+perfectly good connector until its tool budget runs out. That invariant is pinned by
+`TestReviewerImporterAgreement` in `tests/test_connector_authoring.py`.
+
+`get_execution_spec(..., allow_disabled=True)` exists for this feature: dispatch
+must keep refusing a disabled connector, while authoring has to be able to test a
+draft before anyone enables it.
+
 ## Portability
 
 Connectors move between sites as **data**, not patches:
