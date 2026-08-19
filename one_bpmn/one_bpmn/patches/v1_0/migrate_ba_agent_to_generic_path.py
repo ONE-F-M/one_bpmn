@@ -22,13 +22,28 @@ What this patch asserts on the record:
     hardcoded).
   * process_model -> the chat map, so ``_runner_for`` resolves the ``bpmn_map``
     runner instead of the retired LangGraph one.
-  * ai_model -> gpt-5-nano, which is what makes the AI Provider Credentials link
-    resolvable (validation requires a catalog model, and the credentials follow
-    the model on save). The effective model is UNCHANGED: the graph read
-    AI Chat Settings globals through llm_factory, which resolved provider
-    "openai" and model "gpt-5-nano" against the OpenAI credentials record.
-    Reading it from the agent instead of from a global is the whole point —
-    nothing else on the site can now change which model the BA Agent uses.
+  * agent_name -> "BA Agent", renaming the record itself. It shipped as "BA
+    Architect" from when the architect and the product manager were two separate
+    graph nodes; there is one agent now, and it is the one the chat label, the
+    pickers and the users all call "BA Agent". agent_id stays `ba_architect` —
+    the record name and the id differ routinely here (record "lucrusher" holds
+    agent_id "lucrusher_agent"), and the id is what the map's scripts, the ONE AI
+    page and this patch all look the agent up by.
+  * ai_model -> claude-sonnet-5, which is also what makes the AI Provider
+    Credentials link resolvable: validation requires a catalog model and the
+    credentials follow the model on save, so this is what puts the agent on the
+    Anthropic credentials record.
+
+    This DOES change the effective model, deliberately and on request. The graph
+    read AI Chat Settings globals through llm_factory, which resolved provider
+    "openai" and model "gpt-5-nano"; the migration first preserved exactly that,
+    so the change under review would be plumbing rather than a model swap. Live
+    testing then showed gpt-5-nano to be the limiting factor — it omits finalize
+    arguments often enough that the tool needs deterministic salvages, and it ran
+    identical turns in 50-100s against Sonnet's 21-28s. Reading the model from the
+    agent instead of from a site-wide global is the point of the credential work,
+    and this is the first use of it: nothing else on the site can now change which
+    model the BA Agent uses.
   * max_tokens -> 16384. It shipped as 2048, and a configuration's max_tokens is
     authoritative at dispatch: a turn whose reply carries a full implementation
     plan, or a set of user stories passed as tool-call arguments, does not fit in
@@ -77,10 +92,12 @@ deployed; go-live here only needs the config to validate.
 import frappe
 
 AGENT_ID = "ba_architect"
+AGENT_NAME = "BA Agent"
+LEGACY_AGENT_NAME = "BA Architect"
 CHAT_LABEL = "BA Agent"
 ICON = "\U0001F4CB"
 PROCESS_MODEL = "Lumina-BA Agent"
-AI_MODEL = "gpt-5-nano"
+AI_MODEL = "claude-sonnet-5"
 MAX_TOKENS = 16384
 
 GREETING = (
@@ -311,6 +328,15 @@ def execute():
 	original_user = frappe.session.user
 	try:
 		frappe.set_user("Administrator")
+
+		# Rename first, so every later edit and the link updates that ride along
+		# with a rename land on one record rather than racing each other.
+		if name == LEGACY_AGENT_NAME and not frappe.db.exists("AI Agent Configuration", AGENT_NAME):
+			frappe.rename_doc("AI Agent Configuration", name, AGENT_NAME, force=True)
+			frappe.db.set_value("AI Agent Configuration", AGENT_NAME, "agent_name", AGENT_NAME, update_modified=False)
+			frappe.db.commit()
+			name = AGENT_NAME
+
 		doc = frappe.get_doc("AI Agent Configuration", name)
 		fields = {}
 
@@ -325,8 +351,11 @@ def execute():
 		# Assert the map link; leave a deliberate re-point alone.
 		if not doc.process_model and frappe.db.exists("BPMN Process Model", PROCESS_MODEL):
 			fields["process_model"] = PROCESS_MODEL
-		# The model is the pick — ai_provider_credentials follows it on save.
-		if not doc.ai_model and frappe.db.exists("AI Model", AI_MODEL):
+		# The model is the pick — ai_provider_credentials follows it on save. This
+		# one is ASSERTED, not filled in when blank: the record arrives carrying
+		# the model the graph resolved from AI Chat Settings, and moving off it is
+		# the change. A later hand-pick of some other model is left alone.
+		if doc.ai_model in (None, "", "gpt-5-nano") and frappe.db.exists("AI Model", AI_MODEL):
 			fields["ai_model"] = AI_MODEL
 		# 2048 truncates a plan mid-sentence, so this one is corrected upward
 		# rather than only filled in when unset.
