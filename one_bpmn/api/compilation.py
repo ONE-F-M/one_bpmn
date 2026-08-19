@@ -1394,6 +1394,88 @@ def _validate_ai_agent_tools(bpmn_xml: str, service_extensions: dict) -> None:
 			)
 
 
+def _resolve_called_process_xml(bpmn_xml: str, model_name: str) -> list:
+	"""XML of every process this diagram's Call Activities reference.
+
+	A Call Activity names another process by id in ``calledElement``, and
+	SpiffWorkflow resolves that id only against processes the SAME parser has
+	parsed. Compiling one model in isolation therefore fails with a raw
+	"The process 'x' was not found" the moment a Call Activity points at a
+	different Process Model — which is why the only Call Activity in the wild
+	had an empty calledElement and had never run.
+
+	So: find each calledElement, look up the Process Model whose ``process_id``
+	matches, and return its XML for parse_bpmn to register. Resolution is
+	transitive (a called process may call another) and cycle-safe — a process
+	that calls back into the caller resolves each participant once rather than
+	recursing forever, which is also what lets SpiffWorkflow parse the pair.
+
+	A calledElement with no matching model is a modelling mistake, not a crash:
+	it throws with the id and the shape, the same way a missing Decision Table
+	does. An EMPTY calledElement is left alone — that is an unconfigured shape,
+	and it fails validation elsewhere with a better message than this one.
+	"""
+	import xml.etree.ElementTree as _ET
+
+	BPMN_NS = "http://www.omg.org/spec/BPMN/20100524/MODEL"
+
+	try:
+		root = _ET.fromstring(bpmn_xml.strip().encode("utf-8"))
+	except Exception:
+		return []  # a malformed diagram surfaces properly in parse_bpmn
+
+	def _called_ids(xml_root):
+		found = {}
+		for el in xml_root.iter(f"{{{BPMN_NS}}}callActivity"):
+			called = (el.get("calledElement") or "").strip()
+			if called:
+				found.setdefault(called, el.get("id") or "?")
+		return found
+
+	collected: list = []
+	# The process ids already known to the parser: this diagram's own.
+	seen = {p.get("id") for p in root.iter(f"{{{BPMN_NS}}}process") if p.get("id")}
+	pending = _called_ids(root)
+
+	while pending:
+		called_id, shape_id = pending.popitem()
+		if called_id in seen:
+			continue
+		seen.add(called_id)
+
+		target = frappe.db.get_value(
+			"BPMN Process Model", {"process_id": called_id}, ["name", "bpmn_xml"], as_dict=True
+		)
+		if not target or not target.bpmn_xml:
+			frappe.throw(
+				_(
+					"Cannot deploy '{0}': the Call Activity '{1}' calls the process "
+					"'{2}', and no BPMN Process Model has that Process ID.<br><br>"
+					"Open the Call Activity and set <b>Called Element</b> to the "
+					"Process ID of the map you want it to run."
+				).format(model_name, shape_id, called_id),
+				title=_("Called Process Not Found"),
+			)
+
+		# The called document has to arrive at the parser in the same shape the
+		# main one does. Script Tasks driven only by the Server Script picker
+		# carry no inline <bpmn:script>, and SpiffWorkflow asserts exactly one —
+		# so a called map full of Server Script tasks fails the parent's compile
+		# with "Invalid Script Task. No Script Provided." even though the called
+		# map compiles perfectly well on its own.
+		child_xml = _ensure_script_task_inline_scripts(_sanitize_bpmn_xml(target.bpmn_xml))
+		collected.append(child_xml)
+		try:
+			child_root = _ET.fromstring(child_xml.strip().encode("utf-8"))
+		except Exception:
+			continue  # the called model's own compile is where that gets reported
+		for nested_id, nested_shape in _called_ids(child_root).items():
+			if nested_id not in seen:
+				pending[nested_id] = nested_shape
+
+	return collected
+
+
 @frappe.whitelist()
 def compile_process_model(model_name: str) -> dict:
 	"""
@@ -1506,11 +1588,14 @@ def compile_process_model(model_name: str) -> dict:
 				title=_("Missing Decision Tables"),
 			)
 
+	called_xml_list = _resolve_called_process_xml(sanitized_xml, model_name)
+
 	try:
 		spec_dict, sp_dict = bpmn_engine.parse_bpmn(
 			bpmn_xml=sanitized_xml,
 			process_id=model.process_id,
 			dmn_xml_list=dmn_xml_list,
+			called_xml_list=called_xml_list,
 		)
 	except Exception as exc:
 		frappe.log_error(title="BPMN compile failed", message=frappe.get_traceback())
@@ -1527,6 +1612,20 @@ def compile_process_model(model_name: str) -> dict:
 	# resolve user assignments).
 	spec_data = json.loads(model.serialized_spec)
 
+	# A Call Activity runs the called process INSIDE this instance, so its tasks
+	# are dispatched by THIS model's extension maps. The called documents'
+	# extensions are collected here but merged in only after validation below:
+	# every validator checks its extensions against ``sanitized_xml``, and a
+	# child's AI Agent Task legitimately references an ad-hoc sub-process that
+	# exists only in the child. Each document is validated by its own compile.
+	called_service_extensions: dict = {}
+	called_script_extensions: dict = {}
+	for called_xml in called_xml_list:
+		called_service_extensions.update(_extract_service_task_config(called_xml))
+		called_service_extensions.update(_extract_adhoc_selector_config(called_xml))
+		_resolve_ai_agent_tool_shapes(called_xml, called_service_extensions)
+		called_script_extensions.update(_extract_script_task_config(called_xml))
+
 	service_extensions = _extract_service_task_config(sanitized_xml)
 	# AI Task Selector config lives on adHocSubProcess elements (WI-001351)
 	# but is dispatched through the same extensions dict, keyed by bpmn_id.
@@ -1534,8 +1633,15 @@ def compile_process_model(model_name: str) -> dict:
 	# AI Agent Task: resolve its referenced ad-hoc sub-process's shapes into
 	# embedded tool descriptors so the runtime needs no live spec navigation.
 	_resolve_ai_agent_tool_shapes(sanitized_xml, service_extensions)
-	if service_extensions:
-		spec_data["service_task_extensions"] = service_extensions
+	if service_extensions or called_service_extensions:
+		# Called first, this document second: on an id collision the document
+		# being compiled wins. Without the child's entries here, its tasks run
+		# as silent no-ops — the engine looks each one up by bpmn_id, finds
+		# nothing, and still reports the task Completed.
+		spec_data["service_task_extensions"] = {
+			**called_service_extensions,
+			**service_extensions,
+		}
 	_lint_ai_provider_config(sanitized_xml, service_extensions)
 	_validate_adhoc_structure(sanitized_xml)
 	_validate_adhoc_selector_pool(sanitized_xml, model_name)
@@ -1545,8 +1651,11 @@ def compile_process_model(model_name: str) -> dict:
 	deploy_warnings = _check_eval_suite_gating(model_name)
 
 	script_extensions = _extract_script_task_config(sanitized_xml)
-	if script_extensions:
-		spec_data["script_task_extensions"] = script_extensions
+	if script_extensions or called_script_extensions:
+		spec_data["script_task_extensions"] = {
+			**called_script_extensions,
+			**script_extensions,
+		}
 
 	# ── Deploy-time security gate ─────────────────────────────────────────
 	# Structurally validate every script task (inline + referenced Server
