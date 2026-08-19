@@ -6,9 +6,9 @@ from frappe.tests.utils import FrappeTestCase
 
 from one_bpmn.one_bpmn.doctype.ai_agent_configuration.ai_agent_configuration import (
 	_cast_constant,
+	_load_json_constant,
 	get_agent_config,
 )
-from onefm_mcp.agents.langgraph.user_planning_agent.utils.intent_utils import _load_json_constant
 
 
 class TestAIAgentConfiguration(FrappeTestCase):

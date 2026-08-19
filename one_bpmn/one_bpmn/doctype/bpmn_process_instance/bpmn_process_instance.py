@@ -1748,61 +1748,7 @@ class BPMNProcessInstance(Document):
 		elif service_type == "ai_agent":
 			dispatch_ai_agent(self, task, task_cfg, bpmn_id)
 
-		elif service_type == "langgraph_node":
-			self._dispatch_langgraph_node(task, task_cfg, bpmn_id)
-
 		return True  # default: complete the task
-
-	def _dispatch_langgraph_node(self, task, task_cfg, bpmn_id):
-		"""Run one LangGraph node as a BPMN service task (BA Agent).
-
-		The graph itself lives in onefm_mcp — this branch used to import
-		``one_bpmn.one_bpmn.bpmn_bridge``, a module that has never existed in
-		this app, so every BA Agent turn died on ImportError before reaching
-		a node (WI-001678). The real bridge exposes ONE entry point built for
-		this dispatcher: ``run_turn_step`` owns state (de)serialisation, node
-		dispatch and end-of-turn persistence; all we do is shuttle its dict
-		in and out of task.data and bridge sync/async.
-
-		``lg_next_node`` is what the map's gateways read to route
-		architect → tools → product_manager → output, so it must land in
-		task.data even on the turn's last step (where it reads "END").
-		"""
-		try:
-			from onefm_mcp.agents.langgraph.user_planning_agent import bpmn_bridge
-		except ImportError:
-			frappe.throw(
-				_("This agent's graph lives in onefm_mcp, which is not installed on this site."),
-				title=_("LangGraph bridge unavailable"),
-			)
-
-		from one_bpmn.agents.executor.direct_api import _run_coro_blocking
-
-		if self.context_doctype != "Chat Conversation" or not self.context_docname:
-			frappe.throw(
-				_("A LangGraph node runs against a Chat Conversation; this instance has {0}.").format(
-					self.context_doctype or _("no context document")
-				)
-			)
-
-		data = task.data if isinstance(task.data, dict) else {}
-		try:
-			updates = _run_coro_blocking(
-				bpmn_bridge.run_turn_step(
-					self.context_docname,
-					self.initiated_by or frappe.session.user,
-					task_cfg.get("agentNode", ""),
-					data,
-				)
-			)
-		except Exception:
-			frappe.log_error(
-				title=f"BPMN ServiceTask: langgraph_node failed for task {bpmn_id}",
-				message=frappe.get_traceback(),
-			)
-			raise  # bubble up so the instance can be marked Errored
-
-		task.data.update(updates or {})
 
 	def _sync_active_tasks(self, wf, prev_assigned=None):
 		"""
