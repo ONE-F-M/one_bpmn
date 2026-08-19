@@ -537,7 +537,12 @@ def _canonicalize_compiled_workflow(wf_dict: dict) -> dict:
 	return wf_dict
 
 
-def parse_bpmn(bpmn_xml: str, process_id: str, dmn_xml_list: list = None) -> tuple:
+def parse_bpmn(
+	bpmn_xml: str,
+	process_id: str,
+	dmn_xml_list: list = None,
+	called_xml_list: list = None,
+) -> tuple:
 	"""
 	Parse a BPMN XML string into serialised spec dicts.
 
@@ -555,6 +560,15 @@ def parse_bpmn(bpmn_xml: str, process_id: str, dmn_xml_list: list = None) -> tup
 	    dmn_xml_list:  Optional list of DMN XML strings. Each string is a
 	                   complete DMN 1.3 document whose <decision id="…"> must
 	                   match a calledDecisionId in the BPMN.
+	    called_xml_list: Optional list of BPMN XML strings for the processes
+	                   this diagram's Call Activities reference. A parser
+	                   resolves ``calledElement`` only against processes it has
+	                   itself parsed, so a Call Activity pointing at another
+	                   Process Model fails with "The process '…' was not found"
+	                   unless that model's XML is registered here too. The
+	                   caller resolves calledElement → Process Model (see
+	                   api/compilation._resolve_called_process_xml); this
+	                   function only has to hand the documents to the parser.
 
 	Returns:
 	    (spec_dict, sp_specs_dict)
@@ -583,6 +597,17 @@ def parse_bpmn(bpmn_xml: str, process_id: str, dmn_xml_list: list = None) -> tup
 	# but it can parse *bytes*.  Using add_bpmn_io(BytesIO) is the safe path.
 	bpmn_bytes = bpmn_xml.strip().encode("utf-8")
 	parser.add_bpmn_io(io.BytesIO(bpmn_bytes), filename="diagram.bpmn")
+
+	# Register the called processes BEFORE get_spec(). The parser keeps one
+	# namespace of process ids across every document added to it, which is the
+	# whole mechanism by which callActivity/calledElement resolves — a process
+	# it never parsed does not exist as far as it is concerned.
+	for idx, called_xml in enumerate(called_xml_list or []):
+		called_str = called_xml.strip() if isinstance(called_xml, str) else ""
+		if called_str:
+			parser.add_bpmn_io(
+				io.BytesIO(called_str.encode("utf-8")), filename=f"called_{idx}.bpmn"
+			)
 
 	# Feed each DMN XML string into the parser.  The parser registers each
 	# DMN document by its <decision id="…"> attribute, which must match the
@@ -615,6 +640,13 @@ def parse_bpmn(bpmn_xml: str, process_id: str, dmn_xml_list: list = None) -> tup
 	wf = BpmnWorkflow(spec, sp_specs)
 	wf_dict = _json.loads(serializer.serialize_json(wf))  # clean, JSON-safe dict
 
+	# The second element is EMPTY ON PURPOSE, and it is not a dropped result:
+	# BpmnWorkflow(spec, sp_specs) folds the subprocess specs into the workflow,
+	# so they are already inside wf_dict["subprocess_specs"] and survive both the
+	# serializer and _canonicalize_compiled_workflow. create_workflow() rebuilds
+	# from that dict alone and ignores the stored subprocess_specs field (see its
+	# docstring). Returning sp_specs here as well would store the same specs
+	# twice and let the two copies drift.
 	return _canonicalize_compiled_workflow(wf_dict), {}
 
 

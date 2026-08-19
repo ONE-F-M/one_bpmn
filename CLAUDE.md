@@ -57,4 +57,20 @@ When copying a map, **fix `process_name` before touching `is_active`** — a cop
 inherits its source's `Process`, and activating it silently deactivates the map it
 was cloned from.
 
+## Never commit a process map or its config bundle
+
+A `.bpmn` file and its `*_config.json` are **not source**, and they do not belong
+in this repo. A map moves between sites through Processa's own export/import,
+which carries the diagram, its Server Scripts and its workflow states together and
+compiles on arrival. The moment a copy is committed here, someone edits the map in
+the modeler and the committed file is silently wrong, with nothing to reconcile the
+two. `one_bpmn/exports/*.bpmn` and `*_config.json` are gitignored for this reason.
+
+The same rule from the other direction: **never patch in a map or its Server
+Scripts.** A patch may seed an `AI Agent Configuration` — that is a record, not a
+diagram — and nothing else.
+
+So a story that changes a map ships as: code and tests in the PR, the map by
+export/import, and a line in the PR saying which maps to import and in what order.
+
 Follow root [`CLAUDE.md`](../CLAUDE.md) for Frappe conventions.

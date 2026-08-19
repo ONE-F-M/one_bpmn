@@ -41,3 +41,12 @@ spiff/components.d.ts
 spiff/auto-imports.d.ts
 spiff/stats.html
 one_bpmn/public/processa/assets/
+
+# Process maps and their config bundles are NOT source (WI-002111).
+# A map ships between sites through Processa's own export/import, which carries
+# the diagram, its Server Scripts and its workflow states together and compiles
+# on arrival. A .bpmn committed here is a copy that silently goes stale the
+# moment someone edits the map in the modeler, and there is nothing to reconcile
+# the two. Patch only the AI Agent Configuration; never the map.
+one_bpmn/exports/*.bpmn
+one_bpmn/exports/*_config.json
