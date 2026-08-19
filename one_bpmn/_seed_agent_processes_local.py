@@ -20,13 +20,11 @@ SEEDS = {
 		"Turn a Lucidchart diagram into a reviewed migration plan without manual transcription.",
 		["LuCrusher – Migration Agent"],
 	),
-	"BA Agent Planning": (
+	"Lumina-BA Agent": (
 		"Business analysis: clarifies a requirement, plans it, and breaks the "
 		"approved plan into user stories.",
 		"Turn a plain-English need into an approved plan and reviewable user stories.",
-		# Both shapes of the BA map hang off one process — the LangGraph one and
-		# the tools-shaped one, whichever is currently active.
-		["BA – Planning Agent", "Lumina Chat – BA Agent"],
+		["Lumina-BA Agent"],
 	),
 }
 
