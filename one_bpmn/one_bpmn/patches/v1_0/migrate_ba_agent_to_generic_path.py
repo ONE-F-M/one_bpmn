@@ -79,7 +79,7 @@ import frappe
 AGENT_ID = "ba_architect"
 CHAT_LABEL = "BA Agent"
 ICON = "\U0001F4CB"
-PROCESS_MODEL = "Lumina Chat \u2013 BA Agent"
+PROCESS_MODEL = "Lumina-BA Agent"
 AI_MODEL = "gpt-5-nano"
 MAX_TOKENS = 16384
 
