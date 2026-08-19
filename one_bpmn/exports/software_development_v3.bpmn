@@ -1,0 +1,792 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<bpmn:definitions xmlns:bpmn="http://www.omg.org/spec/BPMN/20100524/MODEL" xmlns:bpmndi="http://www.omg.org/spec/BPMN/20100524/DI" xmlns:dc="http://www.omg.org/spec/DD/20100524/DC" xmlns:di="http://www.omg.org/spec/DD/20100524/DI" xmlns:spiffworkflow="http://spiffworkflow.org/bpmn/schema/1.0/core" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" id="Definitions_1" targetNamespace="http://bpmn.io/schema/bpmn">
+  <bpmn:collaboration id="Collaboration_0tzesbt">
+    <bpmn:participant id="Participant_05hfqp5" name="Software Development" processRef="Process_0ibcks3" />
+    <bpmn:textAnnotation id="TextAnnotation_1pk68jl" spiffworkflow:isStickyNote="true" spiffworkflow:color="#fff9c4">
+      <bpmn:text>New Note</bpmn:text>
+    </bpmn:textAnnotation>
+    <bpmn:textAnnotation id="TextAnnotation_14iykag" spiffworkflow:isStickyNote="true" spiffworkflow:color="#fff9c4">
+      <bpmn:text>New Note</bpmn:text>
+    </bpmn:textAnnotation>
+    <bpmn:textAnnotation id="TextAnnotation_1j9k8cn" spiffworkflow:isStickyNote="true" spiffworkflow:color="#fff9c4">
+      <bpmn:text>New Note</bpmn:text>
+    </bpmn:textAnnotation>
+    <bpmn:correlationKey id="CorrelationKey_07nxcfm" name="MainCorrelationKey" />
+  </bpmn:collaboration>
+  <bpmn:message id="github_pull_request_opened" name="github:pull_request:opened" />
+  <bpmn:message id="github_pull_request_review_requested" name="github:pull_request:review_requested" />
+  <bpmn:message id="github_pull_request_review_changes_requested" name="github:pull_request_review:changes_requested" />
+  <bpmn:message id="github_pull_request_merged" name="github:pull_request:merged" />
+  <bpmn:process id="Process_0ibcks3" isExecutable="true">
+    <bpmn:laneSet id="LaneSet_0ygnap5">
+      <bpmn:lane id="Lane_1bw9fqv" name="Developer">
+        <bpmn:flowNodeRef>Activity_1ssi9r3</bpmn:flowNodeRef>
+        <bpmn:flowNodeRef>Gateway_053uf9v</bpmn:flowNodeRef>
+        <bpmn:flowNodeRef>Activity_0orelyy</bpmn:flowNodeRef>
+        <bpmn:flowNodeRef>Activity_orchestrator</bpmn:flowNodeRef>
+        <bpmn:flowNodeRef>Event_PRCreated</bpmn:flowNodeRef>
+        <bpmn:flowNodeRef>Activity_SetPRCreated</bpmn:flowNodeRef>
+        <bpmn:flowNodeRef>Event_ReviewerAssigned</bpmn:flowNodeRef>
+        <bpmn:flowNodeRef>Activity_UpdateReviewer</bpmn:flowNodeRef>
+        <bpmn:flowNodeRef>Activity_SetPendingReview</bpmn:flowNodeRef>
+        <bpmn:flowNodeRef>Activity_NotifyReviewer</bpmn:flowNodeRef>
+        <bpmn:flowNodeRef>Gateway_00y1f4e</bpmn:flowNodeRef>
+        <bpmn:flowNodeRef>Gateway_ResearchReq</bpmn:flowNodeRef>
+        <bpmn:flowNodeRef>Event_PRMerged</bpmn:flowNodeRef>
+        <bpmn:flowNodeRef>Activity_0oo9v96</bpmn:flowNodeRef>
+        <bpmn:flowNodeRef>Event_07dhxl8</bpmn:flowNodeRef>
+        <bpmn:flowNodeRef>Activity_16skcsq</bpmn:flowNodeRef>
+        <bpmn:flowNodeRef>Gateway_14hzrw9</bpmn:flowNodeRef>
+        <bpmn:flowNodeRef>Activity_1yud977</bpmn:flowNodeRef>
+        <bpmn:flowNodeRef>Gateway_0wci09h</bpmn:flowNodeRef>
+        <bpmn:flowNodeRef>Activity_0nkhtlh</bpmn:flowNodeRef>
+        <bpmn:flowNodeRef>Activity_CreateResearch</bpmn:flowNodeRef>
+        <bpmn:flowNodeRef>Activity_07bfc70</bpmn:flowNodeRef>
+        <bpmn:flowNodeRef>Activity_AddAIFeedback</bpmn:flowNodeRef>
+        <bpmn:flowNodeRef>Activity_ValidateAIFeedback</bpmn:flowNodeRef>
+        <bpmn:flowNodeRef>Gateway_0tjkyyu</bpmn:flowNodeRef>
+        <bpmn:flowNodeRef>Activity_0r0kec9</bpmn:flowNodeRef>
+        <bpmn:flowNodeRef>Activity_0gedfgb</bpmn:flowNodeRef>
+        <bpmn:flowNodeRef>Gateway_0lwjg1e</bpmn:flowNodeRef>
+        <bpmn:flowNodeRef>Gateway_0rr26uc</bpmn:flowNodeRef>
+        <bpmn:flowNodeRef>Gateway_AwaitReview</bpmn:flowNodeRef>
+        <bpmn:flowNodeRef>Gateway_1vn3kz2</bpmn:flowNodeRef>
+        <bpmn:flowNodeRef>Event_ChangesRequested</bpmn:flowNodeRef>
+        <bpmn:flowNodeRef>Activity_SetChangesRequested</bpmn:flowNodeRef>
+      </bpmn:lane>
+      <bpmn:lane id="Lane_0g5w504" name="Business Analyst">
+        <bpmn:flowNodeRef>Event_0x89y7q</bpmn:flowNodeRef>
+        <bpmn:flowNodeRef>Activity_16jx8nk</bpmn:flowNodeRef>
+        <bpmn:flowNodeRef>Activity_13ob1pd</bpmn:flowNodeRef>
+        <bpmn:flowNodeRef>Gateway_107uysm</bpmn:flowNodeRef>
+        <bpmn:flowNodeRef>Gateway_14xa5ui</bpmn:flowNodeRef>
+        <bpmn:flowNodeRef>Activity_0qrcv9r</bpmn:flowNodeRef>
+        <bpmn:flowNodeRef>Activity_1o5asop</bpmn:flowNodeRef>
+        <bpmn:flowNodeRef>Activity_06wvx4o</bpmn:flowNodeRef>
+      </bpmn:lane>
+    </bpmn:laneSet>
+    <bpmn:sequenceFlow id="Flow_pr10" sourceRef="Event_ChangesRequested" targetRef="Activity_SetChangesRequested" />
+    <bpmn:sequenceFlow id="Flow_pr11" sourceRef="Activity_SetChangesRequested" targetRef="Gateway_1vn3kz2" />
+    <bpmn:sequenceFlow id="Flow_pr8" sourceRef="Gateway_AwaitReview" targetRef="Event_ChangesRequested" />
+    <bpmn:sequenceFlow id="Flow_1o0mige" sourceRef="Gateway_1vn3kz2" targetRef="Gateway_AwaitReview" />
+    <bpmn:sequenceFlow id="Flow_172trg2" sourceRef="Activity_0r0kec9" targetRef="Gateway_0rr26uc" />
+    <bpmn:sequenceFlow id="Flow_loopback" name="No" sourceRef="Gateway_0tjkyyu" targetRef="Gateway_0rr26uc">
+      <bpmn:conditionExpression>not ai_feedback_complete</bpmn:conditionExpression>
+    </bpmn:sequenceFlow>
+    <bpmn:sequenceFlow id="Flow_0i70p9g" name="Yes" sourceRef="Gateway_0tjkyyu" targetRef="Activity_0gedfgb">
+      <bpmn:conditionExpression>ai_feedback_complete</bpmn:conditionExpression>
+    </bpmn:sequenceFlow>
+    <bpmn:sequenceFlow id="Flow_valgw" sourceRef="Activity_ValidateAIFeedback" targetRef="Gateway_0tjkyyu" />
+    <bpmn:sequenceFlow id="Flow_addval" sourceRef="Activity_AddAIFeedback" targetRef="Activity_ValidateAIFeedback" />
+    <bpmn:sequenceFlow id="Flow_0gtuh7d" sourceRef="Gateway_0rr26uc" targetRef="Activity_AddAIFeedback" />
+    <bpmn:sequenceFlow id="Flow_1td9o9v" sourceRef="Activity_0gedfgb" targetRef="Activity_07bfc70" />
+    <bpmn:sequenceFlow id="Flow_cr2da" sourceRef="Activity_CreateResearch" targetRef="Gateway_0lwjg1e" />
+    <bpmn:sequenceFlow id="Flow_1gzfthn" sourceRef="Gateway_0lwjg1e" targetRef="Activity_0nkhtlh" />
+    <bpmn:sequenceFlow id="Flow_00ob2vw" name="Rejected" sourceRef="Gateway_14hzrw9" targetRef="Activity_1yud977">
+      <bpmn:conditionExpression>action=="Reject"</bpmn:conditionExpression>
+    </bpmn:sequenceFlow>
+    <bpmn:sequenceFlow id="Flow_0ucb1kq" sourceRef="Activity_07bfc70" targetRef="Gateway_14hzrw9" />
+    <bpmn:sequenceFlow id="Flow_1v5867o" name="Accepted" sourceRef="Gateway_14hzrw9" targetRef="Activity_16skcsq">
+      <bpmn:conditionExpression>action=="Accept"</bpmn:conditionExpression>
+    </bpmn:sequenceFlow>
+    <bpmn:sequenceFlow id="Flow_1oo3968" sourceRef="Activity_16skcsq" targetRef="Event_07dhxl8" />
+    <bpmn:sequenceFlow id="Flow_pr9" sourceRef="Gateway_AwaitReview" targetRef="Event_PRMerged" />
+    <bpmn:sequenceFlow id="Flow_resno" name="No" sourceRef="Gateway_ResearchReq" targetRef="Gateway_0lwjg1e">
+      <bpmn:conditionExpression>not research_required</bpmn:conditionExpression>
+    </bpmn:sequenceFlow>
+    <bpmn:sequenceFlow id="Flow_resyes" name="Yes" sourceRef="Gateway_ResearchReq" targetRef="Activity_CreateResearch">
+      <bpmn:conditionExpression>research_required</bpmn:conditionExpression>
+    </bpmn:sequenceFlow>
+    <bpmn:sequenceFlow id="Flow_14lk7fk" name="No PR Required" sourceRef="Gateway_0wci09h" targetRef="Gateway_ResearchReq">
+      <bpmn:conditionExpression>not pr_required</bpmn:conditionExpression>
+    </bpmn:sequenceFlow>
+    <bpmn:sequenceFlow id="Flow_06a8p9f" sourceRef="Gateway_00y1f4e" targetRef="Activity_0r0kec9" />
+    <bpmn:sequenceFlow id="Flow_1t5ikmy" sourceRef="Activity_0nkhtlh" targetRef="Gateway_00y1f4e" />
+    <bpmn:sequenceFlow id="Flow_02rjow8" sourceRef="Event_PRMerged" targetRef="Gateway_00y1f4e" />
+    <bpmn:sequenceFlow id="Flow_pr7" sourceRef="Activity_NotifyReviewer" targetRef="Gateway_1vn3kz2" />
+    <bpmn:sequenceFlow id="Flow_pr6" sourceRef="Activity_SetPendingReview" targetRef="Activity_NotifyReviewer" />
+    <bpmn:sequenceFlow id="Flow_pr5" sourceRef="Activity_UpdateReviewer" targetRef="Activity_SetPendingReview" />
+    <bpmn:sequenceFlow id="Flow_pr4" sourceRef="Event_ReviewerAssigned" targetRef="Activity_UpdateReviewer" />
+    <bpmn:sequenceFlow id="Flow_0rpk3az" sourceRef="Activity_0oo9v96" targetRef="Event_ReviewerAssigned" />
+    <bpmn:sequenceFlow id="Flow_pr2" sourceRef="Activity_SetPRCreated" targetRef="Activity_0oo9v96" />
+    <bpmn:sequenceFlow id="Flow_pr1" sourceRef="Event_PRCreated" targetRef="Activity_SetPRCreated" />
+    <bpmn:sequenceFlow id="Flow_1dixumx" name="PR Required" sourceRef="Gateway_0wci09h" targetRef="Event_PRCreated">
+      <bpmn:conditionExpression>pr_required</bpmn:conditionExpression>
+    </bpmn:sequenceFlow>
+    <bpmn:sequenceFlow id="Flow_0v29cpp" sourceRef="Activity_0orelyy" targetRef="Gateway_0wci09h" />
+    <bpmn:sequenceFlow id="Flow_1tfww9r" sourceRef="Activity_1yud977" targetRef="Gateway_053uf9v" />
+    <bpmn:sequenceFlow id="Flow_0f0657w" sourceRef="Activity_1ssi9r3" targetRef="Activity_0orelyy" />
+    <bpmn:sequenceFlow id="Flow_124hadj" sourceRef="Gateway_053uf9v" targetRef="Activity_1ssi9r3" />
+    <bpmn:sequenceFlow id="Flow_10faefd" sourceRef="Activity_06wvx4o" targetRef="Gateway_053uf9v" />
+    <bpmn:sequenceFlow id="Flow_0c3kfxr" sourceRef="Activity_1o5asop" targetRef="Activity_06wvx4o" />
+    <bpmn:sequenceFlow id="Flow_0qyremx" name="Yes" sourceRef="Gateway_14xa5ui" targetRef="Activity_1o5asop">
+      <bpmn:conditionExpression>assignee_user</bpmn:conditionExpression>
+    </bpmn:sequenceFlow>
+    <bpmn:sequenceFlow id="Flow_14pl2cr" name="No" sourceRef="Gateway_14xa5ui" targetRef="Activity_0qrcv9r">
+      <bpmn:conditionExpression>not assignee_user</bpmn:conditionExpression>
+    </bpmn:sequenceFlow>
+    <bpmn:sequenceFlow id="Flow_06d4q5r" sourceRef="Activity_0qrcv9r" targetRef="Gateway_107uysm" />
+    <bpmn:sequenceFlow id="Flow_0q801d5" sourceRef="Activity_13ob1pd" targetRef="Gateway_14xa5ui" />
+    <bpmn:sequenceFlow id="Flow_1mmdtcb" name="No" sourceRef="Gateway_107uysm" targetRef="Activity_13ob1pd">
+      <bpmn:conditionExpression>not orchestrator</bpmn:conditionExpression>
+    </bpmn:sequenceFlow>
+    <bpmn:sequenceFlow id="Flow_orchestrator_yes" name="Yes" sourceRef="Gateway_107uysm" targetRef="Activity_orchestrator">
+      <bpmn:conditionExpression>orchestrator</bpmn:conditionExpression>
+    </bpmn:sequenceFlow>
+    <bpmn:callActivity id="Activity_orchestrator" name="Run the Orchestrator" calledElement="orchestrator_agent">
+      <bpmn:documentation>Runs the Orchestrator Agent map as a sub-process. It reads this Work Item, picks a specialist agent and delegates the build to it over A2A, then reports back. The item rejoins the normal path at Set to In Progress, so PR creation and review are unchanged.</bpmn:documentation>
+      <bpmn:incoming>Flow_orchestrator_yes</bpmn:incoming>
+      <bpmn:outgoing>Flow_orchestrator_done</bpmn:outgoing>
+    </bpmn:callActivity>
+    <bpmn:sequenceFlow id="Flow_orchestrator_done" sourceRef="Activity_orchestrator" targetRef="Activity_0orelyy" />
+    <bpmn:sequenceFlow id="Flow_1tlnvwh" sourceRef="Activity_16jx8nk" targetRef="Gateway_107uysm" />
+    <bpmn:sequenceFlow id="Flow_00pu6v1" sourceRef="Event_0x89y7q" targetRef="Activity_16jx8nk" />
+    <bpmn:serviceTask id="Activity_SetChangesRequested" name="Set to Changes Requested" spiffworkflow:serviceType="apply_workflow" spiffworkflow:serviceTargetDoctype="Work Item" spiffworkflow:workflowState="Changes Requested" spiffworkflow:docStatus="0">
+      <bpmn:incoming>Flow_pr10</bpmn:incoming>
+      <bpmn:outgoing>Flow_pr11</bpmn:outgoing>
+    </bpmn:serviceTask>
+    <bpmn:intermediateCatchEvent id="Event_ChangesRequested" name="Changes Requested">
+      <bpmn:incoming>Flow_pr8</bpmn:incoming>
+      <bpmn:outgoing>Flow_pr10</bpmn:outgoing>
+      <bpmn:messageEventDefinition id="MessageEventDefinition_changes_requested" messageRef="github_pull_request_review_changes_requested">
+        <bpmn:extensionElements>
+          <spiffworkflow:messageVariable />
+        </bpmn:extensionElements>
+      </bpmn:messageEventDefinition>
+    </bpmn:intermediateCatchEvent>
+    <bpmn:exclusiveGateway id="Gateway_1vn3kz2">
+      <bpmn:incoming>Flow_pr7</bpmn:incoming>
+      <bpmn:incoming>Flow_pr11</bpmn:incoming>
+      <bpmn:outgoing>Flow_1o0mige</bpmn:outgoing>
+    </bpmn:exclusiveGateway>
+    <bpmn:eventBasedGateway id="Gateway_AwaitReview" name="Await PR Review Outcome">
+      <bpmn:incoming>Flow_1o0mige</bpmn:incoming>
+      <bpmn:outgoing>Flow_pr8</bpmn:outgoing>
+      <bpmn:outgoing>Flow_pr9</bpmn:outgoing>
+    </bpmn:eventBasedGateway>
+    <bpmn:exclusiveGateway id="Gateway_0rr26uc">
+      <bpmn:incoming>Flow_loopback</bpmn:incoming>
+      <bpmn:incoming>Flow_172trg2</bpmn:incoming>
+      <bpmn:outgoing>Flow_0gtuh7d</bpmn:outgoing>
+    </bpmn:exclusiveGateway>
+    <bpmn:exclusiveGateway id="Gateway_0lwjg1e">
+      <bpmn:incoming>Flow_resno</bpmn:incoming>
+      <bpmn:incoming>Flow_cr2da</bpmn:incoming>
+      <bpmn:outgoing>Flow_1gzfthn</bpmn:outgoing>
+    </bpmn:exclusiveGateway>
+    <bpmn:serviceTask id="Activity_0gedfgb" name="Set to In Staging" spiffworkflow:serviceType="apply_workflow" spiffworkflow:serviceTargetDoctype="Work Item" spiffworkflow:workflowState="In Staging" spiffworkflow:docStatus="0" spiffworkflow:onlyAllowEdit="Business Analyst">
+      <bpmn:incoming>Flow_0i70p9g</bpmn:incoming>
+      <bpmn:outgoing>Flow_1td9o9v</bpmn:outgoing>
+    </bpmn:serviceTask>
+    <bpmn:serviceTask id="Activity_0r0kec9" name="Notify Assignee to add AI Feedback" spiffworkflow:serviceType="send_email" spiffworkflow:emailAccount="Notifications" spiffworkflow:emailUseDoctype="true" spiffworkflow:emailDoctype="Work Item" spiffworkflow:emailSubject="[{{ doc.name }}] Action needed: add AI feedback &#38; metrics for {{ doc.title }}" spiffworkflow:emailToDocFields="assignee_user" spiffworkflow:emailBody="PHA+SGksPC9wPgo8cD5Zb3VyIHdvcmsgaXRlbSA8Yj57eyBkb2MubmFtZSB9fSDigJQge3sgZG9jLnRpdGxlIH19PC9iPiBoYXMgbW92ZWQgdG8gPGI+SW4gU3RhZ2luZzwvYj4uIEJlZm9yZSBpdCBjYW4gYmUgYWNjZXB0ZWQsIHBsZWFzZSBjb21wbGV0ZSB0aGUgZm9sbG93aW5nIGRldGFpbHMgb24gdGhlIHdvcmsgaXRlbTo8L3A+Cjx1bD4KICA8bGk+PGI+UGxhbm5pbmcgUHJvbXB0IENvdW50PC9iPiDigJQgbnVtYmVyIG9mIEFJIHByb21wdHMgdXNlZCB3aGlsZSBwbGFubmluZ3slIGlmIGRvYy5wbGFubmluZ19wcm9tcHRfY291bnQgJX0gKGN1cnJlbnRseSB7eyBkb2MucGxhbm5pbmdfcHJvbXB0X2NvdW50IH19KXslIGVuZGlmICV9PC9saT4KICA8bGk+PGI+RXhlY3V0aW9uIFByb21wdCBDb3VudDwvYj4g4oCUIG51bWJlciBvZiBBSSBwcm9tcHRzIHVzZWQgd2hpbGUgYnVpbGRpbmd7JSBpZiBkb2MuZXhlY3V0aW9uX3Byb21wdF9jb3VudCAlfSAoY3VycmVudGx5IHt7IGRvYy5leGVjdXRpb25fcHJvbXB0X2NvdW50IH19KXslIGVuZGlmICV9PC9saT4KICA8bGk+PGI+QUkgVG9vbHMgRmVlZGJhY2s8L2I+IOKAlCB5b3VyIG5vdGVzIG9uIGhvdyB0aGUgQUkgdG9vbHMgcGVyZm9ybWVkPC9saT4KICA8bGk+PGI+TGFiZWxzPC9iPiDigJQgdGFnIHRoZSB3b3JrIGl0ZW0gc28gaXQncyBlYXN5IHRvIGNhdGVnb3Jpc2UgYW5kIHJlcG9ydCBvbjwvbGk+CjwvdWw+CjxwPvCfkYkgT3BlbiB0aGUgd29yayBpdGVtIHRvIGZpbGwgdGhlc2UgaW46PC9wPgo8cD48YSBocmVmPSJ7eyBmcmFwcGUudXRpbHMuZ2V0X3VybF90b19mb3JtKCdXb3JrIEl0ZW0nLCBkb2MubmFtZSkgfX0iPnt7IGRvYy5uYW1lIH19IOKAlCB7eyBkb2MudGl0bGUgfX08L2E+PC9wPgo=">
+      <bpmn:incoming>Flow_06a8p9f</bpmn:incoming>
+      <bpmn:outgoing>Flow_172trg2</bpmn:outgoing>
+    </bpmn:serviceTask>
+    <bpmn:exclusiveGateway id="Gateway_0tjkyyu" name="AI Feedback Complete?">
+      <bpmn:incoming>Flow_valgw</bpmn:incoming>
+      <bpmn:outgoing>Flow_0i70p9g</bpmn:outgoing>
+      <bpmn:outgoing>Flow_loopback</bpmn:outgoing>
+    </bpmn:exclusiveGateway>
+    <bpmn:scriptTask id="Activity_ValidateAIFeedback" name="Validate AI Feedback" spiffworkflow:serverScript="Validate AI Feedback Complete">
+      <bpmn:incoming>Flow_addval</bpmn:incoming>
+      <bpmn:outgoing>Flow_valgw</bpmn:outgoing>
+      <bpmn:script>Validate AI Feedback Complete</bpmn:script>
+    </bpmn:scriptTask>
+    <bpmn:userTask id="Activity_AddAIFeedback" name="Add AI Feedback &#38; Labels" spiffworkflow:assigneeMode="DocField" spiffworkflow:targetDoctype="Work Item" spiffworkflow:assigneeDocfield="assignee_user" spiffworkflow:taskActions="[{&#34;action&#34;:&#34;Submit&#34;}]">
+      <bpmn:incoming>Flow_0gtuh7d</bpmn:incoming>
+      <bpmn:outgoing>Flow_addval</bpmn:outgoing>
+    </bpmn:userTask>
+    <bpmn:userTask id="Activity_07bfc70" name="Accept/Reject Work Item" spiffworkflow:assigneeMode="DocField" spiffworkflow:targetDoctype="Work Item" spiffworkflow:assigneeDocfield="reporter_user" spiffworkflow:taskActions="[{&#34;action&#34;:&#34;Accept&#34;},{&#34;action&#34;:&#34;Reject&#34;}]">
+      <bpmn:incoming>Flow_1td9o9v</bpmn:incoming>
+      <bpmn:outgoing>Flow_0ucb1kq</bpmn:outgoing>
+    </bpmn:userTask>
+    <bpmn:scriptTask id="Activity_CreateResearch" name="Create Technical Research" spiffworkflow:serverScript="Create Technical Research">
+      <bpmn:incoming>Flow_resyes</bpmn:incoming>
+      <bpmn:outgoing>Flow_cr2da</bpmn:outgoing>
+      <bpmn:script>Create Technical Research</bpmn:script>
+    </bpmn:scriptTask>
+    <bpmn:userTask id="Activity_0nkhtlh" name="Developer Actions Work Item" spiffworkflow:assigneeMode="DocField" spiffworkflow:targetDoctype="Work Item" spiffworkflow:assigneeDocfield="assignee_user" spiffworkflow:taskActions="[{&#34;action&#34;:&#34;Submit for Review&#34;}]">
+      <bpmn:incoming>Flow_1gzfthn</bpmn:incoming>
+      <bpmn:outgoing>Flow_1t5ikmy</bpmn:outgoing>
+    </bpmn:userTask>
+    <bpmn:exclusiveGateway id="Gateway_0wci09h" name="Is PR Required?">
+      <bpmn:incoming>Flow_0v29cpp</bpmn:incoming>
+      <bpmn:outgoing>Flow_14lk7fk</bpmn:outgoing>
+      <bpmn:outgoing>Flow_1dixumx</bpmn:outgoing>
+    </bpmn:exclusiveGateway>
+    <bpmn:serviceTask id="Activity_1yud977" name="Set to Rejected" spiffworkflow:serviceType="apply_workflow" spiffworkflow:serviceTargetDoctype="Work Item" spiffworkflow:workflowState="Rejected" spiffworkflow:docStatus="0" spiffworkflow:onlyAllowEdit="Business Analyst">
+      <bpmn:incoming>Flow_00ob2vw</bpmn:incoming>
+      <bpmn:outgoing>Flow_1tfww9r</bpmn:outgoing>
+    </bpmn:serviceTask>
+    <bpmn:exclusiveGateway id="Gateway_14hzrw9" name="Work Item Accepted?">
+      <bpmn:incoming>Flow_0ucb1kq</bpmn:incoming>
+      <bpmn:outgoing>Flow_1v5867o</bpmn:outgoing>
+      <bpmn:outgoing>Flow_00ob2vw</bpmn:outgoing>
+    </bpmn:exclusiveGateway>
+    <bpmn:serviceTask id="Activity_16skcsq" name="Set to Done" spiffworkflow:serviceType="apply_workflow" spiffworkflow:serviceTargetDoctype="Work Item" spiffworkflow:workflowState="Done" spiffworkflow:docStatus="0" spiffworkflow:onlyAllowEdit="Business Analyst">
+      <bpmn:incoming>Flow_1v5867o</bpmn:incoming>
+      <bpmn:outgoing>Flow_1oo3968</bpmn:outgoing>
+    </bpmn:serviceTask>
+    <bpmn:endEvent id="Event_07dhxl8" name="End">
+      <bpmn:incoming>Flow_1oo3968</bpmn:incoming>
+    </bpmn:endEvent>
+    <bpmn:scriptTask id="Activity_0oo9v96" name="Set PR Link" spiffworkflow:serverScript="Set PR Link">
+      <bpmn:incoming>Flow_pr2</bpmn:incoming>
+      <bpmn:outgoing>Flow_0rpk3az</bpmn:outgoing>
+      <bpmn:script>Set PR Link</bpmn:script>
+    </bpmn:scriptTask>
+    <bpmn:intermediateCatchEvent id="Event_PRMerged" name="PR Merged">
+      <bpmn:incoming>Flow_pr9</bpmn:incoming>
+      <bpmn:outgoing>Flow_02rjow8</bpmn:outgoing>
+      <bpmn:messageEventDefinition id="MessageEventDefinition_pr_merged" messageRef="github_pull_request_merged">
+        <bpmn:extensionElements>
+          <spiffworkflow:messageVariable />
+        </bpmn:extensionElements>
+      </bpmn:messageEventDefinition>
+    </bpmn:intermediateCatchEvent>
+    <bpmn:exclusiveGateway id="Gateway_ResearchReq" name="Research Required?">
+      <bpmn:incoming>Flow_14lk7fk</bpmn:incoming>
+      <bpmn:outgoing>Flow_resyes</bpmn:outgoing>
+      <bpmn:outgoing>Flow_resno</bpmn:outgoing>
+    </bpmn:exclusiveGateway>
+    <bpmn:exclusiveGateway id="Gateway_00y1f4e">
+      <bpmn:incoming>Flow_02rjow8</bpmn:incoming>
+      <bpmn:incoming>Flow_1t5ikmy</bpmn:incoming>
+      <bpmn:outgoing>Flow_06a8p9f</bpmn:outgoing>
+    </bpmn:exclusiveGateway>
+    <bpmn:serviceTask id="Activity_NotifyReviewer" name="Notify PR Reviewer" spiffworkflow:serviceType="send_email" spiffworkflow:emailAccount="Notifications" spiffworkflow:emailUseDoctype="true" spiffworkflow:emailDoctype="Work Item" spiffworkflow:emailSubject="PR Review Required" spiffworkflow:emailToDocFields="pr_reviewer_user" spiffworkflow:emailBody="PHA+SGksPC9wPgo8cD5Zb3UndmUgYmVlbiByZXF1ZXN0ZWQgdG8gcmV2aWV3IHRoZSBwdWxsIHJlcXVlc3QgZm9yIHRoaXMgd29yayBpdGVtLjwvcD4KPHRhYmxlIGNlbGxwYWRkaW5nPSI2IiBib3JkZXI9IjAiPgogIDx0cj48dGQ+PGI+V29yayBJdGVtPC9iPjwvdGQ+PHRkPnt7IGRvYy5uYW1lIH19IOKAlCB7eyBkb2MudGl0bGUgfX08L3RkPjwvdHI+CiAgPHRyPjx0ZD48Yj5UeXBlPC9iPjwvdGQ+PHRkPnt7IGRvYy53b3JrX2l0ZW1fdHlwZSB9fTwvdGQ+PC90cj4KICA8dHI+PHRkPjxiPlByaW9yaXR5PC9iPjwvdGQ+PHRkPnt7IGRvYy5wcmlvcml0eSB9fTwvdGQ+PC90cj4KICA8dHI+PHRkPjxiPkRldmVsb3BlcjwvYj48L3RkPjx0ZD57eyBkb2MuYXNzaWduZWVfdXNlciB9fTwvdGQ+PC90cj4KICA8dHI+PHRkPjxiPlNwcmludDwvYj48L3RkPjx0ZD57eyBkb2Muc3ByaW50IG9yICLigJQiIH19PC90ZD48L3RyPgogIDx0cj48dGQ+PGI+U3RvcnkgUG9pbnRzPC9iPjwvdGQ+PHRkPnt7IGRvYy5zdG9yeV9wb2ludHMgb3IgIuKAlCIgfX08L3RkPjwvdHI+CjwvdGFibGU+CnslIGlmIGRvYy5kZXNjcmlwdGlvbiAlfTxwPjxiPldoYXQgaXQgZG9lczwvYj48YnI+e3sgZG9jLmRlc2NyaXB0aW9uIH19PC9wPnslIGVuZGlmICV9CjxwPvCflJcgPGI+UHVsbCBSZXF1ZXN0OjwvYj4gPGEgaHJlZj0ie3sgZG9jLnByX2xpbmsgfX0iPnt7IGRvYy5wcl9saW5rIH19PC9hPjwvcD4KPHA+UmV2aWV3IHRoZSBQUiBvbiBHaXRIdWIsIHRoZW4gZWl0aGVyIDxiPnJlcXVlc3QgY2hhbmdlczwvYj4gb3IgPGI+bWVyZ2U8L2I+IGl0IOKAlCB0aGUgd29yayBpdGVtIHN0YXR1cyB1cGRhdGVzIGF1dG9tYXRpY2FsbHkgKENoYW5nZXMgUmVxdWVzdGVkIC8gSW4gU3RhZ2luZykuPC9wPgo8cD5Xb3JrIGl0ZW06IDxhIGhyZWY9Int7IGZyYXBwZS51dGlscy5nZXRfdXJsX3RvX2Zvcm0oJ1dvcmsgSXRlbScsIGRvYy5uYW1lKSB9fSI+e3sgZG9jLm5hbWUgfX08L2E+PC9wPgo=">
+      <bpmn:incoming>Flow_pr6</bpmn:incoming>
+      <bpmn:outgoing>Flow_pr7</bpmn:outgoing>
+    </bpmn:serviceTask>
+    <bpmn:serviceTask id="Activity_SetPendingReview" name="Set to Pending Review" spiffworkflow:serviceType="apply_workflow" spiffworkflow:serviceTargetDoctype="Work Item" spiffworkflow:workflowState="Pending Review" spiffworkflow:docStatus="0" spiffworkflow:onlyAllowEdit="Administrator">
+      <bpmn:incoming>Flow_pr5</bpmn:incoming>
+      <bpmn:outgoing>Flow_pr6</bpmn:outgoing>
+    </bpmn:serviceTask>
+    <bpmn:scriptTask id="Activity_UpdateReviewer" name="Resolve and Set PR Reviewer" spiffworkflow:serverScript="Set PR Reviewer">
+      <bpmn:incoming>Flow_pr4</bpmn:incoming>
+      <bpmn:outgoing>Flow_pr5</bpmn:outgoing>
+      <bpmn:script>Set PR Reviewer</bpmn:script>
+    </bpmn:scriptTask>
+    <bpmn:intermediateCatchEvent id="Event_ReviewerAssigned" name="Reviewer Assigned">
+      <bpmn:incoming>Flow_0rpk3az</bpmn:incoming>
+      <bpmn:outgoing>Flow_pr4</bpmn:outgoing>
+      <bpmn:messageEventDefinition id="MessageEventDefinition_pr_review_requested" messageRef="github_pull_request_review_requested">
+        <bpmn:extensionElements>
+          <spiffworkflow:messageVariable>payload</spiffworkflow:messageVariable>
+        </bpmn:extensionElements>
+      </bpmn:messageEventDefinition>
+    </bpmn:intermediateCatchEvent>
+    <bpmn:serviceTask id="Activity_SetPRCreated" name="Set to PR Created" spiffworkflow:serviceType="apply_workflow" spiffworkflow:serviceTargetDoctype="Work Item" spiffworkflow:workflowState="PR Created" spiffworkflow:docStatus="0" spiffworkflow:onlyAllowEdit="Administrator">
+      <bpmn:incoming>Flow_pr1</bpmn:incoming>
+      <bpmn:outgoing>Flow_pr2</bpmn:outgoing>
+    </bpmn:serviceTask>
+    <bpmn:intermediateCatchEvent id="Event_PRCreated" name="PR Created">
+      <bpmn:incoming>Flow_1dixumx</bpmn:incoming>
+      <bpmn:outgoing>Flow_pr1</bpmn:outgoing>
+      <bpmn:messageEventDefinition id="MessageEventDefinition_pr_opened" messageRef="github_pull_request_opened">
+        <bpmn:extensionElements>
+          <spiffworkflow:messageVariable>payload</spiffworkflow:messageVariable>
+        </bpmn:extensionElements>
+      </bpmn:messageEventDefinition>
+    </bpmn:intermediateCatchEvent>
+    <bpmn:serviceTask id="Activity_0orelyy" name="Set to In Progress" spiffworkflow:serviceType="apply_workflow" spiffworkflow:serviceTargetDoctype="Work Item" spiffworkflow:workflowState="In Progress" spiffworkflow:docStatus="0" spiffworkflow:onlyAllowEdit="Developer">
+      <bpmn:incoming>Flow_0f0657w</bpmn:incoming>
+      <bpmn:incoming>Flow_orchestrator_done</bpmn:incoming>
+      <bpmn:outgoing>Flow_0v29cpp</bpmn:outgoing>
+    </bpmn:serviceTask>
+    <bpmn:exclusiveGateway id="Gateway_053uf9v">
+      <bpmn:incoming>Flow_10faefd</bpmn:incoming>
+      <bpmn:incoming>Flow_1tfww9r</bpmn:incoming>
+      <bpmn:outgoing>Flow_124hadj</bpmn:outgoing>
+    </bpmn:exclusiveGateway>
+    <bpmn:userTask id="Activity_1ssi9r3" name="Start Work" spiffworkflow:assigneeMode="DocField" spiffworkflow:targetDoctype="Work Item" spiffworkflow:assigneeDocfield="assignee_user" spiffworkflow:taskActions="[{&#34;action&#34;:&#34;Start Work&#34;}]">
+      <bpmn:incoming>Flow_124hadj</bpmn:incoming>
+      <bpmn:outgoing>Flow_0f0657w</bpmn:outgoing>
+    </bpmn:userTask>
+    <bpmn:serviceTask id="Activity_06wvx4o" name="Notify Assignee" spiffworkflow:serviceType="send_email" spiffworkflow:emailAccount="Notifications" spiffworkflow:emailUseDoctype="true" spiffworkflow:emailDoctype="Work Item" spiffworkflow:emailSubject="[{{ doc.name }}] Assigned to you: {{ doc.title }} ({{ doc.priority }} priority)" spiffworkflow:emailToDocFields="assignee_user" spiffworkflow:emailBody="PHA+SGksPC9wPgo8cD5BIHdvcmsgaXRlbSBoYXMgYmVlbiBhc3NpZ25lZCB0byB5b3UgYW5kIGlzIHJlYWR5IHRvIHN0YXJ0LjwvcD4KPHRhYmxlIGNlbGxwYWRkaW5nPSI2IiBib3JkZXI9IjAiPgogIDx0cj48dGQ+PGI+V29yayBJdGVtPC9iPjwvdGQ+PHRkPnt7IGRvYy5uYW1lIH19IOKAlCB7eyBkb2MudGl0bGUgfX08L3RkPjwvdHI+CiAgPHRyPjx0ZD48Yj5UeXBlPC9iPjwvdGQ+PHRkPnt7IGRvYy53b3JrX2l0ZW1fdHlwZSB9fTwvdGQ+PC90cj4KICA8dHI+PHRkPjxiPlByaW9yaXR5PC9iPjwvdGQ+PHRkPnt7IGRvYy5wcmlvcml0eSB9fTwvdGQ+PC90cj4KICA8dHI+PHRkPjxiPlNwcmludDwvYj48L3RkPjx0ZD57eyBkb2Muc3ByaW50IG9yICLigJQiIH19ICh7eyBkb2Muc3ByaW50X3N0YXR1cyBvciAi4oCUIiB9fSk8L3RkPjwvdHI+CiAgPHRyPjx0ZD48Yj5TdG9yeSBQb2ludHM8L2I+PC90ZD48dGQ+e3sgZG9jLnN0b3J5X3BvaW50cyBvciAi4oCUIiB9fTwvdGQ+PC90cj4KICB7JSBpZiBkb2MuZXBpYyAlfTx0cj48dGQ+PGI+RXBpYzwvYj48L3RkPjx0ZD57eyBkb2Muc21hbGxfdGV4dF95ZWN2IG9yIGRvYy5lcGljIH19PC90ZD48L3RyPnslIGVuZGlmICV9CiAgPHRyPjx0ZD48Yj5SZXBvcnRlZCBCeTwvYj48L3RkPjx0ZD57eyBkb2MucmVwb3J0ZXJfdXNlciB9fTwvdGQ+PC90cj4KICA8dHI+PHRkPjxiPlBSIFJlcXVpcmVkPC9iPjwvdGQ+PHRkPnt7ICJZZXMiIGlmIGRvYy5wcl9yZXF1aXJlZCBlbHNlICJObyIgfX08L3RkPjwvdHI+CiAgPHRyPjx0ZD48Yj5SZXNlYXJjaCBSZXF1aXJlZDwvYj48L3RkPjx0ZD57eyAiWWVzIiBpZiBkb2MucmVzZWFyY2hfcmVxdWlyZWQgZWxzZSAiTm8iIH19PC90ZD48L3RyPgo8L3RhYmxlPgp7JSBpZiBkb2MuZGVzY3JpcHRpb24gJX08cD48Yj5EZXNjcmlwdGlvbjwvYj48YnI+e3sgZG9jLmRlc2NyaXB0aW9uIH19PC9wPnslIGVuZGlmICV9CjxwPvCfkYkgT3BlbiB0aGUgd29yayBpdGVtIGFuZCBjbGljayA8Yj5TdGFydCBXb3JrPC9iPiB0byBiZWdpbjo8L3A+CjxwPjxhIGhyZWY9Int7IGZyYXBwZS51dGlscy5nZXRfdXJsX3RvX2Zvcm0oJ1dvcmsgSXRlbScsIGRvYy5uYW1lKSB9fSI+e3sgZG9jLm5hbWUgfX0g4oCUIHt7IGRvYy50aXRsZSB9fTwvYT48L3A+Cg==">
+      <bpmn:incoming>Flow_0c3kfxr</bpmn:incoming>
+      <bpmn:outgoing>Flow_10faefd</bpmn:outgoing>
+    </bpmn:serviceTask>
+    <bpmn:serviceTask id="Activity_1o5asop" name="Set to Open" spiffworkflow:serviceType="apply_workflow" spiffworkflow:serviceTargetDoctype="Work Item" spiffworkflow:workflowState="Open" spiffworkflow:docStatus="0" spiffworkflow:onlyAllowEdit="Developer">
+      <bpmn:incoming>Flow_0qyremx</bpmn:incoming>
+      <bpmn:outgoing>Flow_0c3kfxr</bpmn:outgoing>
+    </bpmn:serviceTask>
+    <bpmn:scriptTask id="Activity_0qrcv9r" name="Show Assignee Error Message" spiffworkflow:serverScript="Validate Assignee User">
+      <bpmn:incoming>Flow_14pl2cr</bpmn:incoming>
+      <bpmn:outgoing>Flow_06d4q5r</bpmn:outgoing>
+      <bpmn:script>Validate Assignee User</bpmn:script>
+    </bpmn:scriptTask>
+    <bpmn:exclusiveGateway id="Gateway_14xa5ui" name="Assignee Set?">
+      <bpmn:incoming>Flow_0q801d5</bpmn:incoming>
+      <bpmn:outgoing>Flow_14pl2cr</bpmn:outgoing>
+      <bpmn:outgoing>Flow_0qyremx</bpmn:outgoing>
+    </bpmn:exclusiveGateway>
+    <bpmn:exclusiveGateway id="Gateway_107uysm" name="Orchestrator?">
+      <bpmn:documentation>A Work Item flagged for the orchestrator is never handed to a person: WorkItem.before_save() clears its assignee, so it would fail the Assignee Set? check downstream and loop on the assignment task forever. The split therefore happens here, before assignment, and the human path past it is unchanged.</bpmn:documentation>
+      <bpmn:incoming>Flow_06d4q5r</bpmn:incoming>
+      <bpmn:incoming>Flow_1tlnvwh</bpmn:incoming>
+      <bpmn:outgoing>Flow_orchestrator_yes</bpmn:outgoing>
+      <bpmn:outgoing>Flow_1mmdtcb</bpmn:outgoing>
+    </bpmn:exclusiveGateway>
+    <bpmn:userTask id="Activity_13ob1pd" name="Assign Work Item to Developer" spiffworkflow:assigneeMode="DocField" spiffworkflow:targetDoctype="Work Item" spiffworkflow:assigneeDocfield="reporter_user" spiffworkflow:taskActions="[{&#34;action&#34;:&#34;Confirm&#34;}]">
+      <bpmn:incoming>Flow_1mmdtcb</bpmn:incoming>
+      <bpmn:outgoing>Flow_0q801d5</bpmn:outgoing>
+    </bpmn:userTask>
+    <bpmn:serviceTask id="Activity_16jx8nk" name="Set to Draft" spiffworkflow:serviceType="apply_workflow" spiffworkflow:serviceTargetDoctype="Work Item" spiffworkflow:workflowState="Draft" spiffworkflow:docStatus="0" spiffworkflow:onlyAllowEdit="Business Analyst">
+      <bpmn:incoming>Flow_00pu6v1</bpmn:incoming>
+      <bpmn:outgoing>Flow_1tlnvwh</bpmn:outgoing>
+    </bpmn:serviceTask>
+    <bpmn:startEvent id="Event_0x89y7q" name="Work Item Created">
+      <bpmn:outgoing>Flow_00pu6v1</bpmn:outgoing>
+      <bpmn:conditionalEventDefinition id="ConditionalEventDefinition_1su1jjn" spiffworkflow:triggerDoctype="Work Item" spiffworkflow:triggerType="After Insert">
+        <bpmn:condition>docstatus==0</bpmn:condition>
+      </bpmn:conditionalEventDefinition>
+    </bpmn:startEvent>
+  </bpmn:process>
+  <bpmndi:BPMNDiagram id="BPMNDiagram_1">
+    <bpmndi:BPMNPlane id="BPMNPlane_1" bpmnElement="Collaboration_0tzesbt">
+      <bpmndi:BPMNShape id="Participant_05hfqp5_di" bpmnElement="Participant_05hfqp5" isHorizontal="true">
+        <dc:Bounds x="-2250" y="1690" width="3290" height="1057" />
+        <bpmndi:BPMNLabel />
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Lane_0g5w504_di" bpmnElement="Lane_0g5w504" isHorizontal="true">
+        <dc:Bounds x="-2220" y="2337" width="3260" height="410" />
+        <bpmndi:BPMNLabel />
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Lane_1bw9fqv_di" bpmnElement="Lane_1bw9fqv" isHorizontal="true">
+        <dc:Bounds x="-2220" y="1690" width="3260" height="647" />
+        <bpmndi:BPMNLabel />
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="BPMNShape_SetChangesRequested" bpmnElement="Activity_SetChangesRequested">
+        <dc:Bounds x="-622" y="1810" width="100" height="80" />
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="BPMNShape_ChangesRequested" bpmnElement="Event_ChangesRequested">
+        <dc:Bounds x="-590" y="1932" width="36" height="36" />
+        <bpmndi:BPMNLabel>
+          <dc:Bounds x="-543" y="1936" width="52" height="27" />
+        </bpmndi:BPMNLabel>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Gateway_1vn3kz2_di" bpmnElement="Gateway_1vn3kz2" isMarkerVisible="true">
+        <dc:Bounds x="-685" y="2045" width="50" height="50" />
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="BPMNShape_AwaitReview" bpmnElement="Gateway_AwaitReview">
+        <dc:Bounds x="-597" y="2045" width="50" height="50" />
+        <bpmndi:BPMNLabel>
+          <dc:Bounds x="-557" y="2036" width="80" height="27" />
+        </bpmndi:BPMNLabel>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Gateway_0rr26uc_di" bpmnElement="Gateway_0rr26uc" isMarkerVisible="true">
+        <dc:Bounds x="-415" y="2015" width="50" height="50" />
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Gateway_0lwjg1e_di" bpmnElement="Gateway_0lwjg1e" isMarkerVisible="true">
+        <dc:Bounds x="-1145" y="2245" width="50" height="50" />
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="BPMNShape_1l4g9qs" bpmnElement="Activity_0gedfgb">
+        <dc:Bounds x="40" y="2142" width="100" height="80" />
+        <bpmndi:BPMNLabel />
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Activity_0xs4aig_di" bpmnElement="Activity_0r0kec9">
+        <dc:Bounds x="-330" y="2150" width="100" height="80" />
+        <bpmndi:BPMNLabel />
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Gateway_0tjkyyu_di" bpmnElement="Gateway_0tjkyyu" isMarkerVisible="true">
+        <dc:Bounds x="-85" y="2157" width="50" height="50" />
+        <bpmndi:BPMNLabel>
+          <dc:Bounds x="-90" y="2207" width="60" height="27" />
+        </bpmndi:BPMNLabel>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Activity_ValidateAIFeedback_di" bpmnElement="Activity_ValidateAIFeedback">
+        <dc:Bounds x="-180" y="2000" width="100" height="80" />
+        <bpmndi:BPMNLabel />
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Activity_AddAIFeedback_di" bpmnElement="Activity_AddAIFeedback">
+        <dc:Bounds x="-330" y="2000" width="100" height="80" />
+        <bpmndi:BPMNLabel />
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="BPMNShape_1fdonde" bpmnElement="Activity_07bfc70">
+        <dc:Bounds x="210" y="2142" width="100" height="80" />
+        <bpmndi:BPMNLabel />
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Activity_CreateResearch_di" bpmnElement="Activity_CreateResearch">
+        <dc:Bounds x="-1290" y="2140" width="100" height="80" />
+        <bpmndi:BPMNLabel />
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Activity_06j6eqf_di" bpmnElement="Activity_0nkhtlh">
+        <dc:Bounds x="-1060" y="2230" width="100" height="80" />
+        <bpmndi:BPMNLabel />
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="BPMNShape_0be26jw" bpmnElement="Gateway_0wci09h" isMarkerVisible="true">
+        <dc:Bounds x="-1665" y="2175" width="50" height="50" />
+        <bpmndi:BPMNLabel>
+          <dc:Bounds x="-1750" y="2193" width="75" height="14" />
+        </bpmndi:BPMNLabel>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="BPMNShape_0pewyvn" bpmnElement="Activity_1yud977">
+        <dc:Bounds x="340" y="2010" width="100" height="80" />
+        <bpmndi:BPMNLabel />
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="BPMNShape_0jnfc1j" bpmnElement="Gateway_14hzrw9" isMarkerVisible="true">
+        <dc:Bounds x="365" y="2157" width="50" height="50" />
+        <bpmndi:BPMNLabel>
+          <dc:Bounds x="365" y="2214" width="51" height="27" />
+        </bpmndi:BPMNLabel>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="BPMNShape_1xl0xif" bpmnElement="Activity_16skcsq">
+        <dc:Bounds x="770" y="2142" width="100" height="80" />
+        <bpmndi:BPMNLabel />
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="BPMNShape_1n0c13r" bpmnElement="Event_07dhxl8">
+        <dc:Bounds x="952" y="2164" width="36" height="36" />
+        <bpmndi:BPMNLabel>
+          <dc:Bounds x="961" y="2215" width="19" height="14" />
+        </bpmndi:BPMNLabel>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Activity_197h3ss_di" bpmnElement="Activity_0oo9v96">
+        <dc:Bounds x="-1340" y="2030" width="100" height="80" />
+        <bpmndi:BPMNLabel />
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="BPMNShape_PRMerged" bpmnElement="Event_PRMerged">
+        <dc:Bounds x="-590" y="2172" width="36" height="36" />
+        <bpmndi:BPMNLabel>
+          <dc:Bounds x="-599" y="2215" width="54" height="14" />
+        </bpmndi:BPMNLabel>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Gateway_ResearchReq_di" bpmnElement="Gateway_ResearchReq" isMarkerVisible="true">
+        <dc:Bounds x="-1480" y="2245" width="50" height="50" />
+        <bpmndi:BPMNLabel>
+          <dc:Bounds x="-1529" y="2296" width="49" height="27" />
+        </bpmndi:BPMNLabel>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="BPMNShape_1nhmovx" bpmnElement="Gateway_00y1f4e" isMarkerVisible="true">
+        <dc:Bounds x="-465" y="2165" width="50" height="50" />
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="BPMNShape_NotifyReviewer" bpmnElement="Activity_NotifyReviewer">
+        <dc:Bounds x="-830" y="2030" width="100" height="80" />
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="BPMNShape_SetPendingReview" bpmnElement="Activity_SetPendingReview">
+        <dc:Bounds x="-980" y="2030" width="100" height="80" />
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="BPMNShape_UpdateReviewer" bpmnElement="Activity_UpdateReviewer">
+        <dc:Bounds x="-1130" y="2030" width="100" height="80" />
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="BPMNShape_ReviewerAssigned" bpmnElement="Event_ReviewerAssigned">
+        <dc:Bounds x="-1200" y="2052" width="36" height="36" />
+        <bpmndi:BPMNLabel>
+          <dc:Bounds x="-1204" y="2095" width="45" height="27" />
+        </bpmndi:BPMNLabel>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="BPMNShape_SetPRCreated" bpmnElement="Activity_SetPRCreated">
+        <dc:Bounds x="-1490" y="2030" width="100" height="80" />
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="BPMNShape_PRCreated" bpmnElement="Event_PRCreated">
+        <dc:Bounds x="-1560" y="2052" width="36" height="36" />
+        <bpmndi:BPMNLabel>
+          <dc:Bounds x="-1569" y="2028" width="54" height="14" />
+        </bpmndi:BPMNLabel>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="BPMNShape_13oc2yd" bpmnElement="Activity_0orelyy">
+        <dc:Bounds x="-1800" y="2077" width="100" height="80" />
+        <bpmndi:BPMNLabel />
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="BPMNShape_1uey4ch" bpmnElement="Gateway_053uf9v" isMarkerVisible="true">
+        <dc:Bounds x="-2115" y="2092" width="50" height="50" />
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="BPMNShape_07om5op" bpmnElement="Activity_1ssi9r3">
+        <dc:Bounds x="-2020" y="2077" width="100" height="80" />
+        <bpmndi:BPMNLabel />
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="BPMNShape_082ya9v" bpmnElement="Activity_06wvx4o">
+        <dc:Bounds x="-1260" y="2467" width="100" height="80" />
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="BPMNShape_1ppi0qo" bpmnElement="Activity_1o5asop">
+        <dc:Bounds x="-1460" y="2467" width="100" height="80" />
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="BPMNShape_1hdadbp" bpmnElement="Activity_0qrcv9r">
+        <dc:Bounds x="-1770" y="2567" width="100" height="80" />
+        <bpmndi:BPMNLabel />
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="BPMNShape_02xxk3v" bpmnElement="Gateway_14xa5ui" isMarkerVisible="true">
+        <dc:Bounds x="-1600" y="2482" width="50" height="50" />
+        <bpmndi:BPMNLabel>
+          <dc:Bounds x="-1609" y="2458" width="67" height="14" />
+        </bpmndi:BPMNLabel>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="BPMNShape_1xae6uf" bpmnElement="Gateway_107uysm" isMarkerVisible="true">
+        <dc:Bounds x="-1875" y="2482" width="50" height="50" />
+        <bpmndi:BPMNLabel>
+          <dc:Bounds x="-1932" y="2492" width="72" height="14" />
+        </bpmndi:BPMNLabel>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="BPMNShape_orchestrator" bpmnElement="Activity_orchestrator">
+        <dc:Bounds x="-1900" y="2220" width="100" height="80" />
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="BPMNShape_1mru067" bpmnElement="Activity_13ob1pd">
+        <dc:Bounds x="-1770" y="2467" width="100" height="80" />
+        <bpmndi:BPMNLabel />
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="BPMNShape_1mcfs2n" bpmnElement="Activity_16jx8nk">
+        <dc:Bounds x="-2070" y="2467" width="100" height="80" />
+        <bpmndi:BPMNLabel />
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="BPMNShape_0kv1r46" bpmnElement="Event_0x89y7q">
+        <dc:Bounds x="-2168" y="2489" width="36" height="36" />
+        <bpmndi:BPMNLabel>
+          <dc:Bounds x="-2174" y="2535" width="51" height="27" />
+        </bpmndi:BPMNLabel>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNEdge id="Flow_pr10_di" bpmnElement="Flow_pr10">
+        <di:waypoint x="-572" y="1932" />
+        <di:waypoint x="-572" y="1890" />
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Flow_pr11_di" bpmnElement="Flow_pr11">
+        <di:waypoint x="-622" y="1850" />
+        <di:waypoint x="-660" y="1850" />
+        <di:waypoint x="-660" y="2045" />
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Flow_pr8_di" bpmnElement="Flow_pr8">
+        <di:waypoint x="-572" y="2045" />
+        <di:waypoint x="-572" y="1968" />
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Flow_1o0mige_di" bpmnElement="Flow_1o0mige">
+        <di:waypoint x="-635" y="2070" />
+        <di:waypoint x="-597" y="2070" />
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Flow_172trg2_di" bpmnElement="Flow_172trg2">
+        <di:waypoint x="-280" y="2150" />
+        <di:waypoint x="-280" y="2120" />
+        <di:waypoint x="-390" y="2120" />
+        <di:waypoint x="-390" y="2065" />
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Flow_loopback_di" bpmnElement="Flow_loopback">
+        <di:waypoint x="-60" y="2157" />
+        <di:waypoint x="-60" y="1950" />
+        <di:waypoint x="-390" y="1950" />
+        <di:waypoint x="-390" y="2015" />
+        <bpmndi:BPMNLabel>
+          <dc:Bounds x="-48" y="2113" width="15" height="14" />
+        </bpmndi:BPMNLabel>
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Flow_0i70p9g_di" bpmnElement="Flow_0i70p9g">
+        <di:waypoint x="-35" y="2182" />
+        <di:waypoint x="40" y="2182" />
+        <bpmndi:BPMNLabel>
+          <dc:Bounds x="-28" y="2162" width="16" height="14" />
+        </bpmndi:BPMNLabel>
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Flow_valgw_di" bpmnElement="Flow_valgw">
+        <di:waypoint x="-130" y="2080" />
+        <di:waypoint x="-130" y="2182" />
+        <di:waypoint x="-85" y="2182" />
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Flow_addval_di" bpmnElement="Flow_addval">
+        <di:waypoint x="-230" y="2040" />
+        <di:waypoint x="-180" y="2040" />
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Flow_0gtuh7d_di" bpmnElement="Flow_0gtuh7d">
+        <di:waypoint x="-365" y="2040" />
+        <di:waypoint x="-330" y="2040" />
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Flow_1td9o9v_di" bpmnElement="Flow_1td9o9v">
+        <di:waypoint x="140" y="2182" />
+        <di:waypoint x="210" y="2182" />
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Flow_cr2da_di" bpmnElement="Flow_cr2da">
+        <di:waypoint x="-1190" y="2180" />
+        <di:waypoint x="-1120" y="2180" />
+        <di:waypoint x="-1120" y="2245" />
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Flow_1gzfthn_di" bpmnElement="Flow_1gzfthn">
+        <di:waypoint x="-1095" y="2270" />
+        <di:waypoint x="-1060" y="2270" />
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="BPMNEdge_0otb6uw" bpmnElement="Flow_00ob2vw">
+        <di:waypoint x="390" y="2157" />
+        <di:waypoint x="390" y="2090" />
+        <bpmndi:BPMNLabel>
+          <dc:Bounds x="337" y="2123" width="48" height="14" />
+        </bpmndi:BPMNLabel>
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Flow_0ucb1kq_di" bpmnElement="Flow_0ucb1kq">
+        <di:waypoint x="310" y="2182" />
+        <di:waypoint x="365" y="2182" />
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="BPMNEdge_1qo7d2w" bpmnElement="Flow_1v5867o">
+        <di:waypoint x="415" y="2182" />
+        <di:waypoint x="770" y="2182" />
+        <bpmndi:BPMNLabel>
+          <dc:Bounds x="440" y="2162" width="46" height="14" />
+        </bpmndi:BPMNLabel>
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="BPMNEdge_0m8no1l" bpmnElement="Flow_1oo3968">
+        <di:waypoint x="870" y="2182" />
+        <di:waypoint x="952" y="2182" />
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Flow_pr9_di" bpmnElement="Flow_pr9">
+        <di:waypoint x="-572" y="2095" />
+        <di:waypoint x="-572" y="2172" />
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Flow_resno_di" bpmnElement="Flow_resno">
+        <di:waypoint x="-1430" y="2270" />
+        <di:waypoint x="-1145" y="2270" />
+        <bpmndi:BPMNLabel>
+          <dc:Bounds x="-1265" y="2252" width="15" height="14" />
+        </bpmndi:BPMNLabel>
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Flow_resyes_di" bpmnElement="Flow_resyes">
+        <di:waypoint x="-1455" y="2245" />
+        <di:waypoint x="-1455" y="2180" />
+        <di:waypoint x="-1290" y="2180" />
+        <bpmndi:BPMNLabel>
+          <dc:Bounds x="-1397" y="2189" width="16" height="14" />
+        </bpmndi:BPMNLabel>
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="BPMNEdge_12gjgbu" bpmnElement="Flow_14lk7fk">
+        <di:waypoint x="-1640" y="2225" />
+        <di:waypoint x="-1640" y="2270" />
+        <di:waypoint x="-1480" y="2270" />
+        <bpmndi:BPMNLabel>
+          <dc:Bounds x="-1610" y="2252" width="77" height="14" />
+        </bpmndi:BPMNLabel>
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Flow_06a8p9f_di" bpmnElement="Flow_06a8p9f">
+        <di:waypoint x="-415" y="2190" />
+        <di:waypoint x="-330" y="2190" />
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Flow_1t5ikmy_di" bpmnElement="Flow_1t5ikmy">
+        <di:waypoint x="-960" y="2270" />
+        <di:waypoint x="-440" y="2270" />
+        <di:waypoint x="-440" y="2215" />
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="BPMNEdge_08tdanh" bpmnElement="Flow_02rjow8">
+        <di:waypoint x="-554" y="2190" />
+        <di:waypoint x="-465" y="2190" />
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Flow_pr7_di" bpmnElement="Flow_pr7">
+        <di:waypoint x="-730" y="2070" />
+        <di:waypoint x="-685" y="2070" />
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Flow_pr6_di" bpmnElement="Flow_pr6">
+        <di:waypoint x="-880" y="2070" />
+        <di:waypoint x="-830" y="2070" />
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Flow_pr5_di" bpmnElement="Flow_pr5">
+        <di:waypoint x="-1030" y="2070" />
+        <di:waypoint x="-980" y="2070" />
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Flow_pr4_di" bpmnElement="Flow_pr4">
+        <di:waypoint x="-1164" y="2070" />
+        <di:waypoint x="-1130" y="2070" />
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Flow_0rpk3az_di" bpmnElement="Flow_0rpk3az">
+        <di:waypoint x="-1240" y="2070" />
+        <di:waypoint x="-1200" y="2070" />
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Flow_pr2_di" bpmnElement="Flow_pr2">
+        <di:waypoint x="-1390" y="2070" />
+        <di:waypoint x="-1340" y="2070" />
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Flow_pr1_di" bpmnElement="Flow_pr1">
+        <di:waypoint x="-1524" y="2070" />
+        <di:waypoint x="-1490" y="2070" />
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="BPMNEdge_1ltp968" bpmnElement="Flow_1dixumx">
+        <di:waypoint x="-1615" y="2200" />
+        <di:waypoint x="-1542" y="2200" />
+        <di:waypoint x="-1542" y="2088" />
+        <bpmndi:BPMNLabel>
+          <dc:Bounds x="-1530" y="2165" width="60" height="14" />
+        </bpmndi:BPMNLabel>
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Flow_0v29cpp_di" bpmnElement="Flow_0v29cpp">
+        <di:waypoint x="-1700" y="2117" />
+        <di:waypoint x="-1640" y="2117" />
+        <di:waypoint x="-1640" y="2175" />
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Flow_1tfww9r_di" bpmnElement="Flow_1tfww9r">
+        <di:waypoint x="390" y="2010" />
+        <di:waypoint x="390" y="1740" />
+        <di:waypoint x="-2090" y="1740" />
+        <di:waypoint x="-2090" y="2092" />
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Flow_0f0657w_di" bpmnElement="Flow_0f0657w">
+        <di:waypoint x="-1920" y="2117" />
+        <di:waypoint x="-1800" y="2117" />
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="BPMNEdge_13eg1jd" bpmnElement="Flow_124hadj">
+        <di:waypoint x="-2065" y="2117" />
+        <di:waypoint x="-2020" y="2117" />
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Flow_10faefd_di" bpmnElement="Flow_10faefd">
+        <di:waypoint x="-1210" y="2467" />
+        <di:waypoint x="-1210" y="2417" />
+        <di:waypoint x="-2090" y="2417" />
+        <di:waypoint x="-2090" y="2142" />
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="BPMNEdge_15sda4g" bpmnElement="Flow_0c3kfxr">
+        <di:waypoint x="-1360" y="2507" />
+        <di:waypoint x="-1260" y="2507" />
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Flow_0qyremx_di" bpmnElement="Flow_0qyremx">
+        <di:waypoint x="-1550" y="2507" />
+        <di:waypoint x="-1460" y="2507" />
+        <bpmndi:BPMNLabel>
+          <dc:Bounds x="-1513" y="2489" width="16" height="14" />
+        </bpmndi:BPMNLabel>
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="BPMNEdge_0mf11ms" bpmnElement="Flow_14pl2cr">
+        <di:waypoint x="-1575" y="2532" />
+        <di:waypoint x="-1575" y="2607" />
+        <di:waypoint x="-1670" y="2607" />
+        <bpmndi:BPMNLabel>
+          <dc:Bounds x="-1562" y="2565" width="15" height="14" />
+        </bpmndi:BPMNLabel>
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="BPMNEdge_0f4l7ue" bpmnElement="Flow_06d4q5r">
+        <di:waypoint x="-1770" y="2607" />
+        <di:waypoint x="-1850" y="2607" />
+        <di:waypoint x="-1850" y="2532" />
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="BPMNEdge_0pcvr5k" bpmnElement="Flow_0q801d5">
+        <di:waypoint x="-1670" y="2507" />
+        <di:waypoint x="-1600" y="2507" />
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="BPMNEdge_0c1b6go" bpmnElement="Flow_1mmdtcb">
+        <di:waypoint x="-1825" y="2507" />
+        <di:waypoint x="-1770" y="2507" />
+        <bpmndi:BPMNLabel>
+          <dc:Bounds x="-1806" y="2489" width="15" height="14" />
+        </bpmndi:BPMNLabel>
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="BPMNEdge_orchestrator_yes" bpmnElement="Flow_orchestrator_yes">
+        <di:waypoint x="-1850" y="2482" />
+        <di:waypoint x="-1850" y="2300" />
+        <bpmndi:BPMNLabel>
+          <dc:Bounds x="-1843" y="2384" width="19" height="14" />
+        </bpmndi:BPMNLabel>
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="BPMNEdge_orchestrator_done" bpmnElement="Flow_orchestrator_done">
+        <di:waypoint x="-1850" y="2220" />
+        <di:waypoint x="-1850" y="2190" />
+        <di:waypoint x="-1750" y="2190" />
+        <di:waypoint x="-1750" y="2157" />
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Flow_1tlnvwh_di" bpmnElement="Flow_1tlnvwh">
+        <di:waypoint x="-1970" y="2507" />
+        <di:waypoint x="-1875" y="2507" />
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Flow_00pu6v1_di" bpmnElement="Flow_00pu6v1">
+        <di:waypoint x="-2132" y="2507" />
+        <di:waypoint x="-2070" y="2507" />
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNShape id="TextAnnotation_1pk68jl_di" bpmnElement="TextAnnotation_1pk68jl">
+        <dc:Bounds x="-679.7566371681417" y="2574.5442477876104" width="150" height="120" />
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="TextAnnotation_14iykag_di" bpmnElement="TextAnnotation_14iykag">
+        <dc:Bounds x="-679.7566371681417" y="2574.5442477876104" width="150" height="120" />
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="TextAnnotation_1j9k8cn_di" bpmnElement="TextAnnotation_1j9k8cn">
+        <dc:Bounds x="-679.7566371681417" y="2574.5442477876104" width="150" height="120" />
+      </bpmndi:BPMNShape>
+    </bpmndi:BPMNPlane>
+  </bpmndi:BPMNDiagram>
+</bpmn:definitions>
