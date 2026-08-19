@@ -517,3 +517,26 @@ def _cast_constant(value: str, const_type: str):
 	elif const_type == "Boolean":
 		return value.lower() in ("1", "true", "yes")
 	return value
+
+
+def _load_json_constant(config: dict, key: str, default: list) -> list:
+	"""Read a JSON-array constant off a resolved agent config, or *default*.
+
+	Constants are stored as strings, so a list-valued one (keyword sets, tool
+	exclusions, trigger phrases) has to be parsed. Every failure mode — no
+	config, no such constant, unparseable JSON, or JSON that is not a list —
+	returns *default*, because a configuration typo must degrade the agent's
+	behaviour to its built-in defaults rather than break the turn.
+	"""
+	import json
+
+	if not config:
+		return default
+	val = (config.get("constants") or {}).get(key)
+	if not val:
+		return default
+	try:
+		parsed = json.loads(val) if isinstance(val, str) else val
+	except (json.JSONDecodeError, TypeError, ValueError):
+		return default
+	return parsed if isinstance(parsed, list) else default
