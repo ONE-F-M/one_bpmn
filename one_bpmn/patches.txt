@@ -92,4 +92,5 @@ one_bpmn.one_bpmn.patches.v1_0.seed_a2a_connector #13-08-2026 WI-001933 one gene
 one_bpmn.one_bpmn.patches.v1_0.label_adversarial_case_kinds #17-08-2026 both rate denominators need labels; attack cases predating case_kind get them
 one_bpmn.one_bpmn.patches.v1_0.widen_instruction_override_pattern #17-08-2026 "ignore YOUR previous instructions" walked through the flagship rule
 one_bpmn.one_bpmn.patches.v1_0.set_customization_owner_app #17-08-2026 route customization PRs at one_fm, not the upstream repo owning the doctype
+one_bpmn.one_bpmn.patches.v1_0.seed_connector_agent_config #19-08-2026 the connector-building agent is configuration; its map and scripts arrive by export/import
 one_bpmn.one_bpmn.patches.v1_0.migrate_ba_agent_to_generic_path #19-08-2026 the BA Agent runs on its map; the label it never had IS the start trigger
