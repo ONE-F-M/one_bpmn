@@ -166,7 +166,7 @@ The agent's tool shapes live in the map; the mechanics live in `authoring.py`:
 
 | Tool | Does |
 |---|---|
-| `read_api_reference` | fetches the spec or docs page, guarded exactly like a connector call (https only, no internal hosts, size-capped) |
+| `read_api_docs` | fetches the spec or docs page, guarded exactly like a connector call (https only, no internal hosts, size-capped) |
 | `draft_connector` | with a spec, builds the manifest **mechanically** — path parameters become required fields and the URL template is generated to reference exactly those fields; without one, drafts from the prose via the `connector_writer` sub-prompt |
 | `review_connector` | `validate_manifest` — the deterministic gate, see below |
 | `write_connector` | imports the manifest **disabled** |
