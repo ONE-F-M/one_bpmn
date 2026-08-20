@@ -245,6 +245,110 @@ def _maybe_send_message(doc, message_suffix: str):
 			)
 
 
+# The message a deployment announces. Follows the {DocType}{Action}_Action
+# convention the diagrams already use (ChatConversation_Message_Action,
+# AIAgentConfiguration_Edit_Action), so a designer adding the catch event does
+# not have to learn a second naming scheme for this one event.
+PROCESS_MODEL_DEPLOYED_MESSAGE = "BPMNProcessModel_Deployed_Action"
+
+
+def send_process_model_deployed_message(model) -> list:
+	"""
+	Tell the engine that a process model has been deployed.
+
+	A process owner finishes their model and deploys it. The Process
+	Implementation that commissioned that work is waiting to hear so it can
+	conclude — and until now the only way it learned was a person confirming
+	something the engine already knew.
+
+	Delivered to the Active instance(s) of the model's own
+	``process_implementation``, so a deployment only ever answers the
+	implementation that asked for it.
+
+	**Why this is called explicitly from the deploy path** rather than arriving
+	through ``on_doc_event`` like every other message: ``BPMN Process Model`` is
+	in ``_INTERNAL_DOCTYPES``, so document events on it never reach the
+	universal trigger. That exclusion is deliberate — it stops the engine
+	recursing while it saves its own models — which leaves deployment with no
+	way to announce itself except to say so directly.
+
+	Best-effort by design: a deploy must never fail because nothing was
+	listening. An instance with no matching catch event is normal (the
+	implementation map only grows one when its designer wants to react), and is
+	skipped silently exactly as ``_maybe_send_message`` does.
+
+	Args:
+	    model: the deployed BPMN Process Model document, already saved.
+
+	Returns:
+	    list of instance names that accepted the message (empty is a normal
+	    outcome, not a failure).
+	"""
+	implementation = (model.get("process_implementation") or "").strip()
+	if not implementation:
+		# No implementation commissioned this model — nothing is waiting.
+		return []
+
+	try:
+		waiting = frappe.get_all(
+			"BPMN Process Instance",
+			filters={
+				"context_doctype": "Process Implementation",
+				"context_docname": implementation,
+				"status": "Active",
+			},
+			pluck="name",
+		)
+	except Exception:
+		# A lookup failure must not turn a good deploy into a failed one.
+		frappe.log_error(
+			title="BPMN deployed-message lookup failed",
+			message=frappe.get_traceback(),
+		)
+		return []
+
+	if not waiting:
+		return []
+
+	# What the implementation map can branch on once the message lands.
+	payload = {
+		"process_model": model.name,
+		"process_name": model.get("process_name"),
+		"process_implementation": implementation,
+		"version": model.get("version"),
+		"deployed_by": model.get("deployed_by") or frappe.session.user,
+		"deployed_at": str(model.get("deployed_at") or now_datetime()),
+	}
+
+	delivered = []
+	for instance_name in waiting:
+		try:
+			instance = frappe.get_doc("BPMN Process Instance", instance_name)
+			instance.receive_message(
+				message_name=PROCESS_MODEL_DEPLOYED_MESSAGE,
+				payload=payload,
+			)
+			# An uncaught message does NOT raise — receive_message logs it and
+			# returns the unchanged task list — so the flag is the only way to
+			# tell "the implementation reacted" from "nothing was listening".
+			if instance.flags.get("bpmn_message_caught"):
+				delivered.append(instance_name)
+		except frappe.ValidationError:
+			# The instance finished or was cancelled between the query and the
+			# delivery. Nothing to answer; not a problem.
+			pass
+		except Exception:
+			frappe.log_error(
+				title=(
+					f"BPMN message delivery failed: "
+					f"{PROCESS_MODEL_DEPLOYED_MESSAGE} → {instance_name}"
+				),
+				message=frappe.get_traceback(),
+			)
+
+	return delivered
+
+
 def _find_matching_models(doctype: str, trigger_event: str) -> list:
 	"""
 	Return names of all active BPMN Process Models whose trigger matches
