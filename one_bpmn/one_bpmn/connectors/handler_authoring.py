@@ -108,6 +108,18 @@ _BANNED_CALLS = {
 }
 
 
+def is_permanent_delivery_failure(error) -> bool:
+    """Would retrying this delivery fail identically?
+
+    A rejected or absent credential will be rejected again, and so will an
+    unconfigured repository. Saying so matters because the caller is a model with
+    a tool budget: observed live, it retried a 401 four times before giving up,
+    spending four turns to learn what the first answer already said.
+    """
+    blob = f"{error}".lower()
+    return any(k in blob for k in ("401", "403", "bad credentials", "not configured"))
+
+
 def _dotted(node) -> str:
     """The dotted source text of an attribute/name chain, or ""."""
     parts = []
@@ -452,12 +464,7 @@ def propose_python_handler(
         )
         result["errors"] = [_("Opening the pull request failed: {0}").format(exc)]
         result["note"] = _("The operation was left untouched, so nothing points at code that does not exist.")
-        # A rejected credential will be rejected identically next time. Saying so
-        # matters because the caller is a model with a tool budget: observed live,
-        # it retried a 401 four times before giving up, which spent four turns to
-        # learn what the first answer already said.
-        blob = f"{exc}".lower()
-        if any(k in blob for k in ("401", "403", "bad credentials", "not configured")):
+        if is_permanent_delivery_failure(exc):
             result["retryable"] = False
             result["note"] = _(
                 "This is a credentials problem, not a problem with the handler — the code was "

@@ -245,44 +245,39 @@ class TestProposalRefusesBeforeTouchingAnything(FrappeTestCase):
 		self.assertTrue(any("no_such_connector_zz" in e for e in result["errors"]))
 		self.assertNotIn("pull_request", result)
 
-	def test_a_credential_failure_is_marked_non_retryable(self):
+	def test_a_credential_failure_is_classified_as_permanent(self):
 		"""A rejected token will be rejected identically next time.
 
 		Observed live: the agent retried a 401 four times before giving up, which
-		spent four tool turns learning what the first answer already said. The
-		result carries retryable=False so the caller stops.
-		"""
-		connector = frappe.db.get_value("BPMN Connector", {"connector_id": "a2a"}, "connector_id")
-		operation = frappe.db.get_value(
-			"BPMN Connector Operation",
-			{"connector": frappe.db.get_value("BPMN Connector", {"connector_id": "a2a"}, "name")},
-			"operation_id",
-		)
-		if not (connector and operation):
-			self.skipTest("no connector/operation available on this site to test against")
+		spent four tool turns learning what the first answer already said.
 
-		result = ha.propose_python_handler(
-			connector_id=connector, operation=operation,
-			function_name="fetch_rate", code=GOOD,
-		)
-		# Either the token is rejected (the expected case on a bench with a stale
-		# token) or the network refuses — both are delivery failures, and neither
-		# may leave the operation edited.
-		if result["ok"]:
-			self.skipTest("this bench opened a real pull request; nothing to assert about failure")
-		self.assertTrue(result["errors"])
-		if result.get("retryable") is False:
-			self.assertIn("credentials problem", result["note"])
-		op_row = frappe.db.get_value(
-			"BPMN Connector Operation",
-			{"connector": frappe.db.get_value("BPMN Connector", {"connector_id": connector}, "name"),
-			 "operation_id": operation},
-			["execution_type", "handler_path"], as_dict=True,
-		)
-		self.assertNotEqual(
-			op_row.handler_path, ha.handler_path(connector, "fetch_rate"),
-			"a failed delivery must not point the operation at code that was never pushed",
-		)
+		Deliberately tests the CLASSIFIER and not a real delivery. An earlier
+		version of this test called propose_python_handler against the live `a2a`
+		connector, which was harmless only while the bench token was dead — with a
+		working token it would open a real pull request, repoint a real operation
+		at a handler that does not exist yet, and disable the connector that every
+		A2A delegation on the site depends on. A test must not be one credential
+		renewal away from breaking production.
+		"""
+		for permanent in (
+			"GitHub API error (401) on /repos/ONE-F-M/one_bpmn: Bad credentials",
+			"GitHub API error (403) on /repos/ONE-F-M/one_bpmn: Forbidden",
+			"GitHub Access Token is not configured in Processa Settings.",
+		):
+			self.assertTrue(
+				ha.is_permanent_delivery_failure(permanent),
+				f"should be permanent: {permanent!r}",
+			)
+
+		for transient in (
+			"('Connection aborted.', RemoteDisconnected('Remote end closed connection'))",
+			"GitHub API error (502) on /repos/ONE-F-M/one_bpmn: Bad gateway",
+			"HTTPSConnectionPool(host='api.github.com', port=443): Read timed out.",
+		):
+			self.assertFalse(
+				ha.is_permanent_delivery_failure(transient),
+				f"should be worth retrying: {transient!r}",
+			)
 
 	def test_an_unknown_operation_is_refused(self):
 		"""A handler needs an operation to attach to. Writing the code without
