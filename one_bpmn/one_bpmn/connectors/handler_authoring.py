@@ -51,18 +51,39 @@ import re
 import frappe
 from frappe import _
 
-# Where generated modules live, relative to the repository root.
-GENERATED_DIR = "one_bpmn/one_bpmn/connectors/generated"
-GENERATED_MODULE_ROOT = "one_bpmn.one_bpmn.connectors.generated"
+# The generated module's location is derived from the configured app rather than
+# fixed, so a different Connector Handler App gets a file path and a dotted module
+# that agree with each other — see ``_connectors_home``.
 
 # The dispatcher calls every handler this way; see
 # ``dispatchers._resolve_connector_handler``.
 HANDLER_ARGS = ("params", "ctx")
 
-# The app whose repository receives the pull request. Connectors live here, so
-# their handlers do too — a handler in the customization app would be code in one
-# repository reaching into a contract defined in another.
-HANDLER_APP = "one_bpmn"
+# The app whose repository receives the pull request, when Processa Settings does
+# not say. Connectors live here, so their handlers do too — a handler in the
+# customization app would be code in one repository reaching into a contract
+# defined in another. The setting exists because the connector layer could be
+# forked, vendored or moved, and none of those should need a code change.
+DEFAULT_HANDLER_APP = "one_bpmn"
+
+
+def handler_app() -> str:
+    """The app whose repository receives handler pull requests, or "".
+
+    Blank is a deliberate answer, not a misconfiguration: it turns handler
+    authoring off on a site that does not want an agent proposing code. Callers
+    report that as a refusal rather than silently falling back, because falling
+    back would push code at a repository nobody nominated.
+    """
+    try:
+        configured = frappe.db.get_single_value("Processa Settings", "connector_handler_app")
+    except Exception:
+        # The field is not installed yet (its patch has not run). Treat that as
+        # unset rather than failing — the caller's message says what to do.
+        return DEFAULT_HANDLER_APP
+    if configured is None:
+        return DEFAULT_HANDLER_APP
+    return (configured or "").strip()
 
 # ── the malicious-construct screen ───────────────────────────────────────────
 # Modules that have no business in a connector handler. `requests`, `json`, `re`,
@@ -154,18 +175,52 @@ def module_basename(connector_id: str) -> str:
     return f"{frappe.scrub(connector_id)}_ops.py"
 
 
-def repo_path(connector_id: str) -> str:
+def _connectors_home(app: str) -> tuple[str, str]:
+    """Where ``connectors/`` lives in ``app``: (repo-relative dir, dotted prefix).
+
+    Apps differ in how deeply they nest. one_bpmn puts a module directory of the
+    same name inside its package, so its connectors sit at
+    ``one_bpmn/one_bpmn/connectors`` and import as
+    ``one_bpmn.one_bpmn.connectors``; a flatter app would have one level fewer.
+    Rather than assume, look for the directory that is actually there — the file
+    path and the dotted module MUST agree or the handler is written somewhere it
+    can never be imported from.
+    """
+    import os
+
+    app_path = frappe.get_app_path(app)             # …/apps/<app>/<package>
+    repo_root = os.path.dirname(app_path)           # …/apps/<app>
+    package = os.path.basename(app_path)
+
+    # Candidates in the order they are preferred: the nested layout one_bpmn uses,
+    # then the flat one.
+    for parts in ((package, "connectors"), ("connectors",)):
+        if os.path.isdir(os.path.join(app_path, *parts)):
+            rel = "/".join((package,) + parts)
+            dotted = ".".join((package,) + parts)
+            return rel, dotted
+
+    # Nothing there yet — create it in the nested position when the app nests,
+    # otherwise flat. Derived the same way so the two halves still agree.
+    if os.path.isdir(os.path.join(app_path, package)):
+        return f"{package}/{package}/connectors", f"{package}.{package}.connectors"
+    return f"{package}/connectors", f"{package}.connectors"
+
+
+def repo_path(connector_id: str, app: str | None = None) -> str:
     """Repository-relative path of a connector's generated module."""
-    return f"{GENERATED_DIR}/{module_basename(connector_id)}"
+    rel, _dotted = _connectors_home(app or handler_app() or DEFAULT_HANDLER_APP)
+    return f"{rel}/generated/{module_basename(connector_id)}"
 
 
-def dotted_module(connector_id: str) -> str:
-    return f"{GENERATED_MODULE_ROOT}.{frappe.scrub(connector_id)}_ops"
+def dotted_module(connector_id: str, app: str | None = None) -> str:
+    _rel, dotted = _connectors_home(app or handler_app() or DEFAULT_HANDLER_APP)
+    return f"{dotted}.generated.{frappe.scrub(connector_id)}_ops"
 
 
-def handler_path(connector_id: str, function_name: str) -> str:
+def handler_path(connector_id: str, function_name: str, app: str | None = None) -> str:
     """The value that goes in BPMN Connector Operation.handler_path."""
-    return f"{dotted_module(connector_id)}.{function_name}"
+    return f"{dotted_module(connector_id, app)}.{function_name}"
 
 
 # ── validation ───────────────────────────────────────────────────────────────
@@ -300,12 +355,14 @@ def propose_python_handler(
 
     Returns a dict the calling tool hands straight back to the model.
     """
+    app = handler_app()
     result = {
         "ok": False,
         "connector": connector_id,
         "operation": operation,
-        "handler_path": handler_path(connector_id, function_name),
-        "file": repo_path(connector_id),
+        "app": app,
+        "handler_path": handler_path(connector_id, function_name, app) if app else None,
+        "file": repo_path(connector_id, app) if app else None,
     }
 
     check = validate_handler(code, function_name)
@@ -315,6 +372,16 @@ def propose_python_handler(
         result["note"] = _(
             "Nothing was written and no pull request was opened. Fix the handler and call this again."
         )
+        return result
+
+    if not app:
+        result["errors"] = [
+            _(
+                "Handler authoring is switched off: no Connector Handler App is set in "
+                "Processa Settings, so there is no repository to open a pull request against."
+            )
+        ]
+        result["retryable"] = False
         return result
 
     connector = frappe.db.get_value(
@@ -343,21 +410,23 @@ def propose_python_handler(
     from one_bpmn.api.production_review import _allowed_repo_owners, _repo_for_app
 
     token = frappe.get_cached_doc("Processa Settings").get_password("github_token")
-    repo = _repo_for_app(HANDLER_APP)
+    repo = _repo_for_app(app)
     if not token or not repo:
         result["errors"] = [
             _("Cannot open a pull request: {0}.").format(
                 _("no GitHub token in Processa Settings") if not token
-                else _("no git remote resolved for app '{0}'").format(HANDLER_APP)
+                else _("no git remote resolved for app '{0}'").format(app)
             )
         ]
+        result["retryable"] = False
         return result
 
-    path = repo_path(connector_id)
+    path = repo_path(connector_id, app)
     stamp = frappe.generate_hash(length=6)
     head_branch = f"processa/connector-handler-{frappe.scrub(connector_id)}-{stamp}"
     title = f"Processa: {connector_id}.{operation} Python handler"
-    body = _pr_body(connector_id, label, operation, function_name, path, summary, check["warnings"])
+    body = _pr_body(connector_id, label, operation, function_name, path, summary,
+                    check["warnings"], app)
 
     def _build(reader):
         # Read the module as it stands ON THE BRANCH, so a second operation for
@@ -421,7 +490,7 @@ def propose_python_handler(
     return result
 
 
-def _pr_body(connector_id, label, operation, function_name, path, summary, warnings) -> str:
+def _pr_body(connector_id, label, operation, function_name, path, summary, warnings, app=None) -> str:
     lines = [
         f"Adds the Python handler for **{label}** operation `{operation}`.",
         "",
@@ -429,7 +498,7 @@ def _pr_body(connector_id, label, operation, function_name, path, summary, warni
         "|---|---|",
         f"| Connector | `{connector_id}` |",
         f"| Operation | `{operation}` |",
-        f"| Handler path | `{handler_path(connector_id, function_name)}` |",
+        f"| Handler path | `{handler_path(connector_id, function_name, app)}` |",
         f"| File | `{path}` |",
         "",
     ]

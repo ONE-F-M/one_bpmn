@@ -19,6 +19,7 @@
   "section_break_github",
   "github_token",
   "customization_app",
+  "connector_handler_app",
   "section_break_script_security",
   "script_security_intro",
   "script_binop_multiply_threshold",
@@ -137,6 +138,13 @@
    "fieldname": "customization_app",
    "fieldtype": "Data",
    "label": "Customization Owner App"
+  },
+  {
+   "default": "one_bpmn",
+   "description": "App whose repository receives the pull request when the Connector Agent writes a Python handler for a connector operation. Most connectors need no code at all \u2014 an operation is normally a declarative HTTP request \u2014 but a signed request, walked pagination, or a call sequence needs a real function, and that function is delivered as a pull request rather than written into this site. Handlers land in <code>connectors/generated/</code> in the named app, one module per connector, and the operation's Handler Path points at them. Defaults to the app that owns the connector layer. Leave blank to disable handler authoring entirely.",
+   "fieldname": "connector_handler_app",
+   "fieldtype": "Data",
+   "label": "Connector Handler App"
   },
   {
    "collapsible": 1,

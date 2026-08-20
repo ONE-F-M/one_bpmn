@@ -53,7 +53,37 @@ class TestHandlerNaming(FrappeTestCase):
 		"""A handler is resolved with frappe.get_attr, which imports the package."""
 		import importlib
 
-		self.assertTrue(importlib.import_module(ha.GENERATED_MODULE_ROOT))
+		self.assertTrue(importlib.import_module(ha.dotted_module("x").rsplit(".", 1)[0]))
+
+	def test_the_file_path_and_the_dotted_module_agree(self):
+		"""Written somewhere it cannot be imported from is the one failure mode
+		that produces a green pull request and a dead connector."""
+		for app in (None, "one_bpmn"):
+			path = ha.repo_path("Acme CRM", app)
+			dotted = ha.dotted_module("Acme CRM", app)
+			# The repo-relative path already starts at the package directory, so
+			# the whole thing converts — nothing is stripped.
+			from_path = path.replace("/", ".")[: -len(".py")]
+			self.assertEqual(from_path, dotted, f"path and module disagree for app={app!r}")
+
+	def test_the_configured_app_decides_the_repository(self):
+		"""The app is a setting, not a constant — a fork or a move must not need a
+		code change — and blank means switched off rather than 'guess'."""
+		self.assertEqual(ha.handler_app(), "one_bpmn")
+		previous = frappe.db.get_single_value("Processa Settings", "connector_handler_app")
+		try:
+			frappe.db.set_single_value("Processa Settings", "connector_handler_app", "")
+			frappe.clear_cache(doctype="Processa Settings")
+			self.assertEqual(ha.handler_app(), "", "blank must mean 'switched off'")
+			result = ha.propose_python_handler(
+				connector_id="anything", operation="op", function_name="fetch_rate", code=GOOD,
+			)
+			self.assertFalse(result["ok"])
+			self.assertIn("switched off", result["errors"][0])
+			self.assertIs(result.get("retryable"), False)
+		finally:
+			frappe.db.set_single_value("Processa Settings", "connector_handler_app", previous)
+			frappe.clear_cache(doctype="Processa Settings")
 
 
 class TestHandlerValidation(FrappeTestCase):
