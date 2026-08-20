@@ -446,8 +446,18 @@ class BPMNProcessInstance(Document):
 		Returns:
 		    list of dicts describing the next active tasks
 
+		Also sets ``self.flags.bpmn_message_caught`` — True when a waiting task
+		actually took the message, False when nothing was listening. Callers that
+		need to know the difference must read the flag: an uncaught message is
+		NOT an error here (see below), so the return value looks identical either
+		way.
+
 		Raises:
-		    frappe.ValidationError: if instance is not Active or message not caught
+		    frappe.ValidationError: if the instance is already Completed or
+		        Cancelled, or the message name is missing. Note that a message
+		        nothing is waiting for does NOT raise — it is logged and
+		        ignored, because a document event firing while an instance sits
+		        elsewhere is normal.
 		"""
 		if self.status in ("Completed", "Cancelled"):
 			frappe.throw(
@@ -489,6 +499,9 @@ class BPMNProcessInstance(Document):
 
 		# ── Deliver the message ──────────────────────────────────────────────
 		caught = bpmn_engine.send_message(wf, message_name, payload=payload)
+		# Whether anything took it. Uncaught is benign and does not raise, so a
+		# caller cannot tell from the return value alone.
+		self.flags.bpmn_message_caught = bool(caught)
 
 		if not caught:
 			# No task is waiting for this message (e.g. a document event fired
