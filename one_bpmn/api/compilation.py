@@ -1702,6 +1702,15 @@ def compile_process_model(model_name: str) -> dict:
 	model.flags.skip_script_security_check = True
 	model.save(ignore_permissions=True)
 
+	# ── Announce the deployment to the engine ─────────────────────────────
+	# Deliberately after the save: the message can advance the waiting Process
+	# Implementation instance to its end, and that instance reads the model, so
+	# the deployment has to be a fact in the database before anyone is told
+	# about it. Best-effort — a deploy is not undone because nothing listened.
+	from one_bpmn.one_bpmn.trigger import send_process_model_deployed_message
+
+	send_process_model_deployed_message(model)
+
 	# ── Backend Code Removal readiness warning (non-blocking) ─────────────
 	# Frappe runs controller validate()/on_submit() BEFORE our BPMN hooks, so
 	# old native controller code can still reject or mutate a document even
