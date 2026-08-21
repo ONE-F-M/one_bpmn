@@ -9,6 +9,7 @@
 import DataTableCard from "./DataTableCard.vue";
 import DiagramPreviewCard from "./DiagramPreviewCard.vue";
 import DocTypeSchemaCard from "./DocTypeSchemaCard.vue";
+import LuCrusherResultCard from "./LuCrusherResultCard.vue";
 import ProposalCard from "./ProposalCard.vue";
 import ScriptDiffCard from "./ScriptDiffCard.vue";
 import TestCaseCard from "./TestCaseCard.vue";
@@ -21,4 +22,8 @@ export const cardRegistry = {
 	"onefm.bpmn_preview": DiagramPreviewCard,
 	"onefm.doctype_schema": DocTypeSchemaCard,
 	"onefm.table": DataTableCard,
+	// WI-001678: LuCrusher's own result panels. Registered centrally rather
+	// than owned by the one-ai page, so every host that can run the agent
+	// (the page, the desk Chat dialog) renders its results the same way.
+	"onefm.lucrusher_result": LuCrusherResultCard,
 };

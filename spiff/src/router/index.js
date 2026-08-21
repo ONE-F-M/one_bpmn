@@ -50,6 +50,11 @@ const routes = [
 		component: () => import("@/views/Evals.vue"),
 	},
 	{
+		path: "/processa/evals/feedback",
+		name: "EvalFeedback",
+		component: () => import("@/views/EvalFeedback.vue"),
+	},
+	{
 		path: "/processa/evals/suite/:suite",
 		name: "EvalSuiteDetail",
 		component: () => import("@/views/EvalSuiteDetail.vue"),
@@ -60,6 +65,29 @@ const routes = [
 		name: "EvalRunReview",
 		component: () => import("@/views/EvalRunReview.vue"),
 		props: true,
+	},
+	{
+		// WI-001821: run B is optional — a run created as half of an A/B pair
+		// finds its own other side, so the pair is reachable from one id.
+		path: "/processa/evals/compare/:runA/:runB?",
+		name: "EvalComparison",
+		component: () => import("@/views/EvalComparison.vue"),
+		props: true,
+	},
+	{
+		path: "/processa/security",
+		name: "Security",
+		component: () => import("@/views/Security.vue"),
+	},
+	{
+		path: '/processa/skills',
+		name: 'Skills',
+		component: () => import('../views/skills/SkillsManager.vue'),
+	},
+	{
+		path: "/processa/a2a",
+		name: "A2A",
+		component: () => import("@/views/A2A.vue"),
 	},
 	{
 		path: "/:pathMatch(.*)*",
@@ -73,5 +101,3 @@ const router = createRouter({
 })
 
 export default router
-
-

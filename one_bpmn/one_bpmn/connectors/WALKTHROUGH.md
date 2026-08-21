@@ -55,7 +55,7 @@ We will build a `helpdesk` connector with a `createTicket` operation that POSTs 
 | Field | Value |
 |---|---|
 | Icon SVG Path | `M12 2 2 22h20z` (the `d` of one path on a **24×24 viewBox** — paste from any icon set, e.g. an MDI icon) |
-| Icon Colour | `#7c3aed` |
+| Icon Colour | `#8b5cf6` |
 | Icon Label | `Helpdesk` |
 
 A live preview renders beside the fields as you type. Paste **path data only** —

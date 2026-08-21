@@ -68,9 +68,35 @@ class ErrorCode(Enum):
 
 @dataclass
 class TokenUsage:
+    """Token counts for a run or turn.
+
+    ``prompt_tokens`` is the FULL consumed input context and is inclusive of
+    ``cache_read_tokens`` and ``cache_write_tokens`` — the cache fields are a
+    breakdown of it, never an addition to it. Keeping the invariant means
+    ``total_tokens`` and every existing consumer stay correct while cost can
+    now be split by billing rate (WI-001643): cache reads bill at a fraction
+    of the input rate and cache writes at a premium, so charging every prompt
+    token at the full input rate overstates spend on cached workloads.
+
+    ``uncached_prompt_tokens`` is the part billed at the standard input rate.
+    """
     prompt_tokens: int = 0
     completion_tokens: int = 0
     total_tokens: int = 0
+    cache_read_tokens: int = 0
+    cache_write_tokens: int = 0
+
+    @property
+    def uncached_prompt_tokens(self) -> int:
+        """Prompt tokens billed at the full input rate.
+
+        Clamped at 0: a provider that reports cache counts NOT included in its
+        prompt total would otherwise drive this negative.
+        """
+        return max(
+            0,
+            int(self.prompt_tokens) - int(self.cache_read_tokens) - int(self.cache_write_tokens),
+        )
 
 
 @dataclass
@@ -88,6 +114,8 @@ class AttemptRecord:
 class ExecutorConfig:
     backend: str = "direct_api"
     provider_name: str = ""
+    agent_config_name: str = ""
+    active_skill_name: str = ""
     model: str = ""
     system_prompt: str = ""
     user_prompt: str = ""
@@ -155,6 +183,11 @@ class ExecutorResult:
     # if and only if error_code == ErrorCode.SUSPENDED. This is what the
     # checkpoint layer persists.
     suspension: dict | None = None
+    # WI-001823: the tool-calling loop ran out of turns without reaching a final
+    # answer. It arrives as a FAILED_MODEL_CALL like any other model failure, but
+    # it is a distinct outcome — the agent was still working, not broken — and
+    # goal completion needs to tell them apart without matching on message text.
+    hit_turn_cap: bool = False
 
 
 # ---------------------------------------------------------------------------

@@ -22,8 +22,14 @@ class TestAgentConfigLiveLink(FrappeTestCase):
 				"agent_name": TEST_CONFIG,
 				"agent_id": "zz_live_link_test_agent",
 				"agent_framework": "Direct API",
-				# Background: must NOT trip the chat-agent creation trigger.
 				"agent_type": "Background",
+				# Every agent type now walks the Agent Creation Process,
+				# whose start condition is lifecycle_status == "Draft". This fixture
+				# is a settled agent, not one being created — inserting it Live keeps
+				# the process out of it, which matters because that process ASSESSES
+				# and REWRITES a thin system prompt, and this test asserts on the
+				# prompt's exact value.
+				"lifecycle_status": "Live",
 				"system_prompt": "Original prompt.",
 				"temperature": 0.5,
 				"max_tokens": 512,

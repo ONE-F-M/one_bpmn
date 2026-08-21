@@ -18,6 +18,7 @@
   "ba_api_secret",
   "section_break_github",
   "github_token",
+  "customization_app",
   "section_break_script_security",
   "script_security_intro",
   "script_binop_multiply_threshold",
@@ -28,6 +29,9 @@
   "script_strict_builtins",
   "script_strict_frappe_attrs",
   "script_block_all_imports",
+  "section_break_ai_rate_limit",
+  "column_break_ai_rate_limit",
+  "lock_release_roles",
   "section_break_ai_memory",
   "default_memory_distill_model",
   "column_break_ai_memory",
@@ -122,12 +126,20 @@
    "label": "GitHub Integration"
   },
   {
-   "description": "Personal (or fine-grained) access token able to push branches and open pull requests. Used by \"Review Doctypes\" → \"Sync\" to raise a PR with the DocType schema changes. The repository is derived from each referenced DocType's owning app (its git remote), and the PR targets that repository's default branch.",
+   "description": "Personal (or fine-grained) access token able to push branches and open pull requests. Used by \"Review Doctypes\" \u2192 \"Sync\" to raise a PR with the DocType schema changes. The PR targets the repository of the app named in \"Customization Owner App\" below (or the DocType's own app when that app owns it), on that repository's default branch.",
    "fieldname": "github_token",
    "fieldtype": "Password",
    "label": "GitHub Access Token"
   },
   {
+   "default": "one_fm",
+   "description": "App whose source carries customizations made to <i>other</i> apps' DocTypes. A Custom Field on Employee belongs to this app, not to erpnext \u2014 so \"Sync\" writes it here, following this app's own convention (a data module under <code>custom/custom_field/</code> plus <code>custom/property_setter/</code>, registered in <code>setup/</code>, applied by a patch). A DocType owned by an app that is itself a ONE-F-M repo is written to that app instead. Leave blank to fall back to the DocType's owning app.",
+   "fieldname": "customization_app",
+   "fieldtype": "Data",
+   "label": "Customization Owner App"
+  },
+  {
+   "collapsible": 1,
    "fieldname": "section_break_script_security",
    "fieldtype": "Section Break",
    "label": "Script Task Security"
@@ -135,7 +147,7 @@
   {
    "fieldname": "script_security_intro",
    "fieldtype": "HTML",
-   "options": "<p style=\"color:var(--text-muted)\">Controls the pre-deployment security gate for BPMN Script Tasks. Dangerous escape vectors (exec/eval/getattr, frame-walking dunders, permission-bypass kwargs, memory bombs, destructive SQL) are <b>always blocked</b> and are not configurable here. The options below tighten the gate for constructs that also have legitimate uses; all default to <b>allowed</b>.</p>"
+   "options": "<p style=\"color:var(--text-muted);\">Controls the pre-deployment security gate for BPMN Script Tasks. Dangerous escape vectors (exec/eval/getattr, frame-walking dunders, permission-bypass kwargs, memory bombs, destructive SQL) are <b>always blocked</b> and are not configurable here. The options below tighten the gate for constructs that also have legitimate uses; all default to <b>allowed</b>.</p>"
   },
   {
    "default": "50000",
@@ -192,33 +204,51 @@
    "label": "Block All Imports"
   },
   {
-   "fieldname": "section_break_ai_memory",
+   "collapsible": 1,
+   "description": "Who may release a frozen conversation. Site-wide because it is a statement about roles here, not about any one agent. The thresholds that DECIDE a freeze, and the message throttle, live on each AI Agent Configuration.",
+   "fieldname": "section_break_ai_rate_limit",
    "fieldtype": "Section Break",
-   "label": "AI Memory",
-   "description": "Site-wide defaults for the models that write long-term memory. An agent's own Memory Models override these; with both blank, memory writes use the agent's own AI Model, exactly as before."
+   "label": "AI Conversation Freeze"
   },
   {
+   "fieldname": "column_break_ai_rate_limit",
+   "fieldtype": "Column Break"
+  },
+  {
+   "default": "AI Security Reviewer",
+   "description": "Comma-separated roles allowed to release a frozen conversation. System Manager is always allowed. The locked user can never release their own conversation, whatever roles they hold.",
+   "fieldname": "lock_release_roles",
+   "fieldtype": "Small Text"
+  },
+  {
+   "collapsible": 1,
+   "description": "Site-wide defaults for the models that write long-term memory. An agent's own Memory Models override these; with both blank, memory writes use the agent's own AI Model, exactly as before.",
+   "fieldname": "section_break_ai_memory",
+   "fieldtype": "Section Break",
+   "label": "AI Memory"
+  },
+  {
+   "description": "Used when an agent has no Distillation Model of its own.",
    "fieldname": "default_memory_distill_model",
    "fieldtype": "Link",
    "label": "Default Distillation Model",
-   "options": "AI Model",
-   "description": "Used when an agent has no Distillation Model of its own."
+   "options": "AI Model"
   },
   {
    "fieldname": "column_break_ai_memory",
    "fieldtype": "Column Break"
   },
   {
+   "description": "Used when an agent has no Reconciliation Model of its own. Tune here to fix poor reconciliations across every agent at once.",
    "fieldname": "default_memory_reconcile_model",
    "fieldtype": "Link",
    "label": "Default Reconciliation Model",
-   "options": "AI Model",
-   "description": "Used when an agent has no Reconciliation Model of its own. Tune here to fix poor reconciliations across every agent at once."
+   "options": "AI Model"
   }
  ],
  "issingle": 1,
  "links": [],
- "modified": "2026-06-14 10:40:00.000000",
+ "modified": "2026-08-17 12:00:00.000000",
  "modified_by": "Administrator",
  "module": "ONE BPMN",
  "name": "Processa Settings",

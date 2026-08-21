@@ -9,6 +9,10 @@ app_license = "mit"
 website_route_rules = [
 	{"from_route": "/processa/<path:app_path>", "to_route": "processa"},
 	{"from_route": "/processa", "to_route": "processa"},
+	# WI-001678: the ONE AI chat page. The template folder must stay
+	# importable (www/one_ai/index.py), so the pretty route is mapped here
+	# rather than named with a hyphen on disk.
+	{"from_route": "/one-ai", "to_route": "one_ai"},
 ]
 
 # Apps
@@ -34,17 +38,7 @@ website_route_rules = [
 # app_include_css = "/assets/one_bpmn/css/one_bpmn.css"
 app_include_js = [
 	"/assets/one_bpmn/js/bpmn_json_prettify.js",
-	# ?v= is a manual cache-buster — bump it any time this file changes.
-	# Plain app_include_js paths (not *.bundle.js) get no automatic
-	# versioning from Frappe, and this file has a 12h Cache-Control on
-	# /assets/ — without a version bump, browsers can keep serving a
-	# stale copy indefinitely even across hard reloads.
-	#
-	# v=4, not back to the v=3 this feature originally shipped as: version-15
-	# has been serving the URL with no query string at all since the revert, so
-	# every desk that has loaded it holds a cached copy under that bare URL. A
-	# value nobody has served before is what guarantees the browser fetches the
-	# restored file rather than the one that produced the bug.
+	"/assets/one_bpmn/js/one_ai_loader.js",
 	"/assets/one_bpmn/js/bpmn_form_actions.js?v=4",
 	"/assets/one_bpmn/js/bpmn_list_indicator.js",
 ]
@@ -104,7 +98,7 @@ app_include_js = [
 # ------------
 
 # before_install = "one_bpmn.install.before_install"
-after_install = "one_bpmn.install.after_install"
+# after_install = "one_bpmn.install.after_install"
 
 # Uninstallation
 # ------------
@@ -232,6 +226,7 @@ scheduler_events = {
 		"* * * * *": [
 			"one_bpmn.tasks.process_timer_start_events",
 			"one_bpmn.tasks.process_timer_catch_events",
+			"one_bpmn.tasks.poll_a2a_tasks",
 		],
 		"0 * * * *": [
 			"one_bpmn.tasks.close_stale_chat_instances",
@@ -269,21 +264,16 @@ scheduler_events = {
 
 # Cache keys that survive frappe.clear_cache()
 # --------------------------------------------
-# A Docu turn is enqueued on a worker and the browser polls docu_chat_status
-# for its result, keyed on a `docu_turn::<id>` cache entry. That entry is the
-# only handle the client has on a running turn — if it disappears, the poll
-# reports "unknown" and the chat gives up with "I lost track of that request"
-# even though the worker completed the turn successfully. A global cache wipe
-# (bench clear-cache, bench migrate) deletes every key for the site, so the
-# turn handles must be exempted.
-persistent_cache_keys = [
-	"docu_turn::*",
-]
+# `docu_turn::*` lived here: Docu's enqueue-and-poll chat kept each running
+# turn's result in a cache entry that a global wipe would destroy mid-turn.
+# WI-001679 deleted that endpoint pair — Docu streams over the shared AG-UI
+# endpoint now, and a stream needs no handle to survive a cache wipe — so
+# nothing in this app requires an exemption any more.
 
 # Request Events
 # ----------------
 # before_request = ["one_bpmn.utils.before_request"]
-after_request = ["one_bpmn.api.bpmn_task_actions.apply_amp_headers"]
+after_request = ["one_bpmn.api.todo_actions.apply_amp_headers"]
 
 # Job Events
 # ----------
@@ -327,4 +317,16 @@ after_request = ["one_bpmn.api.bpmn_task_actions.apply_amp_headers"]
 # default_log_clearing_doctypes = {
 # 	"Logging DocType Name": 30  # days to retain logs
 # }
+
+# Reuse Frappe's Log Settings for AI Memory retention instead of a custom scheduler.
+# 0 = retain indefinitely by default; an administrator can lower it in Log Settings.
+default_log_clearing_doctypes = {
+	"AI Memory": 0,
+}
+
+# Custom short-term conversation store for AI agents (backend = "custom").
+# Point this at a dotted path to a
+# one_bpmn.agents.memory.conversation_store.ConversationStore subclass.
+# Consumed by get_conversation_store("custom"); optional.
+# ai_conversation_store = "your_app.path.to.YourConversationStore"
 

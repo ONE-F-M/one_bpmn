@@ -66,6 +66,19 @@ export function UserTaskProps(props) {
 			element,
 			component: LoadBalancingUsersComponent,
 		});
+	} else if (assigneeMode === "Table Field") {
+		entries.push({
+			id: "spiffworkflow-assigneeTableField",
+			element,
+			component: AssigneeTableFieldComponent,
+			isEdited: isSelectEntryEdited,
+		});
+		entries.push({
+			id: "spiffworkflow-assigneeTableUserField",
+			element,
+			component: AssigneeTableUserFieldComponent,
+			isEdited: isSelectEntryEdited,
+		});
 	}
 
 
@@ -109,8 +122,10 @@ function TargetDoctypeComponent(props) {
 	const handleChange = (val) => {
 		modeling.updateModdleProperties(element, bo, {
 			"spiffworkflow:targetDoctype":    val || undefined,
-			// Clear the docfield when doctype changes
+			// Clear fields that depend on the previous doctype's schema
 			"spiffworkflow:assigneeDocfield": undefined,
+			"spiffworkflow:assigneeTableField": undefined,
+			"spiffworkflow:assigneeTableUserField": undefined,
 		});
 	};
 
@@ -155,16 +170,28 @@ function AssignmentModeComponent(props) {
 		if (value === "User") {
 			updates["spiffworkflow:assigneeDocfield"] = undefined;
 			updates["spiffworkflow:assigneeUsers"] = undefined;
+			updates["spiffworkflow:assigneeTableField"] = undefined;
+			updates["spiffworkflow:assigneeTableUserField"] = undefined;
 		} else if (value === "DocField") {
 			updates["spiffworkflow:assigneeUser"] = undefined;
 			updates["spiffworkflow:assigneeUsers"] = undefined;
+			updates["spiffworkflow:assigneeTableField"] = undefined;
+			updates["spiffworkflow:assigneeTableUserField"] = undefined;
 		} else if (value === "Round Robin" || value === "Load Balancing") {
 			updates["spiffworkflow:assigneeUser"] = undefined;
 			updates["spiffworkflow:assigneeDocfield"] = undefined;
+			updates["spiffworkflow:assigneeTableField"] = undefined;
+			updates["spiffworkflow:assigneeTableUserField"] = undefined;
+		} else if (value === "Table Field") {
+			updates["spiffworkflow:assigneeUser"] = undefined;
+			updates["spiffworkflow:assigneeDocfield"] = undefined;
+			updates["spiffworkflow:assigneeUsers"] = undefined;
 		} else {
 			updates["spiffworkflow:assigneeUser"] = undefined;
 			updates["spiffworkflow:assigneeDocfield"] = undefined;
 			updates["spiffworkflow:assigneeUsers"] = undefined;
+			updates["spiffworkflow:assigneeTableField"] = undefined;
+			updates["spiffworkflow:assigneeTableUserField"] = undefined;
 		}
 
 		modeling.updateModdleProperties(element, bo, updates);
@@ -176,6 +203,7 @@ function AssignmentModeComponent(props) {
 		{ label: translate("DocField"),        value: "DocField" },
 		{ label: translate("Round Robin"),     value: "Round Robin" },
 		{ label: translate("Load Balancing"),  value: "Load Balancing" },
+		{ label: translate("Table Field"),     value: "Table Field" },
 	];
 
 	return h(SelectEntry, {
@@ -280,6 +308,130 @@ function AssigneeDocfieldComponent(props) {
 		noResultsText: doctype
 			? translate("No User-linked fields found")
 			: translate("Select a DocType first"),
+	});
+}
+
+// Component 4b — Table Field (Table MultiSelect field autocomplete, for
+// "Table Field" mode). Requires a DocType to be selected above. Any user
+// found in any row of this field may complete the task.
+function AssigneeTableFieldComponent(props) {
+	const { element, id } = props;
+	const modeling  = useService("modeling");
+	const translate = useService("translate");
+	const bo        = getBusinessObject(element);
+
+	const doctype = getAttr(bo, "targetDoctype");
+	const value   = getAttr(bo, "assigneeTableField");
+
+	const handleChange = (val) => {
+		modeling.updateModdleProperties(element, bo, {
+			"spiffworkflow:assigneeTableField": val || undefined,
+			// Clear the dependent child-row user field when the table changes
+			"spiffworkflow:assigneeTableUserField": undefined,
+		});
+	};
+
+	const fetchTableFields = (txt) => {
+		if (!doctype) {
+			return Promise.resolve([
+				{ fieldname: "", label: "— Select a DocType first —" },
+			]);
+		}
+		return frappeGet("/api/method/one_bpmn.api.utils.get_doctype_fields", {
+			doctype,
+			fieldtype_in: '["Table MultiSelect","Table"]',
+			include_options: true,
+		}).then((fields) => {
+			const list = Array.isArray(fields) ? fields : [];
+			if (!txt) return list;
+			const lower = txt.toLowerCase();
+			return list.filter(
+				(f) =>
+					(f.fieldname && f.fieldname.toLowerCase().includes(lower)) ||
+					(f.label && f.label.toLowerCase().includes(lower))
+			);
+		});
+	};
+
+	return h(FrappeAutocomplete, {
+		id,
+		label: translate("Table Field"),
+		value,
+		onChange: handleChange,
+		fetchApi: fetchTableFields,
+		valueField: "fieldname",
+		renderOption: (opt) =>
+			opt.fieldname
+				? `${opt.label || opt.fieldname} (${opt.fieldname})`
+				: opt.label,
+		noResultsText: doctype
+			? translate("No Table/Table MultiSelect fields found")
+			: translate("Select a DocType first"),
+	});
+}
+
+// Component 4c — Table Row User Field (Link-to-User field on the child
+// doctype referenced by the selected Table Field). Chains two lookups:
+// first resolve the child doctype from the parent's table field options,
+// then list that child doctype's User-linked fields.
+function AssigneeTableUserFieldComponent(props) {
+	const { element, id } = props;
+	const modeling  = useService("modeling");
+	const translate = useService("translate");
+	const bo        = getBusinessObject(element);
+
+	const doctype     = getAttr(bo, "targetDoctype");
+	const tableField  = getAttr(bo, "assigneeTableField");
+	const value       = getAttr(bo, "assigneeTableUserField");
+
+	const handleChange = (val) => {
+		modeling.updateModdleProperties(element, bo, {
+			"spiffworkflow:assigneeTableUserField": val || undefined,
+		});
+	};
+
+	const fetchChildUserFields = () => {
+		if (!doctype || !tableField) {
+			return Promise.resolve([
+				{ fieldname: "", label: "— Select a Table Field first —" },
+			]);
+		}
+		return frappeGet("/api/method/one_bpmn.api.utils.get_doctype_fields", {
+			doctype,
+			fieldtype_in: '["Table MultiSelect","Table"]',
+			include_options: true,
+		}).then((tableFields) => {
+			const match = (Array.isArray(tableFields) ? tableFields : []).find(
+				(f) => f.fieldname === tableField
+			);
+			const childDoctype = match && match.options;
+			if (!childDoctype) return [];
+			return frappeGet("/api/method/one_bpmn.api.utils.get_doctype_fields", {
+				doctype: childDoctype,
+				fieldtype_in: '["Link"]',
+				include_options: true,
+			}).then((childFields) =>
+				(Array.isArray(childFields) ? childFields : []).filter(
+					(f) => f.options === "User"
+				)
+			);
+		});
+	};
+
+	return h(FrappeAutocomplete, {
+		id,
+		label: translate("Row User Field"),
+		value,
+		onChange: handleChange,
+		fetchApi: fetchChildUserFields,
+		valueField: "fieldname",
+		renderOption: (opt) =>
+			opt.fieldname
+				? `${opt.label || opt.fieldname} (${opt.fieldname})`
+				: opt.label,
+		noResultsText: tableField
+			? translate("No User-linked fields found on the row doctype")
+			: translate("Select a Table Field first"),
 	});
 }
 

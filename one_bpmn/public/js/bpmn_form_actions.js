@@ -266,9 +266,19 @@ frappe.provide('one_bpmn');
 			_hide_native_frappe_ui(frm);
 
 			tasks.forEach(function (task) {
+				// assigned_user may list multiple people, comma-joined
+				// (Table Field / multi-assignee mode, e.g. Task.custom_assigned_to)
+				// — mirrors the Python split_users() helper. An exact string
+				// match against the whole joined value would never match any
+				// individual assignee once there's more than one.
+				const assigned_users_list = (task.assigned_user || '')
+					.split(',')
+					.map(function (u) { return u.trim(); })
+					.filter(Boolean);
+
 				const is_for_me = (
-					!task.assigned_user ||
-					task.assigned_user === frappe.session.user ||
+					assigned_users_list.length === 0 ||
+					assigned_users_list.indexOf(frappe.session.user) !== -1 ||
 					frm.doc.owner === frappe.session.user
 				);
 

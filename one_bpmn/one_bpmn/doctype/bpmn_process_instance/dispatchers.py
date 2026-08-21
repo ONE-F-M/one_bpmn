@@ -85,6 +85,37 @@ def _extract_memory_content(output, content_field: str) -> str:
 	return str(output or "")
 
 
+def _memory_output_from_trace(trace) -> str:
+	"""Distillable text for a tool-protocol agent whose assistant text is empty.
+
+	Agents instructed to "never reply in prose, always call tools" (e.g. the Docu
+	orchestrator) put their user-facing answer in tool-call arguments and RESULTS
+	(e.g. the Docu stage tools are zero-arg and return the draft/response as their
+	result) — so ``result.output`` is legitimately blank and the note-taker would
+	see nothing. Reconstruct what the agent said/did from the trace's tool calls
+	instead. Most recent turn first, so the terminal tools' payloads (the final
+	response) survive the distiller's input cap.
+	"""
+	parts = []
+	for turn in reversed(trace or []):
+		for call in turn.get("tool_calls") or []:
+			name = call.get("name") or ""
+			call_result = call.get("result") or ""
+			if str(call_result).startswith("Unknown tool:"):
+				continue
+			args = call.get("arguments")
+			rendered = ""
+			if args:
+				try:
+					rendered = json.dumps(args, default=str)
+				except (TypeError, ValueError):
+					rendered = str(args)
+			payload = " ".join(p for p in (rendered, str(call_result)) if p).strip()
+			if payload:
+				parts.append(f"{name}: {payload[:2000]}")
+	return "\n".join(parts)
+
+
 def _memory_write_mode(task_cfg: dict) -> str:
 	"""Resolve the long-term memory write mode: "off" | "raw" | "distilled".
 
@@ -96,6 +127,35 @@ def _memory_write_mode(task_cfg: dict) -> str:
 	if mode in ("off", "raw", "distilled"):
 		return mode
 	return "distilled" if _cfg_truthy(task_cfg.get("aiMemoryAutoWrite")) else "off"
+
+
+def _provider_for_model(model: str | None, fallback: str) -> str:
+	"""The AI Provider Credentials that actually serves *model*.
+
+	The dispatcher used to send the AGENT's provider with whatever memory model
+	was configured, on the stated assumption that "the provider/backend still
+	come from the task so the extraction call is always valid". That holds only
+	while the memory model belongs to the same provider as the agent's own.
+
+	Observed live: Lumina runs gpt-5-nano on an OpenAI provider and had its
+	distill model set to claude-haiku-4-5. The extraction call asked the OpenAI
+	endpoint for an Anthropic model, got nothing usable back, and distillation
+	returned an empty list — so the agent said "I'll remember that" and NOTHING
+	was ever written. Silently, because a memory failure must never break a
+	turn. Agents whose memory model happened to match their provider (Docu,
+	Logix) wrote memories perfectly, which is what made it look agent-specific.
+
+	Falls back to the agent's provider when the model has no record or no
+	credentials link — that is the old behaviour, and it is right for a model
+	the agent already runs.
+	"""
+	if not model:
+		return fallback
+	try:
+		owner = frappe.db.get_value("AI Model", model, "ai_provider_credentials")
+		return owner or fallback
+	except Exception:
+		return fallback
 
 
 def _memory_model(task_cfg: dict, key: str, fallback: str | None) -> str | None:
@@ -1059,11 +1119,23 @@ def dispatch_ai_agent(instance, task, task_cfg: dict, bpmn_id: str, resume_run: 
 	# WI-001637 (live link): a linked AI Agent Configuration is authoritative at
 	# dispatch for agent-level fields (prompt, provider, model, temperature,
 	# max tokens) — the shape's copies are the editing view and the fallback
-	# when the config is missing. Resume paths skip this: the checkpointed
-	# transcript already holds the prompts the run started with.
-	if not resume_payload and task_cfg.get("aiAgentConfig"):
+	# when the config is missing.
+	#
+	# The resume path used to skip this overlay entirely, reasoning that the
+	# checkpointed transcript already holds the prompts. True of the prompts,
+	# and false of everything else in it: the overlay is also where the PROVIDER
+	# and MODEL come from for any shape that carries no copies of its own.
+	# Without them a resumed run reached the executor with provider_name="" and
+	# died on "AI Provider Credentials '' not found" — so a human step on such an
+	# agent could be completed and never continued. The prompt is the one key
+	# held back, because the checkpoint's copy is authoritative for a
+	# conversation already in flight.
+	if task_cfg.get("aiAgentConfig"):
 		from one_bpmn.agents.agent_config_resolver import resolve_dispatch_overrides
-		task_cfg = {**task_cfg, **resolve_dispatch_overrides(task_cfg["aiAgentConfig"])}
+		_overrides = resolve_dispatch_overrides(task_cfg["aiAgentConfig"])
+		if resume_payload:
+			_overrides = {k: v for k, v in _overrides.items() if k != "aiSystemPrompt"}
+		task_cfg = {**task_cfg, **_overrides}
 
 	doc = frappe._dict()
 	if instance.context_doctype and instance.context_docname:
@@ -1085,23 +1157,55 @@ def dispatch_ai_agent(instance, task, task_cfg: dict, bpmn_id: str, resume_run: 
 			return text
 
 	if resume_payload:
-		# The conversation continues — the checkpointed system prompt (incl.
-		# any memory block injected at dispatch time) must be reused verbatim.
+		# The conversation continues — the checkpointed system prompt must be
+		# reused verbatim. The static layer is frozen for the whole run, so a
+		# resumed segment sees exactly the context the first segment saw.
 		system_prompt = resume_payload.get("system_prompt") or ""
 		user_prompt = ""
 	else:
-		system_prompt = render(task_cfg.get("aiSystemPrompt", ""))
-		user_prompt   = render(task_cfg.get("aiUserPrompt", ""))
+		# ── Static context layer (WI-001639) ──────────────────────────────
+		# Instructions -> Examples -> Guard Rails, assembled once and frozen
+		# for the rest of the run. Examples and guard rails come from the
+		# linked AI Agent Configuration; a shape with no linked config renders
+		# its own prompt alone, exactly as before.
+		from one_bpmn.agents.context_assembler import build_static_context, load_agent_behaviour
+
+		instructions = render(task_cfg.get("aiSystemPrompt", ""))
+		agent_config = {}
+		if task_cfg.get("aiAgentConfig"):
+			try:
+				agent_config = load_agent_behaviour(task_cfg["aiAgentConfig"])
+			except Exception:
+				# Behaviour rows are additive: a failure here must degrade to
+				# the plain prompt, never take the agent down.
+				frappe.log_error(
+					title=f"BPMN AI Agent Task: static context load failed ({bpmn_id})",
+					message=frappe.get_traceback(),
+				)
+		system_prompt = build_static_context(
+			system_prompt=instructions,
+			examples=agent_config.get("examples"),
+			guardrails=agent_config.get("guardrails"),
+			skills=agent_config.get("enabled_skills"),
+		)
+		user_prompt = render(task_cfg.get("aiUserPrompt", ""))
 
 	# ── Long-term memory: search + inject (config-gated; safe when off) ──
 	# When aiLongTermMemory is enabled, recall memories for the task's scope
-	# using the rendered user prompt as the query and append them to the system
-	# prompt as a stable "Relevant memory:" block. Failures never block the call.
+	# using the rendered user prompt as the query.
+	#
+	# WI-001639: the retrieved block goes into the DYNAMIC layer (ahead of the
+	# user's text), not onto the system prompt. Memory is searched per turn, so
+	# appending it to the system prompt made the "immutable" layer differ on
+	# every call — the drift this story exists to remove — and invalidated the
+	# provider's system-prompt cache breakpoint each time.
+	# Failures never block the call.
 	memory_target = None
 	if not resume_payload and _cfg_truthy(task_cfg.get("aiLongTermMemory")):
 		try:
 			memory_target = _resolve_memory_target(task_cfg, instance, bpmn_id)
 			if memory_target and user_prompt:
+				from one_bpmn.agents.context_assembler import build_dynamic_preamble
 				from one_bpmn.agents.memory.tools import memory_search
 				scope, scope_key = memory_target
 				limit = int(task_cfg.get("aiMemoryLimit", 5) or 5)
@@ -1109,8 +1213,10 @@ def dispatch_ai_agent(instance, task, task_cfg: dict, bpmn_id: str, resume_run: 
 					scope, scope_key, user_prompt, limit=limit, ignore_permissions=True
 				)
 				if memories:
-					block = _format_memory_block(memories)
-					system_prompt = f"{system_prompt}\n\n{block}" if system_prompt else block
+					user_prompt = build_dynamic_preamble(
+						memory_block=_format_memory_block(memories),
+						user_prompt=user_prompt,
+					)
 		except Exception:
 			frappe.log_error(
 				title=f"BPMN AI Agent Task: memory_search failed ({bpmn_id})",
@@ -1121,11 +1227,93 @@ def dispatch_ai_agent(instance, task, task_cfg: dict, bpmn_id: str, resume_run: 
 	# are the shapes"). aiToolShapes was embedded at compile time (WI-001421);
 	# each becomes a function-tool the LLM can call, whose result feeds back into
 	# the loop. Empty/absent → a plain LLM call (tools stays None).
-	tool_specs = None
+
+	tool_specs = []
 	tool_shapes = task_cfg.get("aiToolShapes")
 	if tool_shapes:
 		from one_bpmn.agents.shape_tools import compile_shape_tools
-		tool_specs = compile_shape_tools(tool_shapes, instance) or None
+		tool_specs = compile_shape_tools(tool_shapes, instance) or []
+
+	# WI-001425: AI Skills Tool Injection
+	from one_bpmn.api.skill_tools import get_skill_tools
+	agent_name = task_cfg.get("aiAgentConfig")
+	if agent_name:
+		skill_tool_specs = get_skill_tools(agent_name, instance)
+		if skill_tool_specs:
+			tool_specs.extend(skill_tool_specs)
+			
+	# Inject tools for dynamically loaded skills!
+	if instance:
+		active_skill_names = frappe.cache().get_value(f"active_skill_names_{instance.name}") or []
+		if active_skill_names:
+			import json
+			from one_bpmn.agents.llm_provider.base import ToolSpec
+			
+			def make_dynamic_tool_fn(script_name, tool_name):
+				def fn(**kwargs):
+					from one_bpmn.agents.shape_tools import _synthetic_task, _run_server_script
+					task = _synthetic_task(tool_name, kwargs)
+					try:
+						_run_server_script(instance, script_name, task, tool_name)
+						produced = {k: v for k, v in task.data.items() if k not in kwargs}
+						return json.dumps(produced or {"ok": True}, default=str)
+					except Exception as e:
+						return json.dumps({"error": str(e)})
+				return fn
+
+			for skill_name in active_skill_names:
+				allowed_tools = frappe.get_all("AI Skill Allowed Tool", filters={"parent": skill_name}, fields=["tool"])
+				for allowed in allowed_tools:
+					tool_name = allowed.tool
+					# Check if we already have it to avoid duplicates
+					if any(t.name == tool_name for t in tool_specs):
+						continue
+						
+					tool_doc = frappe.db.get_value("AI Agent Tool", tool_name, ["description", "json_schema", "script"], as_dict=True)
+					if tool_doc:
+						try:
+							schema = json.loads(tool_doc.json_schema)
+							parameters = schema.get("properties", {})
+							required = schema.get("required", [])
+						except Exception:
+							parameters = {}
+							required = []
+							
+						tool_specs.append(ToolSpec(
+							fn=make_dynamic_tool_fn(tool_doc.script, tool_name),
+							name=tool_name,
+							description=tool_doc.description or tool_name,
+							parameters=parameters,
+							required=required
+						))
+
+			# WI-001425 (US4): a skill narrows the tool pool, it never widens it.
+			# A skill with no Allowed Tools rows "changes nothing" - only skills
+			# that actually declare an allow-list restrict the turn. The LLM
+			# adapters call ToolSpec.fn directly by name, so swapping it here is
+			# sufficient to intercept.
+			restrictive_allowed_names = set()
+			has_restrictive_skill = False
+			for skill_name in active_skill_names:
+				skill_allowed = frappe.get_all("AI Skill Allowed Tool", filters={"parent": skill_name}, pluck="tool")
+				if skill_allowed:
+					has_restrictive_skill = True
+					restrictive_allowed_names.update(skill_allowed)
+
+			def make_blocked_fn(tool_name):
+				def blocked_fn(**kwargs):
+					return "Error: Tool not allowed by active skill."
+				return blocked_fn
+
+			if has_restrictive_skill:
+				allowed_tool_names = restrictive_allowed_names | {"load_skill", "load_skill_resource"}
+				for t in tool_specs:
+					if t.name not in allowed_tool_names:
+						t.fn = make_blocked_fn(t.name)
+
+	if not tool_specs:
+		tool_specs = None
+
 
 	config = ExecutorConfig(
 		backend          = task_cfg.get("aiBackend", "direct_api"),
@@ -1207,6 +1395,13 @@ def dispatch_ai_agent(instance, task, task_cfg: dict, bpmn_id: str, resume_run: 
 	# ── Executor ───────────────────────────────────────────────────────
 	import time as _time
 	_exec_start = _time.time()
+
+	# WI-001645: publish which agent is running so the tool-policy interceptor
+	# can apply that agent's tool grant — including for tools a Server Script
+	# constructs for its own sub-agent call, which never see this frame.
+	from one_bpmn.security.tool_policy import reset_current_agent, set_current_agent
+
+	_policy_token = set_current_agent(task_cfg.get("aiAgentConfig"))
 	try:
 		executor_cls = get_executor(config.backend)
 		result = executor_cls().run(config, context)
@@ -1224,12 +1419,25 @@ def dispatch_ai_agent(instance, task, task_cfg: dict, bpmn_id: str, resume_run: 
 		except Exception:
 			pass
 		return
+	finally:
+		# Must clear on BOTH paths — a leaked agent id would apply this agent's
+		# tool grant to whatever runs next in this worker.
+		reset_current_agent(_policy_token)
 	_exec_latency_ms = int((_time.time() - _exec_start) * 1000)
 
 	# ── Durable HITL: token totals are cumulative across suspensions ───
 	if resume_payload and result.token_usage:
 		result.token_usage.prompt_tokens += int(resume_payload.get("prompt_tokens_so_far") or 0)
 		result.token_usage.completion_tokens += int(resume_payload.get("completion_tokens_so_far") or 0)
+		# WI-001643: the cache breakdown must accumulate alongside the prompt
+		# total it is a breakdown OF — otherwise the final segment's small cache
+		# figures would be costed against every earlier segment's prompt tokens.
+		result.token_usage.cache_read_tokens += int(
+			resume_payload.get("cache_read_tokens_so_far") or 0
+		)
+		result.token_usage.cache_write_tokens += int(
+			resume_payload.get("cache_write_tokens_so_far") or 0
+		)
 		result.token_usage.total_tokens = (
 			result.token_usage.prompt_tokens + result.token_usage.completion_tokens
 		)
@@ -1261,6 +1469,11 @@ def dispatch_ai_agent(instance, task, task_cfg: dict, bpmn_id: str, resume_run: 
 				record_ai_step(
 					run, 2, "user", user_prompt,
 					prompt_tokens=usage.prompt_tokens if usage else 0,
+					# The cache breakdown rides with the prompt tokens it splits,
+					# so the user step is costed at the real blend of rates
+					# rather than all-input (WI-001643).
+					cache_read_tokens=getattr(usage, "cache_read_tokens", 0) if usage else 0,
+					cache_write_tokens=getattr(usage, "cache_write_tokens", 0) if usage else 0,
 				)
 				if result.error_code == ErrorCode.SUCCESS:
 					record_ai_step(
@@ -1273,11 +1486,19 @@ def dispatch_ai_agent(instance, task, task_cfg: dict, bpmn_id: str, resume_run: 
 		# A suspension is not an outcome — the run stays open ("Suspended",
 		# set by save_checkpoint below) until the final answer or a failure.
 		if result.error_code != ErrorCode.SUSPENDED:
-			finalize_ai_run(run, result)
+			# WI-001823: a map may declare what "done" means for this shape by
+			# naming the reply key that proves it — Logix finishes when it has a
+			# script, ProsAlly when it has a diagram. Left unset, completion
+			# falls back to the generic error/turn-cap/output signals.
+			finalize_ai_run(run, result, goal_key=(task_cfg.get("aiGoalOutputKey") or "").strip() or None)
 
 		# Commit observability data so AI runs + steps survive even if a
 		# downstream aiStopOnError raise rolls back the outer transaction.
-		frappe.db.commit()
+		# Never inside tests: a mid-test commit also persists the test's
+		# fixture docs, defeating FrappeTestCase rollback and leaking
+		# orphan "Active" instances into the shared dev DB.
+		if not frappe.flags.in_test:
+			frappe.db.commit()
 	except Exception:
 		frappe.log_error(
 			title=f"AI Observability: instrumentation error ({bpmn_id})",
@@ -1301,6 +1522,8 @@ def dispatch_ai_agent(instance, task, task_cfg: dict, bpmn_id: str, resume_run: 
 			human_row_id="",
 			prior_prompt_tokens=int((resume_payload or {}).get("prompt_tokens_so_far") or 0),
 			prior_completion_tokens=int((resume_payload or {}).get("completion_tokens_so_far") or 0),
+			prior_cache_read_tokens=int((resume_payload or {}).get("cache_read_tokens_so_far") or 0),
+			prior_cache_write_tokens=int((resume_payload or {}).get("cache_write_tokens_so_far") or 0),
 		)
 		pending = (result.suspension or {}).get("pending_call") or {}
 		pending_name = pending.get("name") or ""
@@ -1313,12 +1536,23 @@ def dispatch_ai_agent(instance, task, task_cfg: dict, bpmn_id: str, resume_run: 
 					break
 		except Exception:
 			pass
-		task.data["_bpmn_ai_waiting_human"] = {
+		# One marker, because the engine's parking gates all key off it: this AI
+		# task is STARTED and cannot produce its own result yet. `waits_on` says
+		# who owes it — a person (the original case, and the default) or another
+		# agent this one delegated to from inside a tool call (WI-001933). Only
+		# the human case spawns a task for someone to do.
+		waiting_marker = {
 			"run": run.name,
 			"tool": pending_name,
 			"label": label,
 			"arguments": pending.get("arguments") or {},
 		}
+		deferred_wait = (result.suspension or {}).get("deferred_wait") or {}
+		if deferred_wait.get("a2a_task"):
+			waiting_marker["waits_on"] = "a2a"
+			waiting_marker["a2a_task"] = deferred_wait["a2a_task"]
+			waiting_marker["label"] = label or deferred_wait.get("label") or pending_name
+		task.data["_bpmn_ai_waiting_human"] = waiting_marker
 		if not frappe.flags.in_test:
 			frappe.db.commit()
 		return
@@ -1418,16 +1652,29 @@ def dispatch_ai_agent(instance, task, task_cfg: dict, bpmn_id: str, resume_run: 
 									f"[User message]\n{str(user_prompt or '')[:3000]}\n\n"
 									f"[Agent tool activity]\n{trace_text}"
 								)
+						_distill_model = _memory_model(
+							task_cfg, "aiMemoryDistillModel", config.model
+						)
+						_reconcile_model = _memory_model(
+							task_cfg, "aiMemoryReconcileModel", config.model
+						)
 						_enqueue_distill(
-							agent_output=result.output,
+							agent_output=memory_src,
 							agent=(task_cfg.get("aiMemoryAgentElement") or bpmn_id),
 							scope=scope,
 							scope_key=scope_key,
-							provider_name=config.provider_name,
+							# The provider that serves the DISTILL model, not the
+							# agent's — they are the same for an agent using its
+							# own model and different the moment somebody picks a
+							# memory model from another provider.
+							provider_name=_provider_for_model(
+								_distill_model, config.provider_name
+							),
 							backend=config.backend,
-							model=_memory_model(task_cfg, "aiMemoryDistillModel", config.model),
-							reconcile_model=_memory_model(
-								task_cfg, "aiMemoryReconcileModel", config.model
+							model=_distill_model,
+							reconcile_model=_reconcile_model,
+							reconcile_provider=_provider_for_model(
+								_reconcile_model, config.provider_name
 							),
 							source_run=src,
 						)
@@ -1454,6 +1701,14 @@ def dispatch_ai_agent(instance, task, task_cfg: dict, bpmn_id: str, resume_run: 
 				)
 	else:
 		error_code_name = result.error_code.value
+		# The run FAILED, so it is no longer waiting for anybody. Clearing the
+		# marker matters most on a resume: the marker survives from the original
+		# suspension, and leaving it made the caller re-spawn the human task off
+		# it — a second row bound to a run that is now Errored, not Suspended, so
+		# completing it answered "No suspended AI agent is waiting on this task"
+		# and the flow could never move. Observed live.
+		if isinstance(task.data, dict):
+			task.data.pop("_bpmn_ai_waiting_human", None)
 		frappe.log_error(
 			title=f"BPMN AI Agent Task: {error_code_name} ({bpmn_id})",
 			message=(

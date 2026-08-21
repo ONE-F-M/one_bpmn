@@ -16,6 +16,7 @@
  */
 
 import { h, Component } from "preact";
+import { fixedDropdownStyle } from "./dropdownPosition";
 import "./bpmn-panel.css";
 
 export class FrappeMultiSelect extends Component {
@@ -31,15 +32,25 @@ export class FrappeMultiSelect extends Component {
 		this.inputRef       = null;
 		this.debounceTimer  = null;
 		this.handleDocClick = this.handleDocClick.bind(this);
+		this.handleScroll   = this.handleScroll.bind(this);
 	}
 
 	componentDidMount() {
 		document.addEventListener("mousedown", this.handleDocClick);
+		// Fixed-position dropdown must follow its anchor when the panel scrolls
+		document.addEventListener("scroll", this.handleScroll, true);
+		window.addEventListener("resize", this.handleScroll);
 	}
 
 	componentWillUnmount() {
 		document.removeEventListener("mousedown", this.handleDocClick);
+		document.removeEventListener("scroll", this.handleScroll, true);
+		window.removeEventListener("resize", this.handleScroll);
 		if (this.debounceTimer) clearTimeout(this.debounceTimer);
+	}
+
+	handleScroll() {
+		if (this.state.isOpen) this.forceUpdate();
 	}
 
 	handleDocClick(e) {
@@ -188,6 +199,7 @@ export class FrappeMultiSelect extends Component {
 											"ul",
 											{
 										class: "bpmn-dropdown-list",
+										style: fixedDropdownStyle(this.inputRef),
 											},
 											[
 												loading &&

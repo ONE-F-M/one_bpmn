@@ -22,9 +22,17 @@ import re
 
 import frappe
 from frappe import _
+from frappe.utils import get_datetime, now, now_datetime
 
 VALID_SCOPES = ("Agent", "Process", "Entity")
 _DEFAULT_LIMIT = 5
+# Extra rows fetched on the keyword (`like`) path before dropping expired/
+# superseded ones in Python, so the post-filter still fills `limit` in the common
+# case. The FULLTEXT path filters expiry in SQL and needs no headroom.
+_EXPIRY_HEADROOM = 50
+# How many similar currently-valid memories to hand the reconciler as conflict
+# candidates. Bounds both the retrieval and the reconciler prompt size.
+_RECONCILE_K = 8
 # Max distinct keyword tokens to OR-match from a query (bounds the WHERE clause).
 _MAX_QUERY_TOKENS = 10
 # Ignore short tokens: InnoDB FULLTEXT ignores anything below ft_min_token_size
@@ -121,13 +129,16 @@ def _fulltext_search(filters: dict, query: str, limit: int):
 	uncommitted transaction are not yet visible to the FULLTEXT cache.
 	"""
 	conds = " AND ".join(f"`{col}` = %({col})s" for col in filters)
-	params = dict(filters, _q=query, _lim=int(limit))
+	params = dict(filters, _q=query, _lim=int(limit), _now=now())
+	# Only currently-valid memories: exclude superseded (expires_on set to now on
+	# reconcile) and naturally-expired rows, so the most-recent fact wins.
 	sql = f"""
 		SELECT name, content, metadata,
 		       MATCH(content) AGAINST (%(_q)s IN NATURAL LANGUAGE MODE) AS _score
 		FROM `tabAI Memory`
 		WHERE {conds}
 		  AND MATCH(content) AGAINST (%(_q)s IN NATURAL LANGUAGE MODE)
+		  AND (expires_on IS NULL OR expires_on > %(_now)s)
 		ORDER BY _score DESC, modified DESC
 		LIMIT %(_lim)s
 	"""
@@ -170,17 +181,107 @@ def memory_search(scope: str, scope_key, query: str, limit: int = 5, *, ignore_p
 	# Keyword match: OR each query token against content. `filters` (scope) is
 	# AND-ed with `or_filters` (the token match) by DatabaseQuery, so results
 	# stay pinned to the exact scope key. Empty/short-only query -> recency list.
+	#
+	# The valid-only (expires_on) guard is a per-field disjunction (NULL OR future)
+	# that can't share DatabaseQuery's single `or_filters` slot with the token
+	# match, so we over-fetch and drop expired/superseded rows in Python. `filters`
+	# is a dict, so copy it before adding fields we don't want to mutate upstream.
 	or_filters = [["content", "like", f"%{tok}%"] for tok in tokens] or None
 	rows = frappe.get_list(
 		"AI Memory",
 		filters=filters,
 		or_filters=or_filters,
-		fields=["name", "content", "metadata"],
+		fields=["name", "content", "metadata", "expires_on"],
 		order_by="modified desc",
-		limit_page_length=page_length,
+		limit_page_length=page_length + _EXPIRY_HEADROOM,
 		ignore_permissions=ignore_permissions,
 	)
-	return [_row_dict(r) for r in rows]
+	cutoff = now_datetime()
+	valid = [r for r in rows if not r.get("expires_on") or get_datetime(r["expires_on"]) > cutoff]
+	return [_row_dict(r) for r in valid[:page_length]]
+
+
+def _reconcile_and_invalidate(scope, scope_key, content, ctx, *, ignore_permissions) -> str | None:
+	"""Reconcile ``content`` against the most similar currently-valid memories in
+	the same scope and invalidate any it supersedes.
+
+	Retrieves conflict candidates with the existing scoped ``memory_search``
+	(currently-valid only, after the expires_on guard), asks the configured chat
+	model to decide add/update/replace, and for each superseded memory sets
+	``expires_on = now`` via ``doc.save`` — NOT ``db.set_value`` — so the change is
+	captured as a Frappe ``Version`` (free history; the row stays in the table).
+
+	Returns the reconciler action ("add"/"update"/"replace"), or ``None`` when
+	there is nothing to reconcile against. Never raises — the caller treats any
+	problem as a plain insert.
+	"""
+	from one_bpmn.agents.memory.reconcile import reconcile as _reconcile
+
+	candidates = memory_search(scope, scope_key, content, limit=_RECONCILE_K, ignore_permissions=True)
+	if not candidates:
+		return None
+
+	decision = _reconcile(
+		content,
+		candidates,
+		provider_name=(ctx or {}).get("provider_name"),
+		backend=(ctx or {}).get("backend") or "direct_api",
+		model=(ctx or {}).get("model"),
+	)
+	stamp = now_datetime()
+	for name in decision.get("supersedes", []):
+		try:
+			old = frappe.get_doc("AI Memory", name)
+			old.expires_on = stamp
+			# ignore_version=False so the supersession is always captured as a
+			# Frappe Version — preserving history is the point of invalidate-and-
+			# insert, so we don't leave it to the ambient default (which suppresses
+			# versions under frappe.flags.in_test).
+			old.save(ignore_permissions=ignore_permissions, ignore_version=False)
+		except Exception:
+			frappe.log_error(
+				title="AI Memory: invalidate superseded failed",
+				message=frappe.get_traceback(),
+			)
+	return decision.get("action")
+
+
+def _screen_memory_content(content: str, scope: str, keys_source=None) -> str | None:
+	"""Screen a memory before it is stored. ``None`` means do not store it.
+
+	Screened against the site default rather than a specific agent's setting:
+	this layer is reached from the distiller, the memory tool and direct server
+	calls, and only some of those know which agent configuration is in play.
+	Erring towards the default is the safe direction — the default is Flag, so
+	the fact is still stored, minus the payload.
+
+	Never raises. A screening fault must not lose a memory that would otherwise
+	have been written.
+	"""
+	try:
+		from one_bpmn.security.injection import screen_input
+
+		result = screen_input(
+			content,
+			None,
+			boundary="memory-write",
+			raise_on_block=False,
+		)
+		if result.fired and result.action == "Block":
+			frappe.logger("injection").warning(
+				f"memory write dropped for scope={scope}: {result.summary()}"
+			)
+			return None
+		return result.text
+	except Exception:
+		try:
+			frappe.log_error(
+				title="Memory write screening failed — memory stored unscreened",
+				message=frappe.get_traceback(),
+			)
+		except Exception:
+			pass
+		return content
 
 
 def memory_write(
@@ -192,6 +293,8 @@ def memory_write(
 	source_run: str | None = None,
 	*,
 	ignore_permissions: bool = False,
+	reconcile: bool = False,
+	reconcile_ctx: dict | None = None,
 ) -> dict:
 	"""Save a memory for a scope key.
 
@@ -201,6 +304,15 @@ def memory_write(
 	is inserted. ``source_run`` records provenance (the AI Agent Run that wrote
 	the memory).
 
+	``reconcile=True`` (the background note-taker path) replaces string dedup with
+	write-time semantic reconciliation: before inserting, the most similar
+	currently-valid memories in scope are retrieved and the configured chat model
+	(``reconcile_ctx={provider_name, backend, model}``) decides add/update/replace.
+	Superseded memories are invalidated (``expires_on = now``, kept for history)
+	and the new fact is always inserted fresh (``dedup_key`` is ignored). If
+	reconciliation can't run (no model, no candidates, any error) it degrades to a
+	plain insert — it never raises and never blocks the turn.
+
 	Permissions: this writes as the caller's context. ``ignore_permissions=True``
 	is the documented escape hatch for TRUSTED server-side dispatch only (the
 	agent runs under a system context) — it must NEVER be passed from a
@@ -208,7 +320,38 @@ def memory_write(
 
 	Returns the resulting record as ``{name, content, metadata}``.
 	"""
+	# ── Injection screening before persistence ───────────────────────────
+	# A memory is re-read on every later turn for its scope, so a payload that
+	# reaches this function stops being a one-off message and becomes a standing
+	# instruction — the one carrier where a single success buys the attacker
+	# persistence. Screened here rather than in the distiller because THIS is the
+	# function every write path goes through, including the memory tool.
+	#
+	# Nobody is waiting on a background writeback, so a Block drops the write
+	# instead of raising: refusing here would surface as a failed job, not as an
+	# answer to a person. Flag stores the fact with the payload cut out, because
+	# a distilled memory usually carries something worth keeping alongside it.
+	content = _screen_memory_content(content, scope, keys_source=scope_key)
+	if content is None:
+		return {}
+
 	keys = _resolve_scope(scope, scope_key)
+
+	# Write-time reconciliation supersedes the string-dedup mechanism: it never
+	# uses dedup_key, and conflicts are resolved by invalidating the old fact.
+	reconcile_action = None
+	if reconcile:
+		dedup_key = None
+		try:
+			reconcile_action = _reconcile_and_invalidate(
+				scope, scope_key, content, reconcile_ctx, ignore_permissions=ignore_permissions
+			)
+		except Exception:
+			frappe.log_error(title="AI Memory: reconcile_and_invalidate failed", message=frappe.get_traceback())
+			reconcile_action = None  # degrade: plain insert
+
+	if reconcile_action:
+		metadata = dict(metadata or {}, reconcile_action=reconcile_action)
 	metadata_json = json.dumps(metadata) if metadata is not None else None
 
 	existing = None

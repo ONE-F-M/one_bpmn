@@ -42,6 +42,9 @@ from ag_ui.core import (
 	TextMessageStartEvent,
 )
 from ag_ui.encoder import EventEncoder
+from frappe import _
+
+from one_bpmn.security.rate_limit import RateLimited
 
 # ── Extension translators (payload dict → list of CustomEvent) ──────────────
 # Registered callables receive the runner's reply dict and return an iterable
@@ -184,12 +187,47 @@ def agent_event_stream(agent_id: str, message: str, conversation: str, context: 
 			if result.get("artifact") is not None and not result.get("artifact_type"):
 				result["artifact_type"] = _agent_artifact_type(agent_id)
 			text = result.get("response") or ""
+			# The AG-UI message_id IS the persisted Chat Message name whenever the
+			# runner saved one (WI-001641). `message_id` exists in the protocol to
+			# identify a message; minting a uuid for it and throwing it away left
+			# the client unable to name the reply it had just been shown, so a
+			# rating or a report had nothing durable to point at. Runners that
+			# persist nothing keep the generated id, which is still unique per
+			# turn and still correct for grouping the text events.
+			message_id = result.get("message_name") or message_id
 			yield encoder.encode(TextMessageStartEvent(message_id=message_id, role="assistant"))
 			yield encoder.encode(TextMessageContentEvent(message_id=message_id, delta=text))
 			yield encoder.encode(TextMessageEndEvent(message_id=message_id))
 			for event in _extension_events(result):
 				yield encoder.encode(event)
 			_commit_turn()
+	except RateLimited as refusal:
+		# A throttle or a conversation freeze is a DECISION, not a fault. Every
+		# older surface already knew that; this shared stream did not, so a
+		# refusal arrived as RUN_ERROR and the panel showed "Something went
+		# wrong" over a message that explains itself perfectly well.
+		#
+		# Delivered as an ordinary assistant message so it lands in the thread
+		# where the user is reading, and NOT logged as an error: the control
+		# working as designed is not an incident, and a traceback per refusal
+		# fills the log with false alarms.
+		# COMMIT, not rollback. Nothing of this turn has been written — enforce
+		# raises before the runner is reached — so the only thing in the
+		# transaction is the AI Security Event recording the blocked attempt, and
+		# that is the one thing that must survive.
+		#
+		# Rolling back here (copied from the generic handler below, where it is
+		# right) threw that record away. It cost the audit trail, and it silently
+		# disabled the freeze on this surface: blocked_attempts counts those
+		# events, so the count could never rise and containment could never
+		# trigger no matter how hard someone hammered the door. Six refusals in a
+		# row had logged exactly one attempt.
+		if not frappe.flags.in_test:
+			frappe.db.commit()
+		text = str(refusal) or _("You are sending messages to this agent too quickly.")
+		yield encoder.encode(TextMessageStartEvent(message_id=message_id, role="assistant"))
+		yield encoder.encode(TextMessageContentEvent(message_id=message_id, delta=text))
+		yield encoder.encode(TextMessageEndEvent(message_id=message_id))
 	except Exception as e:
 		if not frappe.flags.in_test:
 			frappe.db.rollback()
@@ -202,6 +240,11 @@ def agent_event_stream(agent_id: str, message: str, conversation: str, context: 
 	finally:
 		yield encoder.encode(RunFinishedEvent(run_id=run_id, thread_id=conversation))
 		yield "\n"
+
+
+# Keys that belong to the CUSTOM envelope itself; everything else a legacy
+# producer puts on the event is payload (see _relay_child_stream).
+_CUSTOM_ENVELOPE_KEYS = {"type", "name", "event", "value", "timestamp", "raw_event", "rawEvent"}
 
 
 def _relay_child_stream(child, encoder, message_id):
@@ -240,7 +283,20 @@ def _relay_child_stream(child, encoder, message_id):
 				new_name = renames[raw_name]
 				if new_name is None:
 					continue
-				event = {**event, "name": new_name}
+				# The legacy producers put their payload FLAT on the event —
+				# lumina.py yields intent/matches/topology/… as siblings of
+				# "type", and user_planning_agent yields new_mode the same way
+				# — while an AG-UI CustomEvent carries it under `value`, which
+				# is all the panel reads. Renaming alone therefore delivered
+				# an EMPTY event to every consumer (WI-001678): fold the
+				# producer's own keys into value, preferring an explicit
+				# `value` when the producer already speaks the contract.
+				value = dict(event.get("value") or {})
+				for key, val in event.items():
+					if key not in _CUSTOM_ENVELOPE_KEYS:
+						value.setdefault(key, val)
+				event = {k: v for k, v in event.items() if k in _CUSTOM_ENVELOPE_KEYS}
+				event.update({"name": new_name, "value": value})
 				event.pop("event", None)
 			yield f"data: {json.dumps(event, default=str)}\n\n"
 			continue

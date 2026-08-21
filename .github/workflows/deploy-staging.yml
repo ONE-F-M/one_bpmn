@@ -25,12 +25,16 @@ jobs:
           port: 22
           script: |
             set -e
+            export PATH="/home/frappe/.local/bin:$PATH"
+            command -v bench
+            bench --version
+            
             export NVM_DIR="$HOME/.nvm"
             [ -s "$NVM_DIR/nvm.sh" ] && . "$NVM_DIR/nvm.sh"
             node -v
             cd /home/frappe/frappe-bench/apps/one_bpmn
             git pull upstream staging
-            cd /home/ubuntu/frappe-bench
+            cd /home/frappe/frappe-bench
             rm -rf env/lib/python*/site-packages/one_bpmn-*.dist-info
             bench setup requirements one_bpmn
             cd /home/frappe/frappe-bench/apps/one_bpmn/spiff

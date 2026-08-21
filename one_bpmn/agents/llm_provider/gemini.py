@@ -1,3 +1,5 @@
+import time
+
 from google import genai
 from google.genai import types
 
@@ -15,10 +17,19 @@ _MAX_TOOL_TURNS = 10
 
 
 def _usage_tokens(response) -> tuple:
+    """Returns ``(prompt, completion, cache_read, cache_write)``.
+
+    Like OpenAI (and unlike Anthropic), Gemini's ``prompt_token_count`` already
+    includes the cached portion, so ``cached_content_token_count`` is a
+    breakdown of it, not an addition. Gemini bills context-cache storage by
+    time rather than per write token, so cache_write is always 0 (WI-001643).
+    """
     usage = getattr(response, "usage_metadata", None)
     return (
         getattr(usage, "prompt_token_count", 0) or 0,
         getattr(usage, "candidates_token_count", 0) or 0,
+        getattr(usage, "cached_content_token_count", 0) or 0,
+        0,
     )
 
 
@@ -110,34 +121,67 @@ class GeminiAdapter(BaseLLMAdapter):
             candidate = response.candidates[0]
             parts = candidate.content.parts or []
             fn_call_parts = [p for p in parts if p.function_call]
+            prompt_tokens, completion_tokens, cache_read, cache_write = _usage_tokens(response)
 
             if not fn_call_parts:
-                return response.text or ""
+                content = response.text or ""
+                trace.append(
+                    TurnRecord(
+                        role="assistant",
+                        content=content,
+                        prompt_tokens=prompt_tokens,
+                        completion_tokens=completion_tokens,
+                        cache_read_tokens=cache_read,
+                        cache_write_tokens=cache_write,
+                        latency_ms=int((time.perf_counter() - _turn_t0) * 1000),
+                    )
+                )
+                return CompletionResult(text=content, trace=trace)
 
             # Append model turn
             contents.append(types.Content(role="model", parts=parts))
 
-            # Execute tool calls and collect responses
+            # Execute tool calls and collect responses; all calls of this
+            # response stay grouped under ONE TurnRecord.
+            turn = TurnRecord(
+                role="tool",
+                content="",
+                prompt_tokens=prompt_tokens,
+                completion_tokens=completion_tokens,
+                cache_read_tokens=cache_read,
+                cache_write_tokens=cache_write,
+            )
             result_parts = []
             for p in fn_call_parts:
                 fc = p.function_call
                 tool = tool_map.get(fc.name)
+                args = dict(fc.args) if fc.args else {}
                 if tool:
-                    args = dict(fc.args) if fc.args else {}
                     try:
                         result = str(tool.fn(**args))
                     except Exception as exc:
                         result = f"Error calling {fc.name}: {exc}"
                 else:
                     result = f"Unknown tool: {fc.name}"
+                turn.tool_calls.append(
+                    ToolCallRecord(name=fc.name, arguments=args, result=result)
+                )
+                # Same marking as the other adapters, so the
+                # guard rail means the same thing whichever provider an agent
+                # happens to run on.
+                from one_bpmn.security.provenance import wrap_tool_result
+
                 result_parts.append(
                     types.Part(
                         function_response=types.FunctionResponse(
                             name=fc.name,
-                            response={"output": result},
+                            response={"output": wrap_tool_result(result, fc.name, args)},
                         )
                     )
                 )
+            # API round-trip + inline tool execution = this turn's decision latency
+            turn.latency_ms = int((time.perf_counter() - _turn_t0) * 1000)
+            trace.append(turn)
 
             contents.append(types.Content(role="user", parts=result_parts))
 
@@ -209,7 +253,7 @@ class GeminiAdapter(BaseLLMAdapter):
         candidate = response.candidates[0]
         parts = candidate.content.parts or []
         fn_call_parts = [p for p in parts if p.function_call]
-        prompt_tokens, completion_tokens = _usage_tokens(response)
+        prompt_tokens, completion_tokens, cache_read, cache_write = _usage_tokens(response)
 
         tool_calls = [
             StepToolCall(
@@ -226,4 +270,6 @@ class GeminiAdapter(BaseLLMAdapter):
             tool_calls=tool_calls,
             prompt_tokens=prompt_tokens,
             completion_tokens=completion_tokens,
+            cache_read_tokens=cache_read,
+            cache_write_tokens=cache_write,
         )

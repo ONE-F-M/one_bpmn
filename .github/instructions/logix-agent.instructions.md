@@ -67,25 +67,32 @@ is ignored. The engine injects `doc`, `context_doctype`, `context_docname`, `tas
 `frappe` as local variables; generated scripts must use them:
 
 ```python
-# Input: always read from frappe.form_dict
-context_doctype = frappe.form_dict.get("context_doctype")
-context_docname = frappe.form_dict.get("context_docname")
+# Injected by the engine: doc, context_doctype, context_docname, task_data, result, frappe.
+
+# Read the context document directly (or frappe.get_doc(context_doctype, context_docname)):
+process_name = doc.process_name
+
+# Read workflow variables produced by earlier steps:
+threshold = task_data.get("threshold")
 
 # ... business logic ...
 
-# Output: always set frappe.response["message"] to a plain dict
-frappe.response["message"] = {
-    "approved": True,
-    "next_step": "manager_review",
-}
+# Write outputs onto the pre-defined `result` dict — the engine merges it back into
+# task.data so downstream steps and gateways can read the keys:
+result["approved"] = True
+result["next_step"] = "manager_review"
 ```
 
-- Default `script_type` is `"API"`. All four Frappe types are supported: `API`, `DocType Event`,
-  `Scheduler Event`, `Permission Query`. The canvas settings panel exposes the correct
-  sub-fields for each type (reference doctype, doctype event, api method, event frequency, cron format).
-- `api_method` is auto-derived when type is `API`: script name → lowercase, spaces→underscores,
-  special chars stripped. Scripts are reached at `/api/method/<api_method>`.
-- Never use bare `return`. Never use `doc`, `result`, or `context_*` variables — they do not exist.
+- Never use `frappe.form_dict` (always empty here) or `frappe.response` (ignored). Read inputs from
+  `doc` / `task_data`; write outputs onto `result`.
+- `doc`, `context_doctype`, `context_docname`, `task_data`, and `result` DO exist — they are injected.
+  Do not redefine them.
+- The Server Script record's `script_type` defaults to `"API"`; all four Frappe types are supported
+  (`API`, `DocType Event`, `Scheduler Event`, `Permission Query`), and the canvas settings panel
+  exposes the correct sub-fields for each. This governs how the record is stored/configured, not the
+  runtime injection above.
+- Never use bare `return` — Server Scripts run as top-level code, so `return` is a SyntaxError.
+  Use `if/else` for branching and `frappe.throw()` to abort.
 
 **agent_tool** — backs a shape inside an AI Agent Task's ad-hoc Tools sub-process, executed by
 `_run_server_script` in `one_bpmn/agents/shape_tools.py` against a synthetic task with SPLIT exec

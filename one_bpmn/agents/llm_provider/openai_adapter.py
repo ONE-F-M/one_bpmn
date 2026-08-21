@@ -1,4 +1,6 @@
 import json
+import time
+
 import frappe
 
 from .base import (
@@ -34,10 +36,21 @@ def _token_cap(model: str, max_tokens: int) -> dict:
 
 
 def _usage_tokens(response) -> tuple:
+    """Returns ``(prompt, completion, cache_read, cache_write)``.
+
+    Unlike Anthropic, OpenAI's ``prompt_tokens`` ALREADY includes the cached
+    portion, so cache_read is read out of ``prompt_tokens_details`` purely as a
+    breakdown — nothing is added to the prompt total. OpenAI does not bill a
+    cache-write premium, so cache_write is always 0 (WI-001643).
+    """
     usage = getattr(response, "usage", None)
+    details = getattr(usage, "prompt_tokens_details", None)
+    cache_read = getattr(details, "cached_tokens", 0) or 0
     return (
         getattr(usage, "prompt_tokens", 0) or 0,
         getattr(usage, "completion_tokens", 0) or 0,
+        cache_read,
+        0,
     )
 
 
@@ -83,10 +96,11 @@ class OpenAIAdapter(BaseLLMAdapter):
             _turn_t0 = time.perf_counter()
             response = await self._client.chat.completions.create(**kwargs)
             choice = response.choices[0]
+            prompt_tokens, completion_tokens, cache_read, cache_write = _usage_tokens(response)
 
             if choice.finish_reason != "tool_calls":
+                content = choice.message.content or ""
                 if choice.finish_reason == "length":
-                    content = choice.message.content or ""
                     frappe.log_error(
                         title="OpenAI Adapter — output truncated (max_tokens)",
                         message=(
@@ -94,28 +108,64 @@ class OpenAIAdapter(BaseLLMAdapter):
                             f"content_len={len(content)}"
                         ),
                     )
-                return choice.message.content or ""
+                trace.append(
+                    TurnRecord(
+                        role="assistant",
+                        content=content,
+                        prompt_tokens=prompt_tokens,
+                        completion_tokens=completion_tokens,
+                        cache_read_tokens=cache_read,
+                        cache_write_tokens=cache_write,
+                        latency_ms=int((time.perf_counter() - _turn_t0) * 1000),
+                    )
+                )
+                return CompletionResult(text=content, trace=trace)
 
             # Append assistant turn
             messages.append(choice.message)
 
-            # Execute tool calls
+            # Execute tool calls; all calls of this response stay grouped
+            # under ONE TurnRecord with the turn's real token usage.
+            turn = TurnRecord(
+                role="tool",
+                content=choice.message.content or "",
+                prompt_tokens=prompt_tokens,
+                completion_tokens=completion_tokens,
+                cache_read_tokens=cache_read,
+                cache_write_tokens=cache_write,
+            )
             for tc in choice.message.tool_calls:
                 tool = tool_map.get(tc.function.name)
+                try:
+                    args = json.loads(tc.function.arguments)
+                except Exception:
+                    args = {"_raw": tc.function.arguments}
                 if tool:
                     try:
-                        args = json.loads(tc.function.arguments)
                         result = str(tool.fn(**args))
                     except Exception as exc:
                         result = f"Error calling {tc.function.name}: {exc}"
                 else:
                     result = f"Unknown tool: {tc.function.name}"
 
+                turn.tool_calls.append(
+                    ToolCallRecord(name=tc.function.name, arguments=args, result=result)
+                )
+                # The model reads tool output through the same
+                # channel as its own instructions, so it is marked with the tool
+                # that produced it — that marker is what the seeded guard rail
+                # refers to. The ToolCallRecord above keeps the raw result; the
+                # wrapper is for the model, not the audit trail.
+                from one_bpmn.security.provenance import wrap_tool_result
+
                 messages.append({
                     "role": "tool",
                     "tool_call_id": tc.id,
-                    "content": result,
+                    "content": wrap_tool_result(result, tc.function.name, args),
                 })
+            # API round-trip + inline tool execution = this turn's decision latency
+            turn.latency_ms = int((time.perf_counter() - _turn_t0) * 1000)
+            trace.append(turn)
 
             kwargs["messages"] = messages
 
@@ -164,7 +214,7 @@ class OpenAIAdapter(BaseLLMAdapter):
 
         response = await self._client.chat.completions.create(**kwargs)
         choice = response.choices[0]
-        prompt_tokens, completion_tokens = _usage_tokens(response)
+        prompt_tokens, completion_tokens, cache_read, cache_write = _usage_tokens(response)
 
         tool_calls = []
         if choice.finish_reason == "tool_calls":
@@ -190,4 +240,6 @@ class OpenAIAdapter(BaseLLMAdapter):
             tool_calls=tool_calls,
             prompt_tokens=prompt_tokens,
             completion_tokens=completion_tokens,
+            cache_read_tokens=cache_read,
+            cache_write_tokens=cache_write,
         )

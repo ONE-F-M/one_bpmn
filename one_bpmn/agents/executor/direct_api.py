@@ -13,12 +13,14 @@ Prompt rendering (Jinja) is performed by the dispatcher BEFORE calling run().
 from __future__ import annotations
 
 import json
+import re
 import random
 import time
-from typing import Any, Optional
+from typing import Any, ClassVar, Optional
 
 import frappe
-from frappe.utils.password import get_decrypted_password
+
+from one_bpmn.agents.context_assembler import build_static_context, build_dynamic_preamble
 
 from . import (
     AttemptRecord,
@@ -108,6 +110,19 @@ def _extract_json_object(text: str) -> Optional[dict]:
 _TRANSIENT_STATUS_CODES = frozenset({429, 500, 502, 503})
 
 
+
+# Anthropic 5-series ids: claude-sonnet-5, claude-opus-5, claude-haiku-5 and
+# their dated variants. Deliberately anchored on "-<tier>-5" so it does NOT
+# catch claude-sonnet-4-5 or claude-haiku-4-5, which still accept sampling
+# params — verified against the live API.
+_NO_SAMPLING_PARAMS = re.compile(r"-(?:sonnet|opus|haiku)-5(?:$|[^0-9])")
+
+
+def _rejects_sampling_params(model: str) -> bool:
+    """True for models whose API refuses temperature / top_p."""
+    return bool(_NO_SAMPLING_PARAMS.search((model or "").lower()))
+
+
 class DirectApiExecutor(Executor):
     """Single-call HTTP executor supporting OpenAI-compatible and Anthropic APIs."""
 
@@ -122,6 +137,25 @@ class DirectApiExecutor(Executor):
     _ANTHROPIC_API_VERSION = "2023-06-01"
 
     def run(self, config: ExecutorConfig, context: ExecutorContext) -> ExecutorResult:
+        
+        # --- Context Assembler logic ---
+        static_ctx = ""
+        dynamic_pre = ""
+        
+        if config.agent_config_name:
+            static_ctx = build_static_context(config.agent_config_name)
+        if config.active_skill_name:
+            dynamic_pre = build_dynamic_preamble(config.active_skill_name)
+            
+        system_prompt = config.system_prompt
+        if dynamic_pre:
+            system_prompt = f"{dynamic_pre}\n\n{system_prompt}"
+        if static_ctx:
+            system_prompt = f"{system_prompt}\n\n{static_ctx}"
+            
+        config.system_prompt = system_prompt
+        # -------------------------------
+        
         try:
             provider = frappe.get_doc("AI Provider Credentials", config.provider_name)
         except frappe.DoesNotExistError:
@@ -133,11 +167,11 @@ class DirectApiExecutor(Executor):
         if not provider.enabled:
             return ExecutorResult(
                 error_code=ErrorCode.PROVIDER_DISABLED,
-                error_message=f"AI Provider Credentials '{config.provider_name}' is disabled.",
+                error_message=f"AI Provider Credentials '{config.provider_name}' is disabled. ({provider})",
             )
 
         try:
-            api_key = get_decrypted_password("AI Provider Credentials", config.provider_name, "api_key") or ""
+            api_key = frappe.utils.password.get_decrypted_password("AI Provider Credentials", config.provider_name, "api_key") or ""
         except Exception:
             api_key = ""
 
@@ -166,6 +200,12 @@ class DirectApiExecutor(Executor):
         model = config.model or frappe.db.get_value(
             "AI Model", {"ai_provider_credentials": provider.name}, "name"
         ) or ""
+
+        # WI-001356: with tools present, delegate to the matching
+        # agents/llm_provider adapter's multi-turn tool-calling loop. With
+        # tools=None (the default) the raw HTTP path below is untouched.
+        if config.tools:
+            return self._run_with_tools(config, provider_type, api_key, model)
 
         if provider_type == "Anthropic":
             url, payload, headers = self._build_anthropic_request(
@@ -355,6 +395,8 @@ class DirectApiExecutor(Executor):
                     prompt_tokens=suspension.prompt_tokens,
                     completion_tokens=suspension.completion_tokens,
                     total_tokens=suspension.prompt_tokens + suspension.completion_tokens,
+                    cache_read_tokens=getattr(suspension, "cache_read_tokens", 0) or 0,
+                    cache_write_tokens=getattr(suspension, "cache_write_tokens", 0) or 0,
                 ),
                 trace=list(suspension.trace),
                 suspension=asdict(suspension),
@@ -364,6 +406,8 @@ class DirectApiExecutor(Executor):
             prompt_tokens=completion.prompt_tokens,
             completion_tokens=completion.completion_tokens,
             total_tokens=completion.prompt_tokens + completion.completion_tokens,
+            cache_read_tokens=completion.cache_read_tokens,
+            cache_write_tokens=completion.cache_write_tokens,
         )
         trace = [asdict(turn) for turn in completion.trace]
         latency_ms = int((time.time() - start) * 1000)
@@ -372,6 +416,7 @@ class DirectApiExecutor(Executor):
             # Partial progress is not lost: the trace collected so far ships
             # with the error result.
             return ExecutorResult(
+                hit_turn_cap=True,
                 error_code=ErrorCode.FAILED_MODEL_CALL,
                 error_message=(
                     f"Tool-calling loop hit the adapter's turn cap without a final answer "
@@ -444,6 +489,10 @@ class DirectApiExecutor(Executor):
         messages = []
         if config.system_prompt:
             messages.append({"role": "system", "content": config.system_prompt})
+        # Prior history (if any) precedes the rendered user_prompt. Empty by
+        # default, so the payload is identical to before when unused.
+        if config.messages:
+            messages.extend(config.messages)
         messages.append({"role": "user", "content": config.user_prompt})
 
         payload = {
@@ -476,7 +525,38 @@ class DirectApiExecutor(Executor):
         url = f"{endpoint}/v1/messages"
 
         # Anthropic uses a top-level "system" field, not a system message.
-        messages = [{"role": "user", "content": config.user_prompt}]
+        # Prior history (if any) precedes the rendered user_prompt. Empty by
+        # default, so the payload is identical to before when unused.
+        messages = list(config.messages) if config.messages else []
+        messages.append({"role": "user", "content": config.user_prompt})
+
+        # ── Prompt caching (2 explicit breakpoints, max 4 allowed) ────────────
+        # Caching is a prefix match on the rendered prompt bytes. AI Agent Task
+        # system prompts and stage sub-prompts are identical across every turn
+        # of a conversation, so marking them cuts repeat-input cost by ~90%.
+        # 1. System prompt — sent as a content block so it can carry
+        #    cache_control (a plain string cannot). Prompts below the model's
+        #    minimum cacheable length are silently not cached — harmless.
+        # 2. Conversation prefix — when prior history is present, the last
+        #    history message gets a marker so the whole growing prefix
+        #    (system + all prior turns) is a single cache read next turn.
+        #    The final user_prompt stays after the marker: it varies per turn.
+        if messages and config.messages:
+            idx = len(config.messages) - 1
+            last = dict(messages[idx])  # copy — never mutate the caller's dicts
+            content = last.get("content")
+            if isinstance(content, str):
+                last["content"] = [{
+                    "type": "text",
+                    "text": content,
+                    "cache_control": {"type": "ephemeral"},
+                }]
+                messages[idx] = last
+            elif isinstance(content, list) and content and isinstance(content[-1], dict):
+                new_content = list(content)
+                new_content[-1] = {**content[-1], "cache_control": {"type": "ephemeral"}}
+                last["content"] = new_content
+                messages[idx] = last
 
         payload: dict = {
             "model": model,
@@ -484,15 +564,25 @@ class DirectApiExecutor(Executor):
             "max_tokens": config.max_tokens,
         }
         if config.system_prompt:
-            payload["system"] = config.system_prompt
+            payload["system"] = [{
+                "type": "text",
+                "text": config.system_prompt,
+                "cache_control": {"type": "ephemeral"},
+            }]
 
         # Anthropic does not allow both temperature and top_p simultaneously.
         # Send temperature by default; only send top_p if it was explicitly
         # changed from the default (1.0).
-        if config.top_p < 1.0:
-            payload["top_p"] = config.top_p
-        else:
-            payload["temperature"] = config.temperature
+        #
+        # The 5-series models reject sampling params outright — the API answers
+        # 400 "`temperature` is deprecated for this model" — so they get neither.
+        # Sending one anyway does not degrade the call, it fails it, which shows
+        # up as an empty AI task output or an eval assertion that never scored.
+        if not _rejects_sampling_params(config.model):
+            if config.top_p < 1.0:
+                payload["top_p"] = config.top_p
+            else:
+                payload["temperature"] = config.temperature
 
         headers = {
             "x-api-key": api_key,
@@ -544,13 +634,36 @@ class DirectApiExecutor(Executor):
 
     @staticmethod
     def _parse_token_usage(usage_raw: dict) -> TokenUsage:
+        """Normalise a raw provider usage dict into a TokenUsage.
+
+        Anthropic reports cached portions separately from ``input_tokens``, so
+        they are added to reach the full consumed context. OpenAI-shaped
+        payloads already include cached tokens in ``prompt_tokens`` and expose
+        the breakdown under ``prompt_tokens_details.cached_tokens`` — so that
+        one is read, never added. Either way the cache counts are also carried
+        on the TokenUsage so pricing can bill them at their own rates
+        (WI-001643); previously they were folded in and discarded, which billed
+        every cached token at the full input rate.
+        """
         prompt = usage_raw.get("prompt_tokens") or usage_raw.get("input_tokens") or 0
+        anthropic_read = usage_raw.get("cache_read_input_tokens") or 0
+        cache_write = usage_raw.get("cache_creation_input_tokens") or 0
+        if anthropic_read or cache_write:
+            # Anthropic shape: input_tokens EXCLUDES the cached portions.
+            prompt += anthropic_read + cache_write
+            cache_read = anthropic_read
+        else:
+            # OpenAI shape: prompt_tokens already INCLUDES the cached portion.
+            details = usage_raw.get("prompt_tokens_details") or {}
+            cache_read = (details or {}).get("cached_tokens") or 0
         completion = usage_raw.get("completion_tokens") or usage_raw.get("output_tokens") or 0
         total = usage_raw.get("total_tokens") or (prompt + completion)
         return TokenUsage(
             prompt_tokens=int(prompt),
             completion_tokens=int(completion),
             total_tokens=int(total),
+            cache_read_tokens=int(cache_read),
+            cache_write_tokens=int(cache_write),
         )
 
     @staticmethod

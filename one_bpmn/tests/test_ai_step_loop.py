@@ -113,9 +113,15 @@ class TestStepLoopAutomatic(FrappeTestCase):
 		self.assertEqual(
 			[e["role"] for e in second], ["user", "assistant", "tool_results"]
 		)
-		self.assertEqual(
-			second[2]["results"], [{"id": "c1", "name": "lookup", "content": "42"}]
-		)
+		# What reaches the MODEL is marked with its provenance.
+		# Asserted by containment rather than by an exact string — the marker has
+		# already gained one attribute (source), and pinning its full text makes
+		# every future attribute look like a regression here.
+		self.assertEqual(len(second[2]["results"]), 1)
+		sent = second[2]["results"][0]
+		self.assertEqual((sent["id"], sent["name"]), ("c1", "lookup"))
+		self.assertIn("42", sent["content"])
+		self.assertIn('tool="lookup"', sent["content"])
 
 	def test_unknown_tool_and_tool_error_strings(self):
 		def boom(**kw):
@@ -132,8 +138,8 @@ class TestStepLoopAutomatic(FrappeTestCase):
 		])
 		completion, _ = _run(adapter, [_auto_tool(fn=boom)])
 		results = adapter.seen_transcripts[1][2]["results"]
-		self.assertEqual(results[0]["content"], "Unknown tool: ghost")
-		self.assertEqual(results[1]["content"], "Error calling lookup: nope")
+		self.assertIn("Unknown tool: ghost", results[0]["content"])
+		self.assertIn("Error calling lookup: nope", results[1]["content"])
 		self.assertEqual(completion.text, "ok")
 
 	def test_turn_cap_sets_flag_with_partial_trace(self):
@@ -174,7 +180,7 @@ class TestStepLoopSuspension(FrappeTestCase):
 		self.assertEqual(suspension.turns_used, 1)
 		# automatic sibling executed; the SECOND human call was refused inline
 		contents = {r["id"]: r["content"] for r in suspension.deferred_results}
-		self.assertEqual(contents["a1"], "lookup-result")
+		self.assertIn("lookup-result", contents["a1"])
 		self.assertIn("only one human task", contents["h2"])
 		# transcript ends on the assistant entry that requested the calls
 		self.assertEqual(suspension.transcript[-1]["role"], "assistant")
@@ -212,13 +218,16 @@ class TestStepLoopSuspension(FrappeTestCase):
 		# the model saw the completed turn: deferred result + human result
 		seen = adapter.seen_transcripts[0]
 		self.assertEqual(seen[-1]["role"], "tool_results")
-		self.assertEqual(
-			seen[-1]["results"],
-			[
-				{"id": "a1", "name": "lookup", "content": "42"},
-				{"id": "h1", "name": "approval", "content": '{"action": "Approve"}'},
-			],
-		)
+		results = seen[-1]["results"]
+		self.assertEqual([(r["id"], r["name"]) for r in results],
+		                 [("a1", "lookup"), ("h1", "approval")])
+		# The deferred result was wrapped when it was produced and is replayed
+		# verbatim — wrapping it again here would double-mark it.
+		self.assertEqual(results[0]["content"], "42")
+		# The human's answer is content from outside the platform arriving on the
+		# tool channel, so it IS marked on the way in.
+		self.assertIn('{"action": "Approve"}', results[1]["content"])
+		self.assertIn('tool="approval"', results[1]["content"])
 
 	def test_turn_cap_is_cumulative_across_suspension(self):
 		adapter = FakeStepAdapter([])  # must never be called
@@ -264,6 +273,101 @@ class TestStepLoopSuspension(FrappeTestCase):
 		# the new transcript carries the completed first human turn
 		roles = [e["role"] for e in suspension.transcript]
 		self.assertEqual(roles, ["user", "assistant", "tool_results", "assistant"])
+
+
+class TestStaticContextIsFrozen(FrappeTestCase):
+	"""WI-001639 acceptance: the system prompt handed to the model must be
+	identical on every iteration of the loop, and state must advance only by
+	appending to the transcript."""
+
+	def _multi_turn_adapter(self, turns=4):
+		steps = [
+			StepResult(
+				content=f"step {i}",
+				tool_calls=[StepToolCall(id=f"c{i}", name="lookup", arguments={"i": i})],
+				prompt_tokens=10,
+				completion_tokens=1,
+			)
+			for i in range(turns - 1)
+		]
+		steps.append(StepResult(content="final", prompt_tokens=10, completion_tokens=1))
+		return FakeStepAdapter(steps)
+
+	def test_system_prompt_identical_on_every_iteration(self):
+		adapter = self._multi_turn_adapter(turns=4)
+		completion, suspension = _run(adapter, [_auto_tool()], max_turns=10)
+
+		self.assertIsNone(suspension)
+		self.assertEqual(completion.text, "final")
+		self.assertEqual(len(adapter.seen_systems), 4)
+		self.assertEqual(set(adapter.seen_systems), {"sys"})
+
+	def test_transcript_only_ever_grows(self):
+		"""Dynamic state is appended, never rewritten: each transcript the model
+		sees must be a strict prefix-extension of the previous one."""
+		adapter = self._multi_turn_adapter(turns=4)
+		_run(adapter, [_auto_tool()], max_turns=10)
+
+		for earlier, later in zip(adapter.seen_transcripts, adapter.seen_transcripts[1:]):
+			self.assertGreater(len(later), len(earlier))
+			self.assertEqual(later[: len(earlier)], earlier)
+
+	def test_system_prompt_survives_a_suspend_resume_cycle(self):
+		"""A human pause can be days long. The resumed segment must still run
+		against the very same static context the first segment ran against."""
+		suspending = FakeStepAdapter([
+			StepResult(
+				content="need approval",
+				tool_calls=[StepToolCall(id="h1", name="approval", arguments={"q": "ok?"})],
+				prompt_tokens=10,
+				completion_tokens=1,
+			)
+		])
+		_, suspension = _run(suspending, [_auto_tool(), _human_tool()])
+		self.assertIsNotNone(suspension)
+
+		resuming = FakeStepAdapter([StepResult(content="done", prompt_tokens=5, completion_tokens=1)])
+		_run(
+			resuming,
+			[_auto_tool(), _human_tool()],
+			resume={
+				"transcript": suspension.transcript,
+				"pending_call": suspension.pending_call,
+				"deferred_results": suspension.deferred_results,
+				"turns_used": suspension.turns_used,
+				"human_result": "approved",
+			},
+		)
+
+		self.assertEqual(suspending.seen_systems + resuming.seen_systems, ["sys", "sys"])
+
+	def test_resume_extends_the_checkpointed_transcript(self):
+		suspending = FakeStepAdapter([
+			StepResult(
+				content="need approval",
+				tool_calls=[StepToolCall(id="h1", name="approval", arguments={})],
+				prompt_tokens=10,
+				completion_tokens=1,
+			)
+		])
+		_, suspension = _run(suspending, [_human_tool()])
+
+		resuming = FakeStepAdapter([StepResult(content="done")])
+		_run(
+			resuming,
+			[_human_tool()],
+			resume={
+				"transcript": suspension.transcript,
+				"pending_call": suspension.pending_call,
+				"deferred_results": suspension.deferred_results,
+				"turns_used": suspension.turns_used,
+				"human_result": "approved",
+			},
+		)
+
+		resumed = resuming.seen_transcripts[0]
+		self.assertEqual(resumed[: len(suspension.transcript)], suspension.transcript)
+		self.assertEqual(resumed[-1]["role"], "tool_results")
 
 
 class TestExecutorSuspensionMapping(FrappeTestCase):

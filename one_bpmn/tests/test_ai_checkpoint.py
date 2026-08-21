@@ -275,3 +275,74 @@ class TestDispatcherSuspendResume(_CheckpointTestBase):
 		self.assertEqual(
 			frappe.db.get_value("AI Agent Run", run_name, "status"), "Success"
 		)
+
+
+class TestHumanWaitAccounting(_CheckpointTestBase):
+	"""WI-001643: time parked on a person is measured, not silently absorbed
+	into duration_ms."""
+
+	def test_suspend_stamps_suspended_at(self):
+		run = checkpoint.save_checkpoint(
+			None, self.instance, self.bpmn_id, _suspension(),
+			system_prompt="s", wf_task_id="t", human_row_id="r1",
+		)
+		self.assertIsNotNone(
+			frappe.db.get_value("AI Agent Run", run.name, "suspended_at")
+		)
+
+	def test_resume_banks_the_wait_and_clears_the_stamp(self):
+		import datetime
+		from frappe.utils import now_datetime
+
+		run = checkpoint.save_checkpoint(
+			None, self.instance, self.bpmn_id, _suspension(),
+			system_prompt="s", wf_task_id="t", human_row_id="r1",
+		)
+		# Pretend the person took 30 minutes.
+		frappe.db.set_value(
+			"AI Agent Run", run.name, "suspended_at",
+			now_datetime() - datetime.timedelta(minutes=30),
+			update_modified=False,
+		)
+		self.assertIsNotNone(checkpoint.claim_for_resume(run.name))
+
+		waited, stamp = frappe.db.get_value(
+			"AI Agent Run", run.name, ["human_wait_ms", "suspended_at"]
+		)
+		self.assertGreater(waited, 29 * 60 * 1000)
+		self.assertLess(waited, 31 * 60 * 1000)
+		# Cleared, so a later resume cannot double-count the same wait.
+		self.assertFalse(stamp)
+
+	def test_human_wait_accumulates_across_suspensions(self):
+		import datetime
+		from frappe.utils import now_datetime
+
+		run = None
+		for _ in range(2):
+			run = checkpoint.save_checkpoint(
+				run, self.instance, self.bpmn_id, _suspension(),
+				system_prompt="s", wf_task_id="t", human_row_id="r1",
+			)
+			frappe.db.set_value(
+				"AI Agent Run", run.name, "suspended_at",
+				now_datetime() - datetime.timedelta(minutes=10),
+				update_modified=False,
+			)
+			run.reload()
+			checkpoint.claim_for_resume(run.name)
+			run.reload()
+
+		waited = frappe.db.get_value("AI Agent Run", run.name, "human_wait_ms")
+		self.assertGreater(waited, 19 * 60 * 1000)
+
+	def test_cumulative_cache_tokens_across_chained_suspensions(self):
+		run = checkpoint.save_checkpoint(
+			None, self.instance, self.bpmn_id, _suspension(),
+			system_prompt="s", wf_task_id="t", human_row_id="r1",
+			prior_cache_read_tokens=1000, prior_cache_write_tokens=100,
+		)
+		payload = json.loads(frappe.db.get_value("AI Agent Run", run.name, "checkpoint"))
+		# _suspension() carries no cache figures, so the priors carry through.
+		self.assertEqual(payload["cache_read_tokens_so_far"], 1000)
+		self.assertEqual(payload["cache_write_tokens_so_far"], 100)

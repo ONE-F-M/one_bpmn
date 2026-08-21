@@ -30,6 +30,20 @@
               <span :class="['agent-status', agentStatusClass]" :title="'Deployment requires Live (WI-001652)'">
                 ● {{ linkedAgentStatus || "checking…" }}
               </span>
+              <!-- The Agent Creation Process re-checks an agent when
+                   its record is saved — it waits on a Config Edited message. That
+                   made "re-run the checks" mean "make an edit you do not want",
+                   which is folklore, not an affordance. Same trigger, named, and
+                   only where the process can still act: Live is already past it,
+                   Retired is deliberate. -->
+              <button
+                v-if="['Draft', 'Needs Attention'].includes(linkedAgentStatus)"
+                type="button"
+                class="agent-rerun"
+                :disabled="rerunning"
+                :title="'Run the agent\'s validations and adversarial suite again'"
+                @click="rerunChecks"
+              >{{ rerunning ? "Re-running…" : "Re-run checks" }}</button>
               Prompt, provider, model and params resolve from this configuration
               when the process runs. Saving writes your edits back to it.
               Deploying this diagram requires the agent to be Live.
@@ -86,6 +100,24 @@
                 + Add sample prompt
               </button>
             </div>
+            <div class="field-row">
+              <label>Skills <span class="hint">(optional)</span></label>
+              <div v-for="(s, i) in newAgent.ai_skills" :key="'newsk-' + i" class="static-row">
+                <div class="static-row-head">
+                  <span class="static-row-inline-label">Skill</span>
+                  <select v-model="s.skill" class="static-row-cat">
+                    <option v-for="c in availableSkills" :key="c.name" :value="c.name">{{ c.name }}</option>
+                  </select>
+                  <span class="static-row-inline-label">Version pin</span>
+                  <input v-model="s.version_pin" type="text" placeholder="e.g. 1.0.0 (optional)" class="static-row-cat" />
+                  <button type="button" class="close-btn" title="Remove" @click="newAgent.ai_skills.splice(i, 1)">✕</button>
+                </div>
+              </div>
+              <button type="button" class="btn-cancel" @click="newAgent.ai_skills.push({ skill: '', version_pin: '' })">
+                + Add skill
+              </button>
+            </div>
+
             <div class="field-row two-col">
               <div>
                 <label>PII Input Screening</label>
@@ -313,35 +345,64 @@
               Examples and guard rails are stored on the linked AI Agent Configuration, not on
               this diagram, and apply to every task that links it.
             </p>
+            <div class="field-row">
+              <label>Skills <span class="hint">(optional)</span></label>
+              <span class="field-hint">
+                Skills enabled for this agent.
+              </span>
+              <div v-for="(s, i) in form.aiSkills" :key="'sk-' + i" class="static-row">
+                <div class="static-row-head">
+                  <span class="static-row-inline-label">Skill</span>
+                  <select v-model="s.skill" class="static-row-cat">
+                    <option v-for="c in availableSkills" :key="c.name" :value="c.name">{{ c.name }}</option>
+                  </select>
+                  <span class="static-row-inline-label">Version pin</span>
+                  <input v-model="s.version_pin" type="text" placeholder="e.g. 1.0.0 (optional)" class="static-row-cat" />
+                  <button type="button" class="close-btn" title="Remove" @click="form.aiSkills.splice(i, 1)">✕</button>
+                </div>
+              </div>
+              <button type="button" class="btn-cancel" @click="addSkill">+ Add skill</button>
+            </div>
+
           </template>
 
-          <!-- ============ Screening (WI-001644) ============ -->
+          <!-- ============ Screening ============ -->
           <!-- Agent-level, like Memory below: what an agent may say is a property
-               of the agent, not of the task that happens to call it. -->
-          <template v-if="!isSelector && form.aiAgentConfig">
-            <div class="field-group-title">Screening</div>
-            <div class="field-row two-col">
-              <div>
-                <label>PII Input Screening</label>
-                <select v-model="form.aiPiiScreening">
-                  <option value="Enabled">Enabled</option>
-                  <option value="Disabled">Disabled</option>
+               of the agent, not of the task that happens to call it.
+
+               Rendered from the agent's OWN fields rather than a hard-coded list.
+               15.1 has since added the output mode and it now appears here by
+               itself, which is what this was built for; the injection mode
+               (WI-001840) will do the same. Labels, options and the explanatory
+               text all come from the doctype, so there is nothing here to drift
+               out of step with what the field actually accepts. -->
+          <template v-if="!isSelector && form.aiAgentConfig && screeningControls.length">
+            <!-- Grouped by what the control actually does. The throttle is
+                 agent-owned like the screens, but it limits how OFTEN someone
+                 may talk to the agent rather than what may pass — filing it
+                 under "Screening" would misdescribe it. -->
+            <template v-for="g in controlGroups" :key="g.name">
+              <div class="field-group-title">{{ g.name }}</div>
+              <!-- Hidden when the control it hangs off is unticked, matching the
+                   desk form. Otherwise the two forms disagree about what is in
+                   effect: the freeze thresholds stayed visible here with rate
+                   limiting off, reading as settings that do something. -->
+              <div class="field-row" v-for="c in visibleIn(g)" :key="c.fieldname">
+                <label>{{ c.label }}</label>
+                <select v-if="c.fieldtype === 'Select'" v-model="c.value">
+                  <option v-for="o in c.options" :key="o" :value="o">{{ o }}</option>
                 </select>
+                <input v-else-if="c.fieldtype === 'Check'" type="checkbox" class="checkbox-input"
+                       :checked="c.value == 1" @change="c.value = $event.target.checked ? 1 : 0" />
+                <input v-else-if="c.fieldtype === 'Int'" type="number" min="0" v-model.number="c.value" />
+                <input v-else type="text" v-model="c.value" />
+                <span class="field-hint" v-if="c.description">{{ c.description }}</span>
               </div>
-              <div>
-                <label>Output Screening</label>
-                <select v-model="form.aiOutputScreeningMode">
-                  <option value="Log">Log — record only</option>
-                  <option value="Flag">Flag — redact the offending text</option>
-                  <option value="Block">Block — withhold the reply</option>
-                </select>
-              </div>
-            </div>
-            <span class="field-hint">
-              Output screening checks the agent's OWN reply for credentials, personal data,
-              and stretches of its own instructions. Flag redacts and keeps the reply
-              readable; Log records without changing anything; Block withholds it entirely.
-            </span>
+            </template>
+            <p class="field-hint" style="margin-top: 6px;">
+              These are stored on the linked AI Agent Configuration and apply wherever
+              this agent runs.
+            </p>
           </template>
 
           <!-- ============ Memory ============ -->
@@ -462,246 +523,38 @@
 
       <!-- ============ RIGHT: assistant chat panel ============ -->
       <div class="assistant-panel">
-        <!-- WI-001674 mockup parity: in agent mode the panel's own titlebar
-             (avatar + name + config-driven badge) is the header; the legacy
-             purple header remains for selector mode only. "runs on its own
-             credentials" now comes from chat_description (WI-001996). -->
-        <div v-if="isSelector" class="assistant-header">
-          <span class="assistant-title">✦ AI Assistant</span>
-          <span class="assistant-sub">runs on its own credentials</span>
-        </div>
-
-        <!-- WI-001650: the assistant is always available — with no linked
-             configuration yet it runs on its own credentials (WI-001623), so
-             you can ask it to create the agent this task will link.
-             (No wrapper <template> here: a bare template element is native
-             HTML and Vue does not render its children.) -->
-        <!-- Context controls -->
-        <!-- WI-001674 follow-up: the assistant's toolbox includes schema and
-             record lookups, so the manual Context DocType / Sample Record
-             grounding is redundant in agent mode — it asks the platform
-             itself. Selector mode still uses the manual grounding. -->
-        <div v-if="isSelector" class="assistant-context">
-            <div class="ctx-row">
-              <label>Context DocType <span class="hint">(optional)</span></label>
-              <div class="ctx-autocomplete">
-                <input
-                  type="text"
-                  v-model="contextDoctype"
-                  placeholder="e.g. Employee"
-                  autocomplete="off"
-                  @input="onDoctypeInput"
-                  @focus="onDoctypeFocus"
-                  @blur="onDoctypeBlur"
-                />
-                <ul v-if="showDoctypeDropdown && filteredDoctypes.length" class="ctx-dropdown">
-                  <li
-                    v-for="dt in filteredDoctypes"
-                    :key="dt"
-                    @mousedown.prevent="selectDoctype(dt)"
-                  >
-                    {{ dt }}
-                  </li>
-                </ul>
-              </div>
-            </div>
-            <div class="ctx-row">
-              <label>Sample Record <span class="hint">(optional)</span></label>
-              <div class="ctx-autocomplete">
-                <input
-                  type="text"
-                  v-model="contextDocname"
-                  :placeholder="docnamePlaceholder"
-                  :disabled="!doctypeResolved"
-                  autocomplete="off"
-                  @input="onDocnameInput"
-                  @focus="onDocnameFocus"
-                  @blur="onDocnameBlur"
-                />
-                <ul v-if="showDocnameDropdown && recordOptions.length" class="ctx-dropdown">
-                  <li
-                    v-for="r in recordOptions"
-                    :key="r"
-                    @mousedown.prevent="selectDocname(r)"
-                  >
-                    {{ r }}
-                  </li>
-                </ul>
-                <div
-                  v-else-if="showDocnameDropdown && recordLoading"
-                  class="ctx-dropdown-status"
-                >
-                  Searching…
-                </div>
-              </div>
-            </div>
-            <div class="ctx-hint">
-              The assistant reads this DocType's schema and one sample record (your
-              permissions apply) to tailor the prompts.
-            </div>
-          </div>
-
-          <!-- WI-001674: agent mode rides the shared AgentChatPanel — one
-               transport (the AG-UI endpoint), typed events, cards from the
-               registry. Replies can never render as raw JSON: the assistant's
-               reply shaper parses the contract server-side. The legacy
-               transcript below now serves ONLY selector mode, whose direct
-               LLM path never went through invoke_agent. -->
+        <!-- WI-001679: ONE chat for both ways into this dialog. An AI Agent
+             Task and an AI Task Selector now open the same panel, on the same
+             agent, over the same endpoint — the mode only changes what the
+             turn is grounded with (server-side) and which fields the reply may
+             recommend. The panel's own titlebar (avatar + name + config-driven
+             badge) is the header in both; the legacy purple header, the manual
+             Context DocType / Sample Record controls and the selector-only
+             transcript are gone. The assistant is always available: with no
+             linked configuration yet it runs on its own credentials
+             (WI-001623), so you can ask it to create the agent this task will
+             link. -->
+          <!-- The shared AgentChatPanel — one transport (the AG-UI endpoint),
+               typed events, cards from the registry. Replies can never render
+               as raw JSON: the assistant's reply shaper parses the contract
+               server-side. A selector turn declares only apply-fields: it
+               configures a SHAPE, so there is no agent record to create and no
+               confirm-create card to honour. -->
           <AgentChatPanel
-            v-if="!isSelector"
             ref="chatPanel"
             class="assistant-agui-panel"
             :agent-id="'ai_agent_assistant'"
             :conversation="assistantConversation"
             :context="assistantTurnContext"
+            :context-provider="isSelector ? selectorTurnContext : null"
             :cards="cardRegistry"
-            :apply-targets="['apply-fields', 'confirm-create']"
+            :apply-targets="isSelector ? ['apply-fields'] : ['apply-fields', 'confirm-create']"
             variant="docked"
             @conversation="(c) => (assistantConversation = c)"
             @card-action="onAssistantCardAction"
             @agent-event="onAssistantAgentEvent"
           />
 
-          <!-- Messages (selector mode only) -->
-          <div v-if="isSelector" ref="messagesEl" class="assistant-messages">
-            <div v-if="!messages.length" class="assistant-empty">
-              <template v-if="isSelector">
-                Describe the flow like you'd brief a new colleague — no technical
-                terms needed, the diagram supplies those. I'll recommend prompts
-                you can apply one by one.
-              </template>
-              <template v-else>
-                Describe what this AI Agent Task should do, and I'll recommend field
-                values you can apply one by one.
-              </template>
-            </div>
-
-            <div
-              v-for="m in messages"
-              :key="m.id"
-              :class="['msg', m.role === 'user' ? 'msg-user' : 'msg-assistant']"
-            >
-              <div v-if="m.content" class="msg-text">{{ m.content }}</div>
-
-              <!-- Recommendation cards -->
-              <div v-if="m.recommendations && Object.keys(m.recommendations).length" class="recs">
-                <div
-                  v-for="(value, key) in m.recommendations"
-                  :key="key"
-                  class="rec"
-                >
-                  <div class="rec-head">
-                    <span class="rec-field">{{ fieldLabel(key) }}</span>
-                    <button
-                      class="rec-apply"
-                      :disabled="isApplied(m.id, key)"
-                      @click="applyRecommendation(m.id, key, value)"
-                    >
-                      {{ isApplied(m.id, key) ? "Applied ✓" : "Apply" }}
-                    </button>
-                  </div>
-                  <div class="rec-value">{{ valuePreview(value) }}</div>
-                </div>
-              </div>
-
-              <!-- New-agent proposal card (WI-001649). The assistant PROPOSES;
-                   the designer confirms; only then is the record created (via
-                   the same endpoint as the manual "+ Create new…" panel) and
-                   the creation process takes it to Live. -->
-              <div v-if="m.proposal" class="proposal">
-                <div class="proposal-title">Create this agent?</div>
-                <table class="proposal-fields">
-                  <tbody>
-                    <tr v-for="(value, key) in proposalRows(m.proposal)" :key="key">
-                      <td class="proposal-key">{{ key }}</td>
-                      <td class="proposal-value">{{ valuePreview(value) }}</td>
-                    </tr>
-                  </tbody>
-                </table>
-                <div v-if="m.proposalState === 'created'" class="proposal-done">
-                  ✓ Created and linked{{ m.proposalResult?.creation_instance ? ` — creation process running (${m.proposalResult.creation_instance})` : "" }}
-                </div>
-                <div v-else-if="m.proposalState === 'dismissed'" class="proposal-done">Dismissed — nothing was created.</div>
-                <div v-else class="proposal-actions">
-                  <button class="btn-cancel" :disabled="m.proposalState === 'creating'" @click="m.proposalState = 'dismissed'">Dismiss</button>
-                  <button class="btn-save" :disabled="m.proposalState === 'creating'" @click="createProposedAgent(m)">
-                    {{ m.proposalState === "creating" ? "Creating…" : "Create & link" }}
-                  </button>
-                </div>
-              </div>
-
-              <!-- Update-existing-agent proposal card (WI-001649 amendment).
-                   Confirming calls the WI-001637 write-back endpoint — the
-                   assistant itself never writes. -->
-              <div v-if="m.update" class="proposal">
-                <div class="proposal-title">Apply this change to {{ m.update.config_name }}?</div>
-                <table class="proposal-fields">
-                  <tbody>
-                    <tr v-for="(value, key) in m.update.fields" :key="key">
-                      <td class="proposal-key">{{ fieldLabel(key) }}</td>
-                      <td class="proposal-value">{{ valuePreview(value) }}</td>
-                    </tr>
-                  </tbody>
-                </table>
-                <div v-if="m.updateState === 'applied'" class="proposal-done">
-                  ✓ Applied — {{ (m.updateResult?.updated || []).join(", ") || "no fields changed" }}{{ m.updateResult?.reprovisioned ? " — the agent is re-provisioning (validate → Live)" : "" }}
-                </div>
-                <div v-else-if="m.updateState === 'dismissed'" class="proposal-done">Dismissed — nothing was changed.</div>
-                <div v-else class="proposal-actions">
-                  <button class="btn-cancel" :disabled="m.updateState === 'applying'" @click="m.updateState = 'dismissed'">Dismiss</button>
-                  <button class="btn-save" :disabled="m.updateState === 'applying'" @click="applyProposedUpdate(m)">
-                    {{ m.updateState === "applying" ? "Applying…" : "Apply & save" }}
-                  </button>
-                </div>
-              </div>
-            </div>
-
-            <div v-if="loading" class="msg msg-assistant">
-              <div class="msg-text typing">Thinking…</div>
-            </div>
-          </div>
-
-          <!-- Input (selector mode only — the panel owns the agent-mode composer) -->
-          <div v-if="isSelector" class="assistant-input-wrap">
-            <!-- Tips popover, toggled by the bulb below -->
-            <div v-if="showTips" class="assistant-tips assistant-tips-popover">
-              <div class="assistant-tips-title">
-                💡 {{ isSelector ? "Tips for a good description" : "Tips for a good prompt" }}
-                <button class="assistant-tips-close" title="Close" @click="showTips = false">✕</button>
-              </div>
-              <ul v-if="isSelector">
-                <li><strong>What to check first</strong> — e.g. "first see if the ticket mentions one of their orders"</li>
-                <li><strong>How to decide between paths</strong> — e.g. "if it's about an order… otherwise…"</li>
-                <li><strong>Who handles each path</strong> — e.g. "the order team handles it, or normal support"</li>
-                <li><strong>What "finished" looks like</strong> — e.g. "the customer got a reply and the ticket is closed"</li>
-              </ul>
-              <ul v-else>
-                <li><strong>What it should read</strong> — which parts of the document matter</li>
-                <li><strong>What it should produce</strong> — a summary, a decision, a value for a field</li>
-                <li><strong>What format</strong> — plain text, or structured data for a gateway to route on</li>
-              </ul>
-            </div>
-            <div class="assistant-input">
-              <button
-                class="assistant-tips-toggle"
-                :class="{ active: showTips }"
-                :title="isSelector ? 'Tips for a good description' : 'Tips for a good prompt'"
-                @click="showTips = !showTips"
-              >💡</button>
-              <textarea
-                v-model="input"
-                rows="2"
-                :placeholder="isSelector
-                  ? 'e.g. First check if the ticket is about an order. If it is, the order team handles it; otherwise support does. Either way the customer gets a reply, then close the ticket.'
-                  : 'e.g. Summarise the employee\'s leave history and flag any policy breaches'"
-                :disabled="loading"
-                @keydown.enter.exact.prevent="sendMessage"
-              />
-              <button class="assistant-send" :disabled="loading || !input.trim()" @click="sendMessage">
-                Send
-              </button>
-            </div>
-          </div>
       </div>
     </div>
 
@@ -715,12 +568,15 @@
 </template>
 
 <script setup>
-import { ref, computed, onMounted, onUnmounted, nextTick, toRaw } from "vue";
+import { ref, computed, onMounted, onUnmounted, toRaw } from "vue";
 import { Dialog, frappeRequest } from "frappe-ui";
 import { frappeGet } from "@/bpmn/shared/frappeResource";
 // WI-001674: agent mode chats through the shared panel + card registry.
 import { AgentChatPanel } from "@/components/chat";
 import { cardRegistry } from "@/components/chat/cards/registry";
+const availableSkills = ref([]);
+function addSkill() { form.value.aiSkills.push({ skill: '', version_pin: '' }); }
+
 
 // bpmn-js elements must never be touched as Vue reactive proxies — the renderer
 // reads non-configurable properties (e.g. labels) that a Proxy cannot return,
@@ -741,17 +597,6 @@ const props = defineProps({
 
 const isSelector = computed(() => props.mode === "selector");
 
-// Fields the selector dispatch actually consumes (ai_task_selector.py) —
-// assistant recommendations outside this set are dropped in selector mode.
-const SELECTOR_FIELDS = [
-  "aiProvider",
-  "aiModel",
-  "aiSystemPrompt",
-  "aiUserPrompt",
-  "aiMaxTokens",
-  "aiTimeout",
-];
-
 const emit = defineEmits(["close"]);
 
 const providers = ref([]);
@@ -771,6 +616,7 @@ const emptyNewAgent = () => ({
   system_prompt: "",
   description: "",
   sample_prompts: [],
+  ai_skills: [],
   // WI-001644: chosen at creation rather than left to a later visit to the desk
   // form. Blank means "take the doctype default", so the panel never has to
   // restate what that default is.
@@ -814,9 +660,112 @@ async function refreshLinkedAgentStatus() {
   }
 }
 
+const rerunning = ref(false);
+
+// ── Per-agent screening (WI-001970) ─────────────────────────────────────────
+// The list comes from the server, which reads the doctype's real fields, so this
+// component never has to know which screening stories have shipped.
+const screeningControls = ref([]);
+
+// A control is hidden when the control it depends on is off. The server sends a
+// plain fieldname rather than the doctype's "eval:" expression, so nothing here
+// has to evaluate anything — and a dependency we could not reduce arrives as
+// null and the control simply renders, which is the safe direction.
+function isOn(fieldname) {
+  const dep = screeningControls.value.find((c) => c.fieldname === fieldname);
+  if (!dep) return true;
+  return !(dep.value === 0 || dep.value === "0" || dep.value === false || dep.value == null);
+}
+function visibleIn(group) {
+  return group.controls.filter((c) => !c.depends_on_field || isOn(c.depends_on_field));
+}
+
+// Rendered group by group, in the order the server sent them. Grouping comes
+// from the server rather than a list here, for the same reason the controls
+// themselves do: a second copy in the Vue is one more thing to fall out of step.
+const controlGroups = computed(() => {
+  const out = [];
+  for (const c of screeningControls.value) {
+    const name = c.group || "Screening";
+    let g = out.find((x) => x.name === name);
+    if (!g) out.push((g = { name, controls: [] }));
+    g.controls.push(c);
+  }
+  return out;
+});
+
+async function loadScreening() {
+  screeningControls.value = [];
+  const name = form.value.aiAgentConfig;
+  if (!name || name === "__create__") return;
+  try {
+    const r = await frappeRequest({
+      url: "/api/method/one_bpmn.api.security_api.agent_screening",
+      method: "POST",
+      params: { agent: name },
+    });
+    screeningControls.value = (r && r.controls) || [];
+  } catch (e) {
+    /* an unreadable agent simply shows no screening section */
+  }
+}
+
+async function saveScreening() {
+  const name = form.value.aiAgentConfig;
+  if (!name || !screeningControls.value.length) return;
+  const values = {};
+  screeningControls.value.forEach((c) => { values[c.fieldname] = c.value; });
+  try {
+    await frappeRequest({
+      url: "/api/method/one_bpmn.api.security_api.save_agent_screening",
+      method: "POST",
+      params: { agent: name, values: JSON.stringify(values) },
+    });
+  } catch (e) {
+    showNotice("Screening settings not saved", serverMessage(e));
+  }
+}
+
+// Hand the agent back to the Agent Creation Process. Decides nothing itself —
+// whether it may go Live stays the map's call; this only asks it to look again,
+// which is what re-runs the adversarial suite and the other validations.
+async function rerunChecks() {
+  const name = form.value.aiAgentConfig;
+  if (!name || rerunning.value) return;
+  rerunning.value = true;
+  try {
+    await frappeRequest({
+      url: "/api/method/one_bpmn.agents.agent_provisioning.rerun_creation_process",
+      method: "POST",
+      params: { agent: name },
+    });
+    // The process runs in the background, so the badge will not be right yet.
+    // Poll a few times rather than leave a stale status on screen — and say so,
+    // because a checks run makes real model calls and takes a minute or two.
+    showNotice(
+      "Re-running the agent's checks",
+      "The Agent Creation Process is validating the configuration and running the " +
+        "agent's adversarial suite. This makes real model calls, so give it a minute — " +
+        "the status beside the agent updates on its own."
+    );
+    for (let i = 0; i < 30; i++) {
+      await new Promise((r) => setTimeout(r, 4000));
+      const before = linkedAgentStatus.value;
+      await refreshLinkedAgentStatus();
+      if (linkedAgentStatus.value === "Live") break;
+      if (before !== linkedAgentStatus.value && linkedAgentStatus.value === "Needs Attention") break;
+    }
+  } catch (e) {
+    showNotice("Couldn't re-run the checks", serverMessage(e));
+  } finally {
+    rerunning.value = false;
+    refreshLinkedAgentStatus();
+  }
+}
 
 // Form state — defaults
 const form = ref({
+  aiSkills: [],
   aiAgentConfig: "",
   aiBackend: "direct_api",
   aiProvider: "",
@@ -845,8 +794,6 @@ const form = ref({
   // replaced wholesale by loadStaticContextFromConfig once the agent is read.
   aiExamples: [],
   aiGuardrails: [],
-  aiPiiScreening: "Enabled",
-  aiOutputScreeningMode: "Flag",
 });
 
 // Mirrors the AI Agent Guard Rail Select options; the backend rejects anything
@@ -887,7 +834,9 @@ async function loadStaticContextFromConfig() {
       params: { config_name: form.value.aiAgentConfig },
     });
     form.value.aiExamples = Array.isArray(fields?.aiExamples) ? fields.aiExamples : [];
-    form.value.aiGuardrails = Array.isArray(fields?.aiGuardrails) ? fields.aiGuardrails : [];
+    
+    form.value.aiSkills = Array.isArray(fields?.aiSkills) ? fields.aiSkills : [];
+form.value.aiGuardrails = Array.isArray(fields?.aiGuardrails) ? fields.aiGuardrails : [];
     staticContextLoaded.value = true;
   } catch (e) {
     // Unreadable agent — the sections stay empty and Save leaves them alone.
@@ -910,30 +859,62 @@ function serverMessage(e) {
 }
 
 // ── Assistant state ───────────────────────────────────────────────────────
-const messages = ref([]);
-const assistantConversation = ref(""); // Chat Conversation driving the dialog (WI-001623)          // { id, role, content, recommendations? }
+const assistantConversation = ref(""); // Chat Conversation driving the dialog (WI-001623)
 const chatPanel = ref(null);
 
 // WI-001674: the modal sends RAW grounding refs; the server-side context
 // builder (ai_assistant.build_assistant_turn_context) assembles the map's
 // dialog_context from them — schema/sample reads stay permission-checked
-// server-side, exactly as the legacy path did.
+// server-side, exactly as the legacy path did. WI-001679 added `mode`: the
+// builder branches on it to ground a selector turn with the selector's runtime
+// rules and the sub-process digest instead of the agent-creation capability.
 const assistantTurnContext = computed(() => ({
   assistant_dialog: {
+    mode: props.mode === "selector" ? "selector" : "agent",
     linked_config: form.value.aiAgentConfig || "",
     // The EXACT open BPMN Process Model record name — the assistant needs it
     // verbatim for proposed_config.process_model (the human-facing process
     // title is a different string and fails the WI-001997 creation gate).
     process_model: window.__ONE_BPMN_CURRENT_MODEL__ || "",
-    current_config: JSON.stringify({
-      aiModel: form.value.aiModel,
-      aiSystemPrompt: form.value.aiSystemPrompt,
-      aiUserPrompt: form.value.aiUserPrompt,
-      aiOutputVariable: form.value.aiOutputVariable,
-      aiResponseFormat: form.value.aiResponseFormat,
-    }),
+    current_config: JSON.stringify(
+      props.mode === "selector"
+        ? {
+            aiModel: form.value.aiModel,
+            aiSystemPrompt: form.value.aiSystemPrompt,
+            aiUserPrompt: form.value.aiUserPrompt,
+          }
+        : {
+            aiModel: form.value.aiModel,
+            aiSystemPrompt: form.value.aiSystemPrompt,
+            aiUserPrompt: form.value.aiUserPrompt,
+            aiOutputVariable: form.value.aiOutputVariable,
+            aiResponseFormat: form.value.aiResponseFormat,
+          }
+    ),
   },
 }));
+
+// Selector turns need the LIVE canvas, not the saved model: the designer is
+// usually mid-edit, and the digest names the very task ids the recommended
+// prompts must reference. Serializing XML is async, so it rides the panel's
+// per-turn contextProvider hook (the seam ProsAlly opened in WI-001675) rather
+// than the computed above, and merges over it.
+async function selectorTurnContext() {
+  const dialog = {
+    ...assistantTurnContext.value.assistant_dialog,
+    element_id: rawElement().businessObject?.id || rawElement().id || "",
+    context_doctype: triggerDoctype.value || "",
+  };
+  try {
+    const { xml } = await toRaw(props.modeler).saveXML({ format: false });
+    dialog.bpmn_xml = xml;
+  } catch (e) {
+    // No digest this turn — the assistant works blind rather than not at all,
+    // exactly as it did when the legacy path failed to serialize.
+    console.warn("[AI assistant] could not serialize diagram:", e);
+  }
+  return { assistant_dialog: dialog };
+}
 
 // WI-001674: cards render and request — the HOST applies. The panel re-emits
 // card actions here; each maps onto the SAME handlers/endpoints the legacy
@@ -941,7 +922,7 @@ const assistantTurnContext = computed(() => ({
 async function onAssistantCardAction({ name, action, value, payload, fail }) {
   if (action === "dismiss") return;
   if (action === "confirm-create" && name === "onefm.proposed_config") {
-    await createProposedAgent({ proposal: value.proposal, proposalState: null }, fail);
+    await createProposedAgent(fail);
     return;
   }
   if (action === "apply-fields" && name === "onefm.proposed_update") {
@@ -955,7 +936,7 @@ async function onAssistantCardAction({ name, action, value, payload, fail }) {
       await applyProposedUpdate({ update: fields, updateState: null }, fail);
     } else {
       for (const [key, val] of Object.entries(fields)) {
-        applyRecommendation(null, key, val);
+        applyRecommendation(key, val);
       }
     }
   }
@@ -978,135 +959,13 @@ function endAssistantConversation() {
 // The modal is v-if mounted per open (BpmnEditor), so unmount fires on every
 // close path: ✕, Cancel, overlay click, apply-then-close, and parent teardown.
 onUnmounted(endAssistantConversation);
-const input = ref("");
-const showTips = ref(false);
-const loading = ref(false);
-const contextDoctype = ref("");
-const contextDocname = ref("");
-const messagesEl = ref(null);
-
-// ── DocType / Sample Record autocomplete ─────────────────────────────────────
-const doctypeOptions = ref([]);          // all DocType names (loaded on mount)
-const showDoctypeDropdown = ref(false);
-const recordOptions = ref([]);           // matching record names for chosen DocType
-const showDocnameDropdown = ref(false);
-const recordLoading = ref(false);
-let recordSearchTimer = null;
-let recordSearchSeq = 0;
-
-// Dropdown only lists matches once the user has typed something.
-const filteredDoctypes = computed(() => {
-  const q = contextDoctype.value.trim().toLowerCase();
-  if (!q) return [];
-  return doctypeOptions.value.filter((dt) => dt.toLowerCase().includes(q)).slice(0, 50);
-});
-
-// Sample Record search is only meaningful once the typed DocType is a real one.
-const doctypeResolved = computed(() =>
-  doctypeOptions.value.includes(contextDoctype.value.trim())
-);
-
-const docnamePlaceholder = computed(() =>
-  doctypeResolved.value ? "latest record if blank" : "select a DocType first"
-);
-
-function onDoctypeInput() {
-  showDoctypeDropdown.value = true;
-  // The DocType changed, so any previously chosen Sample Record no longer applies.
-  contextDocname.value = "";
-  recordOptions.value = [];
-  showDocnameDropdown.value = false;
-}
-function onDoctypeFocus() {
-  // Show again only if there's already typed text (never on an empty field).
-  if (contextDoctype.value.trim()) showDoctypeDropdown.value = true;
-}
-function onDoctypeBlur() {
-  // Delay so a mousedown on an option registers before the list hides.
-  setTimeout(() => {
-    showDoctypeDropdown.value = false;
-  }, 150);
-}
-function selectDoctype(dt) {
-  contextDoctype.value = dt;
-  showDoctypeDropdown.value = false;
-  contextDocname.value = "";
-  recordOptions.value = [];
-}
-
-function onDocnameInput() {
-  if (!doctypeResolved.value) return;
-  showDocnameDropdown.value = true;
-  queueRecordSearch();
-}
-function onDocnameFocus() {
-  if (doctypeResolved.value) {
-    showDocnameDropdown.value = true;
-    queueRecordSearch();
-  }
-}
-function onDocnameBlur() {
-  setTimeout(() => {
-    showDocnameDropdown.value = false;
-  }, 150);
-}
-function selectDocname(name) {
-  contextDocname.value = name;
-  showDocnameDropdown.value = false;
-}
-
-function queueRecordSearch() {
-  clearTimeout(recordSearchTimer);
-  recordSearchTimer = setTimeout(runRecordSearch, 250);
-}
-
-// Query records of the currently selected DocType, filtered by the typed text.
-async function runRecordSearch() {
-  const dt = contextDoctype.value.trim();
-  if (!doctypeOptions.value.includes(dt)) {
-    recordOptions.value = [];
-    return;
-  }
-  const q = contextDocname.value.trim();
-  const seq = ++recordSearchSeq;
-  recordLoading.value = true;
-  try {
-    const rows = await frappeRequest({
-      url: "/api/method/frappe.client.get_list",
-      params: {
-        doctype: dt,
-        fields: JSON.stringify(["name"]),
-        filters: q ? JSON.stringify([["name", "like", `%${q}%`]]) : undefined,
-        limit_page_length: 20,
-        order_by: "modified desc",
-      },
-    });
-    if (seq !== recordSearchSeq) return; // a newer search superseded this one
-    recordOptions.value = Array.isArray(rows) ? rows.map((r) => r.name) : [];
-  } catch (e) {
-    if (seq === recordSearchSeq) recordOptions.value = [];
-  } finally {
-    if (seq === recordSearchSeq) recordLoading.value = false;
-  }
-}
-const appliedKeys = ref(new Set()); // "<msgId>:<field>"
-
-// Human-readable labels for recommendation fields (keys match form keys).
-const FIELD_LABELS = {
-  aiProvider: "AI Provider",
-  aiBackend: "Backend",
-  aiModel: "Model",
-  aiOutputVariable: "Output Variable",
-  aiSystemPrompt: "System Prompt",
-  aiUserPrompt: "User Prompt",
-  aiResponseFormat: "Response Format",
-  aiResponseSchema: "Response Schema",
-  aiTemperature: "Temperature",
-  aiTopP: "Top P",
-  aiMaxTokens: "Max Tokens",
-  aiTimeout: "Timeout (s)",
-  aiMaxRetries: "Max Retries",
-};
+// Grounding the designer never types: the DocType the process is triggered on.
+// The manual Context DocType / Sample Record inputs retired with the legacy
+// transcript (WI-001679) — the assistant looks schemas up with its own tools —
+// but a selector turn still ships this one automatically, because its evidence
+// template is written in {{ doc.<field> }} terms and guessing them is exactly
+// what the digest cannot do for it.
+const triggerDoctype = ref("");
 
 const NUMERIC_FIELDS = ["aiTemperature", "aiTopP", "aiMaxTokens", "aiTimeout", "aiMaxRetries"];
 
@@ -1123,144 +982,31 @@ const providerLabel = computed(() => {
 // deleted with the same change, the provider select is disabled, and nothing
 // called this function; it read a field that no longer exists.
 
-function makeId() {
-  return Date.now() + "_" + Math.random().toString(36).slice(2, 8);
-}
-
-function fieldLabel(key) {
-  return FIELD_LABELS[key] || key;
-}
-
-function valuePreview(value) {
-  let str = typeof value === "string" ? value : JSON.stringify(value);
-  str = (str || "").trim();
-  return str.length > 240 ? str.slice(0, 240) + "…" : str;
-}
-
-function isApplied(msgId, key) {
-  return appliedKeys.value.has(`${msgId}:${key}`);
-}
-
-function scrollBottom() {
-  nextTick(() => {
-    if (messagesEl.value) messagesEl.value.scrollTop = messagesEl.value.scrollHeight;
-  });
-}
-
-function applyRecommendation(msgId, key, value) {
+// Apply one recommended value onto the open form. The card (or the tray's
+// per-field Apply) is the only caller now — the legacy transcript tracked
+// which suggestions had been applied itself; the shared cards own that state.
+function applyRecommendation(key, value) {
   if (NUMERIC_FIELDS.includes(key)) {
     const n = Number(value);
     if (Number.isFinite(n)) form.value[key] = n;
   } else {
     form.value[key] = String(value);
   }
-  // Switch the format toggle on so a JSON schema suggestion is visible.
-  appliedKeys.value = new Set(appliedKeys.value).add(`${msgId}:${key}`);
-}
-
-async function sendMessage() {
-  const requirement = input.value.trim();
-  // WI-001650: no provider requirement — with nothing linked yet the server
-  // falls back to the assistant's own credentials (WI-001623), so the chat
-  // can be used to create the very first configuration for this task.
-  if (!requirement || loading.value) return;
-
-  // History = the conversation so far (before this turn).
-  const history = messages.value
-    .filter((m) => m.content)
-    .map((m) => ({ role: m.role, content: m.content }));
-
-  messages.value.push({ id: makeId(), role: "user", content: requirement });
-  input.value = "";
-  loading.value = true;
-  scrollBottom();
-
-  // Selector mode: ship the LIVE diagram (the saved model may be stale while
-  // the designer edits) plus the current drafts so the assistant proposes
-  // prompts that reference real shapes and refines instead of restarting.
-  let diagramPayload = {};
-  if (isSelector.value) {
-    try {
-      const { xml } = await toRaw(props.modeler).saveXML({ format: false });
-      diagramPayload = {
-        mode: "selector",
-        bpmn_xml: xml,
-        element_id: rawElement().businessObject?.id || rawElement().id || "",
-        process_model: window.__ONE_BPMN_CURRENT_MODEL__ || "",
-        current_config: JSON.stringify({
-          aiModel: form.value.aiModel,
-          aiSystemPrompt: form.value.aiSystemPrompt,
-          aiUserPrompt: form.value.aiUserPrompt,
-        }),
-      };
-    } catch (e) {
-      console.warn("[AI assistant] could not serialize diagram:", e);
-    }
-  }
-
-  try {
-    const res = await frappeRequest({
-      url: "/api/method/one_bpmn.api.ai_assistant.recommend_ai_task_config",
-      method: "POST",
-      params: {
-        provider: form.value.aiProvider,
-        backend: form.value.aiBackend || "direct_api",
-        requirement,
-        context_doctype: contextDoctype.value.trim(),
-        context_docname: contextDocname.value.trim(),
-        history: JSON.stringify(history),
-        // WI-001649 amendment: the linked config is the default target for
-        // "change this agent…" requests — no interrogation needed.
-        linked_config: form.value.aiAgentConfig || "",
-        // WI-001623: the dialog IS a chat-platform conversation — first send
-        // creates it; later sends continue it (history lives server-side).
-        conversation: assistantConversation.value || "",
-        ...diagramPayload,
-      },
-    });
-
-    if (res && res.ok) {
-      if (res.conversation) assistantConversation.value = res.conversation;
-      let recommendations = res.recommendations || {};
-      if (isSelector.value) {
-        // Drop suggestions for fields the selector doesn't have
-        // (response schema, output variable, sampling params, …).
-        recommendations = Object.fromEntries(
-          Object.entries(recommendations).filter(([key]) => SELECTOR_FIELDS.includes(key))
-        );
-      }
-      messages.value.push({
-        id: makeId(),
-        role: "assistant",
-        content: res.message || "Here are my recommendations.",
-        recommendations,
-        // WI-001649: a complete new-agent proposal the designer can confirm.
-        proposal: !isSelector.value && res.proposed_config ? res.proposed_config : null,
-        proposalState: null, // null | "creating" | "created" | "dismissed"
-        proposalResult: null,
-        // WI-001649 amendment: a proposed change to an EXISTING agent.
-        update: !isSelector.value && res.proposed_update ? res.proposed_update : null,
-        updateState: null, // null | "applying" | "applied" | "dismissed"
-        updateResult: null,
-      });
-    } else {
-      const err = (res && (res.message || res.error_code)) || "The assistant request failed.";
-      messages.value.push({ id: makeId(), role: "assistant", content: `⚠️ ${err}` });
-    }
-  } catch (e) {
-    messages.value.push({
-      id: makeId(),
-      role: "assistant",
-      content: "⚠️ Could not reach the assistant. Check your connection and try again.",
-    });
-  } finally {
-    loading.value = false;
-    scrollBottom();
-  }
 }
 
 // ── Load providers + existing element config ────────────────────────────────
 onMounted(async () => {
+  try {
+    const skills = await frappeGet("/api/resource/AI Skill", { 
+      fields: JSON.stringify(["name"]),
+      filters: JSON.stringify([["status", "in", ["Active", "Published"]]]), 
+      limit_page_length: 100 
+    });
+    availableSkills.value = skills || [];
+  } catch (e) {
+    console.error("Failed to load skills", e);
+  }
+
   try {
     const data = await frappeGet("/api/resource/AI Provider Credentials", {
       fields: JSON.stringify(["name", "provider_name"]),
@@ -1369,28 +1115,25 @@ onMounted(async () => {
     // to undefined.
     aiExamples: [],
     aiGuardrails: [],
-    // Agent-owned, with no diagram fallback — filled by the config read below.
-    aiPiiScreening: "Enabled",
-    aiOutputScreeningMode: "Flag",
   };
 
-  // Pre-fill the assistant's context DocType from the diagram's start-event
-  // trigger — the process context the prompts will run against.
-  if (!contextDoctype.value) {
+  // Read the diagram's start-event trigger DocType — the process context the
+  // prompts will run against — and ground selector turns with it.
+  if (!triggerDoctype.value) {
     try {
       const defs = toRaw(props.modeler).getDefinitions();
       for (const rootEl of defs.rootElements || []) {
         for (const flowEl of rootEl.flowElements || []) {
           if (flowEl.$type !== "bpmn:StartEvent") continue;
-          const triggerDoctype =
+          const trigger =
             flowEl.get?.("spiffworkflow:triggerDoctype") ||
             flowEl.$attrs?.["spiffworkflow:triggerDoctype"];
-          if (triggerDoctype) {
-            contextDoctype.value = triggerDoctype;
+          if (trigger) {
+            triggerDoctype.value = trigger;
             break;
           }
         }
-        if (contextDoctype.value) break;
+        if (triggerDoctype.value) break;
       }
     } catch (e) { /* best effort */ }
   }
@@ -1406,6 +1149,7 @@ onMounted(async () => {
   // WI-001639: the agent owns examples and guard rails — show its rows, not an
   // empty pair of sections, so Save can't write a blank static context back.
   await loadStaticContextFromConfig();
+  await loadScreening();
 });
 
 // Pull the linked configuration's current values into the form (WI-001637
@@ -1492,29 +1236,10 @@ async function onAgentConfigSelect() {
     form.value.aiExamples = Array.isArray(fields?.aiExamples) ? fields.aiExamples : [];
     form.value.aiGuardrails = Array.isArray(fields?.aiGuardrails) ? fields.aiGuardrails : [];
     staticContextLoaded.value = true;
+    await loadScreening();
   } catch (e) {
     /* leave the current field values as-is if the seed lookup fails */
   }
-}
-
-// WI-001649: human-readable rows for the proposal card.
-const PROPOSAL_LABELS = {
-  agent_name: "Name",
-  agent_id: "Agent ID",
-  chat_mode_label: "Chat mode label",
-  ai_model: "Model (provider follows)",
-  system_prompt: "System prompt",
-  description: "Description",
-};
-function proposalRows(proposal) {
-  const rows = {};
-  for (const [key, label] of Object.entries(PROPOSAL_LABELS)) {
-    if (proposal[key]) rows[label] = proposal[key];
-  }
-  if (Array.isArray(proposal.sample_prompts) && proposal.sample_prompts.length) {
-    rows["Sample prompts"] = proposal.sample_prompts.map((sp) => sp.prompt).join(" • ");
-  }
-  return rows;
 }
 
 // The designer's confirm no longer creates anything itself: it relays the
@@ -1523,21 +1248,15 @@ function proposalRows(proposal) {
 // call on its AI Agent Run, and a chat approval typed in plain words works
 // exactly the same way. The onefm.created_config event that follows a
 // verified creation links the new agent on this shape (onAssistantAgentEvent).
-async function createProposedAgent(m, onFail) {
+async function createProposedAgent(onFail) {
   const panel = chatPanel.value;
   if (!panel) {
     const text =
       "⚠️ The assistant chat is not open — approve the proposal by replying in the chat instead.";
-    if (onFail) {
-      onFail(text);
-    } else {
-      messages.value.push({ id: makeId(), role: "assistant", content: text });
-      scrollBottom();
-    }
+    if (onFail) onFail(text);
+    else showNotice("Assistant chat not open", text);
     return;
   }
-  // Legacy transcript path only — the shared panel's card retires itself.
-  if (m && m.proposalState !== undefined) m.proposalState = "created";
   panel.send("Approved — create the agent exactly as proposed.");
 }
 
@@ -1580,12 +1299,8 @@ async function applyProposedUpdate(m, onFail) {
     const text =
       "⚠️ Could not apply the change: " +
       ((e?.messages && e.messages.length && e.messages.join("\n")) || e?.message || e);
-    if (onFail) {
-      onFail(text);
-    } else {
-      messages.value.push({ id: makeId(), role: "assistant", content: text });
-      scrollBottom();
-    }
+    if (onFail) onFail(text);
+    else showNotice("Changes not applied to the agent", text);
   }
 }
 
@@ -1604,6 +1319,7 @@ async function createAgent() {
       ...newAgent.value,
       agent_id: newAgent.value.agent_id.trim() || scrubbedAgentId.value,
       sample_prompts: newAgent.value.sample_prompts.filter((sp) => (sp.prompt || "").trim()),
+      enabled_skills: newAgent.value.ai_skills.filter((sk) => (sk.skill || "").trim()),
     };
     const res = await frappeRequest({
       url: "/api/method/one_bpmn.agents.agent_config_resolver.create_agent_configuration",
@@ -1645,13 +1361,13 @@ async function writeBackToConfig() {
     aiMaxTokens: form.value.aiMaxTokens,
   };
   if (!isSelector.value) fields.aiTemperature = form.value.aiTemperature;
-  // WI-001644: screening persists to the agent, like memory above. The selector
-  // dialog has no screening section, so sending its defaults would clobber the
-  // agent's real settings.
-  if (!isSelector.value) {
-    fields.aiPiiScreening = form.value.aiPiiScreening;
-    fields.aiOutputScreeningMode = form.value.aiOutputScreeningMode;
-  }
+  // Screening is NOT sent here. It has its own writer (saveScreening, below),
+  // and sending it from both places meant the resolver write landed second and
+  // put the stale form value back — silently undoing whatever the user had just
+  // picked in the Screening section. The editable copy lives on
+  // screeningControls, not on form, so this endpoint has nothing current to say
+  // about it. Creation is different and still goes through the resolver: the
+  // agent has no record to read controls off yet.
   // WI-001793: memory is agent-level now, so it persists here rather than onto
   // the BPMN XML. The selector dialog has no memory section — sending its form
   // defaults would clobber the agent's real settings.
@@ -1668,9 +1384,13 @@ async function writeBackToConfig() {
   // rather than onto the BPMN XML. Sent whole (the backend replaces the tables)
   // and only when they were read first — omitting the keys means "leave them".
   if (staticContextLoaded.value) {
+    fields.aiSkills = form.value.aiSkills;
     fields.aiExamples = form.value.aiExamples;
     fields.aiGuardrails = form.value.aiGuardrails;
   }
+  // Screening goes through security_api, which accepts ONLY screening fields —
+  // keeping this endpoint from becoming a general writer for the whole agent.
+  await saveScreening();
   try {
     await frappeRequest({
       url: "/api/method/one_bpmn.agents.agent_config_resolver.update_agent_config_from_shape",
@@ -1917,16 +1637,6 @@ async function save() {
   max-height: 90vh;
 }
 
-.assistant-header {
-  padding: 16px 18px;
-  border-bottom: 1px solid #e2e2e2;
-  display: flex;
-  align-items: baseline;
-  gap: 8px;
-}
-.assistant-title { font-size: 0.92rem; font-weight: 600; color: #383838; }
-.assistant-sub { font-size: 0.72rem; color: #999999; }
-
 .assistant-disabled {
   padding: 24px 18px;
   font-size: 0.82rem;
@@ -1934,224 +1644,28 @@ async function save() {
   line-height: 1.5;
 }
 
-.assistant-context {
-  padding: 12px 16px;
-  border-bottom: 1px solid #eef2f7;
-  display: flex;
-  flex-direction: column;
-  gap: 8px;
-}
-.ctx-row { display: flex; flex-direction: column; gap: 3px; }
-.ctx-row label { font-size: 0.72rem; font-weight: 500; color: #525252; }
-.ctx-row .hint { font-weight: 400; color: #9ca3af; }
-.ctx-row input {
-  padding: 5px 7px;
-  border: 1px solid #d1d5db;
-  border-radius: 4px;
-  font-size: 0.8rem;
-  font-family: inherit;
-}
-.ctx-hint { font-size: 0.68rem; color: #999999; line-height: 1.4; }
-
-.ctx-autocomplete { position: relative; }
-.ctx-autocomplete input { width: 100%; box-sizing: border-box; }
-.ctx-autocomplete input:disabled {
-  background: #f3f3f3;
-  color: #999999;
-  cursor: not-allowed;
-}
-.ctx-dropdown {
-  position: absolute;
-  top: calc(100% + 2px);
-  left: 0;
-  right: 0;
-  margin: 0;
-  padding: 4px 0;
-  list-style: none;
-  background: #fff;
-  border: 1px solid #d1d5db;
-  border-radius: 4px;
-  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.1);
-  max-height: 200px;
-  overflow-y: auto;
-  z-index: 10;
-}
-.ctx-dropdown li {
-  padding: 5px 9px;
-  font-size: 0.8rem;
-  color: #383838;
-  cursor: pointer;
-}
-.ctx-dropdown li:hover { background: #f3f3f3; color: #383838; }
-.ctx-dropdown-status {
-  position: absolute;
-  top: calc(100% + 2px);
-  left: 0;
-  right: 0;
-  padding: 6px 9px;
-  font-size: 0.78rem;
-  color: #999999;
-  background: #fff;
-  border: 1px solid #d1d5db;
-  border-radius: 4px;
-  z-index: 10;
-}
-
 .assistant-agui-panel {
   flex: 1;
   min-height: 0;
   border-left: none; /* the pane already draws the divider */
 }
-.assistant-messages {
-  flex: 1;
-  overflow-y: auto;
-  padding: 14px 16px;
-  display: flex;
-  flex-direction: column;
-  gap: 12px;
-}
-.assistant-empty { font-size: 0.8rem; color: #999999; line-height: 1.5; }
 
-/* "Tips for a good prompt" callout — opened from the 💡 toggle by the input */
-.assistant-tips {
-  padding: 10px 12px;
-  background: #f8f8f8;
-  border: 1px solid #e2e2e2;
-  border-radius: 8px;
-  color: #7c7c7c;
-  font-size: 0.8rem;
-  line-height: 1.5;
-}
-.assistant-input-wrap { position: relative; }
-.assistant-tips-popover {
-  position: absolute;
-  bottom: calc(100% + 8px);
-  left: 0;
-  right: 0;
-  background: #ffffff;
-  box-shadow: 0 8px 24px rgba(15, 23, 42, 0.12);
-  z-index: 10;
-}
-.assistant-tips-close {
-  float: right;
-  border: none;
-  background: transparent;
-  color: #999999;
-  cursor: pointer;
-  font-size: 0.75rem;
-  padding: 0 2px;
-}
-.assistant-tips-close:hover { color: #525252; }
-.assistant-tips-toggle {
-  align-self: flex-end;
-  border: 1px solid #e2e2e2;
-  background: #f8f8f8;
-  border-radius: 8px;
-  padding: 6px 8px;
-  cursor: pointer;
-  font-size: 0.85rem;
-  line-height: 1;
-}
-.assistant-tips-toggle:hover { background: #f3f3f3; }
-.assistant-tips-toggle.active { background: #ede9fe; border-color: #c4b5fd; }
-.assistant-tips-title {
-  font-weight: 600;
-  color: #525252;
-  margin-bottom: 6px;
-}
-.assistant-tips ul {
-  margin: 0;
-  padding-left: 16px;
-  display: flex;
-  flex-direction: column;
-  gap: 4px;
-}
-.assistant-tips li strong { color: #525252; }
-
-.msg { max-width: 100%; }
-.msg-text {
-  font-size: 0.82rem;
-  line-height: 1.5;
-  white-space: pre-wrap;
-  word-break: break-word;
-}
-.msg-user .msg-text {
-  background: #171717;
-  color: #fff;
-  padding: 8px 10px;
-  border-radius: 8px 8px 2px 8px;
-  align-self: flex-end;
-  margin-left: auto;
-  width: fit-content;
-  max-width: 90%;
-}
-.msg-assistant .msg-text {
+.agent-rerun {
+  margin-left: 6px;
+  padding: 1px 8px;
+  font-size: 11px;
+  border: 1px solid var(--border-color, #d1d8dd);
+  border-radius: 10px;
   background: #fff;
-  color: #1f2937;
-  padding: 8px 10px;
-  border: 1px solid #e2e2e2;
-  border-radius: 8px 8px 8px 2px;
-  width: fit-content;
-  max-width: 95%;
-}
-.msg-text.typing { color: #999999; font-style: italic; }
-
-.recs { display: flex; flex-direction: column; gap: 6px; margin-top: 8px; }
-.rec {
-  background: #fff;
-  border: 1px solid #e2e2e2;
-  border-radius: 6px;
-  padding: 7px 9px;
-}
-.rec-head { display: flex; justify-content: space-between; align-items: center; gap: 8px; }
-.rec-field { font-size: 0.72rem; font-weight: 600; text-transform: uppercase; letter-spacing: 0.03em; color: #171717; }
-.rec-apply {
-  border: none;
-  background: #171717;
-  color: #fff;
-  font-size: 0.72rem;
-  padding: 3px 10px;
-  border-radius: 4px;
   cursor: pointer;
 }
-.rec-apply:hover { background: #171717; }
-.rec-apply:disabled { background: #c7c7c7; cursor: default; }
-.rec-value {
-  font-size: 0.78rem;
-  color: #383838;
-  margin-top: 4px;
-  white-space: pre-wrap;
-  word-break: break-word;
+.agent-rerun:hover:not(:disabled) {
+  background: var(--fg-hover-color, #f4f5f6);
 }
-
-.assistant-input {
-  border-top: 1px solid #e2e2e2;
-  padding: 10px 12px;
-  display: flex;
-  gap: 8px;
-  align-items: flex-end;
+.agent-rerun:disabled {
+  opacity: 0.6;
+  cursor: default;
 }
-.assistant-input textarea {
-  flex: 1;
-  resize: none;
-  padding: 6px 8px;
-  border: 1px solid #d1d5db;
-  border-radius: 4px;
-  font-size: 0.82rem;
-  font-family: inherit;
-}
-.assistant-input textarea:focus { outline: none; border-color: #171717; }
-.assistant-send {
-  border: none;
-  background: #171717;
-  color: #fff;
-  padding: 8px 14px;
-  border-radius: 5px;
-  font-size: 0.82rem;
-  cursor: pointer;
-}
-.assistant-send:hover { background: #171717; }
-.assistant-send:disabled { background: #c7c7c7; cursor: default; }
 
 /* ── Linked agent lifecycle badge (WI-001652) ── */
 .agent-status {
@@ -2165,50 +1679,6 @@ async function save() {
 .agent-status-live { color: #15803d; background: #dcfce7; }
 .agent-status-bad { color: #b91c1c; background: #fee2e2; }
 .agent-status-pending { color: #92400e; background: #fef3c7; }
-
-/* ── Assistant new-agent proposal card (WI-001649) ── */
-.proposal {
-  margin-top: 8px;
-  padding: 10px;
-  border: 1px solid #c7d2fe;
-  border-radius: 8px;
-  background: #f3f3f3;
-}
-.proposal-title {
-  font-weight: 600;
-  font-size: 13px;
-  color: #3730a3;
-  margin-bottom: 6px;
-}
-.proposal-fields {
-  width: 100%;
-  font-size: 12px;
-  border-collapse: collapse;
-}
-.proposal-key {
-  color: #171717;
-  font-weight: 600;
-  padding: 2px 8px 2px 0;
-  white-space: nowrap;
-  vertical-align: top;
-}
-.proposal-value {
-  color: #1e293b;
-  padding: 2px 0;
-  word-break: break-word;
-}
-.proposal-actions {
-  display: flex;
-  justify-content: flex-end;
-  gap: 8px;
-  margin-top: 8px;
-}
-.proposal-done {
-  margin-top: 8px;
-  font-size: 12px;
-  font-weight: 600;
-  color: #15803d;
-}
 
 /* ── Create-new-agent panel (WI-001648) ── */
 .create-agent-panel {
