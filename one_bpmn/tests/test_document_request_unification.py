@@ -291,7 +291,20 @@ class TestEveryTypeStartsTheSameProcess(unittest.TestCase):
 
 	def test_a_request_parks_for_human_approval_before_touching_drive(self):
 		"""Nothing reaches Google Drive or the model until a person approves —
-		which is what makes the first leg safe to exercise on a live site."""
+		which is what makes the first leg safe to exercise on a live site.
+
+		The state is read from the database rather than the in-memory document:
+		the process applies it after insert returns, so the object in hand still
+		predates it. It used to assert a `status` field, which the map never
+		wrote — every request carried its default, so the assertion passed
+		without ever describing where the request had got to.
+		"""
 		doc = self._raise_request("SOP")
-		self.assertEqual(doc.status, "Pending Request Approval")
-		self.assertIsNotNone(self._instance_for(doc))
+		instance = self._instance_for(doc)
+		self.assertIsNotNone(instance, "no process started")
+		self.assertEqual(instance.status, "Active", "the run should be parked, not finished")
+		self.assertIn(
+			frappe.db.get_value("Document Request", doc.name, "workflow_state"),
+			("Draft", "Pending Approval"),
+			"a new request should be waiting on a person, not past them",
+		)
