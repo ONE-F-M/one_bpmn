@@ -486,6 +486,50 @@ def poll_a2a_tasks():
 			)
 
 
+def _escalate_deadline(task_name: str, agent_configuration=None, caller_instance=None) -> None:
+	"""A delegated task ran out of time — tell the person who owns it.
+
+	WI-002053. Both deadline paths used to set state="timed-out", wake the
+	caller and move on, so a worker abandoned at its deadline was invisible
+	unless somebody happened to read the row. The escalation is idempotent per
+	breach (delegation.notified_at), which matters because this runs on a
+	schedule and would otherwise re-alert on every tick.
+	"""
+	from one_bpmn.agents.a2a import delegation
+
+	# Both numbers come off the row itself rather than the agent's config: the
+	# deadline that was APPLIED is creation → deadline, which already accounts
+	# for a per-step timeout_minutes override. Reading the config instead would
+	# report a limit that was not the one in force.
+	allowed = 0
+	ran_for = 0
+	try:
+		row = frappe.db.get_value(
+			"A2A Task", task_name, ["creation", "deadline"], as_dict=True
+		)
+		if row and row.creation:
+			started = frappe.utils.get_datetime(row.creation)
+			if row.deadline:
+				allowed = max(
+					0, int((frappe.utils.get_datetime(row.deadline) - started).total_seconds() // 60)
+				)
+			ran_for = max(0, int((now_datetime() - started).total_seconds() // 60))
+	except Exception:
+		pass
+	delegation.stopped_at_limit(
+		a2a_task=task_name,
+		reason="delegation_deadline_minutes",
+		limit_value=allowed,
+		reached_value=ran_for,
+		detail=(
+			f"It was allowed {allowed} minute(s) and had been running for about "
+			f"{ran_for} when the deadline passed."
+		),
+		instance=caller_instance,
+		worker_agent=agent_configuration,
+	)
+
+
 def _time_out_task(row, remote) -> None:
 	"""Past the deadline: tell the remote to stop if it will listen, then
 	fail through the normal BPMN error path."""
@@ -508,6 +552,11 @@ def _time_out_task(row, remote) -> None:
 			"completed_at": now_datetime(),
 		},
 		update_modified=True,
+	)
+	_escalate_deadline(
+		row.name,
+		agent_configuration=getattr(row, "agent_configuration", None),
+		caller_instance=getattr(row, "caller_instance", None),
 	)
 	_enqueue_a2a_resume(row.instance, row.wf_task_id, row.name)
 	frappe.db.commit()
@@ -590,6 +639,11 @@ def _reconcile_internal_tasks(now) -> None:
 						"completed_at": now_datetime(),
 					},
 					update_modified=True,
+				)
+				_escalate_deadline(
+					row.name,
+					agent_configuration=getattr(row, "agent_configuration", None),
+					caller_instance=getattr(row, "caller_instance", None),
 				)
 				_wake_a2a_caller(row)
 				_mark_resumed(row.name)

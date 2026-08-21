@@ -274,7 +274,24 @@ def notify_refusal(
 
 # A limit breach is worth a record; an off-the-list target is a configuration
 # mistake that never became work, so it leaves nothing behind.
+#
+# These are the DOOR-TIME limits: checked by enforce() before anything starts,
+# so a breach means no task row exists yet and record_limit_breach() has to
+# create one. Deliberately NOT widened to cover the in-flight limits below —
+# those already have a task row and a running worker, so putting them through
+# record_limit_breach() would mint a second, duplicate row for work that had
+# already begun.
 LIMIT_REASONS = ("max_recursion_depth", "max_task_handoffs")
+
+# The limits reached while the worker is already running. They share the
+# escalation seam (agents/a2a/delegation.stopped_at_limit) but not the
+# record-creating one, because there is nothing left to create.
+#
+# max_delegation_retries is absent on purpose: it is a configured field with a
+# default in DEFAULTS above, and nothing in the codebase retries a delegation,
+# so there is no moment at which it could fire. Implementing retry is its own
+# story; a branch here would be unreachable code pretending to be a control.
+IN_FLIGHT_LIMIT_REASONS = ("delegation_deadline_minutes", "turn_cap")
 
 
 def record_limit_breach(

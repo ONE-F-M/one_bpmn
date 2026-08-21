@@ -81,6 +81,9 @@ def run_chat_turn(task, config, text: str) -> None:
 			update_modified=True,
 		)
 		task.reload()
+		from one_bpmn.agents.a2a import delegation
+
+		delegation.sync_from_task(task)
 	else:
 		task_store.store_result(task, result.get("response") or "")
 
@@ -123,7 +126,22 @@ def run_background(task, config, text: str) -> None:
 		task.reload()
 		return
 	task.db_set({"instance": instance, "state": "working"}, update_modified=True)
+	# WI-002053: the worker's instance records who started it, so the chain can
+	# be walked downwards as well as up. Only the A2A path sets this — a Call
+	# Activity runs the called process INSIDE its caller's instance, so there is
+	# no separate row for it to point back from.
+	if task.caller_instance:
+		frappe.db.set_value(
+			"BPMN Process Instance", instance, "parent_instance", task.caller_instance,
+			update_modified=False,
+		)
 	task.reload()
+	# This state change is written straight to the row rather than through
+	# task_store._set_state, so the delegation record has to be told here or it
+	# sits on "Delegated" for the whole run and In Progress never happens.
+	from one_bpmn.agents.a2a import delegation
+
+	delegation.sync_from_task(task)
 	# A short map can finish inside the same request. Reading the instance now
 	# means such a worker answers inline instead of parking the caller for a
 	# reconciler tick it does not need.

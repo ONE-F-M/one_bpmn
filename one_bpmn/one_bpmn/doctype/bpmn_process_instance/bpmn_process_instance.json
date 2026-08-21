@@ -6,6 +6,7 @@
  "engine": "InnoDB",
  "field_order": [
   "process_model",
+  "parent_instance",
   "status",
   "engine_in_progress",
   "waiting_for_ai",
@@ -30,6 +31,15 @@
    "label": "Process Model",
    "options": "BPMN Process Model",
    "reqd": 1
+  },
+  {
+   "description": "The instance that delegated this one, when this is a worker started by an A2A task. A Call Activity does NOT set it: a called process runs inside its caller's instance and so has no separate row to point back from.",
+   "fieldname": "parent_instance",
+   "fieldtype": "Link",
+   "in_standard_filter": 1,
+   "label": "Parent Instance",
+   "options": "BPMN Process Instance",
+   "read_only": 1
   },
   {
    "default": "Active",

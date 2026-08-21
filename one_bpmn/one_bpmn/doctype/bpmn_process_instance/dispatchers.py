@@ -1402,6 +1402,22 @@ def dispatch_ai_agent(instance, task, task_cfg: dict, bpmn_id: str, resume_run: 
 	from one_bpmn.security.tool_policy import reset_current_agent, set_current_agent
 
 	_policy_token = set_current_agent(task_cfg.get("aiAgentConfig"))
+
+	# WI-002053: and publish it as the DELEGATING agent, so a delegation made
+	# from one of this agent's tool shapes is attributed to the agent rather
+	# than to the map it happens to be running inside.
+	#
+	# a2a_client_ops._delegating_agent() already looks for this attribute, but
+	# nothing ever set it, so it fell through to "the agent whose process_model
+	# this instance is". That works for an agent running its OWN map and fails
+	# silently for an orchestrator invoked as a Call Activity: the instance is
+	# then Software Development's, which is no agent's map, so the delegating
+	# agent resolved to None — and with None, guardrails_for() returns DEFAULTS
+	# instead of the agent's configured limits, and may_delegate_to() returns
+	# True without consulting restrict_delegates at all. The limits and the
+	# allow-list were both quietly absent on exactly the production path.
+	_prev_delegating_agent = getattr(instance, "_a2a_delegating_agent", None)
+	instance._a2a_delegating_agent = task_cfg.get("aiAgentConfig")
 	try:
 		executor_cls = get_executor(config.backend)
 		result = executor_cls().run(config, context)
@@ -1423,6 +1439,9 @@ def dispatch_ai_agent(instance, task, task_cfg: dict, bpmn_id: str, resume_run: 
 		# Must clear on BOTH paths — a leaked agent id would apply this agent's
 		# tool grant to whatever runs next in this worker.
 		reset_current_agent(_policy_token)
+		# Restored rather than deleted: an agent task nested inside another
+		# agent's map must hand identity back, not blank it.
+		instance._a2a_delegating_agent = _prev_delegating_agent
 	_exec_latency_ms = int((_time.time() - _exec_start) * 1000)
 
 	# ── Durable HITL: token totals are cumulative across suspensions ───
@@ -1504,6 +1523,38 @@ def dispatch_ai_agent(instance, task, task_cfg: dict, bpmn_id: str, resume_run: 
 			title=f"AI Observability: instrumentation error ({bpmn_id})",
 			message=frappe.get_traceback(),
 		)
+
+	# ── Stopped at its turn cap, and this agent was delegated to ───────
+	# WI-002053. hit_turn_cap already exists and goal_completion already reads
+	# it as Not Achieved, but nobody was ever told. A worker that ran out of
+	# turns returns whatever partial text it had, which at a glance is
+	# indistinguishable from finishing — so the caller accepted an unfinished
+	# answer and the process moved on.
+	#
+	# Only escalated when this instance IS a delegated worker: its context
+	# document is the A2A Task that asked for the work. An agent hitting its cap
+	# in an ordinary process is a different conversation and not this story's.
+	if getattr(result, "hit_turn_cap", False) and instance.context_doctype == "A2A Task":
+		try:
+			from one_bpmn.agents.a2a import delegation
+
+			delegation.stopped_at_limit(
+				a2a_task=instance.context_docname,
+				reason="turn_cap",
+				limit_value=cint(task_cfg.get("aiMaxToolCalls")),
+				reached_value=cint(task_cfg.get("aiMaxToolCalls")),
+				detail=(
+					"The agent used every tool-calling turn it was allowed and never "
+					"produced a final answer, so anything it did return is partial."
+				),
+				instance=instance.name,
+				worker_agent=task_cfg.get("aiAgentConfig"),
+			)
+		except Exception:
+			frappe.log_error(
+				title=f"AI Agent Task: turn-cap escalation failed ({bpmn_id})",
+				message=frappe.get_traceback(),
+			)
 
 	# ── Results ────────────────────────────────────────────────────────
 	if result.error_code == ErrorCode.SUSPENDED:

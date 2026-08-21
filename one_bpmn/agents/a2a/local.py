@@ -30,7 +30,7 @@ from __future__ import annotations
 import frappe
 from frappe import _
 
-from one_bpmn.agents.a2a import execute, guardrails
+from one_bpmn.agents.a2a import delegation, execute, guardrails
 
 TARGET_FIELDS = (
 	"name",
@@ -135,6 +135,15 @@ def delegate(
 				instance=caller_instance,
 				a2a_task=breach,
 			)
+		# WI-002053: and say which limit, and what it reached. The notify above
+		# tells a person; this is what is still there afterwards.
+		delegation.record_refusal(
+			refusal,
+			delegating_agent=delegating_agent,
+			target=config.name,
+			a2a_task=breach,
+			counters=counters,
+		)
 		raise
 
 	task = frappe.get_doc(
@@ -161,6 +170,10 @@ def delegate(
 	)
 	task.flags.ignore_links = True
 	task.insert(ignore_permissions=True)
+
+	# Recorded before the worker runs, not after: a delegation whose worker
+	# fails or hangs is exactly the one someone needs to be able to find.
+	delegation.record(task, delegating_agent=delegating_agent, instruction=instruction)
 
 	execute.run_for_task(task, config, instruction)
 	task.reload()
