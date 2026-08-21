@@ -1,4 +1,4 @@
-"""Unit tests for :mod:`one_bpmn.api.bpmn_task_actions`.
+"""Unit tests for :mod:`one_bpmn.api.todo_actions`.
 
 Tests the AMP action callback endpoint.
 
@@ -7,7 +7,7 @@ Since ``handle_amp_action`` uses ``@frappe.whitelist`` and requires
 context — either via ``bench run-tests`` or with ``frappe.init``/``frappe.connect``.
 
 Run with:
-    bench --site SITE run-tests --app one_bpmn --module one_bpmn.tests.test_bpmn_task_actions
+    bench --site SITE run-tests --app one_bpmn --module one_bpmn.tests.test_todo_actions
 """
 
 from __future__ import annotations
@@ -79,7 +79,7 @@ class TestHandleAmpAction(FrappeTestCase):
 			with patch("one_bpmn.api.instance_api.complete_task") as mock_ct:
 				mock_ct.return_value = {"instance": "INST-001", "status": "Running", "active_tasks": []}
 				with patch.object(frappe, "set_user"):
-					from one_bpmn.api.bpmn_task_actions import handle_amp_action
+					from one_bpmn.api.todo_actions import handle_amp_action
 					result = handle_amp_action(token=token)
 
 		self.assertIn("message", result)
@@ -90,7 +90,7 @@ class TestHandleAmpAction(FrappeTestCase):
 		_setup_request()
 
 		with _mock_secret():
-			from one_bpmn.api.bpmn_task_actions import handle_amp_action
+			from one_bpmn.api.todo_actions import handle_amp_action
 			result = handle_amp_action(token="tampered.XXXX")
 
 		self.assertIn("error", result)
@@ -101,7 +101,7 @@ class TestHandleAmpAction(FrappeTestCase):
 		token = _make_expired_token()
 
 		with _mock_secret():
-			from one_bpmn.api.bpmn_task_actions import handle_amp_action
+			from one_bpmn.api.todo_actions import handle_amp_action
 			result = handle_amp_action(token=token)
 
 		self.assertIn("error", result)
@@ -117,7 +117,7 @@ class TestHandleAmpAction(FrappeTestCase):
 					"Task 'task-uuid' not found in the active tasks of this instance."
 				)
 				with patch.object(frappe, "set_user"):
-					from one_bpmn.api.bpmn_task_actions import handle_amp_action
+					from one_bpmn.api.todo_actions import handle_amp_action
 					result = handle_amp_action(token=token)
 
 		self.assertIn("message", result)
@@ -132,7 +132,7 @@ class TestHandleAmpAction(FrappeTestCase):
 			with patch("one_bpmn.api.instance_api.complete_task") as mock_ct:
 				mock_ct.return_value = {"instance": "INST-001", "status": "Running", "active_tasks": []}
 				with patch.object(frappe, "set_user"):
-					from one_bpmn.api.bpmn_task_actions import handle_amp_action
+					from one_bpmn.api.todo_actions import handle_amp_action
 					handle_amp_action(token=token)
 
 		headers = frappe.local.response.headers
@@ -143,7 +143,7 @@ class TestHandleAmpAction(FrappeTestCase):
 		"""OPTIONS request returns CORS headers."""
 		_setup_request(method="OPTIONS")
 
-		from one_bpmn.api.bpmn_task_actions import handle_amp_action
+		from one_bpmn.api.todo_actions import handle_amp_action
 		handle_amp_action()
 
 		headers = frappe.local.response.headers
@@ -154,7 +154,7 @@ class TestHandleAmpAction(FrappeTestCase):
 		"""__amp_source_origin query param is echoed in response header."""
 		_setup_request(method="OPTIONS", source_origin="sender@one-fm.com")
 
-		from one_bpmn.api.bpmn_task_actions import handle_amp_action
+		from one_bpmn.api.todo_actions import handle_amp_action
 		handle_amp_action()
 
 		headers = frappe.local.response.headers

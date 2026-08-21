@@ -26,6 +26,15 @@
 			>
 				AI Run
 			</button>
+			<button
+				v-if="isAiAgent"
+				@click="activeTab = 'memory'; fetchMemory()"
+				title="View the agent's conversation and long-term memory"
+				class="px-3 py-1 text-sm font-medium rounded-t transition-colors border-b-2"
+				:class="activeTab === 'memory' ? 'border-purple-600 text-purple-700 bg-white' : 'border-transparent text-gray-500 hover:text-gray-700'"
+			>
+				Memory
+			</button>
 		</div>
 		<div class="flex-1 overflow-y-auto custom-scrollbar p-4">
 			<!-- AI Run Tab -->
@@ -110,15 +119,107 @@
 											:class="roleBadgeClass(step.role)"
 										>{{ step.role }}</span>
 										<span class="text-gray-500">#{{ step.step_index }}</span>
+										<span
+											v-if="step.toolCalls && step.toolCalls.length"
+											class="inline-block px-1.5 py-0.5 rounded text-[10px] font-mono bg-purple-100 text-purple-700"
+											:title="step.toolCalls.map(tc => toolLabel(tc.tool_name)).join(', ')"
+										>🔧 {{ step.toolCalls.map(tc => toolLabel(tc.tool_name)).join(", ").substring(0, 40) }}</span>
 										<span class="text-gray-600 truncate max-w-[150px]">{{ step.content ? step.content.substring(0, 80) : '(empty)' }}</span>
 									</span>
 									<span class="text-gray-400 text-[10px] whitespace-nowrap">
 									<template v-if="step.prompt_tokens">{{ step.prompt_tokens }}t in<span v-if="step.cost"> · ${{ formatCost(step.cost) }}</span></template>
 									<template v-else-if="step.completion_tokens">{{ step.completion_tokens }}t out<span v-if="step.cost"> · ${{ formatCost(step.cost) }}</span></template>
+									<span
+										v-if="step.latency_ms"
+										title="Decision latency: the model's API round-trip for this turn — not the runtime of an activated task"
+									> · {{ (step.latency_ms / 1000).toFixed(1) }}s</span>
 								</span>
 								</button>
 								<div v-if="expandedSteps.has(step.name)" class="border-t border-gray-200 px-2 py-1.5">
 									<pre class="text-[11px] text-gray-600 font-mono whitespace-pre-wrap max-h-48 overflow-y-auto bg-gray-50 rounded p-2">{{ step.content || '(empty)' }}</pre>
+									<!-- Tool calls made in this turn (AI Agent Tool Call rows) -->
+									<div
+										v-for="tc in step.toolCalls || []"
+										:key="tc.tool_name + (tc.tool_result || '')"
+										class="mt-1.5 border border-purple-200 rounded bg-purple-50/50 px-2 py-1.5"
+									>
+										<div class="flex items-center gap-1.5 text-[11px]">
+											<span class="font-semibold text-purple-700">🔧 {{ toolLabel(tc.tool_name) }}</span>
+											<span v-if="toolLabel(tc.tool_name) !== tc.tool_name" class="font-mono text-[10px] text-gray-400">{{ tc.tool_name }}</span>
+											<span v-if="tc.tool_source" class="px-1 py-0.5 rounded bg-purple-100 text-purple-600 text-[10px]">{{ tc.tool_source === 'diagram_task' ? 'diagram task' : 'registry tool' }}</span>
+											<span
+												class="px-1 py-0.5 rounded text-[10px]"
+												:class="tc.status === 'Error' ? 'bg-red-100 text-red-700' : 'bg-green-100 text-green-700'"
+											>{{ tc.status }}</span>
+										</div>
+										<div v-if="tc.tool_args && tc.tool_args !== '{}'" class="mt-1">
+											<div class="text-[10px] uppercase tracking-wide text-gray-400">Arguments</div>
+											<pre class="text-[11px] text-gray-600 font-mono whitespace-pre-wrap max-h-24 overflow-y-auto bg-white rounded p-1.5 border border-gray-100">{{ tc.tool_args }}</pre>
+										</div>
+										<div v-if="tc.tool_result" class="mt-1">
+											<div class="text-[10px] uppercase tracking-wide text-gray-400">Result <span class="normal-case">(what the model was told)</span></div>
+											<pre class="text-[11px] text-gray-600 font-mono whitespace-pre-wrap max-h-32 overflow-y-auto bg-white rounded p-1.5 border border-gray-100">{{ tc.tool_result }}</pre>
+										</div>
+										<div v-if="tc.outcome" class="mt-1">
+											<div class="text-[10px] uppercase tracking-wide text-green-600">Outcome <span class="normal-case">(what actually happened)</span></div>
+											<pre class="text-[11px] text-green-800 font-mono whitespace-pre-wrap max-h-32 overflow-y-auto bg-green-50 rounded p-1.5 border border-green-100">{{ tc.outcome }}</pre>
+										</div>
+									</div>
+								</div>
+							</div>
+						</div>
+					</div>
+				</div>
+			</div>
+
+			<!-- Memory Tab -->
+			<div v-if="activeTab === 'memory'" class="text-[13px]">
+				<div v-if="memoryLoading" class="text-sm text-gray-400 italic text-center py-6">Loading...</div>
+				<div v-else-if="memoryError" class="text-sm text-red-500 text-center py-6">{{ memoryError }}</div>
+				<div v-else-if="!hasMemoryData" class="text-sm text-gray-400 italic text-center py-6">No memory data</div>
+				<div v-else class="space-y-4">
+					<!-- Conversation -->
+					<div v-if="conversation.length">
+						<div class="text-gray-500 font-medium mb-1">Conversation</div>
+						<div class="space-y-1">
+							<div v-for="(m, i) in conversation" :key="i" class="border border-gray-200 rounded px-2 py-1.5">
+								<div class="flex items-center gap-1.5">
+									<span
+										class="inline-block px-1.5 py-0.5 rounded text-[10px] font-mono font-semibold"
+										:class="roleBadgeClass(m.role)"
+									>{{ m.role }}</span>
+									<span
+										v-if="m.toolCalls && m.toolCalls.length"
+										class="inline-block px-1.5 py-0.5 rounded text-[10px] font-mono bg-purple-100 text-purple-700"
+									>🔧 {{ m.toolCalls.length }} tool call{{ m.toolCalls.length > 1 ? 's' : '' }}</span>
+								</div>
+								<pre v-if="m.content" class="mt-1 text-[11px] text-gray-600 font-mono whitespace-pre-wrap max-h-40 overflow-y-auto bg-gray-50 rounded p-2">{{ m.content }}</pre>
+								<div
+									v-for="(tc, j) in m.toolCalls || []"
+									:key="j"
+									class="mt-1 border border-purple-200 rounded bg-purple-50/50 px-2 py-1"
+								>
+									<span class="text-[11px] font-semibold text-purple-700">🔧 {{ toolLabel(toolCallName(tc)) }}</span>
+									<pre v-if="toolCallArgs(tc)" class="mt-1 text-[11px] text-gray-600 font-mono whitespace-pre-wrap max-h-24 overflow-y-auto bg-white rounded p-1.5 border border-gray-100">{{ toolCallArgs(tc) }}</pre>
+								</div>
+							</div>
+						</div>
+					</div>
+
+					<!-- Long-term memory -->
+					<div v-if="memoryGroups.length">
+						<div class="text-gray-500 font-medium mb-1">Long-term memory</div>
+						<div v-for="group in memoryGroups" :key="group.label" class="mb-2">
+							<div class="text-[10px] uppercase tracking-wide text-gray-400 mb-1">{{ group.label }}</div>
+							<div
+								v-for="mem in group.items"
+								:key="mem.name"
+								class="border border-gray-200 rounded px-2 py-1.5 mb-1"
+							>
+								<pre class="text-[11px] text-gray-700 whitespace-pre-wrap max-h-32 overflow-y-auto">{{ mem.content }}</pre>
+								<div v-if="mem.metadata && mem.metadata !== '{}'" class="mt-1">
+									<div class="text-[10px] uppercase tracking-wide text-gray-400">Metadata</div>
+									<pre class="text-[11px] text-gray-500 font-mono whitespace-pre-wrap max-h-24 overflow-y-auto bg-gray-50 rounded p-1.5">{{ mem.metadata }}</pre>
 								</div>
 							</div>
 						</div>
@@ -242,6 +343,10 @@ const props = defineProps({
 	openAiRunTick: { type: Number, default: 0 },
 })
 
+function toolLabel(toolName) {
+	return props.taskLabels[toolName] || toolName
+}
+
 const activeTab = ref("variables")
 
 watch(() => props.openAiRunTick, (tick) => {
@@ -333,14 +438,20 @@ function formatDateTime(d) {
 
 // ── AI Agent Run observability ───────────────────────────────────────
 
+// Both AI element kinds have AI Agent Run observability: AI Agent Tasks
+// (service tasks) and AI Task Selectors (ad-hoc subprocesses); runs are
+// keyed by instance + bpmn_id either way.
 const isAiAgent = computed(() => {
-	return props.selectedNode?.extensions?.serviceType === "ai_agent"
+	const serviceType = props.selectedNode?.extensions?.serviceType
+	return serviceType === "ai_agent" || serviceType === "ai_task_selector"
 })
 
 // Friendly type label — AI Agent Tasks serialize as a bare "ServiceTask",
 // so surface them as "AI Agent Task" in the Details tab.
 const displayType = computed(() => {
-	if (isAiAgent.value) return "AI Agent Task"
+	const serviceType = props.selectedNode?.extensions?.serviceType
+	if (serviceType === "ai_task_selector") return "AI Task Selector"
+	if (serviceType === "ai_agent") return "AI Agent Task"
 	return props.selectedNode?.typename || "—"
 })
 
@@ -354,8 +465,8 @@ const expandedSteps = ref(new Set())
 
 // Reset state when selection changes
 watch(() => props.selectedNode, () => {
-	if (activeTab.value !== 'aiRun') return
-	fetchAiRun()
+	if (activeTab.value === 'aiRun') fetchAiRun()
+	else if (activeTab.value === 'memory') fetchMemory()
 })
 
 async function fetchAiRun() {

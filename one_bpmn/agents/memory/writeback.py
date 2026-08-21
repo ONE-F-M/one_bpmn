@@ -23,6 +23,7 @@ def distill_and_write(
 	model,
 	source_run,
 	reconcile_model=None,
+	reconcile_provider=None,
 ) -> list[str]:
 	"""Distill ``agent_output`` into durable facts and ``memory_write`` each one.
 
@@ -34,7 +35,8 @@ def distill_and_write(
 	``metadata`` tags the fact as distilled. Returns the names of the written AI
 	Memory records (for tests / observability).
 
-	``model`` distills; ``reconcile_model`` decides add/update/replace. They are
+	``model`` distills; ``reconcile_model`` decides add/update/replace, each
+	against the provider that serves it. They are
 	independent (WI-001793) so reconciliation can be tuned — usually upward —
 	without paying for the stronger model on every extraction. Both are resolved
 	on the dispatch thread and passed in as arguments; this runs in a background
@@ -54,11 +56,14 @@ def distill_and_write(
 			backend=backend,
 			model=model,
 		)
-		# The reconciler runs on the same provider/backend as distillation — the
-		# credentials are the task's — but on its own model, so the two can be
-		# tuned apart. No embedding model, nothing hardcoded.
+		# The reconciler runs on its own model, so the two can be tuned apart —
+		# and therefore on its own provider, because a model only works against
+		# the credentials that serve it. Defaults to distillation's provider,
+		# which is right whenever both models come from the same place.
+		# Resolved on the dispatch thread and passed in: this worker must not
+		# look configuration up itself.
 		reconcile_ctx = {
-			"provider_name": provider_name,
+			"provider_name": reconcile_provider or provider_name,
 			"backend": backend,
 			"model": reconcile_model or model,
 		}
@@ -68,7 +73,7 @@ def distill_and_write(
 				scope,
 				scope_key,
 				f["content"],
-				dedup_key=f["dedup_key"],
+				dedup_key=None,
 				metadata={
 					"topic": f["topic"],
 					"learned_from": agent,
@@ -77,6 +82,8 @@ def distill_and_write(
 				},
 				source_run=source_run,
 				ignore_permissions=True,
+				reconcile=True,
+				reconcile_ctx=reconcile_ctx,
 			)
 			written.append(rec.get("name"))
 		return written

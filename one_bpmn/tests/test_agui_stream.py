@@ -147,6 +147,50 @@ class TestAgentEventStream(FrappeTestCase):
 		self.assertEqual(deltas, ["to", "ken"])
 		self.assertIn("CUSTOM", types)
 
+	def test_flat_legacy_payload_is_folded_into_value(self):
+		"""WI-001678: lumina.py yields LUCRUSHER_RESULT's payload FLAT on the
+		event, not under `value` — and `value` is all the panel reads. The
+		relay must fold it, or the renamed event arrives empty."""
+		from one_bpmn.agents import agui_stream
+
+		def child():
+			yield {
+				"type": "CUSTOM",
+				"event": "LUCRUSHER_RESULT",
+				"intent": "TOPOLOGY_PROPOSAL",
+				"matches": [],
+				"topology": {"processes": [{"name": "Onboarding"}]},
+			}
+			yield {"type": "CUSTOM", "event": "MODE_TRANSITION", "new_mode": "Planning"}
+
+		streaming_reply = {"streaming": True, "stream": child(), "conversation": "CONV-1"}
+		with patch("one_bpmn.api.agent_invocation.invoke_agent", return_value=streaming_reply):
+			chunks = _collect(agui_stream.agent_event_stream("lucrusher_agent", "m", "CONV-1"))
+
+		customs = {e["name"]: e for e in _events(chunks) if e.get("type") == "CUSTOM"}
+		lucrusher = customs["onefm.lucrusher_result"]
+		self.assertEqual(lucrusher["value"]["intent"], "TOPOLOGY_PROPOSAL")
+		self.assertEqual(lucrusher["value"]["topology"], {"processes": [{"name": "Onboarding"}]})
+		# the producer's keys move INTO value — they do not also stay outside it
+		self.assertNotIn("intent", lucrusher)
+		self.assertNotIn("event", lucrusher)
+		self.assertEqual(customs["onefm.mode_transition"]["value"], {"new_mode": "Planning"})
+
+	def test_producer_supplied_value_survives_the_fold(self):
+		"""A producer that already speaks the contract keeps its own payload."""
+		from one_bpmn.agents import agui_stream
+
+		def child():
+			yield {"type": "CUSTOM", "name": "MODE_TRANSITION", "value": {"new_mode": "plan"}}
+
+		streaming_reply = {"streaming": True, "stream": child(), "conversation": "CONV-1"}
+		with patch("one_bpmn.api.agent_invocation.invoke_agent", return_value=streaming_reply):
+			chunks = _collect(agui_stream.agent_event_stream("ba", "m", "CONV-1"))
+
+		custom = [e for e in _events(chunks) if e.get("type") == "CUSTOM"][0]
+		self.assertEqual(custom["name"], "onefm.mode_transition")
+		self.assertEqual(custom["value"], {"new_mode": "plan"})
+
 	def test_child_run_error_becomes_single_parent_error(self):
 		from one_bpmn.agents import agui_stream
 

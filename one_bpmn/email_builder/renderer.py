@@ -165,7 +165,7 @@ def _build_context(task_content: dict, *, for_amp: bool) -> dict:
 				)
 				site_url = frappe.utils.get_url()
 				status_url = (
-					f"{site_url}/api/method/one_bpmn.api.bpmn_task_actions"
+					f"{site_url}/api/method/one_bpmn.api.todo_actions"
 					f".get_amp_task_status?status_token={status_token}"
 				)
 		except Exception:

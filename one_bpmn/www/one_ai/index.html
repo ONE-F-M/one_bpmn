@@ -1,0 +1,45 @@
+<!DOCTYPE html>
+<html lang="en">
+	<head>
+		<meta charset="UTF-8" />
+		<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+		<title>ONE AI</title>
+		<meta name="theme-color" content="#fff" />
+		<!--
+			WI-001678: the Lumina successor as a single standalone page.
+
+			It mounts the SAME bundle the Desk Chat dialog lazy-loads
+			(one-ai.iife.js exposes both mount() and openAgentChat()), so the
+			page and the dialog can never drift apart, and no second copy of
+			Vue is shipped. Built by `npm run build:oneai` in spiff/.
+
+			?v={{ asset_version }} is the BUNDLE's own mtime (see _asset_version
+			in index.py — build_version cannot do this job): without it the 12h
+			Cache-Control on /assets serves a stale bundle for hours, which
+			masked three fixes in a row during the WI-001678 build.
+		-->
+		<link rel="stylesheet" href="/assets/one_bpmn/one_ai/one-ai.css?v={{ asset_version }}" />
+	</head>
+	<body>
+		<div id="app"></div>
+
+		<script>
+			window.csrf_token = "{{ csrf_token }}";
+			window.site_name = "{{ site_name }}";
+			if (!window.frappe) window.frappe = {};
+			window.frappe.csrf_token = "{{ csrf_token }}";
+			window.frappe.boot = window.frappe.boot || { csrf_token: "{{ csrf_token }}" };
+		</script>
+		<script src="/assets/one_bpmn/one_ai/one-ai.iife.js?v={{ asset_version }}"></script>
+		<script>
+			window.oneAI.mount(document.getElementById("app"));
+		</script>
+
+		<style>
+			html, body { height: 100%; margin: 0; }
+			body { background: #f8f8f8; font-family: "Inter", system-ui, -apple-system, sans-serif; }
+			#app { height: 100%; }
+			@media (prefers-color-scheme: dark) { body { background: #0f0f0f; } }
+		</style>
+	</body>
+</html>

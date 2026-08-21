@@ -32,6 +32,75 @@ class ToolSpec:
     required: list = field(default_factory=list)
     human: bool = False
 
+    def __post_init__(self):
+        """Wrap ``fn`` with the two controls every tool call passes through.
+
+        Both were added at this same point, independently, and both are needed:
+        PII restoration (WI-001644) turns tokenised arguments back into real
+        values, and the policy interceptor (WI-001645) refuses a call whose
+        arguments cross a hard limit.
+
+        ORDER IS A SECURITY PROPERTY. Restoration is the OUTER wrapper and the
+        interceptor the INNER one, so a call runs
+
+            restore PII  ->  evaluate policy  ->  the tool
+
+        and the policy sees the real values the tool will actually receive.
+        Checking the tokenised form instead would let a limit be bypassed by
+        whatever the redactor happened to mask: a rule on an id the redactor had
+        replaced with ``[CIVIL_ID_1]`` would compare against the placeholder and
+        wave the call through.
+
+        Guarding at construction rather than in an execution loop is deliberate:
+        tools run in FOUR loops (the step loop plus the Anthropic/OpenAI/Gemini
+        adapters' own), and some ToolSpecs are built inside Server Script bodies
+        rather than by compile_shape_tools. Construction is the single point all
+        of them pass through, so a new loop — or a new in-script tool — is
+        covered without anyone remembering to add a check.
+
+        Human tools are skipped by both: their fn is a stub the loop never
+        executes (it suspends instead), and a person completing the task should
+        see the token, not the raw value.
+        """
+        if self.human:
+            return
+
+        # Both markers are looked for along the WHOLE wrapper chain, not just on
+        # the outermost callable. With two wrappers each hides the other's
+        # marker, so an already-wrapped fn passed through ToolSpec again would be
+        # wrapped a second time — evaluating the policy twice and restoring PII
+        # over already-restored values.
+        def already(marker):
+            fn, hops = self.fn, 0
+            while fn is not None and hops < 10:
+                if getattr(fn, marker, None) is not None:
+                    return True
+                fn = getattr(fn, "__policy_guarded__", None) or getattr(fn, "__pii_wrapped__", None)
+                hops += 1
+            return False
+
+        # Innermost first: the policy check must run against restored values.
+        if not already("__policy_guarded__"):
+            try:
+                from one_bpmn.security.tool_policy import guard
+
+                object.__setattr__(self, "fn", guard(self.fn, self.name))
+            except Exception:
+                # A broken interceptor must not make every agent
+                # unconstructable. guard() logs its own failures loudly; this
+                # only protects the dataclass from an import-time problem.
+                pass
+
+        if not already("__pii_wrapped__"):
+            try:
+                from one_bpmn.security.pii import wrap_tool
+
+                object.__setattr__(self, "fn", wrap_tool(self.fn))
+            except Exception:
+                # A broken import here must not take the whole agent down; the
+                # cost is that a tokenised argument reaches the tool unresolved.
+                pass
+
 
 def build_parameter_schema(tool: "ToolSpec") -> dict:
     """Provider-agnostic JSON Schema ``parameters`` object for a tool spec.
@@ -81,6 +150,9 @@ class StepResult:
     tool_calls: list = field(default_factory=list)  # list[StepToolCall]
     prompt_tokens: int = 0
     completion_tokens: int = 0
+    # Breakdown of prompt_tokens by billing rate (WI-001643) — see TurnRecord.
+    cache_read_tokens: int = 0
+    cache_write_tokens: int = 0
 
 
 @dataclass
@@ -98,6 +170,13 @@ class TurnRecord:
     tool_calls: list = field(default_factory=list)  # list[ToolCallRecord]
     prompt_tokens: int = 0
     completion_tokens: int = 0
+    # Breakdown of prompt_tokens by billing rate (WI-001643). INCLUSIVE: these
+    # are part of prompt_tokens, not extra on top of it, so the turn's consumed
+    # context stays one number while cost can be split three ways (uncached
+    # input / cache read / cache write). Providers that charge nothing extra for
+    # cache writes (OpenAI, Gemini) report reads only and leave writes at 0.
+    cache_read_tokens: int = 0
+    cache_write_tokens: int = 0
     # Wall-clock for this turn: the provider API round-trip plus any inline
     # tool executions. Decision latency — NOT the runtime of an activated
     # diagram task (that happens later in the engine).
@@ -124,12 +203,23 @@ class CompletionResult:
     def completion_tokens(self) -> int:
         return sum(t.completion_tokens for t in self.trace)
 
+    @property
+    def cache_read_tokens(self) -> int:
+        return sum(getattr(t, "cache_read_tokens", 0) or 0 for t in self.trace)
+
+    @property
+    def cache_write_tokens(self) -> int:
+        return sum(getattr(t, "cache_write_tokens", 0) or 0 for t in self.trace)
+
 
 class BaseLLMAdapter(ABC):
     """Single async entry-point for any LLM provider.
 
-    Each provider subclass handles its own tool-calling loop internally so
-    callers always receive a plain text string back.
+    Each provider subclass handles its own tool-calling loop internally.
+    complete() returns a CompletionResult carrying both the final answer
+    text and the full turn-by-turn trace — earlier versions returned a bare
+    string and discarded every intermediate turn's tool calls and token
+    usage (contract change made explicitly in scope by WI-001356).
     """
 
     @abstractmethod

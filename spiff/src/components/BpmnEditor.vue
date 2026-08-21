@@ -91,8 +91,10 @@
 					{{ saveStatusText }}
 				</div>
 
-				<!-- ProsAlly Toggle Button -->
+				<!-- ProsAlly Toggle Button — hidden while read-only, since any
+				     diagram it generates would be discarded by the change guard. -->
 				<button
+					v-if="!readonly"
 					@click="showProsAllyPanel = !showProsAllyPanel"
 					title="ProsAlly AI Assistant"
 					:class="[
@@ -122,7 +124,7 @@
 			<!-- ProsAlly Panel — flex sibling so canvas shrinks instead of being covered -->
 			<transition name="prosally-slide">
 				<div
-					v-if="showProsAllyPanel && !isMobile"
+					v-if="showProsAllyPanel && !readonly && !isMobile"
 					class="prosally-panel-container order-first w-[var(--agui-chat-pane,420px)] shrink-0 border-r border-gray-200 flex flex-col z-[50]"
 				>
 					<ProsAllyPanel
@@ -137,7 +139,7 @@
 			<!-- Mobile: ProsAlly as bottom sheet -->
 			<transition name="slide-up">
 				<div
-					v-if="showProsAllyPanel && isMobile"
+					v-if="showProsAllyPanel && !readonly && isMobile"
 					class="fixed inset-x-0 bottom-0 rounded-t-2xl shadow-2xl border-t border-gray-200 bg-white z-[65] flex flex-col"
 					style="height: 70vh;"
 				>
@@ -952,11 +954,12 @@
 			</template>
 		</Dialog>
 
-		<!-- AI Agent Task config modal -->
+		<!-- AI Agent Task / AI Task Selector config modal -->
 		<AIAgentConfigModal
 			v-if="aiAgentModal.show && aiAgentModal.element"
 			:element="aiAgentModal.element"
 			:modeler="modeler"
+			:mode="aiAgentModal.mode"
 			@close="aiAgentModal.show = false"
 		/>
 
@@ -1468,6 +1471,16 @@ const internalProcessName = ref("");
 const dragHandleRef = ref(null);
 const { dragOffset, isDragging, attach: attachBottomSheet } = useBottomSheet();
 
+// This component is a single long-lived instance that survives switching
+// diagrams and entering version preview, so reset the panel when the editor
+// flips to read-only — otherwise it would stay open with its toggle gone.
+watch(
+	() => props.readonly,
+	(isReadonly) => {
+		if (isReadonly) showProsAllyPanel.value = false;
+	}
+);
+
 // Attach swipe-to-dismiss when the properties panel opens on mobile
 watch([showPropertiesPanel, isMobile], () => {
 	if (showPropertiesPanel.value && isMobile.value) {
@@ -1580,6 +1593,8 @@ onMounted(async () => {
 						{ name: "assigneeUser",          isAttr: true, type: "String" },
 						{ name: "assigneeDocfield",      isAttr: true, type: "String" },
 						{ name: "assigneeUsers",         isAttr: true, type: "String" },
+						{ name: "assigneeTableField",    isAttr: true, type: "String" },
+						{ name: "assigneeTableUserField", isAttr: true, type: "String" },
 						{ name: "roundRobinLastUser",    isAttr: true, type: "String" },
 						{ name: "taskActions",           isAttr: true, type: "String" },
 						{ name: "notifyAssignee",        isAttr: true, type: "String" },
@@ -1673,6 +1688,27 @@ onMounted(async () => {
 						{ name: "resultVariable",       isAttr: true, type: "String" },
 						{ name: "failOnError",          isAttr: true, type: "String" }
 						]
+				});
+			}
+
+			// Ad-hoc Subprocess AI Task Selector extension (WI-001351).
+			// The selector attaches to the subprocess ITSELF (not an inner
+			// task): an LLM chooses which inner task/tool runs next.
+			const hasAdhocSelectorExt = spiffModdleExtension.types.find(t => t.name === "AdhocAiTaskSelectorExtension");
+			if (!hasAdhocSelectorExt) {
+				spiffModdleExtension.types.push({
+					name: "AdhocAiTaskSelectorExtension",
+					extends: ["bpmn:AdHocSubProcess"],
+					properties: [
+						{ name: "serviceType",    isAttr: true, type: "String" },
+						{ name: "aiProvider",     isAttr: true, type: "String" },
+						{ name: "aiModel",        isAttr: true, type: "String" },
+						{ name: "aiSystemPrompt", isAttr: true, type: "String" },
+						{ name: "aiUserPrompt",   isAttr: true, type: "String" },
+						// "diagram" | "registry" | "both" — which tool sources
+						// the selector may choose from (defaults to "both")
+						{ name: "aiToolSources",  isAttr: true, type: "String" }
+					]
 				});
 			}
 
@@ -1781,6 +1817,10 @@ onMounted(async () => {
 			// Fetch users for assignment
 			fetchUsers();
 
+			// Expose the current model to bpmn-js properties providers that
+			// live outside Vue (WI-001357: Registry Tools applicability).
+			window.__ONE_BPMN_CURRENT_MODEL__ = props.modelName || "";
+
 			// Initial fetch of comments
 			if (props.modelName) {
 				fetchComments();
@@ -1827,8 +1867,10 @@ onMounted(async () => {
 						const canvas = modeler.get("canvas");
 						const rootElement = canvas.getRootElement();
 
+						// Implicit roots (empty canvas) have no businessObject —
+						// guard so the filter degrades to "no issues" instead of throwing.
 						const rootBo = rootElement.businessObject;
-						const flowEls = rootBo && (rootBo.flowElements || []);
+						const flowEls = (rootBo && rootBo.flowElements) || [];
 						if (!flowEls.length) {
 							return {};
 						}
@@ -2125,9 +2167,13 @@ onMounted(async () => {
 				});
 			});
 
-			// AI Agent Task config modal
+			// AI Agent Task / AI Task Selector config modal
 			eventBus.on("launch-ai-agent-editor", (event) => {
-				aiAgentModal.value = { show: true, element: markRaw(event.element) };
+				aiAgentModal.value = {
+					show: true,
+					element: markRaw(event.element),
+					mode: event.mode || "agent",
+				};
 			});
 
 			// Docu — AI DocType builder (launched from a doctype field's button)

@@ -85,6 +85,24 @@ def list_process_instances(
 		for d in instances:
 			d.current_step = ", ".join(task_map.get(d.name, []))
 
+		# Active instances with no waiting USER task still have a current
+		# position — a running automation, an inner subprocess task, or an
+		# ad-hoc subprocess waiting on its next selection. Derive it from
+		# the engine state so the column never goes silently blank.
+		needs_derivation = [
+			d.name for d in instances if d.status == "Active" and not d.current_step
+		]
+		if needs_derivation:
+			states = frappe.get_all(
+				"BPMN Process Instance",
+				filters={"name": ["in", needs_derivation]},
+				fields=["name", "workflow_state"],
+			)
+			derived = {row.name: _derive_current_step(row.workflow_state) for row in states}
+			for d in instances:
+				if not d.current_step:
+					d.current_step = derived.get(d.name, "")
+
 	return instances
 
 
@@ -281,6 +299,11 @@ def start_process_async(
 
 	frappe.enqueue(
 		"one_bpmn.api.instance_api._start_process_as_user",
+		# WI-001365: dedicated queue so multi-turn AI Task Selector loops
+		# cannot starve unrelated ONE-FM jobs (emails, reports, integrations)
+		# on the shared default/short/long queues. Requires the queue in
+		# common_site_config.json's "workers" block.
+		queue="bpmn_ai_agent",
 		model_name=model_name,
 		context_doctype=context_doctype,
 		context_docname=context_docname,
@@ -388,7 +411,17 @@ def complete_task(
 	assigned_user = active_row.assigned_user or ""
 	assigned_role = active_row.assigned_role or ""
 
-	if assigned_user and assigned_user != current_user and not _is_bpmn_super_user(current_user):
+	# assigned_user may list multiple people (Table Field / multi-assignee
+	# mode, e.g. Task.custom_assigned_to) — completion by any one of them
+	# is authorized, not just an exact string match.
+	# Imported lazily: assignment.py pulls in engine.py, which is fragile
+	# (SpiffWorkflow version drift) — importing it at module load time would
+	# take down every whitelisted method in this file, not just this one.
+	from one_bpmn.one_bpmn.doctype.bpmn_process_instance.assignment import split_users
+
+	assigned_users_list = split_users(assigned_user)
+
+	if assigned_users_list and current_user not in assigned_users_list and not _is_bpmn_super_user(current_user):
 		# Also allow the document owner (they initiated the process)
 		is_doc_owner = False
 		if instance.context_doctype and instance.context_docname:
@@ -420,9 +453,12 @@ def complete_task(
 				approved_ctc_name = ctc_result[0][0] if ctc_result else None
 
 			if not approved_ctc_name:
+				assignee_names = ", ".join(
+					frappe.utils.get_fullname(u) or u for u in assigned_users_list
+				)
 				frappe.throw(
 					_("You are not authorized to complete this task. It is assigned to {0}.").format(
-						frappe.utils.get_fullname(assigned_user) or assigned_user
+						assignee_names
 					),
 					frappe.PermissionError,
 				)
@@ -496,6 +532,20 @@ def complete_task(
 	# behind them). They pass the exact same checks above as real User Tasks;
 	# completion stores the person's output on the agent's checkpoint and
 	# enqueues the resume job instead of running an engine pass here.
+	# WI-001933: the same shape for a question asked by a REMOTE agent — the
+	# answer goes back over A2A instead of onto a local checkpoint.
+	if task_id.startswith(instance.A2A_HUMAN_PREFIX):
+		instance.complete_a2a_human_task(task_id, parsed_data)
+		instance.reload()
+		return {
+			"instance": instance_name,
+			"status": instance.status,
+			"queued": True,
+			"waiting_for_ai": instance.waiting_for_ai,
+			"waiting_for_human": instance.waiting_for_human,
+			"active_tasks": instance.get_active_tasks_summary(),
+		}
+
 	if task_id.startswith(instance.AI_HUMAN_PREFIX):
 		instance.complete_ai_human_task(task_id, parsed_data)
 		instance.reload()
@@ -681,27 +731,41 @@ def _complete_task_job(
 	# (a second action, the timer sweep, a message delivery).
 	instance = frappe.get_doc("BPMN Process Instance", instance_name, for_update=True)
 	try:
-		active_tasks = instance.advance(task_id=task_id, data=data)
+		instance.advance(task_id=task_id, data=data or {})
+
+		# ── CTC expiry message after a successful advance ────────────────
+		if approved_ctc_name:
+			try:
+				send_message(
+					message_name="Active Task is Completed",
+					context_doctype="Contingency Task Completion",
+					context_docname=approved_ctc_name,
+					payload=json.dumps({
+						"ctc_name": approved_ctc_name,
+						"actioned_doctype": instance.context_doctype,
+						"actioned_docname": instance.context_docname,
+						"actioned_by": run_as_user or frappe.session.user,
+					}),
+				)
+			except Exception as exc:
+				frappe.log_error(
+					title="BPMN CTC expiry message failed",
+					message=str(exc),
+				)
 	except frappe.ValidationError:
-		raise
-	except Exception as exc:
+		# Engine-level validation (e.g. the task was completed elsewhere in
+		# the meantime) — not an instance failure. Log for traceability.
+		frappe.log_error(
+			title="BPMN complete_task job: validation error",
+			message=frappe.get_traceback(),
+		)
+	except Exception:
 		frappe.db.set_value("BPMN Process Instance", instance_name, "status", "Errored")
 		frappe.log_error(
 			title="BPMN complete_task failed",
 			message=frappe.get_traceback(),
 		)
-		frappe.throw(_("Failed to complete task: {0}").format(str(exc)))
 	finally:
-		# WI-001498 contract: engine_in_progress is held only while an engine
-		# pass is actually running. complete_task() sets it before handing off
-		# to this inline pass, so this pass MUST release it — success, failure
-		# or validation error alike. The release cannot be left to the parked
-		# AI job's finally: a pure-human flow parks nothing, so without this
-		# block every successful Confirm on an AI-less model locked its
-		# instance forever ("Instance is processing — … Please retry in a
-		# moment." on every later action). Restores the release dropped by the
-		# "Sprint 24th-30th" revert (71f1978); staging has carried it since
-		# WI-001496.
 		frappe.db.set_value(
 			"BPMN Process Instance",
 			instance_name,
@@ -710,63 +774,35 @@ def _complete_task_job(
 			update_modified=False,
 		)
 
-	# ── Send message so the CTC process can expire itself after the task is actioned ──
-	if approved_ctc_name:
-		try:
-			send_message(
-				message_name="Active Task is Completed",
-				context_doctype="Contingency Task Completion",
-				context_docname=approved_ctc_name,
-				payload=json.dumps({
-					"ctc_name": approved_ctc_name,
-					"actioned_doctype": instance.context_doctype,
-					"actioned_docname": instance.context_docname,
-					"actioned_by": frappe.session.user,
-				}),
-			)
-		except Exception as exc:
-			frappe.log_error(
-				title="BPMN CTC expiry message failed",
-				message=str(exc),
-			)
-
-	# ── Publish realtime events for auto-refresh ────────────────────────────
-	# 1. Notify the Processa frontend — broadcast to ALL users so anyone
-	#    viewing the instance detail page auto-refreshes.
-	#    Note: doc_update for the BPMN Process Instance itself is already
-	#    published by Frappe's notify_update() inside run_method("on_update").
-	frappe.publish_realtime(
-		"bpmn_instance_updated",
-		{
-			"instance_name": instance_name,
-			"status": instance.status,
-			"context_doctype": instance.context_doctype or "",
-			"context_docname": instance.context_docname or "",
-		},
-		after_commit=True,
-		user="all",
-	)
-
-	# 2. Notify the Frappe form of the context document (e.g. Employee Daily
-	#    Action) so it auto-refreshes when open in the desk.
-	if instance.context_doctype and instance.context_docname:
+		# ── Publish realtime events for auto-refresh ─────────────────────
+		# 1. The Processa frontend — broadcast to ALL users so anyone
+		#    viewing the instance detail page auto-refreshes.
 		frappe.publish_realtime(
-			"doc_update",
+			"bpmn_instance_updated",
 			{
-				"modified": str(frappe.utils.now_datetime()),
-				"doctype": instance.context_doctype,
-				"name": instance.context_docname,
+				"instance_name": instance_name,
+				"status": frappe.db.get_value("BPMN Process Instance", instance_name, "status"),
+				"context_doctype": instance.context_doctype or "",
+				"context_docname": instance.context_docname or "",
 			},
-			doctype=instance.context_doctype,
-			docname=instance.context_docname,
 			after_commit=True,
+			user="all",
 		)
 
-	return {
-		"instance": instance_name,
-		"status": instance.status,
-		"active_tasks": active_tasks,
-	}
+		# 2. The Frappe form of the context document (e.g. Employee Daily
+		#    Action) so it auto-refreshes when open in the desk.
+		if instance.context_doctype and instance.context_docname:
+			frappe.publish_realtime(
+				"doc_update",
+				{
+					"modified": str(frappe.utils.now_datetime()),
+					"doctype": instance.context_doctype,
+					"name": instance.context_docname,
+				},
+				doctype=instance.context_doctype,
+				docname=instance.context_docname,
+				after_commit=True,
+			)
 
 
 @frappe.whitelist()
@@ -848,6 +884,64 @@ def get_instances_for_document(doctype: str, docname: str) -> list:
 # ============================================================================
 # BPMN Form Actions API — used by the global bpmn_form_actions.js injector
 # ============================================================================
+
+# Cache key for the doctype-level "is this run via Processa?" lookup.
+PROCESSA_DOCTYPES_CACHE_KEY = "one_bpmn_processa_controlled_doctypes"
+
+
+@frappe.whitelist()
+def get_processa_controlled_doctypes() -> list:
+	"""
+	Return every DocType whose lifecycle is driven by Processa.
+
+	A DocType qualifies when an **active** BPMN Process Model references it
+	either as a DocType-Event start trigger (BPMN Start Event Config) or as a
+	target document (BPMN Process DocType).  These are exactly the two sources
+	trigger._find_matching_models() uses to decide whether a document event
+	starts a process, so this list mirrors reality rather than guessing.
+
+	bpmn_form_actions.js uses it to suppress native Frappe controls that
+	Processa owns — the Submit button, the "Submit this document to confirm"
+	banner, and the no-op Save button on an unchanged document — for every
+	document of the DocType, not just those with a live process instance.
+
+	Cached in Redis; invalidated by clear_processa_doctype_cache() whenever a
+	BPMN Process Model is saved or deleted.
+	"""
+	cached = frappe.cache().get_value(PROCESSA_DOCTYPES_CACHE_KEY)
+	if cached is not None:
+		return cached
+
+	rows = frappe.get_all(
+		"BPMN Start Event Config",
+		filters={"trigger_type": "DocType Event", "parenttype": "BPMN Process Model"},
+		fields=["parent", "trigger_doctype as doctype_name"],
+	)
+	rows += frappe.get_all(
+		"BPMN Process DocType",
+		filters={"parenttype": "BPMN Process Model"},
+		fields=["parent", "doctype_name"],
+	)
+	rows = [r for r in rows if r.doctype_name and r.parent]
+
+	doctypes = []
+	if rows:
+		active_models = set(
+			frappe.get_all(
+				"BPMN Process Model",
+				filters={"name": ["in", list({r.parent for r in rows})], "is_active": 1},
+				pluck="name",
+			)
+		)
+		doctypes = sorted({r.doctype_name for r in rows if r.parent in active_models})
+
+	frappe.cache().set_value(PROCESSA_DOCTYPES_CACHE_KEY, doctypes)
+	return doctypes
+
+
+def clear_processa_doctype_cache(doc=None, method=None):
+	"""Drop the cached Processa-controlled DocType list (doc_events hook)."""
+	frappe.cache().delete_value(PROCESSA_DOCTYPES_CACHE_KEY)
 
 
 @frappe.whitelist()

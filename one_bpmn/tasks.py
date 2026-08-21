@@ -190,8 +190,17 @@ def process_timer_catch_events():
 
 def _refresh_timer_tasks(instance_name: str):
 	"""
-	Restore a process instance, refresh waiting timer tasks, and if any
-	became READY, run the engine forward and save.
+	Restore a process instance's LIVE engine state, refresh waiting timer
+	tasks, and if any became READY, run the engine forward and save.
+
+	Field contract (same as start()/advance()): ``workflow_state`` holds the
+	live serialized workflow; ``serialized_spec`` is the compiled spec
+	snapshot — a pristine, never-run workflow plus the compile-time
+	extension dicts. This function previously restored the SNAPSHOT as if
+	it were live state: at best a silent no-op (a fresh workflow has no
+	waiting timers, so timer catch events never actually resumed), and had
+	a fresh copy ever produced fired timers it would have re-run the
+	process from scratch and overwritten the real progress.
 	"""
 	from SpiffWorkflow.util.task import TaskState
 	from one_bpmn.one_bpmn import engine as bpmn_engine
@@ -199,18 +208,23 @@ def _refresh_timer_tasks(instance_name: str):
 
 	instance = frappe.get_doc("BPMN Process Instance", instance_name)
 
-	if not instance.serialized_spec:
+	if not instance.workflow_state:
 		return
 
-	# Restore the workflow
 	spec_data = (
 		json.loads(instance.serialized_spec)
 		if isinstance(instance.serialized_spec, str)
-		else instance.serialized_spec
+		else (instance.serialized_spec or {})
+	) or {}
+
+	workflow_state = (
+		json.loads(instance.workflow_state)
+		if isinstance(instance.workflow_state, str)
+		else instance.workflow_state
 	)
 
 	wf = bpmn_engine.restore_workflow(
-		workflow_state=spec_data,
+		workflow_state=workflow_state,
 		context_doctype=instance.context_doctype,
 		context_docname=instance.context_docname,
 		script_task_extensions=spec_data.get("script_task_extensions"),
@@ -224,39 +238,34 @@ def _refresh_timer_tasks(instance_name: str):
 
 	waiting_after = len(wf.get_tasks(state=TaskState.WAITING))
 
-	# If any tasks transitioned, run the engine forward
+	# If any timers fired, run the engine forward through the full dispatch
+	# pipeline (gated ad-hoc stepping, service/AI dispatch, activity
+	# logging) — exactly like advance() does after a user task completes.
 	if waiting_after < waiting_before:
-		# Some timers fired — run the engine to process newly READY tasks
-		ready_tasks = wf.get_tasks(state=TaskState.READY)
-		for task in ready_tasks:
-			# Only auto-complete non-manual tasks (service, script, etc.)
-			# User Tasks still require human action
-			if not task.task_spec.manual:
-				task.run()
+		instance._service_task_extensions = spec_data.get("service_task_extensions", {})
+		instance._user_task_extensions = spec_data.get("user_task_extensions", {})
+		try:
+			instance._refresh_user_task_extensions_from_model()
+		except Exception:
+			pass
 
-		wf.do_engine_steps()
+		frappe.flags.bpmn_engine_action = True
+		try:
+			instance._run_engine(wf)
+		finally:
+			frappe.flags.bpmn_engine_action = False
 
-		# Serialize and save
+		# Persist the LIVE state to workflow_state; serialized_spec (the
+		# compiled snapshot) is never touched here.
 		bpmn_engine.clean_doc_from_wf_data(wf)
-		serialized = bpmn_engine.serialize_workflow(wf)
-
-		# Merge extensions back
-		model_spec = (
-			json.loads(instance.serialized_spec)
-			if isinstance(instance.serialized_spec, str)
-			else instance.serialized_spec
-		)
-		for key in ("service_task_extensions", "script_task_extensions", "user_task_extensions"):
-			if key in model_spec:
-				serialized[key] = model_spec[key]
-
-		instance.serialized_spec = json.dumps(serialized)
+		instance.workflow_state = json.dumps(bpmn_engine.serialize_workflow(wf))
 
 		instance._sync_active_tasks(wf)
 		instance._check_completion(wf)
 
 		instance.save(ignore_permissions=True)
-		frappe.db.commit()
+		if not frappe.flags.in_test:
+			frappe.db.commit()
 
 		# Publish realtime for auto-refresh
 		frappe.publish_realtime(
@@ -341,3 +350,342 @@ def close_stale_chat_instances():
 				title=f"BPMN stale chat cleanup failed: {instance_name}",
 				message=frappe.get_traceback(),
 			)
+
+
+# 4. A2A delegated tasks — poll remote agents and wake parked processes
+
+
+def poll_a2a_tasks():
+	"""WI-001933: check on delegated A2A tasks and wake what is waiting.
+
+	Called every minute by the scheduler. Claim-first: next_poll_at is
+	pushed forward BEFORE the network call, so a slow remote cannot have
+	two pollers on the same task. Per-task exponential backoff keeps a
+	long delegation cheap, and a task past its deadline is cancelled
+	best-effort and failed through the normal BPMN error path.
+	"""
+	from frappe.utils import cint
+
+	from one_bpmn.agents.a2a.push import PUSH_RECONCILE_SECONDS
+	from one_bpmn.one_bpmn.doctype.bpmn_process_instance.bpmn_process_instance import (
+		_enqueue_a2a_resume,
+	)
+	from one_bpmn.one_bpmn.integrations import a2a_client
+
+	now = now_datetime()
+	# Same-site delegations first: no network involved, so they are cheap and
+	# should never wait behind a remote's timeout.
+	_reconcile_internal_tasks(now)
+
+	due = frappe.get_all(
+		"A2A Task",
+		filters={
+			"direction": "Outbound",
+			"state": ["in", ("submitted", "working", "auth-required")],
+			"next_poll_at": ["<=", now],
+		},
+		fields=[
+			"name",
+			"remote_agent",
+			"remote_task_id",
+			"instance",
+			"wf_task_id",
+			"deadline",
+			"poll_attempts",
+			"push_registered",
+		],
+		limit=100,
+	)
+
+	for row in due:
+		try:
+			remote = frappe.get_doc("A2A Remote Agent", row.remote_agent)
+			attempts = cint(row.poll_attempts) + 1
+			base = cint(remote.poll_base_interval) or 60
+			ceiling = cint(remote.poll_max_interval) or 900
+			# A remote that pushes gets reconciled, not chased: the callback is
+			# the primary signal and this is only the safety net that catches a
+			# dropped one.
+			if row.push_registered:
+				interval = PUSH_RECONCILE_SECONDS
+			else:
+				interval = min(base * (2 ** (attempts - 1)), ceiling)
+			# Claim before the network call.
+			frappe.db.set_value(
+				"A2A Task",
+				row.name,
+				{
+					"poll_attempts": attempts,
+					"last_polled_at": now,
+					"next_poll_at": add_to_date(now, seconds=interval),
+				},
+				update_modified=False,
+			)
+			frappe.db.commit()
+
+			if row.deadline and now_datetime() > frappe.utils.get_datetime(row.deadline):
+				_time_out_task(row, remote)
+				continue
+
+			if not row.remote_task_id:
+				continue  # nothing to poll yet — the send did not return a task id
+
+			result = a2a_client.tasks_get(remote, row.remote_task_id)
+			state = a2a_client.remote_state(result) or "working"
+
+			if state == "completed":
+				text = a2a_client.remote_text(result)
+				frappe.db.set_value(
+					"A2A Task",
+					row.name,
+					{
+						"state": "completed",
+						"result": frappe.as_json({"text": text}),
+						"status_message": text[:500],
+						"completed_at": now_datetime(),
+					},
+					update_modified=True,
+				)
+				_enqueue_a2a_resume(row.instance, row.wf_task_id, row.name)
+			elif state in ("failed", "canceled", "rejected"):
+				frappe.db.set_value(
+					"A2A Task",
+					row.name,
+					{
+						"state": state,
+						"error_message": (a2a_client.remote_text(result) or state)[:500],
+						"completed_at": now_datetime(),
+					},
+					update_modified=True,
+				)
+				_enqueue_a2a_resume(row.instance, row.wf_task_id, row.name)
+			elif state == "input-required":
+				# Stop polling and ask a person. The remote is waiting on us.
+				frappe.db.set_value(
+					"A2A Task", row.name, {"state": "input-required"}, update_modified=True
+				)
+				if row.instance:
+					instance = frappe.get_doc("BPMN Process Instance", row.instance)
+					instance._on_a2a_input_required(row.name, a2a_client.remote_text(result))
+			else:
+				frappe.db.set_value("A2A Task", row.name, {"state": state}, update_modified=True)
+			frappe.db.commit()
+		except a2a_client.A2ANotApprovedError as exc:
+			# Revoked mid-flight: fail closed rather than keep talking to it.
+			frappe.db.set_value(
+				"A2A Task",
+				row.name,
+				{"state": "failed", "error_message": str(exc)[:500], "completed_at": now_datetime()},
+				update_modified=True,
+			)
+			_enqueue_a2a_resume(row.instance, row.wf_task_id, row.name)
+			frappe.db.commit()
+		except Exception:
+			frappe.log_error(
+				title=f"A2A poll failed: {row.name}", message=frappe.get_traceback()
+			)
+
+
+def _time_out_task(row, remote) -> None:
+	"""Past the deadline: tell the remote to stop if it will listen, then
+	fail through the normal BPMN error path."""
+	from one_bpmn.one_bpmn.doctype.bpmn_process_instance.bpmn_process_instance import (
+		_enqueue_a2a_resume,
+	)
+	from one_bpmn.one_bpmn.integrations import a2a_client
+
+	if row.remote_task_id:
+		try:
+			a2a_client.tasks_cancel(remote, row.remote_task_id)
+		except Exception:
+			pass  # best effort — the deadline stands either way
+	frappe.db.set_value(
+		"A2A Task",
+		row.name,
+		{
+			"state": "timed-out",
+			"error_message": "the delegated task passed its deadline",
+			"completed_at": now_datetime(),
+		},
+		update_modified=True,
+	)
+	_enqueue_a2a_resume(row.instance, row.wf_task_id, row.name)
+	frappe.db.commit()
+
+
+def _reconcile_internal_tasks(now) -> None:
+	"""Same-site delegations (WI-001933): the target agent runs in this bench,
+	so there is nothing to call — just re-derive the state from the run or
+	instance doing the work and wake the parked step when it settles.
+
+	Deadlines still apply: a local agent can hang on a human task or a stuck
+	map exactly like a remote can.
+	"""
+	from frappe.utils import cint
+
+	from one_bpmn.agents.a2a import local
+
+	terminal = ("completed", "canceled", "failed", "rejected", "timed-out")
+	# Deliberately NOT filtered by state: a local agent can finish between two
+	# checks, and such a row is already terminal while its caller is still
+	# parked. resume_enqueued is what says "this step has been woken".
+	#
+	# Two kinds of caller can be waiting, and both must be picked up:
+	#   caller_wf_task_id — a parked Service Task on the diagram;
+	#   caller_agent_run  — an AGENT suspended mid-turn, because it delegated
+	#                       from inside a tool call (WI-001933). It has no
+	#                       parked step of its own, so filtering on
+	#                       caller_wf_task_id alone left it waiting forever.
+	rows = frappe.get_all(
+		"A2A Task",
+		filters={
+			"direction": "Internal",
+			"resume_enqueued": 0,
+			"next_poll_at": ["<=", now],
+		},
+		or_filters={
+			"caller_wf_task_id": ["is", "set"],
+			"caller_agent_run": ["is", "set"],
+		},
+		fields=[
+			"name",
+			"caller_instance",
+			"caller_wf_task_id",
+			"caller_agent_run",
+			"wf_task_id",
+			"deadline",
+			"poll_attempts",
+			"state",
+		],
+		limit=100,
+	)
+	for row in rows:
+		try:
+			attempts = cint(row.poll_attempts) + 1
+			frappe.db.set_value(
+				"A2A Task",
+				row.name,
+				{
+					"poll_attempts": attempts,
+					"last_polled_at": now,
+					# Local work is cheap to check, so the interval stays short
+					# and flat rather than backing off into minutes.
+					"next_poll_at": add_to_date(now, seconds=30),
+				},
+				update_modified=False,
+			)
+
+			task = frappe.get_doc("A2A Task", row.name)
+			if task.state in terminal:
+				# Finished in the gap between checks — wake the caller now.
+				_wake_a2a_caller(row)
+				_mark_resumed(row.name)
+				frappe.db.commit()
+				continue
+			if row.deadline and now_datetime() > frappe.utils.get_datetime(row.deadline):
+				task.db_set(
+					{
+						"state": "timed-out",
+						"error_message": "the delegated task passed its deadline",
+						"completed_at": now_datetime(),
+					},
+					update_modified=True,
+				)
+				_wake_a2a_caller(row)
+				_mark_resumed(row.name)
+				frappe.db.commit()
+				continue
+
+			local.refresh(task)
+			task.reload()
+			if task.state in terminal:
+				_wake_a2a_caller(row)
+				_mark_resumed(row.name)
+			frappe.db.commit()
+		except Exception:
+			frappe.log_error(
+				title=f"A2A internal reconcile failed: {row.name}", message=frappe.get_traceback()
+			)
+
+
+def _wake_a2a_caller(row) -> None:
+	"""Wake whatever is waiting on a finished delegation.
+
+	Two shapes of caller, one entry point so every wake path (finished early,
+	timed out, finished on this check) treats them alike:
+
+	- a parked Service Task on the diagram → resume that step;
+	- an agent suspended mid-turn because it delegated from inside a tool call
+	  → hand the answer to its checkpoint and resume the agent.
+	"""
+	from one_bpmn.one_bpmn.doctype.bpmn_process_instance.bpmn_process_instance import (
+		_enqueue_a2a_resume,
+	)
+
+	if row.caller_wf_task_id:
+		_enqueue_a2a_resume(row.caller_instance, row.caller_wf_task_id, row.name)
+		return
+	_resume_waiting_agent(row)
+
+
+def _resume_waiting_agent(row) -> None:
+	"""Give a delegated answer to the agent that is suspended waiting for it.
+
+	Mirrors what completing a human task does — store the result on the
+	checkpoint, then resume in the AI worker — because to the agent these are
+	the same event: the tool call it paused on finally has an answer.
+	"""
+	import json
+
+	from one_bpmn.agents import checkpoint as _checkpoint
+
+	run = row.caller_agent_run
+	if not (run and row.caller_instance):
+		return
+	if frappe.db.get_value("AI Agent Run", run, "status") != "Suspended":
+		return  # already resumed or failed — nothing is waiting
+
+	task = frappe.get_doc("A2A Task", row.name)
+	_checkpoint.store_human_result(run, _delegation_answer(task))
+
+	payload = json.loads(frappe.db.get_value("AI Agent Run", run, "checkpoint") or "{}")
+	frappe.enqueue(
+		"one_bpmn.one_bpmn.doctype.bpmn_process_instance"
+		".bpmn_process_instance.run_parked_ai_task",
+		queue="bpmn_ai_agent",
+		timeout=600,
+		enqueue_after_commit=True,
+		job_id=f"bpmn-ai-{row.caller_instance}-a2ares-{row.name}",
+		deduplicate=True,
+		instance_name=row.caller_instance,
+		# The agent resumes through its checkpoint exactly as it does after a
+		# person answers; only the source of the answer differs.
+		kind="human_resume",
+		task_id=payload.get("wf_task_id") or row.wf_task_id or "",
+		run_as_user="Administrator",
+	)
+
+
+def _delegation_answer(task) -> str:
+	"""What the model is told the delegated agent said.
+
+	A failure is reported in words rather than hidden: the agent asked another
+	agent to do something and deserves to know it did not happen, so it can
+	say so or try something else.
+	"""
+	if task.state == "completed":
+		payload = frappe.parse_json(task.result or "{}") or {}
+		return (
+			payload.get("text")
+			or task.status_message
+			or "The other agent finished but sent no reply."
+		)
+	reason = task.error_message or "no reason given"
+	return f"The other agent did not complete this ({task.state}): {reason}"
+
+
+def _mark_resumed(a2a_task: str) -> None:
+	"""Belt and braces beside _enqueue_a2a_resume's own stamp: the reconciler
+	must never hand the same finished task to the engine twice, even if the
+	enqueue helper changes or fails."""
+	frappe.db.set_value("A2A Task", a2a_task, "resume_enqueued", 1, update_modified=False)

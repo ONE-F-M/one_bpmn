@@ -77,7 +77,16 @@ _SHAPE_TO_CONFIG = {
 	# WI-001644: screening is agent-level too — what an agent may say is a
 	# property of the agent, not of the task that happens to call it.
 	"aiPiiScreening": "pii_screening",
+	"aiInjectionScreening": "injection_screening",
 	"aiOutputScreeningMode": "output_screening_mode",
+	# The message throttle is the agent's too, and for the same reason: how fast
+	# one user may talk to it is a property of the agent, not of the task that
+	# happens to call it.
+	"aiRateLimitEnabled": "rate_limit_enabled",
+	"aiRateLimitMessages": "rate_limit_messages",
+	"aiRateLimitWindowSeconds": "rate_limit_window_seconds",
+	"aiLockAfterBlocks": "lock_after_blocks",
+	"aiLockBlockWindowSeconds": "lock_block_window_seconds",
 }
 
 # The inverse, for the editor read. Not folded into _CONFIG_TO_SHAPE because
@@ -85,7 +94,13 @@ _SHAPE_TO_CONFIG = {
 # meaning; putting it there would write agent policy onto every diagram.
 _SCREENING_TO_SHAPE = {
 	"pii_screening": "aiPiiScreening",
+	"injection_screening": "aiInjectionScreening",
 	"output_screening_mode": "aiOutputScreeningMode",
+	"rate_limit_enabled": "aiRateLimitEnabled",
+	"rate_limit_messages": "aiRateLimitMessages",
+	"rate_limit_window_seconds": "aiRateLimitWindowSeconds",
+	"lock_after_blocks": "aiLockAfterBlocks",
+	"lock_block_window_seconds": "aiLockBlockWindowSeconds",
 }
 
 # Guard rail categories, mirroring the AI Agent Guard Rail Select options
@@ -109,6 +124,18 @@ _EXAMPLE_SHAPE_ATTR = "aiExamples"
 _GUARDRAIL_SHAPE_ATTR = "aiGuardrails"
 _EXAMPLE_FIELDS = ("input", "expected_output", "note", "enabled")
 _GUARDRAIL_FIELDS = ("guardrail", "category", "enabled")
+
+_SKILL_SHAPE_ATTR = "aiSkills"
+_SKILL_FIELDS = ("skill", "version_pin")
+
+def _clean_skill_rows(rows: list[dict]) -> list[dict]:
+	out = []
+	for r in rows:
+		skill = (r.get("skill") or "").strip()
+		if skill:
+			out.append({"skill": skill, "version_pin": (r.get("version_pin") or "").strip()})
+	return out
+
 
 
 def _clean_example_rows(rows) -> list[dict]:
@@ -166,7 +193,16 @@ def _rows_for_shape(doc, table: str, fields: tuple[str, ...]) -> list[dict]:
 # exactly like the static-context tables below — they are readable by the editor
 # but kept OUT of config_field_map, whose job is overlaying shape attributes at
 # dispatch. Screening is not a property of a task.
-_SCREENING_FIELDS = ("pii_screening", "output_screening_mode")
+_SCREENING_FIELDS = (
+	"pii_screening",
+	"injection_screening",
+	"output_screening_mode",
+	"rate_limit_enabled",
+	"rate_limit_messages",
+	"rate_limit_window_seconds",
+	"lock_after_blocks",
+	"lock_block_window_seconds",
+)
 
 
 def config_screening(config_name: str) -> dict:
@@ -202,6 +238,7 @@ def config_static_context(config_name: str) -> dict:
 	return {
 		_EXAMPLE_SHAPE_ATTR: _rows_for_shape(cfg, "examples", _EXAMPLE_FIELDS),
 		_GUARDRAIL_SHAPE_ATTR: _rows_for_shape(cfg, "guardrails", _GUARDRAIL_FIELDS),
+		_SKILL_SHAPE_ATTR: _rows_for_shape(cfg, "enabled_skills", _SKILL_FIELDS),
 	}
 
 
@@ -369,7 +406,8 @@ def update_agent_config_from_shape(config_name: str, fields: str | dict) -> dict
 	# to apply, and row ORDER is meaningful (it is the order they reach the
 	# model), which a merge would not preserve.
 	for sattr, table, cleaner, row_fields in (
-		(_EXAMPLE_SHAPE_ATTR, "examples", _clean_example_rows, _EXAMPLE_FIELDS),
+				(_SKILL_SHAPE_ATTR, "enabled_skills", _clean_skill_rows, _SKILL_FIELDS),
+(_EXAMPLE_SHAPE_ATTR, "examples", _clean_example_rows, _EXAMPLE_FIELDS),
 		(_GUARDRAIL_SHAPE_ATTR, "guardrails", _clean_guardrail_rows, _GUARDRAIL_FIELDS),
 	):
 		if sattr not in fields:
@@ -450,6 +488,32 @@ CREATE_PAYLOAD_CONTRACT = {
 		"Optional. Enabled or Disabled — screens the USER's message for personal data "
 		"before it reaches the model. Defaults to Enabled; disable only for an agent "
 		"whose work genuinely needs the raw values."
+	),
+	"injection_screening": (
+		"Optional. Enabled or Disabled — screens the USER's message for prompt-injection "
+		"and jailbreak patterns before it reaches the model. Defaults to Enabled; disable "
+		"only for an agent whose legitimate traffic trips the pack often enough to be "
+		"noisy, and record why. Disabling it here exempts one agent, not the site."
+	),
+	"rate_limit_enabled": (
+		"Optional. 1 or 0 — throttle how fast one user may message THIS agent. "
+		"Defaults to on. Turning it off exempts this agent only, not the site."
+	),
+	"rate_limit_messages": (
+		"Optional. Messages one user may send this agent inside the window before "
+		"being asked to slow down. Defaults to 20; 0 disables the throttle."
+	),
+	"rate_limit_window_seconds": (
+		"Optional. Length of the sliding window in seconds. Defaults to 60."
+	),
+	"lock_after_blocks": (
+		"Optional. Blocked attempts by one user against THIS agent before the "
+		"conversation is frozen and a reviewer has to release it. Defaults to 3; "
+		"0 disables the freeze for this agent."
+	),
+	"lock_block_window_seconds": (
+		"Optional. How far back blocked attempts are counted, in seconds. Defaults "
+		"to 3600."
 	),
 	"output_screening_mode": (
 		"Optional. Log, Flag or Block — what to do when the AGENT's own response "
@@ -563,16 +627,20 @@ def create_agent_configuration(payload: str | dict) -> dict:
 	doc.ai_provider_credentials = payload.get("ai_provider_credentials") or None
 	doc.system_prompt = payload.get("system_prompt") or ""
 	doc.description = payload.get("description") or ""
-	# WI-001644: screening chosen at creation rather than left to a later visit
-	# to the desk form. Set only when the field exists on this site and the
-	# value is one the doctype accepts — an unknown value would fail the whole
-	# insert over a setting the agent could perfectly well start with its
-	# default. Absent means "leave the doctype default", which is Log.
+	# WI-001644: screening and the throttle chosen at creation rather than left
+	# to a later visit to the desk form. Set only when the field exists on this
+	# site and the value is one the doctype accepts — an unknown value would fail
+	# the whole insert over a setting the agent could perfectly well start with
+	# its default. Absent means "leave the doctype default" — Enabled for the
+	# on/off screens, Flag for the output mode.
 	_meta = frappe.get_meta("AI Agent Configuration")
 	for fieldname in _SCREENING_FIELDS:
 		value = payload.get(fieldname)
 		df = _meta.get_field(fieldname)
-		if not value or not df:
+		# Absent, not falsy. The throttle fields are Check and Int, where 0 is a
+		# real answer — "off", "no allowance" — and skipping it would make an
+		# agent impossible to create with the throttle turned off.
+		if value in (None, "") or not df:
 			continue
 		allowed = [o for o in (df.options or "").split("\n") if o]
 		if allowed and value not in allowed:
@@ -590,6 +658,8 @@ def create_agent_configuration(payload: str | dict) -> dict:
 		doc.append("examples", row)
 	for row in _clean_guardrail_rows(payload.get("guardrails")):
 		doc.append("guardrails", row)
+	for row in _clean_skill_rows(payload.get("enabled_skills")):
+		doc.append("enabled_skills", row)
 	doc.insert()  # caller's permissions; the After-Insert trigger starts the process
 
 	creation_instance = None

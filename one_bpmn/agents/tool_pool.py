@@ -3,13 +3,17 @@
 # own shapes are the tools. The AI Agent Tool registry was removed in WI-001423
 # (both the AI Agent Task and the AI Task Selector are shapes-only now).
 
+import json
 from dataclasses import dataclass
 
 from SpiffWorkflow.bpmn.specs.control import BpmnStartTask, SimpleBpmnTask, _EndJoin
 from SpiffWorkflow.bpmn.specs.mixins.subworkflow_task import SubWorkflowTask
 from SpiffWorkflow.specs import MultiChoice
 
+
 from one_bpmn.agents.llm_provider.base import ToolSpec
+from one_bpmn.api.skill_tools import get_skill_tools
+
 
 DIAGRAM_TASK = "diagram_task"
 
@@ -27,26 +31,65 @@ class ToolCandidate:
 	source: str
 
 
-def resolve_tool_pool(subworkflow, task_cfg: dict = None, process_model: str | None = None) -> list:
+def resolve_tool_pool(subworkflow, task_cfg: dict = None, process_model: str | None = None, instance=None) -> list:
 	"""
 	Build the candidate list an AI Task Selector chooses from: the ad-hoc
 	sub-process's own inner head shapes, in diagram order. Each shape's
 	documentation doubles as its tool description (Camunda's model).
 
 	The AI Agent Tool registry was removed (WI-001423) — tools are the shapes.
-	``task_cfg`` and ``process_model`` are retained for signature compatibility.
+	``task_cfg`` carries the compiled ``aiToolShapes`` descriptors, which is
+	where a shape's argument schema comes from. ``process_model`` is retained
+	for signature compatibility.
 
 	Returns:
 	    list[ToolCandidate]
 	"""
-	return _diagram_candidates(subworkflow)
+	candidates = _diagram_candidates(subworkflow, task_cfg)
+
+	if task_cfg and task_cfg.get("aiAgentConfig"):
+		import frappe
+		agent_name = task_cfg["aiAgentConfig"]
+		has_skills = frappe.db.count("AI Agent Enabled Skill", {"parent": task_cfg["aiAgentConfig"]}) > 0
+		if has_skills:
+			for spec in get_skill_tools(agent_name, instance):
+				candidates.append(ToolCandidate(spec=spec, source="PYTHON_FUNCTION"))
+
+	return candidates
 
 
-def _diagram_candidates(subworkflow) -> list:
+def _tool_arguments(task_cfg: dict | None) -> dict:
+	"""Argument schema per shape, from the compiled tool descriptors.
+
+	Without this every candidate was offered to the model as a no-argument
+	function, so it could say WHICH step to run but never what to run it on.
+	Any connector input written as ``{{ task_data.<arg> }}`` then rendered as
+	an unresolved placeholder and the activated step did its work on nothing.
+	"""
+	shapes = (task_cfg or {}).get("aiToolShapes")
+	if isinstance(shapes, str):
+		try:
+			shapes = json.loads(shapes or "[]")
+		except Exception:
+			return {}
+	if not isinstance(shapes, list):
+		return {}
+	return {
+		shape["bpmn_id"]: shape
+		for shape in shapes
+		if isinstance(shape, dict) and shape.get("bpmn_id")
+	}
+
+
+def _diagram_candidates(subworkflow, task_cfg: dict | None = None) -> list:
+	# Candidates are still discovered from the spec, so diagram order and
+	# eligibility are unchanged; the descriptors only supply the arguments.
+	arguments = _tool_arguments(task_cfg)
 	candidates = []
 	for spec in _candidate_task_specs(subworkflow.spec):
 		bpmn_id = getattr(spec, "bpmn_id", None) or spec.name
 		description = (spec.documentation or "").strip() or spec.description or bpmn_id
+		descriptor = arguments.get(bpmn_id) or {}
 		candidates.append(
 			ToolCandidate(
 				spec=ToolSpec(
@@ -55,8 +98,8 @@ def _diagram_candidates(subworkflow) -> list:
 					fn=None,
 					name=bpmn_id,
 					description=description,
-					parameters={},
-					required=[],
+					parameters=descriptor.get("parameters") or {},
+					required=descriptor.get("required") or [],
 				),
 				source=DIAGRAM_TASK,
 			)

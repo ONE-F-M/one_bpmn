@@ -28,17 +28,27 @@
   "started_at",
   "ended_at",
   "duration_ms",
+  "agent_latency_ms",
+  "human_wait_ms",
+  "suspended_at",
   "section_break_tokens",
   "total_prompt_tokens",
   "total_completion_tokens",
   "total_tokens",
+  "total_cache_read_tokens",
+  "total_cache_write_tokens",
   "column_break_cost",
   "estimated_cost",
   "total_input_cost",
   "total_output_cost",
+  "total_cache_read_cost",
+  "total_cache_write_cost",
   "section_break_checkpoint",
   "pending_human_task",
   "checkpoint",
+  "section_break_goal",
+  "goal_completion",
+  "completion_basis",
   "section_break_output",
   "final_output",
   "correlation_id"
@@ -197,7 +207,7 @@
    "fieldname": "duration_ms",
    "fieldtype": "Int",
    "label": "Duration (ms)",
-   "description": "Wall-clock from Started At to Ended At. For human-in-the-loop runs this INCLUDES the time spent waiting for a person — use Agent Latency to measure agent performance."
+   "description": "Wall-clock from Started At to Ended At. For human-in-the-loop runs this INCLUDES the time spent waiting for a person \u2014 use Agent Latency to measure agent performance."
   },
   {
    "fieldname": "agent_latency_ms",
@@ -239,6 +249,18 @@
    "label": "Total Tokens"
   },
   {
+   "fieldname": "total_cache_read_tokens",
+   "fieldtype": "Int",
+   "label": "Cache Read Tokens",
+   "description": "Part of Prompt Tokens served from the prompt cache, summed across steps. Billed at the cache-read rate."
+  },
+  {
+   "fieldname": "total_cache_write_tokens",
+   "fieldtype": "Int",
+   "label": "Cache Write Tokens",
+   "description": "Part of Prompt Tokens written into the prompt cache, summed across steps."
+  },
+  {
    "fieldname": "column_break_cost",
    "fieldtype": "Column Break"
   },
@@ -249,7 +271,7 @@
    "precision": "6"
   },
   {
-   "description": "Total cost of prompt/input tokens across all steps",
+   "description": "Total cost of the UNCACHED prompt tokens across all steps, billed at the input rate. Cache portions are costed separately.",
    "fieldname": "total_input_cost",
    "fieldtype": "Currency",
    "label": "Input Cost",
@@ -263,9 +285,45 @@
    "precision": "6"
   },
   {
+   "fieldname": "total_cache_read_cost",
+   "fieldtype": "Currency",
+   "label": "Cache Read Cost",
+   "precision": "6",
+   "description": "Total cost of cache-read tokens across all steps."
+  },
+  {
+   "fieldname": "total_cache_write_cost",
+   "fieldtype": "Currency",
+   "label": "Cache Write Cost",
+   "precision": "6",
+   "description": "Total cost of cache-write tokens across all steps."
+  },
+  {
    "fieldname": "section_break_output",
    "fieldtype": "Section Break",
    "label": "Output"
+  },
+  {
+   "fieldname": "section_break_goal",
+   "fieldtype": "Section Break",
+   "label": "Outcome"
+  },
+  {
+   "default": "Unknown",
+   "description": "Did the run achieve what it was asked to do? Unknown is a real answer and is never coerced to either of the others \u2014 counting an undetermined run as a success or a failure would bias every comparison built on this.",
+   "fieldname": "goal_completion",
+   "fieldtype": "Select",
+   "in_standard_filter": 1,
+   "label": "Goal Completion",
+   "options": "Unknown\nAchieved\nNot Achieved",
+   "read_only": 1
+  },
+  {
+   "description": "Which signal decided it, in plain words \u2014 so a number in a report can always be traced back to the evidence behind it.",
+   "fieldname": "completion_basis",
+   "fieldtype": "Small Text",
+   "label": "Completion Basis",
+   "read_only": 1
   },
   {
    "description": "Truncated to 64KB; full content on the last AI Agent Step",

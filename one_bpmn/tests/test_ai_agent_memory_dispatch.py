@@ -98,9 +98,14 @@ class TestDispatcherMemory(FrappeTestCase):
 		args, _ = ms.call_args
 		self.assertEqual(args[0], "Agent")   # scope
 		self.assertEqual(args[1], "Act_9")   # scope key defaults to bpmn_id
-		sp = _CAPTURED["config"].system_prompt
-		self.assertIn("Relevant memory:", sp)
-		self.assertIn("net-30 rule", sp)
+		# WI-001639: retrieved memory is DYNAMIC (it is searched per turn with
+		# the current user prompt), so it goes into the user message, ahead of
+		# the user's text — never onto the frozen system prompt.
+		self.assertEqual(_CAPTURED["config"].system_prompt, "SYS")
+		up = _CAPTURED["config"].user_prompt
+		self.assertIn("Relevant memory:", up)
+		self.assertIn("net-30 rule", up)
+		self.assertLess(up.index("Relevant memory:"), up.index("handle order"))
 
 	def test_empty_search_no_injection(self):
 		with patch("one_bpmn.agents.memory.tools.memory_search", return_value=[]), patch(
@@ -120,6 +125,8 @@ class TestDispatcherMemory(FrappeTestCase):
 			)
 		self.assertEqual(_CAPTURED["config"].system_prompt, "SYS")
 		self.assertNotIn("Relevant memory:", _CAPTURED["config"].system_prompt)
+		# Nothing found — the user prompt is untouched, no marker introduced.
+		self.assertEqual(_CAPTURED["config"].user_prompt, "q")
 
 	def test_raw_write_mode_stores_output_verbatim(self):
 		with patch("one_bpmn.agents.memory.tools.memory_write") as mw:
@@ -220,7 +227,18 @@ class TestExecutorMessagesSlot(FrappeTestCase):
 		cfg = ExecutorConfig(system_prompt="S", user_prompt="U", messages=[{"role": "assistant", "content": "prior"}])
 		_, payload, _ = ex._build_anthropic_request("http://x", "k", "m", cfg)
 		self.assertEqual([m["role"] for m in payload["messages"]], ["assistant", "user"])
-		self.assertEqual(payload.get("system"), "S")
+		# System is sent as a content block carrying a prompt-cache marker.
+		self.assertEqual(
+			payload.get("system"),
+			[{"type": "text", "text": "S", "cache_control": {"type": "ephemeral"}}],
+		)
+		# The last history message carries the conversation-prefix cache marker;
+		# the caller's dict is never mutated.
+		self.assertEqual(
+			payload["messages"][0]["content"][-1]["cache_control"],
+			{"type": "ephemeral"},
+		)
+		self.assertEqual(cfg.messages, [{"role": "assistant", "content": "prior"}])
 		_, empty, _ = ex._build_anthropic_request(
 			"http://x", "k", "m", ExecutorConfig(system_prompt="S", user_prompt="U")
 		)

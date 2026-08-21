@@ -1,20 +1,25 @@
 # Copyright (c) 2026, one-fm and contributors
 # For license information, please see license.txt
 """
-AI Agent Task configuration assistant.
+Grounding for the config dialog's assistant chat.
 
-Powers the in-modal chat panel on the AI Agent Task config page. The assistant
-uses the SAME AI Provider Credentials the designer has selected for the task to recommend
-values for the task's fields (prompts, model, output variable, response format,
-advanced limits) based on a plain-language requirement.
+Both ways into the dialog — an AI Agent Task shape, and an AI Task Selector on
+an ad-hoc subprocess — run the SAME chat: the shared AG-UI endpoint, the AI
+Assistant agent (``ai_agent_assistant``), one interface (WI-001679). Nothing
+in this module calls an LLM any more. It does two jobs, on either side of the
+turn: build the ``dialog_context`` the assistant's map renders, and parse the
+map's JSON reply contract into typed keys BEFORE any text reaches a bubble.
 
-It can optionally look at a context DocType's schema and one sample record so
-its prompt suggestions reference real field names. Schema and record reads go
-through Frappe's permission system (frappe.get_meta / frappe.get_doc), so a
-designer only ever sees data they are already allowed to read.
+The two modes differ in CONTENT, never in code path:
 
-No LLM SDK lives here — the call is made through the shared executor backends
-(direct_api / antigravity), exactly like a real AI Agent Task dispatch.
+* which fields may be recommended — ``FIELD_CATALOG`` vs ``SELECTOR_FIELD_CATALOG``;
+* what grounding rides the turn — agent mode carries the agent-creation
+  capability and the whole diagram; selector mode carries the selector's
+  runtime rules and a digest of the ad-hoc subprocess being configured.
+
+Schema and record reads go through Frappe's permission system
+(frappe.get_meta / frappe.get_doc), so a designer only ever sees data they are
+already allowed to read.
 """
 from __future__ import annotations
 
@@ -82,248 +87,6 @@ _GATEWAY_TAGS = {
 }
 
 
-@frappe.whitelist()
-def recommend_ai_task_config(
-	provider: str,
-	backend: str = "direct_api",
-	requirement: str = "",
-	context_doctype: str = "",
-	context_docname: str = "",
-	history: str = "[]",
-	mode: str = "agent",
-	bpmn_xml: str = "",
-	element_id: str = "",
-	current_config: str = "{}",
-	process_model: str = "",
-	linked_config: str = "",
-	conversation: str = "",
-) -> dict:
-	"""Return assistant recommendations for an AI Agent Task's configuration.
-
-	Args:
-		provider: AI Provider Credentials name powering the assistant (the task's own provider).
-		backend: Executor backend ("direct_api" | "antigravity").
-		requirement: The designer's latest chat message.
-		context_doctype: Optional DocType whose schema/sample to show the model.
-		context_docname: Optional specific record; if blank, the latest readable
-			record of context_doctype is used as the sample.
-		history: JSON array of prior turns [{"role": "...", "content": "..."}].
-		mode: "agent" (AI Agent Task) or "selector" (AI Task Selector on an
-			ad-hoc subprocess). Selector mode teaches the model the selector
-			runtime semantics and shows it the diagram digest.
-		bpmn_xml: The LIVE diagram XML from the editor canvas (selector mode) —
-			the saved model may be stale while the designer edits.
-		element_id: BPMN id of the ad-hoc subprocess being configured.
-		current_config: JSON of the form's current values so the assistant can
-			refine drafts instead of starting over.
-
-	Returns:
-		{"ok": True, "message": str, "recommendations": {field: value, ...}}
-		or {"ok": False, "error_code": str, "message": str} on failure.
-	"""
-	if frappe.session.user == "Guest":
-		frappe.throw(_("You must be logged in to use the assistant."))
-
-	# WI-001623: the assistant runs on ITS OWN configuration's credentials,
-	# not the task's. The task's provider is only the fallback for sites
-	# without an ai_agent_assistant record. (Previously the task's provider
-	# won — so a task linked to broken credentials broke the very assistant
-	# meant to help fix them.)
-	provider = _assistant_default_provider() or provider
-	if not provider:
-		frappe.throw(_("Select an AI Provider Credentials before using the assistant."))
-
-	if not frappe.db.exists("AI Provider Credentials", provider):
-		frappe.throw(_("AI Provider Credentials '{0}' not found.").format(provider))
-
-	if not (requirement or "").strip():
-		frappe.throw(_("Describe what you want the AI Agent Task to do."))
-
-	mode = mode if mode in ("agent", "selector") else "agent"
-	catalog = _catalog_for_mode(mode)
-
-	turns = _parse_history(history)
-	context_block = _build_context_block(context_doctype, context_docname)
-
-	digest = None
-	diagram_block = ""
-	if mode == "selector":
-		digest = _build_diagram_digest(bpmn_xml, element_id, process_model=process_model)
-		diagram_block = digest["block"] if digest else ""
-		system_prompt = _build_selector_system_prompt()
-	else:
-		# WI-001623 full parity: an agent-mode turn IS a chat-platform turn.
-		# It runs through the generic invocation on the assistant's own chat
-		# map — so it persists as a Chat Conversation + Chat Messages, its
-		# LLM call is an AI Agent Run attributed to the assistant, and the
-		# map instance is inspectable on Processa like any other process.
-		# The dialog's grounding rides as per-turn context (the map's user
-		# prompt renders {{ dialog_context }}); the persona comes from the
-		# assistant's configuration as always.
-		if not _assistant_system_prompt():
-			return {
-				"ok": False,
-				"error_code": "ASSISTANT_NOT_CONFIGURED",
-				"message": _(
-					"The AI Assistant's agent configuration (agent_id "
-					"'ai_agent_assistant') is missing or has an empty system "
-					"prompt. Create or repair that AI Agent Configuration to "
-					"enable the assistant."
-				),
-			}
-		dialog_context_parts = [
-			_creation_capability_block(),
-			_linked_config_block(linked_config),
-			_build_full_diagram_block(bpmn_xml, element_id, process_model=process_model),
-			context_block,
-			_build_current_config_block(current_config, catalog),
-		]
-		dialog_context = "\n\n".join(p for p in dialog_context_parts if p)
-
-		from one_bpmn.api.agent_invocation import invoke_agent
-
-		try:
-			turn = invoke_agent(
-				agent_id="ai_agent_assistant",
-				message=requirement.strip(),
-				conversation=conversation or None,
-				context={"dialog_context": dialog_context, "source": "task_dialog"},
-			)
-		except frappe.ValidationError as exc:
-			return {
-				"ok": False,
-				"error_code": "ASSISTANT_PROCESS_NOT_RUNNING",
-				"message": str(exc),
-			}
-
-		raw = (turn or {}).get("response") or ""
-		parsed = _extract_json(raw if isinstance(raw, str) else json.dumps(raw))
-		if not isinstance(parsed, dict):
-			return {
-				"ok": True,
-				"message": raw or _("No recommendation returned."),
-				"recommendations": {},
-				"conversation": (turn or {}).get("conversation"),
-			}
-		message = str(parsed.get("message", "")).strip() or (
-			raw if not parsed.get("recommendations") else ""
-		)
-		recommendations = {
-			key: value
-			for key, value in (parsed.get("recommendations") or {}).items()
-			if key in catalog and value not in (None, "")
-		}
-		return {
-			"ok": True,
-			"message": message,
-			"recommendations": recommendations,
-			"proposed_config": _sanitize_proposed_config(parsed.get("proposed_config")),
-			"proposed_update": _sanitize_proposed_update(parsed.get("proposed_update")),
-			"created_config": _sanitize_created_config(parsed.get("created_config")),
-			"conversation": (turn or {}).get("conversation"),
-		}
-
-	user_prompt = _build_user_prompt(
-		requirement,
-		turns,
-		context_block,
-		diagram_block=diagram_block,
-		current_config_block=_build_current_config_block(current_config, catalog),
-	)
-
-	from one_bpmn.agents.executor import (
-		ExecutorConfig,
-		ExecutorContext,
-		ErrorCode,
-		get_executor,
-	)
-	# Importing the backend modules registers them in the executor registry.
-	from one_bpmn.agents.executor import direct_api, antigravity  # noqa: F401
-
-	backend = backend or "direct_api"
-	try:
-		executor_cls = get_executor(backend)
-	except ValueError:
-		frappe.throw(_("Unknown executor backend '{0}'.").format(backend))
-
-	config = ExecutorConfig(
-		backend=backend,
-		provider_name=provider,
-		model=_assistant_default_model(),  # the assistant's own catalog pick (WI-001655)
-		system_prompt=system_prompt,
-		user_prompt=user_prompt,
-		temperature=0.3,
-		top_p=1.0,
-		# Generous: reasoning models (gpt-5 family) spend completion budget
-		# on hidden reasoning first — 1800 yielded empty visible output.
-		max_tokens=6000,
-		timeout_seconds=60,
-		response_format="text",  # parsed tolerantly below
-		max_retries=1,
-	)
-
-	result = executor_cls().run(config, ExecutorContext(jinja_context={}))
-
-	if result.error_code != ErrorCode.SUCCESS:
-		return {
-			"ok": False,
-			"error_code": result.error_code.value,
-			"message": result.error_message or _("The assistant request failed."),
-		}
-
-	if not (result.output or "").strip() if isinstance(result.output, str) else not result.output:
-		# Reasoning models can exhaust the completion budget on hidden
-		# reasoning and return nothing visible — surface it instead of a
-		# silent empty recommendation set.
-		return {
-			"ok": False,
-			"error_code": "EMPTY_OUTPUT",
-			"message": _(
-				"The model returned no visible text — its token budget was "
-				"likely consumed by internal reasoning. Try again, or use a "
-				"different model for the assistant."
-			),
-		}
-
-	parsed = _extract_json(result.output if isinstance(result.output, str) else json.dumps(result.output))
-	if not isinstance(parsed, dict):
-		# Model answered but not as JSON — surface the text, no field changes.
-		text = result.output if isinstance(result.output, str) else _("No recommendation returned.")
-		return {"ok": True, "message": text, "recommendations": {}}
-
-	message = str(parsed.get("message", "")).strip()
-	raw_recs = parsed.get("recommendations") or {}
-	recommendations = {}
-	if isinstance(raw_recs, dict):
-		for key, value in raw_recs.items():
-			if key in catalog and value not in (None, ""):
-				recommendations[key] = value
-
-	# Post-check (selector mode): every task id a recommended prompt mentions
-	# must exist on the diagram, and every candidate should be covered.
-	if digest:
-		warnings = _lint_recommended_prompts(recommendations, digest)
-		if warnings:
-			message = (message + "\n\n" if message else "") + "\n".join(f"⚠️ {w}" for w in warnings)
-
-	# WI-001649 (agent mode only): proposed new-agent creation and proposed
-	# updates to an existing agent. The model PROPOSES; the user confirms in
-	# the UI; only then does the frontend call the (permission-checked)
-	# endpoint — the model never writes documents.
-	proposed_config = proposed_update = None
-	if mode == "agent":
-		proposed_config = _sanitize_proposed_config(parsed.get("proposed_config"))
-		proposed_update = _sanitize_proposed_update(parsed.get("proposed_update"))
-
-	return {
-		"ok": True,
-		"message": message,
-		"recommendations": recommendations,
-		"proposed_config": proposed_config,
-		"proposed_update": proposed_update,
-	}
-
-
 def _catalog_for_mode(mode: str) -> dict:
 	return SELECTOR_FIELD_CATALOG if mode == "selector" else FIELD_CATALOG
 
@@ -331,39 +94,6 @@ def _catalog_for_mode(mode: str) -> dict:
 # ---------------------------------------------------------------------------
 # Prompt construction
 # ---------------------------------------------------------------------------
-
-def _assistant_system_prompt() -> str:
-	"""Agent-mode system prompt from the AI Assistant's configuration
-	(WI-001623). Returns "" when the config is absent so the caller falls
-	back to the in-code builder."""
-	try:
-		from one_bpmn.one_bpmn.doctype.ai_agent_configuration.ai_agent_configuration import get_agent_config
-
-		cfg = get_agent_config("ai_agent_assistant")
-		return (cfg or {}).get("system_prompt") or ""
-	except Exception:
-		return ""
-
-
-def _assistant_default_model() -> str:
-	"""The AI Model the assistant's own configuration picks (WI-001655)."""
-	try:
-		from one_bpmn.one_bpmn.doctype.ai_agent_configuration.ai_agent_configuration import get_agent_config
-
-		return (get_agent_config("ai_agent_assistant") or {}).get("ai_model") or ""
-	except Exception:
-		return ""
-
-
-def _assistant_default_provider() -> str:
-	"""The credentials record the AI Assistant configuration links, if any."""
-	try:
-		from one_bpmn.one_bpmn.doctype.ai_agent_configuration.ai_agent_configuration import get_agent_config
-
-		return (get_agent_config("ai_agent_assistant") or {}).get("ai_provider_credentials") or ""
-	except Exception:
-		return ""
-
 
 def _build_system_prompt() -> str:
 	field_lines = "\n".join(f'  - "{name}": {desc}' for name, desc in FIELD_CATALOG.items())
@@ -739,16 +469,51 @@ def _sanitize_proposed_config(proposed) -> dict | None:
 			})
 	if samples:
 		clean["sample_prompts"] = samples
+
+	# WI-001639: the agent's frozen static context. Both are row lists, so they
+	# skip the scalar filter above and are normalized here — dropping rows whose
+	# mandatory field is empty rather than letting them fail at insert.
+	examples = []
+	for row in proposed.get("examples") or []:
+		if isinstance(row, dict) and str(row.get("input") or "").strip():
+			examples.append({
+				"input": str(row["input"]),
+				"expected_output": str(row.get("expected_output") or ""),
+				"note": str(row.get("note") or ""),
+			})
+	if examples:
+		clean["examples"] = examples
+
+	guardrails = []
+	for row in proposed.get("guardrails") or []:
+		if isinstance(row, dict) and str(row.get("guardrail") or "").strip():
+			guardrails.append({
+				"guardrail": str(row["guardrail"]),
+				"category": str(row.get("category") or "Other"),
+			})
+	if guardrails:
+		clean["guardrails"] = guardrails
+
 	return clean or None
 
 
-def _build_selector_system_prompt() -> str:
+def _selector_rules_block() -> str:
+	"""The selector's runtime rules, as grounding for a selector-mode turn.
+
+	These facts used to BE the system prompt of a separate, direct LLM call
+	(WI-001351). WI-001679 retired that path: the persona now comes from the
+	assistant's own AI Agent Configuration like every other agent, and what
+	stays here is the part no persona can know — how the selector actually
+	executes at run time. Unchanged in substance; reframed from "you are an
+	assistant" into a briefing the assistant reads for this turn.
+	"""
 	field_lines = "\n".join(f'  - "{name}": {desc}' for name, desc in SELECTOR_FIELD_CATALOG.items())
 	return (
-		"You are a configuration assistant embedded in a BPMN editor. You help a "
-		"process designer write the prompts for an 'AI Task Selector' — an ad-hoc "
-		"subprocess where an LLM decides, one decision at a time, which inner task "
-		"to activate next.\n\n"
+		"THIS TURN IS ABOUT AN AI TASK SELECTOR, NOT AN AI AGENT TASK. The "
+		"designer is configuring an 'AI Task Selector' — an ad-hoc subprocess "
+		"where an LLM decides, one decision at a time, which inner task to "
+		"activate next. Recommend its prompts; do not propose creating or "
+		"changing an AI Agent Configuration in this mode.\n\n"
 		"HOW THE SELECTOR RUNS (these facts are non-negotiable — your prompts must "
 		"work within them):\n"
 		"  1. Every decision is a FRESH, stateless LLM call. The only memory between "
@@ -775,51 +540,38 @@ def _build_selector_system_prompt() -> str:
 		"in a <selector id>_toolCallResult process variable as a JSON string.\n"
 		"  6. The subprocess ends when its completion condition becomes true "
 		"(usually a variable set by a wrap-up script task).\n\n"
-		"A DIAGRAM DIGEST of the subprocess follows in the user message: the "
-		"selectable tasks with their ids and behaviors, the automatic chains, the "
-		"observable state changes, and the completion condition. Build the "
-		"selection procedure (aiSystemPrompt) as explicit if/then rules over that "
+		"A DIAGRAM DIGEST of the subprocess follows below: the selectable tasks "
+		"with their ids and behaviors, the automatic chains, the observable "
+		"state changes, and the completion condition. Build the selection "
+		"procedure (aiSystemPrompt) as explicit if/then rules over that "
 		"evidence, referencing only ids from the digest, and build the evidence "
 		"template (aiUserPrompt) so every rule's condition is actually visible in "
 		"it — use {% if var is defined %} guards for variables that only appear "
 		"after some task runs.\n\n"
-		"Recommend values for these fields:\n"
-		f"{field_lines}\n\n"
-		"Respond with ONLY a single JSON object, no prose outside it, in this exact shape:\n"
-		'{\n'
-		'  "message": "<a short, friendly explanation of what you suggested>",\n'
-		'  "recommendations": { "aiSystemPrompt": "...", "aiUserPrompt": "...", ... }\n'
-		'}'
+		"Recommend values for these fields, and no others:\n"
+		f"{field_lines}"
 	)
 
 
-def _build_user_prompt(
-	requirement: str,
-	turns: list,
-	context_block: str,
-	diagram_block: str = "",
-	current_config_block: str = "",
-) -> str:
-	parts = []
-	if diagram_block:
-		parts.append(diagram_block)
-	if context_block:
-		parts.append(context_block)
-	if current_config_block:
-		parts.append(current_config_block)
-	if turns:
-		convo = "\n".join(
-			f"{str(t.get('role', 'user')).upper()}: {t.get('content', '')}"
-			for t in turns
-			if isinstance(t, dict)
-		)
-		if convo:
-			parts.append("CONVERSATION SO FAR:\n" + convo)
-	parts.append("DESIGNER REQUIREMENT:\n" + requirement.strip())
-	parts.append(
-		"Return the JSON object with your recommended field values now."
+def _selector_output_rules_block() -> str:
+	"""Emission rules for a selector turn — LAST in the context, by design.
+
+	Same recency lesson as agent mode (WI-001674): with the contract buried
+	mid-context the model answers in prose and the recommendations never
+	become applicable cards.
+	"""
+	return (
+		"FINAL OUTPUT RULES (these override anything above):\n"
+		"- Reply with ONLY a single JSON object, no prose outside it:\n"
+		'  {"message": "<short, friendly explanation of what you suggested>", '
+		'"recommendations": {"aiSystemPrompt": "...", "aiUserPrompt": "..."}}\n'
+		"- While you still need details from the designer, ask for them through "
+		"\"message\" alone and leave \"recommendations\" out.\n"
+		"- Never emit \"proposed_config\", \"proposed_update\" or "
+		"\"created_config\" on a selector turn, and never call the "
+		"create_agent_configuration tool: this dialog configures a selector "
+		"shape, not an agent record."
 	)
-	return "\n\n".join(parts)
 
 
 def _build_current_config_block(current_config: str, catalog: dict) -> str:
@@ -1155,14 +907,6 @@ def _build_context_block(doctype: str, docname: str) -> str:
 # Helpers
 # ---------------------------------------------------------------------------
 
-def _parse_history(history: str) -> list:
-	try:
-		turns = json.loads(history or "[]")
-	except Exception:
-		return []
-	return turns if isinstance(turns, list) else []
-
-
 def _extract_json(text: str):
 	"""Tolerantly extract a JSON object from a model reply.
 
@@ -1200,22 +944,45 @@ def _extract_json(text: str):
 	return None
 
 
-# ── Shared-endpoint integration (WI-001674) ──────────────────────────────────
+# ── Shared-endpoint integration (WI-001674, completed by WI-001679) ──────────
 # The dialog's chat is served through the AG-UI endpoint: the modal sends its
 # raw grounding refs as context.assistant_dialog, the builder below turns them
 # into the dialog_context the assistant's map renders, and the shaper parses
 # the map's JSON contract out of the reply BEFORE any text reaches a bubble —
 # which is what makes the raw-JSON-in-the-transcript failure structurally
-# impossible. recommend_ai_task_config stays as the deprecated alias for the
-# legacy modal path until WI-001679 retires it.
+# impossible. WI-001679 brought selector mode onto this same path and deleted
+# recommend_ai_task_config, the last per-agent chat endpoint: the mode is now a
+# branch in the GROUNDING, not a second transport.
+
+# The shaper has to know which mode the turn was built in — the catalog it
+# filters against and the post-check both depend on it, and the reply itself
+# carries no such marker. Builder and shaper run in the same request
+# (agent_event_stream calls both), so the mode and the parsed digest are handed
+# over on frappe.local. Cleared by the builder on every turn, including agent
+# turns, so a later turn can never inherit an earlier one's selector state.
+_DIALOG_TURN_FLAG = "assistant_dialog_turn"
+
+
+def _stash_dialog_turn(mode: str, digest: dict | None = None) -> None:
+	frappe.local.flags[_DIALOG_TURN_FLAG] = {"mode": mode, "digest": digest}
+
+
+def _take_dialog_turn() -> dict:
+	return frappe.local.flags.pop(_DIALOG_TURN_FLAG, None) or {}
 
 
 def build_assistant_turn_context(context: dict) -> dict:
-	"""Turn the modal's raw grounding into the map's dialog_context."""
+	"""Turn the dialog's raw grounding into the map's dialog_context."""
 	grounding = (context or {}).pop("assistant_dialog", None)
 	if not isinstance(grounding, dict):
+		_stash_dialog_turn("agent")
 		return context or {}
 
+	mode = grounding.get("mode") if grounding.get("mode") in ("agent", "selector") else "agent"
+	if mode == "selector":
+		return _selector_turn_context(context, grounding)
+
+	_stash_dialog_turn("agent")
 	catalog = _catalog_for_mode("agent")
 	dialog_context_parts = [
 		_creation_capability_block(),
@@ -1264,28 +1031,85 @@ def build_assistant_turn_context(context: dict) -> dict:
 	return out
 
 
+def _selector_turn_context(context: dict, grounding: dict) -> dict:
+	"""Grounding for an AI Task Selector turn (WI-001679).
+
+	Same agent, same map, same transport as agent mode — only the briefing
+	differs. The selector's runtime rules replace the agent-creation
+	capability (a selector turn configures a SHAPE, so proposing agent
+	records would be noise), and the digest of the ad-hoc subprocess replaces
+	the whole-diagram dump: the digest is what names the candidate task ids
+	the recommended prompts have to reference.
+	"""
+	digest = _build_diagram_digest(
+		grounding.get("bpmn_xml") or "",
+		grounding.get("element_id") or "",
+		process_model=grounding.get("process_model") or "",
+	)
+	# Handed to the shaper for the post-check. The digest is None when the
+	# canvas held no ad-hoc subprocess — the assistant then works blind, as it
+	# always did, but the turn is still a selector turn.
+	_stash_dialog_turn("selector", digest)
+
+	dialog_context_parts = [
+		_selector_rules_block(),
+		digest["block"] if digest else "",
+		_build_context_block(
+			grounding.get("context_doctype") or "", grounding.get("context_docname") or ""
+		),
+		_build_current_config_block(
+			grounding.get("current_config") or "{}", _catalog_for_mode("selector")
+		),
+		_selector_output_rules_block(),
+	]
+	out = dict(context or {})
+	out["dialog_context"] = "\n\n".join(p for p in dialog_context_parts if p)
+	out["source"] = "task_dialog"
+	return out
+
+
 def shape_assistant_reply(result: dict) -> dict:
 	"""Parse the assistant map's JSON reply contract into typed keys.
 
 	The human message becomes the visible response; recommendations are
 	catalog-filtered and proposals sanitized exactly as the legacy path did
-	— the WI-001671 translators then lift them into onefm.* events."""
+	— the WI-001671 translators then lift them into onefm.* events.
+
+	A selector turn (WI-001679) is filtered against the selector catalog and
+	keeps its diagram post-check; the agent-only proposal keys are dropped
+	rather than sanitized, because a selector dialog has no card that could
+	act on them."""
+	turn = _take_dialog_turn()
+	selector_mode = turn.get("mode") == "selector"
+	digest = turn.get("digest")
+
 	raw = result.get("response") or ""
 	parsed = _extract_json(raw if isinstance(raw, str) else json.dumps(raw))
 	if not isinstance(parsed, dict):
 		return result
 
-	catalog = _catalog_for_mode("agent")
+	catalog = _catalog_for_mode("selector" if selector_mode else "agent")
 	message = str(parsed.get("message", "")).strip()
 	recommendations = {
 		key: value
 		for key, value in (parsed.get("recommendations") or {}).items()
 		if key in catalog and value not in (None, "")
 	}
+
+	# Post-check (selector mode): every task id a recommended prompt mentions
+	# must exist on the diagram, and every candidate should be covered.
+	if digest:
+		warnings = _lint_recommended_prompts(recommendations, digest)
+		if warnings:
+			message = (message + "\n\n" if message else "") + "\n".join(f"⚠️ {w}" for w in warnings)
+
 	shaped = dict(result)
 	shaped["response"] = message or (raw if not recommendations else "")
 	if recommendations:
 		shaped["recommendations"] = recommendations
+	if selector_mode:
+		return shaped
+
 	proposed_config = _sanitize_proposed_config(parsed.get("proposed_config"))
 	if proposed_config:
 		shaped["proposed_config"] = proposed_config

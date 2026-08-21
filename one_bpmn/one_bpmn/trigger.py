@@ -702,8 +702,11 @@ def delete_linked_bpmn_instances(doc, method: str):
 	On document trash:
 	  1. Try to deliver a Delete message to active instances so the BPMN
 	     delete flow can run (e.g. delete the linked Google Task).
-	  2. Cancel all active instances and unlink them so Frappe can
-	     proceed with the document deletion.
+	  2. An instance that caught that message owns the delete story, so it is
+	     kept for the record: cancelled and unlinked, history intact.
+	  3. Every other instance is removed outright, along with its BPMN
+	     Activity Log rows, so deleting a document does not leave the
+	     process instance behind (WI-001990).
 	"""
 	if doc.doctype in _INTERNAL_DOCTYPES:
 		return
@@ -730,6 +733,7 @@ def delete_linked_bpmn_instances(doc, method: str):
 		# Step 1: Try to deliver Delete message to active instances
 		# so the BPMN delete flow can execute (e.g. delete Google Task)
 		delete_message = f"{doc.doctype.replace(' ', '')}_Delete_Action"
+		handled = set()
 		for inst in instances:
 			if inst.status == "Active":
 				try:
@@ -742,32 +746,44 @@ def delete_linked_bpmn_instances(doc, method: str):
 							"deleted_docname": doc.name,
 						},
 					)
+					# The diagram has a delete catch event and it fired — this
+					# instance ran its own delete flow, so keep it.
+					handled.add(inst.name)
 				except frappe.ValidationError:
 					# No task waiting for this message - diagram has no delete
-					# catch event. That is fine, fall through to cancel.
+					# catch event. That is fine, fall through to deletion.
 					pass
 				except Exception:
+					# Delivery blew up for a reason we don't understand, so we
+					# don't know what state the instance is in. Keep it rather
+					# than destroy it — an orphan is recoverable, a delete isn't.
+					handled.add(inst.name)
 					frappe.log_error(
 						title=f"BPMN delete message failed for {inst.name}",
 						message=frappe.get_traceback(),
 					)
 
-		# Step 2: Cancel active instances, their waiting tasks, and unlink.
+		# Step 2: Instances that handled the delete message are kept.
+		# Cancel them so nothing tries to advance them once the context
+		# document is gone, and unlink so Frappe's link check lets the
+		# document deletion through.
 		# Re-fetch status from DB since receive_message() in Step 1 may
 		# have advanced/completed the instance.
-		for inst in instances:
+		for inst_name in handled:
 			try:
 				current_status = frappe.db.get_value(
-					"BPMN Process Instance", inst.name, "status"
+					"BPMN Process Instance", inst_name, "status"
 				)
 				updates = {"context_doctype": None, "context_docname": None}
+				# Leave a terminal status (Completed/Errored) alone — the delete
+				# flow already finished and that outcome is worth keeping.
 				if current_status == "Active":
 					updates["status"] = "Cancelled"
 					# Cancel orphan BPMN Active Task rows so they don't
 					# surface in get_active_tasks_summary / list_process_instances
 					waiting_tasks = frappe.get_all(
 						"BPMN Active Task",
-						filters={"parent": inst.name, "status": "Waiting"},
+						filters={"parent": inst_name, "status": "Waiting"},
 						pluck="name",
 					)
 					for task_name in waiting_tasks:
@@ -777,15 +793,48 @@ def delete_linked_bpmn_instances(doc, method: str):
 							update_modified=False,
 						)
 				frappe.db.set_value(
-					"BPMN Process Instance", inst.name,
+					"BPMN Process Instance", inst_name,
 					updates,
 					update_modified=False,
 				)
 			except Exception:
 				frappe.log_error(
-					title=f"Failed to unlink BPMN instance {inst.name}",
+					title=f"Failed to unlink BPMN instance {inst_name}",
 					message=frappe.get_traceback(),
 				)
+
+		# Step 3: Everything else goes with the document — instances whose
+		# diagram has no delete catch event, plus any that were already
+		# Completed/Errored/Cancelled before the document was trashed.
+		doomed = [i.name for i in instances if i.name not in handled]
+		if not doomed:
+			return
+
+		# BPMN Activity Log points at the instance with a Link field, so the
+		# rows have to go first or Frappe's link check blocks the delete.
+		# BPMN Active Task is a child table and goes with the parent.
+		frappe.db.delete("BPMN Activity Log", {"instance": ["in", doomed]})
+
+		for inst_name in doomed:
+			# ignore_permissions: this is a system cascade behind the trash of a
+			# document the user was already allowed to delete. Failing the
+			# cascade on a BPMN Process Instance permission would leave exactly
+			# the orphan this hook exists to prevent.
+			try:
+				frappe.delete_doc(
+					"BPMN Process Instance", inst_name, ignore_permissions=True
+				)
+			except Exception:
+				try:
+					frappe.delete_doc(
+						"BPMN Process Instance", inst_name,
+						ignore_permissions=True, force=True,
+					)
+				except Exception:
+					frappe.log_error(
+						title=f"Failed to delete BPMN instance {inst_name} linked to deleted {doc.doctype} {doc.name}",
+						message=frappe.get_traceback(),
+					)
 	finally:
 		frappe.flags.bpmn_engine_action = previous_flag
 

@@ -44,7 +44,36 @@ class AIAgentConfiguration(Document):
 		self.validate_unique_chat_mode_label()
 		self.validate_chat_label_against_map()
 		self.validate_agent_creation_grant()
-		self.apply_background_lifecycle()
+		self.validate_a2a_exposure()
+		self.validate_delegation_grant()
+
+	def validate_delegation_grant(self):
+		"""Say so when the list is inert.
+
+		Exposure is what grants an agent delegated work; this list only
+		narrows the set, and only while the restriction is on. Rows sitting
+		under an unticked restriction do nothing — which is easy to
+		misread as "delegation is locked down" when it is not.
+		"""
+		if self.allowed_delegates and not self.restrict_delegates:
+			frappe.msgprint(
+				_(
+					"This list is ignored while 'Restrict Delegation to Specific Agents' is off — "
+					"the agent may currently hand work to any agent exposed over A2A."
+				),
+				alert=True,
+				indicator="orange",
+			)
+
+	def validate_a2a_exposure(self):
+		"""WI-001931: exposure is an admin grant on an operating agent. A
+		disabled agent cannot be exposed — the card and the A2A door both
+		additionally require Live, so the flag may be set pre-Live harmlessly."""
+		if self.a2a_exposed and not self.enabled:
+			frappe.throw(
+				_("This agent is disabled. Enable it before exposing it over A2A."),
+				title=_("A2A Exposure"),
+			)
 
 	def validate_chat_label_against_map(self):
 		"""WI-001997: a chat mode label promises the agent appears in chat,
@@ -179,30 +208,6 @@ class AIAgentConfiguration(Document):
 		creds = frappe.db.get_value("AI Model", self.ai_model, "ai_provider_credentials")
 		if creds:
 			self.ai_provider_credentials = creds
-
-	def apply_background_lifecycle(self):
-		"""WI-001652: Background agents skip the chat creation process, so they
-		go Live directly on save when their essentials check out — enabled,
-		with an enabled provider link. A failing check parks them in Needs
-		Attention, like any agent. Retired is a deliberate manual state and is
-		never overridden. Applies on every save path (form, endpoint, patch)."""
-		if self.agent_type != "Background" or self.lifecycle_status == "Retired":
-			return
-		reason = ""
-		if not self.enabled:
-			reason = _("The agent is disabled.")
-		elif not self.ai_provider_credentials:
-			reason = (
-				_("The linked AI Model '{0}' has no AI Provider Credentials link.").format(self.ai_model)
-				if self.ai_model
-				else _("No AI Model is linked — pick one from the catalog.")
-			)
-		elif not frappe.db.get_value("AI Provider Credentials", self.ai_provider_credentials, "enabled"):
-			reason = _("The linked AI Provider Credentials record '{0}' is disabled.").format(
-				self.ai_provider_credentials
-			)
-		self.lifecycle_status = "Needs Attention" if reason else "Live"
-		self.needs_attention_reason = reason
 
 	def validate_unique_chat_mode_label(self):
 		"""Two enabled chat agents must never claim the same conversation mode —
@@ -351,7 +356,20 @@ class AIAgentConfiguration(Document):
 			frappe.flags._agent_revalidation_running = False
 
 		if result["ok"] and self.lifecycle_status == "Needs Attention":
-			self._stamp_lifecycle("Live", "")
+			# Going Live is the MAP's decision, not this controller's.
+			# Credentials working again does not mean the agent has been tested
+			# against injection, jailbreak, exfiltration and tool coercion — the
+			# Agent Creation Process runs that gate, and promoting from here would
+			# make disable/re-enable a way around it.
+			#
+			# An agent the map parked already has an instance waiting on the
+			# Config Edited message, which this save fires; one parked from here
+			# (credentials broke while Live) has no instance, so it needs an
+			# explicit start or it could never return to Live at all. Starting one
+			# is a no-op when the map is already waiting.
+			from one_bpmn.agents.agent_config_resolver import _start_reprovision
+
+			_start_reprovision(self.name)
 		elif not result["ok"] and self.lifecycle_status == "Live":
 			self._stamp_lifecycle("Needs Attention", "; ".join(result["errors"]))
 
@@ -379,8 +397,9 @@ def get_agent_config(agent_id: str) -> dict | None:
 	Load agent configuration from AI Agent Configuration DocType.
 
 	Returns a dict with: system_prompt, temperature, max_tokens,
-	ai_provider_credentials, langsmith_project, sub_prompts, and
-	constants. There is no per-agent override mechanism (WI-001615):
+	ai_provider_credentials, langsmith_project, sub_prompts,
+	constants, and — for the frozen static context layer (WI-001639) —
+	examples and guardrails. There is no per-agent override mechanism (WI-001615):
 	provider, key and model come from the linked AI Provider
 	Credentials record.
 
@@ -402,7 +421,7 @@ def get_agent_config(agent_id: str) -> dict | None:
 			"name", "agent_id", "system_prompt", "temperature", "max_tokens",
 			"ai_model", "ai_provider_credentials", "langsmith_project",
 			"agent_framework", "process_model", "chat_mode_label",
-			"lifecycle_status", "agent_type",
+			"lifecycle_status", "agent_type", "pii_screening",
 		],
 		as_dict=True,
 	)
@@ -422,6 +441,40 @@ def get_agent_config(agent_id: str) -> dict | None:
 			"prompt": sp.prompt_text,
 			"temperature": sp.temperature,
 		}
+
+	# WI-001639: examples + guard rails are the non-Instructions half of the
+	# agent's FROZEN static context. Ordered by idx so the assembled prompt is
+	# byte-stable across calls; disabled rows are carried through and filtered
+	# by the assembler, keeping the "what is configured" and "what is sent"
+	# decisions in one place.
+	examples = frappe.get_all(
+		"AI Agent Example",
+		filters={"parent": config.name, "parenttype": "AI Agent Configuration"},
+		fields=["input", "expected_output", "note", "enabled"],
+		order_by="idx asc",
+	)
+	guardrails = frappe.get_all(
+		"AI Agent Guard Rail",
+		filters={"parent": config.name, "parenttype": "AI Agent Configuration"},
+		fields=["guardrail", "category", "enabled"],
+		order_by="idx asc",
+	)
+
+	
+	# Load enabled skills
+	enabled_skills = []
+	for skill in frappe.get_all(
+		"AI Agent Enabled Skill",
+		filters={"parent": config.name, "parenttype": "AI Agent Configuration"},
+		fields=["skill"],
+		order_by="idx asc",
+	):
+		skill_doc = frappe.db.get_value("AI Skill", skill.skill, ["skill_name", "description", "status"], as_dict=True)
+		if skill_doc and skill_doc.status != "Draft":
+			enabled_skills.append({
+				"name": skill_doc.skill_name,
+				"description": skill_doc.description,
+			})
 
 	# Load constants keyed by constant_name, cast to proper types
 	constants = {}
@@ -446,6 +499,9 @@ def get_agent_config(agent_id: str) -> dict | None:
 		"agent_type": config.agent_type,
 		"sub_prompts": sub_prompts,
 		"constants": constants,
+		"examples": examples,
+		"guardrails": guardrails,
+		"enabled_skills": enabled_skills,
 	}
 
 	frappe.cache.set_value(cache_key, result)
