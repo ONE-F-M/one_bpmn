@@ -233,15 +233,12 @@ def config_static_context(config_name: str) -> dict:
 	``load_agent_behaviour``.
 	"""
 	if not config_name or not frappe.db.exists("AI Agent Configuration", config_name):
-		return {
-		_EXAMPLE_SHAPE_ATTR: _rows_for_shape(doc, "examples", _EXAMPLE_FIELDS),
-		_GUARDRAIL_SHAPE_ATTR: _rows_for_shape(doc, "guardrails", _GUARDRAIL_FIELDS),
-		_SKILL_SHAPE_ATTR: _rows_for_shape(doc, "enabled_skills", _SKILL_FIELDS),
-	}
+		return {}
 	cfg = frappe.get_doc("AI Agent Configuration", config_name)
 	return {
 		_EXAMPLE_SHAPE_ATTR: _rows_for_shape(cfg, "examples", _EXAMPLE_FIELDS),
 		_GUARDRAIL_SHAPE_ATTR: _rows_for_shape(cfg, "guardrails", _GUARDRAIL_FIELDS),
+		_SKILL_SHAPE_ATTR: _rows_for_shape(cfg, "enabled_skills", _SKILL_FIELDS),
 	}
 
 
