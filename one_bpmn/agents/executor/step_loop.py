@@ -144,6 +144,27 @@ async def run_agent_loop(
 
 	trace: list = []
 
+	try:
+		return await _run_turns(
+			adapter, system=system, tools=tools, tool_map=tool_map,
+			transcript=transcript, trace=trace, turns_used=turns_used,
+			max_tokens=max_tokens, max_turns=max_turns,
+		)
+	finally:
+		# Cleared on EVERY exit — final answer, turn cap, suspension, exception.
+		# The flag only means "a pause is held in the turn running right now", and
+		# frappe.flags outlives this call: a suspension used to leave it True, so
+		# the next delegation handled by the same worker was refused as though a
+		# pause were still open. Observed live — an orchestrator's delegation
+		# returned "not-started" and created no A2A Task at all.
+		frappe.flags[PAUSE_HELD_FLAG] = False
+
+
+async def _run_turns(
+	adapter, *, system, tools, tool_map, transcript, trace, turns_used, max_tokens, max_turns
+):
+	"""The turn loop itself. Split out only so run_agent_loop can guarantee the
+	pause flag is cleared however this returns."""
 	while turns_used < max_turns:
 		# No pause is held yet this turn. Cleared here, at the very top, rather
 		# than just before the tool loop: the flag must never outlive the turn

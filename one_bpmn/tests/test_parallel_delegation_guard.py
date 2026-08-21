@@ -136,6 +136,25 @@ class TestOneDelegationPerTurn(FrappeTestCase):
 			"flag survived the loop and would refuse an unrelated later delegation",
 		)
 
+	def test_the_flag_does_not_survive_a_suspension(self):
+		"""The leak that actually bit, in production rather than in a test.
+
+		frappe.flags lives for the whole worker job. The loop also exits by
+		SUSPENDING, and clearing only at the top of a turn left the flag True on
+		that path — so the next delegation handled by the same worker was
+		refused as though a pause were still open. Observed live: an
+		orchestrator's delegation returned "not-started", created no A2A Task,
+		and the agent correctly reported that the specialist confirmed nothing.
+		"""
+		tools = [self._delegating_tool("deleg_a")]
+		_, suspension = _run(_Adapter([_Step([_Call(0, "deleg_a")])]), tools)
+		self.assertIsNotNone(suspension, "this test needs the loop to suspend")
+		self.assertFalse(
+			frappe.flags.get(PAUSE_HELD_FLAG),
+			"the pause flag survived a suspension and would refuse the next "
+			"delegation this worker handles",
+		)
+
 	def test_a_second_pause_is_not_blamed_on_a_human_task(self):
 		"""If a tool gets past the connector guard and parks anyway, the model is
 		told the truth. It used to be told a human task was pending."""
