@@ -23,6 +23,7 @@ from __future__ import annotations
 import frappe
 from frappe.utils import add_to_date, cint, now_datetime
 
+from one_bpmn.agents.shape_tools import PAUSE_HELD_FLAG as _PAUSE_HELD_FLAG
 from one_bpmn.agents.a2a import guardrails, local, push
 from one_bpmn.one_bpmn.integrations import a2a_client
 
@@ -55,6 +56,33 @@ def delegate_to_local_agent(params: dict, ctx: dict) -> dict | None:
 	target = params.get("agent") or params.get("remote_agent")
 	if not target:
 		raise a2a_client.A2AClientError("delegate_to_local_agent needs an agent to hand work to.")
+
+	# ── Refuse to start work this turn cannot collect ────────────────────────
+	# The agent loop tracks ONE pause per turn (step_loop: the first
+	# ToolDeferred takes the slot). A model that calls several delegation tools
+	# in a single assistant turn used to get one tracked delegation and the rest
+	# ABANDONED MID-FLIGHT: local.delegate() creates the A2A Task and starts the
+	# agent before anything parks, so the extra rows were live, unwatched, and
+	# non-terminal until their deadline expired. The model was then told to call
+	# again, so every specialist past the first also ran twice.
+	#
+	# Observed with four specialists on one brief: three delegations in one turn
+	# produced five A2A Tasks — one tracked, two orphaned in "working" forever,
+	# two duplicates from the retry.
+	#
+	# So the check belongs HERE, before the row exists, not in the loop after
+	# the fact. Nothing is created, and the model is told plainly to come back
+	# to it — which is the sequence that already works.
+	if frappe.flags.get(_PAUSE_HELD_FLAG):
+		return {
+			"state": "not-started",
+			"reason": "another-delegation-pending",
+			"text": (
+				f"Nothing was started for {target}. Another delegation from this turn is "
+				"still waiting for its answer, and only one can be tracked at a time. "
+				"Call this tool again once that one has come back."
+			),
+		}
 
 	a2a_task = local.delegate(
 		_delegating_agent(instance, params),

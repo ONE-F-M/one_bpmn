@@ -24,6 +24,8 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 import time
 
+import frappe
+
 from one_bpmn.security.provenance import wrap_tool_result
 from one_bpmn.agents.llm_provider.base import (
 	CompletionResult,
@@ -31,7 +33,7 @@ from one_bpmn.agents.llm_provider.base import (
 	ToolSpec,
 	TurnRecord,
 )
-from one_bpmn.agents.shape_tools import ToolDeferred
+from one_bpmn.agents.shape_tools import PAUSE_HELD_FLAG, ToolDeferred
 from one_bpmn.security.tool_policy import PolicyViolation
 
 # Tool result handed to the model when it requests a second human tool in the
@@ -39,6 +41,14 @@ from one_bpmn.security.tool_policy import PolicyViolation
 _SECOND_HUMAN_RESULT = (
 	"A human task from this turn is already pending; only one human task can "
 	"run at a time. Call this tool again after the pending human task completes."
+)
+
+# Same shape, different cause, and it needs its own words: a second tool in this
+# turn parked while a pause is already held. The model used to be told a *human*
+# task was pending, which for an agent-to-agent delegation is untrue.
+_SECOND_PAUSE_RESULT = (
+	"Another step from this turn is already waiting for its answer, and only one "
+	"can be tracked at a time. Call this tool again once the pending one is back."
 )
 
 
@@ -135,6 +145,10 @@ async def run_agent_loop(
 	trace: list = []
 
 	while turns_used < max_turns:
+		# No pause is held yet this turn. Cleared here, at the very top, rather
+		# than just before the tool loop: the flag must never outlive the turn
+		# that set it, and a turn can also end at the final-answer return below.
+		frappe.flags[PAUSE_HELD_FLAG] = False
 		_turn_t0 = time.perf_counter()
 		step = await adapter.step(
 			system, transcript, tools=tools or None, max_tokens=max_tokens
@@ -187,6 +201,7 @@ async def run_agent_loop(
 					pending_call = {
 						"id": call.id, "name": call.name, "arguments": call.arguments
 					}
+					frappe.flags[PAUSE_HELD_FLAG] = True
 					continue
 				result = _SECOND_HUMAN_RESULT
 			elif tool is None:
@@ -204,8 +219,13 @@ async def run_agent_loop(
 							"id": call.id, "name": call.name, "arguments": call.arguments
 						}
 						deferred_wait = deferred.marker or {}
+						frappe.flags[PAUSE_HELD_FLAG] = True
 						continue
-					result = _SECOND_HUMAN_RESULT
+					# A second pause in the same turn. Reaching here means the
+					# tool got past the connector's own guard and parked anyway,
+					# so its work IS running and this turn cannot collect it —
+					# say so rather than blaming a human task.
+					result = _SECOND_PAUSE_RESULT
 				except PolicyViolation as violation:
 					# The interceptor refused the call BEFORE the tool ran
 					# (WI-001645). Handed back as an ordinary tool result, so the
