@@ -57,6 +57,7 @@ LIMIT_LABELS = {
 	"max_task_handoffs": "hand-offs between agents",
 	"delegation_deadline_minutes": "time allowed",
 	"turn_cap": "tool-calling turns",
+	"max_delegation_retries": "retries",
 }
 
 _TERMINAL = ("Completed", "Failed", "Needs Review")
@@ -244,6 +245,85 @@ def sync_from_task(task) -> None:
 			title="Agent Delegation: could not sync a delegation",
 			message=frappe.get_traceback(),
 		)
+
+
+# ── Retry: max_delegation_retries, finally wired to something ────────────────
+#
+# The field has existed with a default of 3 since WI-002008 and nothing read it,
+# because nothing retried a delegation. Four decisions make it a control rather
+# than a setting, and each is a judgement worth stating:
+#
+# 1. Only a FAILED worker is retried. A timed-out one is not — its time is up,
+#    and that is the deadline escalation's business. A refusal at the door is not
+#    either: off the allow-list or past the depth limit is a configuration
+#    outcome, and repeating it only delays the escalation.
+# 2. The A2A Task row is REUSED, so one delegation stays one row and Agent
+#    Delegation keeps its single a2a_task link. The count lives on the delegation
+#    record, which is also what WI-002060's dashboard needs.
+# 3. A retry does NOT consume a hand-off and does NOT increase nesting depth. It
+#    is the same hand-off attempted again; counting it otherwise would trip the
+#    loop guards on a delegation that is working correctly.
+# 4. The deadline does NOT restart. Someone who allowed 120 minutes meant 120
+#    minutes for the work, not 120 per attempt — a restart would let a flapping
+#    worker run for retries x deadline in total.
+
+
+def attempts_allowed(delegating_agent: str | None) -> int:
+	"""How many times in total the worker may be run: the first attempt plus the
+	configured retries."""
+	return 1 + cint(guardrails.guardrails_for(delegating_agent).get("max_delegation_retries"))
+
+
+def should_retry(a2a_task: str | None) -> bool:
+	"""Has this failed delegation got an attempt left?"""
+	name = for_task(a2a_task)
+	if not name:
+		return False
+	row = frappe.db.get_value(
+		"Agent Delegation", name, ["attempt_count", "delegating_agent", "status"], as_dict=True
+	)
+	if not row or row.status == "Needs Review":
+		return False
+	return cint(row.attempt_count) < attempts_allowed(row.delegating_agent)
+
+
+def note_attempt(a2a_task: str | None) -> int:
+	"""Count another run of the worker. Returns the new attempt number."""
+	name = for_task(a2a_task)
+	if not name:
+		return 0
+	current = cint(frappe.db.get_value("Agent Delegation", name, "attempt_count")) or 1
+	frappe.db.set_value(
+		"Agent Delegation",
+		name,
+		{"attempt_count": current + 1, "status": "In Progress", "error_message": None},
+		update_modified=True,
+	)
+	return current + 1
+
+
+def retries_exhausted(a2a_task: str | None, *, detail: str = "") -> bool:
+	"""The last retry is used and it still has not completed — escalate through
+	the same seam every other limit uses."""
+	name = for_task(a2a_task)
+	if not name:
+		return False
+	row = frappe.db.get_value(
+		"Agent Delegation", name, ["attempt_count", "delegating_agent", "worker_agent"], as_dict=True
+	)
+	allowed = attempts_allowed(row.delegating_agent if row else None)
+	return stopped_at_limit(
+		a2a_task=a2a_task,
+		reason="max_delegation_retries",
+		limit_value=allowed,
+		reached_value=cint(row.attempt_count) if row else 0,
+		detail=(
+			detail
+			or f"The worker was run {cint(row.attempt_count) if row else 0} time(s) and failed each time."
+		),
+		worker_agent=row.worker_agent if row else None,
+		delegating_agent=row.delegating_agent if row else None,
+	)
 
 
 def stopped_at_limit(

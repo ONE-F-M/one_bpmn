@@ -65,19 +65,15 @@ class TestLimitReasonSets(FrappeTestCase):
 		self.assertEqual(
 			guardrails.LIMIT_REASONS, ("max_recursion_depth", "max_task_handoffs")
 		)
-		self.assertEqual(
-			guardrails.IN_FLIGHT_LIMIT_REASONS,
-			("delegation_deadline_minutes", "turn_cap"),
-		)
 		for reason in guardrails.IN_FLIGHT_LIMIT_REASONS:
 			self.assertNotIn(reason, guardrails.LIMIT_REASONS)
 
-	def test_retries_are_not_a_limit_reason_anywhere(self):
-		"""max_delegation_retries is a configured field that nothing reads —
-		nothing retries a delegation. A branch for it would be unreachable code
-		pretending to be a control."""
-		everything = guardrails.LIMIT_REASONS + guardrails.IN_FLIGHT_LIMIT_REASONS
-		self.assertNotIn("max_delegation_retries", everything)
+	def test_retries_are_an_in_flight_limit(self):
+		"""max_delegation_retries used to be a setting nothing read. It is now a
+		real limit, reached while the worker is in flight, so it escalates
+		through the same seam as the deadline and the turn cap."""
+		self.assertIn("max_delegation_retries", guardrails.IN_FLIGHT_LIMIT_REASONS)
+		self.assertNotIn("max_delegation_retries", guardrails.LIMIT_REASONS)
 
 	def test_every_reason_has_words_a_person_can_read(self):
 		for reason in guardrails.LIMIT_REASONS + guardrails.IN_FLIGHT_LIMIT_REASONS:
@@ -258,3 +254,82 @@ class TestStoppedAtLimit(FrappeTestCase):
 		"""An escalation that fails must not also break the reconciler that
 		noticed the breach."""
 		self.assertFalse(delegation.stopped_at_limit(a2a_task="A2A-NOPE", reason="turn_cap"))
+
+
+class TestDelegationRetry(FrappeTestCase):
+	"""max_delegation_retries, now that something reads it.
+
+	Four decisions are pinned here, because each was a judgement: only a FAILED
+	worker is retried, the attempt count lives on the delegation, the first
+	attempt counts toward the total, and exhausting the attempts escalates
+	through the same seam every other limit uses.
+	"""
+
+	def tearDown(self):
+		frappe.db.rollback()
+		super().tearDown()
+
+	def _recorded(self, delegating_agent=None):
+		task = _task(state="failed")
+		return task, delegation.record(task, delegating_agent=delegating_agent)
+
+	def test_attempts_allowed_counts_the_first_run_too(self):
+		"""Three retries means four runs in total would be the other reading;
+		this codebase treats the configured number as the run count."""
+		agent = _any_agent()
+		configured = guardrails.guardrails_for(agent)["max_delegation_retries"]
+		self.assertEqual(delegation.attempts_allowed(agent), 1 + configured)
+
+	def test_a_fresh_failure_has_a_retry_left(self):
+		task, ad = self._recorded()
+		self.assertTrue(delegation.should_retry(task.name))
+
+	def test_each_attempt_is_counted_on_the_delegation(self):
+		"""Not on the A2A Task: one delegation stays one row, and the count is
+		what WI-002060's dashboard needs."""
+		task, ad = self._recorded()
+		self.assertEqual(delegation.note_attempt(task.name), 2)
+		self.assertEqual(frappe.db.get_value("Agent Delegation", ad, "attempt_count"), 2)
+
+	def test_a_retry_puts_it_back_to_in_progress(self):
+		"""And clears the stale failure — the row spans every attempt."""
+		task, ad = self._recorded()
+		frappe.db.set_value("Agent Delegation", ad, "error_message", "old failure")
+		delegation.note_attempt(task.name)
+		row = frappe.db.get_value(
+			"Agent Delegation", ad, ["status", "error_message"], as_dict=True
+		)
+		self.assertEqual(row.status, "In Progress")
+		self.assertIsNone(row.error_message)
+
+	def test_retries_run_out_after_the_allowed_number(self):
+		task, ad = self._recorded()
+		allowed = delegation.attempts_allowed(None)
+		for _ in range(allowed - 1):
+			self.assertTrue(delegation.should_retry(task.name))
+			delegation.note_attempt(task.name)
+		self.assertFalse(
+			delegation.should_retry(task.name), "it retried past the configured limit"
+		)
+
+	def test_exhaustion_escalates_like_any_other_limit(self):
+		task, ad = self._recorded()
+		frappe.db.set_value("Agent Delegation", ad, "attempt_count", 99)
+		delegation.retries_exhausted(task.name)
+		row = frappe.db.get_value(
+			"Agent Delegation", ad, ["status", "stopped_reason", "reached_value"], as_dict=True
+		)
+		self.assertEqual(row.status, "Needs Review")
+		self.assertEqual(row.stopped_reason, "max_delegation_retries")
+		self.assertEqual(row.reached_value, 99)
+
+	def test_a_delegation_already_needing_review_is_not_retried(self):
+		"""Once a person has been asked to look at it, retrying behind their
+		back would undo the escalation."""
+		task, ad = self._recorded()
+		frappe.db.set_value("Agent Delegation", ad, "status", "Needs Review")
+		self.assertFalse(delegation.should_retry(task.name))
+
+	def test_an_unrecorded_task_is_never_retried(self):
+		self.assertFalse(delegation.should_retry("A2A-NOT-A-THING"))
+		self.assertEqual(delegation.note_attempt("A2A-NOT-A-THING"), 0)

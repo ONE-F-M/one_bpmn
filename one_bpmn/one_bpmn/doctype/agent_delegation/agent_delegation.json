@@ -23,6 +23,7 @@
   "section_chain",
   "delegation_depth",
   "handoff_count",
+  "attempt_count",
   "column_break_chain",
   "limit_value",
   "reached_value",
@@ -37,34 +38,201 @@
   "error_message"
  ],
  "fields": [
-  {"fieldname": "section_who", "fieldtype": "Section Break", "label": "Delegation"},
-  {"description": "The agent that handed the work over. Empty means the delegation was made outside an AI Agent Task, in which case no agent's limits or allow-list applied.", "fieldname": "delegating_agent", "fieldtype": "Link", "in_standard_filter": 1, "label": "Delegating Agent", "options": "AI Agent Configuration", "read_only": 1},
-  {"fieldname": "worker_agent", "fieldtype": "Link", "in_list_view": 1, "in_standard_filter": 1, "label": "Worker Agent", "options": "AI Agent Configuration", "read_only": 1, "reqd": 1},
-  {"fieldname": "column_break_who", "fieldtype": "Column Break"},
-  {"default": "Delegated", "description": "Needs Review means the work stopped because a limit was hit, not because it finished — a person has to look at it. Failed means it errored or was refused before starting.", "fieldname": "status", "fieldtype": "Select", "in_list_view": 1, "in_standard_filter": 1, "label": "Status", "options": "Delegated\nIn Progress\nNeeds Review\nCompleted\nFailed", "read_only": 1},
-  {"description": "Which limit stopped it, when one did.", "fieldname": "stopped_reason", "fieldtype": "Select", "in_list_view": 1, "in_standard_filter": 1, "label": "Stopped Reason", "options": "\nmax_recursion_depth\nmax_task_handoffs\ndelegation_deadline_minutes\nturn_cap", "read_only": 1},
-  {"fieldname": "section_context", "fieldtype": "Section Break", "label": "What it belongs to"},
-  {"description": "The instance that delegated. For an orchestrator invoked as a Call Activity this is the CALLER's instance — the called process runs inside it, so it has none of its own.", "fieldname": "orchestrator_instance", "fieldtype": "Link", "label": "Orchestrator Instance", "options": "BPMN Process Instance", "read_only": 1},
-  {"fieldname": "worker_instance", "fieldtype": "Link", "label": "Worker Instance", "options": "BPMN Process Instance", "read_only": 1},
-  {"fieldname": "a2a_task", "fieldtype": "Link", "in_list_view": 1, "label": "A2A Task", "options": "A2A Task", "read_only": 1},
-  {"fieldname": "column_break_context", "fieldtype": "Column Break"},
-  {"description": "What the work is about, taken from the delegating instance's context document. A generic reference on purpose: it is a Work Item on the Software Development path and an A2A Task in the test harness, and one_bpmn does not depend on frappe_agile.", "fieldname": "reference_doctype", "fieldtype": "Link", "in_standard_filter": 1, "label": "Reference Document Type", "options": "DocType", "read_only": 1},
-  {"fieldname": "reference_name", "fieldtype": "Dynamic Link", "in_list_view": 1, "in_standard_filter": 1, "label": "Reference Name", "options": "reference_doctype", "read_only": 1},
-  {"fieldname": "section_chain", "fieldtype": "Section Break", "label": "Chain"},
-  {"fieldname": "delegation_depth", "fieldtype": "Int", "label": "Delegation Depth", "read_only": 1},
-  {"fieldname": "handoff_count", "fieldtype": "Int", "label": "Hand-off Count", "read_only": 1},
-  {"fieldname": "column_break_chain", "fieldtype": "Column Break"},
-  {"description": "The limit that was in force.", "fieldname": "limit_value", "fieldtype": "Int", "label": "Limit", "read_only": 1},
-  {"description": "What it actually reached.", "fieldname": "reached_value", "fieldtype": "Int", "label": "Reached", "read_only": 1},
-  {"fieldname": "section_timing", "fieldtype": "Section Break", "label": "Timing"},
-  {"fieldname": "started_at", "fieldtype": "Datetime", "label": "Started At", "read_only": 1},
-  {"fieldname": "ended_at", "fieldtype": "Datetime", "label": "Ended At", "read_only": 1},
-  {"fieldname": "column_break_timing", "fieldtype": "Column Break"},
-  {"description": "Set once, and it is what makes the alert idempotent: the reconciler runs on a schedule and must not tell the same person about the same breach on every tick.", "fieldname": "notified_user", "fieldtype": "Link", "label": "Notified", "options": "User", "read_only": 1},
-  {"fieldname": "notified_at", "fieldtype": "Datetime", "label": "Notified At", "read_only": 1},
-  {"fieldname": "section_detail", "fieldtype": "Section Break", "label": "Detail"},
-  {"fieldname": "instruction", "fieldtype": "Small Text", "label": "Instruction", "read_only": 1},
-  {"fieldname": "error_message", "fieldtype": "Small Text", "label": "Error Message", "read_only": 1}
+  {
+   "fieldname": "section_who",
+   "fieldtype": "Section Break",
+   "label": "Delegation"
+  },
+  {
+   "description": "The agent that handed the work over. Empty means the delegation was made outside an AI Agent Task, in which case no agent's limits or allow-list applied.",
+   "fieldname": "delegating_agent",
+   "fieldtype": "Link",
+   "in_standard_filter": 1,
+   "label": "Delegating Agent",
+   "options": "AI Agent Configuration",
+   "read_only": 1
+  },
+  {
+   "fieldname": "worker_agent",
+   "fieldtype": "Link",
+   "in_list_view": 1,
+   "in_standard_filter": 1,
+   "label": "Worker Agent",
+   "options": "AI Agent Configuration",
+   "read_only": 1,
+   "reqd": 1
+  },
+  {
+   "fieldname": "column_break_who",
+   "fieldtype": "Column Break"
+  },
+  {
+   "default": "Delegated",
+   "description": "Needs Review means the work stopped because a limit was hit, not because it finished \u2014 a person has to look at it. Failed means it errored or was refused before starting.",
+   "fieldname": "status",
+   "fieldtype": "Select",
+   "in_list_view": 1,
+   "in_standard_filter": 1,
+   "label": "Status",
+   "options": "Delegated\nIn Progress\nNeeds Review\nCompleted\nFailed",
+   "read_only": 1
+  },
+  {
+   "description": "Which limit stopped it, when one did.",
+   "fieldname": "stopped_reason",
+   "fieldtype": "Select",
+   "in_list_view": 1,
+   "in_standard_filter": 1,
+   "label": "Stopped Reason",
+   "options": "\nmax_recursion_depth\nmax_task_handoffs\ndelegation_deadline_minutes\nturn_cap",
+   "read_only": 1
+  },
+  {
+   "fieldname": "section_context",
+   "fieldtype": "Section Break",
+   "label": "What it belongs to"
+  },
+  {
+   "description": "The instance that delegated. For an orchestrator invoked as a Call Activity this is the CALLER's instance \u2014 the called process runs inside it, so it has none of its own.",
+   "fieldname": "orchestrator_instance",
+   "fieldtype": "Link",
+   "label": "Orchestrator Instance",
+   "options": "BPMN Process Instance",
+   "read_only": 1
+  },
+  {
+   "fieldname": "worker_instance",
+   "fieldtype": "Link",
+   "label": "Worker Instance",
+   "options": "BPMN Process Instance",
+   "read_only": 1
+  },
+  {
+   "fieldname": "a2a_task",
+   "fieldtype": "Link",
+   "in_list_view": 1,
+   "label": "A2A Task",
+   "options": "A2A Task",
+   "read_only": 1
+  },
+  {
+   "fieldname": "column_break_context",
+   "fieldtype": "Column Break"
+  },
+  {
+   "description": "What the work is about, taken from the delegating instance's context document. A generic reference on purpose: it is a Work Item on the Software Development path and an A2A Task in the test harness, and one_bpmn does not depend on frappe_agile.",
+   "fieldname": "reference_doctype",
+   "fieldtype": "Link",
+   "in_standard_filter": 1,
+   "label": "Reference Document Type",
+   "options": "DocType",
+   "read_only": 1
+  },
+  {
+   "fieldname": "reference_name",
+   "fieldtype": "Dynamic Link",
+   "in_list_view": 1,
+   "in_standard_filter": 1,
+   "label": "Reference Name",
+   "options": "reference_doctype",
+   "read_only": 1
+  },
+  {
+   "fieldname": "section_chain",
+   "fieldtype": "Section Break",
+   "label": "Chain"
+  },
+  {
+   "fieldname": "delegation_depth",
+   "fieldtype": "Int",
+   "label": "Delegation Depth",
+   "read_only": 1
+  },
+  {
+   "fieldname": "handoff_count",
+   "fieldtype": "Int",
+   "label": "Hand-off Count",
+   "read_only": 1
+  },
+  {
+   "default": "1",
+   "description": "How many times the worker has been run for this delegation. 1 means it has not been retried. This is DELEGATION retry, distinct from AI Agent Run.retry_count, which counts model-call retries inside a single run.",
+   "fieldname": "attempt_count",
+   "fieldtype": "Int",
+   "in_list_view": 1,
+   "label": "Attempts",
+   "read_only": 1
+  },
+  {
+   "fieldname": "column_break_chain",
+   "fieldtype": "Column Break"
+  },
+  {
+   "description": "The limit that was in force.",
+   "fieldname": "limit_value",
+   "fieldtype": "Int",
+   "label": "Limit",
+   "read_only": 1
+  },
+  {
+   "description": "What it actually reached.",
+   "fieldname": "reached_value",
+   "fieldtype": "Int",
+   "label": "Reached",
+   "read_only": 1
+  },
+  {
+   "fieldname": "section_timing",
+   "fieldtype": "Section Break",
+   "label": "Timing"
+  },
+  {
+   "fieldname": "started_at",
+   "fieldtype": "Datetime",
+   "label": "Started At",
+   "read_only": 1
+  },
+  {
+   "fieldname": "ended_at",
+   "fieldtype": "Datetime",
+   "label": "Ended At",
+   "read_only": 1
+  },
+  {
+   "fieldname": "column_break_timing",
+   "fieldtype": "Column Break"
+  },
+  {
+   "description": "Set once, and it is what makes the alert idempotent: the reconciler runs on a schedule and must not tell the same person about the same breach on every tick.",
+   "fieldname": "notified_user",
+   "fieldtype": "Link",
+   "label": "Notified",
+   "options": "User",
+   "read_only": 1
+  },
+  {
+   "fieldname": "notified_at",
+   "fieldtype": "Datetime",
+   "label": "Notified At",
+   "read_only": 1
+  },
+  {
+   "fieldname": "section_detail",
+   "fieldtype": "Section Break",
+   "label": "Detail"
+  },
+  {
+   "fieldname": "instruction",
+   "fieldtype": "Small Text",
+   "label": "Instruction",
+   "read_only": 1
+  },
+  {
+   "fieldname": "error_message",
+   "fieldtype": "Small Text",
+   "label": "Error Message",
+   "read_only": 1
+  }
  ],
  "index_web_pages_for_search": 1,
  "links": [],
@@ -75,8 +243,27 @@
  "naming_rule": "Expression",
  "owner": "Administrator",
  "permissions": [
-  {"create": 1, "delete": 1, "email": 1, "export": 1, "print": 1, "read": 1, "report": 1, "role": "System Manager", "share": 1, "write": 1},
-  {"email": 1, "export": 1, "print": 1, "read": 1, "report": 1, "role": "Process Owner", "share": 1}
+  {
+   "create": 1,
+   "delete": 1,
+   "email": 1,
+   "export": 1,
+   "print": 1,
+   "read": 1,
+   "report": 1,
+   "role": "System Manager",
+   "share": 1,
+   "write": 1
+  },
+  {
+   "email": 1,
+   "export": 1,
+   "print": 1,
+   "read": 1,
+   "report": 1,
+   "role": "Process Owner",
+   "share": 1
+  }
  ],
  "sort_field": "modified",
  "sort_order": "DESC",

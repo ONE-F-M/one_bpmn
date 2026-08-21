@@ -486,6 +486,64 @@ def poll_a2a_tasks():
 			)
 
 
+def _wake_caller_if_any(row) -> None:
+	"""Wake the caller only when there is one.
+
+	The reconciler now also visits top-level delegations, which have no parked
+	step and no suspended agent. Guarded here rather than relying on the wake
+	path to no-op, so "nobody is waiting" stays an explicit case.
+	"""
+	if row.caller_wf_task_id or row.caller_agent_run:
+		_wake_a2a_caller(row)
+
+
+def _retry_delegation(task) -> bool:
+	"""Run the worker again if this failed delegation has an attempt left.
+
+	Returns True when a retry was started (the caller must NOT be woken — the
+	delegation is live again), False when it is genuinely finished, having first
+	escalated if the attempts ran out.
+	"""
+	from one_bpmn.agents.a2a import delegation, execute
+
+	try:
+		if delegation.should_retry(task.name):
+			attempt = delegation.note_attempt(task.name)
+			config = frappe.db.get_value(
+				"AI Agent Configuration",
+				task.agent_configuration,
+				["name", "agent_id", "agent_type", "process_model"],
+				as_dict=True,
+			)
+			if not config:
+				return False
+			payload = frappe.parse_json(task.request_payload or "{}") or {}
+			# Back to submitted and the error cleared: the row is one delegation
+			# across all its attempts, so a stale failure must not linger on it.
+			task.db_set(
+				{"state": "submitted", "error_message": None, "error_code": None},
+				update_modified=True,
+			)
+			task.reload()
+			frappe.logger("one_bpmn").info(
+				f"A2A delegation {task.name}: retrying {task.agent_configuration} "
+				f"(attempt {attempt})"
+			)
+			execute.run_for_task(task, config, payload.get("instruction") or "")
+			task.reload()
+			return task.state not in ("failed", "rejected")
+
+		# No attempt left. Escalate once through the same seam as every other
+		# limit, then let the caller be woken with the failure.
+		delegation.retries_exhausted(task.name)
+		return False
+	except Exception:
+		frappe.log_error(
+			title=f"A2A delegation retry failed ({task.name})", message=frappe.get_traceback()
+		)
+		return False
+
+
 def _escalate_deadline(task_name: str, agent_configuration=None, caller_instance=None) -> None:
 	"""A delegated task ran out of time — tell the person who owns it.
 
@@ -595,6 +653,14 @@ def _reconcile_internal_tasks(now) -> None:
 		or_filters={
 			"caller_wf_task_id": ["is", "set"],
 			"caller_agent_run": ["is", "set"],
+			# A top-level delegation has NEITHER — nobody local is parked on it.
+			# It was therefore never visited, so its state never advanced past
+			# "working" even after its instance had finished, and anything
+			# polling the row waited forever. Seen with an A2A-startable
+			# orchestrator: instance Completed, task still "working" through
+			# 150s of polling; one manual refresh_state() settled it at once.
+			# It has an instance, so it has a state that can be derived.
+			"instance": ["is", "set"],
 		},
 		fields=[
 			"name",
@@ -605,6 +671,9 @@ def _reconcile_internal_tasks(now) -> None:
 			"deadline",
 			"poll_attempts",
 			"state",
+			"instance",
+			"agent_configuration",
+			"request_payload",
 		],
 		limit=100,
 	)
@@ -625,9 +694,17 @@ def _reconcile_internal_tasks(now) -> None:
 			)
 
 			task = frappe.get_doc("A2A Task", row.name)
+
+			# A failed worker may have an attempt left. Checked BEFORE the
+			# terminal branch below, because "failed" is terminal and would
+			# otherwise wake the caller with a failure that was never final.
+			if task.state == "failed" and _retry_delegation(task):
+				frappe.db.commit()
+				continue
+
 			if task.state in terminal:
 				# Finished in the gap between checks — wake the caller now.
-				_wake_a2a_caller(row)
+				_wake_caller_if_any(row)
 				_mark_resumed(row.name)
 				frappe.db.commit()
 				continue
@@ -645,7 +722,7 @@ def _reconcile_internal_tasks(now) -> None:
 					agent_configuration=getattr(row, "agent_configuration", None),
 					caller_instance=getattr(row, "caller_instance", None),
 				)
-				_wake_a2a_caller(row)
+				_wake_caller_if_any(row)
 				_mark_resumed(row.name)
 				frappe.db.commit()
 				continue
@@ -653,7 +730,7 @@ def _reconcile_internal_tasks(now) -> None:
 			local.refresh(task)
 			task.reload()
 			if task.state in terminal:
-				_wake_a2a_caller(row)
+				_wake_caller_if_any(row)
 				_mark_resumed(row.name)
 			frappe.db.commit()
 		except Exception:

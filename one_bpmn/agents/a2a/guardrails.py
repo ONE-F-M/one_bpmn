@@ -298,11 +298,11 @@ LIMIT_REASONS = ("max_recursion_depth", "max_task_handoffs")
 # escalation seam (agents/a2a/delegation.stopped_at_limit) but not the
 # record-creating one, because there is nothing left to create.
 #
-# max_delegation_retries is absent on purpose: it is a configured field with a
-# default in DEFAULTS above, and nothing in the codebase retries a delegation,
-# so there is no moment at which it could fire. Implementing retry is its own
-# story; a branch here would be unreachable code pretending to be a control.
-IN_FLIGHT_LIMIT_REASONS = ("delegation_deadline_minutes", "turn_cap")
+IN_FLIGHT_LIMIT_REASONS = (
+	"delegation_deadline_minutes",
+	"turn_cap",
+	"max_delegation_retries",
+)
 
 
 def record_limit_breach(
