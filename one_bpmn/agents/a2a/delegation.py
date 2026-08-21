@@ -139,7 +139,13 @@ def record(task, *, delegating_agent: str | None, instruction: str = "") -> str 
 
 
 def record_refusal(
-	refusal, *, delegating_agent: str | None, target: str, a2a_task: str | None, counters: dict
+	refusal,
+	*,
+	delegating_agent: str | None,
+	target: str,
+	a2a_task: str | None,
+	counters: dict,
+	instance: str | None = None,
 ) -> str | None:
 	"""A delegation refused at the door: Failed, with the limit that stopped it.
 
@@ -174,8 +180,30 @@ def record_refusal(
 			"ended_at": now_datetime(),
 			"error_message": str(refusal)[:500],
 		})
+		ref_doctype, ref_name = _reference_for(instance)
+		doc.reference_doctype = ref_doctype
+		doc.reference_name = ref_name
 		doc.flags.ignore_permissions = True
 		doc.insert(ignore_permissions=True)
+
+		# The same trail the in-flight path leaves. notify_refusal() puts a
+		# Notification Log in front of a person, but that is gone once
+		# dismissed — and it is not even created when no recipient resolves,
+		# which is every Administrator-owned agent on a site whose Processes
+		# name no owner. The comment is what is still there afterwards.
+		_comment_on_reference(
+			ref_doctype,
+			ref_name,
+			_limit_message(
+				worker=target,
+				reason=reason,
+				limit_value=cint(limits.get(reason)),
+				reached_value=reached,
+				detail=str(refusal),
+				ref_doctype=ref_doctype,
+				ref_name=ref_name,
+			),
+		)
 		return doc.name
 	except Exception:
 		frappe.log_error(

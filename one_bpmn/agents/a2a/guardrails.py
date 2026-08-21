@@ -236,6 +236,17 @@ def refusal_recipient(delegating_agent: str | None = None, instance: str | None 
 		started_by = frappe.db.get_value("BPMN Process Instance", instance, "initiated_by")
 		if started_by:
 			return started_by
+
+	# Nothing resolved, so the escalation has nowhere to land. Said out loud
+	# rather than returned quietly: a limit stopped real work and the only
+	# remaining trail is the comment on the referenced document. Seen on a dev
+	# site where every agent is Administrator-owned and no Process names an
+	# owner, which is exactly the configuration that hides it.
+	frappe.logger("one_bpmn").warning(
+		"A2A delegation escalation has no recipient — no process owner on the running "
+		f"process, none on agent {delegating_agent!r}, and no initiator on instance "
+		f"{instance!r}. Set a process owner or the alert is lost."
+	)
 	return None
 
 

@@ -143,6 +143,7 @@ def delegate(
 			target=config.name,
 			a2a_task=breach,
 			counters=counters,
+			instance=caller_instance,
 		)
 		raise
 
