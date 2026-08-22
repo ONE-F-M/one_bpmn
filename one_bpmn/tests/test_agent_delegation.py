@@ -256,6 +256,100 @@ class TestStoppedAtLimit(FrappeTestCase):
 		self.assertFalse(delegation.stopped_at_limit(a2a_task="A2A-NOPE", reason="turn_cap"))
 
 
+class TestEscalationWithoutARowYet(FrappeTestCase):
+	"""A stopped delegation that has no tracking row must still be told once.
+
+	The "already told someone" stamp lives on the Agent Delegation row. With no
+	row, stopped_at_limit had nowhere to write it, so every reconciler tick told
+	the person again — three passes, three alerts. record() never raises, which
+	means it can decline and leave nothing behind, so the case is reachable.
+	"""
+
+	def tearDown(self):
+		frappe.db.rollback()
+		super().tearDown()
+
+	def test_a_row_is_written_before_escalating(self):
+		task = _task(state="working")
+		self.assertIsNone(delegation.for_task(task.name), "precondition: no row yet")
+		delegation.stopped_at_limit(a2a_task=task.name, reason="turn_cap",
+			limit_value=1, reached_value=1)
+		self.assertTrue(delegation.for_task(task.name), "the escalation left a record")
+
+	def test_only_the_first_pass_tells_anyone(self):
+		task = _task(state="working")
+		told = [
+			delegation.stopped_at_limit(a2a_task=task.name, reason="turn_cap",
+				limit_value=1, reached_value=1)
+			for _ in range(3)
+		]
+		self.assertLessEqual(sum(1 for t in told if t), 1, f"told on {told}")
+
+	def test_the_row_carries_the_limit_that_stopped_it(self):
+		task = _task(state="working")
+		delegation.stopped_at_limit(a2a_task=task.name, reason="delegation_deadline_minutes",
+			limit_value=30, reached_value=31)
+		row = frappe.db.get_value("Agent Delegation", delegation.for_task(task.name),
+			["status", "stopped_reason", "limit_value"], as_dict=True)
+		self.assertEqual(row.status, "Needs Review")
+		self.assertEqual(row.stopped_reason, "delegation_deadline_minutes")
+		self.assertEqual(row.limit_value, 30)
+
+
+class TestDeadlineBelongsToTheDelegator(FrappeTestCase):
+	"""Whose clock is it?
+
+	delegation_deadline_minutes used to be read off the TARGET agent, on the
+	reasoning that the agent doing the work knows how long it needs. That made it
+	the one guardrail a worker could set for itself: with 1 minute configured on
+	the orchestrator and 60 on the worker, an end-to-end run took the worker's
+	number and the orchestrator's limit did nothing at all. It now reads off the
+	delegating agent, beside the three limits it belongs with.
+	"""
+
+	def tearDown(self):
+		frappe.db.rollback()
+		super().tearDown()
+
+	@staticmethod
+	def _agents():
+		"""Two real configurations to play delegator and worker."""
+		names = frappe.get_all("AI Agent Configuration", pluck="name", limit=2)
+		return (names + [None, None])[:2]
+
+	def test_the_delegating_agent_supplies_the_deadline(self):
+		delegator, _ = self._agents()
+		frappe.db.set_value("AI Agent Configuration", delegator, "delegation_deadline_minutes", 7)
+		self.assertEqual(guardrails.deadline_minutes_for(delegator), 7)
+
+	def test_a_blank_field_means_no_limit_of_its_own(self):
+		"""0, so the caller falls through to its own backstop — as distinct from
+		the DEFAULTS limits, where blank means "use the platform default"."""
+		delegator, _ = self._agents()
+		frappe.db.set_value("AI Agent Configuration", delegator, "delegation_deadline_minutes", 0)
+		self.assertEqual(guardrails.deadline_minutes_for(delegator), 0)
+
+	def test_no_delegating_agent_means_no_limit(self):
+		self.assertEqual(guardrails.deadline_minutes_for(None), 0)
+
+	def test_the_workers_own_number_is_not_consulted(self):
+		"""The regression itself: the worker's field must not decide the clock."""
+		delegator, worker = self._agents()
+		if not worker or worker == delegator:
+			self.skipTest("need two distinct agent configurations")
+		frappe.db.set_value("AI Agent Configuration", delegator, "delegation_deadline_minutes", 1)
+		frappe.db.set_value("AI Agent Configuration", worker, "delegation_deadline_minutes", 60)
+		self.assertEqual(guardrails.deadline_minutes_for(delegator), 1)
+		self.assertNotEqual(guardrails.deadline_minutes_for(delegator), 60)
+
+	def test_the_target_fields_no_longer_carry_it(self):
+		"""Pins the removal, so a future edit does not quietly reintroduce the
+		worker's number as a fallback."""
+		from one_bpmn.agents.a2a import local
+
+		self.assertNotIn("delegation_deadline_minutes", local.TARGET_FIELDS)
+
+
 class TestLimitReachesTheModel(FrappeTestCase):
 	"""The delegating MODEL has to be told which limit stopped its worker.
 

@@ -60,6 +60,30 @@ def guardrails_for(agent_configuration: str) -> dict:
 	return {field: cint(values.get(field)) or default for field, default in DEFAULTS.items()}
 
 
+def deadline_minutes_for(agent_configuration: str | None) -> int:
+	"""How long the DELEGATING agent allows one delegation to run.
+
+	Kept out of DEFAULTS deliberately: 0 here means "this agent sets no time
+	limit", and the caller supplies its own backstop, whereas every limit in
+	DEFAULTS has a platform default that applies when the field is blank.
+
+	Read off the delegating agent for the same reason depth, hand-offs and
+	retries are: it is a guardrail on the party that has to notice work is not
+	coming back. It used to be read off the TARGET, on the reasoning that the
+	agent doing the work knows how long it needs — which let a worker grant
+	itself more time than the orchestrator allowed. With 1 minute set on the
+	orchestrator and 60 on the worker, the delegation ran to the worker's
+	number and the orchestrator's limit did nothing.
+	"""
+	if not agent_configuration:
+		return 0
+	return cint(
+		frappe.db.get_value(
+			"AI Agent Configuration", agent_configuration, "delegation_deadline_minutes"
+		)
+	)
+
+
 def may_delegate_to(agent_configuration: str, target: str) -> bool:
 	"""May this agent hand work to that one? (WI-002010)
 

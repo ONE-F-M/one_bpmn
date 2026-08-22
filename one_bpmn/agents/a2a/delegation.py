@@ -384,6 +384,21 @@ def stopped_at_limit(
 	"""
 	try:
 		name = for_task(a2a_task)
+		if not name and a2a_task:
+			# No tracking row for this task. In production one always exists by
+			# now — record() writes it when the delegation starts, and
+			# record_refusal() when a limit stops it at the door — but record()
+			# never raises, so it can decline and leave nothing behind. Write it
+			# here rather than escalating against nothing: the row is where the
+			# "already told someone" stamp lives, so without it a stopped
+			# delegation alerts on EVERY reconciler tick, and the story's first
+			# promise (a stopped delegation leaves a record) quietly fails too.
+			try:
+				name = record(
+					frappe.get_doc("A2A Task", a2a_task), delegating_agent=delegating_agent
+				)
+			except Exception:
+				name = None
 		row = (
 			frappe.db.get_value(
 				"Agent Delegation",

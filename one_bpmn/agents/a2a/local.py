@@ -40,7 +40,6 @@ TARGET_FIELDS = (
 	"lifecycle_status",
 	"agent_type",
 	"process_model",
-	"delegation_deadline_minutes",
 )
 
 DEFAULT_DEADLINE_MINUTES = 240
@@ -104,11 +103,19 @@ def delegate(
 	"""
 	config = resolve_target(target)
 	counters = guardrails.next_counters(parent_task)
-	# The agent doing the work knows best how long it needs; a step may still
-	# override, and 240 minutes is the backstop.
+	# The DELEGATING agent's limit, never the worker's. delegation_deadline_minutes
+	# sits beside max_recursion_depth, max_task_handoffs and max_delegation_retries
+	# on the orchestrator's configuration, and it is enforced the same way: locally,
+	# by the party that has to notice the work is not coming back. Reading it off
+	# the target instead let a worker grant itself more time than the orchestrator
+	# allowed — 1 minute configured on the orchestrator, 60 on the worker, and the
+	# delegation ran to 60.
+	#
+	# A step may still override for a single delegation (the shape's
+	# timeout_minutes), and 240 minutes is the backstop when nobody says.
 	minutes = (
 		frappe.utils.cint(deadline_minutes)
-		or frappe.utils.cint(config.get("delegation_deadline_minutes"))
+		or guardrails.deadline_minutes_for(delegating_agent)
 		or DEFAULT_DEADLINE_MINUTES
 	)
 	# Always enforced, even with no delegating agent to attribute it to: the
