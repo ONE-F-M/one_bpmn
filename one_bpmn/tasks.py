@@ -811,11 +811,18 @@ def _delegation_answer(task) -> str:
 	"""
 	if task.state == "completed":
 		payload = frappe.parse_json(task.result or "{}") or {}
-		return (
+		answer = (
 			payload.get("text")
 			or task.status_message
 			or "The other agent finished but sent no reply."
 		)
+		# A worker that ran out of turns still comes back "completed" — it
+		# finished its run, it just never finished the WORK. The delegation row
+		# knows which limit stopped it, so say so here rather than leaving the
+		# model to guess from an empty answer.
+		from one_bpmn.agents.a2a import delegation
+
+		return answer + delegation.limit_note(task.name)
 	reason = task.error_message or "no reason given"
 	return f"The other agent did not complete this ({task.state}): {reason}"
 

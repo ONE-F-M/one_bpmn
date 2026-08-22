@@ -63,6 +63,44 @@ LIMIT_LABELS = {
 _TERMINAL = ("Completed", "Failed", "Needs Review")
 
 
+def limit_note(a2a_task: str | None) -> str:
+	"""One sentence for the DELEGATING MODEL when its worker stopped at a limit.
+
+	The worker's own answer only reports what it managed to produce — "the
+	connector agent produced no answer" — which reads exactly like a transient
+	outage. In testing the orchestrator read it that way and told the reporter
+	the specialist was "unable to complete or respond right now", when the truth
+	was a configured limit that would stop the next attempt the same way. The
+	comment on the work item said so; the model was the one party never told.
+
+	Same rule as the refusal path in a2a_client_ops: the reason exists, so it
+	reaches the model. Returns "" when nothing stopped the delegation, so the
+	normal answer is passed through untouched.
+	"""
+	if not a2a_task:
+		return ""
+	row = frappe.db.get_value(
+		"Agent Delegation",
+		{"a2a_task": a2a_task},
+		["stopped_reason", "limit_value", "reached_value"],
+		as_dict=True,
+	)
+	if not row or not row.stopped_reason:
+		return ""
+
+	label = LIMIT_LABELS.get(row.stopped_reason, row.stopped_reason)
+	numbers = ""
+	if cint(row.limit_value):
+		numbers = f" — {cint(row.reached_value)} against a limit of {cint(row.limit_value)}"
+	return (
+		f" It stopped before finishing because it reached the limit on {label}{numbers}, so "
+		"whatever it did send back is partial and the work is NOT done. This is a configured "
+		"limit rather than a transient failure: handing the same work over again will stop the "
+		"same way until someone raises the limit. Report that it stopped at a limit — do not "
+		"describe it as unavailable, and do not claim the work was completed."
+	)
+
+
 def _reference_for(instance_name: str | None) -> tuple[str | None, str | None]:
 	"""What the delegating instance is about.
 

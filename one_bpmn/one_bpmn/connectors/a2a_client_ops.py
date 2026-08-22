@@ -127,10 +127,17 @@ def delegate_to_local_agent(params: dict, ctx: dict) -> dict | None:
 		a2a_task.db_set("resume_enqueued", 1, update_modified=False)
 		if a2a_task.state == "completed":
 			payload = frappe.parse_json(a2a_task.result or "{}") or {}
+			# Same note the parked-then-resumed path adds in tasks._delegation_answer:
+			# a worker that ran out of turns reports "completed" for its run while the
+			# work itself is unfinished, and the model has to be told which limit
+			# stopped it or it reads the thin answer as a transient outage.
+			from one_bpmn.agents.a2a import delegation
+
+			text = payload.get("text") or a2a_task.status_message or ""
 			return {
 				"a2a_task": a2a_task.name,
 				"state": "completed",
-				"text": payload.get("text") or a2a_task.status_message or "",
+				"text": text + delegation.limit_note(a2a_task.name),
 			}
 		return {"a2a_task": a2a_task.name, "state": a2a_task.state, "error": a2a_task.error_message or ""}
 

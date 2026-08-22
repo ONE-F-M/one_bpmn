@@ -256,6 +256,68 @@ class TestStoppedAtLimit(FrappeTestCase):
 		self.assertFalse(delegation.stopped_at_limit(a2a_task="A2A-NOPE", reason="turn_cap"))
 
 
+class TestLimitReachesTheModel(FrappeTestCase):
+	"""The delegating MODEL has to be told which limit stopped its worker.
+
+	A worker that runs out of tool-calling turns still finishes its run, so the
+	A2A Task reads "completed" and the only thing coming back is whatever thin
+	text it managed. The orchestrator read that as an outage and reported the
+	specialist was "unable to respond right now" — while the comment on the work
+	item correctly said the turn cap had stopped it. The reason existed; the
+	model was the one party never given it.
+	"""
+
+	def tearDown(self):
+		frappe.db.rollback()
+		super().tearDown()
+
+	def test_no_note_when_nothing_stopped_the_delegation(self):
+		task = _task(state="completed")
+		delegation.record(task, delegating_agent=None)
+		self.assertEqual(delegation.limit_note(task.name), "")
+
+	def test_no_note_for_a_task_that_was_never_recorded(self):
+		self.assertEqual(delegation.limit_note("A2A-does-not-exist"), "")
+		self.assertEqual(delegation.limit_note(None), "")
+
+	def test_note_names_the_limit_and_both_numbers(self):
+		task = _task(state="completed")
+		delegation.record(task, delegating_agent=None)
+		delegation.stopped_at_limit(
+			a2a_task=task.name, reason="turn_cap", limit_value=1, reached_value=1
+		)
+		note = delegation.limit_note(task.name)
+		self.assertIn("tool-calling turns", note)
+		self.assertIn("1 against a limit of 1", note)
+
+	def test_note_says_a_retry_will_not_help(self):
+		"""The behaviour this is for: the orchestrator must not offer to try
+		again as though the worker had merely been unlucky."""
+		task = _task(state="completed")
+		delegation.record(task, delegating_agent=None)
+		delegation.stopped_at_limit(
+			a2a_task=task.name, reason="turn_cap", limit_value=1, reached_value=1
+		)
+		note = delegation.limit_note(task.name)
+		self.assertIn("configured limit", note)
+		self.assertIn("not", note)
+
+	def test_the_answer_handed_back_carries_the_note(self):
+		"""End of the seam: what tasks._delegation_answer actually returns."""
+		from one_bpmn.tasks import _delegation_answer
+
+		task = _task(state="completed")
+		task.db_set("result", frappe.as_json({"text": "produced no answer."}), update_modified=False)
+		task.reload()
+		delegation.record(task, delegating_agent=None)
+		delegation.stopped_at_limit(
+			a2a_task=task.name, reason="turn_cap", limit_value=1, reached_value=1
+		)
+		answer = _delegation_answer(task)
+		self.assertIn("produced no answer.", answer)
+		self.assertIn("tool-calling turns", answer)
+
+
 class TestDelegationRetry(FrappeTestCase):
 	"""max_delegation_retries, now that something reads it.
 
