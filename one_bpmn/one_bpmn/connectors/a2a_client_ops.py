@@ -84,16 +84,42 @@ def delegate_to_local_agent(params: dict, ctx: dict) -> dict | None:
 			),
 		}
 
-	a2a_task = local.delegate(
-		_delegating_agent(instance, params),
-		target,
-		instruction,
-		parent_task=_parent_task(instance, params),
-		caller_instance=getattr(instance, "name", None),
-		caller_wf_task_id=_caller_task_id(task),
-		bpmn_id=_bpmn_id(task),
-		deadline_minutes=cint(params.get("timeout_minutes")) or None,
-	)
+	try:
+		a2a_task = local.delegate(
+			_delegating_agent(instance, params),
+			target,
+			instruction,
+			parent_task=_parent_task(instance, params),
+			caller_instance=getattr(instance, "name", None),
+			caller_wf_task_id=_caller_task_id(task),
+			bpmn_id=_bpmn_id(task),
+			deadline_minutes=cint(params.get("timeout_minutes")) or None,
+		)
+	except guardrails.DelegationRefused as refusal:
+		# Tell the MODEL why, rather than letting this reach dispatch_connector's
+		# generic handler — which logs the traceback and hands back None.
+		#
+		# A null tool result is the worst possible answer here, because it is
+		# indistinguishable from a worker that ran and produced nothing. Twice in
+		# testing the agent reported "the specialist came back empty" and
+		# suggested retrying, when the truth was a refusal that retrying can
+		# never fix: once the target was off the delegating agent's
+		# allowed-delegates list, once the target was not Live because a bad
+		# model had flipped it to Needs Attention. The reason was in the
+		# exception the whole time and simply never reached the model.
+		#
+		# Returned rather than re-raised: dispatch_connector already swallows
+		# this exception, so the process flow is unchanged — the only difference
+		# is that the reason now travels with it.
+		return {
+			"state": "refused",
+			"reason": getattr(refusal, "reason_code", "delegation_refused"),
+			"text": (
+				f"Nothing was started for {target}. The delegation was refused: {refusal} "
+				"This is a configuration problem, not a transient one — calling the tool "
+				"again will be refused the same way."
+			),
+		}
 
 	if a2a_task.state in ("completed", "failed", "canceled", "rejected"):
 		# Answered inside the call: nothing parked, so nothing needs waking and

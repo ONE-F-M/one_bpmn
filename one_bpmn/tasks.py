@@ -580,7 +580,12 @@ def _escalate_deadline(task_name: str, agent_configuration=None, caller_instance
 		limit_value=allowed,
 		reached_value=ran_for,
 		detail=(
-			f"It was allowed {allowed} minute(s) and had been running for about "
+			# A deadline moved into the past by hand — which is how a breach gets
+			# tested — computes as zero allowance, and "allowed 0 minute(s)" reads
+			# like a misconfiguration rather than an expired deadline.
+			f"Its deadline had already passed; it had been running for about {ran_for} minute(s)."
+			if allowed <= 0
+			else f"It was allowed {allowed} minute(s) and had been running for about "
 			f"{ran_for} when the deadline passed."
 		),
 		instance=caller_instance,
