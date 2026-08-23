@@ -554,6 +554,94 @@ class TestTheDeadlineCoversAllAttempts(FrappeTestCase):
 		self.assertIn("not per attempt", note)
 
 
+class TestFinishedWorkIsNotTimedOut(FrappeTestCase):
+	"""A deadline is for work that is STILL RUNNING.
+
+	The task row lags: nothing writes "completed" onto it until something looks,
+	so a worker that finished perfectly well still reads "working" to the
+	reconciler. Judging the clock before asking the worker how it got on threw
+	finished work away.
+
+	Seen once, expensively. A one-minute deadline; the worker finished at 13:05
+	having built the connector and written a full report; the reconciler did not
+	run until 13:12, marked the task timed-out, discarded the result, and had the
+	orchestrator tell a person "the Connector Agent timed out before finishing
+	this one". The work existed. The report existed. Both were thrown away.
+	"""
+
+	def tearDown(self):
+		frappe.db.rollback()
+		super().tearDown()
+
+	def test_a_worker_that_finished_late_keeps_its_result(self):
+		from unittest.mock import patch as mock_patch
+
+		from one_bpmn import tasks as scheduled
+		from one_bpmn.agents.a2a import local
+
+		task = _task(state="working")
+		name = delegation.record(task, delegating_agent=None)
+		# Past its deadline, and nobody has looked since it finished.
+		frappe.db.set_value(
+			"A2A Task",
+			task.name,
+			{
+				"deadline": frappe.utils.add_to_date(now_datetime(), minutes=-10),
+				"caller_agent_run": None,
+				"caller_wf_task_id": None,
+				# The reconciler only visits a row it can derive a state for. A
+				# top-level delegation qualifies through `instance`.
+				"instance": frappe.db.get_value("BPMN Process Instance", {}, "name"),
+				"next_poll_at": frappe.utils.add_to_date(now_datetime(), minutes=-1),
+				"resume_enqueued": 0,
+			},
+			update_modified=False,
+		)
+
+		def finished(t):
+			"""What refresh() does for a worker whose run has completed."""
+			frappe.db.set_value(
+				"A2A Task", t.name,
+				{"state": "completed", "result": frappe.as_json({"text": "built the connector"})},
+				update_modified=False,
+			)
+
+		with mock_patch.object(local, "refresh", side_effect=finished):
+			scheduled._reconcile_internal_tasks(now_datetime())
+
+		row = frappe.db.get_value("A2A Task", task.name, ["state", "result"], as_dict=True)
+		self.assertEqual(row.state, "completed", "finished is finished, however late anyone looked")
+		self.assertIn("built the connector", row.result or "")
+		self.assertNotEqual(
+			frappe.db.get_value("Agent Delegation", name, "stopped_reason"),
+			"delegation_deadline_minutes",
+		)
+
+	def test_a_worker_still_running_past_its_deadline_is_timed_out(self):
+		"""The behaviour that must survive the fix."""
+		from unittest.mock import patch as mock_patch
+
+		from one_bpmn import tasks as scheduled
+		from one_bpmn.agents.a2a import local
+
+		task = _task(state="working")
+		delegation.record(task, delegating_agent=None)
+		frappe.db.set_value(
+			"A2A Task",
+			task.name,
+			{
+				"deadline": frappe.utils.add_to_date(now_datetime(), minutes=-10),
+				"instance": frappe.db.get_value("BPMN Process Instance", {}, "name"),
+				"next_poll_at": frappe.utils.add_to_date(now_datetime(), minutes=-1),
+				"resume_enqueued": 0,
+			},
+			update_modified=False,
+		)
+		with mock_patch.object(local, "refresh", side_effect=lambda t: None):
+			scheduled._reconcile_internal_tasks(now_datetime())
+		self.assertEqual(frappe.db.get_value("A2A Task", task.name, "state"), "timed-out")
+
+
 class TestHandingWorkBack(FrappeTestCase):
 	"""WI-002148. Raising a limit changed nothing on its own.
 
