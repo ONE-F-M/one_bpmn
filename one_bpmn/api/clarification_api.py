@@ -40,6 +40,160 @@ FIELDS = (
 )
 
 
+# What the monitor lists. Wider than the form needs, because the point of the
+# screen is scanning: who asked, who was asked, what it was about, and whether
+# anyone has replied — without opening anything.
+LIST_FIELDS = (
+	"name",
+	"agent_configuration",
+	"owner_asked",
+	"reference_doctype",
+	"reference_name",
+	"status",
+	"question",
+	"answer",
+	"answered_by",
+	"answered_at",
+	"asked_at",
+	"round",
+	"follow_up_of",
+	"reminded_at",
+	"escalated_at",
+	"escalated_to",
+	"modified",
+)
+
+MAX_PAGE_LENGTH = 200
+
+
+def _require_admin() -> None:
+	"""Same gate as the rest of the A2A screen: this lists questions asked about
+	documents across the whole site, which is more than any one person's view."""
+	if "System Manager" not in frappe.get_roles():
+		frappe.throw(_("Only System Managers may review clarifications."), frappe.PermissionError)
+
+
+@frappe.whitelist()
+def list_clarifications(
+	agent_configuration: str = None,
+	owner_asked: str = None,
+	reference_doctype: str = None,
+	status: str = None,
+	asked_from: str = None,
+	asked_to: str = None,
+	start: int = 0,
+	page_length: int = 20,
+) -> dict:
+	"""Questions agents have asked, newest activity first.
+
+	Ordered by last updated rather than by when it was asked: a question that has
+	just been answered, reminded or escalated is the one worth seeing, and
+	ordering by asked_at buries it under everything raised since.
+	"""
+	_require_admin()
+	filters: dict = {}
+	if agent_configuration:
+		filters["agent_configuration"] = agent_configuration
+	if owner_asked:
+		filters["owner_asked"] = owner_asked
+	if reference_doctype:
+		filters["reference_doctype"] = reference_doctype
+	if status:
+		filters["status"] = status
+	# A date range on when it was ASKED, not when it was last touched — "what did
+	# we ask last week" is the question people actually have, and the answer must
+	# not move when somebody replies today.
+	if asked_from and asked_to:
+		filters["asked_at"] = ["between", [asked_from, f"{asked_to} 23:59:59"]]
+	elif asked_from:
+		filters["asked_at"] = [">=", asked_from]
+	elif asked_to:
+		filters["asked_at"] = ["<=", f"{asked_to} 23:59:59"]
+
+	page_length = min(int(page_length or 20), MAX_PAGE_LENGTH)
+	rows = frappe.get_all(
+		"AI Clarification",
+		filters=filters,
+		fields=list(LIST_FIELDS),
+		order_by="modified desc",
+		start=int(start or 0),
+		limit=page_length,
+	)
+	return {
+		"clarifications": rows,
+		"total": frappe.db.count("AI Clarification", filters),
+		"start": int(start or 0),
+		"page_length": page_length,
+	}
+
+
+@frappe.whitelist()
+def clarification_detail(name: str) -> dict:
+	"""One question in full, with the thread it belongs to.
+
+	The thread is the point. A follow-up reads as pedantic on its own; beside the
+	answer that failed to settle the matter it reads as the agent doing exactly
+	what it was asked to do.
+	"""
+	_require_admin()
+	row = frappe.db.get_value("AI Clarification", name, list(LIST_FIELDS) + ["instance", "human_task_id", "interpretations", "asked_by_agent_run"], as_dict=True)
+	if not row:
+		frappe.throw(_("Clarification {0} not found.").format(name), frappe.DoesNotExistError)
+
+	thread = []
+	if row.get("reference_doctype") and row.get("reference_name"):
+		thread = frappe.get_all(
+			"AI Clarification",
+			filters={
+				"reference_doctype": row["reference_doctype"],
+				"reference_name": row["reference_name"],
+			},
+			fields=["name", "round", "status", "question", "answer", "answered_by", "answered_at", "asked_at"],
+			order_by="round asc, creation asc",
+		)
+
+	title = None
+	if row.get("reference_doctype") and row.get("reference_name"):
+		try:
+			field = frappe.get_meta(row["reference_doctype"]).get_title_field()
+			if field and field != "name":
+				title = frappe.db.get_value(row["reference_doctype"], row["reference_name"], field)
+		except Exception:
+			# A reference to a doctype that no longer exists must not take the
+			# modal down with it.
+			title = None
+
+	return {"clarification": row, "thread": thread, "reference_title": title}
+
+
+@frappe.whitelist()
+def clarification_filter_options() -> dict:
+	"""What is worth filtering by on this site, built from the rows themselves.
+
+	An agent that has never asked anything, or a person nobody has ever asked, is
+	a dead entry in a dropdown.
+	"""
+	_require_admin()
+
+	def distinct(fieldname):
+		rows = frappe.get_all(
+			"AI Clarification",
+			filters={fieldname: ["is", "set"]},
+			fields=[fieldname],
+			group_by=fieldname,
+			order_by=f"{fieldname} asc",
+			limit=MAX_PAGE_LENGTH,
+		)
+		return [r[fieldname] for r in rows if r.get(fieldname)]
+
+	return {
+		"agents": distinct("agent_configuration"),
+		"people": distinct("owner_asked"),
+		"doctypes": distinct("reference_doctype"),
+		"statuses": distinct("status"),
+	}
+
+
 @frappe.whitelist()
 def doctypes_with_questions() -> dict:
 	"""Which doctypes have ever had a question asked about them.

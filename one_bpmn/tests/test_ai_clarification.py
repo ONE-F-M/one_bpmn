@@ -588,3 +588,210 @@ class TestAnsweringFromTheStory(FrappeTestCase):
 
 		with self.assertRaises(frappe.DoesNotExistError):
 			clarification_api.answer("AC-does-not-exist", "hello")
+
+
+class TestTheClarificationMonitor(FrappeTestCase):
+	"""The A2A screen's Clarifications tab.
+
+	Delegations answer "who is working on what". This answers "what did an agent
+	stop to ask, and did anybody reply" — a question still waiting is work that is
+	not moving, and until this existed the only way to see one was to open the
+	document it was about and hope.
+	"""
+
+	def tearDown(self):
+		frappe.db.rollback()
+		super().tearDown()
+
+	def _asked(self, **updates):
+		from one_bpmn.agents._eval_test_factories import make_agent_configuration
+
+		item = _work_item()
+		agent = updates.pop("agent", None) or make_agent_configuration().name
+		name = clarification.record_question(
+			instance=_instance(item), human_task_id=f"AIH-M{frappe.generate_hash(length=6)}",
+			agent_configuration=agent, agent_run=None,
+			arguments={"question": updates.pop("question", "Which one?")},
+		)
+		if updates:
+			frappe.db.set_value("AI Clarification", name, updates, update_modified=False)
+		return name, agent, item
+
+	def test_a_question_is_listed(self):
+		from one_bpmn.api import clarification_api
+
+		name, _, _ = self._asked()
+		listed = [r["name"] for r in clarification_api.list_clarifications()["clarifications"]]
+		self.assertIn(name, listed)
+
+	def test_filtering_by_the_agent_that_asked(self):
+		from one_bpmn.api import clarification_api
+
+		mine, agent, _ = self._asked()
+		other, _, _ = self._asked()
+		names = {
+			r["name"]
+			for r in clarification_api.list_clarifications(agent_configuration=agent)["clarifications"]
+		}
+		self.assertIn(mine, names)
+		self.assertNotIn(other, names)
+
+	def test_filtering_by_who_was_asked(self):
+		from one_bpmn.api import clarification_api
+
+		mine, _, _ = self._asked(owner_asked="Administrator")
+		names = {
+			r["name"]
+			for r in clarification_api.list_clarifications(owner_asked="Administrator")["clarifications"]
+		}
+		self.assertIn(mine, names)
+
+	def test_filtering_by_the_doctype_it_is_about(self):
+		from one_bpmn.api import clarification_api
+
+		mine, _, _ = self._asked()
+		names = {
+			r["name"]
+			for r in clarification_api.list_clarifications(reference_doctype="Work Item")["clarifications"]
+		}
+		self.assertIn(mine, names)
+		self.assertFalse(
+			clarification_api.list_clarifications(reference_doctype="A2A Task")["clarifications"]
+			and mine
+			in {
+				r["name"]
+				for r in clarification_api.list_clarifications(reference_doctype="A2A Task")["clarifications"]
+			}
+		)
+
+	def test_filtering_by_when_it_was_asked(self):
+		"""The range is on when it was ASKED, not when it was last touched —
+		"what did we ask last week" must not move when somebody replies today."""
+		from one_bpmn.api import clarification_api
+
+		old, _, _ = self._asked(asked_at=add_to_date(now_datetime(), days=-30))
+		recent, _, _ = self._asked(asked_at=now_datetime())
+		today = frappe.utils.today()
+		names = {
+			r["name"]
+			for r in clarification_api.list_clarifications(asked_from=today, asked_to=today)["clarifications"]
+		}
+		self.assertIn(recent, names)
+		self.assertNotIn(old, names)
+
+	def test_an_open_ended_range_works_from_one_side(self):
+		from one_bpmn.api import clarification_api
+
+		old, _, _ = self._asked(asked_at=add_to_date(now_datetime(), days=-30))
+		names = {
+			r["name"]
+			for r in clarification_api.list_clarifications(asked_from=frappe.utils.today())["clarifications"]
+		}
+		self.assertNotIn(old, names)
+
+	def test_newest_activity_first(self):
+		"""Ordered by last updated: a question just answered is the one worth
+		seeing, and ordering by asked_at buries it under everything since."""
+		from one_bpmn.api import clarification_api
+
+		first, _, item = self._asked()
+		second, _, _ = self._asked()
+		frappe.db.set_value("AI Clarification", first, "status", "Answered", update_modified=True)
+		listed = [r["name"] for r in clarification_api.list_clarifications()["clarifications"]]
+		self.assertLess(listed.index(first), listed.index(second))
+
+	def test_a_page_holds_what_was_asked_for_and_the_total_counts_all(self):
+		from one_bpmn.api import clarification_api
+
+		for _ in range(3):
+			self._asked(owner_asked="Administrator")
+		result = clarification_api.list_clarifications(owner_asked="Administrator", page_length=2)
+		self.assertEqual(len(result["clarifications"]), 2)
+		self.assertGreaterEqual(result["total"], 3)
+
+	def test_the_next_page_is_the_next_rows(self):
+		from one_bpmn.api import clarification_api
+
+		for _ in range(4):
+			self._asked(owner_asked="Administrator")
+		first = clarification_api.list_clarifications(owner_asked="Administrator", page_length=2, start=0)
+		second = clarification_api.list_clarifications(owner_asked="Administrator", page_length=2, start=2)
+		self.assertEqual(second["start"], 2)
+		self.assertFalse(
+			{r["name"] for r in first["clarifications"]} & {r["name"] for r in second["clarifications"]}
+		)
+
+	def test_a_page_size_beyond_the_cap_is_clamped(self):
+		from one_bpmn.api import clarification_api
+
+		self.assertEqual(
+			clarification_api.list_clarifications(page_length=10_000)["page_length"],
+			clarification_api.MAX_PAGE_LENGTH,
+		)
+
+	def test_the_detail_carries_the_whole_exchange(self):
+		"""A follow-up reads as pedantic on its own; beside the answer that failed
+		to settle it, it reads as the agent doing what it was told to."""
+		from one_bpmn.api import clarification_api
+
+		item = _work_item()
+		clarification.record_question(
+			instance=_instance(item), human_task_id="AIH-TH1",
+			agent_configuration=None, agent_run=None, arguments={"question": "First?"},
+		)
+		clarification.record_answer(
+			instance=_instance(item), human_task_id="AIH-TH1", data={"answer": "vague"}
+		)
+		second = clarification.record_question(
+			instance=_instance(item), human_task_id="AIH-TH2",
+			agent_configuration=None, agent_run=None, arguments={"question": "Still which?"},
+		)
+		detail = clarification_api.clarification_detail(second)
+		self.assertEqual(len(detail["thread"]), 2)
+		self.assertEqual(detail["thread"][0]["question"], "First?")
+
+	def test_the_detail_survives_a_reference_it_cannot_resolve(self):
+		from one_bpmn.api import clarification_api
+
+		name, _, _ = self._asked()
+		frappe.db.set_value(
+			"AI Clarification", name,
+			{"reference_doctype": "A2A Task", "reference_name": "A2A-gone"},
+			update_modified=False,
+		)
+		self.assertIsNone(clarification_api.clarification_detail(name)["reference_title"])
+
+	def test_an_unknown_clarification_is_an_error_not_an_empty_modal(self):
+		from one_bpmn.api import clarification_api
+
+		with self.assertRaises(frappe.DoesNotExistError):
+			clarification_api.clarification_detail("AC-does-not-exist")
+
+	def test_the_dropdowns_are_built_from_the_rows(self):
+		from one_bpmn.api import clarification_api
+
+		_, agent, _ = self._asked(owner_asked="Administrator")
+		options = clarification_api.clarification_filter_options()
+		self.assertIn(agent, options["agents"])
+		self.assertIn("Administrator", options["people"])
+		self.assertIn("Work Item", options["doctypes"])
+		self.assertIn("Awaiting Answer", options["statuses"])
+
+	def test_the_monitor_is_system_manager_only(self):
+		"""It lists questions asked about documents across the whole site, which
+		is more than any one person's view."""
+		from one_bpmn.api import clarification_api
+		from one_bpmn.tests.test_a2a_admin_api import make_nobody
+
+		nobody = make_nobody()
+		frappe.set_user(nobody.name)
+		try:
+			for call, kwargs in (
+				(clarification_api.list_clarifications, {}),
+				(clarification_api.clarification_detail, {"name": "x"}),
+				(clarification_api.clarification_filter_options, {}),
+			):
+				with self.assertRaises(frappe.PermissionError):
+					call(**kwargs)
+		finally:
+			frappe.set_user("Administrator")
