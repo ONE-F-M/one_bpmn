@@ -395,6 +395,28 @@
                 <input v-else-if="c.fieldtype === 'Check'" type="checkbox" class="checkbox-input"
                        :checked="c.value == 1" @change="c.value = $event.target.checked ? 1 : 0" />
                 <input v-else-if="c.fieldtype === 'Int'" type="number" min="0" v-model.number="c.value" />
+                <!-- The allow-list. A child table on the doctype, so it arrives as
+                     plain names with the set of agents that could legitimately be
+                     picked, and goes back the same way. Tick boxes rather than a
+                     multi-select: the list is short, and seeing who is NOT on it
+                     matters as much as seeing who is. -->
+                <div v-else-if="c.fieldtype === 'Agent List'" class="agent-allow-list">
+                  <label v-for="choice in (c.choices || [])" :key="choice" class="agent-allow-row">
+                    <input
+                      type="checkbox"
+                      class="checkbox-input"
+                      :checked="(c.value || []).includes(choice)"
+                      @change="toggleAllowed(c, choice, $event.target.checked)"
+                    />
+                    <span>{{ choice }}</span>
+                  </label>
+                  <span v-if="!(c.choices || []).length" class="field-hint">
+                    No other agent is exposed over A2A yet, so there is nobody to allow.
+                  </span>
+                  <span v-else-if="!(c.value || []).length" class="field-hint">
+                    Nobody is on the list, so this agent may not delegate to anyone.
+                  </span>
+                </div>
                 <input v-else type="text" v-model="c.value" />
                 <span class="field-hint" v-if="c.description">{{ c.description }}</span>
               </div>
@@ -676,6 +698,15 @@ function isOn(fieldname) {
   if (!dep) return true;
   return !(dep.value === 0 || dep.value === "0" || dep.value === false || dep.value == null);
 }
+// Kept as a plain list of names, which is what the server sends and expects
+// back. Sorted so the saved order does not churn on every tick.
+function toggleAllowed(control, choice, on) {
+  const current = new Set(control.value || []);
+  if (on) current.add(choice);
+  else current.delete(choice);
+  control.value = [...current].sort();
+}
+
 function visibleIn(group) {
   return group.controls.filter((c) => !c.depends_on_field || isOn(c.depends_on_field));
 }
@@ -1493,6 +1524,20 @@ async function save() {
 </script>
 
 <style scoped>
+.agent-allow-list {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  max-height: 180px;
+  overflow-y: auto;
+}
+.agent-allow-row {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-weight: 400;
+}
+
 .ai-agent-modal-overlay {
   position: fixed;
   inset: 0;
