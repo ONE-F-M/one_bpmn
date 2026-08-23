@@ -259,6 +259,72 @@ class TestHowOftenItMayAsk(FrappeTestCase):
 		self.assertEqual(len(compile_shape_tools(shapes, instance)), 0)
 
 
+class TestTheCapIsSetFromProcessa(FrappeTestCase):
+	"""The limit has to be adjustable where the agent is configured.
+
+	A cap that could only be changed in the Desk would be a control with its
+	dial in another room — and this is the one setting a process owner is
+	likeliest to want to turn while watching an agent behave.
+	"""
+
+	def tearDown(self):
+		frappe.db.rollback()
+		super().tearDown()
+
+	@staticmethod
+	def _control(agent):
+		from one_bpmn.api import security_api
+
+		for c in security_api.agent_screening(agent)["controls"]:
+			if c["fieldname"] == "max_clarification_rounds":
+				return c
+		return None
+
+	def test_it_is_offered_as_a_control(self):
+		from one_bpmn.agents._eval_test_factories import make_agent_configuration
+
+		control = self._control(make_agent_configuration().name)
+		self.assertIsNotNone(control)
+		self.assertEqual(control["fieldtype"], "Int")
+
+	def test_it_has_its_own_group_rather_than_hiding_under_delegation(self):
+		"""Asking a person a question is not delegating work to an agent, and
+		filing it under Delegation would misdescribe it."""
+		from one_bpmn.agents._eval_test_factories import make_agent_configuration
+
+		self.assertEqual(self._control(make_agent_configuration().name)["group"], "Clarification")
+
+	def test_saving_it_from_processa_changes_what_the_cap_reads(self):
+		"""The point of editing it: the number the tool is withdrawn at moves."""
+		from one_bpmn.agents._eval_test_factories import make_agent_configuration
+		from one_bpmn.api import security_api
+
+		agent = make_agent_configuration().name
+		item = _work_item()
+		security_api.save_agent_screening(agent, {"max_clarification_rounds": 1})
+		self.assertEqual(clarification.rounds_allowed(agent), 1)
+		clarification.record_question(
+			instance=_instance(item), human_task_id="AIH-PZ1",
+			agent_configuration=agent, agent_run=None, arguments={"question": "?"},
+		)
+		self.assertTrue(clarification.cap_reached(agent, "Work Item", item))
+
+		# Raised from Processa, the agent may ask again.
+		security_api.save_agent_screening(agent, {"max_clarification_rounds": 4})
+		self.assertFalse(clarification.cap_reached(agent, "Work Item", item))
+
+	def test_it_can_be_turned_off_entirely(self):
+		"""0 means no limit, and it has to be reachable — an agent whose stories
+		are genuinely underspecified should not be silenced by a cap."""
+		from one_bpmn.agents._eval_test_factories import make_agent_configuration
+		from one_bpmn.api import security_api
+
+		agent = make_agent_configuration().name
+		security_api.save_agent_screening(agent, {"max_clarification_rounds": 0})
+		self.assertEqual(clarification.rounds_allowed(agent), 0)
+		self.assertFalse(clarification.cap_reached(agent, "Work Item", _work_item()))
+
+
 class TestChasingAnUnansweredQuestion(FrappeTestCase):
 	"""Do not block forever, and do not proceed on a timeout. This does the first
 	half — somebody is told — and deliberately not the second."""
