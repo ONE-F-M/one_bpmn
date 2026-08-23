@@ -178,6 +178,51 @@ class TestCallActivityCompile(FrappeTestCase):
 		parser's (which is the one that actually reports the problem)."""
 		self.assertEqual(_resolve_called_process_xml(_parent_xml(called=""), "WI2111 Parent"), [])
 
+	def test_recompiling_a_called_map_refreshes_its_callers(self):
+		"""A caller embeds a COPY of the called map, so editing the called map
+		alone changed nothing for anyone calling it.
+
+		This cost a real test cycle. A capability was set on a delegate shape in
+		the Orchestrator Agent map and the map was activated; the map compiled
+		with the setting, the caller kept the previous day's copy without it, and
+		the run behaved as though the setting had never been made. Nothing
+		errored, which is what made it invisible.
+		"""
+		from one_bpmn.api.compilation import compile_process_model
+
+		child = self._model("WI2111 Child", CHILD_ID, _child_xml())
+		parent = self._model("WI2111 Parent", PARENT_ID, _parent_xml())
+		compile_process_model(parent.name)
+		before = frappe.db.get_value("BPMN Process Model", parent.name, "serialized_spec")
+		self.assertTrue(before, "the caller compiled")
+
+		# Change the CALLED map only — the Server Script its task runs, which is
+		# exactly the kind of edit that has to reach a caller — then compile only
+		# the called map.
+		child.bpmn_xml = _child_xml().replace(
+			"WI2111 Child Script", "WI2111 Child Script Renamed"
+		)
+		child.flags.ignore_permissions = True
+		child.save(ignore_permissions=True)
+		compile_process_model(child.name)
+
+		after = frappe.db.get_value("BPMN Process Model", parent.name, "serialized_spec")
+		self.assertNotEqual(
+			before, after, "compiling the called map must refresh the caller's embedded copy"
+		)
+		self.assertIn("WI2111 Child Script Renamed", after)
+
+	def test_a_caller_that_cannot_compile_does_not_break_the_called_map(self):
+		"""The map the person actually saved has already compiled; a problem in
+		something that calls it must be logged, not rolled back onto them."""
+		from one_bpmn.api.compilation import compile_process_model
+
+		child = self._model("WI2111 Child", CHILD_ID, _child_xml())
+		# A caller whose XML is broken enough that its own compile fails.
+		self._model("WI2111 Broken", PARENT_ID, _parent_xml().replace("<bpmn:process", "<bpmn:proc"))
+		result = compile_process_model(child.name)
+		self.assertTrue(result["success"])
+
 	def test_mutual_calls_do_not_recurse_forever(self):
 		"""Two maps calling each other resolve once each rather than hanging."""
 		self._model("WI2111 Child", CHILD_ID, _child_xml())

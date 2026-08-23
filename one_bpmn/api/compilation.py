@@ -1728,6 +1728,9 @@ def compile_process_model(model_name: str) -> dict:
 			            "confirm before go-live"),
 		})
 
+	# ── Callers embed a COPY of this map, so they have to be told ─────────
+	_recompile_callers_of(model.process_id, model_name)
+
 	result = {
 		"success": True,
 		"model": model_name,
@@ -1806,3 +1809,54 @@ def disable_process_model(model_name: str) -> dict:
 		"model": model_name,
 		"running_instances": running_count,
 	}
+
+
+def _recompile_callers_of(process_id: str, model_name: str, _seen: set | None = None) -> None:
+	"""Recompile every map whose Call Activity calls this one.
+
+	A called map's script and service extensions are merged into the CALLER's
+	serialized_spec at the caller's compile time — that is how a Call Activity
+	reaches another model at all. The consequence was silent and nasty: editing
+	the called map changed nothing for anyone calling it until that caller
+	happened to be recompiled for some other reason.
+
+	It cost a real test. A capability was set on a delegate shape in the
+	Orchestrator Agent map and activated; the map compiled with it, the caller
+	kept yesterday's copy without it, and the run behaved as though the setting
+	had never been made. Nothing errored, which is what made it invisible.
+
+	Cycle-safe through _seen, and never fatal: a caller that cannot compile is
+	logged and skipped, because the map the person actually saved has already
+	compiled successfully and must not be rolled back by a problem elsewhere.
+	"""
+	if not process_id:
+		return
+	seen = _seen if _seen is not None else set()
+	if model_name in seen:
+		return
+	seen.add(model_name)
+
+	needle = f'calledElement="{process_id}"'
+	for caller in frappe.get_all(
+		"BPMN Process Model",
+		filters={"name": ["!=", model_name], "bpmn_xml": ["like", f"%{needle}%"]},
+		fields=["name", "process_id"],
+	):
+		if caller.name in seen:
+			continue
+		try:
+			compile_process_model(caller.name)
+			frappe.logger("one_bpmn").info(
+				f"Recompiled '{caller.name}' because it calls '{model_name}'"
+			)
+		except Exception:
+			frappe.log_error(
+				title="Call Activity: caller could not be recompiled",
+				message=(
+					f"'{caller.name}' calls '{model_name}' and embeds a copy of it, but "
+					f"recompiling it failed — it is still running the previous copy.\n\n"
+					+ frappe.get_traceback()
+				),
+			)
+		# Its own callers embed it in turn, so the refresh has to travel up.
+		_recompile_callers_of(caller.process_id, caller.name, seen)

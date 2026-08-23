@@ -126,6 +126,74 @@ def _participates_in_a2a(target: str) -> bool:
 	)
 
 
+def capabilities_of(agent_configuration: str | None) -> set[str]:
+	"""What an agent says it can do — its A2A skill tags, lower-cased.
+
+	The tags are already public: they go on the agent card the world fetches.
+	Reading them here makes them load-bearing rather than decorative.
+	"""
+	raw = (
+		frappe.db.get_value("AI Agent Configuration", agent_configuration, "a2a_skill_tags")
+		if agent_configuration
+		else None
+	) or ""
+	return {t.strip().lower() for t in raw.split(",") if t.strip()}
+
+
+def agents_with_capability(capability: str) -> list[str]:
+	"""Who could take this work — every agent that participates in A2A and
+	carries the tag. Used to make a refusal actionable: "nobody has it" and
+	"three others have it" call for different responses from a person."""
+	if not capability:
+		return []
+	wanted = capability.strip().lower()
+	return sorted(
+		name
+		for name in frappe.get_all(
+			"AI Agent Configuration",
+			filters={"enabled": 1, "lifecycle_status": "Live", "a2a_exposed": 1},
+			pluck="name",
+		)
+		if wanted in capabilities_of(name)
+	)
+
+
+def check_capability(target: str, required_capability: str | None) -> None:
+	"""Does the chosen agent actually claim to do this kind of work?
+
+	The hybrid in one function. WHICH specialist gets the work is decided by the
+	orchestrator reading the brief against the tool descriptions — that is the
+	part a tag match cannot do, because the signal is in the text: a work item
+	asking for a story-point estimate carries no field saying so (its type is
+	"Task" and it has no labels), only a sentence.
+
+	WHETHER that specialist may receive it is decided here, from the registry.
+	A shape that says it needs a "connector" builder and points at an agent that
+	does not claim that capability is a configuration mistake, and it should be
+	refused rather than delegated and discovered later in the answer.
+
+	No required capability means no constraint — every map that exists today
+	keeps working exactly as it did.
+	"""
+	if not required_capability:
+		return
+	if required_capability.strip().lower() in capabilities_of(target):
+		return
+
+	alternatives = [a for a in agents_with_capability(required_capability) if a != target]
+	if alternatives:
+		hint = _(" Agents that do: {0}.").format(", ".join(alternatives))
+	else:
+		hint = _(" No agent currently claims it, so this work has nowhere to go until one does.")
+	raise DelegationRefused(
+		_("Agent '{0}' does not do '{1}' — it is set up for: {2}.").format(
+			target, required_capability, ", ".join(sorted(capabilities_of(target))) or "nothing"
+		)
+		+ hint,
+		reason_code="capability_mismatch",
+	)
+
+
 def check_allowed(agent_configuration: str, target: str) -> None:
 	if may_delegate_to(agent_configuration, target):
 		return
@@ -178,10 +246,16 @@ def chain_handoffs(task_execution_id: str | None) -> int:
 	return frappe.db.count("A2A Task", {"task_execution_id": task_execution_id})
 
 
-def enforce(agent_configuration: str, sub_agent: str, counters: dict) -> None:
+def enforce(
+	agent_configuration: str,
+	sub_agent: str,
+	counters: dict,
+	required_capability: str | None = None,
+) -> None:
 	"""The gate every delegation passes through. Raises DelegationRefused
 	with a plain reason; the caller marks the task failed and notifies."""
 	check_allowed(agent_configuration, sub_agent)
+	check_capability(sub_agent, required_capability)
 	limits = guardrails_for(agent_configuration)
 
 	depth = cint(counters.get("delegation_depth"))

@@ -60,7 +60,12 @@ LIMIT_LABELS = {
 	"max_delegation_retries": "retries",
 }
 
-_TERMINAL = ("Completed", "Failed", "Needs Review")
+# Cancellation is stored in stopped_reason like a limit, because the question a
+# person asks the record is the same one ("why did this stop?"), but it is
+# deliberately NOT in LIMIT_LABELS: nothing was exceeded, somebody decided.
+CANCELLED_REASON = "cancelled"
+
+_TERMINAL = ("Completed", "Failed", "Needs Review", "Cancelled")
 
 
 def limit_note(a2a_task: str | None) -> str:
@@ -87,6 +92,16 @@ def limit_note(a2a_task: str | None) -> str:
 	)
 	if not row or not row.stopped_reason:
 		return ""
+
+	if row.stopped_reason == CANCELLED_REASON:
+		# Not a limit, and it must not be described as one: a person decided
+		# this, and the model should say so rather than reporting a threshold it
+		# never reached.
+		return (
+			" A person cancelled this delegation before it finished, so the work is NOT done. "
+			"Report that it was cancelled — do not retry it, and do not describe it as a failure "
+			"of the agent."
+		)
 
 	label = LIMIT_LABELS.get(row.stopped_reason, row.stopped_reason)
 	numbers = ""
@@ -504,7 +519,12 @@ def _limit_message(
 	return "<br>".join(lines)
 
 
-def _comment_on_reference(ref_doctype: str | None, ref_name: str | None, message: str) -> None:
+def _comment_on_reference(
+	ref_doctype: str | None,
+	ref_name: str | None,
+	message: str,
+	heading: str = "Delegation stopped at a limit",
+) -> None:
 	"""The auditable record, on the document the work was about.
 
 	A Notification Log entry is gone once dismissed. A comment on the Work Item
@@ -516,7 +536,7 @@ def _comment_on_reference(ref_doctype: str | None, ref_name: str | None, message
 		if not frappe.db.exists(ref_doctype, ref_name):
 			return
 		frappe.get_doc(ref_doctype, ref_name).add_comment(
-			"Comment", f"<b>Delegation stopped at a limit</b><br>{message}"
+			"Comment", f"<b>{heading}</b><br>{message}"
 		)
 	except Exception:
 		frappe.log_error(
@@ -569,3 +589,217 @@ def _notify(recipient: str | None, message: str, *, a2a_task=None, delegation=No
 			title="Agent Delegation: escalation email failed", message=frappe.get_traceback()
 		)
 	return recipient
+
+
+def cancel(name: str, *, reason: str = "", by: str | None = None) -> dict:
+	"""Stop a running delegation because a person said so.
+
+	Deliberately NOT available to an agent. One that could cancel its own
+	hand-offs could cancel its way out of a limit it had been given, and those
+	limits are what stand between a loop and a bill. There is no tool shape for
+	this; the only door is the admin endpoint, which requires a System Manager.
+
+	What "stop" can honestly mean matters more here than the word. A worker is a
+	BPMN instance, and a pass already executing cannot be interrupted — the same
+	reason the A2A protocol's own cancel refuses anything past "submitted". So
+	this marks the instance Cancelled so it advances no further, closes the
+	task, and says in the return value whether a pass may still be in flight.
+	Reporting a clean stop we cannot guarantee would be worse than reporting a
+	messy one we can.
+
+	The caller is woken either way: a delegation nobody is going to answer must
+	not leave an orchestrator parked until its deadline.
+	"""
+	row = frappe.db.get_value(
+		"Agent Delegation",
+		name,
+		["name", "status", "worker_agent", "worker_instance", "a2a_task", "orchestrator_instance"],
+		as_dict=True,
+	)
+	if not row:
+		frappe.throw(_("Delegation {0} not found.").format(name), frappe.DoesNotExistError)
+	if row.status in ("Completed", "Failed", "Cancelled"):
+		frappe.throw(
+			_("This delegation already finished ({0}); there is nothing to stop.").format(row.status)
+		)
+
+	# Re-read under a lock before writing anything. A worker can finish between
+	# the moment a person reads the screen and the moment they click, and it
+	# does: an end-to-end run cancelled a delegation whose worker had completed
+	# seconds earlier, overwriting a real outcome with "Cancelled". Whoever
+	# reaches a terminal state first wins, and a person is told what happened
+	# rather than being handed a success that erased one.
+	locked = frappe.get_doc("Agent Delegation", name, for_update=True)
+	if locked.status in ("Completed", "Failed", "Cancelled"):
+		frappe.throw(
+			_("This delegation finished ({0}) while you were looking at it, so there was "
+			  "nothing left to stop.").format(locked.status)
+		)
+
+	actor = by or frappe.session.user
+	note = (reason or "").strip()
+	detail = _("Cancelled by {0}.").format(actor) + (f" {note}" if note else "")
+
+	# ── the record, FIRST ────────────────────────────────────────────────
+	# Order matters, and it was learned the hard way. Writing the worker's rows
+	# first meant a person's cancellation could fail outright with "Lock wait
+	# timeout exceeded", because a RUNNING worker holds the lock on its own A2A
+	# Task row — precisely the case cancellation exists for. The Agent
+	# Delegation row is ours and uncontended, so the decision is recorded before
+	# anything that can block, and everything after it is best-effort.
+	frappe.db.set_value(
+		"Agent Delegation",
+		name,
+		{
+			"status": "Cancelled",
+			"stopped_reason": CANCELLED_REASON,
+			"cancelled_by": actor,
+			"cancelled_at": now_datetime(),
+			"ended_at": now_datetime(),
+			"error_message": detail[:500],
+		},
+		update_modified=True,
+	)
+
+	# ── the worker ───────────────────────────────────────────────────────
+	worker_status = (
+		frappe.db.get_value("BPMN Process Instance", row.worker_instance, "status")
+		if row.worker_instance
+		else None
+	)
+	worker_was_running = worker_status == "Active"
+	stopped = False
+	if worker_was_running:
+		# Two steps, independently attempted. A running worker holds the lock on
+		# its own instance row, so that write is the one most likely to time out
+		# — and when it did, the Waiting-row cleanup went down with it and left
+		# rows that surface in every task summary forever.
+		stopped = _best_effort(
+			"stop the worker instance",
+			lambda: frappe.db.set_value(
+				"BPMN Process Instance", row.worker_instance, "status", "Cancelled",
+				update_modified=False,
+			),
+		)
+		_best_effort(
+			"close the worker's waiting tasks",
+			lambda: _close_waiting_tasks(row.worker_instance),
+		)
+
+	# ── the task ─────────────────────────────────────────────────────────
+	# Best-effort for the same reason: the worker may be holding this row. If it
+	# is, the reconciler settles the task on a later tick, and the delegation is
+	# already recorded as cancelled either way.
+	task_closed = False
+	if row.a2a_task:
+		task_closed = _best_effort(
+			"close the delegated task",
+			lambda: frappe.db.set_value(
+				"A2A Task",
+				row.a2a_task,
+				{
+					"state": "canceled",
+					"error_code": CANCELLED_REASON,
+					"error_message": detail[:500],
+					"completed_at": now_datetime(),
+				},
+				update_modified=True,
+			),
+		)
+
+	# The document the work was for carries the trail, the same way a limit
+	# breach does — an alert is dismissed, a comment stays.
+	ref_doctype, ref_name = _reference_for(row.orchestrator_instance)
+	_comment_on_reference(
+		ref_doctype,
+		ref_name,
+		_("{0} was stopped before finishing. {1}").format(
+			row.worker_agent or _("The delegated agent"), detail
+		),
+		heading=_("Delegation cancelled"),
+	)
+
+	woken = _wake_the_caller(row.a2a_task)
+
+	return {
+		"delegation": name,
+		"status": "Cancelled",
+		"worker_stopped": stopped,
+		"task_closed": task_closed,
+		# Said out loud rather than implied. Marking the instance Cancelled stops
+		# it ADVANCING; it does not interrupt a pass already executing. So the
+		# warning is driven by whether the worker was running at all — not by
+		# whether we managed to mark it, which would have reported a clean stop
+		# in exactly the case where we failed to stop anything.
+		"pass_may_still_be_running": worker_was_running or (bool(row.a2a_task) and not task_closed),
+		"caller_woken": woken,
+		"detail": detail,
+	}
+
+
+def _close_waiting_tasks(instance_name: str) -> None:
+	"""Close the Waiting rows a stopped worker leaves behind — the same cleanup
+	the trigger does when a context document disappears, without which they
+	surface in every task summary forever."""
+	for task_name in frappe.get_all(
+		"BPMN Active Task",
+		filters={"parent": instance_name, "status": "Waiting"},
+		pluck="name",
+	):
+		frappe.db.set_value(
+			"BPMN Active Task", task_name, "status", "Cancelled", update_modified=False
+		)
+
+
+def _best_effort(what: str, action) -> bool:
+	"""Run one step of a cancellation, and report whether it landed.
+
+	A cancellation must not fail because the worker is busy: the row a running
+	worker is most likely to be holding is exactly the row we want to write. The
+	decision is already recorded on the Agent Delegation by the time these run,
+	so a step that cannot complete is reported rather than raised.
+	"""
+	try:
+		action()
+		return True
+	except Exception:
+		frappe.log_error(
+			title=f"Agent Delegation: cancelled, but could not {what}",
+			message=frappe.get_traceback(),
+		)
+		return False
+
+
+def _wake_the_caller(a2a_task: str | None) -> bool:
+	"""Hand the cancellation to whoever was waiting, so an orchestrator is not
+	parked until its deadline for an answer that is never coming. Never raises:
+	a cancellation that could not wake the caller is still a cancellation, and
+	the reconciler reaches it on a later tick."""
+	if not a2a_task:
+		return False
+	try:
+		from one_bpmn.tasks import _wake_caller_if_any
+
+		row = frappe.db.get_value(
+			"A2A Task",
+			a2a_task,
+			[
+				"name",
+				"caller_instance",
+				"caller_wf_task_id",
+				"caller_agent_run",
+				"wf_task_id",
+				"instance",
+			],
+			as_dict=True,
+		)
+		if not row:
+			return False
+		_wake_caller_if_any(row)
+		return bool(row.caller_wf_task_id or row.caller_agent_run)
+	except Exception:
+		frappe.log_error(
+			title="Agent Delegation: cancelled, but could not wake the caller",
+			message=frappe.get_traceback(),
+		)
+		return False

@@ -94,3 +94,4 @@ one_bpmn.one_bpmn.patches.v1_0.widen_instruction_override_pattern #17-08-2026 "i
 one_bpmn.one_bpmn.patches.v1_0.set_customization_owner_app #17-08-2026 route customization PRs at one_fm, not the upstream repo owning the doctype
 one_bpmn.one_bpmn.patches.v1_0.seed_connector_agent_config #19-08-2026 the connector-building agent is configuration; its map and scripts arrive by export/import
 one_bpmn.one_bpmn.patches.v1_0.migrate_ba_agent_to_generic_path #19-08-2026 the BA Agent runs on its map; the label it never had IS the start trigger
+one_bpmn.one_bpmn.patches.v1_0.add_required_capability_to_a2a_connector #23-08-2026 WI-002056 a delegate shape may declare the capability it needs; the deadline help was stale

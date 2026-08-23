@@ -296,6 +296,298 @@ class TestEscalationWithoutARowYet(FrappeTestCase):
 		self.assertEqual(row.limit_value, 30)
 
 
+class TestCapabilityGate(FrappeTestCase):
+	"""WI-002056, the hybrid. WHICH specialist gets the work is decided by the
+	orchestrator reading the brief against the tool descriptions — a tag match
+	cannot do that, because the signal is in the text (a work item asking to be
+	sized carries no field saying so; its type is "Task" and it has no labels).
+	WHETHER that specialist may receive it is decided from the registry.
+	"""
+
+	def tearDown(self):
+		frappe.db.rollback()
+		super().tearDown()
+
+	def _agent(self, tags):
+		from one_bpmn.agents._eval_test_factories import make_agent_configuration
+
+		agent = make_agent_configuration(a2a_exposed=1)
+		agent.db_set("a2a_skill_tags", tags, update_modified=False)
+		return agent
+
+	def test_capabilities_are_read_from_the_skill_tags(self):
+		agent = self._agent("connector, integration, api")
+		self.assertEqual(
+			guardrails.capabilities_of(agent.name), {"connector", "integration", "api"}
+		)
+
+	def test_tags_are_matched_regardless_of_case_or_padding(self):
+		"""They are hand-typed into a comma-separated field, so ' REST ' and
+		'rest' are the same capability."""
+		agent = self._agent("  REST ,  OpenAPI  ")
+		self.assertEqual(guardrails.capabilities_of(agent.name), {"rest", "openapi"})
+		self.assertIsNone(guardrails.check_capability(agent.name, "rest"))
+		self.assertIsNone(guardrails.check_capability(agent.name, " Rest "))
+
+	def test_an_agent_without_the_capability_is_refused(self):
+		agent = self._agent("connector, api")
+		with self.assertRaises(guardrails.DelegationRefused) as caught:
+			guardrails.check_capability(agent.name, "estimation")
+		self.assertEqual(caught.exception.reason_code, "capability_mismatch")
+
+	def test_the_refusal_names_who_could_do_it_instead(self):
+		"""'Nobody can do this' and 'someone else can' call for different
+		responses, so the refusal has to tell them apart."""
+		wrong = self._agent("connector, api")
+		right = self._agent("estimation, sizing")
+		with self.assertRaises(guardrails.DelegationRefused) as caught:
+			guardrails.check_capability(wrong.name, "estimation")
+		self.assertIn(right.name, str(caught.exception))
+
+	def test_a_capability_nobody_has_says_so(self):
+		agent = self._agent("connector")
+		with self.assertRaises(guardrails.DelegationRefused) as caught:
+			guardrails.check_capability(agent.name, "quantum-alchemy")
+		self.assertIn("No agent currently claims it", str(caught.exception))
+
+	def test_no_required_capability_means_no_constraint(self):
+		"""Every map that exists today declares nothing, and must keep working
+		exactly as it did."""
+		agent = self._agent("connector")
+		self.assertIsNone(guardrails.check_capability(agent.name, None))
+		self.assertIsNone(guardrails.check_capability(agent.name, ""))
+
+	def test_only_agents_in_a2a_can_answer_a_capability_search(self):
+		"""The registry narrows to agents that take part in agent-to-agent work;
+		an unexposed agent with the right tag is still not a candidate."""
+		from one_bpmn.agents._eval_test_factories import make_agent_configuration
+
+		hidden = make_agent_configuration()
+		hidden.db_set("a2a_skill_tags", "telepathy", update_modified=False)
+		self.assertNotIn(hidden.name, guardrails.agents_with_capability("telepathy"))
+
+	def test_the_gate_runs_inside_enforce(self):
+		"""Both A2A doors go through enforce(), so the capability check belongs
+		there rather than at one call site."""
+		agent = self._agent("connector")
+		counters = {"delegation_depth": 1, "handoff_count": 1}
+		self.assertIsNone(guardrails.enforce(None, agent.name, counters))
+		with self.assertRaises(guardrails.DelegationRefused) as caught:
+			guardrails.enforce(None, agent.name, counters, required_capability="estimation")
+		self.assertEqual(caught.exception.reason_code, "capability_mismatch")
+
+	def test_changing_the_tags_changes_the_answer(self):
+		"""Who may receive work is configuration, not a diagram: no code change
+		and no map edit."""
+		agent = self._agent("connector")
+		with self.assertRaises(guardrails.DelegationRefused):
+			guardrails.check_capability(agent.name, "estimation")
+		agent.db_set("a2a_skill_tags", "connector, estimation", update_modified=False)
+		self.assertIsNone(guardrails.check_capability(agent.name, "estimation"))
+
+
+class TestCancellingADelegation(FrappeTestCase):
+	"""Stopping a delegation is a PERSON's action.
+
+	An agent able to cancel its own hand-offs could cancel its way out of a
+	limit it had been given, so there is no tool shape for this and the only
+	door is the admin endpoint.
+	"""
+
+	def tearDown(self):
+		frappe.db.rollback()
+		super().tearDown()
+
+	def _running(self, with_instance=False):
+		task = _task(state="working")
+		ad = delegation.record(task, delegating_agent=None)
+		instance = None
+		if with_instance:
+			instance = frappe.get_doc({
+				"doctype": "BPMN Process Instance",
+				"process_model": frappe.db.get_value("BPMN Process Model", {}, "name"),
+				"status": "Active",
+			})
+			instance.flags.ignore_links = True
+			instance.flags.ignore_mandatory = True
+			instance.insert(ignore_permissions=True)
+			frappe.db.set_value(
+				"Agent Delegation", ad, "worker_instance", instance.name, update_modified=False
+			)
+		return task, ad, instance
+
+	def test_the_record_says_who_stopped_it_and_when(self):
+		task, ad, _ = self._running()
+		delegation.cancel(ad, reason="looping on a broken endpoint")
+		row = frappe.db.get_value(
+			"Agent Delegation",
+			ad,
+			["status", "stopped_reason", "cancelled_by", "cancelled_at", "ended_at", "error_message"],
+			as_dict=True,
+		)
+		self.assertEqual(row.status, "Cancelled")
+		self.assertEqual(row.stopped_reason, delegation.CANCELLED_REASON)
+		self.assertEqual(row.cancelled_by, frappe.session.user)
+		self.assertTrue(row.cancelled_at)
+		self.assertTrue(row.ended_at)
+		self.assertIn("looping on a broken endpoint", row.error_message)
+
+	def test_the_task_is_closed_too(self):
+		task, ad, _ = self._running()
+		delegation.cancel(ad)
+		row = frappe.db.get_value("A2A Task", task.name, ["state", "error_code"], as_dict=True)
+		self.assertEqual(row.state, "canceled")
+		self.assertEqual(row.error_code, delegation.CANCELLED_REASON)
+
+	def test_a_running_worker_is_stopped_from_advancing(self):
+		task, ad, instance = self._running(with_instance=True)
+		result = delegation.cancel(ad)
+		self.assertTrue(result["worker_stopped"])
+		self.assertEqual(
+			frappe.db.get_value("BPMN Process Instance", instance.name, "status"), "Cancelled"
+		)
+
+	def test_it_admits_a_pass_may_still_be_running(self):
+		"""The honest part. A pass already executing cannot be interrupted — the
+		same reason the protocol's own cancel refuses anything past submitted —
+		so a clean stop must not be reported when it cannot be guaranteed."""
+		_, ad, _ = self._running(with_instance=True)
+		self.assertTrue(delegation.cancel(ad)["pass_may_still_be_running"])
+
+	def test_no_worker_process_is_not_a_failure(self):
+		"""A delegation whose worker never started still cancels — it just stops
+		waiting, and says that is what happened."""
+		_, ad, _ = self._running()
+		result = delegation.cancel(ad)
+		self.assertEqual(result["status"], "Cancelled")
+		self.assertFalse(result["worker_stopped"])
+		self.assertFalse(result["pass_may_still_be_running"])
+
+	def test_a_finished_delegation_cannot_be_cancelled(self):
+		_, ad, _ = self._running()
+		frappe.db.set_value("Agent Delegation", ad, "status", "Completed", update_modified=False)
+		with self.assertRaises(frappe.ValidationError):
+			delegation.cancel(ad)
+
+	def test_cancelling_twice_is_refused_rather_than_silently_repeated(self):
+		_, ad, _ = self._running()
+		delegation.cancel(ad)
+		with self.assertRaises(frappe.ValidationError):
+			delegation.cancel(ad)
+
+	def test_an_unknown_delegation_is_an_error(self):
+		with self.assertRaises(frappe.DoesNotExistError):
+			delegation.cancel("AD-does-not-exist")
+
+	def test_a_worker_that_finished_first_is_not_overwritten(self):
+		"""Found end to end. A worker can finish between the moment a person
+		reads the screen and the moment they click, and one did — the
+		cancellation overwrote a completed delegation with "Cancelled",
+		destroying the real outcome. Whoever reaches a terminal state first
+		wins."""
+		_, ad, _ = self._running()
+		frappe.db.set_value("Agent Delegation", ad, "status", "Completed", update_modified=False)
+		with self.assertRaises(frappe.ValidationError) as caught:
+			delegation.cancel(ad)
+		self.assertIn("finished", str(caught.exception))
+		self.assertEqual(frappe.db.get_value("Agent Delegation", ad, "status"), "Completed")
+
+	def test_a_worker_we_could_not_stop_is_reported_as_maybe_running(self):
+		"""The warning must be driven by whether the worker was RUNNING, not by
+		whether we managed to mark it — the earlier version reported a clean
+		stop in exactly the case where nothing was stopped."""
+		from unittest.mock import patch as mock_patch
+
+		_, ad, instance = self._running(with_instance=True)
+		real = frappe.db.set_value
+
+		def blocking(doctype, *args, **kwargs):
+			if doctype == "BPMN Process Instance":
+				raise frappe.QueryTimeoutError("Lock wait timeout exceeded")
+			return real(doctype, *args, **kwargs)
+
+		with mock_patch.object(frappe.db, "set_value", side_effect=blocking):
+			result = delegation.cancel(ad)
+
+		self.assertFalse(result["worker_stopped"])
+		self.assertTrue(result["pass_may_still_be_running"])
+
+	def test_the_comment_says_cancelled_not_stopped_at_a_limit(self):
+		"""A cancellation is a decision, not a threshold. The shared comment
+		helper used to hard-code the limit heading, so a cancelled delegation
+		read as "Delegation stopped at a limit — Delegation cancelled"."""
+		_, ad, _ = self._running()
+		ref = frappe.db.get_value("A2A Task", {}, "name")
+		frappe.db.set_value(
+			"Agent Delegation", ad,
+			{"reference_doctype": "A2A Task", "reference_name": ref},
+			update_modified=False,
+		)
+		delegation.cancel(ad)
+		comments = frappe.get_all(
+			"Comment",
+			filters={"reference_doctype": "A2A Task", "reference_name": ref, "comment_type": "Comment"},
+			fields=["content"],
+			order_by="creation desc",
+			limit=1,
+		)
+		if comments:
+			self.assertIn("Delegation cancelled", comments[0].content)
+			self.assertNotIn("stopped at a limit", comments[0].content)
+
+	def test_a_busy_worker_cannot_block_the_cancellation(self):
+		"""Found end to end, not by reading the code. Writing the worker's rows
+		first meant a cancellation could fail outright with "Lock wait timeout
+		exceeded", because a RUNNING worker holds the lock on its own A2A Task
+		row — exactly the case cancellation exists for. The decision is recorded
+		first now, and everything that can block is best-effort.
+		"""
+		from unittest.mock import patch as mock_patch
+
+		task, ad, _ = self._running()
+		real = frappe.db.set_value
+
+		def blocking(doctype, *args, **kwargs):
+			if doctype == "A2A Task":
+				raise frappe.QueryTimeoutError("Lock wait timeout exceeded")
+			return real(doctype, *args, **kwargs)
+
+		with mock_patch.object(frappe.db, "set_value", side_effect=blocking):
+			result = delegation.cancel(ad)
+
+		self.assertEqual(result["status"], "Cancelled")
+		self.assertFalse(result["task_closed"])
+		self.assertTrue(
+			result["pass_may_still_be_running"],
+			"a task we could not close may still be running, and must be reported as such",
+		)
+		self.assertEqual(frappe.db.get_value("Agent Delegation", ad, "status"), "Cancelled")
+
+	def test_a_task_that_could_not_be_closed_is_reported_not_hidden(self):
+		"""The reconciler settles it later; the person cancelling is told now."""
+		_, ad, _ = self._running()
+		result = delegation.cancel(ad)
+		self.assertTrue(result["task_closed"])
+
+	def test_the_model_is_told_a_person_stopped_it_not_that_a_limit_was_hit(self):
+		"""limit_note() carries the reason back to the delegating agent. A
+		cancellation is not a limit, and describing it as one would have the
+		orchestrator report a threshold that was never reached."""
+		task, ad, _ = self._running()
+		delegation.cancel(ad)
+		note = delegation.limit_note(task.name)
+		self.assertIn("cancelled", note.lower())
+		self.assertNotIn("limit on", note)
+
+	def test_the_answer_handed_back_says_it_was_cancelled(self):
+		from one_bpmn.tasks import _delegation_answer
+
+		task, ad, _ = self._running()
+		delegation.cancel(ad)
+		task.reload()
+		self.assertIn("cancelled", _delegation_answer(task).lower())
+
+
 class TestDeadlineBelongsToTheDelegator(FrappeTestCase):
 	"""Whose clock is it?
 
