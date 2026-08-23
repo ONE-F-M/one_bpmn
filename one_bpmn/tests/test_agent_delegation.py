@@ -196,17 +196,20 @@ class TestStoppedAtLimit(FrappeTestCase):
 		"""It used to say "raise the limit and hand it over again". There is no
 		way to hand it over again — no re-delegate action exists — so anyone
 		following that went looking for a button that was never built."""
-		task_name, ad = self._recorded()
-		delegation.stopped_at_limit(
-			a2a_task=task_name, reason="turn_cap", limit_value=1, reached_value=1
+		text = delegation._limit_message(
+			worker="Connector Agent",
+			reason="turn_cap",
+			limit_value=1,
+			reached_value=1,
+			detail="",
+			ref_doctype="Work Item",
+			ref_name="WI-000001",
 		)
-		message = frappe.db.get_value("Agent Delegation", ad, "error_message") or ""
-		row = frappe.get_all(
-			"Notification Log", filters={"document_name": task_name}, fields=["email_content"], limit=1
-		)
-		text = (row[0].email_content if row else "") or message
-		# Whichever carried it, the promise of a button must not be in there.
+		# It must point at the action that exists, on the screen where it lives.
+		# The old wording described a button that had never been built, and
+		# anyone following it went looking and found nothing.
 		self.assertNotIn("hand it over again", text)
+		self.assertIn("Delegations screen", text)
 
 	def test_marks_needs_review_with_the_limit_and_the_number(self):
 		"""'A limit was hit' is not actionable. Which limit, and what it
@@ -549,6 +552,227 @@ class TestTheDeadlineCoversAllAttempts(FrappeTestCase):
 		note = delegation.attempts_note(task.name)
 		self.assertIn("attempts", note)
 		self.assertIn("not per attempt", note)
+
+
+class TestHandingWorkBack(FrappeTestCase):
+	"""WI-002148. Raising a limit changed nothing on its own.
+
+	A delegation stops four ways — a limit, retries running out, a person
+	cancelling it, or plain failure — and every one was a dead end. The alert
+	said to raise the limit, which is easy, and then there was no action
+	anywhere that used the new limit on the work that had stopped. The only
+	route was to duplicate the work item and run every step before the
+	delegation again.
+	"""
+
+	def tearDown(self):
+		frappe.db.rollback()
+		super().tearDown()
+
+	def _stopped(self, status="Needs Review", **updates):
+		task = _task(state="failed")
+		name = delegation.record(task, delegating_agent=None)
+		payload = {"status": status}
+		payload.update(updates)
+		frappe.db.set_value("Agent Delegation", name, payload, update_modified=False)
+		return task, name
+
+	# ── what may be handed back ──────────────────────────────────────────
+
+	def test_a_stopped_delegation_can_be_handed_back(self):
+		for status in delegation.REDELEGATABLE:
+			with self.subTest(status=status):
+				_, name = self._stopped(status=status)
+				result = delegation.redelegate(name)
+				self.assertIn(result["state"], ("started", "failed"))
+				self.assertEqual(
+					frappe.db.get_value("Agent Delegation", name, "status"), "In Progress"
+				)
+
+	def test_work_still_running_cannot_be_handed_back(self):
+		"""It would give two live runs for one delegation — the thing every
+		other part of this goes out of its way to prevent."""
+		for status in ("Delegated", "In Progress"):
+			with self.subTest(status=status):
+				_, name = self._stopped(status=status)
+				with self.assertRaises(frappe.ValidationError):
+					delegation.redelegate(name)
+
+	def test_completed_work_cannot_be_handed_back(self):
+		""""Run this again" is a different request from "the first run stopped"."""
+		_, name = self._stopped(status="Completed")
+		with self.assertRaises(frappe.ValidationError):
+			delegation.redelegate(name)
+
+	def test_an_unknown_delegation_is_an_error(self):
+		with self.assertRaises(frappe.DoesNotExistError):
+			delegation.redelegate("AD-does-not-exist")
+
+	# ── the same record, not a second one ────────────────────────────────
+
+	def test_it_reuses_the_record_rather_than_opening_another(self):
+		"""One delegation is one piece of work however many times it has been
+		attempted; a second row would lose the history that makes the count mean
+		anything."""
+		before = frappe.db.count("Agent Delegation")
+		_, name = self._stopped()
+		delegation.redelegate(name)
+		self.assertEqual(frappe.db.count("Agent Delegation"), before + 1)  # only the fixture's own
+
+	def test_the_stop_reason_is_cleared_so_it_reads_as_live_again(self):
+		_, name = self._stopped(stopped_reason="turn_cap", limit_value=1, reached_value=1)
+		delegation.redelegate(name)
+		row = frappe.db.get_value(
+			"Agent Delegation", name, ["status", "stopped_reason", "ended_at"], as_dict=True
+		)
+		self.assertEqual(row.status, "In Progress")
+		self.assertFalse(row.stopped_reason)
+		self.assertFalse(row.ended_at)
+
+	# ── attempt accounting ───────────────────────────────────────────────
+
+	def test_the_attempt_count_continues_rather_than_resetting(self):
+		"""Resetting it would let anyone walk past max_delegation_retries by
+		clicking, with nothing afterwards to show what happened."""
+		_, name = self._stopped(attempt_count=3)
+		delegation.redelegate(name)
+		self.assertEqual(frappe.db.get_value("Agent Delegation", name, "attempt_count"), 4)
+
+	def test_an_attempt_a_person_asked_for_is_told_apart_from_an_automatic_one(self):
+		_, name = self._stopped(attempt_count=2, manual_attempt_count=0)
+		delegation.redelegate(name)
+		row = frappe.db.get_value(
+			"Agent Delegation", name, ["attempt_count", "manual_attempt_count"], as_dict=True
+		)
+		self.assertEqual(row.attempt_count, 3)
+		self.assertEqual(row.manual_attempt_count, 1, "the hand-over is recorded as a person's")
+
+	def test_the_record_says_who_handed_it_back_and_when(self):
+		_, name = self._stopped()
+		delegation.redelegate(name)
+		row = frappe.db.get_value(
+			"Agent Delegation", name, ["redelegated_by", "redelegated_at"], as_dict=True
+		)
+		self.assertEqual(row.redelegated_by, frappe.session.user)
+		self.assertTrue(row.redelegated_at)
+
+	# ── the deadline, deliberately the opposite of a retry ───────────────
+
+	def test_the_deadline_starts_again_for_a_hand_over(self):
+		"""An automatic retry lives inside the original window; a person handing
+		work back has decided to spend more time. Holding them to a clock that
+		already expired would mean the hand-over could never finish."""
+		task, name = self._stopped(stopped_reason="delegation_deadline_minutes")
+		expired = frappe.utils.add_to_date(now_datetime(), minutes=-10)
+		frappe.db.set_value("A2A Task", task.name, "deadline", expired, update_modified=False)
+		delegation.redelegate(name)
+		self.assertGreater(
+			frappe.utils.get_datetime(frappe.db.get_value("A2A Task", task.name, "deadline")),
+			now_datetime(),
+		)
+
+	def test_the_restarted_deadline_is_recorded_not_inferred(self):
+		"""The two rules are deliberately opposite, so the record has to say
+		which one applied."""
+		_, name = self._stopped()
+		delegation.redelegate(name)
+		self.assertTrue(frappe.db.get_value("Agent Delegation", name, "deadline_restarted"))
+
+	def test_the_escalation_guard_is_reset_for_the_new_attempt(self):
+		"""notified_at is idempotent per breach. Left set, the next limit this
+		attempt hits would stop it silently."""
+		_, name = self._stopped(notified_at=now_datetime(), notified_user="x@example.com")
+		delegation.redelegate(name)
+		self.assertIsNone(frappe.db.get_value("Agent Delegation", name, "notified_at"))
+
+	# ── the unchanged-limit warning ──────────────────────────────────────
+
+	def test_an_unchanged_limit_warns_before_anything_runs(self):
+		from one_bpmn.agents._eval_test_factories import make_agent_configuration
+
+		agent = make_agent_configuration()
+		agent.db_set("max_recursion_depth", 3, update_modified=False)
+		_, name = self._stopped(
+			delegating_agent=agent.name, stopped_reason="max_recursion_depth", limit_value=3
+		)
+		result = delegation.redelegate(name)
+		self.assertEqual(result["state"], "confirm")
+		self.assertIn("still 3", result["warning"])
+		self.assertEqual(
+			frappe.db.get_value("Agent Delegation", name, "status"),
+			"Needs Review",
+			"nothing may happen until the person decides",
+		)
+
+	def test_the_warning_can_be_overridden_because_a_person_judged_it(self):
+		from one_bpmn.agents._eval_test_factories import make_agent_configuration
+
+		agent = make_agent_configuration()
+		agent.db_set("max_recursion_depth", 3, update_modified=False)
+		_, name = self._stopped(
+			delegating_agent=agent.name, stopped_reason="max_recursion_depth", limit_value=3
+		)
+		delegation.redelegate(name, acknowledged=True)
+		self.assertEqual(frappe.db.get_value("Agent Delegation", name, "status"), "In Progress")
+
+	def test_a_raised_limit_produces_no_warning(self):
+		from one_bpmn.agents._eval_test_factories import make_agent_configuration
+
+		agent = make_agent_configuration()
+		agent.db_set("max_recursion_depth", 9, update_modified=False)
+		_, name = self._stopped(
+			delegating_agent=agent.name, stopped_reason="max_recursion_depth", limit_value=3
+		)
+		# Not "started": the fixture agent has no runnable map, so the worker
+		# genuinely cannot run. What this pins is that it got PAST the warning.
+		self.assertNotEqual(delegation.redelegate(name).get("state"), "confirm")
+
+	def test_a_limit_we_cannot_check_does_not_pretend_to(self):
+		"""turn_cap lives on the map as aiMaxToolCalls, not on the agent, so
+		this cannot tell whether anyone changed it. Warning about a limit we
+		cannot read would be worse than staying quiet."""
+		_, name = self._stopped(stopped_reason="turn_cap", limit_value=1)
+		self.assertNotEqual(delegation.redelegate(name).get("state"), "confirm")
+
+	# ── the outcome reaches a person ─────────────────────────────────────
+
+	def test_the_result_of_a_hand_over_is_written_where_a_person_looks(self):
+		"""The orchestrator's step finished long ago and is not rewound, so the
+		result has nowhere to surface unless it is put on the document."""
+		ref = frappe.db.get_value("A2A Task", {}, "name")
+		task, name = self._stopped(
+			manual_attempt_count=1, status="Completed",
+			reference_doctype="A2A Task", reference_name=ref,
+		)
+		frappe.db.set_value(
+			"A2A Task", task.name, "result", frappe.as_json({"text": "built the thing"}),
+			update_modified=False,
+		)
+		task.reload()
+		self.assertTrue(delegation.report_outcome_if_handed_back(task))
+		comment = frappe.get_all(
+			"Comment",
+			filters={"reference_doctype": "A2A Task", "reference_name": ref, "comment_type": "Comment"},
+			fields=["content"], order_by="creation desc", limit=1,
+		)
+		self.assertIn("built the thing", comment[0].content)
+
+	def test_the_outcome_is_reported_once_however_often_the_reconciler_looks(self):
+		ref = frappe.db.get_value("A2A Task", {}, "name")
+		task, name = self._stopped(
+			manual_attempt_count=1, status="Completed",
+			reference_doctype="A2A Task", reference_name=ref,
+		)
+		task.reload()
+		self.assertTrue(delegation.report_outcome_if_handed_back(task))
+		self.assertFalse(delegation.report_outcome_if_handed_back(task))
+		self.assertFalse(delegation.report_outcome_if_handed_back(task))
+
+	def test_work_nobody_handed_back_is_not_reported_that_way(self):
+		"""An ordinary delegation already has a step waiting for its answer."""
+		task, _ = self._stopped(manual_attempt_count=0, status="Completed")
+		task.reload()
+		self.assertFalse(delegation.report_outcome_if_handed_back(task))
 
 
 class TestCapabilityGate(FrappeTestCase):

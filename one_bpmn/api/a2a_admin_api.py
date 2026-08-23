@@ -19,7 +19,7 @@ from __future__ import annotations
 
 import frappe
 from frappe import _
-from frappe.utils import get_url
+from frappe.utils import cint, get_url
 
 MAX_PAGE_LENGTH = 200
 
@@ -193,6 +193,10 @@ DELEGATION_FIELDS = [
 	"notified_at",
 	"cancelled_by",
 	"cancelled_at",
+	"manual_attempt_count",
+	"redelegated_by",
+	"redelegated_at",
+	"deadline_restarted",
 	"instruction",
 	"error_message",
 	"creation",
@@ -307,6 +311,27 @@ def cancel_delegation(name: str, reason: str = "") -> dict:
 	from one_bpmn.agents.a2a import delegation
 
 	return delegation.cancel(name, reason=reason)
+
+
+@frappe.whitelist()
+def redelegate_delegation(name: str, acknowledged: int | bool = False) -> dict:
+	"""Hand stopped work back to the agent, against the limits as they stand now.
+
+	A PERSON's action, exactly like cancelling and for the same reason: an agent
+	able to re-delegate its own stopped work could work around any limit it was
+	given by asking again. No tool shape, no agent-facing path, System Manager
+	only.
+
+	Two-step by design. Called without ``acknowledged`` on a delegation whose
+	limit has not moved, it changes NOTHING and returns state "confirm" with the
+	warning to show. The person decides — the point of the action is that they
+	have judged it — but they are not allowed to walk into the same wall without
+	being told.
+	"""
+	_require_admin()
+	from one_bpmn.agents.a2a import delegation
+
+	return delegation.redelegate(name, acknowledged=bool(cint(acknowledged)))
 
 
 @frappe.whitelist()

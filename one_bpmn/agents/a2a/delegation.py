@@ -32,7 +32,7 @@ from __future__ import annotations
 
 import frappe
 from frappe import _
-from frappe.utils import cint, now_datetime
+from frappe.utils import add_to_date, cint, now_datetime
 
 from one_bpmn.agents.a2a import guardrails
 
@@ -293,6 +293,11 @@ def sync_from_task(task) -> None:
 		if getattr(task, "error_message", None):
 			changed["error_message"] = str(task.error_message)[:500]
 		frappe.db.set_value("Agent Delegation", name, changed, update_modified=True)
+		if status in _TERMINAL:
+			# Work a PERSON handed back has no step waiting for it — the
+			# orchestrator finished long ago — so its result is written where
+			# someone is already looking. No-op for anything not handed back.
+			report_outcome_if_handed_back(task)
 	except Exception:
 		frappe.log_error(
 			title="Agent Delegation: could not sync a delegation",
@@ -563,16 +568,15 @@ def _limit_message(
 		lines.append(f"It reached the limit on {label}.")
 	if detail:
 		lines.append(frappe.utils.escape_html(str(detail)))
-	# What follows has to be something a person can actually DO. The previous
-	# wording said "raise the limit and hand it over again", and there is no way
-	# to hand it over again — no re-delegate action exists anywhere, so anyone
-	# following that advice went looking for a button and did not find one.
-	# Manual re-delegation is its own story; until it exists, the alert names
-	# the two routes that are real.
+	# What follows has to be something a person can actually DO. It once said
+	# "raise the limit and hand it over again" when no such action existed, and
+	# anyone following that went looking for a button that had never been built.
+	# It exists now, so the alert names it — and names where it is, because an
+	# instruction nobody can find is the same as no instruction.
 	lines.append(
 		"The work is <b>not</b> finished, and nothing has been re-delegated automatically. "
-		"Raise the limit on the delegating agent and run the work item again, or take the "
-		"work on yourself."
+		"Raise the limit on the delegating agent, then hand the work back from the "
+		"Delegations screen in Processa — or take it on yourself."
 	)
 	return "<br>".join(lines)
 
@@ -861,3 +865,241 @@ def _wake_the_caller(a2a_task: str | None) -> bool:
 			message=frappe.get_traceback(),
 		)
 		return False
+
+
+# ── Handing stopped work back to the agent (WI-002148) ───────────────────────
+
+# What can be handed back. A delegation that is still running would give two
+# live runs for one piece of work, which is the thing cancellation and retry
+# both go out of their way to prevent; a completed one is a different request
+# altogether, and "run this again" is not a smaller version of "the first run
+# stopped".
+REDELEGATABLE = ("Failed", "Needs Review", "Cancelled")
+
+# The limits we can actually re-read to see whether anything changed. turn_cap
+# is deliberately absent: it lives on the map as aiMaxToolCalls, not on the
+# agent's configuration, so this cannot tell whether someone edited it. Warning
+# about a limit we cannot check would be worse than staying quiet about it.
+_CHECKABLE_LIMITS = {
+	"max_recursion_depth": "max_recursion_depth",
+	"max_task_handoffs": "max_task_handoffs",
+	"max_delegation_retries": "max_delegation_retries",
+	"delegation_deadline_minutes": "delegation_deadline_minutes",
+}
+
+
+def unchanged_limit_warning(row) -> str:
+	"""If the limit that stopped this is still exactly where it was, say so.
+
+	The point of the action is that a person has judged it, so this never
+	blocks — but running into the same wall twice without being told would make
+	the button feel broken rather than deliberate.
+	"""
+	reason = row.get("stopped_reason")
+	field = _CHECKABLE_LIMITS.get(reason or "")
+	if not field:
+		return ""
+	current = cint(
+		frappe.db.get_value("AI Agent Configuration", row.get("delegating_agent"), field)
+	)
+	if reason == "max_delegation_retries":
+		# limit_value holds total attempts allowed, which is retries + 1.
+		current = current + 1 if current else current
+	if current and current == cint(row.get("limit_value")):
+		return _(
+			"The limit that stopped this is still {0} — it will stop the same way. "
+			"Raise it on {1} first, or go ahead knowing that."
+		).format(cint(row.get("limit_value")), row.get("delegating_agent") or _("the agent"))
+	return ""
+
+
+def redelegate(name: str, *, by: str | None = None, acknowledged: bool = False) -> dict:
+	"""Hand a stopped delegation back to the agent, against the limits as they
+	stand NOW.
+
+	A person's action, for the same reason cancelling is: an agent able to
+	re-delegate its own stopped work could work around any limit it was given by
+	simply asking again. There is no tool shape and no agent-facing path.
+
+	Deliberately NOT a fresh record. One delegation is one piece of work however
+	many times it has been attempted, and opening a second row beside the first
+	would lose the history that makes the count mean anything.
+	"""
+	row = frappe.db.get_value(
+		"Agent Delegation",
+		name,
+		[
+			"name", "status", "stopped_reason", "limit_value", "attempt_count",
+			"manual_attempt_count", "delegating_agent", "worker_agent", "worker_instance",
+			"a2a_task", "orchestrator_instance", "instruction",
+		],
+		as_dict=True,
+	)
+	if not row:
+		frappe.throw(_("Delegation {0} not found.").format(name), frappe.DoesNotExistError)
+	if row.status not in REDELEGATABLE:
+		frappe.throw(
+			_("This delegation is {0}. Only one that stopped can be handed back.").format(row.status)
+		)
+
+	warning = unchanged_limit_warning(row)
+	if warning and not acknowledged:
+		# Nothing has happened yet: the caller shows this and asks again.
+		return {"state": "confirm", "delegation": name, "warning": warning}
+
+	locked = frappe.get_doc("Agent Delegation", name, for_update=True)
+	if locked.status not in REDELEGATABLE:
+		frappe.throw(
+			_("This delegation changed to {0} while you were looking at it.").format(locked.status)
+		)
+
+	config = frappe.db.get_value(
+		"AI Agent Configuration",
+		row.worker_agent,
+		["name", "agent_id", "agent_type", "process_model"],
+		as_dict=True,
+	)
+	if not config:
+		frappe.throw(_("The agent this was delegated to no longer exists."))
+
+	actor = by or frappe.session.user
+
+	# The previous run goes first — the same reason a retry retires it. Two live
+	# runs for one delegation is the orphan every part of this avoids.
+	from one_bpmn.agents.a2a import execute
+
+	retired = execute.retire_instance(row.worker_instance)
+
+	# A fresh window, on purpose, and the opposite of the rule for an automatic
+	# retry. A retry is the same request continuing, so it lives inside the
+	# original deadline; a person handing work back has decided to spend more
+	# time, and holding them to a clock that already expired would mean the
+	# hand-over could never finish.
+	minutes = guardrails.deadline_minutes_for(row.delegating_agent) or 240
+	frappe.db.set_value(
+		"A2A Task",
+		row.a2a_task,
+		{
+			"state": "submitted",
+			"error_message": None,
+			"error_code": None,
+			"completed_at": None,
+			"resume_enqueued": 0,
+			"deadline": add_to_date(now_datetime(), minutes=minutes),
+		},
+		update_modified=True,
+	)
+
+	# The count CONTINUES. Resetting it would let anyone walk past
+	# max_delegation_retries by clicking, with nothing afterwards to show which
+	# attempts a person asked for and which the system took itself.
+	frappe.db.set_value(
+		"Agent Delegation",
+		name,
+		{
+			"status": "In Progress",
+			"stopped_reason": None,
+			"error_message": None,
+			"ended_at": None,
+			"attempt_count": cint(row.attempt_count) + 1,
+			"manual_attempt_count": cint(row.manual_attempt_count) + 1,
+			"redelegated_by": actor,
+			"redelegated_at": now_datetime(),
+			"deadline_restarted": 1,
+			"outcome_reported_at": None,
+			# The escalation guard is per breach, and this is a new attempt: left
+			# set, the next limit this hits would stop it silently.
+			"notified_at": None,
+			"notified_user": None,
+			"cancelled_by": None,
+			"cancelled_at": None,
+		},
+		update_modified=True,
+	)
+
+	ref_doctype, ref_name = _reference_for(row.orchestrator_instance)
+	if not ref_name:
+		ref_doctype, ref_name = (
+			frappe.db.get_value("Agent Delegation", name, ["reference_doctype", "reference_name"])
+			or (None, None)
+		)
+	_comment_on_reference(
+		ref_doctype,
+		ref_name,
+		_("{0} was handed back to {1} by {2}. It has {3} minute(s) this time.").format(
+			_("The work"), row.worker_agent or _("the agent"), actor, minutes
+		),
+		heading=_("Delegation handed back"),
+	)
+
+	task = frappe.get_doc("A2A Task", row.a2a_task)
+	payload = frappe.parse_json(task.request_payload or "{}") or {}
+	started = False
+	try:
+		execute.run_for_task(task, config, payload.get("instruction") or row.instruction or "", fresh=True)
+		task.reload()
+		started = task.state not in ("failed", "rejected")
+	except Exception:
+		frappe.log_error(
+			title="Agent Delegation: hand-back could not start the worker",
+			message=frappe.get_traceback(),
+		)
+
+	return {
+		"delegation": name,
+		"state": "started" if started else "failed",
+		"attempt": cint(row.attempt_count) + 1,
+		"by_a_person": cint(row.manual_attempt_count) + 1,
+		"previous_run_retired": retired,
+		"deadline_minutes": minutes,
+		"warning": warning,
+	}
+
+
+def report_outcome_if_handed_back(task) -> bool:
+	"""When work a PERSON handed back finishes, tell them on the document.
+
+	The orchestrator's step completed long before this — it reported that the
+	delegation had stopped and the process moved on, which is correct and is not
+	rewound here. So the result of a hand-over has nowhere to surface unless it
+	is written where a person is already looking.
+
+	Once per hand-over: outcome_reported_at is cleared when the work is handed
+	back and stamped here, so the reconciler seeing the same finished row on
+	every tick does not comment again.
+	"""
+	name = for_task(getattr(task, "name", None))
+	if not name:
+		return False
+	row = frappe.db.get_value(
+		"Agent Delegation",
+		name,
+		["status", "manual_attempt_count", "outcome_reported_at", "worker_agent",
+		 "reference_doctype", "reference_name", "a2a_task"],
+		as_dict=True,
+	)
+	if not row or not cint(row.manual_attempt_count) or row.outcome_reported_at:
+		return False
+	if row.status not in _TERMINAL:
+		return False
+
+	answer = ""
+	if row.a2a_task:
+		result = frappe.parse_json(
+			frappe.db.get_value("A2A Task", row.a2a_task, "result") or "{}"
+		) or {}
+		answer = (result.get("text") or "").strip()
+	if not answer:
+		answer = _("It finished as {0} without sending anything back.").format(row.status)
+
+	_comment_on_reference(
+		row.reference_doctype,
+		row.reference_name,
+		_("{0} finished the work it was handed back.<br>{1}").format(
+			row.worker_agent or _("The agent"), frappe.utils.escape_html(answer[:2000])
+		),
+		heading=_("Handed-back delegation finished"),
+	)
+	frappe.db.set_value("Agent Delegation", name, "outcome_reported_at", now_datetime(),
+	                    update_modified=False)
+	return True

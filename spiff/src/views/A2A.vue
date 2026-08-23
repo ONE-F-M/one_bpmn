@@ -594,6 +594,57 @@
 						</div>
 					</div>
 
+					<!-- Handing it back. Sits above Cancel because it is the action a
+					     person reaches this screen to perform: they read the alert, raised
+					     the limit, and came here to get the work moving again. -->
+					<div v-if="canRedelegate" class="rounded-lg border border-gray-200 px-4 py-3">
+						<div v-if="!redelegateWarning" class="flex items-center justify-between gap-3">
+							<div class="text-gray-600 text-xs">
+								This delegation stopped. Handing it back runs the worker again against
+								the limits as they stand now.
+							</div>
+							<Button variant="subtle" :loading="loading.redelegate" @click="askRedelegate()">
+								Hand back to the agent
+							</Button>
+						</div>
+						<div v-else class="flex flex-col gap-2">
+							<div class="rounded-md bg-orange-50 border border-orange-200 px-3 py-2 text-orange-900">
+								{{ redelegateWarning }}
+							</div>
+							<div class="flex gap-2 justify-end">
+								<Button variant="ghost" @click="redelegateWarning = ''">Leave it stopped</Button>
+								<Button
+									variant="solid"
+									:loading="loading.redelegate"
+									@click="askRedelegate(true)"
+								>
+									Hand it back anyway
+								</Button>
+							</div>
+						</div>
+					</div>
+
+					<div
+						v-if="redelegateOutcome"
+						class="rounded-lg border border-gray-200 bg-gray-50 px-4 py-3 text-xs"
+					>
+						<div class="font-medium text-gray-900">
+							Handed back — attempt {{ redelegateOutcome.attempt }}, the
+							{{ redelegateOutcome.by_a_person }}<span v-if="redelegateOutcome.by_a_person === 1">st</span><span v-else>th</span>
+							a person has asked for.
+						</div>
+						<div class="text-gray-600 mt-0.5">
+							It has {{ redelegateOutcome.deadline_minutes }} minute(s) this time — a
+							hand-over starts the clock again, unlike an automatic retry.
+							<span v-if="redelegateOutcome.previous_run_retired">
+								The previous run was closed first.
+							</span>
+							<span v-if="redelegateOutcome.state !== 'started'">
+								The worker did not start — check the Error Log.
+							</span>
+						</div>
+					</div>
+
 					<!-- Stopping it. Only from inside the modal, on purpose: a
 					     destructive action should not sit on a row you click to read. -->
 					<div v-if="canCancel" class="rounded-lg border border-gray-200 px-4 py-3">
@@ -853,6 +904,7 @@ const loading = reactive({
 	delegations: false,
 	delegation: false,
 	cancel: false,
+	redelegate: false,
 })
 const error = ref("")
 
@@ -897,6 +949,8 @@ const openDelegationTitle = ref("")
 const cancelling = ref(false)
 const cancelReason = ref("")
 const cancelOutcome = ref(null)
+const redelegateWarning = ref("")
+const redelegateOutcome = ref(null)
 const cardOpen = ref(false)
 const openCard = ref(null)
 const copied = ref("")
@@ -973,6 +1027,15 @@ function limitLabel(reason) {
 // Completed one is not a smaller version of cancelling a running one — it is a
 // different, meaningless action, so the control is absent rather than disabled.
 const CANCELLABLE = ["Delegated", "In Progress", "Needs Review"]
+
+// Only work that STOPPED can be handed back. Handing back something still
+// running would create a second live run; re-running something that succeeded
+// is a different request, and neither is a smaller version of this one.
+const REDELEGATABLE = ["Failed", "Needs Review", "Cancelled"]
+
+const canRedelegate = computed(() =>
+	Boolean(openDelegationRow.value && REDELEGATABLE.includes(openDelegationRow.value.status))
+)
 
 const canCancel = computed(() =>
 	Boolean(openDelegationRow.value && CANCELLABLE.includes(openDelegationRow.value.status))
@@ -1317,6 +1380,8 @@ async function openDelegation(row) {
 	cancelling.value = false
 	cancelReason.value = ""
 	cancelOutcome.value = null
+	redelegateWarning.value = ""
+	redelegateOutcome.value = null
 	delegationOpen.value = true
 	loading.delegation = true
 	try {
@@ -1350,6 +1415,31 @@ async function confirmCancel() {
 		cancelling.value = false
 	} finally {
 		loading.cancel = false
+	}
+}
+
+async function askRedelegate(acknowledged = false) {
+	if (!openDelegationRow.value) return
+	loading.redelegate = true
+	try {
+		const result = await call("redelegate_delegation", {
+			name: openDelegationRow.value.name,
+			acknowledged: acknowledged ? 1 : 0,
+		})
+		if (result.state === "confirm") {
+			// Nothing has happened yet — the person decides, having been told.
+			redelegateWarning.value = result.warning
+			return
+		}
+		redelegateWarning.value = ""
+		redelegateOutcome.value = result
+		openDelegationRow.value = { ...openDelegationRow.value, status: "In Progress" }
+		await Promise.all([loadDelegations(dStart.value), loadFilterOptions()])
+	} catch (e) {
+		error.value = e.message || String(e)
+		redelegateWarning.value = ""
+	} finally {
+		loading.redelegate = false
 	}
 }
 
