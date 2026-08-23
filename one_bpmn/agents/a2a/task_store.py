@@ -120,6 +120,7 @@ def _set_state(task, state: str, **extra) -> None:
 	task.db_set(changed, update_modified=True)
 	for field, value in changed.items():
 		task.set(field, value)
+	_sync_delegation(task)
 	_notify(task)
 
 
@@ -206,7 +207,20 @@ def store_result(task, text: str) -> None:
 		update_modified=True,
 	)
 	task.reload()
+	_sync_delegation(task)
 	_notify(task)
+
+
+def _sync_delegation(task) -> None:
+	"""Keep the Agent Delegation row following this task (WI-002053).
+
+	Hung off the same two places that already announce a state change, so the
+	tracking record cannot drift from the task it describes. Import is local to
+	avoid a cycle: delegation imports guardrails, which imports nothing here.
+	"""
+	from one_bpmn.agents.a2a import delegation
+
+	delegation.sync_from_task(task)
 
 
 def _notify(task) -> None:

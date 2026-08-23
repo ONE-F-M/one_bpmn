@@ -46,6 +46,9 @@ class TestA2AAdminPermissions(FrappeTestCase):
 				(a2a_admin_api.list_remote_agents, {}),
 				(a2a_admin_api.list_clients, {}),
 				(a2a_admin_api.list_tasks, {}),
+				(a2a_admin_api.list_delegations, {}),
+				(a2a_admin_api.delegation_detail, {"name": "x"}),
+				(a2a_admin_api.delegation_filter_options, {}),
 				(a2a_admin_api.exposed_agents, {}),
 				(a2a_admin_api.fetch_remote_card, {"name": "x"}),
 				(a2a_admin_api.set_remote_approval, {"name": "x", "approval_status": "Approved"}),
@@ -248,3 +251,181 @@ class TestRegisteringFromProcessa(FrappeTestCase):
 			):
 				with self.assertRaises(frappe.PermissionError):
 					call(**kwargs)
+
+
+class TestDelegationMonitor(FrappeTestCase):
+	"""The delegation list on the A2A screen.
+
+	The task monitor answers "what is in flight between agents". This answers
+	"who is working on this Work Item, how far along, and did anything stop it"
+	— the same hop with the business document attached — so it filters by the
+	work rather than by the direction of travel.
+	"""
+
+	def tearDown(self):
+		frappe.db.rollback()
+		super().tearDown()
+
+	def _delegation(self, **kw):
+		worker = kw.pop("worker", None) or make_agent_configuration(a2a_exposed=1)
+		task = frappe.get_doc({
+			"doctype": "A2A Task",
+			"direction": "Internal",
+			"state": kw.pop("task_state", "working"),
+			"agent_configuration": worker.name,
+			"delegation_depth": 1,
+			"handoff_count": 1,
+		})
+		task.flags.ignore_links = True
+		task.insert(ignore_permissions=True)
+
+		doc = frappe.new_doc("Agent Delegation")
+		doc.update({
+			"worker_agent": worker.name,
+			"status": "Delegated",
+			"a2a_task": task.name,
+			"delegation_depth": 1,
+			"handoff_count": 1,
+		})
+		doc.update(kw)
+		doc.flags.ignore_permissions = True
+		doc.flags.ignore_links = True
+		doc.insert(ignore_permissions=True)
+		return doc
+
+	def test_a_delegation_is_listed_with_its_work(self):
+		d = self._delegation(reference_doctype="A2A Task", reference_name=self._any_task())
+		row = next(r for r in a2a_admin_api.list_delegations()["delegations"] if r["name"] == d.name)
+		self.assertEqual(row["reference_doctype"], "A2A Task")
+		self.assertEqual(row["worker_agent"], d.worker_agent)
+
+	@staticmethod
+	def _any_task():
+		return frappe.db.get_value("A2A Task", {}, "name")
+
+	def test_filtering_by_status(self):
+		wanted = self._delegation(status="Needs Review", stopped_reason="turn_cap")
+		other = self._delegation(status="Completed")
+		names = {r["name"] for r in a2a_admin_api.list_delegations(status="Needs Review")["delegations"]}
+		self.assertIn(wanted.name, names)
+		self.assertNotIn(other.name, names)
+
+	def test_filtering_by_doctype(self):
+		wanted = self._delegation(reference_doctype="A2A Task", reference_name=self._any_task())
+		other = self._delegation()
+		names = {
+			r["name"] for r in a2a_admin_api.list_delegations(reference_doctype="A2A Task")["delegations"]
+		}
+		self.assertIn(wanted.name, names)
+		self.assertNotIn(other.name, names)
+
+	def test_the_document_filter_matches_a_fragment(self):
+		"""Nobody types a full document id from memory — a partial is how you
+		find the run you were just looking at."""
+		ref = self._any_task()
+		wanted = self._delegation(reference_doctype="A2A Task", reference_name=ref)
+		names = {r["name"] for r in a2a_admin_api.list_delegations(reference_name=ref[:6])["delegations"]}
+		self.assertIn(wanted.name, names)
+
+	def test_the_task_filter_matches_a_fragment_too(self):
+		d = self._delegation()
+		names = {
+			r["name"] for r in a2a_admin_api.list_delegations(a2a_task=d.a2a_task[:6])["delegations"]
+		}
+		self.assertIn(d.name, names)
+
+	def test_newest_activity_first(self):
+		"""Ordered by last updated, not created: a delegation moves through
+		Delegated, In Progress and then Needs Review, so ordering by creation
+		buries the one that just changed."""
+		first = self._delegation()
+		second = self._delegation()
+		first.db_set("status", "Needs Review", update_modified=True)
+		listed = [r["name"] for r in a2a_admin_api.list_delegations()["delegations"]]
+		self.assertLess(listed.index(first.name), listed.index(second.name))
+
+	def test_total_counts_the_filtered_set(self):
+		self._delegation(status="Failed")
+		result = a2a_admin_api.list_delegations(status="Failed")
+		self.assertEqual(result["total"], len(result["delegations"]))
+
+	def test_a_page_holds_what_was_asked_for(self):
+		for _ in range(3):
+			self._delegation(status="Delegated")
+		result = a2a_admin_api.list_delegations(status="Delegated", page_length=2)
+		self.assertEqual(len(result["delegations"]), 2)
+		self.assertGreaterEqual(result["total"], 3)
+		self.assertEqual(result["page_length"], 2)
+
+	def test_the_next_page_is_the_next_rows_not_the_same_ones(self):
+		"""The failure this guards against is a Next button that appears to work
+		and shows page one again."""
+		for _ in range(4):
+			self._delegation(status="Delegated")
+		first = a2a_admin_api.list_delegations(status="Delegated", page_length=2, start=0)
+		second = a2a_admin_api.list_delegations(status="Delegated", page_length=2, start=2)
+		self.assertEqual(second["start"], 2)
+		self.assertFalse(
+			{d["name"] for d in first["delegations"]} & {d["name"] for d in second["delegations"]}
+		)
+
+	def test_the_total_is_the_whole_filtered_set_not_the_page(self):
+		"""'of N' in the footer counts every match, or paging cannot know when
+		to stop."""
+		for _ in range(3):
+			self._delegation(status="Delegated")
+		result = a2a_admin_api.list_delegations(status="Delegated", page_length=1)
+		self.assertEqual(len(result["delegations"]), 1)
+		self.assertGreaterEqual(result["total"], 3)
+
+	def test_a_page_size_beyond_the_cap_is_clamped(self):
+		result = a2a_admin_api.list_delegations(page_length=10_000)
+		self.assertEqual(result["page_length"], a2a_admin_api.MAX_PAGE_LENGTH)
+
+	def test_the_task_monitor_pages_the_same_way(self):
+		result = a2a_admin_api.list_tasks(page_length=1, start=0)
+		self.assertLessEqual(len(result["tasks"]), 1)
+		self.assertEqual(result["page_length"], 1)
+		self.assertEqual(result["start"], 0)
+
+	def test_detail_carries_the_task_state_as_well(self):
+		"""'Completed' on the delegation and what the worker actually said are
+		different facts, and the turn-cap case is where they diverge."""
+		d = self._delegation(status="Completed", task_state="completed")
+		detail = a2a_admin_api.delegation_detail(d.name)
+		self.assertEqual(detail["delegation"]["name"], d.name)
+		self.assertEqual(detail["task"]["state"], "completed")
+
+	def test_detail_survives_a_reference_it_cannot_resolve(self):
+		d = self._delegation(reference_doctype="A2A Task", reference_name="A2A-does-not-exist")
+		detail = a2a_admin_api.delegation_detail(d.name)
+		self.assertEqual(detail["delegation"]["name"], d.name)
+		self.assertIsNone(detail["reference_title"])
+
+	def test_detail_of_an_unknown_delegation_is_an_error_not_an_empty_modal(self):
+		with self.assertRaises(frappe.DoesNotExistError):
+			a2a_admin_api.delegation_detail("AD-does-not-exist")
+
+	def test_filter_options_come_from_the_rows_that_exist(self):
+		d = self._delegation(status="Needs Review", reference_doctype="A2A Task",
+			reference_name=self._any_task())
+		options = a2a_admin_api.delegation_filter_options()
+		self.assertIn("Needs Review", options["statuses"])
+		self.assertIn("A2A Task", options["doctypes"])
+		self.assertIn(d.worker_agent, options["workers"])
+
+	def test_the_task_monitor_filters_by_agent(self):
+		"""On a busy site the monitor is mostly one agent's traffic at a time."""
+		mine = make_agent_configuration(a2a_exposed=1)
+		task = frappe.get_doc({
+			"doctype": "A2A Task",
+			"direction": "Internal",
+			"state": "working",
+			"agent_configuration": mine.name,
+		})
+		task.flags.ignore_links = True
+		task.insert(ignore_permissions=True)
+		result = a2a_admin_api.list_tasks(agent_configuration=mine.name)
+		self.assertTrue(result["tasks"])
+		self.assertTrue(all(t["agent_configuration"] == mine.name for t in result["tasks"]))
+		self.assertIn(mine.name, a2a_admin_api.delegation_filter_options()["task_agents"])

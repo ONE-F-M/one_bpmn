@@ -60,6 +60,30 @@ def guardrails_for(agent_configuration: str) -> dict:
 	return {field: cint(values.get(field)) or default for field, default in DEFAULTS.items()}
 
 
+def deadline_minutes_for(agent_configuration: str | None) -> int:
+	"""How long the DELEGATING agent allows one delegation to run.
+
+	Kept out of DEFAULTS deliberately: 0 here means "this agent sets no time
+	limit", and the caller supplies its own backstop, whereas every limit in
+	DEFAULTS has a platform default that applies when the field is blank.
+
+	Read off the delegating agent for the same reason depth, hand-offs and
+	retries are: it is a guardrail on the party that has to notice work is not
+	coming back. It used to be read off the TARGET, on the reasoning that the
+	agent doing the work knows how long it needs — which let a worker grant
+	itself more time than the orchestrator allowed. With 1 minute set on the
+	orchestrator and 60 on the worker, the delegation ran to the worker's
+	number and the orchestrator's limit did nothing.
+	"""
+	if not agent_configuration:
+		return 0
+	return cint(
+		frappe.db.get_value(
+			"AI Agent Configuration", agent_configuration, "delegation_deadline_minutes"
+		)
+	)
+
+
 def may_delegate_to(agent_configuration: str, target: str) -> bool:
 	"""May this agent hand work to that one? (WI-002010)
 
@@ -236,6 +260,17 @@ def refusal_recipient(delegating_agent: str | None = None, instance: str | None 
 		started_by = frappe.db.get_value("BPMN Process Instance", instance, "initiated_by")
 		if started_by:
 			return started_by
+
+	# Nothing resolved, so the escalation has nowhere to land. Said out loud
+	# rather than returned quietly: a limit stopped real work and the only
+	# remaining trail is the comment on the referenced document. Seen on a dev
+	# site where every agent is Administrator-owned and no Process names an
+	# owner, which is exactly the configuration that hides it.
+	frappe.logger("one_bpmn").warning(
+		"A2A delegation escalation has no recipient — no process owner on the running "
+		f"process, none on agent {delegating_agent!r}, and no initiator on instance "
+		f"{instance!r}. Set a process owner or the alert is lost."
+	)
 	return None
 
 
@@ -274,7 +309,24 @@ def notify_refusal(
 
 # A limit breach is worth a record; an off-the-list target is a configuration
 # mistake that never became work, so it leaves nothing behind.
+#
+# These are the DOOR-TIME limits: checked by enforce() before anything starts,
+# so a breach means no task row exists yet and record_limit_breach() has to
+# create one. Deliberately NOT widened to cover the in-flight limits below —
+# those already have a task row and a running worker, so putting them through
+# record_limit_breach() would mint a second, duplicate row for work that had
+# already begun.
 LIMIT_REASONS = ("max_recursion_depth", "max_task_handoffs")
+
+# The limits reached while the worker is already running. They share the
+# escalation seam (agents/a2a/delegation.stopped_at_limit) but not the
+# record-creating one, because there is nothing left to create.
+#
+IN_FLIGHT_LIMIT_REASONS = (
+	"delegation_deadline_minutes",
+	"turn_cap",
+	"max_delegation_retries",
+)
 
 
 def record_limit_breach(

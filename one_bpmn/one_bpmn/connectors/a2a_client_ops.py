@@ -23,6 +23,7 @@ from __future__ import annotations
 import frappe
 from frappe.utils import add_to_date, cint, now_datetime
 
+from one_bpmn.agents.shape_tools import PAUSE_HELD_FLAG as _PAUSE_HELD_FLAG
 from one_bpmn.agents.a2a import guardrails, local, push
 from one_bpmn.one_bpmn.integrations import a2a_client
 
@@ -56,16 +57,69 @@ def delegate_to_local_agent(params: dict, ctx: dict) -> dict | None:
 	if not target:
 		raise a2a_client.A2AClientError("delegate_to_local_agent needs an agent to hand work to.")
 
-	a2a_task = local.delegate(
-		_delegating_agent(instance, params),
-		target,
-		instruction,
-		parent_task=_parent_task(instance, params),
-		caller_instance=getattr(instance, "name", None),
-		caller_wf_task_id=_caller_task_id(task),
-		bpmn_id=_bpmn_id(task),
-		deadline_minutes=cint(params.get("timeout_minutes")) or None,
-	)
+	# ── Refuse to start work this turn cannot collect ────────────────────────
+	# The agent loop tracks ONE pause per turn (step_loop: the first
+	# ToolDeferred takes the slot). A model that calls several delegation tools
+	# in a single assistant turn used to get one tracked delegation and the rest
+	# ABANDONED MID-FLIGHT: local.delegate() creates the A2A Task and starts the
+	# agent before anything parks, so the extra rows were live, unwatched, and
+	# non-terminal until their deadline expired. The model was then told to call
+	# again, so every specialist past the first also ran twice.
+	#
+	# Observed with four specialists on one brief: three delegations in one turn
+	# produced five A2A Tasks — one tracked, two orphaned in "working" forever,
+	# two duplicates from the retry.
+	#
+	# So the check belongs HERE, before the row exists, not in the loop after
+	# the fact. Nothing is created, and the model is told plainly to come back
+	# to it — which is the sequence that already works.
+	if frappe.flags.get(_PAUSE_HELD_FLAG):
+		return {
+			"state": "not-started",
+			"reason": "another-delegation-pending",
+			"text": (
+				f"Nothing was started for {target}. Another delegation from this turn is "
+				"still waiting for its answer, and only one can be tracked at a time. "
+				"Call this tool again once that one has come back."
+			),
+		}
+
+	try:
+		a2a_task = local.delegate(
+			_delegating_agent(instance, params),
+			target,
+			instruction,
+			parent_task=_parent_task(instance, params),
+			caller_instance=getattr(instance, "name", None),
+			caller_wf_task_id=_caller_task_id(task),
+			bpmn_id=_bpmn_id(task),
+			deadline_minutes=cint(params.get("timeout_minutes")) or None,
+		)
+	except guardrails.DelegationRefused as refusal:
+		# Tell the MODEL why, rather than letting this reach dispatch_connector's
+		# generic handler — which logs the traceback and hands back None.
+		#
+		# A null tool result is the worst possible answer here, because it is
+		# indistinguishable from a worker that ran and produced nothing. Twice in
+		# testing the agent reported "the specialist came back empty" and
+		# suggested retrying, when the truth was a refusal that retrying can
+		# never fix: once the target was off the delegating agent's
+		# allowed-delegates list, once the target was not Live because a bad
+		# model had flipped it to Needs Attention. The reason was in the
+		# exception the whole time and simply never reached the model.
+		#
+		# Returned rather than re-raised: dispatch_connector already swallows
+		# this exception, so the process flow is unchanged — the only difference
+		# is that the reason now travels with it.
+		return {
+			"state": "refused",
+			"reason": getattr(refusal, "reason_code", "delegation_refused"),
+			"text": (
+				f"Nothing was started for {target}. The delegation was refused: {refusal} "
+				"This is a configuration problem, not a transient one — calling the tool "
+				"again will be refused the same way."
+			),
+		}
 
 	if a2a_task.state in ("completed", "failed", "canceled", "rejected"):
 		# Answered inside the call: nothing parked, so nothing needs waking and
@@ -73,10 +127,17 @@ def delegate_to_local_agent(params: dict, ctx: dict) -> dict | None:
 		a2a_task.db_set("resume_enqueued", 1, update_modified=False)
 		if a2a_task.state == "completed":
 			payload = frappe.parse_json(a2a_task.result or "{}") or {}
+			# Same note the parked-then-resumed path adds in tasks._delegation_answer:
+			# a worker that ran out of turns reports "completed" for its run while the
+			# work itself is unfinished, and the model has to be told which limit
+			# stopped it or it reads the thin answer as a transient outage.
+			from one_bpmn.agents.a2a import delegation
+
+			text = payload.get("text") or a2a_task.status_message or ""
 			return {
 				"a2a_task": a2a_task.name,
 				"state": "completed",
-				"text": payload.get("text") or a2a_task.status_message or "",
+				"text": text + delegation.limit_note(a2a_task.name),
 			}
 		return {"a2a_task": a2a_task.name, "state": a2a_task.state, "error": a2a_task.error_message or ""}
 
