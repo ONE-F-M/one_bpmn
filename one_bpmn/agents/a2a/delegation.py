@@ -563,9 +563,16 @@ def _limit_message(
 		lines.append(f"It reached the limit on {label}.")
 	if detail:
 		lines.append(frappe.utils.escape_html(str(detail)))
+	# What follows has to be something a person can actually DO. The previous
+	# wording said "raise the limit and hand it over again", and there is no way
+	# to hand it over again — no re-delegate action exists anywhere, so anyone
+	# following that advice went looking for a button and did not find one.
+	# Manual re-delegation is its own story; until it exists, the alert names
+	# the two routes that are real.
 	lines.append(
-		"The work is <b>not</b> finished. Nothing has been re-delegated automatically — "
-		"raise the limit and hand it over again, or take it on yourself."
+		"The work is <b>not</b> finished, and nothing has been re-delegated automatically. "
+		"Raise the limit on the delegating agent and run the work item again, or take the "
+		"work on yourself."
 	)
 	return "<br>".join(lines)
 

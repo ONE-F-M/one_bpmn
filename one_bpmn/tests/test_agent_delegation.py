@@ -192,6 +192,22 @@ class TestStoppedAtLimit(FrappeTestCase):
 			"AI Agent Configuration", {"process_owner": ["is", "set"]}, "name"
 		)
 
+	def test_the_alert_only_suggests_things_a_person_can_actually_do(self):
+		"""It used to say "raise the limit and hand it over again". There is no
+		way to hand it over again — no re-delegate action exists — so anyone
+		following that went looking for a button that was never built."""
+		task_name, ad = self._recorded()
+		delegation.stopped_at_limit(
+			a2a_task=task_name, reason="turn_cap", limit_value=1, reached_value=1
+		)
+		message = frappe.db.get_value("Agent Delegation", ad, "error_message") or ""
+		row = frappe.get_all(
+			"Notification Log", filters={"document_name": task_name}, fields=["email_content"], limit=1
+		)
+		text = (row[0].email_content if row else "") or message
+		# Whichever carried it, the promise of a button must not be in there.
+		self.assertNotIn("hand it over again", text)
+
 	def test_marks_needs_review_with_the_limit_and_the_number(self):
 		"""'A limit was hit' is not actionable. Which limit, and what it
 		reached, is."""
