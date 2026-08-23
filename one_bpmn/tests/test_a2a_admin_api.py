@@ -49,6 +49,7 @@ class TestA2AAdminPermissions(FrappeTestCase):
 				(a2a_admin_api.list_delegations, {}),
 				(a2a_admin_api.delegation_detail, {"name": "x"}),
 				(a2a_admin_api.delegation_filter_options, {}),
+				(a2a_admin_api.cancel_delegation, {"name": "x"}),
 				(a2a_admin_api.exposed_agents, {}),
 				(a2a_admin_api.fetch_remote_card, {"name": "x"}),
 				(a2a_admin_api.set_remote_approval, {"name": "x", "approval_status": "Approved"}),
@@ -429,3 +430,84 @@ class TestDelegationMonitor(FrappeTestCase):
 		self.assertTrue(result["tasks"])
 		self.assertTrue(all(t["agent_configuration"] == mine.name for t in result["tasks"]))
 		self.assertIn(mine.name, a2a_admin_api.delegation_filter_options()["task_agents"])
+
+
+class TestCancellingFromTheScreen(FrappeTestCase):
+	"""Cancelling is a person's action, reached through the admin screen.
+
+	An agent able to cancel its own hand-offs could cancel its way out of a
+	limit it had been given, and those limits are what stand between a loop and
+	a bill — so the absence of an agent-facing door is part of the feature, and
+	is pinned here rather than left to convention.
+	"""
+
+	def tearDown(self):
+		frappe.db.rollback()
+		super().tearDown()
+
+	def _running(self):
+		worker = make_agent_configuration(a2a_exposed=1)
+		task = frappe.get_doc({
+			"doctype": "A2A Task",
+			"direction": "Internal",
+			"state": "working",
+			"agent_configuration": worker.name,
+			"delegation_depth": 1,
+			"handoff_count": 1,
+		})
+		task.flags.ignore_links = True
+		task.insert(ignore_permissions=True)
+		doc = frappe.new_doc("Agent Delegation")
+		doc.update({
+			"worker_agent": worker.name,
+			"status": "In Progress",
+			"a2a_task": task.name,
+			"delegation_depth": 1,
+			"handoff_count": 1,
+		})
+		doc.flags.ignore_permissions = True
+		doc.flags.ignore_links = True
+		doc.insert(ignore_permissions=True)
+		return doc
+
+	def test_no_connector_operation_exposes_cancellation(self):
+		"""The check that matters: a map cannot draw a shape that cancels a
+		delegation, because no operation handler points at it."""
+		handlers = frappe.get_all("BPMN Connector Operation", pluck="handler_path")
+		self.assertFalse(
+			[h for h in handlers if h and "cancel_delegation" in h],
+			"cancellation must not be reachable as a connector operation",
+		)
+
+	def test_cancelling_returns_what_actually_happened(self):
+		"""Not a bare success: 'the worker was stopped' and 'the worker had
+		nothing running, so we stopped waiting' are different outcomes, and the
+		person cancelling needs to know which they got."""
+		d = self._running()
+		result = a2a_admin_api.cancel_delegation(d.name, reason="stuck on a dead endpoint")
+		self.assertEqual(result["status"], "Cancelled")
+		self.assertIn("worker_stopped", result)
+		self.assertIn("pass_may_still_be_running", result)
+		self.assertIn("stuck on a dead endpoint", result["detail"])
+
+	def test_the_cancelled_delegation_is_listed_as_cancelled(self):
+		d = self._running()
+		a2a_admin_api.cancel_delegation(d.name)
+		row = next(
+			r for r in a2a_admin_api.list_delegations()["delegations"] if r["name"] == d.name
+		)
+		self.assertEqual(row["status"], "Cancelled")
+
+	def test_cancelled_becomes_a_status_you_can_filter_by(self):
+		d = self._running()
+		a2a_admin_api.cancel_delegation(d.name)
+		self.assertIn("Cancelled", a2a_admin_api.delegation_filter_options()["statuses"])
+		names = {r["name"] for r in a2a_admin_api.list_delegations(status="Cancelled")["delegations"]}
+		self.assertIn(d.name, names)
+
+	def test_the_detail_modal_shows_who_stopped_it(self):
+		d = self._running()
+		a2a_admin_api.cancel_delegation(d.name)
+		detail = a2a_admin_api.delegation_detail(d.name)["delegation"]
+		self.assertEqual(detail["cancelled_by"], frappe.session.user)
+		self.assertTrue(detail["cancelled_at"])

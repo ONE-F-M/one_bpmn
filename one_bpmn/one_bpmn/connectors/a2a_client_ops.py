@@ -94,6 +94,11 @@ def delegate_to_local_agent(params: dict, ctx: dict) -> dict | None:
 			caller_wf_task_id=_caller_task_id(task),
 			bpmn_id=_bpmn_id(task),
 			deadline_minutes=cint(params.get("timeout_minutes")) or None,
+			# What this shape says the work needs. Declared on the tool, checked
+			# against the registry — so pointing a shape at an agent that does not
+			# do this kind of work is refused rather than delegated and discovered
+			# later, in an answer that does not fit the question.
+			required_capability=(params.get("required_capability") or "").strip() or None,
 		)
 	except guardrails.DelegationRefused as refusal:
 		# Tell the MODEL why, rather than letting this reach dispatch_connector's

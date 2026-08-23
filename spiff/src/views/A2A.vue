@@ -287,7 +287,8 @@
 								<Badge :theme="delegationTheme(d.status)">{{ d.status }}</Badge>
 							</td>
 							<td class="px-4 py-2 text-gray-600 text-xs">
-								<span v-if="d.stopped_reason">
+								<span v-if="d.cancelled_by">cancelled by a person</span>
+								<span v-else-if="d.stopped_reason">
 									{{ limitLabel(d.stopped_reason) }}
 									<span v-if="d.limit_value" class="text-gray-400">
 										({{ d.reached_value }}/{{ d.limit_value }})
@@ -502,9 +503,23 @@
 						<span class="text-gray-400 text-xs">{{ openDelegationRow.name }}</span>
 					</div>
 
+					<!-- Who stopped it, when a person did. Above the limit panel because
+					     a cancellation explains the stop and a stale limit reading would not. -->
+					<div
+						v-if="openDelegationRow.cancelled_by"
+						class="rounded-lg border border-gray-200 bg-gray-50 px-4 py-3"
+					>
+						<div class="font-medium text-gray-900">Cancelled by a person</div>
+						<div class="text-gray-700 mt-0.5">
+							{{ openDelegationRow.cancelled_by }}
+							<span v-if="openDelegationRow.cancelled_at"> on {{ openDelegationRow.cancelled_at }}</span>.
+							<span v-if="openDelegationRow.error_message"> {{ openDelegationRow.error_message }}</span>
+						</div>
+					</div>
+
 					<!-- A limit that stopped it is the most important thing on the screen -->
 					<div
-						v-if="openDelegationRow.stopped_reason"
+						v-if="openDelegationRow.stopped_reason && !openDelegationRow.cancelled_by"
 						class="rounded-lg border border-orange-200 bg-orange-50 px-4 py-3"
 					>
 						<div class="font-medium text-orange-900">
@@ -576,6 +591,58 @@
 						<div class="text-xs uppercase text-gray-400 mb-1">What came back</div>
 						<div class="text-gray-800 whitespace-pre-wrap">
 							{{ delegationAnswer() }}
+						</div>
+					</div>
+
+					<!-- Stopping it. Only from inside the modal, on purpose: a
+					     destructive action should not sit on a row you click to read. -->
+					<div v-if="canCancel" class="rounded-lg border border-gray-200 px-4 py-3">
+						<div v-if="!cancelling" class="flex items-center justify-between gap-3">
+							<div class="text-gray-600 text-xs">
+								This delegation is still running. Stopping it closes the hand-off and
+								wakes whoever is waiting on it.
+							</div>
+							<Button variant="subtle" theme="red" @click="cancelling = true">
+								Cancel delegation
+							</Button>
+						</div>
+						<div v-else class="flex flex-col gap-2">
+							<FormControl
+								type="text"
+								v-model="cancelReason"
+								label="Why (optional)"
+								placeholder="Kept retrying the same broken endpoint"
+							/>
+							<div class="text-xs text-gray-500">
+								The worker stops advancing, but a pass already running cannot be
+								interrupted — you will be told which happened.
+							</div>
+							<div class="flex gap-2 justify-end">
+								<Button variant="ghost" @click="cancelling = false">Keep it running</Button>
+								<Button
+									variant="solid"
+									theme="red"
+									:loading="loading.cancel"
+									@click="confirmCancel"
+								>
+									Stop this delegation
+								</Button>
+							</div>
+						</div>
+					</div>
+
+					<div v-if="cancelOutcome" class="rounded-lg border border-gray-200 bg-gray-50 px-4 py-3 text-xs">
+						<div class="font-medium text-gray-900">{{ cancelOutcome.detail }}</div>
+						<div class="text-gray-600 mt-0.5">
+							<span v-if="cancelOutcome.worker_stopped">
+								The worker will not advance any further. A pass already running when you
+								cancelled may still finish — nothing can interrupt one mid-flight.
+							</span>
+							<span v-else>
+								The worker had no running process to stop, so the delegation simply
+								stopped waiting.
+							</span>
+							<span v-if="cancelOutcome.caller_woken"> The agent waiting on it was woken.</span>
 						</div>
 					</div>
 
@@ -785,6 +852,7 @@ const loading = reactive({
 	tasks: false,
 	delegations: false,
 	delegation: false,
+	cancel: false,
 })
 const error = ref("")
 
@@ -826,6 +894,9 @@ const delegationOpen = ref(false)
 const openDelegationRow = ref(null)
 const openDelegationTask = ref(null)
 const openDelegationTitle = ref("")
+const cancelling = ref(false)
+const cancelReason = ref("")
+const cancelOutcome = ref(null)
 const cardOpen = ref(false)
 const openCard = ref(null)
 const copied = ref("")
@@ -898,7 +969,17 @@ function limitLabel(reason) {
 	return LIMIT_LABELS[reason] || reason
 }
 
+// Only a delegation that has not finished can be stopped. Cancelling a
+// Completed one is not a smaller version of cancelling a running one — it is a
+// different, meaningless action, so the control is absent rather than disabled.
+const CANCELLABLE = ["Delegated", "In Progress", "Needs Review"]
+
+const canCancel = computed(() =>
+	Boolean(openDelegationRow.value && CANCELLABLE.includes(openDelegationRow.value.status))
+)
+
 function delegationTheme(status) {
+	if (status === "Cancelled") return "gray"
 	if (status === "Completed") return "green"
 	if (status === "Failed") return "red"
 	if (status === "Needs Review") return "orange"
@@ -1232,6 +1313,10 @@ async function openDelegation(row) {
 	openDelegationRow.value = row
 	openDelegationTask.value = null
 	openDelegationTitle.value = ""
+	// A reason typed for one delegation must never carry into the next.
+	cancelling.value = false
+	cancelReason.value = ""
+	cancelOutcome.value = null
 	delegationOpen.value = true
 	loading.delegation = true
 	try {
@@ -1243,6 +1328,28 @@ async function openDelegation(row) {
 		error.value = e.message || String(e)
 	} finally {
 		loading.delegation = false
+	}
+}
+
+async function confirmCancel() {
+	if (!openDelegationRow.value) return
+	loading.cancel = true
+	try {
+		cancelOutcome.value = await call("cancel_delegation", {
+			name: openDelegationRow.value.name,
+			reason: cancelReason.value || undefined,
+		})
+		cancelling.value = false
+		cancelReason.value = ""
+		// Re-read both: the row's status changed, and so did its place in a list
+		// ordered by last updated.
+		openDelegationRow.value = { ...openDelegationRow.value, status: "Cancelled" }
+		await Promise.all([loadDelegations(dStart.value), loadFilterOptions()])
+	} catch (e) {
+		error.value = e.message || String(e)
+		cancelling.value = false
+	} finally {
+		loading.cancel = false
 	}
 }
 

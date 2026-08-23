@@ -95,6 +95,7 @@ def delegate(
 	input_assignee: str | None = None,
 	input_role: str | None = None,
 	deadline_minutes: int | None = None,
+	required_capability: str | None = None,
 ):
 	"""Hand a task to a local agent. Returns the A2A Task row.
 
@@ -121,7 +122,9 @@ def delegate(
 	# Always enforced, even with no delegating agent to attribute it to: the
 	# target still has to be one that accepts agent-to-agent work.
 	try:
-		guardrails.enforce(delegating_agent, config.name, counters)
+		guardrails.enforce(
+			delegating_agent, config.name, counters, required_capability=required_capability
+		)
 	except guardrails.DelegationRefused as refusal:
 		# A limit breach leaves a failed task and tells a person (WI-002008);
 		# an off-the-list target is a configuration mistake that never became

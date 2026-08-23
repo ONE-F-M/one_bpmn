@@ -68,12 +68,24 @@ A2A_CONNECTOR = {
 					"help": "What the agent should do. Jinja is allowed, e.g. {{ doc.subject }}.",
 				},
 				{
+					"name": "required_capability",
+					"label": "Capability this needs",
+					"type": "String",
+					"help": (
+						"Optional. One skill tag the agent must carry, e.g. 'connector'. "
+						"Checked against the agent's A2A skill tags before anything is "
+						"handed over, so a shape pointed at an agent that does not do this "
+						"kind of work is refused instead of delegated. Leave blank for no "
+						"constraint."
+					),
+				},
+				{
 					"name": "timeout_minutes",
 					"label": "Deadline override (minutes)",
 					"type": "String",
 					"help": (
-						"Usually leave blank: the deadline comes from the agent you are "
-						"delegating to. Set this only to override it for this step."
+						"Usually leave blank: the deadline comes from the DELEGATING agent's "
+						"configuration. Set this only to override it for this step."
 					),
 				},
 			],

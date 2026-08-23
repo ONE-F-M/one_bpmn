@@ -74,7 +74,7 @@
    "in_list_view": 1,
    "in_standard_filter": 1,
    "label": "Status",
-   "options": "Delegated\nIn Progress\nNeeds Review\nCompleted\nFailed",
+   "options": "Delegated\nIn Progress\nNeeds Review\nCompleted\nFailed\nCancelled",
    "read_only": 1
   },
   {
@@ -84,7 +84,7 @@
    "in_list_view": 1,
    "in_standard_filter": 1,
    "label": "Stopped Reason",
-   "options": "\nmax_recursion_depth\nmax_task_handoffs\ndelegation_deadline_minutes\nturn_cap",
+   "options": "\nmax_recursion_depth\nmax_task_handoffs\ndelegation_deadline_minutes\nturn_cap\nmax_delegation_retries\ncancelled",
    "read_only": 1
   },
   {
@@ -214,6 +214,20 @@
    "fieldname": "notified_at",
    "fieldtype": "Datetime",
    "label": "Notified At",
+   "read_only": 1
+  },
+  {
+   "fieldname": "cancelled_by",
+   "fieldtype": "Link",
+   "label": "Cancelled By",
+   "options": "User",
+   "read_only": 1,
+   "description": "The person who stopped this delegation. Cancelling is a person's action \u2014 an agent that could cancel its own hand-offs could cancel its way out of a limit."
+  },
+  {
+   "fieldname": "cancelled_at",
+   "fieldtype": "Datetime",
+   "label": "Cancelled At",
    "read_only": 1
   },
   {

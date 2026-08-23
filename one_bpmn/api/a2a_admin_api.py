@@ -191,6 +191,8 @@ DELEGATION_FIELDS = [
 	"ended_at",
 	"notified_user",
 	"notified_at",
+	"cancelled_by",
+	"cancelled_at",
 	"instruction",
 	"error_message",
 	"creation",
@@ -285,6 +287,26 @@ def delegation_detail(name: str) -> dict:
 			reference_title = None
 
 	return {"delegation": row, "task": task, "reference_title": reference_title}
+
+
+@frappe.whitelist()
+def cancel_delegation(name: str, reason: str = "") -> dict:
+	"""Stop a running delegation. A PERSON's action, never an agent's.
+
+	There is deliberately no tool shape for this and no agent-facing path: an
+	agent able to cancel its own hand-offs could cancel its way out of a limit
+	it had been given. _require_admin() is the whole access rule, and it is the
+	same rule that already governs everything else on this screen.
+
+	Returns what actually happened rather than a bare success, because "the
+	worker was stopped" and "the worker will not advance, but a pass already
+	running cannot be interrupted" are different outcomes and the person
+	cancelling needs to know which one they got.
+	"""
+	_require_admin()
+	from one_bpmn.agents.a2a import delegation
+
+	return delegation.cancel(name, reason=reason)
 
 
 @frappe.whitelist()
