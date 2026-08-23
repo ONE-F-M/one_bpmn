@@ -91,6 +91,16 @@ def compile_shape_tools(tool_shapes, instance) -> list:
 	return tools
 
 
+# Set on frappe.flags while a turn already holds a pause, so a tool that WOULD
+# park can refuse to start rather than being abandoned. It lives here beside
+# ToolDeferred because the two are halves of one rule: the loop tracks one pause
+# per turn, so a second one must never begin work. Written by
+# agents/executor/step_loop.py, read by
+# connectors/a2a_client_ops.delegate_to_local_agent — kept in this module so
+# neither of those has to import the other.
+PAUSE_HELD_FLAG = "a2a_pause_held_this_turn"
+
+
 class ToolDeferred(Exception):
 	"""A tool started work that finishes later, so it has no result yet.
 

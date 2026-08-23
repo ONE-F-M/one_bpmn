@@ -202,6 +202,133 @@
 			</table>
 		</div>
 
+		<!-- Delegations: the same hand-off, seen from the work it was for -->
+		<div v-else-if="tab === 'delegations'" class="flex-1 flex flex-col overflow-hidden">
+			<div class="bg-white px-6 py-3 border-b flex flex-wrap gap-3 items-center">
+				<FormControl
+					type="text"
+					v-model="dFilters.a2a_task"
+					placeholder="Task, e.g. A2A-17522"
+					class="w-52"
+				/>
+				<FormControl
+					type="select"
+					v-model="dFilters.reference_doctype"
+					:options="doctypeOptions"
+					class="w-48"
+					@change="loadDelegations(0)"
+				/>
+				<FormControl
+					type="text"
+					v-model="dFilters.reference_name"
+					placeholder="Document, e.g. WI-0028"
+					class="w-52"
+				/>
+				<FormControl
+					type="select"
+					v-model="dFilters.status"
+					:options="delegationStatusOptions"
+					class="w-48"
+					@change="loadDelegations(0)"
+				/>
+				<Button v-if="anyDelegationFilter" variant="ghost" @click="resetDelegationFilters">
+					Clear filters
+				</Button>
+				<div class="ml-auto flex items-center gap-4">
+					<span class="text-sm text-gray-600">{{ dTotal }} delegations</span>
+					<div class="flex items-center gap-2">
+						<span class="text-sm text-gray-600">Page Size:</span>
+						<FormControl
+							type="select"
+							v-model="dPageLength"
+							:options="pageSizeOptions"
+							class="w-20"
+							@change="changeDelegationPageSize"
+						/>
+					</div>
+				</div>
+			</div>
+			<div class="flex-1 overflow-auto px-6 py-4">
+				<p class="text-sm text-gray-600 mb-3">
+					Who is working on what, and how far along. A delegation that stopped at a limit
+					stays here with the limit that stopped it — click a row for the whole story.
+				</p>
+				<div v-if="loading.delegations" class="text-sm text-gray-500">Loading…</div>
+				<table v-else class="w-full text-sm bg-white rounded-lg overflow-hidden">
+					<thead class="bg-gray-100 text-left text-xs uppercase text-gray-500">
+						<tr>
+							<th class="px-4 py-2">Work</th>
+							<th class="px-4 py-2" title="The agent that handed the work over">Delegated by</th>
+							<th class="px-4 py-2" title="The agent doing the work">Handled by</th>
+							<th class="px-4 py-2">Status</th>
+							<th class="px-4 py-2" title="The limit that stopped it, if one did">Stopped at</th>
+							<th class="px-4 py-2" title="Nesting depth / hand-offs / attempts">D / H / A</th>
+							<th class="px-4 py-2">Last updated</th>
+						</tr>
+					</thead>
+					<tbody>
+						<tr
+							v-for="d in delegations"
+							:key="d.name"
+							class="border-t cursor-pointer hover:bg-gray-50"
+							@click="openDelegation(d)"
+						>
+							<td class="px-4 py-2">
+								<div class="font-medium text-gray-900">
+									{{ d.reference_name || "—" }}
+								</div>
+								<div class="text-xs text-gray-500">
+									{{ d.reference_doctype || "nothing linked" }}
+								</div>
+							</td>
+							<td class="px-4 py-2 text-gray-600">{{ d.delegating_agent || "—" }}</td>
+							<td class="px-4 py-2 text-gray-600">{{ d.worker_agent || "—" }}</td>
+							<td class="px-4 py-2">
+								<Badge :theme="delegationTheme(d.status)">{{ d.status }}</Badge>
+							</td>
+							<td class="px-4 py-2 text-gray-600 text-xs">
+								<span v-if="d.cancelled_by">cancelled by a person</span>
+								<span v-else-if="d.stopped_reason">
+									{{ limitLabel(d.stopped_reason) }}
+									<span v-if="d.limit_value" class="text-gray-400">
+										({{ d.reached_value }}/{{ d.limit_value }})
+									</span>
+								</span>
+								<span v-else class="text-gray-400">—</span>
+							</td>
+							<td class="px-4 py-2 text-gray-600">
+								{{ d.delegation_depth }} / {{ d.handoff_count }} / {{ d.attempt_count || 1 }}
+							</td>
+							<td class="px-4 py-2 text-gray-500 text-xs">{{ d.modified }}</td>
+						</tr>
+						<tr v-if="!delegations.length">
+							<td colspan="7" class="px-4 py-6 text-center text-gray-500">
+								{{ anyDelegationFilter ? "Nothing matches those filters." : "No delegations yet." }}
+							</td>
+						</tr>
+					</tbody>
+				</table>
+				<div class="mt-3 bg-white rounded-lg px-6 py-4 border-t flex items-center justify-between text-sm">
+					<div class="text-gray-600">
+						Showing {{ delegations.length ? dStart + 1 : 0 }} to
+						{{ dStart + delegations.length }} of {{ dTotal }}
+					</div>
+					<div class="flex items-center gap-2">
+						<Button variant="outline" :disabled="dStart === 0" @click="prevDelegationPage">
+							Previous
+						</Button>
+						<Button
+							variant="outline"
+							:disabled="dStart + dPageLengthNum >= dTotal"
+							@click="nextDelegationPage"
+						>
+							Next
+						</Button>
+					</div>
+				</div>
+			</div>
+		</div>
+
 		<!-- Task monitor -->
 		<template v-else>
 			<div class="bg-white px-6 py-3 border-b flex flex-wrap gap-4 items-center">
@@ -219,10 +346,33 @@
 					class="w-48"
 					@change="loadTasks(0)"
 				/>
-				<Button v-if="filters.direction || filters.state" variant="ghost" @click="resetFilters">
+				<FormControl
+					type="select"
+					v-model="filters.agent"
+					:options="taskAgentOptions"
+					class="w-56"
+					@change="loadTasks(0)"
+				/>
+				<Button
+					v-if="filters.direction || filters.state || filters.agent"
+					variant="ghost"
+					@click="resetFilters"
+				>
 					Clear filters
 				</Button>
-				<div class="ml-auto text-sm text-gray-600">{{ total }} tasks</div>
+				<div class="ml-auto flex items-center gap-4">
+					<span class="text-sm text-gray-600">{{ total }} tasks</span>
+					<div class="flex items-center gap-2">
+						<span class="text-sm text-gray-600">Page Size:</span>
+						<FormControl
+							type="select"
+							v-model="pageLength"
+							:options="pageSizeOptions"
+							class="w-20"
+							@change="changeTaskPageSize"
+						/>
+					</div>
+				</div>
 			</div>
 			<div class="flex-1 overflow-auto px-6 py-4">
 				<div v-if="loading.tasks" class="text-sm text-gray-500">Loading…</div>
@@ -314,23 +464,236 @@
 						</tr>
 					</tbody>
 				</table>
-				<div v-if="total > pageLength" class="flex items-center justify-between mt-3">
-					<Button variant="ghost" :disabled="start === 0" @click="loadTasks(start - pageLength)">
-						Previous
-					</Button>
-					<span class="text-xs text-gray-500">
-						{{ start + 1 }}–{{ Math.min(start + pageLength, total) }} of {{ total }}
-					</span>
-					<Button
-						variant="ghost"
-						:disabled="start + pageLength >= total"
-						@click="loadTasks(start + pageLength)"
-					>
-						Next
-					</Button>
+				<div class="mt-3 bg-white rounded-lg px-6 py-4 border-t flex items-center justify-between text-sm">
+					<div class="text-gray-600">
+						Showing {{ a2aTasks.length ? start + 1 : 0 }} to
+						{{ start + a2aTasks.length }} of {{ total }}
+					</div>
+					<div class="flex items-center gap-2">
+						<Button variant="outline" :disabled="start === 0" @click="prevTaskPage">
+							Previous
+						</Button>
+						<Button
+							variant="outline"
+							:disabled="start + pageLengthNum >= total"
+							@click="nextTaskPage"
+						>
+							Next
+						</Button>
+					</div>
 				</div>
 			</div>
 		</template>
+
+		<!-- One delegation, in full. Opened by clicking a row. -->
+		<Dialog v-model="delegationOpen" :options="{ title: 'Delegation', size: '2xl' }">
+			<template #body-content>
+				<div v-if="loading.delegation" class="text-sm text-gray-500">Loading…</div>
+				<div v-else-if="openDelegationRow" class="flex flex-col gap-5 text-sm">
+					<!-- What happened, in one line, before any of the fields -->
+					<div class="flex flex-wrap items-center gap-2">
+						<Badge :theme="delegationTheme(openDelegationRow.status)">
+							{{ openDelegationRow.status }}
+						</Badge>
+						<span class="text-gray-900 font-medium">
+							{{ openDelegationRow.delegating_agent || "someone" }}
+							→
+							{{ openDelegationRow.worker_agent || "an agent" }}
+						</span>
+						<span class="text-gray-400 text-xs">{{ openDelegationRow.name }}</span>
+					</div>
+
+					<!-- Who stopped it, when a person did. Above the limit panel because
+					     a cancellation explains the stop and a stale limit reading would not. -->
+					<div
+						v-if="openDelegationRow.cancelled_by"
+						class="rounded-lg border border-gray-200 bg-gray-50 px-4 py-3"
+					>
+						<div class="font-medium text-gray-900">Cancelled by a person</div>
+						<div class="text-gray-700 mt-0.5">
+							{{ openDelegationRow.cancelled_by }}
+							<span v-if="openDelegationRow.cancelled_at"> on {{ openDelegationRow.cancelled_at }}</span>.
+							<span v-if="openDelegationRow.error_message"> {{ openDelegationRow.error_message }}</span>
+						</div>
+					</div>
+
+					<!-- A limit that stopped it is the most important thing on the screen -->
+					<div
+						v-if="openDelegationRow.stopped_reason && !openDelegationRow.cancelled_by"
+						class="rounded-lg border border-orange-200 bg-orange-50 px-4 py-3"
+					>
+						<div class="font-medium text-orange-900">
+							Stopped at a limit — {{ limitLabel(openDelegationRow.stopped_reason) }}
+						</div>
+						<div class="text-orange-800 mt-0.5">
+							<span v-if="openDelegationRow.limit_value">
+								Reached {{ openDelegationRow.reached_value }} against a limit of
+								{{ openDelegationRow.limit_value }}.
+							</span>
+							The work is not finished.
+						</div>
+						<div v-if="openDelegationRow.notified_user" class="text-xs text-orange-700 mt-1">
+							{{ openDelegationRow.notified_user }} was told
+							<span v-if="openDelegationRow.notified_at">on {{ openDelegationRow.notified_at }}</span>.
+						</div>
+					</div>
+
+					<div class="grid gap-4 md:grid-cols-2">
+						<div>
+							<div class="text-xs uppercase text-gray-400 mb-1">What it was for</div>
+							<div v-if="openDelegationRow.reference_name" class="text-gray-800">
+								<a
+									:href="referenceUrl(openDelegationRow)"
+									target="_blank"
+									class="text-blue-600 hover:underline"
+								>
+									{{ openDelegationRow.reference_name }}
+								</a>
+								<span class="text-gray-500"> · {{ openDelegationRow.reference_doctype }}</span>
+								<div v-if="openDelegationTitle" class="text-gray-600 mt-0.5">
+									{{ openDelegationTitle }}
+								</div>
+							</div>
+							<div v-else class="text-gray-400">
+								Nothing linked — the delegating run had no context document.
+							</div>
+						</div>
+						<div>
+							<div class="text-xs uppercase text-gray-400 mb-1">The hand-off</div>
+							<div v-if="openDelegationRow.a2a_task" class="text-gray-800">
+								<a
+									:href="`/app/a2a-task/${openDelegationRow.a2a_task}`"
+									target="_blank"
+									class="text-blue-600 hover:underline"
+								>
+									{{ openDelegationRow.a2a_task }}
+								</a>
+								<Badge
+									v-if="openDelegationTask"
+									:theme="stateTheme(openDelegationTask.state)"
+									class="ml-2"
+								>
+									{{ openDelegationTask.state }}
+								</Badge>
+							</div>
+							<div v-else class="text-gray-400">no task row</div>
+						</div>
+					</div>
+
+					<div>
+						<div class="text-xs uppercase text-gray-400 mb-1">What was asked</div>
+						<div class="text-gray-800 whitespace-pre-wrap">
+							{{ openDelegationRow.instruction || "—" }}
+						</div>
+					</div>
+
+					<div>
+						<div class="text-xs uppercase text-gray-400 mb-1">What came back</div>
+						<div class="text-gray-800 whitespace-pre-wrap">
+							{{ delegationAnswer() }}
+						</div>
+					</div>
+
+					<!-- Stopping it. Only from inside the modal, on purpose: a
+					     destructive action should not sit on a row you click to read. -->
+					<div v-if="canCancel" class="rounded-lg border border-gray-200 px-4 py-3">
+						<div v-if="!cancelling" class="flex items-center justify-between gap-3">
+							<div class="text-gray-600 text-xs">
+								This delegation is still running. Stopping it closes the hand-off and
+								wakes whoever is waiting on it.
+							</div>
+							<Button variant="subtle" theme="red" @click="cancelling = true">
+								Cancel delegation
+							</Button>
+						</div>
+						<div v-else class="flex flex-col gap-2">
+							<FormControl
+								type="text"
+								v-model="cancelReason"
+								label="Why (optional)"
+								placeholder="Kept retrying the same broken endpoint"
+							/>
+							<div class="text-xs text-gray-500">
+								The worker stops advancing, but a pass already running cannot be
+								interrupted — you will be told which happened.
+							</div>
+							<div class="flex gap-2 justify-end">
+								<Button variant="ghost" @click="cancelling = false">Keep it running</Button>
+								<Button
+									variant="solid"
+									theme="red"
+									:loading="loading.cancel"
+									@click="confirmCancel"
+								>
+									Stop this delegation
+								</Button>
+							</div>
+						</div>
+					</div>
+
+					<div v-if="cancelOutcome" class="rounded-lg border border-gray-200 bg-gray-50 px-4 py-3 text-xs">
+						<div class="font-medium text-gray-900">{{ cancelOutcome.detail }}</div>
+						<div class="text-gray-600 mt-0.5">
+							<span v-if="cancelOutcome.worker_stopped">
+								The worker will not advance any further. A pass already running when you
+								cancelled may still finish — nothing can interrupt one mid-flight.
+							</span>
+							<span v-else>
+								The worker had no running process to stop, so the delegation simply
+								stopped waiting.
+							</span>
+							<span v-if="cancelOutcome.caller_woken"> The agent waiting on it was woken.</span>
+						</div>
+					</div>
+
+					<div class="grid gap-4 md:grid-cols-3 text-xs">
+						<div>
+							<div class="uppercase text-gray-400 mb-1">Counters</div>
+							<div class="text-gray-700">
+								depth {{ openDelegationRow.delegation_depth }} ·
+								hand-offs {{ openDelegationRow.handoff_count }} ·
+								attempts {{ openDelegationRow.attempt_count || 1 }}
+							</div>
+						</div>
+						<div>
+							<div class="uppercase text-gray-400 mb-1">Timing</div>
+							<div class="text-gray-700">
+								<div>started {{ openDelegationRow.started_at || "—" }}</div>
+								<div v-if="openDelegationRow.ended_at">ended {{ openDelegationRow.ended_at }}</div>
+								<div v-if="openDelegationTask && openDelegationTask.deadline">
+									deadline {{ openDelegationTask.deadline }}
+								</div>
+							</div>
+						</div>
+						<div>
+							<div class="uppercase text-gray-400 mb-1">Instances</div>
+							<div class="text-gray-700 flex flex-col">
+								<router-link
+									v-if="openDelegationRow.orchestrator_instance"
+									:to="`/processa/instances/${openDelegationRow.orchestrator_instance}`"
+									class="text-blue-600 hover:underline"
+								>
+									{{ openDelegationRow.orchestrator_instance }} (asked)
+								</router-link>
+								<router-link
+									v-if="openDelegationRow.worker_instance"
+									:to="`/processa/instances/${openDelegationRow.worker_instance}`"
+									class="text-blue-600 hover:underline"
+								>
+									{{ openDelegationRow.worker_instance }} (doing)
+								</router-link>
+								<span
+									v-if="!openDelegationRow.orchestrator_instance && !openDelegationRow.worker_instance"
+									class="text-gray-400"
+								>
+									—
+								</span>
+							</div>
+						</div>
+					</div>
+				</div>
+			</template>
+		</Dialog>
 
 		<Dialog v-model="remoteFormOpen" :options="{ title: remoteForm.name ? 'Edit remote agent' : 'New remote agent' }">
 			<template #body-content>
@@ -473,7 +836,7 @@
 // Read-mostly. Approvals, card fetches and credential reads all call the
 // modules that own those rules, so this screen cannot become a second
 // implementation of them.
-import { computed, onMounted, reactive, ref } from "vue"
+import { computed, onMounted, reactive, ref, watch } from "vue"
 import { Badge, Button, Dialog, ErrorMessage, FormControl, frappeRequest } from "frappe-ui"
 import AgentPicker from "@/components/a2a/AgentPicker.vue"
 
@@ -482,7 +845,15 @@ const TERMINAL = ["completed", "canceled", "failed", "rejected", "timed-out"]
 
 const tab = ref("ours")
 const can = ref({ administer: false, read: false })
-const loading = reactive({ ours: false, remotes: false, clients: false, tasks: false })
+const loading = reactive({
+	ours: false,
+	remotes: false,
+	clients: false,
+	tasks: false,
+	delegations: false,
+	delegation: false,
+	cancel: false,
+})
 const error = ref("")
 
 const ourAgents = ref([])
@@ -491,9 +862,41 @@ const clients = ref([])
 const a2aTasks = ref([])
 const total = ref(0)
 const start = ref(0)
-const pageLength = ref(50)
+// A page size per list, not one for the screen. Sharing it looked tidier and
+// was wrong: switching tabs carried the new value into the other tab's select
+// while that list was still showing rows fetched at the old size, so the
+// control said 50 and the page held 20. Either both lists reload on every tab
+// switch, or each keeps its own — and each keeping its own is also what a
+// person means when they set a page size while looking at one list.
+const pageLength = ref(20)
+const dPageLength = ref(20)
 
-const filters = reactive({ direction: "", state: "" })
+// FormControl's select hands back a string, and `start + "20"` is "020".
+const pageLengthNum = computed(() => Number(pageLength.value) || 20)
+const dPageLengthNum = computed(() => Number(dPageLength.value) || 20)
+
+const pageSizeOptions = [
+	{ label: "10", value: 10 },
+	{ label: "20", value: 20 },
+	{ label: "50", value: 50 },
+	{ label: "100", value: 100 },
+]
+
+const filters = reactive({ direction: "", state: "", agent: "" })
+
+// Delegations: the same hand-offs, listed by the work they were for.
+const delegations = ref([])
+const dTotal = ref(0)
+const dStart = ref(0)
+const dFilters = reactive({ a2a_task: "", reference_doctype: "", reference_name: "", status: "" })
+const filterOptions = ref({ statuses: [], doctypes: [], workers: [], task_agents: [] })
+const delegationOpen = ref(false)
+const openDelegationRow = ref(null)
+const openDelegationTask = ref(null)
+const openDelegationTitle = ref("")
+const cancelling = ref(false)
+const cancelReason = ref("")
+const cancelOutcome = ref(null)
 const cardOpen = ref(false)
 const openCard = ref(null)
 const copied = ref("")
@@ -505,6 +908,7 @@ const tabs = computed(() => [
 	{ key: "remotes", label: "Remote agents", count: remotes.value.length || null },
 	{ key: "clients", label: "Clients", count: clients.value.length || null },
 	{ key: "tasks", label: "Tasks", count: total.value || null },
+	{ key: "delegations", label: "Delegations", count: dTotal.value || null },
 ])
 
 // Internal — one of our agents handing work to another on this site — is the
@@ -526,6 +930,78 @@ const stateOptions = [
 	{ label: "canceled", value: "canceled" },
 	{ label: "timed-out", value: "timed-out" },
 ]
+
+// Built from the rows that exist, not from the doctype's Select options: a
+// status nothing has reached, or an agent nothing has been delegated to, is a
+// dead entry in a dropdown.
+const taskAgentOptions = computed(() => [
+	{ label: "All agents", value: "" },
+	...filterOptions.value.task_agents.map((a) => ({ label: a, value: a })),
+])
+
+const doctypeOptions = computed(() => [
+	{ label: "All doctypes", value: "" },
+	...filterOptions.value.doctypes.map((d) => ({ label: d, value: d })),
+])
+
+const delegationStatusOptions = computed(() => [
+	{ label: "All statuses", value: "" },
+	...filterOptions.value.statuses.map((s) => ({ label: s, value: s })),
+])
+
+const anyDelegationFilter = computed(() =>
+	Boolean(
+		dFilters.a2a_task || dFilters.reference_doctype || dFilters.reference_name || dFilters.status
+	)
+)
+
+// The same words the escalation puts in front of a person, so the screen and
+// the notification do not describe one limit two ways.
+const LIMIT_LABELS = {
+	max_recursion_depth: "nesting depth",
+	max_task_handoffs: "hand-offs between agents",
+	delegation_deadline_minutes: "time allowed",
+	turn_cap: "tool-calling turns",
+	max_delegation_retries: "retries",
+}
+
+function limitLabel(reason) {
+	return LIMIT_LABELS[reason] || reason
+}
+
+// Only a delegation that has not finished can be stopped. Cancelling a
+// Completed one is not a smaller version of cancelling a running one — it is a
+// different, meaningless action, so the control is absent rather than disabled.
+const CANCELLABLE = ["Delegated", "In Progress", "Needs Review"]
+
+const canCancel = computed(() =>
+	Boolean(openDelegationRow.value && CANCELLABLE.includes(openDelegationRow.value.status))
+)
+
+function delegationTheme(status) {
+	if (status === "Cancelled") return "gray"
+	if (status === "Completed") return "green"
+	if (status === "Failed") return "red"
+	if (status === "Needs Review") return "orange"
+	if (status === "In Progress") return "blue"
+	return "gray" // Delegated — handed over, not started
+}
+
+function referenceUrl(row) {
+	const slug = String(row.reference_doctype || "").toLowerCase().replace(/ /g, "-")
+	return `/app/${slug}/${encodeURIComponent(row.reference_name)}`
+}
+
+function delegationAnswer() {
+	const task = openDelegationTask.value
+	const row = openDelegationRow.value
+	return (
+		task?.status_message ||
+		row?.error_message ||
+		task?.error_message ||
+		"no answer recorded"
+	)
+}
 
 function isTerminal(state) {
 	return TERMINAL.includes(state)
@@ -743,7 +1219,7 @@ async function loadTasks(from = 0) {
 			direction: filters.direction || undefined,
 			state: filters.state || undefined,
 			start: Math.max(0, from),
-			page_length: pageLength.value,
+			page_length: pageLengthNum.value,
 		})
 		a2aTasks.value = r.tasks || []
 		total.value = r.total || 0
@@ -755,10 +1231,135 @@ async function loadTasks(from = 0) {
 	}
 }
 
+// Each list goes back to its own first page when its own size changes: an
+// offset calculated for the old size points at a page that no longer starts
+// where the footer says it does.
+function changeTaskPageSize() {
+	loadTasks(0)
+}
+
+function changeDelegationPageSize() {
+	loadDelegations(0)
+}
+
+function prevTaskPage() {
+	loadTasks(Math.max(0, start.value - pageLengthNum.value))
+}
+
+function nextTaskPage() {
+	loadTasks(start.value + pageLengthNum.value)
+}
+
+function prevDelegationPage() {
+	loadDelegations(Math.max(0, dStart.value - dPageLengthNum.value))
+}
+
+function nextDelegationPage() {
+	loadDelegations(dStart.value + dPageLengthNum.value)
+}
+
 function resetFilters() {
 	filters.direction = ""
 	filters.state = ""
+	filters.agent = ""
 	loadTasks(0)
+}
+
+async function loadDelegations(from = 0) {
+	loading.delegations = true
+	try {
+		const r = await call("list_delegations", {
+			a2a_task: dFilters.a2a_task || undefined,
+			reference_doctype: dFilters.reference_doctype || undefined,
+			reference_name: dFilters.reference_name || undefined,
+			status: dFilters.status || undefined,
+			start: Math.max(0, from),
+			page_length: dPageLengthNum.value,
+		})
+		delegations.value = r.delegations || []
+		dTotal.value = r.total || 0
+		dStart.value = r.start || 0
+	} catch (e) {
+		error.value = e.message || String(e)
+	} finally {
+		loading.delegations = false
+	}
+}
+
+// The two name filters match on a fragment, so they search as you type — but
+// not once per keystroke. Driven by a watcher rather than @input because
+// FormControl is a wrapper, and whether a native listener reaches the input
+// inside it is its business, not this screen's.
+let delegationTimer = null
+watch(
+	() => [dFilters.a2a_task, dFilters.reference_name],
+	() => {
+		clearTimeout(delegationTimer)
+		delegationTimer = setTimeout(() => loadDelegations(0), 300)
+	}
+)
+
+function resetDelegationFilters() {
+	dFilters.a2a_task = ""
+	dFilters.reference_doctype = ""
+	dFilters.reference_name = ""
+	dFilters.status = ""
+	loadDelegations(0)
+}
+
+async function openDelegation(row) {
+	// Show what the list already has, then fill in the rest — the modal opens
+	// immediately rather than after a round trip.
+	openDelegationRow.value = row
+	openDelegationTask.value = null
+	openDelegationTitle.value = ""
+	// A reason typed for one delegation must never carry into the next.
+	cancelling.value = false
+	cancelReason.value = ""
+	cancelOutcome.value = null
+	delegationOpen.value = true
+	loading.delegation = true
+	try {
+		const r = await call("delegation_detail", { name: row.name })
+		openDelegationRow.value = r.delegation || row
+		openDelegationTask.value = r.task || null
+		openDelegationTitle.value = r.reference_title || ""
+	} catch (e) {
+		error.value = e.message || String(e)
+	} finally {
+		loading.delegation = false
+	}
+}
+
+async function confirmCancel() {
+	if (!openDelegationRow.value) return
+	loading.cancel = true
+	try {
+		cancelOutcome.value = await call("cancel_delegation", {
+			name: openDelegationRow.value.name,
+			reason: cancelReason.value || undefined,
+		})
+		cancelling.value = false
+		cancelReason.value = ""
+		// Re-read both: the row's status changed, and so did its place in a list
+		// ordered by last updated.
+		openDelegationRow.value = { ...openDelegationRow.value, status: "Cancelled" }
+		await Promise.all([loadDelegations(dStart.value), loadFilterOptions()])
+	} catch (e) {
+		error.value = e.message || String(e)
+		cancelling.value = false
+	} finally {
+		loading.cancel = false
+	}
+}
+
+async function loadFilterOptions() {
+	try {
+		filterOptions.value = await call("delegation_filter_options")
+	} catch (e) {
+		// A screen that cannot build its dropdowns still lists rows.
+		filterOptions.value = { statuses: [], doctypes: [], workers: [], task_agents: [] }
+	}
 }
 
 async function fetchCard(remote) {
@@ -819,6 +1420,13 @@ async function showCredentials(client) {
 onMounted(async () => {
 	can.value = (await call("get_permissions")) || can.value
 	if (!can.value.administer) return
-	await Promise.all([loadOurAgents(), loadRemotes(), loadClients(), loadTasks(0)])
+	await Promise.all([
+		loadOurAgents(),
+		loadRemotes(),
+		loadClients(),
+		loadTasks(0),
+		loadDelegations(0),
+		loadFilterOptions(),
+	])
 })
 </script>
