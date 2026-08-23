@@ -84,6 +84,7 @@
   "delegation_deadline_minutes",
   "column_break_guardrails",
   "max_delegation_retries",
+  "max_clarification_rounds",
   "evaluation_section",
   "sample_prompts",
   "needs_attention_reason"
@@ -592,14 +593,14 @@
   },
   {
    "default": "0",
-   "description": "Leave off and this agent may hand work to any agent exposed over A2A — normally what you want, since the tools drawn on its process map already decide who it actually calls. Tick it only to narrow that to a named few.",
+   "description": "Leave off and this agent may hand work to any agent exposed over A2A \u2014 normally what you want, since the tools drawn on its process map already decide who it actually calls. Tick it only to narrow that to a named few.",
    "fieldname": "restrict_delegates",
    "fieldtype": "Check",
    "label": "Restrict Delegation to Specific Agents"
   },
   {
    "depends_on": "eval:doc.restrict_delegates",
-   "description": "The only agents this agent may hand work to while the restriction above is on. Each entry is an INDEPENDENT agent with its own configuration, map and lifecycle — this list grants permission to delegate, it does not create or own a child agent. Add, remove or reorder freely; the change takes effect immediately, with no code push and no restart.",
+   "description": "The only agents this agent may hand work to while the restriction above is on. Each entry is an INDEPENDENT agent with its own configuration, map and lifecycle \u2014 this list grants permission to delegate, it does not create or own a child agent. Add, remove or reorder freely; the change takes effect immediately, with no code push and no restart.",
    "fieldname": "allowed_delegates",
    "fieldtype": "Table",
    "label": "Allowed Delegates",
@@ -613,7 +614,7 @@
   },
   {
    "default": "5",
-   "description": "Maximum parent-to-sub-agent nesting level (A → B → C = 3). Exceeding it stops the chain instead of looping.",
+   "description": "Maximum parent-to-sub-agent nesting level (A \u2192 B \u2192 C = 3). Exceeding it stops the chain instead of looping.",
    "fieldname": "max_recursion_depth",
    "fieldtype": "Int",
    "label": "Max Recursion Depth",
@@ -646,6 +647,13 @@
    "fieldtype": "Int",
    "label": "Max Delegation Retries",
    "non_negative": 1
+  },
+  {
+   "fieldname": "max_clarification_rounds",
+   "fieldtype": "Int",
+   "label": "Max Clarification Rounds",
+   "default": "0",
+   "description": "How many times this agent may ask the story owner about one piece of work before it stops asking and the question is raised with the process owner instead. 0 means no limit. Worth setting: the measured failure of an agent allowed to ask is over-asking \u2014 a question that adds friction without improving the outcome."
   }
  ],
  "index_web_pages_for_search": 1,

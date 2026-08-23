@@ -56,6 +56,14 @@ def compile_shape_tools(tool_shapes, instance) -> list:
 		if not bpmn_id:
 			continue
 		if shape.get("human"):
+			# WI-002050: an agent that has already asked its allowed number of
+			# questions about this piece of work stops being offered the tool.
+			# Withdrawn rather than refused mid-call: a tool the model can see and
+			# cannot use invites it to keep trying, and the documented failure of
+			# an interactive agent is over-asking, not silence. What happens next
+			# is the escalation — never a guess.
+			if _clarification_cap_reached(instance, shape):
+				continue
 			# Durable HITL: a User/Manual shape is a HUMAN tool. The step
 			# loop never calls fn — selecting it suspends the agent until a
 			# person completes the spawned task; the stub only exists to make
@@ -117,6 +125,30 @@ class ToolDeferred(Exception):
 	def __init__(self, marker: dict):
 		super().__init__("tool deferred — waiting on work outside this turn")
 		self.marker = marker or {}
+
+
+def _clarification_cap_reached(instance, shape) -> bool:
+	"""Has this agent used up its questions about this document?
+
+	Read per document, not per run: a story retried or handed back is the same
+	story, and a cap that reset would not be a cap.
+	"""
+	try:
+		from one_bpmn.agents import clarification
+
+		agent = getattr(instance, "_a2a_delegating_agent", None) or (
+			shape.get("aiAgentConfig") if isinstance(shape, dict) else None
+		)
+		return clarification.cap_reached(
+			agent,
+			getattr(instance, "context_doctype", None),
+			getattr(instance, "context_docname", None),
+		)
+	except Exception:
+		# A cap that cannot be read must not remove the agent's only way of
+		# asking — failing open here keeps the question possible, and the
+		# escalation still catches an unanswered one.
+		return False
 
 
 def _make_human_stub(bpmn_id: str):

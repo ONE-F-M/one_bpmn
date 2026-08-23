@@ -93,11 +93,14 @@ DELEGATION_FIELDS = (
 	"max_delegation_retries",
 )
 
+CLARIFICATION_FIELDS = ("max_clarification_rounds",)
+
 AGENT_CONTROL_GROUPS = (
 	("Screening", SCREENING_FIELDS),
 	("Rate limiting & freeze", RATE_LIMIT_FIELDS),
 	("Feedback", FEEDBACK_FIELDS),
 	("Delegation", DELEGATION_FIELDS),
+	("Clarification", CLARIFICATION_FIELDS),
 )
 
 EVENT_FIELDS = (
