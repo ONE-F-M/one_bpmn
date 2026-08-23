@@ -321,6 +321,20 @@ def sync_from_task(task) -> None:
 #    worker run for retries x deadline in total.
 
 
+# THE DEADLINE COVERS ALL ATTEMPTS — it does not restart per retry.
+#
+# The story required this to be decided rather than left to whatever the code
+# happened to do. Restarting it would let a worker that fails repeatedly run for
+# retries × deadline in total, which is not what someone setting "30 minutes"
+# expects to have agreed to; the number they chose is how long they are willing
+# to wait for an answer, however many attempts it takes to fail to produce one.
+#
+# The consequence, stated so the record can say it: a delegation can run out of
+# TIME before it runs out of ATTEMPTS, and then it stops on the deadline with
+# retries still unused. That is the intended behaviour, not a bug in counting.
+DEADLINE_SPANS_ALL_ATTEMPTS = True
+
+
 def attempts_allowed(delegating_agent: str | None) -> int:
 	"""How many times in total the worker may be run: the first attempt plus the
 	configured retries."""
@@ -328,14 +342,34 @@ def attempts_allowed(delegating_agent: str | None) -> int:
 
 
 def should_retry(a2a_task: str | None) -> bool:
-	"""Has this failed delegation got an attempt left?"""
+	"""Has this failed delegation got an attempt left, and is it worth using?
+
+	A retry is for a TRANSIENT failure. A delegation that stopped for a reason a
+	retry cannot fix — refused at the door, off the allow-list, past a depth or
+	hand-off limit, or cancelled by a person — must not be run again: repeating
+	a configuration outcome only delays the escalation, and re-running something
+	a person just stopped would be worse than useless.
+
+	stopped_reason is what tells them apart. A transient failure leaves it empty;
+	every refusal and every limit sets it. That is checked here rather than left
+	to the reconciler's query filter, which excluded those rows for an unrelated
+	reason (they are marked as already handled) and would have retried them the
+	moment anything else visited one.
+	"""
 	name = for_task(a2a_task)
 	if not name:
 		return False
 	row = frappe.db.get_value(
-		"Agent Delegation", name, ["attempt_count", "delegating_agent", "status"], as_dict=True
+		"Agent Delegation",
+		name,
+		["attempt_count", "delegating_agent", "status", "stopped_reason"],
+		as_dict=True,
 	)
-	if not row or row.status == "Needs Review":
+	if not row:
+		return False
+	if row.status in ("Needs Review", "Cancelled", "Completed"):
+		return False
+	if row.stopped_reason:
 		return False
 	return cint(row.attempt_count) < attempts_allowed(row.delegating_agent)
 
@@ -492,6 +526,23 @@ def stopped_at_limit(
 		return False
 
 
+def attempts_note(a2a_task: str | None) -> str:
+	"""One clause for a deadline escalation that covered more than one attempt.
+
+	Without it the alert says the worker "had been running for about 30 minutes"
+	and a person reasonably reads that as one long attempt, when it was three
+	short ones inside one window. The deadline spanning all attempts is only
+	defensible if the record says so.
+	"""
+	name = for_task(a2a_task)
+	attempts = cint(frappe.db.get_value("Agent Delegation", name, "attempt_count")) if name else 0
+	if attempts <= 1:
+		return ""
+	return _(
+		" That covers {0} attempts: the time allowed is for the whole delegation, not per attempt."
+	).format(attempts)
+
+
 def _limit_message(
 	*, worker, reason, limit_value, reached_value, detail, ref_doctype, ref_name
 ) -> str:
@@ -512,9 +563,16 @@ def _limit_message(
 		lines.append(f"It reached the limit on {label}.")
 	if detail:
 		lines.append(frappe.utils.escape_html(str(detail)))
+	# What follows has to be something a person can actually DO. The previous
+	# wording said "raise the limit and hand it over again", and there is no way
+	# to hand it over again — no re-delegate action exists anywhere, so anyone
+	# following that advice went looking for a button and did not find one.
+	# Manual re-delegation is its own story; until it exists, the alert names
+	# the two routes that are real.
 	lines.append(
-		"The work is <b>not</b> finished. Nothing has been re-delegated automatically — "
-		"raise the limit and hand it over again, or take it on yourself."
+		"The work is <b>not</b> finished, and nothing has been re-delegated automatically. "
+		"Raise the limit on the delegating agent and run the work item again, or take the "
+		"work on yourself."
 	)
 	return "<br>".join(lines)
 

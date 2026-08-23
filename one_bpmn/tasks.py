@@ -529,7 +529,10 @@ def _retry_delegation(task) -> bool:
 				f"A2A delegation {task.name}: retrying {task.agent_configuration} "
 				f"(attempt {attempt})"
 			)
-			execute.run_for_task(task, config, payload.get("instruction") or "")
+			# fresh=True: run the worker AGAIN, rather than reattaching to what the
+			# last attempt left behind. Without it the attempt was counted and
+			# nothing re-ran.
+			execute.run_for_task(task, config, payload.get("instruction") or "", fresh=True)
 			task.reload()
 			return task.state not in ("failed", "rejected")
 
@@ -568,8 +571,16 @@ def _escalate_deadline(task_name: str, agent_configuration=None, caller_instance
 		if row and row.creation:
 			started = frappe.utils.get_datetime(row.creation)
 			if row.deadline:
+				# ROUNDED, not floored. The deadline is stamped a fraction of a
+				# second after `creation` is written, so a genuine one-minute
+				# allowance measures 59.997 seconds and floors to ZERO — which
+				# recorded limit_value 0 and printed "its deadline had already
+				# passed", the wording meant for a deadline moved into the past by
+				# hand. A one-minute deadline is the shortest a person can set and
+				# the likeliest to be used for testing, so it was also the likeliest
+				# to be misreported.
 				allowed = max(
-					0, int((frappe.utils.get_datetime(row.deadline) - started).total_seconds() // 60)
+					0, round((frappe.utils.get_datetime(row.deadline) - started).total_seconds() / 60)
 				)
 			ran_for = max(0, int((now_datetime() - started).total_seconds() // 60))
 	except Exception:
@@ -587,7 +598,12 @@ def _escalate_deadline(task_name: str, agent_configuration=None, caller_instance
 			if allowed <= 0
 			else f"It was allowed {allowed} minute(s) and had been running for about "
 			f"{ran_for} when the deadline passed."
-		),
+		)
+		# The deadline covers every attempt, so an alert that names one elapsed
+		# time has to say how many attempts fitted inside it — otherwise
+		# "running for 30 minutes" reads as one long attempt when it was three
+		# short ones.
+		+ delegation.attempts_note(task_name),
 		instance=caller_instance,
 		worker_agent=agent_configuration,
 	)

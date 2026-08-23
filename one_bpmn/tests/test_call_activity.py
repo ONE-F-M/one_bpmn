@@ -178,6 +178,42 @@ class TestCallActivityCompile(FrappeTestCase):
 		parser's (which is the one that actually reports the problem)."""
 		self.assertEqual(_resolve_called_process_xml(_parent_xml(called=""), "WI2111 Parent"), [])
 
+	def test_an_ai_task_with_no_user_prompt_warns_at_deploy(self):
+		"""An AI task with a system prompt but no user prompt is a broken map that
+		looks fine: the model is handed an empty turn and answers "no content was
+		provided to me", so every run afterwards reads as the agent misbehaving
+		rather than the map missing a field. It cost two test cycles on the same
+		map — the attribute went missing after a properties-panel edit both
+		times — so deploy is where it gets said out loud."""
+		from one_bpmn.api.compilation import _check_ai_tasks_have_a_user_prompt
+
+		broken = {"service_task_extensions": {
+			"orchestrate": {"serviceType": "ai_agent", "aiSystemPrompt": "You are..."}
+		}}
+		warnings = _check_ai_tasks_have_a_user_prompt(broken)
+		self.assertEqual(len(warnings), 1)
+		self.assertIn("orchestrate", warnings[0]["detail"])
+
+	def test_a_complete_ai_task_does_not_warn(self):
+		from one_bpmn.api.compilation import _check_ai_tasks_have_a_user_prompt
+
+		fine = {"service_task_extensions": {
+			"orchestrate": {
+				"serviceType": "ai_agent",
+				"aiSystemPrompt": "You are...",
+				"aiUserPrompt": "{{ brief }}",
+			}
+		}}
+		self.assertEqual(_check_ai_tasks_have_a_user_prompt(fine), [])
+
+	def test_a_task_that_is_not_an_ai_agent_is_not_judged(self):
+		from one_bpmn.api.compilation import _check_ai_tasks_have_a_user_prompt
+
+		other = {"service_task_extensions": {
+			"send_it": {"serviceType": "send_email", "aiSystemPrompt": "irrelevant"}
+		}}
+		self.assertEqual(_check_ai_tasks_have_a_user_prompt(other), [])
+
 	def test_recompiling_a_called_map_refreshes_its_callers(self):
 		"""A caller embeds a COPY of the called map, so editing the called map
 		alone changed nothing for anyone calling it.

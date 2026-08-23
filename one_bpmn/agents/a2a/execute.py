@@ -24,13 +24,19 @@ import frappe
 from one_bpmn.agents.a2a import task_store
 
 
-def run_for_task(task, config, text: str) -> None:
+def run_for_task(task, config, text: str, *, fresh: bool = False) -> None:
 	"""Execute the agent named by ``config`` for this task, writing the
 	outcome onto the task row. Never raises: a failure is a failed task,
-	not a broken caller."""
+	not a broken caller.
+
+	``fresh`` marks a RETRY: run the worker again from the beginning rather
+	than looking at what the last attempt left behind. It matters only on the
+	Background path — a Chat agent is re-invoked from scratch every time by
+	definition, so there is nothing there to reuse by accident.
+	"""
 	agent_type = config.get("agent_type") if isinstance(config, dict) else config.agent_type
 	if agent_type == "Background":
-		run_background(task, config, text)
+		run_background(task, config, text, fresh=fresh)
 	else:
 		run_chat_turn(task, config, text)
 
@@ -88,9 +94,17 @@ def run_chat_turn(task, config, text: str) -> None:
 		task_store.store_result(task, result.get("response") or "")
 
 
-def run_background(task, config, text: str) -> None:
+def run_background(task, config, text: str, *, fresh: bool = False) -> None:
 	"""Background path: the A2A Task row is the trigger document, so an
-	A2A-startable map has already started on insert; bind the instance."""
+	A2A-startable map has already started on insert; bind the instance.
+
+	``fresh`` is what makes a retry a retry. Without it, retrying found the
+	process from the PREVIOUS attempt — the row is the trigger document, and it
+	is the same row every time — reattached to it, read its finished state and
+	failed again immediately. Three attempts, one execution: the limit was
+	respected without anything being retried. So a retry retires the last
+	attempt and starts a new process instead of inheriting a finished one.
+	"""
 	from one_bpmn.agents.agent_provisioning import is_a2a_startable_map
 
 	process_model = config.get("process_model") if isinstance(config, dict) else config.process_model
@@ -105,7 +119,20 @@ def run_background(task, config, text: str) -> None:
 		task.reload()
 		return
 
-	instance = task_store.find_instance_for_task(task.name)
+	if fresh:
+		instance = _start_another_attempt(task, process_model)
+		if not instance:
+			task.db_set(
+				{
+					"state": "failed",
+					"error_message": "the retry could not start a new run for this agent",
+				},
+				update_modified=True,
+			)
+			task.reload()
+			return
+	else:
+		instance = task_store.find_instance_for_task(task.name)
 	if not instance:
 		# The insert may have happened before a map whose start condition needs
 		# the agent could match — re-fire the same conditional gate the
@@ -147,3 +174,69 @@ def run_background(task, config, text: str) -> None:
 	# reconciler tick it does not need.
 	task_store.refresh_state(task)
 	task.reload()
+
+
+def _start_another_attempt(task, process_model: str) -> str | None:
+	"""Retire the last attempt and start a new run of the worker's map.
+
+	Two reasons the previous instance has to be dealt with first, not just
+	ignored. It is what ``find_instance_for_task`` would hand back — the row is
+	the trigger document, so every attempt looks the same to that lookup. And
+	while it is still Active the trigger's duplicate guard refuses to start
+	another instance for the same document, so a retry would find nothing to run
+	and fall through to the old one anyway.
+
+	Returns the new instance, or None when the start gate declined — which the
+	caller must report as a failed retry rather than quietly reusing the last
+	attempt's result.
+	"""
+	previous = task_store.find_instance_for_task(task.name)
+	retire_instance(previous)
+
+	try:
+		from one_bpmn.one_bpmn.trigger import _maybe_start_instance
+
+		_maybe_start_instance(frappe.get_doc("A2A Task", task.name), process_model)
+	except Exception:
+		frappe.log_error(
+			title="A2A retry: could not start another attempt", message=frappe.get_traceback()
+		)
+		return None
+
+	started = task_store.find_instance_for_task(task.name)
+	# Same instance back means nothing started — report it rather than running
+	# the old result past the caller a second time as though it were new.
+	return started if started and started != previous else None
+
+
+def retire_instance(instance_name: str | None) -> bool:
+	"""Close a previous attempt's run so it is neither orphaned nor in the way.
+
+	Two live instances for one delegation is exactly the orphan this must not
+	create — and while the old one is still Active the trigger's duplicate guard
+	refuses to start another for the same document, so leaving it would mean the
+	retry silently ran nothing.
+
+	A run that already finished is left exactly as it is: its outcome is part of
+	the delegation's history and rewriting it would lose what the first attempt
+	actually did. Returns True when something was retired.
+	"""
+	if not instance_name:
+		return False
+	if frappe.db.get_value("BPMN Process Instance", instance_name, "status") not in (
+		"Active",
+		"Queued",
+	):
+		return False
+	frappe.db.set_value(
+		"BPMN Process Instance", instance_name, "status", "Cancelled", update_modified=False
+	)
+	for waiting in frappe.get_all(
+		"BPMN Active Task",
+		filters={"parent": instance_name, "status": "Waiting"},
+		pluck="name",
+	):
+		frappe.db.set_value(
+			"BPMN Active Task", waiting, "status", "Cancelled", update_modified=False
+		)
+	return True
