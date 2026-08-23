@@ -52,12 +52,15 @@ function render(frm, pending, history) {
 			"orange"
 		);
 
-		// The button lives INSIDE the question card, next to the question it
-		// answers. It was set as the form's primary action first, and never
-		// appeared: Work Item has a workflow, so that slot already belongs to the
-		// Actions button and setting it again is silently ignored. Beside the
-		// question is where it should have been anyway — a person reading the
-		// question does not want to go looking in a toolbar for the reply.
+		// ONE button, inside the question card, next to the question it answers.
+		//
+		// It was the form's primary action first and never appeared at all: Work
+		// Item has a workflow, so that slot already belongs to Actions and setting
+		// it again is silently ignored. The fix added a toolbar button as well,
+		// which gave two — and a second button for one action is just a question
+		// about which one is the real one. Beside the question is where it belongs:
+		// a person reading the question does not want to go looking in a toolbar
+		// for the reply.
 		const section = frm.dashboard.add_section(
 			`<div style="padding:4px 0">
 				<div style="white-space:pre-wrap">${frappe.utils.escape_html(pending.question || "")}</div>
@@ -96,11 +99,6 @@ function render(frm, pending, history) {
 				.on("click", () => answer(frm, pending));
 		}
 
-		// A second way in, for anyone who scrolls past the card. add_custom_button
-		// sits beside Actions rather than fighting it for the primary slot.
-		if (pending.can_answer) {
-			frm.add_custom_button(__("Answer the agent"), () => answer(frm, pending));
-		}
 	}
 
 	if (history.length) {
