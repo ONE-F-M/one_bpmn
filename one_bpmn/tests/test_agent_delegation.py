@@ -296,6 +296,211 @@ class TestEscalationWithoutARowYet(FrappeTestCase):
 		self.assertEqual(row.limit_value, 30)
 
 
+class TestARetryActuallyRuns(FrappeTestCase):
+	"""WI-002146. The limit was respected without anything being retried.
+
+	A delegated specialist is a Background agent: the A2A Task row IS its
+	trigger document, so "the process for this task" is the same lookup on every
+	attempt. A retry found the process from the PREVIOUS attempt, reattached to
+	it, read its finished state and failed again at once. Two delegations that
+	exhausted their retries showed attempt_count 2 and 3 against ONE worker
+	instance and ONE agent run each — three attempts, one execution.
+
+	So these tests assert EXECUTIONS, not counted attempts. Counting was never
+	the broken half.
+	"""
+
+	def tearDown(self):
+		frappe.db.rollback()
+		super().tearDown()
+
+	def test_a_retry_asks_for_a_fresh_run(self):
+		"""The seam: run_for_task must pass fresh through to the Background path,
+		because that flag is the whole difference between retrying and
+		re-reading."""
+		import inspect
+
+		from one_bpmn.agents.a2a import execute
+
+		self.assertIn("fresh", inspect.signature(execute.run_for_task).parameters)
+		self.assertIn("fresh", inspect.signature(execute.run_background).parameters)
+
+	def test_the_reconciler_asks_for_a_fresh_run(self):
+		"""A retry that does not ask for a fresh run is the original bug."""
+		import inspect
+
+		from one_bpmn import tasks
+
+		source = inspect.getsource(tasks._retry_delegation)
+		self.assertIn("fresh=True", source)
+
+	def test_a_chat_worker_needs_no_fresh_flag(self):
+		"""A Chat agent is re-invoked from scratch every time, so there is
+		nothing there to inherit by accident — the flag is Background-only and
+		must not change that path."""
+		import inspect
+
+		from one_bpmn.agents.a2a import execute
+
+		self.assertNotIn("fresh", inspect.signature(execute.run_chat_turn).parameters)
+
+
+class TestNoOrphanFromThePreviousAttempt(FrappeTestCase):
+	"""A retry must not leave the last attempt running beside its replacement."""
+
+	def tearDown(self):
+		frappe.db.rollback()
+		super().tearDown()
+
+	def _instance(self, status):
+		doc = frappe.get_doc({
+			"doctype": "BPMN Process Instance",
+			"process_model": frappe.db.get_value("BPMN Process Model", {}, "name"),
+			"status": status,
+		})
+		doc.flags.ignore_links = True
+		doc.flags.ignore_mandatory = True
+		doc.insert(ignore_permissions=True)
+		return doc
+
+	def test_a_still_running_attempt_is_retired(self):
+		from one_bpmn.agents.a2a import execute
+
+		instance = self._instance("Active")
+		self.assertTrue(execute.retire_instance(instance.name))
+		self.assertEqual(
+			frappe.db.get_value("BPMN Process Instance", instance.name, "status"), "Cancelled"
+		)
+
+	def test_a_finished_attempt_is_left_alone(self):
+		"""Its outcome is part of the delegation's history; rewriting it would
+		lose what the first attempt actually did."""
+		from one_bpmn.agents.a2a import execute
+
+		instance = self._instance("Completed")
+		self.assertFalse(execute.retire_instance(instance.name))
+		self.assertEqual(
+			frappe.db.get_value("BPMN Process Instance", instance.name, "status"), "Completed"
+		)
+
+	def test_nothing_to_retire_is_not_an_error(self):
+		from one_bpmn.agents.a2a import execute
+
+		self.assertFalse(execute.retire_instance(None))
+
+	def test_waiting_rows_from_the_old_attempt_are_closed(self):
+		"""Left open they surface in every task summary forever."""
+		from one_bpmn.agents.a2a import execute
+
+		instance = self._instance("Active")
+		instance.append("active_tasks", {"task_id": "t1", "task_name": "Old step", "status": "Waiting"})
+		instance.flags.ignore_permissions = True
+		instance.save(ignore_permissions=True)
+		execute.retire_instance(instance.name)
+		self.assertEqual(
+			frappe.db.count("BPMN Active Task", {"parent": instance.name, "status": "Waiting"}), 0
+		)
+
+
+class TestWhatIsNotWorthRetrying(FrappeTestCase):
+	"""A retry is for a TRANSIENT failure.
+
+	Repeating a configuration outcome only delays the escalation, and re-running
+	something a person just cancelled would be worse than useless. This held
+	before only because the reconciler's query happened to exclude those rows
+	for an unrelated reason; it is a stated rule now.
+	"""
+
+	def tearDown(self):
+		frappe.db.rollback()
+		super().tearDown()
+
+	def _recorded(self, **updates):
+		task = _task(state="failed")
+		name = delegation.record(task, delegating_agent=None)
+		if updates:
+			frappe.db.set_value("Agent Delegation", name, updates, update_modified=False)
+		return task, name
+
+	def test_a_transient_failure_is_retried(self):
+		task, _ = self._recorded()
+		self.assertTrue(delegation.should_retry(task.name))
+
+	def test_a_door_time_refusal_is_not_retried(self):
+		"""Off the allow-list, or past a depth or hand-off limit: the answer will
+		be the same every time."""
+		for reason in ("max_recursion_depth", "max_task_handoffs", "target_not_allowed"):
+			with self.subTest(reason=reason):
+				task, _ = self._recorded(status="Failed", stopped_reason=reason)
+				self.assertFalse(delegation.should_retry(task.name))
+
+	def test_a_cancelled_delegation_is_not_retried(self):
+		"""A person stopped it. Starting it again would undo their decision."""
+		task, _ = self._recorded(status="Cancelled", stopped_reason=delegation.CANCELLED_REASON)
+		self.assertFalse(delegation.should_retry(task.name))
+
+	def test_a_delegation_already_escalated_is_not_retried(self):
+		task, _ = self._recorded(status="Needs Review", stopped_reason="turn_cap")
+		self.assertFalse(delegation.should_retry(task.name))
+
+	def test_a_completed_delegation_is_not_retried(self):
+		task, _ = self._recorded(status="Completed")
+		self.assertFalse(delegation.should_retry(task.name))
+
+	def test_the_rule_does_not_depend_on_the_reconcilers_query(self):
+		"""The guard is in should_retry, so it holds wherever it is called from —
+		the previous protection was a filter that excluded these rows for an
+		unrelated reason."""
+		task, _ = self._recorded(status="Failed", stopped_reason="max_task_handoffs")
+		frappe.db.set_value("A2A Task", task.name, "resume_enqueued", 0, update_modified=False)
+		self.assertFalse(delegation.should_retry(task.name))
+
+
+class TestTheDeadlineCoversAllAttempts(FrappeTestCase):
+	"""The story required this DECIDED, not left to whatever the code did.
+
+	It covers the whole delegation. Restarting it per retry would let a worker
+	that keeps failing run for retries × deadline, which is not what someone
+	setting "30 minutes" has agreed to. The consequence is that a delegation can
+	run out of time before it runs out of attempts — intended, so the record has
+	to say so.
+	"""
+
+	def tearDown(self):
+		frappe.db.rollback()
+		super().tearDown()
+
+	def test_the_decision_is_recorded_in_one_place(self):
+		self.assertTrue(delegation.DEADLINE_SPANS_ALL_ATTEMPTS)
+
+	def test_a_retry_does_not_move_the_deadline(self):
+		task = _task(state="failed")
+		delegation.record(task, delegating_agent=None)
+		deadline = frappe.utils.add_to_date(now_datetime(), minutes=30)
+		frappe.db.set_value("A2A Task", task.name, "deadline", deadline, update_modified=False)
+		delegation.note_attempt(task.name)
+		self.assertEqual(
+			frappe.utils.get_datetime(frappe.db.get_value("A2A Task", task.name, "deadline")),
+			frappe.utils.get_datetime(deadline),
+		)
+
+	def test_one_attempt_needs_no_explanation(self):
+		task = _task(state="failed")
+		delegation.record(task, delegating_agent=None)
+		self.assertEqual(delegation.attempts_note(task.name), "")
+
+	def test_more_than_one_attempt_says_the_time_was_shared(self):
+		"""Otherwise "running for 30 minutes" reads as one long attempt when it
+		was three short ones inside one window."""
+		task = _task(state="failed")
+		delegation.record(task, delegating_agent=None)
+		delegation.note_attempt(task.name)
+		delegation.note_attempt(task.name)
+		note = delegation.attempts_note(task.name)
+		self.assertIn("attempts", note)
+		self.assertIn("not per attempt", note)
+
+
 class TestCapabilityGate(FrappeTestCase):
 	"""WI-002056, the hybrid. WHICH specialist gets the work is decided by the
 	orchestrator reading the brief against the tool descriptions — a tag match

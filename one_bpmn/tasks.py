@@ -529,7 +529,10 @@ def _retry_delegation(task) -> bool:
 				f"A2A delegation {task.name}: retrying {task.agent_configuration} "
 				f"(attempt {attempt})"
 			)
-			execute.run_for_task(task, config, payload.get("instruction") or "")
+			# fresh=True: run the worker AGAIN, rather than reattaching to what the
+			# last attempt left behind. Without it the attempt was counted and
+			# nothing re-ran.
+			execute.run_for_task(task, config, payload.get("instruction") or "", fresh=True)
 			task.reload()
 			return task.state not in ("failed", "rejected")
 
@@ -587,7 +590,12 @@ def _escalate_deadline(task_name: str, agent_configuration=None, caller_instance
 			if allowed <= 0
 			else f"It was allowed {allowed} minute(s) and had been running for about "
 			f"{ran_for} when the deadline passed."
-		),
+		)
+		# The deadline covers every attempt, so an alert that names one elapsed
+		# time has to say how many attempts fitted inside it — otherwise
+		# "running for 30 minutes" reads as one long attempt when it was three
+		# short ones.
+		+ delegation.attempts_note(task_name),
 		instance=caller_instance,
 		worker_agent=agent_configuration,
 	)
