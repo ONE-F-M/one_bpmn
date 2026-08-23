@@ -65,6 +65,12 @@ app_include_js = [
 # page_js = {"page" : "public/js/file.js"}
 
 # include js in doctype views
+# WI-002050: the story owner answers the agent's question on the story itself,
+# not on a process instance they have no reason to open. Attached from here
+# because Work Item belongs to frappe_agile — this app adds to that form rather
+# than reaching into another app's doctype.
+doctype_js = {"Work Item": "public/js/work_item_clarification.js"}
+
 # doctype_js = {"doctype" : "public/js/doctype.js"}
 # doctype_list_js = {"doctype" : "public/js/doctype_list.js"}
 # doctype_tree_js = {"doctype" : "public/js/doctype_tree.js"}
@@ -237,6 +243,10 @@ scheduler_events = {
 		],
 		"0 * * * *": [
 			"one_bpmn.tasks.close_stale_chat_instances",
+			# WI-002050: chase a question nobody has answered. Hourly rather than
+			# by the minute because the thing being waited on is a person reading
+			# their notifications, and it never resolves the question itself.
+			"one_bpmn.tasks.chase_unanswered_clarifications",
 		],
 	}
 }

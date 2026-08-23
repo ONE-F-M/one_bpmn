@@ -1072,6 +1072,27 @@ class BPMNProcessInstance(Document):
 				)
 		self.waiting_for_human = label
 
+		# WI-002050: write the question down. The suspension alone leaves it only
+		# in the run's transcript, so "what was it unsure about, and what did we
+		# tell it" has no answer once the conversation is gone.
+		from one_bpmn.agents import clarification
+
+		# Which agent asked, read off the AI task that suspended — the same place
+		# the guardrails read it from, so the name on the record is the name the
+		# limits are enforced against.
+		_ai_bpmn_id = getattr(task.task_spec, "bpmn_id", None) or task.task_spec.name
+		_ai_cfg = (getattr(self, "_service_task_extensions", {}) or {}).get(_ai_bpmn_id) or {}
+
+		clarification.record_question(
+			instance=self,
+			human_task_id=row_id,
+			agent_configuration=_ai_cfg.get("aiAgentConfig"),
+			agent_run=run_name,
+			arguments=arguments,
+			label=label,
+			assigned_user=assigned_user,
+		)
+
 	def complete_ai_human_task(self, task_id: str, data: dict = None) -> None:
 		"""Complete a pending AI human task and hand its output to the
 		suspended agent (resume runs as a bpmn_ai_agent job).
@@ -1125,6 +1146,14 @@ class BPMNProcessInstance(Document):
 		}
 		for user in prev_assigned - still_assigned:
 			remove_frappe_assignment(self, user, status="Closed")
+
+		# WI-002050: close the record before the agent gets the answer, so the
+		# pair is on the document whatever the agent then decides to do with it —
+		# including deciding it still does not resolve the ambiguity and asking
+		# again.
+		from one_bpmn.agents import clarification
+
+		clarification.record_answer(instance=self, human_task_id=task_id, data=data)
 
 		# The human's output becomes the pending tool call's result.
 		_checkpoint.store_human_result(run_name, data)
