@@ -484,6 +484,40 @@ class TestTheDeadlineCoversAllAttempts(FrappeTestCase):
 			frappe.utils.get_datetime(deadline),
 		)
 
+	def test_a_one_minute_deadline_is_reported_as_one_minute(self):
+		"""Found on a real Route D run. The deadline is stamped a fraction of a
+		second after `creation`, so a genuine one-minute allowance measures
+		59.997s and FLOORED to zero — recording limit_value 0 and printing "its
+		deadline had already passed", which is the wording meant for a deadline
+		someone moved into the past by hand. One minute is the shortest a person
+		can set and the likeliest to be used for testing, so it was also the
+		likeliest to be misreported."""
+		from one_bpmn import tasks as scheduled
+
+		task = _task(state="working")
+		created = frappe.utils.get_datetime(
+			frappe.db.get_value("A2A Task", task.name, "creation")
+		)
+		# Exactly what local.delegate writes: now + N minutes, a few ms after
+		# `creation` was stamped.
+		frappe.db.set_value(
+			"A2A Task",
+			task.name,
+			"deadline",
+			frappe.utils.add_to_date(created, seconds=59, minutes=0) ,
+			update_modified=False,
+		)
+		delegation.record(task, delegating_agent=None)
+		scheduled._escalate_deadline(task.name)
+		row = frappe.db.get_value(
+			"Agent Delegation",
+			delegation.for_task(task.name),
+			["limit_value", "error_message"],
+			as_dict=True,
+		)
+		self.assertEqual(row.limit_value, 1, "59.997 seconds is a one-minute deadline")
+		self.assertNotIn("had already passed", row.error_message or "")
+
 	def test_one_attempt_needs_no_explanation(self):
 		task = _task(state="failed")
 		delegation.record(task, delegating_agent=None)
