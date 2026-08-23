@@ -234,7 +234,19 @@
 				<Button v-if="anyDelegationFilter" variant="ghost" @click="resetDelegationFilters">
 					Clear filters
 				</Button>
-				<div class="ml-auto text-sm text-gray-600">{{ dTotal }} delegations</div>
+				<div class="ml-auto flex items-center gap-4">
+					<span class="text-sm text-gray-600">{{ dTotal }} delegations</span>
+				<div class="flex items-center gap-2">
+					<span class="text-sm text-gray-600">Page Size:</span>
+					<FormControl
+						type="select"
+						v-model="pageLength"
+						:options="pageSizeOptions"
+						class="w-20"
+						@change="changePageSize"
+					/>
+				</div>
+				</div>
 			</div>
 			<div class="flex-1 overflow-auto px-6 py-4">
 				<p class="text-sm text-gray-600 mb-3">
@@ -295,20 +307,23 @@
 						</tr>
 					</tbody>
 				</table>
-				<div v-if="dTotal > pageLength" class="flex items-center justify-between mt-3">
-					<Button variant="ghost" :disabled="dStart === 0" @click="loadDelegations(dStart - pageLength)">
-						Previous
-					</Button>
-					<span class="text-xs text-gray-500">
-						{{ dStart + 1 }}–{{ Math.min(dStart + pageLength, dTotal) }} of {{ dTotal }}
-					</span>
-					<Button
-						variant="ghost"
-						:disabled="dStart + pageLength >= dTotal"
-						@click="loadDelegations(dStart + pageLength)"
-					>
-						Next
-					</Button>
+				<div class="mt-3 bg-white rounded-lg px-6 py-4 border-t flex items-center justify-between text-sm">
+					<div class="text-gray-600">
+						Showing {{ delegations.length ? dStart + 1 : 0 }} to
+						{{ dStart + delegations.length }} of {{ dTotal }}
+					</div>
+					<div class="flex items-center gap-2">
+						<Button variant="outline" :disabled="dStart === 0" @click="prevDelegationPage">
+							Previous
+						</Button>
+						<Button
+							variant="outline"
+							:disabled="dStart + pageLengthNum >= dTotal"
+							@click="nextDelegationPage"
+						>
+							Next
+						</Button>
+					</div>
 				</div>
 			</div>
 		</div>
@@ -344,7 +359,19 @@
 				>
 					Clear filters
 				</Button>
-				<div class="ml-auto text-sm text-gray-600">{{ total }} tasks</div>
+				<div class="ml-auto flex items-center gap-4">
+					<span class="text-sm text-gray-600">{{ total }} tasks</span>
+				<div class="flex items-center gap-2">
+					<span class="text-sm text-gray-600">Page Size:</span>
+					<FormControl
+						type="select"
+						v-model="pageLength"
+						:options="pageSizeOptions"
+						class="w-20"
+						@change="changePageSize"
+					/>
+				</div>
+				</div>
 			</div>
 			<div class="flex-1 overflow-auto px-6 py-4">
 				<div v-if="loading.tasks" class="text-sm text-gray-500">Loading…</div>
@@ -436,20 +463,23 @@
 						</tr>
 					</tbody>
 				</table>
-				<div v-if="total > pageLength" class="flex items-center justify-between mt-3">
-					<Button variant="ghost" :disabled="start === 0" @click="loadTasks(start - pageLength)">
-						Previous
-					</Button>
-					<span class="text-xs text-gray-500">
-						{{ start + 1 }}–{{ Math.min(start + pageLength, total) }} of {{ total }}
-					</span>
-					<Button
-						variant="ghost"
-						:disabled="start + pageLength >= total"
-						@click="loadTasks(start + pageLength)"
-					>
-						Next
-					</Button>
+				<div class="mt-3 bg-white rounded-lg px-6 py-4 border-t flex items-center justify-between text-sm">
+					<div class="text-gray-600">
+						Showing {{ a2aTasks.length ? start + 1 : 0 }} to
+						{{ start + a2aTasks.length }} of {{ total }}
+					</div>
+					<div class="flex items-center gap-2">
+						<Button variant="outline" :disabled="start === 0" @click="prevTaskPage">
+							Previous
+						</Button>
+						<Button
+							variant="outline"
+							:disabled="start + pageLengthNum >= total"
+							@click="nextTaskPage"
+						>
+							Next
+						</Button>
+					</div>
 				</div>
 			</div>
 		</template>
@@ -764,7 +794,19 @@ const clients = ref([])
 const a2aTasks = ref([])
 const total = ref(0)
 const start = ref(0)
-const pageLength = ref(50)
+// One page size for both lists — it reads as a preference for the screen
+// rather than a setting per tab, which is how the instance list treats it too.
+const pageLength = ref(20)
+
+// FormControl's select hands back a string, and `start + "20"` is "020".
+const pageLengthNum = computed(() => Number(pageLength.value) || 20)
+
+const pageSizeOptions = [
+	{ label: "10", value: 10 },
+	{ label: "20", value: 20 },
+	{ label: "50", value: 50 },
+	{ label: "100", value: 100 },
+]
 
 const filters = reactive({ direction: "", state: "", agent: "" })
 
@@ -1090,7 +1132,7 @@ async function loadTasks(from = 0) {
 			direction: filters.direction || undefined,
 			state: filters.state || undefined,
 			start: Math.max(0, from),
-			page_length: pageLength.value,
+			page_length: pageLengthNum.value,
 		})
 		a2aTasks.value = r.tasks || []
 		total.value = r.total || 0
@@ -1100,6 +1142,32 @@ async function loadTasks(from = 0) {
 	} finally {
 		loading.tasks = false
 	}
+}
+
+function changePageSize() {
+	// Both lists go back to the first page: leaving the other tab on an offset
+	// that was calculated for a different page size shows a page that no longer
+	// starts where it says it does.
+	start.value = 0
+	dStart.value = 0
+	if (tab.value === "delegations") loadDelegations(0)
+	else loadTasks(0)
+}
+
+function prevTaskPage() {
+	loadTasks(Math.max(0, start.value - pageLengthNum.value))
+}
+
+function nextTaskPage() {
+	loadTasks(start.value + pageLengthNum.value)
+}
+
+function prevDelegationPage() {
+	loadDelegations(Math.max(0, dStart.value - pageLengthNum.value))
+}
+
+function nextDelegationPage() {
+	loadDelegations(dStart.value + pageLengthNum.value)
 }
 
 function resetFilters() {
@@ -1118,7 +1186,7 @@ async function loadDelegations(from = 0) {
 			reference_name: dFilters.reference_name || undefined,
 			status: dFilters.status || undefined,
 			start: Math.max(0, from),
-			page_length: pageLength.value,
+			page_length: pageLengthNum.value,
 		})
 		delegations.value = r.delegations || []
 		dTotal.value = r.total || 0

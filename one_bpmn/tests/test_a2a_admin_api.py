@@ -349,6 +349,45 @@ class TestDelegationMonitor(FrappeTestCase):
 		result = a2a_admin_api.list_delegations(status="Failed")
 		self.assertEqual(result["total"], len(result["delegations"]))
 
+	def test_a_page_holds_what_was_asked_for(self):
+		for _ in range(3):
+			self._delegation(status="Delegated")
+		result = a2a_admin_api.list_delegations(status="Delegated", page_length=2)
+		self.assertEqual(len(result["delegations"]), 2)
+		self.assertGreaterEqual(result["total"], 3)
+		self.assertEqual(result["page_length"], 2)
+
+	def test_the_next_page_is_the_next_rows_not_the_same_ones(self):
+		"""The failure this guards against is a Next button that appears to work
+		and shows page one again."""
+		for _ in range(4):
+			self._delegation(status="Delegated")
+		first = a2a_admin_api.list_delegations(status="Delegated", page_length=2, start=0)
+		second = a2a_admin_api.list_delegations(status="Delegated", page_length=2, start=2)
+		self.assertEqual(second["start"], 2)
+		self.assertFalse(
+			{d["name"] for d in first["delegations"]} & {d["name"] for d in second["delegations"]}
+		)
+
+	def test_the_total_is_the_whole_filtered_set_not_the_page(self):
+		"""'of N' in the footer counts every match, or paging cannot know when
+		to stop."""
+		for _ in range(3):
+			self._delegation(status="Delegated")
+		result = a2a_admin_api.list_delegations(status="Delegated", page_length=1)
+		self.assertEqual(len(result["delegations"]), 1)
+		self.assertGreaterEqual(result["total"], 3)
+
+	def test_a_page_size_beyond_the_cap_is_clamped(self):
+		result = a2a_admin_api.list_delegations(page_length=10_000)
+		self.assertEqual(result["page_length"], a2a_admin_api.MAX_PAGE_LENGTH)
+
+	def test_the_task_monitor_pages_the_same_way(self):
+		result = a2a_admin_api.list_tasks(page_length=1, start=0)
+		self.assertLessEqual(len(result["tasks"]), 1)
+		self.assertEqual(result["page_length"], 1)
+		self.assertEqual(result["start"], 0)
+
 	def test_detail_carries_the_task_state_as_well(self):
 		"""'Completed' on the delegation and what the worker actually said are
 		different facts, and the turn-cap case is where they diverge."""
