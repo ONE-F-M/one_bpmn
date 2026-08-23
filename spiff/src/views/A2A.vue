@@ -236,16 +236,16 @@
 				</Button>
 				<div class="ml-auto flex items-center gap-4">
 					<span class="text-sm text-gray-600">{{ dTotal }} delegations</span>
-				<div class="flex items-center gap-2">
-					<span class="text-sm text-gray-600">Page Size:</span>
-					<FormControl
-						type="select"
-						v-model="pageLength"
-						:options="pageSizeOptions"
-						class="w-20"
-						@change="changePageSize"
-					/>
-				</div>
+					<div class="flex items-center gap-2">
+						<span class="text-sm text-gray-600">Page Size:</span>
+						<FormControl
+							type="select"
+							v-model="dPageLength"
+							:options="pageSizeOptions"
+							class="w-20"
+							@change="changeDelegationPageSize"
+						/>
+					</div>
 				</div>
 			</div>
 			<div class="flex-1 overflow-auto px-6 py-4">
@@ -318,7 +318,7 @@
 						</Button>
 						<Button
 							variant="outline"
-							:disabled="dStart + pageLengthNum >= dTotal"
+							:disabled="dStart + dPageLengthNum >= dTotal"
 							@click="nextDelegationPage"
 						>
 							Next
@@ -361,16 +361,16 @@
 				</Button>
 				<div class="ml-auto flex items-center gap-4">
 					<span class="text-sm text-gray-600">{{ total }} tasks</span>
-				<div class="flex items-center gap-2">
-					<span class="text-sm text-gray-600">Page Size:</span>
-					<FormControl
-						type="select"
-						v-model="pageLength"
-						:options="pageSizeOptions"
-						class="w-20"
-						@change="changePageSize"
-					/>
-				</div>
+					<div class="flex items-center gap-2">
+						<span class="text-sm text-gray-600">Page Size:</span>
+						<FormControl
+							type="select"
+							v-model="pageLength"
+							:options="pageSizeOptions"
+							class="w-20"
+							@change="changeTaskPageSize"
+						/>
+					</div>
 				</div>
 			</div>
 			<div class="flex-1 overflow-auto px-6 py-4">
@@ -794,12 +794,18 @@ const clients = ref([])
 const a2aTasks = ref([])
 const total = ref(0)
 const start = ref(0)
-// One page size for both lists — it reads as a preference for the screen
-// rather than a setting per tab, which is how the instance list treats it too.
+// A page size per list, not one for the screen. Sharing it looked tidier and
+// was wrong: switching tabs carried the new value into the other tab's select
+// while that list was still showing rows fetched at the old size, so the
+// control said 50 and the page held 20. Either both lists reload on every tab
+// switch, or each keeps its own — and each keeping its own is also what a
+// person means when they set a page size while looking at one list.
 const pageLength = ref(20)
+const dPageLength = ref(20)
 
 // FormControl's select hands back a string, and `start + "20"` is "020".
 const pageLengthNum = computed(() => Number(pageLength.value) || 20)
+const dPageLengthNum = computed(() => Number(dPageLength.value) || 20)
 
 const pageSizeOptions = [
 	{ label: "10", value: 10 },
@@ -1144,14 +1150,15 @@ async function loadTasks(from = 0) {
 	}
 }
 
-function changePageSize() {
-	// Both lists go back to the first page: leaving the other tab on an offset
-	// that was calculated for a different page size shows a page that no longer
-	// starts where it says it does.
-	start.value = 0
-	dStart.value = 0
-	if (tab.value === "delegations") loadDelegations(0)
-	else loadTasks(0)
+// Each list goes back to its own first page when its own size changes: an
+// offset calculated for the old size points at a page that no longer starts
+// where the footer says it does.
+function changeTaskPageSize() {
+	loadTasks(0)
+}
+
+function changeDelegationPageSize() {
+	loadDelegations(0)
 }
 
 function prevTaskPage() {
@@ -1163,11 +1170,11 @@ function nextTaskPage() {
 }
 
 function prevDelegationPage() {
-	loadDelegations(Math.max(0, dStart.value - pageLengthNum.value))
+	loadDelegations(Math.max(0, dStart.value - dPageLengthNum.value))
 }
 
 function nextDelegationPage() {
-	loadDelegations(dStart.value + pageLengthNum.value)
+	loadDelegations(dStart.value + dPageLengthNum.value)
 }
 
 function resetFilters() {
@@ -1186,7 +1193,7 @@ async function loadDelegations(from = 0) {
 			reference_name: dFilters.reference_name || undefined,
 			status: dFilters.status || undefined,
 			start: Math.max(0, from),
-			page_length: pageLengthNum.value,
+			page_length: dPageLengthNum.value,
 		})
 		delegations.value = r.delegations || []
 		dTotal.value = r.total || 0
