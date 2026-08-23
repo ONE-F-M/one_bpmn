@@ -49,6 +49,8 @@
   "artifact_type",
   "collect_feedback",
   "allowed_roles",
+  "agent_user",
+  "agent_roles",
   "memory_section",
   "conversation_store",
   "context_max_messages",
@@ -380,6 +382,21 @@
    "options": "AI Agent Allowed Role"
   },
   {
+   "fieldname": "agent_user",
+   "fieldtype": "Link",
+   "label": "Agent User",
+   "options": "User",
+   "read_only": 1,
+   "description": "The identity this agent acts as. Created automatically and never logged into by a person: what an agent changed is attributable to the agent, and its write access is granted and revoked here rather than in code. Distinct from Allowed Roles, which says who may INVOKE the agent."
+  },
+  {
+   "fieldname": "agent_roles",
+   "fieldtype": "Table",
+   "label": "Roles the Agent Holds",
+   "options": "AI Agent Allowed Role",
+   "description": "What this agent may do when its tools write. Its user holds exactly these roles \u2014 adding one grants a permission, removing one revokes it, with no deployment. Leave empty and the agent can read what everyone can read and change nothing."
+  },
+  {
    "description": "Controls applied to this agent's traffic before it reaches a model provider.",
    "fieldname": "security_section",
    "fieldtype": "Section Break",
@@ -592,14 +609,14 @@
   },
   {
    "default": "0",
-   "description": "Leave off and this agent may hand work to any agent exposed over A2A — normally what you want, since the tools drawn on its process map already decide who it actually calls. Tick it only to narrow that to a named few.",
+   "description": "Leave off and this agent may hand work to any agent exposed over A2A \u2014 normally what you want, since the tools drawn on its process map already decide who it actually calls. Tick it only to narrow that to a named few.",
    "fieldname": "restrict_delegates",
    "fieldtype": "Check",
    "label": "Restrict Delegation to Specific Agents"
   },
   {
    "depends_on": "eval:doc.restrict_delegates",
-   "description": "The only agents this agent may hand work to while the restriction above is on. Each entry is an INDEPENDENT agent with its own configuration, map and lifecycle — this list grants permission to delegate, it does not create or own a child agent. Add, remove or reorder freely; the change takes effect immediately, with no code push and no restart.",
+   "description": "The only agents this agent may hand work to while the restriction above is on. Each entry is an INDEPENDENT agent with its own configuration, map and lifecycle \u2014 this list grants permission to delegate, it does not create or own a child agent. Add, remove or reorder freely; the change takes effect immediately, with no code push and no restart.",
    "fieldname": "allowed_delegates",
    "fieldtype": "Table",
    "label": "Allowed Delegates",
@@ -613,7 +630,7 @@
   },
   {
    "default": "5",
-   "description": "Maximum parent-to-sub-agent nesting level (A → B → C = 3). Exceeding it stops the chain instead of looping.",
+   "description": "Maximum parent-to-sub-agent nesting level (A \u2192 B \u2192 C = 3). Exceeding it stops the chain instead of looping.",
    "fieldname": "max_recursion_depth",
    "fieldtype": "Int",
    "label": "Max Recursion Depth",
