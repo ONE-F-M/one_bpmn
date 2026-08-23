@@ -48,6 +48,15 @@ app_include_js = [
 	# stale copy indefinitely even across hard reloads.
 	"/assets/one_bpmn/js/bpmn_form_actions.js?v=3",
 	"/assets/one_bpmn/js/bpmn_list_indicator.js",
+	# WI-002050: an agent's question appears on the document it is about, whatever
+	# that document is. Loaded for every form rather than bound to one doctype:
+	# the clarification record names a doctype and a document, so it was never
+	# Work-Item-specific, and the moment an agent is pointed at anything else a
+	# question about it has to surface on that thing. The script asks once which
+	# doctypes have ever had a question asked about them and does nothing on the
+	# rest, so a form nobody has ever asked about costs no round trip.
+	# ?v= as above — a plain path gets no automatic cache-busting.
+	"/assets/one_bpmn/js/ai_clarification_on_document.js?v=1",
 ]
 
 # include js, css files in header of web template
@@ -65,12 +74,6 @@ app_include_js = [
 # page_js = {"page" : "public/js/file.js"}
 
 # include js in doctype views
-# WI-002050: the story owner answers the agent's question on the story itself,
-# not on a process instance they have no reason to open. Attached from here
-# because Work Item belongs to frappe_agile — this app adds to that form rather
-# than reaching into another app's doctype.
-doctype_js = {"Work Item": "public/js/work_item_clarification.js"}
-
 # doctype_js = {"doctype" : "public/js/doctype.js"}
 # doctype_list_js = {"doctype" : "public/js/doctype_list.js"}
 # doctype_tree_js = {"doctype" : "public/js/doctype_tree.js"}

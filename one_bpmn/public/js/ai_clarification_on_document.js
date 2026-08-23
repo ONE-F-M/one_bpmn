@@ -1,28 +1,66 @@
 // Copyright (c) 2026, one-fm and contributors
 // For license information, please see license.txt
 //
-// WI-002050: an agent's question, on the story it is about.
+// WI-002050: an agent's question, on the document it is about — whatever that is.
 //
 // The pending question is technically a task on a process instance, but the
-// person who can settle it is the one who wrote the story — and asking them to
-// open a process instance to unblock their own work item means asking them to
-// learn the machinery first. So the question is shown here, and answered here.
+// person who can settle it is the one who owns the document — and asking them to
+// open a process instance to unblock their own work means asking them to learn
+// the machinery first. So the question is shown on the document, and answered
+// there.
+//
+// Bound to every form rather than to Work Item alone. The record was always
+// generic — it names a doctype and a document — and an agent is not only ever
+// asked to work on a story: the moment one is pointed at a Sales Order or a
+// Purchase Requisition, a question about it has to surface on the thing itself.
+// A per-doctype script would have meant remembering to add one every time.
+//
+// The obvious cost of a global hook is a server call on every form a person
+// opens. So the list of doctypes that have EVER had a question asked about them
+// is fetched once per page and consulted first — a form of a doctype nobody has
+// ever asked about costs nothing at all.
 //
 // Answering routes through the endpoint that routes through the normal task
 // completion, so nothing about permissions or resuming the agent behaves
 // differently from answering it anywhere else.
 
-frappe.ui.form.on("Work Item", {
-	refresh(frm) {
-		if (frm.is_new()) return;
+let _doctypes_with_questions = null;
+let _fetching = null;
+
+function doctypes_with_questions() {
+	if (_doctypes_with_questions) return Promise.resolve(_doctypes_with_questions);
+	if (_fetching) return _fetching;
+	_fetching = frappe
+		.call({ method: "one_bpmn.api.clarification_api.doctypes_with_questions" })
+		.then((r) => {
+			_doctypes_with_questions = ((r && r.message) || {}).doctypes || [];
+			return _doctypes_with_questions;
+		})
+		.catch(() => {
+			// A screen that cannot tell which doctypes are relevant should not
+			// silently stop showing questions: fall back to asking for this one.
+			_doctypes_with_questions = null;
+			return null;
+		});
+	return _fetching;
+}
+
+$(document).on("form-refresh", (event, frm) => {
+	if (!frm || !frm.doc || frm.is_new()) return;
+	// A pending question is not something to surface on the AI Clarification
+	// record itself — that IS the question.
+	if (frm.doc.doctype === "AI Clarification") return;
+
+	doctypes_with_questions().then((known) => {
+		if (known && !known.includes(frm.doc.doctype)) return;
 		load_clarifications(frm);
-	},
+	});
 });
 
 function load_clarifications(frm) {
 	frappe.call({
 		method: "one_bpmn.api.clarification_api.pending_for_document",
-		args: { reference_doctype: "Work Item", reference_name: frm.doc.name },
+		args: { reference_doctype: frm.doc.doctype, reference_name: frm.doc.name },
 		callback: (r) => {
 			const data = (r && r.message) || {};
 			render(frm, data.pending, data.history || []);
@@ -79,7 +117,7 @@ function render(frm, pending, history) {
 							  )}</button>`
 							: `<span style="color:var(--text-muted)">${__(
 									"Only {0} can answer this — answering on someone's behalf would defeat the point of asking them.",
-									[frappe.utils.escape_html(pending.owner_asked || __("the story owner"))]
+									[frappe.utils.escape_html(pending.owner_asked || __("the document owner"))]
 							  )}</span>`
 					}
 					<span style="color:var(--text-muted);font-size:11px">
@@ -90,7 +128,7 @@ function render(frm, pending, history) {
 					</span>
 				</div>
 			</div>`,
-			__("A question about this story")
+			__("A question about this document")
 		);
 
 		if (pending.can_answer && section) {

@@ -324,6 +324,80 @@ class TestHowTheQuestionAppearsToAPerson(FrappeTestCase):
 		self.assertNotIn("Ask the story owner", offered, "an agent's question does not")
 
 
+class TestItWorksOnAnyDocument(FrappeTestCase):
+	"""The record names a doctype and a document, so it was never
+	Work-Item-specific. The form script is bound to every form for the same
+	reason: the moment an agent is pointed at a Sales Order, a question about it
+	has to appear on the Sales Order."""
+
+	def tearDown(self):
+		frappe.db.rollback()
+		super().tearDown()
+
+	def test_a_question_can_be_about_something_other_than_a_work_item(self):
+		task = frappe.db.get_value("A2A Task", {}, "name")
+		if not task:
+			self.skipTest("no A2A Task on this site to point at")
+		name = clarification.record_question(
+			instance=frappe._dict(
+				name=None, context_doctype="A2A Task", context_docname=task
+			),
+			human_task_id="AIH-ANY1", agent_configuration=None, agent_run=None,
+			arguments={"question": "Which one?"},
+		)
+		row = frappe.db.get_value(
+			"AI Clarification", name, ["reference_doctype", "reference_name"], as_dict=True
+		)
+		self.assertEqual(row.reference_doctype, "A2A Task")
+		self.assertEqual(row.reference_name, task)
+
+	def test_the_document_endpoint_is_not_doctype_specific(self):
+		from one_bpmn.api import clarification_api
+
+		task = frappe.db.get_value("A2A Task", {}, "name")
+		if not task:
+			self.skipTest("no A2A Task on this site to point at")
+		clarification.record_question(
+			instance=frappe._dict(name=None, context_doctype="A2A Task", context_docname=task),
+			human_task_id="AIH-ANY2", agent_configuration=None, agent_run=None,
+			arguments={"question": "About a task, not a story"},
+		)
+		result = clarification_api.pending_for_document("A2A Task", task)
+		self.assertTrue(result["pending"])
+		self.assertEqual(result["pending"]["question"], "About a task, not a story")
+
+	def test_the_form_script_is_told_which_doctypes_to_bother_with(self):
+		"""It runs on every form, so it asks once which doctypes have ever had a
+		question and does nothing on the rest — a form nobody has ever asked
+		about costs no round trip."""
+		from one_bpmn.api import clarification_api
+
+		item = _work_item()
+		clarification.record_question(
+			instance=_instance(item), human_task_id="AIH-ANY3",
+			agent_configuration=None, agent_run=None, arguments={"question": "?"},
+		)
+		self.assertIn("Work Item", clarification_api.doctypes_with_questions()["doctypes"])
+
+	def test_the_list_grows_by_itself_when_an_agent_asks_about_something_new(self):
+		"""Built from the rows rather than a configured list, so there is nothing
+		to remember to update."""
+		from one_bpmn.api import clarification_api
+
+		task = frappe.db.get_value("A2A Task", {}, "name")
+		if not task:
+			self.skipTest("no A2A Task on this site to point at")
+		before = clarification_api.doctypes_with_questions()["doctypes"]
+		clarification.record_question(
+			instance=frappe._dict(name=None, context_doctype="A2A Task", context_docname=task),
+			human_task_id="AIH-ANY4", agent_configuration=None, agent_run=None,
+			arguments={"question": "?"},
+		)
+		after = clarification_api.doctypes_with_questions()["doctypes"]
+		self.assertIn("A2A Task", after)
+		self.assertTrue(set(before).issubset(set(after)))
+
+
 class TestTheCapIsSetFromProcessa(FrappeTestCase):
 	"""The limit has to be adjustable where the agent is configured.
 

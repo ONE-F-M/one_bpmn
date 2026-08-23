@@ -3,12 +3,13 @@
 """Answering an agent's question from the document it is about (WI-002050).
 
 The pending question is a task on a process instance, and the person who can
-settle it is the one who wrote the story. Those are not the same screen. Asking
-a story owner to open a process instance to unblock their own story is asking
-them to learn the machinery to answer a question about their own requirement.
+settle it is the one who owns the document. Those are not the same screen. Asking
+them to open a process instance to unblock their own work is asking them to learn
+the machinery to answer a question about their own requirement.
 
-So the question surfaces on the work item, and this is the door: read what is
-pending, and answer it. The answer goes through the SAME entry point a user task
+So the question surfaces on the document — whichever doctype it is, because the
+record names a doctype and a document and was never Work-Item-specific — and this
+is the door: read what is pending, and answer it. The answer goes through the SAME entry point a user task
 uses, so the permission checks, the resume-exactly-once guarantee and the audit
 record all behave identically to answering it anywhere else. Nothing here decides
 whether the answer was good enough — that is the agent's judgement, and if it was
@@ -37,6 +38,30 @@ FIELDS = (
 	"reminded_at",
 	"escalated_at",
 )
+
+
+@frappe.whitelist()
+def doctypes_with_questions() -> dict:
+	"""Which doctypes have ever had a question asked about them.
+
+	The form script runs on every form a person opens, and asking the server
+	about every one of them would be a round trip per navigation for a feature
+	that applies to a handful of doctypes. This is asked once per page and
+	consulted first, so a form of a doctype nobody has ever asked about costs
+	nothing.
+
+	Deliberately built from the rows rather than from a configured list: an agent
+	pointed at something new starts appearing here the first time it asks, with
+	nothing to remember to update.
+	"""
+	rows = frappe.get_all(
+		"AI Clarification",
+		filters={"reference_doctype": ["is", "set"]},
+		fields=["reference_doctype"],
+		group_by="reference_doctype",
+		limit=200,
+	)
+	return {"doctypes": sorted({r["reference_doctype"] for r in rows if r.get("reference_doctype")})}
 
 
 @frappe.whitelist()
