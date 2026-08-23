@@ -994,7 +994,17 @@ class BPMNProcessInstance(Document):
 			self._user_task_extensions = _spec_snap.get("user_task_extensions", {})
 		self._refresh_user_task_extensions_from_model()
 		shape_cfg = getattr(self, "_user_task_extensions", {}).get(shape_id, {}) or {}
-		label = marker.get("label") or shape_cfg.get("label") or shape_id
+		# The shape's DRAWN NAME, not its id. Falling straight through to the id
+		# put "ask_story_owner" in front of a person — in the Actions menu on their
+		# work item, and as the task's name everywhere it is listed. The label is
+		# already extracted for every human tool at compile time, so it only had to
+		# be looked up.
+		label = (
+			marker.get("label")
+			or shape_cfg.get("label")
+			or self._human_tool_label(task, shape_id)
+			or shape_id
+		)
 
 		row_id = f"{self.AI_HUMAN_PREFIX}{frappe.generate_hash(length=10)}"
 
@@ -1092,6 +1102,26 @@ class BPMNProcessInstance(Document):
 			label=label,
 			assigned_user=assigned_user,
 		)
+
+	def _human_tool_label(self, task, shape_id: str) -> str:
+		"""The name drawn on a human tool shape, off the AI task that offered it.
+
+		compile_process_model already records it — every human descriptor in
+		aiToolShapes carries the shape's ``name`` as ``label`` — so this reads what
+		is there rather than parsing the diagram again.
+		"""
+		try:
+			bpmn_id = getattr(task.task_spec, "bpmn_id", None) or task.task_spec.name
+			cfg = (getattr(self, "_service_task_extensions", {}) or {}).get(bpmn_id) or {}
+			shapes = cfg.get("aiToolShapes") or "[]"
+			if isinstance(shapes, str):
+				shapes = json.loads(shapes)
+			for shape in shapes:
+				if isinstance(shape, dict) and shape.get("bpmn_id") == shape_id:
+					return (shape.get("label") or "").strip()
+		except Exception:
+			pass
+		return ""
 
 	def complete_ai_human_task(self, task_id: str, data: dict = None) -> None:
 		"""Complete a pending AI human task and hand its output to the

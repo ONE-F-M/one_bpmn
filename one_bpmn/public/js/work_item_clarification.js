@@ -52,7 +52,13 @@ function render(frm, pending, history) {
 			"orange"
 		);
 
-		frm.dashboard.add_section(
+		// The button lives INSIDE the question card, next to the question it
+		// answers. It was set as the form's primary action first, and never
+		// appeared: Work Item has a workflow, so that slot already belongs to the
+		// Actions button and setting it again is silently ignored. Beside the
+		// question is where it should have been anyway — a person reading the
+		// question does not want to go looking in a toolbar for the reply.
+		const section = frm.dashboard.add_section(
 			`<div style="padding:4px 0">
 				<div style="white-space:pre-wrap">${frappe.utils.escape_html(pending.question || "")}</div>
 				${
@@ -62,27 +68,38 @@ function render(frm, pending, history) {
 						  )}:</i> ${frappe.utils.escape_html(pending.interpretations)}</div>`
 						: ""
 				}
-				<div style="margin-top:6px;color:var(--text-muted);font-size:11px">
-					${__("Round {0} · asked {1}", [
-						pending.round || 1,
-						frappe.datetime.comment_when(pending.asked_at),
-					])}
+				<div style="margin-top:10px;display:flex;align-items:center;gap:10px;flex-wrap:wrap">
+					${
+						pending.can_answer
+							? `<button class="btn btn-primary btn-sm answer-the-agent">${__(
+									"Answer the agent"
+							  )}</button>`
+							: `<span style="color:var(--text-muted)">${__(
+									"Only {0} can answer this — answering on someone's behalf would defeat the point of asking them.",
+									[frappe.utils.escape_html(pending.owner_asked || __("the story owner"))]
+							  )}</span>`
+					}
+					<span style="color:var(--text-muted);font-size:11px">
+						${__("Round {0} · asked {1}", [
+							pending.round || 1,
+							frappe.datetime.comment_when(pending.asked_at),
+						])}
+					</span>
 				</div>
 			</div>`,
 			__("A question about this story")
 		);
 
+		if (pending.can_answer && section) {
+			$(section)
+				.find(".answer-the-agent")
+				.on("click", () => answer(frm, pending));
+		}
+
+		// A second way in, for anyone who scrolls past the card. add_custom_button
+		// sits beside Actions rather than fighting it for the primary slot.
 		if (pending.can_answer) {
-			frm.page.set_primary_action(__("Answer the agent"), () => answer(frm, pending));
-		} else {
-			// Shown rather than hidden: knowing it is blocked on somebody else is
-			// more useful than a button that refuses.
-			frm.dashboard.set_headline(
-				`<b>${__("Waiting on")} ${frappe.utils.escape_html(
-					pending.owner_asked || __("the story owner")
-				)}</b> — ${__("only the person asked can answer this.")}`,
-				"orange"
-			);
+			frm.add_custom_button(__("Answer the agent"), () => answer(frm, pending));
 		}
 	}
 

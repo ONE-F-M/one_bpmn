@@ -259,6 +259,71 @@ class TestHowOftenItMayAsk(FrappeTestCase):
 		self.assertEqual(len(compile_shape_tools(shapes, instance)), 0)
 
 
+class TestHowTheQuestionAppearsToAPerson(FrappeTestCase):
+	"""Two things a person saw that they should not have.
+
+	The task showed as "ask_story_owner" — the shape's id — in the Actions menu
+	on their own work item. And that menu offered it as a workflow action, which
+	completes the task with no answer in it, so the agent resumed having been
+	told nothing and asked again.
+	"""
+
+	def tearDown(self):
+		frappe.db.rollback()
+		super().tearDown()
+
+	def test_a_human_tool_task_shows_its_drawn_name(self):
+		"""compile_process_model already records the shape's name as `label` on
+		every human descriptor, so this only had to be looked up."""
+		instance = frappe.get_doc("BPMN Process Instance", frappe.db.get_value("BPMN Process Instance", {}, "name"))
+		instance._service_task_extensions = {
+			"orchestrate": {
+				"aiToolShapes": frappe.as_json(
+					[{"bpmn_id": "ask_story_owner", "human": True, "label": "Ask the story owner"}]
+				)
+			}
+		}
+		task = frappe._dict(task_spec=frappe._dict(bpmn_id="orchestrate", name="orchestrate"))
+		self.assertEqual(
+			instance._human_tool_label(task, "ask_story_owner"), "Ask the story owner"
+		)
+
+	def test_an_unknown_shape_falls_back_rather_than_breaking(self):
+		instance = frappe.get_doc("BPMN Process Instance", frappe.db.get_value("BPMN Process Instance", {}, "name"))
+		instance._service_task_extensions = {"orchestrate": {"aiToolShapes": "[]"}}
+		task = frappe._dict(task_spec=frappe._dict(bpmn_id="orchestrate", name="orchestrate"))
+		self.assertEqual(instance._human_tool_label(task, "whatever"), "")
+
+	def test_a_question_is_not_offered_as_a_workflow_action(self):
+		"""Two doors to the same task, where one of them loses the answer, is
+		worse than one."""
+		from one_bpmn.api.instance_api import get_active_bpmn_tasks
+
+		item = _work_item()
+		instance = frappe.get_doc({
+			"doctype": "BPMN Process Instance",
+			"process_model": frappe.db.get_value("BPMN Process Model", {}, "name"),
+			"status": "Active",
+			"context_doctype": "Work Item",
+			"context_docname": item,
+		})
+		instance.append("active_tasks", {
+			"task_id": "aihuman::test01", "task_name": "Ask the story owner",
+			"task_type": "AI Human Task", "status": "Waiting",
+		})
+		instance.append("active_tasks", {
+			"task_id": "real-user-task", "task_name": "Approve it",
+			"task_type": "User Task", "status": "Waiting", "task_actions": "Approve",
+		})
+		instance.flags.ignore_links = True
+		instance.flags.ignore_mandatory = True
+		instance.insert(ignore_permissions=True)
+
+		offered = [t["task_name"] for t in get_active_bpmn_tasks("Work Item", item)]
+		self.assertIn("Approve it", offered, "a real user task still appears")
+		self.assertNotIn("Ask the story owner", offered, "an agent's question does not")
+
+
 class TestTheCapIsSetFromProcessa(FrappeTestCase):
 	"""The limit has to be adjustable where the agent is configured.
 
