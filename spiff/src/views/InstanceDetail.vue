@@ -262,6 +262,8 @@ const taskList = computed(() => {
 			nodes.sort((a, b) => (a.timestamp || 0) - (b.timestamp || 0))
 			const flat = []
 			const aiVisitIdx = {} // bpmnId → agent-task visits emitted so far
+			// bpmnId → dedicated-run visits consumed so far, across all parent visits.
+			const toolVisitIdx = {}
 			for (let i = 0; i < nodes.length; i++) {
 				const n = nodes[i]
 				flat.push(n)
@@ -296,13 +298,19 @@ const taskList = computed(() => {
 						}
 					}
 					calls.forEach((call, ci) => {
+						// Prefer the tool's own dedicated run over the parent's, when it has one.
+						const ownRuns = aiCallRunsByBpmnId.value[call.tool_name] || []
+						const ownVisit = toolVisitIdx[call.tool_name] || 0
+						toolVisitIdx[call.tool_name] = ownVisit + 1
+						const ownRun = ownRuns[ownVisit] || {}
+						const ownRunName = ownRun.runName || null
 						flat.push({
 							id: `${n.id}::aicall::${ci}`,
 							bpmnId: null,
 							isAiToolCall: true,
 							parentId: n.id,
 							parentBpmnId: n.bpmnId,
-							aiRunName: slot.runName || null,
+							aiRunName: ownRunName || slot.runName || null,
 							toolBpmnId: call.tool_name,
 							name: taskLabels.value[call.tool_name] || call.tool_name,
 							callStatus: call.status,
@@ -310,6 +318,10 @@ const taskList = computed(() => {
 							resultPreview: call.result_preview,
 							depth: n.depth || 0,
 							stateLabel: call.status === "Error" ? "Error" : "Completed",
+							// The dedicated run's own start time when one exists, else the parent's.
+							timestamp: (ownRun.startedAt || slot.startedAt) ? new Date(ownRun.startedAt || slot.startedAt) : (n.timestamp || null),
+							// A tool call has no workflow `data` — show what it carried instead.
+							data: { arguments: call.args_preview || undefined, result: call.result_preview || undefined },
 						})
 					})
 				}
@@ -357,7 +369,13 @@ const taskLabels = computed(() => {
 
 const selectedNode = computed(() => {
 	if (selectedNodeId.value) return taskList.value.find((n) => n.id === selectedNodeId.value) || null
-	if (selectedBpmnId.value) return taskList.value.find((n) => n.bpmnId === selectedBpmnId.value) || null
+	if (selectedBpmnId.value) {
+		const direct = taskList.value.find((n) => n.bpmnId === selectedBpmnId.value)
+		if (direct) return direct
+		// A tool-leaf shape has no SpiffWorkflow task-state entry — fall back to its synthetic row.
+		const toolCallRows = taskList.value.filter((n) => n.toolBpmnId === selectedBpmnId.value)
+		return toolCallRows.length ? toolCallRows[toolCallRows.length - 1] : null
+	}
 	return null
 })
 
@@ -444,6 +462,7 @@ async function loadAiToolCalls() {
 			if (!r.bpmn_id) return
 			;(grouped[r.bpmn_id] = grouped[r.bpmn_id] || []).push({
 				runName: r.name,
+				startedAt: r.started_at || null,
 				calls: byRun[r.name] || [],
 			})
 		})

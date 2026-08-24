@@ -262,12 +262,14 @@ class FrappeScriptEngine(PythonScriptEngine):
 	        result["action"] = "Approve"
 	"""
 
-	def __init__(self, environment, script_task_extensions=None, context_doctype=None, context_docname=None, initiated_by=None):
+	def __init__(self, environment, script_task_extensions=None, context_doctype=None, context_docname=None, initiated_by=None, instance=None):
 		super().__init__(environment)
 		self._script_task_extensions = script_task_extensions or {}
 		self._context_doctype = context_doctype
 		self._context_docname = context_docname
 		self._initiated_by = initiated_by or "Administrator"
+		# Lets a Script Task call execute_shape(instance, ...) for its own tracked AI Agent Run.
+		self._instance = instance
 
 	def execute(self, task, script, **kwargs):
 		"""
@@ -453,6 +455,10 @@ class FrappeScriptEngine(PythonScriptEngine):
 				"context_doctype": self._context_doctype or "",
 				"context_docname": self._context_docname or "",
 				"result": result_dict,
+				# For execute_shape(instance, ...) — see FrappeScriptEngine.__init__.
+				"instance": self._instance,
+				# This shape's own id, same as shape_tools.py injects for tool leaves.
+				"bpmn_id": getattr(task.task_spec, "bpmn_id", None) or "",
 				# Snapshot of the workflow variables as a plain dict, so scripts
 				# can safely read OPTIONAL vars — e.g. task_data.get("x", default)
 				# — without resorting to locals()/globals() (blocked by the
@@ -499,6 +505,7 @@ def _make_script_engine(
 	context_docname=None,
 	script_task_extensions=None,
 	initiated_by=None,
+	instance=None,
 ) -> FrappeScriptEngine:
 	"""
 	Build a FrappeScriptEngine with Frappe, datetime, and doc injected.
@@ -538,6 +545,7 @@ def _make_script_engine(
 		context_doctype=context_doctype,
 		context_docname=context_docname,
 		initiated_by=initiated_by,
+		instance=instance,
 	)
 
 
@@ -728,6 +736,7 @@ def create_workflow(
 	context_docname: str = None,
 	script_task_extensions: dict = None,
 	initiated_by: str = None,
+	instance=None,
 ) -> BpmnWorkflow:
 	"""
 	Create a brand-new BpmnWorkflow from a stored serialised spec.
@@ -767,6 +776,7 @@ def create_workflow(
 		context_docname=context_docname,
 		script_task_extensions=script_task_extensions,
 		initiated_by=initiated_by,
+		instance=instance,
 	)
 
 	if initial_data:
@@ -786,6 +796,7 @@ def restore_workflow(
 	context_docname: str = None,
 	script_task_extensions: dict = None,
 	initiated_by: str = None,
+	instance=None,
 ) -> BpmnWorkflow:
 	"""
 	Restore a mid-flight workflow from its serialised state (stored in DB).
@@ -813,6 +824,7 @@ def restore_workflow(
 		context_docname=context_docname,
 		script_task_extensions=script_task_extensions,
 		initiated_by=initiated_by,
+		instance=instance,
 	)
 
 	return wf

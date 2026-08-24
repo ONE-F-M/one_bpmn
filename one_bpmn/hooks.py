@@ -184,6 +184,13 @@ _BPMN_TRIGGER = "one_bpmn.one_bpmn.trigger.on_doc_event"
 _BPMN_GUARD   = "one_bpmn.one_bpmn.trigger.guard_bpmn_document"
 _BPMN_DELETE  = "one_bpmn.one_bpmn.trigger.delete_linked_bpmn_instances"
 
+# Exposes turn_state.get_turn as a Jinja global for aiUserPrompt templates.
+jinja = {
+	"methods": [
+		"one_bpmn.agents.turn_state.get_turn",
+	]
+}
+
 doc_events = {
 	"*": {
 		# Start new BPMN instances / bidirectional sync
