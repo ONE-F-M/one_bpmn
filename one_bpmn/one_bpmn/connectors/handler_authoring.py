@@ -338,6 +338,41 @@ def merge_module(existing: str | None, connector_id: str, label: str,
     return render_module(connector_id, label, kept)
 
 
+PREFERRED_BASE_BRANCH = "staging"
+
+
+def resolve_base_branch(repo: str, token: str) -> str | None:
+    """Target ``staging`` when the repository has one, otherwise the repo default.
+
+    House convention is that work branches off staging, so a generated handler
+    should arrive where hand-written code arrives and reach production by the same
+    route. Left to itself ``github_sync`` targets the repository's DEFAULT branch,
+    which on one_bpmn is ``version-15`` — so handlers were skipping staging
+    entirely.
+
+    It cannot simply be hardcoded, though. The receiving repository is chosen by
+    ``connector_handler_app``, so it need not be one_bpmn and need not have a
+    staging branch at all; a repo without one would fail the pull request outright
+    on the ref lookup. Returning None hands the decision back to github_sync,
+    whose fallback is the default branch — the one branch guaranteed to be there.
+    This is why the sibling customization flow passes None unconditionally: it
+    syncs to any app's repo, so it can never assume more than the default.
+    """
+    from one_bpmn.api.github_sync import branch_exists
+
+    try:
+        if branch_exists(token=token, repo=repo, branch=PREFERRED_BASE_BRANCH):
+            return PREFERRED_BASE_BRANCH
+    except Exception:
+        # Probing for a nicer base must never be why a handler cannot be
+        # delivered. Fall through and let github_sync use the default branch.
+        frappe.log_error(
+            title="Connector handler: base branch probe failed",
+            message=frappe.get_traceback(),
+        )
+    return None
+
+
 # ── delivery ─────────────────────────────────────────────────────────────────
 def propose_python_handler(
     *,
@@ -432,6 +467,9 @@ def propose_python_handler(
         ]
         result["retryable"] = False
         return result
+
+    if not base_branch:
+        base_branch = resolve_base_branch(repo, token)
 
     path = repo_path(connector_id, app)
     stamp = frappe.generate_hash(length=6)

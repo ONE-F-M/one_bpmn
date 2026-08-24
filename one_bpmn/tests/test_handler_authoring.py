@@ -294,3 +294,72 @@ class TestProposalRefusesBeforeTouchingAnything(FrappeTestCase):
 		self.assertFalse(result["ok"])
 		self.assertTrue(any("zz_operation_that_does_not_exist" in e for e in result["errors"]))
 		self.assertNotIn("pull_request", result)
+
+
+class TestBaseBranchResolution(FrappeTestCase):
+	"""Which branch a generated handler's pull request targets.
+
+	Left to itself ``github_sync`` targets the repository's default branch, which on
+	one_bpmn is ``version-15``. That put generated handlers on a different route to
+	production than every hand-written change, which branches off staging. These
+	tests pin the preference AND its fallback — the receiving repo is configurable,
+	so "there is no staging branch" has to stay a supported answer rather than a
+	failed pull request.
+
+	The probe is stubbed throughout: resolution must be decidable without a token
+	or a network, which is the whole reason it is a separate function.
+	"""
+
+	def _with_probe(self, probe):
+		from one_bpmn.api import github_sync
+
+		original = github_sync.branch_exists
+		github_sync.branch_exists = probe
+		self.addCleanup(lambda: setattr(github_sync, "branch_exists", original))
+
+	def test_staging_is_preferred_when_the_repo_has_one(self):
+		seen = {}
+
+		def probe(*, token, repo, branch):
+			seen.update(repo=repo, branch=branch)
+			return True
+
+		self._with_probe(probe)
+		self.assertEqual(ha.resolve_base_branch("ONE-F-M/one_bpmn", "tok"), "staging")
+		self.assertEqual(seen["branch"], "staging")
+		self.assertEqual(seen["repo"], "ONE-F-M/one_bpmn")
+
+	def test_falls_back_to_the_repo_default_when_staging_is_absent(self):
+		"""None is not a failure — it means "you choose", and github_sync then
+		uses the default branch, the only one guaranteed to exist."""
+		self._with_probe(lambda *, token, repo, branch: False)
+		self.assertIsNone(ha.resolve_base_branch("someone/no-staging-here", "tok"))
+
+	def test_a_broken_probe_does_not_block_delivery(self):
+		"""A rate limit or a dead network must cost us the nicer base branch, not
+		the handler. Anything else would make delivery less reliable than before
+		the preference existed."""
+
+		def probe(*, token, repo, branch):
+			raise RuntimeError("GitHub API error (403): rate limited")
+
+		self._with_probe(probe)
+		self.assertIsNone(ha.resolve_base_branch("ONE-F-M/one_bpmn", "tok"))
+
+	def test_an_explicit_base_branch_is_never_overridden(self):
+		"""A caller that names a base means it; the preference only fills a blank."""
+
+		def probe(*, token, repo, branch):
+			raise AssertionError("the probe must not run when a base was given")
+
+		self._with_probe(probe)
+		result = ha.propose_python_handler(
+			connector_id="no-such-connector-for-base-test",
+			operation="anything",
+			function_name="anything",
+			code=GOOD,
+			base_branch="release-1.2",
+		)
+		# Refused at the connector gate, long before any branch resolution — which
+		# is exactly the point: the probe never ran.
+		self.assertTrue(result["errors"])
