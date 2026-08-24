@@ -381,7 +381,7 @@
                   <span class="static-row-inline-label">Role</span>
                   <select v-model="r.role" class="static-row-cat">
                     <option value="">Pick a role…</option>
-                    <option v-for="name in grantableRoles" :key="name" :value="name">{{ name }}</option>
+                    <option v-for="name in roleOptions" :key="name" :value="name">{{ name }}</option>
                   </select>
                   <button type="button" class="close-btn" title="Revoke" @click="form.aiAgentRoles.splice(i, 1)">✕</button>
                 </div>
@@ -618,17 +618,34 @@ const agentUserLabel = computed(
   () => agentUserEmail.value || "its own user, created when the agent is first saved",
 );
 
+// What the picker offers: everything this user may grant, PLUS whatever the
+// agent already holds. The second half matters — an agent may legitimately hold
+// a role its editor cannot grant, and a <select> whose value is not among its
+// options renders BLANK. Without this, a role the agent really has looks like an
+// empty row, which reads as "no role" and invites someone to overwrite it.
+const roleOptions = computed(() => {
+  const held = (form.value.aiAgentRoles || []).map((r) => r && r.role).filter(Boolean);
+  return Array.from(new Set([...grantableRoles.value, ...held])).sort();
+});
+
 async function loadGrantableRoles() {
   try {
+    // POST with an explicit (empty) params object, like every other method call
+    // in this file. A GET carrying no params never reached the server, and the
+    // catch below turned that into an empty picker — which looked like "you may
+    // grant nothing" rather than "the request failed".
     const res = await frappeRequest({
       url: "/api/method/one_bpmn.agents.agent_config_resolver.roles_available_to_grant",
-      method: "GET",
+      method: "POST",
+      params: {},
     });
     grantableRoles.value = res?.roles || [];
     rolesUnrestricted.value = !!res?.unrestricted;
   } catch (e) {
     // A picker with no options is better than a modal that will not open: the
-    // roles already granted still render, they just cannot be added to.
+    // roles already granted still render, they just cannot be added to. Logged
+    // rather than swallowed, because silence is what made this hard to see.
+    console.error("Could not load the roles this user may grant", e);
     grantableRoles.value = [];
   }
 }
