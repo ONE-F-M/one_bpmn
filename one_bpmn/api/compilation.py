@@ -1081,7 +1081,7 @@ def _lint_ai_provider_config(_bpmn_xml: str, service_extensions: dict) -> None:
 	"""
 	Compile-time lint for AI Agent Tasks:
 	1. Rejects raw API keys embedded in any spiffworkflow:ai* attribute.
-	2. Validates that referenced AI Provider Credentials records exist in the database.
+	2. Validates that referenced AI Provider records exist in the database.
 	"""
 	import re
 	_RAW_KEY_RE = re.compile(r"^(sk-|key-)", re.IGNORECASE)
@@ -1098,7 +1098,7 @@ def _lint_ai_provider_config(_bpmn_xml: str, service_extensions: dict) -> None:
 					_(
 						"Raw API keys must not appear in BPMN XML "
 						"(task '{0}', attribute '{1}'). "
-						"Use an AI Provider Credentials reference."
+						"Use an AI Provider reference."
 					).format(bpmn_id, attr_name),
 					exc=frappe.ValidationError,
 				)
@@ -1149,11 +1149,11 @@ def _lint_ai_provider_config(_bpmn_xml: str, service_extensions: dict) -> None:
 				exc=frappe.ValidationError,
 			)
 
-		if provider_name and not frappe.db.exists("AI Provider Credentials", provider_name):
+		if provider_name and not frappe.db.exists("AI Provider", provider_name):
 			frappe.throw(
 				_(
-					"AI Provider Credentials '{0}' not found (task '{1}'). "
-					"Create it in the AI Provider Credentials list."
+					"AI Provider '{0}' not found (task '{1}'). "
+					"Create it in the AI Provider list."
 				).format(provider_name, bpmn_id),
 				exc=frappe.ValidationError,
 			)
@@ -1288,6 +1288,22 @@ def _extract_tool_shapes(adhoc_el, bpmn_ns: str, spiff_ns: str) -> list:
 				if key == "aiToolParams":
 					continue
 				shape[key] = attr_value
+		# WI-002054: limits a shape declares on what its tool may do travel with
+		# the descriptor, so widening them is a change a person makes to the map
+		# rather than a decision the model takes at run time. Kept generic — any
+		# spiffworkflow:allowed* attribute comes through — so the next constrained
+		# tool needs no compiler change.
+		for attr, value in child.attrib.items():
+			if attr.startswith(f"{{{spiff_ns}}}allowed"):
+				key = attr.split("}", 1)[1]
+				if str(value).strip():
+					# camelCase -> snake_case properly: frappe.scrub only
+					# lower-cases, so "allowedStates" became "allowedstates" and a
+					# script reading allowed_states silently found nothing.
+					import re as _re
+
+					snake = _re.sub(r"(?<!^)(?=[A-Z])", "_", key).lower()
+					shape[snake] = str(value).strip()
 		tool_params_raw = child.get(f"{{{spiff_ns}}}aiToolParams", "")
 		if tool_params_raw:
 			try:

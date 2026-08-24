@@ -48,6 +48,15 @@ app_include_js = [
 	# stale copy indefinitely even across hard reloads.
 	"/assets/one_bpmn/js/bpmn_form_actions.js?v=3",
 	"/assets/one_bpmn/js/bpmn_list_indicator.js",
+	# WI-002050: an agent's question appears on the document it is about, whatever
+	# that document is. Loaded for every form rather than bound to one doctype:
+	# the clarification record names a doctype and a document, so it was never
+	# Work-Item-specific, and the moment an agent is pointed at anything else a
+	# question about it has to surface on that thing. The script asks once which
+	# doctypes have ever had a question asked about them and does nothing on the
+	# rest, so a form nobody has ever asked about costs no round trip.
+	# ?v= as above — a plain path gets no automatic cache-busting.
+	"/assets/one_bpmn/js/ai_clarification_on_document.js?v=1",
 ]
 
 # include js, css files in header of web template
@@ -244,6 +253,10 @@ scheduler_events = {
 		],
 		"0 * * * *": [
 			"one_bpmn.tasks.close_stale_chat_instances",
+			# WI-002050: chase a question nobody has answered. Hourly rather than
+			# by the minute because the thing being waited on is a person reading
+			# their notifications, and it never resolves the question itself.
+			"one_bpmn.tasks.chase_unanswered_clarifications",
 		],
 	}
 }

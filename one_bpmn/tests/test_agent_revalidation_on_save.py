@@ -19,16 +19,17 @@ class TestAgentRevalidationOnSave(FrappeTestCase):
 		frappe.flags.test_agent_revalidation = True
 		suffix = frappe.generate_hash(length=6)
 		self.creds = frappe.get_doc({
-			"doctype": "AI Provider Credentials",
-			"provider_name": f"Reval Test Creds {suffix}",
+			"doctype": "AI Provider",
+			"provider": f"Reval Test Creds {suffix}",
 			"provider_type": "Anthropic",
 			"api_key": "test-key-not-real",
 			"enabled": 1,
 		}).insert(ignore_permissions=True)
 		self.model = frappe.get_doc({
 			"doctype": "AI Model",
+			"enable_model": 1,
 			"model_name": f"reval-test-model-{suffix}",
-			"ai_provider_credentials": self.creds.name,
+			"provider": self.creds.name,
 		}).insert(ignore_permissions=True)
 
 	def tearDown(self):

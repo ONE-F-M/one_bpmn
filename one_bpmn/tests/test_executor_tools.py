@@ -24,11 +24,11 @@ from one_bpmn.agents.llm_provider.base import (
 
 
 def _provider(name, provider_type):
-	if not frappe.db.exists("AI Provider Credentials", name):
+	if not frappe.db.exists("AI Provider", name):
 		frappe.get_doc(
 			{
-				"doctype": "AI Provider Credentials",
-				"provider_name": name,
+				"doctype": "AI Provider",
+				"provider": name,
 				"provider_type": provider_type,
 				"api_key": "test-key-not-real",
 				"enabled": 1,
@@ -74,7 +74,7 @@ class TestExecutorToolBridge(FrappeTestCase):
 	@classmethod
 	def setUpClass(cls):
 		super().setUpClass()
-		cls.openai_provider = _provider("Bridge OpenAI Provider Credentials", "OpenAI")
+		cls.openai_provider = _provider("Bridge OpenAI Provider", "OpenAI")
 		cls.unsupported_provider = _provider("Bridge Bedrock Provider", "Bedrock")
 
 	def _run(self, provider, tools, steps=None, max_tool_calls=None):

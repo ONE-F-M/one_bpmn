@@ -4,7 +4,7 @@
 
 A Direct eval is supposed to exercise the agent under test — its prompt, its
 credentials, and its model. The runner used to read the model from
-``AI Provider Credentials.default_model``, a field WI-001655 removed, so it
+``AI Provider.default_model``, a field WI-001655 removed, so it
 tested whatever stale value survived on that site (or errored where the column
 had been dropped) and never the agent's own catalog pick.
 
@@ -37,8 +37,8 @@ class TestDirectEvalModel(FrappeTestCase):
     def _make_credentials(self):
         name = f"_Test Eval Creds {frappe.generate_hash(length=6)}"
         doc = frappe.get_doc({
-            "doctype": "AI Provider Credentials",
-            "provider_name": name,
+            "doctype": "AI Provider",
+            "provider": name,
             "provider_type": "Anthropic",
             "api_key": "sk-test-not-a-real-key",
             "enabled": 1,
@@ -50,8 +50,9 @@ class TestDirectEvalModel(FrappeTestCase):
     def _make_model(self, model_id: str):
         doc = frappe.get_doc({
             "doctype": "AI Model",
+            "enable_model": 1,
             "model_name": model_id,
-            "ai_provider_credentials": self.credentials,
+            "provider": self.credentials,
         })
         doc.flags.ignore_mandatory = True
         doc.flags.ignore_links = True
@@ -80,7 +81,7 @@ class TestDirectEvalModel(FrappeTestCase):
         from its credentials record."""
         model_id = self._make_model(f"_test-model-{frappe.generate_hash(length=6)}")
         agent = make_agent_configuration(
-            ai_provider_credentials=self.credentials, ai_model=model_id
+            ai_provider=self.credentials, ai_model=model_id
         )
 
         self.assertEqual(self._model_used_by_direct_eval(agent), model_id)
@@ -89,7 +90,7 @@ class TestDirectEvalModel(FrappeTestCase):
         """An agent with no ai_model (pre-WI-001655) still resolves to a real
         model linked to its credentials, rather than an empty string."""
         model_id = self._make_model(f"_test-legacy-{frappe.generate_hash(length=6)}")
-        agent = make_agent_configuration(ai_provider_credentials=self.credentials)
+        agent = make_agent_configuration(ai_provider=self.credentials)
         # derive_provider_from_model only fills the provider FROM a model, so an
         # agent with no model keeps its credentials link and an empty ai_model.
         self.assertFalse(agent.get("ai_model"))
@@ -98,7 +99,7 @@ class TestDirectEvalModel(FrappeTestCase):
 
     def test_does_not_read_the_removed_credentials_field(self):
         """The regression itself: a Direct eval must not consult
-        AI Provider Credentials for a model.
+        AI Provider for a model.
 
         Asserted by making any read of that doctype's removed field fail loudly
         — on a site where the column was dropped this is exactly what happened,
@@ -106,16 +107,16 @@ class TestDirectEvalModel(FrappeTestCase):
         """
         model_id = self._make_model(f"_test-guard-{frappe.generate_hash(length=6)}")
         agent = make_agent_configuration(
-            ai_provider_credentials=self.credentials, ai_model=model_id
+            ai_provider=self.credentials, ai_model=model_id
         )
 
         real_get_value = frappe.db.get_value
 
         def guarded(doctype, *args, **kwargs):
             fieldname = args[1] if len(args) > 1 else kwargs.get("fieldname")
-            if doctype == "AI Provider Credentials" and fieldname == "default_model":
+            if doctype == "AI Provider" and fieldname == "default_model":
                 raise AssertionError(
-                    "eval_runner read AI Provider Credentials.default_model, "
+                    "eval_runner read AI Provider.default_model, "
                     "which WI-001655 removed."
                 )
             return real_get_value(doctype, *args, **kwargs)

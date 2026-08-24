@@ -96,3 +96,6 @@ one_bpmn.one_bpmn.patches.v1_0.seed_connector_agent_config #19-08-2026 the conne
 one_bpmn.one_bpmn.patches.v1_0.migrate_ba_agent_to_generic_path #19-08-2026 the BA Agent runs on its map; the label it never had IS the start trigger
 one_bpmn.one_bpmn.patches.v1_0.set_connector_handler_app #20-08-2026 handler pull requests need a nominated repository; a Single gets no field default
 one_bpmn.one_bpmn.patches.v1_0.add_required_capability_to_a2a_connector #23-08-2026 WI-002056 a delegate shape may declare the capability it needs; the deadline help was stale
+one_bpmn.one_bpmn.patches.v1_0.provision_agent_users #23-08-2026 WI-002054 every agent gets the identity its tools now run as; no roles granted, that is a decision
+one_bpmn.one_bpmn.patches.v1_0.migrate_to_ai_provider_and_model #24-08-2026 WI-002134 credentials + rate card fold into AI Provider and AI Model; old doctypes dropped last so a failure is re-runnable
+one_bpmn.one_bpmn.patches.v1_0.seed_missing_model_rates #24-08-2026 WI-002134 five enabled models had no rate, so a fifth of all traffic reported as free; fills only what is empty

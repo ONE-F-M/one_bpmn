@@ -849,3 +849,27 @@ def _mark_resumed(a2a_task: str) -> None:
 	must never hand the same finished task to the engine twice, even if the
 	enqueue helper changes or fails."""
 	frappe.db.set_value("A2A Task", a2a_task, "resume_enqueued", 1, update_modified=False)
+
+
+def chase_unanswered_clarifications():
+	"""Hourly: nudge a question nobody has answered, then raise it.
+
+	WI-002050. It never answers the question. Every source on human-in-the-loop
+	work says the same thing — do not block forever, and do not proceed on a
+	timeout — so this does the first half (somebody is told) and deliberately
+	not the second (nothing is assumed). The agent stays blocked, which is the
+	whole point of having asked.
+	"""
+	from one_bpmn.agents import clarification
+
+	try:
+		result = clarification.chase_unanswered()
+		if result.get("reminded") or result.get("escalated"):
+			frappe.logger("one_bpmn").info(
+				f"AI clarifications: reminded {result['reminded']}, escalated {result['escalated']}"
+			)
+	except Exception:
+		frappe.log_error(
+			title="AI Clarification: chasing unanswered questions failed",
+			message=frappe.get_traceback(),
+		)

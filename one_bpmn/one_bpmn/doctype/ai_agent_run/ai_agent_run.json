@@ -55,12 +55,12 @@
  ],
  "fields": [
   {
+   "description": "Empty for direct (non-process) eval runs.",
    "fieldname": "instance",
    "fieldtype": "Link",
    "in_list_view": 1,
    "label": "BPMN Process Instance",
-   "options": "BPMN Process Instance",
-   "description": "Empty for direct (non-process) eval runs."
+   "options": "BPMN Process Instance"
   },
   {
    "description": "The BPMN Process Model this run belongs to",
@@ -70,13 +70,13 @@
    "options": "BPMN Process Model"
   },
   {
+   "description": "The AI Agent Configuration that owns the process model this run executed under.",
    "fieldname": "agent_configuration",
    "fieldtype": "Link",
+   "in_standard_filter": 1,
    "label": "Agent Configuration",
    "options": "AI Agent Configuration",
-   "in_standard_filter": 1,
-   "read_only": 1,
-   "description": "The AI Agent Configuration that owns the process model this run executed under."
+   "read_only": 1
   },
   {
    "description": "The element ID on the diagram (e.g. Activity_1a2b3c)",
@@ -102,11 +102,11 @@
   },
   {
    "default": "production",
+   "description": "Runs produced by an eval invocation are tagged 'eval' so Insights can show them separately.",
    "fieldname": "origin",
    "fieldtype": "Select",
    "label": "Origin",
-   "options": "production\neval",
-   "description": "Runs produced by an eval invocation are tagged 'eval' so Insights can show them separately."
+   "options": "production\neval"
   },
   {
    "depends_on": "eval:doc.origin==\"eval\"",
@@ -141,8 +141,8 @@
   {
    "fieldname": "provider",
    "fieldtype": "Link",
-   "label": "AI Provider Credentials",
-   "options": "AI Provider Credentials"
+   "label": "AI Provider",
+   "options": "AI Provider"
   },
   {
    "description": "e.g. gpt-4o",
@@ -204,29 +204,29 @@
    "label": "Ended At"
   },
   {
+   "description": "Wall-clock from Started At to Ended At. For human-in-the-loop runs this INCLUDES the time spent waiting for a person \u2014 use Agent Latency to measure agent performance.",
    "fieldname": "duration_ms",
    "fieldtype": "Int",
-   "label": "Duration (ms)",
-   "description": "Wall-clock from Started At to Ended At. For human-in-the-loop runs this INCLUDES the time spent waiting for a person \u2014 use Agent Latency to measure agent performance."
+   "label": "Duration (ms)"
   },
   {
+   "description": "Time the AGENT actually spent working: the sum of every step's latency (provider round-trips plus inline tool execution). Excludes time parked waiting for a human, so unlike Duration this is comparable across runs and is the figure to use for A/B experiments.",
    "fieldname": "agent_latency_ms",
    "fieldtype": "Int",
-   "label": "Agent Latency (ms)",
-   "description": "Time the AGENT actually spent working: the sum of every step's latency (provider round-trips plus inline tool execution). Excludes time parked waiting for a human, so unlike Duration this is comparable across runs and is the figure to use for A/B experiments."
+   "label": "Agent Latency (ms)"
   },
   {
+   "description": "Accumulated time this run sat Suspended waiting for a person to complete a human task. Duration = Agent Latency + Human Wait + engine/queue overhead.",
    "fieldname": "human_wait_ms",
    "fieldtype": "Int",
-   "label": "Human Wait (ms)",
-   "description": "Accumulated time this run sat Suspended waiting for a person to complete a human task. Duration = Agent Latency + Human Wait + engine/queue overhead."
+   "label": "Human Wait (ms)"
   },
   {
+   "description": "When the current suspension began; cleared on resume after its elapsed time is added to Human Wait. Internal bookkeeping.",
    "fieldname": "suspended_at",
    "fieldtype": "Datetime",
    "label": "Suspended At",
-   "read_only": 1,
-   "description": "When the current suspension began; cleared on resume after its elapsed time is added to Human Wait. Internal bookkeeping."
+   "read_only": 1
   },
   {
    "fieldname": "section_break_tokens",
@@ -249,16 +249,16 @@
    "label": "Total Tokens"
   },
   {
+   "description": "Part of Prompt Tokens served from the prompt cache, summed across steps. Billed at the cache-read rate.",
    "fieldname": "total_cache_read_tokens",
    "fieldtype": "Int",
-   "label": "Cache Read Tokens",
-   "description": "Part of Prompt Tokens served from the prompt cache, summed across steps. Billed at the cache-read rate."
+   "label": "Cache Read Tokens"
   },
   {
+   "description": "Part of Prompt Tokens written into the prompt cache, summed across steps.",
    "fieldname": "total_cache_write_tokens",
    "fieldtype": "Int",
-   "label": "Cache Write Tokens",
-   "description": "Part of Prompt Tokens written into the prompt cache, summed across steps."
+   "label": "Cache Write Tokens"
   },
   {
    "fieldname": "column_break_cost",
@@ -285,18 +285,18 @@
    "precision": "6"
   },
   {
+   "description": "Total cost of cache-read tokens across all steps.",
    "fieldname": "total_cache_read_cost",
    "fieldtype": "Currency",
    "label": "Cache Read Cost",
-   "precision": "6",
-   "description": "Total cost of cache-read tokens across all steps."
+   "precision": "6"
   },
   {
+   "description": "Total cost of cache-write tokens across all steps.",
    "fieldname": "total_cache_write_cost",
    "fieldtype": "Currency",
    "label": "Cache Write Cost",
-   "precision": "6",
-   "description": "Total cost of cache-write tokens across all steps."
+   "precision": "6"
   },
   {
    "fieldname": "section_break_output",
