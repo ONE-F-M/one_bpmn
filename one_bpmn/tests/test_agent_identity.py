@@ -67,6 +67,19 @@ class TestTheAgentHasAnIdentity(FrappeTestCase):
 		self.assertTrue(agent.agent_user)
 		self.assertTrue(frappe.db.exists("User", agent.agent_user))
 
+	def test_the_identity_does_not_narrow_who_can_see_an_agent(self):
+		"""A User Permission restricts a list by every Link-to-User field on the
+		doctype. Adding this one silently applied any such restriction to it — and
+		since no agent's user is ever a person, the agent list went EMPTY for
+		anyone carrying one. The field names a machine identity, not a person
+		whose access should scope who may see the record."""
+		field = next(
+			f
+			for f in frappe.get_meta("AI Agent Configuration").fields
+			if f.fieldname == "agent_user"
+		)
+		self.assertTrue(field.ignore_user_permissions)
+
 	def test_an_agent_that_already_has_an_identity_keeps_it(self):
 		"""The domain changed once, and the agents provisioned under the old one
 		were left there rather than renamed. So deriving the address afresh on

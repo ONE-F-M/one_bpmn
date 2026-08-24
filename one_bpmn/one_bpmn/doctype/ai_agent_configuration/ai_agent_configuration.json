@@ -394,6 +394,7 @@
    "label": "Agent User",
    "options": "User",
    "read_only": 1,
+   "ignore_user_permissions": 1,
    "description": "The identity this agent acts as. Created automatically and never logged into by a person: what an agent changed is attributable to the agent, and its write access is granted and revoked here rather than in code. Distinct from Allowed Roles, which says who may INVOKE the agent."
   },
   {
