@@ -49,8 +49,6 @@
   "artifact_type",
   "collect_feedback",
   "allowed_roles",
-  "agent_user",
-  "agent_roles",
   "memory_section",
   "conversation_store",
   "context_max_messages",
@@ -62,6 +60,9 @@
   "memory_distill_model",
   "column_break_memory_models",
   "memory_reconcile_model",
+  "identity_section",
+  "agent_user",
+  "agent_roles",
   "security_section",
   "pii_screening",
   "output_screening_mode",
@@ -380,6 +381,12 @@
    "fieldtype": "Table",
    "label": "Allowed Roles",
    "options": "AI Agent Allowed Role"
+  },
+  {
+   "fieldname": "identity_section",
+   "fieldtype": "Section Break",
+   "label": "Identity & Permissions",
+   "description": "Who this agent acts as when its tools change something, and what it is allowed to change. Always shown, whatever kind of agent this is \u2014 a Background agent is the one most likely to need a role, and these fields used to be hidden on exactly those."
   },
   {
    "fieldname": "agent_user",

@@ -141,6 +141,70 @@ class TestTheAgentHasAnIdentity(FrappeTestCase):
 		self.assertIn("no roles at all", identity.describe_refusal(agent.name, frappe.PermissionError()))
 
 
+class TestTheIdentityIsVisibleOnEveryAgent(FrappeTestCase):
+	"""The fields have to be where somebody can find them.
+
+	They went in beside allowed_roles, which lives in the Chat Surface section —
+	gated on agent_type == 'Chat'. So on a Background agent they were invisible,
+	and Background is exactly the kind that uses tools: the Connector Agent and
+	the Orchestrator are both Background. An identity nobody can see is an
+	identity nobody grants a role to, which makes the whole story inert.
+	"""
+
+	def tearDown(self):
+		frappe.db.rollback()
+		super().tearDown()
+
+	@staticmethod
+	def _governing_section(fieldname):
+		"""The section a field sits under, the way the form resolves it."""
+		meta = frappe.get_meta("AI Agent Configuration")
+		section = None
+		for field in meta.fields:
+			if field.fieldtype in ("Section Break", "Tab Break"):
+				section = field
+			if field.fieldname == fieldname:
+				return section
+		return None
+
+	def test_the_identity_fields_are_always_shown(self):
+		for fieldname in ("agent_user", "agent_roles"):
+			with self.subTest(fieldname=fieldname):
+				section = self._governing_section(fieldname)
+				self.assertIsNotNone(section)
+				self.assertFalse(
+					section.depends_on,
+					f"{fieldname} is under {section.fieldname}, which only shows when "
+					f"{section.depends_on!r} — a Background agent would never see it",
+				)
+
+	def test_they_are_not_under_the_chat_section(self):
+		"""Where they started, and the reason this test exists."""
+		for fieldname in ("agent_user", "agent_roles"):
+			with self.subTest(fieldname=fieldname):
+				self.assertNotEqual(self._governing_section(fieldname).fieldname, "chat_section")
+
+	def test_they_share_one_labelled_section(self):
+		"""Somebody hunting for "what can this agent do" looks for a heading that
+		says so, not for two fields loose among the security settings."""
+		user_section = self._governing_section("agent_user")
+		roles_section = self._governing_section("agent_roles")
+		self.assertEqual(user_section.fieldname, roles_section.fieldname)
+		self.assertIn("Identity", user_section.label)
+
+	def test_a_background_agent_has_an_identity_to_show(self):
+		"""The case that was broken: the agents that use tools are Background."""
+		background = frappe.db.get_value(
+			"AI Agent Configuration",
+			{"agent_type": "Background", "agent_user": ["is", "set"]},
+			["name", "agent_user"],
+			as_dict=True,
+		)
+		if not background:
+			self.skipTest("no provisioned Background agent on this site")
+		self.assertTrue(background.agent_user)
+
+
 class TestToolsRunAsTheAgent(FrappeTestCase):
 	"""The seam. It is shared by every agent in the system, so the tests that
 	matter most here are the ones proving the old behaviour is gone."""
