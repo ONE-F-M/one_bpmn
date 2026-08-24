@@ -159,3 +159,43 @@ def describe_refusal(agent_configuration: str | None, error: Exception) -> str:
 		agent_configuration or _("this agent"),
 		_("these roles: {0}").format(", ".join(roles)) if roles else _("no roles at all"),
 	)
+
+
+def comment_as(agent_configuration: str | None, doctype: str, docname: str, html: str) -> bool:
+	"""Leave a comment attributed to the AGENT rather than to whoever started it.
+
+	A script task inside an agent's map is the agent acting, but that path runs as
+	the person who triggered the run — so the orchestrator's own report appeared
+	under a human's name, right beside a tool comment correctly attributed to the
+	agent. Two comments, one paragraph apart, from the same agent, signed by two
+	different parties.
+
+	Switching for the duration of one comment rather than for the whole script:
+	the rest of that path deliberately runs as the initiator, and widening it
+	would change permissions for every agent's script tasks at once.
+
+	Never raises. A comment that could not be attributed is still worth having.
+	"""
+	user = user_for(agent_configuration)
+	original = frappe.session.user
+	saved_sid = frappe.session.sid
+	saved_data = frappe.session.data
+	switched = False
+	try:
+		if user and user != original:
+			frappe.set_user(user)
+			switched = True
+		frappe.get_doc(doctype, docname).add_comment("Comment", html)
+		return True
+	except Exception:
+		frappe.log_error(
+			title="Agent identity: could not leave a comment as the agent",
+			message=frappe.get_traceback(),
+		)
+		return False
+	finally:
+		if switched:
+			frappe.set_user(original)
+			# set_user gutted these; the browser session must survive an inline run.
+			frappe.session.sid = saved_sid
+			frappe.session.data = saved_data
