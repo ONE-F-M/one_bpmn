@@ -165,9 +165,19 @@ has_permission = {
 # ---------------
 # Override standard doctype classes
 
-# override_doctype_class = {
-# 	"ToDo": "custom_app.overrides.CustomToDo"
-# }
+# WI-002055: the jobs that WAKE parked agent work get a queue of their own.
+# Frappe derives a scheduled job's queue from its frequency alone, so a Cron job
+# is always on "default" — shared here with 172 other enabled jobs. A long job
+# ahead of them means a finished delegation still reads as running and a passed
+# deadline goes unnoticed until it clears. Agent turns already have their own
+# worker for this reason; this gives the same to the clock that wakes them.
+#
+# Our three methods only. Every other scheduled job on the site falls through to
+# Frappe's own behaviour, and ours fall back to "default" unless the site
+# actually declares the queue — so this is safe to deploy before the worker.
+override_doctype_class = {
+	"Scheduled Job Type": "one_bpmn.overrides.scheduled_job_type.ProcessaScheduledJobType",
+}
 
 # Document Events
 # ---------------
