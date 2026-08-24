@@ -874,94 +874,6 @@ function buildManualLaneDI(ir) {
   const boxHit = (a, b) =>
     a.x < b.x + b.w && b.x < a.x + a.w && a.y < b.y + b.h && b.y < a.y + a.h;
 
-  // ── Attachment points: fan the stubs out along the node's edge ────────────
-  //
-  // Gutters and strips were already channelled, and they behave: measured on
-  // this map, only 3 of 69 overlapping segment pairs were gutter-or-strip. The
-  // other 66 were the short horizontal STUBS — the bit that runs along a node's
-  // own row from its edge out to the gutter, and from the last gutter back in to
-  // the target.
-  //
-  // Those were collinear *by construction*. Every edge left at (x+w, y+h/2) and
-  // arrived at (x, y+h/2), so three flows out of one gateway began life as three
-  // lines on the same pixel row, differing only in how far along they turned.
-  // No channel allocation can fix that, because the collision is at the endpoint,
-  // not in the corridor.
-  //
-  // So each edge gets its own attachment y on the node's edge. Edges heading UP
-  // attach above the centre and edges heading DOWN attach below it, each ordered
-  // by how far it travels, so the fan reads outward and a stub never has to cross
-  // the vertical leg of a sibling. Costs no extra corners: it moves the endpoint,
-  // it does not add a bend. A straight same-row edge keeps the exact centreline,
-  // because moving it would turn a 2-point line into a 4-point one.
-  const EDGE_INSET = 8;   // keep an attachment this far inside the node's corner
-
-  const exitY  = new Map();   // plan index -> y on the source's right edge
-  const entryY = new Map();   // plan index -> y on the target's left edge
-
-  // Where is this edge ultimately going / where did it come from?
-  //
-  // Deliberately the OTHER END's row, not the routing y. Using the strip y put
-  // every strip-routed edge in the "downward" half — the strip is always below
-  // the rows — so one side of the fan was empty and the other was crushed. The
-  // far end's row is what a reader follows, and it spreads both ways.
-  const planTravelY = (p) => rowCenterY(p.tl, p.tr);
-  const planArriveY = (p) => rowCenterY(p.sl, p.sr);
-
-  const spread = (bucket, pos, destOf, store) => {
-    // `bucket` is every plan index sharing one node edge. Straights hold the
-    // centre; the rest fan above and below it.
-    const centre = Math.round(pos.y + pos.h / 2);
-    const top    = pos.y + EDGE_INSET;
-    const bot    = pos.y + pos.h - EDGE_INSET;
-
-    const flat = [], up = [], down = [];
-    for (const idx of bucket) {
-      const p = plans[idx];
-      if (!p) continue;
-      if (p.kind === 'straight' || (p.kind === 'elbow' && rowCenterY(p.sl, p.sr) === rowCenterY(p.tl, p.tr))) {
-        flat.push(idx);
-      } else if (destOf(p) < centre) up.push(idx);
-      else down.push(idx);
-    }
-    for (const idx of flat) store.set(idx, centre);
-
-    // Furthest-travelling first, so it sits outermost and the fan cannot self-cross.
-    up.sort((a, b) => destOf(plans[a]) - destOf(plans[b]));
-    down.sort((a, b) => destOf(plans[b]) - destOf(plans[a]));
-
-    const place = (list, from, to) => {
-      if (!list.length) return;
-      const span = to - from;
-      const step = span / (list.length + (flat.length ? 0 : 1));
-      list.forEach((idx, k) => {
-        const y = Math.round(from + step * (k + (flat.length ? 0.5 : 1)));
-        store.set(idx, Math.max(top, Math.min(bot, y)));
-      });
-    };
-    // `up` is ordered outermost-first, so it fills from the top edge inwards.
-    place(up, top, centre - (flat.length ? EDGE_INSET : 0));
-    place(down, bot, centre + (flat.length ? EDGE_INSET : 0));
-  };
-
-  const outOfNode = new Map(), intoNode = new Map();
-  for (let i = 0; i < plans.length; i++) {
-    const p = plans[i];
-    if (!p) continue;
-    if (!outOfNode.has(p.f.from)) outOfNode.set(p.f.from, []);
-    if (!intoNode.has(p.f.to)) intoNode.set(p.f.to, []);
-    outOfNode.get(p.f.from).push(i);
-    intoNode.get(p.f.to).push(i);
-  }
-  for (const [nid, bucket] of outOfNode) {
-    const pos = nodePos.get(nid);
-    if (pos) spread(bucket, pos, planTravelY, exitY);
-  }
-  for (const [nid, bucket] of intoNode) {
-    const pos = nodePos.get(nid);
-    if (pos) spread(bucket, pos, planArriveY, entryY);
-  }
-
   // ── Sequence-flow edges ───────────────────────────────────────────────────
   // Every segment rides a channel allocated above, so no segment can enter a
   // shape it does not connect to and no two segments can share a line.
@@ -976,9 +888,9 @@ function buildManualLaneDI(ir) {
     // Always leave the right edge and arrive at the left edge: the direction of
     // travel then reads consistently everywhere on the canvas.
     const sx = src.x + src.w;
-    const sy = exitY.has(i) ? exitY.get(i) : Math.round(src.y + src.h / 2);
+    const sy = Math.round(src.y + src.h / 2);
     const tx = tgt.x;
-    const ty = entryY.has(i) ? entryY.get(i) : Math.round(tgt.y + tgt.h / 2);
+    const ty = Math.round(tgt.y + tgt.h / 2);
 
     let pts;
     if (p.kind === 'straight' || (p.kind === 'elbow' && sy === ty)) {
