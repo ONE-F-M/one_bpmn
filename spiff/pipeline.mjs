@@ -874,6 +874,163 @@ function buildManualLaneDI(ir) {
   const boxHit = (a, b) =>
     a.x < b.x + b.w && b.x < a.x + a.w && a.y < b.y + b.h && b.y < a.y + a.h;
 
+  // ── Docking: choose which SIDE of a node each edge attaches to ────────────
+  //
+  // The channel model already keeps corridors apart — measured on these maps
+  // only 3 of 69 overlapping segment pairs were in a gutter or a strip. The
+  // other 66 were the short horizontal STUBS at the nodes: the run from a
+  // shape's right edge out to the gutter, and from the last gutter back in to
+  // the target's left edge.
+  //
+  // Those stubs were collinear BY CONSTRUCTION. Every edge left at (x+w, y+h/2)
+  // and arrived at (x, y+h/2), so seven flows converging on one join gateway
+  // began as seven lines on the same pixel row, differing only in where they
+  // turned. No corridor allocation can separate them, because the collision is
+  // at the endpoint. And spreading them along the edge does not rescue it
+  // either: a gateway is 50px tall, so seven arrivals cannot be 12px apart.
+  //
+  // So an edge that approaches VERTICALLY docks on the target's top or bottom
+  // edge instead, running its last leg down the target's own column. That
+  // removes the stub rather than shortening it, and costs a corner rather than
+  // adding one: the route becomes exit-row -> vertical -> dock, one bend where
+  // the gutter route needed two (or four via a strip).
+  //
+  // It is only allowed when provably safe. The column is normally reserved for
+  // shapes, so the vertical may only run there when no other node sits in that
+  // column between the two rows, and the horizontal that reaches it must cross
+  // a clear row. Where either fails, the edge keeps the old gutter/strip route
+  // and instead gets a distributed attachment on the left edge.
+  const DOCK_INSET = 9;   // keep a dock this far inside the node's corner
+
+  // Which nodes sit in each column, by vertical ordinal — for the safety check.
+  const colCells = new Map();
+  for (const grp of groups.values()) {
+    if (!colCells.has(grp.c)) colCells.set(grp.c, []);
+    grp.nodeIds.forEach((id, r) => colCells.get(grp.c).push({ id, ord: ordOf(grp.li, r) }));
+  }
+  // Is column `c` free of nodes strictly between these two ordinals?
+  const colClearBetween = (c, oA, oB, skip) => {
+    const lo = Math.min(oA, oB), hi = Math.max(oA, oB);
+    for (const cell of colCells.get(c) || []) {
+      if (skip.has(cell.id)) continue;
+      if (cell.ord > lo && cell.ord < hi) return false;
+    }
+    return true;
+  };
+
+  // Decide each plan's final approach. The route SHAPE (straight / elbow / strip)
+  // is already chosen; this only changes how the last leg meets the target, and
+  // it is a strictly local swap — the corridors the edge travelled are untouched.
+  //
+  // Two flavours, and the win is different in each:
+  //   elbow -> the whole route collapses to exit-row + one vertical + dock,
+  //            one bend where it used to take two.
+  //   strip -> the run along the strip simply continues to the target's column
+  //            and turns up into it: three bends where it used to take four,
+  //            and, more to the point, no arrival stub to collide with.
+  // A forward edge that has a clear row to the target's column, and that column
+  // to itself, takes the direct approach: out along its own row, then into the
+  // target's top or bottom edge. One bend.
+  //
+  // Applied to any non-straight forward edge, NOT only to the ones the planner
+  // called 'elbow'. That is the point: an edge the planner sent the long way
+  // round via a strip, because its target row was blocked, very often has a
+  // perfectly clear path if it approaches vertically instead. Taking it removes
+  // a strip run as well as the arrival stub — and a strip is the one corridor
+  // that spans a whole lane, so every one removed is a crossing avoided with
+  // every gutter vertical that lane carries. Restricting this to elbows left
+  // 35 strip runs in place on the Double Shift map and cost 22 extra crossings.
+  for (const p of plans) {
+    if (!p) continue;
+    if (p.kind === 'straight') continue;                 // already a clean line
+    if (p.tc <= p.sc) continue;                          // back edges keep the strip
+    const so = ordOf(p.sl, p.sr), to = ordOf(p.tl, p.tr);
+    if (so === to) continue;                             // same band: already flat
+    if (!rowClear(p.sl, p.sr, p.sc + 1, p.tc)) continue;
+    if (!colClearBetween(p.tc, so, to, new Set([p.f.from, p.f.to]))) continue;
+    p.dock = to > so ? 'top' : 'bottom';                 // approach from above / below
+  }
+
+  // ── Spread the attachment points that remain ──────────────────────────────
+  // Docked edges share the target's top or bottom edge, so they are spread along
+  // its WIDTH; the rest share its left edge and are spread along its HEIGHT.
+  // Either way each edge gets its own line, and the fan is ordered by where the
+  // edge comes from so it cannot cross itself.
+  const exitY = new Map(), entryY = new Map(), dockX = new Map();
+
+  const farEndY = (p) => rowCenterY(p.tl, p.tr);   // where an outgoing edge is headed
+  const nearEndY = (p) => rowCenterY(p.sl, p.sr);  // where an incoming edge came from
+
+  // Slots are laid on a fixed pitch and any slot too near a pinned one is
+  // discarded, rather than dividing the edge evenly among the movers. Dividing
+  // evenly looks right and is wrong: with one pinned straight edge and one other
+  // arrival, the mover's single slot lands at the midpoint — which IS the
+  // centreline the straight edge is pinned to — so the two arrive on the same
+  // pixel and read as one line. That was 2 of the 7 overlaps on a 14-edge
+  // fixture, and it is the commonest shape there is: a task with one normal
+  // predecessor and one rework loop.
+  const SLOT_PITCH = 13;
+
+  const fan = (idxs, lo, hi, keyOf, store, pinned, pinAt) => {
+    for (const i of pinned) store.set(i, pinAt);
+    const items = idxs.filter(i => !pinned.has(i));
+    if (!items.length) return;
+    items.sort((a, b) => keyOf(plans[a]) - keyOf(plans[b]));
+
+    const slots = [];
+    for (let y = lo; y <= hi; y += SLOT_PITCH) {
+      if (pinned.size && Math.abs(y - pinAt) < SLOT_PITCH) continue;
+      slots.push(y);
+    }
+    if (!slots.length) slots.push(Math.round((lo + hi) / 2));
+
+    // Spread the movers across whatever slots survived, keeping their order.
+    items.forEach((i, k) => {
+      const at = items.length === 1
+        ? slots[Math.floor(slots.length / 2)]
+        : slots[Math.round((k * (slots.length - 1)) / (items.length - 1))];
+      store.set(i, Math.round(at));
+    });
+  };
+
+  const outOf = new Map(), into = new Map();
+  for (let i = 0; i < plans.length; i++) {
+    const p = plans[i];
+    if (!p) continue;
+    if (!outOf.has(p.f.from)) outOf.set(p.f.from, []);
+    if (!into.has(p.f.to)) into.set(p.f.to, []);
+    outOf.get(p.f.from).push(i);
+    into.get(p.f.to).push(i);
+  }
+
+  // Exits: every outgoing edge leaves the right edge, so they fan over its height.
+  // A straight edge is pinned to the centreline — moving it would turn a
+  // two-point line into a four-point one.
+  for (const [nid, idxs] of outOf) {
+    const pos = nodePos.get(nid);
+    if (!pos) continue;
+    const pinned = new Set(idxs.filter(i => plans[i] && plans[i].kind === 'straight'));
+    fan(idxs, pos.y + DOCK_INSET, pos.y + pos.h - DOCK_INSET, farEndY, exitY,
+        pinned, Math.round(pos.y + pos.h / 2));
+  }
+
+  // Arrivals: split by the side each one docks on.
+  for (const [nid, idxs] of into) {
+    const pos = nodePos.get(nid);
+    if (!pos) continue;
+    const straight = new Set(idxs.filter(i => plans[i] && plans[i].kind === 'straight'));
+    const onTop    = idxs.filter(i => plans[i] && plans[i].dock === 'top');
+    const onBottom = idxs.filter(i => plans[i] && plans[i].dock === 'bottom');
+    const onLeft   = idxs.filter(i => plans[i] && !plans[i].dock);
+    // Docked edges fan across the width, ordered by the column they come from so
+    // the arrivals arrive in the same order they were laid out.
+    const byCol = (p) => p.sc;
+    fan(onTop,    pos.x + DOCK_INSET, pos.x + pos.w - DOCK_INSET, byCol, dockX, new Set(), 0);
+    fan(onBottom, pos.x + DOCK_INSET, pos.x + pos.w - DOCK_INSET, byCol, dockX, new Set(), 0);
+    fan(onLeft, pos.y + DOCK_INSET, pos.y + pos.h - DOCK_INSET, nearEndY, entryY,
+        straight, Math.round(pos.y + pos.h / 2));
+  }
+
   // ── Sequence-flow edges ───────────────────────────────────────────────────
   // Every segment rides a channel allocated above, so no segment can enter a
   // shape it does not connect to and no two segments can share a line.
@@ -888,12 +1045,17 @@ function buildManualLaneDI(ir) {
     // Always leave the right edge and arrive at the left edge: the direction of
     // travel then reads consistently everywhere on the canvas.
     const sx = src.x + src.w;
-    const sy = Math.round(src.y + src.h / 2);
+    const sy = exitY.has(i) ? exitY.get(i) : Math.round(src.y + src.h / 2);
     const tx = tgt.x;
-    const ty = Math.round(tgt.y + tgt.h / 2);
+    const ty = entryY.has(i) ? entryY.get(i) : Math.round(tgt.y + tgt.h / 2);
 
     let pts;
-    if (p.kind === 'straight' || (p.kind === 'elbow' && sy === ty)) {
+    if (p.dock) {
+      // Out along the source's row, then into the target's column. One bend.
+      const dx = dockX.has(i) ? dockX.get(i) : Math.round(tgt.x + tgt.w / 2);
+      const dy = p.dock === 'top' ? tgt.y : tgt.y + tgt.h;
+      pts = [[sx, sy], [dx, sy], [dx, dy]];
+    } else if (p.kind === 'straight' || (p.kind === 'elbow' && sy === ty)) {
       pts = [[sx, sy], [tx, ty]];
     } else if (p.kind === 'elbow') {
       const gx = gutterX(p.g1, p.v1.ch);
