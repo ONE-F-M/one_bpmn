@@ -33,9 +33,18 @@ from __future__ import annotations
 import frappe
 from frappe import _
 
-# The domain agent users live on. A real-looking address would invite somebody to
-# send it an email; this one cannot receive anything and reads as what it is.
-AGENT_EMAIL_DOMAIN = "agents.processa.invalid"
+# The domain agent users live on. It is not a real domain and no mail server
+# answers for it, so an address here cannot receive anything — but it reads as a
+# plain address rather than as an error, which is what people actually see in an
+# activity feed.
+#
+# It used to end in ``.invalid``, which guarantees the same thing more loudly than
+# anyone wanted to read. Agents provisioned under the old domain were left there
+# rather than renamed: an agent's address is stamped on every comment, version and
+# audit row it has ever written, and moving it would mean rewriting all of them.
+# So both domains are in use, and ``ensure_agent_user`` keeps an identity that
+# already exists instead of deriving a new one.
+AGENT_EMAIL_DOMAIN = "agents.processa"
 
 
 def agent_email(agent_configuration: str) -> str:
@@ -57,6 +66,19 @@ def ensure_agent_user(doc) -> str | None:
 	strange way to find out.
 	"""
 	try:
+		# An agent that already has an identity KEEPS it, even where this app would
+		# derive a different address today. Two things would otherwise quietly
+		# split an agent in half on its next save: the domain changed once already
+		# (the earlier one ended in ``.invalid``, and the agents provisioned under
+		# it were deliberately left alone), and the address is derived from the
+		# configuration's name, so renaming one would do the same. In both cases
+		# the agent would get a fresh user, and every comment and version it had
+		# signed would stay behind under an address nothing points at any more.
+		existing = doc.get("agent_user")
+		if existing and frappe.db.exists("User", existing):
+			sync_roles(doc, existing)
+			return existing
+
 		email = agent_email(doc.name)
 		if not frappe.db.exists("User", email):
 			user = frappe.new_doc("User")

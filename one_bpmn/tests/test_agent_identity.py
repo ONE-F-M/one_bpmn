@@ -35,6 +35,17 @@ def _work_item():
 	return doc.name
 
 
+def _somebody_else():
+	"""A person who is not the reporter, made here rather than borrowed from the
+	site, so the test still means something on a site with one user."""
+	email = f"_test_handback_{frappe.generate_hash(length=6)}@example.com"
+	user = frappe.new_doc("User")
+	user.update({"email": email, "first_name": "Handback", "send_welcome_email": 0})
+	user.flags.ignore_permissions = True
+	user.insert(ignore_permissions=True)
+	return email
+
+
 def _agent(*roles):
 	agent = make_agent_configuration()
 	agent.set("agent_roles", [])
@@ -55,6 +66,26 @@ class TestTheAgentHasAnIdentity(FrappeTestCase):
 		agent = _agent()
 		self.assertTrue(agent.agent_user)
 		self.assertTrue(frappe.db.exists("User", agent.agent_user))
+
+	def test_an_agent_that_already_has_an_identity_keeps_it(self):
+		"""The domain changed once, and the agents provisioned under the old one
+		were left there rather than renamed. So deriving the address afresh on
+		every save would hand those agents a second user and strand everything the
+		first one had signed. An identity that exists is the identity."""
+		agent = _agent()
+		inherited = "_test_inherited_identity@somewhere.else"
+		if not frappe.db.exists("User", inherited):
+			user = frappe.new_doc("User")
+			user.update({"email": inherited, "first_name": "Inherited", "send_welcome_email": 0})
+			user.flags.ignore_permissions = True
+			user.insert(ignore_permissions=True)
+		agent.db_set("agent_user", inherited, update_modified=False)
+		agent.reload()
+
+		agent.save(ignore_permissions=True)
+		agent.reload()
+		self.assertEqual(agent.agent_user, inherited)
+		self.assertNotEqual(agent.agent_user, identity.agent_email(agent.name))
 
 	def test_the_user_is_obviously_not_a_person(self):
 		"""A real-looking address would invite somebody to email it."""
@@ -349,10 +380,39 @@ class TestTheWorkItemTools(FrappeTestCase):
 		)
 		self.assertIn("Handed back", comments[0].content)
 
-	def test_handing_back_to_nobody_is_refused(self):
+	def test_naming_nobody_hands_it_to_the_person_who_raised_it(self):
+		"""The agent has no way to discover a person: nothing in its brief names one
+		and it has no tool that lists them. While naming somebody was mandatory, the
+		first work item that genuinely needed a human was reasoned about correctly,
+		described in prose as needing a person, and handed to nobody. So the default
+		is the reporter — they asked for it, so they can say where it goes next."""
 		item = _work_item()
+		frappe.db.set_value("Work Item", item, "reporter_user", "Administrator", update_modified=False)
+		out = self._run("Work Item Tool: Hand Back to a Person", item, {"reason": "needs a decision"})
+		self.assertEqual(frappe.db.get_value("Work Item", item, "assignee_user"), "Administrator")
+		self.assertTrue(out.get("chose_the_reporter"))
+
+	def test_a_named_person_still_wins_over_the_reporter(self):
+		item = _work_item()
+		frappe.db.set_value("Work Item", item, "reporter_user", "Administrator", update_modified=False)
+		other = _somebody_else()
+		out = self._run("Work Item Tool: Hand Back to a Person", item,
+		                {"assignee": other, "reason": "they own this area"})
+		self.assertEqual(frappe.db.get_value("Work Item", item, "assignee_user"), other)
+		self.assertFalse(out.get("chose_the_reporter"))
+
+	def test_handing_back_with_nobody_on_the_item_at_all_is_refused(self):
+		"""Falling back has to stop somewhere. An item naming nobody who exists is
+		refused out loud rather than silently assigned to whoever happens to be
+		running the agent."""
+		item = _work_item()
+		frappe.db.set_value(
+			"Work Item", item,
+			{"reporter_user": None, "process_owner": None, "owner": "ghost@example.com"},
+			update_modified=False,
+		)
 		with self.assertRaises(frappe.ValidationError):
-			self._run("Work Item Tool: Hand Back to a Person", item, {"assignee": ""})
+			self._run("Work Item Tool: Hand Back to a Person", item, {"reason": "x"})
 
 	def test_handing_back_to_someone_who_does_not_exist_is_refused(self):
 		item = _work_item()
