@@ -259,7 +259,15 @@ def _fold_pricing_into_models() -> None:
 			# left DISABLED: it was never a model an agent could pick, and this
 			# patch is not the place to widen what is available.
 			doc = frappe.new_doc("AI Model")
-			doc.update({"model_name": model_name, "enable_model": 0})
+			# Currency set explicitly rather than left to new_doc, which inherits
+			# the SITE's default. Every rate in this system is a USD list price
+			# and Insights renders costs as USD without converting, so inheriting
+			# would label a USD figure as another currency.
+			doc.update({
+				"model_name": model_name,
+				"enable_model": 0,
+				"currency": "USD" if frappe.db.exists("Currency", "USD") else None,
+			})
 			doc.flags.ignore_permissions = True
 			doc.insert(ignore_permissions=True)
 			print(f"AI Model: created '{model_name}' (disabled) so its rate survives")
