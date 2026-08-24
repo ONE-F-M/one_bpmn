@@ -262,6 +262,14 @@ const taskList = computed(() => {
 			nodes.sort((a, b) => (a.timestamp || 0) - (b.timestamp || 0))
 			const flat = []
 			const aiVisitIdx = {} // bpmnId → agent-task visits emitted so far
+			// bpmnId → dedicated-run visits consumed so far, across ALL parent
+			// visits — a tool that now dispatches its own LLM call (WI: Logix
+			// sub-prompt observability) gets its own AI Agent Run rows in
+			// aiCallRunsByBpmnId under its own bpmn_id, in the same start-order
+			// slot scheme as the parent; this counter lines each occurrence of
+			// the call up with the matching visit of ITS OWN run, not the
+			// parent's.
+			const toolVisitIdx = {}
 			for (let i = 0; i < nodes.length; i++) {
 				const n = nodes[i]
 				flat.push(n)
@@ -296,13 +304,24 @@ const taskList = computed(() => {
 						}
 					}
 					calls.forEach((call, ci) => {
+						// Prefer the tool's OWN dedicated run over the parent's —
+						// a plain diagram_task tool call still has none (falls
+						// through to the parent's, unchanged), but a tool that
+						// dispatches its own tracked LLM call has a real run here
+						// whose Steps hold that tool's own sub-prompt, not the
+						// parent's system prompt.
+						const ownRuns = aiCallRunsByBpmnId.value[call.tool_name] || []
+						const ownVisit = toolVisitIdx[call.tool_name] || 0
+						toolVisitIdx[call.tool_name] = ownVisit + 1
+						const ownRun = ownRuns[ownVisit] || {}
+						const ownRunName = ownRun.runName || null
 						flat.push({
 							id: `${n.id}::aicall::${ci}`,
 							bpmnId: null,
 							isAiToolCall: true,
 							parentId: n.id,
 							parentBpmnId: n.bpmnId,
-							aiRunName: slot.runName || null,
+							aiRunName: ownRunName || slot.runName || null,
 							toolBpmnId: call.tool_name,
 							name: taskLabels.value[call.tool_name] || call.tool_name,
 							callStatus: call.status,
@@ -310,6 +329,14 @@ const taskList = computed(() => {
 							resultPreview: call.result_preview,
 							depth: n.depth || 0,
 							stateLabel: call.status === "Error" ? "Error" : "Completed",
+							// The dedicated run's own start time when one exists,
+							// else the parent visit's — a tool call has no
+							// SpiffWorkflow state-change timestamp of its own.
+							timestamp: (ownRun.startedAt || slot.startedAt) ? new Date(ownRun.startedAt || slot.startedAt) : (n.timestamp || null),
+							// Not a workflow-scope task, so there's no accumulated
+							// `data` to reconstruct — show what the call actually
+							// carried instead, so the Variables tab isn't just empty.
+							data: { arguments: call.args_preview || undefined, result: call.result_preview || undefined },
 						})
 					})
 				}
@@ -357,7 +384,17 @@ const taskLabels = computed(() => {
 
 const selectedNode = computed(() => {
 	if (selectedNodeId.value) return taskList.value.find((n) => n.id === selectedNodeId.value) || null
-	if (selectedBpmnId.value) return taskList.value.find((n) => n.bpmnId === selectedBpmnId.value) || null
+	if (selectedBpmnId.value) {
+		const direct = taskList.value.find((n) => n.bpmnId === selectedBpmnId.value)
+		if (direct) return direct
+		// A shape inside an AI Agent Task's ad-hoc Tools sub-process never gets
+		// its own SpiffWorkflow task-state entry (WI-001426) — clicking it on
+		// the canvas still emits its bpmnId like any other element, but the
+		// direct lookup above always misses. Fall back to the synthetic
+		// tool-call row(s) already built for it and show the most recent one.
+		const toolCallRows = taskList.value.filter((n) => n.toolBpmnId === selectedBpmnId.value)
+		return toolCallRows.length ? toolCallRows[toolCallRows.length - 1] : null
+	}
 	return null
 })
 
@@ -444,6 +481,7 @@ async function loadAiToolCalls() {
 			if (!r.bpmn_id) return
 			;(grouped[r.bpmn_id] = grouped[r.bpmn_id] || []).push({
 				runName: r.name,
+				startedAt: r.started_at || null,
 				calls: byRun[r.name] || [],
 			})
 		})

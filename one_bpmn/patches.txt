@@ -96,3 +96,24 @@ one_bpmn.one_bpmn.patches.v1_0.seed_connector_agent_config #19-08-2026 the conne
 one_bpmn.one_bpmn.patches.v1_0.migrate_ba_agent_to_generic_path #19-08-2026 the BA Agent runs on its map; the label it never had IS the start trigger
 one_bpmn.one_bpmn.patches.v1_0.set_connector_handler_app #20-08-2026 handler pull requests need a nominated repository; a Single gets no field default
 one_bpmn.one_bpmn.patches.v1_0.add_required_capability_to_a2a_connector #23-08-2026 WI-002056 a delegate shape may declare the capability it needs; the deadline help was stale
+one_bpmn.one_bpmn.patches.v1_0.track_logix_classify_intent_subprompt #23-08-2026 classify_intent's sub-prompt call now goes through execute_shape, so it gets a tracked AI Agent Run
+one_bpmn.one_bpmn.patches.v1_0.track_logix_clarify_subprompt #23-08-2026 clarify's sub-prompt call now goes through execute_shape, so it gets a tracked AI Agent Run
+one_bpmn.one_bpmn.patches.v1_0.track_logix_write_script_subprompt #23-08-2026 write_script's sub-prompt call now goes through execute_shape, so it gets a tracked AI Agent Run
+one_bpmn.one_bpmn.patches.v1_0.track_logix_review_script_subprompt #23-08-2026 review_script's sub-prompt call now goes through execute_shape, so it gets a tracked AI Agent Run
+one_bpmn.one_bpmn.patches.v1_0.track_logix_write_agent_tool_subprompt #23-08-2026 write_agent_tool's sub-prompt call now goes through execute_shape, so it gets a tracked AI Agent Run
+one_bpmn.one_bpmn.patches.v1_0.track_logix_finalize_subprompt #23-08-2026 finalize's test_writer sub-prompt call now goes through execute_shape, so it gets a tracked AI Agent Run
+one_bpmn.one_bpmn.patches.v1_0.create_logix_stage_agent_configs #23-08-2026 each Logix pipeline stage gets its own AI Agent Configuration, sourced from the Sub Prompts row being retired
+one_bpmn.one_bpmn.patches.v1_0.add_logix_stage_shape_configs #23-08-2026 each pipeline-stage Script Task now points at its own dedicated AI Agent Configuration via aiSubAgentConfig
+one_bpmn.one_bpmn.patches.v1_0.switch_logix_classify_intent_to_dedicated_config #23-08-2026 classify_intent now uses its own dedicated AI Agent Configuration instead of a Sub Prompts row
+one_bpmn.one_bpmn.patches.v1_0.switch_logix_clarify_to_dedicated_config #23-08-2026 clarify now uses its own dedicated AI Agent Configuration instead of a Sub Prompts row
+one_bpmn.one_bpmn.patches.v1_0.switch_logix_write_script_to_dedicated_config #23-08-2026 write_script now uses its own dedicated AI Agent Configuration instead of a Sub Prompts row
+one_bpmn.one_bpmn.patches.v1_0.switch_logix_review_script_to_dedicated_config #23-08-2026 review_script now uses its own dedicated AI Agent Configuration instead of a Sub Prompts row
+one_bpmn.one_bpmn.patches.v1_0.switch_logix_write_agent_tool_to_dedicated_config #23-08-2026 write_agent_tool now uses its own dedicated AI Agent Configuration instead of a Sub Prompts row
+one_bpmn.one_bpmn.patches.v1_0.switch_logix_finalize_to_dedicated_config #23-08-2026 finalize's test_writer call now uses its own dedicated AI Agent Configuration instead of a Sub Prompts row
+one_bpmn.one_bpmn.patches.v1_0.set_logix_stage_config_max_tokens #23-08-2026 max_tokens moves onto each dedicated stage config, where dispatch_ai_agent actually reads it
+one_bpmn.one_bpmn.patches.v1_0.drop_dead_ai_max_tokens_from_logix_scripts #23-08-2026 drop the aiMaxTokens line in each stage script's task_cfg — it never took effect once aiAgentConfig resolves
+one_bpmn.one_bpmn.patches.v1_0.convert_logix_clarify_to_ai_agent_task #23-08-2026 experiment: clarify becomes a real AI Agent Task, relayed via classify_intent/finalize arguments instead of turn state
+one_bpmn.one_bpmn.patches.v1_0.convert_logix_remaining_tools_to_ai_agent_tasks #24-08-2026 classify_intent/write_script/write_agent_tool become real AI Agent Tasks reading turn state directly; review_script/finalize's internal LLM calls fixed to use the safe kwargs-substitution pattern
+one_bpmn.one_bpmn.patches.v1_0.remove_logix_sub_prompt_rows #24-08-2026 Logix's Sub Prompts rows are dead now that every stage has its own dedicated AI Agent Configuration; table/field stays for Docu/ProsAlly
+one_bpmn.one_bpmn.patches.v1_0.wire_review_finalize_config_override #24-08-2026 review_script/finalize's internal LLM calls now prefer a diagram-set spiffworkflow:aiAgentConfig override on the shape, falling back to the prior hardcoded config name when unset
+one_bpmn.one_bpmn.patches.v1_0.teach_logix_internal_ai_call_pattern #24-08-2026 teaches Logix's script_task/agent_tool writer prompts the execute_shape(instance, bpmn_id, ...) pattern for making their own tracked AI Agent Run, now that engine.py injects instance/bpmn_id for plain top-level Script Tasks too (not just ad-hoc-subprocess tool leaves)

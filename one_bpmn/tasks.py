@@ -229,6 +229,7 @@ def _refresh_timer_tasks(instance_name: str):
 		context_docname=instance.context_docname,
 		script_task_extensions=spec_data.get("script_task_extensions"),
 		initiated_by=instance.initiated_by or "Administrator",
+		instance=instance,
 	)
 
 	waiting_before = len(wf.get_tasks(state=TaskState.WAITING))

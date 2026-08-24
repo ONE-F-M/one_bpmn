@@ -130,7 +130,7 @@ _SKILL_FIELDS = ("skill", "version_pin")
 
 def _clean_skill_rows(rows: list[dict]) -> list[dict]:
 	out = []
-	for r in rows:
+	for r in rows or []:
 		skill = (r.get("skill") or "").strip()
 		if skill:
 			out.append({"skill": skill, "version_pin": (r.get("version_pin") or "").strip()})

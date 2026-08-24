@@ -1,9 +1,9 @@
 import { useService } from "bpmn-js-properties-panel";
 import { getBusinessObject } from "bpmn-js/lib/util/ModelUtil";
-import { h } from "preact";
+import { h, Component } from "preact";
 import { HeaderButton } from "@bpmn-io/properties-panel";
 import { FrappeAutocomplete } from "../shared/FrappeAutocomplete";
-import { frappeGet } from "../shared/frappeResource";
+import { frappeGet, frappePost } from "../shared/frappeResource";
 
 function getAttr(bo, attr) {
 	return bo.get(`spiffworkflow:${attr}`) || "";
@@ -14,6 +14,7 @@ export function ScriptTaskProps(props) {
 	return [
 		{ id: "spiffworkflow-serverScript", element, component: ServerScriptComponent },
 		{ id: "spiffworkflow-launchEditor", element, component: LaunchEditorButton },
+		{ id: "spiffworkflow-aiAgentConfig", element, component: AiAgentConfigOverrideComponent },
 	];
 }
 
@@ -62,6 +63,224 @@ function ServerScriptComponent(props) {
 				renderOption: (opt) => opt.name,
 				onChange: handleSelect,
 			}),
+		])
+	);
+}
+
+// Optional: a Script Task whose own script makes an internal LLM call (e.g.
+// review_script's security-gated reviewer, finalize's test writer) can read
+// which AI Agent Configuration to use from this attribute instead of a
+// literal baked into the script. Unrelated to the engine's Server Script
+// dispatch above — purely a value the script's own code chooses to read via
+// the `ai_agent_config` local (see agents/shape_tools.py); irrelevant to
+// Script Tasks that don't call execute_shape internally.
+function fetchAgentConfigs(txt) {
+	return frappeGet("/api/resource/AI Agent Configuration", {
+		fields: '["name","agent_id"]',
+		filters: JSON.stringify([
+			["enabled", "=", 1],
+			...(txt ? [["name", "like", `%${txt}%`]] : []),
+		]),
+		limit_page_length: 50,
+		order_by: "name asc",
+	});
+}
+
+function fetchProviderCredentials(txt) {
+	return frappeGet("/api/resource/AI Provider Credentials", {
+		fields: '["name"]',
+		filters: JSON.stringify([
+			["enabled", "=", 1],
+			...(txt ? [["name", "like", `%${txt}%`]] : []),
+		]),
+		limit_page_length: 50,
+		order_by: "name asc",
+	});
+}
+
+function fetchAiModels(txt) {
+	return frappeGet("/api/resource/AI Model", {
+		fields: '["name"]',
+		filters: JSON.stringify(txt ? [["name", "like", `%${txt}%`]] : []),
+		limit_page_length: 50,
+		order_by: "name asc",
+	});
+}
+
+// Class component, NOT a function component with hooks: this properties panel
+// is a separate bundled Preact instance (see vite.config.js's preact/hooks
+// dedupe note) and a function component's `useState` reliably crashes with
+// "Cannot read properties of undefined (reading '__H')" here — the same
+// failure mode that alias exists for, just not fully closed for hooks called
+// from app code. Every other stateful entry in this codebase (FrappeAutocomplete,
+// SendTaskProps, UserTaskProps) uses `extends Component` for exactly this reason.
+class CreateAgentConfigForm extends Component {
+	constructor(props) {
+		super(props);
+		this.state = {
+			open: false,
+			saving: false,
+			error: "",
+			agent_name: "",
+			system_prompt: "",
+			ai_provider_credentials: "",
+			ai_model: "",
+		};
+	}
+
+	// Reuses the same platform-wide create endpoint the real AI Agent Task's
+	// "Launch Logix" modal calls (agent_config_resolver.create_agent_configuration)
+	// rather than a bespoke insert here — same permission checks, same duplicate
+	// guard, same auto-promotion to Live for a Background config. Only the
+	// fields this narrow use case needs are collected; the modal's chat/tools/
+	// memory/screening surface would be pure noise for a script's own internal
+	// LLM call.
+	submitCreate() {
+		const name = (this.state.agent_name || "").trim();
+		if (!name) {
+			this.setState({ error: this.props.translate("Name is required.") });
+			return;
+		}
+		this.setState({ saving: true, error: "" });
+		frappePost("/api/method/one_bpmn.agents.agent_config_resolver.create_agent_configuration", {
+			payload: JSON.stringify({
+				agent_name: name,
+				agent_type: "Background",
+				agent_framework: "Direct API",
+				system_prompt: this.state.system_prompt,
+				ai_provider_credentials: this.state.ai_provider_credentials || undefined,
+				ai_model: this.state.ai_model || undefined,
+			}),
+		})
+			.then((res) => {
+				const createdName = (res && res.name) || (res && res.message && res.message.name);
+				if (!createdName) throw new Error("No name returned");
+				this.props.onCreated(createdName);
+				this.setState({
+					open: false,
+					saving: false,
+					agent_name: "",
+					system_prompt: "",
+					ai_provider_credentials: "",
+					ai_model: "",
+				});
+			})
+			.catch((err) => {
+				this.setState({
+					saving: false,
+					error: (err && err.message) || this.props.translate("Could not create the configuration."),
+				});
+			});
+	}
+
+	render() {
+		const { translate } = this.props;
+		const { open, saving, error, agent_name, system_prompt, ai_provider_credentials, ai_model } = this.state;
+
+		if (!open) {
+			return h(
+				"button",
+				{ type: "button", class: "bpmn-add-row-btn", onClick: () => this.setState({ open: true }) },
+				`+ ${translate("Create new configuration")}`
+			);
+		}
+
+		return h("div", { class: "bpmn-config-area" }, [
+			h("input", {
+				type: "text",
+				class: "bio-properties-panel-input",
+				placeholder: translate('Name (e.g. "Ticket Summariser")'),
+				value: agent_name,
+				onInput: (e) => this.setState({ agent_name: e.target.value }),
+			}),
+			h("textarea", {
+				class: "bpmn-frappe-textarea",
+				rows: 3,
+				placeholder: translate("System prompt (optional)"),
+				value: system_prompt,
+				onInput: (e) => this.setState({ system_prompt: e.target.value }),
+			}),
+			h(FrappeAutocomplete, {
+				label: translate("AI Provider Credentials"),
+				value: ai_provider_credentials,
+				placeholder: translate("Optional…"),
+				fetchApi: fetchProviderCredentials,
+				valueField: "name",
+				renderOption: (opt) => opt.name,
+				onChange: (v) => this.setState({ ai_provider_credentials: v }),
+			}),
+			h(FrappeAutocomplete, {
+				label: translate("AI Model"),
+				value: ai_model,
+				placeholder: translate("Optional…"),
+				fetchApi: fetchAiModels,
+				valueField: "name",
+				renderOption: (opt) => opt.name,
+				onChange: (v) => this.setState({ ai_model: v }),
+			}),
+			error && h("div", { class: "bpmn-frappe-hint", style: "color:#c0392b" }, error),
+			h("div", { style: "display:flex; gap:8px; margin-top:4px;" }, [
+				h(
+					"button",
+					{
+						type: "button",
+						class: "bpmn-add-row-btn",
+						disabled: saving,
+						onClick: () => this.submitCreate(),
+					},
+					saving ? translate("Creating…") : translate("Create")
+				),
+				h(
+					"button",
+					{
+						type: "button",
+						class: "bpmn-add-row-btn",
+						onClick: () => this.setState({ open: false, error: "" }),
+					},
+					translate("Cancel")
+				),
+			]),
+		]);
+	}
+}
+
+function AiAgentConfigOverrideComponent(props) {
+	const { element, id } = props;
+	const modeling  = useService("modeling");
+	const translate = useService("translate");
+	const bo        = getBusinessObject(element);
+
+	const currentValue = getAttr(bo, "aiAgentConfig");
+
+	const handleSelect = (value) => {
+		modeling.updateModdleProperties(element, bo, {
+			"spiffworkflow:aiAgentConfig": value || undefined,
+		});
+	};
+
+	return h(
+		"div",
+		{ class: "bio-properties-panel-entry", "data-entry-id": id },
+		h("div", { class: "bio-properties-panel-textfield" }, [
+			h(
+				"label",
+				{
+					class: "bio-properties-panel-label",
+					title: translate(
+						"Optional. If this script makes its own internal LLM call, it names which AI Agent Configuration to use here (falls back to a default baked into the script when unset)."
+					),
+				},
+				translate("Internal AI Agent Configuration")
+			),
+			h(FrappeAutocomplete, {
+				value: currentValue,
+				placeholder: translate("Uses the script's default…"),
+				fetchApi: fetchAgentConfigs,
+				valueField: "name",
+				renderOption: (opt) => opt.name,
+				onChange: handleSelect,
+			}),
+			h(CreateAgentConfigForm, { translate, onCreated: handleSelect }),
 		])
 	);
 }

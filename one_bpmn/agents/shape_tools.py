@@ -135,9 +135,17 @@ def _make_shape_fn(instance, bpmn_id: str, task_cfg: dict):
 	return fn
 
 
-def execute_shape(instance, bpmn_id: str, task_cfg: dict, kwargs: dict) -> str:
+def execute_shape(instance, bpmn_id: str, task_cfg: dict | None, kwargs: dict) -> str:
 	"""
 	Execute a single shape as a function tool and return a JSON string result.
+
+	``task_cfg=None`` means "look up the real shape's own compiled config" —
+	for a Script Task (review_script, finalize) calling a REAL nested AI Agent
+	Task shape it doesn't otherwise reference, rather than an outer agent's own
+	tool-calling loop, which always has the shape's descriptor in hand already
+	(from aiToolShapes) and passes it explicitly. An empty dict ``{}`` is a
+	real (if empty) override, not a signal to look anything up — only ``None``
+	triggers the lookup.
 
 	The result is the set of variables the shape produced — for a Script Task
 	that is its ``result`` dict; for a Service Task it is whatever the dispatch
@@ -149,17 +157,22 @@ def execute_shape(instance, bpmn_id: str, task_cfg: dict, kwargs: dict) -> str:
 	so the tool-calling loop stays alive.
 	"""
 	try:
+		if task_cfg is None:
+			task_cfg = (getattr(instance, "_service_task_extensions", {}) or {}).get(bpmn_id, {})
 		task = _synthetic_task(bpmn_id, kwargs)
 		server_script = task_cfg.get("serverScript", "")
 		service_type = task_cfg.get("serviceType", "")
 
 		if server_script:
-			_run_server_script(instance, server_script, task, bpmn_id)
+			_run_server_script(instance, server_script, task, bpmn_id, task_cfg)
 		elif service_type:
-			# Reuse the instance's own router — it reads
-			# instance._service_task_extensions and dispatches by serviceType,
-			# writing outputs onto task.data exactly as in a normal run.
-			instance._dispatch_service_task(task)
+			# Reuse the instance's own router — task_cfg here is this shape's
+			# own compiled descriptor (embedded in the calling agent's
+			# aiToolShapes at compile time), passed through as the override so
+			# the router uses it directly instead of re-deriving it from
+			# bpmn_id (which would only find a TOP-LEVEL shape's config, not a
+			# nested tool's).
+			instance._dispatch_service_task(task, task_cfg)
 		else:
 			return json.dumps(
 				{"error": f"Shape '{bpmn_id}' has no Server Script or serviceType — not executable as a tool."}
@@ -175,6 +188,25 @@ def execute_shape(instance, bpmn_id: str, task_cfg: dict, kwargs: dict) -> str:
 
 		# The tool result is what the shape produced, not the args we injected.
 		produced = {k: v for k, v in task.data.items() if k not in kwargs}
+
+		# A real (non-Script-Task) AI Agent Task tool has no wrapper script to
+		# hand its result to the next stage tool — nothing calls update_turn
+		# for it. Persist it generically so a downstream tool's own aiUserPrompt
+		# can read it back via the get_turn Jinja global (hooks.py), the same
+		# way stage tools have always passed data to each other. Redis-backed
+		# and namespaced by bpmn_id, so this is a no-op key for any instance
+		# that isn't part of a chat turn — never an error either way.
+		if service_type == "ai_agent" and getattr(instance, "context_docname", None):
+			try:
+				from one_bpmn.agents.turn_state import update_turn
+
+				update_turn(instance.context_docname, **{f"{bpmn_id}_result": produced})
+			except Exception:
+				frappe.log_error(
+					title=f"AI Agent shape tool '{bpmn_id}' turn-state persist failed",
+					message=frappe.get_traceback(),
+				)
+
 		return json.dumps(produced or {"ok": True}, default=str)
 	except ToolDeferred:
 		raise
@@ -209,7 +241,7 @@ def _synthetic_task(bpmn_id: str, kwargs: dict):
 	)
 
 
-def _run_server_script(instance, script_name: str, task, bpmn_id: str) -> None:
+def _run_server_script(instance, script_name: str, task, bpmn_id: str, task_cfg: dict | None = None) -> None:
 	"""
 	Run a Script Task's Server Script the way the engine's FrappeScriptEngine
 	does (trusted, pre-deployed code; ``result`` dict merged into task.data),
@@ -232,6 +264,19 @@ def _run_server_script(instance, script_name: str, task, bpmn_id: str) -> None:
 			"context_doctype": getattr(instance, "context_doctype", "") or "",
 			"context_docname": getattr(instance, "context_docname", "") or "",
 			"result": result_dict,
+			# The instance controller itself — a Script Task whose job includes
+			# deterministic logic that can't move to a declarative shape
+			# (review_script's security gate, finalize's branching) still needs
+			# to route its OWN internal LLM call through execute_shape to get a
+			# tracked AI Agent Run — and execute_shape takes instance as its
+			# first argument.
+			"instance": instance,
+			# Diagram-set override for a script that makes its OWN internal LLM
+			# call (review_script, finalize) — spiffworkflow:aiAgentConfig on
+			# THIS shape, set via the properties panel. Empty string when unset,
+			# so the script's `ai_agent_config or "<hardcoded default>"` pattern
+			# keeps working unchanged for diagrams that never set it.
+			"ai_agent_config": (task_cfg or {}).get("aiAgentConfig", ""),
 			# Same convention as the engine's FrappeScriptEngine: scripts may
 			# read their inputs bundled under `task_data` (the LLM-supplied
 			# arguments, here) instead of as bare locals.

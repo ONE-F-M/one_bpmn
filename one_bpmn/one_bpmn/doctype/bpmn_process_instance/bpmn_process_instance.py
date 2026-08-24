@@ -135,6 +135,7 @@ class BPMNProcessInstance(Document):
 			context_docname=self.context_docname,
 			script_task_extensions=self._script_task_extensions,
 			initiated_by=self.initiated_by or frappe.session.user,
+			instance=self,
 		)
 
 		frappe.flags.bpmn_engine_action = True
@@ -207,6 +208,12 @@ class BPMNProcessInstance(Document):
 		_script_exts = _spec_snap.get("script_task_extensions", {})
 		self._service_task_extensions = _spec_snap.get("service_task_extensions", {})
 		self._user_task_extensions = _spec_snap.get("user_task_extensions", {})
+		# Fed to the script ENGINE below via script_task_extensions=_script_exts,
+		# but a Script Task tool dispatched through shape_tools.execute_shape
+		# reads it off the INSTANCE controller instead (e.g. aiSubAgentConfig) —
+		# without this, that lookup silently sees {} on every restored request,
+		# only ever working right after start() and never again.
+		self._script_task_extensions = _script_exts
 		self._refresh_user_task_extensions_from_model()
 
 		wf = bpmn_engine.restore_workflow(
@@ -215,6 +222,7 @@ class BPMNProcessInstance(Document):
 			context_docname=self.context_docname,
 			script_task_extensions=_script_exts,
 			initiated_by=self.initiated_by or "Administrator",
+			instance=self,
 		)
 
 		# Always refresh the context doc so conditional events see latest data
@@ -477,6 +485,12 @@ class BPMNProcessInstance(Document):
 		_script_exts = _spec_snap.get("script_task_extensions", {})
 		self._service_task_extensions = _spec_snap.get("service_task_extensions", {})
 		self._user_task_extensions = _spec_snap.get("user_task_extensions", {})
+		# Fed to the script ENGINE below via script_task_extensions=_script_exts,
+		# but a Script Task tool dispatched through shape_tools.execute_shape
+		# reads it off the INSTANCE controller instead (e.g. aiSubAgentConfig) —
+		# without this, that lookup silently sees {} on every restored request,
+		# only ever working right after start() and never again.
+		self._script_task_extensions = _script_exts
 		self._refresh_user_task_extensions_from_model()
 
 		wf = bpmn_engine.restore_workflow(
@@ -485,6 +499,7 @@ class BPMNProcessInstance(Document):
 			context_docname=self.context_docname,
 			script_task_extensions=_script_exts,
 			initiated_by=self.initiated_by or "Administrator",
+			instance=self,
 		)
 
 		# Refresh context doc so downstream conditions see latest data
@@ -573,6 +588,12 @@ class BPMNProcessInstance(Document):
 		_script_exts = _spec_snap.get("script_task_extensions", {})
 		self._service_task_extensions = _spec_snap.get("service_task_extensions", {})
 		self._user_task_extensions = _spec_snap.get("user_task_extensions", {})
+		# Fed to the script ENGINE below via script_task_extensions=_script_exts,
+		# but a Script Task tool dispatched through shape_tools.execute_shape
+		# reads it off the INSTANCE controller instead (e.g. aiSubAgentConfig) —
+		# without this, that lookup silently sees {} on every restored request,
+		# only ever working right after start() and never again.
+		self._script_task_extensions = _script_exts
 		self._refresh_user_task_extensions_from_model()
 
 		wf = bpmn_engine.restore_workflow(
@@ -581,6 +602,7 @@ class BPMNProcessInstance(Document):
 			context_docname=self.context_docname,
 			script_task_extensions=_script_exts,
 			initiated_by=self.initiated_by or "Administrator",
+			instance=self,
 		)
 
 		if self.context_doctype and self.context_docname:
@@ -1653,7 +1675,7 @@ class BPMNProcessInstance(Document):
 			data=dict(task.data),
 		)
 
-	def _dispatch_service_task(self, task):
+	def _dispatch_service_task(self, task, task_cfg_override: dict | None = None):
 		"""
 		Execute the real-world action for a STARTED ServiceTask before
 		marking it complete.
@@ -1661,6 +1683,14 @@ class BPMNProcessInstance(Document):
 		Reads the ``service_task_extensions`` dict that was embedded into the
 		serialized spec at compile time and dispatches to the appropriate
 		handler based on ``serviceType``.
+
+		``task_cfg_override``: used only by ``shape_tools.execute_shape`` for an
+		ad-hoc "AI agent call" that has no corresponding real Service Task shape
+		in the diagram — e.g. a Script Task tool routing its own inline LLM call
+		through the tracked ``dispatch_ai_agent`` path (WI: Logix sub-prompt
+		observability) instead of hand-rolling one. Every normal engine call
+		site passes only ``task``, so ``bpmn_id`` lookup into the compiled
+		extensions dict stays the sole source of config there, unchanged.
 
 		Returns:
 		    True  — task was handled; caller should mark it complete.
@@ -1671,9 +1701,12 @@ class BPMNProcessInstance(Document):
 		    apply_workflow — Apply a Frappe Workflow state transition to the
 		                     context document, with full permission checking.
 		"""
-		extensions = getattr(self, "_service_task_extensions", {})
 		bpmn_id = getattr(task.task_spec, "bpmn_id", None) or ""
-		task_cfg = extensions.get(bpmn_id, {})
+		if task_cfg_override is not None:
+			task_cfg = task_cfg_override
+		else:
+			extensions = getattr(self, "_service_task_extensions", {})
+			task_cfg = extensions.get(bpmn_id, {})
 
 		service_type = task_cfg.get("serviceType", "")
 

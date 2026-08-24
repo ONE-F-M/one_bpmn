@@ -1275,8 +1275,29 @@ def _extract_tool_shapes(adhoc_el, bpmn_ns: str, spiff_ns: str) -> list:
 			shape["label"] = (child.get("name") or "").strip()
 		if server_script:
 			shape["serverScript"] = server_script
+			# Optional escape hatch: a Script Task tool whose own body makes an
+			# internal LLM call (review_script's security-gated reviewer,
+			# finalize's test writer) can read which AI Agent Configuration to
+			# use from the diagram instead of a literal in the script — set via
+			# the same spiffworkflow:aiAgentConfig attribute a real ai_agent
+			# shape uses, just scoped here to informing the script, not
+			# dispatching anything itself.
+			ai_agent_config = child.get(f"{{{spiff_ns}}}aiAgentConfig", "")
+			if ai_agent_config:
+				shape["aiAgentConfig"] = ai_agent_config
 		if service_type:
-			shape["serviceType"] = service_type
+			# A serviceType tool (e.g. a nested AI Agent Task) needs its full
+			# config to actually dispatch, not just the type string — copy
+			# every spiffworkflow:* attribute generically, the same way
+			# _extract_service_task_config does for a top-level Service Task.
+			# aiToolParams is handled separately below (-> parameters/required).
+			for attr_name, attr_value in child.attrib.items():
+				if not attr_name.startswith(f"{{{spiff_ns}}}"):
+					continue
+				key = attr_name[len(f"{{{spiff_ns}}}") :]
+				if key == "aiToolParams":
+					continue
+				shape[key] = attr_value
 		tool_params_raw = child.get(f"{{{spiff_ns}}}aiToolParams", "")
 		if tool_params_raw:
 			try:
