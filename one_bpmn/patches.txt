@@ -96,5 +96,3 @@ one_bpmn.one_bpmn.patches.v1_0.seed_connector_agent_config #19-08-2026 the conne
 one_bpmn.one_bpmn.patches.v1_0.migrate_ba_agent_to_generic_path #19-08-2026 the BA Agent runs on its map; the label it never had IS the start trigger
 one_bpmn.one_bpmn.patches.v1_0.set_connector_handler_app #20-08-2026 handler pull requests need a nominated repository; a Single gets no field default
 one_bpmn.one_bpmn.patches.v1_0.add_required_capability_to_a2a_connector #23-08-2026 WI-002056 a delegate shape may declare the capability it needs; the deadline help was stale
-one_bpmn.one_bpmn.patches.v1_0.create_logix_stage_agent_configs #23-08-2026 each Logix pipeline stage gets its own AI Agent Configuration, sourced from the Sub Prompts row being retired — required on every site before importing the Logix diagram/scripts (referenced by name from real ai_agent shapes)
-one_bpmn.one_bpmn.patches.v1_0.set_logix_stage_config_max_tokens #23-08-2026 max_tokens moves onto each dedicated stage config, where dispatch_ai_agent actually reads it
