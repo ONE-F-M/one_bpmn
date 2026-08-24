@@ -60,6 +60,9 @@
   "memory_distill_model",
   "column_break_memory_models",
   "memory_reconcile_model",
+  "identity_section",
+  "agent_user",
+  "agent_roles",
   "security_section",
   "pii_screening",
   "output_screening_mode",
@@ -163,7 +166,8 @@
    "fieldname": "process_owner",
    "fieldtype": "Link",
    "label": "Process Owner",
-   "options": "User"
+   "options": "User",
+   "ignore_user_permissions": 1
   },
   {
    "fieldname": "llm_settings_section",
@@ -379,6 +383,28 @@
    "fieldtype": "Table",
    "label": "Allowed Roles",
    "options": "AI Agent Allowed Role"
+  },
+  {
+   "fieldname": "identity_section",
+   "fieldtype": "Section Break",
+   "label": "Identity & Permissions",
+   "description": "Who this agent acts as when its tools change something, and what it is allowed to change. Always shown, whatever kind of agent this is \u2014 a Background agent is the one most likely to need a role, and these fields used to be hidden on exactly those."
+  },
+  {
+   "fieldname": "agent_user",
+   "fieldtype": "Link",
+   "label": "Agent User",
+   "options": "User",
+   "read_only": 1,
+   "ignore_user_permissions": 1,
+   "description": "The identity this agent acts as. Created automatically and never logged into by a person: what an agent changed is attributable to the agent, and its write access is granted and revoked here rather than in code. Distinct from Allowed Roles, which says who may INVOKE the agent."
+  },
+  {
+   "fieldname": "agent_roles",
+   "fieldtype": "Table",
+   "label": "Roles the Agent Holds",
+   "options": "AI Agent Allowed Role",
+   "description": "What this agent may do when its tools write. Its user holds exactly these roles \u2014 adding one grants a permission, removing one revokes it, with no deployment. Leave empty and the agent can read what everyone can read and change nothing."
   },
   {
    "description": "Controls applied to this agent's traffic before it reaches a model provider.",

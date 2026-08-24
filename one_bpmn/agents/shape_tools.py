@@ -186,7 +186,7 @@ def execute_shape(instance, bpmn_id: str, task_cfg: dict, kwargs: dict) -> str:
 		service_type = task_cfg.get("serviceType", "")
 
 		if server_script:
-			_run_server_script(instance, server_script, task, bpmn_id)
+			_run_server_script(instance, server_script, task, bpmn_id, shape_config=task_cfg)
 		elif service_type:
 			# Reuse the instance's own router — it reads
 			# instance._service_task_extensions and dispatches by serviceType,
@@ -210,6 +210,18 @@ def execute_shape(instance, bpmn_id: str, task_cfg: dict, kwargs: dict) -> str:
 		return json.dumps(produced or {"ok": True}, default=str)
 	except ToolDeferred:
 		raise
+	except frappe.PermissionError as refused:
+		# Refusals carry their reason to the model. "See Error Log for details" is
+		# useless to an agent — it cannot read the Error Log, so it invents an
+		# explanation, and the explanation it invents is usually that the work is
+		# done or that retrying will help.
+		return json.dumps({"error": str(refused), "retryable": False})
+	except frappe.ValidationError as invalid:
+		# Same reasoning for a rule the document itself enforced. A Work Item save
+		# can fail for reasons nothing to do with what the tool changed — no
+		# sprint, a completed sprint, an Epic — and the agent has to be able to
+		# say which rule stopped it instead of reporting the change as made.
+		return json.dumps({"error": str(invalid), "retryable": False})
 	except Exception:
 		frappe.log_error(
 			title=f"AI Agent shape tool '{bpmn_id}' failed",
@@ -241,7 +253,7 @@ def _synthetic_task(bpmn_id: str, kwargs: dict):
 	)
 
 
-def _run_server_script(instance, script_name: str, task, bpmn_id: str) -> None:
+def _run_server_script(instance, script_name: str, task, bpmn_id: str, shape_config: dict | None = None) -> None:
 	"""
 	Run a Script Task's Server Script the way the engine's FrappeScriptEngine
 	does (trusted, pre-deployed code; ``result`` dict merged into task.data),
@@ -273,6 +285,10 @@ def _run_server_script(instance, script_name: str, task, bpmn_id: str) -> None:
 			# Script and dispatch on this instead of duplicating a body per tool
 			# (Lumina General Chat fans 32 MCP tools out of a single script).
 			"bpmn_id": bpmn_id,
+			# What the SHAPE declares, as distinct from what the model passed.
+			# A tool whose limits came from its arguments would be a tool with no
+			# limits — the model would simply widen them.
+			"shape_config": dict(shape_config or {}),
 		}
 	)
 	if getattr(instance, "context_doctype", None) and getattr(instance, "context_docname", None):
@@ -286,7 +302,50 @@ def _run_server_script(instance, script_name: str, task, bpmn_id: str) -> None:
 	# Trusted, pre-deployed BPMN code — plain exec (mirrors engine.py), not
 	# safe_exec (which is for untrusted browser-submitted scripts).
 	exec_globals = {"frappe": frappe, "__builtins__": __builtins__}  # noqa: S102
-	exec(script_doc.script, exec_globals, local_vars)  # noqa: S102
+
+	# ── WI-002054: run as the AGENT, with permissions on ──────────────────
+	#
+	# This used to exec as whatever user the worker session happened to be, with
+	# whatever ignore_permissions was already set to. So every write a tool made
+	# was recorded against a person who had not made it, and was allowed or
+	# refused by that person's roles rather than by anything decided about the
+	# agent. The engine's own script path has switched user since WI-001495; this
+	# path never did.
+	#
+	# The session dance is the same hazard engine.py guards against: set_user
+	# rewrites session.sid and WIPES session.data, which guts a browser session
+	# when a tool runs inline inside a web request. So the sid and data are put
+	# back in the finally, and the switch is skipped entirely when we are already
+	# the right user.
+	from one_bpmn.agents import identity
+
+	agent = getattr(instance, "_a2a_delegating_agent", None)
+	agent_user = identity.user_for(agent)
+	original_user = frappe.session.user
+	saved_sid = frappe.session.sid
+	saved_data = frappe.session.data
+	saved_ignore = frappe.flags.ignore_permissions
+	need_switch = bool(agent_user) and agent_user != original_user
+	try:
+		if need_switch:
+			frappe.set_user(agent_user)
+		# Only claimed when there IS an identity to claim it for. An agent with no
+		# user provisioned keeps the behaviour it had rather than being handed
+		# somebody else's permissions and told they are its own.
+		if agent_user:
+			frappe.flags.ignore_permissions = False
+		exec(script_doc.script, exec_globals, local_vars)  # noqa: S102
+	except frappe.PermissionError as refused:
+		# The reason has to reach the MODEL. WI-002053 showed twice what happens
+		# when it does not: the agent reports the work as done, or blames
+		# something transient and offers to retry a permission it will never have.
+		raise frappe.PermissionError(identity.describe_refusal(agent, refused)) from refused
+	finally:
+		if need_switch:
+			frappe.set_user(original_user)
+			frappe.session.sid = saved_sid
+			frappe.session.data = saved_data
+		frappe.flags.ignore_permissions = saved_ignore
 
 	if isinstance(result_dict, dict) and result_dict:
 		task.data.update(result_dict)

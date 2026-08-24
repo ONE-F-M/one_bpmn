@@ -303,6 +303,21 @@ class AIAgentConfiguration(Document):
 				pass
 		self.revalidate_credentials_on_save()
 
+		# WI-002054: the agent's identity follows its configuration. Here rather
+		# than in validate() because the user is a separate document, and creating
+		# one while this record is still being validated would leave an orphan
+		# behind if the save then failed. Idempotent: a save that changes nothing
+		# about the roles does nothing.
+		#
+		# Added to THIS on_update rather than a second one — the class already had
+		# one further down the file, so a new definition higher up was silently
+		# shadowed and never ran at all.
+		from one_bpmn.agents import identity
+
+		_agent_user = identity.ensure_agent_user(self)
+		if _agent_user and self.get("agent_user") != _agent_user:
+			self.db_set("agent_user", _agent_user, update_modified=False)
+
 	def revalidate_credentials_on_save(self):
 		"""Re-prove the agent on EVERY save — assume nothing (user ruling,
 		2026-07-21): credentials that validated at creation may since have

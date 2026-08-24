@@ -330,6 +330,60 @@ class FrappeScriptEngine(PythonScriptEngine):
 				_frappe.session.data = saved_data
 			_frappe.flags.ignore_permissions = False
 
+	def _agent_for_script(self, script_name: str) -> str:
+		"""The agent whose map runs this Server Script, or "" for an ordinary process.
+
+		Keyed on the SCRIPT, not on the shape and not on the workflow, because only
+		the script is unique. Two routes were tried and both were wrong:
+
+		- ``task.workflow.spec.name`` hands back the TOP-LEVEL process even for a
+		  task inside a called map, so a script in the orchestrator's own map
+		  reported "Software Development" and resolved to no agent.
+		- the shape's bpmn_id is not unique either — "answer" is declared by three
+		  different agent maps on this site, so a shape id would have attributed
+		  the orchestrator's report to a test agent.
+
+		A Server Script belongs to one map. Cached briefly because this runs once
+		per script task and the answer rarely changes.
+		"""
+		if not script_name:
+			return ""
+		# Imported here, like everywhere else in this module: frappe and json are
+		# function-local throughout, and using them at method scope without the
+		# import raised a NameError that the except below swallowed into "no
+		# agent" — which looked exactly like an ordinary process.
+		import json as _json
+
+		import frappe as _frappe
+
+		try:
+			owners = _frappe.cache.get_value("bpmn_script_owning_agent")
+			if owners is None:
+				owners = {}
+				for row in _frappe.get_all(
+					"AI Agent Configuration",
+					filters={"process_model": ["is", "set"]},
+					fields=["name", "process_model"],
+				):
+					spec = _frappe.db.get_value(
+						"BPMN Process Model", row.process_model, "serialized_spec"
+					)
+					if not spec:
+						continue
+					try:
+						parsed = _json.loads(spec)
+					except Exception:
+						continue
+					for cfg in (parsed.get("script_task_extensions") or {}).values():
+						named = (cfg or {}).get("serverScript")
+						if named:
+							owners.setdefault(named, row.name)
+				_frappe.cache.set_value("bpmn_script_owning_agent", owners, expires_in_sec=300)
+			return owners.get(script_name, "")
+		except Exception:
+			# Attribution is worth having and not worth failing a task for.
+			return ""
+
 	def _run_frappe_server_script(self, script_name: str, task) -> None:
 		"""
 		Execute a Frappe Server Script (API type) with workflow context.
@@ -385,6 +439,17 @@ class FrappeScriptEngine(PythonScriptEngine):
 			{
 				"frappe": _frappe,
 				"task_data": task_data,
+				# WI-002054: which agent this script belongs to, if any.
+				#
+				# A script task inside an agent's own map IS the agent acting, and
+				# its writes should say so. The tool path already runs as the
+				# agent; this path still runs as the person who started the run,
+				# which is right for a process's own script tasks and wrong for an
+				# agent's. Changing who the whole path runs as would alter
+				# attribution AND permissions for every agent map at once, so the
+				# name is injected instead and a script that cares — one that
+				# writes a comment a person will read — opts in.
+				"agent_configuration": self._agent_for_script(script_name),
 				"context_doctype": self._context_doctype or "",
 				"context_docname": self._context_docname or "",
 				"result": result_dict,

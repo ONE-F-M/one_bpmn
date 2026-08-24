@@ -364,6 +364,35 @@
               <button type="button" class="btn-cancel" @click="addSkill">+ Add skill</button>
             </div>
 
+            <!-- What the agent is PERMITTED to do. An agent acts as its own user
+                 and is allowed or refused by the roles that user holds, so this
+                 list is the whole answer to "may this agent do that" — add one to
+                 grant, remove one to revoke, nothing to deploy either way. -->
+            <div class="field-row">
+              <label>Permissions <span class="hint">(roles the agent holds)</span></label>
+              <span class="field-hint">
+                The agent acts as its own user, <strong>{{ agentUserLabel }}</strong>, and every
+                write it makes is allowed or refused by these roles. An empty list means it can
+                read and change nothing. Removing a role revokes it immediately — the next thing
+                the agent tries is refused, and it is told why.
+              </span>
+              <div v-for="(r, i) in form.aiAgentRoles" :key="'role-' + i" class="static-row">
+                <div class="static-row-head">
+                  <span class="static-row-inline-label">Role</span>
+                  <select v-model="r.role" class="static-row-cat">
+                    <option value="">Pick a role…</option>
+                    <option v-for="name in roleOptions" :key="name" :value="name">{{ name }}</option>
+                  </select>
+                  <button type="button" class="close-btn" title="Revoke" @click="form.aiAgentRoles.splice(i, 1)">✕</button>
+                </div>
+              </div>
+              <button type="button" class="btn-cancel" @click="addAgentRole">+ Grant a role</button>
+              <span v-if="!rolesUnrestricted" class="field-hint">
+                You can grant only roles you hold yourself — an agent acts with what it is given,
+                so granting one you do not have would be a way around your own permissions.
+              </span>
+            </div>
+
           </template>
 
           <!-- ============ Screening ============ -->
@@ -576,6 +605,57 @@ import { AgentChatPanel } from "@/components/chat";
 import { cardRegistry } from "@/components/chat/cards/registry";
 const availableSkills = ref([]);
 function addSkill() { form.value.aiSkills.push({ skill: '', version_pin: '' }); }
+
+// WI-002054: what this agent is permitted to do. The picker offers only what the
+// CURRENT user may grant, and the backend enforces the same list — an option that
+// cannot be saved should never be offered.
+const grantableRoles = ref([]);
+const rolesUnrestricted = ref(false);
+const agentUserEmail = ref("");
+function addAgentRole() { form.value.aiAgentRoles.push({ role: '' }); }
+
+const agentUserLabel = computed(
+  () => agentUserEmail.value || "its own user, created when the agent is first saved",
+);
+
+// What the picker offers: everything this user may grant, PLUS whatever the
+// agent already holds. The second half matters — an agent may legitimately hold
+// a role its editor cannot grant, and a <select> whose value is not among its
+// options renders BLANK. Without this, a role the agent really has looks like an
+// empty row, which reads as "no role" and invites someone to overwrite it.
+const roleOptions = computed(() => {
+  const held = (form.value.aiAgentRoles || []).map((r) => r && r.role).filter(Boolean);
+  return Array.from(new Set([...grantableRoles.value, ...held])).sort();
+});
+
+// The picker's options arrive on the same response as the rest of the agent, via
+// applyGrantableRoles below. They used to come from a call of their own, which
+// kept returning nothing in the browser while answering curl perfectly — and an
+// empty picker looks exactly like "you may grant nothing", which is a real
+// answer the escalation guard also gives. One response, one failure mode.
+function applyGrantableRoles(fields) {
+  grantableRoles.value = Array.isArray(fields?.aiGrantableRoles) ? fields.aiGrantableRoles : [];
+  rolesUnrestricted.value = !!fields?.aiRolesUnrestricted;
+}
+
+async function loadAgentUser(configName) {
+  agentUserEmail.value = "";
+  if (!configName) return;
+  try {
+    const res = await frappeRequest({
+      url: "/api/method/frappe.client.get_value",
+      method: "GET",
+      params: {
+        doctype: "AI Agent Configuration",
+        filters: JSON.stringify({ name: configName }),
+        fieldname: JSON.stringify(["agent_user"]),
+      },
+    });
+    agentUserEmail.value = res?.agent_user || "";
+  } catch (e) {
+    agentUserEmail.value = "";
+  }
+}
 
 
 // bpmn-js elements must never be touched as Vue reactive proxies — the renderer
@@ -794,6 +874,8 @@ const form = ref({
   // replaced wholesale by loadStaticContextFromConfig once the agent is read.
   aiExamples: [],
   aiGuardrails: [],
+  // WI-002054: the roles the agent's own user holds — what it is permitted to do.
+  aiAgentRoles: [],
 });
 
 // Mirrors the AI Agent Guard Rail Select options; the backend rejects anything
@@ -834,9 +916,10 @@ async function loadStaticContextFromConfig() {
       params: { config_name: form.value.aiAgentConfig },
     });
     form.value.aiExamples = Array.isArray(fields?.aiExamples) ? fields.aiExamples : [];
-    
     form.value.aiSkills = Array.isArray(fields?.aiSkills) ? fields.aiSkills : [];
-form.value.aiGuardrails = Array.isArray(fields?.aiGuardrails) ? fields.aiGuardrails : [];
+    form.value.aiGuardrails = Array.isArray(fields?.aiGuardrails) ? fields.aiGuardrails : [];
+    form.value.aiAgentRoles = Array.isArray(fields?.aiAgentRoles) ? fields.aiAgentRoles : [];
+    applyGrantableRoles(fields);
     staticContextLoaded.value = true;
   } catch (e) {
     // Unreadable agent — the sections stay empty and Save leaves them alone.
@@ -1115,6 +1198,7 @@ onMounted(async () => {
     // to undefined.
     aiExamples: [],
     aiGuardrails: [],
+    aiAgentRoles: [],
   };
 
   // Read the diagram's start-event trigger DocType — the process context the
@@ -1149,6 +1233,9 @@ onMounted(async () => {
   // WI-001639: the agent owns examples and guard rails — show its rows, not an
   // empty pair of sections, so Save can't write a blank static context back.
   await loadStaticContextFromConfig();
+  // WI-002054: the agent's own address, so the permissions section can say who
+  // the grant is for. The picker's options came with the config read above.
+  await loadAgentUser(form.value.aiAgentConfig);
   await loadScreening();
 });
 
@@ -1235,7 +1322,14 @@ async function onAgentConfigSelect() {
     // agent's rows on screen.
     form.value.aiExamples = Array.isArray(fields?.aiExamples) ? fields.aiExamples : [];
     form.value.aiGuardrails = Array.isArray(fields?.aiGuardrails) ? fields.aiGuardrails : [];
+    // Skills and permissions follow the newly linked agent too. Skills were left
+    // out here, so picking a different agent kept the previous one's skills on
+    // screen and saving wrote them onto the new agent.
+    form.value.aiSkills = Array.isArray(fields?.aiSkills) ? fields.aiSkills : [];
+    form.value.aiAgentRoles = Array.isArray(fields?.aiAgentRoles) ? fields.aiAgentRoles : [];
+    applyGrantableRoles(fields);
     staticContextLoaded.value = true;
+    await loadAgentUser(form.value.aiAgentConfig);
     await loadScreening();
   } catch (e) {
     /* leave the current field values as-is if the seed lookup fails */
@@ -1387,6 +1481,8 @@ async function writeBackToConfig() {
     fields.aiSkills = form.value.aiSkills;
     fields.aiExamples = form.value.aiExamples;
     fields.aiGuardrails = form.value.aiGuardrails;
+    // Blank rows are the ones the user added and never picked a role for.
+    fields.aiAgentRoles = form.value.aiAgentRoles.filter((r) => r && r.role);
   }
   // Screening goes through security_api, which accepts ONLY screening fields —
   // keeping this endpoint from becoming a general writer for the whole agent.
