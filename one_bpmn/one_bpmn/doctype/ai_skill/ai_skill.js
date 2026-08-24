@@ -16,7 +16,7 @@ const TIER_DESCRIPTIONS = {
 frappe.ui.form.on("AI Skill", {
 	setup(frm) {
 		// Fetch divisor from settings once when form loads
-		frappe.db.get_single_value("AI Chat Settings", "token_estimator_chars_per_token")
+		frappe.db.get_single_value("Processa Settings", "token_estimator_chars_per_token")
 			.then(value => {
 				frm.token_divisor = value || 4;
 			});

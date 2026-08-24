@@ -2,29 +2,25 @@
 LLM adapter factory.
 
 Provider resolution order (highest priority first):
-  1. agent_config["llm_provider_override"]            (AI Agent Configuration — developer override)
-  2. AI Chat Settings → processa_agent_configs row    (per-agent row keyed by agent_id)
-  3. AI Chat Settings → processa_llm_provider         (global default for all BPMN agents)
-  4. AI Chat Settings → llm_provider                  (chatbot field, last resort)
-  5. "gemini"                                         (hard fallback)
+  1. agent_config["ai_provider"]                      (AI Agent Configuration — linked AI Provider record)
+  2. Processa Settings → default_llm_provider         (site-wide fallback for a config with no linked provider)
+  3. "gemini"                                         (hard fallback)
 
 Model resolution order:
-  1. agent_config["model_override"]                   (AI Agent Configuration)
-  2. Per-agent row → model                            (if set)
-  3. Provider-specific model field in AI Chat Settings
-  4. Hard-coded default per provider
+  1. agent_config["ai_model"]                         (AI Agent Configuration's own catalog pick)
+  2. Any enabled AI Model on the resolved provider    (WI-001655 — providers carry no default model)
+  3. Hard-coded default per provider
 
 API key resolution order:
-  1. Per-agent row → api_key                          (if set)
-  2. Global key for the resolved provider in AI Chat Settings
+  1. The resolved AI Provider record's own api_key    (WI-001614 — the canonical credential store)
 
 Adding a new provider requires only:
   - A new adapter class in its own module
   - One new branch in get_llm_adapter()
-  - New credential fields in AI Chat Settings
+  - A new AI Provider record with its provider_type and api_key
 
 Adding a new agent requires only:
-  - A new row in AI Chat Settings → Per-Agent LLM Settings table
+  - An AI Agent Configuration record linking an AI Provider and AI Model
 """
 
 import frappe
@@ -77,8 +73,8 @@ def _get_provider_credentials(provider: str) -> tuple[str, str]:
     chosen provider, NOT a provider-level default: WI-001655 removed
     default_model. Prefers the canonical record name, else the first enabled
     provider of the matching provider_type that holds a key. Returns ("", "")
-    when none qualifies so callers can fall back to the legacy AI Chat Settings
-    fields.
+    when none qualifies, so callers fall back to the hard-coded per-provider
+    default model and log a missing-API-key error.
     """
     ptype = _PROVIDER_TYPE_MAP.get(provider)
     if not ptype:
@@ -109,49 +105,16 @@ def _get_provider_credentials(provider: str) -> tuple[str, str]:
     return "", ""
 
 
-def _get_global_api_key(settings, provider: str) -> str:
-    """Return the global API key for *provider* from AI Chat Settings (legacy fallback)."""
-    try:
-        if provider == "gemini":
-            return (
-                settings.get_password("google_vertex_ai_api_key") or
-                settings.get_password("gemini_api_key") or ""
-            )
-        if provider in ("anthropic", "claude"):
-            return settings.get_password("anthropic_api_key") or ""
-        if provider == "openai":
-            return settings.get_password("openai_api_key") or ""
-    except Exception:
-        frappe.log_error(title="LLM Factory - API Key", message=frappe.get_traceback())
-    return ""
-
-
-def _get_global_model(settings, provider: str) -> str:
-    """Return the global model for *provider* from AI Chat Settings."""
-    if provider == "gemini":
-        return getattr(settings, "gemini_model", None) or _PROVIDER_DEFAULTS["gemini"]
-    if provider in ("anthropic", "claude"):
-        return getattr(settings, "anthropic_model", None) or _PROVIDER_DEFAULTS["anthropic"]
-    if provider == "openai":
-        return getattr(settings, "openai_model", None) or _PROVIDER_DEFAULTS["openai"]
-    return _PROVIDER_DEFAULTS.get(provider, "")
-
-
 # WI-001615: _find_agent_row removed — the Processa Agent LLM Config
 # override table is retired; configs link an AI Provider record.
 
 
 def get_llm_adapter_from_settings(agent_config: dict | None = None) -> BaseLLMAdapter:
     """
-    Resolve provider/model/key from AI Chat Settings and the optional per-agent
-    config dict (as returned by get_agent_config()), then return a ready adapter.
+    Resolve provider/model/key from the optional per-agent config dict (as
+    returned by get_agent_config()), falling back to Processa Settings'
+    site-wide default provider when the config has no linked AI Provider.
     """
-    try:
-        settings = frappe.get_doc("AI Chat Settings")
-    except Exception:
-        frappe.log_error(title="LLM Factory - AI Chat Settings", message=frappe.get_traceback())
-        settings = None
-
     cfg = agent_config or {}
     agent_id = cfg.get("agent_id", "")
 
@@ -184,33 +147,18 @@ def get_llm_adapter_from_settings(agent_config: dict | None = None) -> BaseLLMAd
             )
 
     # ── Global resolution (configs without a link, transitional) ────────────
-    if settings:
-        provider = (
-            getattr(settings, "processa_llm_provider", None)
-            or settings.llm_provider
-            or "gemini"
-        ).lower()
-    else:
-        provider = "gemini"
+    provider = (
+        frappe.db.get_single_value("Processa Settings", "default_llm_provider") or "gemini"
+    ).lower()
 
-    # WI-001614: AI Provider is the credential store. Resolve it
-    # once; the legacy AI Chat Settings fields remain only as a fallback until
-    # every agent's migration story lands.
+    # WI-001614: AI Provider is the credential store.
     cred_key, cred_model = _get_provider_credentials(provider)
 
     # ── Model ─────────────────────────────────────────────────────────────────
-    if cred_model:
-        model = cred_model
-    elif settings:
-        model = _get_global_model(settings, provider)
-    else:
-        model = _PROVIDER_DEFAULTS.get(provider, "")
+    model = cred_model or _PROVIDER_DEFAULTS.get(provider, "")
 
     # ── API key ───────────────────────────────────────────────────────────────
     api_key = cred_key
-
-    if not api_key and settings:
-        api_key = _get_global_api_key(settings, provider)
 
     if not api_key:
         frappe.log_error(

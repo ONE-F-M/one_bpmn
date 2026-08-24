@@ -36,7 +36,39 @@
   "section_break_ai_memory",
   "default_memory_distill_model",
   "column_break_ai_memory",
-  "default_memory_reconcile_model"
+  "default_memory_reconcile_model",
+  "llm_defaults_tab",
+  "default_llm_provider",
+  "openai_search_context",
+  "observability_tab",
+  "section_break_observability",
+  "enable_observability",
+  "langsmith_api_key",
+  "langsmith_project_name",
+  "observability_sanitization_level",
+  "observability_retry_attempts",
+  "section_break_langfuse",
+  "langfuse_base_url",
+  "langfuse_public_key",
+  "column_break_langfuse",
+  "langfuse_secret_key",
+  "dev_agent_weekly_report_enabled",
+  "dev_agent_report_recipients",
+  "section_break_token_estimator",
+  "token_estimator_chars_per_token",
+  "mcp_integration_tab",
+  "enabled",
+  "mcp_tools_enabled",
+  "enable_mcp_tools_for_user_planning_agent",
+  "user_story_template",
+  "jira_credentials_section",
+  "jira_url",
+  "jira_email",
+  "jira_api_token",
+  "copilot_settings_section",
+  "copilot_metrics_pat",
+  "copilot_org_name",
+  "copilot_enterprise_slug"
  ],
  "fields": [
   {
@@ -252,12 +284,214 @@
    "fieldtype": "Link",
    "label": "Default Reconciliation Model",
    "options": "AI Model"
+  },
+  {
+   "description": "Migrated from onefm_mcp's AI Chat Settings doctype (retired). Global fallback provider/tuning for an agent configuration that has no linked AI Provider yet — once every agent config links a provider directly, this stops being consulted.",
+   "fieldname": "llm_defaults_tab",
+   "fieldtype": "Tab Break",
+   "label": "LLM Defaults"
+  },
+  {
+   "default": "anthropic",
+   "description": "Global fallback provider for an agent configuration without a linked AI Provider record. Read by one_bpmn/agents/llm_provider/factory.py as the last resort before the hard-coded \"gemini\" default.",
+   "fieldname": "default_llm_provider",
+   "fieldtype": "Select",
+   "label": "Default LLM Provider",
+   "options": "gemini\nanthropic\nopenai"
+  },
+  {
+   "default": "medium",
+   "depends_on": "eval:doc.default_llm_provider=='openai'",
+   "description": "Has a real configured value in production — restore this field's consumer (believed to be a BPMN Script Task node's inline script) to read it from here.",
+   "fieldname": "openai_search_context",
+   "fieldtype": "Select",
+   "label": "OpenAI Search Context",
+   "options": "low\nmedium\nhigh"
+  },
+  {
+   "description": "Migrated from onefm_mcp's AI Chat Settings doctype (retired).",
+   "fieldname": "observability_tab",
+   "fieldtype": "Tab Break",
+   "label": "Observability"
+  },
+  {
+   "collapsible": 1,
+   "description": "Site-wide LangSmith tracing defaults, consumed by onefm_mcp's Lumina observability layer as well as any one_bpmn agent that leaves its own LangSmith Project blank on AI Agent Configuration.",
+   "fieldname": "section_break_observability",
+   "fieldtype": "Section Break",
+   "label": "LangSmith Observability"
+  },
+  {
+   "default": "1",
+   "fieldname": "enable_observability",
+   "fieldtype": "Check",
+   "label": "Enable Observability"
+  },
+  {
+   "fieldname": "langsmith_api_key",
+   "fieldtype": "Password",
+   "label": "LangSmith API Key",
+   "mandatory_depends_on": "eval:doc.enable_observability"
+  },
+  {
+   "default": "lumina-production",
+   "fieldname": "langsmith_project_name",
+   "fieldtype": "Data",
+   "label": "LangSmith Project Name",
+   "mandatory_depends_on": "eval:doc.enable_observability"
+  },
+  {
+   "default": "Partial",
+   "fieldname": "observability_sanitization_level",
+   "fieldtype": "Select",
+   "label": "Observability Sanitization Level",
+   "mandatory_depends_on": "eval:doc.enable_observability",
+   "options": "None\nPartial\nFull"
+  },
+  {
+   "default": "3",
+   "fieldname": "observability_retry_attempts",
+   "fieldtype": "Int",
+   "label": "Observability Retry Attempts",
+   "mandatory_depends_on": "eval:doc.enable_observability"
+  },
+  {
+   "collapsible": 1,
+   "description": "Credentials and schedule for the weekly email summary of the OneFM AI development agent's Langfuse traces.",
+   "fieldname": "section_break_langfuse",
+   "fieldtype": "Section Break",
+   "label": "Langfuse & Weekly Agent Report"
+  },
+  {
+   "default": "https://cloud.langfuse.com",
+   "description": "Langfuse Cloud endpoint for the OneFM AI development agent observability",
+   "fieldname": "langfuse_base_url",
+   "fieldtype": "Data",
+   "label": "Langfuse Base URL"
+  },
+  {
+   "description": "Langfuse project public key (pk-lf-...)",
+   "fieldname": "langfuse_public_key",
+   "fieldtype": "Password",
+   "label": "Langfuse Public Key"
+  },
+  {
+   "fieldname": "column_break_langfuse",
+   "fieldtype": "Column Break"
+  },
+  {
+   "description": "Langfuse project secret key (sk-lf-...)",
+   "fieldname": "langfuse_secret_key",
+   "fieldtype": "Password",
+   "label": "Langfuse Secret Key"
+  },
+  {
+   "default": "0",
+   "description": "Send a weekly email summary of agent performance metrics every Monday",
+   "fieldname": "dev_agent_weekly_report_enabled",
+   "fieldtype": "Check",
+   "label": "Enable Weekly Report"
+  },
+  {
+   "description": "Comma-separated email addresses to receive the weekly report",
+   "fieldname": "dev_agent_report_recipients",
+   "fieldtype": "Data",
+   "label": "Report Recipients"
+  },
+  {
+   "collapsible": 1,
+   "description": "Consumed by one_bpmn's AI Skill token-estimate helper.",
+   "fieldname": "section_break_token_estimator",
+   "fieldtype": "Section Break",
+   "label": "Token Estimation"
+  },
+  {
+   "default": "4",
+   "fieldname": "token_estimator_chars_per_token",
+   "fieldtype": "Int",
+   "label": "Chars Per Token (Estimate)"
+  },
+  {
+   "description": "Migrated from onefm_mcp's AI Chat Settings doctype (retired). Config for onefm_mcp's Lumina chat widget and the MCP tool integrations it exposes — kept here rather than in onefm_mcp itself so agent-adjacent config has one home.",
+   "fieldname": "mcp_integration_tab",
+   "fieldtype": "Tab Break",
+   "label": "MCP Integration"
+  },
+  {
+   "default": "1",
+   "description": "Enables onefm_mcp's Lumina chat widget.",
+   "fieldname": "enabled",
+   "fieldtype": "Check",
+   "label": "Enable AI Chat Widget"
+  },
+  {
+   "default": "0",
+   "fieldname": "mcp_tools_enabled",
+   "fieldtype": "Check",
+   "label": "Enable MCP Tools"
+  },
+  {
+   "default": "0",
+   "fieldname": "enable_mcp_tools_for_user_planning_agent",
+   "fieldtype": "Check",
+   "label": "Enable MCP Tools For User Planning Agent"
+  },
+  {
+   "description": "Has a real configured value in production — restore this field's consumer (believed to be the BA/User Planning agent's BPMN Script Task node) to read it from here.",
+   "fieldname": "user_story_template",
+   "fieldtype": "Small Text",
+   "label": "User Story Template"
+  },
+  {
+   "collapsible": 1,
+   "fieldname": "jira_credentials_section",
+   "fieldtype": "Section Break",
+   "label": "Jira Credentials"
+  },
+  {
+   "fieldname": "jira_url",
+   "fieldtype": "Data",
+   "label": "Jira URL"
+  },
+  {
+   "fieldname": "jira_email",
+   "fieldtype": "Data",
+   "label": "Jira Email"
+  },
+  {
+   "fieldname": "jira_api_token",
+   "fieldtype": "Password",
+   "label": "Jira API Token"
+  },
+  {
+   "collapsible": 1,
+   "fieldname": "copilot_settings_section",
+   "fieldtype": "Section Break",
+   "label": "Copilot Settings"
+  },
+  {
+   "fieldname": "copilot_metrics_pat",
+   "fieldtype": "Password",
+   "label": "Copilot Metrics PAT",
+   "mandatory_depends_on": "eval:doc.mcp_tools_enabled"
+  },
+  {
+   "fieldname": "copilot_org_name",
+   "fieldtype": "Data",
+   "label": "Copilot Organization Name",
+   "mandatory_depends_on": "eval:doc.mcp_tools_enabled"
+  },
+  {
+   "fieldname": "copilot_enterprise_slug",
+   "fieldtype": "Data",
+   "label": "Copilot Enterprise Slug",
+   "mandatory_depends_on": "eval:doc.mcp_tools_enabled"
   }
  ],
  "issingle": 1,
  "links": [],
- "modified": "2026-08-17 12:00:00.000000",
- "modified_by": "Administrator",
+ "modified": "2026-08-24 12:00:00.000000",
+ "modified_by": "s.shariff@one-fm.com",
  "module": "ONE BPMN",
  "name": "Processa Settings",
  "owner": "Administrator",

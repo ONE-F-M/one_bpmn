@@ -267,7 +267,7 @@
    "label": "Observability"
   },
   {
-   "description": "LangSmith project name for this agent. Leave blank to use the global project from AI Chat Settings.",
+   "description": "LangSmith project name for this agent. Leave blank to use the global project from Processa Settings.",
    "fieldname": "langsmith_project",
    "fieldtype": "Data",
    "label": "LangSmith Project"
