@@ -680,7 +680,7 @@ def _reserve_llm_agent(name: str, agent_id: str, prompt_name: str) -> None:
 		"AI Agent Configuration",
 		name,
 		{
-			"ai_provider_credentials": PROVIDER,
+			"ai_provider": PROVIDER,
 			"ai_model": MODEL,
 			"system_prompt": prompt,
 			"lifecycle_status": "Live",

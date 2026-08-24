@@ -30,12 +30,12 @@ class TestStaticContextEditing(FrappeTestCase):
 	@classmethod
 	def setUpClass(cls):
 		super().setUpClass()
-		cls.credentials = frappe.db.get_value("AI Provider Credentials", {}, "name")
+		cls.credentials = frappe.db.get_value("AI Provider", {}, "name")
 
 	def setUp(self):
 		self._cleanup()
 		frappe.get_doc(
-			{"doctype": "AI Model", "model_name": MODEL, "ai_provider_credentials": self.credentials}
+			{"doctype": "AI Model", "model_name": MODEL, "ai_provider": self.credentials}
 		).insert(ignore_permissions=True)
 		self.agent = frappe.get_doc(
 			{

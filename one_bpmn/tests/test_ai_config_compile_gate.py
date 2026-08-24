@@ -13,9 +13,9 @@ TEST_CONFIG = "ZZ Gate Test Agent"
 class TestAiConfigCompileGate(FrappeTestCase):
 	def setUp(self):
 		super().setUp()
-		self.provider = frappe.db.get_value("AI Provider Credentials", {"enabled": 1}, "name")
+		self.provider = frappe.db.get_value("AI Provider", {"enabled": 1}, "name")
 		if not self.provider:
-			self.skipTest("no enabled AI Provider Credentials on this site")
+			self.skipTest("no enabled AI Provider on this site")
 		if not frappe.db.exists("AI Agent Configuration", TEST_CONFIG):
 			frappe.get_doc({
 				"doctype": "AI Agent Configuration",
@@ -24,7 +24,7 @@ class TestAiConfigCompileGate(FrappeTestCase):
 				"agent_framework": "Direct API",
 				"agent_type": "Background",
 				"enabled": 1,
-				"ai_provider_credentials": self.provider,
+				"ai_provider": self.provider,
 			}).insert(ignore_permissions=True)
 			# Go-live is the Agent Creation Process's decision now, so
 			# nothing stamps this Live synchronously on insert. The compile gate
@@ -78,7 +78,7 @@ class TestAiConfigCompileGate(FrappeTestCase):
 			"agent_framework": "Direct API",
 			"agent_type": "Background",
 			"enabled": 1,
-			"ai_provider_credentials": self.provider,
+			"ai_provider": self.provider,
 		}).insert(ignore_permissions=True)
 		try:
 			self.assertNotEqual(

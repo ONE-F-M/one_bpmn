@@ -130,7 +130,7 @@ def _memory_write_mode(task_cfg: dict) -> str:
 
 
 def _provider_for_model(model: str | None, fallback: str) -> str:
-	"""The AI Provider Credentials that actually serves *model*.
+	"""The AI Provider that actually serves *model*.
 
 	The dispatcher used to send the AGENT's provider with whatever memory model
 	was configured, on the stated assumption that "the provider/backend still
@@ -145,14 +145,14 @@ def _provider_for_model(model: str | None, fallback: str) -> str:
 	turn. Agents whose memory model happened to match their provider (Docu,
 	Logix) wrote memories perfectly, which is what made it look agent-specific.
 
-	Falls back to the agent's provider when the model has no record or no
-	credentials link — that is the old behaviour, and it is right for a model
-	the agent already runs.
+	Falls back to the agent's provider when the model has no record or names no
+	provider — that is the old behaviour, and it is right for a model the agent
+	already runs.
 	"""
 	if not model:
 		return fallback
 	try:
-		owner = frappe.db.get_value("AI Model", model, "ai_provider_credentials")
+		owner = frappe.db.get_value("AI Model", model, "provider")
 		return owner or fallback
 	except Exception:
 		return fallback
@@ -1126,7 +1126,7 @@ def dispatch_ai_agent(instance, task, task_cfg: dict, bpmn_id: str, resume_run: 
 	# and false of everything else in it: the overlay is also where the PROVIDER
 	# and MODEL come from for any shape that carries no copies of its own.
 	# Without them a resumed run reached the executor with provider_name="" and
-	# died on "AI Provider Credentials '' not found" — so a human step on such an
+	# died on "AI Provider '' not found" — so a human step on such an
 	# agent could be completed and never continued. The prompt is the one key
 	# held back, because the checkpoint's copy is authoritative for a
 	# conversation already in flight.

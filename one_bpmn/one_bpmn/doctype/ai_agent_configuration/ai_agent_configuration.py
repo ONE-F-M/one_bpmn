@@ -200,14 +200,14 @@ class AIAgentConfiguration(Document):
 
 	def derive_provider_from_model(self):
 		"""WI-001655: the model is the pick, the provider is derived. When an
-		AI Model is linked, ai_provider_credentials follows its credentials
-		link — one choice, no model/provider mismatch possible. An agent with
-		no model keeps whatever credentials it has (legacy records)."""
+		AI Model is linked, ai_provider follows the model's own provider — one
+		choice, no model/provider mismatch possible. An agent with no model
+		keeps whatever provider it has (legacy records)."""
 		if not self.ai_model:
 			return
-		creds = frappe.db.get_value("AI Model", self.ai_model, "ai_provider_credentials")
-		if creds:
-			self.ai_provider_credentials = creds
+		provider = frappe.db.get_value("AI Model", self.ai_model, "provider")
+		if provider:
+			self.ai_provider = provider
 
 	def validate_unique_chat_mode_label(self):
 		"""Two enabled chat agents must never claim the same conversation mode —
@@ -412,7 +412,7 @@ def get_agent_config(agent_id: str) -> dict | None:
 	Load agent configuration from AI Agent Configuration DocType.
 
 	Returns a dict with: system_prompt, temperature, max_tokens,
-	ai_provider_credentials, langsmith_project, sub_prompts,
+	ai_provider, langsmith_project, sub_prompts,
 	constants, and — for the frozen static context layer (WI-001639) —
 	examples and guardrails. There is no per-agent override mechanism (WI-001615):
 	provider, key and model come from the linked AI Provider
@@ -434,7 +434,7 @@ def get_agent_config(agent_id: str) -> dict | None:
 		{"agent_id": agent_id, "enabled": 1},
 		[
 			"name", "agent_id", "system_prompt", "temperature", "max_tokens",
-			"ai_model", "ai_provider_credentials", "langsmith_project",
+			"ai_model", "ai_provider", "langsmith_project",
 			"agent_framework", "process_model", "chat_mode_label",
 			"lifecycle_status", "agent_type", "pii_screening",
 		],
@@ -505,7 +505,7 @@ def get_agent_config(agent_id: str) -> dict | None:
 		"system_prompt": config.system_prompt,
 		"temperature": config.temperature,
 		"max_tokens": config.max_tokens,
-		"ai_provider_credentials": config.ai_provider_credentials,
+		"ai_provider": config.ai_provider,
 		"langsmith_project": config.langsmith_project,
 		"agent_framework": config.agent_framework,
 		"process_model": config.process_model,

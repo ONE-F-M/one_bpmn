@@ -330,8 +330,8 @@ def config_field_map(config_name: str) -> dict:
 	# not override the shape's value the way a real setting would (WI-001793).
 	if cint(cfg.get("context_max_messages")):
 		out["aiContextMaxMessages"] = cfg.context_max_messages
-	if cfg.ai_provider_credentials:
-		out["aiProvider"] = cfg.ai_provider_credentials
+	if cfg.ai_provider:
+		out["aiProvider"] = cfg.ai_provider
 	# WI-001655: the model is the agent's own pick from the AI Model catalog
 	# (the record name IS the model id); the provider above is derived from
 	# that model's credentials link at save time.
@@ -734,7 +734,7 @@ def create_agent_configuration(payload: str | dict) -> dict:
 	# credentials link on save. A directly-passed credentials value is kept
 	# only as legacy fallback for model-less payloads.
 	doc.ai_model = payload.get("ai_model") or None
-	doc.ai_provider_credentials = payload.get("ai_provider_credentials") or None
+	doc.ai_provider = payload.get("ai_provider") or None
 	doc.system_prompt = payload.get("system_prompt") or ""
 	doc.description = payload.get("description") or ""
 	# WI-001644: screening and the throttle chosen at creation rather than left
