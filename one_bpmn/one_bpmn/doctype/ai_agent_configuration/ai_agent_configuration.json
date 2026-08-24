@@ -165,7 +165,8 @@
    "fieldname": "process_owner",
    "fieldtype": "Link",
    "label": "Process Owner",
-   "options": "User"
+   "options": "User",
+   "ignore_user_permissions": 1
   },
   {
    "fieldname": "llm_settings_section",

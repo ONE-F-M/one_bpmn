@@ -67,18 +67,23 @@ class TestTheAgentHasAnIdentity(FrappeTestCase):
 		self.assertTrue(agent.agent_user)
 		self.assertTrue(frappe.db.exists("User", agent.agent_user))
 
-	def test_the_identity_does_not_narrow_who_can_see_an_agent(self):
-		"""A User Permission restricts a list by every Link-to-User field on the
-		doctype. Adding this one silently applied any such restriction to it — and
-		since no agent's user is ever a person, the agent list went EMPTY for
-		anyone carrying one. The field names a machine identity, not a person
-		whose access should scope who may see the record."""
-		field = next(
-			f
-			for f in frappe.get_meta("AI Agent Configuration").fields
-			if f.fieldname == "agent_user"
-		)
-		self.assertTrue(field.ignore_user_permissions)
+	def test_no_user_field_on_an_agent_narrows_who_can_see_it(self):
+		"""A User Permission restricts a list by EVERY Link-to-User field on the
+		doctype, so each one is an access boundary whether it was meant as one.
+
+		`agent_user` made that obvious: no agent's user is ever a person, so the
+		agent list went EMPTY for anyone carrying such a permission. `process_owner`
+		had the milder version of the same problem all along — a System Manager
+		could see only the agents they happened to own, which on this site was 21 of
+		33, and you cannot administer Processa through a third of it.
+
+		Neither field is an access boundary. One names a machine identity; the other
+		records who to ask about an agent. Who may READ an agent is a role, and who
+		may INVOKE one is allowed_roles."""
+		by_name = {f.fieldname: f for f in frappe.get_meta("AI Agent Configuration").fields}
+		for fieldname in ("agent_user", "process_owner"):
+			with self.subTest(fieldname=fieldname):
+				self.assertTrue(by_name[fieldname].ignore_user_permissions)
 
 	def test_an_agent_that_already_has_an_identity_keeps_it(self):
 		"""The domain changed once, and the agents provisioned under the old one
