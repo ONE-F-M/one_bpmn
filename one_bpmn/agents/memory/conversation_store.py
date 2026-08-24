@@ -24,7 +24,7 @@ so callers stay within model limits.
 MIGRATION NOTE (known limitation):
     onefm_mcp's Chat Conversation / Chat Message are reused cross-app for now by
     explicit decision. They are to be MOVED into one_bpmn later (same approach as
-    the AI Model Pricing move) and generalised with a BPMN-appropriate role
+    the model rate-card move) and generalised with a BPMN-appropriate role
     vocabulary — the onefm_mcp Chat Message.message_type / receiver / agent_mode
     Selects have no BPMN-specific values, so the canonical role and the BPMN
     context (instance_name, bpmn_id) are carried in Chat Message.metadata and

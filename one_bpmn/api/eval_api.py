@@ -319,7 +319,7 @@ def _ensure_ai_model(model_name: str, judge_provider: str = None) -> str:
 		return model_name
 	provider = "anthropic"
 	if judge_provider:
-		pt = (frappe.db.get_value("AI Provider Credentials", judge_provider, "provider_type") or "").lower()
+		pt = (frappe.db.get_value("AI Provider", judge_provider, "provider_type") or "").lower()
 		if pt in ("openai", "gemini", "anthropic"):
 			provider = pt
 	frappe.get_doc({"doctype": "AI Model", "model_name": model_name, "provider": provider}).insert(ignore_permissions=True)

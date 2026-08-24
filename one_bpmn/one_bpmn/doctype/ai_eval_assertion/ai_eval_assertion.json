@@ -22,36 +22,36 @@
    "reqd": 1
   },
   {
+   "description": "The schema, substring, regex pattern, expected value, or rubric text.",
    "fieldname": "value",
    "fieldtype": "Long Text",
    "in_list_view": 1,
    "label": "Value",
-   "reqd": 1,
-   "description": "The schema, substring, regex pattern, expected value, or rubric text."
+   "reqd": 1
   },
   {
    "depends_on": "eval:doc.assertion_type=='llm_judge'",
+   "description": "Only used when Assertion Type is llm_judge.",
    "fieldname": "judge_provider",
    "fieldtype": "Link",
    "label": "Judge Provider",
-   "options": "AI Provider Credentials",
-   "description": "Only used when Assertion Type is llm_judge."
+   "options": "AI Provider"
   },
   {
    "depends_on": "eval:doc.assertion_type=='llm_judge'",
+   "description": "Only used when Assertion Type is llm_judge.",
    "fieldname": "judge_model",
    "fieldtype": "Link",
    "label": "Judge Model",
-   "options": "AI Model",
-   "description": "Only used when Assertion Type is llm_judge."
+   "options": "AI Model"
   },
   {
    "default": "4",
    "depends_on": "eval:doc.assertion_type=='llm_judge'",
+   "description": "Score \u2265 threshold passes (llm_judge only).",
    "fieldname": "pass_threshold",
    "fieldtype": "Int",
-   "label": "Pass Threshold",
-   "description": "Score ≥ threshold passes (llm_judge only)."
+   "label": "Pass Threshold"
   }
  ],
  "grid_page_length": 50,

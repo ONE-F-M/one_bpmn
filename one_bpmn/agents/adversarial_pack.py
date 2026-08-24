@@ -145,16 +145,16 @@ BENIGN_CASES = [
 def _judge() -> tuple[str, str]:
 	"""(model, provider) for the judge — the best available with credentials."""
 	for model in _JUDGE_PREFERENCE:
-		provider = frappe.db.get_value("AI Model", model, "ai_provider_credentials")
+		provider = frappe.db.get_value("AI Model", model, "provider")
 		if provider:
 			return model, provider
 	row = frappe.db.get_value(
-		"AI Model", {"ai_provider_credentials": ("is", "set")},
-		["name", "ai_provider_credentials"], as_dict=True,
+		"AI Model", {"provider": ("is", "set"), "enable_model": 1},
+		["name", "provider"], as_dict=True,
 	)
 	if not row:
 		frappe.throw(_("No AI Model has credentials, so an adversarial suite cannot be judged."))
-	return row.name, row.ai_provider_credentials
+	return row.name, row.provider
 
 
 @frappe.whitelist()
@@ -200,7 +200,7 @@ def build_suite_for_agent(agent: str, judge_model: str | None = None) -> dict:
 	if not frappe.db.exists("AI Agent Configuration", agent):
 		frappe.throw(_("AI Agent Configuration '{0}' does not exist.").format(agent))
 
-	model, provider = (judge_model, frappe.db.get_value("AI Model", judge_model, "ai_provider_credentials")) \
+	model, provider = (judge_model, frappe.db.get_value("AI Model", judge_model, "provider")) \
 		if judge_model else _judge()
 
 	title = f"{agent} {SUITE_SUFFIX}"

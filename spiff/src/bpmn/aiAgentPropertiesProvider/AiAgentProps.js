@@ -227,7 +227,7 @@ function AgentConfigComponent(props) {
 }
 
 // ---------------------------------------------------------------------------
-// AI Provider — autocomplete backed by the AI Provider Credentials doctype (enabled only).
+// AI Provider — autocomplete backed by the AI Provider doctype (enabled only).
 // ---------------------------------------------------------------------------
 // WI-001650: read-only. The provider is an agent property, resolved from the
 // linked AI Agent Configuration at run time — raw provider setup is retired.

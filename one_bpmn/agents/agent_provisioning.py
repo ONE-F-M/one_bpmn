@@ -25,7 +25,7 @@ VALIDATION_RULES = (
 	{"field": "agent_id", "rule": "required"},
 	{"field": "system_prompt", "rule": "must be non-empty (or a description provided so the creation process can generate one)"},
 	{"field": "ai_model", "rule": "must link an AI Model catalog record — the provider is derived from the model's credentials link (WI-001655)"},
-	{"field": "ai_provider_credentials", "rule": "derived from the model; the derived record must exist and be ENABLED; a live test call is made against it"},
+	{"field": "ai_provider", "rule": "derived from the model; the derived provider must exist and be ENABLED; a live test call is made against it"},
 	{"field": "chat_mode_label", "rule": "required for Chat agents unless the agent is mapped to a non-chat process map (WI-001997); must be unique across agents"},
 )
 
@@ -99,14 +99,14 @@ def validate_agent_config(config_name: str, test_provider: bool = True, require_
 	# 3. Model + derived credentials (WI-001655: the model is the pick)
 	if not cfg.get("ai_model"):
 		errors.append(_("No AI Model is linked — pick one from the catalog."))
-	if not cfg.ai_provider_credentials:
+	if not cfg.ai_provider:
 		errors.append(
-			_("The linked AI Model has no AI Provider Credentials link.")
+			_("The linked AI Model names no AI Provider.")
 			if cfg.get("ai_model")
-			else _("No AI Provider Credentials could be derived.")
+			else _("No AI Provider could be derived.")
 		)
-	elif not frappe.db.get_value("AI Provider Credentials", cfg.ai_provider_credentials, "enabled"):
-		errors.append(_("The linked AI Provider Credentials record is disabled."))
+	elif not frappe.db.get_value("AI Provider", cfg.ai_provider, "enabled"):
+		errors.append(_("The linked AI Provider is disabled."))
 
 	# 4. Chat-type essentials — a label, unless the agent is mapped to a
 	# non-chat process map (WI-001997: a process-embedded agent never appears
@@ -116,7 +116,7 @@ def validate_agent_config(config_name: str, test_provider: bool = True, require_
 			errors.append(_("Chat agents need a chat mode label."))
 
 	# 5. Live provider test call
-	if test_provider and cfg.ai_provider_credentials and not errors:
+	if test_provider and cfg.ai_provider and not errors:
 		ok, detail = _provider_test_call(cfg)
 		if not ok:
 			errors.append(_("Provider test call failed: {0}").format(detail))
@@ -338,9 +338,9 @@ def generate_eval_suite_for_agent(config_name: str) -> str | None:
 	# assertions — provider/model/system prompt come from the suite's agent.
 	# llm_judge still needs a judge model, and since WI-001655 that is the
 	# agent's own catalog pick: an AI Model record name, which is exactly what
-	# the judge_model Link wants. (AI Provider Credentials.default_model, which
-	# this used to read, no longer exists.)
-	judge_provider = cfg.ai_provider_credentials
+	# the judge_model Link wants. (The provider-level default_model this used to
+	# read no longer exists.)
+	judge_provider = cfg.ai_provider
 	judge_model = cfg.get("ai_model") or ""
 	for i, sample in enumerate(samples, start=1):
 		case = frappe.get_doc({

@@ -76,7 +76,7 @@
                 <select v-model="newAgent.ai_model">
                   <option value="">-- Pick a Model --</option>
                   <option v-for="m in catalogModels" :key="m.name" :value="m.name">
-                    {{ m.name }} — via {{ m.ai_provider_credentials }}
+                    {{ m.name }} — via {{ m.provider }}
                   </option>
                 </select>
               </div>
@@ -185,7 +185,7 @@
                 {{ form.aiModel }} (not in catalog)
               </option>
               <option v-for="m in catalogModels" :key="m.name" :value="m.name">
-                {{ m.name }} — via {{ m.ai_provider_credentials }}
+                {{ m.name }} — via {{ m.provider }}
               </option>
             </select>
           </div>
@@ -508,7 +508,7 @@
                 {{ form.aiMemoryDistillModel }} (not in catalog)
               </option>
               <option v-for="m in catalogModels" :key="'distill-' + m.name" :value="m.name">
-                {{ m.name }} — via {{ m.ai_provider_credentials }}
+                {{ m.name }} — via {{ m.provider }}
               </option>
             </select>
             <span class="field-hint">
@@ -531,7 +531,7 @@
                 {{ form.aiMemoryReconcileModel }} (not in catalog)
               </option>
               <option v-for="m in catalogModels" :key="'reconcile-' + m.name" :value="m.name">
-                {{ m.name }} — via {{ m.ai_provider_credentials }}
+                {{ m.name }} — via {{ m.provider }}
               </option>
             </select>
             <span class="field-hint">
@@ -1061,7 +1061,7 @@ const providerLabel = computed(() => {
 // Default Model into the Model field. Removed rather than rewritten — the
 // direction it encoded is now backwards. The MODEL is the agent's pick and the
 // provider is derived from that model's credentials link, so a provider can no
-// longer choose a model for you. AI Provider Credentials.default_model was
+// longer choose a model for you. The provider-level default_model was
 // deleted with the same change, the provider select is disabled, and nothing
 // called this function; it read a field that no longer exists.
 
@@ -1091,7 +1091,7 @@ onMounted(async () => {
   }
 
   try {
-    const data = await frappeGet("/api/resource/AI Provider Credentials", {
+    const data = await frappeGet("/api/resource/AI Provider", {
       fields: JSON.stringify(["name", "provider_name"]),
       filters: JSON.stringify([["enabled", "=", 1]]),
       limit_page_length: 100,
@@ -1107,14 +1107,14 @@ onMounted(async () => {
   // catalog rows are managed in the desk until someone links them.
   try {
     const models = await frappeGet("/api/resource/AI Model", {
-      fields: JSON.stringify(["name", "ai_provider_credentials"]),
-      filters: JSON.stringify([["ai_provider_credentials", "is", "set"]]),
+      fields: JSON.stringify(["name", "provider"]),
+      filters: JSON.stringify([["provider", "is", "set"], ["enable_model", "=", 1]]),
       limit_page_length: 100,
       order_by: "name asc",
     });
     const enabledCreds = new Set(providers.value.map((p) => p.name));
     catalogModels.value = (Array.isArray(models) ? models : []).filter(
-      (m) => enabledCreds.has(m.ai_provider_credentials)
+      (m) => enabledCreds.has(m.provider)
     );
   } catch (e) {
     catalogModels.value = [];
