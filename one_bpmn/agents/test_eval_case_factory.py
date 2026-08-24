@@ -45,8 +45,9 @@ class TestStarterAssertion(FrappeTestCase):
     def _make_model(self):
         doc = frappe.get_doc({
             "doctype": "AI Model",
+            "enable_model": 1,
             "model_name": f"_test-judge-{frappe.generate_hash(length=6)}",
-            "ai_provider": self.credentials,
+            "provider": self.credentials,
         })
         doc.flags.ignore_mandatory = True
         doc.flags.ignore_links = True

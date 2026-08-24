@@ -50,8 +50,9 @@ class TestDirectEvalModel(FrappeTestCase):
     def _make_model(self, model_id: str):
         doc = frappe.get_doc({
             "doctype": "AI Model",
+            "enable_model": 1,
             "model_name": model_id,
-            "ai_provider": self.credentials,
+            "provider": self.credentials,
         })
         doc.flags.ignore_mandatory = True
         doc.flags.ignore_links = True

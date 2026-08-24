@@ -33,7 +33,7 @@ class TestMemoryModelConfig(FrappeTestCase):
 		self._cleanup()
 		for model in (MODEL_CHAT, MODEL_DISTILL, MODEL_RECONCILE, MODEL_GLOBAL):
 			frappe.get_doc(
-				{"doctype": "AI Model", "model_name": model, "ai_provider": self.credentials}
+				{"doctype": "AI Model", "model_name": model, "provider": self.credentials}
 			).insert(ignore_permissions=True)
 		self.agent = frappe.get_doc(
 			{
@@ -367,8 +367,9 @@ class TestTheMemoryModelBringsItsOwnProvider(FrappeTestCase):
 		if not frappe.db.exists("AI Model", self.MODEL):
 			frappe.get_doc({
 				"doctype": "AI Model",
+				"enable_model": 1,
 				"model_name": self.MODEL,
-				"ai_provider": self.provider,
+				"provider": self.provider,
 			}).insert(ignore_permissions=True)
 			frappe.db.commit()
 		self.addCleanup(self._purge)

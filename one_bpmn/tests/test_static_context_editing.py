@@ -35,7 +35,7 @@ class TestStaticContextEditing(FrappeTestCase):
 	def setUp(self):
 		self._cleanup()
 		frappe.get_doc(
-			{"doctype": "AI Model", "model_name": MODEL, "ai_provider": self.credentials}
+			{"doctype": "AI Model", "model_name": MODEL, "provider": self.credentials}
 		).insert(ignore_permissions=True)
 		self.agent = frappe.get_doc(
 			{
@@ -103,7 +103,19 @@ class TestStaticContextEditing(FrappeTestCase):
 		self.assertNotIn("aiExamples", out)
 
 	def test_missing_config_reads_empty(self):
-		self.assertEqual(config_static_context("ZZ does not exist"), {})
+		"""Empty TABLES, not an empty dict — and previously neither.
+
+		This branch used to name a `doc` that does not exist in it, so asking
+		about an unknown agent raised NameError; the modal's catch turned that
+		into every section silently blank. It answers now, and it answers with
+		the keys present: the modal replaces each table whole, so a key it never
+		receives is a table it cannot render, while one it receives empty is a
+		table it can populate.
+		"""
+		self.assertEqual(
+			config_static_context("ZZ does not exist"),
+			{"aiExamples": [], "aiGuardrails": [], "aiSkills": [], "aiAgentRoles": []},
+		)
 
 	# ------------------------------------------------------------------
 	# write: what Save does

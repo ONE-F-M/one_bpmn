@@ -27,8 +27,9 @@ class TestAgentRevalidationOnSave(FrappeTestCase):
 		}).insert(ignore_permissions=True)
 		self.model = frappe.get_doc({
 			"doctype": "AI Model",
+			"enable_model": 1,
 			"model_name": f"reval-test-model-{suffix}",
-			"ai_provider": self.creds.name,
+			"provider": self.creds.name,
 		}).insert(ignore_permissions=True)
 
 	def tearDown(self):
