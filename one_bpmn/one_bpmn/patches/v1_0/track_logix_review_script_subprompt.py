@@ -2,9 +2,7 @@ import frappe
 
 SCRIPT_NAME = "Logix – Tool Review Script"
 
-# Only the import line + the turn/_cfg/_adapter setup block change — the AST
-# optimizer and security-gate logic that make up most of this script are
-# untouched.
+# Only imports + the LLM call change; the AST optimizer/security gate are untouched.
 OLD_IMPORTS = (
 	'from one_bpmn.agents.turn_state import get_turn, run_sync, update_turn\n'
 	'from one_bpmn.agents.llm_provider import get_llm_adapter_from_settings\n'

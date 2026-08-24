@@ -83,11 +83,7 @@ _CLARIFY_RESPONSE_SCHEMA = (
 
 
 def _attr(name, value):
-	# quoteattr picks whichever quote delimiter (' or ") needs the least
-	# escaping for this value and applies it correctly either way — safer
-	# here than forcing " given these values mix apostrophes (descriptions)
-	# and literal double quotes (JSON schemas), either of which a naive
-	# hand-rolled escape is liable to mangle.
+	# quoteattr picks the quote delimiter that needs the least escaping.
 	return f" spiffworkflow:{name}={_quoteattr(value)}"
 
 
@@ -128,9 +124,7 @@ FINALIZE_NEW = (
 	'turn = get_turn(context_docname)\n'
 	'_clarify_question = task_data.get("clarify_question")\n'
 	'if _clarify_question:\n'
-	'    # Relayed directly from clarify\'s own AI Agent Task result — no\n'
-	'    # turn-state round trip needed; clarify is no longer a Script Task\n'
-	'    # and never calls update_turn itself.\n'
+	'    # Relayed directly from clarify\'s AI Agent Task result, not turn state.\n'
 	'    update_turn(context_docname, output={\n'
 	'        "intent": "DISAMBIGUATE", "response": _clarify_question, "diff": None,\n'
 	'        "original_script": None, "modified_script": None,\n'

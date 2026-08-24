@@ -26,13 +26,7 @@ NEW_SETUP = (
 	'turn = get_turn(context_docname)\n'
 )
 
-# The call itself: was a direct, unlogged adapter call using the config's
-# sub_prompts dict read above. Now goes through execute_shape -> dispatch_ai_agent,
-# which creates its own tracked AI Agent Run/Step for this bpmn_id, with the
-# intent_classifier sub-prompt resolved live via aiSubPromptKey (WI: Logix
-# sub-prompt observability). No new BPMN shape — the tool descriptor passed to
-# execute_shape only needs to look like one; "classify_intent" is reused as the
-# bpmn_id so the Run is labeled the same as this Script Task.
+# Now goes through execute_shape -> dispatch_ai_agent for a tracked AI Agent Run.
 OLD_CALL = (
 	'_system = (_subs.get("intent_classifier") or {}).get("prompt") or ""\n'
 	'raw = run_sync(_adapter.complete(system=_system, user=prompt)).text\n'

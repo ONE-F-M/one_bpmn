@@ -175,11 +175,7 @@ _BPMN_TRIGGER = "one_bpmn.one_bpmn.trigger.on_doc_event"
 _BPMN_GUARD   = "one_bpmn.one_bpmn.trigger.guard_bpmn_document"
 _BPMN_DELETE  = "one_bpmn.one_bpmn.trigger.delete_linked_bpmn_instances"
 
-# Exposes the per-turn scratch store (agents/turn_state.py, Redis-backed —
-# read-only here, no DB writes) as a Jinja global, so a real (non-Script-Task)
-# AI Agent Task's aiUserPrompt template can read what a chat turn's earlier
-# stage tools produced, e.g. {{ get_turn(instance.context_docname).user_text }}.
-# Purely additive: a template that never calls it is unaffected.
+# Exposes turn_state.get_turn as a Jinja global for aiUserPrompt templates.
 jinja = {
 	"methods": [
 		"one_bpmn.agents.turn_state.get_turn",

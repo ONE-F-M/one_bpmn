@@ -444,11 +444,7 @@ function formatDateTime(d) {
 const isAiAgent = computed(() => {
 	const serviceType = props.selectedNode?.extensions?.serviceType
 	if (serviceType === "ai_agent" || serviceType === "ai_task_selector") return true
-	// A tool-call row for a shape that now dispatches its own tracked LLM
-	// call (e.g. classify_intent routing through execute_shape/dispatch_ai_agent)
-	// carries a real aiRunName even though it never gets extensions.serviceType
-	// — on the diagram it's still a plain Script Task, not a Service Task.
-	// Unlock the same tabs whenever there's an actual run to show.
+	// A Script Task that dispatches its own tracked LLM call has a real aiRunName too.
 	return Boolean(props.selectedNode?.isAiToolCall && props.selectedNode?.aiRunName)
 })
 

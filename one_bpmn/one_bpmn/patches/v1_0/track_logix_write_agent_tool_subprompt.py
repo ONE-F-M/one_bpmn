@@ -37,9 +37,7 @@ NEW_SETUP = (
 	'turn = get_turn(context_docname)\n'
 )
 
-# The role fallback (tool_writer if seeded, else script_writer) used to read
-# _subs directly; now checked with one existence query, since the sub-prompts
-# dict no longer gets loaded wholesale.
+# The role fallback now uses one existence query instead of reading _subs directly.
 OLD_CALL = (
 	'# The specialist tool_writer sub-agent owns the Agent Tool standard; fall back to\n'
 	'# the general dual-contract writer if the sub-prompt is not seeded yet.\n'

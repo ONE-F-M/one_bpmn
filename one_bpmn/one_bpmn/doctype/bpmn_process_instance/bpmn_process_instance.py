@@ -208,11 +208,7 @@ class BPMNProcessInstance(Document):
 		_script_exts = _spec_snap.get("script_task_extensions", {})
 		self._service_task_extensions = _spec_snap.get("service_task_extensions", {})
 		self._user_task_extensions = _spec_snap.get("user_task_extensions", {})
-		# Fed to the script ENGINE below via script_task_extensions=_script_exts,
-		# but a Script Task tool dispatched through shape_tools.execute_shape
-		# reads it off the INSTANCE controller instead (e.g. aiSubAgentConfig) —
-		# without this, that lookup silently sees {} on every restored request,
-		# only ever working right after start() and never again.
+		# Also refresh on the instance itself — not just fed to the script engine.
 		self._script_task_extensions = _script_exts
 		self._refresh_user_task_extensions_from_model()
 
@@ -485,11 +481,7 @@ class BPMNProcessInstance(Document):
 		_script_exts = _spec_snap.get("script_task_extensions", {})
 		self._service_task_extensions = _spec_snap.get("service_task_extensions", {})
 		self._user_task_extensions = _spec_snap.get("user_task_extensions", {})
-		# Fed to the script ENGINE below via script_task_extensions=_script_exts,
-		# but a Script Task tool dispatched through shape_tools.execute_shape
-		# reads it off the INSTANCE controller instead (e.g. aiSubAgentConfig) —
-		# without this, that lookup silently sees {} on every restored request,
-		# only ever working right after start() and never again.
+		# Also refresh on the instance itself — not just fed to the script engine.
 		self._script_task_extensions = _script_exts
 		self._refresh_user_task_extensions_from_model()
 
@@ -588,11 +580,7 @@ class BPMNProcessInstance(Document):
 		_script_exts = _spec_snap.get("script_task_extensions", {})
 		self._service_task_extensions = _spec_snap.get("service_task_extensions", {})
 		self._user_task_extensions = _spec_snap.get("user_task_extensions", {})
-		# Fed to the script ENGINE below via script_task_extensions=_script_exts,
-		# but a Script Task tool dispatched through shape_tools.execute_shape
-		# reads it off the INSTANCE controller instead (e.g. aiSubAgentConfig) —
-		# without this, that lookup silently sees {} on every restored request,
-		# only ever working right after start() and never again.
+		# Also refresh on the instance itself — not just fed to the script engine.
 		self._script_task_extensions = _script_exts
 		self._refresh_user_task_extensions_from_model()
 

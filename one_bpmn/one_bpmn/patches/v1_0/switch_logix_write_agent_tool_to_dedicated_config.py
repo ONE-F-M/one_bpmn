@@ -2,11 +2,7 @@ import frappe
 
 SCRIPT_NAME = "Logix – Tool Write Agent Tool"
 
-# The tool_writer-if-seeded-else-script_writer fallback existed only because
-# the shared Sub Prompts table might not have that row yet. The dedicated
-# Logix – Tool Writer (Agent Tools) config always exists once created, so the
-# check (and the "role" variable it fed) is dropped entirely, not just its
-# aiSubPromptKey usage.
+# The dedicated config always exists once created, so drop the seeded/unseeded fallback entirely.
 OLD = (
 	'# The specialist tool_writer sub-agent owns the Agent Tool standard; fall back to\n'
 	'# the general dual-contract writer if the sub-prompt is not seeded yet.\n'

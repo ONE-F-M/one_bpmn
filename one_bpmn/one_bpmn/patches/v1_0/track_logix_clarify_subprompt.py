@@ -28,10 +28,7 @@ NEW_SETUP = (
 	'turn = get_turn(context_docname)\n'
 )
 
-# The clarifier is the only stage tool that gives its LLM call its own nested
-# tools (list_api_server_scripts, get_server_script_meta) — those are plain
-# Python ToolSpec objects, not diagram shapes, so they ride through via
-# aiToolSpecs rather than aiToolShapes.
+# The clarifier's nested tools ride through via aiToolSpecs, not aiToolShapes.
 OLD_CALL = (
 	'_system = (_subs.get("clarifier") or {}).get("prompt") or ""\n'
 	'raw = run_sync(_adapter.complete(system=_system, user=prompt, tools=_clarifier_tools)).text\n'

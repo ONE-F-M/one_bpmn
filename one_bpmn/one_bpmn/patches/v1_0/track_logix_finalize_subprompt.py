@@ -2,10 +2,7 @@ import frappe
 
 SCRIPT_NAME = "Logix – Tool Finalize"
 
-# finalize only calls an LLM in one branch (the CREATE-with-code test-checklist
-# generator, a "bonus" that never fails the turn) — every other branch
-# (clarify passthrough, refusal, question passthrough, MODIFY diff) is purely
-# deterministic and untouched.
+# finalize only calls an LLM in one branch — the CREATE test-checklist generator.
 OLD_IMPORTS = (
 	'from one_bpmn.agents.turn_state import get_turn, run_sync, update_turn\n'
 	'from one_bpmn.agents.llm_provider import get_llm_adapter_from_settings\n'

@@ -395,14 +395,7 @@ function UserPromptComponent(props) {
 	});
 }
 
-// ---------------------------------------------------------------------------
-// Tool arguments — only relevant when THIS shape is itself one of another
-// agent's tools (a leaf inside an ad-hoc Tools sub-process, referenced via
-// that agent's aiToolsAdhoc). Declares the JSON-Schema argument set the
-// calling LLM may pass; those values become Jinja variables in this shape's
-// own aiUserPrompt (e.g. {{ user_request }}). Left blank, the shape is
-// exposed as a zero-argument tool — the calling agent has nothing to hand it.
-// ---------------------------------------------------------------------------
+// Tool arguments — only relevant when this shape is itself called as a tool.
 function ToolParamsComponent(props) {
 	const { element, id } = props;
 	const modeling  = useService("modeling");

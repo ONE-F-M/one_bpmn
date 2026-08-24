@@ -1,10 +1,6 @@
 import frappe
 
-# aiMaxTokens in these ad-hoc task_cfg dicts never actually took effect: once
-# aiAgentConfig resolves to a real config (always true now), dispatch_ai_agent
-# overlays the config's own max_tokens onto the call, overwriting whatever the
-# script set. The real value now lives on each dedicated config instead (see
-# set_logix_stage_config_max_tokens.py) — this just removes the dead line.
+# aiMaxTokens here never took effect once aiAgentConfig overlays the config's own.
 EDITS = {
 	"Logix – Tool Classify Intent": '    "aiMaxTokens": 512,\n',
 	"Logix – Tool Clarify": '    "aiMaxTokens": 512,\n',

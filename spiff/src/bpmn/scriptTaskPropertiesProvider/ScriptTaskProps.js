@@ -67,13 +67,7 @@ function ServerScriptComponent(props) {
 	);
 }
 
-// Optional: a Script Task whose own script makes an internal LLM call (e.g.
-// review_script's security-gated reviewer, finalize's test writer) can read
-// which AI Agent Configuration to use from this attribute instead of a
-// literal baked into the script. Unrelated to the engine's Server Script
-// dispatch above — purely a value the script's own code chooses to read via
-// the `ai_agent_config` local (see agents/shape_tools.py); irrelevant to
-// Script Tasks that don't call execute_shape internally.
+// Optional: lets a script's own internal LLM call pick its AI Agent Configuration.
 function fetchAgentConfigs(txt) {
 	return frappeGet("/api/resource/AI Agent Configuration", {
 		fields: '["name","agent_id"]',
@@ -107,13 +101,8 @@ function fetchAiModels(txt) {
 	});
 }
 
-// Class component, NOT a function component with hooks: this properties panel
-// is a separate bundled Preact instance (see vite.config.js's preact/hooks
-// dedupe note) and a function component's `useState` reliably crashes with
-// "Cannot read properties of undefined (reading '__H')" here — the same
-// failure mode that alias exists for, just not fully closed for hooks called
-// from app code. Every other stateful entry in this codebase (FrappeAutocomplete,
-// SendTaskProps, UserTaskProps) uses `extends Component` for exactly this reason.
+// Class component, not hooks — a separate bundled Preact instance here
+// crashes on `useState` (see vite.config.js's preact/hooks dedupe note).
 class CreateAgentConfigForm extends Component {
 	constructor(props) {
 		super(props);
@@ -128,13 +117,7 @@ class CreateAgentConfigForm extends Component {
 		};
 	}
 
-	// Reuses the same platform-wide create endpoint the real AI Agent Task's
-	// "Launch Logix" modal calls (agent_config_resolver.create_agent_configuration)
-	// rather than a bespoke insert here — same permission checks, same duplicate
-	// guard, same auto-promotion to Live for a Background config. Only the
-	// fields this narrow use case needs are collected; the modal's chat/tools/
-	// memory/screening surface would be pure noise for a script's own internal
-	// LLM call.
+	// Reuses the same create_agent_configuration endpoint the AI Agent Task modal uses.
 	submitCreate() {
 		const name = (this.state.agent_name || "").trim();
 		if (!name) {

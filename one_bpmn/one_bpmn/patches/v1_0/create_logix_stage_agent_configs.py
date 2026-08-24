@@ -3,8 +3,6 @@ import frappe
 PARENT_CONFIG = "Logix"
 
 # sub_agent_id -> new dedicated AI Agent Configuration's agent_id.
-# agent_name (and therefore the docname, via autoname field:agent_name) is
-# derived from the sub-prompt's own sub_agent_name at creation time.
 NEW_AGENT_IDS = {
 	"intent_classifier": "logix_intent_classifier",
 	"clarifier": "logix_clarifier",
