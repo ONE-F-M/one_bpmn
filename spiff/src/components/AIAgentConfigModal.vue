@@ -628,26 +628,14 @@ const roleOptions = computed(() => {
   return Array.from(new Set([...grantableRoles.value, ...held])).sort();
 });
 
-async function loadGrantableRoles() {
-  try {
-    // POST with an explicit (empty) params object, like every other method call
-    // in this file. A GET carrying no params never reached the server, and the
-    // catch below turned that into an empty picker — which looked like "you may
-    // grant nothing" rather than "the request failed".
-    const res = await frappeRequest({
-      url: "/api/method/one_bpmn.agents.agent_config_resolver.roles_available_to_grant",
-      method: "POST",
-      params: {},
-    });
-    grantableRoles.value = res?.roles || [];
-    rolesUnrestricted.value = !!res?.unrestricted;
-  } catch (e) {
-    // A picker with no options is better than a modal that will not open: the
-    // roles already granted still render, they just cannot be added to. Logged
-    // rather than swallowed, because silence is what made this hard to see.
-    console.error("Could not load the roles this user may grant", e);
-    grantableRoles.value = [];
-  }
+// The picker's options arrive on the same response as the rest of the agent, via
+// applyGrantableRoles below. They used to come from a call of their own, which
+// kept returning nothing in the browser while answering curl perfectly — and an
+// empty picker looks exactly like "you may grant nothing", which is a real
+// answer the escalation guard also gives. One response, one failure mode.
+function applyGrantableRoles(fields) {
+  grantableRoles.value = Array.isArray(fields?.aiGrantableRoles) ? fields.aiGrantableRoles : [];
+  rolesUnrestricted.value = !!fields?.aiRolesUnrestricted;
 }
 
 async function loadAgentUser(configName) {
@@ -931,6 +919,7 @@ async function loadStaticContextFromConfig() {
     form.value.aiSkills = Array.isArray(fields?.aiSkills) ? fields.aiSkills : [];
     form.value.aiGuardrails = Array.isArray(fields?.aiGuardrails) ? fields.aiGuardrails : [];
     form.value.aiAgentRoles = Array.isArray(fields?.aiAgentRoles) ? fields.aiAgentRoles : [];
+    applyGrantableRoles(fields);
     staticContextLoaded.value = true;
   } catch (e) {
     // Unreadable agent — the sections stay empty and Save leaves them alone.
@@ -1244,9 +1233,8 @@ onMounted(async () => {
   // WI-001639: the agent owns examples and guard rails — show its rows, not an
   // empty pair of sections, so Save can't write a blank static context back.
   await loadStaticContextFromConfig();
-  // WI-002054: the role picker and the agent's own address, so the permissions
-  // section can say who it is talking about and offer only grantable roles.
-  await loadGrantableRoles();
+  // WI-002054: the agent's own address, so the permissions section can say who
+  // the grant is for. The picker's options came with the config read above.
   await loadAgentUser(form.value.aiAgentConfig);
   await loadScreening();
 });
@@ -1339,6 +1327,7 @@ async function onAgentConfigSelect() {
     // screen and saving wrote them onto the new agent.
     form.value.aiSkills = Array.isArray(fields?.aiSkills) ? fields.aiSkills : [];
     form.value.aiAgentRoles = Array.isArray(fields?.aiAgentRoles) ? fields.aiAgentRoles : [];
+    applyGrantableRoles(fields);
     staticContextLoaded.value = true;
     await loadAgentUser(form.value.aiAgentConfig);
     await loadScreening();

@@ -374,10 +374,19 @@ def get_agent_config_for_shape(config_name: str) -> dict:
 	# WI-001639: the static-context tables ride along so the modal can edit
 	# them, but they stay out of config_field_map so dispatch's overlay is
 	# unchanged.
+	#
+	# WI-002054: the role picker's options ride along too, rather than the modal
+	# fetching them separately. The separate call kept coming back empty in the
+	# browser while returning 142 roles to curl, and an empty picker is
+	# indistinguishable from "you may grant nothing" — which is a real answer the
+	# guard also gives. This response already reaches the modal (the roles an
+	# agent holds render from it), so putting the options on it removes a way for
+	# half the section to fail on its own.
 	return {
 		**config_field_map(config_name),
 		**config_static_context(config_name),
 		**config_screening(config_name),
+		**roles_available_to_grant(),
 	}
 
 
@@ -408,9 +417,15 @@ def roles_available_to_grant() -> dict:
 
 	The picker and the guard read the same list on purpose — an option that
 	cannot be saved should never be offered.
+
+	Keys are prefixed the way every other shape attribute is, because this rides
+	back on ``get_agent_config_for_shape`` alongside them.
 	"""
 	frappe.has_permission("AI Agent Configuration", "read", throw=True)
-	return {"roles": grantable_roles(), "unrestricted": "System Manager" in set(frappe.get_roles())}
+	return {
+		"aiGrantableRoles": grantable_roles(),
+		"aiRolesUnrestricted": "System Manager" in set(frappe.get_roles()),
+	}
 
 
 def _refuse_roles_the_editor_does_not_hold(wanted: list[dict], current: list[dict]) -> None:
