@@ -337,6 +337,87 @@ class TestTheWorkItemTools(FrappeTestCase):
 			          {"state": "Done", "allowed_states": "Done"}, {"allowed_states": "Open"})
 
 
+class TestEveryToolHonoursTheAgentsRoles(FrappeTestCase):
+	"""The gate has to be in the TOOLS, not left to what sits underneath them.
+
+	Found while writing the test instructions, which is late but not too late.
+	Switching user and turning permissions on is not enough on its own, because
+	the things a tool calls do not all check: frappe.get_doc enforces nothing,
+	add_comment inserts its Comment with permissions ignored, and the workflow
+	helper saves with ignore_permissions=True. So an agent granted NOTHING could
+	still annotate a work item and move its state — the two most consequential of
+	the four — while the hand-back tool, which happens to call doc.save(), was
+	correctly refused. One of four enforcing is worse than none, because it looks
+	like it works.
+	"""
+
+	def tearDown(self):
+		frappe.set_user("Administrator")
+		frappe.db.rollback()
+		super().tearDown()
+
+	SCRIPTS = (
+		("Work Item Tool: What This Relates To", {}, {}),
+		("Work Item Tool: Record a Comment", {"comment": "x"}, {}),
+		("Work Item Tool: Hand Back to a Person", {"assignee": "Administrator", "reason": "x"}, {}),
+		("Work Item Tool: Move the State", {"state": "Open"}, {"allowed_states": "Open"}),
+	)
+
+	@staticmethod
+	def _run_as(user, script_name, item, args, shape_config):
+		body = frappe.db.get_value("Server Script", script_name, "script")
+		local_vars = {
+			"frappe": frappe,
+			"context_doctype": "Work Item",
+			"context_docname": item,
+			"result": {},
+			"task_data": dict(args),
+			"shape_config": dict(shape_config),
+			"bpmn_id": "test",
+			"doc": None,
+		}
+		original = frappe.session.user
+		frappe.set_user(user)
+		try:
+			exec(body, {"frappe": frappe, "__builtins__": __builtins__}, local_vars)
+		finally:
+			frappe.set_user(original)
+
+	def test_every_tool_checks_the_permission_itself(self):
+		"""All four, not just the one whose underlying call happened to check."""
+		agent = _agent()
+		item = _work_item()
+		frappe.clear_cache(user=agent.agent_user)
+		for script, args, cfg in self.SCRIPTS:
+			with self.subTest(script=script):
+				with self.assertRaises(frappe.PermissionError):
+					self._run_as(agent.agent_user, script, item, args, cfg)
+
+	def test_the_role_is_what_lets_them_through(self):
+		agent = _agent("Process Owner")
+		item = _work_item()
+		frappe.clear_cache(user=agent.agent_user)
+		for script, args, cfg in self.SCRIPTS:
+			with self.subTest(script=script):
+				# No exception is the assertion.
+				self._run_as(agent.agent_user, script, item, args, cfg)
+
+	def test_the_lookup_needs_only_read(self):
+		"""A tool that changes nothing should not demand write — but it must not
+		demand nothing either, which is what it did before."""
+		body = frappe.db.get_value("Server Script", "Work Item Tool: What This Relates To", "script")
+		self.assertIn('"read"', body)
+
+	def test_the_changing_tools_need_write(self):
+		for script in (
+			"Work Item Tool: Record a Comment",
+			"Work Item Tool: Hand Back to a Person",
+			"Work Item Tool: Move the State",
+		):
+			with self.subTest(script=script):
+				self.assertIn('"write"', frappe.db.get_value("Server Script", script, "script"))
+
+
 class TestWhatTheAgentMayNotDo(FrappeTestCase):
 	"""The denied paths, asserted on the AGENT'S roles.
 
