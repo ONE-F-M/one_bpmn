@@ -1354,6 +1354,8 @@ def dispatch_ai_agent(instance, task, task_cfg: dict, bpmn_id: str, resume_run: 
 	config = ExecutorConfig(
 		backend          = task_cfg.get("aiBackend", "direct_api"),
 		provider_name    = task_cfg.get("aiProvider", ""),
+		# The config actually resolved for this dispatch — create_ai_run's primary attribution source.
+		agent_config_name = task_cfg.get("aiAgentConfig", ""),
 		model            = task_cfg.get("aiModel", ""),
 		system_prompt    = system_prompt,
 		user_prompt      = user_prompt,
