@@ -207,6 +207,57 @@ class TestRowSync(FrappeTestCase):
 			frappe.db.get_value("BPMN Process Instance", row["name"], "completed_at")
 		)
 
+	def test_the_timestamp_moves_when_the_status_moves(self):
+		"""A run that finished must not go on reading as last-touched hours ago.
+
+		This is the defect that made a completed orchestrator look like a stuck
+		one: the status went to Completed but `modified` still showed the moment
+		the row was created, so any list sorted or filtered by Last Updated
+		presented a finished run as stale and still open.
+		"""
+		wf = _FakeWf([_call_task("call-task-1", called=self.model.process_id)])
+		CAI.sync_call_activity_instances(self.parent, wf)
+		row = self._children()[0]["name"]
+		before = frappe.db.get_value("BPMN Process Instance", row, "modified")
+
+		state = json.loads(self.parent.workflow_state)
+		state["subprocesses"]["call-task-1"]["completed"] = True
+		self.parent.workflow_state = json.dumps(state)
+		CAI.sync_call_activity_instances(self.parent, wf)
+
+		after = frappe.db.get_value("BPMN Process Instance", row, "modified")
+		self.assertGreater(after, before, "modified did not move on a real transition")
+
+	def test_the_timestamp_holds_still_while_nothing_changes(self):
+		"""The other half: the caller persists constantly, and touching this row
+		every time would make Last Updated worthless."""
+		wf = _FakeWf([_call_task("call-task-1", called=self.model.process_id)])
+		CAI.sync_call_activity_instances(self.parent, wf)
+		row = self._children()[0]["name"]
+		before = frappe.db.get_value("BPMN Process Instance", row, "modified")
+		for _ in range(3):
+			CAI.sync_call_activity_instances(self.parent, wf)
+		self.assertEqual(
+			frappe.db.get_value("BPMN Process Instance", row, "modified"), before
+		)
+
+	def test_started_at_is_when_the_call_was_seen_not_when_the_caller_began(self):
+		"""A Call Activity usually sits behind human steps, so the caller's start
+		can be hours earlier. Copying it made the called process look as though it
+		had run for the caller's whole lifetime."""
+		long_ago = "2020-01-01 00:00:00"
+		frappe.db.set_value(
+			"BPMN Process Instance", self.parent.name, "started_at", long_ago,
+			update_modified=False,
+		)
+		self.parent.started_at = long_ago
+		wf = _FakeWf([_call_task("call-task-1", called=self.model.process_id)])
+		CAI.sync_call_activity_instances(self.parent, wf)
+		started = frappe.db.get_value(
+			"BPMN Process Instance", self._children()[0]["name"], "started_at"
+		)
+		self.assertNotEqual(str(started), long_ago)
+
 	def test_a_plain_subprocess_gets_no_row(self):
 		"""Sub-Process, ad-hoc and Transaction are SubWorkflowTasks too, and none
 		of them calls another process model — a row for them would be noise."""

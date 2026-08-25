@@ -199,13 +199,22 @@ def sync_call_activity_instances(instance, wf) -> None:
 			state_json = json.dumps(projected)
 
 			if child:
+				was = frappe.db.get_value(
+					"BPMN Process Instance", child, ["status", "completed_at"], as_dict=True
+				)
 				update = {"workflow_state": state_json, "status": status}
-				if done and not frappe.db.get_value(
-					"BPMN Process Instance", child, "completed_at"
-				):
+				if done and not was.completed_at:
 					update["completed_at"] = now_datetime()
+				# Bump the timestamp only when the STATUS moves. Refreshing state on
+				# every persist of the caller would otherwise touch this row
+				# constantly and make "Last Updated" meaningless — but leaving it
+				# alone on a real transition is worse: a run that finished at 15:59
+				# went on reading as last-touched 15:45, and a list sorted or
+				# filtered by modified showed it as stale and still open. That is
+				# exactly how this row got misread as a stuck orchestrator.
+				changed = status != was.status
 				frappe.db.set_value(
-					"BPMN Process Instance", child, update, update_modified=False
+					"BPMN Process Instance", child, update, update_modified=changed
 				)
 				continue
 
@@ -217,7 +226,13 @@ def sync_call_activity_instances(instance, wf) -> None:
 			row.context_doctype = instance.context_doctype
 			row.context_docname = instance.context_docname
 			row.initiated_by = instance.initiated_by
-			row.started_at = instance.started_at or now_datetime()
+			# When WE first saw the subworkflow, not when the caller started. The
+			# caller's start can be hours earlier — a Call Activity usually sits
+			# behind human steps — and copying it made the called process look as
+			# though it had been running for the caller's whole lifetime. The sync
+			# runs on every persist, so first-observed is within one engine pass of
+			# the real thing, and it is never earlier than the truth.
+			row.started_at = now_datetime()
 			row.workflow_state = state_json
 			# The caller's spec snapshot carries the called process too, because
 			# both were parsed together — so the row can render its own diagram
