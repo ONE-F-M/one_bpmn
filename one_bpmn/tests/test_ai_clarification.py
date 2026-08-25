@@ -795,3 +795,62 @@ class TestTheClarificationMonitor(FrappeTestCase):
 					call(**kwargs)
 		finally:
 			frappe.set_user("Administrator")
+
+
+class TestTheQuestionIsSignedByTheAgent(FrappeTestCase):
+	"""Both clarification comments narrate what the AGENT did.
+
+	``add_comment`` owns a comment as the session user, which on a chat turn or a
+	form action is a person. So the thread read "You commented: Orchestrator Agent
+	asked a question and paused", and then "You commented: Question answered by
+	Administrator" — the same person credited on both sides of a conversation they
+	only took one side of.
+	"""
+
+	def tearDown(self):
+		frappe.set_user("Administrator")
+		frappe.db.rollback()
+		super().tearDown()
+
+	def _item(self):
+		source = frappe.db.get_value("Work Item", {}, "name")
+		doc = frappe.copy_doc(frappe.get_doc("Work Item", source))
+		doc.title = f"_Test clarification attribution {frappe.generate_hash(length=6)}"
+		doc.flags.ignore_permissions = True
+		doc.insert(ignore_permissions=True)
+		return doc.name
+
+	def _last_comment_owner(self, item):
+		rows = frappe.get_all(
+			"Comment",
+			filters={"reference_doctype": "Work Item", "reference_name": item,
+			         "comment_type": "Comment"},
+			fields=["owner"], order_by="creation desc", limit=1,
+		)
+		return rows[0].owner if rows else None
+
+	def test_the_comment_is_owned_by_the_agent_not_the_session_user(self):
+		from one_bpmn.agents import clarification, identity
+
+		agent = frappe.db.get_value(
+			"AI Agent Configuration", {"agent_user": ["is", "set"]}, "name")
+		if not agent:
+			self.skipTest("no agent with an identity on this site")
+		item = self._item()
+		clarification._comment("Work Item", item, "<b>asked something</b>", agent_configuration=agent)
+		self.assertEqual(self._last_comment_owner(item), identity.user_for(agent))
+		self.assertEqual(frappe.session.user, "Administrator", "the session must be put back")
+
+	def test_without_an_agent_it_still_records_the_comment(self):
+		"""Better an attributed-to-a-person comment than no record at all — the
+		question and the answer are the auditable half."""
+		from one_bpmn.agents import clarification
+
+		item = self._item()
+		clarification._comment("Work Item", item, "<b>no agent named</b>")
+		self.assertEqual(self._last_comment_owner(item), "Administrator")
+
+	def test_an_unknown_document_is_survivable(self):
+		from one_bpmn.agents import clarification
+
+		clarification._comment("Work Item", "WI-DOES-NOT-EXIST", "<b>x</b>", agent_configuration=None)

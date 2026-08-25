@@ -257,6 +257,7 @@ def record_refusal(
 				ref_doctype=ref_doctype,
 				ref_name=ref_name,
 			),
+			delegating_agent=delegating_agent,
 		)
 		return doc.name
 	except Exception:
@@ -507,7 +508,7 @@ def stopped_at_limit(
 
 		# The trail goes on first: it must survive whether or not the alert
 		# lands, and whether or not anyone opens it.
-		_comment_on_reference(ref_doctype, ref_name, message)
+		_comment_on_reference(ref_doctype, ref_name, message, delegating_agent=delegator)
 
 		told = _notify(recipient, message, a2a_task=a2a_task, delegation=name)
 		if name and told:
@@ -582,6 +583,7 @@ def _comment_on_reference(
 	ref_name: str | None,
 	message: str,
 	heading: str = "Delegation stopped at a limit",
+	delegating_agent: str | None = None,
 ) -> None:
 	"""The auditable record, on the document the work was about.
 
@@ -593,9 +595,16 @@ def _comment_on_reference(
 	try:
 		if not frappe.db.exists(ref_doctype, ref_name):
 			return
-		frappe.get_doc(ref_doctype, ref_name).add_comment(
-			"Comment", f"<b>{heading}</b><br>{message}"
-		)
+		html = f"<b>{heading}</b><br>{message}"
+		from one_bpmn.agents import identity
+
+		# Signed by the delegating agent. add_comment owns a comment as the
+		# session user, and this runs from the reconciler as well as from a
+		# turn — so the same note appeared under Administrator in one path and
+		# under whoever was logged in in the other, for something no person did.
+		if identity.comment_as(delegating_agent, ref_doctype, ref_name, html):
+			return
+		frappe.get_doc(ref_doctype, ref_name).add_comment("Comment", html)
 	except Exception:
 		frappe.log_error(
 			title="Agent Delegation: could not comment on the reference document",
@@ -775,6 +784,7 @@ def cancel(name: str, *, reason: str = "", by: str | None = None) -> dict:
 			row.worker_agent or _("The delegated agent"), detail
 		),
 		heading=_("Delegation cancelled"),
+		delegating_agent=row.delegating_agent,
 	)
 
 	woken = _wake_the_caller(row.a2a_task)
