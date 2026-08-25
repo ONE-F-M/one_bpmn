@@ -47,14 +47,32 @@ def _somebody_else():
 
 
 def _agent(*roles):
+	"""A saved agent WITH its identity, provisioned the way the process does.
+
+	Saving no longer mints the user: that moved out of
+	AI Agent Configuration.on_update into the Agent creation process, as the
+	"Provision Agent User" step, so a save is just a save. These tests are about
+	the identity itself — the address, the roles, what the tools may do with it —
+	so the helper provisions explicitly rather than relying on a side effect that
+	no longer exists. `test_a_bare_save_does_not_mint_a_user` covers the boundary.
+	"""
 	agent = make_agent_configuration()
 	agent.set("agent_roles", [])
 	for role in roles:
 		agent.append("agent_roles", {"role": role})
 	agent.flags.ignore_permissions = True
 	agent.save(ignore_permissions=True)
+	_provision(agent)
 	agent.reload()
 	return agent
+
+
+def _provision(agent):
+	"""What the map's Provision Agent User step does, in one call."""
+	email = identity.ensure_agent_user(agent)
+	if email and agent.get("agent_user") != email:
+		agent.db_set("agent_user", email, update_modified=False)
+	return email
 
 
 class TestTheAgentHasAnIdentity(FrappeTestCase):
@@ -62,7 +80,38 @@ class TestTheAgentHasAnIdentity(FrappeTestCase):
 		frappe.db.rollback()
 		super().tearDown()
 
-	def test_saving_an_agent_gives_it_a_user(self):
+	def test_a_bare_save_does_not_mint_a_user(self):
+		"""The identity is the process's to create, not a save's side effect.
+
+		It used to be provisioned in on_update, so writing a configuration
+		created a User. That hid a real action inside a database write and put
+		it out of reach of the process that owns agent creation. The Agent
+		creation map now has a "Provision Agent User" step, which also runs on
+		its edited-config loop so a role change still reaches the user.
+		"""
+		agent = make_agent_configuration()
+		agent.flags.ignore_permissions = True
+		agent.save(ignore_permissions=True)
+		agent.reload()
+		self.assertFalse(
+			agent.get("agent_user"),
+			"saving provisioned an identity — that belongs to the creation process",
+		)
+
+	def test_the_process_step_provisions_it(self):
+		"""The other half: what the map's step does when it runs."""
+		agent = make_agent_configuration()
+		agent.flags.ignore_permissions = True
+		agent.save(ignore_permissions=True)
+
+		email = _provision(agent)
+
+		agent.reload()
+		self.assertTrue(email)
+		self.assertEqual(agent.agent_user, email)
+		self.assertTrue(frappe.db.exists("User", email))
+
+	def test_a_provisioned_agent_has_a_user(self):
 		agent = _agent()
 		self.assertTrue(agent.agent_user)
 		self.assertTrue(frappe.db.exists("User", agent.agent_user))
@@ -146,6 +195,7 @@ class TestTheAgentHasAnIdentity(FrappeTestCase):
 		agent.set("agent_roles", [])
 		agent.flags.ignore_permissions = True
 		agent.save(ignore_permissions=True)
+		_provision(agent)  # the edited-config loop reaches the same step
 		roles = {r.role for r in frappe.get_doc("User", agent.agent_user).roles} - {"All", "Guest"}
 		self.assertEqual(roles, set())
 
@@ -159,6 +209,7 @@ class TestTheAgentHasAnIdentity(FrappeTestCase):
 		user.save(ignore_permissions=True)
 		agent.flags.ignore_permissions = True
 		agent.save(ignore_permissions=True)
+		_provision(agent)  # the edited-config loop reaches the same step
 		roles = {r.role for r in frappe.get_doc("User", agent.agent_user).roles} - {"All", "Guest"}
 		self.assertEqual(roles, {"Process Owner"})
 
@@ -601,6 +652,7 @@ class TestWhatTheAgentMayNotDo(FrappeTestCase):
 		agent.set("agent_roles", [])
 		agent.flags.ignore_permissions = True
 		agent.save(ignore_permissions=True)
+		_provision(agent)  # the edited-config loop reaches the same step
 		frappe.clear_cache(user=agent.agent_user)
 		self.assertFalse(
 			frappe.has_permission("Work Item", "write", doc=item, user=agent.agent_user),
