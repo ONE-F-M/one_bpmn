@@ -99,3 +99,4 @@ one_bpmn.one_bpmn.patches.v1_0.add_required_capability_to_a2a_connector #23-08-2
 one_bpmn.one_bpmn.patches.v1_0.provision_agent_users #23-08-2026 WI-002054 every agent gets the identity its tools now run as; no roles granted, that is a decision
 one_bpmn.one_bpmn.patches.v1_0.migrate_to_ai_provider_and_model #24-08-2026 WI-002134 credentials + rate card fold into AI Provider and AI Model; old doctypes dropped last so a failure is re-runnable
 one_bpmn.one_bpmn.patches.v1_0.seed_missing_model_rates #24-08-2026 WI-002134 five enabled models had no rate, so a fifth of all traffic reported as free; fills only what is empty
+one_bpmn.one_bpmn.patches.v1_0.migrate_ai_chat_settings_to_processa_settings #24-08-2026 WI-002140 AI Chat Settings retirement: observability/Langfuse/token-estimator/LLM-default fields fold into Processa Settings
