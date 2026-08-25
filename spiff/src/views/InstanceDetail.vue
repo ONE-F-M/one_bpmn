@@ -394,12 +394,21 @@ const aiRunTick = ref(0)
 
 async function loadAiToolCalls() {
 	try {
+		// A Call Activity runs the called process as a SUBWORKFLOW of its caller,
+		// so an agent task inside the called process records its run against the
+		// CALLER's instance. Its bpmn_id is a shape of the called diagram, which
+		// means that run is currently invisible on both pages: absent from this
+		// one, and not a shape on the caller's. Look at the caller too when this
+		// row is a called process, and let the shape filter below decide what
+		// actually belongs here.
+		const instanceScope = [instanceId.value]
+		if (details.value?.parent_instance) instanceScope.push(details.value.parent_instance)
 		const runs = await frappeRequest({
 			url: "/api/method/frappe.client.get_list",
 			params: {
 				doctype: "AI Agent Run",
 				fields: JSON.stringify(["name", "bpmn_id", "started_at"]),
-				filters: JSON.stringify([["instance", "=", instanceId.value]]),
+				filters: JSON.stringify([["instance", "in", instanceScope]]),
 				order_by: "started_at asc",
 				limit_page_length: 0,
 			},
@@ -475,14 +484,35 @@ async function loadAiToolCalls() {
 
 // Diagram highlight: toolbox shapes the agent actually called (WI-001426).
 // bpmnId → "Success" | "Error" (an Error anywhere wins for that shape).
+// Shape ids present in the diagram currently on screen. Used to keep a caller's
+// tool calls off a called process's page and vice versa. Derived from the XML
+// rather than checked at fetch time because the XML and the tool calls load
+// independently — a fetch-time check would race and silently drop everything
+// whenever the calls came back first.
+const diagramShapeIds = computed(() => {
+	const ids = new Set()
+	const text = bpmnXml.value || ""
+	const re = /\sid="([^"]+)"/g
+	let m
+	while ((m = re.exec(text)) !== null) ids.add(m[1])
+	return ids
+})
+
 const aiCalledTools = computed(() => {
 	// {tool_name: {status, count}} — status is "Error" if ANY call errored;
 	// count is the number of times the agent called this tool (drives the
 	// ×N badge on the tool shape).
+	//
+	// A tool's name IS its shape id, so anything not in this diagram belongs to
+	// another one — the caller's own toolbox, when this row is a called process.
+	// Without the check a caller's tool counts would leak onto this page and land
+	// on any shape whose id happened to match.
+	const shapes = diagramShapeIds.value
 	const map = {}
 	for (const runs of Object.values(aiCallRunsByBpmnId.value)) {
 		for (const slot of runs) {
 			for (const c of slot.calls || []) {
+				if (shapes.size && !shapes.has(c.tool_name)) continue
 				const entry = map[c.tool_name] || (map[c.tool_name] = { status: c.status, count: 0 })
 				entry.count += 1
 				if (c.status === "Error") entry.status = "Error"
