@@ -152,6 +152,7 @@ class BPMNProcessInstance(Document):
 		bpmn_engine.clean_doc_from_wf_data(wf)
 		self.workflow_state = json.dumps(bpmn_engine.serialize_workflow(wf))
 		self.serialized_spec = model.serialized_spec  # snapshot of spec at start time
+		self._sync_call_activity_rows(wf)
 		self.status = "Active"
 		self.started_at = now_datetime()
 		self.initiated_by = frappe.session.user
@@ -295,6 +296,7 @@ class BPMNProcessInstance(Document):
 		# Strip non-serializable Frappe doc objects before persisting state
 		bpmn_engine.clean_doc_from_wf_data(wf)
 		self.workflow_state = json.dumps(bpmn_engine.serialize_workflow(wf))
+		self._sync_call_activity_rows(wf)
 
 		# Rebuild active tasks
 		self._sync_active_tasks(wf, prev_assigned=prev_assigned)
@@ -540,6 +542,7 @@ class BPMNProcessInstance(Document):
 		# ── Persist (same as advance) ────────────────────────────────────────
 		bpmn_engine.clean_doc_from_wf_data(wf)
 		self.workflow_state = json.dumps(bpmn_engine.serialize_workflow(wf))
+		self._sync_call_activity_rows(wf)
 
 		self._sync_active_tasks(wf, prev_assigned=prev_assigned)
 		self._check_completion(wf)
@@ -674,6 +677,7 @@ class BPMNProcessInstance(Document):
 		# ── Persist (same as advance) ────────────────────────────────────────
 		bpmn_engine.clean_doc_from_wf_data(wf)
 		self.workflow_state = json.dumps(bpmn_engine.serialize_workflow(wf))
+		self._sync_call_activity_rows(wf)
 
 		self._sync_active_tasks(wf, prev_assigned=prev_assigned)
 		self._check_completion(wf)
@@ -1842,6 +1846,25 @@ class BPMNProcessInstance(Document):
 			dispatch_ai_agent(self, task, task_cfg, bpmn_id)
 
 		return True  # default: complete the task
+
+	def _sync_call_activity_rows(self, wf) -> None:
+		"""Keep a visible Process Instance row for each Call Activity this run makes.
+
+		A called process executes as a subworkflow of this instance, so without
+		this it has no run of its own to open — Software Development had produced
+		1,913 runs and one single Orchestrator Agent instance. The row is a
+		projection of state this instance has just persisted, so it adds a record
+		and never a second execution.
+
+		Called after the state assignment rather than folded into it, because in
+		``start()`` the row copies ``serialized_spec`` and that is assigned on the
+		following line.
+		"""
+		from one_bpmn.one_bpmn.doctype.bpmn_process_instance.call_activity_instances import (
+			sync_call_activity_instances,
+		)
+
+		sync_call_activity_instances(self, wf)
 
 	def _sync_active_tasks(self, wf, prev_assigned=None):
 		"""
