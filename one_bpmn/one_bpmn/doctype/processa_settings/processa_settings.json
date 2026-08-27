@@ -37,6 +37,7 @@
   "default_memory_distill_model",
   "column_break_ai_memory",
   "default_memory_reconcile_model",
+  "default_compaction_model",
   "llm_defaults_tab",
   "default_llm_provider",
   "openai_search_context",
@@ -262,7 +263,7 @@
   },
   {
    "collapsible": 1,
-   "description": "Site-wide defaults for the models that write long-term memory. An agent's own Memory Models override these; with both blank, memory writes use the agent's own AI Model, exactly as before.",
+   "description": "Site-wide defaults for the models that write long-term memory and compact conversations. An agent's own Memory Models override these; with all blank, memory writes use the agent's own AI Model, exactly as before.",
    "fieldname": "section_break_ai_memory",
    "fieldtype": "Section Break",
    "label": "AI Memory"
@@ -283,6 +284,13 @@
    "fieldname": "default_memory_reconcile_model",
    "fieldtype": "Link",
    "label": "Default Reconciliation Model",
+   "options": "AI Model"
+  },
+  {
+   "description": "Used when nothing else names a model for summarising the early part of a conversation. Summarising is high-volume and low-stakes, so this should be the cheap model \u2014 left blank, compaction uses whatever the caller passes and, failing that, does nothing rather than bill the agent's own reasoning model for it.",
+   "fieldname": "default_compaction_model",
+   "fieldtype": "Link",
+   "label": "Default Compaction Model",
    "options": "AI Model"
   },
   {

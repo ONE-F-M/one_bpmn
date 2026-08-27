@@ -116,6 +116,71 @@ class ContextWindowPolicy:
 		return messages[-self.max_messages:]
 
 
+@dataclass
+class SummarizingWindowPolicy(ContextWindowPolicy):
+	"""Keep-last-N, but with the dropped head replaced by a summary of it.
+
+	The plain ``ContextWindowPolicy`` above drops old messages and says nothing
+	about them, so a long conversation loses its own beginning: the model stops
+	being able to answer "what did we decide earlier". This policy spends one
+	message slot on a summary of everything it dropped, so the thread stays
+	coherent at the same message count.
+
+	It is deliberately a PURE function of its inputs, exactly like its parent —
+	``summary`` is passed in, never fetched. Reading the stored summary is the
+	caller's job (see ``agents/memory/compaction.build_history``), which keeps
+	this class testable without a database and keeps the one module that talks
+	to the Chat Conversation Summary doctype in one place.
+
+	With ``summary`` unset it behaves exactly like ``ContextWindowPolicy``, so
+	it is safe to configure before the first compaction has ever run.
+
+	``summary_role`` is a parameter rather than a constant because providers
+	disagree about a mid-thread ``system`` message and about two consecutive
+	messages sharing a role. "user" is right for the OpenAI- and Gemini-shaped
+	paths the chat maps use today; a stricter provider can be accommodated
+	without touching this logic.
+	"""
+
+	summary: str | None = None
+	summary_role: str = "user"
+	summary_header: str = "Summary of the earlier conversation:"
+
+	def apply(self, messages: list[dict]) -> list[dict]:
+		summary = (self.summary or "").strip()
+		if not summary:
+			return super().apply(messages)
+
+		messages = list(messages or [])
+		if not self.max_messages:
+			return [self._summary_message(summary)] + messages
+
+		system = None
+		rest = messages
+		if self.retain_system_prompt:
+			for i, m in enumerate(messages):
+				if (m or {}).get("role") == "system":
+					system = m
+					rest = messages[:i] + messages[i + 1:]
+					break
+
+		# The summary occupies a slot, and so does the system prompt when kept —
+		# otherwise adding a summary would quietly raise the real message count
+		# above the budget the caller set, which is the opposite of the point.
+		reserved = 1 + (1 if system is not None else 0)
+		keep = max(self.max_messages - reserved, 0)
+		tail = rest[-keep:] if keep > 0 else []
+
+		head = [system] if system is not None else []
+		return head + [self._summary_message(summary)] + tail
+
+	def _summary_message(self, summary: str) -> dict:
+		return {
+			"role": self.summary_role,
+			"content": f"{self.summary_header}\n{summary}",
+		}
+
+
 # ── Interface ───────────────────────────────────────────────────────────────
 class ConversationStore(abc.ABC):
 	"""Single interface every backend implements.
