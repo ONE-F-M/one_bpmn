@@ -2,7 +2,9 @@
 	<div class="h-full flex flex-col bg-gray-50">
 		<!-- Header -->
 		<header class="bg-white border-b px-6 py-4 flex items-center justify-between">
-			<h1 class="text-xl font-semibold text-gray-900">Process Instances</h1>
+			<h1 class="text-xl font-semibold text-gray-900">
+				Process Instances ({{ instanceCount }})
+			</h1>
 			<a
 				href="/app/processa"
 				class="flex items-center gap-2 px-3 py-1.5 text-sm font-medium text-gray-700 bg-white border border-gray-300 rounded-md hover:bg-gray-50 transition-colors"
@@ -37,12 +39,13 @@
 						class="w-72 justify-between bg-gray-100 hover:bg-gray-200 border-none"
 						@click="togglePopover"
 					>
-
-						<span class="truncate text-gray-700 font-normal">{{ contextPlaceholder }}</span>
+						<span class="truncate text-gray-700 font-normal">{{
+							contextPlaceholder
+						}}</span>
 						<template #suffix>
 							<div class="flex items-center gap-1">
-								<div 
-									v-if="activeContext.doctype || activeContext.docname" 
+								<div
+									v-if="activeContext.doctype || activeContext.docname"
 									class="p-1 hover:bg-gray-300 rounded-full transition-colors"
 									@click.stop="resetContext"
 								>
@@ -54,15 +57,22 @@
 					</Button>
 				</template>
 				<template #body="{ togglePopover }">
-					<div class="p-2 w-72 bg-white shadow-2xl border border-gray-200 rounded-lg mt-1 z-50">
-						<div v-if="activeContext.doctype" class="mb-2 px-2 py-1.5 bg-blue-50 text-blue-700 text-xs font-semibold rounded flex items-center justify-between">
+					<div
+						class="p-2 w-72 bg-white shadow-2xl border border-gray-200 rounded-lg mt-1 z-50"
+					>
+						<div
+							v-if="activeContext.doctype"
+							class="mb-2 px-2 py-1.5 bg-blue-50 text-blue-700 text-xs font-semibold rounded flex items-center justify-between"
+						>
 							<span class="truncate">{{ activeContext.doctype.label }}</span>
 							<FeatherIcon name="arrow-right" class="w-3 h-3 mx-1 opacity-50" />
 							<span class="text-gray-500 font-normal">Select Document</span>
 						</div>
 						<TextInput
 							v-model="contextQuery"
-							:placeholder="activeContext.doctype ? 'Search document...' : 'Search DocType...'"
+							:placeholder="
+								activeContext.doctype ? 'Search document...' : 'Search DocType...'
+							"
 							class="mb-2"
 							@input="debouncedFetch"
 						>
@@ -78,9 +88,20 @@
 								@click="onContextSelect(opt, togglePopover)"
 							>
 								<span class="truncate">{{ opt.label }}</span>
-								<FeatherIcon v-if="(activeContext.docname?.value === opt.value) || (!activeContext.docname && activeContext.doctype?.value === opt.value)" name="check" class="w-3 h-3 text-blue-500" />
+								<FeatherIcon
+									v-if="
+										activeContext.docname?.value === opt.value ||
+										(!activeContext.docname &&
+											activeContext.doctype?.value === opt.value)
+									"
+									name="check"
+									class="w-3 h-3 text-blue-500"
+								/>
 							</div>
-							<div v-if="contextOptions.length === 0" class="p-4 text-center text-gray-400 text-sm italic">
+							<div
+								v-if="contextOptions.length === 0"
+								class="p-4 text-center text-gray-400 text-sm italic"
+							>
 								No results found
 							</div>
 						</div>
@@ -125,12 +146,17 @@
 			</div>
 
 			<!-- Empty State -->
-			<div v-else-if="instances.length === 0" class="flex flex-col items-center justify-center h-64 text-center">
+			<div
+				v-else-if="instances.length === 0"
+				class="flex flex-col items-center justify-center h-64 text-center"
+			>
 				<div class="text-gray-400 mb-4">
 					<Icon icon="lucide:layout-list" class="w-16 h-16 mx-auto" />
 				</div>
 				<h3 class="text-lg font-medium text-gray-900 mb-1">No Instances Found</h3>
-				<p class="text-gray-500 mb-4">Try adjusting your filters or start a new process.</p>
+				<p class="text-gray-500 mb-4">
+					Try adjusting your filters or start a new process.
+				</p>
 			</div>
 
 			<!-- Mobile Card Layout -->
@@ -143,8 +169,14 @@
 						class="bg-white rounded-lg shadow-sm p-4 active:bg-gray-50 transition-colors cursor-pointer"
 					>
 						<div class="flex items-center justify-between mb-2">
-							<span class="text-sm font-medium text-gray-900 truncate">{{ row.process_model || '-' }}</span>
-							<Badge :theme="getStatusTheme(row.status)" :label="row.status || 'Unknown'" size="sm" />
+							<span class="text-sm font-medium text-gray-900 truncate">{{
+								row.process_model || "-"
+							}}</span>
+							<Badge
+								:theme="getStatusTheme(row.status)"
+								:label="row.status || 'Unknown'"
+								size="sm"
+							/>
 						</div>
 						<div v-if="row.context_docname" class="mb-1.5">
 							<a
@@ -155,7 +187,9 @@
 								{{ row.context_doctype }} - {{ row.context_docname }}
 							</a>
 						</div>
-						<div v-if="row.current_step" class="text-xs text-gray-500 mb-1">Step: {{ row.current_step }}</div>
+						<div v-if="row.current_step" class="text-xs text-gray-500 mb-1">
+							Step: {{ row.current_step }}
+						</div>
 						<div class="flex items-center justify-between text-xs text-gray-400">
 							<span v-if="row.initiated_by">{{ row.initiated_by }}</span>
 							<span v-if="row.started_at">{{ formatDateTime(row.started_at) }}</span>
@@ -205,7 +239,9 @@
 					<template #cell="{ item, row, column }">
 						<!-- Process Model column -->
 						<template v-if="column.key === 'process_model'">
-							<span class="text-sm font-medium text-gray-900">{{ item || '-' }}</span>
+							<span class="text-sm font-medium text-gray-900">{{
+								item || "-"
+							}}</span>
 						</template>
 
 						<!-- Status column -->
@@ -216,7 +252,8 @@
 									v-if="row.waiting_for_ai"
 									class="inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] font-semibold bg-purple-100 text-purple-700"
 									title="Waiting for AI execution"
-								>✦ AI</span>
+									>✦ AI</span
+								>
 							</span>
 						</template>
 
@@ -250,7 +287,7 @@
 
 						<!-- Default fallback -->
 						<template v-else>
-							<span class="text-sm text-gray-600">{{ item || '-' }}</span>
+							<span class="text-sm text-gray-600">{{ item || "-" }}</span>
 						</template>
 					</template>
 				</ListView>
@@ -261,11 +298,7 @@
 						Showing {{ limitStart + 1 }} to {{ limitStart + instances.length }}
 					</div>
 					<div class="flex items-center gap-2">
-						<Button
-							variant="outline"
-							:disabled="limitStart === 0"
-							@click="prevPage"
-						>
+						<Button variant="outline" :disabled="limitStart === 0" @click="prevPage">
 							Previous
 						</Button>
 						<Button
@@ -283,60 +316,64 @@
 </template>
 
 <script setup>
-import { ref, onMounted, computed, watch } from "vue"
-import { useRouter } from "vue-router"
-import { 
-	frappeRequest, 
-	Button, 
+import { ref, onMounted, computed, watch } from "vue";
+import { useRouter } from "vue-router";
+import {
+	frappeRequest,
+	Button,
 	TextInput,
 	Popover,
 	FormControl,
 	Badge,
 	Avatar,
 	ListView,
-	FeatherIcon
-} from "frappe-ui"
-import { Icon } from "@iconify/vue"
-import { dayjs } from "@/dayjs"
-import { useWindowSize } from "@/composables/useWindowSize"
-import UserFilter from "@/components/UserFilter.vue"
+	FeatherIcon,
+} from "frappe-ui";
+import { Icon } from "@iconify/vue";
+import { dayjs } from "@/dayjs";
+import { useWindowSize } from "@/composables/useWindowSize";
+import UserFilter from "@/components/UserFilter.vue";
 
-const { isMobile } = useWindowSize()
+const { isMobile } = useWindowSize();
 
-const router = useRouter()
-const instances = ref([])
-const loading = ref(true)
+const router = useRouter();
+const instances = ref([]);
+const loading = ref(true);
+
+// Header count: derived from the already-loaded instances list so it
+// tracks whatever filter/pagination state currently backs the table,
+// with no extra API call.
+const instanceCount = computed(() => instances.value.length);
 
 // Pagination state
-const limitStart = ref(0)
-const limitPageLength = ref(20)
+const limitStart = ref(0);
+const limitPageLength = ref(20);
 
 // Coerce limitPageLength to a number (FormControl select can set it as a string)
-const pageLengthNum = computed(() => Number(limitPageLength.value))
+const pageLengthNum = computed(() => Number(limitPageLength.value));
 
 // Filters state
 const filters = ref({
 	process_model: "",
 	status: "",
-})
+});
 
 // User filters — each holds the selected { label, value } option or null.
 // initiated_by is a field on the instance; pending_action_by is derived from
 // the active task rows on the backend, so it travels as its own parameter.
-const initiatedBy = ref(null)
-const pendingActionBy = ref(null)
+const initiatedBy = ref(null);
+const pendingActionBy = ref(null);
 
 // Unified Context State
-const activeContext = ref({ doctype: null, docname: null })
-const contextOptions = ref([])
-const contextQuery = ref("")
+const activeContext = ref({ doctype: null, docname: null });
+const contextOptions = ref([]);
+const contextQuery = ref("");
 
 const contextPlaceholder = computed(() => {
-	if (!activeContext.value.doctype) return "Filter by Context..."
-	if (!activeContext.value.docname) return `${activeContext.value.doctype.label}...`
-	return `${activeContext.value.doctype.label}: ${activeContext.value.docname.label}`
-})
-
+	if (!activeContext.value.doctype) return "Filter by Context...";
+	if (!activeContext.value.docname) return `${activeContext.value.doctype.label}...`;
+	return `${activeContext.value.doctype.label}: ${activeContext.value.docname.label}`;
+});
 
 const statusOptions = [
 	{ label: "All Statuses", value: "" },
@@ -344,7 +381,7 @@ const statusOptions = [
 	{ label: "Completed", value: "Completed" },
 	{ label: "Errored", value: "Errored" },
 	{ label: "Cancelled", value: "Cancelled" },
-]
+];
 
 // Column definitions for ListView
 const columns = computed(() => [
@@ -354,29 +391,29 @@ const columns = computed(() => [
 	{ label: "Current Step", key: "current_step", width: 2 },
 	{ label: "Started At", key: "started_at", width: "180px" },
 	{ label: "Initiated By", key: "initiated_by", width: "180px" },
-])
+]);
 
 onMounted(async () => {
-	await loadInstances()
-	fetchContextOptions()
-})
+	await loadInstances();
+	fetchContextOptions();
+});
 
-const debounceFilter = ref(null)
-const fetchTimeout = ref(null)
+const debounceFilter = ref(null);
+const fetchTimeout = ref(null);
 
 function applyFilters() {
-	if (debounceFilter.value) clearTimeout(debounceFilter.value)
+	if (debounceFilter.value) clearTimeout(debounceFilter.value);
 	debounceFilter.value = setTimeout(() => {
-		limitStart.value = 0
-		loadInstances()
-	}, 300)
+		limitStart.value = 0;
+		loadInstances();
+	}, 300);
 }
 
 function debouncedFetch() {
-	if (fetchTimeout.value) clearTimeout(fetchTimeout.value)
+	if (fetchTimeout.value) clearTimeout(fetchTimeout.value);
 	fetchTimeout.value = setTimeout(() => {
-		fetchContextOptions(contextQuery.value)
-	}, 300)
+		fetchContextOptions(contextQuery.value);
+	}, 300);
 }
 
 async function fetchContextOptions(query = "") {
@@ -384,90 +421,89 @@ async function fetchContextOptions(query = "") {
 		if (!activeContext.value.doctype) {
 			const response = await frappeRequest({
 				url: "/api/method/one_bpmn.api.utils.get_context_doctypes",
-				params: { query }
-			})
-			contextOptions.value = response || []
+				params: { query },
+			});
+			contextOptions.value = response || [];
 		} else {
 			const response = await frappeRequest({
 				url: "/api/method/one_bpmn.api.utils.get_context_documents",
-				params: { 
+				params: {
 					doctype: activeContext.value.doctype.value,
-					query 
-				}
-			})
-			contextOptions.value = response || []
+					query,
+				},
+			});
+			contextOptions.value = response || [];
 		}
 	} catch (error) {
-		console.error("Failed to fetch context options:", error)
+		console.error("Failed to fetch context options:", error);
 	}
 }
 
 function onContextSelect(option, togglePopover) {
-	if (!option || !option.value) return
+	if (!option || !option.value) return;
 
 	if (!activeContext.value.doctype) {
 		// Level 1 selection: DocType
-		activeContext.value.doctype = option
-		contextQuery.value = "" // Clear search for next level
-		fetchContextOptions() // Load documents
-		applyFilters() // Filter by DocType
+		activeContext.value.doctype = option;
+		contextQuery.value = ""; // Clear search for next level
+		fetchContextOptions(); // Load documents
+		applyFilters(); // Filter by DocType
 		// We do NOT call togglePopover() here to keep it open
 	} else {
 		// Level 2 selection: Document
-		activeContext.value.docname = option
-		applyFilters() // Filter by specific document
-		togglePopover() // Close the popover on final selection
+		activeContext.value.docname = option;
+		applyFilters(); // Filter by specific document
+		togglePopover(); // Close the popover on final selection
 	}
 }
 
 function resetContext() {
-	activeContext.value = { doctype: null, docname: null }
-	contextQuery.value = ""
-	fetchContextOptions()
-	applyFilters()
+	activeContext.value = { doctype: null, docname: null };
+	contextQuery.value = "";
+	fetchContextOptions();
+	applyFilters();
 }
 
-
 function changePageSize() {
-	limitStart.value = 0
-	loadInstances()
+	limitStart.value = 0;
+	loadInstances();
 }
 
 function prevPage() {
 	if (limitStart.value > 0) {
-		limitStart.value = Math.max(0, limitStart.value - pageLengthNum.value)
-		loadInstances()
+		limitStart.value = Math.max(0, limitStart.value - pageLengthNum.value);
+		loadInstances();
 	}
 }
 
 function nextPage() {
 	if (instances.value.length >= pageLengthNum.value) {
-		limitStart.value += pageLengthNum.value
-		loadInstances()
+		limitStart.value += pageLengthNum.value;
+		loadInstances();
 	}
 }
 
 async function loadInstances() {
-	loading.value = true
+	loading.value = true;
 	try {
 		// Build frappe API filters
-		const apiFilters = {}
+		const apiFilters = {};
 		if (filters.value.process_model) {
-			apiFilters.process_model = ["like", `%${filters.value.process_model}%`]
+			apiFilters.process_model = ["like", `%${filters.value.process_model}%`];
 		}
 		if (filters.value.status) {
-			apiFilters.status = filters.value.status
+			apiFilters.status = filters.value.status;
 		}
-		
+
 		// Apply context filters from unified state
 		if (activeContext.value.doctype) {
-			apiFilters.context_doctype = activeContext.value.doctype.value
+			apiFilters.context_doctype = activeContext.value.doctype.value;
 		}
 		if (activeContext.value.docname) {
-			apiFilters.context_docname = activeContext.value.docname.value
+			apiFilters.context_docname = activeContext.value.docname.value;
 		}
 		if (initiatedBy.value?.value) {
-			apiFilters.initiated_by = initiatedBy.value.value
+			apiFilters.initiated_by = initiatedBy.value.value;
 		}
 
 		// Use custom endpoint to fetch joined current_step data
@@ -479,43 +515,48 @@ async function loadInstances() {
 				limit_start: limitStart.value,
 				limit_page_length: pageLengthNum.value,
 				order_by: "creation desc",
-				pending_action_by: pendingActionBy.value?.value || ""
-			}
-		})
-		
-		instances.value = response || []
+				pending_action_by: pendingActionBy.value?.value || "",
+			},
+		});
+
+		instances.value = response || [];
 	} catch (error) {
-		console.error("Failed to load instances:", error)
-		instances.value = []
+		console.error("Failed to load instances:", error);
+		instances.value = [];
 	} finally {
-		loading.value = false
+		loading.value = false;
 	}
 }
 
 function openInstance(name) {
-	router.push({ name: "InstanceDetail", params: { instance: name } })
+	router.push({ name: "InstanceDetail", params: { instance: name } });
 }
 
 function getContextDocumentLink(row) {
 	if (row.context_doctype && row.context_docname) {
-		return `/app/${row.context_doctype.toLowerCase().replace(/ /g, '-')}/${row.context_docname}`
+		return `/app/${row.context_doctype.toLowerCase().replace(/ /g, "-")}/${row.context_docname}`;
 	}
-	return "#"
+	return "#";
 }
 
 function getStatusTheme(status) {
 	switch (status) {
-		case "Completed": return "green"
-		case "Active": return "blue"
-		case "Errored": return "red"
-		case "Cancelled": return "gray"
-		default: return "gray"
+		case "Completed":
+			return "green";
+		case "Active":
+			return "blue";
+		case "Errored":
+			return "red";
+		case "Cancelled":
+			return "gray";
+		default:
+			return "gray";
 	}
 }
 
 function formatDateTime(dateStr) {
-	if (!dateStr) return ""
-	return dayjs(dateStr).format("DD-MM-YYYY hh:mm A")
+	if (!dateStr) return "";
+	return dayjs(dateStr).format("DD-MM-YYYY hh:mm A");
 }
 </script>
 
@@ -534,4 +575,3 @@ function formatDateTime(dateStr) {
 	background: #ccc;
 }
 </style>
-
