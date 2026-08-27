@@ -14,8 +14,10 @@ useful:
     overwrites that file
   * a candidate file is actually compiled even when nothing imports it yet
   * generated markup carrying eval, v-html or a credential never reaches delivery
-  * the house rubric judges the CHANGE, not the file, so editing an old component
-    does not drag its pre-existing violations into the diff
+  * both the malice screen and the house rubric judge the CHANGE, not the file, so
+    editing an old component does not drag its pre-existing violations into the diff
+  * an app that is not ours can be neither staged nor delivered into
+  * a desk script's hooks.py registration is spliced, never regenerated
 
 The build cases shell out to Vite and take about half a minute each, so they are
 marked and skipped unless the SPA's node_modules is present.
@@ -118,6 +120,142 @@ class TestScreening(unittest.TestCase):
 		)
 		self.assertFalse(out["ok"])
 		self.assertIn("more than one app", out["error"])
+
+
+class TestAppRouting(unittest.TestCase):
+	"""Ours is editable in place; upstream is customised from one_fm instead."""
+
+	def test_our_apps_are_owned(self):
+		for app in ("one_fm", "one_bpmn"):
+			self.assertTrue(authoring.app_ownership(app)["owned"], app)
+
+	def test_upstream_apps_are_not(self):
+		for app in ("frappe", "erpnext", "hrms"):
+			own = authoring.app_ownership(app)
+			self.assertFalse(own["owned"], app)
+			self.assertIn("not to us", own["reason"])
+
+	def test_an_upstream_doctype_routes_to_the_customisation_app(self):
+		route = authoring.change_route("erpnext", "Employee")
+		self.assertEqual(route["route"], "customisation")
+		self.assertEqual(route["app"], authoring.customization_app())
+		self.assertEqual(route["file"], "one_fm/one_fm/public/js/doctype_js/employee.js")
+		self.assertEqual(route["hook"]["key"], "Employee")
+
+	def test_our_own_doctype_is_changed_in_place(self):
+		self.assertEqual(authoring.change_route("one_bpmn", "BPMN Process Model")["route"], "in_place")
+
+	def test_locate_ui_says_where_to_change_an_upstream_screen(self):
+		found = authoring.locate_ui("Employee")
+		if not found.get("doctype_exists"):
+			self.skipTest("Employee is not installed")
+		self.assertEqual(found["owning_app"], "erpnext")
+		self.assertEqual(found["where_to_change"]["route"], "customisation")
+
+	def test_delivery_refuses_an_upstream_repository(self):
+		out = authoring.propose_frontend_pr(
+			files={"erpnext/erpnext/public/js/probe.js": "// x\n"}, title="t", summary="s",
+		)
+		self.assertFalse(out["ok"])
+		self.assertIn("Refusing to open a pull request", out["error"])
+		self.assertEqual(out["route"]["route"], "customisation")
+
+
+class TestRegisterHook(unittest.TestCase):
+	"""Merged, never regenerated, and it never accepts Python."""
+
+	def _hooks(self) -> str:
+		with open(os.path.join(authoring.apps_root(), authoring.hooks_path("one_fm"))) as fh:
+			return fh.read()
+
+	def test_adds_a_new_registration_and_the_file_still_parses(self):
+		import ast
+
+		out = authoring.register_hook(
+			"one_fm", "doctype_js", "ZZ Probe DocType",
+			"public/js/doctype_js/zz_probe.js", current=self._hooks(),
+		)
+		self.assertTrue(out["ok"], out.get("error"))
+		self.assertTrue(out["changed"])
+		self.assertIn('"ZZ Probe DocType": "public/js/doctype_js/zz_probe.js"', out["content"])
+		ast.parse(out["content"])
+
+	def test_is_idempotent(self):
+		first = authoring.register_hook(
+			"one_fm", "doctype_js", "ZZ Probe DocType",
+			"public/js/doctype_js/zz_probe.js", current=self._hooks(),
+		)
+		second = authoring.register_hook(
+			"one_fm", "doctype_js", "ZZ Probe DocType",
+			"public/js/doctype_js/zz_probe.js", current=first["content"],
+		)
+		self.assertFalse(second["changed"])
+		self.assertEqual(second["content"], first["content"])
+
+	def test_recognises_a_registration_already_in_the_file(self):
+		out = authoring.register_hook(
+			"one_fm", "doctype_js", "Employee",
+			"public/js/doctype_js/employee.js", current=self._hooks(),
+		)
+		self.assertTrue(out["ok"])
+		self.assertFalse(out["changed"])
+
+	def test_refuses_hooks_it_may_not_touch(self):
+		out = authoring.register_hook("one_fm", "doc_events", "ToDo",
+		                              "public/js/x.js", current=self._hooks())
+		self.assertFalse(out["ok"])
+		self.assertIn("not a hook this may register", out["error"])
+
+	def test_refuses_a_file_path_outside_public_js(self):
+		for bad in ("../../../etc/passwd", "one_fm/hooks.py", "/etc/hosts"):
+			out = authoring.register_hook("one_fm", "doctype_js", "ToDo", bad,
+			                              current=self._hooks())
+			self.assertFalse(out["ok"], bad)
+
+	def test_refuses_an_upstream_app(self):
+		self.assertFalse(authoring.app_ownership("erpnext")["owned"])
+
+	def test_delivery_accepts_hooks_py_but_only_the_app_s_own(self):
+		out = authoring.propose_frontend_pr(
+			files={"one_fm/one_fm/patches/v15_0/probe.py": "x = 1\n"}, title="t", summary="s",
+		)
+		self.assertFalse(out["ok"])
+
+	def test_delivery_rejects_hooks_py_that_does_not_parse(self):
+		out = authoring.propose_frontend_pr(
+			files={"one_fm/one_fm/hooks.py": "def broken(\n"}, title="t", summary="s",
+		)
+		self.assertFalse(out["ok"])
+		self.assertIn("does not parse", out["error"])
+
+
+class TestScreenJudgesTheChange(unittest.TestCase):
+	"""A file that already contains innerHTML must stay editable."""
+
+	PATH = "one_fm/one_fm/public/js/doctype_js/vehicle.js"
+
+	def _original(self) -> str:
+		abs_path, refusal = authoring.resolve(self.PATH)
+		if refusal or not os.path.isfile(abs_path):
+			self.skipTest(f"{self.PATH} is not present on this bench")
+		with open(abs_path, encoding="utf-8") as fh:
+			return fh.read()
+
+	def test_pre_existing_constructs_do_not_block(self):
+		review = authoring.screen_review(self.PATH, self._original())
+		self.assertEqual(review["introduced"], [])
+		self.assertTrue(review["pre_existing"], "this fixture should carry a known finding")
+
+	def test_a_newly_added_construct_still_blocks(self):
+		review = authoring.screen_review(self.PATH, self._original() + '\neval("nope")\n')
+		self.assertTrue(any("eval()" in f for f in review["introduced"]))
+
+	def test_delivery_blocks_the_newly_added_one(self):
+		out = authoring.propose_frontend_pr(
+			files={self.PATH: self._original() + '\neval("nope")\n'}, title="t", summary="s",
+		)
+		self.assertFalse(out["ok"])
+		self.assertIn("Screening refused", out["error"])
 
 
 class TestRubricJudgesTheChange(unittest.TestCase):

@@ -17,19 +17,23 @@ this module returns RAW results — file text, match lists, build output, screen
 findings. It holds no narrative, no ranking and no decision about what to do
 next. That is the agent's job and it belongs in the map.
 
-WHAT THE AGENT IS ALLOWED TO CHANGE, AND HOW IT TRAVELS
--------------------------------------------------------
-Front-end work in this bench splits by DELIVERY MECHANISM, and the split decides
-everything about risk:
+EVERY CHANGE IS A PULL REQUEST
+------------------------------
+The agent never writes to a running site. Not the Vue application, not desk
+JavaScript, and not the desk UI records it would be technically able to write
+through frappe — a Client Script row takes effect the moment it is saved, with
+no diff, no review and no history a reviewer would read. So there is no
+"quick" lane: a UI behaviour change is authored as a FILE in the owning app and
+delivered as a pull request, exactly as ``handler_authoring`` delivers connector
+handlers. That also makes it the app's code rather than one site's private
+customisation, which is where it belonged anyway.
 
-  * Database-resident UI — Client Script, Custom HTML Block, Workspace. These are
-    records, not files. A tool script writes them directly through frappe and
-    needs nothing from this module.
-  * File-based Desk JS and the Vue SPA. These are real application code. They
-    are NEVER written into a running site: they are rendered here, screened,
-    built, and delivered as a PULL REQUEST a person reviews and merges. This is
-    the same rule, and the same delivery path, that ``handler_authoring`` uses
-    for connector handlers.
+The practical consequence is that Lane B — desk JavaScript — has two halves.
+A ``.js`` file that nothing registers is inert, so the same pull request must
+also carry the ``hooks.py`` entry that wires it up. ``register_hook`` below is
+the only thing in this module that may touch a Python file, and it never takes
+Python from the agent: it splices one registration into an existing structure
+and returns the whole file.
 
 THE BUILD-CHECK HAZARD THAT SHAPES THIS FILE
 ---------------------------------------------
@@ -368,6 +372,24 @@ def locate_ui(target: str) -> dict:
 	found["controllers"] = _doctype_script_paths(target)
 	found["hook_registrations"] = _hook_entries(target)
 
+	# The DocType's own controller decides whose app this screen really belongs to,
+	# and therefore whether it may be edited in place or must be customised from
+	# one_fm. Saying so here means the agent knows the route before it writes,
+	# rather than being refused after it has drafted the wrong file.
+	owning_app = ""
+	for controller in found["controllers"]:
+		owning_app = app_of(controller)
+		break
+	if not owning_app:
+		try:
+			module = frappe.db.get_value("DocType", target, "module")
+			owning_app = frappe.db.get_value("Module Def", module, "app_name") or ""
+		except Exception:  # noqa: BLE001
+			owning_app = ""
+	if owning_app:
+		found["owning_app"] = owning_app
+		found["where_to_change"] = change_route(owning_app, target)
+
 	try:
 		found["client_scripts"] = frappe.get_all(
 			"Client Script", filters={"dt": target},
@@ -535,6 +557,49 @@ def rubric_check(code: str, path: str = "") -> list:
 		)
 
 	return findings[:40]
+
+
+def screen_review(path: str, content: str) -> dict:
+	"""Screening findings split into what this change INTRODUCES and what was already there.
+
+	Same reasoning as ``rubric_review``, and it matters more here because screening
+	*blocks*. ``one_fm/public/js/doctype_js/vehicle.js`` already contains
+	``document.write`` and an ``innerHTML`` assignment in a QR-code helper, so an
+	absolute screen refused to let the agent add an unrelated indicator to that file
+	until it had rewritten legacy code it was never asked to touch — observed live,
+	two wasted drafts. Whole swathes of one_fm would be uneditable on the same
+	grounds.
+
+	Blocking on what the change adds is also the stronger rule, not the weaker one:
+	anything the agent writes is judged, and what it did not write was already in
+	the repository and reviewed by whoever put it there. Pre-existing findings are
+	still reported so the pull request can mention them.
+	"""
+	current = screen_markup(content or "", path)
+	baseline = []
+	abs_path, refusal = resolve(path)
+	if not refusal and os.path.isfile(abs_path):
+		try:
+			with open(abs_path, "r", encoding="utf-8", errors="replace") as fh:
+				baseline = screen_markup(fh.read(), path)
+		except Exception:  # noqa: BLE001 — an unreadable original means judge it whole
+			baseline = []
+
+	remaining = {}
+	for finding in baseline:
+		key = _finding_key(finding)
+		remaining[key] = remaining.get(key, 0) + 1
+
+	introduced, pre_existing = [], []
+	for finding in current:
+		key = _finding_key(finding)
+		if remaining.get(key):
+			remaining[key] -= 1
+			pre_existing.append(finding)
+		else:
+			introduced.append(finding)
+
+	return {"introduced": introduced, "pre_existing": pre_existing}
 
 
 def _finding_key(finding: str) -> str:
@@ -800,6 +865,228 @@ def build_check(files: dict | None = None) -> dict:
 		shutil.rmtree(tmp, ignore_errors=True)
 
 
+# ── which app a change belongs in ────────────────────────────────────────────
+#
+# The bench holds two kinds of app and they are changed in opposite ways.
+#
+# Ours (one_fm, one_bpmn, onefm_mcp, frappe_agile, onefm_sso …) are ours to edit:
+# the change goes in the file that already renders the screen, and the pull
+# request goes to that app's own repository.
+#
+# Upstream apps (frappe, erpnext, hrms, helpdesk, payments, lending, wiki …) are
+# NOT. Editing them would put internal work in someone else's pull request queue
+# and be wiped by the next upgrade. Frappe's own answer is the customisation app:
+# leave the upstream file alone and add a script in one_fm, registered against
+# the upstream DocType through a ``doctype_js`` hook. one_fm already does exactly
+# this for roughly fifty ERPNext and HRMS DocTypes, so the agent is following a
+# path the codebase has already worn.
+#
+# Ownership is read off the git remote rather than hardcoded, so a fork or a
+# renamed organisation needs no code change here — the same basis
+# ``production_review._allowed_repo_owners`` already uses.
+_REPO_CACHE: dict = {}
+
+
+def customization_app() -> str:
+	"""The app that carries customisations of upstream DocTypes."""
+	configured = (frappe.get_cached_value("Processa Settings", None, "customization_app") or "").strip()
+	return configured or "one_fm"
+
+
+def _repo_of(app: str) -> str | None:
+	if app not in _REPO_CACHE:
+		from one_bpmn.api.production_review import _repo_for_app
+
+		try:
+			_REPO_CACHE[app] = _repo_for_app(app)
+		except Exception:  # noqa: BLE001
+			_REPO_CACHE[app] = None
+	return _REPO_CACHE[app]
+
+
+def app_ownership(app: str) -> dict:
+	"""Whether ``app`` is one we may open a pull request against."""
+	from one_bpmn.api.production_review import _allowed_repo_owners
+
+	repo = _repo_of(app)
+	if not repo:
+		return {"app": app, "owned": False, "repo": None,
+		        "reason": f"No git remote resolves for {app!r}, so there is nowhere to deliver."}
+	owner = repo.split("/")[0]
+	try:
+		allowed = {o.lower() for o in (_allowed_repo_owners() or ())}
+	except Exception:  # noqa: BLE001
+		allowed = set()
+	owned = bool(allowed) and owner.lower() in allowed
+	return {
+		"app": app, "owned": owned, "repo": repo, "owner": owner,
+		"reason": "" if owned else (
+			f"{app} belongs to {owner}, not to us. Upstream code is not ours to change and "
+			f"an upgrade would overwrite it anyway."
+		),
+	}
+
+
+def change_route(target_app: str, doctype: str = "") -> dict:
+	"""Where a change aimed at ``target_app`` must actually be made.
+
+	Returns ``route`` = ``in_place`` when the app is ours, or ``customisation``
+	when it is upstream — in which case ``app``, ``file`` and ``hook`` describe the
+	script to write in the customisation app instead.
+	"""
+	own = app_ownership(target_app)
+	if own["owned"]:
+		return {"route": "in_place", "app": target_app, "repo": own["repo"],
+		        "note": f"{target_app} is ours — change the file that already renders this."}
+
+	host = customization_app()
+	host_own = app_ownership(host)
+	route = {
+		"route": "customisation",
+		"app": host,
+		"repo": host_own.get("repo"),
+		"why": own["reason"],
+		"note": (
+			f"Do not edit {target_app}. Add the behaviour in {host} and register it against "
+			f"the {target_app} DocType, which is how {host} already customises upstream apps."
+		),
+	}
+	if doctype:
+		snake = frappe.scrub(doctype)
+		route["file"] = f"{host}/{host}/public/js/doctype_js/{snake}.js"
+		route["hook"] = {"app": host, "hook": "doctype_js", "key": doctype,
+		                 "file": f"public/js/doctype_js/{snake}.js"}
+	return route
+
+
+# ── wiring a desk script up ──────────────────────────────────────────────────
+#
+# Only these hooks, and only ever a path inside the app's own public/js. The
+# agent supplies a DocType (or page) and a file it has already staged; it never
+# supplies Python. Anything else is a different kind of change and belongs to a
+# person.
+DICT_HOOKS = ("doctype_js", "doctype_list_js", "doctype_tree_js", "doctype_calendar_js", "page_js")
+LIST_HOOKS = ("app_include_js", "app_include_css", "web_include_js", "web_include_css")
+
+
+def hooks_path(app: str) -> str:
+	"""Bench-relative path of an app's hooks.py."""
+	return f"{app}/{app}/hooks.py"
+
+
+def _matching_brace(text: str, open_idx: int) -> int:
+	"""Index just past the brace/bracket that closes the one at ``open_idx``."""
+	opener = text[open_idx]
+	closer = {"{": "}", "[": "]"}[opener]
+	depth, i = 0, open_idx
+	for i in range(open_idx, len(text)):
+		ch = text[i]
+		if ch == opener:
+			depth += 1
+		elif ch == closer:
+			depth -= 1
+			if depth == 0:
+				return i
+	return -1
+
+
+def register_hook(app: str, hook: str, key: str, file_path: str,
+                  current: str | None = None) -> dict:
+	"""Splice one registration into ``app``'s hooks.py and return the whole file.
+
+	``key`` is the DocType or page name for a dict hook, and is ignored for a list
+	hook. ``file_path`` is the app-relative path the hook wants — ``public/js/…``
+	for a dict hook, ``/assets/<app>/js/…`` for a bundle include.
+
+	Merged, never regenerated, and idempotent: a registration that is already
+	there returns the file untouched. The result is parsed before it is returned,
+	because a hooks.py that does not import takes the whole app down, not just the
+	screen being changed.
+	"""
+	if hook not in DICT_HOOKS and hook not in LIST_HOOKS:
+		return {"ok": False, "error": f"{hook!r} is not a hook this may register. "
+		                             f"Allowed: {', '.join(DICT_HOOKS + LIST_HOOKS)}."}
+	if not re.fullmatch(r"[a-z][a-z0-9_]*", app or ""):
+		return {"ok": False, "error": f"{app!r} is not an app name."}
+
+	path = hooks_path(app)
+	if current is None:
+		abs_path = os.path.join(apps_root(), path)
+		if not os.path.isfile(abs_path):
+			return {"ok": False, "error": f"{path} does not exist."}
+		try:
+			with open(abs_path, "r", encoding="utf-8") as fh:
+				current = fh.read()
+		except Exception as exc:  # noqa: BLE001
+			return {"ok": False, "error": f"Could not read {path}: {exc}"}
+
+	if hook in DICT_HOOKS:
+		if not key:
+			return {"ok": False, "error": f"{hook} needs the DocType or page it applies to."}
+		if not re.fullmatch(r"[\w/ .&'()-]+", key):
+			return {"ok": False, "error": f"{key!r} is not a usable {hook} key."}
+		if not re.fullmatch(r"public/js/[\w./-]+\.js", file_path or ""):
+			return {"ok": False, "error": "A dict hook's file must be an app-relative "
+			                              "public/js/….js path."}
+		entry = f'\t"{key}": "{file_path}",'
+		opener, block = "{", f"{hook} = {{\n{entry}\n}}\n"
+	else:
+		if not re.fullmatch(r"/assets/[\w./-]+\.(js|css)", file_path or ""):
+			return {"ok": False, "error": "An include hook's file must be an "
+			                              "/assets/….js or .css path."}
+		entry = f'\t"{file_path}",'
+		opener, block = "[", f"{hook} = [\n{entry}\n]\n"
+
+	# Already registered? Say so and change nothing.
+	assign = re.search(rf"^{re.escape(hook)}\s*=\s*", current, re.M)
+	if assign and file_path in current[assign.end():assign.end() + 20000]:
+		region_open = current.find(opener, assign.end())
+		if region_open != -1:
+			region_close = _matching_brace(current, region_open)
+			if region_close != -1 and file_path in current[region_open:region_close]:
+				return {"ok": True, "path": path, "content": current,
+				        "changed": False, "note": "already registered"}
+
+	if not assign:
+		# No such hook in this app yet — a whole new block at the end reads better
+		# than one wedged between unrelated assignments.
+		updated = current.rstrip("\n") + "\n\n" + block
+	else:
+		region_open = current.find(opener, assign.end())
+		if region_open == -1:
+			return {"ok": False, "error": f"{hook} in {path} is not a literal "
+			                              f"{'dict' if opener == '{' else 'list'}; "
+			                              f"a person should wire this one up."}
+		region_close = _matching_brace(current, region_open)
+		if region_close == -1:
+			return {"ok": False, "error": f"{hook} in {path} is not closed; refusing to guess."}
+		# Append AFTER the last entry, adding the separating comma when the block
+		# does not already end in one. one_fm's doctype_js leaves the last entry
+		# bare, so inserting straight before the closing brace produced two entries
+		# with nothing between them and a hooks.py that would not import.
+		inner_start = region_open + 1
+		inner = current[inner_start:region_close]
+		body = inner.rstrip()
+		insert_at = inner_start + len(body)
+		separator = "," if body and not body.endswith(",") else ""
+		# Match the indentation the block already uses — one_fm's hooks.py mixes
+		# tabs and four spaces, and a line indented differently from its neighbours
+		# is the first thing a reviewer's eye catches for no reason.
+		last_line = body.rsplit("\n", 1)[-1] if body else ""
+		indent = re.match(r"[ \t]*", last_line).group(0) or "\t"
+		updated = (current[:insert_at] + separator + "\n" + indent + entry.lstrip("\t")
+		           + current[insert_at:])
+
+	try:
+		ast.parse(updated)
+	except SyntaxError as exc:
+		return {"ok": False,
+		        "error": f"Splicing that registration would break {path} ({exc}). Nothing changed."}
+
+	return {"ok": True, "path": path, "content": updated, "changed": True,
+	        "registered": {"hook": hook, "key": key, "file": file_path}}
+
+
 # ── delivery ─────────────────────────────────────────────────────────────────
 def _base_branch(repo: str, token: str) -> str | None:
 	"""Prefer ``staging``; fall back to the repository default when it has none.
@@ -839,6 +1126,25 @@ def propose_frontend_pr(*, files: dict, title: str, summary: str,
 
 	prepared, apps = {}, set()
 	for rel_path, content in files.items():
+		normalised = (rel_path or "").lstrip("/")
+		# hooks.py is the one Python file that may travel, and only because
+		# register_hook built it: the agent cannot hand over Python of its own.
+		# It is re-parsed here rather than trusted, since a broken hooks.py takes
+		# down the whole app rather than the screen being changed.
+		if normalised.endswith("/hooks.py"):
+			owner = app_of(normalised)
+			if normalised != hooks_path(owner):
+				return {"ok": False,
+				        "error": f"Refusing to write {rel_path!r}: the only Python file that "
+				                 f"may be delivered is an app's own hooks.py."}
+			try:
+				ast.parse(content or "")
+			except SyntaxError as exc:
+				return {"ok": False, "error": f"{normalised} does not parse ({exc})."}
+			apps.add(owner)
+			prepared[repo_relative(normalised)] = content or ""
+			continue
+
 		abs_path, refusal = resolve(rel_path)
 		if refusal:
 			return {"ok": False, "error": refusal}
@@ -847,7 +1153,9 @@ def propose_frontend_pr(*, files: dict, title: str, summary: str,
 			return {"ok": False,
 			        "error": f"Refusing to write {rel_path!r}: {ext} is not an editable "
 			                 f"front-end file type."}
-		malice = screen_markup(content or "", rel_path)
+		# Judged on what the change adds — see screen_review. Everything the agent
+		# wrote is still screened; what was already committed is not its doing.
+		malice = screen_review(rel_path, content or "")["introduced"]
 		if malice:
 			return {"ok": False, "error": "Screening refused this change.", "findings": malice}
 		normalised = relative(abs_path)
@@ -860,6 +1168,17 @@ def propose_frontend_pr(*, files: dict, title: str, summary: str,
 		                 f"A pull request belongs to one repository — deliver them separately."}
 
 	app = apps.pop()
+	# Last line of defence on app routing. draft_change already refuses to stage a
+	# file in an upstream app, but delivery is where it would actually do harm, so
+	# it is checked again here rather than assumed.
+	own = app_ownership(app)
+	if not own["owned"]:
+		route = change_route(app)
+		return {"ok": False, "retryable": False,
+		        "error": f"Refusing to open a pull request against {own.get('repo') or app}. "
+		                 f"{own['reason']} {route['note']}",
+		        "route": route}
+
 	token = frappe.get_cached_doc("Processa Settings").get_password("github_token")
 	repo = _repo_for_app(app)
 	if not token:
