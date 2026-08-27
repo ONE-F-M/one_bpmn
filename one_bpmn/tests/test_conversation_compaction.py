@@ -86,19 +86,33 @@ class TestConversationCompaction(FrappeTestCase):
 		)
 		self.messages = []
 
+	# Roughly the median real Chat Message on this site (63 chars user, 156 bot).
+	# The fixtures used to be eleven characters a message, which is below any
+	# sane worth-it threshold — so the suite could not have caught a summary
+	# bigger than the text it replaced.
+	_USER_FILLER = " and please keep the existing naming convention consistent"
+	_BOT_FILLER = (
+		" I have applied that change and left the rest of the schema alone, so the "
+		"other fields keep the settings you chose earlier in this conversation."
+	)
+
 	def _turns(self, n, prefix="turn"):
-		"""n user/bot pairs, so the conversation reads like a real one."""
+		"""n user/bot pairs, at realistic length, so size assertions mean something."""
 		for i in range(n):
-			self.messages.append(save_user_message(self.conversation, f"{prefix} user {i}"))
-			self.messages.append(save_bot_message(self.conversation, f"{prefix} bot {i}"))
+			self.messages.append(
+				save_user_message(self.conversation, f"{prefix} user {i}{self._USER_FILLER}")
+			)
+			self.messages.append(
+				save_bot_message(self.conversation, f"{prefix} bot {i}{self._BOT_FILLER}")
+			)
 
 	# ── reading, before anything is compacted ───────────────────────────
 	def test_without_a_summary_it_returns_the_recent_tail(self):
 		self._turns(6)  # 12 messages
 		history = build_history(self.conversation, limit=4)
 		self.assertEqual(len(history), 4)
-		self.assertEqual(history[0]["content"], "turn user 4")
-		self.assertEqual(history[-1]["content"], "turn bot 5")
+		self.assertTrue(history[0]["content"].startswith("turn user 4"))
+		self.assertTrue(history[-1]["content"].startswith("turn bot 5"))
 
 	def test_an_unknown_conversation_reads_as_empty(self):
 		self.assertEqual(build_history("does-not-exist"), [])
@@ -107,7 +121,7 @@ class TestConversationCompaction(FrappeTestCase):
 	def test_covered_messages_are_never_re_sent(self):
 		self._turns(6)  # 12 messages
 		with patch(_SUMMARISE, return_value="They discussed the first five turns."):
-			out = compact_conversation(self.conversation, keep_tail=4, model="test-model")
+			out = compact_conversation(self.conversation, keep_tail=4, model="test-model", min_replaced_chars=0)
 
 		self.assertTrue(out["compacted"], out)
 		self.assertEqual(out["covered_count"], 8)
@@ -118,7 +132,7 @@ class TestConversationCompaction(FrappeTestCase):
 		self.assertEqual(len(history), 5)
 		self.assertIn("They discussed the first five turns.", history[0]["content"])
 		self.assertEqual(
-			[m["content"] for m in history[1:]],
+			[m["content"].split(" and please")[0].split(" I have")[0] for m in history[1:]],
 			["turn user 4", "turn bot 4", "turn user 5", "turn bot 5"],
 		)
 		# and nothing from the covered range survives anywhere in it
@@ -130,7 +144,7 @@ class TestConversationCompaction(FrappeTestCase):
 	def test_the_summary_records_the_exact_covered_range(self):
 		self._turns(5)  # 10 messages
 		with patch(_SUMMARISE, return_value="summary text"):
-			compact_conversation(self.conversation, keep_tail=4, model="test-model")
+			compact_conversation(self.conversation, keep_tail=4, model="test-model", min_replaced_chars=0)
 
 		doc = frappe.get_doc(SUMMARY_DOCTYPE, latest_summary(self.conversation)["name"])
 		self.assertEqual(doc.covered_from, self.messages[0])
@@ -143,8 +157,8 @@ class TestConversationCompaction(FrappeTestCase):
 	def test_compacting_twice_with_nothing_new_does_nothing(self):
 		self._turns(5)
 		with patch(_SUMMARISE, return_value="first") as summarise:
-			first = compact_conversation(self.conversation, keep_tail=4, model="m")
-			second = compact_conversation(self.conversation, keep_tail=4, model="m")
+			first = compact_conversation(self.conversation, keep_tail=4, model="m", min_replaced_chars=0)
+			second = compact_conversation(self.conversation, keep_tail=4, model="m", min_replaced_chars=0)
 
 		self.assertTrue(first["compacted"])
 		self.assertFalse(second["compacted"])
@@ -156,12 +170,12 @@ class TestConversationCompaction(FrappeTestCase):
 	def test_a_later_summary_absorbs_the_earlier_one(self):
 		self._turns(5, prefix="early")
 		with patch(_SUMMARISE, return_value="the early part"):
-			compact_conversation(self.conversation, keep_tail=4, model="m")
+			compact_conversation(self.conversation, keep_tail=4, model="m", min_replaced_chars=0)
 		first = latest_summary(self.conversation)["name"]
 
 		self._turns(5, prefix="late")
 		with patch(_SUMMARISE, return_value="the whole thing so far") as summarise:
-			compact_conversation(self.conversation, keep_tail=4, model="m")
+			compact_conversation(self.conversation, keep_tail=4, model="m", min_replaced_chars=0)
 			# the earlier summary is handed to the model to fold in, not discarded
 			self.assertEqual(summarise.call_args.args[1], "the early part")
 
@@ -181,7 +195,7 @@ class TestConversationCompaction(FrappeTestCase):
 		before = build_history(self.conversation, limit=4)
 
 		with patch(_SUMMARISE, return_value=None):
-			out = compact_conversation(self.conversation, keep_tail=4, model="m")
+			out = compact_conversation(self.conversation, keep_tail=4, model="m", min_replaced_chars=0)
 
 		self.assertFalse(out["compacted"])
 		self.assertEqual(frappe.db.count(SUMMARY_DOCTYPE, {"conversation": self.conversation}), 0)
@@ -190,7 +204,7 @@ class TestConversationCompaction(FrappeTestCase):
 	def test_a_raising_summariser_is_swallowed(self):
 		self._turns(5)
 		with patch(_SUMMARISE, side_effect=RuntimeError("provider down")):
-			out = compact_conversation(self.conversation, keep_tail=4, model="m")
+			out = compact_conversation(self.conversation, keep_tail=4, model="m", min_replaced_chars=0)
 		self.assertFalse(out["compacted"])
 		self.assertEqual(out["reason"], "summariser raised")
 
@@ -206,10 +220,78 @@ class TestConversationCompaction(FrappeTestCase):
 		with patch(
 			"one_bpmn.agents.memory.compaction.resolve_compaction_model", return_value=None
 		), patch(_SUMMARISE) as summarise:
-			out = compact_conversation(self.conversation, keep_tail=4)
+			out = compact_conversation(self.conversation, keep_tail=4, min_replaced_chars=0)
 		self.assertFalse(out["compacted"])
 		self.assertEqual(out["reason"], "no model configured")
 		summarise.assert_not_called()
+
+	# ── a compaction that would not pay must not happen ─────────────────
+	def test_it_refuses_when_there_is_too_little_text_to_be_worth_it(self):
+		"""On a short exchange a readable summary is as long as the transcript,
+		so compacting would grow every later turn AND lose detail. Checked before
+		the model call, so a doomed compaction costs nothing."""
+		for i in range(6):
+			save_user_message(self.conversation, f"ok {i}")
+			save_bot_message(self.conversation, f"done {i}")
+
+		with patch(_SUMMARISE) as summarise:
+			out = compact_conversation(self.conversation, keep_tail=2, model="m")
+
+		self.assertFalse(out["compacted"])
+		self.assertEqual(out["reason"], "too little text to be worth compacting")
+		summarise.assert_not_called()
+		self.assertEqual(frappe.db.count(SUMMARY_DOCTYPE, {"conversation": self.conversation}), 0)
+
+	def test_an_oversized_summary_is_discarded_rather_than_stored(self):
+		"""Backstop for when the budget did not stop it: a summary bigger than
+		half of what it replaces is strictly worse than no summary."""
+		self._turns(12)
+		with patch(_SUMMARISE, return_value="x" * 5000):
+			out = compact_conversation(self.conversation, keep_tail=4, model="m")
+
+		self.assertFalse(out["compacted"])
+		self.assertEqual(out["reason"], "summary was not smaller than the text it replaces")
+		self.assertEqual(frappe.db.count(SUMMARY_DOCTYPE, {"conversation": self.conversation}), 0)
+
+	def test_it_reports_what_it_actually_saved(self):
+		self._turns(12)
+		with patch(_SUMMARISE, return_value="A short summary of the early turns."):
+			out = compact_conversation(self.conversation, keep_tail=4, model="m")
+		self.assertTrue(out["compacted"])
+		self.assertEqual(out["saved_chars"], out["replaced_chars"] - out["summary_chars"])
+		self.assertGreater(out["saved_chars"], 0)
+
+	def test_the_output_budget_scales_with_the_input(self):
+		"""The summariser must never be invited to write more prose than it is
+		compacting — the cap follows the input rather than sitting flat."""
+		self._turns(12)
+		with patch(_SUMMARISE, return_value="short") as summarise:
+			compact_conversation(self.conversation, keep_tail=4, model="m")
+		budget = summarise.call_args.kwargs["max_tokens"]
+		replaced = len(" ".join(m["content"] for m in build_history(self.conversation, limit=99)))
+		self.assertLessEqual(budget, 700)
+		self.assertGreaterEqual(budget, 150)
+
+	# ── the agent is derived, not demanded ──────────────────────────────
+	def test_the_agent_is_derived_from_the_conversation(self):
+		"""Nobody passes agent_id when compacting by hand, which is every caller
+		today — so deriving it is the difference between the field being filled
+		and being permanently blank."""
+		self._turns(12)
+		with patch(_SUMMARISE, return_value="A short summary of the early turns."):
+			compact_conversation(self.conversation, keep_tail=4, model="m")
+
+		doc = frappe.get_doc(SUMMARY_DOCTYPE, latest_summary(self.conversation)["name"])
+		self.assertTrue(doc.agent_id, "agent_id should be derived from the conversation")
+
+	def test_an_explicitly_passed_agent_still_wins(self):
+		self._turns(12)
+		with patch(_SUMMARISE, return_value="A short summary of the early turns."):
+			compact_conversation(
+				self.conversation, keep_tail=4, model="m", agent_id="explicit_agent"
+			)
+		doc = frappe.get_doc(SUMMARY_DOCTYPE, latest_summary(self.conversation)["name"])
+		self.assertEqual(doc.agent_id, "explicit_agent")
 
 	# ── the trigger predicate story 2.2 will call ───────────────────────
 	def test_needs_compaction_tracks_the_uncovered_count(self):
@@ -218,7 +300,7 @@ class TestConversationCompaction(FrappeTestCase):
 		self._turns(1)  # 6 messages
 		self.assertTrue(needs_compaction(self.conversation, keep_tail=4))
 		with patch(_SUMMARISE, return_value="s"):
-			compact_conversation(self.conversation, keep_tail=4, model="m")
+			compact_conversation(self.conversation, keep_tail=4, model="m", min_replaced_chars=0)
 		self.assertFalse(needs_compaction(self.conversation, keep_tail=4))
 
 

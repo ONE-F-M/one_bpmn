@@ -52,6 +52,20 @@ DEFAULT_KEEP_TAIL = 10
 # Bound the prose handed to the summariser so one enormous conversation cannot
 # produce a request that is refused for length.
 _MAX_INPUT_CHARS = 24000
+
+# A summary only pays for itself if it is materially smaller than the prose it
+# replaces, and on a short exchange it cannot be: fourteen messages of a hundred
+# characters each carry about as much text as a readable summary of them. Both
+# thresholds below exist because a compaction that grows the prompt is worse
+# than no compaction at all — it costs a model call AND loses detail.
+_MIN_REPLACED_CHARS = 1500
+_MAX_SUMMARY_RATIO = 0.5
+
+# The summariser's output cap scales with what it is replacing rather than
+# sitting at a flat ceiling, so it is never invited to write more prose than it
+# is compacting. Floor and ceiling keep it sane at both extremes.
+_SUMMARY_BUDGET_DIVISOR = 3
+_MIN_SUMMARY_TOKENS = 150
 _MAX_SUMMARY_TOKENS = 700
 
 # Shape attribute -> the Processa Settings field holding its site-wide default,
@@ -72,7 +86,11 @@ Drop pleasantries, restatements, and anything already superseded by a later turn
 Write plain prose in the third person ("the user asked for...", "it was decided
 that..."). Do not address the user. Do not add anything that was not said. If an
 earlier summary is provided, fold it in and return ONE combined summary rather
-than appending to it."""
+than appending to it.
+
+Be SUBSTANTIALLY shorter than the conversation you are compacting — aim for
+about a third of its length. A summary the same size as the transcript has
+saved nothing and is the one outcome to avoid."""
 
 _USER_PROMPT = """{previous}Conversation to compact:
 ---
@@ -244,6 +262,37 @@ def resolve_compaction_model(explicit: str | None = None, fallback: str | None =
 	return fallback or None
 
 
+def _resolve_agent_id(conversation: str) -> str | None:
+	"""The agent that owns this conversation, derived rather than passed in.
+
+	A conversation already records which agent it belongs to, so requiring the
+	caller to repeat it just means the field is blank whenever somebody compacts
+	by hand — which is every caller today, and was.
+
+	``Chat Conversation.agent_mode`` holds the agent's chat label ("Docu"), so
+	the agent_id is one lookup away. The label is kept as the fallback: a
+	conversation for an agent whose configuration has since been renamed or
+	removed should still record what it was, rather than nothing.
+	"""
+	if not conversation:
+		return None
+	try:
+		mode = frappe.db.get_value(CONVERSATION_DOCTYPE, conversation, "agent_mode")
+		if not mode:
+			return None
+		return frappe.db.get_value(
+			"AI Agent Configuration", {"chat_mode_label": mode}, "agent_id"
+		) or mode
+	except Exception:
+		return None
+
+
+def _summary_token_budget(replaced_chars: int) -> int:
+	"""An output cap proportionate to the input, not a flat ceiling."""
+	target = (replaced_chars // 4) // _SUMMARY_BUDGET_DIVISOR
+	return max(_MIN_SUMMARY_TOKENS, min(target, _MAX_SUMMARY_TOKENS))
+
+
 def _provider_for_model(model: str | None, fallback: str | None) -> str | None:
 	"""The provider that serves ``model`` — a model only works against the
 	credentials that serve it, so the two are resolved together."""
@@ -270,7 +319,7 @@ def _render_transcript(rows: list[dict]) -> str:
 
 
 def _summarise(transcript: str, previous: str, *, model: str, provider_name: str | None,
-               backend: str) -> str | None:
+               backend: str, max_tokens: int = _MAX_SUMMARY_TOKENS) -> str | None:
 	"""One LLM call. Returns None on any failure — the caller must then leave
 	the conversation uncompacted rather than store a summary it cannot trust."""
 	from one_bpmn.agents.executor import (
@@ -294,7 +343,7 @@ def _summarise(transcript: str, previous: str, *, model: str, provider_name: str
 			previous=previous_block, transcript=transcript[:_MAX_INPUT_CHARS]
 		),
 		temperature=0.0,
-		max_tokens=_MAX_SUMMARY_TOKENS,
+		max_tokens=max_tokens,
 	)
 	result = get_executor(config.backend)().run(config, ExecutorContext())
 	if result.error_code != ErrorCode.SUCCESS:
@@ -315,6 +364,7 @@ def compact_conversation(
 	provider_name: str | None = None,
 	backend: str = "direct_api",
 	agent_id: str | None = None,
+	min_replaced_chars: int = _MIN_REPLACED_CHARS,
 ) -> dict:
 	"""Summarise everything before the last ``keep_tail`` messages and store it.
 
@@ -326,6 +376,11 @@ def compact_conversation(
 	Idempotent by construction. The covered range is defined by the cursor on
 	the newest summary, so calling this twice with no new messages in between
 	finds nothing left to cover and does nothing the second time.
+
+	``min_replaced_chars`` is how much prose must be at stake before a summary
+	can pay for itself. An agent whose turns are habitually one line may want it
+	lower; the default assumes conversations worth compacting have real text in
+	them.
 	"""
 	if not conversation or not frappe.db.exists(CONVERSATION_DOCTYPE, conversation):
 		return {"compacted": False, "reason": "unknown conversation"}
@@ -350,6 +405,21 @@ def compact_conversation(
 	if not transcript:
 		return {"compacted": False, "reason": "covered range has no readable text"}
 
+	# What this compaction would actually replace: the covered messages, plus the
+	# summary being absorbed (which stops being sent once this one exists).
+	previous_text = (previous or {}).get("summary") or ""
+	replaced_chars = len(transcript) + len(previous_text)
+	if replaced_chars < min_replaced_chars:
+		# Not a failure — there simply is not enough prose here for a summary to
+		# be smaller than the thing it replaces. Checked BEFORE the model call so
+		# a doomed compaction costs nothing.
+		return {
+			"compacted": False,
+			"reason": "too little text to be worth compacting",
+			"replaced_chars": replaced_chars,
+			"minimum": min_replaced_chars,
+		}
+
 	model = resolve_compaction_model(model)
 	if not model:
 		# Deliberately visible rather than silent: an unconfigured site should
@@ -368,10 +438,11 @@ def compact_conversation(
 	try:
 		summary_text = _summarise(
 			transcript,
-			(previous or {}).get("summary") or "",
+			previous_text,
 			model=model,
 			provider_name=provider_name,
 			backend=backend,
+			max_tokens=_summary_token_budget(replaced_chars),
 		)
 	except Exception:
 		frappe.log_error(
@@ -382,12 +453,24 @@ def compact_conversation(
 	if not summary_text:
 		return {"compacted": False, "reason": "summariser produced nothing"}
 
+	# Backstop for the case the budget did not prevent: a summary that is not
+	# meaningfully smaller than what it replaces would make every future turn
+	# BIGGER while also losing detail. Storing it would be strictly worse than
+	# doing nothing, so it is discarded and the conversation stays uncompacted.
+	if len(summary_text) > replaced_chars * _MAX_SUMMARY_RATIO:
+		return {
+			"compacted": False,
+			"reason": "summary was not smaller than the text it replaces",
+			"summary_chars": len(summary_text),
+			"replaced_chars": replaced_chars,
+		}
+
 	last = to_cover[-1]
 	doc = frappe.get_doc(
 		{
 			"doctype": SUMMARY_DOCTYPE,
 			"conversation": conversation,
-			"agent_id": agent_id,
+			"agent_id": agent_id or _resolve_agent_id(conversation),
 			"summary": summary_text,
 			"covered_from": to_cover[0]["name"],
 			"covered_to": last["name"],
@@ -410,4 +493,9 @@ def compact_conversation(
 		"covered_upto": str(last["creation"]),
 		"tail_kept": len(uncovered) - len(to_cover),
 		"model": model,
+		# The point of the exercise, reported rather than assumed: how much
+		# smaller every subsequent turn's history became.
+		"replaced_chars": replaced_chars,
+		"summary_chars": len(summary_text),
+		"saved_chars": replaced_chars - len(summary_text),
 	}
