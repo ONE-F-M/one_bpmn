@@ -14,12 +14,13 @@ the diagram references. A patch that also wrote the XML or the script bodies wou
 create a second source of truth to drift from the exported one. The configuration
 is the one record no export carries, so it is the one thing a patch is right for.
 
-What DOES ship as code is ``one_bpmn/frontend/authoring.py`` — the filesystem,
-Node and pull-request primitives the tool scripts call. It has to be code: the
-BPMN script gate permanently forbids ``os``, ``subprocess``, ``requests`` and
-``open()``, so a Server Script cannot read a file, run a build, or raise a pull
-request. Import the map onto a site whose one_bpmn does not carry that module and
-the tools will fail at the first call.
+What DOES ship as code is ``one_bpmn/frontend/primitives.py``, and only what the
+script gate makes impossible: walking the tree, reading a file, running node or
+git, placing an HTTP call. Every rule the agent applies — what it may edit, which
+constructs it refuses, the house style checks, which apps are ours, how a pull
+request reads — is in the Server Scripts, so a process owner can change it
+without a developer or a deploy. Import the map onto a site whose one_bpmn does
+not carry that module and the tools will fail at the first call.
 
 Idempotent, and safe on a site that has not imported the map yet — the agent only
 goes Live once its map is present and validation passes.
