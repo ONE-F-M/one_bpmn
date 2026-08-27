@@ -3,22 +3,15 @@
 
 frappe.listview_settings["AI Agent Configuration"] = {
 	// Show lifecycle_status (not the default Enabled/Disabled) as the row
-	// indicator. Colours mirror frappe.one_bpmn.lifecycle_color in the form JS.
+	// indicator. The colour comes from frappe.one_bpmn.lifecycle_color, the
+	// same function the form header indicator uses (ai_agent_configuration.js)
+	// — kept as the single source of truth so the two views can't drift.
 	get_indicator(doc) {
-		const color =
-			{
-				"Draft": "gray",
-				"Validating": "orange",
-				"Provisioning": "light-blue",
-				"Evaluating": "purple",
-				"Live": "green",
-				"Needs Attention": "red",
-				"Retired": "darkgrey",
-			}[doc.lifecycle_status] || "gray";
+		const status = doc.lifecycle_status || "Draft";
 		return [
-			__(doc.lifecycle_status || "Draft"),
-			color,
-			"lifecycle_status,=," + (doc.lifecycle_status || "Draft"),
+			__(status),
+			frappe.one_bpmn.lifecycle_color(status),
+			"lifecycle_status,=," + status,
 		];
 	},
 };
