@@ -193,8 +193,9 @@ class ContextWindowPolicy:
 		"""
 		spent = sum(estimate_tokens(m, self.chars_per_token) for m in protected)
 
+		blocks = _atomic_blocks(rest)
 		kept: list[list[dict]] = []
-		for block in reversed(_atomic_blocks(rest)):
+		for block in reversed(blocks):
 			cost = sum(estimate_tokens(m, self.chars_per_token) for m in block)
 			if spent + cost > self.max_tokens:
 				# Stop rather than skip. Continuing to look for something small
@@ -205,7 +206,36 @@ class ContextWindowPolicy:
 			spent += cost
 			kept.append(block)
 
+		if blocks and not kept:
+			# The newest exchange alone does not fit. Send it anyway.
+			#
+			# A budget is a target for trimming HISTORY, not a licence to send a
+			# conversation with none. Returning nothing here strips the turn the
+			# model most needs — the one immediately before the question it is
+			# answering — and a request carrying one oversized message is far
+			# more likely to succeed, and far more useful if it does, than a
+			# request carrying no context at all.
+			#
+			# Observed with a 150-token budget against an agent whose replies run
+			# to 700: every message individually exceeded the budget, and the
+			# assembled history came back empty.
+			kept.append(blocks[-1])
+			self._log_oversized(blocks[-1])
+
 		return list(protected) + [m for block in reversed(kept) for m in block]
+
+	def _log_oversized(self, block: list[dict]) -> None:
+		"""Say so when the budget could not be honoured, rather than silently
+		exceeding it — a budget that is quietly ignored is worse than one that
+		is visibly too small for the agent it is set on."""
+		try:
+			cost = sum(estimate_tokens(m, self.chars_per_token) for m in block)
+			frappe.logger("one_bpmn").warning(
+				f"Context token budget {self.max_tokens} is smaller than the newest "
+				f"exchange ({cost} estimated tokens); sending it regardless."
+			)
+		except Exception:
+			pass
 
 	def _split_system(self, messages: list[dict]):
 		"""The system message and everything else, or (None, messages)."""

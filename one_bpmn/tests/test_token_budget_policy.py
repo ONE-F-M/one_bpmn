@@ -87,10 +87,28 @@ class TestTokenBudget(FrappeTestCase):
 		self.assertEqual(len(by_count), 5)
 		self.assertEqual(len(by_budget), 2)
 
-	def test_a_budget_smaller_than_one_message_yields_only_the_system_prompt(self):
-		thread = [msg("system", "s")] + [msg("user") for _ in range(3)]
+	def test_the_newest_exchange_is_sent_even_when_it_busts_the_budget(self):
+		"""Found in testing: a 150-token budget against an agent whose replies
+		run to 700 returned an EMPTY history. A budget is a target for trimming
+		history, not a licence to send a conversation with none — a request
+		carrying one oversized message beats one carrying no context at all."""
+		thread = [msg("user", "A" * 4000), msg("assistant", "B" * 4000)]
+		out = ContextWindowPolicy(max_messages=0, max_tokens=150).apply(thread)
+		self.assertEqual(len(out), 1)
+		self.assertTrue(out[0]["content"].startswith("B"), "kept the NEWEST, not the oldest")
+
+	def test_an_oversized_newest_exchange_keeps_its_tool_pair_whole(self):
+		thread = [
+			msg("assistant", "C" * 4000, tool_calls=[{"id": "c1"}]),
+			msg("tool", "R" * 4000, tool_call_id="c1"),
+		]
+		out = ContextWindowPolicy(max_messages=0, max_tokens=10).apply(thread)
+		self.assertEqual(len(out), 2, "a pair must not be split even when oversized")
+
+	def test_a_tiny_budget_still_keeps_the_system_prompt_and_the_newest(self):
+		thread = [msg("system", "s")] + [msg("user", "U" * 4000) for _ in range(3)]
 		out = ContextWindowPolicy(max_messages=0, max_tokens=1).apply(thread)
-		self.assertEqual([m["role"] for m in out], ["system"])
+		self.assertEqual([m["role"] for m in out], ["system", "user"])
 
 
 class TestToolPairsStayIntact(FrappeTestCase):
