@@ -54,11 +54,20 @@ DEFAULT_KEEP_TAIL = 10
 _MAX_INPUT_CHARS = 24000
 
 # A summary only pays for itself if it is materially smaller than the prose it
-# replaces, and on a short exchange it cannot be: fourteen messages of a hundred
-# characters each carry about as much text as a readable summary of them. Both
-# thresholds below exist because a compaction that grows the prompt is worse
-# than no compaction at all — it costs a model call AND loses detail.
-_MIN_REPLACED_CHARS = 1500
+# replaces. Both guards below exist because a compaction that grows the prompt
+# is worse than no compaction at all — it costs a model call AND loses detail.
+#
+# _MAX_SUMMARY_RATIO is the real defence and is checked against what the model
+# actually wrote. The minimum below is only there to skip a call that cannot
+# possibly clear it, so it is DERIVED from the other two constants rather than
+# guessed: below this, even a summary written at the minimum output budget
+# would exceed the ratio.
+#
+# It was hardcoded at 1500, which was calibrated against a summary written
+# before the output budget scaled with its input — 966 characters replacing
+# 1538. Once the budget was fixed the same job produced 363 characters for a
+# comparable range, so 1500 was rejecting conversations that compact well. A
+# derived bound cannot drift from its own reasoning that way.
 _MAX_SUMMARY_RATIO = 0.5
 
 # The summariser's output cap scales with what it is replacing rather than
@@ -67,6 +76,10 @@ _MAX_SUMMARY_RATIO = 0.5
 _SUMMARY_BUDGET_DIVISOR = 3
 _MIN_SUMMARY_TOKENS = 150
 _MAX_SUMMARY_TOKENS = 700
+
+# Derived, not chosen: the smallest covered range where a minimum-length summary
+# could still come in under _MAX_SUMMARY_RATIO.
+_MIN_REPLACED_CHARS = int(_MIN_SUMMARY_TOKENS * 4 / _MAX_SUMMARY_RATIO)
 
 # Shape attribute -> the Processa Settings field holding its site-wide default,
 # mirroring dispatchers._MEMORY_MODEL_SETTINGS so the two read alike.
