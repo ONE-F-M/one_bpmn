@@ -56,6 +56,7 @@ _CONFIG_TO_SHAPE = {
 	# Conversation compaction: when to replace old turns with a summary. Like
 	# the memory settings above, these belong to the agent rather than to any
 	# one task that calls it — a conversation is the agent's, not the shape's.
+	"context_token_budget": "aiContextTokenBudget",
 	"compaction_enabled": "aiCompactionEnabled",
 	"compaction_keep_tail": "aiCompactionKeepTail",
 	"compaction_model": "aiCompactionModel",
@@ -84,6 +85,7 @@ _SHAPE_TO_CONFIG = {
 	"aiMemoryDistillModel": "memory_distill_model",
 	"aiMemoryReconcileModel": "memory_reconcile_model",
 	# Compaction is configured in the same modal and persists the same way.
+	"aiContextTokenBudget": "context_token_budget",
 	"aiCompactionEnabled": "compaction_enabled",
 	"aiCompactionKeepTail": "compaction_keep_tail",
 	"aiCompactionModel": "compaction_model",
@@ -500,7 +502,7 @@ def update_agent_config_from_shape(config_name: str, fields: str | dict) -> dict
 			value = frappe.utils.cint(value)
 		# WI-001793: the modal's number input hands back a string; 0/blank means
 		# "not set here" and must stay 0 so dispatch falls through to the shape.
-		if cfield == "context_max_messages":
+		if cfield in ("context_max_messages", "context_token_budget"):
 			value = frappe.utils.cint(value)
 		# Old diagrams carry model ids baked into the shape before the AI Model
 		# catalog existed (WI-001655). Letting doc.save() hit the Link

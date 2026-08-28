@@ -38,6 +38,7 @@
   "column_break_ai_memory",
   "default_memory_reconcile_model",
   "default_compaction_model",
+  "default_context_token_budget",
   "llm_defaults_tab",
   "default_llm_provider",
   "openai_search_context",
@@ -292,6 +293,12 @@
    "fieldtype": "Link",
    "label": "Default Compaction Model",
    "options": "AI Model"
+  },
+  {
+   "description": "Used when an agent sets no Context Token Budget of its own. Caps the assembled conversation history by estimated size, so a tool-heavy thread cannot outgrow the model's context window between compactions. 0 means no size limit.",
+   "fieldname": "default_context_token_budget",
+   "fieldtype": "Int",
+   "label": "Default Context Token Budget"
   },
   {
    "description": "Migrated from onefm_mcp's AI Chat Settings doctype (retired). Global fallback provider/tuning for an agent configuration that has no linked AI Provider yet — once every agent config links a provider directly, this stops being consulted.",

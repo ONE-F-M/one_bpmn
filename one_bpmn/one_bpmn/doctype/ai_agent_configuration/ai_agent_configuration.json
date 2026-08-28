@@ -60,6 +60,7 @@
   "memory_distill_model",
   "column_break_memory_models",
   "memory_reconcile_model",
+  "context_token_budget",
   "compaction_section",
   "compaction_enabled",
   "compaction_keep_tail",
@@ -586,6 +587,12 @@
    "fieldtype": "Link",
    "label": "Reconciliation Model",
    "options": "AI Model"
+  },
+  {
+   "description": "Cap the assembled history by estimated SIZE as well as message count \u2014 both apply, whichever bites first. Message count is blind to size: twenty one-line turns and twenty huge tool results both read as twenty. 0 inherits the site default from Processa Settings; with both blank there is no size limit.",
+   "fieldname": "context_token_budget",
+   "fieldtype": "Int",
+   "label": "Context Token Budget"
   },
   {
    "collapsible": 1,
