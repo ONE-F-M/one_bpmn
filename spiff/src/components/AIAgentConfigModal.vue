@@ -500,7 +500,7 @@
           >
             <label>Distillation Model <span class="hint">(optional)</span></label>
             <select v-model="form.aiMemoryDistillModel">
-              <option value="">-- Use the default --</option>
+              <option value="">{{ inheritLabel("distill") }}</option>
               <option
                 v-if="form.aiMemoryDistillModel && !catalogModels.some(m => m.name === form.aiMemoryDistillModel)"
                 :value="form.aiMemoryDistillModel"
@@ -523,7 +523,7 @@
           >
             <label>Reconciliation Model <span class="hint">(optional)</span></label>
             <select v-model="form.aiMemoryReconcileModel">
-              <option value="">-- Use the default --</option>
+              <option value="">{{ inheritLabel("reconcile") }}</option>
               <option
                 v-if="form.aiMemoryReconcileModel && !catalogModels.some(m => m.name === form.aiMemoryReconcileModel)"
                 :value="form.aiMemoryReconcileModel"
@@ -567,7 +567,7 @@
           <div class="field-row" v-if="!isSelector && form.aiCompactionEnabled">
             <label>Compaction Model <span class="hint">(optional)</span></label>
             <select v-model="form.aiCompactionModel">
-              <option value="">-- Use the default --</option>
+              <option value="">{{ inheritLabel("compaction") }}</option>
               <option
                 v-if="form.aiCompactionModel && !catalogModels.some(m => m.name === form.aiCompactionModel)"
                 :value="form.aiCompactionModel"
@@ -755,6 +755,16 @@ const emit = defineEmits(["close"]);
 const providers = ref([]);
 const agentConfigs = ref([]);
 const catalogModels = ref([]); // AI Model catalog (WI-001655)
+// Site-wide model defaults from Processa Settings. A blank model picker means
+// "inherit", and until now the option said "-- Use the default --" without
+// saying what the default IS — so an unset field was indistinguishable from a
+// broken one. Best-effort: a designer who cannot read Processa Settings still
+// gets the plain label.
+const siteDefaults = ref({ compaction: "", distill: "", reconcile: "" });
+function inheritLabel(which) {
+  const name = siteDefaults.value[which];
+  return name ? `-- Use the site default (${name}) --` : "-- Use the default --";
+}
 
 
 // ── Create-new-agent panel state (WI-001648) ──
@@ -1226,6 +1236,23 @@ onMounted(async () => {
     );
   } catch (e) {
     catalogModels.value = [];
+  }
+
+  try {
+    const settings = await frappeGet(
+      "/api/resource/Processa Settings/Processa Settings",
+      { fields: JSON.stringify([
+        "default_compaction_model", "default_memory_distill_model",
+        "default_memory_reconcile_model",
+      ]) },
+    );
+    siteDefaults.value = {
+      compaction: settings?.default_compaction_model || "",
+      distill: settings?.default_memory_distill_model || "",
+      reconcile: settings?.default_memory_reconcile_model || "",
+    };
+  } catch (e) {
+    siteDefaults.value = { compaction: "", distill: "", reconcile: "" };
   }
 
   // Load selectable AI Agent Configurations for the seed dropdown.
