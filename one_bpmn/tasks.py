@@ -851,6 +851,32 @@ def _mark_resumed(a2a_task: str) -> None:
 	frappe.db.set_value("A2A Task", a2a_task, "resume_enqueued", 1, update_modified=False)
 
 
+def compact_idle_conversations():
+	"""Hourly: the TIME trigger for conversation compaction.
+
+	The count and turn-boundary triggers hang off the chat message hook, but an
+	idle conversation by definition produces no messages — so the one trigger
+	that cannot be a hook is a sweep. It queues exactly the same background job
+	the other two do.
+
+	Does nothing at all unless some agent has an idle threshold configured.
+	"""
+	from one_bpmn.agents.memory import compaction_triggers
+
+	try:
+		result = compaction_triggers.sweep_idle_conversations()
+		if result.get("queued"):
+			frappe.logger("one_bpmn").info(
+				f"Conversation compaction: queued {result['queued']} of "
+				f"{result['considered']} idle conversations"
+			)
+	except Exception:
+		frappe.log_error(
+			title="Conversation compaction: idle sweep failed",
+			message=frappe.get_traceback(),
+		)
+
+
 def chase_unanswered_clarifications():
 	"""Hourly: nudge a question nobody has answered, then raise it.
 

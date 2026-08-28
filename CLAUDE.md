@@ -57,4 +57,31 @@ When copying a map, **fix `process_name` before touching `is_active`** — a cop
 inherits its source's `Process`, and activating it silently deactivates the map it
 was cloned from.
 
+## Adding a field to AI Agent Configuration
+
+**A new field on `AI Agent Configuration` is not done until it is configurable
+from Processa.** Desk is not the configuration surface — a process owner
+configures their agent in the Processa editor, so a field they cannot reach
+there does not exist as far as they are concerned. Adding the doctype field and
+stopping is a half-delivered change.
+
+Six places, all required:
+
+1. `one_bpmn/one_bpmn/doctype/ai_agent_configuration/ai_agent_configuration.json`
+   — the field, and its entry in `field_order`.
+2. `one_bpmn/agents/agent_config_resolver.py` → `_CONFIG_TO_SHAPE` — config
+   field to shape attribute (`aiYourField`), so the resolver hands it out.
+3. …and `_SHAPE_TO_CONFIG` — the reverse, so the modal can write it back.
+4. `spiff/src/components/AIAgentConfigModal.vue` — the default in the form
+   object, the hydration entry, the key in `MEMORY_FORM_KEYS` (the overlay only
+   fills keys already present on `form.value`), and the assignment in the save
+   mapping. A checkbox also needs its key in `BOOLEAN_FORM_KEYS`, because the
+   doctype stores 0/1 and the modal binds a boolean.
+5. The template block itself, in the section it belongs to.
+6. `yarn build` in `spiff/` — `bench build` does NOT compile the Vue app.
+
+Miss any of 2–5 and the field silently does nothing: it saves in Desk, reads
+back as blank in Processa, or is quietly overwritten on the next save from the
+modal.
+
 Follow root [`CLAUDE.md`](../CLAUDE.md) for Frappe conventions.

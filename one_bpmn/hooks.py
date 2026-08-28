@@ -238,6 +238,14 @@ doc_events = {
 			# be undone by the stored row.
 			"one_bpmn.security.output_screening.screen_chat_response",
 		],
+		"after_insert": [
+			# The count and turn-boundary compaction triggers. after_insert, not
+			# before: the message this turn produced has to be part of the count,
+			# and a failed insert must not leave work queued about it. The handler
+			# only ever ENQUEUES — summarising on this thread would put its
+			# latency in front of the person waiting for a reply.
+			"one_bpmn.agents.memory.compaction_triggers.on_chat_message",
+		],
 	},
 	# WI-001813: the list of Processa-controlled doctypes (used by
 	# bpmn_form_actions.js to suppress native Submit/Save/banner) is cached in
@@ -267,6 +275,11 @@ scheduler_events = {
 			# by the minute because the thing being waited on is a person reading
 			# their notifications, and it never resolves the question itself.
 			"one_bpmn.tasks.chase_unanswered_clarifications",
+			# The TIME compaction trigger. Hourly rather than by the minute
+			# because the thing being waited on is a conversation going quiet,
+			# and the thresholds that drive it are configured in minutes but
+			# meant in tens of minutes.
+			"one_bpmn.tasks.compact_idle_conversations",
 		],
 	}
 }

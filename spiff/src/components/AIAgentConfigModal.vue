@@ -539,8 +539,81 @@
             </span>
           </div>
 
+          <!-- Conversation compaction: replace old turns with a summary rather
+               than letting them fall off the end of the window. Agent-level for
+               the same reason memory is — a conversation belongs to the agent,
+               not to whichever task happened to call it. -->
+          <div class="field-row" v-if="!isSelector">
+            <label>
+              <input type="checkbox" v-model="form.aiCompactionEnabled" />
+              Compact long conversations
+            </label>
+            <span class="field-hint">
+              Summarises the early turns once and sends the summary plus the recent turns
+              word-for-word, so a long conversation keeps its beginning without re-sending it
+              every time. The summary is always written in the background — a turn never waits for it.
+            </span>
+          </div>
+
+          <div class="field-row" v-if="!isSelector && form.aiCompactionEnabled">
+            <label>Keep Recent Messages</label>
+            <input type="number" min="2" v-model.number="form.aiCompactionKeepTail" />
+            <span class="field-hint">
+              How many of the most recent messages stay word-for-word. Everything older is what
+              the summary replaces.
+            </span>
+          </div>
+
+          <div class="field-row" v-if="!isSelector && form.aiCompactionEnabled">
+            <label>Compaction Model <span class="hint">(optional)</span></label>
+            <select v-model="form.aiCompactionModel">
+              <option value="">-- Use the default --</option>
+              <option
+                v-if="form.aiCompactionModel && !catalogModels.some(m => m.name === form.aiCompactionModel)"
+                :value="form.aiCompactionModel"
+              >
+                {{ form.aiCompactionModel }} (not in catalog)
+              </option>
+              <option v-for="m in catalogModels" :key="'compaction-' + m.name" :value="m.name">
+                {{ m.name }} — via {{ m.provider }}
+              </option>
+            </select>
+            <span class="field-hint">
+              Writes the summary. This is high-volume, low-stakes work, so a cheap model belongs here.
+              Left blank it falls back to the site default in Processa Settings.
+            </span>
+          </div>
+
+          <div class="field-row" v-if="!isSelector && form.aiCompactionEnabled">
+            <label>Token Threshold <span class="hint">(0 = off)</span></label>
+            <input type="number" min="0" v-model.number="form.aiCompactionTokenThreshold" />
+            <span class="field-hint">
+              Compact once the history being sent is estimated to pass this many tokens.
+            </span>
+          </div>
+
+          <div class="field-row" v-if="!isSelector && form.aiCompactionEnabled">
+            <label>Idle Minutes <span class="hint">(0 = off)</span></label>
+            <input type="number" min="0" v-model.number="form.aiCompactionIdleMinutes" />
+            <span class="field-hint">
+              Compact a conversation nobody has touched for this long. Checked hourly.
+            </span>
+          </div>
+
+          <div class="field-row" v-if="!isSelector && form.aiCompactionEnabled">
+            <label>
+              <input type="checkbox" v-model="form.aiCompactionOnTaskBoundary" />
+              Compact at the end of every turn
+            </label>
+            <span class="field-hint">
+              Runs once the agent has replied, so it never happens part-way through a turn.
+              Set any combination of the three — whichever fires first does the work.
+            </span>
+          </div>
+
           <p class="field-hint" style="margin-top: 10px;" v-if="!isSelector">
-            Memory settings are stored on the linked AI Agent Configuration, not on this diagram.
+            Memory and compaction settings are stored on the linked AI Agent Configuration,
+            not on this diagram.
           </p>
         </div>
 
@@ -870,6 +943,14 @@ const form = ref({
   // WI-001793: blank means "inherit" — site default, then the agent's own model.
   aiMemoryDistillModel: "",
   aiMemoryReconcileModel: "",
+  // Conversation compaction. Off by default: a site that has not asked for it
+  // must see no change in what its agents send.
+  aiCompactionEnabled: false,
+  aiCompactionKeepTail: 10,
+  aiCompactionModel: "",
+  aiCompactionTokenThreshold: 0,
+  aiCompactionIdleMinutes: 0,
+  aiCompactionOnTaskBoundary: false,
   // WI-001639: the agent's frozen static context. Always arrays — they are
   // replaced wholesale by loadStaticContextFromConfig once the agent is read.
   aiExamples: [],
@@ -1192,6 +1273,15 @@ onMounted(async () => {
     // keys already present, and this assignment replaces form.value wholesale.
     aiMemoryDistillModel: get("aiMemoryDistillModel") || "",
     aiMemoryReconcileModel: get("aiMemoryReconcileModel") || "",
+    // Compaction is agent-owned like the two above, but the keys must exist
+    // here: this assignment replaces form.value wholesale, and the overlay
+    // below only fills keys that are already present.
+    aiCompactionEnabled: get("aiCompactionEnabled") === "true",
+    aiCompactionKeepTail: numOr("aiCompactionKeepTail", 10, parseInt),
+    aiCompactionModel: get("aiCompactionModel") || "",
+    aiCompactionTokenThreshold: numOr("aiCompactionTokenThreshold", 0, parseInt),
+    aiCompactionIdleMinutes: numOr("aiCompactionIdleMinutes", 0, parseInt),
+    aiCompactionOnTaskBoundary: get("aiCompactionOnTaskBoundary") === "true",
     // WI-001639: agent-owned, with no diagram fallback — this assignment
     // replaces form.value wholesale, so the keys must exist here or
     // loadStaticContextFromConfig has nothing to fill and the template binds
@@ -1257,9 +1347,20 @@ const MEMORY_FORM_KEYS = [
   "aiMemoryWriteMode",
   "aiMemoryDistillModel",
   "aiMemoryReconcileModel",
+  "aiCompactionEnabled",
+  "aiCompactionKeepTail",
+  "aiCompactionModel",
+  "aiCompactionTokenThreshold",
+  "aiCompactionIdleMinutes",
+  "aiCompactionOnTaskBoundary",
 ];
 
+const BOOLEAN_FORM_KEYS = ["aiCompactionEnabled", "aiCompactionOnTaskBoundary"];
+
 function configValueToForm(key, val) {
+  if (BOOLEAN_FORM_KEYS.includes(key)) {
+    return val === true || val === 1 || ["true", "1"].includes(String(val).toLowerCase());
+  }
   if (key !== "aiLongTermMemory") return val;
   return val === true || val === 1 || ["enabled", "true", "1"].includes(String(val).toLowerCase());
 }
@@ -1473,6 +1574,22 @@ async function writeBackToConfig() {
     fields.aiMemoryWriteMode = form.value.aiLongTermMemory ? form.value.aiMemoryWriteMode : "";
     fields.aiMemoryDistillModel = form.value.aiMemoryDistillModel || "";
     fields.aiMemoryReconcileModel = form.value.aiMemoryReconcileModel || "";
+    // Compaction. The thresholds are only meaningful while it is enabled, so
+    // they are zeroed when it is off rather than left to fire on a re-enable
+    // with settings the user has since forgotten about.
+    fields.aiCompactionEnabled = form.value.aiCompactionEnabled ? 1 : 0;
+    fields.aiCompactionKeepTail = form.value.aiCompactionKeepTail || 10;
+    fields.aiCompactionModel = form.value.aiCompactionEnabled
+      ? form.value.aiCompactionModel || ""
+      : "";
+    fields.aiCompactionTokenThreshold = form.value.aiCompactionEnabled
+      ? form.value.aiCompactionTokenThreshold || 0
+      : 0;
+    fields.aiCompactionIdleMinutes = form.value.aiCompactionEnabled
+      ? form.value.aiCompactionIdleMinutes || 0
+      : 0;
+    fields.aiCompactionOnTaskBoundary =
+      form.value.aiCompactionEnabled && form.value.aiCompactionOnTaskBoundary ? 1 : 0;
   }
   // WI-001639: examples and guard rails are agent-level, so they persist here
   // rather than onto the BPMN XML. Sent whole (the backend replaces the tables)

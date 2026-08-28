@@ -53,6 +53,15 @@ _CONFIG_TO_SHAPE = {
 	"memory_write_mode": "aiMemoryWriteMode",
 	"memory_distill_model": "aiMemoryDistillModel",
 	"memory_reconcile_model": "aiMemoryReconcileModel",
+	# Conversation compaction: when to replace old turns with a summary. Like
+	# the memory settings above, these belong to the agent rather than to any
+	# one task that calls it — a conversation is the agent's, not the shape's.
+	"compaction_enabled": "aiCompactionEnabled",
+	"compaction_keep_tail": "aiCompactionKeepTail",
+	"compaction_model": "aiCompactionModel",
+	"compaction_token_threshold": "aiCompactionTokenThreshold",
+	"compaction_idle_minutes": "aiCompactionIdleMinutes",
+	"compaction_on_task_boundary": "aiCompactionOnTaskBoundary",
 }
 
 # Shape attributes the modal may write back, and the config fields they land
@@ -74,6 +83,13 @@ _SHAPE_TO_CONFIG = {
 	"aiMemoryWriteMode": "memory_write_mode",
 	"aiMemoryDistillModel": "memory_distill_model",
 	"aiMemoryReconcileModel": "memory_reconcile_model",
+	# Compaction is configured in the same modal and persists the same way.
+	"aiCompactionEnabled": "compaction_enabled",
+	"aiCompactionKeepTail": "compaction_keep_tail",
+	"aiCompactionModel": "compaction_model",
+	"aiCompactionTokenThreshold": "compaction_token_threshold",
+	"aiCompactionIdleMinutes": "compaction_idle_minutes",
+	"aiCompactionOnTaskBoundary": "compaction_on_task_boundary",
 	# WI-001644: screening is agent-level too — what an agent may say is a
 	# property of the agent, not of the task that happens to call it.
 	"aiPiiScreening": "pii_screening",
