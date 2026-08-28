@@ -65,6 +65,29 @@ class CompactionTriggerCase(FrappeTestCase):
 
 	def tearDown(self):
 		triggers._clear_inflight(self.conversation)
+		# Inserting an AI Agent Configuration fires the agent-creation map, which
+		# COMMITS — so the row and the instance it spawns survive the test
+		# rollback. Left alone, every run adds a config, a conversation and a
+		# BPMN instance to the site permanently; 178 of them had accumulated
+		# before this was noticed, and each one also makes the next run slower.
+		frappe.flags.in_migrate = True
+		try:
+			frappe.db.delete("Chat Conversation Summary", {"conversation": self.conversation})
+			frappe.db.delete("Chat Message", {"conversation": self.conversation})
+			frappe.db.delete("Chat Conversation", {"name": self.conversation})
+			for inst in frappe.get_all(
+				"BPMN Process Instance", filters={"context_docname": self.config.name}, pluck="name"
+			):
+				frappe.delete_doc("BPMN Process Instance", inst, force=True,
+				                  ignore_permissions=True, delete_permanently=True)
+			frappe.delete_doc("AI Agent Configuration", self.config.name, force=True,
+			                  ignore_permissions=True, delete_permanently=True)
+			frappe.db.commit()
+		except Exception:
+			# A cleanup failure must not mask the result of the test itself.
+			frappe.db.rollback()
+		finally:
+			frappe.flags.in_migrate = False
 
 	def _configure(self, **values):
 		for k, v in values.items():

@@ -952,7 +952,7 @@ const form = ref({
   aiCompactionIdleMinutes: 0,
   aiCompactionOnTaskBoundary: false,
   // WI-001639: the agent's frozen static context. Always arrays — they are
-  // replaced wholesale by loadStaticContextFromConfig once the agent is read.
+  // replaced wholesale by loadLinkedAgent once the agent is read.
   aiExamples: [],
   aiGuardrails: [],
   // WI-002054: the roles the agent's own user holds — what it is permitted to do.
@@ -987,7 +987,35 @@ function addGuardrail() {
 // Overlay the linked agent's static-context tables onto the form. Called on
 // open and whenever the linked agent changes, so what is on screen is what the
 // agent will actually be primed with.
-async function loadStaticContextFromConfig() {
+// Everything the modal shows about a linked agent comes from here, whether the
+// panel just opened or the designer picked a different agent from the dropdown.
+//
+// These were two separate paths and they drifted: opening the panel applied only
+// the MEMORY keys, while picking an agent applied all of them. So a task whose
+// agent was already linked opened showing the DIAGRAM's stale prompt, model,
+// temperature and token cap — none of which is what dispatch actually uses — and
+// the designer had to re-pick the agent it was already linked to before the real
+// values appeared. One loader for both paths is the fix, and it is also what
+// stops the two drifting apart again.
+//
+// Applying every field is safe: config_field_map omits blank values, so an unset
+// field on the agent falls through to the shape's own copy — the same fallback
+// dispatch performs.
+async function applyLinkedAgentFields(fields) {
+  if (!fields) return;
+  applyConfigFields(fields);
+  form.value.aiExamples = Array.isArray(fields?.aiExamples) ? fields.aiExamples : [];
+  form.value.aiSkills = Array.isArray(fields?.aiSkills) ? fields.aiSkills : [];
+  form.value.aiGuardrails = Array.isArray(fields?.aiGuardrails) ? fields.aiGuardrails : [];
+  form.value.aiAgentRoles = Array.isArray(fields?.aiAgentRoles) ? fields.aiAgentRoles : [];
+  applyGrantableRoles(fields);
+  staticContextLoaded.value = true;
+}
+
+// One round trip. This used to be three identical POSTs on open (memory, static
+// context, and the picker's own), which is most of why the panel took a moment
+// to fill in.
+async function loadLinkedAgent() {
   staticContextLoaded.value = false;
   if (!form.value.aiAgentConfig) return;
   try {
@@ -996,15 +1024,14 @@ async function loadStaticContextFromConfig() {
       method: "POST",
       params: { config_name: form.value.aiAgentConfig },
     });
-    form.value.aiExamples = Array.isArray(fields?.aiExamples) ? fields.aiExamples : [];
-    form.value.aiSkills = Array.isArray(fields?.aiSkills) ? fields.aiSkills : [];
-    form.value.aiGuardrails = Array.isArray(fields?.aiGuardrails) ? fields.aiGuardrails : [];
-    form.value.aiAgentRoles = Array.isArray(fields?.aiAgentRoles) ? fields.aiAgentRoles : [];
-    applyGrantableRoles(fields);
-    staticContextLoaded.value = true;
+    await applyLinkedAgentFields(fields);
   } catch (e) {
-    // Unreadable agent — the sections stay empty and Save leaves them alone.
+    // Unreadable agent — the shape's own values stay on screen, which is also
+    // what dispatch falls back to, and Save leaves the agent's tables alone.
+    return;
   }
+  await loadAgentUser(form.value.aiAgentConfig);
+  await loadScreening();
 }
 
 // ── Notices ───────────────────────────────────────────────────────────────
@@ -1269,7 +1296,7 @@ onMounted(async () => {
       (get("aiMemoryAutoWrite") === "true" ? "distilled" : "off"),
     // WI-001793: these two live on the agent, but seed them from the diagram so
     // a map whose agent has not been migrated still shows its real setting.
-    // They must exist on the form object — loadMemoryFromConfig only overlays
+    // They must exist on the form object — the linked-agent load only overlays
     // keys already present, and this assignment replaces form.value wholesale.
     aiMemoryDistillModel: get("aiMemoryDistillModel") || "",
     aiMemoryReconcileModel: get("aiMemoryReconcileModel") || "",
@@ -1284,7 +1311,7 @@ onMounted(async () => {
     aiCompactionOnTaskBoundary: get("aiCompactionOnTaskBoundary") === "true",
     // WI-001639: agent-owned, with no diagram fallback — this assignment
     // replaces form.value wholesale, so the keys must exist here or
-    // loadStaticContextFromConfig has nothing to fill and the template binds
+    // loadLinkedAgent has nothing to fill and the template binds
     // to undefined.
     aiExamples: [],
     aiGuardrails: [],
@@ -1316,44 +1343,16 @@ onMounted(async () => {
   // is visible before the compile error says it.
   refreshLinkedAgentStatus();
 
-  // WI-001793: the agent owns the memory settings — show its values, not the
-  // diagram's stale copies, so Save can't write yesterday's config back.
-  await loadMemoryFromConfig();
-
-  // WI-001639: the agent owns examples and guard rails — show its rows, not an
-  // empty pair of sections, so Save can't write a blank static context back.
-  await loadStaticContextFromConfig();
-  // WI-002054: the agent's own address, so the permissions section can say who
-  // the grant is for. The picker's options came with the config read above.
-  await loadAgentUser(form.value.aiAgentConfig);
-  await loadScreening();
+  // The linked agent is the source of truth for the prompt, model, sampling,
+  // memory, compaction, examples, guard rails, skills and permissions — so its
+  // values are what the panel opens showing. Anything blank on the agent falls
+  // through to the shape's own copy, exactly as dispatch does.
+  await loadLinkedAgent();
 });
 
 // Pull the linked configuration's current values into the form (WI-001637
 // live link). The resolver returns shape-attribute keys (aiSystemPrompt,
 // aiProvider, aiModel, aiTemperature, aiMaxTokens) that map directly onto our
-// form fields. At run time the configuration is authoritative for these
-// fields; editing them here and saving writes the changes back to it.
-// WI-001793: memory settings are stored on the agent, not the diagram, so a
-// linked configuration is the source of truth for them. The resolver hands back
-// shape-attribute keys; only the toggle needs translating, because the doctype
-// models it as Enabled / Disabled / blank (blank = inherit the diagram's older
-// value) while the modal binds a checkbox.
-const MEMORY_FORM_KEYS = [
-  "aiConversationStore",
-  "aiContextMaxMessages",
-  "aiLongTermMemory",
-  "aiMemoryScope",
-  "aiMemoryWriteMode",
-  "aiMemoryDistillModel",
-  "aiMemoryReconcileModel",
-  "aiCompactionEnabled",
-  "aiCompactionKeepTail",
-  "aiCompactionModel",
-  "aiCompactionTokenThreshold",
-  "aiCompactionIdleMinutes",
-  "aiCompactionOnTaskBoundary",
-];
 
 const BOOLEAN_FORM_KEYS = ["aiCompactionEnabled", "aiCompactionOnTaskBoundary"];
 
@@ -1375,21 +1374,6 @@ function applyConfigFields(fields, onlyKeys = null) {
 // On open, overlay the linked agent's memory settings so the panel shows what
 // will actually run. Scoped to memory on purpose: the other agent-level fields
 // keep their existing "shape copy is the editing view" behaviour.
-async function loadMemoryFromConfig() {
-  if (!form.value.aiAgentConfig) return;
-  try {
-    const fields = await frappeRequest({
-      url: "/api/method/one_bpmn.agents.agent_config_resolver.get_agent_config_for_shape",
-      method: "POST",
-      params: { config_name: form.value.aiAgentConfig },
-    });
-    applyConfigFields(fields, MEMORY_FORM_KEYS);
-  } catch (e) {
-    // Unreadable config — the shape's older values stay on screen, which is
-    // also what dispatch will fall back to.
-  }
-}
-
 async function onAgentConfigSelect() {
   const value = form.value.aiAgentConfig;
   if (value === "__create__") {
@@ -1411,30 +1395,9 @@ async function onAgentConfigSelect() {
   // create flow) makes a still-open manual create panel stale — close it.
   if (value) showCreateAgent.value = false;
   if (!value) return;
-  try {
-    const fields = await frappeRequest({
-      url: "/api/method/one_bpmn.agents.agent_config_resolver.get_agent_config_for_shape",
-      method: "POST",
-      params: { config_name: value },
-    });
-    applyConfigFields(fields);
-    // WI-001639: the same read carries the static-context tables, so the
-    // sections follow the newly linked agent rather than keeping the old
-    // agent's rows on screen.
-    form.value.aiExamples = Array.isArray(fields?.aiExamples) ? fields.aiExamples : [];
-    form.value.aiGuardrails = Array.isArray(fields?.aiGuardrails) ? fields.aiGuardrails : [];
-    // Skills and permissions follow the newly linked agent too. Skills were left
-    // out here, so picking a different agent kept the previous one's skills on
-    // screen and saving wrote them onto the new agent.
-    form.value.aiSkills = Array.isArray(fields?.aiSkills) ? fields.aiSkills : [];
-    form.value.aiAgentRoles = Array.isArray(fields?.aiAgentRoles) ? fields.aiAgentRoles : [];
-    applyGrantableRoles(fields);
-    staticContextLoaded.value = true;
-    await loadAgentUser(form.value.aiAgentConfig);
-    await loadScreening();
-  } catch (e) {
-    /* leave the current field values as-is if the seed lookup fails */
-  }
+  // Same loader the panel opens with, so picking an agent and opening a task
+  // already linked to it put identical values on screen.
+  await loadLinkedAgent();
 }
 
 // The designer's confirm no longer creates anything itself: it relays the
