@@ -140,6 +140,9 @@ class TestNeverInline(CompactionTriggerCase):
 		compact.assert_not_called()
 		enqueue.assert_called_once()
 		self.assertEqual(enqueue.call_args.kwargs["queue"], COMPACTION_QUEUE)
+		# Its value decays: a summary that lands after the conversation is over
+		# has missed the point, so it does not wait behind longer agent work.
+		self.assertTrue(enqueue.call_args.kwargs["at_front"])
 		self.assertEqual(
 			enqueue.call_args.args[0],
 			"one_bpmn.agents.memory.compaction_triggers.run_compaction",

@@ -43,10 +43,20 @@ from one_bpmn.agents.memory.compaction import (
 	needs_compaction,
 )
 
-# The queue agent work already runs on, so a summary cannot starve the default
-# queue that user-facing jobs share.
+# The dedicated AI-agent queue, which has its own worker in the Procfile. This
+# matters for more than tidiness: the shared worker also serves ``default``, and
+# a bulk operation there (a few hundred delete_dynamic_links jobs, say) will
+# hold it for minutes. Compaction on its own queue is picked up by the idle
+# dedicated worker instead of queueing behind unrelated bulk work.
 COMPACTION_QUEUE = "bpmn_ai_agent"
 COMPACTION_JOB_TIMEOUT = 600
+
+# Compaction is short and its value decays: it exists so the NEXT turn sends
+# less, so a summary that lands after the conversation is over has missed the
+# point. It goes to the head of its queue ahead of longer-running agent work.
+# Safe to do because this queue only ever carries agent jobs, and the in-flight
+# marker means there is at most one compaction per conversation in it.
+COMPACTION_AT_FRONT = True
 
 # Fallback when Processa Settings has no estimate configured. Only used to
 # compare against a threshold that is itself an estimate, so it does not need
@@ -208,6 +218,7 @@ def enqueue_compaction(conversation: str, *, reason: str, cfg: dict | None = Non
 		"one_bpmn.agents.memory.compaction_triggers.run_compaction",
 		queue=COMPACTION_QUEUE,
 		timeout=COMPACTION_JOB_TIMEOUT,
+		at_front=COMPACTION_AT_FRONT,
 		conversation=conversation,
 		agent_id=agent_id,
 		keep_tail=cfg["keep_tail"],

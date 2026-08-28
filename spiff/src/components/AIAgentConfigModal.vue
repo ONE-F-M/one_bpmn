@@ -76,7 +76,7 @@
                 <select v-model="newAgent.ai_model">
                   <option value="">-- Pick a Model --</option>
                   <option v-for="m in catalogModels" :key="m.name" :value="m.name">
-                    {{ m.name }} — via {{ m.provider }}
+                    {{ modelLabel(m) }}
                   </option>
                 </select>
               </div>
@@ -185,7 +185,7 @@
                 {{ form.aiModel }} (not in catalog)
               </option>
               <option v-for="m in catalogModels" :key="m.name" :value="m.name">
-                {{ m.name }} — via {{ m.provider }}
+                {{ modelLabel(m) }}
               </option>
             </select>
           </div>
@@ -508,7 +508,7 @@
                 {{ form.aiMemoryDistillModel }} (not in catalog)
               </option>
               <option v-for="m in catalogModels" :key="'distill-' + m.name" :value="m.name">
-                {{ m.name }} — via {{ m.provider }}
+                {{ modelLabel(m) }}
               </option>
             </select>
             <span class="field-hint">
@@ -531,7 +531,7 @@
                 {{ form.aiMemoryReconcileModel }} (not in catalog)
               </option>
               <option v-for="m in catalogModels" :key="'reconcile-' + m.name" :value="m.name">
-                {{ m.name }} — via {{ m.provider }}
+                {{ modelLabel(m) }}
               </option>
             </select>
             <span class="field-hint">
@@ -575,7 +575,7 @@
                 {{ form.aiCompactionModel }} (not in catalog)
               </option>
               <option v-for="m in catalogModels" :key="'compaction-' + m.name" :value="m.name">
-                {{ m.name }} — via {{ m.provider }}
+                {{ modelLabel(m) }}
               </option>
             </select>
             <span class="field-hint">
@@ -761,6 +761,16 @@ const catalogModels = ref([]); // AI Model catalog (WI-001655)
 // broken one. Best-effort: a designer who cannot read Processa Settings still
 // gets the plain label.
 const siteDefaults = ref({ compaction: "", distill: "", reconcile: "" });
+// What an option reads as. A model whose provider is missing or disabled is
+// still listed — hiding it is what produced an empty picker — but it says why
+// it may not work rather than looking identical to a usable one.
+function modelLabel(m) {
+  if (!m.provider) return `${m.name} — no provider linked`;
+  return m.usable === false
+    ? `${m.name} — via ${m.provider} (credentials disabled)`
+    : `${m.name} — via ${m.provider}`;
+}
+
 function inheritLabel(which) {
   const name = siteDefaults.value[which];
   return name ? `-- Use the site default (${name}) --` : "-- Use the default --";
@@ -1219,21 +1229,29 @@ onMounted(async () => {
     providers.value = [];
   }
 
-  // WI-001655: the AI Model catalog — picking a model implies its
-  // credentials. Only USABLE models are offered: linked to credentials
-  // that are enabled (same rule as the assistant's grounding); unlinked
-  // catalog rows are managed in the desk until someone links them.
+  // WI-001655: the AI Model catalog — picking a model implies its credentials.
+  //
+  // Every ENABLED model is offered, matching what the Desk link field shows.
+  // This used to additionally drop any model whose provider was missing from a
+  // SEPARATELY fetched list of enabled AI Providers, which made the catalog
+  // depend on two requests agreeing: if the provider fetch came back empty for
+  // any reason, every model was filtered out and the picker collapsed to a
+  // single entry — the current value, rendered as "(not in catalog)". A picker
+  // that silently empties is worse than one offering a model whose credentials
+  // need attention, so the provider list now LABELS the options instead of
+  // filtering them, and a model without usable credentials says so.
   try {
     const models = await frappeGet("/api/resource/AI Model", {
       fields: JSON.stringify(["name", "provider"]),
-      filters: JSON.stringify([["provider", "is", "set"], ["enable_model", "=", 1]]),
+      filters: JSON.stringify([["enable_model", "=", 1]]),
       limit_page_length: 100,
       order_by: "name asc",
     });
     const enabledCreds = new Set(providers.value.map((p) => p.name));
-    catalogModels.value = (Array.isArray(models) ? models : []).filter(
-      (m) => enabledCreds.has(m.provider)
-    );
+    catalogModels.value = (Array.isArray(models) ? models : []).map((m) => ({
+      ...m,
+      usable: !m.provider ? false : enabledCreds.has(m.provider),
+    }));
   } catch (e) {
     catalogModels.value = [];
   }
