@@ -82,6 +82,55 @@ def make_adhoc_decider(instance, wf):
 	return decider
 
 
+# A selector turn that produces prose instead of a tool call is indistinguishable,
+# to the engine, from a correct "activate nothing" decision — both arrive as an
+# idle result. The difference is whether the subprocess still has work owed:
+# activatable diagram tasks and an unmet completion condition. Observed on
+# claude-haiku-4-5 with a rules-heavy system prompt and a thin user prompt: the
+# model answers "Understood. I will only use the tools available to me: ..." and
+# the ad-hoc subprocess parks forever with no error anywhere. Measured ~40% of
+# first decisions on the A2A incident-triage maps.
+_NO_ACTION_NUDGE = (
+	"\n\nYou did not call a tool. Describing what you intend to do has no effect — "
+	"the ONLY way to act is to call one of the offered tools. If a rule applies, "
+	"call its task now, with no preamble. If genuinely none applies, reply with "
+	"exactly NO_TASK and nothing else."
+)
+
+# What the retried turn may say to mean "idle is correct", so a deliberate
+# stop is not mistaken for another failure to act.
+_NO_TASK_SENTINEL = "NO_TASK"
+
+
+def _made_no_tool_call(result) -> bool:
+	"""True when the turn produced prose only.
+
+	Deliberately narrower than "nothing was selected": a model that called an
+	unknown tool, or a registry tool, DID act — those have their own fail-safe
+	paths and logs. The failure this guards is the turn with no tool call at
+	all, which is indistinguishable from a correct "activate nothing".
+	"""
+	for turn in result.trace or []:
+		if turn.get("tool_calls"):
+			return False
+	return True
+
+
+def _record_selector_turns_safe(run, pool, result, bpmn_id: str) -> None:
+	"""One Step per LLM turn, one Tool Call row per call. Never blocks dispatch."""
+	try:
+		from one_bpmn.agents.observability import record_selector_turns
+
+		if run is not None:
+			source_map = {c.spec.name: c.source for c in pool}
+			record_selector_turns(run, result.trace or [], source_map)
+	except Exception:
+		frappe.log_error(
+			title=f"AI Observability: selector step recording failed ({bpmn_id})",
+			message=frappe.get_traceback(),
+		)
+
+
 def dispatch_ai_task_selector(instance, sp, task_cfg: dict, bpmn_id: str) -> tuple:
 	"""
 	Run one selector decision for an ad-hoc subprocess.
@@ -102,6 +151,8 @@ def dispatch_ai_task_selector(instance, sp, task_cfg: dict, bpmn_id: str) -> tup
 	                                              (final answer or registry-only)
 	    ("error", None, None)                   — executor failure
 	"""
+	from dataclasses import replace as _dc_replace
+
 	from frappe.utils import cint
 
 	from one_bpmn.agents.executor import (
@@ -202,6 +253,13 @@ def dispatch_ai_task_selector(instance, sp, task_cfg: dict, bpmn_id: str) -> tup
 			)
 		tools.append(spec)
 
+	# Diagram tasks the model could actually activate on this turn. With none
+	# offered, idle is the only possible answer and must never be read as a
+	# failure to act (registry-only decision points rely on this).
+	diagram_candidates = [
+		c.spec.name for c in pool if c.source == DIAGRAM_TASK and c.spec.name in pending_names
+	]
+
 	# Auto-appended progress block: authoritative memory the prompt author
 	# doesn't have to engineer evidence for (send tasks leave no data trace).
 	user_prompt = render(task_cfg.get("aiUserPrompt", ""))
@@ -281,43 +339,90 @@ def dispatch_ai_task_selector(instance, sp, task_cfg: dict, bpmn_id: str) -> tup
 	_policy_token = set_current_agent(task_cfg.get("aiAgentConfig"))
 	try:
 		executor_cls = get_executor(config.backend)
-		result = executor_cls().run(config, context)
-	except Exception:
-		frappe.log_error(
-			title=f"BPMN AI Task Selector: unexpected error ({bpmn_id})",
-			message=frappe.get_traceback(),
-		)
-		sp.data[f"{bpmn_id}_error_code"] = "UNEXPECTED_ERROR"
-		sp.data[f"{bpmn_id}_error_message"] = "See Frappe Error Log for details."
-		return ("error", None, None)
+
+		def run_turn(cfg):
+			"""One selector turn. Returns (result, failed) — failed short-circuits."""
+			try:
+				turn_result = executor_cls().run(cfg, context)
+			except Exception:
+				frappe.log_error(
+					title=f"BPMN AI Task Selector: unexpected error ({bpmn_id})",
+					message=frappe.get_traceback(),
+				)
+				sp.data[f"{bpmn_id}_error_code"] = "UNEXPECTED_ERROR"
+				sp.data[f"{bpmn_id}_error_message"] = "See Frappe Error Log for details."
+				return None, True
+
+			_record_selector_turns_safe(run, pool, turn_result, bpmn_id)
+
+			if turn_result.error_code != ErrorCode.SUCCESS:
+				# Same pattern as dispatch_ai_agent: log, write error variables,
+				# leave the subprocess's other inner tasks unaffected.
+				frappe.log_error(
+					title=f"BPMN AI Task Selector: executor failed ({bpmn_id})",
+					message=f"{turn_result.error_code.value}: {turn_result.error_message}",
+				)
+				sp.data[f"{bpmn_id}_error_code"] = turn_result.error_code.value
+				sp.data[f"{bpmn_id}_error_message"] = turn_result.error_message
+				return None, True
+
+			_record_tool_outcomes(sp, bpmn_id, turn_result)
+			return turn_result, False
+
+		result, failed = run_turn(config)
+		if failed:
+			return ("error", None, None)
+
+		# Narration instead of action: the model had activatable tasks and work
+		# still owed, but called nothing. Retry ONCE with an explicit correction
+		# before letting the subprocess park — the alternative is a silent hang.
+		if (
+			not selection
+			and diagram_candidates
+			and _made_no_tool_call(result)
+			and not bpmn_engine._adhoc_completion_met(sp)
+			and _NO_TASK_SENTINEL not in (result.output or "")
+		):
+			frappe.log_error(
+				title=f"AI Task Selector: no tool call, retrying once ({bpmn_id})",
+				message=(
+					f"Offered: {sorted(diagram_candidates)}\n"
+					f"Model said: {(result.output or '')[:500]}"
+				),
+			)
+			result, failed = run_turn(
+				_dc_replace(config, user_prompt=config.user_prompt + _NO_ACTION_NUDGE)
+			)
+			if failed:
+				return ("error", None, None)
 	finally:
 		reset_current_agent(_policy_token)
 
-	# One Step per LLM turn, one Tool Call row per call within a turn.
-	try:
-		from one_bpmn.agents.observability import record_selector_turns
-
-		if run is not None:
-			source_map = {c.spec.name: c.source for c in pool}
-			record_selector_turns(run, result.trace or [], source_map)
-	except Exception:
+	# Still nothing after the correction, with work owed: this is a stall, not a
+	# decision. Surface it — an idle return here parks the subprocess with no
+	# error anywhere, which is what made this failure invisible in UAT.
+	if (
+		not selection
+		and diagram_candidates
+		and _made_no_tool_call(result)
+		and not bpmn_engine._adhoc_completion_met(sp)
+		and _NO_TASK_SENTINEL not in (result.output or "")
+	):
 		frappe.log_error(
-			title=f"AI Observability: selector step recording failed ({bpmn_id})",
-			message=frappe.get_traceback(),
+			title=f"AI Task Selector: stalled, no task activated ({bpmn_id})",
+			message=(
+				f"Two turns produced no tool call while {sorted(diagram_candidates)} "
+				f"were activatable and the completion condition was unmet.\n"
+				f"Last output: {(result.output or '')[:500]}"
+			),
 		)
-
-	if result.error_code != ErrorCode.SUCCESS:
-		# Same pattern as dispatch_ai_agent: log, write error variables,
-		# leave the subprocess's other inner tasks unaffected.
-		frappe.log_error(
-			title=f"BPMN AI Task Selector: executor failed ({bpmn_id})",
-			message=f"{result.error_code.value}: {result.error_message}",
+		sp.data[f"{bpmn_id}_error_code"] = "SELECTOR_NO_ACTIVATION"
+		sp.data[f"{bpmn_id}_error_message"] = (
+			"The selector did not activate a task after two attempts. "
+			"The subprocess cannot advance on its own; retry the decision or "
+			"tighten the prompt."
 		)
-		sp.data[f"{bpmn_id}_error_code"] = result.error_code.value
-		sp.data[f"{bpmn_id}_error_message"] = result.error_message
 		return ("error", None, None)
-
-	_record_tool_outcomes(sp, bpmn_id, result)
 
 	# An idle decision does NOT close the run — earlier code finalized here
 	# unconditionally, so a correct "wait for the agent" decision marked the
