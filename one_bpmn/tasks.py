@@ -851,6 +851,26 @@ def _mark_resumed(a2a_task: str) -> None:
 	frappe.db.set_value("A2A Task", a2a_task, "resume_enqueued", 1, update_modified=False)
 
 
+def sweep_conversation_retention():
+	"""Daily: archive or delete chat conversations idle past their TTL.
+
+	Off unless an administrator sets a TTL on Processa Settings, so a site that
+	has not asked for retention does nothing beyond one settings read.
+	"""
+	from one_bpmn.agents.memory import retention
+
+	try:
+		result = retention.sweep_expired_conversations()
+		if result.get("swept"):
+			frappe.logger("one_bpmn").info(
+				f"Conversation retention: {result['action']}d {result['swept']} conversation(s)"
+			)
+	except Exception:
+		frappe.log_error(
+			title="Conversation retention sweep failed", message=frappe.get_traceback()
+		)
+
+
 def compact_idle_conversations():
 	"""Hourly: the TIME trigger for conversation compaction.
 

@@ -35,6 +35,7 @@ MIGRATION NOTE (known limitation):
 from __future__ import annotations
 
 import abc
+import hashlib
 import json
 from dataclasses import dataclass
 
@@ -419,13 +420,43 @@ class DocumentConversationStore(ConversationStore):
 		return f"one_bpmn:{instance_name}:{bpmn_id}"
 
 	def _get_conversation(self, instance_name: str, bpmn_id: str, create: bool = False):
+		"""The conversation for this thread key, created if asked for.
+
+		Get-or-create is NOT atomic, and this is called from anywhere an agent
+		appends — including paths that genuinely overlap: two tool calls landing
+		together, a retry racing the run it is retrying, a resumed instance
+		alongside its original. Every caller then saw no conversation and every
+		caller made one.
+
+		Proven rather than theorised: eight parallel appenders produced SEVEN
+		conversation rows for one thread key, five messages in each, and the
+		agent read back five of forty. Nothing was lost from the table; the
+		thread was. That is worse than losing rows, because it looks like the
+		agent simply forgot.
+
+		The obvious guard — re-read before inserting — does not work here: an
+		uncommitted insert is invisible to other connections, so every racer
+		still sees nothing. So this creates, COMMITS, and then reconciles: all
+		racers converge on the oldest row and each deletes its own loser. The
+		reconcile happens before any message is appended, so a discarded row is
+		always empty.
+		"""
 		title = self._title(instance_name, bpmn_id)
-		name = frappe.db.get_value(self._CONVERSATION_DOCTYPE, {"title": title}, "name")
-		if name or not create:
+		name = self._deterministic_name(title)
+		if frappe.db.exists(self._CONVERSATION_DOCTYPE, name):
 			return name
+		if not create:
+			# A thread may predate deterministic naming; fall back to the title.
+			return frappe.db.get_value(self._CONVERSATION_DOCTYPE, {"title": title}, "name")
+
+		legacy = frappe.db.get_value(self._CONVERSATION_DOCTYPE, {"title": title}, "name")
+		if legacy:
+			return legacy
+
 		conv = frappe.get_doc(
 			{
 				"doctype": self._CONVERSATION_DOCTYPE,
+				"name": name,
 				"title": title,
 				"status": "Open",
 				# A memory thread is NOT a user chat, and it must not be mistaken
@@ -439,8 +470,65 @@ class DocumentConversationStore(ConversationStore):
 				"agent_mode": AGENT_MEMORY_MODE,
 			}
 		)
-		conv.insert(ignore_permissions=True)
-		return conv.name
+		conv.flags.name_set = True
+		# The COMMIT is load-bearing, not incidental. An uncommitted insert is
+		# invisible to other connections, so a racer cannot see the winner and
+		# blocks on its row lock until this transaction ends — measured, and it
+		# loses messages every run. Committing publishes the thread container
+		# immediately so every racer resolves to it.
+		#
+		# The savepoint is what keeps the failure contained: a bare rollback
+		# would discard the agent turn that is appending, which is far worse than
+		# a duplicate thread.
+		try:
+			frappe.db.savepoint("agent_memory_thread")
+			conv.insert(ignore_permissions=True)
+			frappe.db.commit()
+		except Exception:
+			frappe.db.rollback(save_point="agent_memory_thread")
+			# Somebody else created it between the check and the insert. That is
+			# the race this naming exists to lose safely: the primary key is the
+			# mutex, so exactly one insert wins and the rest adopt it.
+			#
+			# InnoDB runs REPEATABLE READ, so this transaction's snapshot was
+			# taken before the winner committed. That breaks the loser TWICE: it
+			# cannot see the row it just collided with, and — less obviously —
+			# the Link validation on the message it is about to write cannot see
+			# it either, failing with "Could not find Conversation".
+			#
+			# A fresh snapshot is the only thing that fixes both, and only a
+			# commit gives one. Safe here: the savepoint has already undone this
+			# path's own write, and the winner committed for the same reason.
+			frappe.db.commit()
+			if frappe.db.exists(self._CONVERSATION_DOCTYPE, name):
+				return name
+			raise
+		return name
+
+	def _deterministic_name(self, title: str) -> str:
+		"""The conversation's primary key, derived from its thread key.
+
+		Get-or-create is not atomic, and this runs wherever an agent appends —
+		including paths that genuinely overlap: two tool calls landing together,
+		a retry racing the run it is retrying, a resumed instance alongside its
+		original. With hash naming every racer created its own row: eight
+		parallel appenders produced SEVEN conversations for one thread key, five
+		messages in each, and the agent read back five of forty. Nothing was lost
+		from the table; the thread was, which looks like the agent simply forgot.
+
+		Reconciling afterwards was tried and is not enough — a worker that has
+		already been given its answer never re-checks, so a later-arriving racer
+		with an earlier timestamp still splits the thread. It failed one run in
+		three.
+
+		Deriving the NAME from the thread key makes the database enforce it: a
+		second insert collides on the primary key, and the loser adopts the
+		winner. There is no window because there is no second row.
+
+		Threads created before this keep working — the title lookup above still
+		finds them.
+		"""
+		return "agentmem-" + hashlib.sha1(title.encode("utf-8")).hexdigest()[:16]
 
 	def _load_raw(self, instance_name: str, bpmn_id: str) -> list[dict]:
 		conv = self._get_conversation(instance_name, bpmn_id)

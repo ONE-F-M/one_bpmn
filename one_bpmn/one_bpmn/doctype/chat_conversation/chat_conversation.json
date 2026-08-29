@@ -52,7 +52,7 @@
    "fieldtype": "Select",
    "ignore_user_permissions": 1,
    "label": "Status",
-   "options": "Open\nClosed"
+   "options": "Open\nClosed\nArchived"
   }
  ],
  "grid_page_length": 50,

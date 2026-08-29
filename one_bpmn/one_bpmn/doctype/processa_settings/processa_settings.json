@@ -39,6 +39,10 @@
   "default_memory_reconcile_model",
   "default_compaction_model",
   "default_context_token_budget",
+  "section_break_conversation_retention",
+  "conversation_ttl_days",
+  "column_break_conversation_retention",
+  "archive_action",
   "llm_defaults_tab",
   "default_llm_provider",
   "openai_search_context",
@@ -299,6 +303,33 @@
    "fieldname": "default_context_token_budget",
    "fieldtype": "Int",
    "label": "Default Context Token Budget"
+  },
+  {
+   "collapsible": 1,
+   "description": "What happens to chat conversations nobody has touched for a while. Idle is measured from the newest message in the conversation, not from when the record was last written \u2014 a status change or a title edit is not activity. An agent's own memory threads are never swept: they are a running agent's working state, not a conversation somebody had.",
+   "fieldname": "section_break_conversation_retention",
+   "fieldtype": "Section Break",
+   "label": "Conversation Retention"
+  },
+  {
+   "default": "0",
+   "description": "Days a conversation may sit idle before the daily sweep acts on it. 0 disables retention entirely \u2014 nothing is archived or deleted.",
+   "fieldname": "conversation_ttl_days",
+   "fieldtype": "Int",
+   "label": "Conversation TTL (days)"
+  },
+  {
+   "fieldname": "column_break_conversation_retention",
+   "fieldtype": "Column Break"
+  },
+  {
+   "default": "Archive",
+   "depends_on": "eval:doc.conversation_ttl_days > 0",
+   "description": "Archive marks the conversation and leaves everything in place, so it can be read and restored. Delete removes the conversation and its messages permanently \u2014 that is the point of a retention policy, and it cannot be undone. Both are logged with counts.",
+   "fieldname": "archive_action",
+   "fieldtype": "Select",
+   "label": "Action on Expiry",
+   "options": "Archive\nDelete"
   },
   {
    "description": "Migrated from onefm_mcp's AI Chat Settings doctype (retired). Global fallback provider/tuning for an agent configuration that has no linked AI Provider yet — once every agent config links a provider directly, this stops being consulted.",

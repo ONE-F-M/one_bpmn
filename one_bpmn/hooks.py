@@ -264,6 +264,12 @@ doc_events = {
 
 scheduler_events = {
 	"cron": {
+		# Retention runs once a day, in the small hours: it is the only job here
+		# that DELETES anything, and a bounded nightly pass is easier to reason
+		# about (and to notice going wrong) than a trickle through the day.
+		"30 2 * * *": [
+			"one_bpmn.tasks.sweep_conversation_retention",
+		],
 		"* * * * *": [
 			"one_bpmn.tasks.process_timer_start_events",
 			"one_bpmn.tasks.process_timer_catch_events",
