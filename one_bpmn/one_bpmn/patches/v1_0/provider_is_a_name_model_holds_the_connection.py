@@ -44,6 +44,41 @@ REMOVE = ("Anthropic 2", "Anthropic Sonnet")
 # Columns that described a connection.
 DROPPED_COLUMNS = ("provider_type", "enabled", "api_endpoint", "api_key")
 
+# Model id prefix -> the provider that made it. Deliberately duplicated rather
+# than imported from a later patch: a patch must not break when a different one
+# is edited.
+BY_PREFIX = (
+	("claude-", "Anthropic"),
+	("gpt-", "OpenAI"),
+	("o1-", "OpenAI"),
+	("o3-", "OpenAI"),
+	("o4-", "OpenAI"),
+	("gemini-", "Google"),
+)
+
+
+def _adopt_orphans():
+	"""Attach a provider-less model to an EXISTING provider named by its id.
+
+	This has to run before the key moves, and the reason is production. Its
+	models carry no credential link and no agent names one, so nothing upstream
+	could attach them -- they arrive here orphaned. Copying the key "onto every
+	model beneath a provider" would then find nothing beneath the one provider
+	that has a key, and the very next step drops the column and the __Auth row.
+	The site's only API key would be destroyed with nothing carrying it forward.
+
+	Only onto providers that already exist. Creating the missing ones is the
+	catalogue patch's job, and a provider invented here would have no key to give
+	anyway.
+	"""
+	for row in frappe.get_all("AI Model", filters={"provider": ["in", ["", None]]}, fields=["name"]):
+		for prefix, provider in BY_PREFIX:
+			if row.name.startswith(prefix) and frappe.db.exists("AI Provider", provider):
+				frappe.db.set_value("AI Model", row.name, "provider", provider,
+				                    update_modified=False)
+				print(f"AI Model: {row.name} had no provider; its id says {provider}")
+				break
+
 
 def _fingerprint(key: str) -> str:
 	return f"{key[:12]}…{key[-4:]} len={len(key)} sha256={hashlib.sha256(key.encode()).hexdigest()[:16]}"
@@ -120,6 +155,9 @@ def execute():
 		)
 		return
 
+	# Before the copy, not after: an orphaned model gets no key, and the copy is
+	# the last moment the key exists to be copied.
+	_adopt_orphans()
 	_copy_connection_down()
 	frappe.db.commit()
 
