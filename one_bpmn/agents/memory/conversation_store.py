@@ -83,37 +83,168 @@ def _json_loads(value):
 
 
 # ── Context-window policy ──────────────────────────────────────────────────
+# Characters per token when nothing else says otherwise. The budget is compared
+# against an estimate, and the estimate is deliberately arithmetic rather than a
+# tokeniser: this runs on every history assembly, and asking a provider what
+# something will cost before sending it is a network round trip on the hot path —
+# the exact cost this epic exists to remove. An estimate that is 20% out moves
+# the cut by a message; a round trip moves it by half a second, every turn.
+DEFAULT_CHARS_PER_TOKEN = 4
+
+
+def estimate_tokens(message: dict, chars_per_token: int = DEFAULT_CHARS_PER_TOKEN) -> int:
+	"""Rough token cost of one message, content plus any tool-call payload.
+
+	``tool_calls`` is counted because on a tool-heavy thread — the case this
+	exists for — the arguments are frequently larger than the prose beside them,
+	and a budget that ignored them would be wrong exactly where it matters.
+	"""
+	chars = len(message.get("content") or "")
+	tool_calls = message.get("tool_calls")
+	if tool_calls is not None:
+		try:
+			chars += len(json.dumps(tool_calls))
+		except (TypeError, ValueError):
+			chars += len(str(tool_calls))
+	return chars // max(chars_per_token, 1)
+
+
+def _atomic_blocks(messages: list[dict]) -> list[list[dict]]:
+	"""Group messages into units that must be kept or dropped together.
+
+	An assistant message carrying ``tool_calls`` and the ``tool`` messages that
+	answer it are ONE unit. Providers reject a tool result whose originating
+	call is absent, so trimming between them turns a request that would have
+	been merely shorter into one that fails outright — on tool-heavy threads,
+	which is precisely what a token budget is for.
+
+	Everything else is a unit of one.
+	"""
+	blocks: list[list[dict]] = []
+	for message in messages:
+		role = (message or {}).get("role")
+		if role == "tool" and blocks and blocks[-1][0].get("tool_calls") is not None:
+			blocks[-1].append(message)
+		else:
+			blocks.append([message])
+	return blocks
+
+
 @dataclass
 class ContextWindowPolicy:
 	"""Trims a thread to fit the model context window.
 
-	When a thread is longer than ``max_messages``, keep the system message (if
-	present and ``retain_system_prompt``) plus the most recent
-	``max_messages - 1`` messages, so the system prompt is always retained.
+	Two independent limits, and BOTH apply — whichever bites first:
+
+	- ``max_messages`` counts messages. Cheap, predictable, and blind to size:
+	  twenty one-line turns and twenty enormous tool results both read as twenty.
+	- ``max_tokens`` counts estimated size. This is what actually keeps a
+	  tool-heavy conversation inside the model's context window, because there
+	  the cost is carried by a few huge messages rather than by many.
+
+	Neither can silently override the other; a thread has to satisfy both.
+	``max_tokens`` of 0 means no budget, which is the behaviour that predates it.
+
+	The system prompt is always retained when ``retain_system_prompt`` is set,
+	budget or not — a thread that has lost its instructions is worse than one
+	that has lost its history.
 	"""
 
 	max_messages: int
 	retain_system_prompt: bool = True
+	max_tokens: int = 0
+	chars_per_token: int = DEFAULT_CHARS_PER_TOKEN
 
 	def apply(self, messages: list[dict]) -> list[dict]:
+		return self._apply_token_budget(self._apply_message_count(messages))
+
+	# ── the message-count limit (unchanged behaviour) ───────────────────
+	def _apply_message_count(self, messages: list[dict]) -> list[dict]:
 		messages = list(messages or [])
 		if not self.max_messages or len(messages) <= self.max_messages:
 			return messages
 
-		system = None
-		rest = messages
-		if self.retain_system_prompt:
-			for i, m in enumerate(messages):
-				if (m or {}).get("role") == "system":
-					system = m
-					rest = messages[:i] + messages[i + 1:]
-					break
-
+		system, rest = self._split_system(messages)
 		if system is not None:
 			keep = self.max_messages - 1
 			tail = rest[-keep:] if keep > 0 else []
 			return [system] + tail
 		return messages[-self.max_messages:]
+
+	# ── the token budget ────────────────────────────────────────────────
+	def _apply_token_budget(self, messages: list[dict]) -> list[dict]:
+		messages = list(messages or [])
+		if not self.max_tokens or not messages:
+			return messages
+		system, rest = self._split_system(messages)
+		return self._trim_to_budget([system] if system is not None else [], rest)
+
+	def _trim_to_budget(self, protected: list[dict], rest: list[dict]) -> list[dict]:
+		"""``protected`` is always kept; ``rest`` is included newest-first until
+		the budget is spent.
+
+		Newest-first because recency is what a model needs most and what the
+		caller loses least by dropping — the oldest turns are the ones a summary
+		can stand in for.
+
+		Protected messages are still COUNTED. A budget that ignored them would
+		promise a ceiling it does not enforce, which on a long system prompt is
+		the difference between a trimmed request and a rejected one.
+		"""
+		spent = sum(estimate_tokens(m, self.chars_per_token) for m in protected)
+
+		blocks = _atomic_blocks(rest)
+		kept: list[list[dict]] = []
+		for block in reversed(blocks):
+			cost = sum(estimate_tokens(m, self.chars_per_token) for m in block)
+			if spent + cost > self.max_tokens:
+				# Stop rather than skip. Continuing to look for something small
+				# enough would reorder the thread — a later message could be
+				# dropped while an earlier one survived, leaving a conversation
+				# with a hole in the middle instead of a shortened tail.
+				break
+			spent += cost
+			kept.append(block)
+
+		if blocks and not kept:
+			# The newest exchange alone does not fit. Send it anyway.
+			#
+			# A budget is a target for trimming HISTORY, not a licence to send a
+			# conversation with none. Returning nothing here strips the turn the
+			# model most needs — the one immediately before the question it is
+			# answering — and a request carrying one oversized message is far
+			# more likely to succeed, and far more useful if it does, than a
+			# request carrying no context at all.
+			#
+			# Observed with a 150-token budget against an agent whose replies run
+			# to 700: every message individually exceeded the budget, and the
+			# assembled history came back empty.
+			kept.append(blocks[-1])
+			self._log_oversized(blocks[-1])
+
+		return list(protected) + [m for block in reversed(kept) for m in block]
+
+	def _log_oversized(self, block: list[dict]) -> None:
+		"""Say so when the budget could not be honoured, rather than silently
+		exceeding it — a budget that is quietly ignored is worse than one that
+		is visibly too small for the agent it is set on."""
+		try:
+			cost = sum(estimate_tokens(m, self.chars_per_token) for m in block)
+			frappe.logger("one_bpmn").warning(
+				f"Context token budget {self.max_tokens} is smaller than the newest "
+				f"exchange ({cost} estimated tokens); sending it regardless."
+			)
+		except Exception:
+			pass
+
+	def _split_system(self, messages: list[dict]):
+		"""The system message and everything else, or (None, messages)."""
+		if not self.retain_system_prompt:
+			return None, list(messages)
+		for i, m in enumerate(messages):
+			if (m or {}).get("role") == "system":
+				return m, messages[:i] + messages[i + 1:]
+		return None, list(messages)
 
 
 @dataclass
@@ -153,7 +284,12 @@ class SummarizingWindowPolicy(ContextWindowPolicy):
 
 		messages = list(messages or [])
 		if not self.max_messages:
-			return [self._summary_message(summary)] + messages
+			protected = [self._summary_message(summary)]
+			return (
+				self._trim_to_budget(protected, messages)
+				if self.max_tokens
+				else protected + messages
+			)
 
 		system = None
 		rest = messages
@@ -172,7 +308,14 @@ class SummarizingWindowPolicy(ContextWindowPolicy):
 		tail = rest[-keep:] if keep > 0 else []
 
 		head = [system] if system is not None else []
-		return head + [self._summary_message(summary)] + tail
+		protected = head + [self._summary_message(summary)]
+		if not self.max_tokens:
+			return protected + tail
+
+		# The summary is protected alongside the system prompt: it stands in for
+		# every message it replaced, so dropping it to save tokens discards more
+		# history than dropping any single turn could.
+		return self._trim_to_budget(protected, tail)
 
 	def _summary_message(self, summary: str) -> dict:
 		return {

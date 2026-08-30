@@ -34,7 +34,7 @@ from __future__ import annotations
 import re
 
 import frappe
-from frappe.utils import now_datetime
+from frappe.utils import cint, now_datetime
 
 SUMMARY_DOCTYPE = "Chat Conversation Summary"
 MESSAGE_DOCTYPE = "Chat Message"
@@ -129,6 +129,14 @@ def _strip_html(text: str) -> str:
 	return re.sub(r"\s+", " ", clean).strip()
 
 
+def _chars_per_token() -> int:
+	try:
+		value = cint(frappe.db.get_single_value("Processa Settings", "token_estimator_chars_per_token"))
+		return value if value > 0 else 4
+	except Exception:
+		return 4
+
+
 def _role(message_type: str) -> str:
 	return "user" if message_type == "User" else "assistant"
 
@@ -182,12 +190,42 @@ def _messages_after(conversation: str, covered_upto, limit: int | None = None) -
 	return rows
 
 
+def resolve_token_budget(conversation: str) -> int:
+	"""The agent's context token budget, or the site default, or 0 for none.
+
+	Resolved HERE rather than passed in by each caller, so an agent's Build
+	Context script needs no change to gain a budget — the maps travel by export
+	and asking every agent to be re-exported to pick up a platform setting would
+	make the setting nearly impossible to roll out.
+	"""
+	if not conversation:
+		return 0
+	try:
+		mode = frappe.db.get_value(CONVERSATION_DOCTYPE, conversation, "agent_mode")
+		budget = 0
+		if mode:
+			budget = cint(
+				frappe.db.get_value(
+					"AI Agent Configuration", {"chat_mode_label": mode}, "context_token_budget"
+				)
+			)
+		if budget > 0:
+			return budget
+		return cint(frappe.db.get_single_value("Processa Settings", "default_context_token_budget"))
+	except Exception:
+		# A budget that cannot be read must not stop history being assembled —
+		# the thread still works, it is simply untrimmed, which is what happened
+		# before this setting existed.
+		return 0
+
+
 def build_history(
 	conversation: str,
 	limit: int = DEFAULT_KEEP_TAIL,
 	*,
 	strip_html: bool = False,
 	summary_role: str = "user",
+	token_budget: int | None = None,
 ) -> list[dict]:
 	"""The history to send this turn: the summary, then the verbatim tail.
 
@@ -198,6 +236,11 @@ def build_history(
 	``limit`` counts the VERBATIM messages, not the summary. An agent asking for
 	10 gets its 10 most recent turns whether or not a summary exists, so turning
 	compaction on never silently shortens what the agent can see.
+
+	``token_budget`` caps the assembled history by estimated size as well as by
+	message count. ``None`` resolves it from the agent (then the site default);
+	0 disables it. The summary is never dropped to fit — it stands in for every
+	message it replaced.
 
 	Returns ``[]`` for an unknown conversation, exactly as the query it replaces
 	would.
@@ -229,6 +272,18 @@ def build_history(
 				"content": _strip_html(text) if strip_html else text,
 			}
 		)
+
+	budget = resolve_token_budget(conversation) if token_budget is None else int(token_budget)
+	if budget > 0:
+		from one_bpmn.agents.memory.conversation_store import ContextWindowPolicy
+
+		# max_messages=0 because the caller's ``limit`` has already applied the
+		# count limit at the database. This pass is purely the size limit, and
+		# the summary rides in `protected` so a budget can never discard it.
+		policy = ContextWindowPolicy(max_messages=0, max_tokens=budget,
+		                             chars_per_token=_chars_per_token())
+		protected = history[:1] if summary else []
+		history = policy._trim_to_budget(protected, history[len(protected):])
 	return history
 
 

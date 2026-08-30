@@ -544,6 +544,17 @@
                the same reason memory is — a conversation belongs to the agent,
                not to whichever task happened to call it. -->
           <div class="field-row" v-if="!isSelector">
+            <label>Context Token Budget <span class="hint">(0 = no size limit)</span></label>
+            <input type="number" min="0" step="500" v-model.number="form.aiContextTokenBudget" />
+            <span class="field-hint">
+              Caps the history by estimated SIZE as well as by message count — both apply, whichever
+              bites first. Message count is blind to size: twenty one-line turns and twenty huge tool
+              results both read as twenty, and only the second kind blows the context window.
+              Left at 0 this falls back to the site default in Processa Settings.
+            </span>
+          </div>
+
+          <div class="field-row" v-if="!isSelector">
             <label>
               <input type="checkbox" v-model="form.aiCompactionEnabled" />
               Compact long conversations
@@ -965,6 +976,7 @@ const form = ref({
   aiMemoryReconcileModel: "",
   // Conversation compaction. Off by default: a site that has not asked for it
   // must see no change in what its agents send.
+  aiContextTokenBudget: 0,
   aiCompactionEnabled: false,
   aiCompactionKeepTail: 10,
   aiCompactionModel: "",
@@ -1348,6 +1360,7 @@ onMounted(async () => {
     // Compaction is agent-owned like the two above, but the keys must exist
     // here: this assignment replaces form.value wholesale, and the overlay
     // below only fills keys that are already present.
+    aiContextTokenBudget: numOr("aiContextTokenBudget", 0, parseInt),
     aiCompactionEnabled: get("aiCompactionEnabled") === "true",
     aiCompactionKeepTail: numOr("aiCompactionKeepTail", 10, parseInt),
     aiCompactionModel: get("aiCompactionModel") || "",
@@ -1585,6 +1598,7 @@ async function writeBackToConfig() {
     // Compaction. The thresholds are only meaningful while it is enabled, so
     // they are zeroed when it is off rather than left to fire on a re-enable
     // with settings the user has since forgotten about.
+    fields.aiContextTokenBudget = form.value.aiContextTokenBudget || 0;
     fields.aiCompactionEnabled = form.value.aiCompactionEnabled ? 1 : 0;
     fields.aiCompactionKeepTail = form.value.aiCompactionKeepTail || 10;
     fields.aiCompactionModel = form.value.aiCompactionEnabled
