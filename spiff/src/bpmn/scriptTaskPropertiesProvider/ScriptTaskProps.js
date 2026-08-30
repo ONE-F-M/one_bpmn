@@ -80,8 +80,8 @@ function fetchAgentConfigs(txt) {
 	});
 }
 
-function fetchProviderCredentials(txt) {
-	return frappeGet("/api/resource/AI Provider Credentials", {
+function fetchProviders(txt) {
+	return frappeGet("/api/resource/AI Provider", {
 		fields: '["name"]',
 		filters: JSON.stringify([
 			["enabled", "=", 1],
@@ -112,7 +112,7 @@ class CreateAgentConfigForm extends Component {
 			error: "",
 			agent_name: "",
 			system_prompt: "",
-			ai_provider_credentials: "",
+			ai_provider: "",
 			ai_model: "",
 		};
 	}
@@ -131,7 +131,7 @@ class CreateAgentConfigForm extends Component {
 				agent_type: "Background",
 				agent_framework: "Direct API",
 				system_prompt: this.state.system_prompt,
-				ai_provider_credentials: this.state.ai_provider_credentials || undefined,
+				ai_provider: this.state.ai_provider || undefined,
 				ai_model: this.state.ai_model || undefined,
 			}),
 		})
@@ -144,7 +144,7 @@ class CreateAgentConfigForm extends Component {
 					saving: false,
 					agent_name: "",
 					system_prompt: "",
-					ai_provider_credentials: "",
+					ai_provider: "",
 					ai_model: "",
 				});
 			})
@@ -158,7 +158,7 @@ class CreateAgentConfigForm extends Component {
 
 	render() {
 		const { translate } = this.props;
-		const { open, saving, error, agent_name, system_prompt, ai_provider_credentials, ai_model } = this.state;
+		const { open, saving, error, agent_name, system_prompt, ai_provider, ai_model } = this.state;
 
 		if (!open) {
 			return h(
@@ -184,13 +184,13 @@ class CreateAgentConfigForm extends Component {
 				onInput: (e) => this.setState({ system_prompt: e.target.value }),
 			}),
 			h(FrappeAutocomplete, {
-				label: translate("AI Provider Credentials"),
-				value: ai_provider_credentials,
+				label: translate("AI Provider"),
+				value: ai_provider,
 				placeholder: translate("Optional…"),
-				fetchApi: fetchProviderCredentials,
+				fetchApi: fetchProviders,
 				valueField: "name",
 				renderOption: (opt) => opt.name,
-				onChange: (v) => this.setState({ ai_provider_credentials: v }),
+				onChange: (v) => this.setState({ ai_provider: v }),
 			}),
 			h(FrappeAutocomplete, {
 				label: translate("AI Model"),
