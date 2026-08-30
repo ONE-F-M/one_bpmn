@@ -23,6 +23,37 @@
 			</div>
 		</header>
 
+		<!-- WI-002055: a starved reconciler and a hung agent look identical from
+		     the lists below — both leave delegations sitting in Working. So the
+		     reconciler's own state is stated here, above them, with the CAUSE
+		     rather than the symptom. Hidden when it is running: a banner that is
+		     always present is one nobody reads. -->
+		<div
+			v-if="reconciler && reconciler.ok === false"
+			class="mx-6 mt-4 rounded-lg border border-amber-300 bg-amber-50 px-4 py-3"
+		>
+			<div class="flex items-start gap-3">
+				<span class="text-amber-600 text-lg leading-none mt-0.5">⏱</span>
+				<div class="min-w-0">
+					<p class="text-sm font-medium text-amber-900">
+						Delegations may look stuck because nothing is waking them
+					</p>
+					<p class="text-sm text-amber-800 mt-0.5">{{ reconciler.summary }}</p>
+					<p v-if="reconciler.fix" class="text-xs text-amber-700 mt-1">{{ reconciler.fix }}</p>
+					<p class="text-xs text-amber-600 mt-1">
+						Last ran
+						<template v-if="reconciler.seconds_since_last_run !== null">
+							{{ describeAgo(reconciler.seconds_since_last_run) }} ago
+						</template>
+						<template v-else>never</template>
+						· expected every {{ describeAgo(reconciler.interval_seconds) }}
+						· queue “{{ reconciler.queue }}”
+						<template v-if="reconciler.queue_depth"> · {{ reconciler.queue_depth }} job(s) waiting</template>
+					</p>
+				</div>
+			</div>
+		</div>
+
 		<ErrorMessage v-if="error" :message="error" class="mx-6 mt-4" />
 
 		<div v-if="!can.administer" class="m-6 text-sm text-gray-600">
@@ -1076,6 +1107,26 @@ import { Badge, Button, Dialog, ErrorMessage, FormControl, frappeRequest } from 
 import AgentPicker from "@/components/a2a/AgentPicker.vue"
 
 const API = "/api/method/one_bpmn.api.a2a_admin_api."
+
+// WI-002055: whether the job that wakes parked agent work is actually running.
+const reconciler = ref(null)
+
+function describeAgo(seconds) {
+	const s = Number(seconds || 0)
+	if (s < 90) return `${Math.round(s)}s`
+	if (s < 5400) return `${Math.round(s / 60)} minutes`
+	return `${(s / 3600).toFixed(1)} hours`
+}
+
+async function loadReconciler() {
+	try {
+		reconciler.value = await call("reconciler_status")
+	} catch (e) {
+		// A health check that breaks the page it is meant to explain would be
+		// worse than no health check.
+		reconciler.value = null
+	}
+}
 const TERMINAL = ["completed", "canceled", "failed", "rejected", "timed-out"]
 
 const tab = ref("ours")
@@ -1823,6 +1874,7 @@ onMounted(async () => {
 		loadFilterOptions(),
 		loadClarifications(0),
 		loadClarificationOptions(),
+		loadReconciler(),
 	])
 })
 </script>

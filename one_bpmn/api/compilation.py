@@ -1275,8 +1275,19 @@ def _extract_tool_shapes(adhoc_el, bpmn_ns: str, spiff_ns: str) -> list:
 			shape["label"] = (child.get("name") or "").strip()
 		if server_script:
 			shape["serverScript"] = server_script
+			# Optional: lets the script read an aiAgentConfig set on the diagram.
+			ai_agent_config = child.get(f"{{{spiff_ns}}}aiAgentConfig", "")
+			if ai_agent_config:
+				shape["aiAgentConfig"] = ai_agent_config
 		if service_type:
-			shape["serviceType"] = service_type
+			# Copy every spiffworkflow:* attribute (aiToolParams handled below).
+			for attr_name, attr_value in child.attrib.items():
+				if not attr_name.startswith(f"{{{spiff_ns}}}"):
+					continue
+				key = attr_name[len(f"{{{spiff_ns}}}") :]
+				if key == "aiToolParams":
+					continue
+				shape[key] = attr_value
 		# WI-002054: limits a shape declares on what its tool may do travel with
 		# the descriptor, so widening them is a change a person makes to the map
 		# rather than a decision the model takes at run time. Kept generic — any

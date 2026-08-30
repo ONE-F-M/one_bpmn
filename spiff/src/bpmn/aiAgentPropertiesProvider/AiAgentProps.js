@@ -89,6 +89,12 @@ export function AiAgentProps(props) {
 			isEdited: isTextAreaEntryEdited,
 		},
 		{
+			id: "spiffworkflow-aiToolParams",
+			element,
+			component: ToolParamsComponent,
+			isEdited: isTextAreaEntryEdited,
+		},
+		{
 			id: "spiffworkflow-aiToolsAdhoc",
 			element,
 			component: ToolsAdhocComponent,
@@ -385,6 +391,29 @@ function UserPromptComponent(props) {
 		),
 		getValue: () => getAttr(bo, "aiUserPrompt"),
 		setValue: (value) => setAttr(modeling, element, bo, "aiUserPrompt", value),
+		debounce,
+	});
+}
+
+// Tool arguments — only relevant when this shape is itself called as a tool.
+function ToolParamsComponent(props) {
+	const { element, id } = props;
+	const modeling  = useService("modeling");
+	const translate = useService("translate");
+	const debounce  = useService("debounceInput");
+	const bo        = getBusinessObject(element);
+
+	return h(TextAreaEntry, {
+		element,
+		id,
+		label: translate("Tool Arguments"),
+		description: translate("JSON Schema — only used when this shape is called as a tool"),
+		tooltip: translate(
+			'{"properties": {"arg_name": {"type": "string", "description": "..."}}, "required": ["arg_name"]} ' +
+			"— the calling agent passes these as arguments, which become Jinja variables in this shape's own User Prompt (e.g. {{ arg_name }}). Leave blank for a zero-argument tool."
+		),
+		getValue: () => getAttr(bo, "aiToolParams"),
+		setValue: (value) => setAttr(modeling, element, bo, "aiToolParams", value),
 		debounce,
 	});
 }

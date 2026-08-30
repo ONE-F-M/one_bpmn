@@ -167,9 +167,55 @@ def _make_shape_fn(instance, bpmn_id: str, task_cfg: dict):
 	return fn
 
 
-def execute_shape(instance, bpmn_id: str, task_cfg: dict, kwargs: dict) -> str:
+# What a service shape needs before dispatch can do anything with it. Only the
+# connector case is checked: an ai_agent or script shape carries its own config
+# and fails visibly, whereas a connector with no id resolves no handler and
+# returns in silence.
+_DISPATCH_WIRING = {"connector": ("connectorId", "operation")}
+
+
+def _with_dispatch_wiring(instance, bpmn_id: str, task_cfg: dict) -> dict:
+	"""Fill a tool descriptor's gaps from the shape's own compiled descriptor.
+
+	The tool list an agent is offered and the shape's dispatch config are built
+	separately, and an OLD compiled spec carries the connector's wiring only on
+	the second. That is survivable — the map is right, its compiled copy is
+	behind — so the wiring is taken from the shape when the tool entry lacks it,
+	rather than failing a map that would work once redeployed.
+
+	The tool entry still wins where it says anything: it is the more specific of
+	the two, and a shape used as a tool may deliberately differ.
+	"""
+	needed = _DISPATCH_WIRING.get((task_cfg or {}).get("serviceType") or "")
+	if not needed or all(str((task_cfg or {}).get(k) or "").strip() for k in needed):
+		return task_cfg
+	shape_cfg = (getattr(instance, "_service_task_extensions", {}) or {}).get(bpmn_id) or {}
+	if not shape_cfg:
+		return task_cfg
+	merged = dict(shape_cfg)
+	merged.update({k: v for k, v in (task_cfg or {}).items() if v not in (None, "")})
+	return merged
+
+
+def _missing_dispatch_wiring(task_cfg: dict) -> list:
+	"""Which required keys are still absent after the merge above."""
+	needed = _DISPATCH_WIRING.get((task_cfg or {}).get("serviceType") or "")
+	if not needed:
+		return []
+	return [k for k in needed if not str((task_cfg or {}).get(k) or "").strip()]
+
+
+def execute_shape(instance, bpmn_id: str, task_cfg: dict | None, kwargs: dict) -> str:
 	"""
 	Execute a single shape as a function tool and return a JSON string result.
+
+	``task_cfg=None`` means "look up the real shape's own compiled config" —
+	for a Script Task (review_script, finalize) calling a REAL nested AI Agent
+	Task shape it doesn't otherwise reference, rather than an outer agent's own
+	tool-calling loop, which always has the shape's descriptor in hand already
+	(from aiToolShapes) and passes it explicitly. An empty dict ``{}`` is a
+	real (if empty) override, not a signal to look anything up — only ``None``
+	triggers the lookup.
 
 	The result is the set of variables the shape produced — for a Script Task
 	that is its ``result`` dict; for a Service Task it is whatever the dispatch
@@ -181,6 +227,8 @@ def execute_shape(instance, bpmn_id: str, task_cfg: dict, kwargs: dict) -> str:
 	so the tool-calling loop stays alive.
 	"""
 	try:
+		if task_cfg is None:
+			task_cfg = (getattr(instance, "_service_task_extensions", {}) or {}).get(bpmn_id, {})
 		task = _synthetic_task(bpmn_id, kwargs)
 		server_script = task_cfg.get("serverScript", "")
 		service_type = task_cfg.get("serviceType", "")
@@ -188,10 +236,27 @@ def execute_shape(instance, bpmn_id: str, task_cfg: dict, kwargs: dict) -> str:
 		if server_script:
 			_run_server_script(instance, server_script, task, bpmn_id, shape_config=task_cfg)
 		elif service_type:
-			# Reuse the instance's own router — it reads
-			# instance._service_task_extensions and dispatches by serviceType,
-			# writing outputs onto task.data exactly as in a normal run.
-			instance._dispatch_service_task(task)
+			# task_cfg is this shape's own compiled descriptor, passed through
+			# as an explicit override rather than re-derived from bpmn_id.
+			task_cfg = _with_dispatch_wiring(instance, bpmn_id, task_cfg)
+			missing = _missing_dispatch_wiring(task_cfg)
+			if missing:
+				# Loudly, because the alternative is what happened live: the
+				# dispatcher found no handler, returned without doing anything,
+				# and this function's empty-result fallback answered {"ok": true}.
+				# The orchestrator read that as success and reported a connector
+				# built by a specialist that was never asked.
+				return json.dumps({
+					"error": (
+						f"Tool '{bpmn_id}' is not wired up: its shape is a "
+						f"{service_type} but the compiled map gives it no "
+						f"{', '.join(missing)}. Nothing ran. This is a broken map, "
+						"not a transient failure — do not retry it, and do not "
+						"report the work as done. Deploy the map again to recompile it."
+					),
+					"retryable": False,
+				})
+			instance._dispatch_service_task(task, task_cfg)
 		else:
 			return json.dumps(
 				{"error": f"Shape '{bpmn_id}' has no Server Script or serviceType — not executable as a tool."}
@@ -207,6 +272,20 @@ def execute_shape(instance, bpmn_id: str, task_cfg: dict, kwargs: dict) -> str:
 
 		# The tool result is what the shape produced, not the args we injected.
 		produced = {k: v for k, v in task.data.items() if k not in kwargs}
+
+		# Persist the result so a downstream tool can read it back via the
+		# get_turn Jinja global (hooks.py).
+		if service_type == "ai_agent" and getattr(instance, "context_docname", None):
+			try:
+				from one_bpmn.agents.turn_state import update_turn
+
+				update_turn(instance.context_docname, **{f"{bpmn_id}_result": produced})
+			except Exception:
+				frappe.log_error(
+					title=f"AI Agent shape tool '{bpmn_id}' turn-state persist failed",
+					message=frappe.get_traceback(),
+				)
+
 		return json.dumps(produced or {"ok": True}, default=str)
 	except ToolDeferred:
 		raise
@@ -276,6 +355,10 @@ def _run_server_script(instance, script_name: str, task, bpmn_id: str, shape_con
 			"context_doctype": getattr(instance, "context_doctype", "") or "",
 			"context_docname": getattr(instance, "context_docname", "") or "",
 			"result": result_dict,
+			# Lets the script call execute_shape(instance, ...) for its own tracked AI Agent Run.
+			"instance": instance,
+			# Diagram-set spiffworkflow:aiAgentConfig override; empty when unset.
+			"ai_agent_config": (shape_config or {}).get("aiAgentConfig", ""),
 			# Same convention as the engine's FrappeScriptEngine: scripts may
 			# read their inputs bundled under `task_data` (the LLM-supplied
 			# arguments, here) instead of as bare locals.

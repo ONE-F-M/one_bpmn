@@ -72,6 +72,51 @@ def _fan_and_loop_ir():
 	}
 
 
+def _return_loop_ir():
+	"""A rework loop running back past a branch that leaves for the lane below.
+
+	Two things collide here and neither is exotic: a gateway with one branch
+	carrying on in its own lane and another dropping to the lane beneath, and a
+	loop returning across the width of the lane to re-enter earlier. Routed
+	naively all three flows fight over the band under the lane's nodes, so the
+	loop and the drop cross at right angles — and the branch that carried
+	straight on is crossed too, because the drop has to stub out past it first.
+
+	The drawing has an answer for all three: leave through the face you are
+	heading for, and put the loop on the side of the lane the traffic is not
+	using. This fixture holds that answer in place.
+	"""
+	return {
+		"name": "Nightly Data Import",
+		"lanes": [
+			{"id": "importer", "name": "Data Importer"},
+			{"id": "migrator", "name": "Data Migrator"},
+		],
+		"nodes": [
+			{"id": "start", "type": "startEvent", "name": "Nightly schedule fires", "lane": "importer"},
+			{"id": "fetch", "type": "serviceTask", "name": "Fetch source extract", "lane": "importer"},
+			{"id": "validate", "type": "scriptTask", "name": "Validate records", "lane": "importer"},
+			{"id": "valid", "type": "exclusiveGateway", "name": "Valid?", "lane": "importer"},
+			{"id": "transform", "type": "scriptTask", "name": "Transform records", "lane": "migrator"},
+			{"id": "quarantine", "type": "serviceTask", "name": "Quarantine rejects", "lane": "importer"},
+			{"id": "reprocess", "type": "userTask", "name": "Review and reprocess", "lane": "importer"},
+			{"id": "load", "type": "serviceTask", "name": "Load into warehouse", "lane": "migrator"},
+			{"id": "done", "type": "endEvent", "name": "Import complete", "lane": "migrator"},
+		],
+		"flows": [
+			{"from": "start", "to": "fetch"},
+			{"from": "fetch", "to": "validate"},
+			{"from": "validate", "to": "valid"},
+			{"from": "valid", "to": "transform", "name": "Valid"},
+			{"from": "valid", "to": "quarantine", "name": "Invalid"},
+			{"from": "transform", "to": "load", "name": "Transformed"},
+			{"from": "quarantine", "to": "reprocess"},
+			{"from": "reprocess", "to": "validate", "name": "Reprocess"},
+			{"from": "load", "to": "done"},
+		],
+	}
+
+
 def _orient(seg):
 	(x1, y1), (x2, y2) = seg
 	if abs(y1 - y2) < 0.5:
@@ -175,6 +220,9 @@ class TestLaneDiagramGeometry(FrappeTestCase):
 		result = compile_ir(_fan_and_loop_ir())
 		cls.result = result
 		cls.xml = result.get("xml") or ""
+		loop = compile_ir(_return_loop_ir())
+		cls.loop_result = loop
+		cls.loop_xml = loop.get("xml") or ""
 
 	def test_the_fixture_compiles(self):
 		self.assertTrue(self.result.get("ok"), self.result.get("problems"))
@@ -224,9 +272,25 @@ class TestLaneDiagramGeometry(FrappeTestCase):
 		# The crossings that remain are dominated by a gutter vertical meeting a
 		# strip horizontal, which is inherent to routing one strip per lane —
 		# lowering that number means reworking the strip model, not tuning this.
-		self.assertLessEqual(m["overlaps"], 2, f"overlapping segment pairs rose: {m}")
-		self.assertLessEqual(m["crossings"], 8, f"crossing segment pairs rose: {m}")
+		self.assertLessEqual(m["overlaps"], 0, f"overlapping segment pairs rose: {m}")
+		self.assertLessEqual(m["crossings"], 1, f"crossing segment pairs rose: {m}")
 		self.assertLessEqual(
-			m["bends"] / max(m["edges"], 1), 1.5,
+			m["bends"] / max(m["edges"], 1), 0.75,
 			f"average bends per edge rose: {m}",
 		)
+
+	def test_the_return_loop_diagram_is_clean(self):
+		"""The shape a reader actually complains about, held at zero.
+
+		A loop returning across a lane and a branch dropping out of it are the
+		two commonest things in a real process map, and together they used to
+		produce three crossings on nine nodes. Nothing forces them: this graph
+		is planar as drawn, so the budget is zero rather than a measured
+		number, and any crossing at all is a routing failure.
+		"""
+		self.assertTrue(self.loop_result.get("ok"), self.loop_result.get("problems"))
+		m = _measure(self.loop_xml)
+		self.assertEqual(m["diagonals"], [], f"diagonal segments: {m}")
+		self.assertEqual(m["through"], [], f"edges crossing unrelated shapes: {m}")
+		self.assertEqual(m["overlaps"], 0, f"overlapping segment pairs: {m}")
+		self.assertEqual(m["crossings"], 0, f"crossing segment pairs: {m}")

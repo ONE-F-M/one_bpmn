@@ -829,6 +829,44 @@ def dispatch_push_notification(instance, task, task_cfg: dict, bpmn_id: str) -> 
 		)
 
 
+def _emails_from_doc_field(val) -> list:
+	"""Turn one recipient field's value into email addresses.
+
+	A recipient field holds either an address or a USER, and the two cannot be
+	treated the same. ``owner``, ``modified_by`` and any Link to User hold a user
+	id, which is *usually* the address but is not guaranteed to be: the obvious
+	case is ``Administrator``, and a site can carry users whose id and email
+	differ.
+
+	This used to accept a value only when it contained "@", so those users were
+	dropped in silence — the task logged "no recipients resolved" and sent
+	nothing while the configuration looked perfectly correct. A user field that
+	cannot deliver is worse than one that is not offered, so anything without an
+	"@" is looked up as a user before being given up on.
+
+	Returns a list because a field may hold several comma-separated addresses,
+	and because "no usable recipient" is then an empty list rather than a special
+	case for the caller to remember.
+	"""
+	if not val:
+		return []
+
+	found = []
+	for part in str(val).split(","):
+		part = part.strip()
+		if not part:
+			continue
+		if "@" in part:
+			found.append(part)
+			continue
+		# Not an address — try it as a user id. A value that is neither (a Link to
+		# some other doctype, say) simply resolves to nothing and is skipped.
+		email = frappe.db.get_value("User", part, "email")
+		if email and "@" in email:
+			found.append(email)
+	return found
+
+
 def dispatch_email(instance, task, task_cfg: dict, amp_html: str = None) -> None:
 	"""
 	Send an email notification from a Service Task with serviceType='send_email'.
@@ -882,16 +920,14 @@ def dispatch_email(instance, task, task_cfg: dict, amp_html: str = None) -> None
 	if raw_to:
 		recipients += [e.strip() for e in raw_to.split(",") if e.strip()]
 
-	# 2. Document field values (fields on doc that contain email addresses)
+	# 2. Document field values (fields on doc naming a recipient)
 	raw_fields = task_cfg.get("emailToDocFields", "")
 	if raw_fields and doc:
 		for field_name in raw_fields.split(","):
 			field_name = field_name.strip()
 			if not field_name:
 				continue
-			val = doc.get(field_name, "")
-			if val and "@" in str(val):
-				recipients.append(str(val).strip())
+			recipients += _emails_from_doc_field(doc.get(field_name))
 
 	# 3. Role members — fetch all users with the configured roles
 	raw_roles = task_cfg.get("emailToRoles", "")
@@ -1318,6 +1354,8 @@ def dispatch_ai_agent(instance, task, task_cfg: dict, bpmn_id: str, resume_run: 
 	config = ExecutorConfig(
 		backend          = task_cfg.get("aiBackend", "direct_api"),
 		provider_name    = task_cfg.get("aiProvider", ""),
+		# The config actually resolved for this dispatch — create_ai_run's primary attribution source.
+		agent_config_name = task_cfg.get("aiAgentConfig", ""),
 		model            = task_cfg.get("aiModel", ""),
 		system_prompt    = system_prompt,
 		user_prompt      = user_prompt,

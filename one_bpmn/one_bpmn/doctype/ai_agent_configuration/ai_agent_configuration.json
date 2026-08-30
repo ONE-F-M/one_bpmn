@@ -60,6 +60,15 @@
   "memory_distill_model",
   "column_break_memory_models",
   "memory_reconcile_model",
+  "context_token_budget",
+  "compaction_section",
+  "compaction_enabled",
+  "compaction_keep_tail",
+  "compaction_model",
+  "column_break_compaction",
+  "compaction_token_threshold",
+  "compaction_idle_minutes",
+  "compaction_on_task_boundary",
   "identity_section",
   "agent_user",
   "agent_roles",
@@ -267,7 +276,7 @@
    "label": "Observability"
   },
   {
-   "description": "LangSmith project name for this agent. Leave blank to use the global project from AI Chat Settings.",
+   "description": "LangSmith project name for this agent. Leave blank to use the global project from Processa Settings.",
    "fieldname": "langsmith_project",
    "fieldtype": "Data",
    "label": "LangSmith Project"
@@ -578,6 +587,68 @@
    "fieldtype": "Link",
    "label": "Reconciliation Model",
    "options": "AI Model"
+  },
+  {
+   "description": "Cap the assembled history by estimated SIZE as well as message count \u2014 both apply, whichever bites first. Message count is blind to size: twenty one-line turns and twenty huge tool results both read as twenty. 0 inherits the site default from Processa Settings; with both blank there is no size limit.",
+   "fieldname": "context_token_budget",
+   "fieldtype": "Int",
+   "label": "Context Token Budget"
+  },
+  {
+   "collapsible": 1,
+   "description": "Replace this agent's old conversation turns with a summary instead of letting them fall off the end of the window. Each trigger below is independent: set any, all, or none. Whichever fires, the work is queued and run in the background \u2014 a chat turn never waits for a summary to be written.",
+   "fieldname": "compaction_section",
+   "fieldtype": "Section Break",
+   "label": "Conversation Compaction"
+  },
+  {
+   "default": "0",
+   "description": "With this off no trigger fires and nothing is queued, whatever the thresholds say.",
+   "fieldname": "compaction_enabled",
+   "fieldtype": "Check",
+   "label": "Enable Compaction"
+  },
+  {
+   "default": "10",
+   "depends_on": "compaction_enabled",
+   "description": "How many of the most recent messages stay word-for-word. Everything older is what the summary replaces.",
+   "fieldname": "compaction_keep_tail",
+   "fieldtype": "Int",
+   "label": "Keep Recent Messages"
+  },
+  {
+   "depends_on": "compaction_enabled",
+   "description": "Model that writes the summary. Summarising is high-volume and low-stakes, so a cheap model belongs here. Blank falls back to the site-wide Default Compaction Model.",
+   "fieldname": "compaction_model",
+   "fieldtype": "Link",
+   "label": "Compaction Model",
+   "options": "AI Model"
+  },
+  {
+   "fieldname": "column_break_compaction",
+   "fieldtype": "Column Break"
+  },
+  {
+   "depends_on": "compaction_enabled",
+   "description": "COUNT trigger. Queue compaction once the history this agent would send is estimated to exceed this many tokens. 0 disables it.",
+   "fieldname": "compaction_token_threshold",
+   "fieldtype": "Int",
+   "label": "Token Threshold"
+  },
+  {
+   "depends_on": "compaction_enabled",
+   "description": "TIME trigger. Queue compaction for a conversation nobody has touched for this many minutes. 0 disables it.",
+   "fieldname": "compaction_idle_minutes",
+   "fieldtype": "Int",
+   "label": "Idle Minutes"
+  },
+  {
+   "default": "0",
+   "depends_on": "compaction_enabled",
+   "description": "EVENT trigger. Queue compaction at the end of every turn, once the agent has replied \u2014 so it never runs part-way through one.",
+   "fieldname": "compaction_on_task_boundary",
+   "fieldtype": "Check",
+   "label": "On Turn Boundary"
   },
   {
    "fieldname": "skills_section",

@@ -135,6 +135,7 @@ class BPMNProcessInstance(Document):
 			context_docname=self.context_docname,
 			script_task_extensions=self._script_task_extensions,
 			initiated_by=self.initiated_by or frappe.session.user,
+			instance=self,
 		)
 
 		frappe.flags.bpmn_engine_action = True
@@ -151,6 +152,7 @@ class BPMNProcessInstance(Document):
 		bpmn_engine.clean_doc_from_wf_data(wf)
 		self.workflow_state = json.dumps(bpmn_engine.serialize_workflow(wf))
 		self.serialized_spec = model.serialized_spec  # snapshot of spec at start time
+		self._sync_call_activity_rows(wf)
 		self.status = "Active"
 		self.started_at = now_datetime()
 		self.initiated_by = frappe.session.user
@@ -207,6 +209,8 @@ class BPMNProcessInstance(Document):
 		_script_exts = _spec_snap.get("script_task_extensions", {})
 		self._service_task_extensions = _spec_snap.get("service_task_extensions", {})
 		self._user_task_extensions = _spec_snap.get("user_task_extensions", {})
+		# Also refresh on the instance itself — not just fed to the script engine.
+		self._script_task_extensions = _script_exts
 		self._refresh_user_task_extensions_from_model()
 
 		wf = bpmn_engine.restore_workflow(
@@ -215,6 +219,7 @@ class BPMNProcessInstance(Document):
 			context_docname=self.context_docname,
 			script_task_extensions=_script_exts,
 			initiated_by=self.initiated_by or "Administrator",
+			instance=self,
 		)
 
 		# Always refresh the context doc so conditional events see latest data
@@ -291,6 +296,7 @@ class BPMNProcessInstance(Document):
 		# Strip non-serializable Frappe doc objects before persisting state
 		bpmn_engine.clean_doc_from_wf_data(wf)
 		self.workflow_state = json.dumps(bpmn_engine.serialize_workflow(wf))
+		self._sync_call_activity_rows(wf)
 
 		# Rebuild active tasks
 		self._sync_active_tasks(wf, prev_assigned=prev_assigned)
@@ -477,6 +483,8 @@ class BPMNProcessInstance(Document):
 		_script_exts = _spec_snap.get("script_task_extensions", {})
 		self._service_task_extensions = _spec_snap.get("service_task_extensions", {})
 		self._user_task_extensions = _spec_snap.get("user_task_extensions", {})
+		# Also refresh on the instance itself — not just fed to the script engine.
+		self._script_task_extensions = _script_exts
 		self._refresh_user_task_extensions_from_model()
 
 		wf = bpmn_engine.restore_workflow(
@@ -485,6 +493,7 @@ class BPMNProcessInstance(Document):
 			context_docname=self.context_docname,
 			script_task_extensions=_script_exts,
 			initiated_by=self.initiated_by or "Administrator",
+			instance=self,
 		)
 
 		# Refresh context doc so downstream conditions see latest data
@@ -533,6 +542,7 @@ class BPMNProcessInstance(Document):
 		# ── Persist (same as advance) ────────────────────────────────────────
 		bpmn_engine.clean_doc_from_wf_data(wf)
 		self.workflow_state = json.dumps(bpmn_engine.serialize_workflow(wf))
+		self._sync_call_activity_rows(wf)
 
 		self._sync_active_tasks(wf, prev_assigned=prev_assigned)
 		self._check_completion(wf)
@@ -573,6 +583,8 @@ class BPMNProcessInstance(Document):
 		_script_exts = _spec_snap.get("script_task_extensions", {})
 		self._service_task_extensions = _spec_snap.get("service_task_extensions", {})
 		self._user_task_extensions = _spec_snap.get("user_task_extensions", {})
+		# Also refresh on the instance itself — not just fed to the script engine.
+		self._script_task_extensions = _script_exts
 		self._refresh_user_task_extensions_from_model()
 
 		wf = bpmn_engine.restore_workflow(
@@ -581,6 +593,7 @@ class BPMNProcessInstance(Document):
 			context_docname=self.context_docname,
 			script_task_extensions=_script_exts,
 			initiated_by=self.initiated_by or "Administrator",
+			instance=self,
 		)
 
 		if self.context_doctype and self.context_docname:
@@ -664,6 +677,7 @@ class BPMNProcessInstance(Document):
 		# ── Persist (same as advance) ────────────────────────────────────────
 		bpmn_engine.clean_doc_from_wf_data(wf)
 		self.workflow_state = json.dumps(bpmn_engine.serialize_workflow(wf))
+		self._sync_call_activity_rows(wf)
 
 		self._sync_active_tasks(wf, prev_assigned=prev_assigned)
 		self._check_completion(wf)
@@ -1712,7 +1726,7 @@ class BPMNProcessInstance(Document):
 			data=dict(task.data),
 		)
 
-	def _dispatch_service_task(self, task):
+	def _dispatch_service_task(self, task, task_cfg_override: dict | None = None):
 		"""
 		Execute the real-world action for a STARTED ServiceTask before
 		marking it complete.
@@ -1720,6 +1734,14 @@ class BPMNProcessInstance(Document):
 		Reads the ``service_task_extensions`` dict that was embedded into the
 		serialized spec at compile time and dispatches to the appropriate
 		handler based on ``serviceType``.
+
+		``task_cfg_override``: used only by ``shape_tools.execute_shape`` for an
+		ad-hoc "AI agent call" that has no corresponding real Service Task shape
+		in the diagram — e.g. a Script Task tool routing its own inline LLM call
+		through the tracked ``dispatch_ai_agent`` path (WI: Logix sub-prompt
+		observability) instead of hand-rolling one. Every normal engine call
+		site passes only ``task``, so ``bpmn_id`` lookup into the compiled
+		extensions dict stays the sole source of config there, unchanged.
 
 		Returns:
 		    True  — task was handled; caller should mark it complete.
@@ -1730,9 +1752,12 @@ class BPMNProcessInstance(Document):
 		    apply_workflow — Apply a Frappe Workflow state transition to the
 		                     context document, with full permission checking.
 		"""
-		extensions = getattr(self, "_service_task_extensions", {})
 		bpmn_id = getattr(task.task_spec, "bpmn_id", None) or ""
-		task_cfg = extensions.get(bpmn_id, {})
+		if task_cfg_override is not None:
+			task_cfg = task_cfg_override
+		else:
+			extensions = getattr(self, "_service_task_extensions", {})
+			task_cfg = extensions.get(bpmn_id, {})
 
 		service_type = task_cfg.get("serviceType", "")
 
@@ -1821,6 +1846,25 @@ class BPMNProcessInstance(Document):
 			dispatch_ai_agent(self, task, task_cfg, bpmn_id)
 
 		return True  # default: complete the task
+
+	def _sync_call_activity_rows(self, wf) -> None:
+		"""Keep a visible Process Instance row for each Call Activity this run makes.
+
+		A called process executes as a subworkflow of this instance, so without
+		this it has no run of its own to open — Software Development had produced
+		1,913 runs and one single Orchestrator Agent instance. The row is a
+		projection of state this instance has just persisted, so it adds a record
+		and never a second execution.
+
+		Called after the state assignment rather than folded into it, because in
+		``start()`` the row copies ``serialized_spec`` and that is assigned on the
+		following line.
+		"""
+		from one_bpmn.one_bpmn.doctype.bpmn_process_instance.call_activity_instances import (
+			sync_call_activity_instances,
+		)
+
+		sync_call_activity_instances(self, wf)
 
 	def _sync_active_tasks(self, wf, prev_assigned=None):
 		"""

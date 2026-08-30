@@ -35,6 +35,7 @@ MIGRATION NOTE (known limitation):
 from __future__ import annotations
 
 import abc
+import hashlib
 import json
 from dataclasses import dataclass
 
@@ -83,22 +84,213 @@ def _json_loads(value):
 
 
 # ── Context-window policy ──────────────────────────────────────────────────
+# Characters per token when nothing else says otherwise. The budget is compared
+# against an estimate, and the estimate is deliberately arithmetic rather than a
+# tokeniser: this runs on every history assembly, and asking a provider what
+# something will cost before sending it is a network round trip on the hot path —
+# the exact cost this epic exists to remove. An estimate that is 20% out moves
+# the cut by a message; a round trip moves it by half a second, every turn.
+DEFAULT_CHARS_PER_TOKEN = 4
+
+
+def estimate_tokens(message: dict, chars_per_token: int = DEFAULT_CHARS_PER_TOKEN) -> int:
+	"""Rough token cost of one message, content plus any tool-call payload.
+
+	``tool_calls`` is counted because on a tool-heavy thread — the case this
+	exists for — the arguments are frequently larger than the prose beside them,
+	and a budget that ignored them would be wrong exactly where it matters.
+	"""
+	chars = len(message.get("content") or "")
+	tool_calls = message.get("tool_calls")
+	if tool_calls is not None:
+		try:
+			chars += len(json.dumps(tool_calls))
+		except (TypeError, ValueError):
+			chars += len(str(tool_calls))
+	return chars // max(chars_per_token, 1)
+
+
+def _atomic_blocks(messages: list[dict]) -> list[list[dict]]:
+	"""Group messages into units that must be kept or dropped together.
+
+	An assistant message carrying ``tool_calls`` and the ``tool`` messages that
+	answer it are ONE unit. Providers reject a tool result whose originating
+	call is absent, so trimming between them turns a request that would have
+	been merely shorter into one that fails outright — on tool-heavy threads,
+	which is precisely what a token budget is for.
+
+	Everything else is a unit of one.
+	"""
+	blocks: list[list[dict]] = []
+	for message in messages:
+		role = (message or {}).get("role")
+		if role == "tool" and blocks and blocks[-1][0].get("tool_calls") is not None:
+			blocks[-1].append(message)
+		else:
+			blocks.append([message])
+	return blocks
+
+
 @dataclass
 class ContextWindowPolicy:
 	"""Trims a thread to fit the model context window.
 
-	When a thread is longer than ``max_messages``, keep the system message (if
-	present and ``retain_system_prompt``) plus the most recent
-	``max_messages - 1`` messages, so the system prompt is always retained.
+	Two independent limits, and BOTH apply — whichever bites first:
+
+	- ``max_messages`` counts messages. Cheap, predictable, and blind to size:
+	  twenty one-line turns and twenty enormous tool results both read as twenty.
+	- ``max_tokens`` counts estimated size. This is what actually keeps a
+	  tool-heavy conversation inside the model's context window, because there
+	  the cost is carried by a few huge messages rather than by many.
+
+	Neither can silently override the other; a thread has to satisfy both.
+	``max_tokens`` of 0 means no budget, which is the behaviour that predates it.
+
+	The system prompt is always retained when ``retain_system_prompt`` is set,
+	budget or not — a thread that has lost its instructions is worse than one
+	that has lost its history.
 	"""
 
 	max_messages: int
 	retain_system_prompt: bool = True
+	max_tokens: int = 0
+	chars_per_token: int = DEFAULT_CHARS_PER_TOKEN
 
 	def apply(self, messages: list[dict]) -> list[dict]:
+		return self._apply_token_budget(self._apply_message_count(messages))
+
+	# ── the message-count limit (unchanged behaviour) ───────────────────
+	def _apply_message_count(self, messages: list[dict]) -> list[dict]:
 		messages = list(messages or [])
 		if not self.max_messages or len(messages) <= self.max_messages:
 			return messages
+
+		system, rest = self._split_system(messages)
+		if system is not None:
+			keep = self.max_messages - 1
+			tail = rest[-keep:] if keep > 0 else []
+			return [system] + tail
+		return messages[-self.max_messages:]
+
+	# ── the token budget ────────────────────────────────────────────────
+	def _apply_token_budget(self, messages: list[dict]) -> list[dict]:
+		messages = list(messages or [])
+		if not self.max_tokens or not messages:
+			return messages
+		system, rest = self._split_system(messages)
+		return self._trim_to_budget([system] if system is not None else [], rest)
+
+	def _trim_to_budget(self, protected: list[dict], rest: list[dict]) -> list[dict]:
+		"""``protected`` is always kept; ``rest`` is included newest-first until
+		the budget is spent.
+
+		Newest-first because recency is what a model needs most and what the
+		caller loses least by dropping — the oldest turns are the ones a summary
+		can stand in for.
+
+		Protected messages are still COUNTED. A budget that ignored them would
+		promise a ceiling it does not enforce, which on a long system prompt is
+		the difference between a trimmed request and a rejected one.
+		"""
+		spent = sum(estimate_tokens(m, self.chars_per_token) for m in protected)
+
+		blocks = _atomic_blocks(rest)
+		kept: list[list[dict]] = []
+		for block in reversed(blocks):
+			cost = sum(estimate_tokens(m, self.chars_per_token) for m in block)
+			if spent + cost > self.max_tokens:
+				# Stop rather than skip. Continuing to look for something small
+				# enough would reorder the thread — a later message could be
+				# dropped while an earlier one survived, leaving a conversation
+				# with a hole in the middle instead of a shortened tail.
+				break
+			spent += cost
+			kept.append(block)
+
+		if blocks and not kept:
+			# The newest exchange alone does not fit. Send it anyway.
+			#
+			# A budget is a target for trimming HISTORY, not a licence to send a
+			# conversation with none. Returning nothing here strips the turn the
+			# model most needs — the one immediately before the question it is
+			# answering — and a request carrying one oversized message is far
+			# more likely to succeed, and far more useful if it does, than a
+			# request carrying no context at all.
+			#
+			# Observed with a 150-token budget against an agent whose replies run
+			# to 700: every message individually exceeded the budget, and the
+			# assembled history came back empty.
+			kept.append(blocks[-1])
+			self._log_oversized(blocks[-1])
+
+		return list(protected) + [m for block in reversed(kept) for m in block]
+
+	def _log_oversized(self, block: list[dict]) -> None:
+		"""Say so when the budget could not be honoured, rather than silently
+		exceeding it — a budget that is quietly ignored is worse than one that
+		is visibly too small for the agent it is set on."""
+		try:
+			cost = sum(estimate_tokens(m, self.chars_per_token) for m in block)
+			frappe.logger("one_bpmn").warning(
+				f"Context token budget {self.max_tokens} is smaller than the newest "
+				f"exchange ({cost} estimated tokens); sending it regardless."
+			)
+		except Exception:
+			pass
+
+	def _split_system(self, messages: list[dict]):
+		"""The system message and everything else, or (None, messages)."""
+		if not self.retain_system_prompt:
+			return None, list(messages)
+		for i, m in enumerate(messages):
+			if (m or {}).get("role") == "system":
+				return m, messages[:i] + messages[i + 1:]
+		return None, list(messages)
+
+
+@dataclass
+class SummarizingWindowPolicy(ContextWindowPolicy):
+	"""Keep-last-N, but with the dropped head replaced by a summary of it.
+
+	The plain ``ContextWindowPolicy`` above drops old messages and says nothing
+	about them, so a long conversation loses its own beginning: the model stops
+	being able to answer "what did we decide earlier". This policy spends one
+	message slot on a summary of everything it dropped, so the thread stays
+	coherent at the same message count.
+
+	It is deliberately a PURE function of its inputs, exactly like its parent —
+	``summary`` is passed in, never fetched. Reading the stored summary is the
+	caller's job (see ``agents/memory/compaction.build_history``), which keeps
+	this class testable without a database and keeps the one module that talks
+	to the Chat Conversation Summary doctype in one place.
+
+	With ``summary`` unset it behaves exactly like ``ContextWindowPolicy``, so
+	it is safe to configure before the first compaction has ever run.
+
+	``summary_role`` is a parameter rather than a constant because providers
+	disagree about a mid-thread ``system`` message and about two consecutive
+	messages sharing a role. "user" is right for the OpenAI- and Gemini-shaped
+	paths the chat maps use today; a stricter provider can be accommodated
+	without touching this logic.
+	"""
+
+	summary: str | None = None
+	summary_role: str = "user"
+	summary_header: str = "Summary of the earlier conversation:"
+
+	def apply(self, messages: list[dict]) -> list[dict]:
+		summary = (self.summary or "").strip()
+		if not summary:
+			return super().apply(messages)
+
+		messages = list(messages or [])
+		if not self.max_messages:
+			protected = [self._summary_message(summary)]
+			return (
+				self._trim_to_budget(protected, messages)
+				if self.max_tokens
+				else protected + messages
+			)
 
 		system = None
 		rest = messages
@@ -109,11 +301,28 @@ class ContextWindowPolicy:
 					rest = messages[:i] + messages[i + 1:]
 					break
 
-		if system is not None:
-			keep = self.max_messages - 1
-			tail = rest[-keep:] if keep > 0 else []
-			return [system] + tail
-		return messages[-self.max_messages:]
+		# The summary occupies a slot, and so does the system prompt when kept —
+		# otherwise adding a summary would quietly raise the real message count
+		# above the budget the caller set, which is the opposite of the point.
+		reserved = 1 + (1 if system is not None else 0)
+		keep = max(self.max_messages - reserved, 0)
+		tail = rest[-keep:] if keep > 0 else []
+
+		head = [system] if system is not None else []
+		protected = head + [self._summary_message(summary)]
+		if not self.max_tokens:
+			return protected + tail
+
+		# The summary is protected alongside the system prompt: it stands in for
+		# every message it replaced, so dropping it to save tokens discards more
+		# history than dropping any single turn could.
+		return self._trim_to_budget(protected, tail)
+
+	def _summary_message(self, summary: str) -> dict:
+		return {
+			"role": self.summary_role,
+			"content": f"{self.summary_header}\n{summary}",
+		}
 
 
 # ── Interface ───────────────────────────────────────────────────────────────
@@ -211,13 +420,43 @@ class DocumentConversationStore(ConversationStore):
 		return f"one_bpmn:{instance_name}:{bpmn_id}"
 
 	def _get_conversation(self, instance_name: str, bpmn_id: str, create: bool = False):
+		"""The conversation for this thread key, created if asked for.
+
+		Get-or-create is NOT atomic, and this is called from anywhere an agent
+		appends — including paths that genuinely overlap: two tool calls landing
+		together, a retry racing the run it is retrying, a resumed instance
+		alongside its original. Every caller then saw no conversation and every
+		caller made one.
+
+		Proven rather than theorised: eight parallel appenders produced SEVEN
+		conversation rows for one thread key, five messages in each, and the
+		agent read back five of forty. Nothing was lost from the table; the
+		thread was. That is worse than losing rows, because it looks like the
+		agent simply forgot.
+
+		The obvious guard — re-read before inserting — does not work here: an
+		uncommitted insert is invisible to other connections, so every racer
+		still sees nothing. So this creates, COMMITS, and then reconciles: all
+		racers converge on the oldest row and each deletes its own loser. The
+		reconcile happens before any message is appended, so a discarded row is
+		always empty.
+		"""
 		title = self._title(instance_name, bpmn_id)
-		name = frappe.db.get_value(self._CONVERSATION_DOCTYPE, {"title": title}, "name")
-		if name or not create:
+		name = self._deterministic_name(title)
+		if frappe.db.exists(self._CONVERSATION_DOCTYPE, name):
 			return name
+		if not create:
+			# A thread may predate deterministic naming; fall back to the title.
+			return frappe.db.get_value(self._CONVERSATION_DOCTYPE, {"title": title}, "name")
+
+		legacy = frappe.db.get_value(self._CONVERSATION_DOCTYPE, {"title": title}, "name")
+		if legacy:
+			return legacy
+
 		conv = frappe.get_doc(
 			{
 				"doctype": self._CONVERSATION_DOCTYPE,
+				"name": name,
 				"title": title,
 				"status": "Open",
 				# A memory thread is NOT a user chat, and it must not be mistaken
@@ -231,8 +470,65 @@ class DocumentConversationStore(ConversationStore):
 				"agent_mode": AGENT_MEMORY_MODE,
 			}
 		)
-		conv.insert(ignore_permissions=True)
-		return conv.name
+		conv.flags.name_set = True
+		# The COMMIT is load-bearing, not incidental. An uncommitted insert is
+		# invisible to other connections, so a racer cannot see the winner and
+		# blocks on its row lock until this transaction ends — measured, and it
+		# loses messages every run. Committing publishes the thread container
+		# immediately so every racer resolves to it.
+		#
+		# The savepoint is what keeps the failure contained: a bare rollback
+		# would discard the agent turn that is appending, which is far worse than
+		# a duplicate thread.
+		try:
+			frappe.db.savepoint("agent_memory_thread")
+			conv.insert(ignore_permissions=True)
+			frappe.db.commit()
+		except Exception:
+			frappe.db.rollback(save_point="agent_memory_thread")
+			# Somebody else created it between the check and the insert. That is
+			# the race this naming exists to lose safely: the primary key is the
+			# mutex, so exactly one insert wins and the rest adopt it.
+			#
+			# InnoDB runs REPEATABLE READ, so this transaction's snapshot was
+			# taken before the winner committed. That breaks the loser TWICE: it
+			# cannot see the row it just collided with, and — less obviously —
+			# the Link validation on the message it is about to write cannot see
+			# it either, failing with "Could not find Conversation".
+			#
+			# A fresh snapshot is the only thing that fixes both, and only a
+			# commit gives one. Safe here: the savepoint has already undone this
+			# path's own write, and the winner committed for the same reason.
+			frappe.db.commit()
+			if frappe.db.exists(self._CONVERSATION_DOCTYPE, name):
+				return name
+			raise
+		return name
+
+	def _deterministic_name(self, title: str) -> str:
+		"""The conversation's primary key, derived from its thread key.
+
+		Get-or-create is not atomic, and this runs wherever an agent appends —
+		including paths that genuinely overlap: two tool calls landing together,
+		a retry racing the run it is retrying, a resumed instance alongside its
+		original. With hash naming every racer created its own row: eight
+		parallel appenders produced SEVEN conversations for one thread key, five
+		messages in each, and the agent read back five of forty. Nothing was lost
+		from the table; the thread was, which looks like the agent simply forgot.
+
+		Reconciling afterwards was tried and is not enough — a worker that has
+		already been given its answer never re-checks, so a later-arriving racer
+		with an earlier timestamp still splits the thread. It failed one run in
+		three.
+
+		Deriving the NAME from the thread key makes the database enforce it: a
+		second insert collides on the primary key, and the loser adopts the
+		winner. There is no window because there is no second row.
+
+		Threads created before this keep working — the title lookup above still
+		finds them.
+		"""
+		return "agentmem-" + hashlib.sha1(title.encode("utf-8")).hexdigest()[:16]
 
 	def _load_raw(self, instance_name: str, bpmn_id: str) -> list[dict]:
 		conv = self._get_conversation(instance_name, bpmn_id)

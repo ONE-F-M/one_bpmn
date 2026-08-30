@@ -37,18 +37,25 @@ class TestProcessVariableStore(FrappeTestCase):
 
 class TestDocumentStore(FrappeTestCase):
 	def test_field_mapping_and_order(self):
+		# A unique instance per run. The thread container is now named
+		# deterministically from (instance, bpmn_id) and committed on creation —
+		# which is what makes concurrent appends converge on one thread — so a
+		# fixed key would reuse the same conversation on every run and the
+		# messages would accumulate. The test used to rely on the rollback
+		# discarding a row that is now deliberately durable.
+		instance = f"I9-{frappe.generate_hash(length=8)}"
 		store = get_conversation_store("document_store")
-		store.append("I9", "X", {"role": "system", "content": "sys"})
-		store.append("I9", "X", {"role": "assistant", "content": "call", "tool_calls": [{"id": "c1"}]})
-		store.append("I9", "X", {"role": "tool", "content": "res", "tool_call_id": "c1"})
+		store.append(instance, "X", {"role": "system", "content": "sys"})
+		store.append(instance, "X", {"role": "assistant", "content": "call", "tool_calls": [{"id": "c1"}]})
+		store.append(instance, "X", {"role": "tool", "content": "res", "tool_call_id": "c1"})
 
-		msgs = store.load("I9", "X")
+		msgs = store.load(instance, "X")
 		self.assertEqual([m["role"] for m in msgs], ["system", "assistant", "tool"])
 		self.assertEqual(msgs[1]["tool_calls"], [{"id": "c1"}])
 		self.assertEqual(msgs[2]["tool_call_id"], "c1")
 
 		# onefm_mcp records created with the documented mapping
-		conv = frappe.db.get_value("Chat Conversation", {"title": "one_bpmn:I9:X"}, "name")
+		conv = frappe.db.get_value("Chat Conversation", {"title": f"one_bpmn:{instance}:X"}, "name")
 		self.assertTrue(conv)
 		rows = frappe.get_all(
 			"Chat Message", filters={"conversation": conv}, fields=["message_type", "text"]
@@ -58,10 +65,11 @@ class TestDocumentStore(FrappeTestCase):
 		self.assertIn(("Bot", "call"), [(r["message_type"], r["text"]) for r in rows])
 
 	def test_thread_isolation(self):
+		instance = f"I9-{frappe.generate_hash(length=8)}"
 		store = get_conversation_store("document_store")
-		store.append("I9", "X", {"role": "user", "content": "x"})
-		store.append("I9", "Y", {"role": "user", "content": "y"})
-		self.assertEqual([m["content"] for m in store.load("I9", "Y")], ["y"])
+		store.append(instance, "X", {"role": "user", "content": "x"})
+		store.append(instance, "Y", {"role": "user", "content": "y"})
+		self.assertEqual([m["content"] for m in store.load(instance, "Y")], ["y"])
 
 
 class TestCustomStore(FrappeTestCase):

@@ -37,6 +37,21 @@ def get_permissions() -> dict:
 
 
 @frappe.whitelist()
+def reconciler_status() -> dict:
+	"""Whether the thing that wakes parked agent work is actually running.
+
+	Read by the A2A screen so a starved or stopped reconciler is a fact on the
+	page, not something inferred from delegations that look stuck. Those two have
+	the same symptom and different fixes, and until now telling them apart meant
+	guessing.
+	"""
+	_require_admin()
+	from one_bpmn.agents.a2a.reconciler_health import reconciler_health
+
+	return reconciler_health()
+
+
+@frappe.whitelist()
 def list_remote_agents() -> list[dict]:
 	_require_admin()
 	return frappe.get_all(

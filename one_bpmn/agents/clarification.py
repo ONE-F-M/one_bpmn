@@ -185,6 +185,7 @@ def record_question(
 				if doc.interpretations
 				else "",
 			),
+			agent_configuration=agent_configuration,
 		)
 		return doc.name
 	except Exception:
@@ -234,6 +235,7 @@ def record_answer(*, instance, human_task_id: str, data: dict) -> str | None:
 				frappe.utils.escape_html(doc.question or ""),
 				frappe.utils.escape_html(answer or ""),
 			),
+			agent_configuration=doc.agent_configuration,
 		)
 		return name
 	except Exception:
@@ -340,15 +342,30 @@ def _notify(recipient: str, subject: str, message: str, clarification: str) -> N
 		)
 
 
-def _comment(reference_doctype, reference_name, html) -> None:
+def _comment(reference_doctype, reference_name, html, agent_configuration=None) -> None:
 	"""The auditable half. A notification is gone once dismissed; the question
 	and the answer belong on the work item, where the next person to ask "why is
-	it built this way" is already looking."""
+	it built this way" is already looking.
+
+	Signed by the AGENT, not by whoever happened to be logged in. Both of these
+	comments narrate what the agent did — it asked, and it received an answer —
+	and add_comment owns a comment as the session user, which on a chat turn or a
+	form action is a person. So the thread read "You commented: Orchestrator Agent
+	asked a question", with the same person credited on both sides of a
+	conversation they only took one side of. The answer comment already names who
+	answered, in its text, which is where that belongs.
+	"""
 	if not (reference_doctype and reference_name):
 		return
 	try:
 		if not frappe.db.exists(reference_doctype, reference_name):
 			return
+		from one_bpmn.agents import identity
+
+		if identity.comment_as(agent_configuration, reference_doctype, reference_name, html):
+			return
+		# No agent, or no identity provisioned for it: better an attributed-to-a-
+		# person comment than no record at all.
 		frappe.get_doc(reference_doctype, reference_name).add_comment("Comment", html)
 	except Exception:
 		frappe.log_error(

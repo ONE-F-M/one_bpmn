@@ -165,9 +165,19 @@ has_permission = {
 # ---------------
 # Override standard doctype classes
 
-# override_doctype_class = {
-# 	"ToDo": "custom_app.overrides.CustomToDo"
-# }
+# WI-002055: the jobs that WAKE parked agent work get a queue of their own.
+# Frappe derives a scheduled job's queue from its frequency alone, so a Cron job
+# is always on "default" — shared here with 172 other enabled jobs. A long job
+# ahead of them means a finished delegation still reads as running and a passed
+# deadline goes unnoticed until it clears. Agent turns already have their own
+# worker for this reason; this gives the same to the clock that wakes them.
+#
+# Our three methods only. Every other scheduled job on the site falls through to
+# Frappe's own behaviour, and ours fall back to "default" unless the site
+# actually declares the queue — so this is safe to deploy before the worker.
+override_doctype_class = {
+	"Scheduled Job Type": "one_bpmn.overrides.scheduled_job_type.ProcessaScheduledJobType",
+}
 
 # Document Events
 # ---------------
@@ -183,6 +193,13 @@ _BPMN_TRIGGER = "one_bpmn.one_bpmn.trigger.on_doc_event"
 # Documents with NO active BPMN instance are completely unaffected.
 _BPMN_GUARD   = "one_bpmn.one_bpmn.trigger.guard_bpmn_document"
 _BPMN_DELETE  = "one_bpmn.one_bpmn.trigger.delete_linked_bpmn_instances"
+
+# Exposes turn_state.get_turn as a Jinja global for aiUserPrompt templates.
+jinja = {
+	"methods": [
+		"one_bpmn.agents.turn_state.get_turn",
+	]
+}
 
 doc_events = {
 	"*": {
@@ -221,6 +238,14 @@ doc_events = {
 			# be undone by the stored row.
 			"one_bpmn.security.output_screening.screen_chat_response",
 		],
+		"after_insert": [
+			# The count and turn-boundary compaction triggers. after_insert, not
+			# before: the message this turn produced has to be part of the count,
+			# and a failed insert must not leave work queued about it. The handler
+			# only ever ENQUEUES — summarising on this thread would put its
+			# latency in front of the person waiting for a reply.
+			"one_bpmn.agents.memory.compaction_triggers.on_chat_message",
+		],
 	},
 	# WI-001813: the list of Processa-controlled doctypes (used by
 	# bpmn_form_actions.js to suppress native Submit/Save/banner) is cached in
@@ -239,6 +264,12 @@ doc_events = {
 
 scheduler_events = {
 	"cron": {
+		# Retention runs once a day, in the small hours: it is the only job here
+		# that DELETES anything, and a bounded nightly pass is easier to reason
+		# about (and to notice going wrong) than a trickle through the day.
+		"30 2 * * *": [
+			"one_bpmn.tasks.sweep_conversation_retention",
+		],
 		"* * * * *": [
 			"one_bpmn.tasks.process_timer_start_events",
 			"one_bpmn.tasks.process_timer_catch_events",
@@ -250,6 +281,11 @@ scheduler_events = {
 			# by the minute because the thing being waited on is a person reading
 			# their notifications, and it never resolves the question itself.
 			"one_bpmn.tasks.chase_unanswered_clarifications",
+			# The TIME compaction trigger. Hourly rather than by the minute
+			# because the thing being waited on is a conversation going quiet,
+			# and the thresholds that drive it are configured in minutes but
+			# meant in tens of minutes.
+			"one_bpmn.tasks.compact_idle_conversations",
 		],
 	}
 }

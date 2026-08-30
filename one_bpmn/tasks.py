@@ -229,6 +229,7 @@ def _refresh_timer_tasks(instance_name: str):
 		context_docname=instance.context_docname,
 		script_task_extensions=spec_data.get("script_task_extensions"),
 		initiated_by=instance.initiated_by or "Administrator",
+		instance=instance,
 	)
 
 	waiting_before = len(wf.get_tasks(state=TaskState.WAITING))
@@ -848,6 +849,52 @@ def _mark_resumed(a2a_task: str) -> None:
 	must never hand the same finished task to the engine twice, even if the
 	enqueue helper changes or fails."""
 	frappe.db.set_value("A2A Task", a2a_task, "resume_enqueued", 1, update_modified=False)
+
+
+def sweep_conversation_retention():
+	"""Daily: archive or delete chat conversations idle past their TTL.
+
+	Off unless an administrator sets a TTL on Processa Settings, so a site that
+	has not asked for retention does nothing beyond one settings read.
+	"""
+	from one_bpmn.agents.memory import retention
+
+	try:
+		result = retention.sweep_expired_conversations()
+		if result.get("swept"):
+			frappe.logger("one_bpmn").info(
+				f"Conversation retention: {result['action']}d {result['swept']} conversation(s)"
+			)
+	except Exception:
+		frappe.log_error(
+			title="Conversation retention sweep failed", message=frappe.get_traceback()
+		)
+
+
+def compact_idle_conversations():
+	"""Hourly: the TIME trigger for conversation compaction.
+
+	The count and turn-boundary triggers hang off the chat message hook, but an
+	idle conversation by definition produces no messages — so the one trigger
+	that cannot be a hook is a sweep. It queues exactly the same background job
+	the other two do.
+
+	Does nothing at all unless some agent has an idle threshold configured.
+	"""
+	from one_bpmn.agents.memory import compaction_triggers
+
+	try:
+		result = compaction_triggers.sweep_idle_conversations()
+		if result.get("queued"):
+			frappe.logger("one_bpmn").info(
+				f"Conversation compaction: queued {result['queued']} of "
+				f"{result['considered']} idle conversations"
+			)
+	except Exception:
+		frappe.log_error(
+			title="Conversation compaction: idle sweep failed",
+			message=frappe.get_traceback(),
+		)
 
 
 def chase_unanswered_clarifications():
