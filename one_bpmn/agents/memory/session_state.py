@@ -174,10 +174,15 @@ def clear_state(conversation: str) -> None:
 
 
 # ── the convention agents use ───────────────────────────────────────────────
-# Everything below is what a map's Server Scripts call. It lives here rather
-# than in each script so five agents share one behaviour instead of five
-# near-copies that drift — which is what happened to the history window, where
-# every Build Context grew its own query with its own limit.
+# What a map's Server Scripts call. The line drawn here, after a correction:
+# anything that decides how an agent BEHAVES belongs in the map, and only what
+# guarantees the data is correct stays in Python.
+#
+# So rendering the scratchpad for a prompt moved OUT of here and into each Build
+# Context — how an agent presents its own state to its own model is behaviour.
+# The retry below stayed: a lost update is a correctness guarantee, not a
+# presentation choice, and five scripts each re-implementing it is five chances
+# to get concurrency subtly wrong.
 
 RECORD_RETRIES = 3
 
@@ -215,22 +220,6 @@ def record(conversation: str, values: dict, retries: int = RECORD_RETRIES) -> in
 			)
 			return 0
 	return 0
-
-
-def for_prompt(conversation: str, header: str = "Established so far in this conversation:") -> str:
-	"""The scratchpad as a block to put in front of the model, or "" when empty.
-
-	Rendered as JSON rather than prose because it IS structured — and because the
-	point is to stop the model re-deriving these values from the transcript, so
-	handing them back as prose it has to parse again would only move the problem.
-
-	Returns "" for an empty state so a caller can concatenate unconditionally
-	without producing an empty heading.
-	"""
-	state = get_state(conversation)
-	if not state:
-		return ""
-	return header + "\n" + json.dumps(state, indent=2, default=str)
 
 
 def _get_or_create(conversation: str):
