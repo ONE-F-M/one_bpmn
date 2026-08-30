@@ -7,6 +7,7 @@ from unittest.mock import patch
 import frappe
 from frappe.tests.utils import FrappeTestCase
 
+from one_bpmn.tests.conversation_fixtures import drop_conversations
 from one_bpmn.agents.memory.compaction import (
 	SUMMARY_DOCTYPE,
 	build_history,
@@ -85,6 +86,9 @@ class TestConversationCompaction(FrappeTestCase):
 			user="Administrator",
 		)
 		self.messages = []
+
+	def tearDown(self):
+		drop_conversations(self.conversation)
 
 	# Roughly the median real Chat Message on this site (63 chars user, 156 bot).
 	# The fixtures used to be eleven characters a message, which is below any
@@ -328,6 +332,10 @@ class TestSummaryValidation(FrappeTestCase):
 			title=f"Validation test {frappe.generate_hash(length=8)}",
 			user="Administrator",
 		)
+		self.made = [self.conversation]
+
+	def tearDown(self):
+		drop_conversations(self.made)
 
 	def _summary(self, **overrides):
 		values = {
@@ -356,6 +364,7 @@ class TestSummaryValidation(FrappeTestCase):
 			title=f"Other {frappe.generate_hash(length=8)}",
 			user="Administrator",
 		)
+		self.made.append(other)
 		foreign = frappe.get_doc(
 			{
 				"doctype": SUMMARY_DOCTYPE,

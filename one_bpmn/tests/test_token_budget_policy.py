@@ -7,6 +7,7 @@ from unittest.mock import patch
 import frappe
 from frappe.tests.utils import FrappeTestCase
 
+from one_bpmn.tests.conversation_fixtures import drop_conversations
 from one_bpmn.agents.memory.compaction import build_history, resolve_token_budget
 from one_bpmn.agents.memory.conversation_store import (
 	ContextWindowPolicy,
@@ -187,6 +188,9 @@ class TestBudgetOnTheLivePath(FrappeTestCase):
 			for i in range(6):
 				save_user_message(self.conversation, f"user {i} " + "u" * 120)
 				save_bot_message(self.conversation, f"bot {i} " + "b" * 240)
+
+	def tearDown(self):
+		drop_conversations(self.conversation)
 
 	def test_build_history_honours_an_explicit_budget(self):
 		full = build_history(self.conversation, limit=20, token_budget=0)

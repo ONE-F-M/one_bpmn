@@ -41,6 +41,10 @@ from one_bpmn.agents.memory.compaction import (
 	SUMMARY_DOCTYPE,
 )
 from one_bpmn.agents.memory.conversation_store import AGENT_MEMORY_MODE
+from one_bpmn.agents.memory.session_state import (
+	ENTRY_DOCTYPE as STATE_ENTRY_DOCTYPE,
+	STATE_DOCTYPE,
+)
 
 ARCHIVED_STATUS = "Archived"
 
@@ -123,6 +127,11 @@ def _delete(conversation: str) -> dict:
 	}
 	frappe.db.delete(SUMMARY_DOCTYPE, {"conversation": conversation})
 	frappe.db.delete(MESSAGE_DOCTYPE, {"conversation": conversation})
+	# Session state belongs to the conversation and has no meaning without it.
+	# Its entries are a child table, so the parent alone would leave orphan rows
+	# that no longer point anywhere.
+	frappe.db.delete(STATE_ENTRY_DOCTYPE, {"parent": conversation, "parenttype": STATE_DOCTYPE})
+	frappe.db.delete(STATE_DOCTYPE, {"name": conversation})
 	frappe.db.delete(CONVERSATION_DOCTYPE, {"name": conversation})
 	return {"conversation": conversation, "action": "Delete", **counts}
 

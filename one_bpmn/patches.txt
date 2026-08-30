@@ -102,3 +102,5 @@ one_bpmn.one_bpmn.patches.v1_0.seed_missing_model_rates #24-08-2026 WI-002134 fi
 one_bpmn.one_bpmn.patches.v1_0.migrate_ai_chat_settings_to_processa_settings #24-08-2026 WI-002140 AI Chat Settings retirement: observability/Langfuse/token-estimator/LLM-default fields fold into Processa Settings
 one_bpmn.one_bpmn.patches.v1_0.seed_mobile_app_agent_config #27-08-2026 the Mobile App Agent's configuration; its map and Server Scripts arrive by Processa export/import
 one_bpmn.one_bpmn.patches.v1_0.seed_frontend_agent_config #27-08-2026 the front-end agent is configuration; its map and scripts arrive by export/import
+one_bpmn.one_bpmn.patches.v1_0.migrate_ba_state_to_session_state #30-08-2026 WI-001889 BA Agent planning checkpoint moves from Chat Conversation State to Chat Session State
+one_bpmn.one_bpmn.patches.v1_0.docu_module_not_hardcoded #30-08-2026 WI-001889 Docu schema_writer: the module in the output template is no longer a hardcoded ONE BPMN
