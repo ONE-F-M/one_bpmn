@@ -173,6 +173,66 @@ def clear_state(conversation: str) -> None:
 		frappe.delete_doc(STATE_DOCTYPE, conversation, force=True, ignore_permissions=True)
 
 
+# ── the convention agents use ───────────────────────────────────────────────
+# Everything below is what a map's Server Scripts call. It lives here rather
+# than in each script so five agents share one behaviour instead of five
+# near-copies that drift — which is what happened to the history window, where
+# every Build Context grew its own query with its own limit.
+
+RECORD_RETRIES = 3
+
+
+def record(conversation: str, values: dict, retries: int = RECORD_RETRIES) -> int:
+	"""Write decisions, re-reading and re-applying if another turn got there first.
+
+	The retry belongs HERE, not in each agent's script. A stale write is a normal
+	outcome when turns overlap, and the correct response is always the same: read
+	the current version, apply your change to it, write again. Leaving that to
+	five Server Scripts would mean five chances to skip it — and skipping it
+	surfaces a lock error to somebody who asked a chat question.
+
+	Returns the new version, or 0 if it could not be written. Never raises: a
+	scratchpad that cannot be updated must not fail the turn that was trying to
+	update it — the agent simply carries on without the benefit.
+	"""
+	if not conversation or not values:
+		return 0
+	for attempt in range(max(retries, 1)):
+		try:
+			_, version = read_state(conversation)
+			return set_state(conversation, values, expected_version=version)
+		except StaleSessionState:
+			if attempt == retries - 1:
+				frappe.logger("one_bpmn").warning(
+					f"Session state for {conversation} stayed contended over "
+					f"{retries} attempts; this turn's values were not recorded."
+				)
+			continue
+		except Exception:
+			frappe.log_error(
+				title="Session state: could not record a turn's values",
+				message=f"conversation={conversation}\n{frappe.get_traceback()}",
+			)
+			return 0
+	return 0
+
+
+def for_prompt(conversation: str, header: str = "Established so far in this conversation:") -> str:
+	"""The scratchpad as a block to put in front of the model, or "" when empty.
+
+	Rendered as JSON rather than prose because it IS structured — and because the
+	point is to stop the model re-deriving these values from the transcript, so
+	handing them back as prose it has to parse again would only move the problem.
+
+	Returns "" for an empty state so a caller can concatenate unconditionally
+	without producing an empty heading.
+	"""
+	state = get_state(conversation)
+	if not state:
+		return ""
+	return header + "\n" + json.dumps(state, indent=2, default=str)
+
+
 def _get_or_create(conversation: str):
 	"""The state row for a conversation, created on first write.
 
