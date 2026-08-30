@@ -6,66 +6,20 @@
  "doctype": "DocType",
  "engine": "InnoDB",
  "field_order": [
-  "provider",
-  "provider_type",
-  "enabled",
-  "connection_section",
-  "api_endpoint",
-  "column_break_conn",
-  "api_key"
+  "provider"
  ],
  "fields": [
   {
    "fieldname": "provider",
    "fieldtype": "Data",
-   "in_list_view": 1,
    "label": "Provider",
-   "reqd": 1,
    "unique": 1
-  },
-  {
-   "description": "Which API dialect this provider speaks. It selects the client that talks to it — an Anthropic provider is called with a different request shape and different headers from an OpenAI one — so a wrong value here is a failed call, not a cosmetic error.",
-   "fieldname": "provider_type",
-   "fieldtype": "Select",
-   "in_list_view": 1,
-   "in_standard_filter": 1,
-   "label": "Provider Type",
-   "options": "OpenAI\nAnthropic\nGoogle\nBedrock\nOpenAI-compatible\nAntigravity",
-   "reqd": 1
-  },
-  {
-   "default": "1",
-   "fieldname": "enabled",
-   "fieldtype": "Check",
-   "in_list_view": 1,
-   "label": "Enabled"
-  },
-  {
-   "fieldname": "connection_section",
-   "fieldtype": "Section Break",
-   "label": "Connection"
-  },
-  {
-   "description": "Leave blank to use the provider type's standard endpoint.",
-   "fieldname": "api_endpoint",
-   "fieldtype": "Data",
-   "label": "API Endpoint"
-  },
-  {
-   "fieldname": "column_break_conn",
-   "fieldtype": "Column Break"
-  },
-  {
-   "description": "Held once per provider rather than per model, so rotating a key is one edit and the secret is stored in one place.",
-   "fieldname": "api_key",
-   "fieldtype": "Password",
-   "label": "API Key"
   }
  ],
  "grid_page_length": 50,
  "index_web_pages_for_search": 1,
  "links": [],
- "modified": "2026-08-24 12:00:00.000000",
+ "modified": "2026-07-23 09:59:20.910142",
  "modified_by": "Administrator",
  "module": "ONE BPMN",
  "name": "AI Provider",

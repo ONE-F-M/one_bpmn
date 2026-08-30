@@ -105,3 +105,4 @@ one_bpmn.one_bpmn.patches.v1_0.seed_frontend_agent_config #27-08-2026 the front-
 one_bpmn.one_bpmn.patches.v1_0.migrate_ba_state_to_session_state #30-08-2026 WI-001889 BA Agent planning checkpoint moves from Chat Conversation State to Chat Session State
 one_bpmn.one_bpmn.patches.v1_0.docu_module_not_hardcoded #30-08-2026 WI-001889 Docu schema_writer: the module in the output template is no longer a hardcoded ONE BPMN
 one_bpmn.one_bpmn.patches.v1_0.drop_legacy_ai_credential_tables #30-08-2026a WI-002134 the consolidation deleted the doctypes; their tables, their stored API keys and two stale columns stayed behind
+one_bpmn.one_bpmn.patches.v1_0.provider_is_a_name_model_holds_the_connection #30-08-2026 WI-002134 AI Provider goes back to a single Data field; the key, endpoint and switch move down onto AI Model
