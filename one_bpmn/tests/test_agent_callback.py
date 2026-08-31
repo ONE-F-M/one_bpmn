@@ -197,3 +197,105 @@ class TestWhatTheAgentIsTold(CallbackCase):
 		answer = cb._sandbox_run_answer(run)
 		self.assertIn("did not complete", answer)
 		self.assertIn("the clone failed", answer)
+
+
+class TestSandboxAiAgentRun(CallbackCase):
+	"""The coding loop runs entirely outside Frappe — this callback is the
+	only place its cost/tokens/tool calls can ever be recorded. Confirms
+	the AI Agent Run gets created with the right numbers, and that a
+	payload with no usage (a loop that crashed before its first model
+	call) is a clean no-op rather than a malformed record."""
+
+	def setUp(self):
+		super().setUp()
+		self._models = []
+
+	def tearDown(self):
+		for name in self._models:
+			frappe.delete_doc("AI Model", name, force=True, ignore_permissions=True, ignore_missing=True)
+		super().tearDown()
+
+	def _make_model(self, name, *, input_cost=3.0, output_cost=15.0):
+		doc = frappe.get_doc({
+			"doctype": "AI Model",
+			"model_name": name,
+			"enable_model": 1,
+			"input_cost": input_cost,
+			"output_cost": output_cost,
+		}).insert(ignore_permissions=True)
+		self._models.append(doc.name)
+		return doc.name
+
+	def test_no_usage_in_the_payload_creates_no_run_and_no_link(self):
+		"""run_job()'s own bare-error callback (the coding loop crashed before
+		its first model call) carries no agent_usage key at all."""
+		run = self._run()
+		self._post({"correlation_id": run.name, "status": "failed", "error": "coding loop failed: boom"})
+		self.assertIsNone(frappe.db.get_value("Agent Sandbox Run", run.name, "ai_agent_run"))
+
+	def test_usage_in_the_payload_creates_a_linked_ai_agent_run(self):
+		model = self._make_model(f"_sbx-model-{frappe.generate_hash(length=6)}")
+		run = self._run()
+		self._post({
+			"correlation_id": run.name,
+			"status": "tests_passed",
+			"pr_url": "https://github.com/o/r/pull/9",
+			"agent_report": "Added the docstring.",
+			"agent_model": model,
+			"agent_tool_calls": ["read_file", "write_file", "run_tests"],
+			"agent_started_at": 1000.0,
+			"agent_ended_at": 1010.5,
+			"agent_usage": {
+				"input_tokens": 2000,
+				"output_tokens": 1000,
+				"cache_read_input_tokens": 500,
+				"cache_creation_input_tokens": 100,
+			},
+		})
+
+		agent_run_name = frappe.db.get_value("Agent Sandbox Run", run.name, "ai_agent_run")
+		self.assertTrue(agent_run_name)
+
+		agent_run = frappe.get_doc("AI Agent Run", agent_run_name)
+		self.assertEqual(agent_run.model, model)
+		self.assertEqual(agent_run.status, "Success")
+		self.assertEqual(agent_run.goal_completion, "Achieved")
+		self.assertEqual(agent_run.total_prompt_tokens, 2000)
+		self.assertEqual(agent_run.total_completion_tokens, 1000)
+		self.assertEqual(agent_run.total_cache_read_tokens, 500)
+		self.assertEqual(agent_run.total_cache_write_tokens, 100)
+		self.assertEqual(agent_run.total_tokens, 3600)
+		self.assertEqual(agent_run.duration_ms, 10500)
+		self.assertEqual(agent_run.final_output, "Added the docstring.")
+		self.assertEqual(
+			frappe.parse_json(agent_run.tool_calls), ["read_file", "write_file", "run_tests"]
+		)
+		# $3/1M input, $15/1M output: 2000 * 3/1e6 + 1000 * 15/1e6 = 0.006 + 0.015.
+		# Cache costs are deliberately not asserted precisely here — pricing.py
+		# derives non-zero cache rates from the input rate by default when the
+		# model has no explicit cache pricing, and that derivation is its own
+		# concern, not this function's.
+		self.assertAlmostEqual(agent_run.total_input_cost, 0.006, places=6)
+		self.assertAlmostEqual(agent_run.total_output_cost, 0.015, places=6)
+		self.assertGreaterEqual(
+			agent_run.estimated_cost, agent_run.total_input_cost + agent_run.total_output_cost
+		)
+
+	def test_a_failed_test_run_records_goal_not_achieved(self):
+		model = self._make_model(f"_sbx-model-{frappe.generate_hash(length=6)}")
+		run = self._run()
+		self._post({
+			"correlation_id": run.name,
+			"status": "tests_failed",
+			"agent_report": "Tests failed.",
+			"agent_model": model,
+			"agent_tool_calls": [],
+			"agent_started_at": 1000.0,
+			"agent_ended_at": 1001.0,
+			"agent_usage": {"input_tokens": 100, "output_tokens": 50,
+			                "cache_read_input_tokens": 0, "cache_creation_input_tokens": 0},
+		})
+		agent_run_name = frappe.db.get_value("Agent Sandbox Run", run.name, "ai_agent_run")
+		agent_run = frappe.get_doc("AI Agent Run", agent_run_name)
+		self.assertEqual(agent_run.status, "Success")  # the loop itself didn't crash
+		self.assertEqual(agent_run.goal_completion, "Not Achieved")

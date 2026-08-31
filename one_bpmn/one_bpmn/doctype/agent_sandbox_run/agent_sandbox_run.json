@@ -26,7 +26,8 @@
   "files",
   "section_outcome",
   "pr_url",
-  "error_message"
+  "error_message",
+  "ai_agent_run"
  ],
  "fields": [
   {
@@ -158,6 +159,14 @@
    "fieldname": "error_message",
    "fieldtype": "Small Text",
    "label": "Error Message"
+  },
+  {
+   "description": "The coding loop's own AI Agent Run — created from the callback's agent_usage/agent_tool_calls/agent_model, since the loop runs entirely outside Frappe and has no other way to be tracked. Cost, tokens, and tool calls for the sandbox's own coding turn live there, not on this row.",
+   "fieldname": "ai_agent_run",
+   "fieldtype": "Link",
+   "label": "AI Agent Run",
+   "options": "AI Agent Run",
+   "read_only": 1
   }
  ],
  "links": [],
