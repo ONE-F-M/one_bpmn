@@ -21,6 +21,7 @@ from __future__ import annotations
 import hashlib
 import hmac
 import json
+from datetime import datetime
 
 import frappe
 
@@ -76,6 +77,10 @@ def report_result() -> dict:
 	status = payload.get("status")
 	run.db_set("result", frappe.as_json(payload), update_modified=False)
 
+	agent_run_name = _create_sandbox_ai_agent_run(run, payload)
+	if agent_run_name:
+		run.db_set("ai_agent_run", agent_run_name, update_modified=False)
+
 	if status == "tests_passed":
 		files = payload.get("files") or {}
 		pr_url = payload.get("pr_url") or ""
@@ -99,6 +104,97 @@ def report_result() -> dict:
 
 	_enqueue_resume(run)
 	return {"accepted": True}
+
+
+def _create_sandbox_ai_agent_run(run, payload: dict) -> str | None:
+	"""Track the sandbox's own coding-loop turn as a real AI Agent Run, so
+	its cost/tokens/tool calls show up the same way any other agent turn
+	does — reusing that doctype's existing fields rather than duplicating
+	them on Agent Sandbox Run. That loop runs entirely outside Frappe (on
+	Cloud Run), so this callback is the only place it can ever be recorded;
+	nothing else in Processa ever sees it.
+
+	Returns the new run's name, or None when the payload carries no usage
+	(the coding loop never started — e.g. it crashed before its first model
+	call, which run_job() reports as a bare error with no agent_usage key).
+	"""
+	usage = payload.get("agent_usage")
+	if not isinstance(usage, dict):
+		return None
+
+	from frappe.utils import flt
+
+	from one_bpmn.agents.pricing import get_model_pricing
+
+	model = payload.get("agent_model") or ""
+	input_tokens = usage.get("input_tokens", 0) or 0
+	output_tokens = usage.get("output_tokens", 0) or 0
+	cache_read_tokens = usage.get("cache_read_input_tokens", 0) or 0
+	cache_write_tokens = usage.get("cache_creation_input_tokens", 0) or 0
+
+	pricing = get_model_pricing(model) or {}
+	input_cost = (input_tokens / 1000.0) * flt(pricing.get("input_cost_per_1k", 0))
+	output_cost = (output_tokens / 1000.0) * flt(pricing.get("output_cost_per_1k", 0))
+	cache_read_cost = (cache_read_tokens / 1000.0) * flt(pricing.get("cache_read_cost_per_1k", 0))
+	cache_write_cost = (cache_write_tokens / 1000.0) * flt(pricing.get("cache_write_cost_per_1k", 0))
+
+	# Unix epoch seconds (time.time() on the sandbox side) — get_datetime()
+	# parses date strings/objects, not raw epoch floats, so these need
+	# datetime.fromtimestamp() first or they'd fail AI Agent Run's own
+	# mandatory-field check on started_at with a silently-wrong value.
+	started_at_raw = payload.get("agent_started_at")
+	ended_at_raw = payload.get("agent_ended_at")
+	started_at = datetime.fromtimestamp(started_at_raw) if started_at_raw else None
+	ended_at = datetime.fromtimestamp(ended_at_raw) if ended_at_raw else None
+	duration_ms = int((ended_at_raw - started_at_raw) * 1000) if started_at_raw and ended_at_raw else 0
+
+	status = payload.get("status") or ""
+	if status == "tests_passed":
+		goal_completion, completion_basis = "Achieved", "The sandbox's real test suite passed."
+	elif status in ("tests_failed", "tests_passed_no_changes"):
+		goal_completion, completion_basis = "Not Achieved", f"Sandbox reported {status}."
+	else:
+		goal_completion, completion_basis = "Unknown", "Sandbox run did not reach a test result."
+
+	agent_run = frappe.get_doc({
+		"doctype": "AI Agent Run",
+		"instance": run.caller_instance,
+		"agent_configuration": "Dev Agent",
+		"bpmn_id": "dispatch_to_sandbox",
+		"bpmn_label": "Dispatch to sandbox",
+		"element_type": "task",
+		"backend": "direct_api",
+		"provider": "Anthropic",
+		"model": model,
+		"status": "Success",  # the loop itself completed; goal_completion carries the outcome
+		"started_at": started_at or frappe.utils.now_datetime(),
+		"ended_at": ended_at,
+		"duration_ms": duration_ms,
+		"total_prompt_tokens": input_tokens,
+		"total_completion_tokens": output_tokens,
+		"total_tokens": input_tokens + output_tokens + cache_read_tokens + cache_write_tokens,
+		"total_cache_read_tokens": cache_read_tokens,
+		"total_cache_write_tokens": cache_write_tokens,
+		"estimated_cost": input_cost + output_cost + cache_read_cost + cache_write_cost,
+		"total_input_cost": input_cost,
+		"total_output_cost": output_cost,
+		"total_cache_read_cost": cache_read_cost,
+		"total_cache_write_cost": cache_write_cost,
+		"goal_completion": goal_completion,
+		"completion_basis": completion_basis,
+		"final_output": (payload.get("agent_report") or "")[:65536],
+		"tool_calls": frappe.as_json(payload.get("agent_tool_calls") or []),
+		"correlation_id": run.name,
+	})
+	try:
+		agent_run.insert(ignore_permissions=True)
+	except Exception:
+		frappe.log_error(
+			title=f"Dev Agent Sandbox: could not record the coding loop's AI Agent Run ({run.name})",
+			message=frappe.get_traceback(),
+		)
+		return None
+	return agent_run.name
 
 
 def _enqueue_resume(run) -> None:

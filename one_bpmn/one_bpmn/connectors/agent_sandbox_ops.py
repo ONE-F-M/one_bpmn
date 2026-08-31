@@ -220,7 +220,22 @@ def _resolve_agent_config() -> dict:
 
 
 def _callback_url() -> str:
-	return frappe.utils.get_url("/api/method/one_bpmn.api.agent_callback.report_result")
+	"""The sandbox's own /run validation hard-requires an https callback_url
+	(dev_agent_server.py's _validate_payload) — this endpoint is never
+	dispatched to over anything else. get_url() constructs its scheme from
+	the current request context or the site's host_name config, neither of
+	which is reliable here: this runs inside a background job (an AI Agent
+	Run's own turn), with no live request to read a scheme from, and
+	falls back toward http unless host_name says otherwise. Confirmed live:
+	a real production dispatch got rejected with a 422 because the
+	constructed URL was http:// even though the site is genuinely served
+	over https externally — only Frappe's own internal guess was wrong, not
+	the actual endpoint. Forcing the scheme here is correct precisely
+	because it's already a hard requirement, not a new one."""
+	url = frappe.utils.get_url("/api/method/one_bpmn.api.agent_callback.report_result")
+	if url.startswith("http://"):
+		url = "https://" + url[len("http://"):]
+	return url
 
 
 def _mint_identity_token(audience: str) -> str:
