@@ -121,6 +121,100 @@ class TestDispatchValidation(AgentSandboxCase):
 		self.assertEqual(row.state, "failed")
 
 
+class TestResolveAgentConfig(FrappeTestCase):
+	"""_resolve_agent_config is mocked everywhere else in this file — these
+	tests exercise the real implementation against real AI Model / AI Agent
+	Configuration records instead. That gap is exactly what let a real bug
+	ship undetected: the function used to read `provider.enabled` and
+	`provider.get_password("api_key", ...)` off AI Provider, but AI Provider
+	only ever holds a name (it's just the dialect tag) — the enable flag and
+	credential actually live on AI Model. No test ever called the real
+	function, so the AttributeError it raised on every dispatch went
+	uncaught until a real end-to-end run hit it."""
+
+	def setUp(self):
+		super().setUp()
+		self._agent_configs = []
+		self._models = []
+
+	def tearDown(self):
+		for name in self._agent_configs:
+			frappe.delete_doc(
+				"AI Agent Configuration", name, force=True, ignore_permissions=True, ignore_missing=True
+			)
+		for name in self._models:
+			frappe.delete_doc("AI Model", name, force=True, ignore_permissions=True, ignore_missing=True)
+		super().tearDown()
+
+	def _make_model(self, name, *, enable_model=1, api_key="sk-test-key", model_api_name=""):
+		doc = frappe.get_doc({
+			"doctype": "AI Model",
+			"model_name": name,
+			"enable_model": enable_model,
+			"api_key": api_key,
+			"model_api_name": model_api_name,
+		}).insert(ignore_permissions=True)
+		self._models.append(doc.name)
+		return doc
+
+	def _make_agent_config(self, name, *, ai_model, system_prompt="You are a test agent."):
+		doc = frappe.get_doc({
+			"doctype": "AI Agent Configuration",
+			"agent_name": name,
+			"agent_id": name.lower().replace(" ", "-"),
+			"agent_framework": "Direct API",
+			"ai_model": ai_model,
+			"system_prompt": system_prompt,
+		}).insert(ignore_permissions=True)
+		self._agent_configs.append(doc.name)
+		return doc
+
+	def test_resolves_a_real_enabled_model_with_a_key(self):
+		model = self._make_model(
+			"Test Sandbox Model - Enabled", api_key="sk-real-looking-test-key", model_api_name="claude-test-model"
+		)
+		self._make_agent_config("Test Dev Agent - Happy Path", ai_model=model.name, system_prompt="Be helpful.")
+
+		with patch.object(ops, "_AGENT_CONFIG_NAME", "Test Dev Agent - Happy Path"):
+			config = ops._resolve_agent_config()
+
+		self.assertEqual(config["system_prompt"], "Be helpful.")
+		self.assertEqual(config["model"], "claude-test-model")
+		self.assertEqual(config["api_key"], "sk-real-looking-test-key")
+
+	def test_falls_back_to_model_name_when_model_api_name_is_blank(self):
+		model = self._make_model("Test Sandbox Model - No API Name", api_key="sk-key")
+		self._make_agent_config("Test Dev Agent - No API Name", ai_model=model.name)
+
+		with patch.object(ops, "_AGENT_CONFIG_NAME", "Test Dev Agent - No API Name"):
+			config = ops._resolve_agent_config()
+
+		self.assertEqual(config["model"], model.name)
+
+	def test_no_ai_model_configured_raises(self):
+		self._make_agent_config("Test Dev Agent - No Model", ai_model="")
+
+		with patch.object(ops, "_AGENT_CONFIG_NAME", "Test Dev Agent - No Model"):
+			with self.assertRaises(ops.AgentSandboxError):
+				ops._resolve_agent_config()
+
+	def test_disabled_model_raises(self):
+		model = self._make_model("Test Sandbox Model - Disabled", enable_model=0, api_key="sk-key")
+		self._make_agent_config("Test Dev Agent - Disabled Model", ai_model=model.name)
+
+		with patch.object(ops, "_AGENT_CONFIG_NAME", "Test Dev Agent - Disabled Model"):
+			with self.assertRaises(ops.AgentSandboxError):
+				ops._resolve_agent_config()
+
+	def test_model_with_no_api_key_raises(self):
+		model = self._make_model("Test Sandbox Model - No Key", api_key="")
+		self._make_agent_config("Test Dev Agent - No Key", ai_model=model.name)
+
+		with patch.object(ops, "_AGENT_CONFIG_NAME", "Test Dev Agent - No Key"):
+			with self.assertRaises(ops.AgentSandboxError):
+				ops._resolve_agent_config()
+
+
 class TestDispatchParking(AgentSandboxCase):
 	def _dispatch(self, response_status=202):
 		mock_settings = SimpleNamespace(
