@@ -30,6 +30,19 @@ from one_bpmn.one_bpmn.connectors.a2a_client_ops import A2A_WAITING_KEY
 MARKER = {"a2a_task": "A2A-TEST-1", "label": "Delegated to Slow Agent", "remote_task_id": None}
 
 
+# A connector shape as the compiler actually emits one. These tests are about
+# deferral rather than wiring, but the descriptor still has to be real: a
+# connector with no connectorId resolves no handler, and execute_shape now
+# refuses it up front instead of letting it answer with a silent success
+# (WI-002960 — an exported map arrived with the wiring missing from its tool
+# descriptors, and the agent reported a connector that was never built).
+_WIRED = {
+	"serviceType": "connector",
+	"connectorId": "a2a",
+	"operation": "delegate_to_local_agent",
+}
+
+
 class _ParkingInstance:
 	"""An instance whose service-task dispatch parks instead of answering —
 	what a delegation to an agent waiting on a person actually does."""
@@ -40,9 +53,9 @@ class _ParkingInstance:
 		self.context_docname = ""
 		self.process_model = ""
 		self.initiated_by = "Administrator"
-		self._service_task_extensions = {"delegate": {"serviceType": "connector"}}
+		self._service_task_extensions = {"delegate": _WIRED}
 
-	def _dispatch_service_task(self, task):
+	def _dispatch_service_task(self, task, task_cfg=None):
 		task.data[A2A_WAITING_KEY] = dict(MARKER)
 		return True
 
@@ -50,7 +63,7 @@ class _ParkingInstance:
 class _AnsweringInstance(_ParkingInstance):
 	"""The fast case: the delegate replied inside the call, nothing parks."""
 
-	def _dispatch_service_task(self, task):
+	def _dispatch_service_task(self, task, task_cfg=None):
 		task.data["answer"] = "Critical"
 		return True
 
@@ -58,7 +71,7 @@ class _AnsweringInstance(_ParkingInstance):
 class TestExecuteShapeDeferral(FrappeTestCase):
 	def test_parked_dispatch_raises_tool_deferred(self):
 		with self.assertRaises(ToolDeferred) as caught:
-			execute_shape(_ParkingInstance(), "delegate", {"serviceType": "connector"}, {"instruction": "x"})
+			execute_shape(_ParkingInstance(), "delegate", _WIRED, {"instruction": "x"})
 		self.assertEqual(caught.exception.marker.get("a2a_task"), "A2A-TEST-1")
 
 	def test_the_marker_is_never_returned_as_an_answer(self):
@@ -66,7 +79,7 @@ class TestExecuteShapeDeferral(FrappeTestCase):
 		_bpmn_a2a_waiting as if it were a result."""
 		try:
 			result = execute_shape(
-				_ParkingInstance(), "delegate", {"serviceType": "connector"}, {"instruction": "x"}
+				_ParkingInstance(), "delegate", _WIRED, {"instruction": "x"}
 			)
 		except ToolDeferred:
 			return  # correct — nothing was returned at all
@@ -75,7 +88,7 @@ class TestExecuteShapeDeferral(FrappeTestCase):
 
 	def test_an_immediate_answer_still_returns_normally(self):
 		result = execute_shape(
-			_AnsweringInstance(), "delegate", {"serviceType": "connector"}, {"instruction": "x"}
+			_AnsweringInstance(), "delegate", _WIRED, {"instruction": "x"}
 		)
 		self.assertEqual(json.loads(result).get("answer"), "Critical")
 

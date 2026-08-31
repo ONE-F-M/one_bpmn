@@ -5,6 +5,11 @@ Before this, every prompt token was billed at the input rate — including token
 served from the prompt cache, which bill at a fraction of it. These tests pin the
 three-way input split (uncached / cache read / cache write) and the derived-rate
 fallback.
+
+WI-002134 moved the rate card onto the AI Model catalog, per MILLION tokens, and
+dropped the configurable cache rates — nothing ever set them, so they are always
+derived now. The fixture below therefore writes per-1M rates onto a model, while
+every assertion stays in per-1k, which is what compute_token_cost() works in.
 """
 
 import frappe
@@ -20,31 +25,27 @@ from one_bpmn.agents.pricing import (
 
 class TestCacheAwarePricing(FrappeTestCase):
 
-	def _make_pricing(self, *, input_rate=0.01, output_rate=0.03,
-	                  cache_read=None, cache_write=None):
+	def _make_pricing(self, *, input_rate=0.01, output_rate=0.03):
+		"""A priced model. Rates are given per 1k, as every assertion here reads
+		them, and stored per 1M, as the catalog holds them."""
 		model = f"priced-{frappe.generate_hash(length=8)}"
 		provider = f"test-provider-{frappe.generate_hash(length=8)}"
 		frappe.get_doc({
-			"doctype": "AI Provider Credentials",
-			"provider_name": provider,
+			"doctype": "AI Provider",
+			"provider": provider,
 			"provider_type": "Anthropic",
 			"api_key": "test-key-not-used",
 			"enabled": 1,
 		}).insert(ignore_permissions=True)
-		row = {
-			"doctype": "AI Model Pricing",
+		frappe.get_doc({
+			"doctype": "AI Model",
 			"model_name": model,
 			"provider": provider,
-			"input_cost_per_1k": input_rate,
-			"output_cost_per_1k": output_rate,
-			"effective_from": "2025-01-01",
-			"is_active": 1,
-		}
-		if cache_read is not None:
-			row["cache_read_cost_per_1k"] = cache_read
-		if cache_write is not None:
-			row["cache_write_cost_per_1k"] = cache_write
-		frappe.get_doc(row).insert(ignore_permissions=True)
+			"enable_model": 1,
+			"model_api_name": model,
+			"input_cost": input_rate * 1000,
+			"output_cost": output_rate * 1000,
+		}).insert(ignore_permissions=True)
 		return model
 
 	# ── derived rates ────────────────────────────────────────────────────
@@ -60,19 +61,23 @@ class TestCacheAwarePricing(FrappeTestCase):
 		self.assertAlmostEqual(pricing["cache_read_cost_per_1k"], 0.01 * CACHE_READ_MULTIPLIER, places=9)
 		self.assertAlmostEqual(pricing["cache_write_cost_per_1k"], 0.01 * CACHE_WRITE_MULTIPLIER, places=9)
 
-	def test_explicit_cache_rates_win_over_derived(self):
-		model = self._make_pricing(input_rate=0.01, cache_read=0.005, cache_write=0.02)
+	def test_cache_rates_are_always_derived_now(self):
+		"""They used to be configurable and never were configured. Deriving them
+		from the input rate is the only behaviour, so a model cannot express a
+		non-standard cache rate — acceptable because the providers that charge
+		nothing for cache writes report no cache-write tokens at all."""
+		model = self._make_pricing(input_rate=0.02)
 		pricing = get_model_pricing(model)
-		self.assertAlmostEqual(pricing["cache_read_cost_per_1k"], 0.005, places=9)
-		self.assertAlmostEqual(pricing["cache_write_cost_per_1k"], 0.02, places=9)
+		self.assertAlmostEqual(pricing["cache_read_cost_per_1k"], 0.02 * CACHE_READ_MULTIPLIER, places=9)
+		self.assertAlmostEqual(pricing["cache_write_cost_per_1k"], 0.02 * CACHE_WRITE_MULTIPLIER, places=9)
 
 	# ── the split ────────────────────────────────────────────────────────
 
 	def test_cost_splits_prompt_across_three_rates(self):
 		"""prompt_tokens is INCLUSIVE of the cache figures; each part bills at
 		its own rate."""
-		model = self._make_pricing(input_rate=0.01, output_rate=0.03,
-		                           cache_read=0.001, cache_write=0.0125)
+		# 0.001 and 0.0125 are the derived rates for a 0.01 input rate.
+		model = self._make_pricing(input_rate=0.01, output_rate=0.03)
 		costs = compute_token_cost(
 			model,
 			prompt_tokens=10_000,      # of which:
@@ -111,7 +116,7 @@ class TestCacheAwarePricing(FrappeTestCase):
 	def test_cache_exceeding_prompt_never_yields_a_credit(self):
 		"""A provider reporting cache counts NOT included in its prompt total
 		must not drive the uncached figure negative."""
-		model = self._make_pricing(input_rate=0.01, cache_read=0.001)
+		model = self._make_pricing(input_rate=0.01)
 		costs = compute_token_cost(
 			model, prompt_tokens=100, cache_read_tokens=5_000, completion_tokens=0
 		)
@@ -134,3 +139,37 @@ class TestCacheAwarePricing(FrappeTestCase):
 		# 1k uncached at 0.01 + 1k cache-read at the derived 0.001
 		self.assertAlmostEqual(costs["input_cost"], 0.01, places=9)
 		self.assertAlmostEqual(costs["cache_read_cost"], 0.001, places=9)
+
+	# ── the unit boundary (WI-002134) ────────────────────────────────────
+
+	def test_rates_stored_per_million_are_read_as_per_thousand(self):
+		"""The catalog holds per-1M because providers publish per-1M; this module
+		and its callers reason in per-1k. A factor-of-1000 slip here would
+		misreport every cost on the site by 1000x, in silence."""
+		model = self._make_pricing(input_rate=0.002, output_rate=0.01)
+		stored = frappe.db.get_value("AI Model", model, ["input_cost", "output_cost"], as_dict=True)
+		self.assertAlmostEqual(stored.input_cost, 2.0, places=9)
+		self.assertAlmostEqual(stored.output_cost, 10.0, places=9)
+
+		pricing = get_model_pricing(model)
+		self.assertAlmostEqual(pricing["input_cost_per_1k"], 0.002, places=9)
+		self.assertAlmostEqual(pricing["output_cost_per_1k"], 0.01, places=9)
+
+	def test_a_model_with_no_rate_is_unknown_not_free(self):
+		"""An unpriced model has to report unknown, the way a missing rate-card
+		row used to. Currency columns read back as 0, so a row of zeros is
+		indistinguishable from free — and calling it free understates spend."""
+		model = f"unpriced-{frappe.generate_hash(length=8)}"
+		frappe.get_doc({
+			"doctype": "AI Model", "model_name": model, "enable_model": 0,
+		}).insert(ignore_permissions=True)
+		self.assertIsNone(get_model_pricing(model))
+
+	def test_the_providers_own_name_for_a_model_also_resolves(self):
+		"""Runs report whatever name was sent to the API, which may be the
+		model_api_name rather than the catalog name."""
+		model = self._make_pricing(input_rate=0.01)
+		frappe.db.set_value("AI Model", model, "model_api_name", f"{model}-api")
+		pricing = get_model_pricing(f"{model}-api")
+		self.assertIsNotNone(pricing)
+		self.assertAlmostEqual(pricing["input_cost_per_1k"], 0.01, places=9)

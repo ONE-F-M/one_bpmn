@@ -164,18 +164,39 @@ class TestDerivedFields(LocalDelegationCase):
 		row = frappe.get_doc("A2A Task", result["a2a_task"])
 		self.assertEqual(row.delegation_depth, 1)
 
-	def test_deadline_comes_from_the_agent_doing_the_work(self):
-		self.worker.delegation_deadline_minutes = 30
-		self.worker.save(ignore_permissions=True)
+	def test_deadline_comes_from_the_delegating_agent(self):
+		"""The orchestrator's limit, not the worker's.
+
+		It used to be the worker's, on the reasoning that the agent doing the
+		work knows how long it needs — which made it the one guardrail the
+		party being guarded got to set. It sits beside depth, hand-offs and
+		retries on the delegating agent now, and is enforced the same way.
+		"""
+		self.orchestrator.delegation_deadline_minutes = 30
+		self.orchestrator.save(ignore_permissions=True)
 		with stub_turn():
 			result = a2a_client_ops.delegate_to_local_agent(self.params(), self.ctx())
 		row = frappe.get_doc("A2A Task", result["a2a_task"])
 		minutes = (get_datetime(row.deadline) - now_datetime()).total_seconds() / 60
 		self.assertAlmostEqual(minutes, 30, delta=2)
 
-	def test_a_step_may_override_the_agents_deadline(self):
-		self.worker.delegation_deadline_minutes = 30
+	def test_the_workers_deadline_is_ignored(self):
+		"""The regression: a worker must not be able to grant itself more time
+		than the orchestrator allowed. 1 on the orchestrator, 60 on the worker,
+		and the run used to take 60."""
+		self.orchestrator.delegation_deadline_minutes = 1
+		self.orchestrator.save(ignore_permissions=True)
+		self.worker.delegation_deadline_minutes = 60
 		self.worker.save(ignore_permissions=True)
+		with stub_turn():
+			result = a2a_client_ops.delegate_to_local_agent(self.params(), self.ctx())
+		row = frappe.get_doc("A2A Task", result["a2a_task"])
+		minutes = (get_datetime(row.deadline) - now_datetime()).total_seconds() / 60
+		self.assertAlmostEqual(minutes, 1, delta=2)
+
+	def test_a_step_may_override_the_agents_deadline(self):
+		self.orchestrator.delegation_deadline_minutes = 30
+		self.orchestrator.save(ignore_permissions=True)
 		with stub_turn():
 			result = a2a_client_ops.delegate_to_local_agent(
 				self.params(timeout_minutes="5"), self.ctx()
@@ -193,11 +214,30 @@ class TestDerivedFields(LocalDelegationCase):
 
 
 class TestLocalDelegationGuards(LocalDelegationCase):
+	"""Every refusal still refuses — it just no longer escapes as an exception.
+
+	delegate_to_local_agent used to let DelegationRefused propagate, and
+	dispatch_connector swallowed it and handed the model None. A null tool
+	result is indistinguishable from a worker that ran and produced nothing, so
+	the agent reported "the specialist came back empty" and offered to retry
+	work that a configuration error would refuse identically every time. The
+	refusal is now RETURNED, carrying its reason code and a sentence the model
+	can act on. These tests assert that contract; the guard itself is unchanged,
+	which is why each one still pins its reason_code.
+	"""
+
+	def refusal(self, **params):
+		"""Delegate, expecting a refusal, and hand back the payload."""
+		result = a2a_client_ops.delegate_to_local_agent(self.params(**params), self.ctx())
+		self.assertIsInstance(result, dict, "a refusal must come back as a result, not None")
+		self.assertEqual(result.get("state"), "refused")
+		# The whole point of returning it: the model is told why, in words.
+		self.assertTrue((result.get("text") or "").strip(), "a refusal must carry a reason")
+		return result
+
 	def test_unexposed_agent_cannot_receive_work(self):
 		unexposed = make_agent_configuration()
-		with self.assertRaises(guardrails.DelegationRefused) as caught:
-			a2a_client_ops.delegate_to_local_agent(self.params(agent=unexposed.name), self.ctx())
-		self.assertEqual(caught.exception.reason_code, "target_not_exposed")
+		self.assertEqual(self.refusal(agent=unexposed.name)["reason"], "target_not_exposed")
 
 	def test_agent_off_the_list_is_refused_when_restricted(self):
 		stranger = make_agent_configuration(a2a_exposed=1)
@@ -205,9 +245,7 @@ class TestLocalDelegationGuards(LocalDelegationCase):
 		self.orchestrator.append("allowed_delegates", {"agent_configuration": self.worker.name})
 		self.orchestrator.save(ignore_permissions=True)
 
-		with self.assertRaises(guardrails.DelegationRefused) as caught:
-			a2a_client_ops.delegate_to_local_agent(self.params(agent=stranger.name), self.ctx())
-		self.assertEqual(caught.exception.reason_code, "target_not_allowed")
+		self.assertEqual(self.refusal(agent=stranger.name)["reason"], "target_not_allowed")
 		self.assertFalse(
 			frappe.db.exists("A2A Task", {"agent_configuration": stranger.name}),
 			"a refused delegation leaves no task row",
@@ -218,22 +256,18 @@ class TestLocalDelegationGuards(LocalDelegationCase):
 		self.orchestrator.save(ignore_permissions=True)
 		with stub_turn():
 			first = a2a_client_ops.delegate_to_local_agent(self.params(), self.ctx())
-		with self.assertRaises(guardrails.DelegationRefused) as caught:
-			a2a_client_ops.delegate_to_local_agent(
-				self.params(parent_task=first["a2a_task"]), self.ctx()
-			)
-		self.assertEqual(caught.exception.reason_code, "max_recursion_depth")
+		self.assertEqual(
+			self.refusal(parent_task=first["a2a_task"])["reason"], "max_recursion_depth"
+		)
 
 	def test_a_draft_agent_cannot_receive_work(self):
 		draft = make_agent_configuration(lifecycle_status="Draft", a2a_exposed=1)
-		with self.assertRaises(guardrails.DelegationRefused) as caught:
-			a2a_client_ops.delegate_to_local_agent(self.params(agent=draft.name), self.ctx())
-		self.assertEqual(caught.exception.reason_code, "target_not_live")
+		# resolve_target refuses a non-Live agent before check_allowed is reached,
+		# so this is target_not_live rather than the exposure reason.
+		self.assertEqual(self.refusal(agent=draft.name)["reason"], "target_not_live")
 
 	def test_unknown_agent_is_refused(self):
-		with self.assertRaises(guardrails.DelegationRefused) as caught:
-			a2a_client_ops.delegate_to_local_agent(self.params(agent="no_such_agent"), self.ctx())
-		self.assertEqual(caught.exception.reason_code, "unknown_agent")
+		self.assertEqual(self.refusal(agent="no_such_agent")["reason"], "unknown_agent")
 
 	def test_dropdown_lists_live_agents_without_needing_exposure(self):
 		choices = local.local_agent_choices()

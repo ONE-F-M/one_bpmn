@@ -37,6 +37,21 @@ def get_permissions() -> dict:
 
 
 @frappe.whitelist()
+def reconciler_status() -> dict:
+	"""Whether the thing that wakes parked agent work is actually running.
+
+	Read by the A2A screen so a starved or stopped reconciler is a fact on the
+	page, not something inferred from delegations that look stuck. Those two have
+	the same symptom and different fixes, and until now telling them apart meant
+	guessing.
+	"""
+	_require_admin()
+	from one_bpmn.agents.a2a.reconciler_health import reconciler_health
+
+	return reconciler_health()
+
+
+@frappe.whitelist()
 def list_remote_agents() -> list[dict]:
 	_require_admin()
 	return frappe.get_all(
@@ -92,6 +107,7 @@ def list_clients() -> list[dict]:
 def list_tasks(
 	direction: str = None,
 	state: str = None,
+	agent_configuration: str = None,
 	start: int = 0,
 	page_length: int = 50,
 ) -> dict:
@@ -108,6 +124,11 @@ def list_tasks(
 		filters["direction"] = direction
 	if state:
 		filters["state"] = state
+	# Which agent is doing the work. On a busy site the monitor is mostly one
+	# agent's traffic at a time — "what has the Connector Agent been asked to
+	# do" — and scrolling the whole list to answer that is not a filter.
+	if agent_configuration:
+		filters["agent_configuration"] = agent_configuration
 
 	page_length = min(int(page_length or 50), MAX_PAGE_LENGTH)
 	rows = frappe.get_all(
@@ -141,7 +162,10 @@ def list_tasks(
 			"creation",
 			"completed_at",
 		],
-		order_by="creation desc",
+		# Last updated, not created. A task's row changes as it moves — working,
+		# input-required, timed-out — and a monitor is asked "what is happening
+		# now", which is a different question from "what started most recently".
+		order_by="modified desc",
 		start=int(start or 0),
 		limit=page_length,
 	)
@@ -150,6 +174,195 @@ def list_tasks(
 		"total": frappe.db.count("A2A Task", filters),
 		"start": int(start or 0),
 		"page_length": page_length,
+	}
+
+
+# ── Agent Delegation: the same hand-off, seen from the work it was for ──────
+#
+# The task monitor answers "what is in flight between agents". A delegation
+# answers "who is working on this Work Item, how far along, and did anything
+# stop it" — the same hop with the business document attached and the limit
+# that ended it recorded. Both belong on this screen; neither replaces the
+# other, which is why this is a list of its own rather than more columns on
+# the task table.
+
+DELEGATION_FIELDS = [
+	"name",
+	"delegating_agent",
+	"worker_agent",
+	"status",
+	"stopped_reason",
+	"a2a_task",
+	"reference_doctype",
+	"reference_name",
+	"orchestrator_instance",
+	"worker_instance",
+	"delegation_depth",
+	"handoff_count",
+	"attempt_count",
+	"limit_value",
+	"reached_value",
+	"started_at",
+	"ended_at",
+	"notified_user",
+	"notified_at",
+	"cancelled_by",
+	"cancelled_at",
+	"instruction",
+	"error_message",
+	"creation",
+	"modified",
+]
+
+
+@frappe.whitelist()
+def list_delegations(
+	a2a_task: str = None,
+	reference_doctype: str = None,
+	reference_name: str = None,
+	status: str = None,
+	start: int = 0,
+	page_length: int = 50,
+) -> dict:
+	"""Delegations, newest activity first.
+
+	Filtered the way the question is actually asked: by the task it belongs to,
+	by what the work was about (doctype and document), and by where it got to.
+	The two name filters match on a fragment — nobody types AD-01234 from
+	memory, and "WI-0028" is how you find the run you were just looking at.
+	"""
+	_require_admin()
+	filters: dict = {}
+	if a2a_task:
+		filters["a2a_task"] = ["like", f"%{a2a_task}%"]
+	if reference_doctype:
+		filters["reference_doctype"] = reference_doctype
+	if reference_name:
+		filters["reference_name"] = ["like", f"%{reference_name}%"]
+	if status:
+		filters["status"] = status
+
+	page_length = min(int(page_length or 50), MAX_PAGE_LENGTH)
+	rows = frappe.get_all(
+		"Agent Delegation",
+		filters=filters,
+		fields=DELEGATION_FIELDS,
+		# Last updated: a delegation's row moves through Delegated, In Progress
+		# and then Needs Review or Completed, so ordering by creation buries the
+		# one that just changed under a dozen that started after it.
+		order_by="modified desc",
+		start=int(start or 0),
+		limit=page_length,
+	)
+	return {
+		"delegations": rows,
+		"total": frappe.db.count("Agent Delegation", filters),
+		"start": int(start or 0),
+		"page_length": page_length,
+	}
+
+
+@frappe.whitelist()
+def delegation_detail(name: str) -> dict:
+	"""One delegation, with the two things the list cannot show.
+
+	``task`` — the A2A row's own state and answer, because "Completed" on the
+	delegation and what the worker actually said are different facts, and the
+	turn-cap case is exactly where they diverge.
+
+	``reference_title`` — what the document is called, so the modal names the
+	work rather than only its id.
+	"""
+	_require_admin()
+	row = frappe.db.get_value("Agent Delegation", name, DELEGATION_FIELDS, as_dict=True)
+	if not row:
+		frappe.throw(_("Delegation {0} not found.").format(name), frappe.DoesNotExistError)
+
+	task = None
+	if row.get("a2a_task"):
+		task = frappe.db.get_value(
+			"A2A Task",
+			row["a2a_task"],
+			["name", "state", "direction", "status_message", "error_message", "deadline", "completed_at"],
+			as_dict=True,
+		)
+
+	reference_title = None
+	if row.get("reference_doctype") and row.get("reference_name"):
+		try:
+			meta = frappe.get_meta(row["reference_doctype"])
+			field = meta.get_title_field()
+			if field and field != "name":
+				reference_title = frappe.db.get_value(
+					row["reference_doctype"], row["reference_name"], field
+				)
+		except Exception:
+			# A reference to a doctype that no longer exists must not take the
+			# modal down with it — the delegation is still worth reading.
+			reference_title = None
+
+	return {"delegation": row, "task": task, "reference_title": reference_title}
+
+
+@frappe.whitelist()
+def cancel_delegation(name: str, reason: str = "") -> dict:
+	"""Stop a running delegation. A PERSON's action, never an agent's.
+
+	There is deliberately no tool shape for this and no agent-facing path: an
+	agent able to cancel its own hand-offs could cancel its way out of a limit
+	it had been given. _require_admin() is the whole access rule, and it is the
+	same rule that already governs everything else on this screen.
+
+	Returns what actually happened rather than a bare success, because "the
+	worker was stopped" and "the worker will not advance, but a pass already
+	running cannot be interrupted" are different outcomes and the person
+	cancelling needs to know which one they got.
+	"""
+	_require_admin()
+	from one_bpmn.agents.a2a import delegation
+
+	return delegation.cancel(name, reason=reason)
+
+
+@frappe.whitelist()
+def delegation_filter_options() -> dict:
+	"""What is actually worth filtering by on this site.
+
+	Built from the rows themselves rather than from the doctype's Select
+	options: a status nothing has ever reached, or a doctype nothing has ever
+	been delegated about, is a dead entry in a dropdown.
+	"""
+	_require_admin()
+
+	def distinct(fieldname: str) -> list[str]:
+		rows = frappe.get_all(
+			"Agent Delegation",
+			filters={fieldname: ["is", "set"]},
+			fields=[fieldname],
+			group_by=fieldname,
+			order_by=f"{fieldname} asc",
+			limit=MAX_PAGE_LENGTH,
+		)
+		return [r[fieldname] for r in rows if r.get(fieldname)]
+
+	return {
+		"statuses": distinct("status"),
+		"doctypes": distinct("reference_doctype"),
+		"workers": distinct("worker_agent"),
+		# The task monitor's agent filter comes from the same idea: only agents
+		# that have actually been handed work appear.
+		"task_agents": [
+			r["agent_configuration"]
+			for r in frappe.get_all(
+				"A2A Task",
+				filters={"agent_configuration": ["is", "set"]},
+				fields=["agent_configuration"],
+				group_by="agent_configuration",
+				order_by="agent_configuration asc",
+				limit=MAX_PAGE_LENGTH,
+			)
+			if r.get("agent_configuration")
+		],
 	}
 
 

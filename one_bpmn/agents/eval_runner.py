@@ -592,7 +592,7 @@ def _execute_case_inner(case, eval_run: str = None, agent_cfg: str = None) -> di
 
 
 def _cost_split(prompt_tokens: int, completion_tokens: int, model: str) -> tuple:
-    """(input_cost, output_cost) for a call, from AI Model Pricing."""
+    """(input_cost, output_cost) for a call, from the model's rate card."""
     pricing = get_model_pricing(model) or {}
     return (
         (prompt_tokens / 1000.0) * flt(pricing.get("input_cost_per_1k", 0)),
@@ -915,7 +915,7 @@ def _run_direct_eval(cfg, case) -> tuple:
     """Direct (simple) eval: a plain LLM call with the agent's provider/model/
     system prompt. Records a standalone eval-origin AI Agent Run so the call
     shows in Insights alongside process (agent) evals."""
-    provider = cfg.ai_provider_credentials or ""
+    provider = cfg.ai_provider or ""
     # WI-001655: the MODEL is the agent's own catalog pick and the credentials
     # record carries the connection only — default_model was removed from that
     # doctype. Reading it here did one of two wrong things depending on whether
@@ -928,7 +928,7 @@ def _run_direct_eval(cfg, case) -> tuple:
     # Last-resort fallback mirrors DirectApiExecutor: any catalog model linked
     # to these credentials, for a legacy agent with no ai_model set.
     model = cfg.get("ai_model") or frappe.db.get_value(
-        "AI Model", {"ai_provider_credentials": provider}, "name"
+        "AI Model", {"provider": provider, "enable_model": 1}, "name"
     ) or ""
 
     started = now_datetime()
@@ -947,11 +947,11 @@ def _run_direct_eval(cfg, case) -> tuple:
     completion_tokens = _completion_tokens_of(result)
     pricing = get_model_pricing(model)
     if not pricing:
-        # Tokens are still counted; without an AI Model Pricing row the cost
+        # Tokens are still counted; without a rate on the model the cost
         # would silently read $0.00, so leave a trace explaining why.
         frappe.log_error(
             title="AI Eval: no pricing for direct-eval model",
-            message=f"No active AI Model Pricing for model '{model}' "
+            message=f"No rate card on AI Model '{model}' "
             f"(provider {provider}); cost recorded as 0 for case {case.name}.",
         )
         pricing = {}

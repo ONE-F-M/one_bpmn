@@ -200,14 +200,14 @@ class AIAgentConfiguration(Document):
 
 	def derive_provider_from_model(self):
 		"""WI-001655: the model is the pick, the provider is derived. When an
-		AI Model is linked, ai_provider_credentials follows its credentials
-		link — one choice, no model/provider mismatch possible. An agent with
-		no model keeps whatever credentials it has (legacy records)."""
+		AI Model is linked, ai_provider follows the model's own provider — one
+		choice, no model/provider mismatch possible. An agent with no model
+		keeps whatever provider it has (legacy records)."""
 		if not self.ai_model:
 			return
-		creds = frappe.db.get_value("AI Model", self.ai_model, "ai_provider_credentials")
-		if creds:
-			self.ai_provider_credentials = creds
+		provider = frappe.db.get_value("AI Model", self.ai_model, "provider")
+		if provider:
+			self.ai_provider = provider
 
 	def validate_unique_chat_mode_label(self):
 		"""Two enabled chat agents must never claim the same conversation mode —
@@ -303,6 +303,13 @@ class AIAgentConfiguration(Document):
 				pass
 		self.revalidate_credentials_on_save()
 
+		# The agent's identity is NOT provisioned here. It is a step in the Agent
+		# creation process ("Provision Agent User"), because minting a User as a
+		# side effect of saving a configuration hides a real action inside a
+		# database write — and the process is where this system keeps behaviour.
+		# The map runs it on the edited-config loop as well as the first pass, so
+		# a change to the roles still reaches the agent's user.
+
 	def revalidate_credentials_on_save(self):
 		"""Re-prove the agent on EVERY save — assume nothing (user ruling,
 		2026-07-21): credentials that validated at creation may since have
@@ -397,7 +404,7 @@ def get_agent_config(agent_id: str) -> dict | None:
 	Load agent configuration from AI Agent Configuration DocType.
 
 	Returns a dict with: system_prompt, temperature, max_tokens,
-	ai_provider_credentials, langsmith_project, sub_prompts,
+	ai_provider, langsmith_project, sub_prompts,
 	constants, and — for the frozen static context layer (WI-001639) —
 	examples and guardrails. There is no per-agent override mechanism (WI-001615):
 	provider, key and model come from the linked AI Provider
@@ -419,7 +426,7 @@ def get_agent_config(agent_id: str) -> dict | None:
 		{"agent_id": agent_id, "enabled": 1},
 		[
 			"name", "agent_id", "system_prompt", "temperature", "max_tokens",
-			"ai_model", "ai_provider_credentials", "langsmith_project",
+			"ai_model", "ai_provider", "langsmith_project",
 			"agent_framework", "process_model", "chat_mode_label",
 			"lifecycle_status", "agent_type", "pii_screening",
 		],
@@ -490,7 +497,7 @@ def get_agent_config(agent_id: str) -> dict | None:
 		"system_prompt": config.system_prompt,
 		"temperature": config.temperature,
 		"max_tokens": config.max_tokens,
-		"ai_provider_credentials": config.ai_provider_credentials,
+		"ai_provider": config.ai_provider,
 		"langsmith_project": config.langsmith_project,
 		"agent_framework": config.agent_framework,
 		"process_model": config.process_model,
@@ -517,3 +524,26 @@ def _cast_constant(value: str, const_type: str):
 	elif const_type == "Boolean":
 		return value.lower() in ("1", "true", "yes")
 	return value
+
+
+def _load_json_constant(config: dict, key: str, default: list) -> list:
+	"""Read a JSON-array constant off a resolved agent config, or *default*.
+
+	Constants are stored as strings, so a list-valued one (keyword sets, tool
+	exclusions, trigger phrases) has to be parsed. Every failure mode — no
+	config, no such constant, unparseable JSON, or JSON that is not a list —
+	returns *default*, because a configuration typo must degrade the agent's
+	behaviour to its built-in defaults rather than break the turn.
+	"""
+	import json
+
+	if not config:
+		return default
+	val = (config.get("constants") or {}).get(key)
+	if not val:
+		return default
+	try:
+		parsed = json.loads(val) if isinstance(val, str) else val
+	except (json.JSONDecodeError, TypeError, ValueError):
+		return default
+	return parsed if isinstance(parsed, list) else default

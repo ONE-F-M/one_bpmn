@@ -188,12 +188,17 @@ def choices_source_for_field(connector_id, operation, field_name):
     )
 
 
-def get_execution_spec(connector_id, operation):
+def get_execution_spec(connector_id, operation, allow_disabled=False):
     """Everything the dispatcher needs to *run* an operation, or None.
 
     Deliberately not part of the manifest: the manifest is public (it is served
     to the browser), whereas this carries the request template and the location
     of the credential. Read straight from the DocTypes, uncached.
+
+    ``allow_disabled`` is for authoring only (connectors/authoring.try_operation):
+    a connector the Connector Agent has just written is deliberately disabled, and
+    testing it *before* a person enables it is the entire point of that gate. It
+    defaults to False so dispatch keeps refusing a disabled connector.
     """
     try:
         if not frappe.db or not frappe.db.table_exists("BPMN Connector Operation"):
@@ -211,7 +216,7 @@ def get_execution_spec(connector_id, operation):
 
     op = frappe.get_cached_doc("BPMN Connector Operation", name)
     conn = frappe.get_cached_doc("BPMN Connector", connector_id)
-    if not conn.enabled:
+    if not conn.enabled and not allow_disabled:
         return None
 
     return frappe._dict(

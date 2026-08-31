@@ -9,7 +9,7 @@ does not collect it as a test module.
 
 The factories create AI Eval Suite / Case / Run documents with
 ``ignore_mandatory`` and ``ignore_links`` set so tests do not need real
-AI Provider Credentials or BPMN Process Model fixtures. ``patch_executor`` swaps the
+AI Provider or BPMN Process Model fixtures. ``patch_executor`` swaps the
 runner's executor lookup for a fake so no real LLM calls are made.
 """
 from __future__ import annotations

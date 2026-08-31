@@ -307,11 +307,44 @@ def import_bpmn(
 		doc.insert()
 		action = "created"
 
+	# Recompile, because an import brings a DIAGRAM and the engine runs a
+	# COMPILED SPEC — and the two are not the same age.
+	#
+	# What this cost, live: an Orchestrator Agent map was exported from one site
+	# and imported into two others. The XML was perfect. The spec that travelled
+	# with it had been built by an older compiler that did not copy connectorId,
+	# operation and resultVariable onto the agent's TOOL descriptors, so the
+	# delegate tool no longer knew which connector to call. The dispatcher
+	# resolved nothing, returned nothing, and the tool answered "ok" — so the
+	# orchestrator reported a connector built by a specialist that was never
+	# asked. Forty-five seconds end to end, and a confident report about work
+	# that had not happened.
+	#
+	# Compiling here means the spec always matches the code that will execute
+	# it. Warnings ride back with the result rather than being swallowed: the
+	# same export had also dropped the task's user prompt, and deploy is the
+	# last place that can say so before a person is misled by the answer.
+	compile_result = {}
+	try:
+		from one_bpmn.api.compilation import compile_process_model
+
+		compile_result = compile_process_model(doc.name) or {}
+	except Exception:
+		# Never fatal. A map that cannot compile has still been imported, and the
+		# person can open and deploy it — losing the import over it would be a
+		# worse outcome than an uncompiled spec they can see and fix.
+		frappe.log_error(
+			title=f"BPMN import: could not compile {doc.name}",
+			message=frappe.get_traceback(),
+		)
+
 	return {
 		"name": doc.name,
 		"model_name": doc.title,
 		"process_id": doc.process_id,
 		"action": action,
+		"compiled": bool(compile_result.get("success")),
+		"warnings": compile_result.get("warnings") or [],
 	}
 
 

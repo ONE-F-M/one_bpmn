@@ -253,7 +253,7 @@
 			"example": {"title": "Leave policy Q&A"}
 		},
 		"onefm.mode_transition": {
-			"producers": ["lumina modes (user_planning_agent)"],
+			"producers": ["lumina modes (BA Agent)"],
 			"rendered_as": "Panel chrome: the mode chip",
 			"notes": "Adopts the existing MODE_TRANSITION CustomEvent, which was emitted with no UI consumer; renamed at the Lumina migration (WI-001678). This gives it a consumer for the first time.",
 			"schema": {

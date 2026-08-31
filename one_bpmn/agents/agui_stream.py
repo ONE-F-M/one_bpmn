@@ -285,7 +285,7 @@ def _relay_child_stream(child, encoder, message_id):
 					continue
 				# The legacy producers put their payload FLAT on the event —
 				# lumina.py yields intent/matches/topology/… as siblings of
-				# "type", and user_planning_agent yields new_mode the same way
+				# "type", and the BA Agent's bridge yields new_mode the same way
 				# — while an AG-UI CustomEvent carries it under `value`, which
 				# is all the panel reads. Renaming alone therefore delivered
 				# an EMPTY event to every consumer (WI-001678): fold the

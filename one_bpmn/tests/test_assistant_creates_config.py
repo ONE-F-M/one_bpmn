@@ -25,7 +25,7 @@ class TestAssistantCreatesConfig(FrappeTestCase):
 		self.assertIn("chat_mode_label", block)
 		self.assertIn("Validation rules", block)
 		# WI-001655: the catalog models (with their credentials) are named.
-		for m in frappe.get_all("AI Model", filters={"ai_provider_credentials": ("is", "set")}, pluck="name", limit=3):
+		for m in frappe.get_all("AI Model", filters={"provider": ("is", "set")}, pluck="name", limit=3):
 			self.assertIn(m, block)
 
 	def test_sanitize_keeps_only_contract_fields(self):

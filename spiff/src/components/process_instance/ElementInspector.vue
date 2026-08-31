@@ -247,7 +247,7 @@
 						</tr>
 						<tr>
 							<td class="py-1.5 pr-3 text-gray-500 font-medium whitespace-nowrap align-top">BPMN ID</td>
-							<td class="py-1.5 text-gray-600 font-mono text-[11px]">{{ selectedNode.bpmnId }}</td>
+							<td class="py-1.5 text-gray-600 font-mono text-[11px]">{{ selectedNode.bpmnId || selectedNode.toolBpmnId || "—" }}</td>
 						</tr>
 						<tr>
 							<td class="py-1.5 pr-3 text-gray-500 font-medium whitespace-nowrap align-top">State</td>
@@ -443,7 +443,9 @@ function formatDateTime(d) {
 // keyed by instance + bpmn_id either way.
 const isAiAgent = computed(() => {
 	const serviceType = props.selectedNode?.extensions?.serviceType
-	return serviceType === "ai_agent" || serviceType === "ai_task_selector"
+	if (serviceType === "ai_agent" || serviceType === "ai_task_selector") return true
+	// A Script Task that dispatches its own tracked LLM call has a real aiRunName too.
+	return Boolean(props.selectedNode?.isAiToolCall && props.selectedNode?.aiRunName)
 })
 
 // Friendly type label — AI Agent Tasks serialize as a bare "ServiceTask",
@@ -452,6 +454,9 @@ const displayType = computed(() => {
 	const serviceType = props.selectedNode?.extensions?.serviceType
 	if (serviceType === "ai_task_selector") return "AI Task Selector"
 	if (serviceType === "ai_agent") return "AI Agent Task"
+	if (props.selectedNode?.isAiToolCall) {
+		return props.selectedNode?.aiRunName ? "AI Tool Call (tracked)" : "AI Tool Call"
+	}
 	return props.selectedNode?.typename || "—"
 })
 

@@ -988,6 +988,16 @@ def get_active_bpmn_tasks(doctype: str, docname: str) -> list:
 				if row.status != "Waiting":
 					continue
 
+				# A question an agent asked is not a workflow action. It appeared in
+				# the Actions menu on the document as a bare shape id, and choosing
+				# it completed the task with no answer in it — so the agent resumed
+				# having been told nothing, and asked again. It has its own place on
+				# the document, with the question, the readings it is choosing
+				# between, and a box to reply in; two doors to the same task where
+				# one of them loses the answer is worse than one.
+				if (row.task_type or "") == "AI Human Task":
+					continue
+
 				# Resolve actions — handles both manual and frappe_workflow modes
 				actions_str = instance._resolve_task_actions(row)
 				actions_detail = instance._resolve_task_actions_detail(row)

@@ -76,10 +76,31 @@ RATE_LIMIT_FIELDS = (
 # about what it does.
 FEEDBACK_FIELDS = ("collect_feedback",)
 
+# WI-002053: what this agent may hand to another agent, and how far a chain may
+# run before it is stopped. Agent-owned like the screens above and for the same
+# reason — how deep delegation may nest is a property of the agent, not of the
+# task that happens to call it — so it belongs on this endpoint rather than on
+# the diagram. Editing it in Processa also means the limits and the map are
+# changed in one place, which matters now that the limits are actually enforced:
+# before the identity fix they were quietly ignored on the Call Activity path,
+# so nobody had reason to look at them.
+DELEGATION_FIELDS = (
+	"a2a_exposed",
+	"restrict_delegates",
+	"max_recursion_depth",
+	"max_task_handoffs",
+	"delegation_deadline_minutes",
+	"max_delegation_retries",
+)
+
+CLARIFICATION_FIELDS = ("max_clarification_rounds",)
+
 AGENT_CONTROL_GROUPS = (
 	("Screening", SCREENING_FIELDS),
 	("Rate limiting & freeze", RATE_LIMIT_FIELDS),
 	("Feedback", FEEDBACK_FIELDS),
+	("Delegation", DELEGATION_FIELDS),
+	("Clarification", CLARIFICATION_FIELDS),
 )
 
 EVENT_FIELDS = (
