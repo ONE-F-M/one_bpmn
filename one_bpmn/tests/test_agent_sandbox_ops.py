@@ -142,6 +142,110 @@ class TestDispatchValidation(AgentSandboxCase):
 		self.assertEqual(row.state, "failed")
 
 
+class TestResolveAgentConfig(FrappeTestCase):
+	"""_resolve_agent_config is mocked everywhere else in this file — these
+	tests exercise the real implementation against real AI Model / AI Agent
+	Configuration records instead. That gap is exactly what let a real bug
+	ship undetected: the function used to read `provider.enabled` and
+	`provider.get_password("api_key", ...)` off AI Provider, but AI Provider
+	only ever holds a name (it's just the dialect tag) — the enable flag and
+	credential actually live on AI Model. No test ever called the real
+	function, so the AttributeError it raised on every dispatch went
+	uncaught until a real end-to-end run hit it."""
+
+	def setUp(self):
+		super().setUp()
+		self._agent_configs = []
+		self._models = []
+
+	def tearDown(self):
+		for name in self._agent_configs:
+			frappe.delete_doc(
+				"AI Agent Configuration", name, force=True, ignore_permissions=True, ignore_missing=True
+			)
+		for name in self._models:
+			frappe.delete_doc("AI Model", name, force=True, ignore_permissions=True, ignore_missing=True)
+		super().tearDown()
+
+	def _make_model(self, name, *, enable_model=1, api_key="sk-test-key", model_api_name=""):
+		doc = frappe.get_doc({
+			"doctype": "AI Model",
+			"model_name": name,
+			"enable_model": enable_model,
+			"api_key": api_key,
+			"model_api_name": model_api_name,
+		}).insert(ignore_permissions=True)
+		self._models.append(doc.name)
+		return doc
+
+	def _make_agent_config(self, name, *, ai_model, system_prompt="You are a test agent."):
+		# Inserting an AI Agent Configuration fires "AI Agent Creation Process",
+		# an active map whose prompt-writing AI step OVERWRITES system_prompt with
+		# a real LLM call. on_doc_event skips on in_migrate but not on in_test, so
+		# without this the fixture's prompt comes back as model output, the
+		# assertion fails, and every run of this suite costs money and half a
+		# minute. Suppressed the same way patches and imports already are.
+		frappe.flags.in_migrate = True
+		try:
+			doc = frappe.get_doc({
+				"doctype": "AI Agent Configuration",
+				"agent_name": name,
+				"agent_id": name.lower().replace(" ", "-"),
+				"agent_framework": "Direct API",
+				"ai_model": ai_model,
+				"system_prompt": system_prompt,
+			}).insert(ignore_permissions=True)
+		finally:
+			frappe.flags.in_migrate = False
+		self._agent_configs.append(doc.name)
+		return doc
+
+	def test_resolves_a_real_enabled_model_with_a_key(self):
+		model = self._make_model(
+			"Test Sandbox Model - Enabled", api_key="sk-real-looking-test-key", model_api_name="claude-test-model"
+		)
+		self._make_agent_config("Test Dev Agent - Happy Path", ai_model=model.name, system_prompt="Be helpful.")
+
+		with patch.object(ops, "_AGENT_CONFIG_NAME", "Test Dev Agent - Happy Path"):
+			config = ops._resolve_agent_config()
+
+		self.assertEqual(config["system_prompt"], "Be helpful.")
+		self.assertEqual(config["model"], "claude-test-model")
+		self.assertEqual(config["api_key"], "sk-real-looking-test-key")
+
+	def test_falls_back_to_model_name_when_model_api_name_is_blank(self):
+		model = self._make_model("Test Sandbox Model - No API Name", api_key="sk-key")
+		self._make_agent_config("Test Dev Agent - No API Name", ai_model=model.name)
+
+		with patch.object(ops, "_AGENT_CONFIG_NAME", "Test Dev Agent - No API Name"):
+			config = ops._resolve_agent_config()
+
+		self.assertEqual(config["model"], model.name)
+
+	def test_no_ai_model_configured_raises(self):
+		self._make_agent_config("Test Dev Agent - No Model", ai_model="")
+
+		with patch.object(ops, "_AGENT_CONFIG_NAME", "Test Dev Agent - No Model"):
+			with self.assertRaises(ops.AgentSandboxError):
+				ops._resolve_agent_config()
+
+	def test_disabled_model_raises(self):
+		model = self._make_model("Test Sandbox Model - Disabled", enable_model=0, api_key="sk-key")
+		self._make_agent_config("Test Dev Agent - Disabled Model", ai_model=model.name)
+
+		with patch.object(ops, "_AGENT_CONFIG_NAME", "Test Dev Agent - Disabled Model"):
+			with self.assertRaises(ops.AgentSandboxError):
+				ops._resolve_agent_config()
+
+	def test_model_with_no_api_key_raises(self):
+		model = self._make_model("Test Sandbox Model - No Key", api_key="")
+		self._make_agent_config("Test Dev Agent - No Key", ai_model=model.name)
+
+		with patch.object(ops, "_AGENT_CONFIG_NAME", "Test Dev Agent - No Key"):
+			with self.assertRaises(ops.AgentSandboxError):
+				ops._resolve_agent_config()
+
+
 class TestDispatchParking(AgentSandboxCase):
 	def _dispatch(self, response_status=202):
 		mock_settings = SimpleNamespace(
@@ -213,32 +317,10 @@ class TestDispatchParking(AgentSandboxCase):
 		self.assertEqual(row.state, "failed")
 
 
-class TestAgentConfigResolution(AgentSandboxCase):
-	"""The real credential path — NOT mocked.
-
-	Every other test in this file patches _resolve_agent_config, which is why a
-	fully green suite sat alongside a dispatch that could not run at all: the
-	connection moved off AI Provider and onto AI Model, and reading
-	provider.enabled raised AttributeError. These exercise the real function.
-	"""
-
-	def _model(self, *, provider="Anthropic", enabled=1, key="sk-test-not-real", api_name=None):
-		if not frappe.db.exists("AI Provider", provider):
-			frappe.get_doc({"doctype": "AI Provider", "provider": provider}).insert(
-				ignore_permissions=True
-			)
-		name = f"_sbx-model-{frappe.generate_hash(length=6)}"
-		frappe.get_doc({
-			"doctype": "AI Model", "model_name": name, "provider": provider,
-			"enable_model": enabled, "model_api_name": api_name,
-		}).insert(ignore_permissions=True)
-		if key:
-			from frappe.utils.password import set_encrypted_password
-
-			set_encrypted_password("AI Model", name, key, "api_key")
-		self._models.append(name)
-		frappe.db.commit()
-		return name
+class TestResolutionFailureIsRecorded(AgentSandboxCase):
+	"""Upstream's TestResolveAgentConfig covers the resolver itself. This covers
+	the HANDLER around it, which is a different failure and the one that made the
+	original bug silent."""
 
 	def setUp(self):
 		super().setUp()
@@ -255,53 +337,23 @@ class TestAgentConfigResolution(AgentSandboxCase):
 		frappe.clear_cache()
 		super().tearDown()
 
-	def _point_dev_agent_at(self, model):
-		frappe.db.set_value("AI Agent Configuration", "Dev Agent", "ai_model", model,
+	def test_a_resolution_failure_never_strands_the_tracking_row(self):
+		"""The row is inserted before resolution runs, so anything escaping the
+		handler leaves it at "submitted" with nothing ever resuming the parked
+		task. That is exactly what the AttributeError did, and why the handler
+		catches everything rather than only AgentSandboxError."""
+		name = f"_sbx-nokey-{frappe.generate_hash(length=6)}"
+		frappe.get_doc({
+			"doctype": "AI Model", "model_name": name,
+			"provider": frappe.db.get_value("AI Provider", {}, "name"),
+			"enable_model": 1,
+		}).insert(ignore_permissions=True)
+		self._models.append(name)
+		frappe.db.set_value("AI Agent Configuration", "Dev Agent", "ai_model", name,
 		                    update_modified=False)
 		frappe.db.commit()
 		frappe.clear_cache()
 
-	def test_the_key_is_read_off_the_model_not_the_provider(self):
-		self._point_dev_agent_at(self._model(key="sk-on-the-model"))
-		self.assertEqual(ops._resolve_agent_config()["api_key"], "sk-on-the-model")
-
-	def test_model_api_name_is_what_goes_on_the_wire(self):
-		model = self._model(api_name="claude-wire-name")
-		self._point_dev_agent_at(model)
-		self.assertEqual(ops._resolve_agent_config()["model"], "claude-wire-name")
-
-	def test_without_an_api_name_the_record_name_is_sent(self):
-		model = self._model(api_name=None)
-		self._point_dev_agent_at(model)
-		self.assertEqual(ops._resolve_agent_config()["model"], model)
-
-	def test_a_disabled_model_is_refused(self):
-		"""enable_model is the only switch left — a provider cannot be turned off."""
-		self._point_dev_agent_at(self._model(enabled=0))
-		with self.assertRaises(ops.AgentSandboxError):
-			ops._resolve_agent_config()
-
-	def test_a_model_with_no_key_is_refused(self):
-		self._point_dev_agent_at(self._model(key=None))
-		with self.assertRaises(ops.AgentSandboxError):
-			ops._resolve_agent_config()
-
-	def test_a_model_with_no_provider_is_refused(self):
-		name = f"_sbx-model-{frappe.generate_hash(length=6)}"
-		frappe.get_doc({"doctype": "AI Model", "model_name": name, "enable_model": 1}).insert(
-			ignore_permissions=True
-		)
-		self._models.append(name)
-		frappe.db.commit()
-		self._point_dev_agent_at(name)
-		with self.assertRaises(ops.AgentSandboxError):
-			ops._resolve_agent_config()
-
-	def test_a_resolution_failure_never_strands_the_tracking_row(self):
-		"""The row is inserted before resolution runs, so anything escaping the
-		handler leaves it at "submitted" with nothing ever resuming the parked
-		task. That is exactly what the AttributeError did."""
-		self._point_dev_agent_at(self._model(key=None))
 		settings = SimpleNamespace(
 			agent_sandbox_url="https://sandbox.example",
 			get_password=lambda f, raise_exception=True: "gh-token",
