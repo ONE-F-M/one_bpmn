@@ -13,6 +13,7 @@ from SpiffWorkflow.bpmn.specs.mixins.subworkflow_task import SubWorkflowTask
 from SpiffWorkflow.util.task import TaskState
 
 from one_bpmn.one_bpmn import engine as bpmn_engine
+from one_bpmn.one_bpmn.engine import json_safe_doc_fields as _json_safe_doc_fields
 from one_bpmn.one_bpmn.doctype.bpmn_process_instance.dispatchers import dispatch_ai_agent
 
 from .dispatchers import (
@@ -98,14 +99,7 @@ class BPMNProcessInstance(Document):
 		if self.context_doctype and self.context_docname:
 			try:
 				_ctx = frappe.get_doc(self.context_doctype, self.context_docname)
-				for _field in _ctx.meta.fields:
-					_val = _ctx.get(_field.fieldname)
-					# Only inject JSON-safe scalar values — skip child tables,
-					# attachments, and any non-primitive types.
-					if isinstance(_val, (str, int, float, bool)) or _val is None:
-						data[_field.fieldname] = _val
-				# Always include docstatus explicitly (it's not in meta.fields)
-				data["docstatus"] = _ctx.docstatus
+				data.update(_json_safe_doc_fields(_ctx))
 			except Exception:
 				# If the doc can't be loaded for any reason, carry on.
 				# The condition will simply fail and users will see the instance
@@ -179,6 +173,28 @@ class BPMNProcessInstance(Document):
 		self.update_children()
 		self.run_method("on_update")
 
+	def _refresh_task_data_from_context(self, task) -> None:
+		"""Copy the context document's current field values into ``task.data``.
+
+		SpiffWorkflow hands a task's data down to its children, so writing here
+		is what makes a downstream gateway test the document as it is now rather
+		than as it was when the instance started.
+
+		Same field selection as the initial snapshot in ``start()`` — both go
+		through ``_json_safe_doc_fields`` so the two cannot drift. Never raises:
+		a failed refresh must not strand a task that has otherwise completed.
+		"""
+		if not (self.context_doctype and self.context_docname):
+			return
+		try:
+			ctx = frappe.get_doc(self.context_doctype, self.context_docname)
+			task.data.update(_json_safe_doc_fields(ctx))
+		except Exception:
+			frappe.log_error(
+				title="BPMN: failed to refresh doc fields into task data",
+				message=frappe.get_traceback(),
+			)
+
 	def advance(self, task_id: str, data: dict = None) -> list:
 		"""
 		Complete a User Task and advance the workflow.
@@ -240,16 +256,29 @@ class BPMNProcessInstance(Document):
 				)
 			)
 
-		# Push refreshed doc fields into the completing task's data.
-		# SpiffWorkflow copies task.data into child tasks on completion,
-		# so downstream gateways will see the latest doc values.
-		# We do this BEFORE user data injection so user-submitted values
-		# take precedence over doc field values.
+		# Seed the completing task's data, then put the context document's CURRENT
+		# values on top, so a gateway downstream tests the document as it is now.
+		#
+		# The root ``wf.task_tree.data`` goes in first because it carries keys that
+		# are not document fields (``context_doctype``, ``process_model`` and the
+		# like). What it must NOT be trusted for is the document itself: it is the
+		# snapshot taken when the instance started and is never updated. Copying it
+		# alone — which is what this did — re-stamped start-time values over
+		# anything newer on every pass, so a Service Task that had moved the
+		# document on changed the DOCUMENT and never this copy. The next gateway
+		# then compared against the stale value and took the wrong branch, or, where
+		# it had no default flow, halted the process with "No conditions satisfied".
+		#
+		# Reproduced on a freshly created Visa Request: the document read
+		# "Pending by GRD Operator" while the workflow data still held "Draft" from
+		# creation, and ``Gateway_1ylwknv`` — whose only exit tests exactly that
+		# state — could never be satisfied.
 		if self.context_doctype and self.context_docname:
 			task.data.update({
 				k: v for k, v in wf.task_tree.data.items()
 				if k not in ("doc",)  # skip non-serializable keys
 			})
+			self._refresh_task_data_from_context(task)
 
 		# Inject user data into task (highest priority — overrides doc fields)
 		if data:
@@ -1960,6 +1989,22 @@ class BPMNProcessInstance(Document):
 				)
 			except Exception:
 				raise  # bubble up so the instance can be marked Errored
+
+			# The document has just moved. Put its new values into THIS task's
+			# data so the rest of this engine pass sees them.
+			#
+			# Without this, a gateway a few steps downstream still tests the
+			# snapshot taken when the instance started, and routes on a state the
+			# document left behind. On the Visa process that was fatal rather than
+			# merely wrong: "Set Workflow State to Pending by GRD Operator" moved
+			# the request, then Gateway_1ylwknv — whose only exit tests exactly
+			# that state, with no default flow — compared against "Draft" from
+			# creation time and halted with "No conditions satisfied".
+			#
+			# Refreshing when the user task completes is not enough. The service
+			# task runs mid-pass, AFTER that refresh, so the write has to happen
+			# here, where the change is made.
+			self._refresh_task_data_from_context(task)
 
 		elif service_type == "send_email":
 			try:
