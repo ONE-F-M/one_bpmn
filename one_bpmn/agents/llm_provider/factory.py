@@ -12,12 +12,17 @@ Model resolution order:
   3. Hard-coded default per provider
 
 API key resolution order:
-  1. The resolved AI Provider record's own api_key    (WI-001614 — the canonical credential store)
+  1. The resolved AI Model record's own api_key       (the connection lives on the model)
+
+AI Provider holds a name and nothing else, so the NAME is the dialect: a record
+called "Anthropic" is spoken to as Anthropic. That is the only thing left to
+route on, so a provider whose name is not a known dialect has no adapter, and
+naming one "Test Provider" makes its models unreachable.
 
 Adding a new provider requires only:
   - A new adapter class in its own module
   - One new branch in get_llm_adapter()
-  - A new AI Provider record with its provider_type and api_key
+  - An AI Provider record named for the dialect, and models carrying the key
 
 Adding a new agent requires only:
   - An AI Agent Configuration record linking an AI Provider and AI Model
@@ -49,57 +54,86 @@ def get_llm_adapter(provider: str, model: str, api_key: str) -> BaseLLMAdapter:
     raise ValueError(f"Unknown LLM provider: {provider!r}. Supported: gemini, anthropic, openai")
 
 
-# WI-001615: adapter key per AI Provider.provider_type.
-_TYPE_TO_ADAPTER = {
-    "Google": "gemini",
-    "Anthropic": "anthropic",
-    "OpenAI": "openai",
+# The AI Provider record's NAME is its dialect. Matched case-insensitively so
+# "anthropic" and "Anthropic" are the same provider, and with the aliases people
+# actually type — "Claude" for Anthropic, "Gemini" for Google.
+_NAME_TO_ADAPTER = {
+    "google": "gemini",
+    "gemini": "gemini",
+    "anthropic": "anthropic",
+    "claude": "anthropic",
+    "openai": "openai",
 }
 
-# WI-001614: canonical credential store. Maps the factory's lowercase provider
-# keys to AI Provider.provider_type values.
-_PROVIDER_TYPE_MAP = {
+# The record name each adapter key prefers, for the reverse lookup.
+_ADAPTER_TO_NAME = {
     "gemini": "Google",
     "anthropic": "Anthropic",
-    "claude": "Anthropic",
     "openai": "OpenAI",
 }
+
+
+def adapter_for_provider(provider_name: str | None) -> str | None:
+    """Which adapter speaks to this AI Provider, from its name alone.
+
+    None when the name is not a dialect we have a client for — the caller must
+    treat that as an error rather than guessing, because guessing wrong means
+    building an Anthropic request for an OpenAI endpoint.
+    """
+    return _NAME_TO_ADAPTER.get((provider_name or "").strip().lower())
+
+
+def model_api_key(model_name: str | None) -> str:
+    """The API key stored on a catalog model. Empty when there is none."""
+    if not model_name:
+        return ""
+    try:
+        from frappe.utils.password import get_decrypted_password
+
+        return get_decrypted_password(
+            "AI Model", model_name, "api_key", raise_exception=False
+        ) or ""
+    except Exception:
+        return ""
 
 
 def _get_provider_credentials(provider: str) -> tuple[str, str]:
     """
     Return (api_key, model) for *provider* from AI Provider — the single
-    credential store (WI-001614). The model is any enabled catalog model on the
-    chosen provider, NOT a provider-level default: WI-001655 removed
-    default_model. Prefers the canonical record name, else the first enabled
-    provider of the matching provider_type that holds a key. Returns ("", "")
-    when none qualifies, so callers fall back to the hard-coded per-provider
-    default model and log a missing-API-key error.
+    catalog. The model is any enabled catalog model on the chosen provider, NOT
+    a provider-level default: providers carry no default model. Prefers the
+    canonical record name, else any provider whose name speaks the same dialect,
+    and within one provider the first enabled model that holds a key. Returns
+    ("", "") when none qualifies, so callers fall back to the hard-coded
+    per-provider default model and log a missing-API-key error.
     """
-    ptype = _PROVIDER_TYPE_MAP.get(provider)
-    if not ptype:
+    adapter_key = _NAME_TO_ADAPTER.get((provider or "").strip().lower())
+    if not adapter_key:
         return "", ""
     try:
-        from frappe.utils.password import get_decrypted_password
+        # Every provider whose name speaks this dialect, canonical spelling
+        # first. A site may well have only "Anthropic"; it may also have
+        # "anthropic" or "Claude", and all three route the same way.
+        canonical = _ADAPTER_TO_NAME.get(adapter_key)
+        names = [
+            r.name
+            for r in frappe.get_all("AI Provider", fields=["name"])
+            if _NAME_TO_ADAPTER.get(r.name.strip().lower()) == adapter_key
+        ]
+        names.sort(key=lambda n: (n != canonical))
 
-        names = frappe.get_all(
-            "AI Provider",
-            filters={"provider_type": ptype, "enabled": 1},
-            fields=["name"],
-        )
-        canonical = {"gemini": "Gemini", "anthropic": "Anthropic", "claude": "Anthropic", "openai": "OpenAI"}.get(provider)
-        names.sort(key=lambda r: (r.name != canonical))
-        for rec in names:
-            key = get_decrypted_password("AI Provider", rec.name, "api_key", raise_exception=False)
-            if key:
-                # WI-001655: providers carry no default model — the fallback is
-                # any ENABLED catalog model on this provider. Enabled matters
-                # now that the catalog also holds disabled rows kept only for
-                # their rate card.
-                model = frappe.db.get_value(
-                    "AI Model", {"provider": rec.name, "enable_model": 1}, "name"
-                ) or ""
-                return key, model
+        for name in names:
+            # The key lives on the MODEL now, so the first enabled model on this
+            # provider that actually carries one decides both answers at once.
+            for model in frappe.get_all(
+                "AI Model",
+                filters={"provider": name, "enable_model": 1},
+                pluck="name",
+                order_by="modified desc",
+            ):
+                key = model_api_key(model)
+                if key:
+                    return key, model
     except Exception:
         frappe.log_error(title="LLM Factory - AI Provider", message=frappe.get_traceback())
     return "", ""
@@ -118,27 +152,32 @@ def get_llm_adapter_from_settings(agent_config: dict | None = None) -> BaseLLMAd
     cfg = agent_config or {}
     agent_id = cfg.get("agent_id", "")
 
-    # ── WI-001615: the config's linked provider wins outright ──────────────
-    # WI-001655: the MODEL is the agent's own catalog pick (cfg["ai_model"],
-    # whose record name is the model id); the provider supplies the connection
-    # (key, adapter routing via provider_type).
+    # ── The config's linked provider wins outright ─────────────────────────
+    # The MODEL is the agent's own catalog pick (cfg["ai_model"], whose record
+    # name is the model id) and now carries the connection too; the provider
+    # contributes only its name, which is what routes the call.
     linked = cfg.get("ai_provider")
     if linked:
         try:
             rec = frappe.get_doc("AI Provider", linked)
-            adapter_key = _TYPE_TO_ADAPTER.get(rec.provider_type)
+            adapter_key = adapter_for_provider(rec.name)
             if not adapter_key:
                 raise ValueError(
-                    f"AI Provider '{linked}' has provider_type "
-                    f"'{rec.provider_type}', which has no chat adapter."
-                )
-            api_key = rec.get_password("api_key") if rec.enabled else ""
-            if not rec.enabled:
-                frappe.log_error(
-                    title="LLM Factory - Disabled Provider",
-                    message=f"AI Provider '{linked}' is disabled.",
+                    f"AI Provider '{linked}' is not the name of a dialect with a "
+                    f"chat adapter. Name the record for what it speaks — "
+                    f"Anthropic, OpenAI or Google."
                 )
             model = cfg.get("ai_model") or _PROVIDER_DEFAULTS.get(adapter_key, "")
+            # A disabled model is off for the same reason a disabled provider
+            # used to be, and it is the only switch left.
+            if model and not frappe.db.get_value("AI Model", model, "enable_model"):
+                frappe.log_error(
+                    title="LLM Factory - Disabled Model",
+                    message=f"AI Model '{model}' is disabled.",
+                )
+                api_key = ""
+            else:
+                api_key = model_api_key(model)
             return get_llm_adapter(provider=adapter_key, model=model, api_key=api_key or "")
         except frappe.DoesNotExistError:
             frappe.log_error(

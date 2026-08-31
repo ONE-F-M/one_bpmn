@@ -98,9 +98,12 @@ one_bpmn.one_bpmn.patches.v1_0.set_connector_handler_app #20-08-2026 handler pul
 one_bpmn.one_bpmn.patches.v1_0.add_required_capability_to_a2a_connector #23-08-2026 WI-002056 a delegate shape may declare the capability it needs; the deadline help was stale
 one_bpmn.one_bpmn.patches.v1_0.provision_agent_users #23-08-2026 WI-002054 every agent gets the identity its tools now run as; no roles granted, that is a decision
 one_bpmn.one_bpmn.patches.v1_0.migrate_to_ai_provider_and_model #24-08-2026 WI-002134 credentials + rate card fold into AI Provider and AI Model; old doctypes dropped last so a failure is re-runnable
-one_bpmn.one_bpmn.patches.v1_0.seed_missing_model_rates #24-08-2026 WI-002134 five enabled models had no rate, so a fifth of all traffic reported as free; fills only what is empty
+one_bpmn.one_bpmn.patches.v1_0.seed_missing_model_rates #30-08-2026 WI-002134 re-run: the dated Haiku row was missed and is what Logix and ProsAlly run on; fills only what is empty
 one_bpmn.one_bpmn.patches.v1_0.migrate_ai_chat_settings_to_processa_settings #24-08-2026 WI-002140 AI Chat Settings retirement: observability/Langfuse/token-estimator/LLM-default fields fold into Processa Settings
 one_bpmn.one_bpmn.patches.v1_0.seed_mobile_app_agent_config #27-08-2026 the Mobile App Agent's configuration; its map and Server Scripts arrive by Processa export/import
 one_bpmn.one_bpmn.patches.v1_0.seed_frontend_agent_config #27-08-2026 the front-end agent is configuration; its map and scripts arrive by export/import
 one_bpmn.one_bpmn.patches.v1_0.migrate_ba_state_to_session_state #30-08-2026 WI-001889 BA Agent planning checkpoint moves from Chat Conversation State to Chat Session State
 one_bpmn.one_bpmn.patches.v1_0.docu_module_not_hardcoded #30-08-2026 WI-001889 Docu schema_writer: the module in the output template is no longer a hardcoded ONE BPMN
+one_bpmn.one_bpmn.patches.v1_0.drop_legacy_ai_credential_tables #30-08-2026a WI-002134 the consolidation deleted the doctypes; their tables, their stored API keys and two stale columns stayed behind
+one_bpmn.one_bpmn.patches.v1_0.provider_is_a_name_model_holds_the_connection #30-08-2026 WI-002134 AI Provider goes back to a single Data field; the key, endpoint and switch move down onto AI Model
+one_bpmn.one_bpmn.patches.v1_0.seed_ai_model_catalogue #30-08-2026 WI-002134 one catalogue on every site: canonical providers, the models and their facts; no API keys, so new models land disabled

@@ -269,6 +269,9 @@ scheduler_events = {
 		# about (and to notice going wrong) than a trickle through the day.
 		"30 2 * * *": [
 			"one_bpmn.tasks.sweep_conversation_retention",
+			# A published rate change has a date but the catalogue has no date
+			# field, so something has to notice the day arriving.
+			"one_bpmn.tasks.apply_due_model_rates",
 		],
 		"* * * * *": [
 			"one_bpmn.tasks.process_timer_start_events",

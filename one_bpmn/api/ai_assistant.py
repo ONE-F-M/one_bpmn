@@ -198,16 +198,15 @@ def _creation_prerequisites_block() -> str:
 	try:
 		# WI-001655: the agent's LLM choice is a MODEL pick from the catalog;
 		# the provider follows from the model's credentials link.
-		models = frappe.get_list(
+		# A provider is a name and cannot be switched off; enable_model on the
+		# model is the only switch, and the model carries the connection.
+		usable = frappe.get_list(
 			"AI Model",
+			filters={"enable_model": 1, "provider": ["is", "set"]},
 			fields=["name", "provider"],
 			limit_page_length=100,
 			order_by="name asc",
 		)
-		enabled = set(frappe.get_list(
-			"AI Provider", filters={"enabled": 1}, pluck="name", limit_page_length=50,
-		))
-		usable = [m for m in models if m.provider in enabled]
 		if usable:
 			lines.append(
 				"AI Model catalog (use these EXACT names for ai_model / aiModel; "
@@ -215,7 +214,7 @@ def _creation_prerequisites_block() -> str:
 				+ ", ".join(f"{m.name} (via {m.provider})" for m in usable)
 			)
 		else:
-			lines.append("No usable AI Model catalog records (none link enabled credentials).")
+			lines.append("No usable AI Model catalog records (none are enabled with a provider).")
 	except Exception:
 		pass
 

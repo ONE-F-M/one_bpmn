@@ -376,21 +376,27 @@ class TestExecutorSuspensionMapping(FrappeTestCase):
 	@classmethod
 	def setUpClass(cls):
 		super().setUpClass()
-		if not frappe.db.exists("AI Provider", "_Test HITL Provider"):
+		# A provider is a name and the name IS the dialect, so this has to be
+		# called "OpenAI" to route anywhere. The connection lives on the model.
+		if not frappe.db.exists("AI Provider", "OpenAI"):
 			frappe.get_doc({
-				"doctype": "AI Provider",
-				"provider": "_Test HITL Provider",
-				"provider_type": "OpenAI",
+				"doctype": "AI Provider", "provider": "OpenAI",
+			}).insert(ignore_permissions=True)
+		if not frappe.db.exists("AI Model", "gpt-test"):
+			frappe.get_doc({
+				"doctype": "AI Model",
+				"model_name": "gpt-test",
+				"provider": "OpenAI",
+				"enable_model": 1,
 				"api_key": "test-key-not-real",
-				"default_model": "gpt-test",
-				"enabled": 1,
 			}).insert(ignore_permissions=True)
 
 	def _execute(self, adapter, tools, resume_state=None):
 		from one_bpmn.agents.executor.direct_api import DirectApiExecutor
 
 		config = ExecutorConfig(
-			provider_name="_Test HITL Provider",
+			provider_name="OpenAI",
+			model="gpt-test",
 			tools=tools,
 			max_tool_calls=5,
 			resume_state=resume_state,
