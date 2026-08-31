@@ -24,6 +24,7 @@
   "agent_sandbox_url",
   "column_break_agent_sandbox",
   "agent_callback_secret",
+  "agent_sandbox_caller_key",
   "section_break_script_security",
   "script_security_intro",
   "script_binop_multiply_threshold",
@@ -193,7 +194,7 @@
    "description": "The AI Dev Agent: a Background agent delegated to over A2A that clones an app into an isolated Cloud Run sandbox, runs its real test suite, and delivers a passing change as a pull request via the same GitHub Integration above.",
    "fieldname": "section_break_agent_sandbox",
    "fieldtype": "Section Break",
-   "label": "Dev Agent Sandbox"
+   "label": "Agent Sandbox"
   },
   {
    "description": "Base URL of the deployed dev-agent-sandbox Cloud Run service for THIS environment (e.g. the beta service on a staging/BA site, the production service in production). Never point a non-production site at the production sandbox.",
@@ -210,6 +211,12 @@
    "fieldname": "agent_callback_secret",
    "fieldtype": "Password",
    "label": "Callback Secret"
+  },
+  {
+   "description": "Full JSON key of the GCP service account used to mint the short-lived identity token that authenticates each dispatch call to the IAM-protected sandbox (Cloud Run Invoker role on that service). Paste the entire key file's contents here. Note: unlike site_config.json, this value travels with the database on backup/restore — granting a service account's key to a non-production environment (e.g. restoring a production backup onto staging) hands that environment the same Cloud Run Invoker access, so keep each environment's service account scoped to only the sandbox it should be allowed to call.",
+   "fieldname": "agent_sandbox_caller_key",
+   "fieldtype": "Password",
+   "label": "Sandbox Caller Key (GCP Service Account JSON)"
   },
   {
    "collapsible": 1,

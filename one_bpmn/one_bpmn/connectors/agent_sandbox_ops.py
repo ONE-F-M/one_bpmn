@@ -24,7 +24,7 @@ against GitHub, rather than handing files back for Processa to deliver.
 Nothing about any of that behavior is baked into the sandbox's own code —
 ``agent_config`` (system_prompt, model, a live API key) and ``github_token``
 are both resolved fresh here, from the "Dev Agent" AI Agent Configuration
-(and its linked AI Provider) and Processa Settings respectively, on every
+(and its linked AI Model) and Processa Settings respectively, on every
 dispatch, and handed over in the request body. Sending live credentials in
 the dispatch payload (rather than static secrets baked into the sandbox's
 own deployment) is a deliberate trade: it means Processa keeps full,
@@ -167,35 +167,37 @@ def dispatch(params: dict, ctx: dict) -> dict | None:
 
 def _resolve_agent_config() -> dict:
 	"""Everything the sandbox needs to actually be the coding agent for this
-	run — resolved fresh from the "Dev Agent" configuration and its linked AI
-	Provider on every dispatch, never cached into the sandbox's own code or
-	deployment. Mirrors the exact resolution path agents/executor/direct_api.py
-	uses for every other in-process ai_agent call (AI Agent Configuration.ai_model
-	-> AI Model.provider -> AI Provider.api_key), so a credential rotation or a
-	model change here needs no separate wiring — it is the same credential
-	store as everything else."""
+	run — resolved fresh from the "Dev Agent" configuration on every dispatch,
+	never cached into the sandbox's own code or deployment. Mirrors the exact
+	resolution path agents/executor/direct_api.py uses for every other
+	in-process ai_agent call: AI Provider holds a name and nothing else (it is
+	just the dialect tag), so the credential and enable flag both live on
+	AI Model itself (AI Agent Configuration.ai_model -> AI Model.enable_model /
+	.api_key), not on AI Provider — a credential rotation or a model change
+	here needs no separate wiring, it is the same credential store as
+	everything else."""
 	cfg = frappe.get_cached_doc("AI Agent Configuration", _AGENT_CONFIG_NAME)
 	model_name = (cfg.ai_model or "").strip()
 	if not model_name:
 		raise AgentSandboxError(f'"{_AGENT_CONFIG_NAME}" has no ai_model configured.')
 
-	provider_name = frappe.db.get_value("AI Model", model_name, "provider")
-	if not provider_name:
-		raise AgentSandboxError(f"AI Model {model_name!r} has no linked provider.")
+	meta = frappe.db.get_value(
+		"AI Model", model_name, ["enable_model", "model_api_name"], as_dict=True
+	)
+	if not meta:
+		raise AgentSandboxError(f"AI Model {model_name!r} does not exist.")
+	if not meta.enable_model:
+		raise AgentSandboxError(f"AI Model {model_name!r} is disabled.")
 
-	provider = frappe.get_cached_doc("AI Provider", provider_name)
-	if not provider.enabled:
-		raise AgentSandboxError(f"AI Provider {provider_name!r} is disabled.")
-
-	api_key = provider.get_password("api_key", raise_exception=False) or ""
+	api_key = frappe.utils.password.get_decrypted_password(
+		"AI Model", model_name, "api_key", raise_exception=False
+	) or ""
 	if not api_key:
-		raise AgentSandboxError(f"AI Provider {provider_name!r} has no api_key configured.")
-
-	wire_model = frappe.db.get_value("AI Model", model_name, "model_api_name") or model_name
+		raise AgentSandboxError(f"AI Model {model_name!r} has no api_key configured.")
 
 	return {
 		"system_prompt": cfg.system_prompt or "",
-		"model": wire_model,
+		"model": meta.model_api_name or model_name,
 		"api_key": api_key,
 	}
 
@@ -206,20 +208,27 @@ def _callback_url() -> str:
 
 def _mint_identity_token(audience: str) -> str:
 	"""A fresh, short-lived Google-signed identity token for this exact
-	Cloud Run service — never a static secret. Requires
-	``dev_agent_gcp_service_account_key_path`` in site_config.json: a local
-	filesystem path, not a Processa Settings field, since it names a file on
-	THIS bench host rather than a value migrated across environments."""
+	Cloud Run service — never a static secret. The signing key is the full
+	GCP service account JSON stored in Processa Settings' Sandbox Caller Key
+	(that service account needs the Cloud Run Invoker role on the sandbox
+	service) — resolved fresh here, same as agent_config and github_token,
+	rather than a file path on the local bench host."""
 	from google.auth.transport.requests import Request as GoogleAuthRequest
 	from google.oauth2 import service_account
 
-	key_path = frappe.conf.get("dev_agent_gcp_service_account_key_path")
-	if not key_path:
+	settings = frappe.get_cached_doc("Processa Settings")
+	key_json = settings.get_password("agent_sandbox_caller_key", raise_exception=False)
+	if not key_json:
 		raise AgentSandboxError(
-			"site_config.json has no dev_agent_gcp_service_account_key_path set."
+			"Processa Settings has no Sandbox Caller Key configured — cannot authenticate to the sandbox."
 		)
-	credentials = service_account.IDTokenCredentials.from_service_account_file(
-		key_path, target_audience=audience
+	try:
+		key_info = frappe.parse_json(key_json)
+	except Exception as exc:
+		raise AgentSandboxError(f"Sandbox Caller Key is not valid JSON: {exc}") from exc
+
+	credentials = service_account.IDTokenCredentials.from_service_account_info(
+		key_info, target_audience=audience
 	)
 	credentials.refresh(GoogleAuthRequest())
 	return credentials.token
