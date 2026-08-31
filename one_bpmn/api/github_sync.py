@@ -60,31 +60,6 @@ def read_file(*, token: str, repo: str, path: str, ref: str) -> str | None:
 	return base64.b64decode(existing["content"]).decode("utf-8")
 
 
-_LIST_FILES_MAX = 500
-
-
-def list_files(*, token: str, repo: str, ref: str, path_prefix: str = "") -> list[str]:
-	"""File paths in ``repo`` at ``ref``, optionally scoped to ``path_prefix``.
-
-	Uses the Git Trees API in recursive mode — one call regardless of repo
-	depth, unlike walking contents/ directory by directory. Capped at
-	_LIST_FILES_MAX so a planning agent exploring a large repo gets a usable
-	list rather than everything at once; narrow with path_prefix to see more
-	of one area. GitHub itself truncates trees over ~100k entries — far above
-	anything these repos hit, so that limit is not handled here.
-	"""
-	tree = _request("GET", f"{_API}/repos/{repo}/git/trees/{ref}?recursive=1", token, ok=(200, 404))
-	if not tree:
-		return []
-	prefix = path_prefix.strip().lstrip("/")
-	paths = [
-		entry["path"]
-		for entry in tree.get("tree", [])
-		if entry.get("type") == "blob" and (not prefix or entry["path"].startswith(prefix))
-	]
-	return paths[:_LIST_FILES_MAX]
-
-
 def branch_exists(*, token: str, repo: str, branch: str) -> bool:
 	"""True when ``branch`` is present on ``repo``.
 
