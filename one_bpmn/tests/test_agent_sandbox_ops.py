@@ -44,6 +44,23 @@ def _scoped_get_cached_doc(mock_settings):
 	return _fake
 
 
+def _any_process_model() -> str:
+	existing = frappe.db.get_value("BPMN Process Model", {"name": ["is", "set"]}, "name")
+	if existing:
+		return existing
+	process = frappe.get_doc({
+		"doctype": "Process", "process_name": f"_sbx-{frappe.generate_hash(length=6)}",
+	}).insert(ignore_permissions=True)
+	return frappe.get_doc({
+		"doctype": "BPMN Process Model",
+		"title": f"_sbx-model-{frappe.generate_hash(length=6)}",
+		"process_id": f"_sbx-{frappe.generate_hash(length=6)}",
+		"version": 1,
+		"process_name": process.name,
+		"bpmn_xml": "<bpmn:definitions/>",
+	}).insert(ignore_permissions=True).name
+
+
 class AgentSandboxCase(FrappeTestCase):
 	def setUp(self):
 		super().setUp()
@@ -51,9 +68,13 @@ class AgentSandboxCase(FrappeTestCase):
 		# dispatch()'s own run.insert() never sets ignore_links — production
 		# always passes a genuine, already-saved instance, so the test fixture
 		# needs one too rather than a bare SimpleNamespace stand-in.
+		# Any process model resolves the Link; this suite never runs a diagram.
+		# Deliberately NOT the "Dev Agent" map — maps ship by export/import, so
+		# naming one makes the whole suite pass or fail on whether somebody has
+		# imported it. Every test here errored in setUp on a bench that had not.
 		self._test_instance = frappe.get_doc({
 			"doctype": "BPMN Process Instance",
-			"process_model": "Dev Agent",
+			"process_model": _any_process_model(),
 		}).insert(ignore_permissions=True)
 
 	def ctx(self):
@@ -158,14 +179,24 @@ class TestResolveAgentConfig(FrappeTestCase):
 		return doc
 
 	def _make_agent_config(self, name, *, ai_model, system_prompt="You are a test agent."):
-		doc = frappe.get_doc({
-			"doctype": "AI Agent Configuration",
-			"agent_name": name,
-			"agent_id": name.lower().replace(" ", "-"),
-			"agent_framework": "Direct API",
-			"ai_model": ai_model,
-			"system_prompt": system_prompt,
-		}).insert(ignore_permissions=True)
+		# Inserting an AI Agent Configuration fires "AI Agent Creation Process",
+		# an active map whose prompt-writing AI step OVERWRITES system_prompt with
+		# a real LLM call. on_doc_event skips on in_migrate but not on in_test, so
+		# without this the fixture's prompt comes back as model output, the
+		# assertion fails, and every run of this suite costs money and half a
+		# minute. Suppressed the same way patches and imports already are.
+		frappe.flags.in_migrate = True
+		try:
+			doc = frappe.get_doc({
+				"doctype": "AI Agent Configuration",
+				"agent_name": name,
+				"agent_id": name.lower().replace(" ", "-"),
+				"agent_framework": "Direct API",
+				"ai_model": ai_model,
+				"system_prompt": system_prompt,
+			}).insert(ignore_permissions=True)
+		finally:
+			frappe.flags.in_migrate = False
 		self._agent_configs.append(doc.name)
 		return doc
 
@@ -284,3 +315,56 @@ class TestDispatchParking(AgentSandboxCase):
 			"Agent Sandbox Run", frappe.get_all("Agent Sandbox Run", pluck="name")[0]
 		)
 		self.assertEqual(row.state, "failed")
+
+
+class TestResolutionFailureIsRecorded(AgentSandboxCase):
+	"""Upstream's TestResolveAgentConfig covers the resolver itself. This covers
+	the HANDLER around it, which is a different failure and the one that made the
+	original bug silent."""
+
+	def setUp(self):
+		super().setUp()
+		self._models = []
+		self._original_model = frappe.db.get_value("AI Agent Configuration", "Dev Agent", "ai_model")
+
+	def tearDown(self):
+		frappe.db.set_value("AI Agent Configuration", "Dev Agent", "ai_model",
+		                    self._original_model, update_modified=False)
+		for m in self._models:
+			frappe.db.delete("AI Model", {"name": m})
+			frappe.db.sql("DELETE FROM `__Auth` WHERE doctype='AI Model' AND name=%s", (m,))
+		frappe.db.commit()
+		frappe.clear_cache()
+		super().tearDown()
+
+	def test_a_resolution_failure_never_strands_the_tracking_row(self):
+		"""The row is inserted before resolution runs, so anything escaping the
+		handler leaves it at "submitted" with nothing ever resuming the parked
+		task. That is exactly what the AttributeError did, and why the handler
+		catches everything rather than only AgentSandboxError."""
+		name = f"_sbx-nokey-{frappe.generate_hash(length=6)}"
+		frappe.get_doc({
+			"doctype": "AI Model", "model_name": name,
+			"provider": frappe.db.get_value("AI Provider", {}, "name"),
+			"enable_model": 1,
+		}).insert(ignore_permissions=True)
+		self._models.append(name)
+		frappe.db.set_value("AI Agent Configuration", "Dev Agent", "ai_model", name,
+		                    update_modified=False)
+		frappe.db.commit()
+		frappe.clear_cache()
+
+		settings = SimpleNamespace(
+			agent_sandbox_url="https://sandbox.example",
+			get_password=lambda f, raise_exception=True: "gh-token",
+		)
+		with patch.object(ops.frappe, "get_cached_doc", _scoped_get_cached_doc(settings)):
+			with self.assertRaises(ops.AgentSandboxError):
+				ops.dispatch(self.params(), self.ctx())
+
+		rows = frappe.get_all("Agent Sandbox Run", filters={"target_app": "one_bpmn"},
+		                      fields=["name", "state", "error_message"],
+		                      order_by="creation desc", limit=1)
+		self.assertTrue(rows)
+		self.assertEqual(rows[0].state, "failed")
+		self.assertTrue(rows[0].error_message)

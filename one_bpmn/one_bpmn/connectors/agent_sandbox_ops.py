@@ -98,9 +98,26 @@ def dispatch(params: dict, ctx: dict) -> dict | None:
 
 	try:
 		agent_config = _resolve_agent_config()
-	except AgentSandboxError:
-		run.db_set({"state": "failed", "error_message": "Could not resolve a usable model/credential."}, update_modified=False)
-		raise
+	except Exception as exc:
+		# Deliberately not just AgentSandboxError. The row is already inserted by
+		# this point, so anything that escapes here strands it at "submitted"
+		# with nothing ever resuming the parked task — which is exactly what an
+		# AttributeError did when the credential moved off AI Provider. A
+		# resolution failure must always be a recorded failure.
+		run.db_set(
+			{
+				"state": "failed",
+				"error_message": f"Could not resolve a usable model/credential: {exc}"[:500],
+			},
+			update_modified=False,
+		)
+		if isinstance(exc, AgentSandboxError):
+			raise
+		frappe.log_error(
+			title=f"Dev Agent Sandbox: could not resolve the agent config ({run.name})",
+			message=frappe.get_traceback(),
+		)
+		raise AgentSandboxError(f"Could not resolve a usable model/credential: {exc}")
 
 	github_token = settings.get_password("github_token", raise_exception=False) or ""
 	if not github_token:
