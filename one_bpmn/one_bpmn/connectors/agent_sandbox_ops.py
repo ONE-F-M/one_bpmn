@@ -38,6 +38,7 @@ HTTPS call every other dispatch already uses.
 from __future__ import annotations
 
 import frappe
+from frappe.utils.password import get_decrypted_password
 
 AGENT_SANDBOX_WAITING_KEY = "_bpmn_agent_sandbox_waiting"
 _AGENT_CONFIG_NAME = "Dev Agent"
@@ -98,9 +99,26 @@ def dispatch(params: dict, ctx: dict) -> dict | None:
 
 	try:
 		agent_config = _resolve_agent_config()
-	except AgentSandboxError:
-		run.db_set({"state": "failed", "error_message": "Could not resolve a usable model/credential."}, update_modified=False)
-		raise
+	except Exception as exc:
+		# Deliberately not just AgentSandboxError. The row is already inserted by
+		# this point, so anything that escapes here strands it at "submitted"
+		# with nothing ever resuming the parked task — which is exactly what an
+		# AttributeError did when the credential moved off AI Provider. A
+		# resolution failure must always be a recorded failure.
+		run.db_set(
+			{
+				"state": "failed",
+				"error_message": f"Could not resolve a usable model/credential: {exc}"[:500],
+			},
+			update_modified=False,
+		)
+		if isinstance(exc, AgentSandboxError):
+			raise
+		frappe.log_error(
+			title=f"Dev Agent Sandbox: could not resolve the agent config ({run.name})",
+			message=frappe.get_traceback(),
+		)
+		raise AgentSandboxError(f"Could not resolve a usable model/credential: {exc}")
 
 	github_token = settings.get_password("github_token", raise_exception=False) or ""
 	if not github_token:
@@ -170,28 +188,39 @@ def _resolve_agent_config() -> dict:
 	run — resolved fresh from the "Dev Agent" configuration and its linked AI
 	Provider on every dispatch, never cached into the sandbox's own code or
 	deployment. Mirrors the exact resolution path agents/executor/direct_api.py
-	uses for every other in-process ai_agent call (AI Agent Configuration.ai_model
-	-> AI Model.provider -> AI Provider.api_key), so a credential rotation or a
-	model change here needs no separate wiring — it is the same credential
-	store as everything else."""
+	uses for every other in-process ai_agent call, so a credential rotation or a
+	model change here needs no separate wiring — it is the same credential store
+	as everything else.
+
+	That store moved. The connection used to hang off AI Provider — its type, its
+	endpoint, its key and an enabled flag — and a provider is now a name and
+	nothing else, with the key, the endpoint and enable_model all on AI Model.
+	Reading provider.enabled here raised AttributeError rather than the
+	AgentSandboxError the caller handles, so a dispatch died after its tracking
+	row was already inserted and stranded it at "submitted" forever."""
 	cfg = frappe.get_cached_doc("AI Agent Configuration", _AGENT_CONFIG_NAME)
 	model_name = (cfg.ai_model or "").strip()
 	if not model_name:
 		raise AgentSandboxError(f'"{_AGENT_CONFIG_NAME}" has no ai_model configured.')
 
-	provider_name = frappe.db.get_value("AI Model", model_name, "provider")
-	if not provider_name:
+	model = frappe.db.get_value(
+		"AI Model", model_name, ["provider", "model_api_name", "enable_model"], as_dict=True
+	)
+	if not model:
+		raise AgentSandboxError(f"AI Model {model_name!r} does not exist.")
+	if not model.provider:
 		raise AgentSandboxError(f"AI Model {model_name!r} has no linked provider.")
+	# enable_model is the only switch now — a provider cannot be turned off.
+	if not model.enable_model:
+		raise AgentSandboxError(f"AI Model {model_name!r} is disabled.")
 
-	provider = frappe.get_cached_doc("AI Provider", provider_name)
-	if not provider.enabled:
-		raise AgentSandboxError(f"AI Provider {provider_name!r} is disabled.")
-
-	api_key = provider.get_password("api_key", raise_exception=False) or ""
+	api_key = get_decrypted_password(
+		"AI Model", model_name, "api_key", raise_exception=False
+	) or ""
 	if not api_key:
-		raise AgentSandboxError(f"AI Provider {provider_name!r} has no api_key configured.")
+		raise AgentSandboxError(f"AI Model {model_name!r} has no api_key configured.")
 
-	wire_model = frappe.db.get_value("AI Model", model_name, "model_api_name") or model_name
+	wire_model = model.model_api_name or model_name
 
 	return {
 		"system_prompt": cfg.system_prompt or "",
