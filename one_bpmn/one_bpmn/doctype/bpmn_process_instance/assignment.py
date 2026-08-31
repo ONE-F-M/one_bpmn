@@ -270,6 +270,13 @@ def _send_assignee_notification(instance, user: str, task_name: str, task_cfg: d
 	The HTML body supports Jinja2 rendering with ``{{ doc }}``,
 	``{{ instance }}``, and ``{{ frappe }}`` as template context variables.
 
+	``notifyAssigneeAccount`` names an Email Account to send FROM, resolved to
+	its ``email_id`` exactly as the ``send_email`` Service Task resolves
+	``emailAccount``. Without it the site default sender is used. This exists so
+	a notification can be moved off a Service Task and onto the User Task it
+	belongs to without silently changing which mailbox it comes from — a reply
+	going to the wrong inbox is the kind of regression nobody notices for weeks.
+
 	Sent via ``one_fm.processor.sendemail`` with ``is_external_mail=True`` —
 	"Notify Assignee" is an explicit per-task opt-in in the BPMN diagram, so
 	it must NOT be filtered by the recipient's general notification
@@ -318,13 +325,28 @@ def _send_assignee_notification(instance, user: str, task_name: str, task_cfg: d
 	else:
 		subject = default_subject
 
+	# Which mailbox it comes FROM. Same resolution as the send_email Service
+	# Task: the account's email_id, or None for the site default.
+	sender = None
+	account = (task_cfg.get("notifyAssigneeAccount") or "").strip()
+	if account:
+		sender = frappe.db.get_value("Email Account", account, "email_id") or None
+		if not sender:
+			frappe.log_error(
+				title="BPMN: Notify Assignee email account not found",
+				message=(
+					f"Task {task_name!r} names Email Account {account!r}, which has no "
+					f"email_id (or does not exist). Falling back to the default sender."
+				),
+			)
+
 	try:
 		from one_fm.processor import sendemail as onefm_sendemail
 
 		onefm_sendemail(
 			recipients=[user],
 			subject=subject,
-			sender=None,
+			sender=sender,
 			header=[subject],
 			message=rendered_body,
 			reference_doctype=instance.context_doctype or instance.doctype,
@@ -335,6 +357,7 @@ def _send_assignee_notification(instance, user: str, task_name: str, task_cfg: d
 		frappe.sendmail(
 			recipients=[user],
 			subject=subject,
+			sender=sender,
 			message=rendered_body,
 			reference_doctype=instance.context_doctype or instance.doctype,
 			reference_name=instance.context_docname or instance.name,

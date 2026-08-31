@@ -99,6 +99,11 @@ export function UserTaskProps(props) {
 
 	if (getAttr(bo, "notifyAssignee") === "true") {
 		entries.push({
+			id: "spiffworkflow-notifyAssigneeAccount",
+			element,
+			component: NotifyAssigneeAccountComponent,
+		});
+		entries.push({
 			id: "spiffworkflow-notifyAssigneeEditor",
 			element,
 			component: NotifyAssigneeEditorButtonComponent,
@@ -106,6 +111,38 @@ export function UserTaskProps(props) {
 	}
 
 	return entries;
+}
+
+// Notify Assignee — Email Account (which mailbox it is sent FROM)
+//
+// Mirrors the send_email Service Task's Email Account field, and exists for the
+// same reason: a notification moved from a Service Task onto the User Task it
+// belongs to must be able to keep sending from the same mailbox. Left empty,
+// the site default sender is used.
+function NotifyAssigneeAccountComponent(props) {
+	const { element, id } = props;
+	const modeling  = useService("modeling");
+	const translate = useService("translate");
+	const bo        = getBusinessObject(element);
+	const value     = getAttr(bo, "notifyAssigneeAccount");
+
+	const fetchAccounts = (txt) => {
+		const params = { fields: '["name"]', limit_page_length: 50, order_by: "name asc" };
+		if (txt) params.filters = JSON.stringify([["name", "like", `%${txt}%`]]);
+		return frappeGet("/api/resource/Email Account", params);
+	};
+
+	return h(FrappeAutocomplete, {
+		id,
+		label: translate("Send From (Email Account)"),
+		value,
+		onChange: (val) => modeling.updateModdleProperties(element, bo, {
+			"spiffworkflow:notifyAssigneeAccount": val || undefined,
+		}),
+		fetchApi: fetchAccounts,
+		valueField: "name",
+		renderOption: (opt) => opt.name,
+	});
 }
 
 // Component 1 — DocType (always visible)
@@ -916,6 +953,7 @@ function NotifyAssigneeCheckboxComponent(props) {
 			updates["spiffworkflow:notifyAssigneeBody"] = undefined;
 			updates["spiffworkflow:notifyAssigneeSubject"] = undefined;
 			updates["spiffworkflow:notifyAssigneeTemplate"] = undefined;
+			updates["spiffworkflow:notifyAssigneeAccount"] = undefined;
 		}
 		modeling.updateModdleProperties(element, bo, updates);
 	};
