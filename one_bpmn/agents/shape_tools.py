@@ -310,14 +310,28 @@ def execute_shape(instance, bpmn_id: str, task_cfg: dict | None, kwargs: dict) -
 
 
 def _waiting_marker(task) -> dict | None:
-	"""The marker a dispatch leaves when it parked instead of answering."""
+	"""The marker a dispatch leaves when it parked instead of answering.
+
+	Checked against every connector's own waiting-key convention — not just
+	A2A's. A connector that parks (returns None and sets its own marker on
+	task.data, e.g. agent_sandbox_ops.AGENT_SANDBOX_WAITING_KEY) but
+	whose key is absent from this list is invisible to the tool loop: the
+	loop reads the empty result as a real answer and reports "no result"
+	back to the model instead of suspending. Confirmed the hard way for the
+	agent_sandbox connector before this generalization existed."""
 	from one_bpmn.one_bpmn.connectors.a2a_client_ops import A2A_WAITING_KEY
+	from one_bpmn.one_bpmn.connectors.agent_sandbox_ops import (
+		AGENT_SANDBOX_WAITING_KEY,
+	)
 
 	data = getattr(task, "data", None)
 	if not isinstance(data, dict):
 		return None
-	marker = data.get(A2A_WAITING_KEY)
-	return marker if isinstance(marker, dict) else None
+	for key in (A2A_WAITING_KEY, AGENT_SANDBOX_WAITING_KEY):
+		marker = data.get(key)
+		if isinstance(marker, dict):
+			return marker
+	return None
 
 
 def _synthetic_task(bpmn_id: str, kwargs: dict):

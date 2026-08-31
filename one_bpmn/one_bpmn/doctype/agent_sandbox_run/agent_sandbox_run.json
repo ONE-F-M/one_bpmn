@@ -1,0 +1,187 @@
+{
+ "actions": [],
+ "autoname": "format:DAS-{#####}",
+ "creation": "2026-08-25 00:00:00.000000",
+ "doctype": "DocType",
+ "engine": "InnoDB",
+ "field_order": [
+  "section_run",
+  "state",
+  "target_app",
+  "git_branch",
+  "column_break_run",
+  "bpmn_id",
+  "completed_at",
+  "section_caller",
+  "caller_instance",
+  "caller_wf_task_id",
+  "column_break_caller",
+  "caller_agent_run",
+  "resume_enqueued",
+  "section_payload",
+  "work_item_description",
+  "request_payload",
+  "column_break_payload",
+  "result",
+  "files",
+  "section_outcome",
+  "pr_url",
+  "error_message"
+ ],
+ "fields": [
+  {
+   "fieldname": "section_run",
+   "fieldtype": "Section Break",
+   "label": "Run"
+  },
+  {
+   "default": "submitted",
+   "fieldname": "state",
+   "fieldtype": "Select",
+   "in_list_view": 1,
+   "in_standard_filter": 1,
+   "label": "State",
+   "options": "submitted\nrunning\ncompleted\nfailed"
+  },
+  {
+   "description": "Which app's working tree the sandbox checked out and tested.",
+   "fieldname": "target_app",
+   "fieldtype": "Data",
+   "in_list_view": 1,
+   "label": "Target App"
+  },
+  {
+   "fieldname": "git_branch",
+   "fieldtype": "Data",
+   "label": "Git Branch"
+  },
+  {
+   "fieldname": "column_break_run",
+   "fieldtype": "Column Break"
+  },
+  {
+   "fieldname": "bpmn_id",
+   "fieldtype": "Data",
+   "label": "BPMN Element"
+  },
+  {
+   "fieldname": "completed_at",
+   "fieldtype": "Datetime",
+   "label": "Completed At",
+   "read_only": 1
+  },
+  {
+   "fieldname": "section_caller",
+   "fieldtype": "Section Break",
+   "label": "Caller"
+  },
+  {
+   "description": "The Dev Agent's own delegated process instance that dispatched this run.",
+   "fieldname": "caller_instance",
+   "fieldtype": "Link",
+   "label": "Caller Instance",
+   "options": "BPMN Process Instance"
+  },
+  {
+   "description": "Spiff task UUID of the parked Service Task. This is what a resume targets.",
+   "fieldname": "caller_wf_task_id",
+   "fieldtype": "Data",
+   "label": "Caller Workflow Task ID"
+  },
+  {
+   "fieldname": "column_break_caller",
+   "fieldtype": "Column Break"
+  },
+  {
+   "description": "Set only when this run was dispatched from inside an ai_agent tool call (e.g. Dev Agent's own reasoning step calling dispatch_to_sandbox as a tool) rather than from a plain, top-level Service Task. When set, the callback resumes via the AI Agent Run's checkpoint (kind=\"human_resume\") instead of the kind=\"agent_sandbox_result\" path caller_wf_task_id alone drives.",
+   "fieldname": "caller_agent_run",
+   "fieldtype": "Link",
+   "label": "Caller Agent Run",
+   "options": "AI Agent Run"
+  },
+  {
+   "default": "0",
+   "description": "Set once the parked step has been handed a resume job. Stops a finished run being woken twice, and stops one that finished between checks being missed.",
+   "fieldname": "resume_enqueued",
+   "fieldtype": "Check",
+   "label": "Resume Enqueued",
+   "read_only": 1
+  },
+  {
+   "fieldname": "section_payload",
+   "fieldtype": "Section Break",
+   "label": "Payloads"
+  },
+  {
+   "fieldname": "work_item_description",
+   "fieldtype": "Small Text",
+   "label": "Work Item Description"
+  },
+  {
+   "description": "The exact JSON body POSTed to the sandbox's /run — the resolved agent_config, target app, branch, and callback URL. Kept for audit; never re-derived from this row.",
+   "fieldname": "request_payload",
+   "fieldtype": "Code",
+   "label": "Request Payload",
+   "options": "JSON"
+  },
+  {
+   "fieldname": "column_break_payload",
+   "fieldtype": "Column Break"
+  },
+  {
+   "description": "The sandbox's callback body as received (status, stdout/stderr tails, sandbox_env).",
+   "fieldname": "result",
+   "fieldtype": "Code",
+   "label": "Result",
+   "options": "JSON"
+  },
+  {
+   "description": "The {path: content} dict of changed files the sandbox returned, if the run produced any — handed to open_customization_pr() as-is.",
+   "fieldname": "files",
+   "fieldtype": "Code",
+   "label": "Files",
+   "options": "JSON"
+  },
+  {
+   "fieldname": "section_outcome",
+   "fieldtype": "Section Break",
+   "label": "Outcome"
+  },
+  {
+   "description": "Set once open_customization_pr() succeeds.",
+   "fieldname": "pr_url",
+   "fieldtype": "Data",
+   "label": "Pull Request URL",
+   "read_only": 1
+  },
+  {
+   "fieldname": "error_message",
+   "fieldtype": "Small Text",
+   "label": "Error Message"
+  }
+ ],
+ "links": [],
+ "modified": "2026-08-25 00:00:00.000000",
+ "modified_by": "Administrator",
+ "module": "ONE BPMN",
+ "name": "Agent Sandbox Run",
+ "owner": "Administrator",
+ "permissions": [
+  {
+   "create": 1,
+   "delete": 1,
+   "email": 1,
+   "export": 1,
+   "print": 1,
+   "read": 1,
+   "report": 1,
+   "role": "System Manager",
+   "share": 1,
+   "write": 1
+  }
+ ],
+ "sort_field": "modified",
+ "sort_order": "DESC",
+ "states": [],
+ "track_changes": 1
+}

@@ -20,6 +20,10 @@
   "github_token",
   "customization_app",
   "connector_handler_app",
+  "section_break_agent_sandbox",
+  "agent_sandbox_url",
+  "column_break_agent_sandbox",
+  "agent_callback_secret",
   "section_break_script_security",
   "script_security_intro",
   "script_binop_multiply_threshold",
@@ -183,6 +187,29 @@
    "fieldname": "connector_handler_app",
    "fieldtype": "Data",
    "label": "Connector Handler App"
+  },
+  {
+   "collapsible": 1,
+   "description": "The AI Dev Agent: a Background agent delegated to over A2A that clones an app into an isolated Cloud Run sandbox, runs its real test suite, and delivers a passing change as a pull request via the same GitHub Integration above.",
+   "fieldname": "section_break_agent_sandbox",
+   "fieldtype": "Section Break",
+   "label": "Dev Agent Sandbox"
+  },
+  {
+   "description": "Base URL of the deployed dev-agent-sandbox Cloud Run service for THIS environment (e.g. the beta service on a staging/BA site, the production service in production). Never point a non-production site at the production sandbox.",
+   "fieldname": "agent_sandbox_url",
+   "fieldtype": "Data",
+   "label": "Sandbox URL"
+  },
+  {
+   "fieldname": "column_break_agent_sandbox",
+   "fieldtype": "Column Break"
+  },
+  {
+   "description": "Shared HMAC secret verified against the sandbox's signed callback (X-Signature header). Must match the CALLBACK_HMAC_SECRET the sandbox was deployed with for this same environment — see deploy.py in the dev-agent-sandbox project.",
+   "fieldname": "agent_callback_secret",
+   "fieldtype": "Password",
+   "label": "Callback Secret"
   },
   {
    "collapsible": 1,
