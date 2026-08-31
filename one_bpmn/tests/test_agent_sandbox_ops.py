@@ -368,3 +368,35 @@ class TestResolutionFailureIsRecorded(AgentSandboxCase):
 		self.assertTrue(rows)
 		self.assertEqual(rows[0].state, "failed")
 		self.assertTrue(rows[0].error_message)
+
+
+class TestCallbackUrl(FrappeTestCase):
+	"""_callback_url forces https regardless of what get_url() constructs.
+
+	Confirmed live: a real production dispatch was rejected with a 422 by
+	the sandbox's own _validate_payload (dev_agent_server.py), which hard-
+	requires callback_url to be https — get_url() had produced an http://
+	URL because this runs inside a background job (no live request for it
+	to read a scheme from), and the site's host_name wasn't set to correct
+	that fallback. The site itself was genuinely served over https
+	externally the whole time; only Frappe's own internal guess was wrong."""
+
+	def test_forces_https_when_get_url_returns_http(self):
+		with patch.object(
+			ops.frappe.utils, "get_url",
+			return_value="http://example.com/api/method/one_bpmn.api.agent_callback.report_result",
+		):
+			self.assertEqual(
+				ops._callback_url(),
+				"https://example.com/api/method/one_bpmn.api.agent_callback.report_result",
+			)
+
+	def test_leaves_https_untouched(self):
+		with patch.object(
+			ops.frappe.utils, "get_url",
+			return_value="https://example.com/api/method/one_bpmn.api.agent_callback.report_result",
+		):
+			self.assertEqual(
+				ops._callback_url(),
+				"https://example.com/api/method/one_bpmn.api.agent_callback.report_result",
+			)
