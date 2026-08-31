@@ -136,7 +136,7 @@
    "options": "JSON"
   },
   {
-   "description": "The {path: content} dict of changed files the sandbox returned, if the run produced any — handed to open_customization_pr() as-is.",
+   "description": "The {path: content} dict of changed files the sandbox returned, if the run produced any — the sandbox itself opens the pull request from these directly, this is kept for audit.",
    "fieldname": "files",
    "fieldtype": "Code",
    "label": "Files",
@@ -148,7 +148,7 @@
    "label": "Outcome"
   },
   {
-   "description": "Set once open_customization_pr() succeeds.",
+   "description": "Set once the sandbox reports a pull request was opened successfully (see pr_url/pr_error in its callback body).",
    "fieldname": "pr_url",
    "fieldtype": "Data",
    "label": "Pull Request URL",
