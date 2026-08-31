@@ -1,6 +1,6 @@
 # Copyright (c) 2026, one-fm and contributors
 # For license information, please see license.txt
-"""The dev_agent_sandbox connector's dispatch operation.
+"""The agent_sandbox connector's dispatch operation.
 
 Mirrors test_a2a_local.py's TestLocalDelegationParking shape: a fake
 task/instance (SimpleNamespace), the external call mocked out, and
@@ -24,7 +24,7 @@ from unittest.mock import MagicMock, patch
 import frappe
 from frappe.tests.utils import FrappeTestCase
 
-from one_bpmn.one_bpmn.connectors import dev_agent_sandbox_ops as ops
+from one_bpmn.one_bpmn.connectors import agent_sandbox_ops as ops
 
 # Captured before any test patches frappe.get_cached_doc, so the scoped
 # side_effect below can still delegate real (non-"Processa Settings") calls
@@ -44,7 +44,7 @@ def _scoped_get_cached_doc(mock_settings):
 	return _fake
 
 
-class DevAgentSandboxCase(FrappeTestCase):
+class AgentSandboxCase(FrappeTestCase):
 	def setUp(self):
 		super().setUp()
 		# caller_instance is a real Link field (-> BPMN Process Instance) and
@@ -76,9 +76,9 @@ class DevAgentSandboxCase(FrappeTestCase):
 
 	def tearDown(self):
 		for name in frappe.get_all(
-			"Dev Agent Sandbox Run", filters={"target_app": "one_bpmn"}, pluck="name"
+			"Agent Sandbox Run", filters={"target_app": "one_bpmn"}, pluck="name"
 		):
-			frappe.delete_doc("Dev Agent Sandbox Run", name, force=True, ignore_permissions=True, ignore_missing=True)
+			frappe.delete_doc("Agent Sandbox Run", name, force=True, ignore_permissions=True, ignore_missing=True)
 		frappe.delete_doc(
 			"BPMN Process Instance", self._test_instance.name,
 			force=True, ignore_permissions=True, ignore_missing=True,
@@ -86,19 +86,19 @@ class DevAgentSandboxCase(FrappeTestCase):
 		super().tearDown()
 
 
-class TestDispatchValidation(DevAgentSandboxCase):
+class TestDispatchValidation(AgentSandboxCase):
 	def test_missing_target_app_is_refused_before_anything_is_created(self):
-		with self.assertRaises(ops.DevAgentSandboxError):
+		with self.assertRaises(ops.AgentSandboxError):
 			ops.dispatch(self.params(target_app=""), self.ctx())
 		self.assertEqual(
-			frappe.db.count("Dev Agent Sandbox Run", {"target_app": "one_bpmn"}), 0,
+			frappe.db.count("Agent Sandbox Run", {"target_app": "one_bpmn"}), 0,
 			"a rejected dispatch must not leave a row behind",
 		)
 
 	def test_missing_sandbox_url_is_refused(self):
 		mock_settings = SimpleNamespace(dev_agent_sandbox_url="", get_password=lambda *a, **k: "")
 		with patch.object(frappe, "get_cached_doc", side_effect=_scoped_get_cached_doc(mock_settings)):
-			with self.assertRaises(ops.DevAgentSandboxError):
+			with self.assertRaises(ops.AgentSandboxError):
 				ops.dispatch(self.params(), self.ctx())
 
 	def test_missing_github_token_is_refused_and_marks_the_row_failed(self):
@@ -112,16 +112,16 @@ class TestDispatchValidation(DevAgentSandboxCase):
 			ops, "_resolve_agent_config",
 			return_value={"system_prompt": "test", "model": "claude-haiku-4-5-20251001", "api_key": "fake-key"},
 		):
-			with self.assertRaises(ops.DevAgentSandboxError):
+			with self.assertRaises(ops.AgentSandboxError):
 				ops.dispatch(self.params(), self.ctx())
 
 		row = frappe.get_doc(
-			"Dev Agent Sandbox Run", frappe.get_all("Dev Agent Sandbox Run", pluck="name")[0]
+			"Agent Sandbox Run", frappe.get_all("Agent Sandbox Run", pluck="name")[0]
 		)
 		self.assertEqual(row.state, "failed")
 
 
-class TestDispatchParking(DevAgentSandboxCase):
+class TestDispatchParking(AgentSandboxCase):
 	def _dispatch(self, response_status=202):
 		mock_settings = SimpleNamespace(
 			dev_agent_sandbox_url="https://sandbox.example.run.app",
@@ -145,13 +145,13 @@ class TestDispatchParking(DevAgentSandboxCase):
 		inside the call the way a quick HTTP connector might."""
 		result, ctx, _ = self._dispatch()
 		self.assertIsNone(result)
-		marker = ctx["task"].data[ops.DEV_AGENT_SANDBOX_WAITING_KEY]
+		marker = ctx["task"].data[ops.AGENT_SANDBOX_WAITING_KEY]
 		self.assertIn("run", marker)
 
 	def test_the_tracking_row_is_created_and_marked_running(self):
 		_result, ctx, _ = self._dispatch()
-		marker = ctx["task"].data[ops.DEV_AGENT_SANDBOX_WAITING_KEY]
-		row = frappe.get_doc("Dev Agent Sandbox Run", marker["run"])
+		marker = ctx["task"].data[ops.AGENT_SANDBOX_WAITING_KEY]
+		row = frappe.get_doc("Agent Sandbox Run", marker["run"])
 		self.assertEqual(row.state, "running")
 		self.assertEqual(row.target_app, "one_bpmn")
 		self.assertEqual(row.caller_wf_task_id, str(ctx["task"].id))
@@ -183,10 +183,10 @@ class TestDispatchParking(DevAgentSandboxCase):
 		), patch.object(ops, "_mint_identity_token", return_value="fake-token"), patch(
 			"requests.post", side_effect=ConnectionError("no route to host"),
 		):
-			with self.assertRaises(ops.DevAgentSandboxError):
+			with self.assertRaises(ops.AgentSandboxError):
 				ops.dispatch(self.params(), self.ctx())
 
 		row = frappe.get_doc(
-			"Dev Agent Sandbox Run", frappe.get_all("Dev Agent Sandbox Run", pluck="name")[0]
+			"Agent Sandbox Run", frappe.get_all("Agent Sandbox Run", pluck="name")[0]
 		)
 		self.assertEqual(row.state, "failed")

@@ -1,6 +1,6 @@
 # Copyright (c) 2026, one-fm and contributors
 # For license information, please see license.txt
-"""The ``dev_agent_sandbox`` connector — dispatches development work to the
+"""The ``agent_sandbox`` connector — dispatches development work to the
 external Cloud Run sandbox (the AI Dev Agent feature).
 
 No base URL or credential on the connector row: both are resolved inside
@@ -15,7 +15,7 @@ import frappe
 from one_bpmn.one_bpmn.connectors.seed import import_manifest
 
 DEV_AGENT_SANDBOX_CONNECTOR = {
-	"connectorId": "dev_agent_sandbox",
+	"connectorId": "agent_sandbox",
 	"label": "Dev Agent Sandbox",
 	"description": (
 		"Dispatch a development work order to the isolated Cloud Run sandbox: clone "
@@ -40,14 +40,14 @@ DEV_AGENT_SANDBOX_CONNECTOR = {
 				"and park this step until the sandbox answers or times out."
 			),
 			"executionType": "Python Handler",
-			"handlerPath": "one_bpmn.one_bpmn.connectors.dev_agent_sandbox_ops.dispatch",
+			"handlerPath": "one_bpmn.one_bpmn.connectors.agent_sandbox_ops.dispatch",
 			"fields": [
 				{
 					"name": "target_app",
 					"label": "Target app",
 					"type": "Dropdown",
 					"required": True,
-					"choicesSourcePath": "one_bpmn.one_bpmn.connectors.dev_agent_sandbox_ops.target_app_choices",
+					"choicesSourcePath": "one_bpmn.one_bpmn.connectors.agent_sandbox_ops.target_app_choices",
 					"help": "Which installed app's working tree the sandbox clones and tests.",
 				},
 				{
@@ -82,7 +82,7 @@ DEV_AGENT_SANDBOX_CONNECTOR = {
 				},
 			],
 			"output": {
-				"run": "The Dev Agent Sandbox Run record tracking this dispatch",
+				"run": "The Agent Sandbox Run record tracking this dispatch",
 				"state": "Final state: completed or failed",
 				"pr_url": "The opened pull request's URL, on a pass",
 			},
@@ -96,14 +96,14 @@ def execute():
 	# URL, no credential — those come from Processa Settings and a service
 	# account key), so re-applying cannot undo local configuration.
 	state = import_manifest(DEV_AGENT_SANDBOX_CONNECTOR, overwrite=True)
-	print(f"dev_agent_sandbox connector {state}")
+	print(f"agent_sandbox connector {state}")
 
 	operations = frappe.get_all(
-		"BPMN Connector Operation", filters={"connector": "dev_agent_sandbox"}, pluck="operation_id"
+		"BPMN Connector Operation", filters={"connector": "agent_sandbox"}, pluck="operation_id"
 	)
 	if not operations:
 		frappe.throw(
-			"The dev_agent_sandbox connector seeded with no operations — the modeler would show it as unusable."
+			"The agent_sandbox connector seeded with no operations — the modeler would show it as unusable."
 		)
 	print(f"  operations: {', '.join(operations)}")
 	frappe.clear_cache()

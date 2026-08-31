@@ -1,7 +1,7 @@
 """
 Dev Agent Write A2A Result never set A2A Task.state to a terminal value — it
 only wrote result/status_message. Every prior test's caller happened to be
-woken through a different path entirely (dev_agent_callback.py's own direct
+woken through a different path entirely (agent_callback.py's own direct
 _resume_waiting_agent call, fired when the SANDBOX calls back), so this went
 undetected all session: nothing before now had an outer caller depending on
 poll_a2a_tasks' scheduled reconciler, which is the ONLY thing that wakes a

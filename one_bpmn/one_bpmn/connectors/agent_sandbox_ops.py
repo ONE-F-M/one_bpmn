@@ -6,7 +6,7 @@ Mirrors a2a_client_ops.delegate_to_local_agent's parking shape (WI-001933),
 but the "remote" here is not another local agent or an A2A-protocol remote —
 it is an external Cloud Run service that clones an app into a disposable
 sandbox, runs its real test suite, and calls back with the result. That
-difference is why this tracks its own "Dev Agent Sandbox Run" doctype
+difference is why this tracks its own "Agent Sandbox Run" doctype
 instead of an A2A Task: forcing an HTTP service with a bespoke JSON contract
 through the A2A Remote Agent abstraction would misrepresent what it is.
 
@@ -39,11 +39,11 @@ from __future__ import annotations
 
 import frappe
 
-DEV_AGENT_SANDBOX_WAITING_KEY = "_bpmn_dev_agent_sandbox_waiting"
+AGENT_SANDBOX_WAITING_KEY = "_bpmn_agent_sandbox_waiting"
 _AGENT_CONFIG_NAME = "Dev Agent"
 
 
-class DevAgentSandboxError(Exception):
+class AgentSandboxError(Exception):
 	"""Raised for a dispatch failure the model should be told about plainly,
 	rather than one dispatch_connector's generic handler swallows silently."""
 
@@ -67,25 +67,25 @@ def dispatch(params: dict, ctx: dict) -> dict | None:
 
 	target_app = (params.get("target_app") or "").strip()
 	if not target_app:
-		raise DevAgentSandboxError("dispatch_to_sandbox needs a target_app to clone and test.")
+		raise AgentSandboxError("dispatch_to_sandbox needs a target_app to clone and test.")
 
 	git_branch = (params.get("git_branch") or "").strip()
 	if not git_branch:
-		raise DevAgentSandboxError("dispatch_to_sandbox needs a git_branch to start the work from.")
+		raise AgentSandboxError("dispatch_to_sandbox needs a git_branch to start the work from.")
 
 	work_item_description = (params.get("work_item_description") or "").strip()
 	if not work_item_description:
-		raise DevAgentSandboxError("dispatch_to_sandbox needs a work_item_description — the work order itself.")
+		raise AgentSandboxError("dispatch_to_sandbox needs a work_item_description — the work order itself.")
 
 	settings = frappe.get_cached_doc("Processa Settings")
 	sandbox_url = (settings.dev_agent_sandbox_url or "").strip().rstrip("/")
 	if not sandbox_url:
-		raise DevAgentSandboxError(
+		raise AgentSandboxError(
 			"Processa Settings has no Sandbox URL configured — the Dev Agent has nowhere to dispatch to."
 		)
 
 	run = frappe.get_doc({
-		"doctype": "Dev Agent Sandbox Run",
+		"doctype": "Agent Sandbox Run",
 		"state": "submitted",
 		"target_app": target_app,
 		"git_branch": git_branch,
@@ -98,14 +98,14 @@ def dispatch(params: dict, ctx: dict) -> dict | None:
 
 	try:
 		agent_config = _resolve_agent_config()
-	except DevAgentSandboxError:
+	except AgentSandboxError:
 		run.db_set({"state": "failed", "error_message": "Could not resolve a usable model/credential."}, update_modified=False)
 		raise
 
 	github_token = settings.get_password("github_token", raise_exception=False) or ""
 	if not github_token:
 		run.db_set({"state": "failed", "error_message": "No GitHub token configured — cannot deliver a PR."}, update_modified=False)
-		raise DevAgentSandboxError(
+		raise AgentSandboxError(
 			"Processa Settings has no GitHub token configured — the sandbox needs one to open the pull request itself."
 		)
 
@@ -132,7 +132,7 @@ def dispatch(params: dict, ctx: dict) -> dict | None:
 			message=frappe.get_traceback(),
 		)
 		run.db_set({"state": "failed", "error_message": "Could not authenticate to the sandbox."}, update_modified=False)
-		raise DevAgentSandboxError("Could not authenticate to the sandbox — check the service account configuration.")
+		raise AgentSandboxError("Could not authenticate to the sandbox — check the service account configuration.")
 
 	try:
 		import requests
@@ -150,7 +150,7 @@ def dispatch(params: dict, ctx: dict) -> dict | None:
 			message=frappe.get_traceback(),
 		)
 		run.db_set({"state": "failed", "error_message": str(exc)[:500]}, update_modified=False)
-		raise DevAgentSandboxError(f"The sandbox rejected the dispatch: {exc}")
+		raise AgentSandboxError(f"The sandbox rejected the dispatch: {exc}")
 
 	run.db_set("state", "running", update_modified=False)
 
@@ -158,7 +158,7 @@ def dispatch(params: dict, ctx: dict) -> dict | None:
 	# serves both — but this waiting marker is our own, never confused with
 	# a delegation waiting on another agent.
 	if task is not None:
-		task.data[DEV_AGENT_SANDBOX_WAITING_KEY] = {
+		task.data[AGENT_SANDBOX_WAITING_KEY] = {
 			"run": run.name,
 			"label": f"Dispatched {target_app}@{git_branch} to the Dev Agent sandbox",
 		}
@@ -177,19 +177,19 @@ def _resolve_agent_config() -> dict:
 	cfg = frappe.get_cached_doc("AI Agent Configuration", _AGENT_CONFIG_NAME)
 	model_name = (cfg.ai_model or "").strip()
 	if not model_name:
-		raise DevAgentSandboxError(f'"{_AGENT_CONFIG_NAME}" has no ai_model configured.')
+		raise AgentSandboxError(f'"{_AGENT_CONFIG_NAME}" has no ai_model configured.')
 
 	provider_name = frappe.db.get_value("AI Model", model_name, "provider")
 	if not provider_name:
-		raise DevAgentSandboxError(f"AI Model {model_name!r} has no linked provider.")
+		raise AgentSandboxError(f"AI Model {model_name!r} has no linked provider.")
 
 	provider = frappe.get_cached_doc("AI Provider", provider_name)
 	if not provider.enabled:
-		raise DevAgentSandboxError(f"AI Provider {provider_name!r} is disabled.")
+		raise AgentSandboxError(f"AI Provider {provider_name!r} is disabled.")
 
 	api_key = provider.get_password("api_key", raise_exception=False) or ""
 	if not api_key:
-		raise DevAgentSandboxError(f"AI Provider {provider_name!r} has no api_key configured.")
+		raise AgentSandboxError(f"AI Provider {provider_name!r} has no api_key configured.")
 
 	wire_model = frappe.db.get_value("AI Model", model_name, "model_api_name") or model_name
 
@@ -201,7 +201,7 @@ def _resolve_agent_config() -> dict:
 
 
 def _callback_url() -> str:
-	return frappe.utils.get_url("/api/method/one_bpmn.api.dev_agent_callback.report_result")
+	return frappe.utils.get_url("/api/method/one_bpmn.api.agent_callback.report_result")
 
 
 def _mint_identity_token(audience: str) -> str:
@@ -215,7 +215,7 @@ def _mint_identity_token(audience: str) -> str:
 
 	key_path = frappe.conf.get("dev_agent_gcp_service_account_key_path")
 	if not key_path:
-		raise DevAgentSandboxError(
+		raise AgentSandboxError(
 			"site_config.json has no dev_agent_gcp_service_account_key_path set."
 		)
 	credentials = service_account.IDTokenCredentials.from_service_account_file(

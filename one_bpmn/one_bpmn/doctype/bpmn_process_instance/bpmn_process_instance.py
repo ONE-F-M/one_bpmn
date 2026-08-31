@@ -568,9 +568,9 @@ class BPMNProcessInstance(Document):
 		    whose AI Task Selector decision was parked: re-run the engine with
 		    the resume target set so the decider executes exactly ONE LLM
 		    decision inline; the next decision parks again (one job per turn).
-		kind == "dev_agent_sandbox_result" — task_id is the SpiffWorkflow UUID
+		kind == "agent_sandbox_result" — task_id is the SpiffWorkflow UUID
 		    of a parked Service Task waiting on the external Cloud Run sandbox
-		    (dev_agent_sandbox_ops.dispatch): apply the Dev Agent Sandbox Run's
+		    (agent_sandbox_ops.dispatch): apply the Agent Sandbox Run's
 		    outcome and complete it. A still-running sandbox leaves it parked.
 
 		Downstream non-AI tasks reached after the AI completes run in this
@@ -629,7 +629,7 @@ class BPMNProcessInstance(Document):
 				self.waiting_for_ai = 0
 				self._on_engine_task_complete(task)
 				task.complete()
-			elif kind == "dev_agent_sandbox_result":
+			elif kind == "agent_sandbox_result":
 				# A dispatch to the external Cloud Run sandbox reached a
 				# terminal state. Same shape as a2a_result: apply the run's
 				# outcome to the parked Service Task and carry on; a still-
@@ -640,10 +640,10 @@ class BPMNProcessInstance(Document):
 					task = None
 				if task is None or task.state != TaskState.STARTED:
 					return  # already resolved elsewhere — idempotent no-op
-				marker = self._task_waiting_dev_agent_sandbox(task)
+				marker = self._task_waiting_agent_sandbox(task)
 				if not marker:
 					return
-				if not self._apply_dev_agent_sandbox_result(task, marker):
+				if not self._apply_agent_sandbox_result(task, marker):
 					return  # not terminal yet — stay parked
 				self.waiting_for_ai = 0
 				self._on_engine_task_complete(task)
@@ -910,7 +910,7 @@ class BPMNProcessInstance(Document):
 	# is waiting for its signed callback. Deliberately distinct from
 	# A2A_WAITING_KEY: this is not a delegation to another agent, it is a
 	# call to a bespoke external service with no A2A protocol involved.
-	DEV_AGENT_SANDBOX_WAITING_KEY = "_bpmn_dev_agent_sandbox_waiting"
+	AGENT_SANDBOX_WAITING_KEY = "_bpmn_agent_sandbox_waiting"
 
 	@staticmethod
 	def _task_waiting_a2a(task) -> dict | None:
@@ -924,15 +924,15 @@ class BPMNProcessInstance(Document):
 		return marker if isinstance(marker, dict) else None
 
 	@staticmethod
-	def _task_waiting_dev_agent_sandbox(task) -> dict | None:
-		"""The waiting-for-sandbox marker dev_agent_sandbox_ops.dispatch left
+	def _task_waiting_agent_sandbox(task) -> dict | None:
+		"""The waiting-for-sandbox marker agent_sandbox_ops.dispatch left
 		on task.data, or None. A marked task must not be re-dispatched or
 		completed — it leaves this state only through the
-		dev_agent_sandbox_result resume path."""
+		agent_sandbox_result resume path."""
 		data = getattr(task, "data", None)
 		if not isinstance(data, dict):
 			return None
-		marker = data.get(BPMNProcessInstance.DEV_AGENT_SANDBOX_WAITING_KEY)
+		marker = data.get(BPMNProcessInstance.AGENT_SANDBOX_WAITING_KEY)
 		return marker if isinstance(marker, dict) else None
 
 	@staticmethod
@@ -1045,9 +1045,9 @@ class BPMNProcessInstance(Document):
 
 		# Mirrors the "waits_on" == "a2a" case exactly, for a connector that
 		# parks the caller instead of delegating to another local agent —
-		# dev_agent_sandbox_ops.dispatch(), called as an ai_agent tool.
-		if marker.get("waits_on") == "dev_agent_sandbox":
-			self._bind_dev_agent_sandbox_wait(task, marker)
+		# agent_sandbox_ops.dispatch(), called as an ai_agent tool.
+		if marker.get("waits_on") == "agent_sandbox":
+			self._bind_agent_sandbox_wait(task, marker)
 			return
 
 		# The human shape's designer config (assignment mode, actions, label)
@@ -1336,16 +1336,16 @@ class BPMNProcessInstance(Document):
 			},
 		)
 
-	def _bind_dev_agent_sandbox_wait(self, task, marker: dict) -> None:
-		"""Bind a suspended agent to the Dev Agent Sandbox Run it is waiting on.
+	def _bind_agent_sandbox_wait(self, task, marker: dict) -> None:
+		"""Bind a suspended agent to the Agent Sandbox Run it is waiting on.
 
 		Mirrors _bind_a2a_wait exactly, for the same reason: this AI Agent
-		Run holds the checkpoint; the Dev Agent Sandbox Run row is what will
-		go terminal. dev_agent_callback.py's _enqueue_resume() checks
+		Run holds the checkpoint; the Agent Sandbox Run row is what will
+		go terminal. agent_callback.py's _enqueue_resume() checks
 		caller_agent_run to know to wake this suspended run (via the
 		checkpoint/human_resume path) instead of resuming a plain parked
-		Service Task (the kind="dev_agent_sandbox_result" path
-		_apply_dev_agent_sandbox_result already handles).
+		Service Task (the kind="agent_sandbox_result" path
+		_apply_agent_sandbox_result already handles).
 
 		caller_wf_task_id is reused here for a second purpose (this
 		suspended task's own id, a fallback if the checkpoint payload lacks
@@ -1354,13 +1354,13 @@ class BPMNProcessInstance(Document):
 		BEFORE ever reading caller_wf_task_id, so there is no ambiguity
 		about which meaning applies.
 		"""
-		run_name = marker.get("dev_agent_sandbox_run")
+		run_name = marker.get("agent_sandbox_run")
 		agent_run_name = marker.get("run") or ""
 		if not run_name:
 			return
 		try:
 			frappe.db.set_value(
-				"Dev Agent Sandbox Run",
+				"Agent Sandbox Run",
 				run_name,
 				{
 					"caller_agent_run": agent_run_name or None,
@@ -1379,9 +1379,9 @@ class BPMNProcessInstance(Document):
 			task_name=marker.get("label") or marker.get("tool") or "",
 			action="Started",
 			data={
-				"source": "ai_agent_dev_agent_sandbox_tool",
+				"source": "ai_agent_agent_sandbox_tool",
 				"agent_bpmn_id": getattr(task.task_spec, "bpmn_id", None) or task.task_spec.name,
-				"dev_agent_sandbox_run": run_name,
+				"agent_sandbox_run": run_name,
 				"arguments": marker.get("arguments") or {},
 			},
 		)
@@ -1441,21 +1441,21 @@ class BPMNProcessInstance(Document):
 			}
 		return True
 
-	def _apply_dev_agent_sandbox_result(self, task, marker: dict) -> bool:
-		"""Apply a Dev Agent Sandbox Run's outcome to its parked Service Task.
+	def _apply_agent_sandbox_result(self, task, marker: dict) -> bool:
+		"""Apply a Agent Sandbox Run's outcome to its parked Service Task.
 
 		Returns True when the task may now complete, False while the sandbox
 		run is still going (it stays parked). Mirrors _apply_a2a_result's
 		shape exactly — the row IS the record; nothing here trusts task.data
 		beyond the run name to look it up."""
-		from one_bpmn.one_bpmn.connectors.dev_agent_sandbox_ops import (
-			DEV_AGENT_SANDBOX_WAITING_KEY,
+		from one_bpmn.one_bpmn.connectors.agent_sandbox_ops import (
+			AGENT_SANDBOX_WAITING_KEY,
 		)
 
 		run_name = marker.get("run")
 		row = (
 			frappe.db.get_value(
-				"Dev Agent Sandbox Run",
+				"Agent Sandbox Run",
 				run_name,
 				["state", "pr_url", "error_message", "bpmn_id"],
 				as_dict=True,
@@ -1474,7 +1474,7 @@ class BPMNProcessInstance(Document):
 		result_var = task_cfg.get("resultVariable")
 		fail_on_error = str(task_cfg.get("failOnError") or "").lower() in ("1", "true", "yes")
 
-		task.data.pop(DEV_AGENT_SANDBOX_WAITING_KEY, None)
+		task.data.pop(AGENT_SANDBOX_WAITING_KEY, None)
 
 		if row.state == "completed":
 			if result_var:
@@ -1697,7 +1697,7 @@ class BPMNProcessInstance(Document):
 				and not isinstance(t.task_spec, SubWorkflowTask)
 				and not self._task_waiting_human(t)
 				and not self._task_waiting_a2a(t)
-				and not self._task_waiting_dev_agent_sandbox(t)
+				and not self._task_waiting_agent_sandbox(t)
 			]
 
 			# WI-001495: AI service tasks never dispatch inline — leave them
@@ -1733,8 +1733,8 @@ class BPMNProcessInstance(Document):
 				# The dispatch handed the work to the external Cloud Run
 				# sandbox and has not heard back yet. Leave this task STARTED;
 				# the sandbox's callback resumes it through
-				# kind="dev_agent_sandbox_result" (dev_agent_callback.py).
-				if self._task_waiting_dev_agent_sandbox(task):
+				# kind="agent_sandbox_result" (agent_callback.py).
+				if self._task_waiting_agent_sandbox(task):
 					self.waiting_for_ai = 1
 					continue
 				self._on_engine_task_complete(task)
@@ -2360,7 +2360,7 @@ def _enqueue_a2a_resume(instance_name: str, wf_task_id: str, a2a_task_name: str)
 	)
 
 
-def _enqueue_dev_agent_sandbox_resume(instance_name: str, wf_task_id: str, run_name: str) -> None:
+def _enqueue_agent_sandbox_resume(instance_name: str, wf_task_id: str, run_name: str) -> None:
 	"""Resume a parked Dev Agent Sandbox dispatch through the SAME worker
 	path AI tasks use — row lock, engine_in_progress gate, bounded retries
 	and Errored-on-exhaustion all come for free. Mirrors _enqueue_a2a_resume
@@ -2368,9 +2368,9 @@ def _enqueue_dev_agent_sandbox_resume(instance_name: str, wf_task_id: str, run_n
 	lives on."""
 	if not (instance_name and wf_task_id):
 		return
-	if run_name and frappe.db.exists("Dev Agent Sandbox Run", run_name):
+	if run_name and frappe.db.exists("Agent Sandbox Run", run_name):
 		frappe.db.set_value(
-			"Dev Agent Sandbox Run", run_name, "resume_enqueued", 1, update_modified=False
+			"Agent Sandbox Run", run_name, "resume_enqueued", 1, update_modified=False
 		)
 	frappe.enqueue(
 		"one_bpmn.one_bpmn.doctype.bpmn_process_instance"
@@ -2378,10 +2378,10 @@ def _enqueue_dev_agent_sandbox_resume(instance_name: str, wf_task_id: str, run_n
 		queue="bpmn_ai_agent",
 		timeout=600,
 		enqueue_after_commit=True,
-		job_id=f"bpmn-ai-{instance_name}-dev-agent-sandbox-{run_name}",
+		job_id=f"bpmn-ai-{instance_name}-agent-sandbox-{run_name}",
 		deduplicate=True,
 		instance_name=instance_name,
-		kind="dev_agent_sandbox_result",
+		kind="agent_sandbox_result",
 		task_id=wf_task_id,
 		run_as_user=frappe.session.user,
 	)

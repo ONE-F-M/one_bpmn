@@ -1,8 +1,8 @@
 # Copyright (c) 2026, one-fm and contributors
 # For license information, please see license.txt
-"""The ``dev_agent_repo`` connector — read-only GitHub access Dev Agent's
+"""The ``agent_repo`` connector — read-only GitHub access Dev Agent's
 own planning step uses to see a target app's actual source before proposing
-file changes. Mirrors seed_dev_agent_sandbox_connector.py's shape: no base
+file changes. Mirrors seed_agent_sandbox_connector.py's shape: no base
 URL or credential on the connector row, both resolved inside the handler
 from Processa Settings.
 """
@@ -12,7 +12,7 @@ import frappe
 from one_bpmn.one_bpmn.connectors.seed import import_manifest
 
 DEV_AGENT_REPO_CONNECTOR = {
-	"connectorId": "dev_agent_repo",
+	"connectorId": "agent_repo",
 	"label": "Dev Agent Repo",
 	"description": (
 		"Read-only GitHub access to a target app's source at a given branch — "
@@ -31,14 +31,14 @@ DEV_AGENT_REPO_CONNECTOR = {
 			"label": "Read file",
 			"description": "Read one file's content from the target app's repository at a given branch.",
 			"executionType": "Python Handler",
-			"handlerPath": "one_bpmn.one_bpmn.connectors.dev_agent_repo_ops.read_file",
+			"handlerPath": "one_bpmn.one_bpmn.connectors.agent_repo_ops.read_file",
 			"fields": [
 				{
 					"name": "target_app",
 					"label": "Target app",
 					"type": "Dropdown",
 					"required": True,
-					"choicesSourcePath": "one_bpmn.one_bpmn.connectors.dev_agent_repo_ops.target_app_choices",
+					"choicesSourcePath": "one_bpmn.one_bpmn.connectors.agent_repo_ops.target_app_choices",
 					"help": "Which installed app's repository to read from.",
 				},
 				{
@@ -69,14 +69,14 @@ DEV_AGENT_REPO_CONNECTOR = {
 			"label": "List files",
 			"description": "List file paths in the target app's repository at a given branch.",
 			"executionType": "Python Handler",
-			"handlerPath": "one_bpmn.one_bpmn.connectors.dev_agent_repo_ops.list_files",
+			"handlerPath": "one_bpmn.one_bpmn.connectors.agent_repo_ops.list_files",
 			"fields": [
 				{
 					"name": "target_app",
 					"label": "Target app",
 					"type": "Dropdown",
 					"required": True,
-					"choicesSourcePath": "one_bpmn.one_bpmn.connectors.dev_agent_repo_ops.target_app_choices",
+					"choicesSourcePath": "one_bpmn.one_bpmn.connectors.agent_repo_ops.target_app_choices",
 					"help": "Which installed app's repository to list.",
 				},
 				{
@@ -110,14 +110,14 @@ def execute():
 	# URL, no credential — those come from Processa Settings), so re-applying
 	# cannot undo local configuration.
 	state = import_manifest(DEV_AGENT_REPO_CONNECTOR, overwrite=True)
-	print(f"dev_agent_repo connector {state}")
+	print(f"agent_repo connector {state}")
 
 	operations = frappe.get_all(
-		"BPMN Connector Operation", filters={"connector": "dev_agent_repo"}, pluck="operation_id"
+		"BPMN Connector Operation", filters={"connector": "agent_repo"}, pluck="operation_id"
 	)
 	if not operations:
 		frappe.throw(
-			"The dev_agent_repo connector seeded with no operations — the modeler would show it as unusable."
+			"The agent_repo connector seeded with no operations — the modeler would show it as unusable."
 		)
 	print(f"  operations: {', '.join(operations)}")
 	frappe.clear_cache()

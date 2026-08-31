@@ -1,6 +1,6 @@
 # Copyright (c) 2026, one-fm and contributors
 # For license information, please see license.txt
-"""Dev Agent Sandbox Run — one record per dispatch to the external Cloud Run
+"""Agent Sandbox Run — one record per dispatch to the external Cloud Run
 sandbox (the "AI Dev Agent" feature).
 
 Deliberately not an A2A Task: the sandbox does not speak the A2A wire
@@ -20,7 +20,7 @@ import frappe
 from frappe.model.document import Document
 
 
-class DevAgentSandboxRun(Document):
+class AgentSandboxRun(Document):
 	def validate(self):
 		if self.state in ("completed", "failed") and not self.completed_at:
 			self.completed_at = frappe.utils.now_datetime()

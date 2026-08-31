@@ -93,7 +93,7 @@
    "fieldtype": "Column Break"
   },
   {
-   "description": "Set only when this run was dispatched from inside an ai_agent tool call (e.g. Dev Agent's own reasoning step calling dispatch_to_sandbox as a tool) rather than from a plain, top-level Service Task. When set, the callback resumes via the AI Agent Run's checkpoint (kind=\"human_resume\") instead of the kind=\"dev_agent_sandbox_result\" path caller_wf_task_id alone drives.",
+   "description": "Set only when this run was dispatched from inside an ai_agent tool call (e.g. Dev Agent's own reasoning step calling dispatch_to_sandbox as a tool) rather than from a plain, top-level Service Task. When set, the callback resumes via the AI Agent Run's checkpoint (kind=\"human_resume\") instead of the kind=\"agent_sandbox_result\" path caller_wf_task_id alone drives.",
    "fieldname": "caller_agent_run",
    "fieldtype": "Link",
    "label": "Caller Agent Run",
@@ -164,7 +164,7 @@
  "modified": "2026-08-25 00:00:00.000000",
  "modified_by": "Administrator",
  "module": "ONE BPMN",
- "name": "Dev Agent Sandbox Run",
+ "name": "Agent Sandbox Run",
  "owner": "Administrator",
  "permissions": [
   {

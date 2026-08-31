@@ -6,7 +6,7 @@ security shape, WI-001933's push endpoint).
 Reachable without a Frappe session — the sandbox has no user here — so an
 HMAC signature over the exact request body IS the gate, verified against
 Processa Settings.dev_agent_callback_secret (the same secret the sandbox
-was deployed with — see dev-agent-sandbox/deploy.py). Every failure returns
+was deployed with — see agent-sandbox/deploy.py). Every failure returns
 the same opaque answer: a caller must not be able to use this endpoint to
 learn which correlation ids exist or why a signature was rejected.
 
@@ -65,11 +65,11 @@ def report_result() -> dict:
 		return opaque
 
 	correlation_id = payload.get("correlation_id")
-	if not correlation_id or not frappe.db.exists("Dev Agent Sandbox Run", correlation_id):
+	if not correlation_id or not frappe.db.exists("Agent Sandbox Run", correlation_id):
 		# Deliberately indistinguishable from a signature failure.
 		return opaque
 
-	run = frappe.get_doc("Dev Agent Sandbox Run", correlation_id)
+	run = frappe.get_doc("Agent Sandbox Run", correlation_id)
 	if run.state in ("completed", "failed"):
 		return {"accepted": True}  # already settled — a replayed callback is a no-op
 
@@ -107,14 +107,14 @@ def _enqueue_resume(run) -> None:
 
 	- a plain, top-level parked Service Task on a diagram (the standalone
 	  Dev Agent map's own dispatch_to_sandbox step) → resume that step
-	  directly via kind="dev_agent_sandbox_result".
+	  directly via kind="agent_sandbox_result".
 	- an agent suspended mid-turn because it called dispatch_to_sandbox as
 	  an ai_agent tool (e.g. from Dev Agent's own instruction-parsing step)
 	  → hand the answer to its checkpoint and resume the agent, exactly as
 	  completing a human task does.
 
 	caller_agent_run is only ever set by the second case (see
-	bpmn_process_instance._bind_dev_agent_sandbox_wait), so checking it
+	bpmn_process_instance._bind_agent_sandbox_wait), so checking it
 	first is the whole routing decision.
 	"""
 	if run.caller_agent_run:
@@ -122,10 +122,10 @@ def _enqueue_resume(run) -> None:
 		return
 
 	from one_bpmn.one_bpmn.doctype.bpmn_process_instance.bpmn_process_instance import (
-		_enqueue_dev_agent_sandbox_resume,
+		_enqueue_agent_sandbox_resume,
 	)
 
-	_enqueue_dev_agent_sandbox_resume(run.caller_instance, run.caller_wf_task_id, run.name)
+	_enqueue_agent_sandbox_resume(run.caller_instance, run.caller_wf_task_id, run.name)
 
 
 def _resume_waiting_agent(run) -> None:
