@@ -96,7 +96,7 @@ class TestDispatchValidation(AgentSandboxCase):
 		)
 
 	def test_missing_sandbox_url_is_refused(self):
-		mock_settings = SimpleNamespace(dev_agent_sandbox_url="", get_password=lambda *a, **k: "")
+		mock_settings = SimpleNamespace(agent_sandbox_url="", get_password=lambda *a, **k: "")
 		with patch.object(frappe, "get_cached_doc", side_effect=_scoped_get_cached_doc(mock_settings)):
 			with self.assertRaises(ops.AgentSandboxError):
 				ops.dispatch(self.params(), self.ctx())
@@ -105,7 +105,7 @@ class TestDispatchValidation(AgentSandboxCase):
 		"""Checked after agent_config resolves but before the sandbox is ever
 		called — a dispatch that can't deliver a PR must not run at all."""
 		mock_settings = SimpleNamespace(
-			dev_agent_sandbox_url="https://sandbox.example.run.app",
+			agent_sandbox_url="https://sandbox.example.run.app",
 			get_password=lambda *a, **k: "",
 		)
 		with patch.object(frappe, "get_cached_doc", side_effect=_scoped_get_cached_doc(mock_settings)), patch.object(
@@ -124,7 +124,7 @@ class TestDispatchValidation(AgentSandboxCase):
 class TestDispatchParking(AgentSandboxCase):
 	def _dispatch(self, response_status=202):
 		mock_settings = SimpleNamespace(
-			dev_agent_sandbox_url="https://sandbox.example.run.app",
+			agent_sandbox_url="https://sandbox.example.run.app",
 			get_password=lambda *a, **k: "fake-github-token",
 		)
 		mock_response = MagicMock(status_code=response_status)
@@ -174,7 +174,7 @@ class TestDispatchParking(AgentSandboxCase):
 
 	def test_a_rejected_dispatch_marks_the_row_failed_and_raises(self):
 		mock_settings = SimpleNamespace(
-			dev_agent_sandbox_url="https://sandbox.example.run.app",
+			agent_sandbox_url="https://sandbox.example.run.app",
 			get_password=lambda *a, **k: "fake-github-token",
 		)
 		with patch.object(frappe, "get_cached_doc", side_effect=_scoped_get_cached_doc(mock_settings)), patch.object(

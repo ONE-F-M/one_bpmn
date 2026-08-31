@@ -78,7 +78,7 @@ def dispatch(params: dict, ctx: dict) -> dict | None:
 		raise AgentSandboxError("dispatch_to_sandbox needs a work_item_description — the work order itself.")
 
 	settings = frappe.get_cached_doc("Processa Settings")
-	sandbox_url = (settings.dev_agent_sandbox_url or "").strip().rstrip("/")
+	sandbox_url = (settings.agent_sandbox_url or "").strip().rstrip("/")
 	if not sandbox_url:
 		raise AgentSandboxError(
 			"Processa Settings has no Sandbox URL configured — the Dev Agent has nowhere to dispatch to."

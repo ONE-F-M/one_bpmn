@@ -5,7 +5,7 @@ security shape, WI-001933's push endpoint).
 
 Reachable without a Frappe session — the sandbox has no user here — so an
 HMAC signature over the exact request body IS the gate, verified against
-Processa Settings.dev_agent_callback_secret (the same secret the sandbox
+Processa Settings.agent_callback_secret (the same secret the sandbox
 was deployed with — see agent-sandbox/deploy.py). Every failure returns
 the same opaque answer: a caller must not be able to use this endpoint to
 learn which correlation ids exist or why a signature was rejected.
@@ -41,11 +41,11 @@ def report_result() -> dict:
 	# mismatch even though both sides held what looked like the identical
 	# secret. Symmetric with the .strip() on CALLBACK_HMAC_SECRET in
 	# dev_agent_server.py.
-	secret = (frappe.get_cached_doc("Processa Settings").get_password("dev_agent_callback_secret") or "").strip()
+	secret = (frappe.get_cached_doc("Processa Settings").get_password("agent_callback_secret") or "").strip()
 	if not secret:
 		frappe.log_error(
 			title="Dev Agent Sandbox: callback rejected — no callback secret configured",
-			message="Processa Settings.dev_agent_callback_secret is blank.",
+			message="Processa Settings.agent_callback_secret is blank.",
 		)
 		return opaque
 
