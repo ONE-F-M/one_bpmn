@@ -27,13 +27,13 @@ class TestMemoryModelConfig(FrappeTestCase):
 	@classmethod
 	def setUpClass(cls):
 		super().setUpClass()
-		cls.credentials = frappe.db.get_value("AI Provider Credentials", {}, "name")
+		cls.credentials = frappe.db.get_value("AI Provider", {}, "name")
 
 	def setUp(self):
 		self._cleanup()
 		for model in (MODEL_CHAT, MODEL_DISTILL, MODEL_RECONCILE, MODEL_GLOBAL):
 			frappe.get_doc(
-				{"doctype": "AI Model", "model_name": model, "ai_provider_credentials": self.credentials}
+				{"doctype": "AI Model", "model_name": model, "provider": self.credentials}
 			).insert(ignore_permissions=True)
 		self.agent = frappe.get_doc(
 			{
@@ -361,14 +361,15 @@ class TestTheMemoryModelBringsItsOwnProvider(FrappeTestCase):
 		# An existing provider rather than a fabricated one: AI Provider
 		# Credentials carries mandatory connection fields, and this test is about
 		# which provider a MODEL points at, not about credentials.
-		self.provider = frappe.db.get_value("AI Provider Credentials", {}, "name")
+		self.provider = frappe.db.get_value("AI Provider", {}, "name")
 		if not self.provider:
-			self.skipTest("no AI Provider Credentials on this site")
+			self.skipTest("no AI Provider on this site")
 		if not frappe.db.exists("AI Model", self.MODEL):
 			frappe.get_doc({
 				"doctype": "AI Model",
+				"enable_model": 1,
 				"model_name": self.MODEL,
-				"ai_provider_credentials": self.provider,
+				"provider": self.provider,
 			}).insert(ignore_permissions=True)
 			frappe.db.commit()
 		self.addCleanup(self._purge)

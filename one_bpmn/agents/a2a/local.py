@@ -30,7 +30,7 @@ from __future__ import annotations
 import frappe
 from frappe import _
 
-from one_bpmn.agents.a2a import execute, guardrails
+from one_bpmn.agents.a2a import delegation, execute, guardrails
 
 TARGET_FIELDS = (
 	"name",
@@ -40,7 +40,6 @@ TARGET_FIELDS = (
 	"lifecycle_status",
 	"agent_type",
 	"process_model",
-	"delegation_deadline_minutes",
 )
 
 DEFAULT_DEADLINE_MINUTES = 240
@@ -96,6 +95,7 @@ def delegate(
 	input_assignee: str | None = None,
 	input_role: str | None = None,
 	deadline_minutes: int | None = None,
+	required_capability: str | None = None,
 ):
 	"""Hand a task to a local agent. Returns the A2A Task row.
 
@@ -104,17 +104,27 @@ def delegate(
 	"""
 	config = resolve_target(target)
 	counters = guardrails.next_counters(parent_task)
-	# The agent doing the work knows best how long it needs; a step may still
-	# override, and 240 minutes is the backstop.
+	# The DELEGATING agent's limit, never the worker's. delegation_deadline_minutes
+	# sits beside max_recursion_depth, max_task_handoffs and max_delegation_retries
+	# on the orchestrator's configuration, and it is enforced the same way: locally,
+	# by the party that has to notice the work is not coming back. Reading it off
+	# the target instead let a worker grant itself more time than the orchestrator
+	# allowed — 1 minute configured on the orchestrator, 60 on the worker, and the
+	# delegation ran to 60.
+	#
+	# A step may still override for a single delegation (the shape's
+	# timeout_minutes), and 240 minutes is the backstop when nobody says.
 	minutes = (
 		frappe.utils.cint(deadline_minutes)
-		or frappe.utils.cint(config.get("delegation_deadline_minutes"))
+		or guardrails.deadline_minutes_for(delegating_agent)
 		or DEFAULT_DEADLINE_MINUTES
 	)
 	# Always enforced, even with no delegating agent to attribute it to: the
 	# target still has to be one that accepts agent-to-agent work.
 	try:
-		guardrails.enforce(delegating_agent, config.name, counters)
+		guardrails.enforce(
+			delegating_agent, config.name, counters, required_capability=required_capability
+		)
 	except guardrails.DelegationRefused as refusal:
 		# A limit breach leaves a failed task and tells a person (WI-002008);
 		# an off-the-list target is a configuration mistake that never became
@@ -135,6 +145,16 @@ def delegate(
 				instance=caller_instance,
 				a2a_task=breach,
 			)
+		# WI-002053: and say which limit, and what it reached. The notify above
+		# tells a person; this is what is still there afterwards.
+		delegation.record_refusal(
+			refusal,
+			delegating_agent=delegating_agent,
+			target=config.name,
+			a2a_task=breach,
+			counters=counters,
+			instance=caller_instance,
+		)
 		raise
 
 	task = frappe.get_doc(
@@ -161,6 +181,10 @@ def delegate(
 	)
 	task.flags.ignore_links = True
 	task.insert(ignore_permissions=True)
+
+	# Recorded before the worker runs, not after: a delegation whose worker
+	# fails or hangs is exactly the one someone needs to be able to find.
+	delegation.record(task, delegating_agent=delegating_agent, instruction=instruction)
 
 	execute.run_for_task(task, config, instruction)
 	task.reload()

@@ -18,7 +18,7 @@
   "can_create_agents",
   "agent_creation_process",
   "ai_model",
-  "ai_provider_credentials",
+  "ai_provider",
   "llm_settings_section",
   "column_break_llm",
   "temperature",
@@ -60,6 +60,9 @@
   "memory_distill_model",
   "column_break_memory_models",
   "memory_reconcile_model",
+  "identity_section",
+  "agent_user",
+  "agent_roles",
   "security_section",
   "pii_screening",
   "output_screening_mode",
@@ -84,6 +87,7 @@
   "delegation_deadline_minutes",
   "column_break_guardrails",
   "max_delegation_retries",
+  "max_clarification_rounds",
   "evaluation_section",
   "sample_prompts",
   "needs_attention_reason"
@@ -161,6 +165,7 @@
   {
    "fieldname": "process_owner",
    "fieldtype": "Link",
+   "ignore_user_permissions": 1,
    "label": "Process Owner",
    "options": "User"
   },
@@ -262,7 +267,7 @@
    "label": "Observability"
   },
   {
-   "description": "LangSmith project name for this agent. Leave blank to use the global project from AI Chat Settings.",
+   "description": "LangSmith project name for this agent. Leave blank to use the global project from Processa Settings.",
    "fieldname": "langsmith_project",
    "fieldtype": "Data",
    "label": "LangSmith Project"
@@ -299,11 +304,11 @@
    "options": "AI Model"
   },
   {
-   "description": "Derived from the chosen AI Model's credentials link \u2014 pick a model to change it.",
-   "fieldname": "ai_provider_credentials",
+   "description": "Derived from the linked AI Model \u2014 the model is the pick, its provider follows. Supplies the API key and the request dialect for every call this agent makes.",
+   "fieldname": "ai_provider",
    "fieldtype": "Link",
-   "label": "AI Provider Credentials",
-   "options": "AI Provider Credentials",
+   "label": "AI Provider",
+   "options": "AI Provider",
    "read_only": 1
   },
   {
@@ -380,6 +385,28 @@
    "options": "AI Agent Allowed Role"
   },
   {
+   "description": "Who this agent acts as when its tools change something, and what it is allowed to change. Always shown, whatever kind of agent this is \u2014 a Background agent is the one most likely to need a role, and these fields used to be hidden on exactly those.",
+   "fieldname": "identity_section",
+   "fieldtype": "Section Break",
+   "label": "Identity & Permissions"
+  },
+  {
+   "description": "The identity this agent acts as. Created automatically and never logged into by a person: what an agent changed is attributable to the agent, and its write access is granted and revoked here rather than in code. Distinct from Allowed Roles, which says who may INVOKE the agent.",
+   "fieldname": "agent_user",
+   "fieldtype": "Link",
+   "ignore_user_permissions": 1,
+   "label": "Agent User",
+   "options": "User",
+   "read_only": 1
+  },
+  {
+   "description": "What this agent may do when its tools write. Its user holds exactly these roles \u2014 adding one grants a permission, removing one revokes it, with no deployment. Leave empty and the agent can read what everyone can read and change nothing.",
+   "fieldname": "agent_roles",
+   "fieldtype": "Table",
+   "label": "Roles the Agent Holds",
+   "options": "AI Agent Allowed Role"
+  },
+  {
    "description": "Controls applied to this agent's traffic before it reaches a model provider.",
    "fieldname": "security_section",
    "fieldtype": "Section Break",
@@ -419,17 +446,17 @@
    "options": "Log\nFlag\nBlock"
   },
   {
+   "description": "How hard this agent pushes back: how fast one user may talk to it, and how many blocked attempts it tolerates before freezing the conversation. Both are per-agent \u2014 a limit that suits a chat assistant throttles a batch agent to a standstill \u2014 and both are governed by the one switch below. Who may RELEASE a freeze stays site-wide, on Processa Settings.",
    "fieldname": "section_rate_limit",
    "fieldtype": "Section Break",
-   "label": "Rate Limiting & Freeze",
-   "description": "How hard this agent pushes back: how fast one user may talk to it, and how many blocked attempts it tolerates before freezing the conversation. Both are per-agent \u2014 a limit that suits a chat assistant throttles a batch agent to a standstill \u2014 and both are governed by the one switch below. Who may RELEASE a freeze stays site-wide, on Processa Settings."
+   "label": "Rate Limiting & Freeze"
   },
   {
    "default": "1",
+   "description": "The switch for this whole section \u2014 both the throttle and the freeze. Off exempts this agent only, not the site, and means no throttling AND no freezing. A conversation already frozen stays frozen until a reviewer releases it.",
    "fieldname": "rate_limit_enabled",
    "fieldtype": "Check",
-   "label": "Enable Rate Limiting",
-   "description": "The switch for this whole section \u2014 both the throttle and the freeze. Off exempts this agent only, not the site, and means no throttling AND no freezing. A conversation already frozen stays frozen until a reviewer releases it."
+   "label": "Enable Rate Limiting"
   },
   {
    "default": "20",
@@ -452,12 +479,12 @@
    "label": "Window (seconds)"
   },
   {
+   "default": "3",
    "depends_on": "eval:doc.rate_limit_enabled",
+   "description": "Blocked attempts by one user against THIS agent before the conversation is frozen and a reviewer has to release it. Counted per ATTEMPT: one message that trips several rules is one strike. 0 disables the freeze while leaving the throttle on. To keep the freeze WITHOUT a throttle, set Messages Per Window to 0 instead of unticking Enable Rate Limiting.",
    "fieldname": "lock_after_blocks",
    "fieldtype": "Int",
-   "label": "Freeze After N Blocked Attempts",
-   "default": "3",
-   "description": "Blocked attempts by one user against THIS agent before the conversation is frozen and a reviewer has to release it. Counted per ATTEMPT: one message that trips several rules is one strike. 0 disables the freeze while leaving the throttle on. To keep the freeze WITHOUT a throttle, set Messages Per Window to 0 instead of unticking Enable Rate Limiting."
+   "label": "Freeze After N Blocked Attempts"
   },
   {
    "depends_on": "eval:doc.rate_limit_enabled",
@@ -592,14 +619,14 @@
   },
   {
    "default": "0",
-   "description": "Leave off and this agent may hand work to any agent exposed over A2A — normally what you want, since the tools drawn on its process map already decide who it actually calls. Tick it only to narrow that to a named few.",
+   "description": "Leave off and this agent may hand work to any agent exposed over A2A \u2014 normally what you want, since the tools drawn on its process map already decide who it actually calls. Tick it only to narrow that to a named few.",
    "fieldname": "restrict_delegates",
    "fieldtype": "Check",
    "label": "Restrict Delegation to Specific Agents"
   },
   {
    "depends_on": "eval:doc.restrict_delegates",
-   "description": "The only agents this agent may hand work to while the restriction above is on. Each entry is an INDEPENDENT agent with its own configuration, map and lifecycle — this list grants permission to delegate, it does not create or own a child agent. Add, remove or reorder freely; the change takes effect immediately, with no code push and no restart.",
+   "description": "The only agents this agent may hand work to while the restriction above is on. Each entry is an INDEPENDENT agent with its own configuration, map and lifecycle \u2014 this list grants permission to delegate, it does not create or own a child agent. Add, remove or reorder freely; the change takes effect immediately, with no code push and no restart.",
    "fieldname": "allowed_delegates",
    "fieldtype": "Table",
    "label": "Allowed Delegates",
@@ -613,7 +640,7 @@
   },
   {
    "default": "5",
-   "description": "Maximum parent-to-sub-agent nesting level (A → B → C = 3). Exceeding it stops the chain instead of looping.",
+   "description": "Maximum parent-to-sub-agent nesting level (A \u2192 B \u2192 C = 3). Exceeding it stops the chain instead of looping.",
    "fieldname": "max_recursion_depth",
    "fieldtype": "Int",
    "label": "Max Recursion Depth",
@@ -646,6 +673,13 @@
    "fieldtype": "Int",
    "label": "Max Delegation Retries",
    "non_negative": 1
+  },
+  {
+   "default": "0",
+   "description": "How many times this agent may ask the story owner about one piece of work before it stops asking and the question is raised with the process owner instead. 0 means no limit. Worth setting: the measured failure of an agent allowed to ask is over-asking \u2014 a question that adds friction without improving the outcome.",
+   "fieldname": "max_clarification_rounds",
+   "fieldtype": "Int",
+   "label": "Max Clarification Rounds"
   }
  ],
  "index_web_pages_for_search": 1,

@@ -135,6 +135,7 @@ class BPMNProcessInstance(Document):
 			context_docname=self.context_docname,
 			script_task_extensions=self._script_task_extensions,
 			initiated_by=self.initiated_by or frappe.session.user,
+			instance=self,
 		)
 
 		frappe.flags.bpmn_engine_action = True
@@ -151,6 +152,7 @@ class BPMNProcessInstance(Document):
 		bpmn_engine.clean_doc_from_wf_data(wf)
 		self.workflow_state = json.dumps(bpmn_engine.serialize_workflow(wf))
 		self.serialized_spec = model.serialized_spec  # snapshot of spec at start time
+		self._sync_call_activity_rows(wf)
 		self.status = "Active"
 		self.started_at = now_datetime()
 		self.initiated_by = frappe.session.user
@@ -207,6 +209,8 @@ class BPMNProcessInstance(Document):
 		_script_exts = _spec_snap.get("script_task_extensions", {})
 		self._service_task_extensions = _spec_snap.get("service_task_extensions", {})
 		self._user_task_extensions = _spec_snap.get("user_task_extensions", {})
+		# Also refresh on the instance itself — not just fed to the script engine.
+		self._script_task_extensions = _script_exts
 		self._refresh_user_task_extensions_from_model()
 
 		wf = bpmn_engine.restore_workflow(
@@ -215,6 +219,7 @@ class BPMNProcessInstance(Document):
 			context_docname=self.context_docname,
 			script_task_extensions=_script_exts,
 			initiated_by=self.initiated_by or "Administrator",
+			instance=self,
 		)
 
 		# Always refresh the context doc so conditional events see latest data
@@ -291,6 +296,7 @@ class BPMNProcessInstance(Document):
 		# Strip non-serializable Frappe doc objects before persisting state
 		bpmn_engine.clean_doc_from_wf_data(wf)
 		self.workflow_state = json.dumps(bpmn_engine.serialize_workflow(wf))
+		self._sync_call_activity_rows(wf)
 
 		# Rebuild active tasks
 		self._sync_active_tasks(wf, prev_assigned=prev_assigned)
@@ -446,8 +452,18 @@ class BPMNProcessInstance(Document):
 		Returns:
 		    list of dicts describing the next active tasks
 
+		Also sets ``self.flags.bpmn_message_caught`` — True when a waiting task
+		actually took the message, False when nothing was listening. Callers that
+		need to know the difference must read the flag: an uncaught message is
+		NOT an error here (see below), so the return value looks identical either
+		way.
+
 		Raises:
-		    frappe.ValidationError: if instance is not Active or message not caught
+		    frappe.ValidationError: if the instance is already Completed or
+		        Cancelled, or the message name is missing. Note that a message
+		        nothing is waiting for does NOT raise — it is logged and
+		        ignored, because a document event firing while an instance sits
+		        elsewhere is normal.
 		"""
 		if self.status in ("Completed", "Cancelled"):
 			frappe.throw(
@@ -467,6 +483,8 @@ class BPMNProcessInstance(Document):
 		_script_exts = _spec_snap.get("script_task_extensions", {})
 		self._service_task_extensions = _spec_snap.get("service_task_extensions", {})
 		self._user_task_extensions = _spec_snap.get("user_task_extensions", {})
+		# Also refresh on the instance itself — not just fed to the script engine.
+		self._script_task_extensions = _script_exts
 		self._refresh_user_task_extensions_from_model()
 
 		wf = bpmn_engine.restore_workflow(
@@ -475,6 +493,7 @@ class BPMNProcessInstance(Document):
 			context_docname=self.context_docname,
 			script_task_extensions=_script_exts,
 			initiated_by=self.initiated_by or "Administrator",
+			instance=self,
 		)
 
 		# Refresh context doc so downstream conditions see latest data
@@ -489,6 +508,9 @@ class BPMNProcessInstance(Document):
 
 		# ── Deliver the message ──────────────────────────────────────────────
 		caught = bpmn_engine.send_message(wf, message_name, payload=payload)
+		# Whether anything took it. Uncaught is benign and does not raise, so a
+		# caller cannot tell from the return value alone.
+		self.flags.bpmn_message_caught = bool(caught)
 
 		if not caught:
 			# No task is waiting for this message (e.g. a document event fired
@@ -520,6 +542,7 @@ class BPMNProcessInstance(Document):
 		# ── Persist (same as advance) ────────────────────────────────────────
 		bpmn_engine.clean_doc_from_wf_data(wf)
 		self.workflow_state = json.dumps(bpmn_engine.serialize_workflow(wf))
+		self._sync_call_activity_rows(wf)
 
 		self._sync_active_tasks(wf, prev_assigned=prev_assigned)
 		self._check_completion(wf)
@@ -560,6 +583,8 @@ class BPMNProcessInstance(Document):
 		_script_exts = _spec_snap.get("script_task_extensions", {})
 		self._service_task_extensions = _spec_snap.get("service_task_extensions", {})
 		self._user_task_extensions = _spec_snap.get("user_task_extensions", {})
+		# Also refresh on the instance itself — not just fed to the script engine.
+		self._script_task_extensions = _script_exts
 		self._refresh_user_task_extensions_from_model()
 
 		wf = bpmn_engine.restore_workflow(
@@ -568,6 +593,7 @@ class BPMNProcessInstance(Document):
 			context_docname=self.context_docname,
 			script_task_extensions=_script_exts,
 			initiated_by=self.initiated_by or "Administrator",
+			instance=self,
 		)
 
 		if self.context_doctype and self.context_docname:
@@ -651,6 +677,7 @@ class BPMNProcessInstance(Document):
 		# ── Persist (same as advance) ────────────────────────────────────────
 		bpmn_engine.clean_doc_from_wf_data(wf)
 		self.workflow_state = json.dumps(bpmn_engine.serialize_workflow(wf))
+		self._sync_call_activity_rows(wf)
 
 		self._sync_active_tasks(wf, prev_assigned=prev_assigned)
 		self._check_completion(wf)
@@ -981,7 +1008,17 @@ class BPMNProcessInstance(Document):
 			self._user_task_extensions = _spec_snap.get("user_task_extensions", {})
 		self._refresh_user_task_extensions_from_model()
 		shape_cfg = getattr(self, "_user_task_extensions", {}).get(shape_id, {}) or {}
-		label = marker.get("label") or shape_cfg.get("label") or shape_id
+		# The shape's DRAWN NAME, not its id. Falling straight through to the id
+		# put "ask_story_owner" in front of a person — in the Actions menu on their
+		# work item, and as the task's name everywhere it is listed. The label is
+		# already extracted for every human tool at compile time, so it only had to
+		# be looked up.
+		label = (
+			marker.get("label")
+			or shape_cfg.get("label")
+			or self._human_tool_label(task, shape_id)
+			or shape_id
+		)
 
 		row_id = f"{self.AI_HUMAN_PREFIX}{frappe.generate_hash(length=10)}"
 
@@ -1059,6 +1096,47 @@ class BPMNProcessInstance(Document):
 				)
 		self.waiting_for_human = label
 
+		# WI-002050: write the question down. The suspension alone leaves it only
+		# in the run's transcript, so "what was it unsure about, and what did we
+		# tell it" has no answer once the conversation is gone.
+		from one_bpmn.agents import clarification
+
+		# Which agent asked, read off the AI task that suspended — the same place
+		# the guardrails read it from, so the name on the record is the name the
+		# limits are enforced against.
+		_ai_bpmn_id = getattr(task.task_spec, "bpmn_id", None) or task.task_spec.name
+		_ai_cfg = (getattr(self, "_service_task_extensions", {}) or {}).get(_ai_bpmn_id) or {}
+
+		clarification.record_question(
+			instance=self,
+			human_task_id=row_id,
+			agent_configuration=_ai_cfg.get("aiAgentConfig"),
+			agent_run=run_name,
+			arguments=arguments,
+			label=label,
+			assigned_user=assigned_user,
+		)
+
+	def _human_tool_label(self, task, shape_id: str) -> str:
+		"""The name drawn on a human tool shape, off the AI task that offered it.
+
+		compile_process_model already records it — every human descriptor in
+		aiToolShapes carries the shape's ``name`` as ``label`` — so this reads what
+		is there rather than parsing the diagram again.
+		"""
+		try:
+			bpmn_id = getattr(task.task_spec, "bpmn_id", None) or task.task_spec.name
+			cfg = (getattr(self, "_service_task_extensions", {}) or {}).get(bpmn_id) or {}
+			shapes = cfg.get("aiToolShapes") or "[]"
+			if isinstance(shapes, str):
+				shapes = json.loads(shapes)
+			for shape in shapes:
+				if isinstance(shape, dict) and shape.get("bpmn_id") == shape_id:
+					return (shape.get("label") or "").strip()
+		except Exception:
+			pass
+		return ""
+
 	def complete_ai_human_task(self, task_id: str, data: dict = None) -> None:
 		"""Complete a pending AI human task and hand its output to the
 		suspended agent (resume runs as a bpmn_ai_agent job).
@@ -1112,6 +1190,14 @@ class BPMNProcessInstance(Document):
 		}
 		for user in prev_assigned - still_assigned:
 			remove_frappe_assignment(self, user, status="Closed")
+
+		# WI-002050: close the record before the agent gets the answer, so the
+		# pair is on the document whatever the agent then decides to do with it —
+		# including deciding it still does not resolve the ambiguity and asking
+		# again.
+		from one_bpmn.agents import clarification
+
+		clarification.record_answer(instance=self, human_task_id=task_id, data=data)
 
 		# The human's output becomes the pending tool call's result.
 		_checkpoint.store_human_result(run_name, data)
@@ -1640,7 +1726,7 @@ class BPMNProcessInstance(Document):
 			data=dict(task.data),
 		)
 
-	def _dispatch_service_task(self, task):
+	def _dispatch_service_task(self, task, task_cfg_override: dict | None = None):
 		"""
 		Execute the real-world action for a STARTED ServiceTask before
 		marking it complete.
@@ -1648,6 +1734,14 @@ class BPMNProcessInstance(Document):
 		Reads the ``service_task_extensions`` dict that was embedded into the
 		serialized spec at compile time and dispatches to the appropriate
 		handler based on ``serviceType``.
+
+		``task_cfg_override``: used only by ``shape_tools.execute_shape`` for an
+		ad-hoc "AI agent call" that has no corresponding real Service Task shape
+		in the diagram — e.g. a Script Task tool routing its own inline LLM call
+		through the tracked ``dispatch_ai_agent`` path (WI: Logix sub-prompt
+		observability) instead of hand-rolling one. Every normal engine call
+		site passes only ``task``, so ``bpmn_id`` lookup into the compiled
+		extensions dict stays the sole source of config there, unchanged.
 
 		Returns:
 		    True  — task was handled; caller should mark it complete.
@@ -1658,9 +1752,12 @@ class BPMNProcessInstance(Document):
 		    apply_workflow — Apply a Frappe Workflow state transition to the
 		                     context document, with full permission checking.
 		"""
-		extensions = getattr(self, "_service_task_extensions", {})
 		bpmn_id = getattr(task.task_spec, "bpmn_id", None) or ""
-		task_cfg = extensions.get(bpmn_id, {})
+		if task_cfg_override is not None:
+			task_cfg = task_cfg_override
+		else:
+			extensions = getattr(self, "_service_task_extensions", {})
+			task_cfg = extensions.get(bpmn_id, {})
 
 		service_type = task_cfg.get("serviceType", "")
 
@@ -1748,61 +1845,26 @@ class BPMNProcessInstance(Document):
 		elif service_type == "ai_agent":
 			dispatch_ai_agent(self, task, task_cfg, bpmn_id)
 
-		elif service_type == "langgraph_node":
-			self._dispatch_langgraph_node(task, task_cfg, bpmn_id)
-
 		return True  # default: complete the task
 
-	def _dispatch_langgraph_node(self, task, task_cfg, bpmn_id):
-		"""Run one LangGraph node as a BPMN service task (BA Agent).
+	def _sync_call_activity_rows(self, wf) -> None:
+		"""Keep a visible Process Instance row for each Call Activity this run makes.
 
-		The graph itself lives in onefm_mcp — this branch used to import
-		``one_bpmn.one_bpmn.bpmn_bridge``, a module that has never existed in
-		this app, so every BA Agent turn died on ImportError before reaching
-		a node (WI-001678). The real bridge exposes ONE entry point built for
-		this dispatcher: ``run_turn_step`` owns state (de)serialisation, node
-		dispatch and end-of-turn persistence; all we do is shuttle its dict
-		in and out of task.data and bridge sync/async.
+		A called process executes as a subworkflow of this instance, so without
+		this it has no run of its own to open — Software Development had produced
+		1,913 runs and one single Orchestrator Agent instance. The row is a
+		projection of state this instance has just persisted, so it adds a record
+		and never a second execution.
 
-		``lg_next_node`` is what the map's gateways read to route
-		architect → tools → product_manager → output, so it must land in
-		task.data even on the turn's last step (where it reads "END").
+		Called after the state assignment rather than folded into it, because in
+		``start()`` the row copies ``serialized_spec`` and that is assigned on the
+		following line.
 		"""
-		try:
-			from onefm_mcp.agents.langgraph.user_planning_agent import bpmn_bridge
-		except ImportError:
-			frappe.throw(
-				_("This agent's graph lives in onefm_mcp, which is not installed on this site."),
-				title=_("LangGraph bridge unavailable"),
-			)
+		from one_bpmn.one_bpmn.doctype.bpmn_process_instance.call_activity_instances import (
+			sync_call_activity_instances,
+		)
 
-		from one_bpmn.agents.executor.direct_api import _run_coro_blocking
-
-		if self.context_doctype != "Chat Conversation" or not self.context_docname:
-			frappe.throw(
-				_("A LangGraph node runs against a Chat Conversation; this instance has {0}.").format(
-					self.context_doctype or _("no context document")
-				)
-			)
-
-		data = task.data if isinstance(task.data, dict) else {}
-		try:
-			updates = _run_coro_blocking(
-				bpmn_bridge.run_turn_step(
-					self.context_docname,
-					self.initiated_by or frappe.session.user,
-					task_cfg.get("agentNode", ""),
-					data,
-				)
-			)
-		except Exception:
-			frappe.log_error(
-				title=f"BPMN ServiceTask: langgraph_node failed for task {bpmn_id}",
-				message=frappe.get_traceback(),
-			)
-			raise  # bubble up so the instance can be marked Errored
-
-		task.data.update(updates or {})
+		sync_call_activity_instances(self, wf)
 
 	def _sync_active_tasks(self, wf, prev_assigned=None):
 		"""

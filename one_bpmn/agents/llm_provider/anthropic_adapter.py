@@ -46,6 +46,28 @@ def _build_tool_def(tool: ToolSpec) -> dict:
     }
 
 
+# Anthropic rejects an empty text or tool_result block outright:
+#   400 invalid_request_error: "messages: text content blocks must be non-empty"
+#
+# An empty block is a normal thing to end up with, not a programming error. A
+# delegated worker that stops at its turn cap returns no text, so its answer
+# arrives here as "", and on resume that becomes an empty tool_result — killing
+# the whole turn with an opaque 400 instead of letting the model read "the
+# specialist returned nothing" and say so. Seen exactly that way: two
+# orchestrator runs failed with 0 tokens while every uncapped run succeeded.
+#
+# Saying so in words is strictly better than crashing, and the model can act on
+# it. Applied to user text and tool results, the two places content arrives from
+# outside this module; assistant text is already guarded by a truthiness check,
+# because a tool-call-only turn legitimately has none.
+_EMPTY_PLACEHOLDER = "(no content was returned)"
+
+
+def _nonempty(value) -> str:
+    text = "" if value is None else str(value)
+    return text if text.strip() else _EMPTY_PLACEHOLDER
+
+
 class AnthropicAdapter(BaseLLMAdapter):
     """
     Anthropic Messages API adapter with prompt caching.
@@ -295,7 +317,9 @@ class AnthropicAdapter(BaseLLMAdapter):
             if role == "user":
                 messages.append({
                     "role": "user",
-                    "content": [{"type": "text", "text": entry.get("content", "")}],
+                    "content": [
+                        {"type": "text", "text": _nonempty(entry.get("content"))}
+                    ],
                 })
             elif role == "assistant":
                 blocks = []
@@ -314,7 +338,7 @@ class AnthropicAdapter(BaseLLMAdapter):
                     {
                         "type": "tool_result",
                         "tool_use_id": r.get("id", ""),
-                        "content": r.get("content", ""),
+                        "content": _nonempty(r.get("content")),
                     }
                     for r in entry.get("results") or []
                 ]

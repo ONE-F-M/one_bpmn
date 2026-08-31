@@ -25,7 +25,7 @@
 			class="bg-amber-50 text-amber-800 text-sm rounded-lg px-4 py-3"
 		>
 			<span class="font-medium">Cost may be under-reported.</span>
-			These models have no active AI Model Pricing row, so their spend counts as $0.00:
+			These models have no rate card on their AI Model, so their spend counts as $0.00:
 			<span class="font-mono text-xs">{{ missingPricing.join(", ") }}</span>
 		</div>
 

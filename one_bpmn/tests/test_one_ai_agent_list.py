@@ -41,13 +41,13 @@ class TestOneAiAgentList(FrappeTestCase):
 	def test_the_list_is_the_lumina_set_in_order(self):
 		_config("lucrusher_agent", "LuCrusher", icon="💥")
 		_config("lumina_general_chat", "General Chat", icon="💬")
-		_config("ba_agent", "BA Agent", icon="📋")
+		_config("ba_architect", "BA Agent", icon="📋")
 
 		agents = list_one_ai_agents()
 
 		self.assertEqual(
 			[a["agent_id"] for a in agents],
-			["lumina_general_chat", "ba_agent", "lucrusher_agent"],
+			["lumina_general_chat", "ba_architect", "lucrusher_agent"],
 			"the picker follows ONE_AI_AGENT_IDS order, not insertion order",
 		)
 		self.assertEqual([a["icon"] for a in agents], ["💬", "📋", "💥"])
@@ -73,7 +73,7 @@ class TestOneAiAgentList(FrappeTestCase):
 
 	def test_a_missing_or_dormant_agent_is_simply_absent(self):
 		_config("lumina_general_chat", "General Chat", lifecycle_status="Draft")
-		_config("ba_agent", "BA Agent", enabled=0)
+		_config("ba_architect", "BA Agent", enabled=0)
 		# lucrusher_agent has no configuration on this site at all
 
 		self.assertEqual(list_one_ai_agents(), [])
@@ -96,9 +96,9 @@ class TestOneAiAgentList(FrappeTestCase):
 	def test_an_agent_without_a_map_is_still_offered(self):
 		# These modes may run on the langgraph or direct-api runner, which
 		# need no diagram — gating them on one would empty the page.
-		_config("ba_agent", "BA Agent", agent_framework="LangGraph")
+		_config("ba_architect", "BA Agent", agent_framework="LangGraph")
 
-		self.assertEqual([a["agent_id"] for a in list_one_ai_agents()], ["ba_agent"])
+		self.assertEqual([a["agent_id"] for a in list_one_ai_agents()], ["ba_architect"])
 
 
 class TestOneAiConversationList(FrappeTestCase):

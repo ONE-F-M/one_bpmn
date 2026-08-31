@@ -60,6 +60,23 @@ def read_file(*, token: str, repo: str, path: str, ref: str) -> str | None:
 	return base64.b64decode(existing["content"]).decode("utf-8")
 
 
+def branch_exists(*, token: str, repo: str, branch: str) -> bool:
+	"""True when ``branch`` is present on ``repo``.
+
+	Lets a caller PREFER a base branch without having to assume it exists. A PR
+	opened against a missing base fails deep inside pull-request creation, on the
+	ref lookup, and surfaces as a bare GitHub 404 — which reads as "GitHub is
+	broken" rather than "this repository has no staging branch". Since the
+	receiving repository is configurable, not having one is a normal state rather
+	than a fault, and the caller needs to be able to tell the difference before
+	committing to it.
+	"""
+	ref = _request(
+		"GET", f"{_API}/repos/{repo}/git/ref/heads/{branch}", token, ok=(200, 404)
+	)
+	return bool(ref and (ref.get("object") or {}).get("sha"))
+
+
 def open_customization_pr(
 	*,
 	token: str,

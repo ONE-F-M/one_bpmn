@@ -41,6 +41,15 @@ app_include_js = [
 	"/assets/one_bpmn/js/one_ai_loader.js",
 	"/assets/one_bpmn/js/bpmn_form_actions.js?v=4",
 	"/assets/one_bpmn/js/bpmn_list_indicator.js",
+	# WI-002050: an agent's question appears on the document it is about, whatever
+	# that document is. Loaded for every form rather than bound to one doctype:
+	# the clarification record names a doctype and a document, so it was never
+	# Work-Item-specific, and the moment an agent is pointed at anything else a
+	# question about it has to surface on that thing. The script asks once which
+	# doctypes have ever had a question asked about them and does nothing on the
+	# rest, so a form nobody has ever asked about costs no round trip.
+	# ?v= as above — a plain path gets no automatic cache-busting.
+	"/assets/one_bpmn/js/ai_clarification_on_document.js?v=1",
 ]
 
 # include js, css files in header of web template
@@ -149,9 +158,19 @@ has_permission = {
 # ---------------
 # Override standard doctype classes
 
-# override_doctype_class = {
-# 	"ToDo": "custom_app.overrides.CustomToDo"
-# }
+# WI-002055: the jobs that WAKE parked agent work get a queue of their own.
+# Frappe derives a scheduled job's queue from its frequency alone, so a Cron job
+# is always on "default" — shared here with 172 other enabled jobs. A long job
+# ahead of them means a finished delegation still reads as running and a passed
+# deadline goes unnoticed until it clears. Agent turns already have their own
+# worker for this reason; this gives the same to the clock that wakes them.
+#
+# Our three methods only. Every other scheduled job on the site falls through to
+# Frappe's own behaviour, and ours fall back to "default" unless the site
+# actually declares the queue — so this is safe to deploy before the worker.
+override_doctype_class = {
+	"Scheduled Job Type": "one_bpmn.overrides.scheduled_job_type.ProcessaScheduledJobType",
+}
 
 # Document Events
 # ---------------
@@ -167,6 +186,13 @@ _BPMN_TRIGGER = "one_bpmn.one_bpmn.trigger.on_doc_event"
 # Documents with NO active BPMN instance are completely unaffected.
 _BPMN_GUARD   = "one_bpmn.one_bpmn.trigger.guard_bpmn_document"
 _BPMN_DELETE  = "one_bpmn.one_bpmn.trigger.delete_linked_bpmn_instances"
+
+# Exposes turn_state.get_turn as a Jinja global for aiUserPrompt templates.
+jinja = {
+	"methods": [
+		"one_bpmn.agents.turn_state.get_turn",
+	]
+}
 
 doc_events = {
 	"*": {
@@ -230,6 +256,10 @@ scheduler_events = {
 		],
 		"0 * * * *": [
 			"one_bpmn.tasks.close_stale_chat_instances",
+			# WI-002050: chase a question nobody has answered. Hourly rather than
+			# by the minute because the thing being waited on is a person reading
+			# their notifications, and it never resolves the question itself.
+			"one_bpmn.tasks.chase_unanswered_clarifications",
 		],
 	}
 }

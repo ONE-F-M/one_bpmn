@@ -130,7 +130,7 @@ def _memory_write_mode(task_cfg: dict) -> str:
 
 
 def _provider_for_model(model: str | None, fallback: str) -> str:
-	"""The AI Provider Credentials that actually serves *model*.
+	"""The AI Provider that actually serves *model*.
 
 	The dispatcher used to send the AGENT's provider with whatever memory model
 	was configured, on the stated assumption that "the provider/backend still
@@ -145,14 +145,14 @@ def _provider_for_model(model: str | None, fallback: str) -> str:
 	turn. Agents whose memory model happened to match their provider (Docu,
 	Logix) wrote memories perfectly, which is what made it look agent-specific.
 
-	Falls back to the agent's provider when the model has no record or no
-	credentials link — that is the old behaviour, and it is right for a model
-	the agent already runs.
+	Falls back to the agent's provider when the model has no record or names no
+	provider — that is the old behaviour, and it is right for a model the agent
+	already runs.
 	"""
 	if not model:
 		return fallback
 	try:
-		owner = frappe.db.get_value("AI Model", model, "ai_provider_credentials")
+		owner = frappe.db.get_value("AI Model", model, "provider")
 		return owner or fallback
 	except Exception:
 		return fallback
@@ -829,6 +829,44 @@ def dispatch_push_notification(instance, task, task_cfg: dict, bpmn_id: str) -> 
 		)
 
 
+def _emails_from_doc_field(val) -> list:
+	"""Turn one recipient field's value into email addresses.
+
+	A recipient field holds either an address or a USER, and the two cannot be
+	treated the same. ``owner``, ``modified_by`` and any Link to User hold a user
+	id, which is *usually* the address but is not guaranteed to be: the obvious
+	case is ``Administrator``, and a site can carry users whose id and email
+	differ.
+
+	This used to accept a value only when it contained "@", so those users were
+	dropped in silence — the task logged "no recipients resolved" and sent
+	nothing while the configuration looked perfectly correct. A user field that
+	cannot deliver is worse than one that is not offered, so anything without an
+	"@" is looked up as a user before being given up on.
+
+	Returns a list because a field may hold several comma-separated addresses,
+	and because "no usable recipient" is then an empty list rather than a special
+	case for the caller to remember.
+	"""
+	if not val:
+		return []
+
+	found = []
+	for part in str(val).split(","):
+		part = part.strip()
+		if not part:
+			continue
+		if "@" in part:
+			found.append(part)
+			continue
+		# Not an address — try it as a user id. A value that is neither (a Link to
+		# some other doctype, say) simply resolves to nothing and is skipped.
+		email = frappe.db.get_value("User", part, "email")
+		if email and "@" in email:
+			found.append(email)
+	return found
+
+
 def dispatch_email(instance, task, task_cfg: dict, amp_html: str = None) -> None:
 	"""
 	Send an email notification from a Service Task with serviceType='send_email'.
@@ -882,16 +920,14 @@ def dispatch_email(instance, task, task_cfg: dict, amp_html: str = None) -> None
 	if raw_to:
 		recipients += [e.strip() for e in raw_to.split(",") if e.strip()]
 
-	# 2. Document field values (fields on doc that contain email addresses)
+	# 2. Document field values (fields on doc naming a recipient)
 	raw_fields = task_cfg.get("emailToDocFields", "")
 	if raw_fields and doc:
 		for field_name in raw_fields.split(","):
 			field_name = field_name.strip()
 			if not field_name:
 				continue
-			val = doc.get(field_name, "")
-			if val and "@" in str(val):
-				recipients.append(str(val).strip())
+			recipients += _emails_from_doc_field(doc.get(field_name))
 
 	# 3. Role members — fetch all users with the configured roles
 	raw_roles = task_cfg.get("emailToRoles", "")
@@ -1126,7 +1162,7 @@ def dispatch_ai_agent(instance, task, task_cfg: dict, bpmn_id: str, resume_run: 
 	# and false of everything else in it: the overlay is also where the PROVIDER
 	# and MODEL come from for any shape that carries no copies of its own.
 	# Without them a resumed run reached the executor with provider_name="" and
-	# died on "AI Provider Credentials '' not found" — so a human step on such an
+	# died on "AI Provider '' not found" — so a human step on such an
 	# agent could be completed and never continued. The prompt is the one key
 	# held back, because the checkpoint's copy is authoritative for a
 	# conversation already in flight.
@@ -1318,6 +1354,8 @@ def dispatch_ai_agent(instance, task, task_cfg: dict, bpmn_id: str, resume_run: 
 	config = ExecutorConfig(
 		backend          = task_cfg.get("aiBackend", "direct_api"),
 		provider_name    = task_cfg.get("aiProvider", ""),
+		# The config actually resolved for this dispatch — create_ai_run's primary attribution source.
+		agent_config_name = task_cfg.get("aiAgentConfig", ""),
 		model            = task_cfg.get("aiModel", ""),
 		system_prompt    = system_prompt,
 		user_prompt      = user_prompt,
@@ -1402,6 +1440,22 @@ def dispatch_ai_agent(instance, task, task_cfg: dict, bpmn_id: str, resume_run: 
 	from one_bpmn.security.tool_policy import reset_current_agent, set_current_agent
 
 	_policy_token = set_current_agent(task_cfg.get("aiAgentConfig"))
+
+	# WI-002053: and publish it as the DELEGATING agent, so a delegation made
+	# from one of this agent's tool shapes is attributed to the agent rather
+	# than to the map it happens to be running inside.
+	#
+	# a2a_client_ops._delegating_agent() already looks for this attribute, but
+	# nothing ever set it, so it fell through to "the agent whose process_model
+	# this instance is". That works for an agent running its OWN map and fails
+	# silently for an orchestrator invoked as a Call Activity: the instance is
+	# then Software Development's, which is no agent's map, so the delegating
+	# agent resolved to None — and with None, guardrails_for() returns DEFAULTS
+	# instead of the agent's configured limits, and may_delegate_to() returns
+	# True without consulting restrict_delegates at all. The limits and the
+	# allow-list were both quietly absent on exactly the production path.
+	_prev_delegating_agent = getattr(instance, "_a2a_delegating_agent", None)
+	instance._a2a_delegating_agent = task_cfg.get("aiAgentConfig")
 	try:
 		executor_cls = get_executor(config.backend)
 		result = executor_cls().run(config, context)
@@ -1423,6 +1477,9 @@ def dispatch_ai_agent(instance, task, task_cfg: dict, bpmn_id: str, resume_run: 
 		# Must clear on BOTH paths — a leaked agent id would apply this agent's
 		# tool grant to whatever runs next in this worker.
 		reset_current_agent(_policy_token)
+		# Restored rather than deleted: an agent task nested inside another
+		# agent's map must hand identity back, not blank it.
+		instance._a2a_delegating_agent = _prev_delegating_agent
 	_exec_latency_ms = int((_time.time() - _exec_start) * 1000)
 
 	# ── Durable HITL: token totals are cumulative across suspensions ───
@@ -1504,6 +1561,38 @@ def dispatch_ai_agent(instance, task, task_cfg: dict, bpmn_id: str, resume_run: 
 			title=f"AI Observability: instrumentation error ({bpmn_id})",
 			message=frappe.get_traceback(),
 		)
+
+	# ── Stopped at its turn cap, and this agent was delegated to ───────
+	# WI-002053. hit_turn_cap already exists and goal_completion already reads
+	# it as Not Achieved, but nobody was ever told. A worker that ran out of
+	# turns returns whatever partial text it had, which at a glance is
+	# indistinguishable from finishing — so the caller accepted an unfinished
+	# answer and the process moved on.
+	#
+	# Only escalated when this instance IS a delegated worker: its context
+	# document is the A2A Task that asked for the work. An agent hitting its cap
+	# in an ordinary process is a different conversation and not this story's.
+	if getattr(result, "hit_turn_cap", False) and instance.context_doctype == "A2A Task":
+		try:
+			from one_bpmn.agents.a2a import delegation
+
+			delegation.stopped_at_limit(
+				a2a_task=instance.context_docname,
+				reason="turn_cap",
+				limit_value=cint(task_cfg.get("aiMaxToolCalls")),
+				reached_value=cint(task_cfg.get("aiMaxToolCalls")),
+				detail=(
+					"The agent used every tool-calling turn it was allowed and never "
+					"produced a final answer, so anything it did return is partial."
+				),
+				instance=instance.name,
+				worker_agent=task_cfg.get("aiAgentConfig"),
+			)
+		except Exception:
+			frappe.log_error(
+				title=f"AI Agent Task: turn-cap escalation failed ({bpmn_id})",
+				message=frappe.get_traceback(),
+			)
 
 	# ── Results ────────────────────────────────────────────────────────
 	if result.error_code == ErrorCode.SUSPENDED:

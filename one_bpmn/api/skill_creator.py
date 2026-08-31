@@ -55,9 +55,9 @@ def harvest_skill_from_run(run_name: str) -> str:
     Creates a new Draft AI Skill and returns its name.
 
     US 7: uses whichever LLM provider the run's own agent is configured
-    with (via AI Provider Credentials / AI Chat Settings resolution) rather
-    than hard-requiring a separate Gemini credential - so harvesting works
-    out of the box with whatever provider is actually set up on the site.
+    with (via AI Provider resolution) rather than hard-requiring a separate
+    Gemini credential - so harvesting works out of the box with whatever
+    provider is actually set up on the site.
     """
     run = frappe.get_doc("AI Agent Run", run_name)
     transcript = _build_transcript(run)

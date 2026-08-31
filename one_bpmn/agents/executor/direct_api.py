@@ -157,21 +157,21 @@ class DirectApiExecutor(Executor):
         # -------------------------------
         
         try:
-            provider = frappe.get_doc("AI Provider Credentials", config.provider_name)
+            provider = frappe.get_doc("AI Provider", config.provider_name)
         except frappe.DoesNotExistError:
             return ExecutorResult(
                 error_code=ErrorCode.PROVIDER_NOT_FOUND,
-                error_message=f"AI Provider Credentials '{config.provider_name}' not found.",
+                error_message=f"AI Provider '{config.provider_name}' not found.",
             )
 
         if not provider.enabled:
             return ExecutorResult(
                 error_code=ErrorCode.PROVIDER_DISABLED,
-                error_message=f"AI Provider Credentials '{config.provider_name}' is disabled. ({provider})",
+                error_message=f"AI Provider '{config.provider_name}' is disabled.",
             )
 
         try:
-            api_key = frappe.utils.password.get_decrypted_password("AI Provider Credentials", config.provider_name, "api_key") or ""
+            api_key = frappe.utils.password.get_decrypted_password("AI Provider", config.provider_name, "api_key") or ""
         except Exception:
             api_key = ""
 
@@ -184,7 +184,7 @@ class DirectApiExecutor(Executor):
             return ExecutorResult(
                 error_code=ErrorCode.PROVIDER_DISABLED,
                 error_message=(
-                    f"AI Provider Credentials '{config.provider_name}' has no API key set. "
+                    f"AI Provider '{config.provider_name}' has no API key set. "
                     f"Open that record and enter the {provider.provider_type or 'provider'} API key."
                 ),
             )
@@ -194,12 +194,19 @@ class DirectApiExecutor(Executor):
         if not endpoint:
             endpoint = self._DEFAULT_ENDPOINTS.get(provider_type, "")
 
-        # WI-001655: credentials no longer carry a default model. The model
-        # comes from the config (the agent's catalog pick, resolved upstream);
-        # the last-resort fallback is any catalog model linked to this record.
+        # The model comes from the config (the agent's catalog pick, resolved
+        # upstream); the last-resort fallback is any ENABLED catalog model on
+        # this provider. Enabled matters now that the catalog holds models kept
+        # only for their rate card — an unpriced, disabled row is not something
+        # to fall back onto.
         model = config.model or frappe.db.get_value(
-            "AI Model", {"ai_provider_credentials": provider.name}, "name"
+            "AI Model", {"provider": provider.name, "enable_model": 1}, "name"
         ) or ""
+
+        # What the provider's API calls this model, when that differs from the
+        # catalog name agents pick.
+        if model:
+            model = frappe.db.get_value("AI Model", model, "model_api_name") or model
 
         # WI-001356: with tools present, delegate to the matching
         # agents/llm_provider adapter's multi-turn tool-calling loop. With
@@ -330,7 +337,7 @@ class DirectApiExecutor(Executor):
     # Request builders
     # ------------------------------------------------------------------
 
-    # Map AI Provider Credentials.provider_type values to agents/llm_provider factory
+    # Map AI Provider.provider_type values to agents/llm_provider factory
     # keys. Absence means no adapter exists for that provider type — with
     # tools requested that is an explicit error, never a silent fallback to
     # the tool-less raw HTTP path.

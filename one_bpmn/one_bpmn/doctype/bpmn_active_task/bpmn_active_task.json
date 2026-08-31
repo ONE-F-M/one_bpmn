@@ -40,7 +40,8 @@
    "fieldtype": "Select",
    "in_list_view": 1,
    "label": "Task Type",
-   "options": "User Task\nScript Task\nService Task\nSend Task\nManual Task"
+   "options": "User Task\nScript Task\nService Task\nSend Task\nManual Task\nAI Human Task",
+   "description": "AI Human Task is a question an agent asked a person \u2014 written by the durable-HITL path since WI-001643 but missing from these options, so the value the code stores was one the form said was invalid."
   },
   {
    "fieldname": "status",

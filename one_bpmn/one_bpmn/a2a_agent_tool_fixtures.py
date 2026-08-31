@@ -495,7 +495,7 @@ def _reserve_agent(name: str, agent_id: str) -> None:
 	agent.agent_type = "Background"
 	agent.agent_framework = "Direct API"
 	agent.enabled = 1
-	agent.ai_provider_credentials = PROVIDER
+	agent.ai_provider = PROVIDER
 	agent.ai_model = MODEL
 	agent.system_prompt = SYSTEM_PROMPT
 	agent.flags.ignore_permissions = True
@@ -513,7 +513,7 @@ def _upsert_llm_agent(name: str, agent_id: str, model: str, description: str) ->
 	frappe.db.set_value(
 		"AI Agent Configuration",
 		agent,
-		{"ai_provider_credentials": PROVIDER, "ai_model": MODEL, "system_prompt": SYSTEM_PROMPT},
+		{"ai_provider": PROVIDER, "ai_model": MODEL, "system_prompt": SYSTEM_PROMPT},
 		update_modified=False,
 	)
 	return agent

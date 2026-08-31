@@ -30,13 +30,13 @@ def _runner_for(config: dict) -> str:
 	if config.get("process_model"):
 		return "bpmn_map"
 	framework = (config.get("agent_framework") or "").strip().lower()
-	# "anthropic" has no legacy runner left: every Anthropic-framework agent
-	# (Docu, Logix, ProsAlly, LuCrusher) is map-driven and takes the branch
-	# above, so a config claiming Anthropic without a map is a misconfiguration
-	# and falls through to the single-shot path rather than a dead import.
+	# Neither "anthropic" nor "langgraph" has a legacy runner left: every agent
+	# on either framework (Docu, Logix, ProsAlly, LuCrusher, and now the BA
+	# Agent) is map-driven and takes the branch above, so a config claiming one
+	# of them without a map is a misconfiguration and falls through to the
+	# single-shot path rather than a dead import.
 	return {
 		"google adk": "adk_stage_agent",
-		"langgraph": "langgraph",
 		"direct api": "direct_api",
 	}.get(framework, "direct_api")
 
@@ -145,11 +145,12 @@ def list_available_agents(include_legacy: int = 1) -> list:
 
 	The list is a query over enabled, Live, Chat-type AI Agent
 	Configurations, filtered by each agent's allowed_roles (empty = all
-	logged-in users). During the transition — until the legacy Lumina-page
-	agents (General Chat, BA Agent) are migrated to Live configs — the
+	logged-in users). During the transition — until the last legacy Lumina-page
+	agent (General Chat) is migrated to a Live config — the
 	hardcoded set is unioned in so the chat dropdown never empties. LuCrusher
-	left that set in WI-001634: it is a Live, map-driven config now and is
-	listed from the query like every other migrated agent.
+	and the BA Agent have both left that set: they are Live, map-driven configs
+	and are listed from the query like every other migrated agent, leaving
+	General Chat as the last legacy entry.
 	Each entry: {value (chat mode label), label, icon, agent_id}.
 	"""
 	agents, seen = [], set()
@@ -183,7 +184,7 @@ def list_available_agents(include_legacy: int = 1) -> list:
 		seen.add(cfg.chat_mode_label)
 
 	if int(include_legacy or 0):
-		for label, icon in (("General Chat", "💬"), ("BA Agent", "📋")):
+		for label, icon in (("General Chat", "💬"),):
 			if label not in seen:
 				agents.append({"value": label, "label": label, "icon": icon, "agent_id": None, "legacy": True})
 
@@ -193,7 +194,12 @@ def list_available_agents(include_legacy: int = 1) -> list:
 # The ONE AI page is the Lumina page's successor, so it offers the Lumina
 # page's own modes and nothing else — LUMINA_NATIVE_MODES in onefm_mcp's
 # lumina.py, expressed here as agent ids. Order is the picker's order.
-ONE_AI_AGENT_IDS = ("lumina_general_chat", "ba_agent", "lucrusher_agent")
+# ``ba_architect`` and not "ba_agent": the id here was a guess at what the BA
+# Agent's configuration would be called, no such record ever existed, and the
+# lookup below silently dropped the agent from the page. The record's real id is
+# ``ba_architect`` — "BA Agent" is its chat_mode_label, which is the same
+# label-versus-id trap LuCrusher hit.
+ONE_AI_AGENT_IDS = ("lumina_general_chat", "ba_architect", "lucrusher_agent")
 
 
 @frappe.whitelist()
@@ -223,9 +229,9 @@ def list_one_ai_agents() -> list:
 		)
 		if not cfg or not cfg.chat_mode_label:
 			continue
-		# The deployed-diagram gate applies only to map-driven agents: these
-		# modes may run on the langgraph or direct-api runner, which need no
-		# diagram at all (see _runner_for).
+		# The deployed-diagram gate applies only to map-driven agents: a mode
+		# may still run on the direct-api runner, which needs no diagram at all
+		# (see _runner_for).
 		if cfg.process_model and not frappe.db.get_value(
 			"BPMN Process Model", cfg.process_model, "is_active"
 		):
@@ -514,24 +520,6 @@ def _run_adk_stage_agent(config, conversation, message, context, stream=False):
 	)
 
 
-def _run_langgraph(config, conversation, message, context, stream=False):
-	"""BA Agent. Its graph runner lives in onefm_mcp; call through when present.
-
-	WI-001670: the ``stream`` flag now passes through instead of being forced
-	to False. That hard-coded False made this runner unable to run the BA
-	agent at all — ``send_message_with_agent`` throws "BA Agent only supports
-	streaming mode" on non-streaming calls. With stream=True the runner hands
-	back the agent's event generator for the shared AG-UI stream to relay."""
-	try:
-		from onefm_mcp.onefm_mcp.page.lumina.lumina import send_message_with_agent
-	except Exception:
-		frappe.throw(_("The LangGraph runner for '{0}' is unavailable.").format(config["agent_id"]))
-	resp = send_message_with_agent(conversation, message, stream=stream)
-	if _is_stream(resp):
-		return resp
-	return resp if isinstance(resp, dict) else {"response": str(resp or "")}
-
-
 def _run_direct_api(config, conversation, message, context, stream=False):
 	"""Single-shot / general chat. Persists the turn and calls the adapter's
 	own (async) tool-calling loop for one exchange."""
@@ -551,7 +539,6 @@ def _run_direct_api(config, conversation, message, context, stream=False):
 _RUNNERS = {
 	"bpmn_map": _run_bpmn_map,
 	"adk_stage_agent": _run_adk_stage_agent,
-	"langgraph": _run_langgraph,
 	"direct_api": _run_direct_api,
 }
 

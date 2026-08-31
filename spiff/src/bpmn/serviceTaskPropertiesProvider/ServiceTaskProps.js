@@ -613,18 +613,20 @@ function EmailToDocFieldsComponent(props) {
 			onInput: (e) => modeling.updateModdleProperties(element, bo, {
 				"spiffworkflow:emailToDocFields": e.target.value || undefined,
 			}),
-			placeholder: translate("e.g. employee_email, manager_email"),
-			hint: translate("Set a DocType above to get a field picker. Otherwise, enter comma-separated field names."),
+			placeholder: translate("e.g. owner, employee_email"),
+			hint: translate("Set a DocType above to get a field picker. Otherwise, enter comma-separated field names — 'owner' sends to whoever created the document."),
 		});
 	}
 
-	// Fetch fields from the source DocType that can contain email addresses
+	// Any field that can NAME a recipient: owner/modified_by, any Link to User,
+	// and text fields holding an address. Filtering happens on the server, from
+	// meta rather than the raw schema — get_doctype_fields could offer neither
+	// the standard user columns nor Custom Fields, so it both buried the picker
+	// in unusable fields and hid the ones that work.
 	const fetchDocFields = (txt) => {
-		return frappeGet("/api/method/one_bpmn.api.utils.get_doctype_fields", {
+		return frappeGet("/api/method/one_bpmn.api.utils.get_recipient_docfields", {
 			doctype: sourceDoctype,
 			search_text: txt || "",
-			fieldtype_in: JSON.stringify(["Data", "Link", "Small Text", "Read Only"]),
-			include_options: 1,
 		});
 	};
 
@@ -637,8 +639,14 @@ function EmailToDocFieldsComponent(props) {
 		}),
 		fetchApi: fetchDocFields,
 		valueField: "fieldname",
-		renderOption: (opt) => `${opt.label || opt.fieldname} (${opt.fieldname})`,
-		placeholder: translate("Select fields that contain email addresses"),
+		// Say WHICH kind of field this is: a user field is resolved to that
+		// user's email at send time, so "owner" reads as a valid choice rather
+		// than a mistake.
+		renderOption: (opt) => {
+			const name = `${opt.label || opt.fieldname} (${opt.fieldname})`;
+			return opt.kind === "user" ? `${name} — user` : name;
+		},
+		placeholder: translate("Select user or email fields"),
 		itemLabel: "field",
 	});
 }

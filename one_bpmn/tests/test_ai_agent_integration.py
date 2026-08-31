@@ -13,7 +13,7 @@ Coverage:
   (2) FAILED_MODEL_CALL: executor returns error → error variables written,
       gateway routes to the error/fallback end event, instance status stays
       Active/Completed (NOT Errored), a Frappe Error Log entry is created
-  (3) Compile-time lint: diagram referencing non-existent AI Provider Credentials →
+  (3) Compile-time lint: diagram referencing non-existent AI Provider →
       compile_process_model raises ValidationError
   (4) Antigravity mock path: mocked AntigravityExecutor returns SUCCESS
       identically to Direct API path
@@ -128,11 +128,11 @@ def _ai_agent_bpmn(
 
 
 def _make_ai_provider(name: str = "openai-test") -> frappe.Document:
-    if frappe.db.exists("AI Provider Credentials", name):
-        return frappe.get_doc("AI Provider Credentials", name)
+    if frappe.db.exists("AI Provider", name):
+        return frappe.get_doc("AI Provider", name)
     doc = frappe.get_doc({
-        "doctype": "AI Provider Credentials",
-        "provider_name": name,
+        "doctype": "AI Provider",
+        "provider": name,
         "provider_type": "OpenAI",
         "api_endpoint": "https://api.openai.com/v1",
         "api_key": "sk-placeholder",
@@ -292,7 +292,7 @@ class TestAIAgentTaskIntegration(FrappeTestCase):
         self.assertNotIn("end_success", completed)
 
     # -----------------------------------------------------------------------
-    # (3) Compile-time lint: missing AI Provider Credentials
+    # (3) Compile-time lint: missing AI Provider
     # -----------------------------------------------------------------------
     def test_compile_fails_for_nonexistent_ai_provider(self):
         from one_bpmn.api.compilation import compile_process_model
