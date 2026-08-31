@@ -430,12 +430,11 @@ def _maybe_start_instance(doc, model_name: str):
 	# evaluate falls through to spawning so legitimate triggers are never dropped.
 	start_condition = _get_conditional_start_condition(model.bpmn_xml)
 	if start_condition and start_condition.strip().lower() not in ("true", "1", ""):
-		eval_locals = {}
-		for _f in doc.meta.fields:
-			_v = doc.get(_f.fieldname)
-			if isinstance(_v, (str, int, float, bool)) or _v is None:
-				eval_locals[_f.fieldname] = _v
-		eval_locals["docstatus"] = getattr(doc, "docstatus", 0)
+		from one_bpmn.one_bpmn.engine import json_safe_doc_fields
+
+		# The same fields, converted the same way, that the instance will see once it
+		# starts — so a start condition and a gateway cannot disagree about the document.
+		eval_locals = json_safe_doc_fields(doc)
 		try:
 			if not frappe.safe_eval(start_condition, eval_locals=eval_locals):
 				return  # condition not met — do not spawn
