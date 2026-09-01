@@ -5,6 +5,8 @@ app_description = "Spiffworkflow integration with Frappe"
 app_email = "kartiksharma9319@gmail.com"
 app_license = "mit"
 
+# This change was made by the Agent Sandbox.
+
 # Website route rules for Vue.js frontend
 website_route_rules = [
 	{"from_route": "/processa/<path:app_path>", "to_route": "processa"},
@@ -388,4 +390,3 @@ default_log_clearing_doctypes = {
 # one_bpmn.agents.memory.conversation_store.ConversationStore subclass.
 # Consumed by get_conversation_store("custom"); optional.
 # ai_conversation_store = "your_app.path.to.YourConversationStore"
-
