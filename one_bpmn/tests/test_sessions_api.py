@@ -80,41 +80,155 @@ class SessionsApiCase(FrappeTestCase):
 	# ── listing ─────────────────────────────────────────────────────────
 	def test_a_conversation_appears_with_its_counts(self):
 		conv = self._conversation(messages=3)
-		found = next(c for c in list_conversations(limit=200)["conversations"] if c["name"] == conv)
+		found = next(c for c in list_conversations(page_length=200)["conversations"] if c["name"] == conv)
 		self.assertEqual(found["messages"], 6)
 		self.assertEqual(found["summaries"], 0)
 		self.assertFalse(found["has_state"])
 
 	def test_a_fresh_conversation_reads_as_active(self):
 		conv = self._conversation()
-		found = next(c for c in list_conversations(limit=200)["conversations"] if c["name"] == conv)
+		found = next(c for c in list_conversations(page_length=200)["conversations"] if c["name"] == conv)
 		self.assertEqual(found["status"], "Active")
 
 	def test_an_archived_conversation_reads_as_archived(self):
 		conv = self._conversation()
 		frappe.db.set_value("Chat Conversation", conv, "status", "Archived")
 		frappe.db.commit()
-		found = next(c for c in list_conversations(limit=200)["conversations"] if c["name"] == conv)
+		found = next(c for c in list_conversations(page_length=200)["conversations"] if c["name"] == conv)
 		self.assertEqual(found["status"], "Archived")
 
 	def test_agent_memory_threads_are_not_listed(self):
 		"""They are an agent's working state, not somebody's conversation, and
 		they would swamp the list — there are hundreds of them."""
 		conv = self._conversation(mode=AGENT_MEMORY_MODE)
-		names = [c["name"] for c in list_conversations(limit=200)["conversations"]]
+		names = [c["name"] for c in list_conversations(page_length=200)["conversations"]]
 		self.assertNotIn(conv, names)
 
 	def test_it_can_be_filtered_by_agent(self):
 		mine = self._conversation(mode="Docu")
 		other = self._conversation(mode="Logix")
-		names = [c["name"] for c in list_conversations(agent="Docu", limit=200)["conversations"]]
+		names = [c["name"] for c in list_conversations(agent="Docu", page_length=200)["conversations"]]
 		self.assertIn(mine, names)
 		self.assertNotIn(other, names)
 
 	def test_it_can_be_filtered_by_title(self):
 		conv = self._conversation(title="Findable Marker 42")
-		names = [c["name"] for c in list_conversations(search="Findable Marker", limit=200)["conversations"]]
+		names = [c["name"] for c in list_conversations(search="Findable Marker", page_length=200)["conversations"]]
 		self.assertEqual(names, [conv])
+
+	# ── paging ──────────────────────────────────────────────────────────
+	def _titled_page(self, **kwargs):
+		"""Names on one page, restricted to this test's own conversations.
+
+		The site's real conversations share the listing, so a test can only
+		assert on the rows it created.
+		"""
+		res = list_conversations(**kwargs)
+		return res, [c["name"] for c in res["conversations"] if c["name"] in self.made]
+
+	def test_the_listing_reports_a_total(self):
+		self._conversation()
+		res = list_conversations(page_length=1)
+		self.assertGreaterEqual(res["total"], 1)
+		self.assertEqual(res["start"], 0)
+		self.assertLessEqual(len(res["conversations"]), 1)
+
+	def test_a_page_is_no_longer_than_asked_for(self):
+		for _ in range(3):
+			self._conversation()
+		res = list_conversations(page_length=2)
+		self.assertEqual(len(res["conversations"]), 2)
+
+	def test_the_second_page_carries_on_where_the_first_stopped(self):
+		for _ in range(3):
+			self._conversation()
+		first = list_conversations(page_length=2)
+		second = list_conversations(page_length=2, start=2)
+
+		self.assertEqual(second["start"], 2)
+		firsts = [c["name"] for c in first["conversations"]]
+		seconds = [c["name"] for c in second["conversations"]]
+		self.assertFalse(set(firsts) & set(seconds), "the same conversation appeared on two pages")
+
+	def test_walking_every_page_yields_each_conversation_once(self):
+		mine = {self._conversation() for _ in range(5)}
+
+		seen = []
+		start = 0
+		while True:
+			res = list_conversations(page_length=2, start=start)
+			if not res["conversations"]:
+				break
+			seen.extend(c["name"] for c in res["conversations"])
+			start += 2
+			if start >= res["total"]:
+				break
+
+		found = [n for n in seen if n in mine]
+		self.assertEqual(sorted(found), sorted(mine))
+		self.assertEqual(len(found), len(set(found)), "a conversation was listed twice while paging")
+
+	def test_an_offset_past_the_end_is_empty_rather_than_an_error(self):
+		self._conversation()
+		res = list_conversations(page_length=5, start=10_000)
+		self.assertEqual(res["conversations"], [])
+		self.assertGreaterEqual(res["total"], 1)
+
+	def test_the_page_length_is_capped(self):
+		"""A caller asking for the world gets the endpoint's cap, not the world."""
+		self._conversation()
+		res = list_conversations(page_length=10_000)
+		self.assertLessEqual(len(res["conversations"]), 200)
+
+	def test_a_filtered_total_counts_only_the_matches(self):
+		mine = self._conversation(title="Paging Marker Alpha")
+		self._conversation(title="Paging Marker Beta")
+		res = list_conversations(search="Paging Marker Alpha", page_length=200)
+		self.assertEqual(res["total"], 1)
+		self.assertEqual([c["name"] for c in res["conversations"]], [mine])
+
+	def test_the_archived_total_matches_the_rows_returned(self):
+		"""Active and Idle are derived, so the count and the page must agree."""
+		conv = self._conversation()
+		frappe.db.set_value("Chat Conversation", conv, "status", "Archived")
+		frappe.db.commit()
+		res = list_conversations(status="Archived", page_length=200)
+		self.assertIn(conv, [c["name"] for c in res["conversations"]])
+		self.assertEqual(res["total"], len(res["conversations"]))
+
+	# ── order ───────────────────────────────────────────────────────────
+	def test_the_newest_activity_comes_first(self):
+		older = self._conversation()
+		newer = self._conversation()
+
+		_res, mine = self._titled_page(page_length=200)
+		self.assertLess(mine.index(newer), mine.index(older))
+
+	def test_editing_the_record_does_not_count_as_activity(self):
+		"""`modified` moves when a title changes; the order follows messages.
+
+		This is the whole reason the listing does not order by `modified`: a
+		title edit would otherwise jump a long-dead conversation to the top,
+		above one somebody is actually talking in.
+		"""
+		stale = self._conversation()
+		active = self._conversation()
+
+		# Touch the older conversation's record without anybody speaking in it.
+		frappe.db.set_value("Chat Conversation", stale, "title", "Renamed, not spoken in")
+		frappe.db.commit()
+
+		_res, mine = self._titled_page(page_length=200)
+		self.assertLess(
+			mine.index(active), mine.index(stale),
+			"a renamed conversation outranked one with newer messages",
+		)
+
+	def test_a_conversation_with_no_messages_still_appears(self):
+		"""Nothing to date it by must not drop it off the list."""
+		conv = self._conversation(messages=0)
+		_res, mine = self._titled_page(page_length=200)
+		self.assertIn(conv, mine)
 
 	# ── one conversation ────────────────────────────────────────────────
 	def test_detail_reports_the_stored_state(self):
