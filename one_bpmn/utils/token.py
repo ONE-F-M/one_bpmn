@@ -2,7 +2,7 @@
 
 Generates and verifies signed tokens that are embedded in AMP email
 action buttons.  When a user clicks "Approve" inside Gmail, the token
-is POSTed to :func:`one_bpmn.api.todo_actions.handle_amp_action`,
+is POSTed to :func:`one_bpmn.api.bpmn_task_actions.handle_amp_action`,
 which verifies the signature before delegating to ``complete_task()``.
 
 Security model

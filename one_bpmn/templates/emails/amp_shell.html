@@ -312,7 +312,7 @@
          HMAC token as name="token" value="<token>". #}
       {% if simple_actions %}
       <form method="post"
-            action-xhr="{{ action_endpoint or (site_url + '/api/method/one_bpmn.api.todo_actions.handle_amp_action') }}"
+            action-xhr="{{ action_endpoint or (site_url + '/api/method/one_bpmn.api.bpmn_task_actions.handle_amp_action') }}"
             class="actions">
         {% for action in simple_actions %}
         {% if action.token %}
@@ -353,7 +353,7 @@
          token action sharing the same form. #}
       {% for action in complex_actions %}
       <form method="post"
-            action-xhr="{{ action_endpoint or (site_url + '/api/method/one_bpmn.api.todo_actions.handle_amp_action') }}"
+            action-xhr="{{ action_endpoint or (site_url + '/api/method/one_bpmn.api.bpmn_task_actions.handle_amp_action') }}"
             class="actions date-range-form">
         <input type="hidden" name="token" value="{{ action.token | e }}">
         {% for field in action.extra_fields %}
