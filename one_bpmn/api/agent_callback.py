@@ -81,11 +81,17 @@ def report_result() -> dict:
 	if agent_run_name:
 		run.db_set("ai_agent_run", agent_run_name, update_modified=False)
 
+	# The sandbox now opens a PR whenever there are changed files, whether or
+	# not tests passed (dev_agent_server.py's _open_pr marks a failing one
+	# clearly rather than discarding a possibly-good change over a failure
+	# that may be unrelated to it) — so pr_url/files can arrive on either
+	# status, and both are recorded here regardless of what follows.
+	files = payload.get("files") or {}
+	pr_url = payload.get("pr_url") or ""
+	if files:
+		run.db_set("files", frappe.as_json(files), update_modified=False)
+
 	if status == "tests_passed":
-		files = payload.get("files") or {}
-		pr_url = payload.get("pr_url") or ""
-		if files:
-			run.db_set("files", frappe.as_json(files), update_modified=False)
 		if pr_url:
 			run.db_set({"state": "completed", "pr_url": pr_url}, update_modified=False)
 		else:
@@ -97,10 +103,13 @@ def report_result() -> dict:
 			update_modified=False,
 		)
 	else:
-		run.db_set(
-			{"state": "failed", "error_message": (payload.get("error") or status or "sandbox run failed")[:500]},
-			update_modified=False,
-		)
+		# A PR opened despite the failure doesn't make this a success — the
+		# run's own state still reflects that tests didn't pass. pr_url is
+		# still recorded above so the diff stays reachable for review.
+		fields = {"error_message": (payload.get("error") or status or "sandbox run failed")[:500]}
+		if pr_url:
+			fields["pr_url"] = pr_url
+		run.db_set({"state": "failed", **fields}, update_modified=False)
 
 	_enqueue_resume(run)
 	return {"accepted": True}
@@ -183,11 +192,18 @@ def _create_sandbox_ai_agent_run(run, payload: dict) -> str | None:
 		"goal_completion": goal_completion,
 		"completion_basis": completion_basis,
 		"final_output": (payload.get("agent_report") or "")[:65536],
-		"tool_calls": frappe.as_json(payload.get("agent_tool_calls") or []),
 		"correlation_id": run.name,
 	})
 	try:
 		agent_run.insert(ignore_permissions=True)
+		# Set separately, not in the initial dict above — confirmed the hard
+		# way that this specific field's value is silently dropped somewhere
+		# in insert()'s own pipeline (other fields in the same dict, some
+		# also read_only, save correctly; this one alone came back None on
+		# reload every time). db_set() writes directly and always sticks.
+		agent_run.db_set(
+			"tool_calls", frappe.as_json(payload.get("agent_tool_calls") or []), update_modified=False
+		)
 	except Exception:
 		frappe.log_error(
 			title=f"Dev Agent Sandbox: could not record the coding loop's AI Agent Run ({run.name})",
@@ -264,7 +280,15 @@ def _sandbox_run_answer(run) -> str:
 	"""What the model is told the sandbox tool call returned — same shape
 	as _delegation_answer's reasoning in tasks.py: a failure is reported in
 	words, not hidden, since the agent asked for this work and deserves to
-	know what actually happened."""
+	know what actually happened.
+
+	A failing run can still carry a pr_url now (the sandbox opens one
+	regardless of test outcome) — that has to be mentioned even on the
+	failure branch, or the caller would never learn a PR exists just
+	because the state isn't "completed"."""
 	if run.state == "completed":
 		return f"Pull request opened: {run.pr_url}" if run.pr_url else "Sandbox run completed with no changes to submit."
-	return f"The sandbox run did not complete ({run.state}): {run.error_message or 'no reason given'}"
+	reason = f"The sandbox run did not complete ({run.state}): {run.error_message or 'no reason given'}"
+	if run.pr_url:
+		reason += f" A pull request was still opened for review, despite the failure: {run.pr_url}"
+	return reason
