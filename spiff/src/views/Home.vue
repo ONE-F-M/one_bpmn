@@ -1,3 +1,4 @@
+<!-- Processa home view -->
 <template>
 	<div class="h-full flex flex-col bg-gray-50">
 		<!-- Header -->
