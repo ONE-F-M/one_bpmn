@@ -134,7 +134,9 @@ function NotifyAssigneeAccountComponent(props) {
 
 	return h(FrappeAutocomplete, {
 		id,
-		label: translate("Send From (Email Account)"),
+		// Deploy rejects Notify Assignee with no account, so the field says so
+		// here rather than letting the designer find out at deploy.
+		label: translate("Send From (Email Account) — required"),
 		value,
 		onChange: (val) => modeling.updateModdleProperties(element, bo, {
 			"spiffworkflow:notifyAssigneeAccount": val || undefined,
