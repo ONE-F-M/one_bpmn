@@ -21,6 +21,11 @@
             </label>
             <select v-model="form.aiAgentConfig" @change="onAgentConfigSelect">
               <option value="">-- None --</option>
+              <option
+                v-if="form.aiAgentConfig && form.aiAgentConfig !== '__create__'
+                      && !agentConfigs.some(c => c.name === form.aiAgentConfig)"
+                :value="form.aiAgentConfig"
+              >{{ form.aiAgentConfig }}</option>
               <option v-for="c in agentConfigs" :key="c.name" :value="c.name">
                 {{ c.name }}
               </option>
@@ -164,14 +169,9 @@
 
           <!-- AI Provider — read-only since WI-001650: the provider is an
                agent property, resolved from the linked configuration. -->
-          <div class="field-row">
+          <div class="field-row" v-if="form.aiProvider">
             <label>AI Provider <span class="hint">(from the linked configuration)</span></label>
-            <select v-model="form.aiProvider" disabled>
-              <option value="">-- Link an agent configuration --</option>
-              <option v-for="p in providers" :key="p.name" :value="p.name">
-                {{ p.provider_name }}
-              </option>
-            </select>
+            <div class="derived-value">{{ form.aiProvider }}</div>
           </div>
 
           <!-- Model — the agent's catalog pick (WI-001655): editable here and
@@ -777,8 +777,8 @@ const siteDefaults = ref({ compaction: "", distill: "", reconcile: "" });
 // it may not work rather than looking identical to a usable one.
 function modelLabel(m) {
   if (!m.provider) return `${m.name} — no provider linked`;
-  return m.usable === false
-    ? `${m.name} — via ${m.provider} (credentials disabled)`
+  return m.has_credentials === false
+    ? `${m.name} — via ${m.provider} (no API key on the model)`
     : `${m.name} — via ${m.provider}`;
 }
 
@@ -1230,42 +1230,28 @@ onMounted(async () => {
     console.error("Failed to load skills", e);
   }
 
-  try {
-    const data = await frappeGet("/api/resource/AI Provider", {
-      fields: JSON.stringify(["name", "provider_name"]),
-      filters: JSON.stringify([["enabled", "=", 1]]),
-      limit_page_length: 100,
-    });
-    providers.value = Array.isArray(data) ? data : [];
-  } catch (e) {
-    providers.value = [];
-  }
 
-  // WI-001655: the AI Model catalog — picking a model implies its credentials.
-  //
-  // Every ENABLED model is offered, matching what the Desk link field shows.
-  // This used to additionally drop any model whose provider was missing from a
-  // SEPARATELY fetched list of enabled AI Providers, which made the catalog
-  // depend on two requests agreeing: if the provider fetch came back empty for
-  // any reason, every model was filtered out and the picker collapsed to a
-  // single entry — the current value, rendered as "(not in catalog)". A picker
-  // that silently empties is worse than one offering a model whose credentials
-  // need attention, so the provider list now LABELS the options instead of
-  // filtering them, and a model without usable credentials says so.
+  // The catalogue answers for itself. This used to be two requests that had to
+  // agree — the AI Model list, plus a list of AI Providers filtered on
+  // `enabled` — and a model was labelled "credentials disabled" when its
+  // provider was missing from the second. That comparison stopped meaning
+  // anything when the connection moved onto AI Model: AI Provider has one field
+  // now, so the filter referenced a column that no longer exists, the request
+  // failed into its catch, and EVERY model was labelled disabled. The key is a
+  // Password and cannot be read here, so the server answers the only question
+  // the editor actually has.
   try {
-    const models = await frappeGet("/api/resource/AI Model", {
-      fields: JSON.stringify(["name", "provider"]),
-      filters: JSON.stringify([["enable_model", "=", 1]]),
-      limit_page_length: 100,
-      order_by: "name asc",
+    const rows = await frappeRequest({
+      url: "/api/method/one_bpmn.agents.agent_config_resolver.model_catalogue",
+      method: "POST",
     });
-    const enabledCreds = new Set(providers.value.map((p) => p.name));
-    catalogModels.value = (Array.isArray(models) ? models : []).map((m) => ({
-      ...m,
-      usable: !m.provider ? false : enabledCreds.has(m.provider),
-    }));
+    catalogModels.value = Array.isArray(rows) ? rows : [];
+    providers.value = Array.from(
+      new Set(catalogModels.value.map((m) => m.provider).filter(Boolean)),
+    ).map((name) => ({ name, provider_name: name }));
   } catch (e) {
     catalogModels.value = [];
+    providers.value = [];
   }
 
   try {
@@ -1798,6 +1784,16 @@ async function save() {
   border-radius: 4px;
   font-size: 0.85rem;
   font-family: inherit;
+}
+/* A value the agent owns, shown rather than offered. Deliberately not styled as
+   an input: a disabled <select> still reads as a control someone should fill. */
+.derived-value {
+  padding: 6px 8px;
+  font-size: 0.85rem;
+  color: #111827;
+  background: #f9fafb;
+  border: 1px solid #e5e7eb;
+  border-radius: 4px;
 }
 .checkbox-row {
   display: flex;
