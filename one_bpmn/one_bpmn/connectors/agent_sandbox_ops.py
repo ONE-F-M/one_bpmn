@@ -97,7 +97,7 @@ def dispatch(params: dict, ctx: dict) -> dict | None:
 	run.insert(ignore_permissions=True)
 
 	try:
-		agent_config = _resolve_agent_config()
+		agent_config = _resolve_agent_config(_agent_config_name(instance))
 	except Exception as exc:
 		# Deliberately not just AgentSandboxError. The row is already inserted by
 		# this point, so anything that escapes here strands it at "submitted"
@@ -182,9 +182,20 @@ def dispatch(params: dict, ctx: dict) -> dict | None:
 	return None
 
 
-def _resolve_agent_config() -> dict:
+def _agent_config_name(instance) -> str:
+	"""The configuration of the agent that dispatched, found from its process
+	model. Falls back to the Dev Agent when the caller cannot be identified."""
+	pm = getattr(instance, "process_model", None)
+	if pm:
+		found = frappe.db.get_value("AI Agent Configuration", {"process_model": pm}, "name")
+		if found:
+			return found
+	return _AGENT_CONFIG_NAME
+
+
+def _resolve_agent_config(config_name: str | None = None) -> dict:
 	"""Everything the sandbox needs to actually be the coding agent for this
-	run — resolved fresh from the "Dev Agent" configuration on every dispatch,
+	run — resolved fresh from the DISPATCHING agent's configuration on every dispatch,
 	never cached into the sandbox's own code or deployment. Mirrors the exact
 	resolution path agents/executor/direct_api.py uses for every other
 	in-process ai_agent call: AI Provider holds a name and nothing else (it is
@@ -193,10 +204,11 @@ def _resolve_agent_config() -> dict:
 	.api_key), not on AI Provider — a credential rotation or a model change
 	here needs no separate wiring, it is the same credential store as
 	everything else."""
-	cfg = frappe.get_cached_doc("AI Agent Configuration", _AGENT_CONFIG_NAME)
+	config_name = config_name or _AGENT_CONFIG_NAME
+	cfg = frappe.get_cached_doc("AI Agent Configuration", config_name)
 	model_name = (cfg.ai_model or "").strip()
 	if not model_name:
-		raise AgentSandboxError(f'"{_AGENT_CONFIG_NAME}" has no ai_model configured.')
+		raise AgentSandboxError(f'"{config_name}" has no ai_model configured.')
 
 	meta = frappe.db.get_value(
 		"AI Model", model_name, ["enable_model", "model_api_name"], as_dict=True

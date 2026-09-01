@@ -178,7 +178,8 @@ class TestResolveAgentConfig(FrappeTestCase):
 		self._models.append(doc.name)
 		return doc
 
-	def _make_agent_config(self, name, *, ai_model, system_prompt="You are a test agent."):
+	def _make_agent_config(self, name, *, ai_model, system_prompt="You are a test agent.",
+	                       process_model=None):
 		# Inserting an AI Agent Configuration fires "AI Agent Creation Process",
 		# an active map whose prompt-writing AI step OVERWRITES system_prompt with
 		# a real LLM call. on_doc_event skips on in_migrate but not on in_test, so
@@ -194,6 +195,7 @@ class TestResolveAgentConfig(FrappeTestCase):
 				"agent_framework": "Direct API",
 				"ai_model": ai_model,
 				"system_prompt": system_prompt,
+				"process_model": process_model,
 			}).insert(ignore_permissions=True)
 		finally:
 			frappe.flags.in_migrate = False
@@ -400,3 +402,67 @@ class TestCallbackUrl(FrappeTestCase):
 				ops._callback_url(),
 				"https://example.com/api/method/one_bpmn.api.agent_callback.report_result",
 			)
+
+
+class TestDispatchingAgentResolution(FrappeTestCase):
+	"""The sandbox must run as the agent that dispatched, not always the Dev Agent.
+
+	``_resolve_agent_config`` took no argument and read a module constant, so a
+	Frontend Agent dispatch handed the sandbox the Dev Agent's prompt and model.
+	Observed on DAS-154626: caller instance was the Frontend Agent map, payload
+	said "You are the Dev Agent".
+	"""
+
+	def setUp(self):
+		super().setUp()
+		self._configs = []
+
+	def tearDown(self):
+		for n in self._configs:
+			frappe.delete_doc("AI Agent Configuration", n, force=True,
+			                  ignore_permissions=True, ignore_missing=True)
+		super().tearDown()
+
+	def _config_on(self, name, process_model):
+		frappe.flags.in_migrate = True
+		try:
+			doc = frappe.get_doc({
+				"doctype": "AI Agent Configuration",
+				"agent_name": name,
+				"agent_id": name.lower().replace(" ", "-"),
+				"agent_framework": "Direct API",
+				"process_model": process_model,
+			}).insert(ignore_permissions=True)
+		finally:
+			frappe.flags.in_migrate = False
+		self._configs.append(doc.name)
+		return doc.name
+
+	class _Instance:
+		def __init__(self, process_model):
+			self.process_model = process_model
+
+	def test_resolves_the_config_whose_map_dispatched(self):
+		pm = _any_process_model()
+		name = self._config_on(f"_sbx caller {frappe.generate_hash(length=5)}", pm)
+		self.assertEqual(ops._agent_config_name(self._Instance(pm)), name)
+
+	def test_falls_back_to_the_dev_agent_when_the_map_has_no_config(self):
+		self.assertEqual(
+			ops._agent_config_name(self._Instance("_sbx-no-such-map")),
+			ops._AGENT_CONFIG_NAME,
+		)
+
+	def test_falls_back_when_there_is_no_instance(self):
+		self.assertEqual(ops._agent_config_name(None), ops._AGENT_CONFIG_NAME)
+
+	def test_resolve_reads_the_constant_at_call_time(self):
+		"""The default must not bind _AGENT_CONFIG_NAME at import.
+
+		Binding it in the signature silently breaks every test that patches the
+		constant, and would pin the fallback to whatever it was at import.
+		"""
+		import inspect
+		self.assertIsNone(
+			inspect.signature(ops._resolve_agent_config).parameters["config_name"].default
+		)
