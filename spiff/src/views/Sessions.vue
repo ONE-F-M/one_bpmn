@@ -219,7 +219,7 @@
 		<Dialog v-model="showDetail" :options="{ size: '7xl', title: detail?.conversation?.title || 'Conversation' }">
 			<template #body-content>
 				<div v-if="detailLoading" class="py-10 text-center text-sm text-gray-500">Loading…</div>
-				<div v-else-if="detail" class="space-y-5">
+				<div v-else-if="detail" class="space-y-5 min-h-[70vh]">
 					<div class="grid grid-cols-4 gap-4 text-sm">
 						<div>
 							<div class="text-xs text-gray-500">Status</div>
@@ -265,7 +265,7 @@
 						<h3 class="text-sm font-semibold text-gray-900 mb-2">
 							Scratchpad <span class="text-gray-400 font-normal">(version {{ detail.state_version }})</span>
 						</h3>
-						<pre class="text-xs bg-gray-50 border rounded-md p-3 overflow-auto max-h-64">{{ prettyState }}</pre>
+						<pre class="text-xs bg-gray-50 border rounded-md p-3 overflow-auto max-h-[52vh]">{{ prettyState }}</pre>
 					</div>
 				</div>
 			</template>
