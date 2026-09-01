@@ -33,6 +33,7 @@ from one_bpmn.one_bpmn.doctype.bpmn_process_instance.dispatchers import (
 from one_bpmn.one_bpmn.doctype.bpmn_process_instance.assignment import (
 	_send_assignee_notification,
 	add_frappe_assignment,
+	notify_task_assignee,
 	get_reliever_if_on_leave,
 	remove_frappe_assignment,
 	resolve_assignment,
@@ -72,6 +73,10 @@ def call_add_assignment(inst, user, task_name="", task_cfg=None):
 
 def call_send_assignee_notification(inst, user, task_name, task_cfg):
 	return _send_assignee_notification(inst, user, task_name, task_cfg)
+
+
+def call_notify_task_assignee(inst, user, task_name, task_cfg):
+	return notify_task_assignee(inst, user, task_name, task_cfg)
 
 
 def call_remove_assignment(inst, user):
@@ -535,8 +540,15 @@ class TestAssigneeNotification(BaseBPMNHelperTest):
 		# ToDo was created but no email sent (notifyAssignee not set)
 		self.assertFalse(sendemail.called)
 
-	def test_add_assignment_sends_notification_when_configured(self):
-		"""Full flow: add_frappe_assignment triggers email when notifyAssignee=true."""
+	def test_notify_task_assignee_sends_when_configured(self):
+		"""The notification is the notifier's job, not the ToDo's.
+
+		This asserted that ``add_frappe_assignment`` sent the email. That
+		coupling was the defect: a ToDo is created once per person per instance
+		and deliberately not recreated while they still hold work, so every task
+		after a user's first stopped notifying. The email now has its own entry
+		point and this covers that one.
+		"""
 		cfg = {
 			"notifyAssignee": "true",
 			"notifyAssigneeBody": "<p>You have a task on {{ instance.name }}</p>",
@@ -562,7 +574,7 @@ class TestAssigneeNotification(BaseBPMNHelperTest):
 			patch.object(frappe, "get_doc", side_effect=get_doc_side), \
 			patch.object(frappe, "has_permission", return_value=True), \
 			patch.object(frappe, "get_system_settings", return_value=False):
-			call_add_assignment(inst, "bob@x.com", "Approve PR", task_cfg=cfg)
+			call_notify_task_assignee(inst, "bob@x.com", "Approve PR", cfg)
 
 		# Notification email was sent
 		self.assertTrue(sendemail.called)

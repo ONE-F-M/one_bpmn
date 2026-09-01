@@ -420,9 +420,7 @@ def add_frappe_assignment(
 		if existing:
 			return
 
-		# Determine notification settings from BPMN diagram config
 		cfg = task_cfg or {}
-		notify_assignee = cfg.get("notifyAssignee") == "true"
 
 		# The ToDo description is always the standard BPMN task message.
 		# notifyAssigneeBody is for email notification only — NOT the ToDo.
@@ -485,20 +483,41 @@ def add_frappe_assignment(
 				message=frappe.get_traceback(),
 			)
 
-		# ── Send custom HTML notification email ──────────────────────
-		# Sent AFTER the ToDo is created so the assignment is visible
-		# even if the email fails.  Non-fatal: logged but never breaks.
-		if notify_assignee:
-			try:
-				_send_assignee_notification(instance, user, task_name, cfg)
-			except Exception:
-				frappe.log_error(
-					title=f"BPMN: Assignee notification email failed for {user}",
-					message=frappe.get_traceback(),
-				)
 	except Exception:
 		frappe.log_error(
 			title=f"BPMN: Failed to assign {instance.context_doctype} to {user}",
+			message=frappe.get_traceback(),
+		)
+
+
+
+def notify_task_assignee(instance, user: str, task_name: str, task_cfg: dict | None) -> None:
+	"""Email the assignee that a User Task with Notify Assignee ticked is theirs.
+
+	Deliberately NOT part of ``add_frappe_assignment``. A ToDo belongs to a
+	PERSON on an instance and is created once — the engine keeps it open while
+	that person still has any Waiting row, rather than closing and recreating it
+	as they move from one task to the next. A notification belongs to a TASK: a
+	diagram that ticks Notify Assignee on three consecutive tasks is asking for
+	three emails.
+
+	While the two lived in one function the ToDo's lifecycle silently governed
+	the email. On the Software Development map, where a developer holds several
+	tasks in a row, only the first of them ever notified — the rest returned at
+	the duplicate-ToDo guard before the notification was even looked at.
+
+	Never raises: a failed email must not strand the task it was announcing.
+	"""
+	cfg = task_cfg or {}
+	if cfg.get("notifyAssignee") != "true":
+		return
+	if not (instance.context_doctype and instance.context_docname and user):
+		return
+	try:
+		_send_assignee_notification(instance, user, task_name, cfg)
+	except Exception:
+		frappe.log_error(
+			title=f"BPMN: Assignee notification email failed for {user}",
 			message=frappe.get_traceback(),
 		)
 

@@ -26,6 +26,7 @@ from .dispatchers import (
 )
 from .assignment import (
 	add_frappe_assignment,
+	notify_task_assignee,
 	remove_frappe_assignment,
 	resolve_assignment,
 	split_users,
@@ -1140,6 +1141,9 @@ class BPMNProcessInstance(Document):
 					title=f"AI HITL: assignment creation failed ({shape_id})",
 					message=frappe.get_traceback(),
 				)
+			# This path builds its own row rather than going through
+			# _sync_active_tasks, so it asks for the notification itself.
+			notify_task_assignee(self, u, label, shape_cfg)
 
 		self._log_task(
 			task_id=row_id,
@@ -2114,6 +2118,8 @@ class BPMNProcessInstance(Document):
 		# Map of user → (task_name, task_cfg) for newly created rows
 		# Used to pass notification settings to add_frappe_assignment
 		new_user_task_cfgs = {}
+		# Every (user, task) pair opened this pass — the basis for notifications.
+		newly_opened = []
 
 		for task in ready_user_tasks:
 			tid = str(task.id)
@@ -2163,6 +2169,10 @@ class BPMNProcessInstance(Document):
 			# every one of those users gets the same task_cfg for notifications.
 			for u in split_users(assigned_user):
 				new_user_task_cfgs[u] = (task_name, task_cfg)
+				# Keyed by user, the map above keeps only the LAST task when one
+				# person opens two at once. Notifications are per task, so they
+				# are collected as a list instead of overwriting.
+				newly_opened.append((u, task_name, task_cfg))
 
 			self._log_task(
 				task_id=tid,
@@ -2220,6 +2230,14 @@ class BPMNProcessInstance(Document):
 					task_id=info.get("task_id", ""),
 					task_cfg=task_name_cfg[1] if isinstance(task_name_cfg, tuple) else {},
 				)
+
+		# Notify for every task that just opened — NOT only for the users who
+		# gained a ToDo above. Someone who already held one (the common case
+		# when consecutive tasks belong to one person) is skipped by that diff
+		# by design, and while the email lived inside it they were silently
+		# skipped too.
+		for user, task_name, task_cfg in newly_opened:
+			notify_task_assignee(self, user, task_name, task_cfg)
 
 	def _check_completion(self, wf):
 		"""
