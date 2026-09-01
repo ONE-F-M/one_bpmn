@@ -1284,22 +1284,6 @@ onMounted(async () => {
     agentConfigs.value = [];
   }
 
-  // Load DocType names for the Context DocType autocomplete.
-  try {
-    const rows = await frappeRequest({
-      url: "/api/method/frappe.client.get_list",
-      params: {
-        doctype: "DocType",
-        fields: JSON.stringify(["name"]),
-        limit_page_length: 0,
-        order_by: "name asc",
-      },
-    });
-    doctypeOptions.value = Array.isArray(rows) ? rows.map((r) => r.name) : [];
-  } catch (e) {
-    doctypeOptions.value = [];
-  }
-
   // Read existing attrs from element
   const bo = rawElement().businessObject;
   const get = (attr) => bo.get(`spiffworkflow:${attr}`) ?? "";
