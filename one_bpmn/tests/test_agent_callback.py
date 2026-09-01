@@ -164,6 +164,25 @@ class TestOutcomes(CallbackCase):
 		self.assertEqual(row.state, "failed")
 		self.assertIn("test_thing.py", row.error_message)
 
+	def test_a_failing_run_can_still_carry_a_pull_request(self):
+		"""dev_agent_server.py now opens a PR regardless of test outcome — a
+		failing change is delivered for review rather than discarded, since
+		the failure may be environment noise unrelated to the change itself.
+		The run's own state must still say "failed", though: a PR existing
+		must never be read as the test having actually passed."""
+		run = self._run()
+		self._post({"correlation_id": run.name, "status": "tests_failed",
+		            "error": "3 tests failed in test_thing.py",
+		            "pr_url": "https://github.com/o/r/pull/13",
+		            "files": {"one_bpmn/utils.py": "content"}})
+		row = frappe.db.get_value(
+			"Agent Sandbox Run", run.name, ["state", "pr_url", "error_message", "files"], as_dict=True
+		)
+		self.assertEqual(row.state, "failed")
+		self.assertEqual(row.pr_url, "https://github.com/o/r/pull/13")
+		self.assertIn("test_thing.py", row.error_message)
+		self.assertIn("one_bpmn/utils.py", row.files)
+
 	def test_a_replay_cannot_rewrite_a_settled_run(self):
 		"""A retrying sandbox must not be able to overwrite the recorded outcome
 		— nor resume a caller a second time."""
@@ -196,7 +215,22 @@ class TestWhatTheAgentIsTold(CallbackCase):
 		run.reload()
 		answer = cb._sandbox_run_answer(run)
 		self.assertIn("did not complete", answer)
-		self.assertIn("the clone failed", answer)
+
+	def test_a_failure_with_a_pull_request_still_mentions_it(self):
+		"""A failing run can carry a pr_url now — the caller must be told
+		about it even though state isn't "completed", or it would never
+		learn the PR exists just because the test outcome was a failure."""
+		run = self._run(state="failed")
+		frappe.db.set_value(
+			"Agent Sandbox Run", run.name,
+			{"error_message": "3 tests failed", "pr_url": "https://github.com/o/r/pull/21"},
+			update_modified=False,
+		)
+		run.reload()
+		answer = cb._sandbox_run_answer(run)
+		self.assertIn("did not complete", answer)
+		self.assertIn("3 tests failed", answer)
+		self.assertIn("pull/21", answer)
 
 
 class TestSandboxAiAgentRun(CallbackCase):
