@@ -855,3 +855,38 @@ def _start_reprovision(config_name: str) -> bool:
 			message=frappe.get_traceback(),
 		)
 		return False
+
+
+@frappe.whitelist()
+def model_catalogue() -> list:
+	"""Every enabled AI Model, with whether it can actually authenticate.
+
+	The editor used to build this from two requests — the AI Model list plus a
+	SEPARATE list of AI Providers — and label a model "credentials disabled"
+	when its provider was missing from the second. That comparison stopped
+	meaning anything when the connection moved onto AI Model: AI Provider is now
+	a name and nothing else, with no ``enabled`` field and no ``provider_name``,
+	so the provider request errored, the list came back empty, and EVERY model
+	was labelled as having disabled credentials.
+
+	Credentials live on the model, so the model is the only thing that can be
+	asked. ``api_key`` is a Password and never leaves the server, so the answer
+	comes back as a boolean rather than the key.
+	"""
+	# The submodule import is required: a bare ``import frappe`` leaves
+	# ``frappe.utils.password`` unresolved and the attribute access raises.
+	import frappe.utils.password
+
+	rows = frappe.get_all(
+		"AI Model",
+		filters={"enable_model": 1},
+		fields=["name", "provider", "model_api_name"],
+		order_by="name asc",
+	)
+	for row in rows:
+		row["has_credentials"] = bool(
+			frappe.utils.password.get_decrypted_password(
+				"AI Model", row["name"], "api_key", raise_exception=False
+			)
+		)
+	return rows
