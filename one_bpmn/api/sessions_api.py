@@ -65,63 +65,138 @@ def _display_status(status: str, last: object) -> str:
 	return "Active" if last > add_to_date(now_datetime(), hours=-IDLE_AFTER_HOURS) else "Idle"
 
 
+# The listing is paged. 200 matches the cap the Security event log uses, so the
+# two admin screens refuse the same oversized page.
+DEFAULT_PAGE_LENGTH = 20
+MAX_PAGE_LENGTH = 200
+
+# One join, not a document read per row: the newest message per conversation is
+# needed for both the Active/Idle split and the "last activity" column.
+_LISTING_FROM = """
+	FROM `tabChat Conversation` c
+	LEFT JOIN (
+		SELECT conversation, MAX(creation) AS last_activity
+		FROM `tabChat Message`
+		GROUP BY conversation
+	) m ON m.conversation = c.name
+"""
+
+
+# Newest activity first, always. The conversation record's own `modified` is not
+# activity — a status change or a title edit moves it — and it is not what the
+# table shows, so ordering by it put rows out of sequence against the Last
+# activity column the reader is looking at. A conversation with no messages yet
+# falls back to when its record was written, so it still has a place in the
+# order rather than sinking below everything on a NULL. The name breaks ties, so
+# paging cannot repeat or skip a row when two timestamps match.
+_LISTING_ORDER = "COALESCE(m.last_activity, c.modified) DESC, c.name DESC"
+
+
+def _listing_conditions(agent: str = None, status: str = None, search: str = None) -> tuple:
+	"""The listing's WHERE clause and its parameters.
+
+	Active and Idle are derived from the newest message rather than stored, so
+	they are expressed here rather than dropped from the page afterwards. A page
+	filtered in Python cannot be counted, and the count is what tells the screen
+	whether there is a next page — filtering after the fact would both
+	under-fill pages and disable Next while records remained.
+	"""
+	conditions = []
+	params = {
+		"memory_mode": AGENT_MEMORY_MODE,
+		"archived": ARCHIVED_STATUS,
+		"idle_cutoff": add_to_date(now_datetime(), hours=-IDLE_AFTER_HOURS),
+	}
+
+	if agent:
+		conditions.append("c.agent_mode = %(agent)s")
+		params["agent"] = agent
+	else:
+		# An agent's own memory threads are working state, not conversations.
+		conditions.append("c.agent_mode != %(memory_mode)s")
+
+	if search:
+		conditions.append("c.title LIKE %(search)s")
+		params["search"] = f"%{search}%"
+
+	if status == "Archived":
+		conditions.append("c.status = %(archived)s")
+	elif status == "Active":
+		conditions.append("c.status != %(archived)s AND m.last_activity > %(idle_cutoff)s")
+	elif status == "Idle":
+		conditions.append(
+			"c.status != %(archived)s"
+			" AND (m.last_activity IS NULL OR m.last_activity <= %(idle_cutoff)s)"
+		)
+
+	return " AND ".join(conditions), params
+
+
 @frappe.whitelist()
 def list_conversations(agent: str = None, status: str = None, search: str = None,
-                       limit: int = 50) -> dict:
-	"""Conversations with their lifecycle at a glance.
+                       start: int = 0, page_length: int = DEFAULT_PAGE_LENGTH) -> dict:
+	"""One page of conversations with their lifecycle at a glance.
 
-	Counts come from grouped SQL rather than per-row lookups: drawing a
-	fifty-row table should be a handful of queries, not two hundred.
+	Returns ``total`` and ``start`` beside the rows, the same contract the
+	Security event log uses, so the screen can say "20 of 412" and know whether
+	a next page exists rather than guessing from how full the page came back.
+
+	Counts come from grouped SQL rather than per-row lookups: drawing a page
+	should be a handful of queries, not two hundred.
 	"""
 	_guard()
-	limit = min(max(cint(limit) or 50, 1), 200)
+	page_length = max(1, min(cint(page_length) or DEFAULT_PAGE_LENGTH, MAX_PAGE_LENGTH))
+	start = max(0, cint(start))
 
-	filters = {"agent_mode": ["!=", AGENT_MEMORY_MODE]}
-	if agent:
-		filters["agent_mode"] = agent
-	if search:
-		filters["title"] = ["like", f"%{search}%"]
-	if status == "Archived":
-		filters["status"] = ARCHIVED_STATUS
-	elif status in ("Active", "Idle"):
-		filters["status"] = ["!=", ARCHIVED_STATUS]
+	where, params = _listing_conditions(agent, status, search)
+	total = cint(frappe.db.sql(f"SELECT COUNT(*) {_LISTING_FROM} WHERE {where}", params)[0][0])
 
-	rows = frappe.get_all(
-		CONVERSATION_DOCTYPE,
-		filters=filters,
-		fields=["name", "title", "agent_mode", "status", "modified"],
-		order_by="modified desc",
-		limit_page_length=limit,
+	def _page(conversations):
+		return {
+			"conversations": conversations,
+			"total": total,
+			"start": start,
+			"agents": _agent_modes(),
+			"retention": get_retention(),
+		}
+
+	if not total or start >= total:
+		return _page([])
+
+	rows = frappe.db.sql(
+		f"""SELECT c.name, c.title, c.agent_mode, c.status, m.last_activity
+		    {_LISTING_FROM}
+		    WHERE {where}
+		    ORDER BY {_LISTING_ORDER}
+		    LIMIT %(page_length)s OFFSET %(start)s""",
+		{**params, "page_length": page_length, "start": start},
+		as_dict=True,
 	)
 	names = [r["name"] for r in rows]
 	if not names:
-		return {"conversations": [], "agents": _agent_modes(), "retention": get_retention()}
+		return _page([])
 
 	messages = _count_by(MESSAGE_DOCTYPE, "conversation", names,
 	                     extra="AND message_type IN %(types)s",
 	                     params={"types": tuple(VISIBLE_MESSAGE_TYPES)})
 	summaries = _count_by(SUMMARY_DOCTYPE, "conversation", names)
-	latest = _latest_message(names)
 	stateful = set(frappe.get_all(STATE_DOCTYPE, filters={"name": ["in", names]}, pluck="name"))
 
 	out = []
 	for r in rows:
-		last = latest.get(r["name"])
-		display = _display_status(r["status"], last)
-		if status in ("Active", "Idle") and display != status:
-			continue
+		last = r["last_activity"]
 		out.append({
 			"name": r["name"],
 			"title": r["title"] or "(untitled)",
 			"agent": r["agent_mode"],
-			"status": display,
+			"status": _display_status(r["status"], last),
 			"stored_status": r["status"],
 			"messages": messages.get(r["name"], 0),
 			"summaries": summaries.get(r["name"], 0),
 			"has_state": r["name"] in stateful,
 			"last_activity": str(last) if last else None,
 		})
-	return {"conversations": out, "agents": _agent_modes(), "retention": get_retention()}
+	return _page(out)
 
 
 def _count_by(doctype: str, field: str, names: list, extra: str = "", params: dict = None) -> dict:

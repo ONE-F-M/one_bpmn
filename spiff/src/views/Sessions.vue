@@ -29,7 +29,20 @@
 			<FormControl type="select" v-model="filters.status" :options="statusOptions" class="w-44" @change="load()" />
 			<FormControl type="text" v-model="filters.search" placeholder="Search titles" class="w-64" @change="load()" />
 			<Button :loading="loading" @click="load()">Refresh</Button>
-			<span class="text-xs text-gray-500 ml-auto">{{ conversations.length }} shown</span>
+
+			<!-- Page size, right-aligned like the Instances and Security toolbars.
+			     A busy site accumulates conversations without bound, so how many to
+			     pull at once is the reader's call rather than a fixed 100. -->
+			<div class="flex items-center gap-2 ml-auto">
+				<span class="text-sm text-gray-600 whitespace-nowrap">Page Size:</span>
+				<FormControl
+					type="select"
+					v-model="pageLength"
+					:options="PAGE_SIZES"
+					class="w-20"
+					@change="changePageSize"
+				/>
+			</div>
 		</div>
 
 		<div v-show="tab === 'conversations'" class="flex-1 overflow-auto">
@@ -74,6 +87,14 @@
 					</tr>
 				</tbody>
 			</table>
+
+			<div v-if="conversations.length" class="flex items-center justify-between border-t px-6 py-2 text-xs text-gray-500">
+				<span>Showing {{ start + 1 }}–{{ start + conversations.length }} of {{ total }}</span>
+				<span class="flex gap-2">
+					<Button variant="subtle" :disabled="start === 0" @click="load(start - pageSize)">Previous</Button>
+					<Button variant="subtle" :disabled="start + pageSize >= total" @click="load(start + pageSize)">Next</Button>
+				</span>
+			</div>
 		</div>
 
 		<!-- ── Retention ───────────────────────────────────────────────── -->
@@ -227,6 +248,20 @@ const savedAt = ref(false);
 const error = ref("");
 
 const conversations = ref([]);
+const total = ref(0);
+const start = ref(0);
+// Reactive so the toolbar can change it. 200 is the endpoint's own cap, so the
+// options stop there rather than asking for a page it will silently shrink.
+const pageLength = ref(20);
+const PAGE_SIZES = [
+	{ label: "20", value: 20 },
+	{ label: "50", value: 50 },
+	{ label: "100", value: 100 },
+	{ label: "200", value: 200 },
+];
+// The select hands back a string and the pager does arithmetic on this
+// ("start + pageSize"), which would concatenate instead of adding.
+const pageSize = computed(() => Number(pageLength.value) || 20);
 const agents = ref([]);
 const agentModes = ref([]);
 const retention = ref({ ttl_days: 0, archive_action: "Archive", enabled: false, would_affect: 0 });
@@ -241,7 +276,7 @@ const compactNote = ref("");
 const compactOk = ref(false);
 
 const tabs = computed(() => [
-	{ key: "conversations", label: "Conversations", count: conversations.value.length },
+	{ key: "conversations", label: "Conversations", count: total.value || null },
 	{ key: "retention", label: "Retention", count: null },
 ]);
 
@@ -284,7 +319,7 @@ async function call(method, params) {
 	return frappeRequest({ url: API + method, method: "POST", params: params || {} });
 }
 
-async function load() {
+async function load(from = 0) {
 	loading.value = true;
 	error.value = "";
 	try {
@@ -292,9 +327,12 @@ async function load() {
 			agent: filters.value.agent || undefined,
 			status: filters.value.status || undefined,
 			search: filters.value.search || undefined,
-			limit: 100,
+			start: Math.max(0, from),
+			page_length: pageSize.value,
 		});
 		conversations.value = res.conversations || [];
+		total.value = res.total || 0;
+		start.value = res.start || 0;
 		agentModes.value = res.agents || [];
 		retention.value = res.retention || retention.value;
 	} catch (e) {
@@ -302,6 +340,12 @@ async function load() {
 	} finally {
 		loading.value = false;
 	}
+}
+
+function changePageSize() {
+	// Back to the first page: the old offset means something different under a
+	// new page size, and on a big jump it can land past the end of the results.
+	load(0);
 }
 
 async function loadAgents() {
