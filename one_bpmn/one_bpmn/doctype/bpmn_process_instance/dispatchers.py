@@ -1351,6 +1351,15 @@ def dispatch_ai_agent(instance, task, task_cfg: dict, bpmn_id: str, resume_run: 
 		tool_specs = None
 
 
+	# A stable instruction block belongs in the system role, which every
+	# provider caches. Anything the system prompt already says is dropped from
+	# the user prompt here, at assembly, so an agent stops paying for the same
+	# tokens on every turn without its diagram having to be re-exported.
+	if user_prompt and system_prompt:
+		from one_bpmn.agents.context_assembler import drop_duplicated_instructions
+
+		user_prompt = drop_duplicated_instructions(system_prompt, user_prompt)
+
 	config = ExecutorConfig(
 		backend          = task_cfg.get("aiBackend", "direct_api"),
 		# A shape (or a configuration) may name only the model — the provider
