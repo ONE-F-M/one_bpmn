@@ -50,7 +50,9 @@
 			</div>
 		</div>
 
-		<!-- Hidden SVG marker for green arrows -->
+		<!-- Hidden SVG arrowheads — one per highlighted flow colour. A marker
+		     cannot inherit its path's stroke, so every recoloured flow needs its
+		     own head or the line and its tip disagree. -->
 		<svg style="position: absolute; width: 0; height: 0;" aria-hidden="true">
 			<defs>
 				<marker
@@ -61,6 +63,15 @@
 					orient="auto"
 				>
 					<path d="M 1 5 L 11 10 L 1 15 Z" fill="#16a34a" stroke="#16a34a" />
+				</marker>
+				<marker
+					id="sequenceflow-arrow-hot"
+					viewBox="0 0 20 20"
+					refX="11" refY="10"
+					markerWidth="10" markerHeight="10"
+					orient="auto"
+				>
+					<path d="M 1 5 L 11 10 L 1 15 Z" fill="#ea580c" stroke="#ea580c" />
 				</marker>
 			</defs>
 		</svg>
@@ -642,9 +653,12 @@ function applyHighlights() {
 	stroke: #16a34a !important; stroke-width: 2px !important;
 	marker-end: url(#sequenceflow-arrow-green) !important;
 }
+/* A repeatedly traversed flow is drawn in the heatmap's orange, so its
+   arrowhead must be that orange too — the green head was left over from the
+   single-colour days and made a hot flow look like a completed one. */
 .highlight-flow-hot.djs-connection .djs-visual > path {
 	stroke: #ea580c !important; stroke-width: 3px !important;
-	marker-end: url(#sequenceflow-arrow-green) !important;
+	marker-end: url(#sequenceflow-arrow-hot) !important;
 }
 
 /* Heatmap levels */
