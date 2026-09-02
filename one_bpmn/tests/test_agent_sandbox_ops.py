@@ -18,6 +18,7 @@ so both a model credential and a GitHub token now travel in every dispatch.
 
 from __future__ import annotations
 
+import json
 from types import SimpleNamespace
 from unittest.mock import MagicMock, patch
 
@@ -25,6 +26,20 @@ import frappe
 from frappe.tests.utils import FrappeTestCase
 
 from one_bpmn.one_bpmn.connectors import agent_sandbox_ops as ops
+
+# The shape _resolve_sandbox_tool_shapes (api/compilation.py) embeds onto a
+# connector's task_cfg at compile time — one entry per shape in the
+# sandbox_tool_defs ad-hoc sub-process. Used as ctx()'s default task_cfg so
+# every test in this file exercises dispatch() the way a real, correctly
+# wired dispatch_to_sandbox shape would reach it, without each test having
+# to build this fixture itself.
+_DEFAULT_SANDBOX_TOOL_SHAPES = json.dumps([
+	{"bpmn_id": "read_file", "description": "Read a file.",
+	 "parameters": {"path": {"type": "string"}}, "required": ["path"]},
+	{"bpmn_id": "write_file", "description": "Write a file.",
+	 "parameters": {"path": {"type": "string"}, "content": {"type": "string"}},
+	 "required": ["path", "content"]},
+])
 
 # Captured before any test patches frappe.get_cached_doc, so the scoped
 # side_effect below can still delegate real (non-"Processa Settings") calls
@@ -77,14 +92,15 @@ class AgentSandboxCase(FrappeTestCase):
 			"process_model": _any_process_model(),
 		}).insert(ignore_permissions=True)
 
-	def ctx(self):
+	def ctx(self, sandbox_tool_shapes=_DEFAULT_SANDBOX_TOOL_SHAPES):
 		task = SimpleNamespace(
 			id="00000000-0000-0000-0000-000000000da1",
 			data={},
 			task_spec=SimpleNamespace(bpmn_id="ServiceTask_DevAgent", name="ServiceTask_DevAgent"),
 		)
 		instance = SimpleNamespace(name=self._test_instance.name, initiated_by="Administrator")
-		return {"instance": instance, "task": task}
+		task_cfg = {"sandboxToolShapes": sandbox_tool_shapes} if sandbox_tool_shapes else {}
+		return {"instance": instance, "task": task, "task_cfg": task_cfg}
 
 	def params(self, **kwargs):
 		merged = {
@@ -105,6 +121,70 @@ class AgentSandboxCase(FrappeTestCase):
 			force=True, ignore_permissions=True, ignore_missing=True,
 		)
 		super().tearDown()
+
+
+class TestSandboxToolForwarding(AgentSandboxCase):
+	"""Tool DEFINITIONS live in the BPMN map (sandbox_tool_defs, referenced via
+	sandboxToolsAdhoc) and travel fresh in every dispatch payload; the sandbox
+	still does all the EXECUTING itself, same as before this existed."""
+
+	def test_missing_sandbox_tool_shapes_is_refused_before_anything_is_created(self):
+		# Delta, not an absolute count — this bench's real database already
+		# carries rows from actual past dispatches with this target_app.
+		before = frappe.db.count("Agent Sandbox Run", {"target_app": "one_bpmn"})
+		with self.assertRaises(ops.AgentSandboxError):
+			ops.dispatch(self.params(), self.ctx(sandbox_tool_shapes=None))
+		self.assertEqual(
+			frappe.db.count("Agent Sandbox Run", {"target_app": "one_bpmn"}), before,
+			"a rejected dispatch must not leave a row behind",
+		)
+
+	def test_sandbox_tool_shapes_transformed_to_anthropic_format_in_payload(self):
+		mock_settings = SimpleNamespace(
+			agent_sandbox_url="https://sandbox.example.run.app",
+			get_password=lambda *a, **k: "fake-github-token",
+		)
+		mock_response = MagicMock(status_code=202)
+		mock_response.raise_for_status = MagicMock()
+
+		with patch.object(frappe, "get_cached_doc", side_effect=_scoped_get_cached_doc(mock_settings)), patch.object(
+			ops, "_resolve_agent_config",
+			return_value={"system_prompt": "test", "model": "claude-haiku-4-5-20251001", "api_key": "fake-key"},
+		), patch.object(ops, "_mint_identity_token", return_value="fake-token"), patch(
+			"requests.post", return_value=mock_response
+		) as mock_post:
+			ops.dispatch(self.params(), self.ctx())
+
+		_args, kwargs = mock_post.call_args
+		tools = kwargs["json"]["tools"]
+		by_name = {t["name"]: t for t in tools}
+		self.assertEqual(set(by_name), {"read_file", "write_file"})
+		self.assertEqual(by_name["read_file"]["description"], "Read a file.")
+		self.assertEqual(
+			by_name["read_file"]["input_schema"],
+			{"type": "object", "properties": {"path": {"type": "string"}}, "required": ["path"]},
+		)
+
+	def test_shape_with_no_parameters_or_required_gets_empty_defaults(self):
+		shapes = json.dumps([{"bpmn_id": "list_files", "description": "List files."}])
+		mock_settings = SimpleNamespace(
+			agent_sandbox_url="https://sandbox.example.run.app",
+			get_password=lambda *a, **k: "fake-github-token",
+		)
+		mock_response = MagicMock(status_code=202)
+		mock_response.raise_for_status = MagicMock()
+
+		with patch.object(frappe, "get_cached_doc", side_effect=_scoped_get_cached_doc(mock_settings)), patch.object(
+			ops, "_resolve_agent_config",
+			return_value={"system_prompt": "test", "model": "claude-haiku-4-5-20251001", "api_key": "fake-key"},
+		), patch.object(ops, "_mint_identity_token", return_value="fake-token"), patch(
+			"requests.post", return_value=mock_response
+		) as mock_post:
+			ops.dispatch(self.params(), self.ctx(sandbox_tool_shapes=shapes))
+
+		_args, kwargs = mock_post.call_args
+		tool = kwargs["json"]["tools"][0]
+		self.assertEqual(tool["input_schema"], {"type": "object", "properties": {}, "required": []})
 
 
 class TestDispatchValidation(AgentSandboxCase):

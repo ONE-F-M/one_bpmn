@@ -17,25 +17,30 @@ Jinja-templated secret cannot produce. See the "Dev Agent Sandbox" BPMN
 Connector's own record for why that trade was made over a no-code
 HTTP Request operation.
 
-The sandbox is the coding agent: it does its own reading, writing, and
-testing, in its own bounded tool-calling loop, against the model it was
-told to use — and on a pass, it opens the pull request itself, directly
-against GitHub, rather than handing files back for Processa to deliver.
-Nothing about any of that behavior is baked into the sandbox's own code —
-``agent_config`` (system_prompt, model, a live API key) and ``github_token``
-are both resolved fresh here, from the "Dev Agent" AI Agent Configuration
-(and its linked AI Model) and Processa Settings respectively, on every
-dispatch, and handed over in the request body. Sending live credentials in
-the dispatch payload (rather than static secrets baked into the sandbox's
-own deployment) is a deliberate trade: it means Processa keeps full,
-per-dispatch control over which model, credential, and GitHub token a run
-uses — no sandbox redeploy needed to change any of them — at the cost of a
-short-lived exposure of those values to the sandbox's own process memory
-for the life of one run. The channel is the same Cloud-Run-IAM-authenticated
-HTTPS call every other dispatch already uses.
+The sandbox is the coding agent: it does its own reading, writing, testing,
+and (when its model decides to) PR-opening, in its own bounded tool-calling
+loop, against the model it was told to use. Execution always happens
+sandbox-side — nothing here reads or writes app files or talks to GitHub's
+Contents API directly. What's no longer true: the tool set itself isn't
+baked into the sandbox's own code. It's declared in the BPMN map (see
+_sandbox_tools below) — the shapes of the "sandbox_tool_defs" ad-hoc
+sub-process this Service Task references via spiffworkflow:sandboxToolsAdhoc
+— and forwarded fresh on every dispatch as ``payload["tools"]``, same as
+``agent_config`` (system_prompt, model, a live API key) and ``github_token``,
+both resolved fresh here from the "Dev Agent" AI Agent Configuration (and
+its linked AI Model) and Processa Settings respectively. Sending live
+credentials in the dispatch payload (rather than static secrets baked into
+the sandbox's own deployment) is a deliberate trade: it means Processa keeps
+full, per-dispatch control over which model, credential, GitHub token, and
+now tool set a run uses — no sandbox redeploy needed to change any of them —
+at the cost of a short-lived exposure of those values to the sandbox's own
+process memory for the life of one run. The channel is the same
+Cloud-Run-IAM-authenticated HTTPS call every other dispatch already uses.
 """
 
 from __future__ import annotations
+
+import json
 
 import frappe
 
@@ -59,6 +64,40 @@ kept as an explicit list rather than assuming this bench's install state
 always mirrors the sandbox's clone set."""
 
 
+def _sandbox_tools(task_cfg: dict) -> list[dict]:
+	"""Anthropic-format tool schemas for the sandbox's own internal loop to
+	offer its model, sourced from sandboxToolShapes — the shapes of the
+	"sandbox_tool_defs" ad-hoc sub-process this Service Task references via
+	spiffworkflow:sandboxToolsAdhoc, extracted at compile time by
+	api/compilation.py::_resolve_sandbox_tool_shapes. These shapes are never
+	executed by Processa itself (unlike an AI Agent Task's own aiToolShapes)
+	— they exist purely to declare, in the BPMN map, which tools the sandbox
+	is told to expose for this dispatch. What actually runs each one (read a
+	file, write a file, open the PR) is entirely the sandbox's own job.
+
+	Each descriptor is {"bpmn_id", "description", "parameters"?, "required"?}
+	— see _extract_tool_shapes in api/compilation.py for the exact shape."""
+	raw = task_cfg.get("sandboxToolShapes")
+	if not raw:
+		raise AgentSandboxError(
+			"dispatch_to_sandbox has no sandboxToolsAdhoc tool definitions — "
+			"point it at the sub-process that declares the sandbox's tools."
+		)
+	shapes = json.loads(raw) if isinstance(raw, str) else raw
+	tools = []
+	for shape in shapes:
+		tools.append({
+			"name": shape["bpmn_id"],
+			"description": shape.get("description") or "",
+			"input_schema": {
+				"type": "object",
+				"properties": shape.get("parameters") or {},
+				"required": shape.get("required") or [],
+			},
+		})
+	return tools
+
+
 def target_app_choices() -> list[str]:
 	"""Dropdown source: every app the sandbox can actually target — apps
 	installed on this bench (the sandbox clones the same set) plus the
@@ -76,6 +115,9 @@ def dispatch(params: dict, ctx: dict) -> dict | None:
 	"""
 	instance = ctx.get("instance")
 	task = ctx.get("task")
+	task_cfg = ctx.get("task_cfg") or {}
+
+	tools = _sandbox_tools(task_cfg)
 
 	target_app = (params.get("target_app") or "").strip()
 	if not target_app:
@@ -144,6 +186,7 @@ def dispatch(params: dict, ctx: dict) -> dict | None:
 		"git_branch": git_branch,
 		"work_item_description": work_item_description,
 		"agent_config": agent_config,
+		"tools": tools,
 		"github_token": github_token,
 		"callback_url": _callback_url(),
 	}

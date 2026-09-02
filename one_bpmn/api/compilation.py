@@ -1475,6 +1475,78 @@ def _validate_ai_agent_tools(bpmn_xml: str, service_extensions: dict) -> None:
 			)
 
 
+def _connectors_with_sandbox_tools(service_extensions: dict) -> dict:
+	"""Connector Service Tasks (e.g. dispatch_to_sandbox) that declare a
+	sandboxToolsAdhoc reference — a second, independent ad-hoc sub-process
+	whose shapes are never executed by Processa itself. They exist purely as
+	a schema source: the connector reads their extracted descriptors and
+	forwards them wholesale to whatever it dispatches to, which executes them
+	on its own. Mirrors _ai_agents_with_tools, but keyed on serviceType ==
+	"connector" rather than "ai_agent"."""
+	return {
+		bid: cfg
+		for bid, cfg in (service_extensions or {}).items()
+		if cfg.get("serviceType") == "connector" and (cfg.get("sandboxToolsAdhoc") or "").strip()
+	}
+
+
+def _resolve_sandbox_tool_shapes(bpmn_xml: str, service_extensions: dict) -> None:
+	"""Embed tool-shape descriptors for sandboxToolsAdhoc-referencing connectors
+	as sandboxToolShapes, exactly like _resolve_ai_agent_tool_shapes does for
+	aiToolsAdhoc — same extraction, same _index_adhoc_subprocesses lookup, just
+	a different reference attribute and a dict key that makes clear these
+	shapes are never compiled into directly-callable ToolSpecs by this engine."""
+	BPMN_NS = "http://www.omg.org/spec/BPMN/20100524/MODEL"
+	SPIFF_NS = "http://spiffworkflow.org/bpmn/schema/1.0/core"
+
+	connectors = _connectors_with_sandbox_tools(service_extensions)
+	if not connectors:
+		return
+	adhocs = _index_adhoc_subprocesses(bpmn_xml, BPMN_NS)
+	if adhocs is None:
+		return
+	for cfg in connectors.values():
+		adhoc = adhocs.get((cfg.get("sandboxToolsAdhoc") or "").strip())
+		if adhoc is None:
+			continue  # _validate_sandbox_tools reports the missing reference
+		cfg["sandboxToolShapes"] = json.dumps(_extract_tool_shapes(adhoc, BPMN_NS, SPIFF_NS))
+
+
+def _validate_sandbox_tools(bpmn_xml: str, service_extensions: dict) -> None:
+	"""Reject a connector's sandboxToolsAdhoc reference when it's missing or
+	has no executable tool shapes — same deploy-time-not-runtime guarantee
+	_validate_ai_agent_tools gives AI Agent Tasks. Only fires when
+	sandboxToolsAdhoc is set (most connectors have no use for it)."""
+	BPMN_NS = "http://www.omg.org/spec/BPMN/20100524/MODEL"
+
+	connectors = _connectors_with_sandbox_tools(service_extensions)
+	if not connectors:
+		return
+	adhocs = _index_adhoc_subprocesses(bpmn_xml, BPMN_NS) or {}
+	for bpmn_id, cfg in connectors.items():
+		adhoc_id = (cfg.get("sandboxToolsAdhoc") or "").strip()
+		if adhoc_id not in adhocs:
+			frappe.throw(
+				_(
+					"Service Task '{0}' references ad-hoc sub-process '{1}' as its "
+					"sandboxToolsAdhoc, which does not exist. Point it at the "
+					"sub-process that holds the tool definitions to forward."
+				).format(bpmn_id, adhoc_id),
+				exc=frappe.ValidationError,
+			)
+		shapes = json.loads(cfg.get("sandboxToolShapes") or "[]")
+		if not shapes:
+			frappe.throw(
+				_(
+					"Service Task '{0}' references ad-hoc sub-process '{1}' as its "
+					"sandboxToolsAdhoc, which has no eligible tool shapes (Script "
+					"tasks with a Server Script, or Service tasks with a service "
+					"type). Add at least one tool definition."
+				).format(bpmn_id, adhoc_id),
+				exc=frappe.ValidationError,
+			)
+
+
 def _resolve_called_process_xml(bpmn_xml: str, model_name: str) -> list:
 	"""XML of every process this diagram's Call Activities reference.
 
@@ -1705,6 +1777,7 @@ def compile_process_model(model_name: str) -> dict:
 		called_service_extensions.update(_extract_service_task_config(called_xml))
 		called_service_extensions.update(_extract_adhoc_selector_config(called_xml))
 		_resolve_ai_agent_tool_shapes(called_xml, called_service_extensions)
+		_resolve_sandbox_tool_shapes(called_xml, called_service_extensions)
 		called_script_extensions.update(_extract_script_task_config(called_xml))
 
 	service_extensions = _extract_service_task_config(sanitized_xml)
@@ -1714,6 +1787,10 @@ def compile_process_model(model_name: str) -> dict:
 	# AI Agent Task: resolve its referenced ad-hoc sub-process's shapes into
 	# embedded tool descriptors so the runtime needs no live spec navigation.
 	_resolve_ai_agent_tool_shapes(sanitized_xml, service_extensions)
+	# Connector Service Tasks (e.g. dispatch_to_sandbox) that declare their
+	# own sandboxToolsAdhoc: same extraction, for shapes this engine forwards
+	# to an external executor rather than running itself.
+	_resolve_sandbox_tool_shapes(sanitized_xml, service_extensions)
 	if service_extensions or called_service_extensions:
 		# Called first, this document second: on an id collision the document
 		# being compiled wins. Without the child's entries here, its tasks run
@@ -1727,6 +1804,7 @@ def compile_process_model(model_name: str) -> dict:
 	_validate_adhoc_structure(sanitized_xml)
 	_validate_adhoc_selector_pool(sanitized_xml, model_name)
 	_validate_ai_agent_tools(sanitized_xml, service_extensions)
+	_validate_sandbox_tools(sanitized_xml, service_extensions)
 
 	# ── Eval suite deployment gating (non-blocking warnings) ──────────
 	deploy_warnings = _check_eval_suite_gating(model_name)

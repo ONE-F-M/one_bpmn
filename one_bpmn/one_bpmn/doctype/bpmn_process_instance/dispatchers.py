@@ -516,7 +516,12 @@ def dispatch_connector(instance, task, task_cfg: dict, bpmn_id: str) -> None:
 		val = _apply_value_transform(transforms.get(key), val, key, bpmn_id)
 		resolved[key] = val
 
-	ctx = {"instance": instance, "task": task, "doc": doc, "task_data": dict(task.data)}
+	# task_cfg is exposed so a handler can read its OWN shape's extension
+	# attributes beyond connectorParams — e.g. agent_sandbox_ops.dispatch()
+	# reading sandboxToolShapes, a compile-time-resolved field with nowhere
+	# else to travel to the handler. Purely additive: no existing handler
+	# reads a "task_cfg" key, so nothing already depends on its absence.
+	ctx = {"instance": instance, "task": task, "doc": doc, "task_data": dict(task.data), "task_cfg": task_cfg}
 	output = None
 	try:
 		output = handler(resolved, ctx)
