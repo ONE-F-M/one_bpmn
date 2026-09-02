@@ -546,3 +546,75 @@ class TestDispatchingAgentResolution(FrappeTestCase):
 		self.assertIsNone(
 			inspect.signature(ops._resolve_agent_config).parameters["config_name"].default
 		)
+
+
+class TestSlowActionDispatch(AgentSandboxCase):
+	"""run_tests and open_pull_request — the two sandbox tools slow enough
+	(they may re-run the real test suite) to need the same park/track shape
+	dispatch() always has, now serving one action + its own args instead of
+	a whole bundled work order. No sandboxToolShapes/agent_config needed —
+	these never forward a tool list or a model credential; the sandbox
+	itself never calls an LLM for either of them."""
+
+	def _dispatch(self, fn, response_status=202, **param_overrides):
+		mock_settings = SimpleNamespace(
+			agent_sandbox_url="https://sandbox.example.run.app",
+			get_password=lambda *a, **k: "fake-github-token",
+		)
+		mock_response = MagicMock(status_code=response_status)
+		mock_response.raise_for_status = MagicMock()
+		params = {
+			"target_app": "one_bpmn", "git_branch": "staging", "work_item_description": "Fix the thing.",
+			**param_overrides,
+		}
+		with patch.object(frappe, "get_cached_doc", side_effect=_scoped_get_cached_doc(mock_settings)), patch.object(
+			ops, "_mint_identity_token", return_value="fake-token"
+		), patch("requests.post", return_value=mock_response) as mock_post:
+			ctx = self.ctx(sandbox_tool_shapes=None)
+			result = fn(params, ctx)
+		return result, ctx, mock_post
+
+	def test_run_tests_parks_and_tracks(self):
+		result, ctx, mock_post = self._dispatch(ops.run_tests)
+		self.assertIsNone(result)
+		marker = ctx["task"].data[ops.AGENT_SANDBOX_WAITING_KEY]
+		row = frappe.get_doc("Agent Sandbox Run", marker["run"])
+		self.assertEqual(row.state, "running")
+		_args, kwargs = mock_post.call_args
+		self.assertEqual(kwargs["json"]["action"], "run_tests")
+		self.assertEqual(kwargs["json"]["target_app"], "one_bpmn")
+		self.assertNotIn("agent_config", kwargs["json"])
+		self.assertNotIn("tools", kwargs["json"])
+
+	def test_open_pull_request_parks_and_forwards_summary_as_an_arg(self):
+		result, ctx, mock_post = self._dispatch(ops.open_pull_request, summary="Added the docstring.")
+		self.assertIsNone(result)
+		marker = ctx["task"].data[ops.AGENT_SANDBOX_WAITING_KEY]
+		self.assertIn("run", marker)
+		_args, kwargs = mock_post.call_args
+		self.assertEqual(kwargs["json"]["action"], "open_pull_request")
+		self.assertEqual(kwargs["json"]["args"], {"summary": "Added the docstring."})
+
+	def test_missing_target_app_is_refused_before_anything_is_created(self):
+		before = frappe.db.count("Agent Sandbox Run", {"target_app": "one_bpmn"})
+		with self.assertRaises(ops.AgentSandboxError):
+			ops.run_tests({"target_app": "", "git_branch": "staging", "work_item_description": "x"}, self.ctx())
+		self.assertEqual(frappe.db.count("Agent Sandbox Run", {"target_app": "one_bpmn"}), before)
+
+	def test_a_rejected_dispatch_marks_the_row_failed_and_raises(self):
+		mock_settings = SimpleNamespace(
+			agent_sandbox_url="https://sandbox.example.run.app",
+			get_password=lambda *a, **k: "fake-github-token",
+		)
+		with patch.object(frappe, "get_cached_doc", side_effect=_scoped_get_cached_doc(mock_settings)), patch.object(
+			ops, "_mint_identity_token", return_value="fake-token"
+		), patch("requests.post", side_effect=ConnectionError("no route to host")):
+			with self.assertRaises(ops.AgentSandboxError):
+				ops.run_tests(
+					{"target_app": "one_bpmn", "git_branch": "staging", "work_item_description": "x"},
+					self.ctx(sandbox_tool_shapes=None),
+				)
+		row = frappe.get_doc(
+			"Agent Sandbox Run", frappe.get_all("Agent Sandbox Run", filters={"target_app": "one_bpmn"}, pluck="name")[-1]
+		)
+		self.assertEqual(row.state, "failed")

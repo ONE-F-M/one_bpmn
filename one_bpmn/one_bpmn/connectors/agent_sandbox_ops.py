@@ -237,6 +237,174 @@ def dispatch(params: dict, ctx: dict) -> dict | None:
 	return None
 
 
+def call_tool_action(action: str, task_data: dict) -> dict:
+	"""Shared helper the sandbox_tool_defs Server Scripts (Sandbox Tool: Read
+	File / Write File / Edit File / List Files) each call — one call, one
+	fast, synchronous HTTP round trip to the sandbox's own /tool_call
+	endpoint, executed there against the target app's working tree. No
+	parking: unlike dispatch()/run_tests/open_pull_request, these are
+	seconds-scale (a git fetch against an already-locally-cloned repo, plus
+	a local file read/write and — for write/edit — a commit+push), not
+	minutes-scale, so there's nothing here worth suspending the caller's
+	turn over.
+
+	task_data is the LLM's own tool-call arguments — every one of these
+	tools independently requires target_app/git_branch/work_item_description
+	(there is no shared state between separate tool calls to carry them),
+	plus whatever the specific action needs (e.g. path, content)."""
+	target_app = (task_data.get("target_app") or "").strip()
+	git_branch = (task_data.get("git_branch") or "").strip()
+	work_item_description = (task_data.get("work_item_description") or "").strip()
+	if not (target_app and git_branch and work_item_description):
+		return {"error": "target_app, git_branch, and work_item_description are all required."}
+
+	settings = frappe.get_cached_doc("Processa Settings")
+	sandbox_url = (settings.agent_sandbox_url or "").strip().rstrip("/")
+	if not sandbox_url:
+		return {"error": "Processa Settings has no Sandbox URL configured."}
+	github_token = settings.get_password("github_token", raise_exception=False) or ""
+	if not github_token:
+		return {"error": "Processa Settings has no GitHub token configured."}
+
+	args = {k: v for k, v in task_data.items() if k not in ("target_app", "git_branch", "work_item_description")}
+
+	try:
+		token = _mint_identity_token(sandbox_url)
+	except Exception as exc:
+		frappe.log_error(title=f"Dev Agent Sandbox: {action} auth failed", message=frappe.get_traceback())
+		return {"error": f"Could not authenticate to the sandbox: {exc}"}
+
+	try:
+		import requests
+
+		response = requests.post(
+			f"{sandbox_url}/tool_call",
+			json={
+				"action": action,
+				"target_app": target_app,
+				"git_branch": git_branch,
+				"work_item_description": work_item_description,
+				"args": args,
+				"github_token": github_token,
+			},
+			headers={"Authorization": f"Bearer {token}"},
+			timeout=60,
+		)
+		response.raise_for_status()
+		return response.json()
+	except Exception as exc:
+		frappe.log_error(title=f"Dev Agent Sandbox: {action} call failed", message=frappe.get_traceback())
+		return {"error": f"The sandbox rejected the call: {exc}"}
+
+
+def _dispatch_single_action(params: dict, ctx: dict, action: str) -> dict | None:
+	"""Shared park/track logic for run_tests and open_pull_request — the two
+	sandbox tools slow enough (minutes, not seconds) to need the same
+	dispatch-then-park-then-callback shape dispatch() already uses, just
+	carrying one action + its own args instead of a whole bundled work
+	order. Each still gets its own Agent Sandbox Run row, same as dispatch()
+	always has — these are meaningful, individually-worth-auditing runs,
+	unlike the fast tools call_tool_action serves."""
+	instance = ctx.get("instance")
+	task = ctx.get("task")
+
+	target_app = (params.get("target_app") or "").strip()
+	git_branch = (params.get("git_branch") or "").strip()
+	work_item_description = (params.get("work_item_description") or "").strip()
+	if not (target_app and git_branch and work_item_description):
+		raise AgentSandboxError(f"{action} needs target_app, git_branch, and work_item_description.")
+
+	settings = frappe.get_cached_doc("Processa Settings")
+	sandbox_url = (settings.agent_sandbox_url or "").strip().rstrip("/")
+	if not sandbox_url:
+		raise AgentSandboxError(
+			f"Processa Settings has no Sandbox URL configured — {action} has nowhere to dispatch to."
+		)
+
+	run = frappe.get_doc({
+		"doctype": "Agent Sandbox Run",
+		"state": "submitted",
+		"target_app": target_app,
+		"git_branch": git_branch,
+		"bpmn_id": _bpmn_id(task),
+		"caller_instance": getattr(instance, "name", None),
+		"caller_wf_task_id": _caller_task_id(task),
+		"work_item_description": work_item_description,
+	})
+	run.insert(ignore_permissions=True)
+
+	github_token = settings.get_password("github_token", raise_exception=False) or ""
+	if not github_token:
+		run.db_set({"state": "failed", "error_message": "No GitHub token configured."}, update_modified=False)
+		raise AgentSandboxError("Processa Settings has no GitHub token configured.")
+
+	args = {k: v for k, v in params.items() if k not in ("target_app", "git_branch", "work_item_description")}
+	payload = {
+		"correlation_id": run.name,
+		"action": action,
+		"target_app": target_app,
+		"git_branch": git_branch,
+		"work_item_description": work_item_description,
+		"args": args,
+		"github_token": github_token,
+		"callback_url": _callback_url(),
+	}
+	audit_payload = {**payload, "github_token": "REDACTED"}
+	run.db_set("request_payload", frappe.as_json(audit_payload), update_modified=False)
+
+	try:
+		token = _mint_identity_token(sandbox_url)
+	except Exception:
+		frappe.log_error(
+			title=f"Dev Agent Sandbox: identity token minting failed ({run.name})",
+			message=frappe.get_traceback(),
+		)
+		run.db_set({"state": "failed", "error_message": "Could not authenticate to the sandbox."}, update_modified=False)
+		raise AgentSandboxError("Could not authenticate to the sandbox — check the service account configuration.")
+
+	try:
+		import requests
+
+		response = requests.post(
+			f"{sandbox_url}/run",
+			json=payload,
+			headers={"Authorization": f"Bearer {token}"},
+			timeout=30,
+		)
+		response.raise_for_status()
+	except Exception as exc:
+		frappe.log_error(
+			title=f"Dev Agent Sandbox: {action} dispatch failed ({run.name})",
+			message=frappe.get_traceback(),
+		)
+		run.db_set({"state": "failed", "error_message": str(exc)[:500]}, update_modified=False)
+		raise AgentSandboxError(f"The sandbox rejected the dispatch: {exc}")
+
+	run.db_set("state", "running", update_modified=False)
+
+	if task is not None:
+		task.data[AGENT_SANDBOX_WAITING_KEY] = {
+			"run": run.name,
+			"label": f"{action} for {target_app}@{git_branch}",
+		}
+	return None
+
+
+def run_tests(params: dict, ctx: dict) -> dict | None:
+	"""Run the target app's real test suite against the working tree as it
+	currently stands. Minutes-scale — parked, same as dispatch()."""
+	return _dispatch_single_action(params, ctx, "run_tests")
+
+
+def open_pull_request(params: dict, ctx: dict) -> dict | None:
+	"""Open (or update) a pull request with every change made so far. The
+	sandbox re-runs the real test suite itself before opening — see
+	dev_agent_server.py's _tool_open_pull_request — so pass/fail flagging on
+	the PR is accurate regardless of what the model last saw. Minutes-scale
+	(it re-tests), so parked like run_tests."""
+	return _dispatch_single_action(params, ctx, "open_pull_request")
+
+
 def _agent_config_name(instance) -> str:
 	"""The configuration of the agent that dispatched, found from its process
 	model. Falls back to the Dev Agent when the caller cannot be identified."""
