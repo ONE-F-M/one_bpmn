@@ -319,6 +319,24 @@ function onElementClick(e) {
 
 // ── Highlights & Heatmap ──
 
+// Repeat-count (×N) badge anchor. diagram-js inverts `right` — it computes
+// left = width - right — so a positive value pulls the badge back onto the
+// shape instead of floating it off the corner.
+const COUNT_BADGE_SIZE = 20
+
+function countBadgePosition(element) {
+	// A gateway's diamond leaves its bbox corners empty, so a corner anchor
+	// would hang in the void — aim at the midpoint of the top-right slant edge.
+	if (element?.type?.includes("Gateway")) {
+		return {
+			top: element.height * 0.22 - COUNT_BADGE_SIZE / 2,
+			right: element.width * 0.22 + COUNT_BADGE_SIZE / 2,
+		}
+	}
+	// Tasks and events fill their bbox corner, so centre the badge on it.
+	return { top: -COUNT_BADGE_SIZE / 2, right: COUNT_BADGE_SIZE / 2 }
+}
+
 function applyHighlights() {
 	if (!viewer.value || !props.xml) return
 	try {
@@ -409,7 +427,7 @@ function applyHighlights() {
 					const badge = document.createElement("div")
 					badge.className = `heatmap-badge ${level >= 4 ? "hot" : level >= 3 ? "warm" : ""}`
 					badge.textContent = `×${count}`
-					overlays.add(bpmnId, "heatmap-badge", { position: { top: -10, right: -10 }, html: badge })
+					overlays.add(bpmnId, "heatmap-badge", { position: countBadgePosition(elementRegistry.get(bpmnId)), html: badge })
 				} else {
 					canvas.addMarker(bpmnId, "highlight-done")
 				}
@@ -456,7 +474,7 @@ function applyHighlights() {
 					badge.className = "ai-call-badge"
 					badge.textContent = `×${count}`
 					badge.title = `The agent called this tool ${count} times`
-					overlays.add(bpmnId, "ai-call-badge", { position: { top: -10, right: -10 }, html: badge })
+					overlays.add(bpmnId, "ai-call-badge", { position: countBadgePosition(elementRegistry.get(bpmnId)), html: badge })
 				}
 				// The container holding this tool is an agent's toolbox — its
 				// valve edges get the same executed-flow colouring.
@@ -539,7 +557,7 @@ function applyHighlights() {
 								const badge = document.createElement("div")
 								badge.className = `heatmap-badge ${level >= 4 ? "hot" : level >= 3 ? "warm" : ""}`
 								badge.textContent = `×${freq}`
-								overlays.add(gw.id, "heatmap-badge", { position: { top: -10, right: -10 }, html: badge })
+								overlays.add(gw.id, "heatmap-badge", { position: countBadgePosition(gw), html: badge })
 							} else {
 								canvas.addMarker(gw.id, "highlight-done")
 							}
