@@ -1353,7 +1353,10 @@ def dispatch_ai_agent(instance, task, task_cfg: dict, bpmn_id: str, resume_run: 
 
 	config = ExecutorConfig(
 		backend          = task_cfg.get("aiBackend", "direct_api"),
-		provider_name    = task_cfg.get("aiProvider", ""),
+		# A shape (or a configuration) may name only the model — the provider
+		# it is served by is on the model's own record.
+		provider_name    = task_cfg.get("aiProvider", "")
+		                   or _provider_for_model(task_cfg.get("aiModel", ""), ""),
 		# The config actually resolved for this dispatch — create_ai_run's primary attribution source.
 		agent_config_name = task_cfg.get("aiAgentConfig", ""),
 		model            = task_cfg.get("aiModel", ""),
