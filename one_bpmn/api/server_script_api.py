@@ -165,8 +165,16 @@ def _delegate_to_bpmn_instance(conversation_name: str, message: str, context: di
 
 	agent_result = meta.get("agent_result")
 	result = dict(agent_result) if isinstance(agent_result, dict) else {}
-	result.setdefault("response", rows[0]["text"])
-	result.setdefault("intent", meta.get("intent"))
+	# The Chat Message text is what the map actually said, so it wins over a
+	# BLANK response in agent_result. setdefault treated "" as an answer, and a
+	# map that reports its reply only on the message — every Logix branch that
+	# goes through a tool does — had its reply thrown away in favour of the
+	# empty string sitting beside it. The user got silence over a perfectly
+	# good answer already saved in the conversation.
+	if not (result.get("response") or "").strip():
+		result["response"] = rows[0]["text"]
+	if not result.get("intent"):
+		result["intent"] = meta.get("intent")
 	result["bpmn_driven"] = True
 	result["message_name"] = rows[0]["name"]
 
