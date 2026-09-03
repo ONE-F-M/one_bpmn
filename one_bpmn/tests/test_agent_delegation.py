@@ -696,6 +696,55 @@ class TestHandingWorkBack(FrappeTestCase):
 		with self.assertRaises(frappe.DoesNotExistError):
 			delegation.redelegate("AD-does-not-exist")
 
+	# ── never two live runs ──────────────────────────────────────────────
+
+	def _live_instance(self):
+		doc = frappe.get_doc({
+			"doctype": "BPMN Process Instance",
+			"process_model": frappe.db.get_value("BPMN Process Model", {}, "name"),
+			"status": "Active",
+		})
+		doc.flags.ignore_links = True
+		doc.flags.ignore_mandatory = True
+		doc.insert(ignore_permissions=True)
+		return doc
+
+	def test_a_worker_left_running_is_retired_before_the_hand_over(self):
+		"""Two live runs for one delegation is the orphan this must not create —
+		and while the old run is Active the trigger's duplicate guard refuses to
+		start another, so leaving it would mean the hand-over ran nothing."""
+		instance = self._live_instance()
+		_, name = self._stopped(worker_instance=instance.name)
+
+		result = delegation.redelegate(name)
+
+		self.assertTrue(result["previous_run_retired"], "the caller is told it was retired")
+		self.assertEqual(
+			frappe.db.get_value("BPMN Process Instance", instance.name, "status"),
+			"Cancelled",
+			"the previous attempt's run must not still be live",
+		)
+
+	def test_a_finished_worker_is_left_as_it_is(self):
+		"""Its outcome is part of the delegation's history; rewriting it would
+		lose what the first attempt actually did."""
+		instance = self._live_instance()
+		frappe.db.set_value("BPMN Process Instance", instance.name, "status", "Completed",
+		                    update_modified=False)
+		_, name = self._stopped(worker_instance=instance.name)
+
+		result = delegation.redelegate(name)
+
+		self.assertFalse(result["previous_run_retired"])
+		self.assertEqual(
+			frappe.db.get_value("BPMN Process Instance", instance.name, "status"), "Completed"
+		)
+
+	def test_nothing_to_retire_is_reported_honestly(self):
+		"""A delegation whose worker never got as far as an instance."""
+		_, name = self._stopped(worker_instance=None)
+		self.assertFalse(delegation.redelegate(name)["previous_run_retired"])
+
 	# ── the same record, not a second one ────────────────────────────────
 
 	def test_it_reuses_the_record_rather_than_opening_another(self):
