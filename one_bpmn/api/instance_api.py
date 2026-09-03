@@ -4,6 +4,8 @@
 import json
 
 import frappe
+
+from one_bpmn.agents.job_limits import AI_AGENT_JOB_TIMEOUT
 from frappe import _
 
 from one_bpmn.api.utils import _is_bpmn_super_user
@@ -310,7 +312,7 @@ def start_process_async(
 		initial_data=initial_data,
 		run_as_user=frappe.session.user,
 		is_async=True,
-		timeout=600,
+		timeout=AI_AGENT_JOB_TIMEOUT,
 	)
 
 	return {"status": "queued", "message": _("Process '{0}' queued for execution").format(model_name)}
@@ -689,7 +691,7 @@ def retry_ai_task(instance_name: str, task_id: str, kind: str = "service_task") 
 		"one_bpmn.one_bpmn.doctype.bpmn_process_instance"
 		".bpmn_process_instance.run_parked_ai_task",
 		queue="bpmn_ai_agent",
-		timeout=600,
+		timeout=AI_AGENT_JOB_TIMEOUT,
 		enqueue_after_commit=True,
 		# Manual retries are deliberate — never dedup against a stale job id.
 		job_id=f"bpmn-ai-{instance_name}-{task_id}-manual-{frappe.generate_hash(length=6)}",
@@ -1100,7 +1102,7 @@ def trigger_process_by_message(
 		context_docname=context_docname,
 		run_as_user=frappe.session.user,
 		is_async=True,
-		timeout=600,
+		timeout=AI_AGENT_JOB_TIMEOUT,
 	)
 
 	return {
