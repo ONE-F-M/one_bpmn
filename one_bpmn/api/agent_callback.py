@@ -25,6 +25,8 @@ from datetime import datetime
 
 import frappe
 
+from one_bpmn.agents.job_limits import AI_AGENT_JOB_TIMEOUT
+
 
 @frappe.whitelist(allow_guest=True, methods=["POST"])
 def report_result() -> dict:
@@ -265,7 +267,7 @@ def _resume_waiting_agent(run) -> None:
 		"one_bpmn.one_bpmn.doctype.bpmn_process_instance"
 		".bpmn_process_instance.run_parked_ai_task",
 		queue="bpmn_ai_agent",
-		timeout=600,
+		timeout=AI_AGENT_JOB_TIMEOUT,
 		enqueue_after_commit=True,
 		job_id=f"bpmn-ai-{run.caller_instance}-devagentres-{run.name}",
 		deduplicate=True,
