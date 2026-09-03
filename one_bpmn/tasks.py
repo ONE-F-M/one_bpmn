@@ -732,6 +732,29 @@ def _reconcile_internal_tasks(now) -> None:
 				_mark_resumed(row.name)
 				frappe.db.commit()
 				continue
+
+			# Ask the worker how it actually got on BEFORE judging the clock. The
+			# task row lags: nothing writes "completed" onto it until something
+			# looks, so a worker that finished perfectly well still reads
+			# "working" here. Judging the deadline first threw finished work away.
+			#
+			# Seen exactly once and it was expensive: a one-minute deadline, a
+			# worker that finished at 13:05 having built the connector and written
+			# a full report, and a reconciler that did not run until 13:12 —
+			# whereupon it marked the task timed-out, discarded the result, and
+			# had the orchestrator tell a person "the Connector Agent timed out
+			# before finishing this one", which was untrue. The work existed.
+			#
+			# A deadline is for work that is STILL RUNNING. Finished is finished,
+			# however late anyone looked.
+			local.refresh(task)
+			task.reload()
+			if task.state in terminal:
+				_wake_caller_if_any(row)
+				_mark_resumed(row.name)
+				frappe.db.commit()
+				continue
+
 			if row.deadline and now_datetime() > frappe.utils.get_datetime(row.deadline):
 				task.db_set(
 					{
@@ -741,6 +764,13 @@ def _reconcile_internal_tasks(now) -> None:
 					},
 					update_modified=True,
 				)
+				# Stop the worker advancing any further. It cannot interrupt a pass
+				# already executing — nothing can — but without this the worker
+				# runs on to the end of its map doing work nobody will ever read,
+				# which is how a timed-out delegation still finished its job.
+				from one_bpmn.agents.a2a import execute
+
+				execute.retire_instance(task.instance)
 				_escalate_deadline(
 					row.name,
 					agent_configuration=getattr(row, "agent_configuration", None),
@@ -751,11 +781,6 @@ def _reconcile_internal_tasks(now) -> None:
 				frappe.db.commit()
 				continue
 
-			local.refresh(task)
-			task.reload()
-			if task.state in terminal:
-				_wake_caller_if_any(row)
-				_mark_resumed(row.name)
 			frappe.db.commit()
 		except Exception:
 			frappe.log_error(
