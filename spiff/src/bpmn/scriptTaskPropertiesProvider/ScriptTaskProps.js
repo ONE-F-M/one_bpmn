@@ -276,7 +276,7 @@ function LaunchEditorButton(props) {
 	const bo        = getBusinessObject(element);
 
 	return HeaderButton({
-		className: "spiffworkflow-properties-panel-button",
+		className: "spiffworkflow-properties-panel-button script-task-launch-btn",
 		onClick: () => {
 			const currentScript = getAttr(bo, "serverScript") || bo.get("script") || "";
 			eventBus.fire("spiff.script.edit", {
