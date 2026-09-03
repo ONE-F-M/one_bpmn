@@ -237,42 +237,44 @@ def dispatch(params: dict, ctx: dict) -> dict | None:
 	return None
 
 
-def call_tool_action(action: str, task_data: dict) -> dict:
-	"""Shared helper the sandbox_tool_defs Server Scripts (Sandbox Tool: Read
-	File / Write File / Edit File / List Files) each call — one call, one
-	fast, synchronous HTTP round trip to the sandbox's own /tool_call
-	endpoint, executed there against the target app's working tree. No
-	parking: unlike dispatch()/run_tests/open_pull_request, these are
+def sandbox_dispatch(action: str, target_app: str, git_branch: str, work_item_description: str,
+                      args: dict) -> dict:
+	"""The bare primitive the sandbox_tool_defs Server Scripts (Sandbox Tool:
+	Read File / Write File / Edit File / List Files) call — one fast,
+	synchronous HTTP round trip to the sandbox's own /tool_call endpoint,
+	executed there against the target app's working tree.
+
+	Deliberately as thin as frontend/primitives.py's own functions: this
+	holds no tool policy (that lives in the calling Server Script, visible
+	and editable without a deploy — see that module's own docstring for the
+	same reasoning) — it exists only because Server Scripts cannot import
+	requests/socket/urllib themselves (security/script_validator.py's
+	FORBIDDEN_MODULES). It resolves settings, mints the identity token,
+	makes the one call, and reports what happened.
+
+	NEVER RAISES — every path returns {"ok": True, "response": <the
+	sandbox's own JSON>} or {"ok": False, "error": "..."}, matching
+	frontend/primitives.py's own discipline (an exception here would end
+	the calling tool's turn rather than informing it).
+
+	No parking: unlike dispatch()/run_tests/open_pull_request, these are
 	seconds-scale (a git fetch against an already-locally-cloned repo, plus
 	a local file read/write and — for write/edit — a commit+push), not
 	minutes-scale, so there's nothing here worth suspending the caller's
-	turn over.
-
-	task_data is the LLM's own tool-call arguments — every one of these
-	tools independently requires target_app/git_branch/work_item_description
-	(there is no shared state between separate tool calls to carry them),
-	plus whatever the specific action needs (e.g. path, content)."""
-	target_app = (task_data.get("target_app") or "").strip()
-	git_branch = (task_data.get("git_branch") or "").strip()
-	work_item_description = (task_data.get("work_item_description") or "").strip()
-	if not (target_app and git_branch and work_item_description):
-		return {"error": "target_app, git_branch, and work_item_description are all required."}
-
+	turn over."""
 	settings = frappe.get_cached_doc("Processa Settings")
 	sandbox_url = (settings.agent_sandbox_url or "").strip().rstrip("/")
 	if not sandbox_url:
-		return {"error": "Processa Settings has no Sandbox URL configured."}
+		return {"ok": False, "error": "Processa Settings has no Sandbox URL configured."}
 	github_token = settings.get_password("github_token", raise_exception=False) or ""
 	if not github_token:
-		return {"error": "Processa Settings has no GitHub token configured."}
-
-	args = {k: v for k, v in task_data.items() if k not in ("target_app", "git_branch", "work_item_description")}
+		return {"ok": False, "error": "Processa Settings has no GitHub token configured."}
 
 	try:
 		token = _mint_identity_token(sandbox_url)
 	except Exception as exc:
 		frappe.log_error(title=f"Dev Agent Sandbox: {action} auth failed", message=frappe.get_traceback())
-		return {"error": f"Could not authenticate to the sandbox: {exc}"}
+		return {"ok": False, "error": f"Could not authenticate to the sandbox: {exc}"}
 
 	try:
 		import requests
@@ -291,10 +293,10 @@ def call_tool_action(action: str, task_data: dict) -> dict:
 			timeout=60,
 		)
 		response.raise_for_status()
-		return response.json()
+		return {"ok": True, "response": response.json()}
 	except Exception as exc:
 		frappe.log_error(title=f"Dev Agent Sandbox: {action} call failed", message=frappe.get_traceback())
-		return {"error": f"The sandbox rejected the call: {exc}"}
+		return {"ok": False, "error": f"The sandbox rejected the call: {exc}"}
 
 
 def _dispatch_single_action(params: dict, ctx: dict, action: str) -> dict | None:
@@ -304,7 +306,7 @@ def _dispatch_single_action(params: dict, ctx: dict, action: str) -> dict | None
 	carrying one action + its own args instead of a whole bundled work
 	order. Each still gets its own Agent Sandbox Run row, same as dispatch()
 	always has — these are meaningful, individually-worth-auditing runs,
-	unlike the fast tools call_tool_action serves."""
+	unlike the fast tools sandbox_dispatch serves."""
 	instance = ctx.get("instance")
 	task = ctx.get("task")
 

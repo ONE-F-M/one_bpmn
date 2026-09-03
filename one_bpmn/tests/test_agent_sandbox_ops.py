@@ -618,3 +618,59 @@ class TestSlowActionDispatch(AgentSandboxCase):
 			"Agent Sandbox Run", frappe.get_all("Agent Sandbox Run", filters={"target_app": "one_bpmn"}, pluck="name")[-1]
 		)
 		self.assertEqual(row.state, "failed")
+
+
+class TestSandboxDispatch(FrappeTestCase):
+	"""sandbox_dispatch — the bare HTTP primitive the 4 Sandbox Tool Server
+	Scripts call directly (see one_bpmn/one_bpmn/frontend/primitives.py's
+	own docstring for why it's this thin: a Server Script cannot import
+	requests itself — security/script_validator.py's FORBIDDEN_MODULES —
+	so this exists only to place the one call; all tool policy (which
+	arguments are required, how to word an error) lives in the Server
+	Script itself, not here). Never raises, by design."""
+
+	def _call(self, response_status=200, response_json=None, post_side_effect=None, **overrides):
+		mock_settings = SimpleNamespace(
+			agent_sandbox_url=overrides.pop("agent_sandbox_url", "https://sandbox.example.run.app"),
+			get_password=overrides.pop("get_password", lambda *a, **k: "fake-github-token"),
+		)
+		mock_response = MagicMock(status_code=response_status)
+		mock_response.raise_for_status = MagicMock()
+		mock_response.json = MagicMock(return_value=response_json or {"found": True, "content": "hi"})
+
+		post_kwargs = {"side_effect": post_side_effect} if post_side_effect else {"return_value": mock_response}
+		with patch.object(frappe, "get_cached_doc", side_effect=_scoped_get_cached_doc(mock_settings)), patch.object(
+			ops, "_mint_identity_token", overrides.pop("mint_identity_token", MagicMock(return_value="fake-token"))
+		), patch("requests.post", **post_kwargs) as mock_post:
+			result = ops.sandbox_dispatch("read_file", "one_bpmn", "staging", "Fix the thing.", {"path": "a.py"})
+		return result, mock_post
+
+	def test_successful_call_wraps_the_sandboxs_response(self):
+		result, mock_post = self._call(response_json={"found": True, "content": "hello"})
+		self.assertEqual(result, {"ok": True, "response": {"found": True, "content": "hello"}})
+		_args, kwargs = mock_post.call_args
+		self.assertEqual(kwargs["json"]["action"], "read_file")
+		self.assertEqual(kwargs["json"]["args"], {"path": "a.py"})
+		self.assertEqual(kwargs["headers"]["Authorization"], "Bearer fake-token")
+
+	def test_missing_sandbox_url_never_raises(self):
+		result, mock_post = self._call(agent_sandbox_url="")
+		self.assertEqual(result, {"ok": False, "error": "Processa Settings has no Sandbox URL configured."})
+		mock_post.assert_not_called()
+
+	def test_missing_github_token_never_raises(self):
+		result, mock_post = self._call(get_password=lambda *a, **k: "")
+		self.assertFalse(result["ok"])
+		self.assertIn("GitHub token", result["error"])
+		mock_post.assert_not_called()
+
+	def test_auth_failure_never_raises(self):
+		result, mock_post = self._call(mint_identity_token=MagicMock(side_effect=RuntimeError("bad key")))
+		self.assertFalse(result["ok"])
+		self.assertIn("authenticate", result["error"])
+		mock_post.assert_not_called()
+
+	def test_network_failure_never_raises(self):
+		result, _mock_post = self._call(post_side_effect=ConnectionError("no route to host"))
+		self.assertFalse(result["ok"])
+		self.assertIn("no route to host", result["error"])
