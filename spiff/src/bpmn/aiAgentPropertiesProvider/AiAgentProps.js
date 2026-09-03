@@ -144,7 +144,7 @@ function LaunchEditorButton(props) {
 	const bo        = getBusinessObject(element);
 
 	return HeaderButton({
-		className: "spiffworkflow-properties-panel-button",
+		className: "spiffworkflow-properties-panel-button ai-agent-launch-btn",
 		onClick: () => eventBus.fire("launch-ai-agent-editor", { element }),
 		children: isConfigured(bo)
 			? translate("Edit AI Task Configuration")
