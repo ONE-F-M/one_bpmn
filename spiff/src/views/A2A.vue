@@ -23,6 +23,37 @@
 			</div>
 		</header>
 
+		<!-- WI-002055: a starved reconciler and a hung agent look identical from
+		     the lists below — both leave delegations sitting in Working. So the
+		     reconciler's own state is stated here, above them, with the CAUSE
+		     rather than the symptom. Hidden when it is running: a banner that is
+		     always present is one nobody reads. -->
+		<div
+			v-if="reconciler && reconciler.ok === false"
+			class="mx-6 mt-4 rounded-lg border border-amber-300 bg-amber-50 px-4 py-3"
+		>
+			<div class="flex items-start gap-3">
+				<span class="text-amber-600 text-lg leading-none mt-0.5">⏱</span>
+				<div class="min-w-0">
+					<p class="text-sm font-medium text-amber-900">
+						Delegations may look stuck because nothing is waking them
+					</p>
+					<p class="text-sm text-amber-800 mt-0.5">{{ reconciler.summary }}</p>
+					<p v-if="reconciler.fix" class="text-xs text-amber-700 mt-1">{{ reconciler.fix }}</p>
+					<p class="text-xs text-amber-600 mt-1">
+						Last ran
+						<template v-if="reconciler.seconds_since_last_run !== null">
+							{{ describeAgo(reconciler.seconds_since_last_run) }} ago
+						</template>
+						<template v-else>never</template>
+						· expected every {{ describeAgo(reconciler.interval_seconds) }}
+						· queue “{{ reconciler.queue }}”
+						<template v-if="reconciler.queue_depth"> · {{ reconciler.queue_depth }} job(s) waiting</template>
+					</p>
+				</div>
+			</div>
+		</div>
+
 		<ErrorMessage v-if="error" :message="error" class="mx-6 mt-4" />
 
 		<div v-if="!can.administer" class="m-6 text-sm text-gray-600">
@@ -321,6 +352,129 @@
 							variant="outline"
 							:disabled="dStart + dPageLengthNum >= dTotal"
 							@click="nextDelegationPage"
+						>
+							Next
+						</Button>
+					</div>
+				</div>
+			</div>
+		</div>
+
+		<!-- Clarifications: what agents stopped to ask, and whether anyone answered -->
+		<div v-else-if="tab === 'clarifications'" class="flex-1 flex flex-col overflow-hidden">
+			<div class="bg-white px-6 py-3 border-b flex flex-wrap gap-3 items-center">
+				<FormControl
+					type="select"
+					v-model="cFilters.agent_configuration"
+					:options="clarificationAgentOptions"
+					class="w-48"
+					@change="loadClarifications(0)"
+				/>
+				<FormControl
+					type="select"
+					v-model="cFilters.owner_asked"
+					:options="clarificationPeopleOptions"
+					class="w-52"
+					@change="loadClarifications(0)"
+				/>
+				<FormControl
+					type="select"
+					v-model="cFilters.reference_doctype"
+					:options="clarificationDoctypeOptions"
+					class="w-44"
+					@change="loadClarifications(0)"
+				/>
+				<FormControl
+					type="select"
+					v-model="cFilters.status"
+					:options="clarificationStatusOptions"
+					class="w-44"
+					@change="loadClarifications(0)"
+				/>
+				<div class="flex items-center gap-2">
+					<span class="text-sm text-gray-600">Asked</span>
+					<FormControl type="date" v-model="cFilters.asked_from" class="w-36" @change="loadClarifications(0)" />
+					<span class="text-sm text-gray-500">to</span>
+					<FormControl type="date" v-model="cFilters.asked_to" class="w-36" @change="loadClarifications(0)" />
+				</div>
+				<Button v-if="anyClarificationFilter" variant="ghost" @click="resetClarificationFilters">
+					Clear filters
+				</Button>
+				<div class="ml-auto flex items-center gap-4">
+					<span class="text-sm text-gray-600">{{ cTotal }} questions</span>
+					<div class="flex items-center gap-2">
+						<span class="text-sm text-gray-600">Page Size:</span>
+						<FormControl
+							type="select"
+							v-model="cPageLength"
+							:options="pageSizeOptions"
+							class="w-20"
+							@change="changeClarificationPageSize"
+						/>
+					</div>
+				</div>
+			</div>
+			<div class="flex-1 overflow-auto px-6 py-4">
+				<p class="text-sm text-gray-600 mb-3">
+					Where an agent stopped rather than guessed. A question still waiting is work
+					that is not moving — click a row for the whole exchange.
+				</p>
+				<div v-if="loading.clarifications" class="text-sm text-gray-500">Loading…</div>
+				<table v-else class="w-full text-sm bg-white rounded-lg overflow-hidden">
+					<thead class="bg-gray-100 text-left text-xs uppercase text-gray-500">
+						<tr>
+							<th class="px-4 py-2">About</th>
+							<th class="px-4 py-2" title="The agent that stopped and asked">Asked by</th>
+							<th class="px-4 py-2" title="The person who set the requirement">Asked of</th>
+							<th class="px-4 py-2">Question</th>
+							<th class="px-4 py-2">Status</th>
+							<th class="px-4 py-2">Asked</th>
+							<th class="px-4 py-2">Last updated</th>
+						</tr>
+					</thead>
+					<tbody>
+						<tr
+							v-for="c in clarifications"
+							:key="c.name"
+							class="border-t cursor-pointer hover:bg-gray-50"
+							@click="openClarification(c)"
+						>
+							<td class="px-4 py-2">
+								<div class="font-medium text-gray-900">{{ c.reference_name || "—" }}</div>
+								<div class="text-xs text-gray-500">{{ c.reference_doctype || "nothing linked" }}</div>
+							</td>
+							<td class="px-4 py-2 text-gray-600">{{ c.agent_configuration || "—" }}</td>
+							<td class="px-4 py-2 text-gray-600">{{ c.owner_asked || "—" }}</td>
+							<td class="px-4 py-2 text-gray-700">
+								<div class="max-w-md truncate" :title="c.question">{{ c.question || "—" }}</div>
+								<div v-if="c.round > 1" class="text-xs text-gray-500">round {{ c.round }}</div>
+							</td>
+							<td class="px-4 py-2">
+								<Badge :theme="clarificationTheme(c)">{{ clarificationLabel(c) }}</Badge>
+							</td>
+							<td class="px-4 py-2 text-gray-500 text-xs">{{ c.asked_at }}</td>
+							<td class="px-4 py-2 text-gray-500 text-xs">{{ c.modified }}</td>
+						</tr>
+						<tr v-if="!clarifications.length">
+							<td colspan="7" class="px-4 py-6 text-center text-gray-500">
+								{{ anyClarificationFilter ? "Nothing matches those filters." : "No agent has needed to ask anything yet." }}
+							</td>
+						</tr>
+					</tbody>
+				</table>
+				<div class="mt-3 bg-white rounded-lg px-6 py-4 border-t flex items-center justify-between text-sm">
+					<div class="text-gray-600">
+						Showing {{ clarifications.length ? cStart + 1 : 0 }} to
+						{{ cStart + clarifications.length }} of {{ cTotal }}
+					</div>
+					<div class="flex items-center gap-2">
+						<Button variant="outline" :disabled="cStart === 0" @click="prevClarificationPage">
+							Previous
+						</Button>
+						<Button
+							variant="outline"
+							:disabled="cStart + cPageLengthNum >= cTotal"
+							@click="nextClarificationPage"
 						>
 							Next
 						</Button>
@@ -746,6 +900,118 @@
 			</template>
 		</Dialog>
 
+		<!-- One question, with the exchange it belongs to. -->
+		<Dialog v-model="clarificationOpen" :options="{ title: 'Clarification', size: '2xl' }">
+			<template #body-content>
+				<div v-if="loading.clarification" class="text-sm text-gray-500">Loading…</div>
+				<div v-else-if="openClarificationRow" class="flex flex-col gap-5 text-sm">
+					<div class="flex flex-wrap items-center gap-2">
+						<Badge :theme="clarificationTheme(openClarificationRow)">
+							{{ clarificationLabel(openClarificationRow) }}
+						</Badge>
+						<span class="text-gray-900 font-medium">
+							{{ openClarificationRow.agent_configuration || "An agent" }}
+							→
+							{{ openClarificationRow.owner_asked || "the document owner" }}
+						</span>
+						<span class="text-gray-400 text-xs">{{ openClarificationRow.name }}</span>
+					</div>
+
+					<!-- A question nobody has answered is the one that matters: nothing
+					     moves on that document until it is. -->
+					<div
+						v-if="openClarificationRow.status === 'Awaiting Answer'"
+						class="rounded-lg border border-orange-200 bg-orange-50 px-4 py-3"
+					>
+						<div class="font-medium text-orange-900">Still waiting</div>
+						<div class="text-orange-800 mt-0.5">
+							The agent is paused on this and will not guess.
+							<span v-if="openClarificationRow.escalated_at">
+								It was escalated to
+								{{ openClarificationRow.escalated_to || "the process owner" }} on
+								{{ openClarificationRow.escalated_at }}.
+							</span>
+							<span v-else-if="openClarificationRow.reminded_at">
+								A reminder went out on {{ openClarificationRow.reminded_at }}.
+							</span>
+						</div>
+					</div>
+
+					<div class="grid gap-4 md:grid-cols-2">
+						<div>
+							<div class="text-xs uppercase text-gray-400 mb-1">What it is about</div>
+							<div v-if="openClarificationRow.reference_name" class="text-gray-800">
+								<a
+									:href="clarificationRefUrl(openClarificationRow)"
+									target="_blank"
+									class="text-blue-600 hover:underline"
+								>
+									{{ openClarificationRow.reference_name }}
+								</a>
+								<span class="text-gray-500"> · {{ openClarificationRow.reference_doctype }}</span>
+								<div v-if="openClarificationTitle" class="text-gray-600 mt-0.5">
+									{{ openClarificationTitle }}
+								</div>
+							</div>
+							<div v-else class="text-gray-400">nothing linked</div>
+						</div>
+						<div>
+							<div class="text-xs uppercase text-gray-400 mb-1">Timing</div>
+							<div class="text-gray-700">
+								<div>asked {{ openClarificationRow.asked_at || "—" }}</div>
+								<div v-if="openClarificationRow.answered_at">
+									answered {{ openClarificationRow.answered_at }}
+									<span v-if="openClarificationRow.answered_by">
+										by {{ openClarificationRow.answered_by }}
+									</span>
+								</div>
+							</div>
+						</div>
+					</div>
+
+					<div>
+						<div class="text-xs uppercase text-gray-400 mb-1">The question</div>
+						<div class="text-gray-800 whitespace-pre-wrap">
+							{{ openClarificationRow.question || "—" }}
+						</div>
+						<div
+							v-if="openClarificationRow.interpretations"
+							class="text-gray-600 mt-2 whitespace-pre-wrap"
+						>
+							<i>Choosing between:</i> {{ openClarificationRow.interpretations }}
+						</div>
+					</div>
+
+					<div v-if="openClarificationRow.answer">
+						<div class="text-xs uppercase text-gray-400 mb-1">The answer</div>
+						<div class="text-gray-800 whitespace-pre-wrap">{{ openClarificationRow.answer }}</div>
+					</div>
+
+					<!-- The thread is the point. A follow-up reads as pedantic on its own;
+					     beside the answer that failed to settle it, it reads as the agent
+					     doing exactly what it was asked to do. -->
+					<div v-if="clarificationThread.length > 1">
+						<div class="text-xs uppercase text-gray-400 mb-2">
+							The whole exchange about this document
+						</div>
+						<div
+							v-for="t in clarificationThread"
+							:key="t.name"
+							class="border-l-2 pl-3 mb-3"
+							:class="t.name === openClarificationRow.name ? 'border-blue-400' : 'border-gray-200'"
+						>
+							<div class="text-xs text-gray-500">
+								Round {{ t.round }} · {{ t.status }}
+								<span v-if="t.answered_by">· answered by {{ t.answered_by }}</span>
+							</div>
+							<div class="text-gray-800">{{ t.question }}</div>
+							<div v-if="t.answer" class="text-gray-600 mt-0.5">→ {{ t.answer }}</div>
+						</div>
+					</div>
+				</div>
+			</template>
+		</Dialog>
+
 		<Dialog v-model="remoteFormOpen" :options="{ title: remoteForm.name ? 'Edit remote agent' : 'New remote agent' }">
 			<template #body-content>
 				<div class="flex flex-col gap-3">
@@ -892,6 +1158,26 @@ import { Badge, Button, Dialog, ErrorMessage, FormControl, frappeRequest } from 
 import AgentPicker from "@/components/a2a/AgentPicker.vue"
 
 const API = "/api/method/one_bpmn.api.a2a_admin_api."
+
+// WI-002055: whether the job that wakes parked agent work is actually running.
+const reconciler = ref(null)
+
+function describeAgo(seconds) {
+	const s = Number(seconds || 0)
+	if (s < 90) return `${Math.round(s)}s`
+	if (s < 5400) return `${Math.round(s / 60)} minutes`
+	return `${(s / 3600).toFixed(1)} hours`
+}
+
+async function loadReconciler() {
+	try {
+		reconciler.value = await call("reconciler_status")
+	} catch (e) {
+		// A health check that breaks the page it is meant to explain would be
+		// worse than no health check.
+		reconciler.value = null
+	}
+}
 const TERMINAL = ["completed", "canceled", "failed", "rejected", "timed-out"]
 
 const tab = ref("ours")
@@ -903,6 +1189,8 @@ const loading = reactive({
 	tasks: false,
 	delegations: false,
 	delegation: false,
+	clarifications: false,
+	clarification: false,
 	cancel: false,
 	redelegate: false,
 })
@@ -923,9 +1211,29 @@ const start = ref(0)
 const pageLength = ref(20)
 const dPageLength = ref(20)
 
+// Clarifications: what agents stopped to ask, and whether anyone answered.
+const clarifications = ref([])
+const cTotal = ref(0)
+const cStart = ref(0)
+const cPageLength = ref(20)
+const cFilters = reactive({
+	agent_configuration: "",
+	owner_asked: "",
+	reference_doctype: "",
+	status: "",
+	asked_from: "",
+	asked_to: "",
+})
+const clarificationOptions = ref({ agents: [], people: [], doctypes: [], statuses: [] })
+const clarificationOpen = ref(false)
+const openClarificationRow = ref(null)
+const openClarificationTitle = ref("")
+const clarificationThread = ref([])
+
 // FormControl's select hands back a string, and `start + "20"` is "020".
 const pageLengthNum = computed(() => Number(pageLength.value) || 20)
 const dPageLengthNum = computed(() => Number(dPageLength.value) || 20)
+const cPageLengthNum = computed(() => Number(cPageLength.value) || 20)
 
 const pageSizeOptions = [
 	{ label: "10", value: 10 },
@@ -963,6 +1271,7 @@ const tabs = computed(() => [
 	{ key: "clients", label: "Clients", count: clients.value.length || null },
 	{ key: "tasks", label: "Tasks", count: total.value || null },
 	{ key: "delegations", label: "Delegations", count: dTotal.value || null },
+	{ key: "clarifications", label: "Clarifications", count: cTotal.value || null },
 ])
 
 // Internal — one of our agents handing work to another on this site — is the
@@ -1040,6 +1349,59 @@ const canRedelegate = computed(() =>
 const canCancel = computed(() =>
 	Boolean(openDelegationRow.value && CANCELLABLE.includes(openDelegationRow.value.status))
 )
+
+// Built from the rows, like every other dropdown here: an agent that has never
+// asked anything, or a person nobody has ever asked, is a dead entry.
+const clarificationAgentOptions = computed(() => [
+	{ label: "All agents", value: "" },
+	...clarificationOptions.value.agents.map((a) => ({ label: a, value: a })),
+])
+const clarificationPeopleOptions = computed(() => [
+	{ label: "Asked of anyone", value: "" },
+	...clarificationOptions.value.people.map((p) => ({ label: p, value: p })),
+])
+const clarificationDoctypeOptions = computed(() => [
+	{ label: "All doctypes", value: "" },
+	...clarificationOptions.value.doctypes.map((d) => ({ label: d, value: d })),
+])
+const clarificationStatusOptions = computed(() => [
+	{ label: "Any status", value: "" },
+	...clarificationOptions.value.statuses.map((s) => ({ label: s, value: s })),
+])
+
+const anyClarificationFilter = computed(() =>
+	Boolean(
+		cFilters.agent_configuration ||
+			cFilters.owner_asked ||
+			cFilters.reference_doctype ||
+			cFilters.status ||
+			cFilters.asked_from ||
+			cFilters.asked_to
+	)
+)
+
+function clarificationTheme(row) {
+	if (!row) return "gray"
+	if (row.status === "Answered") return "green"
+	if (row.status === "Escalated") return "red"
+	if (row.status === "Abandoned") return "gray"
+	// Waiting, and the longer it waits the more it matters — a chased question is
+	// worse news than a fresh one, so it stops reading as merely pending.
+	return row.escalated_at ? "red" : "orange"
+}
+
+function clarificationLabel(row) {
+	if (!row) return ""
+	if (row.status !== "Awaiting Answer") return row.status
+	if (row.escalated_at) return "Escalated"
+	if (row.reminded_at) return "Reminded"
+	return "Awaiting answer"
+}
+
+function clarificationRefUrl(row) {
+	const slug = String(row.reference_doctype || "").toLowerCase().replace(/ /g, "-")
+	return `/app/${slug}/${encodeURIComponent(row.reference_name)}`
+}
 
 function delegationTheme(status) {
 	if (status === "Cancelled") return "gray"
@@ -1240,6 +1602,15 @@ async function saveClientAgents() {
 
 async function call(method, params) {
 	return await frappeRequest({ url: API + method, params })
+}
+
+// Clarifications are not an A2A concern — an agent asks a person whether or not
+// another agent is involved — so they keep their own module rather than being
+// filed under the A2A admin API for the sake of one shared prefix.
+const CLARIFY_API = "/api/method/one_bpmn.api.clarification_api."
+
+async function clarifyCall(method, params) {
+	return await frappeRequest({ url: CLARIFY_API + method, params })
 }
 
 async function loadOurAgents() {
@@ -1443,6 +1814,80 @@ async function askRedelegate(acknowledged = false) {
 	}
 }
 
+async function loadClarifications(from = 0) {
+	loading.clarifications = true
+	try {
+		const r = await clarifyCall("list_clarifications", {
+			agent_configuration: cFilters.agent_configuration || undefined,
+			owner_asked: cFilters.owner_asked || undefined,
+			reference_doctype: cFilters.reference_doctype || undefined,
+			status: cFilters.status || undefined,
+			asked_from: cFilters.asked_from || undefined,
+			asked_to: cFilters.asked_to || undefined,
+			start: Math.max(0, from),
+			page_length: cPageLengthNum.value,
+		})
+		clarifications.value = r.clarifications || []
+		cTotal.value = r.total || 0
+		cStart.value = r.start || 0
+	} catch (e) {
+		error.value = e.message || String(e)
+	} finally {
+		loading.clarifications = false
+	}
+}
+
+function changeClarificationPageSize() {
+	loadClarifications(0)
+}
+
+function prevClarificationPage() {
+	loadClarifications(Math.max(0, cStart.value - cPageLengthNum.value))
+}
+
+function nextClarificationPage() {
+	loadClarifications(cStart.value + cPageLengthNum.value)
+}
+
+function resetClarificationFilters() {
+	cFilters.agent_configuration = ""
+	cFilters.owner_asked = ""
+	cFilters.reference_doctype = ""
+	cFilters.status = ""
+	cFilters.asked_from = ""
+	cFilters.asked_to = ""
+	loadClarifications(0)
+}
+
+async function openClarification(row) {
+	// Show what the list already has, then fill in the rest — the modal opens
+	// immediately rather than after a round trip.
+	openClarificationRow.value = row
+	openClarificationTitle.value = ""
+	clarificationThread.value = []
+	clarificationOpen.value = true
+	loading.clarification = true
+	try {
+		const r = await clarifyCall("clarification_detail", { name: row.name })
+		openClarificationRow.value = r.clarification || row
+		clarificationThread.value = r.thread || []
+		openClarificationTitle.value = r.reference_title || ""
+	} catch (e) {
+		error.value = e.message || String(e)
+	} finally {
+		loading.clarification = false
+	}
+}
+
+async function loadClarificationOptions() {
+	try {
+		clarificationOptions.value = await clarifyCall("clarification_filter_options")
+	} catch (e) {
+		// A screen that cannot build its dropdowns still lists rows.
+		clarificationOptions.value = { agents: [], people: [], doctypes: [], statuses: [] }
+	}
+}
+
 async function loadFilterOptions() {
 	try {
 		filterOptions.value = await call("delegation_filter_options")
@@ -1517,6 +1962,9 @@ onMounted(async () => {
 		loadTasks(0),
 		loadDelegations(0),
 		loadFilterOptions(),
+		loadClarifications(0),
+		loadClarificationOptions(),
+		loadReconciler(),
 	])
 })
 </script>

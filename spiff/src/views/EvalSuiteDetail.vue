@@ -479,7 +479,7 @@ async function fetchProviders() {
 		const res = await frappeRequest({
 			url: "/api/method/frappe.client.get_list",
 			method: "GET",
-			params: { doctype: "AI Provider Credentials", filters: JSON.stringify({ enabled: 1 }), fields: JSON.stringify(["name"]), limit_page_length: 0 },
+			params: { doctype: "AI Provider", fields: JSON.stringify(["name"]), limit_page_length: 0 },
 		})
 		providerOptions.value = (res || []).map((p) => ({ label: p.name, value: p.name }))
 	} catch (e) {

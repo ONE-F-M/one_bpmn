@@ -89,10 +89,10 @@ class TestDurableAgentHitlEndToEnd(FrappeTestCase):
 	@classmethod
 	def setUpClass(cls):
 		super().setUpClass()
-		if not frappe.db.exists("AI Provider Credentials", "_Test HITL E2E Provider"):
+		if not frappe.db.exists("AI Provider", "_Test HITL E2E Provider"):
 			frappe.get_doc({
-				"doctype": "AI Provider Credentials",
-				"provider_name": "_Test HITL E2E Provider",
+				"doctype": "AI Provider",
+				"provider": "_Test HITL E2E Provider",
 				"provider_type": "OpenAI",
 				"api_key": "test-key-not-real",
 				"default_model": "gpt-test",

@@ -19,6 +19,12 @@
   "section_break_github",
   "github_token",
   "customization_app",
+  "connector_handler_app",
+  "section_break_agent_sandbox",
+  "agent_sandbox_url",
+  "column_break_agent_sandbox",
+  "agent_callback_secret",
+  "agent_sandbox_caller_key",
   "section_break_script_security",
   "script_security_intro",
   "script_binop_multiply_threshold",
@@ -35,7 +41,45 @@
   "section_break_ai_memory",
   "default_memory_distill_model",
   "column_break_ai_memory",
-  "default_memory_reconcile_model"
+  "default_memory_reconcile_model",
+  "default_compaction_model",
+  "default_context_token_budget",
+  "section_break_conversation_retention",
+  "conversation_ttl_days",
+  "column_break_conversation_retention",
+  "archive_action",
+  "llm_defaults_tab",
+  "default_llm_provider",
+  "openai_search_context",
+  "observability_tab",
+  "section_break_observability",
+  "enable_observability",
+  "langsmith_api_key",
+  "langsmith_project_name",
+  "observability_sanitization_level",
+  "observability_retry_attempts",
+  "section_break_langfuse",
+  "langfuse_base_url",
+  "langfuse_public_key",
+  "column_break_langfuse",
+  "langfuse_secret_key",
+  "dev_agent_weekly_report_enabled",
+  "dev_agent_report_recipients",
+  "section_break_token_estimator",
+  "token_estimator_chars_per_token",
+  "mcp_integration_tab",
+  "enabled",
+  "mcp_tools_enabled",
+  "enable_mcp_tools_for_user_planning_agent",
+  "user_story_template",
+  "jira_credentials_section",
+  "jira_url",
+  "jira_email",
+  "jira_api_token",
+  "copilot_settings_section",
+  "copilot_metrics_pat",
+  "copilot_org_name",
+  "copilot_enterprise_slug"
  ],
  "fields": [
   {
@@ -139,6 +183,42 @@
    "label": "Customization Owner App"
   },
   {
+   "default": "one_bpmn",
+   "description": "App whose repository receives the pull request when the Connector Agent writes a Python handler for a connector operation. Most connectors need no code at all \u2014 an operation is normally a declarative HTTP request \u2014 but a signed request, walked pagination, or a call sequence needs a real function, and that function is delivered as a pull request rather than written into this site. Handlers land in <code>connectors/generated/</code> in the named app, one module per connector, and the operation's Handler Path points at them. Defaults to the app that owns the connector layer. Leave blank to disable handler authoring entirely.",
+   "fieldname": "connector_handler_app",
+   "fieldtype": "Data",
+   "label": "Connector Handler App"
+  },
+  {
+   "collapsible": 1,
+   "description": "The AI Dev Agent: a Background agent delegated to over A2A that clones an app into an isolated Cloud Run sandbox, runs its real test suite, and delivers a passing change as a pull request via the same GitHub Integration above.",
+   "fieldname": "section_break_agent_sandbox",
+   "fieldtype": "Section Break",
+   "label": "Agent Sandbox"
+  },
+  {
+   "description": "Base URL of the deployed dev-agent-sandbox Cloud Run service for THIS environment (e.g. the beta service on a staging/BA site, the production service in production). Never point a non-production site at the production sandbox.",
+   "fieldname": "agent_sandbox_url",
+   "fieldtype": "Data",
+   "label": "Sandbox URL"
+  },
+  {
+   "fieldname": "column_break_agent_sandbox",
+   "fieldtype": "Column Break"
+  },
+  {
+   "description": "Shared HMAC secret verified against the sandbox's signed callback (X-Signature header). Must match the CALLBACK_HMAC_SECRET the sandbox was deployed with for this same environment — see deploy.py in the dev-agent-sandbox project.",
+   "fieldname": "agent_callback_secret",
+   "fieldtype": "Password",
+   "label": "Callback Secret"
+  },
+  {
+   "description": "Full JSON key of the GCP service account used to mint the short-lived identity token that authenticates each dispatch call to the IAM-protected sandbox (Cloud Run Invoker role on that service). Paste the entire key file's contents here. Note: unlike site_config.json, this value travels with the database on backup/restore — granting a service account's key to a non-production environment (e.g. restoring a production backup onto staging) hands that environment the same Cloud Run Invoker access, so keep each environment's service account scoped to only the sandbox it should be allowed to call.",
+   "fieldname": "agent_sandbox_caller_key",
+   "fieldtype": "Password",
+   "label": "Sandbox Caller Key (GCP Service Account JSON)"
+  },
+  {
    "collapsible": 1,
    "fieldname": "section_break_script_security",
    "fieldtype": "Section Break",
@@ -222,7 +302,7 @@
   },
   {
    "collapsible": 1,
-   "description": "Site-wide defaults for the models that write long-term memory. An agent's own Memory Models override these; with both blank, memory writes use the agent's own AI Model, exactly as before.",
+   "description": "Site-wide defaults for the models that write long-term memory and compact conversations. An agent's own Memory Models override these; with all blank, memory writes use the agent's own AI Model, exactly as before.",
    "fieldname": "section_break_ai_memory",
    "fieldtype": "Section Break",
    "label": "AI Memory"
@@ -244,12 +324,254 @@
    "fieldtype": "Link",
    "label": "Default Reconciliation Model",
    "options": "AI Model"
+  },
+  {
+   "description": "Used when nothing else names a model for summarising the early part of a conversation. Summarising is high-volume and low-stakes, so this should be the cheap model \u2014 left blank, compaction uses whatever the caller passes and, failing that, does nothing rather than bill the agent's own reasoning model for it.",
+   "fieldname": "default_compaction_model",
+   "fieldtype": "Link",
+   "label": "Default Compaction Model",
+   "options": "AI Model"
+  },
+  {
+   "description": "Used when an agent sets no Context Token Budget of its own. Caps the assembled conversation history by estimated size, so a tool-heavy thread cannot outgrow the model's context window between compactions. 0 means no size limit.",
+   "fieldname": "default_context_token_budget",
+   "fieldtype": "Int",
+   "label": "Default Context Token Budget"
+  },
+  {
+   "collapsible": 1,
+   "description": "What happens to chat conversations nobody has touched for a while. Idle is measured from the newest message in the conversation, not from when the record was last written \u2014 a status change or a title edit is not activity. An agent's own memory threads are never swept: they are a running agent's working state, not a conversation somebody had.",
+   "fieldname": "section_break_conversation_retention",
+   "fieldtype": "Section Break",
+   "label": "Conversation Retention"
+  },
+  {
+   "default": "0",
+   "description": "Days a conversation may sit idle before the daily sweep acts on it. 0 disables retention entirely \u2014 nothing is archived or deleted.",
+   "fieldname": "conversation_ttl_days",
+   "fieldtype": "Int",
+   "label": "Conversation TTL (days)"
+  },
+  {
+   "fieldname": "column_break_conversation_retention",
+   "fieldtype": "Column Break"
+  },
+  {
+   "default": "Archive",
+   "depends_on": "eval:doc.conversation_ttl_days > 0",
+   "description": "Archive marks the conversation and leaves everything in place, so it can be read and restored. Delete removes the conversation and its messages permanently \u2014 that is the point of a retention policy, and it cannot be undone. Both are logged with counts.",
+   "fieldname": "archive_action",
+   "fieldtype": "Select",
+   "label": "Action on Expiry",
+   "options": "Archive\nDelete"
+  },
+  {
+   "description": "Migrated from onefm_mcp's AI Chat Settings doctype (retired). Global fallback provider/tuning for an agent configuration that has no linked AI Provider yet — once every agent config links a provider directly, this stops being consulted.",
+   "fieldname": "llm_defaults_tab",
+   "fieldtype": "Tab Break",
+   "label": "LLM Defaults"
+  },
+  {
+   "default": "anthropic",
+   "description": "Global fallback provider for an agent configuration without a linked AI Provider record. Read by one_bpmn/agents/llm_provider/factory.py as the last resort before the hard-coded \"gemini\" default.",
+   "fieldname": "default_llm_provider",
+   "fieldtype": "Select",
+   "label": "Default LLM Provider",
+   "options": "gemini\nanthropic\nopenai"
+  },
+  {
+   "default": "medium",
+   "depends_on": "eval:doc.default_llm_provider=='openai'",
+   "description": "Has a real configured value in production — restore this field's consumer (believed to be a BPMN Script Task node's inline script) to read it from here.",
+   "fieldname": "openai_search_context",
+   "fieldtype": "Select",
+   "label": "OpenAI Search Context",
+   "options": "low\nmedium\nhigh"
+  },
+  {
+   "description": "Migrated from onefm_mcp's AI Chat Settings doctype (retired).",
+   "fieldname": "observability_tab",
+   "fieldtype": "Tab Break",
+   "label": "Observability"
+  },
+  {
+   "collapsible": 1,
+   "description": "Site-wide LangSmith tracing defaults, consumed by onefm_mcp's Lumina observability layer as well as any one_bpmn agent that leaves its own LangSmith Project blank on AI Agent Configuration.",
+   "fieldname": "section_break_observability",
+   "fieldtype": "Section Break",
+   "label": "LangSmith Observability"
+  },
+  {
+   "default": "1",
+   "fieldname": "enable_observability",
+   "fieldtype": "Check",
+   "label": "Enable Observability"
+  },
+  {
+   "fieldname": "langsmith_api_key",
+   "fieldtype": "Password",
+   "label": "LangSmith API Key",
+   "mandatory_depends_on": "eval:doc.enable_observability"
+  },
+  {
+   "default": "lumina-production",
+   "fieldname": "langsmith_project_name",
+   "fieldtype": "Data",
+   "label": "LangSmith Project Name",
+   "mandatory_depends_on": "eval:doc.enable_observability"
+  },
+  {
+   "default": "Partial",
+   "fieldname": "observability_sanitization_level",
+   "fieldtype": "Select",
+   "label": "Observability Sanitization Level",
+   "mandatory_depends_on": "eval:doc.enable_observability",
+   "options": "None\nPartial\nFull"
+  },
+  {
+   "default": "3",
+   "fieldname": "observability_retry_attempts",
+   "fieldtype": "Int",
+   "label": "Observability Retry Attempts",
+   "mandatory_depends_on": "eval:doc.enable_observability"
+  },
+  {
+   "collapsible": 1,
+   "description": "Credentials and schedule for the weekly email summary of the OneFM AI development agent's Langfuse traces.",
+   "fieldname": "section_break_langfuse",
+   "fieldtype": "Section Break",
+   "label": "Langfuse & Weekly Agent Report"
+  },
+  {
+   "default": "https://cloud.langfuse.com",
+   "description": "Langfuse Cloud endpoint for the OneFM AI development agent observability",
+   "fieldname": "langfuse_base_url",
+   "fieldtype": "Data",
+   "label": "Langfuse Base URL"
+  },
+  {
+   "description": "Langfuse project public key (pk-lf-...)",
+   "fieldname": "langfuse_public_key",
+   "fieldtype": "Password",
+   "label": "Langfuse Public Key"
+  },
+  {
+   "fieldname": "column_break_langfuse",
+   "fieldtype": "Column Break"
+  },
+  {
+   "description": "Langfuse project secret key (sk-lf-...)",
+   "fieldname": "langfuse_secret_key",
+   "fieldtype": "Password",
+   "label": "Langfuse Secret Key"
+  },
+  {
+   "default": "0",
+   "description": "Send a weekly email summary of agent performance metrics every Monday",
+   "fieldname": "dev_agent_weekly_report_enabled",
+   "fieldtype": "Check",
+   "label": "Enable Weekly Report"
+  },
+  {
+   "description": "Comma-separated email addresses to receive the weekly report",
+   "fieldname": "dev_agent_report_recipients",
+   "fieldtype": "Data",
+   "label": "Report Recipients"
+  },
+  {
+   "collapsible": 1,
+   "description": "Consumed by one_bpmn's AI Skill token-estimate helper.",
+   "fieldname": "section_break_token_estimator",
+   "fieldtype": "Section Break",
+   "label": "Token Estimation"
+  },
+  {
+   "default": "4",
+   "fieldname": "token_estimator_chars_per_token",
+   "fieldtype": "Int",
+   "label": "Chars Per Token (Estimate)"
+  },
+  {
+   "description": "Migrated from onefm_mcp's AI Chat Settings doctype (retired). Config for onefm_mcp's Lumina chat widget and the MCP tool integrations it exposes — kept here rather than in onefm_mcp itself so agent-adjacent config has one home.",
+   "fieldname": "mcp_integration_tab",
+   "fieldtype": "Tab Break",
+   "label": "MCP Integration"
+  },
+  {
+   "default": "1",
+   "description": "Enables onefm_mcp's Lumina chat widget.",
+   "fieldname": "enabled",
+   "fieldtype": "Check",
+   "label": "Enable AI Chat Widget"
+  },
+  {
+   "default": "0",
+   "fieldname": "mcp_tools_enabled",
+   "fieldtype": "Check",
+   "label": "Enable MCP Tools"
+  },
+  {
+   "default": "0",
+   "fieldname": "enable_mcp_tools_for_user_planning_agent",
+   "fieldtype": "Check",
+   "label": "Enable MCP Tools For User Planning Agent"
+  },
+  {
+   "description": "Has a real configured value in production — restore this field's consumer (believed to be the BA/User Planning agent's BPMN Script Task node) to read it from here.",
+   "fieldname": "user_story_template",
+   "fieldtype": "Small Text",
+   "label": "User Story Template"
+  },
+  {
+   "collapsible": 1,
+   "fieldname": "jira_credentials_section",
+   "fieldtype": "Section Break",
+   "label": "Jira Credentials"
+  },
+  {
+   "fieldname": "jira_url",
+   "fieldtype": "Data",
+   "label": "Jira URL"
+  },
+  {
+   "fieldname": "jira_email",
+   "fieldtype": "Data",
+   "label": "Jira Email"
+  },
+  {
+   "fieldname": "jira_api_token",
+   "fieldtype": "Password",
+   "label": "Jira API Token"
+  },
+  {
+   "collapsible": 1,
+   "fieldname": "copilot_settings_section",
+   "fieldtype": "Section Break",
+   "label": "Copilot Settings"
+  },
+  {
+   "fieldname": "copilot_metrics_pat",
+   "fieldtype": "Password",
+   "label": "Copilot Metrics PAT",
+   "mandatory_depends_on": "eval:doc.mcp_tools_enabled"
+  },
+  {
+   "fieldname": "copilot_org_name",
+   "fieldtype": "Data",
+   "label": "Copilot Organization Name",
+   "mandatory_depends_on": "eval:doc.mcp_tools_enabled"
+  },
+  {
+   "fieldname": "copilot_enterprise_slug",
+   "fieldtype": "Data",
+   "label": "Copilot Enterprise Slug",
+   "mandatory_depends_on": "eval:doc.mcp_tools_enabled"
   }
  ],
  "issingle": 1,
  "links": [],
- "modified": "2026-08-17 12:00:00.000000",
- "modified_by": "Administrator",
+ "modified": "2026-08-24 12:00:00.000000",
+ "modified_by": "s.shariff@one-fm.com",
  "module": "ONE BPMN",
  "name": "Processa Settings",
  "owner": "Administrator",

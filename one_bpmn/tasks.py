@@ -229,6 +229,7 @@ def _refresh_timer_tasks(instance_name: str):
 		context_docname=instance.context_docname,
 		script_task_extensions=spec_data.get("script_task_extensions"),
 		initiated_by=instance.initiated_by or "Administrator",
+		instance=instance,
 	)
 
 	waiting_before = len(wf.get_tasks(state=TaskState.WAITING))
@@ -873,3 +874,91 @@ def _mark_resumed(a2a_task: str) -> None:
 	must never hand the same finished task to the engine twice, even if the
 	enqueue helper changes or fails."""
 	frappe.db.set_value("A2A Task", a2a_task, "resume_enqueued", 1, update_modified=False)
+
+
+def sweep_conversation_retention():
+	"""Daily: archive or delete chat conversations idle past their TTL.
+
+	Off unless an administrator sets a TTL on Processa Settings, so a site that
+	has not asked for retention does nothing beyond one settings read.
+	"""
+	from one_bpmn.agents.memory import retention
+
+	try:
+		result = retention.sweep_expired_conversations()
+		if result.get("swept"):
+			frappe.logger("one_bpmn").info(
+				f"Conversation retention: {result['action']}d {result['swept']} conversation(s)"
+			)
+	except Exception:
+		frappe.log_error(
+			title="Conversation retention sweep failed", message=frappe.get_traceback()
+		)
+
+
+def apply_due_model_rates():
+	"""Daily: apply any model rate whose effective date has passed.
+
+	Folding pricing onto AI Model left one rate per model and no date, so a
+	published price rise had nowhere to be recorded in advance and depended on
+	somebody remembering it. The catalogue carries the dated changes; this is
+	what makes them happen. A no-op on any day nothing is due, and it will not
+	touch a rate that does not still match the exact published one it replaces.
+	"""
+	from one_bpmn.one_bpmn.patches.v1_0.seed_ai_model_catalogue import apply_due_rates
+
+	try:
+		for line in apply_due_rates():
+			frappe.logger("one_bpmn").info(f"AI Model rate applied: {line}")
+	except Exception:
+		frappe.log_error(title="Model rate update failed", message=frappe.get_traceback())
+
+
+def compact_idle_conversations():
+	"""Hourly: the TIME trigger for conversation compaction.
+
+	The count and turn-boundary triggers hang off the chat message hook, but an
+	idle conversation by definition produces no messages — so the one trigger
+	that cannot be a hook is a sweep. It queues exactly the same background job
+	the other two do.
+
+	Does nothing at all unless some agent has an idle threshold configured.
+	"""
+	from one_bpmn.agents.memory import compaction_triggers
+
+	try:
+		result = compaction_triggers.sweep_idle_conversations()
+		if result.get("queued"):
+			frappe.logger("one_bpmn").info(
+				f"Conversation compaction: queued {result['queued']} of "
+				f"{result['considered']} idle conversations"
+			)
+	except Exception:
+		frappe.log_error(
+			title="Conversation compaction: idle sweep failed",
+			message=frappe.get_traceback(),
+		)
+
+
+def chase_unanswered_clarifications():
+	"""Hourly: nudge a question nobody has answered, then raise it.
+
+	WI-002050. It never answers the question. Every source on human-in-the-loop
+	work says the same thing — do not block forever, and do not proceed on a
+	timeout — so this does the first half (somebody is told) and deliberately
+	not the second (nothing is assumed). The agent stays blocked, which is the
+	whole point of having asked.
+	"""
+	from one_bpmn.agents import clarification
+
+	try:
+		result = clarification.chase_unanswered()
+		if result.get("reminded") or result.get("escalated"):
+			frappe.logger("one_bpmn").info(
+				f"AI clarifications: reminded {result['reminded']}, escalated {result['escalated']}"
+			)
+	except Exception:
+		frappe.log_error(
+			title="AI Clarification: chasing unanswered questions failed",
+			message=frappe.get_traceback(),
+		)

@@ -988,6 +988,16 @@ def get_active_bpmn_tasks(doctype: str, docname: str) -> list:
 				if row.status != "Waiting":
 					continue
 
+				# A question an agent asked is not a workflow action. It appeared in
+				# the Actions menu on the document as a bare shape id, and choosing
+				# it completed the task with no answer in it — so the agent resumed
+				# having been told nothing, and asked again. It has its own place on
+				# the document, with the question, the readings it is choosing
+				# between, and a box to reply in; two doors to the same task where
+				# one of them loses the answer is worse than one.
+				if (row.task_type or "") == "AI Human Task":
+					continue
+
 				# Resolve actions — handles both manual and frappe_workflow modes
 				actions_str = instance._resolve_task_actions(row)
 				actions_detail = instance._resolve_task_actions_detail(row)
@@ -1016,6 +1026,187 @@ def get_active_bpmn_tasks(doctype: str, docname: str) -> list:
 # ============================================================================
 # BPMN Message Event API
 # ============================================================================
+
+
+@frappe.whitelist()
+def trigger_process_by_message(
+	message_name: str,
+	payload: str = None,
+	context_doctype: str = None,
+	context_docname: str = None,
+) -> dict:
+	"""
+	Start the process whose Message Start Event declares ``message_name``.
+
+	``send_message`` delivers to a process that is ALREADY running — it needs an
+	instance to hand the message to, and throws when there is none. That leaves
+	no way to express the other half of the BPMN message pattern: a map whose
+	start event IS a message, waiting to be instantiated by one. This is that
+	half.
+
+	The caller names an event, not a diagram. Which map answers to that name is
+	configuration, so a map can be renamed, replaced or re-pointed without the
+	caller changing — the same separation ``send_message`` already gives running
+	instances.
+
+	Resolution reads the diagram rather than ``start_events``: the compiler
+	models Conditional, Timer and Signal start events but has no Message type,
+	so the recorded config carries ``event_type = "None"`` and no message name.
+	Only active models are considered.
+
+	Args:
+		message_name:    BPMN message name, e.g. ``ToDo_SyncGoogleTasks_Action``
+		payload:         Optional JSON string merged into the new instance's data
+		context_doctype: Optional linked DocType
+		context_docname: Optional linked document
+
+	Returns:
+		dict from ``start_process_async`` plus the model that answered.
+
+	Raises:
+		frappe.ValidationError — nothing listens for the name, or more than one
+		thing does. Both are refused rather than guessed at: silently picking
+		one of two listeners would make the wrong process run intermittently.
+	"""
+	if not message_name:
+		frappe.throw(_("message_name is required"))
+
+	listeners = _models_listening_for(message_name)
+
+	if not listeners:
+		frappe.throw(
+			_("No active process is listening for the message '{0}'.").format(message_name)
+		)
+	if len(listeners) > 1:
+		frappe.throw(
+			_("{0} active processes listen for the message '{1}': {2}. Exactly one must.").format(
+				len(listeners), message_name, ", ".join(sorted(listeners))
+			)
+		)
+
+	model_name = listeners[0]
+
+	# Starting is not enough. A Message Start Event parks the new instance
+	# waiting for its message, so a bare start leaves it Active and idle
+	# forever. Start and deliver have to happen together, in that order, and
+	# both belong on the worker so the button returns immediately.
+	frappe.enqueue(
+		"one_bpmn.api.instance_api._start_and_deliver_message",
+		queue="bpmn_ai_agent",
+		model_name=model_name,
+		message_name=message_name,
+		payload=payload,
+		context_doctype=context_doctype,
+		context_docname=context_docname,
+		run_as_user=frappe.session.user,
+		is_async=True,
+		timeout=600,
+	)
+
+	return {
+		"status": "queued",
+		"model": model_name,
+		"message_name": message_name,
+		"message": _("Process '{0}' queued for execution").format(model_name),
+	}
+
+
+def _start_and_deliver_message(
+	model_name: str,
+	message_name: str,
+	payload: str = None,
+	context_doctype: str = None,
+	context_docname: str = None,
+	run_as_user: str = None,
+):
+	"""Create the instance, then hand it the message that starts it.
+
+	Runs as the caller so the map's scripts see the right ``frappe.session.user``
+	— the sync they trigger is per-user, and attribution on anything they write
+	should name the person who pressed the button, not the worker.
+	"""
+	original_user = frappe.session.user
+	try:
+		if run_as_user:
+			frappe.set_user(run_as_user)
+
+		started = start_process(
+			model_name=model_name,
+			context_doctype=context_doctype,
+			context_docname=context_docname,
+			initial_data=payload,
+		)
+		instance = frappe.get_doc("BPMN Process Instance", started["instance"])
+		instance.receive_message(
+			message_name=message_name,
+			payload=frappe.parse_json(payload) if payload else {},
+		)
+
+		# receive_message does NOT raise when nothing catches the message — it
+		# logs at debug and returns unchanged. Without this the instance sits
+		# Active and idle and the run looks successful. Read the flag.
+		if not instance.flags.get("bpmn_message_caught"):
+			frappe.log_error(
+				title=f"BPMN: '{message_name}' started {model_name} but nothing caught it",
+				message=(
+					f"Instance {instance.name} was created for model {model_name} "
+					f"but its start event did not consume message '{message_name}'. "
+					"The instance is left Active and will not progress."
+				),
+			)
+	finally:
+		frappe.set_user(original_user)
+
+
+def _models_listening_for(message_name: str) -> list:
+	"""Active models with a Message Start Event bound to ``message_name``.
+
+	Two hops on purpose. ``<bpmn:message>`` declares the name; a start event
+	opts in by pointing its ``messageRef`` at that declaration's id. Matching on
+	the declaration alone would also match a map that merely CATCHES the message
+	part-way through, which must not be started by it.
+	"""
+	from lxml import etree as ET
+
+	BPMN_NS = "http://www.omg.org/spec/BPMN/20100524/MODEL"
+	wanted = (message_name or "").strip()
+	found = []
+
+	for name, xml in frappe.get_all(
+		"BPMN Process Model",
+		filters={"is_active": 1},
+		fields=["name", "bpmn_xml"],
+		as_list=True,
+	):
+		if not xml or wanted not in xml:
+			# Cheap reject before paying for a parse.
+			continue
+		try:
+			parser = ET.XMLParser(resolve_entities=False, no_network=True)
+			root = ET.fromstring(xml.encode("utf-8"), parser=parser)
+		except Exception:
+			# A diagram that will not parse cannot be started by anything; the
+			# compiler already reports that, so stay quiet and skip it.
+			continue
+
+		ids = {
+			el.get("id")
+			for el in root.iter(f"{{{BPMN_NS}}}message")
+			if (el.get("name") or "").strip() == wanted and el.get("id")
+		}
+		if not ids:
+			continue
+
+		for start in root.iter(f"{{{BPMN_NS}}}startEvent"):
+			for med in start.iter(f"{{{BPMN_NS}}}messageEventDefinition"):
+				if med.get("messageRef") in ids:
+					found.append(name)
+					break
+			else:
+				continue
+			break
+
+	return found
 
 
 @frappe.whitelist()

@@ -56,6 +56,14 @@ def compile_shape_tools(tool_shapes, instance) -> list:
 		if not bpmn_id:
 			continue
 		if shape.get("human"):
+			# WI-002050: an agent that has already asked its allowed number of
+			# questions about this piece of work stops being offered the tool.
+			# Withdrawn rather than refused mid-call: a tool the model can see and
+			# cannot use invites it to keep trying, and the documented failure of
+			# an interactive agent is over-asking, not silence. What happens next
+			# is the escalation — never a guess.
+			if _clarification_cap_reached(instance, shape):
+				continue
 			# Durable HITL: a User/Manual shape is a HUMAN tool. The step
 			# loop never calls fn — selecting it suspends the agent until a
 			# person completes the spawned task; the stub only exists to make
@@ -119,6 +127,30 @@ class ToolDeferred(Exception):
 		self.marker = marker or {}
 
 
+def _clarification_cap_reached(instance, shape) -> bool:
+	"""Has this agent used up its questions about this document?
+
+	Read per document, not per run: a story retried or handed back is the same
+	story, and a cap that reset would not be a cap.
+	"""
+	try:
+		from one_bpmn.agents import clarification
+
+		agent = getattr(instance, "_a2a_delegating_agent", None) or (
+			shape.get("aiAgentConfig") if isinstance(shape, dict) else None
+		)
+		return clarification.cap_reached(
+			agent,
+			getattr(instance, "context_doctype", None),
+			getattr(instance, "context_docname", None),
+		)
+	except Exception:
+		# A cap that cannot be read must not remove the agent's only way of
+		# asking — failing open here keeps the question possible, and the
+		# escalation still catches an unanswered one.
+		return False
+
+
 def _make_human_stub(bpmn_id: str):
 	def fn(**kwargs):
 		raise RuntimeError(
@@ -135,9 +167,55 @@ def _make_shape_fn(instance, bpmn_id: str, task_cfg: dict):
 	return fn
 
 
-def execute_shape(instance, bpmn_id: str, task_cfg: dict, kwargs: dict) -> str:
+# What a service shape needs before dispatch can do anything with it. Only the
+# connector case is checked: an ai_agent or script shape carries its own config
+# and fails visibly, whereas a connector with no id resolves no handler and
+# returns in silence.
+_DISPATCH_WIRING = {"connector": ("connectorId", "operation")}
+
+
+def _with_dispatch_wiring(instance, bpmn_id: str, task_cfg: dict) -> dict:
+	"""Fill a tool descriptor's gaps from the shape's own compiled descriptor.
+
+	The tool list an agent is offered and the shape's dispatch config are built
+	separately, and an OLD compiled spec carries the connector's wiring only on
+	the second. That is survivable — the map is right, its compiled copy is
+	behind — so the wiring is taken from the shape when the tool entry lacks it,
+	rather than failing a map that would work once redeployed.
+
+	The tool entry still wins where it says anything: it is the more specific of
+	the two, and a shape used as a tool may deliberately differ.
+	"""
+	needed = _DISPATCH_WIRING.get((task_cfg or {}).get("serviceType") or "")
+	if not needed or all(str((task_cfg or {}).get(k) or "").strip() for k in needed):
+		return task_cfg
+	shape_cfg = (getattr(instance, "_service_task_extensions", {}) or {}).get(bpmn_id) or {}
+	if not shape_cfg:
+		return task_cfg
+	merged = dict(shape_cfg)
+	merged.update({k: v for k, v in (task_cfg or {}).items() if v not in (None, "")})
+	return merged
+
+
+def _missing_dispatch_wiring(task_cfg: dict) -> list:
+	"""Which required keys are still absent after the merge above."""
+	needed = _DISPATCH_WIRING.get((task_cfg or {}).get("serviceType") or "")
+	if not needed:
+		return []
+	return [k for k in needed if not str((task_cfg or {}).get(k) or "").strip()]
+
+
+def execute_shape(instance, bpmn_id: str, task_cfg: dict | None, kwargs: dict) -> str:
 	"""
 	Execute a single shape as a function tool and return a JSON string result.
+
+	``task_cfg=None`` means "look up the real shape's own compiled config" —
+	for a Script Task (review_script, finalize) calling a REAL nested AI Agent
+	Task shape it doesn't otherwise reference, rather than an outer agent's own
+	tool-calling loop, which always has the shape's descriptor in hand already
+	(from aiToolShapes) and passes it explicitly. An empty dict ``{}`` is a
+	real (if empty) override, not a signal to look anything up — only ``None``
+	triggers the lookup.
 
 	The result is the set of variables the shape produced — for a Script Task
 	that is its ``result`` dict; for a Service Task it is whatever the dispatch
@@ -149,17 +227,36 @@ def execute_shape(instance, bpmn_id: str, task_cfg: dict, kwargs: dict) -> str:
 	so the tool-calling loop stays alive.
 	"""
 	try:
+		if task_cfg is None:
+			task_cfg = (getattr(instance, "_service_task_extensions", {}) or {}).get(bpmn_id, {})
 		task = _synthetic_task(bpmn_id, kwargs)
 		server_script = task_cfg.get("serverScript", "")
 		service_type = task_cfg.get("serviceType", "")
 
 		if server_script:
-			_run_server_script(instance, server_script, task, bpmn_id)
+			_run_server_script(instance, server_script, task, bpmn_id, shape_config=task_cfg)
 		elif service_type:
-			# Reuse the instance's own router — it reads
-			# instance._service_task_extensions and dispatches by serviceType,
-			# writing outputs onto task.data exactly as in a normal run.
-			instance._dispatch_service_task(task)
+			# task_cfg is this shape's own compiled descriptor, passed through
+			# as an explicit override rather than re-derived from bpmn_id.
+			task_cfg = _with_dispatch_wiring(instance, bpmn_id, task_cfg)
+			missing = _missing_dispatch_wiring(task_cfg)
+			if missing:
+				# Loudly, because the alternative is what happened live: the
+				# dispatcher found no handler, returned without doing anything,
+				# and this function's empty-result fallback answered {"ok": true}.
+				# The orchestrator read that as success and reported a connector
+				# built by a specialist that was never asked.
+				return json.dumps({
+					"error": (
+						f"Tool '{bpmn_id}' is not wired up: its shape is a "
+						f"{service_type} but the compiled map gives it no "
+						f"{', '.join(missing)}. Nothing ran. This is a broken map, "
+						"not a transient failure — do not retry it, and do not "
+						"report the work as done. Deploy the map again to recompile it."
+					),
+					"retryable": False,
+				})
+			instance._dispatch_service_task(task, task_cfg)
 		else:
 			return json.dumps(
 				{"error": f"Shape '{bpmn_id}' has no Server Script or serviceType — not executable as a tool."}
@@ -175,9 +272,35 @@ def execute_shape(instance, bpmn_id: str, task_cfg: dict, kwargs: dict) -> str:
 
 		# The tool result is what the shape produced, not the args we injected.
 		produced = {k: v for k, v in task.data.items() if k not in kwargs}
+
+		# Persist the result so a downstream tool can read it back via the
+		# get_turn Jinja global (hooks.py).
+		if service_type == "ai_agent" and getattr(instance, "context_docname", None):
+			try:
+				from one_bpmn.agents.turn_state import update_turn
+
+				update_turn(instance.context_docname, **{f"{bpmn_id}_result": produced})
+			except Exception:
+				frappe.log_error(
+					title=f"AI Agent shape tool '{bpmn_id}' turn-state persist failed",
+					message=frappe.get_traceback(),
+				)
+
 		return json.dumps(produced or {"ok": True}, default=str)
 	except ToolDeferred:
 		raise
+	except frappe.PermissionError as refused:
+		# Refusals carry their reason to the model. "See Error Log for details" is
+		# useless to an agent — it cannot read the Error Log, so it invents an
+		# explanation, and the explanation it invents is usually that the work is
+		# done or that retrying will help.
+		return json.dumps({"error": str(refused), "retryable": False})
+	except frappe.ValidationError as invalid:
+		# Same reasoning for a rule the document itself enforced. A Work Item save
+		# can fail for reasons nothing to do with what the tool changed — no
+		# sprint, a completed sprint, an Epic — and the agent has to be able to
+		# say which rule stopped it instead of reporting the change as made.
+		return json.dumps({"error": str(invalid), "retryable": False})
 	except Exception:
 		frappe.log_error(
 			title=f"AI Agent shape tool '{bpmn_id}' failed",
@@ -187,14 +310,28 @@ def execute_shape(instance, bpmn_id: str, task_cfg: dict, kwargs: dict) -> str:
 
 
 def _waiting_marker(task) -> dict | None:
-	"""The marker a dispatch leaves when it parked instead of answering."""
+	"""The marker a dispatch leaves when it parked instead of answering.
+
+	Checked against every connector's own waiting-key convention — not just
+	A2A's. A connector that parks (returns None and sets its own marker on
+	task.data, e.g. agent_sandbox_ops.AGENT_SANDBOX_WAITING_KEY) but
+	whose key is absent from this list is invisible to the tool loop: the
+	loop reads the empty result as a real answer and reports "no result"
+	back to the model instead of suspending. Confirmed the hard way for the
+	agent_sandbox connector before this generalization existed."""
 	from one_bpmn.one_bpmn.connectors.a2a_client_ops import A2A_WAITING_KEY
+	from one_bpmn.one_bpmn.connectors.agent_sandbox_ops import (
+		AGENT_SANDBOX_WAITING_KEY,
+	)
 
 	data = getattr(task, "data", None)
 	if not isinstance(data, dict):
 		return None
-	marker = data.get(A2A_WAITING_KEY)
-	return marker if isinstance(marker, dict) else None
+	for key in (A2A_WAITING_KEY, AGENT_SANDBOX_WAITING_KEY):
+		marker = data.get(key)
+		if isinstance(marker, dict):
+			return marker
+	return None
 
 
 def _synthetic_task(bpmn_id: str, kwargs: dict):
@@ -209,7 +346,7 @@ def _synthetic_task(bpmn_id: str, kwargs: dict):
 	)
 
 
-def _run_server_script(instance, script_name: str, task, bpmn_id: str) -> None:
+def _run_server_script(instance, script_name: str, task, bpmn_id: str, shape_config: dict | None = None) -> None:
 	"""
 	Run a Script Task's Server Script the way the engine's FrappeScriptEngine
 	does (trusted, pre-deployed code; ``result`` dict merged into task.data),
@@ -232,6 +369,10 @@ def _run_server_script(instance, script_name: str, task, bpmn_id: str) -> None:
 			"context_doctype": getattr(instance, "context_doctype", "") or "",
 			"context_docname": getattr(instance, "context_docname", "") or "",
 			"result": result_dict,
+			# Lets the script call execute_shape(instance, ...) for its own tracked AI Agent Run.
+			"instance": instance,
+			# Diagram-set spiffworkflow:aiAgentConfig override; empty when unset.
+			"ai_agent_config": (shape_config or {}).get("aiAgentConfig", ""),
 			# Same convention as the engine's FrappeScriptEngine: scripts may
 			# read their inputs bundled under `task_data` (the LLM-supplied
 			# arguments, here) instead of as bare locals.
@@ -241,6 +382,10 @@ def _run_server_script(instance, script_name: str, task, bpmn_id: str) -> None:
 			# Script and dispatch on this instead of duplicating a body per tool
 			# (Lumina General Chat fans 32 MCP tools out of a single script).
 			"bpmn_id": bpmn_id,
+			# What the SHAPE declares, as distinct from what the model passed.
+			# A tool whose limits came from its arguments would be a tool with no
+			# limits — the model would simply widen them.
+			"shape_config": dict(shape_config or {}),
 		}
 	)
 	if getattr(instance, "context_doctype", None) and getattr(instance, "context_docname", None):
@@ -254,7 +399,50 @@ def _run_server_script(instance, script_name: str, task, bpmn_id: str) -> None:
 	# Trusted, pre-deployed BPMN code — plain exec (mirrors engine.py), not
 	# safe_exec (which is for untrusted browser-submitted scripts).
 	exec_globals = {"frappe": frappe, "__builtins__": __builtins__}  # noqa: S102
-	exec(script_doc.script, exec_globals, local_vars)  # noqa: S102
+
+	# ── WI-002054: run as the AGENT, with permissions on ──────────────────
+	#
+	# This used to exec as whatever user the worker session happened to be, with
+	# whatever ignore_permissions was already set to. So every write a tool made
+	# was recorded against a person who had not made it, and was allowed or
+	# refused by that person's roles rather than by anything decided about the
+	# agent. The engine's own script path has switched user since WI-001495; this
+	# path never did.
+	#
+	# The session dance is the same hazard engine.py guards against: set_user
+	# rewrites session.sid and WIPES session.data, which guts a browser session
+	# when a tool runs inline inside a web request. So the sid and data are put
+	# back in the finally, and the switch is skipped entirely when we are already
+	# the right user.
+	from one_bpmn.agents import identity
+
+	agent = getattr(instance, "_a2a_delegating_agent", None)
+	agent_user = identity.user_for(agent)
+	original_user = frappe.session.user
+	saved_sid = frappe.session.sid
+	saved_data = frappe.session.data
+	saved_ignore = frappe.flags.ignore_permissions
+	need_switch = bool(agent_user) and agent_user != original_user
+	try:
+		if need_switch:
+			frappe.set_user(agent_user)
+		# Only claimed when there IS an identity to claim it for. An agent with no
+		# user provisioned keeps the behaviour it had rather than being handed
+		# somebody else's permissions and told they are its own.
+		if agent_user:
+			frappe.flags.ignore_permissions = False
+		exec(script_doc.script, exec_globals, local_vars)  # noqa: S102
+	except frappe.PermissionError as refused:
+		# The reason has to reach the MODEL. WI-002053 showed twice what happens
+		# when it does not: the agent reports the work as done, or blames
+		# something transient and offers to retry a permission it will never have.
+		raise frappe.PermissionError(identity.describe_refusal(agent, refused)) from refused
+	finally:
+		if need_switch:
+			frappe.set_user(original_user)
+			frappe.session.sid = saved_sid
+			frappe.session.data = saved_data
+		frappe.flags.ignore_permissions = saved_ignore
 
 	if isinstance(result_dict, dict) and result_dict:
 		task.data.update(result_dict)

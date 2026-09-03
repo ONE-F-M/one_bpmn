@@ -70,7 +70,7 @@ class TestA2AAgentCard(FrappeTestCase):
 		config = make_exposed_agent(system_prompt="TOP SECRET PROMPT")
 		card = build_agent_card(config.agent_id)
 		self.assertNotIn("TOP SECRET PROMPT", frappe.as_json(card))
-		for private in ("system_prompt", "ai_model", "ai_provider_credentials", "temperature"):
+		for private in ("system_prompt", "ai_model", "ai_provider", "temperature"):
 			self.assertNotIn(private, card)
 
 	def test_guest_can_fetch_card_and_gets_404_for_hidden(self):

@@ -7,6 +7,7 @@
  "field_order": [
   "process_model",
   "parent_instance",
+  "parent_task_id",
   "status",
   "engine_in_progress",
   "waiting_for_ai",
@@ -33,12 +34,19 @@
    "reqd": 1
   },
   {
-   "description": "The instance that delegated this one, when this is a worker started by an A2A task. A Call Activity does NOT set it: a called process runs inside its caller's instance and so has no separate row to point back from.",
+   "description": "The instance that started this one — an A2A task that delegated to it, or a Call Activity that called it. A called process runs INSIDE its caller's workflow; this row is the caller's own view of that run, so the chain can be walked in both directions.",
    "fieldname": "parent_instance",
    "fieldtype": "Link",
    "in_standard_filter": 1,
    "label": "Parent Instance",
    "options": "BPMN Process Instance",
+   "read_only": 1
+  },
+  {
+   "description": "The caller's Call Activity task that this run belongs to. Identifies WHICH call a row is for, so a process that calls the same sub-process twice — a loop, a retry — gets a row per call rather than one row overwritten by the next.",
+   "fieldname": "parent_task_id",
+   "fieldtype": "Data",
+   "label": "Parent Task",
    "read_only": 1
   },
   {

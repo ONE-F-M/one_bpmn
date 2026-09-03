@@ -198,24 +198,23 @@ def _creation_prerequisites_block() -> str:
 	try:
 		# WI-001655: the agent's LLM choice is a MODEL pick from the catalog;
 		# the provider follows from the model's credentials link.
-		models = frappe.get_list(
+		# A provider is a name and cannot be switched off; enable_model on the
+		# model is the only switch, and the model carries the connection.
+		usable = frappe.get_list(
 			"AI Model",
-			fields=["name", "ai_provider_credentials"],
+			filters={"enable_model": 1, "provider": ["is", "set"]},
+			fields=["name", "provider"],
 			limit_page_length=100,
 			order_by="name asc",
 		)
-		enabled = set(frappe.get_list(
-			"AI Provider Credentials", filters={"enabled": 1}, pluck="name", limit_page_length=50,
-		))
-		usable = [m for m in models if m.ai_provider_credentials in enabled]
 		if usable:
 			lines.append(
 				"AI Model catalog (use these EXACT names for ai_model / aiModel; "
 				"the provider follows from the model): "
-				+ ", ".join(f"{m.name} (via {m.ai_provider_credentials})" for m in usable)
+				+ ", ".join(f"{m.name} (via {m.provider})" for m in usable)
 			)
 		else:
-			lines.append("No usable AI Model catalog records (none link enabled credentials).")
+			lines.append("No usable AI Model catalog records (none are enabled with a provider).")
 	except Exception:
 		pass
 
@@ -361,7 +360,7 @@ def _linked_config_block(linked_config: str) -> str:
 		return ""
 	cfg = frappe.db.get_value(
 		"AI Agent Configuration", linked_config,
-		["name", "agent_id", "agent_type", "lifecycle_status", "ai_model", "ai_provider_credentials", "chat_mode_label"],
+		["name", "agent_id", "agent_type", "lifecycle_status", "ai_model", "ai_provider", "chat_mode_label"],
 		as_dict=True,
 	)
 	return (
@@ -370,7 +369,7 @@ def _linked_config_block(linked_config: str) -> str:
 		f"  name: {cfg.name}\n"
 		f"  agent_id: {cfg.agent_id}\n"
 		f"  type: {cfg.agent_type} | lifecycle: {cfg.lifecycle_status}\n"
-		f"  model: {cfg.ai_model or '(none)'} | provider (derived): {cfg.ai_provider_credentials or '(none)'}\n"
+		f"  model: {cfg.ai_model or '(none)'} | provider (derived): {cfg.ai_provider or '(none)'}\n"
 		f"  chat mode label: {cfg.chat_mode_label or '(none)'}"
 	)
 

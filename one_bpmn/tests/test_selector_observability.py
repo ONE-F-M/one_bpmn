@@ -70,11 +70,11 @@ class TestSelectorObservability(FrappeTestCase):
 	@classmethod
 	def setUpClass(cls):
 		super().setUpClass()
-		if not frappe.db.exists("AI Provider Credentials", "Obs Test Provider"):
+		if not frappe.db.exists("AI Provider", "Obs Test Provider"):
 			frappe.get_doc(
 				{
-					"doctype": "AI Provider Credentials",
-					"provider_name": "Obs Test Provider",
+					"doctype": "AI Provider",
+					"provider": "Obs Test Provider",
 					"provider_type": "OpenAI",
 					"api_key": "test-key-not-real",
 					"enabled": 1,
@@ -221,11 +221,11 @@ class TestSelectorRunRollups(FrappeTestCase):
 	@classmethod
 	def setUpClass(cls):
 		super().setUpClass()
-		if not frappe.db.exists("AI Provider Credentials", "Obs Test Provider"):
+		if not frappe.db.exists("AI Provider", "Obs Test Provider"):
 			frappe.get_doc(
 				{
-					"doctype": "AI Provider Credentials",
-					"provider_name": "Obs Test Provider",
+					"doctype": "AI Provider",
+					"provider": "Obs Test Provider",
 					"provider_type": "OpenAI",
 					"api_key": "test-key-not-real",
 					"enabled": 1,
@@ -255,11 +255,11 @@ class TestTurnLatency(FrappeTestCase):
 	@classmethod
 	def setUpClass(cls):
 		super().setUpClass()
-		if not frappe.db.exists("AI Provider Credentials", "Obs Test Provider"):
+		if not frappe.db.exists("AI Provider", "Obs Test Provider"):
 			frappe.get_doc(
 				{
-					"doctype": "AI Provider Credentials",
-					"provider_name": "Obs Test Provider",
+					"doctype": "AI Provider",
+					"provider": "Obs Test Provider",
 					"provider_type": "OpenAI",
 					"api_key": "test-key-not-real",
 					"enabled": 1,
@@ -298,11 +298,11 @@ class TestActivationOutcome(FrappeTestCase):
 	@classmethod
 	def setUpClass(cls):
 		super().setUpClass()
-		if not frappe.db.exists("AI Provider Credentials", "Obs Test Provider"):
+		if not frappe.db.exists("AI Provider", "Obs Test Provider"):
 			frappe.get_doc(
 				{
-					"doctype": "AI Provider Credentials",
-					"provider_name": "Obs Test Provider",
+					"doctype": "AI Provider",
+					"provider": "Obs Test Provider",
 					"provider_type": "OpenAI",
 					"api_key": "test-key-not-real",
 					"enabled": 1,

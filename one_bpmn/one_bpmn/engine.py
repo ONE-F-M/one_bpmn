@@ -5,9 +5,10 @@
 # Everything else in one_bpmn talks to this module.
 
 import copy
+import decimal
 import io
 import uuid
-from datetime import datetime
+from datetime import date, datetime, time
 
 from SpiffWorkflow.dmn.parser import BpmnDmnParser
 from SpiffWorkflow.bpmn.parser.ValidationException import ValidationException
@@ -85,6 +86,32 @@ AdHocSubprocessSpec.path_complete = _safe_path_complete
 from SpiffWorkflow.bpmn.specs.mixins.events.intermediate_event import (
 	EventBasedGateway as _EventBasedGateway,
 )
+
+
+def json_safe_doc_fields(doc) -> dict:
+	"""A document's fields in the form a BPMN condition can test.
+
+	Task data is serialised, so only JSON-safe values may go in. The naive
+	reading of that rule — keep ``str``/``int``/``float``/``bool`` and drop the
+	rest — silently drops every Date, Datetime, Time and Currency field, and a
+	gateway testing one of those then raises ``NameError`` and is read as False.
+	Those are converted rather than dropped. Child tables and other
+	non-primitives are still skipped: a condition cannot usefully test them.
+
+	This is the single definition used by the instance snapshot, the mid-run
+	refresh and the trigger's start-condition eval, so the three cannot drift.
+	"""
+	out = {}
+	for f in doc.meta.fields:
+		val = doc.get(f.fieldname)
+		if isinstance(val, (str, int, float, bool)) or val is None:
+			out[f.fieldname] = val
+		elif isinstance(val, (datetime, date, time)):
+			out[f.fieldname] = val.isoformat()
+		elif isinstance(val, decimal.Decimal):
+			out[f.fieldname] = float(val)
+	out["docstatus"] = int(getattr(doc, "docstatus", 0) or 0)
+	return out
 
 
 def _safe_eventgateway_predict_hook(self, my_task):
@@ -262,12 +289,14 @@ class FrappeScriptEngine(PythonScriptEngine):
 	        result["action"] = "Approve"
 	"""
 
-	def __init__(self, environment, script_task_extensions=None, context_doctype=None, context_docname=None, initiated_by=None):
+	def __init__(self, environment, script_task_extensions=None, context_doctype=None, context_docname=None, initiated_by=None, instance=None):
 		super().__init__(environment)
 		self._script_task_extensions = script_task_extensions or {}
 		self._context_doctype = context_doctype
 		self._context_docname = context_docname
 		self._initiated_by = initiated_by or "Administrator"
+		# Lets a Script Task call execute_shape(instance, ...) for its own tracked AI Agent Run.
+		self._instance = instance
 
 	def execute(self, task, script, **kwargs):
 		"""
@@ -330,6 +359,60 @@ class FrappeScriptEngine(PythonScriptEngine):
 				_frappe.session.data = saved_data
 			_frappe.flags.ignore_permissions = False
 
+	def _agent_for_script(self, script_name: str) -> str:
+		"""The agent whose map runs this Server Script, or "" for an ordinary process.
+
+		Keyed on the SCRIPT, not on the shape and not on the workflow, because only
+		the script is unique. Two routes were tried and both were wrong:
+
+		- ``task.workflow.spec.name`` hands back the TOP-LEVEL process even for a
+		  task inside a called map, so a script in the orchestrator's own map
+		  reported "Software Development" and resolved to no agent.
+		- the shape's bpmn_id is not unique either — "answer" is declared by three
+		  different agent maps on this site, so a shape id would have attributed
+		  the orchestrator's report to a test agent.
+
+		A Server Script belongs to one map. Cached briefly because this runs once
+		per script task and the answer rarely changes.
+		"""
+		if not script_name:
+			return ""
+		# Imported here, like everywhere else in this module: frappe and json are
+		# function-local throughout, and using them at method scope without the
+		# import raised a NameError that the except below swallowed into "no
+		# agent" — which looked exactly like an ordinary process.
+		import json as _json
+
+		import frappe as _frappe
+
+		try:
+			owners = _frappe.cache.get_value("bpmn_script_owning_agent")
+			if owners is None:
+				owners = {}
+				for row in _frappe.get_all(
+					"AI Agent Configuration",
+					filters={"process_model": ["is", "set"]},
+					fields=["name", "process_model"],
+				):
+					spec = _frappe.db.get_value(
+						"BPMN Process Model", row.process_model, "serialized_spec"
+					)
+					if not spec:
+						continue
+					try:
+						parsed = _json.loads(spec)
+					except Exception:
+						continue
+					for cfg in (parsed.get("script_task_extensions") or {}).values():
+						named = (cfg or {}).get("serverScript")
+						if named:
+							owners.setdefault(named, row.name)
+				_frappe.cache.set_value("bpmn_script_owning_agent", owners, expires_in_sec=300)
+			return owners.get(script_name, "")
+		except Exception:
+			# Attribution is worth having and not worth failing a task for.
+			return ""
+
 	def _run_frappe_server_script(self, script_name: str, task) -> None:
 		"""
 		Execute a Frappe Server Script (API type) with workflow context.
@@ -385,9 +468,24 @@ class FrappeScriptEngine(PythonScriptEngine):
 			{
 				"frappe": _frappe,
 				"task_data": task_data,
+				# WI-002054: which agent this script belongs to, if any.
+				#
+				# A script task inside an agent's own map IS the agent acting, and
+				# its writes should say so. The tool path already runs as the
+				# agent; this path still runs as the person who started the run,
+				# which is right for a process's own script tasks and wrong for an
+				# agent's. Changing who the whole path runs as would alter
+				# attribution AND permissions for every agent map at once, so the
+				# name is injected instead and a script that cares — one that
+				# writes a comment a person will read — opts in.
+				"agent_configuration": self._agent_for_script(script_name),
 				"context_doctype": self._context_doctype or "",
 				"context_docname": self._context_docname or "",
 				"result": result_dict,
+				# For execute_shape(instance, ...) — see FrappeScriptEngine.__init__.
+				"instance": self._instance,
+				# This shape's own id, same as shape_tools.py injects for tool leaves.
+				"bpmn_id": getattr(task.task_spec, "bpmn_id", None) or "",
 				# Snapshot of the workflow variables as a plain dict, so scripts
 				# can safely read OPTIONAL vars — e.g. task_data.get("x", default)
 				# — without resorting to locals()/globals() (blocked by the
@@ -434,6 +532,7 @@ def _make_script_engine(
 	context_docname=None,
 	script_task_extensions=None,
 	initiated_by=None,
+	instance=None,
 ) -> FrappeScriptEngine:
 	"""
 	Build a FrappeScriptEngine with Frappe, datetime, and doc injected.
@@ -473,6 +572,7 @@ def _make_script_engine(
 		context_doctype=context_doctype,
 		context_docname=context_docname,
 		initiated_by=initiated_by,
+		instance=instance,
 	)
 
 
@@ -663,6 +763,7 @@ def create_workflow(
 	context_docname: str = None,
 	script_task_extensions: dict = None,
 	initiated_by: str = None,
+	instance=None,
 ) -> BpmnWorkflow:
 	"""
 	Create a brand-new BpmnWorkflow from a stored serialised spec.
@@ -702,6 +803,7 @@ def create_workflow(
 		context_docname=context_docname,
 		script_task_extensions=script_task_extensions,
 		initiated_by=initiated_by,
+		instance=instance,
 	)
 
 	if initial_data:
@@ -721,6 +823,7 @@ def restore_workflow(
 	context_docname: str = None,
 	script_task_extensions: dict = None,
 	initiated_by: str = None,
+	instance=None,
 ) -> BpmnWorkflow:
 	"""
 	Restore a mid-flight workflow from its serialised state (stored in DB).
@@ -748,6 +851,7 @@ def restore_workflow(
 		context_docname=context_docname,
 		script_task_extensions=script_task_extensions,
 		initiated_by=initiated_by,
+		instance=instance,
 	)
 
 	return wf
@@ -1174,14 +1278,10 @@ def refresh_context_doc(wf: BpmnWorkflow, context_doctype: str, context_docname:
 
 		doc = frappe.get_doc(context_doctype, context_docname)
 
-		# ── Inject JSON-safe scalar fields only into task data ─────────────
-		# task_tree.data is serialized by SpiffWorkflow — only primitives allowed.
-		safe = {
-			f.fieldname: doc.get(f.fieldname)
-			for f in doc.meta.fields
-			if isinstance(doc.get(f.fieldname), (str, int, float, bool, type(None)))
-		}
-		safe["docstatus"] = int(doc.docstatus or 0)
+		# ── Inject the document's fields into task data ────────────────────
+		# task_tree.data is serialized by SpiffWorkflow, so the values have to be
+		# JSON-safe; json_safe_doc_fields is what decides that.
+		safe = json_safe_doc_fields(doc)
 		safe["context_doctype"] = context_doctype
 		safe["context_docname"] = context_docname
 		# Remove stale 'doc' key if it was accidentally stored previously

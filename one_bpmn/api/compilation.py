@@ -370,6 +370,60 @@ PROHIBITED_SHAPES: dict[str, dict[str, str]] = {
 }
 
 
+def _validate_notify_assignee_account(bpmn_xml: str) -> None:
+	"""Every User Task that notifies its assignee must name the mailbox it sends from.
+
+	Left blank, the send resolves ``sender`` to None and Frappe falls back to the
+	site's default outgoing account. Nothing errors, so the process looks
+	configured and the assignee gets mail from whatever mailbox happens to be
+	default — which is a delivery decision nobody made, and one the designer
+	cannot see they have taken.
+
+	Checked at deploy rather than at send: the person who can fix it is the one
+	deploying the diagram, and a running instance should not halt over a field
+	that was already wrong when the map went live.
+
+	Raises:
+		frappe.ValidationError: if any User Task enables Notify Assignee without
+		naming an Email Account.
+	"""
+	import xml.etree.ElementTree as _ET
+
+	BPMN_NS = "http://www.omg.org/spec/BPMN/20100524/MODEL"
+	SPIFF = "http://spiffworkflow.org/bpmn/schema/1.0/core"
+
+	if not bpmn_xml or not bpmn_xml.strip():
+		return
+	try:
+		root = _ET.fromstring(
+			bpmn_xml.strip().encode("utf-8") if isinstance(bpmn_xml, str) else bpmn_xml
+		)
+	except Exception:
+		return  # XML errors are caught elsewhere
+
+	offenders = []
+	for task in root.iter(f"{{{BPMN_NS}}}userTask"):
+		if (task.get(f"{{{SPIFF}}}notifyAssignee") or "").strip().lower() != "true":
+			continue
+		account = (task.get(f"{{{SPIFF}}}notifyAssigneeAccount") or "").strip()
+		if account:
+			continue
+		el_name = (task.get("name") or "").strip().replace("\n", " ")
+		el_id = task.get("id", "unknown")
+		offenders.append(f'"{el_name}" ({el_id})' if el_name else f"({el_id})")
+
+	if offenders:
+		frappe.throw(
+			_(
+				"These User Tasks notify their assignee but do not say which mailbox to "
+				"send from: {0}. Set 'Send From (Email Account)' on each, or turn off "
+				"Notify Assignee. Left blank the site's default outgoing account is used, "
+				"which is a delivery decision the diagram does not record."
+			).format(", ".join(offenders)),
+			title=_("Notify Assignee needs an Email Account"),
+		)
+
+
 def _validate_prohibited_shapes(bpmn_xml: str) -> None:
 	"""
 	Validate that no prohibited BPMN shapes appear in the process.
@@ -1081,7 +1135,7 @@ def _lint_ai_provider_config(_bpmn_xml: str, service_extensions: dict) -> None:
 	"""
 	Compile-time lint for AI Agent Tasks:
 	1. Rejects raw API keys embedded in any spiffworkflow:ai* attribute.
-	2. Validates that referenced AI Provider Credentials records exist in the database.
+	2. Validates that referenced AI Provider records exist in the database.
 	"""
 	import re
 	_RAW_KEY_RE = re.compile(r"^(sk-|key-)", re.IGNORECASE)
@@ -1098,7 +1152,7 @@ def _lint_ai_provider_config(_bpmn_xml: str, service_extensions: dict) -> None:
 					_(
 						"Raw API keys must not appear in BPMN XML "
 						"(task '{0}', attribute '{1}'). "
-						"Use an AI Provider Credentials reference."
+						"Use an AI Provider reference."
 					).format(bpmn_id, attr_name),
 					exc=frappe.ValidationError,
 				)
@@ -1149,11 +1203,11 @@ def _lint_ai_provider_config(_bpmn_xml: str, service_extensions: dict) -> None:
 				exc=frappe.ValidationError,
 			)
 
-		if provider_name and not frappe.db.exists("AI Provider Credentials", provider_name):
+		if provider_name and not frappe.db.exists("AI Provider", provider_name):
 			frappe.throw(
 				_(
-					"AI Provider Credentials '{0}' not found (task '{1}'). "
-					"Create it in the AI Provider Credentials list."
+					"AI Provider '{0}' not found (task '{1}'). "
+					"Create it in the AI Provider list."
 				).format(provider_name, bpmn_id),
 				exc=frappe.ValidationError,
 			)
@@ -1275,8 +1329,35 @@ def _extract_tool_shapes(adhoc_el, bpmn_ns: str, spiff_ns: str) -> list:
 			shape["label"] = (child.get("name") or "").strip()
 		if server_script:
 			shape["serverScript"] = server_script
+			# Optional: lets the script read an aiAgentConfig set on the diagram.
+			ai_agent_config = child.get(f"{{{spiff_ns}}}aiAgentConfig", "")
+			if ai_agent_config:
+				shape["aiAgentConfig"] = ai_agent_config
 		if service_type:
-			shape["serviceType"] = service_type
+			# Copy every spiffworkflow:* attribute (aiToolParams handled below).
+			for attr_name, attr_value in child.attrib.items():
+				if not attr_name.startswith(f"{{{spiff_ns}}}"):
+					continue
+				key = attr_name[len(f"{{{spiff_ns}}}") :]
+				if key == "aiToolParams":
+					continue
+				shape[key] = attr_value
+		# WI-002054: limits a shape declares on what its tool may do travel with
+		# the descriptor, so widening them is a change a person makes to the map
+		# rather than a decision the model takes at run time. Kept generic — any
+		# spiffworkflow:allowed* attribute comes through — so the next constrained
+		# tool needs no compiler change.
+		for attr, value in child.attrib.items():
+			if attr.startswith(f"{{{spiff_ns}}}allowed"):
+				key = attr.split("}", 1)[1]
+				if str(value).strip():
+					# camelCase -> snake_case properly: frappe.scrub only
+					# lower-cases, so "allowedStates" became "allowedstates" and a
+					# script reading allowed_states silently found nothing.
+					import re as _re
+
+					snake = _re.sub(r"(?<!^)(?=[A-Z])", "_", key).lower()
+					shape[snake] = str(value).strip()
 		tool_params_raw = child.get(f"{{{spiff_ns}}}aiToolParams", "")
 		if tool_params_raw:
 			try:
@@ -1680,6 +1761,8 @@ def compile_process_model(model_name: str) -> dict:
 	# Reject any BPMN element type that OneFM has marked as prohibited for
 	# executable processes (e.g. manual tasks, none-type tasks).
 	_validate_prohibited_shapes(sanitized_xml)
+
+	_validate_notify_assignee_account(sanitized_xml)
 
 	# ── Extract and populate Start Events child table ─────────────────────
 	# Parse all <bpmn:startEvent> elements from the XML and capture their type

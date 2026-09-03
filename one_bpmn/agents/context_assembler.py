@@ -238,3 +238,47 @@ def build_dynamic_preamble(memory_block: str = "", user_prompt: str = "", active
 		return combined_prefix
 	return f"{combined_prefix}{_SECTION_GAP}User message: {user_prompt}"
 
+
+
+# Minimum length for a paragraph to count as "an instruction block" worth
+# de-duplicating. Short lines repeat legitimately — a heading, a label, the
+# user's own words quoted back — and stripping those would change meaning.
+_DUPLICATE_MIN_CHARS = 120
+
+
+def _normalise(text: str) -> str:
+	"""Whitespace-insensitive form, so re-indentation does not hide a duplicate."""
+	return " ".join((text or "").split())
+
+
+def drop_duplicated_instructions(system_prompt: str, user_prompt: str) -> str:
+	"""Return *user_prompt* without any block the system prompt already carries.
+
+	Stable instructions belong in the system role, which every provider caches;
+	repeating them per turn pays for the same tokens again at full price and
+	makes the two roles disagree the moment one is edited. Measured on LuCrusher:
+	a 950-character "how to work this turn" block rode in EVERY user message,
+	which is most of that agent's ~3.6k-character per-turn user step.
+
+	Paragraph-level and verbatim-only (whitespace-insensitive): a block goes only
+	when the same text is already in the system prompt, so nothing the model
+	would otherwise never see can be lost. The map keeps its template — the
+	duplicate is removed at assembly, so no diagram has to be re-exported for an
+	agent to stop paying twice.
+	"""
+	if not system_prompt or not user_prompt:
+		return user_prompt
+
+	haystack = _normalise(system_prompt)
+	kept = []
+	for block in (user_prompt or "").split("\n\n"):
+		candidate = _normalise(block)
+		if len(candidate) >= _DUPLICATE_MIN_CHARS and candidate in haystack:
+			continue
+		kept.append(block)
+
+	# Rejoin, then collapse the runs of blank lines the removals leave behind.
+	out = "\n\n".join(kept)
+	while "\n\n\n" in out:
+		out = out.replace("\n\n\n", "\n\n")
+	return out.strip("\n")

@@ -317,12 +317,16 @@ def _ensure_ai_model(model_name: str, judge_provider: str = None) -> str:
 	(AI Model is autonamed by model_name, so name == model_name)."""
 	if not model_name or frappe.db.exists("AI Model", model_name):
 		return model_name
-	provider = "anthropic"
-	if judge_provider:
-		pt = (frappe.db.get_value("AI Provider Credentials", judge_provider, "provider_type") or "").lower()
-		if pt in ("openai", "gemini", "anthropic"):
-			provider = pt
-	frappe.get_doc({"doctype": "AI Model", "model_name": model_name, "provider": provider}).insert(ignore_permissions=True)
+	# provider is a Link, so it has to be a real AI Provider record name. The
+	# judge's own provider if it has one, otherwise whichever Anthropic record
+	# the site actually has — writing a lowercase dialect string here produced a
+	# dangling link that nothing could resolve.
+	provider = judge_provider if judge_provider and frappe.db.exists(
+		"AI Provider", judge_provider
+	) else frappe.db.get_value("AI Provider", {"provider": ["like", "Anthropic"]}, "name")
+	frappe.get_doc({
+		"doctype": "AI Model", "model_name": model_name, "provider": provider or None,
+	}).insert(ignore_permissions=True)
 	return model_name
 
 

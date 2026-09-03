@@ -29,8 +29,28 @@ def _key(conversation: str) -> str:
 
 
 def get_turn(conversation: str) -> dict:
-    """Return the current turn scratch dict (empty dict if none)."""
-    return frappe.cache.get_value(_key(conversation)) or {}
+    """Return the current turn scratch dict (empty dict if none).
+
+    Reads PAST frappe's in-process memo rather than through it. ``get_value``
+    returns ``frappe.local.cache[key]`` whenever the key is present and never
+    consults Redis, and a stage tool's write does not reliably survive into the
+    caller's local cache — so ``Save Response`` could read a copy of the turn
+    from before ``finalize`` had answered it. Redis held the answer the whole
+    time; only the memo was stale.
+
+    The consequence was total rather than subtle. With no ``output`` visible,
+    ``Save Response`` falls back to the agent's own final text, and the protocol
+    makes that the literal word ``DONE`` — so a full analysis was published as
+    one word, the transcript recorded ``DONE`` as what the agent had said, and
+    the next turn was fed that as its history. Every agent sharing this store is
+    exposed to it, which is why the fix belongs here and not in one agent's
+    Save Response script.
+    """
+    key = _key(conversation)
+    # Drop the memo for this key first: Redis is the authority for a value another
+    # execution context may have written since this one last looked.
+    frappe.local.cache.pop(frappe.cache.make_key(key), None)
+    return frappe.cache.get_value(key) or {}
 
 
 def set_turn(conversation: str, data: dict) -> None:
@@ -40,6 +60,14 @@ def set_turn(conversation: str, data: dict) -> None:
 # The keys that END a turn: ``output`` is the reply ``Save Response`` persists,
 # ``done`` marks it final. They are write-once — see update_turn below.
 _TERMINAL_KEYS = ("output", "done")
+
+# Set on frappe.flags the moment a stage tool answers the turn, so the agent
+# loop can stop instead of paying for one more model call that has nothing left
+# to say. It lives here beside the write-once guard because both express the
+# same fact — this turn is over — and the store is the only layer that sees it
+# happen. Read and cleared by agents/executor/step_loop.py, exactly as
+# shape_tools.PAUSE_HELD_FLAG is.
+TURN_ANSWERED_FLAG = "bpmn_turn_answered"
 
 
 def update_turn(conversation: str, **kwargs) -> dict:
@@ -81,6 +109,8 @@ def update_turn(conversation: str, **kwargs) -> dict:
         kwargs = {k: v for k, v in kwargs.items() if k not in _TERMINAL_KEYS}
     turn.update(kwargs)
     set_turn(conversation, turn)
+    if turn.get("done"):
+        frappe.flags[TURN_ANSWERED_FLAG] = True
     return turn
 
 

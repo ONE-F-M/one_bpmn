@@ -1,0 +1,201 @@
+{
+ "actions": [],
+ "allow_rename": 0,
+ "autoname": "format:AC-{#####}",
+ "creation": "2026-08-23 15:00:00.000000",
+ "doctype": "DocType",
+ "editable_grid": 1,
+ "engine": "InnoDB",
+ "field_order": [
+  "agent_configuration",
+  "asked_by_agent_run",
+  "instance",
+  "human_task_id",
+  "round",
+  "follow_up_of",
+  "status",
+  "question",
+  "interpretations",
+  "answer",
+  "answered_by",
+  "answered_at",
+  "asked_at",
+  "reference_doctype",
+  "reference_name",
+  "owner_asked",
+  "reminded_at",
+  "escalated_at",
+  "escalated_to"
+ ],
+ "fields": [
+  {
+   "fieldname": "agent_configuration",
+   "fieldtype": "Link",
+   "label": "Asked By",
+   "options": "AI Agent Configuration",
+   "in_list_view": 1,
+   "read_only": 1,
+   "description": "The agent that could not resolve the requirement from the story text and asked instead of guessing."
+  },
+  {
+   "fieldname": "asked_by_agent_run",
+   "fieldtype": "Link",
+   "label": "Agent Run",
+   "options": "AI Agent Run",
+   "read_only": 1
+  },
+  {
+   "fieldname": "instance",
+   "fieldtype": "Link",
+   "label": "Process Instance",
+   "options": "BPMN Process Instance",
+   "read_only": 1
+  },
+  {
+   "fieldname": "human_task_id",
+   "fieldtype": "Data",
+   "label": "Pending Task Id",
+   "read_only": 1,
+   "description": "The waiting task the person answers. The agent's run is suspended against it and resumes exactly once when it is completed."
+  },
+  {
+   "fieldname": "round",
+   "fieldtype": "Int",
+   "label": "Round",
+   "in_list_view": 1,
+   "read_only": 1,
+   "description": "Which question this is for the same piece of work. A follow-up counts as another round, because an answer that does not resolve the ambiguity has not moved the story forward."
+  },
+  {
+   "fieldname": "follow_up_of",
+   "fieldtype": "Link",
+   "label": "Follow-up Of",
+   "options": "AI Clarification",
+   "read_only": 1
+  },
+  {
+   "fieldname": "status",
+   "fieldtype": "Select",
+   "label": "Status",
+   "in_list_view": 1,
+   "read_only": 1,
+   "options": "Awaiting Answer\nAnswered\nEscalated\nAbandoned",
+   "default": "Awaiting Answer"
+  },
+  {
+   "fieldname": "question",
+   "fieldtype": "Small Text",
+   "label": "Question",
+   "read_only": 1,
+   "description": "The specific ambiguous point, in the agent's own words."
+  },
+  {
+   "fieldname": "interpretations",
+   "fieldtype": "Small Text",
+   "label": "Interpretations Offered",
+   "read_only": 1,
+   "description": "The readings the agent was choosing between. A question with the options attached is answerable in one line; one without them starts another round."
+  },
+  {
+   "fieldname": "answer",
+   "fieldtype": "Small Text",
+   "label": "Answer",
+   "read_only": 1
+  },
+  {
+   "fieldname": "answered_by",
+   "fieldtype": "Link",
+   "label": "Answered By",
+   "options": "User",
+   "read_only": 1
+  },
+  {
+   "fieldname": "answered_at",
+   "fieldtype": "Datetime",
+   "label": "Answered At",
+   "read_only": 1
+  },
+  {
+   "fieldname": "asked_at",
+   "fieldtype": "Datetime",
+   "label": "Asked At",
+   "in_list_view": 1,
+   "read_only": 1
+  },
+  {
+   "fieldname": "reference_doctype",
+   "fieldtype": "Link",
+   "label": "About Doctype",
+   "options": "DocType",
+   "read_only": 1
+  },
+  {
+   "fieldname": "reference_name",
+   "fieldtype": "Dynamic Link",
+   "label": "About",
+   "options": "reference_doctype",
+   "in_list_view": 1,
+   "read_only": 1
+  },
+  {
+   "fieldname": "owner_asked",
+   "fieldtype": "Link",
+   "label": "Asked Of",
+   "options": "User",
+   "read_only": 1,
+   "description": "The story owner \u2014 the person who reported the work item. The question goes to whoever set the requirement, not to whoever happens to be free."
+  },
+  {
+   "fieldname": "reminded_at",
+   "fieldtype": "Datetime",
+   "label": "Reminded At",
+   "read_only": 1
+  },
+  {
+   "fieldname": "escalated_at",
+   "fieldtype": "Datetime",
+   "label": "Escalated At",
+   "read_only": 1
+  },
+  {
+   "fieldname": "escalated_to",
+   "fieldtype": "Link",
+   "label": "Escalated To",
+   "options": "User",
+   "read_only": 1,
+   "description": "An unanswered question is chased and then raised with the process owner. It is never resolved by guessing."
+  }
+ ],
+ "index_web_pages_for_search": 1,
+ "links": [],
+ "modified": "2026-08-23 15:00:00.000000",
+ "modified_by": "Administrator",
+ "module": "One BPMN",
+ "name": "AI Clarification",
+ "naming_rule": "Expression",
+ "owner": "Administrator",
+ "permissions": [
+  {
+   "create": 1,
+   "delete": 1,
+   "email": 1,
+   "export": 1,
+   "print": 1,
+   "read": 1,
+   "report": 1,
+   "role": "System Manager",
+   "share": 1,
+   "write": 1
+  },
+  {
+   "read": 1,
+   "report": 1,
+   "role": "Process Owner"
+  }
+ ],
+ "sort_field": "modified",
+ "sort_order": "DESC",
+ "states": [],
+ "track_changes": 1,
+ "title_field": "question"
+}

@@ -21,6 +21,11 @@
             </label>
             <select v-model="form.aiAgentConfig" @change="onAgentConfigSelect">
               <option value="">-- None --</option>
+              <option
+                v-if="form.aiAgentConfig && form.aiAgentConfig !== '__create__'
+                      && !agentConfigs.some(c => c.name === form.aiAgentConfig)"
+                :value="form.aiAgentConfig"
+              >{{ form.aiAgentConfig }}</option>
               <option v-for="c in agentConfigs" :key="c.name" :value="c.name">
                 {{ c.name }}
               </option>
@@ -76,7 +81,7 @@
                 <select v-model="newAgent.ai_model">
                   <option value="">-- Pick a Model --</option>
                   <option v-for="m in catalogModels" :key="m.name" :value="m.name">
-                    {{ m.name }} — via {{ m.ai_provider_credentials }}
+                    {{ modelLabel(m) }}
                   </option>
                 </select>
               </div>
@@ -164,14 +169,9 @@
 
           <!-- AI Provider — read-only since WI-001650: the provider is an
                agent property, resolved from the linked configuration. -->
-          <div class="field-row">
+          <div class="field-row" v-if="form.aiProvider">
             <label>AI Provider <span class="hint">(from the linked configuration)</span></label>
-            <select v-model="form.aiProvider" disabled>
-              <option value="">-- Link an agent configuration --</option>
-              <option v-for="p in providers" :key="p.name" :value="p.name">
-                {{ p.provider_name }}
-              </option>
-            </select>
+            <div class="derived-value">{{ form.aiProvider }}</div>
           </div>
 
           <!-- Model — the agent's catalog pick (WI-001655): editable here and
@@ -185,7 +185,7 @@
                 {{ form.aiModel }} (not in catalog)
               </option>
               <option v-for="m in catalogModels" :key="m.name" :value="m.name">
-                {{ m.name }} — via {{ m.ai_provider_credentials }}
+                {{ modelLabel(m) }}
               </option>
             </select>
           </div>
@@ -364,6 +364,35 @@
               <button type="button" class="btn-cancel" @click="addSkill">+ Add skill</button>
             </div>
 
+            <!-- What the agent is PERMITTED to do. An agent acts as its own user
+                 and is allowed or refused by the roles that user holds, so this
+                 list is the whole answer to "may this agent do that" — add one to
+                 grant, remove one to revoke, nothing to deploy either way. -->
+            <div class="field-row">
+              <label>Permissions <span class="hint">(roles the agent holds)</span></label>
+              <span class="field-hint">
+                The agent acts as its own user, <strong>{{ agentUserLabel }}</strong>, and every
+                write it makes is allowed or refused by these roles. An empty list means it can
+                read and change nothing. Removing a role revokes it immediately — the next thing
+                the agent tries is refused, and it is told why.
+              </span>
+              <div v-for="(r, i) in form.aiAgentRoles" :key="'role-' + i" class="static-row">
+                <div class="static-row-head">
+                  <span class="static-row-inline-label">Role</span>
+                  <select v-model="r.role" class="static-row-cat">
+                    <option value="">Pick a role…</option>
+                    <option v-for="name in roleOptions" :key="name" :value="name">{{ name }}</option>
+                  </select>
+                  <button type="button" class="close-btn" title="Revoke" @click="form.aiAgentRoles.splice(i, 1)">✕</button>
+                </div>
+              </div>
+              <button type="button" class="btn-cancel" @click="addAgentRole">+ Grant a role</button>
+              <span v-if="!rolesUnrestricted" class="field-hint">
+                You can grant only roles you hold yourself — an agent acts with what it is given,
+                so granting one you do not have would be a way around your own permissions.
+              </span>
+            </div>
+
           </template>
 
           <!-- ============ Screening ============ -->
@@ -493,7 +522,7 @@
           >
             <label>Distillation Model <span class="hint">(optional)</span></label>
             <select v-model="form.aiMemoryDistillModel">
-              <option value="">-- Use the default --</option>
+              <option value="">{{ inheritLabel("distill") }}</option>
               <option
                 v-if="form.aiMemoryDistillModel && !catalogModels.some(m => m.name === form.aiMemoryDistillModel)"
                 :value="form.aiMemoryDistillModel"
@@ -501,7 +530,7 @@
                 {{ form.aiMemoryDistillModel }} (not in catalog)
               </option>
               <option v-for="m in catalogModels" :key="'distill-' + m.name" :value="m.name">
-                {{ m.name }} — via {{ m.ai_provider_credentials }}
+                {{ modelLabel(m) }}
               </option>
             </select>
             <span class="field-hint">
@@ -516,7 +545,7 @@
           >
             <label>Reconciliation Model <span class="hint">(optional)</span></label>
             <select v-model="form.aiMemoryReconcileModel">
-              <option value="">-- Use the default --</option>
+              <option value="">{{ inheritLabel("reconcile") }}</option>
               <option
                 v-if="form.aiMemoryReconcileModel && !catalogModels.some(m => m.name === form.aiMemoryReconcileModel)"
                 :value="form.aiMemoryReconcileModel"
@@ -524,7 +553,7 @@
                 {{ form.aiMemoryReconcileModel }} (not in catalog)
               </option>
               <option v-for="m in catalogModels" :key="'reconcile-' + m.name" :value="m.name">
-                {{ m.name }} — via {{ m.ai_provider_credentials }}
+                {{ modelLabel(m) }}
               </option>
             </select>
             <span class="field-hint">
@@ -532,8 +561,92 @@
             </span>
           </div>
 
+          <!-- Conversation compaction: replace old turns with a summary rather
+               than letting them fall off the end of the window. Agent-level for
+               the same reason memory is — a conversation belongs to the agent,
+               not to whichever task happened to call it. -->
+          <div class="field-row" v-if="!isSelector">
+            <label>Context Token Budget <span class="hint">(0 = no size limit)</span></label>
+            <input type="number" min="0" step="500" v-model.number="form.aiContextTokenBudget" />
+            <span class="field-hint">
+              Caps the history by estimated SIZE as well as by message count — both apply, whichever
+              bites first. Message count is blind to size: twenty one-line turns and twenty huge tool
+              results both read as twenty, and only the second kind blows the context window.
+              Left at 0 this falls back to the site default in Processa Settings.
+            </span>
+          </div>
+
+          <div class="field-row" v-if="!isSelector">
+            <label>
+              <input type="checkbox" v-model="form.aiCompactionEnabled" />
+              Compact long conversations
+            </label>
+            <span class="field-hint">
+              Summarises the early turns once and sends the summary plus the recent turns
+              word-for-word, so a long conversation keeps its beginning without re-sending it
+              every time. The summary is always written in the background — a turn never waits for it.
+            </span>
+          </div>
+
+          <div class="field-row" v-if="!isSelector && form.aiCompactionEnabled">
+            <label>Keep Recent Messages</label>
+            <input type="number" min="2" v-model.number="form.aiCompactionKeepTail" />
+            <span class="field-hint">
+              How many of the most recent messages stay word-for-word. Everything older is what
+              the summary replaces.
+            </span>
+          </div>
+
+          <div class="field-row" v-if="!isSelector && form.aiCompactionEnabled">
+            <label>Compaction Model <span class="hint">(optional)</span></label>
+            <select v-model="form.aiCompactionModel">
+              <option value="">{{ inheritLabel("compaction") }}</option>
+              <option
+                v-if="form.aiCompactionModel && !catalogModels.some(m => m.name === form.aiCompactionModel)"
+                :value="form.aiCompactionModel"
+              >
+                {{ form.aiCompactionModel }} (not in catalog)
+              </option>
+              <option v-for="m in catalogModels" :key="'compaction-' + m.name" :value="m.name">
+                {{ modelLabel(m) }}
+              </option>
+            </select>
+            <span class="field-hint">
+              Writes the summary. This is high-volume, low-stakes work, so a cheap model belongs here.
+              Left blank it falls back to the site default in Processa Settings.
+            </span>
+          </div>
+
+          <div class="field-row" v-if="!isSelector && form.aiCompactionEnabled">
+            <label>Token Threshold <span class="hint">(0 = off)</span></label>
+            <input type="number" min="0" v-model.number="form.aiCompactionTokenThreshold" />
+            <span class="field-hint">
+              Compact once the history being sent is estimated to pass this many tokens.
+            </span>
+          </div>
+
+          <div class="field-row" v-if="!isSelector && form.aiCompactionEnabled">
+            <label>Idle Minutes <span class="hint">(0 = off)</span></label>
+            <input type="number" min="0" v-model.number="form.aiCompactionIdleMinutes" />
+            <span class="field-hint">
+              Compact a conversation nobody has touched for this long. Checked hourly.
+            </span>
+          </div>
+
+          <div class="field-row" v-if="!isSelector && form.aiCompactionEnabled">
+            <label>
+              <input type="checkbox" v-model="form.aiCompactionOnTaskBoundary" />
+              Compact at the end of every turn
+            </label>
+            <span class="field-hint">
+              Runs once the agent has replied, so it never happens part-way through a turn.
+              Set any combination of the three — whichever fires first does the work.
+            </span>
+          </div>
+
           <p class="field-hint" style="margin-top: 10px;" v-if="!isSelector">
-            Memory settings are stored on the linked AI Agent Configuration, not on this diagram.
+            Memory and compaction settings are stored on the linked AI Agent Configuration,
+            not on this diagram.
           </p>
         </div>
 
@@ -599,6 +712,57 @@ import { cardRegistry } from "@/components/chat/cards/registry";
 const availableSkills = ref([]);
 function addSkill() { form.value.aiSkills.push({ skill: '', version_pin: '' }); }
 
+// WI-002054: what this agent is permitted to do. The picker offers only what the
+// CURRENT user may grant, and the backend enforces the same list — an option that
+// cannot be saved should never be offered.
+const grantableRoles = ref([]);
+const rolesUnrestricted = ref(false);
+const agentUserEmail = ref("");
+function addAgentRole() { form.value.aiAgentRoles.push({ role: '' }); }
+
+const agentUserLabel = computed(
+  () => agentUserEmail.value || "its own user, created when the agent is first saved",
+);
+
+// What the picker offers: everything this user may grant, PLUS whatever the
+// agent already holds. The second half matters — an agent may legitimately hold
+// a role its editor cannot grant, and a <select> whose value is not among its
+// options renders BLANK. Without this, a role the agent really has looks like an
+// empty row, which reads as "no role" and invites someone to overwrite it.
+const roleOptions = computed(() => {
+  const held = (form.value.aiAgentRoles || []).map((r) => r && r.role).filter(Boolean);
+  return Array.from(new Set([...grantableRoles.value, ...held])).sort();
+});
+
+// The picker's options arrive on the same response as the rest of the agent, via
+// applyGrantableRoles below. They used to come from a call of their own, which
+// kept returning nothing in the browser while answering curl perfectly — and an
+// empty picker looks exactly like "you may grant nothing", which is a real
+// answer the escalation guard also gives. One response, one failure mode.
+function applyGrantableRoles(fields) {
+  grantableRoles.value = Array.isArray(fields?.aiGrantableRoles) ? fields.aiGrantableRoles : [];
+  rolesUnrestricted.value = !!fields?.aiRolesUnrestricted;
+}
+
+async function loadAgentUser(configName) {
+  agentUserEmail.value = "";
+  if (!configName) return;
+  try {
+    const res = await frappeRequest({
+      url: "/api/method/frappe.client.get_value",
+      method: "GET",
+      params: {
+        doctype: "AI Agent Configuration",
+        filters: JSON.stringify({ name: configName }),
+        fieldname: JSON.stringify(["agent_user"]),
+      },
+    });
+    agentUserEmail.value = res?.agent_user || "";
+  } catch (e) {
+    agentUserEmail.value = "";
+  }
+}
+
 
 // bpmn-js elements must never be touched as Vue reactive proxies — the renderer
 // reads non-configurable properties (e.g. labels) that a Proxy cannot return,
@@ -624,6 +788,26 @@ const emit = defineEmits(["close"]);
 const providers = ref([]);
 const agentConfigs = ref([]);
 const catalogModels = ref([]); // AI Model catalog (WI-001655)
+// Site-wide model defaults from Processa Settings. A blank model picker means
+// "inherit", and until now the option said "-- Use the default --" without
+// saying what the default IS — so an unset field was indistinguishable from a
+// broken one. Best-effort: a designer who cannot read Processa Settings still
+// gets the plain label.
+const siteDefaults = ref({ compaction: "", distill: "", reconcile: "" });
+// What an option reads as. A model whose provider is missing or disabled is
+// still listed — hiding it is what produced an empty picker — but it says why
+// it may not work rather than looking identical to a usable one.
+function modelLabel(m) {
+  if (!m.provider) return `${m.name} — no provider linked`;
+  return m.has_credentials === false
+    ? `${m.name} — via ${m.provider} (no API key on the model)`
+    : `${m.name} — via ${m.provider}`;
+}
+
+function inheritLabel(which) {
+  const name = siteDefaults.value[which];
+  return name ? `-- Use the site default (${name}) --` : "-- Use the default --";
+}
 
 
 // ── Create-new-agent panel state (WI-001648) ──
@@ -821,10 +1005,21 @@ const form = ref({
   // WI-001793: blank means "inherit" — site default, then the agent's own model.
   aiMemoryDistillModel: "",
   aiMemoryReconcileModel: "",
+  // Conversation compaction. Off by default: a site that has not asked for it
+  // must see no change in what its agents send.
+  aiContextTokenBudget: 0,
+  aiCompactionEnabled: false,
+  aiCompactionKeepTail: 10,
+  aiCompactionModel: "",
+  aiCompactionTokenThreshold: 0,
+  aiCompactionIdleMinutes: 0,
+  aiCompactionOnTaskBoundary: false,
   // WI-001639: the agent's frozen static context. Always arrays — they are
-  // replaced wholesale by loadStaticContextFromConfig once the agent is read.
+  // replaced wholesale by loadLinkedAgent once the agent is read.
   aiExamples: [],
   aiGuardrails: [],
+  // WI-002054: the roles the agent's own user holds — what it is permitted to do.
+  aiAgentRoles: [],
 });
 
 // Mirrors the AI Agent Guard Rail Select options; the backend rejects anything
@@ -855,7 +1050,35 @@ function addGuardrail() {
 // Overlay the linked agent's static-context tables onto the form. Called on
 // open and whenever the linked agent changes, so what is on screen is what the
 // agent will actually be primed with.
-async function loadStaticContextFromConfig() {
+// Everything the modal shows about a linked agent comes from here, whether the
+// panel just opened or the designer picked a different agent from the dropdown.
+//
+// These were two separate paths and they drifted: opening the panel applied only
+// the MEMORY keys, while picking an agent applied all of them. So a task whose
+// agent was already linked opened showing the DIAGRAM's stale prompt, model,
+// temperature and token cap — none of which is what dispatch actually uses — and
+// the designer had to re-pick the agent it was already linked to before the real
+// values appeared. One loader for both paths is the fix, and it is also what
+// stops the two drifting apart again.
+//
+// Applying every field is safe: config_field_map omits blank values, so an unset
+// field on the agent falls through to the shape's own copy — the same fallback
+// dispatch performs.
+async function applyLinkedAgentFields(fields) {
+  if (!fields) return;
+  applyConfigFields(fields);
+  form.value.aiExamples = Array.isArray(fields?.aiExamples) ? fields.aiExamples : [];
+  form.value.aiSkills = Array.isArray(fields?.aiSkills) ? fields.aiSkills : [];
+  form.value.aiGuardrails = Array.isArray(fields?.aiGuardrails) ? fields.aiGuardrails : [];
+  form.value.aiAgentRoles = Array.isArray(fields?.aiAgentRoles) ? fields.aiAgentRoles : [];
+  applyGrantableRoles(fields);
+  staticContextLoaded.value = true;
+}
+
+// One round trip. This used to be three identical POSTs on open (memory, static
+// context, and the picker's own), which is most of why the panel took a moment
+// to fill in.
+async function loadLinkedAgent() {
   staticContextLoaded.value = false;
   if (!form.value.aiAgentConfig) return;
   try {
@@ -864,14 +1087,14 @@ async function loadStaticContextFromConfig() {
       method: "POST",
       params: { config_name: form.value.aiAgentConfig },
     });
-    form.value.aiExamples = Array.isArray(fields?.aiExamples) ? fields.aiExamples : [];
-    
-    form.value.aiSkills = Array.isArray(fields?.aiSkills) ? fields.aiSkills : [];
-form.value.aiGuardrails = Array.isArray(fields?.aiGuardrails) ? fields.aiGuardrails : [];
-    staticContextLoaded.value = true;
+    await applyLinkedAgentFields(fields);
   } catch (e) {
-    // Unreadable agent — the sections stay empty and Save leaves them alone.
+    // Unreadable agent — the shape's own values stay on screen, which is also
+    // what dispatch falls back to, and Save leaves the agent's tables alone.
+    return;
   }
+  await loadAgentUser(form.value.aiAgentConfig);
+  await loadScreening();
 }
 
 // ── Notices ───────────────────────────────────────────────────────────────
@@ -1009,7 +1232,7 @@ const providerLabel = computed(() => {
 // Default Model into the Model field. Removed rather than rewritten — the
 // direction it encoded is now backwards. The MODEL is the agent's pick and the
 // provider is derived from that model's credentials link, so a provider can no
-// longer choose a model for you. AI Provider Credentials.default_model was
+// longer choose a model for you. The provider-level default_model was
 // deleted with the same change, the provider select is disabled, and nothing
 // called this function; it read a field that no longer exists.
 
@@ -1038,34 +1261,45 @@ onMounted(async () => {
     console.error("Failed to load skills", e);
   }
 
+
+  // The catalogue answers for itself. This used to be two requests that had to
+  // agree — the AI Model list, plus a list of AI Providers filtered on
+  // `enabled` — and a model was labelled "credentials disabled" when its
+  // provider was missing from the second. That comparison stopped meaning
+  // anything when the connection moved onto AI Model: AI Provider has one field
+  // now, so the filter referenced a column that no longer exists, the request
+  // failed into its catch, and EVERY model was labelled disabled. The key is a
+  // Password and cannot be read here, so the server answers the only question
+  // the editor actually has.
   try {
-    const data = await frappeGet("/api/resource/AI Provider Credentials", {
-      fields: JSON.stringify(["name", "provider_name"]),
-      filters: JSON.stringify([["enabled", "=", 1]]),
-      limit_page_length: 100,
+    const rows = await frappeRequest({
+      url: "/api/method/one_bpmn.agents.agent_config_resolver.model_catalogue",
+      method: "POST",
     });
-    providers.value = Array.isArray(data) ? data : [];
+    catalogModels.value = Array.isArray(rows) ? rows : [];
+    providers.value = Array.from(
+      new Set(catalogModels.value.map((m) => m.provider).filter(Boolean)),
+    ).map((name) => ({ name, provider_name: name }));
   } catch (e) {
+    catalogModels.value = [];
     providers.value = [];
   }
 
-  // WI-001655: the AI Model catalog — picking a model implies its
-  // credentials. Only USABLE models are offered: linked to credentials
-  // that are enabled (same rule as the assistant's grounding); unlinked
-  // catalog rows are managed in the desk until someone links them.
   try {
-    const models = await frappeGet("/api/resource/AI Model", {
-      fields: JSON.stringify(["name", "ai_provider_credentials"]),
-      filters: JSON.stringify([["ai_provider_credentials", "is", "set"]]),
-      limit_page_length: 100,
-      order_by: "name asc",
-    });
-    const enabledCreds = new Set(providers.value.map((p) => p.name));
-    catalogModels.value = (Array.isArray(models) ? models : []).filter(
-      (m) => enabledCreds.has(m.ai_provider_credentials)
+    const settings = await frappeGet(
+      "/api/resource/Processa Settings/Processa Settings",
+      { fields: JSON.stringify([
+        "default_compaction_model", "default_memory_distill_model",
+        "default_memory_reconcile_model",
+      ]) },
     );
+    siteDefaults.value = {
+      compaction: settings?.default_compaction_model || "",
+      distill: settings?.default_memory_distill_model || "",
+      reconcile: settings?.default_memory_reconcile_model || "",
+    };
   } catch (e) {
-    catalogModels.value = [];
+    siteDefaults.value = { compaction: "", distill: "", reconcile: "" };
   }
 
   // Load selectable AI Agent Configurations for the seed dropdown.
@@ -1079,22 +1313,6 @@ onMounted(async () => {
     agentConfigs.value = Array.isArray(cfgs) ? cfgs : [];
   } catch (e) {
     agentConfigs.value = [];
-  }
-
-  // Load DocType names for the Context DocType autocomplete.
-  try {
-    const rows = await frappeRequest({
-      url: "/api/method/frappe.client.get_list",
-      params: {
-        doctype: "DocType",
-        fields: JSON.stringify(["name"]),
-        limit_page_length: 0,
-        order_by: "name asc",
-      },
-    });
-    doctypeOptions.value = Array.isArray(rows) ? rows.map((r) => r.name) : [];
-  } catch (e) {
-    doctypeOptions.value = [];
   }
 
   // Read existing attrs from element
@@ -1136,16 +1354,27 @@ onMounted(async () => {
       (get("aiMemoryAutoWrite") === "true" ? "distilled" : "off"),
     // WI-001793: these two live on the agent, but seed them from the diagram so
     // a map whose agent has not been migrated still shows its real setting.
-    // They must exist on the form object — loadMemoryFromConfig only overlays
+    // They must exist on the form object — the linked-agent load only overlays
     // keys already present, and this assignment replaces form.value wholesale.
     aiMemoryDistillModel: get("aiMemoryDistillModel") || "",
     aiMemoryReconcileModel: get("aiMemoryReconcileModel") || "",
+    // Compaction is agent-owned like the two above, but the keys must exist
+    // here: this assignment replaces form.value wholesale, and the overlay
+    // below only fills keys that are already present.
+    aiContextTokenBudget: numOr("aiContextTokenBudget", 0, parseInt),
+    aiCompactionEnabled: get("aiCompactionEnabled") === "true",
+    aiCompactionKeepTail: numOr("aiCompactionKeepTail", 10, parseInt),
+    aiCompactionModel: get("aiCompactionModel") || "",
+    aiCompactionTokenThreshold: numOr("aiCompactionTokenThreshold", 0, parseInt),
+    aiCompactionIdleMinutes: numOr("aiCompactionIdleMinutes", 0, parseInt),
+    aiCompactionOnTaskBoundary: get("aiCompactionOnTaskBoundary") === "true",
     // WI-001639: agent-owned, with no diagram fallback — this assignment
     // replaces form.value wholesale, so the keys must exist here or
-    // loadStaticContextFromConfig has nothing to fill and the template binds
+    // loadLinkedAgent has nothing to fill and the template binds
     // to undefined.
     aiExamples: [],
     aiGuardrails: [],
+    aiAgentRoles: [],
   };
 
   // Read the diagram's start-event trigger DocType — the process context the
@@ -1173,37 +1402,23 @@ onMounted(async () => {
   // is visible before the compile error says it.
   refreshLinkedAgentStatus();
 
-  // WI-001793: the agent owns the memory settings — show its values, not the
-  // diagram's stale copies, so Save can't write yesterday's config back.
-  await loadMemoryFromConfig();
-
-  // WI-001639: the agent owns examples and guard rails — show its rows, not an
-  // empty pair of sections, so Save can't write a blank static context back.
-  await loadStaticContextFromConfig();
-  await loadScreening();
+  // The linked agent is the source of truth for the prompt, model, sampling,
+  // memory, compaction, examples, guard rails, skills and permissions — so its
+  // values are what the panel opens showing. Anything blank on the agent falls
+  // through to the shape's own copy, exactly as dispatch does.
+  await loadLinkedAgent();
 });
 
 // Pull the linked configuration's current values into the form (WI-001637
 // live link). The resolver returns shape-attribute keys (aiSystemPrompt,
 // aiProvider, aiModel, aiTemperature, aiMaxTokens) that map directly onto our
-// form fields. At run time the configuration is authoritative for these
-// fields; editing them here and saving writes the changes back to it.
-// WI-001793: memory settings are stored on the agent, not the diagram, so a
-// linked configuration is the source of truth for them. The resolver hands back
-// shape-attribute keys; only the toggle needs translating, because the doctype
-// models it as Enabled / Disabled / blank (blank = inherit the diagram's older
-// value) while the modal binds a checkbox.
-const MEMORY_FORM_KEYS = [
-  "aiConversationStore",
-  "aiContextMaxMessages",
-  "aiLongTermMemory",
-  "aiMemoryScope",
-  "aiMemoryWriteMode",
-  "aiMemoryDistillModel",
-  "aiMemoryReconcileModel",
-];
+
+const BOOLEAN_FORM_KEYS = ["aiCompactionEnabled", "aiCompactionOnTaskBoundary"];
 
 function configValueToForm(key, val) {
+  if (BOOLEAN_FORM_KEYS.includes(key)) {
+    return val === true || val === 1 || ["true", "1"].includes(String(val).toLowerCase());
+  }
   if (key !== "aiLongTermMemory") return val;
   return val === true || val === 1 || ["enabled", "true", "1"].includes(String(val).toLowerCase());
 }
@@ -1218,21 +1433,6 @@ function applyConfigFields(fields, onlyKeys = null) {
 // On open, overlay the linked agent's memory settings so the panel shows what
 // will actually run. Scoped to memory on purpose: the other agent-level fields
 // keep their existing "shape copy is the editing view" behaviour.
-async function loadMemoryFromConfig() {
-  if (!form.value.aiAgentConfig) return;
-  try {
-    const fields = await frappeRequest({
-      url: "/api/method/one_bpmn.agents.agent_config_resolver.get_agent_config_for_shape",
-      method: "POST",
-      params: { config_name: form.value.aiAgentConfig },
-    });
-    applyConfigFields(fields, MEMORY_FORM_KEYS);
-  } catch (e) {
-    // Unreadable config — the shape's older values stay on screen, which is
-    // also what dispatch will fall back to.
-  }
-}
-
 async function onAgentConfigSelect() {
   const value = form.value.aiAgentConfig;
   if (value === "__create__") {
@@ -1254,23 +1454,9 @@ async function onAgentConfigSelect() {
   // create flow) makes a still-open manual create panel stale — close it.
   if (value) showCreateAgent.value = false;
   if (!value) return;
-  try {
-    const fields = await frappeRequest({
-      url: "/api/method/one_bpmn.agents.agent_config_resolver.get_agent_config_for_shape",
-      method: "POST",
-      params: { config_name: value },
-    });
-    applyConfigFields(fields);
-    // WI-001639: the same read carries the static-context tables, so the
-    // sections follow the newly linked agent rather than keeping the old
-    // agent's rows on screen.
-    form.value.aiExamples = Array.isArray(fields?.aiExamples) ? fields.aiExamples : [];
-    form.value.aiGuardrails = Array.isArray(fields?.aiGuardrails) ? fields.aiGuardrails : [];
-    staticContextLoaded.value = true;
-    await loadScreening();
-  } catch (e) {
-    /* leave the current field values as-is if the seed lookup fails */
-  }
+  // Same loader the panel opens with, so picking an agent and opening a task
+  // already linked to it put identical values on screen.
+  await loadLinkedAgent();
 }
 
 // The designer's confirm no longer creates anything itself: it relays the
@@ -1410,6 +1596,23 @@ async function writeBackToConfig() {
     fields.aiMemoryWriteMode = form.value.aiLongTermMemory ? form.value.aiMemoryWriteMode : "";
     fields.aiMemoryDistillModel = form.value.aiMemoryDistillModel || "";
     fields.aiMemoryReconcileModel = form.value.aiMemoryReconcileModel || "";
+    // Compaction. The thresholds are only meaningful while it is enabled, so
+    // they are zeroed when it is off rather than left to fire on a re-enable
+    // with settings the user has since forgotten about.
+    fields.aiContextTokenBudget = form.value.aiContextTokenBudget || 0;
+    fields.aiCompactionEnabled = form.value.aiCompactionEnabled ? 1 : 0;
+    fields.aiCompactionKeepTail = form.value.aiCompactionKeepTail || 10;
+    fields.aiCompactionModel = form.value.aiCompactionEnabled
+      ? form.value.aiCompactionModel || ""
+      : "";
+    fields.aiCompactionTokenThreshold = form.value.aiCompactionEnabled
+      ? form.value.aiCompactionTokenThreshold || 0
+      : 0;
+    fields.aiCompactionIdleMinutes = form.value.aiCompactionEnabled
+      ? form.value.aiCompactionIdleMinutes || 0
+      : 0;
+    fields.aiCompactionOnTaskBoundary =
+      form.value.aiCompactionEnabled && form.value.aiCompactionOnTaskBoundary ? 1 : 0;
   }
   // WI-001639: examples and guard rails are agent-level, so they persist here
   // rather than onto the BPMN XML. Sent whole (the backend replaces the tables)
@@ -1418,6 +1621,8 @@ async function writeBackToConfig() {
     fields.aiSkills = form.value.aiSkills;
     fields.aiExamples = form.value.aiExamples;
     fields.aiGuardrails = form.value.aiGuardrails;
+    // Blank rows are the ones the user added and never picked a role for.
+    fields.aiAgentRoles = form.value.aiAgentRoles.filter((r) => r && r.role);
   }
   // Screening goes through security_api, which accepts ONLY screening fields —
   // keeping this endpoint from becoming a general writer for the whole agent.
@@ -1608,6 +1813,16 @@ async function save() {
   border-radius: 4px;
   font-size: 0.85rem;
   font-family: inherit;
+}
+/* A value the agent owns, shown rather than offered. Deliberately not styled as
+   an input: a disabled <select> still reads as a control someone should fill. */
+.derived-value {
+  padding: 6px 8px;
+  font-size: 0.85rem;
+  color: #111827;
+  background: #f9fafb;
+  border: 1px solid #e5e7eb;
+  border-radius: 4px;
 }
 .checkbox-row {
   display: flex;

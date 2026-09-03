@@ -52,7 +52,7 @@ class TestGenerateEvalSuiteForAgent(FrappeTestCase):
 				"system_prompt": "Test prompt.",
 				# No credentials: judge_model resolves empty, so the cases carry
 				# no llm_judge assertion and nothing calls out to a provider.
-				"ai_provider_credentials": None,
+				"ai_provider": None,
 				"sample_prompts": [{"prompt": p} for p in prompts],
 			})
 			cfg.flags.ignore_links = True

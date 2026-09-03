@@ -94,4 +94,22 @@ one_bpmn.one_bpmn.patches.v1_0.widen_instruction_override_pattern #17-08-2026 "i
 one_bpmn.one_bpmn.patches.v1_0.set_customization_owner_app #17-08-2026 route customization PRs at one_fm, not the upstream repo owning the doctype
 one_bpmn.one_bpmn.patches.v1_0.seed_connector_agent_config #19-08-2026 the connector-building agent is configuration; its map and scripts arrive by export/import
 one_bpmn.one_bpmn.patches.v1_0.migrate_ba_agent_to_generic_path #19-08-2026 the BA Agent runs on its map; the label it never had IS the start trigger
+one_bpmn.one_bpmn.patches.v1_0.set_connector_handler_app #20-08-2026 handler pull requests need a nominated repository; a Single gets no field default
 one_bpmn.one_bpmn.patches.v1_0.add_required_capability_to_a2a_connector #23-08-2026 WI-002056 a delegate shape may declare the capability it needs; the deadline help was stale
+one_bpmn.one_bpmn.patches.v1_0.provision_agent_users #23-08-2026 WI-002054 every agent gets the identity its tools now run as; no roles granted, that is a decision
+one_bpmn.one_bpmn.patches.v1_0.migrate_to_ai_provider_and_model #24-08-2026 WI-002134 credentials + rate card fold into AI Provider and AI Model; old doctypes dropped last so a failure is re-runnable
+one_bpmn.one_bpmn.patches.v1_0.seed_missing_model_rates #30-08-2026 WI-002134 re-run: the dated Haiku row was missed and is what Logix and ProsAlly run on; fills only what is empty
+one_bpmn.one_bpmn.patches.v1_0.migrate_ai_chat_settings_to_processa_settings #24-08-2026 WI-002140 AI Chat Settings retirement: observability/Langfuse/token-estimator/LLM-default fields fold into Processa Settings
+one_bpmn.one_bpmn.patches.v1_0.seed_mobile_app_agent_config #27-08-2026 the Mobile App Agent's configuration; its map and Server Scripts arrive by Processa export/import
+one_bpmn.one_bpmn.patches.v1_0.seed_frontend_agent_config #27-08-2026 the front-end agent is configuration; its map and scripts arrive by export/import
+one_bpmn.one_bpmn.patches.v1_0.migrate_ba_state_to_session_state #30-08-2026 WI-001889 BA Agent planning checkpoint moves from Chat Conversation State to Chat Session State
+one_bpmn.one_bpmn.patches.v1_0.docu_module_not_hardcoded #30-08-2026 WI-001889 Docu schema_writer: the module in the output template is no longer a hardcoded ONE BPMN
+one_bpmn.one_bpmn.patches.v1_0.drop_legacy_ai_credential_tables #30-08-2026a WI-002134 the consolidation deleted the doctypes; their tables, their stored API keys and two stale columns stayed behind
+one_bpmn.one_bpmn.patches.v1_0.provider_is_a_name_model_holds_the_connection #30-08-2026 WI-002134 AI Provider goes back to a single Data field; the key, endpoint and switch move down onto AI Model
+one_bpmn.one_bpmn.patches.v1_0.seed_ai_model_catalogue #30-08-2026 WI-002134 one catalogue on every site: canonical providers, the models and their facts; no API keys, so new models land disabled
+one_bpmn.one_bpmn.patches.v1_0.seed_agent_sandbox_connector #25-08-2026 the agent_sandbox connector: dispatches development work to the external Cloud Run sandbox
+one_bpmn.one_bpmn.patches.v1_0.seed_dev_agent_config #25-08-2026 the AI Dev Agent is configuration, like the connector-building agent; its map and scripts arrive by export/import
+one_bpmn.one_bpmn.patches.v1_0.seed_agent_sandbox_connector #26-08-2026-v2 adds files alongside work_item_description: dispatch_to_sandbox now takes an explicit {path: new content} plan the sandbox applies verbatim; work_item_description stays as the PR title/body source, the sandbox never decides what to change
+one_bpmn.one_bpmn.patches.v1_0.fix_dev_agent_write_result_missing_state #30-08-2026 Dev Agent's own completion script never set A2A Task.state to a terminal value, so poll_a2a_tasks' reconciler (which gates strictly on state, not status_message) never woke a waiting caller — confirmed live via A2A-91652 stuck at state=working with Orchestrator Agent's own run suspended indefinitely
+one_bpmn.one_bpmn.patches.v1_0.fix_logix_stale_turn_keys #02-09-2026 Logix reviewed an empty draft and answered a greeting with a security refusal: the stage tools still read the pre-migration turn keys (draft, intent) that the AI Agent Task shapes replaced with <bpmn_id>_result
+one_bpmn.one_bpmn.patches.v1_0.move_lucrusher_turn_instructions_to_system #02-09-2026 WI-002196 LuCrusher re-sent its 950-char turn instructions inside every user message; they move to the cached system role, where the assembler's de-duplication then keeps them out of the user prompt
