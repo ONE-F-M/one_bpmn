@@ -384,6 +384,14 @@ def sync_doctypes(model_name: str) -> dict:
 
 	changed_doctypes = sorted({c["doctype"] for c in syncable})
 
+	# What changed, per DocType, for the PR body. Taken from the diff rather than
+	# from the file writer, which has not run by the time the body is composed.
+	summary = {}
+	for c in changes:
+		label = f"{c['object_type']} {c['name']}" if c["object_type"] != "DocField" else c["name"]
+		detail = f" ({c['detail']})" if c.get("detail") else ""
+		summary.setdefault(c["doctype"], []).append(f"{c['action']} {label}{detail}")
+
 	token = frappe.get_cached_doc("Processa Settings").get_password("github_token")
 
 	# Group by the app whose SOURCE carries the customization, which is not the
@@ -404,9 +412,18 @@ def sync_doctypes(model_name: str) -> dict:
 
 		stamp = frappe.generate_hash(length=6)
 		head_branch = f"processa/sync-{frappe.scrub(model_name)}-{stamp}"
-		title = f"Processa: sync customizations for {', '.join(dts)}"
-		files, build_files, artefacts = _customization_pr_files(app, dts, model_name, stamp)
-		body = _pr_body(app, dts, model_name, artefacts)
+		files, build_files, artefacts, routing = _customization_pr_files(app, dts, model_name, stamp)
+		if not files and not routing["owned"]:
+			# Nothing this app can carry. Reported rather than opened empty.
+			skipped.append({"app": app, "doctypes": dts,
+			                "reason": _("Nothing to write for these doctypes.")})
+			continue
+		title = (
+			f"Processa: sync {', '.join(dts)}"
+			if routing["owned"] else f"Processa: sync customizations for {', '.join(dts)}"
+		)
+		body = _pr_body(app, dts, model_name, artefacts, routing,
+		                {dt: summary.get(dt) or [] for dt in dts})
 		# base_branch=None → github_sync targets the repository's default branch.
 		pr_url = open_customization_pr(
 			token=token,
@@ -436,11 +453,21 @@ def _customization_pr_files(app: str, dts: list, model_name: str, stamp: str):
 	    the shared custom/<dt>.json. Those cannot be built up front.
 	  * ``artefacts``  — every path touched, for the PR body and the API response.
 	"""
+	from one_bpmn.api import doctype_source_sync as source
 	from one_bpmn.api import onefm_customization_codegen as gen
+
+	# Ownership decides the destination. A DocType whose schema is in a
+	# repository we control is edited in its own JSON; overriding our own source
+	# with a Property Setter would leave the file no longer true, and the
+	# generated patch would re-apply the override on every migrate.
+	owned = [dt for dt in dts if source.owned_in_source(dt) and source.source_json_path(dt)]
+	foreign = [dt for dt in dts if dt not in owned]
 
 	files, artefacts = {}, []
 	snapshots = {}
-	for dt in dts:
+	source_paths = {dt: source.source_json_path(dt) for dt in owned}
+	artefacts += sorted(source_paths.values())
+	for dt in foreign:
 		cfs = frappe.get_all("Custom Field", filters={"dt": dt}, fields=["*"], order_by="name")
 		pss = frappe.get_all("Property Setter", filters={"doc_type": dt}, fields=["*"], order_by="name")
 		snapshots[dt] = (cfs, pss)
@@ -451,23 +478,35 @@ def _customization_pr_files(app: str, dts: list, model_name: str, stamp: str):
 		files[ps_path] = gen.render_property_setter_module(dt, pss)
 		artefacts += [cf_path, ps_path]
 
-	patch_path = gen.patch_path(app, model_name, stamp)
-	files[patch_path] = gen.render_patch(app, model_name, dts, stamp)
-	artefacts.append(patch_path)
+	if foreign:
+		patch_path = gen.patch_path(app, model_name, stamp)
+		files[patch_path] = gen.render_patch(app, model_name, foreign, stamp)
+		artefacts.append(patch_path)
 
-	spliced = [gen.aggregator_path(app, k) for k in ("custom_field", "property_setter")]
-	spliced.append(gen.patches_txt_path(app))
+	spliced = [gen.aggregator_path(app, k) for k in ("custom_field", "property_setter")] if foreign else []
+	if foreign:
+		spliced.append(gen.patches_txt_path(app))
 	# Under the CUSTOMIZATION app's module, not the DocType's owning module. The
 	# latter is what the previous implementation used, and for a foreign DocType it
 	# resolves outside this repo entirely (../hrms/hrms/hr/custom/interview.json).
-	json_paths = {dt: gen.customization_json_path(app, dt) for dt in dts}
+	json_paths = {dt: gen.customization_json_path(app, dt) for dt in foreign}
 	artefacts += spliced + sorted(json_paths.values())
 
 	today = frappe.utils.today()
+	source_notes = {}
 
 	def build_files(reader):
 		out = {}
-		for kind in ("custom_field", "property_setter"):
+		# Our own DocTypes first: the file is edited, never regenerated, so a
+		# property nobody changed keeps its value and field order is preserved.
+		for dt in owned:
+			path = source_paths[dt]
+			text, notes = source.merge_into_source(reader(path) or "", dt)
+			source_notes[dt] = notes
+			if text is not None:
+				out[path] = text
+
+		for kind in ("custom_field", "property_setter") if foreign else ():
 			path = gen.aggregator_path(app, kind)
 			text = reader(path)
 			if text is None:
@@ -479,17 +518,18 @@ def _customization_pr_files(app: str, dts: list, model_name: str, stamp: str):
 				text = gen.splice_aggregator(text, app, dt, kind)
 			out[path] = text
 
-		pt_path = gen.patches_txt_path(app)
-		pt_text = reader(pt_path)
-		if pt_text is None:
-			raise ValueError(f"{pt_path} is not in the repository; the patch would never run.")
-		out[pt_path] = gen.splice_patches_txt(
-			pt_text, app, model_name, stamp, today, note=f"Processa sync: {', '.join(dts)}"
-		)
+		if foreign:
+			pt_path = gen.patches_txt_path(app)
+			pt_text = reader(pt_path)
+			if pt_text is None:
+				raise ValueError(f"{pt_path} is not in the repository; the patch would never run.")
+			out[pt_path] = gen.splice_patches_txt(
+				pt_text, app, model_name, stamp, today, note=f"Processa sync: {', '.join(foreign)}"
+			)
 
 		# The Frappe-native customizations file is merged, never regenerated: it
 		# carries customizations beyond the ones this run happens to know about.
-		for dt in dts:
+		for dt in foreign:
 			path = json_paths[dt]
 			cfs, pss = snapshots[dt]
 			incoming = {
@@ -503,29 +543,60 @@ def _customization_pr_files(app: str, dts: list, model_name: str, stamp: str):
 			out[path] = gen.merge_customization_json(reader(path) or "", incoming)
 		return out
 
-	return files, build_files, artefacts
+	return files, build_files, artefacts, {"owned": owned, "foreign": foreign, "notes": source_notes}
 
 
-def _pr_body(app: str, dts: list, model_name: str, artefacts: list) -> str:
+def _routing_table(routing: dict, summary: dict = None) -> str:
+	"""Which route each DocType took, and why, for the reviewer.
+
+	The point of the table is that a DocType we own can be seen NOT to have been
+	overridden: the reason column is the whole argument for the split.
+	"""
+	if not routing:
+		return ""
+	summary = summary or {}
+	lines = ["| DocType | Written to | Why | What changed |", "| --- | --- | --- | --- |"]
+	for dt in routing.get("owned") or []:
+		what = "; ".join(summary.get(dt) or routing.get("notes", {}).get(dt) or ["schema"])
+		lines.append(
+			f"| {dt} | its own DocType JSON | we own this DocType, so the source file stays "
+			f"the truth and no Property Setter overrides it | {what} |"
+		)
+	for dt in routing.get("foreign") or []:
+		what = "; ".join(summary.get(dt) or ["customizations"])
+		lines.append(
+			f"| {dt} | customization artefacts | owned by an app we do not control, so an "
+			f"override is the only mechanism there is | {what} |"
+		)
+	return "\n".join(lines) + "\n\n"
+
+
+def _pr_body(app: str, dts: list, model_name: str, artefacts: list, routing: dict = None,
+             summary: dict = None) -> str:
 	listed = "\n".join(f"- `{p}`" for p in artefacts)
+	routing = routing or {}
+	foreign = routing.get("foreign", dts)
 	return (
 		"Automated by Processa (Review Doctypes → Sync).\n\n"
 		f"Process map: `{model_name}`\n"
 		f"DocTypes: {', '.join(dts)}\n"
 		f"Customization owner app: `{app}`\n\n"
-		"These Custom Field / Property Setter changes exist on the authoring (BA) "
-		"site but not yet on Production.\n\n"
-		f"Written in {app}'s own convention, so the change lands on both a fresh "
-		"install and an existing site:\n\n"
+		+ _routing_table(routing, summary) +
+		"These changes exist on the authoring (BA) site but not yet on Production.\n\n"
+		+ ("" if not foreign else
+		f"For the DocTypes above that route to customizations, written in {app}'s own "
+		"convention so the change lands on both a fresh install and an existing site:\n\n"
 		"- the `custom/custom_field/` and `custom/property_setter/` data modules hold the content\n"
 		"- `setup/custom_field.py` and `setup/property_setter.py` register them for **fresh installs** "
 		"(via `after_install`, which never runs on an existing site)\n"
 		"- the patch under `patches/v15_0/` applies them to **existing sites** on `bench migrate`\n"
 		"- `custom/*.json` is updated too, and is **merged** rather than regenerated, so "
-		"customizations outside this sync are preserved\n\n"
-		f"Files touched:\n{listed}\n\n"
-		"The data modules are regenerated from the BA site's current state, so any hand edit "
-		"made to those two files will be replaced — review that hunk with care."
+		"customizations outside this sync are preserved\n\n")
+		+ f"Files touched:\n{listed}\n\n"
+		+ ("The data modules are regenerated from the BA site's current state, so any hand edit "
+		   "made to those two files will be replaced — review that hunk with care." if foreign else
+		   "Each DocType JSON was EDITED, not regenerated: a property nobody changed keeps its "
+		   "value and field order is preserved.")
 	)
 
 
