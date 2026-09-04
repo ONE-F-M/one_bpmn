@@ -206,7 +206,7 @@ class TestPrFileSet(FrappeTestCase):
         _set_app("one_fm")
         if not frappe.db.exists("DocType", "Interview"):
             self.skipTest("Interview is not installed")
-        self.files, self.build_files, self.artefacts = _customization_pr_files(
+        self.files, self.build_files, self.artefacts, self.routing = _customization_pr_files(
             "one_fm", ["Interview"], "Some Map", "abc123"
         )
 
