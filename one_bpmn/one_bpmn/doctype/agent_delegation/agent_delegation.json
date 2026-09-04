@@ -84,7 +84,7 @@
    "in_list_view": 1,
    "in_standard_filter": 1,
    "label": "Stopped Reason",
-   "options": "\nmax_recursion_depth\nmax_task_handoffs\ndelegation_deadline_minutes\nturn_cap\nmax_delegation_retries\ncancelled",
+   "options": "max_recursion_depth\nmax_task_handoffs\ndelegation_deadline_minutes\nturn_cap\nmax_delegation_retries\ncancelled",
    "read_only": 1
   },
   {
@@ -98,7 +98,8 @@
    "fieldtype": "Link",
    "label": "Orchestrator Instance",
    "options": "BPMN Process Instance",
-   "read_only": 1
+   "read_only": 1,
+   "in_list_view": 1
   },
   {
    "fieldname": "worker_instance",
@@ -126,7 +127,8 @@
    "in_standard_filter": 1,
    "label": "Reference Document Type",
    "options": "DocType",
-   "read_only": 1
+   "read_only": 1,
+   "in_list_view": 1
   },
   {
    "fieldname": "reference_name",
