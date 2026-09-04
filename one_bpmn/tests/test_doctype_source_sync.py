@@ -200,6 +200,12 @@ class TestEditingOurOwnJson(FrappeTestCase):
         self.assertIn("processa_probe_note", names)
         self.assertEqual(names[names.index(anchor) + 1], "processa_probe_note")
 
+        added = next(r for r in after["fields"] if r["fieldname"] == "processa_probe_note")
+        self.assertEqual(
+            list(added), sorted(added),
+            "a new entry has no order to preserve, so it goes in Frappe's key order",
+        )
+
     def test_a_doctype_level_property_goes_to_the_top_level_typed(self):
         """AC5. A Property Setter stores its value as text; the JSON wants an int."""
         self._setter(doctype_or_field="DocType", property="max_attachments",

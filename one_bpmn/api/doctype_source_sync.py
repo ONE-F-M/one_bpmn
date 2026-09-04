@@ -212,9 +212,11 @@ def merge_into_source(existing: str, dt: str, schema: dict = None) -> tuple:
 				notes.append(_("{0}: {1}").format(fieldname, ", ".join(sorted(changed))))
 			continue
 		after = next((i for i, r in enumerate(rows) if r.get("fieldname") == entry["after"]), None)
+		# A brand-new entry has no order of its own to preserve, so its keys go in
+		# the order Frappe's exporter would write them.
 		rows.insert(
 			after + 1 if after is not None else len(rows),
-			{k: v for k, v in field.items() if _set(v)},
+			{k: field[k] for k in sorted(field) if _set(field[k])},
 		)
 		by_name[fieldname] = rows[after + 1 if after is not None else len(rows) - 1]
 		notes.append(_("added field {0}").format(fieldname))
