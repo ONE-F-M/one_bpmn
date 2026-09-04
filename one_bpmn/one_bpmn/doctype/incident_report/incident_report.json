@@ -1,0 +1,99 @@
+{
+ "actions": [],
+ "allow_rename": 1,
+ "autoname": "format:INC-.#####",
+ "creation": "2026-09-04 15:40:58.652077",
+ "doctype": "DocType",
+ "editable_grid": 1,
+ "engine": "InnoDB",
+ "field_order": [
+  "incident_date",
+  "location",
+  "reported_by",
+  "severity",
+  "incident_photo",
+  "section_break_e15e83",
+  "description",
+  "follow_up_action"
+ ],
+ "fields": [
+  {
+   "fieldname": "incident_date",
+   "fieldtype": "Datetime",
+   "in_list_view": 1,
+   "label": "Date and Time of Incident",
+   "reqd": 1
+  },
+  {
+   "fieldname": "location",
+   "fieldtype": "Data",
+   "in_list_view": 1,
+   "in_standard_filter": 1,
+   "label": "Site / Location",
+   "reqd": 1
+  },
+  {
+   "fieldname": "reported_by",
+   "fieldtype": "Data",
+   "in_list_view": 1,
+   "label": "Person Reporting",
+   "reqd": 1
+  },
+  {
+   "fieldname": "severity",
+   "fieldtype": "Select",
+   "label": "Severity Level",
+   "options": "Low\nMedium\nHigh\nCritical\nCatastrophic",
+   "reqd": 1
+  },
+  {
+   "fieldname": "incident_photo",
+   "fieldtype": "Attach Image",
+   "label": "Incident Photo",
+   "reqd": 1
+  },
+  {
+   "fieldname": "section_break_e15e83",
+   "fieldtype": "Section Break",
+   "label": "Incident Details & Action"
+  },
+  {
+   "fieldname": "description",
+   "fieldtype": "Text",
+   "label": "Description of Incident",
+   "reqd": 1
+  },
+  {
+   "fieldname": "follow_up_action",
+   "fieldtype": "Small Text",
+   "label": "Follow-up Action"
+  }
+ ],
+ "grid_page_length": 50,
+ "index_web_pages_for_search": 1,
+ "links": [],
+ "modified": "2026-09-04 15:40:58.652077",
+ "modified_by": "Administrator",
+ "module": "ONE BPMN",
+ "name": "Incident Report",
+ "owner": "Administrator",
+ "permissions": [
+  {
+   "create": 1,
+   "delete": 1,
+   "email": 1,
+   "export": 1,
+   "print": 1,
+   "read": 1,
+   "report": 1,
+   "role": "System Manager",
+   "share": 1,
+   "write": 1
+  }
+ ],
+ "row_format": "Dynamic",
+ "sort_field": "modified",
+ "sort_order": "DESC",
+ "states": [],
+ "title_field": "location"
+}
