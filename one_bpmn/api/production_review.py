@@ -564,18 +564,25 @@ def _routing_table(routing: dict, summary: dict = None) -> str:
 	if not routing:
 		return ""
 	summary = summary or {}
+
+	def what(dt, fallback):
+		"""A few items, then a count. The full list is the diff below."""
+		items = summary.get(dt) or fallback
+		if len(items) <= 5:
+			return "; ".join(items)
+		return "; ".join(items[:5]) + f"; and {len(items) - 5} more"
+
 	lines = ["| DocType | Written to | Why | What changed |", "| --- | --- | --- | --- |"]
 	for dt in routing.get("owned") or []:
-		what = "; ".join(summary.get(dt) or routing.get("notes", {}).get(dt) or ["schema"])
 		lines.append(
 			f"| {dt} | its own DocType JSON | we own this DocType, so the source file stays "
-			f"the truth and no Property Setter overrides it | {what} |"
+			f"the truth and no Property Setter overrides it "
+			f"| {what(dt, routing.get('notes', {}).get(dt) or ['schema'])} |"
 		)
 	for dt in routing.get("foreign") or []:
-		what = "; ".join(summary.get(dt) or ["customizations"])
 		lines.append(
 			f"| {dt} | customization artefacts | owned by an app we do not control, so an "
-			f"override is the only mechanism there is | {what} |"
+			f"override is the only mechanism there is | {what(dt, ['customizations'])} |"
 		)
 	return "\n".join(lines) + "\n\n"
 

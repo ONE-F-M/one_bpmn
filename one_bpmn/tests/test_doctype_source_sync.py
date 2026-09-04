@@ -101,9 +101,14 @@ class TestEditingOurOwnJson(FrappeTestCase):
             self.skipTest(f"{OURS} is not installed")
         self.previous = frappe.db.get_single_value(SETTINGS, "customization_app")
         _set_app("one_fm")
-        self.before = _source_text(OURS)
-        if not self.before:
+        on_disk = _source_text(OURS)
+        if not on_disk:
             self.skipTest("the source file is not on disk")
+        # The baseline is the file with whatever this site ALREADY says folded
+        # in, so each test measures the change its own fixture makes rather than
+        # the site's total state — drift left by anything else cannot make a
+        # one-property edit look like eight.
+        self.before = source.merge_into_source(on_disk, OURS)[0] or on_disk
         self.parsed = json.loads(self.before)
 
     def tearDown(self):
@@ -412,9 +417,22 @@ class TestTheArtefactSetFollowsOwnership(FrappeTestCase):
                         {OURS: ["Update DocField instruction (reqd)"]})
 
         self.assertIn("| DocType | Written to | Why | What changed |", body)
+        self.assertNotIn("\n|  |", body, "no empty rows")
         self.assertIn("its own DocType JSON", body)
         self.assertIn("no Property Setter", body)
         self.assertIn("Update DocField instruction (reqd)", body)
+
+    def test_a_long_change_list_is_summarised_rather_than_dumped(self):
+        """Seen on a real run: 15 reported changes made one unreadable cell."""
+        _files, _build, artefacts, routing = _customization_pr_files(
+            "one_bpmn", [OURS], "Some Map", "abc123"
+        )
+        many = [f"Create DocField {OURS}-field_{i}" for i in range(15)]
+        body = _pr_body("one_bpmn", [OURS], "Some Map", artefacts, routing, {OURS: many})
+
+        self.assertIn("and 10 more", body)
+        self.assertIn("field_4", body)
+        self.assertNotIn("field_9", body)
 
     def test_the_body_still_explains_the_override_route(self):
         if not frappe.db.exists("DocType", THEIRS):
