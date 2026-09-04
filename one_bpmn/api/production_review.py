@@ -501,7 +501,16 @@ def _customization_pr_files(app: str, dts: list, model_name: str, stamp: str):
 		# property nobody changed keeps its value and field order is preserved.
 		for dt in owned:
 			path = source_paths[dt]
-			text, notes = source.merge_into_source(reader(path) or "", dt)
+			existing = reader(path)
+			if not (existing or "").strip():
+				# Authored on the BA site and never in source: it has to be
+				# written, with the package marker and controller a standard
+				# DocType is loaded through.
+				created, notes = source.create_source_files(dt)
+				out.update(created)
+				source_notes[dt] = notes
+				continue
+			text, notes = source.merge_into_source(existing, dt)
 			source_notes[dt] = notes
 			if text is not None:
 				out[path] = text

@@ -176,14 +176,26 @@ def merge_into_source(existing: str, dt: str, schema: dict = None) -> tuple:
 	be shown against another site's state without inserting its rows here.
 	"""
 	path = source_json_path(dt)
+	if not (existing or "").strip():
+		raise ValueError(
+			f"{path} is not in the repository — call create_source_files() to write it"
+		)
 	try:
-		doc = json.loads(existing) if existing and existing.strip() else None
+		doc = json.loads(existing)
 	except json.JSONDecodeError:
 		raise ValueError(f"{path} is not valid JSON; refusing to overwrite it")
 	if not isinstance(doc, dict):
-		raise ValueError(f"{path} is not in the repository, so there is nothing to edit")
+		raise ValueError(f"{path} does not hold a DocType; refusing to overwrite it")
 
 	schema = schema or site_schema(dt)
+	notes = _fold(doc, schema)
+	if not notes:
+		return None, []
+	return _dump(doc, existing.endswith("\n")), notes
+
+
+def _fold(doc: dict, schema: dict) -> list:
+	"""Write the site's schema into an already-parsed DocType JSON."""
 	notes = []
 
 	changed = _apply(doc, schema["doctype_level"])
@@ -221,6 +233,67 @@ def merge_into_source(existing: str, dt: str, schema: dict = None) -> tuple:
 		by_name[fieldname] = rows[after + 1 if after is not None else len(rows) - 1]
 		notes.append(_("added field {0}").format(fieldname))
 
-	if not notes:
-		return None, []
-	return _dump(doc, existing.endswith("\n")), notes
+	return notes
+
+
+def _canonical_export(dt: str) -> dict:
+	"""The DocType exactly as Frappe's own exporter would write it.
+
+	Reused rather than reconstructed: this is the writer developer mode runs on
+	save, so a file created here is the file Frappe would have created.
+	"""
+	from frappe.modules.export_file import strip_default_fields
+
+	doc = frappe.get_doc("DocType", dt)
+	export = doc.as_dict(no_nulls=True)
+	doc.run_method("before_export", export)
+	return strip_default_fields(doc, export)
+
+
+_CONTROLLER = """# Copyright (c) {year}, {publisher} and contributors
+# For license information, please see license.txt
+
+from frappe.model.document import Document
+
+
+class {classname}(Document):
+	pass
+"""
+
+
+def create_source_files(dt: str, schema: dict = None) -> tuple:
+	"""The files a DocType we own needs when the repository has none.
+
+	A DocType authored on the BA site has never been in source, so there is
+	nothing to edit — it has to be written, in the module its owning app already
+	uses for it. Three files, because that is what makes a standard DocType load
+	on a deployed site: the package marker, the schema, and the controller it is
+	imported through. The editor conveniences Frappe also writes on save (the
+	client script and the test stub) are left out; they are not needed for the
+	schema to apply and would only add noise to the review.
+
+	Returns ``(files, notes)``.
+	"""
+	path = source_json_path(dt)
+	if not path:
+		raise ValueError(f"{dt} has no owning app, so there is nowhere to write it")
+
+	doc = _canonical_export(dt)
+	notes = _fold(doc, schema or site_schema(dt))
+
+	folder = path.rsplit("/", 1)[0]
+	app = path.split("/")[0]
+	files = {
+		f"{folder}/__init__.py": "",
+		# Frappe's exporter writes no trailing newline, and sorted keys, so a
+		# file created here matches one it wrote itself.
+		path: json.dumps(doc, indent=1, sort_keys=True, separators=(",", ": "),
+		                 ensure_ascii=True, default=str),
+		f"{folder}/{frappe.scrub(dt)}.py": _CONTROLLER.format(
+			year=frappe.utils.now_datetime().year,
+			publisher=frappe.get_hooks("app_publisher", app_name=app)[0]
+			if frappe.get_hooks("app_publisher", app_name=app) else app,
+			classname=dt.replace(" ", "").replace("-", ""),
+		),
+	}
+	return files, [_("created in source")] + notes

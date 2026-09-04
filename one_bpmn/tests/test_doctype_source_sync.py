@@ -265,10 +265,92 @@ class TestEditingOurOwnJson(FrappeTestCase):
         with self.assertRaises(ValueError):
             source.merge_into_source("{ not json", OURS)
 
-    def test_a_file_that_is_not_in_the_repository_is_refused(self):
-        """Better than inventing a DocType JSON from a single site's state."""
-        with self.assertRaises(ValueError):
+    def test_merge_points_at_the_create_path_when_the_file_is_absent(self):
+        """Editing nothing is not a merge — the caller creates it instead."""
+        with self.assertRaisesRegex(ValueError, "create_source_files"):
             source.merge_into_source("", OURS)
+
+
+class TestCreatingSourceForADoctypeTheRepoLacks(FrappeTestCase):
+    """A DocType authored on the BA site has never been in source.
+
+    Seen live: "Sync" raised "not in the repository, so there is nothing to
+    edit" for a DocType created through Customize Form on BA. There is nothing
+    to edit because it has to be written.
+    """
+
+    def setUp(self):
+        if not frappe.db.exists("DocType", OURS):
+            self.skipTest(f"{OURS} is not installed")
+        self.previous = frappe.db.get_single_value(SETTINGS, "customization_app")
+        _set_app("one_fm")
+
+    def tearDown(self):
+        _set_app(self.previous)
+
+    def test_it_writes_the_three_files_a_standard_doctype_loads_through(self):
+        files, notes = source.create_source_files(OURS)
+        folder = source.source_json_path(OURS).rsplit("/", 1)[0]
+
+        self.assertEqual(
+            set(files),
+            {f"{folder}/__init__.py",
+             source.source_json_path(OURS),
+             f"{folder}/{frappe.scrub(OURS)}.py"},
+        )
+        self.assertIn("created in source", notes)
+
+    def test_the_json_is_what_frappe_would_have_exported(self):
+        files, _notes = source.create_source_files(OURS)
+        text = files[source.source_json_path(OURS)]
+        doc = json.loads(text)
+
+        self.assertEqual(doc["name"], OURS)
+        self.assertEqual(doc["module"], frappe.db.get_value("DocType", OURS, "module"))
+        self.assertEqual(list(doc), sorted(doc), "Frappe's exporter sorts keys")
+        self.assertFalse(text.endswith("\n"), "Frappe's exporter writes no trailing newline")
+        self.assertTrue(doc["fields"], "the fields have to be in there")
+
+    def test_the_controller_is_importable_python_with_the_right_class(self):
+        import ast
+
+        files, _notes = source.create_source_files(OURS)
+        folder = source.source_json_path(OURS).rsplit("/", 1)[0]
+        controller = files[f"{folder}/{frappe.scrub(OURS)}.py"]
+
+        tree = ast.parse(controller)
+        classes = [n.name for n in ast.walk(tree) if isinstance(n, ast.ClassDef)]
+        self.assertEqual(classes, [OURS.replace(" ", "")])
+        self.assertIn("from frappe.model.document import Document", controller)
+
+    def test_a_customization_is_folded_into_the_file_it_creates(self):
+        """The point of the sync: the created file carries the BA state."""
+        setter = frappe.get_doc({
+            "doctype": "Property Setter", "doc_type": OURS, "doctype_or_field": "DocType",
+            "property": "max_attachments", "property_type": "Int", "value": "4",
+        }).insert(ignore_permissions=True)
+        self.addCleanup(lambda: (
+            frappe.db.exists("Property Setter", setter.name)
+            and frappe.delete_doc("Property Setter", setter.name, force=True, ignore_permissions=True)
+            and frappe.db.commit()
+        ))
+
+        files, notes = source.create_source_files(OURS)
+        doc = json.loads(files[source.source_json_path(OURS)])
+
+        self.assertEqual(doc["max_attachments"], 4)
+        self.assertIn("DocType properties: max_attachments", notes)
+
+    def test_a_doctype_with_no_owning_app_has_nowhere_to_go(self):
+        with self.assertRaises(ValueError):
+            source.create_source_files("Not A Real Doctype At All")
+
+    def test_the_created_set_carries_no_override_artefacts(self):
+        files, _notes = source.create_source_files(OURS)
+        for path in files:
+            self.assertNotIn("property_setter", path)
+            self.assertNotIn("custom_field", path)
+            self.assertNotIn("patches", path)
 
 
 class TestTheArtefactSetFollowsOwnership(FrappeTestCase):
