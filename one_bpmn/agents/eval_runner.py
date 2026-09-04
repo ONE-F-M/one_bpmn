@@ -25,7 +25,7 @@ from typing import Any, List
 
 import frappe
 from frappe import _
-from frappe.utils import flt, now_datetime
+from frappe.utils import cint, flt, now_datetime
 
 from one_bpmn.agents.executor import (
     ErrorCode,
@@ -550,8 +550,9 @@ def _execute_case_inner(case, eval_run: str = None, agent_cfg: str = None) -> di
         else:
             output, usage = _run_direct_eval(cfg, case)
 
+        facts = _execution_facts(case, eval_run, usage)
         assertion_results = [
-            _evaluate_assertion(assertion, output)
+            _evaluate_assertion(assertion, output, facts)
             for assertion in (case.assertions or [])
         ]
         all_passed = all(a["passed"] for a in assertion_results)
@@ -976,9 +977,14 @@ def _run_direct_eval(cfg, case) -> tuple:
 # Assertion evaluation
 # ---------------------------------------------------------------------------
 
-def _evaluate_assertion(assertion, output: Any) -> dict:
+def _evaluate_assertion(assertion, output: Any, facts: dict = None) -> dict:
     """
     Evaluate one assertion against *output*.
+
+    *facts* describes the execution that produced the output — its token spend
+    and the tools it called — for the assertions that are about the run rather
+    than its text. A replay has no execution, so it passes none, and those
+    assertion types say so instead of guessing.
 
     Returns a dict {assertion_type, value, passed, message} describing the
     outcome. Evaluation never raises — a malformed assertion (e.g. a bad
@@ -1006,6 +1012,12 @@ def _evaluate_assertion(assertion, output: Any) -> dict:
 
         if a_type == "schema_valid":
             return {**base, **_evaluate_schema_valid(value, output)}
+
+        if a_type == "max_tokens":
+            return {**base, **_evaluate_max_tokens(value, facts)}
+
+        if a_type == "no_tool_call":
+            return {**base, **_evaluate_no_tool_call(value, facts)}
 
         if a_type == "llm_judge":
             return _evaluate_llm_judge(assertion, output)
@@ -1045,6 +1057,69 @@ def _evaluate_schema_valid(schema_str: str, output: Any) -> dict:
         return {"passed": False, "message": f"Schema validation failed: {exc.message}"}
 
     return {"passed": True, "message": ""}
+
+
+def _evaluate_max_tokens(value: str, facts: dict) -> dict:
+    """Pass if the case's own execution stayed within *value* tokens.
+
+    Judge tokens are left out: they are the cost of measuring the answer, not
+    of producing it, so adding them would make the ceiling depend on how many
+    llm_judge assertions the case happens to carry.
+    """
+    if facts is None:
+        return {"passed": False, "error": True,
+                "message": "Token spend is only measured on a live run, not a replay."}
+    ceiling = cint(value)
+    if ceiling <= 0:
+        return {"passed": False, "error": True,
+                "message": "max_tokens needs a positive number of tokens."}
+    spent = cint(facts.get("tokens"))
+    return {"passed": spent <= ceiling,
+            "message": "" if spent <= ceiling else f"Spent {spent} tokens; the ceiling is {ceiling}."}
+
+
+def _evaluate_no_tool_call(value: str, facts: dict) -> dict:
+    """Pass if none of the tools named in *value* ran during the case.
+
+    The output cannot show this: a greeting that quietly ran the schema writer
+    reads exactly like one that did not, and only the second is cheap.
+    """
+    if facts is None:
+        return {"passed": False, "error": True,
+                "message": "Tool calls are only observed on a live run, not a replay."}
+    banned = {n.strip() for n in value.replace("\n", ",").split(",") if n.strip()}
+    if not banned:
+        return {"passed": False, "error": True,
+                "message": "no_tool_call needs the tool names it forbids."}
+    called = sorted({t for t in (facts.get("tool_calls") or []) if t in banned})
+    return {"passed": not called,
+            "message": "" if not called else "Called " + ", ".join(called) + "."}
+
+
+def _execution_facts(case, eval_run: str, usage: dict) -> dict:
+    """What the assertions may know about the execution itself, not its text."""
+    return {
+        "tokens": cint(usage.get("tokens")),
+        "tool_calls": _tool_calls_for(case, eval_run),
+    }
+
+
+def _tool_calls_for(case, eval_run: str = None) -> List[str]:
+    """Tool names called while this case ran, read off the runs tagged with it."""
+    filters = {"eval_case": case.name}
+    if eval_run:
+        filters["eval_run"] = eval_run
+    runs = frappe.get_all("AI Agent Run", filters=filters, pluck="name")
+    if not runs:
+        return []
+    steps = frappe.get_all("AI Agent Step", filters={"run": ["in", runs]}, pluck="name")
+    if not steps:
+        return []
+    return frappe.get_all(
+        "AI Agent Tool Call",
+        filters={"parenttype": "AI Agent Step", "parent": ["in", steps]},
+        pluck="tool_name",
+    )
 
 
 def _evaluate_llm_judge(assertion, output: Any) -> dict:
