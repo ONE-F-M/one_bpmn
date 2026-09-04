@@ -443,6 +443,15 @@ class BPMNProcessInstance(Document):
 			if isinstance(in_flight, AgentRefusal):
 				raise in_flight
 
+			# WI-002325: the same argument, for a Script Task that called frappe.throw().
+			# A missing PAM reference number is a rule the process is enforcing, not a
+			# fault in it - so the operator gets the message the script wrote for them,
+			# and the instance stays where it was rather than being marked Errored. It
+			# has to stay: halting it left a visa request stuck on a field the operator
+			# could have filled in and retried.
+			if bpmn_engine.is_script_validation(in_flight):
+				raise in_flight
+
 		ref_id = self._record_runtime_failure(phase)
 		frappe.throw(
 			_(
