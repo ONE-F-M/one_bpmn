@@ -937,7 +937,7 @@ class BPMNProcessInstance(Document):
 	A2A_WAITING_KEY = "_bpmn_a2a_waiting"
 	A2A_HUMAN_PREFIX = "a2ahuman::"
 
-	# The Dev Agent sandbox connector's own waiting marker — a Service Task
+	# The agent sandbox connector's own waiting marker — a Service Task
 	# that dispatched development work to the external Cloud Run sandbox and
 	# is waiting for its signed callback. Deliberately distinct from
 	# A2A_WAITING_KEY: this is not a delegation to another agent, it is a
