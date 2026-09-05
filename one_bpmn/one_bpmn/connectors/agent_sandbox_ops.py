@@ -40,6 +40,7 @@ over a no-code HTTP Request operation.
 
 from __future__ import annotations
 
+import re
 import frappe
 
 AGENT_SANDBOX_WAITING_KEY = "_bpmn_agent_sandbox_waiting"
@@ -69,8 +70,33 @@ def target_app_choices() -> list[str]:
 	return frappe.get_installed_apps() + _SANDBOX_ONLY_TARGET_APPS
 
 
+_WORK_ITEM_ID = re.compile(r"\bWI-\d+\b")
+
+
+def work_item_id_for(a2a_task: str | None) -> str:
+	"""The Work Item behind an A2A delegation, so the sandbox can name its branch
+	after it. Prefers the Agent Delegation's reference, then an id written into
+	the instruction; "" when there is neither."""
+	if not a2a_task:
+		return ""
+	ref = frappe.db.get_value(
+		"Agent Delegation", {"a2a_task": a2a_task}, ["reference_doctype", "reference_name"], as_dict=True
+	)
+	if ref and ref.reference_doctype == "Work Item" and ref.reference_name:
+		return ref.reference_name
+	payload = frappe.db.get_value("A2A Task", a2a_task, "request_payload") or ""
+	match = _WORK_ITEM_ID.search(payload)
+	return match.group(0) if match else ""
+
+
+def _a2a_task_of(instance) -> str | None:
+	if getattr(instance, "context_doctype", None) == "A2A Task":
+		return getattr(instance, "context_docname", None)
+	return None
+
+
 def sandbox_dispatch(action: str, target_app: str, git_branch: str, work_item_description: str,
-                      args: dict) -> dict:
+                      args: dict, a2a_task: str | None = None) -> dict:
 	"""The bare primitive the Sandbox Tool Server Scripts (Sandbox Tool:
 	Read File / Write File / Edit File / List Files) call — one fast,
 	synchronous HTTP round trip to the sandbox's own /tool_call endpoint,
@@ -118,6 +144,7 @@ def sandbox_dispatch(action: str, target_app: str, git_branch: str, work_item_de
 				"target_app": target_app,
 				"git_branch": git_branch,
 				"work_item_description": work_item_description,
+				"work_item_id": work_item_id_for(a2a_task),
 				"args": args,
 				"github_token": github_token,
 			},
@@ -140,6 +167,7 @@ def _dispatch_single_action(params: dict, ctx: dict, action: str) -> dict | None
 	tools sandbox_dispatch serves."""
 	instance = ctx.get("instance")
 	task = ctx.get("task")
+	work_item_id = work_item_id_for(_a2a_task_of(instance))
 
 	target_app = (params.get("target_app") or "").strip()
 	git_branch = (params.get("git_branch") or "").strip()
@@ -178,6 +206,7 @@ def _dispatch_single_action(params: dict, ctx: dict, action: str) -> dict | None
 		"target_app": target_app,
 		"git_branch": git_branch,
 		"work_item_description": work_item_description,
+		"work_item_id": work_item_id,
 		"args": args,
 		"github_token": github_token,
 		"callback_url": _callback_url(),
