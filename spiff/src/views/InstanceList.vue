@@ -522,6 +522,13 @@ function formatDateTime(dateStr) {
 </script>
 
 <style scoped>
+.context-clear-btn {
+	border: none;
+	background: transparent;
+	cursor: pointer;
+	line-height: 0;
+}
+
 .custom-scrollbar::-webkit-scrollbar {
 	width: 4px;
 }
