@@ -398,7 +398,16 @@ def _run_server_script(instance, script_name: str, task, bpmn_id: str, shape_con
 
 	# Trusted, pre-deployed BPMN code — plain exec (mirrors engine.py), not
 	# safe_exec (which is for untrusted browser-submitted scripts).
-	exec_globals = {"frappe": frappe, "__builtins__": __builtins__}  # noqa: S102
+	#
+	# ONE namespace for globals AND locals — mirrors engine.py's own exec()
+	# exactly, and for the same reason: with separate dicts, a top-level
+	# `def` in the script lands in locals but its own __globals__ is still
+	# exec_globals, so it can't see another top-level function or import in
+	# the same script and dies with NameError at runtime the moment two are
+	# actually called together. A tool author has no way to predict or work
+	# around that from the Server Script editor.
+	exec_ns = {"frappe": frappe, "__builtins__": __builtins__}  # noqa: S102
+	exec_ns.update(local_vars)
 
 	# ── WI-002054: run as the AGENT, with permissions on ──────────────────
 	#
@@ -431,7 +440,7 @@ def _run_server_script(instance, script_name: str, task, bpmn_id: str, shape_con
 		# somebody else's permissions and told they are its own.
 		if agent_user:
 			frappe.flags.ignore_permissions = False
-		exec(script_doc.script, exec_globals, local_vars)  # noqa: S102
+		exec(script_doc.script, exec_ns)  # noqa: S102
 	except frappe.PermissionError as refused:
 		# The reason has to reach the MODEL. WI-002053 showed twice what happens
 		# when it does not: the agent reports the work as done, or blames
