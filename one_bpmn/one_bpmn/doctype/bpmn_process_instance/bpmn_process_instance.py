@@ -600,8 +600,9 @@ class BPMNProcessInstance(Document):
 		    decision inline; the next decision parks again (one job per turn).
 		kind == "agent_sandbox_result" — task_id is the SpiffWorkflow UUID
 		    of a parked Service Task waiting on the external Cloud Run sandbox
-		    (agent_sandbox_ops.dispatch): apply the Agent Sandbox Run's
-		    outcome and complete it. A still-running sandbox leaves it parked.
+		    (agent_sandbox_ops.run_tests / open_pull_request): apply the Agent
+		    Sandbox Run's outcome and complete it. A still-running sandbox
+		    leaves it parked.
 
 		Downstream non-AI tasks reached after the AI completes run in this
 		worker pass — there is no open request to return them to. Further AI
@@ -955,7 +956,8 @@ class BPMNProcessInstance(Document):
 
 	@staticmethod
 	def _task_waiting_agent_sandbox(task) -> dict | None:
-		"""The waiting-for-sandbox marker agent_sandbox_ops.dispatch left
+		"""The waiting-for-sandbox marker agent_sandbox_ops's
+		_dispatch_single_action (run_tests/open_pull_request) left
 		on task.data, or None. A marked task must not be re-dispatched or
 		completed — it leaves this state only through the
 		agent_sandbox_result resume path."""
@@ -1075,7 +1077,7 @@ class BPMNProcessInstance(Document):
 
 		# Mirrors the "waits_on" == "a2a" case exactly, for a connector that
 		# parks the caller instead of delegating to another local agent —
-		# agent_sandbox_ops.dispatch(), called as an ai_agent tool.
+		# agent_sandbox_ops.run_tests/open_pull_request, called as ai_agent tools.
 		if marker.get("waits_on") == "agent_sandbox":
 			self._bind_agent_sandbox_wait(task, marker)
 			return
