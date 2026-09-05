@@ -41,13 +41,15 @@
 						<span class="truncate text-gray-700 font-normal">{{ contextPlaceholder }}</span>
 						<template #suffix>
 							<div class="flex items-center gap-1">
-								<div 
-									v-if="activeContext.doctype || activeContext.docname" 
+								<button
+									v-if="activeContext.doctype || activeContext.docname"
+									type="button"
+									aria-label="Clear context filter"
 									class="p-1 hover:bg-gray-300 rounded-full transition-colors"
 									@click.stop="resetContext"
 								>
 									<FeatherIcon name="x-circle" class="w-3 h-3 text-gray-500" />
-								</div>
+								</button>
 								<FeatherIcon name="chevron-down" class="w-4 h-4 text-gray-400" />
 							</div>
 						</template>
