@@ -42,6 +42,7 @@ import superfluousTermination from "bpmnlint/rules/superfluous-termination";
 // --- Custom OneFM rules ---
 import noProhibitedShapes from "@/linting/rules/no-prohibited-shapes.js";
 import callActivityMissingProcess from "@/linting/rules/call-activity-missing-process.js";
+import noCrossingEdges from "@/linting/rules/no-crossing-edges.js";
 
 /**
  * Map rule names → rule factory functions.
@@ -77,6 +78,7 @@ const ruleMapping = {
 	// Custom OneFM rules
 	"custom/no-prohibited-shapes": noProhibitedShapes,
 	"custom/call-activity-missing-process": callActivityMissingProcess,
+	"custom/no-crossing-edges": noCrossingEdges,
 };
 
 const config = {
@@ -123,6 +125,9 @@ const config = {
 
 		// OneFM custom rules — call activity completeness
 		"custom/call-activity-missing-process": "warn",
+
+		// OneFM custom rules — drawing quality: a line over another line or through a shape
+		"custom/no-crossing-edges": "warn",
 	},
 };
 

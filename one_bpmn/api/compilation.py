@@ -1,6 +1,7 @@
 # Copyright (c) 2026, kartiksharma9319@gmail.com and contributors
 # For license information, please see license.txt
 
+import re
 import json
 
 import frappe
@@ -1557,6 +1558,15 @@ def _resolve_called_process_xml(bpmn_xml: str, model_name: str) -> list:
 	return collected
 
 
+def _drop_stale_flow_node_refs(xml: str) -> str:
+	"""Remove <flowNodeRef> entries whose node id is not defined anywhere in the XML."""
+	if not xml or "flowNodeRef" not in xml:
+		return xml
+	defined = set(re.findall(r'\bid="([^"]+)"', xml))
+	pattern = re.compile(r"\s*<(?:bpmn2?:)?flowNodeRef>\s*([^<\s]+)\s*</(?:bpmn2?:)?flowNodeRef>")
+	return pattern.sub(lambda m: m.group(0) if m.group(1) in defined else "", xml)
+
+
 @frappe.whitelist()
 def compile_process_model(model_name: str) -> dict:
 	"""
@@ -1629,6 +1639,14 @@ def compile_process_model(model_name: str) -> dict:
 	# by bpmn-js.  We inject "pass" so SpiffWorkflow parses successfully,
 	# and the FrappeScriptEngine will replace it with the configured Server Script.
 	sanitized_xml = _ensure_script_task_inline_scripts(sanitized_xml)
+
+	# A lane may still list a node that was deleted from the diagram. Nothing
+	# reads lanes at runtime, but the modeler's lint reports each stale ref as an
+	# error, so clear them from the stored map on deploy.
+	cleaned_xml = _drop_stale_flow_node_refs(model.bpmn_xml)
+	if cleaned_xml != model.bpmn_xml:
+		model.bpmn_xml = cleaned_xml
+	sanitized_xml = _drop_stale_flow_node_refs(sanitized_xml)
 
 	# ── Scan for Business Rule Tasks and collect DMN XML ─────────────────
 	# Business Rule Tasks reference a calledDecisionId in the spiffworkflow
