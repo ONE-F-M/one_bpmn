@@ -75,3 +75,25 @@ class TestSandboxRunAnswer(FrappeTestCase):
 
 	def test_no_output_adds_nothing(self):
 		self.assertEqual(cb._sandbox_run_answer(_run("run_tests", "failed", {}, "tests_failed")), "Tests failed (tests_failed).")
+
+
+class TestPullRequestNotOpenedIsSaidOutLoud(FrappeTestCase):
+	def test_pr_error_reaches_the_run_error_message(self):
+		fields = cb._settled_fields(
+			"open_pull_request", "tests_failed", "", {"pr_error": "no changes to commit yet — nothing to open a pull request for"}
+		)
+		self.assertEqual(fields["state"], "failed")
+		self.assertIn("pull request not opened: no changes to commit yet", fields["error_message"])
+
+	def test_a_pr_error_with_a_url_is_not_appended(self):
+		fields = cb._settled_fields("open_pull_request", "tests_failed", "https://x/pull/3", {"pr_error": "stale"})
+		self.assertEqual(fields["error_message"], "tests_failed")
+
+	def test_the_answer_says_no_pull_request_exists(self):
+		run = _run("open_pull_request", "failed", {}, "tests_failed; pull request not opened: no changes to commit yet")
+		answer = cb._sandbox_run_answer(run)
+		self.assertIn("no changes to commit yet", answer)
+		self.assertTrue(answer.endswith("No pull request exists."))
+
+	def test_run_tests_failures_do_not_get_the_pr_sentence(self):
+		self.assertNotIn("pull request", cb._sandbox_run_answer(_run("run_tests", "failed", {}, "tests_failed")))

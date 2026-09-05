@@ -127,7 +127,10 @@ def _settled_fields(action: str, status: str, pr_url: str, payload: dict) -> dic
 		return {"state": "failed", "error_message": "Tests passed but the agent made no changes to submit."}
 	# A PR opened despite the failure doesn't make this a success, but its
 	# url is kept so the diff stays reachable for review.
-	fields = {"state": "failed", "error_message": (payload.get("error") or status or "sandbox run failed")[:500]}
+	error = payload.get("error") or status or "sandbox run failed"
+	if payload.get("pr_error") and not pr_url:
+		error = f"{error}; pull request not opened: {payload['pr_error']}"
+	fields = {"state": "failed", "error_message": error[:500]}
 	if pr_url:
 		fields["pr_url"] = pr_url
 	return fields
@@ -359,6 +362,8 @@ def _sandbox_run_answer(run) -> str:
 	reason = f"The sandbox run did not complete ({run.state}): {run.error_message or 'no reason given'}"
 	if run.pr_url:
 		reason += f" A pull request was still opened for review, despite the failure: {run.pr_url}"
+	elif _run_action(run) == "open_pull_request":
+		reason += " No pull request exists."
 	return reason + _output_tail(run)
 
 
