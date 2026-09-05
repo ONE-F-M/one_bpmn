@@ -12,6 +12,7 @@ Prompt rendering (Jinja) is performed by the dispatcher BEFORE calling run().
 """
 from __future__ import annotations
 
+import asyncio
 import json
 import re
 import random
@@ -416,7 +417,18 @@ class DirectApiExecutor(Executor):
                     max_tokens=config.max_tokens,
                     max_turns=config.max_tool_calls or 10,
                     resume=config.resume_state,
+                    timeout_seconds=config.timeout_seconds,
+                    max_retries=config.max_retries,
+                    retry_backoff_ms=config.retry_backoff_ms,
                 )
+            )
+        except asyncio.TimeoutError:
+            return ExecutorResult(
+                error_code=ErrorCode.TIMEOUT,
+                error_message=(
+                    f"Model call exceeded aiTimeout ({config.timeout_seconds}s) "
+                    f"after {config.max_retries} retr{'y' if config.max_retries == 1 else 'ies'}."
+                ),
             )
         except Exception as exc:
             return ExecutorResult(

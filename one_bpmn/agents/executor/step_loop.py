@@ -21,6 +21,8 @@ payload that gets persisted to the database (story 2).
 """
 from __future__ import annotations
 
+import asyncio
+import random
 from dataclasses import dataclass, field
 import time
 
@@ -104,6 +106,9 @@ async def run_agent_loop(
 	max_tokens: int = 16384,
 	max_turns: int = 10,
 	resume: dict | None = None,
+	timeout_seconds: float | None = None,
+	max_retries: int = 0,
+	retry_backoff_ms: int = 1000,
 ) -> tuple:
 	"""Drive the tool loop. Returns (CompletionResult, None) when the model
 	produces a final answer or hits the turn cap, or (None, AgentSuspension)
@@ -116,6 +121,14 @@ async def run_agent_loop(
 	"turns_used", "human_result"} — the persisted AgentSuspension fields plus
 	the human's output. The loop injects the human result as the pending
 	call's tool result, completes the suspended turn, and continues.
+
+	``timeout_seconds``/``max_retries``/``retry_backoff_ms`` mirror
+	ExecutorConfig's own fields (dispatch_ai_agent's aiTimeout/aiMaxRetries)
+	and bound EACH per-turn adapter.step() call — a tool-calling loop can take
+	many turns, so applying these once for the whole loop would let one early
+	slow turn eat the entire budget. Defaults (None timeout, 0 retries) keep
+	every other caller of this function — including every existing test —
+	byte-for-byte unchanged.
 	"""
 	tool_map = {t.name: t for t in (tools or [])}
 
@@ -149,6 +162,8 @@ async def run_agent_loop(
 			adapter, system=system, tools=tools, tool_map=tool_map,
 			transcript=transcript, trace=trace, turns_used=turns_used,
 			max_tokens=max_tokens, max_turns=max_turns,
+			timeout_seconds=timeout_seconds, max_retries=max_retries,
+			retry_backoff_ms=retry_backoff_ms,
 		)
 	finally:
 		# Cleared on EVERY exit — final answer, turn cap, suspension, exception.
@@ -160,8 +175,36 @@ async def run_agent_loop(
 		frappe.flags[PAUSE_HELD_FLAG] = False
 
 
+async def _step_with_retries(
+	adapter, system, transcript, tools, max_tokens, *, timeout_seconds=None, max_retries=0, retry_backoff_ms=1000
+):
+	"""One turn's model call, bounded by timeout_seconds and retried up to
+	max_retries times — mirrors DirectApiExecutor._run_request's own
+	retry/backoff shape for the non-tool path (direct_api.py), since
+	adapter.step() previously had neither: aiTimeout/aiMaxRetries were read
+	into ExecutorConfig but silently had no effect the moment a call used
+	tools, so a hung turn could run for however long the provider SDK's own
+	default is (confirmed: the Anthropic adapter passes no timeout to the
+	SDK at all) instead of the configured aiTimeout.
+
+	timeout_seconds=None (the default) means unbounded, matching every
+	caller from before this existed."""
+	for attempt in range(max_retries + 1):
+		try:
+			call = adapter.step(system, transcript, tools=tools or None, max_tokens=max_tokens)
+			if timeout_seconds:
+				return await asyncio.wait_for(call, timeout=timeout_seconds)
+			return await call
+		except Exception:
+			if attempt >= max_retries:
+				raise
+			base_s = (retry_backoff_ms / 1000.0) * (2 ** attempt)
+			await asyncio.sleep(base_s + random.uniform(0, 0.1))
+
+
 async def _run_turns(
-	adapter, *, system, tools, tool_map, transcript, trace, turns_used, max_tokens, max_turns
+	adapter, *, system, tools, tool_map, transcript, trace, turns_used, max_tokens, max_turns,
+	timeout_seconds=None, max_retries=0, retry_backoff_ms=1000,
 ):
 	"""The turn loop itself. Split out only so run_agent_loop can guarantee the
 	pause flag is cleared however this returns."""
@@ -171,8 +214,9 @@ async def _run_turns(
 		# that set it, and a turn can also end at the final-answer return below.
 		frappe.flags[PAUSE_HELD_FLAG] = False
 		_turn_t0 = time.perf_counter()
-		step = await adapter.step(
-			system, transcript, tools=tools or None, max_tokens=max_tokens
+		step = await _step_with_retries(
+			adapter, system, transcript, tools, max_tokens,
+			timeout_seconds=timeout_seconds, max_retries=max_retries, retry_backoff_ms=retry_backoff_ms,
 		)
 		turns_used += 1
 
