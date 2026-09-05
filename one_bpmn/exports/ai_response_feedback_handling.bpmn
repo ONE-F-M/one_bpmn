@@ -1,0 +1,202 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<bpmn:definitions xmlns:bpmn="http://www.omg.org/spec/BPMN/20100524/MODEL" xmlns:bpmndi="http://www.omg.org/spec/BPMN/20100524/DI" xmlns:dc="http://www.omg.org/spec/DD/20100524/DC" xmlns:di="http://www.omg.org/spec/DD/20100524/DI" xmlns:spiffworkflow="http://spiffworkflow.org/bpmn/schema/1.0/core" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" id="Definitions_AIResponseFeedbackHandling" targetNamespace="http://bpmn.io/schema/bpmn">
+  <bpmn:process id="ai_response_feedback_handling_process" name="AI Response Feedback Handling" isExecutable="true">
+    <bpmn:documentation>Standalone process for every AI Response Feedback record (positive or negative): resolves the Process Owner of the agent that produced the rated reply, assigns and notifies them, and — for a Negative rating only — routes through an Investigate &amp; Fix step before notifying the original rater that the issue is resolved. Deliberately separate from every chat agent's own map, so no agent's process changes to gain this.</bpmn:documentation>
+    <bpmn:startEvent id="start1" name="Feedback Submitted" spiffworkflow:triggerDoctype="AI Response Feedback" spiffworkflow:triggerType="After Insert">
+      <bpmn:outgoing>f1</bpmn:outgoing>
+      <bpmn:conditionalEventDefinition id="CondDef_Start" spiffworkflow:triggerDoctype="AI Response Feedback" spiffworkflow:triggerType="After Insert">
+        <bpmn:condition xsi:type="bpmn:tFormalExpression">True</bpmn:condition>
+      </bpmn:conditionalEventDefinition>
+    </bpmn:startEvent>
+    <bpmn:scriptTask id="resolve_owner" name="Resolve Process Owner" spiffworkflow:serverScript="AI Feedback — Resolve Process Owner" spiffworkflow:scriptType="Server Script" spiffworkflow:scriptName="AI Feedback — Resolve Process Owner">
+      <bpmn:documentation>Reads AI Agent Configuration.process_owner off the reply's agent_configuration, writes it onto the feedback record's own process_owner field, and publishes it as the workflow variable assigned_user so the User Tasks below pick it up.</bpmn:documentation>
+      <bpmn:incoming>f1</bpmn:incoming>
+      <bpmn:outgoing>f2</bpmn:outgoing>
+    </bpmn:scriptTask>
+    <bpmn:exclusiveGateway id="gw_owner" name="Owner Resolved?" default="f3">
+      <bpmn:incoming>f2</bpmn:incoming>
+      <bpmn:outgoing>f3</bpmn:outgoing>
+      <bpmn:outgoing>f4</bpmn:outgoing>
+    </bpmn:exclusiveGateway>
+    <bpmn:endEvent id="end_no_owner" name="No Owner — Skipped">
+      <bpmn:incoming>f3</bpmn:incoming>
+    </bpmn:endEvent>
+    <bpmn:serviceTask id="notify_owner" name="Notify: Process Owner" spiffworkflow:serviceType="send_email" spiffworkflow:emailSubject="New feedback needs your review" spiffworkflow:emailToDocFields="process_owner" spiffworkflow:emailBody="SGksPGJyPjxicj5BIG5ldyB7eyBkb2MucmF0aW5nIH19IHJhdGluZyB3YXMgbGVmdCBvbiBhbiBBSSByZXBseSBmcm9tIHRoZSBhZ2VudCB5b3Ugb3duIHRoZSBwcm9jZXNzIGZvci48YnI+PGJyPnslIGlmIGRvYy5jb21tZW50ICV9Q29tbWVudDoge3sgZG9jLmNvbW1lbnQgfX08YnI+PGJyPnslIGVuZGlmICV94oCUIFByb2Nlc3Nh">
+      <bpmn:incoming>f4</bpmn:incoming>
+      <bpmn:outgoing>f5</bpmn:outgoing>
+    </bpmn:serviceTask>
+    <bpmn:userTask id="review_feedback" name="Review Feedback" spiffworkflow:taskActions="[{&#34;action&#34;:&#34;Reviewed&#34;}]">
+      <bpmn:documentation>Assigned to the resolved Process Owner (assigneeMode is deliberately unset — the engine falls back to the assigned_user workflow variable the preceding Script Task set, which is how a runtime-computed, multi-hop assignee is done here). Completing this creates the ToDo; the notification was already sent by the previous step.</bpmn:documentation>
+      <bpmn:incoming>f5</bpmn:incoming>
+      <bpmn:outgoing>f6</bpmn:outgoing>
+    </bpmn:userTask>
+    <bpmn:serviceTask id="sync_reviewed" name="Set Status: Reviewed" spiffworkflow:serviceType="update_field" spiffworkflow:updateFieldDoctype="AI Response Feedback" spiffworkflow:updateFieldRows="[{&#34;field&#34;: &#34;status&#34;, &#34;value&#34;: &#34;Reviewed&#34;}]">
+      <bpmn:incoming>f6</bpmn:incoming>
+      <bpmn:outgoing>f7</bpmn:outgoing>
+    </bpmn:serviceTask>
+    <bpmn:exclusiveGateway id="gw_rating" name="Rating?" default="f9">
+      <bpmn:incoming>f7</bpmn:incoming>
+      <bpmn:outgoing>f8</bpmn:outgoing>
+      <bpmn:outgoing>f9</bpmn:outgoing>
+    </bpmn:exclusiveGateway>
+    <bpmn:endEvent id="end_positive" name="Done">
+      <bpmn:incoming>f8</bpmn:incoming>
+    </bpmn:endEvent>
+    <bpmn:userTask id="investigate_fix" name="Investigate &amp; Fix" spiffworkflow:taskActions="[{&#34;action&#34;:&#34;Fixed&#34;}]">
+      <bpmn:documentation>Same resolved Process Owner (assigneeMode still unset — assigned_user is still in scope for this instance). The Process Owner corrects the underlying issue outside this diagram (the AI reply, the process, or the knowledge behind it) and completes this task once done.</bpmn:documentation>
+      <bpmn:incoming>f9</bpmn:incoming>
+      <bpmn:outgoing>f10</bpmn:outgoing>
+    </bpmn:userTask>
+    <bpmn:scriptTask id="mark_fixed" name="Mark Fixed" spiffworkflow:serverScript="AI Feedback — Mark Fixed" spiffworkflow:scriptType="Server Script" spiffworkflow:scriptName="AI Feedback — Mark Fixed">
+      <bpmn:documentation>Stamps status=Fixed and fixed_on=now on the feedback record. A Script Task rather than a plain Set Field task because fixed_on needs the actual current timestamp, not a static value.</bpmn:documentation>
+      <bpmn:incoming>f10</bpmn:incoming>
+      <bpmn:outgoing>f11</bpmn:outgoing>
+    </bpmn:scriptTask>
+    <bpmn:serviceTask id="notify_rater" name="Notify: Rater" spiffworkflow:serviceType="send_email" spiffworkflow:emailSubject="Your feedback has been resolved" spiffworkflow:emailToDocFields="rated_by" spiffworkflow:emailBody="SGksPGJyPjxicj5Zb3VyIGZlZWRiYWNrIHJlZ2FyZGluZyB0aGUgQUkgcmVzcG9uc2UgaGFzIGJlZW4gcmV2aWV3ZWQgYW5kIHRoZSBpc3N1ZSBoYXMgYmVlbiByZXNvbHZlZC4gVGhhbmsgeW91IGZvciBoZWxwaW5nIHVzIGltcHJvdmUgdGhlIEFJIHNlcnZpY2UuPGJyPjxicj7igJQgUHJvY2Vzc2E=">
+      <bpmn:incoming>f11</bpmn:incoming>
+      <bpmn:outgoing>f12</bpmn:outgoing>
+    </bpmn:serviceTask>
+    <bpmn:endEvent id="end_negative" name="Resolved">
+      <bpmn:incoming>f12</bpmn:incoming>
+    </bpmn:endEvent>
+    <bpmn:sequenceFlow id="f1" sourceRef="start1" targetRef="resolve_owner" />
+    <bpmn:sequenceFlow id="f2" sourceRef="resolve_owner" targetRef="gw_owner" />
+    <bpmn:sequenceFlow id="f3" name="No Owner" sourceRef="gw_owner" targetRef="end_no_owner" />
+    <bpmn:sequenceFlow id="f4" name="Owner Resolved" sourceRef="gw_owner" targetRef="notify_owner">
+      <bpmn:conditionExpression>assigned_user not in (None, "")</bpmn:conditionExpression>
+    </bpmn:sequenceFlow>
+    <bpmn:sequenceFlow id="f5" sourceRef="notify_owner" targetRef="review_feedback" />
+    <bpmn:sequenceFlow id="f6" sourceRef="review_feedback" targetRef="sync_reviewed" />
+    <bpmn:sequenceFlow id="f7" sourceRef="sync_reviewed" targetRef="gw_rating" />
+    <bpmn:sequenceFlow id="f8" name="Positive" sourceRef="gw_rating" targetRef="end_positive">
+      <bpmn:conditionExpression>rating == "Positive"</bpmn:conditionExpression>
+    </bpmn:sequenceFlow>
+    <bpmn:sequenceFlow id="f9" name="Negative" sourceRef="gw_rating" targetRef="investigate_fix" />
+    <bpmn:sequenceFlow id="f10" sourceRef="investigate_fix" targetRef="mark_fixed" />
+    <bpmn:sequenceFlow id="f11" sourceRef="mark_fixed" targetRef="notify_rater" />
+    <bpmn:sequenceFlow id="f12" sourceRef="notify_rater" targetRef="end_negative" />
+  </bpmn:process>
+  <bpmndi:BPMNDiagram id="Diagram_1">
+    <bpmndi:BPMNPlane id="Plane_1" bpmnElement="ai_response_feedback_handling_process">
+      <bpmndi:BPMNShape id="start1_di" bpmnElement="start1">
+        <dc:Bounds x="40" y="82" width="36" height="36" />
+        <bpmndi:BPMNLabel>
+          <dc:Bounds x="20" y="122" width="76" height="27" />
+        </bpmndi:BPMNLabel>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="resolve_owner_di" bpmnElement="resolve_owner">
+        <dc:Bounds x="140" y="60" width="150" height="80" />
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="gw_owner_di" bpmnElement="gw_owner" isMarkerVisible="true">
+        <dc:Bounds x="380" y="75" width="50" height="50" />
+        <bpmndi:BPMNLabel>
+          <dc:Bounds x="357" y="45" width="96" height="27" />
+        </bpmndi:BPMNLabel>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="end_no_owner_di" bpmnElement="end_no_owner">
+        <dc:Bounds x="387" y="262" width="36" height="36" />
+        <bpmndi:BPMNLabel>
+          <dc:Bounds x="360" y="300" width="90" height="27" />
+        </bpmndi:BPMNLabel>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="notify_owner_di" bpmnElement="notify_owner">
+        <dc:Bounds x="480" y="60" width="150" height="80" />
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="review_feedback_di" bpmnElement="review_feedback">
+        <dc:Bounds x="680" y="60" width="150" height="80" />
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="sync_reviewed_di" bpmnElement="sync_reviewed">
+        <dc:Bounds x="880" y="65" width="130" height="70" />
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="gw_rating_di" bpmnElement="gw_rating" isMarkerVisible="true">
+        <dc:Bounds x="1060" y="75" width="50" height="50" />
+        <bpmndi:BPMNLabel>
+          <dc:Bounds x="1050" y="45" width="70" height="27" />
+        </bpmndi:BPMNLabel>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="end_positive_di" bpmnElement="end_positive">
+        <dc:Bounds x="1160" y="82" width="36" height="36" />
+        <bpmndi:BPMNLabel>
+          <dc:Bounds x="1152" y="45" width="52" height="27" />
+        </bpmndi:BPMNLabel>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="investigate_fix_di" bpmnElement="investigate_fix">
+        <dc:Bounds x="780" y="240" width="150" height="80" />
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="mark_fixed_di" bpmnElement="mark_fixed">
+        <dc:Bounds x="990" y="245" width="130" height="70" />
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="notify_rater_di" bpmnElement="notify_rater">
+        <dc:Bounds x="1150" y="240" width="150" height="80" />
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="end_negative_di" bpmnElement="end_negative">
+        <dc:Bounds x="1360" y="262" width="36" height="36" />
+        <bpmndi:BPMNLabel>
+          <dc:Bounds x="1352" y="300" width="52" height="27" />
+        </bpmndi:BPMNLabel>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNEdge id="f1_di" bpmnElement="f1">
+        <di:waypoint x="76" y="100" />
+        <di:waypoint x="140" y="100" />
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="f2_di" bpmnElement="f2">
+        <di:waypoint x="290" y="100" />
+        <di:waypoint x="380" y="100" />
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="f3_di" bpmnElement="f3">
+        <di:waypoint x="405" y="125" />
+        <di:waypoint x="405" y="280" />
+        <di:waypoint x="387" y="280" />
+        <bpmndi:BPMNLabel>
+          <dc:Bounds x="410" y="195" width="55" height="14" />
+        </bpmndi:BPMNLabel>
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="f4_di" bpmnElement="f4">
+        <di:waypoint x="430" y="100" />
+        <di:waypoint x="480" y="100" />
+        <bpmndi:BPMNLabel>
+          <dc:Bounds x="432" y="72" width="80" height="14" />
+        </bpmndi:BPMNLabel>
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="f5_di" bpmnElement="f5">
+        <di:waypoint x="630" y="100" />
+        <di:waypoint x="680" y="100" />
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="f6_di" bpmnElement="f6">
+        <di:waypoint x="830" y="100" />
+        <di:waypoint x="880" y="100" />
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="f7_di" bpmnElement="f7">
+        <di:waypoint x="1010" y="100" />
+        <di:waypoint x="1060" y="100" />
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="f8_di" bpmnElement="f8">
+        <di:waypoint x="1110" y="100" />
+        <di:waypoint x="1160" y="100" />
+        <bpmndi:BPMNLabel>
+          <dc:Bounds x="1118" y="80" width="42" height="14" />
+        </bpmndi:BPMNLabel>
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="f9_di" bpmnElement="f9">
+        <di:waypoint x="1085" y="125" />
+        <di:waypoint x="1085" y="280" />
+        <di:waypoint x="780" y="280" />
+        <bpmndi:BPMNLabel>
+          <dc:Bounds x="1090" y="195" width="48" height="14" />
+        </bpmndi:BPMNLabel>
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="f10_di" bpmnElement="f10">
+        <di:waypoint x="930" y="280" />
+        <di:waypoint x="990" y="280" />
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="f11_di" bpmnElement="f11">
+        <di:waypoint x="1120" y="280" />
+        <di:waypoint x="1150" y="280" />
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="f12_di" bpmnElement="f12">
+        <di:waypoint x="1300" y="280" />
+        <di:waypoint x="1360" y="280" />
+      </bpmndi:BPMNEdge>
+    </bpmndi:BPMNPlane>
+  </bpmndi:BPMNDiagram>
+</bpmn:definitions>

@@ -18,13 +18,18 @@
   "status",
   "section_subject",
   "message",
+  "user_message",
+  "output",
   "conversation",
   "column_break_subject",
   "agent_run",
   "agent_configuration",
   "section_outcome",
   "eval_case",
-  "dedup_key"
+  "dedup_key",
+  "section_assignment",
+  "process_owner",
+  "fixed_on"
  ],
  "fields": [
   {
@@ -75,13 +80,13 @@
   },
   {
    "default": "New",
-   "description": "Triage state. An eval case is only ever created from Reviewed feedback — every thumbs-down is not a regression.",
+   "description": "Triage state. An eval case is only ever created from Reviewed feedback — every thumbs-down is not a regression. Fixed is set once the Process Owner has corrected the underlying issue.",
    "fieldname": "status",
    "fieldtype": "Select",
    "in_list_view": 1,
    "in_standard_filter": 1,
    "label": "Status",
-   "options": "New\nReviewed\nConverted\nDismissed"
+   "options": "New\nReviewed\nConverted\nDismissed\nFixed"
   },
   {
    "fieldname": "section_subject",
@@ -96,6 +101,20 @@
    "options": "Chat Message",
    "read_only": 1,
    "reqd": 1
+  },
+  {
+   "description": "The preceding user turn's text — the question this reply answered, if any. A snapshot so a reviewer sees both sides without following links.",
+   "fieldname": "user_message",
+   "fieldtype": "Long Text",
+   "label": "User Message",
+   "read_only": 1
+  },
+  {
+   "description": "The AI reply's own text at rating time — a snapshot, so it survives later edits or trimming of the Chat Message it was read from.",
+   "fieldname": "output",
+   "fieldtype": "Long Text",
+   "label": "Output",
+   "read_only": 1
   },
   {
    "fieldname": "conversation",
@@ -145,6 +164,26 @@
    "label": "Dedup Key",
    "read_only": 1,
    "unique": 1
+  },
+  {
+   "fieldname": "section_assignment",
+   "fieldtype": "Section Break",
+   "label": "Assignment"
+  },
+  {
+   "description": "Who this was assigned to for review — the AI Response Feedback Handling process resolves this from the reply's AI Agent Configuration and writes it here; not editable directly.",
+   "fieldname": "process_owner",
+   "fieldtype": "Link",
+   "label": "Process Owner",
+   "options": "User",
+   "read_only": 1
+  },
+  {
+   "description": "When the Process Owner marked the underlying issue fixed. Set by the same process, alongside status becoming Fixed.",
+   "fieldname": "fixed_on",
+   "fieldtype": "Datetime",
+   "label": "Fixed On",
+   "read_only": 1
   }
  ],
  "index_web_pages_for_search": 0,
