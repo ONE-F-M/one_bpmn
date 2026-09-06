@@ -77,6 +77,36 @@ def _format_memory_block(memories: list) -> str:
 	return "\n".join(lines)
 
 
+def _turn_user_message(instance, task) -> str:
+	"""The person's own words for this turn, as the platform already holds them.
+
+	A chat map seeds the turn store with the user's message (PII already
+	screened by ``invoke_agent``) and its tool scripts read it from there, so
+	the driving prompt never had to carry it. That left the model answering a
+	constant — and left every recorded user step identical, whatever was asked,
+	which is what made a run impossible to judge from its transcript.
+
+	Empty for anything that is not a chat turn, so a Background agent's prompt
+	is untouched.
+	"""
+	if getattr(instance, "context_doctype", "") != "Chat Conversation":
+		return ""
+	if not getattr(instance, "context_docname", ""):
+		return ""
+
+	data = getattr(task, "data", None)
+	if isinstance(data, dict):
+		text = str(data.get("user_text") or "").strip()
+		if text:
+			return text
+	try:
+		from one_bpmn.agents.turn_state import get_turn
+
+		return str((get_turn(instance.context_docname) or {}).get("user_text") or "").strip()
+	except Exception:
+		return ""
+
+
 def _extract_memory_content(output, content_field: str) -> str:
 	"""Pick the content to store from the agent output. When a field is
 	configured and the output is a dict, use that field; otherwise stringify."""
@@ -1243,27 +1273,44 @@ def dispatch_ai_agent(instance, task, task_cfg: dict, bpmn_id: str, resume_run: 
 	# provider's system-prompt cache breakpoint each time.
 	# Failures never block the call.
 	memory_target = None
+	# What the person actually asked. Already screened; empty off the chat path.
+	# It is both what the model should be answering and what memory should be
+	# searched with — a constant driving prompt recalled the same memories for
+	# every request, however different.
+	user_message = "" if resume_payload else _turn_user_message(instance, task)
+	if user_message and user_message in user_prompt:
+		# A map that renders the message itself keeps its own copy; the platform
+		# does not add a second one.
+		user_message = ""
+
+	memory_block = ""
 	if not resume_payload and _cfg_truthy(task_cfg.get("aiLongTermMemory")):
 		try:
 			memory_target = _resolve_memory_target(task_cfg, instance, bpmn_id)
-			if memory_target and user_prompt:
-				from one_bpmn.agents.context_assembler import build_dynamic_preamble
+			query = user_message or user_prompt
+			if memory_target and query:
 				from one_bpmn.agents.memory.tools import memory_search
 				scope, scope_key = memory_target
 				limit = int(task_cfg.get("aiMemoryLimit", 5) or 5)
 				memories = memory_search(
-					scope, scope_key, user_prompt, limit=limit, ignore_permissions=True
+					scope, scope_key, query, limit=limit, ignore_permissions=True
 				)
 				if memories:
-					user_prompt = build_dynamic_preamble(
-						memory_block=_format_memory_block(memories),
-						user_prompt=user_prompt,
-					)
+					memory_block = _format_memory_block(memories)
 		except Exception:
 			frappe.log_error(
 				title=f"BPMN AI Agent Task: memory_search failed ({bpmn_id})",
 				message=frappe.get_traceback(),
 			)
+
+	if memory_block or user_message:
+		from one_bpmn.agents.context_assembler import build_dynamic_preamble
+
+		user_prompt = build_dynamic_preamble(
+			memory_block=memory_block,
+			instructions=user_prompt,
+			user_prompt=user_message,
+		)
 
 	# ── Tools: the shapes of the referenced ad-hoc sub-process (Camunda "tools
 	# are the shapes"). aiToolShapes was embedded at compile time (WI-001421);

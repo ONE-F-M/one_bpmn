@@ -15,9 +15,9 @@ SAVE_SCRIPT_NAME = "Logix – Save Response"
 # pipeline tools), so a config-level "never reply in prose" would break it.
 # Anchors, oldest first: the original one-liner, then the first hardening
 # round (which fixed the prose-instead-of-finalize failure but left the model
-# free to ask the user to "provide their message" — it cannot see the
-# conversation, only its tools can, and haiku balked at processing a message
-# it never received).
+# free to ask the user to "provide their message" — at the time the prompt
+# carried no message, only its tools could read one, and haiku balked at
+# processing a message it never received).
 OLD_USER_PROMPTS = [
 	"Process the latest user message now. Begin with classify_intent.",
 	(
@@ -33,9 +33,9 @@ OLD_USER_PROMPTS = [
 	),
 ]
 NEW_USER_PROMPT = (
-	"Process the latest user message now. You cannot see the conversation "
-	"yourself — your tools read it server-side — so NEVER ask the user to "
-	"repeat or provide their message. HARD PIPELINE RULES: "
+	"The user's message is at the end of this prompt, and your tools read the "
+	"conversation server-side, so NEVER ask them to repeat or provide it. "
+	"HARD PIPELINE RULES: "
 	"(1) ALWAYS call classify_intent first; it reads the user's message "
 	"server-side and returns the intent plus a next field. "
 	"(2) Follow next: write_script for CREATE or MODIFY, review_script after "
@@ -77,7 +77,9 @@ def _harden_driver_prompt():
 	if not frappe.db.exists("BPMN Process Model", MODEL_NAME):
 		return
 	xml = frappe.db.get_value("BPMN Process Model", MODEL_NAME, "bpmn_xml") or ""
-	if "You cannot see the conversation" in xml:
+	# Already hardened — including on a site whose map arrived by import with
+	# the wording this patch used to install.
+	if "HARD PIPELINE RULES" in xml:
 		return
 	old_attr = next(
 		(

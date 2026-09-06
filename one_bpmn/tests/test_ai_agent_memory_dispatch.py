@@ -243,3 +243,135 @@ class TestExecutorMessagesSlot(FrappeTestCase):
 			"http://x", "k", "m", ExecutorConfig(system_prompt="S", user_prompt="U")
 		)
 		self.assertEqual([m["role"] for m in empty["messages"]], ["user"])
+
+
+def _chat_instance(conversation="CONV-1"):
+	return SimpleNamespace(
+		name="INST-CHAT",
+		context_doctype="Chat Conversation",
+		context_docname=conversation,
+		process_model="",
+		initiated_by="Administrator",
+	)
+
+
+class TestTheUserMessageReachesTheModel(FrappeTestCase):
+	"""The person's own words belong in the prompt, and therefore in the step.
+
+	A chat map used to keep them in the turn store for its tools to read, so
+	every request produced a byte-identical user step and the model answered a
+	constant. Two runs asking for different things were indistinguishable
+	afterwards.
+	"""
+
+	def setUp(self):
+		_CAPTURED.clear()
+		patches = [
+			patch(
+				"one_bpmn.agents.observability.create_ai_run",
+				return_value=SimpleNamespace(name="RUN-FAKE", stub=False),
+			),
+			patch("one_bpmn.agents.observability.record_ai_step"),
+			patch("one_bpmn.agents.observability.finalize_ai_run"),
+			patch("one_bpmn.agents.observability.finalize_ai_run_on_exception"),
+			patch("one_bpmn.one_bpmn.engine.get_task_display_name", return_value="AI Task"),
+			patch("frappe.db.commit"),
+		]
+		for p in patches:
+			p.start()
+			self.addCleanup(p.stop)
+
+	def _dispatch(self, instance, task_data=None, **cfg):
+		task = SimpleNamespace(
+			data=dict(task_data or {}), task_spec=SimpleNamespace(bpmn_id="Act_1", name="Act_1")
+		)
+		config = {"aiBackend": "faketest", "aiSystemPrompt": "SYS", "aiUserPrompt": "Process the latest message."}
+		config.update(cfg)
+		D.dispatch_ai_agent(instance, task, config, "Act_1")
+		return _CAPTURED["config"].user_prompt
+
+	def test_the_message_is_in_the_prompt(self):
+		prompt = self._dispatch(_chat_instance(), {"user_text": "add a status field"})
+
+		self.assertIn("add a status field", prompt)
+		self.assertIn("Process the latest message.", prompt)
+
+	def test_the_marker_sits_before_the_message_not_the_instructions(self):
+		"""The adapter splits on the marker to cache everything before it. The
+		instructions are the same every turn; only the message varies, so the
+		split has to fall between them."""
+		import re
+
+		prompt = self._dispatch(_chat_instance(), {"user_text": "add a status field"})
+		match = re.search(
+			r"(\n+(?:User message|User request|User prompt|Request):\s*)(.*)$",
+			prompt,
+			re.IGNORECASE | re.DOTALL,
+		)
+
+		self.assertIsNotNone(match)
+		self.assertEqual(match.group(2).strip(), "add a status field")
+		self.assertIn("Process the latest message.", prompt[: match.start()])
+
+	def test_two_requests_do_not_produce_the_same_prompt(self):
+		"""The defect, stated as a test: identical user steps for different asks."""
+		first = self._dispatch(_chat_instance(), {"user_text": "add a status field"})
+		second = self._dispatch(_chat_instance(), {"user_text": "delete the invoice table"})
+
+		self.assertNotEqual(first, second)
+
+	def test_a_map_that_renders_the_message_itself_gets_no_second_copy(self):
+		prompt = self._dispatch(
+			_chat_instance(),
+			{"user_text": "add a status field"},
+			aiUserPrompt="Latest user message: {{ user_text }}",
+		)
+
+		self.assertEqual(prompt.count("add a status field"), 1)
+
+	def test_the_turn_store_is_read_when_the_task_does_not_carry_it(self):
+		"""ProsAlly and Logix seed the store and pass nothing down the task."""
+		with patch(
+			"one_bpmn.agents.turn_state.get_turn", return_value={"user_text": "draw an onboarding process"}
+		):
+			prompt = self._dispatch(_chat_instance())
+
+		self.assertIn("draw an onboarding process", prompt)
+
+	def test_a_background_agent_is_untouched(self):
+		"""Only a chat turn has a person's message; a record-triggered agent's
+		prompt must be exactly what its map rendered."""
+		with patch("one_bpmn.agents.turn_state.get_turn", return_value={"user_text": "not mine"}):
+			prompt = self._dispatch(_instance())
+
+		self.assertEqual(prompt, "Process the latest message.")
+
+	def test_memory_is_searched_with_the_message_not_the_standing_prompt(self):
+		"""Recall used the constant driving prompt as its query, so every turn
+		of an agent recalled the same memories however different the request."""
+		with patch(
+			"one_bpmn.agents.memory.tools.memory_search", return_value=[]
+		) as ms, patch("one_bpmn.agents.memory.tools.memory_write"):
+			self._dispatch(
+				_chat_instance(),
+				{"user_text": "add a status field"},
+				aiLongTermMemory="enabled",
+				aiMemoryScope="Agent",
+			)
+
+		query = ms.call_args[0][2]
+		self.assertEqual(query, "add a status field")
+
+	def test_memory_still_precedes_everything(self):
+		with patch(
+			"one_bpmn.agents.memory.tools.memory_search", return_value=[{"content": "net-30 rule"}]
+		), patch("one_bpmn.agents.memory.tools.memory_write"):
+			prompt = self._dispatch(
+				_chat_instance(),
+				{"user_text": "add a status field"},
+				aiLongTermMemory="enabled",
+				aiMemoryScope="Agent",
+			)
+
+		self.assertLess(prompt.index("net-30 rule"), prompt.index("Process the latest message."))
+		self.assertLess(prompt.index("Process the latest message."), prompt.index("add a status field"))
