@@ -88,6 +88,49 @@ class TestMemoryWrite(FrappeTestCase):
 		self.assertNotEqual(n1["name"], n2["name"])
 		self.assertEqual(frappe.db.count("AI Memory", {"agent_element": agent}), 2)
 
+	def test_dedup_overwrite_updates_in_place_no_delete(self):
+		# memory_write's own dedup_key lookup (as opposed to the AI Memory
+		# controller's separate _dedup_overwrite, exercised at the doctype level
+		# in test_ai_memory_doctype.py) finds the existing row and calls
+		# doc.save() on it — never a delete, so there is nothing to audit here;
+		# the row that comes back is the SAME row, just updated in place.
+		agent = f"D_{frappe.generate_hash(length=8)}"
+		d1 = T.memory_write("Agent", agent, "v1", dedup_key="k2", ignore_permissions=True)
+		d2 = T.memory_write("Agent", agent, "v2", dedup_key="k2", ignore_permissions=True)
+		self.assertEqual(d1["name"], d2["name"])
+		self.assertTrue(frappe.db.exists("AI Memory", d1["name"]))
+		self.assertEqual(frappe.db.get_value("AI Memory", d1["name"], "content"), "v2")
+
+	def test_agent_scope_carries_optional_process_model(self):
+		# process_model is provenance on an Agent-scoped row, not a scope key —
+		# writing it must not disturb the agent_element key it's actually looked
+		# up by.
+		pm = frappe.get_doc(
+			{
+				"doctype": "BPMN Process Model",
+				"title": f"Test PM {frappe.generate_hash(length=6)}",
+				"process_id": frappe.generate_hash(length=6),
+				"version": 1,
+			}
+		)
+		pm.insert(ignore_permissions=True)
+		agent = f"D_{frappe.generate_hash(length=8)}"
+		rec = T.memory_write("Agent", agent, "learned a fact", process_model=pm.name, ignore_permissions=True)
+		doc = frappe.get_doc("AI Memory", rec["name"])
+		self.assertEqual(doc.agent_element, agent)
+		self.assertEqual(doc.process_model, pm.name)
+
+	def test_content_round_trips_without_html_entity_escaping(self):
+		# Regression: a row was observed live with "&lt;PROJECT&gt;" stored
+		# verbatim instead of "<PROJECT>". memory_write/the AI Memory Long Text
+		# field must not introduce or preserve escaping of its own — whatever
+		# content is handed to it comes back out unchanged.
+		agent = f"D_{frappe.generate_hash(length=8)}"
+		content = "Use the pattern <PROJECT>-<YEAR>-<SEQ> for document names."
+		rec = T.memory_write("Agent", agent, content, ignore_permissions=True)
+		self.assertEqual(rec["content"], content)
+		self.assertEqual(frappe.db.get_value("AI Memory", rec["name"], "content"), content)
+
 
 class TestValidOnlySearch(FrappeTestCase):
 	def test_expired_memory_is_hidden(self):

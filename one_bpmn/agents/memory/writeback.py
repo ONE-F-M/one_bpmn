@@ -24,6 +24,7 @@ def distill_and_write(
 	source_run,
 	reconcile_model=None,
 	reconcile_provider=None,
+	process_model=None,
 ) -> list[str]:
 	"""Distill ``agent_output`` into durable facts and ``memory_write`` each one.
 
@@ -74,9 +75,11 @@ def distill_and_write(
 				scope_key,
 				f["content"],
 				dedup_key=None,
+				# "agent" is enough on its own: for Agent scope it duplicates
+				# agent_element (the scope key itself), and "learned_from" only
+				# ever duplicated "agent" -- dropped rather than kept alongside it.
 				metadata={
 					"topic": f["topic"],
-					"learned_from": agent,
 					"agent": agent,
 					"distilled": True,
 				},
@@ -84,6 +87,7 @@ def distill_and_write(
 				ignore_permissions=True,
 				reconcile=True,
 				reconcile_ctx=reconcile_ctx,
+				process_model=process_model,
 			)
 			written.append(rec.get("name"))
 		return written

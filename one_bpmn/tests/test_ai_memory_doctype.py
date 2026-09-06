@@ -52,6 +52,25 @@ class TestAIMemoryDoctype(FrappeTestCase):
 		m = _memory(memory_scope="Process", process_model=pm, content="p")
 		self.assertEqual(m.process_model, pm)
 
+	def test_agent_scope_preserves_optional_process_model(self):
+		# process_model is provenance on an Agent row (which process run wrote
+		# this fact), not a scope key — _normalize_scope_keys must not clear it
+		# the way it clears fields that don't belong to the chosen scope.
+		pm = _make_process_model()
+		m = _memory(memory_scope="Agent", agent_element="Activity_pm", process_model=pm, content="a")
+		self.assertEqual(m.agent_element, "Activity_pm")
+		self.assertEqual(m.process_model, pm)
+
+	def test_entity_scope_clears_process_model(self):
+		m = _memory(
+			memory_scope="Entity",
+			reference_doctype="User",
+			reference_name="Administrator",
+			process_model=_make_process_model(),
+			content="e",
+		)
+		self.assertIsNone(m.process_model)
+
 	def test_create_entity_scope(self):
 		m = _memory(
 			memory_scope="Entity",
@@ -72,7 +91,7 @@ class TestAIMemoryDoctype(FrappeTestCase):
 
 	# ── dedup overwrite vs insert ──
 	def test_dedup_overwrite(self):
-		_memory(memory_scope="Agent", agent_element="A", content="v1", dedup_key="k")
+		first = _memory(memory_scope="Agent", agent_element="A", content="v1", dedup_key="k")
 		_memory(memory_scope="Agent", agent_element="A", content="v2", dedup_key="k")
 		rows = frappe.get_all(
 			"AI Memory",
@@ -81,6 +100,14 @@ class TestAIMemoryDoctype(FrappeTestCase):
 		)
 		self.assertEqual(len(rows), 1)
 		self.assertEqual(rows[0]["content"], "v2")
+		# The overwritten row is a delete under the hood — it must not disappear
+		# without a trace: Frappe's normal Deleted Document audit record should
+		# still be there for it.
+		self.assertTrue(
+			frappe.db.exists(
+				"Deleted Document", {"deleted_doctype": "AI Memory", "deleted_name": first.name}
+			)
+		)
 
 	def test_insert_without_dedup_key(self):
 		_memory(memory_scope="Agent", agent_element="B", content="x")
