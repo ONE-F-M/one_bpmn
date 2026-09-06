@@ -60,6 +60,11 @@ def record_tool_artifact(tool_name: str, artifact: str, preview_chars: int = 400
 
 	The preview ends on a word boundary — a mid-word cut left both the reviewer
 	and the model reading its own transcript looking at half a token.
+
+	Called from the tool Server Scripts on the maps, which arrive by export and
+	import: Docu's write schema, Logix's write script and write agent tool, and
+	ProsAlly's generate and modify process. A map imported without them records
+	nothing, silently.
 	"""
 	if not (tool_name and (artifact or "").strip()):
 		return ""
