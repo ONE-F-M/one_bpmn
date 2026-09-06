@@ -1749,6 +1749,7 @@ def compile_process_model(model_name: str) -> dict:
 	# ── Eval suite deployment gating (non-blocking warnings) ──────────
 	deploy_warnings = _check_eval_suite_gating(model_name)
 	deploy_warnings.extend(_check_ai_tasks_have_a_user_prompt(spec_data))
+	deploy_warnings.extend(_validate_ai_tool_contract(service_extensions))
 
 	script_extensions = _extract_script_task_config(sanitized_xml)
 	if script_extensions or called_script_extensions:
@@ -1911,6 +1912,81 @@ def disable_process_model(model_name: str) -> dict:
 		"model": model_name,
 		"running_instances": running_count,
 	}
+
+
+# A prompt telling the model to "call X" where X is not in the Tools box. Only a
+# name in a calling position counts — bare snake_case words are app names and
+# domain vocabulary far more often than tools.
+_TOOL_CALL_RE = re.compile(r"\b(?:call|calls|calling|called|invoke|invokes)\s+`?([a-z][a-z0-9_]{2,})`?", re.I)
+
+
+def _known_tool_ids() -> set:
+	"""Every tool id in any active map's compiled spec. A bare word like
+	``finalize`` is only treated as a tool reference when some map really has
+	a tool of that name — otherwise ordinary English after "call" would trip it."""
+	ids = set()
+	for spec in frappe.get_all("BPMN Process Model", filters={"is_active": 1}, pluck="serialized_spec"):
+		try:
+			exts = (json.loads(spec or "{}") or {}).get("service_task_extensions") or {}
+		except ValueError:
+			continue
+		for cfg in exts.values():
+			for shape in json.loads((cfg or {}).get("aiToolShapes") or "[]"):
+				if shape.get("bpmn_id"):
+					ids.add(shape["bpmn_id"])
+	return ids
+
+
+def _tool_contract_gaps(prompt: str, tool_ids: set, known_ids: set) -> list:
+	"""Names the prompt tells the model to call that are not in its own Tools box."""
+	referenced = {m.lower() for m in _TOOL_CALL_RE.findall(prompt or "")}
+	return sorted(
+		name for name in referenced
+		if name not in tool_ids and ("_" in name or name in known_ids)
+	)
+
+
+def _validate_ai_tool_contract(service_extensions: dict) -> list:
+	"""Every tool a prompt names must exist in that agent's Tools box.
+
+	The Frontend Agent shipped for weeks with a prompt ordering draft_change,
+	review_change and propose_pull_request — none of which existed — and every
+	delegation ended "staged but never delivered". The configuration's prompt
+	wins over the shape's (agent_config_resolver), so that is the one checked.
+	A Background agent has nobody watching who would notice a dead tool, so for
+	it this blocks the deploy; a chat agent surfaces the failure to a person at
+	once, so it gets a warning."""
+	agents = _ai_agents_with_tools(service_extensions)
+	if not agents:
+		return []
+	known = _known_tool_ids()
+	warnings, blocking = [], []
+	for agent_id, cfg in agents.items():
+		tool_ids = {s.get("bpmn_id") for s in json.loads(cfg.get("aiToolShapes") or "[]")}
+		prompt, agent_type = cfg.get("aiSystemPrompt") or "", ""
+		config_name = (cfg.get("aiAgentConfig") or "").strip()
+		if config_name and frappe.db.exists("AI Agent Configuration", config_name):
+			row = frappe.db.get_value(
+				"AI Agent Configuration", config_name, ["system_prompt", "agent_type"], as_dict=True
+			)
+			prompt, agent_type = (row.system_prompt or prompt), (row.agent_type or "")
+		gaps = _tool_contract_gaps(prompt, tool_ids, known)
+		if not gaps:
+			continue
+		detail = _(
+			"'{0}' tells the model to call {1}, but its Tools box has no such tool. "
+			"Fix the prompt or add the shape."
+		).format(agent_id, ", ".join(gaps))
+		if agent_type == "Background":
+			blocking.append(detail)
+		else:
+			warnings.append({"label": _("Tool Contract"), "icon": "wrench", "type": "warning", "detail": detail})
+	if blocking:
+		frappe.throw(
+			_("The prompt and the Tools box disagree:") + "<br>" + "<br>".join(f"• {b}" for b in blocking),
+			exc=frappe.ValidationError,
+		)
+	return warnings
 
 
 def _check_ai_tasks_have_a_user_prompt(spec_data: dict) -> list:
