@@ -48,7 +48,7 @@ _PREFERRED_MODELS = ("claude-sonnet-5", "claude-sonnet-4-5-20250929")
 _CONSTANTS = [
 	("repo", "ONE-F-M/mobile_app_ionic",
 	 "The only repository this agent may read or raise a pull request against."),
-	("base_branch", "staging",
+	("base_branch", "version-15",
 	 "Branch every pull request is opened against."),
 	("work_ref", "staging",
 	 "Branch the agent reads code from. Point it elsewhere to work against a different line of development."),
