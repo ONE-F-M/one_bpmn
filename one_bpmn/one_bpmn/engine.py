@@ -5,9 +5,10 @@
 # Everything else in one_bpmn talks to this module.
 
 import copy
+import decimal
 import io
 import uuid
-from datetime import datetime
+from datetime import date, datetime, time
 
 from SpiffWorkflow.dmn.parser import BpmnDmnParser
 from SpiffWorkflow.bpmn.parser.ValidationException import ValidationException
@@ -85,6 +86,32 @@ AdHocSubprocessSpec.path_complete = _safe_path_complete
 from SpiffWorkflow.bpmn.specs.mixins.events.intermediate_event import (
 	EventBasedGateway as _EventBasedGateway,
 )
+
+
+def json_safe_doc_fields(doc) -> dict:
+	"""A document's fields in the form a BPMN condition can test.
+
+	Task data is serialised, so only JSON-safe values may go in. The naive
+	reading of that rule — keep ``str``/``int``/``float``/``bool`` and drop the
+	rest — silently drops every Date, Datetime, Time and Currency field, and a
+	gateway testing one of those then raises ``NameError`` and is read as False.
+	Those are converted rather than dropped. Child tables and other
+	non-primitives are still skipped: a condition cannot usefully test them.
+
+	This is the single definition used by the instance snapshot, the mid-run
+	refresh and the trigger's start-condition eval, so the three cannot drift.
+	"""
+	out = {}
+	for f in doc.meta.fields:
+		val = doc.get(f.fieldname)
+		if isinstance(val, (str, int, float, bool)) or val is None:
+			out[f.fieldname] = val
+		elif isinstance(val, (datetime, date, time)):
+			out[f.fieldname] = val.isoformat()
+		elif isinstance(val, decimal.Decimal):
+			out[f.fieldname] = float(val)
+	out["docstatus"] = int(getattr(doc, "docstatus", 0) or 0)
+	return out
 
 
 def _safe_eventgateway_predict_hook(self, my_task):
@@ -1251,14 +1278,10 @@ def refresh_context_doc(wf: BpmnWorkflow, context_doctype: str, context_docname:
 
 		doc = frappe.get_doc(context_doctype, context_docname)
 
-		# ── Inject JSON-safe scalar fields only into task data ─────────────
-		# task_tree.data is serialized by SpiffWorkflow — only primitives allowed.
-		safe = {
-			f.fieldname: doc.get(f.fieldname)
-			for f in doc.meta.fields
-			if isinstance(doc.get(f.fieldname), (str, int, float, bool, type(None)))
-		}
-		safe["docstatus"] = int(doc.docstatus or 0)
+		# ── Inject the document's fields into task data ────────────────────
+		# task_tree.data is serialized by SpiffWorkflow, so the values have to be
+		# JSON-safe; json_safe_doc_fields is what decides that.
+		safe = json_safe_doc_fields(doc)
 		safe["context_doctype"] = context_doctype
 		safe["context_docname"] = context_docname
 		# Remove stale 'doc' key if it was accidentally stored previously

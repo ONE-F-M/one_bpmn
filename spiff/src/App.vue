@@ -133,6 +133,29 @@
 						Evals
 					</span>
 				</router-link>
+				<!-- Session administration reads conversation titles and stored
+				     summaries across every user's chats, so it is gated exactly like
+				     Security rather than shown to anyone who can open the editor. -->
+				<router-link
+					v-if="canSeeSecurity"
+					to="/processa/sessions"
+					class="flex items-center rounded-lg transition-all duration-200"
+					:class="[
+						collapsed ? 'justify-center p-2.5' : 'gap-3 px-4 py-2.5',
+						$route.path.startsWith('/processa/sessions') ? 'bg-gray-900 text-white shadow-md' : 'text-gray-600 hover:bg-gray-100 hover:text-gray-900'
+					]"
+					@click="isMobileMenuOpen = false"
+					:title="collapsed ? 'Sessions' : ''"
+				>
+					<Icon icon="lucide:messages-square" class="w-5 h-5 shrink-0" />
+					<span
+						class="text-sm font-semibold whitespace-nowrap transition-opacity duration-200 overflow-hidden"
+						:class="collapsed ? 'opacity-0 w-0' : 'opacity-100 w-auto'"
+					>
+						Sessions
+					</span>
+				</router-link>
+
 				<!-- WI-001970: the event stream shows which agents were attacked and
 				     how, so the entry is hidden from anyone who cannot read it rather
 				     than advertising a console they will be refused. -->

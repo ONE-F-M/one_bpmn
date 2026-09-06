@@ -90,6 +90,11 @@ const routes = [
 		component: () => import("@/views/A2A.vue"),
 	},
 	{
+		path: "/processa/sessions",
+		name: "Sessions",
+		component: () => import("@/views/Sessions.vue"),
+	},
+	{
 		path: "/:pathMatch(.*)*",
 		redirect: "/processa",
 	},

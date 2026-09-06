@@ -498,6 +498,11 @@ def get_agent_config(agent_id: str) -> dict | None:
 		"temperature": config.temperature,
 		"max_tokens": config.max_tokens,
 		"ai_provider": config.ai_provider,
+		# The agent's own catalog pick, and the record that carries the API key.
+		# Queried above but previously dropped here, so every caller that resolved
+		# an adapter through this dict fell back to a default model name that is
+		# not an AI Model record — leaving the adapter with no key at all.
+		"ai_model": config.ai_model,
 		"langsmith_project": config.langsmith_project,
 		"agent_framework": config.agent_framework,
 		"process_model": config.process_model,

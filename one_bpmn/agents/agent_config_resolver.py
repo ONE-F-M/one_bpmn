@@ -53,6 +53,16 @@ _CONFIG_TO_SHAPE = {
 	"memory_write_mode": "aiMemoryWriteMode",
 	"memory_distill_model": "aiMemoryDistillModel",
 	"memory_reconcile_model": "aiMemoryReconcileModel",
+	# Conversation compaction: when to replace old turns with a summary. Like
+	# the memory settings above, these belong to the agent rather than to any
+	# one task that calls it — a conversation is the agent's, not the shape's.
+	"context_token_budget": "aiContextTokenBudget",
+	"compaction_enabled": "aiCompactionEnabled",
+	"compaction_keep_tail": "aiCompactionKeepTail",
+	"compaction_model": "aiCompactionModel",
+	"compaction_token_threshold": "aiCompactionTokenThreshold",
+	"compaction_idle_minutes": "aiCompactionIdleMinutes",
+	"compaction_on_task_boundary": "aiCompactionOnTaskBoundary",
 }
 
 # Shape attributes the modal may write back, and the config fields they land
@@ -74,6 +84,14 @@ _SHAPE_TO_CONFIG = {
 	"aiMemoryWriteMode": "memory_write_mode",
 	"aiMemoryDistillModel": "memory_distill_model",
 	"aiMemoryReconcileModel": "memory_reconcile_model",
+	# Compaction is configured in the same modal and persists the same way.
+	"aiContextTokenBudget": "context_token_budget",
+	"aiCompactionEnabled": "compaction_enabled",
+	"aiCompactionKeepTail": "compaction_keep_tail",
+	"aiCompactionModel": "compaction_model",
+	"aiCompactionTokenThreshold": "compaction_token_threshold",
+	"aiCompactionIdleMinutes": "compaction_idle_minutes",
+	"aiCompactionOnTaskBoundary": "compaction_on_task_boundary",
 	# WI-001644: screening is agent-level too — what an agent may say is a
 	# property of the agent, not of the task that happens to call it.
 	"aiPiiScreening": "pii_screening",
@@ -484,7 +502,7 @@ def update_agent_config_from_shape(config_name: str, fields: str | dict) -> dict
 			value = frappe.utils.cint(value)
 		# WI-001793: the modal's number input hands back a string; 0/blank means
 		# "not set here" and must stay 0 so dispatch falls through to the shape.
-		if cfield == "context_max_messages":
+		if cfield in ("context_max_messages", "context_token_budget"):
 			value = frappe.utils.cint(value)
 		# Old diagrams carry model ids baked into the shape before the AI Model
 		# catalog existed (WI-001655). Letting doc.save() hit the Link
@@ -837,3 +855,38 @@ def _start_reprovision(config_name: str) -> bool:
 			message=frappe.get_traceback(),
 		)
 		return False
+
+
+@frappe.whitelist()
+def model_catalogue() -> list:
+	"""Every enabled AI Model, with whether it can actually authenticate.
+
+	The editor used to build this from two requests — the AI Model list plus a
+	SEPARATE list of AI Providers — and label a model "credentials disabled"
+	when its provider was missing from the second. That comparison stopped
+	meaning anything when the connection moved onto AI Model: AI Provider is now
+	a name and nothing else, with no ``enabled`` field and no ``provider_name``,
+	so the provider request errored, the list came back empty, and EVERY model
+	was labelled as having disabled credentials.
+
+	Credentials live on the model, so the model is the only thing that can be
+	asked. ``api_key`` is a Password and never leaves the server, so the answer
+	comes back as a boolean rather than the key.
+	"""
+	# The submodule import is required: a bare ``import frappe`` leaves
+	# ``frappe.utils.password`` unresolved and the attribute access raises.
+	import frappe.utils.password
+
+	rows = frappe.get_all(
+		"AI Model",
+		filters={"enable_model": 1},
+		fields=["name", "provider", "model_api_name"],
+		order_by="name asc",
+	)
+	for row in rows:
+		row["has_credentials"] = bool(
+			frappe.utils.password.get_decrypted_password(
+				"AI Model", row["name"], "api_key", raise_exception=False
+			)
+		)
+	return rows

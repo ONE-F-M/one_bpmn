@@ -258,7 +258,7 @@ def apply_doctype(ir: str, confirm: int = 0) -> dict:
 		if not frappe.db.exists("DocType", name):
 			action = _create_custom_doctype(name, module, is_child, autoname, fields, settings)
 		elif frappe.db.get_value("DocType", name, "custom"):
-			action = _reconcile_custom_doctype(name, is_child, autoname, fields, settings)
+			action = _reconcile_custom_doctype(name, is_child, autoname, fields, settings, module)
 		else:
 			action = _customize_standard_doctype(name, fields)
 		frappe.db.commit()
@@ -391,19 +391,44 @@ def _ensure_child_doctypes(parent: str, module: str, fields: list) -> list:
 	for f in fields:
 		if not isinstance(f, dict) or f.get("fieldtype") not in _TABLE_FIELDTYPES:
 			continue
+		opt = (f.get("options") or "").strip()
+		# A child table follows its parent's module, whether or not this IR
+		# defines its rows inline. An IR read back from a live schema carries only
+		# `options` — no child_fields — so checking those first skipped the move
+		# entirely, and "Site Inspection Report Inspection Items Item" stayed in
+		# One Fm while its parent went to Operations.
+		if opt and frappe.db.exists("DocType", opt):
+			_move_custom_doctype(opt, module)
+
 		child_fields = f.get("child_fields")
 		if not (isinstance(child_fields, list) and child_fields):
 			continue
-		opt = (f.get("options") or "").strip()
-		# An existing target DocType wins — don't clobber it.
+		# An existing target DocType wins — don't clobber its fields.
 		if opt and frappe.db.exists("DocType", opt):
 			continue
 		child_name = opt or _child_doctype_name(parent, f)
 		if not frappe.db.exists("DocType", child_name):
 			_create_custom_doctype(child_name, module, 1, "", child_fields)
 			created.append(child_name)
+		else:
+			_move_custom_doctype(child_name, module)
 		f["options"] = child_name
 	return created
+
+
+def _move_custom_doctype(name: str, module: str) -> None:
+	"""Put a CUSTOM DocType in ``module`` if it is not there already.
+
+	Only custom DocTypes: a standard one is backed by files in its app, and
+	changing the field without moving those would leave the two disagreeing.
+	Silent when there is nothing to do.
+	"""
+	if not (name and module):
+		return
+	current, custom = frappe.db.get_value("DocType", name, ["module", "custom"]) or (None, 0)
+	if not custom or current == module:
+		return
+	frappe.db.set_value("DocType", name, "module", module)
 
 
 def _create_custom_doctype(name: str, module: str, is_child: int, autoname: str, fields: list, settings: dict = None) -> str:
@@ -430,15 +455,24 @@ def _create_custom_doctype(name: str, module: str, is_child: int, autoname: str,
 	return "created"
 
 
-def _reconcile_custom_doctype(name: str, is_child: int, autoname: str, fields: list, settings: dict = None) -> str:
+def _reconcile_custom_doctype(name: str, is_child: int, autoname: str, fields: list,
+                              settings: dict = None, module: str = None) -> str:
 	"""Bring a custom DocType's fields in line with the IR (add / update / remove).
 
 	The IR (seeded from the live schema and echoed back by the writer) is the
 	complete desired field set, so we rebuild the child table from it via
 	``doc.set`` — Frappe adds/updates/drops the DB columns on save. Only ever
 	called for custom DocTypes; standard types go through ``_customize_standard_doctype``.
+
+	``module`` moves an existing DocType. It used not to be passed at all, so the
+	module was honoured on CREATE and silently ignored on every update — a user
+	who asked to move a form to another module saw the panel update, saw the
+	agent agree, and found the DocType exactly where it was. Safe for a custom
+	DocType: its module is a field, not a directory of files on disk.
 	"""
 	doc = frappe.get_doc("DocType", name)
+	if module and doc.module != module:
+		doc.module = module
 	payloads = []
 	idx = 0
 	for f in _uniquify_fieldnames(fields):
