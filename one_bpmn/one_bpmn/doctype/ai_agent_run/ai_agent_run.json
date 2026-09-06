@@ -51,6 +51,7 @@
   "completion_basis",
   "section_break_output",
   "final_output",
+  "tool_calls",
   "correlation_id"
  ],
  "fields": [
@@ -330,6 +331,14 @@
    "fieldname": "final_output",
    "fieldtype": "Long Text",
    "label": "Final Output"
+  },
+  {
+   "description": "Tool names, in call order — a plain JSON list rather than AI Agent Step child records, for runs (like the sandbox's own coding loop) that report their own turn as a single unit rather than step-by-step.",
+   "fieldname": "tool_calls",
+   "fieldtype": "Code",
+   "label": "Tool Calls",
+   "options": "JSON",
+   "read_only": 1
   },
   {
    "description": "UUID for future external trace export",

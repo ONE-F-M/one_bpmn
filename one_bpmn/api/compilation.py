@@ -370,6 +370,60 @@ PROHIBITED_SHAPES: dict[str, dict[str, str]] = {
 }
 
 
+def _validate_notify_assignee_account(bpmn_xml: str) -> None:
+	"""Every User Task that notifies its assignee must name the mailbox it sends from.
+
+	Left blank, the send resolves ``sender`` to None and Frappe falls back to the
+	site's default outgoing account. Nothing errors, so the process looks
+	configured and the assignee gets mail from whatever mailbox happens to be
+	default — which is a delivery decision nobody made, and one the designer
+	cannot see they have taken.
+
+	Checked at deploy rather than at send: the person who can fix it is the one
+	deploying the diagram, and a running instance should not halt over a field
+	that was already wrong when the map went live.
+
+	Raises:
+		frappe.ValidationError: if any User Task enables Notify Assignee without
+		naming an Email Account.
+	"""
+	import xml.etree.ElementTree as _ET
+
+	BPMN_NS = "http://www.omg.org/spec/BPMN/20100524/MODEL"
+	SPIFF = "http://spiffworkflow.org/bpmn/schema/1.0/core"
+
+	if not bpmn_xml or not bpmn_xml.strip():
+		return
+	try:
+		root = _ET.fromstring(
+			bpmn_xml.strip().encode("utf-8") if isinstance(bpmn_xml, str) else bpmn_xml
+		)
+	except Exception:
+		return  # XML errors are caught elsewhere
+
+	offenders = []
+	for task in root.iter(f"{{{BPMN_NS}}}userTask"):
+		if (task.get(f"{{{SPIFF}}}notifyAssignee") or "").strip().lower() != "true":
+			continue
+		account = (task.get(f"{{{SPIFF}}}notifyAssigneeAccount") or "").strip()
+		if account:
+			continue
+		el_name = (task.get("name") or "").strip().replace("\n", " ")
+		el_id = task.get("id", "unknown")
+		offenders.append(f'"{el_name}" ({el_id})' if el_name else f"({el_id})")
+
+	if offenders:
+		frappe.throw(
+			_(
+				"These User Tasks notify their assignee but do not say which mailbox to "
+				"send from: {0}. Set 'Send From (Email Account)' on each, or turn off "
+				"Notify Assignee. Left blank the site's default outgoing account is used, "
+				"which is a delivery decision the diagram does not record."
+			).format(", ".join(offenders)),
+			title=_("Notify Assignee needs an Email Account"),
+		)
+
+
 def _validate_prohibited_shapes(bpmn_xml: str) -> None:
 	"""
 	Validate that no prohibited BPMN shapes appear in the process.
@@ -1707,6 +1761,8 @@ def compile_process_model(model_name: str) -> dict:
 	# Reject any BPMN element type that OneFM has marked as prohibited for
 	# executable processes (e.g. manual tasks, none-type tasks).
 	_validate_prohibited_shapes(sanitized_xml)
+
+	_validate_notify_assignee_account(sanitized_xml)
 
 	# ── Extract and populate Start Events child table ─────────────────────
 	# Parse all <bpmn:startEvent> elements from the XML and capture their type

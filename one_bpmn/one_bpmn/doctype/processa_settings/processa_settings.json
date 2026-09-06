@@ -20,6 +20,11 @@
   "github_token",
   "customization_app",
   "connector_handler_app",
+  "section_break_agent_sandbox",
+  "agent_sandbox_url",
+  "column_break_agent_sandbox",
+  "agent_callback_secret",
+  "agent_sandbox_caller_key",
   "section_break_script_security",
   "script_security_intro",
   "script_binop_multiply_threshold",
@@ -37,6 +42,12 @@
   "default_memory_distill_model",
   "column_break_ai_memory",
   "default_memory_reconcile_model",
+  "default_compaction_model",
+  "default_context_token_budget",
+  "section_break_conversation_retention",
+  "conversation_ttl_days",
+  "column_break_conversation_retention",
+  "archive_action",
   "llm_defaults_tab",
   "default_llm_provider",
   "openai_search_context",
@@ -180,6 +191,35 @@
   },
   {
    "collapsible": 1,
+   "description": "The AI Dev Agent: a Background agent delegated to over A2A that clones an app into an isolated Cloud Run sandbox, runs its real test suite, and delivers a passing change as a pull request via the same GitHub Integration above.",
+   "fieldname": "section_break_agent_sandbox",
+   "fieldtype": "Section Break",
+   "label": "Agent Sandbox"
+  },
+  {
+   "description": "Base URL of the deployed dev-agent-sandbox Cloud Run service for THIS environment (e.g. the beta service on a staging/BA site, the production service in production). Never point a non-production site at the production sandbox.",
+   "fieldname": "agent_sandbox_url",
+   "fieldtype": "Data",
+   "label": "Sandbox URL"
+  },
+  {
+   "fieldname": "column_break_agent_sandbox",
+   "fieldtype": "Column Break"
+  },
+  {
+   "description": "Shared HMAC secret verified against the sandbox's signed callback (X-Signature header). Must match the CALLBACK_HMAC_SECRET the sandbox was deployed with for this same environment — see deploy.py in the dev-agent-sandbox project.",
+   "fieldname": "agent_callback_secret",
+   "fieldtype": "Password",
+   "label": "Callback Secret"
+  },
+  {
+   "description": "Full JSON key of the GCP service account used to mint the short-lived identity token that authenticates each dispatch call to the IAM-protected sandbox (Cloud Run Invoker role on that service). Paste the entire key file's contents here. Note: unlike site_config.json, this value travels with the database on backup/restore — granting a service account's key to a non-production environment (e.g. restoring a production backup onto staging) hands that environment the same Cloud Run Invoker access, so keep each environment's service account scoped to only the sandbox it should be allowed to call.",
+   "fieldname": "agent_sandbox_caller_key",
+   "fieldtype": "Password",
+   "label": "Sandbox Caller Key (GCP Service Account JSON)"
+  },
+  {
+   "collapsible": 1,
    "fieldname": "section_break_script_security",
    "fieldtype": "Section Break",
    "label": "Script Task Security"
@@ -262,7 +302,7 @@
   },
   {
    "collapsible": 1,
-   "description": "Site-wide defaults for the models that write long-term memory. An agent's own Memory Models override these; with both blank, memory writes use the agent's own AI Model, exactly as before.",
+   "description": "Site-wide defaults for the models that write long-term memory and compact conversations. An agent's own Memory Models override these; with all blank, memory writes use the agent's own AI Model, exactly as before.",
    "fieldname": "section_break_ai_memory",
    "fieldtype": "Section Break",
    "label": "AI Memory"
@@ -284,6 +324,46 @@
    "fieldtype": "Link",
    "label": "Default Reconciliation Model",
    "options": "AI Model"
+  },
+  {
+   "description": "Used when nothing else names a model for summarising the early part of a conversation. Summarising is high-volume and low-stakes, so this should be the cheap model \u2014 left blank, compaction uses whatever the caller passes and, failing that, does nothing rather than bill the agent's own reasoning model for it.",
+   "fieldname": "default_compaction_model",
+   "fieldtype": "Link",
+   "label": "Default Compaction Model",
+   "options": "AI Model"
+  },
+  {
+   "description": "Used when an agent sets no Context Token Budget of its own. Caps the assembled conversation history by estimated size, so a tool-heavy thread cannot outgrow the model's context window between compactions. 0 means no size limit.",
+   "fieldname": "default_context_token_budget",
+   "fieldtype": "Int",
+   "label": "Default Context Token Budget"
+  },
+  {
+   "collapsible": 1,
+   "description": "What happens to chat conversations nobody has touched for a while. Idle is measured from the newest message in the conversation, not from when the record was last written \u2014 a status change or a title edit is not activity. An agent's own memory threads are never swept: they are a running agent's working state, not a conversation somebody had.",
+   "fieldname": "section_break_conversation_retention",
+   "fieldtype": "Section Break",
+   "label": "Conversation Retention"
+  },
+  {
+   "default": "0",
+   "description": "Days a conversation may sit idle before the daily sweep acts on it. 0 disables retention entirely \u2014 nothing is archived or deleted.",
+   "fieldname": "conversation_ttl_days",
+   "fieldtype": "Int",
+   "label": "Conversation TTL (days)"
+  },
+  {
+   "fieldname": "column_break_conversation_retention",
+   "fieldtype": "Column Break"
+  },
+  {
+   "default": "Archive",
+   "depends_on": "eval:doc.conversation_ttl_days > 0",
+   "description": "Archive marks the conversation and leaves everything in place, so it can be read and restored. Delete removes the conversation and its messages permanently \u2014 that is the point of a retention policy, and it cannot be undone. Both are logged with counts.",
+   "fieldname": "archive_action",
+   "fieldtype": "Select",
+   "label": "Action on Expiry",
+   "options": "Archive\nDelete"
   },
   {
    "description": "Migrated from onefm_mcp's AI Chat Settings doctype (retired). Global fallback provider/tuning for an agent configuration that has no linked AI Provider yet — once every agent config links a provider directly, this stops being consulted.",

@@ -911,13 +911,32 @@ function deleteSelected() {
 }
 
 // ── IR round-trip ──────────────────────────────────────────────────────
-// Module is a real Frappe Module the user controls via the dropdown — never trust
-// the agent to set it (it can confuse the business-process name for a module). Only
-// accept an IR module that is an actual Module Def; otherwise keep "ONE BPMN".
+// Module is a real Frappe Module, so an IR value is only accepted when it names
+// an actual Module Def — the agent can otherwise confuse the business-process
+// name for a module.
+//
+// The match is case-INSENSITIVE, and this is the whole point. The comparison used
+// to be exact, so a user asking for "the ONE FM module" got a design correctly
+// carrying "ONE FM" — and this function silently rewrote it to "ONE BPMN",
+// because the Module Def is actually spelled "One Fm". The database compares
+// case-insensitively and JavaScript does not, so the value survived every backend
+// check and died here, in the last place anybody thought to look.
+//
+// A recognised module is normalised to the Module Def's own spelling, so what is
+// saved matches what Frappe has rather than however the user typed it.
 function sanitizeModule(m) {
 	if (!m) return dtModule.value || "ONE BPMN";
-	if (modules.value.length && !modules.value.includes(m)) return "ONE BPMN";
-	return m;
+	if (!modules.value.length) return m;
+	const match = modules.value.find(
+		(known) => String(known).toLowerCase() === String(m).toLowerCase()
+	);
+	if (match) return match;
+	// Genuinely not a module. Falling back is right, but say so — a silent
+	// substitution is how this went unnoticed for so long.
+	console.warn(
+		`Docu: "${m}" is not a Frappe module; keeping ${dtModule.value || "ONE BPMN"}.`
+	);
+	return dtModule.value || "ONE BPMN";
 }
 function loadIr(ir) {
 	if (!ir) return;
@@ -978,8 +997,10 @@ async function loadModules() {
 		const res = await frappeRequest({ url: `${API}list_modules` });
 		if (Array.isArray(res)) {
 			modules.value = res;
-			// A module set before the list loaded (e.g. by the agent) may be bogus — fix it.
-			if (dtModule.value && !res.includes(dtModule.value)) dtModule.value = "ONE BPMN";
+			// A module set before the list loaded (e.g. by the agent) may be bogus —
+			// or may simply be spelled differently. Same case-insensitive rule as
+			// sanitizeModule: normalise what matches, and only replace what does not.
+			if (dtModule.value) dtModule.value = sanitizeModule(dtModule.value);
 		}
 	} catch (e) { /* fall back to the current module only */ }
 }

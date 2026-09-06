@@ -1641,6 +1641,16 @@ def dispatch_ai_agent(instance, task, task_cfg: dict, bpmn_id: str, resume_run: 
 			waiting_marker["waits_on"] = "a2a"
 			waiting_marker["a2a_task"] = deferred_wait["a2a_task"]
 			waiting_marker["label"] = label or deferred_wait.get("label") or pending_name
+		elif deferred_wait.get("run"):
+			# agent_sandbox_ops.dispatch()'s own waiting-marker shape is
+			# {"run": <Agent Sandbox Run name>, "label": ...} — deliberately
+			# NOT stored under waiting_marker["run"] here, since that key above
+			# already holds this AI Agent Run's own name; reusing it would
+			# silently overwrite the checkpoint reference with the sandbox run's
+			# name instead.
+			waiting_marker["waits_on"] = "agent_sandbox"
+			waiting_marker["agent_sandbox_run"] = deferred_wait["run"]
+			waiting_marker["label"] = label or deferred_wait.get("label") or pending_name
 		task.data["_bpmn_ai_waiting_human"] = waiting_marker
 		if not frappe.flags.in_test:
 			frappe.db.commit()

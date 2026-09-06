@@ -1,0 +1,166 @@
+{
+ "actions": [],
+ "autoname": "hash",
+ "creation": "2026-08-27 00:00:00.000000",
+ "description": "A persisted summary standing in for a contiguous run of early Chat Messages. The read path sends the summary plus the verbatim tail that follows it, so covered messages are never re-sent. Summaries chain: each one supersedes the previous, absorbing its text.",
+ "doctype": "DocType",
+ "engine": "InnoDB",
+ "field_order": [
+  "conversation",
+  "agent_id",
+  "column_break_head",
+  "generated_on",
+  "section_break_summary",
+  "summary",
+  "section_break_range",
+  "covered_from",
+  "covered_to",
+  "column_break_range",
+  "covered_upto",
+  "covered_count",
+  "supersedes",
+  "section_break_provenance",
+  "model",
+  "column_break_provenance",
+  "provider"
+ ],
+ "fields": [
+  {
+   "fieldname": "conversation",
+   "fieldtype": "Link",
+   "in_list_view": 1,
+   "in_standard_filter": 1,
+   "label": "Conversation",
+   "options": "Chat Conversation",
+   "reqd": 1,
+   "search_index": 1
+  },
+  {
+   "description": "The agent whose turn produced this summary, when known. Recorded for provenance only — the read path keys on the conversation.",
+   "fieldname": "agent_id",
+   "fieldtype": "Data",
+   "label": "Agent"
+  },
+  {
+   "fieldname": "column_break_head",
+   "fieldtype": "Column Break"
+  },
+  {
+   "fieldname": "generated_on",
+   "fieldtype": "Datetime",
+   "label": "Generated On",
+   "read_only": 1
+  },
+  {
+   "fieldname": "section_break_summary",
+   "fieldtype": "Section Break",
+   "label": "Summary"
+  },
+  {
+   "description": "Prefixed to the recent verbatim tail on the next dispatch, in place of every message in the covered range.",
+   "fieldname": "summary",
+   "fieldtype": "Long Text",
+   "label": "Summary",
+   "reqd": 1
+  },
+  {
+   "description": "The exact run of messages this summary stands in for. Everything at or before Covered Upto is covered; everything after it is sent verbatim.",
+   "fieldname": "section_break_range",
+   "fieldtype": "Section Break",
+   "label": "Covered Range"
+  },
+  {
+   "description": "Oldest message covered. Recorded for audit; the read path filters on Covered Upto so a deleted message cannot break it.",
+   "fieldname": "covered_from",
+   "fieldtype": "Link",
+   "label": "Covered From",
+   "options": "Chat Message"
+  },
+  {
+   "description": "Newest message covered.",
+   "fieldname": "covered_to",
+   "fieldtype": "Link",
+   "label": "Covered To",
+   "options": "Chat Message"
+  },
+  {
+   "fieldname": "column_break_range",
+   "fieldtype": "Column Break"
+  },
+  {
+   "description": "Creation timestamp of the newest covered message. This is the cursor the read path uses: a message is sent verbatim only when its creation is strictly later. A tie is treated as covered, so a boundary collision can only under-include — never re-send.",
+   "fieldname": "covered_upto",
+   "fieldtype": "Datetime",
+   "label": "Covered Upto",
+   "reqd": 1,
+   "search_index": 1
+  },
+  {
+   "fieldname": "covered_count",
+   "fieldtype": "Int",
+   "label": "Covered Count",
+   "read_only": 1
+  },
+  {
+   "description": "The summary this one absorbs and replaces. Only the newest summary in a conversation is ever read; the chain is kept so a compaction can be audited or unwound.",
+   "fieldname": "supersedes",
+   "fieldtype": "Link",
+   "label": "Supersedes",
+   "options": "Chat Conversation Summary"
+  },
+  {
+   "collapsible": 1,
+   "fieldname": "section_break_provenance",
+   "fieldtype": "Section Break",
+   "label": "Provenance"
+  },
+  {
+   "fieldname": "model",
+   "fieldtype": "Data",
+   "label": "Model",
+   "read_only": 1
+  },
+  {
+   "fieldname": "column_break_provenance",
+   "fieldtype": "Column Break"
+  },
+  {
+   "fieldname": "provider",
+   "fieldtype": "Data",
+   "label": "Provider",
+   "read_only": 1
+  }
+ ],
+ "index_web_pages_for_search": 1,
+ "links": [],
+ "modified": "2026-08-27 00:00:00.000000",
+ "modified_by": "Administrator",
+ "module": "ONE BPMN",
+ "name": "Chat Conversation Summary",
+ "naming_rule": "Hash",
+ "owner": "Administrator",
+ "permissions": [
+  {
+   "create": 1,
+   "delete": 1,
+   "email": 1,
+   "export": 1,
+   "print": 1,
+   "read": 1,
+   "report": 1,
+   "role": "System Manager",
+   "share": 1,
+   "write": 1
+  },
+  {
+   "export": 1,
+   "read": 1,
+   "report": 1,
+   "role": "Process Designer"
+  }
+ ],
+ "sort_field": "covered_upto",
+ "sort_order": "DESC",
+ "states": [],
+ "track_changes": 1
+}
