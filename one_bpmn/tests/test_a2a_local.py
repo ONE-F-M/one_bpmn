@@ -213,6 +213,59 @@ class TestDerivedFields(LocalDelegationCase):
 		self.assertAlmostEqual(minutes, 240, delta=2)
 
 
+class TestExtraPayload(LocalDelegationCase):
+	"""target_app/git_branch — structured extras a delegating map can supply
+	alongside the free-text instruction (Work Item's own app/branch selects,
+	threaded through so the Dev Agent worker reads an authoritative value
+	instead of re-deriving one from prose). Additive: a delegation that
+	never passes them keeps request_payload exactly {"instruction": ...}."""
+
+	def _request_payload(self, a2a_task_name):
+		return frappe.parse_json(frappe.db.get_value("A2A Task", a2a_task_name, "request_payload"))
+
+	def test_target_app_and_git_branch_land_in_request_payload(self):
+		with stub_turn():
+			result = a2a_client_ops.delegate_to_local_agent(
+				self.params(target_app="one_bpmn", git_branch="staging"), self.ctx()
+			)
+		payload = self._request_payload(result["a2a_task"])
+		self.assertEqual(payload["target_app"], "one_bpmn")
+		self.assertEqual(payload["git_branch"], "staging")
+		self.assertEqual(payload["instruction"], "review this work item")
+
+	def test_omitting_them_keeps_the_payload_shape_unchanged(self):
+		with stub_turn():
+			result = a2a_client_ops.delegate_to_local_agent(self.params(), self.ctx())
+		payload = self._request_payload(result["a2a_task"])
+		self.assertEqual(set(payload.keys()), {"instruction"})
+
+	def test_blank_values_are_not_carried_through(self):
+		with stub_turn():
+			result = a2a_client_ops.delegate_to_local_agent(
+				self.params(target_app="", git_branch="  "), self.ctx()
+			)
+		payload = self._request_payload(result["a2a_task"])
+		self.assertEqual(set(payload.keys()), {"instruction"})
+
+	def test_local_delegate_itself_accepts_extra_payload_directly(self):
+		"""Covers local.delegate()'s own contract, independent of the
+		connector wrapper above."""
+		with stub_turn():
+			task = local.delegate(
+				self.orchestrator.name, self.worker.name, "do it",
+				extra_payload={"target_app": "one_fm", "git_branch": "test-production"},
+			)
+		payload = frappe.parse_json(task.request_payload)
+		self.assertEqual(payload["target_app"], "one_fm")
+		self.assertEqual(payload["git_branch"], "test-production")
+
+	def test_local_delegate_without_extra_payload_is_unchanged(self):
+		with stub_turn():
+			task = local.delegate(self.orchestrator.name, self.worker.name, "do it")
+		payload = frappe.parse_json(task.request_payload)
+		self.assertEqual(payload, {"instruction": "do it"})
+
+
 class TestLocalDelegationGuards(LocalDelegationCase):
 	"""Every refusal still refuses — it just no longer escapes as an exception.
 

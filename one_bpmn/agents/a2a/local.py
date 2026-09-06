@@ -96,12 +96,19 @@ def delegate(
 	input_role: str | None = None,
 	deadline_minutes: int | None = None,
 	required_capability: str | None = None,
+	extra_payload: dict | None = None,
 ):
 	"""Hand a task to a local agent. Returns the A2A Task row.
 
 	The guardrails run BEFORE anything is created, so a refused delegation
 	leaves no trace of work that never started.
-	"""
+
+	``extra_payload``: additional structured keys folded into request_payload
+	alongside ``instruction`` (e.g. target_app/git_branch resolved from a
+	Work Item's own fields) — for data a delegating agent can supply
+	authoritatively rather than making the worker re-derive it from free
+	text. Optional and additive: omitted, request_payload is exactly the
+	``{"instruction": ...}`` shape every existing caller already gets."""
 	config = resolve_target(target)
 	counters = guardrails.next_counters(parent_task)
 	# The DELEGATING agent's limit, never the worker's. delegation_deadline_minutes
@@ -170,7 +177,7 @@ def delegate(
 			"caller_instance": caller_instance,
 			"caller_wf_task_id": caller_wf_task_id,
 			"bpmn_id": bpmn_id,
-			"request_payload": frappe.as_json({"instruction": instruction}),
+			"request_payload": frappe.as_json({"instruction": instruction, **(extra_payload or {})}),
 			"task_execution_id": counters.get("task_execution_id"),
 			"delegation_depth": counters.get("delegation_depth"),
 			"handoff_count": counters.get("handoff_count"),
