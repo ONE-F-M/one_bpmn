@@ -223,6 +223,8 @@ def create_ai_run(
 	config: ExecutorConfig,
 	bpmn_label: str = "",
 	process_model: str = "",
+	recall_query: str = "",
+	memory_injected_tokens: int = 0,
 ) -> "frappe.Document":
 	"""Create an AI Agent Run record with status="Running".
 
@@ -233,6 +235,15 @@ def create_ai_run(
 	    config: ExecutorConfig from the dispatcher
 	    bpmn_label: Human-readable element name from the BPMN diagram
 	    process_model: Name of the BPMN Process Model
+	    recall_query: The text long-term memory was searched with this run, if
+	        any — the user's actual message, not the driving prompt template.
+	        Blank when memory is off, the query was small talk, or nothing was
+	        searched. Recorded here (rather than only visible baked into the
+	        rendered user step) because a transcript alone can't tell "searched
+	        with X, found nothing" apart from "never searched".
+	    memory_injected_tokens: Estimated size of the recalled memory block
+	        actually injected, after aiMemoryTokenBudget truncation. 0 when
+	        nothing was injected.
 
 	Returns:
 	    The created AI Agent Run document.
@@ -295,6 +306,8 @@ def create_ai_run(
 		"status": "Running",
 		"started_at": now_datetime(),
 		"max_retries": config.max_retries,
+		"recall_query": recall_query or "",
+		"memory_injected_tokens": memory_injected_tokens or 0,
 		# WI-001967: reuse the turn's correlation id when one was minted upstream,
 		# so a security event recorded before this run existed can be joined to it.
 		# Falls back to a fresh id for runs that start outside a screened turn.

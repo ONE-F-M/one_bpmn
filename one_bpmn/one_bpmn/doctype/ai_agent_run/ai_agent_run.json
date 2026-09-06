@@ -52,7 +52,9 @@
   "section_break_output",
   "final_output",
   "tool_calls",
-  "correlation_id"
+  "correlation_id",
+  "recall_query",
+  "memory_injected_tokens"
  ],
  "fields": [
   {
@@ -345,6 +347,18 @@
    "fieldname": "correlation_id",
    "fieldtype": "Data",
    "label": "Correlation ID"
+  },
+  {
+   "description": "The text long-term memory was searched with this run — the user's actual message, not the driving prompt template. Blank when memory was off, the message was small talk, or nothing was searched.",
+   "fieldname": "recall_query",
+   "fieldtype": "Small Text",
+   "label": "Recall Query"
+  },
+  {
+   "description": "Estimated size of the recalled memory block actually injected, after aiMemoryTokenBudget truncation. 0 when nothing was injected.",
+   "fieldname": "memory_injected_tokens",
+   "fieldtype": "Int",
+   "label": "Memory Injected Tokens"
   },
   {
    "collapsible": 1,
