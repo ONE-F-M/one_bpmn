@@ -157,7 +157,7 @@ def dispatch(params: dict, ctx: dict) -> dict | None:
 		token = _mint_identity_token(sandbox_url)
 	except Exception:
 		frappe.log_error(
-			title=f"Dev Agent Sandbox: identity token minting failed ({run.name})",
+			title=f"Agent Sandbox: identity token minting failed ({run.name})",
 			message=frappe.get_traceback(),
 		)
 		run.db_set({"state": "failed", "error_message": "Could not authenticate to the sandbox."}, update_modified=False)
