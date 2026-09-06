@@ -276,7 +276,30 @@ class TestSandboxAiAgentRun(CallbackCase):
 			"pr_url": "https://github.com/o/r/pull/9",
 			"agent_report": "Added the docstring.",
 			"agent_model": model,
-			"agent_tool_calls": ["read_file", "write_file", "run_tests"],
+			"agent_trace": [
+				{
+					"role": "assistant", "content": "",
+					"tool_calls": [
+						{"name": "read_file", "arguments": {"path": "a.py"}, "result": {"content": "..."}, "status": "Success"},
+						{"name": "write_file", "arguments": {"path": "a.py", "content": "..."}, "result": {"written": True}, "status": "Success"},
+					],
+					"prompt_tokens": 1200, "completion_tokens": 600,
+					"cache_read_tokens": 500, "cache_write_tokens": 100, "latency_ms": 900,
+				},
+				{
+					"role": "assistant", "content": "",
+					"tool_calls": [
+						{"name": "run_tests", "arguments": {}, "result": {"passed": True}, "status": "Success"},
+					],
+					"prompt_tokens": 800, "completion_tokens": 400,
+					"cache_read_tokens": 0, "cache_write_tokens": 0, "latency_ms": 1100,
+				},
+				{
+					"role": "assistant", "content": "Added the docstring.", "tool_calls": [],
+					"prompt_tokens": 0, "completion_tokens": 0,
+					"cache_read_tokens": 0, "cache_write_tokens": 0, "latency_ms": 200,
+				},
+			],
 			"agent_started_at": 1000.0,
 			"agent_ended_at": 1010.5,
 			"agent_usage": {
@@ -301,9 +324,30 @@ class TestSandboxAiAgentRun(CallbackCase):
 		self.assertEqual(agent_run.total_tokens, 3600)
 		self.assertEqual(agent_run.duration_ms, 10500)
 		self.assertEqual(agent_run.final_output, "Added the docstring.")
+		# The flat field is now a cheap derived summary — the real detail is
+		# in the Step/Tool Call rows asserted below.
 		self.assertEqual(
 			frappe.parse_json(agent_run.tool_calls), ["read_file", "write_file", "run_tests"]
 		)
+
+		steps = frappe.get_all(
+			"AI Agent Step", filters={"run": agent_run_name}, fields=["name", "step_index", "role"],
+			order_by="step_index asc",
+		)
+		self.assertEqual(len(steps), 3)
+		self.assertEqual([s.step_index for s in steps], [0, 1, 2])
+
+		first_step_calls = frappe.get_all(
+			"AI Agent Tool Call", filters={"parent": steps[0].name}, fields=["tool_name", "status"],
+			order_by="idx asc",
+		)
+		self.assertEqual([c.tool_name for c in first_step_calls], ["read_file", "write_file"])
+		self.assertTrue(all(c.status == "Success" for c in first_step_calls))
+
+		final_step = frappe.get_doc("AI Agent Step", steps[2].name)
+		self.assertEqual(final_step.content, "Added the docstring.")
+		self.assertEqual(len(final_step.tool_calls), 0)
+
 		# $3/1M input, $15/1M output: 2000 * 3/1e6 + 1000 * 15/1e6 = 0.006 + 0.015.
 		# Cache costs are deliberately not asserted precisely here — pricing.py
 		# derives non-zero cache rates from the input rate by default when the
@@ -315,6 +359,42 @@ class TestSandboxAiAgentRun(CallbackCase):
 			agent_run.estimated_cost, agent_run.total_input_cost + agent_run.total_output_cost
 		)
 
+	def test_a_tool_error_is_recorded_as_error_not_reclassified(self):
+		"""Confirms _record_sandbox_trace trusts the trace's own status
+		rather than re-deriving it the way record_selector_turns does — that
+		function's _tool_call_status() only recognizes Processa's own error
+		string conventions, not the sandbox's {"error": ...} dict shape, and
+		would silently call this "Success" if it were reused here instead."""
+		model = self._make_model(f"_sbx-model-{frappe.generate_hash(length=6)}")
+		run = self._run()
+		self._post({
+			"correlation_id": run.name,
+			"status": "tests_failed",
+			"agent_report": "Could not finish.",
+			"agent_model": model,
+			"agent_trace": [
+				{
+					"role": "assistant", "content": "", "tool_calls": [
+						{"name": "read_file", "arguments": {"path": "missing.py"},
+						 "result": {"error": "path escapes the app directory"}, "status": "Error"},
+					],
+					"prompt_tokens": 100, "completion_tokens": 50,
+					"cache_read_tokens": 0, "cache_write_tokens": 0, "latency_ms": 300,
+				},
+			],
+			"agent_started_at": 1000.0,
+			"agent_ended_at": 1001.0,
+			"agent_usage": {"input_tokens": 100, "output_tokens": 50,
+			                "cache_read_input_tokens": 0, "cache_creation_input_tokens": 0},
+		})
+		agent_run_name = frappe.db.get_value("Agent Sandbox Run", run.name, "ai_agent_run")
+		steps = frappe.get_all("AI Agent Step", filters={"run": agent_run_name}, fields=["name"])
+		self.assertEqual(len(steps), 1)
+		calls = frappe.get_all(
+			"AI Agent Tool Call", filters={"parent": steps[0].name}, fields=["tool_name", "status"],
+		)
+		self.assertEqual(calls[0].status, "Error")
+
 	def test_a_failed_test_run_records_goal_not_achieved(self):
 		model = self._make_model(f"_sbx-model-{frappe.generate_hash(length=6)}")
 		run = self._run()
@@ -323,7 +403,7 @@ class TestSandboxAiAgentRun(CallbackCase):
 			"status": "tests_failed",
 			"agent_report": "Tests failed.",
 			"agent_model": model,
-			"agent_tool_calls": [],
+			"agent_trace": [],
 			"agent_started_at": 1000.0,
 			"agent_ended_at": 1001.0,
 			"agent_usage": {"input_tokens": 100, "output_tokens": 50,

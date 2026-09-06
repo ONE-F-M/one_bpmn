@@ -10,10 +10,19 @@ was deployed with — see agent-sandbox/deploy.py). Every failure returns
 the same opaque answer: a caller must not be able to use this endpoint to
 learn which correlation ids exist or why a signature was rejected.
 
-The sandbox opens the pull request itself, directly against GitHub, before
-it ever calls back — this endpoint only records what already happened
-(pr_url on a pass, or why one wasn't opened) and resumes whoever is waiting.
-It never talks to GitHub on the sandbox's behalf.
+The sandbox opens the pull request itself, directly against GitHub — as one
+of its own tool calls now (open_pull_request), not automatic post-loop logic
+— before it ever calls back. This endpoint only records what already
+happened (pr_url on a pass, or why one wasn't opened, including "the agent
+never called open_pull_request") and resumes whoever is waiting. It never
+talks to GitHub on the sandbox's behalf.
+
+payload["agent_trace"] (one entry per coding-loop turn, replacing the old
+flat agent_tool_calls list of bare names) is turned into real AI Agent Step
++ AI Agent Tool Call rows here (_record_sandbox_trace) — the same
+observability every other AI Agent Task in the system gets via
+record_ai_step(), for a loop that runs entirely outside Frappe and can only
+ever be recorded from this one callback.
 """
 
 from __future__ import annotations
@@ -25,6 +34,7 @@ from datetime import datetime
 
 import frappe
 
+from one_bpmn.agents.observability import record_ai_step
 from one_bpmn.agents.job_limits import AI_AGENT_JOB_TIMEOUT
 
 
@@ -198,13 +208,20 @@ def _create_sandbox_ai_agent_run(run, payload: dict) -> str | None:
 	})
 	try:
 		agent_run.insert(ignore_permissions=True)
+		trace = payload.get("agent_trace") or []
+		_record_sandbox_trace(agent_run, trace)
 		# Set separately, not in the initial dict above — confirmed the hard
-		# way that this specific field's value is silently dropped somewhere
-		# in insert()'s own pipeline (other fields in the same dict, some
-		# also read_only, save correctly; this one alone came back None on
-		# reload every time). db_set() writes directly and always sticks.
+		# way that a field set only in the initial insert() dict can be
+		# silently dropped somewhere in insert()'s own pipeline (other fields
+		# in the same dict, some also read_only, save correctly; this one
+		# alone came back None on reload every time). db_set() writes
+		# directly and always sticks. tool_calls itself is now a cheap
+		# derived summary (just the names, in call order) — the real detail
+		# lives in the AI Agent Step/AI Agent Tool Call rows just recorded.
 		agent_run.db_set(
-			"tool_calls", frappe.as_json(payload.get("agent_tool_calls") or []), update_modified=False
+			"tool_calls",
+			frappe.as_json([call["name"] for turn in trace for call in turn.get("tool_calls") or []]),
+			update_modified=False,
 		)
 	except Exception:
 		frappe.log_error(
@@ -213,6 +230,52 @@ def _create_sandbox_ai_agent_run(run, payload: dict) -> str | None:
 		)
 		return None
 	return agent_run.name
+
+
+def _record_sandbox_trace(agent_run, trace: list) -> None:
+	"""One AI Agent Step per turn of the sandbox's own coding loop, each
+	carrying one AI Agent Tool Call row per call made in that turn — the
+	same observability every other AI Agent Task in the system already gets
+	via record_ai_step(), now extended to a loop that runs entirely outside
+	Frappe (on Cloud Run) and can only ever be recorded from here.
+
+	Deliberately NOT agents/observability.py's own record_selector_turns,
+	despite the trace shape (dev_agent_server.py's _run_coding_loop was built
+	to match it exactly): that helper re-derives each call's status via
+	_tool_call_status(), which classifies Processa's OWN tool-loop error
+	string conventions ("Blocked by policy:", "Error calling ...") — the
+	sandbox's tool results are {"error": ...} dicts, not those strings, so
+	every sandbox failure would silently re-classify as "Success" if run
+	through that helper instead of trusting the status the loop already
+	computed correctly.
+
+	result is JSON-stringified before it reaches record_ai_step — confirmed
+	the hard way that its tool_result field (Long Text, unlike tool_args'
+	JSON fieldtype which Frappe auto-serializes) has no such handling: a raw
+	dict fails at the SQL parameter-binding layer with "dict can not be used
+	as parameter", silently, since record_ai_step's own insert() call is
+	wrapped in a try/except that logs and swallows it. Processa's own tool
+	loop never hits this because its own results are already strings by the
+	time they reach record_selector_turns — the sandbox's are not."""
+	for step_index, turn in enumerate(trace):
+		tool_calls = []
+		for call in turn.get("tool_calls") or []:
+			call = dict(call)
+			if not isinstance(call.get("result"), str):
+				call["result"] = frappe.as_json(call.get("result"))
+			tool_calls.append(call)
+		record_ai_step(
+			agent_run,
+			step_index,
+			turn.get("role") or "assistant",
+			turn.get("content") or "",
+			prompt_tokens=turn.get("prompt_tokens", 0),
+			completion_tokens=turn.get("completion_tokens", 0),
+			cache_read_tokens=turn.get("cache_read_tokens", 0),
+			cache_write_tokens=turn.get("cache_write_tokens", 0),
+			latency_ms=turn.get("latency_ms", 0),
+			tool_calls=tool_calls,
+		)
 
 
 def _enqueue_resume(run) -> None:

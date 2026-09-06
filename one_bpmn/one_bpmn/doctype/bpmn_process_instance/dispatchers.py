@@ -516,7 +516,13 @@ def dispatch_connector(instance, task, task_cfg: dict, bpmn_id: str) -> None:
 		val = _apply_value_transform(transforms.get(key), val, key, bpmn_id)
 		resolved[key] = val
 
-	ctx = {"instance": instance, "task": task, "doc": doc, "task_data": dict(task.data)}
+	# operation is exposed so one handler function can serve several named
+	# operations on the same connector (e.g. agent_sandbox_ops.dispatch_action
+	# serving both "run_tests" and "open_pull_request") — the handler reads
+	# which one it was configured as instead of needing a dedicated function
+	# per operation. Purely additive: no existing handler reads an
+	# "operation" key, so nothing already depends on its absence.
+	ctx = {"instance": instance, "task": task, "doc": doc, "task_data": dict(task.data), "operation": operation}
 	output = None
 	try:
 		output = handler(resolved, ctx)
@@ -1654,7 +1660,8 @@ def dispatch_ai_agent(instance, task, task_cfg: dict, bpmn_id: str, resume_run: 
 			waiting_marker["a2a_task"] = deferred_wait["a2a_task"]
 			waiting_marker["label"] = label or deferred_wait.get("label") or pending_name
 		elif deferred_wait.get("run"):
-			# agent_sandbox_ops.dispatch()'s own waiting-marker shape is
+			# agent_sandbox_ops's own waiting-marker shape (set by
+			# _dispatch_single_action for run_tests/open_pull_request) is
 			# {"run": <Agent Sandbox Run name>, "label": ...} — deliberately
 			# NOT stored under waiting_marker["run"] here, since that key above
 			# already holds this AI Agent Run's own name; reusing it would
