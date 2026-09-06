@@ -25,6 +25,7 @@ def distill_and_write(
 	reconcile_model=None,
 	reconcile_provider=None,
 	process_model=None,
+	exclude_context: str | None = None,
 ) -> list[str]:
 	"""Distill ``agent_output`` into durable facts and ``memory_write`` each one.
 
@@ -43,6 +44,11 @@ def distill_and_write(
 	on the dispatch thread and passed in as arguments; this runs in a background
 	worker and must not look configuration up itself. ``reconcile_model`` defaults
 	to ``model``, which is the behaviour that predates the split.
+
+	``exclude_context`` (WI-002165) is the dispatch-thread system prompt plus
+	injected memory block, passed straight through to ``distill_memories`` so
+	it can reject facts that just restate what the agent was told rather than
+	something it learned.
 	"""
 	try:
 		from one_bpmn.agents.memory.distill import distill_memories
@@ -56,6 +62,7 @@ def distill_and_write(
 			provider_name=provider_name,
 			backend=backend,
 			model=model,
+			exclude_context=exclude_context,
 		)
 		# The reconciler runs on its own model, so the two can be tuned apart —
 		# and therefore on its own provider, because a model only works against

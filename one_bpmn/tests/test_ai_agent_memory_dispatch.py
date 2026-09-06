@@ -174,6 +174,85 @@ class TestDispatcherMemory(FrappeTestCase):
 		self.assertEqual(kwargs["source_run"], "RUN-FAKE")
 		self.assertEqual(kwargs["backend"], "faketest")
 
+	def test_distilled_write_mode_passes_exclude_context(self):
+		# WI-002165: the dispatch-thread system prompt (the agent's own
+		# instructions for this run) is handed to the distiller so it can
+		# reject a fact that just restates them.
+		with patch("one_bpmn.agents.memory.writeback.distill_and_write") as dw, patch(
+			"one_bpmn.agents.memory.tools.memory_write"
+		):
+			D.dispatch_ai_agent(
+				_instance(),
+				_task("Act_X"),
+				{
+					"aiBackend": "faketest",
+					"aiMemoryWriteMode": "distilled",
+					"aiMemoryScope": "Agent",
+					"aiSystemPrompt": "HARD PIPELINE RULES: always call classify_intent first.",
+					"aiUserPrompt": "q",
+				},
+				"Act_X",
+			)
+		kwargs = dw.call_args.kwargs
+		self.assertIn("HARD PIPELINE RULES", kwargs["exclude_context"])
+
+	def test_distilled_tool_protocol_fallback_uses_plain_user_text_not_driving_prompt(self):
+		# WI-002165 regression: a tool-protocol agent (empty result.output,
+		# answer lives in the trace) used to splice the FULLY ASSEMBLED
+		# user_prompt — the operator-authored driving template, e.g. Logix's
+		# "HARD PIPELINE RULES" — into distillation labelled "[User message]".
+		# That produced jrrd68247k/joal5ugdks: the driving template re-stored
+		# as if it were something the person said. The fallback must use only
+		# the person's own words (_turn_user_message), never the template.
+		instance = SimpleNamespace(
+			name="INST-T",
+			context_doctype="Chat Conversation",
+			context_docname="CONV-1",
+			process_model="",
+			initiated_by="Administrator",
+		)
+		task = SimpleNamespace(
+			data={"user_text": "please handle my request"},
+			task_spec=SimpleNamespace(bpmn_id="Act_T", name="Act_T"),
+		)
+
+		class _ToolProtocolExecutor(Executor):
+			def run(self, config, context):
+				_CAPTURED["config"] = config
+				return ExecutorResult(
+					output="",  # tool-protocol agent: nothing outside tool calls
+					token_usage=TokenUsage(1, 2, 3),
+					error_code=ErrorCode.SUCCESS,
+					trace=[{"tool_calls": [{"name": "finalize", "arguments": {}, "result": "done"}]}],
+				)
+
+		register_executor("toolprotocoltest", _ToolProtocolExecutor)
+
+		with patch("one_bpmn.agents.memory.writeback.distill_and_write") as dw, patch(
+			"one_bpmn.agents.memory.tools.memory_write"
+		):
+			D.dispatch_ai_agent(
+				instance,
+				task,
+				{
+					"aiBackend": "toolprotocoltest",
+					"aiMemoryWriteMode": "distilled",
+					"aiMemoryScope": "Agent",
+					# Static driving template (never contains the real per-turn
+					# message — that's appended separately below by
+					# build_dynamic_preamble, same as the real Logix map).
+					"aiUserPrompt": (
+						"HARD PIPELINE RULES: (1) ALWAYS call classify_intent first. "
+						"(2) Every turn MUST end by calling finalize."
+					),
+				},
+				"Act_T",
+			)
+		agent_output = dw.call_args.kwargs["agent_output"]
+		self.assertIn("please handle my request", agent_output)
+		self.assertNotIn("HARD PIPELINE RULES", agent_output)
+		self.assertNotIn("classify_intent", agent_output)
+
 	def test_legacy_autowrite_defaults_to_distilled(self):
 		# Back-compat: an existing element with aiMemoryAutoWrite on and no mode
 		# now distils rather than dumping the reply verbatim.
