@@ -175,7 +175,7 @@ def dispatch(params: dict, ctx: dict) -> dict | None:
 		response.raise_for_status()
 	except Exception as exc:
 		frappe.log_error(
-			title=f"Dev Agent Sandbox: dispatch failed ({run.name})",
+			title=f"Agent Sandbox: dispatch failed ({run.name})",
 			message=frappe.get_traceback(),
 		)
 		run.db_set({"state": "failed", "error_message": str(exc)[:500]}, update_modified=False)
