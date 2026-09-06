@@ -1,6 +1,6 @@
 # Copyright (c) 2026, one-fm and contributors
 # For license information, please see license.txt
-"""The Dev Agent Sandbox connector's dispatch operation.
+"""The agent sandbox connector's operations.
 
 Mirrors a2a_client_ops.delegate_to_local_agent's parking shape (WI-001933),
 but the "remote" here is not another local agent or an A2A-protocol remote —
