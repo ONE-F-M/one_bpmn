@@ -126,7 +126,7 @@ def dispatch(params: dict, ctx: dict) -> dict | None:
 		if isinstance(exc, AgentSandboxError):
 			raise
 		frappe.log_error(
-			title=f"Dev Agent Sandbox: could not resolve the agent config ({run.name})",
+			title=f"Agent Sandbox: could not resolve the agent config ({run.name})",
 			message=frappe.get_traceback(),
 		)
 		raise AgentSandboxError(f"Could not resolve a usable model/credential: {exc}")
