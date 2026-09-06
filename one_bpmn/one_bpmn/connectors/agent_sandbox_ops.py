@@ -96,7 +96,8 @@ def _a2a_task_of(instance) -> str | None:
 
 
 def sandbox_dispatch(action: str, target_app: str, git_branch: str, work_item_description: str,
-                      args: dict, a2a_task: str | None = None) -> dict:
+                      args: dict, a2a_task: str | None = None, *,
+                      bpmn_id: str | None = None, instance=None) -> dict:
 	"""The bare primitive the Sandbox Tool Server Scripts (Sandbox Tool:
 	Read File / Write File / Edit File / List Files) call — one fast,
 	synchronous HTTP round trip to the sandbox's own /tool_call endpoint,
@@ -119,43 +120,90 @@ def sandbox_dispatch(action: str, target_app: str, git_branch: str, work_item_de
 	seconds-scale (a git fetch against an already-locally-cloned repo, plus
 	a local file read/write and — for write/edit — a commit+push), not
 	minutes-scale, so there's nothing here worth suspending the caller's
-	turn over."""
+	turn over.
+
+	Every call still gets its own Agent Sandbox Run row — same auditability
+	dispatch_action's run_tests/open_pull_request already have, just settled
+	in one pass (running -> completed/failed) instead of parked at "running"
+	for a callback to resume. bpmn_id/instance are optional and keyword-only
+	purely so tracking can never become a REQUIRED argument a caller forgets
+	and breaks on — omitting them still creates the row, just with those two
+	fields left blank. Row creation itself is wrapped so a DB hiccup here
+	degrades to no row at all rather than breaking the NEVER RAISES
+	guarantee above."""
+	run = None
+	try:
+		run = frappe.get_doc({
+			"doctype": "Agent Sandbox Run",
+			"state": "running",
+			"target_app": target_app,
+			"git_branch": git_branch,
+			"bpmn_id": bpmn_id,
+			"caller_instance": getattr(instance, "name", None),
+			"work_item_description": work_item_description,
+		})
+		run.insert(ignore_permissions=True)
+	except Exception:
+		frappe.log_error(
+			title=f"Dev Agent Sandbox: {action} could not create a tracking row",
+			message=frappe.get_traceback(),
+		)
+		run = None
+
 	settings = frappe.get_cached_doc("Processa Settings")
 	sandbox_url = (settings.agent_sandbox_url or "").strip().rstrip("/")
 	if not sandbox_url:
-		return {"ok": False, "error": "Processa Settings has no Sandbox URL configured."}
+		error = "Processa Settings has no Sandbox URL configured."
+		if run:
+			run.db_set({"state": "failed", "error_message": error}, update_modified=False)
+		return {"ok": False, "error": error}
 	github_token = settings.get_password("github_token", raise_exception=False) or ""
 	if not github_token:
-		return {"ok": False, "error": "Processa Settings has no GitHub token configured."}
+		error = "Processa Settings has no GitHub token configured."
+		if run:
+			run.db_set({"state": "failed", "error_message": error}, update_modified=False)
+		return {"ok": False, "error": error}
+
+	payload = {
+		"action": action,
+		"target_app": target_app,
+		"git_branch": git_branch,
+		"work_item_description": work_item_description,
+		"work_item_id": work_item_id_for(a2a_task),
+		"args": args,
+	}
+	if run:
+		run.db_set("request_payload", frappe.as_json(payload), update_modified=False)
 
 	try:
 		token = _mint_identity_token(sandbox_url)
 	except Exception as exc:
 		frappe.log_error(title=f"Dev Agent Sandbox: {action} auth failed", message=frappe.get_traceback())
-		return {"ok": False, "error": f"Could not authenticate to the sandbox: {exc}"}
+		error = f"Could not authenticate to the sandbox: {exc}"
+		if run:
+			run.db_set({"state": "failed", "error_message": error[:500]}, update_modified=False)
+		return {"ok": False, "error": error}
 
 	try:
 		import requests
 
 		response = requests.post(
 			f"{sandbox_url}/tool_call",
-			json={
-				"action": action,
-				"target_app": target_app,
-				"git_branch": git_branch,
-				"work_item_description": work_item_description,
-				"work_item_id": work_item_id_for(a2a_task),
-				"args": args,
-				"github_token": github_token,
-			},
+			json={**payload, "github_token": github_token},
 			headers={"Authorization": f"Bearer {token}"},
 			timeout=60,
 		)
 		response.raise_for_status()
-		return {"ok": True, "response": response.json()}
+		data = response.json()
+		if run:
+			run.db_set({"state": "completed", "result": frappe.as_json(data)}, update_modified=False)
+		return {"ok": True, "response": data}
 	except Exception as exc:
 		frappe.log_error(title=f"Dev Agent Sandbox: {action} call failed", message=frappe.get_traceback())
-		return {"ok": False, "error": f"The sandbox rejected the call: {exc}"}
+		error = f"The sandbox rejected the call: {exc}"
+		if run:
+			run.db_set({"state": "failed", "error_message": error[:500]}, update_modified=False)
+		return {"ok": False, "error": error}
 
 
 def _dispatch_single_action(params: dict, ctx: dict, action: str) -> dict | None:
