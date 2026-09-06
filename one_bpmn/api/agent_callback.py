@@ -103,28 +103,37 @@ def report_result() -> dict:
 	if files:
 		run.db_set("files", frappe.as_json(files), update_modified=False)
 
-	if status == "tests_passed":
-		if pr_url:
-			run.db_set({"state": "completed", "pr_url": pr_url}, update_modified=False)
-		else:
-			error = payload.get("pr_error") or "Sandbox reported tests_passed but did not open a pull request."
-			run.db_set({"state": "failed", "error_message": error[:500]}, update_modified=False)
-	elif status == "tests_passed_no_changes":
-		run.db_set(
-			{"state": "failed", "error_message": "Tests passed but the agent made no changes to submit."},
-			update_modified=False,
-		)
-	else:
-		# A PR opened despite the failure doesn't make this a success — the
-		# run's own state still reflects that tests didn't pass. pr_url is
-		# still recorded above so the diff stays reachable for review.
-		fields = {"error_message": (payload.get("error") or status or "sandbox run failed")[:500]}
-		if pr_url:
-			fields["pr_url"] = pr_url
-		run.db_set({"state": "failed", **fields}, update_modified=False)
+	run.db_set(_settled_fields(_run_action(run), status, pr_url, payload), update_modified=False)
 
 	_enqueue_resume(run)
 	return {"accepted": True}
+
+
+def _run_action(run) -> str:
+	return (frappe.parse_json(run.request_payload or "{}") or {}).get("action") or ""
+
+
+def _settled_fields(action: str, status: str, pr_url: str, payload: dict) -> dict:
+	"""The state a finished run settles to. run_tests never opens a PR, so for
+	it tests_passed is completion; every other shape still needs a pr_url."""
+	if status == "tests_passed":
+		if action == "run_tests":
+			return {"state": "completed"}
+		if pr_url:
+			return {"state": "completed", "pr_url": pr_url}
+		error = payload.get("pr_error") or "Sandbox reported tests_passed but did not open a pull request."
+		return {"state": "failed", "error_message": error[:500]}
+	if status == "tests_passed_no_changes":
+		return {"state": "failed", "error_message": "Tests passed but the agent made no changes to submit."}
+	# A PR opened despite the failure doesn't make this a success, but its
+	# url is kept so the diff stays reachable for review.
+	error = payload.get("error") or status or "sandbox run failed"
+	if payload.get("pr_error") and not pr_url:
+		error = f"{error}; pull request not opened: {payload['pr_error']}"
+	fields = {"state": "failed", "error_message": error[:500]}
+	if pr_url:
+		fields["pr_url"] = pr_url
+	return fields
 
 
 def _create_sandbox_ai_agent_run(run, payload: dict) -> str | None:
@@ -342,18 +351,23 @@ def _resume_waiting_agent(run) -> None:
 
 
 def _sandbox_run_answer(run) -> str:
-	"""What the model is told the sandbox tool call returned — same shape
-	as _delegation_answer's reasoning in tasks.py: a failure is reported in
-	words, not hidden, since the agent asked for this work and deserves to
-	know what actually happened.
-
-	A failing run can still carry a pr_url now (the sandbox opens one
-	regardless of test outcome) — that has to be mentioned even on the
-	failure branch, or the caller would never learn a PR exists just
-	because the state isn't "completed"."""
+	"""What the model is told the sandbox tool call returned. A failure comes
+	with the sandbox's own output so the agent can tell its change from the
+	environment, and a PR is mentioned on either branch."""
+	if _run_action(run) == "run_tests":
+		verdict = "Tests passed." if run.state == "completed" else f"Tests failed ({run.error_message or 'no reason given'})."
+		return verdict + _output_tail(run)
 	if run.state == "completed":
 		return f"Pull request opened: {run.pr_url}" if run.pr_url else "Sandbox run completed with no changes to submit."
 	reason = f"The sandbox run did not complete ({run.state}): {run.error_message or 'no reason given'}"
 	if run.pr_url:
 		reason += f" A pull request was still opened for review, despite the failure: {run.pr_url}"
-	return reason
+	elif _run_action(run) == "open_pull_request":
+		reason += " No pull request exists."
+	return reason + _output_tail(run)
+
+
+def _output_tail(run, limit: int = 1500) -> str:
+	result = frappe.parse_json(run.result or "{}") or {}
+	tail = (result.get("stderr_tail") or result.get("stdout_tail") or "").strip()
+	return f"\n\nSandbox output (tail):\n{tail[-limit:]}" if tail else ""
