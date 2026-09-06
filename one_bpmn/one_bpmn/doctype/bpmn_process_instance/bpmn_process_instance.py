@@ -1406,7 +1406,7 @@ class BPMNProcessInstance(Document):
 			)
 		except Exception:
 			frappe.log_error(
-				title=f"Dev Agent Sandbox: could not bind the run to its waiting agent ({run_name})",
+				title=f"Agent Sandbox: could not bind the run to its waiting agent ({run_name})",
 				message=frappe.get_traceback(),
 			)
 		self._log_task(
