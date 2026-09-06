@@ -295,6 +295,7 @@ def memory_write(
 	ignore_permissions: bool = False,
 	reconcile: bool = False,
 	reconcile_ctx: dict | None = None,
+	process_model: str | None = None,
 ) -> dict:
 	"""Save a memory for a scope key.
 
@@ -302,7 +303,9 @@ def memory_write(
 	existing record's content/metadata (and source_run) are overwritten in
 	place instead of inserting a duplicate; without a ``dedup_key`` a new record
 	is inserted. ``source_run`` records provenance (the AI Agent Run that wrote
-	the memory).
+	the memory). ``process_model`` records which process run produced the fact —
+	it is NOT a scope key (Agent scope still keys strictly on ``agent_element``),
+	just optional provenance carried alongside, the same way ``source_run`` is.
 
 	``reconcile=True`` (the background note-taker path) replaces string dedup with
 	write-time semantic reconciliation: before inserting, the most similar
@@ -366,18 +369,24 @@ def memory_write(
 		doc.metadata = metadata_json
 		if source_run is not None:
 			doc.source_run = source_run
+		if process_model is not None:
+			doc.process_model = process_model
 		doc.save(ignore_permissions=ignore_permissions)
 	else:
-		doc = frappe.get_doc(
-			{
-				"doctype": "AI Memory",
-				**keys,
-				"content": content,
-				"dedup_key": dedup_key,
-				"metadata": metadata_json,
-				"source_run": source_run,
-			}
-		)
+		# **keys already carries process_model for Process scope (it's the scope
+		# key there); only add the kwarg on top when it's actually passed, so an
+		# omitted process_model (the common case) can't clobber that with None.
+		doc_fields = {
+			"doctype": "AI Memory",
+			**keys,
+			"content": content,
+			"dedup_key": dedup_key,
+			"metadata": metadata_json,
+			"source_run": source_run,
+		}
+		if process_model is not None:
+			doc_fields["process_model"] = process_model
+		doc = frappe.get_doc(doc_fields)
 		doc.insert(ignore_permissions=ignore_permissions)
 
 	return {"name": doc.name, "content": doc.content, "metadata": _json_loads(doc.metadata)}
