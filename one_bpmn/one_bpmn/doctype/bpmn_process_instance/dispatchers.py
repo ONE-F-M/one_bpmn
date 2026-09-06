@@ -1404,6 +1404,24 @@ def dispatch_ai_agent(instance, task, task_cfg: dict, bpmn_id: str, resume_run: 
 		jinja_context   = jinja_ctx,
 	)
 
+	# ── WI-002191: no new run on a model whose credentials are known broken ──
+	# One failed run per message is how the July key outage went unnoticed for
+	# four days. Refused here, before an AI Agent Run exists, so the failure
+	# count stops growing; the refusal text says what is wrong and that someone
+	# has been told. A resume is the continuation of a run that already exists
+	# and is never refused.
+	if not resume_payload:
+		from one_bpmn.agents import model_health
+
+		_refusal = model_health.refuse_new_run(config.model)
+		if _refusal:
+			task.data[f"{bpmn_id}_error_code"] = ErrorCode.PROVIDER_DISABLED.value
+			task.data[f"{bpmn_id}_error_message"] = _refusal
+			frappe.logger("one_bpmn").warning(
+				f"AI Agent Task {bpmn_id}: refused — {_refusal}"
+			)
+			return
+
 	# ── Observability: create Run (or continue the suspended one) ─────
 	run = None
 	if resume_payload:

@@ -278,6 +278,15 @@ scheduler_events = {
 			"one_bpmn.tasks.process_timer_catch_events",
 			"one_bpmn.tasks.poll_a2a_tasks",
 		],
+		# WI-002191: try every enabled model's credentials against its provider
+		# (a free list call, not a completion), then tell someone about any model
+		# that is Unhealthy and has not been announced yet — once per kind of
+		# problem. Fifteen minutes is often enough that a fixed key lifts the
+		# block before the person who fixed it has moved on, and rare enough to
+		# be invisible in the provider's request log.
+		"*/15 * * * *": [
+			"one_bpmn.tasks.check_ai_model_credentials",
+		],
 		"0 * * * *": [
 			"one_bpmn.tasks.close_stale_chat_instances",
 			# WI-002050: chase a question nobody has answered. Hourly rather than

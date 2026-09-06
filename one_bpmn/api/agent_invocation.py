@@ -331,6 +331,17 @@ def invoke_agent(
 		count=(config.get("agent_type") != "Chat"),
 	)
 
+	# ── Broken credentials (WI-002191) ───────────────────────────────────
+	# A model the platform already knows cannot answer is refused before the
+	# turn starts: no Chat Message, no process instance, no failed run. The
+	# reason is an AgentRefusal, so the chat surface shows it as a message
+	# rather than "something went wrong".
+	from one_bpmn.agents import model_health as _model_health
+
+	_unavailable = _model_health.refuse_new_run(config.get("ai_model"))
+	if _unavailable:
+		raise _model_health.ModelUnavailable(_unavailable)
+
 	# ── PII input screening (WI-001644) ──────────────────────────────────
 	# Every agent invocation passes through here, so this is the one place
 	# that can guarantee no user-supplied PII reaches a third-party model.
