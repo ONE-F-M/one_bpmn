@@ -624,9 +624,10 @@ def _activate_deployed_model(model, script_extensions: dict) -> None:
 
 	1. Mark the model as active (``is_active = 1``)
 	2. Deactivate sibling models with the same ``process_name``
-	3. Enable Server Scripts linked to the deployed model
-	4. Disable Server Scripts linked to deactivated siblings
-	   (unless shared with the active model)
+	3. Enable Server Scripts linked to the deployed model — including the ones
+	   it reaches through a Call Activity, which its compiled spec embeds
+	4. Disable Server Scripts linked to deactivated siblings, unless the
+	   deployed model or any other active model still runs them
 
 	Modifies the model in-memory — the caller is responsible for
 	calling ``model.save()``.
@@ -640,8 +641,11 @@ def _activate_deployed_model(model, script_extensions: dict) -> None:
 	model.deployed_at = frappe.utils.now()
 	model.deployed_by = frappe.session.user
 
-	# Server scripts referenced by the deployed model
-	active_scripts = set()
+	# Server scripts the deployed model runs: its own Script Tasks plus those a
+	# Call Activity embeds in its compiled spec. Reading only the raw XML missed
+	# the embedded ones, so deploying one Software Development version marked
+	# the Orchestrator's scripts "exclusive" to its sibling and switched them off.
+	active_scripts = _get_linked_server_scripts(model.serialized_spec)
 	for cfg in (script_extensions or {}).values():
 		if cfg.get("serverScript"):
 			active_scripts.add(cfg["serverScript"])
@@ -671,7 +675,8 @@ def _activate_deployed_model(model, script_extensions: dict) -> None:
 			frappe.db.set_value("BPMN Process Model", s.name, "is_active", 0)
 
 		# Disable scripts exclusive to deactivated siblings
-		for script_name in (sibling_scripts - active_scripts):
+		still_used = _scripts_used_by_active_models({model.name, *(s.name for s in siblings)})
+		for script_name in (sibling_scripts - active_scripts - still_used):
 			if frappe.db.exists("Server Script", script_name):
 				frappe.db.set_value("Server Script", script_name, "disabled", 1)
 
@@ -679,6 +684,20 @@ def _activate_deployed_model(model, script_extensions: dict) -> None:
 	for script_name in active_scripts:
 		if frappe.db.exists("Server Script", script_name):
 			frappe.db.set_value("Server Script", script_name, "disabled", 0)
+
+
+def _scripts_used_by_active_models(exclude: set) -> set:
+	"""Server Scripts some other active map still runs, Call Activities included.
+	A script is never disabled while one of these needs it."""
+	used = set()
+	rows = frappe.get_all(
+		"BPMN Process Model",
+		filters={"is_active": 1, "name": ["not in", sorted(exclude)]},
+		fields=["serialized_spec"],
+	)
+	for row in rows:
+		used |= _get_linked_server_scripts(row.serialized_spec)
+	return used
 
 
 def _update_round_robin_in_model(model_name: str, task_bpmn_id: str, last_user: str) -> None:
@@ -1749,6 +1768,7 @@ def compile_process_model(model_name: str) -> dict:
 	# ── Eval suite deployment gating (non-blocking warnings) ──────────
 	deploy_warnings = _check_eval_suite_gating(model_name)
 	deploy_warnings.extend(_check_ai_tasks_have_a_user_prompt(spec_data))
+	deploy_warnings.extend(_validate_ai_tool_contract(service_extensions))
 
 	script_extensions = _extract_script_task_config(sanitized_xml)
 	if script_extensions or called_script_extensions:
@@ -1855,7 +1875,8 @@ def disable_process_model(model_name: str) -> dict:
 	1. Sets ``is_active = 0`` — trigger.py will stop creating new instances.
 	2. Clears ``serialized_spec`` and ``subprocess_specs`` to prevent
 	   stale instantiation.
-	3. Disables all Server Scripts linked to this model's script tasks.
+	3. Disables the Server Scripts linked to this model's script tasks that no
+	   other active model still runs.
 
 	Running instances are NOT affected — they continue to completion with
 	their own ``workflow_state``.
@@ -1888,8 +1909,8 @@ def disable_process_model(model_name: str) -> dict:
 	model.serialized_spec = None
 	model.subprocess_specs = None
 
-	# ── Disable linked Server Scripts ─────────────────────────────────────
-	for script_name in linked_scripts:
+	# ── Disable linked Server Scripts nobody else runs ───────────────────
+	for script_name in linked_scripts - _scripts_used_by_active_models({model_name}):
 		if frappe.db.exists("Server Script", script_name):
 			frappe.db.set_value("Server Script", script_name, "disabled", 1)
 
@@ -1911,6 +1932,81 @@ def disable_process_model(model_name: str) -> dict:
 		"model": model_name,
 		"running_instances": running_count,
 	}
+
+
+# A prompt telling the model to "call X" where X is not in the Tools box. Only a
+# name in a calling position counts — bare snake_case words are app names and
+# domain vocabulary far more often than tools.
+_TOOL_CALL_RE = re.compile(r"\b(?:call|calls|calling|called|invoke|invokes)\s+`?([a-z][a-z0-9_]{2,})`?", re.I)
+
+
+def _known_tool_ids() -> set:
+	"""Every tool id in any active map's compiled spec. A bare word like
+	``finalize`` is only treated as a tool reference when some map really has
+	a tool of that name — otherwise ordinary English after "call" would trip it."""
+	ids = set()
+	for spec in frappe.get_all("BPMN Process Model", filters={"is_active": 1}, pluck="serialized_spec"):
+		try:
+			exts = (json.loads(spec or "{}") or {}).get("service_task_extensions") or {}
+		except ValueError:
+			continue
+		for cfg in exts.values():
+			for shape in json.loads((cfg or {}).get("aiToolShapes") or "[]"):
+				if shape.get("bpmn_id"):
+					ids.add(shape["bpmn_id"])
+	return ids
+
+
+def _tool_contract_gaps(prompt: str, tool_ids: set, known_ids: set) -> list:
+	"""Names the prompt tells the model to call that are not in its own Tools box."""
+	referenced = {m.lower() for m in _TOOL_CALL_RE.findall(prompt or "")}
+	return sorted(
+		name for name in referenced
+		if name not in tool_ids and ("_" in name or name in known_ids)
+	)
+
+
+def _validate_ai_tool_contract(service_extensions: dict) -> list:
+	"""Every tool a prompt names must exist in that agent's Tools box.
+
+	The Frontend Agent shipped for weeks with a prompt ordering draft_change,
+	review_change and propose_pull_request — none of which existed — and every
+	delegation ended "staged but never delivered". The configuration's prompt
+	wins over the shape's (agent_config_resolver), so that is the one checked.
+	A Background agent has nobody watching who would notice a dead tool, so for
+	it this blocks the deploy; a chat agent surfaces the failure to a person at
+	once, so it gets a warning."""
+	agents = _ai_agents_with_tools(service_extensions)
+	if not agents:
+		return []
+	known = _known_tool_ids()
+	warnings, blocking = [], []
+	for agent_id, cfg in agents.items():
+		tool_ids = {s.get("bpmn_id") for s in json.loads(cfg.get("aiToolShapes") or "[]")}
+		prompt, agent_type = cfg.get("aiSystemPrompt") or "", ""
+		config_name = (cfg.get("aiAgentConfig") or "").strip()
+		if config_name and frappe.db.exists("AI Agent Configuration", config_name):
+			row = frappe.db.get_value(
+				"AI Agent Configuration", config_name, ["system_prompt", "agent_type"], as_dict=True
+			)
+			prompt, agent_type = (row.system_prompt or prompt), (row.agent_type or "")
+		gaps = _tool_contract_gaps(prompt, tool_ids, known)
+		if not gaps:
+			continue
+		detail = _(
+			"'{0}' tells the model to call {1}, but its Tools box has no such tool. "
+			"Fix the prompt or add the shape."
+		).format(agent_id, ", ".join(gaps))
+		if agent_type == "Background":
+			blocking.append(detail)
+		else:
+			warnings.append({"label": _("Tool Contract"), "icon": "wrench", "type": "warning", "detail": detail})
+	if blocking:
+		frappe.throw(
+			_("The prompt and the Tools box disagree:") + "<br>" + "<br>".join(f"• {b}" for b in blocking),
+			exc=frappe.ValidationError,
+		)
+	return warnings
 
 
 def _check_ai_tasks_have_a_user_prompt(spec_data: dict) -> list:
