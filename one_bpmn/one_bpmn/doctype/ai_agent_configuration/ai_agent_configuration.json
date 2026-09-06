@@ -56,6 +56,7 @@
   "long_term_memory",
   "memory_scope",
   "memory_write_mode",
+  "memory_token_budget",
   "memory_models_section",
   "memory_distill_model",
   "column_break_memory_models",
@@ -559,6 +560,13 @@
    "fieldtype": "Select",
    "label": "Memory Write Mode",
    "options": "\noff\ndistilled\nraw"
+  },
+  {
+   "depends_on": "eval:doc.long_term_memory=='Enabled'",
+   "description": "Caps the injected recall block by estimated token size, truncating lowest-ranked memories first (and the top match's own content if even it alone exceeds the cap). 0 or blank uses the default (800) — there is no way to disable the cap here, unlike Context Token Budget, since an unbounded block is the defect this field exists to close.",
+   "fieldname": "memory_token_budget",
+   "fieldtype": "Int",
+   "label": "Memory Token Budget"
   },
   {
    "depends_on": "eval:doc.long_term_memory=='Enabled' && doc.memory_write_mode=='distilled'",

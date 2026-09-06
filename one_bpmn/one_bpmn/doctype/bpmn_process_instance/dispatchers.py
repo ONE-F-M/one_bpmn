@@ -8,6 +8,7 @@
 # ``_dispatch_service_task`` router.
 
 import json
+import re
 
 import frappe
 import frappe.utils
@@ -17,6 +18,53 @@ import frappe.utils
 # Stable, documented format for the injected memory block. Evals and the run
 # inspector reference this header — do not change it lightly.
 MEMORY_BLOCK_HEADER = "Relevant memory:"
+_MEMORY_BLOCK_PROVENANCE = (
+	"(Background notes recalled from PAST, separate conversations. "
+	"They are context only — nothing below has happened in the current "
+	"conversation, and none of it counts as work already done for the "
+	"current request.)"
+)
+
+# aiMemoryLimit only bounds how many memories are recalled — a raw-write-mode
+# memory has no size cap of its own (memory_write stores str(result.output)
+# verbatim), so the block those memories are rendered into had no bound at
+# all. This is the per-agent default (aiMemoryTokenBudget overrides it); see
+# _bound_memories_to_budget.
+DEFAULT_MEMORY_TOKEN_BUDGET = 800
+
+# Greetings/acknowledgements carry no signal worth searching memory with, and
+# searching anyway risks a coincidental keyword match injecting an unrelated
+# fact into a "hi" — the case this rules out, not just makes unlikely.
+# Deliberately generic: recall gating runs ahead of every agent (ProsAlly,
+# Logix, Docu, ...), so this can't lean on any one agent's domain vocabulary
+# the way Docu's own classifier does (docu_answers_small_talk.py's
+# "_substantive" regex is DocType-specific and would misclassify a real
+# Logix or ProsAlly request).
+_SMALL_TALK_WORDS = frozenset(
+	"""
+	a afternoon alright am and are back bye can cheers cool day do does evening
+	excellent fine good goodbye great hallo hello help hey hi hiya how howdy i
+	is it just k kk later lovely me morning much my name nice night no now ok
+	okay okey perfect ping please pong really right say see so sup sure test
+	testing thank thanks thanx there this thx to u up welcome well what who
+	with working works yeah yep yes yo you your yours yw
+	""".split()
+)
+
+
+def _is_small_talk(message: str) -> bool:
+	"""True for a greeting, acknowledgement, or empty/wordless message — none of
+	which memory recall should be searched with.
+
+	Conservative on purpose, like the vocabulary it borrows the shape of:
+	refusing a real request's recall is the expensive mistake, so this only
+	fires when the message has no words at all, or EVERY word in it is a known
+	chatter word.
+	"""
+	words = re.findall(r"[a-z']+", (message or "").strip().lower())
+	if not words:
+		return True
+	return all(w in _SMALL_TALK_WORDS for w in words)
 
 
 def _cfg_truthy(value) -> bool:
@@ -63,18 +111,61 @@ def _format_memory_block(memories: list) -> str:
 	(2026-08-09): the ProsAlly orchestrator concluded the requested process
 	already existed, skipped its confirm tool, and every turn fell through
 	to finalize's fallback question."""
-	lines = [
-		MEMORY_BLOCK_HEADER,
-		"(Background notes recalled from PAST, separate conversations. "
-		"They are context only — nothing below has happened in the current "
-		"conversation, and none of it counts as work already done for the "
-		"current request.)",
-	]
+	lines = [MEMORY_BLOCK_HEADER, _MEMORY_BLOCK_PROVENANCE]
 	for m in memories:
 		content = (m.get("content") or "").strip()
 		if content:
 			lines.append(f"- {content}")
 	return "\n".join(lines)
+
+
+def _bound_memories_to_budget(memories: list, token_budget: int) -> list:
+	"""Truncate *memories* (already rank-ordered by memory_search — relevance
+	first on the FULLTEXT path, recency first on the keyword fallback) so the
+	block ``_format_memory_block`` renders from them stays within
+	``token_budget`` estimated tokens.
+
+	A hard ceiling, not a best-effort one: unlike ContextWindowPolicy's history
+	trim (conversation_store.py), which sends an oversized newest exchange
+	rather than lose it, an unbounded block is exactly the defect this exists
+	to close, so even the single best-ranked memory has its content cut to fit
+	rather than going out whole over budget.
+
+	Keeps memories in rank order — added until the next one would exceed
+	budget, then stops, dropping the lower-ranked tail rather than reordering
+	or skipping ahead to something smaller.
+	"""
+	from one_bpmn.agents.memory.conversation_store import DEFAULT_CHARS_PER_TOKEN, estimate_tokens
+
+	if not memories or not token_budget or token_budget <= 0:
+		return memories
+
+	# Measured from the real formatter (header + provenance, no items) rather
+	# than reconstructed by hand, so this can't drift from what
+	# _format_memory_block actually renders.
+	header_cost = estimate_tokens({"content": _format_memory_block([])}, DEFAULT_CHARS_PER_TOKEN)
+	budget = max(token_budget - header_cost, 0)
+	# Each kept memory also costs the "\n- " bullet/join _format_memory_block
+	# adds around it — rounds to a token of its own often enough (short
+	# memories, several of them) that ignoring it would let the rendered block
+	# run over budget by the very margin this function exists to close.
+	per_item_overhead = 1
+
+	kept = []
+	spent = 0
+	for m in memories:
+		content = str((m or {}).get("content") or "")
+		cost = estimate_tokens({"content": content}, DEFAULT_CHARS_PER_TOKEN) + per_item_overhead
+		if spent + cost <= budget:
+			kept.append(m)
+			spent += cost
+			continue
+		if not kept:
+			max_chars = max((budget - per_item_overhead) * DEFAULT_CHARS_PER_TOKEN, 0)
+			if max_chars > 0:
+				kept.append({**m, "content": content[:max_chars]})
+		break
+	return kept
 
 
 def _turn_user_message(instance, task) -> str:
@@ -1284,11 +1375,20 @@ def dispatch_ai_agent(instance, task, task_cfg: dict, bpmn_id: str, resume_run: 
 		user_message = ""
 
 	memory_block = ""
+	# Captured for observability (AI Agent Run.recall_query /
+	# .memory_injected_tokens) regardless of whether anything was found —
+	# "searched with X, found nothing" and "never searched" are different facts.
+	recall_query = ""
+	memory_injected_tokens = 0
 	if not resume_payload and _cfg_truthy(task_cfg.get("aiLongTermMemory")):
 		try:
 			memory_target = _resolve_memory_target(task_cfg, instance, bpmn_id)
 			query = user_message or user_prompt
-			if memory_target and query:
+			# A greeting/acknowledgement carries nothing to search memory with —
+			# skip entirely rather than risk a coincidental keyword match
+			# injecting an unrelated fact into "hi".
+			if memory_target and query and not _is_small_talk(query):
+				recall_query = query
 				from one_bpmn.agents.memory.tools import memory_search
 				scope, scope_key = memory_target
 				limit = int(task_cfg.get("aiMemoryLimit", 5) or 5)
@@ -1296,7 +1396,18 @@ def dispatch_ai_agent(instance, task, task_cfg: dict, bpmn_id: str, resume_run: 
 					scope, scope_key, query, limit=limit, ignore_permissions=True
 				)
 				if memories:
+					token_budget = int(
+						task_cfg.get("aiMemoryTokenBudget") or DEFAULT_MEMORY_TOKEN_BUDGET
+					)
+					memories = _bound_memories_to_budget(memories, token_budget)
 					memory_block = _format_memory_block(memories)
+					from one_bpmn.agents.memory.conversation_store import (
+						DEFAULT_CHARS_PER_TOKEN,
+						estimate_tokens,
+					)
+					memory_injected_tokens = estimate_tokens(
+						{"content": memory_block}, DEFAULT_CHARS_PER_TOKEN
+					)
 		except Exception:
 			frappe.log_error(
 				title=f"BPMN AI Agent Task: memory_search failed ({bpmn_id})",
@@ -1488,6 +1599,8 @@ def dispatch_ai_agent(instance, task, task_cfg: dict, bpmn_id: str, resume_run: 
 				instance, bpmn_id, "task", config,
 				bpmn_label=_get_label(task),
 				process_model=instance.process_model or "",
+				recall_query=recall_query,
+				memory_injected_tokens=memory_injected_tokens,
 			)
 		except Exception:
 			frappe.log_error(

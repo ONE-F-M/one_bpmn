@@ -375,3 +375,244 @@ class TestTheUserMessageReachesTheModel(FrappeTestCase):
 
 		self.assertLess(prompt.index("net-30 rule"), prompt.index("Process the latest message."))
 		self.assertLess(prompt.index("Process the latest message."), prompt.index("add a status field"))
+
+
+# ── WI-002163: bounded, on-topic recall ─────────────────────────────────────
+# A constant driving prompt used to recall the same memories on every run
+# (fixed above, WI-002169); this covers what that fix alone doesn't: a greeting
+# still has no signal worth searching memory with, and nothing bounded the
+# injected block's SIZE — aiMemoryLimit only bounds its count.
+
+
+class TestSmallTalkGate(TestTheUserMessageReachesTheModel):
+	"""Reuses TestTheUserMessageReachesTheModel's setUp/_dispatch — same
+	mocked observability, same chat-instance fixture."""
+
+	def test_greeting_skips_recall_entirely(self):
+		with patch("one_bpmn.agents.memory.tools.memory_search") as ms:
+			self._dispatch(
+				_chat_instance(),
+				{"user_text": "hi"},
+				aiLongTermMemory="enabled",
+				aiMemoryScope="Agent",
+			)
+		ms.assert_not_called()
+
+	def test_acknowledgement_skips_recall(self):
+		with patch("one_bpmn.agents.memory.tools.memory_search") as ms:
+			self._dispatch(
+				_chat_instance(),
+				{"user_text": "ok thanks"},
+				aiLongTermMemory="enabled",
+				aiMemoryScope="Agent",
+			)
+		ms.assert_not_called()
+
+	def test_a_real_request_still_recalls(self):
+		"""The expensive mistake: refusing recall a real request needed."""
+		with patch("one_bpmn.agents.memory.tools.memory_search", return_value=[]) as ms:
+			self._dispatch(
+				_chat_instance(),
+				{"user_text": "add a status field"},
+				aiLongTermMemory="enabled",
+				aiMemoryScope="Agent",
+			)
+		ms.assert_called_once()
+
+	def test_a_greeting_with_a_real_request_still_recalls(self):
+		with patch("one_bpmn.agents.memory.tools.memory_search", return_value=[]) as ms:
+			self._dispatch(
+				_chat_instance(),
+				{"user_text": "hi, can you create a form for blockers"},
+				aiLongTermMemory="enabled",
+				aiMemoryScope="Agent",
+			)
+		ms.assert_called_once()
+
+
+class TestIsSmallTalk(FrappeTestCase):
+	"""_is_small_talk directly — the gate other tests exercise through dispatch."""
+
+	def test_greetings_and_acknowledgements(self):
+		for message in (
+			"hi", "Hi!", "hello", "hey there", "yo", "good morning", "thanks",
+			"thank you", "ok", "okay, thanks", "test", "who are you",
+		):
+			self.assertTrue(D._is_small_talk(message), f"{message!r} should be small talk")
+
+	def test_empty_or_wordless(self):
+		for message in ("", "   ", "?", "👋"):
+			self.assertTrue(D._is_small_talk(message), f"{message!r} should be small talk")
+
+	def test_real_requests_are_never_small_talk(self):
+		for message in (
+			"add a status field",
+			"a form to log site inspections with a date, an inspector and a pass/fail result",
+			"remove the serial number field",
+			"delete the invoice table",
+			"hi, can you create a form for blockers",
+			"ok now add an attachment field",
+		):
+			self.assertFalse(D._is_small_talk(message), f"{message!r} should not be small talk")
+
+
+class TestBoundMemoriesToBudget(FrappeTestCase):
+	"""_bound_memories_to_budget directly — the truncation dispatch applies to
+	whatever memory_search returns, before _format_memory_block renders it."""
+
+	def test_under_budget_is_unchanged(self):
+		memories = [{"content": "short fact"}]
+		self.assertEqual(D._bound_memories_to_budget(memories, 800), memories)
+
+	def test_zero_or_blank_budget_is_a_noop(self):
+		memories = [{"content": "x" * 10_000}]
+		self.assertEqual(D._bound_memories_to_budget(memories, 0), memories)
+		self.assertEqual(D._bound_memories_to_budget(memories, None), memories)
+
+	def test_lowest_ranked_memories_are_dropped_first(self):
+		# Rank order is memory_search's contract (relevance/recency); the
+		# budget must respect it, not reorder or skip ahead to something smaller.
+		# ~26 tokens each rendered (25 content + the "\n- " join); a header of
+		# ~56 tokens leaves room for one at a 90-token budget, not two.
+		memories = [{"content": "a" * 100}, {"content": "b" * 100}, {"content": "c" * 100}]
+		kept = D._bound_memories_to_budget(memories, 90)
+		self.assertEqual(kept, [memories[0]])
+
+	def test_single_oversized_memory_is_truncated_not_dropped(self):
+		"""AC4: the block must never exceed budget, including a raw-mode memory
+		with no size cap of its own — even the sole, best-ranked memory is cut
+		to fit rather than sent whole over budget or left empty."""
+		memories = [{"content": "z" * 10_000}]
+		kept = D._bound_memories_to_budget(memories, 100)
+		self.assertEqual(len(kept), 1)
+		self.assertLess(len(kept[0]["content"]), 10_000)
+		self.assertGreater(len(kept[0]["content"]), 0)
+
+	def test_result_never_exceeds_the_budget(self):
+		from one_bpmn.agents.memory.conversation_store import DEFAULT_CHARS_PER_TOKEN, estimate_tokens
+
+		memories = [{"content": "word " * 200} for _ in range(5)]
+		budget = 100
+		kept = D._bound_memories_to_budget(memories, budget)
+		block = D._format_memory_block(kept)
+		self.assertLessEqual(estimate_tokens({"content": block}, DEFAULT_CHARS_PER_TOKEN), budget)
+
+
+class TestMemoryTokenBudgetInDispatch(TestTheUserMessageReachesTheModel):
+	"""End-to-end: dispatch_ai_agent honours aiMemoryTokenBudget (default and
+	per-agent override) on whatever memory_search returns."""
+
+	def test_default_budget_bounds_an_oversized_raw_mode_memory(self):
+		from one_bpmn.agents.memory.conversation_store import DEFAULT_CHARS_PER_TOKEN, estimate_tokens
+
+		with patch(
+			"one_bpmn.agents.memory.tools.memory_search",
+			return_value=[{"content": "z" * 50_000}],  # unbounded raw-write content
+		), patch("one_bpmn.agents.memory.tools.memory_write"):
+			prompt = self._dispatch(
+				_chat_instance(),
+				{"user_text": "add a status field"},
+				aiLongTermMemory="enabled",
+				aiMemoryScope="Agent",
+			)
+
+		# Isolate the memory block: everything before the instructions text
+		# (the driving prompt, constant across this fixture's dispatch calls),
+		# not "User message:" — that split would also count the instructions
+		# themselves, which aiMemoryTokenBudget was never meant to bound.
+		memory_block = prompt.split("Process the latest message.")[0].rstrip("\n")
+		self.assertLessEqual(
+			estimate_tokens({"content": memory_block}, DEFAULT_CHARS_PER_TOKEN),
+			D.DEFAULT_MEMORY_TOKEN_BUDGET,
+		)
+
+	def test_per_agent_budget_override(self):
+		from one_bpmn.agents.memory.conversation_store import DEFAULT_CHARS_PER_TOKEN, estimate_tokens
+
+		with patch(
+			"one_bpmn.agents.memory.tools.memory_search",
+			return_value=[{"content": "z" * 50_000}],
+		), patch("one_bpmn.agents.memory.tools.memory_write"):
+			prompt = self._dispatch(
+				_chat_instance(),
+				{"user_text": "add a status field"},
+				aiLongTermMemory="enabled",
+				aiMemoryScope="Agent",
+				aiMemoryTokenBudget=100,
+			)
+
+		memory_block = prompt.split("Process the latest message.")[0].rstrip("\n")
+		self.assertLessEqual(estimate_tokens({"content": memory_block}, DEFAULT_CHARS_PER_TOKEN), 100)
+
+
+class TestRecallObservability(FrappeTestCase):
+	"""AC3/AC5: the recall query and injected size are recorded per run, not
+	only visible baked into the rendered prompt."""
+
+	def setUp(self):
+		_CAPTURED.clear()
+		self.create_ai_run_mock = patch(
+			"one_bpmn.agents.observability.create_ai_run",
+			return_value=SimpleNamespace(name="RUN-FAKE", stub=False),
+		).start()
+		self.addCleanup(patch.stopall)
+		for target in (
+			"one_bpmn.agents.observability.record_ai_step",
+			"one_bpmn.agents.observability.finalize_ai_run",
+			"one_bpmn.agents.observability.finalize_ai_run_on_exception",
+			"frappe.db.commit",
+		):
+			patch(target).start()
+		patch("one_bpmn.one_bpmn.engine.get_task_display_name", return_value="AI Task").start()
+
+	def _dispatch(self, task_data=None, **cfg):
+		task = SimpleNamespace(
+			data=dict(task_data or {}), task_spec=SimpleNamespace(bpmn_id="Act_1", name="Act_1")
+		)
+		config = {"aiBackend": "faketest", "aiSystemPrompt": "SYS", "aiUserPrompt": "Process the latest message."}
+		config.update(cfg)
+		D.dispatch_ai_agent(_chat_instance(), task, config, "Act_1")
+
+	def test_recall_query_is_the_user_message_not_the_template(self):
+		with patch("one_bpmn.agents.memory.tools.memory_search", return_value=[]):
+			self._dispatch(
+				{"user_text": "add a status field"},
+				aiLongTermMemory="enabled",
+				aiMemoryScope="Agent",
+			)
+		kwargs = self.create_ai_run_mock.call_args.kwargs
+		self.assertEqual(kwargs["recall_query"], "add a status field")
+
+	def test_recall_query_is_blank_when_small_talk(self):
+		with patch("one_bpmn.agents.memory.tools.memory_search") as ms:
+			self._dispatch(
+				{"user_text": "hi"},
+				aiLongTermMemory="enabled",
+				aiMemoryScope="Agent",
+			)
+		ms.assert_not_called()
+		kwargs = self.create_ai_run_mock.call_args.kwargs
+		self.assertEqual(kwargs["recall_query"], "")
+
+	def test_memory_injected_tokens_reflects_the_bounded_block(self):
+		with patch(
+			"one_bpmn.agents.memory.tools.memory_search", return_value=[{"content": "net-30 rule"}]
+		):
+			self._dispatch(
+				{"user_text": "add a status field"},
+				aiLongTermMemory="enabled",
+				aiMemoryScope="Agent",
+			)
+		kwargs = self.create_ai_run_mock.call_args.kwargs
+		self.assertGreater(kwargs["memory_injected_tokens"], 0)
+		self.assertLessEqual(kwargs["memory_injected_tokens"], D.DEFAULT_MEMORY_TOKEN_BUDGET)
+
+	def test_memory_injected_tokens_is_zero_when_nothing_found(self):
+		with patch("one_bpmn.agents.memory.tools.memory_search", return_value=[]):
+			self._dispatch(
+				{"user_text": "add a status field"},
+				aiLongTermMemory="enabled",
+				aiMemoryScope="Agent",
+			)
+		kwargs = self.create_ai_run_mock.call_args.kwargs
+		self.assertEqual(kwargs["memory_injected_tokens"], 0)
