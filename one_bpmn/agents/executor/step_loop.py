@@ -36,6 +36,7 @@ from one_bpmn.agents.llm_provider.base import (
 	TurnRecord,
 )
 from one_bpmn.agents.shape_tools import PAUSE_HELD_FLAG, ToolDeferred
+from one_bpmn.agents.turn_state import TURN_ANSWERED_FLAG
 from one_bpmn.security.tool_policy import PolicyViolation
 
 # Tool result handed to the model when it requests a second human tool in the
@@ -173,6 +174,7 @@ async def run_agent_loop(
 		# pause were still open. Observed live — an orchestrator's delegation
 		# returned "not-started" and created no A2A Task at all.
 		frappe.flags[PAUSE_HELD_FLAG] = False
+		frappe.flags[TURN_ANSWERED_FLAG] = False
 
 
 async def _step_with_retries(
@@ -213,6 +215,8 @@ async def _run_turns(
 		# than just before the tool loop: the flag must never outlive the turn
 		# that set it, and a turn can also end at the final-answer return below.
 		frappe.flags[PAUSE_HELD_FLAG] = False
+		# Same reason, same place: a turn that answered must not end the NEXT one.
+		frappe.flags[TURN_ANSWERED_FLAG] = False
 		_turn_t0 = time.perf_counter()
 		step = await _step_with_retries(
 			adapter, system, transcript, tools, max_tokens,
@@ -331,6 +335,22 @@ async def _run_turns(
 				cache_read_tokens=sum(t.cache_read_tokens for t in trace),
 				cache_write_tokens=sum(t.cache_write_tokens for t in trace),
 			)
+
+		# ── The turn is already answered: stop here ──────────────────────
+		# A stage tool that writes the turn's output (finalize, and clarify when
+		# it ends the turn) IS the reply — the surface reads it from the turn
+		# store, not from the model's prose. Feeding the results back for one
+		# more model call bought nothing: measured on Logix run om8mj9cenv, that
+		# closing call returned 0 characters and 2 completion tokens for
+		# $0.00287 — 20% of the whole $0.01425 turn — and on LuCrusher it re-sent
+		# a 37k-token transcript to be told nothing. The model's own narration
+		# from this turn carries out as the text, exactly as the turn cap does.
+		if frappe.flags.get(TURN_ANSWERED_FLAG):
+			frappe.flags[TURN_ANSWERED_FLAG] = False
+			_said = next(
+				(t.content for t in reversed(trace) if (t.content or "").strip()), ""
+			)
+			return CompletionResult(text=_said, trace=trace), None
 
 		transcript.append({"role": "tool_results", "results": results})
 

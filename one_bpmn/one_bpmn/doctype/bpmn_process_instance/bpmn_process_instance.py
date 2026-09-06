@@ -5,6 +5,8 @@ import json
 import uuid
 
 import frappe
+
+from one_bpmn.agents.job_limits import AI_AGENT_JOB_TIMEOUT
 from frappe import _
 from frappe.model.document import Document
 from frappe.utils import now_datetime
@@ -1045,7 +1047,7 @@ class BPMNProcessInstance(Document):
 				# AI-only jobs — the rest of the pass already ran inline
 				# (WI-001494/WI-001495).
 				queue="bpmn_ai_agent",
-				timeout=600,
+				timeout=AI_AGENT_JOB_TIMEOUT,
 				enqueue_after_commit=True,
 				job_id=f"bpmn-ai-{self.name}-{ident}",
 				deduplicate=True,
@@ -1300,7 +1302,7 @@ class BPMNProcessInstance(Document):
 			"one_bpmn.one_bpmn.doctype.bpmn_process_instance"
 			".bpmn_process_instance.run_parked_ai_task",
 			queue="bpmn_ai_agent",
-			timeout=600,
+			timeout=AI_AGENT_JOB_TIMEOUT,
 			enqueue_after_commit=True,
 			job_id=f"bpmn-ai-{self.name}-hr-{task_id}",
 			deduplicate=True,
@@ -2414,7 +2416,7 @@ def _enqueue_a2a_resume(instance_name: str, wf_task_id: str, a2a_task_name: str)
 		"one_bpmn.one_bpmn.doctype.bpmn_process_instance"
 		".bpmn_process_instance.run_parked_ai_task",
 		queue="bpmn_ai_agent",
-		timeout=600,
+		timeout=AI_AGENT_JOB_TIMEOUT,
 		enqueue_after_commit=True,
 		job_id=f"bpmn-ai-{instance_name}-a2a-{a2a_task_name}",
 		deduplicate=True,
@@ -2441,7 +2443,7 @@ def _enqueue_agent_sandbox_resume(instance_name: str, wf_task_id: str, run_name:
 		"one_bpmn.one_bpmn.doctype.bpmn_process_instance"
 		".bpmn_process_instance.run_parked_ai_task",
 		queue="bpmn_ai_agent",
-		timeout=600,
+		timeout=AI_AGENT_JOB_TIMEOUT,
 		enqueue_after_commit=True,
 		job_id=f"bpmn-ai-{instance_name}-agent-sandbox-{run_name}",
 		deduplicate=True,
@@ -2505,7 +2507,7 @@ def run_parked_ai_task(
 				"one_bpmn.one_bpmn.doctype.bpmn_process_instance"
 				".bpmn_process_instance.run_parked_ai_task",
 				queue="bpmn_ai_agent",
-				timeout=600,
+				timeout=AI_AGENT_JOB_TIMEOUT,
 				enqueue_after_commit=True,
 				job_id=f"bpmn-ai-{instance_name}-{task_id}-r{attempt + 1}",
 				deduplicate=True,

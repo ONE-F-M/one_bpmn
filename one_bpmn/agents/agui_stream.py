@@ -195,10 +195,21 @@ def agent_event_stream(agent_id: str, message: str, conversation: str, context: 
 			# persist nothing keep the generated id, which is still unique per
 			# turn and still correct for grouping the text events.
 			message_id = result.get("message_name") or message_id
+			# AG-UI rejects an empty delta (min_length=1), so a runner that
+			# produced no text used to abort the whole stream with a validation
+			# error — the user saw a failed request rather than an answer. An
+			# empty reply is a thing that happens (a failed AI task leaves the
+			# output variable blank), so it is reported, not raised.
+			extensions = list(_extension_events(result))
+			if not text and not extensions:
+				text = _(
+					"The agent finished without producing a reply. Please try again."
+				)
 			yield encoder.encode(TextMessageStartEvent(message_id=message_id, role="assistant"))
-			yield encoder.encode(TextMessageContentEvent(message_id=message_id, delta=text))
+			if text:
+				yield encoder.encode(TextMessageContentEvent(message_id=message_id, delta=text))
 			yield encoder.encode(TextMessageEndEvent(message_id=message_id))
-			for event in _extension_events(result):
+			for event in extensions:
 				yield encoder.encode(event)
 			_commit_turn()
 	except RateLimited as refusal:
@@ -262,9 +273,11 @@ def _relay_child_stream(child, encoder, message_id):
 			yield event.decode() if isinstance(event, bytes) else event
 			continue
 		if not isinstance(event, dict):
-			yield encoder.encode(
-				TextMessageContentEvent(message_id=message_id, delta=str(event))
-			)
+			text = str(event)
+			if text:
+				yield encoder.encode(
+					TextMessageContentEvent(message_id=message_id, delta=text)
+				)
 			continue
 
 		event_type = (event.get("type") or "").upper()
@@ -310,6 +323,10 @@ def _relay_child_stream(child, encoder, message_id):
 				delta = "".join(
 					d.get("text", str(d)) if isinstance(d, dict) else str(d) for d in delta
 				)
+			# Nothing to relay, and AG-UI will not accept an empty delta — a
+			# child's keep-alive chunk must not end the parent's stream.
+			if not delta:
+				continue
 			yield encoder.encode(
 				TextMessageContentEvent(
 					message_id=event.get("message_id", message_id), delta=delta

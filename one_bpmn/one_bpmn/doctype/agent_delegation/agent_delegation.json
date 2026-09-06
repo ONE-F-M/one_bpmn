@@ -164,6 +164,13 @@
    "read_only": 1
   },
   {
+   "fieldname": "manual_attempt_count",
+   "fieldtype": "Int",
+   "label": "Hand-overs by a Person",
+   "read_only": 1,
+   "description": "How many of the attempts a person asked for. Kept apart from the automatic ones so the retry limit cannot be bypassed by clicking a button without anyone being able to tell afterwards."
+  },
+  {
    "fieldname": "column_break_chain",
    "fieldtype": "Column Break"
   },
@@ -229,6 +236,34 @@
    "fieldtype": "Datetime",
    "label": "Cancelled At",
    "read_only": 1
+  },
+  {
+   "fieldname": "redelegated_by",
+   "fieldtype": "Link",
+   "label": "Handed Back By",
+   "options": "User",
+   "read_only": 1,
+   "description": "The person who handed this work back to the agent. Like cancelling, this is a person's action \u2014 an agent that could re-delegate its own stopped work could work around any limit it was given."
+  },
+  {
+   "fieldname": "redelegated_at",
+   "fieldtype": "Datetime",
+   "label": "Handed Back At",
+   "read_only": 1
+  },
+  {
+   "fieldname": "deadline_restarted",
+   "fieldtype": "Check",
+   "label": "Deadline Restarted",
+   "read_only": 1,
+   "description": "A hand-over by a person starts the clock again; an automatic retry does not. Recorded rather than inferred, because the two rules are deliberately opposite."
+  },
+  {
+   "fieldname": "outcome_reported_at",
+   "fieldtype": "Datetime",
+   "label": "Outcome Reported At",
+   "read_only": 1,
+   "description": "When the result of a hand-over was written onto the referenced document. The orchestrator's step has already finished by then, so a person is told directly."
   },
   {
    "fieldname": "section_detail",

@@ -16,6 +16,12 @@ class AIResponseFeedback(Document):
 			frappe.throw(_("Feedback needs both a message and a rater."))
 		self.dedup_key = f"{self.message}|{self.rated_by}"
 
+		# Negative feedback with no comment tells a Process Owner nothing they
+		# can act on. Enforced here too, behind the API-level check in
+		# api/feedback.py — never trust the client alone.
+		if self.rating == "Negative" and not (self.comment or "").strip():
+			frappe.throw(_("A comment is required when rating a reply Negative."))
+
 		if not self.rated_on:
 			self.rated_on = frappe.utils.now_datetime()
 

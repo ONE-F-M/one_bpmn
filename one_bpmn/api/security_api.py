@@ -683,12 +683,57 @@ def agent_screening(agent: str) -> dict:
 				# an expression evaluator and cannot be handed one to run.
 				"depends_on_field": _simple_dependency(df.depends_on),
 			})
+
+	# The allow-list itself, which is a child table and so has no simple value to
+	# render. It is the one control here that decides WHO may receive work, and
+	# leaving it out meant Restrict Delegation could be ticked from Processa
+	# while the list it restricts to could only be edited in the Desk — a switch
+	# with its wiring in another room.
+	#
+	# Hung off restrict_delegates so it appears exactly when it means something:
+	# with the box unticked the list is inert, and showing it then would read as
+	# a setting that does nothing.
+	if frappe.get_meta("AI Agent Configuration").get_field("allowed_delegates"):
+		controls.append({
+			"fieldname": "allowed_delegates",
+			"group": "Delegation",
+			"label": _("Agents it may delegate to"),
+			"fieldtype": "Agent List",
+			"options": None,
+			"choices": _delegate_choices(doc.name),
+			"description": _(
+				"Only these agents may receive work from this one. Exposure over A2A is "
+				"what makes an agent eligible at all; this narrows it further."
+			),
+			"value": [row.agent_configuration for row in (doc.get("allowed_delegates") or [])],
+			"depends_on_field": "restrict_delegates",
+		})
+
 	return {
 		"agent": doc.name,
 		"agent_name": doc.get("agent_name"),
 		"controls": controls,
 		"can_edit": bool(doc.has_permission("write")),
 	}
+
+
+def _delegate_choices(agent: str) -> list:
+	"""Who could legitimately appear on an allow-list.
+
+	The same rule the door enforces — enabled, Live and exposed over A2A — so a
+	person cannot pick an agent that would be refused the moment it was tried.
+	The agent itself is excluded: delegating to yourself is the loop the
+	guardrails exist to stop.
+	"""
+	return sorted(
+		name
+		for name in frappe.get_all(
+			"AI Agent Configuration",
+			filters={"enabled": 1, "lifecycle_status": "Live", "a2a_exposed": 1},
+			pluck="name",
+		)
+		if name != agent
+	)
 
 
 @frappe.whitelist()
@@ -716,6 +761,24 @@ def save_agent_screening(agent: str, values: str | dict) -> dict:
 		if doc.get(fieldname) != values[fieldname]:
 			doc.set(fieldname, values[fieldname])
 			changed.append(fieldname)
+
+	# The allow-list is a child table, so it is replaced rather than assigned.
+	# Written here rather than through the generic loop above because that loop
+	# compares and sets scalars, and handing it a list would silently store the
+	# repr of one.
+	if "allowed_delegates" in values and meta.get_field("allowed_delegates"):
+		wanted = [n for n in (values.get("allowed_delegates") or []) if n]
+		allowed = set(_delegate_choices(doc.name))
+		# Anything not currently delegatable is dropped rather than saved: an
+		# entry the door would refuse is not a permission, it is a surprise
+		# waiting for whoever reads the list later.
+		wanted = [n for n in wanted if n in allowed]
+		current = [row.agent_configuration for row in (doc.get("allowed_delegates") or [])]
+		if wanted != current:
+			doc.set("allowed_delegates", [])
+			for name in wanted:
+				doc.append("allowed_delegates", {"agent_configuration": name})
+			changed.append("allowed_delegates")
 
 	if changed:
 		doc.save()

@@ -355,6 +355,15 @@ def config_field_map(config_name: str) -> dict:
 	# that model's credentials link at save time.
 	if cfg.get("ai_model"):
 		out["aiModel"] = cfg.ai_model
+	# Derivation at save time only helps configurations that were saved since
+	# the rule existed. One written any other way — a patch, an import, an
+	# agent created by another agent — keeps a blank provider beside a perfectly
+	# good model, and every dispatch then died on "AI Provider '' not found".
+	# The model's own link is the same answer the save would have written.
+	if not out.get("aiProvider") and out.get("aiModel"):
+		derived = frappe.db.get_value("AI Model", out["aiModel"], "provider")
+		if derived:
+			out["aiProvider"] = derived
 	return out
 
 

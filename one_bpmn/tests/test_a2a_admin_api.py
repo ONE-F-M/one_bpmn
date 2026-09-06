@@ -50,6 +50,7 @@ class TestA2AAdminPermissions(FrappeTestCase):
 				(a2a_admin_api.delegation_detail, {"name": "x"}),
 				(a2a_admin_api.delegation_filter_options, {}),
 				(a2a_admin_api.cancel_delegation, {"name": "x"}),
+				(a2a_admin_api.redelegate_delegation, {"name": "x"}),
 				(a2a_admin_api.exposed_agents, {}),
 				(a2a_admin_api.fetch_remote_card, {"name": "x"}),
 				(a2a_admin_api.set_remote_approval, {"name": "x", "approval_status": "Approved"}),
@@ -511,3 +512,179 @@ class TestCancellingFromTheScreen(FrappeTestCase):
 		detail = a2a_admin_api.delegation_detail(d.name)["delegation"]
 		self.assertEqual(detail["cancelled_by"], frappe.session.user)
 		self.assertTrue(detail["cancelled_at"])
+
+
+class TestHandingBackFromTheScreen(FrappeTestCase):
+	"""Handing stopped work back is a person's action, like cancelling.
+
+	An agent able to re-delegate its own stopped work could work around any
+	limit it was given by simply asking again, so the absence of an agent-facing
+	door is part of the feature and is pinned here.
+	"""
+
+	def tearDown(self):
+		frappe.db.rollback()
+		super().tearDown()
+
+	def _stopped(self, **updates):
+		worker = make_agent_configuration(a2a_exposed=1)
+		task = frappe.get_doc({
+			"doctype": "A2A Task", "direction": "Internal", "state": "failed",
+			"agent_configuration": worker.name, "delegation_depth": 1, "handoff_count": 1,
+		})
+		task.flags.ignore_links = True
+		task.insert(ignore_permissions=True)
+		doc = frappe.new_doc("Agent Delegation")
+		doc.update({
+			"worker_agent": worker.name, "status": "Needs Review", "a2a_task": task.name,
+			"delegation_depth": 1, "handoff_count": 1, "attempt_count": 1,
+		})
+		doc.update(updates)
+		doc.flags.ignore_permissions = True
+		doc.flags.ignore_links = True
+		doc.insert(ignore_permissions=True)
+		return doc
+
+	def test_no_connector_operation_exposes_handing_work_back(self):
+		"""A map must not be able to draw a shape that re-delegates."""
+		handlers = frappe.get_all("BPMN Connector Operation", pluck="handler_path")
+		self.assertFalse([h for h in handlers if h and "redelegate" in h])
+
+	def test_handing_back_returns_what_happened(self):
+		d = self._stopped()
+		result = a2a_admin_api.redelegate_delegation(d.name)
+		self.assertIn(result["state"], ("started", "failed"))
+		self.assertEqual(result["attempt"], 2)
+		self.assertEqual(result["by_a_person"], 1)
+		self.assertIn("deadline_minutes", result)
+
+	def test_the_screen_shows_it_live_again(self):
+		d = self._stopped()
+		a2a_admin_api.redelegate_delegation(d.name)
+		row = next(r for r in a2a_admin_api.list_delegations()["delegations"] if r["name"] == d.name)
+		self.assertEqual(row["status"], "In Progress")
+		self.assertFalse(row["stopped_reason"])
+
+	def test_the_modal_shows_who_handed_it_back(self):
+		d = self._stopped()
+		a2a_admin_api.redelegate_delegation(d.name)
+		detail = a2a_admin_api.delegation_detail(d.name)["delegation"]
+		self.assertEqual(detail["redelegated_by"], frappe.session.user)
+		self.assertEqual(detail["manual_attempt_count"], 1)
+		self.assertTrue(detail["deadline_restarted"])
+
+	def test_the_confirm_step_changes_nothing(self):
+		"""Called on a delegation whose limit has not moved, it must report and
+		stop — the person decides."""
+		agent = make_agent_configuration()
+		agent.db_set("max_task_handoffs", 10, update_modified=False)
+		d = self._stopped(
+			delegating_agent=agent.name, stopped_reason="max_task_handoffs", limit_value=10
+		)
+		result = a2a_admin_api.redelegate_delegation(d.name)
+		self.assertEqual(result["state"], "confirm")
+		self.assertEqual(frappe.db.get_value("Agent Delegation", d.name, "status"), "Needs Review")
+
+	def test_acknowledging_the_warning_goes_ahead(self):
+		agent = make_agent_configuration()
+		agent.db_set("max_task_handoffs", 10, update_modified=False)
+		d = self._stopped(
+			delegating_agent=agent.name, stopped_reason="max_task_handoffs", limit_value=10
+		)
+		a2a_admin_api.redelegate_delegation(d.name, acknowledged=1)
+		self.assertEqual(frappe.db.get_value("Agent Delegation", d.name, "status"), "In Progress")
+
+
+class TestTheAllowListIsEditableFromProcessa(FrappeTestCase):
+	"""Restrict Delegation could be ticked from Processa while the list it
+	restricts to could only be edited in the Desk — a switch with its wiring in
+	another room."""
+
+	def tearDown(self):
+		frappe.db.rollback()
+		super().tearDown()
+
+	@staticmethod
+	def _control(agent, fieldname):
+		from one_bpmn.api import security_api
+
+		for c in security_api.agent_screening(agent)["controls"]:
+			if c["fieldname"] == fieldname:
+				return c
+		return None
+
+	def test_the_allow_list_is_offered_as_a_control(self):
+		agent = make_agent_configuration()
+		control = self._control(agent.name, "allowed_delegates")
+		self.assertIsNotNone(control)
+		self.assertEqual(control["group"], "Delegation")
+
+	def test_it_hangs_off_restrict_delegation(self):
+		"""With the box unticked the list is inert, and showing it then would
+		read as a setting that does something."""
+		agent = make_agent_configuration()
+		self.assertEqual(
+			self._control(agent.name, "allowed_delegates")["depends_on_field"], "restrict_delegates"
+		)
+
+	def test_only_agents_that_could_receive_work_are_offered(self):
+		"""The same rule the door enforces, so a person cannot pick an agent that
+		would be refused the moment it was tried."""
+		agent = make_agent_configuration()
+		exposed = make_agent_configuration(a2a_exposed=1)
+		hidden = make_agent_configuration()
+		choices = self._control(agent.name, "allowed_delegates")["choices"]
+		self.assertIn(exposed.name, choices)
+		self.assertNotIn(hidden.name, choices)
+
+	def test_an_agent_is_not_offered_itself(self):
+		"""Delegating to yourself is the loop the guardrails exist to stop."""
+		agent = make_agent_configuration(a2a_exposed=1)
+		self.assertNotIn(agent.name, self._control(agent.name, "allowed_delegates")["choices"])
+
+	def test_saving_the_list_replaces_the_child_table(self):
+		from one_bpmn.api import security_api
+
+		agent = make_agent_configuration()
+		first = make_agent_configuration(a2a_exposed=1)
+		second = make_agent_configuration(a2a_exposed=1)
+		security_api.save_agent_screening(agent.name, {"allowed_delegates": [first.name, second.name]})
+		self.assertEqual(
+			sorted(self._control(agent.name, "allowed_delegates")["value"]),
+			sorted([first.name, second.name]),
+		)
+		security_api.save_agent_screening(agent.name, {"allowed_delegates": [second.name]})
+		self.assertEqual(self._control(agent.name, "allowed_delegates")["value"], [second.name])
+
+	def test_an_agent_the_door_would_refuse_is_not_saved(self):
+		"""An entry that would be refused on use is not a permission, it is a
+		surprise waiting for whoever reads the list later."""
+		from one_bpmn.api import security_api
+
+		agent = make_agent_configuration()
+		unexposed = make_agent_configuration()
+		security_api.save_agent_screening(agent.name, {"allowed_delegates": [unexposed.name]})
+		self.assertEqual(self._control(agent.name, "allowed_delegates")["value"], [])
+
+	def test_clearing_the_list_is_allowed(self):
+		"""Restricting to nobody is a real answer — it means this agent may not
+		delegate at all."""
+		from one_bpmn.api import security_api
+
+		agent = make_agent_configuration()
+		other = make_agent_configuration(a2a_exposed=1)
+		security_api.save_agent_screening(agent.name, {"allowed_delegates": [other.name]})
+		security_api.save_agent_screening(agent.name, {"allowed_delegates": []})
+		self.assertEqual(self._control(agent.name, "allowed_delegates")["value"], [])
+
+	def test_the_list_it_saves_is_the_list_the_guardrail_reads(self):
+		"""The point of editing it: what the door actually enforces changes."""
+		from one_bpmn.agents.a2a import guardrails
+		from one_bpmn.api import security_api
+
+		delegator = make_agent_configuration()
+		delegator.db_set("restrict_delegates", 1, update_modified=False)
+		target = make_agent_configuration(a2a_exposed=1)
+		self.assertFalse(guardrails.may_delegate_to(delegator.name, target.name))
+		security_api.save_agent_screening(delegator.name, {"allowed_delegates": [target.name]})
+		self.assertTrue(guardrails.may_delegate_to(delegator.name, target.name))
