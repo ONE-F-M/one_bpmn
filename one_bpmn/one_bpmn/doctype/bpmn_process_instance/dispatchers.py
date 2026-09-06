@@ -1783,6 +1783,14 @@ def dispatch_ai_agent(instance, task, task_cfg: dict, bpmn_id: str, resume_run: 
 				if write_target:
 					scope, scope_key = write_target
 					src = run.name if run and not getattr(run, "stub", False) else None
+					# Provenance only, not a scope key: an Agent-scoped memory still
+					# keys strictly on agent_element, but the instance already knows
+					# which process produced it -- carry that along the same way
+					# source_run already is. Process scope's scope_key IS the process
+					# model, so nothing to add there.
+					memory_process_model = (
+						getattr(instance, "process_model", None) if scope == "Agent" else None
+					)
 					if write_mode == "raw":
 						content = _extract_memory_content(result.output, task_cfg.get("aiMemoryContentField", ""))
 						if content:
@@ -1794,6 +1802,7 @@ def dispatch_ai_agent(instance, task, task_cfg: dict, bpmn_id: str, resume_run: 
 								dedup_key=(task_cfg.get("aiMemoryDedupKey") or None),
 								source_run=src,
 								ignore_permissions=True,
+								process_model=memory_process_model,
 							)
 					else:  # distilled
 						# Distill and reconcile with the models the admin chose
@@ -1842,6 +1851,7 @@ def dispatch_ai_agent(instance, task, task_cfg: dict, bpmn_id: str, resume_run: 
 								_reconcile_model, config.provider_name
 							),
 							source_run=src,
+							process_model=memory_process_model,
 						)
 			except Exception:
 				frappe.log_error(

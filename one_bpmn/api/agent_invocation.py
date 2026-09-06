@@ -308,6 +308,22 @@ def invoke_agent(
 			)
 	if isinstance(context, str):
 		context = frappe.parse_json(context)
+
+	# Some chat clients submit HTML-escaped text (e.g. a rich-text/
+	# contenteditable input serializing its content before it reaches this
+	# endpoint) even though ``message`` is meant to be plain text — observed
+	# live as an escaped ``&lt;PROJECT&gt;``-style placeholder surviving all
+	# the way into a durable AI Memory row. Decoding entities here, before
+	# anything else touches the message, means every downstream consumer
+	# (PII/injection screening, the rendered prompt, chat history, long-term
+	# memory) sees the plain text. Entity-decoding only (not full
+	# ``strip_html``): unlike markup tags, a plain chat message can
+	# legitimately contain a literal ``<...>``-shaped placeholder, and this
+	# must not corrupt that.
+	from one_bpmn.agents.memory.text_clean import unescape_entities
+
+	message = unescape_entities(message)
+
 	config = _resolve_config(agent_id)
 	_authorize(config, conversation)
 
