@@ -9,10 +9,6 @@
   "enable_model",
   "provider",
   "model_name",
-  "api_details_section",
-  "api_endpoint",
-  "column_break_hujr",
-  "api_key",
   "model_api_name",
   "token_pricing_per_1m_tokens_section",
   "currency",
@@ -33,6 +29,7 @@
  ],
  "fields": [
   {
+   "description": "The catalog name agents pick, and the key pricing is looked up by.",
    "fieldname": "model_name",
    "fieldtype": "Data",
    "in_list_view": 1,
@@ -41,9 +38,13 @@
    "unique": 1
   },
   {
+   "description": "The connection this model is called through. Its provider type decides which client speaks to it, and its API key is the one used.",
    "fieldname": "provider",
    "fieldtype": "Link",
+   "in_list_view": 1,
+   "in_standard_filter": 1,
    "label": "Provider",
+   "mandatory_depends_on": "eval:doc.enable_model",
    "options": "AI Provider"
   },
   {
@@ -52,6 +53,7 @@
    "label": "Token Pricing (per 1M tokens)"
   },
   {
+   "description": "Per 1,000,000 input tokens. Cached input is billed at a tenth of this and cache writes at 1.25x, derived rather than configured.",
    "fieldname": "input_cost",
    "fieldtype": "Currency",
    "label": "Input Cost per 1M Tokens",
@@ -63,6 +65,7 @@
    "fieldtype": "Column Break"
   },
   {
+   "description": "Per 1,000,000 output tokens.",
    "fieldname": "output_cost",
    "fieldtype": "Currency",
    "label": "Output Cost per 1M Tokens",
@@ -70,13 +73,7 @@
    "precision": "6"
   },
   {
-   "fieldname": "api_key",
-   "fieldtype": "Password",
-   "label": "API Key",
-   "mandatory_depends_on": "eval:doc.enable_model"
-  },
-  {
-   "description": "e.g. gpt-4o, claude-sonnet-4-20250514",
+   "description": "What the provider's API calls this model. Blank means the catalog name is sent as-is.",
    "fieldname": "model_api_name",
    "fieldtype": "Data",
    "label": "Model API Name",
@@ -84,8 +81,11 @@
   },
   {
    "default": "0",
+   "description": "Only enabled models are offered to agents. The API details and pricing become mandatory once this is ticked.",
    "fieldname": "enable_model",
    "fieldtype": "Check",
+   "in_list_view": 1,
+   "in_standard_filter": 1,
    "label": "Enable Model"
   },
   {
@@ -150,21 +150,6 @@
    "fieldname": "support_structured_output",
    "fieldtype": "Check",
    "label": "Support Structured Output"
-  },
-  {
-   "fieldname": "api_details_section",
-   "fieldtype": "Section Break",
-   "label": "API Details"
-  },
-  {
-   "description": "Base URL for the provider API, e.g. https://api.openai.com/v1",
-   "fieldname": "api_endpoint",
-   "fieldtype": "Data",
-   "label": "API Endpoint"
-  },
-  {
-   "fieldname": "column_break_hujr",
-   "fieldtype": "Column Break"
   }
  ],
  "index_web_pages_for_search": 1,
