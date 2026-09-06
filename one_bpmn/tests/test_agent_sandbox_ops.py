@@ -214,14 +214,21 @@ class TestSlowActionDispatch(AgentSandboxCase):
 		self.assertEqual(row.state, "failed")
 
 
-class TestSandboxDispatch(FrappeTestCase):
+class TestSandboxDispatch(AgentSandboxCase):
 	"""sandbox_dispatch — the bare HTTP primitive the 4 Sandbox Tool Server
 	Scripts call directly (see one_bpmn/one_bpmn/frontend/primitives.py's
 	own docstring for why it's this thin: a Server Script cannot import
 	requests itself — security/script_validator.py's FORBIDDEN_MODULES —
 	so this exists only to place the one call; all tool policy (which
 	arguments are required, how to word an error) lives in the Server
-	Script itself, not here). Never raises, by design."""
+	Script itself, not here). Never raises, by design.
+
+	Inherits AgentSandboxCase (not a plain FrappeTestCase) for its real,
+	already-saved BPMN Process Instance fixture — caller_instance is a
+	genuine Link field, and Agent Sandbox Run's own insert() never sets
+	ignore_links, so a bare SimpleNamespace stand-in fails Link validation
+	silently (caught by sandbox_dispatch's own try/except) rather than
+	creating the row the tracking tests below need to exist."""
 
 	def _call(self, response_status=200, response_json=None, post_side_effect=None, **overrides):
 		mock_settings = SimpleNamespace(
@@ -233,11 +240,22 @@ class TestSandboxDispatch(FrappeTestCase):
 		mock_response.json = MagicMock(return_value=response_json or {"found": True, "content": "hi"})
 
 		post_kwargs = {"side_effect": post_side_effect} if post_side_effect else {"return_value": mock_response}
+		bpmn_id = overrides.pop("bpmn_id", None)
+		instance = overrides.pop("instance", None)
 		with patch.object(frappe, "get_cached_doc", side_effect=_scoped_get_cached_doc(mock_settings)), patch.object(
 			ops, "_mint_identity_token", overrides.pop("mint_identity_token", MagicMock(return_value="fake-token"))
 		), patch("requests.post", **post_kwargs) as mock_post:
-			result = ops.sandbox_dispatch("read_file", "one_bpmn", "staging", "Fix the thing.", {"path": "a.py"})
+			result = ops.sandbox_dispatch(
+				"read_file", "one_bpmn", "staging", "Fix the thing.", {"path": "a.py"},
+				bpmn_id=bpmn_id, instance=instance,
+			)
 		return result, mock_post
+
+	def _last_run(self):
+		return frappe.get_doc(
+			"Agent Sandbox Run",
+			frappe.get_all("Agent Sandbox Run", filters={"target_app": "one_bpmn"}, order_by="creation desc", pluck="name")[0],
+		)
 
 	def test_successful_call_wraps_the_sandboxs_response(self):
 		result, mock_post = self._call(response_json={"found": True, "content": "hello"})
@@ -263,6 +281,40 @@ class TestSandboxDispatch(FrappeTestCase):
 		self.assertFalse(result["ok"])
 		self.assertIn("authenticate", result["error"])
 		mock_post.assert_not_called()
+
+	def test_every_fast_tool_call_gets_its_own_agent_sandbox_run_row(self):
+		"""Same auditability the slow tools already have (run_tests/
+		open_pull_request), just settled in one pass instead of parked."""
+		before = frappe.db.count("Agent Sandbox Run", {"target_app": "one_bpmn"})
+		instance = frappe.get_doc("BPMN Process Instance", self._test_instance.name)
+		self._call(response_json={"found": True, "content": "hello"}, bpmn_id="read_file", instance=instance)
+		self.assertEqual(frappe.db.count("Agent Sandbox Run", {"target_app": "one_bpmn"}), before + 1)
+		row = self._last_run()
+		self.assertEqual(row.state, "completed")
+		self.assertEqual(row.bpmn_id, "read_file")
+		self.assertEqual(row.caller_instance, self._test_instance.name)
+		self.assertIn("hello", row.result)
+
+	def test_a_failed_sandbox_call_marks_the_row_failed(self):
+		self._call(post_side_effect=ConnectionError("no route to host"))
+		row = self._last_run()
+		self.assertEqual(row.state, "failed")
+		self.assertIn("no route to host", row.error_message)
+
+	def test_missing_config_still_creates_a_failed_row(self):
+		"""The row is created before the sandbox_url/github_token checks, so
+		even an early bail-out leaves an auditable trace, not silence."""
+		self._call(agent_sandbox_url="")
+		row = self._last_run()
+		self.assertEqual(row.state, "failed")
+		self.assertIn("Sandbox URL", row.error_message)
+
+	def test_no_bpmn_id_or_instance_still_creates_a_row_with_those_fields_blank(self):
+		self._call(response_json={"found": True})
+		row = self._last_run()
+		self.assertEqual(row.state, "completed")
+		self.assertFalse(row.bpmn_id)
+		self.assertFalse(row.caller_instance)
 
 	def test_network_failure_never_raises(self):
 		result, _mock_post = self._call(post_side_effect=ConnectionError("no route to host"))
