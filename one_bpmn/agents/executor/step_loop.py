@@ -35,6 +35,7 @@ from one_bpmn.agents.llm_provider.base import (
 	ToolSpec,
 	TurnRecord,
 )
+from one_bpmn.agents.observability import clear_tool_artifacts
 from one_bpmn.agents.shape_tools import PAUSE_HELD_FLAG, ToolDeferred
 from one_bpmn.agents.turn_state import TURN_ANSWERED_FLAG
 from one_bpmn.security.tool_policy import PolicyViolation
@@ -157,6 +158,10 @@ async def run_agent_loop(
 		transcript = [{"role": "user", "content": user}]
 
 	trace: list = []
+
+	# Anything a previous loop stashed and nobody recorded is stale: draining it
+	# here is what stops one run's script showing up on the next run's tool call.
+	clear_tool_artifacts()
 
 	try:
 		return await _run_turns(

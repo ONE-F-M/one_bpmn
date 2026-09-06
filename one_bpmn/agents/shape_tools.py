@@ -273,6 +273,16 @@ def execute_shape(instance, bpmn_id: str, task_cfg: dict | None, kwargs: dict) -
 		# The tool result is what the shape produced, not the args we injected.
 		produced = {k: v for k, v in task.data.items() if k not in kwargs}
 
+		# An AI shape's answer IS its work product — the script, the schema, the
+		# draft. The Server Script shapes hand theirs over themselves; this is the
+		# same record for the shapes that are a model call rather than a script.
+		if service_type == "ai_agent":
+			from one_bpmn.agents.observability import record_tool_artifact
+
+			answer = produced.get(f"{bpmn_id}_output")
+			if isinstance(answer, str):
+				record_tool_artifact(bpmn_id, answer)
+
 		# Persist the result so a downstream tool can read it back via the
 		# get_turn Jinja global (hooks.py).
 		if service_type == "ai_agent" and getattr(instance, "context_docname", None):
