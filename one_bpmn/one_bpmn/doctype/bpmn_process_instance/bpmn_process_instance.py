@@ -2426,7 +2426,7 @@ def _enqueue_a2a_resume(instance_name: str, wf_task_id: str, a2a_task_name: str)
 
 
 def _enqueue_agent_sandbox_resume(instance_name: str, wf_task_id: str, run_name: str) -> None:
-	"""Resume a parked Dev Agent Sandbox dispatch through the SAME worker
+	"""Resume a parked agent sandbox dispatch through the SAME worker
 	path AI tasks use — row lock, engine_in_progress gate, bounded retries
 	and Errored-on-exhaustion all come for free. Mirrors _enqueue_a2a_resume
 	exactly; the only difference is the doctype the resume_enqueued guard
