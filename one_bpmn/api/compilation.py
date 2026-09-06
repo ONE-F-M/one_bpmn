@@ -624,9 +624,10 @@ def _activate_deployed_model(model, script_extensions: dict) -> None:
 
 	1. Mark the model as active (``is_active = 1``)
 	2. Deactivate sibling models with the same ``process_name``
-	3. Enable Server Scripts linked to the deployed model
-	4. Disable Server Scripts linked to deactivated siblings
-	   (unless shared with the active model)
+	3. Enable Server Scripts linked to the deployed model — including the ones
+	   it reaches through a Call Activity, which its compiled spec embeds
+	4. Disable Server Scripts linked to deactivated siblings, unless the
+	   deployed model or any other active model still runs them
 
 	Modifies the model in-memory — the caller is responsible for
 	calling ``model.save()``.
@@ -640,8 +641,11 @@ def _activate_deployed_model(model, script_extensions: dict) -> None:
 	model.deployed_at = frappe.utils.now()
 	model.deployed_by = frappe.session.user
 
-	# Server scripts referenced by the deployed model
-	active_scripts = set()
+	# Server scripts the deployed model runs: its own Script Tasks plus those a
+	# Call Activity embeds in its compiled spec. Reading only the raw XML missed
+	# the embedded ones, so deploying one Software Development version marked
+	# the Orchestrator's scripts "exclusive" to its sibling and switched them off.
+	active_scripts = _get_linked_server_scripts(model.serialized_spec)
 	for cfg in (script_extensions or {}).values():
 		if cfg.get("serverScript"):
 			active_scripts.add(cfg["serverScript"])
@@ -671,7 +675,8 @@ def _activate_deployed_model(model, script_extensions: dict) -> None:
 			frappe.db.set_value("BPMN Process Model", s.name, "is_active", 0)
 
 		# Disable scripts exclusive to deactivated siblings
-		for script_name in (sibling_scripts - active_scripts):
+		still_used = _scripts_used_by_active_models({model.name, *(s.name for s in siblings)})
+		for script_name in (sibling_scripts - active_scripts - still_used):
 			if frappe.db.exists("Server Script", script_name):
 				frappe.db.set_value("Server Script", script_name, "disabled", 1)
 
@@ -679,6 +684,20 @@ def _activate_deployed_model(model, script_extensions: dict) -> None:
 	for script_name in active_scripts:
 		if frappe.db.exists("Server Script", script_name):
 			frappe.db.set_value("Server Script", script_name, "disabled", 0)
+
+
+def _scripts_used_by_active_models(exclude: set) -> set:
+	"""Server Scripts some other active map still runs, Call Activities included.
+	A script is never disabled while one of these needs it."""
+	used = set()
+	rows = frappe.get_all(
+		"BPMN Process Model",
+		filters={"is_active": 1, "name": ["not in", sorted(exclude)]},
+		fields=["serialized_spec"],
+	)
+	for row in rows:
+		used |= _get_linked_server_scripts(row.serialized_spec)
+	return used
 
 
 def _update_round_robin_in_model(model_name: str, task_bpmn_id: str, last_user: str) -> None:
@@ -1856,7 +1875,8 @@ def disable_process_model(model_name: str) -> dict:
 	1. Sets ``is_active = 0`` — trigger.py will stop creating new instances.
 	2. Clears ``serialized_spec`` and ``subprocess_specs`` to prevent
 	   stale instantiation.
-	3. Disables all Server Scripts linked to this model's script tasks.
+	3. Disables the Server Scripts linked to this model's script tasks that no
+	   other active model still runs.
 
 	Running instances are NOT affected — they continue to completion with
 	their own ``workflow_state``.
@@ -1889,8 +1909,8 @@ def disable_process_model(model_name: str) -> dict:
 	model.serialized_spec = None
 	model.subprocess_specs = None
 
-	# ── Disable linked Server Scripts ─────────────────────────────────────
-	for script_name in linked_scripts:
+	# ── Disable linked Server Scripts nobody else runs ───────────────────
+	for script_name in linked_scripts - _scripts_used_by_active_models({model_name}):
 		if frappe.db.exists("Server Script", script_name):
 			frappe.db.set_value("Server Script", script_name, "disabled", 1)
 
