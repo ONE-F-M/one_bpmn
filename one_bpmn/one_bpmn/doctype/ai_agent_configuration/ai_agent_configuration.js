@@ -24,6 +24,63 @@ frappe.ui.form.on("AI Agent Configuration", {
 		frm.events.set_lifecycle_indicator(frm);
 		frm.events.show_needs_attention_reason(frm);
 		frm.events.add_chat_surface_buttons(frm);
+		frm.events.render_memory_resolution_preview(frm);
+	},
+
+	long_term_memory(frm) {
+		frm.events.render_memory_resolution_preview(frm);
+	},
+	memory_write_mode(frm) {
+		frm.events.render_memory_resolution_preview(frm);
+	},
+	memory_distill_model(frm) {
+		frm.events.render_memory_resolution_preview(frm);
+	},
+	memory_reconcile_model(frm) {
+		frm.events.render_memory_resolution_preview(frm);
+	},
+	ai_model(frm) {
+		frm.events.render_memory_resolution_preview(frm);
+	},
+
+	render_memory_resolution_preview(frm) {
+		// WI-002168: show what dispatch would actually resolve, from the
+		// form's current (possibly unsaved) values — same chain the doctype's
+		// validate_memory_config() blocks save against, so the preview and the
+		// enforcement can never disagree.
+		const wrapper = frm.fields_dict.memory_resolution_preview_html && frm.fields_dict.memory_resolution_preview_html.$wrapper;
+		if (!wrapper) return;
+
+		if (frm.doc.long_term_memory !== "Enabled" || frm.doc.memory_write_mode !== "distilled") {
+			wrapper.html("");
+			return;
+		}
+
+		frappe.call({
+			method: "one_bpmn.one_bpmn.doctype.ai_agent_configuration.ai_agent_configuration.get_effective_memory_models",
+			args: {
+				memory_distill_model: frm.doc.memory_distill_model,
+				memory_reconcile_model: frm.doc.memory_reconcile_model,
+				ai_model: frm.doc.ai_model,
+			},
+			callback(r) {
+				if (!r.message) return;
+				const { distill_model, reconcile_model } = r.message;
+				const row = (label, value) => `
+					<div class="d-flex align-items-center gap-2">
+						<span class="text-muted small" style="width: 140px;">${label}</span>
+						${value
+							? `<code>${frappe.utils.escape_html(value)}</code>`
+							: `<span class="text-danger small">${__("unresolvable")}</span>`}
+					</div>`;
+				wrapper.html(`
+					<div class="frappe-card p-2 mb-2">
+						${row(__("Distill model"), distill_model)}
+						${row(__("Reconcile model"), reconcile_model)}
+					</div>
+				`);
+			},
+		});
 	},
 
 	add_chat_surface_buttons(frm) {
