@@ -160,6 +160,13 @@
 											<div class="text-[10px] uppercase tracking-wide text-gray-400">Result <span class="normal-case">(what the model was told)</span></div>
 											<pre class="text-[11px] text-gray-600 font-mono whitespace-pre-wrap max-h-32 overflow-y-auto bg-white rounded p-1.5 border border-gray-100">{{ tc.tool_result }}</pre>
 										</div>
+										<div v-if="tc.tool_artifact" class="mt-1">
+											<div class="text-[10px] uppercase tracking-wide text-gray-400">Artifact <span class="normal-case">(what the tool produced, in full)</span></div>
+											<pre class="text-[11px] text-gray-600 font-mono whitespace-pre-wrap max-h-48 overflow-y-auto bg-white rounded p-1.5 border border-gray-100">{{ tc.tool_artifact }}</pre>
+										</div>
+										<div v-else-if="tc.artifact_file" class="mt-1 text-[11px]">
+											<a :href="`/app/file/${tc.artifact_file}`" target="_blank" class="text-purple-700 underline">Artifact too large to show here — open the file</a>
+										</div>
 										<div v-if="tc.outcome" class="mt-1">
 											<div class="text-[10px] uppercase tracking-wide text-green-600">Outcome <span class="normal-case">(what actually happened)</span></div>
 											<pre class="text-[11px] text-green-800 font-mono whitespace-pre-wrap max-h-32 overflow-y-auto bg-green-50 rounded p-1.5 border border-green-100">{{ tc.outcome }}</pre>
@@ -544,7 +551,7 @@ async function fetchSteps() {
 					params: {
 						doctype: "AI Agent Tool Call",
 						parent: "AI Agent Step",
-						fields: JSON.stringify(["parent", "tool_name", "tool_source", "status", "tool_args", "tool_result", "outcome"]),
+						fields: JSON.stringify(["parent", "tool_name", "tool_source", "status", "tool_args", "tool_result", "tool_artifact", "artifact_file", "outcome"]),
 						filters: JSON.stringify([
 							["parenttype", "=", "AI Agent Step"],
 							["parent", "in", steps.map((s) => s.name)],
