@@ -348,6 +348,10 @@ def config_field_map(config_name: str) -> dict:
 	# not override the shape's value the way a real setting would (WI-001793).
 	if cint(cfg.get("context_max_messages")):
 		out["aiContextMaxMessages"] = cfg.context_max_messages
+	# WI-002195: the cap on a tool result the model sees. Same rule — 0 means
+	# "platform default", not "no cap", so it must not be written as a value.
+	if cint(cfg.get("tool_result_max_chars")):
+		out["aiToolResultMaxChars"] = cfg.tool_result_max_chars
 	if cfg.ai_provider:
 		out["aiProvider"] = cfg.ai_provider
 	# WI-001655: the model is the agent's own pick from the AI Model catalog

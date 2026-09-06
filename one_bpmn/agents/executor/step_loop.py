@@ -29,6 +29,7 @@ import time
 import frappe
 
 from one_bpmn.security.provenance import wrap_tool_result
+from one_bpmn.agents.executor.tool_bounds import bound_tool_result, validate_tool_arguments
 from one_bpmn.agents.llm_provider.base import (
 	CompletionResult,
 	ToolCallRecord,
@@ -110,6 +111,7 @@ async def run_agent_loop(
 	timeout_seconds: float | None = None,
 	max_retries: int = 0,
 	retry_backoff_ms: int = 1000,
+	tool_result_max_chars: int | None = None,
 ) -> tuple:
 	"""Drive the tool loop. Returns (CompletionResult, None) when the model
 	produces a final answer or hits the turn cap, or (None, AgentSuspension)
@@ -147,7 +149,7 @@ async def run_agent_loop(
 			"id": pending.get("id") or "",
 			"name": pending.get("name") or "",
 			"content": wrap_tool_result(
-				str(resume.get("human_result") or ""),
+				bound_tool_result(resume.get("human_result") or "", tool_result_max_chars),
 				pending.get("name") or "human task",
 				pending.get("arguments"),
 			),
@@ -165,6 +167,7 @@ async def run_agent_loop(
 			max_tokens=max_tokens, max_turns=max_turns,
 			timeout_seconds=timeout_seconds, max_retries=max_retries,
 			retry_backoff_ms=retry_backoff_ms,
+			tool_result_max_chars=tool_result_max_chars,
 		)
 	finally:
 		# Cleared on EVERY exit — final answer, turn cap, suspension, exception.
@@ -206,7 +209,7 @@ async def _step_with_retries(
 
 async def _run_turns(
 	adapter, *, system, tools, tool_map, transcript, trace, turns_used, max_tokens, max_turns,
-	timeout_seconds=None, max_retries=0, retry_backoff_ms=1000,
+	timeout_seconds=None, max_retries=0, retry_backoff_ms=1000, tool_result_max_chars=None,
 ):
 	"""The turn loop itself. Split out only so run_agent_loop can guarantee the
 	pause flag is cleared however this returns."""
@@ -276,6 +279,26 @@ async def _run_turns(
 			elif tool is None:
 				result = f"Unknown tool: {call.name}"
 			else:
+				# WI-002195: the declared schema is checked before the script
+				# runs. A violation is a tool error naming the field, so the model
+				# repairs the call instead of reading a Python traceback — or, worse,
+				# a script that tolerated the gap and answered wrongly.
+				_invalid = validate_tool_arguments(
+					call.name,
+					getattr(tool, "parameters", None),
+					getattr(tool, "required", None),
+					call.arguments,
+				)
+				if _invalid:
+					turn_record.tool_calls.append(
+						ToolCallRecord(name=call.name, arguments=call.arguments, result=_invalid)
+					)
+					results.append({
+						"id": call.id,
+						"name": call.name,
+						"content": wrap_tool_result(_invalid, call.name, call.arguments),
+					})
+					continue
 				try:
 					result = str(tool.fn(**call.arguments))
 				except ToolDeferred as deferred:
@@ -310,11 +333,16 @@ async def _run_turns(
 			# What the model sees is marked with the tool that
 			# produced it, so the guard rail in its frozen instructions has
 			# something to refer to. The ToolCallRecord above keeps the raw
-			# result — markers are for the model, not for the audit trail.
+			# result — markers are for the model, not for the audit trail —
+			# and, for the same reason, the size cap (WI-002195) applies only
+			# to this copy: what the model re-reads on every later call of the
+			# turn is bounded, what was recorded is not.
 			results.append({
 				"id": call.id,
 				"name": call.name,
-				"content": wrap_tool_result(result, call.name, call.arguments),
+				"content": wrap_tool_result(
+					bound_tool_result(result, tool_result_max_chars), call.name, call.arguments
+				),
 			})
 
 		turn_record.latency_ms = int((time.perf_counter() - _turn_t0) * 1000)
