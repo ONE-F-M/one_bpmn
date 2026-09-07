@@ -1681,6 +1681,10 @@ async function writeBackToConfig() {
 }
 
 async function save() {
+  // Defence in depth: the Save button is not rendered while read-only, but
+  // never persist even if called directly — closing the viewer must leave
+  // the map completely unchanged.
+  if (props.readonly) return;
   // WI-001650: every AI shape must be backed by an AI Agent Configuration —
   // raw provider setup is retired (the compile gate enforces the same rule).
   if (!form.value.aiAgentConfig) {
