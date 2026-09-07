@@ -674,7 +674,10 @@
       </div>
 
       <!-- ============ RIGHT: assistant chat panel ============ -->
-      <div class="assistant-panel">
+      <!-- WI-003245: the assistant proposes edits (fields, agent creation) —
+           not on offer while the map itself is read-only, same reasoning as
+           ProsAlly being hidden on a read-only BPMN canvas. -->
+      <div v-if="!readonly" class="assistant-panel">
         <!-- WI-001679: ONE chat for both ways into this dialog. An AI Agent
              Task and an AI Task Selector now open the same panel, on the same
              agent, over the same endpoint — the mode only changes what the
