@@ -3789,6 +3789,15 @@ function getAvatarColor(userName) {
 	opacity: 1;
 }
 
+/* These two launch buttons only OPEN a viewer (the viewers themselves render
+   read-only) — they never edit anything in place, so they stay clickable
+   while the rest of the panel is locked. */
+.properties-panel--readonly .ai-agent-launch-button,
+.properties-panel--readonly .script-task-launch-button {
+	pointer-events: auto !important;
+	opacity: 1;
+}
+
 /* ── Reassign User Task Mode ────────────────────────
    While readonly, re-enable ONLY the User Task Assignment Configuration
    fields (Assignment Mode, User, DocField, Users, Table Field). */
