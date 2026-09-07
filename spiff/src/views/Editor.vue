@@ -1678,6 +1678,11 @@ const logixScriptType = ref("bpmn:script");
 const logixCurrentScript = ref("");
 const logixEventBus = ref(null);
 const logixProcessContext = ref(null);
+// Whether the map that launched Logix is itself read-only. The launch button
+// stays clickable so a viewer with no edit rights can still read the script,
+// but the viewer it opens must render read-only \u2014 threaded down to
+// CodeMirrorEditor's own `readOnly` prop, with no save action offered.
+const logixReadonly = ref(false);
 
 function extractProcessContext(element) {
 	if (!element?.businessObject) return null;
