@@ -954,14 +954,42 @@
 			</template>
 		</Dialog>
 
-		<!-- AI Agent Task / AI Task Selector config modal -->
+		<!-- AI Agent Task / AI Task Selector config modal. Readonly is passed
+		     straight through: the modal itself is what enforces "visible,
+		     nothing editable, no save" when the map is read-only (WI-003245) —
+		     exempting the launch button alone would hand out an editable form. -->
 		<AIAgentConfigModal
 			v-if="aiAgentModal.show && aiAgentModal.element"
 			:element="aiAgentModal.element"
 			:modeler="modeler"
 			:mode="aiAgentModal.mode"
+			:readonly="readonly"
 			@close="aiAgentModal.show = false"
 		/>
+
+		<!-- Read-only Script Task viewer (WI-003245): opened instead of the
+		     editable Logix flow when the map is read-only, so the linked
+		     server script is visible but never editable and no save is
+		     offered. -->
+		<Dialog
+			v-model="scriptViewerModal.show"
+			:options="{ title: scriptViewerModal.scriptName || 'Server Script (read-only)', size: '4xl' }"
+		>
+			<template #body-content>
+				<div class="text-xs text-gray-500 mb-2" v-if="!scriptViewerModal.loading">
+					Read-only — this map cannot be edited, so the script is shown but not editable.
+				</div>
+				<div v-if="scriptViewerModal.loading" class="flex items-center justify-center py-10 text-gray-400 text-sm">
+					Loading script…
+				</div>
+				<div v-else class="border border-gray-200 rounded-lg overflow-hidden" style="height: 50vh;">
+					<CodeMirrorEditor :model-value="scriptViewerModal.script" language="python" :read-only="true" />
+				</div>
+			</template>
+			<template #actions>
+				<Button variant="subtle" @click="scriptViewerModal.show = false">Close</Button>
+			</template>
+		</Dialog>
 
 		<!-- Docu — AI DocType builder -->
 		<DocuCanvas
