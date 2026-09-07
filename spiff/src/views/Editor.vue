@@ -794,6 +794,7 @@
 					:current-script="logixCurrentScript"
 					:event-bus="logixEventBus"
 					:process-context="logixProcessContext"
+					:readonly="logixReadonly"
 					@close="showLogixCanvas = false"
 					@script-saved="onLogixScriptSaved"
 					@back="onLogixBack"
