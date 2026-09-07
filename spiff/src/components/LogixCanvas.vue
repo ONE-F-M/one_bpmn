@@ -871,6 +871,13 @@ async function saveScript() {
 	min-width: 0;
 }
 
+.lc-chat-disabled {
+	padding: 24px 18px;
+	font-size: 0.82rem;
+	color: #7c7c7c;
+	line-height: 1.5;
+}
+
 /* ── Diff cell colors (version-panel inline diff) ────────────────── */
 .lc-sdiff-del   { background: rgba(240,80,80,.2);    color: #ff8a8a; }
 .lc-sdiff-add   { background: rgba(100,220,100,.18); color: #6ee68e; }
