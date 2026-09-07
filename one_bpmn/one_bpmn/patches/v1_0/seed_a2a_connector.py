@@ -83,6 +83,18 @@ A2A_CONNECTOR = {
 					"help": "Optional. The pull request to fix or review, normally {{ doc.pr_link }}.",
 				},
 				{
+					"name": "target_app",
+					"label": "Target app",
+					"type": "String",
+					"help": "Optional. The app the work targets, normally {{ doc.target_app }} — a GitHub repository name such as one_bpmn.",
+				},
+				{
+					"name": "git_branch",
+					"label": "Branch",
+					"type": "String",
+					"help": "Optional. The branch the work starts from and the pull request targets, normally {{ doc.git_branch }}.",
+				},
+				{
 					"name": "required_capability",
 					"label": "Capability this needs",
 					"type": "String",

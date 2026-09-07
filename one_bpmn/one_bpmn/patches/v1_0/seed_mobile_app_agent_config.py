@@ -76,7 +76,7 @@ search_repo goes through GitHub's code search, so an empty answer means search c
 
 Three arguments identify the sandbox and must be IDENTICAL on every sandbox call:
   target_app — ALWAYS exactly mobile_app_ionic. This agent changes nothing else, ever. Not one_fm, not any bench app, whatever the work order seems to ask for.
-  git_branch — use version-15 unless the work order names another. It must already exist on the remote; never a work-item id, because the sandbox names the pull-request branch itself.
+  git_branch — given in your work order's header (the Work Item's Branch field, else this agent's configured base branch); use it exactly. It must already exist on the remote; never a work-item id, because the sandbox names the pull-request branch itself.
   work_item_description — the work order in plain words, unchanged.
 Vary any of the three mid-run and you start a second, empty sandbox and lose the work you already did.
 
