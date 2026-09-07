@@ -1892,6 +1892,18 @@ async function save() {
   border-top: 1px solid #f3f4f6;
 }
 
+/* Read-only launch (from a read-only map): show the current configuration
+   but make every field non-interactive — no edits, no save. Buttons that
+   only add/remove rows or open the create-agent panel are disabled too,
+   since none of them should be reachable when nothing can be persisted. */
+.modal-body--readonly input,
+.modal-body--readonly select,
+.modal-body--readonly textarea,
+.modal-body--readonly button {
+  pointer-events: none !important;
+  opacity: 0.7;
+}
+
 .modal-footer {
   padding: 12px 20px;
   border-top: 1px solid #e2e2e2;
