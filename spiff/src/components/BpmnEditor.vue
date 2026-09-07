@@ -2149,8 +2149,16 @@ onMounted(async () => {
 		// These handlers are required for the spiffworkflow properties panel
 		// "Launch Editor" buttons and data-request dropdowns to function.
 
-		// Script editing (Script Tasks, Pre/Post scripts)
+		// Script editing (Script Tasks, Pre/Post scripts).
+		// WI-003245: while the map is read-only, the launch button is exempt
+		// from the readonly CSS so it stays clickable, but it must open a
+		// genuinely read-only viewer here rather than the editable Logix
+		// flow — no save is offered, and closing it never touches the map.
 		eventBus.on("spiff.script.edit", (event) => {
+			if (props.readonly) {
+				openScriptViewer(event.script || "");
+				return;
+			}
 			emit("launch-script-editor", {
 				element: event.element,
 				scriptType: event.scriptType,
