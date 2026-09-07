@@ -1824,9 +1824,21 @@ async function save() {
   align-items: center;
 }
 
-.modal-header h3 { margin: 0; font-size: 1rem; font-weight: 600; }
+.modal-header h3 { margin: 0; font-size: 1rem; font-weight: 600; display: flex; align-items: center; gap: 8px; }
 .close-btn { background: none; border: none; font-size: 1.1rem; cursor: pointer; color: #7c7c7c; }
 .close-btn:hover { color: #171717; }
+
+/* Read-only badge in the modal header (WI-003244) */
+.readonly-badge {
+  font-size: 0.7rem;
+  font-weight: 600;
+  color: #92400e;
+  background: #fef3c7;
+  border-radius: 10px;
+  padding: 1px 8px;
+  text-transform: uppercase;
+  letter-spacing: 0.03em;
+}
 
 .modal-body {
   padding: 20px;
@@ -1835,6 +1847,23 @@ async function save() {
   display: flex;
   flex-direction: column;
   gap: 12px;
+  /* fieldset resets */
+  border: none;
+  margin: 0;
+  min-width: 0;
+}
+
+/* Read-only: every field inside becomes non-interactive but stays legible
+   (no faded/disabled look — the values must read as current, not stale). */
+.modal-body[disabled] {
+  pointer-events: none;
+}
+.modal-body[disabled] input,
+.modal-body[disabled] select,
+.modal-body[disabled] textarea,
+.modal-body[disabled] button {
+  opacity: 1;
+  cursor: default;
 }
 
 .field-row { display: flex; flex-direction: column; gap: 4px; }
