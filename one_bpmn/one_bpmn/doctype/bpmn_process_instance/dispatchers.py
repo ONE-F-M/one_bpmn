@@ -317,23 +317,13 @@ def _memory_model(task_cfg: dict, key: str, fallback: str | None) -> str | None:
 
 	Resolution happens here, on the dispatch thread, because the distiller runs
 	in a background RQ worker that must be handed the model as a job argument
-	rather than looking it up itself.
+	rather than looking it up itself. The precedence chain itself lives in
+	``model_resolution.resolve_memory_model`` (WI-002168), shared with the
+	config-time "effective model" preview so the two can never disagree.
 	"""
-	model = (task_cfg.get(key) or "").strip() if isinstance(task_cfg.get(key), str) else task_cfg.get(key)
-	if model:
-		return model
+	from one_bpmn.agents.memory.model_resolution import resolve_memory_model
 
-	setting = _MEMORY_MODEL_SETTINGS.get(key)
-	if setting:
-		try:
-			default = frappe.db.get_single_value("Processa Settings", setting)
-			if default:
-				return default
-		except Exception:
-			# A missing/unreadable setting must never break a memory write.
-			pass
-
-	return fallback or None
+	return resolve_memory_model(task_cfg.get(key), _MEMORY_MODEL_SETTINGS.get(key), fallback)
 
 
 # Shape attribute -> the Processa Settings field holding its site-wide default.
