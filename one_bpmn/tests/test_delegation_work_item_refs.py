@@ -42,11 +42,11 @@ class TestWorkItemRefs(FrappeTestCase):
 		self.assertEqual(ops._work_item_refs(instance, {"work_item": " WI-000005 ", "pull_request": ""}), ("WI-000005", None))
 		self.assertEqual(ops._work_item_refs(None, {}), (None, None))
 
-	def test_a_pull_request_given_on_the_shape_is_kept_when_the_work_item_has_none(self):
+	def test_an_empty_pr_link_rendered_as_the_word_none_is_not_a_pull_request(self):
+		# The shape passes {{ doc.pr_link }}; Jinja writes an empty field as "None".
 		instance = frappe._dict(context_doctype="Work Item", context_docname="WI-000042")
 		with patch.object(frappe.db, "get_value", return_value=None):
-			self.assertEqual(ops._work_item_refs(instance, {"pull_request": "https://github.com/o/r/pull/1"})[1], "https://github.com/o/r/pull/1")
-
+			self.assertEqual(ops._work_item_refs(instance, {"pull_request": "None"}), ("WI-000042", None))
 
 class TestConnectorFieldsPatch(FrappeTestCase):
 	def test_fields_are_added_once_and_the_override_fields_stay_last(self):

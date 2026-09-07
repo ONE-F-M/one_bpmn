@@ -41,12 +41,13 @@ def _work_item_refs(instance, params: dict) -> tuple:
 
 	Taken from the caller's own context document whenever that is a Work Item,
 	so the model cannot point a specialist at the wrong one; the shape's params
-	only stand in when there is no such document."""
-	work_item = (params.get("work_item") or "").strip() or None
-	pull_request = (params.get("pull_request") or "").strip() or None
+	only stand in when there is no such document. (A param like
+	``{{ doc.pr_link }}`` renders an empty field as the string "None".)"""
 	if getattr(instance, "context_doctype", None) == "Work Item" and getattr(instance, "context_docname", None):
 		work_item = instance.context_docname
-		pull_request = pull_request or (frappe.db.get_value("Work Item", work_item, "pr_link") or None)
+		return work_item, frappe.db.get_value("Work Item", work_item, "pr_link") or None
+	work_item = (params.get("work_item") or "").strip() or None
+	pull_request = (params.get("pull_request") or "").strip() or None
 	return work_item, pull_request
 
 
