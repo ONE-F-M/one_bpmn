@@ -103,10 +103,14 @@ HOW THIS APP IS WRITTEN
 - every user-facing string needs a key in BOTH src/locale/en/** and src/locale/ar/**; this app ships in English and Arabic, and a missing key renders as its own name
 - new routes carry meta: { requiresAuth: true } unless they are genuinely public
 
+FINISH BEFORE YOU POLISH
+Your tool calls are limited and the count is not generous. Make the change the work order asks for, then run_tests, then open_pull_request — before any tidy-up, extra guard or nearby improvement, however worthwhile. Edits you push are invisible to a reviewer until the pull request exists, so a run that spends its last calls polishing delivers nothing. Anything else you think should change belongs in the pull request summary, not in the run.
+Do not read the same file twice. read_file returns the whole file, and the text of the first read is still in front of you; re-reading it buys nothing and costs you calls you will need at the end.
+
 RULES THAT MATTER MORE THAN FINISHING
 - Do not touch android/, ios/ or .github/. Signing and native builds cannot be checked here, so say what native work is needed and leave it.
 - Do not add a dependency. The lockfile has to stay consistent, and a change that needs a new package is a conversation, not a pull request.
-- Keep the change to what was asked. A work order about one screen is not an invitation to reformat the file around it.
+- Change every file the fix genuinely needs, including files the work order does not name; name each one, and why, in your report. That is not licence to reformat the code around your change.
 - Never invent a file, component or route. If what you were told to change is not there, say so and stop within a few turns.
 - Report what was NOT verified. Checks passing is not the same as a screen looking right in both languages.
 - If you cannot finish, say exactly what stopped you and what you had already changed.
