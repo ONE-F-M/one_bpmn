@@ -8,6 +8,8 @@
   "instance",
   "process_model",
   "agent_configuration",
+  "parent_run",
+  "prompt_hash",
   "bpmn_id",
   "bpmn_label",
   "element_type",
@@ -43,18 +45,18 @@
   "total_output_cost",
   "total_cache_read_cost",
   "total_cache_write_cost",
-  "section_break_checkpoint",
-  "pending_human_task",
-  "checkpoint",
+  "section_break_output",
   "section_break_goal",
   "goal_completion",
   "completion_basis",
-  "section_break_output",
   "final_output",
   "tool_calls",
   "correlation_id",
   "recall_query",
-  "memory_injected_tokens"
+  "memory_injected_tokens",
+  "section_break_checkpoint",
+  "pending_human_task",
+  "checkpoint"
  ],
  "fields": [
   {
@@ -80,6 +82,22 @@
    "label": "Agent Configuration",
    "options": "AI Agent Configuration",
    "read_only": 1
+  },
+  {
+   "fieldname": "parent_run",
+   "fieldtype": "Link",
+   "label": "Parent Run",
+   "options": "AI Agent Run",
+   "read_only": 1,
+   "description": "The run whose tool started this one. Empty for a top-level run."
+  },
+  {
+   "fieldname": "prompt_hash",
+   "fieldtype": "Data",
+   "label": "Prompt Hash",
+   "read_only": 1,
+   "search_index": 1,
+   "description": "Fingerprint of the system prompt this run used. Resolves to an AI Prompt Snapshot."
   },
   {
    "description": "The element ID on the diagram (e.g. Activity_1a2b3c)",
@@ -335,7 +353,7 @@
    "label": "Final Output"
   },
   {
-   "description": "Tool names, in call order — a plain JSON list rather than AI Agent Step child records, for runs (like the sandbox's own coding loop) that report their own turn as a single unit rather than step-by-step.",
+   "description": "Tool names, in call order \u2014 a plain JSON list rather than AI Agent Step child records, for runs (like the sandbox's own coding loop) that report their own turn as a single unit rather than step-by-step.",
    "fieldname": "tool_calls",
    "fieldtype": "Code",
    "label": "Tool Calls",
@@ -349,7 +367,7 @@
    "label": "Correlation ID"
   },
   {
-   "description": "The text long-term memory was searched with this run — the user's actual message, not the driving prompt template. Blank when memory was off, the message was small talk, or nothing was searched.",
+   "description": "The text long-term memory was searched with this run \u2014 the user's actual message, not the driving prompt template. Blank when memory was off, the message was small talk, or nothing was searched.",
    "fieldname": "recall_query",
    "fieldtype": "Small Text",
    "label": "Recall Query"
