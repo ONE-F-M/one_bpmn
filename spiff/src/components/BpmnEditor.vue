@@ -3789,6 +3789,19 @@ function getAvatarColor(userName) {
 	opacity: 1;
 }
 
+/* Script Task's "Launch Logix" button and the AI Agent Task's "Configure /
+   Edit AI Task Configuration" header button only OPEN a viewer \u2014 they never
+   mutate the map themselves, so they stay clickable in read-only mode the
+   same way the panel/group headers above do. Both viewers (CodeMirrorEditor
+   via LogixCanvas, and AIAgentConfigModal) are handed the editor's own
+   read-only flag and render read-only themselves; see BpmnEditor.vue's
+   "spiff.script.edit" handler and the AIAgentConfigModal binding below. */
+.properties-panel--readonly .spiffworkflow-script-launch-btn,
+.properties-panel--readonly .spiffworkflow-ai-agent-launch-btn {
+	pointer-events: auto !important;
+	opacity: 1;
+}
+
 /* ── Reassign User Task Mode ────────────────────────
    While readonly, re-enable ONLY the User Task Assignment Configuration
    fields (Assignment Mode, User, DocField, Users, Table Field). */
