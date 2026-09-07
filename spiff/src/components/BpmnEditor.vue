@@ -960,6 +960,7 @@
 			:element="aiAgentModal.element"
 			:modeler="modeler"
 			:mode="aiAgentModal.mode"
+			:readonly="aiAgentModal.readonly"
 			@close="aiAgentModal.show = false"
 		/>
 
