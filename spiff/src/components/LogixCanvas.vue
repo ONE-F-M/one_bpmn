@@ -1110,6 +1110,13 @@ async function saveScript() {
 	padding: 10px 14px;
 	flex-shrink: 0;
 }
+/* Read-only launch (from a read-only map): show the settings but block edits. */
+.lc-settings-panel--readonly input,
+.lc-settings-panel--readonly select,
+.lc-settings-panel--readonly textarea {
+	pointer-events: none !important;
+	opacity: 0.7;
+}
 .lc-settings-grid {
 	display: flex;
 	flex-wrap: wrap;
