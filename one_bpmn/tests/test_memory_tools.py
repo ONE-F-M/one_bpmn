@@ -132,6 +132,30 @@ class TestMemoryWrite(FrappeTestCase):
 		self.assertEqual(frappe.db.get_value("AI Memory", rec["name"], "content"), content)
 
 
+class TestMemoryWriteUserDirected(FrappeTestCase):
+	def test_user_directed_flag_defaults_false(self):
+		agent = f"U_{frappe.generate_hash(length=8)}"
+		rec = T.memory_write("Agent", agent, "some agent-produced fact", ignore_permissions=True)
+		self.assertEqual(frappe.db.get_value("AI Memory", rec["name"], "user_directed"), 0)
+
+	def test_user_directed_flag_set_on_insert(self):
+		agent = f"U_{frappe.generate_hash(length=8)}"
+		rec = T.memory_write(
+			"Agent", agent, "remember that every form needs a Site link field",
+			ignore_permissions=True, user_directed=True,
+		)
+		self.assertEqual(frappe.db.get_value("AI Memory", rec["name"], "user_directed"), 1)
+
+	def test_user_directed_flag_set_on_dedup_overwrite(self):
+		agent = f"U_{frappe.generate_hash(length=8)}"
+		d1 = T.memory_write("Agent", agent, "v1", dedup_key="k", ignore_permissions=True)
+		d2 = T.memory_write(
+			"Agent", agent, "v2", dedup_key="k", ignore_permissions=True, user_directed=True,
+		)
+		self.assertEqual(d1["name"], d2["name"])
+		self.assertEqual(frappe.db.get_value("AI Memory", d1["name"], "user_directed"), 1)
+
+
 class TestValidOnlySearch(FrappeTestCase):
 	def test_expired_memory_is_hidden(self):
 		agent = f"E_{frappe.generate_hash(length=8)}"
@@ -151,6 +175,45 @@ class TestValidOnlySearch(FrappeTestCase):
 		frappe.db.set_value("AI Memory", rec["name"], "expires_on", add_to_date(now_datetime(), days=30))
 		res = T.memory_search("Agent", agent, "annual audit", ignore_permissions=True)
 		self.assertIn(rec["name"], [r["name"] for r in res])
+
+
+class TestMemoryListUserDirected(FrappeTestCase):
+	def test_returns_only_user_directed_in_scope(self):
+		agent = f"V_{frappe.generate_hash(length=8)}"
+		other = f"V_{frappe.generate_hash(length=8)}"
+		directed = T.memory_write(
+			"Agent", agent, "remember: always cc compliance on GRD emails",
+			ignore_permissions=True, user_directed=True,
+		)
+		T.memory_write("Agent", agent, "an incidental fact from a run", ignore_permissions=True)
+		T.memory_write(
+			"Agent", other, "remember: a different agent's convention",
+			ignore_permissions=True, user_directed=True,
+		)
+
+		res = T.memory_list_user_directed("Agent", agent, ignore_permissions=True)
+		names = [r["name"] for r in res]
+		self.assertEqual(names, [directed["name"]])
+
+	def test_no_keyword_required(self):
+		# The whole point: recall is unconditional, unlike memory_search, which
+		# needs the query to share vocabulary with stored content.
+		agent = f"V_{frappe.generate_hash(length=8)}"
+		directed = T.memory_write(
+			"Agent", agent, "always include a Site link field on every form we build",
+			ignore_permissions=True, user_directed=True,
+		)
+		res = T.memory_list_user_directed("Agent", agent, ignore_permissions=True)
+		self.assertEqual([r["name"] for r in res], [directed["name"]])
+
+	def test_expired_user_directed_memory_is_hidden(self):
+		agent = f"V_{frappe.generate_hash(length=8)}"
+		rec = T.memory_write(
+			"Agent", agent, "superseded convention", ignore_permissions=True, user_directed=True,
+		)
+		frappe.db.set_value("AI Memory", rec["name"], "expires_on", add_to_date(now_datetime(), days=-1))
+		res = T.memory_list_user_directed("Agent", agent, ignore_permissions=True)
+		self.assertNotIn(rec["name"], [r["name"] for r in res])
 
 
 # A fake reconciler that supersedes whatever candidates it is handed, so the test

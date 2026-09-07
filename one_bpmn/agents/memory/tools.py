@@ -201,6 +201,31 @@ def memory_search(scope: str, scope_key, query: str, limit: int = 5, *, ignore_p
 	return [_row_dict(r) for r in valid[:page_length]]
 
 
+def memory_list_user_directed(scope: str, scope_key, limit: int = 3, *, ignore_permissions: bool = False) -> list[dict]:
+	"""Currently-valid user-directed memories for exactly one scope key, most
+	recent first — unconditionally, with no keyword/relevance filter.
+
+	A standing convention the user asked to be remembered ("remember that...")
+	won't share vocabulary with whatever the current turn happens to be about,
+	so ``memory_search``'s FULLTEXT/``like`` matching can't be relied on to
+	surface it — that is the recall gap this exists to close. Called alongside
+	``memory_search``, not instead of it; the caller merges both result sets.
+	"""
+	filters = dict(_resolve_scope(scope, scope_key), user_directed=1)
+	page_length = limit if isinstance(limit, int) and limit > 0 else _DEFAULT_LIMIT
+	rows = frappe.get_list(
+		"AI Memory",
+		filters=filters,
+		fields=["name", "content", "metadata", "expires_on"],
+		order_by="modified desc",
+		limit_page_length=page_length + _EXPIRY_HEADROOM,
+		ignore_permissions=ignore_permissions,
+	)
+	cutoff = now_datetime()
+	valid = [r for r in rows if not r.get("expires_on") or get_datetime(r["expires_on"]) > cutoff]
+	return [_row_dict(r) for r in valid[:page_length]]
+
+
 def _valid_rows(rows: list) -> list:
 	"""Drop expired/superseded rows from a raw ``frappe.get_all`` result — the
 	same currently-valid guard ``memory_search`` applies, exposed separately so a
@@ -360,6 +385,7 @@ def memory_write(
 	reconcile: bool = False,
 	reconcile_ctx: dict | None = None,
 	process_model: str | None = None,
+	user_directed: bool = False,
 ) -> dict:
 	"""Save a memory for a scope key.
 
@@ -390,6 +416,12 @@ def memory_write(
 	is the documented escape hatch for TRUSTED server-side dispatch only (the
 	agent runs under a system context) — it must NEVER be passed from a
 	whitelisted / HTTP-reachable method.
+
+	``user_directed=True`` marks a memory the user explicitly asked to be
+	remembered (e.g. "remember that..."), as opposed to one an agent's output
+	happened to produce. It is exempt from Log Settings auto-cleanup
+	(``AIMemory.clear_old_logs``) and is recalled unconditionally by
+	``memory_list_user_directed`` regardless of a later turn's keywords.
 
 	Returns the resulting record as ``{name, content, metadata}``.
 	"""
@@ -454,6 +486,8 @@ def memory_write(
 			doc.source_run = source_run
 		if process_model is not None:
 			doc.process_model = process_model
+		if user_directed:
+			doc.user_directed = 1
 		doc.save(ignore_permissions=ignore_permissions)
 	else:
 		# **keys already carries process_model for Process scope (it's the scope
@@ -466,6 +500,7 @@ def memory_write(
 			"dedup_key": dedup_key,
 			"metadata": metadata_json,
 			"source_run": source_run,
+			"user_directed": 1 if user_directed else 0,
 		}
 		if process_model is not None:
 			doc_fields["process_model"] = process_model

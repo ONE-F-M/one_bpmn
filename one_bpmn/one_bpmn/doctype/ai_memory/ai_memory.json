@@ -15,6 +15,7 @@
   "content",
   "dedup_key",
   "metadata",
+  "user_directed",
   "section_break_provenance",
   "source_run",
   "expires_on"
@@ -94,6 +95,15 @@
    "description": "Arbitrary structured data (JSON)."
   },
   {
+   "default": "0",
+   "fieldname": "user_directed",
+   "fieldtype": "Check",
+   "in_standard_filter": 1,
+   "label": "User Directed",
+   "no_copy": 1,
+   "description": "Set when a user explicitly asked the agent to remember this (e.g. \"remember that...\"). Written verbatim, bypassing the salience distiller, and exempt from Log Settings auto-cleanup and keyword-only recall."
+  },
+  {
    "fieldname": "section_break_provenance",
    "fieldtype": "Section Break",
    "label": "Provenance & Retention"
@@ -119,7 +129,7 @@
  ],
  "index_web_pages_for_search": 0,
  "links": [],
- "modified": "2026-07-05 00:00:00.000000",
+ "modified": "2026-09-07 00:00:00.000000",
  "modified_by": "Administrator",
  "module": "ONE BPMN",
  "name": "AI Memory",
