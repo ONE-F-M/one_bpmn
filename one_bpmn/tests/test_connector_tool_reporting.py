@@ -350,3 +350,27 @@ class TestThroughTheRealDispatcher(FrappeTestCase):
 			res = json.loads(execute_shape(self.instance, "Tool_Connector_1", dict(CONNECTOR_CFG), {}))
 
 		self.assertEqual(res["error"], "not_permitted")
+
+
+class TestTheToolCallRowAgreesWithItsBody(FrappeTestCase):
+	"""The inspector colours a row by its status. A row that says Success above
+	a body that says connector_failed is the same lie one level up."""
+
+	def test_a_failed_connector_is_an_error_row(self):
+		from one_bpmn.agents.observability import _tool_call_status
+
+		self.assertEqual(_tool_call_status(json.dumps({"error": "connector_failed", "connector": "x/y"})), "Error")
+		self.assertEqual(_tool_call_status(json.dumps({"error": "call_did_not_complete"})), "Error")
+
+	def test_a_refused_connector_is_a_denied_row_like_a_policy_refusal(self):
+		from one_bpmn.agents.observability import _tool_call_status
+
+		self.assertEqual(_tool_call_status(json.dumps({"error": "not_permitted"})), "Denied")
+
+	def test_data_and_plain_ok_stay_success(self):
+		from one_bpmn.agents.observability import _tool_call_status
+
+		self.assertEqual(_tool_call_status(json.dumps({"connector_result": {"id": 1}})), "Success")
+		self.assertEqual(_tool_call_status(json.dumps({"ok": True, "warning": "no_result_variable"})), "Success")
+		self.assertEqual(_tool_call_status("plain text answer"), "Success")
+		self.assertEqual(_tool_call_status("{not json"), "Success")

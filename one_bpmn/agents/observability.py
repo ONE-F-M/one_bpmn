@@ -14,6 +14,8 @@ from __future__ import annotations
 from datetime import datetime
 from typing import Any, Dict, Optional
 
+import json
+
 import frappe
 from frappe.utils import flt, now_datetime
 
@@ -597,6 +599,17 @@ def _tool_call_status(result) -> str:
 		return "Denied"
 	if text.startswith(("Error calling", "Unknown tool:")):
 		return "Error"
+	# Shape tools answer in JSON, and a connector that failed, did not run or
+	# was refused says so under "error" — a row reading Success above a body
+	# reading connector_failed is the telemetry version of the problem the
+	# report exists to fix.
+	if text.lstrip().startswith("{"):
+		try:
+			body = json.loads(text)
+		except ValueError:
+			return "Success"
+		if isinstance(body, dict) and body.get("error"):
+			return "Denied" if body.get("error") == "not_permitted" else "Error"
 	return "Success"
 
 
