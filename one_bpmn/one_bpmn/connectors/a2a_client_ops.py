@@ -36,6 +36,20 @@ def local_agent_choices() -> list[str]:
 	return local.local_agent_choices()
 
 
+def _work_item_refs(instance, params: dict) -> tuple:
+	"""The Work Item, and its pull request, this delegation is about.
+
+	Taken from the caller's own context document whenever that is a Work Item,
+	so the model cannot point a specialist at the wrong one; the shape's params
+	only stand in when there is no such document."""
+	work_item = (params.get("work_item") or "").strip() or None
+	pull_request = (params.get("pull_request") or "").strip() or None
+	if getattr(instance, "context_doctype", None) == "Work Item" and getattr(instance, "context_docname", None):
+		work_item = instance.context_docname
+		pull_request = pull_request or (frappe.db.get_value("Work Item", work_item, "pr_link") or None)
+	return work_item, pull_request
+
+
 def delegate_to_local_agent(params: dict, ctx: dict) -> dict | None:
 	"""Hand a task to an agent on THIS site (WI-001933, the primary case).
 
@@ -56,6 +70,7 @@ def delegate_to_local_agent(params: dict, ctx: dict) -> dict | None:
 	target = params.get("agent") or params.get("remote_agent")
 	if not target:
 		raise a2a_client.A2AClientError("delegate_to_local_agent needs an agent to hand work to.")
+	work_item, pull_request = _work_item_refs(instance, params)
 
 	# ── Refuse to start work this turn cannot collect ────────────────────────
 	# The agent loop tracks ONE pause per turn (step_loop: the first
@@ -99,6 +114,8 @@ def delegate_to_local_agent(params: dict, ctx: dict) -> dict | None:
 			# do this kind of work is refused rather than delegated and discovered
 			# later, in an answer that does not fit the question.
 			required_capability=(params.get("required_capability") or "").strip() or None,
+			work_item=work_item,
+			pull_request=pull_request,
 		)
 	except guardrails.DelegationRefused as refusal:
 		# Tell the MODEL why, rather than letting this reach dispatch_connector's

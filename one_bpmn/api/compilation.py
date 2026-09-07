@@ -2069,9 +2069,12 @@ def _recompile_callers_of(process_id: str, model_name: str, _seen: set | None = 
 	seen.add(model_name)
 
 	needle = f'calledElement="{process_id}"'
+	# Active callers only. compile_process_model activates whatever it compiles,
+	# so recompiling an inactive version of a process deactivated the version a
+	# person had just deployed — the last caller in the list won.
 	for caller in frappe.get_all(
 		"BPMN Process Model",
-		filters={"name": ["!=", model_name], "bpmn_xml": ["like", f"%{needle}%"]},
+		filters={"name": ["!=", model_name], "is_active": 1, "bpmn_xml": ["like", f"%{needle}%"]},
 		fields=["name", "process_id"],
 	):
 		if caller.name in seen:
