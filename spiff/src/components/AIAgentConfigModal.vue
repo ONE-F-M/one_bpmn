@@ -1899,6 +1899,29 @@ async function save() {
   border-top: 1px solid #f3f4f6;
 }
 
+/* WI-003245: read-only mode. Values still render (current config is
+   visible) but nothing in the body can be edited — mirrors the
+   .properties-panel--readonly pattern in BpmnEditor.vue. */
+.readonly-badge {
+  display: inline-block;
+  margin-left: 8px;
+  padding: 1px 8px;
+  border-radius: 10px;
+  font-size: 0.65rem;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: #92400e;
+  background: #fef3c7;
+}
+.modal-body--readonly input,
+.modal-body--readonly textarea,
+.modal-body--readonly select,
+.modal-body--readonly button {
+  pointer-events: none !important;
+  opacity: 0.7;
+}
+
 .modal-footer {
   padding: 12px 20px;
   border-top: 1px solid #e2e2e2;
