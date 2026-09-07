@@ -16,7 +16,7 @@
              button that opened this stayed clickable while the rest of a
              read-only properties panel was disabled; the viewer it opens must
              not hand back an editable form. -->
-        <div class="modal-body">
+        <fieldset class="modal-body" :disabled="readonly">
           <!-- Linked AI Agent Configuration (WI-001637 live link). Selecting
                one shows its current values in the fields below; at run time
                the configuration is authoritative for agent-level fields, and
