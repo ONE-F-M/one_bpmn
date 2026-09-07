@@ -2124,6 +2124,10 @@ onMounted(async () => {
 				scriptType: event.scriptType,
 				script: event.script || "",
 				eventBus: event.eventBus,
+				// The map's own read-only state — the launch button stays clickable
+				// while read-only (it only opens the viewer), but the viewer itself
+				// must render read-only so nothing gets edited or saved from it.
+				readonly: props.readonly,
 			});
 		});
 
