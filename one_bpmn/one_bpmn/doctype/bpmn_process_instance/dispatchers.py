@@ -1407,11 +1407,31 @@ def dispatch_ai_agent(instance, task, task_cfg: dict, bpmn_id: str, resume_run: 
 	# It is both what the model should be answering and what memory should be
 	# searched with — a constant driving prompt recalled the same memories for
 	# every request, however different.
-	user_message = "" if resume_payload else _turn_user_message(instance, task)
+	raw_user_message = "" if resume_payload else _turn_user_message(instance, task)
+	user_message = raw_user_message
 	if user_message and user_message in user_prompt:
 		# A map that renders the message itself keeps its own copy; the platform
 		# does not add a second one.
 		user_message = ""
+
+	# A chat turn whose message could not be resolved AT ALL — raw_user_message
+	# empty, before the dedup reset above — must not fall back to user_prompt
+	# as the recall query. Observed live (instance trpucrg6cs, run trv5ba6h5a):
+	# the first message of a brand-new conversation dispatched before the map's
+	# turn store had been seeded, so _turn_user_message found nothing, and
+	# recall searched with Logix's constant "HARD PIPELINE RULES..." driving
+	# prompt instead of anything the person said — the exact "same memories on
+	# every request" defect this story exists to close, just narrowed to this
+	# one turn. Unaffected by design: a map that renders its OWN copy of the
+	# message into user_prompt (raw_user_message was non-empty there — it's
+	# only user_message that gets deduped away above) still recalls with that
+	# real, rendered user_prompt; a Background agent is never a chat turn, so
+	# this is always False for one and its user_prompt is real content either way.
+	is_chat_turn = (
+		getattr(instance, "context_doctype", "") == "Chat Conversation"
+		and bool(getattr(instance, "context_docname", ""))
+	)
+	recall_query_unresolved = is_chat_turn and not raw_user_message
 
 	memory_block = ""
 	# Captured for observability (AI Agent Run.recall_query /
@@ -1422,7 +1442,7 @@ def dispatch_ai_agent(instance, task, task_cfg: dict, bpmn_id: str, resume_run: 
 	if not resume_payload and _cfg_truthy(task_cfg.get("aiLongTermMemory")):
 		try:
 			memory_target = _resolve_memory_target(task_cfg, instance, bpmn_id)
-			query = user_message or user_prompt
+			query = "" if recall_query_unresolved else (user_message or user_prompt)
 			# A greeting/acknowledgement carries nothing to search memory with —
 			# skip entirely rather than risk a coincidental keyword match
 			# injecting an unrelated fact into "hi".

@@ -621,6 +621,84 @@ class TestSmallTalkGate(TestTheUserMessageReachesTheModel):
 		ms.assert_called_once()
 
 
+class TestRecallSkipsWhenTheTurnMessageIsUnresolved(TestTheUserMessageReachesTheModel):
+	"""Observed live (BA site instance trpucrg6cs, run trv5ba6h5a): the first
+	message of a brand-new conversation dispatched before the map's turn store
+	was seeded, so _turn_user_message found nothing, and recall fell back to
+	Logix's constant driving prompt ("HARD PIPELINE RULES...") as its query —
+	the same "same memories on every request" defect this story exists to
+	close, just narrowed to this one turn.
+
+	The fix must not touch _turn_user_message/turn_state at all (that's
+	WI-002169's territory, and the live map itself is out of reach here) — it
+	only has to stop the recall query from falling back to a driving-prompt
+	template when the real message couldn't be found for a chat turn.
+	"""
+
+	def test_no_recall_when_the_turn_message_cannot_be_resolved(self):
+		"""task.data carries no user_text and the turn store has nothing either
+		— exactly the turn-1 timing gap. aiUserPrompt is a Logix-style constant
+		driving prompt, not anything the person said."""
+		with patch("one_bpmn.agents.turn_state.get_turn", return_value={}), patch(
+			"one_bpmn.agents.memory.tools.memory_search"
+		) as ms:
+			self._dispatch(
+				_chat_instance(),
+				{},  # no user_text on the task either
+				aiLongTermMemory="enabled",
+				aiMemoryScope="Agent",
+				aiUserPrompt="Process the latest user message now. HARD PIPELINE RULES: ...",
+			)
+		ms.assert_not_called()
+
+	def test_recall_query_is_blank_when_unresolved(self):
+		with patch("one_bpmn.agents.turn_state.get_turn", return_value={}), patch(
+			"one_bpmn.agents.memory.tools.memory_search"
+		):
+			self._dispatch(
+				_chat_instance(),
+				{},
+				aiLongTermMemory="enabled",
+				aiMemoryScope="Agent",
+			)
+		# recall_query is only observable via create_ai_run's kwargs, which
+		# TestTheUserMessageReachesTheModel's setUp doesn't capture — assert
+		# through the same _CAPTURED path other tests in this class use isn't
+		# possible for a kwarg, so this checks the user-facing consequence
+		# instead: no memory block was ever built, so none was injected.
+		self.assertNotIn("Relevant memory:", _CAPTURED["config"].user_prompt)
+
+	def test_background_agent_still_recalls_with_its_own_prompt(self):
+		"""Regression guard: a non-chat instance is never a chat turn, so the
+		new guard must never fire for it — its user_prompt IS real content."""
+		with patch("one_bpmn.agents.memory.tools.memory_search", return_value=[]) as ms:
+			self._dispatch(
+				_instance(),
+				{},
+				aiLongTermMemory="enabled",
+				aiMemoryScope="Agent",
+				aiUserPrompt="handle order #4471",
+			)
+		ms.assert_called_once()
+		self.assertEqual(ms.call_args[0][2], "handle order #4471")
+
+	def test_a_map_that_renders_its_own_copy_still_recalls_with_it(self):
+		"""Regression guard: when the map embeds the real message into
+		aiUserPrompt itself (raw_user_message found, then deduped away because
+		it's already in user_prompt), the new guard must not fire — user_prompt
+		here is a real, rendered message, not a template."""
+		with patch("one_bpmn.agents.memory.tools.memory_search", return_value=[]) as ms:
+			self._dispatch(
+				_chat_instance(),
+				{"user_text": "add a status field"},
+				aiLongTermMemory="enabled",
+				aiMemoryScope="Agent",
+				aiUserPrompt="Latest user message: {{ user_text }}",
+			)
+		ms.assert_called_once()
+		self.assertEqual(ms.call_args[0][2], "Latest user message: add a status field")
+
+
 class TestIsSmallTalk(FrappeTestCase):
 	"""_is_small_talk directly — the gate other tests exercise through dispatch."""
 
