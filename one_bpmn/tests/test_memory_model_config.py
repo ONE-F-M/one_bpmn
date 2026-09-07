@@ -334,6 +334,151 @@ class TestMemoryModelConfig(FrappeTestCase):
 		self.assertEqual(captured["ctx"]["model"], MODEL_DISTILL)
 
 
+class TestMemoryConfigValidation(FrappeTestCase):
+	"""WI-002168: an Enabled config must be able to actually run.
+
+	Reuses TestMemoryModelConfig's fixtures (models, Processa Settings globals)
+	since this is the config-time half of the same precedence chain WI-001793
+	built at dispatch time — the two must agree, so the tests are siblings.
+	"""
+
+	@classmethod
+	def setUpClass(cls):
+		super().setUpClass()
+		cls.credentials = frappe.db.get_value("AI Provider", {}, "name")
+
+	def setUp(self):
+		self._cleanup()
+		for model in (MODEL_CHAT, MODEL_DISTILL, MODEL_RECONCILE, MODEL_GLOBAL):
+			frappe.get_doc(
+				{"doctype": "AI Model", "model_name": model, "provider": self.credentials}
+			).insert(ignore_permissions=True)
+		self._set_globals(None, None)
+
+	def tearDown(self):
+		self._set_globals(None, None)
+		self._cleanup()
+		frappe.db.commit()
+
+	def _cleanup(self):
+		frappe.db.delete("AI Agent Configuration", {"agent_name": AGENT})
+		frappe.db.delete("AI Model", {"model_name": ("like", "ZZ-wi1793-%")})
+
+	def _set_globals(self, distill, reconcile):
+		frappe.db.set_single_value("Processa Settings", "default_memory_distill_model", distill)
+		frappe.db.set_single_value("Processa Settings", "default_memory_reconcile_model", reconcile)
+		frappe.clear_document_cache("Processa Settings", "Processa Settings")
+
+	def _make_agent(self, **fields):
+		doc = frappe.get_doc(
+			{
+				"doctype": "AI Agent Configuration",
+				"agent_name": AGENT,
+				"agent_id": "zz_wi1793_memory_agent",
+				"agent_type": "Background",
+				"agent_framework": "Direct API",
+				"enabled": 1,
+				**fields,
+			}
+		)
+		return doc
+
+	def test_disabled_needs_nothing(self):
+		"""Blank/Disabled configs are untouched — this ticket only governs Enabled."""
+		doc = self._make_agent(long_term_memory="Disabled")
+		doc.insert(ignore_permissions=True)
+		self.assertTrue(frappe.db.exists("AI Agent Configuration", doc.name))
+
+	def test_blank_long_term_memory_needs_nothing(self):
+		"""Blank means 'inherit the diagram's value' — distinct from Disabled,
+		and equally out of scope for this validation."""
+		doc = self._make_agent()
+		doc.insert(ignore_permissions=True)
+		self.assertTrue(frappe.db.exists("AI Agent Configuration", doc.name))
+
+	def test_enabled_without_scope_blocks(self):
+		doc = self._make_agent(long_term_memory="Enabled", memory_write_mode="off")
+		with self.assertRaises(frappe.ValidationError):
+			doc.insert(ignore_permissions=True)
+
+	def test_enabled_without_write_mode_blocks(self):
+		doc = self._make_agent(long_term_memory="Enabled", memory_scope="Agent")
+		with self.assertRaises(frappe.ValidationError):
+			doc.insert(ignore_permissions=True)
+
+	def test_enabled_off_mode_needs_no_model(self):
+		"""Off is recall-only — no distill/reconcile model is ever consulted."""
+		doc = self._make_agent(
+			long_term_memory="Enabled", memory_scope="Agent", memory_write_mode="off"
+		)
+		doc.insert(ignore_permissions=True)
+		self.assertTrue(frappe.db.exists("AI Agent Configuration", doc.name))
+
+	def test_distilled_resolves_via_own_ai_model_passes(self):
+		"""No distill/reconcile field set, but ai_model covers the fallback."""
+		doc = self._make_agent(
+			long_term_memory="Enabled",
+			memory_scope="Agent",
+			memory_write_mode="distilled",
+			ai_model=MODEL_CHAT,
+		)
+		doc.insert(ignore_permissions=True)
+		self.assertTrue(frappe.db.exists("AI Agent Configuration", doc.name))
+
+	def test_distilled_with_no_model_anywhere_blocks(self):
+		"""The pathological case: Enabled + distilled, nothing resolvable at all."""
+		doc = self._make_agent(
+			long_term_memory="Enabled", memory_scope="Agent", memory_write_mode="distilled"
+		)
+		with self.assertRaises(frappe.ValidationError):
+			doc.insert(ignore_permissions=True)
+
+	def test_distilled_resolves_via_processa_settings_default(self):
+		self._set_globals(MODEL_GLOBAL, MODEL_GLOBAL)
+		doc = self._make_agent(
+			long_term_memory="Enabled", memory_scope="Agent", memory_write_mode="distilled"
+		)
+		doc.insert(ignore_permissions=True)
+		self.assertTrue(frappe.db.exists("AI Agent Configuration", doc.name))
+
+	def test_reconcile_falls_back_to_distill_not_ai_model(self):
+		"""Mirrors writeback.py: an explicit reconcile model beats the distill
+		model, but with none set reconcile falls back to distill, not straight
+		to ai_model — matches distill_and_write's ``reconcile_model or model``."""
+		doc = self._make_agent(
+			long_term_memory="Enabled",
+			memory_scope="Agent",
+			memory_write_mode="distilled",
+			memory_distill_model=MODEL_DISTILL,
+			ai_model=MODEL_CHAT,
+		)
+		doc.insert(ignore_permissions=True)
+		self.assertTrue(frappe.db.exists("AI Agent Configuration", doc.name))
+
+	def test_effective_models_endpoint_matches_validation(self):
+		from one_bpmn.one_bpmn.doctype.ai_agent_configuration.ai_agent_configuration import (
+			get_effective_memory_models,
+		)
+
+		self._set_globals(None, None)
+		result = get_effective_memory_models(
+			memory_distill_model=None, memory_reconcile_model=None, ai_model=MODEL_CHAT
+		)
+		self.assertEqual(result, {"distill_model": MODEL_CHAT, "reconcile_model": MODEL_CHAT})
+
+	def test_effective_models_endpoint_reports_unresolvable_as_none(self):
+		from one_bpmn.one_bpmn.doctype.ai_agent_configuration.ai_agent_configuration import (
+			get_effective_memory_models,
+		)
+
+		self._set_globals(None, None)
+		result = get_effective_memory_models(
+			memory_distill_model=None, memory_reconcile_model=None, ai_model=None
+		)
+		self.assertIsNone(result["distill_model"])
+		self.assertIsNone(result["reconcile_model"])
+
+
 class TestTheMemoryModelBringsItsOwnProvider(FrappeTestCase):
 	"""An agent said "I'll remember that" and nothing was ever written.
 
