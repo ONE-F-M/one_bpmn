@@ -799,6 +799,11 @@ const props = defineProps({
   // reads (backend, output variable, response format/schema, sampling,
   // retries) and writes only the selector attribute set on save.
   mode: { type: String, default: "agent" },
+  // WI-003245: when the underlying process map is read-only, this modal
+  // must show current values with nothing editable and no save offered —
+  // opening it must never hand out an editable form to someone with no
+  // edit rights.
+  readonly: { type: Boolean, default: false },
 });
 
 const isSelector = computed(() => props.mode === "selector");
