@@ -659,6 +659,8 @@ function onCodeInput() {
 // syncScroll removed — CodeMirror handles scroll sync natively
 
 function startEditName() {
+	// Read-only viewers never rename the script.
+	if (props.readonly) return;
 	isEditingName.value = true;
 	nextTick(() => {
 		nameInputEl.value?.select();
