@@ -1679,6 +1679,10 @@ async function writeBackToConfig() {
 }
 
 async function save() {
+  // WI-003245: belt-and-braces guard — the template hides the Save button
+  // entirely when readonly, but Save must never write even if reached some
+  // other way (e.g. a stray keyboard submit).
+  if (props.readonly) return;
   // WI-001650: every AI shape must be backed by an AI Agent Configuration —
   // raw provider setup is retired (the compile gate enforces the same rule).
   if (!form.value.aiAgentConfig) {
