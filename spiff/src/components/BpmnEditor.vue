@@ -2125,6 +2125,11 @@ onMounted(async () => {
 				scriptType: event.scriptType,
 				script: event.script || "",
 				eventBus: event.eventBus,
+				// Threaded down to LogixCanvas -> CodeMirrorEditor so the script
+				// opens read-only when the map itself is read-only (the launch
+				// button stays clickable via the CSS exemption above, but the
+				// viewer it opens must not offer an editable form).
+				readonly: props.readonly,
 			});
 		});
 
