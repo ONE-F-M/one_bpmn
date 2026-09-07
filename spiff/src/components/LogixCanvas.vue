@@ -743,6 +743,9 @@ async function restoreVersion(version) {
 // ── Auto-save scheduler ───────────────────────────────────────────────
 function scheduleAutoSave() {
 	if (isInitializing) return;
+	// Read-only viewers never persist \u2014 closing the viewer must leave the
+	// map completely unchanged.
+	if (props.readonly) return;
 	if (autoSaveTimer) clearTimeout(autoSaveTimer);
 	autoSaveTimer = setTimeout(() => { saveScript(); }, 1500);
 }
