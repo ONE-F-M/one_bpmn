@@ -178,7 +178,7 @@ def sandbox_dispatch(action: str, target_app: str, git_branch: str, work_item_de
 	try:
 		token = _mint_identity_token(sandbox_url)
 	except Exception as exc:
-		frappe.log_error(title=f"Dev Agent Sandbox: {action} auth failed", message=frappe.get_traceback())
+		frappe.log_error(title=f"Agent Sandbox: {action} auth failed", message=frappe.get_traceback())
 		error = f"Could not authenticate to the sandbox: {exc}"
 		if run:
 			run.db_set({"state": "failed", "error_message": error[:500]}, update_modified=False)
