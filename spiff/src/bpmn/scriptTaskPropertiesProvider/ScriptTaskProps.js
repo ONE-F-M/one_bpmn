@@ -276,7 +276,12 @@ function LaunchEditorButton(props) {
 	const bo        = getBusinessObject(element);
 
 	return HeaderButton({
-		className: "spiffworkflow-properties-panel-button",
+		// spiffworkflow-script-launch-btn: a distinguishing class so this
+		// button stays clickable while the rest of a read-only properties
+		// panel is disabled (BpmnEditor.vue's .properties-panel--readonly
+		// exemptions) \u2014 it only opens a viewer, which itself renders
+		// read-only when the map is.
+		className: "spiffworkflow-properties-panel-button spiffworkflow-script-launch-btn",
 		onClick: () => {
 			const currentScript = getAttr(bo, "serverScript") || bo.get("script") || "";
 			eventBus.fire("spiff.script.edit", {
