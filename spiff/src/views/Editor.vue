@@ -1677,6 +1677,9 @@ const logixScriptType = ref("bpmn:script");
 const logixCurrentScript = ref("");
 const logixEventBus = ref(null);
 const logixProcessContext = ref(null);
+// Whether the map was read-only when Logix was launched — passed through to
+// CodeMirrorEditor so the script is shown but cannot be edited or saved.
+const logixReadonly = ref(false);
 
 function extractProcessContext(element) {
 	if (!element?.businessObject) return null;
