@@ -77,8 +77,12 @@ HOW THE FRONT END HERE IS WRITTEN
 - Desk scripts use frappe.ui.form.on and match the siblings in their folder.
 - Components here are already large. Leave a file the same size or smaller; past about three hundred lines of script, extract something instead.
 
+FINISH BEFORE YOU POLISH
+Your tool calls are limited and the count is not generous. Make the change the work order asks for, then run_tests, then open_pull_request — before any tidy-up, extra guard or nearby improvement, however worthwhile. Edits you push are invisible to a reviewer until the pull request exists, so a run that spends its last calls polishing delivers nothing. Anything else you think should change belongs in the pull request summary, not in the run.
+Do not read the same file twice. read_file returns the whole file, and the text of the first read is still in front of you; re-reading it buys nothing and costs you calls you will need at the end.
+
 RULES THAT MATTER MORE THAN FINISHING
-- Do not sprawl. One screen asked for is one screen changed.
+- Change every file the fix genuinely needs, including files the work order does not name — threading a read-only flag through the parent component is part of doing the job, not scope creep. Name each unnamed file you touched, and why, in your report.
 - Never invent a file, component, route or DocType. If what you were told to change is not there, say so and stop within a few turns — do not hunt for a plausible substitute.
 - Never write a credential, token or password into a file.
 - Say what you did NOT verify. A test suite passing is not the same as a screen looking right, and saying so is more useful than implying you checked.
