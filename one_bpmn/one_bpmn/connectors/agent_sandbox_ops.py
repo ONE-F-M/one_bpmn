@@ -1,49 +1,46 @@
 # Copyright (c) 2026, one-fm and contributors
 # For license information, please see license.txt
-"""The Dev Agent Sandbox connector's operations: sandbox_dispatch (the bare
-HTTP primitive for the fast, synchronous file-op tools) and dispatch_action
-(one generic handler serving every slow, parked operation — currently
-run_tests and open_pull_request).
+"""The agent sandbox connector's operations.
 
-Each of the six sandbox tools (read_file, write_file, edit_file, list_files,
-run_tests, open_pull_request) is its own real, directly-callable BPMN shape
-inside the Dev Agent's dev_agent_tools ad-hoc sub-process — matching how the
-Orchestrator Agent's own tools are real Script/Service Tasks, not
-schema-only declarations. All the reasoning (which tool to call, with what
-arguments) happens once, in Processa's own AI Agent Task; nothing here ever
-sees a model name or an LLM API key. Execution of the action itself always
-happens sandbox-side, against its own isolated clone of the target app —
-nothing here reads or writes app files or talks to GitHub's Contents API
-directly.
+Mirrors a2a_client_ops.delegate_to_local_agent's parking shape (WI-001933),
+but the "remote" here is not another local agent or an A2A-protocol remote —
+it is an external Cloud Run service that clones an app into a disposable
+sandbox, runs its real test suite, and calls back with the result. That
+difference is why this tracks its own "Agent Sandbox Run" doctype
+instead of an A2A Task: forcing an HTTP service with a bespoke JSON contract
+through the A2A Remote Agent abstraction would misrepresent what it is.
 
-Two dispatch shapes, chosen by how long the action takes:
-- read_file/write_file/edit_file/list_files call sandbox_dispatch(), a fast,
-  synchronous round trip to the sandbox's /tool_call endpoint — these
-  answer inline within one request.
-- run_tests/open_pull_request are two named Connector Operations that both
-  point at dispatch_action(), which reads which one it was configured as
-  (ctx["operation"]) and forwards that as the action to
-  _dispatch_single_action() — parking the calling Service Task and waiting
-  for an async callback (api/agent_callback.py) once the sandbox is done.
-  These are minutes-scale (a real test suite run, or a
-  re-test-then-push-then-open-PR), so nothing here holds a request open
-  that long. One shared handler means a new slow sandbox action only needs
-  a new BPMN Connector Operation record naming this same handlerPath — no
-  new Python function.
+A Handler Path connector, not a declarative HTTP Request one: the sandbox is
+deployed IAM-protected (no --allow-unauthenticated), so every call needs a
+freshly minted, short-lived Google identity token — something a static
+Jinja-templated secret cannot produce. See the "Dev Agent Sandbox" BPMN
+Connector's own record for why that trade was made over a no-code
+HTTP Request operation.
 
-Every call needs a freshly minted, short-lived Google identity token — the
-sandbox is deployed IAM-protected (no --allow-unauthenticated), so a static
-Jinja-templated secret cannot authenticate it. See the "Dev Agent Sandbox"
-BPMN Connector's own record for why a Handler Path connector was chosen
-over a no-code HTTP Request operation.
+The sandbox is the coding agent: it does its own reading, writing, and
+testing, in its own bounded tool-calling loop, against the model it was
+told to use — and on a pass, it opens the pull request itself, directly
+against GitHub, rather than handing files back for Processa to deliver.
+Nothing about any of that behavior is baked into the sandbox's own code —
+``agent_config`` (system_prompt, model, a live API key) and ``github_token``
+are both resolved fresh here, from the "Dev Agent" AI Agent Configuration
+(and its linked AI Model) and Processa Settings respectively, on every
+dispatch, and handed over in the request body. Sending live credentials in
+the dispatch payload (rather than static secrets baked into the sandbox's
+own deployment) is a deliberate trade: it means Processa keeps full,
+per-dispatch control over which model, credential, and GitHub token a run
+uses — no sandbox redeploy needed to change any of them — at the cost of a
+short-lived exposure of those values to the sandbox's own process memory
+for the life of one run. The channel is the same Cloud-Run-IAM-authenticated
+HTTPS call every other dispatch already uses.
 """
 
 from __future__ import annotations
 
-import re
 import frappe
 
 AGENT_SANDBOX_WAITING_KEY = "_bpmn_agent_sandbox_waiting"
+_AGENT_CONFIG_NAME = "Dev Agent"
 
 
 class AgentSandboxError(Exception):
@@ -70,164 +67,33 @@ def target_app_choices() -> list[str]:
 	return frappe.get_installed_apps() + _SANDBOX_ONLY_TARGET_APPS
 
 
-_WORK_ITEM_ID = re.compile(r"\bWI-\d+\b")
+def dispatch(params: dict, ctx: dict) -> dict | None:
+	"""Dispatch a development work order to the Cloud Run sandbox.
 
-
-def work_item_id_for(a2a_task: str | None) -> str:
-	"""The Work Item behind an A2A delegation, so the sandbox can name its branch
-	after it. Prefers the Agent Delegation's reference, then an id written into
-	the instruction; "" when there is neither."""
-	if not a2a_task:
-		return ""
-	ref = frappe.db.get_value(
-		"Agent Delegation", {"a2a_task": a2a_task}, ["reference_doctype", "reference_name"], as_dict=True
-	)
-	if ref and ref.reference_doctype == "Work Item" and ref.reference_name:
-		return ref.reference_name
-	payload = frappe.db.get_value("A2A Task", a2a_task, "request_payload") or ""
-	match = _WORK_ITEM_ID.search(payload)
-	return match.group(0) if match else ""
-
-
-def _a2a_task_of(instance) -> str | None:
-	if getattr(instance, "context_doctype", None) == "A2A Task":
-		return getattr(instance, "context_docname", None)
-	return None
-
-
-def sandbox_dispatch(action: str, target_app: str, git_branch: str, work_item_description: str,
-                      args: dict, a2a_task: str | None = None, *,
-                      bpmn_id: str | None = None, instance=None) -> dict:
-	"""The bare primitive the Sandbox Tool Server Scripts (Sandbox Tool:
-	Read File / Write File / Edit File / List Files) call — one fast,
-	synchronous HTTP round trip to the sandbox's own /tool_call endpoint,
-	executed there against the target app's working tree.
-
-	Deliberately as thin as frontend/primitives.py's own functions: this
-	holds no tool policy (that lives in the calling Server Script, visible
-	and editable without a deploy — see that module's own docstring for the
-	same reasoning) — it exists only because Server Scripts cannot import
-	requests/socket/urllib themselves (security/script_validator.py's
-	FORBIDDEN_MODULES). It resolves settings, mints the identity token,
-	makes the one call, and reports what happened.
-
-	NEVER RAISES — every path returns {"ok": True, "response": <the
-	sandbox's own JSON>} or {"ok": False, "error": "..."}, matching
-	frontend/primitives.py's own discipline (an exception here would end
-	the calling tool's turn rather than informing it).
-
-	No parking: unlike dispatch_action's run_tests/open_pull_request, these are
-	seconds-scale (a git fetch against an already-locally-cloned repo, plus
-	a local file read/write and — for write/edit — a commit+push), not
-	minutes-scale, so there's nothing here worth suspending the caller's
-	turn over.
-
-	Every call still gets its own Agent Sandbox Run row — same auditability
-	dispatch_action's run_tests/open_pull_request already have, just settled
-	in one pass (running -> completed/failed) instead of parked at "running"
-	for a callback to resume. bpmn_id/instance are optional and keyword-only
-	purely so tracking can never become a REQUIRED argument a caller forgets
-	and breaks on — omitting them still creates the row, just with those two
-	fields left blank. Row creation itself is wrapped so a DB hiccup here
-	degrades to no row at all rather than breaking the NEVER RAISES
-	guarantee above."""
-	run = None
-	try:
-		run = frappe.get_doc({
-			"doctype": "Agent Sandbox Run",
-			"state": "running",
-			"target_app": target_app,
-			"git_branch": git_branch,
-			"bpmn_id": bpmn_id,
-			"caller_instance": getattr(instance, "name", None),
-			"work_item_description": work_item_description,
-		})
-		run.insert(ignore_permissions=True)
-	except Exception:
-		frappe.log_error(
-			title=f"Dev Agent Sandbox: {action} could not create a tracking row",
-			message=frappe.get_traceback(),
-		)
-		run = None
-
-	settings = frappe.get_cached_doc("Processa Settings")
-	sandbox_url = (settings.agent_sandbox_url or "").strip().rstrip("/")
-	if not sandbox_url:
-		error = "Processa Settings has no Sandbox URL configured."
-		if run:
-			run.db_set({"state": "failed", "error_message": error}, update_modified=False)
-		return {"ok": False, "error": error}
-	github_token = settings.get_password("github_token", raise_exception=False) or ""
-	if not github_token:
-		error = "Processa Settings has no GitHub token configured."
-		if run:
-			run.db_set({"state": "failed", "error_message": error}, update_modified=False)
-		return {"ok": False, "error": error}
-
-	payload = {
-		"action": action,
-		"target_app": target_app,
-		"git_branch": git_branch,
-		"work_item_description": work_item_description,
-		"work_item_id": work_item_id_for(a2a_task),
-		"args": args,
-	}
-	if run:
-		run.db_set("request_payload", frappe.as_json(payload), update_modified=False)
-
-	try:
-		token = _mint_identity_token(sandbox_url)
-	except Exception as exc:
-		frappe.log_error(title=f"Dev Agent Sandbox: {action} auth failed", message=frappe.get_traceback())
-		error = f"Could not authenticate to the sandbox: {exc}"
-		if run:
-			run.db_set({"state": "failed", "error_message": error[:500]}, update_modified=False)
-		return {"ok": False, "error": error}
-
-	try:
-		import requests
-
-		response = requests.post(
-			f"{sandbox_url}/tool_call",
-			json={**payload, "github_token": github_token},
-			headers={"Authorization": f"Bearer {token}"},
-			timeout=60,
-		)
-		response.raise_for_status()
-		data = response.json()
-		if run:
-			run.db_set({"state": "completed", "result": frappe.as_json(data)}, update_modified=False)
-		return {"ok": True, "response": data}
-	except Exception as exc:
-		frappe.log_error(title=f"Dev Agent Sandbox: {action} call failed", message=frappe.get_traceback())
-		error = f"The sandbox rejected the call: {exc}"
-		if run:
-			run.db_set({"state": "failed", "error_message": error[:500]}, update_modified=False)
-		return {"ok": False, "error": error}
-
-
-def _dispatch_single_action(params: dict, ctx: dict, action: str) -> dict | None:
-	"""Shared park/track logic behind dispatch_action — every sandbox tool
-	slow enough (minutes, not seconds) to need a dispatch-then-park-then-
-	callback shape, carrying one action + its own args rather than a whole
-	bundled work order. Each call still gets its own Agent Sandbox Run row —
-	these are meaningful, individually-worth-auditing runs, unlike the fast
-	tools sandbox_dispatch serves."""
+	Returns None after parking the Service Task — a real sandbox run (clone,
+	install, test) takes minutes, never seconds, so there is no fast path
+	that answers inline the way a quick HTTP call might.
+	"""
 	instance = ctx.get("instance")
 	task = ctx.get("task")
-	work_item_id = work_item_id_for(_a2a_task_of(instance))
 
 	target_app = (params.get("target_app") or "").strip()
+	if not target_app:
+		raise AgentSandboxError("dispatch_to_sandbox needs a target_app to clone and test.")
+
 	git_branch = (params.get("git_branch") or "").strip()
+	if not git_branch:
+		raise AgentSandboxError("dispatch_to_sandbox needs a git_branch to start the work from.")
+
 	work_item_description = (params.get("work_item_description") or "").strip()
-	if not (target_app and git_branch and work_item_description):
-		raise AgentSandboxError(f"{action} needs target_app, git_branch, and work_item_description.")
+	if not work_item_description:
+		raise AgentSandboxError("dispatch_to_sandbox needs a work_item_description — the work order itself.")
 
 	settings = frappe.get_cached_doc("Processa Settings")
 	sandbox_url = (settings.agent_sandbox_url or "").strip().rstrip("/")
 	if not sandbox_url:
 		raise AgentSandboxError(
-			f"Processa Settings has no Sandbox URL configured — {action} has nowhere to dispatch to."
+			"Processa Settings has no Sandbox URL configured — the Dev Agent has nowhere to dispatch to."
 		)
 
 	run = frappe.get_doc({
@@ -242,31 +108,56 @@ def _dispatch_single_action(params: dict, ctx: dict, action: str) -> dict | None
 	})
 	run.insert(ignore_permissions=True)
 
+	try:
+		agent_config = _resolve_agent_config(_agent_config_name(instance))
+	except Exception as exc:
+		# Deliberately not just AgentSandboxError. The row is already inserted by
+		# this point, so anything that escapes here strands it at "submitted"
+		# with nothing ever resuming the parked task — which is exactly what an
+		# AttributeError did when the credential moved off AI Provider. A
+		# resolution failure must always be a recorded failure.
+		run.db_set(
+			{
+				"state": "failed",
+				"error_message": f"Could not resolve a usable model/credential: {exc}"[:500],
+			},
+			update_modified=False,
+		)
+		if isinstance(exc, AgentSandboxError):
+			raise
+		frappe.log_error(
+			title=f"Agent Sandbox: could not resolve the agent config ({run.name})",
+			message=frappe.get_traceback(),
+		)
+		raise AgentSandboxError(f"Could not resolve a usable model/credential: {exc}")
+
 	github_token = settings.get_password("github_token", raise_exception=False) or ""
 	if not github_token:
-		run.db_set({"state": "failed", "error_message": "No GitHub token configured."}, update_modified=False)
-		raise AgentSandboxError("Processa Settings has no GitHub token configured.")
+		run.db_set({"state": "failed", "error_message": "No GitHub token configured — cannot deliver a PR."}, update_modified=False)
+		raise AgentSandboxError(
+			"Processa Settings has no GitHub token configured — the sandbox needs one to open the pull request itself."
+		)
 
-	args = {k: v for k, v in params.items() if k not in ("target_app", "git_branch", "work_item_description")}
 	payload = {
 		"correlation_id": run.name,
-		"action": action,
 		"target_app": target_app,
 		"git_branch": git_branch,
 		"work_item_description": work_item_description,
-		"work_item_id": work_item_id,
-		"args": args,
+		"agent_config": agent_config,
 		"github_token": github_token,
 		"callback_url": _callback_url(),
 	}
-	audit_payload = {**payload, "github_token": "REDACTED"}
+	# request_payload is a plain Code field rendered in the desk UI — never
+	# park a live credential there. Audit the shape of what was sent, not the
+	# credentials themselves; the real payload (below) still carries them.
+	audit_payload = {**payload, "agent_config": {**agent_config, "api_key": "REDACTED"}, "github_token": "REDACTED"}
 	run.db_set("request_payload", frappe.as_json(audit_payload), update_modified=False)
 
 	try:
 		token = _mint_identity_token(sandbox_url)
 	except Exception:
 		frappe.log_error(
-			title=f"Dev Agent Sandbox: identity token minting failed ({run.name})",
+			title=f"Agent Sandbox: identity token minting failed ({run.name})",
 			message=frappe.get_traceback(),
 		)
 		run.db_set({"state": "failed", "error_message": "Could not authenticate to the sandbox."}, update_modified=False)
@@ -284,7 +175,7 @@ def _dispatch_single_action(params: dict, ctx: dict, action: str) -> dict | None
 		response.raise_for_status()
 	except Exception as exc:
 		frappe.log_error(
-			title=f"Dev Agent Sandbox: {action} dispatch failed ({run.name})",
+			title=f"Agent Sandbox: dispatch failed ({run.name})",
 			message=frappe.get_traceback(),
 		)
 		run.db_set({"state": "failed", "error_message": str(exc)[:500]}, update_modified=False)
@@ -292,32 +183,64 @@ def _dispatch_single_action(params: dict, ctx: dict, action: str) -> dict | None
 
 	run.db_set("state", "running", update_modified=False)
 
+	# Park exactly as the a2a connector does, so one resume seam pattern
+	# serves both — but this waiting marker is our own, never confused with
+	# a delegation waiting on another agent.
 	if task is not None:
 		task.data[AGENT_SANDBOX_WAITING_KEY] = {
 			"run": run.name,
-			"label": f"{action} for {target_app}@{git_branch}",
+			"label": f"Dispatched {target_app}@{git_branch} to the Dev Agent sandbox",
 		}
 	return None
 
 
-def dispatch_action(params: dict, ctx: dict) -> dict | None:
-	"""One generic handler serving every minutes-scale sandbox action —
-	currently "run_tests" and "open_pull_request" — as distinct connector
-	operations that all point here. Which action to forward is read from
-	ctx["operation"] (the operation this Service Task was configured as, set
-	by dispatch_connector), not hardcoded per function — so adding a new
-	slow, parked sandbox action needs only a new BPMN Connector Operation
-	record naming this same handlerPath, no new Python. (The sandbox itself
-	still needs to know what to do with that action name — this only removes
-	the Processa-side code requirement.)
+def _agent_config_name(instance) -> str:
+	"""The configuration of the agent that dispatched, found from its process
+	model. Falls back to the Dev Agent when the caller cannot be identified."""
+	pm = getattr(instance, "process_model", None)
+	if pm:
+		found = frappe.db.get_value("AI Agent Configuration", {"process_model": pm}, "name")
+		if found:
+			return found
+	return _AGENT_CONFIG_NAME
 
-	open_pull_request's own PR re-tests itself before opening (see
-	dev_agent_server.py's _tool_open_pull_request), so pass/fail flagging on
-	the PR is accurate regardless of what the model last saw."""
-	action = (ctx.get("operation") or "").strip()
-	if not action:
-		raise AgentSandboxError("dispatch_action was not called through a configured connector operation.")
-	return _dispatch_single_action(params, ctx, action)
+
+def _resolve_agent_config(config_name: str | None = None) -> dict:
+	"""Everything the sandbox needs to actually be the coding agent for this
+	run — resolved fresh from the DISPATCHING agent's configuration on every dispatch,
+	never cached into the sandbox's own code or deployment. Mirrors the exact
+	resolution path agents/executor/direct_api.py uses for every other
+	in-process ai_agent call: AI Provider holds a name and nothing else (it is
+	just the dialect tag), so the credential and enable flag both live on
+	AI Model itself (AI Agent Configuration.ai_model -> AI Model.enable_model /
+	.api_key), not on AI Provider — a credential rotation or a model change
+	here needs no separate wiring, it is the same credential store as
+	everything else."""
+	config_name = config_name or _AGENT_CONFIG_NAME
+	cfg = frappe.get_cached_doc("AI Agent Configuration", config_name)
+	model_name = (cfg.ai_model or "").strip()
+	if not model_name:
+		raise AgentSandboxError(f'"{config_name}" has no ai_model configured.')
+
+	meta = frappe.db.get_value(
+		"AI Model", model_name, ["enable_model", "model_api_name"], as_dict=True
+	)
+	if not meta:
+		raise AgentSandboxError(f"AI Model {model_name!r} does not exist.")
+	if not meta.enable_model:
+		raise AgentSandboxError(f"AI Model {model_name!r} is disabled.")
+
+	api_key = frappe.utils.password.get_decrypted_password(
+		"AI Model", model_name, "api_key", raise_exception=False
+	) or ""
+	if not api_key:
+		raise AgentSandboxError(f"AI Model {model_name!r} has no api_key configured.")
+
+	return {
+		"system_prompt": cfg.system_prompt or "",
+		"model": meta.model_api_name or model_name,
+		"api_key": api_key,
+	}
 
 
 def _callback_url() -> str:
