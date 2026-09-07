@@ -486,6 +486,9 @@ async function fetchScriptBrowserList() {
 }
 
 async function linkExistingScript(name) {
+	// Read-only viewers never relink/persist — closing the viewer must leave
+	// the map completely unchanged.
+	if (props.readonly) return;
 	showScriptBrowser.value = false;
 	isInitializing = true;
 	try {
