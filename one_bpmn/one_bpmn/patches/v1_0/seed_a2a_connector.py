@@ -68,6 +68,21 @@ A2A_CONNECTOR = {
 					"help": "What the agent should do. Jinja is allowed, e.g. {{ doc.subject }}.",
 				},
 				{
+					"name": "work_item",
+					"label": "Work Item",
+					"type": "String",
+					"help": (
+						"Optional. The Work Item this delegation is about, normally {{ doc.name }}. "
+						"The specialist gets it in its A2A Task and can read the record itself."
+					),
+				},
+				{
+					"name": "pull_request",
+					"label": "Pull request",
+					"type": "String",
+					"help": "Optional. The pull request to fix or review, normally {{ doc.pr_link }}.",
+				},
+				{
 					"name": "required_capability",
 					"label": "Capability this needs",
 					"type": "String",
