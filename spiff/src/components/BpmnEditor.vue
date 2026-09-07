@@ -3778,6 +3778,16 @@ function getAvatarColor(userName) {
 	opacity: 0.7;
 }
 
+/* WI-003245: exempt the Script Task / AI Agent Task "launch a viewer" header
+   buttons from the blanket readonly rule above. Neither button edits the
+   diagram itself — each only opens a dedicated viewer (CodeMirror / the AI
+   Agent config modal) that is put into its own read-only state when the map
+   is read-only, so the button that opens it must stay clickable. */
+.properties-panel--readonly .spiffworkflow-launch-readonly-ok {
+	pointer-events: auto !important;
+	opacity: 1;
+}
+
 /* But keep the panel header and group headers interactive for collapsing */
 .properties-panel--readonly .bio-properties-panel-group-header {
 	pointer-events: auto !important;
