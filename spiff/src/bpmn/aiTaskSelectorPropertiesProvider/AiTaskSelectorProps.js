@@ -58,7 +58,7 @@ function LaunchSelectorEditorButton(props) {
 	const translate = useService("translate");
 
 	return HeaderButton({
-		className: "spiffworkflow-properties-panel-button",
+		className: "spiffworkflow-properties-panel-button ai-agent-launch-button",
 		onClick: () => eventBus.fire("launch-ai-agent-editor", { element, mode: "selector" }),
 		children: translate("Configure with AI Assistant"),
 	});
