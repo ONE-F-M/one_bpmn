@@ -670,11 +670,12 @@
             Memory and compaction settings are stored on the linked AI Agent Configuration,
             not on this diagram.
           </p>
-        </div>
+        </fieldset>
 
         <div class="modal-footer">
-          <button class="btn-cancel" @click="$emit('close')">Cancel</button>
-          <button class="btn-save" @click="save">Save</button>
+          <button class="btn-cancel" @click="$emit('close')">{{ readonly ? "Close" : "Cancel" }}</button>
+          <!-- No save/apply path while read-only \u2014 closing must leave the map unchanged. -->
+          <button v-if="!readonly" class="btn-save" @click="save">Save</button>
         </div>
       </div>
 
