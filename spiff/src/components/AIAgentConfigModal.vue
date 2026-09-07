@@ -4,11 +4,14 @@
       <!-- ============ LEFT: configuration form ============ -->
       <div class="modal-main">
         <div class="modal-header">
-          <h3>{{ isSelector ? "Configure AI Task Selector" : "Configure AI Agent Task" }}</h3>
+          <h3>
+            {{ isSelector ? "Configure AI Task Selector" : "Configure AI Agent Task" }}
+            <span v-if="readonly" class="readonly-badge">Read only</span>
+          </h3>
           <button class="close-btn" @click="$emit('close')">✕</button>
         </div>
 
-        <div class="modal-body">
+        <div class="modal-body" :class="{ 'modal-body--readonly': readonly }">
           <!-- Linked AI Agent Configuration (WI-001637 live link). Selecting
                one shows its current values in the fields below; at run time
                the configuration is authoritative for agent-level fields, and
