@@ -13,7 +13,7 @@ TEST_CONFIG = "ZZ Gate Test Agent"
 class TestAiConfigCompileGate(FrappeTestCase):
 	def setUp(self):
 		super().setUp()
-		self.provider = frappe.db.get_value("AI Provider", {"enabled": 1}, "name")
+		self.provider = frappe.db.get_value("AI Provider", {}, "name")
 		if not self.provider:
 			self.skipTest("no enabled AI Provider on this site")
 		if not frappe.db.exists("AI Agent Configuration", TEST_CONFIG):
