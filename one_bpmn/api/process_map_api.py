@@ -763,9 +763,14 @@ def _connector_tools_without_result_variable(xml_content: str) -> list:
 
 	Only shapes inside a Tools sub-process an agent actually references are
 	reported; a connector elsewhere in the map is an ordinary process step whose
-	output is genuinely optional.
+	output is genuinely optional. So is one on a connector that answers out of
+	band — a delegation or a sandbox run parks and replies later, and every Dev,
+	Frontend and Mobile agent map carries two of those with no Result Variable
+	by design.
 	"""
 	import xml.etree.ElementTree as _ET
+
+	from one_bpmn.agents.shape_tools import ANSWERS_OUT_OF_BAND
 
 	BPMN_NS = "http://www.omg.org/spec/BPMN/20100524/MODEL"
 	SPIFF_NS = "http://spiffworkflow.org/bpmn/schema/1.0/core"
@@ -796,6 +801,8 @@ def _connector_tools_without_result_variable(xml_content: str) -> list:
 				continue
 			connector = (child.get(f"{{{SPIFF_NS}}}connectorId") or "").strip()
 			operation = (child.get(f"{{{SPIFF_NS}}}operation") or "").strip()
+			if connector in ANSWERS_OUT_OF_BAND:
+				continue
 			findings.append({
 				"shape": (child.get("name") or child.get("id") or "").strip(),
 				"bpmn_id": child.get("id") or "",

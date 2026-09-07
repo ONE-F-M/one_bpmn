@@ -1769,6 +1769,7 @@ def compile_process_model(model_name: str) -> dict:
 	deploy_warnings = _check_eval_suite_gating(model_name)
 	deploy_warnings.extend(_check_ai_tasks_have_a_user_prompt(spec_data))
 	deploy_warnings.extend(_validate_ai_tool_contract(service_extensions))
+	deploy_warnings.extend(_check_connector_tools_can_answer(sanitized_xml))
 
 	script_extensions = _extract_script_task_config(sanitized_xml)
 	if script_extensions or called_script_extensions:
@@ -2007,6 +2008,32 @@ def _validate_ai_tool_contract(service_extensions: dict) -> list:
 			exc=frappe.ValidationError,
 		)
 	return warnings
+
+
+def _check_connector_tools_can_answer(bpmn_xml: str) -> list:
+	"""A connector tool with no Result Variable runs and tells the agent nothing.
+
+	The dispatcher writes a connector's output to task.data[resultVariable] and
+	does nothing when that is empty, so the side effect happens and the model
+	learns nothing — which looks exactly like a broken integration. The deploy
+	checklist already names these; a compile that skipped the checklist (an
+	import, a call from the API) did not, and an import is precisely where a
+	shape arrives from another site with the field dropped.
+	"""
+	from one_bpmn.api.process_map_api import _connector_tools_without_result_variable
+
+	return [
+		{
+			"label": _("Connector tool returns nothing"),
+			"icon": "plug",
+			"type": "warning",
+			"detail": _(
+				"'{0}' has no Result Variable, so the {1} connector will run for the "
+				"'{2}' agent but return no data to it. Set a Result Variable on that shape."
+			).format(g["shape"] or g["bpmn_id"], g["connector"] or _("connector"), g["agent"]),
+		}
+		for g in _connector_tools_without_result_variable(bpmn_xml)
+	]
 
 
 def _check_ai_tasks_have_a_user_prompt(spec_data: dict) -> list:
