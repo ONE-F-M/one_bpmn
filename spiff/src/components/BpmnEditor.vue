@@ -2177,6 +2177,10 @@ onMounted(async () => {
 					show: true,
 					element: markRaw(event.element),
 					mode: event.mode || "agent",
+					// Same read-only state as the properties panel — the launch
+					// button stays clickable while read-only, but the modal must
+					// render read-only so nothing gets edited or saved from it.
+					readonly: props.readonly,
 				};
 			});
 
