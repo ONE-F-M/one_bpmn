@@ -776,6 +776,9 @@ async function ensureUniqueName() {
 
 // ── Save script ───────────────────────────────────────────────────────
 async function saveScript() {
+	// Read-only viewers never persist — closing the viewer must leave the
+	// map completely unchanged.
+	if (props.readonly) return;
 	const name = canvasScriptName.value.trim();
 	if (!name) return; // silently wait — user hasn't named the script yet
 
