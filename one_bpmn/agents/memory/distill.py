@@ -9,10 +9,10 @@ preferences, constraints, or learned patterns — or returns nothing.
 
 The approach mirrors the ingestion-time extraction step used by Mem0, LangMem,
 and CrewAI's TaskEvaluator: decide *what* is worth keeping when the memory is
-written, not when it is read. Semantic consolidation (update-vs-insert against
-similar existing memories) is deferred to a later story; v1 dedups on a
-deterministic ``{agent}:{topic}`` key so re-runs overwrite instead of pile up
-(the shape of the curated memories already in the store).
+written, not when it is read. Every fact gets a deterministic ``{agent}:{topic}``
+``dedup_key`` (below); ``memory_write`` uses it as a pre-filter ahead of semantic
+reconciliation (update-vs-insert against similar existing memories) so an exact
+restatement is caught even if the reconciler's model call fails.
 """
 
 from __future__ import annotations

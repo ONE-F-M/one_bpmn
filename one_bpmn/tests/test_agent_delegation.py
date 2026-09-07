@@ -123,6 +123,25 @@ class TestDelegationRecord(FrappeTestCase):
 		self.assertIsNotNone(name, "the delegation record was lost with the reference")
 		self.assertIsNone(frappe.db.get_value("Agent Delegation", name, "reference_name"))
 
+	def test_a_new_row_has_no_stop_reason_even_when_the_select_lost_its_blank_option(self):
+		"""Customize Form strips the blank first line from a Select's options, and a
+		Select without one defaults to its first value — so every fresh delegation
+		read "stopped at max_recursion_depth" and the delegating agent was told the
+		work was not done. Seen on the shared bench on 2026-09-04."""
+		from unittest.mock import patch as mock_patch
+
+		real_new_doc = frappe.new_doc
+
+		def born_stopped(doctype, *args, **kwargs):
+			doc = real_new_doc(doctype, *args, **kwargs)
+			if doctype == "Agent Delegation":
+				doc.stopped_reason = "max_recursion_depth"
+			return doc
+
+		with mock_patch.object(frappe, "new_doc", side_effect=born_stopped):
+			name = delegation.record(_task(), delegating_agent=None)
+		self.assertEqual(frappe.db.get_value("Agent Delegation", name, "stopped_reason") or "", "")
+
 	def test_record_ties_the_pieces_together(self):
 		caller_task = _task()          # a real document for the context to point at
 		inst = self._instance("A2A Task", caller_task.name)

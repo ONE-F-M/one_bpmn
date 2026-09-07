@@ -81,3 +81,29 @@ class TestScriptsUsedByActiveModels(FrappeTestCase):
 		self.assertEqual(used, SHARED | OWN_V3)
 		self.assertEqual(seen["is_active"], 1)
 		self.assertEqual(seen["name"], ["not in", ["Software Development v3", "Software Development v4"]])
+
+
+class TestRecompileOnlyActiveCallers(FrappeTestCase):
+	"""Recompiling the callers of a changed map must not decide which version of
+	a process is live. Software Development v3 and v4 both call the Orchestrator;
+	recompiling the Orchestrator used to recompile both, and whichever came last
+	deactivated the other — reverting a deploy a person had just made."""
+
+	def test_inactive_callers_are_left_alone(self):
+		captured = {}
+
+		def get_all(doctype, filters=None, fields=None, **kw):
+			captured.update(filters or {})
+			return []
+
+		with patch.object(frappe, "get_all", side_effect=get_all):
+			comp._recompile_callers_of("orchestrator_agent", "Orchestrator Agent")
+		self.assertEqual(captured.get("is_active"), 1)
+		self.assertIn("calledElement=\"orchestrator_agent\"", captured["bpmn_xml"][1])
+
+	def test_active_callers_are_still_recompiled(self):
+		compiled = []
+		with patch.object(frappe, "get_all", return_value=[frappe._dict(name="Software Development v4", process_id="sd")]), \
+		     patch.object(comp, "compile_process_model", side_effect=lambda n: compiled.append(n)):
+			comp._recompile_callers_of("orchestrator_agent", "Orchestrator Agent")
+		self.assertEqual(compiled, ["Software Development v4"])
